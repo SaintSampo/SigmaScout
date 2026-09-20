@@ -121,7 +121,7 @@ import {
   type TeamMetricsWithPercentile,
 } from "./percentiles.js";
 import { buildAlgorithmsManifest, buildLiveWindowsManifest, PUBLISHED_ALGORITHM_IDS, PUBLISHED_ALGORITHM_MODULES } from "./manifests.js";
-import { emitSeedSql } from "./seedSql.js";
+import { emitSeedSql, emitCursorSeedSql, writeSeedCommandsFile } from "./seedSql.js";
 import {
   serializeState,
   withRpBeliefs,
@@ -153,6 +153,8 @@ const CORPUS_PATH = "data/corpus.sqlite";
 const DEFAULT_BUCKET = "sigmascout-artifacts";
 const DEFAULT_CONCURRENCY = 48;
 const SEED_OUT_DIR = join("reports", "publish");
+/** The live Worker's D1 database name (`apps/worker/wrangler.toml`'s `[[d1_databases]]` binding) — used only to print `SEED-COMMANDS.txt`'s ready-to-run `wrangler d1 execute` invocations, never to run one. */
+const D1_DATABASE_NAME = "sigmascout-state";
 /**
  * Default first season that gets pre-schedule sidecars; overridable per run via
  * `--presim-from-season`. This default is the only place the cutoff appears.
@@ -1724,6 +1726,17 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
    * called, so both come from one serialization and one passenger chain.
    */
   let finalSeasonStateRows = new Map<string, () => readonly StateRow[]>();
+  /**
+   * The final season's own last-folded match key per event key, for the D1
+   * seed's fourth file (`emitCursorSeedSql`, quick task 260920-q75) — built by
+   * walking that season's `stream` in order and overwriting each match's
+   * `eventKey` entry, so the final write per key is genuinely that event's
+   * LAST folded match. `undefined` when the final season has not been
+   * reached yet (or this run seeds no state at all).
+   */
+  let finalSeasonLastFoldedByEvent = new Map<string, string>();
+  /** The final season number itself, alongside `finalSeasonLastFoldedByEvent` — `emitCursorSeedSql`'s cursor set is scoped to windows in THIS season only. */
+  let finalSeasonNumber: number | undefined;
   /** Run-wide `state` block totals for the summary. */
   const stateBlockTotals = { count: 0, totalBytes: 0, maxBytes: 0, maxKey: "" };
 
@@ -2380,6 +2393,13 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
     // shift, Sigma beliefs and population), all from the same offseason-inclusive population, for the
     // same reason.
     finalSeasonStateRows = seasonStateRows;
+    // `stream` is this season's own chronological replay order (the SAME
+    // total order `compareCorpusMatchOrder` mirrors on the Worker side) — the
+    // last write per event key IS that event's last folded match.
+    const lastFoldedByEvent = new Map<string, string>();
+    for (const m of stream) lastFoldedByEvent.set(m.eventKey, m.matchKey);
+    finalSeasonLastFoldedByEvent = lastFoldedByEvent;
+    finalSeasonNumber = season;
   }
 
   // Every queued put settles before the manifests point readers at this run's objects; a put that
@@ -2405,6 +2425,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
     manifestKeys.push(liveWindowsKey, algorithmsManifestKey);
 
     // Only the final season's states are seeded into D1; earlier seasons only fed the carry thread.
+    const algorithmIdsWithState: string[] = [];
     for (const algorithm of options.algorithms) {
       const stateRows = finalSeasonStateRows.get(algorithm.id);
       if (stateRows === undefined) continue;
@@ -2414,6 +2435,40 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       const outPath = join(SEED_OUT_DIR, `seed-${algorithm.id}.sql`);
       emitSeedSql(rows, { algorithmId: algorithm.id, out: outPath });
       seedFiles.push(outPath);
+      algorithmIdsWithState.push(algorithm.id);
+    }
+
+    // --- The fourth seed file: event_cursor rows + state-baseline markers ---
+    // (quick task 260920-q75) — pushed onto `seedFiles` LAST and always
+    // printed as the file to apply last, since the cursor rewrite and the
+    // permission to fold must land together.
+    if (finalSeasonNumber !== undefined) {
+      const skippedWindowKeys: string[] = [];
+      const cursorEntries: { eventKey: string; lastFoldedMatchKey: string | null }[] = [];
+      for (const window of liveWindows.windows) {
+        if (window.season !== finalSeasonNumber) {
+          skippedWindowKeys.push(window.eventKey);
+          continue;
+        }
+        cursorEntries.push({ eventKey: window.eventKey, lastFoldedMatchKey: finalSeasonLastFoldedByEvent.get(window.eventKey) ?? null });
+      }
+      if (skippedWindowKeys.length > 0) {
+        console.log(
+          `publish: seed-cursors: skipped ${skippedWindowKeys.length} live-window event(s) whose season is not the final ` +
+            `published season (${finalSeasonNumber}), never replayed by this run: ${skippedWindowKeys.join(", ")}`
+        );
+      }
+
+      const cursorsOutPath = join(SEED_OUT_DIR, "seed-cursors.sql");
+      emitCursorSeedSql({ generation, computedAt, algorithmIds: algorithmIdsWithState, cursors: cursorEntries, out: cursorsOutPath });
+      seedFiles.push(cursorsOutPath);
+      console.log(`publish: seed-cursors: ${cursorsOutPath} -- APPLY THIS FILE LAST, after every seed-<id>.sql.`);
+
+      // SEED-COMMANDS.txt: this run's exact ordered `wrangler d1 execute`
+      // invocations, cursors file last.
+      const seedCommandsPath = join(SEED_OUT_DIR, "SEED-COMMANDS.txt");
+      writeSeedCommandsFile({ databaseName: D1_DATABASE_NAME, seedFiles, out: seedCommandsPath });
+      console.log(`publish: seed-commands: ${seedCommandsPath}`);
     }
   }
 

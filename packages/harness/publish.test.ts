@@ -96,10 +96,18 @@ import { PAGE_BUDGET_MAX_BYTES, PublishBudgetExceededError } from "./publishBudg
 // Captures the D1 seed rows instead of writing a file. Only the `skipState: false` state-block describe
 // reaches it; every other test here skips state.
 const capturedSeedRows = vi.hoisted(() => new Map<string, readonly unknown[]>());
+// `emitCursorSeedSql` (quick task 260920-q75) is stubbed alongside `emitSeedSql` for the same reason:
+// the `skipState: false` describe block below reaches BOTH now that publishSeasons emits a fourth seed
+// file. Captured rather than a no-op so a future test can assert on it without a second mock edit.
+const capturedCursorSeedCalls = vi.hoisted(() => [] as unknown[]);
 vi.mock("./seedSql.js", () => ({
   emitSeedSql: vi.fn((rows: readonly unknown[], options: { algorithmId: string }) => {
     capturedSeedRows.set(options.algorithmId, rows);
   }),
+  emitCursorSeedSql: vi.fn((options: unknown) => {
+    capturedCursorSeedCalls.push(options);
+  }),
+  writeSeedCommandsFile: vi.fn(() => undefined),
 }));
 import { corpusColdStartIndex } from "./corpusColdStart.js";
 import { SigmaScoutLayer } from "./sigmaScoutLayer.js";
