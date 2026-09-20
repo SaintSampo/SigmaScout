@@ -425,6 +425,14 @@ merely-scheduled event already produces a real, measured window. The "`eventsCon
 weekend" row in the troubleshooting table below is the symptom to watch for, and re-running
 `pnpm publish:seasons` is still the fix.
 
+**SUPERSEDED 2026-09-20 (quick task 260920-lny).** "TBA publishes match schedules well ahead of an
+event" is false for offseason play — Chezy Champs 2026 published 86 matches two minutes after its
+last manifest publish, with zero matches in the corpus beforehand. A zero-match event now gets a
+calendar PROBE window instead of none, safe because the Worker never treats it as foldable without
+first proving matches exist. See the "Before an event: probed automatically, and what ingest +
+republish still buys you" section below for the current contract; this paragraph is left in place
+as outage history, not current operation.
+
 ### How the CPU budget is actually enforced — corrected 2026-08-29
 
 This project spent an entire investigation assuming the free plan kills any invocation at exactly
@@ -554,45 +562,69 @@ BROWSER PRICING" section. The gate lifts only when Phase B's cost comes down and
 
 ---
 
-## Before an event: ingest it, or it will not live-fold
+## Before an event: probed automatically, and what ingest + republish still buys you
 
-**Operational contract, in force since 2026-08-29.** An event must be in the corpus with at least
-one match before the Worker will ever poll it live. There is no automatic discovery any more.
+**Operational contract, corrected 2026-09-20 (quick task 260920-lny).** From 2026-08-29 to
+2026-09-20 this section said an event must be in the corpus with at least one match before the
+Worker will ever poll it live, "because TBA publishes match schedules days before an event runs."
+That premise is FALSE for offseason play: Chezy Champs 2026 (`2026cc`, event_type 99) published 86
+real matches whose first `sort_time` landed two minutes AFTER the last manifest publish before it
+started — under the old rule it never got a window and was never picked up live. Forty more 2026
+offseason events were queued to fail the identical way.
 
-Until 2026-08-29 the manifest builder synthesised a blind 4-day `inferred` window from an event's
-`start_date` whenever that event had zero matches in the corpus, so a brand-new event could be
-picked up without anything being ingested first. That guess is what caused the outage recorded
-above: 200 events carried one, two of them opened for offseason events that were not running, and
-every cron tick died `exceededCpu` for days. `buildLiveWindowsManifest` no longer emits them.
+The outage history below is still exactly why a BLIND window is dangerous, and it is still true
+that `buildLiveWindowsManifest` never marks a real, measured window `inferred`. What changed is
+that a zero-match event now gets a window instead of none — a **probe** window,
+`[start_date 00:00 UTC - 12h, +4 days)`, marked `inferred: true` — and the Worker never treats
+`inferred: true` as foldable on the strength of the window alone. It answers liveness for a probe
+window with exactly ONE conditional TBA request (`apps/worker/src/scheduled.ts`'s `runProbes`) and
+does nothing else that tick — no algorithms manifest, no `buildAlgorithmModules`, no D1 batch, no
+artifact write — unless that poll actually returns matches. Only then does the event enter the
+ordinary live path, at the cost of exactly one more TBA request for that event (never a repeated
+poll of the same probe). This is what makes it safe to reintroduce the same field the 2026-08-29
+outage's cause B abused: `inferred: true` is now a contract the Worker enforces on the read side,
+not a value nothing ever checked.
 
-What replaces it is the ordinary ingest → republish cycle, and it is sufficient **because TBA
-publishes match schedules days before an event runs**. `sort_time` falls back to
-`predicted_time ?? time`, so a merely-SCHEDULED event with no played matches already yields a
-real, measured window — you do not have to wait for the event to start.
+**Per-tick cost.** `1` (the live-windows manifest read) plus `2` per probe (a cursor read plus the
+poll), capped at `MAX_PROBES_PER_TICK` (6) and rotated by a clock-derived offset — one slot per cron
+minute, `floor(nowMs / PROBE_ROTATION_PERIOD_MS)` — so an offseason weekend with many
+concurrently-open probe windows cannot spend the subrequest budget on discovery alone. At the cap
+that is `1 + 2*6 = 13` of the ~41 subrequests actually usable per tick, and nine concurrently-open
+offseason windows (2026-09-18's real count) are fully covered across two ticks.
 
-What this means in practice, given there is **no cron-scheduled ingest** (`.github/workflows/`
-has only `push`/`pull_request`/`workflow_dispatch` triggers — every ingest is run by hand):
+**Two new tail fields.** `eventsProbed` (probe windows this tick answered liveness for, whether or
+not they promoted) and `eventsPromoted` (probes that saw real matches and were folded this tick).
+`eventsProbed` above zero with `eventsPromoted` at zero is a healthy idle offseason weekend — the
+Worker is checking, nothing has started yet. `eventsPromoted` above zero is an event that has
+started.
+
+**What a probe does NOT fix.** A promoted event that was never ingested + republished offline still
+renders degraded: it has no SPR `state` block, so its upcoming matches cannot be priced in the
+browser (see the `event-state-block-missing` bullet below for the symptom); it has no `name`,
+`startDate` or `week`; its `teams` rows carry no TBA rank or record; and it does not appear in the
+events list, which only the offline publish writes. Ingest + republish stays the way to make an
+event a first-class page — the probe only makes its results appear without that step:
 
 ```bash
-# Before an event you want live-folded, once its TBA schedule is published:
+# To give a live-probed event a name, a state block and an events-list row:
 pnpm ingest --event <eventKey>     # or a full pass
-pnpm publish:seasons               # rebuilds live-windows.json with a real window
+pnpm publish:seasons               # rebuilds live-windows.json, seeds a state block, adds the list row
 ```
 
-Skip that and the event simply will not update live — the Worker never learns it exists. This is a
-deliberate trade: a missed live-fold is a visible staleness bug you can fix by running two
-commands, whereas the blind window was an invisible, self-inflicted, recurring outage.
-
-Check what the Worker currently believes is live:
+Check what the Worker currently believes is live, split into measured and probe-only:
 
 ```bash
 curl -s https://data.sigmascout.org/v1/manifest/live-windows.json | \
   node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);const n=Date.now();
-    console.log("windows:",j.windows.length,"live now:",j.windows.filter(w=>w.startMs<=n&&n<w.endMs).length);})'
+    const live=j.windows.filter(w=>w.startMs<=n&&n<w.endMs);
+    console.log("windows:",j.windows.length,"live now:",live.length,
+      "of which probe-only:",live.filter(w=>w.inferred).length);})'
 ```
 
-A count of `0` is normal out of season — it means no event has future scheduled matches in the
-corpus, not that anything is broken.
+A count of `0` live windows is normal out of season — it means no event has a measured or
+calendar-probe window covering right now. A non-zero **probe-only** count with the Worker's own
+`eventsPromoted` staying at `0` is also normal: it means the Worker is checking a calendar window
+that has not started producing matches yet, not that anything is broken.
 
 ### Publish with state blocks before the window opens (260915-isq)
 
@@ -874,11 +906,16 @@ Every invocation emits exactly one structured line:
 
 ```json
 {"msg":"tick","ok":true,"durationMs":152,"eventsConsidered":0,"eventsAdvanced":0,
- "eventsDeferred":0,"eventsFailed":0,"tbaRequests":0,"subrequestsUsed":1,"globalRebuildRan":false}
+ "eventsDeferred":0,"eventsFailed":0,"eventsProbed":0,"eventsPromoted":0,"tbaRequests":0,
+ "subrequestsUsed":1,"globalRebuildRan":false}
 ```
 
-That is a healthy idle tick: nothing live, one KV read, zero TBA requests. A failing tick logs
-`"ok":false` with an `error` field and is recorded as a failed invocation in the dashboard.
+That is a healthy idle tick: nothing live, one KV read, zero TBA requests. A tick during an
+offseason weekend with an open calendar probe window but no matches posted yet looks the same
+except `eventsProbed` is above zero (`eventsPromoted` stays `0` until TBA actually returns
+matches) — see "Before an event: probed automatically, and what ingest + republish still buys
+you" above. A failing tick logs `"ok":false` with an `error` field and is recorded as a failed
+invocation in the dashboard.
 
 Retained logs, CPU time and subrequest counts are in the dashboard under **Workers & Pages →
 sigmascout-worker → Observability**. Observability is enabled at `head_sampling_rate = 1.0` in
@@ -902,8 +939,8 @@ above. An observation your model says is impossible is the most valuable one you
 
 | Symptom | Likely cause | First thing to check |
 |---|---|---|
-| Artifacts stale during a live event | Cron not firing, or the event is outside its manifest window | `wrangler tail` — are ticks arriving ~60 s apart at all? If yes, check `eventsConsidered` in the log line: `0` during a live event means the live-windows manifest doesn't think anything is live |
-| Ticks arriving but `eventsConsidered: 0` all weekend | The live-windows manifest went stale — nothing has republished it | Fetch `https://sigmascout.org/v1/manifest/live-windows.json` and check its `computedAt`. Fix by re-running `pnpm publish:seasons` |
+| Artifacts stale during a live event | Cron not firing, the event is outside its manifest window, or it is still probe-only (TBA has not returned matches for it yet) | `wrangler tail` — are ticks arriving ~60 s apart at all? If yes, check `eventsProbed`/`eventsPromoted` FIRST: `eventsProbed` above zero with `eventsPromoted` at zero means the Worker is checking a calendar probe window but TBA has not returned matches for it yet — this is normal right up until the event's first match posts. Only if `eventsProbed` is also `0` does the live-windows manifest not think anything is live at all (check `eventsConsidered` next) |
+| Ticks arriving but `eventsConsidered: 0` and `eventsProbed: 0` all weekend | The live-windows manifest went stale — nothing has republished it, or the event genuinely has no window (measured or probe) covering now | Fetch `https://sigmascout.org/v1/manifest/live-windows.json` and check its `computedAt`. Fix by re-running `pnpm publish:seasons` |
 | `"ok":false` in the tick log | A tick is throwing | Read the `error` field, then check `subrequestsUsed` on the surrounding ticks first — the subrequest cap is the most likely limit to be hit before anything else |
 | `eventsDeferred` climbing every tick | Subrequest budget saturated; events are being pushed to later ticks | Expected under load and self-correcting — the rotation offset guarantees a deferred event is attempted earlier next tick. If it never drains, more events are live than one tick can serve |
 | Predictions look wrong but ticks are healthy | Live state has drifted from the offline authority | Re-baseline (above). The offline snapshot always wins; never hand-edit D1 rows |
