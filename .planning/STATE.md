@@ -5,8 +5,8 @@ milestone_name: milestone
 current_phase: 09
 status: completed
 stopped_at: "Phase 9 SEALED and its UAT COMPLETE 2026-09-12 (verification 3b0d248c; clauses 3 and 4 both amended at the seal, originals preserved verbatim in ROADMAP.md; UAT test 1 waived against a standing pre-season gate, test 2 passed by Jacob on desktop and phone). The owed republish RAN: generation 622eeb28, 108,979 objects, 1h42m, and the presim class went median 206,385 B to 7,229 B while the schedule count went UP 50x to 1,000, so visitors now see a pre-schedule band that moves ~1.17 ranks between runs instead of 10.61. D1 re-seeded 66,284 rows seed-first, Worker cc6abc35 deployed. STILL IN FORCE: the pre-season CPU gate in docs/worker-operations.md forbids opening any live window until rp-fold-exceeds-worker-cpu-budget closes - a realistic mid-quals tick measures 13 ms p50 against a 10 ms sustained budget. All 12 phases are complete; the next container is a phase for the CPU work, timed against the pre-season."
-last_updated: "2026-09-19T17:26:43.084Z"
-last_activity: 2026-09-19
+last_updated: "2026-09-20T20:08:17.243Z"
+last_activity: 2026-09-20
 last_activity_desc: "Completed quick task 260913-rh5: republished spr@4.0.0 and the Swing teardown (generation 2dcc057f), D1 seeded, Worker fcc7ca73; R2 deletions left to Jacob"
 progress:
   total_phases: 12
@@ -620,6 +620,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 216 | Deploy workflow now runs pnpm check:deployed-assets as its last step after a 90 second propagation wait, so a poisoned Pages deploy fails the run. Closes todo pages-deploy-can-poison-asset-cache with the residual risk recorded. First run is the push that carries it | 2026-09-19 | c250eab1 | — |
 | 217 | Bounded drift measured against a bar committed first: IT DID NOT WORK. Gate passed, h=1 exact on all 305 windows. At h=2 only 1.4 percent of windows are exact on 2026arc, 8.2 on 2026nyro, 98.4 on 2026auwarp. Every offseason failure crosses one gap where 43 other-event matches ran and every other window is exact to h=20, so the fold never drifts, the missed league steps do. Browser-side folding is closed and the tick has to fold | 2026-09-19 | 18fdd357 | — |
 | 218 | Preseason Week 0 is out of official calculations. A type 100 match is predicted and never folded, gated inside each algorithm update, and the loaders, the scored set and the RP scorecard score official play only. Shipped as opr 5.0.0, epa 11.0.0, spr 6.0.0 on Jacob's acceptance of three measured arms: on the identical 125422 official qualification matches SPR accuracy 0.75580 to 0.75631 and Brier 0.16176 to 0.16144, EPA 0.75127 to 0.75168 and 0.16993 to 0.16977, OPR accuracy unchanged and Brier 0.00002 worse. Live in generation 0eca6b08, SPR seeded, Worker 52297186. Owed: OPR and EPA D1 seeds after the write cap resets, and the prune of three superseded generations | 2026-09-19 | 3d16df49 | [260919-368-keep-preseason-week-0-out-of-official-ca](./quick/260919-368-keep-preseason-week-0-out-of-official-ca/) |
+| 219 | Zero-match offseason events now get a probe-only calendar window; the tick proves matches exist with one conditional TBA request before folding. Closes the 2026cc discovery gap without reopening outage cause B. Worker deploy then republish owed, deploy first | 2026-09-20 | e60bc250 | [260920-lny-offseason-events-with-live-results-are-n](./quick/260920-lny-offseason-events-with-live-results-are-n/) |
 
 ### Roadmap Evolution
 
