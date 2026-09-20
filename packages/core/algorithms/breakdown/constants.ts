@@ -10,7 +10,13 @@
  * `index.ts`'s top-level declaration had executed. Moving the shared
  * types/constants into this dependency-free leaf module, with both sides
  * importing from here instead of each other, removes the cycle entirely.
+ *
+ * This module also imports `zod` for `ADJUST_POINTS_SCHEMA` below. That is
+ * fine and does not restore the cycle: `zod` is an external package, not a
+ * package-internal module, so no reader should "fix" this by moving the
+ * schema symbol back out to `index.ts`.
  */
+import { z } from "zod";
 
 /**
  * One season's parsed component values, keyed by canonical component name.
@@ -51,6 +57,35 @@ export const FOULS_COMMITTED_COMPONENT = "foulsCommitted";
  * module spells this name through the constant, never as a bare string literal.
  */
 export const ADJUST_COMPONENT = "adjust";
+
+/**
+ * The shared Zod piece every season's `SideBreakdownSchema` spells its own
+ * `adjustPoints` field through, instead of a bare `z.number().finite()`.
+ *
+ * Measured across the full corpus (quick task 260920-qgg): `adjustPoints`
+ * is present as a number on 345,464 alliance-sides and entirely ABSENT on
+ * 12,210 (all at offseason events, TBA's own reporting gap). It is NEVER
+ * present-but-invalid anywhere in the corpus — not `null`, not a string,
+ * not `NaN`, not once. So defaulting on absence alone masks nothing that
+ * exists today.
+ *
+ * An absent `adjustPoints` means "no scorekeeper correction was applied" —
+ * a real, knowable value (0), not an imputation: there is nothing else the
+ * field's total absence could honestly mean. A PRESENT-but-unreadable value
+ * (`null`, `"12"`, `NaN`) means the opposite of absent — the field exists
+ * and cannot be trusted — so it must keep failing the schema exactly as any
+ * other malformed field would. `z.default()` applies to `undefined` alone,
+ * never to `null` or any other value, which is exactly this asymmetry.
+ *
+ * No other field may ever be given this same treatment. `adjustPoints` is a
+ * manual scorekeeper correction with no robot attribution; every other
+ * breakdown field is a SCORING observation, and an absent scoring field is
+ * an absent OBSERVATION — defaulting it to 0 would publish "this alliance
+ * scored nothing" as though it had been measured, which is a false claim.
+ * `reconciliation.test.ts`'s anti-masking source gate enforces that this
+ * symbol is the only `.default(` appearing in any season module.
+ */
+export const ADJUST_POINTS_SCHEMA = z.number().finite().default(0);
 
 /**
  * Throws loudly rather than letting a non-finite component value silently
