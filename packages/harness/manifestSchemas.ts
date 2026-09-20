@@ -39,7 +39,17 @@ export const LiveWindowEntrySchema = z.object({
   /** Integer epoch milliseconds — a numeric half-open interval, not a date string, so `isLiveAt` is an integer comparison, never a parse. */
   startMs: z.number().int(),
   endMs: z.number().int(),
-  /** True when this window was derived from `start_date` alone (the event has no matches in the corpus yet) rather than from real observed match timestamps. */
+  /**
+   * True when this window was derived from `start_date` alone (the event has
+   * no matches in the corpus yet) rather than from real observed match
+   * timestamps. THE CONTRACT BOTH SIDES READ (quick task 260920-lny): `true`
+   * means PROBE-ONLY — a reader must prove matches actually exist (one
+   * cheap, conditional check) before entering the full live/fold path for
+   * this entry. The offline builder (`manifests.ts`'s `buildLiveWindowsManifest`)
+   * never marks a MEASURED window `true`; the Worker
+   * (`apps/worker/src/scheduled.ts`'s `runProbes`) never folds a `true` entry
+   * on the strength of the window alone.
+   */
   inferred: z.boolean(),
 });
 

@@ -19,6 +19,8 @@ import {
   AlgorithmsManifestSchema,
   LIVE_WINDOW_PAD_MS,
   LiveWindowsManifestSchema,
+  PROBE_WINDOW_LEAD_MS,
+  PROBE_WINDOW_SPAN_MS,
   PUBLISHED_ALGORITHM_IDS,
   buildAlgorithmsManifest,
   buildLiveWindowsManifest,
@@ -146,43 +148,21 @@ describe("buildLiveWindowsManifest — corpus-derived windows", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // REGRESSION: a zero-match event's window used to be a pure guess from
-  // `start_date`, silently arming a four-day span in which the deployed
-  // Worker believed an event was live and burned its whole CPU budget.
+  // A zero-match event's window used to be a pure guess from `start_date`,
+  // silently arming a four-day span the deployed Worker treated as fully
+  // live and burning its whole CPU budget on it (outage cause B). The two
+  // regressions that used to live here asserted "zero matches -> no window
+  // at all" — exactly the premise quick task 260920-lny reverses: a
+  // zero-match event now DOES get a window (a PROBE window, `inferred:
+  // true`), because TBA does not always publish an offseason event's
+  // schedule before it starts (Chezy Champs 2026). What still holds from the
+  // outage is that the Worker must never treat that window as fully live on
+  // its own — it now proves matches exist with one cheap conditional request
+  // first (`apps/worker/src/scheduled.ts`'s `runProbes`), which is what makes
+  // reintroducing the window safe. See the "probe windows for zero-match
+  // events" describe block below (beside the retention block) for the
+  // current contract and its coverage.
   // ---------------------------------------------------------------------------
-
-  it("REGRESSION: emits NO window at all for an event with zero matches in the corpus", () => {
-    upsertEvent(db, event({ eventKey: "2026scsc", startDate: "2026-08-29" }));
-
-    const manifest = buildLiveWindowsManifest(db, {
-      seasons: [2026],
-      generation: "test-gen-3",
-      computedAt: "2026-08-22T00:00:00.000Z",
-    });
-
-    expect(manifest.windows).toEqual([]);
-  });
-
-  it("REGRESSION: a zero-match event is never live, at any instant across the four days its guessed window used to span", () => {
-    // Asserts the end-to-end consequence, not just the absence of a row:
-    // the liveness predicate the Worker actually calls must answer
-    // "nothing is live" at every hour of the formerly-blind window.
-    upsertEvent(db, event({ eventKey: "2026scsc", startDate: "2026-08-29", eventType: 99, isOffseason: true }));
-
-    const manifest = buildLiveWindowsManifest(db, {
-      seasons: [2026],
-      generation: "test-gen-outage",
-      computedAt: "2026-08-28T18:25:43.620Z",
-    });
-
-    const blindWindowStart = Date.parse("2026-08-29T00:00:00.000Z");
-    const oneHourMs = 60 * 60 * 1000;
-    for (let hour = 0; hour < 4 * 24; hour++) {
-      const instant = blindWindowStart + hour * oneHourMs;
-      const live = manifest.windows.filter((w) => isLiveAt(w, instant));
-      expect(live).toEqual([]);
-    }
-  });
 
   it("REGRESSION: an OFFSEASON event that has real matches still gets a real window — the fix is zero-match, never event_type", () => {
     // Guards the fix against being "simplified" into an offseason
@@ -205,10 +185,9 @@ describe("buildLiveWindowsManifest — corpus-derived windows", () => {
     expect(isLiveAt(manifest.windows[0]!, startMs)).toBe(true);
   });
 
-  it("never emits inferred: true any more — the field survives for old manifests, the emission path does not", () => {
+  it("a matches-only manifest still emits inferred: false on every entry — coverage for the co-located zero-match case lives in the probe describe block below", () => {
     upsertEvent(db, event({ eventKey: "2026azfg" }));
     upsertMatch(db, match({ matchKey: "2026azfg_qm1", sortTime: Date.parse("2026-03-01T18:00:00.000Z") }));
-    upsertEvent(db, event({ eventKey: "2026noma", startDate: "2026-03-05" })); // zero matches
 
     const manifest = buildLiveWindowsManifest(db, {
       seasons: [2026],
@@ -316,6 +295,95 @@ describe("buildLiveWindowsManifest — retention: windows that can never be live
         computedAt: "not-a-timestamp",
       })
     ).toThrow(/retention filter has no clock/);
+  });
+});
+
+describe("buildLiveWindowsManifest — probe windows for zero-match events (260920-lny)", () => {
+  // TBA does not always publish an offseason event's match schedule before
+  // the event starts. Chezy Champs 2026 (`2026cc`) published 86 real matches
+  // whose first `sort_time` landed two minutes AFTER the manifest that
+  // should have carried its window was built; the corpus held zero matches
+  // for it at build time, so under the old rule it got no window at all and
+  // was never picked up live. A zero-match event now gets a calendar PROBE
+  // window instead — `inferred: true`, proven safe only because the Worker
+  // treats `inferred: true` as "answer liveness with one cheap conditional
+  // request before doing anything expensive" (`scheduled.test.ts`'s "the
+  // tick probes a probe window" coverage), never as foldable on its own.
+
+  it("a zero-match event whose calendar window is still open yields exactly one probe entry, spanning the lead and the span constants", () => {
+    upsertEvent(db, event({ eventKey: "2026azpx", startDate: "2026-09-25" })); // zero matches
+
+    const manifest = buildLiveWindowsManifest(db, {
+      seasons: [2026],
+      generation: "test-gen-probe-1",
+      computedAt: "2026-09-20T00:00:00.000Z",
+    });
+
+    expect(manifest.windows).toHaveLength(1);
+    const window = manifest.windows[0]!;
+    const midnightUtc = Date.parse("2026-09-25T00:00:00.000Z");
+    expect(window.eventKey).toBe("2026azpx");
+    expect(window.season).toBe(2026);
+    expect(window.startMs).toBe(midnightUtc - PROBE_WINDOW_LEAD_MS);
+    expect(window.endMs).toBe(midnightUtc + PROBE_WINDOW_SPAN_MS);
+    expect(window.inferred).toBe(true);
+  });
+
+  it("REGRESSION, named for the failure: a zero-match event is live at 2026cc's real first match time, 2026-09-19T16:50:31Z", () => {
+    // Reproduces 2026cc's own recorded state at the moment the last manifest
+    // publish before the outage was built: start_date 2026-09-19, zero
+    // matches in the corpus yet.
+    upsertEvent(db, event({ eventKey: "2026cc", startDate: "2026-09-19", eventType: 99, isOffseason: true }));
+
+    const manifest = buildLiveWindowsManifest(db, {
+      seasons: [2026],
+      generation: "test-gen-probe-2026cc",
+      computedAt: "2026-09-19T16:48:47.000Z", // the real last manifest publish before the outage
+    });
+
+    expect(manifest.windows).toHaveLength(1);
+    const window = manifest.windows[0]!;
+    expect(window.inferred).toBe(true);
+    expect(isLiveAt(window, Date.parse("2026-09-19T16:50:31.000Z"))).toBe(true);
+  });
+
+  it("drops a zero-match event's probe window when it had already closed at build time — retention rule 2 applies to probe entries too", () => {
+    upsertEvent(db, event({ eventKey: "2026longgone", startDate: "2026-01-01" })); // zero matches
+
+    const manifest = buildLiveWindowsManifest(db, {
+      seasons: [2026],
+      generation: "test-gen-probe-closed",
+      computedAt: "2026-09-20T00:00:00.000Z", // months after the probe window's own end
+    });
+
+    expect(manifest.windows).toEqual([]);
+  });
+
+  it("an event WITH matches is unchanged: one inferred: false entry from its own span, no probe entry added alongside it", () => {
+    upsertEvent(db, event({ eventKey: "2026azfg" }));
+    upsertMatch(db, match({ matchKey: "2026azfg_qm1", sortTime: Date.parse("2026-03-01T18:00:00.000Z") }));
+
+    const manifest = buildLiveWindowsManifest(db, {
+      seasons: [2026],
+      generation: "test-gen-probe-haswindow",
+      computedAt: "2026-02-01T00:00:00.000Z",
+    });
+
+    expect(manifest.windows).toHaveLength(1);
+    expect(manifest.windows[0]!.eventKey).toBe("2026azfg");
+    expect(manifest.windows[0]!.inferred).toBe(false);
+  });
+
+  it("an event whose start_date does not parse yields no entry at all, never a NaN interval", () => {
+    upsertEvent(db, event({ eventKey: "2026badstart", startDate: "not-a-date" })); // zero matches
+
+    const manifest = buildLiveWindowsManifest(db, {
+      seasons: [2026],
+      generation: "test-gen-probe-baddate",
+      computedAt: "2026-09-20T00:00:00.000Z",
+    });
+
+    expect(manifest.windows).toEqual([]);
   });
 });
 

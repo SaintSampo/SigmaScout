@@ -60,10 +60,17 @@ export type { AlgorithmManifestEntry, AlgorithmsManifest, LiveWindowEntry, LiveW
 interface EventWindowRow {
   event_key: string;
   year: number;
+  start_date: string;
   min_sort_time: number | null;
   max_sort_time: number | null;
   match_count: number;
 }
+
+/** Lead before a zero-match event's `start_date` midnight UTC that its probe window opens — covers a local morning start whose UTC date rolls back one day (e.g. UTC+11 at 08:00 local is 21:00Z the day before). */
+export const PROBE_WINDOW_LEAD_MS = 12 * 60 * 60 * 1000;
+
+/** Span of a zero-match event's probe window, measured from `start_date` midnight UTC — matches the historical 4-day constant this file used before and covers a multi-day championship. */
+export const PROBE_WINDOW_SPAN_MS = 4 * 24 * 60 * 60 * 1000;
 
 export interface BuildLiveWindowsManifestOptions {
   /** Seasons whose events should appear in the manifest — e.g. the corpus's covered range, 2022-2026. */
@@ -87,40 +94,54 @@ export interface BuildLiveWindowsManifestOptions {
 
 /**
  * Derives every requested season's event windows from the events' OWN match
- * timestamps rather than from a calendar. The corpus's `events` table
- * has a `start_date` but no end date, while `matches.sort_time` already
- * resolves to `actual_time ?? predicted_time ?? time ?? fallback`
- * (`packages/ingest/normalize.ts`) — so a live event's scheduled matches
- * already carry usable predicted times, and the real window is exactly the
- * span of the event's own matches, padded by `LIVE_WINDOW_PAD_MS` on each side.
+ * timestamps rather than from a calendar, WITH ONE EXCEPTION: an event with
+ * zero matches in the corpus gets a PROBE window instead, derived from
+ * `start_date` alone. The corpus's `events` table has a `start_date` but no
+ * end date, while `matches.sort_time` already resolves to `actual_time ??
+ * predicted_time ?? time ?? fallback` (`packages/ingest/normalize.ts`) — so a
+ * live MEASURED event's scheduled matches already carry usable predicted
+ * times, and its real window is exactly the span of its own matches, padded
+ * by `LIVE_WINDOW_PAD_MS` on each side.
  *
- * TWO THINGS THIS DELIBERATELY DOES NOT EMIT, both traced to a production
- * outage (`.planning/debug/resolved/worker-tick-exceeds-cpu-budget.md`):
+ * RULE 1, CORRECTED (quick task 260920-lny). The rule that used to live here
+ * read "TBA publishes match schedules well before an event runs, so a
+ * merely-SCHEDULED event already yields a real, measured window" — that
+ * premise is FALSE for offseason play. Chezy Champs 2026 (`2026cc`) published
+ * 86 real matches whose first `sort_time` landed two minutes AFTER the last
+ * manifest publish; the corpus held zero matches for it at build time, so
+ * under the old rule it got no window at all and was never picked up live.
+ * Forty more 2026 offseason events were queued to fail the identical way.
  *
- * 1. NO BLIND WINDOW FOR A ZERO-MATCH EVENT. A guessed `[start_date 00:00
- *    UTC, +4 days)` window flagged `inferred: true` had no observational
- *    basis at all; two such windows once opened for offseason events that
- *    were not running, and the deployed Worker's tick measured 38ms CPU
- *    against a 10ms budget — 100% of cron ticks killed, for days.
- *    Discovery is now served by the ingest -> republish cycle instead: TBA
- *    publishes match schedules well before an event runs, so a
- *    merely-SCHEDULED event already yields a real, measured window — an
- *    event must be ingested before it can be folded live, the same
- *    cadence `docs/worker-operations.md` already documents for a stale
- *    manifest. The `inferred` FIELD remains in the schema and the Worker
- *    still reads it (manifests published before this change carry
- *    `inferred: true` entries, and removing the field would be a breaking
- *    schema change for no gain); this builder simply never sets it to
- *    `true` any more.
+ * A zero-match event now gets a calendar window instead of none,
+ * `[start_date 00:00 UTC - PROBE_WINDOW_LEAD_MS, + PROBE_WINDOW_SPAN_MS)`,
+ * marked `inferred: true`. This is the same field, and the same VALUE, that
+ * caused the 2026-08-29 outage's cause B
+ * (`.planning/debug/resolved/worker-tick-exceeds-cpu-budget.md`) — what makes
+ * reintroducing it safe is that `inferred: true` is now a CONTRACT both sides
+ * read (see `manifestSchemas.ts`'s doc comment on the field): the Worker
+ * never treats a probe entry as foldable on the window alone. It answers
+ * liveness for it with exactly ONE cheap conditional TBA request and does
+ * nothing else — no algorithms-manifest read, no `buildAlgorithmModules`, no
+ * D1 batch, no artifact write — unless that poll actually returns matches
+ * (`apps/worker/src/scheduled.ts`'s `runProbes`). The condition that killed
+ * the isolate in August 2026 was a blind window treated as fully live; no
+ * `inferred: true` window is ever fed into that path any more, in a manifest
+ * this builder produces or in one already in the wild (an outage-era
+ * manifest's 200 stale `inferred: true` entries now land on the cheap probe
+ * path too, which is strictly safer than what they did at the time). An
+ * event whose `start_date` does not parse gets no entry at all, never a NaN
+ * interval — `loadLiveEventsAt` refuses the WHOLE manifest on a non-finite
+ * `startMs`/`endMs` (`LiveWindowShapeError`), so one bad row must not be
+ * allowed to take every other window down with it.
  *
- * 2. NO WINDOW THAT CAN NEVER BE LIVE AGAIN. A window is dropped when
- *    `endMs <= nowMs` — already closed when the manifest was built, so it
- *    cannot be live at any instant at which this manifest could be read.
- *    The Worker reads this object on EVERY cron tick inside a 10ms CPU
- *    budget; shipping years of dead seasons made the do-nothing tick cost
- *    several ms before it did anything at all. `liveWindows.ts` ALSO
- *    defends itself at read time — keep both: this one shrinks the
- *    artifact, that one bounds the cost of whatever it contains.
+ * RULE 2 (unchanged): NO WINDOW THAT CAN NEVER BE LIVE AGAIN, measured or
+ * probe. A window is dropped when `endMs <= nowMs` — already closed when the
+ * manifest was built, so it cannot be live at any instant at which this
+ * manifest could be read. The Worker reads this object on EVERY cron tick
+ * inside a 10ms CPU budget; shipping years of dead seasons made the
+ * do-nothing tick cost several ms before it did anything at all.
+ * `liveWindows.ts` ALSO defends itself at read time — keep both: this one
+ * shrinks the artifact, that one bounds the cost of whatever it contains.
  */
 export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsManifestOptions): LiveWindowsManifest {
   const { seasons, generation, computedAt } = options;
@@ -136,7 +157,7 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
     const placeholders = seasons.map(() => "?").join(",");
     const rows = db
       .prepare(
-        `SELECT e.event_key AS event_key, e.year AS year,
+        `SELECT e.event_key AS event_key, e.year AS year, e.start_date AS start_date,
                 MIN(m.sort_time) AS min_sort_time, MAX(m.sort_time) AS max_sort_time,
                 COUNT(m.match_key) AS match_count
          FROM events e
@@ -148,9 +169,29 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
       .all(...seasons) as EventWindowRow[];
 
     for (const row of rows) {
-      // (1) An event with no matches in the corpus gets NO window — see
-      // this function's header for why a guessed window is unsafe.
-      if (row.match_count === 0 || row.min_sort_time === null || row.max_sort_time === null) continue;
+      // (1) An event with no matches in the corpus gets a PROBE window, not
+      // no window — see this function's header (RULE 1, CORRECTED) for why a
+      // blind guess is safe now when it was not before.
+      if (row.match_count === 0 || row.min_sort_time === null || row.max_sort_time === null) {
+        const midnightUtcMs = Date.parse(row.start_date);
+        // An unparseable start_date yields no entry at all, never a NaN
+        // interval — see the header for why that would be worse than a
+        // missing window.
+        if (!Number.isFinite(midnightUtcMs)) continue;
+
+        const probeEndMs = midnightUtcMs + PROBE_WINDOW_SPAN_MS;
+        // (2) applies to a probe entry exactly as to a measured one.
+        if (probeEndMs <= nowMs) continue;
+
+        windows.push({
+          eventKey: row.event_key,
+          season: row.year,
+          startMs: midnightUtcMs - PROBE_WINDOW_LEAD_MS,
+          endMs: probeEndMs,
+          inferred: true,
+        });
+        continue;
+      }
 
       const endMs = row.max_sort_time + padMs;
       // (2) A window that had already closed when this manifest was built can
