@@ -6,7 +6,7 @@
  * the no-starvation budget property, and the global-rebuild triggers.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runTick, touchedTeamsRowMetrics, touchedEventTeamMetrics } from "../src/scheduled.js";
+import { runTick, touchedTeamsRowMetrics, touchedEventTeamMetrics, MAX_PROBES_PER_TICK, PROBE_ROTATION_PERIOD_MS } from "../src/scheduled.js";
 import { checkLiveEventArtifactShape, checkTeamSeasonArtifactShape } from "../src/artifactShapeCheck.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import {
@@ -256,6 +256,8 @@ interface WindowFixture {
   season: number;
   startMs: number;
   endMs: number;
+  /** PROBE-ONLY when true (260920-lny) — a reader must prove matches exist before folding. Defaults to `false` (a measured, foldable window) so every pre-existing call site is untouched. */
+  inferred?: boolean;
 }
 
 function liveWindowsManifest(windows: readonly WindowFixture[]): string {
@@ -263,7 +265,7 @@ function liveWindowsManifest(windows: readonly WindowFixture[]): string {
     schemaVersion: 1,
     generation: "gen-1",
     computedAt: "2026-08-22T00:00:00.000Z",
-    windows: windows.map((w) => ({ ...w, inferred: false })),
+    windows: windows.map((w) => ({ ...w, inferred: w.inferred ?? false })),
   });
 }
 
@@ -1618,5 +1620,148 @@ describe("runTick — a corrupt published artifact retries as a bootstrap instea
     const retryLogs = warn.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("artifact-write-schema-retry"));
     warn.mockRestore();
     expect(retryLogs).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Probe windows for zero-match events (260920-lny). An `inferred: true`
+// window's liveness is unproven -- the tick must answer it with one cheap
+// conditional TBA request and stop, never the full expensive live path, or
+// the 2026-08-29 outage's cause B recurs
+// (`.planning/debug/resolved/worker-tick-exceeds-cpu-budget.md`).
+// ---------------------------------------------------------------------------
+
+describe("runTick — the tick probes a probe window", () => {
+  const PROBE_WINDOW: WindowFixture = { eventKey: "2026probe", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000, inferred: true };
+
+  it("OUTAGE GUARD: a 304 on the only live (probe) window does zero D1 batches and zero R2 puts, never reads the algorithms manifest, and never builds algorithm modules", async () => {
+    const kv = makeKv([PROBE_WINDOW]);
+    const sharedLog: SharedLogEntry[] = [];
+    const d1 = new FakeD1Database(sharedLog);
+    const r2 = new FakeR2Bucket(sharedLog);
+    const fetchMock = vi.fn(async () => ({ status: 304, ok: false, headers: new Map(), json: async () => ({}) }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    let constructionCount = 0;
+    const { buildAlgorithmModules: realBuildAlgorithmModules } = await import("../src/scheduled.js");
+    const countingBuilder = (manifest: Parameters<typeof realBuildAlgorithmModules>[0], ids: Parameters<typeof realBuildAlgorithmModules>[1]) => {
+      constructionCount++;
+      return realBuildAlgorithmModules(manifest, ids);
+    };
+
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, buildAlgorithmModules: countingBuilder, ...DISABLE_GLOBAL_REBUILD });
+
+    expect(sharedLog.filter((e) => e.type === "d1-batch")).toHaveLength(0);
+    expect(sharedLog.filter((e) => e.type === "r2-put")).toHaveLength(0);
+    expect(kv.getCallCount).toBe(1); // only v1/manifest/live-windows.json -- never v1/manifest/algorithms.json
+    expect(constructionCount).toBe(0);
+    expect(result).toMatchObject({ eventsConsidered: 0, eventsAdvanced: 0, eventsDeferred: 0, eventsFailed: 0, eventsProbed: 1, eventsPromoted: 0 });
+  });
+
+  it("OUTAGE GUARD: an empty match array on the only live (probe) window does zero D1 batches and zero R2 puts", async () => {
+    const kv = makeKv([PROBE_WINDOW]);
+    const sharedLog: SharedLogEntry[] = [];
+    const d1 = new FakeD1Database(sharedLog);
+    const r2 = new FakeR2Bucket(sharedLog);
+    const tbaEvents = new Map([["2026probe", { etag: "probe-etag-1", eventType: 99, season: SEASON, matches: [] as unknown[] }]]);
+    vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents));
+
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+
+    expect(sharedLog.filter((e) => e.type === "d1-batch")).toHaveLength(0);
+    expect(sharedLog.filter((e) => e.type === "r2-put")).toHaveLength(0);
+    expect(kv.getCallCount).toBe(1);
+    expect(result).toMatchObject({ eventsConsidered: 0, eventsAdvanced: 0, eventsDeferred: 0, eventsFailed: 0, eventsProbed: 1, eventsPromoted: 0 });
+  });
+
+  it("promotes a probe window that sees a played match: the normal live path runs, exactly one artifact put, and tbaRequests is 1 — the probe's own poll was not repeated", async () => {
+    const kv = makeKv([PROBE_WINDOW]);
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    const record = twoMatchEventRecord("2026probe", "probe-matches-etag-1");
+
+    const fetchMock = vi.fn(async (url: unknown) => {
+      const u = String(url);
+      if (u.endsWith("/event/2026probe/matches")) {
+        return { status: 200, ok: true, headers: { get: (name: string) => (name === "etag" ? record.etag : null) }, json: async () => record.matches };
+      }
+      // The event-detail fetch 404s and processEvent degrades gracefully
+      // (eventType -1, week null): tbaFetch throws BEFORE recording a 404 to
+      // the counter, so tbaRequests stays 1 (the matches poll alone),
+      // proving the probe's own poll was never repeated by processEvent.
+      if (u.endsWith("/event/2026probe")) {
+        return { status: 404, ok: false, headers: new Map(), json: async () => ({}) };
+      }
+      throw new Error(`unexpected URL in promotion stub: ${u}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+
+    expect(result.eventsAdvanced).toBe(1);
+    expect(result.eventsFailed).toBe(0);
+    expect(result.eventsProbed).toBe(1);
+    expect(result.eventsPromoted).toBe(1);
+    expect(result.tbaRequests).toBe(1);
+    const eventPutKey = artifactKey({ page: "event", eventKey: "2026probe", algorithmId: "opr", version: opr.version });
+    expect(r2.puts).toHaveLength(1);
+    expect(r2.puts[0]!.key).toBe(eventPutKey);
+  });
+
+  it("a tick with one foldable window and one probe window still folds the foldable event", async () => {
+    const foldableWindow: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const kv = makeKv([foldableWindow, PROBE_WINDOW]);
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+
+    const fetchMock = vi.fn(async (url: unknown, init?: { headers?: Record<string, string> }) => {
+      const u = String(url);
+      if (u.includes("/event/2026probe/")) {
+        return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
+      }
+      const stub = makeTbaFetchStub(new Map([["2026casj", twoMatchEventRecord("2026casj", "etag-1")]]));
+      const stubFn = stub as unknown as (url: unknown, init?: { headers?: Record<string, string> }) => Promise<unknown>;
+      return stubFn(url, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+
+    expect(result.eventsAdvanced).toBe(1);
+    expect(result.eventsConsidered).toBe(1); // the foldable event only -- a probe is never "considered"
+    expect(result.eventsProbed).toBe(1);
+    expect(result.eventsPromoted).toBe(0);
+    const eventPutKey = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "opr", version: opr.version });
+    expect(r2.puts.some((p) => p.key === eventPutKey)).toBe(true);
+  });
+
+  it("BOUND: probes at most MAX_PROBES_PER_TICK, and a tick one cron minute later covers a different rotated slice", async () => {
+    const probeKeys = Array.from({ length: MAX_PROBES_PER_TICK + 2 }, (_, i) => `2026probe${i}`);
+    const windows: WindowFixture[] = probeKeys.map((eventKey) => ({ eventKey, season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000, inferred: true }));
+
+    function stubAlways304(calls: string[]): ReturnType<typeof vi.fn> {
+      return vi.fn(async (url: unknown) => {
+        const u = String(url);
+        const m = /\/event\/([^/]+)\/matches$/.exec(u);
+        if (!m) throw new Error(`unexpected URL in probe-bound stub: ${u}`);
+        calls.push(m[1]!);
+        return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
+      });
+    }
+
+    const tick1Calls: string[] = [];
+    vi.stubGlobal("fetch", stubAlways304(tick1Calls));
+    const tick1 = await runTick(makeEnv(makeKv(windows), new FakeD1Database(), new FakeR2Bucket()), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    vi.unstubAllGlobals();
+
+    expect(tick1.eventsProbed).toBe(MAX_PROBES_PER_TICK);
+    expect(tick1Calls).toHaveLength(MAX_PROBES_PER_TICK);
+
+    const tick2Calls: string[] = [];
+    vi.stubGlobal("fetch", stubAlways304(tick2Calls));
+    const tick2 = await runTick(makeEnv(makeKv(windows), new FakeD1Database(), new FakeR2Bucket()), { nowMs: NOW_MS + PROBE_ROTATION_PERIOD_MS, ...DISABLE_GLOBAL_REBUILD });
+
+    expect(tick2.eventsProbed).toBe(MAX_PROBES_PER_TICK);
+    expect(new Set(tick2Calls)).not.toEqual(new Set(tick1Calls)); // a different rotated slice
   });
 });

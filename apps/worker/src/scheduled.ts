@@ -556,11 +556,145 @@ function changesOf(result: unknown): number {
 // Subrequest budget estimate, shared with `liveAlgorithmTier.test.ts`
 // ---------------------------------------------------------------------------
 
-/** `runTick`'s fixed subrequests before any event work: the live-windows manifest, algorithms manifest and tick-meta reads. Pinned to the deployed Worker's measured idle-tick `subrequestsUsed`. */
+/**
+ * `runTick`'s fixed subrequests before any FOLDABLE event's work: the
+ * live-windows manifest, algorithms manifest and tick-meta reads. Pinned to
+ * the deployed Worker's measured idle-tick `subrequestsUsed`. A probe-only
+ * tick (260920-lny) never pays the algorithms-manifest or tick-meta reads
+ * this constant describes — it pays only `loadLiveEventsAt`'s 1 plus each
+ * probe's own `PROBE_SUBREQUEST_COST`, and returns before either of the other
+ * two. This constant still prices the foldable/promoted path exactly as before.
+ */
 export const TICK_FIXED_SUBREQUEST_COST = 3;
 
 /** `processEvent`'s fixed cost spent before the estimate check: the cursor read and the TBA poll. */
 export const EVENT_PREFLIGHT_SUBREQUEST_COST = 2;
+
+// ---------------------------------------------------------------------------
+// Probe windows (260920-lny): a zero-match event's `inferred: true` window
+// proves matches exist before anything expensive runs. See
+// `packages/harness/manifests.ts`'s `buildLiveWindowsManifest` header and
+// `manifestSchemas.ts`'s doc comment on `inferred` for the two-sided
+// contract this section implements the Worker's half of.
+// ---------------------------------------------------------------------------
+
+/**
+ * The result of the two calls a probe (or a foldable event's own preflight)
+ * always pays first: the cursor read, then the conditional TBA poll.
+ *  - `"deferred"`: the budget could not afford one of the two calls this tick.
+ *  - `"not-modified"`: TBA returned 304 — nothing changed since the cursor's etag.
+ *  - `"ok"`: a 200, with the RAW (not yet `tbaMatchListSchema`-validated) match
+ *    array. A probe reads only `.length` off it — see `runProbes` — so an
+ *    idle probe never pays to parse a payload it is about to discard.
+ */
+export type EventPreflightResult =
+  | { readonly status: "deferred" }
+  | { readonly status: "not-modified"; readonly cursor: EventCursor }
+  | { readonly status: "ok"; readonly cursor: EventCursor; readonly etag: string | undefined; readonly matches: readonly unknown[] };
+
+/**
+ * `processEvent`'s own first two calls, extracted so a probe can pay for them
+ * ONCE and hand the result to `processEvent` as a preflight — a promoted
+ * event is never polled twice. Costs exactly `EVENT_PREFLIGHT_SUBREQUEST_COST`
+ * (2: `tryConsume(1)` per call), same as before extraction.
+ */
+async function eventPreflight(env: Env, budget: SubrequestBudget, tbaCtx: TbaClientContext, eventKey: string): Promise<EventPreflightResult> {
+  if (!budget.tryConsume(1)) return { status: "deferred" };
+  const cursor: EventCursor = (await readEventCursor(env.DB, eventKey)) ?? { eventKey, tbaEtag: null, lastFoldedMatchKey: null, lastPolledAt: null, lastAdvancedAt: null };
+
+  if (!budget.tryConsume(1)) return { status: "deferred" };
+  const poll = await pollEventMatches(tbaCtx, eventKey, cursor.tbaEtag ?? undefined);
+  if (poll.status === "not-modified") return { status: "not-modified", cursor };
+  return { status: "ok", cursor, etag: poll.etag, matches: poll.matches };
+}
+
+/**
+ * Probes per tick, capped so an offseason weekend with many concurrently-open
+ * probe windows cannot spend the subrequest budget on discovery alone. At the
+ * cap a probe-only tick spends `1 (loadLiveEventsAt) + PROBE_SUBREQUEST_COST *
+ * MAX_PROBES_PER_TICK = 1 + 2*6 = 13` of the ~41 subrequests actually usable
+ * per tick (the same figure `estimateEventSubrequestCost`'s header cites), and
+ * nine concurrently-open offseason windows (2026-09-18's real count) are fully
+ * covered in two ticks.
+ */
+export const MAX_PROBES_PER_TICK = 6;
+
+/** The cursor read plus the conditional poll a probe pays via `eventPreflight` — mirrors `EVENT_PREFLIGHT_SUBREQUEST_COST` exactly, since a probe and a foldable event's own preflight are the same two calls. Named separately so the probe-only budget arithmetic in this section's doc comments reads on its own. */
+export const PROBE_SUBREQUEST_COST = 2;
+
+/**
+ * One cron minute — the rotation offset for probes is `floor(nowMs /
+ * PROBE_ROTATION_PERIOD_MS)`, deliberately NOT `meta.rotationOffset`: reading
+ * tick meta costs a D1 round trip the probe-only path exists to avoid, and a
+ * clock offset is deterministic under `deps.nowMs` in tests, unlike a D1 read.
+ */
+export const PROBE_ROTATION_PERIOD_MS = 60_000;
+
+/** What `runProbes` hands back to `runTick`: promoted events (probe saw real matches — keyed by event key, ready to pass straight into `processEvent` as its preflight) plus the two tallies the tick's tail line reports. A throwing probe is confined to itself and counted in `eventsFailed`, never in `eventsProbed`. */
+interface ProbePassResult {
+  readonly promoted: ReadonlyMap<string, { readonly cursor: EventCursor; readonly etag: string | undefined; readonly matches: readonly unknown[] }>;
+  readonly eventsProbed: number;
+  readonly eventsFailed: number;
+}
+
+/**
+ * Answers liveness for every `inferred: true` window this tick has budget and
+ * rotation slots for, spending ONE cheap conditional TBA request per probe
+ * and nothing else — no algorithms-manifest read, no `buildAlgorithmModules`,
+ * no D1 batch, no artifact write. Called from `runTick` BEFORE all three of
+ * those, and that ordering is load-bearing: moving this pass below them would
+ * restore exactly the condition
+ * `.planning/debug/resolved/worker-tick-exceeds-cpu-budget.md` cause B
+ * describes, where a phantom `inferred: true` window kept the tick on the
+ * full, expensive live path.
+ *
+ *  - A `"not-modified"` (304) preflight ends that probe: nothing changed.
+ *  - An `"ok"` preflight whose raw match array is EMPTY ends that probe too,
+ *    after writing the cursor's etag back if it changed and the budget
+ *    allows — `.length` is read off the raw array; `tbaMatchListSchema`
+ *    never runs here, so an idle probe parses nothing.
+ *  - An `"ok"` preflight with a NON-empty array promotes: the window and its
+ *    already-paid-for preflight are kept for `runTick` to feed straight into
+ *    `processEvent`, so a promoted event issues exactly ONE TBA request this
+ *    tick, never two.
+ *  - A throw is confined to that probe alone, warned as a JSON line carrying
+ *    only the event key and the error message (never a TBA key or a header —
+ *    this file's standing log rule), and counted as failed rather than probed.
+ */
+async function runProbes(env: Env, budget: SubrequestBudget, tbaCtx: TbaClientContext, probeWindows: readonly LiveWindowEntry[], nowMs: number, nowIso: string): Promise<ProbePassResult> {
+  const ordered = rotate(sortEventKeys(probeWindows.map((w) => w.eventKey)), Math.floor(nowMs / PROBE_ROTATION_PERIOD_MS));
+  const capped = ordered.slice(0, MAX_PROBES_PER_TICK);
+
+  const promoted = new Map<string, { cursor: EventCursor; etag: string | undefined; matches: readonly unknown[] }>();
+  let eventsProbed = 0;
+  let eventsFailed = 0;
+
+  for (const eventKey of capped) {
+    try {
+      const preflight = await eventPreflight(env, budget, tbaCtx, eventKey);
+      // Budget exhausted before this probe could even start: the remaining
+      // probes in this slice wait for the next tick, same as a deferred event.
+      if (preflight.status === "deferred") break;
+
+      eventsProbed++;
+      if (preflight.status === "not-modified") continue;
+
+      if (preflight.matches.length === 0) {
+        if (preflight.etag !== undefined && preflight.etag !== preflight.cursor.tbaEtag && budget.tryConsume(1)) {
+          await writeEventCursor(env.DB, { ...preflight.cursor, tbaEtag: preflight.etag, lastPolledAt: nowIso });
+        }
+        continue;
+      }
+
+      promoted.set(eventKey, { cursor: preflight.cursor, etag: preflight.etag, matches: preflight.matches });
+    } catch (err) {
+      eventsFailed++;
+      console.warn(JSON.stringify({ msg: "probe-failed", eventKey, error: err instanceof Error ? err.message : String(err) }));
+    }
+  }
+
+  return { promoted, eventsProbed, eventsFailed };
+}
 
 /**
  * The whole event's remaining subrequest cost, estimated up front so the
@@ -614,19 +748,40 @@ async function processEvent(
   window: LiveWindowEntry,
   nowIso: string,
   stamp: Stamp,
-  touchedTeamsByAlgorithm: Map<string, Map<string, TouchedTeamInfo>>
+  touchedTeamsByAlgorithm: Map<string, Map<string, TouchedTeamInfo>>,
+  /**
+   * A probe's already-paid-for `eventPreflight` result (`runProbes`), for a
+   * PROMOTED event only. When supplied, `processEvent` consumes NO budget for
+   * the cursor read or the poll and makes NO second TBA request for either —
+   * the probe already paid for both. `undefined` for the ordinary (foldable,
+   * `inferred: false`) path, which still runs its own preflight exactly as
+   * before this parameter existed.
+   */
+  preflight?: { readonly cursor: EventCursor; readonly etag: string | undefined; readonly matches: readonly unknown[] }
 ): Promise<EventOutcome> {
   const eventKey = window.eventKey;
 
   try {
-    if (!budget.tryConsume(1)) return { status: "deferred" };
-    const cursor: EventCursor = (await readEventCursor(env.DB, eventKey)) ?? { eventKey, tbaEtag: null, lastFoldedMatchKey: null, lastPolledAt: null, lastAdvancedAt: null };
+    let cursor: EventCursor;
+    let pollEtag: string | undefined;
+    let rawMatchesUnknown: readonly unknown[];
 
-    if (!budget.tryConsume(1)) return { status: "deferred" };
-    const poll = await pollEventMatches(tbaCtx, eventKey, cursor.tbaEtag ?? undefined);
-    if (poll.status === "not-modified") return { status: "unchanged" };
+    if (preflight) {
+      cursor = preflight.cursor;
+      pollEtag = preflight.etag;
+      rawMatchesUnknown = preflight.matches;
+    } else {
+      if (!budget.tryConsume(1)) return { status: "deferred" };
+      cursor = (await readEventCursor(env.DB, eventKey)) ?? { eventKey, tbaEtag: null, lastFoldedMatchKey: null, lastPolledAt: null, lastAdvancedAt: null };
 
-    const rawMatches = tbaMatchListSchema.parse(poll.matches);
+      if (!budget.tryConsume(1)) return { status: "deferred" };
+      const poll = await pollEventMatches(tbaCtx, eventKey, cursor.tbaEtag ?? undefined);
+      if (poll.status === "not-modified") return { status: "unchanged" };
+      pollEtag = poll.etag;
+      rawMatchesUnknown = poll.matches;
+    }
+
+    const rawMatches = tbaMatchListSchema.parse(rawMatchesUnknown);
     // The live-windows manifest has no real start_date; this approximation
     // feeds only normalizeMatch's rarely used sortTime fallback.
     const approxStartDateIso = new Date(window.startMs).toISOString();
@@ -638,8 +793,8 @@ async function processEvent(
     const stillUpcoming = orderedMatches.filter((m) => m.winner === null);
 
     if (newlyFolded.length === 0) {
-      if (poll.etag !== undefined && poll.etag !== cursor.tbaEtag && budget.tryConsume(1)) {
-        await writeEventCursor(env.DB, { ...cursor, tbaEtag: poll.etag, lastPolledAt: nowIso });
+      if (pollEtag !== undefined && pollEtag !== cursor.tbaEtag && budget.tryConsume(1)) {
+        await writeEventCursor(env.DB, { ...cursor, tbaEtag: pollEtag, lastPolledAt: nowIso });
       }
       return { status: "unchanged" };
     }
@@ -662,7 +817,7 @@ async function processEvent(
     // Claim before any state is read; a lost claim means another invocation
     // is advancing this event and its work supersedes ours.
     budget.consume(1);
-    const claimed = await claimEventAdvance(env.DB, eventKey, cursor.lastFoldedMatchKey, lastFoldedMatchKey, poll.etag ?? cursor.tbaEtag, nowIso);
+    const claimed = await claimEventAdvance(env.DB, eventKey, cursor.lastFoldedMatchKey, lastFoldedMatchKey, pollEtag ?? cursor.tbaEtag, nowIso);
     if (!claimed) {
       return { status: "unchanged" };
     }
@@ -1163,7 +1318,12 @@ export interface TickResult {
   readonly eventsConsidered: number;
   readonly eventsAdvanced: number;
   readonly eventsDeferred: number;
+  /** A per-event failure, EITHER a folded/promoted event's own processing failure OR a probe that threw (`runProbes`) — both are confined to the one event/probe and counted here. */
   readonly eventsFailed: number;
+  /** `inferred: true` windows this tick answered liveness for (`runProbes`), whether or not they promoted. Probed above zero and promoted zero is a healthy idle offseason weekend; probed above zero and promoted above zero is an event that has started. */
+  readonly eventsProbed: number;
+  /** Probe windows that saw real matches this tick and were folded via the normal live path, counted once per promoted event actually processed. */
+  readonly eventsPromoted: number;
   readonly tbaRequests: number;
   readonly subrequestsUsed: number;
   readonly globalRebuildRan: boolean;
@@ -1191,10 +1351,42 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   const liveEvents = await loadLiveEventsAt(env, nowMs);
 
   if (liveEvents.length === 0) {
-    return { eventsConsidered: 0, eventsAdvanced: 0, eventsDeferred: 0, eventsFailed: 0, tbaRequests: counter.total, subrequestsUsed: budget.used, globalRebuildRan: false };
+    return { eventsConsidered: 0, eventsAdvanced: 0, eventsDeferred: 0, eventsFailed: 0, eventsProbed: 0, eventsPromoted: 0, tbaRequests: counter.total, subrequestsUsed: budget.used, globalRebuildRan: false };
   }
 
-  // Something is live: load the algorithms manifest and build the modules once for the tick.
+  // Split into foldable (`inferred: false`, a real measured window) and
+  // probe (`inferred: true`, liveness unproven) entries. THE PROBE PASS RUNS
+  // HERE, BEFORE the algorithms-manifest read, `buildAlgorithmModules` and the
+  // tick-meta read — deliberately. Moving it below any of those three would
+  // restore exactly the condition
+  // `.planning/debug/resolved/worker-tick-exceeds-cpu-budget.md` cause B
+  // describes: a tick that pays the full expensive prefix for a window that
+  // was never proven live. `loadLiveEventsAt`'s prefilter and the
+  // `liveEvents.length === 0` early exit above are unchanged.
+  const foldableWindows = liveEvents.filter((w) => !w.inferred);
+  const probeWindows = liveEvents.filter((w) => w.inferred);
+
+  const probeResult: ProbePassResult = probeWindows.length > 0 ? await runProbes(env, budget, tbaCtx, probeWindows, nowMs, nowIso) : { promoted: new Map(), eventsProbed: 0, eventsFailed: 0 };
+
+  if (foldableWindows.length === 0 && probeResult.promoted.size === 0) {
+    // Nothing foldable and nothing promoted: a probe-only (or fully idle
+    // besides probes) tick ends here, having paid ONLY for `loadLiveEventsAt`
+    // and each probe's own two calls — no algorithms manifest, no
+    // `buildAlgorithmModules`, no D1 batch, no artifact write.
+    return {
+      eventsConsidered: 0,
+      eventsAdvanced: 0,
+      eventsDeferred: 0,
+      eventsFailed: probeResult.eventsFailed,
+      eventsProbed: probeResult.eventsProbed,
+      eventsPromoted: 0,
+      tbaRequests: counter.total,
+      subrequestsUsed: budget.used,
+      globalRebuildRan: false,
+    };
+  }
+
+  // Something is foldable or was promoted: load the algorithms manifest and build the modules once for the tick.
   budget.consume(1);
   const algorithmsManifest = await loadAlgorithmsManifest(env);
   const buildModules = deps.buildAlgorithmModules ?? buildAlgorithmModules;
@@ -1203,13 +1395,15 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   budget.consume(1);
   const meta = await readTickMeta(env.DB);
 
-  const orderedEventKeys = rotate(sortEventKeys(liveEvents.map((w) => w.eventKey)), meta.rotationOffset);
-  const liveEventByKey = new Map(liveEvents.map((w) => [w.eventKey, w]));
+  const promotedWindows = liveEvents.filter((w) => probeResult.promoted.has(w.eventKey));
+  const orderedEventKeys = rotate(sortEventKeys([...foldableWindows.map((w) => w.eventKey), ...promotedWindows.map((w) => w.eventKey)]), meta.rotationOffset);
+  const liveEventByKey = new Map([...foldableWindows, ...promotedWindows].map((w) => [w.eventKey, w]));
 
   let eventsConsidered = 0;
   let eventsAdvanced = 0;
   let eventsDeferred = 0;
-  let eventsFailed = 0;
+  let eventsFailed = probeResult.eventsFailed;
+  let eventsPromoted = 0;
   let anEventJustCompleted = false;
   const touchedTeamsByAlgorithm = new Map<string, Map<string, TouchedTeamInfo>>();
 
@@ -1217,7 +1411,12 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
     const window = liveEventByKey.get(eventKey);
     if (!window) continue;
 
-    const outcome = await processEvent(env, budget, tbaCtx, algorithmModules, window, nowIso, stamp, touchedTeamsByAlgorithm);
+    // A promoted event's preflight was already paid for by `runProbes` — hand
+    // it straight to `processEvent`, which then makes no second TBA request.
+    const preflight = probeResult.promoted.get(eventKey);
+    if (preflight) eventsPromoted++;
+
+    const outcome = await processEvent(env, budget, tbaCtx, algorithmModules, window, nowIso, stamp, touchedTeamsByAlgorithm, preflight);
     if (outcome.status === "unchanged") continue; // considered, but not counted toward advanced/deferred/failed
 
     eventsConsidered++;
@@ -1245,7 +1444,17 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
     await writeTickMeta(env.DB, newMeta, nowIso);
   }
 
-  return { eventsConsidered, eventsAdvanced, eventsDeferred, eventsFailed, tbaRequests: counter.total, subrequestsUsed: budget.used, globalRebuildRan };
+  return {
+    eventsConsidered,
+    eventsAdvanced,
+    eventsDeferred,
+    eventsFailed,
+    eventsProbed: probeResult.eventsProbed,
+    eventsPromoted,
+    tbaRequests: counter.total,
+    subrequestsUsed: budget.used,
+    globalRebuildRan,
+  };
 }
 
 /**
