@@ -831,34 +831,40 @@ function breakdown2024JsonMissingFields(fieldsToOmit: readonly string[]): string
 }
 
 describe("epa.update — a malformed self-reported breakdown degrades to the breakdown-less fallback, never a throw", () => {
-  it("the missing-adjustPoints (2024cafb_qm1) payload does not throw, breakdownParseFailureCount increments by 1, team components move off cold start, and fallbackSkipped remains 0", () => {
+  it("the missing-adjustPoints (2024cafb_qm1) payload now parses through the REAL component path (260920-qgg): does not throw, breakdownParseFailureCount and fallbackSkipped both stay 0, team components move off cold start, adjust stays pinned at 0", () => {
     const state = epa.initState(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
     // Cold start: every team's teamComponents entry is genuinely EMPTY (no
     // keys at all) before its first observation — see epa.ts's initState.
     expect(state.teamComponents.get("frc1")).toEqual({});
 
-    const malformedMatch = matchResult({
+    const formerlyMalformedMatch = matchResult({
       matchKey: "2024cafb_qm1",
       hasScoreBreakdown: true,
       scoreBreakdownRaw: breakdown2024JsonMissingFields(["adjustPoints"]),
     });
     let next!: EpaState;
     expect(() => {
-      next = epa.update(state, malformedMatch);
+      next = epa.update(state, formerlyMalformedMatch);
     }).not.toThrow();
-    expect(next.breakdownParseFailureCount).toBe(1);
-    // The permanently-zero invariant (breakdown.test.ts's own describe
-    // block) is untouched — a malformed breakdown is not the "no
-    // score_breakdown at all" code path fallbackSkipped instruments.
+    // Before 260920-qgg this payload failed Breakdown2024Schema and
+    // incremented breakdownParseFailureCount via fallbackObserved. An absent
+    // adjustPoints is now a known scorekeeper correction (0), not a schema
+    // failure, so neither the ZodError-degrade counter nor the
+    // has-score-breakdown=false fallback counter increments.
+    expect(next.breakdownParseFailureCount).toBe(0);
     expect(next.fallbackSkipped).toBe(0);
     // "Moved off cold start" — every registered component is now DEFINED
-    // and finite, where it was previously entirely absent.
+    // and finite, exactly as it was on the fallback path this replaces.
     for (const componentName of breakdown2024.components) {
       const value = next.teamComponents.get("frc1")![componentName];
       expect(value).toBeDefined();
       expect(Number.isFinite(value)).toBe(true);
     }
     expect(next.teamMatchCounts.get("frc1")).toBe(1);
+    // adjust is pinned at exactly 0 on every path (epa.ts's
+    // applyComponentUpdate doc comment) — unaffected by whether
+    // adjustPoints was present-and-0 or absent-and-defaulted.
+    expect(next.teamComponents.get("frc1")![ADJUST_COMPONENT]).toBe(0);
   });
 
   it("positive control: a well-formed payload leaves breakdownParseFailureCount at 0 and each team's component means equal the expected parsed per-team shares, proving the full parse path still runs", () => {
@@ -1674,7 +1680,7 @@ describe("epa — the optional component-map seam is inert at its default and li
   // and proven so by the replay assertions above. Pinning by equality is
   // what forces a version bump to be deliberate rather than a silent drift.
   it("carries exactly one version string, pinned by equality so any bump is deliberate", () => {
-    expect(epa.version).toBe("11.0.0+baseline");
+    expect(epa.version).toBe("12.0.0+baseline");
   });
 });
 

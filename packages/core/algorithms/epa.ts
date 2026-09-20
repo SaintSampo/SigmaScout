@@ -1154,7 +1154,20 @@ export const epa = {
   // 0.75127 to 0.75168 and Brier 0.16993 to 0.16977, accuracy better in 8
   // seasons and worse in 1 (2022), Brier better in 8 and worse in 2 (2022,
   // 2026). Accepted by Jacob 2026-09-19 as a correctness rule, not a tune.
-  version: "11.0.0+baseline",
+  //
+  // 12.0.0 (quick task 260920-qgg): TBA omits `adjustPoints` entirely at many
+  // offseason events, which used to fail every season's `SideBreakdownSchema`
+  // and route the match through `fallbackObserved`/`distributeResidual`
+  // instead of its real components. It now defaults to 0 on absence only —
+  // see `packages/core/algorithms/breakdown/constants.ts`'s
+  // `ADJUST_POINTS_SCHEMA`. This is a DATA-SHAPE correction, not an accuracy
+  // claim: a two-arm replay measured 0 / 18,372 official predictions and 0 /
+  // 18,372 official metric rows changed in 2026, the one season with an
+  // offseason event ahead of official play. Published COMPONENT values move
+  // at offseason rows only (1,516 / 2,502 non-official 2026 rows, 5,079 /
+  // 5,963 in 2025) — real components now flow instead of the proportional
+  // fallback split. MAJOR because a published number moves.
+  version: "12.0.0+baseline",
   initState,
   predict,
   update,

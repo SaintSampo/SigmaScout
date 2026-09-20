@@ -268,8 +268,26 @@ export const SPR_PARAMS: SprParams = {
  * 0.75580 to 0.75631 and Brier 0.16176 to 0.16144, accuracy better in 7
  * seasons and worse in 3 (2016, 2017, 2022), Brier better in 9 and worse in
  * 1 (2016). Accepted by Jacob 2026-09-19 as a correctness rule, not a tune.
+ *
+ * Bumped 6.0.0 -> 7.0.0+baseline (quick task 260920-qgg): TBA omits
+ * `adjustPoints` entirely at many offseason events, which used to fail every
+ * season's `SideBreakdownSchema` and degrade the whole breakdown to
+ * `kind: "malformed"`. It now defaults to 0 on absence only (still fails
+ * loudly if present as null/a string/non-finite) — see
+ * `packages/core/algorithms/breakdown/constants.ts`'s `ADJUST_POINTS_SCHEMA`.
+ * This is a DATA-SHAPE correction, not an accuracy claim: `predict`,
+ * `pRedWin`, `redScore`, `blueScore`, `variance` and the match band are
+ * untouched everywhere, including on 2026 official play (a full two-arm
+ * replay diffed 0 / 18,372 official and 0 / 2,502 non-official values). The
+ * published PHASE metrics DO move — this module's own `foldPhases` no longer
+ * skips a match whose only defect was the absent field: 5,066 offseason
+ * matches across all ten seasons flip from frozen to folding, plus 208
+ * official 2026 rows via the league-scoped `phaseScale`, because the one
+ * offseason event that precedes official play in its own season
+ * (`2026wima`) now steps that shared scale for every subsequent match.
+ * MAJOR because a published number moves, even though it is display-only.
  */
-export const SPR_VERSION = "6.0.0+baseline";
+export const SPR_VERSION = "7.0.0+baseline";
 
 /**
  * The two-timescale state, described by what the FROZEN PARAMETERS actually do
@@ -706,9 +724,24 @@ function phaseOutput(components: Readonly<Record<string, number>>, season: numbe
  * Returns the state UNCHANGED, rather than folding zeros, whenever the phase
  * observation is not genuinely available: no season yet, no breakdown on the
  * match, or a breakdown that fails its season schema (measured at ~21% of
- * offseason matches carrying one). A zero here would publish as "this team
- * scores nothing in auto", which is a different and false claim from "not
- * measured".
+ * offseason matches carrying one, before quick task 260920-qgg; the absent-
+ * `adjustPoints` slice of that population now parses instead of skipping —
+ * see `SPR_VERSION`'s 7.0.0 paragraph).
+ *
+ * Q-6 (260920-qgg): should the remaining skipped population get an
+ * EPA-style residual fallback (`distributeResidual`) instead of being
+ * skipped outright? NO, and this stays out of scope. EPA's fallback exists
+ * because EPA's components ARE its rating and a dropped match is a dropped
+ * observation it cannot afford to lose; SPR's phases are display-only, and
+ * an absent key already renders as "not measured" — the honest claim. After
+ * 260920-qgg the surviving skipped matches are missing real SCORING
+ * components (2022's cargo/foul/taxi/endgame, 2023's charge-station triple,
+ * 2024's note/stage/park fields), so a proportional split would publish an
+ * IMPUTED auto/teleop/endgame value as though it had been observed — a worse
+ * defect than the frozen value this fix corrects. It would also add a
+ * noise/weighting knob of exactly the kind this project has repeatedly
+ * declined for SPR (see `feedback_never_tune_bpr` — a residual-fallback
+ * weight is tuning-shaped even if never literally searched).
  */
 function foldPhases(
   state: SprState,

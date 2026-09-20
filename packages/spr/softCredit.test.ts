@@ -104,7 +104,9 @@ describe("softCredit", () => {
     // only -- predict() and softCredit are both untouched by it.
     // 6.0.0 (quick task 260919-368): a preseason Week 0 match is predicted and
     // never folded. softCredit is untouched by it.
-    expect(SPR_VERSION).toBe("6.0.0+baseline");
+    // 7.0.0 (quick task 260920-qgg): an offseason adjustPoints-absence data-
+    // shape fix. softCredit is untouched by it.
+    expect(SPR_VERSION).toBe("7.0.0+baseline");
   });
 
   it("shipped research params enable it too, so the two modules match", async () => {
