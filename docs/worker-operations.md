@@ -112,8 +112,29 @@ pnpm publish:seasons
 npx wrangler d1 execute sigmascout-state --remote --env-file .env --file reports/publish/seed-opr.sql
 npx wrangler d1 execute sigmascout-state --remote --env-file .env --file reports/publish/seed-epa.sql
 npx wrangler d1 execute sigmascout-state --remote --env-file .env --file reports/publish/seed-spr.sql
+npx wrangler d1 execute sigmascout-state --remote --env-file .env --file reports/publish/seed-cursors.sql
 pnpm worker:deploy
 ```
+
+**As of quick task 260920-q75 (2026-09-20), the fourth command above is mandatory, and its position
+matters.** `seed-cursors.sql` carries the run's `event_cursor` rows and the per algorithm permission
+to fold. Applying it after the three state files, and before the deploy, is what makes the cursor
+rewrite and the permission to fold land together. Applying it earlier suspends folding instead of
+corrupting state. `pnpm publish:seasons` prints the exact ordered commands for this run into
+`reports/publish/SEED-COMMANDS.txt`. Treat that generated file, not this static block, as the
+authoritative per run command list, since it always names the current run's actual file paths.
+
+**Incident, 2026-09-20.** Generation `e5cf1304` published at 20:12 UTC into four events that still
+held open live windows. The D1 seed for that same generation was applied minutes later. In the
+window between the two, tick `tick-1789935145177` folded all four events against the PREVIOUS
+generation's state and advanced each one's `event_cursor`. The seed then replaced `algorithm_state`
+without touching `event_cursor` at all, so `2026onsca1` ended up two matches ahead of its seeded
+state, and `2026tnkno` ended up one match ahead, both permanently missing from live state until the
+next re-baseline. Had the seed landed first instead, the tick would have re-folded all seventy
+already included `2026cc` qualification matches, corrupting state in the other direction. Both
+directions were silent, and neither raised an error anywhere. The next re-baseline under this quick
+task's change repairs both, since the cursor rows are now rewritten from the offline run itself
+rather than left standing from whatever the live tick did in between.
 
 **As of quick task 260912-ivg (2026-09-12): the third seed file's name is
 `seed-spr.sql`, not `seed-bpr.sql`.** The BPR -> SPR cutover is COMPLETE — this block is
@@ -207,6 +228,28 @@ directions — the familiar one is only half of it:
 The recovery from either is *the other command*, which costs another pass against the write cap
 below. The shape check is deliberately loud precisely so this fails visibly rather than
 diverging silently.
+
+#### The state generation refusal (quick task 260920-q75, 2026-09-20)
+
+A tick reads a marker for each live algorithm and compares it against the generation named in the
+deployed R2 manifests. When a live algorithm's marker does not match that generation, the whole
+tick folds nothing, advances nothing, and writes nothing, and it logs one structured line whose
+`msg` field reads `state-generation-mismatch`. Seeing that line in `wrangler tail` means D1 has not
+yet been seeded from the generation the manifests now name. Folding is suspended, not broken. The
+line carries the manifest generation and each live algorithm's own marker value, so the operator can
+read exactly what disagrees straight from the log line.
+
+The fix is always the same command, regardless of which side is stale: apply
+`reports/publish/seed-cursors.sql` from the most recent publish run. It is never a redeploy, and it
+is never a state file alone, since the marker only lands once the matching state rows are already
+present.
+
+State the bootstrap plainly, since it is easy to discover only by reading a tail rather than this
+page. Live D1 today holds no marker row at all for any algorithm. The very first deploy of a Worker
+built after this quick task refuses to fold, on every tick, until the next seed pass lands
+`seed-cursors.sql`. That is consistent with this section's own seed first, deploy second rule above,
+and it is worth naming here rather than discovering it as an unexplained `state-generation-mismatch`
+line the first time this Worker version runs.
 
 **Outstanding shape obligation as of 2026-09-11.** Live D1 and the deployed Worker are at
 **shape 11**. Four bumps have landed in the repository since, none of them seeded or deployed:
