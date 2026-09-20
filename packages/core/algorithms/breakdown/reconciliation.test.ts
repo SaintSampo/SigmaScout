@@ -16,10 +16,12 @@ import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { openCorpusReadOnly } from "../../../corpus/db.js";
 import {
+  ADJUST_COMPONENT,
   BREAKDOWN_REGISTERED_SEASONS,
   componentMapForSeason,
   FOULS_COMMITTED_COMPONENT,
   parseBreakdown,
+  tryParseBreakdownPair,
 } from "./index.js";
 import { distributeResidual } from "./fallback.js";
 import type { ParsedComponents } from "./constants.js";
@@ -510,5 +512,114 @@ describe("2019 roll-up source gate (BD-1)", () => {
     expect(components).toContain("hatchPanel");
     expect(components).toContain("cargo");
     expect(components).toContain("habClimb");
+  });
+});
+
+/**
+ * 260920-qgg: TBA omits `adjustPoints` entirely on both alliances at many
+ * offseason events (measured: 12,210 alliance-sides across the corpus, all
+ * offseason, never present-but-invalid). Before this fix that degraded the
+ * whole breakdown to `kind: "malformed"`. These assertions are read
+ * DIRECTLY against real 2026 offseason rows rather than a hand-built
+ * fixture, so they keep working if the corpus is re-ingested — a
+ * hand-typed payload could silently drift from TBA's real shape.
+ */
+describe("2026 offseason: absent adjustPoints defaults to 0, present-but-invalid still fails (260920-qgg)", () => {
+  if (!CORPUS_AVAILABLE) {
+    it.skip(`skipped: ${CORPUS_PATH} not found — run the ingest pipeline (pnpm ingest) first`, () => {});
+    return;
+  }
+
+  function all2026OffseasonBreakdownRows(): SampledBreakdownRow[] {
+    const db = openCorpusReadOnly(CORPUS_PATH);
+    try {
+      return db
+        .prepare(
+          `SELECT m.match_key, m.score_breakdown_raw
+           FROM matches m
+           JOIN events e ON e.event_key = m.event_key
+           WHERE e.year = 2026 AND e.is_offseason = 1 AND m.has_score_breakdown = 1 AND m.winner IS NOT NULL
+           ORDER BY m.match_key ASC`
+        )
+        .all() as SampledBreakdownRow[];
+    } finally {
+      db.close();
+    }
+  }
+
+  /** True when neither side's raw JSON carries an `adjustPoints` OWN key at all. */
+  function missingAdjustPointsOnBothSides(row: SampledBreakdownRow): boolean {
+    const rawJson = JSON.parse(row.score_breakdown_raw) as {
+      red?: Record<string, unknown>;
+      blue?: Record<string, unknown>;
+    };
+    return (
+      rawJson.red !== undefined &&
+      rawJson.blue !== undefined &&
+      !Object.prototype.hasOwnProperty.call(rawJson.red, "adjustPoints") &&
+      !Object.prototype.hasOwnProperty.call(rawJson.blue, "adjustPoints")
+    );
+  }
+
+  it("a real 2026 offseason breakdown with no adjustPoints key on either side parses, with adjust === 0 on both sides", () => {
+    const rows = all2026OffseasonBreakdownRows();
+    const row = rows.find(missingAdjustPointsOnBothSides);
+    expect(row, "no 2026 offseason match with adjustPoints absent on both sides found in the corpus").toBeDefined();
+
+    const outcome = tryParseBreakdownPair(2026, row!.score_breakdown_raw);
+    expect(outcome.kind).toBe("parsed");
+    if (outcome.kind !== "parsed") throw new Error("unreachable");
+    expect(outcome.red[ADJUST_COMPONENT]).toBe(0);
+    expect(outcome.blue[ADJUST_COMPONENT]).toBe(0);
+  });
+
+  it("the identical payload with adjustPoints present as null, a string, or NaN on one side still yields malformed — absent is the ONLY admitted shape", () => {
+    const rows = all2026OffseasonBreakdownRows();
+    const row = rows.find(missingAdjustPointsOnBothSides);
+    expect(row).toBeDefined();
+    const base = JSON.parse(row!.score_breakdown_raw) as {
+      red: Record<string, unknown>;
+      blue: Record<string, unknown>;
+    };
+
+    for (const invalidValue of [null, "12", Number.NaN]) {
+      const mutated = {
+        red: { ...base.red, adjustPoints: invalidValue },
+        blue: { ...base.blue },
+      };
+      const outcome = tryParseBreakdownPair(2026, JSON.stringify(mutated));
+      expect(outcome.kind, `adjustPoints = ${JSON.stringify(invalidValue)} must still fail to parse`).toBe("malformed");
+    }
+  });
+
+  it("reconciliation still holds for every 2026 offseason match that flips from malformed to parsed", () => {
+    const rows = all2026OffseasonBreakdownRows();
+    const map = componentMapForSeason(2026);
+    let flippedCount = 0;
+
+    for (const row of rows) {
+      const outcome = tryParseBreakdownPair(2026, row.score_breakdown_raw);
+      if (outcome.kind !== "parsed") continue;
+      if (!missingAdjustPointsOnBothSides(row)) continue; // scope to the population this fix actually flips
+
+      flippedCount += 1;
+      const rawJson: unknown = JSON.parse(row.score_breakdown_raw);
+      for (const side of ["red", "blue"] as const) {
+        const opponentSide = side === "red" ? "blue" : "red";
+        const ownComponents = map.parse(rawJson, side);
+        const opponentComponents = map.parse(rawJson, opponentSide);
+        const offensiveSum = Object.entries(ownComponents)
+          .filter(([name]) => name !== FOULS_COMMITTED_COMPONENT)
+          .reduce((sum, [, value]) => sum + value, 0);
+        const reconciledTotal = offensiveSum + opponentComponents[FOULS_COMMITTED_COMPONENT]!;
+        const expectedTotal = allianceTotalPoints(rawJson, side);
+        expect(
+          Math.abs(reconciledTotal - expectedTotal),
+          `match ${row.match_key} (${side}): reconciled ${reconciledTotal} vs totalPoints ${expectedTotal}`
+        ).toBeLessThan(RECONCILIATION_TOLERANCE);
+      }
+    }
+
+    expect(flippedCount, "no 2026 offseason match flipped to parsed — this proof is vacuous without at least one").toBeGreaterThan(0);
   });
 });

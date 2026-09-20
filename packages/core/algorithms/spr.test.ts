@@ -9,11 +9,14 @@
  * boundary -- not the approximation's accuracy -- is what both the
  * reporting layer and the accuracy rule key off.
  */
+import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { spr, correctionsOf, type SprState, type SprTeamState } from "./spr.js";
 import { accuracyCall, scoreSet } from "../scoring/brier.js";
 import type { MatchResult, UpcomingMatch } from "./types.js";
 import { DEMO_PSEUDO_TEAM_KEY } from "./demoTeams.js";
+import { openCorpusReadOnly } from "../../corpus/db.js";
+import { buildSeasonStream } from "../../harness/replay.js";
 
 const SIX = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
 
@@ -421,5 +424,87 @@ describe("spr — off-season demo team and placeholder exclusion (demoTeams.ts)"
     const viaDemo = spr.predict(state, upcoming({ redTeams: ["frc1", "frc9990", "frc3"] }));
     const viaPseudo = spr.predict(state, upcoming({ redTeams: ["frc1", DEMO_PSEUDO_TEAM_KEY, "frc3"] }));
     expect(viaDemo).toEqual(viaPseudo);
+  });
+});
+
+/**
+ * 260920-qgg: `frc4414` after `2026cc_qm69` published `total` 316.31 against
+ * phases summing to 141.4, because TBA's offseason `adjustPoints` omission
+ * made every offseason breakdown `kind: "malformed"`, so `foldPhases`
+ * (`spr.ts`) skipped the match entirely while `update`'s `total` kept
+ * folding through the lenient `correctionsOf`. Replayed here against the
+ * real corpus, seeded through a NON-cold-start `carrySeason` — a state
+ * straight from `initState` has a null `season`, and `foldPhases` returns
+ * unchanged for a null season, so a test written without the carry would
+ * pass vacuously whether or not this fix exists.
+ */
+describe("spr phase folding survives an offseason breakdown missing only adjustPoints (260920-qgg)", () => {
+  const CORPUS_PATH = "data/corpus.sqlite";
+
+  if (!existsSync(CORPUS_PATH)) {
+    it.skip(`skipped: ${CORPUS_PATH} not found — run the ingest pipeline (pnpm ingest) first`, () => {});
+    return;
+  }
+
+  const carrySeason: NonNullable<typeof spr.carrySeason> = (() => {
+    const fn = spr.carrySeason;
+    if (fn === undefined) throw new Error("spr must implement carrySeason");
+    return fn;
+  })();
+
+  it("frc4414 at 2026cc_qm69 emits all three PRESENT phase values after replaying the 2026 offseason-inclusive stream", () => {
+    const db = openCorpusReadOnly(CORPUS_PATH);
+    let matches: MatchResult[];
+    try {
+      matches = buildSeasonStream(db, 2026, { includeOffseason: true });
+    } finally {
+      db.close();
+    }
+    expect(matches.length).toBeGreaterThan(0);
+
+    // NOT spr.initState directly — a state seeded through carrySeason with
+    // isColdStart: false has a real (non-null) season, which is what makes
+    // foldPhases actually run instead of no-op'ing on every match.
+    let state = carrySeason(spr.initState([]), { fromSeason: 2025, toSeason: 2026, isColdStart: false });
+
+    let reachedTarget = false;
+    for (const match of matches) {
+      state = spr.update(state, match);
+      if (match.matchKey === "2026cc_qm69") {
+        reachedTarget = true;
+        break;
+      }
+    }
+    expect(reachedTarget, "2026cc_qm69 not found in the 2026 offseason-inclusive corpus stream").toBe(true);
+
+    const metrics = spr.teamMetrics(state, ["frc4414"])["frc4414"];
+    // PRESENT is the assertion, not merely "equal to something" — the whole
+    // point of this fix is that these keys stop being ABSENT at an
+    // offseason event whose only breakdown defect is a missing adjustPoints.
+    expect(metrics).toHaveProperty("phaseAuto");
+    expect(metrics).toHaveProperty("phaseTeleop");
+    expect(metrics).toHaveProperty("phaseEndgame");
+    expect(metrics).toHaveProperty("total");
+
+    const phaseAuto = metrics!.phaseAuto!.value;
+    const phaseTeleop = metrics!.phaseTeleop!.value;
+    const phaseEndgame = metrics!.phaseEndgame!.value;
+    const total = metrics!.total!.value;
+    for (const value of [phaseAuto, phaseTeleop, phaseEndgame, total]) {
+      expect(Number.isFinite(value)).toBe(true);
+    }
+
+    const phaseSum = phaseAuto + phaseTeleop + phaseEndgame;
+    // eslint-disable-next-line no-console
+    console.log(
+      `[spr phase 260920-qgg] frc4414 @ 2026cc_qm69: total=${total.toFixed(2)} phaseSum=${phaseSum.toFixed(2)} ` +
+        `(auto=${phaseAuto.toFixed(2)}, teleop=${phaseTeleop.toFixed(2)}, endgame=${phaseEndgame.toFixed(2)})`
+    );
+    // The three independently-filtered phase EWMAs need not sum to the
+    // total EWMA to the last decimal, but with this fix folding every
+    // offseason match the same way `update`'s total does, they must track
+    // it closely -- not the pre-fix 141.4-vs-316.31 divergence (< 45% of
+    // total) this bug produced.
+    expect(Math.abs(phaseSum - total) / Math.abs(total)).toBeLessThan(0.3);
   });
 });
