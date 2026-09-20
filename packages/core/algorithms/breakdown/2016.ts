@@ -39,7 +39,7 @@
  */
 import { z } from "zod";
 import type { ParsedComponents, SeasonComponentMap } from "./constants.js";
-import { ADJUST_COMPONENT, FOULS_COMMITTED_COMPONENT } from "./constants.js";
+import { ADJUST_COMPONENT, ADJUST_POINTS_SCHEMA, FOULS_COMMITTED_COMPONENT } from "./constants.js";
 
 /**
  * Only the subset of TBA's `score_breakdown.{side}` object this map reads.
@@ -57,7 +57,7 @@ const SideBreakdownSchema = z.object({
   /** Always 0 in quals, real points in playoffs; load-bearing, see file header. */
   breachPoints: z.number().finite(),
   capturePoints: z.number().finite(),
-  adjustPoints: z.number().finite(),
+  adjustPoints: ADJUST_POINTS_SCHEMA,
   /** Points this alliance RECEIVED from the opponent's fouls, not points it committed. */
   foulPoints: z.number().finite(),
 });
