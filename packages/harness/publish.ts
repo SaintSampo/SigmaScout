@@ -27,7 +27,6 @@ import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import type {
   AlgorithmModule,
-  CompLevel,
   MatchResult,
   Prediction,
   TeamMetric,
@@ -35,6 +34,7 @@ import type {
   UpcomingMatch,
 } from "../core/algorithms/types.js";
 import { TOTAL_METRIC_KEY } from "../core/algorithms/types.js";
+import { COMP_LEVEL_PLAY_ORDER } from "../ingest/normalize.js";
 import { seasonBoundaryFor } from "./seasonBoundary.js";
 import type { OprState } from "../core/algorithms/opr.js";
 import type { EpaState } from "../core/algorithms/epa.js";
@@ -1646,8 +1646,6 @@ function selectMatchVideoKeys(db: Corpus, season: number, options: { excludeOffs
 }
 
 /** The comp-level play order of `selectScheduledMatches`'s `CASE` clause; keep the two in step. */
-const COMP_LEVEL_RANK: Record<CompLevel, number> = { qm: 0, ef: 1, qf: 2, sf: 3, f: 4 };
-
 /**
  * Sorts one event's played and scheduled records by `sortTime`, then comp level, `setNumber`,
  * `matchNumber` and `matchKey`, the same chain as `selectScheduledMatches`. A missing time sorts last.
@@ -1660,8 +1658,8 @@ function sortTeamSeasonMatches(
     const aTime = sortTimeByMatchKey.get(a.match.matchKey) ?? Number.POSITIVE_INFINITY;
     const bTime = sortTimeByMatchKey.get(b.match.matchKey) ?? Number.POSITIVE_INFINITY;
     if (aTime !== bTime) return aTime - bTime;
-    const aRank = COMP_LEVEL_RANK[a.match.compLevel];
-    const bRank = COMP_LEVEL_RANK[b.match.compLevel];
+    const aRank = COMP_LEVEL_PLAY_ORDER[a.match.compLevel];
+    const bRank = COMP_LEVEL_PLAY_ORDER[b.match.compLevel];
     if (aRank !== bRank) return aRank - bRank;
     if (a.match.setNumber !== b.match.setNumber) return a.match.setNumber - b.match.setNumber;
     if (a.match.matchNumber !== b.match.matchNumber) return a.match.matchNumber - b.match.matchNumber;

@@ -21,6 +21,8 @@ import {
 // algorithms manifest below, so deriving these expectations from the module
 // tracks any future version bump instead of standing as a literal trip-wire.
 import { opr } from "../../../packages/core/algorithms/opr.js";
+import { PUBLISHED_ALGORITHM_IDS } from "../../../packages/harness/publishedAlgorithms.js";
+import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
 
@@ -81,7 +83,14 @@ class FakeD1Database {
   eventCursors = new Map<string, FakeEventCursorRow>();
   rejectNextBatchWith: Error | null = null;
 
-  constructor(private readonly sharedLog: SharedLogEntry[] = []) {}
+  constructor(private readonly sharedLog: SharedLogEntry[] = []) {
+    // Every existing fixture's algorithms manifest publishes `generation:
+    // "gen-1"` (see `algorithmsManifest` below) — seeding a marker at that
+    // generation for every published algorithm id is what keeps every
+    // pre-existing test in this file folding exactly as before quick task
+    // 260920-q75 (a mismatch would otherwise suspend folding by default).
+    seedStateBaselineMarkers(this.eventCursors, PUBLISHED_ALGORITHM_IDS, "gen-1");
+  }
 
   prepare(sql: string): FakePreparedStatement {
     return new FakePreparedStatement(sql, this);
@@ -128,9 +137,13 @@ class FakeD1Database {
       });
     }
     if (sql.includes("FROM event_cursor")) {
-      const eventKey = args[0] as string;
-      const row = this.eventCursors.get(eventKey);
-      return row ? [row] : [];
+      // Every bound argument is an `event_key` to match, whether the caller
+      // asked for one (`readEventCursor`) or several via an `IN (...)` list
+      // (`readEventCursors` — the tick-meta sentinel plus every live
+      // algorithm's state-baseline marker, quick task 260920-q75). Returning
+      // every hit serves both shapes with one branch.
+      const eventKeys = args as string[];
+      return eventKeys.map((key) => this.eventCursors.get(key)).filter((row): row is FakeEventCursorRow => row !== undefined);
     }
     throw new Error(`FakeD1Database.executeSelect: unrecognized SQL: ${sql}`);
   }

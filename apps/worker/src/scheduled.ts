@@ -79,7 +79,7 @@ import { foldsIntoRatings, isOfficialEventType } from "../../../packages/core/al
 import type { AlgorithmModule, MatchResult, Prediction, TeamMetric } from "../../../packages/core/algorithms/types.js";
 import { tbaMatchListSchema, type TbaMatch } from "../../../packages/ingest/schemas.js";
 import { tbaEventSchema } from "../../../packages/ingest/schemas.js";
-import { normalizeMatch, type CorpusMatch } from "../../../packages/ingest/normalize.js";
+import { normalizeMatch, compareCorpusMatchOrder, type CorpusMatch } from "../../../packages/ingest/normalize.js";
 import { fetchEventDetail } from "../../../packages/ingest/tbaClient.js";
 import { isDemoTeamKey } from "../../../packages/core/algorithms/demoTeams.js";
 import { stateBlockScopeKeys } from "../../../packages/harness/eventStatePricing.js";
@@ -138,16 +138,19 @@ import {
 } from "./artifactMerge.js";
 import { checkLiveEventArtifactShape } from "./artifactShapeCheck.js";
 import { ArtifactReadBudgetExhaustedError, ArtifactSecretLeakError, readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
-import { hasAlreadyFolded, readEventCursor, readScopedState, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
+import { hasAlreadyFolded, readEventCursor, readEventCursors, readScopedState, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
+import { TICK_META_EVENT_KEY, stateBaselineEventKey } from "../../../packages/harness/stateBaseline.js";
 import { rotate, sortEventKeys, SubrequestBudget } from "./subrequestBudget.js";
 import { createTbaContext, pollEventMatches, TbaRequestCounter, type TbaClientContext } from "./tbaPoll.js";
 import type { Env } from "./env.js";
 
 // ---------------------------------------------------------------------------
-// Tick meta (rotation offset, last global rebuild)
+// Tick meta (rotation offset, last global rebuild) plus the per-algorithm
+// state-baseline marker (quick task 260920-q75) — read together, in the
+// ONE subrequest this section already spent on the sentinel alone. See
+// `packages/harness/stateBaseline.ts` for the shared key contract and
+// `readEventCursors` (`stateStore.ts`) for why this costs no extra round trip.
 // ---------------------------------------------------------------------------
-
-const TICK_META_EVENT_KEY = "__scheduler_meta__";
 
 interface TickMeta {
   readonly rotationOffset: number;
@@ -156,22 +159,82 @@ interface TickMeta {
 
 const DEFAULT_TICK_META: TickMeta = { rotationOffset: 0, lastGlobalRebuildAtMs: 0 };
 
-async function readTickMeta(db: D1Database): Promise<TickMeta> {
-  const cursor = await readEventCursor(db, TICK_META_EVENT_KEY);
-  if (!cursor || cursor.lastFoldedMatchKey === null) return DEFAULT_TICK_META;
-  try {
-    const parsed = JSON.parse(cursor.lastFoldedMatchKey) as Partial<TickMeta>;
-    return {
-      rotationOffset: typeof parsed.rotationOffset === "number" ? parsed.rotationOffset : 0,
-      lastGlobalRebuildAtMs: typeof parsed.lastGlobalRebuildAtMs === "number" ? parsed.lastGlobalRebuildAtMs : 0,
-    };
-  } catch {
-    return DEFAULT_TICK_META;
+export interface TickState {
+  readonly meta: TickMeta;
+  /** This tick's LIVE algorithm ids only (`algorithmModules.keys()`), each mapped to what its `event_cursor` baseline marker holds — `undefined` for a missing row (today's live D1 bootstrap state, or an algorithm never seeded a marker for). */
+  readonly baselineGenerationByAlgorithm: ReadonlyMap<string, string | undefined>;
+}
+
+/**
+ * Replaces the old `readTickMeta`: the SAME one subrequest (`readEventCursors`
+ * over a small, fixed key list), now also naming each live algorithm's
+ * state-baseline marker key alongside the tick-meta sentinel. `TICK_FIXED_SUBREQUEST_COST`
+ * is unchanged by this — see its own doc comment.
+ */
+async function readTickState(db: D1Database, algorithmIds: readonly string[]): Promise<TickState> {
+  const keys = [TICK_META_EVENT_KEY, ...algorithmIds.map((id) => stateBaselineEventKey(id))];
+  const cursors = await readEventCursors(db, keys);
+
+  let meta = DEFAULT_TICK_META;
+  const metaCursor = cursors.get(TICK_META_EVENT_KEY);
+  if (metaCursor && metaCursor.lastFoldedMatchKey !== null) {
+    try {
+      const parsed = JSON.parse(metaCursor.lastFoldedMatchKey) as Partial<TickMeta>;
+      meta = {
+        rotationOffset: typeof parsed.rotationOffset === "number" ? parsed.rotationOffset : 0,
+        lastGlobalRebuildAtMs: typeof parsed.lastGlobalRebuildAtMs === "number" ? parsed.lastGlobalRebuildAtMs : 0,
+      };
+    } catch {
+      meta = DEFAULT_TICK_META;
+    }
   }
+
+  const baselineGenerationByAlgorithm = new Map<string, string | undefined>();
+  for (const id of algorithmIds) {
+    // A baseline row's `lastFoldedMatchKey` holds a BARE generation string —
+    // never JSON (see `stateBaseline.ts`'s header) — so it is read as-is.
+    baselineGenerationByAlgorithm.set(id, cursors.get(stateBaselineEventKey(id))?.lastFoldedMatchKey ?? undefined);
+  }
+
+  return { meta, baselineGenerationByAlgorithm };
 }
 
 async function writeTickMeta(db: D1Database, meta: TickMeta, nowIso: string): Promise<void> {
   await writeEventCursor(db, { eventKey: TICK_META_EVENT_KEY, tbaEtag: null, lastFoldedMatchKey: JSON.stringify(meta), lastPolledAt: null, lastAdvancedAt: nowIso });
+}
+
+/** What a state-generation mismatch's one warn line carries — never more than the manifest generation and each live algorithm's own marker (never a TBA value, never an artifact body). */
+export interface StateGenerationMismatch {
+  readonly manifestGeneration: string;
+  /** Per live algorithm id: what its marker actually holds, or `null` for a missing row (never `undefined` — this is serialized straight into the warn line's JSON). */
+  readonly markers: Readonly<Record<string, string | null>>;
+}
+
+/**
+ * `undefined` when every one of `algorithmIds`' markers equals
+ * `manifestGeneration` (the healthy, common-case control arm) — otherwise the
+ * full picture of what disagreed. Compared for the LIVE tier only
+ * (`algorithmModules.keys()`, the ids `runTick` passes in): an algorithm that
+ * never folds live cannot desync its state from the cursor, and a partial
+ * publish (`--algorithm spr`) must not brick folding for a tier it did not
+ * touch. See this quick task's PLAN.md "Design decisions" for why a mismatch
+ * on ANY live algorithm suspends the WHOLE tick rather than just that one:
+ * `event_cursor` has no per-algorithm granularity, so a partial fold would
+ * desync the un-advanced algorithms.
+ */
+export function detectStateGenerationMismatch(
+  manifestGeneration: string,
+  algorithmIds: readonly string[],
+  baselineGenerationByAlgorithm: ReadonlyMap<string, string | undefined>
+): StateGenerationMismatch | undefined {
+  const markers: Record<string, string | null> = {};
+  let mismatched = false;
+  for (const id of algorithmIds) {
+    const marker = baselineGenerationByAlgorithm.get(id);
+    markers[id] = marker ?? null;
+    if (marker !== manifestGeneration) mismatched = true;
+  }
+  return mismatched ? { manifestGeneration, markers } : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -786,7 +849,11 @@ async function processEvent(
     // feeds only normalizeMatch's rarely used sortTime fallback.
     const approxStartDateIso = new Date(window.startMs).toISOString();
     const normalized = rawMatches.map((m) => normalizeMatch(m, approxStartDateIso));
-    const orderedMatches = [...normalized].sort((a, b) => a.sortTime - b.sortTime);
+    // The cursor an offline seed writes (`event_cursor.last_folded_match_key`)
+    // is only meaningful if both sides agree on order — `compareCorpusMatchOrder`
+    // is the Worker's half of that shared contract with the publisher's own
+    // `selectMatchesChronological` (quick task 260920-q75).
+    const orderedMatches = [...normalized].sort(compareCorpusMatchOrder);
     const orderedMatchKeys = orderedMatches.map((m) => m.matchKey);
 
     const newlyFolded = orderedMatches.filter((m) => m.winner !== null && !hasAlreadyFolded(cursor, m.matchKey, orderedMatchKeys));
@@ -1327,6 +1394,8 @@ export interface TickResult {
   readonly tbaRequests: number;
   readonly subrequestsUsed: number;
   readonly globalRebuildRan: boolean;
+  /** The offline seed for this generation has not been applied to D1 yet; folding is suspended, not broken. See `detectStateGenerationMismatch`. */
+  readonly stateGenerationMismatch: boolean;
 }
 
 export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickResult> {
@@ -1351,7 +1420,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   const liveEvents = await loadLiveEventsAt(env, nowMs);
 
   if (liveEvents.length === 0) {
-    return { eventsConsidered: 0, eventsAdvanced: 0, eventsDeferred: 0, eventsFailed: 0, eventsProbed: 0, eventsPromoted: 0, tbaRequests: counter.total, subrequestsUsed: budget.used, globalRebuildRan: false };
+    return { eventsConsidered: 0, eventsAdvanced: 0, eventsDeferred: 0, eventsFailed: 0, eventsProbed: 0, eventsPromoted: 0, tbaRequests: counter.total, subrequestsUsed: budget.used, globalRebuildRan: false, stateGenerationMismatch: false };
   }
 
   // Split into foldable (`inferred: false`, a real measured window) and
@@ -1383,6 +1452,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
       tbaRequests: counter.total,
       subrequestsUsed: budget.used,
       globalRebuildRan: false,
+      stateGenerationMismatch: false,
     };
   }
 
@@ -1392,8 +1462,36 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   const buildModules = deps.buildAlgorithmModules ?? buildAlgorithmModules;
   const algorithmModules = buildModules(algorithmsManifest, liveAlgorithmIds);
 
+  // The tick-meta sentinel and every live algorithm's state-baseline marker,
+  // in the ONE subrequest `readTickMeta` used to spend on the sentinel alone
+  // (quick task 260920-q75).
   budget.consume(1);
-  const meta = await readTickMeta(env.DB);
+  const liveAlgorithmModuleIds = [...algorithmModules.keys()];
+  const { meta, baselineGenerationByAlgorithm } = await readTickState(env.DB, liveAlgorithmModuleIds);
+
+  // A mismatch means D1 has not yet been seeded from the generation the R2
+  // manifests now name — folding against it would either double-fold (a
+  // seed-then-tick race) or silently skip matches forever (a tick-then-seed
+  // race). Return BEFORE the event loop, before `runGlobalRebuild` and before
+  // `writeTickMeta`: nothing is claimed, advanced, rebuilt or written. Probes
+  // above already ran and are reported as usual; a promoted event is simply
+  // never fed into the loop below.
+  const mismatch = detectStateGenerationMismatch(algorithmsManifest.generation, liveAlgorithmModuleIds, baselineGenerationByAlgorithm);
+  if (mismatch !== undefined) {
+    console.warn(JSON.stringify({ msg: "state-generation-mismatch", manifestGeneration: mismatch.manifestGeneration, markers: mismatch.markers }));
+    return {
+      eventsConsidered: 0,
+      eventsAdvanced: 0,
+      eventsDeferred: 0,
+      eventsFailed: probeResult.eventsFailed,
+      eventsProbed: probeResult.eventsProbed,
+      eventsPromoted: 0,
+      tbaRequests: counter.total,
+      subrequestsUsed: budget.used,
+      globalRebuildRan: false,
+      stateGenerationMismatch: true,
+    };
+  }
 
   const promotedWindows = liveEvents.filter((w) => probeResult.promoted.has(w.eventKey));
   const orderedEventKeys = rotate(sortEventKeys([...foldableWindows.map((w) => w.eventKey), ...promotedWindows.map((w) => w.eventKey)]), meta.rotationOffset);
@@ -1454,6 +1552,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
     tbaRequests: counter.total,
     subrequestsUsed: budget.used,
     globalRebuildRan,
+    stateGenerationMismatch: false,
   };
 }
 

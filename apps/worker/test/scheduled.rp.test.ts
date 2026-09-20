@@ -56,6 +56,8 @@ import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
 import { EVENT_TYPE_TIERS, isRpEligibleEventType } from "../../../packages/core/rankingPoints/constants.js";
 import { TOTAL_METRIC_KEY } from "../../../packages/core/algorithms/types.js";
 import type { AlgorithmModule, MatchResult } from "../../../packages/core/algorithms/types.js";
+import { PUBLISHED_ALGORITHM_IDS } from "../../../packages/harness/publishedAlgorithms.js";
+import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
 
@@ -152,6 +154,14 @@ class FakeD1Database {
   algorithmState = new Map<string, FakeAlgorithmStateRow>();
   eventCursors = new Map<string, FakeEventCursorRow>();
 
+  constructor() {
+    // Every fixture's algorithms manifest publishes `generation: "gen-1"`
+    // (see `algorithmsManifestJson` below) — seeding a marker at that
+    // generation for every published algorithm id keeps every pre-existing
+    // test in this file folding exactly as before quick task 260920-q75.
+    seedStateBaselineMarkers(this.eventCursors, PUBLISHED_ALGORITHM_IDS, "gen-1");
+  }
+
   prepare(sql: string): FakePreparedStatement {
     return new FakePreparedStatement(sql, this);
   }
@@ -184,9 +194,11 @@ class FakeD1Database {
       });
     }
     if (sql.includes("FROM event_cursor")) {
-      const eventKey = args[0] as string;
-      const row = this.eventCursors.get(eventKey);
-      return row ? [row] : [];
+      // Every bound argument is an `event_key` to match — one for
+      // `readEventCursor`, several for `readEventCursors`'s `IN (...)` list
+      // (quick task 260920-q75). Returning every hit serves both shapes.
+      const eventKeys = args as string[];
+      return eventKeys.map((key) => this.eventCursors.get(key)).filter((row): row is FakeEventCursorRow => row !== undefined);
     }
     throw new Error(`FakeD1Database.executeSelect: unrecognized SQL: ${sql}`);
   }

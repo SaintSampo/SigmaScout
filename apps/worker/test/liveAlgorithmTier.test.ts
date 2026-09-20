@@ -50,6 +50,8 @@ import { epa } from "../../../packages/core/algorithms/epa.js";
 import { SubrequestBudget } from "../src/subrequestBudget.js";
 import { DEMO_PSEUDO_TEAM_KEY } from "../../../packages/core/algorithms/demoTeams.js";
 import { readSigmaBeliefs, serializeState, withSigmaBeliefs } from "../../../packages/harness/stateSnapshot.js";
+import { PUBLISHED_ALGORITHM_IDS } from "../../../packages/harness/publishedAlgorithms.js";
+import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
 
@@ -132,6 +134,14 @@ class FakeD1Database {
   algorithmState = new Map<string, FakeAlgorithmStateRow>();
   eventCursors = new Map<string, FakeEventCursorRow>();
 
+  constructor() {
+    // Every fixture's algorithms manifest publishes `generation: "gen-1"`
+    // (see `algorithmsManifest` below) — seeding a marker at that generation
+    // for every published algorithm id keeps every pre-existing test in this
+    // file folding exactly as before quick task 260920-q75.
+    seedStateBaselineMarkers(this.eventCursors, PUBLISHED_ALGORITHM_IDS, "gen-1");
+  }
+
   prepare(sql: string): FakePreparedStatement {
     return new FakePreparedStatement(sql, this);
   }
@@ -165,9 +175,11 @@ class FakeD1Database {
       });
     }
     if (sql.includes("FROM event_cursor")) {
-      const eventKey = args[0] as string;
-      const row = this.eventCursors.get(eventKey);
-      return row ? [row] : [];
+      // Every bound argument is an `event_key` to match — one for
+      // `readEventCursor`, several for `readEventCursors`'s `IN (...)` list
+      // (quick task 260920-q75). Returning every hit serves both shapes.
+      const eventKeys = args as string[];
+      return eventKeys.map((key) => this.eventCursors.get(key)).filter((row): row is FakeEventCursorRow => row !== undefined);
     }
     throw new Error(`FakeD1Database.executeSelect: unrecognized SQL: ${sql}`);
   }

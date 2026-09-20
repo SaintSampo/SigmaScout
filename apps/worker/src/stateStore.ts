@@ -202,6 +202,41 @@ export async function readEventCursor(db: D1Database, eventKey: string): Promise
   };
 }
 
+/**
+ * Every named `event_cursor` row in ONE prepared statement, ONE subrequest,
+ * however many keys — the multi-key sibling of `readEventCursor` (kept
+ * exactly as it is; nothing below replaces it). An empty `eventKeys` array
+ * performs zero calls and returns an empty map.
+ *
+ * This costs one subrequest REGARDLESS OF KEY COUNT, which is what lets a
+ * tick read its own rotation/rebuild sentinel (`TICK_META_EVENT_KEY`) and
+ * every live algorithm's state-baseline marker (`stateBaselineEventKey`, see
+ * `packages/harness/stateBaseline.ts`) in the ONE subrequest
+ * `readTickState` (`apps/worker/src/scheduled.ts`) already spent on the
+ * sentinel alone, rather than adding a second round trip per marker.
+ */
+export async function readEventCursors(db: D1Database, eventKeys: readonly string[]): Promise<Map<string, EventCursor>> {
+  const result = new Map<string, EventCursor>();
+  if (eventKeys.length === 0) return result;
+
+  const placeholders = eventKeys.map(() => "?").join(",");
+  const { results } = await db
+    .prepare(`SELECT event_key, tba_etag, last_folded_match_key, last_polled_at, last_advanced_at FROM event_cursor WHERE event_key IN (${placeholders})`)
+    .bind(...eventKeys)
+    .all<EventCursorRow>();
+
+  for (const row of results) {
+    result.set(row.event_key, {
+      eventKey: row.event_key,
+      tbaEtag: row.tba_etag,
+      lastFoldedMatchKey: row.last_folded_match_key,
+      lastPolledAt: row.last_polled_at,
+      lastAdvancedAt: row.last_advanced_at,
+    });
+  }
+  return result;
+}
+
 export async function writeEventCursor(db: D1Database, cursor: EventCursor): Promise<void> {
   await db
     .prepare(

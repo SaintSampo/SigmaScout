@@ -88,7 +88,9 @@ export interface CorpusMatch {
 }
 
 const OFFSEASON_EVENT_TYPE = 99;
-const COMP_LEVEL_PLAY_ORDER: Record<CompLevel, number> = { qm: 0, ef: 1, qf: 2, sf: 3, f: 4 };
+
+/** Comp-level play order (qm, ef, qf, sf, f), the ONE definition — `packages/harness/publish.ts`'s `sortTeamSeasonMatches` imports this rather than keeping its own copy (quick task 260920-q75). */
+export const COMP_LEVEL_PLAY_ORDER: Record<CompLevel, number> = { qm: 0, ef: 1, qf: 2, sf: 3, f: 4 };
 
 export function normalizeEvent(event: TbaEvent): CorpusEvent {
   return {
@@ -118,6 +120,40 @@ export function normalizeEvent(event: TbaEvent): CorpusEvent {
 export function tbaReportedMatchTimeMs(match: Pick<TbaMatch, "actual_time" | "predicted_time" | "time">): number | null {
   const t = match.actual_time ?? match.predicted_time ?? match.time;
   return t != null ? t * 1000 : null;
+}
+
+/**
+ * The in-memory mirror of `selectMatchesChronological`'s `ORDER BY` chain
+ * (`packages/corpus/db.ts`), restricted to one event — the chain's leading
+ * `m.event_key ASC` term is a no-op once every candidate shares one event key,
+ * and is correctly omitted here: `sortTime` ascending, then comp-level play
+ * order (qm, ef, qf, sf, f), then `setNumber`, then `matchNumber`, then
+ * `matchKey` (`localeCompare`) as a final, purely defensive tie-break for full
+ * determinism (two matches at one event can never legitimately tie on every
+ * field above it).
+ *
+ * TWO CALL SITES MUST NEVER DRIFT FROM THIS ONE DEFINITION: the offline
+ * publisher's replay stream (`packages/corpus/db.ts`'s
+ * `selectMatchesChronological`, consumed by `packages/harness/replay.ts`'s
+ * `buildSeasonStream`) and the Worker's own per-event match ordering
+ * (`apps/worker/src/scheduled.ts`'s `processEvent`). A cursor written by one
+ * and read by the other (`event_cursor.last_folded_match_key`) is only
+ * meaningful if both agree on the total order matches fall in — a tie
+ * straddling the cursor that the two sides broke differently flips a match
+ * from "unfolded" to "already folded" (or the reverse) and drops or
+ * double-applies it (quick task 260920-q75).
+ */
+export function compareCorpusMatchOrder(
+  a: Pick<CorpusMatch, "sortTime" | "compLevel" | "setNumber" | "matchNumber" | "matchKey">,
+  b: Pick<CorpusMatch, "sortTime" | "compLevel" | "setNumber" | "matchNumber" | "matchKey">
+): number {
+  if (a.sortTime !== b.sortTime) return a.sortTime - b.sortTime;
+  const aRank = COMP_LEVEL_PLAY_ORDER[a.compLevel];
+  const bRank = COMP_LEVEL_PLAY_ORDER[b.compLevel];
+  if (aRank !== bRank) return aRank - bRank;
+  if (a.setNumber !== b.setNumber) return a.setNumber - b.setNumber;
+  if (a.matchNumber !== b.matchNumber) return a.matchNumber - b.matchNumber;
+  return a.matchKey.localeCompare(b.matchKey);
 }
 
 function matchSortTime(match: TbaMatch, eventStartDate: string): number {
