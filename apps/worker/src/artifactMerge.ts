@@ -31,7 +31,7 @@ import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
 import type { TbaMatch } from "../../../packages/ingest/schemas.js";
 import { tbaReportedMatchTimeMs, type CorpusMatch } from "../../../packages/ingest/normalize.js";
 import type { StateRow } from "../../../packages/harness/stateSnapshot.js";
-import { EventStateBlockError, spliceEventStateBlock } from "../../../packages/harness/eventStatePricing.js";
+import { completeEventStateBlock, EventStateBlockError, spliceEventStateBlock } from "../../../packages/harness/eventStatePricing.js";
 import {
   actualBonusFlagsForMatch,
   eventPlayedRow,
@@ -214,6 +214,15 @@ export interface MergeEventArtifactParams {
    */
   readonly existingBodyBytes: number;
   readonly stamp: Stamp;
+  /**
+   * Rows the tick read from D1 THIS tick to complete the state block, and the
+   * scope keys it asked for (quick task 260921-5qw). Both absent on an
+   * ordinary tick, which reads nothing for the block: `scheduled.ts` asks D1
+   * only when `missingStateBlockKeys` names something, and only if a
+   * subrequest is free. A key asked for and not returned is recorded absent.
+   */
+  readonly blockD1Rows?: readonly StateRow[];
+  readonly blockReadKeys?: readonly string[];
 }
 
 /**
@@ -223,8 +232,13 @@ export interface MergeEventArtifactParams {
  * - The existing artifact has a block: the splice of this tick's written rows
  *   into it. A splice that throws `EventStateBlockError` drops the block and
  *   logs `event-state-block-invalid`.
- * - No existing block: none, and logs `event-state-block-missing`. The Worker
- *   never reads D1 to bootstrap one; republish and re-seed instead.
+ * - No existing block, or one lacking teams on the upcoming schedule: completed
+ *   from `blockD1Rows` when the tick supplied them (`completeEventStateBlock`),
+ *   then spliced as above. This is what lets an event promoted to live folding
+ *   without ever being published offline price its upcoming matches with no
+ *   operator step.
+ * - Still no block (no rows supplied, or D1 held no league row): none, and logs
+ *   `event-state-block-missing`. The next tick tries again.
  *
  * Log lines carry the event key, algorithm id, counts and the error message
  * (ids and versions only), never an artifact body or a TBA value.
@@ -232,12 +246,17 @@ export interface MergeEventArtifactParams {
 function maintainedStateBlock(params: MergeEventArtifactParams, upcomingCount: number): LiveEventArtifact["state"] {
   const { existing, eventKey, algorithmId, writtenRows, touchedTeams } = params;
   if (algorithmId !== spr.id || upcomingCount === 0) return undefined;
-  if (existing?.state === undefined) {
-    console.warn(JSON.stringify({ msg: "event-state-block-missing", eventKey, algorithmId, upcoming: upcomingCount }));
-    return undefined;
-  }
   try {
-    return spliceEventStateBlock(existing.state, writtenRows, touchedTeams);
+    const base =
+      params.blockD1Rows === undefined ? existing?.state : completeEventStateBlock(existing?.state, params.blockD1Rows, params.blockReadKeys ?? []);
+    if (base === undefined) {
+      console.warn(JSON.stringify({ msg: "event-state-block-missing", eventKey, algorithmId, upcoming: upcomingCount }));
+      return undefined;
+    }
+    if (params.blockD1Rows !== undefined) {
+      console.log(JSON.stringify({ msg: "event-state-block-completed", eventKey, algorithmId, rows: base.rows.length, absent: base.absentKeys?.length ?? 0 }));
+    }
+    return spliceEventStateBlock(base, writtenRows, touchedTeams);
   } catch (error) {
     if (!(error instanceof EventStateBlockError)) throw error;
     console.warn(JSON.stringify({ msg: "event-state-block-invalid", eventKey, algorithmId, upcoming: upcomingCount, error: error.message }));

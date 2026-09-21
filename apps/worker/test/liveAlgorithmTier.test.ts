@@ -711,6 +711,92 @@ describe("liveAlgorithmTier — a preseason Week 0 match is priced and never fol
   });
 });
 
+describe("liveAlgorithmTier — a promoted event's state block is completed by the tick itself (quick task 260921-5qw)", () => {
+  const UPCOMING_TEAMS = ["frc7", "frc8", "frc9", "frc10", "frc11", "frc12"];
+  /** frc12 has no row in D1: a rookie. Everyone else is seeded. */
+  const SEEDED_TEAMS = [...ALL_TEAMS, ...UPCOMING_TEAMS.filter((t) => t !== "frc12")];
+
+  function seededD1(): FakeD1Database {
+    const d1 = new FakeD1Database();
+    for (const row of serializeState("spr", spr.version, spr.initState([...SEEDED_TEAMS]) as never, { generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" })) {
+      d1.algorithmState.set(`${row.algorithmId}::${row.scopeKind}::${row.scopeKey}`, {
+        algorithm_id: row.algorithmId,
+        algorithm_version: row.algorithmVersion,
+        scope_kind: row.scopeKind,
+        scope_key: row.scopeKey,
+        state_json: row.stateJson,
+        generation: row.generation,
+        computed_at: row.computedAt,
+      });
+    }
+    return d1;
+  }
+
+  function stateOf(r2: FakeR2Bucket, eventKey: string): { rows: { scopeKind: string; scopeKey: string }[]; absentKeys?: string[] } | undefined {
+    const key = artifactKey({ page: "event", eventKey, algorithmId: "spr", version: PREMIER_TEST_VERSION });
+    const put = r2.puts.filter((p) => p.key === key).at(-1);
+    expect(put, "the tick wrote no event artifact").toBeDefined();
+    return (JSON.parse(put!.body) as { state?: { rows: { scopeKind: string; scopeKey: string }[]; absentKeys?: string[] } }).state;
+  }
+
+  it("no published artifact at all: the first fold leaves a block holding the league row, every touched team AND every team on the upcoming match, with the rookie recorded absent", async () => {
+    const window: WindowFixture = { eventKey: "2026promo", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const d1 = seededD1();
+    const r2 = new FakeR2Bucket();
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", twoMatchEventRecord("2026promo", "etag-1")]])));
+
+    const result = await runTick(makeEnv(makeKv([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    expect(result.eventsAdvanced).toBe(1);
+
+    const state = stateOf(r2, "2026promo");
+    expect(state, "a promoted event has no state block, so its upcoming match cannot be priced").toBeDefined();
+    expect(state!.rows.filter((r) => r.scopeKind === "league")).toHaveLength(1);
+    expect(state!.rows.filter((r) => r.scopeKind === "team").map((r) => r.scopeKey).sort()).toEqual([...SEEDED_TEAMS].sort());
+    expect(state!.absentKeys).toEqual(["frc12"]);
+  });
+
+  it("the completion read happens ONCE: a later tick that folds nothing new for the block spends no extra D1 read on it", async () => {
+    const window: WindowFixture = { eventKey: "2026promo", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const d1 = seededD1();
+    const r2 = new FakeR2Bucket();
+    const selects = vi.spyOn(d1, "executeSelect");
+    const stateReads = (): number => selects.mock.calls.filter(([sql]) => String(sql).includes("FROM algorithm_state")).length;
+
+    const first = twoMatchEventRecord("2026promo", "etag-1");
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", first]])));
+    await runTick(makeEnv(makeKv([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const readsOnFirstTick = stateReads();
+    // The fold's own read, plus exactly one to complete the block.
+    expect(readsOnFirstTick).toBe(2);
+
+    // A third match is played by the ORIGINAL six teams; qm2 is still upcoming.
+    const second: TbaEventRecord = {
+      ...first,
+      etag: "etag-2",
+      matches: [...first.matches, tbaMatch({ key: "2026promo_qm3", eventKey: "2026promo", matchNumber: 3, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 99, blueScore: 101, actualTimeSec: Math.floor(NOW_MS / 1000) - 30 })],
+    };
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", second]])));
+    const result = await runTick(makeEnv(makeKv([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS + 60_000, ...DISABLE_GLOBAL_REBUILD });
+    expect(result.eventsAdvanced).toBe(1);
+    // Only the fold's own read: the block is complete and frc12 is known absent.
+    expect(stateReads() - readsOnFirstTick).toBe(1);
+    expect(stateOf(r2, "2026promo")!.absentKeys).toEqual(["frc12"]);
+  });
+
+  it("no subrequest budget left for it: the tick still advances and simply writes no block, to be tried again next tick", async () => {
+    const window: WindowFixture = { eventKey: "2026promo", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const d1 = seededD1();
+    const r2 = new FakeR2Bucket();
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", twoMatchEventRecord("2026promo", "etag-1")]])));
+    // Exactly what one spr event needs and not one more.
+    const cap = TICK_FIXED_SUBREQUEST_COST + EVENT_PREFLIGHT_SUBREQUEST_COST + estimateEventSubrequestCost(1);
+    const result = await runTick(makeEnv(makeKv([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD, subrequestCap: cap, subrequestReserve: 0 });
+    expect(result.eventsAdvanced).toBe(1);
+    expect(result.eventsFailed).toBe(0);
+    expect(stateOf(r2, "2026promo")).toBeUndefined();
+  });
+});
+
 describe("liveAlgorithmTier — the three decided misconfiguration behaviors", () => {
   it("unset or empty defaults to spr and emits a structured live-tier-defaulted warn line", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});

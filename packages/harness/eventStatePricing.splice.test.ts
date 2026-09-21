@@ -11,7 +11,7 @@
 import { describe, expect, it } from "vitest";
 import { spr } from "../core/algorithms/spr.js";
 import { DEMO_PSEUDO_TEAM_KEY, DEMO_TEAM_KEYS } from "../core/algorithms/demoTeams.js";
-import { buildEventStateBlock, EventStateBlockError, spliceEventStateBlock } from "./eventStatePricing.js";
+import { buildEventStateBlock, completeEventStateBlock, EventStateBlockError, missingStateBlockKeys, spliceEventStateBlock } from "./eventStatePricing.js";
 import { STATE_SNAPSHOT_SHAPE_VERSION, type StateRow } from "./stateSnapshot.js";
 import type { EventStateBlock } from "./pageArtifacts.js";
 
@@ -159,5 +159,72 @@ describe("spliceEventStateBlock — the four throw conditions", () => {
     expect(() => spliceEventStateBlock(b, [leagueRow("tick", TICK, { algorithmId: "epa" })], [])).toThrow(EventStateBlockError);
     // A mismatched row the splice would otherwise ignore still throws: a mixed-version tick is never spliced.
     expect(() => spliceEventStateBlock(b, [teamRow("frc42", "tick", TICK, { algorithmVersion: "0.0.0+stale" })], [])).toThrow(EventStateBlockError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A promoted event's block is COMPLETED by the Worker (quick task 260921-5qw).
+// An event that was never published offline has no block at all, and one
+// published before its schedule existed lacks most of its roster. The Worker
+// reads exactly the missing rows from D1, once, and these two pure functions
+// decide what is missing and put it in.
+// ---------------------------------------------------------------------------
+
+describe("missingStateBlockKeys", () => {
+  it("no block: every needed key is missing, the demo pseudo-team key included for a demo robot", () => {
+    const demo = [...DEMO_TEAM_KEYS][0]!;
+    expect(missingStateBlockKeys(undefined, ["frc2", "frc1", demo])).toEqual([DEMO_PSEUDO_TEAM_KEY, "frc1", "frc2", demo].sort());
+  });
+
+  it("a block: only keys with no row, and never a key already recorded absent", () => {
+    const block = { ...buildEventStateBlock(ROWS_A, ["frc1", "frc2"]), absentKeys: ["frc7"] };
+    expect(missingStateBlockKeys(block, ["frc1", "frc2", "frc3", "frc7"])).toEqual(["frc3"]);
+    expect(missingStateBlockKeys(block, ["frc1", "frc2"])).toEqual([]);
+  });
+});
+
+describe("completeEventStateBlock", () => {
+  const NEEDED = ["frc1", "frc2", "frc3", "frc7"];
+
+  it("no block: builds one from the league row and the rows D1 returned, and records the keys D1 had nothing for", () => {
+    const fromD1 = [leagueRow("d1"), teamRow("frc1", "d1"), teamRow("frc2", "d1"), teamRow("frc3", "d1")];
+    const block = completeEventStateBlock(undefined, fromD1, NEEDED)!;
+    expect(block.rows.map((r) => r.scopeKey)).toEqual(["league", "frc1", "frc2", "frc3"]);
+    expect(block.absentKeys).toEqual(["frc7"]);
+    // Equal to what the offline publisher would have built from the same rows.
+    expect({ ...block, absentKeys: undefined }).toEqual({ ...buildEventStateBlock(fromD1, NEEDED), absentKeys: undefined });
+    // And nothing is missing any more, so the next tick reads nothing.
+    expect(missingStateBlockKeys(block, NEEDED)).toEqual([]);
+  });
+
+  it("no block and no league row: no block, because a block without one cannot price anything", () => {
+    expect(completeEventStateBlock(undefined, [teamRow("frc1", "d1")], NEEDED)).toBeUndefined();
+  });
+
+  it("an existing block: inserts only rows it lacks and never replaces one it has, since the splice owns the rows a tick wrote", () => {
+    const existing = buildEventStateBlock([leagueRow("kept"), teamRow("frc1", "kept")], ["frc1"]);
+    const block = completeEventStateBlock(existing, [leagueRow("d1"), teamRow("frc1", "d1"), teamRow("frc2", "d1")], NEEDED)!;
+    const byKey = new Map(block.rows.map((r) => [r.scopeKey, r.stateJson]));
+    expect(byKey.get("league")).toContain("kept");
+    expect(byKey.get("frc1")).toContain("kept");
+    expect(byKey.get("frc2")).toContain("d1");
+    expect(block.rows.map((r) => r.scopeKey)).toEqual(["league", "frc1", "frc2"]);
+    expect(block.absentKeys).toEqual(["frc3", "frc7"]);
+  });
+
+  it("a row for a key nobody needs is ignored, and rows of another algorithm or version are refused", () => {
+    const block = completeEventStateBlock(undefined, [leagueRow("d1"), teamRow("frc99", "d1")], ["frc1"])!;
+    expect(block.rows.map((r) => r.scopeKey)).toEqual(["league"]);
+    expect(() => completeEventStateBlock(undefined, [leagueRow("d1"), teamRow("frc1", "d1", SEED, { algorithmVersion: "0.0.0" })], ["frc1"])).toThrow(EventStateBlockError);
+  });
+
+  it("the splice carries absentKeys forward, and drops a key from it the moment that team gets a row", () => {
+    const block = completeEventStateBlock(undefined, [leagueRow("d1"), teamRow("frc1", "d1")], ["frc1", "frc7"])!;
+    expect(block.absentKeys).toEqual(["frc7"]);
+    const untouched = spliceEventStateBlock(block, [leagueRow("tick", TICK)], []);
+    expect(untouched.absentKeys).toEqual(["frc7"]);
+    const played = spliceEventStateBlock(block, [leagueRow("tick", TICK), teamRow("frc7", "tick", TICK)], ["frc7"]);
+    expect(played.rows.map((r) => r.scopeKey)).toContain("frc7");
+    expect(played.absentKeys).toBeUndefined();
   });
 });

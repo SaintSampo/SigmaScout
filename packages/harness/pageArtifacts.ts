@@ -1409,6 +1409,15 @@ export const EventStateBlockSchema = z.object({
   algorithmVersion: z.string().min(1),
   snapshotShapeVersion: z.number().int(),
   rows: z.array(EventStateBlockRowSchema),
+  /**
+   * Team keys the live Worker looked for in D1 and found NO row for (quick task
+   * 260921-5qw): a rookie, or a demo robot with no belief yet. Written only by
+   * the Worker's block completion, so the same absent team does not cost a D1
+   * read on every later tick. The pricer never reads it: a key with no row
+   * prices as a fresh team whether or not it is listed here. Sorted; omitted
+   * when empty, so a published block is byte-identical to before.
+   */
+  absentKeys: z.array(z.string().min(1)).optional(),
 });
 
 export type EventStateBlockRow = z.infer<typeof EventStateBlockRowSchema>;

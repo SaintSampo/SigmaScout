@@ -82,7 +82,7 @@ import { tbaEventSchema } from "../../../packages/ingest/schemas.js";
 import { normalizeMatch, compareCorpusMatchOrder, type CorpusMatch } from "../../../packages/ingest/normalize.js";
 import { fetchEventDetail } from "../../../packages/ingest/tbaClient.js";
 import { isDemoTeamKey } from "../../../packages/core/algorithms/demoTeams.js";
-import { stateBlockScopeKeys } from "../../../packages/harness/eventStatePricing.js";
+import { missingStateBlockKeys, stateBlockScopeKeys } from "../../../packages/harness/eventStatePricing.js";
 import { isBonusRpCompLevel, isRpEligibleEventType } from "../../../packages/core/rankingPoints/constants.js";
 import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
 import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
@@ -138,7 +138,7 @@ import {
 } from "./artifactMerge.js";
 import { checkLiveEventArtifactShape } from "./artifactShapeCheck.js";
 import { ArtifactReadBudgetExhaustedError, ArtifactSecretLeakError, readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
-import { hasAlreadyFolded, readEventCursor, readEventCursors, readScopedState, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
+import { hasAlreadyFolded, MAX_SCOPE_KEYS_PER_READ, readEventCursor, readEventCursors, readScopedState, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
 import { TICK_META_EVENT_KEY, stateBaselineEventKey } from "../../../packages/harness/stateBaseline.js";
 import { rotate, sortEventKeys, SubrequestBudget } from "./subrequestBudget.js";
 import { createTbaContext, pollEventMatches, TbaRequestCounter, type TbaClientContext } from "./tbaPoll.js";
@@ -1186,9 +1186,49 @@ async function runPhaseBAndReport(
     }
     const playedRowFacts = playedRowFactsFor(window.season, rawMatches, newlyFolded, newlyFoldedResults, observedBonusSides);
 
+    let algorithmsAfterThisOne = perAlgorithm.size;
     for (const [algorithmId, info] of perAlgorithm) {
+      algorithmsAfterThisOne -= 1;
       const eventParams = { page: "event" as const, eventKey, algorithmId, version: info.algorithm.version };
       const { artifact: existingEvent, bytes: existingEventBytes } = await readExistingEvent(env, budget, eventParams);
+
+      // COMPLETE THE STATE BLOCK WHEN IT IS INCOMPLETE (quick task 260921-5qw).
+      // An event promoted without ever being published offline has no block,
+      // and one published before its schedule existed lacks its roster, so its
+      // upcoming matches stayed unpriced until an operator re-baselined. The
+      // keys the block needs are every team still on the schedule; the teams
+      // this tick touched arrive through the splice. Anything else missing is
+      // read from D1 here, AFTER Phase A's write, in one statement.
+      //
+      // OPPORTUNISTIC, never required: behind `tryConsume`, so the pinned
+      // subrequest estimate does not move and a tick with no room simply tries
+      // again next time. A key D1 has no row for is recorded absent on the
+      // block, so a rookie does not cost a read on every later tick.
+      let blockD1Rows: StateRow[] | undefined;
+      let blockReadKeys: string[] = [];
+      if (algorithmId === spr.id && stillUpcoming.length > 0) {
+        const scheduledTeams = stillUpcoming.flatMap((m) => [...m.redTeams, ...m.blueTeams]);
+        const arrivingBySplice = new Set(stateBlockScopeKeys(touchedTeams));
+        blockReadKeys = missingStateBlockKeys(existingEvent?.state, scheduledTeams)
+          .filter((teamKey) => !arrivingBySplice.has(teamKey))
+          .slice(0, MAX_SCOPE_KEYS_PER_READ);
+        // NEVER AT THE EXPENSE OF THE WRITE THIS TICK WAS ADMITTED FOR. The event
+        // was started only because the budget covered its estimate, and that
+        // estimate does not include this read. So it runs only when a
+        // subrequest is left over AFTER this algorithm's artifact write and
+        // every later algorithm's read and write. Measured the hard way: with
+        // a cap of exactly the estimate, an unguarded read here took the last
+        // slot and the event artifact was not written at all.
+        const stillOwedThisEvent = 1 + 2 * algorithmsAfterThisOne;
+        if ((existingEvent?.state === undefined || blockReadKeys.length > 0) && budget.remaining > stillOwedThisEvent && budget.tryConsume(1)) {
+          try {
+            blockD1Rows = await readScopedState(env.DB, algorithmId, [{ scopeKind: "team", scopeKeys: blockReadKeys }]);
+          } catch (error) {
+            // Best effort, like every Phase B write: the fold is already durable in D1.
+            console.warn(JSON.stringify({ msg: "event-state-block-read-failed", eventKey, algorithmId, error: error instanceof Error ? error.name : "unknown" }));
+          }
+        }
+      }
       // Held as one object so the bootstrap retry below re-runs THIS merge with
       // `existing: undefined` and nothing else changed -- a second parameter
       // list would be a second thing to keep in sync.
@@ -1215,6 +1255,7 @@ async function runPhaseBAndReport(
         touchedSigma: info.touchedSigma,
         existingBodyBytes: existingEventBytes,
         stamp,
+        ...(blockD1Rows !== undefined ? { blockD1Rows, blockReadKeys } : {}),
       };
       const mergedEvent = mergeEventArtifact(eventMergeParams);
       await writeArtifactWithBootstrapRetry(env, budget, "event", eventParams, mergedEvent, algorithmId, () =>

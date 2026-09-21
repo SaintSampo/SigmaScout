@@ -1539,7 +1539,7 @@ describe("scheduled.rp — state block warning paths and eventType", () => {
   }
 
   it(
-    "an artifact published WITHOUT a block is written without one, schedule-only, with one missing-block warn line and no D1 bootstrap read",
+    "an artifact published WITHOUT a block gets one COMPLETED by the tick: row for row the block a published one would hold, for one extra D1 read, once (quick task 260921-5qw)",
     async () => {
       const withBlock = await sbHarness();
       const quiet = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -1552,19 +1552,46 @@ describe("scheduled.rp — state block warning paths and eventType", () => {
       try {
         await harness.tickTo(5);
         const artifact = await harness.readArtifact();
-        expect("state" in artifact).toBe(false);
+        const completed = artifact.state as EventStateBlock | undefined;
+        const reference = (await withBlock.readArtifact()).state as EventStateBlock;
+        // Until this task the artifact was written with NO block and its upcoming
+        // matches could not be priced until an operator re-baselined.
+        expect(completed, "the tick left a block-less artifact block-less").toBeDefined();
         expectScheduleOnly(artifact.upcoming);
 
-        const lines = warnLines(warn, "event-state-block-missing");
-        expect(lines).toEqual([{ msg: "event-state-block-missing", eventKey: SB_LIVE_EVENT_KEY, algorithmId: "spr", upcoming: 3 }]);
+        // THE ORACLE: the same event, published WITH a block and maintained by
+        // the splice over the same five ticks. Every team still on the schedule
+        // must be in the completed block, and every row the two share must be
+        // byte-identical, league row included.
+        const referenceByKey = new Map(reference.rows.map((row) => [`${row.scopeKind}:${row.scopeKey}`, row]));
+        const completedKeys = new Set(completed!.rows.map((row) => `${row.scopeKind}:${row.scopeKey}`));
+        expect(completedKeys.has("league:league")).toBe(true);
+        for (const match of artifact.upcoming) {
+          for (const teamKey of [...(match.redTeams as string[]), ...(match.blueTeams as string[])]) {
+            if (!referenceByKey.has(`team:${teamKey}`)) continue; // no D1 row for it on either side
+            expect(completedKeys.has(`team:${teamKey}`), `${teamKey} is on the schedule and missing from the completed block`).toBe(true);
+          }
+        }
+        let compared = 0;
+        for (const row of completed!.rows) {
+          const ref = referenceByKey.get(`${row.scopeKind}:${row.scopeKey}`);
+          if (ref === undefined) continue;
+          expect(row, `${row.scopeKind}:${row.scopeKey}`).toEqual(ref);
+          compared++;
+        }
+        expect(compared, "the oracle compared nothing").toBeGreaterThan(1);
+
+        expect(warnLines(warn, "event-state-block-missing")).toEqual([]);
         expect(warnLines(warn, "event-state-block-invalid")).toEqual([]);
-        // Counts and keys only: no artifact body or state row rides on the line.
+        // Counts and keys only: no artifact body or state row rides on a line.
         for (const call of warn.mock.calls) {
           expect(String(call[0])).not.toContain("stateJson");
           expect(String(call[0])).not.toContain("redTeams");
         }
 
-        expect(harness.d1.selectCalls, "the no-block tick read D1 more than the block-carrying tick (a bootstrap read)").toBe(withBlock.d1.selectCalls);
+        // ONE extra read across all five ticks: the first tick completes the
+        // block and every later tick finds nothing missing.
+        expect(harness.d1.selectCalls - withBlock.d1.selectCalls, "the completion read did not happen exactly once").toBe(1);
       } finally {
         warn.mockRestore();
       }
