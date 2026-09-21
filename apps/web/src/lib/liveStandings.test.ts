@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LiveEventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type LiveEventArtifact } from "../../../../packages/harness/pageArtifacts.js";
 import { deriveLiveEventStandings, withDerivedLiveStandings } from "./liveStandings.js";
 import { resolveEventArtifact } from "./eventPricing.js";
+import { buildSimulationInputs } from "./simulationInputs.js";
 
 type RawMatch = Record<string, unknown>;
 type RawTeam = Record<string, unknown>;
@@ -224,5 +225,64 @@ describe("resolveEventArtifact — the applier wired at the artifact entry point
     const resolved = await resolveEventArtifact(fixture);
     expect(resolved.teams).toEqual(fixture.teams);
     expect(resolved).not.toHaveProperty("standings");
+  });
+});
+
+describe("buildSimulationInputs over a derived live artifact — 260921-q2s Task 3", () => {
+  // Same three played qual rows as the main tally test above, plus one
+  // genuinely unplayed qualification row — the simulation's start match.
+  // `matchesPlayed`/`earnedRpSum` below are hand-computed from these rows,
+  // not read back from the derivation, so this pins the unit conversion
+  // `simulationInputs.ts` and `liveStandings.ts` meet on. DO NOT EDIT
+  // simulationInputs.ts if either assertion below fails — the derivation is
+  // wrong, not the consumer.
+  const rpOutcomeRp = { win: 2, tie: 1 };
+  const playedMatches = [
+    qualMatch({ matchKey: "2026casf_qm1", setNumber: 1, matchNumber: 1, redTeams: ["frc1"], blueTeams: ["frc2"], actualWinner: "red", actualRedRp: 1, actualBlueRp: 0 }),
+    qualMatch({ matchKey: "2026casf_qm2", setNumber: 1, matchNumber: 2, redTeams: ["frc1"], blueTeams: ["frc3"], actualWinner: "tie", actualRedRp: 2, actualBlueRp: 1 }),
+    qualMatch({ matchKey: "2026casf_qm3", setNumber: 1, matchNumber: 3, redTeams: ["frc2"], blueTeams: ["frc3"], actualWinner: "blue", actualRedRp: 0, actualBlueRp: 3 }),
+  ];
+  const unplayedUpcoming = [scheduledUpcoming({ matchKey: "2026casf_qm4", setNumber: 1, matchNumber: 4, redTeams: ["frc1"], blueTeams: ["frc3"] })];
+  const START_MATCH_KEY = "2026casf_qm4";
+
+  function stubEventArtifact(): LiveEventArtifact {
+    // No published record/rp/rank at all — the Worker-promoted-stub shape
+    // this whole quick task exists to fix.
+    return liveArtifact({
+      rpOutcomeRp,
+      teams: [team({ teamKey: "frc1" }), team({ teamKey: "frc2" }), team({ teamKey: "frc3" })],
+      matches: playedMatches,
+      upcoming: unplayedUpcoming,
+    });
+  }
+
+  it("the derived baseline recovers the exact integer rp total, matchesPlayed equal to the derived record total, sourced from ranking-score-with-record", () => {
+    const derived = withDerivedLiveStandings(stubEventArtifact());
+    const inputs = buildSimulationInputs(derived, START_MATCH_KEY);
+    expect(inputs).not.toBeNull();
+    expect(inputs!.isRewindStart).toBe(false);
+
+    // frc1: outcome+bonus totals 2+1=3 (qm1, win) and 1+2=3 (qm2, tie) = 6 over 2 appearances.
+    expect(inputs!.baselines.find((b) => b.teamKey === "frc1")).toEqual({ teamKey: "frc1", earnedRpSum: 6, matchesPlayed: 2 });
+    expect(inputs!.baselineSources.get("frc1")).toBe("ranking-score-with-record");
+
+    // frc3: outcome+bonus totals 1+1=2 (qm2, tie) and 2+3=5 (qm3, win) = 7 over 2 appearances.
+    expect(inputs!.baselines.find((b) => b.teamKey === "frc3")).toEqual({ teamKey: "frc3", earnedRpSum: 7, matchesPlayed: 2 });
+    expect(inputs!.baselineSources.get("frc3")).toBe("ranking-score-with-record");
+  });
+
+  it("the same artifact before derivation gives a different, staler baseline — proving the derivation, not simulationInputs.ts, is what moved it", () => {
+    const before = stubEventArtifact();
+    const inputs = buildSimulationInputs(before, START_MATCH_KEY);
+    expect(inputs).not.toBeNull();
+
+    // No team.rp published, so simulationInputs.ts falls to its own
+    // summed-actual-rp fallback — the BONUS RP alone (1+2=3), never the
+    // outcome+bonus total the derivation above computes (6). Different
+    // quantity, different source, on the identical input rows.
+    const frc1 = inputs!.baselines.find((b) => b.teamKey === "frc1")!;
+    expect(frc1.earnedRpSum).toBe(3);
+    expect(frc1.matchesPlayed).toBe(2);
+    expect(inputs!.baselineSources.get("frc1")).toBe("summed-actual-rp");
   });
 });
