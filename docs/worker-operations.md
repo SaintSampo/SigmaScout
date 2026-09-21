@@ -109,9 +109,9 @@ season. It is a **manual operation run before and after an event weekend** — s
 ingest the current season, deploy the Worker, `publish:seasons`, the four seed files with
 `seed-cursors.sql` last, a live-manifest check, then a prune of whatever generations the run
 superseded. A failed step stops the chain and prints the `--from <step>` that resumes it.
-`--skip-ingest`, `--skip-deploy` and `--skip-prune` drop a step. The prune refuses on the day of
-the publish (the recent-write guard has no bypass); run `pnpm rebaseline --from prune` the next
-day. The manual commands below are what it runs, kept for when a single step needs redoing by hand.
+`--skip-ingest`, `--skip-deploy` and `--skip-prune` drop a step. The prune refuses for six hours after
+the publish (the recent-write guard has no bypass); run `pnpm rebaseline --from prune` once that
+window has passed. The manual commands below are what it runs, kept for when a single step needs redoing by hand.
 
 ```bash
 # Credentials are read BY THE TOOL, never loaded into the shell.

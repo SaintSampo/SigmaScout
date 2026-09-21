@@ -19,7 +19,7 @@
  * it. The prune is the one soft step: `pruneR2Generations.ts` refuses a
  * generation written within its recent-write window, which is every
  * generation this same run just superseded, so a refusal there is reported
- * and the run still exits 0. Rerun `pnpm rebaseline --from prune` a day later.
+ * and the run still exits 0. The window is six hours: rerun `pnpm rebaseline --from prune` after it.
  *
  * Credentials never pass through this file. Every child reads `.env` itself
  * (`tsx --env-file`, `wrangler --env-file`); nothing here reads the
@@ -137,7 +137,7 @@ async function prune(): Promise<void> {
     writeFileSync(SUPERSEDED_PATH, "[]\n", "utf8");
   } catch (error) {
     console.log(`[rebaseline:prune] NOT pruned: ${(error as Error).message}`);
-    console.log("[rebaseline:prune] expected on the day of the publish (the recent-write guard). Rerun `pnpm rebaseline --from prune` tomorrow.");
+    console.log("[rebaseline:prune] expected right after a publish (the six-hour recent-write guard). Rerun `pnpm rebaseline --from prune` once it has passed.");
   }
 }
 
@@ -164,6 +164,9 @@ async function main(): Promise<void> {
 
   let before: AlgorithmsManifest | undefined;
   if (wants("publish")) {
+    // Whatever the PREVIOUS run could not prune (the six-hour guard) is old enough by now, so no
+    // run ever leaves a cleanup owed to a person: the next one collects it before adding its own.
+    if (wants("prune")) await prune();
     before = await fetchManifest();
     // Merge, never overwrite: a second run before the first one's prune must not forget its orphans.
     const prior = existsSync(SUPERSEDED_PATH) ? (JSON.parse(readFileSync(SUPERSEDED_PATH, "utf8")) as string[]) : [];
