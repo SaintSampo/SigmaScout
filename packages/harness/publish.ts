@@ -80,6 +80,7 @@ import {
   type CompareRpCalibration,
   type EventArtifact,
   type EventsArtifact,
+  type EventTierCuts,
   type PageKind,
   type TeamsArtifactWire,
   type TeamSeasonArtifact,
@@ -113,6 +114,7 @@ import {
 export { toIntegerRpOrNull } from "./publishedRows.js";
 export type { ActualBonusFlags } from "./publishedRows.js";
 import {
+  buildTierCutsFromPools,
   HISTORY_PERCENTILE_METRIC_KEYS,
   sortedPoolsByMetric,
   withPercentiles,
@@ -412,6 +414,15 @@ export interface BuildEventArtifactParams {
   /** TBA's `event_type` (the corpus `events.event_type`). Emitted as `eventType` when provided, for every algorithm. */
   readonly eventType?: number;
   /**
+   * Rarity-tier cut points per metric name, built ONCE per `(algorithm,
+   * season)` by `buildTierCutsFromPools(rankingPools)` — the SAME
+   * `rankingPools` every published percentile on this event ranks against —
+   * and passed unchanged to every event this season. Omitted entirely (not
+   * an empty object) when not supplied, so a caller that has not computed
+   * cuts (a test, a stand-in) publishes none.
+   */
+  readonly tierCuts?: EventTierCuts;
+  /**
    * The season-final D1 seed rows for this algorithm (`seedStateRows`, through its memoized getter).
    * Called only for an SPR artifact with a non-empty `upcoming`, whose `state` block is
    * `buildEventStateBlock` over these rows and every team key on the event's played and upcoming
@@ -590,6 +601,7 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     ...(alliances !== undefined ? { alliances } : {}),
     ...(allianceTeams.length > 0 ? { allianceTeams } : {}),
     ...(rpOutcomeRp !== undefined ? { rpOutcomeRp } : {}),
+    ...(params.tierCuts !== undefined ? { tierCuts: params.tierCuts } : {}),
     ...(state !== undefined ? { state } : {}),
   };
 
@@ -2042,6 +2054,13 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       // the pool, never counted as a zero.
       const officialMetricsByTeam = lastOfficialMetricsByTeam(metricHistoryForAlgo, officialEventKeys);
       const rankingPools = sortedPoolsByMetric(officialMetricsByTeam, teamsThisSeason);
+      // Built ONCE per (algorithm, season), from the SAME rankingPools every
+      // percentile below ranks against, then passed unchanged to every
+      // event artifact this season builds (quick task 260920-qzf). Never a
+      // `sigma` key: `rankingPools` is built from `officialMetricsByTeam`,
+      // which structurally never carries one (see `EventTierCutsSchema`'s
+      // doc comment in `pageArtifacts.ts`).
+      const eventTierCuts = buildTierCutsFromPools(rankingPools);
       const officialMetricsByTeamWithPercentiles = withPercentiles(officialMetricsByTeam, teamsThisSeason, rankingPools);
       const stateByEventForAlgo = stateByAlgoEvent.get(algorithm.id)!;
       const preEventStateForAlgo = preEventStateByAlgoEvent.get(algorithm.id)!;
@@ -2237,6 +2256,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
           videoByMatchKey,
           eventType: e.event_type,
           stateRows: eventStateRowsForAlgo,
+          tierCuts: eventTierCuts,
         });
         const key = artifactKey({ page: "event", eventKey: e.event_key, algorithmId: algorithm.id, version });
         const eventBody = JSON.stringify(eventArtifact);

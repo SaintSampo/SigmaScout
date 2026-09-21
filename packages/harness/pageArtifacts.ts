@@ -1583,6 +1583,50 @@ const EventAllianceSchema = z.object({
 });
 
 /**
+ * One metric name's rarity-tier cut points, publisher-derived from the SAME
+ * season ranking pool every percentile on this page ranks against
+ * (`buildTierCutsFromPools`, `percentiles.ts`). `cuts` is `[rare, epic,
+ * legendary]` — the smallest `roundMetric`-precision value at which the
+ * tier reaches that band, for a higher-is-better metric. Evaluated by
+ * `tierFromCuts` (`packages/harness/tierCuts.ts`), the ONE place the cut
+ * semantics are stated; this schema only shapes the wire format.
+ *
+ * `lower: true` flips the evaluation to `<=` and means `cuts` is
+ * DESCENDING. Omitted rather than written `false` — following this file's
+ * own omitted-for-Common precedent (`TeamMetricSchema.tier`'s doc comment
+ * above) — and no entry publishes it today: see `EventTierCutsSchema`'s own
+ * doc comment for why `sigma`, this file's one declared lower-is-better
+ * metric, never gets a pool-derived cut at all. It costs zero wire bytes
+ * while unused, and stays here for the day a genuine lower-is-better
+ * pool-ranked metric is added.
+ */
+const EventTierCutEntrySchema = z.object({
+  cuts: z.tuple([z.number(), z.number(), z.number()]),
+  lower: z.literal(true).optional(),
+});
+
+export type EventTierCutEntry = z.infer<typeof EventTierCutEntrySchema>;
+
+/**
+ * Metric name -> its cut points, one entry per metric name the season
+ * ranking pool (`sortedPoolsByMetric`) covers.
+ *
+ * NEVER carries a `sigma` entry, structurally rather than by a name-list
+ * exclusion: `sortedPoolsByMetric` pools `officialMetricsByTeam`, and
+ * `sigmaMetric.ts`'s within-window detrended-rank Sigma percentile is
+ * merged in only later, at the team-season and Teams-row builds, after the
+ * pool this schema's values are built from. A pool-derived cut for `sigma`
+ * would be actively wrong even if one were accidentally built: since
+ * 260917-jzh, Sigma's published percentile ranks a team against its own
+ * rating-window neighbours, not against the season pool this schema's cuts
+ * describe, so a cut built from the wrong population would paint a
+ * confidently wrong tier.
+ */
+const EventTierCutsSchema = z.record(z.string(), EventTierCutEntrySchema);
+
+export type EventTierCuts = z.infer<typeof EventTierCutsSchema>;
+
+/**
  * `publish.ts`'s `buildEventArtifact` populates `teams` for every event
  * artifact it assembles, defaulting to an empty array only for an event
  * that genuinely has no team data in this run's scope, never omitting the
@@ -1689,6 +1733,32 @@ export const EventArtifactSchema = AlgorithmScopedPreambleSchema.extend({
    * same live-artifact reason as `matchOutcomePmf`.
    */
   rpOutcomeRp: z.object({ win: z.number(), tie: z.number() }).optional(),
+  /**
+   * Rarity-tier cut points per metric name (`EventTierCutsSchema` above),
+   * letting the client re-derive a live-folded row's tier
+   * (`apps/web/src/lib/tiers.ts`'s resolver) for a metric entry that has a
+   * VALUE but no PERCENTILE — exactly what a live tick's
+   * `touchedEventTeamMetrics`/`EventLiveRowSchema` rows carry
+   * (`apps/worker/src/artifactMerge.ts`). `.catch(undefined)` matches
+   * `state`'s own rule below: a malformed block degrades to absent rather
+   * than failing the whole artifact parse.
+   *
+   * Declared HERE, on `EventArtifactSchema` itself rather than only on
+   * `LiveEventArtifactSchema` below — the exact INVERSE of the `live` key's
+   * ephemerality mechanism (that field's own doc comment explains that
+   * asymmetry). Declaring it on the base schema is what stops the Worker's
+   * write-side parse (`writeArtifactObject`'s `SCHEMA_BY_PAGE.event`, which
+   * is `LiveEventArtifactSchema`) from stripping this key on every tick: a
+   * live tick's `existing` carries it through `mergeEventArtifact`'s
+   * spread-then-override untouched, and the write-side schema must
+   * recognise the key or that spread is silently undone at the `.parse()`
+   * boundary.
+   *
+   * `PAGE_ARTIFACT_SCHEMA_VERSION` is deliberately NOT bumped for this —
+   * additive and optional, matching this file's own precedent for the
+   * identical class of change (see this schema's own header comment).
+   */
+  tierCuts: EventTierCutsSchema.optional().catch(undefined),
   /**
    * The SPR state block (`EventStateBlockSchema`) a browser prices `upcoming`
    * from. SPR artifacts with a non-empty `upcoming` only; absent otherwise.

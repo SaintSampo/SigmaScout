@@ -28,6 +28,7 @@
 import { COMPONENT_GROUP_METRIC_KEYS } from "../core/algorithms/breakdown/index.js";
 import { TOTAL_METRIC_KEY, type TeamMetric, type TeamMetrics } from "../core/algorithms/types.js";
 import { goodnessPercentile, metricDirectionOrDefault } from "./metricDirection.js";
+import { publishedTierForPercentile, type EventTierCutEntry, type EventTierCuts } from "./pageArtifacts.js";
 import { roundMetric, roundTo, ROUNDING_RULE } from "./rounding.js";
 
 /**
@@ -307,6 +308,121 @@ export function sortedPoolsByMetric(metricsByTeam: TeamMetrics, teamKeys: readon
   }
   for (const values of valuesByMetric.values()) values.sort((a, b) => a - b);
   return valuesByMetric;
+}
+
+/**
+ * Thrown by `buildTierCutsFromPools` when a band is unreachable for a
+ * metric. With a non-empty pool this never fires in normal operation — the
+ * candidate set always includes one grid step beyond each end of the pool,
+ * and the region beyond the favourable end always reads percentile 100 (or
+ * 0 for a lower-is-better metric's unfavourable end), which always reaches
+ * Legendary. A throw here is a defect signal, exactly the role
+ * `EmptyPoolError` plays above.
+ */
+export class TierCutUnreachableError extends Error {
+  constructor(metricName: string, tier: "rare" | "epic" | "legendary") {
+    super(`buildTierCutsFromPools: metric "${metricName}" never reaches tier "${tier}" against its own pool — a non-empty pool should always reach every band`);
+    this.name = "TierCutUnreachableError";
+  }
+}
+
+/** Ascending rank of a published tier, `undefined` (Common) lowest — the "is this tier at least as good as T" comparison `buildTierCutsFromPools` needs, expressed without needing `apps/web/src/lib/tiers.ts`'s `Tier` union (percentiles.ts stays out of that file's import graph on purpose; see `tierCuts.ts`'s own file header for why the reverse direction matters). */
+const PUBLISHED_TIER_RANK: Record<"rare" | "epic" | "legendary", number> = { rare: 1, epic: 2, legendary: 3 };
+
+function tierAtLeast(tier: "rare" | "epic" | "legendary" | undefined, target: "rare" | "epic" | "legendary"): boolean {
+  if (tier === undefined) return false;
+  return PUBLISHED_TIER_RANK[tier] >= PUBLISHED_TIER_RANK[target];
+}
+
+/**
+ * Builds, once per `(algorithm, season)`, the three rarity-tier cut points
+ * per metric name that `packages/harness/tierCuts.ts`'s `tierFromCuts`
+ * evaluates client-side — the unblocked alternative to shipping the season
+ * pool itself into the live Worker (`rp-fold-exceeds-worker-cpu-budget`).
+ *
+ * MONOTONICITY ARGUMENT (why three numbers suffice): a published tier is
+ * `publishedTierForPercentile(goodnessPercentileAgainstPools(pool, name,
+ * value))`. `percentileAgainstSortedPool` is non-decreasing in its (rounded)
+ * query; `goodnessPercentile` is the identity or `100 - p`, so it is
+ * monotone in one direction or the other depending on `metricDirectionOrDefault`;
+ * and `publishedTierForPercentile` is non-decreasing in its percentile
+ * input. The composition is therefore a MONOTONE STEP FUNCTION of the
+ * rounded value — non-decreasing for a higher-is-better metric, non-
+ * increasing for a lower-is-better one — with at most three steps, which
+ * three boundary values reproduce exactly.
+ *
+ * CANDIDATE-SET COMPLETENESS ARGUMENT (why this candidate set finds them):
+ * `percentileAgainstSortedPool`'s percentile is CONSTANT on the open
+ * interval between two consecutive distinct pool values (no pool member
+ * lies strictly between them, so `countStrictlyBelow`/`countEqual` do not
+ * change), so the tier can only change AT a pool value or at the first
+ * `roundMetric` grid step past one. The candidate set below —
+ * every distinct pool value, one grid step below and above each of them,
+ * plus one grid step beyond each end of the pool — therefore contains every
+ * point where the step function can possibly change value, both interior
+ * transitions and the two open-ended tails (which is what guarantees every
+ * band is reachable: the point one grid step beyond the favourable end
+ * always reads percentile 100/0 as appropriate, i.e. Legendary).
+ *
+ * `roundMetric(v ± 0.01)`, never bare `v ± 0.01`: floating-point addition on
+ * an already-rounded value does not always land back on the grid (`0.07 +
+ * 0.01` is `0.08000000000000002`), and a cut off the grid would misclassify
+ * a value sitting exactly on the boundary the way `tierFromCuts`'s own
+ * rounded-query comparison expects.
+ *
+ * The returned map's key set is EXACTLY `sortedPools`'s key set — never a
+ * name list — so `sigma` is excluded structurally whenever the caller's
+ * pool structurally excludes it, which `sortedPoolsByMetric` always does
+ * for the real `officialMetricsByTeam` pool
+ * (`EventTierCutsSchema`'s own doc comment in `pageArtifacts.ts` has the
+ * full reason, citing `sigmaMetric.ts`'s within-window rank). This function
+ * itself has no special case for any metric name.
+ *
+ * Throws `TierCutUnreachableError` for a metric whose pool is empty (never
+ * true for a `sortedPoolsByMetric` output, which omits empty pools
+ * entirely) or, in principle, if the monotonicity argument above were ever
+ * violated by a future change to one of the composed functions — a defect
+ * signal, not an expected path.
+ */
+export function buildTierCutsFromPools(sortedPools: ReadonlyMap<string, readonly number[]>): EventTierCuts {
+  const result: Record<string, EventTierCutEntry> = {};
+  for (const [metricName, pool] of sortedPools) {
+    if (pool.length === 0) continue; // Never true for sortedPoolsByMetric's own output; defensive only.
+    const direction = metricDirectionOrDefault(metricName);
+    const lower = direction === "lower-is-better";
+
+    const distinct = Array.from(new Set(pool)).sort((a, b) => a - b);
+    const candidateSet = new Set<number>();
+    for (const v of distinct) {
+      candidateSet.add(v);
+      candidateSet.add(roundMetric(v - 0.01));
+      candidateSet.add(roundMetric(v + 0.01));
+    }
+    candidateSet.add(roundMetric(distinct[0]! - 0.01));
+    candidateSet.add(roundMetric(distinct[distinct.length - 1]! + 0.01));
+    const ascending = Array.from(candidateSet).sort((a, b) => a - b);
+
+    const tierAtCandidate = (candidate: number) =>
+      publishedTierForPercentile(goodnessPercentile(percentileAgainstSortedPool(pool, roundMetric(candidate)), direction));
+
+    // Higher-is-better: the FIRST (smallest) candidate, scanned ascending,
+    // reaching the band. Lower-is-better: the LAST (largest) one — found by
+    // scanning descending and taking the first match, since "first match
+    // scanning from the top" is exactly "the largest matching value".
+    const cutFor = (target: "rare" | "epic" | "legendary"): number => {
+      const ordered = lower ? [...ascending].reverse() : ascending;
+      for (const candidate of ordered) {
+        if (tierAtLeast(tierAtCandidate(candidate), target)) return candidate;
+      }
+      throw new TierCutUnreachableError(metricName, target);
+    };
+
+    result[metricName] = {
+      cuts: [cutFor("rare"), cutFor("epic"), cutFor("legendary")],
+      ...(lower ? { lower: true as const } : {}),
+    };
+  }
+  return result;
 }
 
 /**
