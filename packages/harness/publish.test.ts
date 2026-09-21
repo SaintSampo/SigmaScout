@@ -60,6 +60,7 @@ import {
   type PublishedObjectRecord,
   type RpCalibrationMeasurement,
 } from "./publish.js";
+import { buildLiveWindowsManifest } from "./manifests.js";
 import {
   artifactKey,
   decodeTeamsRowMetrics,
@@ -3930,6 +3931,49 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
   afterEach(() => {
     db.close();
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("a zero-match event that gets a PROBE window also gets a stub event artifact (identity and tier cuts, nothing else), and one whose window has closed gets none (quick task 260921-5qw)", async () => {
+    seedTwoEventSeason(db);
+    // Both have no match, no schedule and no registered roster: exactly the 40 fall 2026 events.
+    upsertEvent(db, seasonEvent({ eventKey: "2026soon", name: "Soon Invitational", eventType: 99, isOffseason: true, startDate: "2026-09-26", stateProv: "TX", country: "USA" }));
+    upsertEvent(db, seasonEvent({ eventKey: "2026gone", name: "Gone Invitational", eventType: 99, isOffseason: true, startDate: "2026-05-02" }));
+
+    await publishSeasons(db, {
+      seasons: [2026],
+      algorithms: [fakeRpAlgorithm],
+      bucket: "test-bucket",
+      dryRun: false,
+      skipState: true,
+      includeOffseason: true,
+      computedAt: "2026-09-21T00:00:00.000Z",
+    });
+
+    const bodyFor = (eventKey: string): Record<string, unknown> | undefined => {
+      const call = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/event/${eventKey}/`));
+      return call === undefined ? undefined : (JSON.parse(call[2] as string) as Record<string, unknown>);
+    };
+
+    // The manifest and the publisher agree, by construction: a window if and only if a stub.
+    // Built directly, on the SAME clock, because `skipState` (which keeps this test from writing seed
+    // files into the real reports directory) also skips the manifest upload.
+    const windows = buildLiveWindowsManifest(db, { seasons: [2026], generation: "g", computedAt: "2026-09-21T00:00:00.000Z" }).windows.map((w) => w.eventKey);
+    expect(windows).toContain("2026soon");
+    expect(windows).not.toContain("2026gone");
+
+    const stub = bodyFor("2026soon");
+    expect(stub, "the probe-window event has no artifact, so a promoted event would bootstrap bare").toBeDefined();
+    expect(stub!.name).toBe("Soon Invitational");
+    expect(stub!.eventType).toBe(99);
+    expect(stub!.matches).toEqual([]);
+    expect(stub!.upcoming).toEqual([]);
+    expect(stub!.teams).toEqual([]);
+    expect(stub!.state).toBeUndefined();
+    // The same block a played event of this season carries, so a live row there can be tiered.
+    expect(stub!.tierCuts).toEqual(bodyFor("2026ear")!.tierCuts);
+    expect(stub!.tierCuts).toBeDefined();
+
+    expect(bodyFor("2026gone"), "a closed window can never be promoted, so it needs no stub").toBeUndefined();
   });
 
   function findPresimCall(eventKey: string, algorithmId: string): [unknown, unknown, unknown, unknown] | undefined {

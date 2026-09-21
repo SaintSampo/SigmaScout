@@ -72,6 +72,27 @@ export const PROBE_WINDOW_LEAD_MS = 12 * 60 * 60 * 1000;
 /** Span of a zero-match event's probe window, measured from `start_date` midnight UTC — matches the historical 4-day constant this file used before and covers a multi-day championship. */
 export const PROBE_WINDOW_SPAN_MS = 4 * 24 * 60 * 60 * 1000;
 
+/**
+ * The probe window a ZERO-MATCH event gets, or `undefined` when it gets none:
+ * an unparseable `start_date`, or a window already closed at `nowMs`.
+ *
+ * ONE FUNCTION, TWO CALLERS, ON PURPOSE (quick task 260921-5qw).
+ * `buildLiveWindowsManifest` publishes this window, and `publish.ts` publishes
+ * a stub event artifact for exactly the events it returns a window for. The
+ * Worker can promote an event to live folding only if it has a window, and a
+ * promoted event with no artifact renders with no name and no tier cuts, so
+ * the two decisions must never disagree. The caller checks "zero matches".
+ */
+export function probeWindowFor(startDate: string, nowMs: number): { startMs: number; endMs: number } | undefined {
+  const midnightUtcMs = Date.parse(startDate);
+  // An unparseable start_date yields no window at all, never a NaN interval.
+  if (!Number.isFinite(midnightUtcMs)) return undefined;
+  const endMs = midnightUtcMs + PROBE_WINDOW_SPAN_MS;
+  // A window already closed when the manifest is built can never be live.
+  if (endMs <= nowMs) return undefined;
+  return { startMs: midnightUtcMs - PROBE_WINDOW_LEAD_MS, endMs };
+}
+
 export interface BuildLiveWindowsManifestOptions {
   /** Seasons whose events should appear in the manifest — e.g. the corpus's covered range, 2022-2026. */
   readonly seasons: readonly number[];
@@ -173,21 +194,18 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
       // no window — see this function's header (RULE 1, CORRECTED) for why a
       // blind guess is safe now when it was not before.
       if (row.match_count === 0 || row.min_sort_time === null || row.max_sort_time === null) {
-        const midnightUtcMs = Date.parse(row.start_date);
-        // An unparseable start_date yields no entry at all, never a NaN
+        // `probeWindowFor` drops an unparseable start_date (never a NaN
         // interval — see the header for why that would be worse than a
-        // missing window.
-        if (!Number.isFinite(midnightUtcMs)) continue;
-
-        const probeEndMs = midnightUtcMs + PROBE_WINDOW_SPAN_MS;
-        // (2) applies to a probe entry exactly as to a measured one.
-        if (probeEndMs <= nowMs) continue;
+        // missing window) and applies (2) to a probe entry exactly as to a
+        // measured one. `publish.ts` asks it the same question.
+        const probe = probeWindowFor(row.start_date, nowMs);
+        if (probe === undefined) continue;
 
         windows.push({
           eventKey: row.event_key,
           season: row.year,
-          startMs: midnightUtcMs - PROBE_WINDOW_LEAD_MS,
-          endMs: probeEndMs,
+          startMs: probe.startMs,
+          endMs: probe.endMs,
           inferred: true,
         });
         continue;

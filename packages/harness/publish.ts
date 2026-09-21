@@ -122,7 +122,7 @@ import {
   type TeamMetricWithPercentile,
   type TeamMetricsWithPercentile,
 } from "./percentiles.js";
-import { buildAlgorithmsManifest, buildLiveWindowsManifest, PUBLISHED_ALGORITHM_IDS, PUBLISHED_ALGORITHM_MODULES } from "./manifests.js";
+import { buildAlgorithmsManifest, buildLiveWindowsManifest, probeWindowFor, PUBLISHED_ALGORITHM_IDS, PUBLISHED_ALGORITHM_MODULES } from "./manifests.js";
 import { emitSeedSql, emitCursorSeedSql, writeSeedCommandsFile } from "./seedSql.js";
 import {
   serializeState,
@@ -2202,10 +2202,17 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
         // An event survives with predictions, upcoming matches, or a registered roster (so scheduleless
         // events get a page). An `undefined` entry means registration unknown, never zero teams.
         const registeredTeamKeys = registeredTeamsByEvent.get(e.event_key);
-        if (predictions.length === 0 && upcoming.length === 0 && registeredTeamKeys === undefined) continue; // no data for this event under this run's scope
+        // A STUB (quick task 260921-5qw): an event with nothing at all still gets an artifact when it
+        // gets a PROBE window, because the Worker can promote exactly those events to live folding and
+        // its bootstrap cannot supply a name, a week or tier cuts. `probeWindowFor` is the manifest
+        // builder's own rule and the same clock, so "has a window" and "has a stub" cannot disagree.
+        // The stub carries identity and `tierCuts` with empty `matches`, `upcoming` and `teams`; the
+        // Worker's merge carries all of it forward from its first fold.
+        const hasNothing = predictions.length === 0 && upcoming.length === 0 && registeredTeamKeys === undefined;
+        if (hasNothing && probeWindowFor(e.start_date, Date.parse(computedAt)) === undefined) continue; // no data for this event under this run's scope
         // The registered roster is used only when the match-derived one is empty, so never-played teams
         // are not added to standings. Sorted for determinism; match-derived rosters keep chronological order.
-        const eventTeamKeys = matchDerivedTeamKeys.length > 0 ? matchDerivedTeamKeys : [...registeredTeamKeys!].sort();
+        const eventTeamKeys = matchDerivedTeamKeys.length > 0 ? matchDerivedTeamKeys : [...(registeredTeamKeys ?? [])].sort();
         // The corpus was consulted, so a missing entry means `[]` ("zero rows"); hoisted so both the
         // builder's `alliances` argument and the `allianceTeams` computation below read one value.
         const eventAlliances = alliancesForSeason.get(e.event_key) ?? [];
