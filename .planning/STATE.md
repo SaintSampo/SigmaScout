@@ -5,8 +5,8 @@ milestone_name: milestone
 current_phase: 09
 status: completed
 stopped_at: "Phase 9 SEALED and its UAT COMPLETE 2026-09-12 (verification 3b0d248c; clauses 3 and 4 both amended at the seal, originals preserved verbatim in ROADMAP.md; UAT test 1 waived against a standing pre-season gate, test 2 passed by Jacob on desktop and phone). The owed republish RAN: generation 622eeb28, 108,979 objects, 1h42m, and the presim class went median 206,385 B to 7,229 B while the schedule count went UP 50x to 1,000, so visitors now see a pre-schedule band that moves ~1.17 ranks between runs instead of 10.61. D1 re-seeded 66,284 rows seed-first, Worker cc6abc35 deployed. STILL IN FORCE: the pre-season CPU gate in docs/worker-operations.md forbids opening any live window until rp-fold-exceeds-worker-cpu-budget closes - a realistic mid-quals tick measures 13 ms p50 against a 10 ms sustained budget. All 12 phases are complete; the next container is a phase for the CPU work, timed against the pre-season."
-last_updated: "2026-09-20T23:34:12.422Z"
-last_activity: 2026-09-20
+last_updated: "2026-09-21T00:28:26.855Z"
+last_activity: 2026-09-21
 last_activity_desc: "Completed quick task 260913-rh5: republished spr@4.0.0 and the Swing teardown (generation 2dcc057f), D1 seeded, Worker fcc7ca73; R2 deletions left to Jacob"
 progress:
   total_phases: 12
@@ -622,6 +622,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 218 | Preseason Week 0 is out of official calculations. A type 100 match is predicted and never folded, gated inside each algorithm update, and the loaders, the scored set and the RP scorecard score official play only. Shipped as opr 5.0.0, epa 11.0.0, spr 6.0.0 on Jacob's acceptance of three measured arms: on the identical 125422 official qualification matches SPR accuracy 0.75580 to 0.75631 and Brier 0.16176 to 0.16144, EPA 0.75127 to 0.75168 and 0.16993 to 0.16977, OPR accuracy unchanged and Brier 0.00002 worse. Live in generation 0eca6b08, SPR seeded, Worker 52297186. Owed: OPR and EPA D1 seeds after the write cap resets, and the prune of three superseded generations | 2026-09-19 | 3d16df49 | [260919-368-keep-preseason-week-0-out-of-official-ca](./quick/260919-368-keep-preseason-week-0-out-of-official-ca/) |
 | 219 | Zero-match offseason events now get a probe-only calendar window; the tick proves matches exist with one conditional TBA request before folding. Closes the 2026cc discovery gap without reopening outage cause B. Worker deploy then republish owed, deploy first | 2026-09-20 | e60bc250 | [260920-lny-offseason-events-with-live-results-are-n](./quick/260920-lny-offseason-events-with-live-results-are-n/) |
 | 220 | Make a mid-event re-baseline safe: the seed owns event cursors and the tick refuses stale state | 2026-09-20 | 3dcd3287 | [260920-q75-make-a-mid-event-re-baseline-safe-the-se](./quick/260920-q75-make-a-mid-event-re-baseline-safe-the-se/) |
+| 221 | SPR phases freeze at offseason events because TBA omits adjustPoints: shared absent-only default, spr 7.0.0 and epa 12.0.0 | 2026-09-21 | 8a7c5e85 | [260920-qgg-spr-phases-freeze-at-offseason-events-be](./quick/260920-qgg-spr-phases-freeze-at-offseason-events-be/) |
 
 ### Roadmap Evolution
 
