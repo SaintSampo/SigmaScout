@@ -95,6 +95,15 @@ carries no cuts and renders untiered as before.
 
 ## Owed
 
+> **ALL DONE 2026-09-21.** Checked against production, not against these notes: generation
+> `8caca9d2` is live (opr 5.0.0, epa 12.0.0, spr 7.0.0), D1 holds all three algorithms at that
+> generation, Worker `6631ba04` was deployed with the publish, a whole-bucket census shows 0 orphan
+> generations (3.93 GB), `main` is pushed with the Test and deploy workflows green, `pnpm
+> verify:subset` is 0 failing on one generation and the live Playwright suite is 170/170. The list
+> below is kept as the record of what was owed.
+> Still open from this list: item 4. No event has been folded live yet, so there is no
+> live-folded page to screenshot. Do it at the first promoted event.
+
 1. `pnpm publish:seasons`, then commit the budget doc
 2. Push, then `gh run list`
 3. Rerun the live-only Playwright specs

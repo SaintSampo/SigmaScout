@@ -8,6 +8,16 @@ priority: high
 
 # A realistic mid-event tick costs ~13 ms p50 / ~28 ms p90 in Phase A alone, against a 10 ms budget
 
+> **STATUS 2026-09-21: the gate this todo held shut is OPEN, and the todo is not closed.** Jacob
+> chose live coverage of fall offseason events (quick task 260920-lny, locked 2026-09-20). Generation
+> `8caca9d2` publishes 40 probe windows and Worker `6631ba04` promotes an event to live folding once
+> TBA shows matches. Probe-only ticks measured 2 to 3 ms `cpuTime`, `ok`, on 2026-09-21. **No fold
+> has run in production yet**, so the mid-teens figure below is still the best estimate of what the
+> first one will cost. What this todo now owes is an OBSERVATION before another experiment: tail the
+> first promoted event and record `outcome` and `cpuTime` across a run of folding ticks here. If it
+> is killed for CPU, the remaining levers are in the sections below; browser-side folding is closed
+> (bounded drift, 2026-09-18).
+
 This is the measurement half of [[worker-state-shape-unexercised-since-seed]], now taken. That item's
 shape question came back clean; this one did not, and it is filed separately because it is a
 different problem with a different fix.

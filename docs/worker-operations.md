@@ -563,6 +563,20 @@ the fix. It rides along with the republish already queued for the demo-team excl
 
 ## PRE-SEASON GATE: do not open a live window until the RP fold fits the CPU budget
 
+> **NO LONGER IN FORCE since 2026-09-21. Read this before anything below.** Jacob locked the
+> live-probe design on 2026-09-20 (quick task 260920-lny) so that fall offseason events go live
+> without a manual ingest, after Chezy Champs 2026 was missed, and generation `8caca9d2` was then
+> published with 40 probe windows in `v1/manifest/live-windows.json`. Worker `6631ba04` probes each
+> open window with one conditional TBA request and PROMOTES the event to live folding as soon as
+> matches exist. So live windows are open in production and the rule below is history.
+>
+> **What did NOT change:** `rp-fold-exceeds-worker-cpu-budget` is still open. The last measurement
+> had a folding tick in the mid-teens of milliseconds on a reused isolate and 35 to 45 ms on a fresh
+> one, against 10 ms sustained. Probe-only ticks cost 2 to 3 ms (observed 2026-09-21, `2026txrm`).
+> **No real fold has run in production yet.** Tail the first one: read `outcome`, `cpuTime`,
+> `eventsAdvanced`, `eventsFailed` and `stateGenerationMismatch`, and treat `exceededCpu` as the
+> 2026-08-28 outage condition. The text below is kept as the record of why the gate existed.
+
 **In force 2026-09-12. This gate is the condition on which Phase 9 sealed without live proof — see
 `.planning/phases/09-analytic-ranking-points-browser-side-simulation/09-UAT.md` test 1.**
 

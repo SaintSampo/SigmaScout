@@ -87,6 +87,13 @@ EPA sent the same matches through its proportional fallback instead of real comp
 
 ## Owed
 
+> **ALL DONE 2026-09-21.** Checked against production, not against these notes: generation
+> `8caca9d2` is live (opr 5.0.0, epa 12.0.0, spr 7.0.0), D1 holds all three algorithms at that
+> generation, Worker `6631ba04` was deployed with the publish, a whole-bucket census shows 0 orphan
+> generations (3.93 GB), `main` is pushed with the Test and deploy workflows green, `pnpm
+> verify:subset` is 0 failing on one generation and the live Playwright suite is 170/170. The list
+> below is kept as the record of what was owed.
+
 1. `pnpm publish:seasons`, then commit the rewritten budget doc
 2. The four-file seed (see 260920-q75), `seed-cursors.sql` last
 3. `npx wrangler deploy` from a clean tree
