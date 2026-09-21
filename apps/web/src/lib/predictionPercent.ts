@@ -13,3 +13,17 @@ export const MIN_PREDICTION_PERCENT = 1;
 export function predictionPercent(probability: number): number {
   return Math.min(MAX_PREDICTION_PERCENT, Math.max(MIN_PREDICTION_PERCENT, Math.round(probability * 100)));
 }
+
+/**
+ * The predicted winner's win probability as a match's displayed confidence.
+ *
+ * A match row always names a predicted winner, so a confidence of 50% would
+ * contradict the pick beside it. A close match that rounds to 50% displays as
+ * 51% instead. Display formatting only, same as the 1–99% clamp above; bonus
+ * odds keep using predictionPercent, where 50% is a real toss-up.
+ */
+export const MIN_MATCH_CONFIDENCE_PERCENT = 51;
+
+export function matchConfidencePercent(confidence: number): number {
+  return Math.max(MIN_MATCH_CONFIDENCE_PERCENT, predictionPercent(confidence));
+}

@@ -6,7 +6,7 @@ import type { PublishedAlgorithmId } from "../../../../../packages/harness/publi
 import { allianceMarkPositions, axisTicks, MATCH_GEOMETRY, MATCH_ROW_GRID, PLOT_W, scaleToPlot, teamRowPrediction, type AxisDomain, type TeamSeasonMatch } from "./matchAxis.js";
 import { bonusRpForSeason, bonusStatesFromFlags } from "../../lib/bonusRp.js";
 import { snapToDevicePixelPhase, useDevicePixelPhaseStep } from "../../lib/devicePixelGrid.js";
-import { predictionPercent } from "../../lib/predictionPercent.js";
+import { matchConfidencePercent } from "../../lib/predictionPercent.js";
 import { sortTimeToEpochMs } from "../../lib/liveEvent.js";
 // Imported directly from core rather than copied into apps/web —
 // `rp/constants.ts` has zero runtime imports of its own, so importing it does
@@ -420,7 +420,7 @@ function MatchRow({ match, domain, teamKey, tinted, season, algorithm }: { match
             ) : (
               <span className="flex items-center gap-[var(--spacing-xs)]">
                 <AllianceChip side={prediction.predictedWinner} />
-                <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{predictionPercent(confidence)}%</span>
+                <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{matchConfidencePercent(confidence)}%</span>
               </span>
             )}
           </span>

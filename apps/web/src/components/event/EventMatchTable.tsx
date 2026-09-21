@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import { SkeletonRows } from "../Skeletons.js";
-import { predictionPercent } from "../../lib/predictionPercent.js";
+import { matchConfidencePercent } from "../../lib/predictionPercent.js";
 // The five leaf plot/chip/score-line/badge components below are shared
 // with the team-page originals, reused here rather than duplicated.
 import {
@@ -161,7 +161,7 @@ function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: Ev
             ) : (
               <span className="flex items-center gap-[var(--spacing-xs)]">
                 <AllianceChip side={prediction.predictedWinner} />
-                <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{predictionPercent(confidence)}%</span>
+                <span className="numeric-cell text-role-body whitespace-nowrap text-[var(--color-text-primary)]">{matchConfidencePercent(confidence)}%</span>
               </span>
             )}
           </span>
