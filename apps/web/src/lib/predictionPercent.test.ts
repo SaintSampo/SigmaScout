@@ -19,8 +19,12 @@ describe("predictionPercent", () => {
 });
 
 describe("matchConfidencePercent", () => {
-  it("never displays 50%: a close match rounds up to 51%", () => {
-    expect(matchConfidencePercent(0.5)).toBe(51);
+  it("displays a true coin flip, where nothing is known about either alliance, as 50%", () => {
+    expect(matchConfidencePercent(0.5)).toBe(50);
+  });
+
+  it("rounds a close match that is not a true coin flip up to 51%", () => {
+    expect(matchConfidencePercent(0.5001)).toBe(51);
     expect(matchConfidencePercent(0.504)).toBe(51);
     expect(matchConfidencePercent(0.499)).toBe(51);
   });
