@@ -44,6 +44,7 @@ import {
   loadRpCalibrationMeasurement,
   OUTCOME_KEYS,
   parseSeasonsRange,
+  buildProbeStubArtifact,
   publishSeasons,
   resolvePublishAlgorithms,
   RP_CALIBRATION_MEASUREMENT_PATH,
@@ -3972,6 +3973,20 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     // The same block a played event of this season carries, so a live row there can be tiered.
     expect(stub!.tierCuts).toEqual(bodyFor("2026ear")!.tierCuts);
     expect(stub!.tierCuts).toBeDefined();
+
+    // `scripts/publishProbeStubs.ts` publishes ONLY the stubs, through `buildProbeStubArtifact`. It
+    // must produce byte for byte what the season loop produces, or a stub-only publish and a full
+    // republish would disagree about the same key.
+    const direct = buildProbeStubArtifact({
+      event: { event_key: "2026soon", event_type: 99, start_date: "2026-09-26", name: "Soon Invitational", week: null, country: "USA", state_prov: "TX" },
+      season: 2026,
+      algorithmId: stub!.algorithmId as string,
+      algorithmVersion: stub!.algorithmVersion as string,
+      generation: stub!.generation as string,
+      computedAt: "2026-09-21T00:00:00.000Z",
+      tierCuts: bodyFor("2026ear")!.tierCuts as never,
+    });
+    expect(JSON.stringify(direct)).toBe(JSON.stringify(stub));
 
     expect(bodyFor("2026gone"), "a closed window can never be promoted, so it needs no stub").toBeUndefined();
   });

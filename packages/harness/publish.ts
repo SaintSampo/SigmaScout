@@ -1591,6 +1591,41 @@ interface EventMetaRow {
   district_key: string | null;
 }
 
+/**
+ * The STUB artifact a probe-window event gets (quick task 260921-5qw): identity and the season's
+ * `tierCuts`, with empty `matches`, `upcoming` and `teams`. The season loop reaches the same body through
+ * its general path, and `publish.test.ts` pins the two equal; this entry point exists for
+ * `scripts/publishProbeStubs.ts`, which publishes ONLY the stubs (about 120 objects) when a full
+ * republish (about 109,000) would be the only other way to get them out.
+ */
+export function buildProbeStubArtifact(params: {
+  readonly event: { readonly event_key: string; readonly event_type: number; readonly start_date: string; readonly name: string; readonly week: number | null; readonly country: string | null; readonly state_prov: string | null };
+  readonly season: number;
+  readonly algorithmId: string;
+  readonly algorithmVersion: string;
+  readonly generation: string;
+  readonly computedAt: string;
+  readonly tierCuts: EventArtifact["tierCuts"];
+}): EventArtifact {
+  const e = params.event;
+  return buildEventArtifact({
+    eventKey: e.event_key,
+    season: params.season,
+    algorithmId: params.algorithmId,
+    algorithmVersion: params.algorithmVersion,
+    predictions: [],
+    upcoming: [],
+    teams: [],
+    allianceTeams: [],
+    generation: params.generation,
+    computedAt: params.computedAt,
+    eventMeta: { name: e.name, startDate: e.start_date, country: e.country, stateProv: e.state_prov, week: e.week },
+    alliances: [],
+    eventType: e.event_type,
+    tierCuts: params.tierCuts,
+  });
+}
+
 function selectEventMeta(db: Corpus, season: number): EventMetaRow[] {
   return db
     .prepare(
