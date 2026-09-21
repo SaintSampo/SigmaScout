@@ -35,6 +35,7 @@
     "replay:rig": "tsx --env-file=.env scripts/replayRig.ts",
     "cleanup:r2-generations": "tsx --env-file=.env scripts/pruneR2Generations.ts",
     "rebaseline": "tsx scripts/rebaseline.ts",
+    "publish:stubs": "tsx --env-file=.env scripts/publishProbeStubs.ts",
     "recon:fields": "tsx --env-file=.env scripts/recon-breakdown-fields.ts",
     "recon:rp-rates": "tsx --env-file=.env scripts/recon-rp-rates.ts",
     "recon:rp-thresholds": "tsx --env-file=.env scripts/recon-rp-thresholds.ts",

@@ -7,6 +7,14 @@ priority: medium
 
 # An event promoted live that was never published offline renders degraded
 
+> **RESOLVED 2026-09-21 by quick task 260921-5qw, the same day it was filed.** A promoted event is now
+> complete with no operator step: stub artifacts give it a name and tier cuts, the tick completes its
+> state block from D1, and a live roster object puts it on robot pages. One line below was WRONG when
+> written: the events list did already carry these events. And the claim that either fix "adds work
+> to a tick" was wrong for the stubs, which are offline. Not yet seen in production: no event has been
+> promoted. See the task's SUMMARY.
+
+
 Since quick task 260920-lny the Worker probes a calendar window and promotes an event to live folding
 once TBA shows matches. All 40 fall 2026 offseason events held zero matches at the last publish, so
 every one of them will be promoted WITHOUT ever having been published offline.

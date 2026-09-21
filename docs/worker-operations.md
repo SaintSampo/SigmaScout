@@ -561,6 +561,28 @@ the fix. It rides along with the republish already queued for the demo-team excl
 
 ---
 
+## Live events need no operator (quick task 260921-5qw)
+
+Nothing has to be done by hand DURING a live event. An event the Worker promotes from a probe window
+is complete on its own:
+
+| The page needs | Where it comes from |
+|---|---|
+| name, dates, week, tier cuts | a STUB event artifact published ahead of time for every probe-window event |
+| upcoming-match pricing | the tick completes the `state` block from D1 itself, one read, only when the block is incomplete (`event-state-block-completed` in the log) |
+| the event on robot pages | `v1/live-roster/{eventKey}.json`, written by the tick when the roster grows, read by a current-season robot page for windows open now |
+
+- **New events on the calendar:** a full `pnpm publish:seasons` emits the stubs. To get them out
+  WITHOUT a full republish (about 109,000 R2 writes), run `pnpm publish:stubs` (about 120). It reads
+  the live manifest, never overwrites an existing artifact, and supports `--dry-run`.
+- **Looking at a live event afterwards:** Workers Logs is on at 100 percent sampling
+  (`[observability]` in `wrangler.toml`), so every tick's `outcome` and `cpuTime` is retained. Nobody
+  has to tail during the event.
+- **Still an ordinary republish, any time after the event:** making results permanent in the team
+  season files. The live rows stay in the event artifact until then.
+- **Why `pnpm rebaseline` is NOT scheduled:** it needs the local corpus and rewrites all ten seasons,
+  about 109,000 R2 writes a run against a 1,000,000 a month free tier.
+
 ## PRE-SEASON GATE: do not open a live window until the RP fold fits the CPU budget
 
 > **NO LONGER IN FORCE since 2026-09-21. Read this before anything below.** Jacob locked the
