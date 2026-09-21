@@ -137,7 +137,8 @@ import {
   type Stamp,
 } from "./artifactMerge.js";
 import { checkLiveEventArtifactShape } from "./artifactShapeCheck.js";
-import { ArtifactReadBudgetExhaustedError, ArtifactSecretLeakError, readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
+import { ArtifactReadBudgetExhaustedError, ArtifactSecretLeakError, readArtifactObject, writeArtifactObject, writeLiveRosterObject } from "./artifactWriter.js";
+import { buildLiveRoster, rosterGrew, type RosterSource } from "../../../packages/harness/liveRoster.js";
 import { hasAlreadyFolded, MAX_SCOPE_KEYS_PER_READ, readEventCursor, readEventCursors, readScopedState, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
 import { TICK_META_EVENT_KEY, stateBaselineEventKey } from "../../../packages/harness/stateBaseline.js";
 import { rotate, sortEventKeys, SubrequestBudget } from "./subrequestBudget.js";
@@ -1187,6 +1188,7 @@ async function runPhaseBAndReport(
     const playedRowFacts = playedRowFactsFor(window.season, rawMatches, newlyFolded, newlyFoldedResults, observedBonusSides);
 
     let algorithmsAfterThisOne = perAlgorithm.size;
+    let rosterHandled = false;
     for (const [algorithmId, info] of perAlgorithm) {
       algorithmsAfterThisOne -= 1;
       const eventParams = { page: "event" as const, eventKey, algorithmId, version: info.algorithm.version };
@@ -1261,6 +1263,40 @@ async function runPhaseBAndReport(
       await writeArtifactWithBootstrapRetry(env, budget, "event", eventParams, mergedEvent, algorithmId, () =>
         mergeEventArtifact({ ...eventMergeParams, existing: undefined })
       );
+
+      // THE LIVE ROSTER (quick task 260921-5qw), once per event, not per
+      // algorithm: the object a robot page finds a promoted event through,
+      // since no published team file can name an event TBA had no team list
+      // for. Written only when the roster GREW against the artifact just read
+      // (the first fold, or a team added later), so never once per tick. Both
+      // rosters are already in hand, so deciding costs nothing. Opportunistic
+      // on the same terms as the block read above: never the subrequest a
+      // later algorithm's read and write are owed. Best effort, like every
+      // Phase B write.
+      if (!rosterHandled) {
+        rosterHandled = true;
+        // `mergeEventArtifact` returns `unknown` on purpose (the write validates
+        // it), so the roster is read through the narrow view it needs; every
+        // field is optional there and `rosterTeamKeys` treats absent as none.
+        const merged = mergedEvent as RosterSource & { readonly name?: unknown; readonly startDate?: unknown };
+        if (rosterGrew(existingEvent, merged) && budget.remaining > 2 * algorithmsAfterThisOne && budget.tryConsume(1)) {
+          try {
+            await writeLiveRosterObject(
+              env,
+              buildLiveRoster({
+                eventKey,
+                season: window.season,
+                ...(typeof merged.name === "string" ? { eventName: merged.name } : {}),
+                ...(typeof merged.startDate === "string" ? { startDate: merged.startDate } : {}),
+                source: merged,
+                computedAt: stamp.computedAt,
+              })
+            );
+          } catch (error) {
+            console.warn(JSON.stringify({ msg: "live-roster-write-failed", eventKey, error: error instanceof Error ? error.name : "unknown" }));
+          }
+        }
+      }
 
       // Only the `teams/{year}` feed is gated on officialness. The live rows
       // ride the event write above, which is unconditional — exactly as the

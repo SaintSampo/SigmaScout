@@ -25,6 +25,7 @@ import { PUBLISHED_ALGORITHM_IDS } from "../../../packages/harness/publishedAlgo
 import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
+import { liveRosterKey } from "../../../packages/harness/liveRoster.js";
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -453,7 +454,11 @@ describe("runTick — one live event, one new match", () => {
     // 260917-jr4, and `1 + ALL_TEAMS.length` -- a whole team-season artifact
     // rewritten per touched team -- before that. Removing those puts is the
     // whole change, in two steps.
-    expect(r2.putCallCount).toBe(1);
+    // Since quick task 260921-5qw a FIRST fold also writes the event's live roster, the tiny object a
+    // robot page finds a promoted event through. It is one object per EVENT, not per algorithm, and it
+    // is written only when the roster grew, so never on an ordinary tick.
+    expect(r2.puts.filter((p) => p.key !== liveRosterKey("2026casj"))).toHaveLength(1);
+    expect(r2.puts.filter((p) => p.key === liveRosterKey("2026casj"))).toHaveLength(1);
 
     const eventPutKey = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "opr", version: opr.version });
     expect(r2.puts.some((p) => p.key === eventPutKey)).toBe(true);
@@ -461,10 +466,11 @@ describe("runTick — one live event, one new match", () => {
       const teamPutKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "opr", version: opr.version });
       expect(r2.puts.some((p) => p.key === teamPutKey), teamKey + ": a live tick must write no team artifact").toBe(false);
     }
-    // Since 260918-16t there is no second per-event object at all: the live
-    // rows ride inside the event body above. Asserted by equality over every
-    // key mentioning this event, so a reintroduced object fails here by name.
-    expect(new Set(r2.puts.map((p) => p.key).filter((key) => key.includes("2026casj")))).toEqual(new Set([eventPutKey]));
+    // Since 260918-16t the live rows ride inside the event body above, and since
+    // 260921-5qw a first fold also writes the event's live roster. Those are the
+    // ONLY two objects. Asserted by equality over every key mentioning this
+    // event, so any third object fails here by name.
+    expect(new Set(r2.puts.map((p) => p.key).filter((key) => key.includes("2026casj")))).toEqual(new Set([eventPutKey, liveRosterKey("2026casj")]));
 
     // OPR's lastEventByTeam bookkeeping lives in its OWN team-scoped rows,
     // and the ONE batched state write for this event includes them alongside
@@ -1717,8 +1723,10 @@ describe("runTick — the tick probes a probe window", () => {
     expect(result.eventsPromoted).toBe(1);
     expect(result.tbaRequests).toBe(1);
     const eventPutKey = artifactKey({ page: "event", eventKey: "2026probe", algorithmId: "opr", version: opr.version });
-    expect(r2.puts).toHaveLength(1);
-    expect(r2.puts[0]!.key).toBe(eventPutKey);
+    // Since quick task 260921-5qw a FIRST fold also writes the event's live roster, the tiny object a
+    // robot page finds a promoted event through. It is one object per EVENT, not per algorithm, and it
+    // is written only when the roster grew, so never on an ordinary tick.
+    expect(r2.puts.map((p) => p.key).sort()).toEqual([eventPutKey, liveRosterKey("2026probe")].sort());
   });
 
   it("a tick with one foldable window and one probe window still folds the foldable event", async () => {

@@ -21,6 +21,7 @@ import { TICK_META_EVENT_KEY } from "../../../packages/harness/stateBaseline.js"
 import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
+import { liveRosterKey } from "../../../packages/harness/liveRoster.js";
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -398,9 +399,11 @@ describe("runTick — state-generation marker equals the manifest generation (co
     expect(result.eventsFailed).toBe(0);
     expect(result.stateGenerationMismatch).toBe(false);
     expect(d1.batchCallCount).toBe(1);
-    expect(r2.putCallCount).toBe(1);
     const eventPutKey = artifactKey({ page: "event", eventKey: EVENT_KEY, algorithmId: "spr", version: spr.version });
-    expect(r2.puts.some((p) => p.key === eventPutKey)).toBe(true);
+    // Since quick task 260921-5qw a FIRST fold also writes the event's live roster, the tiny object a
+    // robot page finds a promoted event through. It is one object per EVENT, not per algorithm, and it
+    // is written only when the roster grew, so never on an ordinary tick.
+    expect(r2.puts.map((p) => p.key).sort()).toEqual([eventPutKey, liveRosterKey(EVENT_KEY)].sort());
   });
 });
 

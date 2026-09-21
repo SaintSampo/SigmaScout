@@ -43,6 +43,7 @@ import { PUBLISHED_ALGORITHM_IDS } from "../../../packages/harness/publishedAlgo
 import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
+import { liveRosterKey } from "../../../packages/harness/liveRoster.js";
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -433,7 +434,12 @@ describe("the live tick's team half is ZERO R2 calls", () => {
     // rebuild's SEASON-wide feed, not per-event work, and it is asserted by the
     // teams-bookkeeping cases at the bottom of this file.
     expect(new Set(r2.gets.filter((key) => key.includes(EVENT_KEY)))).toEqual(new Set([eventKeyFor("opr")]));
-    expect(new Set(r2.puts.filter((p) => p.key.includes(EVENT_KEY)).map((p) => p.key))).toEqual(new Set([eventKeyFor("opr")]));
+    // Since quick task 260921-5qw a FIRST fold also writes the event's live roster, the tiny object a
+    // robot page finds a promoted event through. It is one object per EVENT, not per algorithm, and it
+    // is written only when the roster grew, so never on an ordinary tick.
+    expect(new Set(r2.puts.filter((p) => p.key.includes(EVENT_KEY)).map((p) => p.key))).toEqual(new Set([eventKeyFor("opr"), liveRosterKey(EVENT_KEY)]));
+    // ONCE across all three ticks: the roster never changed after the first fold.
+    expect(r2.puts.filter((p) => p.key === liveRosterKey(EVENT_KEY))).toHaveLength(1);
   });
 
   it("issues no R2 call whatsoever under the DELETED live-object prefix", async () => {

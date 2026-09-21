@@ -49,6 +49,7 @@ import { opr } from "../../../packages/core/algorithms/opr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { SubrequestBudget } from "../src/subrequestBudget.js";
 import { DEMO_PSEUDO_TEAM_KEY } from "../../../packages/core/algorithms/demoTeams.js";
+import { LiveRosterSchema, liveRosterKey } from "../../../packages/harness/liveRoster.js";
 import { readSigmaBeliefs, serializeState, withSigmaBeliefs } from "../../../packages/harness/stateSnapshot.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../../../packages/harness/publishedAlgorithms.js";
 import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
@@ -550,7 +551,10 @@ describe("liveAlgorithmTier — only the live tier folds", () => {
     // Exactly ONE per-event object, for the live tier only: the event artifact
     // itself. Asserted by equality over every key mentioning this event, so a
     // reintroduced second object fails here by name.
-    expect(new Set(r2.puts.filter((p) => p.key.includes("2026casj")).map((p) => p.key))).toEqual(new Set([premierEventKey]));
+    // Since quick task 260921-5qw a FIRST fold also writes the event's live roster, the tiny object a
+    // robot page finds a promoted event through. It is one object per EVENT, not per algorithm, and it
+    // is written only when the roster grew, so never on an ordinary tick.
+    expect(new Set(r2.puts.filter((p) => p.key.includes("2026casj")).map((p) => p.key))).toEqual(new Set([premierEventKey, liveRosterKey("2026casj")]));
   });
 });
 
@@ -783,6 +787,37 @@ describe("liveAlgorithmTier — a promoted event's state block is completed by t
     expect(stateOf(r2, "2026promo")!.absentKeys).toEqual(["frc12"]);
   });
 
+  it("the live roster is written on the first fold, NOT rewritten by an ordinary tick, and rewritten when a team is added", async () => {
+    const window: WindowFixture = { eventKey: "2026promo", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const d1 = seededD1();
+    const r2 = new FakeR2Bucket();
+    const rosterPuts = () => r2.puts.filter((p) => p.key === liveRosterKey("2026promo"));
+    const env = () => makeEnv(makeKv([window], ["spr"]), d1, r2, "spr");
+
+    const first = twoMatchEventRecord("2026promo", "etag-1");
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", first]])));
+    await runTick(env(), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    expect(rosterPuts()).toHaveLength(1);
+    const roster = LiveRosterSchema.parse(JSON.parse(rosterPuts()[0]!.body));
+    // The six that played AND the six still on the schedule, so a robot page
+    // shows the event before that team's first match.
+    expect(roster.teams).toEqual([...ALL_TEAMS, ...UPCOMING_TEAMS].sort());
+    expect(roster).toMatchObject({ eventKey: "2026promo", season: SEASON });
+
+    // Same twelve teams, one more match played: nothing to say.
+    const second: TbaEventRecord = { ...first, etag: "etag-2", matches: [...first.matches, tbaMatch({ key: "2026promo_qm3", eventKey: "2026promo", matchNumber: 3, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 99, blueScore: 101, actualTimeSec: Math.floor(NOW_MS / 1000) - 30 })] };
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", second]])));
+    await runTick(env(), { nowMs: NOW_MS + 60_000, ...DISABLE_GLOBAL_REBUILD });
+    expect(rosterPuts(), "the roster was rewritten by a tick that added no team").toHaveLength(1);
+
+    // A thirteenth team appears on a new upcoming match.
+    const third: TbaEventRecord = { ...second, etag: "etag-3", matches: [...second.matches, tbaMatch({ key: "2026promo_qm4", eventKey: "2026promo", matchNumber: 4, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 80, blueScore: 70, actualTimeSec: Math.floor(NOW_MS / 1000) - 10 }), tbaMatch({ key: "2026promo_qm5", eventKey: "2026promo", matchNumber: 5, redTeams: ["frc13", "frc8", "frc9"], blueTeams: ["frc10", "frc11", "frc12"], predictedTimeSec: Math.floor(NOW_MS / 1000) + 7200 })] };
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", third]])));
+    await runTick(env(), { nowMs: NOW_MS + 120_000, ...DISABLE_GLOBAL_REBUILD });
+    expect(rosterPuts()).toHaveLength(2);
+    expect(LiveRosterSchema.parse(JSON.parse(rosterPuts()[1]!.body)).teams).toContain("frc13");
+  });
+
   it("no subrequest budget left for it: the tick still advances and simply writes no block, to be tried again next tick", async () => {
     const window: WindowFixture = { eventKey: "2026promo", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const d1 = seededD1();
@@ -794,6 +829,8 @@ describe("liveAlgorithmTier — a promoted event's state block is completed by t
     expect(result.eventsAdvanced).toBe(1);
     expect(result.eventsFailed).toBe(0);
     expect(stateOf(r2, "2026promo")).toBeUndefined();
+    // The roster write is opportunistic too: no room, no write, and the artifact above still landed.
+    expect(r2.puts.some((p) => p.key === liveRosterKey("2026promo"))).toBe(false);
   });
 });
 
