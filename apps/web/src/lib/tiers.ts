@@ -19,9 +19,10 @@
  * confidently wrong colour.
  */
 
-import { publishedTierForPercentile } from "../../../../packages/harness/pageArtifacts.js";
+import { publishedTierForPercentile, type EventTierCuts } from "../../../../packages/harness/pageArtifacts.js";
+import { tierFromCuts, type Tier } from "../../../../packages/harness/tierCuts.js";
 
-export type Tier = "common" | "rare" | "epic" | "legendary";
+export type { Tier };
 
 export interface TierBand {
   tier: Tier;
@@ -65,4 +66,36 @@ export function tierForPercentile(percentile: number | undefined): Tier | undefi
   if (percentile === undefined) return undefined;
   if (percentile < 0 || percentile > 100) return undefined;
   return publishedTierForPercentile(percentile) ?? "common";
+}
+
+/**
+ * Resolves a metric entry's rarity tier for surfaces that may hold a
+ * live-folded row: prefers the published `percentile` (via
+ * `tierForPercentile` above) when present, and falls back to the event
+ * artifact's `tierCuts` block (via `tierFromCuts`,
+ * `packages/harness/tierCuts.ts`) for that metric name when it is not.
+ * Quick task 260920-qzf: a live tick's `touchedEventTeamMetrics`
+ * (`apps/worker/src/artifactMerge.ts`) writes a fresh VALUE for a touched
+ * team's other metrics but carries no percentile forward — this is what
+ * gives that row a tier again instead of rendering unboxed until the next
+ * offline publish.
+ *
+ * The published percentile ALWAYS wins, even when a cut entry exists and
+ * would disagree — a percentile is the exact ground truth, a cut is a
+ * reconstruction of it. A metric entry with a value, no percentile and no
+ * cut entry for that name resolves to no tier, never a guess. An absent
+ * metric entry resolves to no tier regardless of cuts.
+ *
+ * The percentile NUMBER is never synthesized from `tierCuts` — only the
+ * tier box is recoverable this way; every surface that prints a percentile
+ * number keeps rendering it absent for a live-folded row.
+ */
+export function resolveMetricTier(
+  entry: { readonly value?: number; readonly percentile?: number } | undefined,
+  metricName: string,
+  tierCuts: EventTierCuts | undefined
+): Tier | undefined {
+  if (entry === undefined) return undefined;
+  if (entry.percentile !== undefined) return tierForPercentile(entry.percentile);
+  return tierFromCuts(tierCuts?.[metricName], entry.value);
 }

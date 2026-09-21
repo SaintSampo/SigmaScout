@@ -224,7 +224,7 @@ function MatchPageBody({
       {/* Task 2: the six robots — this grid has its own per-card pending
           state and paints independently of the heading/table above, which
           already rendered from the event artifact alone. */}
-      <MatchRobotGrid redTeams={row.redTeams} blueTeams={row.blueTeams} byTeamKey={byTeamKey} season={season} algorithm={algorithm} />
+      <MatchRobotGrid redTeams={row.redTeams} blueTeams={row.blueTeams} byTeamKey={byTeamKey} season={season} algorithm={algorithm} tierCuts={data.tierCuts} />
     </div>
   );
 }

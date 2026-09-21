@@ -4,10 +4,11 @@ import { MetricValue } from "@/components/MetricValue";
 import { TotalSigmaValue, totalColumnHeader } from "@/components/TotalSigmaValue";
 import { metricKeysFor, TOTAL_KEY } from "../../lib/metricKeys.js";
 import { METRIC_GROUPS } from "../../lib/metricGroups.js";
-import { tierForPercentile } from "../../lib/tiers.js";
+import { resolveMetricTier } from "../../lib/tiers.js";
 import { MatchTable } from "./MatchTable.js";
 import type { AxisDomain, TeamSeasonEvent } from "./matchAxis.js";
 import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
+import type { EventTierCuts } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 
@@ -28,6 +29,13 @@ export interface EventSectionProps {
   algorithmId: string;
   season: number;
   metricHistory: readonly MetricHistoryRow[];
+  /**
+   * This event's rarity-tier cut points (quick task 260920-qzf), letting a
+   * `metricHistory` row a live tick wrote (a value with no percentile) still
+   * render a tier. `undefined` when this event's artifact carries no block —
+   * a finished event, a pre-republish artifact, or no event data at all.
+   */
+  tierCuts?: EventTierCuts;
 }
 
 /**
@@ -48,7 +56,7 @@ export function endOfEventMetrics(metricHistory: readonly MetricHistoryRow[], ev
   return last;
 }
 
-export function EventSection({ event, domain, teamKey, algorithmId, season, metricHistory }: EventSectionProps) {
+export function EventSection({ event, domain, teamKey, algorithmId, season, metricHistory, tierCuts }: EventSectionProps) {
   const isUpcoming = event.matches.every((match) => match.actualWinner === undefined);
   const snapshot = endOfEventMetrics(metricHistory, event.eventKey);
   const metricKeys = metricKeysFor(algorithmId, season);
@@ -85,7 +93,7 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
   const groupTiles =
     snapshot === undefined || metricKeys.length <= 1
       ? []
-      : METRIC_GROUPS.map((group) => ({ key: group.id, label: group.label, metric: snapshot.metrics[group.metricKey] }));
+      : METRIC_GROUPS.map((group) => ({ key: group.id, metricKey: group.metricKey, label: group.label, metric: snapshot.metrics[group.metricKey] }));
 
   return (
     <section
@@ -143,7 +151,7 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
                   own comment above for why the right half stays untiered. */}
               <TotalSigmaValue
                 total={totalTile.metric}
-                totalTier={tierForPercentile(totalTile.metric.percentile)}
+                totalTier={resolveMetricTier(totalTile.metric, totalTile.key, tierCuts)}
                 sigma={snapshotSigma === undefined ? undefined : { value: snapshotSigma.value }}
               />
             </span>
@@ -171,7 +179,7 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
                       now DELIBERATELY NOT stated anywhere on this surface —
                       an accepted risk, not an oversight.
                     */}
-                    <MetricValue metric={tile.metric} tier={tierForPercentile(tile.metric.percentile)} />
+                    <MetricValue metric={tile.metric} tier={resolveMetricTier(tile.metric, tile.metricKey, tierCuts)} />
                   </span>
                 );
               })}

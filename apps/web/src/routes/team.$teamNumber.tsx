@@ -167,6 +167,7 @@ function TeamPage() {
         seasonStats={live?.seasonStats}
         metricsOverride={headerMetrics}
         snapshotMatchKey={snapshotRow?.matchKey}
+        tierCutsByEventKey={live?.tierCutsByEventKey}
       />
     );
   }

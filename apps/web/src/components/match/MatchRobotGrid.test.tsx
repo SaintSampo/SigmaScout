@@ -12,7 +12,7 @@ import { totalColumnHeader } from "@/components/TotalSigmaValue";
 import { tierForPercentile } from "../../lib/tiers.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
-import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { EventTierCuts, TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
  * Radix's `Avatar` resolves an `AvatarImage`'s loading status by constructing
@@ -308,6 +308,70 @@ describe("MatchRobotGrid", () => {
         expect(cell.querySelector('[data-testid="total-sigma-pill"]')).toBeNull();
         expect(cell.textContent).not.toContain("±");
       }
+    });
+  });
+
+  /**
+   * Quick task 260920-qzf: a `live`-block-derived row carries a value but no
+   * percentile — this is what `tierCuts` is for. `phaseAuto` (index 0 of
+   * `METRIC_CELLS`) is the fixture's percentile-less metric here.
+   */
+  describe("tierCuts fallback (260920-qzf)", () => {
+    const NO_PERCENTILE_TIER_CUTS: EventTierCuts = { phaseAuto: { cuts: [8, 12, 18] } };
+
+    /** `resolvedRecord` with `phaseAuto`'s percentile stripped — a live-folded row's exact shape. */
+    function recordWithNoPercentileOnAuto(): MatchRobotRecord {
+      const base = resolvedRecord("before-this-match");
+      const preMatch = base.preMatch!;
+      return {
+        ...base,
+        preMatch: {
+          ...preMatch,
+          metrics: { ...preMatch.metrics, phaseAuto: { value: preMatch.metrics.phaseAuto!.value } },
+        },
+      };
+    }
+
+    /** The four metric cells of a card, in `METRIC_CELLS` order — a local copy of the "Total ± Sigma pill" describe's own helper, since `describe` callback scopes are not shared. */
+    function localMetricCells(card: HTMLElement): HTMLElement[] {
+      const container = card.lastElementChild as HTMLElement;
+      return Array.from(container.children).filter((child): child is HTMLElement => child.tagName === "DIV");
+    }
+
+    function autoCell(card: HTMLElement): HTMLElement {
+      return localMetricCells(card)[0]!;
+    }
+
+    it("a cell whose entry has a value and no percentile renders the tier the cuts imply", () => {
+      const byTeamKey = allResolved("before-this-match");
+      byTeamKey.frc254 = recordWithNoPercentileOnAuto();
+      renderWithRouter(
+        <MatchRobotGrid redTeams={RED_TEAMS} blueTeams={BLUE_TEAMS} byTeamKey={byTeamKey} season={SEASON} algorithm={ALGORITHM} tierCuts={NO_PERCENTILE_TIER_CUTS} />,
+      );
+      const cell = autoCell(screen.getByTestId("robot-card-frc254"));
+      // value 10 >= cuts.phaseAuto[1] (12)? no; >= cuts[0] (8)? yes -> rare.
+      expect(cell.querySelector(".metric-tier--rare")).not.toBeNull();
+    });
+
+    it("the same cell with no cuts supplied renders no tier box at all", () => {
+      const byTeamKey = allResolved("before-this-match");
+      byTeamKey.frc254 = recordWithNoPercentileOnAuto();
+      renderWithRouter(<MatchRobotGrid redTeams={RED_TEAMS} blueTeams={BLUE_TEAMS} byTeamKey={byTeamKey} season={SEASON} algorithm={ALGORITHM} />);
+      const cell = autoCell(screen.getByTestId("robot-card-frc254"));
+      expect(cell.className).not.toMatch(/metric-tier/);
+    });
+
+    it("a cell that DOES carry a percentile renders identical markup whether or not cuts are supplied (published percentile always wins)", () => {
+      const withCuts = renderWithRouter(
+        <MatchRobotGrid redTeams={RED_TEAMS} blueTeams={BLUE_TEAMS} byTeamKey={allResolved("before-this-match")} season={SEASON} algorithm={ALGORITHM} tierCuts={NO_PERCENTILE_TIER_CUTS} />,
+      );
+      const withCutsHtml = autoCell(screen.getByTestId("robot-card-frc254")).outerHTML;
+      withCuts.unmount();
+
+      renderWithRouter(<MatchRobotGrid redTeams={RED_TEAMS} blueTeams={BLUE_TEAMS} byTeamKey={allResolved("before-this-match")} season={SEASON} algorithm={ALGORITHM} />);
+      const withoutCutsHtml = autoCell(screen.getByTestId("robot-card-frc254")).outerHTML;
+
+      expect(withCutsHtml).toBe(withoutCutsHtml);
     });
   });
 });

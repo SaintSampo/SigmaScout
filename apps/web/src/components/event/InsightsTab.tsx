@@ -41,10 +41,11 @@ import { useIsMobile, useIsF3MetricFirstWidth } from "@/lib/breakpoints";
 import { METRIC_GROUPS, withDerivedGroupMetrics } from "@/lib/metricGroups";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import { teamNumberFromKey } from "@/lib/teamKey";
-import { tierForPercentile } from "@/lib/tiers";
+import { resolveMetricTier, tierForPercentile } from "@/lib/tiers";
 import type { EventPageArtifact } from "../../lib/eventPricing.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
+import type { EventTierCuts } from "../../../../../packages/harness/pageArtifacts.js";
 
 type EventTeam = EventPageArtifact["teams"][number];
 type EventTeamMetrics = EventTeam["metrics"];
@@ -212,7 +213,14 @@ function cellClassName(columnId: string): string {
  * Column ids match the Teams table's own identity ids (`rank`,
  * `teamNumber`, `nickname`).
  */
-function buildInsightsColumns(algorithmId: string, season: number, orderSource: InsightsOrderSource, isNarrow: boolean, metricFirst: boolean = isNarrow) {
+function buildInsightsColumns(
+  algorithmId: string,
+  season: number,
+  orderSource: InsightsOrderSource,
+  isNarrow: boolean,
+  tierCuts: EventTierCuts | undefined,
+  metricFirst: boolean = isNarrow
+) {
   // `algorithmId` reaching this function was already validated upstream
   // through `RootSearchSchema.algorithm` before this table ever
   // rendered — the same loose-cast escape hatch `teams-table/columns.tsx`
@@ -269,7 +277,10 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
       return (
         <TotalSigmaValue
           total={entry}
-          totalTier={tierForPercentile(entry?.percentile)}
+          totalTier={resolveMetricTier(entry, TOTAL_KEY, tierCuts)}
+          // sigma keeps tierForPercentile alone — see BreakdownTab.tsx's
+          // identical comment: the merge carries its percentile forward and
+          // no sigma cut is ever published.
           sigma={sigmaEntry !== undefined ? { value: sigmaEntry.value, tier: tierForPercentile(sigmaEntry.percentile) } : undefined}
         />
       );
@@ -281,15 +292,15 @@ function buildInsightsColumns(algorithmId: string, season: number, orderSource: 
       id: group.metricKey,
       header: group.label,
       size: 120,
-      // The identical `tierForPercentile(metric?.percentile)` derivation
-      // `BreakdownTab.tsx` uses — one derivation path, so an Insights tier
-      // and a Breakdown tier for the same team/metric/season can never
-      // disagree. Tiered unconditionally, including this sorted column:
-      // this knowingly accepts the redundancy of adjacent rows sharing a
-      // tier in exchange for one rule and more colour.
+      // The identical `resolveMetricTier` derivation `BreakdownTab.tsx`
+      // uses — one derivation path, so an Insights tier and a Breakdown
+      // tier for the same team/metric/season can never disagree. Tiered
+      // unconditionally, including this sorted column: this knowingly
+      // accepts the redundancy of adjacent rows sharing a tier in exchange
+      // for one rule and more colour.
       cell: (info) => {
         const entry = info.getValue();
-        return <MetricValue metric={entry} tier={tierForPercentile(entry?.percentile)} />;
+        return <MetricValue metric={entry} tier={resolveMetricTier(entry, group.metricKey, tierCuts)} />;
       },
     }),
   )];
@@ -441,8 +452,8 @@ export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps)
   const isF3Width = useIsF3MetricFirstWidth();
   const { rows, orderSource } = useMemo(() => buildInsightsRows(artifact, algorithmId), [artifact, algorithmId]);
   const columns = useMemo(
-    () => buildInsightsColumns(algorithmId, season, orderSource, isNarrow),
-    [algorithmId, season, orderSource, isNarrow],
+    () => buildInsightsColumns(algorithmId, season, orderSource, isNarrow, artifact.tierCuts),
+    [algorithmId, season, orderSource, isNarrow, artifact.tierCuts],
   );
 
   const table = useTable({

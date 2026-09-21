@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { EventTierCuts, TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { markFirstRowsRendered, measureParseToPaint } from "../../lib/perfMarks.js";
 import { computeAxisDomain } from "./matchAxis.js";
 import { EventSection } from "./EventSection.js";
@@ -26,6 +26,8 @@ export interface EventSectionListProps {
    */
   events?: readonly TeamSeasonEvent[];
   metricHistory?: readonly MetricHistoryRow[];
+  /** Each live event's `tierCuts` block, by event key — see `useLiveTeamSeason.ts`'s `tierCutsByEventKey` doc comment. Looked up per event below; a missing entry means "no cuts", the honest answer for a finished or pre-republish event. */
+  tierCutsByEventKey?: Readonly<Record<string, EventTierCuts>>;
 }
 
 /**
@@ -37,7 +39,7 @@ export interface EventSectionListProps {
  * computed ONCE here, across the whole team-season, and passed down to
  * every section — never recomputed per event or per row.
  */
-export function EventSectionList({ artifact, algorithmId, season, events: overlaidEvents, metricHistory }: EventSectionListProps) {
+export function EventSectionList({ artifact, algorithmId, season, events: overlaidEvents, metricHistory, tierCutsByEventKey }: EventSectionListProps) {
   // A live event's matches come from its event artifact (priced upcoming rows,
   // fresh results); every other event is the published rows, same reference.
   const overlaid = overlaidEvents ?? artifact.events;
@@ -74,6 +76,7 @@ export function EventSectionList({ artifact, algorithmId, season, events: overla
           algorithmId={algorithmId}
           season={season}
           metricHistory={rows}
+          tierCuts={tierCutsByEventKey?.[event.eventKey]}
         />
       ))}
     </div>

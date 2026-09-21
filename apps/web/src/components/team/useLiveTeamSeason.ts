@@ -6,9 +6,12 @@ import { teamEventNeedsLivePricing } from "../../lib/liveEvent.js";
 import { deriveMetricsBasis, deriveSeasonRecord, extendMetricHistory, type SeasonRecord } from "../../lib/liveTeamSeason.js";
 import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
-import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { EventTierCuts, TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { TeamSeasonEvent } from "./matchAxis.js";
 import { overlayTeamEventMatches } from "./teamUpcomingOverlay.js";
+
+/** A stable empty reference for the no-live-events fast path, so an ordinary robot page (no event live) never allocates a fresh object every render. */
+const EMPTY_TIER_CUTS_BY_EVENT_KEY: Readonly<Record<string, EventTierCuts>> = {};
 
 /**
  * The robot page's whole live view, in ONE hook (quick task 260917-jr4, D-05
@@ -49,6 +52,16 @@ export interface LiveTeamSeason {
   readonly metricHistory: MetricHistoryRow[];
   /** `seasonStats` with the record and basis brought forward past the last publish. Every other field is the published one, untouched. */
   readonly seasonStats: TeamSeasonArtifact["seasonStats"];
+  /**
+   * Each live event's own `tierCuts` block, by event key (quick task
+   * 260920-qzf) — the SAME `eventArtifactsByKey` map that feeds
+   * `extendMetricHistory` above, so this is one more field read off an
+   * artifact this hook already fetched, never a second lookup. An event
+   * with no live pricing, or whose artifact carries no block, has no entry
+   * here — `EventSection`'s resolver treats a missing entry as "no cuts",
+   * which is the honest answer for a finished or pre-republish event.
+   */
+  readonly tierCutsByEventKey: Readonly<Record<string, EventTierCuts>>;
 }
 
 export function useLiveTeamSeason(artifact: TeamSeasonArtifact | undefined, algorithmId: string): LiveTeamSeason | undefined {
@@ -75,7 +88,12 @@ export function useLiveTeamSeason(artifact: TeamSeasonArtifact | undefined, algo
   // references, no work. `extendMetricHistory` has the same fast path, but
   // taking it here keeps `events` and `seasonStats` identical too.
   if (liveEvents.length === 0) {
-    return { events: artifact.events, metricHistory: artifact.metricHistory, seasonStats: artifact.seasonStats };
+    return {
+      events: artifact.events,
+      metricHistory: artifact.metricHistory,
+      seasonStats: artifact.seasonStats,
+      tierCutsByEventKey: EMPTY_TIER_CUTS_BY_EVENT_KEY,
+    };
   }
 
   // ONE map, feeding all three derivations below: the match-row overlay, the
@@ -97,9 +115,18 @@ export function useLiveTeamSeason(artifact: TeamSeasonArtifact | undefined, algo
   const record: SeasonRecord = deriveSeasonRecord({ artifact, overlaidEvents: events, eventArtifactsByKey });
   const metricsBasis = deriveMetricsBasis({ published: artifact.seasonStats.metricsBasis, liveEventKeys: contributingEventKeys, eventArtifactsByKey });
 
+  // The SAME eventArtifactsByKey map above, read for one more field:
+  // whichever live events actually resolved an artifact carrying tierCuts.
+  // Omitted entirely for an event with none, never an empty-object entry.
+  const tierCutsByEventKey: Record<string, EventTierCuts> = {};
+  for (const [eventKey, eventArtifact] of eventArtifactsByKey) {
+    if (eventArtifact?.tierCuts !== undefined) tierCutsByEventKey[eventKey] = eventArtifact.tierCuts;
+  }
+
   return {
     events,
     metricHistory,
+    tierCutsByEventKey,
     // Spread first: every publisher-owned field (`metrics`, and whatever the
     // publisher adds next) survives; only the two fields the live view can
     // honestly bring forward are replaced.

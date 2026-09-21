@@ -33,11 +33,12 @@ import { SkeletonRows } from "@/components/Skeletons";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import { teamNumberFromKey } from "@/lib/teamKey";
-import { tierForPercentile } from "@/lib/tiers";
+import { resolveMetricTier, tierForPercentile } from "@/lib/tiers";
 import { buildTeamValuePercentilePoints, estimateCombinedTier, type AllianceApproxTier } from "@/lib/allianceTierApproximation";
 import type { EventPageArtifact } from "../../lib/eventPricing.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { allianceSigmaBandVariance, sigmaMatchBandVariance, SIGMA_METRIC_KEY, usesSigmaScore } from "../../../../../packages/harness/sigmaScore.js";
+import type { EventTierCuts } from "../../../../../packages/harness/pageArtifacts.js";
 
 type EventTeam = EventPageArtifact["teams"][number];
 type EventAlliance = NonNullable<EventPageArtifact["alliances"]>[number];
@@ -432,7 +433,17 @@ const columnHelper = createColumnHelper<typeof features, AllianceRow>();
  * whenever `pick.sigma` is `undefined` (every OPR/EPA pick, and an SPR pick
  * this event has none for).
  */
-function PickCell({ pick, season, algorithm }: { pick: AlliancePick | undefined; season: number; algorithm: PublishedAlgorithmId }) {
+function PickCell({
+  pick,
+  season,
+  algorithm,
+  tierCuts,
+}: {
+  pick: AlliancePick | undefined;
+  season: number;
+  algorithm: PublishedAlgorithmId;
+  tierCuts: EventTierCuts | undefined;
+}) {
   if (pick === undefined) {
     return <span className="numeric-cell"></span>;
   }
@@ -446,7 +457,9 @@ function PickCell({ pick, season, algorithm }: { pick: AlliancePick | undefined;
       <span className="numeric-cell">{pick.teamNumber}</span>
       <TotalSigmaValue
         total={pick.total}
-        totalTier={tierForPercentile(pick.total?.percentile)}
+        totalTier={resolveMetricTier(pick.total, TOTAL_KEY, tierCuts)}
+        // sigma keeps tierForPercentile alone — no sigma cut is ever
+        // published (`EventTierCutsSchema`'s own doc comment).
         sigma={pick.sigma !== undefined ? { value: pick.sigma.value, tier: tierForPercentile(pick.sigma.percentile) } : undefined}
       />
     </Link>
@@ -468,7 +481,19 @@ function PickCell({ pick, season, algorithm }: { pick: AlliancePick | undefined;
  * through `isChampionshipEventType` and threads it down through
  * `buildAllianceColumns`.
  */
-function BackupCell({ picks, season, algorithm, labelled }: { picks: AlliancePick[]; season: number; algorithm: PublishedAlgorithmId; labelled: boolean }) {
+function BackupCell({
+  picks,
+  season,
+  algorithm,
+  labelled,
+  tierCuts,
+}: {
+  picks: AlliancePick[];
+  season: number;
+  algorithm: PublishedAlgorithmId;
+  labelled: boolean;
+  tierCuts: EventTierCuts | undefined;
+}) {
   if (picks.length === 0) {
     return <span className="numeric-cell"></span>;
   }
@@ -486,7 +511,9 @@ function BackupCell({ picks, season, algorithm, labelled }: { picks: AlliancePic
           <span className="numeric-cell">{pick.teamNumber}</span>
           <TotalSigmaValue
             total={pick.total}
-            totalTier={tierForPercentile(pick.total?.percentile)}
+            totalTier={resolveMetricTier(pick.total, TOTAL_KEY, tierCuts)}
+            // sigma keeps tierForPercentile alone — no sigma cut is ever
+            // published (`EventTierCutsSchema`'s own doc comment).
             sigma={pick.sigma !== undefined ? { value: pick.sigma.value, tier: tierForPercentile(pick.sigma.percentile) } : undefined}
           />
           {labelled && <span className="text-role-label text-[var(--color-text-muted)]">{"(backup)"}</span>}
@@ -552,7 +579,13 @@ function hasAnyBackupPick(rows: readonly AllianceRow[]): boolean {
   return rows.some((row) => row.picks.slice(ALLIANCE_COMBINED_PICK_COUNT).length > 0);
 }
 
-function buildAllianceColumns(algorithmId: string, season: number, showBackupColumn: boolean, backupLabelled: boolean) {
+function buildAllianceColumns(
+  algorithmId: string,
+  season: number,
+  showBackupColumn: boolean,
+  backupLabelled: boolean,
+  tierCuts: EventTierCuts | undefined
+) {
   // `algorithmId` reaching this function was already validated upstream
   // through `RootSearchSchema.algorithm` — the same loose-cast escape hatch
   // every sibling tab already uses for a value the type system widened to
@@ -578,19 +611,19 @@ function buildAllianceColumns(algorithmId: string, season: number, showBackupCol
       // Per-metric-column width pattern — see `pickColumnWidth`'s own doc
       // comment for the measured derivation.
       size: pickColumnWidth(algorithmId),
-      cell: (info) => <PickCell pick={info.getValue()} season={season} algorithm={algorithm} />,
+      cell: (info) => <PickCell pick={info.getValue()} season={season} algorithm={algorithm} tierCuts={tierCuts} />,
     }),
     columnHelper.accessor((row) => row.picks[1], {
       id: "pick1",
       header: headers[2],
       size: pickColumnWidth(algorithmId),
-      cell: (info) => <PickCell pick={info.getValue()} season={season} algorithm={algorithm} />,
+      cell: (info) => <PickCell pick={info.getValue()} season={season} algorithm={algorithm} tierCuts={tierCuts} />,
     }),
     columnHelper.accessor((row) => row.picks[2], {
       id: "pick2",
       header: headers[3],
       size: pickColumnWidth(algorithmId),
-      cell: (info) => <PickCell pick={info.getValue()} season={season} algorithm={algorithm} />,
+      cell: (info) => <PickCell pick={info.getValue()} season={season} algorithm={algorithm} tierCuts={tierCuts} />,
     }),
     // Included only when `hasAnyBackupPick` found one — `AlliancesTabSkeleton`
     // below cannot know this and always renders all seven, deliberately
@@ -603,7 +636,7 @@ function buildAllianceColumns(algorithmId: string, season: number, showBackupCol
             // `backupColumnWidth` gates on `usesSigmaScore` and `backupLabelled`
             // — see that function's own doc comment.
             size: backupColumnWidth(algorithmId, backupLabelled),
-            cell: (info) => <BackupCell picks={info.getValue()} season={season} algorithm={algorithm} labelled={backupLabelled} />,
+            cell: (info) => <BackupCell picks={info.getValue()} season={season} algorithm={algorithm} labelled={backupLabelled} tierCuts={tierCuts} />,
           }),
         ]
       : []),
@@ -689,8 +722,8 @@ export function AlliancesTab({ artifact, algorithmId, season }: AlliancesTabProp
   // `isChampionshipEventType`'s own doc comment.
   const backupLabelled = !isChampionshipEventType(artifact.eventType);
   const columns = useMemo(
-    () => buildAllianceColumns(algorithmId, season, showBackupColumn, backupLabelled),
-    [algorithmId, season, showBackupColumn, backupLabelled]
+    () => buildAllianceColumns(algorithmId, season, showBackupColumn, backupLabelled, artifact.tierCuts),
+    [algorithmId, season, showBackupColumn, backupLabelled, artifact.tierCuts]
   );
 
   const table = useTable({ features, columns, data: rows });

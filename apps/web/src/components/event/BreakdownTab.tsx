@@ -58,11 +58,12 @@ import { METRIC_GROUPS, withDerivedGroupMetrics, type ComponentGroupId, type Der
 import { hasGroupedTeamsView, metricKeysFor, publishesComponentMetrics, TOTAL_KEY } from "@/lib/metricKeys";
 import { metricDisplayLabel } from "@/lib/metricLabels";
 import { teamNumberFromKey } from "@/lib/teamKey";
-import { tierForPercentile } from "@/lib/tiers";
+import { resolveMetricTier, tierForPercentile } from "@/lib/tiers";
 import { componentsInGroup } from "../../../../../packages/core/algorithms/breakdown/index.js";
 import type { EventPageArtifact } from "../../lib/eventPricing.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
+import type { EventTierCuts } from "../../../../../packages/harness/pageArtifacts.js";
 
 type EventTeam = EventPageArtifact["teams"][number];
 type EventTeamMetrics = EventTeam["metrics"];
@@ -275,7 +276,7 @@ function breakdownColumnHeader(key: string, algorithmId: string): string {
  * Breakdown-specific list and never derived from a fetched row's own key
  * order.
  */
-function buildBreakdownColumns(algorithmId: string, season: number, isNarrow: boolean, expanded: ExpandedGroups) {
+function buildBreakdownColumns(algorithmId: string, season: number, isNarrow: boolean, expanded: ExpandedGroups, tierCuts: EventTierCuts | undefined) {
   // `algorithmId` reaching this function was already validated upstream
   // through `RootSearchSchema.algorithm` before this table ever rendered —
   // the same loose-cast escape hatch `teams-table/columns.tsx` already uses
@@ -333,13 +334,17 @@ function buildBreakdownColumns(algorithmId: string, season: number, isNarrow: bo
         cell: (info) => {
           const entry = info.getValue();
           if (!isTotal) {
-            return <MetricValue metric={entry} tier={tierForPercentile(entry?.percentile)} />;
+            return <MetricValue metric={entry} tier={resolveMetricTier(entry, key, tierCuts)} />;
           }
           const sigmaEntry = info.row.original.metrics[SIGMA_METRIC_KEY];
           return (
             <TotalSigmaValue
               total={entry}
-              totalTier={tierForPercentile(entry?.percentile)}
+              totalTier={resolveMetricTier(entry, key, tierCuts)}
+              // sigma keeps tierForPercentile alone: the merge carries its
+              // percentile forward through a live tick, and no sigma cut is
+              // ever published (`EventTierCutsSchema`'s own doc comment) —
+              // routing it through the resolver would be a no-op at best.
               sigma={sigmaEntry !== undefined ? { value: sigmaEntry.value, tier: tierForPercentile(sigmaEntry.percentile) } : undefined}
             />
           );
@@ -436,7 +441,10 @@ export function BreakdownTab({ artifact, algorithmId, season }: BreakdownTabProp
   // by a column the table no longer renders.
   const activeSort = useMemo(() => (visibleKeys.includes(sort.key) ? sort : DEFAULT_BREAKDOWN_SORT), [visibleKeys, sort]);
   const sortedRows = useMemo(() => sortBreakdownRows(rows, activeSort), [rows, activeSort]);
-  const columns = useMemo(() => buildBreakdownColumns(algorithmId, season, isNarrow, expanded), [algorithmId, season, isNarrow, expanded]);
+  const columns = useMemo(
+    () => buildBreakdownColumns(algorithmId, season, isNarrow, expanded, artifact.tierCuts),
+    [algorithmId, season, isNarrow, expanded, artifact.tierCuts],
+  );
 
   const table = useTable({
     features,

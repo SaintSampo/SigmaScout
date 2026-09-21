@@ -2,74 +2,102 @@
 id: live-merges-drop-percentiles
 created: 2026-09-12
 source: quick task 260912-tnk (rarity-tier consistency audit) — audited, recorded, deliberately not fixed
-priority: medium
+priority: low
 ---
 
-# Live Worker merges write team and event metrics with no percentiles
+# Live Worker merges still publish no percentile NUMBER for a touched team (the TIER gap is closed)
 
-> **STATUS 2026-09-18, re-read against HEAD `aa191801`. Half of this is gone, the other half is
-> still real and still blocked.**
+> **STATUS 2026-09-20 (quick task 260920-qzf). The tier half of this todo is CLOSED. The percentile-
+> NUMBER half is still real, still blocked, and now the only reason this file stays open.**
+
+## What closed
+
+Every event artifact now carries an optional `tierCuts` block (`EventArtifactSchema.tierCuts`,
+`packages/harness/pageArtifacts.ts`): three rarity-tier cut points per metric name, built once per
+`(algorithm, season)` from the exact same `rankingPools` every published percentile ranks against
+(`buildTierCutsFromPools`, `packages/harness/percentiles.ts`). The client's tier resolver
+(`resolveMetricTier`, `apps/web/src/lib/tiers.ts`) prefers a published `percentile` when present and
+falls back to `tierFromCuts` (`packages/harness/tierCuts.ts`) against that block whenever a metric
+entry has a VALUE but no percentile — exactly the shape `mergeEventArtifact`'s
+`touchedEventTeamMetrics` and the `live` block's rows have always had.
+
+Concretely, closed:
+
+- **Event standings** (Insights, Breakdown, the Alliances pick pills): a touched team's row renders
+  its tier again immediately after a live tick, not just its value.
+- **`live`-block-derived rows** (the match-page robot grid, the team-page event tiles): these rows
+  NEVER carried a percentile by construction (`EventLiveRowSchema` is value-only) and rendered no
+  tier at all before this task — they render one now, for the first time.
+- The exactness of `tierFromCuts` against the reference (`publishedTierForPercentile(
+  goodnessPercentileAgainstPools(...))`) is proven, not assumed: `packages/harness/tierCuts.test.ts`
+  sweeps every distinct pool value and one grid step either side, both metric directions, for pools
+  with ties, duplicates, negatives, a boundary tie, a singleton pool, an all-identical pool, and a
+  several-hundred-team synthetic pool.
+- `mergeEventArtifact` carries `tierCuts` forward through a live tick unchanged, through the
+  Worker's own write-side parse (`apps/worker/test/scheduled.mergePreservation.test.ts`) — the same
+  carry-forward policy as the Sigma entry and the teams-row tier/record.
+
+**Two bootstrap paths still carry no `tierCuts`, by design, unchanged by this task:**
+
+1. **Bootstrap write** (`mergeEventArtifact` with `existing === undefined`): an event with no
+   published artifact at all. The Worker invents no cuts — it has no season pool — so those rows
+   render untiered exactly as they did before, until the first offline publish of that event.
+2. **`writeArtifactWithBootstrapRetry`** degrading a corrupt artifact to a bootstrap merge: same
+   outcome, same reason.
+
+Both are strictly no worse than the pre-260920-qzf behaviour, never worse.
+
+## What did NOT close, and is not approximated
+
+The displayed **percentile NUMBER** — the team page's World rank card, the Alliances tab's
+approximate combined percentile, and any other surface that prints a percentile rather than just a
+tier box — still renders absent for a live-folded row on every surface that prints one. `tierCuts`
+answers "which of four bands", not "what number"; synthesizing a percentile NUMBER from three cut
+points would be a much larger guess than reproducing a four-way classification, and quick task
+260920-qzf deliberately drew that line. `allianceTierApproximation.ts` keeps requiring a published
+percentile for its interpolation points, so the Alliances tab's Combined Total tier still thins
+during live folding, unchanged.
+
+This is now the ENTIRE remaining scope of this todo. The original three-surface tier gap
+(`mergeTeamSeasonArtifact`'s dropped percentiles, `mergeEventArtifact`'s dropped percentiles, and
+the un-tiered `live` block) is gone as a rendering problem; what remains is purely "no live-folded
+row prints an exact percentile number", which is:
+
+- Lower priority than the closed tier gap: a reader loses a number, not a colour, and the FRC
+  audience's dominant use of a percentile is exactly the tier it implies.
+- **Still blocked behind `rp-fold-exceeds-worker-cpu-budget`** for the same reason as before: an
+  exact percentile needs the season pool inside the tick, and the tick is still over its sustained
+  CPU budget. Nothing in 260920-qzf changes that gate.
+- **No longer worth unblocking for tiers alone** — the reason a fix here was ever discussed. If
+  `rp-fold-exceeds-worker-cpu-budget` closes for an unrelated reason, revisit whether a live-priced
+  percentile number is worth the cost then; do not reopen this specific fix on tier grounds.
+
+## History (superseded by the above; kept for context)
+
+> STATUS 2026-09-18, re-read against HEAD `aa191801`. Half of this is gone, the other half is still
+> real and still blocked.
 >
-> - **Gone.** `mergeTeamSeasonArtifact` left the live tick in 260917-jr4 and that shipped in Worker
->   `c9b4642e` (260918-16t). The tick writes NO team artifact, so every bullet under that heading
->   below no longer describes production, including the unscoped offseason `seasonStats` write. The
->   function survives only as the state probe's `allPhaseB` baseline arm.
-> - **Moved.** The robot and match pages now derive a live view from the event artifact's `live`
->   block. Those rows carry rounded values and no percentile, so a row folded since the last publish
->   still renders untiered. Same symptom, new location.
-> - **Unchanged.** `mergeEventArtifact` still writes touched standings with no percentiles.
-> - **Still blocked, for the same reason.** A fix needs the season pool inside the tick, and the tick
->   is still over its CPU budget (`rp-fold-exceeds-worker-cpu-budget`). Do not start this before that
->   gate closes. When it does, price the compact pool below as a within-run arm difference.
+> - Gone. `mergeTeamSeasonArtifact` left the live tick in 260917-jr4 (Worker `c9b4642e`,
+>   260918-16t). The tick writes NO team artifact, so the unscoped offseason `seasonStats` write and
+>   every other `mergeTeamSeasonArtifact` bullet below no longer describes production. The function
+>   survives only as the state probe's `allPhaseB` baseline arm.
+> - Moved. The robot and match pages derive a live view from the event artifact's `live` block —
+>   rounded values, no percentile. Same symptom, new location. (Now closed for TIER by 260920-qzf;
+>   see "What closed" above. The percentile NUMBER is still absent.)
+> - Unchanged then, now closed for TIER. `mergeEventArtifact` writes touched standings with no
+>   percentiles; the tier is recoverable from `tierCuts`, the number is not.
 
-Quick task 260912-tnk made a rarity tier a function of (metric value, the one season ranking pool)
-on every surface the offline pipeline publishes. The live Worker (`apps/worker/src/scheduled.ts`)
-still writes three surfaces with no percentile at all during an event. None of them paints a FALSE
-tier — an absent percentile renders no tier box — but a team that was Legendary an hour ago renders
-untiered until the next offline publish.
+Original 2026-09-12 diagnosis, `mergeTeamSeasonArtifact` write list (historical, the function no
+longer runs live): wrote `seasonStats` with no percentiles and dropped `metricsBasis` (the basis
+drop was fixed separately by 260915-p0a); appended `newMetricHistoryRows` with no percentiles;
+wrote `seasonStats.metrics` from offseason/preseason ticks unscoped. None of this executes in
+production any more.
 
-## What is dropped, per tick
-
-- **`mergeTeamSeasonArtifact`** (the `team/{teamKey}/{year}` write, every tick, every touched team):
-  - writes `seasonStats: { record, metrics: roundTeamMetricRecord(metrics) }` — no percentiles, and
-    it also drops `metricsBasis`. The team page's header tiles (when no official snapshot is
-    derivable), and the World rank card (tiered from `seasonStats.metrics.total.percentile` since
-    260912-tnk) render untiered for a touched team.
-    - 2026-09-15 (260915-p0a): `metricsBasis` is no longer dropped — the merge spreads
-      `existing.seasonStats` and writes the basis from the folded matches' officialness
-      (`"last-official-match"` when every match this tick is official, `"season-final"` otherwise).
-      The missing percentiles and the unscoped offseason write below are UNCHANGED, and this todo
-      stays open for them.
-  - appends `newMetricHistoryRows` with no percentiles, so new event cards and the match-page robot
-    grid render untiered for the new rows. The header's own last-official-snapshot tiles read these
-    rows too.
-  - writes `seasonStats.metrics` from offseason and preseason ticks UNSCOPED. The offline pipeline
-    scopes `seasonStats` to the last official match (260908-wpo); a live offseason tick overwrites it
-    with an offseason-trained value.
-- **`mergeEventArtifact`** writes touched standings with `roundTeamMetricRecord(touchedMetrics[...])`
-  — no percentiles — so Insights, Breakdown and Alliances pick cells render untiered for touched teams.
-
-## Why it was not fixed in 260912-tnk
-
-Every one of these needs THE POOL: every team's last-official-match metrics for the season. The only
-place the Worker has that is the `teams/{year}` artifact. Reading it on every tick costs one more R2
-subrequest per algorithm plus a full decode of the ~3,800-row artifact, on a Worker already
-over its sustained CPU budget (`docs/worker-operations.md`, "PRE-SEASON GATE"). 260912-tnk's CONTEXT
-allowed a fix here only without reading the Teams artifact every tick.
-
-The same CPU wall stopped the Teams list itself from re-ranking: 260912-tnk measured full tier
-re-derivation over the decoded Teams rows at 67-97% of the global rebuild's existing CPU cost against
-a 25% gate, so the global rebuild now CARRIES each touched row's last published tier forward
-(`touchedTeamsRowMetrics`). That is honest but stale: a touched team whose value crossed a cut keeps
-its old tier, and no other row is re-ranked against its new value.
-
-## A candidate direction, not a decision
-
-Publish a compact pool — per metric key, the sorted rounded values — somewhere cheap to read (a small
-R2 object per (algorithm, season), or a D1 row alongside the state the tick already batch-reads). With
-it, each merge could call `goodnessPercentileAgainstPools` directly for only the touched teams'
-metrics, without decoding the Teams artifact. The pool is stale by the same amount a carried tier is,
-so measure whether that is actually better than carry-forward before building it.
-
-Not exercised in production until the pre-season CPU gate in `docs/worker-operations.md` closes: no
-live window may open before then.
+**A candidate direction for the percentile-NUMBER gap, not a decision:** publish a compact pool —
+per metric key, the sorted rounded values — somewhere cheap to read (a small R2 object per
+(algorithm, season), or a D1 row alongside the state the tick already batch-reads). With it, each
+merge could call `goodnessPercentileAgainstPools` directly for only the touched teams' metrics,
+without decoding the Teams artifact. The pool is stale by the same amount a carried tier is, so
+measure whether that is actually better than carry-forward before building it. Not exercised in
+production until the pre-season CPU gate in `docs/worker-operations.md` closes: no live window may
+open before then.

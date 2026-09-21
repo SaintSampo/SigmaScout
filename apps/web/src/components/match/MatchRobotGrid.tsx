@@ -7,10 +7,10 @@ import { Link } from "@tanstack/react-router";
 import { METRIC_GROUPS } from "../../lib/metricGroups.js";
 import { TOTAL_KEY } from "../../lib/metricKeys.js";
 import { metricDisplayLabel } from "../../lib/metricLabels.js";
-import { tierForPercentile } from "../../lib/tiers.js";
+import { resolveMetricTier } from "../../lib/tiers.js";
 import { teamNumberFromKey } from "../../lib/teamKey.js";
 import type { PreMatchBasis, PreMatchMetrics } from "../../lib/preMatchMetrics.js";
-import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { EventTierCuts, TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 
@@ -37,6 +37,14 @@ export interface MatchRobotGridProps {
   byTeamKey: Readonly<Record<string, MatchRobotRecord>>;
   season: number;
   algorithm: PublishedAlgorithmId;
+  /**
+   * The event artifact's rarity-tier cut points (quick task 260920-qzf),
+   * letting a `live`-block-derived row (a value with no percentile) still
+   * render a tier. Optional: `undefined` when the event artifact carries no
+   * block, or on a pre-republish artifact. This component stays a pure
+   * function of its props — the cuts are read here, never fetched.
+   */
+  tierCuts?: EventTierCuts;
 }
 
 /** Combined as-of wording when all six cards agree on one basis. */
@@ -110,10 +118,12 @@ function RobotMetricCells({
   preMatch,
   isPending,
   algorithm,
+  tierCuts,
 }: {
   preMatch: PreMatchMetrics | undefined;
   isPending: boolean;
   algorithm: PublishedAlgorithmId;
+  tierCuts: EventTierCuts | undefined;
 }) {
   if (isPending) {
     return (
@@ -144,12 +154,12 @@ function RobotMetricCells({
                  component's header for why the right half stays untiered. */
               <TotalSigmaValue
                 total={entry}
-                totalTier={tierForPercentile(entry?.percentile)}
+                totalTier={resolveMetricTier(entry, cell.key, tierCuts)}
                 sigma={sigmaEntry === undefined ? undefined : { value: sigmaEntry.value }}
               />
             ) : (
               /* `metric` and `tier` ONLY. MetricValue renders no plus-minus of any kind. */
-              <MetricValue metric={entry} tier={tierForPercentile(entry?.percentile)} />
+              <MetricValue metric={entry} tier={resolveMetricTier(entry, cell.key, tierCuts)} />
             )}
           </div>
         );
@@ -166,6 +176,7 @@ function RobotCard({
   season,
   algorithm,
   showPerCardBasisNote,
+  tierCuts,
 }: {
   teamKey: string;
   side: "red" | "blue";
@@ -173,6 +184,7 @@ function RobotCard({
   season: number;
   algorithm: PublishedAlgorithmId;
   showPerCardBasisNote: boolean;
+  tierCuts: EventTierCuts | undefined;
 }) {
   const numberLabel = robotNumberLabel(teamKey);
   const nickname = robotNickname(record.artifact, numberLabel);
@@ -211,12 +223,12 @@ function RobotCard({
       {showPerCardBasisNote && record.preMatch !== undefined && (
         <span className="text-role-label text-[var(--color-text-muted)]">{PER_CARD_BASIS_NOTE[record.preMatch.basis]}</span>
       )}
-      <RobotMetricCells preMatch={record.preMatch} isPending={record.isPending} algorithm={algorithm} />
+      <RobotMetricCells preMatch={record.preMatch} isPending={record.isPending} algorithm={algorithm} tierCuts={tierCuts} />
     </div>
   );
 }
 
-export function MatchRobotGrid({ redTeams, blueTeams, byTeamKey, season, algorithm }: MatchRobotGridProps) {
+export function MatchRobotGrid({ redTeams, blueTeams, byTeamKey, season, algorithm, tierCuts }: MatchRobotGridProps) {
   const allKeys = [...redTeams, ...blueTeams];
   const resolvedBases = allKeys
     .map((key) => byTeamKey[key]?.preMatch)
@@ -248,6 +260,7 @@ export function MatchRobotGrid({ redTeams, blueTeams, byTeamKey, season, algorit
             season={season}
             algorithm={algorithm}
             showPerCardBasisNote={basesDisagree}
+            tierCuts={tierCuts}
           />
         ))}
         {blueTeams.map((teamKey) => (
@@ -259,6 +272,7 @@ export function MatchRobotGrid({ redTeams, blueTeams, byTeamKey, season, algorit
             season={season}
             algorithm={algorithm}
             showPerCardBasisNote={basesDisagree}
+            tierCuts={tierCuts}
           />
         ))}
       </div>

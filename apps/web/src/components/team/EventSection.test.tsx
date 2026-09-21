@@ -308,6 +308,70 @@ describe("EventSection", () => {
       expect(snapshot.textContent).toContain("61.40");
     });
 
+    it("quick task 260920-qzf: a snapshot metric with a value and no percentile renders its tier from tierCuts", () => {
+      renderWithRouter(
+        <EventSection
+          event={makeEvent()}
+          domain={DOMAIN}
+          teamKey="frc118"
+          algorithmId="spr"
+          season={2024}
+          metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4 } } })]}
+          tierCuts={{ total: { cuts: [31.17, 52.4, 88.05] } }}
+        />,
+      );
+      const snapshot = screen.getByTestId("event-snapshot-2024casj");
+      // 61.4 >= cuts[1] (52.4) and < cuts[2] (88.05) -> epic.
+      expect(snapshot.querySelector(".metric-tier--epic")).not.toBeNull();
+    });
+
+    it("quick task 260920-qzf: the same percentile-less metric renders no tier box at all when no cuts are supplied", () => {
+      renderWithRouter(
+        <EventSection
+          event={makeEvent()}
+          domain={DOMAIN}
+          teamKey="frc118"
+          algorithmId="spr"
+          season={2024}
+          metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4 } } })]}
+        />,
+      );
+      const snapshot = screen.getByTestId("event-snapshot-2024casj");
+      expect(snapshot.querySelector(".metric-tier")).toBeNull();
+    });
+
+    it("quick task 260920-qzf: a metric that DOES carry a percentile renders identically whether or not tierCuts are supplied (published percentile always wins)", () => {
+      const withCuts = renderWithRouter(
+        <EventSection
+          event={makeEvent()}
+          domain={DOMAIN}
+          teamKey="frc118"
+          algorithmId="spr"
+          season={2024}
+          metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4, percentile: 80 } } })]}
+          // Deliberately disagreeing cuts: if the resolver preferred cuts
+          // this would render legendary instead of epic.
+          tierCuts={{ total: { cuts: [1, 2, 3] } }}
+        />,
+      );
+      const withCutsHtml = screen.getByTestId("event-snapshot-2024casj").innerHTML;
+      withCuts.unmount();
+
+      renderWithRouter(
+        <EventSection
+          event={makeEvent()}
+          domain={DOMAIN}
+          teamKey="frc118"
+          algorithmId="spr"
+          season={2024}
+          metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4, percentile: 80 } } })]}
+        />,
+      );
+      const withoutCutsHtml = screen.getByTestId("event-snapshot-2024casj").innerHTML;
+
+      expect(withCutsHtml).toBe(withoutCutsHtml);
+    });
+
     it("renders no per-event tier-basis caption even when a rendered tile carries a percentile", () => {
       renderWithRouter(
         <EventSection

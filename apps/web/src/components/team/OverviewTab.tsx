@@ -1,4 +1,4 @@
-import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { EventTierCuts, TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
 import type { TeamSeasonEvent } from "./matchAxis.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
@@ -37,9 +37,22 @@ export interface OverviewTabProps {
   events?: readonly TeamSeasonEvent[];
   metricHistory?: readonly MetricHistoryRow[];
   seasonStats?: TeamSeasonArtifact["seasonStats"];
+  /** Each live event's `tierCuts` block, by event key — threaded to `EventSectionList` unchanged; see `useLiveTeamSeason.ts`'s `tierCutsByEventKey` doc comment. */
+  tierCutsByEventKey?: Readonly<Record<string, EventTierCuts>>;
 }
 
-export function OverviewTab({ artifact, algorithmId, season, teamNumber, metricsOverride, snapshotMatchKey, events, metricHistory, seasonStats }: OverviewTabProps) {
+export function OverviewTab({
+  artifact,
+  algorithmId,
+  season,
+  teamNumber,
+  metricsOverride,
+  snapshotMatchKey,
+  events,
+  metricHistory,
+  seasonStats,
+  tierCutsByEventKey,
+}: OverviewTabProps) {
   return (
     <div className="flex min-w-0 flex-col gap-[var(--spacing-xl)]">
       <div className="data-card p-[var(--spacing-md)]">
@@ -52,7 +65,15 @@ export function OverviewTab({ artifact, algorithmId, season, teamNumber, metrics
         */}
         <SeasonHeader artifact={artifact} algorithmId={algorithmId} season={season} teamNumber={teamNumber} seasonStats={seasonStats} metricsOverride={metricsOverride} snapshotMatchKey={snapshotMatchKey} ranks={artifact.ranks} />
       </div>
-      <EventSectionList artifact={artifact} algorithmId={algorithmId} season={season} teamNumber={teamNumber} events={events} metricHistory={metricHistory} />
+      <EventSectionList
+        artifact={artifact}
+        algorithmId={algorithmId}
+        season={season}
+        teamNumber={teamNumber}
+        events={events}
+        metricHistory={metricHistory}
+        tierCutsByEventKey={tierCutsByEventKey}
+      />
       {/*
         The tier key is a legend, not a headline: it explains the colour
         banding used by the metric grid above and by every match row, so it
