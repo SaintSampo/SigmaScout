@@ -371,6 +371,18 @@ function maintainedLiveBlock(params: MergeEventArtifactParams): LiveEventArtifac
  * tick-owned is carried stale until someone lists it here — the project's
  * documented carry-forward policy, as for the Sigma entry and the teams-row
  * tier/record.
+ *
+ * `tierCuts` (quick task 260920-qzf) rides this same carry-forward policy —
+ * it is NOT in the override list and NOT destructured out, so it survives
+ * every tick unchanged via `...carriedFromExisting`, stale-but-true between
+ * republishes exactly like the Sigma entry and the teams-row tier/record
+ * above. A bootstrap merge (`existing` undefined) carries none, for the same
+ * reason it carries no `name`/`alliances`/etc: the Worker has no season
+ * pool to build one from. `pageArtifacts.ts`'s `EventArtifactSchema` doc
+ * comment on `tierCuts` explains why declaring the key on the base schema
+ * (not only on `LiveEventArtifactSchema`) is what stops the write-side parse
+ * below from silently stripping it — the exact allow-list failure mode this
+ * function's own header paragraph already warns about.
  */
 export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
   const { existing, eventKey, season, algorithmId, algorithmVersion, eventType, newlyFolded, newPredictions, stillUpcoming, touchedTeams, touchedMetrics, newBands, playedRowFacts, stamp } = params;
@@ -659,8 +671,16 @@ type PublishedEventTeamMetric = { value: number; spread?: number; percentile?: n
  * appended when the fresh record lacks it, so a live tick never strips a
  * published Sigma Score.
  *
- * Known limitation: a touched team's other metrics lose their `percentile`
- * on a live tick; the Worker computes none.
+ * Known limitation, narrowed by quick task 260920-qzf: a touched team's
+ * other metrics still lose their `percentile` on a live tick — the Worker
+ * computes none, and that stays the CPU gate
+ * (`rp-fold-exceeds-worker-cpu-budget`). What no longer disappears with it
+ * is the TIER: the client re-derives it from the event artifact's
+ * `tierCuts` block (`apps/web/src/lib/tiers.ts`'s resolver) whenever a
+ * metric entry has a value but no percentile, which is exactly this
+ * function's output shape. The percentile NUMBER itself stays absent on
+ * every surface that prints one and is never approximated from `tierCuts` —
+ * only the tier box is recoverable this way.
  */
 export function touchedEventTeamMetrics(
   priorMetrics: Readonly<Record<string, PublishedEventTeamMetric>> | undefined,

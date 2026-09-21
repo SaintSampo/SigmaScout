@@ -275,6 +275,36 @@ describe("mergeEventArtifact keeps every key the tick does not own", () => {
 });
 
 // ---------------------------------------------------------------------------
+// tierCuts carry-forward (quick task 260920-qzf)
+// ---------------------------------------------------------------------------
+
+const SAMPLE_TIER_CUTS = { total: { cuts: [31.17, 52.4, 88.05] }, phaseAuto: { cuts: [7.2, 12.86, 24.1] } };
+
+describe("mergeEventArtifact preserves tierCuts through a live tick", () => {
+  it("carries tierCuts forward unchanged, for a tick that touches teams and folds a match", () => {
+    const existing = { ...existingEvent(), tierCuts: SAMPLE_TIER_CUTS } as unknown as LiveEventArtifact;
+    const written = mergeEventRaw({ existing });
+    expect(written.tierCuts).toEqual(SAMPLE_TIER_CUTS);
+  });
+
+  it("survives the write-side parse the Worker actually uses (LiveEventArtifactSchema) — the step that would strip an undeclared key", () => {
+    const existing = { ...existingEvent(), tierCuts: SAMPLE_TIER_CUTS } as unknown as LiveEventArtifact;
+    const written = mergeEvent({ existing });
+    expect(written.tierCuts).toEqual(SAMPLE_TIER_CUTS);
+  });
+
+  it("bootstrap (no existing artifact) carries no tierCuts key at all — never an empty object", () => {
+    const written = mergeEventRaw({ existing: undefined, eventType: 0 });
+    expect(written).not.toHaveProperty("tierCuts");
+  });
+
+  it("an existing artifact with no tierCuts still merges, and still carries no such key", () => {
+    const written = mergeEventRaw({ existing: existingEvent() });
+    expect(written).not.toHaveProperty("tierCuts");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Team-season artifact
 // ---------------------------------------------------------------------------
 
