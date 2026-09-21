@@ -51,7 +51,7 @@ type EventTeam = EventPageArtifact["teams"][number];
 type EventTeamMetrics = EventTeam["metrics"];
 type EventTeamRecord = NonNullable<EventTeam["record"]>;
 
-export type InsightsOrderSource = "official" | "fallback";
+export type InsightsOrderSource = "official" | "fallback" | "live";
 
 /** One team's Insights row. `displayRank` is `undefined` for an unranked team inside an otherwise-ranked event; `record`/`rp` pass through the published artifact verbatim, never defaulted. */
 export interface InsightsRow {
@@ -110,16 +110,26 @@ function byFallbackTotal(a: InsightsRowBase, b: InsightsRowBase): number {
  * banner and the row order both read — see this module's header doc
  * comment for why that must never be two independently-consulted facts.
  *
- * `orderSource` resolves to `"official"` when AT LEAST ONE entry in
- * `artifact.teams` carries a defined `rank` — not "every team has one": a
- * team that registered and withdrew has no ranking row inside an otherwise
- * fully-ranked event, and relabelling the whole table for that one row
- * would be wrong.
+ * `orderSource` resolves to `"live"` when `artifact.standings` (260921-q2s,
+ * `liveStandings.ts`) is present and ranked — a ranked live-derived marker
+ * means every row's rank/rp/record came from THIS SESSION's own count of
+ * played qualification rows, not from TBA's published rank, and "live"
+ * behaves exactly like `"official"` for both the row comparator and
+ * `displayRank` below. An UNRANKED marker deliberately does NOT produce
+ * `"live"`: in that case only the Record column was counted, and the row
+ * order is still the published or fallback one — see `liveStandings.ts`'s
+ * own doc comment for why an unranked result must never carry an invented
+ * order. Otherwise `orderSource` resolves to `"official"` when AT LEAST ONE
+ * entry in `artifact.teams` carries a defined `rank` — not "every team has
+ * one": a team that registered and withdrew has no ranking row inside an
+ * otherwise fully-ranked event, and relabelling the whole table for that
+ * one row would be wrong.
  */
 export function buildInsightsRows(artifact: EventPageArtifact, algorithmId: string): InsightsRowModel {
   void algorithmId; // reserved for signature symmetry with the column builder; the fallback ordering axis (TOTAL_KEY) is algorithm-agnostic once published
 
-  const orderSource: InsightsOrderSource = artifact.teams.some((team) => team.rank !== undefined) ? "official" : "fallback";
+  const orderSource: InsightsOrderSource =
+    artifact.standings?.ranked === true ? "live" : artifact.teams.some((team) => team.rank !== undefined) ? "official" : "fallback";
 
   const base: InsightsRowBase[] = artifact.teams.map((team) => {
     const teamNumber = team.teamNumber ?? teamNumberFromKey(team.teamKey);
@@ -138,18 +148,22 @@ export function buildInsightsRows(artifact: EventPageArtifact, algorithmId: stri
     };
   });
 
-  const ordered = [...base].sort(orderSource === "official" ? byOfficialRank : byFallbackTotal);
+  // Fallback is the one mode with its own comparator and its own rank rule;
+  // "live" branches with "official" on both, per this function's own doc
+  // comment.
+  const ordered = [...base].sort(orderSource === "fallback" ? byFallbackTotal : byOfficialRank);
 
   const rows: InsightsRow[] = ordered.map((row, index) => ({
     teamKey: row.teamKey,
     teamNumber: row.teamNumber,
     nickname: row.nickname,
-    // Official mode: the team's own published rank (undefined for an
-    // unranked team inside a ranked event). Fallback mode: the 1-based
-    // position in the returned order, computed after the sort — the same
-    // "compute once, never recomputed by a re-sort" discipline
-    // `teams-table/rowModel.ts`'s `buildTeamRows` applies to its own `rank`.
-    displayRank: orderSource === "official" ? row.rank : index + 1,
+    // Official/live mode: the team's own published (or live-derived) rank
+    // (undefined for an unranked team inside a ranked event). Fallback
+    // mode: the 1-based position in the returned order, computed after the
+    // sort — the same "compute once, never recomputed by a re-sort"
+    // discipline `teams-table/rowModel.ts`'s `buildTeamRows` applies to its
+    // own `rank`.
+    displayRank: orderSource === "fallback" ? index + 1 : row.rank,
     record: row.record,
     rp: row.rp,
     metrics: row.metrics,
@@ -177,6 +191,20 @@ export function formatEventRecord(record: EventTeamRecord | undefined): string {
  */
 export function insightsFallbackNotice(algorithmLabel: string): string {
   return `This event has no official TBA ranking. Teams below are ordered by ${algorithmLabel}'s rank instead.`;
+}
+
+/**
+ * `insightsLiveNotice()`: the ONLY place the live-derived-order sentence
+ * appears in source. Flat third person, zero hyphen or zero dash
+ * characters of any kind — this site's methodology copy voice. States the
+ * one honest claim this order owes the reader: it is counted from results
+ * posted so far, and it can diverge from TBA's own published order on an
+ * exact tie, a surrogate appearance or a disqualification (see
+ * `liveStandings.ts`'s tiebreak doc comment for the full statement of
+ * those two divergences).
+ */
+export function insightsLiveNotice(): string {
+  return "These standings are counted from the results posted so far and can differ from the official order.";
 }
 
 /**
@@ -227,7 +255,10 @@ function buildInsightsColumns(
   // already uses for a value the type system widened to plain `string`
   // crossing a component-prop boundary.
   const algorithm = algorithmId as PublishedAlgorithmId;
-  const rankHeader = orderSource === "official" ? "Rank" : `${algorithmDisplayLabel(algorithm)} Rank`;
+  // Only fallback renames the header and widens the column below — "live"
+  // keeps the plain "Rank" label and the official width, matching
+  // `buildInsightsRows`'s own official/live symmetry.
+  const rankHeader = orderSource === "fallback" ? `${algorithmDisplayLabel(algorithm)} Rank` : "Rank";
 
   const recordColumn = columnHelper.accessor("record", {
     header: "Record",
@@ -321,7 +352,7 @@ function buildInsightsColumns(
     columnHelper.accessor((row) => row.displayRank, {
       id: "rank",
       header: rankHeader,
-      size: orderSource === "official" ? (isNarrow ? RANK_COLUMN_WIDTH_NARROW_PX : 72) : 96,
+      size: orderSource === "fallback" ? 96 : isNarrow ? RANK_COLUMN_WIDTH_NARROW_PX : 72,
       cell: (info) => {
         const value = info.getValue();
         return <span className="numeric-cell">{value === undefined ? "" : value}</span>;
@@ -477,6 +508,15 @@ export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps)
         >
           <InfoIcon aria-hidden="true" className="size-4 shrink-0" />
           <span>{insightsFallbackNotice(algorithmDisplayLabel(algorithmId as PublishedAlgorithmId))}</span>
+        </div>
+      )}
+      {orderSource === "live" && (
+        <div
+          data-testid="insights-live-banner"
+          className="flex items-center gap-[var(--spacing-sm)] rounded-[var(--radius)] bg-[var(--color-bg-inset)] px-[var(--spacing-md)] py-[var(--spacing-sm)] text-role-body text-[var(--color-text-muted)]"
+        >
+          <InfoIcon aria-hidden="true" className="size-4 shrink-0" />
+          <span>{insightsLiveNotice()}</span>
         </div>
       )}
       <div data-testid="insights-table-scroll" className="data-card w-fit max-w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">

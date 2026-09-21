@@ -22,10 +22,12 @@ import { TOTAL_KEY } from "@/lib/metricKeys";
 import { makeEventArtifact as makeArtifact, mockNarrowViewport } from "@/test/helpers";
 import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
+import type { EventPageArtifact } from "../../lib/eventPricing.js";
 import {
   buildInsightsRows,
   formatEventRecord,
   insightsFallbackNotice,
+  insightsLiveNotice,
   InsightsTab,
   InsightsTabSkeleton,
 } from "./InsightsTab";
@@ -62,7 +64,7 @@ function fullInsightsMetrics(overrides: Record<string, { value: number; spread?:
   return { ...record, ...overrides };
 }
 
-function renderInsights(artifact: EventArtifact, algorithmId = "spr", season = 2024) {
+function renderInsights(artifact: EventPageArtifact, algorithmId = "spr", season = 2024) {
   return render(
     <TestHarness>
       <InsightsTab artifact={artifact} algorithmId={algorithmId} season={season} />
@@ -462,6 +464,121 @@ describe("InsightsTab — no-ranking fallback header and banner", () => {
     const rankHeader = screen.getAllByRole("columnheader")[0];
     expect(rankHeader?.textContent).toBe("Rank");
     expect(screen.queryByTestId("insights-fallback-banner")).toBeNull();
+  });
+});
+
+describe("InsightsTab — order source 'live' (260921-q2s)", () => {
+  /** A team-ranked-by-`rank` artifact (like `withDerivedLiveStandings` would produce) plus a `standings` marker, spread on top of the real parsed shape. */
+  function liveDerivedArtifact(teams: { teamKey: string; teamNumber: number; rank: number }[], ranked = true): EventPageArtifact {
+    const base = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "spr",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2026casf",
+      season: 2026,
+      matches: [],
+      upcoming: [],
+      teams: teams.map((t) => ({
+        teamKey: t.teamKey,
+        teamNumber: t.teamNumber,
+        nickname: `Team ${t.teamNumber}`,
+        rank: t.rank,
+        record: { wins: 1, losses: 0, ties: 0 },
+        rp: 2,
+        metrics: fullInsightsMetrics(),
+      })),
+    });
+    return { ...base, standings: { source: "live-derived", ranked } };
+  }
+
+  it("a ranked live-derived marker returns orderSource 'live' and rows in derived rank order", () => {
+    const artifact = liveDerivedArtifact([
+      { teamKey: "frc3", teamNumber: 3, rank: 3 },
+      { teamKey: "frc1", teamNumber: 1, rank: 1 },
+      { teamKey: "frc2", teamNumber: 2, rank: 2 },
+    ]);
+    const model = buildInsightsRows(artifact, "spr");
+    expect(model.orderSource).toBe("live");
+    expect(model.rows.map((row) => row.teamNumber)).toEqual([1, 2, 3]);
+  });
+
+  it("displayRank in live mode is the row's own derived rank, exactly as in official mode", () => {
+    const artifact = liveDerivedArtifact([
+      { teamKey: "frc1", teamNumber: 1, rank: 7 },
+      { teamKey: "frc2", teamNumber: 2, rank: 2 },
+    ]);
+    const model = buildInsightsRows(artifact, "spr");
+    expect(model.rows.find((row) => row.teamNumber === 1)?.displayRank).toBe(7);
+    expect(model.rows.find((row) => row.teamNumber === 2)?.displayRank).toBe(2);
+  });
+
+  it("live mode: the rank header stays the plain 'Rank' label, the column keeps the official width, and the live banner renders the dash-free sentence", async () => {
+    const artifact = liveDerivedArtifact([
+      { teamKey: "frc1", teamNumber: 1, rank: 1 },
+      { teamKey: "frc2", teamNumber: 2, rank: 2 },
+    ]);
+    renderInsights(artifact, "spr", 2026);
+
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
+    const rankHeader = screen.getAllByRole("columnheader")[0];
+    expect(rankHeader?.textContent).toBe("Rank");
+    expect(screen.getByTestId("insights-header-rank").style.width).toBe("72px");
+    expect(screen.queryByTestId("insights-fallback-banner")).toBeNull();
+
+    const banner = screen.getByTestId("insights-live-banner");
+    expect(banner.textContent).toBe(insightsLiveNotice());
+    // Zero hyphen or dash characters of any kind (site methodology copy voice): ASCII hyphen-minus plus the Unicode dash block (U+2010-U+2015).
+    expect(insightsLiveNotice()).not.toMatch(/[-‐-―]/);
+  });
+
+  it("no standings marker: orderSource resolves to 'official' or 'fallback' exactly as before, and no live banner renders", async () => {
+    const rankedArtifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "spr",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [
+        team({ teamKey: "frc1", teamNumber: 1, rank: 1, metrics: fullInsightsMetrics() }),
+        team({ teamKey: "frc2", teamNumber: 2, rank: 2, metrics: fullInsightsMetrics() }),
+      ],
+    });
+    renderInsights(rankedArtifact, "spr", 2024);
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
+    expect(screen.queryByTestId("insights-live-banner")).toBeNull();
+    expect(buildInsightsRows(rankedArtifact, "spr").orderSource).toBe("official");
+
+    const fallbackArtifact = EventArtifactSchema.parse({
+      schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+      generation: "gen-1",
+      computedAt: "2026-08-27T00:00:00.000Z",
+      algorithmId: "spr",
+      algorithmVersion: "2.0.0+tuned-2026-08",
+      eventKey: "2024casf",
+      season: 2024,
+      matches: [],
+      upcoming: [],
+      teams: [team({ teamKey: "frc1", teamNumber: 1, metrics: { [TOTAL_KEY]: { value: 1 } } })],
+    });
+    expect(buildInsightsRows(fallbackArtifact, "spr").orderSource).toBe("fallback");
+  });
+
+  it("an unranked live-derived marker does not produce 'live': the order stays official/fallback, and only the Record column was counted", () => {
+    const unranked = liveDerivedArtifact(
+      [
+        { teamKey: "frc1", teamNumber: 1, rank: 1 },
+        { teamKey: "frc2", teamNumber: 2, rank: 2 },
+      ],
+      false,
+    );
+    const model = buildInsightsRows(unranked, "spr");
+    expect(model.orderSource).toBe("official");
   });
 });
 
