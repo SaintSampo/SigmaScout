@@ -62,11 +62,12 @@ export default defineConfig(({ mode }) => {
    * R2 custom domain, so the bytes served are the actual published artifacts,
    * not a fixture or a mock.
    *
-   * Reuses `artifactOrigin` (resolved above via `loadEnv`, the same
-   * `VITE_ARTIFACT_ORIGIN` override `src/lib/artifactOrigin.ts` reads at
-   * runtime) as the proxy target, so a local/e2e origin override and this
-   * proxy's forwarding target can never drift apart into two separately
-   * hand-edited values.
+   * The target is ALWAYS the real published origin, never `artifactOrigin`.
+   * The e2e build sets `VITE_ARTIFACT_ORIGIN` to the preview server's own URL
+   * so the BROWSER asks this server for `/v1`; using that same value as the
+   * forwarding target made the proxy forward every `/v1` request back to
+   * itself, looping until the machine ran out of ephemeral ports
+   * (`EADDRINUSE`) and every local-project spec failed on an empty page.
    *
    * `server`/`preview` are Vite-local-only options — Cloudflare Pages serves
    * the built `dist/` directory directly and never reads this file, so this
@@ -74,7 +75,7 @@ export default defineConfig(({ mode }) => {
    */
   const localArtifactProxy = {
     "/v1": {
-      target: artifactOrigin,
+      target: DEFAULT_ARTIFACT_ORIGIN,
       changeOrigin: true,
     },
   };
