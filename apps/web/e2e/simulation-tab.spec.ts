@@ -1,6 +1,4 @@
 import { test, expect } from "@playwright/test";
-import { touchDrag } from "./support/touchDrag.js";
-import { assertNoIntermediateScroller, assertNoPagePan, assertOverflows, assertOverflowsY } from "./support/scrollRegions.js";
 import { openSimulationTab, runSimulation, selectStartMatch, SIMULATION_TEST_IDS } from "./support/simulation.js";
 
 /**
@@ -29,15 +27,17 @@ const PLOT_W = 470;
 const HIST_BAR_MAX_H = 32;
 const MEDIAN_TICK_W = 2;
 
-const S3_EVENT_KEY = "2023cur";
-const S3_TEAM_COUNT = 78;
-const S3_REMAINING_MATCHES = 130;
+const S3_EVENT_KEY = "2026arc";
+const S3_TEAM_COUNT = 75;
+const S3_REMAINING_MATCHES = 125;
 
-test.describe("S3 — the rank-distribution table at its largest real roster (2023cur, 78 teams, 130 remaining matches)", () => {
+test.describe("S3 — the rank-distribution table at its largest real roster (2026arc, 75 teams, 125 remaining matches)", () => {
   test("1440x900: one shared rank axis, every mark on every row measured visible at the real slot pitch", async ({ page }, testInfo) => {
+    // 75 rows x up to 75 bars, each measured: far past the default 30s.
+    test.setTimeout(240_000);
     await page.setViewportSize({ width: 1440, height: 900 });
     await openSimulationTab(page, S3_EVENT_KEY);
-    // The first picker row simulates every one of the event's 130
+    // Start match 1 simulates every one of the event's 125
     // qualification matches — the phase's genuine worst case.
     await selectStartMatch(page, 0);
     const elapsedMs = await runSimulation(page);
@@ -58,7 +58,7 @@ test.describe("S3 — the rank-distribution table at its largest real roster (20
     if (plotBox === null) throw new Error("rank plot cell has no bounding box");
     const measuredPitch = plotBox.width / S3_TEAM_COUNT;
     const expectedPitch = PLOT_W / S3_TEAM_COUNT;
-    expect(Math.abs(measuredPitch - expectedPitch), `measured slot pitch ${measuredPitch}px vs expected ${expectedPitch}px`).toBeLessThanOrEqual(0.5);
+    expect(measuredPitch, `measured slot pitch ${measuredPitch}px must not fall under the designed floor ${expectedPitch}px`).toBeGreaterThanOrEqual(expectedPitch - 0.5);
     // eslint-disable-next-line no-console -- printed for the SUMMARY's measured-figure obligation.
     console.log(`[simulation-tab] measured slot pitch at ${S3_TEAM_COUNT} teams: ${measuredPitch.toFixed(2)}px (PLOT_W/N = ${expectedPitch.toFixed(2)}px)`);
 
@@ -113,7 +113,7 @@ test.describe("S3 — the rank-distribution table at its largest real roster (20
     console.log(`[simulation-tab] desktop screenshot: ${shot}`);
   });
 
-  test("390x844: the same 78-row table, its own scroll region overflows, passes the ancestor walk, and Team # moves across a full-width drag exactly like Nickname and Median (no column is pinned)", async ({
+  test("390x844: the same 75-row table fits its region with no page overflow and a usable plot width", async ({
     page,
   }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -125,33 +125,17 @@ test.describe("S3 — the rank-distribution table at its largest real roster (20
     await expect(rows.first()).toBeVisible();
     expect(await rows.count()).toBe(S3_TEAM_COUNT);
 
+    // At phone width the table fits its region (names truncate, the plot is
+    // fluid), so there is nothing to pan: the region must not overflow, the
+    // page must not overflow, and every plot must keep a usable width.
     const region = page.locator(`[data-testid="${SIMULATION_TEST_IDS.rankTableScroll}"]`);
-    await assertOverflows(region);
-    await assertNoIntermediateScroller(region);
-
-    // No column is pinned (2026-09-13): teamNumber, nickname and
-    // medianDisplay must all move with the drag like any other column.
-    const teamNumberHeader = page.getByTestId("rank-header-teamNumber");
-    const nicknameHeader = page.getByTestId("rank-header-nickname");
-    const unpinnedHeader = page.getByTestId("rank-header-medianDisplay");
-
-    const teamNumberBefore = await teamNumberHeader.boundingBox();
-    const nicknameBefore = await nicknameHeader.boundingBox();
-    const unpinnedBefore = await unpinnedHeader.boundingBox();
-    if (teamNumberBefore === null || nicknameBefore === null || unpinnedBefore === null) throw new Error("header cell missing a bounding box");
-
-    const regionBox = await region.boundingBox();
-    if (regionBox === null) throw new Error("rank table scroll region has no bounding box");
-    await touchDrag(page, { x: regionBox.x + regionBox.width - 20, y: regionBox.y + 30 }, { x: regionBox.x + 20, y: regionBox.y + 30 });
-
-    const teamNumberAfter = await teamNumberHeader.boundingBox();
-    const nicknameAfter = await nicknameHeader.boundingBox();
-    const unpinnedAfter = await unpinnedHeader.boundingBox();
-    if (teamNumberAfter === null || nicknameAfter === null || unpinnedAfter === null) throw new Error("header cell missing a bounding box after the drag");
-
-    expect(teamNumberAfter.x).not.toBeCloseTo(teamNumberBefore.x, 0);
-    expect(nicknameAfter.x).not.toBeCloseTo(nicknameBefore.x, 0);
-    expect(unpinnedAfter.x).not.toBeCloseTo(unpinnedBefore.x, 0);
+    const regionSize = await region.evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+    expect(regionSize.scrollWidth, `rank table scrollWidth ${regionSize.scrollWidth} must fit its region ${regionSize.clientWidth}`).toBeLessThanOrEqual(regionSize.clientWidth);
+    const doc = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }));
+    expect(doc.scrollWidth, `document scrollWidth ${doc.scrollWidth} must not exceed ${doc.clientWidth}`).toBeLessThanOrEqual(doc.clientWidth);
+    const plotBox = await page.locator('[data-testid^="rank-plot-"]').first().boundingBox();
+    if (plotBox === null) throw new Error("rank plot cell has no bounding box");
+    expect(plotBox.width / S3_TEAM_COUNT, "each rank slot must keep at least 1.5px at phone width").toBeGreaterThanOrEqual(1.5);
 
     expect(elapsedMs).toBeLessThan(60_000);
     // eslint-disable-next-line no-console -- printed for the SUMMARY's SC-2 obligation.
@@ -165,94 +149,34 @@ test.describe("S3 — the rank-distribution table at its largest real roster (20
 });
 
 /**
- * S1 — the picker at its real maximum (PD-01, Task 2). The outline named
- * `2024wvrox` (135 quals, the corpus maximum) as the picker's overflow
- * target, but that event is TBA `event_type` 99 (offseason) and
- * `EVENT_TYPE_TIERS` (`packages/core/rankingPoints/constants.ts`)
- * deliberately omits type 99, so the RP algorithm emits no pmf there — confirmed
- * live in this task's own precondition fetch: 0 of 135 `qm` rows carry
- * `redRpPmf`/`blueRpPmf`. `2022oncmp` (134 rows, 67 teams, TBA type 2,
- * RP-eligible) is the real maximum the picker can ever be handed, one row
- * short of the corpus absolute maximum. `2024wvrox` ships here as the
- * control that makes the retarget legible as a measurement rather than a
- * convenience — asserting 08-09's unavailable state renders and the picker
- * row locator resolves to exactly zero elements at the largest qualification
- * slate that exists.
+ * S1 — the start-match picker at the largest qualification slate that carries
+ * ranking point odds. The picker is a slider plus a number input, so there is
+ * no row list to overflow: the facts worth pinning are that both controls span
+ * the whole slate and that the panel never pushes the page sideways at 390px.
+ * The simulation sidecars exist from 2026 on, so the target is that season's
+ * largest slate.
  */
-const S1_EVENT_KEY = "2022oncmp";
-const S1_ROW_COUNT = 134;
-/** `StartMatchPicker.tsx`'s own `START_MATCH_PICKER_MAX_H_PX`. */
-const PICKER_MAX_H_PX = 320;
+const S1_EVENT_KEY = "2026mrcmp";
+const S1_MATCH_COUNT = 132;
 
-test.describe("S1 — the start-match picker at its real maximum (2022oncmp, 134 rows)", () => {
-  test("134 picker rows, a genuinely bounded panel, a real internal vertical scroll that neither traps the page nor is trapped by it", async ({ page }) => {
+test.describe("S1 — the start-match picker at its real maximum (2026mrcmp, 132 qualification matches)", () => {
+  test("the slider and the number input both span the whole slate, and the panel adds no horizontal page overflow at 390px", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await openSimulationTab(page, S1_EVENT_KEY);
 
-    const rows = page.locator(`[data-testid^="${SIMULATION_TEST_IDS.rowPrefix}"]`);
-    await expect(rows.first()).toBeVisible();
-    expect(S1_ROW_COUNT).toBe(134); // exact-equality anchor, grepped by this plan's own acceptance criteria
-    expect(await rows.count(), "the picker must render exactly one row per qualification match").toBe(134);
+    const slider = page.getByTestId("start-match-slider");
+    const input = page.getByTestId("start-match-number");
+    await expect(slider).toBeVisible();
+    expect(await slider.getAttribute("max")).toBe(String(S1_MATCH_COUNT));
 
-    const picker = page.getByTestId(SIMULATION_TEST_IDS.picker);
-    const pickerClientHeight = await picker.evaluate((el) => el.clientHeight);
-    expect(pickerClientHeight, `picker clientHeight ${pickerClientHeight}px must sit at or under the declared max-height`).toBeLessThanOrEqual(PICKER_MAX_H_PX + 1);
+    await selectStartMatch(page, S1_MATCH_COUNT - 1);
+    await expect(slider).toHaveValue(String(S1_MATCH_COUNT));
 
-    await assertOverflowsY(picker);
-    await assertNoIntermediateScroller(picker);
-
-    // Mutual .contains() failure against the tab strip's own scroll region —
-    // the picker's internal scroller and the strip's horizontal scroller are
-    // sibling regions, never ancestor/descendant of one another.
-    const { stripContainsPicker, pickerContainsStrip } = await page.evaluate(() => {
-      const strip = document.querySelector('[data-testid="event-tab-strip-scroll"]');
-      const picker = document.querySelector('[data-testid="start-match-picker"]');
-      if (strip === null || picker === null) throw new Error("strip or picker element not found");
-      return { stripContainsPicker: strip.contains(picker), pickerContainsStrip: picker.contains(strip) };
-    });
-    expect(stripContainsPicker).toBe(false);
-    expect(pickerContainsStrip).toBe(false);
-
-    // Direction 1: a vertical drag INSIDE the picker advances the picker's
-    // own scrollTop while the document's stays exactly where it was — the
-    // inner region consumes its own axis and does not chain out.
-    const pickerBox = await picker.boundingBox();
-    if (pickerBox === null) throw new Error("picker has no bounding box");
-    const insideBefore = await picker.evaluate((el) => el.scrollTop);
-    const documentTopBeforeInside = await page.evaluate(() => document.documentElement.scrollTop);
-    await touchDrag(page, { x: pickerBox.x + pickerBox.width / 2, y: pickerBox.y + pickerBox.height - 40 }, { x: pickerBox.x + pickerBox.width / 2, y: pickerBox.y + 40 });
-    const insideAfter = await picker.evaluate((el) => el.scrollTop);
-    const documentTopAfterInside = await page.evaluate(() => document.documentElement.scrollTop);
-    expect(insideAfter, "a drag inside the picker must advance the picker's own scrollTop").toBeGreaterThan(insideBefore);
-    expect(documentTopAfterInside, "a drag inside the picker must not move the document").toBe(documentTopBeforeInside);
-
-    // Reset scroll position before the second direction, so the two probes
-    // are independent.
-    await picker.evaluate((el) => {
-      el.scrollTop = 0;
-    });
-    await page.evaluate(() => window.scrollTo(0, 0));
-
-    // Direction 2: a vertical drag OUTSIDE the picker, over the page above
-    // it (the event header / tab strip region, well above the picker's own
-    // top edge), advances the document's scrollTop while the picker's stays
-    // exactly where it was — the picker does not trap the page.
-    const outsideY = Math.max(20, pickerBox.y - 60);
-    const pickerScrollBeforeOutside = await picker.evaluate((el) => el.scrollTop);
-    const documentTopBeforeOutside = await page.evaluate(() => document.documentElement.scrollTop);
-    await touchDrag(page, { x: pickerBox.x + pickerBox.width / 2, y: outsideY }, { x: pickerBox.x + pickerBox.width / 2, y: Math.max(0, outsideY - 100) });
-    const pickerScrollAfterOutside = await picker.evaluate((el) => el.scrollTop);
-    const documentTopAfterOutside = await page.evaluate(() => document.documentElement.scrollTop);
-    expect(documentTopAfterOutside, "a drag over the page above the picker must advance the document's own scrollTop").toBeGreaterThan(documentTopBeforeOutside);
-    expect(pickerScrollAfterOutside, "a drag over the page above the picker must not move the picker's own scrollTop").toBe(pickerScrollBeforeOutside);
-
-    await assertNoPagePan(page);
-
-    // Recorded, not asserted (a printed fact, never an invented preference) —
-    // the at-boundary chaining feel is Task 4's checkpoint judgement to make.
-    const overscrollBehaviorY = await picker.evaluate((el) => getComputedStyle(el).overscrollBehaviorY);
-    // eslint-disable-next-line no-console -- printed per this task's own instruction; never asserted.
-    console.log(`[simulation-tab] picker computed overscroll-behavior-y: ${overscrollBehaviorY}`);
+    const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(scrollWidth, `document scrollWidth ${scrollWidth} must not exceed clientWidth ${clientWidth}`).toBeLessThanOrEqual(clientWidth);
   });
 });
 

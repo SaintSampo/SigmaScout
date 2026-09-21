@@ -48,11 +48,17 @@ export async function openSimulationTab(page: Page, eventKey: string): Promise<v
   await page.getByTestId(SIMULATION_TEST_IDS.stack).waitFor({ state: "visible", timeout: 15_000 });
 }
 
-/** Clicks the picker row at a zero-based `index` (in the picker's own rendered order) and asserts exactly one row ends up in the selected state. */
+/**
+ * Selects the start match at a zero-based `index` into the event's
+ * qualification schedule. The picker is a slider plus a number input
+ * (`StartMatchPicker.tsx`'s `START_MATCH_NUMBER_INPUT_TESTID`), not a row
+ * list: typing `index + 1` rewinds the simulation to just before that match,
+ * so `index` 0 simulates every qualification match — the worst case.
+ */
 export async function selectStartMatch(page: Page, index: number): Promise<void> {
-  const rows = page.locator(`[data-testid^="${SIMULATION_TEST_IDS.rowPrefix}"]`);
-  await rows.nth(index).click();
-  await expect(page.locator('[data-selected="true"]')).toHaveCount(1);
+  const input = page.getByTestId("start-match-number");
+  await input.fill(String(index + 1));
+  await expect(input).toHaveValue(String(index + 1));
 }
 
 /**

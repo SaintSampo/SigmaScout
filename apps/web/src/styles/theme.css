@@ -932,9 +932,15 @@ body {
  * Compare page: the winning accuracy / Brier value in a season row wears the
  * Legendary tier tokens, borrowing its "best of the group" meaning (this
  * table has no percentile tiers to collide with). A near-tie gets no pill.
+ *
+ * The negative inline margin cancels the pill's own padding, so a pill takes
+ * the same layout width as a bare value: the column cannot change width when
+ * the leader moves between views, and a leader's digits stay aligned with the
+ * rest of its column. The fill bleeds into the cell's own padding.
  */
 .compare-leader-pill {
   display: inline-block;
+  margin-inline: -0.5rem;
   padding: 0.0625rem 0.5rem;
   border-radius: 9999px;
   background-color: var(--tier-legendary-bg);
