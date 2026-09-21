@@ -1,7 +1,9 @@
 import { useMemo } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useAlgorithmVersion } from "../ribbon/AlgorithmSelect.js";
 import { eventQueryOptions } from "../../lib/api/event.js";
+import { liveRosterQueryOptions, liveWindowsQueryOptions } from "../../lib/api/liveRoster.js";
+import { discoveredTeamEvents, windowsToCheck } from "../../lib/liveDiscovery.js";
 import { teamEventNeedsLivePricing } from "../../lib/liveEvent.js";
 import { deriveMetricsBasis, deriveSeasonRecord, extendMetricHistory, type SeasonRecord } from "../../lib/liveTeamSeason.js";
 import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
@@ -68,11 +70,44 @@ export function useLiveTeamSeason(artifact: TeamSeasonArtifact | undefined, algo
   const publishedId = (PUBLISHED_ALGORITHM_IDS as readonly string[]).includes(algorithmId) ? (algorithmId as PublishedAlgorithmId) : undefined;
   const version = useAlgorithmVersion(publishedId ?? "spr");
 
+  // DISCOVERY (quick task 260921-5qw): events the published season file cannot
+  // name, because the Worker promoted them to live folding without an offline
+  // publish and TBA had no team list for them in advance. The manifest is read
+  // only by a CURRENT-season page, a roster only for a window that is open NOW
+  // and not already among the team's events, so an ordinary robot page outside
+  // an event weekend pays one small cached fetch and nothing else. Both
+  // fetchers fail soft: no discovery is exactly the page as it was before.
+  const discoveryEnabled = artifact !== undefined && publishedId !== undefined && artifact.season === new Date().getUTCFullYear();
+  const windowsQuery = useQuery({ ...liveWindowsQueryOptions(), enabled: discoveryEnabled });
+  const knownEventKeys = useMemo(() => new Set((artifact?.events ?? []).map((event) => event.eventKey)), [artifact]);
+  const rosterEventKeys =
+    artifact === undefined || !discoveryEnabled
+      ? []
+      : windowsToCheck({ windows: windowsQuery.data ?? [], season: artifact.season, knownEventKeys, nowMs: Date.now() });
+  const rosterResults = useQueries({ queries: rosterEventKeys.map((eventKey) => liveRosterQueryOptions(eventKey)) });
+  const discovered =
+    artifact === undefined ? [] : discoveredTeamEvents({ teamKey: artifact.teamKey, knownEventKeys, rosters: rosterResults.map((result) => result.data) });
+  const discoveredKey = discovered.map((event) => event.eventKey).join(",");
+
+  // The published events, then the discovered ones. Same reference as the
+  // artifact's own array when nothing was discovered, so the fast path below
+  // still returns published values untouched.
+  const baseEvents = useMemo(
+    () => (artifact === undefined ? [] : discovered.length === 0 ? artifact.events : [...artifact.events, ...discovered]),
+    // `discoveredKey` stands in for `discovered`, which is a fresh array each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [artifact, discoveredKey]
+  );
+
   // ONE resolution of the live-event set, feeding the query array below AND
-  // every derivation under it.
+  // every derivation under it. A discovered event is live by definition: it
+  // has no published matches for `teamEventNeedsLivePricing` to inspect.
   const liveEvents = useMemo(
-    () => (artifact === undefined || publishedId === undefined ? [] : artifact.events.filter((event) => teamEventNeedsLivePricing(event))),
-    [artifact, publishedId]
+    () =>
+      artifact === undefined || publishedId === undefined
+        ? []
+        : baseEvents.filter((event) => !knownEventKeys.has(event.eventKey) || teamEventNeedsLivePricing(event)),
+    [artifact, publishedId, baseEvents, knownEventKeys]
   );
 
   const eventResults = useQueries({
@@ -104,7 +139,7 @@ export function useLiveTeamSeason(artifact: TeamSeasonArtifact | undefined, algo
   // variable-length dependency list.
   const eventArtifactsByKey = new Map(liveEvents.map((event, index) => [event.eventKey, eventResults[index]?.data]));
 
-  const events = artifact.events.map((event) =>
+  const events = baseEvents.map((event) =>
     eventArtifactsByKey.has(event.eventKey)
       ? { ...event, matches: overlayTeamEventMatches({ teamKey: artifact.teamKey, event, eventArtifact: eventArtifactsByKey.get(event.eventKey) }) }
       : event

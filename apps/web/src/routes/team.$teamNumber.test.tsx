@@ -355,4 +355,84 @@ describe("/team/$teamNumber route — live event overlay (260915-m4j)", () => {
     expect(eventUrls.length).toBeGreaterThan(0);
     expect(new Set(eventUrls)).toEqual(new Set([EVENT_URL]));
   });
+
+  // Quick task 260921-5qw. Since 260920-lny the Worker promotes an event to
+  // live folding once TBA shows matches, and TBA publishes no team list for an
+  // offseason event in advance, so NO published team file can name it. Until
+  // this task such an event was invisible on every robot page until an operator
+  // ingested and republished.
+  describe("an event the team's own published file has never heard of", () => {
+    const WINDOW = { eventKey: "2024casf", season: 2024, startMs: NOW - 3_600_000, endMs: NOW + 3_600_000, inferred: true };
+    const liveWindows = (windows: unknown[]) =>
+      new Response(JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2024-03-09T00:00:00.000Z", windows }), { status: 200 });
+    const rosterResponse = (teams: string[]) =>
+      new Response(
+        JSON.stringify({ schemaVersion: 1, eventKey: "2024casf", season: 2024, eventName: "San Francisco Regional", startDate: "2024-03-07", teams, computedAt: "2024-03-09T17:59:00.000Z" }),
+        { status: 200 },
+      );
+    /** The same team file, with NO events: exactly what a team at a never-published event has. */
+    async function teamArtifactWithNoEvents(): Promise<Response> {
+      const body = (await teamArtifactWithEvent(NOW + 600_000, "2024-03-07").json()) as Record<string, unknown>;
+      return new Response(JSON.stringify({ ...body, events: [] }), { status: 200 });
+    }
+
+    function stub(options: { windows: unknown[]; rosterTeams: string[] | "404" }) {
+      const fetchMock = vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("live-windows")) return Promise.resolve(liveWindows(options.windows));
+        if (url.includes("live-roster")) return Promise.resolve(options.rosterTeams === "404" ? new Response("", { status: 404 }) : rosterResponse(options.rosterTeams));
+        if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+        if (url.includes("/v1/event/")) return Promise.resolve(eventArtifactResponse());
+        return teamArtifactWithNoEvents();
+      });
+      global.fetch = fetchMock;
+      return fetchMock;
+    }
+
+    it("is found through the open live window and its roster, and its matches come from the event artifact", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(NOW);
+      const fetchMock = stub({ windows: [WINDOW], rosterTeams: ["frc1114", "frc2"] });
+      renderTeamRoute("/team/1114?year=2024&algorithm=spr");
+
+      await waitFor(() => expect(screen.getByTestId("confidence-2024casf_qm9").textContent).toContain("91%"));
+      expect(screen.getAllByText(/San Francisco Regional/).length).toBeGreaterThan(0);
+      const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+      expect(urls.filter((url) => url.includes("live-roster"))).toEqual(["https://data.sigmascout.org/v1/live-roster/2024casf.json"]);
+    });
+
+    it("a roster that does not name the team, and a roster that is not there yet, add nothing and fetch no event artifact", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(NOW);
+      for (const rosterTeams of [["frc2", "frc3"], "404"] as const) {
+        const fetchMock = stub({ windows: [WINDOW], rosterTeams: rosterTeams === "404" ? "404" : [...rosterTeams] });
+        renderTeamRoute("/team/1114?year=2024&algorithm=spr");
+        await waitFor(() => expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("live-roster"))).toBe(true));
+        await waitFor(() => expect(screen.queryAllByText(/Simbotics/).length).toBeGreaterThan(0));
+        expect(screen.queryByTestId("confidence-2024casf_qm9")).toBeNull();
+        expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/v1/event/"))).toBe(false);
+        cleanup();
+      }
+    });
+
+    it("no window open now means NO roster fetch at all: an ordinary robot page pays for the manifest and nothing else", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(NOW);
+      const closed = { ...WINDOW, startMs: NOW + 86_400_000, endMs: NOW + 2 * 86_400_000 };
+      const fetchMock = stub({ windows: [closed], rosterTeams: ["frc1114"] });
+      renderTeamRoute("/team/1114?year=2024&algorithm=spr");
+      await waitFor(() => expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("live-windows"))).toBe(true));
+      await waitFor(() => expect(screen.queryAllByText(/Simbotics/).length).toBeGreaterThan(0));
+      expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("live-roster"))).toBe(false);
+    });
+
+    it("a PAST season's page does not even read the live-windows manifest", async () => {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(Date.parse("2026-09-26T15:00:00.000Z"));
+      const fetchMock = stub({ windows: [WINDOW], rosterTeams: ["frc1114"] });
+      renderTeamRoute("/team/1114?year=2024&algorithm=spr");
+      await waitFor(() => expect(screen.queryAllByText(/Simbotics/).length).toBeGreaterThan(0));
+      expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("live-windows"))).toBe(false);
+    });
+  });
 });

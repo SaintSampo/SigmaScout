@@ -139,7 +139,10 @@ function TeamPage() {
       );
     }
 
-    if (data.events.length === 0) {
+    // `live.events`, not `data.events`: a team whose ONLY event this season is one the Worker promoted
+    // without an offline publish has an empty published list and a discovered live event (quick task
+    // 260921-5qw). Falls back to the published list while `live` is unresolved.
+    if ((live?.events ?? data.events).length === 0) {
       const activeYears = data.activeYears;
       const yearMismatch = activeYears !== undefined && !activeYears.includes(year);
 
