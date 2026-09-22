@@ -148,8 +148,13 @@ export function playedRowFactsFor(
  * browser prices it from the artifact's `state` block. `sortTime` is the
  * published value from the existing artifact's row for this match, never
  * the TBA-normalized approximation; absent when that row had none.
+ *
+ * Exported for `test/matchSplit.test.ts` only: the trimmed and the reference
+ * split must agree on the shape that actually reaches an artifact, not merely
+ * on the six fields feeding it (260921-vzf). No production caller outside this
+ * module.
  */
-function buildEventScheduledRow(match: ScheduledMatchFacts, existingSortTime: number | undefined) {
+export function buildEventScheduledRow(match: ScheduledMatchFacts, existingSortTime: number | undefined) {
   return {
     matchKey: match.matchKey,
     compLevel: match.compLevel,

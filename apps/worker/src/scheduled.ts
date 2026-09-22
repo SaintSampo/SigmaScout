@@ -79,7 +79,7 @@ import { foldsIntoRatings, isOfficialEventType } from "../../../packages/core/al
 import type { AlgorithmModule, MatchResult, Prediction, TeamMetric } from "../../../packages/core/algorithms/types.js";
 import { tbaMatchListSchema, type TbaMatch } from "../../../packages/ingest/schemas.js";
 import { tbaEventSchema } from "../../../packages/ingest/schemas.js";
-import { normalizeMatch, compareCorpusMatchOrder, type CorpusMatch } from "../../../packages/ingest/normalize.js";
+import { type CorpusMatch } from "../../../packages/ingest/normalize.js";
 import { fetchEventDetail } from "../../../packages/ingest/tbaClient.js";
 import { isDemoTeamKey } from "../../../packages/core/algorithms/demoTeams.js";
 import { missingStateBlockKeys, stateBlockScopeKeys } from "../../../packages/harness/eventStatePricing.js";
@@ -134,12 +134,14 @@ import {
   touchedEventTeamMetrics,
   type MatchBand,
   type PlayedRowFacts,
+  type ScheduledMatchFacts,
   type Stamp,
 } from "./artifactMerge.js";
 import { checkLiveEventArtifactShape } from "./artifactShapeCheck.js";
 import { ArtifactReadBudgetExhaustedError, ArtifactSecretLeakError, readArtifactObject, writeArtifactObject, writeLiveRosterObject } from "./artifactWriter.js";
 import { buildLiveRoster, rosterGrew, type RosterSource } from "../../../packages/harness/liveRoster.js";
-import { hasAlreadyFolded, MAX_SCOPE_KEYS_PER_READ, readEventCursor, readEventCursors, readScopedState, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
+import { MAX_SCOPE_KEYS_PER_READ, readEventCursor, readEventCursors, readScopedState, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
+import { splitEventMatches } from "./matchSplit.js";
 import { TICK_META_EVENT_KEY, stateBaselineEventKey } from "../../../packages/harness/stateBaseline.js";
 import { rotate, sortEventKeys, SubrequestBudget } from "./subrequestBudget.js";
 import { createTbaContext, pollEventMatches, TbaRequestCounter, type TbaClientContext } from "./tbaPoll.js";
@@ -849,16 +851,16 @@ async function processEvent(
     // The live-windows manifest has no real start_date; this approximation
     // feeds only normalizeMatch's rarely used sortTime fallback.
     const approxStartDateIso = new Date(window.startMs).toISOString();
-    const normalized = rawMatches.map((m) => normalizeMatch(m, approxStartDateIso));
-    // The cursor an offline seed writes (`event_cursor.last_folded_match_key`)
-    // is only meaningful if both sides agree on order — `compareCorpusMatchOrder`
-    // is the Worker's half of that shared contract with the publisher's own
-    // `selectMatchesChronological` (quick task 260920-q75).
-    const orderedMatches = [...normalized].sort(compareCorpusMatchOrder);
-    const orderedMatchKeys = orderedMatches.map((m) => m.matchKey);
-
-    const newlyFolded = orderedMatches.filter((m) => m.winner !== null && !hasAlreadyFolded(cursor, m.matchKey, orderedMatchKeys));
-    const stillUpcoming = orderedMatches.filter((m) => m.winner === null);
+    // ONE pass that orders the event, resolves the cursor anchor once, and runs
+    // the full `normalizeMatch` only on the matches past it (260921-vzf). The
+    // cursor an offline seed writes (`event_cursor.last_folded_match_key`) is
+    // only meaningful if both sides agree on order — `compareCorpusMatchOrder`,
+    // which `splitEventMatches` imports, is the Worker's half of that shared
+    // contract with the publisher's own `selectMatchesChronological` (quick
+    // task 260920-q75). Output-identical to normalizing everything; see
+    // `matchSplit.ts`'s header for what that guarantees and
+    // `test/matchSplit.test.ts` for the proof.
+    const { orderedMatchKeys, newlyFolded, stillUpcoming } = splitEventMatches(rawMatches, approxStartDateIso, cursor);
 
     if (newlyFolded.length === 0) {
       if (pollEtag !== undefined && pollEtag !== cursor.tbaEtag && budget.tryConsume(1)) {
@@ -1166,7 +1168,8 @@ async function runPhaseBAndReport(
   rawMatches: readonly TbaMatch[],
   newlyFolded: readonly CorpusMatch[],
   newlyFoldedResults: readonly MatchResult[],
-  stillUpcoming: readonly CorpusMatch[],
+  /** Schedule fields only, narrowed since 260921-vzf: the tick no longer normalizes an upcoming match, and this type is how the COMPILER proves nothing downstream reads a field it stopped producing. */
+  stillUpcoming: readonly ScheduledMatchFacts[],
   touchedTeams: readonly string[],
   realTouchedTeams: readonly string[],
   perAlgorithm: ReadonlyMap<string, PerAlgorithmFold>,

@@ -269,6 +269,11 @@ export function hasAlreadyFolded(
   matchKey: string,
   orderedMatchKeys: readonly string[]
 ): boolean {
+  // Short-circuited BEFORE the presence check, not because the cutoff rule
+  // needs it (`foldedCutoffIndex` answers `-1` for a null anchor on its own)
+  // but because this function has always answered a null cursor without
+  // throwing, even for a matchKey absent from the list. Callers depend on that
+  // ordering; the cutoff rule itself still lives in exactly one place.
   if (cursor.lastFoldedMatchKey === null) return false;
 
   const matchIndex = orderedMatchKeys.indexOf(matchKey);
@@ -276,12 +281,34 @@ export function hasAlreadyFolded(
     throw new Error(`hasAlreadyFolded: matchKey "${matchKey}" is not present in the event's own ordered match list`);
   }
 
-  const cursorIndex = orderedMatchKeys.indexOf(cursor.lastFoldedMatchKey);
-  // The cursor's own anchor is missing from this tick's order list —
-  // degrade to "not yet folded" rather than throw, since this tick's list
-  // is authoritative and failing loudly here would take the whole tick
-  // down over bookkeeping.
-  if (cursorIndex === -1) return false;
+  return matchIndex <= foldedCutoffIndex(cursor, orderedMatchKeys);
+}
 
-  return matchIndex <= cursorIndex;
+/**
+ * Where the cursor's anchor sits in THIS tick's order — the cutoff index
+ * `hasAlreadyFolded` compares a match against. Everything at an index `<=` the
+ * returned value has already been folded; everything after it has not.
+ *
+ * `-1` means "nothing has been folded yet for this event", and it covers two
+ * cases deliberately collapsed into one answer:
+ *
+ *  - `lastFoldedMatchKey` is `null` — the ordinary cold-start case.
+ *  - the cursor holds an anchor, but that match key is ABSENT from this tick's
+ *    list. Degrade to "not yet folded" rather than throw: this tick's list is
+ *    authoritative, and failing loudly here would take the whole tick down over
+ *    bookkeeping. (This is the behaviour `hasAlreadyFolded` has always had; it
+ *    is stated here now because this is where the rule lives.)
+ *
+ * THE POINT OF EXTRACTING IT: `hasAlreadyFolded` ran two `indexOf` scans per
+ * call and was called once per played match, making the cursor test O(n²) over
+ * the event. `splitEventMatches` (`matchSplit.ts`) resolves the anchor ONCE per
+ * tick through this function and slices on the index. `hasAlreadyFolded` is
+ * redefined in terms of the same function rather than given a second copy of
+ * the rule, so the cursor contract keeps exactly one definition — the same
+ * discipline `compareCorpusMatchOrder`'s header demands of the ordering
+ * contract (quick task 260921-vzf).
+ */
+export function foldedCutoffIndex(cursor: Pick<EventCursor, "lastFoldedMatchKey">, orderedMatchKeys: readonly string[]): number {
+  if (cursor.lastFoldedMatchKey === null) return -1;
+  return orderedMatchKeys.indexOf(cursor.lastFoldedMatchKey);
 }

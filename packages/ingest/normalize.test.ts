@@ -7,7 +7,7 @@
  * to contain one.
  */
 import { describe, expect, it } from "vitest";
-import { detectReplay, normalizeEvent, normalizeMatch, tbaReportedMatchTimeMs, type ExistingMatchScoreFields } from "./normalize.js";
+import { detectReplay, isPlayed, matchOrderFacts, normalizeEvent, normalizeMatch, tbaReportedMatchTimeMs, type ExistingMatchScoreFields } from "./normalize.js";
 import type { TbaEvent, TbaMatch } from "./schemas.js";
 
 const EVENT_START = "2024-03-01";
@@ -469,5 +469,69 @@ describe("tbaReportedMatchTimeMs", () => {
   it("normalizeMatch still composes its deterministic fallback when the chain is null", () => {
     const result = normalizeMatch(tbaMatch({ actual_time: null, predicted_time: null, time: null }), EVENT_START);
     expect(result.sortTime).toBe(Date.parse(EVENT_START) + 0 * 1_000_000 + 1 * 1_000);
+  });
+});
+
+/**
+ * THE EQUIVALENCE THE WORKER'S CURSOR SPLIT RESTS ON (quick task 260921-vzf).
+ *
+ * `apps/worker/src/matchSplit.ts` classifies played-vs-upcoming with the cheap
+ * `isPlayed` so it can skip the full `normalizeMatch` (and its
+ * `JSON.stringify(score_breakdown)`) on every match it has already folded. The
+ * code it replaced classified with `normalizeMatch(m).winner !== null`. Those
+ * two must agree on every possible match: if they ever diverge, a played match
+ * is silently treated as upcoming and never folded into `algorithm_state`.
+ *
+ * This suite is the named test `matchOrderFacts`'s doc comment points at.
+ */
+describe("isPlayed / matchOrderFacts — the split's correctness argument", () => {
+  function alliances(redScore: number | null, blueScore: number | null) {
+    return {
+      red: { team_keys: ["frc1", "frc2", "frc3"], surrogate_team_keys: [], dq_team_keys: [], score: redScore },
+      blue: { team_keys: ["frc4", "frc5", "frc6"], surrogate_team_keys: [], dq_team_keys: [], score: blueScore },
+    };
+  }
+
+  const table: { readonly name: string; readonly match: TbaMatch }[] = [
+    { name: "an ordinary played match", match: tbaMatch() },
+    { name: "an unplayed match (both scores null)", match: tbaMatch({ alliances: alliances(null, null), winning_alliance: "" }) },
+    { name: "an unplayed match (TBA's -1 sentinel)", match: tbaMatch({ alliances: alliances(-1, -1), winning_alliance: "" }) },
+    { name: "a tie", match: tbaMatch({ alliances: alliances(88, 88), winning_alliance: "" }) },
+    { name: "a played match with an empty winning_alliance (imputed winner)", match: tbaMatch({ alliances: alliances(101, 77), winning_alliance: "" }) },
+    { name: "a legitimate 0-0 played match", match: tbaMatch({ alliances: alliances(0, 0), winning_alliance: "" }) },
+    { name: "one side null, the other scored", match: tbaMatch({ alliances: alliances(120, null), winning_alliance: "" }) },
+    { name: "one side negative, the other scored", match: tbaMatch({ alliances: alliances(-1, 120), winning_alliance: "" }) },
+    { name: "an unplayed playoff match", match: tbaMatch({ comp_level: "sf", set_number: 3, alliances: alliances(null, null), winning_alliance: "" }) },
+  ];
+
+  for (const { name, match } of table) {
+    it(`winner !== null agrees with isPlayed: ${name}`, () => {
+      const normalized = normalizeMatch(match, EVENT_START);
+      expect(isPlayed(match)).toBe(normalized.winner !== null);
+      expect(matchOrderFacts(match, EVENT_START).played).toBe(normalized.winner !== null);
+    });
+
+    it(`matchOrderFacts's order fields equal normalizeMatch's: ${name}`, () => {
+      const normalized = normalizeMatch(match, EVENT_START);
+      const facts = matchOrderFacts(match, EVENT_START);
+      expect({
+        matchKey: facts.matchKey,
+        compLevel: facts.compLevel,
+        setNumber: facts.setNumber,
+        matchNumber: facts.matchNumber,
+        sortTime: facts.sortTime,
+      }).toEqual({
+        matchKey: normalized.matchKey,
+        compLevel: normalized.compLevel,
+        setNumber: normalized.setNumber,
+        matchNumber: normalized.matchNumber,
+        sortTime: normalized.sortTime,
+      });
+    });
+  }
+
+  it("carries the composite sortTime fallback, not a second copy of the chain", () => {
+    const match = tbaMatch({ comp_level: "sf", match_number: 4, actual_time: null, predicted_time: null, time: null });
+    expect(matchOrderFacts(match, EVENT_START).sortTime).toBe(normalizeMatch(match, EVENT_START).sortTime);
   });
 });

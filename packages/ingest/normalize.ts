@@ -163,9 +163,66 @@ function matchSortTime(match: TbaMatch, eventStartDate: string): number {
   return Date.parse(eventStartDate) + playOrder * 1_000_000 + match.match_number * 1_000;
 }
 
-function isPlayed(match: TbaMatch): boolean {
+/**
+ * Has this match been played? Both alliances carry a non-null, non-negative
+ * score (TBA reports `null` or `-1` for an unplayed alliance).
+ *
+ * Exported because it is the CHEAP half of `normalizeMatch`: the Worker tick's
+ * `splitEventMatches` (`apps/worker/src/matchSplit.ts`) has to decide
+ * played-vs-upcoming for every match at the event on every poll, but must run
+ * the full `normalizeMatch` only on the handful past the cursor. See
+ * `matchOrderFacts` below for the equivalence that makes that legal.
+ */
+export function isPlayed(match: TbaMatch): boolean {
   const { red, blue } = match.alliances;
   return red.score != null && red.score >= 0 && blue.score != null && blue.score >= 0;
+}
+
+/**
+ * Everything the event-order decision needs about one raw TBA match, and
+ * nothing else: the four `compareCorpusMatchOrder` tie-break fields, the
+ * `sortTime` that leads that chain, and whether the match has been played.
+ *
+ * It reads raw scalar fields and the two alliance scores ONLY. It never
+ * touches `score_breakdown` (and so never pays that `JSON.stringify`), never
+ * scans `videos`, and never derives a winner — that is the whole point: a tick
+ * can order and split a full event's match list without normalizing the
+ * matches it has already folded.
+ *
+ * THE EQUIVALENCE THIS RESTS ON, which must never be allowed to drift:
+ * `played` here is `isPlayed`, the very same predicate `normalizeMatch` uses to
+ * decide whether a winner exists at all. Every played branch in
+ * `normalizeMatch` assigns red, blue, tie or an imputed winner, and the
+ * unplayed branch assigns none — so `normalizeMatch(m, start).winner !== null`
+ * is true exactly when `isPlayed(m)` is true. The Worker's split tests
+ * `played`; the code it replaced tested `winner !== null`. If those two ever
+ * disagree, a played match is silently classified as upcoming and never folded
+ * into `algorithm_state`. `normalize.test.ts`'s
+ * "`normalizeMatch().winner !== null` agrees with `isPlayed`" suite fails the
+ * moment that happens.
+ *
+ * `sortTime` comes from the private `matchSortTime`, unchanged — this is its
+ * only new caller, so the actual_time/predicted_time/time/composite fallback
+ * chain keeps exactly one definition.
+ */
+export interface MatchOrderFacts {
+  readonly matchKey: string;
+  readonly compLevel: CompLevel;
+  readonly setNumber: number;
+  readonly matchNumber: number;
+  readonly sortTime: number;
+  readonly played: boolean;
+}
+
+export function matchOrderFacts(match: TbaMatch, eventStartDate: string): MatchOrderFacts {
+  return {
+    matchKey: match.key,
+    compLevel: match.comp_level,
+    setNumber: match.set_number,
+    matchNumber: match.match_number,
+    sortTime: matchSortTime(match, eventStartDate),
+    played: isPlayed(match),
+  };
 }
 
 /**
