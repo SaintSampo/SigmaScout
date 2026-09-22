@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { rotate, sortEventKeys, SubrequestBudget, SUBREQUEST_CAP, SUBREQUEST_RESERVE } from "../src/subrequestBudget.js";
 
 describe("SUBREQUEST_CAP / SUBREQUEST_RESERVE", () => {
-  it("SUBREQUEST_CAP is the documented Workers free-plan limit (50)", () => {
-    expect(SUBREQUEST_CAP).toBe(50);
+  it("SUBREQUEST_CAP is the documented Workers Paid per-invocation limit (10000, since 2026-09-22)", () => {
+    expect(SUBREQUEST_CAP).toBe(10000);
   });
 
   it("a named SUBREQUEST_RESERVE is subtracted from the usable budget", () => {

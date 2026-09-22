@@ -436,11 +436,13 @@ describe("liveAlgorithmTier — tracked config's live tier fits the measured bud
     expect(
       estimated,
       `LIVE_ALGORITHM_IDS="${ids.join(",")}" estimates ${estimated} subrequests for one event's tick work, ` +
-        `which exceeds the ~${usable} actually available per tick (SUBREQUEST_CAP 50, ` +
-        `SUBREQUEST_RESERVE 4, minus ${TICK_FIXED_SUBREQUEST_COST} tick-fixed + ${EVENT_PREFLIGHT_SUBREQUEST_COST} ` +
-        "event-preflight costs). See docs/publish-budget.md's \"Worker runtime budget\" " +
-        "section for the measured arithmetic this regression guard protects — an event whose estimate never " +
-        "clears defers every tick, forever."
+        `against ~${usable} available per tick (SUBREQUEST_CAP 10000, SUBREQUEST_RESERVE 4, minus ` +
+        `${TICK_FIXED_SUBREQUEST_COST} tick-fixed + ${EVENT_PREFLIGHT_SUBREQUEST_COST} event-preflight costs, ` +
+        "under the Workers Paid per-invocation limit in force since 2026-09-22). There is now enormous " +
+        "headroom under this cap; this assertion is retained as a regression guard against a future " +
+        "per-event cost term reintroducing an unbounded blowup, not because the cap is a live constraint. " +
+        "See docs/publish-budget.md's \"Worker runtime budget\" section for the measured arithmetic this " +
+        "regression guard protects."
     ).toBeLessThanOrEqual(usable);
   });
 

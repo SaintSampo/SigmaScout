@@ -1,29 +1,40 @@
 /**
  * In-tick subrequest accounting, a named cap+reserve, and the rotating
- * no-starvation order. The worked subrequest budget is a per-event average,
- * not a worst-case tick, and the platform's response to exceeding its
- * 50-subrequest cap is a throw, not a throttle. A `scheduled()` invocation
+ * no-starvation order. The account has been on Workers Paid since
+ * 2026-09-22: the per-invocation subrequest limit is 10,000, not the 50 this
+ * module was originally sized against, and the platform's response to
+ * exceeding it is still a throw, not a throttle. The rotation, the
+ * no-starvation ordering and the `tryConsume` deferral machinery below all
+ * STAY IN PLACE even though none of them trigger at this cap: the cap is a
+ * platform limit that can change again, and the no-starvation property this
+ * header describes is a correctness property of the rotation itself, not of
+ * however large or small the cap happens to be. A `scheduled()` invocation
  * that iterates live events in a stable order and stops at the cap serves
  * the same front-of-list events every tick and never reaches the tail — the
  * tail events are not delayed, they are permanently omitted, and nothing
  * about that is visible in a log. Rotation is what turns "hitting the limit
  * should mean requests catch up when they can" into something literally true.
  *
- * The rotation offset a real tick advances belongs in D1's `event_cursor`
- * table, never in KV — KV's free tier allows only 1,000 writes/day, and a
- * ten-hour live event day at one-minute ticks would burn that on rotation
- * bookkeeping alone, the same reasoning `apps/worker/migrations/
- * 0001_algorithm_state.sql`'s `event_cursor` header states for
- * `last_folded_match_key`/`tba_etag`. This module is deliberately pure (no
- * D1Database parameter anywhere in it) — persistence is the caller's job,
- * this module only owns the accounting/rotation math.
+ * The rotation offset a real tick advances lives in D1's `event_cursor`
+ * table, beside `last_folded_match_key` and `tba_etag` — co-located with the
+ * cursor it advances alongside, the same reasoning `apps/worker/migrations/
+ * 0001_algorithm_state.sql`'s `event_cursor` header states for those two
+ * columns. (Historical: before 2026-09-22 this was also argued from KV's
+ * free-tier cap of 1,000 writes/day, which a ten-hour live event day at
+ * one-minute ticks would have burned on rotation bookkeeping alone. KV is
+ * 1M writes/month on the paid plan, nowhere near that, so the cap no longer
+ * forces the choice — the co-location reasoning above is why the offset
+ * still lives in D1.) This module is deliberately pure (no D1Database
+ * parameter anywhere in it) — persistence is the caller's job, this module
+ * only owns the accounting/rotation math.
  */
 
 /**
- * The documented Workers free-plan per-invocation subrequest limit — every
- * R2/D1/KV binding call and every outbound `fetch` counts against it.
+ * The documented Workers Paid per-invocation subrequest limit (10,000, since
+ * the account moved off the free plan on 2026-09-22) — every R2/D1/KV
+ * binding call and every outbound `fetch` counts against it.
  */
-export const SUBREQUEST_CAP = 50;
+export const SUBREQUEST_CAP = 10000;
 
 /**
  * Reserved headroom subtracted from `SUBREQUEST_CAP` before any `tryConsume`
