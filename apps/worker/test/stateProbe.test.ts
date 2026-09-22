@@ -12,7 +12,17 @@ import { readFileSync, existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import stateProbe, { buildSeededLiveBlockText, probeSelectionsFor, resolveRpArm } from "../src/stateProbe.js";
+import stateProbe, {
+  buildNormalizeRawList,
+  buildSeededLiveBlockText,
+  NORMALIZE_BYTES_PER_MATCH_MAX,
+  NORMALIZE_BYTES_PER_MATCH_MIN,
+  NORMALIZE_BYTES_PER_PLAYED_MAX,
+  NORMALIZE_BYTES_PER_PLAYED_MIN,
+  probeSelectionsFor,
+  resolveNormalizeArm,
+  resolveRpArm,
+} from "../src/stateProbe.js";
 import { checkTeamSeasonArtifactShape } from "../src/artifactShapeCheck.js";
 import { selectionsFor } from "../src/scheduled.js";
 import {
@@ -3110,6 +3120,324 @@ describe("stateProbe — Group 12: the liveRows= arm (the event artifact's live 
       expect(liveRowsGraph.size).toBeGreaterThan(1);
       expect(liveRowsGraph.has(resolve(__dirname, "../src/scheduled.ts"))).toBe(false);
       expect(liveRowsGraph.has(resolve(__dirname, "../src/artifactWriter.ts"))).toBe(false);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Group 13: the `normalize=` arm — the per-match normalize term in
+// `processEvent`, priced as a within-run difference (quick task 260921-vzf).
+// ---------------------------------------------------------------------------
+
+/** The `normalize` result block and the params it must echo, as they reach a reader of the response. */
+interface NormalizeBody {
+  ok: boolean;
+  params: {
+    normalize: string;
+    normalizeMatches: number;
+    normalizePlayed: number;
+    normalizeRounds: number;
+    normalizeCursor: string | null;
+    phaseB: boolean;
+    chunk: string;
+  };
+  discovery: { teamKeysFound: number; eventKeyFound: string | undefined; queries: number };
+  algorithms: unknown[];
+  fold: { matchesFolded: number; bandsProduced: number; rpPmfsProduced: number; error?: { name: string } };
+  phaseB: { ran: boolean };
+  chunk: { ran: boolean };
+  normalize: {
+    ran: boolean;
+    arm: string;
+    rounds: number;
+    matchesInList: number;
+    matchesPlayed: number;
+    cursorIndex: number;
+    rawBytes: number;
+    bytesPerMatch: number;
+    matchesNormalized: number;
+    breakdownsStringified: number;
+    newlyFoldedCount: number;
+    upcomingCount: number;
+    lastFoldedMatchKey: string | null;
+    touchedTeamCount: number;
+    identityFingerprint: number;
+    error?: { name: string; message: string };
+  };
+  warnings: string[];
+}
+
+describe("stateProbe — Group 13: the normalize= arm (the per-match normalize term)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function runNormalize(query: string) {
+    const db = new FakeD1Database();
+    // Seeded on purpose: a D1 read WOULD succeed if one happened, so the empty
+    // prepared-SQL list below is a real negative rather than a vacuous one.
+    seedAllAlgorithms(db);
+    db.preparedSql = [];
+    // Any outbound request at all would be a defect in this arm; the recorder
+    // makes that visible instead of letting a real fetch escape the test.
+    const recorded = installFetchRecorder(() => ({ status: 200, body: "{}" }));
+    const response = await stateProbe.fetch(new Request(`https://probe/?${query}`), { DB: db as unknown as D1Database });
+    return {
+      body: JSON.parse(await response.text()) as NormalizeBody,
+      status: response.status,
+      writes: db.writeStatementCount,
+      preparedSql: db.preparedSql,
+      recorded,
+    };
+  }
+
+  describe("resolveNormalizeArm — the pure resolver", () => {
+    it("absent or empty is OFF, so the probe behaves exactly as it did before this arm existed", () => {
+      expect(resolveNormalizeArm(null)).toEqual({ id: "off", rejected: undefined });
+      expect(resolveNormalizeArm("   ")).toEqual({ id: "off", rejected: undefined });
+    });
+
+    it("all and trim each resolve to their own arm id, case-insensitively", () => {
+      expect(resolveNormalizeArm("all").id).toBe("all");
+      expect(resolveNormalizeArm("TRIM").id).toBe("trim");
+    });
+
+    it("an unrecognized value is REFUSED and echoes what was rejected — never silently substituted for either arm", () => {
+      const resolved = resolveNormalizeArm("trm");
+      expect(resolved.id).toBe("refused");
+      expect(resolved.rejected).toBe("trm");
+    });
+  });
+
+  describe("the synthetic body is realistically sized", () => {
+    it("one played match lands in the byte band a real TBA match body occupies", () => {
+      const bytes = JSON.stringify(buildNormalizeRawList("2026probe", 1, 1)).length;
+      expect(bytes).toBeGreaterThanOrEqual(NORMALIZE_BYTES_PER_PLAYED_MIN);
+      expect(bytes).toBeLessThanOrEqual(NORMALIZE_BYTES_PER_PLAYED_MAX);
+    });
+
+    it("an unplayed match is much smaller, because TBA sends no score_breakdown for one", () => {
+      const played = JSON.stringify(buildNormalizeRawList("2026probe", 1, 1)).length;
+      const unplayed = JSON.stringify(buildNormalizeRawList("2026probe", 1, 0)).length;
+      expect(unplayed).toBeLessThan(played / 2);
+    });
+
+    it("the default 100/60 mix lands in the reported bytesPerMatch band", () => {
+      const bytes = JSON.stringify(buildNormalizeRawList("2026probe", 100, 60)).length;
+      const perMatch = Math.round(bytes / 100);
+      expect(perMatch).toBeGreaterThanOrEqual(NORMALIZE_BYTES_PER_MATCH_MIN);
+      expect(perMatch).toBeLessThanOrEqual(NORMALIZE_BYTES_PER_MATCH_MAX);
+    });
+
+    it("the filler keys cannot collide with anything extractRp or a season rule module reads", () => {
+      const text = JSON.stringify(buildNormalizeRawList("2026probe", 1, 1));
+      expect(text).toContain("probeFillerMetric0");
+      expect(text).not.toContain("tba_rpEarned");
+      // Every filler key is prefixed, so none of them IS `rp` — the one name
+      // `extractRp` reads and the arm deliberately supplies for real.
+      expect(text).not.toContain("probeFillerrp");
+    });
+  });
+
+  describe("the arm is off unless asked for", () => {
+    it("a request with no normalize= runs the ordinary probe and leaves every normalize counter at rest", async () => {
+      const run = await runNormalize(`${ARM_QUERY}&teams=${SEED_ROSTER.join(",")}&event=${SEED_EVENT_KEY}`);
+      expect(run.body.params.normalize).toBe("off");
+      expect(run.body.normalize.ran).toBe(false);
+      expect(run.body.normalize.arm).toBe("off");
+      expect(run.body.normalize.identityFingerprint).toBe(0);
+      // Non-vacuity: the ordinary path really did run.
+      expect(run.body.fold.matchesFolded).toBe(ARM_FOLDED);
+    });
+  });
+
+  describe("the two arms agree on identity and disagree on work", () => {
+    const PASS_QUERY = "normalizeMatches=100&normalizePlayed=60&normalizeCursor=middle";
+
+    it("all and trim report the SAME identity counters over the same synthetic list", async () => {
+      const all = await runNormalize(`normalize=all&${PASS_QUERY}`);
+      const trim = await runNormalize(`normalize=trim&${PASS_QUERY}`);
+
+      expect(all.status).toBe(200);
+      expect(trim.status).toBe(200);
+      expect(all.body.normalize.identityFingerprint).toBe(trim.body.normalize.identityFingerprint);
+      // Non-vacuity: a fingerprint of 0 would make the equality above free.
+      expect(all.body.normalize.identityFingerprint).not.toBe(0);
+      expect(all.body.normalize.newlyFoldedCount).toBe(trim.body.normalize.newlyFoldedCount);
+      expect(all.body.normalize.upcomingCount).toBe(trim.body.normalize.upcomingCount);
+      expect(all.body.normalize.lastFoldedMatchKey).toBe(trim.body.normalize.lastFoldedMatchKey);
+      expect(all.body.normalize.touchedTeamCount).toBe(trim.body.normalize.touchedTeamCount);
+      expect(all.body.normalize.rawBytes).toBe(trim.body.normalize.rawBytes);
+    });
+
+    it("they report DIFFERENT normalize counts, and trim's equals what it folded", async () => {
+      const all = await runNormalize(`normalize=all&${PASS_QUERY}`);
+      const trim = await runNormalize(`normalize=trim&${PASS_QUERY}`);
+
+      expect(all.body.normalize.matchesNormalized).toBe(100);
+      expect(trim.body.normalize.matchesNormalized).toBe(trim.body.normalize.newlyFoldedCount);
+      expect(trim.body.normalize.matchesNormalized).toBeLessThan(all.body.normalize.matchesNormalized);
+      // The expensive half: `all` stringifies every played match's breakdown,
+      // `trim` only the ones it folded.
+      expect(all.body.normalize.breakdownsStringified).toBe(60);
+      expect(trim.body.normalize.breakdownsStringified).toBe(trim.body.normalize.newlyFoldedCount);
+    });
+
+    it("the middle cursor is the realistic mid-event tick: two matches left to fold out of sixty played", async () => {
+      const trim = await runNormalize(`normalize=trim&${PASS_QUERY}`);
+      expect(trim.body.normalize.cursorIndex).toBe(57);
+      expect(trim.body.normalize.newlyFoldedCount).toBe(2);
+      expect(trim.body.normalize.upcomingCount).toBe(40);
+      expect(trim.body.normalize.lastFoldedMatchKey).toBe("2026probe_qm60");
+    });
+
+    it("normalizeCursor=start folds the whole played prefix and normalizeCursor=all folds nothing", async () => {
+      const start = await runNormalize("normalize=trim&normalizeMatches=100&normalizePlayed=60&normalizeCursor=start");
+      const done = await runNormalize("normalize=trim&normalizeMatches=100&normalizePlayed=60&normalizeCursor=all");
+
+      expect(start.body.normalize.cursorIndex).toBe(-1);
+      expect(start.body.normalize.newlyFoldedCount).toBe(60);
+      expect(done.body.normalize.cursorIndex).toBe(59);
+      expect(done.body.normalize.newlyFoldedCount).toBe(0);
+      expect(done.body.normalize.lastFoldedMatchKey).toBeNull();
+      // Identity holds at every cursor position, not just the default one.
+      const startAll = await runNormalize("normalize=all&normalizeMatches=100&normalizePlayed=60&normalizeCursor=start");
+      expect(startAll.body.normalize.identityFingerprint).toBe(start.body.normalize.identityFingerprint);
+    });
+
+    it("a bare integer cursor is accepted and echoed", async () => {
+      const run = await runNormalize("normalize=trim&normalizeMatches=100&normalizePlayed=60&normalizeCursor=9");
+      expect(run.body.params.normalizeCursor).toBe("9");
+      expect(run.body.normalize.cursorIndex).toBe(9);
+      expect(run.body.normalize.newlyFoldedCount).toBe(50);
+    });
+
+    it("normalizeRounds=3 reports the same identity values as normalizeRounds=1", async () => {
+      const one = await runNormalize(`normalize=trim&${PASS_QUERY}&normalizeRounds=1`);
+      const three = await runNormalize(`normalize=trim&${PASS_QUERY}&normalizeRounds=3`);
+
+      expect(three.body.normalize.rounds).toBe(3);
+      expect(three.body.normalize.error).toBeUndefined();
+      expect(three.body.normalize.identityFingerprint).toBe(one.body.normalize.identityFingerprint);
+      expect(three.body.normalize.newlyFoldedCount).toBe(one.body.normalize.newlyFoldedCount);
+      // PER ROUND, never summed over rounds: a summed counter would read 3x
+      // here and make the arm difference uninterpretable.
+      expect(three.body.normalize.matchesNormalized).toBe(one.body.normalize.matchesNormalized);
+    });
+  });
+
+  describe("clamping — no query string can price unboundedly much work", () => {
+    it("normalizeMatches clamps to its ceiling", async () => {
+      const run = await runNormalize("normalize=trim&normalizeMatches=100000");
+      expect(run.body.normalize.matchesInList).toBe(300);
+    });
+
+    it("normalizePlayed clamps to at most normalizeMatches", async () => {
+      const run = await runNormalize("normalize=trim&normalizeMatches=10&normalizePlayed=999");
+      expect(run.body.normalize.matchesInList).toBe(10);
+      expect(run.body.normalize.matchesPlayed).toBe(10);
+      expect(run.body.normalize.upcomingCount).toBe(0);
+    });
+
+    it("normalizeRounds clamps to its ceiling and never below one", async () => {
+      const high = await runNormalize("normalize=trim&normalizeMatches=10&normalizeRounds=100000");
+      const low = await runNormalize("normalize=trim&normalizeMatches=10&normalizeRounds=0");
+      expect(high.body.normalize.rounds).toBe(50);
+      expect(low.body.normalize.rounds).toBe(1);
+    });
+  });
+
+  describe("refusals — a typo is never measured as the other arm", () => {
+    it("an unrecognized normalize= value refuses, names the rejected value, and runs NEITHER arm", async () => {
+      const run = await runNormalize("normalize=trm");
+      expect(run.status).toBe(500);
+      expect(run.body.ok).toBe(false);
+      expect(run.body.normalize.ran).toBe(false);
+      expect(run.body.normalize.arm).toBe("refused");
+      expect(run.body.normalize.error?.name).toBe("NormalizeArmRejected");
+      expect(run.body.normalize.error?.message).toContain("trm");
+      expect(run.body.normalize.matchesNormalized).toBe(0);
+      // It refused instead of falling through to the ORDINARY probe path too.
+      expect(run.body.fold.matchesFolded).toBe(0);
+      expect(run.preparedSql).toEqual([]);
+    });
+
+    it("an unrecognized normalizeCursor word refuses rather than defaulting to middle", async () => {
+      const run = await runNormalize("normalize=trim&normalizeCursor=halfway");
+      expect(run.status).toBe(500);
+      expect(run.body.normalize.ran).toBe(false);
+      expect(run.body.normalize.error?.name).toBe("NormalizeCursorRejected");
+      expect(run.body.normalize.error?.message).toContain("halfway");
+      expect(run.body.params.normalizeCursor).toBeNull();
+    });
+  });
+
+  describe("the D1 guarantee and the echo discipline", () => {
+    it("a normalize= request prepares ZERO D1 statements and issues no outbound request", async () => {
+      const run = await runNormalize("normalize=all&normalizeMatches=100&normalizePlayed=60");
+
+      expect(run.status).toBe(200);
+      // By EQUALITY, never a length comparison: an empty list is the property.
+      expect(run.preparedSql).toEqual([]);
+      expect(run.writes).toBe(0);
+      expect(run.recorded).toEqual([]);
+      // Discovery is not merely skipped-and-reported — it never ran at all.
+      expect(run.body.discovery).toEqual({ teamKeysFound: 0, eventKeyFound: undefined, queries: 0 });
+      expect(run.body.algorithms).toEqual([]);
+    });
+
+    it("every fold counter is at rest and no fold error is reported — the arm replaces the body rather than failing it", async () => {
+      const run = await runNormalize("normalize=trim&normalizeMatches=20&normalizePlayed=10");
+      expect(run.body.fold.matchesFolded).toBe(0);
+      expect(run.body.fold.bandsProduced).toBe(0);
+      expect(run.body.fold.rpPmfsProduced).toBe(0);
+      expect(run.body.fold.error).toBeUndefined();
+      expect(run.body.phaseB.ran).toBe(false);
+      expect(run.body.chunk.ran).toBe(false);
+    });
+
+    it("every response carries the synthetic-body caveat, so no absolute cpuTime can be read as a real one", async () => {
+      const run = await runNormalize("normalize=all&normalizeMatches=20");
+      expect(run.body.warnings.some((w) => w.includes("SYNTHETIC") && w.includes("identityFingerprint"))).toBe(true);
+    });
+
+    it("phaseB= or chunk= alongside normalize= runs the normalize arm and warns they were parsed but not used", async () => {
+      const run = await runNormalize("normalize=trim&normalizeMatches=20&phaseB=1&chunk=teams");
+      expect(run.body.normalize.ran).toBe(true);
+      expect(run.body.phaseB.ran).toBe(false);
+      expect(run.body.chunk.ran).toBe(false);
+      const warning = run.body.warnings.find((w) => w.includes("PARSED BUT NOT USED"));
+      expect(warning).toBeDefined();
+      expect(warning).toContain("phaseB=");
+      expect(warning).toContain("chunk=");
+      // Still zero D1 statements, even though chunk=teams was named.
+      expect(run.preparedSql).toEqual([]);
+    });
+
+    it("the params block echoes every normalize param, so a cpuTime can never be attributed to the wrong arm", async () => {
+      const run = await runNormalize("normalize=trim&normalizeMatches=50&normalizePlayed=20&normalizeRounds=4&normalizeCursor=start");
+      expect(run.body.params.normalize).toBe("trim");
+      expect(run.body.params.normalizeMatches).toBe(50);
+      expect(run.body.params.normalizePlayed).toBe(20);
+      expect(run.body.params.normalizeRounds).toBe(4);
+      expect(run.body.params.normalizeCursor).toBe("start");
+    });
+  });
+
+  describe("the new import surface keeps Group 1's no-write property", () => {
+    const importGraph = collectLocalImportGraph(STATE_PROBE_SRC);
+    const matchSplitModule = resolve(__dirname, "../src/matchSplit.ts");
+
+    it("the probe really does reach the SHIPPED split module — it measures the tick's own path, never a copy", () => {
+      expect(importGraph.has(matchSplitModule)).toBe(true);
+    });
+
+    it("that module reaches neither src/scheduled.ts nor src/artifactWriter.ts, so the new import smuggled in no write helper", () => {
+      const splitGraph = collectLocalImportGraph(matchSplitModule);
+      // Non-vacuity: a file the walker could not read yields a 1-element graph.
+      expect(splitGraph.size).toBeGreaterThan(1);
+      expect(splitGraph.has(resolve(__dirname, "../src/scheduled.ts"))).toBe(false);
+      expect(splitGraph.has(resolve(__dirname, "../src/artifactWriter.ts"))).toBe(false);
     });
   });
 });

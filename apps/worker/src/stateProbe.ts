@@ -101,6 +101,14 @@ import { artifactKey, type LiveEventArtifact, type TeamSeasonArtifact } from "..
 // version of it. That module imports only types and one constant, so it adds
 // no write helper to the probe's import graph (Group 1 walks it).
 import { checkLiveEventArtifactShape, checkTeamSeasonArtifactShape } from "./artifactShapeCheck.js";
+// The `normalize=` arm's two arms are the tick's OWN split and the reference
+// implementation it must equal — imported from the module `processEvent` calls,
+// never a copy, for the same reason `artifactMerge.ts` is imported above.
+// `matchSplit.ts` reaches only `normalize.ts`, `schemas.ts`, `stateStore.ts` and
+// `artifactMerge.ts`, so it adds no write helper to this file's import graph
+// (Group 1 walks it).
+import { splitEventMatches, splitEventMatchesNormalizeAll } from "./matchSplit.js";
+import { tbaMatchListSchema } from "../../../packages/ingest/schemas.js";
 import type { ParsedBonusSides } from "../../../packages/harness/publishedRows.js";
 import { SigmaScoreAccumulator, usesSigmaScore, publishesRankingPoints, sigmaMatchBandVariance, SIGMA_METRIC_KEY } from "../../../packages/harness/sigmaScore.js";
 import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
@@ -801,6 +809,130 @@ export function resolveLiveRowsArm(phaseBEnabled: boolean, raw: string | null): 
   return { enabled: true, rows, append, warnings };
 }
 
+// ---------------------------------------------------------------------------
+// `normalize=all|trim`: the per-match normalize term in `processEvent`
+// (quick task 260921-vzf).
+//
+// LIKE `chunk=teams` AND UNLIKE EVERY ABLATION ARM, this one replaces the
+// probe's whole body rather than adding to or subtracting from it: it runs no
+// discovery, no D1 read, no deserialize, no fold and no Phase B. It builds one
+// synthetic raw TBA match list in-process, parses it once, and then runs ONE OF
+// TWO SPLITS over it — `splitEventMatchesNormalizeAll` (the behaviour before
+// the trim) or `splitEventMatches` (the behaviour after).
+//
+// IT IS A TWO-ARM INSTRUMENT, NOT A ONE-NUMBER ONE. The Worker's cpuTime is not
+// reproducible to better than about 5 ms run to run on unchanged code, so an
+// absolute figure from either arm alone says nothing. The readable quantity is
+// `mean(cpuTime | all) - mean(cpuTime | trim)` within one interleaved pass. The
+// synthetic breakdown is SIZE-MATCHED to a real TBA body rather than copied
+// from one, which is a further reason the absolute is meaningless and the
+// difference is not.
+//
+// THE SHARED TERM CANCELS. The list is built once and `tbaMatchListSchema.parse`
+// runs once, BEFORE the measured region; both arms pay both, so they subtract
+// out of the difference exactly the way `playedRowFactsFor` subtracts out of
+// every Phase B arm difference. That is also why `normalizeRounds` repeats ONLY
+// the split: the shared build/parse term does not scale with rounds, and the
+// term under test does, so a larger round count makes the difference bigger
+// against a constant common cost.
+//
+// `identityFingerprint` IS THE POINT OF THE RESULT BLOCK. Both arms are
+// supposed to be output-identical; two arms of one pass that disagree on the
+// fingerprint are not a measurement at all, they are a bug in `matchSplit.ts`,
+// and a reader must be able to see that from the response without re-running
+// `matchSplit.test.ts`.
+//
+// ZERO D1 ROWS, STRUCTURALLY. Routed before discovery and never handed `env`,
+// the same placement and the same reason as `chunk=teams`: a measurement
+// campaign on this arm must be incapable of spending the daily row-read cap,
+// because exhausting it fails live ticks too.
+// ---------------------------------------------------------------------------
+
+const NORMALIZE_ARM_IDS = ["off", "all", "trim", "refused"] as const;
+type NormalizeArmId = (typeof NORMALIZE_ARM_IDS)[number];
+/** The values an operator may type. `off` is reached by ABSENCE and `refused` by a typo; neither is listed as a choice. */
+const NORMALIZE_REQUESTABLE_IDS = ["all", "trim"] as const;
+
+interface NormalizeArmResolution {
+  readonly id: NormalizeArmId;
+  /** The value that was rejected, echoed verbatim into the error. `undefined` unless `id` is `refused`. */
+  readonly rejected: string | undefined;
+}
+
+/**
+ * Pure resolver for `normalize`. Absent or empty is OFF and the probe behaves
+ * exactly as it did before this arm existed.
+ *
+ * AN UNRECOGNIZED VALUE IS REFUSED, not defaulted and not run as either arm —
+ * a departure from `rp`/`phaseB`, which run ON and warn, and a deliberate one.
+ * Those arms differ from their counterpart by a large, obviously-shaped block
+ * of work; these two differ by a per-match term of a few milliseconds. A typo
+ * that silently measured the OTHER arm would be indistinguishable in the
+ * numbers from the arm you meant, which is precisely the failure the
+ * `phaseBVersion` rejection precedent exists to prevent.
+ */
+export function resolveNormalizeArm(raw: string | null): NormalizeArmResolution {
+  const trimmed = raw?.trim() ?? "";
+  if (trimmed === "") return { id: "off", rejected: undefined };
+  const v = trimmed.toLowerCase();
+  if (v === "all") return { id: "all", rejected: undefined };
+  if (v === "trim") return { id: "trim", rejected: undefined };
+  return { id: "refused", rejected: trimmed };
+}
+
+/** Synthetic matches in the list. 100 is a full regional's qualification schedule. */
+const DEFAULT_NORMALIZE_MATCHES = 100;
+/** Ceiling, so no query string can price unboundedly many synthetic matches — the treatment `folded`/`upcoming` already get from `MAX_FOLDED_PLUS_UPCOMING`. */
+const MAX_NORMALIZE_MATCHES = 300;
+/** How many of the list's matches are played. 60 is a realistic mid-event position in a 100-match schedule. */
+const DEFAULT_NORMALIZE_PLAYED = 60;
+/** Repeats of the SPLIT ONLY (never the build or the parse) inside one invocation. */
+const DEFAULT_NORMALIZE_ROUNDS = 1;
+/** Ceiling on the repeat count, for the same reason as `MAX_NORMALIZE_MATCHES`. At 300 matches x 50 rounds the arm is already the most expensive request this probe can serve. */
+const MAX_NORMALIZE_ROUNDS = 50;
+
+/** Where the fold cursor sits. `middle` is the default because it is the realistic mid-event tick: almost everything folded, a match or two left. */
+const NORMALIZE_CURSOR_WORDS = ["start", "middle", "all"] as const;
+type NormalizeCursorWord = (typeof NORMALIZE_CURSOR_WORDS)[number];
+type NormalizeCursorSpec = { readonly kind: NormalizeCursorWord } | { readonly kind: "index"; readonly index: number };
+
+/**
+ * `normalizeCursor`: one of the three words, or a bare integer index into this
+ * tick's order. An unrecognized WORD is refused rather than defaulted, for the
+ * same reason `normalize=` itself is: silently measuring `start` when `middle`
+ * was meant changes the arm difference by the whole played prefix.
+ */
+function parseNormalizeCursorParam(raw: string | null): { spec: NormalizeCursorSpec | undefined; rejected: string | undefined } {
+  const trimmed = raw?.trim() ?? "";
+  if (trimmed === "") return { spec: { kind: "middle" }, rejected: undefined };
+  const v = trimmed.toLowerCase();
+  for (const word of NORMALIZE_CURSOR_WORDS) {
+    if (v === word) return { spec: { kind: word }, rejected: undefined };
+  }
+  const parsed = Number.parseInt(trimmed, 10);
+  if (Number.isFinite(parsed) && String(parsed) === trimmed) return { spec: { kind: "index", index: parsed }, rejected: undefined };
+  return { spec: undefined, rejected: trimmed };
+}
+
+/**
+ * The cursor's index in this tick's order: `-1` means nothing has been folded
+ * yet, and `played - 1` means the whole played prefix already has. `middle`
+ * anchors two matches before the end of the prefix, so exactly two matches are
+ * newly folded — the shape a live tick sees almost every minute.
+ */
+function normalizeCursorIndex(spec: NormalizeCursorSpec, matchesPlayed: number, matchesInList: number): number {
+  switch (spec.kind) {
+    case "start":
+      return -1;
+    case "all":
+      return matchesPlayed - 1;
+    case "middle":
+      return Math.max(-1, matchesPlayed - 3);
+    case "index":
+      return Math.min(matchesInList - 1, Math.max(-1, spec.index));
+  }
+}
+
 function parseTeamsParam(raw: string | null): readonly string[] | undefined {
   if (raw === null || raw.trim() === "") return undefined;
   const keys = raw
@@ -886,6 +1018,16 @@ interface ProbeParams {
   readonly phaseBVersionRejected: string | undefined;
   /** The resolved split-tick chunk arm (see `resolveChunkArm`). `off` unless a `chunk=` value asked otherwise; only `teams` has a second code path. */
   readonly chunkArm: ChunkArmResolution;
+  /** The resolved per-match-normalize arm (see `resolveNormalizeArm`). `off` unless a `normalize=` value asked otherwise; `all` and `trim` each replace the whole probe body, and `refused` reports a typo rather than guessing at it. */
+  readonly normalizeArm: NormalizeArmResolution;
+  readonly normalizeMatches: number;
+  readonly normalizePlayed: number;
+  readonly normalizeRounds: number;
+  /** `undefined` when a `normalizeCursor=` word was rejected — never silently replaced by `middle`. */
+  readonly normalizeCursor: NormalizeCursorSpec | undefined;
+  readonly normalizeCursorRejected: string | undefined;
+  /** Whether `phaseB=`/`chunk=`/`rp=` were also supplied on a `normalize=` request, so the response can say they were parsed but not used. */
+  readonly normalizeIgnoredParams: readonly string[];
   /** `undefined` when an `artifactOrigin=` override was REJECTED — never silently replaced by the default. */
   readonly artifactOrigin: string | undefined;
   readonly artifactOriginRejected: string | undefined;
@@ -921,6 +1063,17 @@ function parseParams(url: URL): ProbeParams {
   const retiredSidecarSupplied = search.get("sidecar") !== null;
   const phaseBEventOverride = search.get("phaseBEvent")?.trim() || undefined;
   const chunkArm = resolveChunkArm(search.get("chunk"));
+  const normalizeArm = resolveNormalizeArm(search.get("normalize"));
+  const normalizeMatches = clampInt(search.get("normalizeMatches"), DEFAULT_NORMALIZE_MATCHES, 1, MAX_NORMALIZE_MATCHES);
+  // Clamped to the list size, not independently: more played matches than
+  // matches is not a smaller arm, it is an unanswerable request.
+  const normalizePlayed = clampInt(search.get("normalizePlayed"), Math.min(DEFAULT_NORMALIZE_PLAYED, normalizeMatches), 0, normalizeMatches);
+  const normalizeRounds = clampInt(search.get("normalizeRounds"), DEFAULT_NORMALIZE_ROUNDS, 1, MAX_NORMALIZE_ROUNDS);
+  const normalizeCursor = parseNormalizeCursorParam(search.get("normalizeCursor"));
+  // Parsed but never used by the normalize arm, which replaces the probe body
+  // outright. Collected here so the response can name them rather than let a
+  // reader assume a `phaseB=1` beside a `normalize=` did something.
+  const normalizeIgnoredParams = (["phaseB", "chunk", "rp", "rpSkip", "phaseBSkip", "liveRows"] as const).filter((name) => (search.get(name)?.trim() ?? "") !== "");
   const origin = parseArtifactOriginParam(search.get("artifactOrigin"));
   const phaseBVersion = parsePhaseBVersionParam(search.get("phaseBVersion"));
   return {
@@ -948,6 +1101,13 @@ function parseParams(url: URL): ProbeParams {
     phaseBVersion: phaseBVersion.version,
     phaseBVersionRejected: phaseBVersion.rejected,
     chunkArm,
+    normalizeArm,
+    normalizeMatches,
+    normalizePlayed,
+    normalizeRounds,
+    normalizeCursor: normalizeCursor.spec,
+    normalizeCursorRejected: normalizeCursor.rejected,
+    normalizeIgnoredParams,
     artifactOrigin: origin.origin,
     artifactOriginRejected: origin.rejected,
   };
@@ -1114,6 +1274,116 @@ function buildScheduledMatch(eventKey: string, matchNumber: number, red: readonl
     redTeams: [...red],
     blueTeams: [...blue],
   };
+}
+
+// ---------------------------------------------------------------------------
+// The `normalize=` arm's synthetic raw TBA match list.
+// ---------------------------------------------------------------------------
+
+/**
+ * Filler keys per alliance side, chosen so one played match's serialized body
+ * lands in the size band a real TBA match carries. `NORMALIZE_BYTES_PER_MATCH_*`
+ * below is the band itself, and `stateProbe.test.ts` pins it — a comment
+ * claiming realistic size cannot fail when the shape drifts, a test can.
+ */
+const NORMALIZE_FILLER_KEYS_PER_SIDE = 40;
+
+/** The `eventStartDate` handed to the split. A literal, never a clock read: the arm's matches all carry their own times, so this only feeds `matchSortTime`'s unused composite fallback. */
+const NORMALIZE_EVENT_START_ISO = "2026-03-05T00:00:00.000Z";
+
+/**
+ * The band `bytesPerMatch` must land in AT THE DEFAULT MIX
+ * (`normalizeMatches=100&normalizePlayed=60`, where the 40 unplayed rows carry
+ * no breakdown and dilute the average). A real 2026-shaped TBA match body with
+ * a full `score_breakdown` is a few KB; these bounds are deliberately wide,
+ * because the claim is "the same order of magnitude as a real poll", not a byte
+ * count. `stateProbe.test.ts` pins both this and `NORMALIZE_BYTES_PER_PLAYED_*`.
+ */
+export const NORMALIZE_BYTES_PER_MATCH_MIN = 1_200;
+export const NORMALIZE_BYTES_PER_MATCH_MAX = 6_000;
+/** The band ONE PLAYED match must land in — the sharper claim, since a played match is what carries the breakdown this arm prices. */
+export const NORMALIZE_BYTES_PER_PLAYED_MIN = 2_000;
+export const NORMALIZE_BYTES_PER_PLAYED_MAX = 5_000;
+
+/**
+ * `synthesizeBreakdown`'s 2026 shape, padded to a realistic byte size.
+ *
+ * THE FILLER KEYS ARE NAMED SO THEY CANNOT COLLIDE: every one is prefixed
+ * `probeFiller`, which is neither of the two names `extractRp` reads (`rp`,
+ * `tba_rpEarned`) nor any name a season rule module reads. They exist to make
+ * the body the right SIZE — the parse skips them (`score_breakdown` is
+ * `z.unknown()`), and the only code that touches them at all is
+ * `JSON.stringify` inside `normalizeMatch`, which is exactly the term this arm
+ * prices.
+ */
+function synthesizeNormalizeBreakdown(seed: number): unknown {
+  const base = synthesizeBreakdown() as { red: Record<string, unknown>; blue: Record<string, unknown> };
+  const pad = (side: Record<string, unknown>, offset: number): Record<string, unknown> => {
+    const padded: Record<string, unknown> = { ...side, rp: (seed + offset) % 5 };
+    for (let i = 0; i < NORMALIZE_FILLER_KEYS_PER_SIDE; i += 1) {
+      padded[`probeFillerMetric${i}`] = (seed * 31 + i * 7 + offset) % 100_000;
+    }
+    return padded;
+  };
+  return { red: pad(base.red, 0), blue: pad(base.blue, 3) };
+}
+
+/**
+ * One raw TBA match, in the shape `tbaMatchListSchema` accepts, built
+ * deterministically from its index so two arms of one pass measure the same
+ * bytes. `actual_time` is strictly increasing in the index, so the ordered
+ * position of match `i` IS `i` and the cursor index can be named before the
+ * split runs.
+ *
+ * An UNPLAYED match carries `score_breakdown: null` and null scores, which is
+ * what TBA actually returns for one — so `breakdownsStringified` differs from
+ * `matchesNormalized` here the same way it differs in a real poll.
+ */
+function buildNormalizeRawMatch(eventKey: string, index: number, played: boolean): unknown {
+  const matchNumber = index + 1;
+  const roster = rosterAt(
+    Array.from({ length: 24 }, (_, i) => `frc${i + 1}`),
+    index
+  );
+  return {
+    key: `${eventKey}_qm${matchNumber}`,
+    event_key: eventKey,
+    comp_level: "qm",
+    set_number: 1,
+    match_number: matchNumber,
+    time: null,
+    predicted_time: played ? null : 1_772_900_000 + matchNumber * 600,
+    actual_time: played ? 1_772_900_000 + matchNumber * 600 : null,
+    winning_alliance: played ? "red" : "",
+    alliances: {
+      red: { team_keys: roster.red, surrogate_team_keys: [], dq_team_keys: [], score: played ? SYNTHETIC_RED_SCORE : null },
+      blue: { team_keys: roster.blue, surrogate_team_keys: [], dq_team_keys: [], score: played ? SYNTHETIC_BLUE_SCORE : null },
+    },
+    videos: played ? [{ type: "tba", key: `${eventKey}_qm${matchNumber}` }, { type: "youtube", key: "abc123XYZ90" }] : [],
+    score_breakdown: played ? synthesizeNormalizeBreakdown(matchNumber) : null,
+  };
+}
+
+/** The whole list, played prefix first. Exported for `stateProbe.test.ts`'s byte-band pin. */
+export function buildNormalizeRawList(eventKey: string, matchesInList: number, matchesPlayed: number): unknown[] {
+  const list: unknown[] = [];
+  for (let i = 0; i < matchesInList; i += 1) list.push(buildNormalizeRawMatch(eventKey, i, i < matchesPlayed));
+  return list;
+}
+
+/**
+ * A cheap running 32-bit FNV-1a over the strings a split produced. It is not a
+ * cryptographic digest and does not need to be: it exists so the two arms of one
+ * measurement pass can be shown to have produced the same order, the same
+ * folded set and the same upcoming set, from the response body alone.
+ */
+function fnv1a(seed: number, text: string): number {
+  let h = seed >>> 0;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16_777_619) >>> 0;
+  }
+  return h >>> 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -1358,6 +1628,62 @@ const CHUNK_ZEROS = {
   unreconstructedFields: [] as readonly string[],
 } as const;
 
+/**
+ * What a `normalize=` invocation did. The whole response for that arm, since it
+ * runs no discovery, no read, no deserialize, no fold and no Phase B.
+ *
+ * READ `identityFingerprint` BEFORE READING ANY cpuTime. It is a hash of the
+ * ordered keys, the newly-folded keys and the upcoming keys, so the two arms of
+ * one pass MUST report the same value. If they do not, the run is not a
+ * measurement of a saving — it is a report of a defect in `matchSplit.ts`, and
+ * the measurement stops until that is fixed.
+ */
+interface NormalizeResult {
+  /** False whenever `normalize=` was absent or refused. Every counter below is at rest when this is false. */
+  readonly ran: boolean;
+  /** Which split ran: `all` (the pre-trim reference) or `trim` (the shipped path). `off` when the arm did not run. */
+  readonly arm: NormalizeArmId;
+  /** Repeats of the SPLIT inside this invocation. The list build and the zod parse ran ONCE regardless, so they do not scale with this. */
+  readonly rounds: number;
+  readonly matchesInList: number;
+  readonly matchesPlayed: number;
+  /** The cursor's resolved index in this tick's order; `-1` means nothing was already folded. */
+  readonly cursorIndex: number;
+  /** `JSON.stringify(rawList).length` — the poll body this arm's work is proportional to. */
+  readonly rawBytes: number;
+  readonly bytesPerMatch: number;
+  /** Matches the arm ran the FULL `normalizeMatch` on, PER ROUND. This is the term under test: `all` reports the whole list, `trim` reports only what it folded. */
+  readonly matchesNormalized: number;
+  /** Of those, the ones that carried a `score_breakdown` and therefore paid the `JSON.stringify` — the expensive half of the term. */
+  readonly breakdownsStringified: number;
+  readonly newlyFoldedCount: number;
+  readonly upcomingCount: number;
+  readonly lastFoldedMatchKey: string | null;
+  readonly touchedTeamCount: number;
+  /** MUST be equal across the two arms of one pass; see this interface's header. */
+  readonly identityFingerprint: number;
+  readonly error?: { readonly name: string; readonly message: string };
+}
+
+/** Every `NormalizeResult` counter at rest, spread into each early-return path so no field can be forgotten on one of them — the same discipline as `FOLD_ZEROS` and `PHASE_B_ZEROS`. */
+const NORMALIZE_ZEROS = {
+  ran: false,
+  arm: "off" as NormalizeArmId,
+  rounds: 0,
+  matchesInList: 0,
+  matchesPlayed: 0,
+  cursorIndex: -1,
+  rawBytes: 0,
+  bytesPerMatch: 0,
+  matchesNormalized: 0,
+  breakdownsStringified: 0,
+  newlyFoldedCount: 0,
+  upcomingCount: 0,
+  lastFoldedMatchKey: null as string | null,
+  touchedTeamCount: 0,
+  identityFingerprint: 0,
+} as const;
+
 interface ProbeResponseBody {
   readonly ok: boolean;
   readonly shapeVersionExpected: number;
@@ -1399,6 +1725,19 @@ interface ProbeResponseBody {
      * PARSED but never used.
      */
     readonly chunk: ChunkArmId;
+    /**
+     * Which per-match-normalize arm this invocation ran: `off` (every arm that
+     * existed before 260921-vzf), `all`, `trim`, or `refused`. READ THIS BEFORE
+     * ATTRIBUTING A cpuTime: an `all` or `trim` request runs a completely
+     * different path from every other arm, and the `rp`/`phaseB`/`chunk` echoes
+     * beside it then describe params that were PARSED but never used.
+     */
+    readonly normalize: NormalizeArmId;
+    readonly normalizeMatches: number;
+    readonly normalizePlayed: number;
+    readonly normalizeRounds: number;
+    /** The resolved cursor as `start` | `middle` | `all` | an index, echoed so a cpuTime is never attributed to a cursor position it was not measured at. `null` when the value was rejected. */
+    readonly normalizeCursor: string | null;
     /** `null` when an `artifactOrigin=` override was rejected — the default is never silently substituted. */
     readonly artifactOrigin: string | null;
   };
@@ -1411,6 +1750,7 @@ interface ProbeResponseBody {
   readonly fold: FoldResult;
   readonly phaseB: PhaseBResult;
   readonly chunk: ChunkResult;
+  readonly normalize: NormalizeResult;
   readonly warnings: readonly string[];
 }
 
@@ -2709,6 +3049,11 @@ async function buildTeamsChunkResponse(params: ProbeParams): Promise<{ responseB
         phaseBEvent: chunkEventKey,
         phaseBVersion: params.phaseBVersion ?? null,
         chunk: "teams",
+        normalize: params.normalizeArm.id,
+        normalizeMatches: params.normalizeMatches,
+        normalizePlayed: params.normalizePlayed,
+        normalizeRounds: params.normalizeRounds,
+        normalizeCursor: normalizeCursorEcho(params.normalizeCursor),
         artifactOrigin: params.artifactOrigin ?? null,
       },
       discovery: { teamKeysFound: 0, eventKeyFound: undefined, queries: 0 },
@@ -2716,10 +3061,214 @@ async function buildTeamsChunkResponse(params: ProbeParams): Promise<{ responseB
       fold: { ...FOLD_ZEROS },
       phaseB: { ...PHASE_B_ZEROS },
       chunk,
+      // Never runs outside the `normalize=` route, which returns before this
+      // one is reached — at rest, and reported anyway.
+      normalize: { ...NORMALIZE_ZEROS },
       warnings,
     },
     ok,
   };
+}
+
+/** The resolved cursor as the operator would have typed it. `null` when the value was rejected. */
+function normalizeCursorEcho(spec: NormalizeCursorSpec | undefined): string | null {
+  if (spec === undefined) return null;
+  return spec.kind === "index" ? String(spec.index) : spec.kind;
+}
+
+/** The `normalize=` response, assembled around whichever `NormalizeResult` the arm produced. Every non-normalize block is at rest, and it is reported anyway so a reader never has to know which arm omits which block. */
+function normalizeResponseBody(params: ProbeParams, eventKey: string, normalize: NormalizeResult, warnings: readonly string[]): { responseBody: ProbeResponseBody; ok: boolean } {
+  const ok = normalize.error === undefined;
+  return {
+    responseBody: {
+      ok,
+      shapeVersionExpected: STATE_SNAPSHOT_SHAPE_VERSION,
+      params: {
+        season: params.season,
+        eventType: params.eventType,
+        event: eventKey,
+        teams: [],
+        teamCount: params.teamCount,
+        folded: params.folded,
+        upcoming: params.upcoming,
+        rp: params.rpArm.ran.resume,
+        rpArm: { id: params.rpArm.id, ran: params.rpArm.ran },
+        // Empty on purpose: nothing was read and nothing was deserialized.
+        algorithms: [],
+        phaseB: params.phaseBEnabled,
+        phaseBArm: { id: params.phaseBArm.id, ran: params.phaseBArm.ran },
+        phaseBUpcoming: params.phaseBUpcoming,
+        phaseBTeams: 0,
+        liveRows: 0,
+        liveRowsAppend: false,
+        phaseBEvent: params.phaseBEventOverride ?? eventKey,
+        phaseBVersion: params.phaseBVersion ?? null,
+        chunk: params.chunkArm.id,
+        normalize: params.normalizeArm.id,
+        normalizeMatches: params.normalizeMatches,
+        normalizePlayed: params.normalizePlayed,
+        normalizeRounds: params.normalizeRounds,
+        normalizeCursor: normalizeCursorEcho(params.normalizeCursor),
+        artifactOrigin: params.artifactOrigin ?? null,
+      },
+      discovery: { teamKeysFound: 0, eventKeyFound: undefined, queries: 0 },
+      algorithms: [],
+      fold: { ...FOLD_ZEROS },
+      phaseB: { ...PHASE_B_ZEROS },
+      chunk: { ...CHUNK_ZEROS },
+      normalize,
+      warnings,
+    },
+    ok,
+  };
+}
+
+/**
+ * THE `normalize=` ARM. Prices the per-match normalize term in `processEvent`
+ * as the difference between two arms of one interleaved pass — see this file's
+ * `normalize=` section header for why a single arm's absolute `cpuTime` says
+ * nothing, and `docs/worker-operations.md`'s "Pre-event probe" for the runbook.
+ *
+ * `env` IS NOT A PARAMETER. That is the whole D1 guarantee: this function is
+ * routed before discovery and is never handed the binding, so no edit inside it
+ * can reach D1 and no measurement campaign on this arm can spend the daily
+ * row-read cap.
+ */
+function buildNormalizeResponse(params: ProbeParams): { responseBody: ProbeResponseBody; ok: boolean } {
+  const eventKey = params.eventOverride ?? `${params.season}probe`;
+
+  const ignoredWarnings =
+    params.normalizeIgnoredParams.length > 0
+      ? [
+          `normalize=${params.normalizeArm.id} replaces the probe's whole body, so ${params.normalizeIgnoredParams.map((n) => `${n}=`).join(", ")} ${params.normalizeIgnoredParams.length === 1 ? "was" : "were"} PARSED BUT NOT USED — no fold, no Phase B and no chunk ran. Their echoes under params describe what was requested, never what this invocation did`,
+        ]
+      : [];
+
+  if (params.normalizeArm.id === "refused") {
+    return normalizeResponseBody(
+      params,
+      eventKey,
+      {
+        ...NORMALIZE_ZEROS,
+        arm: "refused",
+        error: {
+          name: "NormalizeArmRejected",
+          message: `normalize="${params.normalizeArm.rejected}" is not a recognized value (${NORMALIZE_REQUESTABLE_IDS.join(" | ")}; absent is off) — NEITHER arm ran. The probe does not default here, because the two arms differ by a per-match term of a few milliseconds and a typo silently measured as the other arm would be indistinguishable in the numbers from the arm you meant`,
+        },
+      },
+      ignoredWarnings
+    );
+  }
+
+  if (params.normalizeCursor === undefined) {
+    return normalizeResponseBody(
+      params,
+      eventKey,
+      {
+        ...NORMALIZE_ZEROS,
+        arm: params.normalizeArm.id,
+        error: {
+          name: "NormalizeCursorRejected",
+          message: `normalizeCursor="${params.normalizeCursorRejected}" is not a recognized value (${NORMALIZE_CURSOR_WORDS.join(" | ")}, or a bare integer index) — the arm did NOT run and did not fall back to middle, because measuring "start" when "middle" was meant changes the arm difference by the entire played prefix`,
+        },
+      },
+      ignoredWarnings
+    );
+  }
+
+  const matchesInList = params.normalizeMatches;
+  const matchesPlayed = params.normalizePlayed;
+
+  // BUILT AND PARSED ONCE, OUTSIDE THE ROUND LOOP. Both arms pay both, so the
+  // two terms cancel in the arm difference the same way `playedRowFactsFor`
+  // cancels in every Phase B difference — and, because `normalizeRounds`
+  // repeats only the split below, the shared cost stays constant while the
+  // term under test scales.
+  const rawList = buildNormalizeRawList(eventKey, matchesInList, matchesPlayed);
+  const rawBytes = JSON.stringify(rawList).length;
+  const rawMatches = tbaMatchListSchema.parse(rawList);
+  // Computed for BOTH arms, unconditionally, so this loop is not a cost one arm
+  // pays and the other does not.
+  const breakdownsInList = rawMatches.reduce((n, m) => n + (m.score_breakdown != null ? 1 : 0), 0);
+
+  const cursorIndex = normalizeCursorIndex(params.normalizeCursor, matchesPlayed, matchesInList);
+  // `buildNormalizeRawMatch` makes `actual_time` strictly increasing in the
+  // index, so ordered position i is match i and the anchor key is nameable
+  // without running a split first.
+  const cursor = { lastFoldedMatchKey: cursorIndex < 0 ? null : `${eventKey}_qm${cursorIndex + 1}` };
+
+  const split = params.normalizeArm.id === "all" ? splitEventMatchesNormalizeAll : splitEventMatches;
+
+  const fingerprints: number[] = [];
+  let newlyFoldedCount = 0;
+  let upcomingCount = 0;
+  let foldedWithBreakdown = 0;
+  let touchedTeamCount = 0;
+  let lastFoldedMatchKey: string | null = null;
+
+  for (let round = 0; round < params.normalizeRounds; round += 1) {
+    const result = split(rawMatches, NORMALIZE_EVENT_START_ISO, cursor);
+
+    // Derived exactly the way `processEvent` derives them, so the measured
+    // region is the tick's region and not a narrower one.
+    const touchedTeams = [...new Set(result.newlyFolded.flatMap((m) => [...m.redTeams, ...m.blueTeams]))].sort();
+    const lastKey = result.newlyFolded.length === 0 ? null : result.newlyFolded[result.newlyFolded.length - 1]!.matchKey;
+
+    // The fingerprint walks the same three key sets for both arms, so it is an
+    // identical cost on each and cancels in the difference.
+    let fp = 2_166_136_261;
+    for (const key of result.orderedMatchKeys) fp = fnv1a(fp, key);
+    fp = fnv1a(fp, "|folded|");
+    for (const m of result.newlyFolded) fp = fnv1a(fp, m.matchKey);
+    fp = fnv1a(fp, "|upcoming|");
+    for (const m of result.stillUpcoming) fp = fnv1a(fp, m.matchKey);
+    fingerprints.push(fp);
+
+    newlyFoldedCount = result.newlyFolded.length;
+    upcomingCount = result.stillUpcoming.length;
+    foldedWithBreakdown = result.newlyFolded.reduce((n, m) => n + (m.hasScoreBreakdown ? 1 : 0), 0);
+    touchedTeamCount = touchedTeams.length;
+    lastFoldedMatchKey = lastKey;
+  }
+
+  // Every round's fingerprint is CONSUMED here, so no round can be eliminated
+  // as dead code and `normalizeRounds` genuinely multiplies the work.
+  const roundsAgreed = new Set(fingerprints).size === 1;
+
+  const base = {
+    ran: true,
+    arm: params.normalizeArm.id,
+    rounds: params.normalizeRounds,
+    matchesInList,
+    matchesPlayed,
+    cursorIndex,
+    rawBytes,
+    bytesPerMatch: Math.round(rawBytes / matchesInList),
+    // PER ROUND, never summed over rounds: the whole point is that `trim`
+    // reports its own `newlyFoldedCount` here while `all` reports the list.
+    matchesNormalized: params.normalizeArm.id === "all" ? matchesInList : newlyFoldedCount,
+    breakdownsStringified: params.normalizeArm.id === "all" ? breakdownsInList : foldedWithBreakdown,
+    newlyFoldedCount,
+    upcomingCount,
+    lastFoldedMatchKey,
+    touchedTeamCount,
+    identityFingerprint: fingerprints[0] ?? 0,
+  };
+
+  const normalize: NormalizeResult = roundsAgreed
+    ? base
+    : {
+        ...base,
+        error: {
+          name: "NormalizeRoundsDisagreed",
+          message: `the ${params.normalizeRounds} rounds of this invocation produced ${new Set(fingerprints).size} different identityFingerprints over identical inputs — the split is not deterministic, and no cpuTime from this run means anything`,
+        },
+      };
+
+  return normalizeResponseBody(params, eventKey, normalize, [
+    `normalize=${params.normalizeArm.id} — the score_breakdown in this arm's match list is SYNTHETIC and merely SIZE-MATCHED to a real TBA body (${normalize.bytesPerMatch} bytes/match), not copied from one. Read the DIFFERENCE between an all run and a trim run in the same interleaved pass, never either arm's absolute cpuTime, which this instrument cannot reproduce to better than about 5 ms. Both arms of a pass must report the same identityFingerprint; if they do not, the run reports a bug in matchSplit.ts rather than a saving`,
+    ...ignoredWarnings,
+  ]);
 }
 
 function buildWarnings(params: {
@@ -2786,6 +3335,15 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody
   // read/deserialize loop — the only placement that makes "prepares zero D1
   // statements" true rather than merely intended. `env` is not passed on, so
   // no edit inside that path can reach the binding at all.
+  // THE NORMALIZE ARM IS ROUTED FIRST, for the same reason and with the same
+  // placement rule as the teams chunk below: before discovery, before the
+  // read/deserialize loop, and without `env`. It sits above `chunk` only
+  // because a request naming both is a request about the normalize term, and
+  // its own warning says the other params were parsed but not used.
+  if (params.normalizeArm.id !== "off") {
+    return buildNormalizeResponse(params);
+  }
+
   if (params.chunkArm.id === "teams") {
     return await buildTeamsChunkResponse(params);
   }
@@ -2958,6 +3516,11 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody
       phaseBEvent: phaseBEventKey,
       phaseBVersion: params.phaseBVersion ?? null,
       chunk: params.chunkArm.id,
+      normalize: params.normalizeArm.id,
+      normalizeMatches: params.normalizeMatches,
+      normalizePlayed: params.normalizePlayed,
+      normalizeRounds: params.normalizeRounds,
+      normalizeCursor: normalizeCursorEcho(params.normalizeCursor),
       artifactOrigin: params.artifactOrigin ?? null,
     },
     discovery: {
@@ -2968,10 +3531,11 @@ async function runProbe(request: Request, env: ProbeEnv): Promise<{ responseBody
     algorithms,
     fold,
     phaseB,
-    // Never runs outside the `chunk=teams` route above, so it is always at
-    // rest here — and it is reported anyway, so a reader never has to know
-    // which arm omits which block.
+    // Never run outside their own routes above, so both are always at rest
+    // here — and they are reported anyway, so a reader never has to know which
+    // arm omits which block.
     chunk: { ...CHUNK_ZEROS },
+    normalize: { ...NORMALIZE_ZEROS },
     warnings,
   };
 
