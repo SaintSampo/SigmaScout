@@ -5,8 +5,8 @@ milestone_name: milestone
 current_phase: 09
 status: completed
 stopped_at: "Phase 9 SEALED and its UAT COMPLETE 2026-09-12 (verification 3b0d248c; clauses 3 and 4 both amended at the seal, originals preserved verbatim in ROADMAP.md; UAT test 1 waived against a standing pre-season gate, test 2 passed by Jacob on desktop and phone). The owed republish RAN: generation 622eeb28, 108,979 objects, 1h42m, and the presim class went median 206,385 B to 7,229 B while the schedule count went UP 50x to 1,000, so visitors now see a pre-schedule band that moves ~1.17 ranks between runs instead of 10.61. D1 re-seeded 66,284 rows seed-first, Worker cc6abc35 deployed. STILL IN FORCE: the pre-season CPU gate in docs/worker-operations.md forbids opening any live window until rp-fold-exceeds-worker-cpu-budget closes - a realistic mid-quals tick measures 13 ms p50 against a 10 ms sustained budget. All 12 phases are complete; the next container is a phase for the CPU work, timed against the pre-season."
-last_updated: "2026-09-21T23:15:11.259Z"
-last_activity: 2026-09-21
+last_updated: "2026-09-22T03:34:02.957Z"
+last_activity: 2026-09-22
 last_activity_desc: "Completed quick task 260913-rh5: republished spr@4.0.0 and the Swing teardown (generation 2dcc057f), D1 seeded, Worker fcc7ca73; R2 deletions left to Jacob"
 progress:
   total_phases: 12
@@ -626,6 +626,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 222 | Tier cut-points in event artifacts so live-folded rows keep their rarity tier | 2026-09-21 | c67313ab | [260920-qzf-tier-cut-points-in-event-artifacts-so-li](./quick/260920-qzf-tier-cut-points-in-event-artifacts-so-li/) |
 | 223 | A promoted live event is complete with no rebaseline, so nothing is manual during an event. Stub artifacts give every probe-window event its name and tier cuts, the tick completes an incomplete state block from D1 in one read only when needed, and a live roster object lets a robot page find an event its own file cannot name. Scheduling pnpm rebaseline was rejected on cost, about 109000 R2 writes a run; publish:stubs writes 120. Oracle: a block-less artifact ends five ticks byte-identical to a published and maintained block for one extra D1 read. Live as Worker c73b1674, 120 stubs, web 1c78c206. No event has been promoted yet | 2026-09-21 | 9de6e1e6 | [260921-5qw-promoted-live-events-are-complete-with-n](./quick/260921-5qw-promoted-live-events-are-complete-with-n/) |
 | 224 | Browser derives live event standings (rank, record, RP) from played qualification rows when the artifact carries a live block; zero Worker CPU; three follow-up todos filed from the tick inventory | 2026-09-21 | ec01bb6d | [260921-q2s-derive-live-event-standings-rank-record-](./quick/260921-q2s-derive-live-event-standings-rank-record-/) |
+| 225 | Worker tick normalizes only matches past the cursor (output-identical, ends an O(n squared) cursor scan); normalize=all/trim probe arm and a pre-registered within-run bar, number not yet taken | 2026-09-22 | df4e36f0 | [260921-vzf-trim-the-worker-tick-s-per-match-normali](./quick/260921-vzf-trim-the-worker-tick-s-per-match-normali/) |
 
 ### Roadmap Evolution
 
