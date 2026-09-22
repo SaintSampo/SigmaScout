@@ -9,6 +9,12 @@ domain, so page traffic never touches this Worker.
 
 Deployed at `https://sigmascout-worker.jrw4561.workers.dev`. Read path: `https://sigmascout.org`.
 
+> **Plan change, 2026-09-22: the account is on Workers Paid.** Per-invocation CPU is 30 s (was
+> 10 ms) and subrequests are 10,000 (was 50); D1 is 50M row writes/month (was 100k/day) and KV is
+> 1M writes/month (was 1,000/day). R2's free tier is separate and unchanged. Most of the CPU-budget
+> and subrequest-budget material below this point was written under the free plan and is retained as
+> a measurement record — look for dated banners marking which sections describe the retired regime.
+
 ---
 
 ## Deploying
@@ -151,9 +157,11 @@ once again an ordinary re-baseline, with no transitional caveat attached to it.
 **Row-write cost, measured on that run rather than estimated:** applying `seed-spr.sql`
 alone reported 61 queries, 6,314 rows read and **25,256 rows written** — the written figure
 is roughly 4x the row count because the file leads with a `DELETE ... WHERE algorithm_id`
-and D1 counts index maintenance. Budget against the 100k/day cap using the WRITTEN number,
-not the row count: three seed files cost on the order of 75k writes, so **one full
-three-file pass per day is affordable and a second is not**.
+and D1 counts index maintenance. **Historical:** this used to be budgeted against a free-plan
+100k/day write cap using the WRITTEN number, where three seed files at ~75k writes meant one
+full three-file pass per day was affordable and a second was not. D1 is 50M row writes/month
+on the paid plan since 2026-09-22 — a three-file pass is a rounding error against that, and this
+is no longer a real constraint on how often a seed pass can run.
 
 **One wrinkle worth knowing before you retry a failed seed.** `--file` uploads the file and
 then imports it as two separate steps. A first invocation can fail during import while
@@ -170,9 +178,11 @@ takes `--env-file`, which has the tool read the file itself and matches the proj
 its `package.json` entry already carries `tsx --env-file=.env`.
 
 **Row-write budget.** A full three-file seed writes about **66k rows** (measured 2026-09-12:
-opr 15,888 / epa 25,140 / bpr 25,256). The D1 free tier allows 100k row-writes per day, so **one
-seed pass per day is comfortable and two is not** — plan a re-baseline accordingly, and never
-re-seed casually during an event weekend.
+opr 15,888 / epa 25,140 / bpr 25,256). **Historical:** the D1 free tier's 100k row-writes/day cap
+used to mean one seed pass per day was comfortable and two was not. D1 is 50M row writes/month on
+the paid plan since 2026-09-22, so that daily ceiling no longer applies — still avoid re-seeding
+casually during an event weekend, since a seed pass rewrites live state, not because of the write
+count.
 As of plan 07-17, `pnpm publish:seasons` includes offseason and preseason events (`--include-offseason`) in both the published set and the walk-forward stream — an operator running this command is entitled to know its scope changed.
 
 Each seed file's name follows the algorithm's own registry id (`publish.ts`'s
@@ -297,11 +307,12 @@ just before `foldObservedRp`, and writes it back beside `withRpBeliefs`. That mi
   that the live rows equal the offline layer's. It was seen failing with the write-back removed,
   and again with the Worker's `apply` removed.
 
-**The D1 write cap.** Roughly **four seed passes exhaust D1's 100,000 daily row-write cap**
-(hit once already, 2026-09-10). That is benign when nothing is live and decidedly not benign
-during an event, where exhausting it would reject the tick's own state writes. Count passes
-deliberately: the seed files are a byproduct of `pnpm publish:seasons` and are not produced by
-any standalone command, so an extra publish is an extra pass.
+**The D1 write cap — historical.** Roughly **four seed passes used to exhaust D1's 100,000 daily
+row-write cap** on the free plan (hit once, 2026-09-10), which was decidedly not benign during an
+event, since exhausting it would have rejected the tick's own state writes too. D1 is 50M row
+writes/month on the paid plan since 2026-09-22, so this is no longer a real ceiling on how many
+seed passes a day can take. The seed files are a byproduct of `pnpm publish:seasons` and are not
+produced by any standalone command, so an extra publish is an extra pass.
 
 Skipping it breaks nothing — the site stays up and approximately fresh. It just means any drift
 between the Worker's incremental folding and a from-scratch offline replay goes uncorrected until
@@ -343,14 +354,21 @@ LIVE_ALGORITHM_IDS` is the single place that is configured — a plain tracked v
 git, following `TBA_BASE_URL`'s own precedent in the same block. Change it there, never anywhere
 else.
 
-**Why.** `processEvent`'s `estimatedCost` for ONE ordinary 3v3 match (6 touched teams) is 18 with
-the published algorithm alone vs. 50 with all three published algorithms, against ~41 subrequests
-actually available per tick (`SUBREQUEST_CAP` 50, `SUBREQUEST_RESERVE` 4, minus the tick's own
-fixed costs). With all three live the event defers every tick, forever — measured on the deployed
-Worker during plan 04-07 under the pre-rename identity `sigma1` [pre-rename] and recorded in
+**Why (historical basis — retired 2026-09-22).** `processEvent`'s `estimatedCost` for ONE ordinary
+3v3 match (6 touched teams) is 18 with the published algorithm alone vs. 50 with all three
+published algorithms, against ~41 subrequests actually available per tick under the free plan
+(`SUBREQUEST_CAP` 50, `SUBREQUEST_RESERVE` 4, minus the tick's own fixed costs). With all three
+live the event would have deferred every tick, forever — measured on the deployed Worker during
+plan 04-07 under the pre-rename identity `sigma1` [pre-rename] and recorded in
 [`publish-budget.md`](publish-budget.md)'s "Worker runtime budget (D-21/D-23, plan 04-07)" section;
 this task's own numbers below reconfirm it on the same criterion, also measured under the
-pre-rename identity `sigma1` [pre-rename].
+pre-rename identity `sigma1` [pre-rename]. The account moved to Workers Paid on 2026-09-22
+(10,000 subrequests per invocation), which retires this specific subrequest argument — there is
+now enormous headroom to fold more than one algorithm per tick. Widening `LIVE_ALGORITHM_IDS` is
+still a separate decision, though: it changes published numbers (`opr`/`epa` would start folding
+live instead of at the manual re-baseline) and needs its own algorithm version bump, so the
+tracked value is deliberately left spr-only rather than widened as a side effect of the budget
+change. See `apps/worker/wrangler.toml`'s comment above `LIVE_ALGORITHM_IDS` for the same note.
 
 **`opr` and `epa` remain FULLY PUBLISHED** (D-03) — every page and the Compare page still read
 them; `packages/harness/publish.ts`, `packages/harness/manifests.ts` and the algorithms manifest
@@ -486,6 +504,12 @@ as outage history, not current operation.
 
 ### How the CPU budget is actually enforced — corrected 2026-08-29
 
+> **Plan change, 2026-09-22.** The account moved to Workers Paid; the per-invocation CPU limit is
+> now 30 s, not 10 ms. Everything in this section describes the free-plan regime the project
+> operated under until then. The isolate-flexibility finding and the "design against the limit,
+> never against the flexibility" rule below are kept intact — both are still sound engineering
+> advice at any limit, they just apply to 30 s now instead of 10 ms.
+
 This project spent an entire investigation assuming the free plan kills any invocation at exactly
 10 ms. **It does not, and that assumption misdirected hours of work.** The constant is right; the
 enforcement model was not.
@@ -583,7 +607,17 @@ is complete on its own:
 - **Why `pnpm rebaseline` is NOT scheduled:** it needs the local corpus and rewrites all ten seasons,
   about 109,000 R2 writes a run against a 1,000,000 a month free tier.
 
-## PRE-SEASON GATE: do not open a live window until the RP fold fits the CPU budget
+## PRE-SEASON GATE (LIFTED 2026-09-22): historical record — do not open a live window until the RP fold fits the CPU budget
+
+> **LIFTED 2026-09-22.** The Cloudflare account moved to Workers Paid, raising the per-invocation
+> CPU limit from 10 ms to 30 s and subrequests from 50 to 10,000. This gate's entire basis — an RP
+> fold measured against a 10 ms sustained budget and not fitting it — is gone, and there is no
+> live-window prohibition in force. `.planning/todos/completed/rp-fold-exceeds-worker-cpu-budget.md`
+> records the closure: the constraint this gate existed to work around no longer applies, and no
+> observation or experiment is owed. Every instruction below this point, including the "Tail the
+> first one" ask in the 2026-09-21 update immediately below and the "Do not open a live window"
+> sentence further down, is history — none of it is a live instruction any more. It is kept as the
+> record of why the gate existed and how the design around it evolved.
 
 > **NO LONGER IN FORCE since 2026-09-21. Read this before anything below.** Jacob locked the
 > live-probe design on 2026-09-20 (quick task 260920-lny) so that fall offseason events go live
@@ -602,9 +636,10 @@ is complete on its own:
 **In force 2026-09-12. This gate is the condition on which Phase 9 sealed without live proof — see
 `.planning/phases/09-analytic-ranking-points-browser-side-simulation/09-UAT.md` test 1.**
 
-**Do not open a live window — do not ingest an in-progress event, do not let a window appear in
-`v1/manifest/live-windows.json` — until `.planning/todos/pending/rp-fold-exceeds-worker-cpu-budget.md`
-is closed.**
+**[LIFTED 2026-09-22 — see banner at the top of this section] Do not open a live window — do not
+ingest an in-progress event, do not let a window appear in `v1/manifest/live-windows.json` — until
+`.planning/todos/pending/rp-fold-exceeds-worker-cpu-budget.md` is closed.** (That todo is now in
+`.planning/todos/completed/`.)
 
 The measurement, from the pre-event probe's first real run (`318caa2f` against live D1, 2026-09-12,
 recorded in full below under "First real run"): a realistic mid-quals tick — 2 newly folded matches,
@@ -676,7 +711,9 @@ not a value nothing ever checked.
 poll), capped at `MAX_PROBES_PER_TICK` (6) and rotated by a clock-derived offset — one slot per cron
 minute, `floor(nowMs / PROBE_ROTATION_PERIOD_MS)` — so an offseason weekend with many
 concurrently-open probe windows cannot spend the subrequest budget on discovery alone. At the cap
-that is `1 + 2*6 = 13` of the ~41 subrequests actually usable per tick, and nine concurrently-open
+that is `1 + 2*6 = 13` subrequests — of the ~41 usable per tick on the free plan this was designed
+against (historical: 10,000 per invocation on Workers Paid since 2026-09-22 makes this a trivial
+share), and nine concurrently-open
 offseason windows (2026-09-18's real count) are fully covered across two ticks.
 
 **Two new tail fields.** `eventsProbed` (probe windows this tick answered liveness for, whether or
@@ -760,10 +797,16 @@ the ranking-point path. A `cpuTime` of 1 ms on an idle tick is not headroom — 
 ["How the CPU budget is actually enforced"](#how-the-cpu-budget-is-actually-enforced--corrected-2026-08-29)
 before drawing any conclusion from a single tick's `cpuTime`, idle or otherwise.
 
-**D1 ROW-READ CAP — pin `teams=` AND `event=` on every measurement run (learned 2026-09-16).** The
-free tier allows **5,000,000 rows read per day**, reset at 00:00 UTC, and it is an account-wide hard
-stop: once exhausted, every D1 read fails with `D1_ERROR: ... exceeded D1's free tier daily row read
-limit`, **including a live tick's**. The probe's two discovery queries are `ORDER BY scope_key` scans
+**D1 ROW-READ CAP — pin `teams=` AND `event=` on every measurement run (learned 2026-09-16).**
+**Superseded 2026-09-22 — figure unconfirmed.** This was the free tier's **5,000,000 rows read per
+day**, reset at 00:00 UTC, an account-wide hard stop where exhaustion fails every D1 read with
+`D1_ERROR: ... exceeded D1's free tier daily row read limit`, **including a live tick's**. The
+account moved to Workers Paid on 2026-09-22, which raised CPU, subrequests, D1 writes and KV
+writes, but Jacob did not supply a paid-plan rows-read figure to replace this one — the four
+confirmed paid numbers are 30 s CPU, 10,000 subrequests, 50M D1 row writes/month and 1M KV
+writes/month, none of which is a rows-READ figure. Treat this cap as retired but **unconfirmed**;
+confirm the actual paid rows-read limit (or its absence) before relying on the discipline below
+being unnecessary. The probe's two discovery queries are `ORDER BY scope_key` scans
 of `algorithm_state` — about 2,100 rows read apiece — so a campaign of a few hundred requests spends
 millions. The 2026-09-15 breakdown campaign (~740 requests) hit the cap and blocked its own
 re-measurement for the rest of the UTC day. The probe now **skips discovery entirely when both
@@ -986,6 +1029,12 @@ not a config guarantee.
 
 ### First real run — 2026-09-12, probe version `318caa2f`, Worker version `267a226b`
 
+> **Historical, free-plan measurement.** This run's CPU verdict below was measured against the free
+> plan's 10 ms sustained budget. The account moved to Workers Paid on 2026-09-22 (30 s CPU per
+> invocation); the todo this run's finding fed is now closed
+> (`.planning/todos/completed/rp-fold-exceeds-worker-cpu-budget.md`) and the "bad" verdict below no
+> longer describes a live constraint. Kept as the measurement record.
+
 Both built from the same commit (`e4ba00c1`), against live D1 at generation `b23d214d`.
 
 **The shape question is answered, and the answer is good.** All three published algorithms
@@ -1020,7 +1069,9 @@ matches had their RP pmf suppressed by the gates, reproducibly. That means the t
 fold in which roughly a third of the RP work did **not** happen, so it is if anything an
 under-estimate.
 
-Tracked as its own item: `.planning/todos/pending/rp-fold-exceeds-worker-cpu-budget.md`.
+Was tracked as its own item, `.planning/todos/pending/rp-fold-exceeds-worker-cpu-budget.md`; now
+`.planning/todos/completed/rp-fold-exceeds-worker-cpu-budget.md`, CLOSED 2026-09-22 by the move to
+Workers Paid.
 
 ---
 
@@ -1070,13 +1121,13 @@ above. An observation your model says is impossible is the most valuable one you
 |---|---|---|
 | Artifacts stale during a live event | Cron not firing, the event is outside its manifest window, or it is still probe-only (TBA has not returned matches for it yet) | `wrangler tail` — are ticks arriving ~60 s apart at all? If yes, check `eventsProbed`/`eventsPromoted` FIRST: `eventsProbed` above zero with `eventsPromoted` at zero means the Worker is checking a calendar probe window but TBA has not returned matches for it yet — this is normal right up until the event's first match posts. Only if `eventsProbed` is also `0` does the live-windows manifest not think anything is live at all (check `eventsConsidered` next) |
 | Ticks arriving but `eventsConsidered: 0` and `eventsProbed: 0` all weekend | The live-windows manifest went stale — nothing has republished it, or the event genuinely has no window (measured or probe) covering now | Fetch `https://sigmascout.org/v1/manifest/live-windows.json` and check its `computedAt`. Fix by re-running `pnpm publish:seasons` |
-| `"ok":false` in the tick log | A tick is throwing | Read the `error` field, then check `subrequestsUsed` on the surrounding ticks first — the subrequest cap is the most likely limit to be hit before anything else |
+| `"ok":false` in the tick log | A tick is throwing | Read the `error` field first. At 10,000 subrequests per invocation (Workers Paid, since 2026-09-22) the subrequest cap is unlikely to be the cause; check `subrequestsUsed` on the surrounding ticks to rule it out, not as the first suspect |
 | `eventsDeferred` climbing every tick | Subrequest budget saturated; events are being pushed to later ticks | Expected under load and self-correcting — the rotation offset guarantees a deferred event is attempted earlier next tick. If it never drains, more events are live than one tick can serve |
 | Predictions look wrong but ticks are healthy | Live state has drifted from the offline authority | Re-baseline (above). The offline snapshot always wins; never hand-edit D1 rows |
 | No logs at all in `wrangler tail` | Either nothing is firing, or a version without logging is deployed | `wrangler deployments list` — confirm the current version is at or after `0210df9e`'s deploy. Before that commit the Worker logged nothing, and a silent tail meant nothing either way |
 | `opr` or `epa` metrics look stale mid-event while `spr` updates | Expected — only `spr` folds live (see "Live folding tier" above) | `LIVE_ALGORITHM_IDS` in `apps/worker/wrangler.toml`; refresh via a re-baseline (above) |
 | A `live-tier-defaulted` warn line in the tail | `LIVE_ALGORITHM_IDS` did not reach the deployed Worker (e.g. a `--var` deploy that did not carry tracked vars through) | Redeploy from tracked config with `pnpm worker:deploy` and confirm the deploy output lists both `TBA_BASE_URL` and `LIVE_ALGORITHM_IDS` |
-| `outcome: "exceededCpu"` with an empty `logs` array on **every** tick | The tick is *consistently* over the 10 ms CPU budget. It is reaching the handler and dying before its final log line — it is **not** dying in module init (that is a separate 1-second budget) | `eventsConsidered` on any tick that does survive. If non-zero, fetch `https://data.sigmascout.org/v1/manifest/live-windows.json` and see what the Worker thinks is live — **read the manifest, never the calendar**. Read "How the CPU budget is actually enforced" above before drawing any conclusion from a single high `cpuTime` |
+| `outcome: "exceededCpu"` with an empty `logs` array on **every** tick | The tick is *consistently* over the CPU budget (30 s per invocation, Workers Paid since 2026-09-22 — was 10 ms on the free plan). It is reaching the handler and dying before its final log line — it is **not** dying in module init (that is a separate 1-second budget) | `eventsConsidered` on any tick that does survive. If non-zero, fetch `https://data.sigmascout.org/v1/manifest/live-windows.json` and see what the Worker thinks is live — **read the manifest, never the calendar**. Read "How the CPU budget is actually enforced" above before drawing any conclusion from a single high `cpuTime` |
 | About to run an event; unsure the deployed bundle can read the rows in D1 | Untested since the last seed — a green idle tick does not exercise it | Run the pre-event probe (above) before the event starts, not during it |
 | An `event-state-block-missing` warn line in the tail | The SPR event artifact was published before 260915-isq, or had no upcoming matches at publish time; the Worker never bootstraps a block | Republish and re-seed D1 from the same run before the next tick (see "Publish with state blocks before the window opens") |
 | An `event-state-block-invalid` warn line in the tail | The published block's algorithm version or snapshot shape does not match the deployed Worker's rows; the tick dropped it | Read the `error` field, then republish and re-seed as a matched pair |

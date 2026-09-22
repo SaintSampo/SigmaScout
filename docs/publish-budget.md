@@ -126,19 +126,28 @@ misreported what the bucket held four times before the list-driven tool replaced
 
 ## Worker runtime budget (D-21/D-23, plan 04-07)
 
-**The headline finding: the per-tick subrequest budget cannot accommodate an ordinary 3v3 match
-folded across all three published algorithms — measured directly, repeatedly, on the deployed
-Worker, not derived from the code alone.** `processEvent`'s own `estimatedCost` formula (`1 + 1 +
+> **Historical — measured under the free plan, retired 2026-09-22.** Every figure and formula
+> evaluation below was measured when `SUBREQUEST_CAP` was 50 and the platform's per-invocation CPU
+> limit was 10 ms. The account moved to Workers Paid on 2026-09-22 (10,000 subrequests and 30 s CPU
+> per invocation), so the "cannot fit" finding below no longer describes the deployed Worker's
+> actual headroom — a tick with `estimatedCost` 50 fits inside 10,000 with enormous room to spare.
+> The measurement tables and the reasoning that produced them are kept as the record of what was
+> observed and how; read the arithmetic that follows as history, not as a current constraint.
+
+**The headline finding (historical, measured on the free plan): the per-tick subrequest budget
+could not accommodate an ordinary 3v3 match folded across all three published algorithms —
+measured directly, repeatedly, on the deployed Worker, not derived from the code alone.**
+`processEvent`'s own `estimatedCost` formula (`1 + 1 +
 algorithmCount*2 + algorithmCount*2*(1+touchedTeams.length)`) evaluates to **50** for the smallest
 possible real case — one newly-completed 3v3 match (6 touched teams) across `opr`+`epa`+`sigma1`
-(`algorithmCount=3`) — against a **usable budget of 46** (`SUBREQUEST_CAP` 50 minus
-`SUBREQUEST_RESERVE` 4), and the tick's own fixed costs (manifest reads, tick-meta read, the
-per-event cursor read and poll) consume roughly 5 more before that check runs, leaving **~41
-actually available**. 50 > 41: the event **defers every single tick, forever**, for as long as all
-three algorithms are live simultaneously — confirmed by direct, repeated observation below, not
-inferred. This is 04-RESEARCH.md's own Pitfall 1 warning realized in production: the ~46-49
-subrequest estimate it called "typical, not worst-case" turns out to already exceed the real usable
-budget for the most ordinary live match there is.
+(`algorithmCount=3`) — against a **usable budget of 46** on the free plan (`SUBREQUEST_CAP` 50
+minus `SUBREQUEST_RESERVE` 4), and the tick's own fixed costs (manifest reads, tick-meta read, the
+per-event cursor read and poll) consumed roughly 5 more before that check ran, leaving **~41
+actually available**. 50 > 41: the event **deferred every single tick, forever**, for as long as
+all three algorithms were live simultaneously under that free-plan cap — confirmed by direct,
+repeated observation below, not inferred. This was 04-RESEARCH.md's own Pitfall 1 warning realized
+in production: the ~46-49 subrequest estimate it called "typical, not worst-case" turned out to
+already exceed the real usable budget for the most ordinary live match there was.
 
 **Run:** `scripts/replayRig.ts` against the deployed `sigmascout-worker`
 (`https://sigmascout-worker.jrw4561.workers.dev`), real historical event `2026cmptx` (16 matches,
@@ -209,7 +218,12 @@ should be re-run then.
 
 ### What would have to change
 
-The measured deferral is not a one-off — it is deterministic and structural for the current
+**Historical — the free-plan constraint these levers were weighed against is retired 2026-09-22.**
+The options below were evaluated against a 50-subrequest cap that no longer applies; none of them
+was acted on, and none needs to be now that a single event's `estimatedCost` of 50 fits easily
+inside the paid plan's 10,000. Kept as the record of what was considered.
+
+The measured deferral was not a one-off — it was deterministic and structural for the free plan's
 `SUBREQUEST_CAP`/`SUBREQUEST_RESERVE`/estimate-formula combination. Reducing the estimate's
 dominant term (`algorithmCount*2*(1+touchedTeams.length)` — Phase B's per-team, per-algorithm
 read+write) is the highest-leverage lever available without an architectural change:
