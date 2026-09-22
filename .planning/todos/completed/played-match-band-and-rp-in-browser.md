@@ -5,6 +5,14 @@ source: tick inventory during quick task 260921-q2s (Jacob's staleness and Worke
 priority: low
 ---
 
+> **STATUS 2026-09-22: CLOSED.** The Cloudflare account moved to Workers Paid on 2026-09-22,
+> raising the per-invocation CPU budget from 10 ms to 30 s and the per-invocation subrequest limit
+> from 50 to 10,000. The constraint this todo existed to work around is gone: this todo's whole
+> premise was reclaiming first-call formula cost against a tight CPU budget, and the Worker is no
+> longer CPU-constrained. No observation and no experiment is owed.
+>
+> Everything below this block is retained as a measurement record, not as live work.
+
 # The Worker still prices band and RP odds for each just-played match
 
 Browser pricing (2026-09-15) moved every UPCOMING match out of the Worker. The folded loop still

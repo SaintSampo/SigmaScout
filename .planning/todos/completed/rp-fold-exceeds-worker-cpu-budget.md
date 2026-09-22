@@ -6,6 +6,20 @@ resolves_phase: 9
 priority: high
 ---
 
+> **STATUS 2026-09-22: CLOSED.** The Cloudflare account moved to Workers Paid on 2026-09-22,
+> raising the per-invocation CPU budget from 10 ms to 30 s and the per-invocation subrequest limit
+> from 50 to 10,000. The constraint this todo existed to work around is gone: a realistic mid-event
+> tick's ~13 ms p50 / ~28 ms p90 does not approach any budget the Worker now runs under. No
+> observation and no experiment is owed. This file's own open ask below — to tail the first
+> promoted event and record its `outcome` and `cpuTime` across a run of folding ticks — is no
+> longer owed as a gate; if that data turns up on its own later it is interesting, not required.
+>
+> Everything below this block is retained as a measurement record, not as live work. Two things in
+> it stay genuinely useful independent of the retired cap: the cold-isolate finding (first-call
+> compilation work dominates a tick's cost and is paid again on every cold invocation, not just the
+> very first one), and this file's own standing rule that bars are pre-registered as within-run arm
+> differences and never as absolute `cpuTime` figures.
+
 # A realistic mid-event tick costs ~13 ms p50 / ~28 ms p90 in Phase A alone, against a 10 ms budget
 
 > **STATUS 2026-09-21: the gate this todo held shut is OPEN, and the todo is not closed.** Jacob
