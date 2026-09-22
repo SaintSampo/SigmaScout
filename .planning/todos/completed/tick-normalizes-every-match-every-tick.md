@@ -138,3 +138,44 @@ npx wrangler tail sigmascout-state-probe --format json > normalize/tail.json
 tail by **matching the process command line** (`Win32_Process`), never by the PID PowerShell returns
 for `npx.cmd` — that kills the cmd wrapper and leaves the wrangler child attached, appending to its
 own file. A later re-read then silently joins two runs' records together, with no parse error.
+
+## THE NUMBER — WORKED (measured 2026-09-22, probe `7944bfe2` built from `df4e36f0`)
+
+Two interleaved passes, 30 s spacing, 20 requests per arm each, alternating which arm leads each
+round, one tail capture, driver and tail joined by a `seq=` query param.
+
+| pass | stratum | `all` mean (n) | `trim` mean (n) | delta all minus trim | 95% CI | perTick |
+|---|---|---|---|---|---|---|
+| `normalizeRounds=5` | reused (`isolateRequest>1`) | 14.86 (14) | 7.08 (12) | **7.77 ± 1.53** | [4.77, 10.78] | **1.55 ms** |
+| `normalizeRounds=5` | fresh | 21.50 (6) | 19.25 (8) | 2.25 ± 3.44 | [-4.50, 9.00] | unresolved |
+| `normalizeRounds=1` | reused | 8.11 (19) | 5.61 (18) | **2.49 ± 0.85** | [0.82, 4.17] | **2.49 ms** |
+| `normalizeRounds=1` | fresh | 13.00 (1) | 13.00 (2) | n too small | | |
+
+### The gates
+
+1. **Identity:** `identityFingerprint` 2207067109 on every one of the 80 requests, both arms. Counters
+   constant: `all` normalized 100 and stringified 60 breakdowns per round, `trim` 2 and 2; both
+   folded 2 and left 40 upcoming with the same `lastFoldedMatchKey`. Zero non-ok outcomes.
+2. **Linearity:** the delta at 5 rounds (7.77) is about three times the delta at 1 round (2.49); a
+   fixed per-invocation cost would have read the same at both. The two `perTick` estimates (1.55
+   and 2.49) agree within their standard errors.
+3. **Tail hygiene:** unique `seq` asserted per pass. Note for the next run: both passes numbered from
+   `seq=0` into the same capture, so the analyzer had to select the pass by `normalizeRounds=` in
+   the request URL before asserting uniqueness. Number passes from different offsets next time.
+
+### Verdict
+
+`perTick` is 1.55 ms by the 5-round pass (at the WORKED threshold) and 2.49 ms by the 1-round pass
+(which is the shape of a real tick: one split per tick, cold). The CI on delta excludes zero in
+both. **WORKED**, with the honest caveat that the 5-round reused stratum landed 14 and 12 requests
+per arm rather than 20 because fresh isolates took the rest; the 1-round pass had 19 and 18.
+
+The synthetic breakdown is size-matched (2,880 bytes per played match), not real; a real 2026
+breakdown of the same size costs the same to stringify, which is the term this prices.
+
+### Consequence
+
+A reused-isolate tick is roughly 1.5 to 2.5 ms cheaper than it was, output-identical, no version
+moved, nothing republished. That is a real term in a budget where the whole tick sat in the
+mid-teens. The Worker was deployed from the same commit as the probe after this verdict. This
+todo is CLOSED; the CPU todo carries the one-paragraph cross-reference.
