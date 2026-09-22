@@ -224,6 +224,16 @@ every tick because the compiled code does not survive the ~minutes between ticks
   the limit *consistently*, and on reused isolates `none` is under budget.
 - **Pricing upcoming RP outside the Worker** (for example in the browser, from published state)
   removes the single resolved dominant term, about 7 ms of 9.5, entirely.
+- **The per-match normalize now has an instrument and a pre-registered bar** (2026-09-21, quick task
+  260921-vzf). The tick used to run the full `normalizeMatch` — and its
+  `JSON.stringify(score_breakdown)` — over every match at the event on every 200; it now runs it
+  only on matches past the fold cursor. The probe's `normalize=all|trim` arm prices that as a
+  within-run arm difference. **No result yet, and no claim made here.** The bar, the rig, the three
+  validity gates and the WORKED / DID NOT WORK / INCONCLUSIVE split live in
+  `.planning/todos/pending/tick-normalizes-every-match-every-tick.md`; read it there rather than
+  restating it. No algorithm version moves and no republish is owed — the change is output-identical
+  and `apps/worker/test/matchSplit.test.ts` plus the unmodified `scheduled.rowParity` /
+  `scheduled.rp` / `scheduled.replay` suites are the evidence.
 
 ### Reproduce
 

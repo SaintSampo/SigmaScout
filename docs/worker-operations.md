@@ -819,6 +819,11 @@ curl -s "https://sigmascout-state-probe.<subdomain>.workers.dev/?folded=2&upcomi
 | `chunk` | **off** | Which half of a **split** tick to emulate as its own invocation — a different kind of arm from every one above, which ablate *this* tick. `chunk=teams` runs a **teams-only consumer**: GET the published event artifact, rebuild a `MatchResult` and a `Prediction` from each of its first `folded` played rows, `playedRowFactsFor`, then `phaseBTeams` team parses and `mergeTeamSeasonArtifact` calls — through `artifactMerge.ts`, the same module the tick calls, never a copy. **It touches D1 zero times**: it is routed before discovery and before the read/deserialize loop and is never handed the binding, so `discovery.queries` is 0, `algorithms[]` is empty and every fold counter reads 0 with no fold error. It therefore **requires both `teams=` and `event=`** and fails with `ChunkOverridesRequired` rather than discovering — discovery is itself two D1 scans. It reconstructs everything `mergeTeamSeasonArtifact` reads except three fields, listed by name in `chunk.unreconstructedFields` and explained in the response's own enumerating warning; the score-breakdown gap is closed by inverting the published `actualRedBonusRp`/`actualBlueBonusRp` arrays back through the season rule module's `bonusNames` (`chunk.bonusFlagRoute`). `phaseBTeams` is its loop count too, and `phaseBTeams=0` isolates its fixed overhead. **Read its ABSOLUTE `cpuTime`, not a difference** — the per-invocation overhead a difference would cancel is the term under examination — and only within the reused-isolate stratum. An unrecognized value skips **nothing** and warns; read `params.chunk` before trusting a `cpuTime`, because a `chunk=teams` request echoes `rpArm.id: "all"`, `phaseB: false` and `phaseBArm.id: "all"` exactly as a plain `rp=1` request does, and those echoes there are params **parsed but not used** |
 | `chunk=event` | — | **RECOGNIZED and INERT, deliberately.** It gets no second code path because the cron-side chunk is already measured by `phaseB=1&phaseBTeams=0` (the rig's `pbTeams0` arm), which runs the full Phase A fold plus the event half of Phase B with zero team merges. It changes no counter and emits exactly one warning naming that query, plus the two differences from a real cron chunk, both immaterial to `cpuTime`: that arm also issues one team-artifact GET the real chunk would not (fetch is I/O, billed as subrequests rather than CPU), and it does not pay the queue `send()` a real chunk would |
 | `artifactOrigin` | `https://data.sigmascout.org` | Where the two artifact reads go. An override is **rejected** unless it parses as an `https:` origin — the probe never silently falls back to the default, and `params.artifactOrigin` reads `null` when it rejected one |
+| `normalize` | **off** | Which per-match-normalize path to run over a synthetic raw TBA match list: `all` (the behaviour before quick task 260921-vzf — normalize every match, then sort, then filter on the cursor) or `trim` (the shipped path — order from cheap scalar facts, resolve the cursor anchor once, run the full `normalizeMatch` only past it). Both come from `apps/worker/src/matchSplit.ts`, the same module `processEvent` calls, never a copy. Like `chunk=teams` it **replaces** the probe's whole body: no discovery, no D1 read, no deserialize, no fold, no Phase B. An unrecognized value is **REFUSED** — neither arm runs and `normalize.error.name` reads `NormalizeArmRejected`. That is stricter than `rp`/`phaseB`, which run ON and warn, and deliberately so: those arms differ from their counterpart by a large block of work, these two differ by a per-match term of a few milliseconds, and a typo silently measured as the other arm would be indistinguishable in the numbers from the arm you meant |
+| `normalizeMatches` | `100` | Synthetic matches in the list — a full regional's qualification schedule. Clamped to 300 |
+| `normalizePlayed` | `60` | How many of them are played. They occupy the ordered prefix; the rest carry `score_breakdown: null` and null scores, exactly as TBA sends for an unplayed match. Clamped to at most `normalizeMatches` |
+| `normalizeCursor` | `middle` | Where the fold cursor sits. `start` = nothing folded yet (folds the whole played prefix); `middle` = anchored two matches before the end of the played prefix, the realistic mid-event tick, so exactly two matches are newly folded; `all` = anchored on the last played match, so nothing is newly folded; or a bare integer index. An unrecognized **word** is refused rather than defaulted — measuring `start` when `middle` was meant changes the arm difference by the entire played prefix |
+| `normalizeRounds` | `1` | How many times to repeat **the split** inside one invocation. The list build and the `tbaMatchListSchema.parse` run **once** regardless, so the shared term stays constant while the term under test scales. Clamped to 50 |
 
 `upcoming` defaults to 60 because, when the probe was written, **the upcoming loop was where the CPU
 went**: `processEvent` priced every still-upcoming match at the event, and early in a qual schedule
@@ -871,6 +876,43 @@ nothing, the skipped arm still pays one and `eventHalf` is **under-stated** by t
 and `phaseBUpcoming` defaults to `published` — so every arm measured before they existed stays
 comparable, and the `phaseB` difference remains a direct continuity anchor against the 2026-09-15
 +64.0 ms.
+
+**The `normalize=` arm** (added 2026-09-21 by quick task 260921-vzf, to price a term
+`rp-fold-exceeds-worker-cpu-budget.md` had listed and never measured).
+
+**What it prices:** the per-match `normalizeMatch` call in `processEvent` and the
+`JSON.stringify(score_breakdown)` inside it — nothing else. Before the trim the tick normalized every
+match TBA returned on every 200 and discarded most of the result; only matches past the fold cursor
+are ever folded, and an upcoming match's published row carries schedule fields only.
+
+**What it deliberately does not price:** the fold itself, Phase B, the artifact I/O, the TBA poll.
+Every one of those has its own arm above, and none of them runs on a `normalize=` request.
+
+**The synthetic breakdown is SIZE-MATCHED, not real.** It is `synthesizeBreakdown`'s 2026 shape
+padded with `probeFiller*` keys (named so they cannot collide with the two names `extractRp` reads or
+anything a season rule module reads) until one played match lands at ~2.9 KB, the band a real TBA
+match body occupies; `stateProbe.test.ts` Group 13 pins that band rather than a comment claiming it.
+It is not a real TBA body, so **only the difference between two arms of one pass is readable** —
+never either arm's absolute `cpuTime`, which this instrument cannot reproduce to better than about
+5 ms on unchanged code.
+
+**It reads ZERO D1 rows**, structurally: routed before discovery and never handed the binding, the
+same placement and the same reason as `chunk=teams`. It therefore needs neither `teams=` nor
+`event=`, and a campaign on it **cannot** spend the daily row-read cap the section above warns
+about. **The thing to check in the response is `discovery.queries: 0`**, alongside an empty
+`algorithms[]` and every fold counter at rest with no fold error.
+
+**`identityFingerprint` must agree across the two arms of a pass.** It hashes the ordered match keys,
+the newly-folded keys and the upcoming keys, and the two arms are supposed to be output-identical. A
+pass whose arms disagree on it is **not reporting a saving — it is reporting a bug in
+`matchSplit.ts`**, and the measurement stops until that is fixed.
+
+**A `normalize=` request that also carries `phaseB=`, `chunk=`, `rp=`, `rpSkip=`, `phaseBSkip=` or
+`liveRows=`** runs the normalize arm anyway and emits one warning naming those params as PARSED BUT
+NOT USED — their echoes under `params` describe what was requested, never what the invocation did.
+
+**The ordering rule applies to this arm too**, exactly as it does to every other one: deploy the
+Worker, deploy the probe from the SAME commit, then measure.
 
 **Read `cpuTime`**, in a second terminal, and run the probe **several consecutive times** — never
 conclude from one invocation:
