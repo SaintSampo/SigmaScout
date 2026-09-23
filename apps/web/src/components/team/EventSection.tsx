@@ -8,6 +8,7 @@ import { resolveMetricTier } from "../../lib/tiers.js";
 import { MatchTable } from "./MatchTable.js";
 import type { AxisDomain, TeamSeasonEvent } from "./matchAxis.js";
 import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
+import type { SeasonTierCuts } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 
@@ -28,30 +29,29 @@ export interface EventSectionProps {
   algorithmId: string;
   season: number;
   metricHistory: readonly MetricHistoryRow[];
+  /**
+   * THE TEAM-SEASON ARTIFACT'S OWN `tierCuts` block — the page's one file, no
+   * second fetch. It lets a snapshot tile built from a LIVE-FOLDED history row
+   * (a metric VALUE the tick wrote, with no `percentile`) render its rarity tier
+   * instead of rendering unboxed until the next republish.
+   *
+   * The route it came from in quick task 260920-qzf was the live EVENT artifact,
+   * fetched by a team-season overlay 260923-3w7 deleted — the tick writes this
+   * team's file itself again, so the robot page reads one file and fetches no
+   * event artifact at all. Quick task 260923-3x0 published the same
+   * per-(algorithm, season) block on the team artifact, which is where this prop
+   * now reads it from.
+   *
+   * Optional, and absent is a NORMAL state, not a defect: an artifact published
+   * before 260923-3x0 carries no block, so those tiles render untiered until
+   * that (algorithm, season) is republished — the pre-260920-qzf behaviour,
+   * never worse. Published rows are unaffected either way: the publisher writes
+   * a `percentile` on every metric-history row (`withHistoryPercentiles`), and a
+   * published percentile always wins over cut points.
+   */
+  tierCuts?: SeasonTierCuts;
 }
 
-/**
- * NO TIER CUTS REACH THIS COMPONENT, and that is a known, recorded gap rather
- * than an oversight — every `resolveMetricTier` call below therefore passes
- * `undefined` explicitly.
- *
- * Quick task 260920-qzf gave this component a `tierCuts` prop so a
- * `metricHistory` row a live TICK wrote — a value with no percentile — could
- * still render a tier. Its only source was the live event artifact, fetched by
- * the robot page's live overlay, and quick task 260923-3w7 deleted that overlay:
- * the tick writes the team artifact itself again, so the page reads one file and
- * fetches no event artifact. `tierCuts` is a per-(algorithm, season) block that
- * nothing publishes on a team artifact, so there is nowhere honest to read it
- * from here.
- *
- * CONSEQUENCE, stated so it is not rediscovered as a bug: a live-folded row's
- * snapshot tiles render UNTIERED until the next republish, exactly as they did
- * before 260920-qzf. Published rows are unaffected — the publisher writes a
- * `percentile` on every metric-history row (`withHistoryPercentiles`), and a
- * published percentile always wins. Closing it means publishing `tierCuts` on
- * the team-season artifact; `.planning/todos/pending/live-merges-drop-percentiles.md`
- * carries that as the follow-up.
- */
 
 /**
  * The team's metrics AS CAPTURED WHEN THIS EVENT ENDED — the LAST
@@ -71,7 +71,7 @@ export function endOfEventMetrics(metricHistory: readonly MetricHistoryRow[], ev
   return last;
 }
 
-export function EventSection({ event, domain, teamKey, algorithmId, season, metricHistory }: EventSectionProps) {
+export function EventSection({ event, domain, teamKey, algorithmId, season, metricHistory, tierCuts }: EventSectionProps) {
   const isUpcoming = event.matches.every((match) => match.actualWinner === undefined);
   const snapshot = endOfEventMetrics(metricHistory, event.eventKey);
   const metricKeys = metricKeysFor(algorithmId, season);
@@ -92,7 +92,10 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
    * (`metricHistorySchema.ts`), so the Sigma half renders UNTIERED. No tier
    * is invented for it, and it does not take the Alliances tab's `neutral`
    * treatment, which marks a three-team band rather than one team's own
-   * untiered Sigma.
+   * untiered Sigma. `tierCuts` does not change that and could not: the block
+   * structurally never carries a `sigma` entry (`SeasonTierCutsSchema`'s own doc
+   * comment — Sigma's published percentile ranks a team against its rating-window
+   * neighbours, not the season pool the cuts describe).
    */
   const snapshotSigma = snapshot?.metrics[SIGMA_METRIC_KEY];
 
@@ -166,7 +169,7 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
                   own comment above for why the right half stays untiered. */}
               <TotalSigmaValue
                 total={totalTile.metric}
-                totalTier={resolveMetricTier(totalTile.metric, totalTile.key, undefined)}
+                totalTier={resolveMetricTier(totalTile.metric, totalTile.key, tierCuts)}
                 sigma={snapshotSigma === undefined ? undefined : { value: snapshotSigma.value }}
               />
             </span>
@@ -194,7 +197,7 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
                       now DELIBERATELY NOT stated anywhere on this surface —
                       an accepted risk, not an oversight.
                     */}
-                    <MetricValue metric={tile.metric} tier={resolveMetricTier(tile.metric, tile.metricKey, undefined)} />
+                    <MetricValue metric={tile.metric} tier={resolveMetricTier(tile.metric, tile.metricKey, tierCuts)} />
                   </span>
                 );
               })}

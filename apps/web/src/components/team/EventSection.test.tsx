@@ -308,14 +308,111 @@ describe("EventSection", () => {
       expect(snapshot.textContent).toContain("61.40");
     });
 
-    // DELETED by quick task 260923-3w7: the two 260920-qzf cases here pinned
-    // `EventSection`'s `tierCuts` prop — a live-tick row's tier resolved from
-    // the event artifact's cut points. The prop is gone because its only source
-    // was gone: the robot page no longer fetches an event artifact at all (the
-    // tick writes the team artifact itself again). See `EventSection.tsx`'s
-    // own doc comment above `EventSectionProps` for the recorded consequence.
-    // The published-percentile path those cases used as their control is still
-    // covered by the tiered/untiered snapshot cases above.
+    // RESTORED by quick task 260923-3x0, with a new source. 260920-qzf wrote
+    // these three against `tierCuts` read off the live EVENT artifact; 260923-3w7
+    // deleted them with the fetch that supplied it. The block is now published on
+    // the TEAM-SEASON artifact, so `EventSectionList` passes `artifact.tierCuts`
+    // and the robot page needs no second fetch to tier a live-folded row.
+
+    it("a snapshot metric with a value and no percentile renders its tier from tierCuts", () => {
+      renderWithRouter(
+        <EventSection
+          event={makeEvent()}
+          domain={DOMAIN}
+          teamKey="frc118"
+          algorithmId="spr"
+          season={2024}
+          metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4 } } })]}
+          tierCuts={{ total: { cuts: [31.17, 52.4, 88.05] } }}
+        />,
+      );
+      const snapshot = screen.getByTestId("event-snapshot-2024casj");
+      // 61.4 >= cuts[1] (52.4) and < cuts[2] (88.05) -> epic.
+      expect(snapshot.querySelector(".metric-tier--epic")).not.toBeNull();
+    });
+
+    it("the same percentile-less metric renders no tier box at all when no cuts are supplied — a pre-republish artifact carries none, and that is a normal state", () => {
+      renderWithRouter(
+        <EventSection
+          event={makeEvent()}
+          domain={DOMAIN}
+          teamKey="frc118"
+          algorithmId="spr"
+          season={2024}
+          metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4 } } })]}
+        />,
+      );
+      const snapshot = screen.getByTestId("event-snapshot-2024casj");
+      expect(snapshot.querySelector(".metric-tier")).toBeNull();
+    });
+
+    it("a metric that DOES carry a percentile renders identically whether or not tierCuts are supplied (published percentile always wins)", () => {
+      const withCuts = renderWithRouter(
+        <EventSection
+          event={makeEvent()}
+          domain={DOMAIN}
+          teamKey="frc118"
+          algorithmId="spr"
+          season={2024}
+          metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4, percentile: 80 } } })]}
+          // Deliberately disagreeing cuts: if the resolver preferred cuts
+          // this would render legendary instead of epic.
+          tierCuts={{ total: { cuts: [1, 2, 3] } }}
+        />,
+      );
+      const withCutsHtml = screen.getByTestId("event-snapshot-2024casj").innerHTML;
+      withCuts.unmount();
+
+      renderWithRouter(
+        <EventSection
+          event={makeEvent()}
+          domain={DOMAIN}
+          teamKey="frc118"
+          algorithmId="spr"
+          season={2024}
+          metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4, percentile: 80 } } })]}
+        />,
+      );
+      const withoutCutsHtml = screen.getByTestId("event-snapshot-2024casj").innerHTML;
+
+      expect(withCutsHtml).toBe(withoutCutsHtml);
+    });
+
+    it("cuts tier the PHASE tiles too, not only Total — each against its own metric name", () => {
+      renderWithRouter(
+        <EventSection
+          event={makeEvent()}
+          domain={DOMAIN}
+          teamKey="frc118"
+          algorithmId="spr"
+          season={2024}
+          metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4 }, phaseAuto: { value: 9 } } })]}
+          // phaseAuto 9 clears its own legendary cut (8); total 61.4 sits in epic.
+          // Distinct bands, so one tile cannot be mistaken for the other's box.
+          tierCuts={{ total: { cuts: [31.17, 52.4, 88.05] }, phaseAuto: { cuts: [3, 5, 8] } }}
+        />,
+      );
+      const snapshot = screen.getByTestId("event-snapshot-2024casj");
+      expect(snapshot.querySelector(".metric-tier--epic")).not.toBeNull();
+      expect(snapshot.querySelector(".metric-tier--legendary")).not.toBeNull();
+    });
+
+    it("a cut for a metric name the snapshot does not carry tiers nothing, and a value with no cut for ITS name stays untiered — never a guess from another metric's cuts", () => {
+      renderWithRouter(
+        <EventSection
+          event={makeEvent()}
+          domain={DOMAIN}
+          teamKey="frc118"
+          algorithmId="spr"
+          season={2024}
+          metricHistory={[makeHistoryRow({ metrics: { total: { value: 61.4 } } })]}
+          tierCuts={{ someOtherMetric: { cuts: [1, 2, 3] } }}
+        />,
+      );
+      const snapshot = screen.getByTestId("event-snapshot-2024casj");
+      expect(snapshot.querySelector(".metric-tier")).toBeNull();
+      expect(snapshot.textContent).toContain("61.40");
+    });
 
     it("renders no per-event tier-basis caption even when a rendered tile carries a percentile", () => {
       renderWithRouter(

@@ -63,6 +63,11 @@ export function EventSectionList({ artifact, algorithmId, season }: EventSection
           algorithmId={algorithmId}
           season={season}
           metricHistory={rows}
+          // The artifact's own block, published per (algorithm, season) since
+          // quick task 260923-3x0 — no event-artifact fetch, no overlay. Absent
+          // on a pre-260923-3x0 file, which renders a live-folded row untiered
+          // until that season's republish.
+          tierCuts={artifact.tierCuts}
         />
       ))}
     </div>

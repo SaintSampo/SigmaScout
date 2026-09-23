@@ -310,4 +310,64 @@ describe("/team/$teamNumber route — one artifact, no overlay (260923-3w7)", ()
     expect(artifacts.some((url) => url.includes("/v1/team/frc1114/2024/"))).toBe(true);
     expect(artifacts.some((url) => url.includes("/v1/events/2024/"))).toBe(true);
   });
+
+  /**
+   * The regression the describe header above recorded, now closed (quick task
+   * 260923-3x0). A row the TICK appended carries a metric VALUE and no
+   * `percentile`; its tier used to come from the live EVENT artifact this page no
+   * longer fetches. The publisher writes the same per-(algorithm, season)
+   * `tierCuts` block on the team artifact, so the tier comes back with no second
+   * fetch — which is exactly what the `/v1/event/` assertion below is for.
+   */
+  async function artifactWithLiveFoldedRow(withTierCuts: boolean): Promise<Response> {
+    const body = JSON.parse(await teamArtifactWithEvent(NOW + 600_000, "2024-03-07").text()) as Record<string, unknown>;
+    return new Response(
+      JSON.stringify({
+        ...body,
+        // A live tick's own appended row: a value, no percentile — exactly
+        // `mergeTeamSeasonArtifact`'s output shape.
+        metricHistory: [
+          { matchKey: "2024casf_qm8", season: 2024, eventKey: "2024casf", algorithmId: "spr", teamKey: "frc1114", matchIndex: 0, metrics: { total: { value: 61.4 } } },
+        ],
+        ...(withTierCuts ? { tierCuts: { total: { cuts: [31.17, 52.4, 88.05] } } } : {}),
+      }),
+      { status: 200 },
+    );
+  }
+
+  function renderWithArtifact(response: () => Promise<Response>): string[] {
+    const urls: string[] = [];
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return response();
+    }) as unknown as typeof global.fetch;
+    renderTeamRoute("/team/1114?year=2024&algorithm=spr");
+    return urls;
+  }
+
+  it("260923-3x0: a live-folded snapshot row is TIERED from the team artifact's own tierCuts, with no event-artifact fetch", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const urls = renderWithArtifact(() => artifactWithLiveFoldedRow(true));
+
+    await waitFor(() => expect(screen.getByTestId("event-snapshot-2024casf")).toBeDefined());
+    // 61.4 sits in [52.4, 88.05) -> epic.
+    expect(screen.getByTestId("event-snapshot-2024casf").querySelector(".metric-tier--epic")).not.toBeNull();
+    expect(urls.filter((url) => url.includes("/v1/event/"))).toEqual([]);
+  });
+
+  it("260923-3x0: the same page on a PRE-REPUBLISH artifact (no tierCuts key) still loads and simply renders that row untiered", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    renderWithArtifact(() => artifactWithLiveFoldedRow(false));
+
+    await waitFor(() => expect(screen.getByTestId("event-snapshot-2024casf")).toBeDefined());
+    const snapshot = screen.getByTestId("event-snapshot-2024casf");
+    expect(snapshot.querySelector(".metric-tier")).toBeNull();
+    // Non-vacuity: the value itself still rendered, so what is missing is the
+    // tier box and not the whole tile.
+    expect(snapshot.textContent).toContain("61.40");
+  });
 });
