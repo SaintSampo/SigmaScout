@@ -86,36 +86,39 @@ describe("fetchEventArtifact", () => {
     ).rejects.toBeInstanceOf(ArtifactValidationError);
   });
 
-  it("a Worker-shaped artifact (schedule-only upcoming rows, no state block) now fetches and parses (260915-m4j, DD-1 closed)", async () => {
+  /**
+   * THE INVERSE OF THE CASE THAT STOOD HERE. 260915-m4j's DD-1 case asserted that
+   * a Worker-written artifact with SCHEDULE-ONLY upcoming rows fetched and parsed,
+   * unpriced, with one `event-upcoming-pricing-failed` warning — because the tick
+   * wrote rows with no prediction and the browser priced them from a `state`
+   * block. The tick prices its own rows again (260923-3w6) and there is one event
+   * schema (260923-3w7), so the honest claim is the opposite one: such an artifact
+   * must NOT parse, because it could only be produced by a regression in the tick.
+   */
+  it("an artifact with schedule-only upcoming rows FAILS validation: the tick's pricing is not optional", async () => {
+    const artifact = {
+      ...makeValidArtifact(),
+      upcoming: [{ matchKey: "2024casf_qm9", compLevel: "qm", setNumber: 1, matchNumber: 9, sortTime: 1757894400, redTeams: ["frc254"], blueTeams: ["frc3"] }],
+    };
+    global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));
+    await expect(fetchEventArtifact({ eventKey: "2024casf", algorithmId: "spr", version: "2.0.0+tuned-2026-08" })).rejects.toBeInstanceOf(ArtifactValidationError);
+  });
+
+  it("a STALE `state` block on a pre-reversal artifact parses and is dropped, with no warning of any kind", async () => {
+    // Every event artifact published before 260923-3w6 still carries one in R2
+    // until its next republish, so this is the compatibility path, not a corner.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const artifact = {
       ...makeValidArtifact(),
-      computedAt: "2026-09-15T00:00:00.000Z",
-      generation: "tick-1757894400000",
-      upcoming: [
-        { matchKey: "2024casf_qm9", compLevel: "qm", setNumber: 1, matchNumber: 9, sortTime: 1757894400, redTeams: ["frc254", "frc1", "frc2"], blueTeams: ["frc3", "frc4", "frc5"] },
-        { matchKey: "2024casf_qm10", compLevel: "qm", setNumber: 1, matchNumber: 10, redTeams: ["frc254", "frc1", "frc2"], blueTeams: ["frc3", "frc4", "frc5"] },
-      ],
+      state: { algorithmId: "spr", algorithmVersion: "9.9.9", snapshotShapeVersion: 1, rows: [{ scopeKind: "league", scopeKey: "league", stateJson: "{}" }] },
     };
     global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));
 
     const result = await fetchEventArtifact({ eventKey: "2024casf", algorithmId: "spr", version: "2.0.0+tuned-2026-08" });
 
-    expect(result.upcoming).toEqual(artifact.upcoming);
-    expect(result.upcoming[0]).not.toHaveProperty("pRedWin");
     expect(result).not.toHaveProperty("state");
-    // The unpriced fallback is logged once, never thrown as a validation error.
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(String(warn.mock.calls[0]![0]))).toMatchObject({ event: "event-upcoming-pricing-failed", error: "no-state-block" });
-  });
-
-  it("an upcoming row that is neither fully priced nor strictly schedule-only still fails validation", async () => {
-    const artifact = {
-      ...makeValidArtifact(),
-      upcoming: [{ matchKey: "2024casf_qm9", compLevel: "qm", setNumber: 1, matchNumber: 9, redTeams: [], blueTeams: [], pRedWin: 0.5 }],
-    };
-    global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));
-    await expect(fetchEventArtifact({ eventKey: "2024casf", algorithmId: "spr", version: "2.0.0+tuned-2026-08" })).rejects.toBeInstanceOf(ArtifactValidationError);
+    expect(result.upcoming).toEqual(makeValidArtifact().upcoming);
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it("requests the exact key-built URL, proving artifactKey()'s event branch and the origin module are wired together", async () => {

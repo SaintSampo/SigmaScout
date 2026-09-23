@@ -1,14 +1,28 @@
 /**
- * EXACT PARITY between the browser pricer (`eventStatePricing.ts`) and the
- * offline publisher, over the committed 2022 digest slice.
+ * EXACT PARITY between `priceUpcomingRows` — the live Worker's own pricer — and
+ * the offline publisher, over the committed 2022 digest slice.
+ *
+ * THIS FILE IS `eventStatePricing.parity.test.ts`, re-pointed (quick task
+ * 260923-3w7). Every arm used to price a `state` block: the serialized final
+ * state, cut down to a block and sent through the wire (`JSON.stringify`,
+ * `JSON.parse`, `EventStateBlockSchema.parse`) because the BROWSER was the thing
+ * pricing. The browser path and the block are deleted, so each arm now builds the
+ * IN-MEMORY `UpcomingPricingModel` the tick holds after Phase A — deserialized
+ * state plus the four level-2 accumulators — from those same `StateRow`s, and
+ * prices from that. The arms themselves, their fixtures and their hand-computed
+ * expectations are unchanged.
+ *
+ * WHAT IS DELIBERATELY NOT HERE ANY MORE: the block's own error contract
+ * (algorithm-version mismatch, `snapshotShapeVersion` mismatch, a missing league
+ * row) and the `JSON`+zod wire round-trip. Those validated a wire copy of D1 that
+ * nothing produces; the tick reads D1 rows directly. The one guard worth keeping,
+ * the rule module's season, moved into `priceUpcomingRows` and is still asserted
+ * below.
  *
  * Offline truth is built the way `publish.ts` builds it: a walk-forward replay
- * collecting each match's talent, `SigmaScoutLayer.foldPlayed` over every
- * played record in order, `layer.enrichUpcoming(m, spr.predict(finalState, m))`
- * for each withheld match, then `buildEventArtifact`. The pricer instead gets
- * the serialized final state (the publisher's passenger chain, in its order),
- * cut down to a `state` block and sent through the wire: `JSON.stringify`,
- * `JSON.parse`, `EventStateBlockSchema.parse`. Only that wire copy is priced.
+ * collecting each match's talent, `SigmaScoutLayer.foldPlayed` over every played
+ * record in order, `layer.enrichUpcoming(m, spr.predict(finalState, m))` for each
+ * withheld match, then `buildEventArtifact`.
  *
  * No tolerance anywhere: rows compare with `toEqual`, and their JSON
  * normalizations with `toStrictEqual`.
@@ -30,7 +44,13 @@ import { roundPmf, roundTo, ROUNDING_RULE } from "./rounding.js";
 import { SigmaScoreAccumulator, usesSigmaScore } from "./sigmaScore.js";
 import { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
 import { RpMeanShiftAccumulator } from "../core/rankingPoints/meanShift.js";
-import { priceUpcomingRows, type UpcomingPricingModel } from "./upcomingPricing.js";
+import {
+  priceUpcomingRows,
+  RpRuleModuleSeasonMismatchError,
+  type PriceUpcomingResult,
+  type ScheduledMatchInput,
+  type UpcomingPricingModel,
+} from "./upcomingPricing.js";
 import {
   deserializeState,
   readRpBeliefs,
@@ -42,28 +62,10 @@ import {
   withSigmaBeliefs,
   withSigmaPopulation,
   readRpMeanShift,
-  STATE_SNAPSHOT_SHAPE_VERSION,
+  stateScopeKeys,
   type StateRow,
 } from "./stateSnapshot.js";
-import {
-  EventStateBlockSchema,
-  type EventStateBlock,
-  type EventStateBlockRow,
-  type EventUpcomingMatch,
-  type TeamSeasonMatch,
-} from "./pageArtifacts.js";
-import {
-  buildEventStateBlock,
-  EventStateBlockError,
-  priceUpcomingFromState,
-  RpRuleModuleSeasonMismatchError,
-  type PriceUpcomingResult,
-  type ScheduledMatchInput,
-} from "./eventStatePricing.js";
-
-// Compile-time: a block row feeds `deserializeState` and the passenger readers as a `StateRow`.
-const blockRowIsStateRow: (row: EventStateBlockRow) => StateRow = (row) => row;
-void blockRowIsStateRow;
+import { type EventUpcomingMatch, type TeamSeasonMatch } from "./pageArtifacts.js";
 
 interface DigestSliceFixture {
   sliceSeason: number;
@@ -138,9 +140,27 @@ function offlineRecords(arm: OfflineArm, upcoming: readonly UpcomingMatch[]): Up
   return upcoming.map((m) => arm.layer.enrichUpcoming(m, spr.predict(arm.finalState, m)));
 }
 
-/** The block exactly as a browser would receive it: stringified, parsed and schema-parsed. */
-function wireBlock(block: EventStateBlock): EventStateBlock {
-  return EventStateBlockSchema.parse(JSON.parse(JSON.stringify(block)));
+/**
+ * The in-memory model the live tick holds after Phase A, built from the same
+ * `StateRow`s the publisher seeds D1 with — deserialized state plus the four
+ * level-2 accumulators, exactly as `scheduled.ts` assembles them.
+ *
+ * NO SCOPING, unlike the `state` block this replaced, which carried only the
+ * roster's rows. That difference is not papered over: it is the reason the
+ * unseen-team arm below is a real test rather than an artifact of a narrow read.
+ * `frc8888` is on the replay's team list and HAS a row here, and the offline rule
+ * still gives its alliance no band — because the rule keys on having a Sigma
+ * BELIEF, which a team that never played does not, not on the row's absence.
+ */
+function modelFrom(rows: readonly StateRow[], ruleModule: RpRuleModule | undefined): UpcomingPricingModel {
+  return {
+    algorithm: spr,
+    state: deserializeState(spr.id, rows) as SprState,
+    sigmaScores: usesSigmaScore(spr.id) ? SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(rows), readSigmaPopulation(rows)).scoreByTeam() : undefined,
+    ruleModule,
+    rp: ruleModule === undefined ? undefined : RpMomentsAccumulator.fromBeliefs(ruleModule, readRpBeliefs(rows)),
+    shift: ruleModule === undefined ? undefined : RpMeanShiftAccumulator.fromState(ruleModule, readRpMeanShift(rows)),
+  };
 }
 
 function scheduleOnly(m: UpcomingMatch, sortTime: number | undefined): ScheduledMatchInput {
@@ -186,7 +206,7 @@ function sortTimesFor(upcoming: readonly UpcomingMatch[]): Map<string, number> {
   return out;
 }
 
-describe("eventStatePricing parity (tracer): warm qualification matches", () => {
+describe("upcomingPricing parity (tracer): warm qualification matches", () => {
   it("the fixture slice is what the test claims", () => {
     expect(FIXTURE.sliceSeason).toBe(SEASON);
     expect(withheldQm).toHaveLength(12);
@@ -196,7 +216,7 @@ describe("eventStatePricing parity (tracer): warm qualification matches", () => 
     expect(resolvePublishAlgorithms("spr")[0]).toBe(spr);
   });
 
-  it("a JSON+zod round-tripped state block prices the withheld qm matches to buildEventArtifact's exact upcoming rows", () => {
+  it("the tick's own in-memory model prices the withheld qm matches to buildEventArtifact's exact upcoming rows", () => {
     const arm = runOfflineArm(played, upcomingQm);
     const sortTimes = sortTimesFor(upcomingQm);
     const published = buildEventArtifact({
@@ -212,13 +232,11 @@ describe("eventStatePricing parity (tracer): warm qualification matches", () => 
       sortTimeByMatchKey: sortTimes,
     }).upcoming;
 
-    const block = wireBlock(buildEventStateBlock(arm.rows, rosterKeys(upcomingQm)));
-    const priced = priceUpcomingFromState({
-      state: block,
+    const priced = priceUpcomingRows({
+      model: modelFrom(arm.rows, RP_RULE_MODULES[SEASON]),
       eventKey: EVENT_KEY,
       season: SEASON,
       eventType: upcomingQm[0]!.eventType,
-      ruleModule: RP_RULE_MODULES[SEASON],
       upcoming: upcomingQm.map((m) => scheduleOnly(m, sortTimes.get(m.matchKey))),
     });
 
@@ -261,7 +279,8 @@ function expectCaseParity(params: {
   eventType: number;
   sortTimes: ReadonlyMap<string, number>;
   ruleModule: RpRuleModule | undefined;
-  block?: EventStateBlock;
+  /** An overridden row set, for the mean-shift arm's "drop the passenger" comparison. Defaults to the arm's own rows. */
+  rows?: readonly StateRow[];
 }): CaseResult {
   const { arm, upcoming, eventType, sortTimes, ruleModule } = params;
   const records = offlineRecords(arm, upcoming);
@@ -293,13 +312,11 @@ function expectCaseParity(params: {
     sortTimeByMatchKey: sortTimes,
   }).events[0]!.matches;
 
-  const block = params.block ?? wireBlock(buildEventStateBlock(arm.rows, rosterKeys(upcoming)));
-  const priced = priceUpcomingFromState({
-    state: block,
+  const priced = priceUpcomingRows({
+    model: modelFrom(params.rows ?? arm.rows, ruleModule),
     eventKey: EVENT_KEY,
     season: SEASON,
     eventType,
-    ruleModule,
     upcoming: upcoming.map((m) => scheduleOnly(m, sortTimes.get(m.matchKey))),
   });
 
@@ -343,7 +360,7 @@ const emptySf: UpcomingMatch = {
 const upcomingAll: UpcomingMatch[] = [...withheldQm.map(toUpcoming), ...withheldPlayoff.map(toUpcoming), unseenQm, emptySf];
 const sortTimesAll = sortTimesFor(upcomingAll);
 
-describe("eventStatePricing parity: the full gating matrix", async () => {
+describe("upcomingPricing parity: the full gating matrix", async () => {
   // The offline arm uses RP_RULE_MODULES; the pricer gets the per-season loader's module.
   const loadedRuleModule = await loadRpRuleModule(SEASON);
   // The unseen team is on the replay's team list, as publish.ts's teamsThisSeason would put it.
@@ -405,47 +422,14 @@ describe("eventStatePricing parity: the full gating matrix", async () => {
     }
   });
 
-  it("the in-memory model arm — the live Worker's own path — prices to the same rows, with no block in sight", () => {
-    // The tick never holds a `state` block: it deserializes D1 rows, folds, and
-    // prices from the accumulators in its hand. This arm is that path, one
-    // assertion away from the block arm above, so the extraction of
-    // `priceUpcomingRows` cannot silently start meaning something else for one
-    // of its two callers. Quick task 260923-3w6.
-    const { publishedEvent, publishedTeam } = expectCaseParity({
-      arm,
-      upcoming: upcomingAll,
-      eventType: ELIGIBLE,
-      sortTimes: sortTimesAll,
-      ruleModule: loadedRuleModule,
-    });
-
-    const rows = arm.rows;
-    const model: UpcomingPricingModel = {
-      algorithm: spr,
-      state: deserializeState(spr.id, rows) as SprState,
-      sigmaScores: SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(rows), readSigmaPopulation(rows)).scoreByTeam(),
-      ruleModule: loadedRuleModule,
-      rp: RpMomentsAccumulator.fromBeliefs(loadedRuleModule!, readRpBeliefs(rows)),
-      shift: RpMeanShiftAccumulator.fromState(loadedRuleModule!, readRpMeanShift(rows)),
-    };
-    const priced = priceUpcomingRows({
-      model,
-      eventKey: EVENT_KEY,
-      season: SEASON,
-      eventType: ELIGIBLE,
-      upcoming: upcomingAll.map((m) => scheduleOnly(m, sortTimesAll.get(m.matchKey))),
-    });
-
-    expectExactRows(priced.event, publishedEvent);
-    expectExactRows(priced.team, publishedTeam);
-    // Non-vacuity: the arm really priced level-2 fields, not bare predictions.
+  it("non-vacuity: the priced rows really carry the level-2 fields, so the equality above is not comparing two sets of bare predictions", () => {
+    const { priced } = expectCaseParity({ arm, upcoming: upcomingAll, eventType: ELIGIBLE, sortTimes: sortTimesAll, ruleModule: loadedRuleModule });
     expect(priced.event[0]!.redMatchBandVariance).toBeTypeOf("number");
     expect(priced.event[0]!.redRpPmf).toBeDefined();
   });
 
   it("mean shift non-vacuity: every variable is past warmup, and dropping the passenger moves at least one warm qm pmf", () => {
-    const block = wireBlock(buildEventStateBlock(arm.rows, rosterKeys(upcomingAll)));
-    const shift = readRpMeanShift(block.rows);
+    const shift = readRpMeanShift(arm.rows);
     expect(shift).toBeDefined();
     expect(Object.keys(shift!.variables).sort()).toEqual(loadedRuleModule!.thresholdVariables.map((v) => v.name).sort());
     for (const [name, v] of Object.entries(shift!.variables)) {
@@ -453,23 +437,21 @@ describe("eventStatePricing parity: the full gating matrix", async () => {
       expect(v.sum, name).not.toBe(0);
     }
 
-    const withShift = expectCaseParity({ arm, upcoming: upcomingAll, eventType: ELIGIBLE, sortTimes: sortTimesAll, ruleModule: loadedRuleModule, block });
-    const unshiftedBlock: EventStateBlock = {
-      ...block,
-      rows: block.rows.map((row) => {
-        if (row.scopeKind !== "league") return row;
-        const parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
-        delete parsed.sigmascoutRpMeanShift;
-        return { ...row, stateJson: JSON.stringify(parsed) };
-      }),
-    };
-    expect(readRpMeanShift(unshiftedBlock.rows)).toBeUndefined();
-    const unshifted = priceUpcomingFromState({
-      state: unshiftedBlock,
+    const withShift = expectCaseParity({ arm, upcoming: upcomingAll, eventType: ELIGIBLE, sortTimes: sortTimesAll, ruleModule: loadedRuleModule });
+    // The same removal the block arm used to perform on its wire copy, performed
+    // on the rows themselves: strip the mean-shift passenger off the league row.
+    const unshiftedRows: StateRow[] = arm.rows.map((row) => {
+      if (row.scopeKind !== "league") return row;
+      const parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
+      delete parsed.sigmascoutRpMeanShift;
+      return { ...row, stateJson: JSON.stringify(parsed) };
+    });
+    expect(readRpMeanShift(unshiftedRows)).toBeUndefined();
+    const unshifted = priceUpcomingRows({
+      model: modelFrom(unshiftedRows, loadedRuleModule),
       eventKey: EVENT_KEY,
       season: SEASON,
       eventType: ELIGIBLE,
-      ruleModule: loadedRuleModule,
       upcoming: upcomingAll.map((m) => scheduleOnly(m, sortTimesAll.get(m.matchKey))),
     });
     const moved = withheldQm.filter((_, i) => JSON.stringify(unshifted.event[i]!.redRpPmf) !== JSON.stringify(withShift.priced.event[i]!.redRpPmf));
@@ -488,45 +470,32 @@ describe("eventStatePricing parity: the full gating matrix", async () => {
     expect(row.redMatchBandVariance).not.toBe(record.matchBand!.red);
   });
 
+  /**
+   * ONE CASE WHERE FOUR STOOD. The other three — an `algorithmVersion` mismatch,
+   * a `snapshotShapeVersion` mismatch and a missing league row — validated an
+   * `EventStateBlock`, a wire copy of D1 that nothing produces any more; the tick
+   * reads D1 rows directly and `STATE_SNAPSHOT_SHAPE_VERSION` plus the
+   * generation-mismatch suspension guard that path instead. The season check is
+   * the one invariant `priceUpcomingRows` itself depends on, so it moved into the
+   * pricer and is asserted here.
+   */
   describe("error contract", () => {
-    const good = wireBlock(buildEventStateBlock(arm.rows, rosterKeys(upcomingAll)));
-    const price = (state: EventStateBlock, ruleModule: RpRuleModule | undefined = loadedRuleModule) =>
-      priceUpcomingFromState({
-        state,
+    const price = (ruleModule: RpRuleModule | undefined) =>
+      priceUpcomingRows({
+        model: modelFrom(arm.rows, ruleModule),
         eventKey: EVENT_KEY,
         season: SEASON,
         eventType: ELIGIBLE,
-        ruleModule,
         upcoming: [scheduleOnly(upcomingAll[0]!, undefined)],
       });
 
-    it("the unmodified block prices", () => {
-      expect(price(good).event).toHaveLength(1);
+    it("the season's own rule module prices", () => {
+      expect(price(loadedRuleModule).event).toHaveLength(1);
     });
 
-    it("algorithmVersion mismatch throws EventStateBlockError", () => {
-      const stale = "3.0.0+stale";
-      expect(() => price({ ...good, algorithmVersion: stale, rows: good.rows.map((r) => ({ ...r, algorithmVersion: stale })) })).toThrow(
-        EventStateBlockError
-      );
-      // One row from another version is refused too.
-      expect(() => price({ ...good, rows: good.rows.map((r, i) => (i === 1 ? { ...r, algorithmVersion: stale } : r)) })).toThrow(
-        EventStateBlockError
-      );
-    });
-
-    it("snapshotShapeVersion mismatch throws EventStateBlockError", () => {
-      expect(() => price({ ...good, snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION - 1 })).toThrow(EventStateBlockError);
-    });
-
-    it("a missing league row throws EventStateBlockError, at read and at build time", () => {
-      expect(() => price({ ...good, rows: good.rows.filter((r) => r.scopeKind !== "league") })).toThrow(EventStateBlockError);
-      expect(() => buildEventStateBlock(arm.rows.filter((r) => r.scopeKind !== "league"), E_TEAMS)).toThrow(EventStateBlockError);
-    });
-
-    it("a rule module from another season throws RpRuleModuleSeasonMismatchError", () => {
+    it("a rule module from another season throws RpRuleModuleSeasonMismatchError, rather than silently discarding the mean shift", () => {
       expect(RP_RULE_MODULES[2023]!.season).toBe(2023);
-      expect(() => price(good, RP_RULE_MODULES[2023])).toThrow(RpRuleModuleSeasonMismatchError);
+      expect(() => price(RP_RULE_MODULES[2023])).toThrow(RpRuleModuleSeasonMismatchError);
     });
   });
 });
@@ -537,7 +506,7 @@ describe("eventStatePricing parity: the full gating matrix", async () => {
 
 const DEMO_TEAM = "frc9975";
 
-describe("eventStatePricing parity: demo-key probe", () => {
+describe("upcomingPricing parity: demo-key probe", () => {
   const firstEventQm = played.findIndex((m) => m.eventKey === EVENT_KEY && m.compLevel === "qm");
   const playedDemo = played.map((m, i) => (i === firstEventQm ? { ...m, redTeams: [DEMO_TEAM, ...m.redTeams.slice(1)] } : m));
   const demoQm: UpcomingMatch = {
@@ -564,25 +533,26 @@ describe("eventStatePricing parity: demo-key probe", () => {
     computedAt: COMPUTED_AT,
     sortTimeByMatchKey: sortTimes,
   }).upcoming;
-  const block = wireBlock(buildEventStateBlock(arm.rows, rosterKeys(upcomingDemo)));
-  const priced = priceUpcomingFromState({
-    state: block,
+  const priced = priceUpcomingRows({
+    model: modelFrom(arm.rows, RP_RULE_MODULES[SEASON]),
     eventKey: EVENT_KEY,
     season: SEASON,
     eventType: demoQm.eventType,
-    ruleModule: RP_RULE_MODULES[SEASON],
     upcoming: upcomingDemo.map((m) => scheduleOnly(m, sortTimes.get(m.matchKey))),
   });
 
-  it("the probe is real: the demo robot played, and the block carries SPR's pseudo-team row AND the raw demo key's passenger-only row", () => {
+  it("the probe is real: the demo robot played, and the rows carry SPR's pseudo-team row AND the raw demo key's passenger-only row", () => {
     expect(firstEventQm).toBeGreaterThanOrEqual(0);
     expect(playedDemo[firstEventQm]!.redTeams).toContain(DEMO_TEAM);
-    expect(block.rows.some((row) => row.scopeKey === DEMO_PSEUDO_TEAM_KEY)).toBe(true);
+    expect(arm.rows.some((row) => row.scopeKey === DEMO_PSEUDO_TEAM_KEY)).toBe(true);
     // The raw key has no level-1 state (SPR keys it as the pseudo team), so its
     // row holds level-2 passengers and nothing else (quick task 260918-wfc).
-    const demoRow = block.rows.find((row) => row.scopeKey === DEMO_TEAM);
-    expect(demoRow, "the demo robot's beliefs did not reach the block").toBeDefined();
+    // The scope keys the tick must READ to get that row are `stateScopeKeys`'
+    // job, which is why that rule survived this file's block.
+    const demoRow = arm.rows.find((row) => row.scopeKey === DEMO_TEAM);
+    expect(demoRow, "the demo robot's beliefs did not reach the seed rows").toBeDefined();
     expect(Object.keys(JSON.parse(demoRow!.stateJson) as object).every((key) => key.startsWith("sigmascout"))).toBe(true);
+    expect(stateScopeKeys([DEMO_TEAM])).toEqual([DEMO_PSEUDO_TEAM_KEY, DEMO_TEAM].sort((a, b) => (a < b ? -1 : 1)));
   });
 
   it("every row without the demo robot matches exactly, and the demo row's prediction fields match", () => {

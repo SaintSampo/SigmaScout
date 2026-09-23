@@ -26,10 +26,9 @@ import { tbaMatchListSchema } from "../../../packages/ingest/schemas.js";
 import { normalizeMatch, type CorpusMatch } from "../../../packages/ingest/normalize.js";
 import type { MatchResult, Prediction } from "../../../packages/core/algorithms/types.js";
 import {
-  LiveEventArtifactSchema,
+  EventArtifactSchema,
   TeamSeasonArtifactSchema,
   type EventArtifact,
-  type LiveEventArtifact,
   type TeamSeasonArtifact,
 } from "../../../packages/harness/pageArtifacts.js";
 
@@ -200,11 +199,11 @@ function offlineEvent(fold: ReturnType<typeof foldOf>, lookups: ReturnType<typeo
 }
 
 interface LiveEventOptions {
-  readonly existing?: LiveEventArtifact;
+  readonly existing?: EventArtifact;
   readonly sortTimeOverride?: ReadonlyMap<string, number>;
 }
 
-function liveEvent(fold: ReturnType<typeof foldOf>, options: LiveEventOptions = {}): LiveEventArtifact {
+function liveEvent(fold: ReturnType<typeof foldOf>, options: LiveEventOptions = {}): EventArtifact {
   const merged = mergeEventArtifact({
     existing: options.existing,
     eventKey: EVENT_KEY,
@@ -221,7 +220,7 @@ function liveEvent(fold: ReturnType<typeof foldOf>, options: LiveEventOptions = 
     playedRowFacts: playedRowFactsFor(SEASON, fold.rawMatches, fold.folded, fold.results),
     stamp: STAMP,
   });
-  return json(LiveEventArtifactSchema.parse(merged));
+  return json(EventArtifactSchema.parse(merged));
 }
 
 function offlineTeamSeason(fold: ReturnType<typeof foldOf>, lookups: ReturnType<typeof offlineLookups>): TeamSeasonArtifact {
@@ -343,7 +342,7 @@ describe("a match TBA reports no time for", () => {
     // Non-vacuity: `normalizeMatch` DID synthesize a composite time the Worker must not publish.
     expect(fold.folded[0]!.sortTime).not.toBe(PUBLISHED_SORT_TIME);
 
-    const seeded = LiveEventArtifactSchema.parse({
+    const seeded = EventArtifactSchema.parse({
       schemaVersion: 1,
       generation: "gen-0",
       computedAt: "2026-03-05T00:00:00.000Z",
@@ -352,7 +351,24 @@ describe("a match TBA reports no time for", () => {
       eventKey: EVENT_KEY,
       season: SEASON,
       matches: [],
-      upcoming: [{ matchKey: QM.key, compLevel: "qm", setNumber: 1, matchNumber: 1, sortTime: PUBLISHED_SORT_TIME, redTeams: RED, blueTeams: BLUE }],
+      // A fully PRICED prior row, because that is the only upcoming shape the
+      // schema admits since quick task 260923-3w7 — the schedule-only shape this
+      // fixture used to carry is unrepresentable. Only its `sortTime` matters here.
+      upcoming: [
+        {
+          matchKey: QM.key,
+          compLevel: "qm",
+          setNumber: 1,
+          matchNumber: 1,
+          sortTime: PUBLISHED_SORT_TIME,
+          redTeams: RED,
+          blueTeams: BLUE,
+          predictedWinner: "red",
+          pRedWin: 0.5,
+          predictedRedScore: 100,
+          predictedBlueScore: 100,
+        },
+      ],
       teams: [],
     });
     const row = liveEvent(fold, { existing: seeded }).matches[0]!;

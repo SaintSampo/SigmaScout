@@ -16,8 +16,8 @@ import { QualsTab, QualsTabSkeleton } from "../components/event/QualsTab.js";
 import { AlliancesTab, AlliancesTabSkeleton, hasAllianceData } from "../components/event/AlliancesTab.js";
 import { ElimsTab, ElimsTabSkeleton } from "../components/event/ElimsTab.js";
 import { SimulationTab, SimulationTabSkeleton } from "../components/event/SimulationTab.js";
-import type { EventPageArtifact } from "../lib/eventPricing.js";
 import { usesSigmaScore } from "../../../../packages/harness/sigmaScore.js";
+import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
  * The `/event/{eventKey}` route: the single artifact-fetch path, the
@@ -100,12 +100,12 @@ function renderTabState({
   is404: boolean;
   error: unknown;
   isPending: boolean;
-  data: EventPageArtifact | undefined;
+  data: EventArtifact | undefined;
   eventKey: string;
   season: number;
   onRetry: () => void;
   renderPending: () => ReactNode;
-  renderPopulated: (artifact: EventPageArtifact) => ReactNode;
+  renderPopulated: (artifact: EventArtifact) => ReactNode;
 }): ReactNode {
   if (is404) {
     return (

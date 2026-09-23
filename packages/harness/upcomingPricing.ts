@@ -1,20 +1,26 @@
 /**
  * THE ONE UPCOMING-MATCH PRICER. Everything that prices a not-yet-played match
  * outside the offline publisher calls `priceUpcomingRows` below, so the live
- * Worker and the browser cannot drift from each other or from
- * `SigmaScoutLayer.enrichUpcoming`.
+ * Worker cannot drift from `SigmaScoutLayer.enrichUpcoming`.
  *
- * WHY IT IS ITS OWN MODULE (quick task 260923-3w6). This was the body of
- * `eventStatePricing.ts`'s `priceUpcomingFromState`, which took an
- * `EventStateBlock` — a wire copy of D1 rows — because the browser was the only
- * thing pricing upcoming matches (260915-isq, a 10 ms CPU workaround). The
- * Worker prices them again now, and it holds its state IN MEMORY: the
- * accumulators Phase A just folded, never a serialized block. So the pricing
- * loop is parameterized by an in-memory `UpcomingPricingModel` and the block
- * deserialization stays behind in `eventStatePricing.ts` as a thin wrapper.
- * Extracting rather than copying is the whole point: a second copy of this loop
- * is exactly the live/offline divergence `eventStatePricing.parity.test.ts`
- * exists to catch.
+ * WHY IT IS ITS OWN MODULE (quick task 260923-3w6, narrowed by 260923-3w7).
+ * This was the body of `eventStatePricing.ts`'s `priceUpcomingFromState`, which
+ * took an `EventStateBlock` — a wire copy of D1 rows — because the BROWSER was
+ * the only thing pricing upcoming matches (260915-isq, a 10 ms CPU workaround).
+ * The Worker prices them again, and it holds its state IN MEMORY: the
+ * accumulators Phase A just folded, never a serialized block. So the loop is
+ * parameterized by an in-memory `UpcomingPricingModel`. 260923-3w7 then deleted
+ * the browser path and `eventStatePricing.ts` with it, leaving this the only
+ * non-publisher pricer there is.
+ *
+ * THE EQUIVALENCE PROOF MOVED HERE WITH IT. `upcomingPricing.test.ts` is the old
+ * `eventStatePricing.parity.test.ts`, every arm re-pointed from the block path to
+ * this in-memory one: the full gating matrix, the unseen-team rule, the playoff
+ * rows, the RP-ineligible event type, the mean-shift non-vacuity, the rounding
+ * check and the demo-key probe all still compare against `buildEventArtifact`
+ * and `buildTeamSeasonArtifact`. That comparison is the thing that must never be
+ * lost — it is what makes "the tick publishes what the publisher would" a test
+ * rather than a claim.
  *
  * WHAT IT SHARES. Every primitive is the shared function: the algorithm's own
  * `predict`, `allianceSigmaBandVariance`, `sigmaMatchBandVariance`,
@@ -26,8 +32,8 @@
  * fields) mirrors `SigmaScoutLayer.enrichUpcoming`, `#matchBandFields` and
  * `#rpFieldsFor` statement for statement. It is not extracted from there
  * because `sigmaScoutLayer.bandGuard.test.ts` pins `#rpFieldsFor`'s guard as
- * source text inside `sigmaScoutLayer.ts`. `eventStatePricing.parity.test.ts`
- * fails on any drift between the two.
+ * source text inside `sigmaScoutLayer.ts`. `upcomingPricing.test.ts` fails on
+ * any drift between the two.
  *
  * UNSEEN TEAMS FOLLOW THE OFFLINE RULE: a roster team with no Sigma Score gives
  * its alliance no band, and the match no RP (both variances are needed). NEVER
@@ -35,10 +41,13 @@
  * which is a PLAYED-row quantity — a caller passes `scoreByTeam()`, so the rule
  * is structural here rather than a thing each caller has to remember.
  *
- * BROWSER-SAFE: never import `publish.ts`, `rules.ts`, a per-season RP file,
- * `sigmaScoutLayer.ts`, `replay.ts` or anything under `packages/corpus`. The RP
- * rule module is injected. `eventStatePricing.browserSafe.test.ts` guards the
- * import graph through `eventStatePricing.ts`, which imports this file.
+ * WORKER-SAFE: never import `publish.ts`, `rules.ts`, a per-season RP file,
+ * `sigmaScoutLayer.ts`, `replay.ts`, a Node built-in or anything under
+ * `packages/corpus`. The RP rule module is injected.
+ * `upcomingPricing.workerSafe.test.ts` walks this module's import graph and
+ * fails on any of them. (The constraint was called BROWSER-safe until quick task
+ * 260923-3w7; the browser no longer imports it, the Worker still bundles it, and
+ * the forbidden set is identical either way.)
  */
 import type { AlgorithmModule, CompLevel, Prediction, UpcomingMatch } from "../core/algorithms/types.js";
 import { isRpEligibleEventType, type RpRuleModule } from "../core/rankingPoints/constants.js";
@@ -48,6 +57,29 @@ import { analyticRpPmf } from "../core/rankingPoints/analyticPmf.js";
 import { allianceSigmaBandVariance, sigmaMatchBandVariance } from "./sigmaScore.js";
 import { EventUpcomingMatchSchema, TeamSeasonMatchSchema, type EventUpcomingMatch, type TeamSeasonMatch } from "./pageArtifacts.js";
 import { eventUpcomingRow, teamSeasonMatchRow } from "./publishedRows.js";
+
+/**
+ * Thrown when the injected RP rule module is for another season:
+ * `RpMeanShiftAccumulator.fromState` would silently discard the shift, so a
+ * mismatch has to be loud rather than quietly unshifted.
+ *
+ * Lived in `eventStatePricing.ts` until quick task 260923-3w7 deleted it. Moved
+ * rather than dropped, and moved INTO the pricer rather than left at a caller:
+ * the browser was the only caller that could get the season wrong (it loaded one
+ * season's module at a time), but that is an argument for checking the invariant
+ * where it is depended on, not for deleting the check with the caller. It is
+ * inert for the live tick, which indexes `RP_RULE_MODULES` by the event's own
+ * season.
+ */
+export class RpRuleModuleSeasonMismatchError extends Error {
+  constructor(
+    readonly moduleSeason: number,
+    readonly season: number
+  ) {
+    super(`priceUpcomingRows: RP rule module is for season ${moduleSeason}, but the event is season ${season}`);
+    this.name = "RpRuleModuleSeasonMismatchError";
+  }
+}
 
 /** One not-yet-played match, schedule fields only: nothing a pricer could leak an outcome through. */
 export interface ScheduledMatchInput {
@@ -105,10 +137,16 @@ export interface PriceUpcomingResult {
  * publisher would publish for the same state. Pure: no I/O, no clock, no
  * mutation of the model (the RP accumulator is read through `momentsFor`, never
  * folded).
+ *
+ * Throws `RpRuleModuleSeasonMismatchError` for a rule module from another
+ * season — see that class for why the check lives here.
  */
 export function priceUpcomingRows(input: PriceUpcomingRowsInput): PriceUpcomingResult {
   const { model, eventKey, season, eventType } = input;
   const { algorithm, state, sigmaScores, ruleModule, rp, shift } = model;
+  if (ruleModule !== undefined && ruleModule.season !== season) {
+    throw new RpRuleModuleSeasonMismatchError(ruleModule.season, season);
+  }
 
   const event: EventUpcomingMatch[] = [];
   const team: TeamSeasonMatch[] = [];

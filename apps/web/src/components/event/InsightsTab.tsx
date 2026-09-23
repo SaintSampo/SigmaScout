@@ -42,12 +42,11 @@ import { METRIC_GROUPS, withDerivedGroupMetrics } from "@/lib/metricGroups";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import { teamNumberFromKey } from "@/lib/teamKey";
 import { resolveMetricTier, tierForPercentile } from "@/lib/tiers";
-import type { EventPageArtifact } from "../../lib/eventPricing.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
-import type { EventTierCuts } from "../../../../../packages/harness/pageArtifacts.js";
+import type { EventArtifact, EventTierCuts } from "../../../../../packages/harness/pageArtifacts.js";
 
-type EventTeam = EventPageArtifact["teams"][number];
+type EventTeam = EventArtifact["teams"][number];
 type EventTeamMetrics = EventTeam["metrics"];
 type EventTeamRecord = NonNullable<EventTeam["record"]>;
 
@@ -128,7 +127,7 @@ function byFallbackTotal(a: InsightsRowBase, b: InsightsRowBase): number {
  * otherwise fully-ranked event, and relabelling the whole table for that
  * one row would be wrong.
  */
-export function buildInsightsRows(artifact: EventPageArtifact, algorithmId: string): InsightsRowModel {
+export function buildInsightsRows(artifact: EventArtifact, algorithmId: string): InsightsRowModel {
   void algorithmId; // reserved for signature symmetry with the column builder; the fallback ordering axis (TOTAL_KEY) is algorithm-agnostic once published
 
   const orderSource: InsightsOrderSource =
@@ -417,7 +416,7 @@ function buildInsightsColumns(
 }
 
 export interface InsightsTabProps {
-  artifact: EventPageArtifact;
+  artifact: EventArtifact;
   algorithmId: string;
   season: number;
 }

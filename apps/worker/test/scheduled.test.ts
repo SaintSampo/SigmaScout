@@ -12,7 +12,7 @@ import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveW
 import {
   artifactKey,
   decodeTeamsRowMetrics,
-  LiveEventArtifactSchema,
+  EventArtifactSchema,
   PAGE_ARTIFACT_SCHEMA_VERSION,
   TeamSeasonArtifactSchema,
 } from "../../../packages/harness/pageArtifacts.js";
@@ -1247,7 +1247,7 @@ describe("runTick — official-play scope on the global rebuild feed", () => {
     // The event write is UNCONDITIONAL on event type; only the `teams/{year}` feed
     // below is gated on officialness. It used to also assert the `live` block's rows
     // were non-empty, which quick task 260923-3w6 deleted along with the block.
-    expect(LiveEventArtifactSchema.parse(JSON.parse(r2.puts.filter((p) => p.key === eventPutKey).at(-1)!.body)).matches).toHaveLength(1);
+    expect(EventArtifactSchema.parse(JSON.parse(r2.puts.filter((p) => p.key === eventPutKey).at(-1)!.body)).matches).toHaveLength(1);
     // The per-team artifact write is unconditional too (quick task 260923-3w6):
     // an offseason event is fully visible on its own pages and only stops moving
     // the season leaderboard.
@@ -1281,7 +1281,7 @@ describe("runTick — official-play scope on the global rebuild feed", () => {
     // offseason event since quick task 260919-368: a Week 0 match is predicted
     // and never folded (`foldsIntoRatings`). OPR is event-scoped and starts each
     // season empty, so at a preseason event it holds a rating for nobody.
-    const written = LiveEventArtifactSchema.parse(JSON.parse(r2.puts.filter((p) => p.key === eventPutKey).at(-1)!.body));
+    const written = EventArtifactSchema.parse(JSON.parse(r2.puts.filter((p) => p.key === eventPutKey).at(-1)!.body));
     expect(written.matches.map((m) => m.matchKey)).toEqual(["2026prez_qm1"]);
     // No `live` block, here or anywhere: nothing emits one since 260923-3w6 and
     // the schema stopped declaring the key in 260923-3w7.
@@ -1624,7 +1624,7 @@ describe("runTick — a corrupt published artifact retries as a bootstrap instea
     const published = JSON.parse(eventPuts[0]!.body) as Record<string, unknown>;
     expect(published).not.toHaveProperty("live");
     // Non-vacuity: the tick really did publish this event's fold.
-    expect(LiveEventArtifactSchema.parse(published).matches.map((m) => m.matchKey)).toEqual(["2026casj_qm1"]);
+    expect(EventArtifactSchema.parse(published).matches.map((m) => m.matchKey)).toEqual(["2026casj_qm1"]);
   });
 
   it("a well-formed `live` block is dropped just the same, and so is a `state` block", async () => {
@@ -1655,14 +1655,14 @@ describe("runTick — a corrupt published artifact retries as a bootstrap instea
     expect(result.eventsFailed).toBe(0);
     const eventPuts = r2.puts.filter((p) => p.key === EVENT_PUT_KEY);
     expect(eventPuts).toHaveLength(1);
-    const published = LiveEventArtifactSchema.parse(JSON.parse(eventPuts[0]!.body));
+    const published = EventArtifactSchema.parse(JSON.parse(eventPuts[0]!.body));
     expect(published.matches.map((m) => m.matchKey)).toEqual(["2026casj_qm1"]);
   });
 
   it("event: a guard-passing, write-failing event artifact is republished as a valid bootstrap", async () => {
     const seeded = JSON.parse(guardPassingCorruptEventArtifact("2026casj")) as unknown;
     expect(checkLiveEventArtifactShape(seeded)).toBeDefined();
-    expect(() => LiveEventArtifactSchema.parse(seeded)).toThrow();
+    expect(() => EventArtifactSchema.parse(seeded)).toThrow();
 
     stubOneLiveEvent();
     const clean = new FakeR2Bucket();
@@ -1678,7 +1678,7 @@ describe("runTick — a corrupt published artifact retries as a bootstrap instea
     expect(eventPuts).toHaveLength(1);
     expect(r2.putCallCount).toBe(clean.putCallCount);
 
-    const published = LiveEventArtifactSchema.parse(JSON.parse(eventPuts[0]!.body));
+    const published = EventArtifactSchema.parse(JSON.parse(eventPuts[0]!.body));
     expect(published).not.toHaveProperty("name"); // the corrupt numeric `name` is gone, not carried
     expect(published.matches.map((m) => m.matchKey)).toEqual(["2026casj_qm1"]);
 

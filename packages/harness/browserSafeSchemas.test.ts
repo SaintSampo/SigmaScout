@@ -126,7 +126,7 @@ describe("browser-safe schema import graph", () => {
     const schedule = await import("./eventSchedule.js");
     const publish = await import("./publish.js");
     expect(publish.eventScheduleIsCurrent).toBe(schedule.eventScheduleIsCurrent);
-    expect(publish.STATE_BLOCK_STALE_AFTER_MS).toBe(schedule.STATE_BLOCK_STALE_AFTER_MS);
+    expect(publish.SCHEDULE_STALE_AFTER_MS).toBe(schedule.SCHEDULE_STALE_AFTER_MS);
   });
 
   it("metricHistorySchema.ts specifically carries zero Node-only imports — a future Node import there is caught by this named assertion, not a broken production build", () => {

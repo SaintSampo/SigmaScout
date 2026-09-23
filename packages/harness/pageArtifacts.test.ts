@@ -22,9 +22,7 @@ import {
   encodeTeamMetricEntry,
   encodeTeamsRowMetrics,
   EventArtifactSchema,
-  EventScheduledMatchSchema,
   EventsArtifactSchema,
-  LiveEventArtifactSchema,
   MissingVersionSeparatorError,
   PAGE_ARTIFACT_SCHEMA_VERSION,
   preScheduleKey,
@@ -1927,23 +1925,23 @@ describe("retired and unknown keys are stripped on parse", () => {
   });
 });
 
-describe("EventArtifactSchema.state/eventType and LiveEventArtifactSchema (260915-isq)", () => {
-  const STATE = {
-    algorithmId: "spr",
-    algorithmVersion: "4.0.0+test",
-    snapshotShapeVersion: 16,
-    rows: [
-      {
-        algorithmId: "spr",
-        algorithmVersion: "4.0.0+test",
-        scopeKind: "league",
-        scopeKey: "league",
-        stateJson: '{"snapshotShapeVersion":16}',
-        generation: "gen-1",
-        computedAt: "2026-08-22T00:00:00.000Z",
-      },
-    ],
-  };
+/**
+ * SEVEN CASES STOOD HERE (260915-isq) and are deleted with what they described:
+ * `EventArtifactSchema.state`, the strict `EventScheduledMatchSchema` and
+ * `LiveEventArtifactSchema`'s two-shape `upcoming` union. The Worker wrote
+ * schedule-only upcoming rows for three weeks so the browser could price them
+ * from a `state` block; quick task 260923-3w6 put the tick's own pricing back and
+ * 260923-3w7 deleted the shapes. One event schema remains, with one `upcoming`
+ * shape, and the union's whole subtlety — a priced row that fails its pmf refine
+ * must FAIL rather than be stripped down to schedule-only — has nothing left to
+ * be stripped to.
+ *
+ * The two claims worth carrying forward are below: a priced row that breaks a
+ * refine still fails outright, and a SCHEDULE-ONLY row is now rejected rather
+ * than accepted, which is the invariant that says the tick's pricing is not
+ * optional.
+ */
+describe("EventArtifactSchema.upcoming is priced or nothing (quick task 260923-3w7)", () => {
   const SCHEDULED_ROW = {
     matchKey: "2026casj_qm3",
     compLevel: "qm",
@@ -1954,68 +1952,39 @@ describe("EventArtifactSchema.state/eventType and LiveEventArtifactSchema (26091
     blueTeams: ["frc971", "frc2910", "frc330"],
   };
 
-  it("an artifact carrying state and eventType parses and keeps both", () => {
-    const parsed = EventArtifactSchema.parse(eventFixtureWith({ top: { eventType: 0, state: STATE } }));
-    expect(parsed.eventType).toBe(0);
-    expect(parsed.state).toEqual(STATE);
+  it("an `eventType` still parses and is kept", () => {
+    expect(EventArtifactSchema.parse(eventFixtureWith({ top: { eventType: 0 } })).eventType).toBe(0);
   });
 
-  it("a schema without the two keys (the deployed web) still parses the artifact, stripping both", () => {
-    const deployedWeb = EventArtifactSchema.omit({ state: true, eventType: true });
-    const parsed = deployedWeb.parse(eventFixtureWith({ top: { eventType: 0, state: STATE } })) as Record<string, unknown>;
-    expect("state" in parsed).toBe(false);
-    expect("eventType" in parsed).toBe(false);
-    expect(parsed.eventKey).toBe("2026casj");
-  });
-
-  it("a structurally malformed state parses to an absent state with the rest of the artifact intact", () => {
-    for (const malformed of [{ ...STATE, rows: "not rows" }, { ...STATE, snapshotShapeVersion: "16" }, "a string", 42]) {
-      const parsed = EventArtifactSchema.parse(eventFixtureWith({ top: { eventType: 1, state: malformed } }));
-      expect(parsed.state).toBeUndefined();
-      expect(parsed.eventType).toBe(1);
-      expect(parsed.upcoming).toHaveLength(1);
-      expect(parsed.matches).toHaveLength(1);
-    }
-    // An absent key stays absent.
-    expect("state" in EventArtifactSchema.parse(validEventFixture())).toBe(false);
-  });
-
-  it("LiveEventArtifactSchema keeps a priced row whole and a schedule-only row with exactly its keys", () => {
-    const priced = { ...validEventFixture().upcoming[0]!, redRpPmf: [0.25, 0.75], blueRpPmf: [0.5, 0.5] };
-    const parsed = LiveEventArtifactSchema.parse(eventFixtureWith({ upcomingRows: [priced, SCHEDULED_ROW] }));
-    expect(parsed.upcoming[0]).toEqual(priced);
-    expect(parsed.upcoming[1]).toEqual(SCHEDULED_ROW);
-    expect(Object.keys(parsed.upcoming[1]!).sort()).toEqual(Object.keys(SCHEDULED_ROW).sort());
-    const { sortTime: _sortTime, ...withoutSortTime } = SCHEDULED_ROW;
-    expect(LiveEventArtifactSchema.parse(eventFixtureWith({ upcomingRows: [withoutSortTime] })).upcoming[0]).toEqual(withoutSortTime);
-  });
-
-  it("LiveEventArtifactSchema rejects a priced row whose pmf does not sum to 1, rather than stripping it to schedule-only", () => {
-    const broken = { ...validEventFixture().upcoming[0]!, redRpPmf: [0.2, 0.2] };
-    expect(LiveEventArtifactSchema.safeParse(eventFixtureWith({ upcomingRows: [broken] })).success).toBe(false);
-    // The schedule-only variant is strict, which is what makes the union fail here.
-    expect(EventScheduledMatchSchema.safeParse({ ...SCHEDULED_ROW, pRedWin: 0.5 }).success).toBe(false);
-  });
-
-  it("EventArtifactSchema still rejects a schedule-only upcoming row until step 3 switches the web (DD-1)", () => {
+  it("a SCHEDULE-ONLY upcoming row is rejected: every published upcoming row carries its four prediction fields", () => {
     expect(EventArtifactSchema.safeParse(eventFixtureWith({ upcomingRows: [SCHEDULED_ROW] })).success).toBe(false);
+    // And the reason is the prediction fields specifically, not the row's other keys.
+    const priced = { ...SCHEDULED_ROW, predictedWinner: "red", pRedWin: 0.6, predictedRedScore: 100, predictedBlueScore: 90 };
+    expect(EventArtifactSchema.safeParse(eventFixtureWith({ upcomingRows: [priced] })).success).toBe(true);
+  });
+
+  it("a priced row whose pmf does not sum to 1 fails the whole parse rather than degrading", () => {
+    const broken = { ...validEventFixture().upcoming[0]!, redRpPmf: [0.2, 0.2] };
+    expect(EventArtifactSchema.safeParse(eventFixtureWith({ upcomingRows: [broken] })).success).toBe(false);
   });
 });
 
 /**
  * THE EPHEMERALITY ASYMMETRY IS GONE (quick task 260923-3w7): five cases stood
  * here and are deleted with the key they described. 260918-16t declared `live`
- * on `LiveEventArtifactSchema` and nowhere else, so the Worker wrote it, the web
+ * on `EventArtifactSchema` and nowhere else, so the Worker wrote it, the web
  * read it, and the offline publisher's parse through `EventArtifactSchema`
  * silently stripped it — an ephemerality mechanism with no delete call anywhere.
  * Nothing emits the block since 260923-3w6 and nothing reads it since the web's
  * overlay was deleted, so the key, `EventLiveBlockSchema`, `EventLiveRowSchema`
  * and both `EVENT_LIVE_BLOCK_TRIM_*` constants are gone. What survives of the
- * claim is the case below: a stale block in R2 must still PARSE, and be dropped.
- * The `state` block gets the same treatment one commit later, when its key
- * leaves `EventArtifactSchema` too.
+ * claim is the case below, and it covers `state` the same way now that its own key
+ * has left `EventArtifactSchema`: a stale block in R2 must still PARSE, and be
+ * dropped. That is the compatibility direction that matters — every event artifact
+ * published before 260923-3w6 carries a `state` block, and every one an earlier
+ * tick wrote carries a `live` block, until that event's next republish.
  */
-describe("a stale `live` block still parses and is dropped (quick task 260923-3w7)", () => {
+describe("a stale `live` or `state` block still parses and is dropped (quick task 260923-3w7)", () => {
   const STALE_LIVE = {
     metricKeys: ["auto", "sigma", "total"],
     rows: [{ m: "2026casj_qm2", t: ["frc254", "frc604"], v: [[12.5, 4.4, 44], [9, 2.1, 31.5]] }],
@@ -2031,27 +2000,44 @@ describe("a stale `live` block still parses and is dropped (quick task 260923-3w
    * strict, every pre-reversal artifact stops parsing in the browser and every
    * event page it backs goes blank.
    */
-  it("an artifact carrying a stale live block parses through both schemas, and the key is dropped", () => {
-    const body = { ...validEventFixture(), live: STALE_LIVE };
-    // Non-vacuity: the body going in really does carry the key, populated.
-    expect(body.live.rows.length).toBeGreaterThan(0);
+  const STALE_STATE = {
+    algorithmId: "spr",
+    algorithmVersion: "9.9.9+stale",
+    snapshotShapeVersion: 1,
+    rows: [{ algorithmId: "spr", algorithmVersion: "9.9.9+stale", scopeKind: "league", scopeKey: "league", stateJson: "{}", generation: "old", computedAt: "2026-09-01T00:00:00.000Z" }],
+  };
 
-    for (const [name, schema] of [
-      ["EventArtifactSchema", EventArtifactSchema],
-      ["LiveEventArtifactSchema", LiveEventArtifactSchema],
-    ] as const) {
-      const parsed = schema.parse(body) as Record<string, unknown>;
-      expect(parsed, name).not.toHaveProperty("live");
-      // Everything else survives — this is a strip, not a rejection.
-      expect((parsed.matches as unknown[]).length, name).toBe(1);
-    }
+  it("an artifact carrying BOTH stale blocks parses, and both keys are dropped", () => {
+    const body = { ...validEventFixture(), live: STALE_LIVE, state: STALE_STATE };
+    // Non-vacuity: the body going in really does carry both keys, populated.
+    expect(body.live.rows.length).toBeGreaterThan(0);
+    expect(body.state.rows.length).toBeGreaterThan(0);
+
+    const parsed = EventArtifactSchema.parse(body) as Record<string, unknown>;
+    expect(parsed).not.toHaveProperty("live");
+    expect(parsed).not.toHaveProperty("state");
+    // Everything else survives — this is a strip, not a rejection.
+    expect((parsed.matches as unknown[]).length).toBe(1);
+    expect(parsed.eventKey).toBe(validEventFixture().eventKey);
   });
 
   it("a MALFORMED stale block is tolerated identically: an unknown key is never validated", () => {
-    for (const live of ["not an object", { rows: {} }, [], null]) {
-      const parsed = EventArtifactSchema.parse({ ...validEventFixture(), live }) as Record<string, unknown>;
+    for (const stale of [{ live: "not an object" }, { live: { rows: {} } }, { state: [] }, { state: null }, { state: 42 }]) {
+      const parsed = EventArtifactSchema.parse({ ...validEventFixture(), ...stale }) as Record<string, unknown>;
       expect(parsed).not.toHaveProperty("live");
+      expect(parsed).not.toHaveProperty("state");
       expect((parsed.matches as unknown[]).length).toBe(1);
     }
+  });
+
+  it("NO SCHEMA IN THIS FILE IS `.strict()`, which is what makes the two cases above hold", () => {
+    // Stated as its own claim because making one strict is the change that would
+    // blank every pre-reversal event page: the artifact would stop parsing in the
+    // browser rather than losing a key nobody reads.
+    const source = readFileSync(new URL("./pageArtifacts.ts", import.meta.url), "utf8");
+    // Matched as CODE, not as text: `)` immediately before `.strict()` is a
+    // schema call, while the two prose mentions of the rule write it in backticks.
+    expect(source).not.toMatch(/\)\s*\.strict\(\)/);
+    expect(source).not.toMatch(/z\.strictObject\(/);
   });
 });

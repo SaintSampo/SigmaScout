@@ -57,7 +57,7 @@ import {
 } from "../corpus/db.js";
 import { buildPreScheduleArtifact } from "./preSchedule.js";
 // Moved to the browser-safe `eventSchedule.ts` (260915-m4j); re-exported so every existing importer keeps working.
-export { eventScheduleIsCurrent, STATE_BLOCK_STALE_AFTER_MS } from "./eventSchedule.js";
+export { eventScheduleIsCurrent, SCHEDULE_STALE_AFTER_MS } from "./eventSchedule.js";
 import { defaultMatchesPerTeam, matchesPerTeamFor, MIN_SCHEDULE_TEAMS, MAX_SCHEDULE_TEAMS } from "./generatedSchedules.js";
 import { buildSeasonStream, WalkForwardSimulator, OUTCOME_KEYS, type PredictionRecord } from "./replay.js";
 import { corpusColdStartIndex } from "./corpusColdStart.js";

@@ -542,7 +542,12 @@ describe("Match-column label links to /match/{matchKey}", () => {
 });
 
 describe("Unpriced and one-sided rows (260915-m4j)", () => {
-  /** A schedule-only upcoming row the browser could not price: no prediction keys at all. */
+  /**
+   * A row with no prediction keys at all. Built here by hand, because nothing in
+   * the pipeline produces one since quick task 260923-3w7 deleted the live
+   * Worker's schedule-only upcoming shape. The rendering it exercises is kept
+   * deliberately as a presentational guard, so the case is kept with it.
+   */
   function unpricedRow(matchKey: string): EventMatchRow {
     return { matchKey, compLevel: "qm", setNumber: 1, matchNumber: 7, redTeams: ["frc118", "frc254", "frc971"], blueTeams: ["frc604", "frc1678", "frc2056"], sortTime: 1_650_000_000, played: false };
   }
@@ -555,7 +560,7 @@ describe("Unpriced and one-sided rows (260915-m4j)", () => {
     expect(screen.queryByTestId("no-prediction-priced")).toBeNull();
   });
 
-  it("a schedule-only row shows No prediction, no predicted score, no tick, band or dot, keeps the unplayed dash and the scheduled time, and never NaN", () => {
+  it("a row with no prediction shows No prediction, no predicted score, no tick, band or dot, keeps the unplayed dash and the scheduled time, and never NaN", () => {
     const { container } = renderWithRouter(
       <EventMatchTable rows={[makeRow({ matchKey: "priced" }), unpricedRow("unpriced")]} domain={DOMAIN} season={2024} algorithm="spr" />,
     );

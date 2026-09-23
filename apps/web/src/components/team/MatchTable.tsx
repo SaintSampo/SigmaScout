@@ -180,12 +180,16 @@ export function AxisHeader({ domain }: { domain: AxisDomain }) {
 }
 
 /**
- * The deliberate empty treatment for an upcoming match nobody could price
- * (260915-m4j): a schedule-only row written by the live Worker whose event
- * artifact carried no usable state block. A blank cell reads as missing
- * data, so the Confidence cell says so in muted words instead; the
- * Prediction and plot cells stay empty, and no mark is ever drawn at a
- * fabricated position. Token classes only.
+ * The deliberate empty treatment for a match row carrying no prediction
+ * (260915-m4j). A blank cell reads as missing data, so the Confidence cell says
+ * so in muted words instead; the Prediction and plot cells stay empty, and no
+ * mark is ever drawn at a fabricated position. Token classes only.
+ *
+ * A PRESENTATIONAL GUARD ONLY since quick task 260923-3w7: it was written for a
+ * row the browser could not price, from an event artifact with no usable `state`
+ * block, and `TeamSeasonMatchSchema` requires the four prediction fields, so
+ * nothing produces such a row now. It stays because an honest blank is the right
+ * answer if anything ever does.
  */
 export function NoPrediction({ matchKey }: { matchKey: string }) {
   return (

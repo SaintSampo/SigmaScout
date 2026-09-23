@@ -13,13 +13,15 @@
  * `stateJson` and a Worker tick can skip its D1 write.
  *
  * The D1 bulk seed emitter (`emitSeedSql`) lives in `seedSql.ts`, the only
- * Node-bound part of the handoff. This module must stay browser-safe: the
- * browser pricer reads rows through it (`eventStatePricing.browserSafe.test.ts`).
+ * Node-bound part of the handoff. This module must stay free of Node built-ins
+ * and of anything under `packages/corpus`: the live Worker reads rows through it
+ * (`upcomingPricing.workerSafe.test.ts` walks the graph).
  */
 import { z } from "zod";
 import type { EpaState } from "../core/algorithms/epa.js";
 import type { SprPhaseRecord, SprState, SprTeamState } from "../core/algorithms/spr.js";
 import { COMPONENT_GROUP_IDS, type ComponentGroupId } from "../core/algorithms/breakdown/index.js";
+import { DEMO_PSEUDO_TEAM_KEY, isDemoTeamKey } from "../core/algorithms/demoTeams.js";
 import type { OprObservation, OprState } from "../core/algorithms/opr.js";
 import type { ExpandingStats } from "../core/scoring/expandingStats.js";
 import type { SigmaBelief, SigmaPopulation } from "./sigmaScore.js";
@@ -47,6 +49,28 @@ export const StateRowSchema = z.object({
 });
 
 export type StateRow = z.infer<typeof StateRowSchema>;
+
+/**
+ * THE LIVE TICK'S D1 READ-KEY RULE: the team scope keys a read must cover for
+ * these rosters — every key, plus `DEMO_PSEUDO_TEAM_KEY` when any key is a demo
+ * key, because `spr.predict` remaps demo robots to that pseudo team. Sorted and
+ * de-duplicated.
+ *
+ * Written as `stateBlockScopeKeys` in `eventStatePricing.ts` (260915-isq) to say
+ * which rows a `state` block had to carry; it moved here, and lost the `Block`
+ * from its name, when quick task 260923-3w7 deleted that module. The rule never
+ * had anything to do with blocks beyond having been written for one: it is about
+ * which D1 rows the pricer needs in hand, and `scheduled.ts`'s Phase A reads
+ * exactly these keys (chunked at `MAX_SCOPE_KEYS_PER_READ`).
+ */
+export function stateScopeKeys(teamKeys: Iterable<string>): string[] {
+  const keys = new Set<string>();
+  for (const teamKey of teamKeys) {
+    keys.add(teamKey);
+    if (isDemoTeamKey(teamKey)) keys.add(DEMO_PSEUDO_TEAM_KEY);
+  }
+  return [...keys].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
 
 /** The publish stamp, passed explicitly and never defaulted, like every other publish-path stamp. */
 export interface StateStamp {

@@ -4,7 +4,7 @@ import { renderWithRouter } from "@/test/routerHarness";
 import { ElimsTab, ElimsTabSkeleton } from "./ElimsTab.js";
 import { QualsTab, QUALS_EMPTY_STATE_BODY } from "./QualsTab.js";
 import type { EventMatch, EventUpcomingMatch } from "./eventMatchAxis.js";
-import type { EventPageArtifact } from "../../lib/eventPricing.js";
+import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
  * ElimsTab.test.tsx (07-13-PLAN.md) — 07-VALIDATION.md's Wave 0 EVNT-06 test
@@ -56,7 +56,7 @@ function makeUpcomingMatch(overrides: Record<string, unknown> = {}): EventUpcomi
   } as unknown as EventUpcomingMatch;
 }
 
-function makeArtifact(overrides: Partial<EventPageArtifact> = {}): EventPageArtifact {
+function makeArtifact(overrides: Partial<EventArtifact> = {}): EventArtifact {
   return {
     schemaVersion: 1,
     generation: "gen-1",
@@ -70,7 +70,7 @@ function makeArtifact(overrides: Partial<EventPageArtifact> = {}): EventPageArti
     upcoming: [],
     teams: [],
     ...overrides,
-  } as unknown as EventPageArtifact;
+  } as unknown as EventArtifact;
 }
 
 afterEach(() => {

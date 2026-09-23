@@ -103,7 +103,6 @@ import { tbaEventSchema } from "../../../packages/ingest/schemas.js";
 import { type CorpusMatch } from "../../../packages/ingest/normalize.js";
 import { fetchEventDetail } from "../../../packages/ingest/tbaClient.js";
 import { isDemoTeamKey } from "../../../packages/core/algorithms/demoTeams.js";
-import { stateBlockScopeKeys } from "../../../packages/harness/eventStatePricing.js";
 import { isBonusRpCompLevel, isRpEligibleEventType } from "../../../packages/core/rankingPoints/constants.js";
 import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
 import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
@@ -116,6 +115,7 @@ import {
   readRpBeliefs,
   readRpMeanShift,
   serializeState,
+  stateScopeKeys,
   withRpBeliefs,
   withRpMeanShift,
   withSigmaBeliefs,
@@ -137,7 +137,7 @@ import {
   encodeTeamsRowMetrics,
   PAGE_ARTIFACT_SCHEMA_VERSION,
   TeamsArtifactSchema,
-  type LiveEventArtifact,
+  type EventArtifact,
   type TeamsArtifact,
   type TeamSeasonArtifact,
 } from "../../../packages/harness/pageArtifacts.js";
@@ -515,7 +515,7 @@ async function readExistingEvent(
   env: Env,
   counter: SubrequestCounter,
   params: { page: "event"; eventKey: string; algorithmId: string; version: string }
-): Promise<LiveEventArtifact | undefined> {
+): Promise<EventArtifact | undefined> {
   const text = await readArtifactObject(env, counter, artifactKey(params));
   if (text === undefined) return undefined;
   // It returned the fetched body's byte length alongside the artifact until quick
@@ -556,7 +556,7 @@ const WRITE_RETRY_ERROR_MESSAGE_MAX = 300;
  * `writeArtifactObject`, plus the degrade-to-bootstrap behaviour the read-side
  * schema parse used to provide (260915-t7o fix F2).
  *
- * WHY THIS IS NOT OPTIONAL. `LiveEventArtifactSchema` has no `.catch`
+ * WHY THIS IS NOT OPTIONAL. `EventArtifactSchema` has no `.catch`
  * anywhere in it. Before F2, a corrupt published artifact failed the READ
  * parse, the read helper returned `undefined`, and the tick published a
  * fresh bootstrap — self-healing on the next tick. After F2 a corruption the
@@ -583,8 +583,8 @@ const WRITE_RETRY_ERROR_MESSAGE_MAX = 300;
  *     leaked secret, and re-serializing is not worth the chance of writing it.
  *
  * The log line carries the artifact key, the algorithm id and a truncated
- * error message only — never an artifact body, a TBA value or an env value,
- * matching `event-state-block-invalid`'s existing rule.
+ * error message only — never an artifact body, a TBA value or an env value. That
+ * is the rule every warn line in this file follows.
  */
 async function writeArtifactWithBootstrapRetry(
   env: Env,
@@ -867,7 +867,7 @@ async function processEvent(
     // touched teams would therefore make a scheduled match price differently
     // live and offline — silently, with a well-formed row either way.
     const scheduledTeams = [...new Set(stillUpcoming.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
-    const stateReadTeamKeys = stateBlockScopeKeys([...touchedTeams, ...scheduledTeams]);
+    const stateReadTeamKeys = stateScopeKeys([...touchedTeams, ...scheduledTeams]);
     const lastFoldedMatchKey = newlyFolded[newlyFolded.length - 1]!.matchKey;
 
     // Claim before any state is read; a lost claim means another invocation
@@ -917,7 +917,7 @@ async function processEvent(
 
       for (const [algorithmId, algorithm] of algorithmModules) {
         // The READ names every raw key plus the demo pseudo-team key
-        // (`stateBlockScopeKeys`), so a demo match resumes what the offline
+        // (`stateScopeKeys`), so a demo match resumes what the offline
         // publisher seeded: the pseudo-team row SPR and OPR predict a demo robot
         // from, and the passenger-only row its level-2 beliefs ride in. Reading
         // only `realTouchedTeams` restarted both from the prior on every tick
@@ -1150,7 +1150,7 @@ async function processEvent(
         // stamping a fresh `generation`/`computedAt` onto state that never
         // advanced. The league row (and OPR's event row) are not filtered: those
         // DO move on every fold.
-        const advancedTeamKeys = new Set(stateBlockScopeKeys(touchedTeams));
+        const advancedTeamKeys = new Set(stateScopeKeys(touchedTeams));
         candidateRows = candidateRows.filter((row) => row.scopeKind !== "team" || advancedTeamKeys.has(row.scopeKey));
         const changedRows = selectChangedRows(rows, candidateRows);
 

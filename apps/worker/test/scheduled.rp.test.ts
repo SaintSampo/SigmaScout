@@ -22,15 +22,11 @@ import { runTick } from "../src/scheduled.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import {
   artifactKey,
-  EventStateBlockSchema,
   EventUpcomingMatchSchema,
-  LiveEventArtifactSchema,
+  EventArtifactSchema,
   PAGE_ARTIFACT_SCHEMA_VERSION,
-  type EventStateBlock,
-  type EventStateBlockRow,
   type EventUpcomingMatch,
 } from "../../../packages/harness/pageArtifacts.js";
-import { buildEventStateBlock, priceUpcomingFromState } from "../../../packages/harness/eventStatePricing.js";
 import { eventUpcomingRow } from "../../../packages/harness/publishedRows.js";
 import {
   serializeState,
@@ -1283,7 +1279,7 @@ function sbJson<T>(value: T): unknown {
 }
 
 /** One `FakeD1Database` row back in `StateRow` shape, so a D1 row can be compared field for field against a seed row. */
-function sbStateRowOf(row: FakeAlgorithmStateRow): EventStateBlockRow {
+function sbStateRowOf(row: FakeAlgorithmStateRow): StateRow {
   return {
     algorithmId: row.algorithm_id,
     algorithmVersion: row.algorithm_version,
@@ -1305,8 +1301,14 @@ class CountingFakeD1Database extends FakeD1Database {
 }
 
 interface SbHarnessOptions {
-  /** The `state` the published artifact carries: the real block (default), none, or a replacement. */
-  readonly publishedState?: "block" | "none" | ((block: EventStateBlock) => EventStateBlock);
+  /**
+   * A stale `state` block to seed onto the published artifact — the shape every
+   * event artifact published before quick task 260923-3w6 still carries in R2.
+   * Hand-written and UNVALIDATED since 260923-3w7: no schema declares the key,
+   * so the fixture has to attach it after the parse, which is exactly the
+   * situation production is in. Omitted by default.
+   */
+  readonly staleState?: unknown;
   /** The published artifact's `eventType`; `undefined` omits the key. */
   readonly publishedEventType?: number | undefined;
   /** The event-detail route's HTTP status (default 200). */
@@ -1318,7 +1320,6 @@ interface SbHarness {
   readonly r2: FakeR2Bucket;
   /** The emulated publish's own D1 seed rows — the oracle for "this team's state never advanced". */
   readonly publishedRows: readonly StateRow[];
-  readonly publishedBlock: EventStateBlock;
   readonly publishedUpcoming: EventUpcomingMatch[];
   /** Reveals live matches 1..`played` and runs one tick. */
   tickTo(played: number): Promise<void>;
@@ -1328,7 +1329,6 @@ interface SbHarness {
 
 async function sbHarness(options: SbHarnessOptions = {}): Promise<SbHarness> {
   const published = sbOfflineAt(SB_PUBLISHED_PLAYED);
-  const publishedBlock = buildEventStateBlock(published.rows, SB_TEAMS);
 
   const d1 = new CountingFakeD1Database();
   for (const row of published.rows) {
@@ -1350,11 +1350,8 @@ async function sbHarness(options: SbHarnessOptions = {}): Promise<SbHarness> {
     last_advanced_at: null,
   });
 
-  const publishedStateOption = options.publishedState ?? "block";
-  const state =
-    publishedStateOption === "block" ? publishedBlock : publishedStateOption === "none" ? undefined : publishedStateOption(publishedBlock);
   const eventType = "publishedEventType" in options ? options.publishedEventType : EVENT_TYPE;
-  const artifact = LiveEventArtifactSchema.parse({
+  const parsedArtifact = EventArtifactSchema.parse({
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: SB_SEED_STAMP.generation,
     computedAt: SB_SEED_STAMP.computedAt,
@@ -1366,8 +1363,11 @@ async function sbHarness(options: SbHarnessOptions = {}): Promise<SbHarness> {
     matches: [],
     upcoming: published.upcoming,
     teams: [],
-    ...(state !== undefined ? { state } : {}),
   });
+  // Attached AFTER the parse: `state` is no longer a declared key, so a parse
+  // would strip it. Production's stale blocks got into R2 through a schema that
+  // did declare it, which is the only way any of them exist.
+  const artifact = "staleState" in options ? { ...parsedArtifact, state: options.staleState } : parsedArtifact;
   const r2 = new FakeR2Bucket();
   await r2.put(SB_ARTIFACT_KEY, JSON.stringify(artifact));
 
@@ -1417,7 +1417,6 @@ async function sbHarness(options: SbHarnessOptions = {}): Promise<SbHarness> {
     d1,
     r2,
     publishedRows: published.rows,
-    publishedBlock,
     publishedUpcoming: published.upcoming,
     async tickTo(played: number) {
       revealed = played;
@@ -1466,9 +1465,8 @@ describe("scheduled.rp — the tick's own upcoming rows are the offline publishe
       expect(row.blueRpPmf, `${row.matchKey}: blue RP pmf`).toBeDefined();
       expect(row.sortTime).toBeDefined();
     }
-    // Every team has a row in the block, so no team prices as fresh.
-    const block = buildEventStateBlock(published.rows, SB_TEAMS);
-    expect(block.rows.filter((r) => r.scopeKind === "team").map((r) => r.scopeKey).sort()).toEqual([...SB_TEAMS].sort());
+    // Every team has a D1 row, so no team prices as fresh.
+    expect(published.rows.filter((r) => r.scopeKind === "team").map((r) => r.scopeKey).sort()).toEqual([...SB_TEAMS].sort());
   });
 
   it(
@@ -1586,12 +1584,13 @@ describe("scheduled.rp — a published state block is dropped, and eventType", (
       // and re-seeding as a matched pair. The tick reads no block at all now, so a
       // stale one is simply dropped on the next write and there is nothing to warn
       // about: the upcoming rows price from D1 regardless.
-      const stale = (block: EventStateBlock): EventStateBlock => ({
-        ...block,
+      const staleState = {
+        algorithmId: "spr",
         algorithmVersion: "0.0.0+stale",
-        rows: block.rows.map((row) => ({ ...row, algorithmVersion: "0.0.0+stale" })),
-      });
-      const harness = await sbHarness({ publishedState: stale });
+        snapshotShapeVersion: 1,
+        rows: [{ algorithmId: "spr", algorithmVersion: "0.0.0+stale", scopeKind: "league", scopeKey: "league", stateJson: "{}", generation: "old", computedAt: SB_SEED_STAMP.computedAt }],
+      };
+      const harness = await sbHarness({ staleState });
       expect((await harness.readArtifact()).state, "the fixture did not publish the stale block").toBeDefined();
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       try {

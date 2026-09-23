@@ -198,8 +198,10 @@ describe("publish.ts's seed block chains every level-2 passenger (structural)", 
     expect(source).toContain("memoizedSeedStateRows(algorithm, state, layerForAlgo, stamp)");
     expect(source).toMatch(/function memoizedSeedStateRows\([\s\S]*?seedStateRows\(algorithm, state, layer, stamp\)/);
     // And the deleted consumer stays deleted: a `state` block cut from these rows
-    // would put the same state in two places again, which is what 260923-3w6 undid.
-    expect(source, "publish.ts builds a state block again").not.toContain("buildEventStateBlock");
+    // would put the same state in two places again, which is what 260923-3w6 undid
+    // and 260923-3w7 removed the schema for. Asserted on the KEY rather than on the
+    // old builder's name, which no longer exists anywhere and would pass forever.
+    expect(source, "publish.ts emits a `state` key on an event artifact again").not.toMatch(/state:\s/);
 
     // Each of these is a separate, silent divergence between the live Worker
     // and the artifacts it serves if it goes missing. `withSigmaPopulation` is

@@ -1,6 +1,15 @@
 /**
- * The browser pricing path is provably Node-free: a static scan of the import
- * graph from `eventStatePricing.ts`, `rulesLoader.ts` and `pageArtifacts.ts`.
+ * The live tick's pricing path is provably Node-free: a static scan of the import
+ * graph from `upcomingPricing.ts`, `rulesLoader.ts` and `pageArtifacts.ts`.
+ *
+ * The entry was `eventStatePricing.ts` and the claim was called BROWSER-safety
+ * until quick task 260923-3w7 deleted the browser pricer. The forbidden set is
+ * identical either way — a Node built-in, `better-sqlite3`, `rules.ts`, a
+ * per-season RP file, `publish.ts`, `seedSql.ts`, `replay.ts`, `packages/corpus`
+ * or `sigmaScoutLayer.ts` — because what it really guards is "this module is
+ * bundled into a runtime that has none of that", and the Workers runtime is now
+ * the runtime in question. `pageArtifacts.ts` is still browser-loaded (the web
+ * parses artifacts with it), so its own describe below keeps that name.
  *
  * The scanner strips comments, then reads specifiers from static
  * `import`/`export ... from` statements (multi-line included), side-effect
@@ -179,8 +188,8 @@ describe("import graph: positive controls", () => {
   });
 });
 
-describe("eventStatePricing.ts is browser-safe", () => {
-  const scan = scanImportGraph(resolve(HERE, "eventStatePricing.ts"));
+describe("upcomingPricing.ts is Worker-safe", () => {
+  const scan = scanImportGraph(resolve(HERE, "upcomingPricing.ts"));
 
   it("reaches no Node built-in and no better-sqlite3", () => {
     expect(nodeOrSqliteImports(scan)).toEqual([]);
@@ -200,12 +209,16 @@ describe("eventStatePricing.ts is browser-safe", () => {
   });
 
   it("non-vacuity: visits the modules pricing actually runs", () => {
+    // No `spr.ts` and no `stateSnapshot.ts`: the algorithm module and the
+    // deserialized state are INJECTED through `UpcomingPricingModel`, which is
+    // what lets one pricer serve three algorithms. `stateSnapshot.ts` gets its
+    // own describe below, because the tick bundles it under the same constraint.
+    // No `empiricalMoments.ts` either, and for a third reason: this module needs
+    // only `RpMomentsAccumulator`'s TYPE, so the statement is type-only and
+    // `verbatimModuleSyntax` erases it. The scanner is right not to follow it.
     for (const file of [
-      resolve(HERE, "stateSnapshot.ts"),
-      resolve(PACKAGES, "core", "algorithms", "spr.ts"),
       resolve(RANKING_POINTS, "analyticPmf.ts"),
       resolve(RANKING_POINTS, "meanShift.ts"),
-      resolve(RANKING_POINTS, "empiricalMoments.ts"),
       resolve(HERE, "sigmaScore.ts"),
       resolve(HERE, "rounding.ts"),
       resolve(HERE, "publishedRows.ts"),
@@ -216,6 +229,35 @@ describe("eventStatePricing.ts is browser-safe", () => {
   });
 });
 
+/**
+ * The other half of the tick's pricing path: `scheduled.ts` reads its D1 rows
+ * through this module and hands the deserialized state to `priceUpcomingRows`,
+ * so the same constraint binds it. Its own header names this test.
+ */
+describe("stateSnapshot.ts is Worker-safe", () => {
+  const scan = scanImportGraph(resolve(HERE, "stateSnapshot.ts"));
+
+  it("reaches no Node built-in, no better-sqlite3, and no seedSql.ts (the one Node-bound part of the handoff)", () => {
+    expect(nodeOrSqliteImports(scan)).toEqual([]);
+    expect(scan.visited.has(resolve(HERE, "seedSql.ts"))).toBe(false);
+    expect(scan.visited.has(resolve(PACKAGES, "corpus", "db.ts"))).toBe(false);
+  });
+
+  it("non-vacuity: visits the modules it deserializes through", () => {
+    for (const file of [resolve(PACKAGES, "core", "algorithms", "breakdown", "index.ts"), resolve(PACKAGES, "core", "algorithms", "demoTeams.ts")]) {
+      expect(scan.visited.has(file), file).toBe(true);
+    }
+  });
+});
+
+/**
+ * `rulesLoader.ts` has no production caller since the browser pricer was deleted
+ * (quick task 260923-3w7) — the tick indexes `RP_RULE_MODULES` directly. It is
+ * kept, and kept under this guard, because `upcomingPricing.test.ts` still uses
+ * it to prove the per-season loader hands back the very object the publisher
+ * holds, and because a lazily-loaded season module is the shape any future
+ * runtime-bounded caller would want.
+ */
 describe("rulesLoader.ts is browser-safe", () => {
   const scan = scanImportGraph(resolve(RANKING_POINTS, "rulesLoader.ts"));
 
@@ -230,7 +272,7 @@ describe("rulesLoader.ts is browser-safe", () => {
   });
 });
 
-describe("pageArtifacts.ts (home of EventStateBlockSchema) is browser-safe", () => {
+describe("pageArtifacts.ts (the schemas both the Worker and the browser parse with) is browser-safe", () => {
   it("reaches no Node built-in and no better-sqlite3", () => {
     const scan = scanImportGraph(resolve(HERE, "pageArtifacts.ts"));
     expect(scan.visited.size).toBeGreaterThan(1);

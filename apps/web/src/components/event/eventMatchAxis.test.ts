@@ -384,35 +384,24 @@ describe("Domain content", () => {
   });
 });
 
-describe("Schedule-only upcoming rows (260915-m4j)", () => {
-  const scheduleOnly = { matchKey: "u9", compLevel: "qm", setNumber: 1, matchNumber: 9, sortTime: 1_650_000_000, redTeams: ["frc118"], blueTeams: ["frc254"] } as EventUpcomingMatch;
-
-  it("normalizes to a row with the prediction keys ABSENT, not undefined-valued, and rowPrediction undefined", () => {
-    const [row] = mergeEventMatches([], [scheduleOnly], isQualCompLevel);
-    for (const key of ["predictedWinner", "pRedWin", "predictedRedScore", "predictedBlueScore", "redMatchBandVariance", "blueMatchBandVariance", "redBonusRp", "blueBonusRp"]) {
-      expect(row, key).not.toHaveProperty(key);
-    }
-    expect(row!.sortTime).toBe(1_650_000_000);
-    expect(row!.played).toBe(false);
-    expect(rowPrediction(row!)).toBeUndefined();
-  });
-
-  it("a priced row with a zero win probability is still priced (presence, never truthiness)", () => {
+/**
+ * WHAT STOOD HERE, and why four of its five cases went (quick task 260923-3w7).
+ * `mergeEventMatches` had a branch for an upcoming row with NO prediction keys —
+ * the live Worker's schedule-only shape between 260915-isq and 260923-3w6 — and
+ * these cases pinned that `toRow` copied its schedule fields and fabricated no
+ * number, that `computeEventAxisDomain` ignored it, and that `rowPrediction`
+ * returned `undefined` for it. Both source schemas require the four prediction
+ * fields now, so no such row can reach `mergeEventMatches`, and the branch is
+ * deleted rather than kept unreachable.
+ *
+ * `EventMatchRow`'s prediction fields stay OPTIONAL, and `rowPrediction` stays,
+ * as the presentational guard `EventMatchTable` renders "No prediction" from —
+ * its own tests build such a row directly. The one case below is the one that was
+ * never about the schedule-only shape at all: presence, not truthiness.
+ */
+describe("rowPrediction reads presence, never truthiness", () => {
+  it("a priced row with a zero win probability is still priced", () => {
     const [row] = mergeEventMatches([], [makeUpcoming({ matchKey: "u0", pRedWin: 0, predictedWinner: "blue", predictedRedScore: 0 })], isQualCompLevel);
     expect(rowPrediction(row!)).toEqual({ predictedWinner: "blue", pRedWin: 0, predictedRedScore: 0, predictedBlueScore: 230 });
-  });
-
-  it("computeEventAxisDomain over rows including schedule-only rows returns a finite min and max from the priced rows only", () => {
-    const merged = mergeEventMatches([makePlayed({ matchKey: "p1" })], [scheduleOnly, makeUpcoming({ matchKey: "u2", predictedRedScore: 300 })], isQualCompLevel);
-    const domain = computeEventAxisDomain(merged);
-    expect(Number.isFinite(domain.min)).toBe(true);
-    expect(Number.isFinite(domain.max)).toBe(true);
-    expect(domain).toEqual(computeEventAxisDomain(merged.filter((row) => rowPrediction(row) !== undefined)));
-  });
-
-  it("an event whose only rows are schedule-only still gets a finite domain", () => {
-    const domain = computeEventAxisDomain(mergeEventMatches([], [scheduleOnly], isQualCompLevel));
-    expect(Number.isFinite(domain.min)).toBe(true);
-    expect(Number.isFinite(domain.max)).toBe(true);
   });
 });

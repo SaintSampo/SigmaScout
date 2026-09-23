@@ -9,8 +9,7 @@ import { buildRankDistributionRows } from "./rankRows.js";
 import { decodePreScheduleResult } from "../../lib/preScheduleResult.js";
 import { buildQualRows, buildSimulationInputs, defaultStartMatchKey } from "../../lib/simulationInputs.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
-import type { PublishedPreScheduleArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import type { EventPageArtifact } from "../../lib/eventPricing.js";
+import type { EventArtifact, PublishedPreScheduleArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
  * The Simulation tab shell. Ships the panel's THREE states — zero
@@ -37,7 +36,7 @@ import type { EventPageArtifact } from "../../lib/eventPricing.js";
  * at all.
  */
 export interface SimulationTabProps {
-  artifact: EventPageArtifact;
+  artifact: EventArtifact;
   algorithmId: string;
   season: number;
   /**
@@ -126,7 +125,7 @@ export const SIMULATION_SKELETON_PICKER_HEIGHT_PX = 320;
  * earns no ranking points, which is false for an offseason match that does
  * award RP under whatever rules that event ran.
  */
-export function hasSimulatableRankInputs(artifact: EventPageArtifact): boolean {
+export function hasSimulatableRankInputs(artifact: EventArtifact): boolean {
   const hasBothPmfs = (row: { compLevel: string; redRpPmf?: readonly number[]; blueRpPmf?: readonly number[] }): boolean =>
     row.compLevel === "qm" && (row.redRpPmf?.length ?? 0) > 0 && (row.blueRpPmf?.length ?? 0) > 0;
 

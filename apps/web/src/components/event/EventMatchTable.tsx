@@ -48,9 +48,12 @@ export const EVENT_MATCH_TABLE_COLUMN_COUNT = 6;
 const EVENT_MATCH_TABLE_HEADERS = ["Match", "Actual", "Prediction", "Confidence", "", "Call"] as const;
 
 function EventMatchRowView({ row, domain, tinted, season, algorithm }: { row: EventMatchRow; domain: AxisDomain; tinted: boolean; season: number; algorithm: PublishedAlgorithmId }) {
-  // Undefined only for a schedule-only upcoming row the browser could not
-  // price: that row renders "No prediction", an empty Prediction cell and an
-  // empty plot cell. Every priced row renders exactly as before.
+  // Undefined only for a row carrying no prediction: that row renders "No
+  // prediction", an empty Prediction cell and an empty plot cell. Nothing
+  // PRODUCES such a row any more (quick task 260923-3w7 deleted the live
+  // Worker's schedule-only upcoming shape), so this is a presentational guard
+  // against a field a future schema change makes optional or an artifact that
+  // predates one — see `EventMatchRow`'s own doc comment.
   const prediction = rowPrediction(row);
   const confidence = prediction === undefined ? undefined : prediction.predictedWinner === "red" ? prediction.pRedWin : 1 - prediction.pRedWin;
   const winnerCorrect = row.played && prediction !== undefined && prediction.predictedWinner === row.actualWinner;

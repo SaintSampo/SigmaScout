@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { STATE_BLOCK_STALE_AFTER_MS } from "../../../../packages/harness/eventSchedule.js";
+import { SCHEDULE_STALE_AFTER_MS } from "../../../../packages/harness/eventSchedule.js";
 import { formatScheduledTime } from "../components/team/MatchTable.js";
 import { EVENT_POLL_INTERVAL_MS, eventArtifactScheduleIsCurrent, shouldPollEventArtifact, shouldPollTeamArtifact, sortTimeToEpochMs } from "./liveEvent.js";
 
@@ -30,7 +30,7 @@ describe("shouldPollEventArtifact", () => {
   it("true for upcoming matches whose latest sortTime is within 7 days of now", () => {
     expect(shouldPollEventArtifact(artifact([NOW + 3_600_000]), NOW)).toBe(true);
     expect(shouldPollEventArtifact(artifact([NOW - 2 * DAY]), NOW)).toBe(true);
-    expect(shouldPollEventArtifact(artifact([NOW - STATE_BLOCK_STALE_AFTER_MS]), NOW)).toBe(true);
+    expect(shouldPollEventArtifact(artifact([NOW - SCHEDULE_STALE_AFTER_MS]), NOW)).toBe(true);
   });
 
   it("false for an empty upcoming, even with a current schedule", () => {

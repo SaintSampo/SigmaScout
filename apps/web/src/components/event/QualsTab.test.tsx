@@ -4,7 +4,7 @@ import { renderWithRouter } from "@/test/routerHarness";
 import { afterEach } from "vitest";
 import { QualsTab, QUALS_EMPTY_STATE_BODY } from "./QualsTab.js";
 import type { EventMatch, EventUpcomingMatch } from "./eventMatchAxis.js";
-import type { EventPageArtifact } from "../../lib/eventPricing.js";
+import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
  * QualsTab.test.tsx (07-12-PLAN.md Task 3) — the D-13 merge, the D-12
@@ -48,7 +48,7 @@ function makeUpcomingMatch(overrides: Record<string, unknown> = {}): EventUpcomi
   } as unknown as EventUpcomingMatch;
 }
 
-function makeArtifact(overrides: Partial<EventPageArtifact> = {}): EventPageArtifact {
+function makeArtifact(overrides: Partial<EventArtifact> = {}): EventArtifact {
   return {
     schemaVersion: 1,
     generation: "gen-1",
@@ -62,7 +62,7 @@ function makeArtifact(overrides: Partial<EventPageArtifact> = {}): EventPageArti
     upcoming: [],
     teams: [],
     ...overrides,
-  } as unknown as EventPageArtifact;
+  } as unknown as EventArtifact;
 }
 
 afterEach(() => {

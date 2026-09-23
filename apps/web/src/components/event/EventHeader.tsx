@@ -1,7 +1,7 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { hasOutOfBandWeek } from "@/components/events-list/filterModel.js";
 import { isValidEventKey } from "../../lib/eventKey.js";
-import type { EventPageArtifact } from "../../lib/eventPricing.js";
+import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
  * The identity header — the page's own statement of which event it is
@@ -86,7 +86,7 @@ export function eventMetaLine(parts: { startDate?: string; location?: string | n
 
 export interface EventHeaderProps {
   /** The already-`.parse()`d artifact this page fetched for its tabs — never a hand-shaped interface, so a value that hasn't passed `.min(1)` cannot reach this component. */
-  artifact: EventPageArtifact;
+  artifact: EventArtifact;
 }
 
 /**

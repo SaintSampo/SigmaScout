@@ -23,11 +23,10 @@ import { opr } from "../../../packages/core/algorithms/opr.js";
 import type { MatchResult, Prediction, TeamMetric, UpcomingMatch } from "../../../packages/core/algorithms/types.js";
 import {
   EventUpcomingMatchSchema,
-  LiveEventArtifactSchema,
+  EventArtifactSchema,
   TeamSeasonArtifactSchema,
   type EventArtifact,
   type EventUpcomingMatch,
-  type LiveEventArtifact,
   type TeamSeasonArtifact,
 } from "../../../packages/harness/pageArtifacts.js";
 import { eventUpcomingRow } from "../../../packages/harness/publishedRows.js";
@@ -134,9 +133,9 @@ function offlineEventArtifact(): EventArtifact {
   return json(built);
 }
 
-/** The production read path: JSON off R2, then `LiveEventArtifactSchema.parse`. */
-function existingEvent(): LiveEventArtifact {
-  return LiveEventArtifactSchema.parse(offlineEventArtifact());
+/** The production read path: JSON off R2, then `EventArtifactSchema.parse`. */
+function existingEvent(): EventArtifact {
+  return EventArtifactSchema.parse(offlineEventArtifact());
 }
 
 const TICK_QM2 = matchResult({ matchKey: UPCOMING_QM2.matchKey, matchNumber: 2, redTeams: [...UPCOMING_QM2.redTeams], blueTeams: [...UPCOMING_QM2.blueTeams], winner: "blue", redScore: 90, blueScore: 101 });
@@ -144,7 +143,7 @@ const TOUCHED = [...TICK_QM2.redTeams, ...TICK_QM2.blueTeams].sort();
 const FRESH_METRICS: Record<string, Record<string, TeamMetric>> = Object.fromEntries(TOUCHED.map((teamKey, i) => [teamKey, { total: { value: 60.123 + i } }]));
 
 interface EventTickOptions {
-  readonly existing: LiveEventArtifact | undefined;
+  readonly existing: EventArtifact | undefined;
   readonly algorithmId?: string;
   readonly algorithmVersion?: string;
   readonly eventType?: number;
@@ -181,8 +180,8 @@ function mergeEventRaw(options: EventTickOptions): Record<string, unknown> {
 }
 
 /** The written artifact as R2 holds it: the merge, schema-parsed (`writeArtifactObject`'s own path), JSON round-tripped. */
-function mergeEvent(options: EventTickOptions): LiveEventArtifact {
-  return json(LiveEventArtifactSchema.parse(mergeEventRaw(options)));
+function mergeEvent(options: EventTickOptions): EventArtifact {
+  return json(EventArtifactSchema.parse(mergeEventRaw(options)));
 }
 
 const EVENT_OWNED_KEYS = new Set(["generation", "computedAt", "matches", "upcoming", "teams", "state"]);
@@ -242,14 +241,14 @@ describe("mergeEventArtifact keeps every key the tick does not own", () => {
   });
 
   it("writes no stale state block for a non-SPR artifact with upcoming matches", () => {
-    const existing = { ...existingEvent(), state: { stale: true } } as unknown as LiveEventArtifact;
+    const existing = { ...existingEvent(), state: { stale: true } } as unknown as EventArtifact;
     const qm3 = pricedUpcoming(upcomingMatch(`${EVENT_KEY}_qm3`, 3, ["frc7", "frc8", "frc1"], ["frc2", "frc3", "frc4"]), QM2_SORT_TIME + 420_000);
     const written = mergeEventRaw({ existing, algorithmId: opr.id, algorithmVersion: opr.version, upcoming: [qm3] });
     expect(written).not.toHaveProperty("state");
   });
 
   it("writes no stale state block for an SPR artifact with no upcoming match left", () => {
-    const existing = { ...existingEvent(), state: { stale: true } } as unknown as LiveEventArtifact;
+    const existing = { ...existingEvent(), state: { stale: true } } as unknown as EventArtifact;
     const written = mergeEventRaw({ existing });
     expect(written).not.toHaveProperty("state");
   });
@@ -286,13 +285,13 @@ const SAMPLE_TIER_CUTS = { total: { cuts: [31.17, 52.4, 88.05] }, phaseAuto: { c
 
 describe("mergeEventArtifact preserves tierCuts through a live tick", () => {
   it("carries tierCuts forward unchanged, for a tick that touches teams and folds a match", () => {
-    const existing = { ...existingEvent(), tierCuts: SAMPLE_TIER_CUTS } as unknown as LiveEventArtifact;
+    const existing = { ...existingEvent(), tierCuts: SAMPLE_TIER_CUTS } as unknown as EventArtifact;
     const written = mergeEventRaw({ existing });
     expect(written.tierCuts).toEqual(SAMPLE_TIER_CUTS);
   });
 
-  it("survives the write-side parse the Worker actually uses (LiveEventArtifactSchema) — the step that would strip an undeclared key", () => {
-    const existing = { ...existingEvent(), tierCuts: SAMPLE_TIER_CUTS } as unknown as LiveEventArtifact;
+  it("survives the write-side parse the Worker actually uses (EventArtifactSchema) — the step that would strip an undeclared key", () => {
+    const existing = { ...existingEvent(), tierCuts: SAMPLE_TIER_CUTS } as unknown as EventArtifact;
     const written = mergeEvent({ existing });
     expect(written.tierCuts).toEqual(SAMPLE_TIER_CUTS);
   });

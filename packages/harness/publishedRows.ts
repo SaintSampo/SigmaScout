@@ -1,19 +1,20 @@
 /**
- * Published match-row assembly shared by the offline publisher (`publish.ts`),
- * the browser pricer (`eventStatePricing.ts`) and the live Worker
- * (`apps/worker/src/scheduled.ts`): rounding, key presence and comp-level
- * gates for one PLAYED event row, one upcoming event row and one team-season
- * row, played or upcoming.
+ * Published match-row assembly shared by the offline publisher (`publish.ts`)
+ * and the live Worker — `apps/worker/src/scheduled.ts` for a played row,
+ * `upcomingPricing.ts` for an upcoming one: rounding, key presence and
+ * comp-level gates for one PLAYED event row, one upcoming event row and one
+ * team-season row, played or upcoming. (A third caller, the browser pricer
+ * `eventStatePricing.ts`, was deleted by quick task 260923-3w7.)
  *
  * Moved verbatim out of `publish.ts`, so every caller builds rows through the
  * same code and they cannot disagree on a rounding call or a conditional key.
  * A live row and the offline row for the same match are then equal by
  * construction rather than by intention.
  *
- * BROWSER-SAFE: imports only `rounding.ts`, `constants.ts` and type-only
+ * WORKER-SAFE: imports only `rounding.ts`, `constants.ts` and type-only
  * algorithm types. Never import `publish.ts` here, not even for a type, and
  * never `rules.ts` or a season RP file — a rule module arrives as a parameter
- * (`eventStatePricing.browserSafe.test.ts`).
+ * (`upcomingPricing.workerSafe.test.ts` walks the graph).
  */
 import type { CompLevel, MatchResult, Prediction, UpcomingMatch } from "../core/algorithms/types.js";
 import { isBonusRpCompLevel, isRpEligibleEventType, type RpRuleModule } from "../core/rankingPoints/constants.js";

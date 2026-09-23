@@ -1,5 +1,5 @@
 import { padAxisDomain, type AxisDomain } from "../team/matchAxis.js";
-import { isPricedUpcomingRow, type EventPageArtifact } from "../../lib/eventPricing.js";
+import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
  * Pure module, no React import — the event-scoped sibling of
@@ -10,9 +10,9 @@ import { isPricedUpcomingRow, type EventPageArtifact } from "../../lib/eventPric
  * comp-level predicates, and the per-tab axis domain.
  */
 
-export type EventMatch = EventPageArtifact["matches"][number];
-/** A priced upcoming row or, since the live Worker stopped pricing (260915-isq), a schedule-only one the browser could not price. */
-export type EventUpcomingMatch = EventPageArtifact["upcoming"][number];
+export type EventMatch = EventArtifact["matches"][number];
+/** A not-yet-played event row. Always fully priced: the live tick prices its own schedule (quick task 260923-3w6), and `EventUpcomingMatchSchema` requires the four prediction fields. */
+export type EventUpcomingMatch = EventArtifact["upcoming"][number];
 export type EventCompLevel = EventMatch["compLevel"];
 
 /**
@@ -35,10 +35,16 @@ export interface EventMatchRow {
   redTeams: readonly string[];
   blueTeams: readonly string[];
   /**
-   * The four prediction fields. Always present on a played row and on a
-   * priced upcoming row; all four absent on a schedule-only upcoming row the
-   * browser could not price (260915-m4j). Read them through `rowPrediction`,
-   * which yields all four or none, never a partial set.
+   * The four prediction fields. Read them through `rowPrediction`, which
+   * yields all four or none, never a partial set.
+   *
+   * OPTIONAL WITH NOTHING PRODUCING A ROW WITHOUT THEM, deliberately. Both
+   * source schemas require all four, and the one thing that ever built a row
+   * missing them — an upcoming match the browser could not price, between
+   * 260915-isq and 260923-3w7 — is deleted. The optionality stays as the
+   * PRESENTATIONAL guard `EventMatchTable` renders "No prediction" from: a field
+   * a future schema change makes optional, or an artifact that predates one,
+   * degrades to an honest blank rather than to `NaN`.
    */
   predictedWinner?: "red" | "blue";
   pRedWin?: number;
@@ -166,24 +172,19 @@ export function compareEventMatchRows(a: EventMatchRow, b: EventMatchRow): numbe
   return a.matchKey.localeCompare(b.matchKey);
 }
 
+/**
+ * NO SCHEDULE-ONLY BRANCH (quick task 260923-3w7). One stood here: an upcoming
+ * row the browser could not price carried no prediction keys at all, and this
+ * function copied the schedule fields and stopped. Both source schemas require
+ * all four prediction fields now, so a prediction-less row is unrepresentable
+ * and the branch was unreachable. `EventMatchRow` keeps them OPTIONAL anyway,
+ * deliberately — see its own doc comment — as the presentational guard
+ * `EventMatchTable` renders "No prediction" from.
+ */
 function toRow(match: EventMatch, played: true): EventMatchRow;
 function toRow(match: EventUpcomingMatch, played: false): EventMatchRow;
 function toRow(match: EventMatch | EventUpcomingMatch, played: boolean): EventMatchRow {
-  // A schedule-only row carries no prediction: its keys stay ABSENT (never
-  // undefined-valued), and no number is fabricated for it.
-  if (!played && !isPricedUpcomingRow(match as EventUpcomingMatch)) {
-    return {
-      matchKey: match.matchKey,
-      compLevel: match.compLevel,
-      setNumber: match.setNumber,
-      matchNumber: match.matchNumber,
-      redTeams: match.redTeams,
-      blueTeams: match.blueTeams,
-      sortTime: match.sortTime,
-      played,
-    };
-  }
-  const priced = match as EventMatch | Extract<EventUpcomingMatch, { pRedWin: number }>;
+  const priced = match;
   const row: EventMatchRow = {
     matchKey: priced.matchKey,
     compLevel: priced.compLevel,
@@ -272,8 +273,9 @@ export interface RowPrediction {
 }
 
 /**
- * A row's prediction when all four fields are present, else `undefined` (a
- * schedule-only row the browser could not price). Presence is checked with
+ * A row's prediction when all four fields are present, else `undefined` — see
+ * `EventMatchRow`'s own doc comment for why that second case is a presentational
+ * guard rather than a shape anything produces. Presence is checked with
  * `!== undefined`, never truthiness: a win probability or a score can be 0.
  */
 export function rowPrediction(row: Pick<EventMatchRow, "predictedWinner" | "pRedWin" | "predictedRedScore" | "predictedBlueScore">): RowPrediction | undefined {

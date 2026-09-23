@@ -36,7 +36,7 @@ import {
   type ParsedBonusSides,
 } from "../../../packages/harness/publishedRows.js";
 import { SIGMA_METRIC_KEY } from "../../../packages/harness/sigmaScore.js";
-import { PAGE_ARTIFACT_SCHEMA_VERSION, type EventUpcomingMatch, type LiveEventArtifact, type TeamSeasonArtifact, type TeamSeasonMatch } from "../../../packages/harness/pageArtifacts.js";
+import { PAGE_ARTIFACT_SCHEMA_VERSION, type EventUpcomingMatch, type EventArtifact, type TeamSeasonArtifact, type TeamSeasonMatch } from "../../../packages/harness/pageArtifacts.js";
 import { roundMetric } from "../../../packages/harness/rounding.js";
 import { withCountedStandings } from "./liveStandings.js";
 
@@ -151,7 +151,7 @@ export function playedRowFactsFor(
  * artifact rather than merely on the six fields feeding it (260921-vzf) — the
  * six schedule fields are still exactly what a split must preserve, priced or
  * not. `EventScheduledMatchSchema`, the union arm that accepted these rows,
- * stays on `LiveEventArtifactSchema` until quick task 260923-3w7 retires the
+ * stays on `EventArtifactSchema` until quick task 260923-3w7 retires the
  * web's tolerance for them.
  */
 export function buildEventScheduledRow(match: ScheduledMatchFacts, existingSortTime: number | undefined) {
@@ -175,7 +175,7 @@ export function buildEventScheduledRow(match: ScheduledMatchFacts, existingSortT
  * upcoming rows itself now, and `sortTime` is a per-match input to that pricing,
  * not something the merge can add afterwards.
  */
-export function existingUpcomingSortTimes(existing: LiveEventArtifact | undefined): Map<string, number> {
+export function existingUpcomingSortTimes(existing: EventArtifact | undefined): Map<string, number> {
   const sortTimes = new Map<string, number>();
   for (const row of existing?.upcoming ?? []) {
     if (row.sortTime !== undefined) sortTimes.set(row.matchKey, row.sortTime);
@@ -204,7 +204,7 @@ function findRpOutcomeRp(played: readonly Prediction[]): { win: number; tie: num
 }
 
 export interface MergeEventArtifactParams {
-  readonly existing: LiveEventArtifact | undefined;
+  readonly existing: EventArtifact | undefined;
   readonly eventKey: string;
   readonly season: number;
   readonly algorithmId: string;
@@ -243,7 +243,7 @@ export interface MergeEventArtifactParams {
  * SPREAD-THEN-OVERRIDE, never an allow-list, so a key the publisher adds
  * later survives a tick automatically. Since 260915-t7o the live tick's
  * `existing` comes from `artifactShapeCheck.ts`'s structural guard, NOT from
- * `LiveEventArtifactSchema.parse`, so it may still carry keys the schema does
+ * `EventArtifactSchema.parse`, so it may still carry keys the schema does
  * not know — the spread carries them into this function's output, and
  * `writeArtifactObject`'s own `schema.parse` strips them again before the put.
  * The published bytes are therefore unchanged either way, which
@@ -269,7 +269,7 @@ export interface MergeEventArtifactParams {
  * reason it carries no `name`/`alliances`/etc: the Worker has no season
  * pool to build one from. `pageArtifacts.ts`'s `EventArtifactSchema` doc
  * comment on `tierCuts` explains why declaring the key on the base schema
- * (not only on `LiveEventArtifactSchema`) is what stops the write-side parse
+ * (not only on `EventArtifactSchema`) is what stops the write-side parse
  * below from silently stripping it — the exact allow-list failure mode this
  * function's own header paragraph already warns about.
  */

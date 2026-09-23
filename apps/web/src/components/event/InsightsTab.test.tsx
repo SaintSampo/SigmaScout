@@ -22,7 +22,6 @@ import { TOTAL_KEY } from "@/lib/metricKeys";
 import { makeEventArtifact as makeArtifact, mockNarrowViewport } from "@/test/helpers";
 import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
-import type { EventPageArtifact } from "../../lib/eventPricing.js";
 import {
   buildInsightsRows,
   formatEventRecord,
@@ -64,7 +63,7 @@ function fullInsightsMetrics(overrides: Record<string, { value: number; spread?:
   return { ...record, ...overrides };
 }
 
-function renderInsights(artifact: EventPageArtifact, algorithmId = "spr", season = 2024) {
+function renderInsights(artifact: EventArtifact, algorithmId = "spr", season = 2024) {
   return render(
     <TestHarness>
       <InsightsTab artifact={artifact} algorithmId={algorithmId} season={season} />
@@ -469,7 +468,7 @@ describe("InsightsTab — no-ranking fallback header and banner", () => {
 
 describe("InsightsTab — order source 'live' (260921-q2s, re-sourced 260923-3w7)", () => {
   /** A team-ranked-by-`rank` artifact plus the `standings` marker the live tick publishes, spread on top of the real parsed shape. */
-  function liveDerivedArtifact(teams: { teamKey: string; teamNumber: number; rank: number }[], ranked = true): EventPageArtifact {
+  function liveDerivedArtifact(teams: { teamKey: string; teamNumber: number; rank: number }[], ranked = true): EventArtifact {
     const base = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",

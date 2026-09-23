@@ -5,11 +5,12 @@
  * byte-identical output to the offline half given the same input: same key
  * scheme (`artifactKey`, `packages/harness/pageArtifacts.ts`), same schema
  * validation before any write, same cache-control/content-type metadata,
- * same secret-scrub refusal before any write ever reaches R2. One deliberate
- * schema difference: the event page validates with `LiveEventArtifactSchema`,
- * whose `upcoming` rows may be schedule-only, because the live tick no longer
- * prices upcoming matches (260915-isq DD-1; the browser prices them from the
- * artifact's `state` block). The publisher keeps `EventArtifactSchema`.
+ * same secret-scrub refusal before any write ever reaches R2. There is no longer
+ * any schema difference between the two halves: both validate the event page
+ * with `EventArtifactSchema`. Between 260915-isq and 260923-3w7 the live half
+ * used a second schema whose `upcoming` rows could be schedule-only, because the
+ * tick wrote rows with no prediction for the browser to price from a `state`
+ * block; the tick prices them itself again and there is one shape.
  *
  * `writeArtifactObject` validates-then-persists, in that order, and never
  * the reverse — a malformed object never reaches R2. Every subrequest-spending
@@ -26,7 +27,7 @@ import {
   artifactKey,
   CompareArtifactSchema,
   EventsArtifactSchema,
-  LiveEventArtifactSchema,
+  EventArtifactSchema,
   TeamsArtifactWireSchema,
   TeamSeasonArtifactSchema,
   type ArtifactKeyParams,
@@ -52,7 +53,7 @@ const SCHEMA_BY_PAGE: Record<PageKind, { parse(input: unknown): unknown }> = {
   teams: TeamsArtifactWireSchema,
   team: TeamSeasonArtifactSchema,
   events: EventsArtifactSchema,
-  event: LiveEventArtifactSchema,
+  event: EventArtifactSchema,
   compare: CompareArtifactSchema,
 };
 

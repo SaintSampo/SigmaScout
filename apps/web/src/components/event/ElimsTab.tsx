@@ -4,7 +4,7 @@ import type { PublishedAlgorithmId } from "../../../../../packages/harness/publi
 import { computeEventAxisDomain, isElimCompLevel, mergeEventMatches } from "./eventMatchAxis.js";
 import { QUALS_EMPTY_STATE_BODY } from "./QualsTab.js";
 import { EmptyState } from "../StateViews.js";
-import type { EventPageArtifact } from "../../lib/eventPricing.js";
+import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
  * The Elims tab: every elimination match of this event — `compLevel` in
@@ -31,7 +31,7 @@ import type { EventPageArtifact } from "../../lib/eventPricing.js";
  * tab's NORMAL state, not a degraded one.
  */
 export interface ElimsTabProps {
-  artifact: EventPageArtifact;
+  artifact: EventArtifact;
   algorithmId: string;
   season: number;
 }

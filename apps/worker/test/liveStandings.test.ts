@@ -9,7 +9,7 @@
  *   - the `artifact.live !== undefined` trigger is gone (nothing emits a `live`
  *     block since 260923-3w6), so the cases that pinned it are replaced by the
  *     structural trigger this module actually has: a played qualification row;
- *   - the browser fixtures parsed through `LiveEventArtifactSchema`; here the
+ *   - the browser fixtures parsed through `EventArtifactSchema`; here the
  *     inputs are plain objects, because this module takes the narrow row shapes
  *     it reads and never a whole artifact.
  *
@@ -18,7 +18,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { spr } from "../../../packages/core/algorithms/spr.js";
-import { PAGE_ARTIFACT_SCHEMA_VERSION, type LiveEventArtifact } from "../../../packages/harness/pageArtifacts.js";
+import { PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../packages/harness/pageArtifacts.js";
 import { mergeEventArtifact } from "../src/artifactMerge.js";
 import { deriveEventStandings, withCountedStandings, type StandingsMatchRow, type StandingsTeamRow } from "../src/liveStandings.js";
 
@@ -193,7 +193,7 @@ describe("deriveEventStandings — the counted tally", () => {
 describe("mergeEventArtifact wiring", () => {
   const EVENT_KEY = "2026casf";
 
-  function existingArtifact(): LiveEventArtifact {
+  function existingArtifact(): EventArtifact {
     return {
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "published-gen",
@@ -214,7 +214,7 @@ describe("mergeEventArtifact wiring", () => {
         { teamKey: "frc1", teamNumber: 1, nickname: "One", metrics: {}, rank: 1, record: { wins: 9, losses: 9, ties: 9 }, rp: 99 },
         { teamKey: "frc2", teamNumber: 2, nickname: "Two", metrics: {}, rank: 2, record: { wins: 9, losses: 9, ties: 9 }, rp: 99 },
       ],
-    } as unknown as LiveEventArtifact;
+    } as unknown as EventArtifact;
   }
 
   it("the merged teams rows carry the counted record, rp and rank, replacing the stale published standings", () => {

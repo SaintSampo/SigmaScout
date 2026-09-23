@@ -17,12 +17,12 @@
  *   2. REJECTION PARITY. Everything the guard rejects must degrade to a
  *      bootstrap merge exactly as a failed read-side zod parse does today.
  *
- *   3. THE `state` BLOCK's `.catch(undefined)`. `EventArtifactSchema.state` is
- *      `.optional().catch(undefined)`: a malformed block today drops the BLOCK,
- *      not the artifact. The guard mirrors that — it drops a block it cannot
- *      hand to `spliceEventStateBlock` and keeps the rest of the artifact —
- *      rather than rejecting the whole object, which would silently turn a bad
- *      block into a full history loss.
+ *   3. STALE BLOCKS ARE INERT. An event artifact published before quick task
+ *      260923-3w6 carries a `state` block and one an earlier tick wrote carries
+ *      a `live` block; neither key is declared on any schema and nothing walks
+ *      either, so whatever shape one is in, the guard passes the artifact and the
+ *      merge emits neither key. Both had a `.catch(undefined)`-shaped guard here
+ *      until 260923-3w7 deleted the code that walked their rows.
  *
  * WHY THE PUBLISHER IS LOADED BY RUNTIME `import()` ONLY: a static or even a
  * type-only import of `packages/harness/publish.ts` adds it to the Worker's
@@ -37,16 +37,13 @@ import { checkLiveEventArtifactShape, checkTeamSeasonArtifactShape } from "../sr
 import { mergeEventArtifact, mergeTeamSeasonArtifact } from "../src/artifactMerge.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import type { MatchResult, Prediction, TeamMetric, UpcomingMatch } from "../../../packages/core/algorithms/types.js";
-import { STATE_SNAPSHOT_SHAPE_VERSION } from "../../../packages/harness/stateSnapshot.js";
 import {
   EventUpcomingMatchSchema,
-  LiveEventArtifactSchema,
+  EventArtifactSchema,
   TeamSeasonArtifactSchema,
   PAGE_ARTIFACT_SCHEMA_VERSION,
   type EventArtifact,
-  type EventStateBlock,
   type EventUpcomingMatch,
-  type LiveEventArtifact,
   type TeamSeasonArtifact,
 } from "../../../packages/harness/pageArtifacts.js";
 import { eventUpcomingRow } from "../../../packages/harness/publishedRows.js";
@@ -160,29 +157,6 @@ function offlineEventArtifact(): EventArtifact {
   );
 }
 
-/**
- * A `state` block that is BOTH `EventStateBlockSchema`-valid and
- * `spliceEventStateBlock`-valid — written out field by field rather than built
- * from D1 rows, because a block row is exactly seven strings and nothing about
- * this file's subject needs a real snapshot payload inside `stateJson`.
- */
-function stateBlock(): EventStateBlock {
-  const row = (scopeKind: "league" | "team", scopeKey: string) => ({
-    algorithmId: spr.id,
-    algorithmVersion: spr.version,
-    scopeKind,
-    scopeKey,
-    stateJson: JSON.stringify({ shapeVersion: STATE_SNAPSHOT_SHAPE_VERSION }),
-    generation: OFFLINE_STAMP.generation,
-    computedAt: OFFLINE_STAMP.computedAt,
-  });
-  return {
-    algorithmId: spr.id,
-    algorithmVersion: spr.version,
-    snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION,
-    rows: [row("league", EVENT_KEY), ...TEAMS.map((teamKey) => row("team", teamKey))],
-  };
-}
 
 function offlineTeamSeasonArtifact(): TeamSeasonArtifact {
   const otherPlayed = matchResult({ matchKey: `${OTHER_EVENT_KEY}_qm4`, eventKey: OTHER_EVENT_KEY, matchNumber: 4, redTeams: ["frc1", "frc9", "frc10"], blueTeams: ["frc11", "frc12", "frc13"] });
@@ -243,7 +217,7 @@ function pricedUpcoming(match: UpcomingMatch, sortTime: number): EventUpcomingMa
   ];
 }
 
-function mergeEvent(existing: LiveEventArtifact | undefined): unknown {
+function mergeEvent(existing: EventArtifact | undefined): unknown {
   return mergeEventArtifact({
     existing,
     eventKey: EVENT_KEY,
@@ -286,7 +260,7 @@ function mergeTeam(existing: TeamSeasonArtifact | undefined): unknown {
 
 /** The bytes `writeArtifactObject` would actually put: `JSON.stringify(schema.parse(merged))`, key order included. */
 function publishedEventBytes(merged: unknown): string {
-  return JSON.stringify(LiveEventArtifactSchema.parse(merged));
+  return JSON.stringify(EventArtifactSchema.parse(merged));
 }
 function publishedTeamBytes(merged: unknown): string {
   return JSON.stringify(TeamSeasonArtifactSchema.parse(merged));
@@ -299,7 +273,7 @@ function publishedTeamBytes(merged: unknown): string {
 describe("the structural guard accepts what zod accepts, and publishes the same bytes", () => {
   it("non-vacuity: the fixtures are real published artifacts that zod itself accepts", () => {
     const event = offlineEventArtifact() as Record<string, unknown>;
-    expect(() => LiveEventArtifactSchema.parse(event)).not.toThrow();
+    expect(() => EventArtifactSchema.parse(event)).not.toThrow();
     expect(() => TeamSeasonArtifactSchema.parse(offlineTeamSeasonArtifact())).not.toThrow();
     // The keys the merge dereferences without a guard of its own must really be there.
     for (const key of ["matches", "upcoming", "teams", "alliances", "rpOutcomeRp", "name", "week"]) {
@@ -311,22 +285,7 @@ describe("the structural guard accepts what zod accepts, and publishes the same 
     const raw = offlineEventArtifact();
     const guarded = checkLiveEventArtifactShape(json(raw));
     expect(guarded).toBeDefined();
-    expect(publishedEventBytes(mergeEvent(guarded))).toBe(publishedEventBytes(mergeEvent(LiveEventArtifactSchema.parse(json(raw)))));
-  });
-
-  it("event: a `state` block survives the guard, is DROPPED by the merge, and the two read paths still publish identical bytes", () => {
-    // Since quick task 260923-3w6 the tick prices its own upcoming matches and
-    // emits no `state` block. The guard (out of that task's scope) still passes a
-    // well-formed block through, so this pins the thing that matters now: the
-    // MERGE drops it. Without that, every artifact published before the reversal
-    // would carry its stale block forward on the spread, forever.
-    const raw = { ...offlineEventArtifact(), state: stateBlock() };
-    const guarded = checkLiveEventArtifactShape(json(raw));
-    // Non-vacuity: the fixture really does hand the merge a block to drop.
-    expect(guarded?.state).toBeDefined();
-    const fromGuard = mergeEvent(guarded) as Record<string, unknown>;
-    expect(fromGuard).not.toHaveProperty("state");
-    expect(publishedEventBytes(fromGuard)).toBe(publishedEventBytes(mergeEvent(LiveEventArtifactSchema.parse(json(raw)))));
+    expect(publishedEventBytes(mergeEvent(guarded))).toBe(publishedEventBytes(mergeEvent(EventArtifactSchema.parse(json(raw)))));
   });
 
   it("team: a published artifact is accepted and its merge publishes bytes identical to the zod-parsed path", () => {
@@ -345,7 +304,7 @@ describe("an unknown top-level key differs in the merge output but never in the 
   it("event: the guarded merge carries the unknown key, the zod-parsed one does not, and the published bytes agree", () => {
     const raw = { ...offlineEventArtifact(), somethingThePublisherAddsLater: { a: 1 } };
     const fromGuard = mergeEvent(checkLiveEventArtifactShape(json(raw))) as Record<string, unknown>;
-    const fromZod = mergeEvent(LiveEventArtifactSchema.parse(json(raw))) as Record<string, unknown>;
+    const fromZod = mergeEvent(EventArtifactSchema.parse(json(raw))) as Record<string, unknown>;
 
     expect(fromGuard.somethingThePublisherAddsLater).toEqual({ a: 1 });
     expect(fromZod).not.toHaveProperty("somethingThePublisherAddsLater");
@@ -423,103 +382,62 @@ describe("the guard rejects exactly what the merges cannot survive, and rejectio
 });
 
 // ---------------------------------------------------------------------------
-// Group 4 — the `state` block mirrors `.catch(undefined)`, not a rejection
-// ---------------------------------------------------------------------------
-
-describe("a malformed `state` block drops the block, never the artifact", () => {
-  const malformed: [string, unknown][] = [
-    ["not an object", "stale"],
-    ["null", null],
-    ["a block whose `rows` is not an array", { algorithmId: spr.id, algorithmVersion: spr.version, snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION, rows: {} }],
-    // Historical, and kept because the guard still behaves this way: the
-    // deleted block splice dereferenced `row.scopeKind` on every row, so a
-    // non-object row threw a TypeError through its caller's narrow catch and out
-    // through the tick's blanket catch, costing the whole event its publish.
-    // Nothing reads `state` on the live path any more (quick task 260923-3w6);
-    // the guard's `.catch`-shaped tolerance stays until 260923-3w7 retires the
-    // key.
-    ["a block with a non-object row", { algorithmId: spr.id, algorithmVersion: spr.version, snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION, rows: [null] }],
-  ];
-
-  for (const [name, state] of malformed) {
-    it(`drops ${name} and keeps every other key`, () => {
-      const raw = { ...offlineEventArtifact(), state };
-      const guarded = checkLiveEventArtifactShape(json(raw)) as Record<string, unknown> | undefined;
-      expect(guarded).toBeDefined();
-      expect(guarded).not.toHaveProperty("state");
-      // Everything else survives — this is `.catch(undefined)`, not a rejection.
-      expect(guarded!.matches).toEqual((raw as Record<string, unknown>).matches);
-      expect(guarded!.teams).toEqual((raw as Record<string, unknown>).teams);
-      expect(guarded!.alliances).toEqual((raw as Record<string, unknown>).alliances);
-    });
-  }
-
-  it("the merged artifact is byte-identical to the zod-parsed path, which `.catch`es the same block away", () => {
-    const raw = { ...offlineEventArtifact(), state: { rows: [null] } };
-    expect(publishedEventBytes(mergeEvent(checkLiveEventArtifactShape(json(raw))))).toBe(publishedEventBytes(mergeEvent(LiveEventArtifactSchema.parse(json(raw)))));
-  });
-
-  it("an absent `state` key stays absent — the guard adds no key of its own", () => {
-    const raw = offlineEventArtifact();
-    expect(raw).not.toHaveProperty("state");
-    expect(checkLiveEventArtifactShape(json(raw))).not.toHaveProperty("state");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Group 5 — a stale `live` key is INERT, whatever shape it is in
-// (quick task 260923-3w7, replacing 260918-16t's `.catch(undefined)` mirror)
+// Group 4 — a stale `state` or `live` key is INERT, whatever shape it is in
+// (quick task 260923-3w7, replacing two `.catch(undefined)` mirrors)
 // ---------------------------------------------------------------------------
 
 /**
- * `isLiveBlock` is deleted, and so is the whole notion of a "malformed" live
- * block, because nothing dereferences the key any more: `mergeEventArtifact`
- * destructures it out, the schema no longer declares it, and the write-side
- * `schema.parse` would strip it even if the merge did not. The five malformed
- * shapes that had their own cases here are covered by one claim now — any shape
- * at all is dropped — which is all the deleted guard was ever buying.
+ * TWO GROUPS AND FOURTEEN CASES STOOD HERE. One mirrored
+ * `EventArtifactSchema.state`'s `.catch(undefined)` (260915-isq), the other
+ * `LiveEventArtifactSchema.live`'s (260918-16t): each enumerated the malformed
+ * shapes its guard had to tolerate, because something downstream WALKED the
+ * block's rows and a non-object row threw a raw `TypeError` out through the
+ * tick's blanket catch — costing the event its publish every tick, forever.
+ *
+ * Nothing walks either block now, and neither key is declared on the schema, so
+ * there is one claim left and it covers every shape at once: the guard passes the
+ * artifact, the merge emits neither key, and the published bytes match the
+ * zod-parsed path. Enumerating malformed shapes against a key nobody
+ * dereferences would be testing zod.
  */
-describe("a stale `live` key of any shape is dropped by the merge, never by the guard", () => {
-  const stale: [string, unknown][] = [
-    ["not an object", "stale"],
-    ["null", null],
-    ["an array", []],
-    ["a block whose `rows` is not an array", { metricKeys: ["total"], rows: {} }],
-    ["a WELL-SHAPED block", { metricKeys: ["total"], rows: [{ m: `${EVENT_KEY}_qm1`, t: [TEAMS[0]!], v: [[40]] }] }],
+describe("a stale `state` or `live` key of any shape is dropped, and the artifact is not", () => {
+  const stale: [string, Record<string, unknown>][] = [
+    ["a string at `state`", { state: "stale" }],
+    ["null at `state`", { state: null }],
+    ["a `state` whose rows are not an array", { state: { rows: {} } }],
+    ["a `state` with a non-object row", { state: { rows: [null] } }],
+    ["a WELL-FORMED-looking `state`", { state: { algorithmId: "spr", algorithmVersion: "9.9.9", snapshotShapeVersion: 1, rows: [{ scopeKind: "league", scopeKey: "l", stateJson: "{}" }] } }],
+    ["a string at `live`", { live: "stale" }],
+    ["a `live` whose rows are not an array", { live: { metricKeys: ["total"], rows: {} } }],
+    ["a WELL-FORMED `live`", { live: { metricKeys: ["total"], rows: [{ m: `${EVENT_KEY}_qm1`, t: [TEAMS[0]!], v: [[40]] }] } }],
+    ["BOTH at once", { state: { rows: [null] }, live: "stale" }],
   ];
 
-  for (const [name, live] of stale) {
-    it(`${name}: the guard passes the artifact, the merge emits no \`live\`, and every other key survives`, () => {
-      const raw = { ...offlineEventArtifact(), live };
+  for (const [name, keys] of stale) {
+    it(`${name}: the guard accepts the artifact, the merge emits neither key, and every other key survives`, () => {
+      const raw = { ...offlineEventArtifact(), ...keys };
       const guarded = checkLiveEventArtifactShape(json(raw));
       expect(guarded).toBeDefined();
       const merged = mergeEvent(guarded) as Record<string, unknown>;
+      expect(merged).not.toHaveProperty("state");
       expect(merged).not.toHaveProperty("live");
+      expect(merged.alliances).toEqual((raw as Record<string, unknown>).alliances);
       expect(merged.matches).toBeDefined();
       expect(merged.teams).toBeDefined();
-      expect(merged.alliances).toEqual((raw as Record<string, unknown>).alliances);
     });
   }
 
-  it("the merged artifact is byte-identical to the zod-parsed path, which strips the same undeclared key", () => {
-    const raw = { ...offlineEventArtifact(), live: { metricKeys: ["total"], rows: {} } };
-    expect(publishedEventBytes(mergeEvent(checkLiveEventArtifactShape(json(raw))))).toBe(publishedEventBytes(mergeEvent(LiveEventArtifactSchema.parse(json(raw)))));
+  it("the merged artifact is byte-identical to the zod-parsed path, which strips the same undeclared keys", () => {
+    const raw = { ...offlineEventArtifact(), state: { rows: [null] }, live: { metricKeys: ["total"], rows: {} } };
+    expect(publishedEventBytes(mergeEvent(checkLiveEventArtifactShape(json(raw))))).toBe(publishedEventBytes(mergeEvent(EventArtifactSchema.parse(json(raw)))));
   });
 
-  it("an absent `live` key stays absent — neither the guard nor the merge adds a key of its own", () => {
+  it("an absent key stays absent — neither the guard nor the merge adds one of its own", () => {
     const raw = offlineEventArtifact();
+    expect(raw).not.toHaveProperty("state");
     expect(raw).not.toHaveProperty("live");
-    expect(checkLiveEventArtifactShape(json(raw))).not.toHaveProperty("live");
-    expect(mergeEvent(checkLiveEventArtifactShape(json(raw)))).not.toHaveProperty("live");
-  });
-
-  it("BOTH a malformed `state` and a stale `live` drop independently", () => {
-    const raw = { ...offlineEventArtifact(), state: { rows: [null] }, live: "stale" };
-    const guarded = checkLiveEventArtifactShape(json(raw));
-    expect(guarded).toBeDefined();
-    // `state` IS still guarded (the merge destructures it, but a future reader
-    // must not be handed a block it cannot walk), `live` is not.
-    expect(guarded).not.toHaveProperty("state");
-    expect(mergeEvent(guarded)).not.toHaveProperty("live");
+    const merged = mergeEvent(checkLiveEventArtifactShape(json(raw))) as Record<string, unknown>;
+    expect(merged).not.toHaveProperty("state");
+    expect(merged).not.toHaveProperty("live");
   });
 });

@@ -1,10 +1,10 @@
-import { isPricedUpcomingRow, type EventPageArtifact } from "./eventPricing.js";
 import type {
   SimMatchInput,
   SimMatchOutcomeInput,
   SimTeamBaseline,
 } from "../../../../packages/core/algorithms/simulation/rankSimulation.js";
 import { mergeEventMatches, isQualCompLevel, type EventMatchRow } from "../components/event/eventMatchAxis.js";
+import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
  * The pure assembly layer between a parsed event artifact and
@@ -61,7 +61,7 @@ export interface SimulationInputs {
  * `StartMatchPicker.tsx` renders from, so the picker's displayed order and
  * this module's sliced order never disagree.
  */
-export function buildQualRows(artifact: EventPageArtifact): EventMatchRow[] {
+export function buildQualRows(artifact: EventArtifact): EventMatchRow[] {
   return mergeEventMatches(artifact.matches, artifact.upcoming, isQualCompLevel);
 }
 
@@ -102,7 +102,7 @@ export function defaultStartMatchKey(rows: readonly EventMatchRow[]): string | n
   return rows[0]?.matchKey ?? null;
 }
 
-type RawQualRow = EventPageArtifact["matches"][number] | EventPageArtifact["upcoming"][number];
+type RawQualRow = EventArtifact["matches"][number] | EventArtifact["upcoming"][number];
 
 /**
  * A `matchKey` -> raw-row index over the qualification rows, applying the
@@ -111,7 +111,7 @@ type RawQualRow = EventPageArtifact["matches"][number] | EventPageArtifact["upco
  * actual-RP pair — this module needs both and the shared row type does not
  * carry them.
  */
-function buildRawQualRowIndex(artifact: EventPageArtifact): Map<string, RawQualRow> {
+function buildRawQualRowIndex(artifact: EventArtifact): Map<string, RawQualRow> {
   const raw = new Map<string, RawQualRow>();
   for (const match of artifact.upcoming) {
     if (!isQualCompLevel(match.compLevel)) continue;
@@ -134,7 +134,7 @@ function buildRawQualRowIndex(artifact: EventPageArtifact): Map<string, RawQualR
  * `accumulateAlliance` treats as an appearance with unknowable RP credit
  * (known-incomplete).
  */
-function isPlayedRawRow(row: RawQualRow): row is EventPageArtifact["matches"][number] {
+function isPlayedRawRow(row: RawQualRow): row is EventArtifact["matches"][number] {
   return "actualWinner" in row;
 }
 
@@ -160,7 +160,7 @@ function isPlayedRawRow(row: RawQualRow): row is EventPageArtifact["matches"][nu
  * reproduces none of that adjustment. Never describe the two as
  * interchangeable.
  */
-export function buildSimulationInputs(artifact: EventPageArtifact, startMatchKey: string): SimulationInputs | null {
+export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: string): SimulationInputs | null {
   const rows = buildQualRows(artifact);
   const startIndex = findStartIndex(rows, startMatchKey);
   if (startIndex === -1) return null;
@@ -176,11 +176,14 @@ export function buildSimulationInputs(artifact: EventPageArtifact, startMatchKey
   for (let i = startIndex; i < rows.length; i++) {
     const row = rows[i]!;
     const indexed = rawIndex.get(row.matchKey);
-    // The pmf pair and decomposition are read only from a played or priced
-    // row. A schedule-only upcoming row (the live Worker's shape, unpriced
-    // when its block was unusable) has none, so it falls into
-    // `excludedMatchKeys` exactly like any other row without a pmf pair.
-    const raw = indexed !== undefined && (isPlayedRawRow(indexed) || isPricedUpcomingRow(indexed)) ? indexed : undefined;
+    // Every indexed row — played or upcoming — is priced by construction since
+    // quick task 260923-3w7: `EventMatchSchema` and `EventUpcomingMatchSchema`
+    // both require the four prediction fields, and the schedule-only shape the
+    // live Worker wrote between 260915-isq and 260923-3w6 is gone. A row still
+    // falls into `excludedMatchKeys` when it carries no usable pmf PAIR, which
+    // is a different and still-real condition (an OPR/EPA artifact, or one
+    // published before the pmf fields existed).
+    const raw = indexed;
     const redPmf = raw?.redRpPmf;
     const bluePmf = raw?.blueRpPmf;
     if (redPmf !== undefined && redPmf.length > 0 && bluePmf !== undefined && bluePmf.length > 0) {

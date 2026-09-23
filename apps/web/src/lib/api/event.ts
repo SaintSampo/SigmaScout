@@ -18,20 +18,19 @@
  * exists anywhere in this repo, so this is a plain relative path with the
  * explicit `.js` extension.
  *
- * Since 260915-m4j the body parses with `LiveEventArtifactSchema`, whose
- * upcoming rows may be schedule-only (the live Worker's shape), and is then
- * handed to `resolveEventArtifact`, which prices those rows in the browser
- * from the artifact's `state` block where one is usable and strips the block.
- * Pricing runs here, inside the queryFn, so it happens once per fetch per
- * cache entry and every observer of the query key (event page, match page,
- * team pages) shares the priced result. A pricing failure never fails the
- * fetch: the artifact comes back unpriced.
+ * PARSE AND HAND THROUGH, with nothing between (quick task 260923-3w7).
+ * Between 260915-m4j and here this queryFn awaited `resolveEventArtifact`,
+ * which lazily loaded a pricer chunk and priced the artifact's schedule-only
+ * upcoming rows in the browser from its `state` block. The live tick prices its
+ * own upcoming rows again, so every row arrives priced, there is one event
+ * schema rather than two, and this fetcher is `team.ts`'s shape verbatim once
+ * more. The queryFn is no longer async-for-pricing — it is async because
+ * `fetch` is.
  */
-import { artifactKey, LiveEventArtifactSchema, type LiveEventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import { artifactKey, EventArtifactSchema, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { artifactUrl } from "../artifactOrigin.js";
 import { seasonFromEventKey } from "../eventKey.js";
 import { markArtifactParsed } from "../perfMarks.js";
-import { resolveEventArtifact, type EventPageArtifact } from "../eventPricing.js";
 import { EVENT_POLL_INTERVAL_MS, shouldPollEventArtifact } from "../liveEvent.js";
 import type { Query } from "@tanstack/react-query";
 import { ArtifactFetchError, ArtifactValidationError } from "./errors.js";
@@ -42,16 +41,16 @@ export interface FetchEventArtifactParams {
   version: string;
 }
 
-export async function fetchEventArtifact({ eventKey, algorithmId, version }: FetchEventArtifactParams): Promise<EventPageArtifact> {
+export async function fetchEventArtifact({ eventKey, algorithmId, version }: FetchEventArtifactParams): Promise<EventArtifact> {
   const key = artifactKey({ page: "event", eventKey, algorithmId, version });
   const res = await fetch(artifactUrl(key));
   if (!res.ok) {
     throw new ArtifactFetchError("event", seasonFromEventKey(eventKey), res.status);
   }
   const body: unknown = await res.json();
-  let parsed: LiveEventArtifact;
+  let parsed: EventArtifact;
   try {
-    parsed = LiveEventArtifactSchema.parse(body);
+    parsed = EventArtifactSchema.parse(body);
     // 07-VALIDATION.md's parse-to-paint split, same convention as
     // `team.ts`'s own `markArtifactParsed()` call — marked immediately after
     // the schema parse resolves, before returning.
@@ -59,14 +58,13 @@ export async function fetchEventArtifact({ eventKey, algorithmId, version }: Fet
   } catch (err) {
     throw new ArtifactValidationError("event", seasonFromEventKey(eventKey), err);
   }
-  // Outside the try: `resolveEventArtifact` never throws, and a pricing
-  // problem must never be reported as a validation error.
-  return await resolveEventArtifact(parsed);
+  return parsed;
 }
 
 /**
- * One query key per event artifact, shared by the event page, the match page
- * and every team page, so all of them read one fetch and one pricing.
+ * One query key per event artifact, shared by the event page and the match
+ * page, so both read one fetch. (Until quick task 260923-3w7 every team page
+ * shared it too, to rebuild that team's live rows from it.)
  *
  * LD-3 polling: while the artifact still has upcoming matches and its
  * schedule is current (the publisher's 7-day rule), the query refetches every
@@ -79,7 +77,7 @@ export function eventQueryOptions(params: FetchEventArtifactParams) {
   return {
     queryKey: ["event", params.eventKey, params.algorithmId, params.version] as const,
     queryFn: () => fetchEventArtifact(params),
-    refetchInterval: (query: Query<EventPageArtifact, Error, EventPageArtifact, readonly ["event", string, string, string]>): number | false =>
+    refetchInterval: (query: Query<EventArtifact, Error, EventArtifact, readonly ["event", string, string, string]>): number | false =>
       shouldPollEventArtifact(query.state.data, Date.now()) ? EVENT_POLL_INTERVAL_MS : false,
   };
 }

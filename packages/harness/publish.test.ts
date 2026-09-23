@@ -54,7 +54,7 @@ import {
   withHistorySigma,
   withPublishedTiers,
   eventScheduleIsCurrent,
-  STATE_BLOCK_STALE_AFTER_MS,
+  SCHEDULE_STALE_AFTER_MS,
   type ActualBonusFlags,
   type BuildEventArtifactParams,
   type EventTeamRankingInput,
@@ -65,7 +65,6 @@ import { buildLiveWindowsManifest } from "./manifests.js";
 import {
   artifactKey,
   decodeTeamsRowMetrics,
-  EventStateBlockSchema,
   preScheduleKey,
   publishedTierForPercentile,
   PublishedPreScheduleArtifactSchema,
@@ -113,7 +112,6 @@ vi.mock("./seedSql.js", () => ({
 }));
 import { corpusColdStartIndex } from "./corpusColdStart.js";
 import { SigmaScoutLayer } from "./sigmaScoutLayer.js";
-import { buildEventStateBlock, priceUpcomingFromState } from "./eventStatePricing.js";
 import {
   readRpBeliefs,
   readSigmaBeliefs,
@@ -5351,7 +5349,7 @@ describe("publishSeasons — the seed rows are still emitted, and no event artif
   it("eventScheduleIsCurrent: latest scheduled time, then startDate, then current when neither can show staleness", () => {
     const computedAt = "2026-09-15T00:00:00.000Z";
     const now = Date.parse(computedAt);
-    const edge = now - STATE_BLOCK_STALE_AFTER_MS;
+    const edge = now - SCHEDULE_STALE_AFTER_MS;
     expect(eventScheduleIsCurrent({ scheduledTimes: [edge], startDate: undefined, computedAt })).toBe(true);
     expect(eventScheduleIsCurrent({ scheduledTimes: [edge - 1], startDate: undefined, computedAt })).toBe(false);
     // The latest time decides, not the first.

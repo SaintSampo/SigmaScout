@@ -9,7 +9,6 @@ import {
 } from "./simulationInputs.js";
 import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.js";
 import type { EventMatchRow } from "../components/event/eventMatchAxis.js";
-import type { EventPageArtifact } from "./eventPricing.js";
 
 /**
  * `simulationInputs.ts`'s own coverage (08-11-PLAN.md Task 1) — every D-12
@@ -472,23 +471,38 @@ describe("purity", () => {
   });
 });
 
-describe("schedule-only upcoming rows (260915-m4j)", () => {
-  it("a schedule-only upcoming qm row is excluded and disclosed, while a priced one is simulated", () => {
-    const scheduleOnly = { matchKey: "2024test_qm3", compLevel: "qm" as const, setNumber: 1, matchNumber: 3, redTeams: ["frcR"], blueTeams: ["frcB"] };
+/**
+ * THE SCHEDULE-ONLY SHAPE IS GONE (quick task 260923-3w7): two cases stood here,
+ * for an upcoming row with no prediction at all — the live Worker's shape between
+ * 260915-isq and 260923-3w6, when the browser priced the schedule from a `state`
+ * block and could fail to. Both source schemas require the four prediction fields
+ * now, so the shape is unrepresentable and the gate that recognised it
+ * (`isPricedUpcomingRow`) is deleted.
+ *
+ * The EXCLUSION path those cases exercised is not gone and is not untested: a row
+ * still lands in `excludedMatchKeys` when it carries no usable pmf PAIR, which is
+ * every OPR/EPA artifact and every event published before the pmf fields existed.
+ * That is the case below, and it is the reason the simulation can still say which
+ * matches it left out.
+ */
+describe("a priced row with no pmf pair is still excluded and disclosed (quick task 260923-3w7)", () => {
+  it("a fully priced upcoming row carrying no redRpPmf/blueRpPmf is excluded and named, while one carrying the pair is simulated", () => {
+    const { redRpPmf: _red, blueRpPmf: _blue, ...noPmf } = upcomingRow("2024test_qm3", 3);
     const a = {
       ...artifact({ matches: [playedRow("2024test_qm1", 1)], teams: [team("frcR"), team("frcB")] }),
-      upcoming: [upcomingRow("2024test_qm2", 2), scheduleOnly],
-    } as EventPageArtifact;
+      upcoming: [upcomingRow("2024test_qm2", 2), noPmf],
+    } as EventArtifact;
     const result = buildSimulationInputs(a, "2024test_qm2")!;
     expect(result.excludedMatchKeys).toEqual(["2024test_qm3"]);
     expect(result.remainingMatches).toHaveLength(1);
     expect(result.remainingMatches[0]!.redRpPmf).toEqual([0.2, 0.3, 0.5]);
   });
 
-  it("a schedule-only row carrying stray pmf-looking keys is still never read (only played or priced rows feed the simulation)", () => {
-    // Not a shape any schema admits; it pins that the read is gated on the row being priced, not on key presence.
-    const unpricedWithPmf = { matchKey: "2024test_qm2", compLevel: "qm" as const, setNumber: 1, matchNumber: 2, redTeams: ["frcR"], blueTeams: ["frcB"], redRpPmf: [1], blueRpPmf: [1] };
-    const a = { ...artifact({ teams: [team("frcR"), team("frcB")] }), upcoming: [unpricedWithPmf] } as unknown as EventPageArtifact;
+  it("an EMPTY pmf array is excluded too: emptiness is not a distribution", () => {
+    const a = {
+      ...artifact({ teams: [team("frcR"), team("frcB")] }),
+      upcoming: [{ ...upcomingRow("2024test_qm2", 2), redRpPmf: [], blueRpPmf: [] }],
+    } as unknown as EventArtifact;
     const result = buildSimulationInputs(a, "2024test_qm2")!;
     expect(result.excludedMatchKeys).toEqual(["2024test_qm2"]);
     expect(result.remainingMatches).toEqual([]);
