@@ -3,7 +3,7 @@
  * no network, no wrangler. Covers the nothing-live early exit,
  * state-before-artifact ordering, idempotent repeats, overlapping-invocation
  * folding, per-event error confinement (rejecting write / throwing poll),
- * the no-starvation budget property, and the global-rebuild triggers.
+ * concurrent live events, and the global-rebuild triggers.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runTick, touchedTeamsRowMetrics, touchedEventTeamMetrics, MAX_PROBES_PER_TICK, PROBE_ROTATION_PERIOD_MS } from "../src/scheduled.js";
@@ -220,7 +220,7 @@ class FakeR2Bucket {
   /** ATTEMPTS, not successes — a rejected put still counts here, which is what makes "the retry consumed no second subrequest" assertable. */
   putCallCount = 0;
   puts: { key: string; body: string }[] = [];
-  /** Set to make every `put` reject, modelling an R2/network failure AFTER `budget.tryConsume` has already been paid. */
+  /** Set to make every `put` reject, modelling an R2/network failure AFTER the subrequest has already been counted. */
   rejectPutsWith: Error | null = null;
   private readonly store = new Map<string, string>();
 
@@ -429,7 +429,7 @@ describe("runTick — nothing live", () => {
     expect(kv.getCallCount).toBe(1);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(r2.putCallCount).toBe(0);
-    expect(result).toMatchObject({ eventsConsidered: 0, eventsAdvanced: 0, eventsDeferred: 0, eventsFailed: 0, tbaRequests: 0, globalRebuildRan: false });
+    expect(result).toMatchObject({ eventsConsidered: 0, eventsAdvanced: 0, eventsFailed: 0, tbaRequests: 0, globalRebuildRan: false });
   });
 });
 
@@ -447,7 +447,6 @@ describe("runTick — one live event, one new match", () => {
 
     expect(result.eventsAdvanced).toBe(1);
     expect(result.eventsFailed).toBe(0);
-    expect(result.eventsDeferred).toBe(0);
     expect(d1.batchCallCount).toBe(1); // one algorithm (opr) -> one batched state write
     // Since 260918-16t this is ONE: the event artifact alone, with the live
     // rows inside it. It was TWO (event + a separate metric sidecar) after
@@ -594,8 +593,22 @@ describe("runTick — per-event error confinement", () => {
   });
 });
 
-describe("runTick — no-starvation under a restrictive budget", () => {
-  it("the union of two ticks (with the rotation offset advanced) covers every live event", async () => {
+/**
+ * WAS "no-starvation under a restrictive budget" until quick task 260923-3w4.
+ * That test drove two concurrent live events with `subrequestCap: 17,
+ * subrequestReserve: 2`, sized so exactly one event fitted and the second
+ * deferred, then asserted the union of two ticks covered both. There is no cap
+ * to restrict and no deferral to observe any more, so the fixture cannot be
+ * rebuilt — and the rotation property it was standing in for is proved directly,
+ * over an abstract early stop, by `subrequestCounter.test.ts`'s "no-starvation
+ * property" describe (including its counterfactual that a pinned offset
+ * permanently omits the tail).
+ *
+ * What replaces it here is the BEHAVIOUR CHANGE that made it unbuildable: two
+ * concurrent live events now both fold in ONE tick.
+ */
+describe("runTick — two concurrent live events", () => {
+  it("folds and publishes BOTH in a single tick, with no second tick needed", async () => {
     const windowA: WindowFixture = { eventKey: "2026aaaa", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const windowB: WindowFixture = { eventKey: "2026bbbb", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const kv = makeKv([windowA, windowB]);
@@ -607,27 +620,10 @@ describe("runTick — no-starvation under a restrictive budget", () => {
     ]);
     vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents));
 
-    // RE-SIZED FOR 260917-jr4, keeping the SHAPE of the old fixture rather
-    // than its numbers: one event must fit and the second must defer cheaply.
-    // usableCap = 17 - 2 = 15: the tick's own fixed cost (2 manifest reads +
-    // 1 tick-meta read = 3) plus ONE fully-processed event (2 sunk [cursor +
-    // poll] + 6 estimated [`estimateEventSubrequestCost(1)` = claim +
-    // event-detail + Phase A read/write + Phase B event read/write] = 8;
-    // 3+8=11 <= 15) but not two (3+16=19 > 15). The estimate fell from 8 to 6
-    // with 260918-16t's deletion of the sidecar's read/write pair, so this
-    // fixture keeps its SHAPE — one fits, two do not — on smaller numbers.
-    // The old fixture was cap 27 / usable 25 against a 20-per-event estimate,
-    // 18 of which was the Phase B team-artifact loop.
-    const budgetDeps = { subrequestCap: 17, subrequestReserve: 2, ...DISABLE_GLOBAL_REBUILD };
+    const tick = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
 
-    const tick1 = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...budgetDeps });
-    expect(tick1.eventsAdvanced).toBe(1);
-    expect(tick1.eventsDeferred).toBeGreaterThanOrEqual(1);
-
-    const tick2 = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS + 60_000, ...budgetDeps });
-
-    const advancedThisTickOrPrior = tick1.eventsAdvanced + tick2.eventsAdvanced;
-    expect(advancedThisTickOrPrior).toBeGreaterThanOrEqual(2); // both events advanced across the two-tick union
+    expect(tick.eventsAdvanced).toBe(2);
+    expect(tick.eventsFailed).toBe(0);
 
     const eventAPut = r2.puts.some((p) => p.key.includes("2026aaaa") && p.key.startsWith("v1/event/"));
     const eventBPut = r2.puts.some((p) => p.key.includes("2026bbbb") && p.key.startsWith("v1/event/"));
@@ -827,26 +823,16 @@ describe("runTick — global rebuild", () => {
     expect(result.globalRebuildRan).toBe(true);
   });
 
-  it("is skipped when the budget is exhausted by per-event work", async () => {
-    const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
-    const kv = makeKv([window]);
-    const d1 = new FakeD1Database();
-    const r2 = new FakeR2Bucket();
-    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", twoMatchEventRecord("2026casj", "etag-1")]])));
-
-    // RE-SIZED AGAIN FOR 260918-16t, same shape as ever: usableCap = 14 - 2
-    // = 12 fits the tick's own fixed cost (3) plus the one event's full
-    // processing (2 sunk + 6 estimated = 8, so 11 total), leaving exactly 1
-    // unit: enough for the rebuild's own read but not its write, so
-    // writeArtifactObject reports deferred and the rebuild reports it did not
-    // run. It was cap 16 against an 8-per-event estimate after 260917-jr4, and
-    // cap 26 against a 20-per-event one before it. The estimate fell to 6 when
-    // the sidecar's read/write pair was deleted, so the cap falls with it.
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, subrequestCap: 14, subrequestReserve: 2, globalRebuildIntervalMs: 0 });
-
-    expect(result.eventsAdvanced).toBe(1);
-    expect(result.globalRebuildRan).toBe(false);
-  });
+  /**
+   * DELETED by quick task 260923-3w4: "is skipped when the budget is exhausted
+   * by per-event work". It sized `subrequestCap`/`subrequestReserve` so that
+   * exactly one subrequest was left after the event's own processing — enough
+   * for the rebuild's read but not its write — and asserted
+   * `globalRebuildRan: false`. Both the cap and `writeArtifactObject`'s
+   * `{ deferred: true }` return are gone; the rebuild now reports `false` only
+   * for a genuine read/parse/write FAILURE, which the throwing-put cases in this
+   * file already cover.
+   */
 
   it("reads an object-form (pre-republish) teams artifact, merges touched teams, and writes it back POSITIONALLY — an untouched row's metrics survive the decode/re-encode round trip exactly", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
@@ -1544,7 +1530,6 @@ describe("runTick — a corrupt published artifact retries as a bootstrap instea
 
     expect(result.eventsAdvanced).toBe(1);
     expect(result.eventsFailed).toBe(0);
-    expect(result.eventsDeferred).toBe(0);
 
     expect(r2.puts.filter((p) => p.key === TEAM_PUT_KEY)).toHaveLength(0);
     // Byte-identical: not merged, not rewritten, not repaired.
@@ -1674,7 +1659,7 @@ describe("runTick — the tick probes a probe window", () => {
     expect(sharedLog.filter((e) => e.type === "r2-put")).toHaveLength(0);
     expect(kv.getCallCount).toBe(1); // only v1/manifest/live-windows.json -- never v1/manifest/algorithms.json
     expect(constructionCount).toBe(0);
-    expect(result).toMatchObject({ eventsConsidered: 0, eventsAdvanced: 0, eventsDeferred: 0, eventsFailed: 0, eventsProbed: 1, eventsPromoted: 0 });
+    expect(result).toMatchObject({ eventsConsidered: 0, eventsAdvanced: 0, eventsFailed: 0, eventsProbed: 1, eventsPromoted: 0 });
   });
 
   it("OUTAGE GUARD: an empty match array on the only live (probe) window does zero D1 batches and zero R2 puts", async () => {
@@ -1690,7 +1675,7 @@ describe("runTick — the tick probes a probe window", () => {
     expect(sharedLog.filter((e) => e.type === "d1-batch")).toHaveLength(0);
     expect(sharedLog.filter((e) => e.type === "r2-put")).toHaveLength(0);
     expect(kv.getCallCount).toBe(1);
-    expect(result).toMatchObject({ eventsConsidered: 0, eventsAdvanced: 0, eventsDeferred: 0, eventsFailed: 0, eventsProbed: 1, eventsPromoted: 0 });
+    expect(result).toMatchObject({ eventsConsidered: 0, eventsAdvanced: 0, eventsFailed: 0, eventsProbed: 1, eventsPromoted: 0 });
   });
 
   it("promotes a probe window that sees a played match: the normal live path runs, exactly one artifact put, and tbaRequests is 1 — the probe's own poll was not repeated", async () => {

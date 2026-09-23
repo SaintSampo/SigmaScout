@@ -436,13 +436,13 @@ describe("scheduled.replay — offline equivalence", () => {
       // distinct stamp, matching production's real per-invocation behavior.
       for (let i = 0; i < MATCH_FIXTURES.length; i++) {
         revealedCount = i + 1;
-        // A real 6-team match folded across all three published algorithms
-        // in one tick is already close to the real SUBREQUEST_CAP by
-        // itself. This test's purpose is the equivalence property, not a
-        // re-test of the deferral mechanism `scheduled.test.ts` already
-        // covers directly, so the budget is generously overridden via
-        // `RunTickDeps`'s own test-only injection point.
-        const result = await runTick(env, { nowMs: NOW_MS + i * 60_000, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER, subrequestCap: 1000, subrequestReserve: 0 });
+        // This used to override `RunTickDeps.subrequestCap`, because a real
+        // 6-team match folded across all three published algorithms in one tick
+        // came close to the free plan's 50-subrequest cap by itself. Quick task
+        // 260923-3w4 deleted the cap and the deferral, so there is nothing left
+        // to override — this test's purpose was always the equivalence property,
+        // never the deferral mechanism.
+        const result = await runTick(env, { nowMs: NOW_MS + i * 60_000, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
         expect(result.eventsFailed).toBe(0);
         expect(result.eventsAdvanced).toBe(1);
       }

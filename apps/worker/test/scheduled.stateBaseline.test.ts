@@ -424,7 +424,6 @@ describe("runTick — state-generation marker differs from the manifest generati
     expect(result).toMatchObject({
       eventsConsidered: 0,
       eventsAdvanced: 0,
-      eventsDeferred: 0,
       eventsPromoted: 0,
       globalRebuildRan: false,
       stateGenerationMismatch: true,

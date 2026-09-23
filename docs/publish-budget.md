@@ -133,6 +133,13 @@ misreported what the bucket held four times before the list-driven tool replaced
 > actual headroom — a tick with `estimatedCost` 50 fits inside 10,000 with enormous room to spare.
 > The measurement tables and the reasoning that produced them are kept as the record of what was
 > observed and how; read the arithmetic that follows as history, not as a current constraint.
+>
+> **And the machinery itself is now GONE (quick task 260923-3w4, 2026-09-23).** `SUBREQUEST_CAP`,
+> `SUBREQUEST_RESERVE`, `usableCap`, `estimateEventSubrequestCost`, the `status: "deferred"` event
+> outcome and the `eventsDeferred` tick-log field named below no longer exist anywhere in the
+> Worker — there is no cap to check, nothing to defer, and no `eventsDeferred` to watch climb. Every
+> symbol below is a name from the deleted design, not something to grep for. `subrequestsUsed`
+> survives as telemetry and is the only field of this family a current tick logs.
 
 **The headline finding (historical, measured on the free plan): the per-tick subrequest budget
 could not accommodate an ordinary 3v3 match folded across all three published algorithms —
@@ -233,7 +240,8 @@ read+write) is the highest-leverage lever available without an architectural cha
   change (e.g., folding all touched teams into a single per-event "touched teams" object rather than
   one R2 object per team), which is an architectural change this plan does not make unilaterally.
 - **Raise `SUBREQUEST_RESERVE`'s headroom claim downward** (i.e., trust more of the real 50-cap) —
-  already at its documented minimum per `subrequestBudget.ts`'s own comment; not much room here.
+  already at its documented minimum per the then-`subrequestBudget.ts`'s own comment (that module is
+  `subrequestCounter.ts` since 2026-09-23 and holds no reserve at all); not much room here.
 - **Publish fewer algorithms simultaneously live**, or fold algorithms across more than one tick
   (partial-Phase-A-per-tick) — both are real architectural options a future plan should evaluate
   against this measured number, not something this plan decides unilaterally.

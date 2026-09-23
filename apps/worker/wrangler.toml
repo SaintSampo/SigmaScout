@@ -31,44 +31,29 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 TBA_BASE_URL = "https://www.thebluealliance.com/api/v3"
 
-# Quick task 260822-wqt: only the published SPR algorithm folds LIVE, per
-# tick. Measured on the deployed Worker during plan 04-07 (this mechanism was
-# built and measured under the pre-rename id `sigma1` [pre-rename]) —
-# docs/publish-budget.md's "Worker runtime budget" section: processEvent's
-# estimatedCost for ONE ordinary 3v3 match (6 touched teams) is 18 with
-# sigma1 alone vs. 50 with all three published algorithms [pre-rename],
-# against ~41 subrequests actually available per tick under the free plan's
-# SUBREQUEST_CAP 50 / SUBREQUEST_RESERVE 4 (minus ~5 fixed tick costs) — with
-# all three live the event defers every tick, forever.
+# Quick task 260822-wqt: only the published SPR algorithm folds LIVE, per tick.
+# The subrequest arithmetic that originally forced this (one 3v3 match cost 18
+# subrequests with one algorithm and 50 with three, against ~41 usable per tick
+# under the free plan) was deleted by quick task 260923-3w4 along with the cap
+# and the deferral it gated — Workers Paid allows 10,000 per invocation.
 #
-# 260922-ldo: the account moved to Workers Paid on 2026-09-22, raising the
-# per-invocation subrequest limit to 10,000. The subrequest argument above no
-# longer forces an spr-only live tier — there is now enormous headroom to
-# fold more than one algorithm per tick. Widening LIVE_ALGORITHM_IDS is a
-# separate decision, though: it changes published numbers (opr/epa would
-# start folding live instead of at the manual re-baseline) and needs its own
-# algorithm version bump, so the value below is deliberately left as it
-# stands rather than widened as a side effect of this budget change. This
-# narrows ONLY what folds LIVE — the published set (D-03) is unchanged: opr,
-# epa and spr all keep being published, and opr/epa refresh at the manual
-# pre/post-event-weekend re-baseline (D-12) instead of per tick. See
+# WHAT STILL FORCES IT is a published-numbers decision, not a budget: widening
+# this value makes opr and epa fold LIVE instead of refreshing at the manual
+# pre/post-event-weekend re-baseline (D-12), which changes numbers the site has
+# already published and therefore needs its own algorithm version bump and
+# republish. This narrows ONLY what folds LIVE — the published set (D-03) is
+# unchanged: opr, epa and spr all keep being published. See
 # docs/worker-operations.md's live-folding-tier section before changing this
-# value; a second id here is gated by a test that re-derives the budget
-# (apps/worker/test/liveAlgorithmTier.test.ts).
+# value; `apps/worker/test/liveAlgorithmTier.test.ts` pins it by equality, so a
+# change here fails there rather than silently stopping testing the deployed
+# value.
 #
-# D-04/D-05 (plan 07-16): renamed from its pre-rename value to vpr. This value is
-# INERT against the deployed Worker until 07-19 runs `pnpm worker:deploy` —
-# the live Worker keeps running under the pre-rename tier until then, and
-# the deployed browser is still reading the pre-rename artifact prefix until
-# 07-18.
-#
-# 260912-ivg: renamed to spr for the Sigma Power Rating cutover, and LIVE as of
-# 2026-09-12 -- the Worker was redeployed onto this tier (version
-# aeb6dd86-8112-4d02-a0ba-e6943af9507b, its bindings echoing
-# LIVE_ALGORITHM_IDS ("spr")) after D1 had been reseeded with 6,314 spr rows at
-# 3.0.0+baseline, so the tier this names and the state it folds agree. This
-# value is no longer inert and no longer transitional: the retiring id's rows
-# were deleted from D1 and all of its objects from R2 the same day.
+# Renamed twice, recorded so an operator who remembers an old name knows it was
+# retired rather than mistyped: to `vpr` by D-04/D-05 (plan 07-16), then to
+# `spr` for the Sigma Power Rating cutover (260912-ivg), LIVE as of 2026-09-12
+# on Worker version aeb6dd86-8112-4d02-a0ba-e6943af9507b after D1 was reseeded
+# with 6,314 spr rows at 3.0.0+baseline. The retired ids' rows were deleted from
+# D1 and all of their objects from R2 the same day.
 LIVE_ALGORITHM_IDS = "spr"
 
 # D-17: fires every minute, YEAR-ROUND — never a season-scoped cron

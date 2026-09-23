@@ -15,8 +15,8 @@
  * budget — CPU time excludes waiting on the network.
  *
  * A 304 costs exactly the same ONE subrequest as a 200 — conditional
- * requests save bandwidth and downstream CPU, not subrequest budget. Nothing
- * in this file (or `subrequestBudget.ts`) ever treats a cache hit as free.
+ * requests save bandwidth and downstream CPU, not subrequests. Nothing in this
+ * file (or `subrequestCounter.ts`) ever treats a cache hit as free.
  *
  * Per-event errors throw with the event key in the message and nothing
  * else — never the TBA key, never a header dump — so the caller

@@ -1,32 +1,37 @@
 /**
- * Guards against a live-folding-defers-forever defect. This file asserts,
- * against the REAL exported formula (`estimateEventSubrequestCost`) and the
- * REAL exported constants (`TICK_FIXED_SUBREQUEST_COST`,
- * `EVENT_PREFLIGHT_SUBREQUEST_COST`) — never a re-typed copy of the arithmetic
- * — that the tracked `LIVE_ALGORITHM_IDS` value in `wrangler.toml` fits the
- * measured per-tick budget, that only the live tier actually folds, and that
- * the three decided misconfiguration behaviors (default+warn / throw / throw)
- * are exactly what's implemented.
+ * Asserts that the tracked `LIVE_ALGORITHM_IDS` value in `wrangler.toml` is the
+ * tier that actually folds, that only that tier folds, and that the three
+ * decided misconfiguration behaviors (default+warn / throw / throw) are exactly
+ * what is implemented.
  *
- * THE SUBREQUEST COUNTERFACTUAL FOR THE spr-ONLY TIER IS GONE, and this header
- * records that rather than quietly dropping a test (quick task 260917-jr4,
- * D-02). It used to read: the estimate for ONE ordinary 3v3 match (6 touched
- * teams) was 50 with all three published algorithms live, against ~41 usable —
- * so a three-algorithm tier deferred every tick, forever. Phase B's per-team
- * artifact loop is what made that 50, and it no longer exists: the formula is
- * now `2 + 6A`, flat in the touched-team count, so `A=3` is 20 and FITS.
+ * THE WHOLE SUBREQUEST-BUDGET HALF OF THIS FILE IS GONE (quick task 260923-3w4),
+ * and this header records it rather than quietly dropping tests. It used to
+ * recompute `processEvent`'s own `estimateEventSubrequestCost` against
+ * `TICK_FIXED_SUBREQUEST_COST` + `EVENT_PREFLIGHT_SUBREQUEST_COST` and a
+ * `SubrequestBudget().usableCap`, so that adding a second id to the tracked value
+ * failed loudly rather than making every event defer forever. The history of
+ * that arithmetic, in order:
  *
- * WHAT CONSTRAINED THE LIVE TIER AFTER THAT WAS CPU, NOT SUBREQUESTS: a tick's
- * Phase A fold plus Phase B merge measured ~17.5 ms on a reused isolate and
- * ~40.8 ms on a fresh one, against the free plan's 10 ms budget
- * (`.planning/todos/completed/rp-fold-exceeds-worker-cpu-budget.md`). Since
- * 2026-09-22 the account is on Workers Paid (30 s CPU, 10,000 subrequests per
- * invocation), so neither limit binds; widening the tier beyond spr is now a
- * published-numbers decision needing its own algorithm version bump. The counterfactual test
- * below was therefore REPLACED, not deleted, by one asserting the property
- * that IS still load-bearing: the estimate is flat in the touched-team count.
- * If a per-team term ever comes back, that test fails and the deferral defect
- * this file exists for is caught again.
+ *   - `2 + 4A + 2A(1 + T)`: A=3 cost 50 against ~41 usable, so a three-algorithm
+ *     tier deferred every tick, forever. This is the defect the file was written
+ *     for.
+ *   - `2 + 6A` (260917-jr4 deleted Phase B's per-team artifact loop): flat in
+ *     the touched-team count, A=3 = 20, which FIT.
+ *   - `2 + 4A` (260918-16t deleted the metric sidecar): A=1 = 6, A=3 = 14.
+ *
+ * With Workers Paid's 10,000 subrequests per invocation (since 2026-09-22) no
+ * value of A comes near the cap, the estimate and the deferral it gated are
+ * deleted, and there is no arithmetic left to re-derive. What remains of the
+ * budget material in this file is one assertion that an unchanged-event tick
+ * spends exactly six subrequests — `subrequestsUsed` is still real telemetry, so
+ * a silent extra round trip per tick is still worth catching.
+ *
+ * Widening the tier beyond spr is now purely a published-numbers decision
+ * (opr/epa would fold live instead of refreshing at the manual re-baseline,
+ * which needs its own algorithm version bump), NOT a budget one. If it is ever
+ * widened, `trackedLiveAlgorithmIds`'s assertion below is what has to change,
+ * and it is deliberately an equality pin so it cannot silently stop testing the
+ * deployed value.
  */
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -37,9 +42,6 @@ import {
   buildAlgorithmModules,
   parseLiveAlgorithmIds,
   DEFAULT_LIVE_ALGORITHM_IDS,
-  estimateEventSubrequestCost,
-  TICK_FIXED_SUBREQUEST_COST,
-  EVENT_PREFLIGHT_SUBREQUEST_COST,
   UnknownLiveAlgorithmIdError,
   EmptyLiveAlgorithmTierError,
 } from "../src/scheduled.js";
@@ -49,7 +51,6 @@ import { AlgorithmsManifestSchema } from "../../../packages/harness/manifestSche
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
-import { SubrequestBudget } from "../src/subrequestBudget.js";
 import { DEMO_PSEUDO_TEAM_KEY } from "../../../packages/core/algorithms/demoTeams.js";
 import { LiveRosterSchema, liveRosterKey } from "../../../packages/harness/liveRoster.js";
 import { readSigmaBeliefs, serializeState, withSigmaBeliefs } from "../../../packages/harness/stateSnapshot.js";
@@ -424,73 +425,17 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("liveAlgorithmTier — tracked config's live tier fits the measured budget", () => {
-  it("wrangler.toml's LIVE_ALGORITHM_IDS estimatedCost is within the usable per-tick subrequest budget", () => {
-    const wranglerTomlPath = resolve(__dirname, "../wrangler.toml");
-    const content = readFileSync(wranglerTomlPath, "utf-8");
-    const rawValue = extractVarsValue(content, "LIVE_ALGORITHM_IDS");
-    expect(rawValue, `LIVE_ALGORITHM_IDS not found in ${wranglerTomlPath}'s [vars] block`).not.toBeNull();
-
-    const ids = parseLiveAlgorithmIds(rawValue!);
-    const usable = new SubrequestBudget().usableCap - TICK_FIXED_SUBREQUEST_COST - EVENT_PREFLIGHT_SUBREQUEST_COST;
-    const estimated = estimateEventSubrequestCost(ids.length);
-
-    expect(
-      estimated,
-      `LIVE_ALGORITHM_IDS="${ids.join(",")}" estimates ${estimated} subrequests for one event's tick work, ` +
-        `against ~${usable} available per tick (SUBREQUEST_CAP 10000, SUBREQUEST_RESERVE 4, minus ` +
-        `${TICK_FIXED_SUBREQUEST_COST} tick-fixed + ${EVENT_PREFLIGHT_SUBREQUEST_COST} event-preflight costs, ` +
-        "under the Workers Paid per-invocation limit in force since 2026-09-22). There is now enormous " +
-        "headroom under this cap; this assertion is retained as a regression guard against a future " +
-        "per-event cost term reintroducing an unbounded blowup, not because the cap is a live constraint. " +
-        "See docs/publish-budget.md's \"Worker runtime budget\" section for the measured arithmetic this " +
-        "regression guard protects."
-    ).toBeLessThanOrEqual(usable);
-  });
-
+describe("liveAlgorithmTier — an idle-but-considered tick's subrequest count", () => {
   /**
-   * THE REPLACEMENT for the retired three-algorithm counterfactual (see this
-   * file's header). The estimate is flat in the touched-team count because
-   * Phase B makes exactly two R2 calls per algorithm-event — the event
-   * artifact, read then written — instead of one artifact per touched team.
-   * That flatness is the whole reason a 42-team regional and a 6-team match
-   * cost a tick the same, and it is what a reintroduced per-team term would
-   * break — so it is asserted as a property over a real spread of team counts,
-   * never as a re-typed constant.
+   * The one budget-shaped assertion worth keeping. `subrequestsUsed` is the tick
+   * log field an operator reads to see an event weekend's shape, so a silently
+   * added round trip per tick is worth catching — but this pins an OBSERVED
+   * count, never a re-derivation of a formula the Worker no longer has. Six is
+   * the live-windows manifest read, the algorithms manifest read, the tick-meta
+   * read, the event's cursor read, the conditional TBA poll (a 304 here), and
+   * the tick-meta write.
    */
-  it("the estimate is FLAT in the touched-team count — no per-team artifact term survives", () => {
-    // The formula takes no team count at all; this pins the consequence at the
-    // call sites that used to pass one. A 3-team match and a 42-team regional
-    // cost a tick the same.
-    expect(estimateEventSubrequestCost(1)).toBe(6);
-    // 14, NOT 12. The 260918-16t plan's own summary table wrote 12 in this
-    // cell; the arithmetic it describes in words — claim + event detail +
-    // Phase A read/write + Phase B event read/write — is `2 + 4A`, which is 14
-    // at A=3, and 20 (the previous observed value) minus the sidecar's 2A=6 is
-    // also 14. The FORMULA is pinned here, not the table cell, and the
-    // discrepancy is recorded rather than split the difference.
-    expect(estimateEventSubrequestCost(3)).toBe(14);
-    // `2 + 4A` across the whole plausible range, derived rather than listed.
-    // It was `2 + 6A` until 260918-16t deleted the sidecar's own read and
-    // write, and `2 + 4A + 2A(1 + T)` before 260917-jr4 deleted the per-team
-    // term.
-    for (let algorithmCount = 0; algorithmCount <= 5; algorithmCount++) {
-      expect(estimateEventSubrequestCost(algorithmCount), `A=${algorithmCount}`).toBe(2 + 4 * algorithmCount);
-    }
-  });
-
-  it("the tracked spr-only tier now affords SEVERAL events per tick, not about one", () => {
-    const usable = new SubrequestBudget().usableCap - TICK_FIXED_SUBREQUEST_COST - EVENT_PREFLIGHT_SUBREQUEST_COST;
-    // Before 260917-jr4 an spr-only tick at 12 touched teams estimated 30
-    // against ~41 usable — one event per tick and no room for a second. This
-    // is the rotation-starvation property `subrequestBudget.ts`'s own header
-    // is about, so it is asserted rather than assumed.
-    expect(Math.floor(usable / estimateEventSubrequestCost(1))).toBeGreaterThanOrEqual(4);
-  });
-});
-
-describe("liveAlgorithmTier — the fixed-cost constants are real, not declared", () => {
-  it("a tick that considers one live event and finds it unchanged spends exactly TICK_FIXED_SUBREQUEST_COST + EVENT_PREFLIGHT_SUBREQUEST_COST + 1 (the tick-meta write)", async () => {
+  it("a tick that considers one live event and finds it unchanged spends exactly six subrequests", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const kv = makeKv([window], ["spr"]);
     const d1 = new FakeD1Database();
@@ -508,7 +453,7 @@ describe("liveAlgorithmTier — the fixed-cost constants are real, not declared"
     const result = await runTick(env, { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
 
     expect(result.eventsFailed).toBe(0);
-    expect(result.subrequestsUsed).toBe(TICK_FIXED_SUBREQUEST_COST + EVENT_PREFLIGHT_SUBREQUEST_COST + 1);
+    expect(result.subrequestsUsed).toBe(6);
   });
 });
 
@@ -822,20 +767,18 @@ describe("liveAlgorithmTier — a promoted event's state block is completed by t
     expect(LiveRosterSchema.parse(JSON.parse(rosterPuts()[1]!.body)).teams).toContain("frc13");
   });
 
-  it("no subrequest budget left for it: the tick still advances and simply writes no block, to be tried again next tick", async () => {
-    const window: WindowFixture = { eventKey: "2026promo", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
-    const d1 = seededD1();
-    const r2 = new FakeR2Bucket();
-    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", twoMatchEventRecord("2026promo", "etag-1")]])));
-    // Exactly what one spr event needs and not one more.
-    const cap = TICK_FIXED_SUBREQUEST_COST + EVENT_PREFLIGHT_SUBREQUEST_COST + estimateEventSubrequestCost(1);
-    const result = await runTick(makeEnv(makeKv([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD, subrequestCap: cap, subrequestReserve: 0 });
-    expect(result.eventsAdvanced).toBe(1);
-    expect(result.eventsFailed).toBe(0);
-    expect(stateOf(r2, "2026promo")).toBeUndefined();
-    // The roster write is opportunistic too: no room, no write, and the artifact above still landed.
-    expect(r2.puts.some((p) => p.key === liveRosterKey("2026promo"))).toBe(false);
-  });
+  /**
+   * DELETED with the budget (quick task 260923-3w4). This slot held "no
+   * subrequest budget left for it: the tick still advances and simply writes no
+   * block, to be tried again next tick" — it drove `runTick` with
+   * `subrequestCap` set to exactly one spr event's estimate and asserted the
+   * event still advanced while the state block and the live roster were both
+   * skipped. Both of those skips were the two opportunistic
+   * `budget.remaining > stillOwed` guards, which are gone: the block read and
+   * the roster write now simply happen. There is no cap to starve the tick with
+   * and no deferral to observe, so the test was removed rather than rewritten
+   * against a behaviour that no longer exists.
+   */
 });
 
 describe("liveAlgorithmTier — the three decided misconfiguration behaviors", () => {

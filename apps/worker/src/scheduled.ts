@@ -10,23 +10,22 @@
  * cursor: `event_cursor` has no per-algorithm granularity, so a partial
  * advance would desync the un-advanced algorithms forever.
  *
- * BUDGET: each event's subrequest cost is estimated up front, right after
- * polling. If it exceeds what remains the whole event defers with no state
- * touched, rather than advancing state and then finding Phase B
- * unaffordable (stale artifacts with no future trigger). Events run
- * sequentially, so a cleared estimate holds.
+ * NO SUBREQUEST BUDGET (quick task 260923-3w4). Every event used to have its
+ * subrequest cost estimated up front and defer whole if it did not fit, and
+ * three Phase B operations ran only when a subrequest was left over. All of it
+ * existed for the free plan's 50 subrequests per invocation; Workers Paid
+ * allows 10,000 and the most expensive tick ever measured here spent 26, so the
+ * deferral paths were unreachable code at every call site. `SubrequestCounter`
+ * is all that survives, and only to feed the tick log's `subrequestsUsed`.
  *
- * TICK META: the rotation offset and last global rebuild time live in
- * `event_cursor` under the sentinel key `TICK_META_EVENT_KEY`, with a JSON
- * blob in `lastFoldedMatchKey`.
+ * TICK META: the rotation offset lives in `event_cursor` under the sentinel key
+ * `TICK_META_EVENT_KEY`, with a JSON blob in `lastFoldedMatchKey`.
  *
- * GLOBAL REBUILD: serializing the year-wide `teams`/`events` tables costs
- * close to the whole CPU budget, so it runs on a fixed interval or when an
- * event completes its last scheduled match. With no corpus access it is an
- * incremental merge of teams touched since the last rebuild, never a
- * from-scratch recompute (that is `pnpm publish:seasons`). Known stub: a
- * `teams/{year}` row's `record` is not updated here, and `events/{year}` is
- * not touched; both stay as of the last offline publish.
+ * GLOBAL REBUILD: an incremental merge of the teams this tick touched into the
+ * year-wide `teams` table. With no corpus access it is never a from-scratch
+ * recompute (that is `pnpm publish:seasons`). Known stub: a `teams/{year}`
+ * row's `record` is not updated here, and `events/{year}` is not touched; both
+ * stay as of the last offline publish.
  *
  * TIERS: a touched row keeps the prior row's published `tier` per metric and
  * its published Sigma entry, so the Teams list never shows a false Common
@@ -138,19 +137,19 @@ import {
   type Stamp,
 } from "./artifactMerge.js";
 import { checkLiveEventArtifactShape } from "./artifactShapeCheck.js";
-import { ArtifactReadBudgetExhaustedError, ArtifactSecretLeakError, readArtifactObject, writeArtifactObject, writeLiveRosterObject } from "./artifactWriter.js";
+import { ArtifactSecretLeakError, readArtifactObject, writeArtifactObject, writeLiveRosterObject } from "./artifactWriter.js";
 import { buildLiveRoster, rosterGrew, type RosterSource } from "../../../packages/harness/liveRoster.js";
 import { MAX_SCOPE_KEYS_PER_READ, readEventCursor, readEventCursors, readScopedState, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
 import { splitEventMatches } from "./matchSplit.js";
 import { TICK_META_EVENT_KEY, stateBaselineEventKey } from "../../../packages/harness/stateBaseline.js";
-import { rotate, sortEventKeys, SubrequestBudget } from "./subrequestBudget.js";
+import { rotate, sortEventKeys, SubrequestCounter } from "./subrequestCounter.js";
 import { createTbaContext, pollEventMatches, TbaRequestCounter, type TbaClientContext } from "./tbaPoll.js";
 import type { Env } from "./env.js";
 
 // ---------------------------------------------------------------------------
-// Tick meta (rotation offset, last global rebuild) plus the per-algorithm
-// state-baseline marker (quick task 260920-q75) — read together, in the
-// ONE subrequest this section already spent on the sentinel alone. See
+// Tick meta (the rotation offset) plus the per-algorithm state-baseline marker
+// (quick task 260920-q75) — read together, in the ONE subrequest this section
+// already spent on the sentinel alone. See
 // `packages/harness/stateBaseline.ts` for the shared key contract and
 // `readEventCursors` (`stateStore.ts`) for why this costs no extra round trip.
 // ---------------------------------------------------------------------------
@@ -171,8 +170,7 @@ export interface TickState {
 /**
  * Replaces the old `readTickMeta`: the SAME one subrequest (`readEventCursors`
  * over a small, fixed key list), now also naming each live algorithm's
- * state-baseline marker key alongside the tick-meta sentinel. `TICK_FIXED_SUBREQUEST_COST`
- * is unchanged by this — see its own doc comment.
+ * state-baseline marker key alongside the tick-meta sentinel.
  */
 async function readTickState(db: D1Database, algorithmIds: readonly string[]): Promise<TickState> {
   const keys = [TICK_META_EVENT_KEY, ...algorithmIds.map((id) => stateBaselineEventKey(id))];
@@ -245,12 +243,15 @@ export function detectStateGenerationMismatch(
 // ---------------------------------------------------------------------------
 
 /**
- * Only SPR folds live. One 3v3 match's `estimatedCost` is 18 with spr alone
- * vs. 50 with all three algorithms, against ~41 subrequests available per
- * tick, so with all three live the event would defer forever. What is
- * published is unchanged; opr/epa refresh at the manual event-weekend
- * re-baseline. Exported so the fallback and `liveAlgorithmTier.test.ts`
- * share one default.
+ * Only SPR folds live. Historically this was forced by the free plan's
+ * 50-subrequest cap (one 3v3 match cost 18 subrequests with spr alone against
+ * ~41 usable, and 50 with all three algorithms, so a three-algorithm event
+ * deferred every tick forever); quick task 260923-3w4 retired that argument
+ * along with the cap. It stays spr-only because widening it changes PUBLISHED
+ * numbers — opr/epa would start folding live instead of refreshing at the manual
+ * event-weekend re-baseline, which needs its own algorithm version bump and
+ * republish. Exported so the fallback and `liveAlgorithmTier.test.ts` share one
+ * default.
  */
 export const DEFAULT_LIVE_ALGORITHM_IDS: readonly string[] = ["spr"];
 
@@ -284,9 +285,9 @@ export class EmptyLiveAlgorithmTierError extends Error {
  * Parses `Env.LIVE_ALGORITHM_IDS` (comma-separated) into the tier that folds
  * live this tick.
  *  - Unset or empty: `DEFAULT_LIVE_ALGORITHM_IDS` plus one
- *    `live-tier-defaulted` warn line. Defaulting to "all" would blow the
- *    subrequest budget; throwing would stop freshness over a config omission.
- *    Only the ids are logged, never another binding value.
+ *    `live-tier-defaulted` warn line. Defaulting to "all" would publish numbers
+ *    nobody chose to publish live; throwing would stop freshness over a config
+ *    omission. Only the ids are logged, never another binding value.
  *  - An id not in `PUBLISHED_ALGORITHM_IDS`: throws `UnknownLiveAlgorithmIdError`.
  * Called at the top of `runTick` so a misconfigured deploy fails on the next
  * tick, not when an event goes live months later.
@@ -474,10 +475,10 @@ interface PerAlgorithmFold {
  */
 async function readExistingEvent(
   env: Env,
-  budget: SubrequestBudget,
+  counter: SubrequestCounter,
   params: { page: "event"; eventKey: string; algorithmId: string; version: string }
 ): Promise<{ artifact: LiveEventArtifact | undefined; bytes: number }> {
-  const text = await readArtifactObject(env, budget, artifactKey(params));
+  const text = await readArtifactObject(env, counter, artifactKey(params));
   if (text === undefined) return { artifact: undefined, bytes: 0 };
   // `bytes` is the FETCHED body's own length, returned alongside the guarded
   // artifact because this function already holds the text and `.length` is
@@ -521,11 +522,11 @@ const WRITE_RETRY_ERROR_MESSAGE_MAX = 300;
  * tick still writes one.
  *
  * TWO FAILURES ARE DELIBERATELY NOT RETRIED:
- *   - one where the budget was consumed, i.e. the R2 `put` itself failed. A
- *     retry there would consume a SECOND subrequest for one artifact and break
- *     the per-tick accounting `scheduled.rp.test.ts` pins. Validation
- *     runs before `budget.tryConsume`, so an unconsumed budget is an exact
- *     witness that the failure was pre-put.
+ *   - one where the subrequest was already counted, i.e. the R2 `put` itself
+ *     failed. A retry there would spend a SECOND subrequest for one artifact and
+ *     break the per-tick accounting `scheduled.rp.test.ts` pins. Validation runs
+ *     before `counter.spend`, so an unmoved count is an exact witness that the
+ *     failure was pre-put.
  *   - `ArtifactSecretLeakError`. A bootstrap merge is not the remedy for a
  *     leaked secret, and re-serializing is not worth the chance of writing it.
  *
@@ -535,19 +536,19 @@ const WRITE_RETRY_ERROR_MESSAGE_MAX = 300;
  */
 async function writeArtifactWithBootstrapRetry(
   env: Env,
-  budget: SubrequestBudget,
+  counter: SubrequestCounter,
   page: "event" | "team",
   params: { page: "event"; eventKey: string; algorithmId: string; version: string } | { page: "team"; teamKey: string; year: number; algorithmId: string; version: string },
   merged: unknown,
   algorithmId: string,
   rebuildAsBootstrap: () => unknown
 ): Promise<void> {
-  const usedBefore = budget.used;
+  const usedBefore = counter.used;
   try {
-    await writeArtifactObject(env, budget, page, params, merged);
+    await writeArtifactObject(env, counter, page, params, merged);
     return;
   } catch (error) {
-    if (budget.used !== usedBefore) throw error; // the put itself failed -- a retry would double-consume
+    if (counter.used !== usedBefore) throw error; // the put itself failed -- a retry would double-spend
     if (error instanceof ArtifactSecretLeakError) throw error;
     const message = error instanceof Error ? error.message : String(error);
     console.warn(
@@ -562,7 +563,7 @@ async function writeArtifactWithBootstrapRetry(
   }
   // Outside the catch: a throw HERE is a genuine failure of the bootstrap
   // itself and belongs to the caller's blanket catch, not to a third attempt.
-  await writeArtifactObject(env, budget, page, params, rebuildAsBootstrap());
+  await writeArtifactObject(env, counter, page, params, rebuildAsBootstrap());
 }
 
 // ---------------------------------------------------------------------------
@@ -574,7 +575,7 @@ interface TouchedTeamInfo {
   matchDelta: number;
 }
 
-type EventOutcome = { readonly status: "advanced"; readonly eventComplete: boolean } | { readonly status: "deferred" } | { readonly status: "failed" } | { readonly status: "unchanged" };
+type EventOutcome = { readonly status: "advanced"; readonly eventComplete: boolean } | { readonly status: "failed" } | { readonly status: "unchanged" };
 
 function touchedTeamsCompositeKey(algorithmId: string, season: number): string {
   return `${algorithmId}::${season}`;
@@ -616,24 +617,6 @@ function changesOf(result: unknown): number {
 }
 
 // ---------------------------------------------------------------------------
-// Subrequest budget estimate, shared with `liveAlgorithmTier.test.ts`
-// ---------------------------------------------------------------------------
-
-/**
- * `runTick`'s fixed subrequests before any FOLDABLE event's work: the
- * live-windows manifest, algorithms manifest and tick-meta reads. Pinned to
- * the deployed Worker's measured idle-tick `subrequestsUsed`. A probe-only
- * tick (260920-lny) never pays the algorithms-manifest or tick-meta reads
- * this constant describes — it pays only `loadLiveEventsAt`'s 1 plus each
- * probe's own `PROBE_SUBREQUEST_COST`, and returns before either of the other
- * two. This constant still prices the foldable/promoted path exactly as before.
- */
-export const TICK_FIXED_SUBREQUEST_COST = 3;
-
-/** `processEvent`'s fixed cost spent before the estimate check: the cursor read and the TBA poll. */
-export const EVENT_PREFLIGHT_SUBREQUEST_COST = 2;
-
-// ---------------------------------------------------------------------------
 // Probe windows (260920-lny): a zero-match event's `inferred: true` window
 // proves matches exist before anything expensive runs. See
 // `packages/harness/manifests.ts`'s `buildLiveWindowsManifest` header and
@@ -643,29 +626,29 @@ export const EVENT_PREFLIGHT_SUBREQUEST_COST = 2;
 
 /**
  * The result of the two calls a probe (or a foldable event's own preflight)
- * always pays first: the cursor read, then the conditional TBA poll.
- *  - `"deferred"`: the budget could not afford one of the two calls this tick.
+ * always makes first: the cursor read, then the conditional TBA poll.
  *  - `"not-modified"`: TBA returned 304 — nothing changed since the cursor's etag.
  *  - `"ok"`: a 200, with the RAW (not yet `tbaMatchListSchema`-validated) match
  *    array. A probe reads only `.length` off it — see `runProbes` — so an
  *    idle probe never pays to parse a payload it is about to discard.
+ *
+ * There is no third `"deferred"` case any more: quick task 260923-3w4 deleted
+ * the subrequest budget the two calls used to be gated behind.
  */
 export type EventPreflightResult =
-  | { readonly status: "deferred" }
   | { readonly status: "not-modified"; readonly cursor: EventCursor }
   | { readonly status: "ok"; readonly cursor: EventCursor; readonly etag: string | undefined; readonly matches: readonly unknown[] };
 
 /**
  * `processEvent`'s own first two calls, extracted so a probe can pay for them
  * ONCE and hand the result to `processEvent` as a preflight — a promoted
- * event is never polled twice. Costs exactly `EVENT_PREFLIGHT_SUBREQUEST_COST`
- * (2: `tryConsume(1)` per call), same as before extraction.
+ * event is never polled twice. Two subrequests, same as before extraction.
  */
-async function eventPreflight(env: Env, budget: SubrequestBudget, tbaCtx: TbaClientContext, eventKey: string): Promise<EventPreflightResult> {
-  if (!budget.tryConsume(1)) return { status: "deferred" };
+async function eventPreflight(env: Env, counter: SubrequestCounter, tbaCtx: TbaClientContext, eventKey: string): Promise<EventPreflightResult> {
+  counter.spend(1);
   const cursor: EventCursor = (await readEventCursor(env.DB, eventKey)) ?? { eventKey, tbaEtag: null, lastFoldedMatchKey: null, lastPolledAt: null, lastAdvancedAt: null };
 
-  if (!budget.tryConsume(1)) return { status: "deferred" };
+  counter.spend(1);
   const poll = await pollEventMatches(tbaCtx, eventKey, cursor.tbaEtag ?? undefined);
   if (poll.status === "not-modified") return { status: "not-modified", cursor };
   return { status: "ok", cursor, etag: poll.etag, matches: poll.matches };
@@ -673,17 +656,11 @@ async function eventPreflight(env: Env, budget: SubrequestBudget, tbaCtx: TbaCli
 
 /**
  * Probes per tick, capped so an offseason weekend with many concurrently-open
- * probe windows cannot spend the subrequest budget on discovery alone. At the
- * cap a probe-only tick spends `1 (loadLiveEventsAt) + PROBE_SUBREQUEST_COST *
- * MAX_PROBES_PER_TICK = 1 + 2*6 = 13` of the ~41 subrequests actually usable
- * per tick (the same figure `estimateEventSubrequestCost`'s header cites), and
- * nine concurrently-open offseason windows (2026-09-18's real count) are fully
+ * probe windows cannot spend the subrequest budget on discovery alone. Nine
+ * concurrently-open offseason windows (2026-09-18's real count) are fully
  * covered in two ticks.
  */
 export const MAX_PROBES_PER_TICK = 6;
-
-/** The cursor read plus the conditional poll a probe pays via `eventPreflight` — mirrors `EVENT_PREFLIGHT_SUBREQUEST_COST` exactly, since a probe and a foldable event's own preflight are the same two calls. Named separately so the probe-only budget arithmetic in this section's doc comments reads on its own. */
-export const PROBE_SUBREQUEST_COST = 2;
 
 /**
  * One cron minute — the rotation offset for probes is `floor(nowMs /
@@ -701,21 +678,21 @@ interface ProbePassResult {
 }
 
 /**
- * Answers liveness for every `inferred: true` window this tick has budget and
- * rotation slots for, spending ONE cheap conditional TBA request per probe
- * and nothing else — no algorithms-manifest read, no `buildAlgorithmModules`,
- * no D1 batch, no artifact write. Called from `runTick` BEFORE all three of
- * those, and that ordering is load-bearing: moving this pass below them would
- * restore exactly the condition
+ * Answers liveness for every `inferred: true` window this tick has a rotation
+ * slot for, spending ONE cheap conditional TBA request per probe and nothing
+ * else — no algorithms-manifest read, no `buildAlgorithmModules`, no D1 batch,
+ * no artifact write. Called from `runTick` BEFORE all three of those, and THAT
+ * ORDERING IS LOAD-BEARING: moving this pass below them would restore exactly
+ * the condition
  * `.planning/debug/resolved/worker-tick-exceeds-cpu-budget.md` cause B
  * describes, where a phantom `inferred: true` window kept the tick on the
  * full, expensive live path.
  *
  *  - A `"not-modified"` (304) preflight ends that probe: nothing changed.
  *  - An `"ok"` preflight whose raw match array is EMPTY ends that probe too,
- *    after writing the cursor's etag back if it changed and the budget
- *    allows — `.length` is read off the raw array; `tbaMatchListSchema`
- *    never runs here, so an idle probe parses nothing.
+ *    after writing the cursor's etag back if it changed — `.length` is read off
+ *    the raw array; `tbaMatchListSchema` never runs here, so an idle probe
+ *    parses nothing.
  *  - An `"ok"` preflight with a NON-empty array promotes: the window and its
  *    already-paid-for preflight are kept for `runTick` to feed straight into
  *    `processEvent`, so a promoted event issues exactly ONE TBA request this
@@ -724,26 +701,23 @@ interface ProbePassResult {
  *    only the event key and the error message (never a TBA key or a header —
  *    this file's standing log rule), and counted as failed rather than probed.
  */
-async function runProbes(env: Env, budget: SubrequestBudget, tbaCtx: TbaClientContext, probeWindows: readonly LiveWindowEntry[], nowMs: number, nowIso: string): Promise<ProbePassResult> {
-  const ordered = rotate(sortEventKeys(probeWindows.map((w) => w.eventKey)), Math.floor(nowMs / PROBE_ROTATION_PERIOD_MS));
-  const capped = ordered.slice(0, MAX_PROBES_PER_TICK);
+async function runProbes(env: Env, counter: SubrequestCounter, tbaCtx: TbaClientContext, probeWindows: readonly LiveWindowEntry[], nowMs: number, nowIso: string): Promise<ProbePassResult> {
+  const ordered = rotate(sortEventKeys(probeWindows.map((w) => w.eventKey)), Math.floor(nowMs / PROBE_ROTATION_PERIOD_MS)).slice(0, MAX_PROBES_PER_TICK);
 
   const promoted = new Map<string, { cursor: EventCursor; etag: string | undefined; matches: readonly unknown[] }>();
   let eventsProbed = 0;
   let eventsFailed = 0;
 
-  for (const eventKey of capped) {
+  for (const eventKey of ordered) {
     try {
-      const preflight = await eventPreflight(env, budget, tbaCtx, eventKey);
-      // Budget exhausted before this probe could even start: the remaining
-      // probes in this slice wait for the next tick, same as a deferred event.
-      if (preflight.status === "deferred") break;
+      const preflight = await eventPreflight(env, counter, tbaCtx, eventKey);
 
       eventsProbed++;
       if (preflight.status === "not-modified") continue;
 
       if (preflight.matches.length === 0) {
-        if (preflight.etag !== undefined && preflight.etag !== preflight.cursor.tbaEtag && budget.tryConsume(1)) {
+        if (preflight.etag !== undefined && preflight.etag !== preflight.cursor.tbaEtag) {
+          counter.spend(1);
           await writeEventCursor(env.DB, { ...preflight.cursor, tbaEtag: preflight.etag, lastPolledAt: nowIso });
         }
         continue;
@@ -759,53 +733,9 @@ async function runProbes(env: Env, budget: SubrequestBudget, tbaCtx: TbaClientCo
   return { promoted, eventsProbed, eventsFailed };
 }
 
-/**
- * The whole event's remaining subrequest cost, estimated up front so the
- * event is all-or-nothing.
- *
- * `2 + 4A`, FLAT IN THE TOUCHED-TEAM COUNT.
- *
- * TWO TERMS HAVE BEEN DELETED, in two steps, and naming both is what keeps a
- * future reader from re-adding one:
- *
- *   - `2AT` (quick task 260917-jr4) was Phase B reading and rewriting one
- *     whole team-season artifact per touched team per algorithm. That loop is
- *     gone; the browser derives everything it carried from files the robot
- *     page already fetches.
- *   - `2A` (quick task 260918-16t) was the ephemeral metric sidecar's own read
- *     and write, one object per algorithm-event. That object is gone too: its
- *     rows now ride INSIDE the event artifact, in the read/write pair the
- *     `4A` term already pays for. So Phase B makes exactly TWO R2 calls per
- *     algorithm-event and none anywhere else.
- *
- * `touchedTeamCount` LEFT THE SIGNATURE deliberately rather than being kept
- * and ignored: a parameter the formula does not read is an invitation to pass
- * a number and believe it mattered. If a per-team term ever returns, it must
- * come back as an argument a caller has to supply on purpose — which is what
- * makes `liveAlgorithmTier.test.ts`'s flat-in-touched-team-count property test
- * fail LOUDLY rather than silently under-counting.
- *
- * `A=1` (the tracked spr-only live tier) is 6; `A=3` is 14 (the 260918-16t
- * plan's summary table said 12 — that cell is wrong; 20 minus the sidecar's
- * 2A=6 is 14, and so is 2 + 4x3). Against the ~41 subrequests actually usable
- * per tick that is six events per tick at the tracked tier and two at the full
- * algorithm set — the subrequest argument does not constrain the live tier at
- * all. The live tier's remaining justification is the CPU budget;
- * `liveAlgorithmTier.test.ts` says so where it used to cite the subrequest
- * counterfactual.
- */
-export function estimateEventSubrequestCost(algorithmCount: number): number {
-  return (
-    1 /* claim (cursor CAS) */ +
-    1 /* event-detail fetch */ +
-    algorithmCount * 2 /* Phase A: read + write, per algorithm */ +
-    algorithmCount * 2 /* Phase B: the event artifact, read + write, per algorithm */
-  );
-}
-
 async function processEvent(
   env: Env,
-  budget: SubrequestBudget,
+  counter: SubrequestCounter,
   tbaCtx: TbaClientContext,
   algorithmModules: ReadonlyMap<string, AlgorithmModule<any>>,
   window: LiveWindowEntry,
@@ -814,7 +744,7 @@ async function processEvent(
   touchedTeamsByAlgorithm: Map<string, Map<string, TouchedTeamInfo>>,
   /**
    * A probe's already-paid-for `eventPreflight` result (`runProbes`), for a
-   * PROMOTED event only. When supplied, `processEvent` consumes NO budget for
+   * PROMOTED event only. When supplied, `processEvent` counts NO subrequest for
    * the cursor read or the poll and makes NO second TBA request for either —
    * the probe already paid for both. `undefined` for the ordinary (foldable,
    * `inferred: false`) path, which still runs its own preflight exactly as
@@ -834,10 +764,10 @@ async function processEvent(
       pollEtag = preflight.etag;
       rawMatchesUnknown = preflight.matches;
     } else {
-      if (!budget.tryConsume(1)) return { status: "deferred" };
+      counter.spend(1);
       cursor = (await readEventCursor(env.DB, eventKey)) ?? { eventKey, tbaEtag: null, lastFoldedMatchKey: null, lastPolledAt: null, lastAdvancedAt: null };
 
-      if (!budget.tryConsume(1)) return { status: "deferred" };
+      counter.spend(1);
       const poll = await pollEventMatches(tbaCtx, eventKey, cursor.tbaEtag ?? undefined);
       if (poll.status === "not-modified") return { status: "unchanged" };
       pollEtag = poll.etag;
@@ -860,7 +790,11 @@ async function processEvent(
     const { orderedMatchKeys, newlyFolded, stillUpcoming } = splitEventMatches(rawMatches, approxStartDateIso, cursor);
 
     if (newlyFolded.length === 0) {
-      if (pollEtag !== undefined && pollEtag !== cursor.tbaEtag && budget.tryConsume(1)) {
+      // Unconditional since quick task 260923-3w4: this etag write used to sit
+      // behind a `tryConsume` so it could never be the call that squeezed out an
+      // event's real work. Skipping it costs a full payload on the next poll.
+      if (pollEtag !== undefined && pollEtag !== cursor.tbaEtag) {
+        counter.spend(1);
         await writeEventCursor(env.DB, { ...cursor, tbaEtag: pollEtag, lastPolledAt: nowIso });
       }
       return { status: "unchanged" };
@@ -873,17 +807,17 @@ async function processEvent(
     const realTouchedTeams = touchedTeams.filter((teamKey) => !isDemoTeamKey(teamKey));
     const lastFoldedMatchKey = newlyFolded[newlyFolded.length - 1]!.matchKey;
 
-    // Flat in the touched-team count since 260917-jr4: Phase B's per-team
-    // artifact loop is gone, so no team count (real or raw) sizes this at all.
-    const algorithmCount = algorithmModules.size;
-    const estimatedCost = estimateEventSubrequestCost(algorithmCount);
-    if (budget.remaining < estimatedCost) {
-      return { status: "deferred" };
-    }
-
     // Claim before any state is read; a lost claim means another invocation
     // is advancing this event and its work supersedes ours.
-    budget.consume(1);
+    //
+    // NOTHING IS ESTIMATED FIRST any more (quick task 260923-3w4). The event's
+    // whole remaining subrequest cost used to be estimated here (`2 + 4A`) and
+    // the event deferred WHOLE if it did not fit, so that state never advanced
+    // into a Phase B the budget could not finish. Workers Paid's 10,000
+    // subrequests per invocation make that arithmetic unreachable; the Phase
+    // A-before-Phase B ordering and the claim revert below are what still keep a
+    // partial event from desyncing the cursor.
+    counter.spend(1);
     const claimed = await claimEventAdvance(env.DB, eventKey, cursor.lastFoldedMatchKey, lastFoldedMatchKey, pollEtag ?? cursor.tbaEtag, nowIso);
     if (!claimed) {
       return { status: "unchanged" };
@@ -893,7 +827,7 @@ async function processEvent(
       // The event detail supplies `event_type` (the RP eligibility gate) and
       // `week`, which the live-windows manifest lacks. A failed fetch
       // degrades (RP ineligible, week unplaced) rather than failing the event.
-      budget.consume(1);
+      counter.spend(1);
       let eventType = -1;
       // The published `eventType`: defined only when the fetch returned 200
       // and parsed, so the `-1` sentinel never reaches an artifact.
@@ -928,7 +862,7 @@ async function processEvent(
         // (quick task 260918-wfc). Same one statement, a few more bound keys.
         const selections = selectionsFor(algorithmId, eventKey, stateBlockScopeKeys(touchedTeams));
 
-        budget.consume(1);
+        counter.spend(1);
         // Cold start still gets real keys only, so no demo key seeds a level-1 `team` row.
         const { rows, state: initialState } = await loadOrInitState(env.DB, algorithmId, selections, algorithm, realTouchedTeams);
 
@@ -1118,19 +1052,20 @@ async function processEvent(
         }
         const changedRows = selectChangedRows(rows, candidateRows);
 
-        budget.consume(1);
+        counter.spend(1);
         await writeScopedState(env.DB, changedRows); // may throw -- caught below, reverts the claim and aborts the WHOLE event (zero artifact puts)
 
         perAlgorithm.set(algorithmId, { algorithm, newPredictions, touchedMetrics, newBands, touchedSigma, writtenRows: changedRows, observedBonusSides });
       }
 
-      return await runPhaseBAndReport(env, budget, window, eventKey, eventType, fetchedEventType, rawMatches, newlyFolded, newlyFoldedResults, stillUpcoming, touchedTeams, realTouchedTeams, perAlgorithm, touchedTeamsByAlgorithm, stamp, stillUpcoming.length === 0);
+      return await runPhaseBAndReport(env, counter, window, eventKey, eventType, fetchedEventType, rawMatches, newlyFolded, newlyFoldedResults, stillUpcoming, touchedTeams, realTouchedTeams, perAlgorithm, touchedTeamsByAlgorithm, stamp, stillUpcoming.length === 0);
     } catch (phaseAError) {
       // Revert the claim: state did not advance, so a later tick must be free
-      // to fold these matches again.
-      if (budget.tryConsume(1)) {
-        await writeEventCursor(env.DB, cursor);
-      }
+      // to fold these matches again. Unconditional since quick task 260923-3w4 —
+      // it used to sit behind `tryConsume`, which meant a budget-exhausted tick
+      // could leave the cursor claiming matches no state ever saw.
+      counter.spend(1);
+      await writeEventCursor(env.DB, cursor);
       throw phaseAError; // re-thrown -- caught by the outer try/catch below, event recorded "failed"
     }
   } catch (err) {
@@ -1157,7 +1092,7 @@ async function processEvent(
  * publishes, `undefined` when the detail fetch failed. */
 async function runPhaseBAndReport(
   env: Env,
-  budget: SubrequestBudget,
+  counter: SubrequestCounter,
   window: LiveWindowEntry,
   eventKey: string,
   eventType: number,
@@ -1187,12 +1122,10 @@ async function runPhaseBAndReport(
     }
     const playedRowFacts = playedRowFactsFor(window.season, rawMatches, newlyFolded, newlyFoldedResults, observedBonusSides);
 
-    let algorithmsAfterThisOne = perAlgorithm.size;
     let rosterHandled = false;
     for (const [algorithmId, info] of perAlgorithm) {
-      algorithmsAfterThisOne -= 1;
       const eventParams = { page: "event" as const, eventKey, algorithmId, version: info.algorithm.version };
-      const { artifact: existingEvent, bytes: existingEventBytes } = await readExistingEvent(env, budget, eventParams);
+      const { artifact: existingEvent, bytes: existingEventBytes } = await readExistingEvent(env, counter, eventParams);
 
       // COMPLETE THE STATE BLOCK WHEN IT IS INCOMPLETE (quick task 260921-5qw).
       // An event promoted without ever being published offline has no block,
@@ -1202,10 +1135,13 @@ async function runPhaseBAndReport(
       // this tick touched arrive through the splice. Anything else missing is
       // read from D1 here, AFTER Phase A's write, in one statement.
       //
-      // OPPORTUNISTIC, never required: behind `tryConsume`, so the pinned
-      // subrequest estimate does not move and a tick with no room simply tries
-      // again next time. A key D1 has no row for is recorded absent on the
-      // block, so a rookie does not cost a read on every later tick.
+      // NO LONGER OPPORTUNISTIC (quick task 260923-3w4): this read used to sit
+      // behind `tryConsume` and a "is a subrequest still owed to a later
+      // algorithm's write" check, so a busy tick simply tried again next time
+      // and the event's upcoming matches stayed unpriced meanwhile. It now
+      // always runs when the block needs it. A key D1 has no row for is
+      // recorded absent on the block, so a rookie does not cost a read on
+      // every later tick.
       let blockD1Rows: StateRow[] | undefined;
       let blockReadKeys: string[] = [];
       if (algorithmId === spr.id && stillUpcoming.length > 0) {
@@ -1214,15 +1150,8 @@ async function runPhaseBAndReport(
         blockReadKeys = missingStateBlockKeys(existingEvent?.state, scheduledTeams)
           .filter((teamKey) => !arrivingBySplice.has(teamKey))
           .slice(0, MAX_SCOPE_KEYS_PER_READ);
-        // NEVER AT THE EXPENSE OF THE WRITE THIS TICK WAS ADMITTED FOR. The event
-        // was started only because the budget covered its estimate, and that
-        // estimate does not include this read. So it runs only when a
-        // subrequest is left over AFTER this algorithm's artifact write and
-        // every later algorithm's read and write. Measured the hard way: with
-        // a cap of exactly the estimate, an unguarded read here took the last
-        // slot and the event artifact was not written at all.
-        const stillOwedThisEvent = 1 + 2 * algorithmsAfterThisOne;
-        if ((existingEvent?.state === undefined || blockReadKeys.length > 0) && budget.remaining > stillOwedThisEvent && budget.tryConsume(1)) {
+        if (existingEvent?.state === undefined || blockReadKeys.length > 0) {
+          counter.spend(1);
           try {
             blockD1Rows = await readScopedState(env.DB, algorithmId, [{ scopeKind: "team", scopeKeys: blockReadKeys }]);
           } catch (error) {
@@ -1260,7 +1189,7 @@ async function runPhaseBAndReport(
         ...(blockD1Rows !== undefined ? { blockD1Rows, blockReadKeys } : {}),
       };
       const mergedEvent = mergeEventArtifact(eventMergeParams);
-      await writeArtifactWithBootstrapRetry(env, budget, "event", eventParams, mergedEvent, algorithmId, () =>
+      await writeArtifactWithBootstrapRetry(env, counter, "event", eventParams, mergedEvent, algorithmId, () =>
         mergeEventArtifact({ ...eventMergeParams, existing: undefined })
       );
 
@@ -1269,17 +1198,19 @@ async function runPhaseBAndReport(
       // since no published team file can name an event TBA had no team list
       // for. Written only when the roster GREW against the artifact just read
       // (the first fold, or a team added later), so never once per tick. Both
-      // rosters are already in hand, so deciding costs nothing. Opportunistic
-      // on the same terms as the block read above: never the subrequest a
-      // later algorithm's read and write are owed. Best effort, like every
-      // Phase B write.
+      // rosters are already in hand, so deciding costs nothing. It used to be
+      // opportunistic on the same terms as the block read above — never the
+      // subrequest a later algorithm's read and write were owed — and quick task
+      // 260923-3w4 dropped that gate with the budget. Still best effort, like
+      // every Phase B write.
       if (!rosterHandled) {
         rosterHandled = true;
         // `mergeEventArtifact` returns `unknown` on purpose (the write validates
         // it), so the roster is read through the narrow view it needs; every
         // field is optional there and `rosterTeamKeys` treats absent as none.
         const merged = mergedEvent as RosterSource & { readonly name?: unknown; readonly startDate?: unknown };
-        if (rosterGrew(existingEvent, merged) && budget.remaining > 2 * algorithmsAfterThisOne && budget.tryConsume(1)) {
+        if (rosterGrew(existingEvent, merged)) {
+          counter.spend(1);
           try {
             await writeLiveRosterObject(
               env,
@@ -1376,7 +1307,7 @@ export function touchedTeamsRowMetrics(
  * R2 into record-form `metrics`; every write re-encodes positionally, which
  * keeps a live event from corrupting the season's teams artifact.
  */
-async function runGlobalRebuild(env: Env, budget: SubrequestBudget, algorithmModules: ReadonlyMap<string, AlgorithmModule<any>>, touchedTeamsByAlgorithm: ReadonlyMap<string, Map<string, TouchedTeamInfo>>, stamp: Stamp): Promise<boolean> {
+async function runGlobalRebuild(env: Env, counter: SubrequestCounter, algorithmModules: ReadonlyMap<string, AlgorithmModule<any>>, touchedTeamsByAlgorithm: ReadonlyMap<string, Map<string, TouchedTeamInfo>>, stamp: Stamp): Promise<boolean> {
   if (touchedTeamsByAlgorithm.size === 0) return true; // trigger fired, nothing to merge — a legitimate no-op "ran"
 
   for (const [compositeKey, teamInfos] of touchedTeamsByAlgorithm) {
@@ -1391,10 +1322,10 @@ async function runGlobalRebuild(env: Env, budget: SubrequestBudget, algorithmMod
 
     let existing: TeamsArtifact | undefined;
     try {
-      const text = await readArtifactObject(env, budget, artifactKey(params));
+      const text = await readArtifactObject(env, counter, artifactKey(params));
       existing = text === undefined ? undefined : TeamsArtifactSchema.parse(JSON.parse(text));
     } catch {
-      return false; // budget exhausted or read failure — defer the whole rebuild
+      return false; // read or parse failure — report the rebuild as not run
     }
 
     const existingRows = existing?.teams ?? [];
@@ -1432,8 +1363,7 @@ async function runGlobalRebuild(env: Env, budget: SubrequestBudget, algorithmMod
       teams: rows.map((row) => ({ ...row, metrics: encodeTeamsRowMetrics(row.metrics, metricKeys) })),
     };
     try {
-      const result = await writeArtifactObject(env, budget, "teams", params, candidate);
-      if (result.deferred) return false;
+      await writeArtifactObject(env, counter, "teams", params, candidate);
     } catch {
       return false;
     }
@@ -1453,15 +1383,11 @@ export interface RunTickDeps {
   readonly globalRebuildIntervalMs?: number;
   /** Test-only: lets a test count `buildAlgorithmModules` calls to assert one construction per tick. */
   readonly buildAlgorithmModules?: (algorithmsManifest: AlgorithmsManifest, liveAlgorithmIds: readonly string[]) => Map<string, AlgorithmModule<any>>;
-  /** Test-only override of `SubrequestBudget`'s cap/reserve, for driving deferral and budget-exhaustion paths deterministically. Defaults to the production values. */
-  readonly subrequestCap?: number;
-  readonly subrequestReserve?: number;
 }
 
 export interface TickResult {
   readonly eventsConsidered: number;
   readonly eventsAdvanced: number;
-  readonly eventsDeferred: number;
   /** A per-event failure, EITHER a folded/promoted event's own processing failure OR a probe that threw (`runProbes`) — both are confined to the one event/probe and counted here. */
   readonly eventsFailed: number;
   /** `inferred: true` windows this tick answered liveness for (`runProbes`), whether or not they promoted. Probed above zero and promoted zero is a healthy idle offseason weekend; probed above zero and promoted above zero is an event that has started. */
@@ -1481,10 +1407,9 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   const globalRebuildIntervalMs = deps.globalRebuildIntervalMs ?? GLOBAL_REBUILD_INTERVAL_MS;
   const stamp: Stamp = { generation: `tick-${nowMs}`, computedAt: nowIso };
 
-  // Unset deps pass `undefined`, which resolves to the production defaults.
-  const budget = new SubrequestBudget(deps.subrequestCap, deps.subrequestReserve);
-  const counter = new TbaRequestCounter();
-  const tbaCtx = createTbaContext(env, counter);
+  const subrequests = new SubrequestCounter();
+  const tbaCounter = new TbaRequestCounter();
+  const tbaCtx = createTbaContext(env, tbaCounter);
 
   // Parsed on every tick, idle ones included, so a misconfigured deploy
   // surfaces within a minute.
@@ -1493,11 +1418,11 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   // The one read that answers "is anything live"; an idle tick (the common
   // case) exits here with zero TBA requests. Keep `loadLiveEventsAt`; see
   // its header in `liveWindows.ts`.
-  budget.consume(1);
+  subrequests.spend(1);
   const liveEvents = await loadLiveEventsAt(env, nowMs);
 
   if (liveEvents.length === 0) {
-    return { eventsConsidered: 0, eventsAdvanced: 0, eventsDeferred: 0, eventsFailed: 0, eventsProbed: 0, eventsPromoted: 0, tbaRequests: counter.total, subrequestsUsed: budget.used, globalRebuildRan: false, stateGenerationMismatch: false };
+    return { eventsConsidered: 0, eventsAdvanced: 0, eventsFailed: 0, eventsProbed: 0, eventsPromoted: 0, tbaRequests: tbaCounter.total, subrequestsUsed: subrequests.used, globalRebuildRan: false, stateGenerationMismatch: false };
   }
 
   // Split into foldable (`inferred: false`, a real measured window) and
@@ -1512,7 +1437,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   const foldableWindows = liveEvents.filter((w) => !w.inferred);
   const probeWindows = liveEvents.filter((w) => w.inferred);
 
-  const probeResult: ProbePassResult = probeWindows.length > 0 ? await runProbes(env, budget, tbaCtx, probeWindows, nowMs, nowIso) : { promoted: new Map(), eventsProbed: 0, eventsFailed: 0 };
+  const probeResult: ProbePassResult = probeWindows.length > 0 ? await runProbes(env, subrequests, tbaCtx, probeWindows, nowMs, nowIso) : { promoted: new Map(), eventsProbed: 0, eventsFailed: 0 };
 
   if (foldableWindows.length === 0 && probeResult.promoted.size === 0) {
     // Nothing foldable and nothing promoted: a probe-only (or fully idle
@@ -1522,19 +1447,18 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
     return {
       eventsConsidered: 0,
       eventsAdvanced: 0,
-      eventsDeferred: 0,
       eventsFailed: probeResult.eventsFailed,
       eventsProbed: probeResult.eventsProbed,
       eventsPromoted: 0,
-      tbaRequests: counter.total,
-      subrequestsUsed: budget.used,
+      tbaRequests: tbaCounter.total,
+      subrequestsUsed: subrequests.used,
       globalRebuildRan: false,
       stateGenerationMismatch: false,
     };
   }
 
   // Something is foldable or was promoted: load the algorithms manifest and build the modules once for the tick.
-  budget.consume(1);
+  subrequests.spend(1);
   const algorithmsManifest = await loadAlgorithmsManifest(env);
   const buildModules = deps.buildAlgorithmModules ?? buildAlgorithmModules;
   const algorithmModules = buildModules(algorithmsManifest, liveAlgorithmIds);
@@ -1542,7 +1466,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   // The tick-meta sentinel and every live algorithm's state-baseline marker,
   // in the ONE subrequest `readTickMeta` used to spend on the sentinel alone
   // (quick task 260920-q75).
-  budget.consume(1);
+  subrequests.spend(1);
   const liveAlgorithmModuleIds = [...algorithmModules.keys()];
   const { meta, baselineGenerationByAlgorithm } = await readTickState(env.DB, liveAlgorithmModuleIds);
 
@@ -1559,12 +1483,11 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
     return {
       eventsConsidered: 0,
       eventsAdvanced: 0,
-      eventsDeferred: 0,
       eventsFailed: probeResult.eventsFailed,
       eventsProbed: probeResult.eventsProbed,
       eventsPromoted: 0,
-      tbaRequests: counter.total,
-      subrequestsUsed: budget.used,
+      tbaRequests: tbaCounter.total,
+      subrequestsUsed: subrequests.used,
       globalRebuildRan: false,
       stateGenerationMismatch: true,
     };
@@ -1576,7 +1499,6 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
 
   let eventsConsidered = 0;
   let eventsAdvanced = 0;
-  let eventsDeferred = 0;
   let eventsFailed = probeResult.eventsFailed;
   let eventsPromoted = 0;
   let anEventJustCompleted = false;
@@ -1591,15 +1513,13 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
     const preflight = probeResult.promoted.get(eventKey);
     if (preflight) eventsPromoted++;
 
-    const outcome = await processEvent(env, budget, tbaCtx, algorithmModules, window, nowIso, stamp, touchedTeamsByAlgorithm, preflight);
-    if (outcome.status === "unchanged") continue; // considered, but not counted toward advanced/deferred/failed
+    const outcome = await processEvent(env, subrequests, tbaCtx, algorithmModules, window, nowIso, stamp, touchedTeamsByAlgorithm, preflight);
+    if (outcome.status === "unchanged") continue; // considered, but not counted toward advanced/failed
 
     eventsConsidered++;
     if (outcome.status === "advanced") {
       eventsAdvanced++;
       if (outcome.eventComplete) anEventJustCompleted = true;
-    } else if (outcome.status === "deferred") {
-      eventsDeferred++;
     } else {
       eventsFailed++;
     }
@@ -1608,26 +1528,24 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   const intervalElapsed = nowMs - meta.lastGlobalRebuildAtMs >= globalRebuildIntervalMs;
   let globalRebuildRan = false;
   if (intervalElapsed || anEventJustCompleted) {
-    globalRebuildRan = await runGlobalRebuild(env, budget, algorithmModules, touchedTeamsByAlgorithm, stamp);
+    globalRebuildRan = await runGlobalRebuild(env, subrequests, algorithmModules, touchedTeamsByAlgorithm, stamp);
   }
 
   const newMeta: TickMeta = {
     rotationOffset: orderedEventKeys.length > 0 ? (meta.rotationOffset + eventsAdvanced) % orderedEventKeys.length : 0,
     lastGlobalRebuildAtMs: globalRebuildRan ? nowMs : meta.lastGlobalRebuildAtMs,
   };
-  if (budget.tryConsume(1)) {
-    await writeTickMeta(env.DB, newMeta, nowIso);
-  }
+  subrequests.spend(1);
+  await writeTickMeta(env.DB, newMeta, nowIso);
 
   return {
     eventsConsidered,
     eventsAdvanced,
-    eventsDeferred,
     eventsFailed,
     eventsProbed: probeResult.eventsProbed,
     eventsPromoted,
-    tbaRequests: counter.total,
-    subrequestsUsed: budget.used,
+    tbaRequests: tbaCounter.total,
+    subrequestsUsed: subrequests.used,
     globalRebuildRan,
     stateGenerationMismatch: false,
   };

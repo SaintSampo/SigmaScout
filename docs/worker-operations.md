@@ -356,21 +356,22 @@ LIVE_ALGORITHM_IDS` is the single place that is configured — a plain tracked v
 git, following `TBA_BASE_URL`'s own precedent in the same block. Change it there, never anywhere
 else.
 
-**Why (historical basis — retired 2026-09-22).** `processEvent`'s `estimatedCost` for ONE ordinary
-3v3 match (6 touched teams) is 18 with the published algorithm alone vs. 50 with all three
-published algorithms, against ~41 subrequests actually available per tick under the free plan
-(`SUBREQUEST_CAP` 50, `SUBREQUEST_RESERVE` 4, minus the tick's own fixed costs). With all three
-live the event would have deferred every tick, forever — measured on the deployed Worker during
-plan 04-07 under the pre-rename identity `sigma1` [pre-rename] and recorded in
-[`publish-budget.md`](publish-budget.md)'s "Worker runtime budget (D-21/D-23, plan 04-07)" section;
-this task's own numbers below reconfirm it on the same criterion, also measured under the
-pre-rename identity `sigma1` [pre-rename]. The account moved to Workers Paid on 2026-09-22
-(10,000 subrequests per invocation), which retires this specific subrequest argument — there is
-now enormous headroom to fold more than one algorithm per tick. Widening `LIVE_ALGORITHM_IDS` is
-still a separate decision, though: it changes published numbers (`opr`/`epa` would start folding
-live instead of at the manual re-baseline) and needs its own algorithm version bump, so the
-tracked value is deliberately left spr-only rather than widened as a side effect of the budget
-change. See `apps/worker/wrangler.toml`'s comment above `LIVE_ALGORITHM_IDS` for the same note.
+**Why (historical basis — retired 2026-09-22, and the arithmetic DELETED 2026-09-23).**
+`processEvent` used to estimate each event's whole subrequest cost up front: 18 for ONE ordinary 3v3
+match with the published algorithm alone vs. 50 with all three, against ~41 subrequests actually
+available per tick under the free plan (`SUBREQUEST_CAP` 50, `SUBREQUEST_RESERVE` 4, minus the
+tick's own fixed costs). With all three live the event would have deferred every tick, forever —
+measured on the deployed Worker during plan 04-07 under the pre-rename identity `sigma1`
+[pre-rename] and recorded in [`publish-budget.md`](publish-budget.md)'s "Worker runtime budget
+(D-21/D-23, plan 04-07)" section. Workers Paid's 10,000 subrequests per invocation retired that
+argument on 2026-09-22, and quick task 260923-3w4 then deleted the estimate, the cap, the reserve
+and every deferral path they gated on 2026-09-23, so there is no budget arithmetic left to re-derive
+anywhere.
+
+**What still holds the tier at spr is a PUBLISHED-NUMBERS decision, not a budget.** Widening
+`LIVE_ALGORITHM_IDS` makes `opr`/`epa` fold live instead of refreshing at the manual re-baseline,
+which changes numbers the site has already published, so it needs its own algorithm version bump and
+republish. See `apps/worker/wrangler.toml`'s comment above `LIVE_ALGORITHM_IDS` for the same note.
 
 **`opr` and `epa` remain FULLY PUBLISHED** (D-03) — every page and the Compare page still read
 them; `packages/harness/publish.ts`, `packages/harness/manifests.ts` and the algorithms manifest
@@ -378,17 +379,20 @@ are untouched by this. They refresh only at the manual pre/post-event-weekend re
 **not** on the cron. During an event weekend their numbers are as of the last re-baseline — that is
 expected behavior, not a bug.
 
-**SPR-only is permanent — decided 2026-09-13 (quick task 260913-ppk).** OPR and EPA will not be
-rotated into the live tick. The Worker cannot yet sustain even SPR alone inside the CPU budget (see
-the PRE-SEASON GATE below), and the per-event cursor and the TBA ETag are shared across algorithms,
-so an algorithm left out of a tick would have its matches skipped rather than caught up later. The
-full reasoning, and the design premise any reopening must start from, is in
+**SPR-only was decided permanent on 2026-09-13 (quick task 260913-ppk), on two reasons, one of
+which has since gone.** OPR and EPA were not to be rotated into the live tick because (a) the Worker
+could not sustain even SPR alone inside the free plan's 10 ms CPU budget, and (b) the per-event
+cursor and the TBA ETag are shared across algorithms, so an algorithm left out of a tick would have
+its matches skipped rather than caught up later. Reason (a) is gone — Workers Paid allows 30 s of CPU
+per tick. Reason (b) still stands and is not a budget question at all. The full reasoning, and the
+design premise any reopening must start from, is in
 `.planning/todos/completed/vpr-retirement-make-features-algorithm-agnostic.md`.
 
-**Adding a second id to `LIVE_ALGORITHM_IDS` is gated** by
-`apps/worker/test/liveAlgorithmTier.test.ts`, which recomputes the same budget arithmetic
-`processEvent` uses. Re-measure on a deployed Worker before changing the tracked value; do not
-raise the test's threshold to make a wider tier pass.
+**Adding a second id to `LIVE_ALGORITHM_IDS` is pinned** by
+`apps/worker/test/liveAlgorithmTier.test.ts`, which asserts the tracked value by EQUALITY. It used
+to re-derive `processEvent`'s own budget arithmetic, which quick task 260923-3w4 deleted; an equality
+pin is what stops a widened tier from silently going untested. Change the pin deliberately, along
+with the version bump and republish the widening needs.
 
 **Verified 2026-08-23, all measurements below under the pre-rename identity `sigma1` [pre-rename] —
 plan 07-16 renamed the identity afterward without re-running this verification, since the rename
@@ -830,11 +834,14 @@ Every invocation emits exactly one structured line:
 
 ```json
 {"msg":"tick","ok":true,"durationMs":152,"eventsConsidered":0,"eventsAdvanced":0,
- "eventsDeferred":0,"eventsFailed":0,"eventsProbed":0,"eventsPromoted":0,"tbaRequests":0,
+ "eventsFailed":0,"eventsProbed":0,"eventsPromoted":0,"tbaRequests":0,
  "subrequestsUsed":1,"globalRebuildRan":false}
 ```
 
-That is a healthy idle tick: nothing live, one KV read, zero TBA requests. A tick during an
+That is a healthy idle tick: nothing live, one manifest read, zero TBA requests. **There is no
+`eventsDeferred` field any more** — quick task 260923-3w4 deleted the deferral it counted, so a tick
+log from before 2026-09-23 carries one and a current tick does not. `subrequestsUsed` stays: it is
+how an event weekend's shape is read without a tail. A tick during an
 offseason weekend with an open calendar probe window but no matches posted yet looks the same
 except `eventsProbed` is above zero (`eventsPromoted` stays `0` until TBA actually returns
 matches) — see "Before an event: probed automatically, and what ingest + republish still buys
@@ -865,8 +872,7 @@ above. An observation your model says is impossible is the most valuable one you
 |---|---|---|
 | Artifacts stale during a live event | Cron not firing, the event is outside its manifest window, or it is still probe-only (TBA has not returned matches for it yet) | `wrangler tail` — are ticks arriving ~60 s apart at all? If yes, check `eventsProbed`/`eventsPromoted` FIRST: `eventsProbed` above zero with `eventsPromoted` at zero means the Worker is checking a calendar probe window but TBA has not returned matches for it yet — this is normal right up until the event's first match posts. Only if `eventsProbed` is also `0` does the live-windows manifest not think anything is live at all (check `eventsConsidered` next) |
 | Ticks arriving but `eventsConsidered: 0` and `eventsProbed: 0` all weekend | The live-windows manifest went stale — nothing has republished it, or the event genuinely has no window (measured or probe) covering now | Fetch `https://sigmascout.org/v1/manifest/live-windows.json` and check its `computedAt`. Fix by re-running `pnpm publish:seasons` |
-| `"ok":false` in the tick log | A tick is throwing | Read the `error` field first. At 10,000 subrequests per invocation (Workers Paid, since 2026-09-22) the subrequest cap is unlikely to be the cause; check `subrequestsUsed` on the surrounding ticks to rule it out, not as the first suspect |
-| `eventsDeferred` climbing every tick | Subrequest budget saturated; events are being pushed to later ticks | Expected under load and self-correcting — the rotation offset guarantees a deferred event is attempted earlier next tick. If it never drains, more events are live than one tick can serve |
+| `"ok":false` in the tick log | A tick is throwing | Read the `error` field first. At 10,000 subrequests per invocation (Workers Paid, since 2026-09-22) the subrequest cap is unlikely to be the cause, and since quick task 260923-3w4 nothing in the Worker refuses work over it — a tick that really exceeded it would throw from the platform. Check `subrequestsUsed` on the surrounding ticks to rule it out, not as the first suspect |
 | Predictions look wrong but ticks are healthy | Live state has drifted from the offline authority | Re-baseline (above). The offline snapshot always wins; never hand-edit D1 rows |
 | No logs at all in `wrangler tail` | Either nothing is firing, or a version without logging is deployed | `wrangler deployments list` — confirm the current version is at or after `0210df9e`'s deploy. Before that commit the Worker logged nothing, and a silent tail meant nothing either way |
 | `opr` or `epa` metrics look stale mid-event while `spr` updates | Expected — only `spr` folds live (see "Live folding tier" above) | `LIVE_ALGORITHM_IDS` in `apps/worker/wrangler.toml`; refresh via a re-baseline (above) |

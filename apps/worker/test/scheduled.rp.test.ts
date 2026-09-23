@@ -544,7 +544,7 @@ describe("scheduled.rp — ranking points on live rows", () => {
     // persists its own RP beliefs, as production would.
     revealedPrior = PRIOR_FIXTURES.length;
     for (let i = 0; i < PRIOR_FIXTURES.length; i++) {
-      const priorResult = await runTick(env, { nowMs: NOW_MS + i * 60_000, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER, subrequestCap: 1000, subrequestReserve: 0 });
+      const priorResult = await runTick(env, { nowMs: NOW_MS + i * 60_000, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
       expect(priorResult.eventsFailed).toBe(0);
     }
 
@@ -552,7 +552,7 @@ describe("scheduled.rp — ranking points on live rows", () => {
     let lastSubrequests = 0;
     for (let i = 0; i < LIVE_FIXTURES.length; i++) {
       revealedLive = i + 1;
-      const result = await runTick(env, { nowMs: NOW_MS + (PRIOR_FIXTURES.length + i) * 60_000, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER, subrequestCap: 1000, subrequestReserve: 0 });
+      const result = await runTick(env, { nowMs: NOW_MS + (PRIOR_FIXTURES.length + i) * 60_000, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
       expect(result.eventsFailed).toBe(0);
       lastSubrequests = result.subrequestsUsed;
     }
@@ -1031,7 +1031,7 @@ describe("scheduled.rp — the mean shift survives the live Worker (shape 16)", 
     // spr only, the tracked production tier (`LIVE_ALGORITHM_IDS = "spr"`).
     const env = { ...makeEnv(kv, d1, r2), LIVE_ALGORITHM_IDS: "spr" } as Env;
     const tick = (i: number) =>
-      runTick(env, { nowMs: NOW_MS + i * 60_000, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER, subrequestCap: 1000, subrequestReserve: 0 });
+      runTick(env, { nowMs: NOW_MS + i * 60_000, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
 
     msRevealedPrior = MS_PRIOR_FIXTURES.length;
     expect((await tick(0)).eventsFailed).toBe(0);
@@ -1388,8 +1388,6 @@ async function sbHarness(options: SbHarnessOptions = {}): Promise<SbHarness> {
       const result = await runTick(env, {
         nowMs: NOW_MS + tickIndex++ * 60_000,
         globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER,
-        subrequestCap: 1000,
-        subrequestReserve: 0,
       });
       expect(result.eventsFailed).toBe(0);
       expect(result.eventsAdvanced).toBe(1);

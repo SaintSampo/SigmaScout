@@ -12,10 +12,15 @@
  * artifact's `state` block). The publisher keeps `EventArtifactSchema`.
  *
  * `writeArtifactObject` validates-then-persists, in that order, and never
- * the reverse — a malformed object never reaches R2. Every subrequest-
- * consuming call (the actual `put`/`get`) clears `budget.tryConsume` first;
- * a refusal returns/throws a DEFERRED result, never an attempt-then-throw
- * against the platform's real cap.
+ * the reverse — a malformed object never reaches R2. Every subrequest-spending
+ * call (the actual `put`/`get`) records itself on the tick's
+ * `SubrequestCounter` first, which is telemetry only: quick task 260923-3w4
+ * deleted the deferral this used to gate, along with
+ * `WriteArtifactResult.deferred` and `ArtifactReadBudgetExhaustedError`, because
+ * the 50-subrequest free-plan cap they existed for is now 10,000. The counting
+ * still happens BEFORE the call, so `used` is an exact witness of whether the
+ * `put`/`get` itself was reached — `scheduled.ts`'s
+ * `writeArtifactWithBootstrapRetry` reads it for exactly that.
  */
 import {
   artifactKey,
@@ -27,7 +32,7 @@ import {
   type ArtifactKeyParams,
   type PageKind,
 } from "../../../packages/harness/pageArtifacts.js";
-import type { SubrequestBudget } from "./subrequestBudget.js";
+import type { SubrequestCounter } from "./subrequestCounter.js";
 import type { Env } from "./env.js";
 import { LiveRosterSchema, liveRosterKey, type LiveRoster } from "../../../packages/harness/liveRoster.js";
 
@@ -70,28 +75,22 @@ export class ArtifactSecretLeakError extends Error {
   }
 }
 
-/** Thrown by `readArtifactObject` when the budget cannot afford the read — distinct from a genuine miss (which returns `undefined`), so a caller never confuses "budget-starved" with "not published yet." */
-export class ArtifactReadBudgetExhaustedError extends Error {
-  constructor(key: string) {
-    super(`readArtifactObject: subrequest budget exhausted before reading "${key}"`);
-    this.name = "ArtifactReadBudgetExhaustedError";
-  }
-}
-
-export interface WriteArtifactResult {
-  /** `true` when the budget could not accommodate this put — the write was NOT attempted, and the caller should treat this event/team as still-pending for the next tick. Never thrown for this case; deferral is a normal outcome. */
-  readonly deferred: boolean;
-}
-
 /**
  * Validates `artifact` against `page`'s schema (throws on failure, issuing
- * ZERO puts), refuses to write a body containing `env.TBA_API_KEY`, asks
- * `budget.tryConsume(1)` and returns `{ deferred: true }` without writing if
- * the budget cannot accommodate it, and otherwise issues exactly one R2
- * `put` at `artifactKey(page, params)` with `ARTIFACT_CACHE_CONTROL`'s
+ * ZERO puts), refuses to write a body containing `env.TBA_API_KEY`, and
+ * otherwise records one subrequest and issues exactly one R2 `put` at
+ * `artifactKey(page, params)` with `ARTIFACT_CACHE_CONTROL`'s
  * cache-control/content-type metadata.
+ *
+ * IT NO LONGER RETURNS ANYTHING. Until quick task 260923-3w4 it returned
+ * `{ deferred: boolean }`, `true` meaning the subrequest budget could not
+ * accommodate the put so the write was skipped for a later tick. That path only
+ * existed under the free plan's 50-subrequest cap, which is 10,000 on Workers
+ * Paid; `runGlobalRebuild` was the only caller that read the flag, and it
+ * treated a deferral as "the rebuild did not run". A write now either happens or
+ * throws.
  */
-export async function writeArtifactObject(env: Env, budget: SubrequestBudget, page: PageKind, params: ArtifactKeyParams, artifact: unknown): Promise<WriteArtifactResult> {
+export async function writeArtifactObject(env: Env, counter: SubrequestCounter, page: PageKind, params: ArtifactKeyParams, artifact: unknown): Promise<void> {
   const schema = SCHEMA_BY_PAGE[page];
   const validated = schema.parse(artifact);
   const serialized = JSON.stringify(validated);
@@ -100,15 +99,11 @@ export async function writeArtifactObject(env: Env, budget: SubrequestBudget, pa
     throw new ArtifactSecretLeakError(page);
   }
 
-  if (!budget.tryConsume(1)) {
-    return { deferred: true };
-  }
-
+  counter.spend(1);
   const key = artifactKey(params);
   await env.ARTIFACTS.put(key, serialized, {
     httpMetadata: { contentType: ARTIFACT_CONTENT_TYPE, cacheControl: ARTIFACT_CACHE_CONTROL },
   });
-  return { deferred: false };
 }
 
 /**
@@ -117,8 +112,12 @@ export async function writeArtifactObject(env: Env, budget: SubrequestBudget, pa
  * the same cache headers as a page artifact, WITHOUT joining `SCHEMA_BY_PAGE`
  * or `PageKind`, which is what stops it ever being served as a page.
  *
- * The CALLER spends the subrequest, because it is the caller that knows how
- * much of this event's Phase B is still owed (see `scheduled.ts`).
+ * The CALLER records the subrequest on the tick counter, rather than this
+ * function taking one — historically because the caller was the only one that
+ * knew how much of this event's Phase B was still owed and therefore whether
+ * the write was affordable at all. There is no affordability question any more
+ * (quick task 260923-3w4); the split stays only because moving it would change
+ * nothing an operator sees.
  */
 export async function writeLiveRosterObject(env: Env, roster: LiveRoster): Promise<void> {
   const serialized = JSON.stringify(LiveRosterSchema.parse(roster));
@@ -133,13 +132,13 @@ export async function writeLiveRosterObject(env: Env, roster: LiveRoster): Promi
 /**
  * Mirrors `writeArtifactObject` for the read side: `undefined` for a missing
  * key (a normal outcome — a first-ever write for an event/team, never an
- * error) rather than throwing. Throws `ArtifactReadBudgetExhaustedError` when
- * the budget cannot afford the read at all.
+ * error) rather than throwing. It used to also throw
+ * `ArtifactReadBudgetExhaustedError` when the subrequest budget could not
+ * afford the read; quick task 260923-3w4 deleted that error with the budget, so
+ * `undefined` now means exactly one thing — the key is not in R2.
  */
-export async function readArtifactObject(env: Env, budget: SubrequestBudget, key: string): Promise<string | undefined> {
-  if (!budget.tryConsume(1)) {
-    throw new ArtifactReadBudgetExhaustedError(key);
-  }
+export async function readArtifactObject(env: Env, counter: SubrequestCounter, key: string): Promise<string | undefined> {
+  counter.spend(1);
   const object = await env.ARTIFACTS.get(key);
   if (object === null) return undefined;
   return object.text();

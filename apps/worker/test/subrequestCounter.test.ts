@@ -1,65 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { rotate, sortEventKeys, SubrequestBudget, SUBREQUEST_CAP, SUBREQUEST_RESERVE } from "../src/subrequestBudget.js";
+import { rotate, sortEventKeys, SubrequestCounter } from "../src/subrequestCounter.js";
 
-describe("SUBREQUEST_CAP / SUBREQUEST_RESERVE", () => {
-  it("SUBREQUEST_CAP is the documented Workers Paid per-invocation limit (10000, since 2026-09-22)", () => {
-    expect(SUBREQUEST_CAP).toBe(10000);
+/**
+ * The cap, the reserve, `usableCap`, `tryConsume` and the throwing `consume`
+ * were deleted by quick task 260923-3w4 along with every deferral path they
+ * gated, so the describes that pinned their boundary behaviour went with them.
+ * What is left is the counter's one remaining job (feeding the tick log's
+ * `subrequestsUsed`) and the rotation's no-starvation property, which is a
+ * property of the ordering rather than of any cap — see `subrequestCounter.ts`'s
+ * header.
+ */
+describe("SubrequestCounter", () => {
+  it("starts at zero and accumulates what each spend records", () => {
+    const counter = new SubrequestCounter();
+    expect(counter.used).toBe(0);
+    counter.spend(10);
+    counter.spend(36);
+    expect(counter.used).toBe(46);
   });
 
-  it("a named SUBREQUEST_RESERVE is subtracted from the usable budget", () => {
-    const budget = new SubrequestBudget();
-    expect(budget.usableCap).toBe(SUBREQUEST_CAP - SUBREQUEST_RESERVE);
-    expect(budget.usableCap).toBeLessThan(SUBREQUEST_CAP);
-  });
-});
-
-describe("SubrequestBudget.tryConsume", () => {
-  it("returns true and increments while used + n <= usableCap", () => {
-    const budget = new SubrequestBudget(50, 4); // usableCap = 46
-    expect(budget.tryConsume(10)).toBe(true);
-    expect(budget.used).toBe(10);
-    expect(budget.tryConsume(36)).toBe(true);
-    expect(budget.used).toBe(46);
+  it("spends one by default, so a call site that spends exactly one subrequest passes no argument", () => {
+    const counter = new SubrequestCounter();
+    counter.spend();
+    counter.spend();
+    expect(counter.used).toBe(2);
   });
 
-  it("returns false WITHOUT incrementing at the boundary", () => {
-    const budget = new SubrequestBudget(50, 4); // usableCap = 46
-    budget.consume(46);
-    expect(budget.tryConsume(1)).toBe(false);
-    expect(budget.used).toBe(46); // unchanged
-  });
-
-  it("boundary triple: at usableCap-1, a 1-unit consume succeeds and a 2-unit consume fails, neither leaving used above usableCap", () => {
-    const usableCap = SUBREQUEST_CAP - SUBREQUEST_RESERVE;
-
-    const succeeds = new SubrequestBudget();
-    succeeds.consume(usableCap - 1);
-    expect(succeeds.tryConsume(1)).toBe(true);
-    expect(succeeds.used).toBe(usableCap);
-    expect(succeeds.used).toBeLessThanOrEqual(succeeds.usableCap);
-
-    const fails = new SubrequestBudget();
-    fails.consume(usableCap - 1);
-    expect(fails.tryConsume(2)).toBe(false);
-    expect(fails.used).toBe(usableCap - 1); // unchanged by the failed attempt
-    expect(fails.used).toBeLessThanOrEqual(fails.usableCap);
-  });
-
-  it("remaining is never negative after any sequence of tryConsume calls, including repeated over-budget attempts", () => {
-    const budget = new SubrequestBudget(50, 4);
-    for (let i = 0; i < 100; i++) {
-      budget.tryConsume(7); // most of these fail once near the cap
-      expect(budget.remaining).toBeGreaterThanOrEqual(0);
-    }
-    expect(budget.remaining).toBe(budget.usableCap - budget.used);
-  });
-});
-
-describe("SubrequestBudget.consume", () => {
-  it("throws when consuming would exceed the usable budget", () => {
-    const budget = new SubrequestBudget(50, 4);
-    budget.consume(46);
-    expect(() => budget.consume(1)).toThrow(/exceed the usable budget/);
+  it("NEVER refuses: a count far past any platform limit still records, because nothing branches on it", () => {
+    const counter = new SubrequestCounter();
+    for (let i = 0; i < 20_000; i++) counter.spend();
+    expect(counter.used).toBe(20_000);
   });
 });
 
@@ -101,6 +71,9 @@ describe("sortEventKeys", () => {
 
 describe("no-starvation property", () => {
   const events = Array.from({ length: 40 }, (_, i) => `event${String(i).padStart(2, "0")}`);
+  // An abstract early stop, NOT a subrequest cap (there is no cap any more):
+  // whatever makes a tick stop before the tail, the rotation is what stops the
+  // tail from being permanently omitted rather than merely delayed.
   const PER_TICK_CAP = 6;
   const EXPECTED_TICKS = Math.ceil(events.length / PER_TICK_CAP);
 

@@ -6,12 +6,12 @@
  *
  *   GIVEN UP: a second full validation of an already-validated object.
  *     `artifactWriter.ts`'s `writeArtifactObject` calls `schema.parse(artifact)`
- *     before `JSON.stringify` and before `budget.tryConsume`, on EVERY put, on
- *     both the live Worker and the offline `r2Client.ts`. So every object in R2
+ *     before `JSON.stringify` and before the subrequest is counted, on EVERY
+ *     put, on both the live Worker and the offline `r2Client.ts`. So every object in R2
  *     was schema-validated by whichever writer wrote it. The read-side parse
  *     this module replaces was therefore validating the same object a second
  *     time, on the tick whose CPU budget is the thing under pressure. Measured
- *     2026-09-15 by the state probe: ~14.6 ms for the twelve team parses and
+ *     2026-09-15 by the since-deleted CPU probe: ~14.6 ms for the twelve team parses and
  *     ~5.1 ms for the one event parse, out of a ~23 ms Phase B.
  *
  *   KEPT: `writeArtifactObject`'s `schema.parse`, untouched. It runs before the
