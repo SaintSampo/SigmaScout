@@ -38,16 +38,19 @@
  * per-team artifacts. The `-1` "detail fetch failed" event type counts as
  * official, so a failed fetch keeps the leaderboard updating.
  *
- * UPCOMING MATCHES ARE NOT PRICED HERE (260915-isq). The tick writes each
- * still-upcoming match as a schedule-only row (keys, rosters, and the
- * published `sortTime` when the existing row had one). The browser prices
- * those rows from the SPR event artifact's `state` block, which the publisher
- * builds from the same rows it seeds D1 with. Each tick splices the D1 rows
- * Phase A just wrote into that block (`spliceEventStateBlock`), so the block
- * tracks D1 for the event's teams without a D1 read. The Worker never
- * bootstraps a block: an artifact without one (or with one the splice
- * rejects) is written without one, with a structured warn line. The block is
- * dropped once the event has no upcoming match left.
+ * UPCOMING MATCHES ARE PRICED HERE AGAIN (quick task 260923-3w6, reversing
+ * 260915-isq). Phase B prices every still-upcoming match through
+ * `priceUpcomingRows` — the same function the offline publisher's rows and the
+ * web's own pricer go through — from the model Phase A captured at end of fold.
+ * The published `sortTime` is the one input that comes off the existing
+ * artifact rather than the model; it is never re-derived from TBA's `time`.
+ *
+ * Between 260915-isq and 260923-3w6 the tick instead wrote schedule-only rows
+ * and spliced a `state` block (a verbatim copy of the event's D1 rows) into the
+ * artifact for the BROWSER to price from. That existed for one reason — the free
+ * plan's 10 ms of CPU per tick — and the block, its splice, its completion read
+ * and its two warn lines are all deleted. An artifact still carrying a block
+ * from before the reversal has it DROPPED on the next tick.
  *
  * PLAYED ROWS go through the offline publisher's own shared builders
  * (`publishedRows.ts`'s `eventPlayedRow`/`teamSeasonPlayedRow`), so a live row
@@ -81,7 +84,7 @@ import { tbaEventSchema } from "../../../packages/ingest/schemas.js";
 import { type CorpusMatch } from "../../../packages/ingest/normalize.js";
 import { fetchEventDetail } from "../../../packages/ingest/tbaClient.js";
 import { isDemoTeamKey } from "../../../packages/core/algorithms/demoTeams.js";
-import { missingStateBlockKeys, stateBlockScopeKeys } from "../../../packages/harness/eventStatePricing.js";
+import { stateBlockScopeKeys } from "../../../packages/harness/eventStatePricing.js";
 import { isBonusRpCompLevel, isRpEligibleEventType } from "../../../packages/core/rankingPoints/constants.js";
 import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
 import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
@@ -142,7 +145,7 @@ import {
 import { checkLiveEventArtifactShape } from "./artifactShapeCheck.js";
 import { ArtifactSecretLeakError, readArtifactObject, writeArtifactObject, writeLiveRosterObject } from "./artifactWriter.js";
 import { buildLiveRoster, rosterGrew, type RosterSource } from "../../../packages/harness/liveRoster.js";
-import { MAX_SCOPE_KEYS_PER_READ, readEventCursor, readEventCursors, readScopedState, readScopedStateChunked, scopedStateReadStatements, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
+import { readEventCursor, readEventCursors, readScopedStateChunked, scopedStateReadStatements, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
 import { splitEventMatches } from "./matchSplit.js";
 import { TICK_META_EVENT_KEY, stateBaselineEventKey } from "../../../packages/harness/stateBaseline.js";
 import { rotate, sortEventKeys, SubrequestCounter } from "./subrequestCounter.js";
@@ -446,8 +449,6 @@ interface PerAlgorithmFold {
   readonly touchedMetrics: Record<string, Record<string, TeamMetric>>;
   /** Match Band per newly-folded match key. */
   readonly newBands: ReadonlyMap<string, MatchBand>;
-  /** The changed rows Phase A passed to `writeScopedState`; Phase B splices them into the SPR event artifact's `state` block. */
-  readonly writtenRows: readonly StateRow[];
   /**
    * This algorithm's END-OF-TICK state and level-2 accumulators, as the shared
    * `priceUpcomingRows` wants them (quick task 260923-3w6). Phase B prices every
@@ -942,8 +943,9 @@ async function processEvent(
         const rpKnownTeams = new Set(rpBeliefs.keys());
 
         // One accessor for this tick's played-row RP. Mirrors
-        // `SigmaScoutLayer.#rpFieldsFor`; change them together. Upcoming
-        // matches are priced in the browser from the event's `state` block.
+        // `SigmaScoutLayer.#rpFieldsFor`; change them together. An UPCOMING
+        // match's RP comes from `priceUpcomingRows` instead, which mirrors the
+        // same layer method — see `upcomingPricing.ts`.
         const rpFieldsFor = (
           view: { redTeams: readonly string[]; blueTeams: readonly string[]; eventType: number; matchKey: string; compLevel: MatchResult["compLevel"] },
           prediction: Prediction,
@@ -1123,7 +1125,7 @@ async function processEvent(
         counter.spend(1);
         await writeScopedState(env.DB, changedRows); // may throw -- caught below, reverts the claim and aborts the WHOLE event (zero artifact puts)
 
-        perAlgorithm.set(algorithmId, { algorithm, newPredictions, touchedMetrics, newBands, touchedSigma, writtenRows: changedRows, observedBonusSides, upcomingModel });
+        perAlgorithm.set(algorithmId, { algorithm, newPredictions, touchedMetrics, newBands, touchedSigma, observedBonusSides, upcomingModel });
       }
 
       return await runPhaseBAndReport(env, counter, window, eventKey, eventType, fetchedEventType, rawMatches, newlyFolded, newlyFoldedResults, stillUpcoming, touchedTeams, realTouchedTeams, perAlgorithm, touchedTeamsByAlgorithm, stamp);
@@ -1194,39 +1196,6 @@ async function runPhaseBAndReport(
       const eventParams = { page: "event" as const, eventKey, algorithmId, version: info.algorithm.version };
       const { artifact: existingEvent, bytes: existingEventBytes } = await readExistingEvent(env, counter, eventParams);
 
-      // COMPLETE THE STATE BLOCK WHEN IT IS INCOMPLETE (quick task 260921-5qw).
-      // An event promoted without ever being published offline has no block,
-      // and one published before its schedule existed lacks its roster, so its
-      // upcoming matches stayed unpriced until an operator re-baselined. The
-      // keys the block needs are every team still on the schedule; the teams
-      // this tick touched arrive through the splice. Anything else missing is
-      // read from D1 here, AFTER Phase A's write, in one statement.
-      //
-      // NO LONGER OPPORTUNISTIC (quick task 260923-3w4): this read used to sit
-      // behind `tryConsume` and a "is a subrequest still owed to a later
-      // algorithm's write" check, so a busy tick simply tried again next time
-      // and the event's upcoming matches stayed unpriced meanwhile. It now
-      // always runs when the block needs it. A key D1 has no row for is
-      // recorded absent on the block, so a rookie does not cost a read on
-      // every later tick.
-      let blockD1Rows: StateRow[] | undefined;
-      let blockReadKeys: string[] = [];
-      if (algorithmId === spr.id && stillUpcoming.length > 0) {
-        const scheduledTeams = stillUpcoming.flatMap((m) => [...m.redTeams, ...m.blueTeams]);
-        const arrivingBySplice = new Set(stateBlockScopeKeys(touchedTeams));
-        blockReadKeys = missingStateBlockKeys(existingEvent?.state, scheduledTeams)
-          .filter((teamKey) => !arrivingBySplice.has(teamKey))
-          .slice(0, MAX_SCOPE_KEYS_PER_READ);
-        if (existingEvent?.state === undefined || blockReadKeys.length > 0) {
-          counter.spend(1);
-          try {
-            blockD1Rows = await readScopedState(env.DB, algorithmId, [{ scopeKind: "team", scopeKeys: blockReadKeys }]);
-          } catch (error) {
-            // Best effort, like every Phase B write: the fold is already durable in D1.
-            console.warn(JSON.stringify({ msg: "event-state-block-read-failed", eventKey, algorithmId, error: error instanceof Error ? error.name : "unknown" }));
-          }
-        }
-      }
       // THE REMAINING SCHEDULE, PRICED HERE (quick task 260923-3w6). The rows go
       // through the publisher's own builder inside `priceUpcomingRows`, from the
       // model Phase A captured, so a live row and the republished row for the
@@ -1295,7 +1264,6 @@ async function runPhaseBAndReport(
         newPredictions: info.newPredictions,
         upcoming: pricedUpcoming,
         newBands: info.newBands,
-        writtenRows: info.writtenRows,
         touchedTeams,
         touchedMetrics: info.touchedMetrics,
         playedRowFacts,
@@ -1307,7 +1275,6 @@ async function runPhaseBAndReport(
         touchedSigma: info.touchedSigma,
         existingBodyBytes: existingEventBytes,
         stamp,
-        ...(blockD1Rows !== undefined ? { blockD1Rows, blockReadKeys } : {}),
       };
       const mergedEvent = mergeEventArtifact(eventMergeParams);
       await writeArtifactWithBootstrapRetry(env, counter, "event", eventParams, mergedEvent, algorithmId, () =>

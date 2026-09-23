@@ -181,9 +181,11 @@ describe("the D1 seed carries the Sigma Score beliefs (shape 11)", () => {
 
 describe("publish.ts's seed block chains every level-2 passenger (structural)", () => {
   it("the one emitSeedSql call site is fed rows carrying Sigma, the Sigma population, and RP", () => {
-    // Retargeted in 260915-isq: the passenger chain lives in `seedStateRows`, which feeds both the
-    // emitSeedSql call site and every SPR event artifact's `state` block (through one memoized getter),
-    // so the passengers are asserted on the helper and the two consumers on its getter.
+    // Retargeted in 260915-isq to cover two consumers of one memoized getter: the
+    // emitSeedSql call site and every SPR event artifact's `state` block. Quick task
+    // 260923-3w6 deleted the second consumer — the live Worker prices upcoming
+    // matches itself again, so no artifact carries a copy of the seed rows. What is
+    // left is the ONE consumer that matters: the D1 seed the live tick resumes from.
     const source = readFileSync(new URL("./publish.ts", import.meta.url), "utf8");
     const helper = /function seedStateRows\([\s\S]*?\n}\n/.exec(source);
     expect(helper, "expected to find publish.ts's seedStateRows helper").not.toBeNull();
@@ -193,10 +195,11 @@ describe("publish.ts's seed block chains every level-2 passenger (structural)", 
     const seedLoop = /const stateRows = finalSeasonStateRows\.get\(algorithm\.id\);[\s\S]*?emitSeedSql\(rows, /.exec(source);
     expect(seedLoop, "the emitSeedSql call site is no longer fed the helper's memoized rows").not.toBeNull();
     expect(seedLoop![0]).toContain("const rows = stateRows();");
-    expect(source, "the event blocks no longer read the same getter").toContain("stateRows: eventStateRowsForAlgo,");
-    expect(source).toContain("const eventStateRowsForAlgo = algorithm === spr ? stateRowsForAlgo : undefined;");
     expect(source).toContain("memoizedSeedStateRows(algorithm, state, layerForAlgo, stamp)");
     expect(source).toMatch(/function memoizedSeedStateRows\([\s\S]*?seedStateRows\(algorithm, state, layer, stamp\)/);
+    // And the deleted consumer stays deleted: a `state` block cut from these rows
+    // would put the same state in two places again, which is what 260923-3w6 undid.
+    expect(source, "publish.ts builds a state block again").not.toContain("buildEventStateBlock");
 
     // Each of these is a separate, silent divergence between the live Worker
     // and the artifacts it serves if it goes missing. `withSigmaPopulation` is

@@ -1262,7 +1262,8 @@ function sbJson<T>(value: T): unknown {
   return JSON.parse(JSON.stringify(value));
 }
 
-function sbBlockRowOf(row: FakeAlgorithmStateRow): EventStateBlockRow {
+/** One `FakeD1Database` row back in `StateRow` shape, so a D1 row can be compared field for field against a seed row. */
+function sbStateRowOf(row: FakeAlgorithmStateRow): EventStateBlockRow {
   return {
     algorithmId: row.algorithm_id,
     algorithmVersion: row.algorithm_version,
@@ -1295,6 +1296,8 @@ interface SbHarnessOptions {
 interface SbHarness {
   readonly d1: CountingFakeD1Database;
   readonly r2: FakeR2Bucket;
+  /** The emulated publish's own D1 seed rows — the oracle for "this team's state never advanced". */
+  readonly publishedRows: readonly StateRow[];
   readonly publishedBlock: EventStateBlock;
   readonly publishedUpcoming: EventUpcomingMatch[];
   /** Reveals live matches 1..`played` and runs one tick. */
@@ -1393,6 +1396,7 @@ async function sbHarness(options: SbHarnessOptions = {}): Promise<SbHarness> {
   return {
     d1,
     r2,
+    publishedRows: published.rows,
     publishedBlock,
     publishedUpcoming: published.upcoming,
     async tickTo(played: number) {
@@ -1426,7 +1430,7 @@ function sbExpectExact(actual: readonly EventUpcomingMatch[], expected: readonly
   expect(sbJson(actual)).toStrictEqual(sbJson(expected));
 }
 
-describe("scheduled.rp — the state block survives the live Worker", () => {
+describe("scheduled.rp — the tick's own upcoming rows are the offline publisher's", () => {
   it("non-vacuity: the fixture is warm, mixes touched and untouched teams, and the offline rows carry bands and RP", () => {
     const published = sbOfflineAt(SB_PUBLISHED_PLAYED);
     expect(published.meanShift, "no mean-shift state offline").toBeDefined();
@@ -1448,7 +1452,7 @@ describe("scheduled.rp — the state block survives the live Worker", () => {
   });
 
   it(
-    "three ticks: the pricer on the Worker's block reproduces the offline upcoming rows exactly, and the block is dropped on the last match",
+    "three ticks: the rows the Worker itself writes reproduce the offline upcoming rows exactly, and no state block is ever written",
     async () => {
       const harness = await sbHarness();
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -1463,26 +1467,31 @@ describe("scheduled.rp — the state block survives the live Worker", () => {
         expect(afterTick1.eventType).toBe(EVENT_TYPE);
         sbExpectExact(sbWrittenUpcoming(afterTick1), sbOfflineAt(5).upcoming);
 
-        const block1 = EventStateBlockSchema.parse(afterTick1.state);
+        // NO BLOCK, EVER (quick task 260923-3w6). The artifact the tick writes
+        // carries no `state` key at all, and the one the emulated publish put in
+        // R2 was DROPPED rather than carried forward on the spread.
+        expect("state" in afterTick1, "the tick wrote a state block").toBe(false);
+
+        // THE WRITE-SET ORACLE, now read straight off D1 instead of off the block
+        // the tick used to splice. Phase A reads state for all twelve teams so
+        // Phase B can price the schedule, so this is the assertion that the READ
+        // widening did not turn into a WRITE widening: a team that played this
+        // tick has a freshly stamped row, and a team that did not still holds the
+        // publish's row byte for byte, stamps included.
         const touched1 = new Set(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
-        const publishedByKey = new Map(harness.publishedBlock.rows.map((r) => [`${r.scopeKind}:${r.scopeKey}`, r]));
-        expect(block1.rows[0]!.scopeKind).toBe("league");
-        const teamKeys = block1.rows.slice(1).map((r) => r.scopeKey);
-        expect(block1.rows.slice(1).every((r) => r.scopeKind === "team")).toBe(true);
-        expect(teamKeys).toEqual([...teamKeys].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)));
-        expect(new Set(teamKeys)).toEqual(new Set(SB_TEAMS));
-        for (const row of block1.rows) {
-          if (row.scopeKind === "team" && !touched1.has(row.scopeKey)) {
-            // Untouched: the publish's copy, stamps included.
-            expect(row, `untouched ${row.scopeKey}`).toEqual(publishedByKey.get(`team:${row.scopeKey}`));
+        const publishedByKey = new Map(harness.publishedRows.map((r) => [`${r.scopeKind}::${r.scopeKey}`, r]));
+        for (const teamKey of SB_TEAMS) {
+          const d1Row = harness.d1.algorithmState.get(`spr::team::${teamKey}`);
+          expect(d1Row, `no D1 row for ${teamKey}`).toBeDefined();
+          if (touched1.has(teamKey)) {
+            expect(d1Row!.generation, `${teamKey} played this tick and was not rewritten`).not.toBe(SB_SEED_STAMP.generation);
           } else {
-            // Touched teams and the league row: exactly what the tick wrote to D1.
-            const d1Row = harness.d1.algorithmState.get(`spr::${row.scopeKind}::${row.scopeKey}`);
-            expect(d1Row, `no D1 row for ${row.scopeKind}:${row.scopeKey}`).toBeDefined();
-            expect(row, `${row.scopeKind}:${row.scopeKey}`).toEqual(sbBlockRowOf(d1Row!));
-            expect(row.generation, `${row.scopeKind}:${row.scopeKey} was not rewritten by the tick`).not.toBe(SB_SEED_STAMP.generation);
+            expect(sbStateRowOf(d1Row!), `untouched ${teamKey}`).toEqual(publishedByKey.get(`team::${teamKey}`));
           }
         }
+        // The league row always advances: the scale, the Sigma population and the
+        // RP mean shift all move on every fold.
+        expect(harness.d1.algorithmState.get("spr::league::league")!.generation).not.toBe(SB_SEED_STAMP.generation);
 
         // Fully priced rows, with the published sort time preserved rather than
         // re-derived from TBA's `time` (260915-isq's one surviving rule).
@@ -1501,22 +1510,26 @@ describe("scheduled.rp — the state block survives the live Worker", () => {
         await harness.tickTo(7);
         const afterTick2 = await harness.readArtifact();
         sbExpectExact(sbWrittenUpcoming(afterTick2), sbOfflineAt(7).upcoming);
-        const block2 = EventStateBlockSchema.parse(afterTick2.state);
-        expect(block2.rows.find((r) => r.scopeKey === "frc12"), "frc12 keeps the publish's row").toEqual(publishedByKey.get("team:frc12"));
-        expect(block2.rows.find((r) => r.scopeKey === "frc5"), "frc5 keeps tick 1's row").toEqual(block1.rows.find((r) => r.scopeKey === "frc5"));
+        expect("state" in afterTick2).toBe(false);
+        // frc12 is on match 8's roster and has still played nothing, so two ticks
+        // of reading its state have left its D1 row exactly as the publish wrote
+        // it — and match 8 still prices, from that row.
+        expect(sbStateRowOf(harness.d1.algorithmState.get("spr::team::frc12")!), "frc12 keeps the publish's row").toEqual(
+          publishedByKey.get("team::frc12")
+        );
         for (const row of afterTick2.upcoming) {
           expect(row.sortTime).toBe(publishedSortTimes.get(row.matchKey as string));
           expect(row.redRpPmf, `${String(row.matchKey)}: no RP pmf`).toBeDefined();
         }
 
-        // Tick 3: the last match. No upcoming match left, so no block.
+        // Tick 3: the last match. Nothing left to price.
         await harness.tickTo(8);
         const afterTick3 = await harness.readArtifact();
         expect(afterTick3.upcoming).toEqual([]);
-        expect("state" in afterTick3, "the block outlived the event's last upcoming match").toBe(false);
+        expect("state" in afterTick3).toBe(false);
         expect(afterTick3.eventType).toBe(EVENT_TYPE);
 
-        expect(warn, "a block-carrying artifact must not warn").not.toHaveBeenCalled();
+        expect(warn, "the healthy path must not warn").not.toHaveBeenCalled();
       } finally {
         warn.mockRestore();
       }
@@ -1525,7 +1538,7 @@ describe("scheduled.rp — the state block survives the live Worker", () => {
   );
 });
 
-describe("scheduled.rp — state block warning paths and eventType", () => {
+describe("scheduled.rp — a published state block is dropped, and eventType", () => {
   function warnLines(warn: { readonly mock: { readonly calls: readonly (readonly unknown[])[] } }, msg: string): Record<string, unknown>[] {
     return warn.mock.calls
       .map((call: readonly unknown[]) => {
@@ -1545,69 +1558,14 @@ describe("scheduled.rp — state block warning paths and eventType", () => {
   }
 
   it(
-    "an artifact published WITHOUT a block gets one COMPLETED by the tick: row for row the block a published one would hold, for one extra D1 read, once (quick task 260921-5qw)",
+    "a published block is DROPPED and nothing is warned about it — even one the retired splice would have rejected",
     async () => {
-      const withBlock = await sbHarness();
-      const quiet = vi.spyOn(console, "warn").mockImplementation(() => {});
-      await withBlock.tickTo(5);
-      quiet.mockRestore();
-      vi.unstubAllGlobals();
-
-      const harness = await sbHarness({ publishedState: "none" });
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      try {
-        await harness.tickTo(5);
-        const artifact = await harness.readArtifact();
-        const completed = artifact.state as EventStateBlock | undefined;
-        const reference = (await withBlock.readArtifact()).state as EventStateBlock;
-        // Until this task the artifact was written with NO block and its upcoming
-        // matches could not be priced until an operator re-baselined.
-        expect(completed, "the tick left a block-less artifact block-less").toBeDefined();
-        expectPriced(artifact.upcoming, 5);
-
-        // THE ORACLE: the same event, published WITH a block and maintained by
-        // the splice over the same five ticks. Every team still on the schedule
-        // must be in the completed block, and every row the two share must be
-        // byte-identical, league row included.
-        const referenceByKey = new Map(reference.rows.map((row) => [`${row.scopeKind}:${row.scopeKey}`, row]));
-        const completedKeys = new Set(completed!.rows.map((row) => `${row.scopeKind}:${row.scopeKey}`));
-        expect(completedKeys.has("league:league")).toBe(true);
-        for (const match of artifact.upcoming) {
-          for (const teamKey of [...(match.redTeams as string[]), ...(match.blueTeams as string[])]) {
-            if (!referenceByKey.has(`team:${teamKey}`)) continue; // no D1 row for it on either side
-            expect(completedKeys.has(`team:${teamKey}`), `${teamKey} is on the schedule and missing from the completed block`).toBe(true);
-          }
-        }
-        let compared = 0;
-        for (const row of completed!.rows) {
-          const ref = referenceByKey.get(`${row.scopeKind}:${row.scopeKey}`);
-          if (ref === undefined) continue;
-          expect(row, `${row.scopeKind}:${row.scopeKey}`).toEqual(ref);
-          compared++;
-        }
-        expect(compared, "the oracle compared nothing").toBeGreaterThan(1);
-
-        expect(warnLines(warn, "event-state-block-missing")).toEqual([]);
-        expect(warnLines(warn, "event-state-block-invalid")).toEqual([]);
-        // Counts and keys only: no artifact body or state row rides on a line.
-        for (const call of warn.mock.calls) {
-          expect(String(call[0])).not.toContain("stateJson");
-          expect(String(call[0])).not.toContain("redTeams");
-        }
-
-        // ONE extra read across all five ticks: the first tick completes the
-        // block and every later tick finds nothing missing.
-        expect(harness.d1.selectCalls - withBlock.d1.selectCalls, "the completion read did not happen exactly once").toBe(1);
-      } finally {
-        warn.mockRestore();
-      }
-    },
-    120_000
-  );
-
-  it(
-    "a published block the splice rejects (another algorithm version) is dropped, with one invalid-block warn line",
-    async () => {
+      // Until quick task 260923-3w6 this block's stale `algorithmVersion` made the
+      // splice throw, which cost the event its browser pricing and emitted an
+      // `event-state-block-invalid` line an operator had to act on by republishing
+      // and re-seeding as a matched pair. The tick reads no block at all now, so a
+      // stale one is simply dropped on the next write and there is nothing to warn
+      // about: the upcoming rows price from D1 regardless.
       const stale = (block: EventStateBlock): EventStateBlock => ({
         ...block,
         algorithmVersion: "0.0.0+stale",
@@ -1621,11 +1579,9 @@ describe("scheduled.rp — state block warning paths and eventType", () => {
         const artifact = await harness.readArtifact();
         expect("state" in artifact).toBe(false);
         expectPriced(artifact.upcoming, 5);
-        const lines = warnLines(warn, "event-state-block-invalid");
-        expect(lines).toHaveLength(1);
-        expect(lines[0]).toMatchObject({ msg: "event-state-block-invalid", eventKey: SB_LIVE_EVENT_KEY, algorithmId: "spr", upcoming: 3 });
-        expect(String(lines[0]!.error)).toMatch(/0\.0\.0\+stale/);
+        expect(warnLines(warn, "event-state-block-invalid")).toEqual([]);
         expect(warnLines(warn, "event-state-block-missing")).toEqual([]);
+        expect(warnLines(warn, "upcoming-pricing-failed")).toEqual([]);
       } finally {
         warn.mockRestore();
       }

@@ -172,7 +172,6 @@ function mergeEventRaw(options: EventTickOptions): Record<string, unknown> {
     touchedTeams: TOUCHED,
     touchedMetrics: FRESH_METRICS,
     newBands: new Map(),
-    writtenRows: [],
     // Task 3: the merges take this tick's per-match facts; these preservation
     // fixtures fold no facts, which is a valid (empty) value.
     playedRowFacts: new Map(),

@@ -665,7 +665,7 @@ describe("liveAlgorithmTier — a preseason Week 0 match is priced and never fol
   });
 });
 
-describe("liveAlgorithmTier — a promoted event's state block is completed by the tick itself (quick task 260921-5qw)", () => {
+describe("liveAlgorithmTier — a promoted event's upcoming match is priced by the tick itself (quick task 260923-3w6)", () => {
   const UPCOMING_TEAMS = ["frc7", "frc8", "frc9", "frc10", "frc11", "frc12"];
   /** frc12 has no row in D1: a rookie. Everyone else is seeded. */
   const SEEDED_TEAMS = [...ALL_TEAMS, ...UPCOMING_TEAMS.filter((t) => t !== "frc12")];
@@ -686,14 +686,19 @@ describe("liveAlgorithmTier — a promoted event's state block is completed by t
     return d1;
   }
 
-  function stateOf(r2: FakeR2Bucket, eventKey: string): { rows: { scopeKind: string; scopeKey: string }[]; absentKeys?: string[] } | undefined {
+  interface PublishedEvent {
+    readonly state?: unknown;
+    readonly upcoming: Record<string, unknown>[];
+  }
+
+  function publishedEvent(r2: FakeR2Bucket, eventKey: string): PublishedEvent {
     const key = artifactKey({ page: "event", eventKey, algorithmId: "spr", version: PREMIER_TEST_VERSION });
     const put = r2.puts.filter((p) => p.key === key).at(-1);
     expect(put, "the tick wrote no event artifact").toBeDefined();
-    return (JSON.parse(put!.body) as { state?: { rows: { scopeKind: string; scopeKey: string }[]; absentKeys?: string[] } }).state;
+    return JSON.parse(put!.body) as PublishedEvent;
   }
 
-  it("no published artifact at all: the first fold leaves a block holding the league row, every touched team AND every team on the upcoming match, with the rookie recorded absent", async () => {
+  it("no published artifact at all: the first fold prices the still-upcoming match itself and writes no state block", async () => {
     const window: WindowFixture = { eventKey: "2026promo", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const d1 = seededD1();
     const r2 = new FakeR2Bucket();
@@ -702,26 +707,45 @@ describe("liveAlgorithmTier — a promoted event's state block is completed by t
     const result = await runTick(makeEnv(makeManifests([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS });
     expect(result.eventsAdvanced).toBe(1);
 
-    const state = stateOf(r2, "2026promo");
-    expect(state, "a promoted event has no state block, so its upcoming match cannot be priced").toBeDefined();
-    expect(state!.rows.filter((r) => r.scopeKind === "league")).toHaveLength(1);
-    expect(state!.rows.filter((r) => r.scopeKind === "team").map((r) => r.scopeKey).sort()).toEqual([...SEEDED_TEAMS].sort());
-    expect(state!.absentKeys).toEqual(["frc12"]);
+    // An event promoted to live folding with no offline publish behind it used to
+    // need a `state` block completed out of D1 before its upcoming matches could
+    // be priced at all (260921-5qw). The tick prices them directly now, so there
+    // is no block and no operator step.
+    const artifact = publishedEvent(r2, "2026promo");
+    expect(artifact).not.toHaveProperty("state");
+    expect(artifact.upcoming.map((row) => row.matchKey)).toEqual(["2026promo_qm2"]);
+    const qm2 = artifact.upcoming[0]!;
+    expect(qm2.pRedWin, "the upcoming match was not priced").toBeTypeOf("number");
+    expect(qm2.predictedRedScore).toBeTypeOf("number");
+    // qm2's whole roster is unseen — nobody on it has played — so the offline
+    // rule gives neither alliance a band and the match no ranking points. That
+    // agreement with the publisher is the point; a price-from-prior band here
+    // would be a number the next republish silently changes.
+    expect(qm2).not.toHaveProperty("redMatchBandVariance");
+    expect(qm2).not.toHaveProperty("redRpPmf");
   });
 
-  it("the completion read happens ONCE: a later tick that folds nothing new for the block spends no extra D1 read on it", async () => {
+  it("one D1 state read per tick, and it covers the remaining schedule's teams — including the rookie with no row", async () => {
     const window: WindowFixture = { eventKey: "2026promo", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const d1 = seededD1();
     const r2 = new FakeR2Bucket();
     const selects = vi.spyOn(d1, "executeSelect");
-    const stateReads = (): number => selects.mock.calls.filter(([sql]) => String(sql).includes("FROM algorithm_state")).length;
+    const stateReadCalls = () => selects.mock.calls.filter(([sql]) => String(sql).includes("FROM algorithm_state"));
 
     const first = twoMatchEventRecord("2026promo", "etag-1");
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", first]])));
     await runTick(makeEnv(makeManifests([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS });
-    const readsOnFirstTick = stateReads();
-    // The fold's own read, plus exactly one to complete the block.
-    expect(readsOnFirstTick).toBe(2);
+    // ONE statement, not two: the fold's own read now also carries the teams
+    // Phase B needs to price the schedule, where 260921-5qw spent a second read
+    // completing a `state` block.
+    expect(stateReadCalls()).toHaveLength(1);
+    // And it really asked for them: qm1's six plus qm2's six, frc12 included even
+    // though D1 has no row for it (reading it is how the pricer learns it is
+    // unseen rather than guessing).
+    const boundKeys = stateReadCalls()[0]![1] as readonly unknown[];
+    for (const teamKey of [...ALL_TEAMS, ...UPCOMING_TEAMS]) {
+      expect(boundKeys, `${teamKey} was not in the state read`).toContain(teamKey);
+    }
 
     // A third match is played by the ORIGINAL six teams; qm2 is still upcoming.
     const second: TbaEventRecord = {
@@ -732,9 +756,8 @@ describe("liveAlgorithmTier — a promoted event's state block is completed by t
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", second]])));
     const result = await runTick(makeEnv(makeManifests([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS + 60_000 });
     expect(result.eventsAdvanced).toBe(1);
-    // Only the fold's own read: the block is complete and frc12 is known absent.
-    expect(stateReads() - readsOnFirstTick).toBe(1);
-    expect(stateOf(r2, "2026promo")!.absentKeys).toEqual(["frc12"]);
+    expect(stateReadCalls()).toHaveLength(2);
+    expect(publishedEvent(r2, "2026promo")).not.toHaveProperty("state");
   });
 
   it("the live roster is written on the first fold, NOT rewritten by an ordinary tick, and rewritten when a team is added", async () => {

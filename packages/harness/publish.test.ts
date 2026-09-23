@@ -5211,16 +5211,21 @@ describe("RP calibration wire-budget cost", () => {
 });
 
 /**
- * 260915-isq: the SPR event artifact's `state` block is built from exactly the rows the D1 seed
- * carries, and every event artifact carries `eventType`. `emitSeedSql` is mocked (hoisted at the top of
- * this file) to capture its rows; every other test here uses `skipState: true` and never reaches it.
+ * NO EVENT ARTIFACT CARRIES A `state` BLOCK (quick task 260923-3w6, reversing 260915-isq). The live
+ * Worker prices upcoming matches itself again, so the publisher stopped cutting a copy of the D1 seed
+ * rows into every SPR event artifact. What must NOT have changed is the D1 seed itself, which is what
+ * the tick resumes from — `emitSeedSql` is mocked (hoisted at the top of this file) to capture its
+ * rows, and the first test below asserts the seed is still emitted while no block is.
+ *
+ * Every other test in this file uses `skipState: true` and never reaches `emitSeedSql`.
  */
-describe("publishSeasons — the SPR state block comes from the seed rows (260915-isq)", () => {
+describe("publishSeasons — the seed rows are still emitted, and no event artifact carries a state block (260923-3w6)", () => {
   let dir: string;
   let db: Corpus;
   const SEASON_2024 = 2024;
-  // The fixture's sortTimes are small epoch-ms values, so the run clock sits just after them: the
-  // unplayed matches are current and the block is attached (see `eventScheduleIsCurrent`).
+  // The fixture's sortTimes are small epoch-ms values, so the run clock sits just after them, which
+  // is what made the (now deleted) staleness gate attach a block. Kept so this fixture is still the
+  // "live event, current schedule" case rather than a long-finished one.
   const FIXTURE_SCHEDULE_CLOCK = new Date(6_000).toISOString();
   const TEAMS = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
 
@@ -5291,25 +5296,22 @@ describe("publishSeasons — the SPR state block comes from the seed rows (26091
     await publishSeasons(db, { seasons: [SEASON_2024], algorithms: [opr, spr], bucket: "test-bucket", dryRun: false, skipState: false, computedAt: FIXTURE_SCHEDULE_CLOCK });
   }
 
-  it("the spr block deep-equals buildEventStateBlock over the captured seed rows and the event's match rosters, stateJson for stateJson", async () => {
+  it("the D1 seed rows are still emitted, and the live SPR event with upcoming matches carries NO state block", async () => {
     await publish();
+    // The seed is what the live tick resumes from, so it must survive this change
+    // untouched — the block is the only thing that goes.
     const seedRows = capturedSeedRows.get(spr.id) as readonly StateRow[] | undefined;
     expect(seedRows, "emitSeedSql was never called for spr").toBeDefined();
+    expect(seedRows!.filter((r) => r.scopeKind === "league")).toHaveLength(1);
+    expect(seedRows!.filter((r) => r.scopeKind === "team").map((r) => r.scopeKey).sort()).toEqual([...TEAMS].sort());
 
     const artifact = findEventArtifact("2024live", spr.id);
     expect(artifact.upcoming.map((r) => r.matchKey)).toEqual(["2024live_qm9", "2024live_qm10"]);
     expect(artifact.eventType).toBe(0);
-    expect(artifact.state, "an spr event with upcoming matches carries no state block").toBeDefined();
-    expect(artifact.state).toEqual(buildEventStateBlock(seedRows!, TEAMS));
-
-    const seedByScope = new Map(seedRows!.map((r) => [`${r.scopeKind}:${r.scopeKey}`, r]));
-    expect(artifact.state!.rows.length).toBe(TEAMS.length + 1);
-    for (const row of artifact.state!.rows) {
-      expect(row.stateJson, `${row.scopeKind}:${row.scopeKey}`).toBe(seedByScope.get(`${row.scopeKind}:${row.scopeKey}`)!.stateJson);
-    }
+    expect("state" in artifact, "the publisher still cuts a state block into an SPR event artifact").toBe(false);
   });
 
-  it("opr carries eventType and no block; a fully played spr event carries eventType and no block; offline upcoming rows keep every priced field", async () => {
+  it("no event artifact of any algorithm carries a block, and the offline upcoming rows keep every priced field", async () => {
     await publish();
     const oprLive = findEventArtifact("2024live", opr.id);
     expect(oprLive.eventType).toBe(0);
@@ -5330,70 +5332,20 @@ describe("publishSeasons — the SPR state block comes from the seed rows (26091
     }
   });
 
-  it("end to end: the pricer on the JSON round-tripped published block reproduces the artifact's own upcoming rows", async () => {
-    await publish();
-    const artifact = findEventArtifact("2024live", spr.id);
-    // Non-vacuity: the rows being reproduced carry a band.
-    expect(artifact.upcoming.some((r) => r.redMatchBandVariance !== undefined || r.blueMatchBandVariance !== undefined)).toBe(true);
-
-    const wire = EventStateBlockSchema.parse(JSON.parse(JSON.stringify(artifact.state)));
-    const priced = priceUpcomingFromState({
-      state: wire,
-      eventKey: artifact.eventKey,
-      season: SEASON_2024,
-      eventType: artifact.eventType!,
-      ruleModule: RP_RULE_MODULES[SEASON_2024],
-      upcoming: artifact.upcoming,
-    });
-    expect(priced.event).toEqual(artifact.upcoming);
-    expect(JSON.parse(JSON.stringify(priced.event))).toStrictEqual(JSON.parse(JSON.stringify(artifact.upcoming)));
-  });
-
-  it("buildEventArtifact calls stateRows only for spr with a non-empty upcoming, and emits eventType whenever it is given", () => {
-    const stateRows = vi.fn((): readonly StateRow[] => {
-      throw new Error("stateRows must not be called here");
-    });
-    const oprArtifact = buildEventArtifact(eventArtifactParams({ algorithmId: "opr", eventType: 3, stateRows }));
+  it("buildEventArtifact emits eventType whenever it is given, and never a `state` key", () => {
+    const oprArtifact = buildEventArtifact(eventArtifactParams({ algorithmId: "opr", eventType: 3 }));
     expect(oprArtifact.eventType).toBe(3);
     expect("state" in oprArtifact).toBe(false);
-    const finished = buildEventArtifact(eventArtifactParams({ upcoming: [], eventType: 0, stateRows }));
+    const finished = buildEventArtifact(eventArtifactParams({ upcoming: [], eventType: 0 }));
     expect(finished.eventType).toBe(0);
     expect("state" in finished).toBe(false);
-    expect(stateRows).not.toHaveBeenCalled();
+    // The SPR, non-empty-upcoming, current-schedule case: the one combination that
+    // used to attach a block, asserted explicitly so its removal cannot regress.
+    const sprLive = buildEventArtifact(eventArtifactParams({ eventType: 0 }));
+    expect(sprLive.upcoming).toHaveLength(1);
+    expect("state" in sprLive).toBe(false);
     // No eventType given: no key, never a default.
     expect("eventType" in buildEventArtifact(eventArtifactParams())).toBe(false);
-  });
-
-  it("buildEventArtifact attaches no block to a long-finished event whose unplayed matches were never played, and reaches for one when the schedule is current", () => {
-    const upcomingKey = fixtureUpcoming().matchKey;
-    const computedAt = "2026-09-15T00:00:00.000Z";
-    const stale = vi.fn((): readonly StateRow[] => {
-      throw new Error("stateRows must not be called for a stale event");
-    });
-    const staleArtifact = buildEventArtifact(
-      eventArtifactParams({
-        computedAt,
-        eventType: 0,
-        sortTimeByMatchKey: new Map([[upcomingKey, Date.parse(computedAt) - STATE_BLOCK_STALE_AFTER_MS - 1]]),
-        stateRows: stale,
-      })
-    );
-    expect("state" in staleArtifact).toBe(false);
-    expect(staleArtifact.upcoming).toHaveLength(1);
-    expect(stale).not.toHaveBeenCalled();
-
-    const current = vi.fn((): readonly StateRow[] => {
-      throw new Error("REACHED");
-    });
-    expect(() =>
-      buildEventArtifact(
-        eventArtifactParams({
-          computedAt,
-          sortTimeByMatchKey: new Map([[upcomingKey, Date.parse(computedAt) - STATE_BLOCK_STALE_AFTER_MS]]),
-          stateRows: current,
-        })
-      )
-    ).toThrow("REACHED");
   });
 
   it("eventScheduleIsCurrent: latest scheduled time, then startDate, then current when neither can show staleness", () => {

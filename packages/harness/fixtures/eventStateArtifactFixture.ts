@@ -12,7 +12,14 @@
  * - the seed rows: `serializeState`, then every level-2 passenger in
  *   `publish.ts`'s order;
  * - `layer.enrichUpcoming(m, spr.predict(finalState, m))` for each withheld match;
- * - `buildEventArtifact` with `stateRows`, so the block is the publisher's.
+ * - `buildEventArtifact`, then `buildEventStateBlock` over those seed rows.
+ *
+ * THE BLOCK IS ATTACHED HERE, NOT BY THE PUBLISHER, since quick task 260923-3w6:
+ * the publisher stopped emitting one when the live Worker went back to pricing
+ * upcoming matches itself. The block is still cut from the publisher's own seed
+ * rows by the publisher's own builder, so what the web pricer is held to has not
+ * changed — only who assembles the fixture. This fixture and its consumers go in
+ * quick task 260923-3w7, with the web pricing path.
  *
  * This mirrors the offline arm of `eventStatePricing.parity.test.ts` (left
  * unmodified). The slice's last event withholds its final 12 qualification
@@ -27,7 +34,8 @@ import { isDemoTeamKey } from "../../core/algorithms/demoTeams.js";
 import { RP_RULE_MODULES } from "../../core/rankingPoints/rules.js";
 import { WalkForwardSimulator } from "../replay.js";
 import { SigmaScoutLayer } from "../sigmaScoutLayer.js";
-import { buildEventArtifact, buildTeamSeasonArtifact, eventScheduleIsCurrent } from "../publish.js";
+import { buildEventArtifact, buildTeamSeasonArtifact } from "../publish.js";
+import { buildEventStateBlock } from "../eventStatePricing.js";
 import { usesSigmaScore } from "../sigmaScore.js";
 import { serializeState, withRpBeliefs, withRpMeanShift, withSigmaBeliefs, withSigmaPopulation, type StateRow } from "../stateSnapshot.js";
 import type { EventArtifact, TeamSeasonMatch } from "../pageArtifacts.js";
@@ -39,7 +47,7 @@ interface DigestSliceFixture {
 
 export const FIXTURE_SEASON = 2022;
 export const FIXTURE_GENERATION = "fixture-gen";
-/** The fixture's publish instant. Upcoming `sortTime`s are epoch ms just after it, so `eventScheduleIsCurrent` holds. */
+/** The fixture's publish instant. Upcoming `sortTime`s are epoch ms just after it. */
 export const FIXTURE_COMPUTED_AT = "2022-04-09T12:00:00.000Z";
 
 export interface OfflineEventArtifactWithBlock {
@@ -135,10 +143,6 @@ function build(): OfflineEventArtifactWithBlock {
   upcoming.forEach((m, i) => {
     if (i % 2 === 0) sortTimeByMatchKey.set(m.matchKey, computedAtMs + (i + 1) * 8 * 60_000);
   });
-  if (!eventScheduleIsCurrent({ scheduledTimes: [...sortTimeByMatchKey.values()], startDate: undefined, computedAt: FIXTURE_COMPUTED_AT })) {
-    throw new Error("fixture schedule is not current; the publisher would attach no block");
-  }
-
   const built = buildEventArtifact({
     eventKey,
     season: FIXTURE_SEASON,
@@ -151,9 +155,18 @@ function build(): OfflineEventArtifactWithBlock {
     computedAt: FIXTURE_COMPUTED_AT,
     sortTimeByMatchKey,
     eventType,
-    stateRows: () => stateRows,
   });
-  const artifact = JSON.parse(JSON.stringify(built)) as EventArtifact;
+  // The block, cut from the publisher's seed rows by the publisher's builder over
+  // every team on a played or upcoming match — exactly the key list `publish.ts`
+  // passed until quick task 260923-3w6 removed the call.
+  const withBlock: EventArtifact = {
+    ...built,
+    state: buildEventStateBlock(stateRows, [
+      ...eventPredictions.flatMap(({ match }) => [...match.redTeams, ...match.blueTeams]),
+      ...upcomingRecords.flatMap(({ match }) => [...match.redTeams, ...match.blueTeams]),
+    ]),
+  };
+  const artifact = JSON.parse(JSON.stringify(withBlock)) as EventArtifact;
   if (artifact.state === undefined) throw new Error("fixture artifact carries no state block; the parity would pass vacuously");
 
   // One synthetic team whose single event lists every upcoming record, as the parity test builds offline team rows.

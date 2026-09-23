@@ -120,6 +120,12 @@ function shapeVersionOf(leagueRow: { stateJson: string }): unknown {
  * Throws `EventStateBlockError` unless there is exactly one league row, every
  * row shares one algorithm id and version, the id is `spr`, and the league
  * row declares `STATE_SNAPSHOT_SHAPE_VERSION`.
+ *
+ * NO PRODUCTION CALLER SINCE QUICK TASK 260923-3w6. The publisher stopped
+ * emitting blocks and the live tick stopped maintaining them; this is now a TEST
+ * FIXTURE BUILDER, kept because the parity suites still send a block over the
+ * wire to prove the web pricer reproduces the publisher. It goes with the rest of
+ * this file in 260923-3w7.
  */
 export function buildEventStateBlock(rows: readonly StateRow[], teamKeys: Iterable<string>): EventStateBlock {
   const leagueRows = rows.filter((row) => row.scopeKind === "league");
@@ -153,143 +159,6 @@ export function buildEventStateBlock(rows: readonly StateRow[], teamKeys: Iterab
     algorithmVersion: league.algorithmVersion,
     snapshotShapeVersion,
     rows: [copyRow(league, "league"), ...teamRows.map((row) => copyRow(row, "team"))],
-  };
-}
-
-/**
- * The live Worker's block maintenance: `block` with the rows a tick just
- * wrote to D1 spliced in, so the block stays equal to what D1 holds for the
- * event's teams without the Worker ever reading D1 for it.
- *
- * - A written league row replaces the league row.
- * - A written team row replaces the block's row with the same `scopeKey`, or
- *   is inserted when its key is in `stateBlockScopeKeys(touchedTeamKeys)`.
- *   Every other written team row is ignored.
- * - Written event rows are ignored.
- * - Rows the tick did not write keep the block's copy.
- *
- * Returns a new block: league first, then team rows by ascending key (the
- * `buildEventStateBlock` order). Rows are copied field for field; `stateJson`
- * is never parsed or re-stringified, so the shape check is a comparison on
- * the block's own field.
- *
- * Throws `EventStateBlockError` when the block is not SPR's, declares another
- * snapshot shape, does not hold exactly one league row, or a written league or
- * team row carries another algorithm id or version than the block.
- */
-export function spliceEventStateBlock(
-  block: EventStateBlock,
-  writtenRows: readonly StateRow[],
-  touchedTeamKeys: Iterable<string>
-): EventStateBlock {
-  if (block.algorithmId !== spr.id) throw new EventStateBlockError(`algorithm "${block.algorithmId}" is not "${spr.id}"`);
-  if (block.snapshotShapeVersion !== STATE_SNAPSHOT_SHAPE_VERSION) {
-    throw new EventStateBlockError(`snapshotShapeVersion ${block.snapshotShapeVersion} is not ${STATE_SNAPSHOT_SHAPE_VERSION}`);
-  }
-  const leagueRows = block.rows.filter((row) => row.scopeKind === "league");
-  if (leagueRows.length !== 1) throw new EventStateBlockError(`expected exactly one league row, found ${leagueRows.length}`);
-
-  let league: EventStateBlockRow = leagueRows[0]!;
-  const teamRowsByKey = new Map<string, EventStateBlockRow>();
-  for (const row of block.rows) {
-    if (row.scopeKind === "team") teamRowsByKey.set(row.scopeKey, row);
-  }
-  const admitted = new Set(stateBlockScopeKeys(touchedTeamKeys));
-
-  for (const row of writtenRows) {
-    if (row.scopeKind === "event") continue;
-    if (row.algorithmId !== block.algorithmId || row.algorithmVersion !== block.algorithmVersion) {
-      throw new EventStateBlockError(
-        `written row ${row.scopeKind}:${row.scopeKey} is ${row.algorithmId}@${row.algorithmVersion}, block is ${block.algorithmId}@${block.algorithmVersion}`
-      );
-    }
-    if (row.scopeKind === "league") {
-      league = copyRow(row, "league");
-    } else if (teamRowsByKey.has(row.scopeKey) || admitted.has(row.scopeKey)) {
-      teamRowsByKey.set(row.scopeKey, copyRow(row, "team"));
-    }
-  }
-
-  const teamRows = [...teamRowsByKey.values()].sort((a, b) => (a.scopeKey < b.scopeKey ? -1 : a.scopeKey > b.scopeKey ? 1 : 0));
-  // A team recorded absent stops being absent the moment it has a row.
-  const absentKeys = (block.absentKeys ?? []).filter((teamKey) => !teamRowsByKey.has(teamKey));
-  return {
-    algorithmId: block.algorithmId,
-    algorithmVersion: block.algorithmVersion,
-    snapshotShapeVersion: block.snapshotShapeVersion,
-    rows: [copyRow(league, "league"), ...teamRows.map((row) => copyRow(row, "team"))],
-    ...(absentKeys.length > 0 ? { absentKeys } : {}),
-  };
-}
-
-/**
- * The scope keys a block must carry for `neededTeamKeys` and does not, minus
- * those it has already recorded absent. Sorted. With no block every needed key
- * is missing. This is what decides whether a live tick spends a D1 read on the
- * block at all: an empty answer means it does not.
- */
-export function missingStateBlockKeys(block: EventStateBlock | undefined, neededTeamKeys: Iterable<string>): string[] {
-  const needed = stateBlockScopeKeys(neededTeamKeys);
-  if (block === undefined) return needed;
-  const have = new Set<string>(block.absentKeys ?? []);
-  for (const row of block.rows) if (row.scopeKind === "team") have.add(row.scopeKey);
-  return needed.filter((teamKey) => !have.has(teamKey));
-}
-
-/**
- * COMPLETES a live event's block from rows just read out of D1 (quick task
- * 260921-5qw). An event promoted to live folding without ever being published
- * offline has no block, and one published before its schedule existed lacks
- * most of its roster, so its upcoming matches could not be priced until an
- * operator re-baselined. The Worker reads exactly the missing rows, once.
- *
- * - No block: built from `d1Rows`' league row plus every needed team row found.
- *   No league row means no block, since a block without one prices nothing.
- * - A block: gains the needed rows it LACKS and keeps every row it has. Rows a
- *   tick wrote are `spliceEventStateBlock`'s business, and D1 is read after
- *   that write, so a row already present is never older than the one offered.
- * - A needed key with no row in `d1Rows` is recorded in `absentKeys`, so the
- *   next tick does not look for it again.
- *
- * Rows are copied field for field, exactly as `buildEventStateBlock` does.
- * Throws `EventStateBlockError` on a row of another algorithm id or version.
- */
-export function completeEventStateBlock(
-  block: EventStateBlock | undefined,
-  d1Rows: readonly StateRow[],
-  neededTeamKeys: Iterable<string>
-): EventStateBlock | undefined {
-  const needed = stateBlockScopeKeys(neededTeamKeys);
-  let base: EventStateBlock;
-  if (block === undefined) {
-    if (!d1Rows.some((row) => row.scopeKind === "league")) return undefined;
-    base = buildEventStateBlock(d1Rows, []);
-  } else {
-    base = block;
-  }
-
-  const teamRowsByKey = new Map<string, EventStateBlockRow>();
-  for (const row of base.rows) if (row.scopeKind === "team") teamRowsByKey.set(row.scopeKey, row);
-  const wanted = new Set(needed);
-  for (const row of d1Rows) {
-    if (row.scopeKind !== "team" || !wanted.has(row.scopeKey) || teamRowsByKey.has(row.scopeKey)) continue;
-    if (row.algorithmId !== base.algorithmId || row.algorithmVersion !== base.algorithmVersion) {
-      throw new EventStateBlockError(
-        `D1 row team:${row.scopeKey} is ${row.algorithmId}@${row.algorithmVersion}, block is ${base.algorithmId}@${base.algorithmVersion}`
-      );
-    }
-    teamRowsByKey.set(row.scopeKey, copyRow(row, "team"));
-  }
-
-  const league = base.rows.find((row) => row.scopeKind === "league")!;
-  const teamRows = [...teamRowsByKey.values()].sort((a, b) => (a.scopeKey < b.scopeKey ? -1 : a.scopeKey > b.scopeKey ? 1 : 0));
-  const absentKeys = [...new Set([...(base.absentKeys ?? []), ...needed])].filter((teamKey) => !teamRowsByKey.has(teamKey)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-  return {
-    algorithmId: base.algorithmId,
-    algorithmVersion: base.algorithmVersion,
-    snapshotShapeVersion: base.snapshotShapeVersion,
-    rows: [copyRow(league, "league"), ...teamRows.map((row) => copyRow(row, "team"))],
-    ...(absentKeys.length > 0 ? { absentKeys } : {}),
   };
 }
 

@@ -28,8 +28,6 @@ import { spr } from "../../../packages/core/algorithms/spr.js";
 import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
 import type { TbaMatch } from "../../../packages/ingest/schemas.js";
 import { tbaReportedMatchTimeMs, type CorpusMatch } from "../../../packages/ingest/normalize.js";
-import type { StateRow } from "../../../packages/harness/stateSnapshot.js";
-import { completeEventStateBlock, EventStateBlockError, spliceEventStateBlock } from "../../../packages/harness/eventStatePricing.js";
 import {
   actualBonusFlagsForMatch,
   eventPlayedRow,
@@ -228,8 +226,6 @@ export interface MergeEventArtifactParams {
   readonly touchedTeams: readonly string[];
   readonly touchedMetrics: Readonly<Record<string, Record<string, TeamMetric>>>;
   readonly newBands: ReadonlyMap<string, MatchBand>;
-  /** The rows Phase A wrote to D1 for this algorithm this tick. */
-  readonly writtenRows: readonly StateRow[];
   /** This tick's per-match facts for the newly-folded matches. Required (an empty map is a valid value) so no caller omits it, as `sigmaAfterTick` is. */
   readonly playedRowFacts: ReadonlyMap<string, PlayedRowFacts>;
   /**
@@ -249,54 +245,6 @@ export interface MergeEventArtifactParams {
    */
   readonly existingBodyBytes: number;
   readonly stamp: Stamp;
-  /**
-   * Rows the tick read from D1 THIS tick to complete the state block, and the
-   * scope keys it asked for (quick task 260921-5qw). Both absent on an
-   * ordinary tick, which reads nothing for the block: `scheduled.ts` asks D1
-   * only when `missingStateBlockKeys` names something, and only if a
-   * subrequest is free. A key asked for and not returned is recorded absent.
-   */
-  readonly blockD1Rows?: readonly StateRow[];
-  readonly blockReadKeys?: readonly string[];
-}
-
-/**
- * The SPR `state` block the merged artifact carries, or `undefined` for none.
- *
- * - Not SPR, or no upcoming match left: none, silently.
- * - The existing artifact has a block: the splice of this tick's written rows
- *   into it. A splice that throws `EventStateBlockError` drops the block and
- *   logs `event-state-block-invalid`.
- * - No existing block, or one lacking teams on the upcoming schedule: completed
- *   from `blockD1Rows` when the tick supplied them (`completeEventStateBlock`),
- *   then spliced as above. This is what lets an event promoted to live folding
- *   without ever being published offline price its upcoming matches with no
- *   operator step.
- * - Still no block (no rows supplied, or D1 held no league row): none, and logs
- *   `event-state-block-missing`. The next tick tries again.
- *
- * Log lines carry the event key, algorithm id, counts and the error message
- * (ids and versions only), never an artifact body or a TBA value.
- */
-function maintainedStateBlock(params: MergeEventArtifactParams, upcomingCount: number): LiveEventArtifact["state"] {
-  const { existing, eventKey, algorithmId, writtenRows, touchedTeams } = params;
-  if (algorithmId !== spr.id || upcomingCount === 0) return undefined;
-  try {
-    const base =
-      params.blockD1Rows === undefined ? existing?.state : completeEventStateBlock(existing?.state, params.blockD1Rows, params.blockReadKeys ?? []);
-    if (base === undefined) {
-      console.warn(JSON.stringify({ msg: "event-state-block-missing", eventKey, algorithmId, upcoming: upcomingCount }));
-      return undefined;
-    }
-    if (params.blockD1Rows !== undefined) {
-      console.log(JSON.stringify({ msg: "event-state-block-completed", eventKey, algorithmId, rows: base.rows.length, absent: base.absentKeys?.length ?? 0 }));
-    }
-    return spliceEventStateBlock(base, writtenRows, touchedTeams);
-  } catch (error) {
-    if (!(error instanceof EventStateBlockError)) throw error;
-    console.warn(JSON.stringify({ msg: "event-state-block-invalid", eventKey, algorithmId, upcoming: upcomingCount, error: error.message }));
-    return undefined;
-  }
 }
 
 /**
@@ -356,10 +304,10 @@ export function buildTickLiveRows(params: {
 
 /**
  * The ephemeral `live` block the merged artifact carries, or `undefined` for
- * none. Mirrors `maintainedStateBlock` above — same shape, same
- * log-here-rather-than-at-the-call-site convention, and for the same reason:
- * `mergeEventArtifact` returns the merged body alone, so a block's degrade
- * has to be reported by whoever computes it.
+ * none. It logs its own degrades rather than leaving that to the call site,
+ * because `mergeEventArtifact` returns the merged body alone and a block's
+ * degrade has to be reported by whoever computes it. The state-block
+ * builder deleted by quick task 260923-3w6 followed the same convention.
  *
  * A TICK THAT FOLDED NOTHING CARRIES THE EXISTING BLOCK FORWARD UNCHANGED.
  * That guard is load-bearing, not defensive: such a tick computes an EMPTY
@@ -368,8 +316,7 @@ export function buildTickLiveRows(params: {
  * every row the event has accumulated.
  *
  * Log lines carry event key, algorithm id, counts and byte lengths only, never
- * a body and never a TBA value — the rule `event-state-block-invalid` already
- * follows.
+ * a body and never a TBA value — this file's standing log rule.
  */
 function maintainedLiveBlock(params: MergeEventArtifactParams): LiveEventArtifact["live"] {
   const { existing, eventKey, algorithmId, realTouchedTeams, touchedMetrics, touchedSigma, newlyFolded, existingBodyBytes } = params;
@@ -397,9 +344,9 @@ function maintainedLiveBlock(params: MergeEventArtifactParams): LiveEventArtifac
 
 /**
  * Read-modify-write merge: replaces newly-folded matches (removing them from
- * `upcoming`), rewrites the remaining `upcoming` rows schedule-only, refreshes
- * touched teams' standings rows, keeps the SPR `state` block current, and
- * SPREADS everything else from `existing` through unchanged. Bootstraps a
+ * `upcoming`), places the remaining `upcoming` rows Phase B priced, refreshes
+ * touched teams' standings rows, and SPREADS everything else from `existing`
+ * through unchanged. Bootstraps a
  * schema-valid (but degraded — no history this Worker cannot see) artifact
  * when `existing` is `undefined`.
  *
@@ -418,10 +365,9 @@ function maintainedLiveBlock(params: MergeEventArtifactParams): LiveEventArtifac
  * tick. The keys the tick owns are listed explicitly below, each keeping its
  * original position. An owned key the tick may OMIT must be destructured out
  * of `existing` first, or a stale value would survive the spread; today that
- * is `state` (dropped for non-SPR artifacts and for events with no upcoming
- * match) and `live` (absent until the first fold at the event), both of which
- * the destructuring also re-appends last, in that order, where the schema
- * wants the two large blocks. Trade-off: a future key that should be
+ * is `live` (absent until the first fold at the event), which the destructuring
+ * re-appends last, where the schema wants the large block, and `state`, which is
+ * destructured out and never re-appended because nothing emits one any more. Trade-off: a future key that should be
  * tick-owned is carried stale until someone lists it here — the project's
  * documented carry-forward policy, as for the Sigma entry and the teams-row
  * tier/record.
@@ -440,9 +386,13 @@ function maintainedLiveBlock(params: MergeEventArtifactParams): LiveEventArtifac
  */
 export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
   const { existing, eventKey, season, algorithmId, algorithmVersion, eventType, newlyFolded, newPredictions, upcoming, touchedTeams, touchedMetrics, newBands, playedRowFacts, stamp } = params;
-  // BOTH tick-owned blocks destructured out before the spread: either may be
+  // BOTH tick-owned blocks destructured out before the spread. `live` may be
   // omitted from this tick's output, and a spread would carry a stale one
-  // through. See this function's doc comment.
+  // through. `state` is destructured out for a stronger reason since quick task
+  // 260923-3w6: this merge no longer emits one AT ALL, so every artifact
+  // published before the reversal carries a block that must be DROPPED here
+  // rather than ridden forward forever on the spread. See this function's doc
+  // comment.
   const { state: _existingState, live: _existingLive, ...carriedFromExisting } = existing ?? {};
 
   // Read before the preserved-match filter below: a newly-played match's own
@@ -481,7 +431,6 @@ export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
   const rpOutcomeRp = findRpOutcomeRp([...newPredictions.values()]) ?? existing?.rpOutcomeRp;
 
   const resolvedEventType = eventType ?? existing?.eventType;
-  const state = maintainedStateBlock(params, upcoming.length);
   const live = maintainedLiveBlock(params);
 
   const existingTeams = existing?.teams ?? [];
@@ -529,10 +478,8 @@ export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
     upcoming,
     teams,
     ...(rpOutcomeRp !== undefined ? { rpOutcomeRp } : {}),
-    ...(state !== undefined ? { state } : {}),
-    // LAST, after `state`: the event page needs `state` for first paint and
-    // never reads `live`, so the block only the robot and match pages read
-    // serializes at the very end of the body.
+    // LAST: the only block this merge still emits. `state` used to precede it
+    // and is not emitted at all any more (quick task 260923-3w6).
     ...(live !== undefined ? { live } : {}),
   };
 }

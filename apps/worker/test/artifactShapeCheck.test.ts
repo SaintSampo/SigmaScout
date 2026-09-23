@@ -260,7 +260,6 @@ function mergeEvent(existing: LiveEventArtifact | undefined): unknown {
     touchedTeams: TOUCHED,
     touchedMetrics: FRESH_METRICS,
     newBands: new Map(),
-    writtenRows: [],
     playedRowFacts: new Map(),
     // The live block's inputs (260918-16t), set so every equivalence
     // assertion below ALSO exercises the block rather than leaving it absent:
@@ -321,13 +320,18 @@ describe("the structural guard accepts what zod accepts, and publishes the same 
     expect(publishedEventBytes(mergeEvent(guarded))).toBe(publishedEventBytes(mergeEvent(LiveEventArtifactSchema.parse(json(raw)))));
   });
 
-  it("event: a `state` block survives the guard and splices identically to the zod-parsed path", () => {
+  it("event: a `state` block survives the guard, is DROPPED by the merge, and the two read paths still publish identical bytes", () => {
+    // Since quick task 260923-3w6 the tick prices its own upcoming matches and
+    // emits no `state` block. The guard (out of that task's scope) still passes a
+    // well-formed block through, so this pins the thing that matters now: the
+    // MERGE drops it. Without that, every artifact published before the reversal
+    // would carry its stale block forward on the spread, forever.
     const raw = { ...offlineEventArtifact(), state: stateBlock() };
     const guarded = checkLiveEventArtifactShape(json(raw));
+    // Non-vacuity: the fixture really does hand the merge a block to drop.
     expect(guarded?.state).toBeDefined();
     const fromGuard = mergeEvent(guarded) as Record<string, unknown>;
-    // Non-vacuity: this fixture really does exercise the splice.
-    expect(fromGuard.state).toBeDefined();
+    expect(fromGuard).not.toHaveProperty("state");
     expect(publishedEventBytes(fromGuard)).toBe(publishedEventBytes(mergeEvent(LiveEventArtifactSchema.parse(json(raw)))));
   });
 
@@ -433,11 +437,13 @@ describe("a malformed `state` block drops the block, never the artifact", () => 
     ["not an object", "stale"],
     ["null", null],
     ["a block whose `rows` is not an array", { algorithmId: spr.id, algorithmVersion: spr.version, snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION, rows: {} }],
-    // `spliceEventStateBlock` dereferences `row.scopeKind` on every row, so a
-    // non-object row would throw a TypeError THROUGH `maintainedStateBlock`'s
-    // `EventStateBlockError`-only catch and out through the tick's blanket
-    // catch — costing the whole event its publish. Dropping the block here is
-    // what keeps that path unreachable.
+    // Historical, and kept because the guard still behaves this way: the
+    // deleted block splice dereferenced `row.scopeKind` on every row, so a
+    // non-object row threw a TypeError through its caller's narrow catch and out
+    // through the tick's blanket catch, costing the whole event its publish.
+    // Nothing reads `state` on the live path any more (quick task 260923-3w6);
+    // the guard's `.catch`-shaped tolerance stays until 260923-3w7 retires the
+    // key.
     ["a block with a non-object row", { algorithmId: spr.id, algorithmVersion: spr.version, snapshotShapeVersion: STATE_SNAPSHOT_SHAPE_VERSION, rows: [null] }],
   ];
 

@@ -38,7 +38,7 @@ import { COMP_LEVEL_PLAY_ORDER } from "../ingest/normalize.js";
 import { seasonBoundaryFor } from "./seasonBoundary.js";
 import type { OprState } from "../core/algorithms/opr.js";
 import type { EpaState } from "../core/algorithms/epa.js";
-import { spr, type SprState } from "../core/algorithms/spr.js";
+import { type SprState } from "../core/algorithms/spr.js";
 import { isDemoTeamKey } from "../core/algorithms/demoTeams.js";
 import { isOfficialEventType } from "../core/algorithms/eventTypes.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
@@ -56,7 +56,6 @@ import {
   OFFICIAL_EVENT_SQL,
 } from "../corpus/db.js";
 import { buildPreScheduleArtifact } from "./preSchedule.js";
-import { eventScheduleIsCurrent } from "./eventSchedule.js";
 // Moved to the browser-safe `eventSchedule.ts` (260915-m4j); re-exported so every existing importer keeps working.
 export { eventScheduleIsCurrent, STATE_BLOCK_STALE_AFTER_MS } from "./eventSchedule.js";
 import { defaultMatchesPerTeam, matchesPerTeamFor, MIN_SCHEDULE_TEAMS, MAX_SCHEDULE_TEAMS } from "./generatedSchedules.js";
@@ -133,7 +132,6 @@ import {
   type StateRow,
   type StateStamp,
 } from "./stateSnapshot.js";
-import { buildEventStateBlock } from "./eventStatePricing.js";
 import { aggregateScores, type HarnessPredictionInput, type ScoreSlice } from "./score.js";
 import { splitManifestVersion } from "./manifestSchemas.js";
 import type { MetricHistoryRow } from "./metricHistorySchema.js";
@@ -422,13 +420,6 @@ export interface BuildEventArtifactParams {
    * cuts (a test, a stand-in) publishes none.
    */
   readonly tierCuts?: EventTierCuts;
-  /**
-   * The season-final D1 seed rows for this algorithm (`seedStateRows`, through its memoized getter).
-   * Called only for an SPR artifact with a non-empty `upcoming`, whose `state` block is
-   * `buildEventStateBlock` over these rows and every team key on the event's played and upcoming
-   * matches. Never called otherwise, so an event that needs no block costs no serialization.
-   */
-  readonly stateRows?: () => readonly StateRow[];
 }
 
 /**
@@ -567,24 +558,6 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
   // this publisher holds no season rules of its own.
   const rpOutcomeRp = findRpOutcomeRp(params.predictions, params.upcoming ?? []);
 
-  // The SPR state block a browser prices `upcoming` from: built from exactly the rows the D1 seed
-  // carries, so a live Worker splicing its own writes into it keeps it equal to D1. Only an SPR
-  // artifact with an upcoming match carries one; nothing else calls `stateRows`.
-  const state =
-    params.algorithmId === spr.id &&
-    upcoming.length > 0 &&
-    params.stateRows !== undefined &&
-    eventScheduleIsCurrent({
-      scheduledTimes: [...upcoming, ...matches].flatMap((row) => (row.sortTime !== undefined ? [row.sortTime] : [])),
-      startDate: params.eventMeta?.startDate,
-      computedAt: params.computedAt,
-    })
-      ? buildEventStateBlock(params.stateRows(), [
-          ...params.predictions.flatMap(({ match }) => [...match.redTeams, ...match.blueTeams]),
-          ...(params.upcoming ?? []).flatMap(({ match }) => [...match.redTeams, ...match.blueTeams]),
-        ])
-      : undefined;
-
   const candidate = {
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation: params.generation,
@@ -602,7 +575,6 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
     ...(allianceTeams.length > 0 ? { allianceTeams } : {}),
     ...(rpOutcomeRp !== undefined ? { rpOutcomeRp } : {}),
     ...(params.tierCuts !== undefined ? { tierCuts: params.tierCuts } : {}),
-    ...(state !== undefined ? { state } : {}),
   };
 
   return EventArtifactSchema.parse(candidate);
@@ -610,9 +582,10 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
 
 /**
  * The D1 seed rows for one algorithm's season-final state: `serializeState`, then every level-2
- * passenger, in this order. The ONE passenger chain: the D1 seed (`emitSeedSql`) and every SPR event
- * artifact's `state` block (`buildEventStateBlock`) are both built from its output, so a live Worker
- * splicing its writes into a published block keeps the block equal to D1.
+ * passenger, in this order. The ONE passenger chain: `emitSeedSql` writes exactly these rows, and the
+ * live Worker resumes from exactly these rows, so what a tick prices from equals what this run priced
+ * from. Until quick task 260923-3w6 every SPR event artifact's `state` block came off the same output
+ * as well, for the browser to price from; nothing emits a block any more.
  *
  * Passengers chain onto rows after the algorithm serializer, which never knows they exist. Each one
  * missing is a silent live/offline divergence, with no error on either side:
@@ -1784,8 +1757,6 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
   let finalSeasonLastFoldedByEvent = new Map<string, string>();
   /** The final season number itself, alongside `finalSeasonLastFoldedByEvent` — `emitCursorSeedSql`'s cursor set is scoped to windows in THIS season only. */
   let finalSeasonNumber: number | undefined;
-  /** Run-wide `state` block totals for the summary. */
-  const stateBlockTotals = { count: 0, totalBytes: 0, maxBytes: 0, maxKey: "" };
 
   for (const [seasonIdx, season] of seasonsSorted.entries()) {
     const stream = buildSeasonStream(db, season, { includeOffseason });
@@ -2115,10 +2086,6 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       // them, and the D1 seed reuses this getter when this is the final season.
       const stateRowsForAlgo = state !== undefined ? memoizedSeedStateRows(algorithm, state, layerForAlgo, stamp) : undefined;
       if (stateRowsForAlgo !== undefined) seasonStateRows.set(algorithm.id, stateRowsForAlgo);
-      // Event blocks only from the bundled SPR module itself: the browser prices a block with that
-      // module, so a stand-in that merely shares its id (a test double) must never publish one.
-      const eventStateRowsForAlgo = algorithm === spr ? stateRowsForAlgo : undefined;
-      const seasonStateBlocks = { count: 0, totalBytes: 0, maxBytes: 0, maxKey: "" };
       // The published Sigma Score metric, computed once and consumed by both the Teams row and the
       // team-season artifact, so they cannot disagree. The rating axis is the last-official-match
       // Total (`officialMetricsByTeam`), falling back to season-final `metricsByTeam` only for a team
@@ -2297,22 +2264,10 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
           rankings: eventRankingsForSeason.get(e.event_key),
           videoByMatchKey,
           eventType: e.event_type,
-          stateRows: eventStateRowsForAlgo,
           tierCuts: eventTierCuts,
         });
         const key = artifactKey({ page: "event", eventKey: e.event_key, algorithmId: algorithm.id, version });
         const eventBody = JSON.stringify(eventArtifact);
-        if (eventArtifact.state !== undefined) {
-          const stateBytes = Buffer.byteLength(JSON.stringify(eventArtifact.state), "utf8");
-          for (const totals of [seasonStateBlocks, stateBlockTotals]) {
-            totals.count += 1;
-            totals.totalBytes += stateBytes;
-            if (stateBytes > totals.maxBytes) {
-              totals.maxBytes = stateBytes;
-              totals.maxKey = key;
-            }
-          }
-        }
         // The pre-schedule sidecar, only for in-scope seasons and RP-publishing algorithms (any other
         // algorithm's probe would return null after pricing a match for nothing). Other skips are decided
         // inside `buildPreScheduleSidecarForEvent`. It rides one queued task with the event artifact,
@@ -2413,13 +2368,6 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
         });
         const key = artifactKey({ page: "team", teamKey, year: season, algorithmId: algorithm.id, version });
         await publishTimed(() => uploader.publish("team", key, JSON.stringify(teamSeasonArtifact)));
-      }
-
-      if (seasonStateBlocks.count > 0) {
-        console.log(
-          `publish: season ${season} ${algorithm.id}: ${seasonStateBlocks.count} event artifacts carry a state block ` +
-            `(${seasonStateBlocks.totalBytes} B, max ${seasonStateBlocks.maxBytes} B ${seasonStateBlocks.maxKey})`
-        );
       }
 
       const blockLabel = `${season}/${algorithm.id}`;
@@ -2540,11 +2488,6 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
 
   console.log(`\npublish: summary (generation=${generation})`);
   console.log(`  objects=${objectCount} totalBytes=${totalBytes}${dryRun ? " (dry-run — nothing uploaded)" : ""}`);
-  if (stateBlockTotals.count > 0) {
-    console.log(
-      `  state blocks: count=${stateBlockTotals.count} totalBytes=${stateBlockTotals.totalBytes} maxBytes=${stateBlockTotals.maxBytes} key=${stateBlockTotals.maxKey}`
-    );
-  }
   for (const [kind, stats] of Object.entries(pages)) {
     console.log(
       `  ${kind}: count=${stats!.count} median=${stats!.medianBytes}B p95=${stats!.p95Bytes}B max=${stats!.maxBytes}B key=${stats!.largestKey}`
