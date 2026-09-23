@@ -653,15 +653,16 @@ between. **A team that is on the schedule but has played nothing yet still has n
 its own file** — that is the one thing the roster object covered and the team file cannot, and it heals
 at that team's first match.
 
-**One operator-visible regression came with that deletion, and it is recorded rather than hidden:** a
-live-folded metric-history row carries no `percentile`, and the robot page's event-section tiles used
-to recover its rarity TIER from the live event artifact's `tierCuts` block (quick task 260920-qzf).
-That block lives on the event artifact, which the robot page no longer fetches, so those tiles render
-UNTIERED during a live event until the next republish — the pre-260920-qzf behaviour. Event-page
-surfaces are unaffected (they read `tierCuts` off the artifact they already hold), and published rows
-are unaffected (the publisher writes a `percentile` on every metric-history row). The fix is to publish
-`tierCuts` — already a per-(algorithm, season) block — on the team-season artifact too; it is recorded
-in `.planning/todos/pending/live-merges-drop-percentiles.md`.
+**The rarity TIER on a live-folded row survives that deletion**, and how it does is worth one line for
+an operator. A row the tick appended carries a metric value and no `percentile`, so its tier comes from
+the per-(algorithm, season) `tierCuts` block rather than from a number on the row. That block used to
+ride only the event artifact, which briefly left the robot page's event-section tiles untiered during a
+live event (quick task 260923-3w7, closed by 260923-3x0). The publisher now writes THE SAME block to
+every team-season artifact as well, so the robot page tiers those tiles from the one file it already
+fetches. **It takes one republish per (algorithm, season) to populate the key**: a team file published
+before 260923-3x0 carries no block, parses fine, and renders a live-folded row untiered until that
+season and algorithm are republished. The percentile NUMBER is a separate, still-open question —
+`.planning/todos/pending/live-merges-drop-percentiles.md`.
 
 - **New events on the calendar:** a full `pnpm publish:seasons` emits the stubs. To get them out
   WITHOUT a full republish (about 109,000 R2 writes), run `pnpm publish:stubs` (about 120). It reads

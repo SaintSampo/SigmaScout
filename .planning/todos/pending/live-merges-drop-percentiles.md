@@ -7,8 +7,12 @@ priority: low
 
 # Live Worker merges still publish no percentile NUMBER for a touched team (the TIER gap is closed)
 
-> **STATUS 2026-09-20 (quick task 260920-qzf). The tier half of this todo is CLOSED. The percentile-
-> NUMBER half is still real, still blocked, and now the only reason this file stays open.**
+> **STATUS 2026-09-23 (quick task 260923-3x0). The tier half of this todo is CLOSED on EVERY surface,
+> event and robot page alike. The percentile-NUMBER half is still real and is now the only reason this
+> file stays open — but it is no longer BLOCKED: the CPU gate it waited behind is gone, so what is
+> left is a cost decision, not an impossibility. Read the two 2026-09-23 sections at the bottom before
+> the older ones: 260923-3w7 reopened the tier half for the robot page and 260923-3x0 closed it again,
+> which is why the 260920-qzf account below is true but no longer complete.**
 
 ## What closed
 
@@ -65,9 +69,11 @@ row prints an exact percentile number", which is:
 
 - Lower priority than the closed tier gap: a reader loses a number, not a colour, and the FRC
   audience's dominant use of a percentile is exactly the tier it implies.
-- **Still blocked behind `rp-fold-exceeds-worker-cpu-budget`** for the same reason as before: an
-  exact percentile needs the season pool inside the tick, and the tick is still over its sustained
-  CPU budget. Nothing in 260920-qzf changes that gate.
+- ~~**Still blocked behind `rp-fold-exceeds-worker-cpu-budget`**~~ — NO LONGER TRUE, see the 260923-3w6
+  section below. That todo is completed and the account is on Workers Paid; an exact percentile needs
+  the season pool inside the tick, and reading a compact one is now an R2 read to price, not a CPU
+  ceiling to clear. This bullet is kept struck through rather than deleted so the argument's history
+  is legible.
 - **No longer worth unblocking for tiers alone** — the reason a fix here was ever discussed. If
   `rp-fold-exceeds-worker-cpu-budget` closes for an unrelated reason, revisit whether a live-priced
   percentile number is worth the cost then; do not reopen this specific fix on tier grounds.
@@ -126,33 +132,69 @@ that is already correct and a percentile that is simply absent? Nothing in 26092
 and nothing in it depends on the answer — the live-merged row carries no percentile number, exactly
 as before, and that remains an accepted limitation rather than a defect.
 
-## 2026-09-23, quick task 260923-3w7: the TIER gap on the robot page is OPEN again
+## 2026-09-23, quick task 260923-3w7: the TIER gap on the robot page opened, briefly
 
-The "What closed" section above says the tier half of this todo is closed. **That is now only true of
-the event page.** 260920-qzf closed it in two places, and one of them depended on a fetch that no
-longer happens:
+The "What closed" section above says the tier half of this todo is closed. Between 260923-3w7 and
+260923-3x0, both on 2026-09-23, that was true only of the event page. 260920-qzf closed it in two places, and one of them depended on a
+fetch that stopped happening:
 
-- **Event page** (Insights, Breakdown, Alliances, the match-page robot grid) — still closed. Those
+- **Event page** (Insights, Breakdown, Alliances, the match-page robot grid) — never affected. Those
   surfaces read `tierCuts` off the event artifact they already hold, and `mergeEventArtifact` still
   carries the block forward through every tick.
-- **Robot page event-section tiles** — OPEN again. Their `tierCuts` came from the live EVENT artifact,
+- **Robot page event-section tiles** — briefly OPEN. Their `tierCuts` came from the live EVENT artifact,
   fetched by the team-season overlay 260923-3w7 deleted: the tick writes the team artifact itself again,
   so the robot page reads one file and fetches no event artifact at all. `EventSection`'s `tierCuts`
-  prop and its two 260920-qzf cases went with the source that fed them. A live-folded row's snapshot
-  tiles therefore render UNTIERED until that event's next republish — exactly the pre-260920-qzf
-  behaviour, and no worse.
+  prop and its three 260920-qzf cases went with the source that fed them, and a live-folded row's
+  snapshot tiles rendered UNTIERED — the pre-260920-qzf behaviour, no worse.
 
-Published rows are unaffected either way: `withHistoryPercentiles` puts a `percentile` on every
+Published rows were unaffected throughout: `withHistoryPercentiles` puts a `percentile` on every
 metric-history row the publisher writes, and a published percentile always wins over cut points.
 
-**The fix, and it is cheap:** publish `tierCuts` on the TEAM-SEASON artifact. The block is already
-per-(algorithm, season) rather than per-event (it is built once from `rankingPools` and merely rides
-each event artifact), so the publisher can attach the same object to a team's file with no new
-computation, and `mergeTeamSeasonArtifact` can carry it forward exactly as `mergeEventArtifact` does.
-That restores `EventSectionList` -> `EventSection`'s resolver with no fetch. It was deliberately NOT
-done in 260923-3w7: it needs a `TeamSeasonArtifactSchema` key and a `scheduled.ts` change, both outside
-that task's scope.
+## 2026-09-23, quick task 260923-3x0: the TIER half is CLOSED again, everywhere
 
-Note this is the TIER half only. The percentile NUMBER gap above is unchanged, and so is the standing
-question at the end of this file: whether a live percentile number is worth one more R2 read per
-algorithm-season per touched tick.
+The fix named at the end of the 3w7 section was the one taken, and it cost nothing but a key. `tierCuts`
+was never per-event — it is built ONCE per (algorithm, season) from `rankingPools`
+(`buildTierCutsFromPools`) and merely rode each event artifact — so the publisher now attaches THE SAME
+OBJECT to every team-season artifact as well. No new computation, no second fetch, no approximation.
+
+What landed:
+
+- `TeamSeasonArtifactSchema.tierCuts`, declared with the IDENTICAL schema object the event artifact
+  uses (renamed `EventTierCut*` → `SeasonTierCut*`, the scope it always had; the wire key is `tierCuts`
+  on both and never changed). Declaring it is what matters: `writeArtifactObject`'s write-side
+  `schema.parse` strips every undeclared key, so an undeclared one would be undone on every tick.
+- `publish.ts` passes its one `seasonTierCuts` object to both builders, pinned end-to-end by a
+  `publishSeasons` test asserting every team artifact's block is BYTE-equal to both events' blocks for
+  the same (algorithm, season).
+- `mergeTeamSeasonArtifact` needed no code change — its leading `...existing` spread already carries
+  the key — and five cases in `scheduled.mergePreservation.test.ts` establish that rather than assume
+  it, including the bootstrap path which carries none (the Worker holds no season pool).
+- `EventSectionList` passes `artifact.tierCuts` to `EventSection`; the three deleted cases are restored
+  plus four more, two of them route-level (tiered with ZERO `/v1/event/` fetches; a pre-republish file
+  that still loads untiered).
+
+Byte cost, measured from a real dry-run publish of 2026 rather than estimated: a fixed cost per
+(algorithm, season), so every team artifact for one algorithm pays the same — opr +50 B, spr +51 B,
+epa +610 B (15 metric names against their 1). Largest 2026 team artifact 174,580 B, +0.351%, against a
+500,000 B `PAGE_BUDGET_MAX_BYTES.team` ceiling.
+
+**A republish is owed to populate the key.** The publisher writes it, the tick only carries it, so a
+team file published before 260923-3x0 carries no block — it parses (the read schema is not `.strict()`)
+and renders a live-folded row untiered until that (algorithm, season) is republished. That is the
+pre-260920-qzf behaviour, never worse.
+
+## What is left in this file
+
+**ONLY the percentile NUMBER**, and it is a cost question now rather than a blocked one. The candidate
+direction in the middle of this file — publish a compact per-(algorithm, season) pool (per metric key,
+the sorted rounded values) somewhere the tick can read cheaply, then call `goodnessPercentileAgainstPools`
+for the touched teams' metrics — is FEASIBLE ON THE TICK today. `rp-fold-exceeds-worker-cpu-budget` is
+completed and the account has been on Workers Paid since 2026-09-22, so the 10 ms argument every
+"blocked" clause above rests on is retired. What it costs instead is one R2 read per algorithm-season
+per touched tick, priced against the 1M Class A / 10M Class B allowances the plan change did not raise.
+
+The open decision, unchanged in substance: is a live percentile NUMBER worth that read, against a
+carried-forward TIER that is already correct on every surface and a percentile that is simply absent?
+A reader loses a number, not a colour, and the FRC audience's dominant use of a percentile is exactly
+the tier it implies. `allianceTierApproximation.ts` still requires a published percentile for its
+interpolation points, so the Alliances tab's Combined Total tier still thins during live folding.
