@@ -15,6 +15,14 @@ Audit only; no source files changed. Findings in `260923-1tu-FINDINGS.md`.
 - Not recommended: moving the rank simulation server-side (sidecar is already 6.9 KB median and the per-match run is click-driven), migrating D1 to Durable Objects, merging Pages into Workers Static Assets now.
 - Sequencing spends one rebaseline: pure deletions first, then the pricing reversal plus team writes plus tier widening in a single republish.
 
-## Decision
+## Decisions (Jacob, 2026-09-23)
 
-Presented to Jacob at the end of this task; the follow-on quick tasks are created from the answers.
+1. **Deletions, all of it:** the state-probe Worker (`stateProbe.ts`, its test, `wrangler.probe.toml`), the subrequest deferral and budget machinery, `MAX_PROBES_PER_TICK`, `GLOBAL_REBUILD_INTERVAL_MS`, and the KV binding. The rotation and the advance claim stay.
+2. **Reverse both:** the Worker prices upcoming matches again and writes team artifacts on the tick; the state block, the live block, browser pricing, the team overlay and browser standings are deleted. One republish, numbers unchanged.
+3. **Widen the live tier to opr, epa, spr:** bump opr and epa, widen `LIVE_ALGORITHM_IDS`, fix `liveAlgorithmTier.test.ts:516`, ride the same rebaseline as decision 2.
+4. **Simulation stays in the browser;** correct `docs/simulation-architecture.md`'s stale sidecar sizes.
+
+Still owed by Jacob in the dashboard: a Cache Rule with a 60 s edge TTL on `data.sigmascout.org`.
+
+Follow-on order, to spend one rebaseline: decision 1 as pure deletions and a Worker deploy, then
+decisions 2 and 3 together with a single `pnpm rebaseline`, then docs.
