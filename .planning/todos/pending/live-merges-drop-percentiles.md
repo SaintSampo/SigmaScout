@@ -101,3 +101,27 @@ without decoding the Teams artifact. The pool is stale by the same amount a carr
 measure whether that is actually better than carry-forward before building it. Not exercised in
 production until the pre-season CPU gate in `docs/worker-operations.md` closes: no live window may
 open before then.
+
+## 2026-09-23, quick task 260923-3w6: the CPU gate is gone, and the write is back
+
+Two things changed at once, and both matter here.
+
+**`mergeTeamSeasonArtifact` runs in production again.** 260923-3w6 reinstated the tick's per-team
+artifact read and write (findings item C5), reversing 260917-jr4. So the "Gone" bullet in the
+History section above is itself superseded: the original 2026-09-12 diagnosis describes production
+once more, minus the parts fixed separately — `metricsBasis` is still set (260915-p0a) and the
+metric-history rows still carry no percentile. The offseason `seasonStats` scoping question is live
+again too.
+
+**The CPU argument for not fixing it is retired.** Every "blocked behind
+`rp-fold-exceeds-worker-cpu-budget`" clause above was written against the free plan's 10 ms per
+tick. The account is on Workers Paid since 2026-09-22: 30 s of CPU per cron tick. Reading a compact
+per-(algorithm, season) percentile pool and calling `goodnessPercentileAgainstPools` for the touched
+teams is no longer a CPU question at all — it is an R2 read per algorithm-season per touched tick,
+priced against the 1M Class A / 10M Class B allowances the plan change did NOT raise.
+
+So the candidate direction at the end of this file is now the whole of what is left to decide: is a
+live percentile number worth one more R2 object per algorithm-season, against a carried-forward tier
+that is already correct and a percentile that is simply absent? Nothing in 260923-3w6 answers that,
+and nothing in it depends on the answer — the live-merged row carries no percentile number, exactly
+as before, and that remains an accepted limitation rather than a defect.

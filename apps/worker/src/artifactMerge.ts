@@ -36,7 +36,7 @@ import {
   type ParsedBonusSides,
 } from "../../../packages/harness/publishedRows.js";
 import { SIGMA_METRIC_KEY } from "../../../packages/harness/sigmaScore.js";
-import { PAGE_ARTIFACT_SCHEMA_VERSION, type EventUpcomingMatch, type LiveEventArtifact, type TeamSeasonArtifact } from "../../../packages/harness/pageArtifacts.js";
+import { PAGE_ARTIFACT_SCHEMA_VERSION, type EventUpcomingMatch, type LiveEventArtifact, type TeamSeasonArtifact, type TeamSeasonMatch } from "../../../packages/harness/pageArtifacts.js";
 import { mergeEventLiveBlock, type EventLiveTickRow } from "../../../packages/harness/liveEventRows.js";
 import { roundMetric } from "../../../packages/harness/rounding.js";
 
@@ -521,9 +521,16 @@ export interface MergeTeamSeasonArtifactParams {
   readonly matches: readonly MatchResult[];
   readonly predictions: ReadonlyMap<string, Prediction>;
   readonly metrics: Readonly<Record<string, TeamMetric>>;
-  readonly matchIndexByKey: ReadonlyMap<string, number>;
   /** Match Band per newly-folded match key. */
   readonly bands: ReadonlyMap<string, MatchBand>;
+  /**
+   * This team's STILL-UPCOMING rows at `eventKey`, already priced by Phase B
+   * through `priceUpcomingRows` — the same records the event artifact's
+   * `upcoming` array is built from, so a team page and an event page never
+   * disagree about a scheduled match (quick task 260923-3w6). Empty for an event
+   * with nothing left on the schedule.
+   */
+  readonly upcomingRows: readonly TeamSeasonMatch[];
   /** This tick's per-match facts for the newly-folded matches. Required (an empty map is a valid value) so no caller omits it, as `sigmaAfterTick` is. */
   readonly playedRowFacts: ReadonlyMap<string, PlayedRowFacts>;
   readonly stamp: Stamp;
@@ -537,30 +544,27 @@ export interface MergeTeamSeasonArtifactParams {
 }
 
 /**
- * NO LONGER ON THE LIVE PATH since quick task 260917-jr4 (D-07). A live tick
- * makes ZERO team-artifact reads and ZERO team-artifact writes: Phase B's team
- * half was replaced by one small ephemeral sidecar object per algorithm-event,
- * and then (quick task 260918-16t) by an ephemeral `live` block INSIDE the
- * event artifact, deleting the sidecar object entirely. The browser derives
- * the rest from files the robot page already fetches
- * (`apps/web/src/lib/liveTeamSeason.ts`).
+ * BACK ON THE LIVE PATH since quick task 260923-3w6 (`260923-1tu-FINDINGS.md`
+ * item C5, decided by Jacob 2026-09-23). Between 260917-jr4 and here the tick
+ * made ZERO team-artifact reads and writes: Phase B's team half was replaced by
+ * one ephemeral sidecar object per algorithm-event, then (260918-16t) by an
+ * ephemeral `live` block inside the event artifact, and the browser derived a
+ * team's live rows from files the robot page already fetched. Both of those
+ * existed to save the 7.6 ms this write costs, against a 10 ms CPU budget that is
+ * now 30 s. A team page is one fetch again, which the 2026-09-17 load test
+ * measured 2.1x faster than the index-plus-event-file hybrid it replaces.
  *
- * IT IS DELIBERATELY KEPT, AND KEPT EXPORTED, with no caller on the live path.
- * Until quick task 260923-3w4 it survived as the CPU probe's `allPhaseB`
- * baseline arm; that probe is now deleted, and this function is kept for the
- * OPPOSITE reason — the successor task reinstates the tick's per-team artifact
- * writes (`260923-1tu-FINDINGS.md` item C5, decided by Jacob 2026-09-23) and
- * this is the merge it reinstates them through. Deleting it would mean writing
- * it again from scratch in the next commit.
- *
- * SECOND CONSEQUENCE, RECORDED RATHER THAN LEFT IMPLICIT: `matchIndexByKey` has
- * no supplier at all right now. When the live tick last built it, it built it
- * from ONE EVENT's own ordered match keys, so the `matchIndex` it wrote into a
- * field documented as a season-wide index was in fact event-local — and nothing
- * in production web reads that field (`buildMetricSeries` uses array position,
- * by its own doc comment). The browser derivation assigns array position for the
- * same reason. Whatever reinstates the per-team write has to decide what that
- * index means rather than inherit the event-local answer by accident.
+ * `matchIndex` ON A NEW METRIC-HISTORY ROW IS ITS OWN ARRAY POSITION, and that is
+ * a decision, not an inheritance. The field is documented as a season-wide index;
+ * the publisher fills it with the match's position in the whole SEASON's stream,
+ * which the Worker has no way to know. The pre-260917-jr4 tick filled it from ONE
+ * EVENT's ordered match keys — an event-local number in a season-wide field, and
+ * nobody noticed because nothing reads it: `buildMetricSeries` and the browser's
+ * own derivation both use array position, each saying so in its own doc comment.
+ * Array position is therefore the honest answer here — monotone, unique, and
+ * equal to what every consumer actually computes — rather than a second wrong
+ * number. It still does not equal the publisher's value for the same row, which
+ * is why no parity test compares the two.
  *
  * Read-modify-write merge for one team's season artifact: writes this tick's
  * newly-folded matches at `eventKey` (creating the event's entry if this is
@@ -570,13 +574,20 @@ export interface MergeTeamSeasonArtifactParams {
  *
  * A newly played match REPLACES that match's existing row (the publisher's
  * unplayed row) in place, so the event keeps the offline chronological order
- * with no duplicate; a match with no prior row is appended. Other unplayed
- * rows keep their published priced fields: rewriting them would mean reading
- * every roster team's artifact each tick, and step 3 of the browser-pricing
- * direction prices team pages from the event file instead (260915-isq DD-3).
+ * with no duplicate; a match with no prior row is appended. The team's remaining
+ * unplayed rows at this event are REWRITTEN from `upcomingRows`, which is what
+ * keeps a team page and an event page agreeing about a scheduled match.
+ *
+ * ONE CARRY-FORWARD REMAINS, and it is the same one the standings rows have: a
+ * roster team that played nothing THIS tick gets no write at all, so its own
+ * unplayed rows keep whatever they were last published or last written with. Its
+ * teammates' pages show the fresh price for the same match. Stale-but-true, and
+ * healed by that team's next match — rewriting every roster team's artifact on
+ * every fold would multiply the write volume by the roster size for rows nobody
+ * is looking at yet.
  */
 export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): unknown {
-  const { existing, teamKey, season, algorithmId, algorithmVersion, eventKey, matches, predictions, metrics, matchIndexByKey, bands, playedRowFacts, stamp, sigmaAfterTick } = params;
+  const { existing, teamKey, season, algorithmId, algorithmVersion, eventKey, matches, predictions, metrics, bands, playedRowFacts, stamp, sigmaAfterTick, upcomingRows } = params;
 
   let record = existing?.seasonStats.record ?? { wins: 0, losses: 0, ties: 0 };
   for (const match of matches) record = incrementRecord(record, teamKey, match);
@@ -604,20 +615,28 @@ export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): 
       facts?.actualBonusFlags
     );
   });
+  // Played rows first, then the still-upcoming ones — the publisher's own order
+  // for an event in progress, and the order a bootstrap has to invent. A match
+  // that just finished appears only in `newRows`, and `replaceOrAppendRows`
+  // matches it to its own prior unplayed row by key, so nothing duplicates.
+  const eventRows = [...newRows, ...upcomingRows];
   const events =
     eventIndex === -1
-      ? [...existingEvents, { eventKey, eventName: eventKey, startDate: stamp.computedAt.slice(0, 10), matches: newRows }]
-      : existingEvents.map((e, i) => (i === eventIndex ? { ...e, matches: replaceOrAppendRows(e.matches, newRows) } : e));
+      ? [...existingEvents, { eventKey, eventName: eventKey, startDate: stamp.computedAt.slice(0, 10), matches: eventRows }]
+      : existingEvents.map((e, i) => (i === eventIndex ? { ...e, matches: replaceOrAppendRows(e.matches, eventRows) } : e));
 
   // `sigmaAfterTick`, when defined, is the last metrics key on each new row;
-  // existing rows are untouched.
-  const newMetricHistoryRows = matches.map((m) => ({
+  // existing rows are untouched. `matchIndex` is the row's own array position in
+  // the appended history — see this function's header for why that, and not an
+  // event-local index, is what a tick can honestly write.
+  const priorHistoryLength = existing?.metricHistory?.length ?? 0;
+  const newMetricHistoryRows = matches.map((m, i) => ({
     matchKey: m.matchKey,
     season,
     eventKey: m.eventKey,
     algorithmId,
     teamKey,
-    matchIndex: matchIndexByKey.get(m.matchKey) ?? 0,
+    matchIndex: priorHistoryLength + i,
     metrics: {
       ...roundTeamMetricRecord(metrics),
       ...(sigmaAfterTick !== undefined ? { [SIGMA_METRIC_KEY]: { value: roundMetric(sigmaAfterTick) } } : {}),

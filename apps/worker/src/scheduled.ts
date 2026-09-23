@@ -21,6 +21,14 @@
  * TICK META: the rotation offset lives in `event_cursor` under the sentinel key
  * `TICK_META_EVENT_KEY`, with a JSON blob in `lastFoldedMatchKey`.
  *
+ * PER-TEAM ARTIFACTS ARE WRITTEN AGAIN (quick task 260923-3w6, reversing
+ * 260917-jr4): one read and one merge-write per touched team per live algorithm,
+ * carrying that team's newly-played rows AND its priced upcoming rows for the
+ * event. The write is unconditional; only the `teams/{year}` feed is gated on
+ * officialness. Known accepted limitation, tracked in
+ * `.planning/todos/pending/live-merges-drop-percentiles.md`: a live-merged row
+ * carries no percentile number.
+ *
  * GLOBAL REBUILD: an incremental merge of the teams this tick touched into the
  * year-wide `teams` table. With no corpus access it is never a from-scratch
  * recompute (that is `pnpm publish:seasons`). Known stub: a `teams/{year}`
@@ -118,11 +126,11 @@ import {
   encodeTeamsRowMetrics,
   PAGE_ARTIFACT_SCHEMA_VERSION,
   TeamsArtifactSchema,
-  type EventUpcomingMatch,
   type LiveEventArtifact,
   type TeamsArtifact,
+  type TeamSeasonArtifact,
 } from "../../../packages/harness/pageArtifacts.js";
-import { priceUpcomingRows, type ScheduledMatchInput, type UpcomingPricingModel } from "../../../packages/harness/upcomingPricing.js";
+import { priceUpcomingRows, type PriceUpcomingResult, type ScheduledMatchInput, type UpcomingPricingModel } from "../../../packages/harness/upcomingPricing.js";
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "../../../packages/harness/rounding.js";
 import { PUBLISHED_ALGORITHM_IDS, type AlgorithmsManifest, type LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
 import { loadAlgorithmsManifest, loadLiveEventsAt } from "./liveWindows.js";
@@ -142,7 +150,7 @@ import {
   type ScheduledMatchFacts,
   type Stamp,
 } from "./artifactMerge.js";
-import { checkLiveEventArtifactShape } from "./artifactShapeCheck.js";
+import { checkLiveEventArtifactShape, checkTeamSeasonArtifactShape } from "./artifactShapeCheck.js";
 import { ArtifactSecretLeakError, readArtifactObject, writeArtifactObject, writeLiveRosterObject } from "./artifactWriter.js";
 import { buildLiveRoster, rosterGrew, type RosterSource } from "../../../packages/harness/liveRoster.js";
 import { readEventCursor, readEventCursors, readScopedStateChunked, scopedStateReadStatements, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
@@ -514,6 +522,26 @@ async function readExistingEvent(
   }
 }
 
+/**
+ * The team-season half of the read path, back on the live path with the per-team
+ * write (quick task 260923-3w6). Structural, not schema-validating, for exactly
+ * the reasons `readExistingEvent` above states — and `checkTeamSeasonArtifactShape`
+ * has been sitting in `artifactShapeCheck.ts` waiting for this caller to return.
+ */
+async function readExistingTeam(
+  env: Env,
+  counter: SubrequestCounter,
+  params: { page: "team"; teamKey: string; year: number; algorithmId: string; version: string }
+): Promise<TeamSeasonArtifact | undefined> {
+  const text = await readArtifactObject(env, counter, artifactKey(params));
+  if (text === undefined) return undefined;
+  try {
+    return checkTeamSeasonArtifactShape(JSON.parse(text));
+  } catch {
+    return undefined; // unparseable JSON -- degrade to a fresh bootstrap rather than fail the event
+  }
+}
+
 /** A `console.warn`ed error message is bounded here: a zod issue list over a large artifact is long, and a log line is not a debugger. Ids and counts carry the diagnosis; the message only points at it. */
 const WRITE_RETRY_ERROR_MESSAGE_MAX = 300;
 
@@ -532,14 +560,11 @@ const WRITE_RETRY_ERROR_MESSAGE_MAX = 300;
  * time. Re-running the merge with no existing artifact restores the old
  * outcome at the new detection point.
  *
- * SINCE 260917-jr4 ONLY `"event"` REACHES HERE. The team half of Phase B is
- * gone — there are no team-artifact reads or writes on the live path at all,
- * and since 260918-16t there is no second object of any kind: the per-match
- * metric rows ride inside the event body this helper writes. The `"team"`
- * branch of the signature is kept
- * because it costs nothing and the argument above applies identically to any
- * page kind this helper is ever pointed at again; it is NOT evidence that the
- * tick still writes one.
+ * BOTH `"event"` AND `"team"` REACH HERE AGAIN (quick task 260923-3w6). Between
+ * 260917-jr4 and that task only `"event"` did; the argument above is what made the
+ * `"team"` branch worth keeping through the gap, and it is now load-bearing for
+ * the same reason it was before — one corrupt published team artifact must not
+ * stop that team publishing permanently.
  *
  * TWO FAILURES ARE DELIBERATELY NOT RETRIED:
  *   - one where the subrequest was already counted, i.e. the R2 `put` itself
@@ -1223,12 +1248,12 @@ async function runPhaseBAndReport(
           blueTeams: m.blueTeams,
         };
       });
-      let pricedUpcoming: EventUpcomingMatch[];
+      let priced: PriceUpcomingResult;
       try {
-        pricedUpcoming =
+        priced =
           scheduledInputs.length === 0
-            ? []
-            : priceUpcomingRows({ model: info.upcomingModel, eventKey, season: window.season, eventType, upcoming: scheduledInputs }).event;
+            ? { event: [], team: [] }
+            : priceUpcomingRows({ model: info.upcomingModel, eventKey, season: window.season, eventType, upcoming: scheduledInputs });
       } catch (error) {
         // Logged and rethrown, never degraded to an unpriced row: writing
         // `upcoming: []` would tell the event page the schedule was over, and
@@ -1262,7 +1287,7 @@ async function runPhaseBAndReport(
         eventType: fetchedEventType,
         newlyFolded: newlyFoldedResults,
         newPredictions: info.newPredictions,
-        upcoming: pricedUpcoming,
+        upcoming: priced.event,
         newBands: info.newBands,
         touchedTeams,
         touchedMetrics: info.touchedMetrics,
@@ -1324,17 +1349,47 @@ async function runPhaseBAndReport(
       const compositeKey = touchedTeamsCompositeKey(algorithmId, window.season);
       const seasonMap = touchedTeamsByAlgorithm.get(compositeKey) ?? new Map<string, TouchedTeamInfo>();
 
-      // THE LOOP SURVIVED ITS ARTIFACT WORK ON PURPOSE (260917-jr4). Every R2
-      // call that used to live here — `readExistingTeam`,
-      // `mergeTeamSeasonArtifact`, `writeArtifactWithBootstrapRetry` — is
-      // gone, but `runGlobalRebuild`'s teams-of-the-year feed reads
-      // `touchedTeamsByAlgorithm`, and THAT contribution must survive
-      // unchanged: still gated on `isOfficial`, still summing
-      // `teamMatches.length`. `teamMatches` is still needed for that sum and
-      // now needs no artifact read to compute.
+      // THE TEAM ARTIFACT WRITE IS BACK (quick task 260923-3w6), one read and one
+      // write per touched team per algorithm, exactly as it was before 260917-jr4
+      // removed it to save 7.6 ms of a 10 ms budget. The team page is one fetch
+      // again, which the 2026-09-17 load test measured 2.1x faster than the
+      // index-plus-event-file hybrid the removal forced.
+      //
+      // UNCONDITIONAL, unlike the `teams/{year}` feed below: an offseason event is
+      // fully visible on its own pages and only stops moving the season
+      // leaderboard. That split is the pre-260917-jr4 behaviour, preserved.
       for (const teamKey of realTouchedTeams) {
-        if (!isOfficial) continue;
         const teamMatches = newlyFoldedResults.filter((m) => m.redTeams.includes(teamKey) || m.blueTeams.includes(teamKey));
+
+        const teamParams = { page: "team" as const, teamKey, year: window.season, algorithmId, version: info.algorithm.version };
+        const existingTeam = await readExistingTeam(env, counter, teamParams);
+        const teamMergeParams = {
+          existing: existingTeam,
+          teamKey,
+          season: window.season,
+          algorithmId,
+          algorithmVersion: info.algorithm.version,
+          eventKey,
+          matches: teamMatches,
+          predictions: info.newPredictions,
+          metrics: info.touchedMetrics[teamKey] ?? {},
+          bands: info.newBands,
+          playedRowFacts,
+          // The SAME records the event artifact's `upcoming` came from, filtered to
+          // this team's own matches — one pricing call per algorithm feeds both
+          // pages, so they cannot disagree about a scheduled match.
+          upcomingRows: priced.team.filter((row) => row.redTeams.includes(teamKey) || row.blueTeams.includes(teamKey)),
+          stamp,
+          sigmaAfterTick: info.touchedSigma.get(teamKey),
+        };
+        const mergedTeam = mergeTeamSeasonArtifact(teamMergeParams);
+        await writeArtifactWithBootstrapRetry(env, counter, "team", teamParams, mergedTeam, algorithmId, () =>
+          mergeTeamSeasonArtifact({ ...teamMergeParams, existing: undefined })
+        );
+
+        // `runGlobalRebuild`'s teams-of-the-year feed, gated on officialness and
+        // summing this team's newly-folded match count. Unchanged.
+        if (!isOfficial) continue;
         const prior = seasonMap.get(teamKey);
         seasonMap.set(teamKey, {
           metrics: info.touchedMetrics[teamKey] ?? prior?.metrics ?? {},

@@ -103,8 +103,28 @@ import type { D1Database } from "@cloudflare/workers-types";
  * arithmetic does not describe.
  *
  * OBSERVED: 28. The prediction matched exactly.
+ *
+ * RE-DERIVED FOR 260923-3w6, arithmetic off the observed 28. That task reinstates
+ * Phase B's per-team artifact read and write — the exact pair 260917-jr4 removed,
+ * so this is that subtraction run backwards:
+ *
+ *   final live tick folds `2026casj_qm4` -> 6 real touched teams
+ *   LIVE_ALGORITHM_IDS = "opr,epa,spr"                    -> 3 algorithms
+ *   added: 3 algorithms x 6 teams x 2 (read + write)      = +36
+ *   added by the upcoming pricing itself: nothing — it is CPU, not I/O, and its
+ *     state arrives in the read Phase A already made
+ *
+ *   PREDICTED: 28 + 36 = 64
+ *
+ * OBSERVED: 64. It matched, and it is the same 64 this pin held before
+ * 260917-jr4 — the two changes cancel exactly, which is the strongest evidence
+ * available that the reinstated loop is the same loop and not a new cost.
+ *
+ * Unlike the two paragraphs above, this one was written AFTER the suite was run:
+ * the arithmetic and the observation are both recorded, and the claim is only
+ * that they agree.
  */
-const SUBREQUESTS_PER_LIVE_TICK = 28;
+const SUBREQUESTS_PER_LIVE_TICK = 64;
 
 interface FakeAlgorithmStateRow {
   algorithm_id: string;

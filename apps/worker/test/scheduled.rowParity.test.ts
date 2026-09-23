@@ -261,7 +261,7 @@ function liveTeamSeason(fold: ReturnType<typeof foldOf>, existing?: TeamSeasonAr
     matches: fold.results,
     predictions: fold.predictions,
     metrics: { total: { value: 40 } },
-    matchIndexByKey: new Map(fold.results.map((r, i) => [r.matchKey, i])),
+    upcomingRows: [],
     bands: fold.bands,
     playedRowFacts: playedRowFactsFor(SEASON, fold.rawMatches, fold.folded, fold.results),
     stamp: STAMP,

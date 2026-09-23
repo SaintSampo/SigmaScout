@@ -5,15 +5,15 @@
  *
  * `packages/harness/liveEventRows.test.ts` covers the merge and the encoding
  * in isolation. THIS file covers the things only a driven tick can settle:
- * that the tick issues zero team-artifact R2 calls (reads included — a read
- * costs a subrequest and a round trip whether or not a write follows), that
- * Phase B now makes EXACTLY TWO R2 calls per algorithm-event and none under
- * any other key at all, that successive ticks append to the one body, that the
+ * that the tick issues one team-artifact read and one write per touched team per
+ * algorithm (reinstated by quick task 260923-3w6; this file's claim was the
+ * OPPOSITE between 260917-jr4 and that task), that Phase B makes EXACTLY TWO R2
+ * calls per algorithm-EVENT and none under any other per-event key at all, that
+ * successive ticks append to the one body, that the
  * write-side scrub covers the live rows because they sit inside the body it
- * already scrubs, that a drifted key set is logged and self-heals, and — the
- * one thing the deleted team loop was carrying besides its artifact work —
- * that `runGlobalRebuild`'s touched-team bookkeeping still reaches
- * `teams/{year}` with the right per-team match delta.
+ * already scrubs, that a drifted key set is logged and self-heals, and that
+ * `runGlobalRebuild`'s touched-team bookkeeping reaches `teams/{year}` with the
+ * right per-team match delta.
  *
  * FOUR CASES FROM THE SIDECAR VERSION ARE GONE BECAUSE THEIR SUBJECT IS: the
  * R2 key spelling (the block has no key of its own), the wrapper-schema
@@ -28,7 +28,7 @@
  * `scheduled.replay.test.ts`'s header for the reasoning): independent fakes
  * are what make a real divergence detectable rather than tautological. THIS
  * file's fake R2 additionally logs GETS, which `scheduled.test.ts`'s does not
- * — the zero-team-READ half of the claim is unassertable without it.
+ * — the team-READ half of the claim is unassertable without it.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runTick } from "../src/scheduled.js";
@@ -392,26 +392,33 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("the live tick's team half is ZERO R2 calls", () => {
-  it("issues no team-artifact GET and no team-artifact PUT across three folding ticks", async () => {
+describe("the live tick's team half is one read and one write per touched team", () => {
+  it("issues a team-artifact GET and a team-artifact PUT for each of the six teams, on each of three folding ticks", async () => {
     const r2 = new FakeR2Bucket();
     const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
     vi.stubGlobal("fetch", makeTbaFetchStub());
 
     await driveTicks(env, 3);
 
-    // Reads matter as much as writes: a read costs a subrequest and a round
-    // trip whether or not a write follows it, and the old loop paid one per
-    // touched team per algorithm per tick.
-    expect(r2.gets.filter((key) => key.startsWith("v1/team/"))).toEqual([]);
-    expect(r2.puts.filter((p) => p.key.startsWith("v1/team/"))).toEqual([]);
+    // Reinstated by quick task 260923-3w6: one algorithm (`LIVE_ALGORITHM_IDS`
+    // is "opr" here), six teams per match, three folding ticks. Reads are
+    // asserted alongside writes because a read costs a subrequest and a round
+    // trip whether or not a write follows it, which is why this file's fake R2
+    // logs them at all.
+    const teamGets = r2.gets.filter((key) => key.startsWith("v1/team/"));
+    const teamPuts = r2.puts.filter((p) => p.key.startsWith("v1/team/"));
+    expect(teamGets).toHaveLength(18);
+    expect(teamPuts).toHaveLength(18);
+    // Read-then-write on the same key, never a blind write: the merge needs the
+    // published body or it would publish a team's season as if it began today.
+    expect(new Set(teamPuts.map((p) => p.key))).toEqual(new Set(teamGets));
 
     // Non-vacuity: the tick really did do Phase B work on this event.
     const eventKeyPath = artifactKey({ page: "event", eventKey: EVENT_KEY, algorithmId: "opr", version: opr.version });
     expect(r2.puts.filter((p) => p.key === eventKeyPath)).toHaveLength(3);
   });
 
-  it("issues exactly TWO R2 calls per algorithm-event — the event artifact, read then written — and NOTHING else", async () => {
+  it("issues exactly TWO PER-EVENT R2 calls per algorithm-event — the event artifact, read then written — and NOTHING else", async () => {
     const r2 = new FakeR2Bucket();
     const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
     vi.stubGlobal("fetch", makeTbaFetchStub());

@@ -578,10 +578,11 @@ describe("scheduled.replay — offline equivalence", () => {
           expect(checkedRows, `algorithm "${algorithmId}": non-vacuous — live rows were actually checked`).toBeGreaterThan(0);
         }
 
-        // The tick wrote NO team artifact for any touched team (260917-jr4).
+        // The tick wrote a team artifact for every touched team (quick task
+        // 260923-3w6, reversing 260917-jr4).
         for (const teamKey of ALL_TOUCHED_TEAMS) {
           const teamArtifactKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId, version: offlineModule.version });
-          expect(await r2.get(teamArtifactKey), `${teamArtifactKey} must not be written by a live tick`).toBeNull();
+          expect(await r2.get(teamArtifactKey), `${teamArtifactKey} was not written by the live tick`).not.toBeNull();
         }
       }
     },

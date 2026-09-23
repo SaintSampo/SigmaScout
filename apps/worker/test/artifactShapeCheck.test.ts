@@ -282,7 +282,7 @@ function mergeTeam(existing: TeamSeasonArtifact | undefined): unknown {
     matches: [TICK_QM2],
     predictions: new Map([[TICK_QM2.matchKey, { winner: "blue", pRedWin: 0.4, redScore: 95, blueScore: 99 } satisfies Prediction]]),
     metrics: FRESH_METRICS.frc1!,
-    matchIndexByKey: new Map([[TICK_QM2.matchKey, 1]]),
+    upcomingRows: [],
     bands: new Map(),
     playedRowFacts: new Map(),
     stamp: LIVE_STAMP,

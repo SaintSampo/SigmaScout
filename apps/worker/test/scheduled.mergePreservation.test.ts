@@ -352,7 +352,7 @@ function mergeTeam(existing: TeamSeasonArtifact | undefined, match: MatchResult)
     matches: [match],
     predictions: new Map([[match.matchKey, { winner: "blue", pRedWin: 0.4, redScore: 95, blueScore: 99 } satisfies Prediction]]),
     metrics: { total: { value: 50.25 } },
-    matchIndexByKey: new Map([[match.matchKey, 2]]),
+    upcomingRows: [],
     bands: new Map(),
     playedRowFacts: new Map(),
     stamp: LIVE_STAMP,

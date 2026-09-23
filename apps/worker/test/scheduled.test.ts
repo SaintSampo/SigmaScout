@@ -453,24 +453,24 @@ describe("runTick — one live event, one new match", () => {
     // is written only when the roster grew, so never on an ordinary tick.
     // Since quick task 260923-3w4 the teams-of-the-year rebuild also runs on
     // every tick that touched a team rather than on a ten-minute interval, so it
-    // is subtracted here too. Still ZERO per-team artifact puts, which is what
-    // this test is for.
+    // is subtracted here too. Since quick task 260923-3w6 each touched team gets
+    // its own artifact back, so those are subtracted as well and asserted by name
+    // below — what this test still pins is that there is exactly ONE EVENT put.
     const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
-    expect(r2.puts.filter((p) => p.key !== liveRosterKey("2026casj") && p.key !== teamsPutKey)).toHaveLength(1);
+    const isTeamPut = (key: string) => key.startsWith("v1/team/");
+    expect(r2.puts.filter((p) => p.key !== liveRosterKey("2026casj") && p.key !== teamsPutKey && !isTeamPut(p.key))).toHaveLength(1);
     expect(r2.puts.filter((p) => p.key === liveRosterKey("2026casj"))).toHaveLength(1);
     expect(r2.puts.filter((p) => p.key === teamsPutKey)).toHaveLength(1);
-    expect(r2.puts.filter((p) => p.key.startsWith("v1/team/"))).toHaveLength(0);
 
     const eventPutKey = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "opr", version: opr.version });
     expect(r2.puts.some((p) => p.key === eventPutKey)).toBe(true);
-    for (const teamKey of ALL_TEAMS) {
-      const teamPutKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "opr", version: opr.version });
-      expect(r2.puts.some((p) => p.key === teamPutKey), teamKey + ": a live tick must write no team artifact").toBe(false);
-    }
+    const teamPutKeys = ALL_TEAMS.map((teamKey) => artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "opr", version: opr.version }));
+    expect(new Set(r2.puts.filter((p) => isTeamPut(p.key)).map((p) => p.key))).toEqual(new Set(teamPutKeys));
     // Since 260918-16t the live rows ride inside the event body above, and since
     // 260921-5qw a first fold also writes the event's live roster. Those are the
-    // ONLY two objects. Asserted by equality over every key mentioning this
-    // event, so any third object fails here by name.
+    // ONLY two objects keyed by this EVENT — a team artifact is keyed by team and
+    // season, so it is outside this filter by construction. Asserted by equality,
+    // so any third per-event object fails here by name.
     expect(new Set(r2.puts.map((p) => p.key).filter((key) => key.includes("2026casj")))).toEqual(new Set([eventPutKey, liveRosterKey("2026casj")]));
 
     // OPR's lastEventByTeam bookkeeping lives in its OWN team-scoped rows,
@@ -1252,7 +1252,12 @@ describe("runTick — official-play scope on the global rebuild feed", () => {
     // event type, exactly as the team artifact write it replaced was; only the
     // `teams/{year}` feed below is gated on officialness.
     expect(LiveEventArtifactSchema.parse(JSON.parse(r2.puts.filter((p) => p.key === eventPutKey).at(-1)!.body)).live?.rows.length).toBeGreaterThan(0);
-    expect(r2.puts.some((p) => p.key.startsWith("v1/team/"))).toBe(false);
+    // The per-team artifact write is unconditional too (quick task 260923-3w6):
+    // an offseason event is fully visible on its own pages and only stops moving
+    // the season leaderboard.
+    expect(new Set(r2.puts.filter((p) => p.key.startsWith("v1/team/")).map((p) => p.key))).toEqual(
+      new Set(ALL_TEAMS.map((teamKey) => artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "opr", version: opr.version })))
+    );
 
     const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
     expect(r2.puts.some((p) => p.key === teamsPutKey)).toBe(false);
@@ -1287,7 +1292,10 @@ describe("runTick — official-play scope on the global rebuild feed", () => {
     expect(written.live?.rows ?? []).toHaveLength(0);
     // No OPR team state was created by the Week 0 match.
     expect([...d1.algorithmState.keys()].filter((k) => k.startsWith("opr::team::"))).toEqual([]);
-    expect(r2.puts.some((p) => p.key.startsWith("v1/team/"))).toBe(false);
+    // The team ARTIFACT is still written (the match is predicted and published,
+    // just never folded), which is the same unconditional rule the event write
+    // follows. Quick task 260923-3w6.
+    expect(r2.puts.filter((p) => p.key.startsWith("v1/team/"))).toHaveLength(ALL_TEAMS.length);
 
     const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
     expect(r2.puts.some((p) => p.key === teamsPutKey)).toBe(false);
@@ -1430,20 +1438,29 @@ describe("runTick — played rows carry the tick's own per-match facts", () => {
     expect(eventRow!.actualRedBonusRp).toBeNull();
     expect(eventRow!.actualBlueBonusRp).toBeNull();
 
-    // THE TEAM-ROW HALF OF THIS CLAIM MOVED (260917-jr4, D-07). The tick
-    // writes no team artifact at all, so there is no team row here to read.
-    // The same fields now reach the robot page through the BROWSER, which
-    // builds a team-shaped row from this very event row
-    // (`overlayTeamEventMatches` / `teamRowFromEventRow`), and
-    // `apps/web/src/lib/liveTeamSeason.test.ts` asserts that derived row
-    // equals the publisher's own row field for field, minus a stated
-    // exception list. Deleting the assertion without naming its new home
-    // would leave the impression the claim was dropped.
+    // THE TEAM-ROW HALF OF THIS CLAIM IS BACK HERE (quick task 260923-3w6,
+    // reversing 260917-jr4's D-07). Between those tasks the tick wrote no team
+    // artifact, so the same fields reached the robot page through the browser
+    // deriving a team-shaped row from this very event row; that derivation goes
+    // away in 260923-3w7. The tick writes the row itself again, so the claim is
+    // asserted directly on the published bytes — which is what it always wanted
+    // to assert.
     const teamPutKey = artifactKey({ page: "team", teamKey: "frc1", year: SEASON, algorithmId: "opr", version: opr.version });
-    expect(r2.puts.some((p) => p.key === teamPutKey)).toBe(false);
-    // Non-vacuity for the redirect above: the event row this test just
-    // asserted really is the row the browser derives from.
+    const teamPut = r2.puts.filter((p) => p.key === teamPutKey).at(-1);
+    expect(teamPut, "the tick wrote no team artifact for frc1").toBeDefined();
+    const teamEvents = (JSON.parse(teamPut!.body) as { events: { eventKey: string; matches: Record<string, unknown>[] }[] }).events;
+    const teamRow = teamEvents.find((e) => e.eventKey === "2026casj")!.matches.find((m) => m.matchKey === "2026casj_qm1");
+    expect(teamRow, "the team artifact carries no row for the match just folded").toBeDefined();
+    expect(teamRow!.video).toBe(videoKey);
+    expect(teamRow!.sortTime).toBe(actualTimeSec * 1000);
+    expect(teamRow!.actualRedRp).toBeNull();
+    expect(teamRow!.actualBlueRp).toBeNull();
+    expect(teamRow!.actualRedBonusRp).toBeNull();
+    expect(teamRow!.actualBlueBonusRp).toBeNull();
+    // The two rows are built from the SAME per-match facts, so the fields they
+    // share agree by construction rather than by coincidence.
     expect(eventRow!.redTeams).toContain("frc1");
+    expect(teamRow!.redTeams).toEqual(eventRow!.redTeams);
   });
 });
 
@@ -1536,21 +1553,16 @@ const EVENT_PUT_KEY = artifactKey({ page: "event", eventKey: "2026casj", algorit
 
 describe("runTick — a corrupt published artifact retries as a bootstrap instead of blocking forever", () => {
   /**
-   * THE TEAM HALF BECAME AN ACCEPTED LOSS, ASSERTED RATHER THAN DELETED
-   * (260917-jr4, unsound part 3). The tick no longer reads or writes a team
-   * artifact at all, so it also no longer bootstraps over a corrupt one: a
-   * corrupt team-season artifact now stays corrupt until the next offline
-   * republish. That is a real, small regression Jacob accepted with the shape
-   * — it is worth far less than the 7.6 ms of per-tick CPU the team loop cost
-   * — and it is pinned here so a future reader sees a decision rather than a
-   * missing test.
-   *
-   * The self-healing PROPERTY itself is not lost: since 260918-16t it lives on
-   * the EVENT artifact, the one object the live path still owns, and is
-   * asserted in the two tests below — a corrupt live block costs the block and
-   * the tick republishes a fresh one in the same single put.
+   * THE TEAM HALF SELF-HEALS AGAIN (quick task 260923-3w6, reversing
+   * 260917-jr4's accepted loss). Between those tasks the tick read and wrote no
+   * team artifact, so a corrupt team-season artifact stayed corrupt until the next
+   * offline republish — a real regression Jacob accepted at the time because it
+   * was worth less than 7.6 ms of a 10 ms CPU budget. The per-team write is back,
+   * and with it the bootstrap retry: a corrupt body that passes the structural
+   * read guard and fails the write schema is republished from scratch on the next
+   * tick, exactly as the event artifact already is in the two tests below.
    */
-  it("team: a corrupt team artifact is now left EXACTLY as it was — the tick makes no team read and no team write", async () => {
+  it("team: a corrupt team artifact is republished as a bootstrap, in one put, with one warn line", async () => {
     const seeded = JSON.parse(guardPassingCorruptTeamArtifact("frc1")) as unknown;
     // Non-vacuity, unchanged from before: this fixture really does pass the
     // read guard and really does fail the write schema.
@@ -1561,14 +1573,38 @@ describe("runTick — a corrupt published artifact retries as a bootstrap instea
     const r2 = new FakeR2Bucket();
     const seededBody = guardPassingCorruptTeamArtifact("frc1");
     r2.seed(TEAM_PUT_KEY, seededBody);
-    const result = await runTick(makeEnv(makeManifests([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Read out of the spy BEFORE it is restored: `mockRestore` resets the mock,
+    // which clears `mock.calls` along with the implementation.
+    let retryLines: Record<string, unknown>[];
+    let result;
+    try {
+      result = await runTick(makeEnv(makeManifests([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS });
+      retryLines = warn.mock.calls
+        .map((call) => {
+          try {
+            return JSON.parse(String(call[0])) as Record<string, unknown>;
+          } catch {
+            return undefined;
+          }
+        })
+        .filter((line): line is Record<string, unknown> => line?.msg === "artifact-write-schema-retry" && line.page === "team");
+    } finally {
+      warn.mockRestore();
+    }
 
     expect(result.eventsAdvanced).toBe(1);
     expect(result.eventsFailed).toBe(0);
 
-    expect(r2.puts.filter((p) => p.key === TEAM_PUT_KEY)).toHaveLength(0);
-    // Byte-identical: not merged, not rewritten, not repaired.
-    expect(await (await r2.get(TEAM_PUT_KEY))!.text()).toBe(seededBody);
+    // ONE put, not two: the failed attempt never reached R2 (validation runs
+    // before the put), so the retry is the only object written.
+    expect(r2.puts.filter((p) => p.key === TEAM_PUT_KEY)).toHaveLength(1);
+    const written = await (await r2.get(TEAM_PUT_KEY))!.text();
+    expect(written).not.toBe(seededBody);
+    expect(() => TeamSeasonArtifactSchema.parse(JSON.parse(written))).not.toThrow();
+
+    expect(retryLines).toHaveLength(1);
+    expect(retryLines[0]!.key).toBe(TEAM_PUT_KEY);
   });
 
   it("live block: a corrupt block is dropped at read and republished fresh, in the SAME single event put", async () => {
@@ -1747,8 +1783,10 @@ describe("runTick — the tick probes a probe window", () => {
     // Since quick task 260921-5qw a FIRST fold also writes the event's live roster, the tiny object a
     // robot page finds a promoted event through. It is one object per EVENT, not per algorithm, and it
     // is written only when the roster grew, so never on an ordinary tick. Since
-    // 260923-3w4 a tick that touched a team also rebuilds `teams/{year}`.
-    expect(r2.puts.map((p) => p.key).sort()).toEqual([eventPutKey, liveRosterKey("2026probe"), teamsPutKey].sort());
+    // 260923-3w4 a tick that touched a team also rebuilds `teams/{year}`, and
+    // since 260923-3w6 each touched team gets its own artifact.
+    const probeTeamPutKeys = ALL_TEAMS.map((teamKey) => artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "opr", version: opr.version }));
+    expect(r2.puts.map((p) => p.key).sort()).toEqual([eventPutKey, liveRosterKey("2026probe"), teamsPutKey, ...probeTeamPutKeys].sort());
   });
 
   it("a tick with one foldable window and one probe window still folds the foldable event", async () => {

@@ -408,7 +408,12 @@ describe("runTick — state-generation marker equals the manifest generation (co
     // And since quick task 260923-3w4 a tick that touched a team ALSO rebuilds
     // `teams/{year}`, every tick, instead of on a ten-minute interval — so the
     // Teams page is a cron minute behind rather than up to ten.
-    expect(r2.puts.map((p) => p.key).sort()).toEqual([eventPutKey, liveRosterKey(EVENT_KEY), teamsPutKey].sort());
+    //
+    // Since quick task 260923-3w6 each touched team gets its own artifact too, so
+    // the write set is enumerated as the three fixed keys PLUS one per team rather
+    // than as a closed list.
+    const teamPutKeys = [...RED_TEAMS, ...BLUE_TEAMS].map((teamKey) => artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "spr", version: spr.version }));
+    expect(r2.puts.map((p) => p.key).sort()).toEqual([eventPutKey, liveRosterKey(EVENT_KEY), teamsPutKey, ...teamPutKeys].sort());
   });
 });
 

@@ -487,16 +487,20 @@ describe("liveAlgorithmTier — only the live tier folds", () => {
     const premierEventKey = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "spr", version: PREMIER_TEST_VERSION });
     expect(r2.puts.some((p) => p.key === premierEventKey)).toBe(true);
 
-    // Since 260917-jr4 the tick writes NO team artifact at all — the assertion
-    // here used to be that every one of ALL_TEAMS got one. Since 260918-16t
-    // what replaced them is a block INSIDE the event artifact above, so there
-    // is no second key to assert at all: the premier event key IS the whole
-    // per-event write set.
+    // Every touched team gets its own artifact again (quick task 260923-3w6,
+    // reversing 260917-jr4), and only for the LIVE tier — which is what this
+    // file is about: a team artifact under `/opr@` or `/epa@` would mean an
+    // algorithm outside `LIVE_ALGORITHM_IDS` was folded, and the `/spr@`-only
+    // assertion above already covers that by key spelling.
     for (const teamKey of ALL_TEAMS) {
       const premierTeamKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "spr", version: PREMIER_TEST_VERSION });
-      expect(r2.puts.some((p) => p.key === premierTeamKey), `${teamKey} team artifact must NOT be written by a live tick`).toBe(false);
+      expect(r2.puts.some((p) => p.key === premierTeamKey), `${teamKey}: the live tier's team artifact was not written`).toBe(true);
     }
-    expect(r2.puts.some((p) => p.key.startsWith("v1/team/"))).toBe(false);
+    // And ONLY the live tier's: every team-artifact key written this tick ends in
+    // `/spr@`, so an opr or epa team file would fail here by name.
+    expect(new Set(r2.puts.filter((p) => p.key.startsWith("v1/team/")).map((p) => p.key))).toEqual(
+      new Set(ALL_TEAMS.map((teamKey) => artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "spr", version: PREMIER_TEST_VERSION })))
+    );
 
     // Exactly ONE per-event object, for the live tier only: the event artifact
     // itself. Asserted by equality over every key mentioning this event, so a
