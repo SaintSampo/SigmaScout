@@ -22,13 +22,15 @@ import { spr } from "../../../packages/core/algorithms/spr.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import type { MatchResult, Prediction, TeamMetric, UpcomingMatch } from "../../../packages/core/algorithms/types.js";
 import {
+  EventUpcomingMatchSchema,
   LiveEventArtifactSchema,
   TeamSeasonArtifactSchema,
   type EventArtifact,
+  type EventUpcomingMatch,
   type LiveEventArtifact,
   type TeamSeasonArtifact,
 } from "../../../packages/harness/pageArtifacts.js";
-import type { CorpusMatch } from "../../../packages/ingest/normalize.js";
+import { eventUpcomingRow } from "../../../packages/harness/publishedRows.js";
 
 /** The slice of `publish.ts` these tests drive, typed locally (see the header for why). */
 interface OfflinePublisher {
@@ -77,31 +79,13 @@ function upcomingMatch(matchKey: string, matchNumber: number, redTeams: string[]
   return { matchKey, eventKey, compLevel: "qm", setNumber: 1, matchNumber, redTeams, blueTeams, redSurrogates: [], blueSurrogates: [], eventType: 0, week: 1 };
 }
 
-function corpusMatch(result: MatchResult | UpcomingMatch, sortTime: number): CorpusMatch {
-  return {
-    matchKey: result.matchKey,
-    eventKey: result.eventKey,
-    compLevel: result.compLevel,
-    matchNumber: result.matchNumber,
-    setNumber: result.setNumber,
-    sortTime,
-    redTeams: [...result.redTeams],
-    blueTeams: [...result.blueTeams],
-    redSurrogates: [],
-    blueSurrogates: [],
-    redDqs: [],
-    blueDqs: [],
-    winner: "winner" in result ? result.winner : null,
-    winnerImputed: false,
-    redScore: "winner" in result ? result.redScore : null,
-    blueScore: "winner" in result ? result.blueScore : null,
-    redRpEarned: null,
-    blueRpEarned: null,
-    hasScoreBreakdown: false,
-    scoreBreakdownRaw: null,
-    videoKey: null,
-  };
+/** One priced upcoming row, as Phase B supplies them since quick task 260923-3w6, through the publisher's own builder. */
+function pricedUpcoming(match: UpcomingMatch, sortTime: number): EventUpcomingMatch {
+  return EventUpcomingMatchSchema.parse(
+    eventUpcomingRow({ match, prediction: { winner: "red", pRedWin: 0.55, redScore: 103, blueScore: 99 } satisfies Prediction }, sortTime)
+  );
 }
+
 
 const PLAYED_QM1 = matchResult({ matchKey: `${EVENT_KEY}_qm1`, matchNumber: 1, redTeams: ["frc1", "frc2", "frc3"], blueTeams: ["frc4", "frc5", "frc6"] });
 const UPCOMING_QM2 = upcomingMatch(`${EVENT_KEY}_qm2`, 2, ["frc1", "frc3", "frc5"], ["frc2", "frc4", "frc6"]);
@@ -164,7 +148,7 @@ interface EventTickOptions {
   readonly algorithmId?: string;
   readonly algorithmVersion?: string;
   readonly eventType?: number;
-  readonly stillUpcoming?: readonly CorpusMatch[];
+  readonly upcoming?: readonly EventUpcomingMatch[];
 }
 
 /**
@@ -184,7 +168,7 @@ function mergeEventRaw(options: EventTickOptions): Record<string, unknown> {
     newlyFolded: [TICK_QM2],
     // No outcome RP on this tick's prediction, so `rpOutcomeRp` must carry.
     newPredictions: new Map([[TICK_QM2.matchKey, { winner: "blue", pRedWin: 0.4, redScore: 95, blueScore: 99 } satisfies Prediction]]),
-    stillUpcoming: options.stillUpcoming ?? [],
+    upcoming: options.upcoming ?? [],
     touchedTeams: TOUCHED,
     touchedMetrics: FRESH_METRICS,
     newBands: new Map(),
@@ -255,8 +239,8 @@ describe("mergeEventArtifact keeps every key the tick does not own", () => {
 
   it("writes no stale state block for a non-SPR artifact with upcoming matches", () => {
     const existing = { ...existingEvent(), state: { stale: true } } as unknown as LiveEventArtifact;
-    const qm3 = corpusMatch(upcomingMatch(`${EVENT_KEY}_qm3`, 3, ["frc7", "frc8", "frc1"], ["frc2", "frc3", "frc4"]), QM2_SORT_TIME + 420_000);
-    const written = mergeEventRaw({ existing, algorithmId: opr.id, algorithmVersion: opr.version, stillUpcoming: [qm3] });
+    const qm3 = pricedUpcoming(upcomingMatch(`${EVENT_KEY}_qm3`, 3, ["frc7", "frc8", "frc1"], ["frc2", "frc3", "frc4"]), QM2_SORT_TIME + 420_000);
+    const written = mergeEventRaw({ existing, algorithmId: opr.id, algorithmVersion: opr.version, upcoming: [qm3] });
     expect(written).not.toHaveProperty("state");
   });
 

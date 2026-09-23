@@ -115,9 +115,11 @@ import {
   encodeTeamsRowMetrics,
   PAGE_ARTIFACT_SCHEMA_VERSION,
   TeamsArtifactSchema,
+  type EventUpcomingMatch,
   type LiveEventArtifact,
   type TeamsArtifact,
 } from "../../../packages/harness/pageArtifacts.js";
+import { priceUpcomingRows, type ScheduledMatchInput, type UpcomingPricingModel } from "../../../packages/harness/upcomingPricing.js";
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "../../../packages/harness/rounding.js";
 import { PUBLISHED_ALGORITHM_IDS, type AlgorithmsManifest, type LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
 import { loadAlgorithmsManifest, loadLiveEventsAt } from "./liveWindows.js";
@@ -125,6 +127,7 @@ import { loadAlgorithmsManifest, loadLiveEventsAt } from "./liveWindows.js";
 // why it was extracted and why it stays). The edge runs one way only: the tick
 // imports the merge, never the reverse.
 import {
+  existingUpcomingSortTimes,
   fallbackTeamNumber,
   mergeEventArtifact,
   mergeTeamSeasonArtifact,
@@ -139,7 +142,7 @@ import {
 import { checkLiveEventArtifactShape } from "./artifactShapeCheck.js";
 import { ArtifactSecretLeakError, readArtifactObject, writeArtifactObject, writeLiveRosterObject } from "./artifactWriter.js";
 import { buildLiveRoster, rosterGrew, type RosterSource } from "../../../packages/harness/liveRoster.js";
-import { MAX_SCOPE_KEYS_PER_READ, readEventCursor, readEventCursors, readScopedState, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
+import { MAX_SCOPE_KEYS_PER_READ, readEventCursor, readEventCursors, readScopedState, readScopedStateChunked, scopedStateReadStatements, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
 import { splitEventMatches } from "./matchSplit.js";
 import { TICK_META_EVENT_KEY, stateBaselineEventKey } from "../../../packages/harness/stateBaseline.js";
 import { rotate, sortEventKeys, SubrequestCounter } from "./subrequestCounter.js";
@@ -371,7 +374,7 @@ async function loadOrInitState(
   algorithm: AlgorithmModule<any>,
   coldStartTeamKeys: readonly string[]
 ) {
-  const rows = await readScopedState(db, algorithmId, selections);
+  const rows = await readScopedStateChunked(db, algorithmId, selections);
   const hasLeagueRow = rows.some((row) => row.scopeKind === "league");
   // Not yet seeded: cold-start via initState, since deserializeState throws
   // MissingLeagueRowError for this case. initState takes team keys, never
@@ -445,6 +448,17 @@ interface PerAlgorithmFold {
   readonly newBands: ReadonlyMap<string, MatchBand>;
   /** The changed rows Phase A passed to `writeScopedState`; Phase B splices them into the SPR event artifact's `state` block. */
   readonly writtenRows: readonly StateRow[];
+  /**
+   * This algorithm's END-OF-TICK state and level-2 accumulators, as the shared
+   * `priceUpcomingRows` wants them (quick task 260923-3w6). Phase B prices every
+   * still-upcoming match from this, which is why Phase A's D1 read covers every
+   * team on the remaining schedule and not just the ones a match touched.
+   *
+   * Captured at the same instant as `touchedMetrics` and `touchedSigma`, after
+   * every fold, so an upcoming match is priced from a state that has seen every
+   * played match — the offline publisher's own rule.
+   */
+  readonly upcomingModel: UpcomingPricingModel;
   /**
    * Sigma Score per real touched team, read at end of tick, the same instant
    * as `touchedMetrics`, so Total and Sigma always pair. Empty (never
@@ -813,6 +827,14 @@ async function processEvent(
     // `touchedTeams` stays raw for the event artifact's standings and for the
     // state READ (see the selection below).
     const realTouchedTeams = touchedTeams.filter((teamKey) => !isDemoTeamKey(teamKey));
+    // EVERY TEAM ON THE REMAINING SCHEDULE, whether or not it played this tick
+    // (quick task 260923-3w6). Phase B prices the upcoming matches, and the
+    // offline rule it must reproduce gives an alliance NO band and the match NO
+    // ranking points when any roster team has no Sigma belief. Reading only the
+    // touched teams would therefore make a scheduled match price differently
+    // live and offline — silently, with a well-formed row either way.
+    const scheduledTeams = [...new Set(stillUpcoming.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
+    const stateReadTeamKeys = stateBlockScopeKeys([...touchedTeams, ...scheduledTeams]);
     const lastFoldedMatchKey = newlyFolded[newlyFolded.length - 1]!.matchKey;
 
     // Claim before any state is read; a lost claim means another invocation
@@ -862,15 +884,18 @@ async function processEvent(
 
       for (const [algorithmId, algorithm] of algorithmModules) {
         // The READ names every raw key plus the demo pseudo-team key
-        // (`stateBlockScopeKeys`, the rule the published `state` block is built
-        // by), so a demo match resumes what the offline publisher seeded: the
-        // pseudo-team row SPR and OPR predict a demo robot from, and the
-        // passenger-only row its level-2 beliefs ride in. Reading only
-        // `realTouchedTeams` restarted both from the prior on every tick
-        // (quick task 260918-wfc). Same one statement, a few more bound keys.
-        const selections = selectionsFor(algorithmId, eventKey, stateBlockScopeKeys(touchedTeams));
+        // (`stateBlockScopeKeys`), so a demo match resumes what the offline
+        // publisher seeded: the pseudo-team row SPR and OPR predict a demo robot
+        // from, and the passenger-only row its level-2 beliefs ride in. Reading
+        // only `realTouchedTeams` restarted both from the prior on every tick
+        // (quick task 260918-wfc). Since 260923-3w6 the key list also covers the
+        // remaining schedule (`stateReadTeamKeys`), so Phase B can price it.
+        const selections = selectionsFor(algorithmId, eventKey, stateReadTeamKeys);
 
-        counter.spend(1);
+        // One statement per `MAX_SCOPE_KEYS_PER_READ` keys — SQLite's
+        // bound-parameter limit, not a budget. A full championship-division
+        // roster is the only realistic way past one.
+        counter.spend(scopedStateReadStatements(selections));
         // Cold start still gets real keys only, so no demo key seeds a level-1 `team` row.
         const { rows, state: initialState } = await loadOrInitState(env.DB, algorithmId, selections, algorithm, realTouchedTeams);
 
@@ -1049,6 +1074,23 @@ async function processEvent(
           for (const teamKey of realTouchedTeams) touchedSigma.set(teamKey, sigma.sigmaFor(teamKey));
         }
 
+        // What Phase B prices the remaining schedule from (quick task
+        // 260923-3w6). `scoreByTeam()`, NEVER `bandVarianceFor`: the offline
+        // publisher gives a never-seen team no Sigma Score at all, while
+        // `bandVarianceFor` prices one from the prior — that difference is a
+        // played-row rule, and applying it to an upcoming row would publish a
+        // number the next republish silently changes. The accumulators are passed
+        // by reference and only READ downstream (`momentsFor`, `apply`); nothing
+        // in Phase B folds.
+        const upcomingModel: UpcomingPricingModel = {
+          algorithm,
+          state,
+          sigmaScores: sigma?.scoreByTeam(),
+          ruleModule: rpRuleModule,
+          rp,
+          shift: rpMeanShift,
+        };
+
         // Passengers ride back into the rows after `serializeState`, so no
         // algorithm serializer knows they exist, at zero added subrequests.
         let candidateRows = serializeState(algorithmId, algorithm.version, state, stamp);
@@ -1058,12 +1100,30 @@ async function processEvent(
         if (sigma !== undefined) {
           candidateRows = withSigmaPopulation(withSigmaBeliefs(candidateRows, sigma.beliefsByTeam()), sigma.population());
         }
+        // WRITE ONLY THE TEAMS THIS TICK ACTUALLY ADVANCED (quick task
+        // 260923-3w6). Phase A's read now covers every team on the remaining
+        // SCHEDULE so Phase B can price it, which means `serializeState` emits a
+        // row for each of them. None of those extra rows moved: `update()`, the
+        // Sigma fold, the talent observation and the RP fold all touch only the
+        // rosters of the matches just folded.
+        //
+        // They are not BYTE-identical to what D1 holds, though, and that is the
+        // trap this filter exists for. The publisher's passenger chain attaches
+        // Sigma beliefs BEFORE RP beliefs (`seedStateRows`) and the tick's
+        // attaches RP first, so the two produce the same `stateJson` object with
+        // a different KEY ORDER. Without this filter `selectChangedRows` would
+        // read every roster team as changed and rewrite it on every tick,
+        // stamping a fresh `generation`/`computedAt` onto state that never
+        // advanced. The league row (and OPR's event row) are not filtered: those
+        // DO move on every fold.
+        const advancedTeamKeys = new Set(stateBlockScopeKeys(touchedTeams));
+        candidateRows = candidateRows.filter((row) => row.scopeKind !== "team" || advancedTeamKeys.has(row.scopeKey));
         const changedRows = selectChangedRows(rows, candidateRows);
 
         counter.spend(1);
         await writeScopedState(env.DB, changedRows); // may throw -- caught below, reverts the claim and aborts the WHOLE event (zero artifact puts)
 
-        perAlgorithm.set(algorithmId, { algorithm, newPredictions, touchedMetrics, newBands, touchedSigma, writtenRows: changedRows, observedBonusSides });
+        perAlgorithm.set(algorithmId, { algorithm, newPredictions, touchedMetrics, newBands, touchedSigma, writtenRows: changedRows, observedBonusSides, upcomingModel });
       }
 
       return await runPhaseBAndReport(env, counter, window, eventKey, eventType, fetchedEventType, rawMatches, newlyFolded, newlyFoldedResults, stillUpcoming, touchedTeams, realTouchedTeams, perAlgorithm, touchedTeamsByAlgorithm, stamp);
@@ -1167,6 +1227,60 @@ async function runPhaseBAndReport(
           }
         }
       }
+      // THE REMAINING SCHEDULE, PRICED HERE (quick task 260923-3w6). The rows go
+      // through the publisher's own builder inside `priceUpcomingRows`, from the
+      // model Phase A captured, so a live row and the republished row for the
+      // same match agree by construction — the same discipline the played rows
+      // already follow through `publishedRows.ts`.
+      //
+      // `sortTime` is an INPUT to pricing, not something the merge can add
+      // afterwards, so the published upcoming sort times are read here. A
+      // scheduled match's sort time is never re-derived from TBA's `time`
+      // (260915-isq): the published value, or no key at all.
+      //
+      // `eventType` is the tick's own resolved value, `-1` sentinel included,
+      // exactly as the played rows' `rpFieldsFor` reads it — a failed detail
+      // fetch makes the event RP-ineligible on both row kinds together.
+      const upcomingSortTimes = existingUpcomingSortTimes(existingEvent);
+      const scheduledInputs: ScheduledMatchInput[] = stillUpcoming.map((m) => {
+        const sortTime = upcomingSortTimes.get(m.matchKey);
+        return {
+          matchKey: m.matchKey,
+          compLevel: m.compLevel,
+          setNumber: m.setNumber,
+          matchNumber: m.matchNumber,
+          ...(sortTime !== undefined ? { sortTime } : {}),
+          redTeams: m.redTeams,
+          blueTeams: m.blueTeams,
+        };
+      });
+      let pricedUpcoming: EventUpcomingMatch[];
+      try {
+        pricedUpcoming =
+          scheduledInputs.length === 0
+            ? []
+            : priceUpcomingRows({ model: info.upcomingModel, eventKey, season: window.season, eventType, upcoming: scheduledInputs }).event;
+      } catch (error) {
+        // Logged and rethrown, never degraded to an unpriced row: writing
+        // `upcoming: []` would tell the event page the schedule was over, and
+        // writing schedule-only rows would revive a shape 260923-3w6 exists to
+        // retire. The rethrow lands in this function's blanket catch, so the
+        // event's artifacts lag one tick while its state stays durable in D1 —
+        // the same outcome any other Phase B failure has. The line carries the
+        // ids and a truncated message only, never a row or a TBA value.
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(
+          JSON.stringify({
+            msg: "upcoming-pricing-failed",
+            eventKey,
+            algorithmId,
+            upcoming: scheduledInputs.length,
+            error: message.slice(0, WRITE_RETRY_ERROR_MESSAGE_MAX),
+          })
+        );
+        throw error;
+      }
+
       // Held as one object so the bootstrap retry below re-runs THIS merge with
       // `existing: undefined` and nothing else changed -- a second parameter
       // list would be a second thing to keep in sync.
@@ -1179,7 +1293,7 @@ async function runPhaseBAndReport(
         eventType: fetchedEventType,
         newlyFolded: newlyFoldedResults,
         newPredictions: info.newPredictions,
-        stillUpcoming,
+        upcoming: pricedUpcoming,
         newBands: info.newBands,
         writtenRows: info.writtenRows,
         touchedTeams,

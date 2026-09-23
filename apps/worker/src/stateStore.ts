@@ -34,15 +34,21 @@ import type { StateRow, StateRowScopeKind } from "../../../packages/harness/stat
 export type { StateRow, StateRowScopeKind } from "../../../packages/harness/stateSnapshot.js";
 
 /**
- * A generous, named ceiling on how many scope keys a single
- * `readScopedState` call will bind into one `IN (...)` clause, totaled
- * across every selection in the request (a request may name more than one
- * scope kind — e.g. OPR's event key plus its touched teams — in one call).
- * The peak realistic tick is nowhere near this, but a caller that one day
- * passes an unbounded key list should get a named, actionable error here
- * rather than an opaque D1/SQLite bound-parameter-limit failure. Chunked
- * reads are deliberately not implemented — a chunked read would cost more
- * than one subrequest, exactly the invariant this module exists to hold.
+ * A ceiling on how many scope keys a single `readScopedState` call will bind
+ * into one `IN (...)` clause, totaled across every selection in the request (a
+ * request may name more than one scope kind — e.g. OPR's event key plus its
+ * touched teams — in one call).
+ *
+ * WHAT IT IS FOR, corrected by quick task 260923-3w6: SQLite's own
+ * bound-parameter limit, nothing else. Exceeding it must be a named, actionable
+ * error here rather than an opaque D1 driver failure. It is NOT a budget, and
+ * the sentence that used to follow — "chunked reads are deliberately not
+ * implemented, a chunked read would cost more than one subrequest" — was an
+ * argument from the retired free plan's 50 subrequests per invocation. Workers
+ * Paid allows 10,000, and the tick now reads state for every team on the
+ * remaining SCHEDULE (so it can price upcoming matches), not just the teams a
+ * match touched — a championship division's roster genuinely can pass 100 keys.
+ * `readScopedStateChunked` below is the chunking that argument used to forbid.
  */
 export const MAX_SCOPE_KEYS_PER_READ = 100;
 
@@ -121,6 +127,54 @@ export async function readScopedState(db: D1Database, algorithmId: string, selec
     generation: row.generation,
     computedAt: row.computed_at,
   }));
+}
+
+/**
+ * `readScopedState` over any number of keys, splitting into as many statements
+ * as SQLite's bound-parameter limit needs (`MAX_SCOPE_KEYS_PER_READ`) and
+ * merging the results. One statement — and so one subrequest — for the ordinary
+ * case; a caller that wants the exact count for its own accounting computes it
+ * as `max(1, ceil(totalKeys / MAX_SCOPE_KEYS_PER_READ))`.
+ *
+ * Every chunk's query also returns the algorithm's league row (it rides the
+ * `OR scope_kind = 'league'` tail), so rows are merged through a
+ * scope-kind-plus-key map: the league row appears once, never once per chunk.
+ * Two rows can never legitimately share that identity — it is
+ * `algorithm_state`'s primary key, minus the `algorithm_id` this call fixes.
+ *
+ * Order within the result is the first chunk's order, then each later chunk's
+ * new keys; nothing downstream depends on it (`deserializeState` indexes by
+ * scope, `selectChangedRows` by identity).
+ */
+export async function readScopedStateChunked(db: D1Database, algorithmId: string, selections: readonly ScopeSelection[]): Promise<StateRow[]> {
+  const pairs = selections.flatMap((s) => s.scopeKeys.map((scopeKey) => ({ scopeKind: s.scopeKind, scopeKey })));
+  if (pairs.length <= MAX_SCOPE_KEYS_PER_READ) return readScopedState(db, algorithmId, selections);
+
+  const byIdentity = new Map<string, StateRow>();
+  for (let i = 0; i < pairs.length; i += MAX_SCOPE_KEYS_PER_READ) {
+    const grouped = new Map<StateRowScopeKind, string[]>();
+    for (const pair of pairs.slice(i, i + MAX_SCOPE_KEYS_PER_READ)) {
+      const keys = grouped.get(pair.scopeKind) ?? [];
+      keys.push(pair.scopeKey);
+      grouped.set(pair.scopeKind, keys);
+    }
+    const rows = await readScopedState(
+      db,
+      algorithmId,
+      [...grouped].map(([scopeKind, scopeKeys]) => ({ scopeKind, scopeKeys }))
+    );
+    for (const row of rows) {
+      const identity = `${row.scopeKind}::${row.scopeKey}`;
+      if (!byIdentity.has(identity)) byIdentity.set(identity, row);
+    }
+  }
+  return [...byIdentity.values()];
+}
+
+/** How many statements (and so how many subrequests) `readScopedStateChunked` will spend on `selections`. */
+export function scopedStateReadStatements(selections: readonly ScopeSelection[]): number {
+  const totalKeys = selections.reduce((sum, s) => sum + s.scopeKeys.length, 0);
+  return Math.max(1, Math.ceil(totalKeys / MAX_SCOPE_KEYS_PER_READ));
 }
 
 const ALGORITHM_STATE_UPSERT_SQL = `INSERT INTO algorithm_state (algorithm_id, algorithm_version, scope_kind, scope_key, state_json, generation, computed_at)

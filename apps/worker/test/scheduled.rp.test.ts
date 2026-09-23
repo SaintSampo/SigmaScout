@@ -1091,7 +1091,7 @@ describe("scheduled.rp — the mean shift survives the live Worker (shape 16)", 
   );
 
   it(
-    "spr: live PLAYED RP rows EQUAL the offline SigmaScoutLayer's, which carry the mean shift; upcoming rows carry no pmf",
+    "spr: live RP rows EQUAL the offline SigmaScoutLayer's, which carry the mean shift — played AND upcoming",
     async () => {
       const { r2 } = await driveMeanShiftFixture();
       const offline = msOffline();
@@ -1104,17 +1104,21 @@ describe("scheduled.rp — the mean shift survives the live Worker (shape 16)", 
       ).toBe(msDigest(offline.shifted.slice(0, MS_LIVE_PLAYED)));
       expect(msDigest(onlinePlayed)).not.toBe(msDigest(offline.unshifted.slice(0, MS_LIVE_PLAYED)));
 
-      // Since 260915-isq the tick prices no upcoming match. Upcoming parity
-      // (browser pricer on the Worker-maintained block vs the offline rows)
-      // lives in "scheduled.rp — the state block survives the live Worker".
+      // UPCOMING ROWS ARE HELD TO THE SAME BAR SINCE QUICK TASK 260923-3w6. The
+      // tick prices them itself again, so the mean shift has to reach them too —
+      // and it reaches them through a DIFFERENT accessor than the played rows use
+      // (`shift.apply` inside `priceUpcomingRows`, over `momentsFor` on the
+      // post-fold accumulator), which is exactly why this is asserted rather than
+      // assumed. Between 260915-isq and 260923-3w6 these rows carried no pmf at
+      // all and this assertion read `toBeUndefined()`.
       const onlineUpcoming = online.slice(MS_LIVE_PLAYED);
       expect(onlineUpcoming).toHaveLength(MS_LIVE_UPCOMING);
-      for (const row of onlineUpcoming) {
-        expect(row.red, `upcoming ${row.matchKey} carries a red pmf`).toBeUndefined();
-        expect(row.blue, `upcoming ${row.matchKey} carries a blue pmf`).toBeUndefined();
-        expect(row.redBonus, `upcoming ${row.matchKey} carries a red bonus pmf`).toBeUndefined();
-        expect(row.blueBonus, `upcoming ${row.matchKey} carries a blue bonus pmf`).toBeUndefined();
-      }
+      expect(onlineUpcoming.filter((r) => r.red !== undefined).length, "the live arm priced no upcoming pmf at all").toBe(MS_LIVE_UPCOMING);
+      expect(
+        msDigest(onlineUpcoming),
+        "the live Worker's upcoming RP rows diverged from the offline layer's — it priced the remaining schedule from something the publisher does not use"
+      ).toBe(msDigest(offline.shifted.slice(MS_LIVE_PLAYED)));
+      expect(msDigest(onlineUpcoming)).not.toBe(msDigest(offline.unshifted.slice(MS_LIVE_PLAYED)));
     },
     120_000
   );
@@ -1143,20 +1147,27 @@ describe("scheduled.rp — the mean shift survives the live Worker (shape 16)", 
 });
 
 // ---------------------------------------------------------------------------
-// The SPR state block survives the live Worker (260915-isq).
+// THE TICK'S OWN UPCOMING ROWS ARE THE OFFLINE PUBLISHER'S (quick task
+// 260923-3w6). This is the equivalence proof for the reinstated Worker-side
+// pricing: published NUMBERS must not move when the pricer moves.
 //
-// A publish is emulated at k = 4 played live matches: D1 holds the offline
-// seed rows (the publisher's passenger chain, in its order) and R2 holds an
-// spr event artifact whose `state` block is `buildEventStateBlock` over those
-// rows. The Worker then folds the rest of the live event over three ticks.
-// After each tick the browser pricer runs on the block the Worker wrote (JSON
-// and zod round-tripped) and must reproduce, exactly, the upcoming rows an
-// offline replay of the same played set publishes. No tolerance anywhere.
+// A publish is emulated at k = 4 played live matches: D1 holds the offline seed
+// rows (the publisher's passenger chain, in its order) and R2 holds an spr event
+// artifact carrying the offline upcoming rows. The Worker then folds the rest of
+// the live event over three ticks. After each tick, the `upcoming` array the
+// Worker ITSELF wrote must equal, exactly, the rows an offline replay of the same
+// played set publishes. No tolerance anywhere.
 //
-// The schedule is built so the block mixes rows from every source: after
-// tick 1 match 6 pairs touched frc1 with untouched frc7-frc11; after tick 2
-// match 8 carries frc5/frc6 (written by tick 1), frc4/frc8/frc11 (tick 2) and
-// frc12 (the publish).
+// It used to prove the same equivalence one hop further out: the tick spliced a
+// `state` block, the BROWSER priced from it, and the browser's rows had to match
+// offline. Those three ticks, this fixture and this oracle are unchanged; only
+// the arm under test moved back into the Worker.
+//
+// The schedule is built so pricing sees teams from every source: after tick 1
+// match 6 pairs touched frc1 with untouched frc7-frc11; after tick 2 match 8
+// carries frc5/frc6 (folded by tick 1), frc4/frc8/frc11 (tick 2) and frc12
+// (untouched since the publish). An untouched team must still price exactly,
+// which is why Phase A reads the whole remaining schedule's state.
 // ---------------------------------------------------------------------------
 
 const SB_PRIOR_EVENT_KEY = "2026sbprior";
@@ -1166,7 +1177,6 @@ const SB_PRIOR_MATCHES = 132;
 const SB_PUBLISHED_PLAYED = 4;
 const SB_SEED_STAMP = { generation: "seed-gen", computedAt: "2026-08-21T00:00:00.000Z" };
 const SB_ARTIFACT_KEY = artifactKey({ page: "event", eventKey: SB_LIVE_EVENT_KEY, algorithmId: "spr", version: spr.version });
-const SB_SCHEDULE_KEYS = ["matchKey", "compLevel", "setNumber", "matchNumber", "sortTime", "redTeams", "blueTeams"];
 
 /** Match `k` of the prior event: an affine permutation of the twelve teams (multipliers coprime with 12), so partners and opponents vary. */
 function sbPriorRoster(k: number): { red: string[]; blue: string[] } {
@@ -1401,17 +1411,13 @@ async function sbHarness(options: SbHarnessOptions = {}): Promise<SbHarness> {
   };
 }
 
-/** Prices the artifact's upcoming rows from its own wire-form block, exactly as a browser would. */
-function sbPriceArtifact(artifact: Record<string, unknown> & { upcoming: Record<string, unknown>[] }): EventUpcomingMatch[] {
-  const wire = EventStateBlockSchema.parse(JSON.parse(JSON.stringify(artifact.state)));
-  return priceUpcomingFromState({
-    state: wire,
-    eventKey: SB_LIVE_EVENT_KEY,
-    season: SEASON,
-    eventType: artifact.eventType as number,
-    ruleModule: RP_RULE_MODULES[SEASON],
-    upcoming: artifact.upcoming as never,
-  }).event;
+/**
+ * The artifact's OWN upcoming rows, re-parsed through the published schema so an
+ * assertion compares parsed rows against parsed rows. The tick wrote these; no
+ * pricing happens here at all (quick task 260923-3w6).
+ */
+function sbWrittenUpcoming(artifact: Record<string, unknown> & { upcoming: Record<string, unknown>[] }): EventUpcomingMatch[] {
+  return artifact.upcoming.map((row) => EventUpcomingMatchSchema.parse(row));
 }
 
 function sbExpectExact(actual: readonly EventUpcomingMatch[], expected: readonly EventUpcomingMatch[]): void {
@@ -1449,13 +1455,13 @@ describe("scheduled.rp — the state block survives the live Worker", () => {
       try {
         // Pre-tick sanity: the emulated publish already prices to the offline rows.
         const before = await harness.readArtifact();
-        sbExpectExact(sbPriceArtifact(before), sbOfflineAt(SB_PUBLISHED_PLAYED).upcoming);
+        sbExpectExact(sbWrittenUpcoming(before), sbOfflineAt(SB_PUBLISHED_PLAYED).upcoming);
 
         // Tick 1: match 5 (six touched teams).
         await harness.tickTo(5);
         const afterTick1 = await harness.readArtifact();
         expect(afterTick1.eventType).toBe(EVENT_TYPE);
-        sbExpectExact(sbPriceArtifact(afterTick1), sbOfflineAt(5).upcoming);
+        sbExpectExact(sbWrittenUpcoming(afterTick1), sbOfflineAt(5).upcoming);
 
         const block1 = EventStateBlockSchema.parse(afterTick1.state);
         const touched1 = new Set(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
@@ -1478,12 +1484,14 @@ describe("scheduled.rp — the state block survives the live Worker", () => {
           }
         }
 
-        // Schedule-only upcoming rows, with the published sort time preserved.
+        // Fully priced rows, with the published sort time preserved rather than
+        // re-derived from TBA's `time` (260915-isq's one surviving rule).
         const publishedSortTimes = new Map(harness.publishedUpcoming.map((r) => [r.matchKey, r.sortTime]));
         expect(afterTick1.upcoming).toHaveLength(3);
         for (const row of afterTick1.upcoming) {
-          for (const key of Object.keys(row)) expect(SB_SCHEDULE_KEYS, `${String(row.matchKey)} carries "${key}"`).toContain(key);
           expect(row.sortTime).toBe(publishedSortTimes.get(row.matchKey as string));
+          expect(row.redMatchBandVariance, `${String(row.matchKey)}: no band`).toBeTypeOf("number");
+          expect(row.redRpPmf, `${String(row.matchKey)}: no RP pmf`).toBeDefined();
         }
         // Match 6 pairs touched frc1 with untouched frc7-frc11.
         const match6 = afterTick1.upcoming.find((r) => r.matchKey === matchKeyOf(SB_LIVE_FIXTURES[5]!))!;
@@ -1492,13 +1500,13 @@ describe("scheduled.rp — the state block survives the live Worker", () => {
         // Tick 2: matches 6 and 7 in one tick.
         await harness.tickTo(7);
         const afterTick2 = await harness.readArtifact();
-        sbExpectExact(sbPriceArtifact(afterTick2), sbOfflineAt(7).upcoming);
+        sbExpectExact(sbWrittenUpcoming(afterTick2), sbOfflineAt(7).upcoming);
         const block2 = EventStateBlockSchema.parse(afterTick2.state);
         expect(block2.rows.find((r) => r.scopeKey === "frc12"), "frc12 keeps the publish's row").toEqual(publishedByKey.get("team:frc12"));
         expect(block2.rows.find((r) => r.scopeKey === "frc5"), "frc5 keeps tick 1's row").toEqual(block1.rows.find((r) => r.scopeKey === "frc5"));
         for (const row of afterTick2.upcoming) {
-          for (const key of Object.keys(row)) expect(SB_SCHEDULE_KEYS).toContain(key);
           expect(row.sortTime).toBe(publishedSortTimes.get(row.matchKey as string));
+          expect(row.redRpPmf, `${String(row.matchKey)}: no RP pmf`).toBeDefined();
         }
 
         // Tick 3: the last match. No upcoming match left, so no block.
@@ -1530,11 +1538,10 @@ describe("scheduled.rp — state block warning paths and eventType", () => {
       .filter((line: Record<string, unknown> | undefined): line is Record<string, unknown> => line !== undefined && line.msg === msg);
   }
 
-  function expectScheduleOnly(upcoming: readonly Record<string, unknown>[]): void {
+  /** The tick prices its own upcoming rows (260923-3w6), so a warning path must still leave fully priced rows behind. */
+  function expectPriced(upcoming: readonly Record<string, unknown>[], played: number): void {
     expect(upcoming.length).toBeGreaterThan(0);
-    for (const row of upcoming) {
-      for (const key of Object.keys(row)) expect(SB_SCHEDULE_KEYS, `${String(row.matchKey)} carries "${key}"`).toContain(key);
-    }
+    expect(upcoming.map((row) => EventUpcomingMatchSchema.parse(row))).toEqual(sbOfflineAt(played).upcoming);
   }
 
   it(
@@ -1556,7 +1563,7 @@ describe("scheduled.rp — state block warning paths and eventType", () => {
         // Until this task the artifact was written with NO block and its upcoming
         // matches could not be priced until an operator re-baselined.
         expect(completed, "the tick left a block-less artifact block-less").toBeDefined();
-        expectScheduleOnly(artifact.upcoming);
+        expectPriced(artifact.upcoming, 5);
 
         // THE ORACLE: the same event, published WITH a block and maintained by
         // the splice over the same five ticks. Every team still on the schedule
@@ -1613,7 +1620,7 @@ describe("scheduled.rp — state block warning paths and eventType", () => {
         await harness.tickTo(5);
         const artifact = await harness.readArtifact();
         expect("state" in artifact).toBe(false);
-        expectScheduleOnly(artifact.upcoming);
+        expectPriced(artifact.upcoming, 5);
         const lines = warnLines(warn, "event-state-block-invalid");
         expect(lines).toHaveLength(1);
         expect(lines[0]).toMatchObject({ msg: "event-state-block-invalid", eventKey: SB_LIVE_EVENT_KEY, algorithmId: "spr", upcoming: 3 });

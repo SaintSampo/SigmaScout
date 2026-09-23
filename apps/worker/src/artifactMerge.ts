@@ -38,7 +38,7 @@ import {
   type ParsedBonusSides,
 } from "../../../packages/harness/publishedRows.js";
 import { SIGMA_METRIC_KEY } from "../../../packages/harness/sigmaScore.js";
-import { PAGE_ARTIFACT_SCHEMA_VERSION, type LiveEventArtifact, type TeamSeasonArtifact } from "../../../packages/harness/pageArtifacts.js";
+import { PAGE_ARTIFACT_SCHEMA_VERSION, type EventUpcomingMatch, type LiveEventArtifact, type TeamSeasonArtifact } from "../../../packages/harness/pageArtifacts.js";
 import { mergeEventLiveBlock, type EventLiveTickRow } from "../../../packages/harness/liveEventRows.js";
 import { roundMetric } from "../../../packages/harness/rounding.js";
 
@@ -142,15 +142,19 @@ export function playedRowFactsFor(
 }
 
 /**
- * One still-upcoming match as the tick writes it: schedule fields only. The
- * browser prices it from the artifact's `state` block. `sortTime` is the
- * published value from the existing artifact's row for this match, never
- * the TBA-normalized approximation; absent when that row had none.
+ * One still-upcoming match as a SCHEDULE-ONLY row: the shape the tick wrote
+ * between quick tasks 260915-isq and 260923-3w6, when the browser priced the
+ * remaining schedule from the artifact's `state` block.
  *
- * Exported for `test/matchSplit.test.ts` only: the trimmed and the reference
- * split must agree on the shape that actually reaches an artifact, not merely
- * on the six fields feeding it (260921-vzf). No production caller outside this
- * module.
+ * NO PRODUCTION CALLER SINCE 260923-3w6. The tick prices its own upcoming rows
+ * again (`priceUpcomingRows`), so what it writes is the publisher's priced
+ * shape. This builder is kept for `test/matchSplit.test.ts`, whose whole point
+ * is that the trimmed and the reference split agree on the shape that reaches an
+ * artifact rather than merely on the six fields feeding it (260921-vzf) — the
+ * six schedule fields are still exactly what a split must preserve, priced or
+ * not. `EventScheduledMatchSchema`, the union arm that accepted these rows,
+ * stays on `LiveEventArtifactSchema` until quick task 260923-3w7 retires the
+ * web's tolerance for them.
  */
 export function buildEventScheduledRow(match: ScheduledMatchFacts, existingSortTime: number | undefined) {
   return {
@@ -165,12 +169,31 @@ export function buildEventScheduledRow(match: ScheduledMatchFacts, existingSortT
 }
 
 /**
+ * The `sortTime` each of `existing`'s UPCOMING rows already publishes. The tick
+ * never re-derives a scheduled match's sort time from TBA's `time` field
+ * (260915-isq): a row keeps the published value or carries no key at all.
+ *
+ * Exported because Phase B needs the map BEFORE the merge — it prices the
+ * upcoming rows itself now, and `sortTime` is a per-match input to that pricing,
+ * not something the merge can add afterwards.
+ */
+export function existingUpcomingSortTimes(existing: LiveEventArtifact | undefined): Map<string, number> {
+  const sortTimes = new Map<string, number>();
+  for (const row of existing?.upcoming ?? []) {
+    if (row.sortTime !== undefined) sortTimes.set(row.matchKey, row.sortTime);
+  }
+  return sortTimes;
+}
+
+/**
  * `{ win, tie }` from the first played prediction carrying both outcome-RP
  * vectors. Reimplements the played half of `publish.ts`'s private
  * `findRpOutcomeRp`, because importing `publish.ts` would pull
- * `better-sqlite3` into the Worker; the tick prices no upcoming match, so the
- * caller falls back to the existing artifact's value. `sigmaScoutLayer.ts`
- * composes the vector as `[winRp, tieRp, 0]`.
+ * `better-sqlite3` into the Worker. It stays the PLAYED half even now that the
+ * tick prices upcoming matches (260923-3w6): an upcoming ROW publishes no
+ * outcome-RP vectors (`eventUpcomingRow` omits them), so there is nothing to
+ * read off one. Played, then the existing artifact's value, then absent.
+ * `sigmaScoutLayer.ts` composes the vector as `[winRp, tieRp, 0]`.
  */
 function findRpOutcomeRp(played: readonly Prediction[]): { win: number; tie: number } | undefined {
   for (const prediction of played) {
@@ -192,7 +215,16 @@ export interface MergeEventArtifactParams {
   readonly eventType: number | undefined;
   readonly newlyFolded: readonly MatchResult[];
   readonly newPredictions: ReadonlyMap<string, Prediction>;
-  readonly stillUpcoming: readonly ScheduledMatchFacts[];
+  /**
+   * The event's remaining schedule, ALREADY PRICED by Phase B through
+   * `priceUpcomingRows` (quick task 260923-3w6) — the publisher's own row shape,
+   * built by the publisher's own builder. This used to be the raw
+   * `ScheduledMatchFacts` list, which this merge turned into schedule-only rows
+   * for the browser to price. The merge no longer decides anything about these
+   * rows; it places them, so that one function prices an upcoming match for the
+   * whole system.
+   */
+  readonly upcoming: readonly EventUpcomingMatch[];
   readonly touchedTeams: readonly string[];
   readonly touchedMetrics: Readonly<Record<string, Record<string, TeamMetric>>>;
   readonly newBands: ReadonlyMap<string, MatchBand>;
@@ -407,7 +439,7 @@ function maintainedLiveBlock(params: MergeEventArtifactParams): LiveEventArtifac
  * function's own header paragraph already warns about.
  */
 export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
-  const { existing, eventKey, season, algorithmId, algorithmVersion, eventType, newlyFolded, newPredictions, stillUpcoming, touchedTeams, touchedMetrics, newBands, playedRowFacts, stamp } = params;
+  const { existing, eventKey, season, algorithmId, algorithmVersion, eventType, newlyFolded, newPredictions, upcoming, touchedTeams, touchedMetrics, newBands, playedRowFacts, stamp } = params;
   // BOTH tick-owned blocks destructured out before the spread: either may be
   // omitted from this tick's output, and a spread would carry a stale one
   // through. See this function's doc comment.
@@ -415,11 +447,9 @@ export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
 
   // Read before the preserved-match filter below: a newly-played match's own
   // published row is where its prior `sortTime` lives when TBA reports none.
-  // A still-upcoming row keeps reading the upcoming map alone, as before.
-  const existingUpcomingSortTimes = new Map<string, number>();
-  for (const row of existing?.upcoming ?? []) {
-    if (row.sortTime !== undefined) existingUpcomingSortTimes.set(row.matchKey, row.sortTime);
-  }
+  // The still-upcoming rows arrive already priced, `sortTime` included (Phase B
+  // reads the same map through `existingUpcomingSortTimes` before pricing).
+  const upcomingSortTimes = existingUpcomingSortTimes(existing);
   const existingPlayedSortTimes = new Map<string, number>();
   for (const row of existing?.matches ?? []) {
     if (row.sortTime !== undefined) existingPlayedSortTimes.set(row.matchKey, row.sortTime);
@@ -437,15 +467,13 @@ export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
           // TBA's reported time, else the value already published for this
           // match (its played row or its upcoming row), else no key at all —
           // never the tick's window-start approximation (260915-isq).
-          sortTime: facts?.reportedSortTime ?? existingPlayedSortTimes.get(m.matchKey) ?? existingUpcomingSortTimes.get(m.matchKey),
+          sortTime: facts?.reportedSortTime ?? existingPlayedSortTimes.get(m.matchKey) ?? upcomingSortTimes.get(m.matchKey),
           video: facts?.video,
           actualBonusFlags: facts?.actualBonusFlags,
         }
       );
     }),
   ];
-
-  const upcoming = stillUpcoming.map((m) => buildEventScheduledRow(m, existingUpcomingSortTimes.get(m.matchKey)));
 
   // The season's win/tie RP constants, derived as `publish.ts` derives them
   // so live and offline artifacts agree; else the existing artifact's value,

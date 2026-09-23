@@ -39,15 +39,17 @@ import { spr } from "../../../packages/core/algorithms/spr.js";
 import type { MatchResult, Prediction, TeamMetric, UpcomingMatch } from "../../../packages/core/algorithms/types.js";
 import { STATE_SNAPSHOT_SHAPE_VERSION } from "../../../packages/harness/stateSnapshot.js";
 import {
+  EventUpcomingMatchSchema,
   LiveEventArtifactSchema,
   TeamSeasonArtifactSchema,
   PAGE_ARTIFACT_SCHEMA_VERSION,
   type EventArtifact,
   type EventStateBlock,
+  type EventUpcomingMatch,
   type LiveEventArtifact,
   type TeamSeasonArtifact,
 } from "../../../packages/harness/pageArtifacts.js";
-import type { CorpusMatch } from "../../../packages/ingest/normalize.js";
+import { eventUpcomingRow } from "../../../packages/harness/publishedRows.js";
 
 interface OfflinePublisher {
   buildEventArtifact(params: unknown): EventArtifact;
@@ -94,31 +96,6 @@ function upcomingMatch(matchKey: string, matchNumber: number, redTeams: string[]
   return { matchKey, eventKey: EVENT_KEY, compLevel: "qm", setNumber: 1, matchNumber, redTeams, blueTeams, redSurrogates: [], blueSurrogates: [], eventType: 0, week: 1 };
 }
 
-function corpusMatch(result: UpcomingMatch, sortTime: number): CorpusMatch {
-  return {
-    matchKey: result.matchKey,
-    eventKey: result.eventKey,
-    compLevel: result.compLevel,
-    matchNumber: result.matchNumber,
-    setNumber: result.setNumber,
-    sortTime,
-    redTeams: [...result.redTeams],
-    blueTeams: [...result.blueTeams],
-    redSurrogates: [],
-    blueSurrogates: [],
-    redDqs: [],
-    blueDqs: [],
-    winner: null,
-    winnerImputed: false,
-    redScore: null,
-    blueScore: null,
-    redRpEarned: null,
-    blueRpEarned: null,
-    hasScoreBreakdown: false,
-    scoreBreakdownRaw: null,
-    videoKey: null,
-  };
-}
 
 const PLAYED_QM1 = matchResult({ matchKey: `${EVENT_KEY}_qm1`, matchNumber: 1, redTeams: ["frc1", "frc2", "frc3"], blueTeams: ["frc4", "frc5", "frc6"] });
 const UPCOMING_QM2 = upcomingMatch(`${EVENT_KEY}_qm2`, 2, ["frc1", "frc3", "frc5"], ["frc2", "frc4", "frc6"]);
@@ -257,6 +234,15 @@ function offlineTeamSeasonArtifact(): TeamSeasonArtifact {
 // The two merges, driven identically whatever produced `existing`
 // ---------------------------------------------------------------------------
 
+/** One priced upcoming row, as Phase B supplies them since quick task 260923-3w6, through the publisher's own builder. */
+function pricedUpcoming(match: UpcomingMatch, sortTime: number): EventUpcomingMatch[] {
+  return [
+    EventUpcomingMatchSchema.parse(
+      eventUpcomingRow({ match, prediction: { winner: "red", pRedWin: 0.55, redScore: 103, blueScore: 99 } satisfies Prediction }, sortTime)
+    ),
+  ];
+}
+
 function mergeEvent(existing: LiveEventArtifact | undefined): unknown {
   return mergeEventArtifact({
     existing,
@@ -267,7 +253,10 @@ function mergeEvent(existing: LiveEventArtifact | undefined): unknown {
     eventType: 0,
     newlyFolded: [TICK_QM2],
     newPredictions: new Map([[TICK_QM2.matchKey, { winner: "blue", pRedWin: 0.4, redScore: 95, blueScore: 99 } satisfies Prediction]]),
-    stillUpcoming: [corpusMatch(UPCOMING_QM3, QM3_SORT_TIME)],
+    // The remaining schedule, ALREADY PRICED: since quick task 260923-3w6 the
+    // tick prices its own upcoming rows and the merge only places them, so the
+    // fixture supplies the published row shape rather than a corpus match.
+    upcoming: pricedUpcoming(UPCOMING_QM3, QM3_SORT_TIME),
     touchedTeams: TOUCHED,
     touchedMetrics: FRESH_METRICS,
     newBands: new Map(),

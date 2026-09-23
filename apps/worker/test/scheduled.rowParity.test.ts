@@ -214,7 +214,7 @@ function liveEvent(fold: ReturnType<typeof foldOf>, options: LiveEventOptions = 
     eventType: EVENT_TYPE,
     newlyFolded: fold.results,
     newPredictions: fold.predictions,
-    stillUpcoming: [],
+    upcoming: [],
     touchedTeams: [...RED, ...BLUE],
     touchedMetrics: {},
     newBands: fold.bands,
