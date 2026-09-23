@@ -798,15 +798,14 @@ the ranking-point path. A `cpuTime` of 1 ms on an idle tick is not headroom — 
 before drawing any conclusion from a single tick's `cpuTime`, idle or otherwise.
 
 **D1 ROW-READ CAP — pin `teams=` AND `event=` on every measurement run (learned 2026-09-16).**
-**Superseded 2026-09-22 — figure unconfirmed.** This was the free tier's **5,000,000 rows read per
-day**, reset at 00:00 UTC, an account-wide hard stop where exhaustion fails every D1 read with
+**Superseded 2026-09-22.** This was the free tier's **5,000,000 rows read per day**, reset at
+00:00 UTC, an account-wide hard stop where exhaustion failed every D1 read with
 `D1_ERROR: ... exceeded D1's free tier daily row read limit`, **including a live tick's**. The
-account moved to Workers Paid on 2026-09-22, which raised CPU, subrequests, D1 writes and KV
-writes, but Jacob did not supply a paid-plan rows-read figure to replace this one — the four
-confirmed paid numbers are 30 s CPU, 10,000 subrequests, 50M D1 row writes/month and 1M KV
-writes/month, none of which is a rows-READ figure. Treat this cap as retired but **unconfirmed**;
-confirm the actual paid rows-read limit (or its absence) before relying on the discipline below
-being unnecessary. The probe's two discovery queries are `ORDER BY scope_key` scans
+account moved to Workers Paid on 2026-09-22; D1 on the paid plan includes 25 billion rows read
+per month with no daily reset (overage is billed, not blocked), so a probe campaign can no longer
+lock the live tick out for the rest of a UTC day. The `teams=`/`event=` pinning below stays the
+default because it is also what keeps a measurement request cheap and comparable, not because a
+cap forces it. The probe's two discovery queries are `ORDER BY scope_key` scans
 of `algorithm_state` — about 2,100 rows read apiece — so a campaign of a few hundred requests spends
 millions. The 2026-09-15 breakdown campaign (~740 requests) hit the cap and blocked its own
 re-measurement for the rest of the UTC day. The probe now **skips discovery entirely when both

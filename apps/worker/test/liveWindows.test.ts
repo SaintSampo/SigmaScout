@@ -162,7 +162,8 @@ describe("liveEventsAt", () => {
 // `liveEventsAt(await loadLiveWindowsManifest(env), now)` on the tick's hot
 // path, because the composed form Zod-validated all ~1,581 published windows
 // before answering a question about the two that mattered — 5-9 ms of the
-// deployed Worker's 10 ms CPU budget spent on a tick that then did nothing.
+// deployed Worker's then-10 ms free-plan CPU budget (30 s on Workers Paid
+// since 2026-09-22) spent on a tick that then did nothing.
 // These tests pin BOTH halves of the contract: the selection is identical to
 // the old path, and the narrowed-but-not-abandoned validation property holds.
 // ---------------------------------------------------------------------------

@@ -201,8 +201,9 @@ describe("buildLiveWindowsManifest — corpus-derived windows", () => {
 });
 
 describe("buildLiveWindowsManifest — retention: windows that can never be live again (the live-windows outage's cause A)", () => {
-  // The Worker Zod-validates this manifest inside a 10 ms CPU budget on every
-  // single cron tick. Anything that cannot be live for any reader of this
+  // The Worker Zod-validates this manifest on every single cron tick (inside
+  // a 10 ms CPU budget when this was learned; 30 s on Workers Paid since
+  // 2026-09-22). Anything that cannot be live for any reader of this
   // manifest must not be shipped in it.
 
   function windowEndingAt(endMs: number, padMs: number): void {

@@ -50,7 +50,8 @@ CREATE INDEX IF NOT EXISTS idx_algorithm_state_scope ON algorithm_state(algorith
 
 -- event_cursor: per-event cron bookkeeping (D-15/D-19/D-22). Lives in D1,
 -- never KV — 04-RESEARCH.md's anti-pattern list explicitly forbids
--- per-event-per-tick writes against KV's 1,000 writes/day free cap, and a
+-- per-event-per-tick writes against KV's 1,000 writes/day free-plan cap
+-- (historical: 1M writes/month on Workers Paid since 2026-09-22), and a
 -- live event day can tick this table far more often than that. KV holds
 -- only the small, hot manifest pointer; this table holds everything a tick
 -- needs to remember about ONE event between invocations.

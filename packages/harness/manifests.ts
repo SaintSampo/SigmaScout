@@ -159,7 +159,8 @@ export interface BuildLiveWindowsManifestOptions {
  * probe. A window is dropped when `endMs <= nowMs` — already closed when the
  * manifest was built, so it cannot be live at any instant at which this
  * manifest could be read. The Worker reads this object on EVERY cron tick
- * inside a 10ms CPU budget; shipping years of dead seasons made the
+ * inside a CPU budget (10ms on the free plan when this was learned; 30s on
+ * Workers Paid since 2026-09-22); shipping years of dead seasons made the
  * do-nothing tick cost several ms before it did anything at all.
  * `liveWindows.ts` ALSO defends itself at read time — keep both: this one
  * shrinks the artifact, that one bounds the cost of whatever it contains.

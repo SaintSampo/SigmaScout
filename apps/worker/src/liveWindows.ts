@@ -121,8 +121,9 @@ export class LiveWindowShapeError extends ManifestValidationError {
  * Worker down (`.planning/debug/resolved/worker-tick-exceeds-cpu-budget.md`,
  * cause A): with ~1,581 windows across all covered seasons, the "nothing is
  * live, exit immediately" tick was measured spending 50-90% of the entire
- * 10ms CPU budget validating data it was about to throw away, and a
- * once-a-minute cron on the free plan lands on an evicted (cold) isolate
+ * 10ms CPU budget (the free plan's cap at the time; the account moved to
+ * Workers Paid on 2026-09-22) validating data it was about to throw away,
+ * and a once-a-minute cron lands on an evicted (cold) isolate
  * nearly every tick, so it always paid that price. This function instead
  * validates only the preamble with Zod, then a cheap structural + interval
  * prefilter over the raw entries, then the full entry schema on the handful
@@ -136,7 +137,8 @@ export class LiveWindowShapeError extends ManifestValidationError {
  * entry is now tolerated where it used to fail the whole read. A manifest is
  * validated to the depth it is used. Do not undo this without re-measuring
  * the cold cost of a whole-manifest parse against the current manifest size
- * and the 10ms budget — this exact change being absent is what caused a
+ * and the CPU budget of the day (10ms then; 30s per invocation on Workers
+ * Paid since 2026-09-22) — this exact change being absent is what caused a
  * multi-hour production outage.
  *
  * `loadLiveWindowsManifest` (full validation, every entry) is unchanged and

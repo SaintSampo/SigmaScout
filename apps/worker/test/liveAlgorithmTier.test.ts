@@ -16,11 +16,13 @@
  * artifact loop is what made that 50, and it no longer exists: the formula is
  * now `2 + 6A`, flat in the touched-team count, so `A=3` is 20 and FITS.
  *
- * WHAT STILL CONSTRAINS THE LIVE TIER IS CPU, NOT SUBREQUESTS. A tick's Phase
- * A fold plus Phase B merge is measured at ~17.5 ms on a reused isolate and
- * ~40.8 ms on a fresh one, against a 10 ms budget
- * (`.planning/todos/pending/rp-fold-exceeds-worker-cpu-budget.md`); three
- * algorithms would multiply the Phase A half of that. The counterfactual test
+ * WHAT CONSTRAINED THE LIVE TIER AFTER THAT WAS CPU, NOT SUBREQUESTS: a tick's
+ * Phase A fold plus Phase B merge measured ~17.5 ms on a reused isolate and
+ * ~40.8 ms on a fresh one, against the free plan's 10 ms budget
+ * (`.planning/todos/completed/rp-fold-exceeds-worker-cpu-budget.md`). Since
+ * 2026-09-22 the account is on Workers Paid (30 s CPU, 10,000 subrequests per
+ * invocation), so neither limit binds; widening the tier beyond spr is now a
+ * published-numbers decision needing its own algorithm version bump. The counterfactual test
  * below was therefore REPLACED, not deleted, by one asserting the property
  * that IS still load-bearing: the estimate is flat in the touched-team count.
  * If a per-team term ever comes back, that test fails and the deferral defect

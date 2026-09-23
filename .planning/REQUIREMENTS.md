@@ -22,7 +22,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **DATA-03**: Full-season precompute runs offline and publishes compact, versioned artifacts that the site reads — no server-side or client-side recomputation per request
 - [x] **DATA-04**: During active events, new match results are reflected on the site within ~1–3 minutes via an incremental update path
   - **Scoped in Phase 4 to sigma1 only.** Measured median 58.9 s (p95 60.9 s) on the deployed Worker via real cron. `opr` and `epa` remain fully *published* but are **not folded live** — they refresh at the manual pre/post-event-weekend re-baseline. This narrows plan-time intent (04-06 originally folded all three live) and is a deliberate decision, not an oversight: measurement showed three live algorithms cost 50 subrequests against ~41 usable, deferring every ordinary match forever. Controlled by `LIVE_ALGORITHM_IDS` in `apps/worker/wrangler.toml`; see `.planning/quick/260822-wqt-restrict-live-folding-to-sigma1/` and `docs/publish-budget.md` § "Worker runtime budget". Promoting a second algorithm to the live tier requires the Phase B batching work named in that doc.
-- [x] **DATA-05**: All compute and storage fits Cloudflare free tiers (Workers 10ms CPU per invocation, KV/R2 quotas) and respects TBA rate limits
+- [x] **DATA-05**: All compute and storage fits Cloudflare free tiers (Workers 10ms CPU per invocation, KV/R2 quotas) and respects TBA rate limits. *(Amended 2026-09-22: the account moved to Workers Paid, so the Workers CPU/subrequest and D1/KV write caps no longer bind; R2 and Pages stay within their free allowances.)*
   - Idle-tick `cpuTime` median 7 ms (range 5–10, n=19), zero invocations over 10 ms, `exceededCpu` never observed. **Open:** the advanced (real fold) tick's `cpuTime` is unmeasured — see G1 in `04-UAT.md`. A full live event-day TBA/write-volume extrapolation was also not performed; recorded as unmeasured rather than estimated.
 
 ### Algorithms
@@ -135,7 +135,7 @@ Explicitly excluded. Documented to prevent scope creep.
 | Interactive team map | Browsing novelty, off core value; geography served by event filters |
 | In-match live telemetry / sub-minute tickers | TBA provides no sub-match data; beyond freshness target and free-tier budget |
 | User-definable custom rating models | Massive validation surface; conflicts with versioned, harness-tuned algorithm design |
-| Paid infrastructure | Cloudflare free tiers only — hobby project economics |
+| Paid infrastructure beyond Workers Paid | Workers Paid ($5/month) since 2026-09-22; R2, Pages and KV stay within their free allowances — hobby project economics |
 | Porting pre-v3 code, models, or tuned values | Clean-slate mandate (REBUILD_SPEC.md); only the failure log carries over |
 
 ## Traceability
