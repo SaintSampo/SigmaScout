@@ -6,7 +6,7 @@
  * concurrent live events, and the global-rebuild triggers.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { runTick, touchedTeamsRowMetrics, touchedEventTeamMetrics, MAX_PROBES_PER_TICK, PROBE_ROTATION_PERIOD_MS } from "../src/scheduled.js";
+import { runTick, touchedTeamsRowMetrics, touchedEventTeamMetrics } from "../src/scheduled.js";
 import { checkLiveEventArtifactShape, checkTeamSeasonArtifactShape } from "../src/artifactShapeCheck.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import {
@@ -1741,33 +1741,40 @@ describe("runTick — the tick probes a probe window", () => {
     expect(r2.puts.some((p) => p.key === eventPutKey)).toBe(true);
   });
 
-  it("BOUND: probes at most MAX_PROBES_PER_TICK, and a tick one cron minute later covers a different rotated slice", async () => {
-    const probeKeys = Array.from({ length: MAX_PROBES_PER_TICK + 2 }, (_, i) => `2026probe${i}`);
+  /**
+   * REPLACES "BOUND: probes at most MAX_PROBES_PER_TICK, and a tick one cron
+   * minute later covers a different rotated slice" (deleted by quick task
+   * 260923-3w4 with the cap itself). The old test asserted `eventsProbed` equal
+   * to 6 on two consecutive cron minutes over 8 windows, with disjoint slices.
+   * The property that matters now is the opposite one, and it is what the cap
+   * cost: EVERY open window is answered on EVERY tick, so a just-started event
+   * waits one cron minute rather than up to `ceil(n/6)` of them.
+   */
+  it("UNBOUNDED: probes every open probe window in a single tick, one conditional request each", async () => {
+    const probeKeys = Array.from({ length: 40 }, (_, i) => `2026probe${String(i).padStart(2, "0")}`);
     const windows: WindowFixture[] = probeKeys.map((eventKey) => ({ eventKey, season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000, inferred: true }));
 
-    function stubAlways304(calls: string[]): ReturnType<typeof vi.fn> {
-      return vi.fn(async (url: unknown) => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown) => {
         const u = String(url);
         const m = /\/event\/([^/]+)\/matches$/.exec(u);
-        if (!m) throw new Error(`unexpected URL in probe-bound stub: ${u}`);
+        if (!m) throw new Error(`unexpected URL in probe stub: ${u}`);
         calls.push(m[1]!);
         return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
-      });
-    }
+      })
+    );
 
-    const tick1Calls: string[] = [];
-    vi.stubGlobal("fetch", stubAlways304(tick1Calls));
-    const tick1 = await runTick(makeEnv(makeKv(windows), new FakeD1Database(), new FakeR2Bucket()), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
-    vi.unstubAllGlobals();
+    const tick = await runTick(makeEnv(makeKv(windows), new FakeD1Database(), new FakeR2Bucket()), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
 
-    expect(tick1.eventsProbed).toBe(MAX_PROBES_PER_TICK);
-    expect(tick1Calls).toHaveLength(MAX_PROBES_PER_TICK);
-
-    const tick2Calls: string[] = [];
-    vi.stubGlobal("fetch", stubAlways304(tick2Calls));
-    const tick2 = await runTick(makeEnv(makeKv(windows), new FakeD1Database(), new FakeR2Bucket()), { nowMs: NOW_MS + PROBE_ROTATION_PERIOD_MS, ...DISABLE_GLOBAL_REBUILD });
-
-    expect(tick2.eventsProbed).toBe(MAX_PROBES_PER_TICK);
-    expect(new Set(tick2Calls)).not.toEqual(new Set(tick1Calls)); // a different rotated slice
+    expect(tick.eventsProbed).toBe(probeKeys.length);
+    expect(tick.eventsFailed).toBe(0);
+    // Exactly one TBA request per window, never two, and every window covered.
+    expect(calls).toHaveLength(probeKeys.length);
+    expect(new Set(calls)).toEqual(new Set(probeKeys));
+    // 1 live-windows read + 2 per probe, and nothing else: a probe-only tick
+    // still returns before the algorithms manifest, the module build and D1.
+    expect(tick.subrequestsUsed).toBe(1 + 2 * probeKeys.length);
   });
 });

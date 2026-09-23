@@ -654,22 +654,6 @@ async function eventPreflight(env: Env, counter: SubrequestCounter, tbaCtx: TbaC
   return { status: "ok", cursor, etag: poll.etag, matches: poll.matches };
 }
 
-/**
- * Probes per tick, capped so an offseason weekend with many concurrently-open
- * probe windows cannot spend the subrequest budget on discovery alone. Nine
- * concurrently-open offseason windows (2026-09-18's real count) are fully
- * covered in two ticks.
- */
-export const MAX_PROBES_PER_TICK = 6;
-
-/**
- * One cron minute — the rotation offset for probes is `floor(nowMs /
- * PROBE_ROTATION_PERIOD_MS)`, deliberately NOT `meta.rotationOffset`: reading
- * tick meta costs a D1 round trip the probe-only path exists to avoid, and a
- * clock offset is deterministic under `deps.nowMs` in tests, unlike a D1 read.
- */
-export const PROBE_ROTATION_PERIOD_MS = 60_000;
-
 /** What `runProbes` hands back to `runTick`: promoted events (probe saw real matches — keyed by event key, ready to pass straight into `processEvent` as its preflight) plus the two tallies the tick's tail line reports. A throwing probe is confined to itself and counted in `eventsFailed`, never in `eventsProbed`. */
 interface ProbePassResult {
   readonly promoted: ReadonlyMap<string, { readonly cursor: EventCursor; readonly etag: string | undefined; readonly matches: readonly unknown[] }>;
@@ -678,15 +662,26 @@ interface ProbePassResult {
 }
 
 /**
- * Answers liveness for every `inferred: true` window this tick has a rotation
- * slot for, spending ONE cheap conditional TBA request per probe and nothing
- * else — no algorithms-manifest read, no `buildAlgorithmModules`, no D1 batch,
- * no artifact write. Called from `runTick` BEFORE all three of those, and THAT
- * ORDERING IS LOAD-BEARING: moving this pass below them would restore exactly
- * the condition
+ * Answers liveness for EVERY open `inferred: true` window, EVERY tick, spending
+ * ONE cheap conditional TBA request per probe and nothing else — no
+ * algorithms-manifest read, no `buildAlgorithmModules`, no D1 batch, no artifact
+ * write. Called from `runTick` BEFORE all three of those, and THAT ORDERING IS
+ * LOAD-BEARING: moving this pass below them would restore exactly the condition
  * `.planning/debug/resolved/worker-tick-exceeds-cpu-budget.md` cause B
  * describes, where a phantom `inferred: true` window kept the tick on the
  * full, expensive live path.
+ *
+ * NO PER-TICK CAP AND NO ROTATION SLOT since quick task 260923-3w4. Until then
+ * this probed at most `MAX_PROBES_PER_TICK` (6) windows, the slice chosen by a
+ * clock-derived offset (`floor(nowMs / 60_000)`), so an offseason weekend with
+ * many concurrently-open windows could not spend the free plan's 50-subrequest
+ * budget on discovery alone. At 10,000 per invocation the 40 real windows of
+ * 2026-09-20's manifest cost 80 subrequests to probe in full, and probing all of
+ * them every tick removes the up-to-`ceil(n/6)`-minute discovery lag a
+ * just-started offseason event used to sit behind — the lag that missed Chezy
+ * Champs 2026 is exactly what this whole pass exists to prevent, so buying the
+ * rest of it for 80 subrequests is the point. The order stays sorted for
+ * determinism; nothing is sliced off it, so `rotate` is not used here at all.
  *
  *  - A `"not-modified"` (304) preflight ends that probe: nothing changed.
  *  - An `"ok"` preflight whose raw match array is EMPTY ends that probe too,
@@ -701,8 +696,8 @@ interface ProbePassResult {
  *    only the event key and the error message (never a TBA key or a header —
  *    this file's standing log rule), and counted as failed rather than probed.
  */
-async function runProbes(env: Env, counter: SubrequestCounter, tbaCtx: TbaClientContext, probeWindows: readonly LiveWindowEntry[], nowMs: number, nowIso: string): Promise<ProbePassResult> {
-  const ordered = rotate(sortEventKeys(probeWindows.map((w) => w.eventKey)), Math.floor(nowMs / PROBE_ROTATION_PERIOD_MS)).slice(0, MAX_PROBES_PER_TICK);
+async function runProbes(env: Env, counter: SubrequestCounter, tbaCtx: TbaClientContext, probeWindows: readonly LiveWindowEntry[], nowIso: string): Promise<ProbePassResult> {
+  const ordered = sortEventKeys(probeWindows.map((w) => w.eventKey));
 
   const promoted = new Map<string, { cursor: EventCursor; etag: string | undefined; matches: readonly unknown[] }>();
   let eventsProbed = 0;
@@ -1437,7 +1432,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   const foldableWindows = liveEvents.filter((w) => !w.inferred);
   const probeWindows = liveEvents.filter((w) => w.inferred);
 
-  const probeResult: ProbePassResult = probeWindows.length > 0 ? await runProbes(env, subrequests, tbaCtx, probeWindows, nowMs, nowIso) : { promoted: new Map(), eventsProbed: 0, eventsFailed: 0 };
+  const probeResult: ProbePassResult = probeWindows.length > 0 ? await runProbes(env, subrequests, tbaCtx, probeWindows, nowIso) : { promoted: new Map(), eventsProbed: 0, eventsFailed: 0 };
 
   if (foldableWindows.length === 0 && probeResult.promoted.size === 0) {
     // Nothing foldable and nothing promoted: a probe-only (or fully idle

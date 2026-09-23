@@ -715,13 +715,17 @@ outage's cause B abused: `inferred: true` is now a contract the Worker enforces 
 not a value nothing ever checked.
 
 **Per-tick cost.** `1` (the live-windows manifest read) plus `2` per probe (a cursor read plus the
-poll), capped at `MAX_PROBES_PER_TICK` (6) and rotated by a clock-derived offset — one slot per cron
-minute, `floor(nowMs / PROBE_ROTATION_PERIOD_MS)` — so an offseason weekend with many
-concurrently-open probe windows cannot spend the subrequest budget on discovery alone. At the cap
-that is `1 + 2*6 = 13` subrequests — of the ~41 usable per tick on the free plan this was designed
-against (historical: 10,000 per invocation on Workers Paid since 2026-09-22 makes this a trivial
-share), and nine concurrently-open
-offseason windows (2026-09-18's real count) are fully covered across two ticks.
+poll), for EVERY open probe window, EVERY tick. The 40 windows of 2026-09-20's manifest are 81
+subrequests, against 10,000 per invocation on Workers Paid.
+
+**No cap and no rotation slice since quick task 260923-3w4 (2026-09-23).** This used to probe at most
+`MAX_PROBES_PER_TICK` (6) windows per tick, the slice chosen by a clock-derived offset, so that a busy
+offseason weekend could not spend the free plan's ~41 usable subrequests on discovery alone — at the
+cap that was `1 + 2*6 = 13`, and nine concurrently-open windows took two ticks to cover. The
+operational consequence of removing it: **a newly-started event is discovered on the next cron
+minute, not up to `ceil(n/6)` minutes later.** That lag is the same failure mode the whole probe
+mechanism exists to prevent — Chezy Champs 2026 posting 86 matches two minutes after the last
+manifest publish — so with the cap gone there is no discovery delay left to reason about.
 
 **Two new tail fields.** `eventsProbed` (probe windows this tick answered liveness for, whether or
 not they promoted) and `eventsPromoted` (probes that saw real matches and were folded this tick).
