@@ -335,9 +335,9 @@ describe("opr — public export surface", () => {
     ]);
   });
 
-  it("identifies itself as opr, version 5.0.0+baseline", () => {
+  it("identifies itself as opr, version 6.0.0+baseline", () => {
     expect(opr.id).toBe("opr");
-    expect(opr.version).toBe("5.0.0+baseline");
+    expect(opr.version).toBe("6.0.0+baseline");
   });
 });
 

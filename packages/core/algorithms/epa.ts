@@ -1167,7 +1167,23 @@ export const epa = {
   // at offseason rows only (1,516 / 2,502 non-official 2026 rows, 5,079 /
   // 5,963 in 2025) — real components now flow instead of the proportional
   // fallback split. MAJOR because a published number moves.
-  version: "12.0.0+baseline",
+  //
+  // 13.0.0 (quick task 260923-3w8, 2026-09-23): nothing in this file changed.
+  // The live folding tier widened from `spr` alone to all three published
+  // algorithms (`LIVE_ALGORITHM_IDS` in `apps/worker/wrangler.toml`), so the
+  // EPA ratings and components the site serves now advance match by match
+  // during an event instead of standing still between manual re-baselines.
+  // Same model, same inputs, same numbers for a finished event — but a
+  // published rating that used to be a weekend-old constant is now a moving
+  // value, and the project rule is that changed published numbers ship under a
+  // new version rather than being overwritten in place. MAJOR for that reason
+  // alone: no `predict`, `update`, `teamMetrics` or `carrySeason` behaviour is
+  // different, which is why every `predictionStreamSha256` in
+  // `data/baselines/level1-digest-2026-09.json` is byte-unchanged across this
+  // bump. Jacob's decision, on `260923-1tu-FINDINGS.md` item C6: the free
+  // plan's 50-subrequest cap and then its 10 ms CPU cap were what held the
+  // tier at one algorithm, and Workers Paid (2026-09-22) retired both.
+  version: "13.0.0+baseline",
   initState,
   predict,
   update,
