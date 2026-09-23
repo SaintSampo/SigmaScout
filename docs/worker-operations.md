@@ -602,7 +602,7 @@ the fix. It rides along with the republish already queued for the demo-team excl
 
 ---
 
-## Live events need no operator (quick task 260921-5qw)
+## Live events need no operator (quick task 260921-5qw, simplified by 260923-3w6)
 
 Nothing has to be done by hand DURING a live event. An event the Worker promotes from a probe window
 is complete on its own:
@@ -610,8 +610,18 @@ is complete on its own:
 | The page needs | Where it comes from |
 |---|---|
 | name, dates, week, tier cuts | a STUB event artifact published ahead of time for every probe-window event |
-| upcoming-match pricing | the tick completes the `state` block from D1 itself, one read, only when the block is incomplete (`event-state-block-completed` in the log) |
-| the event on robot pages | `v1/live-roster/{eventKey}.json`, written by the tick when the roster grows, read by a current-season robot page for windows open now |
+| upcoming-match pricing | the tick prices every still-upcoming match itself, in Phase B, from the state it read for the fold |
+| the event on robot pages | the team's own `v1/team/{teamKey}/{year}/...` artifact, which the tick writes on every fold and which names the event |
+
+Two of those three rows used to name an extra mechanism. Until quick task 260923-3w6 the tick could
+not afford to price upcoming matches or to write a team artifact (a 10 ms CPU budget), so it spliced a
+`state` block of D1 rows into the event artifact for the browser to price from, and wrote a
+`v1/live-roster/{eventKey}.json` object so a robot page could discover an event no team file named.
+Workers Paid gives the tick 30 s; both mechanisms are deleted, and so are the
+`event-state-block-missing` / `event-state-block-invalid` warn lines an operator used to have to act
+on. **A team that is on the schedule but has played nothing yet still has no row for the event in its
+own file** — that is the one thing the roster object covered and the team file cannot, and it heals
+at that team's first match.
 
 - **New events on the calendar:** a full `pnpm publish:seasons` emits the stubs. To get them out
   WITHOUT a full republish (about 109,000 R2 writes), run `pnpm publish:stubs` (about 120). It reads
@@ -619,8 +629,10 @@ is complete on its own:
 - **Looking at a live event afterwards:** Workers Logs is on at 100 percent sampling
   (`[observability]` in `wrangler.toml`), so every tick's `outcome` and `cpuTime` is retained. Nobody
   has to tail during the event.
-- **Still an ordinary republish, any time after the event:** making results permanent in the team
-  season files. The live rows stay in the event artifact until then.
+- **Still an ordinary republish, any time after the event:** it is what fills in a live-merged row's
+  missing percentile number, the TBA rank/record/RP on the event's standings, the events-list row and
+  the season-final tiers. The live results themselves are already in the team season files — the tick
+  writes them there (260923-3w6); they no longer wait in the event artifact for a republish.
 - **Why `pnpm rebaseline` is NOT scheduled:** it needs the local corpus and rewrites all ten seasons,
   about 109,000 R2 writes a run against a 1,000,000 a month free tier.
 
@@ -672,13 +684,11 @@ budget for a whole event weekend describes. The precedent is 2026-08-28: every t
 `exceededCpu` for days, and nothing on the site said so. A visitor reads confidently stale numbers
 all weekend with no signal. See ["How the CPU budget is actually enforced"](#how-the-cpu-budget-is-actually-enforced--corrected-2026-08-29).
 
-**The upcoming-repricing loop is gone (260915-isq).** The tick no longer predicts, bands or prices
-RP for still-upcoming matches: it writes them schedule-only and keeps the SPR event artifact's
-`state` block current, and the browser prices the schedule from that block (step 3 of the
-browser-pricing direction in the todo above). That removes the dominant term the measurement above
-was taken with. **The gate stays in force** until step 4 re-measures the tick without the loop and
-the remaining DATA-04 row-parity items land. The measurement above is the dated evidence the gate was
-set on; it no longer describes the current tick.
+**The upcoming-repricing loop was removed by 260915-isq and REINSTATED by 260923-3w6.** For the eight
+days between them the tick wrote still-upcoming matches schedule-only and kept an SPR `state` block
+current for the browser to price from, which removed the dominant term the measurement above was taken
+with. That whole trade was against a 10 ms budget; with 30 s the tick prices the schedule itself again.
+Both the measurement above and this paragraph are history.
 
 **RE-MEASURED 2026-09-15 (quick task 260915-qgf), and the gate STAYS CLOSED — Jacob, 2026-09-15.**
 The probe was re-mirrored to the tick at `7385bad6` and gained a Phase B arm. 9 arms, 30 s spacing,
@@ -746,16 +756,16 @@ Worker is checking, nothing has started yet. `eventsPromoted` above zero is an e
 started.
 
 **What a probe does NOT fix.** A promoted event that was never ingested + republished offline still
-renders degraded: it has no SPR `state` block, so its upcoming matches cannot be priced in the
-browser (see the `event-state-block-missing` bullet below for the symptom); it has no `name`,
-`startDate` or `week`; its `teams` rows carry no TBA rank or record; and it does not appear in the
-events list, which only the offline publish writes. Ingest + republish stays the way to make an
-event a first-class page — the probe only makes its results appear without that step:
+renders degraded: it has no `name`, `startDate` or `week`; its `teams` rows carry no TBA rank or
+record; and it does not appear in the events list, which only the offline publish writes. Its
+upcoming matches DO price — the tick prices them itself since quick task 260923-3w6, from the state
+it read for the fold, with no block and no operator step. Ingest + republish stays the way to make an
+event a first-class page:
 
 ```bash
-# To give a live-probed event a name, a state block and an events-list row:
+# To give a live-probed event a name, dates and an events-list row:
 pnpm ingest --event <eventKey>     # or a full pass
-pnpm publish:seasons               # rebuilds live-windows.json, seeds a state block, adds the list row
+pnpm publish:seasons               # rebuilds live-windows.json, adds the list row
 ```
 
 Check what the Worker currently believes is live, split into measured and probe-only:
@@ -773,38 +783,22 @@ calendar-probe window covering right now. A non-zero **probe-only** count with t
 `eventsPromoted` staying at `0` is also normal: it means the Worker is checking a calendar window
 that has not started producing matches yet, not that anything is broken.
 
-### Publish with state blocks before the window opens (260915-isq)
+### State blocks before the window opens — HISTORICAL (260915-isq, reversed by 260923-3w6)
 
-**Operational contract.** Before an event's live window opens:
+**There is no state-block contract any more, and nothing to pair.** This section held an operational
+contract an operator had to satisfy before every live window: publish with code that writes the SPR
+`state` block, seed D1 from the *same* run so the block and D1 described the same state, and ship the
+web switch that let the event page parse an artifact whose upcoming rows were schedule-only. It also
+held the two warn lines — `event-state-block-missing` and `event-state-block-invalid` — that told an
+operator the pairing had failed and a republish-plus-reseed was owed mid-event.
 
-1. The event must be published by code that writes the SPR `state` block (quick task 260915-isq or
-   later). An SPR event artifact carries one when it has at least one upcoming match **and** its
-   schedule is current: its latest scheduled match is no more than 7 days before the publish
-   (`eventScheduleIsCurrent`). Long-finished events whose leftover matches were never played get no
-   block. A publish before the event's schedule has passed always qualifies.
-2. D1 must be seeded from the **same** publish run (`reports/publish/seed-spr.sql` from that run).
-   The block and D1 must describe the same state.
-3. Step 3 of the browser-pricing direction must have shipped. Until the web reads event artifacts
-   with `LiveEventArtifactSchema`, an artifact the Worker wrote with upcoming matches does not parse
-   on the event page, because its upcoming rows are schedule-only (260915-isq DD-1). The web switch
-   is quick task 260915-m4j: code-complete at its commit, and live once that web deploy lands.
-
-**Why the pairing matters.** Each tick splices the D1 rows it just wrote into the published block:
-touched teams' rows and the league row come from D1, untouched teams' rows stay the publish's copy.
-The block is only exact if the publish and D1 started from the same state. The Worker **never
-bootstraps a block** from D1; an artifact without one stays without one until the next republish.
-Once an event's last match is folded, the block is dropped.
-
-**Reading the tick-log warnings:**
-
-- `event-state-block-missing` (`eventKey`, `algorithmId`, `upcoming`): the SPR artifact the tick
-  read carries no block. It was published before 260915-isq, the event had no upcoming matches when
-  it was published, or its schedule was more than 7 days stale at publish time. The tick wrote the artifact without a block, so upcoming matches
-  cannot be priced in the browser. Republish and re-seed D1 from that run before the next tick.
-- `event-state-block-invalid` (`eventKey`, `algorithmId`, `upcoming`, `error`): the block's
-  algorithm version or snapshot shape does not match the deployed Worker's rows (for example a
-  publish from before an SPR version bump). The tick dropped the block. Republish and re-seed as a
-  matched pair.
+All of it is deleted. The tick prices upcoming matches from the state it reads for the fold, so there
+is no second copy of that state to keep honest, no publish-and-seed pairing to get wrong, and no warn
+line to act on. **The one thing that survives from this section is the ordinary re-baseline rule that
+outlived it:** a publish and its `seed-*.sql` files must still be applied as a matched set, because
+the tick resumes folding from D1 and the `state-generation-mismatch` suspension will (correctly) stop
+it if the generation markers disagree. That rule is documented under "Re-baseline" and
+`state-generation-mismatch`, not here.
 
 ---
 
@@ -895,8 +889,7 @@ above. An observation your model says is impossible is the most valuable one you
 | A `live-tier-defaulted` warn line in the tail | `LIVE_ALGORITHM_IDS` did not reach the deployed Worker (e.g. a `--var` deploy that did not carry tracked vars through) | Redeploy from tracked config with `pnpm worker:deploy` and confirm the deploy output lists both `TBA_BASE_URL` and `LIVE_ALGORITHM_IDS` |
 | `outcome: "exceededCpu"` with an empty `logs` array on **every** tick | The tick is *consistently* over the CPU budget (30 s per invocation, Workers Paid since 2026-09-22 — was 10 ms on the free plan). It is reaching the handler and dying before its final log line — it is **not** dying in module init (that is a separate 1-second budget) | `eventsConsidered` on any tick that does survive. If non-zero, fetch `https://data.sigmascout.org/v1/manifest/live-windows.json` and see what the Worker thinks is live — **read the manifest, never the calendar**. Read "How the CPU budget is actually enforced" above before drawing any conclusion from a single high `cpuTime` |
 | About to run an event; unsure the deployed bundle can read the rows in D1 | Untested since the last seed — a green idle tick does not exercise it | Apply `seed-cursors.sql` from the same publish run and deploy in that order, then watch the first tick for `state-generation-mismatch` or `LeagueRowShapeVersionError`. (The pre-event probe that used to answer this by hand was deleted 2026-09-23 — see "Pre-event probe" above) |
-| An `event-state-block-missing` warn line in the tail | The SPR event artifact was published before 260915-isq, or had no upcoming matches at publish time; the Worker never bootstraps a block | Republish and re-seed D1 from the same run before the next tick (see "Publish with state blocks before the window opens") |
-| An `event-state-block-invalid` warn line in the tail | The published block's algorithm version or snapshot shape does not match the deployed Worker's rows; the tick dropped it | Read the `error` field, then republish and re-seed as a matched pair |
+| An `upcoming-pricing-failed` warn line in the tail | The tick could not price the event's remaining schedule — the priced row failed `EventUpcomingMatchSchema` (a pmf that does not sum, a band that is not finite). The event's state is durable in D1; its artifacts lag until the next tick | Read the truncated `error` field and the `upcoming` count on the line. It is a model-output problem, not a config one: the offline publisher would fail the same parse on the same state, so reproduce it with a replay rather than by redeploying |
 
 ---
 

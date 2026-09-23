@@ -73,11 +73,39 @@ baked result for one event.
 
 ## Storage and write volume (DATA-05)
 
-| Resource | Free-tier allowance | One full publish |
+| Resource | Allowance | One full publish |
 |---|---:|---|
 | R2 storage | 10 GB | about 4.2 GB of page objects (`totalBytes` in the block's `run` string) |
 | R2 Class-A operations (PUTs, lists) | 1,000,000 / month | one PUT per object, about 109,000 |
 | R2 Class-B operations (GETs) | 10,000,000 / month | none — publishing does not read R2 |
+
+**The R2 allowances above are NOT raised by Workers Paid.** The account moved to Workers Paid on
+2026-09-22, which raised CPU and subrequests per invocation and nothing about R2. R2 is where this
+project's real ceilings are, and a publish is not the only writer against them.
+
+### The live Worker writes against the same 1,000,000 (quick task 260923-3w6)
+
+Since 260923-3w6 the cron tick writes a per-team artifact on every fold, alongside the event artifact
+and the `teams/{year}` rebuild. Driven by MATCHES FOLDED rather than by ticks — a tick with nothing new
+writes nothing — the peak-season-month estimate from `260923-1tu-FINDINGS.md` item C5 is:
+
+| Writer | Basis | Peak month |
+|---|---|---:|
+| Team artifacts | ~18k matches/season x 6 teams x 3 algorithms over ~2.5 months | ~130,000 |
+| Event artifacts | one per algorithm per folded match | ~25,000 |
+| `teams/{year}` rebuilds | 3 per touched tick, ~4.3k touched ticks | ~13,000 |
+| Two full publishes | 109,000 each | ~218,000 |
+| **Total** | | **~390,000 of 1,000,000** |
+
+Viable with margin, and the margin is spent mostly on republishes: **about 35 percent of the month's
+budget is two `pnpm publish:seasons` runs.** That is the reason `pnpm rebaseline` is not scheduled and
+`pnpm publish:stubs` (about 120 writes) exists for adding new events. The growth axis that is genuinely
+capped is the number of PUBLISHED ALGORITHMS — each is ~1.4 GB and ~36,000 objects — not the live tick.
+
+The per-team write also replaced two things that cost R2 nothing but cost page loads: the event
+artifact's ephemeral `live` block (about the rows of every match folded so far, carried in every event
+page fetch) and one `v1/live-roster/{eventKey}.json` object per promoted event. Neither is written any
+more; stale roster objects from before 2026-09-23 sit read-only until a prune.
 
 **These are the local counter's numbers, not the Cloudflare dashboard's.** Billed storage and
 operation counts are account-level metrics only a human with dashboard access can read. They can
