@@ -25,7 +25,6 @@ import { PUBLISHED_ALGORITHM_IDS } from "../../../packages/harness/publishedAlgo
 import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
-import { liveRosterKey } from "../../../packages/harness/liveRoster.js";
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -458,20 +457,19 @@ describe("runTick — one live event, one new match", () => {
     // below — what this test still pins is that there is exactly ONE EVENT put.
     const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
     const isTeamPut = (key: string) => key.startsWith("v1/team/");
-    expect(r2.puts.filter((p) => p.key !== liveRosterKey("2026casj") && p.key !== teamsPutKey && !isTeamPut(p.key))).toHaveLength(1);
-    expect(r2.puts.filter((p) => p.key === liveRosterKey("2026casj"))).toHaveLength(1);
+    expect(r2.puts.filter((p) => p.key !== teamsPutKey && !isTeamPut(p.key))).toHaveLength(1);
     expect(r2.puts.filter((p) => p.key === teamsPutKey)).toHaveLength(1);
 
     const eventPutKey = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "opr", version: opr.version });
     expect(r2.puts.some((p) => p.key === eventPutKey)).toBe(true);
     const teamPutKeys = ALL_TEAMS.map((teamKey) => artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "opr", version: opr.version }));
     expect(new Set(r2.puts.filter((p) => isTeamPut(p.key)).map((p) => p.key))).toEqual(new Set(teamPutKeys));
-    // Since 260918-16t the live rows ride inside the event body above, and since
-    // 260921-5qw a first fold also writes the event's live roster. Those are the
-    // ONLY two objects keyed by this EVENT — a team artifact is keyed by team and
-    // season, so it is outside this filter by construction. Asserted by equality,
-    // so any third per-event object fails here by name.
-    expect(new Set(r2.puts.map((p) => p.key).filter((key) => key.includes("2026casj")))).toEqual(new Set([eventPutKey, liveRosterKey("2026casj")]));
+    // ONE object keyed by this EVENT. 260918-16t's live rows rode inside the body
+    // and 260921-5qw's live roster was a second object; quick task 260923-3w6
+    // deleted both, and a team artifact is keyed by team and season so it is
+    // outside this filter by construction. Asserted by equality, so any second
+    // per-event object fails here by name.
+    expect(new Set(r2.puts.map((p) => p.key).filter((key) => key.includes("2026casj")))).toEqual(new Set([eventPutKey]));
 
     // OPR's lastEventByTeam bookkeeping lives in its OWN team-scoped rows,
     // and the ONE batched state write for this event includes them alongside
@@ -701,20 +699,18 @@ describe("runTick — off-season demo team exclusion", () => {
     const demoTeamPutKey = artifactKey({ page: "team", teamKey: "frc9985", year: SEASON, algorithmId: "opr", version: opr.version });
     expect(r2.puts.some((p) => p.key === demoTeamPutKey)).toBe(false);
 
-    // The real teammate AND the real opposing alliance's teams DO reach the
-    // event artifact's live rows: an exclusion of the demo key, not an
-    // accidental drop of the whole match's real teammates. Asserted against
-    // those rows since 260917-jr4 (and against the `live` block rather than a
-    // separate object since 260918-16t), because no team artifact is written
-    // for anyone; the property under test is unchanged.
-    const demoEventPut = r2.puts.filter((p) => p.key === artifactKey({ page: "event", eventKey: "2026demo", algorithmId: "opr", version: opr.version })).at(-1);
-    expect(demoEventPut).toBeDefined();
-    const demoLive = LiveEventArtifactSchema.parse(JSON.parse(demoEventPut!.body)).live;
-    expect(demoLive, "the demo event's written artifact carries no live block").toBeDefined();
-    const teamsInLiveRows = new Set(demoLive!.rows.flatMap((row) => row.t));
-    expect(teamsInLiveRows.has("frc9985")).toBe(false);
+    // The real teammate AND the real opposing alliance's teams DO get their own
+    // team artifacts: an exclusion of the demo key, not an accidental drop of the
+    // whole match's real teammates. Asserted against the team artifacts again since
+    // quick task 260923-3w6 — it was the event artifact's `live` rows between
+    // 260918-16t and that, and a sidecar object before, each time because no team
+    // artifact existed to read. The property under test is unchanged.
+    const teamsWritten = new Set(
+      r2.puts.filter((p) => p.key.startsWith("v1/team/")).map((p) => (JSON.parse(p.body) as { teamKey: string }).teamKey)
+    );
+    expect(teamsWritten.has("frc9985")).toBe(false);
     for (const teamKey of ["frc1", "frc2", ...BLUE_TEAMS]) {
-      expect(teamsInLiveRows.has(teamKey), teamKey).toBe(true);
+      expect(teamsWritten.has(teamKey), teamKey).toBe(true);
     }
 
     // No D1 state row is ever created under the raw demo key.
@@ -1229,7 +1225,7 @@ describe("live ticks keep the published Sigma entry", () => {
 });
 
 describe("runTick — official-play scope on the global rebuild feed", () => {
-  it("event_type 99 (offseason): the event artifact and its live rows are written, but no teams/{year} object is written at all", async () => {
+  it("event_type 99 (offseason): the event artifact and every touched team's artifact are written, but no teams/{year} object is written at all", async () => {
     const window: WindowFixture = { eventKey: "2026off", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const manifests = makeManifests([window]);
     const d1 = new FakeD1Database();
@@ -1248,10 +1244,10 @@ describe("runTick — official-play scope on the global rebuild feed", () => {
 
     const eventPutKey = artifactKey({ page: "event", eventKey: "2026off", algorithmId: "opr", version: opr.version });
     expect(r2.puts.some((p) => p.key === eventPutKey)).toBe(true);
-    // The event write — and so the live rows inside it — is UNCONDITIONAL on
-    // event type, exactly as the team artifact write it replaced was; only the
-    // `teams/{year}` feed below is gated on officialness.
-    expect(LiveEventArtifactSchema.parse(JSON.parse(r2.puts.filter((p) => p.key === eventPutKey).at(-1)!.body)).live?.rows.length).toBeGreaterThan(0);
+    // The event write is UNCONDITIONAL on event type; only the `teams/{year}` feed
+    // below is gated on officialness. It used to also assert the `live` block's rows
+    // were non-empty, which quick task 260923-3w6 deleted along with the block.
+    expect(LiveEventArtifactSchema.parse(JSON.parse(r2.puts.filter((p) => p.key === eventPutKey).at(-1)!.body)).matches).toHaveLength(1);
     // The per-team artifact write is unconditional too (quick task 260923-3w6):
     // an offseason event is fully visible on its own pages and only stops moving
     // the season leaderboard.
@@ -1607,27 +1603,48 @@ describe("runTick — a corrupt published artifact retries as a bootstrap instea
     expect(retryLines[0]!.key).toBe(TEAM_PUT_KEY);
   });
 
-  it("live block: a corrupt block is dropped at read and republished fresh, in the SAME single event put", async () => {
+  it("a `live` block left in R2 by an earlier tick is DROPPED, malformed or not, in one put", async () => {
+    // Both halves of the old pair, in one case. Quick task 260923-3w6 stopped
+    // emitting a `live` block, so the question is no longer "is a corrupt block
+    // republished fresh" but "does a block found in R2 ride the spread forward" —
+    // and the answer must be no, malformed (dropped by the read guard) or
+    // well-formed (dropped by the merge's destructure), or every event that ever
+    // had one would carry it until its next offline republish.
     stubOneLiveEvent();
     const r2 = new FakeR2Bucket();
-    // A published event body whose `live` value is well-formed JSON of the
-    // wrong shape — the exact case the read guard must turn into "the key is
-    // gone" rather than "the artifact is unusable". Rejecting the artifact
-    // would cost this event its whole published history on every tick.
     r2.seed(EVENT_PUT_KEY, JSON.stringify({ ...(JSON.parse(guardPassingBaseEventArtifact("2026casj")) as object), live: { metricKeys: ["total"], rows: "not an array" } }));
     const result = await runTick(makeEnv(makeManifests([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS });
 
     expect(result.eventsAdvanced).toBe(1);
     expect(result.eventsFailed).toBe(0);
 
-    // ONE put, not two: there is no second object to republish.
     const eventPuts = r2.puts.filter((p) => p.key === EVENT_PUT_KEY);
     expect(eventPuts).toHaveLength(1);
-    const published = LiveEventArtifactSchema.parse(JSON.parse(eventPuts[0]!.body));
-    expect(published.live?.rows.map((row) => row.m)).toEqual(["2026casj_qm1"]);
+    const published = JSON.parse(eventPuts[0]!.body) as Record<string, unknown>;
+    expect(published).not.toHaveProperty("live");
+    // Non-vacuity: the tick really did publish this event's fold.
+    expect(LiveEventArtifactSchema.parse(published).matches.map((m) => m.matchKey)).toEqual(["2026casj_qm1"]);
   });
 
-  it("live block: unparseable event bytes bootstrap the whole artifact rather than failing the event", async () => {
+  it("a well-formed `live` block is dropped just the same, and so is a `state` block", async () => {
+    stubOneLiveEvent();
+    const r2 = new FakeR2Bucket();
+    r2.seed(
+      EVENT_PUT_KEY,
+      JSON.stringify({
+        ...(JSON.parse(guardPassingBaseEventArtifact("2026casj")) as object),
+        live: { metricKeys: ["total"], rows: [{ m: "2026casj_qm0", t: ["frc1"], v: [[40]] }] },
+      })
+    );
+    const result = await runTick(makeEnv(makeManifests([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS });
+
+    expect(result.eventsAdvanced).toBe(1);
+    const published = JSON.parse(r2.puts.filter((p) => p.key === EVENT_PUT_KEY)[0]!.body) as Record<string, unknown>;
+    expect(published).not.toHaveProperty("live");
+    expect(published).not.toHaveProperty("state");
+  });
+
+  it("unparseable event bytes bootstrap the whole artifact rather than failing the event", async () => {
     stubOneLiveEvent();
     const r2 = new FakeR2Bucket();
     r2.seed(EVENT_PUT_KEY, "{not json at all");
@@ -1638,7 +1655,7 @@ describe("runTick — a corrupt published artifact retries as a bootstrap instea
     const eventPuts = r2.puts.filter((p) => p.key === EVENT_PUT_KEY);
     expect(eventPuts).toHaveLength(1);
     const published = LiveEventArtifactSchema.parse(JSON.parse(eventPuts[0]!.body));
-    expect(published.live?.rows.map((row) => row.m)).toEqual(["2026casj_qm1"]);
+    expect(published.matches.map((m) => m.matchKey)).toEqual(["2026casj_qm1"]);
   });
 
   it("event: a guard-passing, write-failing event artifact is republished as a valid bootstrap", async () => {
@@ -1782,11 +1799,11 @@ describe("runTick — the tick probes a probe window", () => {
     const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
     // Since quick task 260921-5qw a FIRST fold also writes the event's live roster, the tiny object a
     // robot page finds a promoted event through. It is one object per EVENT, not per algorithm, and it
-    // is written only when the roster grew, so never on an ordinary tick. Since
-    // 260923-3w4 a tick that touched a team also rebuilds `teams/{year}`, and
-    // since 260923-3w6 each touched team gets its own artifact.
+    // Since 260923-3w4 a tick that touched a team also rebuilds `teams/{year}`,
+    // and since 260923-3w6 each touched team gets its own artifact and the event's
+    // live roster is no longer written at all.
     const probeTeamPutKeys = ALL_TEAMS.map((teamKey) => artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "opr", version: opr.version }));
-    expect(r2.puts.map((p) => p.key).sort()).toEqual([eventPutKey, liveRosterKey("2026probe"), teamsPutKey, ...probeTeamPutKeys].sort());
+    expect(r2.puts.map((p) => p.key).sort()).toEqual([eventPutKey, teamsPutKey, ...probeTeamPutKeys].sort());
   });
 
   it("a tick with one foldable window and one probe window still folds the foldable event", async () => {

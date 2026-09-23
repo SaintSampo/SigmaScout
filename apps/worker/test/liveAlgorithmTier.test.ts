@@ -52,7 +52,6 @@ import { spr } from "../../../packages/core/algorithms/spr.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";
 import { DEMO_PSEUDO_TEAM_KEY } from "../../../packages/core/algorithms/demoTeams.js";
-import { LiveRosterSchema, liveRosterKey } from "../../../packages/harness/liveRoster.js";
 import { readSigmaBeliefs, serializeState, withSigmaBeliefs } from "../../../packages/harness/stateSnapshot.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../../../packages/harness/publishedAlgorithms.js";
 import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
@@ -505,10 +504,10 @@ describe("liveAlgorithmTier — only the live tier folds", () => {
     // Exactly ONE per-event object, for the live tier only: the event artifact
     // itself. Asserted by equality over every key mentioning this event, so a
     // reintroduced second object fails here by name.
-    // Since quick task 260921-5qw a FIRST fold also writes the event's live roster, the tiny object a
-    // robot page finds a promoted event through. It is one object per EVENT, not per algorithm, and it
-    // is written only when the roster grew, so never on an ordinary tick.
-    expect(new Set(r2.puts.filter((p) => p.key.includes("2026casj")).map((p) => p.key))).toEqual(new Set([premierEventKey, liveRosterKey("2026casj")]));
+    // ONE per-event object. 260921-5qw's live roster was the second, and quick
+    // task 260923-3w6 deleted it — the team artifacts asserted above are how a
+    // robot page finds a promoted event now.
+    expect(new Set(r2.puts.filter((p) => p.key.includes("2026casj")).map((p) => p.key))).toEqual(new Set([premierEventKey]));
   });
 });
 
@@ -764,35 +763,54 @@ describe("liveAlgorithmTier — a promoted event's upcoming match is priced by t
     expect(publishedEvent(r2, "2026promo")).not.toHaveProperty("state");
   });
 
-  it("the live roster is written on the first fold, NOT rewritten by an ordinary tick, and rewritten when a team is added", async () => {
+  it("a promoted event reaches a robot page through the TEAM's own artifact, which is what replaced the live roster", async () => {
+    // THIS TEST IS THE ARGUMENT FOR DELETING `v1/live-roster/{eventKey}.json`
+    // (quick task 260923-3w6). That object existed for one reason: a robot page
+    // learns a team's events from that team's published season file, and between
+    // 260917-jr4 and 260923-3w6 the live tick wrote no such file — so an event the
+    // Worker promoted, which TBA publishes no advance team list for, was invisible
+    // on every robot page until an operator republished. The tick writes the team
+    // file again and names the event in it, so the roster object is redundant
+    // rather than merely unused, and this asserts both halves of that.
     const window: WindowFixture = { eventKey: "2026promo", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const d1 = seededD1();
     const r2 = new FakeR2Bucket();
-    const rosterPuts = () => r2.puts.filter((p) => p.key === liveRosterKey("2026promo"));
     const env = () => makeEnv(makeManifests([window], ["spr"]), d1, r2, "spr");
 
     const first = twoMatchEventRecord("2026promo", "etag-1");
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", first]])));
     await runTick(env(), { nowMs: NOW_MS });
-    expect(rosterPuts()).toHaveLength(1);
-    const roster = LiveRosterSchema.parse(JSON.parse(rosterPuts()[0]!.body));
-    // The six that played AND the six still on the schedule, so a robot page
-    // shows the event before that team's first match.
-    expect(roster.teams).toEqual([...ALL_TEAMS, ...UPCOMING_TEAMS].sort());
-    expect(roster).toMatchObject({ eventKey: "2026promo", season: SEASON });
 
-    // Same twelve teams, one more match played: nothing to say.
-    const second: TbaEventRecord = { ...first, etag: "etag-2", matches: [...first.matches, tbaMatch({ key: "2026promo_qm3", eventKey: "2026promo", matchNumber: 3, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 99, blueScore: 101, actualTimeSec: Math.floor(NOW_MS / 1000) - 30 })] };
+    // Nothing under the deleted prefix, spelled as a concatenation so the literal
+    // does not reappear in source.
+    expect(r2.puts.filter((p) => p.key.startsWith("v1/" + "live-roster" + "/"))).toEqual([]);
+
+    // Each team that PLAYED has its own artifact, and that artifact names the
+    // promoted event — which is exactly what the robot page reads.
+    for (const teamKey of ALL_TEAMS) {
+      const put = r2.puts.filter((p) => p.key === artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "spr", version: PREMIER_TEST_VERSION })).at(-1);
+      expect(put, `${teamKey}: no team artifact`).toBeDefined();
+      const events = (JSON.parse(put!.body) as { events: { eventKey: string }[] }).events;
+      expect(events.map((e) => e.eventKey), teamKey).toContain("2026promo");
+    }
+
+    // A team only on the SCHEDULE has played nothing, so it gets no write — the
+    // documented carry-forward, and the one thing the roster object used to cover
+    // that the team file cannot until that team's first match.
+    for (const teamKey of UPCOMING_TEAMS) {
+      const key = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "spr", version: PREMIER_TEST_VERSION });
+      expect(r2.puts.some((p) => p.key === key), `${teamKey} has not played and must not be written`).toBe(false);
+    }
+
+    // A thirteenth team appears, plays, and gets its own artifact on the tick that
+    // folds its match — the case the roster object's regrowth branch covered.
+    const second: TbaEventRecord = { ...first, etag: "etag-2", matches: [...first.matches, tbaMatch({ key: "2026promo_qm3", eventKey: "2026promo", matchNumber: 3, redTeams: ["frc13", "frc8", "frc9"], blueTeams: ["frc10", "frc11", "frc12"], redScore: 99, blueScore: 101, actualTimeSec: Math.floor(NOW_MS / 1000) - 30 })] };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", second]])));
     await runTick(env(), { nowMs: NOW_MS + 60_000 });
-    expect(rosterPuts(), "the roster was rewritten by a tick that added no team").toHaveLength(1);
-
-    // A thirteenth team appears on a new upcoming match.
-    const third: TbaEventRecord = { ...second, etag: "etag-3", matches: [...second.matches, tbaMatch({ key: "2026promo_qm4", eventKey: "2026promo", matchNumber: 4, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 80, blueScore: 70, actualTimeSec: Math.floor(NOW_MS / 1000) - 10 }), tbaMatch({ key: "2026promo_qm5", eventKey: "2026promo", matchNumber: 5, redTeams: ["frc13", "frc8", "frc9"], blueTeams: ["frc10", "frc11", "frc12"], predictedTimeSec: Math.floor(NOW_MS / 1000) + 7200 })] };
-    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", third]])));
-    await runTick(env(), { nowMs: NOW_MS + 120_000 });
-    expect(rosterPuts()).toHaveLength(2);
-    expect(LiveRosterSchema.parse(JSON.parse(rosterPuts()[1]!.body)).teams).toContain("frc13");
+    const rookieKey = artifactKey({ page: "team", teamKey: "frc13", year: SEASON, algorithmId: "spr", version: PREMIER_TEST_VERSION });
+    const rookiePut = r2.puts.filter((p) => p.key === rookieKey).at(-1);
+    expect(rookiePut, "frc13 played and got no team artifact").toBeDefined();
+    expect((JSON.parse(rookiePut!.body) as { events: { eventKey: string }[] }).events.map((e) => e.eventKey)).toContain("2026promo");
   });
 
   /**

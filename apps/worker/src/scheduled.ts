@@ -75,6 +75,17 @@
  * `coldStart` is corpus-global (`corpusColdStartIndex`) and is therefore
  * NEVER published live; it is the one tested exception to row parity.
  *
+ * NO EPHEMERAL BLOCKS AND NO LIVE ROSTER (quick task 260923-3w6). The tick used
+ * to splice two extra objects' worth of data into the event artifact — a `state`
+ * block for the browser to price from (260915-isq) and a `live` block of
+ * per-match metric rows for the browser to overlay onto a team page (260918-16t)
+ * — plus a `v1/live-roster/{eventKey}.json` object so a robot page could DISCOVER
+ * an event no publish had ever written (260921-5qw). All three existed because
+ * the tick could not afford to write the team artifact itself. It writes it
+ * again, so the team page reads its own file: the blocks and the roster object
+ * are gone, and an artifact still carrying either block has it dropped on the
+ * next write.
+ *
  * DEMO TEAMS: the algorithms already exclude demo teams in
  * `update()`/`predict()`. `realTouchedTeams` strips demo keys before Phase A
  * scope keys and Phase B team artifacts, so a demo key gets no D1 row and no
@@ -151,8 +162,7 @@ import {
   type Stamp,
 } from "./artifactMerge.js";
 import { checkLiveEventArtifactShape, checkTeamSeasonArtifactShape } from "./artifactShapeCheck.js";
-import { ArtifactSecretLeakError, readArtifactObject, writeArtifactObject, writeLiveRosterObject } from "./artifactWriter.js";
-import { buildLiveRoster, rosterGrew, type RosterSource } from "../../../packages/harness/liveRoster.js";
+import { ArtifactSecretLeakError, readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
 import { readEventCursor, readEventCursors, readScopedStateChunked, scopedStateReadStatements, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
 import { splitEventMatches } from "./matchSplit.js";
 import { TICK_META_EVENT_KEY, stateBaselineEventKey } from "../../../packages/harness/stateBaseline.js";
@@ -505,20 +515,17 @@ async function readExistingEvent(
   env: Env,
   counter: SubrequestCounter,
   params: { page: "event"; eventKey: string; algorithmId: string; version: string }
-): Promise<{ artifact: LiveEventArtifact | undefined; bytes: number }> {
+): Promise<LiveEventArtifact | undefined> {
   const text = await readArtifactObject(env, counter, artifactKey(params));
-  if (text === undefined) return { artifact: undefined, bytes: 0 };
-  // `bytes` is the FETCHED body's own length, returned alongside the guarded
-  // artifact because this function already holds the text and `.length` is
-  // free. `mergeEventArtifact`'s live-block size trim is priced off it
-  // (260918-16t) precisely so the guard costs no second stringify. It is
-  // returned even when the guard rejects the object: the bytes are a fact
-  // about what was in R2, not about whether it parsed.
-  const bytes = text.length;
+  if (text === undefined) return undefined;
+  // It returned the fetched body's byte length alongside the artifact until quick
+  // task 260923-3w6: the `live` block's size trim was priced off it, here rather
+  // than in the merge, so the guard cost no second stringify. The block is gone
+  // and nothing else ever read the number.
   try {
-    return { artifact: checkLiveEventArtifactShape(JSON.parse(text)), bytes };
+    return checkLiveEventArtifactShape(JSON.parse(text));
   } catch {
-    return { artifact: undefined, bytes }; // unparseable JSON -- degrade to a fresh bootstrap rather than fail the event
+    return undefined; // unparseable JSON -- degrade to a fresh bootstrap rather than fail the event
   }
 }
 
@@ -1216,10 +1223,9 @@ async function runPhaseBAndReport(
     }
     const playedRowFacts = playedRowFactsFor(window.season, rawMatches, newlyFolded, newlyFoldedResults, observedBonusSides);
 
-    let rosterHandled = false;
     for (const [algorithmId, info] of perAlgorithm) {
       const eventParams = { page: "event" as const, eventKey, algorithmId, version: info.algorithm.version };
-      const { artifact: existingEvent, bytes: existingEventBytes } = await readExistingEvent(env, counter, eventParams);
+      const existingEvent = await readExistingEvent(env, counter, eventParams);
 
       // THE REMAINING SCHEDULE, PRICED HERE (quick task 260923-3w6). The rows go
       // through the publisher's own builder inside `priceUpcomingRows`, from the
@@ -1292,55 +1298,12 @@ async function runPhaseBAndReport(
         touchedTeams,
         touchedMetrics: info.touchedMetrics,
         playedRowFacts,
-        // The live block's three inputs (260918-16t). `realTouchedTeams`
-        // scopes its rows, `touchedSigma` joins its header as an ordinary
-        // metric key, and `existingEventBytes` is the fetched body's own
-        // length, which prices the size trim with no second stringify.
-        realTouchedTeams,
-        touchedSigma: info.touchedSigma,
-        existingBodyBytes: existingEventBytes,
         stamp,
       };
       const mergedEvent = mergeEventArtifact(eventMergeParams);
       await writeArtifactWithBootstrapRetry(env, counter, "event", eventParams, mergedEvent, algorithmId, () =>
         mergeEventArtifact({ ...eventMergeParams, existing: undefined })
       );
-
-      // THE LIVE ROSTER (quick task 260921-5qw), once per event, not per
-      // algorithm: the object a robot page finds a promoted event through,
-      // since no published team file can name an event TBA had no team list
-      // for. Written only when the roster GREW against the artifact just read
-      // (the first fold, or a team added later), so never once per tick. Both
-      // rosters are already in hand, so deciding costs nothing. It used to be
-      // opportunistic on the same terms as the block read above — never the
-      // subrequest a later algorithm's read and write were owed — and quick task
-      // 260923-3w4 dropped that gate with the budget. Still best effort, like
-      // every Phase B write.
-      if (!rosterHandled) {
-        rosterHandled = true;
-        // `mergeEventArtifact` returns `unknown` on purpose (the write validates
-        // it), so the roster is read through the narrow view it needs; every
-        // field is optional there and `rosterTeamKeys` treats absent as none.
-        const merged = mergedEvent as RosterSource & { readonly name?: unknown; readonly startDate?: unknown };
-        if (rosterGrew(existingEvent, merged)) {
-          counter.spend(1);
-          try {
-            await writeLiveRosterObject(
-              env,
-              buildLiveRoster({
-                eventKey,
-                season: window.season,
-                ...(typeof merged.name === "string" ? { eventName: merged.name } : {}),
-                ...(typeof merged.startDate === "string" ? { startDate: merged.startDate } : {}),
-                source: merged,
-                computedAt: stamp.computedAt,
-              })
-            );
-          } catch (error) {
-            console.warn(JSON.stringify({ msg: "live-roster-write-failed", eventKey, error: error instanceof Error ? error.name : "unknown" }));
-          }
-        }
-      }
 
       // Only the `teams/{year}` feed is gated on officialness. The live rows
       // ride the event write above, which is unconditional — exactly as the

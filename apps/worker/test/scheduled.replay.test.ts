@@ -543,46 +543,45 @@ describe("scheduled.replay — offline equivalence", () => {
           `algorithm "${algorithmId}": online (deployed-tick) and offline Match Band streams diverged`
         ).toBe(computeBandStreamDigestLocal(offlineBands));
 
-        // The sigma stream, read off the EVENT ARTIFACT'S EPHEMERAL `live`
-        // BLOCK since 260918-16t — off a separate sidecar object between
-        // 260917-jr4 and that, and off a team artifact before both. THE CLAIM
-        // IS UNCHANGED across all three, and that is the point of reading it
-        // here: every per-match metrics record the live tick emitted must carry
-        // the same sigma value, in the same order, as the offline layer's own
+        // THE SIGMA STREAM, read back off the TEAM ARTIFACT'S `metricHistory` —
+        // where it was read from before 260917-jr4, off a sidecar object between
+        // that and 260918-16t, off the event artifact's ephemeral `live` block
+        // between 260918-16t and 260923-3w6, and off the team artifact again now.
+        // THE CLAIM IS UNCHANGED across all four, and that is the point of reading
+        // it here at all: every per-match metrics record the live tick emitted must
+        // carry the same sigma value, in the same order, as the offline layer's own
         // per-match reading above. Only where the tick writes them changed.
         const eventText = await r2.get(artifactKey({ page: "event", eventKey: EVENT_KEY, algorithmId, version: offlineModule.version }));
         expect(eventText, `algorithm "${algorithmId}": no event artifact was written`).not.toBeNull();
-        const liveBlock = LiveEventArtifactSchema.parse(JSON.parse(await eventText!.text())).live;
-        expect(liveBlock, `algorithm "${algorithmId}": the written event artifact carries no live block`).toBeDefined();
+
+        const historyByTeam = new Map<string, { metrics: Record<string, { value: number } | undefined> }[]>();
+        for (const teamKey of ALL_TOUCHED_TEAMS) {
+          const teamArtifactKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId, version: offlineModule.version });
+          const teamText = await r2.get(teamArtifactKey);
+          expect(teamText, `${teamArtifactKey} was not written by the live tick`).not.toBeNull();
+          const parsed = JSON.parse(await teamText!.text()) as { metricHistory: { metrics: Record<string, { value: number } | undefined> }[] };
+          historyByTeam.set(teamKey, parsed.metricHistory);
+        }
 
         if (usesSigmaScore(algorithmId)) {
           let comparedRows = 0;
           for (const [teamKey, expectedSigmas] of offlineSigmaByTeam) {
-            const actualSigmas = liveRowsForTeam(liveBlock!, teamKey).map((row) => row.metrics.sigma?.value);
+            const actualSigmas = (historyByTeam.get(teamKey) ?? []).map((row) => row.metrics.sigma?.value);
             expect(actualSigmas, `algorithm "${algorithmId}" team "${teamKey}": live vs offline sigma stream diverged`).toEqual(expectedSigmas);
             comparedRows += actualSigmas.length;
           }
           // Non-vacuous, and EXACT: 7 matches x 6 roster teams per match.
           expect(comparedRows, `algorithm "${algorithmId}": expected exactly 42 compared sigma rows`).toBe(42);
         } else {
-          // OPR/EPA: no live row carries a sigma key at all, and `sigma` is not
-          // even in the block's own metric-key header.
-          expect(liveBlock!.metricKeys, `algorithm "${algorithmId}": a non-Sigma algorithm must not publish a sigma header`).not.toContain("sigma");
+          // OPR/EPA: no metric-history row carries a sigma key at all.
           let checkedRows = 0;
           for (const teamKey of ALL_TOUCHED_TEAMS) {
-            for (const row of liveRowsForTeam(liveBlock!, teamKey)) {
+            for (const row of historyByTeam.get(teamKey) ?? []) {
               expect(row.metrics, `algorithm "${algorithmId}" team "${teamKey}": no sigma key on a non-Sigma algorithm's row`).not.toHaveProperty("sigma");
               checkedRows++;
             }
           }
-          expect(checkedRows, `algorithm "${algorithmId}": non-vacuous — live rows were actually checked`).toBeGreaterThan(0);
-        }
-
-        // The tick wrote a team artifact for every touched team (quick task
-        // 260923-3w6, reversing 260917-jr4).
-        for (const teamKey of ALL_TOUCHED_TEAMS) {
-          const teamArtifactKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId, version: offlineModule.version });
-          expect(await r2.get(teamArtifactKey), `${teamArtifactKey} was not written by the live tick`).not.toBeNull();
+          expect(checkedRows, `algorithm "${algorithmId}": non-vacuous — metric-history rows were actually checked`).toBeGreaterThan(0);
         }
       }
     },

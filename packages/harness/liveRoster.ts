@@ -1,27 +1,29 @@
 /**
  * THE LIVE ROSTER (quick task 260921-5qw): one tiny object per live event,
- * naming the teams on it, so a robot page can find an event its own published
- * season file has never heard of.
+ * naming the teams on it, so a robot page could find an event its own published
+ * season file had never heard of.
  *
- * WHY IT EXISTS. The robot page learns a team's events from that team's
- * published season artifact. Since 260920-lny the Worker promotes a zero-match
- * event to live folding once TBA shows matches, and TBA publishes no team list
- * for an offseason event in advance, so no team file can name it. Without this
- * object such an event is live on its own page and invisible on every robot
- * page until an operator ingests and republishes, which is exactly the manual
- * step this task removes.
+ * NOBODY WRITES IT ANY MORE, and the reason it existed is gone (quick task
+ * 260923-3w6). The gap it filled was this: the robot page learns a team's events
+ * from that team's published season artifact, and between 260917-jr4 and
+ * 260923-3w6 the live tick wrote NO team artifact — so an event the Worker
+ * promoted to live folding, which TBA publishes no advance team list for, could
+ * not appear in any team's file until an operator republished. The tick writes
+ * the team artifact itself again, naming the event, so a promoted event reaches
+ * every robot page through the file that page already fetches.
  *
- * WHO WRITES IT. The live Worker, in Phase B, and only when the event's roster
- * GREW since the artifact it just read: the first fold, and any later tick
- * that adds a team. Never once per tick. It is algorithm-independent, so it is
- * written once per event however many algorithms fold.
+ * WHAT IS LEFT, and for whom. `liveRosterKey` and `LiveRosterSchema` are still
+ * imported by the WEB's discovery fetcher, which treats a 404 as the ordinary
+ * answer and resolves to "nothing discovered" — so the web is already correct
+ * against a bucket with no roster objects in it. Quick task 260923-3w7 deletes
+ * that fetcher and this file with it. Stale roster objects written by earlier
+ * ticks stay in R2 until a prune; they are read-only and harmless.
  *
- * WHO READS IT. The robot page, for each live window that is open NOW and is
- * not already among the team's events. A 404 is the ordinary answer: the event
- * has not been promoted yet.
+ * `buildLiveRoster` and `rosterGrew` were the Worker's half and are DELETED with
+ * the write. `rosterTeamKeys` stays as `LiveRosterSchema`'s companion.
  *
- * ZOD ONLY, no Node and no Worker API: it sits on the browser's import graph
- * and the Worker's. The key has ONE spelling, here, imported by both sides.
+ * ZOD ONLY, no Node and no Worker API: it sits on the browser's import graph.
+ * The key has ONE spelling, here.
  */
 import { z } from "zod";
 import { isDemoTeamKey } from "../core/algorithms/demoTeams.js";
@@ -65,30 +67,7 @@ export function rosterTeamKeys(source: RosterSource | undefined): string[] {
   return [...keys].filter((teamKey) => !isDemoTeamKey(teamKey)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
-/**
- * True when the merged artifact names a team the existing one did not. Rosters
- * only grow during an event, so a count comparison is exact, and both inputs
- * are already in the tick's hands: deciding costs no read.
- */
-export function rosterGrew(existing: RosterSource | undefined, merged: RosterSource): boolean {
-  return rosterTeamKeys(merged).length > rosterTeamKeys(existing).length;
-}
-
-export function buildLiveRoster(params: {
-  readonly eventKey: string;
-  readonly season: number;
-  readonly eventName?: string;
-  readonly startDate?: string;
-  readonly source: RosterSource;
-  readonly computedAt: string;
-}): LiveRoster {
-  return LiveRosterSchema.parse({
-    schemaVersion: LIVE_ROSTER_SCHEMA_VERSION,
-    eventKey: params.eventKey,
-    season: params.season,
-    ...(params.eventName !== undefined ? { eventName: params.eventName } : {}),
-    ...(params.startDate !== undefined ? { startDate: params.startDate } : {}),
-    teams: rosterTeamKeys(params.source),
-    computedAt: params.computedAt,
-  });
-}
+// `rosterGrew` and `buildLiveRoster` lived here until quick task 260923-3w6.
+// They were the Worker's half — "has this event's roster grown since the artifact
+// I just read, and if so what does the roster object say" — and they went with
+// the write itself. Nothing else ever called either.

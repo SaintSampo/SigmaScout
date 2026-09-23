@@ -21,7 +21,6 @@ import { TICK_META_EVENT_KEY } from "../../../packages/harness/stateBaseline.js"
 import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
-import { liveRosterKey } from "../../../packages/harness/liveRoster.js";
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -401,11 +400,7 @@ describe("runTick — state-generation marker equals the manifest generation (co
     expect(d1.batchCallCount).toBe(1);
     const eventPutKey = artifactKey({ page: "event", eventKey: EVENT_KEY, algorithmId: "spr", version: spr.version });
     const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "spr", version: spr.version });
-    // Since quick task 260921-5qw a FIRST fold also writes the event's live roster, the tiny object a
-    // robot page finds a promoted event through. It is one object per EVENT, not per algorithm, and it
-    // is written only when the roster grew, so never on an ordinary tick.
-    //
-    // And since quick task 260923-3w4 a tick that touched a team ALSO rebuilds
+    // Since quick task 260923-3w4 a tick that touched a team ALSO rebuilds
     // `teams/{year}`, every tick, instead of on a ten-minute interval — so the
     // Teams page is a cron minute behind rather than up to ten.
     //
@@ -413,7 +408,7 @@ describe("runTick — state-generation marker equals the manifest generation (co
     // the write set is enumerated as the three fixed keys PLUS one per team rather
     // than as a closed list.
     const teamPutKeys = [...RED_TEAMS, ...BLUE_TEAMS].map((teamKey) => artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "spr", version: spr.version }));
-    expect(r2.puts.map((p) => p.key).sort()).toEqual([eventPutKey, liveRosterKey(EVENT_KEY), teamsPutKey, ...teamPutKeys].sort());
+    expect(r2.puts.map((p) => p.key).sort()).toEqual([eventPutKey, teamsPutKey, ...teamPutKeys].sort());
   });
 });
 

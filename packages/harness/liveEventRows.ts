@@ -1,7 +1,16 @@
 /**
  * THE LIVE EVENT ROWS — the per-match, per-team post-match metrics a live tick
- * carries INSIDE the event artifact it already reads and writes exactly once
- * per tick (quick task 260918-16t).
+ * carried INSIDE the event artifact it already read and wrote exactly once per
+ * tick (quick task 260918-16t).
+ *
+ * DEPRECATED, WHOLE FILE, FOR QUICK TASK 260923-3w7. NOTHING PRODUCES A `live`
+ * BLOCK any more: quick task 260923-3w6 reinstated the tick's own per-team
+ * artifact write (`260923-1tu-FINDINGS.md` item C5), which is the thing this
+ * block existed to avoid, so `mergeEventLiveBlock` has no production caller and
+ * neither trim constant can fire. The file survives only because the WEB still
+ * DECODES a block it may find in R2 (`liveRowsForTeam`, read by the team-season
+ * overlay) and because two parity tests build blocks as fixtures. 260923-3w7
+ * deletes the overlay, and this file goes with it. Do not add a producer.
  *
  * WHAT IT IS FOR, and why it is not a separate object any more. A live tick
  * used to read and rewrite one `v1/team/...` artifact per touched team per

@@ -37,7 +37,6 @@ import {
 } from "../../../packages/harness/publishedRows.js";
 import { SIGMA_METRIC_KEY } from "../../../packages/harness/sigmaScore.js";
 import { PAGE_ARTIFACT_SCHEMA_VERSION, type EventUpcomingMatch, type LiveEventArtifact, type TeamSeasonArtifact, type TeamSeasonMatch } from "../../../packages/harness/pageArtifacts.js";
-import { mergeEventLiveBlock, type EventLiveTickRow } from "../../../packages/harness/liveEventRows.js";
 import { roundMetric } from "../../../packages/harness/rounding.js";
 
 // ---------------------------------------------------------------------------
@@ -228,118 +227,7 @@ export interface MergeEventArtifactParams {
   readonly newBands: ReadonlyMap<string, MatchBand>;
   /** This tick's per-match facts for the newly-folded matches. Required (an empty map is a valid value) so no caller omits it, as `sigmaAfterTick` is. */
   readonly playedRowFacts: ReadonlyMap<string, PlayedRowFacts>;
-  /**
-   * The teams whose state this tick actually advanced, which scopes the LIVE
-   * BLOCK's rows. Distinct from `touchedTeams` (raw), which scopes the event
-   * standings — the same split the deleted sidecar writer drew before quick
-   * task 260918-16t moved the rows into this merge.
-   */
-  readonly realTouchedTeams: readonly string[];
-  /** Each touched team's Sigma Score as of the end of this tick, folded into the live block's header as an ORDINARY metric key. Empty for a non-Sigma algorithm. */
-  readonly touchedSigma: ReadonlyMap<string, number>;
-  /**
-   * The byte length of the event body AS READ FROM R2 this tick — `.length` of
-   * the text the caller already holds, never a re-serialization. Drives the
-   * live block's size trim; see `EVENT_LIVE_BLOCK_TRIM_THRESHOLD_BYTES`. Pass
-   * 0 when there was no existing body.
-   */
-  readonly existingBodyBytes: number;
   readonly stamp: Stamp;
-}
-
-/**
- * This tick's live-block header and rows, built from the tick's own state.
- *
- * IT LIVES HERE, NOT IN `packages/harness/liveEventRows.ts`, on purpose: it
- * needs `SIGMA_METRIC_KEY`, and `liveEventRows.ts` sits on the BROWSER's
- * import graph and may not grow that dependency. This module already imports
- * both `SIGMA_METRIC_KEY` and `roundMetric`, so nothing new enters any graph.
- *
- * THE TICK'S OWN END-OF-TICK VALUES ARE READ ONCE PER TEAM — which is exactly
- * why two matches folded in one tick share one metrics record (the preserved
- * flaw `mergeTeamSeasonArtifact` has always had; see `liveEventRows.ts`'s
- * header).
- *
- * `SIGMA_METRIC_KEY` is an ORDINARY member of the header, never a special case
- * in the encoding — `sigmaScore.ts`'s own rule, applied here.
- *
- * THE HEADER IS SORTED so the header a later tick computes for the same
- * algorithm is byte-identical and `mergeEventLiveBlock`'s drift guard fires
- * only on a REAL key-set change rather than on `Object.entries` order.
- */
-export function buildTickLiveRows(params: {
-  readonly realTouchedTeams: readonly string[];
-  readonly touchedMetrics: Readonly<Record<string, Record<string, TeamMetric>>>;
-  readonly touchedSigma: ReadonlyMap<string, number>;
-  readonly newlyFolded: readonly MatchResult[];
-}): { readonly metricKeys: string[]; readonly rows: EventLiveTickRow[] } {
-  const { realTouchedTeams, touchedMetrics, touchedSigma, newlyFolded } = params;
-
-  const valuesByTeam = new Map<string, Record<string, number>>();
-  const metricKeySet = new Set<string>();
-  for (const teamKey of realTouchedTeams) {
-    const values: Record<string, number> = {};
-    for (const [key, metric] of Object.entries(touchedMetrics[teamKey] ?? {})) {
-      values[key] = metric.value;
-      metricKeySet.add(key);
-    }
-    const sigma = touchedSigma.get(teamKey);
-    if (sigma !== undefined) {
-      values[SIGMA_METRIC_KEY] = sigma;
-      metricKeySet.add(SIGMA_METRIC_KEY);
-    }
-    valuesByTeam.set(teamKey, values);
-  }
-  const metricKeys = [...metricKeySet].sort();
-
-  const realTouched = new Set(realTouchedTeams);
-  const rows = newlyFolded.map((match) => ({
-    matchKey: match.matchKey,
-    teamKeys: [...match.redTeams, ...match.blueTeams].filter((teamKey) => realTouched.has(teamKey)),
-    valuesByTeam,
-  }));
-
-  return { metricKeys, rows };
-}
-
-/**
- * The ephemeral `live` block the merged artifact carries, or `undefined` for
- * none. It logs its own degrades rather than leaving that to the call site,
- * because `mergeEventArtifact` returns the merged body alone and a block's
- * degrade has to be reported by whoever computes it. The state-block
- * builder deleted by quick task 260923-3w6 followed the same convention.
- *
- * A TICK THAT FOLDED NOTHING CARRIES THE EXISTING BLOCK FORWARD UNCHANGED.
- * That guard is load-bearing, not defensive: such a tick computes an EMPTY
- * header, an empty header never equals a stored non-empty one, and
- * `mergeEventLiveBlock` would therefore read it as key-set drift and discard
- * every row the event has accumulated.
- *
- * Log lines carry event key, algorithm id, counts and byte lengths only, never
- * a body and never a TBA value — this file's standing log rule.
- */
-function maintainedLiveBlock(params: MergeEventArtifactParams): LiveEventArtifact["live"] {
-  const { existing, eventKey, algorithmId, realTouchedTeams, touchedMetrics, touchedSigma, newlyFolded, existingBodyBytes } = params;
-  const { metricKeys, rows } = buildTickLiveRows({ realTouchedTeams, touchedMetrics, touchedSigma, newlyFolded });
-  if (rows.length === 0 || metricKeys.length === 0) return existing?.live;
-
-  const { block, keySetDrifted, droppedRows } = mergeEventLiveBlock({ existing: existing?.live, metricKeys, rows, existingBodyBytes });
-  if (keySetDrifted) {
-    console.warn(
-      JSON.stringify({
-        msg: "event-live-block-drift",
-        eventKey,
-        algorithmId,
-        storedKeys: existing?.live?.metricKeys.length ?? 0,
-        computedKeys: metricKeys.length,
-        discardedRows: existing?.live?.rows.length ?? 0,
-      })
-    );
-  }
-  if (droppedRows > 0) {
-    console.warn(JSON.stringify({ msg: "event-live-block-trimmed", eventKey, algorithmId, droppedRows, retainedRows: block.rows.length, existingBodyBytes }));
-  }
-  return block;
 }
 
 /**
@@ -364,10 +252,9 @@ function maintainedLiveBlock(params: MergeEventArtifactParams): LiveEventArtifac
  * the schema after this merge was written and were silently dropped on every
  * tick. The keys the tick owns are listed explicitly below, each keeping its
  * original position. An owned key the tick may OMIT must be destructured out
- * of `existing` first, or a stale value would survive the spread; today that
- * is `live` (absent until the first fold at the event), which the destructuring
- * re-appends last, where the schema wants the large block, and `state`, which is
- * destructured out and never re-appended because nothing emits one any more. Trade-off: a future key that should be
+ * of `existing` first, or a stale value would survive the spread; today that is
+ * `state` and `live`, both destructured out and neither re-appended, because
+ * nothing emits either any more (quick task 260923-3w6). Trade-off: a future key that should be
  * tick-owned is carried stale until someone lists it here — the project's
  * documented carry-forward policy, as for the Sigma entry and the teams-row
  * tier/record.
@@ -386,13 +273,11 @@ function maintainedLiveBlock(params: MergeEventArtifactParams): LiveEventArtifac
  */
 export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
   const { existing, eventKey, season, algorithmId, algorithmVersion, eventType, newlyFolded, newPredictions, upcoming, touchedTeams, touchedMetrics, newBands, playedRowFacts, stamp } = params;
-  // BOTH tick-owned blocks destructured out before the spread. `live` may be
-  // omitted from this tick's output, and a spread would carry a stale one
-  // through. `state` is destructured out for a stronger reason since quick task
-  // 260923-3w6: this merge no longer emits one AT ALL, so every artifact
-  // published before the reversal carries a block that must be DROPPED here
-  // rather than ridden forward forever on the spread. See this function's doc
-  // comment.
+  // BOTH tick-owned blocks destructured out before the spread, and since quick
+  // task 260923-3w6 for the same reason: this merge emits NEITHER of them any
+  // more, so an artifact published before the reversal carries a `state` block
+  // and an artifact written by an earlier tick carries a `live` block, and both
+  // must be DROPPED here rather than ridden forward forever on the spread.
   const { state: _existingState, live: _existingLive, ...carriedFromExisting } = existing ?? {};
 
   // Read before the preserved-match filter below: a newly-played match's own
@@ -431,7 +316,6 @@ export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
   const rpOutcomeRp = findRpOutcomeRp([...newPredictions.values()]) ?? existing?.rpOutcomeRp;
 
   const resolvedEventType = eventType ?? existing?.eventType;
-  const live = maintainedLiveBlock(params);
 
   const existingTeams = existing?.teams ?? [];
   const touchedSet = new Set(touchedTeams);
@@ -478,9 +362,6 @@ export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
     upcoming,
     teams,
     ...(rpOutcomeRp !== undefined ? { rpOutcomeRp } : {}),
-    // LAST: the only block this merge still emits. `state` used to precede it
-    // and is not emitted at all any more (quick task 260923-3w6).
-    ...(live !== undefined ? { live } : {}),
   };
 }
 

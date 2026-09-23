@@ -261,12 +261,6 @@ function mergeEvent(existing: LiveEventArtifact | undefined): unknown {
     touchedMetrics: FRESH_METRICS,
     newBands: new Map(),
     playedRowFacts: new Map(),
-    // The live block's inputs (260918-16t), set so every equivalence
-    // assertion below ALSO exercises the block rather than leaving it absent:
-    // a non-empty `realTouchedTeams` gives `buildTickLiveRows` a real header.
-    realTouchedTeams: TOUCHED,
-    touchedSigma: new Map(),
-    existingBodyBytes: 0,
     stamp: LIVE_STAMP,
   });
 }
@@ -507,14 +501,17 @@ describe("a malformed `live` block drops the block, never the artifact", () => {
     expect(publishedEventBytes(mergeEvent(checkLiveEventArtifactShape(json(raw))))).toBe(publishedEventBytes(mergeEvent(LiveEventArtifactSchema.parse(json(raw)))));
   });
 
-  it("a WELL-SHAPED block survives the guard and the merge publishes bytes identical to the zod-parsed path", () => {
+  it("a WELL-SHAPED block survives the guard, is DROPPED by the merge, and the two read paths still publish identical bytes", () => {
     const live = { metricKeys: ["total"], rows: [{ m: `${EVENT_KEY}_qm1`, t: [TEAMS[0]!], v: [[40]] }] };
     const raw = { ...offlineEventArtifact(), live };
     const guarded = checkLiveEventArtifactShape(json(raw));
+    // Non-vacuity: the fixture really does hand the merge a block to drop.
     expect(guarded?.live).toBeDefined();
     const fromGuard = mergeEvent(guarded) as Record<string, unknown>;
-    // Non-vacuity: this fixture really does carry a block through the merge.
-    expect(fromGuard.live).toBeDefined();
+    // Since quick task 260923-3w6 the merge emits no `live` block, so a
+    // well-shaped one read off R2 is dropped exactly as a malformed one is — which
+    // is what stops a block written by an earlier tick riding the spread forever.
+    expect(fromGuard).not.toHaveProperty("live");
     expect(publishedEventBytes(fromGuard)).toBe(publishedEventBytes(mergeEvent(LiveEventArtifactSchema.parse(json(raw)))));
   });
 

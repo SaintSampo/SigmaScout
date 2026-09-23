@@ -34,7 +34,6 @@ import {
 } from "../../../packages/harness/pageArtifacts.js";
 import type { SubrequestCounter } from "./subrequestCounter.js";
 import type { Env } from "./env.js";
-import { LiveRosterSchema, liveRosterKey, type LiveRoster } from "../../../packages/harness/liveRoster.js";
 
 /** A 60-second max-age set as object metadata at write time — there is no purge call and no pointer to invalidate on the cron path, matching the offline publisher's own `r2Client.ts` cache policy exactly. */
 export const ARTIFACT_CACHE_CONTROL = "public, max-age=60";
@@ -102,29 +101,6 @@ export async function writeArtifactObject(env: Env, counter: SubrequestCounter, 
   counter.spend(1);
   const key = artifactKey(params);
   await env.ARTIFACTS.put(key, serialized, {
-    httpMetadata: { contentType: ARTIFACT_CONTENT_TYPE, cacheControl: ARTIFACT_CACHE_CONTROL },
-  });
-}
-
-/**
- * Writes one event's LIVE ROSTER (`packages/harness/liveRoster.ts`), the tiny
- * object a robot page finds a promoted event through. Same secret scrub and
- * the same cache headers as a page artifact, WITHOUT joining `SCHEMA_BY_PAGE`
- * or `PageKind`, which is what stops it ever being served as a page.
- *
- * The CALLER records the subrequest on the tick counter, rather than this
- * function taking one — historically because the caller was the only one that
- * knew how much of this event's Phase B was still owed and therefore whether
- * the write was affordable at all. There is no affordability question any more
- * (quick task 260923-3w4); the split stays only because moving it would change
- * nothing an operator sees.
- */
-export async function writeLiveRosterObject(env: Env, roster: LiveRoster): Promise<void> {
-  const serialized = JSON.stringify(LiveRosterSchema.parse(roster));
-  if (env.TBA_API_KEY && serialized.includes(env.TBA_API_KEY)) {
-    throw new ArtifactSecretLeakError("event");
-  }
-  await env.ARTIFACTS.put(liveRosterKey(roster.eventKey), serialized, {
     httpMetadata: { contentType: ARTIFACT_CONTENT_TYPE, cacheControl: ARTIFACT_CACHE_CONTROL },
   });
 }

@@ -1,27 +1,24 @@
 /**
- * The event artifact's ephemeral LIVE BLOCK, end to end through the REAL
- * `runTick` (quick task 260918-16t, Task 2 — this is
- * `scheduled.sidecar.test.ts` retargeted at the new shape, not a new file).
+ * PHASE B's R2 WRITE SET, end to end through the REAL `runTick`.
  *
- * `packages/harness/liveEventRows.test.ts` covers the merge and the encoding
- * in isolation. THIS file covers the things only a driven tick can settle:
- * that the tick issues one team-artifact read and one write per touched team per
- * algorithm (reinstated by quick task 260923-3w6; this file's claim was the
- * OPPOSITE between 260917-jr4 and that task), that Phase B makes EXACTLY TWO R2
- * calls per algorithm-EVENT and none under any other per-event key at all, that
- * successive ticks append to the one body, that the
- * write-side scrub covers the live rows because they sit inside the body it
- * already scrubs, that a drifted key set is logged and self-heals, and that
- * `runGlobalRebuild`'s touched-team bookkeeping reaches `teams/{year}` with the
- * right per-team match delta.
+ * WHAT THIS FILE WAS. It was `scheduled.liveRows.test.ts` (quick task
+ * 260918-16t, itself `scheduled.sidecar.test.ts` retargeted), and its subject was
+ * the ephemeral `live` block the tick spliced into the event artifact so the
+ * browser could overlay a team page. Quick task 260923-3w6 deleted that block
+ * along with its whole reason: the tick writes the team artifact itself again.
+ * The eight cases that were about the block's contents, its accumulation, its
+ * drift guard and its scrub are deleted with it; each deletion is recorded in
+ * place rather than left as a gap.
  *
- * FOUR CASES FROM THE SIDECAR VERSION ARE GONE BECAUSE THEIR SUBJECT IS: the
- * R2 key spelling (the block has no key of its own), the wrapper-schema
- * literal `ephemeral: true` (the block is exactly `{ metricKeys, rows }`, and
- * the ephemerality is now the schema asymmetry pinned in
- * `pageArtifacts.test.ts`), the standalone byte ceiling (replaced by the size
- * trim, unit-tested in `liveEventRows.test.ts` because a 300 KB body cannot be
- * driven through this fixture) and `complete` (nothing ever read it).
+ * WHAT IT IS NOW, and why it still earns a file. Only a DRIVEN tick can settle
+ * the shape of Phase B's write set:
+ *  - one team-artifact read and one write per touched team per algorithm;
+ *  - EXACTLY TWO R2 calls per algorithm-EVENT — the event artifact, read then
+ *    written — and nothing under any other per-event key, asserted by equality so
+ *    a third per-event object fails by name;
+ *  - nothing at all under the deleted live-object prefix;
+ *  - `runGlobalRebuild`'s touched-team bookkeeping reaching `teams/{year}` with
+ *    the right per-team match delta, and staying gated on officialness.
  *
  * Fakes are deliberately duplicated from `scheduled.test.ts` rather than
  * shared, following this directory's established convention (see
@@ -43,7 +40,6 @@ import { PUBLISHED_ALGORITHM_IDS } from "../../../packages/harness/publishedAlgo
 import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
-import { liveRosterKey } from "../../../packages/harness/liveRoster.js";
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -438,12 +434,11 @@ describe("the live tick's team half is one read and one write per touched team",
     // rebuild's SEASON-wide feed, not per-event work, and it is asserted by the
     // teams-bookkeeping cases at the bottom of this file.
     expect(new Set(r2.gets.filter((key) => key.includes(EVENT_KEY)))).toEqual(new Set([eventKeyFor("opr")]));
-    // Since quick task 260921-5qw a FIRST fold also writes the event's live roster, the tiny object a
-    // robot page finds a promoted event through. It is one object per EVENT, not per algorithm, and it
-    // is written only when the roster grew, so never on an ordinary tick.
-    expect(new Set(r2.puts.filter((p) => p.key.includes(EVENT_KEY)).map((p) => p.key))).toEqual(new Set([eventKeyFor("opr"), liveRosterKey(EVENT_KEY)]));
-    // ONCE across all three ticks: the roster never changed after the first fold.
-    expect(r2.puts.filter((p) => p.key === liveRosterKey(EVENT_KEY))).toHaveLength(1);
+    // ONE per-event object, by equality. 260921-5qw's live roster was the second
+    // one and quick task 260923-3w6 deleted it: a robot page finds a promoted
+    // event through its own team file again, which the tick now writes.
+    expect(new Set(r2.puts.filter((p) => p.key.includes(EVENT_KEY)).map((p) => p.key))).toEqual(new Set([eventKeyFor("opr")]));
+    expect(r2.puts.filter((p) => p.key.startsWith("v1/live-roster/"))).toEqual([]);
   });
 
   it("issues no R2 call whatsoever under the DELETED live-object prefix", async () => {
@@ -462,150 +457,26 @@ describe("the live tick's team half is one read and one write per touched team",
   });
 });
 
-describe("the live block accumulates across ticks", () => {
-  it("appends one row per folded match, in fold order, over three ticks", async () => {
-    const r2 = new FakeR2Bucket();
-    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
-    vi.stubGlobal("fetch", makeTbaFetchStub());
+// TWO DESCRIBES STOOD HERE AND ARE DELETED (quick task 260923-3w6), eight cases
+// in all. "The live block accumulates across ticks" pinned the block's row order,
+// its per-match rosters and metrics, its position last in the body and its Sigma
+// header; "the live block's failure modes are logged, not silent" pinned that the
+// event write's secret scrub covered the rows (they sat inside the body it already
+// scrubbed) and that a drifted metric-key header was logged and self-healed.
+// Nothing emits a `live` block any more, so all eight describe a code path that no
+// longer exists. `packages/harness/liveEventRows.test.ts` still unit-tests the
+// merge and the encoding, for the WEB's decode path, until quick task 260923-3w7.
 
-    await driveTicks(env, 3);
-
-    const bodies = r2.puts.filter((p) => p.key === eventKeyFor("opr")).map((p) => liveBlockOf(p.body)!);
-    expect(bodies.map((block) => block.rows.map((row) => row.m))).toEqual([
-      [`${EVENT_KEY}_qm1`],
-      [`${EVENT_KEY}_qm1`, `${EVENT_KEY}_qm2`],
-      [`${EVENT_KEY}_qm1`, `${EVENT_KEY}_qm2`, `${EVENT_KEY}_qm3`],
-    ]);
-  });
-
-  it("carries each match's own roster, and each team's own post-match metrics", async () => {
-    const r2 = new FakeR2Bucket();
-    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
-    vi.stubGlobal("fetch", makeTbaFetchStub());
-
-    await driveTicks(env, 3);
-
-    const artifact = LiveEventArtifactSchema.parse(JSON.parse(r2.peek(eventKeyFor("opr"))!));
-    // THE FOUR IDENTITY FIELDS THE BLOCK DROPPED are stated by the artifact it
-    // rides inside — which is the whole reason it may drop them, and where
-    // `extendMetricHistory` now reads them from.
-    expect(artifact.eventKey).toBe(EVENT_KEY);
-    expect(artifact.season).toBe(SEASON);
-    expect(artifact.algorithmId).toBe("opr");
-    expect(artifact.algorithmVersion).toBe(opr.version);
-    // And the block itself is EXACTLY those two keys, with no wrapper at all.
-    const final = artifact.live!;
-    expect(Object.keys(final)).toEqual(["metricKeys", "rows"]);
-
-    expect(final.metricKeys).toContain(TOTAL_METRIC_KEY);
-    for (const [i, row] of final.rows.entries()) {
-      const fixture = MATCHES[i]!;
-      expect(new Set(row.t), row.m).toEqual(new Set([...fixture.redTeams, ...fixture.blueTeams]));
-      expect(row.v).toHaveLength(row.t.length);
-      for (const values of row.v) {
-        expect(values).toHaveLength(final.metricKeys.length);
-        // Non-vacuity: a row of all-nulls would satisfy the shape and prove nothing.
-        expect(values.some((value) => value !== null), row.m).toBe(true);
-      }
-    }
-  });
-
-  it("serializes the block LAST in the written body, after `state`", async () => {
-    const r2 = new FakeR2Bucket();
-    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
-    vi.stubGlobal("fetch", makeTbaFetchStub());
-
-    await driveTicks(env, 3);
-
-    // Key ORDER is a real property of the body, not an incidental one: the
-    // event page needs `state` for first paint and never reads `live`, so the
-    // block only the robot and match pages read goes at the very end.
-    const written = JSON.parse(r2.peek(eventKeyFor("opr"))!) as Record<string, unknown>;
-    expect(Object.keys(written).at(-1)).toBe("live");
-  });
-
-  it("carries Sigma as an ordinary metric key for a Sigma algorithm, and not at all for OPR", async () => {
-    const sprR2 = new FakeR2Bucket();
-    vi.stubGlobal("fetch", makeTbaFetchStub());
-    await driveTicks(makeEnv(makeManifests(["spr"]), new FakeD1Database(), sprR2, { LIVE_ALGORITHM_IDS: "spr" }), 3);
-    expect(liveBlockOf(sprR2.peek(eventKeyFor("spr")))!.metricKeys).toContain(SIGMA_METRIC_KEY);
-
-    const oprR2 = new FakeR2Bucket();
-    await driveTicks(makeEnv(makeManifests(), new FakeD1Database(), oprR2), 3);
-    expect(liveBlockOf(oprR2.peek(eventKeyFor("opr")))!.metricKeys).not.toContain(SIGMA_METRIC_KEY);
-  });
-});
-
-describe("the live block's failure modes are logged, not silent", () => {
-  it("is covered by the EVENT WRITE's own secret scrub, because the rows are inside the body it already scrubs (T-260918-16t-04)", async () => {
-    const r2 = new FakeR2Bucket();
-    // `"metricKeys"` appears in the LIVE BLOCK and nowhere else in an event
-    // body, so a secret equal to it can only be caught by a scrub that sees
-    // the block — which is the whole claim. The sidecar had its own separate
-    // scrub; this shape needs none, because `writeArtifactObject` already
-    // scrubs the entire serialized event body before the put and before the
-    // budget consume.
-    const env = makeEnv(makeManifests(), new FakeD1Database(), r2, { TBA_API_KEY: "metricKeys" });
-    vi.stubGlobal("fetch", makeTbaFetchStub());
-
-    revealed = 1;
-    await runTick(env, { nowMs: NOW_MS });
-
-    // ZERO puts, not a stripped one: validate-then-persist means the refusal
-    // costs no subrequest and reaches R2 with nothing at all.
-    expect(r2.puts.filter((p) => p.key.startsWith("v1/event/"))).toEqual([]);
-    // Non-vacuity: without the secret, the same tick writes the body.
-    const cleanR2 = new FakeR2Bucket();
-    revealed = 1;
-    await runTick(makeEnv(makeManifests(), new FakeD1Database(), cleanR2), { nowMs: NOW_MS });
-    expect(cleanR2.puts.some((p) => p.key.startsWith("v1/event/"))).toBe(true);
-    expect(liveBlockOf(cleanR2.peek(eventKeyFor("opr")))).toBeDefined();
-  });
-
-  it("logs a key-set drift and starts a fresh block rather than mis-aligning the stored rows", async () => {
-    const r2 = new FakeR2Bucket();
-    // A published event body whose live block was written under a DIFFERENT
-    // metric-key header, as a model change under the same version would leave
-    // behind. The block itself comes from the REAL merge, so it is a shape the
-    // shipped code can actually produce.
-    const { block: stale } = mergeEventLiveBlock({
-      existing: undefined,
-      metricKeys: ["a-key-this-algorithm-does-not-emit"],
-      rows: [{ matchKey: `${EVENT_KEY}_qm0`, teamKeys: ["frc1"], valuesByTeam: new Map([["frc1", { "a-key-this-algorithm-does-not-emit": 1 }]]) }],
-      existingBodyBytes: 0,
-    });
-    r2.seed(eventKeyFor("opr"), JSON.stringify(seededEventBody(stale)));
-
-    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
-    vi.stubGlobal("fetch", makeTbaFetchStub());
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    await driveTicks(env, 1);
-
-    const lines = warn.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("event-live-block-drift"));
-    warn.mockRestore();
-    expect(lines).toHaveLength(1);
-    const logged = JSON.parse(lines[0]!) as Record<string, unknown>;
-    expect(logged.discardedRows).toBe(1);
-    // Ids, counts and lengths only — never a body.
-    expect(logged.eventKey).toBe(EVENT_KEY);
-    expect(logged.algorithmId).toBe("opr");
-
-    const written = liveBlockOf(r2.peek(eventKeyFor("opr")))!;
-    expect(written.rows.map((row) => row.m)).toEqual([`${EVENT_KEY}_qm1`]);
-    expect(written.metricKeys).not.toContain("a-key-this-algorithm-does-not-emit");
-  });
-});
-
-describe("runGlobalRebuild's touched-team bookkeeping survived the deleted loop", () => {
+describe("runGlobalRebuild's touched-team bookkeeping", () => {
   /**
-   * THE ONE THING THE TEAM LOOP CARRIED BESIDES ITS ARTIFACT WORK. The loop
-   * still runs; only its three R2 calls are gone. Its `seasonMap.set` feeds
-   * `touchedTeamsByAlgorithm`, which `runGlobalRebuild` turns into each
-   * `teams/{year}` row's `matchCount`. A refactor that deleted the loop
-   * wholesale would leave every live `matchCount` frozen at its last
-   * published value, silently and with no test failing — so the delta is
-   * asserted by VALUE here, not merely by the artifact's existence.
+   * WHAT THE TEAM LOOP CARRIES BESIDES ITS ARTIFACT WORK. Its `seasonMap.set`
+   * feeds `touchedTeamsByAlgorithm`, which `runGlobalRebuild` turns into each
+   * `teams/{year}` row's `matchCount`. A refactor that dropped that contribution
+   * — which is exactly what 260917-jr4 risked when it emptied the loop, and what
+   * 260923-3w6 risked again when it refilled it — would leave every live
+   * `matchCount` frozen at its last published value, silently and with no test
+   * failing. So the delta is asserted by VALUE here, not merely by the artifact's
+   * existence.
    */
   it("feeds teams/{year} a per-team matchCount delta equal to the matches that team actually played", async () => {
     const r2 = new FakeR2Bucket();
@@ -635,7 +506,7 @@ describe("runGlobalRebuild's touched-team bookkeeping survived the deleted loop"
     }
   });
 
-  it("stays gated on officialness: an offseason (event_type 99) tick writes the live rows and contributes NO team row at all", async () => {
+  it("stays gated on officialness: an offseason (event_type 99) tick writes the event and team artifacts and contributes NO teams/{year} row at all", async () => {
     const r2 = new FakeR2Bucket();
     const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
     vi.stubGlobal("fetch", makeTbaFetchStub(99));
@@ -644,10 +515,11 @@ describe("runGlobalRebuild's touched-team bookkeeping survived the deleted loop"
     const result = await runTick(env, { nowMs: NOW_MS });
     expect(result.eventsAdvanced).toBe(1);
 
-    // The event write (and so the live rows inside it) is unconditional; the
+    // The event write and the per-team writes are unconditional; the
     // `teams/{year}` FEED is what the `isOfficial` gate guards, and it is the
-    // gate that had to survive the loop's rewrite.
-    expect(liveBlockOf(r2.peek(eventKeyFor("opr")))?.rows).toHaveLength(1);
+    // gate that had to survive the loop's rewrite in both directions.
+    expect(r2.peek(eventKeyFor("opr")), "the offseason event artifact was not written").toBeDefined();
+    expect(r2.puts.filter((p) => p.key.startsWith("v1/team/"))).toHaveLength(ALL_TEAMS.length);
     const teamsBody = r2.peek(artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version }));
     if (teamsBody !== undefined) {
       const teams = TeamsArtifactSchema.parse(JSON.parse(teamsBody));
