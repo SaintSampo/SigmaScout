@@ -347,7 +347,6 @@ const RED_TEAMS = ["frc1", "frc2", "frc3"];
 const BLUE_TEAMS = ["frc4", "frc5", "frc6"];
 const WINDOW: WindowFixture = { eventKey: EVENT_KEY, season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
 const PROBE_WINDOW: WindowFixture = { eventKey: "2026probe", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000, inferred: true };
-const DISABLE_GLOBAL_REBUILD = { globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER };
 
 /** One played match plus one upcoming match at a different pair of teams — mirrors `scheduled.test.ts`'s identically-named helper. */
 function twoMatchEventRecord(eventKey: string, etag: string): TbaEventRecord {
@@ -393,17 +392,22 @@ describe("runTick — state-generation marker equals the manifest generation (co
     const r2 = new FakeR2Bucket();
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([[EVENT_KEY, twoMatchEventRecord(EVENT_KEY, "etag-1")]])));
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
 
     expect(result.eventsAdvanced).toBe(1);
     expect(result.eventsFailed).toBe(0);
     expect(result.stateGenerationMismatch).toBe(false);
     expect(d1.batchCallCount).toBe(1);
     const eventPutKey = artifactKey({ page: "event", eventKey: EVENT_KEY, algorithmId: "spr", version: spr.version });
+    const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "spr", version: spr.version });
     // Since quick task 260921-5qw a FIRST fold also writes the event's live roster, the tiny object a
     // robot page finds a promoted event through. It is one object per EVENT, not per algorithm, and it
     // is written only when the roster grew, so never on an ordinary tick.
-    expect(r2.puts.map((p) => p.key).sort()).toEqual([eventPutKey, liveRosterKey(EVENT_KEY)].sort());
+    //
+    // And since quick task 260923-3w4 a tick that touched a team ALSO rebuilds
+    // `teams/{year}`, every tick, instead of on a ten-minute interval — so the
+    // Teams page is a cron minute behind rather than up to ten.
+    expect(r2.puts.map((p) => p.key).sort()).toEqual([eventPutKey, liveRosterKey(EVENT_KEY), teamsPutKey].sort());
   });
 });
 
@@ -416,10 +420,10 @@ describe("runTick — state-generation marker differs from the manifest generati
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([[EVENT_KEY, twoMatchEventRecord(EVENT_KEY, "etag-1")]])));
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    // globalRebuildIntervalMs deliberately 0 here (not DISABLE_GLOBAL_REBUILD)
-    // so "no global rebuild ran" is a genuine assertion about the mismatch
-    // return, not a coincidence of the interval never having elapsed.
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: 0 });
+    // "no global rebuild ran" is a genuine assertion about the mismatch return:
+    // the mismatch returns BEFORE the rebuild call, which quick task 260923-3w4
+    // made unconditional, so there is no interval left for it to hide behind.
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
 
     expect(result).toMatchObject({
       eventsConsidered: 0,
@@ -451,7 +455,7 @@ describe("runTick — state-generation marker row absent entirely (today's live 
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([[EVENT_KEY, twoMatchEventRecord(EVENT_KEY, "etag-1")]])));
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
 
     expect(result.stateGenerationMismatch).toBe(true);
     expect(result.eventsAdvanced).toBe(0);
@@ -472,7 +476,7 @@ describe("runTick — probes still run under a mismatch", () => {
     const record = twoMatchEventRecord("2026probe", "probe-etag-1");
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026probe", record]])));
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
 
     expect(result.eventsProbed).toBe(1);
     expect(result.eventsPromoted).toBe(0);
@@ -496,7 +500,7 @@ describe("runTick — cursor ahead of nothing (a seeded cursor at the offline ru
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([[EVENT_KEY, threeMatchEventRecord(EVENT_KEY, "etag-1")]])));
     const updateSpy = vi.spyOn(spr, "update");
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
 
     expect(result.eventsAdvanced).toBe(1);
     expect(updateSpy).toHaveBeenCalledTimes(2);
@@ -517,7 +521,7 @@ describe("runTick — cursor equal to what state already contains (the incident'
     seededD1.eventCursors.set(EVENT_KEY, { event_key: EVENT_KEY, tba_etag: null, last_folded_match_key: `${EVENT_KEY}_qm3`, last_polled_at: null, last_advanced_at: null });
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([[EVENT_KEY, record]])));
     const seededUpdateSpy = vi.spyOn(spr, "update");
-    const seededResult = await runTick(makeEnv(kv, seededD1, new FakeR2Bucket()), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const seededResult = await runTick(makeEnv(kv, seededD1, new FakeR2Bucket()), { nowMs: NOW_MS });
     expect(seededResult.eventsAdvanced).toBe(0);
     expect(seededD1.batchCallCount).toBe(0);
     expect(seededUpdateSpy).not.toHaveBeenCalled();
@@ -529,7 +533,7 @@ describe("runTick — cursor equal to what state already contains (the incident'
     seedHealthyMarker(nullCursorD1);
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([[EVENT_KEY, record]])));
     const nullCursorUpdateSpy = vi.spyOn(spr, "update");
-    const nullCursorResult = await runTick(makeEnv(makeKv([WINDOW]), nullCursorD1, new FakeR2Bucket()), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const nullCursorResult = await runTick(makeEnv(makeKv([WINDOW]), nullCursorD1, new FakeR2Bucket()), { nowMs: NOW_MS });
     expect(nullCursorResult.eventsAdvanced).toBe(1);
     expect(nullCursorUpdateSpy).toHaveBeenCalledTimes(3);
   });
@@ -561,7 +565,7 @@ describe("runTick — two played matches tied on sortTime", () => {
     };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([[EVENT_KEY, record]])));
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
 
     expect(result.eventsAdvanced).toBe(1);
     // The corpus's own total order (matchNumber ascending on a tie) says the
@@ -591,7 +595,7 @@ describe("runTick — the nothing-live tick and the probe-only tick issue the sa
     const fetchMock = vi.fn(async () => ({ status: 304, ok: false, headers: new Map(), json: async () => ({}) }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
 
     expect(result).toMatchObject({ eventsProbed: 1, eventsPromoted: 0, stateGenerationMismatch: false });
     // eventPreflight's own cursor read (pre-existing, unrelated to this

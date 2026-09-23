@@ -442,7 +442,7 @@ describe("scheduled.replay — offline equivalence", () => {
         // 260923-3w4 deleted the cap and the deferral, so there is nothing left
         // to override — this test's purpose was always the equivalence property,
         // never the deferral mechanism.
-        const result = await runTick(env, { nowMs: NOW_MS + i * 60_000, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
+        const result = await runTick(env, { nowMs: NOW_MS + i * 60_000 });
         expect(result.eventsFailed).toBe(0);
         expect(result.eventsAdvanced).toBe(1);
       }

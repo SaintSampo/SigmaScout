@@ -399,7 +399,6 @@ function makeKv(windows: readonly WindowFixture[], algorithmIds: readonly string
   );
 }
 
-const DISABLE_GLOBAL_REBUILD = { globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER };
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -434,7 +433,7 @@ describe("runTick — nothing live", () => {
 });
 
 describe("runTick — one live event, one new match", () => {
-  it("writes state before any artifact put, exactly ONE artifact put, and zero team puts", async () => {
+  it("writes state before any artifact put, exactly ONE event artifact put, and zero team puts", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const kv = makeKv([window]);
     const sharedLog: SharedLogEntry[] = [];
@@ -443,21 +442,28 @@ describe("runTick — one live event, one new match", () => {
     const tbaEvents = new Map([["2026casj", twoMatchEventRecord("2026casj", "etag-1")]]);
     vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents));
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
 
     expect(result.eventsAdvanced).toBe(1);
     expect(result.eventsFailed).toBe(0);
     expect(d1.batchCallCount).toBe(1); // one algorithm (opr) -> one batched state write
-    // Since 260918-16t this is ONE: the event artifact alone, with the live
-    // rows inside it. It was TWO (event + a separate metric sidecar) after
-    // 260917-jr4, and `1 + ALL_TEAMS.length` -- a whole team-season artifact
-    // rewritten per touched team -- before that. Removing those puts is the
-    // whole change, in two steps.
+    // Since 260918-16t the EVENT half of Phase B is ONE put: the event artifact
+    // alone, with the live rows inside it. It was TWO (event + a separate metric
+    // sidecar) after 260917-jr4, and `1 + ALL_TEAMS.length` -- a whole
+    // team-season artifact rewritten per touched team -- before that. Removing
+    // those puts is the whole change, in two steps.
     // Since quick task 260921-5qw a FIRST fold also writes the event's live roster, the tiny object a
     // robot page finds a promoted event through. It is one object per EVENT, not per algorithm, and it
     // is written only when the roster grew, so never on an ordinary tick.
-    expect(r2.puts.filter((p) => p.key !== liveRosterKey("2026casj"))).toHaveLength(1);
+    // Since quick task 260923-3w4 the teams-of-the-year rebuild also runs on
+    // every tick that touched a team rather than on a ten-minute interval, so it
+    // is subtracted here too. Still ZERO per-team artifact puts, which is what
+    // this test is for.
+    const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
+    expect(r2.puts.filter((p) => p.key !== liveRosterKey("2026casj") && p.key !== teamsPutKey)).toHaveLength(1);
     expect(r2.puts.filter((p) => p.key === liveRosterKey("2026casj"))).toHaveLength(1);
+    expect(r2.puts.filter((p) => p.key === teamsPutKey)).toHaveLength(1);
+    expect(r2.puts.filter((p) => p.key.startsWith("v1/team/"))).toHaveLength(0);
 
     const eventPutKey = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "opr", version: opr.version });
     expect(r2.puts.some((p) => p.key === eventPutKey)).toBe(true);
@@ -505,13 +511,13 @@ describe("runTick — idempotency", () => {
     const tbaEvents = new Map([["2026casj", twoMatchEventRecord("2026casj", "etag-1")]]);
     vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents));
 
-    await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
     const batchesAfterFirst = d1.batchCallCount;
     const putsAfterFirst = r2.putCallCount;
     expect(batchesAfterFirst).toBeGreaterThan(0);
     expect(putsAfterFirst).toBeGreaterThan(0);
 
-    const result2 = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS + 60_000, ...DISABLE_GLOBAL_REBUILD });
+    const result2 = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS + 60_000 });
 
     expect(d1.batchCallCount).toBe(batchesAfterFirst);
     expect(r2.putCallCount).toBe(putsAfterFirst);
@@ -528,7 +534,7 @@ describe("runTick — overlapping invocations", () => {
     const baselineD1 = new FakeD1Database();
     const baselineR2 = new FakeR2Bucket();
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", twoMatchEventRecord("2026casj", "etag-1")]])));
-    await runTick(makeEnv(baselineKv, baselineD1, baselineR2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    await runTick(makeEnv(baselineKv, baselineD1, baselineR2), { nowMs: NOW_MS });
     const baselineStateJson = baselineD1.algorithmState.get("opr::event::2026casj")?.state_json;
     expect(baselineStateJson).toBeDefined();
     vi.unstubAllGlobals();
@@ -539,7 +545,7 @@ describe("runTick — overlapping invocations", () => {
     const raceR2 = new FakeR2Bucket();
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", twoMatchEventRecord("2026casj", "etag-1")]])));
     const env = makeEnv(raceKv, raceD1, raceR2);
-    await Promise.all([runTick(env, { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD }), runTick(env, { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD })]);
+    await Promise.all([runTick(env, { nowMs: NOW_MS }), runTick(env, { nowMs: NOW_MS })]);
 
     const raceStateJson = raceD1.algorithmState.get("opr::event::2026casj")?.state_json;
     expect(raceStateJson).toBe(baselineStateJson); // folded exactly once, not twice
@@ -560,7 +566,7 @@ describe("runTick — per-event error confinement", () => {
     vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents));
     d1.rejectNextBatchWith = new Error("simulated D1 batch failure"); // consumed by the FIRST batch() call (event A, rotation offset 0)
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
 
     expect(result.eventsFailed).toBe(1);
     expect(result.eventsAdvanced).toBe(1);
@@ -586,7 +592,7 @@ describe("runTick — per-event error confinement", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
 
     expect(result.eventsFailed).toBe(1);
     expect(result.eventsAdvanced).toBe(1);
@@ -620,7 +626,7 @@ describe("runTick — two concurrent live events", () => {
     ]);
     vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents));
 
-    const tick = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const tick = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
 
     expect(tick.eventsAdvanced).toBe(2);
     expect(tick.eventsFailed).toBe(0);
@@ -661,7 +667,7 @@ describe("runTick — algorithm module construction", () => {
       return realBuildAlgorithmModules(manifest, liveAlgorithmIds);
     };
 
-    await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, buildAlgorithmModules: countingBuilder, ...DISABLE_GLOBAL_REBUILD });
+    await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, buildAlgorithmModules: countingBuilder });
 
     expect(constructionCount).toBe(1);
   });
@@ -692,7 +698,7 @@ describe("runTick — off-season demo team exclusion", () => {
     };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026demo", record]])));
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
     expect(result.eventsAdvanced).toBe(1);
 
     // No team/{demoKey} artifact for the demo teammate.
@@ -760,7 +766,7 @@ describe("runTick — off-season demo team exclusion", () => {
     const baselineD1 = new FakeD1Database();
     const baselineR2 = new FakeR2Bucket();
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026demo", { etag: "etag-1", eventType: 0, season: SEASON, matches: [baselineMatch] }]])));
-    await runTick(makeEnv(baselineKv, baselineD1, baselineR2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    await runTick(makeEnv(baselineKv, baselineD1, baselineR2), { nowMs: NOW_MS });
     const baselineEventState = baselineD1.algorithmState.get("opr::event::2026demo")?.state_json;
     const baselineTeamState = baselineD1.algorithmState.get("opr::team::frc1")?.state_json;
     expect(baselineEventState).toBeDefined();
@@ -774,7 +780,7 @@ describe("runTick — off-season demo team exclusion", () => {
     const testD1 = new FakeD1Database();
     const testR2 = new FakeR2Bucket();
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026demo", { etag: "etag-2", eventType: 0, season: SEASON, matches: [baselineMatch, fullyDemoMatch] }]])));
-    await runTick(makeEnv(testKv, testD1, testR2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    await runTick(makeEnv(testKv, testD1, testR2), { nowMs: NOW_MS });
 
     expect(testD1.algorithmState.get("opr::event::2026demo")?.state_json).toBe(baselineEventState);
     expect(testD1.algorithmState.get("opr::team::frc1")?.state_json).toBe(baselineTeamState);
@@ -788,8 +794,18 @@ describe("runTick — off-season demo team exclusion", () => {
   });
 });
 
+/**
+ * NO TRIGGERS LEFT TO DISTINGUISH (quick task 260923-3w4). The rebuild used to
+ * fire on a 10-minute `GLOBAL_REBUILD_INTERVAL_MS` OR on an event completing its
+ * last scheduled match, and the two cases below drove
+ * `globalRebuildIntervalMs: 0` / `Number.MAX_SAFE_INTEGER` to isolate each
+ * trigger. It now runs on EVERY tick that touched a team, so both cases assert
+ * the same single rule — they are kept as two, rather than merged, because a
+ * complete event and an in-progress one are still the two shapes a reader wants
+ * to see covered.
+ */
 describe("runTick — global rebuild", () => {
-  it("fires on the event-boundary trigger (an event completing its last scheduled match this tick)", async () => {
+  it("runs on a tick whose event completed its last scheduled match", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const kv = makeKv([window]);
     const d1 = new FakeD1Database();
@@ -804,23 +820,46 @@ describe("runTick — global rebuild", () => {
     };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", record]])));
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
 
     expect(result.globalRebuildRan).toBe(true);
     const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
     expect(r2.puts.some((p) => p.key === teamsPutKey)).toBe(true);
   });
 
-  it("fires on the fixed-interval trigger even when no event completed", async () => {
+  it("runs on a tick whose event is still in progress — no event boundary needed", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const kv = makeKv([window]);
     const d1 = new FakeD1Database();
     const r2 = new FakeR2Bucket();
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", twoMatchEventRecord("2026casj", "etag-1")]]))); // event NOT complete (has an upcoming match)
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: 0 });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
 
     expect(result.globalRebuildRan).toBe(true);
+    const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
+    expect(r2.puts.some((p) => p.key === teamsPutKey)).toBe(true);
+  });
+
+  it("writes NOTHING on a tick that touched no team, while still reporting the rebuild as run", async () => {
+    // A 304 from TBA: nothing newly folded, so `touchedTeamsByAlgorithm` is
+    // empty and `runGlobalRebuild` is a legitimate no-op. This is what stops an
+    // every-tick rebuild costing an R2 write on an idle-but-live tick.
+    const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const kv = makeKv([window]);
+    const r2 = new FakeR2Bucket();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown) => {
+        if (!/\/event\/[^/]+\/matches$/.test(String(url))) throw new Error(`unexpected URL: ${String(url)}`);
+        return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
+      })
+    );
+
+    const result = await runTick(makeEnv(kv, new FakeD1Database(), r2), { nowMs: NOW_MS });
+
+    expect(result.globalRebuildRan).toBe(true);
+    expect(r2.putCallCount).toBe(0);
   });
 
   /**
@@ -873,7 +912,7 @@ describe("runTick — global rebuild", () => {
     };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", record]])));
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
     expect(result.globalRebuildRan).toBe(true);
 
     const teamsPut = r2.puts.filter((p) => p.key === teamsKey).at(-1);
@@ -954,7 +993,7 @@ describe("runTick — global rebuild", () => {
     };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", record]])));
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
     expect(result.globalRebuildRan).toBe(true);
 
     const teamsPut = r2.puts.filter((p) => p.key === teamsKey).at(-1);
@@ -1079,7 +1118,7 @@ describe("live Teams-row tiers", () => {
     };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", record]])));
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
     expect(result.globalRebuildRan).toBe(true);
 
     const teamsPut = r2.puts.filter((p) => p.key === teamsKey).at(-1);
@@ -1176,7 +1215,7 @@ describe("live ticks keep the published Sigma entry", () => {
     };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", record]])));
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
     expect(result.eventsAdvanced).toBe(1);
 
     const eventPut = r2.puts.filter((p) => p.key === eventArtifactKey).at(-1);
@@ -1207,7 +1246,7 @@ describe("runTick — official-play scope on the global rebuild feed", () => {
     };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026off", record]])));
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
     expect(result.eventsAdvanced).toBe(1);
     expect(result.globalRebuildRan).toBe(true); // trigger fires (event-boundary), but runs as a legitimate no-op
 
@@ -1236,7 +1275,7 @@ describe("runTick — official-play scope on the global rebuild feed", () => {
     };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026prez", record]])));
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
     expect(result.eventsAdvanced).toBe(1);
 
     const eventPutKey = artifactKey({ page: "event", eventKey: "2026prez", algorithmId: "opr", version: opr.version });
@@ -1271,7 +1310,7 @@ describe("runTick — official-play scope on the global rebuild feed", () => {
     };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", record]])));
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
     expect(result.eventsAdvanced).toBe(1);
     expect(result.globalRebuildRan).toBe(true);
 
@@ -1311,7 +1350,7 @@ describe("runTick — official-play scope on the global rebuild feed", () => {
       })
     );
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
     expect(result.eventsAdvanced).toBe(1);
 
     const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
@@ -1331,7 +1370,7 @@ describe("runTick — official-play scope on the global rebuild feed", () => {
     };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026off", record]])));
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
     expect(result.eventsAdvanced).toBe(1);
 
     expect(d1.eventCursors.get("2026off")?.last_folded_match_key).toBe("2026off_qm1");
@@ -1380,7 +1419,7 @@ describe("runTick — played rows carry the tick's own per-match facts", () => {
     };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", record]])));
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
     expect(result.eventsAdvanced).toBe(1);
 
     const eventPutKey = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "opr", version: opr.version });
@@ -1526,7 +1565,7 @@ describe("runTick — a corrupt published artifact retries as a bootstrap instea
     const r2 = new FakeR2Bucket();
     const seededBody = guardPassingCorruptTeamArtifact("frc1");
     r2.seed(TEAM_PUT_KEY, seededBody);
-    const result = await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS });
 
     expect(result.eventsAdvanced).toBe(1);
     expect(result.eventsFailed).toBe(0);
@@ -1544,7 +1583,7 @@ describe("runTick — a corrupt published artifact retries as a bootstrap instea
     // gone" rather than "the artifact is unusable". Rejecting the artifact
     // would cost this event its whole published history on every tick.
     r2.seed(EVENT_PUT_KEY, JSON.stringify({ ...(JSON.parse(guardPassingBaseEventArtifact("2026casj")) as object), live: { metricKeys: ["total"], rows: "not an array" } }));
-    const result = await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS });
 
     expect(result.eventsAdvanced).toBe(1);
     expect(result.eventsFailed).toBe(0);
@@ -1560,7 +1599,7 @@ describe("runTick — a corrupt published artifact retries as a bootstrap instea
     stubOneLiveEvent();
     const r2 = new FakeR2Bucket();
     r2.seed(EVENT_PUT_KEY, "{not json at all");
-    const result = await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS });
 
     expect(result.eventsAdvanced).toBe(1);
     expect(result.eventsFailed).toBe(0);
@@ -1577,12 +1616,12 @@ describe("runTick — a corrupt published artifact retries as a bootstrap instea
 
     stubOneLiveEvent();
     const clean = new FakeR2Bucket();
-    await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), clean), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), clean), { nowMs: NOW_MS });
 
     const r2 = new FakeR2Bucket();
     r2.seed(EVENT_PUT_KEY, guardPassingCorruptEventArtifact("2026casj"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const result = await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS });
 
     expect(result.eventsAdvanced).toBe(1);
     const eventPuts = r2.puts.filter((p) => p.key === EVENT_PUT_KEY);
@@ -1604,7 +1643,7 @@ describe("runTick — a corrupt published artifact retries as a bootstrap instea
     const r2 = new FakeR2Bucket();
     r2.rejectPutsWith = new Error("simulated R2 put failure");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), r2), { nowMs: NOW_MS });
     const retryLogs = warn.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("artifact-write-schema-retry"));
     warn.mockRestore();
 
@@ -1620,7 +1659,7 @@ describe("runTick — a corrupt published artifact retries as a bootstrap instea
   it("a healthy tick logs no retry at all — the retry is a failure path, not a steady-state cost", async () => {
     stubOneLiveEvent();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), new FakeR2Bucket()), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    await runTick(makeEnv(makeKv([LIVE_WINDOW]), new FakeD1Database(), new FakeR2Bucket()), { nowMs: NOW_MS });
     const retryLogs = warn.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("artifact-write-schema-retry"));
     warn.mockRestore();
     expect(retryLogs).toHaveLength(0);
@@ -1653,7 +1692,7 @@ describe("runTick — the tick probes a probe window", () => {
       return realBuildAlgorithmModules(manifest, ids);
     };
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, buildAlgorithmModules: countingBuilder, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, buildAlgorithmModules: countingBuilder });
 
     expect(sharedLog.filter((e) => e.type === "d1-batch")).toHaveLength(0);
     expect(sharedLog.filter((e) => e.type === "r2-put")).toHaveLength(0);
@@ -1670,7 +1709,7 @@ describe("runTick — the tick probes a probe window", () => {
     const tbaEvents = new Map([["2026probe", { etag: "probe-etag-1", eventType: 99, season: SEASON, matches: [] as unknown[] }]]);
     vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents));
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
 
     expect(sharedLog.filter((e) => e.type === "d1-batch")).toHaveLength(0);
     expect(sharedLog.filter((e) => e.type === "r2-put")).toHaveLength(0);
@@ -1700,7 +1739,7 @@ describe("runTick — the tick probes a probe window", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
 
     expect(result.eventsAdvanced).toBe(1);
     expect(result.eventsFailed).toBe(0);
@@ -1708,10 +1747,12 @@ describe("runTick — the tick probes a probe window", () => {
     expect(result.eventsPromoted).toBe(1);
     expect(result.tbaRequests).toBe(1);
     const eventPutKey = artifactKey({ page: "event", eventKey: "2026probe", algorithmId: "opr", version: opr.version });
+    const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
     // Since quick task 260921-5qw a FIRST fold also writes the event's live roster, the tiny object a
     // robot page finds a promoted event through. It is one object per EVENT, not per algorithm, and it
-    // is written only when the roster grew, so never on an ordinary tick.
-    expect(r2.puts.map((p) => p.key).sort()).toEqual([eventPutKey, liveRosterKey("2026probe")].sort());
+    // is written only when the roster grew, so never on an ordinary tick. Since
+    // 260923-3w4 a tick that touched a team also rebuilds `teams/{year}`.
+    expect(r2.puts.map((p) => p.key).sort()).toEqual([eventPutKey, liveRosterKey("2026probe"), teamsPutKey].sort());
   });
 
   it("a tick with one foldable window and one probe window still folds the foldable event", async () => {
@@ -1731,7 +1772,7 @@ describe("runTick — the tick probes a probe window", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
 
     expect(result.eventsAdvanced).toBe(1);
     expect(result.eventsConsidered).toBe(1); // the foldable event only -- a probe is never "considered"
@@ -1766,7 +1807,7 @@ describe("runTick — the tick probes a probe window", () => {
       })
     );
 
-    const tick = await runTick(makeEnv(makeKv(windows), new FakeD1Database(), new FakeR2Bucket()), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const tick = await runTick(makeEnv(makeKv(windows), new FakeD1Database(), new FakeR2Bucket()), { nowMs: NOW_MS });
 
     expect(tick.eventsProbed).toBe(probeKeys.length);
     expect(tick.eventsFailed).toBe(0);

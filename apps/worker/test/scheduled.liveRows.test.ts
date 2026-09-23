@@ -251,7 +251,6 @@ const EVENT_KEY = "2026casj";
 const RED_TEAMS = ["frc1", "frc2", "frc3"];
 const BLUE_TEAMS = ["frc4", "frc5", "frc6"];
 const ALL_TEAMS = [...RED_TEAMS, ...BLUE_TEAMS];
-const DISABLE_GLOBAL_REBUILD = { globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER };
 
 interface MatchFixture {
   readonly matchNumber: number;
@@ -380,7 +379,7 @@ function liveBlockOf(body: string | undefined): EventLiveBlock | undefined {
 async function driveTicks(env: Env, tickCount: number): Promise<void> {
   for (let i = 0; i < tickCount; i++) {
     revealed = i + 1;
-    const result = await runTick(env, { nowMs: NOW_MS + i * 60_000, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(env, { nowMs: NOW_MS + i * 60_000 });
     expect(result.eventsFailed, `tick ${i}`).toBe(0);
     expect(result.eventsAdvanced, `tick ${i}`).toBe(1);
   }
@@ -545,7 +544,7 @@ describe("the live block's failure modes are logged, not silent", () => {
     vi.stubGlobal("fetch", makeTbaFetchStub());
 
     revealed = 1;
-    await runTick(env, { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    await runTick(env, { nowMs: NOW_MS });
 
     // ZERO puts, not a stripped one: validate-then-persist means the refusal
     // costs no subrequest and reaches R2 with nothing at all.
@@ -553,7 +552,7 @@ describe("the live block's failure modes are logged, not silent", () => {
     // Non-vacuity: without the secret, the same tick writes the body.
     const cleanR2 = new FakeR2Bucket();
     revealed = 1;
-    await runTick(makeEnv(makeKv(), new FakeD1Database(), cleanR2), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    await runTick(makeEnv(makeKv(), new FakeD1Database(), cleanR2), { nowMs: NOW_MS });
     expect(cleanR2.puts.some((p) => p.key.startsWith("v1/event/"))).toBe(true);
     expect(liveBlockOf(cleanR2.peek(eventKeyFor("opr")))).toBeDefined();
   });
@@ -610,7 +609,7 @@ describe("runGlobalRebuild's touched-team bookkeeping survived the deleted loop"
 
     // One tick, global rebuild forced on. Match 1 touches all six teams once.
     revealed = 1;
-    const result = await runTick(env, { nowMs: NOW_MS, globalRebuildIntervalMs: 0 });
+    const result = await runTick(env, { nowMs: NOW_MS });
     expect(result.eventsAdvanced).toBe(1);
     expect(result.globalRebuildRan).toBe(true);
 
@@ -637,7 +636,7 @@ describe("runGlobalRebuild's touched-team bookkeeping survived the deleted loop"
     vi.stubGlobal("fetch", makeTbaFetchStub(99));
 
     revealed = 1;
-    const result = await runTick(env, { nowMs: NOW_MS, globalRebuildIntervalMs: 0 });
+    const result = await runTick(env, { nowMs: NOW_MS });
     expect(result.eventsAdvanced).toBe(1);
 
     // The event write (and so the live rows inside it) is unconditional; the

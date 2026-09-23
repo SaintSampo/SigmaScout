@@ -415,7 +415,6 @@ function twoMatchEventRecord(eventKey: string, etag: string): TbaEventRecord {
   };
 }
 
-const DISABLE_GLOBAL_REBUILD = { globalRebuildIntervalMs: Number.MAX_SAFE_INTEGER };
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -450,7 +449,7 @@ describe("liveAlgorithmTier — an idle-but-considered tick's subrequest count",
     vi.stubGlobal("fetch", fetchMock);
     const env = makeEnv(kv, d1, r2, "spr");
 
-    const result = await runTick(env, { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(env, { nowMs: NOW_MS });
 
     expect(result.eventsFailed).toBe(0);
     expect(result.subrequestsUsed).toBe(6);
@@ -467,7 +466,7 @@ describe("liveAlgorithmTier — only the live tier folds", () => {
     vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents));
     const env = makeEnv(kv, d1, r2, "spr");
 
-    const result = await runTick(env, { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(env, { nowMs: NOW_MS });
 
     expect(result.eventsAdvanced).toBe(1);
     expect(result.eventsFailed).toBe(0);
@@ -550,7 +549,7 @@ describe("liveAlgorithmTier — a demo match resumes the state the offline publi
       ],
     };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026demo", record]])));
-    const result = await runTick(makeEnv(makeKv([window], ["spr"]), d1, new FakeR2Bucket(), "spr"), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(makeKv([window], ["spr"]), d1, new FakeR2Bucket(), "spr"), { nowMs: NOW_MS });
     expect(result.eventsAdvanced).toBe(1);
     expect(result.eventsFailed).toBe(0);
     return d1;
@@ -619,7 +618,7 @@ describe("liveAlgorithmTier — a preseason Week 0 match is priced and never fol
     };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026week0", record]])));
     const r2 = new FakeR2Bucket();
-    const result = await runTick(makeEnv(makeKv([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(makeKv([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS });
     expect(result.eventsAdvanced).toBe(1);
     expect(result.eventsFailed).toBe(0);
     return { seeded, after: new Map([...d1.algorithmState].map(([key, row]) => [key, row.state_json])), r2 };
@@ -698,7 +697,7 @@ describe("liveAlgorithmTier — a promoted event's state block is completed by t
     const r2 = new FakeR2Bucket();
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", twoMatchEventRecord("2026promo", "etag-1")]])));
 
-    const result = await runTick(makeEnv(makeKv([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(makeKv([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS });
     expect(result.eventsAdvanced).toBe(1);
 
     const state = stateOf(r2, "2026promo");
@@ -717,7 +716,7 @@ describe("liveAlgorithmTier — a promoted event's state block is completed by t
 
     const first = twoMatchEventRecord("2026promo", "etag-1");
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", first]])));
-    await runTick(makeEnv(makeKv([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    await runTick(makeEnv(makeKv([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS });
     const readsOnFirstTick = stateReads();
     // The fold's own read, plus exactly one to complete the block.
     expect(readsOnFirstTick).toBe(2);
@@ -729,7 +728,7 @@ describe("liveAlgorithmTier — a promoted event's state block is completed by t
       matches: [...first.matches, tbaMatch({ key: "2026promo_qm3", eventKey: "2026promo", matchNumber: 3, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 99, blueScore: 101, actualTimeSec: Math.floor(NOW_MS / 1000) - 30 })],
     };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", second]])));
-    const result = await runTick(makeEnv(makeKv([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS + 60_000, ...DISABLE_GLOBAL_REBUILD });
+    const result = await runTick(makeEnv(makeKv([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS + 60_000 });
     expect(result.eventsAdvanced).toBe(1);
     // Only the fold's own read: the block is complete and frc12 is known absent.
     expect(stateReads() - readsOnFirstTick).toBe(1);
@@ -745,7 +744,7 @@ describe("liveAlgorithmTier — a promoted event's state block is completed by t
 
     const first = twoMatchEventRecord("2026promo", "etag-1");
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", first]])));
-    await runTick(env(), { nowMs: NOW_MS, ...DISABLE_GLOBAL_REBUILD });
+    await runTick(env(), { nowMs: NOW_MS });
     expect(rosterPuts()).toHaveLength(1);
     const roster = LiveRosterSchema.parse(JSON.parse(rosterPuts()[0]!.body));
     // The six that played AND the six still on the schedule, so a robot page
@@ -756,13 +755,13 @@ describe("liveAlgorithmTier — a promoted event's state block is completed by t
     // Same twelve teams, one more match played: nothing to say.
     const second: TbaEventRecord = { ...first, etag: "etag-2", matches: [...first.matches, tbaMatch({ key: "2026promo_qm3", eventKey: "2026promo", matchNumber: 3, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 99, blueScore: 101, actualTimeSec: Math.floor(NOW_MS / 1000) - 30 })] };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", second]])));
-    await runTick(env(), { nowMs: NOW_MS + 60_000, ...DISABLE_GLOBAL_REBUILD });
+    await runTick(env(), { nowMs: NOW_MS + 60_000 });
     expect(rosterPuts(), "the roster was rewritten by a tick that added no team").toHaveLength(1);
 
     // A thirteenth team appears on a new upcoming match.
     const third: TbaEventRecord = { ...second, etag: "etag-3", matches: [...second.matches, tbaMatch({ key: "2026promo_qm4", eventKey: "2026promo", matchNumber: 4, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 80, blueScore: 70, actualTimeSec: Math.floor(NOW_MS / 1000) - 10 }), tbaMatch({ key: "2026promo_qm5", eventKey: "2026promo", matchNumber: 5, redTeams: ["frc13", "frc8", "frc9"], blueTeams: ["frc10", "frc11", "frc12"], predictedTimeSec: Math.floor(NOW_MS / 1000) + 7200 })] };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", third]])));
-    await runTick(env(), { nowMs: NOW_MS + 120_000, ...DISABLE_GLOBAL_REBUILD });
+    await runTick(env(), { nowMs: NOW_MS + 120_000 });
     expect(rosterPuts()).toHaveLength(2);
     expect(LiveRosterSchema.parse(JSON.parse(rosterPuts()[1]!.body)).teams).toContain("frc13");
   });

@@ -22,3 +22,20 @@ minutes.
 > minute, and R2's free tier is unchanged — so this is the one claim in this file still argued on R2
 > write cost rather than on CPU. The interval is NOT changed by this note; it stays exactly as it is
 > in `scheduled.ts`, left for a future task.
+
+## CLOSED 2026-09-23 by quick task 260923-3w4
+
+The one remaining action is done, and done one step further than "toward one minute":
+`GLOBAL_REBUILD_INTERVAL_MS` is **deleted**, not lowered. `runGlobalRebuild` now runs on every tick,
+and `runGlobalRebuild`'s own `touchedTeamsByAlgorithm.size === 0` early return means a tick that
+folded nothing still writes nothing — so the R2 cost is one Class-A write per algorithm-season per
+*touched* tick, not per minute. `260923-1tu-FINDINGS.md` item C3 priced that at about 13k writes in
+a peak month against R2's 1M Class-A allowance (the allowance the Workers Paid change did NOT
+raise).
+
+The `lastGlobalRebuildAtMs` field is gone from the tick meta with it, and so is the event-completion
+trigger as a *separate* condition — an event completing its last scheduled match touched teams, so
+it is subsumed rather than dropped.
+
+**The staleness this file was opened about is fixed:** the Teams page is now at most one cron minute
+behind the event page showing the same match, instead of up to ten.

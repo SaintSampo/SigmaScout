@@ -154,12 +154,18 @@ import type { Env } from "./env.js";
 // `readEventCursors` (`stateStore.ts`) for why this costs no extra round trip.
 // ---------------------------------------------------------------------------
 
+/**
+ * One field, deliberately still an object. It carried
+ * `lastGlobalRebuildAtMs` until quick task 260923-3w4 deleted the
+ * fixed-interval rebuild trigger it gated; the JSON blob shape is kept so a
+ * stale value written by an older Worker deserializes to the default instead of
+ * failing, and so a second field can return without a migration.
+ */
 interface TickMeta {
   readonly rotationOffset: number;
-  readonly lastGlobalRebuildAtMs: number;
 }
 
-const DEFAULT_TICK_META: TickMeta = { rotationOffset: 0, lastGlobalRebuildAtMs: 0 };
+const DEFAULT_TICK_META: TickMeta = { rotationOffset: 0 };
 
 export interface TickState {
   readonly meta: TickMeta;
@@ -181,10 +187,9 @@ async function readTickState(db: D1Database, algorithmIds: readonly string[]): P
   if (metaCursor && metaCursor.lastFoldedMatchKey !== null) {
     try {
       const parsed = JSON.parse(metaCursor.lastFoldedMatchKey) as Partial<TickMeta>;
-      meta = {
-        rotationOffset: typeof parsed.rotationOffset === "number" ? parsed.rotationOffset : 0,
-        lastGlobalRebuildAtMs: typeof parsed.lastGlobalRebuildAtMs === "number" ? parsed.lastGlobalRebuildAtMs : 0,
-      };
+      // An unrecognized field (a pre-260923-3w4 `lastGlobalRebuildAtMs`) is
+      // read past, never rejected.
+      meta = { rotationOffset: typeof parsed.rotationOffset === "number" ? parsed.rotationOffset : 0 };
     } catch {
       meta = DEFAULT_TICK_META;
     }
@@ -575,7 +580,15 @@ interface TouchedTeamInfo {
   matchDelta: number;
 }
 
-type EventOutcome = { readonly status: "advanced"; readonly eventComplete: boolean } | { readonly status: "failed" } | { readonly status: "unchanged" };
+/**
+ * `"advanced"` carried an `eventComplete: boolean` until quick task 260923-3w4 —
+ * "this event just folded its last scheduled match" — which was one of the two
+ * triggers for the global rebuild. The rebuild now runs on every tick that
+ * touched a team, so that trigger is subsumed rather than dropped, and the field
+ * had no other reader. It is not kept as an unread flag: an outcome field nothing
+ * branches on is a claim the next reader has to disprove.
+ */
+type EventOutcome = { readonly status: "advanced" } | { readonly status: "failed" } | { readonly status: "unchanged" };
 
 function touchedTeamsCompositeKey(algorithmId: string, season: number): string {
   return `${algorithmId}::${season}`;
@@ -1053,7 +1066,7 @@ async function processEvent(
         perAlgorithm.set(algorithmId, { algorithm, newPredictions, touchedMetrics, newBands, touchedSigma, writtenRows: changedRows, observedBonusSides });
       }
 
-      return await runPhaseBAndReport(env, counter, window, eventKey, eventType, fetchedEventType, rawMatches, newlyFolded, newlyFoldedResults, stillUpcoming, touchedTeams, realTouchedTeams, perAlgorithm, touchedTeamsByAlgorithm, stamp, stillUpcoming.length === 0);
+      return await runPhaseBAndReport(env, counter, window, eventKey, eventType, fetchedEventType, rawMatches, newlyFolded, newlyFoldedResults, stillUpcoming, touchedTeams, realTouchedTeams, perAlgorithm, touchedTeamsByAlgorithm, stamp);
     } catch (phaseAError) {
       // Revert the claim: state did not advance, so a later tick must be free
       // to fold these matches again. Unconditional since quick task 260923-3w4 —
@@ -1101,8 +1114,7 @@ async function runPhaseBAndReport(
   realTouchedTeams: readonly string[],
   perAlgorithm: ReadonlyMap<string, PerAlgorithmFold>,
   touchedTeamsByAlgorithm: Map<string, Map<string, TouchedTeamInfo>>,
-  stamp: Stamp,
-  eventComplete: boolean
+  stamp: Stamp
 ): Promise<EventOutcome> {
   try {
     // Algorithm-independent, so computed ONCE for the whole tick. The bonus
@@ -1255,7 +1267,7 @@ async function runPhaseBAndReport(
     // Best-effort: state already advanced; some artifacts may lag.
   }
 
-  return { status: "advanced", eventComplete };
+  return { status: "advanced" };
 }
 
 // ---------------------------------------------------------------------------
@@ -1370,12 +1382,8 @@ async function runGlobalRebuild(env: Env, counter: SubrequestCounter, algorithmM
 // runTick / scheduled
 // ---------------------------------------------------------------------------
 
-/** The fixed-interval trigger for the global rebuild — the other trigger is an event completing its last scheduled match this tick. */
-export const GLOBAL_REBUILD_INTERVAL_MS = 10 * 60 * 1000;
-
 export interface RunTickDeps {
   readonly nowMs?: number;
-  readonly globalRebuildIntervalMs?: number;
   /** Test-only: lets a test count `buildAlgorithmModules` calls to assert one construction per tick. */
   readonly buildAlgorithmModules?: (algorithmsManifest: AlgorithmsManifest, liveAlgorithmIds: readonly string[]) => Map<string, AlgorithmModule<any>>;
 }
@@ -1399,7 +1407,6 @@ export interface TickResult {
 export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickResult> {
   const nowMs = deps.nowMs ?? Date.now();
   const nowIso = new Date(nowMs).toISOString();
-  const globalRebuildIntervalMs = deps.globalRebuildIntervalMs ?? GLOBAL_REBUILD_INTERVAL_MS;
   const stamp: Stamp = { generation: `tick-${nowMs}`, computedAt: nowIso };
 
   const subrequests = new SubrequestCounter();
@@ -1496,7 +1503,6 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   let eventsAdvanced = 0;
   let eventsFailed = probeResult.eventsFailed;
   let eventsPromoted = 0;
-  let anEventJustCompleted = false;
   const touchedTeamsByAlgorithm = new Map<string, Map<string, TouchedTeamInfo>>();
 
   for (const eventKey of orderedEventKeys) {
@@ -1514,21 +1520,26 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
     eventsConsidered++;
     if (outcome.status === "advanced") {
       eventsAdvanced++;
-      if (outcome.eventComplete) anEventJustCompleted = true;
     } else {
       eventsFailed++;
     }
   }
 
-  const intervalElapsed = nowMs - meta.lastGlobalRebuildAtMs >= globalRebuildIntervalMs;
-  let globalRebuildRan = false;
-  if (intervalElapsed || anEventJustCompleted) {
-    globalRebuildRan = await runGlobalRebuild(env, subrequests, algorithmModules, touchedTeamsByAlgorithm, stamp);
-  }
+  // EVERY TICK THAT TOUCHED A TEAM, since quick task 260923-3w4. This used to
+  // fire on a 10-minute `GLOBAL_REBUILD_INTERVAL_MS` or on an event completing
+  // its last scheduled match, because serializing the year-wide `teams` table
+  // cost close to the whole free-plan CPU budget — so the Teams page could be up
+  // to ten minutes behind an event page showing the same match. Workers Paid
+  // allows 30 s of CPU per tick, and the cost of rebuilding every touched tick is
+  // one R2 write per algorithm-season (~13k in a peak month against R2's 1M
+  // Class A allowance, which the plan change did NOT raise — priced in
+  // `260923-1tu-FINDINGS.md` item C3). `runGlobalRebuild` returns a no-op `true`
+  // when nothing was touched, so an unchanged tick still writes nothing. The
+  // event-completion trigger is subsumed: a completing event touched teams.
+  const globalRebuildRan = await runGlobalRebuild(env, subrequests, algorithmModules, touchedTeamsByAlgorithm, stamp);
 
   const newMeta: TickMeta = {
     rotationOffset: orderedEventKeys.length > 0 ? (meta.rotationOffset + eventsAdvanced) % orderedEventKeys.length : 0,
-    lastGlobalRebuildAtMs: globalRebuildRan ? nowMs : meta.lastGlobalRebuildAtMs,
   };
   subrequests.spend(1);
   await writeTickMeta(env.DB, newMeta, nowIso);
