@@ -38,6 +38,7 @@ import {
 import { SIGMA_METRIC_KEY } from "../../../packages/harness/sigmaScore.js";
 import { PAGE_ARTIFACT_SCHEMA_VERSION, type EventUpcomingMatch, type LiveEventArtifact, type TeamSeasonArtifact, type TeamSeasonMatch } from "../../../packages/harness/pageArtifacts.js";
 import { roundMetric } from "../../../packages/harness/rounding.js";
+import { withCountedStandings } from "./liveStandings.js";
 
 // ---------------------------------------------------------------------------
 // Narrowed input shapes — the fields each function actually reads, named so a
@@ -233,8 +234,9 @@ export interface MergeEventArtifactParams {
 /**
  * Read-modify-write merge: replaces newly-folded matches (removing them from
  * `upcoming`), places the remaining `upcoming` rows Phase B priced, refreshes
- * touched teams' standings rows, and SPREADS everything else from `existing`
- * through unchanged. Bootstraps a
+ * touched teams' standings rows, counts every roster team's record/RP/rank from
+ * the merged qualification rows (`liveStandings.ts`), and SPREADS everything
+ * else from `existing` through unchanged. Bootstraps a
  * schema-valid (but degraded — no history this Worker cannot see) artifact
  * when `existing` is `undefined`.
  *
@@ -257,13 +259,13 @@ export interface MergeEventArtifactParams {
  * nothing emits either any more (quick task 260923-3w6). Trade-off: a future key that should be
  * tick-owned is carried stale until someone lists it here — the project's
  * documented carry-forward policy, as for the Sigma entry and the teams-row
- * tier/record.
+ * tier. (The teams-row RECORD is no longer an example of it: since quick task
+ * 260923-3w7 the tick counts it — see `withCountedStandings` below.)
  *
  * `tierCuts` (quick task 260920-qzf) rides this same carry-forward policy —
  * it is NOT in the override list and NOT destructured out, so it survives
  * every tick unchanged via `...carriedFromExisting`, stale-but-true between
- * republishes exactly like the Sigma entry and the teams-row tier/record
- * above. A bootstrap merge (`existing` undefined) carries none, for the same
+ * republishes exactly like the Sigma entry and the teams-row tier above. A bootstrap merge (`existing` undefined) carries none, for the same
  * reason it carries no `name`/`alliances`/etc: the Worker has no season
  * pool to build one from. `pageArtifacts.ts`'s `EventArtifactSchema` doc
  * comment on `tierCuts` explains why declaring the key on the base schema
@@ -320,13 +322,13 @@ export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
   const existingTeams = existing?.teams ?? [];
   const touchedSet = new Set(touchedTeams);
   // Touched rows are replaced IN PLACE, so a tick never reorders the
-  // standings. `rank`, `record` and `rp` are TBA's own official standings
-  // (this Worker never fetches `/event/{key}/rankings` and never recomputes
-  // them): they are preserved as last published and are stale until the next
-  // republish, exactly as the Sigma entry and the teams-row `record` are.
-  // Stale-but-true TBA values beat a standings table whose columns vanish
-  // mid-event.
-  const teams = [
+  // standings. `rank`, `record` and `rp` used to be TBA's own official
+  // standings, preserved as last published and stale until the next republish
+  // — this Worker still never fetches `/event/{key}/rankings`. Since quick task
+  // 260923-3w7 it COUNTS them instead, from the merged played qualification
+  // rows below (`withCountedStandings`), which is the derivation the browser
+  // used to run on every poll of this same artifact.
+  const teamsBeforeStandings = [
     ...existingTeams.map((row) =>
       touchedSet.has(row.teamKey)
         ? {
@@ -347,6 +349,13 @@ export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
         metrics: touchedEventTeamMetrics(undefined, touchedMetrics[teamKey] ?? {}),
       })),
   ];
+
+  // Counted from `matches` above — every played qualification row this event
+  // has, the ones this tick just folded included. Returns the same array
+  // reference when there is nothing honest to count (see
+  // `withCountedStandings`), so a playoff-only or bonus-gapped event keeps
+  // whatever the last republish published.
+  const teams = withCountedStandings({ matches, teams: teamsBeforeStandings, rpOutcomeRp });
 
   return {
     ...carriedFromExisting,

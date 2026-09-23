@@ -213,21 +213,32 @@ describe("mergeEventArtifact keeps every key the tick does not own", () => {
     expect(written.computedAt).toBe(LIVE_STAMP.computedAt);
   });
 
-  it("standings rows keep order, untouched rows are unchanged, touched rows change only metrics", () => {
+  it("standings rows keep order; outside metrics and the three counted columns, an untouched row is unchanged", () => {
+    // `record`/`rp`/`rank` are NO LONGER preserved from the published artifact:
+    // since quick task 260923-3w7 the tick counts them from the merged
+    // qualification rows (`liveStandings.ts`), for every roster team, touched
+    // or not. Everything else on an untouched row is still carried through
+    // byte-for-byte, which is what this case exists to pin.
     const offline = offlineEventArtifact();
     const written = mergeEvent({ existing: existingEvent() });
     expect(written.teams.map((t) => t.teamKey)).toEqual(offline.teams.map((t) => t.teamKey));
     for (const [i, row] of written.teams.entries()) {
       const offlineRow = offline.teams[i]!;
-      if (!TOUCHED.includes(row.teamKey)) {
-        expect(row, row.teamKey).toEqual(offlineRow);
-        continue;
-      }
-      const { metrics, ...rest } = row;
-      const { metrics: offlineMetrics, ...offlineRest } = offlineRow;
+      const { metrics, record: _record, rp: _rp, rank: _rank, ...rest } = row;
+      const { metrics: offlineMetrics, record: _offlineRecord, rp: _offlineRp, rank: _offlineRank, ...offlineRest } = offlineRow;
       expect(rest, row.teamKey).toEqual(offlineRest);
-      expect(metrics, row.teamKey).toEqual(json(touchedEventTeamMetrics(offlineMetrics, FRESH_METRICS[row.teamKey]!)));
+      const expectedMetrics = TOUCHED.includes(row.teamKey) ? json(touchedEventTeamMetrics(offlineMetrics, FRESH_METRICS[row.teamKey]!)) : offlineMetrics;
+      expect(metrics, row.teamKey).toEqual(expectedMetrics);
     }
+  });
+
+  it("the counted columns really moved: at least one row's record differs from the published one", () => {
+    // Non-vacuity for the case above — without this, a merge that silently
+    // stopped counting would still pass it.
+    const offline = offlineEventArtifact();
+    const written = mergeEvent({ existing: existingEvent() });
+    const moved = written.teams.filter((row, i) => JSON.stringify(row.record) !== JSON.stringify(offline.teams[i]!.record));
+    expect(moved.length).toBeGreaterThan(0);
   });
 
   it("writes no stale state block for a non-SPR artifact with upcoming matches", () => {
