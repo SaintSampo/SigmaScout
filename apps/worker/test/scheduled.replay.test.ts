@@ -20,7 +20,7 @@ import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runTick } from "../src/scheduled.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
-import { artifactKey, EventArtifactSchema } from "../../../packages/harness/pageArtifacts.js";
+import { artifactKey } from "../../../packages/harness/pageArtifacts.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import { epa } from "../../../packages/core/algorithms/epa.js";

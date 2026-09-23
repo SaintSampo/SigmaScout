@@ -24,7 +24,6 @@
  */
 import { isOfficialEventType } from "../../../packages/core/algorithms/eventTypes.js";
 import type { MatchResult, Prediction, TeamMetric } from "../../../packages/core/algorithms/types.js";
-import { spr } from "../../../packages/core/algorithms/spr.js";
 import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
 import type { TbaMatch } from "../../../packages/ingest/schemas.js";
 import { tbaReportedMatchTimeMs, type CorpusMatch } from "../../../packages/ingest/normalize.js";

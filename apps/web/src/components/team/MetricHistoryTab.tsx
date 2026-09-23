@@ -16,7 +16,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { MetricHistoryChartProps } from "./MetricHistoryChart.js";
-import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
 import { drawsSigmaBand, METRIC_HISTORY_LEGEND_HEIGHT_PX } from "./metricHistorySeries.js";
 
 export interface MetricHistoryTabProps {
