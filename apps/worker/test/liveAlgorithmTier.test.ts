@@ -26,12 +26,23 @@
  * spends exactly six subrequests — `subrequestsUsed` is still real telemetry, so
  * a silent extra round trip per tick is still worth catching.
  *
- * Widening the tier beyond spr is now purely a published-numbers decision
- * (opr/epa would fold live instead of refreshing at the manual re-baseline,
- * which needs its own algorithm version bump), NOT a budget one. If it is ever
- * widened, `trackedLiveAlgorithmIds`'s assertion below is what has to change,
- * and it is deliberately an equality pin so it cannot silently stop testing the
- * deployed value.
+ * THE TIER WAS WIDENED to all three published algorithms on 2026-09-23 (quick
+ * task 260923-3w8, Jacob's decision on `260923-1tu-FINDINGS.md` item C6), paid
+ * for with opr 6.0.0 and epa 13.0.0 because their published numbers now advance
+ * during an event instead of only at the manual re-baseline. So the defect this
+ * file was written for — a three-algorithm tier deferring every tick forever —
+ * is now the shipped configuration, and the tests below assert that all three
+ * really do fold rather than that only one does.
+ *
+ * THE EQUALITY PIN (`trackedLiveAlgorithmIds`) IS THE POINT OF THIS FILE, and it
+ * was missing at the moment the widening landed: `4671401d` (quick task
+ * 260923-3w4) deleted the whole `describe` block that held it, together with the
+ * budget arithmetic it sat beside, leaving `extractVarsValue`, `readFileSync` and
+ * `__dirname` below dangling unused — and 260923-3w4's own summary recorded the
+ * pin as kept. It is restored here, and the fold assertions DERIVE their
+ * expectation from the tracked `wrangler.toml` value rather than naming ids
+ * again, so the two cannot disagree. Narrowing or widening the tracked value
+ * fails here rather than silently going untested.
  */
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -44,6 +55,7 @@ import {
   DEFAULT_LIVE_ALGORITHM_IDS,
   UnknownLiveAlgorithmIdError,
   EmptyLiveAlgorithmTierError,
+  EVENT_SCOPED_ALGORITHM_IDS,
 } from "../src/scheduled.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import { artifactKey } from "../../../packages/harness/pageArtifacts.js";
@@ -77,6 +89,20 @@ function extractVarsValue(tomlContent: string, key: string): string | null {
     if (match) return match[1]!;
   }
   return null;
+}
+
+const WRANGLER_TOML_PATH = resolve(__dirname, "../wrangler.toml");
+
+/** The raw `LIVE_ALGORITHM_IDS` string as tracked config spells it — the value a `wrangler deploy` from this repo actually ships. */
+function trackedLiveAlgorithmIdsRaw(): string {
+  const raw = extractVarsValue(readFileSync(WRANGLER_TOML_PATH, "utf-8"), "LIVE_ALGORITHM_IDS");
+  expect(raw, `LIVE_ALGORITHM_IDS not found in ${WRANGLER_TOML_PATH}'s [vars] block`).not.toBeNull();
+  return raw!;
+}
+
+/** The tracked value through the Worker's OWN parser, so the test reads it exactly as a tick does. */
+function trackedLiveAlgorithmIds(): string[] {
+  return parseLiveAlgorithmIds(trackedLiveAlgorithmIdsRaw());
 }
 
 // ---------------------------------------------------------------------------
@@ -308,14 +334,28 @@ function liveWindowsManifest(windows: readonly WindowFixture[]): string {
 // live-tier behaviour it pins. It must match the module the Worker actually
 // builds, or the artifact keys this test looks for are keys nothing ever wrote.
 const PREMIER_TEST_VERSION = spr.version;
-const PREMIER_TEST_CODE_VERSION = spr.version.split("+")[0]!;
-const PREMIER_TEST_PARAM_SET = spr.version.split("+")[1] ?? "baseline";
+
+/**
+ * EVERY live algorithm's version comes off its own module now, for exactly the
+ * reason `PREMIER_TEST_VERSION` does: `processEvent` builds every artifact key
+ * from `algorithm.version`, so a hand-typed manifest version makes this file
+ * look for keys nothing ever wrote. Until quick task 260923-3w8 the two
+ * non-premier entries below carried invented versions (`opr@3.0.0+baseline`,
+ * `epa@1.0.0+baseline`), which was harmless only while neither of them folded.
+ */
+const MODULE_VERSION_BY_ID: Readonly<Record<string, string>> = { opr: opr.version, epa: epa.version, spr: spr.version };
+
+/** The version this file expects an artifact key to name for `algorithmId` — derived, never a literal. */
+function testVersionFor(algorithmId: string): string {
+  const version = MODULE_VERSION_BY_ID[algorithmId];
+  expect(version, `no module version known for algorithm id "${algorithmId}"`).toBeDefined();
+  return version!;
+}
 
 function algorithmsManifest(ids: readonly string[] = ["opr"]): string {
   const algorithms = ids.map((id) => {
-    if (id === "opr") return { id: "opr", version: "3.0.0+baseline", codeVersion: "3.0.0", paramSetName: "baseline" };
-    if (id === "epa") return { id: "epa", version: "1.0.0+baseline", codeVersion: "1.0.0", paramSetName: "baseline" };
-    return { id: "spr", version: PREMIER_TEST_VERSION, codeVersion: PREMIER_TEST_CODE_VERSION, paramSetName: PREMIER_TEST_PARAM_SET };
+    const version = testVersionFor(id);
+    return { id, version, codeVersion: version.split("+")[0]!, paramSetName: version.split("+")[1] ?? "baseline" };
   });
   return JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", algorithms });
 }
@@ -457,7 +497,124 @@ describe("liveAlgorithmTier — an idle-but-considered tick's subrequest count",
   });
 });
 
-describe("liveAlgorithmTier — only the live tier folds", () => {
+describe("liveAlgorithmTier — the tracked live tier, pinned by equality", () => {
+  /**
+   * The assertion this whole file exists for, and the one that has to change
+   * deliberately whenever the tier does. Spelled as a raw-string equality on the
+   * tracked value rather than a "contains spr" or a length check, because either
+   * of those would keep passing through a narrowing that silently froze opr and
+   * epa mid-event.
+   */
+  it('wrangler.toml\'s LIVE_ALGORITHM_IDS is exactly "opr,epa,spr"', () => {
+    expect(trackedLiveAlgorithmIdsRaw()).toBe("opr,epa,spr");
+  });
+
+  it("the tracked tier is the WHOLE published set, in PUBLISHED_ALGORITHM_IDS display order", () => {
+    expect(trackedLiveAlgorithmIds()).toEqual([...PUBLISHED_ALGORITHM_IDS]);
+  });
+
+  /**
+   * A default narrower than the tracked value is how a deploy that fails to
+   * carry tracked vars through becomes invisible: opr and epa would just stop
+   * moving while the site kept serving them, and the only signal would be the
+   * `live-tier-defaulted` warn line nobody is watching at 11pm on a Saturday.
+   */
+  it("DEFAULT_LIVE_ALGORITHM_IDS equals the tracked value, so a deploy that drops the var cannot narrow the tier", () => {
+    expect([...DEFAULT_LIVE_ALGORITHM_IDS]).toEqual(trackedLiveAlgorithmIds());
+  });
+});
+
+describe("liveAlgorithmTier — with the TRACKED tier, every published algorithm folds (quick task 260923-3w8)", () => {
+  const EVENT_KEY = "2026casj";
+
+  /** One advancing tick at an official event, driven by the value `wrangler.toml` actually tracks — never by a literal tier — against a manifest publishing exactly the ids that value names. */
+  async function runTrackedTick(): Promise<{ ids: string[]; d1: FakeD1Database; r2: FakeR2Bucket }> {
+    const ids = trackedLiveAlgorithmIds();
+    const window: WindowFixture = { eventKey: EVENT_KEY, season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([[EVENT_KEY, twoMatchEventRecord(EVENT_KEY, "etag-1")]])));
+    const result = await runTick(makeEnv(makeManifests([window], ids), d1, r2, trackedLiveAlgorithmIdsRaw()), { nowMs: NOW_MS });
+    expect(result.eventsAdvanced).toBe(1);
+    expect(result.eventsFailed).toBe(0);
+    return { ids, d1, r2 };
+  }
+
+  /** The algorithm ids that wrote state, and which scope kinds each wrote. `FakeD1Database.algorithmState` keys are `${algorithmId}::${scopeKind}::${scopeKey}`. */
+  function scopeKindsById(d1: FakeD1Database): Map<string, Set<string>> {
+    const byId = new Map<string, Set<string>>();
+    for (const key of d1.algorithmState.keys()) {
+      const [algorithmId, scopeKind] = key.split("::");
+      if (!byId.has(algorithmId!)) byId.set(algorithmId!, new Set());
+      byId.get(algorithmId!)!.add(scopeKind!);
+    }
+    return byId;
+  }
+
+  it("every tracked id writes league and team state, and exactly the event-scoped ones write an event row", async () => {
+    const { ids, d1 } = await runTrackedTick();
+    const byId = scopeKindsById(d1);
+
+    // SET EQUALITY, which is both halves at once: a tracked id that did not fold
+    // fails here, and so does an id outside the tier that did.
+    expect([...byId.keys()].sort()).toEqual([...ids].sort());
+
+    for (const id of ids) {
+      expect(byId.get(id), `${id}: no league row`).toContain("league");
+      expect(byId.get(id), `${id}: no team rows`).toContain("team");
+      // Derived from `EVENT_SCOPED_ALGORITHM_IDS`, never re-typed. OPR's
+      // per-event ratings row is the one that matters: without `selectionsFor`
+      // loading it before the fold, `update()` rebuilds the accumulator from this
+      // tick's matches alone and writes it back, overwriting the event's history
+      // with well-formed but wrong ratings. A written row proves the round trip.
+      expect(byId.get(id)!.has("event"), `${id}: event-scope row presence`).toBe(EVENT_SCOPED_ALGORITHM_IDS.has(id));
+    }
+
+    // Every played team, for every tracked id — the fold really reached each one.
+    for (const id of ids) {
+      for (const teamKey of ALL_TEAMS) {
+        expect(d1.algorithmState.has(`${id}::team::${teamKey}`), `${id}: no state row for ${teamKey}`).toBe(true);
+      }
+    }
+  });
+
+  it("every tracked id gets its own event artifact, a team artifact per played team, and a teams/{year} rebuild", async () => {
+    const { ids, r2 } = await runTrackedTick();
+    const written = new Set(r2.puts.map((p) => p.key));
+
+    for (const id of ids) {
+      const version = testVersionFor(id);
+      expect(written.has(artifactKey({ page: "event", eventKey: EVENT_KEY, algorithmId: id, version })), `${id}: no event artifact`).toBe(true);
+      // `runGlobalRebuild` runs unconditionally since quick task 260923-3w4, and
+      // this event is official (type 0), so the season feed moves for each id.
+      expect(written.has(artifactKey({ page: "teams", year: SEASON, algorithmId: id, version })), `${id}: no teams/${SEASON} rebuild`).toBe(true);
+    }
+
+    // Team artifacts: exactly the cross product of played teams and tracked ids,
+    // asserted by set equality so a missing id and a stray extra one both fail.
+    expect(new Set(r2.puts.filter((p) => p.key.startsWith("v1/team/")).map((p) => p.key))).toEqual(
+      new Set(ids.flatMap((id) => ALL_TEAMS.map((teamKey) => artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: id, version: testVersionFor(id) }))))
+    );
+
+    // Exactly ONE per-event object per tracked id: the event artifact. Asserted by
+    // equality over every key mentioning this event, so a reintroduced second
+    // object fails here by name — 260921-5qw's live roster was that second
+    // object, and quick task 260923-3w6 deleted it.
+    expect(new Set(r2.puts.filter((p) => p.key.includes(EVENT_KEY)).map((p) => p.key))).toEqual(
+      new Set(ids.map((id) => artifactKey({ page: "event", eventKey: EVENT_KEY, algorithmId: id, version: testVersionFor(id) })))
+    );
+  });
+});
+
+describe("liveAlgorithmTier — a NARROWED tier folds only its own members", () => {
+  /**
+   * The original form of this file's central test, kept after the widening rather
+   * than deleted. With the tracked tier now equal to the published set, the
+   * assertions above cannot distinguish "folds the tier" from "folds everything
+   * the manifest names" — this can, because it hands the Worker a tier that is a
+   * strict subset of a three-entry manifest. It is also the exact shape an
+   * operator gets from a `wrangler deploy --var LIVE_ALGORITHM_IDS:spr`.
+   */
   it("with a three-entry algorithms manifest and LIVE_ALGORITHM_IDS=spr, an advancing tick writes only spr artifacts/state and touches no opr/epa artifact or algorithm_state row", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const manifests = makeManifests([window], ["opr", "epa", "spr"]);
@@ -487,26 +644,14 @@ describe("liveAlgorithmTier — only the live tier folds", () => {
     expect(r2.puts.some((p) => p.key === premierEventKey)).toBe(true);
 
     // Every touched team gets its own artifact again (quick task 260923-3w6,
-    // reversing 260917-jr4), and only for the LIVE tier — which is what this
-    // file is about: a team artifact under `/opr@` or `/epa@` would mean an
-    // algorithm outside `LIVE_ALGORITHM_IDS` was folded, and the `/spr@`-only
-    // assertion above already covers that by key spelling.
-    for (const teamKey of ALL_TEAMS) {
-      const premierTeamKey = artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "spr", version: PREMIER_TEST_VERSION });
-      expect(r2.puts.some((p) => p.key === premierTeamKey), `${teamKey}: the live tier's team artifact was not written`).toBe(true);
-    }
-    // And ONLY the live tier's: every team-artifact key written this tick ends in
-    // `/spr@`, so an opr or epa team file would fail here by name.
+    // reversing 260917-jr4), and only for the narrowed tier: a team artifact
+    // under `/opr@` or `/epa@` would mean an algorithm outside
+    // `LIVE_ALGORITHM_IDS` was folded.
     expect(new Set(r2.puts.filter((p) => p.key.startsWith("v1/team/")).map((p) => p.key))).toEqual(
       new Set(ALL_TEAMS.map((teamKey) => artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "spr", version: PREMIER_TEST_VERSION })))
     );
 
-    // Exactly ONE per-event object, for the live tier only: the event artifact
-    // itself. Asserted by equality over every key mentioning this event, so a
-    // reintroduced second object fails here by name.
-    // ONE per-event object. 260921-5qw's live roster was the second, and quick
-    // task 260923-3w6 deleted it — the team artifacts asserted above are how a
-    // robot page finds a promoted event now.
+    // ONE per-event object, for the narrowed tier only.
     expect(new Set(r2.puts.filter((p) => p.key.includes("2026casj")).map((p) => p.key))).toEqual(new Set([premierEventKey]));
   });
 });
@@ -726,6 +871,60 @@ describe("liveAlgorithmTier — a promoted event's upcoming match is priced by t
     // would be a number the next republish silently changes.
     expect(qm2).not.toHaveProperty("redMatchBandVariance");
     expect(qm2).not.toHaveProperty("redRpPmf");
+  });
+
+  /**
+   * The same bootstrap for EVERY tracked id, not just the premier one (quick task
+   * 260923-3w8). A promoted event is discovered by the probe pass and has no
+   * published artifact of any kind behind it, so opr and epa now have to build
+   * one from nothing exactly as spr does — and opr additionally has to create its
+   * per-event ratings row on that first tick. If opr's event-scope bootstrap were
+   * broken, the failure would be an event page whose OPR ratings are quietly
+   * rebuilt from one tick's matches, which renders as plausible numbers.
+   */
+  it("a promoted event bootstraps for EVERY tracked id: an event artifact with a priced upcoming row, no state block", async () => {
+    const ids = trackedLiveAlgorithmIds();
+    const window: WindowFixture = { eventKey: "2026promo", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const d1 = new FakeD1Database();
+    for (const id of ids) {
+      const module = id === "opr" ? opr : id === "epa" ? epa : spr;
+      for (const row of serializeState(id, module.version, module.initState([...SEEDED_TEAMS]) as never, { generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z" })) {
+        d1.algorithmState.set(`${row.algorithmId}::${row.scopeKind}::${row.scopeKey}`, {
+          algorithm_id: row.algorithmId,
+          algorithm_version: row.algorithmVersion,
+          scope_kind: row.scopeKind,
+          scope_key: row.scopeKey,
+          state_json: row.stateJson,
+          generation: row.generation,
+          computed_at: row.computedAt,
+        });
+      }
+    }
+    const r2 = new FakeR2Bucket();
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", twoMatchEventRecord("2026promo", "etag-1")]])));
+
+    const result = await runTick(makeEnv(makeManifests([window], ids), d1, r2, trackedLiveAlgorithmIdsRaw()), { nowMs: NOW_MS });
+    expect(result.eventsAdvanced).toBe(1);
+    expect(result.eventsFailed).toBe(0);
+
+    for (const id of ids) {
+      const key = artifactKey({ page: "event", eventKey: "2026promo", algorithmId: id, version: testVersionFor(id) });
+      const put = r2.puts.filter((p) => p.key === key).at(-1);
+      expect(put, `${id}: the tick wrote no event artifact for the promoted event`).toBeDefined();
+      const artifact = JSON.parse(put!.body) as { state?: unknown; upcoming: Record<string, unknown>[] };
+      expect(artifact, id).not.toHaveProperty("state");
+      expect(artifact.upcoming.map((row) => row.matchKey), id).toEqual(["2026promo_qm2"]);
+      expect(artifact.upcoming[0]!.pRedWin, `${id}: the upcoming match was not priced`).toBeTypeOf("number");
+      expect(artifact.upcoming[0]!.predictedRedScore, id).toBeTypeOf("number");
+    }
+
+    // Every event-scoped tracked id has its per-event ratings row after the first
+    // tick at an event it had never seen — the `selectionsFor` round trip, for the
+    // promoted case. Derived from `EVENT_SCOPED_ALGORITHM_IDS` so this test stays
+    // about the bootstrap and never becomes a second copy of the tracked-tier pin.
+    for (const id of ids.filter((candidate) => EVENT_SCOPED_ALGORITHM_IDS.has(candidate))) {
+      expect(d1.algorithmState.has(`${id}::event::2026promo`), `${id} wrote no per-event row for the promoted event`).toBe(true);
+    }
   });
 
   it("one D1 state read per tick, and it covers the remaining schedule's teams — including the rookie with no row", async () => {

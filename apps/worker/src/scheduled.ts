@@ -272,17 +272,26 @@ export function detectStateGenerationMismatch(
 // ---------------------------------------------------------------------------
 
 /**
- * Only SPR folds live. Historically this was forced by the free plan's
- * 50-subrequest cap (one 3v3 match cost 18 subrequests with spr alone against
- * ~41 usable, and 50 with all three algorithms, so a three-algorithm event
- * deferred every tick forever); quick task 260923-3w4 retired that argument
- * along with the cap. It stays spr-only because widening it changes PUBLISHED
- * numbers — opr/epa would start folding live instead of refreshing at the manual
- * event-weekend re-baseline, which needs its own algorithm version bump and
- * republish. Exported so the fallback and `liveAlgorithmTier.test.ts` share one
- * default.
+ * Every published algorithm folds live (quick task 260923-3w8). This default
+ * deliberately EQUALS the tracked `LIVE_ALGORITHM_IDS` in `wrangler.toml`: a
+ * deploy that fails to carry tracked vars through would otherwise silently
+ * NARROW the tier, and a narrowed tier is invisible — opr and epa would simply
+ * stop moving mid-event while the site kept serving them as live, which is
+ * exactly the failure the `live-tier-defaulted` warn line exists to make
+ * audible rather than to make harmless.
+ *
+ * The tier was `spr` alone from 260822-wqt to 2026-09-23, held by the free
+ * plan's 50-subrequest cap and then by its 10 ms CPU cap; Workers Paid retired
+ * both on 2026-09-22 and quick task 260923-3w4 deleted the cap and the deferral
+ * machinery it gated. Widening it then cost what it had always cost — opr and
+ * epa advance match by match instead of refreshing at the manual event-weekend
+ * re-baseline (D-12), which changes numbers the site has already published — and
+ * that was paid for by shipping opr 6.0.0 and epa 13.0.0 under Jacob's decision
+ * (260923-1tu-FINDINGS.md item C6), not avoided.
+ *
+ * Exported so the fallback and `liveAlgorithmTier.test.ts` share one default.
  */
-export const DEFAULT_LIVE_ALGORITHM_IDS: readonly string[] = ["spr"];
+export const DEFAULT_LIVE_ALGORITHM_IDS: readonly string[] = [...PUBLISHED_ALGORITHM_IDS];
 
 /** An id in `LIVE_ALGORITHM_IDS` that is not one of `PUBLISHED_ALGORITHM_IDS` — unambiguously a typo in tracked config, never auto-corrected. */
 export class UnknownLiveAlgorithmIdError extends Error {
@@ -314,9 +323,13 @@ export class EmptyLiveAlgorithmTierError extends Error {
  * Parses `Env.LIVE_ALGORITHM_IDS` (comma-separated) into the tier that folds
  * live this tick.
  *  - Unset or empty: `DEFAULT_LIVE_ALGORITHM_IDS` plus one
- *    `live-tier-defaulted` warn line. Defaulting to "all" would publish numbers
- *    nobody chose to publish live; throwing would stop freshness over a config
- *    omission. Only the ids are logged, never another binding value.
+ *    `live-tier-defaulted` warn line. Defaulting to the full published set is
+ *    correct BECAUSE that set is what tracked config deploys (see that
+ *    constant): a default narrower than the tracked value would answer a
+ *    missing binding by quietly publishing stale numbers, which reads as
+ *    healthy. Throwing instead would stop freshness over a config omission.
+ *    The warn line is how the omission is caught; only the ids are logged,
+ *    never another binding value.
  *  - An id not in `PUBLISHED_ALGORITHM_IDS`: throws `UnknownLiveAlgorithmIdError`.
  * Called at the top of `runTick` so a misconfigured deploy fails on the next
  * tick, not when an event goes live months later.

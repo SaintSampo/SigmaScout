@@ -31,30 +31,24 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 TBA_BASE_URL = "https://www.thebluealliance.com/api/v3"
 
-# Quick task 260822-wqt: only the published SPR algorithm folds LIVE, per tick.
-# The subrequest arithmetic that originally forced this (one 3v3 match cost 18
-# subrequests with one algorithm and 50 with three, against ~41 usable per tick
-# under the free plan) was deleted by quick task 260923-3w4 along with the cap
-# and the deferral it gated — Workers Paid allows 10,000 per invocation.
-#
-# WHAT STILL FORCES IT is a published-numbers decision, not a budget: widening
-# this value makes opr and epa fold LIVE instead of refreshing at the manual
-# pre/post-event-weekend re-baseline (D-12), which changes numbers the site has
-# already published and therefore needs its own algorithm version bump and
-# republish. This narrows ONLY what folds LIVE — the published set (D-03) is
-# unchanged: opr, epa and spr all keep being published. See
-# docs/worker-operations.md's live-folding-tier section before changing this
-# value; `apps/worker/test/liveAlgorithmTier.test.ts` pins it by equality, so a
-# change here fails there rather than silently stopping testing the deployed
-# value.
-#
-# Renamed twice, recorded so an operator who remembers an old name knows it was
-# retired rather than mistyped: to `vpr` by D-04/D-05 (plan 07-16), then to
-# `spr` for the Sigma Power Rating cutover (260912-ivg), LIVE as of 2026-09-12
-# on Worker version aeb6dd86-8112-4d02-a0ba-e6943af9507b after D1 was reseeded
-# with 6,314 spr rows at 3.0.0+baseline. The retired ids' rows were deleted from
-# D1 and all of their objects from R2 the same day.
-LIVE_ALGORITHM_IDS = "spr"
+# Every published algorithm folds LIVE, per tick, in PUBLISHED_ALGORITHM_IDS
+# display order (quick task 260923-3w8, Jacob's decision 2026-09-23 on
+# 260923-1tu-FINDINGS.md item C6). The tier was `spr` alone from 260822-wqt
+# until then, held first by the free plan's 50-subrequest cap and then by its
+# 10 ms CPU cap; Workers Paid (2026-09-22) retired both, and opr 6.0.0 / epa
+# 13.0.0 paid for the published-numbers consequence — those two now advance
+# match by match instead of only at the manual re-baseline (D-12). Order here
+# is for the reader: `parseLiveAlgorithmIds` hands this list to
+# `buildAlgorithmModules`, which filters through a Set, and fold order comes
+# from the algorithms manifest. `apps/worker/test/liveAlgorithmTier.test.ts`
+# pins this value by EQUALITY, so narrowing or widening it fails there rather
+# than silently going untested; any change needs the version bump and republish
+# that moving published numbers requires. See docs/worker-operations.md's
+# live-folding-tier section. The id was renamed twice (`vpr` by D-04/D-05 in
+# plan 07-16, then `spr` for the Sigma Power Rating cutover in 260912-ivg,
+# live 2026-09-12), recorded so an operator who remembers an old name knows it
+# was retired rather than mistyped.
+LIVE_ALGORITHM_IDS = "opr,epa,spr"
 
 # D-17: fires every minute, YEAR-ROUND — never a season-scoped cron
 # expression. An offseason event runs in the fall and championship dates
