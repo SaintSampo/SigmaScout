@@ -30,7 +30,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runTick } from "../src/scheduled.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
-import { artifactKey, LiveEventArtifactSchema, TeamsArtifactSchema, type EventLiveBlock } from "../../../packages/harness/pageArtifacts.js";
+import { artifactKey, LiveEventArtifactSchema, TeamsArtifactSchema } from "../../../packages/harness/pageArtifacts.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import { SIGMA_METRIC_KEY } from "../../../packages/harness/sigmaScore.js";
@@ -338,34 +338,6 @@ function makeEnv(manifests: Map<string, string>, d1: FakeD1Database, r2: FakeR2B
 
 function eventKeyFor(algorithmId: "opr" | "spr"): string {
   return artifactKey({ page: "event", eventKey: EVENT_KEY, algorithmId, version: algorithmId === "spr" ? spr.version : opr.version });
-}
-
-/**
- * A minimal but SCHEMA-VALID published event body carrying a given live block
- * — the shape a prior tick would have left in R2. Built here rather than by
- * driving a tick, because the point is a block this tick could NOT have
- * written.
- */
-function seededEventBody(live: EventLiveBlock): unknown {
-  return {
-    schemaVersion: 1,
-    generation: "gen-seed",
-    computedAt: "2026-08-20T00:00:00.000Z",
-    algorithmId: "opr",
-    algorithmVersion: opr.version,
-    eventKey: EVENT_KEY,
-    season: SEASON,
-    matches: [],
-    upcoming: [],
-    teams: [],
-    live,
-  };
-}
-
-/** The live block off a written event body, through the REAL shipped schema — never a hand-reach into the raw JSON. */
-function liveBlockOf(body: string | undefined): EventLiveBlock | undefined {
-  expect(body, "no event body was written at all").toBeDefined();
-  return LiveEventArtifactSchema.parse(JSON.parse(body!)).live;
 }
 
 /** Drives `tickCount` ticks over the shared env, revealing one more played match each time. */

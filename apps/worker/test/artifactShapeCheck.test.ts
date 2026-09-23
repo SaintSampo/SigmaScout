@@ -467,65 +467,59 @@ describe("a malformed `state` block drops the block, never the artifact", () => 
 });
 
 // ---------------------------------------------------------------------------
-// Group 5 — the `live` block mirrors `state`'s `.catch(undefined)` exactly
-// (quick task 260918-16t)
+// Group 5 — a stale `live` key is INERT, whatever shape it is in
+// (quick task 260923-3w7, replacing 260918-16t's `.catch(undefined)` mirror)
 // ---------------------------------------------------------------------------
 
-describe("a malformed `live` block drops the block, never the artifact", () => {
-  const malformed: [string, unknown][] = [
+/**
+ * `isLiveBlock` is deleted, and so is the whole notion of a "malformed" live
+ * block, because nothing dereferences the key any more: `mergeEventArtifact`
+ * destructures it out, the schema no longer declares it, and the write-side
+ * `schema.parse` would strip it even if the merge did not. The five malformed
+ * shapes that had their own cases here are covered by one claim now — any shape
+ * at all is dropped — which is all the deleted guard was ever buying.
+ */
+describe("a stale `live` key of any shape is dropped by the merge, never by the guard", () => {
+  const stale: [string, unknown][] = [
     ["not an object", "stale"],
     ["null", null],
     ["an array", []],
-    ["a block with no `rows` at all", { metricKeys: ["total"] }],
     ["a block whose `rows` is not an array", { metricKeys: ["total"], rows: {} }],
+    ["a WELL-SHAPED block", { metricKeys: ["total"], rows: [{ m: `${EVENT_KEY}_qm1`, t: [TEAMS[0]!], v: [[40]] }] }],
   ];
 
-  for (const [name, live] of malformed) {
-    it(`drops ${name} and keeps every other key`, () => {
+  for (const [name, live] of stale) {
+    it(`${name}: the guard passes the artifact, the merge emits no \`live\`, and every other key survives`, () => {
       const raw = { ...offlineEventArtifact(), live };
-      const guarded = checkLiveEventArtifactShape(json(raw)) as Record<string, unknown> | undefined;
+      const guarded = checkLiveEventArtifactShape(json(raw));
       expect(guarded).toBeDefined();
-      expect(guarded).not.toHaveProperty("live");
-      // Everything else survives — this is `.catch(undefined)`, not a rejection.
-      // REJECTING instead would cost this event its whole published history on
-      // EVERY tick for as long as the bad block sat in R2, turning an
-      // ephemeral, self-healing key into a permanent outage.
-      expect(guarded!.matches).toEqual((raw as Record<string, unknown>).matches);
-      expect(guarded!.teams).toEqual((raw as Record<string, unknown>).teams);
-      expect(guarded!.alliances).toEqual((raw as Record<string, unknown>).alliances);
+      const merged = mergeEvent(guarded) as Record<string, unknown>;
+      expect(merged).not.toHaveProperty("live");
+      expect(merged.matches).toBeDefined();
+      expect(merged.teams).toBeDefined();
+      expect(merged.alliances).toEqual((raw as Record<string, unknown>).alliances);
     });
   }
 
-  it("the merged artifact is byte-identical to the zod-parsed path, which `.catch`es the same block away", () => {
+  it("the merged artifact is byte-identical to the zod-parsed path, which strips the same undeclared key", () => {
     const raw = { ...offlineEventArtifact(), live: { metricKeys: ["total"], rows: {} } };
     expect(publishedEventBytes(mergeEvent(checkLiveEventArtifactShape(json(raw))))).toBe(publishedEventBytes(mergeEvent(LiveEventArtifactSchema.parse(json(raw)))));
   });
 
-  it("a WELL-SHAPED block survives the guard, is DROPPED by the merge, and the two read paths still publish identical bytes", () => {
-    const live = { metricKeys: ["total"], rows: [{ m: `${EVENT_KEY}_qm1`, t: [TEAMS[0]!], v: [[40]] }] };
-    const raw = { ...offlineEventArtifact(), live };
-    const guarded = checkLiveEventArtifactShape(json(raw));
-    // Non-vacuity: the fixture really does hand the merge a block to drop.
-    expect(guarded?.live).toBeDefined();
-    const fromGuard = mergeEvent(guarded) as Record<string, unknown>;
-    // Since quick task 260923-3w6 the merge emits no `live` block, so a
-    // well-shaped one read off R2 is dropped exactly as a malformed one is — which
-    // is what stops a block written by an earlier tick riding the spread forever.
-    expect(fromGuard).not.toHaveProperty("live");
-    expect(publishedEventBytes(fromGuard)).toBe(publishedEventBytes(mergeEvent(LiveEventArtifactSchema.parse(json(raw)))));
-  });
-
-  it("BOTH blocks can be malformed at once and both drop independently", () => {
-    const raw = { ...offlineEventArtifact(), state: { rows: [null] }, live: "stale" };
-    const guarded = checkLiveEventArtifactShape(json(raw));
-    expect(guarded).toBeDefined();
-    expect(guarded).not.toHaveProperty("state");
-    expect(guarded).not.toHaveProperty("live");
-  });
-
-  it("an absent `live` key stays absent — the guard adds no key of its own", () => {
+  it("an absent `live` key stays absent — neither the guard nor the merge adds a key of its own", () => {
     const raw = offlineEventArtifact();
     expect(raw).not.toHaveProperty("live");
     expect(checkLiveEventArtifactShape(json(raw))).not.toHaveProperty("live");
+    expect(mergeEvent(checkLiveEventArtifactShape(json(raw)))).not.toHaveProperty("live");
+  });
+
+  it("BOTH a malformed `state` and a stale `live` drop independently", () => {
+    const raw = { ...offlineEventArtifact(), state: { rows: [null] }, live: "stale" };
+    const guarded = checkLiveEventArtifactShape(json(raw));
+    expect(guarded).toBeDefined();
+    // `state` IS still guarded (the merge destructures it, but a future reader
+    // must not be handed a block it cannot walk), `live` is not.
+    expect(guarded).not.toHaveProperty("state");
+    expect(mergeEvent(guarded)).not.toHaveProperty("live");
   });
 });

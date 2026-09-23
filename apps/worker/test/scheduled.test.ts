@@ -1280,12 +1280,12 @@ describe("runTick — official-play scope on the global rebuild feed", () => {
     // The event write is UNCONDITIONAL on event type. What differs from an
     // offseason event since quick task 260919-368: a Week 0 match is predicted
     // and never folded (`foldsIntoRatings`). OPR is event-scoped and starts each
-    // season empty, so at a preseason event it holds a rating for nobody and
-    // there is no live metric row to write. SPR, the live tier, carries ratings
-    // in and does write rows; `liveAlgorithmTier.test.ts` pins that side.
+    // season empty, so at a preseason event it holds a rating for nobody.
     const written = LiveEventArtifactSchema.parse(JSON.parse(r2.puts.filter((p) => p.key === eventPutKey).at(-1)!.body));
     expect(written.matches.map((m) => m.matchKey)).toEqual(["2026prez_qm1"]);
-    expect(written.live?.rows ?? []).toHaveLength(0);
+    // No `live` block, here or anywhere: nothing emits one since 260923-3w6 and
+    // the schema stopped declaring the key in 260923-3w7.
+    expect(written).not.toHaveProperty("live");
     // No OPR team state was created by the Week 0 match.
     expect([...d1.algorithmState.keys()].filter((k) => k.startsWith("opr::team::"))).toEqual([]);
     // The team ARTIFACT is still written (the match is predicted and published,
@@ -1607,9 +1607,10 @@ describe("runTick — a corrupt published artifact retries as a bootstrap instea
     // Both halves of the old pair, in one case. Quick task 260923-3w6 stopped
     // emitting a `live` block, so the question is no longer "is a corrupt block
     // republished fresh" but "does a block found in R2 ride the spread forward" —
-    // and the answer must be no, malformed (dropped by the read guard) or
-    // well-formed (dropped by the merge's destructure), or every event that ever
-    // had one would carry it until its next offline republish.
+    // and the answer must be no, whatever shape the block is in: the merge
+    // destructures the key out and the write-side parse no longer declares it
+    // (260923-3w7). Otherwise every event that ever had one would carry it
+    // until its next offline republish.
     stubOneLiveEvent();
     const r2 = new FakeR2Bucket();
     r2.seed(EVENT_PUT_KEY, JSON.stringify({ ...(JSON.parse(guardPassingBaseEventArtifact("2026casj")) as object), live: { metricKeys: ["total"], rows: "not an array" } }));

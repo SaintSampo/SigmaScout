@@ -285,7 +285,11 @@ export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
   //     the standings. Carrying a stale marker forward would leave the artifact
   //     claiming its rows were counted here when a republish has since
   //     overwritten them with TBA's own.
-  const { state: _existingState, live: _existingLive, standings: _existingStandings, ...carriedFromExisting } = existing ?? {};
+  // Widened to a plain record for the destructure: `live` is no longer declared
+  // on the schema at all (quick task 260923-3w7), so the typed shape has no such
+  // key to destructure — while an artifact written by a tick before 260923-3w6
+  // still carries one in R2.
+  const { state: _existingState, live: _existingLive, standings: _existingStandings, ...carriedFromExisting } = (existing ?? {}) as Record<string, unknown>;
 
   // Read before the preserved-match filter below: a newly-played match's own
   // published row is where its prior `sortTime` lives when TBA reports none.
