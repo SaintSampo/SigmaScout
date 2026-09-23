@@ -2,7 +2,7 @@
 
 `sigmascout-worker` polls TBA once a minute for events that are currently live, advances each
 affected team's algorithm state in D1, and rewrites only the artifacts that actually moved in R2.
-A tick with nothing live reads one small manifest from KV and stops there, spending zero TBA
+A tick with nothing live reads one small manifest from R2 and stops there, spending zero TBA
 requests — which is what makes ~1,440 invocations a day free during the ten months of the year no
 event is running. Everything the browser reads is a precomputed R2 object served over a custom
 domain, so page traffic never touches this Worker.
@@ -10,8 +10,9 @@ domain, so page traffic never touches this Worker.
 Deployed at `https://sigmascout-worker.jrw4561.workers.dev`. Read path: `https://sigmascout.org`.
 
 > **Plan change, 2026-09-22: the account is on Workers Paid.** Per-invocation CPU is 30 s (was
-> 10 ms) and subrequests are 10,000 (was 50); D1 is 50M row writes/month (was 100k/day) and KV is
-> 1M writes/month (was 1,000/day). R2's free tier is separate and unchanged. Most of the CPU-budget
+> 10 ms) and subrequests are 10,000 (was 50); D1 is 50M row writes/month (was 100k/day). R2's free
+> tier is separate and unchanged. (KV rose from 1,000 writes/day to 1M/month too, and is now
+> irrelevant: quick task 260923-3w4 removed the KV binding entirely — see "Deploying" below.) Most of the CPU-budget
 > and subrequest-budget material below this point was written under the free plan and is retained as
 > a measurement record — look for dated banners marking which sections describe the retired regime.
 
@@ -40,9 +41,17 @@ Confirm afterwards:
 npx wrangler deployments list        # a current deployment at 100%
 ```
 
-The deploy output must print `schedule: * * * * *` and list three bindings — `MANIFEST` (KV), `DB`
-(D1), `ARTIFACTS` (R2). If a binding is missing, stop: the tick will fail every minute against a
-binding that is not there.
+The deploy output must print `schedule: * * * * *` and list **two** bindings — `DB` (D1) and
+`ARTIFACTS` (R2). If a binding is missing, stop: the tick will fail every minute against a binding
+that is not there.
+
+**There were THREE bindings until 2026-09-23.** `MANIFEST` (KV) was the "small, hot live-windows
+manifest pointer" half of the original design, and nothing in this repository ever wrote a value to
+it — every tick paid a guaranteed KV miss and then the R2 read `liveWindows.ts` treated as a
+fallback (measured directly, 2026-08-22/23; see `publish-budget.md`'s "KV writes per day" row).
+Quick task 260923-3w4 removed the binding. A deploy output listing `MANIFEST` means a pre-260923-3w4
+`wrangler.toml`, not a healthy deploy. The KV namespace still exists in the account, unbound;
+deleting it there is a dashboard action.
 
 **Check the entrypoint before deploying.** `apps/worker/wrangler.toml` must have
 `main = "src/scheduled.ts"`.
@@ -402,7 +411,8 @@ arithmetic-naming message, then reverted — see that test file and its own comm
 
 - Deployed version `77fca208-753f-4a4b-9f91-98e32c0e1717` (tracked config). `wrangler deploy`'s
   output listed both `env.TBA_BASE_URL` and `env.LIVE_ALGORITHM_IDS ("sigma1")` [pre-rename]
-  alongside the `MANIFEST`/`DB`/`ARTIFACTS` bindings and `schedule: * * * * *`.
+  alongside the `MANIFEST`/`DB`/`ARTIFACTS` bindings and `schedule: * * * * *` (a 2026-08-23
+  record — `MANIFEST` was removed 2026-09-23).
 - Idle ticks on that version: 3 consecutive `"ok":true`, `eventsConsidered:0`, `subrequestsUsed:1`,
   CPU 5–6 ms — no `live-tier-defaulted` warn line, confirming the tracked var reached the deployed
   Worker.
@@ -436,7 +446,8 @@ Two new rows for this section's symptoms are added to the "When something is wro
 
 Deployed version `638da16c-d538-4551-b3a0-a2757a77061f`, confirmed at 100% by `npx wrangler
 deployments list`. `pnpm worker:deploy`'s output listed `env.LIVE_ALGORITHM_IDS ("vpr")` alongside
-`env.TBA_BASE_URL`, all three bindings (`MANIFEST`, `DB`, `ARTIFACTS`), and `schedule: * * * * *`.
+`env.TBA_BASE_URL`, all three bindings of the day (`MANIFEST`, `DB`, `ARTIFACTS` — `MANIFEST` was
+removed 2026-09-23), and `schedule: * * * * *`.
 Four consecutive post-deploy ticks (taken by the plan orchestrator, immediately after the deploy)
 reported `"ok":true`, `eventsConsidered:0`, no `live-tier-defaulted` warn line, and no
 `EmptyLiveAlgorithmTierError` — the tracked var reached the deployed Worker and it resolved its
@@ -650,7 +661,8 @@ ingest an in-progress event, do not let a window appear in `v1/manifest/live-win
 The measurement, from the deleted CPU probe's first real run (`318caa2f` against live D1,
 2026-09-12; the full record is in git history, the probe having been deleted 2026-09-23): a realistic mid-quals tick — 2 newly folded matches,
 60 still upcoming — costs **13 ms p50 / 28 ms p90 in Phase A alone**, against a **10 ms sustained**
-budget. That excludes Phase B, the TBA poll, the KV manifest read and the global rebuild, and it is
+budget. That excludes Phase B, the TBA poll, the manifest read (from KV then, R2 only since
+2026-09-23) and the global rebuild, and it is
 for **one** event and **one** algorithm; a regional weekend runs several events concurrently, and
 the subrequest budget has a deferral valve while CPU has none.
 

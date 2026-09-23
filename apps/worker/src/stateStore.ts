@@ -137,8 +137,12 @@ ON CONFLICT(algorithm_id, scope_kind, scope_key) DO UPDATE SET
  * this module's header for the transaction semantics a rejection implies:
  * none of `rows` advanced this tick, never a partial application. Callers
  * should filter `rows` through `selectChangedRows` first so an unchanged
- * team never costs a write — a direct saving against D1's
- * 100,000-rows-written-per-day free allowance.
+ * team never costs a write. THAT IS AN IDEMPOTENCY PROPERTY, NOT A BUDGET ONE
+ * (corrected by quick task 260923-3w4): this comment used to justify the filter
+ * by D1's free-plan allowance of 100,000 rows written per day, which is 50M a
+ * month on Workers Paid since 2026-09-22 and was never the real reason. The real
+ * reason is that re-advancing an event over the same match list must be a
+ * genuine no-op at the write layer — see `selectChangedRows` below.
  */
 export async function writeScopedState(db: D1Database, rows: readonly StateRow[]): Promise<void> {
   if (rows.length === 0) return;
@@ -161,6 +165,14 @@ function rowIdentity(row: Pick<StateRow, "algorithmId" | "scopeKind" | "scopeKey
  * the same match list a genuine no-op at the write layer:
  * `stateSnapshot.ts`'s serializer is key-sorted and stable precisely so
  * re-serializing an untouched team's state produces the identical string.
+ *
+ * KEEP THIS even though the write cap it was once justified by is gone (D1 is
+ * 50M rows written per month on Workers Paid). The no-op-on-repeat property is
+ * what it is actually for: a tick that folds nothing new writes no row, and an
+ * unchanged team on a tick that DID fold something writes no row either, so a
+ * repeated advance leaves `algorithm_state` byte-identical rather than merely
+ * equivalent. `260923-1tu-FINDINGS.md` section 3 names this explicitly as
+ * budget-SHAPED but actually correctness.
  */
 export function selectChangedRows(priorRows: readonly StateRow[], candidateRows: readonly StateRow[]): StateRow[] {
   const priorStateJsonByIdentity = new Map(priorRows.map((row) => [rowIdentity(row), row.stateJson]));

@@ -265,20 +265,22 @@ class FakeR2Bucket {
     const value = this.store.get(key);
     return value === undefined ? null : new FakeR2Object(value);
   }
-}
 
-class FakeKvNamespace {
-  constructor(private readonly values: Map<string, string>) {}
-  async get(key: string): Promise<string | null> {
-    return this.values.get(key) ?? null;
+  /** Pre-load an object as if an offline publish had written it — deliberately NOT counted in `putCallCount`/`puts`, which exist to count what THIS tick wrote. Since quick task 260923-3w4 the two manifests arrive here rather than through a fake KV binding. */
+  seed(key: string, body: string): void {
+    this.store.set(key, body);
   }
 }
 
-function makeEnv(kv: FakeKvNamespace, d1: FakeD1Database, r2: FakeR2Bucket, liveAlgorithmIds?: string): Env {
+// THE FAKE KV BINDING IS GONE (quick task 260923-3w4): the Worker reads both
+// manifests straight from R2, so every `makeEnv` below seeds them into the R2
+// fake instead of into a second store that production never wrote to.
+
+function makeEnv(manifests: Map<string, string>, d1: FakeD1Database, r2: FakeR2Bucket, liveAlgorithmIds?: string): Env {
+  for (const [key, body] of manifests) r2.seed(key, body);
   return {
     DB: d1 as unknown as D1Database,
     ARTIFACTS: r2 as unknown,
-    MANIFEST: kv as unknown,
     TBA_API_KEY: "test-key",
     TBA_BASE_URL: "https://tba.example.invalid/api/v3",
     LIVE_ALGORITHM_IDS: liveAlgorithmIds,
@@ -319,8 +321,8 @@ function algorithmsManifest(ids: readonly string[] = ["opr"]): string {
   return JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", algorithms });
 }
 
-function makeKv(windows: readonly WindowFixture[], algorithmIds: readonly string[] = ["opr", "epa", "spr"]): FakeKvNamespace {
-  return new FakeKvNamespace(
+function makeManifests(windows: readonly WindowFixture[], algorithmIds: readonly string[] = ["opr", "epa", "spr"]): Map<string, string> {
+  return (
     new Map([
       [LIVE_WINDOWS_MANIFEST_KEY, liveWindowsManifest(windows)],
       [ALGORITHMS_MANIFEST_KEY, algorithmsManifest(algorithmIds)],
@@ -436,7 +438,7 @@ describe("liveAlgorithmTier — an idle-but-considered tick's subrequest count",
    */
   it("a tick that considers one live event and finds it unchanged spends exactly six subrequests", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
-    const kv = makeKv([window], ["spr"]);
+    const manifests = makeManifests([window], ["spr"]);
     const d1 = new FakeD1Database();
     const r2 = new FakeR2Bucket();
     const fetchMock = vi.fn(async (url: unknown) => {
@@ -447,7 +449,7 @@ describe("liveAlgorithmTier — an idle-but-considered tick's subrequest count",
       throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    const env = makeEnv(kv, d1, r2, "spr");
+    const env = makeEnv(manifests, d1, r2, "spr");
 
     const result = await runTick(env, { nowMs: NOW_MS });
 
@@ -459,12 +461,12 @@ describe("liveAlgorithmTier — an idle-but-considered tick's subrequest count",
 describe("liveAlgorithmTier — only the live tier folds", () => {
   it("with a three-entry algorithms manifest and LIVE_ALGORITHM_IDS=spr, an advancing tick writes only spr artifacts/state and touches no opr/epa artifact or algorithm_state row", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
-    const kv = makeKv([window], ["opr", "epa", "spr"]);
+    const manifests = makeManifests([window], ["opr", "epa", "spr"]);
     const d1 = new FakeD1Database();
     const r2 = new FakeR2Bucket();
     const tbaEvents = new Map([["2026casj", twoMatchEventRecord("2026casj", "etag-1")]]);
     vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents));
-    const env = makeEnv(kv, d1, r2, "spr");
+    const env = makeEnv(manifests, d1, r2, "spr");
 
     const result = await runTick(env, { nowMs: NOW_MS });
 
@@ -549,7 +551,7 @@ describe("liveAlgorithmTier — a demo match resumes the state the offline publi
       ],
     };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026demo", record]])));
-    const result = await runTick(makeEnv(makeKv([window], ["spr"]), d1, new FakeR2Bucket(), "spr"), { nowMs: NOW_MS });
+    const result = await runTick(makeEnv(makeManifests([window], ["spr"]), d1, new FakeR2Bucket(), "spr"), { nowMs: NOW_MS });
     expect(result.eventsAdvanced).toBe(1);
     expect(result.eventsFailed).toBe(0);
     return d1;
@@ -618,7 +620,7 @@ describe("liveAlgorithmTier — a preseason Week 0 match is priced and never fol
     };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026week0", record]])));
     const r2 = new FakeR2Bucket();
-    const result = await runTick(makeEnv(makeKv([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS });
+    const result = await runTick(makeEnv(makeManifests([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS });
     expect(result.eventsAdvanced).toBe(1);
     expect(result.eventsFailed).toBe(0);
     return { seeded, after: new Map([...d1.algorithmState].map(([key, row]) => [key, row.state_json])), r2 };
@@ -697,7 +699,7 @@ describe("liveAlgorithmTier — a promoted event's state block is completed by t
     const r2 = new FakeR2Bucket();
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", twoMatchEventRecord("2026promo", "etag-1")]])));
 
-    const result = await runTick(makeEnv(makeKv([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS });
+    const result = await runTick(makeEnv(makeManifests([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS });
     expect(result.eventsAdvanced).toBe(1);
 
     const state = stateOf(r2, "2026promo");
@@ -716,7 +718,7 @@ describe("liveAlgorithmTier — a promoted event's state block is completed by t
 
     const first = twoMatchEventRecord("2026promo", "etag-1");
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", first]])));
-    await runTick(makeEnv(makeKv([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS });
+    await runTick(makeEnv(makeManifests([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS });
     const readsOnFirstTick = stateReads();
     // The fold's own read, plus exactly one to complete the block.
     expect(readsOnFirstTick).toBe(2);
@@ -728,7 +730,7 @@ describe("liveAlgorithmTier — a promoted event's state block is completed by t
       matches: [...first.matches, tbaMatch({ key: "2026promo_qm3", eventKey: "2026promo", matchNumber: 3, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 99, blueScore: 101, actualTimeSec: Math.floor(NOW_MS / 1000) - 30 })],
     };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", second]])));
-    const result = await runTick(makeEnv(makeKv([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS + 60_000 });
+    const result = await runTick(makeEnv(makeManifests([window], ["spr"]), d1, r2, "spr"), { nowMs: NOW_MS + 60_000 });
     expect(result.eventsAdvanced).toBe(1);
     // Only the fold's own read: the block is complete and frc12 is known absent.
     expect(stateReads() - readsOnFirstTick).toBe(1);
@@ -740,7 +742,7 @@ describe("liveAlgorithmTier — a promoted event's state block is completed by t
     const d1 = seededD1();
     const r2 = new FakeR2Bucket();
     const rosterPuts = () => r2.puts.filter((p) => p.key === liveRosterKey("2026promo"));
-    const env = () => makeEnv(makeKv([window], ["spr"]), d1, r2, "spr");
+    const env = () => makeEnv(makeManifests([window], ["spr"]), d1, r2, "spr");
 
     const first = twoMatchEventRecord("2026promo", "etag-1");
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026promo", first]])));

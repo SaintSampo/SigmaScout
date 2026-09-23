@@ -51,7 +51,7 @@ class FakeR2Bucket {
 }
 
 function makeEnv(r2: FakeR2Bucket): Env {
-  return { DB: {} as unknown, ARTIFACTS: r2 as unknown, MANIFEST: {} as unknown, TBA_API_KEY: TBA_KEY } as Env;
+  return { DB: {} as unknown, ARTIFACTS: r2 as unknown, TBA_API_KEY: TBA_KEY } as Env;
 }
 
 // ---------------------------------------------------------------------------

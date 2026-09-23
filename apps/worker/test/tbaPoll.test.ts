@@ -10,7 +10,7 @@ import type { Env } from "../src/env.js";
 const STUB_KEY = "test-tba-secret-key-do-not-leak";
 
 function makeEnv(): Env {
-  return { DB: {} as unknown, ARTIFACTS: {} as unknown, MANIFEST: {} as unknown, TBA_API_KEY: STUB_KEY, TBA_BASE_URL: "https://tba.example.invalid/api/v3" } as Env;
+  return { DB: {} as unknown, ARTIFACTS: {} as unknown, TBA_API_KEY: STUB_KEY, TBA_BASE_URL: "https://tba.example.invalid/api/v3" } as Env;
 }
 
 describe("pollEventMatches", () => {

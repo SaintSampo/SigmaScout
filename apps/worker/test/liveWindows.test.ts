@@ -1,7 +1,13 @@
 /**
- * Fake `Env` whose KV/R2 handles return canned JSON — asserts binding-call
- * counts, the schema-failure path, and live-set filtering (including the
- * empty case), per this plan's Task 1 acceptance criteria.
+ * Fake `Env` whose R2 handle returns canned JSON — asserts binding-call counts,
+ * the schema-failure path, and live-set filtering (including the empty case).
+ *
+ * THE KV FAKE IS GONE (quick task 260923-3w4), and with it the two cases that
+ * pinned "one KV call in the common KV-hit case" and "falls back to R2 when KV
+ * has no value yet". Nothing ever wrote to the KV namespace, so the fallback was
+ * the only leg that ran in production; `readManifestText` is one R2 `get` now.
+ * Every `makeEnv` call here therefore seeds R2 directly, and the call-count
+ * assertions moved onto the R2 fake.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -19,17 +25,8 @@ import {
 import type { Env } from "../src/env.js";
 
 // ---------------------------------------------------------------------------
-// Fake KV/R2 bindings — minimal surface (`get`) with call counters.
+// Fake R2 binding — minimal surface (`get`) with a call counter.
 // ---------------------------------------------------------------------------
-
-class FakeKvNamespace {
-  getCallCount = 0;
-  constructor(private readonly values: Map<string, string>) {}
-  async get(key: string): Promise<string | null> {
-    this.getCallCount++;
-    return this.values.get(key) ?? null;
-  }
-}
 
 class FakeR2Object {
   constructor(private readonly value: string) {}
@@ -73,68 +70,55 @@ function validAlgorithmsManifest(): unknown {
   };
 }
 
-function makeEnv(kvValues: Map<string, string>, r2Values: Map<string, string> = new Map()): { env: Env; kv: FakeKvNamespace; r2: FakeR2Bucket } {
-  const kv = new FakeKvNamespace(kvValues);
+function makeEnv(r2Values: Map<string, string> = new Map()): { env: Env; r2: FakeR2Bucket } {
   const r2 = new FakeR2Bucket(r2Values);
-  const env = { DB: {} as unknown, ARTIFACTS: r2 as unknown, MANIFEST: kv as unknown, TBA_API_KEY: "test-key" } as Env;
-  return { env, kv, r2 };
+  const env = { DB: {} as unknown, ARTIFACTS: r2 as unknown, TBA_API_KEY: "test-key" } as Env;
+  return { env, r2 };
 }
 
 describe("loadLiveWindowsManifest", () => {
-  it("costs exactly one KV binding call in the common (KV-hit) case", async () => {
-    const kvValues = new Map([[LIVE_WINDOWS_MANIFEST_KEY, JSON.stringify(validLiveWindowsManifest())]]);
-    const { env, kv, r2 } = makeEnv(kvValues);
-    await loadLiveWindowsManifest(env);
-    expect(kv.getCallCount).toBe(1);
-    expect(r2.getCallCount).toBe(0);
-  });
-
-  it("falls back to R2 when KV has no value yet", async () => {
-    const r2Values = new Map([[LIVE_WINDOWS_MANIFEST_KEY, JSON.stringify(validLiveWindowsManifest())]]);
-    const { env, kv, r2 } = makeEnv(new Map(), r2Values);
+  it("costs exactly one R2 binding call, and no second store is consulted first", async () => {
+    const { env, r2 } = makeEnv(new Map([[LIVE_WINDOWS_MANIFEST_KEY, JSON.stringify(validLiveWindowsManifest())]]));
     const manifest = await loadLiveWindowsManifest(env);
-    expect(kv.getCallCount).toBe(1);
     expect(r2.getCallCount).toBe(1);
     expect(manifest.windows).toEqual([]);
   });
 
-  it("throws a named ManifestReadError when neither KV nor R2 has the key", async () => {
+  it("throws a named ManifestReadError when R2 does not have the key", async () => {
     const { env } = makeEnv(new Map());
     await expect(loadLiveWindowsManifest(env)).rejects.toBeInstanceOf(ManifestReadError);
   });
 
   it("throws a named ManifestValidationError rather than returning a partial manifest", async () => {
-    const kvValues = new Map([[LIVE_WINDOWS_MANIFEST_KEY, JSON.stringify({ schemaVersion: 1, windows: "not-an-array" })]]);
-    const { env } = makeEnv(kvValues);
+    const { env } = makeEnv(new Map([[LIVE_WINDOWS_MANIFEST_KEY, JSON.stringify({ schemaVersion: 1, windows: "not-an-array" })]]));
     await expect(loadLiveWindowsManifest(env)).rejects.toBeInstanceOf(ManifestValidationError);
   });
 
   it("throws ManifestValidationError on malformed JSON text", async () => {
-    const kvValues = new Map([[LIVE_WINDOWS_MANIFEST_KEY, "{not json"]]);
-    const { env } = makeEnv(kvValues);
+    const { env } = makeEnv(new Map([[LIVE_WINDOWS_MANIFEST_KEY, "{not json"]]));
     await expect(loadLiveWindowsManifest(env)).rejects.toBeInstanceOf(ManifestValidationError);
   });
 });
 
 describe("loadAlgorithmsManifest", () => {
-  it("costs exactly one KV binding call in the common case", async () => {
-    const kvValues = new Map([[ALGORITHMS_MANIFEST_KEY, JSON.stringify(validAlgorithmsManifest())]]);
-    const { env, kv } = makeEnv(kvValues);
+  it("costs exactly one R2 binding call", async () => {
+    const { env, r2 } = makeEnv(new Map([[ALGORITHMS_MANIFEST_KEY, JSON.stringify(validAlgorithmsManifest())]]));
     const manifest = await loadAlgorithmsManifest(env);
-    expect(kv.getCallCount).toBe(1);
+    expect(r2.getCallCount).toBe(1);
     expect(manifest.algorithms).toHaveLength(3);
   });
 });
 
 describe("loadManifests", () => {
-  it("reads both manifests, one KV call each in the common case", async () => {
-    const kvValues = new Map([
-      [LIVE_WINDOWS_MANIFEST_KEY, JSON.stringify(validLiveWindowsManifest())],
-      [ALGORITHMS_MANIFEST_KEY, JSON.stringify(validAlgorithmsManifest())],
-    ]);
-    const { env, kv } = makeEnv(kvValues);
+  it("reads both manifests, one R2 call each", async () => {
+    const { env, r2 } = makeEnv(
+      new Map([
+        [LIVE_WINDOWS_MANIFEST_KEY, JSON.stringify(validLiveWindowsManifest())],
+        [ALGORITHMS_MANIFEST_KEY, JSON.stringify(validAlgorithmsManifest())],
+      ])
+    );
     const manifests = await loadManifests(env);
-    expect(kv.getCallCount).toBe(2);
+    expect(r2.getCallCount).toBe(2);
     expect(manifests.liveWindows.windows).toEqual([]);
     expect(manifests.algorithms.algorithms).toHaveLength(3);
   });
@@ -209,25 +193,13 @@ describe("loadLiveEventsAt", () => {
     expect(await loadLiveEventsAt(env, 15_000)).toEqual([]);
   });
 
-  it("costs exactly one KV binding call, same as the read it replaced", async () => {
-    const { env, kv, r2 } = envWith(MIXED_WINDOWS);
+  it("costs exactly one R2 binding call, same as the read it replaced", async () => {
+    const { env, r2 } = envWith(MIXED_WINDOWS);
     await loadLiveEventsAt(env, 5_000);
-    expect(kv.getCallCount).toBe(1);
-    expect(r2.getCallCount).toBe(0);
-  });
-
-  it("falls back to R2 when KV has no value yet", async () => {
-    const { env, kv, r2 } = makeEnv(
-      new Map(),
-      new Map([[LIVE_WINDOWS_MANIFEST_KEY, JSON.stringify(validLiveWindowsManifest(MIXED_WINDOWS))]])
-    );
-    const live = await loadLiveEventsAt(env, 5_000);
-    expect(live.map((w) => w.eventKey)).toEqual(["2026aaaa", "2026zzzz"]);
-    expect(kv.getCallCount).toBe(1);
     expect(r2.getCallCount).toBe(1);
   });
 
-  it("throws ManifestReadError when neither binding holds the object", async () => {
+  it("throws ManifestReadError when R2 does not hold the object", async () => {
     const { env } = makeEnv(new Map());
     await expect(loadLiveEventsAt(env, 5_000)).rejects.toBeInstanceOf(ManifestReadError);
   });

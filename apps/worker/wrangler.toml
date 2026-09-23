@@ -95,12 +95,11 @@ database_id = "8c1cee63-0567-4faa-ad74-a7721728a956"
 binding = "ARTIFACTS"
 bucket_name = "sigmascout-artifacts"
 
-# D-18: the small, hot live-windows manifest pointer ONLY (Pattern 2) —
-# read once at the top of every tick, written rarely by the offline publish
-# step. Per-tick bookkeeping (ETags, cursors, rotation offset) lives in D1
-# instead (event_cursor table), never here: KV's free tier allows only 1,000
-# writes/day, and a single ten-hour event day at one-minute ticks would blow
-# past that on bookkeeping alone (T-04-33).
-[[kv_namespaces]]
-binding = "MANIFEST"
-id = "f051554d9d60407097959b92aca51109"
+# NO [[kv_namespaces]] (quick task 260923-3w4). D-18 bound a `MANIFEST` KV
+# namespace here as the "small, hot live-windows manifest pointer" — read at the
+# top of every tick, written rarely by the offline publish step. Nothing in this
+# repository ever wrote a value to it, so every tick paid a guaranteed KV miss
+# and then the R2 read `liveWindows.ts` treated as a fallback. The namespace
+# itself (id f051554d9d60407097959b92aca51109) still exists in the account and is
+# simply no longer bound; deleting it there is a dashboard action, not a config
+# one. The Worker now touches exactly two stores: D1 above and R2 above.

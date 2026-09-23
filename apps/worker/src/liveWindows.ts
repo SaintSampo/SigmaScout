@@ -5,12 +5,15 @@
  * `packages/harness/manifests.ts` and published as small JSON objects; this
  * module only reads and validates what the publish pipeline already produced.
  *
- * KV is primary, R2 is the fallback. Both manifests are small and read
- * every single tick, which is precisely the shape KV's edge-cached,
- * very-fast-read tier is good at. The R2 fallback exists only for the case
- * KV has not yet been populated/propagated (KV writes are not strongly
- * consistent, ~60s global propagation) — R2 is the durable source of truth
- * the offline publisher always writes to.
+ * R2 ONLY, since quick task 260923-3w4. Until then KV was primary and R2 was a
+ * fallback for the case KV had not yet been populated or propagated — the
+ * original design's reasoning being that two small objects read every single
+ * tick are exactly what KV's edge-cached read tier is good at. The fallback was
+ * the only branch that ever ran: nothing in this repository has ever WRITTEN a
+ * value to the KV namespace, so every tick paid a guaranteed miss and then the R2
+ * read. Deleting the KV leg removes one binding call per manifest per tick and
+ * one whole store from the Worker's surface. R2 was always the durable source of
+ * truth the offline publisher writes to.
  *
  * `loadLiveWindowsManifest`/`loadAlgorithmsManifest` are exported separately
  * (not just the combined `loadManifests`) because `scheduled.ts`'s early
@@ -34,7 +37,7 @@ export const ALGORITHMS_MANIFEST_KEY = "v1/manifest/algorithms.json";
 
 export class ManifestReadError extends Error {
   constructor(name: string, key: string) {
-    super(`loadManifests: "${name}" manifest not found at KV or R2 key "${key}" — has the offline publish step run yet?`);
+    super(`loadManifests: "${name}" manifest not found at R2 key "${key}" — has the offline publish step run yet?`);
     this.name = "ManifestReadError";
   }
 }
@@ -46,10 +49,8 @@ export class ManifestValidationError extends Error {
   }
 }
 
-/** KV first (one call), R2 only when KV has no value yet (one more call) — see this module's header for why KV is primary. */
+/** One R2 call. See this module's header for why the KV leg that used to come first is gone. */
 async function readManifestText(env: Env, name: string, key: string): Promise<string> {
-  const kvValue = await env.MANIFEST.get(key);
-  if (kvValue !== null) return kvValue;
   const r2Object = await env.ARTIFACTS.get(key);
   if (r2Object === null) throw new ManifestReadError(name, key);
   return r2Object.text();
@@ -69,13 +70,13 @@ function parseManifest<T>(name: string, schema: { parse(input: unknown): T }, te
   }
 }
 
-/** Reads and validates ONLY the live-windows manifest — the one object `scheduled.ts`'s early exit needs. One KV/R2 call in the common (KV-hit) case. */
+/** Reads and validates ONLY the live-windows manifest — the one object `scheduled.ts`'s early exit needs. One R2 call. */
 export async function loadLiveWindowsManifest(env: Env): Promise<LiveWindowsManifest> {
   const text = await readManifestText(env, "live-windows", LIVE_WINDOWS_MANIFEST_KEY);
   return parseManifest("live-windows", LiveWindowsManifestSchema, text);
 }
 
-/** Reads and validates ONLY the algorithms manifest. One KV/R2 call in the common (KV-hit) case. */
+/** Reads and validates ONLY the algorithms manifest. One R2 call. */
 export async function loadAlgorithmsManifest(env: Env): Promise<AlgorithmsManifest> {
   const text = await readManifestText(env, "algorithms", ALGORITHMS_MANIFEST_KEY);
   return parseManifest("algorithms", AlgorithmsManifestSchema, text);
@@ -86,7 +87,7 @@ export interface Manifests {
   readonly algorithms: AlgorithmsManifest;
 }
 
-/** Both manifests, unconditionally — one binding call each in the common case. Prefer `loadLiveWindowsManifest` alone when only the liveness question is being asked (see this module's header). */
+/** Both manifests, unconditionally — one R2 call each. Prefer `loadLiveWindowsManifest` alone when only the liveness question is being asked (see this module's header). */
 export async function loadManifests(env: Env): Promise<Manifests> {
   const [liveWindows, algorithms] = await Promise.all([loadLiveWindowsManifest(env), loadAlgorithmsManifest(env)]);
   return { liveWindows, algorithms };

@@ -258,14 +258,15 @@ class FakeR2Bucket {
     const value = this.store.get(key);
     return value === undefined ? null : new FakeR2Object(value);
   }
-}
-
-class FakeKvNamespace {
-  constructor(private readonly values: Map<string, string>) {}
-  async get(key: string): Promise<string | null> {
-    return this.values.get(key) ?? null;
+  /** Pre-load an object as if an offline publish had written it. Since quick task 260923-3w4 the two manifests arrive here rather than through a fake KV binding. */
+  seed(key: string, body: string): void {
+    this.store.set(key, body);
   }
 }
+
+// THE FAKE KV BINDING IS GONE (quick task 260923-3w4): the Worker reads both
+// manifests straight from R2, so every `makeEnv` below seeds them into the R2
+// fake instead of into a second store that production never wrote to.
 
 
 // Fixture — two events, one season, overlapping rosters.
@@ -446,11 +447,12 @@ function algorithmsManifestJson(): string {
   return JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", algorithms });
 }
 
-function makeEnv(kv: FakeKvNamespace, d1: FakeD1Database, r2: FakeR2Bucket): Env {
+function makeEnv(manifests: Map<string, string>, d1: FakeD1Database, r2: FakeR2Bucket): Env {
+  for (const [key, body] of manifests) r2.seed(key, body);
+
   return {
     DB: d1 as unknown as D1Database,
     ARTIFACTS: r2 as unknown,
-    MANIFEST: kv as unknown,
     TBA_API_KEY: "test-key",
     TBA_BASE_URL: "https://tba.example.invalid/api/v3",
     LIVE_ALGORITHM_IDS: "opr,epa,spr",
@@ -529,7 +531,7 @@ afterEach(() => {
 
 describe("scheduled.rp — ranking points on live rows", () => {
   async function driveFixture(): Promise<{ r2: FakeR2Bucket; lastSubrequests: number }> {
-    const kv = new FakeKvNamespace(
+    const manifests = (
       new Map([
         [LIVE_WINDOWS_MANIFEST_KEY, liveWindowsManifest()],
         [ALGORITHMS_MANIFEST_KEY, algorithmsManifestJson()],
@@ -538,7 +540,7 @@ describe("scheduled.rp — ranking points on live rows", () => {
     const d1 = new FakeD1Database();
     const r2 = new FakeR2Bucket();
     vi.stubGlobal("fetch", makeTbaFetchStub());
-    const env = makeEnv(kv, d1, r2);
+    const env = makeEnv(manifests, d1, r2);
 
     // Phase 1: the whole prior event. Nothing is hand-seeded; the Worker
     // persists its own RP beliefs, as production would.
@@ -1019,7 +1021,7 @@ describe("scheduled.rp — the mean shift survives the live Worker (shape 16)", 
       endMs: NOW_MS + 3_600_000,
       inferred: false,
     }));
-    const kv = new FakeKvNamespace(
+    const manifests = (
       new Map([
         [LIVE_WINDOWS_MANIFEST_KEY, JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", windows })],
         [ALGORITHMS_MANIFEST_KEY, algorithmsManifestJson()],
@@ -1029,7 +1031,7 @@ describe("scheduled.rp — the mean shift survives the live Worker (shape 16)", 
     const r2 = new FakeR2Bucket();
     vi.stubGlobal("fetch", msTbaStub());
     // spr only, the tracked production tier (`LIVE_ALGORITHM_IDS = "spr"`).
-    const env = { ...makeEnv(kv, d1, r2), LIVE_ALGORITHM_IDS: "spr" } as Env;
+    const env = { ...makeEnv(manifests, d1, r2), LIVE_ALGORITHM_IDS: "spr" } as Env;
     const tick = (i: number) =>
       runTick(env, { nowMs: NOW_MS + i * 60_000 });
 
@@ -1337,7 +1339,7 @@ async function sbHarness(options: SbHarnessOptions = {}): Promise<SbHarness> {
   await r2.put(SB_ARTIFACT_KEY, JSON.stringify(artifact));
 
   const windows = [{ eventKey: SB_LIVE_EVENT_KEY, season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000, inferred: false }];
-  const kv = new FakeKvNamespace(
+  const manifests = (
     new Map([
       [LIVE_WINDOWS_MANIFEST_KEY, JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", windows })],
       [ALGORITHMS_MANIFEST_KEY, algorithmsManifestJson()],
@@ -1375,7 +1377,7 @@ async function sbHarness(options: SbHarnessOptions = {}): Promise<SbHarness> {
       throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
     })
   );
-  const env = { ...makeEnv(kv, d1 as unknown as FakeD1Database, r2), LIVE_ALGORITHM_IDS: "spr" } as Env;
+  const env = { ...makeEnv(manifests, d1 as unknown as FakeD1Database, r2), LIVE_ALGORITHM_IDS: "spr" } as Env;
 
   let tickIndex = 0;
   return {

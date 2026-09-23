@@ -190,6 +190,7 @@ class FakeR2Object {
 
 class FakeR2Bucket {
   putCallCount = 0;
+  getCallCount = 0;
   puts: { key: string; body: string }[] = [];
   private readonly store = new Map<string, string>();
 
@@ -200,22 +201,24 @@ class FakeR2Bucket {
   }
 
   async get(key: string): Promise<FakeR2Object | null> {
+    this.getCallCount++;
     const value = this.store.get(key);
     return value === undefined ? null : new FakeR2Object(value);
   }
-}
 
-class FakeKvNamespace {
-  getCallCount = 0;
-  constructor(private readonly values: Map<string, string>) {}
-  async get(key: string): Promise<string | null> {
-    this.getCallCount++;
-    return this.values.get(key) ?? null;
+  /** Pre-load an object as if an offline publish had written it — deliberately NOT counted in `putCallCount`/`puts`, which exist to count what THIS tick wrote. Since quick task 260923-3w4 the two manifests arrive here rather than through a fake KV binding. */
+  seed(key: string, body: string): void {
+    this.store.set(key, body);
   }
 }
 
-function makeEnv(kv: FakeKvNamespace, d1: FakeD1Database, r2: FakeR2Bucket, liveAlgorithmIds = "spr"): Env {
-  return { DB: d1 as unknown as D1Database, ARTIFACTS: r2 as unknown, MANIFEST: kv as unknown, TBA_API_KEY: "test-key", LIVE_ALGORITHM_IDS: liveAlgorithmIds } as Env;
+// THE FAKE KV BINDING IS GONE (quick task 260923-3w4): the Worker reads both
+// manifests straight from R2, so every `makeEnv` below seeds them into the R2
+// fake instead of into a second store that production never wrote to.
+
+function makeEnv(manifests: Map<string, string>, d1: FakeD1Database, r2: FakeR2Bucket, liveAlgorithmIds = "spr"): Env {
+  for (const [key, body] of manifests) r2.seed(key, body);
+  return { DB: d1 as unknown as D1Database, ARTIFACTS: r2 as unknown, TBA_API_KEY: "test-key", TBA_BASE_URL: "https://tba.example.invalid/api/v3", LIVE_ALGORITHM_IDS: liveAlgorithmIds } as Env;
 }
 
 // ---------------------------------------------------------------------------
@@ -253,13 +256,11 @@ function algorithmsManifest(): string {
   });
 }
 
-function makeKv(windows: readonly WindowFixture[]): FakeKvNamespace {
-  return new FakeKvNamespace(
-    new Map([
-      [LIVE_WINDOWS_MANIFEST_KEY, liveWindowsManifest(windows)],
-      [ALGORITHMS_MANIFEST_KEY, algorithmsManifest()],
-    ])
-  );
+function makeManifests(windows: readonly WindowFixture[]): Map<string, string> {
+  return new Map([
+    [LIVE_WINDOWS_MANIFEST_KEY, liveWindowsManifest(windows)],
+    [ALGORITHMS_MANIFEST_KEY, algorithmsManifest()],
+  ]);
 }
 
 /** Seeds `d1` with a state-baseline marker for `spr` at `MANIFEST_GENERATION` — the healthy control-arm state every OTHER test file in this directory defaults to, opted into explicitly here. */
@@ -386,13 +387,13 @@ afterEach(() => {
 
 describe("runTick — state-generation marker equals the manifest generation (control arm)", () => {
   it("behaves exactly as today: folds, one D1 batch, one R2 put, stateGenerationMismatch false", async () => {
-    const kv = makeKv([WINDOW]);
+    const manifests = makeManifests([WINDOW]);
     const d1 = new FakeD1Database();
     seedHealthyMarker(d1);
     const r2 = new FakeR2Bucket();
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([[EVENT_KEY, twoMatchEventRecord(EVENT_KEY, "etag-1")]])));
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
+    const result = await runTick(makeEnv(manifests, d1, r2), { nowMs: NOW_MS });
 
     expect(result.eventsAdvanced).toBe(1);
     expect(result.eventsFailed).toBe(0);
@@ -413,7 +414,7 @@ describe("runTick — state-generation marker equals the manifest generation (co
 
 describe("runTick — state-generation marker differs from the manifest generation", () => {
   it("zero D1 batches, zero R2 puts, no cursor write, no global rebuild, no tick-meta write, stateGenerationMismatch true, one console.warn line", async () => {
-    const kv = makeKv([WINDOW]);
+    const manifests = makeManifests([WINDOW]);
     const d1 = new FakeD1Database();
     seedStateBaselineMarkers(d1.eventCursors, ["spr"], STALE_GENERATION);
     const r2 = new FakeR2Bucket();
@@ -423,7 +424,7 @@ describe("runTick — state-generation marker differs from the manifest generati
     // "no global rebuild ran" is a genuine assertion about the mismatch return:
     // the mismatch returns BEFORE the rebuild call, which quick task 260923-3w4
     // made unconditional, so there is no interval left for it to hide behind.
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
+    const result = await runTick(makeEnv(manifests, d1, r2), { nowMs: NOW_MS });
 
     expect(result).toMatchObject({
       eventsConsidered: 0,
@@ -449,13 +450,13 @@ describe("runTick — state-generation marker differs from the manifest generati
 
 describe("runTick — state-generation marker row absent entirely (today's live D1 bootstrap state)", () => {
   it("identical to the mismatch case: stateGenerationMismatch true, zero D1 batches, zero R2 puts", async () => {
-    const kv = makeKv([WINDOW]);
+    const manifests = makeManifests([WINDOW]);
     const d1 = new FakeD1Database(); // no marker seeded at all
     const r2 = new FakeR2Bucket();
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([[EVENT_KEY, twoMatchEventRecord(EVENT_KEY, "etag-1")]])));
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
+    const result = await runTick(makeEnv(manifests, d1, r2), { nowMs: NOW_MS });
 
     expect(result.stateGenerationMismatch).toBe(true);
     expect(result.eventsAdvanced).toBe(0);
@@ -470,13 +471,13 @@ describe("runTick — state-generation marker row absent entirely (today's live 
 
 describe("runTick — probes still run under a mismatch", () => {
   it("eventsProbed above zero, eventsPromoted zero, and a promoted event is NOT folded", async () => {
-    const kv = makeKv([PROBE_WINDOW]);
+    const manifests = makeManifests([PROBE_WINDOW]);
     const d1 = new FakeD1Database(); // no marker: every tick this tick would attempt is a mismatch
     const r2 = new FakeR2Bucket();
     const record = twoMatchEventRecord("2026probe", "probe-etag-1");
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026probe", record]])));
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
+    const result = await runTick(makeEnv(manifests, d1, r2), { nowMs: NOW_MS });
 
     expect(result.eventsProbed).toBe(1);
     expect(result.eventsPromoted).toBe(0);
@@ -490,7 +491,7 @@ describe("runTick — probes still run under a mismatch", () => {
 
 describe("runTick — cursor ahead of nothing (a seeded cursor at the offline run's last match)", () => {
   it("exactly the matches after the cursor reach update(), no more and no fewer", async () => {
-    const kv = makeKv([WINDOW]);
+    const manifests = makeManifests([WINDOW]);
     const d1 = new FakeD1Database();
     seedHealthyMarker(d1);
     // The offline run's own last folded match was qm1; TBA now reports qm1
@@ -500,7 +501,7 @@ describe("runTick — cursor ahead of nothing (a seeded cursor at the offline ru
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([[EVENT_KEY, threeMatchEventRecord(EVENT_KEY, "etag-1")]])));
     const updateSpy = vi.spyOn(spr, "update");
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
+    const result = await runTick(makeEnv(manifests, d1, r2), { nowMs: NOW_MS });
 
     expect(result.eventsAdvanced).toBe(1);
     expect(updateSpy).toHaveBeenCalledTimes(2);
@@ -512,7 +513,7 @@ describe("runTick — cursor ahead of nothing (a seeded cursor at the offline ru
 
 describe("runTick — cursor equal to what state already contains (the incident's other direction)", () => {
   it("folds nothing and issues no D1 batch, where the same fixture with a null cursor would refold every match", async () => {
-    const kv = makeKv([WINDOW]);
+    const manifests = makeManifests([WINDOW]);
     const record = threeMatchEventRecord(EVENT_KEY, "etag-1");
 
     // Arm 1: cursor already at the last match.
@@ -521,7 +522,7 @@ describe("runTick — cursor equal to what state already contains (the incident'
     seededD1.eventCursors.set(EVENT_KEY, { event_key: EVENT_KEY, tba_etag: null, last_folded_match_key: `${EVENT_KEY}_qm3`, last_polled_at: null, last_advanced_at: null });
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([[EVENT_KEY, record]])));
     const seededUpdateSpy = vi.spyOn(spr, "update");
-    const seededResult = await runTick(makeEnv(kv, seededD1, new FakeR2Bucket()), { nowMs: NOW_MS });
+    const seededResult = await runTick(makeEnv(manifests, seededD1, new FakeR2Bucket()), { nowMs: NOW_MS });
     expect(seededResult.eventsAdvanced).toBe(0);
     expect(seededD1.batchCallCount).toBe(0);
     expect(seededUpdateSpy).not.toHaveBeenCalled();
@@ -533,7 +534,7 @@ describe("runTick — cursor equal to what state already contains (the incident'
     seedHealthyMarker(nullCursorD1);
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([[EVENT_KEY, record]])));
     const nullCursorUpdateSpy = vi.spyOn(spr, "update");
-    const nullCursorResult = await runTick(makeEnv(makeKv([WINDOW]), nullCursorD1, new FakeR2Bucket()), { nowMs: NOW_MS });
+    const nullCursorResult = await runTick(makeEnv(makeManifests([WINDOW]), nullCursorD1, new FakeR2Bucket()), { nowMs: NOW_MS });
     expect(nullCursorResult.eventsAdvanced).toBe(1);
     expect(nullCursorUpdateSpy).toHaveBeenCalledTimes(3);
   });
@@ -541,7 +542,7 @@ describe("runTick — cursor equal to what state already contains (the incident'
 
 describe("runTick — two played matches tied on sortTime", () => {
   it("the Worker's ordered match list follows the corpus ORDER BY chain (comp level, set number, match number), never TBA's array order", async () => {
-    const kv = makeKv([WINDOW]);
+    const manifests = makeManifests([WINDOW]);
     const d1 = new FakeD1Database();
     seedHealthyMarker(d1);
     const r2 = new FakeR2Bucket();
@@ -565,7 +566,7 @@ describe("runTick — two played matches tied on sortTime", () => {
     };
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([[EVENT_KEY, record]])));
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
+    const result = await runTick(makeEnv(manifests, d1, r2), { nowMs: NOW_MS });
 
     expect(result.eventsAdvanced).toBe(1);
     // The corpus's own total order (matchNumber ascending on a tie) says the
@@ -576,12 +577,12 @@ describe("runTick — two played matches tied on sortTime", () => {
 
 describe("runTick — the nothing-live tick and the probe-only tick issue the same number of D1 statements as before this task", () => {
   it("the nothing-live tick makes zero D1 calls", async () => {
-    const kv = makeKv([]);
+    const manifests = makeManifests([]);
     const d1 = new FakeD1Database();
     const r2 = new FakeR2Bucket();
     vi.stubGlobal("fetch", vi.fn());
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
+    const result = await runTick(makeEnv(manifests, d1, r2), { nowMs: NOW_MS });
 
     expect(result.stateGenerationMismatch).toBe(false);
     expect(d1.selectCallCount).toBe(0);
@@ -589,13 +590,13 @@ describe("runTick — the nothing-live tick and the probe-only tick issue the sa
   });
 
   it("a probe-only tick that sees a 304 makes exactly the ONE cursor read runProbes already paid for, and no D1 write", async () => {
-    const kv = makeKv([PROBE_WINDOW]);
+    const manifests = makeManifests([PROBE_WINDOW]);
     const d1 = new FakeD1Database();
     const r2 = new FakeR2Bucket();
     const fetchMock = vi.fn(async () => ({ status: 304, ok: false, headers: new Map(), json: async () => ({}) }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await runTick(makeEnv(kv, d1, r2), { nowMs: NOW_MS });
+    const result = await runTick(makeEnv(manifests, d1, r2), { nowMs: NOW_MS });
 
     expect(result).toMatchObject({ eventsProbed: 1, eventsPromoted: 0, stateGenerationMismatch: false });
     // eventPreflight's own cursor read (pre-existing, unrelated to this

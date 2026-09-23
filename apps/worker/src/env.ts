@@ -1,6 +1,6 @@
 /**
- * The Worker's whole typed binding surface (wrangler.toml's `DB`/`ARTIFACTS`/
- * `MANIFEST`, plus the `TBA_API_KEY` secret set with `wrangler secret put` —
+ * The Worker's whole typed binding surface (wrangler.toml's `DB`/`ARTIFACTS`,
+ * plus the `TBA_API_KEY` secret set with `wrangler secret put` —
  * never assigned a value in the tracked `wrangler.toml`). Every module that
  * touches a Cloudflare binding or the TBA key reads it off this ONE typed
  * `Env`, never an untyped `env.something` — a typo in a binding name fails
@@ -11,8 +11,13 @@ export interface Env {
   readonly DB: D1Database;
   /** Published page artifacts, written offline by `pnpm publish:artifacts` and read back here. */
   readonly ARTIFACTS: R2Bucket;
-  /** The small, hot live-windows manifest pointer only — see wrangler.toml's own comment for why per-tick bookkeeping does NOT live here. */
-  readonly MANIFEST: KVNamespace;
+  // THERE IS NO KV BINDING (quick task 260923-3w4). `MANIFEST: KVNamespace` sat
+  // here as the "small, hot live-windows manifest pointer" half of the original
+  // R2-for-artifacts/KV-for-pointers design. Nothing in this repository ever
+  // WROTE a value to it, so every tick paid a guaranteed KV miss and then the R2
+  // read it was always going to make. The Worker now touches exactly two stores:
+  // D1 for algorithm state and cursors (Worker-internal, never reachable from a
+  // browser) and R2 for published artifacts.
   /** Set via `wrangler secret put TBA_API_KEY` — NEVER assigned a value in wrangler.toml, which is tracked in git. */
   readonly TBA_API_KEY: string;
   /**

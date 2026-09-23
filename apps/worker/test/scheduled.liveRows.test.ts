@@ -234,12 +234,9 @@ class FakeR2Bucket {
   }
 }
 
-class FakeKvNamespace {
-  constructor(private readonly values: Map<string, string>) {}
-  async get(key: string): Promise<string | null> {
-    return this.values.get(key) ?? null;
-  }
-}
+// THE FAKE KV BINDING IS GONE (quick task 260923-3w4): the Worker reads both
+// manifests straight from R2, so every `makeEnv` below seeds them into the R2
+// fake instead of into a second store that production never wrote to.
 
 // ---------------------------------------------------------------------------
 // Fixture
@@ -321,9 +318,9 @@ function algorithmsManifest(ids: readonly string[]): string {
   return JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", algorithms });
 }
 
-function makeKv(ids: readonly string[] = ["opr"]): FakeKvNamespace {
+function makeManifests(ids: readonly string[] = ["opr"]): Map<string, string> {
   const windows = [{ eventKey: EVENT_KEY, season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000, inferred: false }];
-  return new FakeKvNamespace(
+  return (
     new Map([
       [LIVE_WINDOWS_MANIFEST_KEY, JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", windows })],
       [ALGORITHMS_MANIFEST_KEY, algorithmsManifest(ids)],
@@ -331,11 +328,12 @@ function makeKv(ids: readonly string[] = ["opr"]): FakeKvNamespace {
   );
 }
 
-function makeEnv(kv: FakeKvNamespace, d1: FakeD1Database, r2: FakeR2Bucket, overrides: Partial<Env> = {}): Env {
+function makeEnv(manifests: Map<string, string>, d1: FakeD1Database, r2: FakeR2Bucket, overrides: Partial<Env> = {}): Env {
+  for (const [key, body] of manifests) r2.seed(key, body);
+
   return {
     DB: d1 as unknown as D1Database,
     ARTIFACTS: r2 as unknown,
-    MANIFEST: kv as unknown,
     TBA_API_KEY: "test-key",
     TBA_BASE_URL: "https://tba.example.invalid/api/v3",
     LIVE_ALGORITHM_IDS: "opr",
@@ -397,7 +395,7 @@ afterEach(() => {
 describe("the live tick's team half is ZERO R2 calls", () => {
   it("issues no team-artifact GET and no team-artifact PUT across three folding ticks", async () => {
     const r2 = new FakeR2Bucket();
-    const env = makeEnv(makeKv(), new FakeD1Database(), r2);
+    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
     vi.stubGlobal("fetch", makeTbaFetchStub());
 
     await driveTicks(env, 3);
@@ -415,7 +413,7 @@ describe("the live tick's team half is ZERO R2 calls", () => {
 
   it("issues exactly TWO R2 calls per algorithm-event — the event artifact, read then written — and NOTHING else", async () => {
     const r2 = new FakeR2Bucket();
-    const env = makeEnv(makeKv(), new FakeD1Database(), r2);
+    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
     vi.stubGlobal("fetch", makeTbaFetchStub());
 
     await driveTicks(env, 3);
@@ -443,7 +441,7 @@ describe("the live tick's team half is ZERO R2 calls", () => {
 
   it("issues no R2 call whatsoever under the DELETED live-object prefix", async () => {
     const r2 = new FakeR2Bucket();
-    const env = makeEnv(makeKv(), new FakeD1Database(), r2);
+    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
     vi.stubGlobal("fetch", makeTbaFetchStub());
 
     await driveTicks(env, 3);
@@ -460,7 +458,7 @@ describe("the live tick's team half is ZERO R2 calls", () => {
 describe("the live block accumulates across ticks", () => {
   it("appends one row per folded match, in fold order, over three ticks", async () => {
     const r2 = new FakeR2Bucket();
-    const env = makeEnv(makeKv(), new FakeD1Database(), r2);
+    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
     vi.stubGlobal("fetch", makeTbaFetchStub());
 
     await driveTicks(env, 3);
@@ -475,7 +473,7 @@ describe("the live block accumulates across ticks", () => {
 
   it("carries each match's own roster, and each team's own post-match metrics", async () => {
     const r2 = new FakeR2Bucket();
-    const env = makeEnv(makeKv(), new FakeD1Database(), r2);
+    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
     vi.stubGlobal("fetch", makeTbaFetchStub());
 
     await driveTicks(env, 3);
@@ -507,7 +505,7 @@ describe("the live block accumulates across ticks", () => {
 
   it("serializes the block LAST in the written body, after `state`", async () => {
     const r2 = new FakeR2Bucket();
-    const env = makeEnv(makeKv(), new FakeD1Database(), r2);
+    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
     vi.stubGlobal("fetch", makeTbaFetchStub());
 
     await driveTicks(env, 3);
@@ -522,11 +520,11 @@ describe("the live block accumulates across ticks", () => {
   it("carries Sigma as an ordinary metric key for a Sigma algorithm, and not at all for OPR", async () => {
     const sprR2 = new FakeR2Bucket();
     vi.stubGlobal("fetch", makeTbaFetchStub());
-    await driveTicks(makeEnv(makeKv(["spr"]), new FakeD1Database(), sprR2, { LIVE_ALGORITHM_IDS: "spr" }), 3);
+    await driveTicks(makeEnv(makeManifests(["spr"]), new FakeD1Database(), sprR2, { LIVE_ALGORITHM_IDS: "spr" }), 3);
     expect(liveBlockOf(sprR2.peek(eventKeyFor("spr")))!.metricKeys).toContain(SIGMA_METRIC_KEY);
 
     const oprR2 = new FakeR2Bucket();
-    await driveTicks(makeEnv(makeKv(), new FakeD1Database(), oprR2), 3);
+    await driveTicks(makeEnv(makeManifests(), new FakeD1Database(), oprR2), 3);
     expect(liveBlockOf(oprR2.peek(eventKeyFor("opr")))!.metricKeys).not.toContain(SIGMA_METRIC_KEY);
   });
 });
@@ -540,7 +538,7 @@ describe("the live block's failure modes are logged, not silent", () => {
     // scrub; this shape needs none, because `writeArtifactObject` already
     // scrubs the entire serialized event body before the put and before the
     // budget consume.
-    const env = makeEnv(makeKv(), new FakeD1Database(), r2, { TBA_API_KEY: "metricKeys" });
+    const env = makeEnv(makeManifests(), new FakeD1Database(), r2, { TBA_API_KEY: "metricKeys" });
     vi.stubGlobal("fetch", makeTbaFetchStub());
 
     revealed = 1;
@@ -552,7 +550,7 @@ describe("the live block's failure modes are logged, not silent", () => {
     // Non-vacuity: without the secret, the same tick writes the body.
     const cleanR2 = new FakeR2Bucket();
     revealed = 1;
-    await runTick(makeEnv(makeKv(), new FakeD1Database(), cleanR2), { nowMs: NOW_MS });
+    await runTick(makeEnv(makeManifests(), new FakeD1Database(), cleanR2), { nowMs: NOW_MS });
     expect(cleanR2.puts.some((p) => p.key.startsWith("v1/event/"))).toBe(true);
     expect(liveBlockOf(cleanR2.peek(eventKeyFor("opr")))).toBeDefined();
   });
@@ -571,7 +569,7 @@ describe("the live block's failure modes are logged, not silent", () => {
     });
     r2.seed(eventKeyFor("opr"), JSON.stringify(seededEventBody(stale)));
 
-    const env = makeEnv(makeKv(), new FakeD1Database(), r2);
+    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
     vi.stubGlobal("fetch", makeTbaFetchStub());
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
@@ -604,7 +602,7 @@ describe("runGlobalRebuild's touched-team bookkeeping survived the deleted loop"
    */
   it("feeds teams/{year} a per-team matchCount delta equal to the matches that team actually played", async () => {
     const r2 = new FakeR2Bucket();
-    const env = makeEnv(makeKv(), new FakeD1Database(), r2);
+    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
     vi.stubGlobal("fetch", makeTbaFetchStub());
 
     // One tick, global rebuild forced on. Match 1 touches all six teams once.
@@ -632,7 +630,7 @@ describe("runGlobalRebuild's touched-team bookkeeping survived the deleted loop"
 
   it("stays gated on officialness: an offseason (event_type 99) tick writes the live rows and contributes NO team row at all", async () => {
     const r2 = new FakeR2Bucket();
-    const env = makeEnv(makeKv(), new FakeD1Database(), r2);
+    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
     vi.stubGlobal("fetch", makeTbaFetchStub(99));
 
     revealed = 1;
