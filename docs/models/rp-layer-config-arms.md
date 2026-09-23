@@ -363,8 +363,9 @@ different algorithm entirely, and the two are not comparable. The residual under
 `pRedWin` is exact (unchanged from this document's own derivation above).
 
 **What shipped.** WIN+TIE, at every Prediction-bearing RP call site: `SigmaScoutLayer#rpFieldsFor`,
-`apps/worker/src/scheduled.ts`'s `rpFieldsFor`, `apps/worker/src/stateProbe.ts`'s `rpFieldsFor`
-(mirrors the Worker), and `publish.ts`'s pre-schedule pricer (`makeRankingPointFiller`).
+`apps/worker/src/scheduled.ts`'s `rpFieldsFor`, the read-only CPU probe's own mirror of it (a
+historical call site — `apps/worker/src/stateProbe.ts` was deleted by quick task 260923-3w4), and
+`publish.ts`'s pre-schedule pricer (`makeRankingPointFiller`).
 `fieldAveraged.ts` passes nothing (it prices a hypothetical match with no real `Prediction` to read
 `pRedWin` from) and keeps the score-draw limit, with a comment recording why. The measurement seam
 — the `SigmaScoutLayer` third constructor argument, `--outcome-arms`/`--emit-outcome-arms`, and the
@@ -464,8 +465,9 @@ ranges come from the game rules, not from season data, so the two are different 
 
 **What shipped.** Both knobs, unconditionally, at every ranking-point call site. All 34 variables
 declare `lattice` (`f79a55aa`). `SigmaScoutLayer` builds the mean shift whenever it publishes RP. The
-live Worker (`apps/worker/src/scheduled.ts`) and the state probe resume, apply, observe and write
-back the shift as the layer does. It rides the spr league row as `sigmascoutRpMeanShift`, and
+live Worker (`apps/worker/src/scheduled.ts`) resumes, applies, observes and writes back the shift
+as the layer does — and so did the read-only CPU probe, historically, until quick task 260923-3w4
+deleted it. It rides the spr league row as `sigmascoutRpMeanShift`, and
 `STATE_SNAPSHOT_SHAPE_VERSION` is 16 (`98c5bfa4`). The pre-schedule pricer applies it per synthetic
 alliance, and the field-averaged presim applies it all-or-nothing per event. The measurement seam
 was deleted: `--bonus-arms`, `--emit-bonus-arms`, the four-layer fold, `ruleModuleWithLatticeArm`,

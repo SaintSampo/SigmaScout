@@ -121,19 +121,16 @@ export function splitEventMatches(
  * lifted verbatim — normalize everything, sort the normalized rows, filter with
  * `hasAlreadyFolded`, project the unplayed rows onto the same six fields.
  *
- * IT HAS NO PRODUCTION CALLER ON PURPOSE, AND TWO REASONS TO KEEP EXISTING
- * THAT MUST BOTH STAY TRUE:
+ * IT HAS NO PRODUCTION CALLER ON PURPOSE. It is the oracle
+ * `test/matchSplit.test.ts` diffs `splitEventMatches` against at five cursor
+ * positions — the only thing that proves the trim is output-identical rather
+ * than merely believed to be. (It was also the `normalize=all` baseline arm of
+ * the CPU probe's `normalize=` measurement; quick task 260923-3w4 deleted that
+ * probe along with every other CPU-ms instrument, so the oracle role is now the
+ * whole reason.)
  *
- *   1. it is the oracle `test/matchSplit.test.ts` diffs `splitEventMatches`
- *      against at five cursor positions — the only thing that proves the trim
- *      is output-identical rather than merely believed to be;
- *   2. it is the `normalize=all` baseline arm of `stateProbe.ts`'s `normalize=`
- *      measurement — the only thing that prices the trim as a within-run arm
- *      difference rather than an absolute `cpuTime` this instrument cannot
- *      reproduce.
- *
- * Delete it and the change becomes unverifiable and unmeasurable at the same
- * time. "It has no callers" is not a reason to remove it; it is the design.
+ * Delete it and the change becomes unverifiable. "It has no callers" is not a
+ * reason to remove it; it is the design.
  */
 export function splitEventMatchesNormalizeAll(
   rawMatches: readonly TbaMatch[],

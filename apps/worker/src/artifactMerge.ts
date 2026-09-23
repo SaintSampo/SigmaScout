@@ -2,20 +2,18 @@
  * PHASE B's ARTIFACT MERGE PATH, as a Worker-safe module with no write helper
  * anywhere in its import graph.
  *
- * WHY THIS FILE EXISTS. It was extracted verbatim out of `scheduled.ts` so the
- * read-only state probe (`stateProbe.ts`) can PRICE Phase B by calling THESE
- * functions — the very ones the tick calls — rather than a copy of them. A
- * second implementation would measure a fiction: it would drift from the tick
- * silently, and the number it produced would be evidence about nothing. The
- * probe cannot import `scheduled.ts` (that would pull `writeScopedState`,
- * `writeEventCursor` and `artifactWriter.ts` into its graph and destroy its
- * two-layer no-write guarantee), so the shared code had to move here instead.
+ * WHY THIS FILE EXISTS. It was extracted verbatim out of `scheduled.ts` for the
+ * read-only CPU-attribution probe deleted by quick task 260923-3w4, which
+ * needed to PRICE Phase B by calling THESE functions — the very ones the tick
+ * calls — without pulling a write helper into its import graph. THE FILE STAYS,
+ * and so does every function in it: quick task 260923-3w4's successor reinstates
+ * the tick's per-team artifact writes, and `mergeTeamSeasonArtifact` below is
+ * what it reinstates them through. Merging this module back into `scheduled.ts`
+ * now would be churn immediately undone.
  *
- * THEREFORE: this module must NEVER import `./scheduled.js` or
- * `./artifactWriter.js`, and must never gain a helper that writes R2, KV or
- * D1. `test/stateProbe.test.ts` Group 1 walks this file's import graph and
- * fails on either edge. The tick may import this module; this module may never
- * import the tick.
+ * The no-write-helper property is no longer enforced by a test (the probe's own
+ * import-graph walk went with it), and nothing depends on it any more. Adding a
+ * write helper here is a style question, not a safety one.
  *
  * Everything below is byte-identical in behavior to what `scheduled.ts` held
  * before the extraction. The only changes are three parameter types widened to
@@ -572,19 +570,22 @@ export interface MergeTeamSeasonArtifactParams {
  * the rest from files the robot page already fetches
  * (`apps/web/src/lib/liveTeamSeason.ts`).
  *
- * IT SURVIVES FOR EXACTLY ONE REASON: `apps/worker/src/stateProbe.ts` runs the
- * `allPhaseB` baseline arm — today's tick with the team half intact — and that
- * arm is what every Phase B measurement is compared against. Deleting this
- * function would delete the baseline. Its deletion is filed in
- * `.planning/todos/pending/rp-fold-exceeds-worker-cpu-budget.md` alongside the
- * probe's own scheduled deletion; neither goes before the other.
+ * IT IS DELIBERATELY KEPT, AND KEPT EXPORTED, with no caller on the live path.
+ * Until quick task 260923-3w4 it survived as the CPU probe's `allPhaseB`
+ * baseline arm; that probe is now deleted, and this function is kept for the
+ * OPPOSITE reason — the successor task reinstates the tick's per-team artifact
+ * writes (`260923-1tu-FINDINGS.md` item C5, decided by Jacob 2026-09-23) and
+ * this is the merge it reinstates them through. Deleting it would mean writing
+ * it again from scratch in the next commit.
  *
- * SECOND CONSEQUENCE, RECORDED RATHER THAN LEFT IMPLICIT: `matchIndexByKey` is
- * now supplied only by the probe. The live tick built it from ONE EVENT's own
- * ordered match keys, so the `matchIndex` it wrote into a field documented as
- * a season-wide index was in fact event-local — and nothing in production web
- * reads that field (`buildMetricSeries` uses array position, by its own doc
- * comment). The browser derivation assigns array position for the same reason.
+ * SECOND CONSEQUENCE, RECORDED RATHER THAN LEFT IMPLICIT: `matchIndexByKey` has
+ * no supplier at all right now. When the live tick last built it, it built it
+ * from ONE EVENT's own ordered match keys, so the `matchIndex` it wrote into a
+ * field documented as a season-wide index was in fact event-local — and nothing
+ * in production web reads that field (`buildMetricSeries` uses array position,
+ * by its own doc comment). The browser derivation assigns array position for the
+ * same reason. Whatever reinstates the per-team write has to decide what that
+ * index means rather than inherit the event-local answer by accident.
  *
  * Read-modify-write merge for one team's season artifact: writes this tick's
  * newly-folded matches at `eventKey` (creating the event's entry if this is

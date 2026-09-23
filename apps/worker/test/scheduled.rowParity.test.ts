@@ -316,10 +316,10 @@ describe("live played rows equal the offline publisher's rows", () => {
   /**
    * THIS HALF NOW DESCRIBES WHAT THE *PUBLISHER* WRITES, not what a live tick
    * writes (260917-jr4, D-07). The live tick makes no team-artifact write at
-   * all; `mergeTeamSeasonArtifact` survives only as `stateProbe.ts`'s
-   * `allPhaseB` baseline arm. What this test still pins is the DEFINITION the
-   * browser's derivation is measured against — the exact row a published team
-   * artifact carries for a played match.
+   * all; `mergeTeamSeasonArtifact` is kept for the successor of quick task
+   * 260923-3w4, which reinstates that write. What this test still pins is the
+   * DEFINITION the browser's derivation is measured against — the exact row a
+   * published team artifact carries for a played match.
    *
    * The BROWSER side of the same claim lives in
    * `apps/web/src/lib/liveTeamSeason.test.ts`: a derived team-page row equals

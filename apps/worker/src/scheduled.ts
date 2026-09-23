@@ -122,9 +122,9 @@ import {
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "../../../packages/harness/rounding.js";
 import { PUBLISHED_ALGORITHM_IDS, type AlgorithmsManifest, type LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
 import { loadAlgorithmsManifest, loadLiveEventsAt } from "./liveWindows.js";
-// Phase B's merge path, extracted so the read-only state probe can price it by
-// calling these very functions (see `artifactMerge.ts`'s header). The edge runs
-// one way only: the tick imports the merge, never the reverse.
+// Phase B's merge path, in its own module (see `artifactMerge.ts`'s header for
+// why it was extracted and why it stays). The edge runs one way only: the tick
+// imports the merge, never the reverse.
 import {
   fallbackTeamNumber,
   mergeEventArtifact,
@@ -415,19 +415,16 @@ function toMatchResult(match: CorpusMatch, eventType: number, week: number | nul
 // what THIS tick changed — never a full corpus-based rebuild (the Worker has
 // no corpus access at all).
 //
-// The merge itself now lives in `./artifactMerge.js`, so the read-only state
-// probe can price Phase B through the tick's own functions without pulling a
-// write helper into its import graph. These re-exports keep the symbols
-// importable from `./scheduled.js`, which is where the merge-parity tests
-// (`scheduled.mergePreservation`, `scheduled.officialRecord`,
+// The merge itself lives in `./artifactMerge.js`. These re-exports keep the
+// symbols importable from `./scheduled.js`, which is where the merge-parity
+// tests (`scheduled.mergePreservation`, `scheduled.officialRecord`,
 // `scheduled.rowParity`, `scheduled.test`) reach for them.
 //
 // `mergeTeamSeasonArtifact` IS DELIBERATELY KEPT, and kept exported, even
 // though NOTHING on the live path calls it any more (260917-jr4 removed the
-// last caller). It survives as the state probe's `allPhaseB` BASELINE ARM —
-// the arm every Phase B number is measured against. Deleting it would delete
-// the baseline, so its own deletion is blocked on the probe's, and neither
-// goes first.
+// last caller). It is what the successor of quick task 260923-3w4 reinstates
+// the tick's per-team artifact write through; see that function's own doc
+// comment in `artifactMerge.ts`.
 // ---------------------------------------------------------------------------
 
 export { mergeEventArtifact, mergeTeamSeasonArtifact, playedRowFactsFor, touchedEventTeamMetrics };

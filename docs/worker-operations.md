@@ -295,13 +295,15 @@ just before `foldObservedRp`, and writes it back beside `withRpBeliefs`. That mi
 - **Order.** Publish, then seed `seed-spr.sql`, then deploy the Worker. Seed first, deploy second,
   as above. Only `seed-spr.sql` carries the passenger, because opr and epa publish no ranking
   points. The live tier is spr only (`LIVE_ALGORITHM_IDS = "spr"`), so a shape-15 opr or epa row
-  never reaches the Worker. It does reach the probe, which reads all three.
+  never reaches the Worker. (It did reach the read-only CPU probe, which read all three; that probe
+  was deleted 2026-09-23 by quick task 260923-3w4.)
 - **Why the bump is load-bearing.** A shape-15 row has no passenger. Without the bump the Worker
   would resume a fresh shift and price every live match unshifted while the artifacts it serves
   are shifted, and nothing would error. The bump turns that into `LeagueRowShapeVersionError`.
-- **The probe is a separate deployment.** Redeploy it (`pnpm --filter worker run deploy:probe`)
-  after the seed, or it reports `LeagueRowShapeVersionError` against the new rows. Until opr and
-  epa are re-seeded at shape 16, it also reports that error for them. Expected; nothing is broken.
+- **~~The probe is a separate deployment.~~ HISTORICAL — there is no probe to redeploy.** This
+  bullet used to say the read-only CPU probe had to be redeployed after the seed or it would report
+  `LeagueRowShapeVersionError` against the new rows. Quick task 260923-3w4 deleted that probe
+  (2026-09-23), so a seed pass now needs exactly one deploy: the production Worker's.
 - **Proof.** `apps/worker/test/scheduled.rp.test.ts`'s mean-shift block folds a generated 120-match
   prior event through the real Worker (at least 200 warm observations per variable) and checks
   that the live rows equal the offline layer's. It was seen failing with the write-back removed,
@@ -641,8 +643,8 @@ ingest an in-progress event, do not let a window appear in `v1/manifest/live-win
 `.planning/todos/pending/rp-fold-exceeds-worker-cpu-budget.md` is closed.** (That todo is now in
 `.planning/todos/completed/`.)
 
-The measurement, from the pre-event probe's first real run (`318caa2f` against live D1, 2026-09-12,
-recorded in full below under "First real run"): a realistic mid-quals tick — 2 newly folded matches,
+The measurement, from the deleted CPU probe's first real run (`318caa2f` against live D1,
+2026-09-12; the full record is in git history, the probe having been deleted 2026-09-23): a realistic mid-quals tick — 2 newly folded matches,
 60 still upcoming — costs **13 ms p50 / 28 ms p90 in Phase A alone**, against a **10 ms sustained**
 budget. That excludes Phase B, the TBA poll, the KV manifest read and the global rebuild, and it is
 for **one** event and **one** algorithm; a regional weekend runs several events concurrently, and
@@ -680,7 +682,8 @@ The probe was re-mirrored to the tick at `7385bad6` and gained a Phase B arm. 9 
 
 Full numbers, provenance and the directions worth pricing are in the todo's "RE-MEASURED AFTER
 BROWSER PRICING" section. The gate lifts only when Phase B's cost comes down and a re-measurement
-(the `phaseB=1` arm exists for exactly this) shows a tick that fits.
+(the CPU probe's `phaseB=1` arm existed for exactly this, until quick task 260923-3w4 deleted the
+probe along with the budget it measured against) shows a tick that fits.
 
 ---
 
@@ -785,292 +788,34 @@ Once an event's last match is folded, the block is dropped.
 
 ---
 
-## Pre-event probe
+## Pre-event probe — DELETED 2026-09-23 (quick task 260923-3w4)
 
-**A green idle tick proves nothing about whether a live event will fold correctly.** With
-`windows: []` (the normal out-of-season state, and the state right up until the check above shows a
-non-zero count), `processEvent` returns at its `newlyFolded.length === 0` check
-(`apps/worker/src/scheduled.ts:1002`) **before a single league row is read**. Every green tick since
-the 2026-09-12 seed (live D1 rows at `snapshotShapeVersion` 15, generation `b23d214d`) is green for a
-reason that has nothing to do with whether the deployed bundle can actually read those rows or fold
-the ranking-point path. A `cpuTime` of 1 ms on an idle tick is not headroom — it is silence. Read
-["How the CPU budget is actually enforced"](#how-the-cpu-budget-is-actually-enforced--corrected-2026-08-29)
-before drawing any conclusion from a single tick's `cpuTime`, idle or otherwise.
+A separate read-only Worker (`apps/worker/src/stateProbe.ts`, `wrangler.probe.toml`, deployed with
+`pnpm --filter worker run deploy:probe`) used to answer two pre-event questions by hand: can the
+deployed bundle deserialize the rows now in D1, and what does a folding tick cost in real Workers
+CPU time. Its ablation arms (`rp=`, `rpSkip=`, `phaseB=`, `normalize=`, `teams=`, `event=`) existed
+to attribute milliseconds against a 10 ms per-invocation CPU budget.
 
-**D1 ROW-READ CAP — pin `teams=` AND `event=` on every measurement run (learned 2026-09-16).**
-**Superseded 2026-09-22.** This was the free tier's **5,000,000 rows read per day**, reset at
-00:00 UTC, an account-wide hard stop where exhaustion failed every D1 read with
-`D1_ERROR: ... exceeded D1's free tier daily row read limit`, **including a live tick's**. The
-account moved to Workers Paid on 2026-09-22; D1 on the paid plan includes 25 billion rows read
-per month with no daily reset (overage is billed, not blocked), so a probe campaign can no longer
-lock the live tick out for the rest of a UTC day. The `teams=`/`event=` pinning below stays the
-default because it is also what keeps a measurement request cheap and comparable, not because a
-cap forces it. The probe's two discovery queries are `ORDER BY scope_key` scans
-of `algorithm_state` — about 2,100 rows read apiece — so a campaign of a few hundred requests spends
-millions. The 2026-09-15 breakdown campaign (~740 requests) hit the cap and blocked its own
-re-measurement for the rest of the UTC day. The probe now **skips discovery entirely when both
-`teams=` and `event=` are supplied** (`discovery.queries` reports 0), which takes a request from
-~4,200 rows read to ~22. Supply both, always; dropping either turns discovery back on. Check the
-day's spend with `npx wrangler d1 info sigmascout-state` (`rows_read_24h`) before and after a
-campaign, and never run one during an event weekend.
+**That budget no longer exists.** The account moved to Workers Paid on 2026-09-22: 30 s of CPU per
+cron tick, 10,000 subrequests per invocation. The probe measured a ceiling three orders of magnitude
+below the current one, so every number it produced is about a retired regime, and the standing rule
+since the plan change is that no CPU-ms bar is proposed again. The whole instrument — source, tests
+and its own wrangler config — was deleted under quick task 260923-3w4 on Jacob's decision
+(`.planning/quick/260923-1tu-workers-paid-rearchitecture-audit-find-c/260923-1tu-FINDINGS.md`,
+item C2).
 
-The pre-event probe (`apps/worker/src/stateProbe.ts`, a separate deployment configured by
-`wrangler.probe.toml`) answers the three questions an idle tick cannot: does the **deployed** bundle
-read the rows now in live D1; what does Phase A (state read → fold → serialize) cost in real Workers
-CPU time once the ranking-point path actually runs; and — under `phaseB=1`, added 2026-09-15 — what
-does Phase B's artifact merge cost, the term the browser-pricing work made *bigger* by putting a
-`state` block of tens of KB into every live event artifact.
+Its second job, proving the deployed bundle can read live D1 rows, is already covered on the live
+path: `STATE_SNAPSHOT_SHAPE_VERSION` makes a shape disagreement a loud `LeagueRowShapeVersionError`,
+the generation-mismatch suspension above makes an unseeded generation a `state-generation-mismatch`
+line rather than a bad fold, and the seed-first-deploy-second order in
+["Seed first, deploy second"](#seed-first-deploy-second--and-the-reverse-hazard-is-just-as-bad) is
+what keeps the two sides matched. There is nothing to redeploy after a seed any more, and no
+`deploy:probe` script.
 
-**The ordering rule.** The probe is evidence about the deployed Worker **only if both were built from
-the same commit**. Deploy the Worker, deploy the probe from the same commit, then run the probe. A
-probe built from a different commit than the live Worker answers a different question than the one
-you're asking.
-
-**Deploy** (leave it deployed — no cron, no writes, no cost while idle; redeploy before each event so
-it tracks the Worker's current commit):
-
-```bash
-cd apps/worker
-npx wrangler deploy --config wrangler.probe.toml   # or: pnpm --filter worker run deploy:probe
-```
-
-**Run it**, taking the URL from the deploy output:
-
-```bash
-curl -s "https://sigmascout-state-probe.<subdomain>.workers.dev/?folded=2&upcoming=60" | head -c 2000
-```
-
-| Param | Default | Meaning |
-|---|---|---|
-| `season` | `2026` | Indexes the RP rule module and the synthetic score-breakdown shape |
-| `eventType` | `0` (Regional) | RP-eligibility tier for the synthetic matches |
-| `event` | discovered opr event-scoped key, else `"{season}probe"` | Which event-scoped OPR row to resume |
-| `teams` | discovered (up to `teamCount`) | Comma-separated override of the roster to fold |
-| `teamCount` | `21` | Peak realistic tick roster size — clamped under `MAX_SCOPE_KEYS_PER_READ` |
-| `folded` | `2` | Synthetic *played* matches priced (predict, band, RP fields, update, fold) |
-| `upcoming` | `60` | Synthetic *still-upcoming* matches **built, never priced** — the tick's own behaviour since 260915-isq. Reported as `fold.upcomingScheduled`. It costs Phase A nothing; it sizes Phase B's schedule-only row rebuild and decides whether the `state` block survives the merge (a block is dropped once no upcoming match is left) |
-| `rp` | on | Whole-path ablation arm. `0`/`off`/`false`/`no` turns every RP component off (`rpBeliefTeamsResumed`, `rpGatesOpened`, `rpPmfsProduced`, etc. all read 0/false); any other unrecognized value runs ON and warns, so a typo is never silently measured as the ablated arm |
-| `rpSkip` | empty | Comma-separated list of RP components to skip independently, layered under `rp` (ignored when `rp=0`, since every component is already off). Case-insensitive; the param name itself is not. **Five live names:** `resume` (the belief/mean-shift resume — skipping it forces every other component off too), `foldedPmf` (RP fields in the played-match loop, the only pmf loop left — skipping it forces `formula` off with it), `formula` (`analyticRpPmf` and its decomposition — the gates/`momentsFor`/mean-shift `apply` still run), `observe` (`observeMatch` + `foldObservedRp`, which also carries the Phase A bonus-flag capture), `beliefs` (the `withRpBeliefs`/`withRpMeanShift` write-back passengers). An unknown name skips **nothing** and warns; read `params.rpArm.id` and `params.rpArm.ran` in the response before trusting a `cpuTime` — they echo exactly what ran |
-| `rpSkip=upcomingPmf` | — | **RETIRED, and recognized as such.** It named the RP fields in the upcoming loop, which 260915-isq deleted from `processEvent`. It is not treated as a typo: it changes no counter, never appears in `params.rpArm.id`, and emits exactly one warning saying NOT APPLICABLE with that reason. Every other name in the same list still applies normally |
-| `algorithms` | every published id | Comma-separated algorithm ids to read and deserialize. `algorithms=spr` matches the live tick, which loads only the live tier; use it for CPU measurement. Unknown ids are ignored and warned, and `spr` is always kept because the fold needs it. Echoed as `params.algorithms` |
-| `phaseB` | **off** | Runs the Phase B emulation on top of Phase A: fetch a published event artifact, schema-parse it, `playedRowFactsFor`, `mergeEventArtifact` (which splices the `state` block), `JSON.stringify`, then N team parses and merges — all through `apps/worker/src/artifactMerge.ts`, the same module the tick calls, never a copy. Off by default, and an absent `phaseB=` is byte-identical to `phaseB=0`, so every RP arm above is unchanged by its existence. An unrecognized value runs ON and warns |
-| `phaseBSkip` | empty | Comma-separated list of Phase B components to skip independently, layered under `phaseB` (ignored when `phaseB` is off, since the emulation never runs). Case-insensitive; the param name itself is not. **Seven live names**, listed with their dependency rules in the table below. An unknown name skips **nothing** and warns; read `params.phaseBArm.id` and `params.phaseBArm.ran` in the response before trusting a `cpuTime` — they echo exactly what ran. There is no `teamParse` name: see `phaseBTeams` |
-| `phaseBUpcoming` | `published` | Which shape the fetched artifact's `upcoming` rows are put in **before** anything measured. `published` uses the artifact as fetched. `scheduled` rewrites every row down to the seven keys `EventScheduledMatchSchema` accepts — the shape the live Worker itself writes since 260915-isq, and therefore reads back on every tick after the first. An unrecognized value runs `published` and warns. **A `scheduled` arm's ABSOLUTE `cpuTime` is not comparable to a `published` arm's** (the reshape costs CPU and the payload shrinks); only a difference between two `scheduled` arms is, and every `scheduled` response carries a warning saying so |
-| `phaseBTeams` | the real touched-team count | How many per-team artifact merges to emulate. Clamped to the same ceiling as the roster. Echoed as `params.phaseBTeams`. **This is the team half's ablation ROOT**: `phaseBTeams=0` is how the team half is removed, and since 260915-t7o it really reports `teamParsesRun: 0` (the parse used to sit before the loop, so the zero case reported one parse it had not been asked for) |
-| `phaseBEvent` | the resolved `event` | Which published event artifact to fetch. Out of season, point it at an event that actually has a published SPR artifact |
-| `chunk` | **off** | Which half of a **split** tick to emulate as its own invocation — a different kind of arm from every one above, which ablate *this* tick. `chunk=teams` runs a **teams-only consumer**: GET the published event artifact, rebuild a `MatchResult` and a `Prediction` from each of its first `folded` played rows, `playedRowFactsFor`, then `phaseBTeams` team parses and `mergeTeamSeasonArtifact` calls — through `artifactMerge.ts`, the same module the tick calls, never a copy. **It touches D1 zero times**: it is routed before discovery and before the read/deserialize loop and is never handed the binding, so `discovery.queries` is 0, `algorithms[]` is empty and every fold counter reads 0 with no fold error. It therefore **requires both `teams=` and `event=`** and fails with `ChunkOverridesRequired` rather than discovering — discovery is itself two D1 scans. It reconstructs everything `mergeTeamSeasonArtifact` reads except three fields, listed by name in `chunk.unreconstructedFields` and explained in the response's own enumerating warning; the score-breakdown gap is closed by inverting the published `actualRedBonusRp`/`actualBlueBonusRp` arrays back through the season rule module's `bonusNames` (`chunk.bonusFlagRoute`). `phaseBTeams` is its loop count too, and `phaseBTeams=0` isolates its fixed overhead. **Read its ABSOLUTE `cpuTime`, not a difference** — the per-invocation overhead a difference would cancel is the term under examination — and only within the reused-isolate stratum. An unrecognized value skips **nothing** and warns; read `params.chunk` before trusting a `cpuTime`, because a `chunk=teams` request echoes `rpArm.id: "all"`, `phaseB: false` and `phaseBArm.id: "all"` exactly as a plain `rp=1` request does, and those echoes there are params **parsed but not used** |
-| `chunk=event` | — | **RECOGNIZED and INERT, deliberately.** It gets no second code path because the cron-side chunk is already measured by `phaseB=1&phaseBTeams=0` (the rig's `pbTeams0` arm), which runs the full Phase A fold plus the event half of Phase B with zero team merges. It changes no counter and emits exactly one warning naming that query, plus the two differences from a real cron chunk, both immaterial to `cpuTime`: that arm also issues one team-artifact GET the real chunk would not (fetch is I/O, billed as subrequests rather than CPU), and it does not pay the queue `send()` a real chunk would |
-| `artifactOrigin` | `https://data.sigmascout.org` | Where the two artifact reads go. An override is **rejected** unless it parses as an `https:` origin — the probe never silently falls back to the default, and `params.artifactOrigin` reads `null` when it rejected one |
-| `normalize` | **off** | Which per-match-normalize path to run over a synthetic raw TBA match list: `all` (the behaviour before quick task 260921-vzf — normalize every match, then sort, then filter on the cursor) or `trim` (the shipped path — order from cheap scalar facts, resolve the cursor anchor once, run the full `normalizeMatch` only past it). Both come from `apps/worker/src/matchSplit.ts`, the same module `processEvent` calls, never a copy. Like `chunk=teams` it **replaces** the probe's whole body: no discovery, no D1 read, no deserialize, no fold, no Phase B. An unrecognized value is **REFUSED** — neither arm runs and `normalize.error.name` reads `NormalizeArmRejected`. That is stricter than `rp`/`phaseB`, which run ON and warn, and deliberately so: those arms differ from their counterpart by a large block of work, these two differ by a per-match term of a few milliseconds, and a typo silently measured as the other arm would be indistinguishable in the numbers from the arm you meant |
-| `normalizeMatches` | `100` | Synthetic matches in the list — a full regional's qualification schedule. Clamped to 300 |
-| `normalizePlayed` | `60` | How many of them are played. They occupy the ordered prefix; the rest carry `score_breakdown: null` and null scores, exactly as TBA sends for an unplayed match. Clamped to at most `normalizeMatches` |
-| `normalizeCursor` | `middle` | Where the fold cursor sits. `start` = nothing folded yet (folds the whole played prefix); `middle` = anchored two matches before the end of the played prefix, the realistic mid-event tick, so exactly two matches are newly folded; `all` = anchored on the last played match, so nothing is newly folded; or a bare integer index. An unrecognized **word** is refused rather than defaulted — measuring `start` when `middle` was meant changes the arm difference by the entire played prefix |
-| `normalizeRounds` | `1` | How many times to repeat **the split** inside one invocation. The list build and the `tbaMatchListSchema.parse` run **once** regardless, so the shared term stays constant while the term under test scales. Clamped to 50 |
-
-`upcoming` defaults to 60 because, when the probe was written, **the upcoming loop was where the CPU
-went**: `processEvent` priced every still-upcoming match at the event, and early in a qual schedule
-that is 60+ matches. **Since 260915-isq the live tick prices no upcoming match** (the browser prices
-them from the event's `state` block), and since 260915-qgf neither does the probe. The same
-`upcoming=60` now buys a 60-row schedule for Phase B to rebuild rather than 60 Phase A prices — so
-the default query string is unchanged on purpose, and measures a different tick. `fold.bandsProduced`
-and `fold.rpPmfsProduced` are folded-only now; a number from the old probe that counted 62 pmfs is
-not comparable to one from this probe that counts 2.
-
-**The seven `phaseBSkip` components** (added 2026-09-15 by quick task 260915-t7o, to split Phase B's
-measured +64.0 ± 9.3 ms into terms a fix can actually target). Canonical order; each row names the
-tick operation it gates and what skipping it forces off:
-
-| Component | Gates | Forces off |
-|---|---|---|
-| `eventParse` | `JSON.parse` of the (possibly reshaped) event artifact text | **ROOT of the event half** — `eventValidate`, `eventMerge` and `eventStringify` all go with it |
-| `eventValidate` | The event read guard. **Since fix F2 (2026-09-15) that is `checkLiveEventArtifactShape`, an O(1) structural check — it was `LiveEventArtifactSchema.parse` before.** When skipped, the raw `JSON.parse` output is **cast** and fed straight to the merge | — |
-| `eventMerge` | `mergeEventArtifact`, the `state`-block splice included | `eventStringify` |
-| `eventStringify` | `JSON.stringify` of the merged event artifact | — |
-| `teamValidate` | The team read guard, per team. **Since fix F2 that is `checkTeamSeasonArtifactShape` — it was `TeamSeasonArtifactSchema.parse` before.** The loop's own `JSON.parse` runs either way, so `teamParsesRun` still equals `phaseBTeams` here | — |
-| `teamMerge` | `mergeTeamSeasonArtifact`, per team | `teamStringify` |
-| `teamStringify` | `JSON.stringify` of each merged team artifact | — |
-
-**THESE TWO ARMS CHANGED MEANING ON 2026-09-15, and a before/after must say so.** Fix F2 replaced
-the tick's two read-side `zod` parses with `artifactShapeCheck.ts`'s structural guards, and the probe
-follows the tick rather than a superseded copy of it — so `eventValidate` and `teamValidate` still
-gate *the read-path validation step*, but that step is now the guard. Comparing either arm across the
-F2 commit measures **F2 itself** (zod parse vs guard), not the same work twice. Within a single
-deployed probe version both arms remain apples-to-apples as always. `measure/arms.mjs` repeats this
-at each affected difference.
-
-**The team half's root is `phaseBTeams=0`, not a component name.** Do not go looking for a
-`teamParse` token — there is none, deliberately: the loop's `JSON.parse` is what the loop *is*, so
-the only way to remove it is to run zero iterations.
-
-**`playedRowFactsFor` runs in every Phase B arm**, regardless of every skip above, so it cancels in
-every difference. It is Phase A's own output being shaped, not a read-path cost, and it is not
-gateable.
-
-**One asymmetry, deliberate and reported: the state-block synthesis.** When `eventParse` runs, a
-block is synthesized only if the published artifact carried none — unchanged behaviour. When
-`eventParse` is *skipped* there is no parsed object to ask, so the synthesis runs unconditionally.
-Out of season, where no published artifact carries a block and the full arm synthesizes too, the
-term cancels exactly in the `eventHalf` difference. In season, where the full arm would synthesize
-nothing, the skipped arm still pays one and `eventHalf` is **under-stated** by that term.
-`phaseB.stateBlockSynthesized` reports which case ran.
-
-**Both new params default to the pre-260915-t7o behaviour** — no `phaseBSkip` runs every component,
-and `phaseBUpcoming` defaults to `published` — so every arm measured before they existed stays
-comparable, and the `phaseB` difference remains a direct continuity anchor against the 2026-09-15
-+64.0 ms.
-
-**The `normalize=` arm** (added 2026-09-21 by quick task 260921-vzf, to price a term
-`rp-fold-exceeds-worker-cpu-budget.md` had listed and never measured).
-
-**What it prices:** the per-match `normalizeMatch` call in `processEvent` and the
-`JSON.stringify(score_breakdown)` inside it — nothing else. Before the trim the tick normalized every
-match TBA returned on every 200 and discarded most of the result; only matches past the fold cursor
-are ever folded, and an upcoming match's published row carries schedule fields only.
-
-**What it deliberately does not price:** the fold itself, Phase B, the artifact I/O, the TBA poll.
-Every one of those has its own arm above, and none of them runs on a `normalize=` request.
-
-**The synthetic breakdown is SIZE-MATCHED, not real.** It is `synthesizeBreakdown`'s 2026 shape
-padded with `probeFiller*` keys (named so they cannot collide with the two names `extractRp` reads or
-anything a season rule module reads) until one played match lands at ~2.9 KB, the band a real TBA
-match body occupies; `stateProbe.test.ts` Group 13 pins that band rather than a comment claiming it.
-It is not a real TBA body, so **only the difference between two arms of one pass is readable** —
-never either arm's absolute `cpuTime`, which this instrument cannot reproduce to better than about
-5 ms on unchanged code.
-
-**It reads ZERO D1 rows**, structurally: routed before discovery and never handed the binding, the
-same placement and the same reason as `chunk=teams`. It therefore needs neither `teams=` nor
-`event=`, and a campaign on it **cannot** spend the daily row-read cap the section above warns
-about. **The thing to check in the response is `discovery.queries: 0`**, alongside an empty
-`algorithms[]` and every fold counter at rest with no fold error.
-
-**`identityFingerprint` must agree across the two arms of a pass.** It hashes the ordered match keys,
-the newly-folded keys and the upcoming keys, and the two arms are supposed to be output-identical. A
-pass whose arms disagree on it is **not reporting a saving — it is reporting a bug in
-`matchSplit.ts`**, and the measurement stops until that is fixed.
-
-**A `normalize=` request that also carries `phaseB=`, `chunk=`, `rp=`, `rpSkip=`, `phaseBSkip=` or
-`liveRows=`** runs the normalize arm anyway and emits one warning naming those params as PARSED BUT
-NOT USED — their echoes under `params` describe what was requested, never what the invocation did.
-
-**The ordering rule applies to this arm too**, exactly as it does to every other one: deploy the
-Worker, deploy the probe from the SAME commit, then measure.
-
-**Read `cpuTime`**, in a second terminal, and run the probe **several consecutive times** — never
-conclude from one invocation:
-
-```bash
-npx wrangler tail sigmascout-state-probe --format json
-```
-
-Production has already shown the same bundle version return `ok` at `cpuTime: 38` and then be killed,
-pinned at `10`, sixty seconds later with no code change (see "How the CPU budget is actually
-enforced" above). Budget for the *sustained* cost of the common path, never for one healthy tick.
-
-**When the number is not a measurement.** Read the response body's counters before trusting its
-`cpuTime`:
-
-| Condition | What it means |
-|---|---|
-| `rpPmfsProduced: 0` | Every RP pmf was suppressed — the partial-roster gate tripped, the event type is RP-ineligible, or the season has no registered rule module. The reported `cpuTime` never touched `analyticRpPmf`. Expect it to equal `matchesFolded` on a healthy run, not `matchesFolded + upcomingScheduled`: nothing prices an upcoming match any more. |
-| `bandsProduced: 0` | No Sigma band was produced for any roster, so the RP path's own band-presence gate never opened. Expect `2 × matchesFolded` on a healthy run. |
-| `phaseB.ran: false` with `phaseB.error` set | The emulation aborted before its first merge (fetch failed, a body did not schema-parse, or an `artifactOrigin` override was rejected). The response is a 500 and every phaseB counter reads 0, so an arm that measured nothing can never be recorded as one that measured Phase B. |
-| `chunk.ran: false` with `chunk.error` set | The teams chunk aborted (missing `teams=`/`event=`, a rejected origin, a fetch failure, a shape the read guard refused, or a published artifact carrying no played rows). The response is a 500 and every chunk counter reads 0. |
-| `chunk.predictionsWithRpPmf: 0` or `chunk.predictionsWithBand: 0` | The published played rows the chunk read are **thinner** than what `allPhaseB` merges, so the chunk priced less work and the two are not comparable. Not a valid chunk measurement — pick an event whose artifact carries priced played rows. |
-| Any `algorithms[].ok: false` | That algorithm never deserialized (see its `error`), so nothing downstream of it was priced. |
-| A non-empty `warnings` array | The probe itself is naming a reason its own run under-states a real tick — read each line. |
-
-In every one of these cases, the reported `cpuTime` is an **under-estimate** of a real tick's cost and
-must not be read as headroom.
-
-**What it does not measure.** Phase A — state read, fold, serialize, discard — plus, under
-`phaseB=1`, an emulation of Phase B's merge/splice/stringify. Never the TBA poll, the KV manifest
-read, the global rebuild, a second concurrent event, or any R2 write (the real Phase B's two R2
-round-trips per artifact are I/O the probe replaces with one public HTTPS read). Any number from
-here read as a whole-tick number is still an under-estimate.
-
-**Reading a phaseB number.** Two parts of it are a FLOOR, not a faithful price, and the response
-says which:
-
-- `stateBlockSynthesized: true` means the published artifact carried no `state` block and the probe
-  built one from the rows it read. Out of season every artifact is in that state, because a block
-  attaches only to an event whose schedule is current within 7 days. A synthesized block is sized by
-  `teamCount` (21 by default), where a regional carries ~42 team rows — so the merge and the
-  stringify below it are under-priced.
-- `teamParsesRun` counts parses of **one** team's fetched bytes, repeated N times. That prices N
-  parses of a realistically-sized artifact, but a real tick parses N *different* teams' artifacts.
-  Do not read it as N distinct teams.
-- The splice's admitted set is the probe's synthetic touched teams, so fewer team rows are replaced
-  than at a real event.
-- `params.phaseBUpcoming: "scheduled"` means the artifact's upcoming rows were **rewritten** before
-  the measured region. That arm's absolute `cpuTime` is not comparable to a `published` arm's at all
-  — only to another `scheduled` arm's. `eventUpcomingReshapedRows` and `reshapedEventTextBytes`
-  report what the rewrite did.
-- `params.phaseBArm.id` other than `"all"` means components were **ablated**: that `cpuTime` is not
-  a measurement of Phase B as deployed, only one half of a difference. `params.phaseBArm.ran` lists
-  which of the seven actually ran, including the ones a skipped root forced off.
-
-**What it cannot write, and what it merely does not write.** The write guarantee is layered, and the
-layers are not equally strong:
-
-| Surface | What stops a write | Strength |
-|---|---|---|
-| R2 (`ARTIFACTS`) | Binding absent from `wrangler.probe.toml` — `env.ARTIFACTS` does not exist | Structural — no code change can write an artifact |
-| KV (`MANIFEST`) | Binding absent — `env.MANIFEST` does not exist | Structural |
-| D1 (`DB`) | The probe never calls a write helper, and no write helper is in its import graph — including through `artifactMerge.ts`, which exists so Phase B can be priced without importing `scheduled.ts` | **Test-enforced only** (`apps/worker/test/stateProbe.test.ts`) |
-| The public artifact origin (outbound HTTPS, `phaseB` only) | No binding is involved at all. One `fetch` call site, `method: "GET"`, no request body, protocol asserted `https:`; a non-`https:` `artifactOrigin` override is rejected rather than defaulted | **Test-enforced only** — a source scan pins the single call site and its exact init, and a stubbed-fetch test asserts every recorded request was a GET over https with no body |
-
-Workers has no read-only D1 binding, so `DB` above is bound read-write like any other D1 binding.
-Anyone editing `apps/worker/src/stateProbe.ts` is editing something whose D1 safety is a test away,
-not a config guarantee.
-
-**The rule: run it before every event.**
-
-### First real run — 2026-09-12, probe version `318caa2f`, Worker version `267a226b`
-
-> **Historical, free-plan measurement.** This run's CPU verdict below was measured against the free
-> plan's 10 ms sustained budget. The account moved to Workers Paid on 2026-09-22 (30 s CPU per
-> invocation); the todo this run's finding fed is now closed
-> (`.planning/todos/completed/rp-fold-exceeds-worker-cpu-budget.md`) and the "bad" verdict below no
-> longer describes a live constraint. Kept as the measurement record.
-
-Both built from the same commit (`e4ba00c1`), against live D1 at generation `b23d214d`.
-
-**The shape question is answered, and the answer is good.** All three published algorithms
-deserialized from live rows in the real Workers runtime: `opr` 4.0.0+baseline, `epa` 10.0.0+baseline,
-`bpr` 3.0.0+baseline [pre-rename], every one reporting `snapshotShapeVersionObserved: 15` against the deployed
-bundle's own expected 15, `ok: true`, `warnings: []`. `deserializeState` has now actually run against
-the rows the 2026-09-12 seed wrote, in the deployed runtime — not merely been inferred safe from a
-deploy timestamp.
-
-**The CPU question is answered, and the answer is bad.** 60 invocations, 15 at each load level, read
-off `wrangler tail`:
-
-| Load | p50 | p90 | max |
-|---|---|---|---|
-| 0 folded / 0 upcoming (three deserializations + 2 discovery queries) | 4 ms | 7 ms | 7 ms |
-| 2 folded / 0 upcoming | 6 ms | 14 ms | 17 ms |
-| 2 folded / 15 upcoming | 8 ms | 13 ms | 14 ms |
-| **2 folded / 60 upcoming** (a realistic mid-event tick) | **13 ms** | **28 ms** | **29 ms** |
-
-Phase A alone, for ONE event, is over the 10 ms sustained budget at p50 on the common path — before
-Phase B, TBA polling, the manifest read or the global rebuild, and before a second concurrent event.
-The upcoming loop is confirmed as the dominant term: holding folds at 2 and going 0 → 60 upcoming
-adds ~7 ms at p50 and ~14 ms at p90.
-
-Two things make the real figure *somewhat* smaller than the table and neither closes the gap: the
-probe deserializes all three algorithms where a live tick folds only `bpr` [pre-rename] (worth ~2–3 ms of that
-4 ms baseline), and it spends 2 discovery queries a tick does not. A tick-shaped estimate is still
-~10–11 ms p50 and ~25 ms p90.
-
-Also seen, and not a measurement error: `rpPmfsProduced` was 43 of a possible 62 on every run — 19
-matches had their RP pmf suppressed by the gates, reproducibly. That means the table above prices a
-fold in which roughly a third of the RP work did **not** happen, so it is if anything an
-under-estimate.
-
-Was tracked as its own item, `.planning/todos/pending/rp-fold-exceeds-worker-cpu-budget.md`; now
-`.planning/todos/completed/rp-fold-exceeds-worker-cpu-budget.md`, CLOSED 2026-09-22 by the move to
-Workers Paid.
+The probe's own measurement records are not reproduced here. They are in git history (the file was
+present through `08384620`) and in
+`.planning/todos/completed/rp-fold-exceeds-worker-cpu-budget.md`, which the 2026-09-22 plan change
+closed.
 
 ---
 
@@ -1127,7 +872,7 @@ above. An observation your model says is impossible is the most valuable one you
 | `opr` or `epa` metrics look stale mid-event while `spr` updates | Expected — only `spr` folds live (see "Live folding tier" above) | `LIVE_ALGORITHM_IDS` in `apps/worker/wrangler.toml`; refresh via a re-baseline (above) |
 | A `live-tier-defaulted` warn line in the tail | `LIVE_ALGORITHM_IDS` did not reach the deployed Worker (e.g. a `--var` deploy that did not carry tracked vars through) | Redeploy from tracked config with `pnpm worker:deploy` and confirm the deploy output lists both `TBA_BASE_URL` and `LIVE_ALGORITHM_IDS` |
 | `outcome: "exceededCpu"` with an empty `logs` array on **every** tick | The tick is *consistently* over the CPU budget (30 s per invocation, Workers Paid since 2026-09-22 — was 10 ms on the free plan). It is reaching the handler and dying before its final log line — it is **not** dying in module init (that is a separate 1-second budget) | `eventsConsidered` on any tick that does survive. If non-zero, fetch `https://data.sigmascout.org/v1/manifest/live-windows.json` and see what the Worker thinks is live — **read the manifest, never the calendar**. Read "How the CPU budget is actually enforced" above before drawing any conclusion from a single high `cpuTime` |
-| About to run an event; unsure the deployed bundle can read the rows in D1 | Untested since the last seed — a green idle tick does not exercise it | Run the pre-event probe (above) before the event starts, not during it |
+| About to run an event; unsure the deployed bundle can read the rows in D1 | Untested since the last seed — a green idle tick does not exercise it | Apply `seed-cursors.sql` from the same publish run and deploy in that order, then watch the first tick for `state-generation-mismatch` or `LeagueRowShapeVersionError`. (The pre-event probe that used to answer this by hand was deleted 2026-09-23 — see "Pre-event probe" above) |
 | An `event-state-block-missing` warn line in the tail | The SPR event artifact was published before 260915-isq, or had no upcoming matches at publish time; the Worker never bootstraps a block | Republish and re-seed D1 from the same run before the next tick (see "Publish with state blocks before the window opens") |
 | An `event-state-block-invalid` warn line in the tail | The published block's algorithm version or snapshot shape does not match the deployed Worker's rows; the tick dropped it | Read the `error` field, then republish and re-seed as a matched pair |
 
