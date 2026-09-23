@@ -320,3 +320,17 @@ FOUND: 79a63fd9 (task 4 commit)
 All four staged by explicit path only (never `git add -A`/`git add .`/`git commit -a`); the shared
 checkout's unrelated dirty files (`.planning/sketches/MANIFEST.md`,
 `.planning/sketches/020-locks-page-reimagined/`) were never staged or touched.
+
+## Follow-up in the same task (commit feec9cd5, 2026-09-22)
+
+Jacob asked for nothing to be left over, so the Group 4 leftovers were closed in one more commit:
+comment-only edits in `apps/worker/src/liveWindows.ts`, `packages/harness/manifests.ts` and its
+test, `apps/worker/test/liveWindows.test.ts`, the 0001 migration and the `liveAlgorithmTier` test
+header (which also cited the rp-fold todo at its old pending path); CLAUDE.md's Alternatives
+Considered row; REQUIREMENTS.md's DATA-05 and out-of-scope rows. The D1 rows-read note in
+`docs/worker-operations.md` now carries the paid figure (25 billion rows read per month, no daily
+reset) in place of the "unconfirmed" flag. ROADMAP.md and STATE.md hits are phase history and were
+left as written. Worker typecheck clean; 66 test files and 1594 tests pass from the repo root.
+
+The Worker deploy was attempted from the main context and blocked by the auto-mode classifier
+(production deploy). It remains owed: `cd apps/worker && npx wrangler deploy` at feec9cd5 or later.
