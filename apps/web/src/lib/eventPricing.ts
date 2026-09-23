@@ -31,14 +31,11 @@
  * (`eventPricing.bundleGuard.test.ts`).
  */
 import type { EventUpcomingMatch, LiveEventArtifact, TeamSeasonMatch } from "../../../../packages/harness/pageArtifacts.js";
-import { withDerivedLiveStandings, type LiveStandingsInput, type LiveStandingsMarker } from "./liveStandings.js";
 
 /** The event query's data: the parsed artifact without its `state` block, with browser-priced upcoming rows where a block allowed it. */
 export type EventPageArtifact = Omit<LiveEventArtifact, "state"> & {
   /** The team-season row for each upcoming match the browser priced, by match key. Absent when nothing was priced. */
   readonly upcomingTeamRows?: Readonly<Record<string, TeamSeasonMatch>>;
-  /** Browser-derived live standings marker (260921-q2s) — see `liveStandings.ts`. Never published; absent on every artifact this derivation did not touch. */
-  readonly standings?: LiveStandingsMarker;
 };
 
 export type EventPageUpcomingRow = LiveEventArtifact["upcoming"][number];
@@ -88,23 +85,6 @@ function warnUnpriced(eventKey: string, error: string): void {
   console.warn(JSON.stringify({ event: "event-upcoming-pricing-failed", eventKey, error }));
 }
 
-/**
- * Applies `withDerivedLiveStandings` once, right after `state` is stripped,
- * so every one of `resolveEventArtifact`'s three return paths carries the
- * same derived teams (T-q2s-01, this file's threat register). Never throws:
- * a derivation error logs one JSON `console.warn` and returns the artifact
- * unchanged, matching this module's own failure-is-never-fatal doctrine —
- * a browser-side derivation must never fail a fetch or blank an event page.
- */
-function withStandingsSafely<T extends LiveStandingsInput>(parsed: LiveEventArtifact, withoutState: T): T {
-  try {
-    return withDerivedLiveStandings(withoutState);
-  } catch (err) {
-    console.warn(JSON.stringify({ event: "event-live-standings-failed", eventKey: parsed.eventKey, error: err instanceof Error ? err.name : typeof err }));
-    return withoutState;
-  }
-}
-
 /** Why a block-less or otherwise unpriceable artifact is not priced, or `undefined` when it can be. */
 function skipReason(parsed: LiveEventArtifact): string | undefined {
   if (parsed.upcoming.length === 0) return "no-upcoming";
@@ -145,11 +125,8 @@ async function priceOnce(parsed: LiveEventArtifact, loadPricer: () => Promise<Ev
  * OPR page stays quiet.
  */
 export async function resolveEventArtifact(parsed: LiveEventArtifact, deps: ResolveEventArtifactDeps = {}): Promise<EventPageArtifact> {
-  const { state: _state, ...withoutState } = parsed;
+  const { state: _state, ...base } = parsed;
   void _state;
-  // Applied ONCE, ahead of the three return paths below, so every one of
-  // them carries the same derived teams (260921-q2s).
-  const base = withStandingsSafely(parsed, withoutState);
 
   const reason = skipReason(parsed);
   if (reason !== undefined) {

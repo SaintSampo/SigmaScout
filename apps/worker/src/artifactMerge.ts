@@ -275,12 +275,17 @@ export interface MergeEventArtifactParams {
  */
 export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
   const { existing, eventKey, season, algorithmId, algorithmVersion, eventType, newlyFolded, newPredictions, upcoming, touchedTeams, touchedMetrics, newBands, playedRowFacts, stamp } = params;
-  // BOTH tick-owned blocks destructured out before the spread, and since quick
-  // task 260923-3w6 for the same reason: this merge emits NEITHER of them any
-  // more, so an artifact published before the reversal carries a `state` block
-  // and an artifact written by an earlier tick carries a `live` block, and both
-  // must be DROPPED here rather than ridden forward forever on the spread.
-  const { state: _existingState, live: _existingLive, ...carriedFromExisting } = existing ?? {};
+  // THREE tick-owned keys destructured out before the spread, because this merge
+  // may OMIT each of them and a stale value would otherwise survive:
+  //   - `state` and `live`: nothing emits either any more (quick task
+  //     260923-3w6), so an artifact published before that reversal carries a
+  //     `state` block and one written by an earlier tick carries a `live`
+  //     block, and both must be DROPPED rather than ridden forward forever;
+  //   - `standings`: re-appended below ONLY when this merge actually counted
+  //     the standings. Carrying a stale marker forward would leave the artifact
+  //     claiming its rows were counted here when a republish has since
+  //     overwritten them with TBA's own.
+  const { state: _existingState, live: _existingLive, standings: _existingStandings, ...carriedFromExisting } = existing ?? {};
 
   // Read before the preserved-match filter below: a newly-played match's own
   // published row is where its prior `sortTime` lives when TBA reports none.
@@ -352,10 +357,10 @@ export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
 
   // Counted from `matches` above — every played qualification row this event
   // has, the ones this tick just folded included. Returns the same array
-  // reference when there is nothing honest to count (see
+  // reference and NO marker when there is nothing honest to count (see
   // `withCountedStandings`), so a playoff-only or bonus-gapped event keeps
-  // whatever the last republish published.
-  const teams = withCountedStandings({ matches, teams: teamsBeforeStandings, rpOutcomeRp });
+  // whatever the last republish published and never claims otherwise.
+  const { teams, standings } = withCountedStandings({ matches, teams: teamsBeforeStandings, rpOutcomeRp });
 
   return {
     ...carriedFromExisting,
@@ -371,6 +376,7 @@ export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
     upcoming,
     teams,
     ...(rpOutcomeRp !== undefined ? { rpOutcomeRp } : {}),
+    ...(standings !== undefined ? { standings } : {}),
   };
 }
 

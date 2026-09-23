@@ -467,8 +467,8 @@ describe("InsightsTab — no-ranking fallback header and banner", () => {
   });
 });
 
-describe("InsightsTab — order source 'live' (260921-q2s)", () => {
-  /** A team-ranked-by-`rank` artifact (like `withDerivedLiveStandings` would produce) plus a `standings` marker, spread on top of the real parsed shape. */
+describe("InsightsTab — order source 'live' (260921-q2s, re-sourced 260923-3w7)", () => {
+  /** A team-ranked-by-`rank` artifact plus the `standings` marker the live tick publishes, spread on top of the real parsed shape. */
   function liveDerivedArtifact(teams: { teamKey: string; teamNumber: number; rank: number }[], ranked = true): EventPageArtifact {
     const base = EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -490,10 +490,10 @@ describe("InsightsTab — order source 'live' (260921-q2s)", () => {
         metrics: fullInsightsMetrics(),
       })),
     });
-    return { ...base, standings: { source: "live-derived", ranked } };
+    return { ...base, standings: { source: "tick-counted" as const, ranked } };
   }
 
-  it("a ranked live-derived marker returns orderSource 'live' and rows in derived rank order", () => {
+  it("a ranked tick-counted marker returns orderSource 'live' and rows in derived rank order", () => {
     const artifact = liveDerivedArtifact([
       { teamKey: "frc3", teamNumber: 3, rank: 3 },
       { teamKey: "frc1", teamNumber: 1, rank: 1 },
@@ -569,7 +569,7 @@ describe("InsightsTab — order source 'live' (260921-q2s)", () => {
     expect(buildInsightsRows(fallbackArtifact, "spr").orderSource).toBe("fallback");
   });
 
-  it("an unranked live-derived marker does not produce 'live': the order stays official/fallback, and only the Record column was counted", () => {
+  it("an unranked tick-counted marker does not produce 'live': the order stays official/fallback, and only the Record column was counted", () => {
     const unranked = liveDerivedArtifact(
       [
         { teamKey: "frc1", teamNumber: 1, rank: 1 },

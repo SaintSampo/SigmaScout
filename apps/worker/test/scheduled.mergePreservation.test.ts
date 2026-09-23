@@ -254,10 +254,26 @@ describe("mergeEventArtifact keeps every key the tick does not own", () => {
     expect(written).not.toHaveProperty("state");
   });
 
-  it("bootstrap: with no existing artifact the written key set is exactly what it was before", () => {
+  it("bootstrap: with no existing artifact the written key set is exactly what it was before, plus the counted-standings marker", () => {
     const written = mergeEventRaw({ existing: undefined, eventType: 0 });
     expect(Object.keys(written).sort()).toEqual(
-      ["schemaVersion", "generation", "computedAt", "algorithmId", "algorithmVersion", "eventKey", "season", "eventType", "matches", "upcoming", "teams"].sort()
+      [
+        "schemaVersion",
+        "generation",
+        "computedAt",
+        "algorithmId",
+        "algorithmVersion",
+        "eventKey",
+        "season",
+        "eventType",
+        "matches",
+        "upcoming",
+        "teams",
+        // Quick task 260923-3w7: a bootstrap merge folds a played qualification
+        // row, so it counts this event's standings and says so. It is the one
+        // key added to this set since the bootstrap shape was pinned.
+        "standings",
+      ].sort()
     );
   });
 });

@@ -89,7 +89,9 @@ describe("deriveEventStandings — the counted tally", () => {
     const input = { rpOutcomeRp: RP_OUTCOME_RP, teams, matches: [playoff({ redTeams: ["frc1"], blueTeams: ["frc2"], actualRedRp: 1, actualBlueRp: 0 })] };
 
     expect(deriveEventStandings(input)).toBeUndefined();
-    expect(withCountedStandings(input)).toBe(teams);
+    const applied = withCountedStandings(input);
+    expect(applied.teams).toBe(teams);
+    expect(applied.standings).toBeUndefined();
   });
 
   it("a team present in teams with no played qualification row gets a zero record and sorts last", () => {
@@ -142,7 +144,9 @@ describe("deriveEventStandings — the counted tally", () => {
       teams,
       matches: [qual({ redTeams: ["frc1"], blueTeams: ["frc2"], actualWinner: "red", actualRedRp: null, actualBlueRp: 0 })],
     });
-    expect(applied).toBe(teams);
+    expect(applied.teams).toBe(teams);
+    // No marker either: an artifact whose standings are still TBA's must never claim they were counted here.
+    expect(applied.standings).toBeUndefined();
   });
 
   it("no rpOutcomeRp behaves the same way as the null-bonus case: unranked, records only", () => {
@@ -179,9 +183,10 @@ describe("deriveEventStandings — the counted tally", () => {
     });
 
     // Positions preserved: rank is a FIELD, never the row's index.
-    expect(applied.map((row) => row.teamKey)).toEqual(["frc2", "frc1"]);
-    expect(applied[1]).toMatchObject({ teamKey: "frc1", rank: 1 });
+    expect(applied.teams.map((row) => row.teamKey)).toEqual(["frc2", "frc1"]);
+    expect(applied.teams[1]).toMatchObject({ teamKey: "frc1", rank: 1 });
     expect(teams[0]).not.toHaveProperty("rank");
+    expect(applied.standings).toEqual({ source: "tick-counted", ranked: true });
   });
 });
 

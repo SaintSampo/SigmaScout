@@ -1769,6 +1769,32 @@ export const EventArtifactSchema = AlgorithmScopedPreambleSchema.extend({
    */
   tierCuts: EventTierCutsSchema.optional().catch(undefined),
   /**
+   * PRESENT ONLY WHEN `teams[].rank`/`record`/`rp` WERE COUNTED BY THE LIVE
+   * TICK rather than published from TBA's own rankings
+   * (`apps/worker/src/liveStandings.ts`, quick task 260923-3w7). The offline
+   * publisher never writes this key: it publishes TBA's official standings, so
+   * its absence is the statement that the table below is official.
+   *
+   * It exists because the reader is owed that distinction. A counted order can
+   * diverge from TBA's own published order on an exact tie, a surrogate
+   * appearance or a disqualification, and the Insights tab says so in copy
+   * (`insightsLiveNotice`) — which it can only do if the artifact states which
+   * kind of standings these are. Between 260921-q2s and 260923-3w7 the same
+   * marker existed only inside the browser, because the browser was the thing
+   * doing the counting.
+   *
+   * `ranked: false` means only the Record column was counted (a gap in TBA's
+   * bonus data makes ranking points all-or-nothing unavailable for the whole
+   * event), so no row carries a counted `rank` or `rp` and the order is
+   * whatever it already was.
+   *
+   * Declared on `EventArtifactSchema` itself for exactly the reason `tierCuts`
+   * above is: the Worker's write-side parse would otherwise strip the key on
+   * every tick. `PAGE_ARTIFACT_SCHEMA_VERSION` is deliberately NOT bumped —
+   * additive and optional.
+   */
+  standings: z.object({ source: z.literal("tick-counted"), ranked: z.boolean() }).optional().catch(undefined),
+  /**
    * The SPR state block (`EventStateBlockSchema`) a browser prices `upcoming`
    * from. SPR artifacts with a non-empty `upcoming` only; absent otherwise.
    * Placed LAST so the large block serializes at the end of the body.
@@ -1782,6 +1808,9 @@ export const EventArtifactSchema = AlgorithmScopedPreambleSchema.extend({
 });
 
 export type EventArtifact = z.infer<typeof EventArtifactSchema>;
+
+/** The `standings` marker a live tick stamps when it counted the standings itself — see `EventArtifactSchema.standings`. */
+export type EventStandingsMarker = NonNullable<EventArtifact["standings"]>;
 
 /**
  * One not-yet-played match as the live Worker writes it since 260915-isq:

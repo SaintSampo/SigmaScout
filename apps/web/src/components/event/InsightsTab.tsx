@@ -110,16 +110,19 @@ function byFallbackTotal(a: InsightsRowBase, b: InsightsRowBase): number {
  * banner and the row order both read — see this module's header doc
  * comment for why that must never be two independently-consulted facts.
  *
- * `orderSource` resolves to `"live"` when `artifact.standings` (260921-q2s,
- * `liveStandings.ts`) is present and ranked — a ranked live-derived marker
- * means every row's rank/rp/record came from THIS SESSION's own count of
- * played qualification rows, not from TBA's published rank, and "live"
- * behaves exactly like `"official"` for both the row comparator and
- * `displayRank` below. An UNRANKED marker deliberately does NOT produce
- * `"live"`: in that case only the Record column was counted, and the row
- * order is still the published or fallback one — see `liveStandings.ts`'s
- * own doc comment for why an unranked result must never carry an invented
- * order. Otherwise `orderSource` resolves to `"official"` when AT LEAST ONE
+ * `orderSource` resolves to `"live"` when the artifact's published
+ * `standings` marker (`EventArtifactSchema.standings`) is present and
+ * ranked — a ranked marker means every row's rank/rp/record was COUNTED by
+ * the live tick from played qualification rows rather than taken from TBA's
+ * published rank, and "live" behaves exactly like `"official"` for both the
+ * row comparator and `displayRank` below. Until quick task 260923-3w7 that
+ * same marker was attached in the browser by a derivation that ran on every
+ * poll (260921-q2s); it is now written once, by the tick that folds the
+ * rows (`apps/worker/src/liveStandings.ts`). An UNRANKED marker deliberately
+ * does NOT produce `"live"`: in that case only the Record column was
+ * counted, and the row order is still the published or fallback one — see
+ * the Worker module's own doc comment for why an unranked result must never
+ * carry an invented order. Otherwise `orderSource` resolves to `"official"` when AT LEAST ONE
  * entry in `artifact.teams` carries a defined `rank` — not "every team has
  * one": a team that registered and withdrew has no ranking row inside an
  * otherwise fully-ranked event, and relabelling the whole table for that
@@ -157,7 +160,7 @@ export function buildInsightsRows(artifact: EventPageArtifact, algorithmId: stri
     teamKey: row.teamKey,
     teamNumber: row.teamNumber,
     nickname: row.nickname,
-    // Official/live mode: the team's own published (or live-derived) rank
+    // Official/live mode: the team's own published (or tick-counted) rank
     // (undefined for an unranked team inside a ranked event). Fallback
     // mode: the 1-based position in the returned order, computed after the
     // sort — the same "compute once, never recomputed by a re-sort"
@@ -194,13 +197,13 @@ export function insightsFallbackNotice(algorithmLabel: string): string {
 }
 
 /**
- * `insightsLiveNotice()`: the ONLY place the live-derived-order sentence
+ * `insightsLiveNotice()`: the ONLY place the counted-order sentence
  * appears in source. Flat third person, zero hyphen or zero dash
  * characters of any kind — this site's methodology copy voice. States the
  * one honest claim this order owes the reader: it is counted from results
  * posted so far, and it can diverge from TBA's own published order on an
  * exact tie, a surrogate appearance or a disqualification (see
- * `liveStandings.ts`'s tiebreak doc comment for the full statement of
+ * `apps/worker/src/liveStandings.ts`'s tiebreak doc comment for the full statement of
  * those two divergences).
  */
 export function insightsLiveNotice(): string {

@@ -16,10 +16,13 @@
  * THE TRIGGER CHANGED SHAPE, NOT MEANING. The browser fired on
  * `artifact.live !== undefined` — "this artifact carries matches the published
  * standings do not account for" — and nothing emits a `live` block any more
- * (quick task 260923-3w6). Here the equivalent statement is structural and
- * needs no marker at all: this function is called from `mergeEventArtifact`,
- * which runs only when the tick folded something, over the merged `matches`
- * array that already includes what it just folded. The alternative the browser
+ * (quick task 260923-3w6). Here the equivalent statement is structural: this
+ * runs from `mergeEventArtifact`, which runs only when the tick folded
+ * something, over the merged `matches` array that already includes what it just
+ * folded. The marker this module still emits (`EventArtifactSchema.standings`)
+ * is a different thing entirely — not a trigger the next reader re-derives from,
+ * but a PUBLISHED statement to that reader that the standings below were
+ * counted here rather than taken from TBA. The alternative the browser
  * header warned against must never be adopted here either — comparing a counted
  * appearance total against the published record total is UNSOUND, because a
  * surrogate appearance makes the counted total exceed TBA's surrogate-adjusted
@@ -30,9 +33,11 @@
  * derivation lived in the browser and a republish erased the `live` block that
  * triggered it.
  *
- * WORKER-SAFE: no `zod`, no writer, no corpus. One import, for the rounding
- * rule the published Ranking Score already uses.
+ * WORKER-SAFE: no `zod` at runtime, no writer, no corpus. Two imports: the
+ * published marker's TYPE, and the rounding rule the published Ranking Score
+ * already uses.
  */
+import type { EventStandingsMarker } from "../../../packages/harness/pageArtifacts.js";
 import { ROUNDING_RULE, roundTo } from "../../../packages/harness/rounding.js";
 
 /** A team's counted win/loss/tie record over qualification rows only — see the module header for the scoping rule. */
@@ -245,13 +250,17 @@ export function deriveEventStandings(input: DeriveEventStandingsInput): CountedS
 }
 
 /**
- * `teams` with each row in the counted pool carrying its counted standing, or
- * the SAME ARRAY REFERENCE when there is nothing to apply — no derivation
+ * `teams` with each row in the counted pool carrying its counted standing, and
+ * the `standings` marker the artifact publishes to say so.
+ *
+ * `teams` comes back as the SAME ARRAY REFERENCE, and `standings` as
+ * `undefined`, when there is nothing to apply — no derivation
  * (`deriveEventStandings` returned `undefined`), or a records-only result that
  * would sit beside a rank frozen at publish time. That second case is
  * deliberate: a freshly counted record beside a stale published rank is
  * internally inconsistent, so the rows are left untouched rather than partially
- * patched.
+ * patched, and the marker must then stay absent too — an artifact whose
+ * standings are still TBA's must never claim otherwise.
  *
  * A `teams[]` row not in the derived pool is left untouched. Nothing is
  * mutated. Rows keep their positions, so a tick never reorders the standings
@@ -261,16 +270,17 @@ export function withCountedStandings<T extends StandingsTeamRow>(params: {
   readonly matches: readonly StandingsMatchRow[];
   readonly teams: readonly T[];
   readonly rpOutcomeRp?: { readonly win: number; readonly tie: number };
-}): readonly T[] {
+}): { readonly teams: readonly T[]; readonly standings?: EventStandingsMarker } {
   const derived = deriveEventStandings(params);
-  if (derived === undefined) return params.teams;
+  if (derived === undefined) return { teams: params.teams };
 
   const alreadyPublishedRank = params.teams.some((team) => team.rank !== undefined);
-  if (!derived.ranked && alreadyPublishedRank) return params.teams;
+  if (!derived.ranked && alreadyPublishedRank) return { teams: params.teams };
 
-  return params.teams.map((team) => {
+  const teams = params.teams.map((team) => {
     const row = derived.rows.get(team.teamKey);
     if (row === undefined) return team;
     return derived.ranked ? { ...team, record: row.record, rp: row.rp, rank: row.rank } : { ...team, record: row.record };
   });
+  return { teams, standings: { source: "tick-counted", ranked: derived.ranked } };
 }
