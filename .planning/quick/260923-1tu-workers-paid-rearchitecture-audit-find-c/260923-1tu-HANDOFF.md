@@ -79,3 +79,15 @@ The Worker deploy itself was denied to me by the auto-mode classifier as a produ
   right; `224d7d84`'s body records it.
 - `docs/worker-operations.md` still has a few struck-through historical paragraphs rather than
   deletions; fine to trim later.
+
+## Done 2026-09-23 evening, on Jacob's explicit permission
+
+
+
+- `pnpm rebaseline` ran: ingest, Worker deploy (version 94ad5055, bindings DB and ARTIFACTS, tier opr,epa,spr), publish (generation 6c6585d0, 109,156 objects, 3.94 GB), four seeds (cursors last, success), verify (manifest names opr@6.0.0, epa@13.0.0, spr@7.0.0). The first verify attempt hit a transient fetch failure after the seed landed and was resumed with `--from verify`.
+
+- Prune ran in the same resume: 72,740 objects of opr@5.0.0 and epa@12.0.0 deleted, 0 failures; bucket now 109,495 objects, 3.96 GB, live unchanged.
+
+- Worker tail after the seed: ticks `ok`, `stateGenerationMismatch: false`, 1 subrequest idle.
+
+- Steps 1 and 2 of the morning sequence are therefore done by the orchestrator; step 5 (Cache Rule, KV namespace deletion) remains Jacob's.
