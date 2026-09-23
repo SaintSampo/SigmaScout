@@ -83,7 +83,7 @@ baked result for one event.
 2026-09-22, which raised CPU and subrequests per invocation and nothing about R2. R2 is where this
 project's real ceilings are, and a publish is not the only writer against them.
 
-### The live Worker writes against the same 1,000,000 (quick task 260923-3w6)
+### The live Worker writes against the same 1,000,000 (quick tasks 260923-3w6, 260923-3w8)
 
 Since 260923-3w6 the cron tick writes a per-team artifact on every fold, alongside the event artifact
 and the `teams/{year}` rebuild. Driven by MATCHES FOLDED rather than by ticks — a tick with nothing new
@@ -97,10 +97,20 @@ writes nothing — the peak-season-month estimate from `260923-1tu-FINDINGS.md` 
 | Two full publishes | 109,000 each | ~218,000 |
 | **Total** | | **~390,000 of 1,000,000** |
 
+**The `x 3 algorithms` and `3 per touched tick` in that table are now ACTUAL, not forward-looking.**
+When the estimate was written the live tier was `spr` alone, so the real per-tick cost was a third of
+what is tabulated; quick task 260923-3w8 widened `LIVE_ALGORITHM_IDS` to `"opr,epa,spr"` on
+2026-09-23 (findings item C6) and the tick now writes for all three. Nothing in the totals changes —
+the estimate always assumed three — but a reader comparing this table against the deployed Worker
+before 2026-09-23 would have found it three times too high, and after, exact.
+
 Viable with margin, and the margin is spent mostly on republishes: **about 35 percent of the month's
 budget is two `pnpm publish:seasons` runs.** That is the reason `pnpm rebaseline` is not scheduled and
 `pnpm publish:stubs` (about 120 writes) exists for adding new events. The growth axis that is genuinely
 capped is the number of PUBLISHED ALGORITHMS — each is ~1.4 GB and ~36,000 objects — not the live tick.
+Widening the live tier spent CPU (roughly 200 ms per event tick for three algorithms, against 30 s)
+and R2 writes, and neither is the binding resource; publishing a FOURTH algorithm would add ~1.4 GB
+of storage and ~109,000 writes per republish, and those are.
 
 The per-team write also replaced two things that cost R2 nothing but cost page loads: the event
 artifact's ephemeral `live` block (about the rows of every match folded so far, carried in every event
@@ -129,13 +139,18 @@ pnpm publish:seasons
 npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-opr.sql
 npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-epa.sql
 npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-spr.sql
+npx wrangler d1 execute sigmascout-state --remote --file reports/publish/seed-cursors.sql
 ```
 
-`pnpm publish:seasons` writes the three `seed-{algorithmId}.sql` files to `reports/publish/`
-(gitignored, local only) as a side effect — the `wrangler d1 execute` calls are what actually
-apply them, and they are **not run automatically by `publish:seasons` itself**, matching D-12's
-"the offline run is the authority, so a re-baseline overwrites in place" design: a human decides
-when the overwrite happens.
+`pnpm publish:seasons` writes the three `seed-{algorithmId}.sql` files plus `seed-cursors.sql` to
+`reports/publish/` (gitignored, local only) as a side effect — the `wrangler d1 execute` calls are
+what actually apply them, and they are **not run automatically by `publish:seasons` itself**,
+matching D-12's "the offline run is the authority, so a re-baseline overwrites in place" design: a
+human decides when the overwrite happens. **`seed-cursors.sql` goes LAST and must not be skipped**
+(quick task 260920-q75): it carries the `event_cursor` rows and the per-algorithm state-baseline
+markers the Worker checks against the manifest generation, so without it every tick refuses to fold
+with `state-generation-mismatch`. The run's own `reports/publish/SEED-COMMANDS.txt` holds this exact
+ordered list, and `pnpm rebaseline` applies it for you; prefer either over retyping this block.
 
 **Consequence if skipped:** the Worker keeps advancing incrementally from whatever live state it
 last had. Nothing breaks — the site stays up and stays approximately fresh — but any drift between

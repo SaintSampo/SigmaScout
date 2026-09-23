@@ -303,9 +303,14 @@ just before `foldObservedRp`, and writes it back beside `withRpBeliefs`. That mi
 
 - **Order.** Publish, then seed `seed-spr.sql`, then deploy the Worker. Seed first, deploy second,
   as above. Only `seed-spr.sql` carries the passenger, because opr and epa publish no ranking
-  points. The live tier is spr only (`LIVE_ALGORITHM_IDS = "spr"`), so a shape-15 opr or epa row
-  never reaches the Worker. (It did reach the read-only CPU probe, which read all three; that probe
-  was deleted 2026-09-23 by quick task 260923-3w4.)
+  points. **This bullet used to add that a shape-15 opr or epa row never reaches the Worker, because
+  the live tier was spr only. That is no longer true** — since 2026-09-23 (quick task 260923-3w8) all
+  three fold live and the Worker deserializes every one of their league rows, so all three must be at
+  the current `STATE_SNAPSHOT_SHAPE_VERSION` or they raise `LeagueRowShapeVersionError` on every
+  tick. In practice they are: `serializeState` stamps the current shape unconditionally, so a
+  `pnpm rebaseline` (which seeds all three plus the cursors file) leaves nothing behind at an old
+  shape. The hazard is a PARTIAL seed — applying `seed-spr.sql` alone after a shape bump now leaves
+  opr and epa unfoldable rather than merely unread.
 - **Why the bump is load-bearing.** A shape-15 row has no passenger. Without the bump the Worker
   would resume a fresh shift and price every live match unshifted while the artifacts it serves
   are shifted, and nothing would error. The bump turns that into `LeagueRowShapeVersionError`.
@@ -345,7 +350,7 @@ reclaiming before the next version bump would push past it.
 
 ---
 
-## Live folding tier (quick task 260822-wqt)
+## Live folding tier (quick tasks 260822-wqt, 260923-3w8)
 
 **D-04/D-05 (plans 07-16/07-18/07-19) transition — FINISHED, observed rather than declared.** The
 tracked config (`LIVE_ALGORITHM_IDS = "vpr"` in `apps/worker/wrangler.toml`) went live on
@@ -360,10 +365,21 @@ and zero rows in remote D1 (`GROUP BY` read-back, 07-19 Task 3/4). The historica
 taken under the pre-rename identity, remain history — new measurements are recorded in their own
 dated sections, never overwriting the old ones.
 
-**Only the published algorithm folds live.** `apps/worker/wrangler.toml`'s `[vars]
-LIVE_ALGORITHM_IDS` is the single place that is configured — a plain tracked value, visible in
-git, following `TBA_BASE_URL`'s own precedent in the same block. Change it there, never anywhere
-else.
+**THE OPERATIONAL CONTRACT, as of 2026-09-23: all three published algorithms fold live.**
+`LIVE_ALGORITHM_IDS = "opr,epa,spr"`. Every page's opr, epa and spr numbers advance within a cron
+minute of a result being posted; none of them waits for a re-baseline any more. Quick task
+260923-3w8 made the change on Jacob's decision (`260923-1tu-FINDINGS.md` item C6), shipping
+`opr@6.0.0+baseline` and `epa@13.0.0+baseline` to pay for it — those two algorithms' published
+numbers now move during an event, and the project rule is that changed published numbers ship under
+a new version rather than being overwritten in place. SPR's version did not change. Everything from
+here to the end of this section is the history of why the tier used to be narrower, kept because an
+operator reading an old tail or an old deploy record needs it.
+
+**Where it is configured.** `apps/worker/wrangler.toml`'s `[vars] LIVE_ALGORITHM_IDS` is the single
+place — a plain tracked value, visible in git, following `TBA_BASE_URL`'s own precedent in the same
+block. Change it there, never anywhere else. `DEFAULT_LIVE_ALGORITHM_IDS` in `scheduled.ts` equals
+it deliberately, so a deploy that fails to carry tracked vars through cannot silently narrow the
+tier; the `live-tier-defaulted` warn line is what tells you that happened.
 
 **Why (historical basis — retired 2026-09-22, and the arithmetic DELETED 2026-09-23).**
 `processEvent` used to estimate each event's whole subrequest cost up front: 18 for ONE ordinary 3v3
@@ -377,31 +393,42 @@ argument on 2026-09-22, and quick task 260923-3w4 then deleted the estimate, the
 and every deferral path they gated on 2026-09-23, so there is no budget arithmetic left to re-derive
 anywhere.
 
-**What still holds the tier at spr is a PUBLISHED-NUMBERS decision, not a budget.** Widening
-`LIVE_ALGORITHM_IDS` makes `opr`/`epa` fold live instead of refreshing at the manual re-baseline,
-which changes numbers the site has already published, so it needs its own algorithm version bump and
-republish. See `apps/worker/wrangler.toml`'s comment above `LIVE_ALGORITHM_IDS` for the same note.
+**~~What still holds the tier at spr is a PUBLISHED-NUMBERS decision, not a budget.~~ HISTORICAL,
+2026-08-22 to 2026-09-23 — and the decision was TAKEN, not reversed.** This paragraph said that
+widening `LIVE_ALGORITHM_IDS` would make `opr`/`epa` fold live instead of refreshing at the manual
+re-baseline, changing numbers the site had already published, so it needed its own algorithm version
+bump and republish. All of that was correct and all of it still is; it was never an argument against
+widening, only a price. Quick task 260923-3w8 paid it — `opr@6.0.0+baseline`,
+`epa@13.0.0+baseline`, one `pnpm rebaseline`.
 
-**`opr` and `epa` remain FULLY PUBLISHED** (D-03) — every page and the Compare page still read
-them; `packages/harness/publish.ts`, `packages/harness/manifests.ts` and the algorithms manifest
-are untouched by this. They refresh only at the manual pre/post-event-weekend re-baseline above,
-**not** on the cron. During an event weekend their numbers are as of the last re-baseline — that is
-expected behavior, not a bug.
+**`opr` and `epa` remain FULLY PUBLISHED** (D-03) — every page and the Compare page read them;
+`packages/harness/publish.ts`, `packages/harness/manifests.ts` and the algorithms manifest are
+untouched by any of this. **Until 2026-09-23 they refreshed only at the manual
+pre/post-event-weekend re-baseline and not on the cron, so during an event weekend their numbers
+were as of the last re-baseline. That is no longer the case** — they fold on the cron like spr, and
+opr or epa standing still mid-event is now a symptom to investigate rather than expected behavior.
+One thing is still SPR's alone: the ranking-point layer. OPR and EPA publish no RP odds, no Match
+Band and no pre-schedule simulation sidecar.
 
-**SPR-only was decided permanent on 2026-09-13 (quick task 260913-ppk), on two reasons, one of
-which has since gone.** OPR and EPA were not to be rotated into the live tick because (a) the Worker
-could not sustain even SPR alone inside the free plan's 10 ms CPU budget, and (b) the per-event
-cursor and the TBA ETag are shared across algorithms, so an algorithm left out of a tick would have
-its matches skipped rather than caught up later. Reason (a) is gone — Workers Paid allows 30 s of CPU
-per tick. Reason (b) still stands and is not a budget question at all. The full reasoning, and the
-design premise any reopening must start from, is in
+**~~SPR-only was decided permanent on 2026-09-13 (quick task 260913-ppk).~~ HISTORICAL — both of its
+reasons are now answered.** OPR and EPA were not to be rotated into the live tick because (a) the
+Worker could not sustain even SPR alone inside the free plan's 10 ms CPU budget, and (b) the
+per-event cursor and the TBA ETag are shared across algorithms, so an algorithm left out of a tick
+would have its matches skipped rather than caught up later. Reason (a) went with the free plan —
+Workers Paid allows 30 s of CPU per tick, and the measured cost of three algorithms is roughly
+200 ms per event tick (`260923-1tu-FINDINGS.md` item C6). Reason (b) is still true and is the reason
+the tier is ALL THREE rather than a rotation: a shared cursor makes rotating algorithms across ticks
+unsafe, and folding every published algorithm on every tick is precisely the configuration that
+never leaves one behind. Do not reintroduce a rotation. The full reasoning, and the design premise
+any change here must start from, is in
 `.planning/todos/completed/vpr-retirement-make-features-algorithm-agnostic.md`.
 
-**Adding a second id to `LIVE_ALGORITHM_IDS` is pinned** by
-`apps/worker/test/liveAlgorithmTier.test.ts`, which asserts the tracked value by EQUALITY. It used
-to re-derive `processEvent`'s own budget arithmetic, which quick task 260923-3w4 deleted; an equality
-pin is what stops a widened tier from silently going untested. Change the pin deliberately, along
-with the version bump and republish the widening needs.
+**The tracked value is pinned by EQUALITY** in `apps/worker/test/liveAlgorithmTier.test.ts`, and
+every fold assertion in that file derives its expectation from the pinned value rather than naming
+ids a second time. It used to re-derive `processEvent`'s own budget arithmetic, which quick task
+260923-3w4 deleted — and deleted the equality pin with it, so the deployed value went untested for
+part of 2026-09-23 until 260923-3w8 restored it. Change the pin deliberately, along with the version
+bump and republish that moving published numbers requires.
 
 **Verified 2026-08-23, all measurements below under the pre-rename identity `sigma1` [pre-rename] —
 plan 07-16 renamed the identity afterward without re-running this verification, since the rename
@@ -905,7 +932,7 @@ above. An observation your model says is impossible is the most valuable one you
 | `"ok":false` in the tick log | A tick is throwing | Read the `error` field first. At 10,000 subrequests per invocation (Workers Paid, since 2026-09-22) the subrequest cap is unlikely to be the cause, and since quick task 260923-3w4 nothing in the Worker refuses work over it — a tick that really exceeded it would throw from the platform. Check `subrequestsUsed` on the surrounding ticks to rule it out, not as the first suspect |
 | Predictions look wrong but ticks are healthy | Live state has drifted from the offline authority | Re-baseline (above). The offline snapshot always wins; never hand-edit D1 rows |
 | No logs at all in `wrangler tail` | Either nothing is firing, or a version without logging is deployed | `wrangler deployments list` — confirm the current version is at or after `0210df9e`'s deploy. Before that commit the Worker logged nothing, and a silent tail meant nothing either way |
-| `opr` or `epa` metrics look stale mid-event while `spr` updates | Expected — only `spr` folds live (see "Live folding tier" above) | `LIVE_ALGORITHM_IDS` in `apps/worker/wrangler.toml`; refresh via a re-baseline (above) |
+| `opr` or `epa` metrics look stale mid-event while `spr` updates | **A real symptom since 2026-09-23, not expected any more** — all three fold live. Most likely the deployed `LIVE_ALGORITHM_IDS` is narrower than tracked config (check the tail for `live-tier-defaulted`, and the deploy output for the var), or opr/epa state is missing from D1 / at a retired snapshot shape (`LeagueRowShapeVersionError`, `state-generation-mismatch`) because a seed pass applied `seed-spr.sql` alone | Redeploy from tracked config with `pnpm worker:deploy`; if D1 is the cause, reseed all three plus `seed-cursors.sql` (`pnpm rebaseline --from seed`) |
 | A `live-tier-defaulted` warn line in the tail | `LIVE_ALGORITHM_IDS` did not reach the deployed Worker (e.g. a `--var` deploy that did not carry tracked vars through) | Redeploy from tracked config with `pnpm worker:deploy` and confirm the deploy output lists both `TBA_BASE_URL` and `LIVE_ALGORITHM_IDS` |
 | `outcome: "exceededCpu"` with an empty `logs` array on **every** tick | The tick is *consistently* over the CPU budget (30 s per invocation, Workers Paid since 2026-09-22 — was 10 ms on the free plan). It is reaching the handler and dying before its final log line — it is **not** dying in module init (that is a separate 1-second budget) | `eventsConsidered` on any tick that does survive. If non-zero, fetch `https://data.sigmascout.org/v1/manifest/live-windows.json` and see what the Worker thinks is live — **read the manifest, never the calendar**. Read "How the CPU budget is actually enforced" above before drawing any conclusion from a single high `cpuTime` |
 | About to run an event; unsure the deployed bundle can read the rows in D1 | Untested since the last seed — a green idle tick does not exercise it | Apply `seed-cursors.sql` from the same publish run and deploy in that order, then watch the first tick for `state-generation-mismatch` or `LeagueRowShapeVersionError`. (The pre-event probe that used to answer this by hand was deleted 2026-09-23 — see "Pre-event probe" above) |
