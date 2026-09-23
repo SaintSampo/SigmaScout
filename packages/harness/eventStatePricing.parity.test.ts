@@ -27,8 +27,15 @@ import { WalkForwardSimulator } from "./replay.js";
 import { SigmaScoutLayer, type UpcomingLayerRecord } from "./sigmaScoutLayer.js";
 import { buildEventArtifact, buildTeamSeasonArtifact, resolvePublishAlgorithms } from "./publish.js";
 import { roundPmf, roundTo, ROUNDING_RULE } from "./rounding.js";
-import { usesSigmaScore } from "./sigmaScore.js";
+import { SigmaScoreAccumulator, usesSigmaScore } from "./sigmaScore.js";
+import { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
+import { RpMeanShiftAccumulator } from "../core/rankingPoints/meanShift.js";
+import { priceUpcomingRows, type UpcomingPricingModel } from "./upcomingPricing.js";
 import {
+  deserializeState,
+  readRpBeliefs,
+  readSigmaBeliefs,
+  readSigmaPopulation,
   serializeState,
   withRpBeliefs,
   withRpMeanShift,
@@ -396,6 +403,44 @@ describe("eventStatePricing parity: the full gating matrix", async () => {
         for (const key of RP_ROW_KEYS) expect(row, `${String(row.matchKey)} ${key}`).not.toHaveProperty(key);
       }
     }
+  });
+
+  it("the in-memory model arm — the live Worker's own path — prices to the same rows, with no block in sight", () => {
+    // The tick never holds a `state` block: it deserializes D1 rows, folds, and
+    // prices from the accumulators in its hand. This arm is that path, one
+    // assertion away from the block arm above, so the extraction of
+    // `priceUpcomingRows` cannot silently start meaning something else for one
+    // of its two callers. Quick task 260923-3w6.
+    const { publishedEvent, publishedTeam } = expectCaseParity({
+      arm,
+      upcoming: upcomingAll,
+      eventType: ELIGIBLE,
+      sortTimes: sortTimesAll,
+      ruleModule: loadedRuleModule,
+    });
+
+    const rows = arm.rows;
+    const model: UpcomingPricingModel = {
+      algorithm: spr,
+      state: deserializeState(spr.id, rows) as SprState,
+      sigmaScores: SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(rows), readSigmaPopulation(rows)).scoreByTeam(),
+      ruleModule: loadedRuleModule,
+      rp: RpMomentsAccumulator.fromBeliefs(loadedRuleModule!, readRpBeliefs(rows)),
+      shift: RpMeanShiftAccumulator.fromState(loadedRuleModule!, readRpMeanShift(rows)),
+    };
+    const priced = priceUpcomingRows({
+      model,
+      eventKey: EVENT_KEY,
+      season: SEASON,
+      eventType: ELIGIBLE,
+      upcoming: upcomingAll.map((m) => scheduleOnly(m, sortTimesAll.get(m.matchKey))),
+    });
+
+    expectExactRows(priced.event, publishedEvent);
+    expectExactRows(priced.team, publishedTeam);
+    // Non-vacuity: the arm really priced level-2 fields, not bare predictions.
+    expect(priced.event[0]!.redMatchBandVariance).toBeTypeOf("number");
+    expect(priced.event[0]!.redRpPmf).toBeDefined();
   });
 
   it("mean shift non-vacuity: every variable is past warmup, and dropping the passenger moves at least one warm qm pmf", () => {

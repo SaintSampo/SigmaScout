@@ -1,49 +1,47 @@
 /**
  * BROWSER PRICING of upcoming SPR matches from an event's `state` block.
  *
+ * DEPRECATED, WHOLE FILE, FOR QUICK TASK 260923-3w7. The `state` block is no
+ * longer produced by anything: quick task 260923-3w6 reinstated the live
+ * Worker's own upcoming pricing (`260923-1tu-FINDINGS.md` item C1), which is
+ * what the block existed to avoid, and removed the publisher's emission of it.
+ * This file survives only because the WEB still prices from a block
+ * (`apps/web/src/lib/eventPricing.lazy.ts`) and because the parity tests still
+ * use `buildEventStateBlock` as a wire fixture. 260923-3w7 deletes the web
+ * pricing path, and this file goes with it. Do not add a caller.
+ *
+ * NOT deprecated, and NOT going with it: `stateBlockScopeKeys`, which is the
+ * live tick's D1 read-key rule (every roster key, plus SPR's demo pseudo team)
+ * and has nothing to do with blocks beyond having been written for one. Whatever
+ * deletes this file must move that function, not drop it.
+ *
  * The offline publisher prices every scheduled match with
  * `SigmaScoutLayer.enrichUpcoming`; this module reproduces those published
- * rows from the state that layer and SPR end the replay with, so a page can
- * price the remaining schedule itself instead of the Worker tick doing it.
- * Ratings stay precomputed: the browser only evaluates the forecast.
+ * rows from the state that layer and SPR end the replay with. The pricing
+ * ARITHMETIC lives in `upcomingPricing.ts`, shared with the live Worker; what
+ * is left here is the block's own validation and deserialization.
  *
- * WHAT IT SHARES. Every primitive is the shared function: `spr.predict`,
- * `allianceSigmaBandVariance`, `sigmaMatchBandVariance`,
- * `RpMomentsAccumulator.fromBeliefs`/`momentsFor`,
- * `RpMeanShiftAccumulator.fromState`/`apply`, `rosterIsFullyWarm`,
- * `analyticRpPmf`, the state readers in `stateSnapshot.ts` and the row
- * builders in `publishedRows.ts`.
- *
- * WHAT IT MIRRORS. The level-2 read path below (the alliance band and the RP
- * fields) mirrors `SigmaScoutLayer.enrichUpcoming`, `#matchBandFields` and
- * `#rpFieldsFor` statement for statement. It is not extracted from there
- * because `sigmaScoutLayer.bandGuard.test.ts` pins `#rpFieldsFor`'s guard as
- * source text inside `sigmaScoutLayer.ts`. `eventStatePricing.parity.test.ts`
- * fails on any drift between the two.
+ * WHAT IT SHARES. `spr.predict`, `RpMomentsAccumulator.fromBeliefs`,
+ * `RpMeanShiftAccumulator.fromState`, the state readers in `stateSnapshot.ts`,
+ * and `priceUpcomingRows` itself.
  *
  * UNSEEN TEAMS FOLLOW THE OFFLINE RULE: a roster team with no Sigma belief
  * gives its alliance no band, and the match no RP (both variances are needed).
  * Never the Worker's price-from-prior (`SigmaScoreAccumulator.bandVarianceFor`).
+ * That rule now lives in `upcomingPricing.ts`, structurally: this file passes
+ * `scoreByTeam()`, never an accessor that invents a prior.
  *
  * BROWSER-SAFE: never import `publish.ts`, `rules.ts`, a per-season RP file,
  * `sigmaScoutLayer.ts`, `replay.ts` or anything under `packages/corpus`. The
  * RP rule module is injected (`rulesLoader.ts` loads one season at a time).
  * `eventStatePricing.browserSafe.test.ts` guards the import graph.
  */
-import type { CompLevel, Prediction, UpcomingMatch } from "../core/algorithms/types.js";
 import { spr, type SprState } from "../core/algorithms/spr.js";
 import { DEMO_PSEUDO_TEAM_KEY, isDemoTeamKey } from "../core/algorithms/demoTeams.js";
-import { isRpEligibleEventType, type RpRuleModule } from "../core/rankingPoints/constants.js";
+import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 import { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
-import { RpMeanShiftAccumulator, rosterIsFullyWarm } from "../core/rankingPoints/meanShift.js";
-import { analyticRpPmf } from "../core/rankingPoints/analyticPmf.js";
-import {
-  allianceSigmaBandVariance,
-  publishesRankingPoints,
-  SigmaScoreAccumulator,
-  sigmaMatchBandVariance,
-  usesSigmaScore,
-} from "./sigmaScore.js";
+import { RpMeanShiftAccumulator } from "../core/rankingPoints/meanShift.js";
+import { publishesRankingPoints, SigmaScoreAccumulator, usesSigmaScore } from "./sigmaScore.js";
 import {
   deserializeState,
   readRpBeliefs,
@@ -53,15 +51,12 @@ import {
   STATE_SNAPSHOT_SHAPE_VERSION,
   type StateRow,
 } from "./stateSnapshot.js";
-import {
-  EventUpcomingMatchSchema,
-  TeamSeasonMatchSchema,
-  type EventStateBlock,
-  type EventStateBlockRow,
-  type EventUpcomingMatch,
-  type TeamSeasonMatch,
-} from "./pageArtifacts.js";
-import { eventUpcomingRow, teamSeasonMatchRow } from "./publishedRows.js";
+import { type EventStateBlock, type EventStateBlockRow } from "./pageArtifacts.js";
+import { priceUpcomingRows, type PriceUpcomingResult, type ScheduledMatchInput } from "./upcomingPricing.js";
+
+// Re-exported unchanged so `apps/web/src/lib/eventPricing.lazy.ts` and the
+// parity tests keep importing them from here while this file still exists.
+export type { PriceUpcomingResult, ScheduledMatchInput } from "./upcomingPricing.js";
 
 /** Thrown when a state block breaks an invariant, at build or at read time. A consumer falls back to the published fields. */
 export class EventStateBlockError extends Error {
@@ -298,17 +293,6 @@ export function completeEventStateBlock(
   };
 }
 
-/** One not-yet-played match, schedule fields only: nothing a pricer could leak an outcome through. */
-export interface ScheduledMatchInput {
-  readonly matchKey: string;
-  readonly compLevel: CompLevel;
-  readonly setNumber: number;
-  readonly matchNumber: number;
-  readonly sortTime?: number;
-  readonly redTeams: readonly string[];
-  readonly blueTeams: readonly string[];
-}
-
 export interface PriceUpcomingInput {
   readonly state: EventStateBlock;
   readonly eventKey: string;
@@ -318,13 +302,6 @@ export interface PriceUpcomingInput {
   /** The season's RP rules, or `undefined` for a season without them (bands still price; RP does not appear). */
   readonly ruleModule: RpRuleModule | undefined;
   readonly upcoming: readonly ScheduledMatchInput[];
-}
-
-export interface PriceUpcomingResult {
-  /** `EventArtifact.upcoming` rows, in input order. */
-  readonly event: EventUpcomingMatch[];
-  /** `TeamSeasonArtifact` match rows, in input order; `team[i]` and `event[i]` are built from the same record. */
-  readonly team: TeamSeasonMatch[];
 }
 
 /** Re-checks the block invariants a structural schema parse cannot. */
@@ -355,6 +332,13 @@ function assertPriceableBlock(state: EventStateBlock): void {
  * publisher would publish for the same state. Throws `EventStateBlockError`
  * for a block that breaks an invariant and `RpRuleModuleSeasonMismatchError`
  * for a rule module from another season.
+ *
+ * THE PRICING LOOP ITSELF LIVES IN `upcomingPricing.ts` since quick task
+ * 260923-3w6, because the live Worker prices upcoming matches again and does it
+ * from in-memory accumulators rather than from a wire copy of D1. This function
+ * is now exactly the block half: validate the block, deserialize it into a
+ * model, and hand that model to the shared pricer. Both callers therefore run
+ * byte-identical arithmetic by construction rather than by review.
  */
 export function priceUpcomingFromState(input: PriceUpcomingInput): PriceUpcomingResult {
   const { state: block, eventKey, season, eventType, ruleModule } = input;
@@ -375,97 +359,13 @@ export function priceUpcomingFromState(input: PriceUpcomingInput): PriceUpcoming
   const rp = rankingPoints ? RpMomentsAccumulator.fromBeliefs(ruleModule, readRpBeliefs(rows)) : undefined;
   const shift = rankingPoints ? RpMeanShiftAccumulator.fromState(ruleModule, readRpMeanShift(rows)) : undefined;
 
-  const event: EventUpcomingMatch[] = [];
-  const team: TeamSeasonMatch[] = [];
-  for (const scheduled of input.upcoming) {
-    // No pricing path reads `week` or the surrogates; the parity test's offline arm uses the real values.
-    const match: UpcomingMatch = {
-      matchKey: scheduled.matchKey,
-      eventKey,
-      compLevel: scheduled.compLevel,
-      setNumber: scheduled.setNumber,
-      matchNumber: scheduled.matchNumber,
-      redTeams: scheduled.redTeams,
-      blueTeams: scheduled.blueTeams,
-      redSurrogates: [],
-      blueSurrogates: [],
-      eventType,
-      week: null,
-    };
-    const prediction = spr.predict(state, match);
-
-    // --- MIRROR of SigmaScoutLayer.enrichUpcoming ---
-    const redVariance = sigmaScores === undefined ? undefined : allianceSigmaBandVariance(match.redTeams, sigmaScores);
-    const blueVariance = sigmaScores === undefined ? undefined : allianceSigmaBandVariance(match.blueTeams, sigmaScores);
-
-    // --- MIRROR of SigmaScoutLayer.#rpFieldsFor ---
-    let rpFields: Partial<Prediction> = {};
-    if (
-      prediction.redRpPmf === undefined &&
-      rp !== undefined &&
-      ruleModule !== undefined &&
-      shift !== undefined &&
-      isRpEligibleEventType(match.eventType) &&
-      redVariance !== undefined &&
-      blueVariance !== undefined
-    ) {
-      const red = rp.momentsFor(match.redTeams, prediction.redScore, redVariance);
-      const blue = rp.momentsFor(match.blueTeams, prediction.blueScore, blueVariance);
-      const pmf = analyticRpPmf({
-        red: shift.apply(red, rosterIsFullyWarm(rp, match.redTeams)),
-        blue: shift.apply(blue, rosterIsFullyWarm(rp, match.blueTeams)),
-        ruleModule,
-        eventType: match.eventType,
-        compLevel: match.compLevel,
-        pRedWin: prediction.pRedWin,
-      });
-      const decomposition: Partial<Prediction> =
-        pmf.outcome !== undefined && pmf.redBonusPmf !== undefined && pmf.blueBonusPmf !== undefined
-          ? {
-              matchOutcomePmf: [pmf.outcome.pRedWin, pmf.outcome.pTie, pmf.outcome.pBlueWin],
-              redOutcomeRp: [pmf.outcome.winRp, pmf.outcome.tieRp, 0],
-              blueOutcomeRp: [0, pmf.outcome.tieRp, pmf.outcome.winRp],
-              redBonusRpPmf: pmf.redBonusPmf,
-              blueBonusRpPmf: pmf.blueBonusPmf,
-            }
-          : {};
-      rpFields = {
-        redRpPmf: pmf.redPmf,
-        blueRpPmf: pmf.bluePmf,
-        ...(pmf.redBonusProbabilities !== undefined ? { redBonusRp: pmf.redBonusProbabilities } : {}),
-        ...(pmf.blueBonusProbabilities !== undefined ? { blueBonusRp: pmf.blueBonusProbabilities } : {}),
-        ...decomposition,
-      };
-    }
-
-    // --- MIRROR of SigmaScoutLayer.#matchBandFields ---
-    let matchBand: { red?: number; blue?: number } | undefined;
-    if (sigmaScores !== undefined) {
-      const red = sigmaMatchBandVariance(match.redTeams.length, redVariance);
-      const blue = sigmaMatchBandVariance(match.blueTeams.length, blueVariance);
-      if (red !== undefined || blue !== undefined) {
-        matchBand = { ...(red !== undefined ? { red } : {}), ...(blue !== undefined ? { blue } : {}) };
-      }
-    }
-
-    const record = {
-      match,
-      prediction: { ...prediction, ...rpFields },
-      ...(matchBand !== undefined ? { matchBand } : {}),
-    };
-    event.push(EventUpcomingMatchSchema.parse(eventUpcomingRow(record, scheduled.sortTime)));
-    // The corpus has no video for an unplayed match, so none is passed.
-    team.push(
-      TeamSeasonMatchSchema.parse(
-        teamSeasonMatchRow(record, {
-          season,
-          algorithmId: block.algorithmId,
-          algorithmVersion: block.algorithmVersion,
-          sortTime: scheduled.sortTime,
-          video: undefined,
-        })
-      )
-    );
-  }
-  return { event, team };
+  return priceUpcomingRows({
+    // `assertPriceableBlock` already proved the block is `spr` at the BUNDLED
+    // version, so the bundled module is the only admissible pricer here.
+    model: { algorithm: spr, state, sigmaScores, ruleModule, rp, shift },
+    eventKey,
+    season,
+    eventType,
+    upcoming: input.upcoming,
+  });
 }
