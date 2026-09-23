@@ -11,7 +11,8 @@
  * stood, the scoring and loader change alone, then the no-fold rule on top.
  * Run it once per commit with a different `--out`, then `--diff` two outputs.
  *
- * SAFETY, same construction as `scripts/measureReplayParity.ts`: no network
+ * SAFETY (this construction was shared with `scripts/measureReplayParity.ts`,
+ * deleted by quick task 260923-3w6 with the browser-relay experiment): no network
  * module, no environment variable, the corpus opened read-only, `dryRun` so no
  * request is signed, `skipState` so no seed file is written, no
  * `--write-budget`, a fixed non-UUID generation marker, and no pre-schedule
