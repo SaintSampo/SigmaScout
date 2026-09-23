@@ -32,7 +32,7 @@
  * cut from the wrong side.
  */
 import { roundMetric } from "./rounding.js";
-import type { EventTierCutEntry } from "./pageArtifacts.js";
+import type { SeasonTierCutEntry } from "./pageArtifacts.js";
 
 /**
  * The four rarity tiers, in ascending order. Declared HERE, not in
@@ -53,7 +53,7 @@ export type Tier = "common" | "rare" | "epic" | "legendary";
  * falls through to `"common"` when none match — there is no separate
  * "common cut", because Common is everything below the Rare cut.
  *
- * `entry.lower === true` (an OPTIONAL marker; see `EventTierCutEntrySchema`
+ * `entry.lower === true` (an OPTIONAL marker; see `SeasonTierCutEntrySchema`
  * in `pageArtifacts.ts` for why the wire format carries it rather than the
  * client deriving direction) flips both the comparison to `<=` AND the
  * array's own sense: `cuts` is DESCENDING for a lower-is-better metric, so
@@ -64,7 +64,7 @@ export type Tier = "common" | "rare" | "epic" | "legendary";
  * published for this metric name, or there is no value to classify. Both
  * are honest "no tier" outcomes, never a guess.
  */
-export function tierFromCuts(entry: EventTierCutEntry | undefined, value: number | undefined): Tier | undefined {
+export function tierFromCuts(entry: SeasonTierCutEntry | undefined, value: number | undefined): Tier | undefined {
   if (entry === undefined || value === undefined) return undefined;
   const rounded = roundMetric(value);
   const [rare, epic, legendary] = entry.cuts;

@@ -28,7 +28,7 @@
 import { COMPONENT_GROUP_METRIC_KEYS } from "../core/algorithms/breakdown/index.js";
 import { TOTAL_METRIC_KEY, type TeamMetric, type TeamMetrics } from "../core/algorithms/types.js";
 import { goodnessPercentile, metricDirectionOrDefault } from "./metricDirection.js";
-import { publishedTierForPercentile, type EventTierCutEntry, type EventTierCuts } from "./pageArtifacts.js";
+import { publishedTierForPercentile, type SeasonTierCutEntry, type SeasonTierCuts } from "./pageArtifacts.js";
 import { roundMetric, roundTo, ROUNDING_RULE } from "./rounding.js";
 
 /**
@@ -374,7 +374,7 @@ function tierAtLeast(tier: "rare" | "epic" | "legendary" | undefined, target: "r
  * name list — so `sigma` is excluded structurally whenever the caller's
  * pool structurally excludes it, which `sortedPoolsByMetric` always does
  * for the real `officialMetricsByTeam` pool
- * (`EventTierCutsSchema`'s own doc comment in `pageArtifacts.ts` has the
+ * (`SeasonTierCutsSchema`'s own doc comment in `pageArtifacts.ts` has the
  * full reason, citing `sigmaMetric.ts`'s within-window rank). This function
  * itself has no special case for any metric name.
  *
@@ -384,8 +384,8 @@ function tierAtLeast(tier: "rare" | "epic" | "legendary" | undefined, target: "r
  * violated by a future change to one of the composed functions — a defect
  * signal, not an expected path.
  */
-export function buildTierCutsFromPools(sortedPools: ReadonlyMap<string, readonly number[]>): EventTierCuts {
-  const result: Record<string, EventTierCutEntry> = {};
+export function buildTierCutsFromPools(sortedPools: ReadonlyMap<string, readonly number[]>): SeasonTierCuts {
+  const result: Record<string, SeasonTierCutEntry> = {};
   for (const [metricName, pool] of sortedPools) {
     if (pool.length === 0) continue; // Never true for sortedPoolsByMetric's own output; defensive only.
     const direction = metricDirectionOrDefault(metricName);

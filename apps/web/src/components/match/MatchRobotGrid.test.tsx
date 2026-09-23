@@ -12,7 +12,7 @@ import { totalColumnHeader } from "@/components/TotalSigmaValue";
 import { tierForPercentile } from "../../lib/tiers.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
-import type { EventTierCuts, TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { SeasonTierCuts, TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
  * Radix's `Avatar` resolves an `AvatarImage`'s loading status by constructing
@@ -317,7 +317,7 @@ describe("MatchRobotGrid", () => {
    * `METRIC_CELLS`) is the fixture's percentile-less metric here.
    */
   describe("tierCuts fallback (260920-qzf)", () => {
-    const NO_PERCENTILE_TIER_CUTS: EventTierCuts = { phaseAuto: { cuts: [8, 12, 18] } };
+    const NO_PERCENTILE_TIER_CUTS: SeasonTierCuts = { phaseAuto: { cuts: [8, 12, 18] } };
 
     /** `resolvedRecord` with `phaseAuto`'s percentile stripped — a live-folded row's exact shape. */
     function recordWithNoPercentileOnAuto(): MatchRobotRecord {

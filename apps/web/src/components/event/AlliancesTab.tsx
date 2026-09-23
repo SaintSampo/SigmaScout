@@ -37,7 +37,7 @@ import { resolveMetricTier, tierForPercentile } from "@/lib/tiers";
 import { buildTeamValuePercentilePoints, estimateCombinedTier, type AllianceApproxTier } from "@/lib/allianceTierApproximation";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { allianceSigmaBandVariance, sigmaMatchBandVariance, SIGMA_METRIC_KEY, usesSigmaScore } from "../../../../../packages/harness/sigmaScore.js";
-import type { EventArtifact, EventTierCuts } from "../../../../../packages/harness/pageArtifacts.js";
+import type { EventArtifact, SeasonTierCuts } from "../../../../../packages/harness/pageArtifacts.js";
 
 type EventTeam = EventArtifact["teams"][number];
 type EventAlliance = NonNullable<EventArtifact["alliances"]>[number];
@@ -441,7 +441,7 @@ function PickCell({
   pick: AlliancePick | undefined;
   season: number;
   algorithm: PublishedAlgorithmId;
-  tierCuts: EventTierCuts | undefined;
+  tierCuts: SeasonTierCuts | undefined;
 }) {
   if (pick === undefined) {
     return <span className="numeric-cell"></span>;
@@ -458,7 +458,7 @@ function PickCell({
         total={pick.total}
         totalTier={resolveMetricTier(pick.total, TOTAL_KEY, tierCuts)}
         // sigma keeps tierForPercentile alone — no sigma cut is ever
-        // published (`EventTierCutsSchema`'s own doc comment).
+        // published (`SeasonTierCutsSchema`'s own doc comment).
         sigma={pick.sigma !== undefined ? { value: pick.sigma.value, tier: tierForPercentile(pick.sigma.percentile) } : undefined}
       />
     </Link>
@@ -491,7 +491,7 @@ function BackupCell({
   season: number;
   algorithm: PublishedAlgorithmId;
   labelled: boolean;
-  tierCuts: EventTierCuts | undefined;
+  tierCuts: SeasonTierCuts | undefined;
 }) {
   if (picks.length === 0) {
     return <span className="numeric-cell"></span>;
@@ -512,7 +512,7 @@ function BackupCell({
             total={pick.total}
             totalTier={resolveMetricTier(pick.total, TOTAL_KEY, tierCuts)}
             // sigma keeps tierForPercentile alone — no sigma cut is ever
-            // published (`EventTierCutsSchema`'s own doc comment).
+            // published (`SeasonTierCutsSchema`'s own doc comment).
             sigma={pick.sigma !== undefined ? { value: pick.sigma.value, tier: tierForPercentile(pick.sigma.percentile) } : undefined}
           />
           {labelled && <span className="text-role-label text-[var(--color-text-muted)]">{"(backup)"}</span>}
@@ -583,7 +583,7 @@ function buildAllianceColumns(
   season: number,
   showBackupColumn: boolean,
   backupLabelled: boolean,
-  tierCuts: EventTierCuts | undefined
+  tierCuts: SeasonTierCuts | undefined
 ) {
   // `algorithmId` reaching this function was already validated upstream
   // through `RootSearchSchema.algorithm` — the same loose-cast escape hatch

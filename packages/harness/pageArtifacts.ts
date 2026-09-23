@@ -1207,6 +1207,67 @@ export const TeamsArtifactSchema = TeamsArtifactWireSchema.transform(({ metricKe
 export type TeamsArtifact = z.infer<typeof TeamsArtifactSchema>;
 
 // ---------------------------------------------------------------------------
+// SeasonTierCutsSchema — the rarity-tier cut points, one block per
+// (algorithm, season), published on BOTH the event and team-season artifacts
+// ---------------------------------------------------------------------------
+
+/**
+ * One metric name's rarity-tier cut points, publisher-derived from the SAME
+ * season ranking pool every percentile that carries this block ranks against
+ * (`buildTierCutsFromPools`, `percentiles.ts`). `cuts` is `[rare, epic,
+ * legendary]` — the smallest `roundMetric`-precision value at which the
+ * tier reaches that band, for a higher-is-better metric. Evaluated by
+ * `tierFromCuts` (`packages/harness/tierCuts.ts`), the ONE place the cut
+ * semantics are stated; this schema only shapes the wire format.
+ *
+ * `lower: true` flips the evaluation to `<=` and means `cuts` is
+ * DESCENDING. Omitted rather than written `false` — following this file's
+ * own omitted-for-Common precedent (`TeamMetricSchema.tier`'s doc comment
+ * above) — and no entry publishes it today: see `SeasonTierCutsSchema`'s own
+ * doc comment for why `sigma`, this file's one declared lower-is-better
+ * metric, never gets a pool-derived cut at all. It costs zero wire bytes
+ * while unused, and stays here for the day a genuine lower-is-better
+ * pool-ranked metric is added.
+ */
+const SeasonTierCutEntrySchema = z.object({
+  cuts: z.tuple([z.number(), z.number(), z.number()]),
+  lower: z.literal(true).optional(),
+});
+
+export type SeasonTierCutEntry = z.infer<typeof SeasonTierCutEntrySchema>;
+
+/**
+ * Metric name -> its cut points, one entry per metric name the season
+ * ranking pool (`sortedPoolsByMetric`) covers.
+ *
+ * ONE BLOCK PER (ALGORITHM, SEASON), NOT ONE PER PAGE — which is why it is
+ * declared HERE, above both artifacts that carry it, rather than inside
+ * either one's own section. The publisher builds it exactly once per
+ * (algorithm, season) from `rankingPools` (`publish.ts`'s `seasonTierCuts`)
+ * and attaches THE SAME OBJECT to every event artifact and every team-season
+ * artifact that block writes; `publish.test.ts` pins that equality
+ * end-to-end. The pair was named for the event artifact while that was its
+ * only carrier (quick task 260920-qzf), and quick task 260923-3x0 renamed it
+ * to the scope it always had when the team-season artifact became the second
+ * carrier. THE WIRE KEY IS `tierCuts` ON BOTH ARTIFACTS and has never
+ * changed — that rename touched identifiers only, never published bytes.
+ *
+ * NEVER carries a `sigma` entry, structurally rather than by a name-list
+ * exclusion: `sortedPoolsByMetric` pools `officialMetricsByTeam`, and
+ * `sigmaMetric.ts`'s within-window detrended-rank Sigma percentile is
+ * merged in only later, at the team-season and Teams-row builds, after the
+ * pool this schema's values are built from. A pool-derived cut for `sigma`
+ * would be actively wrong even if one were accidentally built: since
+ * 260917-jzh, Sigma's published percentile ranks a team against its own
+ * rating-window neighbours, not against the season pool this schema's cuts
+ * describe, so a cut built from the wrong population would paint a
+ * confidently wrong tier.
+ */
+const SeasonTierCutsSchema = z.record(z.string(), SeasonTierCutEntrySchema);
+
+export type SeasonTierCuts = z.infer<typeof SeasonTierCutsSchema>;
+
+// ---------------------------------------------------------------------------
 // TeamSeasonArtifactSchema — v1/team/{teamKey}/{year}/{algorithmId}@{version}.json
 // ---------------------------------------------------------------------------
 
@@ -1319,6 +1380,40 @@ export const TeamSeasonArtifactSchema = AlgorithmScopedPreambleSchema.extend({
    * every reader.
    */
   ranks: z.array(TeamSeasonRankSchema).max(4).optional(),
+  /**
+   * THE SAME per-(algorithm, season) rarity-tier cut points every EVENT
+   * artifact for this algorithm and season carries (`SeasonTierCutsSchema`
+   * above) — one object built once by `buildTierCutsFromPools`, attached to
+   * both kinds of file, never a second computation and never a per-team
+   * narrowing. `publish.test.ts` pins the equality end-to-end.
+   *
+   * It exists so the ROBOT PAGE can re-derive a live-folded row's tier
+   * (`apps/web/src/lib/tiers.ts`'s resolver) for a metric entry that has a
+   * VALUE but no PERCENTILE — exactly the shape `mergeTeamSeasonArtifact`'s
+   * appended metric-history rows and `touchedEventTeamMetrics`'s `seasonStats`
+   * entries have (`apps/worker/src/artifactMerge.ts`). Quick task 260920-qzf
+   * closed that tier gap by reading this block off the live EVENT artifact;
+   * 260923-3w7 deleted the fetch that supplied it (the tick writes this file
+   * again, so the robot page reads one file and fetches no event artifact), and
+   * 260923-3x0 closed it here instead, where no second fetch is needed.
+   * `.catch(undefined)`: a malformed block degrades to absent rather than
+   * failing the whole artifact parse.
+   *
+   * IT MUST BE DECLARED, not merely written, for the identical reason
+   * `EventArtifactSchema.tierCuts` states: a live tick's `existing` carries
+   * this key through `mergeTeamSeasonArtifact`'s leading `...existing` spread
+   * untouched, and `writeArtifactObject`'s own `schema.parse` strips every key
+   * the schema does not recognise — so an undeclared key would be silently
+   * undone at the `.parse()` boundary on every tick.
+   *
+   * Optional, and an artifact published before this key existed simply has
+   * none: the read path is not `.strict()`, so such a file parses and renders a
+   * live-folded row untiered until that (algorithm, season)'s next republish —
+   * the pre-260923-3x0 behaviour, never worse.
+   * `PAGE_ARTIFACT_SCHEMA_VERSION` is deliberately NOT bumped, matching
+   * `ranks`/`activeYears` above.
+   */
+  tierCuts: SeasonTierCutsSchema.optional().catch(undefined),
 });
 
 export type TeamSeasonArtifact = z.infer<typeof TeamSeasonArtifactSchema>;
@@ -1409,50 +1504,6 @@ const EventAllianceSchema = z.object({
   picks: z.array(z.string().min(1)).min(1),
   record: RecordSchema.optional(),
 });
-
-/**
- * One metric name's rarity-tier cut points, publisher-derived from the SAME
- * season ranking pool every percentile on this page ranks against
- * (`buildTierCutsFromPools`, `percentiles.ts`). `cuts` is `[rare, epic,
- * legendary]` — the smallest `roundMetric`-precision value at which the
- * tier reaches that band, for a higher-is-better metric. Evaluated by
- * `tierFromCuts` (`packages/harness/tierCuts.ts`), the ONE place the cut
- * semantics are stated; this schema only shapes the wire format.
- *
- * `lower: true` flips the evaluation to `<=` and means `cuts` is
- * DESCENDING. Omitted rather than written `false` — following this file's
- * own omitted-for-Common precedent (`TeamMetricSchema.tier`'s doc comment
- * above) — and no entry publishes it today: see `EventTierCutsSchema`'s own
- * doc comment for why `sigma`, this file's one declared lower-is-better
- * metric, never gets a pool-derived cut at all. It costs zero wire bytes
- * while unused, and stays here for the day a genuine lower-is-better
- * pool-ranked metric is added.
- */
-const EventTierCutEntrySchema = z.object({
-  cuts: z.tuple([z.number(), z.number(), z.number()]),
-  lower: z.literal(true).optional(),
-});
-
-export type EventTierCutEntry = z.infer<typeof EventTierCutEntrySchema>;
-
-/**
- * Metric name -> its cut points, one entry per metric name the season
- * ranking pool (`sortedPoolsByMetric`) covers.
- *
- * NEVER carries a `sigma` entry, structurally rather than by a name-list
- * exclusion: `sortedPoolsByMetric` pools `officialMetricsByTeam`, and
- * `sigmaMetric.ts`'s within-window detrended-rank Sigma percentile is
- * merged in only later, at the team-season and Teams-row builds, after the
- * pool this schema's values are built from. A pool-derived cut for `sigma`
- * would be actively wrong even if one were accidentally built: since
- * 260917-jzh, Sigma's published percentile ranks a team against its own
- * rating-window neighbours, not against the season pool this schema's cuts
- * describe, so a cut built from the wrong population would paint a
- * confidently wrong tier.
- */
-const EventTierCutsSchema = z.record(z.string(), EventTierCutEntrySchema);
-
-export type EventTierCuts = z.infer<typeof EventTierCutsSchema>;
 
 /**
  * `publish.ts`'s `buildEventArtifact` populates `teams` for every event
@@ -1563,13 +1614,20 @@ export const EventArtifactSchema = AlgorithmScopedPreambleSchema.extend({
    */
   rpOutcomeRp: z.object({ win: z.number(), tie: z.number() }).optional(),
   /**
-   * Rarity-tier cut points per metric name (`EventTierCutsSchema` above),
+   * Rarity-tier cut points per metric name (`SeasonTierCutsSchema` above),
    * letting the client re-derive a live-folded row's tier
    * (`apps/web/src/lib/tiers.ts`'s resolver) for a metric entry that has a
    * VALUE but no PERCENTILE — exactly what a live tick's
    * `touchedEventTeamMetrics` rows carry
    * (`apps/worker/src/artifactMerge.ts`). `.catch(undefined)`: a malformed
    * block degrades to absent rather than failing the whole artifact parse.
+   *
+   * NOT UNIQUE TO THIS ARTIFACT since quick task 260923-3x0:
+   * `TeamSeasonArtifactSchema.tierCuts` carries the identical object for the
+   * same (algorithm, season), because the robot page fetches no event artifact
+   * at all. Neither is a copy of the other to keep in step — the publisher
+   * builds ONE block per (algorithm, season) and writes that same object to
+   * both.
    *
    * IT MUST BE DECLARED, not merely written. A live tick's `existing` carries
    * this key through `mergeEventArtifact`'s spread-then-override untouched, and
@@ -1583,7 +1641,7 @@ export const EventArtifactSchema = AlgorithmScopedPreambleSchema.extend({
    * additive and optional, matching this file's own precedent for the
    * identical class of change (see this schema's own header comment).
    */
-  tierCuts: EventTierCutsSchema.optional().catch(undefined),
+  tierCuts: SeasonTierCutsSchema.optional().catch(undefined),
   /**
    * PRESENT ONLY WHEN `teams[].rank`/`record`/`rp` WERE COUNTED BY THE LIVE
    * TICK rather than published from TBA's own rankings

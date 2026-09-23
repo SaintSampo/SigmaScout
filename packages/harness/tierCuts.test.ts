@@ -10,9 +10,15 @@
  */
 import { describe, expect, it } from "vitest";
 import type { TeamMetrics } from "../core/algorithms/types.js";
-import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, publishedTierForPercentile, type EventTierCutEntry } from "./pageArtifacts.js";
+import {
+  EventArtifactSchema,
+  PAGE_ARTIFACT_SCHEMA_VERSION,
+  publishedTierForPercentile,
+  TeamSeasonArtifactSchema,
+  type SeasonTierCutEntry,
+} from "./pageArtifacts.js";
 import { buildTierCutsFromPools, goodnessPercentileAgainstPools, sortedPoolsByMetric } from "./percentiles.js";
-import { buildEventArtifact } from "./publish.js";
+import { buildEventArtifact, buildTeamSeasonArtifact } from "./publish.js";
 import { roundMetric } from "./rounding.js";
 import { SIGMA_METRIC_KEY } from "./sigmaScore.js";
 import { tierFromCuts } from "./tierCuts.js";
@@ -86,7 +92,7 @@ function sweepValues(pool: readonly number[]): number[] {
  * EXACTLY at every one. Returns the built entry for callers that need to
  * inspect it further (e.g. the `lower: true` assertion).
  */
-function assertExactAgreement(metricName: string, pool: readonly number[]): EventTierCutEntry {
+function assertExactAgreement(metricName: string, pool: readonly number[]): SeasonTierCutEntry {
   const sortedPools = new Map([[metricName, [...pool].sort((a, b) => a - b)]]);
   const cuts = buildTierCutsFromPools(sortedPools);
   const entry = cuts[metricName];
@@ -194,6 +200,67 @@ describe("buildEventArtifact — tierCuts wiring", () => {
 });
 
 // ---------------------------------------------------------------------------
+// buildTeamSeasonArtifact — the SECOND carrier of the same block
+// (quick task 260923-3x0)
+// ---------------------------------------------------------------------------
+
+function teamSeasonParams(overrides: Record<string, unknown> = {}) {
+  return {
+    teamKey: "frc118",
+    teamNumber: 118,
+    nickname: "Robonauts",
+    season: 2026,
+    algorithmId: "opr",
+    algorithmVersion: "1.0.0+test",
+    seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: {}, metricsBasis: "last-official-match" as const },
+    events: [],
+    metricHistory: [],
+    generation: "gen-1",
+    computedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+describe("buildTeamSeasonArtifact — tierCuts wiring", () => {
+  it("emits tierCuts when cuts are supplied", () => {
+    const cuts = buildTierCutsFromPools(sortedPoolsByMetric({ frc1: { total: { value: 40 } }, frc2: { total: { value: 60 } } }, ["frc1", "frc2"]));
+    const artifact = buildTeamSeasonArtifact(teamSeasonParams({ tierCuts: cuts }));
+    expect(artifact.tierCuts).toEqual(cuts);
+  });
+
+  it("emits no tierCuts key at all when none is supplied", () => {
+    const artifact = buildTeamSeasonArtifact(teamSeasonParams());
+    expect(artifact).not.toHaveProperty("tierCuts");
+  });
+
+  it("carries the block VERBATIM: the same object handed to both builders produces byte-equal tierCuts on an event and a team-season artifact", () => {
+    // The equality the publisher relies on, asserted at the builder level; the
+    // end-to-end version (one publishSeasons run, real pools) lives in
+    // publish.test.ts.
+    const cuts = buildTierCutsFromPools(
+      sortedPoolsByMetric(
+        { frc1: { total: { value: 40 }, phaseAuto: { value: 9 } }, frc2: { total: { value: 60 }, phaseAuto: { value: 14 } } },
+        ["frc1", "frc2"]
+      )
+    );
+    const eventArtifact = buildEventArtifact({
+      eventKey: "2026casj",
+      season: 2026,
+      algorithmId: "opr",
+      algorithmVersion: "1.0.0+test",
+      predictions: [],
+      generation: "gen-1",
+      computedAt: "2026-01-01T00:00:00.000Z",
+      tierCuts: cuts,
+    });
+    const teamArtifact = buildTeamSeasonArtifact(teamSeasonParams({ tierCuts: cuts }));
+    expect(JSON.stringify(teamArtifact.tierCuts)).toBe(JSON.stringify(eventArtifact.tierCuts));
+    // Non-vacuity: an empty block would satisfy the equality above trivially.
+    expect(Object.keys(teamArtifact.tierCuts!).sort()).toEqual(["phaseAuto", "total"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Schema round-trip
 // ---------------------------------------------------------------------------
 
@@ -231,5 +298,52 @@ describe("EventArtifactSchema.tierCuts", () => {
     const tierCuts = { total: { cuts: [31.17, 52.4, 88.05] }, someLowerIsBetterMetric: { cuts: [10, 5, 1], lower: true as const } };
     const candidate = minimalEventCandidate({ tierCuts });
     expect(EventArtifactSchema.parse(candidate).tierCuts).toEqual(tierCuts);
+  });
+});
+
+/** The team-season counterpart of `minimalEventCandidate` — same discipline, this file's own fixture. */
+function minimalTeamCandidate(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
+    generation: "gen-1",
+    computedAt: "2026-01-01T00:00:00.000Z",
+    algorithmId: "opr",
+    algorithmVersion: "1.0.0+test",
+    teamKey: "frc118",
+    teamNumber: 118,
+    nickname: "Robonauts",
+    season: 2026,
+    seasonStats: { record: { wins: 0, losses: 0, ties: 0 }, metrics: {} },
+    events: [],
+    metricHistory: [],
+    ...overrides,
+  };
+}
+
+describe("TeamSeasonArtifactSchema.tierCuts (quick task 260923-3x0)", () => {
+  it("a malformed tierCuts block degrades to absent rather than failing the whole artifact parse", () => {
+    const candidate = minimalTeamCandidate({ tierCuts: { total: { cuts: ["not", "a", "number"] } } });
+    const parsed = TeamSeasonArtifactSchema.parse(candidate);
+    expect(parsed.tierCuts).toBeUndefined();
+  });
+
+  it("a PRE-REPUBLISH artifact with no tierCuts key still parses, with tierCuts undefined — the robot page renders a live-folded row untiered until the republish, never fails to load", () => {
+    const candidate = minimalTeamCandidate();
+    expect(() => TeamSeasonArtifactSchema.parse(candidate)).not.toThrow();
+    expect(TeamSeasonArtifactSchema.parse(candidate).tierCuts).toBeUndefined();
+  });
+
+  it("a well-formed tierCuts block round-trips unchanged, including a lower: true entry", () => {
+    const tierCuts = { total: { cuts: [31.17, 52.4, 88.05] }, someLowerIsBetterMetric: { cuts: [10, 5, 1], lower: true as const } };
+    const candidate = minimalTeamCandidate({ tierCuts });
+    expect(TeamSeasonArtifactSchema.parse(candidate).tierCuts).toEqual(tierCuts);
+  });
+
+  it("the team-season and event schemas accept the IDENTICAL block — one schema object, two carriers, so neither can drift from the other", () => {
+    const tierCuts = { total: { cuts: [31.17, 52.4, 88.05] }, phaseAuto: { cuts: [4.5, 8.25, 15.5] } };
+    const fromTeam = TeamSeasonArtifactSchema.parse(minimalTeamCandidate({ tierCuts })).tierCuts;
+    const fromEvent = EventArtifactSchema.parse(minimalEventCandidate({ tierCuts })).tierCuts;
+    expect(JSON.stringify(fromTeam)).toBe(JSON.stringify(fromEvent));
+    expect(fromTeam).toEqual(tierCuts);
   });
 });

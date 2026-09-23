@@ -10,7 +10,7 @@ import { metricDisplayLabel } from "../../lib/metricLabels.js";
 import { resolveMetricTier } from "../../lib/tiers.js";
 import { teamNumberFromKey } from "../../lib/teamKey.js";
 import type { PreMatchBasis, PreMatchMetrics } from "../../lib/preMatchMetrics.js";
-import type { EventTierCuts, TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { SeasonTierCuts, TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 
@@ -44,7 +44,7 @@ export interface MatchRobotGridProps {
    * block, or on a pre-republish artifact. This component stays a pure
    * function of its props — the cuts are read here, never fetched.
    */
-  tierCuts?: EventTierCuts;
+  tierCuts?: SeasonTierCuts;
 }
 
 /** Combined as-of wording when all six cards agree on one basis. */
@@ -123,7 +123,7 @@ function RobotMetricCells({
   preMatch: PreMatchMetrics | undefined;
   isPending: boolean;
   algorithm: PublishedAlgorithmId;
-  tierCuts: EventTierCuts | undefined;
+  tierCuts: SeasonTierCuts | undefined;
 }) {
   if (isPending) {
     return (
@@ -184,7 +184,7 @@ function RobotCard({
   season: number;
   algorithm: PublishedAlgorithmId;
   showPerCardBasisNote: boolean;
-  tierCuts: EventTierCuts | undefined;
+  tierCuts: SeasonTierCuts | undefined;
 }) {
   const numberLabel = robotNumberLabel(teamKey);
   const nickname = robotNickname(record.artifact, numberLabel);

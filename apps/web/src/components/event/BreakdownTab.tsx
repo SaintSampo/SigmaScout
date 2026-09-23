@@ -62,7 +62,7 @@ import { resolveMetricTier, tierForPercentile } from "@/lib/tiers";
 import { componentsInGroup } from "../../../../../packages/core/algorithms/breakdown/index.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
-import type { EventArtifact, EventTierCuts } from "../../../../../packages/harness/pageArtifacts.js";
+import type { EventArtifact, SeasonTierCuts } from "../../../../../packages/harness/pageArtifacts.js";
 
 type EventTeam = EventArtifact["teams"][number];
 type EventTeamMetrics = EventTeam["metrics"];
@@ -275,7 +275,7 @@ function breakdownColumnHeader(key: string, algorithmId: string): string {
  * Breakdown-specific list and never derived from a fetched row's own key
  * order.
  */
-function buildBreakdownColumns(algorithmId: string, season: number, isNarrow: boolean, expanded: ExpandedGroups, tierCuts: EventTierCuts | undefined) {
+function buildBreakdownColumns(algorithmId: string, season: number, isNarrow: boolean, expanded: ExpandedGroups, tierCuts: SeasonTierCuts | undefined) {
   // `algorithmId` reaching this function was already validated upstream
   // through `RootSearchSchema.algorithm` before this table ever rendered —
   // the same loose-cast escape hatch `teams-table/columns.tsx` already uses
@@ -342,7 +342,7 @@ function buildBreakdownColumns(algorithmId: string, season: number, isNarrow: bo
               totalTier={resolveMetricTier(entry, key, tierCuts)}
               // sigma keeps tierForPercentile alone: the merge carries its
               // percentile forward through a live tick, and no sigma cut is
-              // ever published (`EventTierCutsSchema`'s own doc comment) —
+              // ever published (`SeasonTierCutsSchema`'s own doc comment) —
               // routing it through the resolver would be a no-op at best.
               sigma={sigmaEntry !== undefined ? { value: sigmaEntry.value, tier: tierForPercentile(sigmaEntry.percentile) } : undefined}
             />

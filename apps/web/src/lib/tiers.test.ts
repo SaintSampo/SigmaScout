@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveMetricTier, tierForPercentile } from "./tiers.js";
-import type { EventTierCuts } from "../../../../packages/harness/pageArtifacts.js";
+import type { SeasonTierCuts } from "../../../../packages/harness/pageArtifacts.js";
 
 // D-04/D-17's locked boundary contract: half-open low, closed at the very
 // top. Every cut is asserted at the cut itself AND one step either side, per
@@ -36,7 +36,7 @@ describe("tierForPercentile", () => {
 // over the cuts fallback in every case, falls back to cuts only when the
 // percentile is absent, and never guesses when neither is available.
 
-const TOTAL_CUTS: EventTierCuts = { total: { cuts: [31.17, 52.4, 88.05] } };
+const TOTAL_CUTS: SeasonTierCuts = { total: { cuts: [31.17, 52.4, 88.05] } };
 
 describe("resolveMetricTier", () => {
   it("prefers the published percentile when present, even when cuts would disagree", () => {

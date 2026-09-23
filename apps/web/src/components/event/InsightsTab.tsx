@@ -44,7 +44,7 @@ import { teamNumberFromKey } from "@/lib/teamKey";
 import { resolveMetricTier, tierForPercentile } from "@/lib/tiers";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
-import type { EventArtifact, EventTierCuts } from "../../../../../packages/harness/pageArtifacts.js";
+import type { EventArtifact, SeasonTierCuts } from "../../../../../packages/harness/pageArtifacts.js";
 
 type EventTeam = EventArtifact["teams"][number];
 type EventTeamMetrics = EventTeam["metrics"];
@@ -248,7 +248,7 @@ function buildInsightsColumns(
   season: number,
   orderSource: InsightsOrderSource,
   isNarrow: boolean,
-  tierCuts: EventTierCuts | undefined,
+  tierCuts: SeasonTierCuts | undefined,
   metricFirst: boolean = isNarrow
 ) {
   // `algorithmId` reaching this function was already validated upstream

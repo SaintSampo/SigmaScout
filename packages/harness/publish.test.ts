@@ -2449,6 +2449,65 @@ describe("publishSeasons — metric history rows carry the per-match Sigma Score
   });
 });
 
+describe("publishSeasons — tierCuts is ONE block per (algorithm, season), written to both artifact kinds (quick task 260923-3x0)", () => {
+  let dir: string;
+  let db: Corpus;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-tiercuts-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("every published team-season artifact carries tierCuts byte-equal to BOTH events' artifacts for the same (algorithm, season)", async () => {
+    const { earlyEventKey, lateEventKey, teamKeys } = seedTwoEventSeason(db);
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    const early = findEventArtifact(earlyEventKey, "opr");
+    const late = findEventArtifact(lateEventKey, "opr");
+    // Non-vacuity first: an absent block on every artifact would make every
+    // equality below pass trivially.
+    expect(early.tierCuts, `${earlyEventKey} publishes a tierCuts block`).toBeDefined();
+    expect(Object.keys(early.tierCuts!).length, "the block covers at least one metric name").toBeGreaterThan(0);
+    // The two events of one season share one block, which is what makes
+    // "per (algorithm, season)" a claim rather than a coincidence.
+    expect(JSON.stringify(late.tierCuts)).toBe(JSON.stringify(early.tierCuts));
+
+    let compared = 0;
+    for (const teamKey of teamKeys) {
+      const teamArtifact = findTeamArtifact(teamKey, 2026);
+      expect(teamArtifact.tierCuts, `${teamKey} publishes a tierCuts block`).toBeDefined();
+      // Byte equality, not deep equality: the published wire bytes are the
+      // thing the browser reads, and key ORDER is part of them.
+      expect(JSON.stringify(teamArtifact.tierCuts), `${teamKey} tierCuts equals the event artifact's`).toBe(JSON.stringify(early.tierCuts));
+      compared++;
+    }
+    expect(compared, "non-vacuous: every seeded team was compared").toBe(teamKeys.length);
+  });
+
+  it("the block never carries a sigma entry on a team-season artifact either (SPR, the one algorithm that publishes a Sigma Score)", async () => {
+    const { teamKeys } = seedTwoEventSeason(db);
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true });
+
+    let checked = 0;
+    for (const teamKey of teamKeys) {
+      const teamArtifact = findTeamArtifact(teamKey, 2026);
+      expect(teamArtifact.tierCuts, `${teamKey} publishes a tierCuts block`).toBeDefined();
+      expect(SIGMA_METRIC_KEY in teamArtifact.tierCuts!, `${teamKey} tierCuts has no ${SIGMA_METRIC_KEY} entry`).toBe(false);
+      // Non-vacuity: this team's own metrics DO carry a Sigma entry, so the
+      // exclusion above is about the pool, not about SPR publishing no Sigma.
+      expect(teamArtifact.seasonStats.metrics[SIGMA_METRIC_KEY], `${teamKey} seasonStats does carry a sigma metric`).toBeDefined();
+      checked++;
+    }
+    expect(checked).toBe(teamKeys.length);
+  });
+});
+
 const INVARIANT_SEASON = 2022;
 const INVARIANT_MIN_TEAM_COUNT = 50;
 const CORPUS_PATH = "data/corpus.sqlite";

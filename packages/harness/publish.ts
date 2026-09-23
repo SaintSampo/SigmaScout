@@ -79,7 +79,7 @@ import {
   type CompareRpCalibration,
   type EventArtifact,
   type EventsArtifact,
-  type EventTierCuts,
+  type SeasonTierCuts,
   type PageKind,
   type TeamsArtifactWire,
   type TeamSeasonArtifact,
@@ -419,7 +419,7 @@ export interface BuildEventArtifactParams {
    * an empty object) when not supplied, so a caller that has not computed
    * cuts (a test, a stand-in) publishes none.
    */
-  readonly tierCuts?: EventTierCuts;
+  readonly tierCuts?: SeasonTierCuts;
 }
 
 /**
@@ -780,6 +780,18 @@ export interface BuildTeamSeasonArtifactParams {
   readonly ranks?: readonly TeamRankScope[];
   /** `match_key` -> raw YouTube video key, the same map as `BuildEventArtifactParams.videoByMatchKey`. */
   readonly videoByMatchKey?: ReadonlyMap<string, string>;
+  /**
+   * THE SAME object `BuildEventArtifactParams.tierCuts` receives for this
+   * (algorithm, season) — built once by `buildTierCutsFromPools(rankingPools)`
+   * and handed to both builders, never rebuilt per team (quick task
+   * 260923-3x0). It is what lets the robot page tier a live-folded row without
+   * fetching an event artifact it no longer fetches at all.
+   *
+   * Omitted entirely (not an empty object) when not supplied, so a caller that
+   * has not computed cuts — a test, a stand-in — publishes none, exactly as the
+   * event builder does.
+   */
+  readonly tierCuts?: SeasonTierCuts;
 }
 
 /** A payload-budget-sensitive artifact (the 292-match outlier). Parses through `TeamSeasonArtifactSchema` before returning. */
@@ -836,6 +848,9 @@ export function buildTeamSeasonArtifact(params: BuildTeamSeasonArtifactParams): 
     activeYears: params.activeYears ? [...params.activeYears] : undefined,
     // Never `ranks: []` on the wire.
     ranks: params.ranks && params.ranks.length > 0 ? [...params.ranks] : undefined,
+    // Conditional spread, matching `buildEventArtifact`'s own: an unsupplied
+    // block leaves the key ABSENT rather than present-and-undefined.
+    ...(params.tierCuts !== undefined ? { tierCuts: params.tierCuts } : {}),
   };
   return TeamSeasonArtifactSchema.parse(candidate);
 }
@@ -2061,12 +2076,15 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       const officialMetricsByTeam = lastOfficialMetricsByTeam(metricHistoryForAlgo, officialEventKeys);
       const rankingPools = sortedPoolsByMetric(officialMetricsByTeam, teamsThisSeason);
       // Built ONCE per (algorithm, season), from the SAME rankingPools every
-      // percentile below ranks against, then passed unchanged to every
-      // event artifact this season builds (quick task 260920-qzf). Never a
-      // `sigma` key: `rankingPools` is built from `officialMetricsByTeam`,
-      // which structurally never carries one (see `EventTierCutsSchema`'s
-      // doc comment in `pageArtifacts.ts`).
-      const eventTierCuts = buildTierCutsFromPools(rankingPools);
+      // percentile below ranks against, then passed unchanged to every EVENT
+      // artifact (quick task 260920-qzf) AND every TEAM-SEASON artifact (quick
+      // task 260923-3x0) this block writes. One object, two carriers, zero
+      // extra computation — the robot page fetches no event artifact since
+      // 260923-3w7, so a live-folded row's tier is only recoverable from the
+      // team's own file. Never a `sigma` key: `rankingPools` is built from
+      // `officialMetricsByTeam`, which structurally never carries one (see
+      // `SeasonTierCutsSchema`'s doc comment in `pageArtifacts.ts`).
+      const seasonTierCuts = buildTierCutsFromPools(rankingPools);
       const officialMetricsByTeamWithPercentiles = withPercentiles(officialMetricsByTeam, teamsThisSeason, rankingPools);
       const stateByEventForAlgo = stateByAlgoEvent.get(algorithm.id)!;
       const preEventStateForAlgo = preEventStateByAlgoEvent.get(algorithm.id)!;
@@ -2264,7 +2282,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
           rankings: eventRankingsForSeason.get(e.event_key),
           videoByMatchKey,
           eventType: e.event_type,
-          tierCuts: eventTierCuts,
+          tierCuts: seasonTierCuts,
         });
         const key = artifactKey({ page: "event", eventKey: e.event_key, algorithmId: algorithm.id, version });
         const eventBody = JSON.stringify(eventArtifact);
@@ -2365,6 +2383,8 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
           generation,
           computedAt,
           videoByMatchKey,
+          // The identical object every event artifact above received.
+          tierCuts: seasonTierCuts,
         });
         const key = artifactKey({ page: "team", teamKey, year: season, algorithmId: algorithm.id, version });
         await publishTimed(() => uploader.publish("team", key, JSON.stringify(teamSeasonArtifact)));

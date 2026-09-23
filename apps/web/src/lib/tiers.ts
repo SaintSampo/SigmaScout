@@ -19,7 +19,7 @@
  * confidently wrong colour.
  */
 
-import { publishedTierForPercentile, type EventTierCuts } from "../../../../packages/harness/pageArtifacts.js";
+import { publishedTierForPercentile, type SeasonTierCuts } from "../../../../packages/harness/pageArtifacts.js";
 import { tierFromCuts, type Tier } from "../../../../packages/harness/tierCuts.js";
 
 export type { Tier };
@@ -93,7 +93,7 @@ export function tierForPercentile(percentile: number | undefined): Tier | undefi
 export function resolveMetricTier(
   entry: { readonly value?: number; readonly percentile?: number } | undefined,
   metricName: string,
-  tierCuts: EventTierCuts | undefined
+  tierCuts: SeasonTierCuts | undefined
 ): Tier | undefined {
   if (entry === undefined) return undefined;
   if (entry.percentile !== undefined) return tierForPercentile(entry.percentile);
