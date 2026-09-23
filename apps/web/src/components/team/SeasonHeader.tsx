@@ -15,13 +15,6 @@ export interface SeasonHeaderProps {
   algorithmId: PublishedAlgorithmId;
   season: number;
   teamNumber: number;
-  /**
-   * The LIVE `seasonStats` from `useLiveTeamSeason` (260917-jr4): the
-   * published object with `record` and `metricsBasis` brought forward past
-   * the last publish. Falls back to `artifact.seasonStats`, so a caller
-   * without a live view renders exactly what it rendered before.
-   */
-  seasonStats?: TeamSeasonArtifact["seasonStats"];
   /** The last-official-match snapshot metrics (lib/officialSnapshot.ts), when the route could derive one — season-final values render otherwise. */
   metricsOverride?: TeamSeasonArtifact["metricHistory"][number]["metrics"];
   /** The `matchKey` of the row `metricsOverride` came from. Not currently consumed here; kept as the as-of instant alongside `metricsOverride`. */
@@ -72,9 +65,14 @@ function metricLabel(key: string): string {
  * preseason results are excluded from these two, and from them alone), and
  * the tier-boxed metric grid.
  */
-export function SeasonHeader({ artifact, algorithmId, season, teamNumber, seasonStats, metricsOverride, snapshotMatchKey, ranks }: SeasonHeaderProps) {
+export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metricsOverride, snapshotMatchKey, ranks }: SeasonHeaderProps) {
   const nickname = artifact.nickname === "" ? `Team ${teamNumber}` : artifact.nickname;
-  const resolvedSeasonStats = seasonStats ?? artifact.seasonStats;
+  // The artifact's own `seasonStats`, with no live override: the live tick
+  // rewrites this very artifact again since quick task 260923-3w7, so its
+  // `record` and `metricsBasis` are already brought forward past the last
+  // publish. Between 260917-jr4 and then the route computed them and threaded
+  // them in, because the tick wrote no team file.
+  const resolvedSeasonStats = artifact.seasonStats;
   const { record } = resolvedSeasonStats;
   // Tiles read the last-official-match snapshot when the route could derive
   // one; season-final otherwise. Each snapshot metric carries its own

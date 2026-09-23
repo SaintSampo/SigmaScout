@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { STATE_BLOCK_STALE_AFTER_MS } from "../../../../packages/harness/eventSchedule.js";
 import { formatScheduledTime } from "../components/team/MatchTable.js";
-import { EVENT_POLL_INTERVAL_MS, eventArtifactScheduleIsCurrent, shouldPollEventArtifact, sortTimeToEpochMs, teamEventNeedsLivePricing } from "./liveEvent.js";
+import { EVENT_POLL_INTERVAL_MS, eventArtifactScheduleIsCurrent, shouldPollEventArtifact, shouldPollTeamArtifact, sortTimeToEpochMs } from "./liveEvent.js";
 
 const NOW = Date.parse("2026-09-15T12:00:00.000Z");
 const DAY = 24 * 60 * 60 * 1000;
@@ -58,43 +58,49 @@ describe("shouldPollEventArtifact", () => {
   });
 });
 
-describe("teamEventNeedsLivePricing", () => {
+describe("shouldPollTeamArtifact", () => {
   const unplayed = (sortTime?: number) => ({ ...(sortTime !== undefined ? { sortTime } : {}) });
   const played = (sortTime?: number) => ({ actualWinner: "red" as const, ...(sortTime !== undefined ? { sortTime } : {}) });
 
-  it("true with an unplayed row", () => {
-    expect(teamEventNeedsLivePricing({ startDate: "2026-09-13", matches: [played(NOW - DAY), unplayed(NOW + 3_600_000)] })).toBe(true);
+  /**
+   * REPLACES `teamEventNeedsLivePricing` (quick task 260923-3w7), which asked a
+   * different question for a page that no longer exists in that form: "should
+   * this robot page FETCH that event's artifact?", so it could rebuild its live
+   * rows from one. The tick writes the team artifact again, so the page reads
+   * one file and the only remaining question is how often to re-read it.
+   *
+   * The schedule-currency conjunct 260917-jr4 deliberately removed is back,
+   * and the case it was removed for cannot recur: currency gates POLLING here,
+   * never a fetch, and the published team artifact carries every result whether
+   * or not this returns true.
+   */
+  it("true with an unplayed row at an event whose schedule is current", () => {
+    expect(shouldPollTeamArtifact({ events: [{ startDate: "2026-09-13", matches: [played(NOW - DAY), unplayed(NOW + 3_600_000)] }] }, NOW)).toBe(true);
   });
 
   it("false when every row is played", () => {
-    expect(teamEventNeedsLivePricing({ startDate: "2026-09-13", matches: [played(NOW - DAY), played(NOW - 3_600_000)] })).toBe(false);
+    expect(shouldPollTeamArtifact({ events: [{ startDate: "2026-09-13", matches: [played(NOW - DAY), played(NOW - 3_600_000)] }] }, NOW)).toBe(false);
   });
 
-  /**
-   * THE INVERTED CASE, and the point of inverting it (quick task 260917-jr4).
-   * This used to assert `false`: a long-finished event whose leftover matches
-   * were never played was not fetched, because the schedule-currency conjunct
-   * had expired. That was safe only while the live Worker rewrote the team
-   * artifact. It no longer writes one at all, so under the old rule a FINISHED
-   * event's matches would render as UNPLAYED from the moment the 7-day window
-   * closed until the next offline republish.
-   *
-   * The cost of the inversion is one extra CDN-cached fetch per robot page for
-   * a genuinely abandoned event, forever. `shouldPollEventArtifact` (asserted
-   * above, deliberately unchanged) still refuses to POLL such an event every
-   * 60 seconds, which is the expensive half.
-   */
-  it("TRUE for a long-finished event with never-played leftover matches — the currency conjunct was removed on purpose", () => {
-    expect(teamEventNeedsLivePricing({ startDate: "2016-03-10", matches: [played(Date.parse("2016-03-12T15:00:00Z")), unplayed(Date.parse("2016-03-12T16:00:00Z"))] })).toBe(true);
+  it("false for a long-finished event with never-played leftover matches — polling a dead event every 60 s is what the currency test exists to stop", () => {
+    expect(
+      shouldPollTeamArtifact(
+        { events: [{ startDate: "2016-03-10", matches: [played(Date.parse("2016-03-12T15:00:00Z")), unplayed(Date.parse("2016-03-12T16:00:00Z"))] }] },
+        NOW
+      )
+    ).toBe(false);
   });
 
-  it("does not consult startDate or the clock at all — only whether an unplayed published row exists", () => {
-    expect(teamEventNeedsLivePricing({ startDate: "2026-09-16", matches: [unplayed()] })).toBe(true);
-    expect(teamEventNeedsLivePricing({ startDate: "2025-03-01", matches: [unplayed()] })).toBe(true);
-    expect(teamEventNeedsLivePricing({ startDate: "2025-03-01", matches: [played()] })).toBe(false);
-    // Non-vacuity for "the clock is not consulted": `shouldPollEventArtifact`
-    // on the SAME shape still is, so this is a targeted removal rather than a
-    // repo-wide loss of the currency test.
-    expect(shouldPollEventArtifact({ matches: [played()], upcoming: [unplayed()], startDate: "2025-03-01" }, NOW)).toBe(false);
+  it("any one current event with an unplayed row is enough, and a stale sibling event never suppresses it", () => {
+    const stale = { startDate: "2016-03-10", matches: [unplayed(Date.parse("2016-03-12T16:00:00Z"))] };
+    const current = { startDate: "2026-09-13", matches: [unplayed(NOW + 3_600_000)] };
+    expect(shouldPollTeamArtifact({ events: [stale] }, NOW)).toBe(false);
+    expect(shouldPollTeamArtifact({ events: [stale, current] }, NOW)).toBe(true);
+  });
+
+  it("falls back to startDate when no row carries a time, and refuses an undefined artifact", () => {
+    expect(shouldPollTeamArtifact({ events: [{ startDate: "2026-09-14", matches: [unplayed()] }] }, NOW)).toBe(true);
+    expect(shouldPollTeamArtifact({ events: [{ startDate: "2026-08-01", matches: [unplayed()] }] }, NOW)).toBe(false);
+    expect(shouldPollTeamArtifact(undefined, NOW)).toBe(false);
   });
 });

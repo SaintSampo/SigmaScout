@@ -18,26 +18,6 @@ import { RootSearchSchema } from "../lib/searchParams.js";
 import { PAGE_ARTIFACT_SCHEMA_VERSION } from "../../../../packages/harness/pageArtifacts.js";
 import { Route as TeamRouteImport } from "./team.$teamNumber.js";
 
-/**
- * The lazy pricer chunk, stubbed for the live-overlay describe below only
- * (every other test's artifacts carry no state block, so pricing never
- * runs). It stands in for `priceUpcomingFromState`, whose exact parity is
- * proven in `eventPricing.parity.test.ts`; here it proves the wiring: fetch,
- * resolve, overlay, render.
- */
-vi.mock("../lib/eventPricing.lazy.js", () => ({
-  priceArtifactUpcoming: async (artifact: { upcoming: Array<Record<string, unknown>>; season: number; eventKey: string; algorithmId: string; algorithmVersion: string }) => {
-    const upcoming = artifact.upcoming.map((row): Record<string, unknown> => ({ ...row, predictedWinner: "red", pRedWin: 0.91, predictedRedScore: 77, predictedBlueScore: 33, redMatchBandVariance: 49 }));
-    const upcomingTeamRows = Object.fromEntries(
-      upcoming.map((row) => [
-        String(row.matchKey),
-        { ...row, season: artifact.season, eventKey: artifact.eventKey, algorithmId: artifact.algorithmId, algorithmVersion: artifact.algorithmVersion },
-      ]),
-    );
-    return { upcoming, upcomingTeamRows };
-  },
-}));
-
 function manifestResponse() {
   return new Response(
     JSON.stringify({
@@ -202,10 +182,25 @@ describe("/team/$teamNumber route — states", () => {
   });
 });
 
-describe("/team/$teamNumber route — live event overlay (260915-m4j)", () => {
+/**
+ * THE OVERLAY IS GONE (quick task 260923-3w7), and this describe is what
+ * replaced its five cases.
+ *
+ * What stood here: a robot page that fetched each live EVENT's artifact, priced
+ * its schedule-only upcoming rows in the browser from a `state` block, read its
+ * per-match metrics out of an ephemeral `live` block, and discovered events its
+ * own published file had never heard of through a live-windows manifest plus a
+ * per-event roster object. Every one of those inputs existed because the tick
+ * wrote no team artifact (260915-isq, 260917-jr4, 260918-16t, 260921-5qw), and
+ * 260923-3w6 put the tick's own priced upcoming rows and per-team writes back.
+ *
+ * So the claim worth pinning is now a NEGATIVE one, and it is the whole point of
+ * the change: this page reads one file. A published row's price comes from the
+ * artifact it is in.
+ */
+describe("/team/$teamNumber route — one artifact, no overlay (260923-3w7)", () => {
   const originalFetch = global.fetch;
   const NOW = Date.parse("2024-03-09T18:00:00.000Z");
-  const EVENT_URL = "https://data.sigmascout.org/v1/event/2024casf/spr@2.0.0+tuned-2026-08.json";
 
   afterEach(() => {
     global.fetch = originalFetch;
@@ -216,43 +211,18 @@ describe("/team/$teamNumber route — live event overlay (260915-m4j)", () => {
 
   const roster = { redTeams: ["frc1114", "frc2", "frc3"], blueTeams: ["frc4", "frc5", "frc6"] };
 
+  /** A team artifact mid-event: one played row and one still-upcoming row the TICK priced. */
   function teamArtifactWithEvent(sortTime: number, startDate: string) {
-    const stale = {
-      matchKey: "2024casf_qm9",
+    const row = (overrides: Record<string, unknown>) => ({
       season: 2024,
       eventKey: "2024casf",
       compLevel: "qm",
       algorithmId: "spr",
       algorithmVersion: "2.0.0+tuned-2026-08",
-      predictedWinner: "red",
-      pRedWin: 0.55,
-      predictedRedScore: 50,
-      predictedBlueScore: 45,
       setNumber: 1,
-      matchNumber: 9,
-      sortTime,
       ...roster,
-    };
-    return new Response(
-      JSON.stringify({
-        schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
-        generation: "gen-1",
-        computedAt: "2024-03-08T00:00:00.000Z",
-        algorithmId: "spr",
-        algorithmVersion: "2.0.0+tuned-2026-08",
-        teamKey: "frc1114",
-        teamNumber: 1114,
-        nickname: "Simbotics",
-        season: 2024,
-        seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 48.33, spread: 2.32 } } },
-        events: [{ eventKey: "2024casf", eventName: "San Francisco Regional", startDate, matches: [stale] }],
-        metricHistory: [],
-      }),
-      { status: 200 },
-    );
-  }
-
-  function eventArtifactResponse() {
+      ...overrides,
+    });
     return new Response(
       JSON.stringify({
         schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
@@ -260,179 +230,84 @@ describe("/team/$teamNumber route — live event overlay (260915-m4j)", () => {
         computedAt: "2024-03-09T17:59:00.000Z",
         algorithmId: "spr",
         algorithmVersion: "2.0.0+tuned-2026-08",
-        eventKey: "2024casf",
+        teamKey: "frc1114",
+        teamNumber: 1114,
+        nickname: "Simbotics",
         season: 2024,
-        matches: [],
-        eventType: 0,
-        // The Worker's shape: schedule-only upcoming rows priced in the browser from the block.
-        upcoming: [{ matchKey: "2024casf_qm9", compLevel: "qm", setNumber: 1, matchNumber: 9, sortTime: NOW + 600_000, ...roster }],
-        teams: [],
-        state: {
-          algorithmId: "spr",
-          algorithmVersion: "2.0.0+tuned-2026-08",
-          snapshotShapeVersion: 1,
-          rows: [{ algorithmId: "spr", algorithmVersion: "2.0.0+tuned-2026-08", scopeKind: "league", scopeKey: "league", stateJson: "{}", generation: "tick-1", computedAt: "2024-03-09T17:59:00.000Z" }],
-        },
+        seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 48.33, spread: 2.32 } } },
+        events: [
+          {
+            eventKey: "2024casf",
+            eventName: "San Francisco Regional",
+            startDate,
+            matches: [
+              row({ matchKey: "2024casf_qm8", matchNumber: 8, sortTime: sortTime - 600_000, predictedWinner: "red", pRedWin: 0.55, predictedRedScore: 50, predictedBlueScore: 45, actualWinner: "red", actualRedScore: 61, actualBlueScore: 40 }),
+              row({ matchKey: "2024casf_qm9", matchNumber: 9, sortTime, predictedWinner: "red", pRedWin: 0.91, predictedRedScore: 77, predictedBlueScore: 33 }),
+            ],
+          },
+        ],
+        metricHistory: [],
       }),
       { status: 200 },
     );
   }
 
-  it("a team with an unplayed match within 7 days fetches that event's artifact at its real URL and renders its prices", async () => {
+  /** Every URL fetched, in order — the assertion surface for "one file". */
+  function renderWithFetchLog(): string[] {
+    const urls: string[] = [];
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      return Promise.resolve(teamArtifactWithEvent(NOW + 600_000, "2024-03-07"));
+    }) as unknown as typeof global.fetch;
+    renderTeamRoute("/team/1114?year=2024&algorithm=spr");
+    return urls;
+  }
+
+  it("renders the team artifact's own priced upcoming row and fetches NO event artifact", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
-      if (url.includes("/v1/event/")) return Promise.resolve(eventArtifactResponse());
-      return Promise.resolve(teamArtifactWithEvent(NOW + 600_000, "2024-03-07"));
-    });
-    global.fetch = fetchMock;
-    renderTeamRoute("/team/1114?year=2024&algorithm=spr");
+    const urls = renderWithFetchLog();
 
     await waitFor(() => expect(screen.getByTestId("confidence-2024casf_qm9").textContent).toContain("91%"));
-    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toContain(EVENT_URL);
     expect(screen.getAllByTestId("match-row-2024casf_qm9")).toHaveLength(1);
     expect(screen.getByTestId("predicted-score-2024casf_qm9-red").textContent).toContain("77");
+    expect(urls.filter((url) => url.includes("/v1/event/"))).toEqual([]);
   });
 
-  /**
-   * THE OVERLAY CLIFF, INVERTED ON PURPOSE (quick task 260917-jr4, D-05
-   * unsound part 1). This test used to assert the OPPOSITE: a long-finished
-   * event fetched no event artifact, and the page rendered the team
-   * artifact's own published 55% row.
-   *
-   * That was correct only while the live Worker rewrote team artifacts every
-   * tick — the published row would already carry the result. The Worker now
-   * writes none, so gating the fetch on `eventScheduleIsCurrent` would leave a
-   * FINISHED event rendering as unplayed from the moment its 7-day window
-   * closed until the next offline republish. `teamEventNeedsLivePricing` no
-   * longer consults the schedule at all; it asks only whether an unplayed
-   * published row exists.
-   *
-   * What it costs is asserted rather than assumed: exactly one extra
-   * CDN-cached event fetch, and `shouldPollEventArtifact` still refuses to
-   * POLL a dead event (`liveEvent.test.ts` pins that half).
-   */
-  it("a team whose events are all long finished STILL fetches the event artifact, so a finished event never renders as unplayed", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(Date.parse("2026-09-15T12:00:00.000Z"));
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
-      if (url.includes("/v1/event/")) return Promise.resolve(eventArtifactResponse());
-      return Promise.resolve(teamArtifactWithEvent(NOW + 600_000, "2024-03-07"));
-    });
-    global.fetch = fetchMock;
-    renderTeamRoute("/team/1114?year=2024&algorithm=spr");
-
-    // 91% is the EVENT artifact's price; 55% is the team artifact's published
-    // one. Asserting the former is what proves the overlay ran at all.
-    await waitFor(() => expect(screen.getByTestId("confidence-2024casf_qm9").textContent).toContain("91%"));
-    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toContain(EVENT_URL);
-  });
-
-  it("makes exactly ONE artifact fetch per live event — the live rows cost no second request (260918-16t)", async () => {
+  it("the played row's result comes from the same file, with no second fetch to recover it", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
-      if (url.includes("/v1/event/")) return Promise.resolve(eventArtifactResponse());
-      return Promise.resolve(teamArtifactWithEvent(NOW + 600_000, "2024-03-07"));
-    });
-    global.fetch = fetchMock;
-    renderTeamRoute("/team/1114?year=2024&algorithm=spr");
+    const urls = renderWithFetchLog();
 
-    await waitFor(() => expect(screen.getByTestId("confidence-2024casf_qm9").textContent).toContain("91%"));
-
-    // Until 260918-16t this page issued a SECOND fetch per live event, for an
-    // ephemeral metric object under its own R2 prefix. It does not any more:
-    // the per-match metrics ride the event artifact it was already fetching.
-    // Asserted as "every artifact URL touching this event is the event
-    // artifact", so a reintroduced second fetcher fails here by URL.
-    const eventUrls = fetchMock.mock.calls.map((call) => String(call[0])).filter((url) => url.includes("2024casf"));
-    expect(eventUrls.length).toBeGreaterThan(0);
-    expect(new Set(eventUrls)).toEqual(new Set([EVENT_URL]));
+    await waitFor(() => expect(screen.getByTestId("actual-2024casf_qm8").textContent).toContain("61"));
+    expect(urls.filter((url) => url.includes("/v1/event/"))).toEqual([]);
   });
 
-  // Quick task 260921-5qw. Since 260920-lny the Worker promotes an event to
-  // live folding once TBA shows matches, and TBA publishes no team list for an
-  // offseason event in advance, so NO published team file can name it. Until
-  // this task such an event was invisible on every robot page until an operator
-  // ingested and republished.
-  describe("an event the team's own published file has never heard of", () => {
-    const WINDOW = { eventKey: "2024casf", season: 2024, startMs: NOW - 3_600_000, endMs: NOW + 3_600_000, inferred: true };
-    const liveWindows = (windows: unknown[]) =>
-      new Response(JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2024-03-09T00:00:00.000Z", windows }), { status: 200 });
-    const rosterResponse = (teams: string[]) =>
-      new Response(
-        JSON.stringify({ schemaVersion: 1, eventKey: "2024casf", season: 2024, eventName: "San Francisco Regional", startDate: "2024-03-07", teams, computedAt: "2024-03-09T17:59:00.000Z" }),
-        { status: 200 },
-      );
-    /** The same team file, with NO events: exactly what a team at a never-published event has. */
-    async function teamArtifactWithNoEvents(): Promise<Response> {
-      const body = (await teamArtifactWithEvent(NOW + 600_000, "2024-03-07").json()) as Record<string, unknown>;
-      return new Response(JSON.stringify({ ...body, events: [] }), { status: 200 });
-    }
+  it("reads NO live-windows manifest and NO live roster: an event the tick promoted is in this artifact's own events list", async () => {
+    // 260921-5qw's discovery pair existed because the tick wrote no team file,
+    // so a promoted event could not appear in one. `mergeTeamSeasonArtifact`
+    // creates the event's entry on the tick that folds the team's first match
+    // there, which is the same instant discovery used to fire.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const urls = renderWithFetchLog();
 
-    function stub(options: { windows: unknown[]; rosterTeams: string[] | "404" }) {
-      const fetchMock = vi.fn((input: RequestInfo | URL) => {
-        const url = String(input);
-        if (url.includes("live-windows")) return Promise.resolve(liveWindows(options.windows));
-        if (url.includes("live-roster")) return Promise.resolve(options.rosterTeams === "404" ? new Response("", { status: 404 }) : rosterResponse(options.rosterTeams));
-        if (url.includes("manifest")) return Promise.resolve(manifestResponse());
-        if (url.includes("/v1/event/")) return Promise.resolve(eventArtifactResponse());
-        return teamArtifactWithNoEvents();
-      });
-      global.fetch = fetchMock;
-      return fetchMock;
-    }
+    await waitFor(() => expect(screen.getByTestId("event-section-2024casf")).toBeDefined());
+    expect(urls.filter((url) => url.includes("live-windows"))).toEqual([]);
+    expect(urls.filter((url) => url.includes("live-roster"))).toEqual([]);
+  });
 
-    it("is found through the open live window and its roster, and its matches come from the event artifact", async () => {
-      vi.useFakeTimers({ toFake: ["Date"] });
-      vi.setSystemTime(NOW);
-      const fetchMock = stub({ windows: [WINDOW], rosterTeams: ["frc1114", "frc2"] });
-      renderTeamRoute("/team/1114?year=2024&algorithm=spr");
+  it("fetches exactly two distinct artifacts: this team's file and the events/{year} file the official snapshot needs", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    const urls = renderWithFetchLog();
 
-      await waitFor(() => expect(screen.getByTestId("confidence-2024casf_qm9").textContent).toContain("91%"));
-      expect(screen.getAllByText(/San Francisco Regional/).length).toBeGreaterThan(0);
-      const urls = fetchMock.mock.calls.map((call) => String(call[0]));
-      expect(urls.filter((url) => url.includes("live-roster"))).toEqual(["https://data.sigmascout.org/v1/live-roster/2024casf.json"]);
-    });
-
-    it("a roster that does not name the team, and a roster that is not there yet, add nothing and fetch no event artifact", async () => {
-      vi.useFakeTimers({ toFake: ["Date"] });
-      vi.setSystemTime(NOW);
-      for (const rosterTeams of [["frc2", "frc3"], "404"] as const) {
-        const fetchMock = stub({ windows: [WINDOW], rosterTeams: rosterTeams === "404" ? "404" : [...rosterTeams] });
-        renderTeamRoute("/team/1114?year=2024&algorithm=spr");
-        await waitFor(() => expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("live-roster"))).toBe(true));
-        await waitFor(() => expect(screen.queryAllByText(/Simbotics/).length).toBeGreaterThan(0));
-        expect(screen.queryByTestId("confidence-2024casf_qm9")).toBeNull();
-        expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("/v1/event/"))).toBe(false);
-        cleanup();
-      }
-    });
-
-    it("no window open now means NO roster fetch at all: an ordinary robot page pays for the manifest and nothing else", async () => {
-      vi.useFakeTimers({ toFake: ["Date"] });
-      vi.setSystemTime(NOW);
-      const closed = { ...WINDOW, startMs: NOW + 86_400_000, endMs: NOW + 2 * 86_400_000 };
-      const fetchMock = stub({ windows: [closed], rosterTeams: ["frc1114"] });
-      renderTeamRoute("/team/1114?year=2024&algorithm=spr");
-      await waitFor(() => expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("live-windows"))).toBe(true));
-      await waitFor(() => expect(screen.queryAllByText(/Simbotics/).length).toBeGreaterThan(0));
-      expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("live-roster"))).toBe(false);
-    });
-
-    it("a PAST season's page does not even read the live-windows manifest", async () => {
-      vi.useFakeTimers({ toFake: ["Date"] });
-      vi.setSystemTime(Date.parse("2026-09-26T15:00:00.000Z"));
-      const fetchMock = stub({ windows: [WINDOW], rosterTeams: ["frc1114"] });
-      renderTeamRoute("/team/1114?year=2024&algorithm=spr");
-      await waitFor(() => expect(screen.queryAllByText(/Simbotics/).length).toBeGreaterThan(0));
-      expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("live-windows"))).toBe(false);
-    });
+    await waitFor(() => expect(screen.getByTestId("event-section-2024casf")).toBeDefined());
+    const artifacts = [...new Set(urls.filter((url) => !url.includes("manifest")))];
+    expect(artifacts).toHaveLength(2);
+    expect(artifacts.some((url) => url.includes("/v1/team/frc1114/2024/"))).toBe(true);
+    expect(artifacts.some((url) => url.includes("/v1/events/2024/"))).toBe(true);
   });
 });

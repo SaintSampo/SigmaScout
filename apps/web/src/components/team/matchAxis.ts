@@ -15,10 +15,16 @@ type PredictionKey = "predictedWinner" | "pRedWin" | "predictedRedScore" | "pred
 
 /**
  * The team page's DISPLAY match row: the published row with its four
- * prediction fields optional. Every published row carries all four; only an
- * upcoming match the browser could not price (a schedule-only row from the
- * live event artifact, overlaid by `teamUpcomingOverlay.ts`, 260915-m4j)
- * carries none. Read them through `teamRowPrediction`.
+ * prediction fields optional, read through `teamRowPrediction`.
+ *
+ * NOTHING PRODUCES A ROW MISSING THEM ANY MORE. `TeamSeasonMatchSchema`
+ * requires all four, and the one thing that ever built a row without them —
+ * `teamUpcomingOverlay.ts`'s schedule-only display row, for an upcoming match
+ * the browser could not price (260915-isq) — is deleted (quick task
+ * 260923-3w7). The optionality is kept as the PRESENTATIONAL guard `MatchTable`
+ * renders "No prediction" from: a row whose prediction fields a future schema
+ * change makes optional, or an artifact that predates one of them, degrades to
+ * an honest blank rather than to `NaN`.
  */
 export type TeamSeasonMatch = Omit<PublishedTeamSeasonMatch, PredictionKey> & Partial<Pick<PublishedTeamSeasonMatch, PredictionKey>>;
 /** The team page's display event: the published event with display match rows. */

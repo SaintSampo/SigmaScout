@@ -12,7 +12,6 @@ import { ErrorState } from "../components/StateViews.js";
 import { EventSectionSkeleton, SeasonHeaderSkeleton } from "../components/Skeletons.js";
 import { MetricHistoryTab } from "../components/team/MetricHistoryTab.js";
 import { OverviewTab } from "../components/team/OverviewTab.js";
-import { useLiveTeamSeason } from "../components/team/useLiveTeamSeason.js";
 import { SeasonHeader } from "../components/team/SeasonHeader.js";
 import { NoEventDataState, YearMismatchEmptyState } from "../components/team/TeamStates.js";
 
@@ -83,16 +82,14 @@ function TeamPage() {
   // the tiles beside it show. `headerMetrics` is derived from the row and
   // keeps its exact prior meaning, so the labelling precondition above is
   // untouched.
-  // THE LIVE VIEW, resolved once for the whole page (260917-jr4). Called
-  // unconditionally with a possibly-undefined artifact so the hook count
-  // never depends on a branch; it returns `undefined` until the artifact
-  // resolves, and the PUBLISHED values by identity when no event is live.
-  const live = useLiveTeamSeason(data, algorithm);
-  // Fed the EXTENDED history, not `data.metricHistory` — during a live
-  // event the last official row is one the Worker folded since the last
-  // republish, and the published array does not contain it.
-  // `officialSnapshotRow` itself is untouched.
-  const snapshotRow = live !== undefined && eventsQuery.data !== undefined ? officialSnapshotRow(live.metricHistory, eventsQuery.data.events) : undefined;
+  //
+  // `data.metricHistory` DIRECTLY, with no live extension: since quick task
+  // 260923-3w7 the live Worker writes this team's own artifact on every tick
+  // that folds one of its matches, so the published array already contains
+  // the rows a live event has produced. Between 260917-jr4 and then it did
+  // not, and `useLiveTeamSeason` rebuilt them from each live event's
+  // artifact. `officialSnapshotRow` itself was never forked and is untouched.
+  const snapshotRow = data !== undefined && eventsQuery.data !== undefined ? officialSnapshotRow(data.metricHistory, eventsQuery.data.events) : undefined;
   const headerMetrics = snapshotRow?.metrics;
 
   if (!isValidTeamNumber) {
@@ -139,17 +136,19 @@ function TeamPage() {
       );
     }
 
-    // `live.events`, not `data.events`: a team whose ONLY event this season is one the Worker promoted
-    // without an offline publish has an empty published list and a discovered live event (quick task
-    // 260921-5qw). Falls back to the published list while `live` is unresolved.
-    if ((live?.events ?? data.events).length === 0) {
+    // `data.events` is the whole list: an event the Worker promoted without an
+    // offline publish appears here too, because the tick that folds the team's
+    // first match there creates its entry in this very artifact
+    // (`mergeTeamSeasonArtifact`). Quick task 260921-5qw's live-windows plus
+    // live-roster discovery existed only because the tick wrote no team file.
+    if (data.events.length === 0) {
       const activeYears = data.activeYears;
       const yearMismatch = activeYears !== undefined && !activeYears.includes(year);
 
       return (
         <div className="flex flex-col gap-[var(--spacing-xl)]">
           {/* The identity chrome (name, number) is not year-scoped and renders normally above the empty body. */}
-          <div className="data-card p-[var(--spacing-md)]"><SeasonHeader artifact={data} algorithmId={algorithm} season={year} teamNumber={teamNumber} seasonStats={live?.seasonStats} metricsOverride={headerMetrics} snapshotMatchKey={snapshotRow?.matchKey} ranks={data.ranks} /></div>
+          <div className="data-card p-[var(--spacing-md)]"><SeasonHeader artifact={data} algorithmId={algorithm} season={year} teamNumber={teamNumber} metricsOverride={headerMetrics} snapshotMatchKey={snapshotRow?.matchKey} ranks={data.ranks} /></div>
           {yearMismatch ? (
             <YearMismatchEmptyState teamNumber={teamNumber} nickname={data.nickname} year={year} activeYears={activeYears} />
           ) : (
@@ -165,12 +164,8 @@ function TeamPage() {
         algorithmId={algorithm}
         season={year}
         teamNumber={teamNumber}
-        events={live?.events}
-        metricHistory={live?.metricHistory}
-        seasonStats={live?.seasonStats}
         metricsOverride={headerMetrics}
         snapshotMatchKey={snapshotRow?.matchKey}
-        tierCutsByEventKey={live?.tierCutsByEventKey}
       />
     );
   }
@@ -209,7 +204,7 @@ function TeamPage() {
               wrapper's. */}
           <div data-testid="metric-history-panel">
             {data !== undefined && !is404 && !error ? (
-              <MetricHistoryTab artifact={data} metricHistory={live?.metricHistory} algorithmId={algorithm} season={year} />
+              <MetricHistoryTab artifact={data} algorithmId={algorithm} season={year} />
             ) : null}
           </div>
         </TabsContent>

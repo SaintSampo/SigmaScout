@@ -16,7 +16,6 @@ import { formatScheduledTime, matchLabel } from "../components/team/MatchTable.j
 import { MatchVideoCell } from "../components/MatchVideoCell.js";
 import { parseMatchVideoKey } from "../lib/matchVideo.js";
 import { preMatchMetrics } from "../lib/preMatchMetrics.js";
-import { extendMetricHistory } from "../lib/liveTeamSeason.js";
 import { MatchRobotGrid, type MatchRobotRecord } from "../components/match/MatchRobotGrid.js";
 import type { AxisDomain } from "../components/team/matchAxis.js";
 import type { EventMatchRow } from "../components/event/eventMatchAxis.js";
@@ -101,23 +100,6 @@ function MatchPage() {
     })),
   });
 
-  // THE LIVE ROWS for THIS event, at the cost of ZERO extra requests
-  // (260918-16t). They ride the `live` block on the event artifact `data`
-  // above — which is the SAME `eventQueryOptions` the event page uses, so a
-  // reader arriving from the event page hits a warm cache and pays nothing
-  // for them at all. Until 260918-16t this was a second fetch of its own.
-  //
-  // WITHOUT THEM THIS PAGE SILENTLY REGRESSES. `preMatchMetrics` reads the row
-  // PRECEDING this match in a team's `metricHistory`; for any match folded
-  // since the last republish, the published team artifact contains neither
-  // this match's row nor the rows after it, so every pre-match cell on the
-  // page would render as absence. The live Worker used to close that gap by
-  // rewriting the team artifact each tick; it no longer writes one at all.
-  //
-  // An event artifact with no `live` key is the ordinary case — every
-  // finished event — and this is a no-op there.
-  const liveEventArtifacts = useMemo(() => new Map(data === undefined ? [] : [[eventKey, data]]), [eventKey, data]);
-
   // Built here, not inside `MatchRobotGrid` (which stays a pure function of
   // its props per Task 2's own contract). A team artifact that 404s or fails
   // degrades to `{ isPending: false }` with no artifact — the card shows the
@@ -130,12 +112,15 @@ function MatchPage() {
     const teamArtifact = result.data;
     byTeamKey[teamKey] = {
       artifact: teamArtifact,
-      // `preMatchMetrics` is UNCHANGED and unforked — it is simply fed the
-      // extended history rather than the published one.
-      preMatch:
-        teamArtifact !== undefined && row !== undefined
-          ? preMatchMetrics(extendMetricHistory({ artifact: teamArtifact, eventArtifacts: liveEventArtifacts }), matchKey, { played: row.played })
-          : undefined,
+      // `preMatchMetrics` reads the row PRECEDING this match in a team's
+      // `metricHistory`, and it is fed the PUBLISHED array directly. Between
+      // 260917-jr4 and 260923-3w7 it could not be: the tick wrote no team
+      // artifact, so for any match folded since the last republish the
+      // published array held neither this match's row nor the ones after it,
+      // and this page reconstructed them from the event artifact's `live`
+      // block. The tick writes the team artifact again, so the rows are
+      // already here.
+      preMatch: teamArtifact !== undefined && row !== undefined ? preMatchMetrics(teamArtifact.metricHistory, matchKey, { played: row.played }) : undefined,
       isPending: result.isPending,
     };
   });

@@ -1,10 +1,8 @@
 import { useEffect, useRef } from "react";
-import type { EventTierCuts, TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { markFirstRowsRendered, measureParseToPaint } from "../../lib/perfMarks.js";
 import { computeAxisDomain } from "./matchAxis.js";
 import { EventSection } from "./EventSection.js";
-import type { TeamSeasonEvent } from "./matchAxis.js";
-import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
 
 /**
  * The second composition seam `OverviewTab.tsx` freezes — a section's match
@@ -15,19 +13,6 @@ export interface EventSectionListProps {
   algorithmId: string;
   season: number;
   teamNumber: number;
-  /**
-   * The LIVE view, threaded from the route (260917-jr4). This component used
-   * to call the overlay hook ITSELF; it no longer does, because the metric
-   * history and the overlaid events must come from ONE resolution of the
-   * live-event set — two independent resolutions could disagree about which
-   * events are live and paint a chart whose last points belong to matches
-   * the table beside it still calls upcoming. Both fall back to the
-   * published arrays.
-   */
-  events?: readonly TeamSeasonEvent[];
-  metricHistory?: readonly MetricHistoryRow[];
-  /** Each live event's `tierCuts` block, by event key — see `useLiveTeamSeason.ts`'s `tierCutsByEventKey` doc comment. Looked up per event below; a missing entry means "no cuts", the honest answer for a finished or pre-republish event. */
-  tierCutsByEventKey?: Readonly<Record<string, EventTierCuts>>;
 }
 
 /**
@@ -39,17 +24,19 @@ export interface EventSectionListProps {
  * computed ONCE here, across the whole team-season, and passed down to
  * every section — never recomputed per event or per row.
  */
-export function EventSectionList({ artifact, algorithmId, season, events: overlaidEvents, metricHistory, tierCutsByEventKey }: EventSectionListProps) {
-  // A live event's matches come from its event artifact (priced upcoming rows,
-  // fresh results); every other event is the published rows, same reference.
-  const overlaid = overlaidEvents ?? artifact.events;
-  const rows = metricHistory ?? artifact.metricHistory;
-  const events = [...overlaid]
+export function EventSectionList({ artifact, algorithmId, season }: EventSectionListProps) {
+  // The artifact's own arrays, and nothing else. Until quick task 260923-3w7
+  // the route threaded in an overlaid `events` and an extended `metricHistory`
+  // rebuilt from each live event's artifact, because the tick wrote no team
+  // file; it writes one again, so a live event's fresh results and priced
+  // upcoming rows are already in `artifact`.
+  const rows = artifact.metricHistory;
+  const events = [...artifact.events]
     .filter((event) => event.matches.length > 0)
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
 
-  // Over the overlaid rows, so a browser-priced upcoming band sits inside the shared axis.
-  const domain = computeAxisDomain(overlaid);
+  // Over every event, so a priced upcoming band sits inside the shared axis.
+  const domain = computeAxisDomain(artifact.events);
 
   // Reuses `teams.tsx`'s own `artifact-parsed` -> `first-rows-rendered`
   // parse-to-paint pair (`perfMarks.ts`) rather than inventing a second mark
@@ -76,7 +63,6 @@ export function EventSectionList({ artifact, algorithmId, season, events: overla
           algorithmId={algorithmId}
           season={season}
           metricHistory={rows}
-          tierCuts={tierCutsByEventKey?.[event.eventKey]}
         />
       ))}
     </div>

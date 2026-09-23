@@ -8,7 +8,6 @@ import { resolveMetricTier } from "../../lib/tiers.js";
 import { MatchTable } from "./MatchTable.js";
 import type { AxisDomain, TeamSeasonEvent } from "./matchAxis.js";
 import type { MetricHistoryRow } from "../../../../../packages/harness/metricHistorySchema.js";
-import type { EventTierCuts } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
 
@@ -29,14 +28,30 @@ export interface EventSectionProps {
   algorithmId: string;
   season: number;
   metricHistory: readonly MetricHistoryRow[];
-  /**
-   * This event's rarity-tier cut points (quick task 260920-qzf), letting a
-   * `metricHistory` row a live tick wrote (a value with no percentile) still
-   * render a tier. `undefined` when this event's artifact carries no block —
-   * a finished event, a pre-republish artifact, or no event data at all.
-   */
-  tierCuts?: EventTierCuts;
 }
+
+/**
+ * NO TIER CUTS REACH THIS COMPONENT, and that is a known, recorded gap rather
+ * than an oversight — every `resolveMetricTier` call below therefore passes
+ * `undefined` explicitly.
+ *
+ * Quick task 260920-qzf gave this component a `tierCuts` prop so a
+ * `metricHistory` row a live TICK wrote — a value with no percentile — could
+ * still render a tier. Its only source was the live event artifact, fetched by
+ * the robot page's live overlay, and quick task 260923-3w7 deleted that overlay:
+ * the tick writes the team artifact itself again, so the page reads one file and
+ * fetches no event artifact. `tierCuts` is a per-(algorithm, season) block that
+ * nothing publishes on a team artifact, so there is nowhere honest to read it
+ * from here.
+ *
+ * CONSEQUENCE, stated so it is not rediscovered as a bug: a live-folded row's
+ * snapshot tiles render UNTIERED until the next republish, exactly as they did
+ * before 260920-qzf. Published rows are unaffected — the publisher writes a
+ * `percentile` on every metric-history row (`withHistoryPercentiles`), and a
+ * published percentile always wins. Closing it means publishing `tierCuts` on
+ * the team-season artifact; `.planning/todos/pending/live-merges-drop-percentiles.md`
+ * carries that as the follow-up.
+ */
 
 /**
  * The team's metrics AS CAPTURED WHEN THIS EVENT ENDED — the LAST
@@ -56,7 +71,7 @@ export function endOfEventMetrics(metricHistory: readonly MetricHistoryRow[], ev
   return last;
 }
 
-export function EventSection({ event, domain, teamKey, algorithmId, season, metricHistory, tierCuts }: EventSectionProps) {
+export function EventSection({ event, domain, teamKey, algorithmId, season, metricHistory }: EventSectionProps) {
   const isUpcoming = event.matches.every((match) => match.actualWinner === undefined);
   const snapshot = endOfEventMetrics(metricHistory, event.eventKey);
   const metricKeys = metricKeysFor(algorithmId, season);
@@ -151,7 +166,7 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
                   own comment above for why the right half stays untiered. */}
               <TotalSigmaValue
                 total={totalTile.metric}
-                totalTier={resolveMetricTier(totalTile.metric, totalTile.key, tierCuts)}
+                totalTier={resolveMetricTier(totalTile.metric, totalTile.key, undefined)}
                 sigma={snapshotSigma === undefined ? undefined : { value: snapshotSigma.value }}
               />
             </span>
@@ -179,7 +194,7 @@ export function EventSection({ event, domain, teamKey, algorithmId, season, metr
                       now DELIBERATELY NOT stated anywhere on this surface —
                       an accepted risk, not an oversight.
                     */}
-                    <MetricValue metric={tile.metric} tier={resolveMetricTier(tile.metric, tile.metricKey, tierCuts)} />
+                    <MetricValue metric={tile.metric} tier={resolveMetricTier(tile.metric, tile.metricKey, undefined)} />
                   </span>
                 );
               })}

@@ -307,17 +307,15 @@ describe("live played rows equal the offline publisher's rows", () => {
 
   /**
    * THIS HALF NOW DESCRIBES WHAT THE *PUBLISHER* WRITES, not what a live tick
-   * writes (260917-jr4, D-07). The live tick makes no team-artifact write at
-   * all; `mergeTeamSeasonArtifact` is kept for the successor of quick task
-   * 260923-3w4, which reinstates that write. What this test still pins is the
-   * DEFINITION the browser's derivation is measured against — the exact row a
-   * published team artifact carries for a played match.
+   * writes (260917-jr4, D-07), and quick task 260923-3w6 reinstated them, so
+   * this is once again a claim about what the live tick actually writes: the
+   * played row a live team-season write produces equals the publisher's own,
+   * field for field, minus an exception list expressed as data.
    *
-   * The BROWSER side of the same claim lives in
-   * `apps/web/src/lib/liveTeamSeason.test.ts`: a derived team-page row equals
-   * this row field for field, minus an exception list expressed as data. Two
-   * halves of one parity claim, deliberately kept in the two packages that own
-   * their respective sides.
+   * The BROWSER half of this claim is gone with the derivation it measured
+   * (`apps/web/src/lib/liveTeamSeason.test.ts`, deleted by quick task
+   * 260923-3w7): the page reads the published row rather than rebuilding it, so
+   * there is no second implementation left to hold to this definition.
    */
   it("team-season (the PUBLISHER's row, the definition the browser derivation is measured against): every played row has the offline key list minus coldStart, and the same values", () => {
     const offline = offlineTeamSeason(fold, lookups).events[0]!.matches;

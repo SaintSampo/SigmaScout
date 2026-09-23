@@ -31,7 +31,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runTick } from "../src/scheduled.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import { artifactKey, LiveEventArtifactSchema, TeamsArtifactSchema, type EventLiveBlock } from "../../../packages/harness/pageArtifacts.js";
-import { mergeEventLiveBlock } from "../../../packages/harness/liveEventRows.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import { SIGMA_METRIC_KEY } from "../../../packages/harness/sigmaScore.js";
@@ -464,8 +463,9 @@ describe("the live tick's team half is one read and one write per touched team",
 // event write's secret scrub covered the rows (they sat inside the body it already
 // scrubbed) and that a drifted metric-key header was logged and self-healed.
 // Nothing emits a `live` block any more, so all eight describe a code path that no
-// longer exists. `packages/harness/liveEventRows.test.ts` still unit-tests the
-// merge and the encoding, for the WEB's decode path, until quick task 260923-3w7.
+// longer exists. `packages/harness/liveEventRows.ts` and its unit test, which
+// survived 260923-3w6 for the WEB's decode path, are deleted by quick task
+// 260923-3w7 along with that decode path.
 
 describe("runGlobalRebuild's touched-team bookkeeping", () => {
   /**

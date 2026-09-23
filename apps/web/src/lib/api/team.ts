@@ -19,6 +19,8 @@
 import { artifactKey, TeamSeasonArtifactSchema, type TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { artifactUrl } from "../artifactOrigin.js";
 import { markArtifactParsed } from "../perfMarks.js";
+import { EVENT_POLL_INTERVAL_MS, shouldPollTeamArtifact } from "../liveEvent.js";
+import type { Query } from "@tanstack/react-query";
 import { ArtifactFetchError, ArtifactValidationError } from "./errors.js";
 
 export interface FetchTeamArtifactParams {
@@ -47,9 +49,24 @@ export async function fetchTeamArtifact({ teamKey, year, algorithmId, version }:
   }
 }
 
+/**
+ * While the team still has an unplayed row at an event whose schedule is
+ * current, the query refetches every `EVENT_POLL_INTERVAL_MS` — the same
+ * cadence and the same rule `eventQueryOptions` uses, because since quick task
+ * 260923-3w7 this file is how the live Worker's writes reach the robot page.
+ * Between 260917-jr4 and then the tick wrote no team artifact at all and the
+ * page reconstructed its live rows from the event artifact's poll; there is
+ * nothing to reconstruct now, so the poll belongs here.
+ *
+ * `refetchIntervalInBackground` is deliberately left unset (false): TanStack
+ * fires an interval refetch only while the window is focused, so a hidden tab
+ * stops polling and resumes when it is shown again.
+ */
 export function teamQueryOptions(params: FetchTeamArtifactParams) {
   return {
     queryKey: ["team", params.teamKey, params.year, params.algorithmId, params.version] as const,
     queryFn: () => fetchTeamArtifact(params),
+    refetchInterval: (query: Query<TeamSeasonArtifact, Error, TeamSeasonArtifact, readonly ["team", string, number, string, string]>): number | false =>
+      shouldPollTeamArtifact(query.state.data, Date.now()) ? EVENT_POLL_INTERVAL_MS : false,
   };
 }

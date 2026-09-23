@@ -1,19 +1,22 @@
 /**
- * "Is this event live enough to fetch or poll?" for the web (260915-m4j).
+ * "Is this artifact live enough to keep polling?" for the web (260915-m4j).
  *
- * LD-5: state blocks exist only for events with a current schedule, decided
- * by the publisher's `eventScheduleIsCurrent` (7 days after the latest
- * scheduled match). The web reuses exactly that function, from its
- * browser-safe home, asking relative to the browser's now rather than the
- * artifact's own `computedAt`: the question here is whether the event is
- * current today, not whether it was current when it was written.
+ * The currency rule is the publisher's own `eventScheduleIsCurrent` (7 days
+ * after the latest scheduled match), reused from its browser-safe home and
+ * asked relative to the browser's now rather than the artifact's own
+ * `computedAt`: the question here is whether the event is current today, not
+ * whether it was current when it was written.
+ *
+ * Both polls exist because the live Worker rewrites both artifacts as it folds:
+ * the event artifact for the event and match pages, the team artifact for the
+ * robot page. 60 s is the floor either way (see `EVENT_POLL_INTERVAL_MS`).
  *
  * Pure module, no React.
  */
 import { eventScheduleIsCurrent } from "../../../../packages/harness/eventSchedule.js";
 
 /**
- * How often a live event query refetches. The artifact origin serves
+ * How often a live query refetches, event or team. The artifact origin serves
  * `Cache-Control: public, max-age=60`, so polling faster would only re-read
  * the edge cache: 60 s is the floor.
  */
@@ -58,30 +61,32 @@ export function shouldPollEventArtifact(
 }
 
 /**
- * LD-2: a team page fetches an event's artifact when the team still has an
- * unplayed PUBLISHED row there.
+ * A ROBOT PAGE POLLS ITS OWN TEAM ARTIFACT while it still has an unplayed row
+ * at an event whose schedule is current (quick task 260923-3w7).
  *
- * THE SCHEDULE-CURRENCY CONJUNCT WAS DELIBERATELY REMOVED (quick task
- * 260917-jr4, D-05 unsound part 1), and this comment exists so it is not
- * "restored" as an obvious optimisation. It used to also require
- * `eventScheduleIsCurrent` (7 days past the last scheduled match). That was
- * harmless while the live Worker wrote results into the team artifact: once
- * the window closed, the team page fell back to a team artifact that already
- * carried the results. The Worker no longer writes team artifacts at all, so
- * under that rule a FINISHED event's matches would render as UNPLAYED on the
- * robot page from the moment the window closed until the next offline
- * republish — a correctness cliff, not a stale number.
+ * This replaces `teamEventNeedsLivePricing`, which answered a different
+ * question — "should this page fetch that EVENT's artifact?" — for a page that
+ * reconstructed its live rows from the event artifact because the Worker wrote
+ * no team artifact at all (260917-jr4). The Worker writes one again, so the
+ * robot page reads one file and this is the only thing left to decide: how
+ * often to re-read it.
  *
- * WHAT THE REMOVAL COSTS, stated so the trade is visible: an abandoned event
- * whose matches were never played (and never will be) keeps one extra
- * CDN-cached fetch per robot page, forever. That is bounded, cheap, served
- * from the edge, and strictly better than rendering a finished event as
- * unplayed.
- *
- * `shouldPollEventArtifact`'s currency test is deliberately UNTOUCHED. That
- * one governs POLLING, not fetching, and polling a dead event every 60
- * seconds is exactly the thing the currency test exists to stop.
+ * THE SCHEDULE-CURRENCY CONJUNCT IS BACK, and for the reason it was removed.
+ * 260917-jr4 (D-05) dropped it because a FINISHED event's matches would have
+ * rendered as UNPLAYED once the window closed and no team artifact carried the
+ * results — a correctness cliff. That cannot happen here: currency gates
+ * POLLING, never the fetch, and the published team artifact already carries
+ * every result whether or not this returns true. Without the conjunct an
+ * abandoned event whose matches will never be played would poll every 60
+ * seconds forever, which is exactly what `shouldPollEventArtifact`'s own
+ * currency test exists to stop.
  */
-export function teamEventNeedsLivePricing(event: { readonly startDate?: string; readonly matches: readonly (ScheduledRow & { readonly actualWinner?: unknown })[] }): boolean {
-  return event.matches.some((match) => match.actualWinner === undefined);
+export function shouldPollTeamArtifact(
+  artifact: { readonly events: readonly { readonly startDate?: string; readonly matches: readonly (ScheduledRow & { readonly actualWinner?: unknown })[] }[] } | undefined,
+  nowMs: number
+): boolean {
+  if (artifact === undefined) return false;
+  return artifact.events.some(
+    (event) => event.matches.some((match) => match.actualWinner === undefined) && eventArtifactScheduleIsCurrent({ matches: event.matches, upcoming: [], startDate: event.startDate }, nowMs)
+  );
 }
