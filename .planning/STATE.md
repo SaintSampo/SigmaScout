@@ -5,7 +5,7 @@ milestone_name: milestone
 current_phase: 09
 status: completed
 stopped_at: "Phase 9 SEALED and its UAT COMPLETE 2026-09-12 (verification 3b0d248c; clauses 3 and 4 both amended at the seal, originals preserved verbatim in ROADMAP.md; UAT test 1 waived against a standing pre-season gate, test 2 passed by Jacob on desktop and phone). The owed republish RAN: generation 622eeb28, 108,979 objects, 1h42m, and the presim class went median 206,385 B to 7,229 B while the schedule count went UP 50x to 1,000, so visitors now see a pre-schedule band that moves ~1.17 ranks between runs instead of 10.61. D1 re-seeded 66,284 rows seed-first, Worker cc6abc35 deployed. STILL IN FORCE: the pre-season CPU gate in docs/worker-operations.md forbids opening any live window until rp-fold-exceeds-worker-cpu-budget closes - a realistic mid-quals tick measures 13 ms p50 against a 10 ms sustained budget. All 12 phases are complete; the next container is a phase for the CPU work, timed against the pre-season."
-last_updated: "2026-09-23T07:33:38.828Z"
+last_updated: "2026-09-23T08:51:41.867Z"
 last_activity: 2026-09-23
 last_activity_desc: "Completed quick task 260913-rh5: republished spr@4.0.0 and the Swing teardown (generation 2dcc057f), D1 seeded, Worker fcc7ca73; R2 deletions left to Jacob"
 progress:
@@ -632,6 +632,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 228 | Workers Paid re-architecture audit: ranked findings, R2 is the binding resource, decisions presented | 2026-09-23 | 6a5f9381 | [260923-1tu-workers-paid-rearchitecture-audit-find-c](./quick/260923-1tu-workers-paid-rearchitecture-audit-find-c/) |
 | 229 | Correct simulation-architecture.md sidecar sizes and close the browser-move question | 2026-09-23 | 82adce2f | [260923-3w9-correct-simulation-architecture-doc](./quick/260923-3w9-correct-simulation-architecture-doc/) |
 | 230 | Delete the state-probe Worker, subrequest budget machinery, probe cap, rebuild interval and KV (about 7,400 lines) | 2026-09-23 | 480bfd3d | [260923-3w4-delete-probe-worker-budget-machinery-kv](./quick/260923-3w4-delete-probe-worker-budget-machinery-kv/) |
+| 231 | Worker prices upcoming matches and writes team artifacts again; state, live blocks and live roster stop being emitted (about 4,700 lines) | 2026-09-23 | 347ce6fd | [260923-3w6-worker-reprices-upcoming-writes-teams](./quick/260923-3w6-worker-reprices-upcoming-writes-teams/) |
 
 ### Roadmap Evolution
 
