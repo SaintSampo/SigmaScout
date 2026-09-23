@@ -591,14 +591,21 @@ type PublishedEventTeamMetric = { value: number; spread?: number; percentile?: n
  *
  * Known limitation, narrowed by quick task 260920-qzf: a touched team's
  * other metrics still lose their `percentile` on a live tick — the Worker
- * computes none, and that stays the CPU gate
- * (`rp-fold-exceeds-worker-cpu-budget`). What no longer disappears with it
- * is the TIER: the client re-derives it from the event artifact's
- * `tierCuts` block (`apps/web/src/lib/tiers.ts`'s resolver) whenever a
- * metric entry has a value but no percentile, which is exactly this
- * function's output shape. The percentile NUMBER itself stays absent on
- * every surface that prints one and is never approximated from `tierCuts` —
- * only the tier box is recoverable this way.
+ * computes none, because it holds no season ranking pool. That is no longer a
+ * CPU question: `rp-fold-exceeds-worker-cpu-budget` is CLOSED (the account is on
+ * Workers Paid), and what is left to decide is whether a live percentile number
+ * is worth shipping a compact pool for one more read per touched tick — the open
+ * half of `live-merges-drop-percentiles`.
+ *
+ * What no longer disappears with the percentile is the TIER: the client
+ * re-derives it from the `tierCuts` block on whichever artifact it is holding
+ * (`apps/web/src/lib/tiers.ts`'s resolver) whenever a metric entry has a value
+ * but no percentile, which is exactly this function's output shape. BOTH
+ * artifacts this function feeds carry that block — the event artifact since
+ * quick task 260920-qzf, the team-season artifact since 260923-3x0 — and it is
+ * the SAME per-(algorithm, season) object on both. The percentile NUMBER itself
+ * stays absent on every surface that prints one and is never approximated from
+ * `tierCuts` — only the tier box is recoverable this way.
  */
 export function touchedEventTeamMetrics(
   priorMetrics: Readonly<Record<string, PublishedEventTeamMetric>> | undefined,

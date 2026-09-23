@@ -361,8 +361,14 @@ function offlineTeamSeasonArtifact(): TeamSeasonArtifact {
   return json(built);
 }
 
-function mergeTeam(existing: TeamSeasonArtifact | undefined, match: MatchResult): TeamSeasonArtifact {
-  const merged = mergeTeamSeasonArtifact({
+/**
+ * The merge's OWN output, before the write-side parse — the two halves are kept
+ * separate here for the same reason the event side keeps `mergeEventRaw` and
+ * `mergeEvent` apart: "the merge carried the key" and "the parse kept the key"
+ * are different claims, and an undeclared schema key fails only the second.
+ */
+function mergeTeamRaw(existing: TeamSeasonArtifact | undefined, match: MatchResult): Record<string, unknown> {
+  return mergeTeamSeasonArtifact({
     existing,
     teamKey: "frc1",
     season: SEASON,
@@ -377,8 +383,11 @@ function mergeTeam(existing: TeamSeasonArtifact | undefined, match: MatchResult)
     playedRowFacts: new Map(),
     stamp: LIVE_STAMP,
     sigmaAfterTick: 23.4,
-  });
-  return json(TeamSeasonArtifactSchema.parse(merged));
+  }) as Record<string, unknown>;
+}
+
+function mergeTeam(existing: TeamSeasonArtifact | undefined, match: MatchResult): TeamSeasonArtifact {
+  return json(TeamSeasonArtifactSchema.parse(mergeTeamRaw(existing, match)));
 }
 
 const TEAM_OWNED_KEYS = new Set(["generation", "computedAt", "seasonStats", "events", "metricHistory"]);
@@ -422,5 +431,53 @@ describe("mergeTeamSeasonArtifact keeps every key the tick does not own", () => 
     const existing = TeamSeasonArtifactSchema.parse(offlineTeamSeasonArtifact());
     const written = mergeTeam(existing, { ...TICK_QM2, eventType: 99 });
     expect(written.seasonStats.metricsBasis).toBe("season-final");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tierCuts carry-forward on the TEAM-SEASON artifact (quick task 260923-3x0)
+//
+// The same policy `mergeEventArtifact` has above, and for the same reason: the
+// block is publisher-owned, built from a season pool the Worker does not hold,
+// so the tick carries it and never invents one. What makes it worth its own
+// four cases here is that the team artifact is where the ROBOT PAGE reads it —
+// 260923-3w7 left that page fetching no event artifact at all.
+// ---------------------------------------------------------------------------
+
+function teamArtifactWithTierCuts(): TeamSeasonArtifact {
+  return TeamSeasonArtifactSchema.parse({ ...offlineTeamSeasonArtifact(), tierCuts: SAMPLE_TIER_CUTS });
+}
+
+describe("mergeTeamSeasonArtifact preserves tierCuts through a live tick", () => {
+  it("carries tierCuts forward unchanged, for a tick that folds a match and rewrites seasonStats", () => {
+    const written = mergeTeamRaw(teamArtifactWithTierCuts(), TICK_QM2);
+    expect(written.tierCuts).toEqual(SAMPLE_TIER_CUTS);
+  });
+
+  it("survives the write-side parse the Worker actually uses (TeamSeasonArtifactSchema) — the step that would strip an undeclared key", () => {
+    const written = mergeTeam(teamArtifactWithTierCuts(), TICK_QM2);
+    expect(written.tierCuts).toEqual(SAMPLE_TIER_CUTS);
+  });
+
+  it("bootstrap (no existing artifact) carries no tierCuts key at all — never an empty object, because the Worker holds no season pool to build one from", () => {
+    const written = mergeTeamRaw(undefined, TICK_QM2);
+    expect(written).not.toHaveProperty("tierCuts");
+  });
+
+  it("an existing artifact with no tierCuts still merges, and still carries no such key", () => {
+    const written = mergeTeamRaw(TeamSeasonArtifactSchema.parse(offlineTeamSeasonArtifact()), TICK_QM2);
+    expect(written).not.toHaveProperty("tierCuts");
+  });
+
+  it("the carried block is exactly what the tiered row needs: this tick's OWN appended metric-history row has a value and no percentile, and the block covers its metric name", () => {
+    // The whole point of the key, asserted against the same merge output rather
+    // than trusted: the tick writes a percentile-less row, and the cuts that
+    // tier it travel on the same file.
+    const written = mergeTeam(teamArtifactWithTierCuts(), TICK_QM2);
+    const appended = written.metricHistory.at(-1)!;
+    expect(appended.matchKey).toBe(TICK_QM2.matchKey);
+    expect(appended.metrics.total).toBeDefined();
+    expect(appended.metrics.total!.percentile).toBeUndefined();
+    expect(written.tierCuts!.total).toBeDefined();
   });
 });
