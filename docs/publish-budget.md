@@ -105,7 +105,10 @@ capped is the number of PUBLISHED ALGORITHMS — each is ~1.4 GB and ~36,000 obj
 The per-team write also replaced two things that cost R2 nothing but cost page loads: the event
 artifact's ephemeral `live` block (about the rows of every match folded so far, carried in every event
 page fetch) and one `v1/live-roster/{eventKey}.json` object per promoted event. Neither is written any
-more; stale roster objects from before 2026-09-23 sit read-only until a prune.
+more; stale roster objects from before 2026-09-23 sit read-only until a prune. Quick task 260923-3w7
+deleted the browser code that read both, plus the `state` block's own reader: an event page no longer
+downloads a lazy pricer chunk, and a robot page makes one artifact fetch instead of one per live event
+it attends.
 
 **These are the local counter's numbers, not the Cloudflare dashboard's.** Billed storage and
 operation counts are account-level metrics only a human with dashboard access can read. They can

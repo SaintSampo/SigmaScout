@@ -125,3 +125,34 @@ live percentile number worth one more R2 object per algorithm-season, against a 
 that is already correct and a percentile that is simply absent? Nothing in 260923-3w6 answers that,
 and nothing in it depends on the answer — the live-merged row carries no percentile number, exactly
 as before, and that remains an accepted limitation rather than a defect.
+
+## 2026-09-23, quick task 260923-3w7: the TIER gap on the robot page is OPEN again
+
+The "What closed" section above says the tier half of this todo is closed. **That is now only true of
+the event page.** 260920-qzf closed it in two places, and one of them depended on a fetch that no
+longer happens:
+
+- **Event page** (Insights, Breakdown, Alliances, the match-page robot grid) — still closed. Those
+  surfaces read `tierCuts` off the event artifact they already hold, and `mergeEventArtifact` still
+  carries the block forward through every tick.
+- **Robot page event-section tiles** — OPEN again. Their `tierCuts` came from the live EVENT artifact,
+  fetched by the team-season overlay 260923-3w7 deleted: the tick writes the team artifact itself again,
+  so the robot page reads one file and fetches no event artifact at all. `EventSection`'s `tierCuts`
+  prop and its two 260920-qzf cases went with the source that fed them. A live-folded row's snapshot
+  tiles therefore render UNTIERED until that event's next republish — exactly the pre-260920-qzf
+  behaviour, and no worse.
+
+Published rows are unaffected either way: `withHistoryPercentiles` puts a `percentile` on every
+metric-history row the publisher writes, and a published percentile always wins over cut points.
+
+**The fix, and it is cheap:** publish `tierCuts` on the TEAM-SEASON artifact. The block is already
+per-(algorithm, season) rather than per-event (it is built once from `rankingPools` and merely rides
+each event artifact), so the publisher can attach the same object to a team's file with no new
+computation, and `mergeTeamSeasonArtifact` can carry it forward exactly as `mergeEventArtifact` does.
+That restores `EventSectionList` -> `EventSection`'s resolver with no fetch. It was deliberately NOT
+done in 260923-3w7: it needs a `TeamSeasonArtifactSchema` key and a `scheduled.ts` change, both outside
+that task's scope.
+
+Note this is the TIER half only. The percentile NUMBER gap above is unchanged, and so is the standing
+question at the end of this file: whether a live percentile number is worth one more R2 read per
+algorithm-season per touched tick.

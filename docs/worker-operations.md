@@ -619,9 +619,22 @@ not afford to price upcoming matches or to write a team artifact (a 10 ms CPU bu
 `v1/live-roster/{eventKey}.json` object so a robot page could discover an event no team file named.
 Workers Paid gives the tick 30 s; both mechanisms are deleted, and so are the
 `event-state-block-missing` / `event-state-block-invalid` warn lines an operator used to have to act
-on. **A team that is on the schedule but has played nothing yet still has no row for the event in its
-own file** — that is the one thing the roster object covered and the team file cannot, and it heals
+on. Quick task 260923-3w7 then deleted the browser halves — the pricer, the team-season overlay, the
+live-windows/roster discovery pair and the derived standings — so a robot page is ONE fetch of its own
+team file again, polled every 60 s, and an event page parses what the tick wrote with nothing in
+between. **A team that is on the schedule but has played nothing yet still has no row for the event in
+its own file** — that is the one thing the roster object covered and the team file cannot, and it heals
 at that team's first match.
+
+**One operator-visible regression came with that deletion, and it is recorded rather than hidden:** a
+live-folded metric-history row carries no `percentile`, and the robot page's event-section tiles used
+to recover its rarity TIER from the live event artifact's `tierCuts` block (quick task 260920-qzf).
+That block lives on the event artifact, which the robot page no longer fetches, so those tiles render
+UNTIERED during a live event until the next republish — the pre-260920-qzf behaviour. Event-page
+surfaces are unaffected (they read `tierCuts` off the artifact they already hold), and published rows
+are unaffected (the publisher writes a `percentile` on every metric-history row). The fix is to publish
+`tierCuts` — already a per-(algorithm, season) block — on the team-season artifact too; it is recorded
+in `.planning/todos/pending/live-merges-drop-percentiles.md`.
 
 - **New events on the calendar:** a full `pnpm publish:seasons` emits the stubs. To get them out
   WITHOUT a full republish (about 109,000 R2 writes), run `pnpm publish:stubs` (about 120). It reads
@@ -783,7 +796,7 @@ calendar-probe window covering right now. A non-zero **probe-only** count with t
 `eventsPromoted` staying at `0` is also normal: it means the Worker is checking a calendar window
 that has not started producing matches yet, not that anything is broken.
 
-### State blocks before the window opens — HISTORICAL (260915-isq, reversed by 260923-3w6)
+### State blocks before the window opens — HISTORICAL (260915-isq, reversed by 260923-3w6, reader deleted by 260923-3w7)
 
 **There is no state-block contract any more, and nothing to pair.** This section held an operational
 contract an operator had to satisfy before every live window: publish with code that writes the SPR
@@ -791,6 +804,13 @@ contract an operator had to satisfy before every live window: publish with code 
 web switch that let the event page parse an artifact whose upcoming rows were schedule-only. It also
 held the two warn lines — `event-state-block-missing` and `event-state-block-invalid` — that told an
 operator the pairing had failed and a republish-plus-reseed was owed mid-event.
+
+There is not even a second schema to switch any more: quick task 260923-3w7 deleted
+`LiveEventArtifactSchema` and the `state` key with it, so one `EventArtifactSchema` is read and written
+by the publisher, the Worker and the web alike, and a schedule-only upcoming row now FAILS validation
+rather than parsing. A stale `state` block on an artifact published before the reversal still parses
+and is dropped (zod strips undeclared keys; a test pins that no schema is `.strict()`), so nothing is
+owed for the artifacts already in R2.
 
 All of it is deleted. The tick prices upcoming matches from the state it reads for the fold, so there
 is no second copy of that state to keep honest, no publish-and-seed pairing to get wrong, and no warn
