@@ -21,7 +21,7 @@
  */
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
@@ -35,7 +35,16 @@ import {
 import { installMockWorker, type MockWorkerHandle, type MockWorkerScript } from "../../test/mockWorker.js";
 import { runDistrictSimulationJob } from "../../workers/districtSimulationProtocol.js";
 import { DistrictLedger } from "./DistrictLedger.js";
-import { DISTRICT_LEDGER_COLUMN_LABELS, DISTRICT_LEDGER_UNAVAILABLE_CELL } from "./districtLedgerCopy.js";
+import {
+  DISTRICT_LEDGER_COLUMN_LABELS,
+  DISTRICT_LEDGER_LEGEND_EARNED,
+  DISTRICT_LEDGER_LEGEND_EXPLAINER,
+  DISTRICT_LEDGER_LEGEND_OPEN,
+  DISTRICT_LEDGER_NO_MATCHES,
+  DISTRICT_LEDGER_SEARCH_LABEL,
+  DISTRICT_LEDGER_STAT_LINE_LABELS,
+  DISTRICT_LEDGER_UNAVAILABLE_CELL,
+} from "./districtLedgerCopy.js";
 
 /** The forbidden glyph, built from its CODEPOINT so this file never types the character itself. */
 const PLUS_MINUS = String.fromCharCode(0x00b1);
@@ -387,5 +396,144 @@ describe("DistrictLedger — the tracer slice", () => {
     expect(handle.instances).toHaveLength(0);
     const qual = document.querySelector('[data-cell-id="2026wasoon:qual"]')!;
     expect(qual.textContent ?? "").toMatch(/^\d+likely \d+\.\d+–\d+\.\d+$/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The full table: spans, both text forms, the Event and Team cells, the
+// controls card.
+// ---------------------------------------------------------------------------
+
+/** One team with `count` FINISHED district-tier events, so its Team and Grand total cells span that many rows. */
+function multiEventTeam(teamKey: string, count: number): DistrictTeam {
+  const base = districtTeam(teamKey);
+  return {
+    ...base,
+    pointTotal: 24 * count,
+    eventPoints: Array.from({ length: count }, (_unused, i) => ({
+      eventKey: `2026wa${String(i)}`,
+      eventName: `Event ${String(i)}`,
+      week: i,
+      tier: "district" as const,
+      qual: 12,
+      alliance: 6,
+      elim: 6,
+      award: 0,
+      total: 24,
+      state: state(),
+    })),
+  };
+}
+
+describe("DistrictLedger — the full table", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("spans the Team and Grand total cells over each team's OWN row count, never a hardcoded two", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf([multiEventTeam("frc200", 3), multiEventTeam("frc100", 2)]));
+
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-team-cell")).toHaveLength(2));
+    const teamCells = screen.getAllByTestId("district-ledger-team-cell");
+    const grandCells = screen.getAllByTestId("district-ledger-grand-total");
+    // frc200 earned 72 and sorts first; frc100 earned 48.
+    expect(teamCells.map((cell) => cell.getAttribute("rowspan"))).toEqual(["3", "2"]);
+    expect(grandCells.map((cell) => cell.getAttribute("rowspan"))).toEqual(["3", "2"]);
+    expect(screen.getAllByTestId("district-ledger-row")).toHaveLength(5);
+  });
+
+  it("renders BOTH blue text forms on one fixture: a median plus a likely range, and a chance plus a tilde-prefixed conditional amount", async () => {
+    installFetch({ eventArtifact: liveEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf(ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey)))));
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-cell-id="2026walive:qual"]')?.getAttribute("data-cell")).toBe("open");
+    });
+    // The median form, on qualification.
+    expect(document.querySelector('[data-cell-id="2026walive:qual"]')!.textContent ?? "").toMatch(/^\d+likely \d+\.\d+–\d+\.\d+$/);
+    // The chance form, on awards: a percentage and a tilde-prefixed conditional amount.
+    const award = document.querySelector('[data-cell-id="2026walive:award"]')!;
+    expect(award.getAttribute("data-cell")).toBe("open");
+    expect(award.textContent ?? "").toMatch(/^\d+% award(~\d+ if won)?$/);
+    // And on playoffs, with its own word.
+    expect(document.querySelector('[data-cell-id="2026walive:elim"]')!.textContent ?? "").toMatch(/^\d+% play(~\d+ if in)?$/);
+  });
+
+  it("prints the event name, its week and its stage word in the Event cell", async () => {
+    installFetch({ eventArtifact: liveEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf([withLiveEvent(districtTeam("frc100"))]));
+
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-event-cell").length).toBe(2));
+    const cells = screen.getAllByTestId("district-ledger-event-cell").map((cell) => cell.textContent ?? "");
+    expect(cells[0]).toContain("Done Event");
+    expect(cells[0]).toContain("Wk 0");
+    expect(cells[0]).toContain("final");
+    expect(cells[1]).toContain("Live Event");
+    expect(cells[1]).toContain("Wk 2");
+    expect(cells[1]).toContain("quals");
+  });
+
+  it("prints the position, the team number as a router Link, the nickname, the earned total and the projection in the Team cell", async () => {
+    installFetch({ eventArtifact: liveEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf([withLiveEvent(districtTeam("frc100"))]));
+
+    const teamCell = await screen.findByTestId("district-ledger-team-cell");
+    expect(within(teamCell).getByRole("link", { name: "100" }).getAttribute("href")).toContain("/team/100");
+    expect(teamCell.textContent ?? "").toContain("1. ");
+    expect(teamCell.textContent ?? "").toContain("Nickname 100");
+    expect(teamCell.textContent ?? "").toContain("24 earned");
+    await waitFor(() => expect(screen.getByTestId("district-ledger-team-cell").textContent ?? "").toMatch(/projected/));
+  });
+
+  it("renders the two legend keys and the explainer verbatim from the copy module", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf([districtTeam("frc100")]));
+
+    const legend = await screen.findByTestId("district-ledger-legend");
+    expect(legend.textContent).toContain(DISTRICT_LEDGER_LEGEND_EARNED);
+    expect(legend.textContent).toContain(DISTRICT_LEDGER_LEGEND_OPEN);
+    expect(legend.textContent).toContain(DISTRICT_LEDGER_LEGEND_EXPLAINER);
+  });
+
+  it("filters rows by a team-number prefix and shows an honest empty message when nothing matches", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf([districtTeam("frc100"), districtTeam("frc101"), districtTeam("frc200")]));
+
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-row")).toHaveLength(3));
+    const input = screen.getByLabelText(DISTRICT_LEDGER_SEARCH_LABEL);
+    fireEvent.change(input, { target: { value: "10" } });
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-row")).toHaveLength(2));
+    fireEvent.change(input, { target: { value: "999" } });
+    await waitFor(() => expect(screen.queryAllByTestId("district-ledger-row")).toHaveLength(0));
+    expect(screen.getByText(DISTRICT_LEDGER_NO_MATCHES)).toBeDefined();
+  });
+
+  it("prints today's line as a floor and the open-cell count, and reports the line as absent for an unpublished capacity", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf([districtTeam("frc100"), districtTeam("frc101")], { dcmpSlots: 1 }));
+
+    const statLine = await screen.findByTestId("district-ledger-stat-line");
+    expect(statLine.textContent).toContain(DISTRICT_LEDGER_STAT_LINE_LABELS.todaysLine);
+    expect(statLine.textContent).toContain("0 of 8");
+    cleanup();
+
+    renderLedger(artifactOf([districtTeam("frc100")], { dcmpSlots: null }));
+    const unknownLine = await screen.findByTestId("district-ledger-stat-line");
+    expect(unknownLine.textContent).toContain(DISTRICT_LEDGER_STAT_LINE_LABELS.todaysLineUnknown);
   });
 });

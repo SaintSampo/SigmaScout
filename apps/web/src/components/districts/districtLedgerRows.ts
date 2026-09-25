@@ -330,6 +330,17 @@ function suppliedAlliances(artifact: EventArtifact): readonly SuppliedAlliance[]
   return alliances.map((alliance) => ({ allianceNumber: alliance.allianceNumber, picks: [...alliance.picks] }));
 }
 
+/**
+ * The bracket size a district event's playoffs are simulated at before its own
+ * alliances are announced. NOT a point ceiling — every point ceiling on this
+ * tab traces to `maxEventPoints(season, tier)`. CONTEXT's corpus-verified
+ * correction states that every regular district event since 2023 uses the
+ * eight-alliance bracket WITHOUT EXCEPTION; the only non-eight "district" rows
+ * are divisioned district championship parents, which this tab never renders.
+ * Once alliances ARE announced the published count is used instead.
+ */
+const DEFAULT_DISTRICT_ALLIANCE_COUNT = 8;
+
 export interface BuildDistrictEventInputOptions {
   readonly eventKey: string;
   readonly season: number;
@@ -398,7 +409,7 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
   const fieldSize = rosterKeys.length;
 
   const alliances = suppliedAlliances(eventArtifact);
-  const allianceCount = stage.alliance && alliances !== undefined ? alliances.length : 8;
+  const allianceCount = stage.alliance && alliances !== undefined ? alliances.length : DEFAULT_DISTRICT_ALLIANCE_COUNT;
 
   const knownElimPoints = stage.elim ? earnedPointsMap(districtArtifact, eventKey, "elim") : undefined;
   const knownAwardPoints = stage.award ? earnedPointsMap(districtArtifact, eventKey, "award") : undefined;

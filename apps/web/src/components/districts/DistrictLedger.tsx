@@ -25,7 +25,7 @@
  * drops the role class in that combination and only a screenshot catches it
  * (project memory `project_cn_drops_text_role_classes`).
  */
-import { useMemo } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { EmptyState } from "@/components/StateViews";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -34,14 +34,23 @@ import type { PublishedAlgorithmId } from "../../../../../packages/harness/publi
 import {
   DISTRICT_LEDGER_CHANCE_WORDS,
   DISTRICT_LEDGER_COLUMN_LABELS,
+  DISTRICT_LEDGER_LEGEND_EARNED,
+  DISTRICT_LEDGER_LEGEND_EXPLAINER,
+  DISTRICT_LEDGER_LEGEND_OPEN,
   DISTRICT_LEDGER_LIKELY_PREFIX,
+  DISTRICT_LEDGER_NO_MATCHES,
+  DISTRICT_LEDGER_SEARCH_LABEL,
+  DISTRICT_LEDGER_SEARCH_PLACEHOLDER,
   DISTRICT_LEDGER_STAGE_WORDS,
+  DISTRICT_LEDGER_STAT_LINE_LABELS,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
 } from "./districtLedgerCopy.js";
 import {
   buildDistrictLedgerRows,
   deriveStageFromState,
+  districtLedgerStatLine,
   districtTierEvents,
+  filterDistrictLedgerTeams,
   inProgressDistrictEventKeys,
   type DistrictCellKind,
   type DistrictEventStage,
@@ -179,6 +188,61 @@ function TeamCell({ team, season, algorithm }: { team: DistrictLedgerTeam; seaso
   );
 }
 
+/**
+ * The ONE controls card: the team-number search, the stat line and the legend.
+ * The Rewind slider and its jump chips join this same card rather than getting
+ * a second layout of their own.
+ */
+function ControlsCard({
+  query,
+  onQueryChange,
+  statLine,
+  children,
+}: {
+  query: string;
+  onQueryChange: (value: string) => void;
+  statLine: ReturnType<typeof districtLedgerStatLine>;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="data-card flex flex-col gap-[var(--spacing-md)] p-[var(--spacing-md)]" data-testid="district-ledger-controls">
+      {children}
+      <div className="flex flex-wrap items-end gap-[var(--spacing-lg)]">
+        <label className="flex flex-col gap-[var(--spacing-xs)]">
+          <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_SEARCH_LABEL}</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={query}
+            placeholder={DISTRICT_LEDGER_SEARCH_PLACEHOLDER}
+            onChange={(event) => onQueryChange(event.target.value)}
+            className="tap-target rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-sm)] py-[var(--spacing-xs)]"
+          />
+        </label>
+        <div data-testid="district-ledger-stat-line" className="flex flex-wrap gap-[var(--spacing-lg)]">
+          <div>
+            <span className="block text-[var(--color-text-muted)]">
+              {statLine.todaysLineFloor === null ? DISTRICT_LEDGER_STAT_LINE_LABELS.todaysLineUnknown : DISTRICT_LEDGER_STAT_LINE_LABELS.todaysLine}
+            </span>
+            <span className="font-semibold">{statLine.todaysLineFloor === null ? "—" : String(Math.round(statLine.todaysLineFloor))}</span>
+          </div>
+          <div>
+            <span className="block text-[var(--color-text-muted)]">{DISTRICT_LEDGER_STAT_LINE_LABELS.openCells}</span>
+            <span className="font-semibold">
+              {String(statLine.openCells)} of {String(statLine.totalCells)}
+            </span>
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-[var(--spacing-md)]" data-testid="district-ledger-legend">
+        <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_LEGEND_EARNED}</span>
+        <span className="text-[var(--lock-status-locked-award-fg)]">{DISTRICT_LEDGER_LEGEND_OPEN}</span>
+        <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_LEGEND_EXPLAINER}</span>
+      </div>
+    </div>
+  );
+}
+
 export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerProps) {
   const activeEventKeys = useMemo(() => inProgressDistrictEventKeys(artifact), [artifact]);
 
@@ -193,6 +257,8 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
     return map;
   }, [artifact]);
 
+  const [query, setQuery] = useState("");
+
   const data = useDistrictLedgerData({ artifact, activeEventKeys, stageByEvent });
 
   const rows = useMemo(
@@ -206,6 +272,10 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
     [artifact, data.distributions, data.unavailableEvents, data.gaps]
   );
 
+  // The stat line describes the DISTRICT, not the filtered view.
+  const statLine = useMemo(() => districtLedgerStatLine(rows.teams, artifact.dcmpSlots), [rows.teams, artifact.dcmpSlots]);
+  const visibleTeams = useMemo(() => filterDistrictLedgerTeams(rows.teams, query), [rows.teams, query]);
+
   if (artifact.teams.length === 0) {
     return (
       <EmptyState
@@ -217,6 +287,8 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
 
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]" data-testid="district-ledger-tab">
+      <ControlsCard query={query} onQueryChange={setQuery} statLine={statLine} />
+      {visibleTeams.length === 0 && <p className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_NO_MATCHES}</p>}
       {/* The shipped table wrapper, verbatim, so the scroll arbitration this
           site already has an e2e suite around is inherited rather than rebuilt. */}
       <div className="data-card w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
@@ -229,7 +301,7 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.teams.flatMap((team) =>
+            {visibleTeams.flatMap((team) =>
               team.rows.length === 0
                 ? [
                     <TableRow key={team.teamKey} data-testid="district-ledger-row" data-team={team.teamKey}>

@@ -13,6 +13,7 @@ import {
   type DistrictEventState,
 } from "../../../../../packages/harness/pageArtifacts.js";
 import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
+import { POINT_CELL_CHANCE_FORM_THRESHOLD } from "../../../../../packages/core/districts/pointSummary.js";
 import {
   DISTRICT_CATEGORIES,
   allDistrictTierEventKeys,
@@ -395,5 +396,181 @@ describe("filterDistrictLedgerTeams and the stat line", () => {
 
   it("reports today's line as ABSENT for a null dcmpSlots rather than as a guessed zero", () => {
     expect(districtLedgerStatLine(built.teams, null).todaysLineFloor).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The two cell forms, the threshold, and the grand total
+// ---------------------------------------------------------------------------
+
+const OPEN_STATE = state({ qualMatchesPlayed: 4, qualMatchesTotal: 12, alliancesPicked: false, playoffsDone: false, awardsPosted: false });
+const DENOM = 1000;
+
+/** A lumpy distribution: `atZero` draws at 0 and the rest split evenly over 1..`support`. */
+function lumpy(atZero: number, support: number): DistrictPointDistribution {
+  const counts = new Int32Array(support + 1);
+  counts[0] = atZero;
+  const rest = DENOM - atZero;
+  const each = Math.floor(rest / support);
+  for (let i = 1; i <= support; i++) counts[i] = each;
+  counts[support] = each + (rest - each * support);
+  return { counts, denominator: DENOM };
+}
+
+function openArtifactWith(byTeam: Partial<Record<"qual" | "alliance" | "elim" | "award" | "eventTotal", DistrictPointDistribution>>) {
+  const artifact = artifactOf([
+    team({
+      teamKey: "frc1",
+      pointTotal: 0,
+      remainingEvents: [remainingEvent({ eventKey: "2026walive", week: 1, state: OPEN_STATE })],
+      maxRemainingDistrict: 83,
+    }),
+  ]);
+  const distributions = new Map<string, DistrictEventDistributions>([
+    [
+      "2026walive",
+      {
+        eventKey: "2026walive",
+        byTeam: new Map([
+          [
+            "frc1",
+            {
+              qual: byTeam.qual,
+              alliance: byTeam.alliance,
+              elim: byTeam.elim,
+              award: byTeam.award,
+              eventTotal: byTeam.eventTotal,
+              grandTotal: undefined,
+            },
+          ],
+        ]),
+      },
+    ],
+  ]);
+  return buildDistrictLedgerRows({ artifact, distributions });
+}
+
+describe("the two blue-cell forms", () => {
+  const lumpyDistribution = lumpy(600, 16);
+
+  it("selects the form per CATEGORY, not per cell", () => {
+    const built = openArtifactWith({
+      qual: lumpyDistribution,
+      alliance: lumpyDistribution,
+      elim: lumpyDistribution,
+      award: lumpyDistribution,
+      eventTotal: lumpyDistribution,
+    });
+    const row = built.teams[0]!.rows[0]!;
+    const forms = row.cells.map((cell) => (cell.kind === "open" ? cell.summary.form : cell.kind));
+    // Qualification takes the median form even though its fixture is lumpy;
+    // the three lumpy categories take the chance form.
+    expect(forms).toEqual(["median", "chance", "chance", "chance"]);
+    expect(row.eventTotal.kind === "open" ? row.eventTotal.summary.form : "").toBe("median");
+    const grand = built.teams[0]!.grandTotal;
+    expect(grand.kind === "open" ? grand.summary.form : "").toBe("median");
+  });
+
+  it("falls a lumpy category back to the median form at 10-04's exported threshold, and keeps the chance form just below it", () => {
+    const atZeroAtThreshold = Math.round((1 - POINT_CELL_CHANCE_FORM_THRESHOLD) * DENOM);
+    const atThreshold = openArtifactWith({ alliance: lumpy(atZeroAtThreshold, 16) }).teams[0]!.rows[0]!.cells[1]!;
+    const justBelow = openArtifactWith({ alliance: lumpy(atZeroAtThreshold + 1, 16) }).teams[0]!.rows[0]!.cells[1]!;
+    expect(atThreshold.kind === "open" ? atThreshold.summary.form : "").toBe("median");
+    expect(justBelow.kind === "open" ? justBelow.summary.form : "").toBe("chance");
+  });
+
+  it("prints a zero chance with NO conditional median when all the mass sits at zero — an absence, never a printed zero", () => {
+    const allZero: DistrictPointDistribution = { counts: Int32Array.from([DENOM, 0, 0]), denominator: DENOM };
+    const cell = openArtifactWith({ elim: allZero }).teams[0]!.rows[0]!.cells[2]!;
+    expect(cell.kind).toBe("open");
+    if (cell.kind !== "open" || cell.summary.form !== "chance") throw new Error("unreachable");
+    expect(cell.summary.chance).toBe(0);
+    expect(cell.summary.conditionalMedian).toBeUndefined();
+  });
+});
+
+describe("the grand total convolution", () => {
+  function rowFor(distribution: DistrictPointDistribution) {
+    return { qual: undefined, alliance: undefined, elim: undefined, award: undefined, eventTotal: distribution, grandTotal: undefined };
+  }
+
+  function twoOpenEvents(a: DistrictPointDistribution, b: DistrictPointDistribution, rookieBonus = 0) {
+    const artifact = artifactOf([
+      team({
+        teamKey: "frc1",
+        pointTotal: rookieBonus,
+        rookieBonus,
+        remainingEvents: [
+          remainingEvent({ eventKey: "eventa", week: 0, state: OPEN_STATE }),
+          remainingEvent({ eventKey: "eventb", week: 1, state: OPEN_STATE }),
+        ],
+        maxRemainingDistrict: 166,
+      }),
+    ]);
+    return buildDistrictLedgerRows({
+      artifact,
+      distributions: new Map<string, DistrictEventDistributions>([
+        ["eventa", { eventKey: "eventa", byTeam: new Map([["frc1", rowFor(a)]]) }],
+        ["eventb", { eventKey: "eventb", byTeam: new Map([["frc1", rowFor(b)]]) }],
+      ]),
+    });
+  }
+
+  it("convolves two event totals entry for entry, against a hand-computed answer", () => {
+    // Event A: half at 0, half at 2. Event B: half at 0, half at 3.
+    const a: DistrictPointDistribution = { counts: Float64Array.from([0.5, 0, 0.5]), denominator: 1 };
+    const b: DistrictPointDistribution = { counts: Float64Array.from([0.5, 0, 0, 0.5]), denominator: 1 };
+    const grand = twoOpenEvents(a, b).teams[0]!.grandTotal;
+    expect(grand.kind).toBe("open");
+    if (grand.kind !== "open") throw new Error("unreachable");
+    expect([...(grand.distribution.counts as Float64Array)]).toEqual([0.25, 0, 0.25, 0.25, 0, 0.25]);
+  });
+
+  it("shifts the whole convolution by the rookie bonus", () => {
+    const point: DistrictPointDistribution = { counts: Float64Array.from([0, 1]), denominator: 1 };
+    const grand = twoOpenEvents(point, point, 5).teams[0]!.grandTotal;
+    if (grand.kind !== "open") throw new Error("unreachable");
+    // 1 + 1 + a rookie bonus of 5 is a point mass at 7.
+    expect(grand.distribution.counts.length).toBe(8);
+    expect(grand.distribution.counts[7]).toBe(1);
+  });
+
+  it("gives the one-event and three-event cases a support that is the arithmetic sum of the parts", () => {
+    const partSupport = 4;
+    const part: DistrictPointDistribution = { counts: new Float64Array(partSupport + 1).fill(1 / (partSupport + 1)), denominator: 1 };
+    for (const count of [1, 3]) {
+      const artifact = artifactOf([
+        team({
+          teamKey: "frc1",
+          pointTotal: 0,
+          remainingEvents: Array.from({ length: count }, (_unused, i) => remainingEvent({ eventKey: `event${String(i)}`, week: i, state: OPEN_STATE })),
+          maxRemainingDistrict: 83 * count,
+        }),
+      ]);
+      const distributions = new Map<string, DistrictEventDistributions>(
+        Array.from({ length: count }, (_unused, i) => [
+          `event${String(i)}`,
+          { eventKey: `event${String(i)}`, byTeam: new Map([["frc1", rowFor(part)]]) },
+        ])
+      );
+      const grand = buildDistrictLedgerRows({ artifact, distributions }).teams[0]!.grandTotal;
+      if (grand.kind !== "open") throw new Error("unreachable");
+      expect(grand.distribution.counts.length - 1).toBe(partSupport * count);
+    }
+  });
+});
+
+describe("the position number", () => {
+  it("is the team's index in the sorted order plus one, and the status projection reads that same array", () => {
+    const artifact = artifactOf([
+      team({ teamKey: "frc3", pointTotal: 10, eventPoints: [eventPoints({ eventKey: "a", total: 10 })] }),
+      team({ teamKey: "frc1", pointTotal: 30, eventPoints: [eventPoints({ eventKey: "a", total: 30 })] }),
+      team({ teamKey: "frc2", pointTotal: 20, eventPoints: [eventPoints({ eventKey: "a", total: 20 })] }),
+    ]);
+    const built = buildDistrictLedgerRows({ artifact, distributions: NO_DISTRIBUTIONS });
+    expect(built.teams.map((entry) => entry.teamKey)).toEqual(["frc1", "frc2", "frc3"]);
+    built.teams.forEach((entry, index) => {
+      expect(entry.position).toBe(index + 1);
+    });
   });
 });

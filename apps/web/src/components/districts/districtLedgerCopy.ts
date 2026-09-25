@@ -74,3 +74,33 @@ export const DISTRICT_LEDGER_STAT_LINE_LABELS = {
 
 /** The empty state when the team search matches nothing. */
 export const DISTRICT_LEDGER_NO_MATCHES = "No team matches that number.";
+
+/**
+ * Jacob's five status words, in the fixed order the chip row renders. The data
+ * status `eliminated` is NEVER printed, and neither is the champ tab's sixth
+ * verdict word for `contending` — this tab's "Out of range" means the median
+ * projection, not elimination, which is exactly why the district tier needed
+ * its own vocabulary.
+ */
+export const DISTRICT_LEDGER_STATUS_LABELS = {
+  prequalified: "Prequalified",
+  locked: "Locked",
+  inRange: "In range",
+  outOfRange: "Out of range",
+  lockedOut: "Locked out",
+} as const;
+
+/** The variant a team locked BY AN AWARD renders — a note on one status, never a second status. */
+export const DISTRICT_LEDGER_LOCKED_AWARD_LABEL = "Locked · award";
+
+/** What a team renders when TBA published no capacity for this district-year — plain text, no chip, exactly as the shipped champ tab does for `unknown`. */
+export const DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED = "Capacity not published";
+
+/** The five definitions, VERBATIM from `10-UI-SPEC.md`'s `## Copy` section. A test pins them character for character. */
+export const DISTRICT_LEDGER_STATUS_DEFINITIONS = {
+  prequalified: "prequalified by FIRST",
+  locked: "mathematically qualified, no matter what, on district points or an award",
+  inRange: "if every team earned its median predicted points, this team would qualify",
+  outOfRange: "if every team earned its median predicted points, this team would not qualify",
+  lockedOut: "cannot earn enough district points to qualify",
+} as const;
