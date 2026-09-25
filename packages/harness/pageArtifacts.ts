@@ -1957,6 +1957,59 @@ export const DistrictsIndexArtifactSchema = PagePreambleSchema.extend({
 
 export type DistrictsIndexArtifact = z.infer<typeof DistrictsIndexArtifactSchema>;
 
+/**
+ * The four state facts one (team, event) cell needs to decide grey versus
+ * blue without inferring anything client-side: how far qualification has
+ * run, whether alliances are picked, whether playoffs are done, whether
+ * awards are posted. Both producers construct one — the live Worker at fold
+ * time and the offline publisher from the corpus — so the schema and its
+ * inferred type are both exported while the two parent row schemas stay
+ * module-private as they are today.
+ *
+ * NESTED AND OPTIONAL, NOT FIVE FLAT OPTIONAL FIELDS. All five come from one
+ * event-artifact observation, so "three present, two absent" is not a state
+ * any producer can be in; the parent object being absent is the honest "this
+ * producer did not observe this event" answer, and a reader has exactly one
+ * presence check to make rather than five.
+ *
+ * `qualMatchesTotal` is NULLABLE because null is the honest answer for an
+ * event whose schedule TBA has not published yet — exactly a probe event.
+ * A zero there would read as "a schedule exists and it is empty", which is a
+ * different and false claim.
+ *
+ * ONE cross-field refinement only: `qualMatchesPlayed` may not exceed a
+ * non-null `qualMatchesTotal`. There is deliberately NO implication
+ * refinement between the three booleans — a real event artifact can carry
+ * elimination matches with no published alliances, and a schema that rejects
+ * a real state blocks a live write.
+ *
+ * SCHEMA-VERSION NOTE: `PAGE_ARTIFACT_SCHEMA_VERSION` is NOT bumped for this
+ * field, or for any other field phase 10 adds. Two reasons, either sufficient.
+ * First, this file's established convention (the districts note above):
+ * additive optional fields are backward-compatible for every reader. Second,
+ * and specific to this phase: the Worker is deployed BEFORE the republish,
+ * so the newly deployed Worker reads a PRE-republish district artifact from
+ * R2 at least once. A required field — or a bumped version literal — would
+ * make that first read fail to parse, in production, with no artifact to
+ * fall back to.
+ */
+export const DistrictEventStateSchema = z
+  .object({
+    /** Qualification matches this event has actually played, as observed. Never a guess. */
+    qualMatchesPlayed: z.number().int().nonnegative(),
+    /** The event's full qualification schedule length, or `null` when TBA has published no schedule yet. */
+    qualMatchesTotal: z.number().int().nonnegative().nullable(),
+    alliancesPicked: z.boolean(),
+    playoffsDone: z.boolean(),
+    awardsPosted: z.boolean(),
+  })
+  .refine((state) => state.qualMatchesTotal === null || state.qualMatchesPlayed <= state.qualMatchesTotal, {
+    message: "qualMatchesPlayed must not exceed a non-null qualMatchesTotal",
+    path: ["qualMatchesPlayed"],
+  });
+
+export type DistrictEventState = z.infer<typeof DistrictEventStateSchema>;
+
 /** One event's per-component district point breakdown for one team — TBA's own reported values, verbatim, never collapsed into an event total alone (must_haves: every source of district points stays individually readable). */
 const DistrictTeamEventPointsSchema = z.object({
   eventKey: z.string().min(1),
@@ -1968,6 +2021,8 @@ const DistrictTeamEventPointsSchema = z.object({
   elim: z.number(),
   award: z.number(),
   total: z.number(),
+  /** The four state facts for this (team, event) cell, when the producer observed them — see `DistrictEventStateSchema`. Absent on every artifact published before phase 10. */
+  state: DistrictEventStateSchema.optional(),
 });
 
 /** One event still ahead of a team this season, and the max points still attainable there (`pointModel.ts`'s declared ceiling for that event's tier). */
@@ -1977,6 +2032,8 @@ const DistrictTeamRemainingEventSchema = z.object({
   week: z.number().int().nullable(),
   tier: z.enum(["district", "dcmp"]),
   maxPoints: z.number(),
+  /** The four state facts for this (team, event) cell, when the producer observed them — see `DistrictEventStateSchema`. An event in progress but with no points reported yet still lives here, which is why the field is on this schema too. */
+  state: DistrictEventStateSchema.optional(),
 });
 
 /**

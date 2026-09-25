@@ -31,7 +31,10 @@ import { describe, expect, it } from "vitest";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // `eventSchedule.ts` (260915-m4j): the publisher's schedule-currency rule, reused by the web for polling and team-page fetches.
-const ENTRY_POINTS = [resolve(HERE, "pageArtifacts.ts"), resolve(HERE, "publishedAlgorithms.ts"), resolve(HERE, "eventSchedule.ts")];
+// `districtRankingsMerge.ts` (10-03): the one shared producer of the merged
+// district shape. The live Worker bundles it, so it is held to the FULL
+// assertion — no Node built-in AND nothing under `packages/core/algorithms/`.
+const ENTRY_POINTS = [resolve(HERE, "pageArtifacts.ts"), resolve(HERE, "publishedAlgorithms.ts"), resolve(HERE, "eventSchedule.ts"), resolve(HERE, "districtRankingsMerge.ts")];
 const BREAKDOWN_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "breakdown", "index.ts");
 const RP_CONSTANTS_ENTRY_POINT = resolve(HERE, "..", "core", "rankingPoints", "constants.ts");
 const RANK_SIMULATION_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "simulation", "rankSimulation.ts");
@@ -122,6 +125,11 @@ describe("browser-safe schema import graph", () => {
     expect(visited.has(resolve(HERE, "publishedAlgorithms.ts"))).toBe(true);
     expect(visited.has(resolve(HERE, "metricHistorySchema.ts"))).toBe(true);
     expect(visited.has(resolve(HERE, "eventSchedule.ts"))).toBe(true);
+    expect(visited.has(resolve(HERE, "districtRankingsMerge.ts"))).toBe(true);
+    // The merge's own district-math leaves, so the scan provably follows it
+    // rather than stopping at the entry point itself.
+    expect(visited.has(resolve(HERE, "..", "core", "districts", "locks.ts"))).toBe(true);
+    expect(visited.has(resolve(HERE, "..", "core", "districts", "pointModel.ts"))).toBe(true);
   });
 
   it("eventSchedule.ts imports nothing, and publish.ts re-exports the very same function and constant (one rule, not a copy)", async () => {
