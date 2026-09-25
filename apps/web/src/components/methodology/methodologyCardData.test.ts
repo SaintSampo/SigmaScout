@@ -27,17 +27,19 @@ const EXPECTED_CARD_ORDER = [
   "/methodology/epa-vs-statbotics",
   "/methodology/compare",
   "/methodology/awards",
+  "/methodology/district-points",
   "/methodology/acknowledgments",
 ];
 
 describe("METHODOLOGY_CARDS", () => {
-  it("lists the five hub cards in their exact display order, by equality", () => {
+  it("lists the six hub cards in their exact display order, by equality", () => {
     expect(METHODOLOGY_CARDS.map((card) => card.to)).toEqual(EXPECTED_CARD_ORDER);
   });
 
-  it("keeps the SPR card first, the awards card fourth, and Acknowledgments last; the Sigma card is gone", () => {
+  it("keeps the SPR card first, the awards card fourth, district points fifth, and Acknowledgments last; the Sigma card is gone", () => {
     expect(METHODOLOGY_CARDS[0]?.to).toBe("/methodology/spr");
     expect(METHODOLOGY_CARDS[3]?.to).toBe("/methodology/awards");
+    expect(METHODOLOGY_CARDS[4]?.to).toBe("/methodology/district-points");
     expect(METHODOLOGY_CARDS.some((card) => (card.to as string) === "/methodology/sigma")).toBe(false);
     expect(METHODOLOGY_CARDS.at(-1)?.to).toBe("/methodology/acknowledgments");
   });
@@ -70,6 +72,16 @@ describe("METHODOLOGY_CARDS", () => {
     const awardsCard = METHODOLOGY_CARDS.find((card) => card.to === "/methodology/awards");
     expect(awardsCard, "the awards card is gone from the hub").toBeDefined();
     for (const text of [awardsCard?.title ?? "", awardsCard?.blurb ?? ""]) {
+      expect(text).not.toContain(HYPHEN_MINUS);
+      expect(text).not.toContain(EN_DASH);
+      expect(text).not.toContain(EM_DASH);
+    }
+  });
+
+  it("keeps the district points card's own copy free of all three dash characters", () => {
+    const districtPointsCard = METHODOLOGY_CARDS.find((card) => card.to === "/methodology/district-points");
+    expect(districtPointsCard, "the district points card is gone from the hub").toBeDefined();
+    for (const text of [districtPointsCard?.title ?? "", districtPointsCard?.blurb ?? ""]) {
       expect(text).not.toContain(HYPHEN_MINUS);
       expect(text).not.toContain(EN_DASH);
       expect(text).not.toContain(EM_DASH);

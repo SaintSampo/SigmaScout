@@ -20,6 +20,7 @@ export interface MethodologyCardDescriptor {
     | "/methodology/epa-vs-statbotics"
     | "/methodology/compare"
     | "/methodology/awards"
+    | "/methodology/district-points"
     | "/methodology/acknowledgments";
   readonly title: string;
   readonly blurb: string;
@@ -28,7 +29,9 @@ export interface MethodologyCardDescriptor {
 
 /**
  * The SPR explainer, the site's premier rating and the most fundamental of
- * the six, reads first; Acknowledgments stays last.
+ * the six, reads first; Acknowledgments stays last. The district points card
+ * sits directly after the awards card so the two prediction methodology pages
+ * read together (phase 10 plan 08).
  *
  * ORDER IS LOAD BEARING. `MethodologyCards.tsx` destructures this array
  * POSITIONALLY (it cannot `.map()` over it — see that file's own doc comment
@@ -64,6 +67,12 @@ export const METHODOLOGY_CARDS: readonly MethodologyCardDescriptor[] = [
     title: "Predicting awards",
     blurb: "Can awards be predicted before an event? What worked and what did not.",
     testId: "methodology-card-awards",
+  },
+  {
+    to: "/methodology/district-points",
+    title: "Predicting district points",
+    blurb: "How the Road to District Champs ledger scores each category, and how closely it matches the real draft.",
+    testId: "methodology-card-district-points",
   },
   {
     to: "/methodology/acknowledgments",

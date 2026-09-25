@@ -38,14 +38,19 @@ function preserveSearch(prev: Record<string, unknown>): never {
  * 1200px container leaves each blurb about the same ~25 character width the
  * `md` step already rejected below four cards, so the ladder goes one / two /
  * three rather than jumping straight to five-across.
+ *
+ * The header said SIX cards while the destructure took five, from the quick
+ * task that removed the Sigma card. Phase 10 plan 08 added the district points
+ * card, so the count below is six again and the sentence above is true again.
  */
 export function MethodologyCards() {
-  const [sprCard, epaVsStatboticsCard, compareCard, awardsCard, acknowledgmentsCard] = METHODOLOGY_CARDS;
+  const [sprCard, epaVsStatboticsCard, compareCard, awardsCard, districtPointsCard, acknowledgmentsCard] = METHODOLOGY_CARDS;
   if (
     sprCard === undefined ||
     epaVsStatboticsCard === undefined ||
     compareCard === undefined ||
     awardsCard === undefined ||
+    districtPointsCard === undefined ||
     acknowledgmentsCard === undefined
   ) {
     return null;
@@ -88,6 +93,15 @@ export function MethodologyCards() {
       >
         <span className="text-role-heading text-[var(--color-text-primary)]">{awardsCard.title}</span>
         <span className="text-role-body text-[var(--color-text-muted)]">{awardsCard.blurb}</span>
+      </Link>
+      <Link
+        to={districtPointsCard.to}
+        search={preserveSearch}
+        data-testid={districtPointsCard.testId}
+        className="event-card flex flex-col gap-[var(--spacing-xs)] p-[var(--spacing-md)] shadow-sm transition-shadow hover:shadow-md hover:border-[var(--color-text-muted)]"
+      >
+        <span className="text-role-heading text-[var(--color-text-primary)]">{districtPointsCard.title}</span>
+        <span className="text-role-body text-[var(--color-text-muted)]">{districtPointsCard.blurb}</span>
       </Link>
       <Link
         to={acknowledgmentsCard.to}
