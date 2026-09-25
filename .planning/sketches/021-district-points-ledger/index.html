@@ -1,0 +1,461 @@
+<title>District Points Ledger</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+/* Sketch 021. Single look on purpose: the shipped site is light only (pine ribbon, white surfaces). */
+:root{
+  --page:#f8fafc; --surface:#ffffff; --inset:#f1f5f9; --border:#e2e8f0; --edge:#cbd5e1;
+  --ink:#0f172a; --muted:#475569; --faint:#7d8da3;
+  --accent:#2e7d32; --ribbon:#14532d; --ribbon-accent:#81c784;
+  --fin-bg:#e9edf2; --fin-fg:#334155;
+  --open-bg:#dbeefe; --open-bg-hover:#c5e3fb; --open-fg:#075985; --open-edge:#7dd3fc; --open-bar:#0ea5e9;
+  --band:rgba(14,165,233,.22); --median:#075985;
+  --locked-bg:#dcfce7; --locked-fg:#166534;
+  --pre-bg:#f3e8ff; --pre-fg:#6b21a8;
+  --line:#0f172a;
+  --sketch:#1e293b;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font:14px/1.5 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:16px}
+
+/* sketch chrome (not part of the design) */
+.sk{background:var(--sketch);color:#e2e8f0;position:sticky;top:env(safe-area-inset-top,0px);z-index:20}
+.sk .wrap{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding-block:8px}
+.sk b{font-weight:600;color:#fff;margin-right:4px}
+.sk-tabs{display:flex;flex-wrap:wrap;gap:6px}
+.sk-tabs button{background:transparent;border:1px solid #475569;color:#e2e8f0;border-radius:6px;padding:4px 10px;cursor:pointer}
+.sk-tabs button[aria-selected="true"]{background:#fff;color:var(--sketch);border-color:#fff;font-weight:600}
+.sk-why{background:#fff;border-bottom:1px solid var(--border)}
+.sk-why .wrap{padding-block:10px;color:var(--muted)}
+.sk-why p{margin:0;max-width:90ch}
+.sk-why strong{color:var(--ink)}
+
+/* site chrome mock */
+.ribbon{background:var(--ribbon);color:#fff}
+.ribbon .wrap{display:flex;flex-wrap:wrap;gap:4px 20px;align-items:baseline;padding-block:10px}
+.ribbon .logo{font-weight:700;letter-spacing:.01em}.ribbon .logo i{font-style:normal;color:var(--ribbon-accent);margin-right:4px}
+.ribbon nav{display:flex;gap:16px;color:rgba(255,255,255,.72)}
+.ribbon nav .on{color:#fff;border-bottom:2px solid var(--ribbon-accent)}
+.head{padding-block:20px 0}
+.head h1{font-size:22px;line-height:1.2;margin:0;font-weight:700;text-wrap:balance}
+.head .sub{color:var(--muted);margin-top:2px}
+.ptabs{display:flex;gap:4px;margin-top:14px;background:var(--inset);padding:3px;border-radius:8px;width:max-content;max-width:100%;overflow-x:auto}
+.ptabs span{padding:4px 12px;border-radius:6px;color:var(--muted);white-space:nowrap}
+.ptabs .on{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(15,23,42,.08)}
+main{padding-block:16px 48px;display:flex;flex-direction:column;gap:16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px}
+.label{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.muted{color:var(--muted)}
+.note{font-size:13px;color:var(--muted);max-width:90ch}
+.datanote{border-left:3px solid var(--edge);padding:2px 0 2px 12px;font-size:13px;color:var(--muted);max-width:90ch}
+.datanote b{color:var(--ink)}
+
+/* status chips (Jacob's five) */
+.chip{display:inline-block;border-radius:5px;padding:1px 8px;font-size:12px;font-weight:600;line-height:1.5;white-space:nowrap}
+.chip.locked{background:var(--locked-bg);color:var(--locked-fg)}
+.chip.prequalified{background:var(--pre-bg);color:var(--pre-fg)}
+.chip.inrange{background:transparent;color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.chip.outofrange{background:transparent;color:var(--muted);box-shadow:inset 0 0 0 1px var(--edge)}
+.chip.ineligible{background:transparent;color:var(--faint);box-shadow:inset 0 0 0 1px var(--border);text-decoration:line-through}
+.chip small{font-weight:500;opacity:.8}
+
+/* controls card */
+.ctl{padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.ctl-row{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center}
+.ctl-row .label{margin-right:4px}
+.slider{display:flex;flex-direction:column;gap:6px;flex:1 1 420px;min-width:0}
+.slider input[type=range]{width:100%;accent-color:var(--accent);margin:0}
+.slider .pos{display:flex;justify-content:space-between;gap:12px;font-size:13px}
+.slider .pos b{color:var(--ink)}
+.ticks{position:relative;height:14px;font-size:11px;color:var(--faint)}
+.ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.ticks span:first-child{transform:none}.ticks span:last-child{transform:translateX(-100%)}
+.stagebtns{display:flex;flex-wrap:wrap;gap:4px}
+.stagebtns button{border:1px solid var(--border);background:#fff;border-radius:999px;padding:2px 10px;cursor:pointer;font-size:12px;color:var(--muted)}
+.stagebtns button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);font-weight:600}
+.legend{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px}
+.legend button{background:none;border:0;padding:0;cursor:pointer}
+.legend button[aria-pressed="false"] .chip{opacity:.35}
+.legend .cellkey{display:inline-flex;align-items:center;gap:6px;margin-left:8px;color:var(--muted)}
+.legend .cellkey i{display:inline-block;width:26px;height:14px;border-radius:3px}
+.legend .cellkey i.f{background:var(--fin-bg)}
+.legend .cellkey i.o{background:var(--open-bg);box-shadow:inset 0 0 0 1px var(--open-edge)}
+.search{display:flex;gap:8px;align-items:center}
+.search input{border:1px solid var(--edge);border-radius:8px;padding:6px 10px;width:150px;background:#fff}
+.stat{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--muted)}
+.stat b{color:var(--ink);font-weight:600}
+
+/* ledger table (A and C) */
+.tablewrap{overflow-x:auto;overscroll-behavior-x:contain;border-radius:10px}
+table.ledger{border-collapse:separate;border-spacing:0;width:100%;min-width:860px;font-size:13px}
+.ledger th{position:sticky;top:0;background:var(--surface);z-index:2;text-align:left;font-weight:600;color:var(--muted);font-size:12px;padding:8px 8px;border-bottom:1px solid var(--edge);white-space:nowrap;vertical-align:bottom}
+.ledger th.num,.ledger td.num{text-align:center}
+.ledger th .scale{display:block;font-weight:500;color:var(--faint);font-size:11px}
+.ledger td{padding:4px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+.ledger tr.first td{border-top:1px solid var(--edge)}
+.ledger tr.first td{border-bottom:1px dashed var(--border)}
+.ledger td.team{white-space:nowrap}
+.ledger td.team .no{font-weight:700;font-size:15px}
+.ledger td.team .nm{color:var(--muted);font-size:12px;display:block;max-width:180px;overflow:hidden;text-overflow:ellipsis}
+.ledger td.ev{color:var(--muted);white-space:nowrap}
+.ledger td.ev .wk{font-size:11px;color:var(--faint);margin-left:4px}
+.ledger td.ev .st{font-size:11px;color:var(--faint);display:block}
+.ledger .sticky1{position:sticky;left:0;background:var(--surface);z-index:1}
+.ledger th.sticky1{z-index:3}
+.ledger tr.sel td{background:#fbfdff}
+.cell{display:flex;align-items:center;justify-content:center;min-height:32px;border-radius:6px;padding:2px 6px;font-weight:600;line-height:1.2}
+.cell.fin{background:var(--fin-bg);color:var(--fin-fg)}
+.cell.open{background:var(--open-bg);color:var(--open-fg);border:0;width:100%;cursor:pointer;box-shadow:inset 0 0 0 1px var(--open-edge);flex-direction:column;gap:1px}
+.cell.open:hover{background:var(--open-bg-hover)}
+.cell.open[aria-expanded="true"]{box-shadow:inset 0 0 0 2px var(--open-bar)}
+.cell.open .rg{font-size:12px;font-weight:600}
+.cell.open .lb{font-size:10px;font-weight:500;color:#0c4a6e;letter-spacing:.02em;white-space:nowrap}
+.ledger td.num{min-width:96px}
+.cell.tot{font-size:14px}
+.cell.grand{font-size:15px;min-height:70px}
+.cell.open.grand .rg{font-size:14px}
+.ledger tr.drawer td{background:#f8fbfd;padding:12px 16px 16px;border-bottom:1px solid var(--edge)}
+
+/* inline mini histogram (C) */
+.mini{display:flex;flex-direction:column;align-items:stretch;gap:2px;width:100%}
+.mini svg{display:block;width:100%;height:24px}
+.mini .rg{font-size:11px;font-weight:600;text-align:center}
+
+/* drawer content */
+.dr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px 24px}
+@media (max-width:760px){.dr{grid-template-columns:1fr}}
+.hist h4{margin:0 0 2px;font-size:13px;font-weight:600}
+.hist .sub{font-size:12px;color:var(--muted);margin-bottom:6px}
+.hist svg{display:block;width:100%;height:auto;max-width:520px}
+.hist .txt{font-size:13px;margin-top:6px}
+.hist .txt b{font-weight:600}
+.hist .k{font-size:11px;color:var(--faint);margin-top:4px}
+
+/* B cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px}
+@media (max-width:420px){.cards{grid-template-columns:1fr}}
+.tcard{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.tcard .hd{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.tcard .hd .no{font-weight:700;font-size:16px}.tcard .hd .nm{color:var(--muted);font-size:12px;margin-left:6px}
+.tcard .hd .rk{color:var(--faint);font-size:12px}
+.evrow{display:grid;grid-template-columns:96px minmax(0,1fr) 84px;gap:8px;align-items:center}
+.evrow .evn{font-size:12px;color:var(--muted);line-height:1.2}
+.evrow .evn small{display:block;color:var(--faint);font-size:11px}
+.evrow .evt{font-size:13px;font-weight:600;text-align:right}
+.evrow .evt.open{color:var(--open-fg)}
+.evrow .evt small{display:block;font-weight:500;font-size:10px;color:var(--faint)}
+.track{position:relative;height:18px}
+.track .rail{position:absolute;left:0;right:0;top:8px;height:2px;background:var(--border)}
+.track .fin{position:absolute;top:4px;height:10px;background:#94a3b8;border-radius:2px}
+.track .band{position:absolute;top:2px;height:14px;background:var(--band);border-radius:3px;box-shadow:inset 0 0 0 1px var(--open-edge)}
+.track .med{position:absolute;top:0;bottom:0;width:0;border-left:2px solid var(--median)}
+.track .cut{position:absolute;top:-3px;bottom:-3px;width:0;border-left:2px solid var(--line)}
+.track .max{position:absolute;top:8px;height:2px;background:var(--edge)}
+.segs{display:flex;gap:4px;grid-column:2/4}
+.segs button,.segs span{flex:1 1 0;min-width:0;border:0;border-radius:4px;padding:2px 4px;font-size:11px;font-weight:600;text-align:center;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.segs span{background:var(--fin-bg);color:var(--fin-fg)}
+.segs button{background:var(--open-bg);color:var(--open-fg);box-shadow:inset 0 0 0 1px var(--open-edge);cursor:pointer}
+.segs button:hover{background:var(--open-bg-hover)}
+.segs button[aria-expanded="true"]{box-shadow:inset 0 0 0 2px var(--open-bar)}
+.segs .cat{display:block;font-weight:500;font-size:10px;opacity:.8}
+.grandrow{display:grid;grid-template-columns:96px minmax(0,1fr) 84px;gap:8px;align-items:center;border-top:1px solid var(--border);padding-top:8px}
+.grandrow .evn{font-weight:600;color:var(--ink);font-size:12px}
+.grandrow .evt{font-size:15px;font-weight:700;text-align:right}
+.grandrow .evt.open{color:var(--open-fg);cursor:pointer;background:var(--open-bg);border-radius:6px;padding:2px 6px;border:0;box-shadow:inset 0 0 0 1px var(--open-edge)}
+.grandrow .evt.open small{display:block;font-size:10px;font-weight:500;color:#0c4a6e}
+.tcard .pop{border-top:1px dashed var(--edge);padding-top:8px}
+.axis{position:relative;height:14px;font-size:10px;color:var(--faint);grid-column:2/3}
+.axis span{position:absolute;transform:translateX(-50%)}
+.axis span:first-child{transform:none}.axis span:last-child{transform:translateX(-100%)}
+.hidden{display:none!important}
+.sr{position:absolute;left:-9999px}
+</style>
+
+<div class="sk"><div class="wrap">
+  <b>Sketch 021</b><span>District points ledger</span>
+  <div class="sk-tabs" role="tablist" id="sktabs">
+    <button role="tab" aria-selected="true" data-v="A">A: Ledger table</button>
+    <button role="tab" aria-selected="false" data-v="B">B: Team cards</button>
+    <button role="tab" aria-selected="false" data-v="C">C: Histograms in the cell</button>
+  </div>
+</div></div>
+<div class="sk-why"><div class="wrap"><p id="why"></p></div></div>
+
+<div class="ribbon"><div class="wrap">
+  <span class="logo"><i>Σ</i>SigmaScout</span>
+  <nav><span>Teams</span><span>Events</span><span class="on">Districts</span><span>Methodology</span></nav>
+</div></div>
+
+<div class="wrap head">
+  <h1>Pacific Northwest 2026</h1>
+  <div class="sub">126 teams · 8 district events · 50 District Championship slots</div>
+  <div class="ptabs"><span>Breakdown</span><span class="on">Road to District Champs</span><span>Champ Locks</span><span>Insights</span></div>
+</div>
+
+<main class="wrap">
+  <section class="card ctl">
+    <div class="ctl-row">
+      <div class="slider">
+        <div class="pos"><span><span class="label">Rewind to</span> <b id="posLabel"></b></span><span class="muted" id="posHint"></span></div>
+        <input type="range" id="pos" min="0" max="28" step="1" value="21" aria-label="Rewind the district to a point in the season">
+        <div class="ticks" id="ticks"></div>
+      </div>
+      <div class="stagebtns" id="stagebtns" aria-label="Jump to"></div>
+    </div>
+    <div class="ctl-row">
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="ctl-row">
+      <div class="search"><label for="q" class="label">Find</label><input id="q" placeholder="team number"></div>
+      <div class="stat" id="stat"></div>
+    </div>
+  </section>
+
+  <section id="vA" class="card tablewrap"></section>
+  <section id="vB" class="cards hidden"></section>
+  <section id="vC" class="card tablewrap hidden"></section>
+
+  <p class="datanote"><b>Sketch data.</b> Real <code>v1/district/2026pnw.json</code>, all eight district events played. Every grey number is the team's actual points from TBA. Every blue range comes from a <b>sketch simulation</b> (a strength-shaped guess per category, convolved), not from the pipeline: it exists so the page shape can be judged, not the numbers. Status is recomputed at each slider position with the shipped locks rule (floor = earned, ceiling = earned + every open category's ceiling, 50 slots). Prequalified and Ineligible have no team in this snapshot and no source field in the artifact yet.</p>
+</main>
+
+<script>
+const DATA = {"district":"Pacific Northwest","key":"2026pnw","slots":50,"events":[{"k":"2026orsal","name":"Oregon State Fair","week":0,"n":34},{"k":"2026wabon","name":"Bonney Lake","week":0,"n":34},{"k":"2026orwil","name":"Wilsonville","week":1,"n":32},{"k":"2026wasno","name":"Glacier Peak","week":1,"n":30},{"k":"2026wasam","name":"Sammamish","week":2,"n":29},{"k":"2026wayak","name":"SunDome","week":2,"n":27},{"k":"2026orore","name":"Clackamas Academy","week":3,"n":32},{"k":"2026waahs","name":"Auburn","week":3,"n":34}],"teams":[{"n":2046,"name":"Bear Metal","rank":1,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":22,"a":16,"e":20,"w":5},{"k":"2026wasam","q":22,"a":16,"e":30,"w":5}]},{"n":5468,"name":"Chaos Theory","rank":2,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":22,"a":16,"e":30,"w":5},{"k":"2026wayak","q":22,"a":16,"e":30,"w":5}]},{"n":2910,"name":"Jack in the Bot","rank":3,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":17,"a":15,"e":20,"w":5},{"k":"2026waahs","q":11,"a":13,"e":13,"w":0}]},{"n":1540,"name":"Flaming Chickens","rank":4,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":21,"a":16,"e":30,"w":5},{"k":"2026orwil","q":22,"a":16,"e":30,"w":5}]},{"n":948,"name":"NRG (Newport Robotics Group)","rank":5,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":21,"a":16,"e":20,"w":5},{"k":"2026wasam","q":19,"a":15,"e":13,"w":5}]},{"n":360,"name":"The Revolution","rank":6,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":20,"a":15,"e":13,"w":5},{"k":"2026waahs","q":21,"a":15,"e":20,"w":5}]},{"n":2412,"name":"Robototes","rank":7,"st":"lockedAward","rb":0,"adj":0,"aw":["FIRST Impact Award@2026wabon","Engineering Inspiration@2026wasam"],"ev":[{"k":"2026wabon","q":18,"a":14,"e":30,"w":10},{"k":"2026wasam","q":18,"a":14,"e":20,"w":8}]},{"n":955,"name":"Ctrl C","rank":8,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":18,"a":14,"e":20,"w":5},{"k":"2026orore","q":20,"a":14,"e":13,"w":5}]},{"n":9023,"name":"Future Martians","rank":9,"st":"locked","rb":0,"adj":0,"aw":["Engineering Inspiration@2026waahs"],"ev":[{"k":"2026orsal","q":18,"a":14,"e":20,"w":0},{"k":"2026wayak","q":21,"a":16,"e":30,"w":5}]},{"n":4915,"name":"Spartronics","rank":10,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":20,"a":16,"e":30,"w":5},{"k":"2026orore","q":16,"a":14,"e":13,"w":0}]},{"n":6696,"name":"Cardinal Dynamics","rank":11,"st":"locked","rb":0,"adj":0,"aw":["Engineering Inspiration@2026orore"],"ev":[{"k":"2026orwil","q":16,"a":16,"e":30,"w":0},{"k":"2026orore","q":22,"a":16,"e":30,"w":8}]},{"n":2522,"name":"Royal Robotics","rank":12,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":19,"a":14,"e":13,"w":5},{"k":"2026wasam","q":20,"a":14,"e":20,"w":5}]},{"n":2811,"name":"StormBots","rank":13,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":10,"a":3,"e":20,"w":5},{"k":"2026wayak","q":10,"a":13,"e":20,"w":5}]},{"n":4089,"name":"Stealth Robotics","rank":14,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":22,"a":16,"e":30,"w":5},{"k":"2026waahs","q":19,"a":15,"e":20,"w":5}]},{"n":5937,"name":"MI Robotics","rank":15,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":20,"a":15,"e":20,"w":0},{"k":"2026wasam","q":15,"a":16,"e":30,"w":5}]},{"n":4469,"name":"R.A.I.D. (Raider Artificial Intelligence Division)","rank":16,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasam","q":17,"a":12,"e":7,"w":5},{"k":"2026waahs","q":18,"a":13,"e":13,"w":5}]},{"n":9450,"name":"Velocity Raptors","rank":17,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":19,"a":15,"e":13,"w":5},{"k":"2026wayak","q":17,"a":13,"e":20,"w":5}]},{"n":3674,"name":"CloverBots","rank":18,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":19,"a":15,"e":13,"w":0},{"k":"2026orore","q":15,"a":12,"e":7,"w":5}]},{"n":1425,"name":"Error Code Xero","rank":19,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":21,"a":15,"e":20,"w":5},{"k":"2026orore","q":21,"a":15,"e":20,"w":0}]},{"n":2471,"name":"Team Mean Machine","rank":20,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":16,"a":12,"e":13,"w":5},{"k":"2026orore","q":17,"a":15,"e":20,"w":5}]},{"n":1778,"name":"Chill Out","rank":21,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":11,"a":9,"e":0,"w":5},{"k":"2026waahs","q":18,"a":14,"e":0,"w":5}]},{"n":492,"name":"Titan Robotics Club","rank":22,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":18,"a":14,"e":30,"w":5},{"k":"2026wasam","q":21,"a":15,"e":7,"w":5}]},{"n":4488,"name":"Shockwave","rank":23,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":13,"a":9,"e":7,"w":0},{"k":"2026orore","q":18,"a":12,"e":7,"w":5}]},{"n":10079,"name":"Arrowdynamics","rank":24,"st":"locked","rb":5,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":21,"a":15,"e":20,"w":5},{"k":"2026waahs","q":16,"a":12,"e":0,"w":5}]},{"n":4450,"name":"Olympia Robotics Federation","rank":25,"st":"lockedAward","rb":0,"adj":0,"aw":["FIRST Impact Award@2026waahs","Engineering Inspiration@2026wabon"],"ev":[{"k":"2026wabon","q":11,"a":10,"e":0,"w":8},{"k":"2026waahs","q":15,"a":11,"e":7,"w":10}]},{"n":1318,"name":"Issaquah Robotics Society","rank":26,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":16,"a":13,"e":7,"w":5},{"k":"2026wasam","q":16,"a":12,"e":7,"w":5}]},{"n":7034,"name":"2B Determined","rank":27,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":16,"a":13,"e":7,"w":5},{"k":"2026orwil","q":15,"a":10,"e":0,"w":5}]},{"n":9430,"name":"CTEC Robotics","rank":28,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":17,"a":12,"e":0,"w":0},{"k":"2026orore","q":15,"a":11,"e":0,"w":5}]},{"n":753,"name":"High Desert Droids","rank":29,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":15,"a":10,"e":0,"w":0},{"k":"2026wayak","q":19,"a":15,"e":13,"w":5}]},{"n":3663,"name":"CPR - Cedar Park Robotics","rank":30,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":15,"a":12,"e":13,"w":5},{"k":"2026waahs","q":17,"a":12,"e":0,"w":5}]},{"n":4125,"name":"Confidential","rank":31,"st":"lockedAward","rb":0,"adj":0,"aw":["Engineering Inspiration@2026orsal","FIRST Impact Award@2026wayak"],"ev":[{"k":"2026orsal","q":14,"a":11,"e":0,"w":8},{"k":"2026wayak","q":14,"a":11,"e":0,"w":10}]},{"n":1294,"name":"Pack of Parts","rank":32,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":9,"a":1,"e":30,"w":5},{"k":"2026wasam","q":11,"a":3,"e":20,"w":0}]},{"n":1983,"name":"Skunk Works Robotics","rank":33,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":14,"a":12,"e":0,"w":5},{"k":"2026wasam","q":9,"a":1,"e":24,"w":5}]},{"n":3218,"name":"Panther Robotics","rank":34,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":17,"a":13,"e":7,"w":5},{"k":"2026wayak","q":18,"a":15,"e":13,"w":0}]},{"n":10991,"name":"PioBytes","rank":35,"st":"locked","rb":10,"adj":0,"aw":["Rookie All Star@2026orsal"],"ev":[{"k":"2026orsal","q":10,"a":2,"e":13,"w":8},{"k":"2026orore","q":10,"a":2,"e":20,"w":0}]},{"n":997,"name":"Spartan Robotics","rank":36,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":17,"a":13,"e":7,"w":0},{"k":"2026orore","q":17,"a":11,"e":0,"w":0}]},{"n":957,"name":"SWARM - South and West Albany Robotics Maniacs","rank":37,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":17,"a":13,"e":0,"w":5},{"k":"2026orore","q":13,"a":10,"e":0,"w":5}]},{"n":4512,"name":"Otter Chaos","rank":38,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":18,"a":13,"e":7,"w":0},{"k":"2026waahs","q":16,"a":14,"e":0,"w":0}]},{"n":10416,"name":"Radical Raccoons","rank":39,"st":"locked","rb":5,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":9,"a":8,"e":0,"w":5},{"k":"2026wayak","q":16,"a":14,"e":7,"w":0}]},{"n":2926,"name":"Robo Sparks","rank":40,"st":"locked","rb":0,"adj":0,"aw":["Engineering Inspiration@2026wayak"],"ev":[{"k":"2026orsal","q":11,"a":6,"e":0,"w":5},{"k":"2026wayak","q":18,"a":14,"e":7,"w":8}]},{"n":2374,"name":"Jesuit Robotics","rank":41,"st":"lockedAward","rb":0,"adj":0,"aw":["FIRST Impact Award@2026orwil"],"ev":[{"k":"2026orsal","q":14,"a":12,"e":0,"w":0},{"k":"2026orwil","q":17,"a":13,"e":0,"w":10}]},{"n":4061,"name":"SciBorgs","rank":42,"st":"lockedAward","rb":0,"adj":0,"aw":["FIRST Impact Award@2026orsal"],"ev":[{"k":"2026orsal","q":11,"a":10,"e":0,"w":10},{"k":"2026wayak","q":13,"a":12,"e":0,"w":5}]},{"n":8051,"name":"TinkRex","rank":43,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":14,"a":7,"e":0,"w":0},{"k":"2026waahs","q":17,"a":11,"e":7,"w":5}]},{"n":2521,"name":"SERT","rank":44,"st":"lockedAward","rb":0,"adj":0,"aw":["FIRST Impact Award@2026orore"],"ev":[{"k":"2026orsal","q":16,"a":11,"e":0,"w":5},{"k":"2026orore","q":9,"a":9,"e":0,"w":10}]},{"n":488,"name":"Team XBOT","rank":45,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":16,"a":14,"e":13,"w":0},{"k":"2026wasam","q":8,"a":10,"e":0,"w":0}]},{"n":1595,"name":"The Dragons","rank":46,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":18,"a":14,"e":0,"w":0},{"k":"2026wayak","q":15,"a":11,"e":0,"w":5}]},{"n":8248,"name":"ChainLynx","rank":47,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":16,"a":11,"e":0,"w":0},{"k":"2026wasam","q":17,"a":13,"e":0,"w":5}]},{"n":8896,"name":"Wolf Tech Robotics","rank":48,"st":"locked","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":5,"a":3,"e":30,"w":0},{"k":"2026waahs","q":7,"a":1,"e":24,"w":0}]},{"n":2976,"name":"The Spartabots","rank":49,"st":"lockedAward","rb":0,"adj":0,"aw":["FIRST Impact Award@2026wasam"],"ev":[{"k":"2026wabon","q":12,"a":6,"e":0,"w":5},{"k":"2026wasam","q":7,"a":0,"e":0,"w":10}]},{"n":2635,"name":"Lake Monsters","rank":50,"st":"eliminated","rb":0,"adj":0,"aw":["Engineering Inspiration@2026orwil"],"ev":[{"k":"2026orwil","q":14,"a":11,"e":0,"w":8},{"k":"2026orore","q":8,"a":0,"e":0,"w":0}]},{"n":4131,"name":"Iron Patriots","rank":51,"st":"lockedAward","rb":0,"adj":0,"aw":["FIRST Impact Award@2026wasno"],"ev":[{"k":"2026wasno","q":10,"a":0,"e":0,"w":10},{"k":"2026wayak","q":14,"a":9,"e":0,"w":5}]},{"n":5920,"name":"VIKotics","rank":52,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":13,"a":0,"e":24,"w":0},{"k":"2026wayak","q":11,"a":9,"e":0,"w":0}]},{"n":4513,"name":"Circuit Breakers","rank":53,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":19,"a":14,"e":0,"w":0},{"k":"2026wayak","q":13,"a":10,"e":0,"w":0}]},{"n":3393,"name":"Horns of Havoc","rank":54,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":13,"a":2,"e":13,"w":0},{"k":"2026waahs","q":9,"a":4,"e":13,"w":0}]},{"n":3712,"name":"RoboCats","rank":55,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":7,"a":1,"e":7,"w":0},{"k":"2026wayak","q":9,"a":4,"e":20,"w":5}]},{"n":3070,"name":"Team Pronto 3070","rank":56,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":11,"a":13,"e":7,"w":0},{"k":"2026waahs","q":12,"a":10,"e":0,"w":0}]},{"n":1899,"name":"Saints Robotics","rank":57,"st":"eliminated","rb":0,"adj":0,"aw":["Engineering Inspiration@2026wasno"],"ev":[{"k":"2026wasno","q":17,"a":12,"e":0,"w":8},{"k":"2026wasam","q":10,"a":6,"e":0,"w":0}]},{"n":2903,"name":"NeoBots","rank":58,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":9,"a":3,"e":13,"w":0},{"k":"2026wasam","q":12,"a":2,"e":13,"w":0}]},{"n":2898,"name":"Flying Hedgehogs","rank":59,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":10,"a":0,"e":0,"w":0},{"k":"2026orore","q":13,"a":0,"e":24,"w":5}]},{"n":2930,"name":"Sonic Squirrels","rank":60,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":13,"a":12,"e":0,"w":0},{"k":"2026orore","q":10,"a":5,"e":7,"w":5}]},{"n":8032,"name":"SAASquatch Robotics","rank":61,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasam","q":12,"a":8,"e":0,"w":0},{"k":"2026orore","q":19,"a":13,"e":0,"w":0}]},{"n":2990,"name":"Hotwire","rank":62,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":14,"a":10,"e":0,"w":5},{"k":"2026orore","q":14,"a":9,"e":0,"w":0}]},{"n":9036,"name":"Ramen Robotics","rank":63,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":14,"a":10,"e":0,"w":0},{"k":"2026wasam","q":14,"a":9,"e":0,"w":5}]},{"n":5970,"name":"Beavertronics","rank":64,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":9,"a":2,"e":20,"w":0},{"k":"2026orore","q":12,"a":8,"e":0,"w":0}]},{"n":3826,"name":"Sequim Robotics Federation \"SRF\"","rank":65,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":10,"a":8,"e":0,"w":5},{"k":"2026wasam","q":11,"a":5,"e":7,"w":5}]},{"n":9317,"name":"SteamRollers","rank":66,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":15,"a":10,"e":0,"w":0},{"k":"2026wasam","q":15,"a":11,"e":0,"w":0}]},{"n":7627,"name":"Bearcat Robotics","rank":67,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":12,"a":11,"e":0,"w":5},{"k":"2026waahs","q":10,"a":8,"e":0,"w":5}]},{"n":3673,"name":"C.Y.B.O.R.G. Seagulls","rank":68,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":4,"a":0,"e":0,"w":0},{"k":"2026orwil","q":10,"a":1,"e":30,"w":5}]},{"n":4980,"name":"Canine Crusaders","rank":69,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":15,"a":11,"e":0,"w":0},{"k":"2026wayak","q":11,"a":8,"e":0,"w":5}]},{"n":3681,"name":"Robo-Raiders","rank":70,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":16,"a":11,"e":0,"w":0},{"k":"2026wasam","q":13,"a":9,"e":0,"w":0}]},{"n":5941,"name":"Cast Iron Orcas","rank":71,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":13,"a":5,"e":0,"w":5},{"k":"2026wasno","q":8,"a":2,"e":15,"w":0}]},{"n":2928,"name":"Viking Robotics","rank":72,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":15,"a":10,"e":0,"w":0},{"k":"2026wasam","q":10,"a":13,"e":0,"w":0}]},{"n":7461,"name":"Sushi Squad","rank":73,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":14,"a":9,"e":0,"w":0},{"k":"2026wasam","q":15,"a":10,"e":0,"w":0}]},{"n":4060,"name":"Bearcat Robotics","rank":74,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":9,"a":0,"e":0,"w":0},{"k":"2026wayak","q":7,"a":1,"e":30,"w":0}]},{"n":4043,"name":"NerdHerd","rank":75,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":13,"a":5,"e":0,"w":0},{"k":"2026orwil","q":13,"a":9,"e":7,"w":0}]},{"n":4692,"name":"Metal Mallards","rank":76,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":15,"a":9,"e":0,"w":5},{"k":"2026wayak","q":12,"a":6,"e":0,"w":0}]},{"n":5588,"name":"Reign Robotics","rank":77,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":6,"a":1,"e":20,"w":0},{"k":"2026wasam","q":10,"a":4,"e":0,"w":5}]},{"n":3786,"name":"Chargers","rank":78,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":12,"a":6,"e":0,"w":5},{"k":"2026waahs","q":14,"a":9,"e":0,"w":0}]},{"n":4911,"name":"CyberKnights","rank":79,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":11,"a":9,"e":0,"w":0},{"k":"2026wasam","q":13,"a":11,"e":0,"w":0}]},{"n":6443,"name":"AEMBOT","rank":80,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":8,"a":7,"e":0,"w":5},{"k":"2026wayak","q":12,"a":7,"e":0,"w":5}]},{"n":3636,"name":"Generals","rank":81,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":8,"a":8,"e":7,"w":5},{"k":"2026orore","q":9,"a":6,"e":0,"w":0}]},{"n":9600,"name":"X-Flare Robotics","rank":82,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":12,"a":6,"e":0,"w":0},{"k":"2026orore","q":15,"a":10,"e":0,"w":0}]},{"n":10423,"name":"CB Tech","rank":83,"st":"eliminated","rb":5,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":10,"a":0,"e":0,"w":0},{"k":"2026wayak","q":16,"a":12,"e":0,"w":0}]},{"n":6465,"name":"Mystic Biscuit","rank":84,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":7,"a":0,"e":0,"w":0},{"k":"2026orore","q":14,"a":3,"e":13,"w":5}]},{"n":847,"name":"PHRED","rank":85,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":12,"a":0,"e":0,"w":0},{"k":"2026orwil","q":11,"a":5,"e":13,"w":0}]},{"n":6343,"name":"Steel Ridge","rank":86,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":9,"a":4,"e":7,"w":5},{"k":"2026orwil","q":9,"a":7,"e":0,"w":0}]},{"n":9446,"name":"C Cubed","rank":87,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":17,"a":12,"e":0,"w":0},{"k":"2026waahs","q":12,"a":0,"e":0,"w":0}]},{"n":9438,"name":"Leopard Tech","rank":88,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":10,"a":0,"e":0,"w":5},{"k":"2026orwil","q":15,"a":11,"e":0,"w":0}]},{"n":1359,"name":"Scalawags","rank":89,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":15,"a":9,"e":0,"w":5},{"k":"2026orore","q":7,"a":0,"e":0,"w":5}]},{"n":3574,"name":"HIGH TEKERZ","rank":90,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":10,"a":0,"e":0,"w":0},{"k":"2026waahs","q":8,"a":2,"e":20,"w":0}]},{"n":949,"name":"Wolverine Robotics","rank":91,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasam","q":4,"a":0,"e":7,"w":0},{"k":"2026waahs","q":15,"a":9,"e":0,"w":5}]},{"n":4682,"name":"CyBears","rank":92,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":15,"a":9,"e":0,"w":5},{"k":"2026waahs","q":5,"a":5,"e":0,"w":0}]},{"n":8532,"name":"Classified","rank":93,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":12,"a":8,"e":0,"w":0},{"k":"2026wayak","q":8,"a":5,"e":0,"w":5}]},{"n":2147,"name":"CHUCK","rank":94,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":12,"a":0,"e":0,"w":0},{"k":"2026wayak","q":15,"a":10,"e":0,"w":0}]},{"n":9442,"name":"Miso Mechanics","rank":95,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":13,"a":4,"e":7,"w":0},{"k":"2026wasam","q":5,"a":0,"e":7,"w":0}]},{"n":8302,"name":"⚡️ Ｎｉ-ＴＲＯ  ⚡️","rank":96,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":11,"a":4,"e":7,"w":0},{"k":"2026waahs","q":13,"a":0,"e":0,"w":0}]},{"n":749,"name":"Ctrl V","rank":97,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":12,"a":0,"e":0,"w":0},{"k":"2026orore","q":10,"a":1,"e":7,"w":5}]},{"n":2906,"name":"Sentinel Prime Robotics","rank":98,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":10,"a":0,"e":0,"w":0},{"k":"2026waahs","q":15,"a":10,"e":0,"w":0}]},{"n":4180,"name":"Iron Riders","rank":99,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":12,"a":5,"e":0,"w":0},{"k":"2026wasam","q":8,"a":7,"e":0,"w":0}]},{"n":2557,"name":"SOTAbots","rank":100,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":4,"a":7,"e":0,"w":0},{"k":"2026orore","q":12,"a":7,"e":0,"w":0}]},{"n":5683,"name":"R.A.V.E.N.","rank":101,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":7,"a":0,"e":0,"w":5},{"k":"2026waahs","q":4,"a":6,"e":7,"w":0}]},{"n":3049,"name":"BremerTron","rank":102,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":8,"a":0,"e":0,"w":0},{"k":"2026waahs","q":14,"a":0,"e":7,"w":0}]},{"n":2980,"name":"Whidbey Island Wildcats","rank":103,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":6,"a":0,"e":5,"w":5},{"k":"2026waahs","q":8,"a":0,"e":0,"w":5}]},{"n":10444,"name":"Ursa Major","rank":104,"st":"eliminated","rb":5,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":7,"a":3,"e":0,"w":0},{"k":"2026orore","q":12,"a":0,"e":0,"w":0}]},{"n":11347,"name":"Bronco Brigade","rank":105,"st":"eliminated","rb":10,"adj":0,"aw":[],"ev":[{"k":"2026wayak","q":6,"a":0,"e":0,"w":0},{"k":"2026waahs","q":11,"a":0,"e":0,"w":0}]},{"n":6845,"name":"River Bots","rank":106,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":5,"a":0,"e":0,"w":0},{"k":"2026wayak","q":10,"a":3,"e":7,"w":0}]},{"n":2929,"name":"Emeral Ridge JAGBOTS","rank":107,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":8,"a":0,"e":0,"w":0},{"k":"2026waahs","q":14,"a":3,"e":0,"w":0}]},{"n":10455,"name":"Bison Dynamics","rank":108,"st":"eliminated","rb":5,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":7,"a":0,"e":0,"w":0},{"k":"2026waahs","q":13,"a":0,"e":0,"w":0}]},{"n":3024,"name":"My Favorite Team","rank":109,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":8,"a":0,"e":0,"w":0},{"k":"2026orwil","q":12,"a":0,"e":0,"w":5}]},{"n":9613,"name":"Lion's Byte","rank":110,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":4,"a":0,"e":0,"w":0},{"k":"2026wayak","q":4,"a":2,"e":13,"w":0}]},{"n":4173,"name":"Bark Bots","rank":111,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":4,"a":0,"e":0,"w":0},{"k":"2026waahs","q":12,"a":7,"e":0,"w":0}]},{"n":2915,"name":"Pandamonium","rank":112,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":6,"a":0,"e":0,"w":0},{"k":"2026orore","q":13,"a":4,"e":0,"w":0}]},{"n":8303,"name":"GatorBytes","rank":113,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":12,"a":0,"e":0,"w":0},{"k":"2026waahs","q":11,"a":0,"e":0,"w":0}]},{"n":3268,"name":"Valhallabots","rank":114,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":8,"a":0,"e":0,"w":0},{"k":"2026wasam","q":14,"a":0,"e":0,"w":0}]},{"n":4662,"name":"Byte Sized Robotics","rank":115,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":11,"a":0,"e":0,"w":0},{"k":"2026orore","q":11,"a":0,"e":0,"w":0}]},{"n":6350,"name":"Clawbots","rank":116,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":14,"a":0,"e":0,"w":0},{"k":"2026wasam","q":6,"a":0,"e":0,"w":0}]},{"n":3219,"name":"TREAD (Trojan Robotics, Engineering, Art, & Design)","rank":117,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":5,"a":0,"e":0,"w":0},{"k":"2026waahs","q":10,"a":0,"e":0,"w":5}]},{"n":5295,"name":"Aldernating Current","rank":118,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wayak","q":9,"a":0,"e":0,"w":0},{"k":"2026waahs","q":10,"a":0,"e":0,"w":0}]},{"n":9567,"name":"StormBreakers","rank":119,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":13,"a":0,"e":0,"w":0},{"k":"2026orore","q":6,"a":0,"e":0,"w":0}]},{"n":6831,"name":"A-05 Annex","rank":120,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":12,"a":0,"e":0,"w":0},{"k":"2026orore","q":7,"a":0,"e":0,"w":0}]},{"n":2550,"name":"Skynet","rank":121,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":5,"a":4,"e":0,"w":5},{"k":"2026orore","q":4,"a":0,"e":0,"w":0}]},{"n":2927,"name":"NEST Robotics","rank":122,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wabon","q":9,"a":0,"e":0,"w":0},{"k":"2026waahs","q":9,"a":0,"e":0,"w":0}]},{"n":5975,"name":"Beta Blues","rank":123,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orwil","q":8,"a":0,"e":0,"w":5},{"k":"2026orore","q":5,"a":0,"e":0,"w":0}]},{"n":2733,"name":"Pigmice","rank":124,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026orsal","q":6,"a":0,"e":0,"w":0},{"k":"2026orore","q":11,"a":0,"e":0,"w":0}]},{"n":4579,"name":"RoboEagles","rank":125,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wasno","q":7,"a":0,"e":0,"w":0},{"k":"2026waahs","q":7,"a":0,"e":0,"w":0}]},{"n":3876,"name":"Mabton LugNutz","rank":126,"st":"eliminated","rb":0,"adj":0,"aw":[],"ev":[{"k":"2026wayak","q":7,"a":0,"e":0,"w":0},{"k":"2026waahs","q":6,"a":0,"e":0,"w":0}]}]};
+const SLOTS = DATA.slots;
+const CATS = [
+  {id:'q', name:'Qualification', short:'Quals', max:22, vals:null},
+  {id:'a', name:'Alliance selection', short:'Alliance', max:16, vals:null},
+  {id:'e', name:'Playoffs', short:'Playoffs', max:30, vals:[0,7,13,20,30]},
+  {id:'w', name:'Awards', short:'Awards', max:15, vals:[0,5,8,10,15]},
+];
+const EVMAX = 22+16+30+15;
+const STAGES = ['Quals ¼','Quals ½','Quals ¾','Quals done','Alliance selection','Playoffs','Awards'];
+const WEEKS = [0,1,2,3];
+const evByKey = new Map(DATA.events.map(e=>[e.k,e]));
+const WHY = {
+  A:'<strong>A: Ledger table.</strong> Jacob\'s spreadsheet made real. Two rows per team, one per event, four category cells plus an event total and a grand total. Grey is earned and final. Blue is still open: it prints the 10th to 90th percentile and opens a histogram under the team when clicked. The status chip is the shipped locks verdict recomputed at the slider position.',
+  B:'<strong>B: Team cards.</strong> Same eight cells per team as chips, but each event is a bar on one 0 to 83 scale: solid grey for points earned, a blue band from the 10th to the 90th percentile of what is still open, a tick at the median. The grand total bar carries the line. Reads on a phone without a sideways scroll; the histogram opens inside the card.',
+  C:'<strong>C: Histograms in the cell.</strong> A with the click removed for the overview: every open cell draws its histogram inline on that column\'s fixed scale, band under the bars, range printed beneath. Click still enlarges. Costs row height and demands a fixed scale per column, which is why the column header carries the scale.',
+};
+
+/* ---------- sketch simulation (NOT the pipeline) ---------- */
+function seasonStrength(t){ // 0..1 from actual season points, used only to shape guesses
+  const tot=t.ev.reduce((s,e)=>s+e.q+e.a+e.e+e.w,0)/t.ev.length; return Math.max(0,Math.min(1,tot/83));
+}
+function normalPmf(vals, mean, sd){
+  const out=vals.map(v=>Math.exp(-0.5*((v-mean)/sd)**2)); const s=out.reduce((a,b)=>a+b,0); return out.map(x=>x/s);
+}
+function range(n){return Array.from({length:n},(_,i)=>i)}
+function pmfFor(t, ev, cat, stage){
+  // stage: 0 not started, 1..4 quals fraction, 5 selection done, 6 playoffs done, 7 awards done
+  const s=seasonStrength(t);
+  const f=Math.min(stage,4)/4; // quals fraction played
+  if(cat.id==='q'){
+    const prior=8+12*s, sd0=4.2, actual=ev.q;
+    const mean=(1-f)*prior+f*actual, sd=(1-f)*sd0+f*1.0;
+    return {vals:range(23), p:normalPmf(range(23),mean,sd)};
+  }
+  if(cat.id==='a'){
+    const pick=Math.min(.97,.12+.85*s);
+    const vals=range(17); const inner=normalPmf(vals.slice(1),2+14*s, stage>=4?2.5:4.5);
+    return {vals, p:[1-pick, ...inner.map(x=>x*pick)]};
+  }
+  if(cat.id==='e'){
+    const pick=Math.min(.97,.12+.85*s);
+    let w=[Math.pow(1-s,1.2)+.15, .35, .15+.3*s, .08+.35*s, .02+.45*s*s]; const z=w.reduce((a,b)=>a+b,0); w=w.map(x=>x/z);
+    const p=[1-pick+pick*w[0], ...w.slice(1).map(x=>x*pick)];
+    return {vals:cat.vals, p};
+  }
+  // awards: base rates from this district's actual distribution, nudged by prior decoration and rookie bonus
+  const dec=t.aw.length>0, rookie=t.rb>0;
+  let p=[.56,.37,.03,.03,.01];
+  if(dec) p=[.40,.36,.03,.17,.04];
+  if(rookie) p=[.50,.30,.15,.03,.02];
+  return {vals:cat.vals, p};
+}
+function convolve(A,B){ // {vals,p} integer-valued, returns dense pmf over 0..maxA+maxB
+  const maxA=A.vals[A.vals.length-1], maxB=B.vals[B.vals.length-1]; const out=new Float64Array(maxA+maxB+1);
+  A.vals.forEach((va,i)=>{ if(A.p[i]<1e-12) return; B.vals.forEach((vb,j)=>{ out[va+vb]+=A.p[i]*B.p[j]; }); });
+  return {vals:range(out.length), p:Array.from(out)};
+}
+function point(v){return {vals:[v],p:[1]}}
+function shift(P,k){return {vals:P.vals.map(v=>v+k),p:P.p}}
+function cq(P,q){ // continuous quantile, integer value v occupies [v-0.5, v+0.5)
+  let acc=0; for(let i=0;i<P.vals.length;i++){ const m=P.p[i]; if(acc+m>=q){ const frac=m>0?(q-acc)/m:0; return P.vals[i]-0.5+frac; } acc+=m; }
+  return P.vals[P.vals.length-1]+0.5;
+}
+function fmt1(x){return (Math.round(x*10)/10).toLocaleString(undefined,{minimumFractionDigits:1,maximumFractionDigits:1})}
+function fmt0(x){return Math.round(x).toLocaleString()}
+function rangeInt(P){ const lo=Math.max(P.vals[0],cq(P,.1)), hi=Math.min(P.vals[P.vals.length-1],cq(P,.9)); return fmt0(lo)+"–"+fmt0(hi); }
+function rangeText(P){ const lo=Math.max(P.vals[0],cq(P,.1)), hi=Math.min(P.vals[P.vals.length-1],cq(P,.9)); return fmt1(lo)+'–'+fmt1(hi); }
+function pAtLeast(P,x){ let s=0; P.vals.forEach((v,i)=>{ if(v>=x) s+=P.p[i]; }); return s; }
+
+/* ---------- state at a slider position ---------- */
+function stageOf(ev,pos){ return Math.max(0,Math.min(7,pos-7*ev.week)); }
+function stateAt(pos){
+  const rows=DATA.teams.map(t=>{
+    const events=t.ev.map(e=>{
+      const ev=evByKey.get(e.k); const stage=stageOf(ev,pos);
+      const cats=CATS.map((c,ci)=>{
+        const fin = ci===0?stage>=4 : ci===1?stage>=5 : ci===2?stage>=6 : stage>=7;
+        return fin ? {c,fin:true,val:e[c.id],P:point(e[c.id])} : {c,fin:false,P:pmfFor(t,e,c,stage)};
+      });
+      let tot=cats[0].P; for(let i=1;i<4;i++) tot=convolve(tot,cats[i].P);
+      const finSum=cats.filter(x=>x.fin).reduce((s,x)=>s+x.val,0);
+      const openMax=cats.filter(x=>!x.fin).reduce((s,x)=>s+x.c.max,0);
+      const allFin=cats.every(x=>x.fin);
+      return {ev,stage,cats,tot,finSum,openMax,allFin};
+    });
+    let grand=point(t.rb+t.adj); for(const e of events) grand=convolve(grand,e.tot);
+    const floor=t.rb+t.adj+events.reduce((s,e)=>s+e.finSum,0);
+    const ceil=floor+events.reduce((s,e)=>s+e.openMax,0);
+    const impactFinal=events.some(e=>e.stage>=7 && t.aw.some(a=>a.startsWith('FIRST Impact')&&a.endsWith('@'+e.ev.k)));
+    return {t,events,grand,floor,ceil,impactFinal,allFin:events.every(e=>e.allFin)};
+  });
+  // locks rule (packages/core/districts/locks.ts): threat = other teams whose ceiling >= my floor; locked when threats < slots
+  // an Impact winner consumes a slot only when it would not qualify on points anyway (locks.ts award-qualified set)
+  const byFloor=[...rows].sort((x,y)=>y.floor-x.floor); const inOnPoints=new Set(byFloor.slice(0,SLOTS).map(r=>r.t.n));
+  const pointSlots=SLOTS-rows.filter(r=>r.impactFinal&&!inOnPoints.has(r.t.n)).length;
+  const ceils=rows.map(r=>r.ceil).sort((a,b)=>a-b), floors=rows.map(r=>r.floor).sort((a,b)=>a-b);
+  const lb=(arr,x)=>{let lo=0,hi=arr.length;while(lo<hi){const m=(lo+hi)>>1;if(arr[m]<x)lo=m+1;else hi=m;}return lo;};
+  const ub=(arr,x)=>{let lo=0,hi=arr.length;while(lo<hi){const m=(lo+hi)>>1;if(arr[m]<=x)lo=m+1;else hi=m;}return lo;};
+  for(const r of rows){
+    const threats=(rows.length-lb(ceils,r.floor))-1;
+    const above=rows.length-ub(floors,r.ceil); // others whose floor is strictly above my ceiling
+    if(r.impactFinal) r.status='locked', r.statusNote='award';
+    else if(threats<pointSlots) r.status='locked';
+    else if(above>=pointSlots) r.status='outofrange';
+    else r.status='inrange';
+  }
+  // today's line: the 50th highest floor (a lower bound while categories are open)
+  const line=[...rows.map(r=>r.floor)].sort((a,b)=>b-a)[SLOTS-1];
+  rows.sort((a,b)=>b.floor-a.floor||b.ceil-a.ceil||a.t.n-b.t.n);
+  rows.forEach((r,i)=>r.pos=i+1);
+  return {rows,line};
+}
+
+/* ---------- rendering ---------- */
+const STATUS={locked:'Locked',prequalified:'Prequalified',inrange:'In range',outofrange:'Out of range',ineligible:'Ineligible'};
+const filt={locked:true,prequalified:true,inrange:true,outofrange:true,ineligible:true};
+let variant='A', pos=21, open=null, query='';
+const $=id=>document.getElementById(id);
+
+function chip(r){ return `<span class="chip ${r.status}">${STATUS[r.status]}${r.statusNote?` <small>· ${r.statusNote}</small>`:''}</span>`; }
+function posText(p){ if(p===0) return ['Before the season','nothing played']; const w=Math.floor((p-1)/7), s=(p-1)%7; return [`Week ${w} · ${STAGES[s]}`, p===28?'now: season complete':`week ${w} events both at this stage`]; }
+function stageWord(st){ return st===0?'not started':st<4?`quals ${st*25}%`:st===4?'quals done':st===5?'alliances picked':st===6?'playoffs done':'final'; }
+
+function histSvg(P, opts){ // bars + 10-90 band + median, on fixed scale opts.max
+  const W=520,H=120,padL=8,padR=8,padB=18,padT=8; const max=opts.max; const n=max+1;
+  const bw=(W-padL-padR)/n; const pmax=Math.max(...P.p,1e-9);
+  const dense=new Array(n).fill(0); P.vals.forEach((v,i)=>{ if(v<=max) dense[v]+=P.p[i]; });
+  let bars=''; dense.forEach((p,v)=>{ if(p<1e-6) return; const h=(H-padT-padB)*p/pmax; const x=padL+v*bw+1; bars+=`<rect x="${x.toFixed(1)}" y="${(H-padB-h).toFixed(1)}" width="${Math.max(1,bw-2).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="var(--open-bar)"/>`; });
+  const lo=Math.max(0,cq(P,.1)), hi=Math.min(max,cq(P,.9)), md=cq(P,.5);
+  const X=v=>padL+(v+0.5)*bw;
+  const band=`<rect x="${X(lo).toFixed(1)}" y="${padT}" width="${(X(hi)-X(lo)).toFixed(1)}" height="${H-padT-padB}" fill="var(--band)"/>`;
+  const med=`<line x1="${X(md).toFixed(1)}" x2="${X(md).toFixed(1)}" y1="${padT}" y2="${H-padB}" stroke="var(--median)" stroke-width="2"/>`;
+  let cut=''; if(opts.cut!=null && opts.cut<=max){ cut=`<line x1="${X(opts.cut).toFixed(1)}" x2="${X(opts.cut).toFixed(1)}" y1="2" y2="${H-padB}" stroke="var(--line)" stroke-width="2" stroke-dasharray="4 3"/><text x="${(X(opts.cut)+4).toFixed(1)}" y="12" font-size="10" fill="var(--ink)">line ${opts.cut}</text>`; }
+  const ticks=(opts.ticks||[0,max]).map(v=>`<text x="${X(v).toFixed(1)}" y="${H-4}" font-size="10" text-anchor="middle" fill="var(--faint)">${v}</text>`).join('');
+  const axis=`<line x1="${padL}" x2="${W-padR}" y1="${H-padB}" y2="${H-padB}" stroke="var(--border)"/>`;
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${opts.label||'histogram'}">${band}${axis}${bars}${med}${cut}${ticks}</svg>`;
+}
+function miniSvg(P,max){
+  const W=100,H=24; const n=max+1, bw=W/n, pmax=Math.max(...P.p,1e-9);
+  const dense=new Array(n).fill(0); P.vals.forEach((v,i)=>{ if(v<=max) dense[v]+=P.p[i]; });
+  const lo=Math.max(0,cq(P,.1)), hi=Math.min(max,cq(P,.9)); const X=v=>(v+0.5)*bw;
+  let bars=''; dense.forEach((p,v)=>{ if(p<1e-6) return; const h=(H-4)*p/pmax; bars+=`<rect x="${(v*bw+0.5).toFixed(1)}" y="${(H-2-h).toFixed(1)}" width="${Math.max(0.8,bw-1).toFixed(1)}" height="${h.toFixed(1)}" fill="var(--open-bar)"/>`; });
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><rect x="${X(lo).toFixed(1)}" y="0" width="${(X(hi)-X(lo)).toFixed(1)}" height="${H}" fill="var(--band)"/><line x1="0" x2="${W}" y1="${H-1.5}" y2="${H-1.5}" stroke="var(--open-edge)"/>${bars}</svg>`;
+}
+function drawerHtml(r, key, line){ // key: {ei,ci} | {ei,'tot'} | 'grand'
+  let P,title,max,ticks,cut=null,sub='';
+  if(key==='grand'){ P=r.grand; title=`Team ${r.t.n} · Grand total`; max=2*EVMAX+10; ticks=[0,40,80,120,166]; cut=line; sub='Both events convolved, plus rookie bonus. Dashed line: the 50th team\'s earned points at this slider position, a floor on where the real line ends up. A chance of finishing above the line needs the line’s own distribution, which this sketch does not simulate.'; }
+  else if(key.ci==='tot'){ const e=r.events[key.ei]; P=e.tot; title=`Team ${r.t.n} · ${e.ev.name} · Event total`; max=EVMAX; ticks=[0,20,40,60,83]; sub='The four categories convolved. Grey categories are fixed at their earned value.'; }
+  else { const e=r.events[key.ei], c=e.cats[key.ci]; P=c.P; title=`Team ${r.t.n} · ${e.ev.name} · ${c.c.name}`; max=c.c.max; ticks=c.c.vals||[0,Math.round(max/2),max]; sub=stageWord(e.stage)+'.'; }
+  const lo=cq(P,.1),hi=cq(P,.9),md=cq(P,.5); const p0=P.p[P.vals.indexOf(0)]||0;
+  return `<div class="hist"><h4>${title}</h4><div class="sub">${sub}</div>${histSvg(P,{max,ticks,cut,label:title})}
+    <div class="txt">10th–90th: <b>${fmt1(Math.max(P.vals[0],lo))}–${fmt1(Math.min(max,hi))}</b> · median <b>${fmt1(md)}</b>${key!=='grand'&&key.ci!=='tot'&&p0>0.005?` · none at all <b>${fmt0(p0*100)}%</b>`:''}</div>
+    <div class="k">Sketch simulation. The band is the 10th to 90th percentile with continuous edges (sketch 005). Not a published quantity.</div></div>`;
+}
+
+function cellHtml(r,ei,ci,mini){
+  const e=r.events[ei]; const x=ci==='tot'?{fin:e.allFin,val:e.finSum,P:e.tot,max:EVMAX}:{...e.cats[ci],max:e.cats[ci].c.max};
+  const cls=ci==='tot'?' tot':'';
+  if(x.fin) return `<div class="cell fin${cls}">${x.val}</div>`;
+  const isOpen=open&&open.n===r.t.n&&open.key!=='grand'&&open.key.ei===ei&&open.key.ci===ci;
+  if(mini) return `<button class="cell open${cls}" aria-expanded="${isOpen}" data-n="${r.t.n}" data-ei="${ei}" data-ci="${ci}"><span class="mini">${miniSvg(x.P,x.max)}<span class="rg">${rangeText(x.P)}</span></span></button>`;
+  return `<button class="cell open${cls}" aria-expanded="${isOpen}" data-n="${r.t.n}" data-ei="${ei}" data-ci="${ci}"><span class="lb">10th–90th</span><span class="rg">${rangeText(x.P)}</span></button>`;
+}
+function grandHtml(r){
+  if(r.allFin) return `<div class="cell fin grand">${r.floor}</div>`;
+  const isOpen=open&&open.n===r.t.n&&open.key==='grand';
+  return `<button class="cell open grand" aria-expanded="${isOpen}" data-n="${r.t.n}" data-grand="1"><span class="lb">10th–90th</span><span class="rg">${rangeText(r.grand)}</span></button>`;
+}
+function visible(rows){ return rows.filter(r=>filt[r.status] && (!query || String(r.t.n).startsWith(query))); }
+
+function renderTable(rows,line,mini){
+  const hdr=`<thead><tr><th class="sticky1">Team</th><th>Status</th><th>Event</th>${CATS.map(c=>`<th class="num">${c.name}${mini?`<span class="scale">0 to ${c.max}</span>`:''}</th>`).join('')}<th class="num">Event total${mini?`<span class="scale">0 to ${EVMAX}</span>`:''}</th><th class="num">Grand total</th></tr></thead>`;
+  let body='';
+  for(const r of visible(rows)){
+    const sel=open&&open.n===r.t.n;
+    r.events.forEach((e,ei)=>{
+      body+=`<tr class="${ei===0?'first':'second'}${sel?' sel':''}">`;
+      if(ei===0) body+=`<td class="team sticky1" rowspan="2"><span class="no">${r.t.n}</span><span class="nm">${r.t.name}</span><span class="nm">#${r.pos} · ${r.floor} pts earned</span></td><td rowspan="2">${chip(r)}</td>`;
+      body+=`<td class="ev">${e.ev.name}<span class="wk">wk ${e.ev.week}</span><span class="st">${stageWord(e.stage)}</span></td>`;
+      body+=CATS.map((c,ci)=>`<td class="num">${cellHtml(r,ei,ci,mini)}</td>`).join('');
+      body+=`<td class="num">${cellHtml(r,ei,'tot',mini)}</td>`;
+      if(ei===0) body+=`<td class="num" rowspan="2">${grandHtml(r)}</td>`;
+      body+='</tr>';
+    });
+    if(sel) body+=`<tr class="drawer"><td colspan="9"><div class="dr">${drawerHtml(r,open.key,line)}${open.key!=='grand'?drawerHtml(r,'grand',line):''}</div></td></tr>`;
+  }
+  return `<table class="ledger">${hdr}<tbody>${body}</tbody></table>`;
+}
+function trackHtml(e){
+  const X=v=>(100*v/EVMAX).toFixed(2)+'%';
+  if(e.allFin) return `<div class="track"><div class="rail"></div><div class="fin" style="left:0;width:${X(e.finSum)}"></div></div>`;
+  const lo=Math.max(0,cq(e.tot,.1)), hi=Math.min(EVMAX,cq(e.tot,.9)), md=cq(e.tot,.5);
+  return `<div class="track"><div class="rail"></div><div class="max" style="left:${X(e.finSum)};width:${X(e.finSum+e.openMax-e.finSum)}"></div><div class="fin" style="left:0;width:${X(e.finSum)}"></div><div class="band" style="left:${X(lo)};width:${X(hi-lo)}"></div><div class="med" style="left:${X(md)}"></div></div>`;
+}
+function renderCards(rows,line){
+  const GM=2*EVMAX+10; const XG=v=>(100*v/GM).toFixed(2)+'%';
+  let html='';
+  for(const r of visible(rows)){
+    const sel=open&&open.n===r.t.n;
+    html+=`<article class="card tcard"><div class="hd"><span><span class="no">${r.t.n}</span><span class="nm">${r.t.name}</span></span><span>${chip(r)} <span class="rk">#${r.pos}</span></span></div>`;
+    r.events.forEach((e,ei)=>{
+      html+=`<div class="evrow"><div class="evn">${e.ev.name}<small>wk ${e.ev.week} · ${stageWord(e.stage)}</small></div>${trackHtml(e)}<div class="evt${e.allFin?'':' open'}">${e.allFin?e.finSum:rangeText(e.tot)}${e.allFin?'':'<small>10th–90th</small>'}</div>
+        <div class="segs">${e.cats.map((x,ci)=>x.fin?`<span><span class="cat">${x.c.short}</span>${x.val}</span>`:`<button aria-expanded="${sel&&open.key!=='grand'&&open.key.ei===ei&&open.key.ci===ci}" data-n="${r.t.n}" data-ei="${ei}" data-ci="${ci}"><span class="cat">${x.c.short}</span>${rangeInt(x.P)}</button>`).join('')}</div></div>`;
+    });
+    const glo=Math.max(0,cq(r.grand,.1)), ghi=Math.min(GM,cq(r.grand,.9)), gmd=cq(r.grand,.5);
+    html+=`<div class="grandrow"><div class="evn">Grand total</div><div class="track"><div class="rail"></div><div class="fin" style="left:0;width:${XG(r.floor)}"></div>${r.allFin?'':`<div class="band" style="left:${XG(glo)};width:${XG(ghi-glo)}"></div><div class="med" style="left:${XG(gmd)}"></div>`}<div class="cut" style="left:${XG(line)}" title="today's line"></div></div>${r.allFin?`<div class="evt">${r.floor}</div>`:`<button class="evt open" aria-expanded="${sel&&open.key==='grand'}" data-n="${r.t.n}" data-grand="1">${rangeText(r.grand)}<small>10th–90th</small></button>`}
+      <div class="axis"><span style="left:0">0</span><span style="left:${XG(line)}">line ${line}</span><span style="left:100%">${GM}</span></div></div>`;
+    if(sel) html+=`<div class="pop">${drawerHtml(r,open.key,line)}</div>`;
+    html+='</article>';
+  }
+  return html;
+}
+function render(){
+  const {rows,line}=stateAt(pos);
+  const counts={locked:0,prequalified:0,inrange:0,outofrange:0,ineligible:0}; rows.forEach(r=>counts[r.status]++);
+  $('legend').innerHTML=Object.keys(STATUS).map(k=>`<button aria-pressed="${filt[k]}" data-f="${k}"><span class="chip ${k}">${STATUS[k]} <small>${counts[k]}</small></span></button>`).join('')+
+    `<span class="cellkey"><i class="f"></i>earned, final</span><span class="cellkey"><i class="o"></i>still open · click for the histogram</span>`;
+  const [pl,ph]=posText(pos); $('posLabel').textContent=pl; $('posHint').textContent=ph;
+  const openCells=rows.reduce((s,r)=>s+r.events.reduce((t,e)=>t+e.cats.filter(x=>!x.fin).length,0),0);
+  $('stat').innerHTML=`<span>Today's line <b>${line}</b> pts (50th team, earned)</span><span>Open cells <b>${openCells}</b> of ${rows.length*8}</span><span>Sim per open cell <b>~0.1 ms</b> here (sketch)</span>`;
+  $('why').innerHTML=WHY[variant];
+  ['A','B','C'].forEach(v=>$('v'+v).classList.toggle('hidden',v!==variant));
+  if(variant==='A') $('vA').innerHTML=renderTable(rows,line,false);
+  else if(variant==='C') $('vC').innerHTML=renderTable(rows,line,true);
+  else $('vB').innerHTML=renderCards(rows,line);
+}
+function ticksHtml(){ let h='<span style="left:0">start</span>'; WEEKS.forEach(w=>{ h+=`<span style="left:${(100*(7*w+4)/28).toFixed(1)}%">wk ${w}</span>`; }); return h+'<span style="left:100%">now</span>'; }
+$('ticks').innerHTML=ticksHtml();
+$('stagebtns').innerHTML=[[0,'Season start'],[7,'After week 0'],[14,'After week 1'],[18,'Wk 2 quals done'],[19,'Wk 2 alliances'],[21,'After week 2'],[24,'Wk 3 quals ¾'],[28,'Now']].map(([p,l])=>`<button data-p="${p}" aria-pressed="${p===pos}">${l}</button>`).join('');
+$('stagebtns').addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b) return; pos=+b.dataset.p; $('pos').value=pos; [...$('stagebtns').children].forEach(x=>x.setAttribute('aria-pressed',+x.dataset.p===pos)); render(); });
+$('pos').addEventListener('input',e=>{ pos=+e.target.value; [...$('stagebtns').children].forEach(x=>x.setAttribute('aria-pressed',+x.dataset.p===pos)); render(); });
+$('legend').addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b) return; filt[b.dataset.f]=!filt[b.dataset.f]; render(); });
+$('q').addEventListener('input',e=>{ query=e.target.value.trim(); render(); });
+$('sktabs').addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b) return; variant=b.dataset.v; [...$('sktabs').children].forEach(x=>x.setAttribute('aria-selected',x.dataset.v===variant)); render(); });
+document.addEventListener('click',e=>{ const b=e.target.closest('button[data-n]'); if(!b) return; const n=+b.dataset.n; const key=b.dataset.grand?'grand':{ei:+b.dataset.ei,ci:b.dataset.ci==='tot'?'tot':+b.dataset.ci}; const same=open&&open.n===n&&JSON.stringify(open.key)===JSON.stringify(key); open=same?null:{n,key}; render(); });
+render();
+</script>
