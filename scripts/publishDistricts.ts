@@ -82,6 +82,7 @@ import {
 } from "../packages/core/districts/qualification.js";
 import { bakeDistrictEvent, DISTRICT_BAKE_DRAWS_PER_SCHEDULE, DISTRICT_BAKE_SCHEDULE_COUNT } from "../packages/harness/districtBake.js";
 import {
+  applyDistrictEventState,
   // Aliased on import so this file carries exactly ONE line naming the promoted
   // schema. The module-local `EventPointsEntrySchema`/`EventPointsArraySchema`
   // pair this file used to define is DELETED; the promoted one is the survivor.
@@ -98,6 +99,7 @@ import {
   DistrictsIndexArtifactSchema,
   PAGE_ARTIFACT_SCHEMA_VERSION,
   type DistrictArtifact,
+  type DistrictEventState,
   type DistrictPreSimArtifact,
   type DistrictsIndexArtifact,
 } from "../packages/harness/pageArtifacts.js";
@@ -525,7 +527,25 @@ export function composeYear(db: Corpus, season: number, generation: string, comp
     const teamKeys = rankings.map((r) => r.teamKey);
     const teamMeta = selectTeamMeta(db, teamKeys);
 
-    const artifact = buildDistrictArtifact({ season, generation, computedAt, district, rankings, events, registrations, awards, teamMeta });
+    const composed = buildDistrictArtifact({ season, generation, computedAt, district, rankings, events, registrations, awards, teamMeta });
+
+    // THE FOUR STATE FACTS, written through the SHARED writer rather than by a
+    // second row walk inside `buildDistrictArtifact`. `applyDistrictEventState`
+    // refuses an event key no team carries a row for, so the map is narrowed to
+    // the keys this artifact actually holds — an event nobody in this district
+    // registered for has no cell to grey out.
+    const carriedEventKeys = new Set<string>();
+    for (const team of composed.teams) {
+      for (const row of team.eventPoints) carriedEventKeys.add(row.eventKey);
+      for (const row of team.remainingEvents) carriedEventKeys.add(row.eventKey);
+    }
+    const eventState = new Map<string, DistrictEventState>();
+    for (const [eventKey, observed] of deriveDistrictEventState(db, events, computedAt)) {
+      if (carriedEventKeys.has(eventKey)) eventState.set(eventKey, observed);
+    }
+    const artifact =
+      eventState.size === 0 ? composed : applyDistrictEventState({ artifact: composed, eventState, generation, computedAt });
+
     detailArtifacts.push({ key: districtDetailKey(district.districtKey), district, events, registrations, artifact });
     indexRows.push({ district, teamCount: rankings.length, eventCount: events.length });
   }
@@ -538,7 +558,7 @@ export function composeYear(db: Corpus, season: number, generation: string, comp
 // The bake: unstarted district events priced from walk-forward SPR state
 // ---------------------------------------------------------------------------
 
-interface QualMatchCounts {
+export interface QualMatchCounts {
   /** Qualification matches with a decided winner. */
   readonly played: number;
   /** Qualification rows of any kind — played and merely scheduled together. */
@@ -566,6 +586,129 @@ function selectQualMatchCounts(db: Corpus, eventKeys: readonly string[]): Map<st
     .all(...eventKeys) as { event_key: string; total: number; played: number }[];
   for (const row of rows) counts.set(row.event_key, { played: row.played, total: row.total });
   return counts;
+}
+
+// ---------------------------------------------------------------------------
+// The four state facts, derived from the corpus at the run's own instant —
+// the OFFLINE half of the field `apps/worker/src/districtRefresh.ts` writes
+// live. A grey cell on the ledger is a published fact, never an inference the
+// browser made from an absence.
+// ---------------------------------------------------------------------------
+
+interface EventMatchFactsRow {
+  event_key: string;
+  qual_total: number;
+  qual_played: number;
+  finals_decided: number;
+  open_elim: number;
+}
+
+/**
+ * The four state facts per event, keyed the way `applyDistrictEventState`'s
+ * `eventState` map is keyed — ONE block per EVENT, applied to every team's
+ * matching row, so the Worker's live write and this offline write describe one
+ * fact one way rather than two.
+ *
+ * Every count is DISTINCT on `match_key`. The counts sit in the same grouped
+ * query as nothing else, but a count over join rows is exactly the shape that
+ * silently doubles, and the alliance and award checks below are existence
+ * queries against tables whose keys are positional — so distinct-keying is
+ * stated once here and meant everywhere.
+ *
+ * `asOf` is a HORIZON, not decoration: an event whose start date is at or after
+ * the instant had not begun, so it reports played zero, a null total and three
+ * false booleans. With the instant at the run's own clock no district event in
+ * the corpus is future-dated, so this branch never fires in production and the
+ * facts are the corpus's own — which is what keeps the verification path and
+ * the production path one code path.
+ */
+export function deriveDistrictEventState(
+  db: Corpus,
+  events: readonly DistrictEventMeta[],
+  asOf: string
+): ReadonlyMap<string, DistrictEventState> {
+  const state = new Map<string, DistrictEventState>();
+  if (events.length === 0) return state;
+  const eventKeys = events.map((e) => e.eventKey);
+  const placeholders = eventKeys.map(() => "?").join(", ");
+
+  const matchRows = db
+    .prepare(
+      `SELECT event_key,
+              COUNT(DISTINCT CASE WHEN comp_level = 'qm' THEN match_key END) AS qual_total,
+              COUNT(DISTINCT CASE WHEN comp_level = 'qm' AND winner IS NOT NULL THEN match_key END) AS qual_played,
+              COUNT(DISTINCT CASE WHEN comp_level = 'f' AND winner IS NOT NULL THEN match_key END) AS finals_decided,
+              COUNT(DISTINCT CASE WHEN comp_level <> 'qm' AND winner IS NULL THEN match_key END) AS open_elim
+       FROM matches WHERE event_key IN (${placeholders}) GROUP BY event_key`
+    )
+    .all(...eventKeys) as EventMatchFactsRow[];
+  const matchFacts = new Map(matchRows.map((row) => [row.event_key, row] as const));
+
+  const withAlliances = new Set(
+    (db.prepare(`SELECT DISTINCT event_key FROM event_alliances WHERE event_key IN (${placeholders})`).all(...eventKeys) as { event_key: string }[]).map(
+      (row) => row.event_key
+    )
+  );
+  const withAwardsAll = new Set(
+    (db.prepare(`SELECT DISTINCT event_key FROM event_awards_all WHERE event_key IN (${placeholders})`).all(...eventKeys) as { event_key: string }[]).map(
+      (row) => row.event_key
+    )
+  );
+  const withAwards = new Set(
+    (db.prepare(`SELECT DISTINCT event_key FROM event_awards WHERE event_key IN (${placeholders})`).all(...eventKeys) as { event_key: string }[]).map(
+      (row) => row.event_key
+    )
+  );
+  // The POSITIVE-ONLY third clause. CONTEXT's correction forbids INFERRING
+  // posted-ness from `award_points`, because a team at zero award points is
+  // indistinguishable from awards not yet posted. This clause can therefore
+  // only ever turn false into TRUE — it rescues an event whose award rows are
+  // absent from a gitignored table, and it can never manufacture a premature
+  // grey cell. `> 0`, never `IS NOT NULL`.
+  const withNonZeroAwardPoints = new Set(
+    (
+      db
+        .prepare(
+          `SELECT DISTINCT json_extract(entry.value, '$.event_key') AS event_key
+           FROM district_rankings dr, json_each(dr.event_points_raw) entry
+           WHERE json_extract(entry.value, '$.award_points') > 0
+             AND json_extract(entry.value, '$.event_key') IN (${placeholders})`
+        )
+        .all(...eventKeys) as { event_key: string }[]
+    ).map((row) => row.event_key)
+  );
+
+  const instant = Date.parse(asOf);
+  for (const event of events) {
+    // A null start date reads as STARTED, matching `startedEventKeysAsOf`'s own
+    // default and for the same reason: its rows are real observations.
+    const start = event.startDate == null ? Number.NEGATIVE_INFINITY : Date.parse(event.startDate);
+    const startedByNow = Number.isNaN(start) || Number.isNaN(instant) || start < instant;
+    if (!startedByNow) {
+      state.set(event.eventKey, { qualMatchesPlayed: 0, qualMatchesTotal: null, alliancesPicked: false, playoffsDone: false, awardsPosted: false });
+      continue;
+    }
+    const facts = matchFacts.get(event.eventKey);
+    const qualTotal = facts?.qual_total ?? 0;
+    state.set(event.eventKey, {
+      qualMatchesPlayed: facts?.qual_played ?? 0,
+      // ZERO QUALIFICATION ROWS MEANS TBA HAS PUBLISHED NO SCHEDULE, and the
+      // honest answer to "how long is it" is NULL. A zero there would claim a
+      // zero-match event — measured 2026-09-25, six of the 150 2026 district
+      // events carry zero `qm` rows (four divisioned DCMP parents, which are
+      // playoff-only, plus `2026isde3` and `2026isde4`, registered and never
+      // played), and every one of those is a real published state.
+      qualMatchesTotal: qualTotal === 0 ? null : qualTotal,
+      alliancesPicked: withAlliances.has(event.eventKey),
+      // BOTH HALVES, because either alone is wrong: an open elimination row
+      // beside a decided final is a playoff still running, and a decided final
+      // is what tells a finished bracket from an event whose elimination rows
+      // were never created at all.
+      playoffsDone: (facts?.finals_decided ?? 0) > 0 && (facts?.open_elim ?? 0) === 0,
+      awardsPosted: withAwardsAll.has(event.eventKey) || withAwards.has(event.eventKey) || withNonZeroAwardPoints.has(event.eventKey),
+    });
+  }
+  return state;
 }
 
 // ---------------------------------------------------------------------------
@@ -669,7 +812,7 @@ export interface BakeCandidate {
  * verification path and the production path one code path — with the instant at
  * the run's own clock the as-of view is the corpus itself.
  */
-function classifyBakeCandidate(args: {
+export function classifyBakeCandidate(args: {
   readonly event: DistrictEventMeta;
   readonly remainingEventKeys: ReadonlySet<string>;
   readonly roster: readonly string[];

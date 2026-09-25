@@ -8,22 +8,29 @@
  * award-qualified/`lockedAward`, curated pre-qualification/`prequalified`,
  * and the `2025fsc` special-allocation override.
  */
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
-import type { CorpusDistrict, CorpusDistrictRanking, CorpusEventAward } from "../packages/corpus/db.js";
-import { recomputeDistrictVerdicts } from "../packages/harness/districtRankingsMerge.js";
+import { openCorpusReadOnly, type Corpus, type CorpusDistrict, type CorpusDistrictRanking, type CorpusEventAward } from "../packages/corpus/db.js";
+import { applyDistrictEventState, recomputeDistrictVerdicts } from "../packages/harness/districtRankingsMerge.js";
+import { DistrictEventStateSchema } from "../packages/harness/pageArtifacts.js";
 import { DistrictBudgetExceededError } from "../packages/harness/publishBudget.js";
 import {
   buildDistrictArtifact,
   buildDistrictsIndexArtifact,
+  classifyBakeCandidate,
+  deriveDistrictEventState,
   localOutFileName,
   parseOptions,
   parseYearsSpec,
   run,
   type DistrictEventMeta,
 } from "./publishDistricts.js";
+
+/** The corpus this file's corpus-guarded describes read, guarded exactly as `reconciliation.test.ts` guards its own. */
+const CORPUS_PATH = "data/corpus.sqlite";
 
 const GENERATION = "gen-1";
 const COMPUTED_AT = "2026-09-05T00:00:00.000Z";
@@ -622,7 +629,19 @@ describe("the publish byte gate", () => {
     expect(Buffer.byteLength(body)).toBeGreaterThan(body.length);
   });
 
-  it("fires BEFORE anything is written: a one-byte ceiling throws, and the local output folder stays empty", async () => {
+  it("localOutFileName flattens an R2 key's separators, so one folder holds every composed object", () => {
+    expect(localOutFileName("v1/district/2026fnc.json")).toBe("v1__district__2026fnc.json");
+    expect(localOutFileName("v1/district-presim/2026pnw/2026wabon.json")).toBe("v1__district-presim__2026pnw__2026wabon.json");
+  });
+});
+
+describe("run() over the real corpus — the gate and --no-bake", () => {
+  if (!existsSync(CORPUS_PATH)) {
+    it.skip(`skipped: ${CORPUS_PATH} not found — run the ingest pipeline (pnpm ingest:districts) first`, () => {});
+    return;
+  }
+
+  it("the budget gate fires BEFORE anything is written: a one-byte ceiling throws, and the local output folder stays empty", async () => {
     const outDir = mkdtempSync(join(tmpdir(), "publish-districts-gate-"));
     try {
       await expect(
@@ -643,9 +662,34 @@ describe("the publish byte gate", () => {
     }
   });
 
-  it("localOutFileName flattens an R2 key's separators, so one folder holds every composed object", () => {
-    expect(localOutFileName("v1/district/2026fnc.json")).toBe("v1__district__2026fnc.json");
-    expect(localOutFileName("v1/district-presim/2026pnw/2026wabon.json")).toBe("v1__district-presim__2026pnw__2026wabon.json");
+  it("--no-bake is LOUD: no replay line is printed, the warning names the consequence, and no sidecar is composed", async () => {
+    const outDir = mkdtempSync(join(tmpdir(), "publish-districts-nobake-"));
+    const lines: string[] = [];
+    const original = console.log;
+    console.log = (...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    };
+    try {
+      await run({ years: [2026], bucket: "unused", dryRun: true, asOf: COMPUTED_AT, localOut: outDir, bake: false });
+    } finally {
+      console.log = original;
+    }
+    try {
+      // A silent degradation is the one thing this flag must never be.
+      expect(lines.some((line) => line.includes("--no-bake") && line.includes("no baked-event list"))).toBe(true);
+      // The pricing-state builder was never reached: its replay line is absent.
+      expect(lines.some((line) => line.includes("match(es) across"))).toBe(false);
+      expect(lines.some((line) => line.includes("bake census"))).toBe(false);
+      expect(readdirSync(outDir).some((name) => name.includes("district-presim"))).toBe(false);
+      const written = readdirSync(outDir).filter((name) => name.startsWith("v1__district__"));
+      expect(written.length).toBeGreaterThan(0);
+      for (const name of written) {
+        const artifact = JSON.parse(readFileSync(join(outDir, name), "utf8")) as { bakedEvents?: string[] };
+        expect(artifact.bakedEvents).toBeUndefined();
+      }
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -682,5 +726,344 @@ describe("parseOptions — the new flags", () => {
   it("parses --warmup-from as an integer season and refuses a non-integer", () => {
     expect(parseOptions(["--years", "2026", "--warmup-from", "2024"]).warmupFrom).toBe(2024);
     expect(() => parseOptions(["--years", "2026", "--warmup-from", "early"])).toThrow(/--warmup-from/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10-06 Task 2 — the four state facts
+// ---------------------------------------------------------------------------
+
+/** An in-memory corpus carrying only the tables `deriveDistrictEventState` reads. */
+function stateFixture(rows: {
+  matches?: Array<{ match_key: string; event_key: string; comp_level: string; winner: string | null }>;
+  alliances?: Array<{ event_key: string; alliance_number: number }>;
+  awards?: Array<{ event_key: string; award_type: number; team_key: string }>;
+  awardsAll?: Array<{ event_key: string; award_type: number; award_index: number; recipient_index: number }>;
+  rankings?: Array<{ district_key: string; team_key: string; event_points_raw: string }>;
+}): Corpus {
+  const db = new Database(":memory:") as unknown as Corpus;
+  db.prepare(`CREATE TABLE matches (match_key TEXT PRIMARY KEY, event_key TEXT, comp_level TEXT, winner TEXT)`).run();
+  db.prepare(`CREATE TABLE event_alliances (event_key TEXT, alliance_number INTEGER)`).run();
+  db.prepare(`CREATE TABLE event_awards (event_key TEXT, award_type INTEGER, team_key TEXT)`).run();
+  db.prepare(`CREATE TABLE event_awards_all (event_key TEXT, award_type INTEGER, award_index INTEGER, recipient_index INTEGER)`).run();
+  db.prepare(`CREATE TABLE district_rankings (district_key TEXT, team_key TEXT, event_points_raw TEXT)`).run();
+  for (const m of rows.matches ?? []) db.prepare(`INSERT INTO matches VALUES (?,?,?,?)`).run(m.match_key, m.event_key, m.comp_level, m.winner);
+  for (const a of rows.alliances ?? []) db.prepare(`INSERT INTO event_alliances VALUES (?,?)`).run(a.event_key, a.alliance_number);
+  for (const a of rows.awards ?? []) db.prepare(`INSERT INTO event_awards VALUES (?,?,?)`).run(a.event_key, a.award_type, a.team_key);
+  for (const a of rows.awardsAll ?? []) db.prepare(`INSERT INTO event_awards_all VALUES (?,?,?,?)`).run(a.event_key, a.award_type, a.award_index, a.recipient_index);
+  for (const r of rows.rankings ?? []) db.prepare(`INSERT INTO district_rankings VALUES (?,?,?)`).run(r.district_key, r.team_key, r.event_points_raw);
+  return db;
+}
+
+function quals(eventKey: string, total: number, played: number) {
+  return Array.from({ length: total }, (_, i) => ({ match_key: `${eventKey}_qm${i + 1}`, event_key: eventKey, comp_level: "qm", winner: i < played ? "red" : null }));
+}
+
+/** An event well in the past relative to every `asOf` these tests use. */
+const STARTED = "2026-03-01";
+const DERIVE_AS_OF = "2026-09-01T00:00:00.000Z";
+
+describe("deriveDistrictEventState — the four state facts", () => {
+  it("a finished event reports every qualification match played, all three booleans true, and parses through the schema", () => {
+    const db = stateFixture({
+      matches: [
+        ...quals("2026e1", 12, 12),
+        { match_key: "2026e1_f1m1", event_key: "2026e1", comp_level: "f", winner: "red" },
+      ],
+      alliances: [{ event_key: "2026e1", alliance_number: 1 }],
+      awards: [{ event_key: "2026e1", award_type: 0, team_key: "frc1" }],
+    });
+    try {
+      const state = deriveDistrictEventState(db, [districtEvent({ eventKey: "2026e1", startDate: STARTED })], DERIVE_AS_OF).get("2026e1")!;
+      expect(state).toEqual({ qualMatchesPlayed: 12, qualMatchesTotal: 12, alliancesPicked: true, playoffsDone: true, awardsPosted: true });
+      expect(() => DistrictEventStateSchema.parse(state)).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("an event mid-qualification reports the played count against the full schedule and all three booleans false", () => {
+    const db = stateFixture({ matches: quals("2026e1", 12, 5) });
+    try {
+      const state = deriveDistrictEventState(db, [districtEvent({ eventKey: "2026e1", startDate: STARTED })], DERIVE_AS_OF).get("2026e1")!;
+      expect(state).toEqual({ qualMatchesPlayed: 5, qualMatchesTotal: 12, alliancesPicked: false, playoffsDone: false, awardsPosted: false });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("an event with NO qualification rows reports a NULL total — never a fabricated zero", () => {
+    const db = stateFixture({ matches: [] });
+    try {
+      const state = deriveDistrictEventState(db, [districtEvent({ eventKey: "2026isde3", startDate: STARTED })], DERIVE_AS_OF).get("2026isde3")!;
+      expect(state.qualMatchesTotal).toBeNull();
+      // Explicitly NOT zero: a zero would claim a zero-match event, which is a
+      // different fact from "TBA has published no schedule".
+      expect(state.qualMatchesTotal).not.toBe(0);
+      expect(state.qualMatchesPlayed).toBe(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("alliances announced before the bracket runs reads true; elimination rows with no alliance rows reads false and does NOT throw", () => {
+    const withAlliances = stateFixture({
+      matches: [...quals("2026e1", 12, 12), { match_key: "2026e1_sf1m1", event_key: "2026e1", comp_level: "sf", winner: null }],
+      alliances: [{ event_key: "2026e1", alliance_number: 1 }],
+    });
+    try {
+      const state = deriveDistrictEventState(withAlliances, [districtEvent({ eventKey: "2026e1", startDate: STARTED })], DERIVE_AS_OF).get("2026e1")!;
+      expect(state.alliancesPicked).toBe(true);
+      expect(state.playoffsDone).toBe(false);
+    } finally {
+      withAlliances.close();
+    }
+
+    const withoutAlliances = stateFixture({
+      matches: [...quals("2026e1", 12, 12), { match_key: "2026e1_sf1m1", event_key: "2026e1", comp_level: "sf", winner: "red" }],
+    });
+    try {
+      // The schema carries NO implication refinement between the three
+      // booleans on purpose: a real artifact can hold elimination matches with
+      // no published alliances, and a schema that rejects a real state blocks a
+      // live write.
+      const state = deriveDistrictEventState(withoutAlliances, [districtEvent({ eventKey: "2026e1", startDate: STARTED })], DERIVE_AS_OF).get("2026e1")!;
+      expect(state.alliancesPicked).toBe(false);
+      expect(() => DistrictEventStateSchema.parse(state)).not.toThrow();
+    } finally {
+      withoutAlliances.close();
+    }
+  });
+
+  it("playoffsDone needs BOTH halves: a decided final AND no open elimination row", () => {
+    const cases: Array<{ name: string; elim: Array<{ match_key: string; comp_level: string; winner: string | null }>; expected: boolean }> = [
+      {
+        name: "a decided final with another elimination row still open",
+        elim: [
+          { match_key: "2026e1_sf1m1", comp_level: "sf", winner: null },
+          { match_key: "2026e1_f1m1", comp_level: "f", winner: "red" },
+        ],
+        expected: false,
+      },
+      {
+        name: "no final at all with every other elimination row decided",
+        elim: [{ match_key: "2026e1_sf1m1", comp_level: "sf", winner: "red" }],
+        expected: false,
+      },
+      {
+        name: "a decided final with every elimination row decided",
+        elim: [
+          { match_key: "2026e1_sf1m1", comp_level: "sf", winner: "red" },
+          { match_key: "2026e1_f1m1", comp_level: "f", winner: "blue" },
+        ],
+        expected: true,
+      },
+    ];
+    for (const testCase of cases) {
+      const db = stateFixture({
+        matches: [...quals("2026e1", 12, 12), ...testCase.elim.map((m) => ({ ...m, event_key: "2026e1" }))],
+      });
+      try {
+        const state = deriveDistrictEventState(db, [districtEvent({ eventKey: "2026e1", startDate: STARTED })], DERIVE_AS_OF).get("2026e1")!;
+        expect(state.playoffsDone, testCase.name).toBe(testCase.expected);
+      } finally {
+        db.close();
+      }
+    }
+  });
+
+  it("awardsPosted has three POSITIVE sources and no negative one — a zero award_points entry can never flip it true", () => {
+    const base = () => quals("2026e1", 12, 12);
+    const fromAwardsAll = stateFixture({ matches: base(), awardsAll: [{ event_key: "2026e1", award_type: 5, award_index: 0, recipient_index: 0 }] });
+    const fromAwards = stateFixture({ matches: base(), awards: [{ event_key: "2026e1", award_type: 0, team_key: "frc1" }] });
+    const fromPoints = stateFixture({
+      matches: base(),
+      rankings: [{ district_key: "2026fnc", team_key: "frc1", event_points_raw: eventPointsRaw([{ event_key: "2026e1", district_cmp: false, qual_points: 10, alliance_points: 0, elim_points: 0, award_points: 5, total: 15 }]) }],
+    });
+    const fromNothing = stateFixture({ matches: base() });
+    // The LOAD-BEARING case: every team present, every award_points ZERO.
+    // CONTEXT forbids inferring posted-ness FROM award_points, because a team at
+    // zero is indistinguishable from awards not yet posted. A positive-only
+    // clause can never manufacture a premature grey cell; it can only rescue a
+    // real one whose award rows are missing from a gitignored table.
+    const fromZeroPoints = stateFixture({
+      matches: base(),
+      rankings: ["frc1", "frc2", "frc3"].map((teamKey) => ({
+        district_key: "2026fnc",
+        team_key: teamKey,
+        event_points_raw: eventPointsRaw([{ event_key: "2026e1", district_cmp: false, qual_points: 10, alliance_points: 0, elim_points: 0, award_points: 0, total: 10 }]),
+      })),
+    });
+    const event = [districtEvent({ eventKey: "2026e1", startDate: STARTED })];
+    try {
+      expect(deriveDistrictEventState(fromAwardsAll, event, DERIVE_AS_OF).get("2026e1")!.awardsPosted).toBe(true);
+      expect(deriveDistrictEventState(fromAwards, event, DERIVE_AS_OF).get("2026e1")!.awardsPosted).toBe(true);
+      expect(deriveDistrictEventState(fromPoints, event, DERIVE_AS_OF).get("2026e1")!.awardsPosted).toBe(true);
+      expect(deriveDistrictEventState(fromNothing, event, DERIVE_AS_OF).get("2026e1")!.awardsPosted).toBe(false);
+      expect(deriveDistrictEventState(fromZeroPoints, event, DERIVE_AS_OF).get("2026e1")!.awardsPosted).toBe(false);
+    } finally {
+      for (const db of [fromAwardsAll, fromAwards, fromPoints, fromNothing, fromZeroPoints]) db.close();
+    }
+  });
+
+  it("counts DISTINCT match keys, so a duplicated alliance or award row cannot push played above total", () => {
+    const db = stateFixture({
+      matches: [...quals("2026e1", 12, 12), { match_key: "2026e1_f1m1", event_key: "2026e1", comp_level: "f", winner: "red" }],
+      // A naive query joining these in would multiply the match counts.
+      alliances: Array.from({ length: 8 }, (_, i) => ({ event_key: "2026e1", alliance_number: i + 1 })),
+      awardsAll: Array.from({ length: 30 }, (_, i) => ({ event_key: "2026e1", award_type: 5, award_index: i, recipient_index: 0 })),
+    });
+    try {
+      const state = deriveDistrictEventState(db, [districtEvent({ eventKey: "2026e1", startDate: STARTED })], DERIVE_AS_OF).get("2026e1")!;
+      expect(state.qualMatchesPlayed).toBe(12);
+      expect(state.qualMatchesTotal).toBe(12);
+      expect(state.qualMatchesPlayed).toBeLessThanOrEqual(state.qualMatchesTotal!);
+      expect(() => DistrictEventStateSchema.parse(state)).not.toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("an event that had not started at the as-of instant reports the honest not-yet-begun state", () => {
+    const db = stateFixture({
+      matches: [...quals("2026e1", 60, 60), { match_key: "2026e1_f1m1", event_key: "2026e1", comp_level: "f", winner: "red" }],
+      alliances: [{ event_key: "2026e1", alliance_number: 1 }],
+      awards: [{ event_key: "2026e1", award_type: 0, team_key: "frc1" }],
+    });
+    try {
+      const state = deriveDistrictEventState(db, [districtEvent({ eventKey: "2026e1", startDate: "2026-04-10" })], "2026-03-07T00:00:00.000Z").get("2026e1")!;
+      expect(state).toEqual({ qualMatchesPlayed: 0, qualMatchesTotal: null, alliancesPicked: false, playoffsDone: false, awardsPosted: false });
+    } finally {
+      db.close();
+    }
+  });
+
+  it("returns ONE block per event, so every team's row for that event carries a deeply equal state", () => {
+    const db = stateFixture({
+      matches: [...quals("2026e1", 12, 12), ...quals("2026e2", 12, 3)],
+    });
+    try {
+      const state = deriveDistrictEventState(
+        db,
+        [districtEvent({ eventKey: "2026e1", startDate: STARTED }), districtEvent({ eventKey: "2026e2", startDate: STARTED })],
+        DERIVE_AS_OF
+      );
+      expect([...state.keys()].sort()).toEqual(["2026e1", "2026e2"]);
+      const artifact = buildDistrictArtifact({
+        season: 2026,
+        generation: GENERATION,
+        computedAt: COMPUTED_AT,
+        district: district(),
+        rankings: [
+          ranking({ teamKey: "frc1", rank: 1, eventPointsRaw: eventPointsRaw([{ event_key: "2026e1", district_cmp: false, qual_points: 10, alliance_points: 0, elim_points: 0, award_points: 0, total: 10 }]) }),
+          ranking({ teamKey: "frc2", rank: 2, eventPointsRaw: eventPointsRaw([{ event_key: "2026e1", district_cmp: false, qual_points: 8, alliance_points: 0, elim_points: 0, award_points: 0, total: 8 }]) }),
+        ],
+        events: [districtEvent({ eventKey: "2026e1" }), districtEvent({ eventKey: "2026e2" })],
+        registrations: new Map([["2026e2", ["frc1", "frc2"]]]),
+        awards: new Map(),
+        teamMeta: new Map(),
+      });
+      const written = applyDistrictEventState({ artifact, eventState: state, generation: GENERATION, computedAt: COMPUTED_AT });
+      expect(written.teams[0]!.eventPoints[0]!.state).toEqual(written.teams[1]!.eventPoints[0]!.state);
+      // And it lands on a remaining-event row too, not only on a played one.
+      expect(written.teams[0]!.remainingEvents[0]!.eventKey).toBe("2026e2");
+      expect(written.teams[0]!.remainingEvents[0]!.state).toEqual({ qualMatchesPlayed: 3, qualMatchesTotal: 12, alliancesPicked: false, playoffsDone: false, awardsPosted: false });
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("classifyBakeCandidate — the bake-eligibility taxonomy", () => {
+  const ROSTER = Array.from({ length: 30 }, (_, i) => `frc${i + 1}`);
+  function args(overrides: Partial<Parameters<typeof classifyBakeCandidate>[0]> = {}) {
+    return {
+      event: districtEvent({ eventKey: "2026e1", eventType: 1 }),
+      remainingEventKeys: new Set(["2026e1"]),
+      roster: ROSTER,
+      quals: undefined,
+      startedEventKeys: new Set<string>(),
+      ...overrides,
+    };
+  }
+
+  it("a still-ahead event with zero played qualification matches is eligible", () => {
+    expect(classifyBakeCandidate(args())).toBeNull();
+  });
+
+  it("an event no team carries in remainingEvents is not eligible", () => {
+    expect(classifyBakeCandidate(args({ remainingEventKeys: new Set<string>() }))).toBe("not-a-remaining-event");
+  });
+
+  it("a divisioned DCMP parent (TBA event_type 2) is never baked", () => {
+    // Measured: every 2026 district event whose alliance count is not eight is
+    // one of these, and they carry no qualification schedule to generate.
+    expect(
+      classifyBakeCandidate(args({ event: districtEvent({ eventKey: "2026micmp", eventType: 2 }), remainingEventKeys: new Set(["2026micmp"]) }))
+    ).toBe("divisioned-dcmp-parent");
+  });
+
+  it("an event with any played qualification match is the browser's, not the pipeline's", () => {
+    expect(classifyBakeCandidate(args({ quals: { played: 1, total: 60 }, startedEventKeys: new Set(["2026e1"]) }))).toBe("already-in-progress");
+    // ...but the SAME row set, at an instant before the event started, reads as
+    // zero played, because at that instant it had played nothing.
+    expect(classifyBakeCandidate(args({ quals: { played: 60, total: 60 }, startedEventKeys: new Set<string>() }))).toBeNull();
+  });
+
+  it("a roster outside the schedule generator's range is not eligible", () => {
+    expect(classifyBakeCandidate(args({ roster: ["frc1", "frc2"] }))).toBe("roster-out-of-generator-range");
+    expect(classifyBakeCandidate(args({ roster: [] }))).toBe("empty-roster");
+  });
+});
+
+describe("the corpus-guarded state population (SC-5's offline half, on real data)", () => {
+  if (!existsSync(CORPUS_PATH)) {
+    it.skip(`skipped: ${CORPUS_PATH} not found — run the ingest pipeline (pnpm ingest:districts) first`, () => {});
+    return;
+  }
+
+  it("pins the 2026 district population: at least 148 fully observed, exactly the two never-played events, zero played counts above a non-null total", () => {
+    const db = openCorpusReadOnly(CORPUS_PATH);
+    try {
+      const rows = db
+        .prepare(`SELECT event_key, name, week, event_type, start_date FROM events WHERE year = 2026 AND district_key IS NOT NULL ORDER BY event_key`)
+        .all() as Array<{ event_key: string; name: string | null; week: number | null; event_type: number; start_date: string | null }>;
+      const events: DistrictEventMeta[] = rows.map((row) => ({
+        eventKey: row.event_key,
+        name: row.name ?? row.event_key,
+        week: row.week,
+        eventType: row.event_type,
+        startDate: row.start_date,
+      }));
+      // The run's own clock: no district event in the corpus is future-dated,
+      // so the as-of horizon is an identity here and these are the corpus's own
+      // facts.
+      const state = deriveDistrictEventState(db, events, new Date().toISOString());
+
+      expect(state.size).toBeGreaterThan(100); // non-vacuity
+      const fullyObserved: string[] = [];
+      const nullTotal: string[] = [];
+      const neverPlayed: string[] = [];
+      for (const [eventKey, observed] of state) {
+        expect(() => DistrictEventStateSchema.parse(observed), eventKey).not.toThrow();
+        if (observed.qualMatchesTotal !== null) {
+          expect(observed.qualMatchesPlayed, `${eventKey} played above its non-null total`).toBeLessThanOrEqual(observed.qualMatchesTotal);
+        } else {
+          nullTotal.push(eventKey);
+        }
+        if (observed.alliancesPicked && observed.playoffsDone && observed.awardsPosted) fullyObserved.push(eventKey);
+        if (!observed.alliancesPicked && !observed.playoffsDone && !observed.awardsPosted && observed.qualMatchesTotal === null) neverPlayed.push(eventKey);
+      }
+      console.log(
+        `deriveDistrictEventState 2026: ${state.size} district events, ${fullyObserved.length} fully observed, ${nullTotal.length} with a null qualification total, never-played: ${neverPlayed.join(", ")}`
+      );
+      // A FLOOR for the population and a CEILING for the exceptions, so a later
+      // legitimate ingest can only strengthen this result.
+      expect(fullyObserved.length).toBeGreaterThanOrEqual(148);
+      expect(nullTotal.length).toBeGreaterThanOrEqual(6);
+      expect(neverPlayed.sort()).toEqual(["2026isde3", "2026isde4"]);
+    } finally {
+      db.close();
+    }
   });
 });
