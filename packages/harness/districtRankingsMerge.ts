@@ -541,6 +541,14 @@ export function applyDistrictEventState(options: ApplyDistrictEventStateOptions)
 
   return DistrictArtifactSchema.parse({
     ...artifact,
+    // STAMPED HERE TOO, exactly as `applyDistrictRankings` stamps it.
+    // `districtRefresh.ts` chooses between the two entry points on whether TBA
+    // answered 200 or 304, so a version stamped by one and merely carried by
+    // the other would make the PUBLISHED schema version of a live district
+    // depend on a TBA cache hit — two ticks over the same district writing two
+    // different values. The producer owns this field in both paths, and it is
+    // never read off the artifact it was handed.
+    schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation,
     computedAt,
     teams: artifact.teams.map((team) => ({

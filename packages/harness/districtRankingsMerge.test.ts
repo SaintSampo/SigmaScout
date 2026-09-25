@@ -7,7 +7,7 @@
  * carry-forward, or a never-invent-metadata pin.
  */
 import { describe, expect, it } from "vitest";
-import { DistrictArtifactSchema, type DistrictArtifact } from "./pageArtifacts.js";
+import { DistrictArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type DistrictArtifact } from "./pageArtifacts.js";
 import {
   applyDistrictEventState,
   applyDistrictRankings,
@@ -477,5 +477,44 @@ describe("applyDistrictRankings — a payload-only team's ceiling errs toward st
     const merged = merge(twoTeamFixture(), tracerPayload());
     expect(merged.teams.find((t) => t.teamKey === "frc1")!.maxRemainingDistrict).toBe(0);
     expect(merged.teams.find((t) => t.teamKey === "frc2")!.maxRemainingDistrict).toBe(0);
+  });
+});
+
+describe("the two merge entry points agree on schemaVersion (WR-02)", () => {
+  // `districtRefresh.ts` picks between these two on whether TBA answered 200 or
+  // 304. A version stamped by one and merely carried by the other makes the
+  // published schema version of a live district depend on a cache hit.
+  const eventState = new Map([
+    [
+      "2026ncwak",
+      { qualMatchesPlayed: 1, qualMatchesTotal: 1, alliancesPicked: true, playoffsDone: true, awardsPosted: true },
+    ],
+  ]);
+
+  it("applyDistrictEventState stamps the version rather than carrying the input's", () => {
+    // A stale stamp on the way in. Before the fix this reached the closing
+    // `DistrictArtifactSchema.parse` unchanged and threw; the producer now owns
+    // the field on both paths, so it is overwritten.
+    const stale = { ...twoTeamFixture(), schemaVersion: 0 } as unknown as DistrictArtifact;
+    const merged = applyDistrictEventState({ artifact: stale, eventState, generation: GENERATION, computedAt: COMPUTED_AT });
+    expect(merged.schemaVersion).toBe(PAGE_ARTIFACT_SCHEMA_VERSION);
+  });
+
+  it("both entry points write the SAME version over the same district", () => {
+    const viaRankings = applyDistrictRankings({
+      artifact: twoTeamFixture(),
+      rankings: tracerPayload(),
+      generation: GENERATION,
+      computedAt: COMPUTED_AT,
+      eventState,
+    });
+    const viaState = applyDistrictEventState({
+      artifact: twoTeamFixture(),
+      eventState,
+      generation: GENERATION,
+      computedAt: COMPUTED_AT,
+    });
+    expect(viaState.schemaVersion).toBe(viaRankings.schemaVersion);
+    expect(viaState.schemaVersion).toBe(PAGE_ARTIFACT_SCHEMA_VERSION);
   });
 });
