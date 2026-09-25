@@ -409,3 +409,79 @@ describe("the projection order is the row order", () => {
     expect([...model.byTeam.keys()]).toEqual(rows.teams.map((entry) => entry.teamKey));
   });
 });
+
+describe("the pooled remaining-points lock at a position (260925-pl6)", () => {
+  /**
+   * Fifteen teams, twelve points slots, one district event still wholly ahead
+   * of every one of them. The leader sits 83 points clear of the rest, which is
+   * exactly one event's maximum, so EVERY rival's ceiling reaches its floor and
+   * the shipped ceiling test refuses to lock it: fourteen threats against the
+   * eleven slots that are not held back for the event's pending Impact award.
+   *
+   * Eleven of them would have to pass it, and that costs 11 x 83 = 913 points
+   * between them. A fifteen-team event has 754 to hand out, so the pooled
+   * argument locks the leader where the ceiling test could not.
+   */
+  const POOLED_SLOTS = 12;
+  const pooledTeams = [
+    team("frc1", { pointTotal: 100, eventPoints: [played("a", 100)], remainingEvents: [ahead("b")], maxRemainingDistrict: EVENT_MAX }),
+    ...Array.from({ length: 14 }, (_, index) =>
+      team(`frc${String(index + 2)}`, {
+        pointTotal: 17,
+        eventPoints: [played("a", 17)],
+        remainingEvents: [ahead("b")],
+        maxRemainingDistrict: EVENT_MAX,
+      })
+    ),
+  ];
+
+  it("locks a team the ceiling test leaves contending, and says the pooled argument is why", () => {
+    const { model } = statusesFor(artifactOf(pooledTeams, { dcmpSlots: POOLED_SLOTS }));
+    const leader = model.byTeam.get("frc1")!;
+    expect(leader.status).toBe("locked");
+    // `"pooled"` and not `"both"`: the ceiling test did not reach this team.
+    expect(leader.lockedBy).toBe("pooled");
+    expect(model.pooledRemainingPoints).toBeGreaterThan(0);
+    // Every rival's ceiling really does reach the leader's floor, which is what
+    // makes the ceiling test refuse.
+    expect(17 + EVENT_MAX).toBeGreaterThanOrEqual(100);
+  });
+
+  it("stops locking that team once the district has enough points left to unseat it", () => {
+    // The same teams with a SECOND event still ahead: twice the pool, and the
+    // 830 points that would have to move are now available.
+    const twoEvents = pooledTeams.map((entry) => ({
+      ...entry,
+      remainingEvents: [ahead("b"), ahead("c", 4)],
+      maxRemainingDistrict: EVENT_MAX * 2,
+    }));
+    const { model } = statusesFor(artifactOf(twoEvents, { dcmpSlots: POOLED_SLOTS }));
+    expect(model.byTeam.get("frc1")!.verdict).toBe("contending");
+    expect(model.byTeam.get("frc1")!.lockedBy).toBeNull();
+  });
+
+  it("holds no points at all at a finished district, so the two arguments lock exactly the same teams", () => {
+    const artifact = artifactOf([
+      team("frc1", { pointTotal: 40, eventPoints: [played("a", 40)] }),
+      team("frc2", { pointTotal: 10, eventPoints: [played("a", 10)] }),
+      team("frc3", { pointTotal: 5, eventPoints: [played("a", 5)] }),
+    ]);
+    const { model } = statusesFor(artifact);
+    expect(model.pooledRemainingPoints).toBe(0);
+    expect(model.verdictCensus.locked).toBe(2);
+    // Both arguments hold for every locked team, which is the whole reason a
+    // finished season's published verdicts do not move.
+    for (const result of model.byTeam.values()) {
+      if (result.verdict === "locked") expect(result.lockedBy).toBe("both");
+      else expect(result.lockedBy).toBeNull();
+    }
+  });
+
+  it("reads the pool from the REWOUND position, not from the artifact's own state blocks", () => {
+    const artifact = artifactOf(pooledTeams, { dcmpSlots: POOLED_SLOTS });
+    // Reopening qualification at the already-finished event `a` puts that
+    // event's qualification pool back on the table on top of event `b`'s.
+    const reopened = statusesFor(artifact, new Map([["a", { qual: false, alliance: true, elim: true, award: true }]])).model;
+    expect(reopened.pooledRemainingPoints).toBeGreaterThan(statusesFor(artifact).model.pooledRemainingPoints);
+  });
+});

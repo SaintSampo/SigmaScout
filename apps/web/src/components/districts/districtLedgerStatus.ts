@@ -14,6 +14,20 @@
  * posted, its slot must not sit in the points pool, or a team on the knife
  * edge reads `Locked` one step before the award takes the slot away.
  *
+ * THERE ARE TWO WAYS TO READ `Locked`, and this module asks for both at every
+ * position (quick task 260925-pl6). The shipped ceiling test locks a team no
+ * single rival can reach. The POOLED test locks a team no achievable
+ * distribution of the district's remaining points can unseat: points are
+ * conserved inside an event, so what the whole district still has to hand out
+ * is far less than the sum of every rival's ceiling.
+ * `packages/core/districts/pooledLockInputs.ts` turns the SAME per-row
+ * finalities the floor and ceiling below are derived from into that pool, so
+ * the two halves of a position can never describe different positions, and
+ * `locks.ts` ORs the two tests. Nothing else moves: `Locked out` and the In
+ * range line are untouched, and at a position where every category is final the
+ * pool is zero and the pooled test locks exactly whom the ceiling test already
+ * did.
+ *
  * WHERE EACH STATUS COMES FROM:
  *
  * - Prequalified, Locked, Locked out and the capacity-not-published state come
@@ -43,6 +57,7 @@
 import {
   computeLocksWithQualifiers,
   cutLinePointsWithQualifiers,
+  type LockResult,
   type LockStatus,
   type LockTeamInput,
   type QualifierSets,
@@ -50,6 +65,7 @@ import {
 import { consumingAwardTypesForTier } from "../../../../../packages/core/districts/qualification.js";
 import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
 import { reservedImpactSlots, type ReservedSlotEvent } from "../../../../../packages/core/districts/reservedSlots.js";
+import { pooledLockInputs, type PooledTeamEntry } from "../../../../../packages/core/districts/pooledLockInputs.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { DISTRICT_CATEGORIES, districtTierEvents, type DistrictLedgerTeam } from "./districtLedgerRows.js";
 
@@ -68,6 +84,14 @@ export interface DistrictLedgerStatusResult {
   readonly byAward: boolean;
   /** The raw `locks.ts` verdict this status was mapped from, exposed so a test can compare the census against the artifact's own counts. */
   readonly verdict: LockStatus;
+  /**
+   * Which of the two points arguments proved a `Locked` verdict, straight off
+   * `locks.ts`. `"pooled"` means the ceiling test did NOT reach this team and
+   * the district's conserved remaining points did — the population quick task
+   * 260925-pl6 exists to create, and what `scripts/measureLedgerTenets.ts`
+   * counts. `null` for every status that is not `Locked` on points.
+   */
+  readonly lockedBy: LockResult["lockedBy"];
 }
 
 export interface DistrictLedgerStatusModel {
@@ -86,6 +110,13 @@ export interface DistrictLedgerStatusModel {
   readonly projectionCutLine: number | null;
   /** How many slots were HELD BACK at this position for Impact awards still to come — see `reservedSlotsAtPosition`. Zero at a position where every district-tier event has posted its awards. */
   readonly reservedSlots: number;
+  /**
+   * How many district points the whole district still has to hand out at this
+   * position — the pooled lock's own input. Zero at a position where every
+   * district-tier category is final, which is what makes a finished season's
+   * verdicts identical with and without the pooled argument.
+   */
+  readonly pooledRemainingPoints: number;
 }
 
 export interface ComputeDistrictLedgerStatusesOptions {
@@ -182,6 +213,7 @@ export function computeDistrictLedgerStatuses(options: ComputeDistrictLedgerStat
 
   const lockInputs: LockTeamInput[] = [];
   const projectionInputs: LockTeamInput[] = [];
+  const pooledEntries: PooledTeamEntry[] = [];
   const awardQualified = new Set<string>();
 
   for (const team of teams) {
@@ -209,6 +241,16 @@ export function computeDistrictLedgerStatuses(options: ComputeDistrictLedgerStat
     // `maxRemaining: 0` asks the cut-line function for the slot-th highest
     // PROJECTION rather than the slot-th highest reachable ceiling.
     projectionInputs.push({ teamKey: team.teamKey, pointTotal: team.projection, maxRemaining: 0 });
+    // The pooled lock reads the SAME per-row finalities the floor and the
+    // ceiling above were derived from, so its pool and this team's ceiling can
+    // never describe different positions. A team with no published
+    // `awardProfile` is passed as a rookie: that widens the award pool, and a
+    // wider pool is the conservative side of a guarantee.
+    pooledEntries.push({
+      teamKey: team.teamKey,
+      rookie: source.awardProfile?.rookie ?? true,
+      events: team.rows.map((row) => ({ eventKey: row.eventKey, final: row.stage.final })),
+    });
 
     for (const award of source.qualifyingAwards) {
       // An award's tier comes from the team's own event rows, exactly as
@@ -235,7 +277,14 @@ export function computeDistrictLedgerStatuses(options: ComputeDistrictLedgerStat
   // measured rather than assumed — see `computeLocksSplit`.
   const reservedSlots = reservedSlotsAtPosition(artifact, teams);
 
-  const verdicts = computeLocksWithQualifiers(lockInputs, artifact.dcmpSlots, qualifiers, reservedSlots);
+  // THE SECOND PROOF OF `Locked`. Points are conserved inside an event, so the
+  // district's total remaining points are far smaller than the sum of every
+  // rival's ceiling. A team also locks when no achievable distribution of what
+  // is left can lift enough rivals past it — see `locks.ts`'s header for the
+  // rule and `packages/core/districts/pointPool.ts` for how big the pool is.
+  const pooled = pooledLockInputs(pooledEntries);
+
+  const verdicts = computeLocksWithQualifiers(lockInputs, artifact.dcmpSlots, qualifiers, reservedSlots, pooled);
   const projectionCutLine = cutLinePointsWithQualifiers(projectionInputs, artifact.dcmpSlots, qualifiers);
   const projectionByTeam = new Map(projectionInputs.map((input) => [input.teamKey, input.pointTotal] as const));
 
@@ -266,8 +315,8 @@ export function computeDistrictLedgerStatuses(options: ComputeDistrictLedgerStat
       status = projection >= projectionCutLine ? "inRange" : "outOfRange";
     }
     if (status !== "capacityUnknown") counts[status] += 1;
-    byTeam.set(verdict.teamKey, { teamKey: verdict.teamKey, status, byAward, verdict: verdict.status });
+    byTeam.set(verdict.teamKey, { teamKey: verdict.teamKey, status, byAward, verdict: verdict.status, lockedBy: verdict.lockedBy });
   }
 
-  return { byTeam, counts, verdictCensus, projectionCutLine, reservedSlots };
+  return { byTeam, counts, verdictCensus, projectionCutLine, reservedSlots, pooledRemainingPoints: pooled.remainingPoints };
 }
