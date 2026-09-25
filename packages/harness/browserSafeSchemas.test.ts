@@ -39,6 +39,9 @@ const TEAM_RANKS_ENTRY_POINT = resolve(HERE, "teamRanks.ts");
 const MARGINALS_ENTRY_POINT = resolve(HERE, "..", "core", "rankingPoints", "marginals.ts");
 const ANALYTIC_PMF_ENTRY_POINT = resolve(HERE, "..", "core", "rankingPoints", "analyticPmf.ts");
 const FIELD_AVERAGED_ENTRY_POINT = resolve(HERE, "..", "core", "rankingPoints", "fieldAveraged.ts");
+// `allianceWinProbability.ts` (10-02): the browser's alliance pricer. 10-04 draws
+// the district-points bracket with it and 10-07 runs it inside a Web Worker.
+const ALLIANCE_WIN_PROBABILITY_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "simulation", "allianceWinProbability.ts");
 const FORBIDDEN_DIR = resolve(HERE, "..", "core", "algorithms");
 
 /** Matches one `import ... from "spec"` or `export ... from "spec"` line — this repo's convention keeps every such statement on one line. */
@@ -215,6 +218,18 @@ describe("browser-safe schema import graph", () => {
     if (nodeBuiltinViolations.length > 0) {
       const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
       expect.fail(`Node built-in import(s) reachable from packages/core/rankingPoints/fieldAveraged.ts: ${detail}`);
+    }
+  });
+
+  it("never reaches a Node built-in import from packages/core/algorithms/simulation/allianceWinProbability.ts (checked for Node built-ins only — this entry point legitimately lives under packages/core/algorithms/)", () => {
+    const { nodeBuiltinViolations, visited } = scan([ALLIANCE_WIN_PROBABILITY_ENTRY_POINT]);
+    expect(visited.has(ALLIANCE_WIN_PROBABILITY_ENTRY_POINT)).toBe(true);
+    // Sanity check the scan is not vacuous: it must actually visit this
+    // module's one runtime import, the shared browser-safe erf/normal CDF.
+    expect(visited.has(MARGINALS_ENTRY_POINT)).toBe(true);
+    if (nodeBuiltinViolations.length > 0) {
+      const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
+      expect.fail(`Node built-in import(s) reachable from packages/core/algorithms/simulation/allianceWinProbability.ts: ${detail}`);
     }
   });
 });
