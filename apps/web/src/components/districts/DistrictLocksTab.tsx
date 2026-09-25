@@ -1,6 +1,16 @@
 /**
- * The Districts page's District-Locks/Champ-Locks tabs — ONE component,
- * taking `which` ("district" or "champ") as a prop, rendered by both tabs.
+ * The Districts page's CHAMP LOCKS tab — the FIRST Championship tier, and
+ * since 2026-09-25 (quick task 260925-ots) that tier only.
+ *
+ * NARROWED FROM TWO TIERS TO ONE. This component used to take a
+ * `which` ("district" or "champ") prop and serve both tabs. Phase 10 replaced
+ * the District Locks tab with the Road to District Champs ledger
+ * (`DistrictLedger.tsx`), so the `which="district"` arm lost its last
+ * production call site. It is deleted rather than kept warm: an arm nothing
+ * renders is an arm nothing checks, and a reader of this file should not have
+ * to work out which half of every ternary is live. The champ output is
+ * unchanged, test ids included.
+ *
  * Per team: current points, maximum still attainable, status, the awards
  * ("Sent by") sending it, and points still needed to lock, or an explicit
  * "not attainable this season"/allocation note. A `"unknown"` status (TBA
@@ -16,26 +26,22 @@
  * stays visible alongside the colour — colour is never the only encoding.
  *
  * An awards ("Sent by") column, from `team.qualifyingAwards`, is filtered
- * to THIS tab's tier via each award's own `eventKey` cross-referenced
- * against the team's `eventPoints`/`remainingEvents` (see
- * `DistrictQualifyingAwardSchema`'s doc comment). District-tier award-only
- * invites (Engineering Inspiration, Rookie All Star) are annotated
- * "(award-only invite)"; DCMP-tier awards never carry that annotation.
+ * to the DCMP tier via each award's own `eventKey` cross-referenced against
+ * the team's `eventPoints`/`remainingEvents` (see
+ * `DistrictQualifyingAwardSchema`'s doc comment). No DCMP-tier award is
+ * award-only, which is why nothing here annotates one — the "(award-only
+ * invite)" annotation belonged to the deleted district arm.
  *
- * One header card per tab (`LocksHeaderCard`): a single wrapping stat row
- * reading capacity, Lock Line, then the tab's own stats. On the District
- * Locks tab those are a per-team season ceiling and a district-wide points
- * pool (Available/Total, the available part an estimate), with the
- * played/upcoming event chips below the row, inside the same card. On the
- * Champ Locks tab it is a "Remaining district points: X / Y per team" stat.
- * Both are computed client-side by `districtLocksHeaderStats.ts` (the
- * published artifact carries no dedicated aggregate field for either).
+ * One header card (`LocksHeaderCard`): a single wrapping stat row reading
+ * capacity, Lock Line, then a "Remaining district points: X / Y per team"
+ * stat, computed client-side by `districtLocksHeaderStats.ts` (the published
+ * artifact carries no dedicated aggregate field for it).
  *
  * Per-team district-points detail lives as COLUMNS behind a single expand
  * toggle, never as expandable rows. Toggled on, every default column above
  * stays exactly as it is; Rookie Bonus and Adjustments append as two more
- * columns, then every event either tab's roster has ever played — the union
- * across BOTH tiers, in chronological (week) order — appends as a
+ * columns, then every event the roster has ever played — the union across
+ * BOTH tiers, in chronological (week) order — appends as a
  * four-column band (Qualification, Alliance Selection, Playoff Advancement,
  * Award) grouped under an event-name header, mirroring
  * `event/BreakdownTab.tsx`'s own group-band pattern. A team that did not
@@ -50,25 +56,18 @@ import { teamNumberFromKey } from "@/lib/teamKey";
 import { cn } from "@/lib/utils";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
-import { computeChampLocksHeaderStats, computeDistrictLocksHeaderStats, type DistrictEventTier } from "./districtLocksHeaderStats.js";
+import { computeChampLocksHeaderStats, type DistrictEventTier } from "./districtLocksHeaderStats.js";
 
 type DistrictTeam = DistrictArtifact["teams"][number];
 type LockVerdict = DistrictTeam["districtLock"];
 type QualifyingAward = DistrictTeam["qualifyingAwards"][number];
 type DistrictEventPoints = DistrictTeam["eventPoints"][number];
 
-export type DistrictLockKind = "district" | "champ";
+/** The capacity stat's noun. The tab serves the FIRST Championship tier and only that tier. */
+const LOCK_KIND_LABEL = "FIRST Championship";
 
-const LOCK_KIND_LABEL: Record<DistrictLockKind, string> = {
-  district: "District Championship",
-  champ: "FIRST Championship",
-};
-
-/** The tier `qualifyingAwards`/`eventPoints`/`remainingEvents` use for each tab — see `DistrictQualifyingAwardSchema`'s own doc comment on why `eventKey` (not this component) is the source of truth for which tier an award belongs to. */
-const LOCK_KIND_TIER: Record<DistrictLockKind, DistrictEventTier> = {
-  district: "district",
-  champ: "dcmp",
-};
+/** The tier `qualifyingAwards`/`eventPoints`/`remainingEvents` use here — see `DistrictQualifyingAwardSchema`'s own doc comment on why `eventKey` (not this component) is the source of truth for which tier an award belongs to. */
+const LOCK_TIER: DistrictEventTier = "dcmp";
 
 /** The expanded event-columns band's tooltip label per tier. */
 const EVENT_TIER_LABEL: Record<DistrictEventPoints["tier"], string> = {
@@ -134,13 +133,13 @@ function tierForEventKey(team: DistrictTeam, eventKey: string): DistrictEventTie
   return team.eventPoints.find((event) => event.eventKey === eventKey)?.tier ?? team.remainingEvents.find((event) => event.eventKey === eventKey)?.tier;
 }
 
-/** This tab's relevant subset of `team.qualifyingAwards` — filtered to the tier `which` renders, per `LOCK_KIND_TIER`. */
-function awardsForTab(team: DistrictTeam, which: DistrictLockKind): QualifyingAward[] {
-  const tier = LOCK_KIND_TIER[which];
-  return team.qualifyingAwards.filter((award) => tierForEventKey(team, award.eventKey) === tier);
+/** This tab's relevant subset of `team.qualifyingAwards` — filtered to `LOCK_TIER`. */
+function awardsForTab(team: DistrictTeam): QualifyingAward[] {
+  return team.qualifyingAwards.filter((award) => tierForEventKey(team, award.eventKey) === LOCK_TIER);
 }
 
-function AwardsCell({ awards, which }: { awards: QualifyingAward[]; which: DistrictLockKind }) {
+/** No "(award-only invite)" annotation: a DCMP-tier award is never award-only (see `DistrictQualifyingAwardSchema`), so there has never been one to print here. */
+function AwardsCell({ awards }: { awards: QualifyingAward[] }) {
   if (awards.length === 0) return <>—</>;
   return (
     <>
@@ -148,9 +147,6 @@ function AwardsCell({ awards, which }: { awards: QualifyingAward[]; which: Distr
         <span key={`${award.eventKey}-${award.awardType}`}>
           {index > 0 && ", "}
           {award.label}
-          {/* Award-only invites never grant a play slot; DCMP-tier awards
-              are never award-only (see `DistrictQualifyingAwardSchema`). */}
-          {which === "district" && award.awardOnly && " (award-only invite)"}
         </span>
       ))}
     </>
@@ -158,74 +154,34 @@ function AwardsCell({ awards, which }: { awards: QualifyingAward[]; which: Distr
 }
 
 /**
- * The Locks page's ONE header card per tab (quick task 260914-3zj) — a
- * single wrapping stat row (capacity, Lock Line, then the tab's own stats),
- * and on the district tab the played/upcoming event chip row below that
- * stat row, inside the same card. Content is unchanged from the former
- * two-card layout; only the nesting merged.
+ * The Locks page's ONE header card (quick task 260914-3zj) — a single
+ * wrapping stat row: capacity, Lock Line, then this tab's own remaining
+ * district points stat. The district tab's played/upcoming event chip row
+ * lived in this card too until the district arm was deleted (260925-ots).
  */
-function LocksHeaderCard({ artifact, which, slots, cutLine }: { artifact: DistrictArtifact; which: DistrictLockKind; slots: number | null; cutLine: number | null }) {
-  const districtStats = which === "district" ? computeDistrictLocksHeaderStats(artifact.teams, "district", artifact.year) : null;
-  const champStats = which === "champ" ? computeChampLocksHeaderStats(artifact.teams, artifact.year) : null;
-  // Rounded separately so the two displayed numbers always add up.
-  const availablePoints = districtStats === null ? null : Math.round(districtStats.pointsPool.remainingEstimate);
-  const totalPoints = districtStats === null || availablePoints === null ? null : Math.round(districtStats.pointsPool.distributed) + availablePoints;
+function LocksHeaderCard({ artifact, slots, cutLine }: { artifact: DistrictArtifact; slots: number | null; cutLine: number | null }) {
+  const champStats = computeChampLocksHeaderStats(artifact.teams, artifact.year);
 
   return (
-    <div className="data-card flex flex-col gap-[var(--spacing-md)] p-[var(--spacing-md)]" data-testid={`${which}-locks-header-stats`}>
-      <div className="flex flex-wrap items-center gap-[var(--spacing-lg)]" data-testid={`${which}-locks-header-stat-row`}>
+    <div className="data-card flex flex-col gap-[var(--spacing-md)] p-[var(--spacing-md)]" data-testid="champ-locks-header-stats">
+      <div className="flex flex-wrap items-center gap-[var(--spacing-lg)]" data-testid="champ-locks-header-stat-row">
         <div>
-          <span className="text-role-label text-[var(--color-text-muted)]">{LOCK_KIND_LABEL[which]} capacity</span>
+          <span className="text-role-label text-[var(--color-text-muted)]">{LOCK_KIND_LABEL} capacity</span>
           <p className="text-role-heading">{slots === null ? "Capacity not published" : `${slots} Teams`}</p>
         </div>
         <div>
           <span className="text-role-label text-[var(--color-text-muted)]">Lock Line</span>
           <p className="text-role-heading">{cutLine === null ? "—" : `${formatPoints(cutLine)} Points`}</p>
         </div>
-        {districtStats !== null && (
-          <>
-            <div>
-              <span className="text-role-label text-[var(--color-text-muted)]">Pre-DCMP points remaining</span>
-              <p className="text-role-heading" data-testid="district-locks-ceiling">
-                {districtStats.perTeamCeiling === null
-                  ? "Not yet known"
-                  : `${formatPoints(districtStats.maxRemainingAcrossRoster)} / ${formatPoints(districtStats.perTeamCeiling)} per team`}
-              </p>
-            </div>
-            <div>
-              <span className="text-role-label text-[var(--color-text-muted)]">District Points (Available/Total)</span>
-              <p className="text-role-heading" data-testid="district-locks-points-pool">
-                {formatPoints(availablePoints ?? 0)}/{formatPoints(totalPoints ?? 0)}
-              </p>
-            </div>
-          </>
-        )}
-        {champStats !== null && (
-          <div>
-            <span className="text-role-label text-[var(--color-text-muted)]">Remaining district points</span>
-            <p className="text-role-heading" data-testid="champ-locks-remaining-district-points">
-              {champStats.seasonCeiling === null
-                ? formatPoints(champStats.maxRemainingAcrossRoster)
-                : `${formatPoints(champStats.maxRemainingAcrossRoster)} / ${formatPoints(champStats.seasonCeiling)} per team`}
-            </p>
-          </div>
-        )}
-      </div>
-      {districtStats !== null && (
-        <div className="flex flex-wrap gap-[var(--spacing-sm)]" data-testid="district-locks-schedule-strip">
-          {districtStats.schedule.map((event) => (
-            <span
-              key={event.eventKey}
-              data-testid="district-locks-schedule-event"
-              data-played={event.played}
-              className="event-chip event-chip--week"
-            >
-              {event.eventName}: {event.played ? "Played" : "Upcoming"}
-              {event.maxPoints !== null && ` (${formatPoints(event.maxPoints)} max)`}
-            </span>
-          ))}
+        <div>
+          <span className="text-role-label text-[var(--color-text-muted)]">Remaining district points</span>
+          <p className="text-role-heading" data-testid="champ-locks-remaining-district-points">
+            {champStats.seasonCeiling === null
+              ? formatPoints(champStats.maxRemainingAcrossRoster)
+              : `${formatPoints(champStats.maxRemainingAcrossRoster)} / ${formatPoints(champStats.seasonCeiling)} per team`}
+          </p>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -275,12 +231,11 @@ function EventComponentCell({ eventPoints, component }: { eventPoints: DistrictE
 
 export interface DistrictLocksTabProps {
   artifact: DistrictArtifact;
-  which: DistrictLockKind;
   algorithm: PublishedAlgorithmId;
   season: number;
 }
 
-export function DistrictLocksTab({ artifact, which, algorithm, season }: DistrictLocksTabProps) {
+export function DistrictLocksTab({ artifact, algorithm, season }: DistrictLocksTabProps) {
   const [columnsExpanded, setColumnsExpanded] = useState(false);
   const allEvents = useMemo(() => collectAllEvents(artifact.teams), [artifact.teams]);
 
@@ -293,19 +248,19 @@ export function DistrictLocksTab({ artifact, which, algorithm, season }: Distric
     );
   }
 
-  const slots = which === "district" ? artifact.dcmpSlots : artifact.cmpSlots;
-  const cutLine = which === "district" ? artifact.insights.dcmpCutLinePoints : artifact.insights.cmpCutLinePoints;
+  const slots = artifact.cmpSlots;
+  const cutLine = artifact.insights.cmpCutLinePoints;
   const teams = [...artifact.teams].sort((a, b) => a.rank - b.rank);
   const showEventColumns = columnsExpanded && allEvents.length > 0;
 
   return (
-    <div className="flex flex-col gap-[var(--spacing-md)]" data-testid={`district-${which}-locks-tab`}>
-      <LocksHeaderCard artifact={artifact} which={which} slots={slots} cutLine={cutLine} />
+    <div className="flex flex-col gap-[var(--spacing-md)]" data-testid="district-champ-locks-tab">
+      <LocksHeaderCard artifact={artifact} slots={slots} cutLine={cutLine} />
       <p className="text-role-body text-[var(--color-text-muted)]">{DISTRICT_LOCKS_CAVEAT}</p>
       <div className="flex justify-end">
         <button
           type="button"
-          data-testid={`district-${which}-locks-column-toggle`}
+          data-testid="district-champ-locks-column-toggle"
           aria-expanded={columnsExpanded}
           onClick={() => setColumnsExpanded((prev) => !prev)}
           className="text-role-label rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-sm)] py-[var(--spacing-xs)] text-[var(--color-accent)] hover:bg-[var(--color-bg-inset)]"
@@ -317,7 +272,7 @@ export function DistrictLocksTab({ artifact, which, algorithm, season }: Distric
         <Table>
           <TableHeader>
             {showEventColumns && (
-              <TableRow data-testid={`district-${which}-locks-event-band-row`}>
+              <TableRow data-testid="district-champ-locks-event-band-row">
                 {/* The 8 default columns carry no band of their own — a
                     single spanning spacer, aria-hidden, matching
                     `event/BreakdownTab.tsx`'s own group-band spacer
@@ -329,7 +284,7 @@ export function DistrictLocksTab({ artifact, which, algorithm, season }: Distric
                 {allEvents.map((event) => (
                   <TableHead
                     key={event.eventKey}
-                    data-testid={`district-${which}-locks-event-band-${event.eventKey}`}
+                    data-testid={`district-champ-locks-event-band-${event.eventKey}`}
                     colSpan={4}
                     title={EVENT_TIER_LABEL[event.tier]}
                     className="h-auto truncate py-1 text-center"
@@ -367,12 +322,12 @@ export function DistrictLocksTab({ artifact, which, algorithm, season }: Distric
             {teams.map((team) => {
               const teamNumber = team.teamNumber ?? teamNumberFromKey(team.teamKey);
               const nickname = team.nickname ?? `Team ${teamNumber}`;
-              const verdict = which === "district" ? team.districtLock : team.champLock;
-              const maxRemaining = which === "district" ? team.maxRemainingDistrict : team.maxRemainingChamp;
+              const verdict = team.champLock;
+              const maxRemaining = team.maxRemainingChamp;
               const maxAttainable = team.pointTotal + maxRemaining;
               const chipClass = statusChipClass(verdict.status);
               return (
-                <TableRow key={team.teamKey} data-testid={`district-${which}-lock-row`} data-status={verdict.status}>
+                <TableRow key={team.teamKey} data-testid="district-champ-lock-row" data-status={verdict.status}>
                   <TableCell className="numeric-cell">{team.rank}</TableCell>
                   <TableCell className="numeric-cell">
                     <Link to="/team/$teamNumber" params={{ teamNumber: String(teamNumber) }} search={{ year: season, algorithm, tab: "overview" }}>
@@ -382,37 +337,37 @@ export function DistrictLocksTab({ artifact, which, algorithm, season }: Distric
                   <TableCell className="truncate">{nickname}</TableCell>
                   <TableCell className="numeric-cell">{formatPoints(team.pointTotal)}</TableCell>
                   <TableCell className="numeric-cell">{formatPoints(maxAttainable)}</TableCell>
-                  <TableCell data-testid={`district-${which}-lock-status`} className="whitespace-nowrap">
+                  <TableCell data-testid="district-champ-lock-status" className="whitespace-nowrap">
                     {chipClass === undefined ? STATUS_LABEL[verdict.status] : <span className={chipClass}>{STATUS_LABEL[verdict.status]}</span>}
                   </TableCell>
-                  <TableCell data-testid={`district-${which}-lock-awards`} className="whitespace-nowrap">
-                    <AwardsCell awards={awardsForTab(team, which)} which={which} />
+                  <TableCell data-testid="district-champ-lock-awards" className="whitespace-nowrap">
+                    <AwardsCell awards={awardsForTab(team)} />
                   </TableCell>
-                  <TableCell data-testid={`district-${which}-lock-points-to-lock`} className="whitespace-nowrap">
+                  <TableCell data-testid="district-champ-lock-points-to-lock" className="whitespace-nowrap">
                     {formatPointsToLock(verdict)}
                   </TableCell>
                   {columnsExpanded && (
                     <>
-                      <TableCell data-testid={`district-${which}-lock-rookie-bonus`} className="numeric-cell">
+                      <TableCell data-testid="district-champ-lock-rookie-bonus" className="numeric-cell">
                         {formatPoints(team.rookieBonus)}
                       </TableCell>
-                      <TableCell data-testid={`district-${which}-lock-adjustments`} className="numeric-cell">
+                      <TableCell data-testid="district-champ-lock-adjustments" className="numeric-cell">
                         {formatPoints(team.adjustments)}
                       </TableCell>
                       {showEventColumns &&
                         allEvents.flatMap((event) => {
                           const eventPoints = team.eventPoints.find((entry) => entry.eventKey === event.eventKey);
                           return [
-                            <TableCell key={`${event.eventKey}-qual`} data-testid={`district-${which}-lock-event-${event.eventKey}-qual`} className="numeric-cell">
+                            <TableCell key={`${event.eventKey}-qual`} data-testid={`district-champ-lock-event-${event.eventKey}-qual`} className="numeric-cell">
                               <EventComponentCell eventPoints={eventPoints} component="qual" />
                             </TableCell>,
-                            <TableCell key={`${event.eventKey}-alliance`} data-testid={`district-${which}-lock-event-${event.eventKey}-alliance`} className="numeric-cell">
+                            <TableCell key={`${event.eventKey}-alliance`} data-testid={`district-champ-lock-event-${event.eventKey}-alliance`} className="numeric-cell">
                               <EventComponentCell eventPoints={eventPoints} component="alliance" />
                             </TableCell>,
-                            <TableCell key={`${event.eventKey}-elim`} data-testid={`district-${which}-lock-event-${event.eventKey}-elim`} className="numeric-cell">
+                            <TableCell key={`${event.eventKey}-elim`} data-testid={`district-champ-lock-event-${event.eventKey}-elim`} className="numeric-cell">
                               <EventComponentCell eventPoints={eventPoints} component="elim" />
                             </TableCell>,
-                            <TableCell key={`${event.eventKey}-award`} data-testid={`district-${which}-lock-event-${event.eventKey}-award`} className="numeric-cell">
+                            <TableCell key={`${event.eventKey}-award`} data-testid={`district-champ-lock-event-${event.eventKey}-award`} className="numeric-cell">
                               <EventComponentCell eventPoints={eventPoints} component="award" />
                             </TableCell>,
                           ];

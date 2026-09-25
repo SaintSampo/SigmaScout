@@ -184,7 +184,7 @@ function DistrictsPage() {
       districtKey: effectiveDistrict ?? "",
       onRetry: () => void districtQuery.refetch(),
       renderPending: () => <DistrictsTabSkeleton />,
-      renderPopulated: (artifact) => <DistrictLocksTab artifact={artifact} which="champ" algorithm={algorithm} season={year} />,
+      renderPopulated: (artifact) => <DistrictLocksTab artifact={artifact} algorithm={algorithm} season={year} />,
     });
   }
 

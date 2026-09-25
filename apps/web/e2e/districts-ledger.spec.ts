@@ -89,11 +89,11 @@ const TEST_IDS = {
   statusCell: "district-ledger-status-cell",
   /** `DistrictLedger.tsx:734` — the Grand total cell. */
   grandTotal: "district-ledger-grand-total",
-  /** `DistrictLocksTab.tsx:176`, with `which="champ"` — the champ tab's own header stats row. */
+  /** `DistrictLocksTab.tsx`'s `LocksHeaderCard` — the champ tab's own header stats row. */
   champHeaderStatRow: "champ-locks-header-stat-row",
-  /** `DistrictLocksTab.tsx:308`, with `which="champ"` — the champ tab's per event columns toggle. */
+  /** `DistrictLocksTab.tsx`'s column toggle — the champ tab's per event columns toggle. */
   champColumnToggle: "district-champ-locks-column-toggle",
-  /** `DistrictLocksTab.tsx:302`, with `which="champ"` — the champ table itself. */
+  /** `DistrictLocksTab.tsx`'s root element — the champ table itself. */
   champTab: "district-champ-locks-tab",
 } as const;
 
