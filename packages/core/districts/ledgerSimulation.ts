@@ -11,6 +11,7 @@
  *   - selection points        -> `districtSelectionPoints` (`./selectionPoints.js`)
  *   - the bracket topology    -> `routeBracket` / `BRACKET_SETS` (`./bracket.js`)
  *   - placement points        -> `playoffPoints` (`./bracket.js`)
+ *   - the non-eight fallback  -> `divisionedDcmpPlayoffPmf` (`./bracket.js`)
  *   - award point rates       -> `awardBaseRate` (`./awardBaseRates.js`)
  *   - the alliance win odds   -> `allianceWinProbability`
  *                                (`../algorithms/simulation/allianceWinProbability.js`)
@@ -81,6 +82,75 @@
  * A straight 1-through-N round two would run the gradient the other way.
  *
  * ---------------------------------------------------------------------------
+ * EVERY STAGE IS AN INPUT, NOT A BRANCH THAT GUESSES
+ * ---------------------------------------------------------------------------
+ *
+ * Alliances announced, playoffs done and awards posted are each an OPTIONAL
+ * input meaning "this stage's outcome is already known; simulate only what is
+ * left". There is deliberately NO "quals known" flag: a finished qualification
+ * stage is expressed by handing this function zero remaining matches, which
+ * `simulateRanks` documents as a valid input in which every team keeps its
+ * baseline average and ranks identically in every draw. A fifth flag would be
+ * a second way to express one state, and two ways to express one state is how
+ * the two drift apart. The near-certain captain floor CONTEXT calls for
+ * therefore falls out of the same code path the fully-open case takes.
+ *
+ * A known stage's work is SKIPPED, not routed and discarded. Routing a bracket
+ * whose result is then thrown away would consume the ledger stream and
+ * silently change every subsequent draw, so the skip is a correctness
+ * requirement rather than an optimisation — which is why the ledger stream's
+ * consumed count is stage-dependent BY DESIGN and why the determinism tests
+ * pin that count per stage rather than once.
+ *
+ * A SUPPLIED ALLIANCE SET IS VALIDATED, NOT TRUSTED. See
+ * `InvalidAllianceSetError`.
+ *
+ * THE SLIDER'S REWIND NEEDS NO INPUT OF ITS OWN EITHER. Rewinding is the
+ * CALLER handing back played rows as remaining, exactly as
+ * `apps/web/src/lib/simulationInputs.ts` already does per event through
+ * `findStartIndex` and `isRewindStart`. This module simulates every row it is
+ * handed and owns no row-selection rule, mirroring `simulateRanks`'s own
+ * stated division of responsibility. 10-07 builds the district assembly the
+ * same way rather than inventing a second rewind concept.
+ *
+ * ---------------------------------------------------------------------------
+ * THE NON-EIGHT-ALLIANCE FALLBACK, AND ITS SCOPE
+ * ---------------------------------------------------------------------------
+ *
+ * Every regular district event since 2023 runs the eight-alliance bracket,
+ * without exception. The only non-eight 2023-plus district rows are the
+ * DIVISIONED DISTRICT CHAMPIONSHIP PARENTS — `micmp` at four alliances and
+ * `necmp`/`oncmp`/`txcmp` at two, sixteen events in all. Their own playoff
+ * points come from a different table than the eight-alliance one: base 0, 10
+ * and 20, values absent from the eight-alliance set. That is exactly why a
+ * fabricated bracket for these events would be wrong, and why this module
+ * draws their elim points from `divisionedDcmpPlayoffPmf` and never calls
+ * `routeBracket` for them. The DRAFT still runs over that many alliances —
+ * round one 1 through N, round two N down to 1 — so the fallback pmf is keyed
+ * by an alliance number the model actually assigned rather than a guess.
+ *
+ * The whole module is scoped to 2023 and later: `assertBracketSeason` runs in
+ * the up-front validation, so an earlier season is refused rather than having
+ * the 2023-plus topology routed over a format it did not use.
+ *
+ * ---------------------------------------------------------------------------
+ * THE TIE CAVEAT — WHERE THIS MODULE CAN HONESTLY DISAGREE WITH A PUBLISHED
+ * NUMBER, AND A NAMED HANDOFF TO 10-07
+ * ---------------------------------------------------------------------------
+ *
+ * `simulateRanks`'s comparator breaks a tie on average ranking points by team
+ * key, because TBA's own season-specific tiebreakers are discarded at ingest
+ * and no data exists in this pipeline to back a real secondary ordering. For a
+ * FINISHED event that means the qualification points DERIVED here can differ
+ * from the value the team actually earned, for teams tied on average ranking
+ * points. 10-07 must print the EARNED grey number for a finished event; this
+ * module's output is for OPEN cells only.
+ *
+ * The second named handoff: 10-07 catches `UnratedTeamError` and renders that
+ * event's open cells as unavailable. This module deliberately does not make
+ * that decision — see that error's own doc comment.
+ *
+ * ---------------------------------------------------------------------------
  * BROWSER-SAFE LEAF
  * ---------------------------------------------------------------------------
  *
@@ -110,7 +180,7 @@ import {
   type DecorationBucket,
   type RookieState,
 } from "./awardBaseRates.js";
-import { playoffPoints, routeBracket, UnsupportedAllianceCountError } from "./bracket.js";
+import { assertBracketSeason, divisionedDcmpPlayoffPmf, playoffPoints, routeBracket } from "./bracket.js";
 import { maxEventPoints, type DistrictTier } from "./pointModel.js";
 import { districtQualPoints, districtTierWeight } from "./qualPoints.js";
 import { districtSelectionPoints } from "./selectionPoints.js";
@@ -155,6 +225,20 @@ export interface DistrictAwardProfile {
   readonly rookieState: RookieState;
 }
 
+/**
+ * One alliance as TBA reports it, for the stage where alliances are already
+ * announced. `picks` is TBA's own `event_alliances.picks` array: index 0 is
+ * the captain, 1 the first pick, 2 the second pick and 3 a backup robot where
+ * one exists. A backup robot REPLACES a robot rather than adding one, so the
+ * roster the bracket is priced from is the first three picks; the backup still
+ * receives the alliance's placement points and its own slot-3 selection value
+ * of zero.
+ */
+export interface SuppliedAlliance {
+  readonly allianceNumber: number;
+  readonly picks: readonly string[];
+}
+
 /** The per-event input to one joint district ledger run. */
 export interface DistrictLedgerEventInput {
   readonly eventKey: string;
@@ -184,8 +268,27 @@ export interface DistrictLedgerEventInput {
    * rather than restated, so no second shape can drift from the pricer's.
    */
   readonly ratings: ReadonlyMap<string, AllianceMemberRating>;
-  /** Team key -> the award base-rate lookup's two keys. */
+  /** Team key -> the award base-rate lookup's two keys. Not required when `knownAwardPoints` is supplied. */
   readonly awardProfiles: ReadonlyMap<string, DistrictAwardProfile>;
+  /**
+   * STAGE INPUT — alliances announced. Present means the draft is NOT
+   * simulated: selection points come from each team's real slot and the
+   * bracket is seeded from these rosters. Validated, never trusted.
+   */
+  readonly knownAlliances?: readonly SuppliedAlliance[];
+  /**
+   * STAGE INPUT — playoffs done. Present means the bracket is NOT routed at
+   * all. Routing and discarding would consume the ledger stream and silently
+   * change every subsequent draw, so this skip is a correctness requirement
+   * rather than an optimisation. A team absent from the map scores 0.
+   */
+  readonly knownElimPoints?: ReadonlyMap<string, number>;
+  /**
+   * STAGE INPUT — awards posted. Present means no award is drawn, no
+   * randomness is consumed for awards, and an award PROFILE is not required:
+   * a posted award needs no base rate. A team absent from the map scores 0.
+   */
+  readonly knownAwardPoints?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -217,7 +320,8 @@ export interface DistrictLedgerResult {
   /**
    * Team key -> which rung of `awardBaseRate`'s fallback hierarchy that team's
    * lookup landed on, so 10-07's drawer can say whether a cell rests on its
-   * own cell, a pooled bucket or the whole season.
+   * own cell, a pooled bucket or the whole season. EMPTY when
+   * `knownAwardPoints` was supplied, because no lookup ran.
    */
   readonly awardSources: ReadonlyMap<string, AwardBaseRateSource>;
 }
@@ -282,7 +386,7 @@ export class UnratedTeamError extends Error {
   }
 }
 
-/** Raised before any draw when a roster member has no award profile. */
+/** Raised before any draw when a roster member has no award profile and no known award points were supplied. */
 export class MissingAwardProfileError extends Error {
   constructor(message: string) {
     super(`simulateDistrictEvent: ${message}`);
@@ -307,6 +411,25 @@ export class InsufficientRosterError extends Error {
   constructor(message: string) {
     super(`simulateDistrictEvent: ${message}`);
     this.name = "InsufficientRosterError";
+  }
+}
+
+/**
+ * Raised when a SUPPLIED alliance set is malformed: a team on two alliances,
+ * an alliance number outside the range, a duplicate or missing alliance
+ * number, an empty pick list, a pick list longer than TBA's own maximum of
+ * four, or a pick naming a team absent from the roster.
+ *
+ * A malformed set that reached the draw loop would produce a complete,
+ * plausible-looking, WRONG selection distribution — the same failure
+ * `UnknownTeamKeyError` exists to prevent, which is why a supplied set is
+ * validated rather than trusted. Every offending alliance and team is named,
+ * not the first.
+ */
+export class InvalidAllianceSetError extends Error {
+  constructor(message: string) {
+    super(`simulateDistrictEvent: ${message}`);
+    this.name = "InvalidAllianceSetError";
   }
 }
 
@@ -396,6 +519,8 @@ export function simulateDistrictEvent(
   // season; it is allowed to propagate untouched rather than wrapped.
   const ceilings = maxEventPoints(season, tier);
   const weight = districtTierWeight(season, tier);
+  // The whole module is scoped to the 2023-plus format — see the header.
+  assertBracketSeason(season);
 
   const teamCount = baselines.length;
 
@@ -404,17 +529,18 @@ export function simulateDistrictEvent(
       `event ${eventKey}: fieldSize must be an integer at least as large as the ${teamCount}-team roster, got ${fieldSize}`
     );
   }
-  if (allianceCount !== BRACKET_ALLIANCE_COUNT) {
-    // Every regular district event since 2023 runs the eight-alliance bracket
-    // without exception; the only non-eight 2023-plus district rows are the
-    // divisioned district championship parents, whose own measured playoff
-    // points come from `divisionedDcmpPlayoffPmf` rather than from any
-    // bracket. That fallback path is not in this module yet, so an
-    // unsupported count is REFUSED here rather than routed through a
-    // fabricated bracket.
-    throw new UnsupportedAllianceCountError(
-      `event ${eventKey}: the district ledger routes the ${BRACKET_ALLIANCE_COUNT}-alliance bracket, got an alliance count of ${allianceCount}`
-    );
+  if (!Number.isInteger(allianceCount) || allianceCount < 1) {
+    throw new InsufficientRosterError(`event ${eventKey}: allianceCount must be a positive integer, got ${allianceCount}`);
+  }
+  const usesEightAllianceBracket = allianceCount === BRACKET_ALLIANCE_COUNT;
+  const elimIsKnown = input.knownElimPoints !== undefined;
+  if (!usesEightAllianceBracket && !elimIsKnown) {
+    // An alliance count the measured fallback table has no population for
+    // raises `UnsupportedAllianceCountError` from `bracket.ts`, HERE, before
+    // any draw — never a fabricated bracket and never a smoothed guess.
+    for (let allianceNumber = 1; allianceNumber <= allianceCount; allianceNumber++) {
+      divisionedDcmpPlayoffPmf(allianceCount, allianceNumber);
+    }
   }
   if (teamCount < allianceCount * DRAFTED_ALLIANCE_SIZE) {
     throw new InsufficientRosterError(
@@ -447,27 +573,37 @@ export function simulateDistrictEvent(
     );
   }
 
+  const awardIsKnown = input.knownAwardPoints !== undefined;
   const awardSources = new Map<string, AwardBaseRateSource>();
   const awardPmfByTeam: (readonly number[])[] = [];
-  const missingProfiles: string[] = [];
-  for (const baseline of baselines) {
-    const profile = awardProfiles.get(baseline.teamKey);
-    if (profile === undefined) {
-      missingProfiles.push(baseline.teamKey);
-      awardPmfByTeam.push([]);
-      continue;
+  if (!awardIsKnown) {
+    // A POSTED award needs no base rate, which is why this whole block — the
+    // lookup and its missing-profile refusal alike — is skipped when the award
+    // outcome is already known. That is what genuinely distinguishes the two
+    // stages rather than merely short-circuiting one of them.
+    const missingProfiles: string[] = [];
+    for (const baseline of baselines) {
+      const profile = awardProfiles.get(baseline.teamKey);
+      if (profile === undefined) {
+        missingProfiles.push(baseline.teamKey);
+        awardPmfByTeam.push([]);
+        continue;
+      }
+      // Looked up ONCE per team, outside the draw loop. The rung travels back
+      // on the result so 10-07's drawer can say which one a cell rests on.
+      const rate = awardBaseRate(season, profile.bucket, profile.rookieState);
+      awardSources.set(baseline.teamKey, rate.source);
+      awardPmfByTeam.push(rate.pmf);
     }
-    // Looked up ONCE per team, outside the draw loop. The rung travels back
-    // on the result so 10-07's drawer can say which one a cell rests on.
-    const rate = awardBaseRate(season, profile.bucket, profile.rookieState);
-    awardSources.set(baseline.teamKey, rate.source);
-    awardPmfByTeam.push(rate.pmf);
+    if (missingProfiles.length > 0) {
+      throw new MissingAwardProfileError(
+        `event ${eventKey}: ${missingProfiles.length} roster team(s) have no award profile and no known award points were supplied: ${missingProfiles.join(", ")}`
+      );
+    }
   }
-  if (missingProfiles.length > 0) {
-    throw new MissingAwardProfileError(
-      `event ${eventKey}: ${missingProfiles.length} roster team(s) have no award profile: ${missingProfiles.join(", ")}`
-    );
-  }
+
+  const teamIndex = new Map<string, number>(baselines.map((baseline, i) => [baseline.teamKey, i]));
+  const suppliedAlliances = validateSuppliedAlliances(input, teamIndex, allianceCount);
 
   // -------------------------------------------------------------------------
   // Accumulators, buffers and every per-rank/per-team constant: allocated ONCE
@@ -537,6 +673,21 @@ export function simulateDistrictEvent(
     const keyB = baselines[b]!.teamKey;
     return keyA < keyB ? -1 : keyA > keyB ? 1 : 0;
   });
+
+  // The measured non-eight fallback's pmfs and point values, resolved once per
+  // alliance number. `drawCategorical` takes a bare probability array, so the
+  // two halves of each entry are split here rather than inside the draw loop.
+  const fallbackProbabilities: number[][] = [];
+  const fallbackPointValues: number[][] = [];
+  if (!usesEightAllianceBracket && !elimIsKnown) {
+    for (let allianceNumber = 1; allianceNumber <= allianceCount; allianceNumber++) {
+      const pmf = divisionedDcmpPlayoffPmf(allianceCount, allianceNumber);
+      fallbackProbabilities.push(pmf.map((entry) => entry.probability));
+      // The table stores BASE point values; the tier weight is applied here,
+      // from the phase's single weight source.
+      fallbackPointValues.push(pmf.map((entry) => entry.points * weight));
+    }
+  }
 
   const allied = new Uint8Array(teamCount);
   const allianceMemberIndices: number[][] = [];
@@ -613,66 +764,99 @@ export function simulateDistrictEvent(
       selection[i] = 0;
     }
 
-    // THE PROGRESSIVE CAPTAIN RULE. `captainCursor` walks the finishing order
-    // and never rewinds, which is exactly the rule: at alliance n's turn the
-    // captain is the highest-ranked team NOT YET ALLIED, and a team before the
-    // cursor is always already allied. A precomputed top-eight captain list is
-    // the WRONG rule — measured correct at 3 of 491 events.
-    orderBuffer = order;
-    captainCursor = 0;
-    pickCursor = 0;
+    if (suppliedAlliances !== undefined) {
+      // ALLIANCES ANNOUNCED: the draft does not run. Selection points come
+      // from each team's REAL slot, and the bracket is seeded from the
+      // supplied rosters rather than from a simulated draft.
+      for (const alliance of suppliedAlliances) {
+        const n = alliance.allianceNumber - 1;
+        alliance.memberIndices.forEach((teamI, slot) => {
+          allied[teamI] = 1;
+          allianceMemberIndices[n]!.push(teamI);
+          selection[teamI] = selectionPointsBySlotAndAlliance[slot]![alliance.allianceNumber]!;
+        });
+      }
+    } else {
+      // THE PROGRESSIVE CAPTAIN RULE. `captainCursor` walks the finishing order
+      // and never rewinds, which is exactly the rule: at alliance n's turn the
+      // captain is the highest-ranked team NOT YET ALLIED, and a team before the
+      // cursor is always already allied. A precomputed top-eight captain list is
+      // the WRONG rule — measured correct at 3 of 491 events.
+      orderBuffer = order;
+      captainCursor = 0;
+      pickCursor = 0;
 
-    // Round one: alliance 1 through N, captain then first pick.
-    for (let allianceNumber = 1; allianceNumber <= allianceCount; allianceNumber++) {
-      const n = allianceNumber - 1;
-      const captain = claimNextByRank();
-      allianceMemberIndices[n]!.push(captain);
-      selection[captain] = selectionPointsBySlotAndAlliance[0]![allianceNumber]!;
-      const firstPick = claimNextByTotal();
-      allianceMemberIndices[n]!.push(firstPick);
-      selection[firstPick] = selectionPointsBySlotAndAlliance[1]![allianceNumber]!;
-    }
-    // Round two: alliance N back down to 1. SERPENTINE, measured — see this
-    // file's header for the second-pick rank gradient that proves it.
-    for (let allianceNumber = allianceCount; allianceNumber >= 1; allianceNumber--) {
-      const n = allianceNumber - 1;
-      const secondPick = claimNextByTotal();
-      allianceMemberIndices[n]!.push(secondPick);
-      selection[secondPick] = selectionPointsBySlotAndAlliance[2]![allianceNumber]!;
+      // Round one: alliance 1 through N, captain then first pick.
+      for (let allianceNumber = 1; allianceNumber <= allianceCount; allianceNumber++) {
+        const n = allianceNumber - 1;
+        const captain = claimNextByRank();
+        allianceMemberIndices[n]!.push(captain);
+        selection[captain] = selectionPointsBySlotAndAlliance[0]![allianceNumber]!;
+        const firstPick = claimNextByTotal();
+        allianceMemberIndices[n]!.push(firstPick);
+        selection[firstPick] = selectionPointsBySlotAndAlliance[1]![allianceNumber]!;
+      }
+      // Round two: alliance N back down to 1. SERPENTINE, measured — see this
+      // file's header for the second-pick rank gradient that proves it.
+      for (let allianceNumber = allianceCount; allianceNumber >= 1; allianceNumber--) {
+        const n = allianceNumber - 1;
+        const secondPick = claimNextByTotal();
+        allianceMemberIndices[n]!.push(secondPick);
+        selection[secondPick] = selectionPointsBySlotAndAlliance[2]![allianceNumber]!;
+      }
     }
 
     for (let n = 0; n < allianceCount; n++) {
       const members = allianceMemberIndices[n]!;
       const rosterN = allianceRosters[n]!;
       const keysN = allianceTeamKeys[n]!;
-      for (const teamI of members) {
-        rosterN.push(roster[teamI]!);
+      members.forEach((teamI, slot) => {
+        // A backup robot REPLACES a robot rather than adding one, so only the
+        // first three picks enter the roster the pricer sees. Including a
+        // fourth would inflate the alliance mean by a whole robot.
+        if (slot < DRAFTED_ALLIANCE_SIZE) rosterN.push(roster[teamI]!);
         keysN.push(baselines[teamI]!.teamKey);
-      }
+      });
     }
 
-    // 3. The playoffs, through 10-01's ONE topology.
+    // 3. The playoffs.
     for (let i = 0; i < teamCount; i++) elim[i] = 0;
-    const routed = routeBracket((allianceA, allianceB, setId) => {
-      bracketSetIds.push(setId);
-      // The measured pricer is called with the ROSTER ARRAYS rather than a
-      // cached mean-and-variance pair. The redundant additions are a few dozen
-      // per draw, and reusing the ONE measured pricer is worth more than the
-      // arithmetic. The final's matches are independent draws: there is no
-      // within-series momentum in this model.
-      return decideBracketMatch(
-        allianceA,
-        allianceB,
-        allianceRosters[allianceA - 1]!,
-        allianceRosters[allianceB - 1]!,
-        setId,
-        ledgerRng
-      );
-    });
-    for (let allianceNumber = 1; allianceNumber <= allianceCount; allianceNumber++) {
-      const placement = routed.placementByAlliance.get(allianceNumber)!;
-      const points = playoffPoints(season, tier, placement);
-      for (const teamI of allianceMemberIndices[allianceNumber - 1]!) elim[teamI] = points;
+    if (input.knownElimPoints !== undefined) {
+      // PLAYOFFS DONE: the bracket is NOT routed. Routing and discarding would
+      // consume the ledger stream and silently change every later draw.
+      const known = input.knownElimPoints;
+      for (let i = 0; i < teamCount; i++) elim[i] = known.get(baselines[i]!.teamKey) ?? 0;
+    } else if (usesEightAllianceBracket) {
+      const routed = routeBracket((allianceA, allianceB, setId) => {
+        bracketSetIds.push(setId);
+        // The measured pricer is called with the ROSTER ARRAYS rather than a
+        // cached mean-and-variance pair. The redundant additions are a few dozen
+        // per draw, and reusing the ONE measured pricer is worth more than the
+        // arithmetic. The final's matches are independent draws: there is no
+        // within-series momentum in this model.
+        return decideBracketMatch(
+          allianceA,
+          allianceB,
+          allianceRosters[allianceA - 1]!,
+          allianceRosters[allianceB - 1]!,
+          setId,
+          ledgerRng
+        );
+      });
+      for (let allianceNumber = 1; allianceNumber <= allianceCount; allianceNumber++) {
+        const placement = routed.placementByAlliance.get(allianceNumber)!;
+        const points = playoffPoints(season, tier, placement);
+        for (const teamI of allianceMemberIndices[allianceNumber - 1]!) elim[teamI] = points;
+      }
+    } else {
+      // THE MEASURED NON-EIGHT FALLBACK — the divisioned district championship
+      // parent, and never a fabricated bracket. See this file's header.
+      for (let allianceNumber = 1; allianceNumber <= allianceCount; allianceNumber++) {
+        const n = allianceNumber - 1;
+        const index = drawCategorical(fallbackProbabilities[n]!, ledgerRng);
+        const points = fallbackPointValues[n]![index]!;
+        for (const teamI of allianceMemberIndices[n]!) elim[teamI] = points;
+      }
     }
 
     // 4. The awards, drawn per team in `baselines` order so the stream is
@@ -680,12 +864,18 @@ export function simulateDistrictEvent(
     //    covers JUDGED awards only (Winner, Finalist and Highest Rookie Seed
     //    are excluded there), which makes independence a defensible modelling
     //    choice rather than a convenience — and a stated limitation for 10-08.
-    for (let i = 0; i < teamCount; i++) {
-      const index = drawCategorical(awardPmfByTeam[i]!, ledgerRng);
-      // The top support entry means FIFTEEN OR MORE and is treated as exactly
-      // fifteen at the district tier — which is also that tier's own declared
-      // award ceiling, so the treatment is exact rather than a truncation.
-      award[i] = AWARD_POINT_SUPPORT[index]! * weight;
+    if (input.knownAwardPoints !== undefined) {
+      // AWARDS POSTED: nothing is drawn and no randomness is consumed.
+      const known = input.knownAwardPoints;
+      for (let i = 0; i < teamCount; i++) award[i] = known.get(baselines[i]!.teamKey) ?? 0;
+    } else {
+      for (let i = 0; i < teamCount; i++) {
+        const index = drawCategorical(awardPmfByTeam[i]!, ledgerRng);
+        // The top support entry means FIFTEEN OR MORE and is treated as exactly
+        // fifteen at the district tier — which is also that tier's own declared
+        // award ceiling, so the treatment is exact rather than a truncation.
+        award[i] = AWARD_POINT_SUPPORT[index]! * weight;
+      }
     }
 
     // 5. Accumulate. Every histogram is a marginal of THESE runs, and the
@@ -727,4 +917,76 @@ export function simulateDistrictEvent(
     eventTotal: totalHistograms,
     awardSources,
   };
+}
+
+interface ResolvedSuppliedAlliance {
+  readonly allianceNumber: number;
+  readonly memberIndices: readonly number[];
+}
+
+/**
+ * Validates a SUPPLIED alliance set rather than trusting it, collecting EVERY
+ * problem before throwing so one run tells a caller everything that is wrong.
+ * See `InvalidAllianceSetError` for why this exists at all.
+ */
+function validateSuppliedAlliances(
+  input: DistrictLedgerEventInput,
+  teamIndex: ReadonlyMap<string, number>,
+  allianceCount: number
+): readonly ResolvedSuppliedAlliance[] | undefined {
+  const supplied = input.knownAlliances;
+  if (supplied === undefined) return undefined;
+
+  const problems: string[] = [];
+  const seenNumbers = new Set<number>();
+  const allianceOfTeam = new Map<string, number>();
+  const resolved: ResolvedSuppliedAlliance[] = [];
+
+  for (const alliance of supplied) {
+    const n = alliance.allianceNumber;
+    if (!Number.isInteger(n) || n < 1 || n > allianceCount) {
+      problems.push(`alliance number ${n} is outside 1 through ${allianceCount}`);
+      continue;
+    }
+    if (seenNumbers.has(n)) {
+      problems.push(`alliance number ${n} appears more than once`);
+      continue;
+    }
+    seenNumbers.add(n);
+    if (alliance.picks.length === 0) {
+      problems.push(`alliance ${n} carries an empty pick list`);
+      continue;
+    }
+    if (alliance.picks.length > MAX_PICK_SLOTS) {
+      problems.push(`alliance ${n} carries ${alliance.picks.length} picks, above TBA's own maximum of ${MAX_PICK_SLOTS}`);
+      continue;
+    }
+    const memberIndices: number[] = [];
+    for (const key of alliance.picks) {
+      const index = teamIndex.get(key);
+      if (index === undefined) {
+        problems.push(`alliance ${n} names team ${key}, which is absent from the roster`);
+        continue;
+      }
+      const priorAlliance = allianceOfTeam.get(key);
+      if (priorAlliance !== undefined) {
+        problems.push(`team ${key} appears on alliance ${priorAlliance} and alliance ${n}`);
+        continue;
+      }
+      allianceOfTeam.set(key, n);
+      memberIndices.push(index);
+    }
+    resolved.push({ allianceNumber: n, memberIndices });
+  }
+
+  for (let n = 1; n <= allianceCount; n++) {
+    if (!seenNumbers.has(n)) problems.push(`alliance number ${n} is missing from the supplied set`);
+  }
+
+  if (problems.length > 0) {
+    throw new InvalidAllianceSetError(
+      `event ${input.eventKey}: the supplied alliance set is malformed — ${problems.join("; ")}`
+    );
+  }
+  return resolved;
 }

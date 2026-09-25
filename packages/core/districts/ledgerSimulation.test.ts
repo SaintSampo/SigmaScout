@@ -19,11 +19,17 @@ import {
   type SimTeamBaseline,
 } from "../algorithms/simulation/rankSimulation.js";
 import { AWARD_POINT_SUPPORT, awardBaseRate } from "./awardBaseRates.js";
-import { BRACKET_SETS, UnsupportedAllianceCountError } from "./bracket.js";
+import {
+  BRACKET_SETS,
+  divisionedDcmpPlayoffPmf,
+  UnsupportedAllianceCountError,
+  UnsupportedBracketSeasonError,
+} from "./bracket.js";
 import {
   AlliancePricingError,
   decideBracketMatch,
   InsufficientRosterError,
+  InvalidAllianceSetError,
   InvalidFieldSizeError,
   MissingAwardProfileError,
   simulateDistrictEvent,
@@ -31,6 +37,7 @@ import {
   type DistrictAwardProfile,
   type DistrictDrawObservation,
   type DistrictLedgerEventInput,
+  type SuppliedAlliance,
 } from "./ledgerSimulation.js";
 import { maxEventPoints } from "./pointModel.js";
 import { UnknownDistrictSeasonError } from "./pointModel.js";
@@ -586,5 +593,387 @@ describe("decideBracketMatch — the pricer's refusal is unreachable through the
     ];
     expect([1, 8]).toContain(decideBracketMatch(1, 8, strong, weak, "sf1", () => 0.5));
     expect(decideBracketMatch(1, 8, strong, weak, "sf1", () => 0.5)).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// STAGE AWARENESS (Task 2): every stage the page can be in is an INPUT, and
+// the slider's rewind is the caller's row selection rather than a rule here.
+// ---------------------------------------------------------------------------
+
+/** The eight hand-computed alliances of the fixture's draft, as a SUPPLIED set. */
+function suppliedAlliances(): SuppliedAlliance[] {
+  const hand: readonly (readonly number[])[] = [
+    [1, 17, 24],
+    [2, 10, 14],
+    [3, 20, 21],
+    [4, 13, 11],
+    [5, 6, 18],
+    [7, 23, 15],
+    [8, 16, 22],
+    [9, 19, 12],
+  ];
+  return hand.map((alliance, index) => ({
+    allianceNumber: index + 1,
+    picks: alliance.map((n) => teamKey(n)),
+  }));
+}
+
+function isPointMass(histogram: Int32Array, draws: number): boolean {
+  let nonZeroBins = 0;
+  for (const count of histogram) {
+    if (count === 0) continue;
+    nonZeroBins++;
+    if (count !== draws) return false;
+  }
+  return nonZeroBins === 1;
+}
+
+function supportWidth(histogram: Int32Array): number {
+  let width = 0;
+  for (const count of histogram) if (count > 0) width++;
+  return width;
+}
+
+describe("simulateDistrictEvent — quals done needs no special case", () => {
+  it("zero remaining matches gives point-mass qualification and selection histograms for every team, and the same alliance assignment in draw 1 and draw 1,000", () => {
+    const input = inputFor(30, { remainingMatches: [] });
+    const draws = 1_000;
+    const snapshots: string[] = [];
+    const result = simulateDistrictEvent(input, draws, 12, (observation) => {
+      if (observation.draw === 0 || observation.draw === draws - 1) {
+        snapshots.push(JSON.stringify(snapshot(observation).alliances));
+      }
+    });
+    for (const baseline of input.baselines) {
+      expect(isPointMass(result.qualPoints.get(baseline.teamKey)!, draws)).toBe(true);
+      expect(isPointMass(result.selectionPoints.get(baseline.teamKey)!, draws)).toBe(true);
+    }
+    expect(snapshots).toHaveLength(2);
+    expect(snapshots[0]).toBe(snapshots[1]);
+  });
+});
+
+describe("simulateDistrictEvent — the rewind reopens later stages", () => {
+  it("the same event with five of its played rows handed back as remaining gives a strictly wider qualification support and a selection histogram that is no longer a point mass", () => {
+    // Baselines spaced tightly enough that a reopened row's ranking-point draw
+    // can actually move a team past its neighbour — the point of a rewind. The
+    // wide fixture used elsewhere separates teams by more than any single
+    // match can close, which would make this test pass vacuously.
+    const teamCount = 30;
+    const tightBaselines: SimTeamBaseline[] = [];
+    for (let i = 1; i <= teamCount; i++) {
+      tightBaselines.push({ teamKey: teamKey(i), earnedRpSum: (teamCount + 1 - i) * 2, matchesPlayed: 10 });
+    }
+    const widePmf = [0.2, 0.2, 0.2, 0.2, 0.2];
+    const reopened: SimMatchInput[] = remainingMatches()
+      .slice(1)
+      .map((match) => ({ ...match, redRpPmf: widePmf, blueRpPmf: widePmf }));
+
+    const closed = inputFor(teamCount, { remainingMatches: [], baselines: tightBaselines });
+    const rewound = inputFor(teamCount, { remainingMatches: reopened, baselines: tightBaselines });
+    const draws = 400;
+    const closedResult = simulateDistrictEvent(closed, draws, 55);
+    const rewoundResult = simulateDistrictEvent(rewound, draws, 55);
+
+    const widened = closed.baselines.some(
+      (baseline) =>
+        supportWidth(rewoundResult.qualPoints.get(baseline.teamKey)!) >
+        supportWidth(closedResult.qualPoints.get(baseline.teamKey)!)
+    );
+    expect(widened).toBe(true);
+    const selectionOpened = closed.baselines.some(
+      (baseline) => !isPointMass(rewoundResult.selectionPoints.get(baseline.teamKey)!, draws)
+    );
+    expect(selectionOpened).toBe(true);
+    // The two different answers came from the two different INPUTS alone: the
+    // module owns no rewind rule, and took the reopened rows as given.
+    expect(closed.remainingMatches).toHaveLength(0);
+    expect(rewound.remainingMatches).toHaveLength(5);
+  });
+});
+
+describe("simulateDistrictEvent — alliances announced", () => {
+  it("fixes every team's selection points at its real slot, leaves a fourth robot and an unallied team at zero, and seeds the bracket from the supplied rosters", () => {
+    const withBackup = suppliedAlliances().map((alliance, index) =>
+      index === 0 ? { ...alliance, picks: [...alliance.picks, teamKey(25)] } : alliance
+    );
+    const input = inputFor(30, { knownAlliances: withBackup });
+    const draws = 100;
+    let drawsWithBracket = 0;
+    const result = simulateDistrictEvent(input, draws, 7, (observation) => {
+      if (observation.bracketSetIds.length > 0) drawsWithBracket++;
+      // The decider-visible rosters ARE the supplied ones, not a simulated draft.
+      expect(observation.alliances[0]).toEqual(withBackup[0]!.picks);
+      expect(observation.alliances[7]).toEqual(withBackup[7]!.picks);
+    });
+    expect(drawsWithBracket).toBe(draws);
+
+    for (const alliance of withBackup) {
+      alliance.picks.forEach((key, slot) => {
+        const histogram = result.selectionPoints.get(key)!;
+        expect(histogram[districtSelectionPoints(SEASON, TIER, slot, alliance.allianceNumber)]).toBe(draws);
+      });
+    }
+    // The backup robot on alliance 1 earns nothing, and so does a team on no alliance.
+    expect(result.selectionPoints.get(teamKey(25))![0]).toBe(draws);
+    for (const n of [26, 27, 28, 29, 30]) {
+      expect(result.selectionPoints.get(teamKey(n))![0]).toBe(draws);
+    }
+  });
+
+  it.each([
+    [
+      "a team on two alliances",
+      (a: SuppliedAlliance[]): SuppliedAlliance[] =>
+        a.map((alliance, i) => (i === 1 ? { ...alliance, picks: [teamKey(1), ...alliance.picks.slice(1)] } : alliance)),
+      [teamKey(1)],
+    ],
+    [
+      "an alliance number outside the range",
+      (a: SuppliedAlliance[]): SuppliedAlliance[] =>
+        a.map((alliance, i) => (i === 7 ? { ...alliance, allianceNumber: 9 } : alliance)),
+      ["9"],
+    ],
+    [
+      "a duplicate alliance number",
+      (a: SuppliedAlliance[]): SuppliedAlliance[] =>
+        a.map((alliance, i) => (i === 7 ? { ...alliance, allianceNumber: 1 } : alliance)),
+      ["1"],
+    ],
+    ["a missing alliance number", (a: SuppliedAlliance[]): SuppliedAlliance[] => a.slice(0, 7), ["8"]],
+    [
+      "an empty pick list",
+      (a: SuppliedAlliance[]): SuppliedAlliance[] => a.map((alliance, i) => (i === 2 ? { ...alliance, picks: [] } : alliance)),
+      ["3"],
+    ],
+    [
+      "a pick list longer than four",
+      (a: SuppliedAlliance[]): SuppliedAlliance[] =>
+        a.map((alliance, i) => (i === 4 ? { ...alliance, picks: [...alliance.picks, teamKey(26), teamKey(27)] } : alliance)),
+      ["5"],
+    ],
+    [
+      "a pick naming a team absent from the roster",
+      (a: SuppliedAlliance[]): SuppliedAlliance[] =>
+        a.map((alliance, i) =>
+          i === 3 ? { ...alliance, picks: [alliance.picks[0]!, "frc9999", alliance.picks[2]!] } : alliance
+        ),
+      ["frc9999", "4"],
+    ],
+  ])("rejects %s with a typed error naming the offending alliance and team", (_label, mutate, expectedFragments) => {
+    const input = inputFor(30, { knownAlliances: mutate(suppliedAlliances()) });
+    try {
+      simulateDistrictEvent(input, 10, 1);
+      expect.fail("expected InvalidAllianceSetError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(InvalidAllianceSetError);
+      for (const fragment of expectedFragments) expect((error as Error).message).toContain(fragment);
+    }
+  });
+});
+
+describe("simulateDistrictEvent — playoffs done", () => {
+  it("fixes every team's elim points and never routes the bracket, because routing and discarding would consume the ledger stream and silently change every later draw", () => {
+    const supplied = suppliedAlliances();
+    const knownElimPoints = new Map<string, number>();
+    supplied.forEach((alliance, index) => {
+      const points = [30, 20, 13, 7, 0, 0, 0, 0][index]!;
+      for (const key of alliance.picks) knownElimPoints.set(key, points);
+    });
+    const input = inputFor(30, { knownAlliances: supplied, knownElimPoints });
+    const draws = 100;
+    let deciderCalls = 0;
+    const result = simulateDistrictEvent(input, draws, 3, (observation) => {
+      deciderCalls += observation.bracketSetIds.length;
+    });
+    expect(deciderCalls).toBe(0);
+    for (const [key, points] of knownElimPoints) {
+      expect(result.elimPoints.get(key)![points]).toBe(draws);
+    }
+    expect(result.elimPoints.get(teamKey(30))![0]).toBe(draws);
+  });
+});
+
+describe("simulateDistrictEvent — awards posted", () => {
+  it("fixes every team's award points, consumes no randomness for awards, and does NOT require an award profile", () => {
+    const knownAwardPoints = new Map<string, number>([
+      [teamKey(1), 10],
+      [teamKey(2), 5],
+    ]);
+    const input = inputFor(30, {
+      knownAwardPoints,
+      awardProfiles: new Map<string, DistrictAwardProfile>(),
+      remainingMatches: [],
+      knownAlliances: suppliedAlliances(),
+      knownElimPoints: new Map<string, number>(),
+    });
+    const draws = 50;
+    let ledgerDraws = 0;
+    const result = simulateDistrictEvent(input, draws, 9, (observation) => {
+      ledgerDraws += observation.ledgerDraws;
+    });
+    expect(ledgerDraws).toBe(0);
+    expect(result.awardPoints.get(teamKey(1))![10]).toBe(draws);
+    expect(result.awardPoints.get(teamKey(2))![5]).toBe(draws);
+    expect(result.awardPoints.get(teamKey(3))![0]).toBe(draws);
+    expect(result.awardSources.size).toBe(0);
+  });
+
+  it("the same input WITHOUT known award points DOES throw for the missing profile, so the two stages are genuinely distinguished", () => {
+    const input = inputFor(30, { awardProfiles: new Map<string, DistrictAwardProfile>(), remainingMatches: [] });
+    expect(() => simulateDistrictEvent(input, 10, 9)).toThrow(MissingAwardProfileError);
+  });
+});
+
+describe("simulateDistrictEvent — the stages compose", () => {
+  it("all four known at once gives five point masses, a ledger-stream consumption count of exactly zero, and an event total that is the exact sum of the four supplied numbers", () => {
+    const supplied = suppliedAlliances();
+    const knownElimPoints = new Map<string, number>();
+    supplied.forEach((alliance, index) => {
+      const points = [30, 20, 13, 7, 0, 0, 0, 0][index]!;
+      for (const key of alliance.picks) knownElimPoints.set(key, points);
+    });
+    const knownAwardPoints = new Map<string, number>([[teamKey(1), 5]]);
+    const input = inputFor(30, {
+      remainingMatches: [],
+      knownAlliances: supplied,
+      knownElimPoints,
+      knownAwardPoints,
+    });
+    const draws = 100;
+    let ledgerDraws = 0;
+    const result = simulateDistrictEvent(input, draws, 17, (observation) => {
+      ledgerDraws += observation.ledgerDraws;
+    });
+    expect(ledgerDraws).toBe(0);
+    for (const baseline of input.baselines) {
+      expect(isPointMass(result.qualPoints.get(baseline.teamKey)!, draws)).toBe(true);
+      expect(isPointMass(result.selectionPoints.get(baseline.teamKey)!, draws)).toBe(true);
+      expect(isPointMass(result.elimPoints.get(baseline.teamKey)!, draws)).toBe(true);
+      expect(isPointMass(result.awardPoints.get(baseline.teamKey)!, draws)).toBe(true);
+      expect(isPointMass(result.eventTotal.get(baseline.teamKey)!, draws)).toBe(true);
+    }
+    // Team 1 is alliance 1's captain at rank 1, elim 30, award 5 — the fully
+    // grey case the page shows for a finished event.
+    const expectedTotal =
+      districtQualPoints(SEASON, TIER, 1, 30) + districtSelectionPoints(SEASON, TIER, 0, 1) + 30 + 5;
+    expect(result.eventTotal.get(teamKey(1))![expectedTotal]).toBe(draws);
+  });
+
+  it.each([
+    ["all open", {}],
+    ["alliances known", { knownAlliances: suppliedAlliances() }],
+    [
+      "alliances and playoffs known",
+      { knownAlliances: suppliedAlliances(), knownElimPoints: new Map<string, number>() },
+    ],
+    [
+      "everything known",
+      {
+        knownAlliances: suppliedAlliances(),
+        knownElimPoints: new Map<string, number>(),
+        knownAwardPoints: new Map<string, number>(),
+      },
+    ],
+  ])("%s: two runs at one seed are byte-identical and consume a stable ledger-stream count", (_label, overrides) => {
+    const input = inputFor(30, overrides as Partial<DistrictLedgerEventInput>);
+    const run = (): { signature: string; ledgerDraws: number } => {
+      let ledgerDraws = 0;
+      const result = simulateDistrictEvent(input, 120, 606, (observation) => {
+        ledgerDraws += observation.ledgerDraws;
+      });
+      const signature = input.baselines
+        .map((baseline) => Array.from(result.eventTotal.get(baseline.teamKey)!).join(","))
+        .join("|");
+      return { signature, ledgerDraws };
+    };
+    const first = run();
+    const second = run();
+    expect(first.signature).toBe(second.signature);
+    expect(first.ledgerDraws).toBe(second.ledgerDraws);
+  });
+});
+
+describe("simulateDistrictEvent — the non-eight-alliance fallback never routes a bracket", () => {
+  it.each([2, 4])(
+    "an alliance count of %i draws every allianced team's elim points from the measured divisioned-dcmp table and calls routeBracket exactly zero times",
+    (allianceCount) => {
+      const input = inputFor(24, { allianceCount, tier: "dcmp", remainingMatches: [] });
+      const draws = 4_000;
+      let deciderCalls = 0;
+      const captainOf: string[] = [];
+      const result = simulateDistrictEvent(input, draws, 1234, (observation) => {
+        deciderCalls += observation.bracketSetIds.length;
+        if (observation.draw === 0) for (const roster of observation.alliances) captainOf.push(roster[0]!);
+      });
+      expect(deciderCalls).toBe(0);
+      expect(captainOf).toHaveLength(allianceCount);
+
+      const weight = 3;
+      for (let allianceNumber = 1; allianceNumber <= allianceCount; allianceNumber++) {
+        const pmf = divisionedDcmpPlayoffPmf(allianceCount, allianceNumber);
+        const histogram = result.elimPoints.get(captainOf[allianceNumber - 1]!)!;
+        let massOnMeasuredSupport = 0;
+        for (const entry of pmf) {
+          const observed = histogram[entry.points * weight]! / draws;
+          expect(observed).toBeCloseTo(entry.probability, 1);
+          massOnMeasuredSupport += histogram[entry.points * weight]!;
+        }
+        // No draw lands outside the measured support for this alliance number.
+        expect(massOnMeasuredSupport).toBe(draws);
+      }
+
+      // An unallied team stays at 0.
+      let unalliedAtZero = 0;
+      for (const baseline of input.baselines) {
+        if (result.elimPoints.get(baseline.teamKey)![0] === draws) unalliedAtZero++;
+      }
+      expect(unalliedAtZero).toBeGreaterThanOrEqual(24 - allianceCount * 3);
+    }
+  );
+
+  it("an alliance count of 4 still runs the draft: four three-team alliances, round one 1 through 4 and round two 4 down to 1", () => {
+    const input = inputFor(24, { allianceCount: 4, tier: "dcmp", remainingMatches: [] });
+    let seen: string[][] | undefined;
+    simulateDistrictEvent(input, 1, 5, (observation) => {
+      seen = snapshot(observation).alliances;
+    });
+    expect(seen).toBeDefined();
+    // Hand-derived from the same ranking and permuted ratings: captains 1, 2,
+    // 3, 4 and first picks 17, 10, 20, 13 in round one; then round two runs
+    // alliance 4 first, so alliance 4's second pick is the stronger one.
+    expect(seen).toEqual([
+      [teamKey(1), teamKey(17), teamKey(9)],
+      [teamKey(2), teamKey(10), teamKey(16)],
+      [teamKey(3), teamKey(20), teamKey(23)],
+      [teamKey(4), teamKey(13), teamKey(6)],
+    ]);
+  });
+});
+
+describe("simulateDistrictEvent — the season guard and the tie caveat", () => {
+  it("a pre-2023 season throws through 10-01's own bracket-season guard rather than routing the 2023-plus topology over a season that did not use it", () => {
+    expect(() => simulateDistrictEvent(inputFor(24, { season: 2022 }), 10, 1)).toThrow(UnsupportedBracketSeasonError);
+  });
+
+  it("two teams tied on average ranking points order deterministically by team key — NOT TBA's official tiebreak, which is why a finished event shows the earned grey number and never this derived one", () => {
+    const teamCount = 24;
+    const baselines = baselinesFor(teamCount);
+    baselines[3] = { teamKey: teamKey(4), earnedRpSum: baselines[2]!.earnedRpSum, matchesPlayed: 10 };
+    const input = inputFor(teamCount, { remainingMatches: [], baselines });
+    let order: number[] | undefined;
+    simulateDistrictEvent(input, 1, 1, (observation) => {
+      order = [...observation.order];
+    });
+    expect(order).toBeDefined();
+    expect(input.baselines[order![2]!]!.teamKey).toBe(teamKey(3));
+    expect(input.baselines[order![3]!]!.teamKey).toBe(teamKey(4));
+    // Deterministic, and therefore a point mass — but the ORDER between the
+    // two is this pipeline's reproducibility tiebreak, not FRC's, so the two
+    // derived qualification values can disagree with what the teams earned.
+    const result = simulateDistrictEvent(input, 20, 1);
+    expect(isPointMass(result.qualPoints.get(teamKey(3))!, 20)).toBe(true);
+    expect(isPointMass(result.qualPoints.get(teamKey(4))!, 20)).toBe(true);
   });
 });
