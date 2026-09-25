@@ -35,6 +35,41 @@
  * and `awardQualified` can only contain a team whose award IS.
  * `packages/core/districts/reservedSlots.ts` owns the counting rule; this file
  * owns nothing but the subtraction.
+ *
+ * THE POOLED REMAINING-POINTS ARGUMENT (quick task 260925-pl6). The ceiling
+ * test above treats every rival's ceiling as INDEPENDENTLY reachable: forty
+ * teams with an event left read as forty separate 83-point threats. Points are
+ * conserved inside an event — one team's qualification points are another's
+ * loss — so the district's TOTAL remaining points are far smaller than the sum
+ * of those ceilings. "District Points Analysis: Mathematical Locks for
+ * Advancement" (Liatys and Papa, 2024, frclocks.com) turns that into a second,
+ * ADDITIVE proof of `"locked"`:
+ *
+ *     aheadCount(A)   = other pool teams with pointTotal >= pointTotal(A)
+ *     needed(A)       = lockSlots - aheadCount(A)
+ *     candidates      = pool teams with pointTotal < pointTotal(A), highest
+ *                       first, that still have a district event to play
+ *     minimumToEliminate(A) = sum of (pointTotal(A) - pointTotal(rival)) over
+ *                       the first `needed` candidates, or infinity when fewer
+ *                       than `needed` exist
+ *     pooledLocked(A) = needed > 0 AND minimumToEliminate(A) > remainingPoints
+ *
+ * A tie against A is enough for a rival — `>=`, the same tie philosophy as the
+ * ceiling test — so a rival's cost is exactly the gap, and `aheadCount` counts
+ * ties as ahead. A team already outside the slot count has `needed <= 0` and is
+ * never pooled locked.
+ *
+ * THE TWO TESTS ARE OR-ed, NEVER SUBSTITUTED. Each proves a different thing and
+ * neither dominates: the ceiling test locks a team whose nearest rival cannot
+ * reach it even alone, the pooled test locks a team no ACHIEVABLE distribution
+ * of the season's remaining points can unseat. `"eliminated"` is untouched by
+ * the pooled argument, which says nothing about elimination, and `pointsToLock`
+ * keeps its ceiling-test definition. With no `pooled` argument every result is
+ * exactly what it was before this was added, which `locks.test.ts` pins.
+ *
+ * `packages/core/districts/pointPool.ts` owns how big the pool is and
+ * `pooledLockInputs.ts` owns turning a district into these two facts; this file
+ * owns nothing but the comparison.
  */
 
 export interface LockTeamInput {
@@ -66,6 +101,30 @@ export interface LockResult {
   readonly pointsToLock: number | null;
   /** The number of OTHER teams whose ceiling meets or exceeds this team's floor -- exposed for the UI's cut-line/threat display. */
   readonly threatCount: number;
+  /**
+   * Which of the two points arguments proved `"locked"`, or `null` for every
+   * other status — including `"lockedAward"` and `"prequalified"`, which the
+   * points math never reaches at all.
+   *
+   * `"pooled"` means the pooled remaining-points argument held where the
+   * ceiling test did not, which is exactly the population quick task
+   * 260925-pl6 exists to create. `null` whenever no `pooled` argument was
+   * supplied and the ceiling test did not hold, so a caller can never read this
+   * field as evidence the pooled test was even asked.
+   */
+  readonly lockedBy: "ceiling" | "pooled" | "both" | null;
+}
+
+/**
+ * The two pooled facts, for one district at one position. Produced by
+ * `packages/core/districts/pooledLockInputs.ts`; see this file's header for the
+ * argument they feed.
+ */
+export interface PooledRemainingPoints {
+  /** Every district point the district still has to hand out at this position, summed over every open category of every district-tier event. */
+  readonly remainingPoints: number;
+  /** The team keys that can still collect any of them. A rival outside this set can never pass anybody and is skipped when the cost of eliminating a team is counted. */
+  readonly hasRemainingEvent: ReadonlySet<string>;
 }
 
 /** First index in `sortedAsc` whose value is `>= x` (a standard binary-search lower bound). Returns `sortedAsc.length` when every value is `< x`. */
@@ -90,6 +149,64 @@ function upperBound(sortedAsc: readonly number[], x: number): number {
     else hi = mid;
   }
   return lo;
+}
+
+/** First index in `sortedDesc` whose value is `< x`. The descending counterpart of `lowerBound`, used to find where a team's strictly-lower rivals begin. */
+function firstBelow(sortedDesc: readonly number[], x: number): number {
+  let lo = 0;
+  let hi = sortedDesc.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (sortedDesc[mid]! >= x) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/**
+ * The pooled remaining-points test, precomputed once per district and then
+ * asked per team in O(log n).
+ *
+ * The eligible rivals — the teams that still have a district event to play —
+ * are sorted descending by point total once, with a running prefix sum beside
+ * them. A team's `needed` cheapest rivals are then the CONTIGUOUS run starting
+ * at the first eligible rival strictly below it, so the minimum cost is
+ * `needed * pointTotal` minus that run's sum, with no per-team scan at all.
+ */
+function pooledLockTest(
+  teams: readonly LockTeamInput[],
+  lockSlots: number,
+  pooled: PooledRemainingPoints,
+  sortedFloorsAsc: readonly number[]
+): (floorT: number) => boolean {
+  const eligibleDesc = teams
+    .filter((team) => pooled.hasRemainingEvent.has(team.teamKey))
+    .map((team) => team.pointTotal)
+    .sort((a, b) => b - a);
+  const prefix: number[] = new Array<number>(eligibleDesc.length + 1).fill(0);
+  for (let index = 0; index < eligibleDesc.length; index++) prefix[index + 1] = prefix[index]! + eligibleDesc[index]!;
+
+  const n = sortedFloorsAsc.length;
+
+  return (floorT: number): boolean => {
+    // Ties count as AHEAD, matching the ceiling test's own tie philosophy: a
+    // tie is settled by a tiebreaker this model does not carry, so a team tied
+    // with `T` is treated as already past it.
+    const aheadCount = n - lowerBound(sortedFloorsAsc, floorT) - 1;
+    const needed = lockSlots - aheadCount;
+    // Already outside the slot count: nothing has to happen for this team to
+    // miss, so no amount of unavailable points proves anything.
+    if (needed <= 0) return false;
+
+    const firstRival = firstBelow(eligibleDesc, floorT);
+    const available = eligibleDesc.length - firstRival;
+    // Fewer rivals able to score than the number that would have to pass: the
+    // team cannot be displaced at all, whatever the pool.
+    if (available < needed) return true;
+
+    const minimumToEliminate = needed * floorT - (prefix[firstRival + needed]! - prefix[firstRival]!);
+    return minimumToEliminate > pooled.remainingPoints;
+  };
 }
 
 /**
@@ -122,7 +239,7 @@ function findPointsToLock(sortedCeilings: readonly number[], n: number, floorT: 
  */
 export function computeLocks(teams: readonly LockTeamInput[], slots: number | null): LockResult[] {
   if (slots === null) {
-    return teams.map((t) => ({ teamKey: t.teamKey, status: "unknown", pointsToLock: null, threatCount: 0 }));
+    return teams.map((t) => ({ teamKey: t.teamKey, status: "unknown", pointsToLock: null, threatCount: 0, lockedBy: null }));
   }
   return computeLocksSplit(teams, slots, slots);
 }
@@ -153,12 +270,18 @@ export function computeLocks(teams: readonly LockTeamInput[], slots: number | nu
  * `threatCount < lockSlots <= eliminationSlots` forces
  * `eliminationCount < eliminationSlots`.
  */
-function computeLocksSplit(teams: readonly LockTeamInput[], lockSlots: number, eliminationSlots: number): LockResult[] {
+function computeLocksSplit(
+  teams: readonly LockTeamInput[],
+  lockSlots: number,
+  eliminationSlots: number,
+  pooled?: PooledRemainingPoints
+): LockResult[] {
   const n = teams.length;
   const ceilings = teams.map((t) => t.pointTotal + t.maxRemaining);
   const floors = teams.map((t) => t.pointTotal);
   const sortedCeilings = [...ceilings].sort((a, b) => a - b);
   const sortedFloors = [...floors].sort((a, b) => a - b);
+  const isPooledLocked = pooled === undefined ? undefined : pooledLockTest(teams, lockSlots, pooled, sortedFloors);
 
   return teams.map((team, index) => {
     const floorT = floors[index]!;
@@ -167,14 +290,22 @@ function computeLocksSplit(teams: readonly LockTeamInput[], lockSlots: number, e
     const threatCount = n - lowerBound(sortedCeilings, floorT) - 1;
     const eliminationCount = n - upperBound(sortedFloors, ceilingT);
 
+    // The two arguments are OR-ed. A pooled lock always implies
+    // `aheadCount < lockSlots`, and `eliminationCount <= aheadCount` always, so
+    // the `"locked"` and `"eliminated"` branches stay mutually exclusive
+    // exactly as they were before the pooled test existed.
+    const lockedByCeiling = threatCount < lockSlots;
+    const lockedByPooled = isPooledLocked !== undefined && isPooledLocked(floorT);
+
     let status: LockStatus;
-    if (threatCount < lockSlots) status = "locked";
+    if (lockedByCeiling || lockedByPooled) status = "locked";
     else if (eliminationCount >= eliminationSlots) status = "eliminated";
     else status = "contending";
 
     const pointsToLock = status === "locked" ? 0 : findPointsToLock(sortedCeilings, n, floorT, team.maxRemaining, lockSlots);
+    const lockedBy = status !== "locked" ? null : lockedByCeiling && lockedByPooled ? "both" : lockedByCeiling ? "ceiling" : "pooled";
 
-    return { teamKey: team.teamKey, status, pointsToLock, threatCount };
+    return { teamKey: team.teamKey, status, pointsToLock, threatCount, lockedBy };
   });
 }
 
@@ -208,8 +339,16 @@ export interface QualifierSets {
  * caller that has not yet worked out how many awards are still to come reads
  * the same verdicts it always did rather than a silently different set.
  *
+ * `pooled` DEFAULTS TO UNDEFINED, which disables the pooled remaining-points
+ * argument entirely and makes every returned field identical to what it was
+ * before that argument existed — pinned by a test, for the same reason.
+ *
  * PROPERTY (locks.test.ts): adding an award qualifier to a district never
  * improves a non-qualified rival's status.
+ *
+ * PROPERTY (locks.test.ts): raising `pooled.remainingPoints` never locks a team
+ * a smaller pool left unlocked. More points still to hand out can only make a
+ * team easier to displace.
  */
 /**
  * The narrowed pool/slot-count derivation shared by
@@ -246,25 +385,27 @@ export function computeLocksWithQualifiers(
   teams: readonly LockTeamInput[],
   slots: number | null,
   qualifiers: QualifierSets,
-  reservedSlots = 0
+  reservedSlots = 0,
+  pooled?: PooledRemainingPoints
 ): LockResult[] {
   const qualifiedResult = (teamKey: string, status: "lockedAward" | "prequalified"): LockResult => ({
     teamKey,
     status,
     pointsToLock: 0,
     threatCount: 0,
+    lockedBy: null,
   });
 
   if (slots === null) {
     return teams.map((t) => {
       if (qualifiers.prequalified.has(t.teamKey)) return qualifiedResult(t.teamKey, "prequalified");
       if (qualifiers.awardQualified.has(t.teamKey)) return qualifiedResult(t.teamKey, "lockedAward");
-      return { teamKey: t.teamKey, status: "unknown", pointsToLock: null, threatCount: 0 };
+      return { teamKey: t.teamKey, status: "unknown", pointsToLock: null, threatCount: 0, lockedBy: null };
     });
   }
 
   const { pool, pointsSlots, lockSlots } = qualifierPool(teams, slots, qualifiers, reservedSlots);
-  const poolByTeam = new Map(computeLocksSplit(pool, lockSlots, pointsSlots).map((r) => [r.teamKey, r] as const));
+  const poolByTeam = new Map(computeLocksSplit(pool, lockSlots, pointsSlots, pooled).map((r) => [r.teamKey, r] as const));
 
   return teams.map((t) => {
     if (qualifiers.prequalified.has(t.teamKey)) return qualifiedResult(t.teamKey, "prequalified");

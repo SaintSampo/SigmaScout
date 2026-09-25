@@ -364,3 +364,234 @@ describe("cutLinePointsWithQualifiers", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// The pooled remaining-points argument (quick task 260925-pl6)
+// ---------------------------------------------------------------------------
+
+describe("the pooled remaining-points lock", () => {
+  const noQualifiers: QualifierSets = { awardQualified: new Set(), prequalified: new Set() };
+
+  /**
+   * THE WHITE PAPER'S OWN WORKED EXAMPLE (Liatys and Papa, 2024). Team `A` sits
+   * on 70 points, ranked 58th, with 60 slots. Three more teams therefore have
+   * to pass it. The four teams immediately below it are on 68, 64, 62 and 61,
+   * and the one on 64 has no district event left to play, so it is skipped: the
+   * three cheapest rivals that CAN still score are 68, 62 and 61, costing
+   * 2 + 8 + 9 = 19 points between them.
+   *
+   * Every team carries a full district event's ceiling, so the SHIPPED ceiling
+   * test does not lock `A` at all -- 62 rivals can each reach its floor alone.
+   * That is the whole point of the pooled argument: they cannot all do it at
+   * once.
+   */
+  const SLOTS = 60;
+  const paperTeams = (sixtyFourCanScore: boolean): LockTeamInput[] => {
+    const teams: LockTeamInput[] = [];
+    for (let i = 0; i < 57; i++) teams.push(team(`ahead${i}`, 100, 83));
+    teams.push(team("A", 70, 83));
+    teams.push(team("r68", 68, 83));
+    teams.push(team("r64", 64, sixtyFourCanScore ? 83 : 0));
+    teams.push(team("r62", 62, 83));
+    teams.push(team("r61", 61, 83));
+    teams.push(team("r55", 55, 83));
+    teams.push(team("r50", 50, 83));
+    return teams;
+  };
+  const paperPooled = (remainingPoints: number, sixtyFourCanScore: boolean) => ({
+    remainingPoints,
+    hasRemainingEvent: new Set(
+      paperTeams(sixtyFourCanScore)
+        .filter((t) => t.maxRemaining > 0)
+        .map((t) => t.teamKey)
+    ),
+  });
+
+  it("reproduces the paper's worked example: the minimum that could eliminate team A is exactly 19", () => {
+    const teams = paperTeams(false);
+    // 18 points left in the district is not enough to buy the 19 that would
+    // push three rivals past A.
+    expect(resultFor(computeLocksWithQualifiers(teams, SLOTS, noQualifiers, 0, paperPooled(18, false)), "A").status).toBe("locked");
+    // 19 exactly is enough, so the team is not locked -- the comparison is
+    // strict, which is the friendlier-side tie rule the rest of this module
+    // uses read from the other direction.
+    expect(resultFor(computeLocksWithQualifiers(teams, SLOTS, noQualifiers, 0, paperPooled(19, false)), "A").status).toBe("contending");
+    expect(resultFor(computeLocksWithQualifiers(teams, SLOTS, noQualifiers, 0, paperPooled(400, false)), "A").status).toBe("contending");
+  });
+
+  it("says the lock came from the POOLED argument, because the ceiling test does not reach it", () => {
+    const teams = paperTeams(false);
+    expect(resultFor(computeLocksWithQualifiers(teams, SLOTS, noQualifiers, 0, paperPooled(18, false)), "A").lockedBy).toBe("pooled");
+    // Without the pooled argument the very same inputs report contending.
+    expect(resultFor(computeLocksWithQualifiers(teams, SLOTS, noQualifiers), "A").status).toBe("contending");
+    expect(resultFor(computeLocksWithQualifiers(teams, SLOTS, noQualifiers), "A").lockedBy).toBeNull();
+  });
+
+  it("skips a rival with no district event left, which is what makes the minimum 19 rather than 16", () => {
+    // With the team on 64 able to score, the three cheapest rivals are 68, 64
+    // and 62, costing 2 + 6 + 8 = 16. 17 points left in the district then buys
+    // the elimination and A is not locked; with that team skipped it does not.
+    expect(resultFor(computeLocksWithQualifiers(paperTeams(false), SLOTS, noQualifiers, 0, paperPooled(17, false)), "A").status).toBe("locked");
+    expect(resultFor(computeLocksWithQualifiers(paperTeams(true), SLOTS, noQualifiers, 0, paperPooled(17, true)), "A").status).toBe("contending");
+  });
+
+  it("locks a team the ceiling test leaves contending, which is the whole reason it exists", () => {
+    // Two slots, four rivals each able to reach the leader's floor ALONE, so
+    // the ceiling test refuses. Two of them have to pass it, and the cheapest
+    // pair would need 5 + 30 = 35 points between them; only 30 are left in the
+    // whole district.
+    const teams = [team("leader", 100, 0), team("second", 95, 60), team("r70", 70, 60), team("r60", 60, 60), team("r50", 50, 60)];
+    const pooled = { remainingPoints: 30, hasRemainingEvent: new Set(["second", "r70", "r60", "r50"]) };
+    expect(resultFor(computeLocksWithQualifiers(teams, 2, noQualifiers), "leader").status).toBe("contending");
+    const withPool = resultFor(computeLocksWithQualifiers(teams, 2, noQualifiers, 0, pooled), "leader");
+    expect(withPool.status).toBe("locked");
+    expect(withPool.lockedBy).toBe("pooled");
+  });
+
+  it("reports BOTH when the ceiling test holds too", () => {
+    const teams = [team("leader", 100, 0), team("rival", 10, 5)];
+    const result = resultFor(
+      computeLocksWithQualifiers(teams, 1, noQualifiers, 0, { remainingPoints: 5, hasRemainingEvent: new Set(["rival"]) }),
+      "leader"
+    );
+    expect(result.status).toBe("locked");
+    expect(result.lockedBy).toBe("both");
+  });
+
+  it("locks a team no rival can reach at all, whatever the pool", () => {
+    // Two slots and only one rival left who can score: fewer rivals able to
+    // score than the number that would have to pass, so the cost is
+    // unattainable rather than merely large and the pool's size is irrelevant.
+    const teams = [team("leader", 100, 0), team("a", 99, 500), team("b", 98, 0), team("c", 97, 0)];
+    const pooled = { remainingPoints: 1_000_000, hasRemainingEvent: new Set(["a"]) };
+    expect(resultFor(computeLocksWithQualifiers(teams, 2, noQualifiers, 0, pooled), "leader").status).toBe("locked");
+  });
+
+  it("never locks a team already outside the slot count", () => {
+    // One slot: `b` is already behind `a`, so no points need to move at all for
+    // it to miss, and the pooled argument must prove nothing.
+    const teams = [team("a", 100, 0), team("b", 90, 0), team("c", 80, 50), team("d", 10, 50)];
+    const pooled = { remainingPoints: 0, hasRemainingEvent: new Set(["c", "d"]) };
+    expect(resultFor(computeLocksWithQualifiers(teams, 1, noQualifiers, 0, pooled), "b").status).not.toBe("locked");
+  });
+
+  it("treats a TIE as already ahead, the same way the ceiling test does", () => {
+    // Two teams tied on 90 for one slot with nothing left to play anywhere:
+    // neither locks, because the tiebreaker this model does not carry could go
+    // either way.
+    const teams = [team("a", 90, 0), team("b", 90, 0), team("c", 10, 0)];
+    const results = computeLocksWithQualifiers(teams, 1, noQualifiers, 0, { remainingPoints: 0, hasRemainingEvent: new Set<string>() });
+    expect(resultFor(results, "a").status).not.toBe("locked");
+    expect(resultFor(results, "b").status).not.toBe("locked");
+  });
+
+  it("leaves the ELIMINATED verdict exactly where it was, because the pooled argument says nothing about elimination", () => {
+    const teams = [team("leader", 100, 0), team("second", 95, 0), team("doomed", 10, 5)];
+    const pooled = { remainingPoints: 5, hasRemainingEvent: new Set(["doomed"]) };
+    expect(resultFor(computeLocksWithQualifiers(teams, 2, noQualifiers), "doomed").status).toBe("eliminated");
+    expect(resultFor(computeLocksWithQualifiers(teams, 2, noQualifiers, 0, pooled), "doomed").status).toBe("eliminated");
+  });
+
+  it("is identical to today when no pooled argument is passed", () => {
+    const teams = [team("a", 90, 30), team("b", 60, 40), team("c", 10, 5)];
+    for (const slots of [1, 2, 3]) {
+      for (const reserved of [0, 1]) {
+        expect(computeLocksWithQualifiers(teams, slots, noQualifiers, reserved)).toEqual(
+          computeLocksWithQualifiers(teams, slots, noQualifiers, reserved, undefined)
+        );
+        // `lockedBy` can never read "pooled" or "both" when the argument was
+        // never supplied, so a reader cannot mistake silence for a measurement.
+        for (const result of computeLocksWithQualifiers(teams, slots, noQualifiers, reserved)) {
+          expect(result.lockedBy === null || result.lockedBy === "ceiling").toBe(true);
+        }
+      }
+    }
+    expect(computeLocksWithQualifiers(teams, null, noQualifiers, 0, { remainingPoints: 0, hasRemainingEvent: new Set() })).toEqual(
+      computeLocksWithQualifiers(teams, null, noQualifiers)
+    );
+  });
+
+  it("changes nothing at all for a district with nothing left to play", () => {
+    // Every event finished: the pool is zero and no team can score again, which
+    // is every finished season in the corpus. The pooled test then locks
+    // EXACTLY the teams the ceiling test already locked, which is why a
+    // recompute of a finished artifact moves no published number.
+    const teams = [team("a", 100, 0), team("b", 90, 0), team("c", 80, 0), team("d", 10, 0)];
+    const pooled = { remainingPoints: 0, hasRemainingEvent: new Set<string>() };
+    for (const slots of [0, 1, 2, 3, 4, 5]) {
+      const without = computeLocksWithQualifiers(teams, slots, noQualifiers);
+      const withPool = computeLocksWithQualifiers(teams, slots, noQualifiers, 0, pooled);
+      expect(withPool.map((r) => r.status)).toEqual(without.map((r) => r.status));
+      expect(withPool.map((r) => r.pointsToLock)).toEqual(without.map((r) => r.pointsToLock));
+      expect(withPool.map((r) => r.threatCount)).toEqual(without.map((r) => r.threatCount));
+    }
+  });
+
+  /** Deterministic LCG (no Math.random) so the two property tests below are reproducible. */
+  function pooledLcg(seed: number): () => number {
+    let state = seed >>> 0;
+    return () => {
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+      return state / 4294967296;
+    };
+  }
+
+  it("property: raising the remaining-points pool never locks a team a smaller pool left unlocked, across 300 seeded fixtures", () => {
+    const rand = pooledLcg(0x5eed1);
+    const randInt = (max: number) => Math.floor(rand() * (max + 1));
+
+    for (let trial = 0; trial < 300; trial++) {
+      const teamCount = 1 + randInt(14);
+      const teams: LockTeamInput[] = [];
+      for (let i = 0; i < teamCount; i++) teams.push(team(`t${i}`, randInt(400), rand() < 0.3 ? 0 : randInt(200)));
+      const slots = randInt(teamCount + 2);
+      const reservedSlots = randInt(2);
+      const hasRemainingEvent = new Set(teams.filter(() => rand() < 0.7).map((t) => t.teamKey));
+
+      const pools = [0, randInt(200), randInt(600), randInt(2000)].sort((a, b) => a - b);
+      let previousLocked: Set<string> | null = null;
+      for (const remainingPoints of pools) {
+        const locked = new Set(
+          computeLocksWithQualifiers(teams, slots, noQualifiers, reservedSlots, { remainingPoints, hasRemainingEvent })
+            .filter((r) => r.status === "locked")
+            .map((r) => r.teamKey)
+        );
+        if (previousLocked !== null) {
+          for (const teamKey of locked) {
+            expect(previousLocked.has(teamKey), `trial ${trial}: ${teamKey} locks at pool ${remainingPoints} but not at a smaller one`).toBe(true);
+          }
+        }
+        previousLocked = locked;
+      }
+    }
+  });
+
+  it("property: the pooled argument only ever ADDS locks, never removes one, across 300 seeded fixtures", () => {
+    const rand = pooledLcg(0x5eed2);
+    const randInt = (max: number) => Math.floor(rand() * (max + 1));
+
+    for (let trial = 0; trial < 300; trial++) {
+      const teamCount = 1 + randInt(14);
+      const teams: LockTeamInput[] = [];
+      for (let i = 0; i < teamCount; i++) teams.push(team(`t${i}`, randInt(400), rand() < 0.3 ? 0 : randInt(200)));
+      const slots = randInt(teamCount + 2);
+      const reservedSlots = randInt(2);
+      const pooled = {
+        remainingPoints: randInt(1500),
+        hasRemainingEvent: new Set(teams.filter(() => rand() < 0.7).map((t) => t.teamKey)),
+      };
+
+      const without = computeLocksWithQualifiers(teams, slots, noQualifiers, reservedSlots);
+      const withPool = computeLocksWithQualifiers(teams, slots, noQualifiers, reservedSlots, pooled);
+      for (let i = 0; i < without.length; i++) {
+        const before = without[i]!;
+        const after = withPool[i]!;
+        expect(after.teamKey).toBe(before.teamKey);
+        if (before.status === "locked") expect(after.status, `trial ${trial}: ${before.teamKey} lost its lock`).toBe("locked");
+        // The only status change the pooled argument may produce is INTO
+        // "locked"; everything else must be untouched.
+        if (after.status !== "locked") expect(after.status).toBe(before.status);
+      }
+    }
+  });
+});
