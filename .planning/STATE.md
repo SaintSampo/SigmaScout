@@ -6,7 +6,7 @@ current_phase: 10
 current_phase_name: district-points-ledger
 status: executing
 stopped_at: Completed 10-08-PLAN.md
-last_updated: "2026-09-25T17:13:49.455Z"
+last_updated: "2026-09-25T20:01:37.265Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 10 execution started
 progress:
@@ -671,6 +671,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 234 | Publish tierCuts on the team-season artifact so live-folded robot-page rows keep their tier | 2026-09-23 | e0496acb | [260923-3x0-team-artifact-tier-cuts](./quick/260923-3x0-team-artifact-tier-cuts/) |
 | 235 | Rethink district locks page: sketch 021 (3 variants), per-category DP histogram feasibility, browser vs Worker split | 2026-09-25 | 9ba1bfd3 | [260925-16z-rethink-district-locks-page-3-sketches-p](./quick/260925-16z-rethink-district-locks-page-3-sketches-p/) |
 | 236 | Restyle the Road to District Champs ledger to sketch 021 A: boxed grey and sky cells, compact controls card, stage line, slider ticks | 2026-09-25 | 51d91043 | [260925-hr9-restyle-the-road-to-district-champs-ledg](./quick/260925-hr9-restyle-the-road-to-district-champs-ledg/) |
+| 237 | Ledger follow ups: keep scroll position on drawer and rewind navigation, print every week tick, tilde before every open cell figure | 2026-09-25 | 510b2ddf | [260925-m7e-ledger-follow-ups-keep-scroll-position-o](./quick/260925-m7e-ledger-follow-ups-keep-scroll-position-o/) |
 
 ### Roadmap Evolution
 
