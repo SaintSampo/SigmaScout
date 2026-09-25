@@ -699,7 +699,7 @@ Plans:
 
 **Requirements**: sketch 021 (`.planning/sketches/021-district-points-ledger/README.md`, the feasibility and placement sections) and `10-CONTEXT.md` (Jacob's locked decisions, 2026-09-25).
 **Depends on:** Phase 9
-**Plans:** 1/9 plans executed
+**Plans:** 2/9 plans executed
 
 **Success criteria:**
 
@@ -716,7 +716,7 @@ Plans:
 **Wave 1** *(no dependencies; sequential in the main checkout, worktrees off)*
 
 - [x] 10-01-PLAN.md — core district point formulas, corpus reconciliation test first, bracket routing, `onDraw` hook
-- [ ] 10-02-PLAN.md — measured before it ships: award base rates, selection agreement, browser win probability vs `pRedWin`
+- [x] 10-02-PLAN.md — measured before it ships: award base rates, selection agreement, browser win probability vs `pRedWin`
 - [ ] 10-03-PLAN.md — district artifact and manifest contract, shared `applyDistrictRankings`, `publish:live-windows`
 
 **Wave 2** *(blocked on Wave 1)*
