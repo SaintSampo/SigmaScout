@@ -699,7 +699,7 @@ Plans:
 
 **Requirements**: sketch 021 (`.planning/sketches/021-district-points-ledger/README.md`, the feasibility and placement sections) and `10-CONTEXT.md` (Jacob's locked decisions, 2026-09-25).
 **Depends on:** Phase 9
-**Plans:** 0 plans
+**Plans:** 9 plans
 
 **Success criteria:**
 
@@ -713,7 +713,24 @@ Plans:
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 10 to break down)
+**Wave 1** *(no dependencies; sequential in the main checkout, worktrees off)*
+- [ ] 10-01-PLAN.md — core district point formulas, corpus reconciliation test first, bracket routing, `onDraw` hook
+- [ ] 10-02-PLAN.md — measured before it ships: award base rates, selection agreement, browser win probability vs `pRedWin`
+- [ ] 10-03-PLAN.md — district artifact and manifest contract, shared `applyDistrictRankings`, `publish:live-windows`
+
+**Wave 2** *(blocked on Wave 1)*
+- [ ] 10-04-PLAN.md — the joint district ledger simulation
+- [ ] 10-05-PLAN.md — the Worker district refresh pass
+
+**Wave 3** *(blocked on Wave 2)*
+- [ ] 10-06-PLAN.md — the offline publisher: state facts, baked pmfs, award tables, measured bytes
+- [ ] 10-07-PLAN.md — the web tab: Worker triad and the Road to District Champs ledger
+
+**Wave 4** *(blocked on Wave 3)*
+- [ ] 10-08-PLAN.md — methodology copy, docs, live e2e spec
+
+**Wave 5** *(blocked on Wave 4)*
+- [ ] 10-09-PLAN.md — operator gates: tests, Worker deploy, manifest and district republish, push, CI, live e2e
 
 ---
 *Roadmap created: 2026-08-12*
