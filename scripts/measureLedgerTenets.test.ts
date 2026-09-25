@@ -18,10 +18,18 @@
  * award. That definition choice is pinned here as its own case rather than
  * left to the script's prose.
  *
- * The corpus half asserts ZERO tenet-B violations and pins tenet A at its
- * MEASURED value of 13, itemised. It is deliberately not written as
- * `toBeLessThanOrEqual(13)`: the measurement found thirteen specific
- * (district, team, position) triples and a range would let a fourteenth hide.
+ * The corpus half asserted ZERO tenet-B violations and pinned tenet A at its
+ * measured 13, itemised. Quick task 260925-ms7 then held one points slot back
+ * for every district-tier event whose Impact award is still to come, and BOTH
+ * NUMBERS ARE NOW ZERO. The thirteen triples are kept as
+ * `FIXED_TENET_A_VIOLATION_ROWS` and read back as an assertion — each of the
+ * exact positions that used to fail is swept again and must come back clean,
+ * so a regression cannot hide behind a headline count.
+ *
+ * ZERO VIOLATIONS IS ALSO WHAT A SILENTLY BROKEN SWEEP PRINTS, which is why
+ * the reserved-slot totals are pinned as floors beside them: a reservation
+ * that stopped firing, or a sweep that stopped visiting positions, fails on
+ * those rather than passing quietly.
  */
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -47,14 +55,25 @@ export const MEASURED_INDEX_FILES = 10;
 export const MEASURED_SKIPPED_NO_CAPACITY = 0;
 export const MEASURED_POSITIONS = 4022;
 export const MEASURED_TEAM_POSITIONS = 921_658;
-export const MEASURED_LOCKED_SHOWN = 138_702;
+/** 138,702 before 260925-ms7 held a slot back; 8,197 of those displays moved off `Locked`. */
+export const MEASURED_LOCKED_SHOWN = 130_505;
+/** Unchanged by the reservation, which is the point: it reaches the `Locked` test alone. */
 export const MEASURED_LOCKED_OUT_SHOWN = 190_854;
 export const MEASURED_LOCKED_AWARD_CHIP_SHOWN = 24_192;
-export const MEASURED_TENET_A_VIOLATIONS = 13;
+export const MEASURED_TENET_A_VIOLATIONS = 0;
 export const MEASURED_TENET_B_VIOLATIONS = 0;
+/** Slots held back across the whole sweep, and the positions that held at least one. Pinned as floors so a reservation that silently stopped firing fails here. */
+export const MEASURED_RESERVED_SLOTS_TOTAL = 26_604;
+export const MEASURED_POSITIONS_WITH_RESERVED_SLOTS = 3_804;
 
-/** Every tenet-A violation, as `districtKey/teamKey/positionId`. All thirteen sit on a `playoffs` step. */
-export const MEASURED_TENET_A_VIOLATION_ROWS: readonly string[] = [
+/**
+ * The thirteen tenet-A violations 260925-ma5 measured, kept as the RECORD of
+ * what was fixed rather than as an expectation. Every one of them sat on a
+ * `playoffs` step, where an event's playoffs were decided and its Impact award
+ * was not yet posted; 260925-ms7 holds a slot back at exactly those positions
+ * and the corpus test below asserts there are now none at all.
+ */
+export const FIXED_TENET_A_VIOLATION_ROWS: readonly string[] = [
   "2020fnc/frc4795/2020ncash:playoffs",
   "2020pch/frc5219/2020gaalb:playoffs",
   "2020pch/frc5632/2020gaalb:playoffs",
@@ -180,19 +199,30 @@ describe("measureLedgerTenets — pure", () => {
     // season start, quals done, alliance selection, playoffs, awards, now.
     expect(sweep.positions).toBe(6);
     expect(sweep.teamPositions).toBe(18);
-    // frc1 reads Locked at the playoffs, awards and now positions; frc2 and
-    // frc3 read Locked out at the same three. Neither appears before the
-    // playoffs step, because an open elim category leaves every ceiling above
-    // every floor.
-    expect(sweep.lockedPointsShown).toBe(3);
+    // frc1 reads Locked at the awards and now positions; frc2 and frc3 read
+    // Locked out at the playoffs, awards and now positions. Nothing appears
+    // before the playoffs step, because an open elim category leaves every
+    // ceiling above every floor.
+    //
+    // AT THE PLAYOFFS STEP frc1 IS NOT LOCKED, and that is 260925-ms7 working:
+    // the event's award is still open there, so the district's single DCMP
+    // slot is held back for it and no points slot is left to guarantee. The
+    // elimination side reads the unreserved count, so frc2 and frc3 are still
+    // Locked out at that same step.
+    expect(sweep.lockedPointsShown).toBe(2);
     expect(sweep.lockedOutShown).toBe(6);
-    expect(sweep.inRangeShown + sweep.outOfRangeShown).toBe(9);
+    expect(sweep.inRangeShown + sweep.outOfRangeShown).toBe(10);
+    // The reservation really did fire, on exactly the positions where the
+    // event's awards are not yet posted: season start, quals done, alliance
+    // selection and playoffs.
+    expect(sweep.positionsWithReservedSlots).toBe(4);
+    expect(sweep.reservedSlotsTotal).toBe(4);
   });
 
   it("finds no violation when the final verdicts match what was displayed", () => {
     const sweep = sweepDistrict(syntheticDistrict(HONEST_FINISH));
     expect(sweep.violations).toEqual([]);
-    expect(sweep.lockedKept).toBe(3);
+    expect(sweep.lockedKept).toBe(2);
     expect(sweep.lockedOutKept).toBe(6);
   });
 
@@ -200,13 +230,15 @@ describe("measureLedgerTenets — pure", () => {
     // frc1 was shown Locked and is now recorded as eliminated -> tenet A.
     // frc2 was shown Locked out and is now recorded as locked  -> tenet B.
     const sweep = sweepDistrict(syntheticDistrict({ frc1: "eliminated", frc2: "locked", frc3: "eliminated" }));
-    expect(sweep.lockedViolations).toBe(3);
+    expect(sweep.lockedViolations).toBe(2);
     expect(sweep.lockedOutViolations).toBe(3);
-    expect(sweep.violations).toHaveLength(6);
+    expect(sweep.violations).toHaveLength(5);
 
     const tenetA = sweep.violations.filter((v) => v.tenet === "A-locked-must-qualify-on-points");
-    expect(tenetA.map((v) => v.teamKey)).toEqual(["frc1", "frc1", "frc1"]);
-    expect(tenetA.map((v) => v.positionKind)).toEqual(["playoffs", "awards", "now"]);
+    expect(tenetA.map((v) => v.teamKey)).toEqual(["frc1", "frc1"]);
+    // The playoffs step is absent because the held-back slot means nothing is
+    // displayed as Locked there at all.
+    expect(tenetA.map((v) => v.positionKind)).toEqual(["awards", "now"]);
     expect(tenetA[0]?.finalStatus).toBe("eliminated");
 
     const tenetB = sweep.violations.filter((v) => v.tenet === "B-locked-out-must-not-qualify-on-points");
@@ -220,7 +252,7 @@ describe("measureLedgerTenets — pure", () => {
 
   it("reports a lockedAward finish as indeterminate, never as a broken Locked promise", () => {
     const sweep = sweepDistrict(syntheticDistrict({ frc1: "lockedAward", frc2: "eliminated", frc3: "eliminated" }));
-    expect(sweep.lockedAwardQualifiedAtNow).toBe(3);
+    expect(sweep.lockedAwardQualifiedAtNow).toBe(2);
     expect(sweep.lockedViolations).toBe(0);
     expect(sweep.violations).toEqual([]);
   });
@@ -304,29 +336,32 @@ if (!CORPUS_PRESENT) {
       expect(sweeps.flatMap((s) => s.violations).filter((v) => v.tenet === "B-locked-out-must-not-qualify-on-points")).toEqual([]);
     });
 
-    it("TENET A is violated exactly thirteen times, and each one is these exact rows", () => {
-      // Pinned, not bounded. These thirteen are the measurement's finding; a
-      // fourteenth is a new defect and must turn this test red rather than slip
-      // under a `toBeLessThanOrEqual`.
+    it("TENET A holds everywhere: no team displayed Locked on points ever failed to qualify on points", () => {
       const tenetA = sweeps.flatMap((s) => s.violations).filter((v) => v.tenet === "A-locked-must-qualify-on-points");
       expect(census.lockedViolations).toBe(MEASURED_TENET_A_VIOLATIONS);
-      expect(tenetA.map((v) => `${v.districtKey}/${v.teamKey}/${v.positionId}`)).toEqual(MEASURED_TENET_A_VIOLATION_ROWS);
+      expect(tenetA).toEqual([]);
     });
 
-    it("every violation sits on a PLAYOFFS step — the one position between an event's playoffs being decided and its awards being posted", () => {
-      expect(census.violationPositionKinds).toEqual(["playoffs"]);
-      // At such a position the event's consuming awards have not been handed
-      // out, so `qualifierPool` hands their slots back to the points pool and
-      // the lock math is briefly one slot too generous. The very next step
-      // (`awards`) consumes the slot and the verdict reverses.
-      for (const violation of sweeps.flatMap((s) => s.violations)) {
-        expect(violation.finalStatus === "eliminated" || violation.finalStatus === "contending").toBe(true);
-        // Every one of the thirteen has nothing left to earn at the offending
-        // position: the floor already equals the ceiling and the final total,
-        // so the reversal cannot be the team's own points changing.
-        expect(violation.floor).toBe(violation.ceiling);
-        expect(violation.floor).toBe(violation.finalTotal);
-      }
+    it("carries no violation of either tenet at any position of any season", () => {
+      expect(census.violationPositionKinds).toEqual([]);
+      expect(sweeps.flatMap((s) => s.violations)).toEqual([]);
+    });
+
+    it("holds slots back, so the zeros above are earned rather than free", () => {
+      // A reservation that silently stopped firing would also report zero
+      // violations, and would be indistinguishable from the fix working. These
+      // two floors are what tells them apart.
+      expect(census.reservedSlotsTotal).toBeGreaterThanOrEqual(MEASURED_RESERVED_SLOTS_TOTAL);
+      expect(census.positionsWithReservedSlots).toBeGreaterThanOrEqual(MEASURED_POSITIONS_WITH_RESERVED_SLOTS);
+    });
+
+    it("names the thirteen positions that used to fail and finds every one of them clean", () => {
+      // The record read back as an assertion: each of 260925-ma5's thirteen
+      // (district, team, position) triples is swept again here and must carry
+      // no violation. Pinned by name so a regression cannot hide behind a
+      // headline count.
+      const violationRows = new Set(sweeps.flatMap((s) => s.violations).map((v) => `${v.districtKey}/${v.teamKey}/${v.positionId}`));
+      for (const row of FIXED_TENET_A_VIOLATION_ROWS) expect(violationRows.has(row), `${row} is failing again`).toBe(false);
     });
 
     it("a lockedAward finish under a Locked display is counted separately and never inflates the violation count", () => {

@@ -21,6 +21,15 @@
  * pool, which makes locking easier. The two effects point in opposite
  * directions, so only a measurement settles it.
  *
+ * THE FIRST RUN OF THIS SWEEP (2026-09-25) FOUND THIRTEEN TENET-A VIOLATIONS,
+ * every one of them an un-awarded Impact handing its slot back. Quick task
+ * 260925-ms7 closed that by HOLDING BACK one points slot for every
+ * district-tier event whose Impact award is still to come
+ * (`packages/core/districts/reservedSlots.ts`), and this sweep is what proves
+ * it: tenet A now measures ZERO. The size of the reservation is reported in
+ * the census below, so a future reader can watch it fire rather than infer it
+ * from an absence of failures.
+ *
  * ---------------------------------------------------------------------------
  * "QUALIFIED ON POINTS" IS THE ARTIFACT'S OWN FINAL VERDICT
  * ---------------------------------------------------------------------------
@@ -265,6 +274,10 @@ export interface DistrictTenetSweep {
   readonly finalContending: number;
   /** False when at least one district-tier event is not finished at `now` (a cancelled or still-running season). Reported, never a filter. */
   readonly everyEventFinishedAtNow: boolean;
+  /** Slots HELD BACK for Impact awards still to come, summed over every position — the size of the 260925-ms7 reservation across this season's sweep. */
+  readonly reservedSlotsTotal: number;
+  /** Positions at which at least one slot was held back. Zero would mean the reservation never fired and every "0 violations" below was free. */
+  readonly positionsWithReservedSlots: number;
   readonly violations: readonly LedgerTenetViolation[];
 }
 
@@ -367,6 +380,8 @@ export function sweepDistrict(artifact: DistrictArtifact): DistrictTenetSweep {
   let outOfRangeShown = 0;
   let prequalifiedShown = 0;
   let capacityUnknownShown = 0;
+  let reservedSlotsTotal = 0;
+  let positionsWithReservedSlots = 0;
 
   for (let index = 0; index < timeline.positions.length; index++) {
     const position = timeline.positions[index]!;
@@ -378,6 +393,8 @@ export function sweepDistrict(artifact: DistrictArtifact): DistrictTenetSweep {
       stageByEvent: atNow ? undefined : stageByEvent,
     });
     const statuses = computeDistrictLedgerStatuses({ artifact, teams: rows.teams });
+    reservedSlotsTotal += statuses.reservedSlots;
+    if (statuses.reservedSlots > 0) positionsWithReservedSlots += 1;
 
     for (const team of rows.teams) {
       const status = statuses.byTeam.get(team.teamKey);
@@ -465,6 +482,8 @@ export function sweepDistrict(artifact: DistrictArtifact): DistrictTenetSweep {
     finalEliminated,
     finalContending,
     everyEventFinishedAtNow,
+    reservedSlotsTotal,
+    positionsWithReservedSlots,
     violations,
   };
 }
@@ -487,6 +506,10 @@ export interface LedgerTenetCensus {
   readonly outOfRangeShown: number;
   readonly prequalifiedShown: number;
   readonly capacityUnknownShown: number;
+  /** Slots held back for Impact awards still to come, summed over every position of every season. */
+  readonly reservedSlotsTotal: number;
+  /** Positions at which at least one slot was held back. */
+  readonly positionsWithReservedSlots: number;
   readonly seasonsNotFinishedAtNow: readonly string[];
   readonly seasonsWithTieAtTheLine: readonly string[];
   /** Every distinct step kind a violation landed on. A single value here is itself the finding. */
@@ -514,6 +537,8 @@ export function censusOf(sweeps: readonly DistrictTenetSweep[]): LedgerTenetCens
     outOfRangeShown: add((s) => s.outOfRangeShown),
     prequalifiedShown: add((s) => s.prequalifiedShown),
     capacityUnknownShown: add((s) => s.capacityUnknownShown),
+    reservedSlotsTotal: add((s) => s.reservedSlotsTotal),
+    positionsWithReservedSlots: add((s) => s.positionsWithReservedSlots),
     seasonsNotFinishedAtNow: sweeps.filter((s) => !s.everyEventFinishedAtNow).map((s) => s.districtKey),
     seasonsWithTieAtTheLine: sweeps.filter((s) => s.finalContending > 0).map((s) => s.districtKey),
     violationPositionKinds: [...new Set(violations.map((v) => v.positionKind))].sort(),
@@ -582,6 +607,9 @@ function reportTotals(census: LedgerTenetCensus, loaded: LoadedDistricts): void 
   console.log(`  Out of range shown                  ${String(census.outOfRangeShown)}  (projection-based; see header — not a tenet)`);
   console.log(`  Prequalified shown                  ${String(census.prequalifiedShown)}  (no prequalification exists at this tier)`);
   console.log(`  Capacity-unknown shown              ${String(census.capacityUnknownShown)}`);
+  console.log(``);
+  console.log(`  slots held back for awards to come   ${String(census.reservedSlotsTotal)}  (summed over every position; 260925-ms7's reservation)`);
+  console.log(`  positions holding back at least one  ${String(census.positionsWithReservedSlots)} of ${String(census.positions)}`);
   console.log(``);
   console.log(
     `  violations landed on step kinds:    ${census.violationPositionKinds.length === 0 ? "(none)" : census.violationPositionKinds.join(", ")}`

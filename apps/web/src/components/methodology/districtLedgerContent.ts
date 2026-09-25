@@ -190,6 +190,7 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
       "The award cell is priced from a table of how often teams in the same position have earned district award points. The table for each season is built only from the seasons before it.",
       "The full table, its sample sizes and the cells that cannot be scored are on the Predicting awards page.",
       "No award prediction moves a team's status. A Locked verdict stays a guarantee.",
+      "One qualification slot is held back for every district event whose Impact award is still to come. The Impact winner at a district event takes a slot, so a team is never told it is Locked on a slot an award is about to claim. A slot held back this way returns to the points race as soon as that award is posted.",
     ],
   },
   {
