@@ -1,0 +1,30 @@
+{
+  // The Playwright specs' OWN typecheck project.
+  //
+  // `apps/web/tsconfig.json` includes `src/**` and the two Vite configs; the
+  // root `tsconfig.json` includes `packages/**` and `scripts/**`. Neither
+  // included `apps/web/e2e/**`, so twenty spec files and their support module
+  // were typechecked by NOTHING. Playwright itself only transpiles, so a type
+  // error there surfaced as a runtime failure against the deployed site, or
+  // not at all (the deployed-origin specs are not run in CI — project memory
+  // `project_e2e_live_only_drift`).
+  //
+  // Extends the web project so the specs typecheck under the same strictness,
+  // lib and module resolution the app does. Two deliberate differences:
+  //
+  //   - `types`: `node` rather than `vite/client`. These files run in
+  //     Playwright's Node process, not in the browser bundle, so they read
+  //     `process.env` and never `import.meta.env`.
+  //   - `include`: the e2e tree only. `src/**` is already covered by
+  //     `tsconfig.json`; typechecking it twice would double CI's slowest
+  //     typecheck for nothing.
+  //
+  // Wired into CI through the root `typecheck` script, which runs this project
+  // after the default one. Run it alone with:
+  //   npx tsc --noEmit -p apps/web/tsconfig.e2e.json
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": ["e2e/**/*.ts", "playwright.config.ts"]
+}

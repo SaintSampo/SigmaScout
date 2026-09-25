@@ -6,7 +6,8 @@
   "type": "module",
   "packageManager": "pnpm@11.21.0",
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && pnpm run typecheck:e2e",
+    "typecheck:e2e": "tsc --noEmit -p apps/web/tsconfig.e2e.json",
     "test": "vitest run",
     "ingest": "tsx --env-file=.env packages/ingest/cli.ts",
     "ingest:media": "tsx --env-file=.env packages/ingest/cli.ts --media-only",

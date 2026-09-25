@@ -32,9 +32,13 @@ export async function touchDrag(page: Page, from: { x: number; y: number }, to: 
     x: from.x + ((to.x - from.x) * i) / steps,
     y: from.y + ((to.y - from.y) * i) / steps,
   }));
+  // `from` rather than `points[0]`: at `i = 0` the interpolation above IS
+  // `from`, so this is the same coordinate with no index read — which is what
+  // `noUncheckedIndexedAccess` was pointing at, and the spec's behaviour is
+  // byte for byte unchanged.
   await client.send("Input.dispatchTouchEvent", {
     type: "touchStart",
-    touchPoints: [{ x: points[0].x, y: points[0].y }],
+    touchPoints: [{ x: from.x, y: from.y }],
   });
   for (const point of points.slice(1)) {
     await client.send("Input.dispatchTouchEvent", {
