@@ -33,6 +33,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { openCorpusReadOnly } from "../../corpus/db.js";
 import { DISTRICT_REGISTERED_SEASONS } from "./pointModel.js";
 import { qualPoints } from "./qualPoints.js";
+import { selectionPoints } from "./selectionPoints.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const CORPUS_AVAILABLE = existsSync(CORPUS_PATH);
@@ -58,6 +59,12 @@ interface EventRankingRow {
   team_key: string;
   rank: number;
   total_teams: number;
+}
+
+interface EventAllianceRow {
+  event_key: string;
+  alliance_number: number;
+  picks: string;
 }
 
 /**
@@ -124,6 +131,48 @@ afterAll(() => {
     .join("\n");
   console.log(`[pointFormulas.reconciliation] cross-season totals\n${lines}`);
 });
+
+/**
+ * Fact 5, measured read-only against `data/corpus.sqlite` on 2026-09-25
+ * while planning 10-01: the per-season count of real pick slots at
+ * EIGHT-ALLIANCE district events the selection formula was proven exact
+ * on. 20,209 in total, zero mismatches. A floor, for the same reason as
+ * `EXPECTED_QUAL_CHECKED`.
+ */
+const EXPECTED_SELECTION_CHECKED: Readonly<Record<number, number>> = {
+  2016: 1477,
+  2017: 1838,
+  2018: 1952,
+  2019: 2296,
+  2020: 825,
+  2022: 1731,
+  2023: 2255,
+  2024: 2380,
+  2025: 2473,
+  2026: 2982,
+};
+
+/**
+ * Fact 5's two exclusion ceilings, summed across all ten seasons: 4,014
+ * pick slots with no base-tier `event_points_raw` entry for the event, and
+ * 174 alliances excluded by the eight-alliance restriction (102 of them in
+ * 2022, exactly as measured).
+ *
+ * This block splits Fact 5's single 4,014 figure into its two real causes,
+ * measured during execution: 645 slots whose team has no entry for the
+ * event at ANY tier (a non-district team playing a district event) plus
+ * 3,369 slots whose only entry is dcmp-tier (a district championship's own
+ * alliances, outside this base-tier block's scope). 645 + 3,369 = 4,014, so
+ * the split reconciles exactly with the planning measurement — Fact 5
+ * simply did not separate the two. The ceiling below is kept on the
+ * combined figure so it remains comparable to Fact 5.
+ *
+ * Ceilings rather than equalities so a later ingest that resolves more
+ * teams is an improvement, not a failure — but neither exclusion can grow
+ * silently.
+ */
+const MAX_SELECTION_ABSENT_TEAM_TOTAL = 4014;
+const MAX_SELECTION_EXCLUDED_NON_EIGHT_TOTAL = 174;
 
 function loadDistrictRankings(db: ReturnType<typeof openCorpusReadOnly>, year: number): DistrictRankingRow[] {
   return db
@@ -200,6 +249,141 @@ function reconcileQualPoints(year: number): QualBlockResult {
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// Alliance selection block
+// ---------------------------------------------------------------------------
+
+function loadDistrictEventAlliances(db: ReturnType<typeof openCorpusReadOnly>, year: number): EventAllianceRow[] {
+  return db
+    .prepare(
+      `SELECT ea.event_key, ea.alliance_number, ea.picks
+       FROM event_alliances ea
+       JOIN events e ON e.event_key = ea.event_key
+       WHERE e.year = ? AND e.district_key IS NOT NULL
+       ORDER BY ea.event_key, ea.alliance_number`
+    )
+    .all(year) as EventAllianceRow[];
+}
+
+/** `team_key` -> (`event_key` -> that team's base-tier `event_points_raw` entry for the event). */
+function indexBaseTierEntriesByTeam(rows: readonly DistrictRankingRow[]): Map<string, Map<string, EventPointsEntry>> {
+  const byTeam = new Map<string, Map<string, EventPointsEntry>>();
+  for (const row of rows) {
+    const entries = JSON.parse(row.event_points_raw) as EventPointsEntry[];
+    let forTeam = byTeam.get(row.team_key);
+    if (forTeam === undefined) {
+      forTeam = new Map<string, EventPointsEntry>();
+      byTeam.set(row.team_key, forTeam);
+    }
+    for (const entry of entries) {
+      // Base tier only — this block proves the unweighted formula. A
+      // dcmp-tier entry for the same event key cannot overwrite a base-tier
+      // one, and its absence is counted separately below.
+      if (entry.district_cmp) continue;
+      forTeam.set(entry.event_key, entry);
+    }
+  }
+  return byTeam;
+}
+
+interface SelectionBlockResult {
+  checked: number;
+  mismatches: string[];
+  /** Pick slots whose team has no base-tier entry for the event: a non-district team playing a district event. */
+  absentTeam: number;
+  /** Alliances dropped by the eight-alliance restriction. */
+  excludedNonEight: number;
+  /** Pick slots whose only entry for the event is dcmp-tier — a district championship's own alliances, out of this block's base-tier scope. */
+  dcmpTier: number;
+}
+
+/**
+ * Reconciles `selectionPoints(pickIndex, allianceNumber)` against TBA's own
+ * reported `alliance_points` for every real pick slot at every
+ * eight-alliance district event in `year`.
+ *
+ * THE EIGHT-ALLIANCE RESTRICTION IS LOAD-BEARING, NOT TIDINESS. Without it
+ * 2022 produces 209 mismatches — and they are not a formula error. They
+ * localize entirely to 26 COVID-era split district events (`event_type` 1,
+ * names ending "Day 1"/"Day 2", e.g. `2022dc305`, `2022on034`,
+ * `2022va319`) that ran with FOUR alliances, and a four-alliance event's
+ * alliance point model is a different model (its observed values read as if
+ * shifted by one seed). A reader who does not know this will "simplify" the
+ * filter away and get 209 red assertions with no explanation. It filters by
+ * MEASURED alliance count rather than by season or event key, so the same
+ * rule also catches the divisioned district-championship parents and
+ * anything similar a future ingest adds.
+ *
+ * `restrictToEightAlliances` exists so that removal is a one-line local
+ * experiment (it is how the 209 figure above was re-confirmed during
+ * execution) rather than an edit to the filter logic. It must stay `true`
+ * for every committed assertion.
+ */
+function reconcileSelectionPoints(year: number, restrictToEightAlliances = true): SelectionBlockResult {
+  const db = openCorpusReadOnly(CORPUS_PATH);
+  let alliances: EventAllianceRow[];
+  let districtRankings: DistrictRankingRow[];
+  try {
+    alliances = loadDistrictEventAlliances(db, year);
+    districtRankings = loadDistrictRankings(db, year);
+  } finally {
+    db.close();
+  }
+
+  const allianceCountByEvent = new Map<string, number>();
+  for (const row of alliances) {
+    allianceCountByEvent.set(row.event_key, (allianceCountByEvent.get(row.event_key) ?? 0) + 1);
+  }
+
+  const entriesByTeam = indexBaseTierEntriesByTeam(districtRankings);
+  const result: SelectionBlockResult = { checked: 0, mismatches: [], absentTeam: 0, excludedNonEight: 0, dcmpTier: 0 };
+
+  // Teams whose only entry for an event is dcmp-tier, resolved by rescanning
+  // the raw rows once — needed only to separate "non-district team" from
+  // "district championship alliance" in the exclusion counts.
+  const dcmpEventKeysByTeam = new Map<string, Set<string>>();
+  for (const row of districtRankings) {
+    const entries = JSON.parse(row.event_points_raw) as EventPointsEntry[];
+    for (const entry of entries) {
+      if (!entry.district_cmp) continue;
+      let keys = dcmpEventKeysByTeam.get(row.team_key);
+      if (keys === undefined) {
+        keys = new Set<string>();
+        dcmpEventKeysByTeam.set(row.team_key, keys);
+      }
+      keys.add(entry.event_key);
+    }
+  }
+
+  for (const row of alliances) {
+    if (restrictToEightAlliances && allianceCountByEvent.get(row.event_key) !== 8) {
+      result.excludedNonEight++;
+      continue;
+    }
+
+    const picks = JSON.parse(row.picks) as string[];
+    for (let pickIndex = 0; pickIndex < picks.length; pickIndex++) {
+      const teamKey = picks[pickIndex]!;
+      const entry = entriesByTeam.get(teamKey)?.get(row.event_key);
+      if (entry === undefined) {
+        if (dcmpEventKeysByTeam.get(teamKey)?.has(row.event_key) === true) result.dcmpTier++;
+        else result.absentTeam++;
+        continue;
+      }
+
+      result.checked++;
+      const expected = selectionPoints(pickIndex, row.alliance_number);
+      if (expected !== entry.alliance_points) {
+        result.mismatches.push(
+          `season ${year} event ${row.event_key} alliance ${row.alliance_number} pick ${pickIndex} team ${teamKey}: selectionPoints expected ${expected}, TBA reported ${entry.alliance_points}`
+        );
+      }
+    }
+  }
+
+  return result;
+}
+
 describe.each(DISTRICT_REGISTERED_SEASONS)("season %i district point formula reconciliation", (year) => {
   if (!CORPUS_AVAILABLE) {
     it.skip(SKIP_MESSAGE, () => {});
@@ -235,5 +419,65 @@ describe.each(DISTRICT_REGISTERED_SEASONS)("season %i district point formula rec
 
     // Non-vacuity: an accidentally-empty scan must not pass.
     expect(checked).toBeGreaterThan(0);
+  });
+
+  it(`selectionPoints(pickIndex, allianceNumber) reproduces every resolvable alliance_points TBA reported at ${year}'s eight-alliance district events`, () => {
+    const { checked, mismatches, absentTeam, excludedNonEight, dcmpTier } = reconcileSelectionPoints(year);
+    tally("selection.checked", checked);
+    tally("selection.mismatches", mismatches.length);
+    tally("selection.absentTeam", absentTeam);
+    tally("selection.excludedNonEight", excludedNonEight);
+    tally("selection.dcmpTier", dcmpTier);
+    console.log(
+      `[selection ${year}] checked=${checked} mismatches=${mismatches.length} absentTeam=${absentTeam} excludedNonEightAlliances=${excludedNonEight} dcmpTierSlots=${dcmpTier}`
+    );
+
+    expect(
+      mismatches,
+      `${mismatches.length} selection mismatch(es) in ${year}:\n${mismatches.slice(0, 20).join("\n")}`
+    ).toEqual([]);
+
+    // Population floor (Fact 5).
+    expect(
+      checked,
+      `season ${year} checked only ${checked} pick slots, below the ${EXPECTED_SELECTION_CHECKED[year]} measured on 2026-09-25 — an ingest regression shrank the scan`
+    ).toBeGreaterThanOrEqual(EXPECTED_SELECTION_CHECKED[year]!);
+
+    // Non-vacuity.
+    expect(checked).toBeGreaterThan(0);
+  });
+});
+
+describe("alliance selection exclusion populations, summed across every registered season", () => {
+  if (!CORPUS_AVAILABLE) {
+    it.skip(SKIP_MESSAGE, () => {});
+    return;
+  }
+
+  it("keeps both exclusions at or below the populations measured on 2026-09-25", () => {
+    let absentTeam = 0;
+    let dcmpTier = 0;
+    let excludedNonEight = 0;
+    let checked = 0;
+    for (const year of DISTRICT_REGISTERED_SEASONS) {
+      const result = reconcileSelectionPoints(year);
+      absentTeam += result.absentTeam;
+      dcmpTier += result.dcmpTier;
+      excludedNonEight += result.excludedNonEight;
+      checked += result.checked;
+    }
+    console.log(
+      `[selection totals] checked=${checked} absentTeam=${absentTeam} dcmpTierSlots=${dcmpTier} unresolvedBaseTier=${absentTeam + dcmpTier} excludedNonEightAlliances=${excludedNonEight}`
+    );
+
+    expect(
+      absentTeam + dcmpTier,
+      `${absentTeam + dcmpTier} pick slots have no base-tier event_points entry, above the measured ${MAX_SELECTION_ABSENT_TEAM_TOTAL}`
+    ).toBeLessThanOrEqual(MAX_SELECTION_ABSENT_TEAM_TOTAL);
+    expect(
+      excludedNonEight,
+      `${excludedNonEight} alliances were excluded by the eight-alliance restriction, above the measured ${MAX_SELECTION_EXCLUDED_NON_EIGHT_TOTAL}`
+    ).toBeLessThanOrEqual(MAX_SELECTION_EXCLUDED_NON_EIGHT_TOTAL);
+    expect(checked).toBeGreaterThanOrEqual(20_209);
   });
 });
