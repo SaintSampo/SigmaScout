@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 10
 current_phase_name: district-points-ledger
 status: executing
-stopped_at: Completed 10-06-PLAN.md
-last_updated: "2026-09-25T12:56:47.117Z"
+stopped_at: Completed 10-07-PLAN.md
+last_updated: "2026-09-25T14:00:18.710Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 10 execution started
 progress:
   total_phases: 13
   completed_phases: 12
   total_plans: 118
-  completed_plans: 115
+  completed_plans: 116
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 10 (district-points-ledger) — EXECUTING
-Plan: 7 of 9
+Plan: 8 of 9
 Status: Ready to execute
 Last activity: 2026-09-25 — Phase 10 execution started
 
-Progress: [██████████] 97%
+Progress: [██████████] 98%
 
 ## Performance Metrics
 
@@ -143,6 +143,7 @@ Progress: [██████████] 97%
 | Phase 10 P04 | 33 min | 3 tasks | 9 files |
 | Phase 10 P05 | 25 min | 3 tasks | 12 files |
 | Phase 10 P06 | 55 min | 3 tasks | 12 files |
+| Phase 10 P07 | 57 min | 6 tasks | 30 files |
 
 ## Accumulated Context
 
@@ -356,6 +357,9 @@ Recent decisions affecting current work:
 - [Phase 10]: 10-05: the district pass runs after runGlobalRebuild and before writeTickMeta, never throws, and is deliberately unreachable from the cheap-idle and state-generation-mismatch early returns
 - [Phase 10]: 10-05: awardsPosted comes from one conditional /event/{key}/awards request, only once playoffs are done and only while the published state does not already say posted; awards posted after every member event window closes wait for the next offline republish
 - [Phase 10]: 10-06: the offline publisher — the four state facts per district event, baked per-team point pmfs for unstarted events priced from walk-forward SPR state, and the measured award base-rate table, all through 10-03's committed contract — finalStates (not carryStates) is the state that prices a bake; recomputeDistrictVerdicts gained one optional tierByEvent seam so the publisher became a caller of the one verdict pass rather than keeping its own; the mandated --as-of 2026-03-07 run bakes zero events because no 2026 roster is fully rated that early in the season, so a second run at 2026-04-04 exercises the bake
+- [Phase 10]: The baked-pmf branch is SIDECAR: apps/web/src/lib/api/districtLedger.ts fetches v1/district-presim/{districtKey}/{eventKey}.json, only for a key the artifact's own bakedEvents names. — grep -c bakedEvents returned 1 and grep -c districtPreSimKey returned 3 in packages/harness/pageArtifacts.ts, so 10-03 shipped the sidecar.
+- [Phase 10]: In range and Out of range come from a SECOND call to the shipped cutLinePointsWithQualifiers over median-projection inputs with maxRemaining 0, never a hand-rolled slot subtraction; no file under packages/ was edited. — That function shares qualifierPool's exact pool and slot derivation with computeLocksWithQualifiers, which is what stops the verdicts and the cut line drifting apart.
+- [Phase 10]: The district Worker protocol does not chunk draws: progress is per EVENT, and one seed is shared across every event in a run. — simulateDistrictEvent builds both generators from the seed it is handed, so chunking would repeat a chunk or break 10-04's non-perturbation pin; the shared stream is safe because the grand total is an exact convolution, never a per-draw cross-event sum.
 
 ### Pending Todos
 
@@ -691,8 +695,8 @@ silent open row; `open_count` is now 0, so `/gsd-ship` no longer blocks.
 
 ## Session Continuity
 
-Last session: 2026-09-25T12:56:29.437Z
-Stopped at: Completed 10-06-PLAN.md
+Last session: 2026-09-25T14:00:18.638Z
+Stopped at: Completed 10-07-PLAN.md
 Resume file: None
 
 ## Decisions
