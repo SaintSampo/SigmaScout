@@ -118,7 +118,11 @@ function districtUrl(tab?: string): string {
 }
 
 /** The ledger's own horizontal scroll region: the direct `overflow-x-auto` child of the tab root (`DistrictLedger.tsx:697`). */
-const LEDGER_SCROLL_REGION = `[data-testid="${TEST_IDS.ledgerTab}"] > div.overflow-x-auto`;
+// The shared Table component wraps the table in its own horizontal scroller
+// inside the data card, so the region that overflows is the wrapper holding
+// the table, not the card (measured live 2026-09-25: table 1445px inside a
+// 340px wrapper at 390px, the card itself never overflowing).
+const LEDGER_SCROLL_REGION = `[data-testid="${TEST_IDS.ledgerTab}"] div.overflow-x-auto:has(> table)`;
 
 /** Reads a chip's count out of its rendered text, which is `"{label} {count}"` (`DistrictLedger.tsx:188`). */
 async function chipCount(page: import("@playwright/test").Page, status: string): Promise<number> {
@@ -201,15 +205,29 @@ test.describe("Road to District Champs, 1440x900", () => {
     const max = Number(await slider.getAttribute("max"));
     // eslint-disable-next-line no-console -- printed for the SUMMARY's measured-figure obligation.
     console.log(`[districts-ledger] rewind slider max (the now index): ${max}`);
-    // The timeline interleaves every started district-tier event's qualification
-    // rows plus four stage steps per event, so a nine event district's now index
-    // is in the hundreds. A max of 0 would mean the timeline never built.
-    expect(max, "the slider's maximum must span a real interleaved timeline").toBeGreaterThan(50);
+    // At "now" on a finished district no event artifact is loaded (the tab
+    // fetches only events in progress), so the timeline holds the four stage
+    // steps per district-tier event plus season start and now: 34 positions
+    // for this eight event district, a now index of 33. The by-match rows
+    // appear once a rewind loads the artifacts, which the second half of this
+    // test proves by watching the maximum grow. A max below the stage floor
+    // would mean the timeline never built.
+    expect(max, "the slider's maximum must hold every event's four stage steps").toBeGreaterThanOrEqual(4 * 8 + 1);
 
     const readoutBefore = (await page.getByTestId(TEST_IDS.rewindReadout).innerText()).trim();
     const target = Math.max(0, Math.floor(max / 2));
     await slider.fill(String(target));
     await expect(page.getByTestId(TEST_IDS.rewindReadout)).not.toHaveText(readoutBefore);
+
+    // The rewind loads every started event's artifact, and the timeline
+    // refines to one step per qualification match: the maximum must grow well
+    // past the stage-only floor (measured live 2026-09-25: 33 became 549).
+    await expect
+      .poll(() => slider.getAttribute("max").then((value) => Number(value)), {
+        message: "a rewind must load the event artifacts and refine the timeline to match steps",
+        timeout: 30_000,
+      })
+      .toBeGreaterThan(50);
 
     // Moving it writes a shareable search param.
     await expect
@@ -234,7 +252,9 @@ test.describe("Road to District Champs, 1440x900", () => {
     await page.goto(districtUrl(PRE_RENAME_TAB_ID));
     await expect(page.getByTestId(TEST_IDS.ledgerPanel)).toBeVisible();
     await expect(page.getByTestId(TEST_IDS.ledgerTab)).toBeVisible();
-    await expect(page.getByTestId(TEST_IDS.champPanel)).toHaveCount(0);
+    // The tabs primitive keeps the inactive panel mounted, empty and hidden,
+    // so the honest assertion is hidden, not absent.
+    await expect(page.getByTestId(TEST_IDS.champPanel)).toBeHidden();
   });
 
   test("the Champ Locks panel still renders the shipped champ table, so this phase's removal is provably scoped", async ({ page }) => {

@@ -300,7 +300,11 @@ function EventCell({ row }: { row: DistrictLedgerEventRow }) {
 function TeamCell({ team, season, algorithm }: { team: DistrictLedgerTeam; season: number; algorithm: PublishedAlgorithmId }) {
   return (
     <TableCell rowSpan={Math.max(team.rowCount, 1)} data-testid="district-ledger-team-cell" className={TEAM_CELL_CLASS}>
-      <div className="flex flex-col">
+      {/* Capped so the sticky cell always fits inside the table's scrollport:
+          a sticky box wider than its scrollport is aligned by its far edge
+          instead of holding at left 0 (measured live at 390px, 2026-09-25: a
+          360px cell in a 340px wrapper slid 21px). The nickname truncates. */}
+      <div className="flex min-w-0 max-w-[min(56vw,260px)] flex-col">
         <span className="whitespace-nowrap">
           <span className="text-[var(--color-text-muted)]">{team.position}. </span>
           <Link to="/team/$teamNumber" params={{ teamNumber: String(team.teamNumber) }} search={{ year: season, algorithm, tab: "overview" }}>
