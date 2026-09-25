@@ -783,3 +783,246 @@ describe("simulateRanks — Test 21: mixed input is valid", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Tests 22 onward: the optional per-draw `onDraw` hook (phase 10, plan 10-01).
+// Every case below is ADDITIVE — no test above this line was modified. The
+// hook's whole contract is "hands out the draw's finishing order, changes
+// nothing", so these are structured as parity assertions against the
+// four-argument form plus one correlation assertion that the order handed out
+// IS the ranking the histogram recorded.
+// ---------------------------------------------------------------------------
+
+/** Test 18's counting-rng helper, reused so the two consumption cases measure the same thing it does. */
+function countingRngForHook(seed: number): { rng: () => number; count: () => number } {
+  const inner = mulberry32(seed);
+  let calls = 0;
+  return {
+    rng: () => {
+      calls++;
+      return inner();
+    },
+    count: () => calls,
+  };
+}
+
+/** Test 5's fixed-seed fixture shape: three teams, two legacy-path matches with genuine spread. */
+function legacyHookFixture(): { baselines: SimTeamBaseline[]; remainingMatches: SimMatchInput[] } {
+  const baselines: SimTeamBaseline[] = [
+    { teamKey: "frc1", earnedRpSum: 4, matchesPlayed: 2 },
+    { teamKey: "frc2", earnedRpSum: 3, matchesPlayed: 2 },
+    { teamKey: "frc3", earnedRpSum: 2, matchesPlayed: 2 },
+  ];
+  const match1 = realPmfPairWithSpread(50, 50);
+  const match2 = realPmfPairWithSpread(50, 50);
+  return {
+    baselines,
+    remainingMatches: [
+      { redTeamKeys: ["frc1", "frc2"], blueTeamKeys: ["frc3"], redRpPmf: match1.redRpPmf, blueRpPmf: match1.bluePmf },
+      { redTeamKeys: ["frc1"], blueTeamKeys: ["frc2", "frc3"], redRpPmf: match2.redRpPmf, blueRpPmf: match2.bluePmf },
+    ],
+  };
+}
+
+/** A coupled-outcome fixture: four teams, two coupled matches. */
+function coupledHookFixture(): { baselines: SimTeamBaseline[]; remainingMatches: SimMatchInput[] } {
+  const outcome: SimMatchOutcomeInput = {
+    outcomePmf: [0.4, 0.2, 0.4],
+    redOutcomeRp: [2, 1, 0],
+    blueOutcomeRp: [0, 1, 2],
+    redBonusRpPmf: [0.5, 0.5],
+    blueBonusRpPmf: [0.3, 0.7],
+  };
+  const baselines: SimTeamBaseline[] = [
+    { teamKey: "frc1", earnedRpSum: 0, matchesPlayed: 0 },
+    { teamKey: "frc2", earnedRpSum: 0, matchesPlayed: 0 },
+    { teamKey: "frc3", earnedRpSum: 0, matchesPlayed: 0 },
+    { teamKey: "frc4", earnedRpSum: 0, matchesPlayed: 0 },
+  ];
+  return {
+    baselines,
+    remainingMatches: [
+      { redTeamKeys: ["frc1"], blueTeamKeys: ["frc2"], redRpPmf: [1], blueRpPmf: [1], outcome },
+      { redTeamKeys: ["frc3"], blueTeamKeys: ["frc4"], redRpPmf: [1], blueRpPmf: [1], outcome },
+    ],
+  };
+}
+
+/** A mixed fixture: one legacy-path match and one coupled match over four teams. */
+function mixedHookFixture(): { baselines: SimTeamBaseline[]; remainingMatches: SimMatchInput[] } {
+  const legacyPmf = realPmfPairWithSpread(50, 50);
+  const outcome: SimMatchOutcomeInput = {
+    outcomePmf: [0.4, 0.2, 0.4],
+    redOutcomeRp: [2, 1, 0],
+    blueOutcomeRp: [0, 1, 2],
+    redBonusRpPmf: [0.5, 0.5],
+    blueBonusRpPmf: [0.3, 0.7],
+  };
+  const baselines: SimTeamBaseline[] = [
+    { teamKey: "frc1", earnedRpSum: 1, matchesPlayed: 1 },
+    { teamKey: "frc2", earnedRpSum: 2, matchesPlayed: 1 },
+    { teamKey: "frc3", earnedRpSum: 3, matchesPlayed: 1 },
+    { teamKey: "frc4", earnedRpSum: 0, matchesPlayed: 1 },
+  ];
+  return {
+    baselines,
+    remainingMatches: [
+      { redTeamKeys: ["frc1"], blueTeamKeys: ["frc2"], redRpPmf: legacyPmf.redRpPmf, blueRpPmf: legacyPmf.bluePmf },
+      { redTeamKeys: ["frc3"], blueTeamKeys: ["frc4"], redRpPmf: [1], blueRpPmf: [1], outcome },
+    ],
+  };
+}
+
+const HOOK_FIXTURES = [
+  { name: "legacy path", build: legacyHookFixture },
+  { name: "coupled outcome", build: coupledHookFixture },
+  { name: "mixed", build: mixedHookFixture },
+] as const;
+
+describe("simulateRanks — Test 22: passing a hook changes no histogram, on any fixture shape", () => {
+  it.each(HOOK_FIXTURES)("produces entry-for-entry identical histograms with and without a hook ($name)", ({ build }) => {
+    const { baselines, remainingMatches } = build();
+
+    const withoutHook = simulateRanks(remainingMatches, baselines, 400, mulberry32(12345));
+    const withHook = simulateRanks(remainingMatches, baselines, 400, mulberry32(12345), () => {});
+
+    for (const baseline of baselines) {
+      expect(
+        Array.from(withHook.rankHistograms.get(baseline.teamKey)!),
+        `${baseline.teamKey}'s histogram changed when a hook was passed`
+      ).toEqual(Array.from(withoutHook.rankHistograms.get(baseline.teamKey)!));
+    }
+    expect(withHook.draws).toBe(withoutHook.draws);
+  });
+});
+
+describe("simulateRanks — Test 23: passing a hook consumes no extra randomness", () => {
+  it.each(HOOK_FIXTURES)("counts exactly the same rng values with and without a hook ($name)", ({ build }) => {
+    const { baselines, remainingMatches } = build();
+
+    const withoutHook = countingRngForHook(1);
+    simulateRanks(remainingMatches, baselines, 200, withoutHook.rng);
+
+    const withHook = countingRngForHook(1);
+    simulateRanks(remainingMatches, baselines, 200, withHook.rng, () => {});
+
+    expect(withHook.count()).toBe(withoutHook.count());
+  });
+});
+
+describe("simulateRanks — Test 24: the hook fires exactly once per draw", () => {
+  it("is invoked exactly `draws` times", () => {
+    const { baselines, remainingMatches } = mixedHookFixture();
+    for (const draws of [1, 7, 250]) {
+      let calls = 0;
+      simulateRanks(remainingMatches, baselines, draws, mulberry32(7), () => {
+        calls++;
+      });
+      expect(calls, `expected ${draws} hook calls`).toBe(draws);
+    }
+  });
+
+  it("still fires `draws` times with zero remaining matches", () => {
+    const baselines: SimTeamBaseline[] = [
+      { teamKey: "frc1", earnedRpSum: 6, matchesPlayed: 3 },
+      { teamKey: "frc2", earnedRpSum: 3, matchesPlayed: 3 },
+    ];
+    let calls = 0;
+    const orders: number[][] = [];
+    simulateRanks([], baselines, 25, mulberry32(3), (order) => {
+      calls++;
+      orders.push([...order]);
+    });
+    expect(calls).toBe(25);
+    // Nothing varies with no matches left, so every draw is the same order.
+    for (const order of orders) expect(order).toEqual([0, 1]);
+  });
+});
+
+describe("simulateRanks — Test 25: every order handed out is a full permutation of the baseline indices", () => {
+  it.each(HOOK_FIXTURES)("hands out no repeated and no missing baseline index on any draw ($name)", ({ build }) => {
+    const { baselines, remainingMatches } = build();
+    const expectedIndices = baselines.map((_, i) => i);
+
+    let draw = 0;
+    simulateRanks(remainingMatches, baselines, 300, mulberry32(4242), (order, handedBaselines) => {
+      expect(handedBaselines, `draw ${draw}: the hook was handed a different baselines array`).toBe(baselines);
+      expect([...order].sort((a, b) => a - b), `draw ${draw} is not a permutation`).toEqual(expectedIndices);
+      draw++;
+    });
+    expect(draw).toBe(300);
+  });
+});
+
+describe("simulateRanks — Test 26: the hook's order IS the ranking the histogram recorded", () => {
+  it("reproduces the rank-one column of rankHistograms exactly, for every team, by tallying the hook's first entry", () => {
+    const { baselines, remainingMatches } = mixedHookFixture();
+    const draws = 2_000;
+
+    const firstPlaceTally = new Map<string, number>(baselines.map((baseline) => [baseline.teamKey, 0]));
+    const result = simulateRanks(remainingMatches, baselines, draws, mulberry32(98765), (order, handedBaselines) => {
+      const winnerKey = handedBaselines[order[0]!]!.teamKey;
+      firstPlaceTally.set(winnerKey, firstPlaceTally.get(winnerKey)! + 1);
+    });
+
+    for (const baseline of baselines) {
+      const histogramRankOne = result.rankHistograms.get(baseline.teamKey)![0]!;
+      const tallied = firstPlaceTally.get(baseline.teamKey)!;
+      expect(
+        tallied,
+        `${baseline.teamKey}: the hook saw it finish first on ${tallied} draws but the histogram recorded ${histogramRankOne} — a divergence of ${tallied - histogramRankOne}`
+      ).toBe(histogramRankOne);
+    }
+
+    // Non-vacuity: at least two teams must actually have won some draws, or
+    // the assertion above could hold trivially on an all-zero column.
+    const teamsWithWins = [...firstPlaceTally.values()].filter((count) => count > 0).length;
+    expect(teamsWithWins).toBeGreaterThanOrEqual(2);
+  });
+
+  it("reproduces EVERY rank column, not just rank one", () => {
+    const { baselines, remainingMatches } = coupledHookFixture();
+    const draws = 1_000;
+
+    const tally = new Map<string, number[]>(baselines.map((baseline) => [baseline.teamKey, baselines.map(() => 0)]));
+    const result = simulateRanks(remainingMatches, baselines, draws, mulberry32(31337), (order, handedBaselines) => {
+      for (let rank = 0; rank < order.length; rank++) {
+        tally.get(handedBaselines[order[rank]!]!.teamKey)![rank]! += 1;
+      }
+    });
+
+    for (const baseline of baselines) {
+      expect(tally.get(baseline.teamKey), `${baseline.teamKey}'s tallied column set`).toEqual(
+        Array.from(result.rankHistograms.get(baseline.teamKey)!)
+      );
+    }
+  });
+});
+
+describe("simulateRanks — Test 27: a throwing hook propagates rather than being swallowed", () => {
+  it("lets the hook's own error reach the caller", () => {
+    const { baselines, remainingMatches } = legacyHookFixture();
+    expect(() =>
+      simulateRanks(remainingMatches, baselines, 10, mulberry32(11), () => {
+        throw new Error("hook exploded");
+      })
+    ).toThrow("hook exploded");
+  });
+});
+
+describe("simulateRanks — Test 28: the order array is the function's own reused buffer", () => {
+  it("hands out the same array object on every draw, which is why a caller that keeps it must copy", () => {
+    const { baselines, remainingMatches } = mixedHookFixture();
+    const seen = new Set<readonly number[]>();
+    const kept: (readonly number[])[] = [];
+    simulateRanks(remainingMatches, baselines, 50, mulberry32(19), (order) => {
+      seen.add(order);
+      kept.push(order);
+    });
+    // One buffer, handed out 50 times — the documented contract.
+    expect(seen.size).toBe(1);
+    // And the failure mode that contract exists to warn about: every kept
+    // reference holds the LAST draw's order, not its own.
+    for (const order of kept) expect(order).toEqual(kept[kept.length - 1]);
+  });
+});

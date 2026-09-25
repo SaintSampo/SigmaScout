@@ -5,10 +5,24 @@
  * completions of the event.
  *
  * A browser-safe leaf module: zero runtime imports, no DOM, no Node
- * built-in. It has exactly two callers — a browser Web Worker (the live
- * case) and a Node rewind-gap control-run script. Having one
- * implementation is what makes the measured rewind-overconfidence figure
- * describe the same math the visitor's browser actually runs.
+ * built-in. Its four-argument form has exactly two callers — a browser Web
+ * Worker (the live case) and a Node rewind-gap control-run script — and
+ * both are untouched by the optional fifth parameter added for phase 10.
+ * Having one implementation is what makes the measured
+ * rewind-overconfidence figure describe the same math the visitor's browser
+ * actually runs.
+ *
+ * THE OPTIONAL `onDraw` HOOK (phase 10, the district points ledger). The
+ * returned histograms are per-rank DRAW COUNTS and carry no correlation:
+ * nothing in them says "this team finished first on the same draw that team
+ * finished eighth". The district ledger needs exactly that, because a
+ * team's qualification points, alliance-selection points and playoff points
+ * are all functions of one simulated event's finishing order and must be
+ * summed within a single draw, not joined across aggregates. The per-draw
+ * order already exists inside the draw loop and is discarded; `onDraw`
+ * hands it out at the one point where it is complete. The hook consumes no
+ * randomness and changes no output — the pre-existing tests are the oracle
+ * for that, and the new ones assert it directly.
  *
  * Ranking Score, FRC's own ranking statistic (the value this pipeline
  * stores as `EventTeamSchema.rp`), is average total RP per match played.
@@ -149,6 +163,27 @@ export interface SimTeamBaseline {
   readonly matchesPlayed: number;
 }
 
+/**
+ * Called once per draw, immediately after that draw's histogram entry has
+ * been recorded, with the draw's complete finishing order.
+ *
+ * `order`'s entry at index `rank` is the index into `baselines` of the team
+ * that finished at rank `rank + 1`. It is a permutation of every baseline
+ * index on every draw: no index repeated, none missing.
+ *
+ * THE ARRAY IS THE FUNCTION'S OWN INTERNAL BUFFER, REUSED AND OVERWRITTEN
+ * ON THE NEXT DRAW. A hook that needs to keep it must copy it. This is the
+ * one way a caller can get a wrong answer from a correct hook, so it is
+ * stated here rather than left to be discovered — a hook that pushes
+ * `order` into an array will end up with `draws` references to the same
+ * buffer, all holding the last draw's order.
+ *
+ * A hook consumes no randomness: `rng` is not passed to it, and the draw
+ * loop's rng call sequence is identical with and without one. A hook that
+ * throws propagates to the caller rather than being swallowed.
+ */
+export type SimDrawHook = (order: readonly number[], baselines: readonly SimTeamBaseline[]) => void;
+
 /** The complete output of one `simulateRanks` call. */
 export interface SimResult {
   /**
@@ -183,12 +218,19 @@ export interface SimResult {
  * `InvalidPmfError`/`UnknownTeamKeyError` immediately rather than producing
  * a wrong-but-plausible result. This costs O(matches) once, rather than
  * O(draws x matches) if repeated inside the hot loop.
+ *
+ * `onDraw` is optional and positional, after `rng`, deliberately: that is
+ * the minimal non-breaking shape, so both existing four-argument call sites
+ * keep compiling untouched and the measured rewind-overconfidence figure
+ * keeps describing the same math. See `SimDrawHook` for its contract —
+ * in particular that the array it receives is reused between draws.
  */
 export function simulateRanks(
   remainingMatches: readonly SimMatchInput[],
   baselines: readonly SimTeamBaseline[],
   draws: number,
-  rng: () => number
+  rng: () => number,
+  onDraw?: SimDrawHook
 ): SimResult {
   const teamCount = baselines.length;
   const teamIndex = new Map<string, number>(baselines.map((baseline, i) => [baseline.teamKey, i]));
@@ -334,6 +376,10 @@ export function simulateRanks(
       const teamI = order[rank]!;
       rankHistograms.get(baselines[teamI]!.teamKey)![rank]! += 1;
     }
+    // AFTER the histogram entry is recorded, so no hook can perturb it, and
+    // outside the rng path entirely, so the draw loop's random sequence is
+    // identical with and without a hook.
+    if (onDraw !== undefined) onDraw(order, baselines);
   }
 
   return { rankHistograms, draws };
