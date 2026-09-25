@@ -589,3 +589,11 @@ new module references `process.env` (asserted by a test in
 republish is the same cost and duration as the last one. Deploy the Worker BEFORE the republish
 (every field here is additive and optional precisely so the newly deployed Worker can parse a
 pre-republish artifact). The `--as-of` verification runs are NOT part of the republish.
+
+## Self-Check: PASSED
+
+Every file this SUMMARY claims was created exists on disk
+(`packages/harness/districtBake.ts`, `packages/harness/districtBake.test.ts`,
+`scripts/districtPricingState.ts`, `scripts/districtPricingState.test.ts`), and every commit hash it
+names resolves in `git log --oneline --all`: `e1ad6749`, `c62b429a`, `40a2cb7b`, `3018d0ea`,
+`db24621b`.
