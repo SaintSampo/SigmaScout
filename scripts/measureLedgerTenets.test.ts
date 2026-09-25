@@ -30,6 +30,12 @@
  * the reserved-slot totals are pinned as floors beside them: a reservation
  * that stopped firing, or a sweep that stopped visiting positions, fails on
  * those rather than passing quietly.
+ *
+ * Quick task 260925-pl6's pooled remaining-points argument then made MORE
+ * promises rather than fewer, and both tenets held: `Locked` on points rose
+ * from 130,505 to 130,718, every one of the 213 new displays a team the ceiling
+ * test could not reach, across 110 of the 4,022 swept positions. Those two
+ * counts are pinned as floors beside the reservation's for the same reason.
  */
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -55,8 +61,13 @@ export const MEASURED_INDEX_FILES = 10;
 export const MEASURED_SKIPPED_NO_CAPACITY = 0;
 export const MEASURED_POSITIONS = 4022;
 export const MEASURED_TEAM_POSITIONS = 921_658;
-/** 138,702 before 260925-ms7 held a slot back; 8,197 of those displays moved off `Locked`. */
-export const MEASURED_LOCKED_SHOWN = 130_505;
+/**
+ * 138,702 before 260925-ms7 held a slot back; 8,197 of those displays moved off
+ * `Locked`, leaving 130,505. Quick task 260925-pl6's pooled remaining-points
+ * argument then added 213 back, every one of them a team the ceiling test could
+ * not reach.
+ */
+export const MEASURED_LOCKED_SHOWN = 130_718;
 /** Unchanged by the reservation, which is the point: it reaches the `Locked` test alone. */
 export const MEASURED_LOCKED_OUT_SHOWN = 190_854;
 export const MEASURED_LOCKED_AWARD_CHIP_SHOWN = 24_192;
@@ -65,6 +76,18 @@ export const MEASURED_TENET_B_VIOLATIONS = 0;
 /** Slots held back across the whole sweep, and the positions that held at least one. Pinned as floors so a reservation that silently stopped firing fails here. */
 export const MEASURED_RESERVED_SLOTS_TOTAL = 26_604;
 export const MEASURED_POSITIONS_WITH_RESERVED_SLOTS = 3_804;
+/**
+ * The pooled remaining-points argument's own gain, and where it fired. Pinned
+ * as floors for exactly the reason the reservation's are: an argument that
+ * silently stopped firing would leave both tenets at zero and be
+ * indistinguishable from the argument working.
+ *
+ * 213 is also precisely the rise in `MEASURED_LOCKED_SHOWN` (130,505 to
+ * 130,718), so the two pins cross-check each other: every display the pooled
+ * argument produced is a display that was not there before.
+ */
+export const MEASURED_LOCKED_BY_POOLED_ONLY = 213;
+export const MEASURED_POSITIONS_WITH_POOLED_ONLY_LOCK = 110;
 
 /**
  * The thirteen tenet-A violations 260925-ma5 measured, kept as the RECORD of
@@ -345,6 +368,15 @@ if (!CORPUS_PRESENT) {
     it("carries no violation of either tenet at any position of any season", () => {
       expect(census.violationPositionKinds).toEqual([]);
       expect(sweeps.flatMap((s) => s.violations)).toEqual([]);
+    });
+
+    it("locks teams on the POOLED argument alone, so 260925-pl6's gain is measured rather than assumed", () => {
+      expect(census.lockedByPooledOnly).toBeGreaterThanOrEqual(MEASURED_LOCKED_BY_POOLED_ONLY);
+      expect(census.positionsWithPooledOnlyLock).toBeGreaterThanOrEqual(MEASURED_POSITIONS_WITH_POOLED_ONLY_LOCK);
+      // A pool of zero at every position would mean the argument was asked
+      // against nothing and every pooled lock came from the unreachable-cost
+      // branch rather than from conserved points.
+      expect(census.pooledRemainingPointsTotal).toBeGreaterThan(0);
     });
 
     it("holds slots back, so the zeros above are earned rather than free", () => {

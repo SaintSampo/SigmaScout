@@ -30,6 +30,16 @@
  * the census below, so a future reader can watch it fire rather than infer it
  * from an absence of failures.
  *
+ * THIS SWEEP IS ALSO WHAT LICENSED THE POOLED REMAINING-POINTS LOCK (quick
+ * task 260925-pl6). That argument locks a team when no achievable distribution
+ * of the district's remaining points could lift enough rivals past it, which
+ * makes MORE teams read `Locked` and therefore makes MORE promises. Measured
+ * here: 213 more team-positions read `Locked` across 110 of the 4,022 swept
+ * positions, and both tenets stayed at zero. The census carries those two
+ * counts and the size of the pool beside them, for the same reason the
+ * reservation's own numbers are there — so a reader can watch the argument
+ * fire rather than take an unchanged zero on trust.
+ *
  * ---------------------------------------------------------------------------
  * "QUALIFIED ON POINTS" IS THE ARTIFACT'S OWN FINAL VERDICT
  * ---------------------------------------------------------------------------
@@ -278,6 +288,12 @@ export interface DistrictTenetSweep {
   readonly reservedSlotsTotal: number;
   /** Positions at which at least one slot was held back. Zero would mean the reservation never fired and every "0 violations" below was free. */
   readonly positionsWithReservedSlots: number;
+  /** `Locked` displays the POOLED remaining-points argument produced where the ceiling test did not (quick task 260925-pl6) — the gain, counted at the team-position. */
+  readonly lockedByPooledOnly: number;
+  /** Positions at which at least one team locked on the pooled argument alone. */
+  readonly positionsWithPooledOnlyLock: number;
+  /** The district's remaining points, summed over every position — the size of the pool the argument was asked against. Zero would mean it never fired. */
+  readonly pooledRemainingPointsTotal: number;
   readonly violations: readonly LedgerTenetViolation[];
 }
 
@@ -382,6 +398,9 @@ export function sweepDistrict(artifact: DistrictArtifact): DistrictTenetSweep {
   let capacityUnknownShown = 0;
   let reservedSlotsTotal = 0;
   let positionsWithReservedSlots = 0;
+  let lockedByPooledOnly = 0;
+  let positionsWithPooledOnlyLock = 0;
+  let pooledRemainingPointsTotal = 0;
 
   for (let index = 0; index < timeline.positions.length; index++) {
     const position = timeline.positions[index]!;
@@ -395,6 +414,8 @@ export function sweepDistrict(artifact: DistrictArtifact): DistrictTenetSweep {
     const statuses = computeDistrictLedgerStatuses({ artifact, teams: rows.teams });
     reservedSlotsTotal += statuses.reservedSlots;
     if (statuses.reservedSlots > 0) positionsWithReservedSlots += 1;
+    pooledRemainingPointsTotal += statuses.pooledRemainingPoints;
+    let pooledOnlyHere = 0;
 
     for (const team of rows.teams) {
       const status = statuses.byTeam.get(team.teamKey);
@@ -422,6 +443,12 @@ export function sweepDistrict(artifact: DistrictArtifact): DistrictTenetSweep {
         continue;
       } else if (status.status === "locked") {
         lockedPointsShown += 1;
+        // `"pooled"` and not `"both"`: the ceiling test did NOT reach this
+        // display, so it exists only because points are conserved.
+        if (status.lockedBy === "pooled") {
+          lockedByPooledOnly += 1;
+          pooledOnlyHere += 1;
+        }
         tenet = "A-locked-must-qualify-on-points";
         outcome = outcomeForLockedShown(finalStatus);
         if (outcome === "kept") lockedKept += 1;
@@ -454,6 +481,8 @@ export function sweepDistrict(artifact: DistrictArtifact): DistrictTenetSweep {
         finalStatus,
       });
     }
+
+    if (pooledOnlyHere > 0) positionsWithPooledOnlyLock += 1;
   }
 
   return {
@@ -484,6 +513,9 @@ export function sweepDistrict(artifact: DistrictArtifact): DistrictTenetSweep {
     everyEventFinishedAtNow,
     reservedSlotsTotal,
     positionsWithReservedSlots,
+    lockedByPooledOnly,
+    positionsWithPooledOnlyLock,
+    pooledRemainingPointsTotal,
     violations,
   };
 }
@@ -510,6 +542,12 @@ export interface LedgerTenetCensus {
   readonly reservedSlotsTotal: number;
   /** Positions at which at least one slot was held back. */
   readonly positionsWithReservedSlots: number;
+  /** `Locked` displays the pooled remaining-points argument produced where the ceiling test did not — the gain quick task 260925-pl6 was measured by. */
+  readonly lockedByPooledOnly: number;
+  /** Positions at which at least one team locked on the pooled argument alone. */
+  readonly positionsWithPooledOnlyLock: number;
+  /** The district's remaining points, summed over every position of every season. */
+  readonly pooledRemainingPointsTotal: number;
   readonly seasonsNotFinishedAtNow: readonly string[];
   readonly seasonsWithTieAtTheLine: readonly string[];
   /** Every distinct step kind a violation landed on. A single value here is itself the finding. */
@@ -539,6 +577,9 @@ export function censusOf(sweeps: readonly DistrictTenetSweep[]): LedgerTenetCens
     capacityUnknownShown: add((s) => s.capacityUnknownShown),
     reservedSlotsTotal: add((s) => s.reservedSlotsTotal),
     positionsWithReservedSlots: add((s) => s.positionsWithReservedSlots),
+    lockedByPooledOnly: add((s) => s.lockedByPooledOnly),
+    positionsWithPooledOnlyLock: add((s) => s.positionsWithPooledOnlyLock),
+    pooledRemainingPointsTotal: add((s) => s.pooledRemainingPointsTotal),
     seasonsNotFinishedAtNow: sweeps.filter((s) => !s.everyEventFinishedAtNow).map((s) => s.districtKey),
     seasonsWithTieAtTheLine: sweeps.filter((s) => s.finalContending > 0).map((s) => s.districtKey),
     violationPositionKinds: [...new Set(violations.map((v) => v.positionKind))].sort(),
@@ -610,6 +651,10 @@ function reportTotals(census: LedgerTenetCensus, loaded: LoadedDistricts): void 
   console.log(``);
   console.log(`  slots held back for awards to come   ${String(census.reservedSlotsTotal)}  (summed over every position; 260925-ms7's reservation)`);
   console.log(`  positions holding back at least one  ${String(census.positionsWithReservedSlots)} of ${String(census.positions)}`);
+  console.log(``);
+  console.log(`  Locked on the POOLED argument alone  ${String(census.lockedByPooledOnly)}  (260925-pl6's gain: the ceiling test did not reach these)`);
+  console.log(`  positions where it fired alone       ${String(census.positionsWithPooledOnlyLock)} of ${String(census.positions)}`);
+  console.log(`  district points still to hand out    ${String(census.pooledRemainingPointsTotal)}  (summed over every position; the pool the argument was asked against)`);
   console.log(``);
   console.log(
     `  violations landed on step kinds:    ${census.violationPositionKinds.length === 0 ? "(none)" : census.violationPositionKinds.join(", ")}`
