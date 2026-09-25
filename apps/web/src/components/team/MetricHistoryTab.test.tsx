@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MetricHistoryTab } from "./MetricHistoryTab.js";
+import MetricHistoryChart from "./MetricHistoryChart.js";
 import type { MetricHistoryChartProps } from "./MetricHistoryChart.js";
 import { METRIC_HISTORY_LEGEND_HEIGHT_PX } from "./metricHistorySeries.js";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
@@ -97,8 +98,23 @@ describe("MetricHistoryTab", () => {
       expect(skeleton.nextElementSibling).toBe(spacer);
     });
 
-    it("the chart's legend follows its plot container the same way the skeleton spacer follows the skeleton box", async () => {
-      const { default: MetricHistoryChart } = await import("./MetricHistoryChart.js");
+    /**
+     * `MetricHistoryChart` is imported STATICALLY at the top of this file, not
+     * with an `await import()` inside this test. Measured 2026-09-25: that
+     * import costs about 434 ms warm (it pulls the whole Recharts graph)
+     * against a render of about 137 ms, and vitest's 5 s per-test default was
+     * covering BOTH. Under a loaded full-suite run, with cold transforms and
+     * every worker competing, the import crossed the limit and this block timed
+     * out while passing when run alone — a suite red at random, which is the
+     * kind that trains a reader to stop looking.
+     *
+     * A static import moves the same work into the file's IMPORT phase, which
+     * `testTimeout` does not govern at all. The assertion is unchanged, the
+     * project-wide timeout is untouched, and no other test in this file is
+     * affected: every one of them drives the tab through an injected
+     * `loadChart` and never through this module.
+     */
+    it("the chart's legend follows its plot container the same way the skeleton spacer follows the skeleton box", () => {
       const rows = [
         { matchKey: "m1", season: 2024, eventKey: "2024casj", algorithmId: "spr", teamKey: "frc1114", matchIndex: 0, metrics: { total: { value: 100 }, sigma: { value: 8 } } },
       ];
