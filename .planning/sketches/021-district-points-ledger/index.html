@@ -338,7 +338,7 @@ function stateAt(pos){
   }
   // today's line: the 50th highest floor (a lower bound while categories are open)
   const line=[...rows.map(r=>r.floor)].sort((a,b)=>b-a)[SLOTS-1];
-  rows.sort((a,b)=>b.floor-a.floor||b.ceil-a.ceil||a.t.n-b.t.n);
+  rows.sort((a,b)=>b.proj-a.proj||b.floor-a.floor||a.t.n-b.t.n); // by median predicted district points
   rows.forEach((r,i)=>r.pos=i+1);
   return {rows,line};
 }
@@ -408,7 +408,7 @@ function renderTable(rows,line,mini){
     const sel=open&&open.n===r.t.n;
     r.events.forEach((e,ei)=>{
       body+=`<tr class="${ei===0?'first':'second'}${sel?' sel':''}">`;
-      if(ei===0) body+=`<td class="team sticky1" rowspan="2"><span class="no">${r.t.n}</span><span class="nm">${r.t.name}</span><span class="nm">#${r.pos} · ${r.floor} pts earned</span></td><td rowspan="2">${chip(r)}</td>`;
+      if(ei===0) body+=`<td class="team sticky1" rowspan="2"><span class="no">${r.t.n}</span><span class="nm">${r.t.name}</span><span class="nm">#${r.pos} · ${r.floor} earned${r.allFin?'':` · median ${fmt1(r.proj)}`}</span></td><td rowspan="2">${chip(r)}</td>`;
       body+=`<td class="ev">${e.ev.name}<span class="wk">wk ${e.ev.week}</span><span class="st">${stageWord(e.stage)}</span></td>`;
       body+=CATS.map((c,ci)=>`<td class="num">${cellHtml(r,ei,ci,mini)}</td>`).join('');
       body+=`<td class="num evtot">${cellHtml(r,ei,'tot',mini)}</td>`;

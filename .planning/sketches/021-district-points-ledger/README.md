@@ -46,7 +46,9 @@ events final, two upcoming), so both greys and blues are on screen. Click any bl
   band under the bars, range printed beneath. Click still enlarges. Costs row height and needs the
   column header to carry the scale, which it does.
 
-All three share: the slider, the five status chips as filters with live counts, the earned/open
+Rows are sorted by the median of each team's predicted grand total (Jacob, round three), so the
+order is the same projection In range and Out of range are judged on; the rank number beside the
+team is that position. All three share: the slider, the five status chips as filters with live counts, the earned/open
 cell key, and the grey/blue rule (grey = a single earned number, blue = a printed range plus a
 click affordance, so the two never rely on hue alone).
 
