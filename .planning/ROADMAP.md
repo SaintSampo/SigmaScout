@@ -699,7 +699,7 @@ Plans:
 
 **Requirements**: sketch 021 (`.planning/sketches/021-district-points-ledger/README.md`, the feasibility and placement sections) and `10-CONTEXT.md` (Jacob's locked decisions, 2026-09-25).
 **Depends on:** Phase 9
-**Plans:** 3/9 plans executed
+**Plans:** 4/9 plans executed
 
 **Success criteria:**
 
@@ -721,7 +721,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 10-04-PLAN.md — the joint district ledger simulation
+- [x] 10-04-PLAN.md — the joint district ledger simulation
 - [ ] 10-05-PLAN.md — the Worker district refresh pass
 
 **Wave 3** *(blocked on Wave 2)*

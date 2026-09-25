@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 10
 current_phase_name: district-points-ledger
 status: executing
-stopped_at: Completed 10-03-PLAN.md
-last_updated: "2026-09-25T10:58:13.325Z"
+stopped_at: Completed 10-04-PLAN.md
+last_updated: "2026-09-25T11:33:17.986Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 10 execution started
 progress:
   total_phases: 13
   completed_phases: 12
   total_plans: 118
-  completed_plans: 112
+  completed_plans: 113
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 10 (district-points-ledger) — EXECUTING
-Plan: 4 of 9
+Plan: 5 of 9
 Status: Ready to execute
 Last activity: 2026-09-25 — Phase 10 execution started
 
-Progress: [██████████] 95%
+Progress: [██████████] 96%
 
 ## Performance Metrics
 
@@ -140,6 +140,7 @@ Progress: [██████████] 95%
 | Phase 10 P01 | 25 min | 4 tasks | 9 files |
 | Phase 10 P02 | 55 min | 3 tasks | 13 files |
 | Phase 10 P03 | 26 min | 4 tasks | 14 files |
+| Phase 10 P04 | 33 min | 3 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -345,6 +346,11 @@ Recent decisions affecting current work:
 - [Phase 10]: Neither PAGE_ARTIFACT_SCHEMA_VERSION nor MANIFEST_SCHEMA_VERSION moves; the manifest half overrides RESEARCH Open Question 2 because the Worker deploys before the republish
 - [Phase 10]: applyDistrictRankings is the one producer of the merged district shape; the Worker and the publisher are callers, neither reimplements it
 - [Phase 10]: pnpm publish:live-windows gets districtKey to production for one R2 write instead of about 109,000, reusing the live generation and refusing three ways before any upload
+- [Phase 10]: Captains follow the PROGRESSIVE rule, not the top eight by ranking: measured 3,879 of 3,880 corpus captain slots against 3 of 491 events for the naive rule
+- [Phase 10]: The district draft order is serpentine (round two runs alliance N down to 1), from the measured second-pick rank gradient 24.83 at alliance 1 falling to 20.10 at alliance 8
+- [Phase 10]: Two mulberry32 streams from one seed, so the ledger hook consumes none of the rank stream and the district tab reproduces the event page's Simulation tab exactly
+- [Phase 10]: No grand-total pmf encoder exists: point_total reaches 445 against the schema's 256-entry cap, and the grand total is browser-side and never published
+- [Phase 10]: continuousQuantile is PROMOTED to packages/core with apps/web/src/lib/simQuantile.ts left as a re-export; all four importers byte-unchanged
 
 ### Pending Todos
 
@@ -680,8 +686,8 @@ silent open row; `open_count` is now 0, so `/gsd-ship` no longer blocks.
 
 ## Session Continuity
 
-Last session: 2026-09-25T10:57:59.513Z
-Stopped at: Completed 10-03-PLAN.md
+Last session: 2026-09-25T11:33:06.883Z
+Stopped at: Completed 10-04-PLAN.md
 Resume file: None
 
 ## Decisions
