@@ -563,6 +563,71 @@ describe("the grand total convolution", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// WR-09: a refusal attributable to ONE team costs that team, not the table
+// ---------------------------------------------------------------------------
+
+describe("a team whose row build refuses degrades alone (WR-09)", () => {
+  /**
+   * A negative combined shift is what `convolveDistrictGrandTotal` refuses:
+   * `rookieBonus + adjustments` below zero has never been observed in the
+   * corpus, so clamping it would fabricate a value. The whole point of this
+   * suite is that the refusal reaches ONE row rather than the renderer.
+   */
+  const bad = () =>
+    team({
+      teamKey: "frc9999",
+      pointTotal: 20,
+      adjustments: -5,
+      eventPoints: [eventPoints({ eventKey: "2026wabon", total: 20 })],
+    });
+
+  it("renders that team's grand total as unavailable rather than throwing for the whole table", () => {
+    const artifact = artifactOf([bad()]);
+    const built = buildDistrictLedgerRows({ artifact, distributions: NO_DISTRIBUTIONS });
+    expect(built.teams).toHaveLength(1);
+    expect(built.teams[0]!.grandTotal.kind).toBe("unavailable");
+  });
+
+  it("names the team in the disclosed gaps rather than absorbing the refusal", () => {
+    const artifact = artifactOf([bad()]);
+    const built = buildDistrictLedgerRows({ artifact, distributions: NO_DISTRIBUTIONS });
+    expect(built.gaps.teamsWithUnavailableGrandTotal).toEqual(["frc9999"]);
+  });
+
+  it("leaves every other team's rows intact, grand total included", () => {
+    const artifact = artifactOf([
+      bad(),
+      team({ teamKey: "frc1", pointTotal: 30, eventPoints: [eventPoints({ eventKey: "2026wabon", total: 30 })] }),
+      team({ teamKey: "frc2", pointTotal: 10, eventPoints: [eventPoints({ eventKey: "2026wabon", total: 10 })] }),
+    ]);
+    const built = buildDistrictLedgerRows({ artifact, distributions: NO_DISTRIBUTIONS });
+    expect(built.teams).toHaveLength(3);
+    const good = built.teams.filter((entry) => entry.teamKey !== "frc9999");
+    expect(good.map((entry) => entry.teamKey).sort()).toEqual(["frc1", "frc2"]);
+    for (const entry of good) expect(entry.grandTotal.kind).toBe("final");
+    expect(built.gaps.teamsWithUnavailableGrandTotal).toEqual(["frc9999"]);
+  });
+
+  it("keeps the degraded team's own rows and earned points, losing only the predicted numbers", () => {
+    const artifact = artifactOf([bad()]);
+    const degraded = buildDistrictLedgerRows({ artifact, distributions: NO_DISTRIBUTIONS }).teams[0]!;
+    expect(degraded.rowCount).toBe(1);
+    expect(degraded.rows[0]!.eventKey).toBe("2026wabon");
+    expect(degraded.earnedDistrictTotal).toBe(20);
+    expect(degraded.rows[0]!.earned?.total).toBe(20);
+    expect(degraded.rows[0]!.cells.every((cell) => cell.kind === "unavailable")).toBe(true);
+    expect(degraded.rows[0]!.eventTotal.kind).toBe("unavailable");
+    // 20 earned, no rookie bonus, minus the 5 adjustment the convolution refused.
+    expect(degraded.projection).toBe(15);
+  });
+
+  it("does NOT degrade per team for an unregistered season — that refusal belongs to the whole table and reaches the tab's boundary", () => {
+    const artifact = artifactOf([team({ teamKey: "frc1", pointTotal: 20, eventPoints: [eventPoints({ eventKey: "1999wabon", total: 20 })] })], { year: 1999 });
+    expect(() => buildDistrictLedgerRows({ artifact, distributions: NO_DISTRIBUTIONS })).toThrow();
+  });
+});
+
 describe("the position number", () => {
   it("is the team's index in the sorted order plus one, and the status projection reads that same array", () => {
     const artifact = artifactOf([

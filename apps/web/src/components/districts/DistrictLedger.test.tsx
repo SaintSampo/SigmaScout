@@ -54,6 +54,7 @@ import {
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_STAT_LINE_LABELS,
+  DISTRICT_LEDGER_TAB_LABEL,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
 } from "./districtLedgerCopy.js";
 
@@ -1072,5 +1073,67 @@ describe("DistrictLedger — the old District Locks table is gone from this tier
     const caveat = await screen.findByTestId("district-ledger-caveat");
     expect(caveat.textContent).toContain(DISTRICT_LEDGER_CAVEAT);
     expect(caveat.textContent).toContain(DISTRICT_LEDGER_PROVENANCE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WR-09: a refusal inside a render-path `useMemo` costs this tab, not the page
+// ---------------------------------------------------------------------------
+
+describe("the tab's error boundary (WR-09)", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * An UNREGISTERED season is the whole-table refusal this boundary exists for:
+   * `buildDistrictLedgerRows` and `computeDistrictLedgerStatuses` both open with
+   * `maxEventPoints(artifact.year, "district")`, which throws
+   * `UnknownDistrictSeasonError` rather than guessing a ceiling. Both calls sit
+   * inside a render-path `useMemo`, so before the boundary the throw unmounted
+   * the whole route subtree and the Locks page went blank.
+   */
+  function unregisteredSeasonArtifact(): DistrictArtifact {
+    return artifactOf([districtTeam("frc100")], { year: 1999, districtKey: "1999pnw" });
+  }
+
+  it("renders the site's ErrorState instead of a blank page when the row build refuses", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(unregisteredSeasonArtifact());
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /retry/i })).toBeDefined());
+    // The tab itself is gone, which is the point: a refusal is contained rather
+    // than fabricated around.
+    expect(screen.queryByTestId("district-ledger-tab")).toBeNull();
+    // Something is on the page. A blank subtree is exactly what this test
+    // exists to rule out.
+    expect(document.body.textContent?.length ?? 0).toBeGreaterThan(0);
+  });
+
+  it("names the tab in the error copy, so a reader knows WHICH surface refused", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(unregisteredSeasonArtifact());
+
+    await waitFor(() => expect(screen.getByText(`Couldn't load the ${DISTRICT_LEDGER_TAB_LABEL} tab.`)).toBeDefined());
+  });
+
+  it("leaves a registered season rendering the tab exactly as before — the boundary adds no DOM of its own", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf([districtTeam("frc100")]));
+
+    await waitFor(() => expect(screen.getByTestId("district-ledger-tab")).toBeDefined());
+    expect(screen.queryByRole("button", { name: /retry/i })).toBeNull();
   });
 });

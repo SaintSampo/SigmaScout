@@ -28,6 +28,7 @@
 import { useRef, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { EmptyState } from "@/components/StateViews";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
@@ -63,6 +64,7 @@ import {
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_STAT_LINE_LABELS,
+  DISTRICT_LEDGER_TAB_LABEL,
   DISTRICT_LEDGER_TICK_NOW,
   DISTRICT_LEDGER_TICK_START,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
@@ -663,7 +665,31 @@ function ControlsCard({
   );
 }
 
-export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerProps) {
+/**
+ * The exported tab is the IMPLEMENTATION WRAPPED IN A BOUNDARY, so every call
+ * site gets the containment rather than whichever one remembered to ask for it
+ * (phase 10 review, WR-09).
+ *
+ * `DistrictLedgerContent` below calls three functions that each document
+ * themselves as refusing rather than fabricating — `convolveDistrictGrandTotal`
+ * (`NegativeDistrictShiftError`), `maxEventPoints` (`UnknownDistrictSeasonError`)
+ * and `pointCellSummary` (`EmptyDistributionError`) — from inside render-path
+ * `useMemo`s. `buildDistrictLedgerRows` now degrades PER TEAM for the failures
+ * it can attribute to one team; this boundary catches the rest, so a refusal
+ * that applies to the whole table costs this tab and not the whole Locks page.
+ *
+ * `ErrorBoundary` renders a keyed Fragment, never a wrapper element, so this
+ * indirection changes no rendered DOM on the ordinary path.
+ */
+export function DistrictLedger(props: DistrictLedgerProps) {
+  return (
+    <ErrorBoundary resource={`the ${DISTRICT_LEDGER_TAB_LABEL} tab`}>
+      <DistrictLedgerContent {...props} />
+    </ErrorBoundary>
+  );
+}
+
+function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerProps) {
   // `strict: false` plus a narrow local cast — the documented escape hatch for
   // a control mounted inside a route whose search type it does not own.
   const search = useSearch({ strict: false }) as { at?: string; drawerTeam?: number; drawerCell?: string };

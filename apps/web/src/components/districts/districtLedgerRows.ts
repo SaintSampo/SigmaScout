@@ -218,6 +218,15 @@ export interface DistrictLedgerGaps {
   readonly eventsWithPartialAllianceList: readonly string[];
   /** Events the Worker could not price at all, with the error class that refused. */
   readonly unavailableEvents: readonly { readonly eventKey: string; readonly name: string }[];
+  /**
+   * Teams whose row build refused — a negative combined shift
+   * (`NegativeDistrictShiftError`) or a distribution carrying no mass at all
+   * (`EmptyDistributionError`). Their rows render every predicted number as
+   * unavailable, including the grand total; their earned points are unchanged.
+   * See `buildTeam`'s own doc comment in this module for why this is per team
+   * rather than per table.
+   */
+  readonly teamsWithUnavailableGrandTotal: readonly string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -637,10 +646,30 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
   const unavailableByKey = new Map(unavailableEvents.map((entry) => [entry.eventKey, entry.name] as const));
 
   const teamsWithoutAwardProfile = new Set(options.gaps?.teamsWithoutAwardProfile ?? []);
+  const teamsWithUnavailableGrandTotal = new Set(options.gaps?.teamsWithUnavailableGrandTotal ?? []);
 
   const built: DistrictLedgerTeam[] = [];
 
-  for (const team of artifact.teams) {
+  /**
+   * ONE team's whole entry. Extracted from the loop below so a refusal
+   * attributable to ONE TEAM costs that team its grand total and nothing more
+   * (phase 10 review, WR-09).
+   *
+   * Three of the functions reached from here document themselves as throwing
+   * rather than fabricating — `convolveDistrictGrandTotal`
+   * (`NegativeDistrictShiftError` for a negative rookie-bonus-plus-adjustments
+   * shift or a non-positive denominator) and `pointCellSummary`/`pointQuantile`
+   * (`EmptyDistributionError` for a histogram carrying no mass at all). Each of
+   * those inputs arrives PER TEAM, so each is attributable per team.
+   *
+   * `maxEventPoints` is deliberately NOT in here: it is keyed on the season and
+   * the tier only, so an unregistered season is a refusal about the WHOLE table
+   * and is left to propagate to the tab's error boundary (`ErrorBoundary`,
+   * wrapped around `DistrictLedgerContent`). Degrading every team one at a time
+   * for a fact that is the same for all of them would print a whole table of
+   * "not available" where one honest message belongs.
+   */
+  const buildTeam = (team: DistrictTeam): DistrictLedgerTeam => {
     const entries = districtTierEvents(team);
     const rows: DistrictLedgerEventRow[] = [];
     const eventTotalDistributions: DistrictPointDistribution[] = [];
@@ -745,9 +774,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
       }
     }
 
-    if (team.awardProfile === undefined) teamsWithoutAwardProfile.add(team.teamKey);
-
-    built.push({
+    return {
       teamKey: team.teamKey,
       teamNumber: team.teamNumber ?? safeTeamNumber(team.teamKey),
       nickname: team.nickname ?? `Team ${String(team.teamNumber ?? safeTeamNumber(team.teamKey))}`,
@@ -759,7 +786,23 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
       hasOpenCategory,
       position: 0,
       rookieBonus: Math.max(0, Math.round(team.rookieBonus)),
-    });
+    };
+  };
+
+  for (const team of artifact.teams) {
+    if (team.awardProfile === undefined) teamsWithoutAwardProfile.add(team.teamKey);
+    try {
+      built.push(buildTeam(team));
+    } catch {
+      // DEGRADE PER TEAM, never per table. The team keeps its identity, its
+      // rows and its earned points, and loses exactly the thing that could not
+      // be built: every predicted number, including the grand total. It is
+      // NAMED in `gaps.teamsWithUnavailableGrandTotal` rather than absorbed —
+      // an absorbed refusal becomes a plausible, complete, wrong row, which is
+      // the whole reason these functions throw in the first place.
+      teamsWithUnavailableGrandTotal.add(team.teamKey);
+      built.push(degradedLedgerTeam(team));
+    }
   }
 
   built.sort((a, b) => {
@@ -778,8 +821,58 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
       teamsWithoutAwardProfile: [...teamsWithoutAwardProfile].sort(),
       eventsWithFallbackFieldSize: [...(options.gaps?.eventsWithFallbackFieldSize ?? [])].sort(),
       eventsWithPartialAllianceList: [...(options.gaps?.eventsWithPartialAllianceList ?? [])].sort(),
+      teamsWithUnavailableGrandTotal: [...teamsWithUnavailableGrandTotal].sort(),
       unavailableEvents: [...unavailableByKey.entries()].map(([eventKey, name]) => ({ eventKey, name })).sort((a, b) => a.eventKey.localeCompare(b.eventKey)),
     },
+  };
+}
+
+/**
+ * The row model for a team whose ordinary build REFUSED — the fallback
+ * `buildDistrictLedgerRows`' per-team catch pushes.
+ *
+ * ARITHMETIC ONLY, no simulation and no summary: every cell is `unavailable`,
+ * the earned totals are summed straight off the artifact's own published
+ * `eventPoints[].total`, and the projection is that sum plus the published
+ * rookie bonus and adjustments — the same expression the `!everyEventTotalKnown`
+ * branch above already uses for a team the tab holds no distribution for. So
+ * this function has nothing left in it that can throw, which is what makes the
+ * catch that calls it a genuine floor rather than a second place to fail.
+ *
+ * The team KEEPS its rows: dropping them would change the table's shape for
+ * one team and make a row count disagree with an event list. It loses only the
+ * numbers that could not be built.
+ */
+function degradedLedgerTeam(team: DistrictTeam): DistrictLedgerTeam {
+  const entries = districtTierEvents(team);
+  let earnedDistrictTotal = 0;
+  const rows: DistrictLedgerEventRow[] = entries.map((entry) => {
+    if (entry.earned !== undefined) earnedDistrictTotal += entry.earned.total;
+    const derived = deriveStageFromState(entry.state);
+    return {
+      eventKey: entry.eventKey,
+      eventName: entry.eventName,
+      week: entry.week,
+      stage: { ...derived, finished: derived.finished },
+      cells: DISTRICT_CATEGORIES.map((category) => ({ id: districtCellId(entry.eventKey, category), cell: category, kind: "unavailable" as const })),
+      eventTotal: { id: districtCellId(entry.eventKey, "eventTotal"), cell: "eventTotal" as const, kind: "unavailable" as const },
+      earned: entry.earned,
+      remainingMaxPoints: entry.remainingMaxPoints,
+    };
+  });
+  const teamNumber = team.teamNumber ?? safeTeamNumber(team.teamKey);
+  return {
+    teamKey: team.teamKey,
+    teamNumber,
+    nickname: team.nickname ?? `Team ${String(teamNumber)}`,
+    rows,
+    rowCount: rows.length,
+    earnedDistrictTotal,
+    grandTotal: { id: GRAND_TOTAL_CELL_ID, cell: "grandTotal", kind: "unavailable" },
+    projection: earnedDistrictTotal + team.rookieBonus + team.adjustments,
+    hasOpenCategory: false,
+    position: 0,
+    rookieBonus: Math.max(0, Math.round(team.rookieBonus)),
   };
 }
 
