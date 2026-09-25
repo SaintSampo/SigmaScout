@@ -32,12 +32,16 @@ import {
   type DistrictEventState,
   type EventArtifact,
 } from "../../../../../packages/harness/pageArtifacts.js";
+import { RANK_BAND_LABEL_PREFIX } from "../event/rankRows.js";
 import { installMockWorker, type MockWorkerHandle, type MockWorkerScript } from "../../test/mockWorker.js";
 import { runDistrictSimulationJob } from "../../workers/districtSimulationProtocol.js";
 import { DistrictLedger } from "./DistrictLedger.js";
 import {
   DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED,
   DISTRICT_LEDGER_COLUMN_LABELS,
+  DISTRICT_LEDGER_DRAWER_LINE_CAPTION,
+  DISTRICT_LEDGER_DRAWER_NO_CHANCE_CAPTION,
+  DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
@@ -827,5 +831,158 @@ describe("DistrictLedger — the Rewind slider", () => {
     await waitFor(() => expect(handle!.instances.length).toBeGreaterThan(0));
     const request = handle.instances[handle.instances.length - 1]!.received[0] as { events: { eventKey: string }[] };
     expect(request.events.map((event) => event.eventKey)).toEqual(["2026wadone"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The drawer
+// ---------------------------------------------------------------------------
+
+describe("DistrictLedger — the drawer", () => {
+  const originalFetch = global.fetch;
+  const originalMatchMedia = window.matchMedia;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    window.matchMedia = originalMatchMedia;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  const liveDistrict = () => artifactOf(ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey))));
+
+  async function renderWithOpenCells() {
+    installFetch({ eventArtifact: liveEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(liveDistrict());
+    await waitFor(() => {
+      expect(document.querySelector('[data-cell-id="2026walive:qual"]')?.getAttribute("data-cell")).toBe("open");
+    });
+  }
+
+  function cellButton(cellId: string): HTMLElement {
+    const cell = document.querySelector(`[data-cell-id="${cellId}"]`)!;
+    return cell.tagName === "BUTTON" ? (cell as HTMLElement) : within(cell as HTMLElement).getByRole("button");
+  }
+
+  it("opens ONE drawer under the clicked team, closes it on a second click, and moves it on a different cell", async () => {
+    await renderWithOpenCells();
+    expect(screen.queryAllByTestId("district-ledger-drawer")).toHaveLength(0);
+
+    fireEvent.click(cellButton("2026walive:qual"));
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-drawer")).toHaveLength(1));
+    expect(screen.getByTestId("district-ledger-drawer").getAttribute("data-drawer-cell")).toBe("2026walive:qual");
+
+    // A different cell in the same team MOVES the drawer; still at most one.
+    fireEvent.click(cellButton("2026walive:elim"));
+    await waitFor(() => expect(screen.getByTestId("district-ledger-drawer").getAttribute("data-drawer-cell")).toBe("2026walive:elim"));
+    expect(screen.getAllByTestId("district-ledger-drawer")).toHaveLength(1);
+
+    // The same cell again CLOSES it.
+    fireEvent.click(cellButton("2026walive:elim"));
+    await waitFor(() => expect(screen.queryAllByTestId("district-ledger-drawer")).toHaveLength(0));
+  });
+
+  it("tracks aria-expanded on the clicked cell and leaves every other open cell false", async () => {
+    await renderWithOpenCells();
+    expect(cellButton("2026walive:qual").getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(cellButton("2026walive:qual"));
+    await waitFor(() => expect(cellButton("2026walive:qual").getAttribute("aria-expanded")).toBe("true"));
+    expect(cellButton("2026walive:elim").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("draws both histograms, with today's line on the grand total plot and the floor caption beneath it", async () => {
+    await renderWithOpenCells();
+    fireEvent.click(cellButton("2026walive:qual"));
+    await waitFor(() => expect(screen.getByTestId("district-ledger-drawer-cell-plot")).toBeDefined());
+    expect(screen.getByTestId("district-ledger-drawer-grand-plot")).toBeDefined();
+    expect(screen.getByTestId("district-hist-marked-line")).toBeDefined();
+    expect(screen.getByTestId("district-ledger-drawer").textContent).toContain(DISTRICT_LEDGER_DRAWER_LINE_CAPTION);
+    expect(screen.getByTestId("district-ledger-drawer").textContent).toContain(DISTRICT_LEDGER_DRAWER_NO_CHANCE_CAPTION);
+  });
+
+  it("draws NO line and says so instead when the capacity is unpublished", async () => {
+    installFetch({ eventArtifact: liveEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf(ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey))), { dcmpSlots: null }));
+    await waitFor(() => {
+      expect(document.querySelector('[data-cell-id="2026walive:qual"]')?.getAttribute("data-cell")).toBe("open");
+    });
+    fireEvent.click(cellButton("2026walive:qual"));
+    await waitFor(() => expect(screen.getByTestId("district-ledger-drawer")).toBeDefined());
+    expect(screen.queryByTestId("district-hist-marked-line")).toBeNull();
+    expect(screen.getByTestId("district-ledger-drawer").textContent).toContain(DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION);
+  });
+
+  it("pins the band-edge label to the hand-computable percentiles of the drawn distribution", async () => {
+    await renderWithOpenCells();
+    fireEvent.click(cellButton("2026walive:qual"));
+    const label = await screen.findByTestId("district-ledger-drawer-band-label");
+    const text = label.textContent ?? "";
+    expect(text.startsWith(RANK_BAND_LABEL_PREFIX)).toBe(true);
+    // One decimal, an EN dash, and never the plus-minus codepoint.
+    expect(text).toMatch(/^10th–90th: \d+\.\d–\d+\.\d$/);
+    expect(screen.getByTestId("district-ledger-drawer").textContent ?? "").not.toContain(PLUS_MINUS);
+  });
+
+  it("uses ONE maximum per column, shared down the column, for two different teams' plots", async () => {
+    await renderWithOpenCells();
+    fireEvent.click(cellButton("2026walive:elim"));
+    await waitFor(() => expect(screen.getByTestId("district-ledger-drawer-cell-plot")).toBeDefined());
+    const firstMax = screen.getByTestId("district-ledger-drawer-cell-plot").querySelector("[data-plot-max]")!.getAttribute("data-plot-max");
+
+    // Open the SAME column on a DIFFERENT team: the axis maximum is identical,
+    // because it comes from `maxEventPoints` and not from either team's data.
+    // Every team carries a cell with this id, so the second element is the
+    // second team's own Playoffs cell.
+    const elimCells = [...document.querySelectorAll('[data-cell-id="2026walive:elim"]')];
+    expect(elimCells.length).toBeGreaterThan(1);
+    fireEvent.click(within(elimCells[1] as HTMLElement).getByRole("button"));
+    await waitFor(() => expect(screen.getByTestId("district-ledger-drawer-cell-plot")).toBeDefined());
+    const secondMax = screen.getByTestId("district-ledger-drawer-cell-plot").querySelector("[data-plot-max]")!.getAttribute("data-plot-max");
+    expect(secondMax).toBe(firstMax);
+  });
+
+  it("opens with NO animation class when a reduced-motion preference is set (the UAT's manual check is the real one)", async () => {
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes("prefers-reduced-motion"),
+      media: query,
+      onchange: null,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+
+    await renderWithOpenCells();
+    fireEvent.click(cellButton("2026walive:qual"));
+    const drawer = await screen.findByTestId("district-ledger-drawer");
+    expect(drawer.innerHTML).not.toContain("district-ledger-drawer--animated");
+  });
+
+  it("resolves an unknown drawer team or cell id to CLOSED, never to a neighbouring cell", async () => {
+    installFetch({ eventArtifact: liveEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedgerAt(liveDistrict(), "/districts?algorithm=spr&drawerTeam=999999&drawerCell=2026walive%3Aqual");
+    await waitFor(() => expect(screen.getByTestId("district-ledger-tab")).toBeDefined());
+    expect(screen.queryAllByTestId("district-ledger-drawer")).toHaveLength(0);
+    cleanup();
+
+    renderLedgerAt(liveDistrict(), "/districts?algorithm=spr&drawerTeam=100&drawerCell=never-existed");
+    await waitFor(() => expect(screen.getByTestId("district-ledger-tab")).toBeDefined());
+    expect(screen.queryAllByTestId("district-ledger-drawer")).toHaveLength(0);
+  });
+
+  it("is shareable: a URL naming a real team and open cell opens the drawer on first paint", async () => {
+    installFetch({ eventArtifact: liveEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedgerAt(liveDistrict(), "/districts?algorithm=spr&drawerTeam=100&drawerCell=2026walive%3Aqual");
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-drawer")).toHaveLength(1));
+    expect(screen.getByTestId("district-ledger-drawer").getAttribute("data-drawer-cell")).toBe("2026walive:qual");
   });
 });

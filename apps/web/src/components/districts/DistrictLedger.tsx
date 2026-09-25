@@ -31,10 +31,20 @@ import { EmptyState } from "@/components/StateViews";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
+import { pointPercentiles } from "../../../../../packages/core/districts/pointSummary.js";
+import { RANK_BAND_LABEL_PREFIX } from "../event/rankRows.js";
+import { DistrictPointHistogram } from "./DistrictPointHistogram.js";
 import {
   DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED,
   DISTRICT_LEDGER_CHANCE_WORDS,
   DISTRICT_LEDGER_COLUMN_LABELS,
+  DISTRICT_LEDGER_DRAWER_CELL_CAPTION,
+  DISTRICT_LEDGER_DRAWER_CELL_PLOT_LABEL,
+  DISTRICT_LEDGER_DRAWER_GRAND_PLOT_LABEL,
+  DISTRICT_LEDGER_DRAWER_LINE_CAPTION,
+  DISTRICT_LEDGER_DRAWER_LINE_LABEL,
+  DISTRICT_LEDGER_DRAWER_NO_CHANCE_CAPTION,
+  DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
@@ -50,6 +60,7 @@ import {
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_STAT_LINE_LABELS,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
+  districtLedgerNoPointsCaption,
 } from "./districtLedgerCopy.js";
 import {
   DISTRICT_LEDGER_STATUS_KEYS,
@@ -235,7 +246,12 @@ function openCellLines(cell: Extract<DistrictLedgerCell, { kind: "open" }>): { b
   return { bold, small };
 }
 
-function LedgerCell({ cell }: { cell: DistrictLedgerCell }) {
+interface CellInteraction {
+  readonly openCellId: string | undefined;
+  readonly onToggle: (cellId: string) => void;
+}
+
+function LedgerCell({ cell, interaction }: { cell: DistrictLedgerCell; interaction: CellInteraction }) {
   if (cell.kind === "final") {
     return (
       <TableCell data-cell="final" data-cell-id={cell.id} className="numeric-cell text-[var(--color-text-muted)]">
@@ -254,7 +270,12 @@ function LedgerCell({ cell }: { cell: DistrictLedgerCell }) {
   return (
     <TableCell data-cell="open" data-cell-id={cell.id} className="numeric-cell">
       {/* A blue cell is a real <button>: focusable, two lines, never hue alone. */}
-      <button type="button" className={OPEN_CELL_CLASS}>
+      <button
+        type="button"
+        aria-expanded={interaction.openCellId === cell.id}
+        onClick={() => interaction.onToggle(cell.id)}
+        className={OPEN_CELL_CLASS}
+      >
         <span className={OPEN_CELL_BOLD_CLASS}>{lines.bold}</span>
         {lines.small !== undefined && <span className={OPEN_CELL_SMALL_CLASS}>{lines.small}</span>}
       </button>
@@ -291,6 +312,91 @@ function TeamCell({ team, season, algorithm }: { team: DistrictLedgerTeam; seaso
         </span>
       </div>
     </TableCell>
+  );
+}
+
+/**
+ * True when the visitor asked for reduced motion.
+ *
+ * A UI-SPEC BACKSTOP ROW. The committed test asserts the animation class is
+ * absent under a `matchMedia` stub; the REAL verification is the UAT's manual
+ * check, and `theme.css` carries a `prefers-reduced-motion` query as the
+ * belt-and-braces half.
+ */
+function prefersReducedMotion(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/** The explicit percentile label, built from the SHIPPED prefix and the same one-decimal en-dash discipline — never the plus-minus codepoint. */
+function bandLabel(p10: number, p90: number): string {
+  return `${RANK_BAND_LABEL_PREFIX}${Math.max(0, p10).toFixed(1)}–${Math.max(0, p90).toFixed(1)}`;
+}
+
+/**
+ * ONE drawer row at a time across the whole table, spanning every column,
+ * carrying the clicked cell's histogram beside the grand total's.
+ */
+function DrawerRow({
+  cell,
+  grandTotal,
+  todaysLineFloor,
+  columnCount,
+}: {
+  cell: Extract<DistrictLedgerCell, { kind: "open" }>;
+  grandTotal: DistrictLedgerCell;
+  todaysLineFloor: number | null;
+  columnCount: number;
+}) {
+  const cellPercentiles = pointPercentiles(cell.distribution.counts, cell.distribution.denominator);
+  const noPointsChance = Math.round(((cell.distribution.counts[0] ?? 0) / cell.distribution.denominator) * 100);
+  const animated = prefersReducedMotion() ? "" : " district-ledger-drawer--animated";
+  return (
+    <TableRow data-testid="district-ledger-drawer" data-drawer-cell={cell.id}>
+      <TableCell colSpan={columnCount}>
+        <div className={`flex flex-wrap gap-[var(--spacing-lg)]${animated}`}>
+          <div className="flex flex-col gap-[var(--spacing-xs)]">
+            <DistrictPointHistogram
+              testId="district-ledger-drawer-cell-plot"
+              counts={cell.distribution.counts}
+              denominator={cell.distribution.denominator}
+              maxPoints={cell.ceiling}
+              p10={cellPercentiles.p10}
+              p50={cellPercentiles.p50}
+              p90={cellPercentiles.p90}
+              label={DISTRICT_LEDGER_DRAWER_CELL_PLOT_LABEL}
+            />
+            <span data-testid="district-ledger-drawer-band-label">{bandLabel(cellPercentiles.p10, cellPercentiles.p90)}</span>
+            <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_DRAWER_CELL_CAPTION}</span>
+            {noPointsChance > 0 && <span className="text-[var(--color-text-muted)]">{districtLedgerNoPointsCaption(noPointsChance)}</span>}
+          </div>
+          {grandTotal.kind === "open" && <GrandTotalPlot cell={grandTotal} todaysLineFloor={todaysLineFloor} />}
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function GrandTotalPlot({ cell, todaysLineFloor }: { cell: Extract<DistrictLedgerCell, { kind: "open" }>; todaysLineFloor: number | null }) {
+  const percentiles = pointPercentiles(cell.distribution.counts, cell.distribution.denominator);
+  return (
+    <div className="flex flex-col gap-[var(--spacing-xs)]">
+      <DistrictPointHistogram
+        testId="district-ledger-drawer-grand-plot"
+        counts={cell.distribution.counts}
+        denominator={cell.distribution.denominator}
+        maxPoints={cell.ceiling}
+        p10={percentiles.p10}
+        p50={percentiles.p50}
+        p90={percentiles.p90}
+        {...(todaysLineFloor === null ? {} : { markedPosition: todaysLineFloor, markedLabel: DISTRICT_LEDGER_DRAWER_LINE_LABEL })}
+        label={DISTRICT_LEDGER_DRAWER_GRAND_PLOT_LABEL}
+      />
+      <span className="text-[var(--color-text-muted)]">
+        {todaysLineFloor === null ? DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION : DISTRICT_LEDGER_DRAWER_LINE_CAPTION}
+      </span>
+      <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_DRAWER_NO_CHANCE_CAPTION}</span>
+    </div>
   );
 }
 
@@ -478,6 +584,22 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
     return map;
   }, [atNow, districtEvents, timeline, positionIndex]);
 
+  /**
+   * The drawer is driven by the two typed search params, so it is shareable and
+   * survives a reload. An unknown team or cell id resolves to CLOSED, never to
+   * a neighbouring cell — the same rule the timeline resolver follows.
+   */
+  function handleCellToggle(teamNumber: number, cellId: string): void {
+    void navigate({
+      search: (prev) => {
+        const alreadyOpen = prev.drawerTeam === teamNumber && prev.drawerCell === cellId;
+        return alreadyOpen
+          ? { ...prev, drawerTeam: undefined, drawerCell: undefined }
+          : { ...prev, drawerTeam: teamNumber, drawerCell: cellId };
+      },
+    });
+  }
+
   function handlePositionChange(index: number): void {
     const id = timeline.positions[index]?.id ?? DISTRICT_TIMELINE_NOW_ID;
     void navigate({ search: (prev) => ({ ...prev, at: id === DISTRICT_TIMELINE_NOW_ID ? undefined : id }) });
@@ -522,6 +644,24 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
     });
   }, [rows.teams, query, hiddenStatuses, statuses]);
 
+  /**
+   * At most ONE drawer is open across the whole table. An unknown team number
+   * or an unknown cell id resolves to closed rather than to a neighbouring
+   * cell, which is why this is a lookup rather than an index.
+   */
+  const openDrawer = useMemo(() => {
+    if (search.drawerTeam === undefined || search.drawerCell === undefined) return undefined;
+    const team = rows.teams.find((entry) => entry.teamNumber === search.drawerTeam);
+    if (team === undefined) return undefined;
+    const candidates: DistrictLedgerCell[] = [
+      ...team.rows.flatMap((row) => [...row.cells, row.eventTotal]),
+      team.grandTotal,
+    ];
+    const cell = candidates.find((entry) => entry.id === search.drawerCell);
+    if (cell === undefined || cell.kind !== "open") return undefined;
+    return { team, cell };
+  }, [rows.teams, search.drawerTeam, search.drawerCell]);
+
   function toggleStatus(status: DistrictLedgerStatusKey): void {
     setHiddenStatuses((previous) => {
       const next = new Set(previous);
@@ -559,35 +699,51 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
             </TableRow>
           </TableHeader>
           <TableBody>
-            {visibleTeams.flatMap((team) =>
-              team.rows.length === 0
-                ? [
-                    <TableRow key={team.teamKey} data-testid="district-ledger-row" data-team={team.teamKey}>
-                      <TeamCell team={team} season={season} algorithm={algorithm} />
-                      <StatusCell status={statuses.byTeam.get(team.teamKey)} rowSpan={1} />
-                      <TableCell colSpan={DISTRICT_LEDGER_COLUMN_LABELS.length - 3} className="text-[var(--color-text-muted)]">
-                        {DISTRICT_LEDGER_UNAVAILABLE_CELL}
-                      </TableCell>
-                      <LedgerCell cell={team.grandTotal} />
-                    </TableRow>,
-                  ]
-                : team.rows.map((row, rowIndex) => (
-                    <TableRow key={`${team.teamKey}-${row.eventKey}`} data-testid="district-ledger-row" data-team={team.teamKey}>
-                      {rowIndex === 0 && <TeamCell team={team} season={season} algorithm={algorithm} />}
-                      {rowIndex === 0 && <StatusCell status={statuses.byTeam.get(team.teamKey)} rowSpan={Math.max(team.rowCount, 1)} />}
-                      <EventCell row={row} />
-                      {row.cells.map((cell) => (
-                        <LedgerCell key={cell.id} cell={cell} />
-                      ))}
-                      <LedgerCell cell={row.eventTotal} />
-                      {rowIndex === 0 && (
-                        <TableCell rowSpan={Math.max(team.rowCount, 1)} data-testid="district-ledger-grand-total" className="numeric-cell align-top">
-                          <GrandTotalContent cell={team.grandTotal} />
+            {visibleTeams.flatMap((team) => {
+              const interaction: CellInteraction = {
+                openCellId: openDrawer?.team.teamKey === team.teamKey ? openDrawer.cell.id : undefined,
+                onToggle: (cellId) => handleCellToggle(team.teamNumber, cellId),
+              };
+              const dataRows =
+                team.rows.length === 0
+                  ? [
+                      <TableRow key={team.teamKey} data-testid="district-ledger-row" data-team={team.teamKey}>
+                        <TeamCell team={team} season={season} algorithm={algorithm} />
+                        <StatusCell status={statuses.byTeam.get(team.teamKey)} rowSpan={1} />
+                        <TableCell colSpan={DISTRICT_LEDGER_COLUMN_LABELS.length - 3} className="text-[var(--color-text-muted)]">
+                          {DISTRICT_LEDGER_UNAVAILABLE_CELL}
                         </TableCell>
-                      )}
-                    </TableRow>
-                  ))
-            )}
+                        <LedgerCell cell={team.grandTotal} interaction={interaction} />
+                      </TableRow>,
+                    ]
+                  : team.rows.map((row, rowIndex) => (
+                      <TableRow key={`${team.teamKey}-${row.eventKey}`} data-testid="district-ledger-row" data-team={team.teamKey}>
+                        {rowIndex === 0 && <TeamCell team={team} season={season} algorithm={algorithm} />}
+                        {rowIndex === 0 && <StatusCell status={statuses.byTeam.get(team.teamKey)} rowSpan={Math.max(team.rowCount, 1)} />}
+                        <EventCell row={row} />
+                        {row.cells.map((cell) => (
+                          <LedgerCell key={cell.id} cell={cell} interaction={interaction} />
+                        ))}
+                        <LedgerCell cell={row.eventTotal} interaction={interaction} />
+                        {rowIndex === 0 && (
+                          <TableCell rowSpan={Math.max(team.rowCount, 1)} data-testid="district-ledger-grand-total" className="numeric-cell align-top">
+                            <GrandTotalContent cell={team.grandTotal} interaction={interaction} />
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    ));
+              if (openDrawer?.team.teamKey !== team.teamKey) return dataRows;
+              return [
+                ...dataRows,
+                <DrawerRow
+                  key={`${team.teamKey}-drawer`}
+                  cell={openDrawer.cell}
+                  grandTotal={team.grandTotal}
+                  todaysLineFloor={statLine.todaysLineFloor}
+                  columnCount={DISTRICT_LEDGER_COLUMN_LABELS.length}
+                />,
+              ];
+            })}
           </TableBody>
         </Table>
       </div>
@@ -596,7 +752,7 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
 }
 
 /** The grand total's own content, rendered inside a cell that carries the team's row span rather than inside `LedgerCell`'s own `<td>`. */
-function GrandTotalContent({ cell }: { cell: DistrictLedgerCell }) {
+function GrandTotalContent({ cell, interaction }: { cell: DistrictLedgerCell; interaction: CellInteraction }) {
   if (cell.kind === "final") {
     return (
       <span data-cell="final" data-cell-id={cell.id} className="text-[var(--color-text-muted)]">
@@ -613,7 +769,14 @@ function GrandTotalContent({ cell }: { cell: DistrictLedgerCell }) {
   }
   const lines = openCellLines(cell);
   return (
-    <button type="button" data-cell="open" data-cell-id={cell.id} className={OPEN_CELL_CLASS}>
+    <button
+      type="button"
+      data-cell="open"
+      data-cell-id={cell.id}
+      aria-expanded={interaction.openCellId === cell.id}
+      onClick={() => interaction.onToggle(cell.id)}
+      className={OPEN_CELL_CLASS}
+    >
       <span className={OPEN_CELL_BOLD_CLASS}>{lines.bold}</span>
       {lines.small !== undefined && <span className={OPEN_CELL_SMALL_CLASS}>{lines.small}</span>}
     </button>

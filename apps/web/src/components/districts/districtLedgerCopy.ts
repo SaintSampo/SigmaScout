@@ -111,3 +111,38 @@ export const DISTRICT_LEDGER_STATUS_DEFINITIONS = {
   outOfRange: "if every team earned its median predicted points, this team would not qualify",
   lockedOut: "cannot earn enough district points to qualify",
 } as const;
+
+/**
+ * The drawer's captions. Flat third person, no dash characters other than the
+ * en dash inside a printed percentile range.
+ *
+ * WRITTEN FRESH rather than copied from the sketch: the sketch's own caption
+ * describes a sketch simulation, and these say where the numbers actually come
+ * from.
+ */
+export const DISTRICT_LEDGER_DRAWER_CELL_CAPTION = "The bar heights are the shape of the simulated points. The shaded band spans the 10th to the 90th percentile and the tick marks the median.";
+
+/** The lumpy-category addendum: the chance of no points at all. */
+export function districtLedgerNoPointsCaption(chancePercent: number): string {
+  return `${String(chancePercent)}% of runs earn no points at all here.`;
+}
+
+/**
+ * The grand total plot's caption. Today's line is the slot-th team's EARNED
+ * points at this position, a FLOOR on where the real line ends up, since open
+ * categories can only add points.
+ */
+export const DISTRICT_LEDGER_DRAWER_LINE_CAPTION = "The dashed line is the earned points of the team sitting at the last qualifying slot right now, a floor on where the real line ends up.";
+
+/** What the grand total plot says INSTEAD of drawing a line at zero when capacity is unpublished. */
+export const DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION = "TBA has published no capacity for this district, so there is no line to draw.";
+
+/** The limit this page states outright rather than letting a reader infer a chance it does not compute. */
+export const DISTRICT_LEDGER_DRAWER_NO_CHANCE_CAPTION = "A chance of finishing above the line would need the line's own distribution, which this page does not compute.";
+
+/** The drawer's two plot labels, used as their accessible names. */
+export const DISTRICT_LEDGER_DRAWER_CELL_PLOT_LABEL = "Points for this category";
+export const DISTRICT_LEDGER_DRAWER_GRAND_PLOT_LABEL = "Grand total district points";
+
+/** The marked line's own short label beside the grand total plot. */
+export const DISTRICT_LEDGER_DRAWER_LINE_LABEL = "Today's line";
