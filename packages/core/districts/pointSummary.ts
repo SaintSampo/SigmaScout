@@ -55,6 +55,40 @@ function assertDenominator(where: string, denominator: number): void {
 }
 
 /**
+ * Thrown for a histogram carrying NO MASS AT ALL against a positive
+ * denominator — an empty array, or one whose entries are all zero.
+ *
+ * WHY THIS IS ITS OWN REFUSAL. `chanceOfAnyPoints` is `1 - histogram[0] /
+ * denominator`, so an empty histogram reads as a chance of exactly 1.0: a cell
+ * printing a CONFIDENT certainty of earning points over a distribution that
+ * says nothing at all, which then trips the 0.995 rule into the median form
+ * over zero mass. That is the single worst shape this module can produce,
+ * because nothing about it looks wrong.
+ *
+ * A histogram that sums to less than its denominator is a contradiction its
+ * producer has to answer for, not a number to render. `ledgerSimulation.ts`'s
+ * `InvalidKnownPointsError` closes the one path known to produce it (an
+ * out-of-range known value silently no-opping every TypedArray write); this is
+ * the second line, so no future producer can reintroduce the same confident
+ * wrong number quietly.
+ */
+export class EmptyDistributionError extends Error {
+  constructor(where: string, denominator: number) {
+    super(
+      `${where}: the histogram carries no mass at all against a denominator of ${String(denominator)} — ` +
+        `an empty distribution has no chance and no median, and reporting one would print a confident number over nothing`
+    );
+    this.name = "EmptyDistributionError";
+  }
+}
+
+function assertHasMass(where: string, histogram: ArrayLike<number>, denominator: number): void {
+  let mass = 0;
+  for (let i = 0; i < histogram.length; i++) mass += histogram[i]!;
+  if (!(mass > 0)) throw new EmptyDistributionError(where, denominator);
+}
+
+/**
  * A continuous quantile on a POINTS histogram.
  *
  * DELEGATES to the promoted estimator and subtracts one. The subtraction is
@@ -106,9 +140,13 @@ export function pointPercentiles(histogram: ArrayLike<number>, denominator: numb
  * Derived from the histogram rather than carried beside it, for the same
  * reason `anyAwardProbability` derives its own from the pmf — two stored
  * copies of one quantity drift, and a cell's two numbers must never disagree.
+ *
+ * REFUSES a histogram with no mass rather than returning 1.0 for it — see
+ * `EmptyDistributionError`.
  */
 export function chanceOfAnyPoints(histogram: ArrayLike<number>, denominator: number): number {
   assertDenominator("chanceOfAnyPoints", denominator);
+  assertHasMass("chanceOfAnyPoints", histogram, denominator);
   const atZero = histogram.length > 0 ? histogram[0]! : 0;
   return 1 - atZero / denominator;
 }
@@ -171,9 +209,13 @@ export type PointCellSummary =
  * form. Below it the cell takes the chance form — INCLUDING at a chance of
  * exactly zero, where the conditional median is `undefined` and 10-07 prints
  * the chance alone.
+ *
+ * Inherits `chanceOfAnyPoints`'s `EmptyDistributionError` refusal: a histogram
+ * with no mass has no form to take.
  */
 export function pointCellSummary(histogram: ArrayLike<number>, denominator: number): PointCellSummary {
   assertDenominator("pointCellSummary", denominator);
+  assertHasMass("pointCellSummary", histogram, denominator);
   const chance = chanceOfAnyPoints(histogram, denominator);
   if (chance >= POINT_CELL_CHANCE_FORM_THRESHOLD) {
     return { form: "median", percentiles: pointPercentiles(histogram, denominator) };

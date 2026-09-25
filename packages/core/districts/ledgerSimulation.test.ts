@@ -34,6 +34,7 @@ import {
   InsufficientRosterError,
   InvalidAllianceSetError,
   InvalidFieldSizeError,
+  InvalidKnownPointsError,
   MissingAwardProfileError,
   NegativeDistrictShiftError,
   simulateDistrictEvent,
@@ -44,6 +45,7 @@ import {
   type DistrictLedgerEventInput,
   type SuppliedAlliance,
 } from "./ledgerSimulation.js";
+import { chanceOfAnyPoints, EmptyDistributionError, pointCellSummary } from "./pointSummary.js";
 import { maxEventPoints } from "./pointModel.js";
 import { UnknownDistrictSeasonError } from "./pointModel.js";
 import { districtQualPoints } from "./qualPoints.js";
@@ -1177,5 +1179,114 @@ describe("simulateDistrictEvent — the 1,000-draw cost on a realistic fixture",
       expect(result.qualPoints.get(baseline.teamKey)!.reduce((sum, v) => sum + v, 0)).toBe(draws);
     }
     expect(Number.isFinite(elapsedMs)).toBe(true);
+  });
+});
+
+describe("simulateDistrictEvent — a known-stage value is a histogram index, so it is validated", () => {
+  // The reviewer's reproduction, verbatim: a 24-team district-tier event whose
+  // known AWARD value for one team is 20 against a district award ceiling of
+  // 15. Before `InvalidKnownPointsError` the accumulator wrote
+  // `awardByIndex[i][20] += 1` on every draw into an `Int32Array(16)` — a
+  // SILENT no-op — so the award histogram lost all 100 draws while the event
+  // total kept them, and `chanceOfAnyPoints` then read `1 - 0/100` and reported
+  // a confident 100% chance of earning award points.
+  const ceilings = maxEventPoints(SEASON, TIER);
+
+  function knownStageInput(overrides: Partial<DistrictLedgerEventInput>): DistrictLedgerEventInput {
+    return inputFor(24, {
+      remainingMatches: [],
+      knownAlliances: suppliedAlliances(),
+      awardProfiles: new Map<string, DistrictAwardProfile>(),
+      ...overrides,
+    });
+  }
+
+  it("the district award ceiling this case is measured against is 15", () => {
+    expect(ceilings.award).toBe(15);
+  });
+
+  it("throws InvalidKnownPointsError for a known award value of 20 against a ceiling of 15, naming the team and the value", () => {
+    const input = knownStageInput({
+      knownElimPoints: new Map<string, number>(),
+      knownAwardPoints: new Map<string, number>([[teamKey(3), 20]]),
+    });
+
+    try {
+      simulateDistrictEvent(input, 100, 7);
+      expect.fail("expected InvalidKnownPointsError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(InvalidKnownPointsError);
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toContain(teamKey(3));
+      expect(message).toContain("20");
+      expect(message).toContain("15");
+      expect(message).toContain("award");
+    }
+  });
+
+  it("names EVERY offender rather than the first, and passes a value exactly at the ceiling", () => {
+    const input = knownStageInput({
+      knownElimPoints: new Map<string, number>(),
+      knownAwardPoints: new Map<string, number>([
+        [teamKey(1), 15],
+        [teamKey(2), 16],
+        [teamKey(3), -1],
+        [teamKey(4), 7.5],
+      ]),
+    });
+
+    try {
+      simulateDistrictEvent(input, 10, 7);
+      expect.fail("expected InvalidKnownPointsError");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toContain(`${teamKey(2)}=16`);
+      expect(message).toContain(`${teamKey(3)}=-1`);
+      expect(message).toContain(`${teamKey(4)}=7.5`);
+      expect(message).not.toContain(`${teamKey(1)}=15`);
+      expect(message).toContain("3 known award value(s)");
+    }
+  });
+
+  it("applies the same refusal to known ELIM points against the elim ceiling", () => {
+    const input = knownStageInput({
+      knownElimPoints: new Map<string, number>([[teamKey(2), ceilings.elim + 1]]),
+    });
+
+    expect(() => simulateDistrictEvent(input, 10, 7)).toThrow(InvalidKnownPointsError);
+  });
+
+  it("the publish boundary and the live path now agree: the same input throws on both", () => {
+    // `encodeDistrictPointPmf` already threw `EmptyHistogramError` on the
+    // histogram this input used to produce. Both halves refuse it now.
+    const input = knownStageInput({
+      knownElimPoints: new Map<string, number>(),
+      knownAwardPoints: new Map<string, number>([[teamKey(3), 20]]),
+    });
+    expect(() => simulateDistrictEvent(input, 100, 7)).toThrow(InvalidKnownPointsError);
+    expect(() => encodeDistrictPointPmf(new Int32Array(16), 100)).toThrow(EmptyHistogramError);
+  });
+
+  it("an IN-range known award value still keeps every draw, so the refusal is not merely blanket", () => {
+    const draws = 100;
+    const input = knownStageInput({
+      knownElimPoints: new Map<string, number>(),
+      knownAwardPoints: new Map<string, number>([[teamKey(3), 15]]),
+    });
+
+    const result = simulateDistrictEvent(input, draws, 7);
+    const award = result.awardPoints.get(teamKey(3))!;
+    expect(award.reduce((sum, v) => sum + v, 0)).toBe(draws);
+    expect(award[15]).toBe(draws);
+    // And the number the broken path used to print is now honest: every draw
+    // earned points, so the chance really is 1.
+    expect(chanceOfAnyPoints(award, draws)).toBe(1);
+  });
+
+  it("chanceOfAnyPoints can no longer report 1.0 from an empty histogram", () => {
+    // The exact shape the dropped-mass bug produced: an `Int32Array(16)` with
+    // 100 draws' worth of denominator and nothing in it.
+    expect(() => chanceOfAnyPoints(new Int32Array(16), 100)).toThrow(EmptyDistributionError);
+    expect(() => pointCellSummary(new Int32Array(16), 100)).toThrow(EmptyDistributionError);
   });
 });

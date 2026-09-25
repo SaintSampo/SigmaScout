@@ -446,6 +446,40 @@ export class AlliancePricingError extends Error {
   }
 }
 
+/**
+ * Raised before any draw when a KNOWN-STAGE point value cannot be a histogram
+ * index for this event: not an integer, below zero, or above that category's
+ * own ceiling from `maxEventPoints(season, tier)`.
+ *
+ * WHY THIS IS FATAL RATHER THAN CLAMPED. Each accumulator is an `Int32Array`
+ * sized to the category ceiling plus one, and a TypedArray write outside its
+ * range — or at a fractional index — is a SILENT NO-OP. No throw, no
+ * `undefined`, no `NaN`: the draw simply vanishes. A single out-of-range value
+ * therefore empties that team's whole category histogram, and
+ * `pointSummary.chanceOfAnyPoints` then computes `1 - 0/draws` and reports a
+ * 100% chance of earning points over a distribution with no mass in it. A
+ * clamp would be worse, not better: it would publish a point value the event
+ * cannot produce while looking entirely healthy.
+ *
+ * The values come from TBA's own published `event_points` components, which
+ * this module does not control — `awardBaseRates.pointsToSupportIndex` already
+ * treats an award value above 15 as possible. The refusal matches the publish
+ * boundary's: `encodeDistrictPointPmf` throws `EmptyHistogramError` on the same
+ * input, so the offline and live halves of one module agree.
+ *
+ * THE HANDOFF: `apps/web/src/workers/districtSimulationProtocol.ts` converts
+ * any typed throw from this function into a per-event `unavailable` entry, the
+ * same path `UnratedTeamError` takes, so that event's cells render as
+ * unavailable rather than as a fabricated number. Every offender is named, not
+ * the first.
+ */
+export class InvalidKnownPointsError extends Error {
+  constructor(message: string) {
+    super(`simulateDistrictEvent: ${message}`);
+    this.name = "InvalidKnownPointsError";
+  }
+}
+
 /** Raised by the grand-total convolution for a non-integer addend, a non-positive denominator, or a combined shift below zero. */
 export class NegativeDistrictShiftError extends Error {
   constructor(message: string) {
@@ -509,6 +543,34 @@ const MAX_PICK_SLOTS = 4;
 const BRACKET_ALLIANCE_COUNT = 8;
 
 /**
+ * Validates one known-stage map against the category ceiling its histogram is
+ * sized to, naming EVERY offender rather than the first — the same discipline
+ * the unrated-team and alliance-set passes follow, so one run tells a caller
+ * everything that is wrong. An absent map is a valid input and passes.
+ *
+ * See `InvalidKnownPointsError` for why an out-of-range value is fatal here
+ * rather than clamped or absorbed.
+ */
+function assertKnownPointsInRange(
+  eventKey: string,
+  category: "elim" | "award",
+  known: ReadonlyMap<string, number> | undefined,
+  ceiling: number
+): void {
+  if (known === undefined) return;
+  const offenders: string[] = [];
+  for (const [teamKey, value] of known) {
+    if (!Number.isInteger(value) || value < 0 || value > ceiling) offenders.push(`${teamKey}=${String(value)}`);
+  }
+  if (offenders.length > 0) {
+    throw new InvalidKnownPointsError(
+      `event ${eventKey}: ${String(offenders.length)} known ${category} value(s) are not whole point counts within 0 through ${String(ceiling)}, ` +
+        `which is this event's own ${category} ceiling from maxEventPoints — refusing to index a histogram with them: ${offenders.join(", ")}`
+    );
+  }
+}
+
+/**
  * Runs `draws` joint simulations of one district event and returns the five
  * per-team marginal histograms, every one a marginal of the SAME runs.
  *
@@ -563,6 +625,21 @@ export function simulateDistrictEvent(
       `event ${eventKey}: a ${teamCount}-team roster cannot fill ${allianceCount} ${DRAFTED_ALLIANCE_SIZE}-team alliances`
     );
   }
+
+  // A KNOWN STAGE'S VALUES ARE HISTOGRAM INDICES, so they are validated here
+  // and never trusted. Every accumulator below is an `Int32Array` sized to this
+  // event's own ceiling, and an out-of-range or fractional write on a TypedArray
+  // is a SILENT NO-OP — one third-party value of 20 against a district award
+  // ceiling of 15 drops all of that category's mass, after which
+  // `pointSummary.chanceOfAnyPoints` reads `1 - 0/draws` and a cell prints a
+  // confident 100% over an empty distribution. Refusing matches the publish
+  // boundary: `encodeDistrictPointPmf` already throws `EmptyHistogramError` on
+  // the same input, and the two halves of this module must not disagree about
+  // whether an input is fatal. `districtSimulationProtocol.ts` turns this typed
+  // throw into a per-event `unavailable` entry, exactly as it does
+  // `UnratedTeamError`, so the cell reads "unavailable" rather than wrong.
+  assertKnownPointsInRange(eventKey, "elim", input.knownElimPoints, ceilings.elim);
+  assertKnownPointsInRange(eventKey, "award", input.knownAwardPoints, ceilings.award);
 
   const unrated: string[] = [];
   const roster: AllianceMemberRating[] = [];
