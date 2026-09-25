@@ -206,6 +206,7 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
     const events: DistrictSimulationEventRequest[] = [];
     const eventsWithExcludedMatches: string[] = [];
     const eventsWithFallbackFieldSize: string[] = [];
+    const eventsWithPartialAllianceList: string[] = [];
     for (const eventKey of activeKeys) {
       const eventArtifact = eventArtifacts.get(eventKey);
       if (eventArtifact === undefined) continue;
@@ -228,6 +229,7 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
       if (!built.ok) continue;
       if (built.excludedMatchCount > 0) eventsWithExcludedMatches.push(eventKey);
       if (built.fieldSizeFellBack) eventsWithFallbackFieldSize.push(eventKey);
+      if (built.allianceListIsPartial) eventsWithPartialAllianceList.push(eventKey);
       events.push({ eventKey, input: built.input });
     }
     return {
@@ -235,6 +237,7 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
       signature: districtRunSignature(events),
       eventsWithExcludedMatches,
       eventsWithFallbackFieldSize,
+      eventsWithPartialAllianceList,
     };
   }, [activeKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent, artifact]);
 
@@ -270,6 +273,7 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
     gaps: {
       eventsWithExcludedMatches: assembled.eventsWithExcludedMatches,
       eventsWithFallbackFieldSize: assembled.eventsWithFallbackFieldSize,
+      eventsWithPartialAllianceList: assembled.eventsWithPartialAllianceList,
     },
     isLoading: preSimQueries.some((query) => query.isPending),
   };

@@ -720,14 +720,23 @@ describe("the per-event simulation input at three positions", () => {
     expect(input.baselines).toHaveLength(roster.length);
   });
 
-  it("awards-posted: every known-stage member supplied, from the artifacts' own published values", () => {
+  it("awards-posted: the known POINT members are supplied from the artifacts' own published values", () => {
     const input = inputAt({ qual: true, alliance: true, elim: true, award: true }, null);
-    expect(input.knownAlliances).toHaveLength(2);
-    expect(input.allianceCount).toBe(2);
     expect(input.knownElimPoints).toBeDefined();
     expect(input.knownAwardPoints).toBeDefined();
     expect(input.knownElimPoints?.get("frc1")).toBe(6);
     expect(input.knownAwardPoints?.get("frc1")).toBe(0);
+  });
+
+  it("awards-posted: this fixture's TWO-alliance list is not final, so it is dropped rather than priced as a two-alliance bracket", () => {
+    // This fixture publishes two alliances, which is what selection-in-progress
+    // looks like on the wire at a regular district event. Handing it on as
+    // `allianceCount: 2` routed elimination points through
+    // `divisionedDcmpPlayoffPmf`, a table scoped to the sixteen divisioned
+    // district championship PARENTS and to nothing else.
+    const input = inputAt({ qual: true, alliance: true, elim: true, award: true }, null);
+    expect(input.knownAlliances).toBeUndefined();
+    expect(input.allianceCount).toBe(8);
   });
 
   it("reports the field size as a disclosed fallback, because the event artifact publishes none", () => {
@@ -742,5 +751,164 @@ describe("the per-event simulation input at three positions", () => {
     if (!built.ok) throw new Error("expected an input");
     expect(built.fieldSizeFellBack).toBe(true);
     expect(built.input.fieldSize).toBe(built.input.baselines.length);
+  });
+});
+
+describe("a published alliance list is used only when it is FINAL (WR-07)", () => {
+  // 24 teams, so an eight-alliance list of three-team alliances is expressible
+  // and the roster can genuinely fill it — the shape every regular district
+  // event since 2023 ends selection in.
+  const roster = Array.from({ length: 24 }, (_unused, i) => `frc${String(200 + i)}`);
+  const pmf = [0.25, 0.25, 0.25, 0.25];
+
+  const districtArtifact = artifactOf(
+    roster.map((teamKey) =>
+      team({
+        teamKey,
+        pointTotal: 24,
+        eventPoints: [eventPoints({ eventKey: "2026wapartial", qual: 12, alliance: 6, elim: 6, award: 0, total: 24 })],
+        awardProfile: { bucket: "none", rookie: false },
+      })
+    )
+  );
+
+  /** Eight three-team alliances drawn off the top of the roster: a FINISHED selection. */
+  function finalAlliances(): { allianceNumber: number; picks: string[] }[] {
+    return Array.from({ length: 8 }, (_unused, n) => ({
+      allianceNumber: n + 1,
+      picks: roster.slice(n * 3, n * 3 + 3),
+    }));
+  }
+
+  function artifactWithAlliances(alliances: { allianceNumber: number; picks: string[] }[] | undefined) {
+    return EventArtifactSchema.parse({
+      schemaVersion: 1,
+      generation: "gen-1",
+      computedAt: "2026-09-25T00:00:00.000Z",
+      algorithmId: "spr",
+      algorithmVersion: "7.0.0+rolling",
+      eventKey: "2026wapartial",
+      season: SEASON,
+      matches: Array.from({ length: 4 }, (_unused, i) => ({
+        matchKey: `2026wapartial_qm${String(i + 1)}`,
+        compLevel: "qm",
+        setNumber: 1,
+        matchNumber: i + 1,
+        sortTime: 1_760_000_000 + i * 600,
+        redTeams: roster.slice(0, 3),
+        blueTeams: roster.slice(3, 6),
+        predictedWinner: "red",
+        pRedWin: 0.5,
+        predictedRedScore: 50,
+        predictedBlueScore: 50,
+        actualWinner: "red",
+        actualRedScore: 60,
+        actualBlueScore: 50,
+        actualRedRp: 3,
+        actualBlueRp: 1,
+        redRpPmf: pmf,
+        blueRpPmf: pmf,
+      })),
+      upcoming: [],
+      teams: roster.map((teamKey, i) => ({
+        teamKey,
+        teamNumber: 200 + i,
+        rank: i + 1,
+        record: { wins: 2, losses: 2, ties: 0 },
+        rp: 2,
+        metrics: { total: { value: 80 - i }, sigma: { value: 8 } },
+      })),
+      ...(alliances === undefined ? {} : { alliances }),
+    });
+  }
+
+  function buildWith(alliances: { allianceNumber: number; picks: string[] }[] | undefined) {
+    const built = buildDistrictEventSimulationInput({
+      eventKey: "2026wapartial",
+      season: SEASON,
+      eventArtifact: artifactWithAlliances(alliances),
+      districtArtifact,
+      stage: { qual: true, alliance: true, elim: false, award: false },
+      startMatchKey: null,
+    });
+    if (!built.ok) throw new Error("expected an input");
+    return built;
+  }
+
+  it("a FINAL eight-alliance list is used as published, and discloses no gap", () => {
+    const built = buildWith(finalAlliances());
+    expect(built.input.knownAlliances).toHaveLength(8);
+    expect(built.input.allianceCount).toBe(8);
+    expect(built.allianceListIsPartial).toBe(false);
+  });
+
+  it("a FOUR-alliance list at a regular district event is dropped, never priced as a four-alliance bracket", () => {
+    // Four alliances is the divisioned-DCMP fallback table's own population.
+    // Routing a regular district event into it would price elimination points
+    // from base values that event's bracket cannot produce.
+    const built = buildWith(finalAlliances().slice(0, 4));
+    expect(built.input.knownAlliances).toBeUndefined();
+    expect(built.input.allianceCount).toBe(8);
+    expect(built.allianceListIsPartial).toBe(true);
+  });
+
+  it("a TWO-alliance list is dropped for the same reason", () => {
+    const built = buildWith(finalAlliances().slice(0, 2));
+    expect(built.input.knownAlliances).toBeUndefined();
+    expect(built.input.allianceCount).toBe(8);
+    expect(built.allianceListIsPartial).toBe(true);
+  });
+
+  it("eight alliances holding only their captains is selection IN PROGRESS, and is dropped too", () => {
+    // `validateSuppliedAlliances` accepts this list — every number 1 through 8
+    // is present and no pick list is empty — so the count check alone would let
+    // `allianceWinProbability` be asked to price one-robot alliances.
+    const captainsOnly = finalAlliances().map((alliance) => ({
+      allianceNumber: alliance.allianceNumber,
+      picks: alliance.picks.slice(0, 1),
+    }));
+    const built = buildWith(captainsOnly);
+    expect(built.input.knownAlliances).toBeUndefined();
+    expect(built.allianceListIsPartial).toBe(true);
+  });
+
+  it("an alliance holding a BACKUP robot is still final at four picks", () => {
+    const withBackup = finalAlliances();
+    withBackup[0] = { allianceNumber: 1, picks: [...withBackup[0]!.picks, roster[23]!] };
+    const built = buildWith(withBackup);
+    expect(built.input.knownAlliances).toHaveLength(8);
+    expect(built.allianceListIsPartial).toBe(false);
+  });
+
+  it("no published list at all is not a PARTIAL list, so the gap stays honest", () => {
+    const built = buildWith(undefined);
+    expect(built.input.knownAlliances).toBeUndefined();
+    expect(built.input.allianceCount).toBe(8);
+    expect(built.allianceListIsPartial).toBe(false);
+  });
+
+  it("a partial list before the alliance stage closes is not disclosed, because it was never going to be used", () => {
+    const partial = finalAlliances().slice(0, 4);
+    const built = buildDistrictEventSimulationInput({
+      eventKey: "2026wapartial",
+      season: SEASON,
+      eventArtifact: artifactWithAlliances(partial),
+      districtArtifact,
+      stage: { qual: true, alliance: false, elim: false, award: false },
+      startMatchKey: null,
+    });
+    if (!built.ok) throw new Error("expected an input");
+    expect(built.allianceListIsPartial).toBe(false);
+    expect(built.input.knownAlliances).toBeUndefined();
+    expect(built.input.allianceCount).toBe(8);
+  });
+
+  it("the dropped list rides into the rows builder's disclosed gaps rather than being absorbed", () => {
+    const rows = buildDistrictLedgerRows({
+      artifact: districtArtifact,
+      distributions: new Map<string, DistrictEventDistributions>(),
+      gaps: { eventsWithPartialAllianceList: ["2026wapartial"] },
+    });
+    expect(rows.gaps.eventsWithPartialAllianceList).toEqual(["2026wapartial"]);
   });
 });

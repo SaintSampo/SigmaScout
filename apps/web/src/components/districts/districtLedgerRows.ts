@@ -212,6 +212,8 @@ export interface DistrictLedgerGaps {
   readonly teamsWithoutAwardProfile: readonly string[];
   /** Events whose `fieldSize` fell back to the roster length because the event artifact publishes none. */
   readonly eventsWithFallbackFieldSize: readonly string[];
+  /** Events whose published alliance list was not yet final, so it was dropped and the draft simulated rather than priced from a partial bracket — see `alliancesAreFinal`. */
+  readonly eventsWithPartialAllianceList: readonly string[];
   /** Events the Worker could not price at all, with the error class that refused. */
   readonly unavailableEvents: readonly { readonly eventKey: string; readonly name: string }[];
 }
@@ -307,7 +309,14 @@ export function allDistrictTierEventKeys(artifact: DistrictArtifact): string[] {
 
 /** What `buildDistrictEventSimulationInput` returns: the input itself, or the reason it could not be built. */
 export type DistrictEventInputResult =
-  | { readonly ok: true; readonly input: DistrictLedgerEventInput; readonly fieldSizeFellBack: boolean; readonly excludedMatchCount: number }
+  | {
+      readonly ok: true;
+      readonly input: DistrictLedgerEventInput;
+      readonly fieldSizeFellBack: boolean;
+      readonly excludedMatchCount: number;
+      /** The event artifact published an alliance list that is not yet final, so it was dropped and the draft is simulated — see `alliancesAreFinal`. */
+      readonly allianceListIsPartial: boolean;
+    }
   | { readonly ok: false; readonly reason: "no-qual-rows" };
 
 /** 10-03's wire bucket vocabulary mapped onto 10-02's measured module keys — one mapping, at this boundary, exactly as `DISTRICT_AWARD_BUCKETS`' doc comment requires. */
@@ -361,6 +370,48 @@ function suppliedAlliances(artifact: EventArtifact): readonly SuppliedAlliance[]
  * Once alliances ARE announced the published count is used instead.
  */
 const DEFAULT_DISTRICT_ALLIANCE_COUNT = 8;
+
+/**
+ * The smallest number of picks a FINISHED district alliance carries: a
+ * captain, a first pick and a second pick. TBA's `picks` array may carry a
+ * fourth entry (a backup robot) and never more.
+ *
+ * Mirrors `ledgerSimulation.ts`'s own `DRAFTED_ALLIANCE_SIZE`, which is
+ * module-private there. Restated rather than exported because the two mean
+ * different things: that one is how many robots a SIMULATED draft takes, this
+ * one is how many a PUBLISHED alliance must already have before its list can
+ * be called final.
+ */
+const DISTRICT_FINAL_ALLIANCE_PICKS = 3;
+
+/**
+ * Whether a published alliance list describes a FINISHED selection, or one
+ * still in progress.
+ *
+ * WHY THIS GATE EXISTS. `event_alliances` appears on the event artifact while
+ * selection is still running, and it grows: a list of four alliances, or of
+ * eight alliances each holding only its captain, is what "selection is
+ * underway" looks like on the wire. Handed to `simulateDistrictEvent` as
+ * `allianceCount`, a truncated list takes the `!usesEightAllianceBracket`
+ * branch and prices elimination points from `divisionedDcmpPlayoffPmf`, whose
+ * own doc comment scopes it to the sixteen DIVISIONED district championship
+ * parent events and to nothing else — its two- and four-alliance populations
+ * are `micmp`/`necmp`/`oncmp`/`txcmp` only. A regular district event would be
+ * priced from base values its own bracket cannot produce.
+ *
+ * `validateSuppliedAlliances` does not catch it: it requires only that
+ * alliance numbers 1 through `allianceCount` are all present, which a
+ * truncated list satisfies, and it rejects a pick list only at 0 and above 4.
+ *
+ * NOT-YET-FINAL IS THE HONEST ANSWER. The list is dropped, the count stays at
+ * the eight-alliance bracket every regular district event since 2023 runs, and
+ * the draft is simulated as it is before any alliance is announced. The event
+ * is named in the disclosed-gap list rather than absorbed.
+ */
+function alliancesAreFinal(alliances: readonly SuppliedAlliance[]): boolean {
+  if (alliances.length !== DEFAULT_DISTRICT_ALLIANCE_COUNT) return false;
+  return alliances.every((alliance) => alliance.picks.length >= DISTRICT_FINAL_ALLIANCE_PICKS);
+}
 
 export interface BuildDistrictEventInputOptions {
   readonly eventKey: string;
@@ -429,7 +480,11 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
   // silently clamped rank would print a wrong point value.
   const fieldSize = rosterKeys.length;
 
-  const alliances = suppliedAlliances(eventArtifact);
+  const published = suppliedAlliances(eventArtifact);
+  // A published list that is not yet FINAL is dropped rather than handed on as
+  // a two- or four-alliance bracket — see `alliancesAreFinal`.
+  const allianceListIsPartial = stage.alliance && published !== undefined && !alliancesAreFinal(published);
+  const alliances = allianceListIsPartial ? undefined : published;
   const allianceCount = stage.alliance && alliances !== undefined ? alliances.length : DEFAULT_DISTRICT_ALLIANCE_COUNT;
 
   const knownElimPoints = stage.elim ? earnedPointsMap(districtArtifact, eventKey, "elim") : undefined;
@@ -450,7 +505,7 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
     ...(knownAwardPoints !== undefined ? { knownAwardPoints } : {}),
   };
 
-  return { ok: true, input, fieldSizeFellBack: true, excludedMatchCount };
+  return { ok: true, input, fieldSizeFellBack: true, excludedMatchCount, allianceListIsPartial };
 }
 
 /** `teamKey -> the artifact's own earned points` for one event and one category — the known-stage maps 10-04 consumes. */
@@ -719,6 +774,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
       eventsWithExcludedMatches: [...(options.gaps?.eventsWithExcludedMatches ?? [])].sort(),
       teamsWithoutAwardProfile: [...teamsWithoutAwardProfile].sort(),
       eventsWithFallbackFieldSize: [...(options.gaps?.eventsWithFallbackFieldSize ?? [])].sort(),
+      eventsWithPartialAllianceList: [...(options.gaps?.eventsWithPartialAllianceList ?? [])].sort(),
       unavailableEvents: [...unavailableByKey.entries()].map(([eventKey, name]) => ({ eventKey, name })).sort((a, b) => a.eventKey.localeCompare(b.eventKey)),
     },
   };
