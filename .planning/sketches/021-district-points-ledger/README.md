@@ -2,11 +2,15 @@
 sketch: 021
 name: district-points-ledger
 question: "The Road to District Champs page has two jobs: show the district points a team has earned and predict the ones still open, per event and per category, with a slider that rewinds the district to any point in the season. Should that be a ledger table, team cards, or a table with the histograms drawn in the cells?"
-winner: null
+winner: A
 tags: [districts, locks, district-points, histograms, simulation, slider, awards]
 ---
 
 # Sketch 021: District points ledger
+
+**Shipped as Phase 10 on 2026-09-25 (variant A).** The live tab is `/districts`, "Road to District
+Champs"; the phase record is `.planning/phases/10-*/10-09-SUMMARY.md`. Two feasibility claims below
+were corrected during planning (the second pick formula and the browser pricing note, both marked).
 
 ## Design Question
 
