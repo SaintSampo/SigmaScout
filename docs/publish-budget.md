@@ -89,9 +89,14 @@ district row there would be erased by the next run.
 `packages/harness/districtBudget.test.ts` fails when a constant and the number in the table above
 disagree, so the two cannot drift.
 
-**Enforcement at publish time is `scripts/publishDistricts.ts`'s job.** 10-06 wires
+**Enforcement at publish time is `scripts/publishDistricts.ts`'s job.** 10-06 wired
 `assertWithinDistrictBudget` in before `putObject`, the same way `publishSeasons` calls
-`assertWithinPageBudget`.
+`assertWithinPageBudget`. The gate runs on every detail object (absolute AND per-team) and every
+sidecar, BEFORE the object is written locally or uploaded, in `--dry-run` and real runs alike. Bytes
+are counted with `Buffer.byteLength`, never `String.length`: measured 2026-09-25, 30 of the 3,155
+teams that appear in `district_rankings` carry a non-ASCII nickname (`frc88`'s is 3 UTF-16 code units
+and 4 UTF-8 bytes), so a code-unit count understates every district object — and a gate that
+understates is not a gate.
 
 ### The measurement that decided where the baked pmfs live
 
@@ -139,6 +144,54 @@ what is being bounded.
 A per-team ceiling alongside an absolute one is what makes the gate meaningful across districts of
 wildly different size: the per-team number catches structural bloat that an absolute number would hide
 in a small district, and the absolute number bounds the object a browser actually downloads.
+
+### The REAL measurement (phase 10, plan 10-06)
+
+Everything above is 10-03's SYNTHESIZED worst case, and it is what set the ceilings. What follows is
+what a real run actually produced. Both are kept, and both are labelled, because the synthesized
+figure is what the ceiling was derived from and the real figure is what the ceiling is now known to
+hold against.
+
+Two runs, 2026-09-25, from the repo root, both `--dry-run` with `--local-out` into a gitignored
+folder. Neither touched the network and neither read a credential.
+
+```
+npx tsx scripts/publishDistricts.ts --years 2016-2020,2022-2026 --dry-run --local-out data/local-publish/districts
+npx tsx scripts/publishDistricts.ts --years 2026 --as-of 2026-04-04 --dry-run --local-out data/local-publish/districts-asof0404
+```
+
+| Measurement | Synthesized (10-03) | REAL (10-06) | Ceiling |
+|---|---:|---:|---:|
+| district detail, largest bytes per team | 1,201 (`2026pnw`, variant (a)) | **1,414** (`2025fsc`, 35 teams) | 1,700 |
+| district detail, largest absolute | — | **641,981** (`2026fim`, 531 teams) | 1,300,000 |
+| district pre-simulation sidecar, largest | 209,043 | **31,828** (`2026fim/2026miken`, 39 teams) | 1,300,000 |
+
+Every ceiling holds, and none was widened. The real per-team figure is 18% above the synthesized one
+because the synthesizer measured `2026pnw` (a 126-team district) while the widest real object is
+`2025fsc` (35 teams), where the once-per-artifact `awardBaseRates` table divides across far fewer
+teams. The real sidecar is an order of magnitude below the synthesized one for the same reason the
+synthesizer stated: it had to synthesize a full-support pmf for every category, while a real bake at
+4,000 pooled draws produces sparse arrays whose support is only as wide as the draws reached.
+
+**The bake, as run.** `DISTRICT_BAKE_SCHEDULE_COUNT` is 40 and `DISTRICT_BAKE_DRAWS_PER_SCHEDULE`
+is 100, so every baked number rests on 4,000 pooled draws. The `--as-of 2026-04-04` run considered
+150 district events, baked 2, and reported one counted line per rejection reason (131
+not-a-remaining-event, 8 divisioned-dcmp-parent, 8 already-in-progress, 1 no-ranking-point-filler).
+Its walk-forward replay covered 177,942 matches across 2016 through 2026 — 7,870 of 2026's own
+matches truncated at the as-of instant — in 163 seconds; the bake itself took 713 ms for two events.
+
+**The production cost today is ZERO.** Measured over the full production season list, every one of
+2016-2020 and 2022-2026 reports zero bake-eligible events and runs NO walk-forward replay at all —
+every district event in every ingested season has a start date in the past, so nothing is still
+ahead. `pnpm publish:districts` is therefore unchanged in cost and duration from the last republish;
+the whole ten-season run takes about six seconds. The `--as-of` runs above exist to exercise the bake
+and are NOT part of a republish.
+
+**None of these numbers belongs in the machine-readable `json budget` block at the bottom of this
+file**, and that is worth restating here rather than only in 10-03's section above: that block is
+rewritten by `pnpm publish:seasons --write-budget`, which does not publish districts at all, so a
+hand-added district row there would be erased by the next run. District figures live in this prose
+and the ceilings live in `packages/harness/publishBudget.ts`.
 
 ## Storage and write volume (DATA-05)
 

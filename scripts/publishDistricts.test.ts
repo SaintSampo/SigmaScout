@@ -13,19 +13,30 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
-import { openCorpusReadOnly, type Corpus, type CorpusDistrict, type CorpusDistrictRanking, type CorpusEventAward } from "../packages/corpus/db.js";
+import { openCorpusReadOnly, selectCorpusSeasons, type Corpus, type CorpusDistrict, type CorpusDistrictRanking, type CorpusEventAward } from "../packages/corpus/db.js";
+import { loadAwardInstances, priorJudgedAwardCount } from "./measureDistrictAwardBaseRates.js";
 import { applyDistrictEventState, recomputeDistrictVerdicts } from "../packages/harness/districtRankingsMerge.js";
-import { DistrictEventStateSchema } from "../packages/harness/pageArtifacts.js";
+import {
+  awardBaseRate,
+  DECORATION_BUCKETS,
+  decorationBucket,
+  UnknownAwardBaseRateSeasonError,
+} from "../packages/core/districts/awardBaseRates.js";
+import { DISTRICT_REGISTERED_SEASONS } from "../packages/core/districts/pointModel.js";
+import { DISTRICT_AWARD_BUCKETS, DistrictEventStateSchema } from "../packages/harness/pageArtifacts.js";
 import { DistrictBudgetExceededError } from "../packages/harness/publishBudget.js";
 import {
   buildDistrictArtifact,
   buildDistrictsIndexArtifact,
+  buildSeasonAwardContext,
   classifyBakeCandidate,
   deriveDistrictEventState,
   localOutFileName,
+  measuredThroughSeasonFor,
   parseOptions,
   parseYearsSpec,
   run,
+  toWireAwardProfile,
   type DistrictEventMeta,
 } from "./publishDistricts.js";
 
@@ -1062,6 +1073,285 @@ describe("the corpus-guarded state population (SC-5's offline half, on real data
       expect(fullyObserved.length).toBeGreaterThanOrEqual(148);
       expect(nullTotal.length).toBeGreaterThanOrEqual(6);
       expect(neverPlayed.sort()).toEqual(["2026isde3", "2026isde4"]);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10-06 Task 3 — the award base-rate table and the per-team award profile
+// ---------------------------------------------------------------------------
+
+/** An in-memory corpus carrying only the tables `buildSeasonAwardContext` reads. */
+function awardFixture(rows: {
+  /** `(eventKey, year, eventType)` triples that make a season "present" to `selectCorpusSeasons`. */
+  seasons?: Array<{ eventKey: string; year: number; eventType?: number }>;
+  awardsAll?: Array<{ event_key: string; award_type: number; award_index: number; recipient_index: number; team_key: string | null; year: number }>;
+  teams?: Array<{ team_key: string; team_number: number; rookie_year: number | null }>;
+}): Corpus {
+  const db = new Database(":memory:") as unknown as Corpus;
+  db.prepare(`CREATE TABLE events (event_key TEXT PRIMARY KEY, year INTEGER, event_type INTEGER)`).run();
+  db.prepare(`CREATE TABLE matches (match_key TEXT PRIMARY KEY, event_key TEXT)`).run();
+  db.prepare(`CREATE TABLE event_awards_all (event_key TEXT, award_type INTEGER, award_index INTEGER, recipient_index INTEGER, team_key TEXT, awardee TEXT, name TEXT, year INTEGER, fetched_at TEXT)`).run();
+  db.prepare(`CREATE TABLE teams (team_key TEXT PRIMARY KEY, team_number INTEGER, nickname TEXT, rookie_year INTEGER)`).run();
+  for (const s of rows.seasons ?? []) {
+    db.prepare(`INSERT INTO events VALUES (?,?,?)`).run(s.eventKey, s.year, s.eventType ?? 1);
+    db.prepare(`INSERT INTO matches VALUES (?,?)`).run(`${s.eventKey}_qm1`, s.eventKey);
+  }
+  for (const a of rows.awardsAll ?? []) {
+    db.prepare(`INSERT INTO event_awards_all VALUES (?,?,?,?,?,?,?,?,?)`).run(a.event_key, a.award_type, a.award_index, a.recipient_index, a.team_key, null, "An Award", a.year, "2026-09-25");
+  }
+  for (const t of rows.teams ?? []) db.prepare(`INSERT INTO teams VALUES (?,?,?,?)`).run(t.team_key, t.team_number, null, t.rookie_year);
+  return db;
+}
+
+/** Every registered season plus enough prior award rows that the empty-prior guard does not fire. */
+function populatedAwardFixture(
+  season: number,
+  teams: Array<{ team_key: string; team_number: number; rookie_year: number | null }>,
+  /** Extra judged awards, each at its OWN event so `priorJudgedAwardCount`'s DISTINCT `(year, eventKey, awardType)` rule counts them separately. */
+  extraAwards: Array<{ year: number; teamKey: string }> = []
+) {
+  const seasons = DISTRICT_REGISTERED_SEASONS.filter((s) => s <= season).map((s) => ({ eventKey: `${s}e1`, year: s }));
+  const prior = DISTRICT_REGISTERED_SEASONS.filter((s) => s < season);
+  const awardsAll = prior.map((s, i) => ({ event_key: `${s}e1`, award_type: 5, award_index: i, recipient_index: 0, team_key: "frcSeed", year: s }));
+  for (const [i, extra] of extraAwards.entries()) {
+    seasons.push({ eventKey: `${extra.year}x${i}`, year: extra.year });
+    awardsAll.push({ event_key: `${extra.year}x${i}`, award_type: 5, award_index: 0, recipient_index: 0, team_key: extra.teamKey, year: extra.year });
+  }
+  return awardFixture({ seasons, awardsAll, teams });
+}
+
+describe("the award base-rate table on the wire", () => {
+  it("maps 10-02's module vocabulary onto 10-03's wire vocabulary totally and injectively", () => {
+    const mapped = DECORATION_BUCKETS.map((bucket) => toWireAwardProfile({ bucket, rookieState: "veteran" }).bucket);
+    // Set equality against BOTH sides' own exported literals, never a list
+    // retyped here — adding a bucket to either side fails right at this line.
+    expect(new Set(mapped)).toEqual(new Set(DISTRICT_AWARD_BUCKETS));
+    expect(mapped.length).toBe(DECORATION_BUCKETS.length);
+    expect(new Set(mapped).size).toBe(DECORATION_BUCKETS.length);
+    expect(toWireAwardProfile({ bucket: "one-or-two", rookieState: "rookie" })).toEqual({ bucket: "oneOrTwo", rookie: true });
+    expect(toWireAwardProfile({ bucket: "three-or-more", rookieState: "veteran" })).toEqual({ bucket: "threeOrMore", rookie: false });
+  });
+
+  it("derives measuredThroughSeason from the registered district seasons, never season minus one", () => {
+    // 2021 has no district season at all, so a naive minus-one would publish a
+    // measuredThroughSeason naming a season that contributed nothing.
+    expect(measuredThroughSeasonFor(2022)).toBe(2020);
+    expect(measuredThroughSeasonFor(2023)).toBe(2022);
+    expect(measuredThroughSeasonFor(2016)).toBeUndefined();
+  });
+
+  it("emits exactly six rows that satisfy every refinement the schema declares", () => {
+    const db = populatedAwardFixture(2026, [{ team_key: "frc1", team_number: 1, rookie_year: 2010 }]);
+    try {
+      const context = buildSeasonAwardContext(db, 2026);
+      expect(context.baseRates).toBeDefined();
+      const table = context.baseRates!;
+      expect(table.rows).toHaveLength(6);
+      expect(table.measuredThroughSeason).toBeLessThan(table.season);
+      expect(new Set(table.rows.map((row) => `${row.bucket}|${String(row.rookie)}`)).size).toBe(6);
+      for (const row of table.rows) {
+        expect(row.points.o).toBe(0);
+        expect(row.n).toBeGreaterThan(0);
+      }
+      const artifact = buildDistrictArtifact({
+        season: 2026,
+        generation: GENERATION,
+        computedAt: COMPUTED_AT,
+        district: district(),
+        rankings: [ranking({ teamKey: "frc1", rank: 1 })],
+        events: [districtEvent({ eventKey: "2026e1" })],
+        registrations: new Map(),
+        awards: new Map(),
+        teamMeta: new Map(),
+        awardBaseRates: table,
+        awardProfiles: context.profilesFor(["frc1"]).profiles,
+      });
+      expect(artifact.awardBaseRates).toEqual(table);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("pre-checks an unregistered season instead of catching the typed error — control flow through an error is not control flow", () => {
+    const db = populatedAwardFixture(2016, [{ team_key: "frc1", team_number: 1, rookie_year: 2010 }]);
+    try {
+      // The lookup itself DOES throw for 2016, which is what proves the
+      // pre-check (not a catch) is what kept the context from calling it.
+      expect(() => awardBaseRate(2016, "none", "veteran")).toThrow(UnknownAwardBaseRateSeasonError);
+      const context = buildSeasonAwardContext(db, 2016);
+      expect(context.baseRates).toBeUndefined();
+      expect(context.profilesFor(["frc1"]).profiles.size).toBe(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("refuses to publish anything from an EMPTY prior award corpus: no table, no profile", () => {
+    // RESEARCH Assumption A5: `event_awards_all` is gitignored and a fresh
+    // checkout has none. Every team's prior count would then be zero and every
+    // team would land in the `none` bucket — a plausible-looking wrong answer.
+    const db = awardFixture({
+      seasons: DISTRICT_REGISTERED_SEASONS.filter((s) => s <= 2026).map((s) => ({ eventKey: `${s}e1`, year: s })),
+      awardsAll: [],
+      teams: [{ team_key: "frc1", team_number: 1, rookie_year: 2010 }],
+    });
+    try {
+      const context = buildSeasonAwardContext(db, 2026);
+      expect(context.priorInstanceCount).toBe(0);
+      expect(context.baseRates).toBeUndefined();
+      expect(context.profilesFor(["frc1"]).profiles.size).toBe(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("a team with a null rookie_year gets NO awardProfile — explicitly undefined, never folded into rookie:false", () => {
+    const db = populatedAwardFixture(2026, [
+      { team_key: "frc1", team_number: 1, rookie_year: 2010 },
+      // Measured 2026-09-25: 2 of 6,433 teams rows carry a null rookie_year and
+      // ZERO of the 16,337 district-ranking rows that join to a teams row do.
+      // The path is cheap and it exists anyway, which is why it needs a test.
+      { team_key: "frc2", team_number: 2, rookie_year: null },
+    ]);
+    try {
+      const context = buildSeasonAwardContext(db, 2026);
+      const profiles = context.profilesFor(["frc1", "frc2", "frcNoTeamsRow"]);
+      expect(profiles.profiles.has("frc1")).toBe(true);
+      expect(profiles.profiles.get("frc2")).toBeUndefined();
+      expect(profiles.profiles.get("frc2")).not.toEqual({ bucket: "none", rookieState: "veteran" });
+      // A district-ranking row that joins to NO teams row at all is the same
+      // honest unknown — never a guessed veteran.
+      expect(profiles.profiles.has("frcNoTeamsRow")).toBe(false);
+      expect(profiles.unknownRookieYear).toEqual(["frc2", "frcNoTeamsRow"]);
+
+      const artifact = buildDistrictArtifact({
+        season: 2026,
+        generation: GENERATION,
+        computedAt: COMPUTED_AT,
+        district: district(),
+        rankings: [ranking({ teamKey: "frc1", rank: 1 }), ranking({ teamKey: "frc2", rank: 2 }), ranking({ teamKey: "frcNoTeamsRow", rank: 3 })],
+        events: [districtEvent({ eventKey: "2026e1" })],
+        registrations: new Map(),
+        awards: new Map(),
+        teamMeta: new Map([["frc1", { teamNumber: 1, nickname: null }]]),
+        awardBaseRates: context.baseRates!,
+        awardProfiles: profiles.profiles,
+      });
+      expect(artifact.teams.find((t) => t.teamKey === "frc1")!.awardProfile).toEqual({ bucket: "none", rookie: false });
+      expect(artifact.teams.find((t) => t.teamKey === "frc2")!.awardProfile).toBeUndefined();
+      const noTeamsRow = artifact.teams.find((t) => t.teamKey === "frcNoTeamsRow")!;
+      expect(noTeamsRow.awardProfile).toBeUndefined();
+      expect(noTeamsRow.teamNumber).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("the profile the artifact publishes IS the object the bake was handed, mapped once at the boundary", () => {
+    const db = populatedAwardFixture(
+      2026,
+      [{ team_key: "frcDecorated", team_number: 9, rookie_year: 2005 }],
+      [2019, 2020, 2022, 2023].map((year) => ({ year, teamKey: "frcDecorated" }))
+    );
+    try {
+      const context = buildSeasonAwardContext(db, 2026);
+      const forTheBake = context.profilesFor(["frcDecorated"]).profiles.get("frcDecorated")!;
+      // Four distinct prior judged awards puts this team in `three-or-more`,
+      // so the mapping is exercised on a non-default bucket.
+      expect(forTheBake).toEqual({ bucket: "three-or-more", rookieState: "veteran" });
+      const artifact = buildDistrictArtifact({
+        season: 2026,
+        generation: GENERATION,
+        computedAt: COMPUTED_AT,
+        district: district(),
+        rankings: [ranking({ teamKey: "frcDecorated", rank: 1 })],
+        events: [districtEvent({ eventKey: "2026e1" })],
+        registrations: new Map(),
+        awards: new Map(),
+        teamMeta: new Map(),
+        awardBaseRates: context.baseRates!,
+        awardProfiles: context.profilesFor(["frcDecorated"]).profiles,
+      });
+      // Two derivations of one fact is how a published award cell and a
+      // published award pmf come to disagree; there is only one here.
+      expect(artifact.teams[0]!.awardProfile).toEqual(toWireAwardProfile(forTheBake));
+    } finally {
+      db.close();
+    }
+  });
+
+  it("is WALK-FORWARD: an award in the published season itself does not move a team's bucket, while the same award a season earlier does", () => {
+    const withLeak = populatedAwardFixture(
+      2026,
+      [{ team_key: "frcEdge", team_number: 7, rookie_year: 2005 }],
+      [2026, 2026, 2026].map((year) => ({ year, teamKey: "frcEdge" }))
+    );
+    const withoutLeak = populatedAwardFixture(
+      2026,
+      [{ team_key: "frcEdge", team_number: 7, rookie_year: 2005 }],
+      [2025, 2025, 2025].map((year) => ({ year, teamKey: "frcEdge" }))
+    );
+    try {
+      // The honest derivation counts only seasons strictly BEFORE 2026, so
+      // three 2026 awards leave the team in `none`...
+      expect(buildSeasonAwardContext(withLeak, 2026).profilesFor(["frcEdge"]).profiles.get("frcEdge")).toEqual({ bucket: "none", rookieState: "veteran" });
+      // ...while the same three awards one season earlier move it to
+      // `three-or-more`. A fixture where the boundary does not change the
+      // answer would prove nothing.
+      expect(buildSeasonAwardContext(withoutLeak, 2026).profilesFor(["frcEdge"]).profiles.get("frcEdge")).toEqual({
+        bucket: "three-or-more",
+        rookieState: "veteran",
+      });
+    } finally {
+      withLeak.close();
+      withoutLeak.close();
+    }
+  });
+});
+
+describe("the corpus-guarded award derivation (SC-6, on real data)", () => {
+  if (!existsSync(CORPUS_PATH)) {
+    it.skip(`skipped: ${CORPUS_PATH} not found — run the ingest pipeline (pnpm ingest:awards-all) first`, () => {});
+    return;
+  }
+
+  it("NAMES a real 2026 team whose published bucket a leak would change, and fails if it finds none", () => {
+    const db = openCorpusReadOnly(CORPUS_PATH);
+    try {
+      const teamKeys = (db.prepare(`SELECT DISTINCT team_key FROM district_rankings`).all() as { team_key: string }[]).map((row) => row.team_key);
+      expect(teamKeys.length).toBeGreaterThan(1000);
+      const honest = buildSeasonAwardContext(db, 2026).profilesFor(teamKeys).profiles;
+      expect(honest.size).toBeGreaterThan(1000);
+
+      // The LEAKED derivation, built in this test from 10-02's OWN two
+      // functions with the boundary moved one season forward. It is written
+      // here rather than obtained from the publisher precisely because the
+      // publisher is structurally incapable of producing it — which is the
+      // property under test.
+      const instancesByTeam = new Map<string, ReturnType<typeof loadAwardInstances>>();
+      for (const season of selectCorpusSeasons(db).filter((s) => s <= 2026)) {
+        for (const instance of loadAwardInstances(db, season)) {
+          if (instance.teamKey === null) continue;
+          const list = instancesByTeam.get(instance.teamKey);
+          if (list === undefined) instancesByTeam.set(instance.teamKey, [instance]);
+          else list.push(instance);
+        }
+      }
+      const changed: string[] = [];
+      for (const [teamKey, profile] of honest) {
+        const instances = instancesByTeam.get(teamKey) ?? [];
+        const leakedBucket = decorationBucket(priorJudgedAwardCount(instances, teamKey, 2027));
+        if (leakedBucket !== profile.bucket) changed.push(`${teamKey} ${profile.bucket} -> ${leakedBucket}`);
+      }
+      console.log(
+        `award walk-forward boundary: ${changed.length} of ${honest.size} profiled 2026 teams change bucket when 2026's own awards leak in; e.g. ${changed.slice(0, 5).join(", ")}`
+      );
+      // A fixture where the leak does not change the answer proves nothing, so
+      // this test NAMES the teams it found and fails if it finds none.
+      expect(changed.length).toBeGreaterThan(0);
     } finally {
       db.close();
     }
