@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 10
 current_phase_name: district-points-ledger
 status: executing
-stopped_at: Completed 10-02-PLAN.md
-last_updated: "2026-09-25T10:31:44.755Z"
+stopped_at: Completed 10-03-PLAN.md
+last_updated: "2026-09-25T10:58:13.325Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 10 execution started
 progress:
   total_phases: 13
   completed_phases: 12
   total_plans: 118
-  completed_plans: 111
+  completed_plans: 112
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 10 (district-points-ledger) — EXECUTING
-Plan: 3 of 9
+Plan: 4 of 9
 Status: Ready to execute
 Last activity: 2026-09-25 — Phase 10 execution started
 
-Progress: [█████████░] 94%
+Progress: [██████████] 95%
 
 ## Performance Metrics
 
@@ -139,6 +139,7 @@ Progress: [█████████░] 94%
 | Phase quick-260910-vof P01 | ~35min | 3 tasks | 13 files |
 | Phase 10 P01 | 25 min | 4 tasks | 9 files |
 | Phase 10 P02 | 55 min | 3 tasks | 13 files |
+| Phase 10 P03 | 26 min | 4 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -340,6 +341,10 @@ Recent decisions affecting current work:
 - [Phase 10]: 10-02: a district event is an event with a non-null district_key, not event_type == 1 — that predicate reproduces 10-04's 491 eight-alliance events across 2023-2026, where event_type == 1 alone gives 418
 - [Phase 10]: 10-02: the award base-rate cell bar is 100 team-events, stated from the support's six bins; 35 of 63 registered cells fall below it at n=0 and print CANNOT BE SCORED, so most lookups resolve through the bucket-pooled rung
 - [Phase 10]: 10-02: both replay-backed measurements pin the 2026 season replayed from cold (no earlier warmup) — the 2025-warmup window's guarded test ran at 25,248 ms, over the 25 s bar
+- [Phase 10]: SIDECAR placement for the baked pmfs, decided by measured 2026pnw bytes: inline is 717,001 bytes at 4.737x state-only against a 150,000-byte / 1.35x bar
+- [Phase 10]: Neither PAGE_ARTIFACT_SCHEMA_VERSION nor MANIFEST_SCHEMA_VERSION moves; the manifest half overrides RESEARCH Open Question 2 because the Worker deploys before the republish
+- [Phase 10]: applyDistrictRankings is the one producer of the merged district shape; the Worker and the publisher are callers, neither reimplements it
+- [Phase 10]: pnpm publish:live-windows gets districtKey to production for one R2 write instead of about 109,000, reusing the live generation and refusing three ways before any upload
 
 ### Pending Todos
 
@@ -675,8 +680,8 @@ silent open row; `open_count` is now 0, so `/gsd-ship` no longer blocks.
 
 ## Session Continuity
 
-Last session: 2026-09-25T10:31:33.975Z
-Stopped at: Completed 10-02-PLAN.md
+Last session: 2026-09-25T10:57:59.513Z
+Stopped at: Completed 10-03-PLAN.md
 Resume file: None
 
 ## Decisions
