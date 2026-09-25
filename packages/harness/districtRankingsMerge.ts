@@ -164,13 +164,22 @@ function tierByEventKey(teams: readonly DistrictTeam[]): Map<string, DistrictTie
  * team reports `"contending"` instead of `"lockedAward"`, which understates
  * a qualification but never publishes a guarantee that is not true.
  */
-function awardQualifiedSets(teams: readonly DistrictTeam[]): { district: Set<string>; dcmp: Set<string> } {
+function awardQualifiedSets(
+  teams: readonly DistrictTeam[],
+  suppliedTiers: ReadonlyMap<string, DistrictTier> | undefined
+): { district: Set<string>; dcmp: Set<string> } {
   const tiers = tierByEventKey(teams);
   const district = new Set<string>();
   const dcmp = new Set<string>();
   for (const team of teams) {
     for (const award of team.qualifyingAwards) {
-      const tier = tiers.get(award.eventKey);
+      // A CALLER-SUPPLIED tier wins. `scripts/publishDistricts.ts` holds the
+      // corpus's own `events.event_type` and can therefore resolve the tier of
+      // an award at an event NO team carries a row for — an Impact award at an
+      // event every team either skipped or has not played yet. The
+      // artifact-derived map below is the only source a corpus-free caller
+      // (the Worker) has, and it stays the fallback.
+      const tier = suppliedTiers?.get(award.eventKey) ?? tiers.get(award.eventKey);
       if (tier === undefined) continue;
       const awardTier: AwardTier = tier === "dcmp" ? "dcmp" : "district";
       if (!consumingAwardTypesForTier(awardTier).has(award.awardType)) continue;
@@ -213,13 +222,28 @@ function lockVerdict(result: LockResult, cutLinePoints: number | null, allocatio
  * no corpus-free source, and inventing one from the rows present would shrink
  * every time a team's registration list did.
  */
-export function recomputeDistrictVerdicts(artifact: DistrictArtifact): DistrictArtifact {
+export interface RecomputeDistrictVerdictsOptions {
+  /**
+   * `eventKey -> tier` from a source the ARTIFACT does not carry. Optional, and
+   * absent for every corpus-free caller: `applyDistrictRankings` passes none,
+   * so the Worker's behaviour is bit-for-bit what it was.
+   *
+   * `scripts/publishDistricts.ts` passes one, because it reads
+   * `events.event_type` from the corpus and can therefore resolve an award's
+   * tier at an event no team in the artifact carries a row for. Without it that
+   * award is left out of both qualified sets, which understates a
+   * qualification — safe, but wrong where the fact is actually available.
+   */
+  readonly tierByEvent?: ReadonlyMap<string, DistrictTier>;
+}
+
+export function recomputeDistrictVerdicts(artifact: DistrictArtifact, options: RecomputeDistrictVerdictsOptions = {}): DistrictArtifact {
   const season = artifact.year;
   const dcmpBase = maxEventPoints(season, "dcmp");
   const dcmpEventMaxTotal = dcmpBase.qual + dcmpBase.alliance + dcmpBase.elim + dcmpBase.award;
 
   const teams = artifact.teams;
-  const awardQualified = awardQualifiedSets(teams);
+  const awardQualified = awardQualifiedSets(teams, options.tierByEvent);
 
   // Pass 1: districtLock, against maxRemainingDistrict (regular-tier events
   // only). No prequalification concept exists at the district/DCMP tier.

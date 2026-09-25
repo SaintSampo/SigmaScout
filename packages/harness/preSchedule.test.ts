@@ -12,6 +12,7 @@ import type { Prediction, UpcomingMatch } from "../core/algorithms/types.js";
 import { PreScheduleArtifactSchema } from "./pageArtifacts.js";
 import {
   buildPreScheduleArtifact,
+  buildPricedSyntheticSchedules,
   buildFieldAveragedPreScheduleArtifact,
   buildFieldContributions,
   fieldMeanShiftVector,
@@ -476,5 +477,97 @@ describe("preSchedule.ts's static import surface", () => {
     const found = new Set<string>();
     for (const match of source.matchAll(/from\s+"([^"]+)"/g)) found.add(match[1]!);
     expect([...found].sort()).toEqual([...EXPECTED_IMPORT_SPECIFIERS].sort());
+  });
+});
+
+describe("buildPricedSyntheticSchedules (the ONE priced-synthetic-schedule builder, shared with the district bake)", () => {
+  it("returns exactly the sortedRoster, per-schedule seeds and matches buildPreScheduleArtifact publishes for the same params", () => {
+    const params = baseParams();
+    const priced = buildPricedSyntheticSchedules(params);
+    const artifact = buildPreScheduleArtifact(params);
+    expect(priced).not.toBeNull();
+    expect(artifact).not.toBeNull();
+    // Deep equality on both halves of the published block: the extraction is
+    // output-preserving or it is not done.
+    expect(priced!.sortedRoster).toEqual(artifact!.roster);
+    expect(priced!.schedules).toEqual(artifact!.schedules);
+    expect(priced!.schedules.map((s) => s.seed)).toEqual(artifact!.schedules.map((s) => s.seed));
+  });
+
+  it("carries one SimMatchInput per structure match per schedule, with surrogate team keys ABSENT from the team-key lists", () => {
+    // 10 teams at 10 matches per team is the shape with real surrogate slots —
+    // exactly the property a reconstruction from the published r/b arrays would
+    // silently lose, because those arrays include surrogates.
+    const roster = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6", "frc7", "frc8", "frc9", "frc10"];
+    const params = baseParams({ roster, matchesPerTeam: 10, scheduleCount: 2 });
+    const priced = buildPricedSyntheticSchedules(params)!;
+    expect(priced.simInputsBySchedule).toHaveLength(2);
+
+    let surrogatesSeen = 0;
+    for (let k = 0; k < priced.schedules.length; k++) {
+      const inputs = priced.simInputsBySchedule[k]!;
+      const matches = priced.schedules[k]!.matches;
+      expect(inputs).toHaveLength(matches.length);
+      for (let m = 0; m < matches.length; m++) {
+        const input = inputs[m]!;
+        // Every counted team key is a real roster member of that alliance...
+        const redKeys = matches[m]!.r.map((index) => priced.sortedRoster[index]!);
+        const blueKeys = matches[m]!.b.map((index) => priced.sortedRoster[index]!);
+        for (const key of input.redTeamKeys) expect(redKeys).toContain(key);
+        for (const key of input.blueTeamKeys) expect(blueKeys).toContain(key);
+        // ...and a slot the structure flagged surrogate is absent from it.
+        surrogatesSeen += 3 - input.redTeamKeys.length + (3 - input.blueTeamKeys.length);
+      }
+    }
+    // Non-vacuity: a fixture with no surrogate at all would pass every
+    // assertion above while proving nothing.
+    expect(surrogatesSeen).toBeGreaterThan(0);
+  });
+
+  it("returns null for an RP-less predict, and buildPreScheduleArtifact returns null for the same params", () => {
+    const rpLess = (_match: UpcomingMatch): Prediction => ({ winner: "red", pRedWin: 0.5, redScore: 50, blueScore: 45 });
+    const params = baseParams({ predict: rpLess });
+    expect(buildPricedSyntheticSchedules(params)).toBeNull();
+    expect(buildPreScheduleArtifact(params)).toBeNull();
+  });
+
+  it("throws PreSchedulePricingError when a pmf vanishes partway through, and again for a vanished RP decomposition", () => {
+    let priced = 0;
+    const vanishingPmf = (_match: UpcomingMatch): Prediction => {
+      priced++;
+      return priced <= 1
+        ? stubPredict(_match)
+        : { winner: "red", pRedWin: 0.5, redScore: 50, blueScore: 45 };
+    };
+    expect(() => buildPricedSyntheticSchedules(baseParams({ predict: vanishingPmf }))).toThrow(PreSchedulePricingError);
+
+    let decomposed = 0;
+    const withDecomposition = (match: UpcomingMatch): Prediction => ({
+      ...stubPredict(match),
+      matchOutcomePmf: [0.5, 0, 0.5],
+      redOutcomeRp: [2, 1, 0],
+      blueOutcomeRp: [0, 1, 2],
+      redBonusRpPmf: [0.5, 0.5],
+      blueBonusRpPmf: [0.5, 0.5],
+    });
+    const vanishingDecomposition = (match: UpcomingMatch): Prediction => {
+      decomposed++;
+      return decomposed <= 1 ? withDecomposition(match) : stubPredict(match);
+    };
+    expect(() => buildPricedSyntheticSchedules(baseParams({ predict: vanishingDecomposition }))).toThrow(
+      /the RP decomposition/
+    );
+  });
+
+  it("prices schedule 0's first match exactly ONCE — the probe's prediction is reused, never re-requested", () => {
+    let calls = 0;
+    const counting = (match: UpcomingMatch): Prediction => {
+      calls++;
+      return stubPredict(match);
+    };
+    const params = baseParams({ predict: counting, scheduleCount: 3 });
+    const priced = buildPricedSyntheticSchedules(params)!;
+    const matchesPerSchedule = priced.schedules[0]!.matches.length;
+    expect(calls).toBe(params.scheduleCount * matchesPerSchedule);
   });
 });

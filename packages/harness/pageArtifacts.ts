@@ -2289,6 +2289,30 @@ export const DistrictPreSimArtifactSchema = PagePreambleSchema.extend({
   districtKey: z.string().min(1),
   eventKey: z.string().min(1),
   year: z.number().int(),
+  /**
+   * THE BAKED BLOCK'S PROVENANCE, all four keys additive and optional, one
+   * copy per event object (where the preamble already lives) rather than one
+   * per row — per row would be a hundred-odd copies of four identical values.
+   *
+   * WHY PROVENANCE IS ON THE WIRE AT ALL: a published prediction whose pricing
+   * source, algorithm version and draw count are not readable from the
+   * artifact cannot be audited by anyone reading the site. That is the exact
+   * failure this repo's own log is a log of — a README describing a model that
+   * had been deleted — and the answer is the same one `PreScheduleArtifact`
+   * already gives: carry the four facts that let a reader reproduce the number.
+   *
+   * SCHEMA-VERSION NOTE: `PAGE_ARTIFACT_SCHEMA_VERSION` is NOT bumped, for the
+   * two reasons `DistrictEventStateSchema` states above — additive optional
+   * fields are backward-compatible for every reader, and the Worker is
+   * deployed BEFORE the republish, so it must be able to parse a pre-republish
+   * artifact that carries none of these.
+   */
+  algorithmId: z.string().min(1).optional(),
+  algorithmVersion: z.string().min(1).optional(),
+  /** `"current-state"` for a bake: an unstarted event's pre-event state IS the current walk-forward state. Same vocabulary as `PreScheduleArtifactSchema`'s own field. */
+  pricedFrom: z.enum(["pre-event-walk-forward", "current-state"]).optional(),
+  /** The pooled draw count every pmf in `rows` rests on. */
+  draws: z.number().int().positive().optional(),
   /** The team keys that define the index space for every row's `t`. Ascending and duplicate-free, so a republish is byte-stable and the reader's team-keyed map cannot collapse two entries into one. */
   roster: z.array(z.string().min(1)).min(1),
   rows: z.array(DistrictPreSimRowSchema),

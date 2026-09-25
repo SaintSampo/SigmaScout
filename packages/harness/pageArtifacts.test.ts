@@ -1749,6 +1749,28 @@ describe("the district pre-simulation sidecar (the SIDECAR branch the byte measu
     expect(parsed.bakedEvents).toEqual(["2026wabon", "2026wasam"]);
     expect(() => DistrictArtifactSchema.parse({ ...validDistrictFixture(), bakedEvents: [""] })).toThrow();
   });
+
+  it("round-trips the four ADDITIVE provenance keys, and still parses a sidecar carrying none of them (10-06)", () => {
+    const withProvenance = {
+      ...validSidecar(),
+      algorithmId: "spr",
+      algorithmVersion: "7.0.0",
+      pricedFrom: "current-state",
+      draws: 4000,
+    };
+    const parsed = DistrictPreSimArtifactSchema.parse(withProvenance);
+    expect(parsed.algorithmId).toBe("spr");
+    expect(parsed.algorithmVersion).toBe("7.0.0");
+    expect(parsed.pricedFrom).toBe("current-state");
+    expect(parsed.draws).toBe(4000);
+    // Optional, not required: the Worker is deployed BEFORE the republish and
+    // must parse a pre-republish sidecar that carries none of the four.
+    expect(() => DistrictPreSimArtifactSchema.parse(validSidecar())).not.toThrow();
+    // And each one is validated rather than waved through.
+    expect(() => DistrictPreSimArtifactSchema.parse({ ...withProvenance, draws: 0 })).toThrow();
+    expect(() => DistrictPreSimArtifactSchema.parse({ ...withProvenance, pricedFrom: "guessed" })).toThrow();
+    expect(() => DistrictPreSimArtifactSchema.parse({ ...withProvenance, algorithmId: "" })).toThrow();
+  });
 });
 
 describe("raw-numbers-only — no schema declares a comparison-shaped field", () => {

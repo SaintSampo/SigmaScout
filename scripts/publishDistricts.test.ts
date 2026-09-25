@@ -8,9 +8,22 @@
  * award-qualified/`lockedAward`, curated pre-qualification/`prequalified`,
  * and the `2025fsc` special-allocation override.
  */
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { CorpusDistrict, CorpusDistrictRanking, CorpusEventAward } from "../packages/corpus/db.js";
-import { buildDistrictArtifact, buildDistrictsIndexArtifact, parseYearsSpec, type DistrictEventMeta } from "./publishDistricts.js";
+import { recomputeDistrictVerdicts } from "../packages/harness/districtRankingsMerge.js";
+import { DistrictBudgetExceededError } from "../packages/harness/publishBudget.js";
+import {
+  buildDistrictArtifact,
+  buildDistrictsIndexArtifact,
+  localOutFileName,
+  parseOptions,
+  parseYearsSpec,
+  run,
+  type DistrictEventMeta,
+} from "./publishDistricts.js";
 
 const GENERATION = "gen-1";
 const COMPUTED_AT = "2026-09-05T00:00:00.000Z";
@@ -526,5 +539,148 @@ describe("parseYearsSpec", () => {
 
   it("throws on an empty spec", () => {
     expect(() => parseYearsSpec("")).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10-06 — additive describes. Every expectation above this line is committed
+// and unchanged; `git diff` is the proof.
+// ---------------------------------------------------------------------------
+
+describe("buildDistrictArtifact — ONE verdict pass, two callers", () => {
+  it("produces exactly what the shared pass produces for the same rows: both locks, both cut lines and all four insight counts", () => {
+    const rankings = [
+      ranking({
+        teamKey: "frc1",
+        pointTotal: 120,
+        rank: 1,
+        eventPointsRaw: eventPointsRaw([{ event_key: "2026e1", district_cmp: false, qual_points: 20, alliance_points: 14, elim_points: 20, award_points: 5, total: 59 }]),
+      }),
+      ranking({
+        teamKey: "frc2",
+        pointTotal: 90,
+        rank: 2,
+        eventPointsRaw: eventPointsRaw([{ event_key: "2026e1", district_cmp: false, qual_points: 18, alliance_points: 12, elim_points: 10, award_points: 0, total: 40 }]),
+      }),
+      ranking({ teamKey: "frc3", pointTotal: 10, rank: 3, eventPointsRaw: "[]" }),
+    ];
+    const events = [districtEvent({ eventKey: "2026e1", eventType: 1 }), districtEvent({ eventKey: "2026dcmp", eventType: 2 })];
+    const artifact = buildDistrictArtifact({
+      season: 2026,
+      generation: GENERATION,
+      computedAt: COMPUTED_AT,
+      district: district({ dcmpSlots: 2, cmpSlots: 1 }),
+      rankings,
+      events,
+      registrations: new Map([["2026e1", ["frc3"]]]),
+      awards: new Map(),
+      teamMeta: new Map(),
+    });
+
+    // Handing the PUBLISHED artifact straight back to the shared pass must be a
+    // NO-OP. If the publisher's verdicts came from any second implementation,
+    // this comparison is where the two would differ.
+    const tierByEvent = new Map<string, "district" | "dcmp">([
+      ["2026e1", "district"],
+      ["2026dcmp", "dcmp"],
+    ]);
+    const reRun = recomputeDistrictVerdicts(artifact, { tierByEvent });
+    for (let i = 0; i < artifact.teams.length; i++) {
+      expect(reRun.teams[i]!.districtLock).toEqual(artifact.teams[i]!.districtLock);
+      expect(reRun.teams[i]!.champLock).toEqual(artifact.teams[i]!.champLock);
+      expect(reRun.teams[i]!.maxRemainingChamp).toBe(artifact.teams[i]!.maxRemainingChamp);
+    }
+    expect(reRun.insights).toEqual(artifact.insights);
+  });
+});
+
+describe("the publish byte gate", () => {
+  /** `frc88`'s real TBA nickname: three UTF-16 code units, FOUR UTF-8 bytes. */
+  const NON_ASCII_NICKNAME = "TJ²";
+
+  function nonAsciiArtifact() {
+    return buildDistrictArtifact({
+      season: 2026,
+      generation: GENERATION,
+      computedAt: COMPUTED_AT,
+      district: district(),
+      rankings: [ranking({ teamKey: "frc88", rank: 1, pointTotal: 50 })],
+      events: [districtEvent({ eventKey: "2026e1", eventType: 1 })],
+      registrations: new Map(),
+      awards: new Map(),
+      teamMeta: new Map([["frc88", { teamNumber: 88, nickname: NON_ASCII_NICKNAME }]]),
+    });
+  }
+
+  it("counts UTF-8 bytes, which for a non-ASCII nickname is STRICTLY MORE than the code-unit count", () => {
+    expect(NON_ASCII_NICKNAME.length).toBe(3);
+    expect(Buffer.byteLength(NON_ASCII_NICKNAME)).toBe(4);
+    const body = JSON.stringify(nonAsciiArtifact());
+    expect(body).toContain(NON_ASCII_NICKNAME);
+    // A regression to a code-unit count would report the smaller number, and a
+    // gate built on it would be short by exactly the amount that matters.
+    expect(Buffer.byteLength(body)).toBeGreaterThan(body.length);
+  });
+
+  it("fires BEFORE anything is written: a one-byte ceiling throws, and the local output folder stays empty", async () => {
+    const outDir = mkdtempSync(join(tmpdir(), "publish-districts-gate-"));
+    try {
+      await expect(
+        run({
+          years: [2026],
+          bucket: "unused",
+          dryRun: true,
+          asOf: COMPUTED_AT,
+          localOut: outDir,
+          bake: false,
+          ceilings: { detailPerTeam: 1, detailAbsolute: 1, presim: 1 },
+        })
+      ).rejects.toThrow(DistrictBudgetExceededError);
+      // A gate that fires AFTER the file is written is a log line, not a gate.
+      expect(readdirSync(outDir)).toEqual([]);
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
+  });
+
+  it("localOutFileName flattens an R2 key's separators, so one folder holds every composed object", () => {
+    expect(localOutFileName("v1/district/2026fnc.json")).toBe("v1__district__2026fnc.json");
+    expect(localOutFileName("v1/district-presim/2026pnw/2026wabon.json")).toBe("v1__district-presim__2026pnw__2026wabon.json");
+  });
+});
+
+describe("parseOptions — the new flags", () => {
+  it("round-trips --as-of, --local-out and --no-bake", () => {
+    const options = parseOptions(["--years", "2026", "--as-of", "2026-03-07", "--local-out", "data/out", "--no-bake", "--dry-run"]);
+    expect(options.years).toEqual([2026]);
+    expect(options.asOf).toBe("2026-03-07T00:00:00.000Z");
+    expect(options.localOut).toBe("data/out");
+    expect(options.bake).toBe(false);
+    expect(options.dryRun).toBe(true);
+  });
+
+  it("defaults --as-of to the run's own clock and leaves baking ON", () => {
+    const before = Date.now();
+    const options = parseOptions(["--years", "2026"]);
+    const after = Date.now();
+    const parsed = Date.parse(options.asOf);
+    expect(parsed).toBeGreaterThanOrEqual(before - 1000);
+    expect(parsed).toBeLessThanOrEqual(after + 1000);
+    expect(options.bake).toBe(true);
+    expect(options.localOut).toBeUndefined();
+  });
+
+  it("throws naming the flag and the value for an unparseable --as-of", () => {
+    expect(() => parseOptions(["--years", "2026", "--as-of", "yesterday"])).toThrow(/--as-of "yesterday"/);
+  });
+
+  it("throws for an --as-of later than the run's own clock — a future instant stamps a provenance that is a lie", () => {
+    const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    expect(() => parseOptions(["--years", "2026", "--as-of", future])).toThrow(/later than the run's own clock/);
+  });
+
+  it("parses --warmup-from as an integer season and refuses a non-integer", () => {
+    expect(parseOptions(["--years", "2026", "--warmup-from", "2024"]).warmupFrom).toBe(2024);
+    expect(() => parseOptions(["--years", "2026", "--warmup-from", "early"])).toThrow(/--warmup-from/);
   });
 });

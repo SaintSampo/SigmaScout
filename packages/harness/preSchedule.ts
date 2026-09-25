@@ -319,18 +319,40 @@ function buildScheduleMatches(
 }
 
 /**
- * Builds one event's pre-schedule sidecar, or `null` when the bound algorithm
- * does not model ranking points (detected on the first priced synthetic match,
- * before anything else is priced).
- *
- * Pairing structures come from `SHARED_STRUCTURE_CACHE`; the shuffle and baked
- * seeds stay per event. A `GeneratedScheduleError` propagates for a roster
- * outside the generator's range, so callers check roster size first.
- *
- * The result has passed `PreScheduleArtifactSchema.parse` (not `safeParse`), so
- * a builder bug can never reach R2.
+ * `buildPricedSyntheticSchedules`' return: the sorted roster, the block the
+ * sidecar publishes verbatim, and the parallel `simulateRanks`-side inputs.
  */
-export function buildPreScheduleArtifact(params: PreScheduleBuildParams): PreScheduleArtifact | null {
+export interface PricedSyntheticSchedules {
+  /** The published roster and the index space for every `r`/`b` array and every baked histogram. */
+  readonly sortedRoster: readonly string[];
+  /** Exactly what `PreScheduleArtifact["schedules"]` carries, per schedule: its seed and its priced matches. */
+  readonly schedules: PreScheduleArtifact["schedules"];
+  /** One entry per schedule, one `SimMatchInput` per structure match, surrogate team keys already filtered out by `toSimMatchInput`. */
+  readonly simInputsBySchedule: readonly (readonly SimMatchInput[])[];
+}
+
+/**
+ * Builds and prices `params.scheduleCount` synthetic qualification schedules,
+ * or `null` when the bound algorithm does not model ranking points (decided by
+ * the schedule-0 probe, before anything else is priced).
+ *
+ * EXPORTED, and that is a decision rather than a convenience.
+ * `packages/harness/districtBake.ts` needs the SAME priced synthetic
+ * schedules this function builds, and the two ways it could have got them are
+ * not equivalent. Reconstructing them from the published `r`/`b` arrays would
+ * silently re-include surrogates — `toSimMatchInput`'s own doc comment
+ * declares itself "the one implementation of surrogate handling on the
+ * `simulateRanks` side", and a reconstruction would put that guarantee in a
+ * second place — and it would lose the RP decomposition (`outcome`) entirely,
+ * because the sidecar never publishes it. Two builders would also be two
+ * copies of the seed, salt, ordering and rounding rules that make every presim
+ * sidecar this repo has already published reproducible byte for byte.
+ *
+ * Pairing structures come from `SHARED_STRUCTURE_CACHE`; the shuffle seeds stay
+ * per event. A `GeneratedScheduleError` propagates for a roster outside the
+ * generator's range, so callers check roster size first.
+ */
+export function buildPricedSyntheticSchedules(params: PreScheduleBuildParams): PricedSyntheticSchedules | null {
   // Sorting makes republish determinism independent of corpus row order: this
   // sorted array is the published roster and the index space for every `r`/`b`
   // array and baked histogram.
@@ -390,6 +412,26 @@ export function buildPreScheduleArtifact(params: PreScheduleBuildParams): PreSch
     schedules.push({ seed, matches: publishedMatches });
     simInputsBySchedule.push(simInputs);
   }
+
+  return { sortedRoster, schedules, simInputsBySchedule };
+}
+
+/**
+ * Builds one event's pre-schedule sidecar, or `null` when the bound algorithm
+ * does not model ranking points (detected on the first priced synthetic match,
+ * before anything else is priced).
+ *
+ * The priced schedules come from `buildPricedSyntheticSchedules` — the one
+ * builder, shared with the district bake. This function owns only the baked
+ * rank-histogram loop and the assembly.
+ *
+ * The result has passed `PreScheduleArtifactSchema.parse` (not `safeParse`), so
+ * a builder bug can never reach R2.
+ */
+export function buildPreScheduleArtifact(params: PreScheduleBuildParams): PreScheduleArtifact | null {
+  const priced = buildPricedSyntheticSchedules(params);
+  if (priced === null) return null;
+  const { sortedRoster, schedules, simInputsBySchedule } = priced;
 
   // The baked default result. Baselines are zero for everyone: before schedule
   // release nobody has played, so the distribution comes from the pmfs alone.
