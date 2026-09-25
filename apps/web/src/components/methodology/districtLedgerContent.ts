@@ -135,4 +135,118 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
       ],
     },
   },
+  {
+    id: "how-open-categories-are-predicted",
+    heading: "How the open categories are predicted",
+    paragraphs: [
+      "One run produces a ranking, then the captains and the picks, then the bracket. A team's four numbers in a run therefore belong to the same imagined weekend, and each histogram is one marginal of the same runs.",
+      "The event total is the per run sum of the four categories. The season total is the exact convolution of a team's event totals, plus the rookie bonus and any adjustments.",
+      "A category that is already settled shows the points the team earned, not a prediction. An event nobody has played yet is priced by the pipeline before the season, and the browser computes nothing for it.",
+      "An open cell shows either a median with a likely range, or a chance with the typical amount when it happens. Likely means the 10th to the 90th percentile.",
+    ],
+    table: {
+      caption: "What decides each open category",
+      head: ["Category", "How it is predicted"],
+      rows: [
+        [
+          "Qualification",
+          "The rank simulation over the event's remaining matches, then the game manual's formula on the rank that run drew.",
+        ],
+        ["Alliance selection", "The captains and the two picks of that same drawn ranking, then the selection point values."],
+        [
+          "Playoffs",
+          "The eight alliance double elimination bracket, with every match priced from the two alliances' published ratings.",
+        ],
+        ["Awards", "A draw from the base rate for the team's own count of prior judged awards and its rookie status."],
+      ],
+    },
+  },
+  {
+    id: "the-alliance-selection-model",
+    heading: "The alliance selection model",
+    paragraphs: [
+      "The captain at each alliance's turn is the highest ranked team not yet on an alliance. The draft runs alliance 1 through alliance 8 and then alliance 8 back down to alliance 1. Picks are taken in rating order among the teams still available.",
+      "The one captain slot the rule missed is alliance 8 at 2026milac, where the rule expected the team ranked 13 and the real captain was ranked 14.",
+      "The second pick is the weaker half. Its exact agreement is 22.34% against a floor of 7.85%, about 2.8 times the floor, where first picks run about 11 times their own floor. The real second pick typically sits at position 4 in the model's list, against position 2 for a first pick.",
+    ],
+    table: {
+      caption: "Measured against the real draft",
+      head: ["What was measured", "The model", "No information floor"],
+      rows: [
+        ["Captain slots named correctly, 485 events, 2023 to 2026", "99.97%, or 3,879 of 3,880", "3.75%"],
+        ["The same slots, under the rule that the captains are the eight best ranked teams", "25.15%, or 976 of 3,880", "3.75%"],
+        ["Pick order, exact agreement, 2,256 turns in 2026", "32.62%", "5.90%"],
+        ["First picks, exact agreement, 1,128 turns", "42.91%", "3.95%"],
+        ["Second picks, exact agreement, 1,128 turns", "22.34%", "7.85%"],
+        ["Pick order, the real pick inside the model's top 3", "60.51%", "not measured"],
+      ],
+    },
+  },
+  {
+    id: "award-base-rates",
+    heading: "Award base rates",
+    paragraphs: [
+      "The award cell is priced from a table of how often teams in the same position have earned district award points. The table for each season is built only from the seasons before it.",
+      "The full table, its sample sizes and the cells that cannot be scored are on the Predicting awards page.",
+      "No award prediction moves a team's status. A Locked verdict stays a guarantee.",
+    ],
+  },
+  {
+    id: "how-well-the-bracket-pricer-works",
+    heading: "How well the bracket pricer works",
+    paragraphs: [
+      "The browser prices an alliance from two numbers a published event file already carries for every team: its rating and its own uncertainty.",
+      "This is an approximation of the number the site publishes, not the same calculation. Over 19,792 played matches in 2026 the two sit 0.0552 apart on average, and half the time within 0.0417.",
+    ],
+    table: {
+      caption: "The browser's number against the site's own, over 19,792 played matches in 2026",
+      head: ["Measure", "Value"],
+      rows: [
+        ["Mean absolute gap against the published win probability", "0.0552"],
+        ["Median absolute gap", "0.0417"],
+        ["Ninetieth percentile absolute gap", "0.1224"],
+        ["Matches where the two pick different winners", "4.44%"],
+        ["Brier, the number the browser computes", "0.1462"],
+        ["Brier, the number the site publishes", "0.1443"],
+        ["Brier, a coin", "0.2494"],
+        ["Brier, the sign of the rating difference alone", "0.2112"],
+      ],
+    },
+  },
+  {
+    id: "what-this-does-not-model",
+    heading: "What this does not model",
+    paragraphs: ["Seven limits, each one recorded in the code that produced the numbers above."],
+    table: {
+      caption: "Seven limits",
+      head: ["Limit", "What is known about it"],
+      rows: [
+        ["Declines are not modelled", "One captain slot in 3,880 went to a lower ranked team, at 2026milac."],
+        [
+          "The award draw does not depend on how a team did on the field",
+          "The base rate table covers judged awards only.",
+        ],
+        [
+          "The district level award table is applied at the district championship too",
+          "That assumes the same earning rates at both tiers, and it has not been tested.",
+        ],
+        [
+          "An event nobody has played is priced from each team's current rating over generated schedules",
+          "The schedule The Blue Alliance will publish is not known when those numbers are baked.",
+        ],
+        [
+          "Every baked number's resolution is set by its draw count",
+          "4,000 draws per event, with a measured movement between seeds of at most 0.03525.",
+        ],
+        [
+          "An event whose awards are posted can still read as open",
+          "When the award rows are missing and no team earned award points, the award cell stays open at the base rate.",
+        ],
+        [
+          "Awards posted after every event in the district has finished wait for the next offline republish",
+          "An event's live window closes one hour after the last match observed there.",
+        ],
+      ],
+    },
+  },
 ];

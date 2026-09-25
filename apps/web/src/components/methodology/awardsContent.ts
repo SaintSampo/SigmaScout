@@ -28,14 +28,29 @@
  * team present), "SPR alone" is the B2 row (strongest team present), and the
  * top pick figure is the R@1 column. State no number here that those do not
  * print.
+ *
+ * The district award base rate section's own figures come from a different
+ * command, `pnpm measure:district-award-base-rates`
+ * (`npx tsx scripts/measureDistrictAwardBaseRates.ts`, run 2026-09-25), and
+ * are cross checked against the committed table literals in
+ * `packages/core/districts/awardBaseRates.ts`.
+ *
+ * RETIRED BY PHASE 10, DO NOT RESTORE. `AWARDS_LEAD`'s second sentence used to
+ * tell a reader that the site showed no award prediction anywhere yet. The
+ * Road to District Champs ledger prints a chance of award points and a typical
+ * amount per team per event, so that sentence became false the moment the tab
+ * shipped. The assertion in `awardsContent.test.ts` that pinned it was
+ * REPLACED rather than deleted, so the lead stays pinned in the other
+ * direction. The retired sentence is described here rather than quoted, so
+ * that this note cannot re-introduce the wording it retires.
  */
 
 export const AWARDS_PAGE_TITLE = "Predicting awards";
 
 export const AWARDS_LEAD =
-  "SigmaScout tested whether FRC awards can be predicted. The site does not show award predictions anywhere yet.";
+  "SigmaScout tested whether FRC awards can be predicted. The Road to District Champs ledger prices a team's award points at a district event from the base rates at the foot of this page, and no other page on the site shows an award prediction.";
 
-export const AWARDS_SECTION_IDS = ["the-goal", "the-model", "our-results"] as const;
+export const AWARDS_SECTION_IDS = ["the-goal", "the-model", "our-results", "district-award-base-rates"] as const;
 export type AwardsSectionId = (typeof AWARDS_SECTION_IDS)[number];
 
 export const AWARDS_SUBSECTION_IDS = [
@@ -160,5 +175,35 @@ export const AWARDS_SECTIONS: readonly AwardsSection[] = [
         },
       },
     ],
+  },
+  {
+    id: "district-award-base-rates",
+    heading: "District award base rates",
+    paragraphs: [
+      "The Road to District Champs ledger prices each team's award cell from a table of how often teams in the same position earned district award points. The table for a season is built only from the seasons before it.",
+      "Seven seasons carry a table: 2019, 2020, 2022, 2023, 2024, 2025 and 2026. The three earliest district seasons carry none, because fewer than three earlier district seasons exist for them.",
+      "Rookie status splits the table only where a team has never won a judged award. A rookie has no earlier season, so the two decorated buckets have no rookie cell to measure, and TBA reports a rookie year for every team here, so the three unknown rows are empty as well.",
+      "No award prediction moves a team's status on the ledger. A Locked verdict stays a guarantee.",
+    ],
+    table: {
+      caption: "Season 2026, fit on 2016 to 2025",
+      head: [
+        "Prior judged awards and rookie status",
+        "Teams",
+        "Any award points",
+        "Distribution over 5, 8, 10, 13 and 15 or more points",
+      ],
+      rows: [
+        ["None, rookie", "2,042", "52.4%", "27.1%, 25.0%, 0.1%, 0.1%, 0.0%"],
+        ["None, veteran", "7,335", "19.9%", "17.2%, 1.1%, 1.4%, 0.1%, 0.1%"],
+        ["None, rookie year unknown", "0", "not scored", "not scored"],
+        ["One or two, rookie", "0", "not scored", "not scored"],
+        ["One or two, veteran", "6,349", "26.1%", "23.4%, 1.3%, 1.2%, 0.1%, 0.0%"],
+        ["One or two, rookie year unknown", "0", "not scored", "not scored"],
+        ["Three or more, rookie", "0", "not scored", "not scored"],
+        ["Three or more, veteran", "10,060", "61.6%", "48.4%, 5.3%, 7.4%, 0.2%, 0.2%"],
+        ["Three or more, rookie year unknown", "0", "not scored", "not scored"],
+      ],
+    },
   },
 ];

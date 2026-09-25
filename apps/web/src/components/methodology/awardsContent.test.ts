@@ -32,8 +32,8 @@ const HYPHEN_MINUS = "-";
 const EN_DASH = "–";
 const EM_DASH = "—";
 
-/** The three section ids, hand typed. Changing `AWARDS_SECTIONS` without this is the failure caught here. */
-const EXPECTED_SECTION_IDS = ["the-goal", "the-model", "our-results"];
+/** The four section ids, hand typed. Changing `AWARDS_SECTIONS` without this is the failure caught here. */
+const EXPECTED_SECTION_IDS = ["the-goal", "the-model", "our-results", "district-award-base-rates"];
 
 /** The four result subsection ids under `our-results`, hand typed for the same reason. */
 const EXPECTED_SUBSECTION_IDS = [
@@ -80,6 +80,20 @@ const REQUIRED_FIGURES = [
   "84.9%",
   "9.1%",
   "28.5%",
+  // --- District award base rates ------------------------------------------
+  // `pnpm measure:district-award-base-rates`
+  // (`npx tsx scripts/measureDistrictAwardBaseRates.ts`, run 2026-09-25),
+  // cross checked against the committed 2026 table literals in
+  // `packages/core/districts/awardBaseRates.ts`.
+  "2019, 2020, 2022, 2023, 2024, 2025 and 2026", // DISTRICT_AWARD_BASE_RATE_SEASONS
+  "2,042", // n, none|rookie
+  "52.4%", // 1 - pmf[0], none|rookie
+  "7,335", // n, none|veteran
+  "19.9%", // 1 - pmf[0], none|veteran
+  "6,349", // n, one-or-two|veteran
+  "26.1%", // 1 - pmf[0], one-or-two|veteran
+  "10,060", // n, three-or-more|veteran
+  "61.6%", // 1 - pmf[0], three-or-more|veteran
 ];
 
 function tableStrings(where: string, table: AwardsTable | undefined): { where: string; text: string }[] {
@@ -110,7 +124,7 @@ function allStrings(): { where: string; text: string }[] {
 }
 
 describe("awardsContent structure", () => {
-  it("exports the three section ids in order, by equality", () => {
+  it("exports the four section ids in order, by equality", () => {
     expect([...AWARDS_SECTION_IDS]).toEqual(EXPECTED_SECTION_IDS);
   });
 
@@ -185,7 +199,23 @@ describe("awardsContent figures", () => {
     }
   });
 
-  it("says the site shows no award predictions, so the page cannot read as a feature announcement", () => {
-    expect(AWARDS_LEAD).toContain("does not show award predictions");
+  /**
+   * REPLACES, rather than deletes, the assertion that pinned the claim phase 10
+   * retired: the lead's second sentence used to tell a reader the site showed
+   * no award prediction anywhere yet. The Road to District Champs ledger prints
+   * a chance of award points per team per event, so that sentence became false
+   * when the tab shipped. A deleted assertion would leave the lead unguarded;
+   * this one keeps the page pinned in the other direction, so a later edit
+   * cannot quietly drop the one place a reader is told where award predictions
+   * do appear.
+   *
+   * The negative guard matches the retired sentence's own tail rather than
+   * re-quoting the phrase, so this file does not carry the wording the phase
+   * removed.
+   */
+  it("names where award predictions appear, and says the rest of the site shows none", () => {
+    expect(AWARDS_LEAD).toContain("The Road to District Champs ledger prices a team's award points");
+    expect(AWARDS_LEAD).toContain("no other page on the site shows an award prediction");
+    expect(AWARDS_LEAD).not.toMatch(/anywhere yet/);
   });
 });

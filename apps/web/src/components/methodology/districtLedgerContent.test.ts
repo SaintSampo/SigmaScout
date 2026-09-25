@@ -77,6 +77,68 @@ const REQUIRED_FIGURES = [
   "7 for fourth",
   // districtTierWeight: the DCMP weight is 3 in every registered season.
   "three times",
+
+  // --- `pnpm measure:selection-agreement` ---------------------------------
+  // `npx tsx scripts/measureSelectionAgreement.ts --captain-seasons 2023-2026
+  //  --seasons 2026 --warmup-from 2026`, run 2026-09-25. Cross checked against
+  // the exported MEASURED_* constants beside that script and, for the captain
+  // half, against selectionModel.reconciliation.test.ts's own assertions.
+  "485 events",
+  "3,879 of 3,880", // MEASURED_PROGRESSIVE_CORRECT_SLOTS of MEASURED_CAPTAIN_SLOTS
+  "99.97%",
+  "976 of 3,880", // MEASURED_NAIVE_CORRECT_SLOTS, the labelled baseline
+  "25.15%",
+  "3.75%", // MEASURED_CAPTAIN_COIN_FLOOR
+  "2,256 turns", // MEASURED_PICK_TURNS
+  "32.62%", // MEASURED_EXACT_AGREEMENT
+  "5.90%", // MEASURED_POOLED_COIN_FLOOR
+  "1,128 turns", // MEASURED_FIRST_PICK_TURNS and MEASURED_SECOND_PICK_TURNS
+  "42.91%", // MEASURED_FIRST_PICK_EXACT_AGREEMENT
+  "3.95%", // MEASURED_FIRST_PICK_COIN_FLOOR
+  "22.34%", // MEASURED_SECOND_PICK_EXACT_AGREEMENT — the figure 10-02 forbids softening
+  "7.85%", // MEASURED_SECOND_PICK_COIN_FLOOR
+  "60.51%", // MEASURED_TOP3_AGREEMENT
+  "2026milac", // MEASURED_PROGRESSIVE_MISSES, the single named miss
+  "position 4", // MEASURED_MEDIAN_MODEL_RANK, second picks (10-02's PICK-ORDER block)
+  "position 2", // the same block's first pick median
+
+  // --- `pnpm measure:alliance-win-probability` ----------------------------
+  // `npx tsx scripts/measureAllianceWinProbability.ts --seasons 2026
+  //  --warmup-from 2026`, run 2026-09-25. Cross checked against the exported
+  // MEASURED_* constants beside that script.
+  "19,792", // MEASURED_SCORED_ROWS
+  "0.0552", // MEASURED_MEAN_ABSOLUTE_GAP
+  "0.0417", // MEASURED_MEDIAN_ABSOLUTE_GAP
+  "0.1224", // MEASURED_P90_ABSOLUTE_GAP
+  "4.44%", // MEASURED_WINNER_DISAGREEMENT_RATE
+  "0.1462", // MEASURED_BROWSER_FORMULA_BRIER
+  "0.1443", // MEASURED_PUBLISHED_BRIER
+  "0.2494", // MEASURED_COIN_BRIER
+  "0.2112", // MEASURED_SIGN_ONLY_BRIER
+
+  // --- the recorded limits ------------------------------------------------
+  // 10-06's districtBake.test.ts prints the seed to seed spread at the
+  // production draw budget; DISTRICT_BAKE_SCHEDULE_COUNT x
+  // DISTRICT_BAKE_DRAWS_PER_SCHEDULE is the 4,000.
+  "4,000 draws",
+  "0.03525",
+];
+
+/**
+ * The seven recorded limitations, by their own row labels, hand typed. A later
+ * edit cannot drop one without turning this red. Sources: 10-04 records the
+ * first three in `ledgerSimulation.ts`, 10-06 the next three in
+ * `districtBake.ts` and `publishDistricts.ts`, and 10-05 the last in
+ * `districtRefresh.ts`'s module header.
+ */
+const EXPECTED_LIMITS = [
+  "Declines are not modelled",
+  "The award draw does not depend on how a team did on the field",
+  "The district level award table is applied at the district championship too",
+  "An event nobody has played is priced from each team's current rating over generated schedules",
+  "Every baked number's resolution is set by its draw count",
+  "An event whose awards are posted can still read as open",
+  "Awards posted after every event in the district has finished wait for the next offline republish",
 ];
 
 /** A retired name or a retired piece of vocabulary must never reach a public page. */
@@ -163,6 +225,12 @@ describe("districtLedgerContent structure", () => {
 
   it("carries no regular expression metacharacter in the title, because the hub test builds a RegExp from card titles", () => {
     expect(DISTRICT_LEDGER_PAGE_TITLE).not.toMatch(/[.*+?^${}()|[\]\\]/);
+  });
+
+  it("states exactly the seven recorded limitations, by equality against a hand typed literal", () => {
+    const limits = DISTRICT_LEDGER_SECTIONS.find((section) => section.id === "what-this-does-not-model");
+    expect(limits, "the limits section is gone from the page").toBeDefined();
+    expect(limits?.table?.rows.map((row) => row[0])).toEqual(EXPECTED_LIMITS);
   });
 });
 
