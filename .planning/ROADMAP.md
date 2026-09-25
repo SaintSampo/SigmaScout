@@ -693,5 +693,27 @@ Plans:
 - [x] 09-09-PLAN.md
 - [x] 09-10-PLAN.md
 
+### Phase 10: District points ledger: the Road to District Champs tab from sketch 021 A, live
+
+**Goal:** The District Locks tab becomes the Road to District Champs ledger of sketch 021 variant A. Every district team shows, per district event, the district points it has already earned (grey, final) and a prediction for each category still open (blue, a median with a likely range or a chance with a typical amount, a histogram on click), an event total, a grand total, and one of five statuses (Prequalified, Locked, In range, Out of range, Locked out). A slider rewinds the district to any match, across alliance selection, playoffs and awards. Open categories are simulated jointly in the visitor's browser from the live event artifacts (rank, then alliance selection, then the playoff bracket, in one run), unstarted events are baked by the pipeline, awards are priced from walk-forward base rates by decoration bucket, and the district artifact refreshes during live events so earned points move within the site's freshness window.
+
+**Requirements**: sketch 021 (`.planning/sketches/021-district-points-ledger/README.md`, the feasibility and placement sections) and `10-CONTEXT.md` (Jacob's locked decisions, 2026-09-25).
+**Depends on:** Phase 9
+**Plans:** 0 plans
+
+**Success criteria:**
+
+1. During a live district weekend, a category that finishes (quals, alliance selection, playoffs, awards) turns grey with its earned points on the district page within the site's freshness window, because the live Worker refreshes TBA district rankings for live districts and republishes the district artifact.
+2. Every blue cell is derived from one joint per-run simulation in a Web Worker (rank histogram, then captains and greedy-by-SPR picks, then the double elimination bracket priced by SPR), plus an award pmf from published walk-forward base-rate tables; the event total is the per-run sum and the grand total is the exact convolution of the two event totals plus rookie bonus. Histograms follow sketch 005 (continuous 10th to 90th edges, median tick, shared scale per column).
+3. Status follows the five definitions: Locked and Locked out from `packages/core/districts/locks.ts`, In range and Out of range from a projection in which every team earns the median of its own predicted grand total. On a finished district the counts equal the artifact's locked and eliminated counts.
+4. The slider rewinds by match across the district's interleaved timeline; rewinding into a finished event reopens its later categories and the statuses recompute.
+5. The ledger paints with zero simulation compute for finished and unstarted events (actuals and baked pmfs on the district artifact); the browser simulates only events in progress and on slider moves.
+6. The selection model's pick-order agreement with SPR and the award base-rate tables are measured walk-forward on the corpus, pinned by tests, and stated on the methodology page in its voice.
+7. Repo-root vitest is green, both tsconfigs are clean, CI is green after the push, the district artifacts are republished, the Worker is deployed before the republish, and the live e2e spec covers the new tab.
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 10 to break down)
+
 ---
 *Roadmap created: 2026-08-12*
