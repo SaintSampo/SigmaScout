@@ -6,7 +6,7 @@ current_phase: 10
 current_phase_name: district-points-ledger
 status: executing
 stopped_at: Completed 10-08-PLAN.md
-last_updated: "2026-09-25T21:49:25.076Z"
+last_updated: "2026-09-25T22:22:55.915Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 10 execution started
 progress:
@@ -676,6 +676,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 239 | Measure the two ledger tenets over every finished district at every rewind stage (tenet B holds, tenet A has 13 reversals from unreserved Impact slots) | 2026-09-25 | fae7054c | [260925-ma5-measure-the-two-ledger-tenets-over-every](./quick/260925-ma5-measure-the-two-ledger-tenets-over-every/) |
 | 240 | Hold one points slot back per district event whose Impact award is still to come, on the Locked test only; both tenets now hold at zero violations over 921,658 team-positions | 2026-09-25 | 7744cf05 | [260925-ms7-reserve-one-points-slot-per-district-eve](./quick/260925-ms7-reserve-one-points-slot-per-district-eve/) |
 | 241 | Ledger weeks print one based like the rest of the site; the slider keeps a local thumb and commits one replace navigation after the hand pauses | 2026-09-25 | bb56970d | [260925-opv-ledger-weeks-one-based-like-the-rest-of-](./quick/260925-opv-ledger-weeks-one-based-like-the-rest-of-/) |
+| 242 | Ledger housekeeping: error boundary, district param validation, event key pattern, e2e typecheck in CI, MetricHistoryTab flake fixed at its cause, champ-only DistrictLocksTab, verify:district-bake script | 2026-09-25 | 8a60e397 | [260925-ots-ledger-housekeeping-error-boundary-distr](./quick/260925-ots-ledger-housekeeping-error-boundary-distr/) |
 
 ### Roadmap Evolution
 
