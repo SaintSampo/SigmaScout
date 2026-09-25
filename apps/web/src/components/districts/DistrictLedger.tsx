@@ -36,6 +36,7 @@ import { RANK_BAND_LABEL_PREFIX } from "../event/rankRows.js";
 import { DistrictPointHistogram } from "./DistrictPointHistogram.js";
 import {
   DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED,
+  DISTRICT_LEDGER_CAVEAT,
   DISTRICT_LEDGER_CHANCE_WORDS,
   DISTRICT_LEDGER_COLUMN_LABELS,
   DISTRICT_LEDGER_DRAWER_CELL_CAPTION,
@@ -50,6 +51,7 @@ import {
   DISTRICT_LEDGER_LEGEND_OPEN,
   DISTRICT_LEDGER_LIKELY_PREFIX,
   DISTRICT_LEDGER_NO_MATCHES,
+  DISTRICT_LEDGER_PROVENANCE,
   DISTRICT_LEDGER_REWIND_HINT,
   DISTRICT_LEDGER_REWIND_LABEL,
   DISTRICT_LEDGER_SEARCH_LABEL,
@@ -686,6 +688,9 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
         <RewindSlider timeline={timeline} positionIndex={positionIndex} onPositionChange={handlePositionChange} />
         <StatusChips counts={statuses.counts} active={activeStatuses} onToggle={toggleStatus} />
       </ControlsCard>
+      <p className="text-[var(--color-text-muted)]" data-testid="district-ledger-caveat">
+        {DISTRICT_LEDGER_CAVEAT} {DISTRICT_LEDGER_PROVENANCE}
+      </p>
       {visibleTeams.length === 0 && <p className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_NO_MATCHES}</p>}
       {/* The shipped table wrapper, verbatim, so the scroll arbitration this
           site already has an e2e suite around is inherited rather than rebuilt. */}

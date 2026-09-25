@@ -146,3 +146,20 @@ export const DISTRICT_LEDGER_DRAWER_GRAND_PLOT_LABEL = "Grand total district poi
 
 /** The marked line's own short label beside the grand total plot. */
 export const DISTRICT_LEDGER_DRAWER_LINE_LABEL = "Today's line";
+
+/**
+ * THIS TAB'S OWN WORDING of the conservatism caveat.
+ *
+ * Declared here rather than imported from `DistrictLocksTab.tsx`: reaching
+ * across a component boundary for one string would couple the two tabs for no
+ * gain, and this tab needs a second sentence that one does not.
+ */
+export const DISTRICT_LEDGER_CAVEAT =
+  "A Locked verdict is a guarantee. A team that is not Locked has not been eliminated: declines, waitlist movement and wildcard slots can only ever help a team's chances, never hurt them.";
+
+/**
+ * The sentence the champ tab does not need, because this tab PREDICTS and that
+ * one does not. Flat third person, no dash characters.
+ */
+export const DISTRICT_LEDGER_PROVENANCE =
+  "Grey numbers are TBA's own. Every blue number is a prediction from this site's own simulation.";

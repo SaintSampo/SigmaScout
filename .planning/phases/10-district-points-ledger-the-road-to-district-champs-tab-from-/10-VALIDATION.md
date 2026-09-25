@@ -45,6 +45,12 @@ are CRLF: the rpSeed/sigmaSeed structural tests fail there only.
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
 | (filled by the planner per plan) | | | | | | | | | ⬜ pending |
+| 10-07 T1 | 10-07 | 3 | SC-2, SC-5 | T-10-07-01, T-10-07-02, T-10-07-05 | The Worker protocol bounds shape and cost before any draw; a per-event failure is isolated to that event; the hook posts nothing for an empty request; every artifact is Zod-parsed at the fetch boundary | unit + component | `npx vitest run apps/web/src/workers apps/web/src/components/districts apps/web/src/lib apps/web/src/routes/districts.test.tsx` | ✅ | ✅ green |
+| 10-07 T2 | 10-07 | 3 | SC-2 | T-10-07-06 | A final cell always prints the artifact's own earned integer; a blue cell's form is chosen by 10-04's module, never re-derived | unit + component | `npx vitest run apps/web/src/components/districts` | ✅ | ✅ green |
+| 10-07 T3 | 10-07 | 3 | SC-3 | T-10-07-06 | Locked and Locked out come from the shipped `locks.ts` verdicts; In range and Out of range from the shipped `cutLinePointsWithQualifiers` over median projections; a finished district reproduces the artifact's own two counts | unit + component | `npx vitest run apps/web/src/components/districts/districtLedgerStatus.test.ts` | ✅ | ✅ green |
+| 10-07 T4 | 10-07 | 3 | SC-4 | T-10-07-04 | Every rewind param has a `.catch()`; an unknown step id resolves to "now" and an unknown drawer id to closed, never to a neighbour | unit + component | `npx vitest run apps/web/src/components/districts/districtTimeline.test.ts apps/web/src/lib/searchParams.test.ts` | ✅ | ✅ green |
+| 10-07 T5 | 10-07 | 3 | SC-2 | — | Every drawer position derives from the shipped rank-plot geometry through one adapter; a point mass still draws a visible band | unit + component | `npx vitest run apps/web/src/components/districts/districtHistGeometry.test.ts` | ✅ | ✅ green |
+| 10-07 T6 | 10-07 | 3 | SC-3, SC-5, SC-7 | T-10-07-03 | No Worker is constructed at all for an all-finished or all-unstarted district; the old district-tier vocabulary and test ids are gone while the champ tab is unchanged; no error `name`/`message` is ever rendered | component + repo-root suite | `npx vitest run && npx tsc --noEmit && npx tsc --noEmit -p apps/web/tsconfig.json` | ✅ | ✅ green |
 
 Success criteria to cover (from ROADMAP Phase 10):
 
@@ -53,9 +59,9 @@ Success criteria to cover (from ROADMAP Phase 10):
 | SC-1 | Worker republishes the district artifact on a live rankings change, merging TBA rankings into the artifact read back from R2 and recomputing `locks.ts` verdicts | unit, mocked TBA fetch and R2 | `npx vitest run apps/worker/test/scheduled.district.test.ts` | ❌ Wave 0 |
 | SC-2 | One joint run yields correlated (qual, selection, playoff) per team; marginals are the histograms; event total is the per-run sum | unit, seeded RNG | `npx vitest run packages/core/algorithms/simulation` | extend existing + new |
 | SC-2 | Browser win probability from per-team published SPR numbers matches the artifact's `pRedWin` within a stated gap | measurement script with a pinned test | `npx vitest run scripts/measureAllianceWinProbability.test.ts` | ❌ Wave 0 |
-| SC-3 | Five statuses: Locked and Locked out from `locks.ts`, In range and Out of range from the median projection; a finished district reproduces the artifact's counts | unit | `npx vitest run apps/web/src/components/districts` | ❌ Wave 0 |
-| SC-4 | Slider reopens a finished event's later categories | component | `npx vitest run apps/web/src/components/districts/DistrictLedger.test.tsx` | ❌ Wave 0 |
-| SC-5 | No Worker message posted for an all-finished or all-unstarted district | component, asserts no `postMessage` | same file as SC-4 | ❌ Wave 0 |
+| SC-3 | Five statuses: Locked and Locked out from `locks.ts`, In range and Out of range from the median projection; a finished district reproduces the artifact's counts | unit | `npx vitest run apps/web/src/components/districts` | ✅ `districtLedgerStatus.test.ts` (10-07) |
+| SC-4 | Slider reopens a finished event's later categories | component | `npx vitest run apps/web/src/components/districts/DistrictLedger.test.tsx` | ✅ `DistrictLedger.test.tsx` + `districtTimeline.test.ts` (10-07) |
+| SC-5 | No Worker message posted for an all-finished or all-unstarted district | component, asserts an EMPTY `instances` array (stronger than an empty `posted`) | same file as SC-4 | ✅ `DistrictLedger.test.tsx` (10-07) |
 | SC-6 | Point formulas (qual erfinv, selection 17-N / N / 0, playoff exit points) reconcile with the corpus exactly | corpus reconciliation, mirrors `reconciliation.test.ts` | `npx vitest run packages/core/districts/pointFormulas.reconciliation.test.ts` | ❌ Wave 0 |
 | SC-6 | Award base-rate tables are walk-forward (leak test) and the selection agreement measurement is pinned | unit | `npx vitest run scripts/measureDistrictAwardBaseRates.test.ts scripts/measureSelectionAgreement.test.ts` | ❌ Wave 0 |
 | SC-7 | Suite green, both tsconfigs clean, CI green, Worker deployed before the republish, e2e covers the tab | existing gates + live e2e from main context | `npx vitest run`; `gh run list`; `npx playwright test e2e/districts*` | existing |
@@ -68,8 +74,8 @@ Success criteria to cover (from ROADMAP Phase 10):
 
 - [ ] `packages/core/districts/pointFormulas.reconciliation.test.ts` — corpus-backed proof of the qual, selection and playoff formulas, before the formulas ship
 - [ ] `apps/worker/test/scheduled.district.test.ts` — the Worker district refresh pass
-- [ ] `apps/web/src/components/districts/DistrictLedger.test.tsx` and `districtLedgerRows.test.ts` — table, status rule, slider, no-Worker-message case
-- [ ] `apps/web/src/workers/districtSimulationProtocol.test.ts` — protocol module tested directly (jsdom has no Worker API)
+- [x] `apps/web/src/components/districts/DistrictLedger.test.tsx` and `districtLedgerRows.test.ts` — table, status rule, slider, no-Worker-message case (10-07; joined by `districtLedgerStatus.test.ts`, `districtTimeline.test.ts`, `districtHistGeometry.test.ts` and `districtLedgerCopy.test.ts`)
+- [x] `apps/web/src/workers/districtSimulationProtocol.test.ts` — protocol module tested directly (jsdom has no Worker API) (10-07)
 - [ ] `scripts/measureDistrictAwardBaseRates.test.ts` — walk-forward leak test mirroring `measureAwardPredictability.test.ts`
 - [ ] `scripts/measureAllianceWinProbability.test.ts` — the browser win-probability formula against published `pRedWin`
 

@@ -38,6 +38,7 @@ import { runDistrictSimulationJob } from "../../workers/districtSimulationProtoc
 import { DistrictLedger } from "./DistrictLedger.js";
 import {
   DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED,
+  DISTRICT_LEDGER_CAVEAT,
   DISTRICT_LEDGER_COLUMN_LABELS,
   DISTRICT_LEDGER_DRAWER_LINE_CAPTION,
   DISTRICT_LEDGER_DRAWER_NO_CHANCE_CAPTION,
@@ -47,6 +48,7 @@ import {
   DISTRICT_LEDGER_LEGEND_OPEN,
   DISTRICT_LEDGER_LOCKED_AWARD_LABEL,
   DISTRICT_LEDGER_NO_MATCHES,
+  DISTRICT_LEDGER_PROVENANCE,
   DISTRICT_LEDGER_REWIND_LABEL,
   DISTRICT_LEDGER_SEARCH_LABEL,
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
@@ -984,5 +986,76 @@ describe("DistrictLedger — the drawer", () => {
     renderLedgerAt(liveDistrict(), "/districts?algorithm=spr&drawerTeam=100&drawerCell=2026walive%3Aqual");
     await waitFor(() => expect(screen.getAllByTestId("district-ledger-drawer")).toHaveLength(1));
     expect(screen.getByTestId("district-ledger-drawer").getAttribute("data-drawer-cell")).toBe("2026walive:qual");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The removal, scoped to the district tier
+// ---------------------------------------------------------------------------
+
+describe("DistrictLedger — the old District Locks table is gone from this tier", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("never prints the champ tab's word for the `contending` verdict", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf([districtTeam("frc100"), districtTeam("frc101")]));
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-row").length).toBe(2));
+    expect(document.body.textContent ?? "").not.toContain("Contending");
+  });
+
+  it("never uses the champ tab's word for the `eliminated` verdict to MEAN eliminated", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    // 12 slots against 24 teams, so some teams really are eliminated on points.
+    renderLedger(
+      artifactOf(
+        ROSTER.map((teamKey, index) => {
+          const base = districtTeam(teamKey);
+          const total = 12 + index * 3;
+          return { ...base, pointTotal: total, eventPoints: [{ ...base.eventPoints[0]!, qual: total, alliance: 0, elim: 0, award: 0, total }] };
+        })
+      )
+    );
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-status-cell").length).toBe(ROSTER.length));
+    // The champ tab renders `eliminated` with the class
+    // `lock-status-chip--eliminated`; this tab renders that verdict as "Locked
+    // out" under its own modifier, and every element reading "Out of range"
+    // carries the OUT-OF-RANGE modifier, which means the median projection.
+    expect(document.querySelectorAll(".lock-status-chip--eliminated")).toHaveLength(0);
+    for (const element of document.querySelectorAll(".lock-status-chip")) {
+      if ((element.textContent ?? "").startsWith(DISTRICT_LEDGER_STATUS_LABELS.outOfRange)) {
+        expect(element.className).toContain("lock-status-chip--out-of-range");
+      }
+    }
+  });
+
+  it("renders none of the old District Locks test ids on this tier", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf([districtTeam("frc100")]));
+    await waitFor(() => expect(screen.getByTestId("district-ledger-tab")).toBeDefined());
+    expect(screen.queryByTestId("district-locks-header-stats")).toBeNull();
+    expect(screen.queryByTestId("district-district-locks-tab")).toBeNull();
+    expect(screen.queryByTestId("district-district-locks-column-toggle")).toBeNull();
+    expect(screen.queryByTestId("district-locks-schedule-strip")).toBeNull();
+  });
+
+  it("still renders the conservatism caveat, in this tab's own words, plus the grey-is-TBA sentence", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf([districtTeam("frc100")]));
+    const caveat = await screen.findByTestId("district-ledger-caveat");
+    expect(caveat.textContent).toContain(DISTRICT_LEDGER_CAVEAT);
+    expect(caveat.textContent).toContain(DISTRICT_LEDGER_PROVENANCE);
   });
 });
