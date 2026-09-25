@@ -553,3 +553,271 @@ describe("runTick — the district pass end to end", () => {
     expect(secondRankingsCall[1]?.headers?.["If-None-Match"]).toBe("rank-etag-1");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 2 — the four state facts, the awards fetch, and the state-only write.
+// ---------------------------------------------------------------------------
+
+interface StateBlock {
+  qualMatchesPlayed: number;
+  qualMatchesTotal: number | null;
+  alliancesPicked: boolean;
+  playoffsDone: boolean;
+  awardsPosted: boolean;
+}
+
+function stateBlock(overrides: Partial<StateBlock> = {}): StateBlock {
+  return { qualMatchesPlayed: 2, qualMatchesTotal: 2, alliancesPicked: true, playoffsDone: false, awardsPosted: false, ...overrides };
+}
+
+/** The published fixture with `state` already on `frc1`'s `remainingEvents` row for the live event — the "published state" half of the fallback and steady-state cases. */
+function districtArtifactWithState(state: StateBlock): unknown {
+  const artifact = districtArtifactFixture() as { teams: { remainingEvents: { state?: StateBlock }[] }[] };
+  artifact.teams[0]!.remainingEvents[0]!.state = state;
+  return artifact;
+}
+
+function sec(offsetSec: number): number {
+  return Math.floor(NOW_MS / 1000) + offsetSec;
+}
+
+/** Two played quals plus an UNPLAYED semifinal carrying both alliances — alliances posted, playoffs not done. */
+function alliancesPostedEventRecord(eventKey: string, etag: string, extra: Partial<TbaEventRecord> = {}): TbaEventRecord {
+  return {
+    etag,
+    eventType: 1,
+    season: SEASON,
+    matches: [
+      tbaMatch({ key: `${eventKey}_qm1`, eventKey, matchNumber: 1, redScore: 120, blueScore: 95, actualTimeSec: sec(-180) }),
+      tbaMatch({ key: `${eventKey}_qm2`, eventKey, matchNumber: 2, redScore: 80, blueScore: 110, actualTimeSec: sec(-120) }),
+      tbaMatch({ key: `${eventKey}_sf1m1`, eventKey, compLevel: "sf", matchNumber: 1, predictedTimeSec: sec(600) }),
+    ],
+    ...extra,
+  };
+}
+
+/** Two played quals, a played semifinal and a played, DECIDED final — playoffs done. */
+function finishedEventRecord(eventKey: string, etag: string, extra: Partial<TbaEventRecord> = {}): TbaEventRecord {
+  return {
+    etag,
+    eventType: 1,
+    season: SEASON,
+    matches: [
+      tbaMatch({ key: `${eventKey}_qm1`, eventKey, matchNumber: 1, redScore: 120, blueScore: 95, actualTimeSec: sec(-180) }),
+      tbaMatch({ key: `${eventKey}_qm2`, eventKey, matchNumber: 2, redScore: 80, blueScore: 110, actualTimeSec: sec(-150) }),
+      tbaMatch({ key: `${eventKey}_sf1m1`, eventKey, compLevel: "sf", matchNumber: 1, redScore: 130, blueScore: 90, actualTimeSec: sec(-120), winningAlliance: "red" }),
+      tbaMatch({ key: `${eventKey}_f1m1`, eventKey, compLevel: "f", matchNumber: 1, redScore: 140, blueScore: 100, actualTimeSec: sec(-60), winningAlliance: "red" }),
+    ],
+    ...extra,
+  };
+}
+
+const ONE_AWARD = [{ name: "Regional Winner", award_type: 1, event_key: LIVE_EVENT, recipient_list: [{ team_key: "frc1", awardee: null }], year: SEASON }];
+
+/** The `state` block the written artifact carries for the live event, wherever that event's row now lives. */
+function writtenLiveEventState(r2: FakeR2Bucket): StateBlock | undefined {
+  const puts = districtPuts(r2);
+  const written = DistrictArtifactSchema.parse(JSON.parse(puts[puts.length - 1]!.body));
+  const frc1 = written.teams.find((team) => team.teamKey === "frc1")!;
+  const row = frc1.eventPoints.find((entry) => entry.eventKey === LIVE_EVENT) ?? frc1.remainingEvents.find((entry) => entry.eventKey === LIVE_EVENT);
+  return row?.state as StateBlock | undefined;
+}
+
+function awardsRequests(fetchMock: ReturnType<typeof vi.fn>): string[] {
+  return tbaUrls(fetchMock).filter((u) => u.endsWith("/awards"));
+}
+
+function seedCursor(d1: FakeD1Database, eventKey: string, tbaEtag: string | null, lastFoldedMatchKey: string | null): void {
+  d1.eventCursors.set(eventKey, { event_key: eventKey, tba_etag: tbaEtag, last_folded_match_key: lastFoldedMatchKey, last_polled_at: null, last_advanced_at: null });
+}
+
+describe("runTick — the four state facts", () => {
+  it("writes all four match-derived facts onto the live event's row, and the body re-parses through the published schema", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactFixture()));
+    const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
+    const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, alliancesPostedEventRecord(LIVE_EVENT, "etag-1")]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runTick(env, { nowMs: NOW_MS });
+
+    expect(writtenLiveEventState(r2)).toEqual({ qualMatchesPlayed: 2, qualMatchesTotal: 2, alliancesPicked: true, playoffsDone: false, awardsPosted: false });
+  });
+
+  it("records alliancesPicked even when the poll folded NO new match — the derivation sits ABOVE the newlyFolded early return", async () => {
+    const d1 = new FakeD1Database();
+    // The cursor already sits at the last PLAYED match, so this tick folds
+    // nothing; the stale etag still forces a 200, so the match list is parsed.
+    seedCursor(d1, LIVE_EVENT, "stale-etag", `${LIVE_EVENT}_qm2`);
+    const r2 = new FakeR2Bucket();
+    r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactFixture()));
+    const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
+    const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, alliancesPostedEventRecord(LIVE_EVENT, "etag-1")]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runTick(env, { nowMs: NOW_MS });
+
+    expect(result.eventsAdvanced).toBe(0);
+    expect(writtenLiveEventState(r2)).toMatchObject({ alliancesPicked: true, qualMatchesPlayed: 2 });
+  });
+
+  it("writes state-only through applyDistrictEventState on a 304 rankings poll, leaving every point total, rank, verdict and insight byte-identical", async () => {
+    const d1 = new FakeD1Database();
+    seedCursor(d1, districtRankingsCursorKey(DISTRICT_KEY), "rank-etag-1", null);
+    const r2 = new FakeR2Bucket();
+    const seeded = districtArtifactFixture();
+    r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(seeded));
+    const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
+    const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, alliancesPostedEventRecord(LIVE_EVENT, "etag-1")]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runTick(env, { nowMs: NOW_MS });
+
+    expect(result.districtsRefreshed).toBe(1);
+    const puts = districtPuts(r2);
+    expect(puts).toHaveLength(1);
+    const written = DistrictArtifactSchema.parse(JSON.parse(puts[0]!.body));
+    const seededParsed = DistrictArtifactSchema.parse(seeded);
+
+    expect(JSON.stringify(written.insights)).toBe(JSON.stringify(seededParsed.insights));
+    for (const team of written.teams) {
+      const before = seededParsed.teams.find((t) => t.teamKey === team.teamKey)!;
+      expect(team.pointTotal).toBe(before.pointTotal);
+      expect(team.rank).toBe(before.rank);
+      expect(JSON.stringify(team.districtLock)).toBe(JSON.stringify(before.districtLock));
+      expect(JSON.stringify(team.champLock)).toBe(JSON.stringify(before.champLock));
+    }
+    expect(writtenLiveEventState(r2)).toEqual({ qualMatchesPlayed: 2, qualMatchesTotal: 2, alliancesPicked: true, playoffsDone: false, awardsPosted: false });
+  });
+
+  it("writes NOTHING when a 304 rankings poll meets a state observation equal to the published state, and stays that way when repeated", async () => {
+    const steady = stateBlock();
+    const runSteadyTick = async (): Promise<{ result: Awaited<ReturnType<typeof runTick>>; r2: FakeR2Bucket }> => {
+      const d1 = new FakeD1Database();
+      seedCursor(d1, districtRankingsCursorKey(DISTRICT_KEY), "rank-etag-1", null);
+      seedCursor(d1, LIVE_EVENT, "stale-etag", `${LIVE_EVENT}_qm2`);
+      const r2 = new FakeR2Bucket();
+      r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactWithState(steady)));
+      const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
+      vi.stubGlobal("fetch", makeTbaFetchStub(new Map([[LIVE_EVENT, alliancesPostedEventRecord(LIVE_EVENT, "etag-1")]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]])));
+      const result = await runTick(env, { nowMs: NOW_MS });
+      return { result, r2 };
+    };
+
+    const first = await runSteadyTick();
+    expect(districtPuts(first.r2)).toHaveLength(0);
+    expect(first.result.districtsUnchanged).toBe(1);
+    expect(first.result.districtsRefreshed).toBe(0);
+
+    const second = await runSteadyTick();
+    expect(districtPuts(second.r2)).toHaveLength(0);
+    expect(second.result.districtsUnchanged).toBe(1);
+  });
+
+  it("performs ZERO v1/district/ R2 reads when a 304 rankings poll meets no observation at all", async () => {
+    const d1 = new FakeD1Database();
+    seedCursor(d1, districtRankingsCursorKey(DISTRICT_KEY), "rank-etag-1", null);
+    // The event's own match poll returns 304, so `processEvent` returns before
+    // parsing and contributes no observation.
+    seedCursor(d1, LIVE_EVENT, "etag-1", `${LIVE_EVENT}_qm2`);
+    const r2 = new FakeR2Bucket();
+    r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactFixture()));
+    const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([[LIVE_EVENT, alliancesPostedEventRecord(LIVE_EVENT, "etag-1")]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]])));
+
+    const result = await runTick(env, { nowMs: NOW_MS });
+
+    expect(r2.gets.filter((key) => key.startsWith("v1/district/"))).toEqual([]);
+    expect(districtPuts(r2)).toHaveLength(0);
+    expect(result.districtsUnchanged).toBe(1);
+  });
+});
+
+describe("runTick — the awards fetch", () => {
+  it("requests /awards exactly once, only after playoffsDone, and a non-empty response sets awardsPosted true", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactFixture()));
+    const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
+    const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: ONE_AWARD })]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runTick(env, { nowMs: NOW_MS });
+
+    expect(awardsRequests(fetchMock)).toHaveLength(1);
+    expect(writtenLiveEventState(r2)).toEqual({ qualMatchesPlayed: 2, qualMatchesTotal: 2, alliancesPicked: true, playoffsDone: true, awardsPosted: true });
+  });
+
+  it("makes NO awards request at all while the playoffs are not done", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactFixture()));
+    const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
+    const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, alliancesPostedEventRecord(LIVE_EVENT, "etag-1", { awards: ONE_AWARD })]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runTick(env, { nowMs: NOW_MS });
+
+    expect(awardsRequests(fetchMock)).toHaveLength(0);
+    expect(writtenLiveEventState(r2)?.awardsPosted).toBe(false);
+  });
+
+  it("leaves awardsPosted false on an EMPTY awards array", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactFixture()));
+    const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
+    const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: [] })]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runTick(env, { nowMs: NOW_MS });
+
+    expect(awardsRequests(fetchMock)).toHaveLength(1);
+    expect(writtenLiveEventState(r2)?.awardsPosted).toBe(false);
+  });
+
+  it("leaves awardsPosted false on a 304 awards response — unchanged since the last time it was seen empty", async () => {
+    const d1 = new FakeD1Database();
+    seedCursor(d1, `__event_awards__:${LIVE_EVENT}`, "awards-etag-1", null);
+    const r2 = new FakeR2Bucket();
+    r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactFixture()));
+    const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
+    const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: ONE_AWARD, awardsEtag: "awards-etag-1" })]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runTick(env, { nowMs: NOW_MS });
+
+    expect(awardsRequests(fetchMock)).toHaveLength(1);
+    expect(writtenLiveEventState(r2)?.awardsPosted).toBe(false);
+  });
+
+  it("issues NO awards request for an event whose published state already says awardsPosted true — awards do not un-post", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactWithState(stateBlock({ playoffsDone: true, awardsPosted: true }))));
+    const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
+    const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: ONE_AWARD })]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runTick(env, { nowMs: NOW_MS });
+
+    expect(awardsRequests(fetchMock)).toHaveLength(0);
+    expect(writtenLiveEventState(r2)?.awardsPosted).toBe(true);
+  });
+
+  it("still issues the awards request when THIS tick's match poll was a 304 but the PUBLISHED state says playoffs done and awards not posted", async () => {
+    const d1 = new FakeD1Database();
+    seedCursor(d1, LIVE_EVENT, "etag-1", `${LIVE_EVENT}_f1m1`);
+    const r2 = new FakeR2Bucket();
+    r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactWithState(stateBlock({ playoffsDone: true, awardsPosted: false }))));
+    const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
+    const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: ONE_AWARD })]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runTick(env, { nowMs: NOW_MS });
+
+    expect(awardsRequests(fetchMock)).toHaveLength(1);
+    expect(writtenLiveEventState(r2)?.awardsPosted).toBe(true);
+  });
+});

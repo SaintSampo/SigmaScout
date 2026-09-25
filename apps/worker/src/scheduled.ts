@@ -166,6 +166,7 @@ import { ArtifactSecretLeakError, readArtifactObject, writeArtifactObject } from
 import { readEventCursor, readEventCursors, readScopedStateChunked, scopedStateReadStatements, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
 import { splitEventMatches } from "./matchSplit.js";
 import { runDistrictRefresh, type DistrictRefreshResult } from "./districtRefresh.js";
+import { deriveMatchDerivedEventState, type MatchDerivedEventState } from "./districtEventState.js";
 import { TICK_META_EVENT_KEY, stateBaselineEventKey } from "../../../packages/harness/stateBaseline.js";
 import { rotate, sortEventKeys, SubrequestCounter } from "./subrequestCounter.js";
 import { createTbaContext, pollEventMatches, TbaRequestCounter, type TbaClientContext } from "./tbaPoll.js";
@@ -812,6 +813,13 @@ async function processEvent(
   stamp: Stamp,
   touchedTeamsByAlgorithm: Map<string, Map<string, TouchedTeamInfo>>,
   /**
+   * The district pass's collector (10-05), threaded exactly as
+   * `touchedTeamsByAlgorithm` is — declared in `runTick`, passed in, filled by
+   * this callee. Keyed by event key. Only an event whose window carries a
+   * `districtKey` ever writes to it.
+   */
+  matchDerivedState: Map<string, MatchDerivedEventState>,
+  /**
    * A probe's already-paid-for `eventPreflight` result (`runProbes`), for a
    * PROMOTED event only. When supplied, `processEvent` counts NO subrequest for
    * the cursor read or the poll and makes NO second TBA request for either —
@@ -844,6 +852,20 @@ async function processEvent(
     }
 
     const rawMatches = tbaMatchListSchema.parse(rawMatchesUnknown);
+
+    // THE DISTRICT STATE OBSERVATION (10-05), derived from the match list this
+    // tick already paid for and placed HERE — above the `newlyFolded.length
+    // === 0` return below — on purpose: a category can finish without moving a
+    // single match past the cursor. Alliances are selected and nobody's point
+    // total changes; a derivation below that return would miss exactly the
+    // observation the ledger needs to turn a cell grey.
+    //
+    // Gated on the window carrying a `districtKey`, which is what keeps every
+    // non-district event's behaviour byte-identical and keeps the derivation
+    // off the hot path for the overwhelming majority of events.
+    if (typeof window.districtKey === "string" && window.districtKey.length > 0) {
+      matchDerivedState.set(eventKey, deriveMatchDerivedEventState(rawMatches));
+    }
     // The live-windows manifest has no real start_date; this approximation
     // feeds only normalizeMatch's rarely used sortTime fallback.
     const approxStartDateIso = new Date(window.startMs).toISOString();
@@ -1636,6 +1658,9 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   let eventsFailed = probeResult.eventsFailed;
   let eventsPromoted = 0;
   const touchedTeamsByAlgorithm = new Map<string, Map<string, TouchedTeamInfo>>();
+  // Filled by `processEvent` for district member events only; consumed by
+  // `runDistrictRefresh` below.
+  const matchDerivedState = new Map<string, MatchDerivedEventState>();
 
   for (const eventKey of orderedEventKeys) {
     const window = liveEventByKey.get(eventKey);
@@ -1646,7 +1671,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
     const preflight = probeResult.promoted.get(eventKey);
     if (preflight) eventsPromoted++;
 
-    const outcome = await processEvent(env, subrequests, tbaCtx, algorithmModules, window, nowIso, stamp, touchedTeamsByAlgorithm, preflight);
+    const outcome = await processEvent(env, subrequests, tbaCtx, algorithmModules, window, nowIso, stamp, touchedTeamsByAlgorithm, matchDerivedState, preflight);
     if (outcome.status === "unchanged") continue; // considered, but not counted toward advanced/failed
 
     eventsConsidered++;
@@ -1684,7 +1709,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   // promoted is excluded on purpose: `runProbes`'s header calls the cheap-idle
   // ordering load-bearing, and spending a district's TBA request on an event
   // that has not proven it has a single match would spend against exactly that.
-  const districtRefresh = await runDistrictRefresh(env, subrequests, tbaCtx, { windows: [...foldableWindows, ...promotedWindows], stamp, nowIso });
+  const districtRefresh = await runDistrictRefresh(env, subrequests, tbaCtx, { windows: [...foldableWindows, ...promotedWindows], matchDerivedState, stamp, nowIso });
 
   const newMeta: TickMeta = {
     rotationOffset: orderedEventKeys.length > 0 ? (meta.rotationOffset + eventsAdvanced) % orderedEventKeys.length : 0,
