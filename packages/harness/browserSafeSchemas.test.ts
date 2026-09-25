@@ -45,6 +45,10 @@ const FIELD_AVERAGED_ENTRY_POINT = resolve(HERE, "..", "core", "rankingPoints", 
 // `allianceWinProbability.ts` (10-02): the browser's alliance pricer. 10-04 draws
 // the district-points bracket with it and 10-07 runs it inside a Web Worker.
 const ALLIANCE_WIN_PROBABILITY_ENTRY_POINT = resolve(HERE, "..", "core", "algorithms", "simulation", "allianceWinProbability.ts");
+// `ledgerSimulation.ts` (10-04): the joint district ledger run. Its two
+// callers are a browser Web Worker (10-07) and the offline publisher (10-06),
+// so a Node built-in anywhere in its reachable graph would break the web build.
+const LEDGER_SIMULATION_ENTRY_POINT = resolve(HERE, "..", "core", "districts", "ledgerSimulation.ts");
 const FORBIDDEN_DIR = resolve(HERE, "..", "core", "algorithms");
 
 /** Matches one `import ... from "spec"` or `export ... from "spec"` line — this repo's convention keeps every such statement on one line. */
@@ -238,6 +242,21 @@ describe("browser-safe schema import graph", () => {
     if (nodeBuiltinViolations.length > 0) {
       const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
       expect.fail(`Node built-in import(s) reachable from packages/core/algorithms/simulation/allianceWinProbability.ts: ${detail}`);
+    }
+  });
+
+  it("never reaches a Node built-in import from packages/core/districts/ledgerSimulation.ts (checked for Node built-ins only — this entry point reaches packages/core/algorithms/ on purpose, for the rank simulation and the alliance pricer)", () => {
+    const { nodeBuiltinViolations, visited } = scan([LEDGER_SIMULATION_ENTRY_POINT]);
+    expect(visited.has(LEDGER_SIMULATION_ENTRY_POINT)).toBe(true);
+    // Sanity check the scan is not vacuous: it must actually visit the 10-01
+    // formula leaves this module composes. The promoted quantile module is
+    // deliberately NOT asserted here — `ledgerSimulation.ts` does not import
+    // it; `pointSummary.ts` does.
+    expect(visited.has(resolve(HERE, "..", "core", "districts", "qualPoints.ts"))).toBe(true);
+    expect(visited.has(resolve(HERE, "..", "core", "districts", "bracket.ts"))).toBe(true);
+    if (nodeBuiltinViolations.length > 0) {
+      const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
+      expect.fail(`Node built-in import(s) reachable from packages/core/districts/ledgerSimulation.ts: ${detail}`);
     }
   });
 });
