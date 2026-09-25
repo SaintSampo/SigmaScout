@@ -15,8 +15,12 @@ import {
   decodeTeamMetricEntry,
   decodeTeamsRowMetrics,
   deriveMetricKeyOrder,
+  DISTRICT_AWARD_BUCKETS,
   DistrictArtifactSchema,
   districtDetailKey,
+  DistrictPointPmfSchema,
+  DistrictPreSimArtifactSchema,
+  districtPreSimKey,
   DistrictsIndexArtifactSchema,
   districtsIndexKey,
   encodeTeamMetricEntry,
@@ -1590,6 +1594,160 @@ describe("DistrictsIndexArtifactSchema / DistrictArtifactSchema", () => {
     expect(parsed.teams[0]!.qualifyingAwards).toEqual([
       { eventKey: "2026ncwak", awardType: 9, label: "Engineering Inspiration", awardOnly: true },
     ]);
+  });
+
+  it("a district artifact carrying NONE of phase 10's fields still parses — the pre-republish shape the newly deployed Worker reads back at least once", () => {
+    const fixture = validDistrictFixture() as unknown as Record<string, unknown>;
+    expect(Object.keys(fixture)).not.toContain("awardBaseRates");
+    expect(Object.keys(fixture)).not.toContain("bakedEvents");
+    expect(() => DistrictArtifactSchema.parse(fixture)).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 10: the prediction contract, the award table and the sidecar (10-03)
+// ---------------------------------------------------------------------------
+
+/** A valid pmf over `length` support points: all mass on the first entry, then one spread entry so the array is genuinely a distribution. */
+function flatPmf(length: number): number[] {
+  const p = new Array<number>(length).fill(0);
+  p[0] = 1;
+  return p;
+}
+
+function validAwardBaseRates() {
+  const rows = [];
+  for (const bucket of DISTRICT_AWARD_BUCKETS) {
+    for (const rookie of [false, true]) {
+      rows.push({ bucket, rookie, n: 500, points: { o: 0, p: [0.7, 0.1, 0.1, 0.05, 0.03, 0.02] } });
+    }
+  }
+  return { season: 2026, measuredThroughSeason: 2025, script: "scripts/measureDistrictAwardBaseRates.ts", rows };
+}
+
+describe("DistrictPointPmfSchema", () => {
+  it("parses an offset-zero pmf that sums to 1", () => {
+    expect(() => DistrictPointPmfSchema.parse({ o: 0, p: [0.25, 0.5, 0.25] })).not.toThrow();
+  });
+
+  it("parses a non-zero offset — no category's support starts at zero mass in practice", () => {
+    expect(() => DistrictPointPmfSchema.parse({ o: 12, p: [0.4, 0.6] })).not.toThrow();
+  });
+
+  it("rejects a pmf summing to 0.9", () => {
+    expect(() => DistrictPointPmfSchema.parse({ o: 0, p: [0.4, 0.5] })).toThrow();
+  });
+
+  it("rejects an empty p", () => {
+    expect(() => DistrictPointPmfSchema.parse({ o: 0, p: [] })).toThrow();
+  });
+
+  it("rejects a negative offset", () => {
+    expect(() => DistrictPointPmfSchema.parse({ o: -1, p: [1] })).toThrow();
+  });
+
+  it("rejects a p longer than the declared 256-entry maximum — an unbounded array is an artifact-inflation vector", () => {
+    expect(() => DistrictPointPmfSchema.parse({ o: 0, p: flatPmf(256) })).not.toThrow();
+    expect(() => DistrictPointPmfSchema.parse({ o: 0, p: flatPmf(257) })).toThrow();
+  });
+});
+
+describe("DistrictArtifactSchema.awardBaseRates", () => {
+  function withTable(mutate: (table: ReturnType<typeof validAwardBaseRates>) => void) {
+    const table = validAwardBaseRates();
+    mutate(table);
+    return { ...validDistrictFixture(), awardBaseRates: table };
+  }
+
+  it("parses a six-row table (three buckets crossed with rookie true/false)", () => {
+    expect(() => DistrictArtifactSchema.parse(withTable(() => {}))).not.toThrow();
+  });
+
+  it("REJECTS a table whose measuredThroughSeason equals its season — the walk-forward boundary is executable, not a comment", () => {
+    expect(() => DistrictArtifactSchema.parse(withTable((table) => (table.measuredThroughSeason = table.season)))).toThrow();
+  });
+
+  it("REJECTS a table whose measuredThroughSeason is greater than its season", () => {
+    expect(() => DistrictArtifactSchema.parse(withTable((table) => (table.measuredThroughSeason = table.season + 1)))).toThrow();
+  });
+
+  it("REJECTS two rows sharing a (bucket, rookie) pair", () => {
+    expect(() => DistrictArtifactSchema.parse(withTable((table) => table.rows.push({ ...table.rows[0]! })))).toThrow();
+  });
+
+  it("REJECTS a row whose points pmf has a non-zero offset — the chance of no award points must be addressable at index 0", () => {
+    expect(() => DistrictArtifactSchema.parse(withTable((table) => (table.rows[0]!.points = { o: 5, p: [0.5, 0.5] })))).toThrow();
+  });
+
+  it("REJECTS a row with n of 0 — a row fitted on nothing is not publishable", () => {
+    expect(() => DistrictArtifactSchema.parse(withTable((table) => (table.rows[0]!.n = 0)))).toThrow();
+  });
+
+  it("carries the three wire bucket literals in the committed order", () => {
+    expect(DISTRICT_AWARD_BUCKETS).toEqual(["none", "oneOrTwo", "threeOrMore"]);
+  });
+});
+
+describe("DistrictTeamSchema.awardProfile", () => {
+  it("parses for each of the three bucket literals", () => {
+    for (const bucket of DISTRICT_AWARD_BUCKETS) {
+      const fixture = validDistrictFixture() as unknown as { teams: Array<Record<string, unknown>> };
+      fixture.teams[0]!.awardProfile = { bucket, rookie: bucket === "none" };
+      expect(() => DistrictArtifactSchema.parse(fixture)).not.toThrow();
+    }
+  });
+
+  it("is optional, and rejects a bucket outside the wire vocabulary", () => {
+    expect(() => DistrictArtifactSchema.parse(validDistrictFixture())).not.toThrow();
+    const fixture = validDistrictFixture() as unknown as { teams: Array<Record<string, unknown>> };
+    fixture.teams[0]!.awardProfile = { bucket: "one-or-two", rookie: false };
+    expect(() => DistrictArtifactSchema.parse(fixture)).toThrow();
+  });
+});
+
+describe("the district pre-simulation sidecar (the SIDECAR branch the byte measurement selected)", () => {
+  function validSidecar() {
+    const pmf = { o: 0, p: [0.5, 0.5] };
+    return {
+      ...PREAMBLE,
+      districtKey: "2026pnw",
+      eventKey: "2026wabon",
+      year: 2026,
+      roster: ["frc1", "frc2", "frc3"],
+      rows: [
+        { t: 0, qual: pmf, alliance: pmf, elim: pmf, award: pmf, total: pmf },
+        { t: 1, qual: pmf, alliance: pmf, elim: pmf, award: pmf, total: pmf },
+      ],
+    };
+  }
+
+  it("districtPreSimKey is the one spelling of the key", () => {
+    expect(districtPreSimKey({ districtKey: "2026pnw", eventKey: "2026wabon" })).toBe("v1/district-presim/2026pnw/2026wabon.json");
+  });
+
+  it("round-trips a valid sidecar", () => {
+    expect(() => DistrictPreSimArtifactSchema.parse(validSidecar())).not.toThrow();
+  });
+
+  it("rejects a duplicate roster key, an unsorted roster and a row indexing past the roster", () => {
+    expect(() => DistrictPreSimArtifactSchema.parse({ ...validSidecar(), roster: ["frc1", "frc1", "frc3"] })).toThrow();
+    expect(() => DistrictPreSimArtifactSchema.parse({ ...validSidecar(), roster: ["frc3", "frc2", "frc1"] })).toThrow();
+    const bad = validSidecar();
+    bad.rows[0]!.t = 9;
+    expect(() => DistrictPreSimArtifactSchema.parse(bad)).toThrow();
+  });
+
+  it("is NOT algorithm-scoped — district point data has no algorithm dependency", () => {
+    const parsed = DistrictPreSimArtifactSchema.parse(validSidecar()) as unknown as Record<string, unknown>;
+    expect(parsed).not.toHaveProperty("algorithmId");
+    expect(parsed).not.toHaveProperty("algorithmVersion");
+  });
+
+  it("DistrictArtifactSchema.bakedEvents lists exactly the events a sidecar was published for, so a 404 is never control flow", () => {
+    const fixture = { ...validDistrictFixture(), bakedEvents: ["2026wabon", "2026wasam"] };
+    const parsed = DistrictArtifactSchema.parse(fixture);
+    expect(parsed.bakedEvents).toEqual(["2026wabon", "2026wasam"]);
+    expect(() => DistrictArtifactSchema.parse({ ...validDistrictFixture(), bakedEvents: [""] })).toThrow();
   });
 });
 

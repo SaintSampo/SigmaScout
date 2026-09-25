@@ -71,6 +71,75 @@ baked result for one event.
   types. `--write-budget` records the run's sidecar count and median/p95/max sizes in the block's
   `run` string.
 
+## The district artifact and its pre-simulation sidecar (phase 10, plan 10-03)
+
+| Object | Key shape | Ceiling |
+|---|---|---:|
+| district detail, per team | `v1/district/{districtKey}.json` | 1,700 |
+| district detail, absolute | `v1/district/{districtKey}.json` | 1,300,000 |
+| district pre-simulation sidecar | `v1/district-presim/{districtKey}/{eventKey}.json` | 1,300,000 |
+
+Neither object is a `PageKind`. Both have their own key function, and district rows are deliberately
+NOT added to the machine-readable `json budget` block at the bottom of this file: that block is
+written by `pnpm publish:seasons --write-budget`, which does not publish districts, so a hand-added
+district row there would be erased by the next run.
+
+**The ceilings live in code**, in `packages/harness/publishBudget.ts`, as
+`DISTRICT_DETAIL_MAX_BYTES_PER_TEAM`, `DISTRICT_DETAIL_MAX_BYTES` and `DISTRICT_PRESIM_MAX_BYTES`.
+`packages/harness/districtBudget.test.ts` fails when a constant and the number in the table above
+disagree, so the two cannot drift.
+
+**Enforcement at publish time is `scripts/publishDistricts.ts`'s job.** 10-06 wires
+`assertWithinDistrictBudget` in before `putObject`, the same way `publishSeasons` calls
+`assertWithinPageBudget`.
+
+### The measurement that decided where the baked pmfs live
+
+Measured 2026-09-25 against the live `v1/district/2026pnw.json` (generation of 2026-09-14), by the
+synthesizer in `packages/harness/districtBudget.test.ts`. 126 teams, 303 team-event pairs, 9 district
+events. The fixture is a FINISHED season with zero remaining events, so the inline variant SYNTHESIZES
+the worst case by moving every played (team, event) pair back into `remainingEvents`; measuring the
+artifact as-is would have measured nothing. Every synthesized pmf runs over its real support from
+`pointModel.ts` (qual 0-22, alliance 0-16, elim 0-30, award 0-15, event total 0-83 at district tier,
+each times 3 at dcmp tier) as a discretized bell passed through `roundPmf`, so nearly every entry is a
+full-width five-decimal number.
+
+| Variant | Total bytes | Bytes per team |
+|---|---:|---:|
+| baseline, as published today | 106,920 | 849 |
+| (a) state-only: `state` on every row, `awardProfile` per team, one `awardBaseRates` table | 151,351 | 1,201 |
+| (b) inline: (a) plus five baked pmfs on every remaining-event row | 717,001 | 5,690 |
+| (c) sidecar: (a) unchanged, plus one sidecar per district event | 733,050 total (581,699 across 9 sidecars) | — |
+
+Largest single sidecar: 209,043 bytes.
+
+**The rule, stated before the measurement was taken.** Let `B_state` be variant (a)'s total bytes and
+`B_inline` variant (b)'s. Choose INLINE if and only if `B_inline` is at most 150,000 bytes AND
+`B_inline / B_state` is at most 1.35. Otherwise choose SIDECAR.
+
+The rule's basis is the polling cost, not storage. The district artifact is re-fetched on a 60 second
+floor for every viewer while any member event is live, it measured 106,920 bytes before this phase,
+and the baked pmfs never change between offline publishes — so bytes that ride along on every poll are
+what is being bounded.
+
+**Outcome: SIDECAR.** `B_inline` is 717,001 bytes, 4.8x over the 150,000 bar, and the ratio is 4.737,
+3.5x over the 1.35 bar. Both halves of the rule fail, and not narrowly. Inlining would have put roughly
+566,000 bytes of never-changing distributions on an object every viewer re-fetches once a minute.
+
+### Ceiling arithmetic
+
+- `DISTRICT_DETAIL_MAX_BYTES_PER_TEAM` = variant (a)'s 1,201 bytes per team x 1.4, rounded up to the
+  next 100 = **1,700**.
+- `DISTRICT_DETAIL_MAX_BYTES` = 1,700 x 750, rounded up to the next 100,000 = **1,300,000**. The 750 is
+  a stated design margin, not a measurement: FiM is the largest district and carries roughly four times
+  PNW's 126 teams.
+- `DISTRICT_PRESIM_MAX_BYTES` = the largest measured sidecar, 209,043 bytes, x 4.4 (FiM's roster scale)
+  x 1.4, rounded up to the next 100,000 = **1,300,000**.
+
+A per-team ceiling alongside an absolute one is what makes the gate meaningful across districts of
+wildly different size: the per-team number catches structural bloat that an absolute number would hide
+in a small district, and the absolute number bounds the object a browser actually downloads.
+
 ## Storage and write volume (DATA-05)
 
 | Resource | Allowance | One full publish |

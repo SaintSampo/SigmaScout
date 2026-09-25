@@ -2055,6 +2055,120 @@ const DistrictQualifyingAwardSchema = z.object({
   awardOnly: z.boolean(),
 });
 
+/**
+ * An offset-encoded discrete distribution over district point values: `o` is
+ * a non-negative integer offset and `p[i]` is the probability of exactly
+ * `o + i` points. Validated with the SAME `isValidPmf`/`RP_PMF_SUM_TOLERANCE`
+ * pair every other pmf in this file uses — non-empty, sums to 1 within 1e-9 —
+ * rather than a second tolerance that could drift from it.
+ *
+ * PRODUCERS MUST PASS VALUES THROUGH `roundPmf` (`packages/harness/rounding.ts`,
+ * `ROUNDING_RULE.pmf` = 5 decimals). `roundPmf` renormalizes, so a rounded pmf
+ * still sums to 1 within 1e-9 and survives the refinement below; rounding
+ * entry-by-entry without it does not.
+ *
+ * `p.length` is capped at 256. A dcmp-tier event total spans 0 to 249, the
+ * fattest distribution the point model can produce, so 256 is above every
+ * legitimate value — and an UNCAPPED array is an artifact-inflation vector,
+ * the one denial-of-service this published shape can commit against itself.
+ *
+ * THE OFFSET EXISTS because no category's support starts at zero mass in
+ * practice while the event total's does: a team that plays an event always has
+ * some qualification points, so a qual pmf can legitimately start above zero,
+ * and encoding the leading zeros would be bytes that carry no information.
+ */
+export const DistrictPointPmfSchema = z
+  .object({
+    /** The point value `p[0]` refers to. */
+    o: z.number().int().nonnegative(),
+    /** `p[i]` is the probability of exactly `o + i` points. */
+    p: z.array(z.number().finite().min(0).max(1)).min(1).max(256),
+  })
+  .refine((pmf) => isValidPmf(pmf.p), {
+    message: "p must be non-empty and sum to 1 within 1e-9 — pass producer values through roundPmf, which renormalizes",
+    path: ["p"],
+  });
+
+export type DistrictPointPmf = z.infer<typeof DistrictPointPmfSchema>;
+
+/**
+ * The prior-judged-award decoration buckets, in the committed wire order —
+ * CONTEXT's "none, one or two, three or more".
+ *
+ * THIS IS THE WIRE VOCABULARY. `scripts/publishDistricts.ts` (10-06) must
+ * emit exactly these three literals, and 10-02's measured table
+ * (`packages/core/districts/awardBaseRates.ts`, whose own module keys are
+ * `"none" | "one-or-two" | "three-or-more"`) must be MAPPED onto them at that
+ * publish boundary. The two spellings are deliberate: the module's is a
+ * measurement-side identifier, this one is a published field a browser reads,
+ * and mapping once at the boundary is cheaper than a rename that touches a
+ * measured, pinned table.
+ */
+export const DISTRICT_AWARD_BUCKETS = ["none", "oneOrTwo", "threeOrMore"] as const;
+
+export type DistrictAwardBucket = (typeof DISTRICT_AWARD_BUCKETS)[number];
+
+/**
+ * One row of the per-season award base-rate table: the distribution over
+ * award points at a district event for one (decoration bucket, rookie) cell.
+ *
+ * `n` is the observation count the row was fitted on and must be positive — a
+ * row fitted on nothing is not publishable, and a published number with no
+ * provenance is exactly the repudiation risk this schema exists to close.
+ *
+ * DELIBERATELY NO separate "chance of any award" field. That number is
+ * `1 - points.p[0]`, and two stored copies of one quantity drift.
+ */
+const DistrictAwardBaseRateRowSchema = z.object({
+  bucket: z.enum(DISTRICT_AWARD_BUCKETS),
+  rookie: z.boolean(),
+  /** How many (team, event) observations this cell was fitted on. Positive: a row fitted on nothing is not publishable. */
+  n: z.number().int().positive(),
+  /** The distribution over award points. `o` must be 0, so "no award points" is addressable at index 0. */
+  points: DistrictPointPmfSchema,
+});
+
+/**
+ * The per-season award base-rate table. TOP LEVEL, not per team: the table is
+ * per season and a district artifact is one season, so one copy per artifact
+ * is the only non-duplicating placement.
+ *
+ * `measuredThroughSeason < season` is a REFINEMENT, not a comment. CONTEXT
+ * requires this table to be measured walk-forward — only from seasons before
+ * the scored one — and a refinement makes that leak boundary executable at
+ * the artifact boundary, so a leaked table cannot be published at all.
+ *
+ * `script` names the committed script that produced the numbers, so every
+ * published figure traces back to committed code.
+ */
+const DistrictAwardBaseRatesSchema = z
+  .object({
+    season: z.number().int(),
+    /** The last season whose observations fed this table. Strictly BEFORE `season` — the walk-forward boundary, enforced. */
+    measuredThroughSeason: z.number().int(),
+    /** The committed script that produced these numbers, e.g. `scripts/measureDistrictAwardBaseRates.ts`. */
+    script: z.string().min(1),
+    rows: z.array(DistrictAwardBaseRateRowSchema).min(1),
+  })
+  .refine((table) => table.measuredThroughSeason < table.season, {
+    message: "measuredThroughSeason must be strictly less than season — a table measured through its own season has leaked",
+    path: ["measuredThroughSeason"],
+  })
+  .refine((table) => new Set(table.rows.map((row) => `${row.bucket}:${String(row.rookie)}`)).size === table.rows.length, {
+    message: "rows must be unique by (bucket, rookie) — two rows for one cell leave a reader no rule for which to use",
+    path: ["rows"],
+  })
+  .refine((table) => table.rows.every((row) => row.points.o === 0), {
+    message: "every row's points.o must be 0 — the chance of NO award points has to be addressable at index 0",
+    path: ["rows"],
+  });
+
+/** One team's row selector into `awardBaseRates` — without it the published table is unusable in a browser that has no corpus. */
+const DistrictAwardProfileSchema = z.object({
+  bucket: z.enum(DISTRICT_AWARD_BUCKETS),
+  rookie: z.boolean(),
+});
+
 /** One team's full district-points standing, breakdown, qualifying awards and both lock verdicts. */
 const DistrictTeamSchema = z.object({
   teamKey: z.string().min(1),
@@ -2072,6 +2186,8 @@ const DistrictTeamSchema = z.object({
   qualifyingAwards: z.array(DistrictQualifyingAwardSchema),
   districtLock: DistrictLockVerdictSchema,
   champLock: DistrictLockVerdictSchema,
+  /** Which `awardBaseRates` row applies to this team. Optional: absent on every artifact published before phase 10, and absent whenever the publisher could not determine rookie status. */
+  awardProfile: DistrictAwardProfileSchema.optional(),
 });
 
 /** The Insights tab's lean summary (must_haves: "ships lean" — no charts, no algorithm-scoped join). */
@@ -2096,9 +2212,91 @@ export const DistrictArtifactSchema = PagePreambleSchema.extend({
   cmpSlots: z.number().int().nonnegative().nullable(),
   teams: z.array(DistrictTeamSchema),
   insights: DistrictInsightsSchema,
+  /** The season's award base-rate table, once per artifact. Optional — absent on every artifact published before phase 10, and absent for a season with no measured table. */
+  awardBaseRates: DistrictAwardBaseRatesSchema.optional(),
+  /**
+   * The exact event keys for which a `districtPreSimKey` sidecar was published
+   * in THIS generation. The reader fetches a sidecar only for a key listed
+   * here, so a 404 is never used as control flow.
+   *
+   * `applyDistrictRankings` drops a key from this list as soon as ANY team has
+   * an `eventPoints` entry for that event: a part-played event's baked pmf is
+   * stale by definition. Same instinct as the `remainingEvents` trim.
+   */
+  bakedEvents: z.array(z.string().min(1)).optional(),
 });
 
 export type DistrictArtifact = z.infer<typeof DistrictArtifactSchema>;
+
+/**
+ * `districtPreSimKey` is declared as its OWN exported function and
+ * deliberately NOT added to `PageKind`/`ArtifactKeyParams` above, following
+ * `districtsIndexKey`/`districtDetailKey`'s precedent directly above and
+ * `preScheduleKey`'s below. The same three consequences fall out of that one
+ * choice: `apps/worker/src/artifactWriter.ts`'s exhaustive `SCHEMA_BY_PAGE`
+ * writer structurally cannot address (and so cannot clobber) a sidecar the
+ * Worker must never regenerate; `packages/harness/payloadBudget.test.ts`'s
+ * `PAGE_KINDS` list stays untouched, so this object lives outside the
+ * machine-readable size-budget block on purpose (its ceiling is
+ * `DISTRICT_PRESIM_MAX_BYTES` in `publishBudget.ts` instead); and
+ * `PAGE_ARTIFACT_SCHEMA_VERSION` is NOT bumped, because an additive new
+ * artifact kind never bumps it.
+ *
+ * PER DISTRICT EVENT, not per district. An unstarted event's sidecar is
+ * fetched only while that event is unstarted, so the bytes a page pays scale
+ * with how many events are still ahead rather than with the whole season.
+ *
+ * This function is the ONE spelling of the key, imported by both the writer
+ * (10-06) and the reader (10-07) — two spellings would be a silent permanent
+ * 404.
+ */
+export function districtPreSimKey(params: { districtKey: string; eventKey: string }): string {
+  return `v1/district-presim/${params.districtKey}/${params.eventKey}.json`;
+}
+
+/** One roster team's five baked category pmfs for one unstarted district event, in the compact roster-index encoding: `t` is a zero-based position in the artifact's own `roster`, never a team key. */
+const DistrictPreSimRowSchema = z.object({
+  /** Roster index — a zero-based position in this artifact's `roster`. */
+  t: z.number().int().nonnegative(),
+  qual: DistrictPointPmfSchema,
+  alliance: DistrictPointPmfSchema,
+  elim: DistrictPointPmfSchema,
+  award: DistrictPointPmfSchema,
+  total: DistrictPointPmfSchema,
+});
+
+/**
+ * `v1/district-presim/{districtKey}/{eventKey}.json` — the baked per-team
+ * point distributions for one district event that has not started, so the
+ * browser paints it with zero simulation compute (SC-5).
+ *
+ * Extends `PagePreambleSchema`, never `AlgorithmScopedPreambleSchema`:
+ * district point data has no algorithm dependency at all, matching
+ * `DistrictArtifactSchema`'s and `DistrictsIndexArtifactSchema`'s own stated
+ * reasoning for the identical choice.
+ */
+export const DistrictPreSimArtifactSchema = PagePreambleSchema.extend({
+  districtKey: z.string().min(1),
+  eventKey: z.string().min(1),
+  year: z.number().int(),
+  /** The team keys that define the index space for every row's `t`. Ascending and duplicate-free, so a republish is byte-stable and the reader's team-keyed map cannot collapse two entries into one. */
+  roster: z.array(z.string().min(1)).min(1),
+  rows: z.array(DistrictPreSimRowSchema),
+})
+  .refine((artifact) => new Set(artifact.roster).size === artifact.roster.length, {
+    message: "roster must not contain duplicate team keys — the client indexes baked rows by team key",
+    path: ["roster"],
+  })
+  .refine((artifact) => artifact.roster.every((key, index) => index === 0 || artifact.roster[index - 1]! < key), {
+    message: "roster must be sorted ascending — the builder sorts so republishes are byte-stable regardless of row order",
+    path: ["roster"],
+  })
+  .refine((artifact) => artifact.rows.every((row) => row.t < artifact.roster.length), {
+    message: "every row's t must index into roster",
+    path: ["rows"],
+  });
+
+export type DistrictPreSimArtifact = z.infer<typeof DistrictPreSimArtifactSchema>;
 
 // ---------------------------------------------------------------------------
 // Pre-schedule rank-simulation sidecar — v1/presim/{eventKey}/{algorithmId}@{version}.json

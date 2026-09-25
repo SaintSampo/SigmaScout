@@ -240,6 +240,38 @@ describe("applyDistrictRankings — carry-forward", () => {
   });
 });
 
+describe("applyDistrictRankings — the baked-pmf sidecar list", () => {
+  it("drops an event key from bakedEvents as soon as ANY team reports points for it", () => {
+    const artifact = DistrictArtifactSchema.parse({ ...twoTeamFixture(), bakedEvents: ["2026ncpem", "2026ncmys"] });
+    const merged = merge(artifact, tracerPayload());
+    // frc1 played 2026ncpem, so its baked pmf is stale by definition.
+    expect(merged.bakedEvents).toEqual(["2026ncmys"]);
+  });
+
+  it("leaves bakedEvents absent when the artifact carries none — never invents an empty list", () => {
+    const merged = merge(twoTeamFixture(), tracerPayload());
+    expect(merged.bakedEvents).toBeUndefined();
+  });
+
+  it("carries an awardProfile forward untouched", () => {
+    const fixture = twoTeamFixture() as unknown as { teams: Array<Record<string, unknown>> };
+    fixture.teams[0]!.awardProfile = { bucket: "oneOrTwo", rookie: false };
+    const merged = merge(DistrictArtifactSchema.parse(fixture), tracerPayload());
+    expect(merged.teams.find((t) => t.teamKey === "frc1")!.awardProfile).toEqual({ bucket: "oneOrTwo", rookie: false });
+  });
+
+  it("carries a top-level awardBaseRates table forward untouched", () => {
+    const table = {
+      season: 2026,
+      measuredThroughSeason: 2025,
+      script: "scripts/measureDistrictAwardBaseRates.ts",
+      rows: [{ bucket: "none" as const, rookie: false, n: 500, points: { o: 0, p: [0.8, 0.2] } }],
+    };
+    const merged = merge(DistrictArtifactSchema.parse({ ...twoTeamFixture(), awardBaseRates: table }), tracerPayload());
+    expect(merged.awardBaseRates).toEqual(table);
+  });
+});
+
 describe("recomputeDistrictVerdicts", () => {
   it("reports every champLock as unknown with the note for a district carrying the 2025fsc special allocation", () => {
     const base = twoTeamFixture();

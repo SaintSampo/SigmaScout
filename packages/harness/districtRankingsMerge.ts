@@ -424,12 +424,23 @@ export function applyDistrictRankings(options: ApplyDistrictRankingsOptions): Di
 
   const carriedOnly = artifact.teams.filter((team) => !seen.has(team.teamKey)).map((team) => ({ ...team, eventPoints: team.eventPoints.map((row) => withState(row, eventState)), remainingEvents: team.remainingEvents.map((row) => withState(row, eventState)) }));
 
+  const teams = [...mergedFromPayload, ...carriedOnly];
+
+  // A baked pmf describes an event that has NOT started. The moment any team
+  // reports points for it, the sidecar is stale by definition, so its key
+  // leaves `bakedEvents` and the reader stops fetching it. Same trim the
+  // `remainingEvents` filter above performs, one level up.
+  const playedAnywhere = new Set<string>();
+  for (const team of teams) for (const row of team.eventPoints) playedAnywhere.add(row.eventKey);
+  const bakedEvents = artifact.bakedEvents?.filter((eventKey) => !playedAnywhere.has(eventKey));
+
   const merged: DistrictArtifact = {
     ...artifact,
     schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
     generation,
     computedAt,
-    teams: [...mergedFromPayload, ...carriedOnly],
+    teams,
+    ...(bakedEvents === undefined ? {} : { bakedEvents }),
   };
 
   return recomputeDistrictVerdicts(merged);
