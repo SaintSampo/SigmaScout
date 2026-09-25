@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 09
-status: completed
-stopped_at: "Phase 9 SEALED and its UAT COMPLETE 2026-09-12 (verification 3b0d248c; clauses 3 and 4 both amended at the seal, originals preserved verbatim in ROADMAP.md; UAT test 1 waived against a standing pre-season gate, test 2 passed by Jacob on desktop and phone). The owed republish RAN: generation 622eeb28, 108,979 objects, 1h42m, and the presim class went median 206,385 B to 7,229 B while the schedule count went UP 50x to 1,000, so visitors now see a pre-schedule band that moves ~1.17 ranks between runs instead of 10.61. D1 re-seeded 66,284 rows seed-first, Worker cc6abc35 deployed. STILL IN FORCE: the pre-season CPU gate in docs/worker-operations.md forbids opening any live window until rp-fold-exceeds-worker-cpu-budget closes - a realistic mid-quals tick measures 13 ms p50 against a 10 ms sustained budget. All 12 phases are complete; the next container is a phase for the CPU work, timed against the pre-season."
-last_updated: "2026-09-25T09:22:43.781Z"
+current_phase: 10
+current_phase_name: district-points-ledger
+status: executing
+stopped_at: Completed 10-01-PLAN.md
+last_updated: "2026-09-25T09:51:39.088Z"
 last_activity: 2026-09-25
-last_activity_desc: "Completed quick task 260913-rh5: republished spr@4.0.0 and the Swing teardown (generation 2dcc057f), D1 seeded, Worker fcc7ca73; R2 deletions left to Jacob"
+last_activity_desc: Phase 10 execution started
 progress:
   total_phases: 13
   completed_phases: 12
   total_plans: 118
-  completed_plans: 109
-current_phase_name: analytic-ranking-points-browser-side-simulation
+  completed_plans: 110
 ---
 
 # Project State
@@ -23,16 +23,16 @@ current_phase_name: analytic-ranking-points-browser-side-simulation
 See: .planning/PROJECT.md (updated 2026-08-12)
 
 **Core value:** Predictions that are *measurably* better than Statbotics — proven by walk-forward backtests scored on winner accuracy first and Brier second — delivered on pages that load fast.
-**Current focus:** Phase 09 — analytic-ranking-points-browser-side-simulation
+**Current focus:** Phase 10 — district-points-ledger
 
 ## Current Position
 
-Phase: 09
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-09-14 - Closed quick task 260913-nvn (simplification audit and cuts), net -35,575 lines
+Phase: 10 (district-points-ledger) — EXECUTING
+Plan: 2 of 9
+Status: Ready to execute
+Last activity: 2026-09-25 — Phase 10 execution started
 
-Progress: [██████████] 100%
+Progress: [█████████░] 93%
 
 ## Performance Metrics
 
@@ -137,6 +137,7 @@ Progress: [██████████] 100%
 | Phase 08 P14 | ~50min | 3 tasks | 11 files |
 | Phase 08 P15 | ~55min | 4 tasks | 10 files |
 | Phase quick-260910-vof P01 | ~35min | 3 tasks | 13 files |
+| Phase 10 P01 | 25 min | 4 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -331,6 +332,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Quick 260904-6k1] Ribbon-derived favicon.svg added (font-free stroked-polyline sigma, #14532d tile / #81c784 stroke) with a color-drift test tying it to theme.css's --ribbon-bg/--ribbon-accent tokens
 - [Phase ?]: [Quick 260904-6a1] Sibling isAdjustZeroedAlliance predicate (dq.ts) drops an alliance's own observation when score is 0 and PARSED adjust < 0 with no DQ filed; adjust pinned at exactly 0 per team in both EPA and Sigma1 at every seam (cold-start divisor, carrySeason, process noise, consistency/swing folds); epa.ts bumped to 4.0.0+baseline (3.0.0+baseline was already taken by a concurrent unrelated quick task), SIGMA1_CODE_VERSION bumped 7.0.0->8.0.0, all three committed vpr digests re-promoted
 - [Phase ?]: 260910-vof: renamed BPR display label to SPR on methodology pages; internal id bpr unchanged; new /methodology/spr page (6 sections, rank weights derived from BPR_PARAMS, no accuracy percentage stated); AlgorithmSelect.tsx deliberately left reading BPR
+- [Phase 10]: districtTierWeight in qualPoints.ts is phase 10 single DCMP weight source, derived from pointModel.ts two public ceilings rather than a literal 3
+- [Phase 10]: Playoff points are a final-placement table 30/20/13/7/0, not a per-round exit table; the research topology was right but its round annotation was wrong
+- [Phase 10]: simulateRanks gains an optional fifth positional onDraw hook invoked after histogram accumulation and outside the rng path, so both existing four-argument callers are byte-identical
 
 ### Pending Todos
 
@@ -666,8 +670,8 @@ silent open row; `open_count` is now 0, so `/gsd-ship` no longer blocks.
 
 ## Session Continuity
 
-Last session: 2026-09-21T10:30:00.000Z
-Stopped at: Shipped quick task 260921-5qw on Jacob's instruction that nothing be manual during a live event. LIVE: Worker c73b1674, 120 stub event artifacts under generation 8caca9d2 (opr 5.0.0, epa 12.0.0, spr 7.0.0), web at 1c78c206, CI and deploy green, live e2e 170/170. A PROMOTED EVENT IS NOW SELF-SUFFICIENT: stubs give it a name and tier cuts, the tick completes its state block from D1 (one read, only when incomplete, log line event-state-block-completed), and v1/live-roster/{eventKey}.json puts it on robot pages. NOTHING IS OWED DURING AN EVENT. pnpm rebaseline is deliberately NOT scheduled: about 109000 R2 writes a run against a 1000000 a month free tier that September's roughly 17 republishes have probably passed; JACOB SHOULD CHECK R2 USAGE IN THE CLOUDFLARE DASHBOARD. New calendar events get stubs from any full publish, or from pnpm publish:stubs (about 120 writes, never overwrites). STILL UNOBSERVED IN PRODUCTION: no event has been promoted, so block completion, the roster write, robot-page discovery and every earlier live path have run in tests only. 2026txrm is open through 2026-09-23 and six windows open 2026-09-24 and 25. Workers Logs is on at 100 percent sampling, so the first fold's outcome and cpuTime are retained with nobody tailing. AFTER AN EVENT, not urgent: any ordinary republish makes results permanent in the team files. OPEN TODOS: rp-fold-exceeds-worker-cpu-budget (needs the first fold's numbers, not another experiment) and live-merges-drop-percentiles (only the percentile number is left, blocked behind CPU)
+Last session: 2026-09-25T09:51:20.933Z
+Stopped at: Completed 10-01-PLAN.md
 Resume file: None
 
 ## Decisions
