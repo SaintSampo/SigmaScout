@@ -31,8 +31,15 @@
 import { existsSync } from "node:fs";
 import { afterAll, describe, expect, it } from "vitest";
 import { openCorpusReadOnly } from "../../corpus/db.js";
+import {
+  BRACKET_REGISTERED_SEASONS,
+  DIVISIONED_DCMP_PLAYOFF_OBSERVATIONS,
+  playoffPoints,
+  routeBracket,
+  type DivisionedDcmpObservation,
+} from "./bracket.js";
 import { DISTRICT_REGISTERED_SEASONS } from "./pointModel.js";
-import { qualPoints } from "./qualPoints.js";
+import { districtTierWeight, qualPoints } from "./qualPoints.js";
 import { selectionPoints } from "./selectionPoints.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
@@ -65,6 +72,16 @@ interface EventAllianceRow {
   event_key: string;
   alliance_number: number;
   picks: string;
+}
+
+interface PlayoffMatchRow {
+  event_key: string;
+  comp_level: string;
+  set_number: number;
+  match_number: number;
+  winner: string | null;
+  red_teams: string;
+  blue_teams: string;
 }
 
 /**
@@ -173,6 +190,23 @@ const EXPECTED_SELECTION_CHECKED: Readonly<Record<number, number>> = {
  */
 const MAX_SELECTION_ABSENT_TEAM_TOTAL = 4014;
 const MAX_SELECTION_EXCLUDED_NON_EIGHT_TOTAL = 174;
+
+/**
+ * The playoff block's populations, measured during execution of 10-01
+ * (2026-09-25) over 2023 through 2026. Fact 1 gave the event-level shape
+ * (418 district-tier eight-alliance events, 408 showing the exact
+ * {30, 20, 13, 7, 0, 0, 0, 0} multiset); these are the row-level figures
+ * that go with it: 478 complete brackets routed from real match rows
+ * (105 / 112 / 118 / 143 by season) against 13 whose real matches could not
+ * resolve a routing, 10,278 team-level `elim_points` values checked, zero
+ * mismatches.
+ *
+ * Checked is a floor; every exclusion is a ceiling.
+ */
+const EXPECTED_PLAYOFF_CHECKED = 10_278;
+const MAX_PLAYOFF_EXCLUDED_FOUR_ROBOT = 330;
+const MAX_PLAYOFF_PRORATED_THREE_PICK = 1;
+const MAX_PLAYOFF_ABSENT_TEAM = 201;
 
 function loadDistrictRankings(db: ReturnType<typeof openCorpusReadOnly>, year: number): DistrictRankingRow[] {
   return db
@@ -384,6 +418,319 @@ function reconcileSelectionPoints(year: number, restrictToEightAlliances = true)
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// Playoff bracket block
+// ---------------------------------------------------------------------------
+
+function loadDistrictPlayoffMatches(db: ReturnType<typeof openCorpusReadOnly>, year: number): PlayoffMatchRow[] {
+  return db
+    .prepare(
+      `SELECT m.event_key, m.comp_level, m.set_number, m.match_number, m.winner, m.red_teams, m.blue_teams
+       FROM matches m
+       JOIN events e ON e.event_key = m.event_key
+       WHERE e.year = ? AND e.district_key IS NOT NULL AND m.comp_level IN ('sf', 'f')`
+    )
+    .all(year) as PlayoffMatchRow[];
+}
+
+/** Raised inside a decider when a real match cannot resolve a winner; caught per event, which is then counted as unreconcilable rather than failed. */
+class UnreconcilableEventError extends Error {}
+
+interface PlayoffBlockResult {
+  checked: number;
+  mismatches: string[];
+  /** Events with a complete eight-alliance bracket that reconciled end to end. */
+  reconciledEvents: number;
+  /** Events with a complete bracket whose real matches could not resolve a routing (a tie, an unplayed set, an unmappable alliance). */
+  unreconcilableEvents: number;
+  /** Alliances excluded because their `picks` array is not exactly three teams — Fact 3's backup-robot proration. */
+  excludedFourRobot: number;
+  /**
+   * Three-pick alliances whose teams do NOT all report the same
+   * `elim_points`: a backup robot substituted in without TBA adding a
+   * fourth `picks` entry, so the slot's points are split. The routed
+   * placement is still proven for these, via the max-anchor assertion in
+   * `reconcilePlayoffPoints` — only the prorated slot is set aside.
+   */
+  proratedThreePick: number;
+  /** Pick slots whose team has no `event_points_raw` entry for the event: a non-district team on a district alliance. */
+  absentTeam: number;
+}
+
+/**
+ * Routes every complete 2023-plus eight-alliance district bracket in the
+ * corpus from its REAL match results and checks the resulting placement
+ * points against TBA's own reported `elim_points`.
+ *
+ * The decider handed to `routeBracket` here reads real `matches` rows; in
+ * 10-04 the decider will draw from a win-probability function. Same
+ * `BRACKET_SETS`, same `routeBracket` — which is the point: this block
+ * proves the exact routing code the browser will run.
+ *
+ * Two exclusions are counted rather than silently dropped. Fact 3: an
+ * alliance that used a backup robot splits one slot's points across two
+ * teams (`2023vabla` alliance 1 reads 30, 30, 5, 25 against a placement of
+ * 30; `2023midet` alliance 3 reads 13, 13, 9, 5, which does not even sum to
+ * 3x13), so only alliances whose `picks` array has exactly three entries
+ * are reconciled. Fact 1: seven of the 418 eight-alliance events have an
+ * alliance whose every pick is a non-district team absent from
+ * `district_rankings`.
+ */
+function reconcilePlayoffPoints(year: number): PlayoffBlockResult {
+  const db = openCorpusReadOnly(CORPUS_PATH);
+  let alliances: EventAllianceRow[];
+  let matches: PlayoffMatchRow[];
+  let districtRankings: DistrictRankingRow[];
+  try {
+    alliances = loadDistrictEventAlliances(db, year);
+    matches = loadDistrictPlayoffMatches(db, year);
+    districtRankings = loadDistrictRankings(db, year);
+  } finally {
+    db.close();
+  }
+
+  // team_key -> event_key -> entry, at whichever tier the entry declares.
+  const entriesByTeam = new Map<string, Map<string, EventPointsEntry>>();
+  for (const row of districtRankings) {
+    let forTeam = entriesByTeam.get(row.team_key);
+    if (forTeam === undefined) {
+      forTeam = new Map<string, EventPointsEntry>();
+      entriesByTeam.set(row.team_key, forTeam);
+    }
+    for (const entry of JSON.parse(row.event_points_raw) as EventPointsEntry[]) {
+      forTeam.set(entry.event_key, entry);
+    }
+  }
+
+  const alliancesByEvent = new Map<string, EventAllianceRow[]>();
+  for (const row of alliances) {
+    const list = alliancesByEvent.get(row.event_key);
+    if (list === undefined) alliancesByEvent.set(row.event_key, [row]);
+    else list.push(row);
+  }
+
+  const matchesByEvent = new Map<string, PlayoffMatchRow[]>();
+  for (const row of matches) {
+    const list = matchesByEvent.get(row.event_key);
+    if (list === undefined) matchesByEvent.set(row.event_key, [row]);
+    else list.push(row);
+  }
+
+  const result: PlayoffBlockResult = {
+    checked: 0,
+    mismatches: [],
+    reconciledEvents: 0,
+    unreconcilableEvents: 0,
+    excludedFourRobot: 0,
+    proratedThreePick: 0,
+    absentTeam: 0,
+  };
+
+  for (const [eventKey, eventAlliances] of alliancesByEvent) {
+    if (eventAlliances.length !== 8) continue;
+    const eventMatches = matchesByEvent.get(eventKey);
+    if (eventMatches === undefined) continue;
+
+    const sfSets = new Set(eventMatches.filter((m) => m.comp_level === "sf").map((m) => m.set_number));
+    const finalMatches = eventMatches.filter((m) => m.comp_level === "f");
+    if (sfSets.size !== 13 || finalMatches.length < 2) continue;
+
+    // team_key -> alliance_number, for mapping a match's colour back to an alliance.
+    const allianceByTeam = new Map<string, number>();
+    for (const row of eventAlliances) {
+      for (const teamKey of JSON.parse(row.picks) as string[]) allianceByTeam.set(teamKey, row.alliance_number);
+    }
+
+    const matchIndex = new Map<string, PlayoffMatchRow>();
+    for (const m of eventMatches) matchIndex.set(`${m.comp_level}|${m.set_number}|${m.match_number}`, m);
+
+    /** The alliance number the majority of a colour's teams belong to, or null when none of them do. */
+    function allianceOfColour(teamsJson: string): number | null {
+      const votes = new Map<number, number>();
+      for (const teamKey of JSON.parse(teamsJson) as string[]) {
+        const allianceNumber = allianceByTeam.get(teamKey);
+        if (allianceNumber === undefined) continue;
+        votes.set(allianceNumber, (votes.get(allianceNumber) ?? 0) + 1);
+      }
+      let best: number | null = null;
+      let bestVotes = 0;
+      for (const [allianceNumber, count] of votes) {
+        if (count > bestVotes) {
+          best = allianceNumber;
+          bestVotes = count;
+        }
+      }
+      return best;
+    }
+
+    let routed;
+    try {
+      routed = routeBracket((allianceA, allianceB, setId, matchNumber) => {
+        const compLevel = setId === "f" ? "f" : "sf";
+        const setNumber = setId === "f" ? 1 : Number(setId.slice(2));
+        const rowMatchNumber = setId === "f" ? matchNumber : 1;
+        const row = matchIndex.get(`${compLevel}|${setNumber}|${rowMatchNumber}`);
+        if (row === undefined || (row.winner !== "red" && row.winner !== "blue")) {
+          throw new UnreconcilableEventError(`${eventKey} ${setId} match ${rowMatchNumber} has no decisive result`);
+        }
+        const winningAlliance = allianceOfColour(row.winner === "red" ? row.red_teams : row.blue_teams);
+        if (winningAlliance !== allianceA && winningAlliance !== allianceB) {
+          throw new UnreconcilableEventError(
+            `${eventKey} ${setId}: winning colour maps to alliance ${winningAlliance}, not ${allianceA} or ${allianceB}`
+          );
+        }
+        return winningAlliance;
+      });
+    } catch (error) {
+      if (error instanceof UnreconcilableEventError) {
+        result.unreconcilableEvents++;
+        continue;
+      }
+      throw error;
+    }
+
+    result.reconciledEvents++;
+
+    for (const row of eventAlliances) {
+      const picks = JSON.parse(row.picks) as string[];
+      if (picks.length !== 3) {
+        result.excludedFourRobot++;
+        continue;
+      }
+      const placement = routed.placementByAlliance.get(row.alliance_number)!;
+      const resolved: { teamKey: string; tier: "district" | "dcmp"; observed: number }[] = [];
+      for (const teamKey of picks) {
+        const entry = entriesByTeam.get(teamKey)?.get(eventKey);
+        if (entry === undefined) {
+          result.absentTeam++;
+          continue;
+        }
+        resolved.push({ teamKey, tier: entry.district_cmp ? "dcmp" : "district", observed: entry.elim_points });
+      }
+      if (resolved.length === 0) continue;
+
+      const observedValues = new Set(resolved.map((r) => r.observed));
+      if (observedValues.size > 1) {
+        // A backup robot substituted in WITHOUT TBA adding a fourth `picks`
+        // entry (measured at `2024onwat` alliance 2, where the winning
+        // alliance reads 30, 30, 25 and a team absent from `picks`
+        // — frc9663 — appears in the first final). Fact 3 scopes its
+        // exclusion to four-entry `picks` arrays, which does not catch this
+        // shape. The alliance's PLACEMENT is still proven: the unprorated
+        // teams carry the full value, so the maximum observed value must
+        // equal the routed expectation. Only the split slot is set aside.
+        result.proratedThreePick++;
+        const expected = playoffPoints(year, resolved[0]!.tier, placement);
+        const highest = Math.max(...resolved.map((r) => r.observed));
+        if (highest !== expected) {
+          result.mismatches.push(
+            `season ${year} event ${eventKey} alliance ${row.alliance_number} (prorated, values ${resolved
+              .map((r) => `${r.teamKey}=${r.observed}`)
+              .join(", ")}): routed placement ${placement} -> playoffPoints expected ${expected}, highest observed ${highest}`
+          );
+        }
+        continue;
+      }
+
+      for (const { teamKey, tier, observed } of resolved) {
+        result.checked++;
+        const expected = playoffPoints(year, tier, placement);
+        if (expected !== observed) {
+          result.mismatches.push(
+            `season ${year} event ${eventKey} alliance ${row.alliance_number} team ${teamKey} (${tier}): routed placement ${placement} -> playoffPoints expected ${expected}, TBA reported ${observed}`
+          );
+        }
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Re-measures `DIVISIONED_DCMP_PLAYOFF_OBSERVATIONS` from the corpus, so
+ * the committed table is proven equal to the measurement in the same run
+ * rather than trusted. Alliance count -> alliance number -> point value ->
+ * observation count.
+ */
+function measureDivisionedDcmpObservations(): {
+  table: Map<number, Map<number, Map<number, number>>>;
+  parentEvents: number;
+  unresolvedAlliances: number;
+  proratedAlliances: number;
+} {
+  const table = new Map<number, Map<number, Map<number, number>>>();
+  let parentEvents = 0;
+  let unresolvedAlliances = 0;
+  let proratedAlliances = 0;
+
+  const db = openCorpusReadOnly(CORPUS_PATH);
+  try {
+    for (const year of BRACKET_REGISTERED_SEASONS) {
+      const alliances = loadDistrictEventAlliances(db, year);
+      const districtRankings = loadDistrictRankings(db, year);
+      const weight = districtTierWeight(year, "dcmp");
+
+      const dcmpEntriesByTeam = new Map<string, Map<string, EventPointsEntry>>();
+      for (const row of districtRankings) {
+        let forTeam = dcmpEntriesByTeam.get(row.team_key);
+        if (forTeam === undefined) {
+          forTeam = new Map<string, EventPointsEntry>();
+          dcmpEntriesByTeam.set(row.team_key, forTeam);
+        }
+        for (const entry of JSON.parse(row.event_points_raw) as EventPointsEntry[]) {
+          if (entry.district_cmp) forTeam.set(entry.event_key, entry);
+        }
+      }
+
+      const byEvent = new Map<string, EventAllianceRow[]>();
+      for (const row of alliances) {
+        const list = byEvent.get(row.event_key);
+        if (list === undefined) byEvent.set(row.event_key, [row]);
+        else list.push(row);
+      }
+
+      for (const [eventKey, eventAlliances] of byEvent) {
+        const allianceCount = eventAlliances.length;
+        if (allianceCount === 8) continue;
+        parentEvents++;
+
+        for (const row of eventAlliances) {
+          const values = new Set<number>();
+          for (const teamKey of JSON.parse(row.picks) as string[]) {
+            const entry = dcmpEntriesByTeam.get(teamKey)?.get(eventKey);
+            if (entry !== undefined) values.add(entry.elim_points / weight);
+          }
+          if (values.size === 0) {
+            unresolvedAlliances++;
+            continue;
+          }
+          if (values.size > 1) {
+            proratedAlliances++;
+            continue;
+          }
+          const points = [...values][0]!;
+          let byNumber = table.get(allianceCount);
+          if (byNumber === undefined) {
+            byNumber = new Map<number, Map<number, number>>();
+            table.set(allianceCount, byNumber);
+          }
+          let byPoints = byNumber.get(row.alliance_number);
+          if (byPoints === undefined) {
+            byPoints = new Map<number, number>();
+            byNumber.set(row.alliance_number, byPoints);
+          }
+          byPoints.set(points, (byPoints.get(points) ?? 0) + 1);
+        }
+      }
+    }
+  } finally {
+    db.close();
+  }
+
+  return { table, parentEvents, unresolvedAlliances, proratedAlliances };
+}
+
 describe.each(DISTRICT_REGISTERED_SEASONS)("season %i district point formula reconciliation", (year) => {
   if (!CORPUS_AVAILABLE) {
     it.skip(SKIP_MESSAGE, () => {});
@@ -445,6 +792,114 @@ describe.each(DISTRICT_REGISTERED_SEASONS)("season %i district point formula rec
 
     // Non-vacuity.
     expect(checked).toBeGreaterThan(0);
+  });
+});
+
+describe.each(BRACKET_REGISTERED_SEASONS)("season %i playoff bracket reconciliation", (year) => {
+  if (!CORPUS_AVAILABLE) {
+    it.skip(SKIP_MESSAGE, () => {});
+    return;
+  }
+
+  it(`routing ${year}'s real eight-alliance district brackets reproduces every resolvable elim_points TBA reported`, () => {
+    const result = reconcilePlayoffPoints(year);
+    tally("playoff.checked", result.checked);
+    tally("playoff.mismatches", result.mismatches.length);
+    tally("playoff.reconciledEvents", result.reconciledEvents);
+    tally("playoff.unreconcilableEvents", result.unreconcilableEvents);
+    tally("playoff.excludedFourRobotAlliances", result.excludedFourRobot);
+    tally("playoff.proratedThreePickAlliances", result.proratedThreePick);
+    tally("playoff.absentTeam", result.absentTeam);
+    console.log(
+      `[playoff ${year}] events=${result.reconciledEvents} unreconcilable=${result.unreconcilableEvents} checked=${result.checked} mismatches=${result.mismatches.length} excludedFourRobotAlliances=${result.excludedFourRobot} proratedThreePick=${result.proratedThreePick} absentTeam=${result.absentTeam}`
+    );
+
+    expect(
+      result.mismatches,
+      `${result.mismatches.length} playoff mismatch(es) in ${year}:\n${result.mismatches.slice(0, 20).join("\n")}`
+    ).toEqual([]);
+    expect(result.reconciledEvents, `season ${year} reconciled no complete brackets at all`).toBeGreaterThan(0);
+    expect(result.checked).toBeGreaterThan(0);
+  });
+});
+
+describe("playoff bracket populations and the divisioned-dcmp fallback, across 2023 through 2026", () => {
+  if (!CORPUS_AVAILABLE) {
+    it.skip(SKIP_MESSAGE, () => {});
+    return;
+  }
+
+  it("reconciles at least 400 complete eight-alliance district brackets, with both exclusions pinned", () => {
+    let checked = 0;
+    let reconciledEvents = 0;
+    let unreconcilableEvents = 0;
+    let excludedFourRobot = 0;
+    let proratedThreePick = 0;
+    let absentTeam = 0;
+    for (const year of BRACKET_REGISTERED_SEASONS) {
+      const result = reconcilePlayoffPoints(year);
+      checked += result.checked;
+      reconciledEvents += result.reconciledEvents;
+      unreconcilableEvents += result.unreconcilableEvents;
+      excludedFourRobot += result.excludedFourRobot;
+      proratedThreePick += result.proratedThreePick;
+      absentTeam += result.absentTeam;
+    }
+    console.log(
+      `[playoff totals] reconciledEvents=${reconciledEvents} unreconcilableEvents=${unreconcilableEvents} checked=${checked} excludedFourRobotAlliances=${excludedFourRobot} proratedThreePick=${proratedThreePick} absentTeam=${absentTeam}`
+    );
+
+    expect(
+      reconciledEvents,
+      `only ${reconciledEvents} complete eight-alliance district brackets reconciled across 2023 through 2026, below the 400 floor`
+    ).toBeGreaterThanOrEqual(400);
+    expect(
+      excludedFourRobot,
+      `${excludedFourRobot} alliances were excluded for carrying a backup robot, above the ${MAX_PLAYOFF_EXCLUDED_FOUR_ROBOT} measured during execution`
+    ).toBeLessThanOrEqual(MAX_PLAYOFF_EXCLUDED_FOUR_ROBOT);
+    expect(
+      proratedThreePick,
+      `${proratedThreePick} three-pick alliances show a prorated split, above the ${MAX_PLAYOFF_PRORATED_THREE_PICK} measured during execution`
+    ).toBeLessThanOrEqual(MAX_PLAYOFF_PRORATED_THREE_PICK);
+    expect(
+      absentTeam,
+      `${absentTeam} pick slots have no event_points entry, above the ${MAX_PLAYOFF_ABSENT_TEAM} measured during execution`
+    ).toBeLessThanOrEqual(MAX_PLAYOFF_ABSENT_TEAM);
+    expect(checked).toBeGreaterThanOrEqual(EXPECTED_PLAYOFF_CHECKED);
+  });
+
+  it("reproduces DIVISIONED_DCMP_PLAYOFF_OBSERVATIONS exactly from the corpus, cell for cell", () => {
+    const { table, parentEvents, unresolvedAlliances, proratedAlliances } = measureDivisionedDcmpObservations();
+    console.log(
+      `[divisioned dcmp] parentEvents=${parentEvents} unresolvedAlliances=${unresolvedAlliances} proratedAlliances=${proratedAlliances}`
+    );
+
+    expect(parentEvents, "the divisioned-dcmp parent population is not the 16 events Fact 2 measured").toBe(16);
+    expect(proratedAlliances, "a prorated alliance appeared at a divisioned-dcmp parent, which Fact 2 did not observe").toBe(0);
+    expect(unresolvedAlliances).toBe(7);
+
+    // Every alliance count the measurement found must be one the committed
+    // table carries, and vice versa.
+    expect([...table.keys()].sort((a, b) => a - b)).toEqual([2, 4]);
+
+    for (const allianceCount of [2, 4] as const) {
+      const measured = table.get(allianceCount)!;
+      const committed = DIVISIONED_DCMP_PLAYOFF_OBSERVATIONS[allianceCount];
+      expect(
+        [...measured.keys()].sort((a, b) => a - b),
+        `alliance numbers observed at ${allianceCount}-alliance parents`
+      ).toEqual(Object.keys(committed).map(Number).sort((a, b) => a - b));
+
+      for (const [allianceNumber, byPoints] of measured) {
+        const measuredEntries: DivisionedDcmpObservation[] = [...byPoints.entries()]
+          .map(([points, count]) => ({ points, count }))
+          .sort((a, b) => a.points - b.points);
+        expect(
+          measuredEntries,
+          `committed DIVISIONED_DCMP_PLAYOFF_OBSERVATIONS[${allianceCount}][${allianceNumber}] does not match the corpus`
+        ).toEqual(committed[allianceNumber]);
+      }
+    }
   });
 });
 
