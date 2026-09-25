@@ -11,6 +11,7 @@
   --band:rgba(14,165,233,.22); --median:#075985;
   --locked-bg:#dcfce7; --locked-fg:#166534;
   --pre-bg:#f3e8ff; --pre-fg:#6b21a8;
+  --out-bg:#fee2e2; --out-fg:#991b1b;
   --line:#0f172a;
   --sketch:#1e293b;
 }
@@ -58,7 +59,9 @@ main{padding-block:16px 48px;display:flex;flex-direction:column;gap:16px}
 .chip.prequalified{background:var(--pre-bg);color:var(--pre-fg)}
 .chip.inrange{background:transparent;color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
 .chip.outofrange{background:transparent;color:var(--muted);box-shadow:inset 0 0 0 1px var(--edge)}
-.chip.ineligible{background:transparent;color:var(--faint);box-shadow:inset 0 0 0 1px var(--border);text-decoration:line-through}
+.chip.lockedout{background:var(--out-bg);color:var(--out-fg)}
+.defs{font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 16px}
+.defs b{color:var(--ink);font-weight:600}
 .chip small{font-weight:500;opacity:.8}
 
 /* controls card */
@@ -76,6 +79,7 @@ main{padding-block:16px 48px;display:flex;flex-direction:column;gap:16px}
 .stagebtns button{border:1px solid var(--border);background:#fff;border-radius:999px;padding:2px 10px;cursor:pointer;font-size:12px;color:var(--muted)}
 .stagebtns button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);font-weight:600}
 .legend{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:13px}
+.legend .defs{flex-basis:100%}
 .legend button{background:none;border:0;padding:0;cursor:pointer}
 .legend button[aria-pressed="false"] .chip{opacity:.35}
 .legend .cellkey{display:inline-flex;align-items:center;gap:6px;margin-left:8px;color:var(--muted)}
@@ -94,8 +98,12 @@ table.ledger{border-collapse:separate;border-spacing:0;width:100%;min-width:860p
 .ledger th.num,.ledger td.num{text-align:center}
 .ledger th .scale{display:block;font-weight:500;color:var(--faint);font-size:11px}
 .ledger td{padding:4px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
-.ledger tr.first td{border-top:1px solid var(--edge)}
-.ledger tr.first td{border-bottom:1px dashed var(--border)}
+.ledger tr.first td{border-top:3px solid var(--ink)}
+.ledger tr.first td{border-bottom:2px solid var(--edge)}
+.ledger tr.first td[rowspan]{border-bottom:3px solid var(--ink)}
+.ledger tbody tr:last-child td{border-bottom:3px solid var(--ink)}
+.ledger td.evtot,.ledger th.evtot{border-left:2px solid var(--edge)}
+.ledger td.grand,.ledger th.grand{border-left:3px solid var(--ink)}
 .ledger td.team{white-space:nowrap}
 .ledger td.team .no{font-weight:700;font-size:15px}
 .ledger td.team .nm{color:var(--muted);font-size:12px;display:block;max-width:180px;overflow:hidden;text-overflow:ellipsis}
@@ -217,7 +225,7 @@ table.ledger{border-collapse:separate;border-spacing:0;width:100%;min-width:860p
   <section id="vB" class="cards hidden"></section>
   <section id="vC" class="card tablewrap hidden"></section>
 
-  <p class="datanote"><b>Sketch data.</b> Real <code>v1/district/2026pnw.json</code>, all eight district events played. Every grey number is the team's actual points from TBA. Every blue range comes from a <b>sketch simulation</b> (a strength-shaped guess per category, convolved), not from the pipeline: it exists so the page shape can be judged, not the numbers. Status is recomputed at each slider position with the shipped locks rule (floor = earned, ceiling = earned + every open category's ceiling, 50 slots). Prequalified and Ineligible have no team in this snapshot and no source field in the artifact yet.</p>
+  <p class="datanote"><b>Sketch data.</b> Real <code>v1/district/2026pnw.json</code>, all eight district events played. Every grey number is the team's actual points from TBA. Every blue range comes from a <b>sketch simulation</b> (a strength-shaped guess per category, convolved), not from the pipeline: it exists so the page shape can be judged, not the numbers. Status is recomputed at each slider position: Locked and Locked out from the shipped locks rule (floor = earned, ceiling = earned + every open category's ceiling, 50 slots), In range and Out of range from a projection in which every team earns the median of its own predicted grand total. Prequalified has no team in this snapshot and no source field in the artifact yet.</p>
 </main>
 
 <script>
@@ -320,13 +328,17 @@ function stateAt(pos){
   const ceils=rows.map(r=>r.ceil).sort((a,b)=>a-b), floors=rows.map(r=>r.floor).sort((a,b)=>a-b);
   const lb=(arr,x)=>{let lo=0,hi=arr.length;while(lo<hi){const m=(lo+hi)>>1;if(arr[m]<x)lo=m+1;else hi=m;}return lo;};
   const ub=(arr,x)=>{let lo=0,hi=arr.length;while(lo<hi){const m=(lo+hi)>>1;if(arr[m]<=x)lo=m+1;else hi=m;}return lo;};
+  // median projection: every team earns the median of its own predicted grand total
+  rows.forEach(r=>{ r.proj=r.allFin?r.floor:cq(r.grand,.5); });
+  const projOrder=[...rows].sort((x,y)=>y.proj-x.proj||y.floor-x.floor||x.t.n-y.t.n); projOrder.forEach((r,i)=>r.projRank=i+1);
   for(const r of rows){
     const threats=(rows.length-lb(ceils,r.floor))-1;
     const above=rows.length-ub(floors,r.ceil); // others whose floor is strictly above my ceiling
     if(r.impactFinal) r.status='locked', r.statusNote='award';
     else if(threats<pointSlots) r.status='locked';
-    else if(above>=pointSlots) r.status='outofrange';
-    else r.status='inrange';
+    else if(above>=pointSlots) r.status='lockedout';
+    else if(r.projRank<=pointSlots) r.status='inrange';
+    else r.status='outofrange';
   }
   // today's line: the 50th highest floor (a lower bound while categories are open)
   const line=[...rows.map(r=>r.floor)].sort((a,b)=>b-a)[SLOTS-1];
@@ -336,8 +348,9 @@ function stateAt(pos){
 }
 
 /* ---------- rendering ---------- */
-const STATUS={locked:'Locked',prequalified:'Prequalified',inrange:'In range',outofrange:'Out of range',ineligible:'Ineligible'};
-const filt={locked:true,prequalified:true,inrange:true,outofrange:true,ineligible:true};
+const STATUS={prequalified:'Prequalified',locked:'Locked',inrange:'In range',outofrange:'Out of range',lockedout:'Locked out'};
+const DEFS={prequalified:'prequalified by FIRST',locked:'mathematically qualified, no matter what, on district points or an award',inrange:'if every team earned its median predicted points, this team would qualify',outofrange:'if every team earned its median predicted points, this team would not qualify',lockedout:'cannot earn enough district points to qualify'};
+const filt={prequalified:true,locked:true,inrange:true,outofrange:true,lockedout:true};
 let variant='A', pos=21, open=null, query='';
 const $=id=>document.getElementById(id);
 
@@ -393,7 +406,7 @@ function grandHtml(r){
 function visible(rows){ return rows.filter(r=>filt[r.status] && (!query || String(r.t.n).startsWith(query))); }
 
 function renderTable(rows,line,mini){
-  const hdr=`<thead><tr><th class="sticky1">Team</th><th>Status</th><th>Event</th>${CATS.map(c=>`<th class="num">${c.name}${mini?`<span class="scale">0 to ${c.max}</span>`:''}</th>`).join('')}<th class="num">Event total${mini?`<span class="scale">0 to ${EVMAX}</span>`:''}</th><th class="num">Grand total</th></tr></thead>`;
+  const hdr=`<thead><tr><th class="sticky1">Team</th><th>Status</th><th>Event</th>${CATS.map(c=>`<th class="num">${c.name}${mini?`<span class="scale">0 to ${c.max}</span>`:''}</th>`).join('')}<th class="num evtot">Event total${mini?`<span class="scale">0 to ${EVMAX}</span>`:''}</th><th class="num grand">Grand total</th></tr></thead>`;
   let body='';
   for(const r of visible(rows)){
     const sel=open&&open.n===r.t.n;
@@ -402,8 +415,8 @@ function renderTable(rows,line,mini){
       if(ei===0) body+=`<td class="team sticky1" rowspan="2"><span class="no">${r.t.n}</span><span class="nm">${r.t.name}</span><span class="nm">#${r.pos} · ${r.floor} pts earned</span></td><td rowspan="2">${chip(r)}</td>`;
       body+=`<td class="ev">${e.ev.name}<span class="wk">wk ${e.ev.week}</span><span class="st">${stageWord(e.stage)}</span></td>`;
       body+=CATS.map((c,ci)=>`<td class="num">${cellHtml(r,ei,ci,mini)}</td>`).join('');
-      body+=`<td class="num">${cellHtml(r,ei,'tot',mini)}</td>`;
-      if(ei===0) body+=`<td class="num" rowspan="2">${grandHtml(r)}</td>`;
+      body+=`<td class="num evtot">${cellHtml(r,ei,'tot',mini)}</td>`;
+      if(ei===0) body+=`<td class="num grand" rowspan="2">${grandHtml(r)}</td>`;
       body+='</tr>';
     });
     if(sel) body+=`<tr class="drawer"><td colspan="9"><div class="dr">${drawerHtml(r,open.key,line)}${open.key!=='grand'?drawerHtml(r,'grand',line):''}</div></td></tr>`;
@@ -436,9 +449,10 @@ function renderCards(rows,line){
 }
 function render(){
   const {rows,line}=stateAt(pos);
-  const counts={locked:0,prequalified:0,inrange:0,outofrange:0,ineligible:0}; rows.forEach(r=>counts[r.status]++);
-  $('legend').innerHTML=Object.keys(STATUS).map(k=>`<button aria-pressed="${filt[k]}" data-f="${k}"><span class="chip ${k}">${STATUS[k]} <small>${counts[k]}</small></span></button>`).join('')+
-    `<span class="cellkey"><i class="f"></i>earned, final</span><span class="cellkey"><i class="o"></i>still open · click for the histogram</span>`;
+  const counts={prequalified:0,locked:0,inrange:0,outofrange:0,lockedout:0}; rows.forEach(r=>counts[r.status]++);
+  $('legend').innerHTML=Object.keys(STATUS).map(k=>`<button aria-pressed="${filt[k]}" data-f="${k}" title="${DEFS[k]}"><span class="chip ${k}">${STATUS[k]} <small>${counts[k]}</small></span></button>`).join('')+
+    `<span class="cellkey"><i class="f"></i>earned, final</span><span class="cellkey"><i class="o"></i>still open · click for the histogram</span>`+
+    `<div class="defs">${Object.keys(STATUS).map(k=>`<span><b>${STATUS[k]}</b> ${DEFS[k]}</span>`).join('')}</div>`;
   const [pl,ph]=posText(pos); $('posLabel').textContent=pl; $('posHint').textContent=ph;
   const openCells=rows.reduce((s,r)=>s+r.events.reduce((t,e)=>t+e.cats.filter(x=>!x.fin).length,0),0);
   $('stat').innerHTML=`<span>Today's line <b>${line}</b> pts (50th team, earned)</span><span>Open cells <b>${openCells}</b> of ${rows.length*8}</span><span>Sim per open cell <b>~0.1 ms</b> here (sketch)</span>`;

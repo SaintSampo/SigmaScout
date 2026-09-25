@@ -17,7 +17,7 @@ from four sources per event (qualification rank, alliance selection, playoffs, a
 has two district events, so a team is eight cells. Finished cells are grey and carry the earned
 number. Open cells are blue, carry the 10th to 90th percentile, and open a histogram when clicked.
 An event total and a grand total sit beside them. The page also carries the shipped status
-(Prequalified, Locked, In range, Out of range, Ineligible) and a slider that rewinds the district
+(Prequalified, Locked, In range, Out of range, Locked out) and a slider that rewinds the district
 the way the Simulation tab rewinds an event: to any match, and across alliance selection, playoffs
 and awards.
 
@@ -57,10 +57,25 @@ done, then alliance selection, playoffs, awards. Both events of a weekend move t
 sketch. The real page should step by match across the district's interleaved timeline, exactly as
 the Simulation tab does within one event; the week granularity here is only so the sketch stays
 small. Rewinding a finished event turns its later categories blue again, and recomputes the
-status with the shipped locks rule: floor = earned, ceiling = earned plus every open category's
-ceiling (22, 16, 30, 15), 50 slots, an Impact winner consuming a slot only when it would not
-qualify on points anyway. At "Now" the sketch reproduces the artifact's 50 locked and 76 out of
-range.
+status. Jacob's definitions (2026-09-25, second round):
+
+- **Prequalified**: prequalified by FIRST.
+- **Locked**: mathematically qualified no matter what, on district points or an award. The
+  shipped locks rule: floor = earned, ceiling = earned plus every open category's ceiling
+  (22, 16, 30, 15), 50 slots, an Impact winner consuming a slot only when it would not qualify on
+  points anyway.
+- **In range**: if every team earned the median of its own predicted grand total, this team would
+  qualify.
+- **Out of range**: under that same median projection, this team would not qualify.
+- **Locked out** (was Ineligible in round one): cannot earn enough district points to qualify,
+  the locks rule's elimination case. Red, on Jacob's call.
+
+At "Now" the sketch reproduces the artifact's 50 locked and 76 eliminated (shown as Locked out).
+At the end of week 2 it reads 15 locked, 36 in range, 59 out of range, 16 locked out.
+
+Round two also asked for heavier rules in A: a thick line between a team's two event rows so the
+two event totals read apart, and a heavier line between team blocks so each grand total is fenced,
+plus a vertical rule before the Event total and Grand total columns.
 
 ## Data
 
@@ -72,9 +87,8 @@ taken from this district's own actual award point distribution, 56% none / 37% f
 3% ten), convolved into the event total and again into the grand total. The real implementation
 draws the four categories jointly (see Feasibility), which the sketch does not.
 
-Prequalified and Ineligible show zero teams. The district artifact carries no `ineligible` status
-today and the district tier has no prequalified teams; both chips are on the page so the vocabulary
-is complete, and the README below names what the data would need.
+Prequalified shows zero teams: the district tier has no prequalified teams and the artifact has
+no such field at this tier. The chip is on the page so the vocabulary is complete.
 
 ## Feasibility: a histogram for every category
 
@@ -167,11 +181,13 @@ knows them at fold time).
 
 ## Language rules the sketch follows
 
-- The five statuses are Jacob's words: Prequalified, Locked, In range, Out of range, Ineligible.
+- The five statuses are Jacob's words: Prequalified, Locked, In range, Out of range, Locked out.
   "Locked · award" when an award is the reason. The data status `eliminated` is never printed.
+  Each chip carries its one-line definition as a tooltip and in a definitions row under the legend.
 - A range is written out, "10th–90th: 11.8–21.0", one decimal, never with a ± (sketch 005).
-- Green means locked, purple means prequalified, blue means still open and clickable, grey means
-  earned and final. No red anywhere.
+- Green means locked, purple means prequalified, red means locked out, blue means still open and
+  clickable, grey means earned and final. Red is Jacob's explicit choice for Locked out; this page
+  has no alliance colour to collide with.
 
 ## What to Look For
 
