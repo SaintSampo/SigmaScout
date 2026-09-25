@@ -230,15 +230,37 @@ describe("writeDistrictArtifactObject", () => {
     expect(r2.puts[0]?.options.httpMetadata?.cacheControl).toBe("public, max-age=60");
   });
 
-  it("returns the serialized byte length of the VALIDATED object", async () => {
+  it("returns the serialized UTF-8 BYTE length of the VALIDATED object", async () => {
     const r2 = new FakeR2Bucket();
     const counter = new SubrequestCounter();
     const fixture = districtArtifactFixture();
 
     const bytes = await writeDistrictArtifactObject(makeEnv(r2), counter, "2026pnw", fixture);
 
-    expect(bytes).toBe(r2.puts[0]!.body.length);
-    expect(bytes).toBe(JSON.stringify(JSON.parse(r2.puts[0]!.body)).length);
+    expect(bytes).toBe(new TextEncoder().encode(r2.puts[0]!.body).length);
+    expect(bytes).toBe(new TextEncoder().encode(JSON.stringify(JSON.parse(r2.puts[0]!.body))).length);
+  });
+
+  it("counts a non-ASCII nickname in UTF-8 bytes, not UTF-16 code units", async () => {
+    // Measured 2026-09-25: 30 of the 3,155 teams that appear in
+    // `district_rankings` carry a non-ASCII nickname, `frc88`'s among them at 3
+    // UTF-16 code units and 4 UTF-8 bytes. This return value is the only growth
+    // signal the tick logs for an object whose ceiling this writer cannot
+    // assert, and a signal that reads low is not a signal.
+    const r2 = new FakeR2Bucket();
+    const counter = new SubrequestCounter();
+    const ascii = districtArtifactFixture();
+    const accented = districtArtifactFixture({
+      teams: [{ ...(ascii as { teams: { nickname: string }[] }).teams[0]!, nickname: "TJ²" }],
+    });
+
+    const asciiBytes = await writeDistrictArtifactObject(makeEnv(r2), counter, "2026pnw", ascii);
+    const accentedBytes = await writeDistrictArtifactObject(makeEnv(r2), counter, "2026pnw", accented);
+
+    const accentedBody = r2.puts[1]!.body;
+    expect(accentedBytes).toBeGreaterThan(accentedBody.length);
+    expect(accentedBytes).toBe(new TextEncoder().encode(accentedBody).length);
+    expect(typeof asciiBytes).toBe("number");
   });
 
   it("throws on a schema-invalid artifact with ZERO puts and an untouched subrequest count", async () => {

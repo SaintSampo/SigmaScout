@@ -164,7 +164,17 @@ export async function writeDistrictArtifactObject(env: Env, counter: SubrequestC
   await env.ARTIFACTS.put(districtDetailKey(districtKey), serialized, {
     httpMetadata: { contentType: ARTIFACT_CONTENT_TYPE, cacheControl: ARTIFACT_CACHE_CONTROL },
   });
-  return serialized.length;
+  // UTF-8 BYTES, not UTF-16 code units. This return value is logged as `bytes`
+  // in `districtRefresh.ts`'s `district-refreshed` line and is the ONLY growth
+  // signal for an object whose 1,300,000-byte ceiling this writer deliberately
+  // cannot assert (see above). `scripts/publishDistricts.ts` goes out of its way
+  // to use `Buffer.byteLength` and states the reason: measured 2026-09-25, 30 of
+  // the 3,155 teams that appear in `district_rankings` carry a non-ASCII
+  // nickname (`frc88`'s is 3 UTF-16 code units and 4 UTF-8 bytes), so
+  // `serialized.length` reads LOW against exactly the ceiling it is the early
+  // warning for. `TextEncoder` is in the Workers runtime and pulls in no Node
+  // built-in, which is the whole reason `publishBudget.ts` stays unimported here.
+  return new TextEncoder().encode(serialized).length;
 }
 
 /**
