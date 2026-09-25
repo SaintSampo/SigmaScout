@@ -5,6 +5,7 @@ import { districtPreSimQueryOptions } from "../../lib/api/districtLedger.js";
 import { useAlgorithmVersion } from "../ribbon/AlgorithmSelect.js";
 import { buildQualRows } from "../../lib/simulationInputs.js";
 import {
+  DISTRICT_CATEGORIES,
   allDistrictTierEventKeys,
   buildDistrictEventSimulationInput,
   distributionsFromPreSim,
@@ -18,15 +19,24 @@ import type { DistrictSimulationEventRequest } from "../../workers/districtSimul
 import type { DistrictArtifact, EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
- * The tab's LAZY loading: one event artifact per district-tier event that is
- * currently in progress or reopened by the Rewind slider, one baked sidecar per
- * unstarted event the district artifact's `bakedEvents` list names, and NOTHING
- * for any other event.
+ * The tab's LAZY loading, in TWO hooks so the dependency runs one way only.
  *
- * That is SC-5's other half. The tab's FIRST paint at the "now" position over a
- * finished or unstarted district fetches no event artifact and posts no Worker
- * message at all; the unstarted case still paints its blue cells, from the
- * baked pmfs.
+ * `useDistrictEventArtifacts` fetches event artifacts for a key list the caller
+ * derives from the district artifact's own `state` blocks — it needs no
+ * timeline and no stage. The caller then builds the interleaved timeline FROM
+ * those artifacts, resolves the slider position against it, and hands the
+ * resulting per-event stage back into `useDistrictLedgerData`, which fetches
+ * the baked sidecars and runs the Worker. Splitting the two is what keeps the
+ * whole chain acyclic: artifacts -> timeline -> stage -> simulation.
+ *
+ * SC-5 LIVES IN THAT KEY LIST. The tab's FIRST paint at the "now" position over
+ * a finished or unstarted district fetches NO event artifact and posts NO
+ * Worker message at all; the unstarted case still paints its blue cells, from
+ * 10-06's baked pmfs. Under a Rewind the FETCH set widens to every started
+ * district-tier event, because the interleaved timeline is built from those
+ * artifacts' schedules and a slider that could not see a finished event's
+ * matches could not rewind into it. The SIMULATION set stays narrower still:
+ * an event whose four categories are all final at the position is skipped.
  *
  * THE ALGORITHM IS PINNED TO `spr`, never taken from `?algorithm=`. Ranking-
  * point distributions are published for SPR only, so an OPR or EPA event
@@ -43,10 +53,46 @@ import type { DistrictArtifact, EventArtifact } from "../../../../../packages/ha
 /** The published algorithm the joint run reads its ranking-point pmfs from. */
 export const DISTRICT_LEDGER_ALGORITHM_ID = "spr";
 
+export interface DistrictEventArtifacts {
+  readonly eventArtifacts: ReadonlyMap<string, EventArtifact>;
+  readonly missingEventArtifacts: readonly string[];
+  readonly isLoading: boolean;
+}
+
+export function useDistrictEventArtifacts(activeEventKeys: readonly string[]): DistrictEventArtifacts {
+  const version = useAlgorithmVersion(DISTRICT_LEDGER_ALGORITHM_ID);
+  const keys = useMemo(() => [...activeEventKeys].sort(), [activeEventKeys]);
+
+  // `useQueries` preserves input order — the same documented behaviour
+  // `routes/index.tsx` already depends on.
+  const queries = useQueries({
+    queries: keys.map((eventKey) => ({
+      ...eventQueryOptions({ eventKey, algorithmId: DISTRICT_LEDGER_ALGORITHM_ID, version: version ?? "" }),
+      enabled: version !== undefined,
+    })),
+  });
+
+  const eventArtifacts = useMemo(() => {
+    const map = new Map<string, EventArtifact>();
+    keys.forEach((eventKey, index) => {
+      const data = queries[index]?.data;
+      if (data !== undefined) map.set(eventKey, data);
+    });
+    return map;
+  }, [keys, queries]);
+
+  return {
+    eventArtifacts,
+    missingEventArtifacts: keys.filter((eventKey) => !eventArtifacts.has(eventKey)),
+    isLoading: queries.some((query) => query.isPending),
+  };
+}
+
 export interface UseDistrictLedgerDataOptions {
   readonly artifact: DistrictArtifact;
-  /** The district-tier events to fetch and simulate: in progress at "now", unioned with whatever the current slider position reopens. */
+  /** The district-tier events whose artifacts were fetched — the same list `useDistrictEventArtifacts` was given. */
   readonly activeEventKeys: readonly string[];
+  readonly eventArtifacts: ReadonlyMap<string, EventArtifact>;
   /** Per-event category finality at the current position. */
   readonly stageByEvent: ReadonlyMap<string, DistrictStageFinality>;
   /**
@@ -61,7 +107,6 @@ export interface UseDistrictLedgerDataOptions {
 export interface DistrictLedgerData {
   readonly distributions: ReadonlyMap<string, DistrictEventDistributions>;
   readonly runState: DistrictSimulationRunState;
-  readonly eventArtifacts: ReadonlyMap<string, EventArtifact>;
   readonly unavailableEvents: readonly { readonly eventKey: string; readonly name: string }[];
   readonly gaps: Partial<DistrictLedgerGaps>;
   readonly isLoading: boolean;
@@ -74,19 +119,8 @@ function defaultStartKey(artifact: EventArtifact): string | null {
 }
 
 export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): DistrictLedgerData {
-  const { artifact, activeEventKeys, stageByEvent, startMatchKeyByEvent } = options;
-  const version = useAlgorithmVersion(DISTRICT_LEDGER_ALGORITHM_ID);
-
+  const { artifact, activeEventKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent } = options;
   const activeKeys = useMemo(() => [...activeEventKeys].sort(), [activeEventKeys]);
-
-  // `useQueries` preserves input order — the same documented behaviour
-  // `routes/index.tsx` already depends on.
-  const eventQueries = useQueries({
-    queries: activeKeys.map((eventKey) => ({
-      ...eventQueryOptions({ eventKey, algorithmId: DISTRICT_LEDGER_ALGORITHM_ID, version: version ?? "" }),
-      enabled: version !== undefined,
-    })),
-  });
 
   const bakedKeys = useMemo(() => {
     const listed = artifact.bakedEvents;
@@ -100,20 +134,6 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
     queries: bakedKeys.map((eventKey) => districtPreSimQueryOptions({ districtKey: artifact.districtKey, eventKey })),
   });
 
-  const eventArtifacts = useMemo(() => {
-    const map = new Map<string, EventArtifact>();
-    activeKeys.forEach((eventKey, index) => {
-      const data = eventQueries[index]?.data;
-      if (data !== undefined) map.set(eventKey, data);
-    });
-    return map;
-  }, [activeKeys, eventQueries]);
-
-  const missingEventArtifacts = useMemo(
-    () => activeKeys.filter((eventKey) => !eventArtifacts.has(eventKey)),
-    [activeKeys, eventArtifacts]
-  );
-
   const assembled = useMemo(() => {
     const events: DistrictSimulationEventRequest[] = [];
     const eventsWithExcludedMatches: string[] = [];
@@ -123,6 +143,9 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
       if (eventArtifact === undefined) continue;
       const stage = stageByEvent.get(eventKey);
       if (stage === undefined) continue;
+      // An event with NO open category at this position costs no simulation,
+      // however it got into the fetch set.
+      if (DISTRICT_CATEGORIES.every((category) => stage[category])) continue;
       const startMatchKey = startMatchKeyByEvent?.has(eventKey)
         ? (startMatchKeyByEvent.get(eventKey) ?? null)
         : defaultStartKey(eventArtifact);
@@ -140,7 +163,12 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
       events.push({ eventKey, input: built.input });
     }
     const signature = events
-      .map((event) => `${event.eventKey}|${String(event.input.remainingMatches.length)}|${String(event.input.baselines.length)}|${String(event.input.knownAlliances !== undefined)}${String(event.input.knownElimPoints !== undefined)}${String(event.input.knownAwardPoints !== undefined)}`)
+      .map(
+        (event) =>
+          `${event.eventKey}|${String(event.input.remainingMatches.length)}|${String(event.input.baselines.length)}|${String(
+            event.input.knownAlliances !== undefined
+          )}${String(event.input.knownElimPoints !== undefined)}${String(event.input.knownAwardPoints !== undefined)}`
+      )
       .join(";");
     return { events, signature, eventsWithExcludedMatches, eventsWithFallbackFieldSize };
   }, [activeKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent, artifact]);
@@ -167,23 +195,17 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
 
   const unavailableEvents = useMemo(() => {
     if (runState.status !== "complete") return [];
-    return runState.events
-      .filter((entry) => entry.status === "unavailable")
-      .map((entry) => ({ eventKey: entry.eventKey, name: entry.status === "unavailable" ? entry.name : "" }));
+    return runState.events.flatMap((entry) => (entry.status === "unavailable" ? [{ eventKey: entry.eventKey, name: entry.name }] : []));
   }, [runState]);
-
-  const isLoading = eventQueries.some((query) => query.isPending) || preSimQueries.some((query) => query.isPending);
 
   return {
     distributions,
     runState,
-    eventArtifacts,
     unavailableEvents,
     gaps: {
-      missingEventArtifacts,
       eventsWithExcludedMatches: assembled.eventsWithExcludedMatches,
       eventsWithFallbackFieldSize: assembled.eventsWithFallbackFieldSize,
     },
-    isLoading,
+    isLoading: preSimQueries.some((query) => query.isPending),
   };
 }

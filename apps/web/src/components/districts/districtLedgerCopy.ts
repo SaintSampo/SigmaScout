@@ -62,6 +62,12 @@ export const DISTRICT_LEDGER_LEGEND_OPEN = "still open · click for the histogra
 /** The likely/tilde explainer, verbatim from the UI-SPEC. */
 export const DISTRICT_LEDGER_LEGEND_EXPLAINER = "likely = 8 of 10 runs land here · ~ = typical amount when it happens";
 
+/** The Rewind slider's label, from CONTEXT's "The slider" section. */
+export const DISTRICT_LEDGER_REWIND_LABEL = "Rewind to";
+
+/** The hint under the slider, in flat third person. */
+export const DISTRICT_LEDGER_REWIND_HINT = "Rewinding reopens the categories a district event had already decided, and every status recomputes at the new position.";
+
 /** The team-number search box's label and placeholder. */
 export const DISTRICT_LEDGER_SEARCH_LABEL = "Team number";
 export const DISTRICT_LEDGER_SEARCH_PLACEHOLDER = "Search a team number";

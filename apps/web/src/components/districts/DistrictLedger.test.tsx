@@ -24,7 +24,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
-import { RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
+import { DistrictsSearchSchema, RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
 import {
   DistrictArtifactSchema,
   EventArtifactSchema,
@@ -43,6 +43,7 @@ import {
   DISTRICT_LEDGER_LEGEND_OPEN,
   DISTRICT_LEDGER_LOCKED_AWARD_LABEL,
   DISTRICT_LEDGER_NO_MATCHES,
+  DISTRICT_LEDGER_REWIND_LABEL,
   DISTRICT_LEDGER_SEARCH_LABEL,
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
@@ -65,13 +66,15 @@ function RouteBody() {
   return <>{useContext(ChildrenContext)}</>;
 }
 
-function TestHarness({ children }: { children: ReactNode }) {
+function TestHarness({ children, initialEntry = "/districts?algorithm=spr" }: { children: ReactNode; initialEntry?: string }) {
   const [router] = useState(() => {
     const rootRoute = createRootRoute({ validateSearch: RootSearchSchema });
-    const districtsRoute = createRoute({ path: "/districts", getParentRoute: () => rootRoute, component: RouteBody });
+    // The REAL `DistrictsSearchSchema`, so the three phase-10 params this tab
+    // reads are validated here exactly as the shipped route validates them.
+    const districtsRoute = createRoute({ path: "/districts", getParentRoute: () => rootRoute, validateSearch: DistrictsSearchSchema, component: RouteBody });
     const teamRoute = createRoute({ path: "/team/$teamNumber", getParentRoute: () => rootRoute, validateSearch: TeamSearchSchema, component: () => null });
     const routeTree = rootRoute.addChildren([districtsRoute, teamRoute]);
-    return createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ["/districts?algorithm=spr"] }) });
+    return createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [initialEntry] }) });
   });
   const [queryClient] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false } } }));
   return (
@@ -655,5 +658,174 @@ describe("DistrictLedger — the five status chips", () => {
       expect(cell.textContent).toBe(DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED);
       expect(cell.querySelector(".lock-status-chip")).toBeNull();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The Rewind slider (SC-4)
+// ---------------------------------------------------------------------------
+
+/** The finished event's own artifact: the same 12-match schedule, every row played. */
+function doneEventArtifact(): EventArtifact {
+  const live = liveEventArtifact();
+  const played = [...live.matches, ...live.upcoming].map((match, index) => ({
+    matchKey: `2026wadone_qm${String(index + 1)}`,
+    compLevel: "qm" as const,
+    setNumber: 1,
+    matchNumber: index + 1,
+    sortTime: 1_760_000_000 + index * 600,
+    redTeams: match.redTeams,
+    blueTeams: match.blueTeams,
+    predictedWinner: "red" as const,
+    pRedWin: 0.55,
+    predictedRedScore: 90,
+    predictedBlueScore: 85,
+    actualWinner: "red" as const,
+    actualRedScore: 95,
+    actualBlueScore: 80,
+    actualRedRp: 3,
+    actualBlueRp: 1,
+    redRpPmf: RP_PMF,
+    blueRpPmf: RP_PMF,
+  }));
+  return EventArtifactSchema.parse({
+    schemaVersion: 1,
+    generation: "gen-1",
+    computedAt: "2026-09-25T00:00:00.000Z",
+    algorithmId: "spr",
+    algorithmVersion: ALGORITHM_VERSION,
+    eventKey: "2026wadone",
+    season: SEASON,
+    matches: played,
+    upcoming: [],
+    teams: live.teams,
+  });
+}
+
+function renderLedgerAt(artifact: DistrictArtifact, initialEntry: string) {
+  render(
+    <TestHarness initialEntry={initialEntry}>
+      <DistrictLedger artifact={artifact} algorithm="spr" season={SEASON} />
+    </TestHarness>
+  );
+}
+
+describe("DistrictLedger — the Rewind slider", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  const finishedDistrict = () => artifactOf(ROSTER.map((teamKey) => districtTeam(teamKey)));
+
+  it("renders the slider with its label, a position readout and the derived jump chips", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(finishedDistrict());
+
+    await waitFor(() => expect(screen.getByTestId("district-ledger-rewind")).toBeDefined());
+    expect(screen.getByLabelText(DISTRICT_LEDGER_REWIND_LABEL)).toBeDefined();
+    expect(screen.getByTestId("district-ledger-rewind-readout").textContent).toBe("Now");
+    const chips = screen.getAllByTestId("district-ledger-jump-chip").map((chip) => chip.getAttribute("data-chip"));
+    expect(chips[0]).toBe("season-start");
+    expect(chips[chips.length - 1]).toBe("now");
+  });
+
+  it("SC-4: a position before an event's last qualification match turns its selection, playoff and award cells BLUE", async () => {
+    installFetch({ eventArtifact: doneEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+
+    // At "now" every one of the event's four cells is a grey final.
+    renderLedger(finishedDistrict());
+    await waitFor(() => expect(document.querySelector('[data-cell-id="2026wadone:qual"]')).not.toBeNull());
+    for (const category of ["qual", "alliance", "elim", "award"]) {
+      expect(document.querySelector(`[data-cell-id="2026wadone:${category}"]`)?.getAttribute("data-cell")).toBe("final");
+    }
+    cleanup();
+
+    // Rewound to the quals-done step, the three later categories reopen.
+    renderLedgerAt(finishedDistrict(), "/districts?algorithm=spr&at=2026wadone%3AqualsDone");
+    await waitFor(() => {
+      expect(document.querySelector('[data-cell-id="2026wadone:alliance"]')?.getAttribute("data-cell")).toBe("open");
+    });
+    expect(document.querySelector('[data-cell-id="2026wadone:elim"]')?.getAttribute("data-cell")).toBe("open");
+    expect(document.querySelector('[data-cell-id="2026wadone:award"]')?.getAttribute("data-cell")).toBe("open");
+    // Qualification is decided at that step, so it stays grey.
+    expect(document.querySelector('[data-cell-id="2026wadone:qual"]')?.getAttribute("data-cell")).toBe("final");
+  });
+
+  /** A finished district whose teams carry DISTINCT totals, so the statuses vary and a change is observable. */
+  const variedDistrict = () =>
+    artifactOf(
+      ROSTER.map((teamKey, index) => {
+        const total = 12 + index * 3;
+        const base = districtTeam(teamKey);
+        return {
+          ...base,
+          pointTotal: total,
+          eventPoints: [{ ...base.eventPoints[0]!, qual: total, alliance: 0, elim: 0, award: 0, total }],
+        };
+      })
+    );
+
+  it("recomputes the statuses at the moved position — at least one chip label changes", async () => {
+    installFetch({ eventArtifact: doneEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+
+    renderLedger(variedDistrict());
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-status-cell").length).toBe(ROSTER.length));
+    const atNow = screen.getAllByTestId("district-ledger-status-cell").map((cell) => cell.textContent ?? "");
+    cleanup();
+
+    renderLedgerAt(variedDistrict(), "/districts?algorithm=spr&at=season-start");
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-status-cell").length).toBe(ROSTER.length));
+    const rewound = screen.getAllByTestId("district-ledger-status-cell").map((cell) => cell.textContent ?? "");
+    expect(rewound).not.toEqual(atNow);
+  });
+
+  it("marks a clicked jump chip pressed and moves the readout to it", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(finishedDistrict());
+
+    const seasonStart = await waitFor(() => screen.getAllByTestId("district-ledger-jump-chip")[0]!);
+    expect(seasonStart.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(seasonStart);
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-jump-chip")[0]!.getAttribute("aria-pressed")).toBe("true"));
+    expect(screen.getByTestId("district-ledger-rewind-readout").textContent).toBe("Season start");
+  });
+
+  it("starts at the step a URL names, and at NOW for an unknown step id with no error state", async () => {
+    installFetch({ eventArtifact: doneEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+
+    renderLedgerAt(finishedDistrict(), "/districts?algorithm=spr&at=2026wadone%3Aalliance");
+    await waitFor(() => expect(screen.getByTestId("district-ledger-rewind-readout").textContent).toContain("alliance selection"));
+    cleanup();
+
+    renderLedgerAt(finishedDistrict(), "/districts?algorithm=spr&at=a-step-that-never-existed");
+    await waitFor(() => expect(screen.getByTestId("district-ledger-rewind-readout").textContent).toBe("Now"));
+    expect(screen.getByTestId("district-ledger-tab")).toBeDefined();
+  });
+
+  it("constructs a Worker when the slider moves into a finished event, even though the now position constructs none", async () => {
+    installFetch({ eventArtifact: doneEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+
+    renderLedger(finishedDistrict());
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-row").length).toBe(ROSTER.length));
+    expect(handle.instances).toHaveLength(0);
+    cleanup();
+
+    renderLedgerAt(finishedDistrict(), "/districts?algorithm=spr&at=2026wadone%3AqualsDone");
+    await waitFor(() => expect(handle!.instances.length).toBeGreaterThan(0));
+    const request = handle.instances[handle.instances.length - 1]!.received[0] as { events: { eventKey: string }[] };
+    expect(request.events.map((event) => event.eventKey)).toEqual(["2026wadone"]);
   });
 });

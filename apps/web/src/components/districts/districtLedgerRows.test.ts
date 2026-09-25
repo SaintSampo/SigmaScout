@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   DistrictArtifactSchema,
   DistrictPreSimArtifactSchema,
+  EventArtifactSchema,
   type DistrictArtifact,
   type DistrictEventState,
 } from "../../../../../packages/harness/pageArtifacts.js";
@@ -17,6 +18,7 @@ import { POINT_CELL_CHANCE_FORM_THRESHOLD } from "../../../../../packages/core/d
 import {
   DISTRICT_CATEGORIES,
   allDistrictTierEventKeys,
+  buildDistrictEventSimulationInput,
   buildDistrictLedgerRows,
   decodeDistrictPointPmf,
   deriveStageFromState,
@@ -29,6 +31,7 @@ import {
   pointMassDistribution,
   type DistrictEventDistributions,
   type DistrictPointDistribution,
+  type DistrictStageFinality,
 } from "./districtLedgerRows.js";
 
 type DistrictTeam = DistrictArtifact["teams"][number];
@@ -572,5 +575,172 @@ describe("the position number", () => {
     built.teams.forEach((entry, index) => {
       expect(entry.position).toBe(index + 1);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A rewound position goes through the SAME code path as "now"
+// ---------------------------------------------------------------------------
+
+describe("the rows at a rewound position", () => {
+  const artifact = artifactOf([
+    team({ teamKey: "frc1", pointTotal: 24, eventPoints: [eventPoints({ eventKey: "2026wadone", qual: 12, alliance: 6, elim: 6, award: 0, total: 24 })] }),
+  ]);
+  const reopened = new Map<string, DistrictStageFinality>([["2026wadone", { qual: true, alliance: false, elim: false, award: false }]]);
+  const counts = new Int32Array(17);
+  counts[9] = 100;
+  const distributions = new Map<string, DistrictEventDistributions>([
+    [
+      "2026wadone",
+      {
+        eventKey: "2026wadone",
+        byTeam: new Map([
+          [
+            "frc1",
+            {
+              qual: undefined,
+              alliance: { counts, denominator: 100 },
+              elim: { counts, denominator: 100 },
+              award: { counts, denominator: 100 },
+              eventTotal: { counts, denominator: 100 },
+              grandTotal: undefined,
+            },
+          ],
+        ]),
+      },
+    ],
+  ]);
+
+  it("produces a FINAL cell at now and an OPEN cell at the rewound position, for the same event and category", () => {
+    const now = buildDistrictLedgerRows({ artifact, distributions });
+    const back = buildDistrictLedgerRows({ artifact, distributions, stageByEvent: reopened });
+    expect(now.teams[0]!.rows[0]!.cells[1]!.kind).toBe("final");
+    expect(back.teams[0]!.rows[0]!.cells[1]!.kind).toBe("open");
+    // Qualification is decided at that step, so it stays grey on both sides.
+    expect(back.teams[0]!.rows[0]!.cells[0]!.kind).toBe("final");
+  });
+
+  it("leaves a reopened cell UNAVAILABLE rather than blank when the event's distributions could not be got", () => {
+    const back = buildDistrictLedgerRows({
+      artifact,
+      distributions: NO_DISTRIBUTIONS,
+      stageByEvent: reopened,
+      gaps: { missingEventArtifacts: ["2026wadone"] },
+    });
+    expect(back.teams[0]!.rows[0]!.cells[1]!.kind).toBe("unavailable");
+    expect(back.gaps.missingEventArtifacts).toEqual(["2026wadone"]);
+  });
+
+  it("carries the artifact's own earned row so the status module can subtract a reopened category's points", () => {
+    const back = buildDistrictLedgerRows({ artifact, distributions, stageByEvent: reopened });
+    const row = back.teams[0]!.rows[0]!;
+    expect(row.earned?.alliance).toBe(6);
+    expect(row.earned?.total).toBe(24);
+  });
+});
+
+describe("the per-event simulation input at three positions", () => {
+  const districtArtifact = artifactOf([
+    team({
+      teamKey: "frc1",
+      pointTotal: 24,
+      eventPoints: [eventPoints({ eventKey: "2026wadone", qual: 12, alliance: 6, elim: 6, award: 0, total: 24 })],
+      awardProfile: { bucket: "none", rookie: false },
+    }),
+  ]);
+
+  const roster = Array.from({ length: 6 }, (_unused, i) => `frc${String(100 + i)}`);
+  const pmf = [0.25, 0.25, 0.25, 0.25];
+  const eventArtifact = EventArtifactSchema.parse({
+    schemaVersion: 1,
+    generation: "gen-1",
+    computedAt: "2026-09-25T00:00:00.000Z",
+    algorithmId: "spr",
+    algorithmVersion: "7.0.0+rolling",
+    eventKey: "2026wadone",
+    season: SEASON,
+    matches: Array.from({ length: 4 }, (_unused, i) => ({
+      matchKey: `2026wadone_qm${String(i + 1)}`,
+      compLevel: "qm",
+      setNumber: 1,
+      matchNumber: i + 1,
+      sortTime: 1_760_000_000 + i * 600,
+      redTeams: roster.slice(0, 3),
+      blueTeams: roster.slice(3, 6),
+      predictedWinner: "red",
+      pRedWin: 0.5,
+      predictedRedScore: 50,
+      predictedBlueScore: 50,
+      actualWinner: "red",
+      actualRedScore: 60,
+      actualBlueScore: 50,
+      actualRedRp: 3,
+      actualBlueRp: 1,
+      redRpPmf: pmf,
+      blueRpPmf: pmf,
+    })),
+    upcoming: [],
+    teams: roster.map((teamKey, i) => ({
+      teamKey,
+      teamNumber: 100 + i,
+      rank: i + 1,
+      record: { wins: 2, losses: 2, ties: 0 },
+      rp: 2,
+      metrics: { total: { value: 60 - i }, sigma: { value: 8 } },
+    })),
+    alliances: [{ allianceNumber: 1, picks: roster.slice(0, 3) }, { allianceNumber: 2, picks: roster.slice(3, 6) }],
+  });
+
+  function inputAt(stage: DistrictStageFinality, startMatchKey: string | null) {
+    const built = buildDistrictEventSimulationInput({
+      eventKey: "2026wadone",
+      season: SEASON,
+      eventArtifact,
+      districtArtifact,
+      stage,
+      startMatchKey,
+    });
+    if (!built.ok) throw new Error("expected an input");
+    return built.input;
+  }
+
+  it("mid-quals: every stage open, remaining matches from the start key, and NO known-stage member supplied", () => {
+    const input = inputAt({ qual: false, alliance: false, elim: false, award: false }, "2026wadone_qm3");
+    expect(input.remainingMatches).toHaveLength(2);
+    expect(input.knownAlliances).toBeUndefined();
+    expect(input.knownElimPoints).toBeUndefined();
+    expect(input.knownAwardPoints).toBeUndefined();
+  });
+
+  it("quals-done: ZERO remaining matches with no flag of any kind, and still no known-stage member", () => {
+    const input = inputAt({ qual: true, alliance: false, elim: false, award: false }, null);
+    expect(input.remainingMatches).toEqual([]);
+    expect(Object.keys(input)).not.toContain("qualsFinished");
+    expect(input.knownAlliances).toBeUndefined();
+    expect(input.baselines).toHaveLength(roster.length);
+  });
+
+  it("awards-posted: every known-stage member supplied, from the artifacts' own published values", () => {
+    const input = inputAt({ qual: true, alliance: true, elim: true, award: true }, null);
+    expect(input.knownAlliances).toHaveLength(2);
+    expect(input.allianceCount).toBe(2);
+    expect(input.knownElimPoints).toBeDefined();
+    expect(input.knownAwardPoints).toBeDefined();
+    expect(input.knownElimPoints?.get("frc1")).toBe(6);
+    expect(input.knownAwardPoints?.get("frc1")).toBe(0);
+  });
+
+  it("reports the field size as a disclosed fallback, because the event artifact publishes none", () => {
+    const built = buildDistrictEventSimulationInput({
+      eventKey: "2026wadone",
+      season: SEASON,
+      eventArtifact,
+      districtArtifact,
+      stage: { qual: false, alliance: false, elim: false, award: false },
+      startMatchKey: "2026wadone_qm1",
+    });
+    if (!built.ok) throw new Error("expected an input");
+    expect(built.fieldSizeFellBack).toBe(true);
+    expect(built.input.fieldSize).toBe(built.input.baselines.length);
   });
 });

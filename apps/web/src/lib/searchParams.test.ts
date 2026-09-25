@@ -5,7 +5,19 @@
  */
 import { describe, expect, it } from "vitest";
 import { CURRENT_SEASON } from "./seasons.js";
-import { DEFAULT_EVENT_TAB, EVENT_TABS, EventSearchSchema, EventsSearchSchema, MatchSearchSchema, RootSearchSchema, TeamSearchSchema, TeamsSearchSchema } from "./searchParams.js";
+import {
+  DEFAULT_DISTRICT_TAB,
+  DEFAULT_EVENT_TAB,
+  DistrictsSearchSchema,
+  EVENT_TABS,
+  EventSearchSchema,
+  EventsSearchSchema,
+  MatchSearchSchema,
+  RootSearchSchema,
+  TeamSearchSchema,
+  TeamsSearchSchema,
+  applyYearChange,
+} from "./searchParams.js";
 
 describe("RootSearchSchema's default algorithm", () => {
   it("defaults to vpr when algorithm is absent", () => {
@@ -126,5 +138,47 @@ describe("MatchSearchSchema", () => {
     const parsed = MatchSearchSchema.parse({ year: CURRENT_SEASON, algorithm: "spr" });
     expect(parsed.year).toBe(CURRENT_SEASON);
     expect(parsed.algorithm).toBe("spr");
+  });
+});
+
+describe("DistrictsSearchSchema — the Road to District Champs params", () => {
+  const base = { year: 2026, algorithm: "spr" };
+
+  it("round-trips the three phase-10 fields", () => {
+    const parsed = DistrictsSearchSchema.parse({ ...base, district: "2026pnw", at: "2026wabon:qualsDone", drawerTeam: "4131", drawerCell: "2026wabon:qual" });
+    expect(parsed.at).toBe("2026wabon:qualsDone");
+    expect(parsed.drawerTeam).toBe(4131);
+    expect(parsed.drawerCell).toBe("2026wabon:qual");
+  });
+
+  it("falls a malformed rewind step id back to absent, which the resolver reads as the now position", () => {
+    expect(DistrictsSearchSchema.parse({ ...base, at: { nested: true } }).at).toBeUndefined();
+    expect(DistrictsSearchSchema.parse({ ...base, at: ["a", "b"] }).at).toBeUndefined();
+    // A merely UNKNOWN string is not malformed — the runtime resolver is what
+    // turns it into "now", exactly as `resolveSortKey` does for `sort`.
+    expect(DistrictsSearchSchema.parse({ ...base, at: "never-existed" }).at).toBe("never-existed");
+  });
+
+  it("falls a malformed drawer team back to absent rather than to an undefined page state", () => {
+    expect(DistrictsSearchSchema.parse({ ...base, drawerTeam: "not-a-number" }).drawerTeam).toBeUndefined();
+    expect(DistrictsSearchSchema.parse({ ...base, drawerTeam: 12.5 }).drawerTeam).toBeUndefined();
+  });
+
+  it("falls a malformed drawer cell id back to absent, which renders as closed", () => {
+    expect(DistrictsSearchSchema.parse({ ...base, drawerCell: { nested: true } }).drawerCell).toBeUndefined();
+  });
+
+  it("still falls an unrecognised tab back to the renamed default, so every pre-rename link lands on the same panel", () => {
+    expect(DistrictsSearchSchema.parse({ ...base, tab: "district-locks" }).tab).toBe(DEFAULT_DISTRICT_TAB);
+    expect(DEFAULT_DISTRICT_TAB).toBe("road-to-district-champs");
+    expect(DistrictsSearchSchema.parse({ ...base, tab: "champ-locks" }).tab).toBe("champ-locks");
+  });
+
+  it("survives a year change untouched — applyYearChange rewrites only the literal key `sort`", () => {
+    const parsed = DistrictsSearchSchema.parse({ ...base, at: "2026wabon:qualsDone", drawerTeam: 4131, drawerCell: "2026wabon:qual" });
+    const next = applyYearChange(parsed as never, 2025);
+    expect((next as unknown as Record<string, unknown>).at).toBe("2026wabon:qualsDone");
+    expect((next as unknown as Record<string, unknown>).drawerTeam).toBe(4131);
+    expect((next as unknown as Record<string, unknown>).drawerCell).toBe("2026wabon:qual");
   });
 });

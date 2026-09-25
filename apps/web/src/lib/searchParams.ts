@@ -336,6 +336,30 @@ export const DEFAULT_DISTRICT_TAB = "road-to-district-champs";
 export const DistrictsSearchSchema = RootSearchSchema.extend({
   district: z.string().optional(),
   tab: z.enum(DISTRICT_TABS).catch(DEFAULT_DISTRICT_TAB),
+  /**
+   * The Road to District Champs tab's Rewind position — a timeline STEP ID.
+   *
+   * Typed as a plain optional string with a `.catch()`, for exactly the reason
+   * `TeamsSearchSchema`'s `sort` field gives: the valid value SET is
+   * data-dependent (it is built from this district's own loaded match
+   * schedules), so a static schema cannot know it, and
+   * `resolveDistrictTimelinePosition` is the runtime check. This schema's only
+   * job is making sure the value is a plain string (or absent) before it ever
+   * reaches that resolver — never an object or array that could reach a
+   * downstream comparison in an unexpected way. An unrecognised id resolves to
+   * the "now" position, never to a neighbouring step.
+   *
+   * `applyYearChange` rewrites only the literal key `sort` and spreads
+   * everything else through untouched, so this field (and the two below)
+   * survive a year change with no change to that function — which is exactly
+   * why `EventsSearchSchema` had to rename ITS sort fields and these three do
+   * not.
+   */
+  at: z.string().optional().catch(undefined),
+  /** The drawer's team number. Coerced, so a hand-edited non-numeric value resolves to absent (no drawer) rather than to an undefined page state. */
+  drawerTeam: z.coerce.number().int().optional().catch(undefined),
+  /** The drawer's cell id. A plain optional string for the same data-dependent reason `at` states; an unrecognised id resolves to CLOSED, never to a neighbouring cell. */
+  drawerCell: z.string().optional().catch(undefined),
 });
 
 export type DistrictTab = (typeof DISTRICT_TABS)[number];

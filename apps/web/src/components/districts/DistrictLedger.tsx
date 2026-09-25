@@ -26,7 +26,7 @@
  * (project memory `project_cn_drops_text_role_classes`).
  */
 import { useMemo, useState, type ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { EmptyState } from "@/components/StateViews";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
@@ -40,6 +40,8 @@ import {
   DISTRICT_LEDGER_LEGEND_OPEN,
   DISTRICT_LEDGER_LIKELY_PREFIX,
   DISTRICT_LEDGER_NO_MATCHES,
+  DISTRICT_LEDGER_REWIND_HINT,
+  DISTRICT_LEDGER_REWIND_LABEL,
   DISTRICT_LEDGER_SEARCH_LABEL,
   DISTRICT_LEDGER_SEARCH_PLACEHOLDER,
   DISTRICT_LEDGER_LOCKED_AWARD_LABEL,
@@ -56,6 +58,15 @@ import {
   type DistrictLedgerStatusResult,
 } from "./districtLedgerStatus.js";
 import {
+  DISTRICT_TIMELINE_NOW_ID,
+  buildDistrictTimeline,
+  districtStageAtPosition,
+  resolveDistrictTimelinePosition,
+  startMatchKeyAtPosition,
+  type DistrictTimeline,
+} from "./districtTimeline.js";
+import {
+  DISTRICT_CATEGORIES,
   buildDistrictLedgerRows,
   deriveStageFromState,
   districtLedgerStatLine,
@@ -69,7 +80,7 @@ import {
   type DistrictLedgerTeam,
   type DistrictStageFinality,
 } from "./districtLedgerRows.js";
-import { useDistrictLedgerData } from "./useDistrictLedgerData.js";
+import { useDistrictEventArtifacts, useDistrictLedgerData } from "./useDistrictLedgerData.js";
 
 /**
  * The open cell's own class lists, declared once here rather than as new CSS
@@ -283,6 +294,61 @@ function TeamCell({ team, season, algorithm }: { team: DistrictLedgerTeam; seaso
   );
 }
 
+/** The narrow local cast this repo already uses for a control that does not own its route's search type. */
+type DistrictLedgerNavigate = (opts: { search: (prev: Record<string, unknown>) => Record<string, unknown>; replace?: boolean }) => Promise<void>;
+
+/**
+ * The Rewind slider and its DERIVED jump chips.
+ *
+ * Every move navigates with the search-updater form, preserving every other
+ * param — the pattern every other control in this app uses. The position
+ * readout is deliberately not animated.
+ */
+function RewindSlider({
+  timeline,
+  positionIndex,
+  onPositionChange,
+}: {
+  timeline: DistrictTimeline;
+  positionIndex: number;
+  onPositionChange: (index: number) => void;
+}) {
+  const position = timeline.positions[positionIndex] ?? timeline.positions[timeline.nowIndex]!;
+  return (
+    <div className="flex flex-col gap-[var(--spacing-sm)]" data-testid="district-ledger-rewind">
+      <label className="flex flex-col gap-[var(--spacing-xs)]">
+        <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_REWIND_LABEL}</span>
+        <input
+          type="range"
+          min={0}
+          max={timeline.nowIndex}
+          step={1}
+          value={positionIndex}
+          onChange={(event) => onPositionChange(Number(event.target.value))}
+          className="w-full max-w-[420px]"
+        />
+      </label>
+      <span data-testid="district-ledger-rewind-readout">{position.label}</span>
+      <div className="flex flex-wrap gap-[var(--spacing-sm)]" data-testid="district-ledger-jump-chips">
+        {timeline.chips.map((chip) => (
+          <button
+            key={chip.id}
+            type="button"
+            data-testid="district-ledger-jump-chip"
+            data-chip={chip.id}
+            aria-pressed={chip.positionIndex === positionIndex}
+            onClick={() => onPositionChange(chip.positionIndex)}
+            className="tap-target rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-sm)] py-[var(--spacing-xs)]"
+          >
+            {chip.label}
+          </button>
+        ))}
+      </div>
+      <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_REWIND_HINT}</span>
+    </div>
+  );
+}
+
 /**
  * The ONE controls card: the team-number search, the stat line and the legend.
  * The Rewind slider and its jump chips join this same card rather than getting
@@ -339,9 +405,27 @@ function ControlsCard({
 }
 
 export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerProps) {
-  const activeEventKeys = useMemo(() => inProgressDistrictEventKeys(artifact), [artifact]);
+  // `strict: false` plus a narrow local cast — the documented escape hatch for
+  // a control mounted inside a route whose search type it does not own.
+  const search = useSearch({ strict: false }) as { at?: string; drawerTeam?: number; drawerCell?: string };
+  const navigate = useNavigate() as unknown as DistrictLedgerNavigate;
 
-  const stageByEvent = useMemo(() => {
+  const [query, setQuery] = useState("");
+  const [hiddenStatuses, setHiddenStatuses] = useState<ReadonlySet<DistrictLedgerStatusKey>>(() => new Set());
+
+  /** The district's own district-tier events, deduplicated, in the order they were first seen. */
+  const districtEvents = useMemo(() => {
+    const byKey = new Map<string, { eventKey: string; eventName: string; week: number | null }>();
+    for (const team of artifact.teams) {
+      for (const entry of districtTierEvents(team)) {
+        if (!byKey.has(entry.eventKey)) byKey.set(entry.eventKey, { eventKey: entry.eventKey, eventName: entry.eventName, week: entry.week });
+      }
+    }
+    return [...byKey.values()];
+  }, [artifact]);
+
+  /** The "now" answer: 10-03's `state` blocks, and nothing else. */
+  const nowStageByEvent = useMemo(() => {
     const map = new Map<string, DistrictStageFinality>();
     for (const team of artifact.teams) {
       for (const entry of districtTierEvents(team)) {
@@ -352,20 +436,71 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
     return map;
   }, [artifact]);
 
-  const [query, setQuery] = useState("");
-  const [hiddenStatuses, setHiddenStatuses] = useState<ReadonlySet<DistrictLedgerStatusKey>>(() => new Set());
+  const inProgressKeys = useMemo(() => inProgressDistrictEventKeys(artifact), [artifact]);
+  const startedKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const team of artifact.teams) {
+      for (const entry of districtTierEvents(team)) {
+        if (deriveStageFromState(entry.state).started) keys.add(entry.eventKey);
+      }
+    }
+    return [...keys].sort();
+  }, [artifact]);
 
-  const data = useDistrictLedgerData({ artifact, activeEventKeys, stageByEvent });
+  // The FETCH set, decided from the raw search param rather than from the
+  // resolved position, which is what keeps artifacts -> timeline -> stage
+  // acyclic: a rewind widens it to every started district-tier event, because
+  // the interleaved timeline is built from those artifacts' own schedules.
+  // At "now" it is the in-progress events alone, so a finished or unstarted
+  // district fetches nothing at all (SC-5).
+  const rewinding = search.at !== undefined && search.at !== DISTRICT_TIMELINE_NOW_ID;
+  const activeEventKeys = rewinding ? startedKeys : inProgressKeys;
+  const artifacts = useDistrictEventArtifacts(activeEventKeys);
+
+  const timeline = useMemo(
+    () => buildDistrictTimeline({ events: districtEvents, eventArtifacts: artifacts.eventArtifacts }),
+    [districtEvents, artifacts.eventArtifacts]
+  );
+  const positionIndex = resolveDistrictTimelinePosition(timeline, search.at);
+  const atNow = positionIndex >= timeline.nowIndex;
+
+  const stageByEvent = useMemo(
+    () => districtStageAtPosition(timeline, positionIndex, nowStageByEvent),
+    [timeline, positionIndex, nowStageByEvent]
+  );
+  // At "now" no override is supplied at all, so each event falls back to its
+  // own first unplayed row — the honest live answer, which a rewound position
+  // replaces with the first row strictly after the step.
+  const startMatchKeyByEvent = useMemo(() => {
+    if (atNow) return undefined;
+    const map = new Map<string, string | null>();
+    for (const event of districtEvents) map.set(event.eventKey, startMatchKeyAtPosition(timeline, positionIndex, event.eventKey));
+    return map;
+  }, [atNow, districtEvents, timeline, positionIndex]);
+
+  function handlePositionChange(index: number): void {
+    const id = timeline.positions[index]?.id ?? DISTRICT_TIMELINE_NOW_ID;
+    void navigate({ search: (prev) => ({ ...prev, at: id === DISTRICT_TIMELINE_NOW_ID ? undefined : id }) });
+  }
+
+  const data = useDistrictLedgerData({
+    artifact,
+    activeEventKeys,
+    eventArtifacts: artifacts.eventArtifacts,
+    stageByEvent,
+    startMatchKeyByEvent,
+  });
 
   const rows = useMemo(
     () =>
       buildDistrictLedgerRows({
         artifact,
         distributions: data.distributions,
+        stageByEvent: atNow ? undefined : stageByEvent,
         unavailableEvents: data.unavailableEvents,
-        gaps: data.gaps,
+        gaps: { ...data.gaps, missingEventArtifacts: artifacts.missingEventArtifacts },
       }),
-    [artifact, data.distributions, data.unavailableEvents, data.gaps]
+    [artifact, data.distributions, atNow, stageByEvent, data.unavailableEvents, data.gaps, artifacts.missingEventArtifacts]
   );
 
   const statuses = useMemo(() => computeDistrictLedgerStatuses({ artifact, teams: rows.teams }), [artifact, rows.teams]);
@@ -408,6 +543,7 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]" data-testid="district-ledger-tab">
       <ControlsCard query={query} onQueryChange={setQuery} statLine={statLine}>
+        <RewindSlider timeline={timeline} positionIndex={positionIndex} onPositionChange={handlePositionChange} />
         <StatusChips counts={statuses.counts} active={activeStatuses} onToggle={toggleStatus} />
       </ControlsCard>
       {visibleTeams.length === 0 && <p className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_NO_MATCHES}</p>}
