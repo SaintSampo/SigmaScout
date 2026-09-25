@@ -188,7 +188,6 @@ describe("applyDistrictRankings — never invents metadata", () => {
     expect(newcomer.nickname).toBeUndefined();
     expect(newcomer.qualifyingAwards).toEqual([]);
     expect(newcomer.remainingEvents).toEqual([]);
-    expect(newcomer.maxRemainingDistrict).toBe(0);
   });
 
   it("gives an event_points entry for an unknown event key the event key as its name, a null week, and its tier from its OWN district_cmp boolean", () => {
@@ -417,5 +416,66 @@ describe("DistrictEventStateSchema round-trip on the published artifact", () => 
       playoffsDone: true,
       awardsPosted: true,
     });
+  });
+});
+
+describe("applyDistrictRankings — a payload-only team's ceiling errs toward still ahead (WR-01)", () => {
+  /** A team in TBA's rankings payload that the published artifact has never seen. */
+  function withNewcomer(pointTotal: number) {
+    const payload = tracerPayload();
+    payload.push({
+      team_key: "frc9999",
+      rank: 3,
+      point_total: pointTotal,
+      rookie_bonus: 0,
+      adjustments: 0,
+      event_points: [eventPointsEntry("2026ncwak", pointTotal)],
+    });
+    return merge(twoTeamFixture(), payload);
+  }
+
+  it("seeds a payload-only team with one district event's own maximum, never zero", () => {
+    // Zero is a ceiling equal to the team's current point total. It removes the
+    // team as a threat to everyone above it and can mark the team itself
+    // eliminated — the outcome this module's header says dropping a team would
+    // produce, reached by a different route.
+    const newcomer = withNewcomer(5).teams.find((t) => t.teamKey === "frc9999")!;
+    expect(newcomer.maxRemainingDistrict).toBe(DISTRICT_EVENT_MAX);
+    expect(newcomer.maxRemainingDistrict).toBeGreaterThan(0);
+  });
+
+  it("the substituted ceiling rides into the CHAMP ceiling the second pass derives", () => {
+    const newcomer = withNewcomer(5).teams.find((t) => t.teamKey === "frc9999")!;
+    expect(newcomer.maxRemainingChamp).toBeGreaterThanOrEqual(newcomer.maxRemainingDistrict);
+  });
+
+  it("does NOT mark a payload-only team eliminated on its own zeroed ceiling", () => {
+    // `frc9999` sits at 50 points against `frc1`'s 90 with the district's one
+    // dcmp slot in play. A zeroed ceiling caps it at 50 and reads eliminated;
+    // one district event's maximum puts 133 within reach, which is the honest
+    // answer for a team whose calendar this function cannot see.
+    const newcomer = withNewcomer(50).teams.find((t) => t.teamKey === "frc9999")!;
+    expect(newcomer.pointTotal + newcomer.maxRemainingDistrict).toBeGreaterThan(90);
+    expect(newcomer.districtLock.status).not.toBe("eliminated");
+  });
+
+  it("a payload-only team is still a THREAT, so a rival above it is not handed a premature lock", () => {
+    // 90 points against `frc1`'s own 90 with a full district event still
+    // available: a zeroed ceiling made this team invisible to the lock math.
+    const merged = withNewcomer(90);
+    const newcomer = merged.teams.find((t) => t.teamKey === "frc9999")!;
+    expect(newcomer.pointTotal + newcomer.maxRemainingDistrict).toBeGreaterThan(
+      merged.teams.find((t) => t.teamKey === "frc1")!.pointTotal
+    );
+  });
+
+  it("a team the artifact DOES carry still sums its own published remaining events, unchanged", () => {
+    // The substitution applies only where there is no calendar to read. `frc1`
+    // has one remaining event in the fixture and the tracer payload plays it,
+    // so its carried sum drops to zero — and that zero is a real answer, not a
+    // guess, so it is left alone.
+    const merged = merge(twoTeamFixture(), tracerPayload());
+    expect(merged.teams.find((t) => t.teamKey === "frc1")!.maxRemainingDistrict).toBe(0);
+    expect(merged.teams.find((t) => t.teamKey === "frc2")!.maxRemainingDistrict).toBe(0);
   });
 });

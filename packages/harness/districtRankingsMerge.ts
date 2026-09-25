@@ -424,7 +424,34 @@ export function applyDistrictRankings(options: ApplyDistrictRankingsOptions): Di
       .filter((remaining) => !playedEventKeys.has(remaining.eventKey))
       .map((remaining) => withState({ ...remaining, maxPoints: remaining.tier === "dcmp" ? dcmpEventMaxTotal : districtEventMaxTotal }, eventState));
 
-    const maxRemainingDistrict = remainingEvents.filter((remaining) => remaining.tier === "district").reduce((sum, remaining) => sum + remaining.maxPoints, 0);
+    const carriedMaxRemainingDistrict = remainingEvents
+      .filter((remaining) => remaining.tier === "district")
+      .reduce((sum, remaining) => sum + remaining.maxPoints, 0);
+
+    // A PAYLOAD-ONLY TEAM HAS NO CALENDAR HERE, AND ZERO IS THE ONE ANSWER
+    // THAT CANNOT BE USED. A team present in TBA's rankings payload but absent
+    // from the published artifact has no `remainingEvents` to sum, so the
+    // reduce above returns 0 — a ceiling equal to that team's current point
+    // total. That removes it as a threat to everyone above it and can mark the
+    // team itself `eliminated`, which is exactly the outcome this function's
+    // own header says dropping a team would produce: "silently remove a threat
+    // and manufacture a `locked` verdict". Arriving at it by a different route
+    // does not make it a different bug.
+    //
+    // `dcmpStillAhead` just above states the rule this follows: err toward
+    // "still ahead", because an OVERSTATED rival ceiling only delays a
+    // `"locked"` verdict while an understated one publishes a guarantee that is
+    // not true. So an unknown team is seeded with one district event's own
+    // maximum total.
+    //
+    // THE BOUND IS HONEST ABOUT WHAT IT IS. A team plays 0 to 4 district
+    // events, and this substitution assumes exactly one is still ahead. It is
+    // not a measurement and it is not tight — it is the smallest value that
+    // errs in the safe direction, chosen over a larger guess because the
+    // publisher's own calendar, not this function, is where the real answer
+    // lives. The next offline republish gives the team a real row and this path
+    // stops applying to it.
+    const maxRemainingDistrict = existing === undefined ? districtEventMaxTotal : carriedMaxRemainingDistrict;
 
     return {
       // Spread first so every field the artifact's team row carries — today's
