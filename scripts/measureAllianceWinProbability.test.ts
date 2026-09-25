@@ -106,6 +106,7 @@ function fakeSnapshotRow(overrides: Partial<PublishedSprSnapshotRow> = {}): Publ
     match,
     prediction: fakePrediction(0.7),
     before: snapshotFor([...match.redTeams, ...match.blueTeams], 30, 6),
+    after: snapshotFor([...match.redTeams, ...match.blueTeams], 31, 6),
     ...overrides,
   };
 }

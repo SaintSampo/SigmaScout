@@ -82,6 +82,18 @@ export function emptySnapshotState(): SnapshotState {
   return { total: new Map(), sigma: new Map() };
 }
 
+/** A pure read of the running maps for `teams`. Writes nothing. */
+export function snapshotForTeams(
+  state: SnapshotState,
+  teams: readonly string[]
+): ReadonlyMap<string, PublishedTeamSnapshot> {
+  const snapshot = new Map<string, PublishedTeamSnapshot>();
+  for (const teamKey of teams) {
+    snapshot.set(teamKey, { total: state.total.get(teamKey), sigma: state.sigma.get(teamKey) });
+  }
+  return snapshot;
+}
+
 /**
  * READ then ADVANCE, in that order — the whole walk-forward guarantee of this
  * module, in one pure function so a test can drive it directly.
@@ -97,10 +109,7 @@ export function beforeMatchSnapshot(
   afterTotals: ReadonlyMap<string, number> | undefined,
   afterSigmas: ReadonlyMap<string, number> | undefined
 ): ReadonlyMap<string, PublishedTeamSnapshot> {
-  const before = new Map<string, PublishedTeamSnapshot>();
-  for (const teamKey of teams) {
-    before.set(teamKey, { total: state.total.get(teamKey), sigma: state.sigma.get(teamKey) });
-  }
+  const before = snapshotForTeams(state, teams);
   // ── everything below this line is the ADVANCE half; nothing above may read it ──
   if (afterTotals !== undefined) {
     for (const [teamKey, total] of afterTotals) {
@@ -125,6 +134,20 @@ export interface PublishedSprSnapshotRow {
   readonly coldStart?: true;
   /** Every involved team's `total`/`sigma` as of its most recently played match BEFORE this one. */
   readonly before: ReadonlyMap<string, PublishedTeamSnapshot>;
+  /**
+   * Every involved team's `total`/`sigma` as of AFTER this match — the value a
+   * published artifact carries for that team once this match is on the record.
+   *
+   * This is NOT a leak: it is the same walk-forward quantity as `before`, read
+   * one match later, and it exists because
+   * `scripts/measureSelectionAgreement.ts` needs each team's published rating at
+   * an event's QUALIFICATION/PLAYOFF BOUNDARY — which is the value from its most
+   * recently played match AT or before the boundary, i.e. after its final
+   * qualification match. A consumer that pairs `after` with THIS match's own
+   * outcome would be leaking; a consumer that carries it forward to a LATER
+   * decision is not.
+   */
+  readonly after: ReadonlyMap<string, PublishedTeamSnapshot>;
 }
 
 /**
@@ -267,6 +290,7 @@ export function replayPublishedSprSnapshots(
           if (sigma !== undefined) afterSigmas.set(teamKey, sigma);
         }
         const before = beforeMatchSnapshot(state, involvedTeams, talentMap.get(match.matchKey), afterSigmas);
+        const after = snapshotForTeams(state, involvedTeams);
 
         if (!counted) continue;
         emittedRows++;
@@ -277,6 +301,7 @@ export function replayPublishedSprSnapshots(
           prediction: record.prediction,
           ...(record.coldStart ? { coldStart: true as const } : {}),
           before,
+          after,
         });
       }
     }

@@ -41,7 +41,8 @@
     "recon:rp-thresholds": "tsx --env-file=.env scripts/recon-rp-thresholds.ts",
     "compare:epa-statbotics": "tsx scripts/epaVsStatbotics.ts --warmup 2016-2020",
     "measure:alliance-win-probability": "tsx scripts/measureAllianceWinProbability.ts",
-    "measure:district-award-base-rates": "tsx scripts/measureDistrictAwardBaseRates.ts"
+    "measure:district-award-base-rates": "tsx scripts/measureDistrictAwardBaseRates.ts",
+    "measure:selection-agreement": "tsx scripts/measureSelectionAgreement.ts"
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",
