@@ -16,6 +16,7 @@ import {
 } from "./districtLedgerRows.js";
 import { useDistrictSimulationRun, type DistrictSimulationRunState } from "./useDistrictSimulationRun.js";
 import type { DistrictSimulationEventRequest } from "../../workers/districtSimulationProtocol.js";
+import type { DistrictLedgerEventInput } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import type { DistrictArtifact, EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -118,6 +119,73 @@ function defaultStartKey(artifact: EventArtifact): string | null {
   return rows.find((row) => !row.played)?.matchKey ?? null;
 }
 
+/** An absent optional member, distinguishable from a present-but-empty one. */
+const SIGNATURE_ABSENT = "-";
+
+/** One known-points map folded to its SORTED `key=value` pairs — the VALUES, never their presence. */
+function foldKnownPoints(known: ReadonlyMap<string, number> | undefined): string {
+  if (known === undefined) return SIGNATURE_ABSENT;
+  return [...known]
+    .map(([teamKey, value]) => `${teamKey}=${String(value)}`)
+    .sort()
+    .join(",");
+}
+
+/** One supplied alliance set folded to its rosters, sorted by alliance number. */
+function foldKnownAlliances(alliances: DistrictLedgerEventInput["knownAlliances"]): string {
+  if (alliances === undefined) return SIGNATURE_ABSENT;
+  return [...alliances]
+    .map((alliance) => `${String(alliance.allianceNumber)}:${alliance.picks.join("+")}`)
+    .sort()
+    .join(",");
+}
+
+/** The ranking inputs folded per team, so a score correction that leaves the row COUNT unchanged still moves the signature. */
+function foldBaselines(baselines: DistrictLedgerEventInput["baselines"]): string {
+  return baselines.map((baseline) => `${baseline.teamKey}=${String(baseline.earnedRpSum)}/${String(baseline.matchesPlayed)}`).join(",");
+}
+
+/**
+ * The string `useDistrictSimulationRun` keys its effect on: everything a run's
+ * OUTPUT depends on, folded to its VALUES.
+ *
+ * WHY VALUES AND NOT PRESENCE. The district artifact refetches on a 60 second
+ * floor while any member event is live (`lib/api/districts.ts`'s
+ * `refetchInterval`), and the live window is the whole point of this tab. A
+ * signature built from `knownElimPoints !== undefined` cannot see an award
+ * being posted, an alliance roster being corrected, a score correction that
+ * revises the baselines without changing the row count, or `allianceCount`
+ * moving at all — every one of which changes the distributions the cells
+ * print. The run would not re-fire and the tab would go quietly stale in
+ * exactly the minutes it exists for.
+ *
+ * DETERMINISTIC AND EXACT, not hashed. Each map is folded to its sorted
+ * `key=value` pairs so two equal inputs always produce one string, and no
+ * collision can silently suppress a re-run. It is recomputed inside the same
+ * `useMemo` that already walks every roster, so it costs one more pass over
+ * data already in hand.
+ *
+ * Exported for its own test: the staleness this closes is invisible to a
+ * render test and only a direct assertion on this string can pin it.
+ */
+export function districtRunSignature(events: readonly DistrictSimulationEventRequest[]): string {
+  return events
+    .map((event) => {
+      const input = event.input;
+      return [
+        event.eventKey,
+        String(input.remainingMatches.length),
+        String(input.allianceCount),
+        String(input.fieldSize),
+        foldBaselines(input.baselines),
+        foldKnownAlliances(input.knownAlliances),
+        foldKnownPoints(input.knownElimPoints),
+        foldKnownPoints(input.knownAwardPoints),
+      ].join("|");
+    })
+    .join(";");
+}
+
 export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): DistrictLedgerData {
   const { artifact, activeEventKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent } = options;
   const activeKeys = useMemo(() => [...activeEventKeys].sort(), [activeEventKeys]);
@@ -162,15 +230,12 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
       if (built.fieldSizeFellBack) eventsWithFallbackFieldSize.push(eventKey);
       events.push({ eventKey, input: built.input });
     }
-    const signature = events
-      .map(
-        (event) =>
-          `${event.eventKey}|${String(event.input.remainingMatches.length)}|${String(event.input.baselines.length)}|${String(
-            event.input.knownAlliances !== undefined
-          )}${String(event.input.knownElimPoints !== undefined)}${String(event.input.knownAwardPoints !== undefined)}`
-      )
-      .join(";");
-    return { events, signature, eventsWithExcludedMatches, eventsWithFallbackFieldSize };
+    return {
+      events,
+      signature: districtRunSignature(events),
+      eventsWithExcludedMatches,
+      eventsWithFallbackFieldSize,
+    };
   }, [activeKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent, artifact]);
 
   const runState = useDistrictSimulationRun(
