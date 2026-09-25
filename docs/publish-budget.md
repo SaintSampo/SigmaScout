@@ -208,16 +208,34 @@ project's real ceilings are, and a publish is not the only writer against them.
 ### The live Worker writes against the same 1,000,000 (quick tasks 260923-3w6, 260923-3w8)
 
 Since 260923-3w6 the cron tick writes a per-team artifact on every fold, alongside the event artifact
-and the `teams/{year}` rebuild. Driven by MATCHES FOLDED rather than by ticks — a tick with nothing new
-writes nothing — the peak-season-month estimate from `260923-1tu-FINDINGS.md` item C5 is:
+and the `teams/{year}` rebuild; since phase 10 (2026-09-25) it also writes the DISTRICT artifact for
+every live district whose numbers moved. That is the complete list of what the tick writes. Every one
+of the four is driven by WHAT MOVED rather than by ticks — a tick with nothing new writes nothing —
+and the peak-season-month estimate from `260923-1tu-FINDINGS.md` item C5, extended with the district
+row, is:
 
 | Writer | Basis | Peak month |
 |---|---|---:|
 | Team artifacts | ~18k matches/season x 6 teams x 3 algorithms over ~2.5 months | ~130,000 |
 | Event artifacts | one per algorithm per folded match | ~25,000 |
 | `teams/{year}` rebuilds | 3 per touched tick, ~4.3k touched ticks | ~13,000 |
+| District artifacts | at most one PUT per LIVE district per tick, and only when the merged artifact really differs. Upper bound below | ~58,000 |
 | Two full publishes | 109,000 each | ~218,000 |
-| **Total** | | **~390,000 of 1,000,000** |
+| **Total** | | **~448,000 of 1,000,000** |
+
+**The district row is an ESTIMATE on the stated basis, not a measurement.** It is this plan's own
+arithmetic over 10-05's recorded per-tick cost: about 8 of the 14 districts have an event running on
+a given peak weekend day, x 3 days x 4 weekends x 10 hours of play x 60 ticks an hour, which is about
+58,000 ticks on which a district is live. Every one of those is counted as a write, which is the
+worst case and not the expected one: the pass compares the merged candidate against the published
+object and skips the put when they are equal, so a district whose rankings have not moved since the
+last tick costs one conditional TBA request and no R2 operation at all (that is the `districtsUnchanged`
+count in the tick log). A real weekend will land well under the row above.
+
+**It does not change this section's conclusion.** The total moves from about 390,000 to about
+448,000 of 1,000,000, the two full publishes are still the largest single line, and the growth axis
+that is genuinely capped is still the number of published algorithms rather than anything the tick
+does.
 
 **The `x 3 algorithms` and `3 per touched tick` in that table are now ACTUAL, not forward-looking.**
 When the estimate was written the live tier was `spr` alone, so the real per-tick cost was a third of

@@ -881,6 +881,69 @@ closed.
 
 ---
 
+## The district refresh pass (phase 10, plan 10-05, added 2026-09-25)
+
+The tick has a fourth job since phase 10: keeping a district's published points current between
+offline republishes. `apps/worker/src/districtRefresh.ts` runs after the event loop and after the
+global rebuild, and before `writeTickMeta`.
+
+**A district is live when any of its member events has a live window.** The pass learns that from
+the live-windows manifest the tick already read — every window entry now carries a `districtKey`
+(null for a non-district event). The set is narrowed further to the windows the tick actually
+processed (foldable plus promoted), so a calendar probe window that has never promoted does not
+spend a district's TBA request.
+
+**What it does, per live district, in this order:**
+
+1. One conditional `GET /district/{key}/rankings`, sending `If-None-Match` from the district's own
+   cursor. This comes FIRST, before any R2 read, so a 304 with nothing else moving costs one TBA
+   request and **zero** R2 reads.
+2. The published `v1/district/{key}.json` is read back from R2 only when something moved — either
+   the rankings changed, or a member event's own state did.
+3. The shared merge (`packages/harness/districtRankingsMerge.ts`) applies the new rankings and the
+   per-event state facts, and recomputes the `locks.ts` verdicts. The Worker has no corpus, so it
+   can only merge into what the offline publisher already wrote: a **missing** district artifact is
+   skipped with a `district-artifact-missing` warn and never created, and an **empty** rankings
+   payload throws inside the merge before any row is touched, so a published district can be
+   neither invented nor blanked.
+4. At most one conditional `GET /event/{key}/awards` per live member event, and only once that
+   event's playoffs are done. A district artifact that already publishes `awardsPosted: true` for
+   an event is never asked again — awards do not un-post.
+5. The candidate is compared with the existing object by serialization, with the existing
+   artifact's own generation and timestamp held constant. Equal means nothing moved and nothing is
+   written.
+6. ETag cursors are written **last**, only after the put that earns the right to stop asking.
+
+**Every step for one district sits inside that district's own error isolation.** One bad district
+costs one warn line and one failed count; it cannot cost the tick its other districts, and it
+cannot cost the tick its rotation offset. The pass never throws and never simulates.
+
+**Two reserved `event_cursor` key shapes** are written by this pass, and an operator reading the
+`event_cursor` table will meet both:
+
+| Key shape | Holds |
+|---|---|
+| `__district_rankings__:{districtKey}` | the district rankings ETag |
+| `__event_awards__:{eventKey}` | the event awards ETag |
+
+Both are refused by `emitCursorSeedSql`, so a D1 seed cannot clobber either. Neither is owed before
+a deploy: the tick writes them itself and they are meant to be absent until it runs.
+
+**New log lines to filter on:** `district-refreshed` (`districtKey`, `bytes`, `teams`),
+`district-refresh-failed` (`districtKey`, `error`), `district-artifact-missing` (`districtKey`,
+`key`) and `district-key-rejected` (`districtKey`).
+
+### Known freshness limit, recorded rather than fixed
+
+**Awards that post after every member event's live window has closed do not appear until the next
+offline republish.** An event's live window is padded one hour past the last match observed there
+(`LIVE_WINDOW_PAD_MS` in `packages/harness/manifestSchemas.ts`), so an award ceremony later that
+night falls outside it and the tick never asks. This is a consequence of how the window is defined,
+not a defect in the pass. The same limit is stated for a reader on
+`/methodology/district-points` and is the last of the seven limits listed there.
+
+---
+
 ## Watching it
 
 ```bash
@@ -893,13 +956,28 @@ Every invocation emits exactly one structured line:
 ```json
 {"msg":"tick","ok":true,"durationMs":152,"eventsConsidered":0,"eventsAdvanced":0,
  "eventsFailed":0,"eventsProbed":0,"eventsPromoted":0,"tbaRequests":0,
- "subrequestsUsed":1,"globalRebuildRan":false}
+ "subrequestsUsed":1,"globalRebuildRan":false,"districtsConsidered":0,
+ "districtsRefreshed":0,"districtsUnchanged":0,"districtsFailed":0}
 ```
 
 That is a healthy idle tick: nothing live, one manifest read, zero TBA requests. **There is no
 `eventsDeferred` field any more** — quick task 260923-3w4 deleted the deferral it counted, so a tick
 log from before 2026-09-23 carries one and a current tick does not. `subrequestsUsed` stays: it is
-how an event weekend's shape is read without a tail. A tick during an
+how an event weekend's shape is read without a tail.
+
+**The four district fields appeared on 2026-09-25** (phase 10, plan 10-05), so a tick log from
+before that date carries none of them and a current tick carries all four. They are stated here for
+the same reason the deleted field is: a reader of an old tail should not have to guess which side of
+a change it came from.
+
+| Field | What it counts |
+|---|---|
+| `districtsConsidered` | districts with at least one live member event this tick. Stays `0` against any live-windows manifest published before phase 10, which is the correct answer for a manifest that carries no district information |
+| `districtsRefreshed` | districts whose artifact this tick republished |
+| `districtsUnchanged` | districts that cost one conditional TBA request and no write |
+| `districtsFailed` | districts that threw, were refused by the key pattern, or had no published artifact to merge into |
+
+A tick during an
 offseason weekend with an open calendar probe window but no matches posted yet looks the same
 except `eventsProbed` is above zero (`eventsPromoted` stays `0` until TBA actually returns
 matches) — see "Before an event: probed automatically, and what ingest + republish still buys
@@ -937,6 +1015,7 @@ above. An observation your model says is impossible is the most valuable one you
 | A `live-tier-defaulted` warn line in the tail | `LIVE_ALGORITHM_IDS` did not reach the deployed Worker (e.g. a `--var` deploy that did not carry tracked vars through) | Redeploy from tracked config with `pnpm worker:deploy` and confirm the deploy output lists both `TBA_BASE_URL` and `LIVE_ALGORITHM_IDS` |
 | `outcome: "exceededCpu"` with an empty `logs` array on **every** tick | The tick is *consistently* over the CPU budget (30 s per invocation, Workers Paid since 2026-09-22 — was 10 ms on the free plan). It is reaching the handler and dying before its final log line — it is **not** dying in module init (that is a separate 1-second budget) | `eventsConsidered` on any tick that does survive. If non-zero, fetch `https://data.sigmascout.org/v1/manifest/live-windows.json` and see what the Worker thinks is live — **read the manifest, never the calendar**. Read "How the CPU budget is actually enforced" above before drawing any conclusion from a single high `cpuTime` |
 | About to run an event; unsure the deployed bundle can read the rows in D1 | Untested since the last seed — a green idle tick does not exercise it | Apply `seed-cursors.sql` from the same publish run and deploy in that order, then watch the first tick for `state-generation-mismatch` or `LeagueRowShapeVersionError`. (The pre-event probe that used to answer this by hand was deleted 2026-09-23 — see "Pre-event probe" above) |
+| Earned district points not moving on `/districts` during a live district weekend | The district refresh pass is not seeing the district as live, is failing on it, or has nothing published to merge into | Read `districtsConsidered`, `districtsRefreshed`, `districtsUnchanged` and `districtsFailed` on the tick line, in that order. `districtsConsidered: 0` means no member event's window carries a `districtKey` — the live-windows manifest predates phase 10 or has gone stale, so re-run `pnpm publish:seasons`. Non-zero considered with `districtsFailed` above zero: grep the tail for `district-refresh-failed` and `district-artifact-missing` (the Worker never CREATES a district artifact, so a district the offline publisher has not published yet fails every tick). All considered and all unchanged is the healthy answer when TBA's rankings have genuinely not moved |
 | An `upcoming-pricing-failed` warn line in the tail | The tick could not price the event's remaining schedule — the priced row failed `EventUpcomingMatchSchema` (a pmf that does not sum, a band that is not finite). The event's state is durable in D1; its artifacts lag until the next tick | Read the truncated `error` field and the `upcoming` count on the line. It is a model-output problem, not a config one: the offline publisher would fail the same parse on the same state, so reproduce it with a replay rather than by redeploying |
 
 ---

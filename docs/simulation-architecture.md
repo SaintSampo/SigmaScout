@@ -23,25 +23,56 @@ the simulation stays client-side in both directions, not moved into the sidecar 
 a server-side Worker (quick task 260923-1tu). Section 6's file map was checked against HEAD with
 Glob; one file no longer exists and its row is dropped.
 
+**Re-verified 2026-09-25** against HEAD (phase 10, plan 10-08, a code read, not a live fetch against
+R2). Phase 10 shipped the Road to District Champs tab on `/districts`, so section 1's own count of
+tabs and engines was wrong and is corrected below: two tabs simulate and three engines exist. A new
+subsection under section 1 describes the district engine and the browser side alliance pricer it
+uses. Section 5's closed question is unaffected and carries a one sentence note saying so, and
+section 6's file map gains the district rows. Every figure in the sections below section 1 is
+unchanged; the pre-schedule and per-match numbers still describe what they always described.
+
 ---
 
-## 1. There is one tab and two engines
+## 1. Two tabs simulate, and there are three engines
+
+Two tabs in this app run a simulation: the event page's Simulation tab, and the district page's
+Road to District Champs tab. Between them they use three engines.
 
 The Simulation tab (`apps/web/src/components/event/SimulationTab.tsx`) is a single panel
 whose content is decided by one piece of state: `StartSelection`, which has exactly two
-shapes (`StartMatchPicker.tsx:63`).
+shapes (`StartMatchPicker.tsx:63`). The district ledger is the third engine and has no picker: what
+runs is decided by what has already happened at each of the district's events.
 
 | Selection | Engine | Where the draws happen | Cost to the visitor |
 |---|---|---|---|
 | `{ kind: "preSchedule" }` — the picker's "Before schedule release" stop | **Baked** | Offline, in `pnpm publish:seasons` | Zero compute. One fetch, median 6,855 B, p95 16,005 B, max 23,831 B across all 214 published sidecars (2026-09-21 generation, see section 3). The 139 to 266 KB and 388 to 394 KB figures once quoted here described the sidecar before quick task 260912-2ur dropped the priced `schedules` block. They describe nothing currently on R2. |
 | `{ kind: "match", matchKey }` — any qualification row | **Live** | Browser Web Worker, on Run press | ~97 ms end-to-end (measured) |
+| The district ledger, per district event with any category still open | **District** | Browser Web Worker, on load and on every slider move | ~12 ms per 1,000 draws for one event with all four categories open (measured, 2026-09-25, four runs at 11.4 to 12.9 ms). **Zero compute** for a district whose every event is finished, and zero again for an event nobody has played: no Worker is constructed at all in either case, and an unplayed event's cells come from a baked sidecar |
 
-Both engines call the **same** function — `simulateRanks` in
+The Baked engine and the Live engine both call the **same** function — `simulateRanks` in
 `packages/core/algorithms/simulation/rankSimulation.ts` — and both produce the same
 `SimResult` shape, which is why `decodePreScheduleResult` exists: it unpacks the baked
 histograms *into* a `SimResult` so both paths feed one row builder
 (`buildRankDistributionRows`). That single-row-builder rule is load-bearing; a second builder
 would let the two views disagree about the same event while both looked plausible.
+
+### 1a. The district engine (phase 10, 2026-09-25)
+
+`simulateDistrictEvent` in `packages/core/districts/ledgerSimulation.ts` calls the **same** Monte
+Carlo core, through `simulateRanks`'s per draw hook. One draw therefore produces a ranking, then
+that ranking's captains and picks, then a bracket, and all of a team's numbers in that draw belong
+to the same imagined weekend. The hook reads from a second generator built from the same seed, so
+the district tab's qualification marginal is bit for bit the event page's Simulation tab for the
+same seed.
+
+**The browser prices alliances again.** Each bracket match is priced by
+`allianceWinProbability` in `packages/core/algorithms/simulation/allianceWinProbability.ts`, from
+the published rating and Sigma Score the event artifact already carries per team. This function is
+NEW rather than a revival of the embedded state block pricer deleted on 2026-09-23 (quick task
+260923-3w6): it prices two alliances against each other from published numbers, not a single
+upcoming match from Worker state. Its gap against the site's own published win probability was
+measured before it shipped, at a mean of 0.0552 over 19,792 played 2026 matches, and that gap is
+published for a reader at `/methodology/district-points`.
 
 ---
 
@@ -293,6 +324,10 @@ for moving other compute off the client elsewhere in this system, see the same f
 section 2, item C1. It gives no reason to move this particular compute onto the server, because
 this compute was never CPU-constrained on the client in the first place.
 
+**A third engine arriving in 2026-09-25 does not reopen this.** The district engine described in
+section 1a runs IN THE BROWSER, which is consistent with the decision this section records rather
+than a departure from it.
+
 ### Historical record: Options A, B and C
 
 Evaluated 2026-09-10 through 2026-09-19, before the question closed. Kept as the record of what
@@ -340,8 +375,21 @@ variance fix shipped under quick task 260910-kco.
 | `apps/web/src/components/event/StartMatchPicker.tsx` | the two selection kinds |
 | `apps/web/src/components/event/rankRows.ts` | `SimResult` → display rows |
 | `apps/web/src/routes/event.$eventKey.tsx:188` | the lazy sidecar fetch gate |
+| `packages/core/districts/ledgerSimulation.ts` | the district engine's joint draw: ranking, draft, bracket and award in one run |
+| `packages/core/algorithms/simulation/allianceWinProbability.ts` | the browser's alliance pricer, from published rating and Sigma Score |
+| `packages/core/districts/pointSummary.ts` | the blue cell's numbers and which of the two text forms to use |
+| `packages/harness/districtBake.ts` | the offline bake for an event nobody has played |
+| `apps/web/src/workers/districtSimulationProtocol.ts` | the district message contract, its three ceilings and per event failure isolation |
+| `apps/web/src/workers/districtSimulation.worker.ts` | the district Worker entry, no arithmetic |
+| `apps/web/src/workers/createDistrictSimulationWorker.ts` | the district Vite bundling seam |
+| `apps/web/src/components/districts/useDistrictSimulationRun.ts` | the district Worker lifecycle |
+| `apps/web/src/components/districts/DistrictLedger.tsx` | the Road to District Champs tab |
+| `apps/web/src/lib/api/districtLedger.ts` | the baked district sidecar fetch; 404 → `null` |
 
 Every row above was checked against HEAD with Glob on 2026-09-23. One file named in the prior
 version of this map, `scripts/measureRewindGap.ts`, no longer exists and its row is dropped;
 `scripts/measureFieldAveragedRanks.ts` is the current offline consumer of `simulateRanks` outside
 the pipeline itself, referenced in section 5's Option C entry above.
+
+**Re-checked 2026-09-25** (phase 10, plan 10-08, a code read against HEAD). Every row above still
+resolves, and the district rows below were added in the same pass.
