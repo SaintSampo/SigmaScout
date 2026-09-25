@@ -20,13 +20,13 @@ and the live e2e run are orchestrator-run checkpoint tasks at the end of the pha
 |---|---|---|---|---|
 | 10-01 | Core district point formulas in `packages/core/districts`: the corpus reconciliation test FIRST (Wave 0), then `qualPoints.ts` (erfinv, Winitzki), `selectionPoints.ts` (captain and first pick `17 - allianceNumber`, second pick `allianceNumber`, fourth robot 0), `bracket.ts` (the verified 13-match 8-alliance double elimination routing and its 0/0/7/13/20/30 exit points) and the non-eight-alliance empirical fallback playoff table; plus the additive per-draw `onDraw` hook on `simulateRanks` that leaves its two existing callers and their regression oracle untouched | 1 | — | SC-2, SC-6 |
 | 10-02 | Measured before it ships: the walk-forward award base-rate tables by decoration bucket crossed with rookie status (script, leak test, season-registered table module), the selection model's pick-order agreement measured against `event_alliances`, and the NEW browser alliance win-probability function measured against the harness's own `pRedWin` with the honest gap recorded. Owns every new root `package.json` script entry for this phase | 1 | — | SC-2, SC-6 |
-| 10-03 | The district artifact and manifest contract: four per-team-per-event state booleans on `DistrictTeamEventPointsSchema`, the baked-pmf shape with inline-vs-sidecar decided by MEASURED bytes for `2026pnw`, the award-table placement, `districtKey` on `LiveWindowEntrySchema` populated by the offline manifest writer, a district payload-budget line, and the single shared pure `applyDistrictRankings` producer both writers will call | 1 | — | SC-1, SC-5 |
-| 10-04 | The joint district ledger simulation in `packages/core/districts`: one run yields correlated (qual, selection, playoff) per team via the `onDraw` hook, captains are the top eight, picks are greedy by SPR, the bracket is priced by the new win-probability function, the event total is the per-run sum, the grand total is the exact convolution of two event totals plus rookie bonus and adjustments, and every histogram is a marginal of the same runs | 2 | 10-01, 10-02 | SC-2 |
+| 10-03 | The district artifact and manifest contract: four per-team-per-event state booleans on `DistrictTeamEventPointsSchema`, the baked-pmf shape with inline-vs-sidecar decided by MEASURED bytes for `2026pnw`, the award-table placement, `districtKey` on `LiveWindowEntrySchema` populated by the offline manifest writer, a district payload-budget line, the single shared pure `applyDistrictRankings` producer both writers will call, and `scripts/publishLiveWindows.ts` / `pnpm publish:live-windows` — the standalone one-object manifest publisher (same builder, live generation reused, `--dry-run` writes nothing) that gives `districtKey` a path to production without the ~109,000-write full republish | 1 | — | SC-1, SC-5 |
+| 10-04 | The joint district ledger simulation in `packages/core/districts`: one run yields correlated (qual, selection, playoff) per team via the `onDraw` hook, captains follow the measured PROGRESSIVE rule (at each alliance's turn the highest-ranked team not yet allied — 3,879 of 3,880 slots; the top-eight assumption holds at only 3 of 491 events), picks are greedy by SPR under the serpentine order, the bracket is priced by the new win-probability function, the event total is the per-run sum, the grand total is the exact convolution of N event totals plus rookie bonus and adjustments, and every histogram is a marginal of the same runs | 2 | 10-01, 10-02 | SC-2 |
 | 10-05 | The Worker district refresh pass: derive district liveness from member-event live windows, one ETag conditional `/district/{key}/rankings` request per live district per tick, one `/event/{key}/awards` request per live event once playoffs are done, merge into the artifact read back from R2 through the shared producer, recompute `locks.ts` verdicts, write with the secret-leak check and per-district try/catch isolation, never simulate | 2 | 10-03 | SC-1 |
 | 10-06 | The offline publisher: `scripts/publishDistricts.ts` emits the four state booleans, the baked per-team-per-event category and event-total pmfs for unstarted events, and the season award base-rate tables, all through the same shared producer; measured serialized bytes recorded against the new budget line | 3 | 10-02, 10-03, 10-04 | SC-5, SC-6 |
 | 10-07 | The web tab: the district simulation Web Worker triad (entry, protocol, factory) following the shipped lifecycle, and the Road to District Champs ledger replacing `DistrictLocksTab` — two rows per team, grey final cells and blue open cells, the five status chips as filters with counts, the drawer histograms on sketch 005 continuous edges, the Rewind to slider stepping by match across the interleaved timeline, median-grand-total sorting, team search, stat line, the 60 s live poll and lazy per-event artifact loading, search params, component tests | 3 | 10-03, 10-04 | SC-2, SC-3, SC-4, SC-5 |
 | 10-08 | The words and the proof: methodology copy for the award base rates, the selection agreement and the win-probability gap in the content-as-data voice with its runtime voice test, docs updates (`docs/worker-operations.md`, the simulation architecture doc, `docs/publish-budget.md`), and the live e2e spec covering the new tab at desktop and 390px | 4 | 10-02, 10-05, 10-06, 10-07 | SC-6, SC-7 |
-| 10-09 | Operator gates (`autonomous: false`, every task a checkpoint): repo-root `npx vitest run` green and both tsconfigs clean, then `npx wrangler deploy` of the Worker from a clean tree, THEN the district republish, then the push, then `gh run list`, then the live e2e spec against the deployed site | 5 | 10-08 | SC-7 |
+| 10-09 | Operator gates (`autonomous: false`, every task a checkpoint): repo-root `npx vitest run` green and both tsconfigs clean, then `npx wrangler deploy` of the Worker from a clean tree, THEN the district republish, then `pnpm publish:live-windows` (Task 5 is a COMMAND, not a decision — dry run, the one-object write, then a before/after GET with an `Origin` header proving `districtKey` present on every window and the generation unchanged), then the push, then `gh run list`, then the live e2e spec against the deployed site | 5 | 10-08 | SC-7 |
 
 ## Notes for per-plan planners
 
@@ -49,6 +49,19 @@ and the live e2e run are orchestrator-run checkpoint tasks at the end of the pha
 - **Never print `±`** anywhere on this tab, and never render a partial variance.
 - Executor subagents have NO network: no publish, no TBA fetch, no `wrangler deploy`, no
   `git push`. Anything networked belongs in 10-09.
+- **Wave 1 executes SEQUENTIALLY, in the main checkout, with worktrees disabled**
+  (`workflow.use_worktrees=false`). 10-01's reconciliation and all three of 10-02's measurement
+  scripts need `data/corpus.sqlite`, which is gitignored, does not travel into a worktree, and does
+  not merge back from one (memory `project_worktree_gitignored_state`); a fresh worktree is also
+  CRLF, which fails structural tests that regex for LF (`project_crlf_worktree_harness_tests`), and
+  `better-sqlite3`'s node-gyp build fails there on this machine
+  (`project_pnpm_install_exit1_worktrees`). Sequential execution is also how the two shared-file
+  overlaps in wave 1 are resolved: 10-02 and 10-03 each APPEND one entry to
+  `packages/harness/browserSafeSchemas.test.ts`'s entry-point list, and 10-02 and 10-03 each APPEND
+  to the root `package.json` `scripts` block (10-02's three `measure:*` entries, 10-03's one
+  credentialed `publish:live-windows`). Both edits are append-only in both plans, so whichever
+  lands second adds its lines after the first and needs no merge. Neither plan may reorder or rewrap
+  what the other added.
 - A `|` in a STATE.md quick-task description breaks the append helper; keep pipes out.
 
 ### Which research sections each plan must read
@@ -114,6 +127,19 @@ schema, one merge, one `locks.ts` recompute, testable without R2 or a corpus.
 - **Non-eight-alliance events get the published empirical fallback pmf**, never a fabricated
   bracket (CONTEXT; RESEARCH Open Question 1 and Assumption A2). 10-01 builds that table from the
   corpus with its own pinned test.
+- **Captains follow the PROGRESSIVE rule, not the top eight.** Measured against every 2023-plus
+  eight-alliance district event: the real captain set equals qual ranks 1 through 8 at 3 of 491
+  events, while "at each alliance's turn, the highest-ranked team not yet allied" reproduces 3,879
+  of 3,880 slots across 485 usable events (single miss `2026milac` alliance 8). 10-04 implements it;
+  10-02 measures it teacher-forced and reports the naive top-eight rule beside it as a labelled
+  baseline, never as an event filter. The draft order is serpentine: round one 1 through 8, round two
+  8 down to 1. Do not re-derive either from CONTEXT's display prose.
+- **`districtKey` reaches production through `pnpm publish:live-windows`, not a full republish.**
+  10-03 Task 4 owns `scripts/publishLiveWindows.ts`: the same `buildLiveWindowsManifest`, the
+  generation read off the live manifest rather than minted, exactly one R2 object, three refusals (a
+  non-200 live manifest, a schema-version disagreement, a zero-window rebuild) and a `--dry-run`
+  whose zero-write behavior is pinned by a test. 10-09 Task 5 runs it and verifies the result by GET
+  with an `Origin` header. Do not reopen this as a ~109,000-write rebaseline decision.
 - **District liveness = any member event has a live window** (CONTEXT correction; RESEARCH Open
   Question 3).
 - **Awards posted is sourced from a Worker `/event/{key}/awards` fetch once playoffs are done**,
