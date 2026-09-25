@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 10
 current_phase_name: district-points-ledger
 status: executing
-stopped_at: Completed 10-05-PLAN.md
-last_updated: "2026-09-25T12:00:11.222Z"
+stopped_at: Completed 10-06-PLAN.md
+last_updated: "2026-09-25T12:56:47.117Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 10 execution started
 progress:
   total_phases: 13
   completed_phases: 12
   total_plans: 118
-  completed_plans: 114
+  completed_plans: 115
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 10 (district-points-ledger) — EXECUTING
-Plan: 6 of 9
+Plan: 7 of 9
 Status: Ready to execute
 Last activity: 2026-09-25 — Phase 10 execution started
 
@@ -142,6 +142,7 @@ Progress: [██████████] 97%
 | Phase 10 P03 | 26 min | 4 tasks | 14 files |
 | Phase 10 P04 | 33 min | 3 tasks | 9 files |
 | Phase 10 P05 | 25 min | 3 tasks | 12 files |
+| Phase 10 P06 | 55 min | 3 tasks | 12 files |
 
 ## Accumulated Context
 
@@ -354,6 +355,7 @@ Recent decisions affecting current work:
 - [Phase 10]: continuousQuantile is PROMOTED to packages/core with apps/web/src/lib/simQuantile.ts left as a re-export; all four importers byte-unchanged
 - [Phase 10]: 10-05: the district pass runs after runGlobalRebuild and before writeTickMeta, never throws, and is deliberately unreachable from the cheap-idle and state-generation-mismatch early returns
 - [Phase 10]: 10-05: awardsPosted comes from one conditional /event/{key}/awards request, only once playoffs are done and only while the published state does not already say posted; awards posted after every member event window closes wait for the next offline republish
+- [Phase 10]: 10-06: the offline publisher — the four state facts per district event, baked per-team point pmfs for unstarted events priced from walk-forward SPR state, and the measured award base-rate table, all through 10-03's committed contract — finalStates (not carryStates) is the state that prices a bake; recomputeDistrictVerdicts gained one optional tierByEvent seam so the publisher became a caller of the one verdict pass rather than keeping its own; the mandated --as-of 2026-03-07 run bakes zero events because no 2026 roster is fully rated that early in the season, so a second run at 2026-04-04 exercises the bake
 
 ### Pending Todos
 
@@ -689,8 +691,8 @@ silent open row; `open_count` is now 0, so `/gsd-ship` no longer blocks.
 
 ## Session Continuity
 
-Last session: 2026-09-25T12:00:03.242Z
-Stopped at: Completed 10-05-PLAN.md
+Last session: 2026-09-25T12:56:29.437Z
+Stopped at: Completed 10-06-PLAN.md
 Resume file: None
 
 ## Decisions

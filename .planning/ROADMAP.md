@@ -699,7 +699,7 @@ Plans:
 
 **Requirements**: sketch 021 (`.planning/sketches/021-district-points-ledger/README.md`, the feasibility and placement sections) and `10-CONTEXT.md` (Jacob's locked decisions, 2026-09-25).
 **Depends on:** Phase 9
-**Plans:** 5/9 plans executed
+**Plans:** 6/9 plans executed
 
 **Success criteria:**
 
@@ -726,7 +726,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 10-06-PLAN.md — the offline publisher: state facts, baked pmfs, award tables, measured bytes
+- [x] 10-06-PLAN.md — the offline publisher: state facts, baked pmfs, award tables, measured bytes
 - [ ] 10-07-PLAN.md — the web tab: Worker triad and the Road to District Champs ledger
 
 **Wave 4** *(blocked on Wave 3)*
