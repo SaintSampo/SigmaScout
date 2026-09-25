@@ -590,3 +590,118 @@ describe("the two merge entry points agree on schemaVersion (WR-02)", () => {
     expect(viaState.schemaVersion).toBe(PAGE_ARTIFACT_SCHEMA_VERSION);
   });
 });
+
+describe("recomputeDistrictVerdicts — the pooled remaining-points lock (260925-pl6)", () => {
+  /** `2026ncpem` wholly ahead: scheduled, nothing played, nothing awarded. Its whole four-category pool is still to be handed out. */
+  const PEM_AHEAD = { qualMatchesPlayed: 0, qualMatchesTotal: 60, alliancesPicked: false, playoffsDone: false, awardsPosted: false } as const;
+
+  /**
+   * Fifteen teams, twelve DCMP slots, one district event still ahead of every
+   * one of them. The leader sits on 100 and every rival on 17, which is exactly
+   * one event's maximum below it, so EVERY rival's ceiling reaches the leader's
+   * floor and the ceiling test sees fourteen threats against the eleven slots
+   * that are not held back for the event's pending Impact award.
+   *
+   * Eleven rivals would have to pass the leader, costing 11 x 83 = 913 points
+   * between them; a fifteen-team event has 754 to hand out.
+   */
+  function pooledFixture(pemState: Record<string, unknown>): DistrictArtifact {
+    const remainingEvents = [{ eventKey: "2026ncpem", eventName: "Pembroke Event", week: 3, tier: "district", maxPoints: DISTRICT_EVENT_MAX, state: { ...pemState } }];
+    const teamAt = (index: number, pointTotal: number) => ({
+      teamKey: `frc${String(index)}`,
+      teamNumber: index,
+      nickname: `Team ${String(index)}`,
+      rank: index,
+      pointTotal,
+      rookieBonus: 0,
+      adjustments: 0,
+      eventPoints: [
+        {
+          eventKey: "2026ncwak",
+          eventName: "Wake County Event",
+          week: 1,
+          tier: "district",
+          qual: pointTotal,
+          alliance: 0,
+          elim: 0,
+          award: 0,
+          total: pointTotal,
+          state: { ...WAK_STATE },
+        },
+      ],
+      remainingEvents,
+      maxRemainingDistrict: DISTRICT_EVENT_MAX,
+      maxRemainingChamp: DISTRICT_EVENT_MAX + DCMP_EVENT_MAX,
+      qualifyingAwards: [],
+      districtLock: lockVerdict("contending"),
+      champLock: lockVerdict("contending"),
+    });
+
+    return DistrictArtifactSchema.parse({
+      schemaVersion: 1,
+      generation: "gen-published",
+      computedAt: "2026-03-01T00:00:00.000Z",
+      districtKey: "2026fnc",
+      year: 2026,
+      abbreviation: "fnc",
+      displayName: "FIRST North Carolina",
+      dcmpSlots: 12,
+      cmpSlots: 1,
+      teams: [teamAt(1, 100), ...Array.from({ length: 14 }, (_, index) => teamAt(index + 2, 17))],
+      insights: {
+        teamCount: 15,
+        eventCount: 2,
+        dcmpCutLinePoints: null,
+        cmpCutLinePoints: null,
+        districtLockedCount: 0,
+        districtEliminatedCount: 0,
+        champLockedCount: 0,
+        champEliminatedCount: 0,
+      },
+    });
+  }
+
+  it("locks a team the ceiling test leaves contending", () => {
+    const recomputed = recomputeDistrictVerdicts(pooledFixture(PEM_AHEAD));
+    expect(recomputed.teams[0]!.districtLock.status).toBe("locked");
+    // Every rival really can reach the leader's floor on its own, which is what
+    // makes the shipped ceiling test refuse: fourteen threats, eleven slots.
+    expect(recomputed.teams[0]!.districtLock.threatCount).toBe(14);
+    expect(recomputed.insights.districtLockedCount).toBe(1);
+  });
+
+  it("does not lock that team when a second event leaves enough points on the table", () => {
+    const base = pooledFixture(PEM_AHEAD) as unknown as {
+      teams: { remainingEvents: unknown[]; maxRemainingDistrict: number }[];
+    };
+    const second = { eventKey: "2026ncgui", eventName: "Guilford Event", week: 4, tier: "district", maxPoints: DISTRICT_EVENT_MAX, state: { ...PEM_AHEAD } };
+    for (const team of base.teams) {
+      team.remainingEvents = [...team.remainingEvents, second];
+      team.maxRemainingDistrict = DISTRICT_EVENT_MAX * 2;
+    }
+    const recomputed = recomputeDistrictVerdicts(DistrictArtifactSchema.parse(base));
+    expect(recomputed.teams[0]!.districtLock.status).toBe("contending");
+    expect(recomputed.insights.districtLockedCount).toBe(0);
+  });
+
+  it("locks nobody extra once every event is finished, even though no team can score again", () => {
+    // The pool is zero and `hasRemainingEvent` is empty, so no rival can be
+    // bought past anybody at any price. The fourteen teams tied on 17 are still
+    // NOT locked, because a tie counts as already ahead and fourteen of them
+    // sit at or above each other against twelve slots — exactly the ceiling
+    // test's own answer, which is why a finished season's published verdicts do
+    // not move.
+    const recomputed = recomputeDistrictVerdicts(pooledFixture({ ...WAK_STATE }));
+    expect(recomputed.teams[0]!.districtLock.status).toBe("locked");
+    expect(recomputed.insights.districtLockedCount).toBe(1);
+    expect(recomputed.teams.slice(1).every((team) => team.districtLock.status === "contending")).toBe(true);
+  });
+
+  it("leaves the published cut line and the eliminated count exactly where they were", () => {
+    const ahead = recomputeDistrictVerdicts(pooledFixture(PEM_AHEAD));
+    // The pooled argument reaches the `"locked"` test alone: it takes no
+    // reservation, moves no cut line and eliminates nobody.
+    expect(ahead.insights.districtEliminatedCount).toBe(0);
+    expect(ahead.insights.dcmpCutLinePoints).toBe(17);
+  });
+});

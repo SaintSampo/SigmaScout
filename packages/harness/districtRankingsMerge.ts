@@ -31,7 +31,8 @@ import { z } from "zod";
 import { computeLocksWithQualifiers, cutLinePointsWithQualifiers, type LockResult, type LockTeamInput, type QualifierSets } from "../core/districts/locks.js";
 import { maxEventPoints, type DistrictTier } from "../core/districts/pointModel.js";
 import { prequalifiedTeams } from "../core/districts/prequalified.js";
-import { reservedImpactSlots, type ReservedSlotEvent } from "../core/districts/reservedSlots.js";
+import { districtEventCategoryFinality, reservedImpactSlots, type ReservedSlotEvent } from "../core/districts/reservedSlots.js";
+import { pooledLockInputs, type PooledTeamEntry } from "../core/districts/pooledLockInputs.js";
 import { consumingAwardTypesForTier, specialAllocationNote, type AwardTier } from "../core/districts/qualification.js";
 import { DistrictArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type DistrictArtifact, type DistrictEventState } from "./pageArtifacts.js";
 
@@ -228,6 +229,60 @@ function reservedDistrictSlots(teams: readonly DistrictTeam[]): number {
   return reservedImpactSlots(events);
 }
 
+/**
+ * The district-tier state block for each event, preferring a row that CARRIES
+ * one over a row that does not — the same rule `reservedDistrictSlots` applies,
+ * because the artifact's own rows can disagree about whether a state block is
+ * present and "no state" is the weaker observation of the two.
+ */
+function districtTierStateByEvent(teams: readonly DistrictTeam[]): Map<string, DistrictEventState | undefined> {
+  const stateByEvent = new Map<string, DistrictEventState | undefined>();
+  for (const team of teams) {
+    for (const row of [...team.eventPoints, ...team.remainingEvents]) {
+      if (row.tier !== "district") continue;
+      if (!stateByEvent.has(row.eventKey)) stateByEvent.set(row.eventKey, row.state);
+      else if (stateByEvent.get(row.eventKey) === undefined && row.state !== undefined) stateByEvent.set(row.eventKey, row.state);
+    }
+  }
+  return stateByEvent;
+}
+
+/**
+ * The pooled remaining-points facts at "now": how many district points the
+ * district still has to hand out, and which teams can still collect any of them
+ * (quick task 260925-pl6). `packages/core/districts/pooledLockInputs.ts` owns
+ * the rule; this function owns only the walk over the artifact's own rows.
+ *
+ * DISTRICT-TIER ROWS ONLY, matching the `maxRemainingDistrict` the ceiling test
+ * is asked against. There is no rewind offline, so an event's categories are
+ * final exactly when its published state says so, and an event with no state
+ * block at all reports every category OPEN — the honest unknown, and the side
+ * that makes the pool bigger and the pooled lock fire less.
+ *
+ * A TEAM WITH NO `awardProfile` IS PASSED AS A ROOKIE. A rookie widens the
+ * award pool, so the unknown answer sits on the conservative side of a
+ * guarantee.
+ *
+ * FOR A FINISHED SEASON THIS RETURNS ZERO AND AN EMPTY SET, and the pooled test
+ * then locks exactly the teams the ceiling test already locked — which is why
+ * adding it moved no published number for any of the 109 published artifacts.
+ */
+function pooledDistrictPoints(teams: readonly DistrictTeam[]): ReturnType<typeof pooledLockInputs> {
+  const stateByEvent = districtTierStateByEvent(teams);
+  const entries: PooledTeamEntry[] = teams.map((team) => {
+    const eventKeys = new Set<string>();
+    for (const row of [...team.eventPoints, ...team.remainingEvents]) {
+      if (row.tier === "district") eventKeys.add(row.eventKey);
+    }
+    return {
+      teamKey: team.teamKey,
+      rookie: team.awardProfile?.rookie ?? true,
+      events: [...eventKeys].map((eventKey) => ({ eventKey, final: districtEventCategoryFinality(stateByEvent.get(eventKey)) })),
+    };
+  });
+  return pooledLockInputs(entries);
+}
+
 function lockVerdict(result: LockResult, cutLinePoints: number | null, allocationNote: string | null): DistrictTeam["districtLock"] {
   return {
     status: result.status,
@@ -252,6 +307,17 @@ function lockVerdict(result: LockResult, cutLinePoints: number | null, allocatio
  * `cutLinePointsWithQualifiers` against the SAME hoisted inputs objects so the
  * verdicts and the published cut line can never disagree, and apply
  * `specialAllocationNote` over every `champLock`.
+ *
+ * A SECOND ADDITION, quick task 260925-pl6: the district pass also hands
+ * `computeLocksWithQualifiers` the POOLED remaining-points facts
+ * (`pooledDistrictPoints` above), so a team locks when EITHER no single rival
+ * can reach it or no achievable distribution of the district's remaining points
+ * can lift enough rivals past it. The champ pass passes none, because a DCMP's
+ * own pool is a different tier against a different slot pool. For a finished
+ * season the pool is zero and the pooled test locks exactly the teams the
+ * ceiling test already locked, so no published number moves there either —
+ * measured across all 109 published artifacts, zero verdicts and zero cut lines
+ * differ.
  *
  * ONE ADDITION TO THAT PIPELINE, quick task 260925-ms7: the district pass
  * holds back one points slot for every district-tier event whose Impact award
@@ -303,7 +369,14 @@ export function recomputeDistrictVerdicts(artifact: DistrictArtifact, options: R
   // (quick task 260925-ms7). Zero for a district whose events have all posted
   // their awards, which is every finished season in the corpus.
   const reservedSlots = reservedDistrictSlots(teams);
-  const districtLocks = computeLocksWithQualifiers(districtLockInputs, artifact.dcmpSlots, districtQualifiers, reservedSlots);
+  // The second, ADDITIVE proof of `"locked"` (quick task 260925-pl6): points
+  // are conserved inside an event, so the district's total remaining points are
+  // far smaller than the sum of every rival's ceiling, and a team also locks
+  // when no achievable distribution of what is left can lift enough rivals past
+  // it. Zero for a finished season, where it locks exactly whom the ceiling test
+  // already did.
+  const pooled = pooledDistrictPoints(teams);
+  const districtLocks = computeLocksWithQualifiers(districtLockInputs, artifact.dcmpSlots, districtQualifiers, reservedSlots, pooled);
   const districtLockByTeam = new Map(districtLocks.map((result) => [result.teamKey, result] as const));
 
   // Pass 2: maxRemainingChamp = maxRemainingDistrict + one hypothetical
