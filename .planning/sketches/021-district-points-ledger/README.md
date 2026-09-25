@@ -73,9 +73,9 @@ status. Jacob's definitions (2026-09-25, second round):
 At "Now" the sketch reproduces the artifact's 50 locked and 76 eliminated (shown as Locked out).
 At the end of week 2 it reads 15 locked, 36 in range, 59 out of range, 16 locked out.
 
-Round two also asked for heavier rules in A: a thick line between a team's two event rows so the
-two event totals read apart, and a heavier line between team blocks so each grand total is fenced,
-plus a vertical rule before the Event total and Grand total columns.
+Round two briefly tried heavy rules in A (a thick line between a team's event rows and between
+team blocks, vertical rules before the total columns). Jacob dropped them on sight; A is back to
+the hairline row separators.
 
 ## Data
 
