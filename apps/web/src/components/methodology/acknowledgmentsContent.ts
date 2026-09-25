@@ -54,6 +54,7 @@ export const ACKNOWLEDGMENTS_ENTRIES: readonly AcknowledgmentEntry[] = [
     href: "https://frclocks.com/",
     paragraphs: [
       "The Districts page borrows the lock concept from FRC Locks. All numbers are computed independently. Calculations are based on TBA district points and the FIRST district points model.",
+      "One of the two lock tests follows the argument set out in District Points Analysis: Mathematical Locks for Advancement, by Liatys and Papa. A team is locked when the points a district still has to hand out cannot lift enough rivals past it.",
     ],
   },
   {

@@ -102,6 +102,7 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
     paragraphs: [
       "A team earns district points at every district event it plays. Four categories make up an event total, and a team's event totals make up its season total.",
       "Every formula below reproduces the value The Blue Alliance itself reports, checked row by row across ten seasons.",
+      "A team is also Locked when the points still available in the district cannot lift enough rivals past it. Points are shared out inside an event, so the whole district has far fewer points left than the sum of what every rival could reach on its own. Either test is enough on its own, and both are applied at every position.",
     ],
     table: {
       caption: "The four categories, and what a district championship is worth",
