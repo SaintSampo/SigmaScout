@@ -1880,9 +1880,12 @@ export type CompareArtifact = z.infer<typeof CompareArtifactSchema>;
  * and the two `status` enum literals (`"lockedAward"`, `"prequalified"`)
  * carry the same bounded, already-accepted risk this file's other pages'
  * additions accept — a stale cached client reading a freshly-published
- * artifact within the `max-age=60` window. District artifacts are
- * refreshed only by an offline, infrequent manual publish (this file's own
- * header, unchanged), so that window is narrow. No version bump here.
+ * artifact within the `max-age=60` window. That window is bounded by the
+ * object's own `max-age=60` regardless of how often the object is rewritten,
+ * which is what keeps the risk accepted now that a district IS also rewritten
+ * live, once a minute at most, by `apps/worker/src/districtRefresh.ts` (plan
+ * 10-05) — this paragraph said "only by an offline, infrequent manual publish"
+ * until that pass shipped. No version bump here.
  */
 
 /**
@@ -1890,12 +1893,19 @@ export type CompareArtifact = z.infer<typeof CompareArtifactSchema>;
  * functions and deliberately NOT added to `PageKind`/`ArtifactKeyParams`
  * above. `PageKind` is the union `apps/worker/src/artifactWriter.ts`'s
  * exhaustive `SCHEMA_BY_PAGE` record and `publish.ts`'s per-season size
- * budget are both keyed on — district artifacts are neither live-written by
- * the Worker (district artifacts are refreshed only by an offline
- * `pnpm ingest:districts` + `pnpm publish:districts`; the live Worker cron
- * does not touch them) nor part of a per-season replay. Widening `PageKind`
- * here would force a Worker change that buys nothing. These two keys
- * follow the `v1/manifest/*.json` precedent instead — published keys that
+ * budget are both keyed on.
+ *
+ * DISTRICTS ARE LIVE-WRITTEN NOW, and the bypass still stands. Until phase 10
+ * this comment justified it by saying no live writer touched these objects;
+ * `apps/worker/src/districtRefresh.ts` (plan 10-05) makes that false — the cron
+ * tick republishes `v1/district/{districtKey}.json` through
+ * `writeDistrictArtifactObject` on every tick a member event is live and the
+ * rankings moved. The reason the bypass survives is a different and stronger
+ * one: that writer takes `DistrictArtifactSchema` DIRECTLY, so widening
+ * `PageKind` would buy it nothing, while `PageKind` is the exhaustive union
+ * `SCHEMA_BY_PAGE` and `publish.ts`'s per-season budget both rely on staying
+ * closed — widening it would cost every exhaustive switch keyed on it. These
+ * two keys follow the `v1/manifest/*.json` precedent instead — published keys that
  * live outside `PageKind` on purpose (see
  * `scripts/publishAlgorithmsManifest.ts`'s `ALGORITHMS_MANIFEST_KEY`).
  */

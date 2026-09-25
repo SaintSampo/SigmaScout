@@ -9,13 +9,18 @@
  * silently alter another's. The TBA stub here additionally serves
  * `/district/{key}/rankings` and `/event/{key}/awards`, both ETag-conditional.
  */
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runTick } from "../src/scheduled.js";
+import { liveDistrictsOf } from "../src/districtRefresh.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import { districtDetailKey, DistrictArtifactSchema } from "../../../packages/harness/pageArtifacts.js";
 import { districtRankingsCursorKey } from "../../../packages/harness/stateBaseline.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../../../packages/harness/publishedAlgorithms.js";
 import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
+import type { LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
 
@@ -820,4 +825,265 @@ describe("runTick — the awards fetch", () => {
     expect(awardsRequests(fetchMock)).toHaveLength(1);
     expect(writtenLiveEventState(r2)?.awardsPosted).toBe(true);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Task 3 — isolation, refusals, and the static import guard.
+// ---------------------------------------------------------------------------
+
+/** The FIRST district in sorted order, so a failure here is proved not to stop the one after it. */
+const FAIL_DISTRICT = "2026aaa";
+const FAIL_EVENT = "2026aaayak";
+const FAIL_PLAYED_EVENT = "2026aaabon";
+
+function failingDistrictArtifact(): unknown {
+  const artifact = JSON.parse(JSON.stringify(districtArtifactFixture())) as {
+    districtKey: string;
+    abbreviation: string;
+    displayName: string;
+    teams: { eventPoints: { eventKey: string }[]; remainingEvents: { eventKey: string }[] }[];
+  };
+  artifact.districtKey = FAIL_DISTRICT;
+  artifact.abbreviation = "aaa";
+  artifact.displayName = "Alpha District";
+  for (const team of artifact.teams) {
+    for (const row of team.eventPoints) row.eventKey = FAIL_PLAYED_EVENT;
+    for (const row of team.remainingEvents) row.eventKey = FAIL_EVENT;
+  }
+  return artifact;
+}
+
+function twoDistrictWindows(): WindowFixture[] {
+  return [liveWindow({ eventKey: FAIL_EVENT, districtKey: FAIL_DISTRICT }), liveWindow()];
+}
+
+function twoDistrictEvents(): Map<string, TbaEventRecord> {
+  return new Map([
+    [FAIL_EVENT, alliancesPostedEventRecord(FAIL_EVENT, "fail-etag-1")],
+    [LIVE_EVENT, alliancesPostedEventRecord(LIVE_EVENT, "etag-1")],
+  ]);
+}
+
+interface FailureModeSetup {
+  readonly name: string;
+  /** `/district/{key}/rankings` payloads, keyed by district key. */
+  readonly districts: Map<string, TbaDistrictRecord>;
+  /** Forced non-2xx statuses, keyed by district key. */
+  readonly statusOverride?: Map<string, number>;
+  /** When false, the failing district's artifact is NOT seeded into R2. */
+  readonly seedFailingArtifact?: boolean;
+  readonly rejectPutsForKeyPrefix?: string;
+}
+
+const FAILURE_MODES: readonly FailureModeSetup[] = [
+  {
+    name: "a rankings poll that throws (a 500 from TBA)",
+    districts: new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]),
+    statusOverride: new Map([[FAIL_DISTRICT, 500]]),
+  },
+  {
+    name: "a rankings body that fails DistrictRankingsPayloadSchema",
+    districts: new Map([
+      [FAIL_DISTRICT, { rankings: { notAnArray: true }, etag: "fail-rank-etag" }],
+      [DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }],
+    ]),
+  },
+  {
+    name: "an EMPTY rankings array (the real DistrictMergeError)",
+    districts: new Map([
+      [FAIL_DISTRICT, { rankings: [], etag: "fail-rank-etag" }],
+      [DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }],
+    ]),
+  },
+  {
+    name: "a missing district artifact in R2",
+    districts: new Map([
+      [FAIL_DISTRICT, { rankings: movedRankings(), etag: "fail-rank-etag" }],
+      [DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }],
+    ]),
+    seedFailingArtifact: false,
+  },
+  {
+    name: "a rejected R2 put",
+    districts: new Map([
+      [FAIL_DISTRICT, { rankings: movedRankings(), etag: "fail-rank-etag" }],
+      [DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }],
+    ]),
+    rejectPutsForKeyPrefix: districtDetailKey(FAIL_DISTRICT),
+  },
+];
+
+async function runTwoDistrictTick(mode: FailureModeSetup): Promise<{ result: Awaited<ReturnType<typeof runTick>>; d1: FakeD1Database; r2: FakeR2Bucket; fetchMock: ReturnType<typeof vi.fn>; warnSpy: ReturnType<typeof vi.spyOn> }> {
+  const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const d1 = new FakeD1Database();
+  const r2 = new FakeR2Bucket();
+  if (mode.seedFailingArtifact !== false) r2.seed(districtDetailKey(FAIL_DISTRICT), JSON.stringify(failingDistrictArtifact()));
+  r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactFixture()));
+  if (mode.rejectPutsForKeyPrefix !== undefined) r2.rejectPutsForKeyPrefix = mode.rejectPutsForKeyPrefix;
+  const env = makeEnv(makeManifests(twoDistrictWindows()), d1, r2);
+  const fetchMock = makeTbaFetchStub(twoDistrictEvents(), mode.districts, mode.statusOverride ?? new Map());
+  vi.stubGlobal("fetch", fetchMock);
+
+  const result = await runTick(env, { nowMs: NOW_MS });
+  return { result, d1, r2, fetchMock, warnSpy };
+}
+
+function warnLines(warnSpy: ReturnType<typeof vi.spyOn>): string[] {
+  return warnSpy.mock.calls.map((call) => String((call as [unknown])[0]));
+}
+
+describe("runDistrictRefresh — one bad district never stops the tick", () => {
+  for (const mode of FAILURE_MODES) {
+    it(`confines ${mode.name} to its own district, still refreshes the next one, and still writes the rotation cursor`, async () => {
+      const { result, d1, r2 } = await runTwoDistrictTick(mode);
+
+      // The surviving district got its own put.
+      expect(r2.puts.filter((p) => p.key === districtDetailKey(DISTRICT_KEY))).toHaveLength(1);
+      expect(result.districtsRefreshed).toBe(1);
+      expect(result.districtsFailed).toBe(1);
+      expect(result.districtsConsidered).toBe(2);
+      // `runTick` RESOLVED — reaching this line at all is that assertion.
+      expect(result.stateGenerationMismatch).toBe(false);
+      // The rotation offset survived: the pass sits upstream of `writeTickMeta`
+      // and can never cost the tick its place in the live-event list.
+      expect(d1.eventCursors.get("__scheduler_meta__")).toBeDefined();
+    });
+  }
+
+  it("never blanks a published district on an EMPTY rankings payload — zero puts for it", async () => {
+    const { r2 } = await runTwoDistrictTick(FAILURE_MODES[2]!);
+
+    expect(r2.puts.filter((p) => p.key === districtDetailKey(FAIL_DISTRICT))).toHaveLength(0);
+  });
+
+  it("never CREATES a district artifact: a missing one is warned with only the district key and the R2 key, and written from nothing", async () => {
+    const { r2, warnSpy } = await runTwoDistrictTick(FAILURE_MODES[3]!);
+
+    expect(r2.puts.filter((p) => p.key === districtDetailKey(FAIL_DISTRICT))).toHaveLength(0);
+
+    const missing = warnLines(warnSpy).map((line) => JSON.parse(line) as Record<string, unknown>).find((entry) => entry["msg"] === "district-artifact-missing");
+    expect(missing).toBeDefined();
+    expect(Object.keys(missing!).sort()).toEqual(["districtKey", "key", "msg"]);
+    expect(missing!["districtKey"]).toBe(FAIL_DISTRICT);
+    expect(missing!["key"]).toBe(districtDetailKey(FAIL_DISTRICT));
+  });
+
+  it("emits no warn line containing the configured TBA key value or an auth/conditional header name, in ANY failure mode", async () => {
+    for (const mode of FAILURE_MODES) {
+      const { warnSpy } = await runTwoDistrictTick(mode);
+      for (const line of warnLines(warnSpy)) {
+        expect(line).not.toContain("test-key");
+        expect(line).not.toContain("X-TBA-Auth-Key");
+        expect(line).not.toContain("If-None-Match");
+      }
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("runDistrictRefresh — the pre-republish manifest and the key guard", () => {
+  it("does NOTHING for a live window whose districtKey is absent — the manifest shape R2 is actually in between deploy and republish", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactFixture()));
+    const env = makeEnv(makeManifests([liveWindow({ districtKey: undefined })]), d1, r2);
+    const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, alliancesPostedEventRecord(LIVE_EVENT, "etag-1")]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runTick(env, { nowMs: NOW_MS });
+
+    expect(tbaUrls(fetchMock).filter((u) => u.includes("/district/"))).toEqual([]);
+    expect(r2.gets.filter((key) => key.startsWith("v1/district/"))).toEqual([]);
+    expect(districtPuts(r2)).toHaveLength(0);
+    expect(result).toMatchObject({ districtsConsidered: 0, districtsRefreshed: 0, districtsUnchanged: 0, districtsFailed: 0 });
+  });
+
+  it("does NOTHING for a live window whose districtKey is explicitly null", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactFixture()));
+    const env = makeEnv(makeManifests([liveWindow({ districtKey: null })]), d1, r2);
+    const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, alliancesPostedEventRecord(LIVE_EVENT, "etag-1")]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runTick(env, { nowMs: NOW_MS });
+
+    expect(tbaUrls(fetchMock).filter((u) => u.includes("/district/"))).toEqual([]);
+    expect(r2.gets.filter((key) => key.startsWith("v1/district/"))).toEqual([]);
+    expect(districtPuts(r2)).toHaveLength(0);
+    expect(result.districtsConsidered).toBe(0);
+  });
+
+  it("skips a districtKey that does not match DISTRICT_KEY_PATTERN with a warn, counts it failed, and makes no request carrying it", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    const env = makeEnv(makeManifests([liveWindow({ districtKey: "pnw2026" })]), d1, r2);
+    const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, alliancesPostedEventRecord(LIVE_EVENT, "etag-1")]]), new Map());
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runTick(env, { nowMs: NOW_MS });
+
+    expect(result.districtsFailed).toBe(1);
+    expect(result.districtsConsidered).toBe(1);
+    expect(tbaUrls(fetchMock).filter((u) => u.includes("pnw2026"))).toEqual([]);
+    expect(warnLines(warnSpy).map((line) => JSON.parse(line) as Record<string, unknown>).some((entry) => entry["msg"] === "district-key-rejected" && entry["districtKey"] === "pnw2026")).toBe(true);
+  });
+});
+
+describe("liveDistrictsOf", () => {
+  function entry(eventKey: string, districtKey: string | null | undefined): LiveWindowEntry {
+    return { eventKey, season: SEASON, startMs: 0, endMs: 1, inferred: false, ...(districtKey === undefined ? {} : { districtKey }) } as LiveWindowEntry;
+  }
+
+  it("collapses two events of one district into one entry carrying both windows", () => {
+    const grouped = liveDistrictsOf([entry("2026wayak", DISTRICT_KEY), entry("2026wabon", DISTRICT_KEY)]);
+
+    expect([...grouped.keys()]).toEqual([DISTRICT_KEY]);
+    expect(grouped.get(DISTRICT_KEY)!.map((w) => w.eventKey)).toEqual(["2026wayak", "2026wabon"]);
+  });
+
+  it("orders two districts deterministically by key", () => {
+    const grouped = liveDistrictsOf([entry("2026wayak", "2026pnw"), entry("2026ncwak", "2026fnc"), entry("2026misjo", "2026fim")]);
+
+    expect([...grouped.keys()]).toEqual(["2026fim", "2026fnc", "2026pnw"]);
+  });
+
+  it("drops entries whose districtKey is null or absent", () => {
+    const grouped = liveDistrictsOf([entry("2026casj", null), entry("2026cafr", undefined), entry("2026wayak", DISTRICT_KEY)]);
+
+    expect([...grouped.keys()]).toEqual([DISTRICT_KEY]);
+    expect(grouped.get(DISTRICT_KEY)!).toHaveLength(1);
+  });
+});
+
+describe("the two new Worker modules are provably free of the corpus and the simulation", () => {
+  /** `packages/harness/browserSafeSchemas.test.ts`'s own regex — this repo keeps one import statement per line. */
+  const IMPORT_LINE_RE = /^\s*(?:import|export)\b.*\bfrom\s*["']([^"']+)["']/;
+  const FORBIDDEN = ["packages/corpus", "better-sqlite3", "node:", "algorithms/simulation"];
+
+  function importSpecifiers(relativePath: string): string[] {
+    const filePath = resolve(dirname(fileURLToPath(import.meta.url)), "..", "src", relativePath);
+    const specifiers: string[] = [];
+    for (const line of readFileSync(filePath, "utf8").split("\n")) {
+      const match = IMPORT_LINE_RE.exec(line);
+      if (match?.[1]) specifiers.push(match[1]);
+    }
+    return specifiers;
+  }
+
+  for (const file of ["districtRefresh.ts", "districtEventState.ts"]) {
+    it(`${file} imports nothing matching the corpus, better-sqlite3, a node: built-in or the rank simulation`, () => {
+      const specifiers = importSpecifiers(file);
+      // NON-VACUITY: prove the scan actually read import lines, so a renamed
+      // file or a broken regex cannot pass this test by finding nothing.
+      expect(specifiers.length).toBeGreaterThan(0);
+      for (const specifier of specifiers) {
+        for (const forbidden of FORBIDDEN) {
+          expect(specifier).not.toContain(forbidden);
+        }
+      }
+    });
+  }
 });

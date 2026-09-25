@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { emitCursorSeedSql, emitSeedSql, ReservedEventCursorKeyError, writeSeedCommandsFile } from "./seedSql.js";
+import { districtRankingsCursorKey, eventAwardsCursorKey } from "./stateBaseline.js";
 import type { StateRow } from "./stateSnapshot.js";
 
 type SqliteDb = InstanceType<typeof Database>;
@@ -208,6 +209,35 @@ describe("emitCursorSeedSql — reserved-key refusal (fallback: string match, no
         computedAt: COMPUTED_AT,
         algorithmIds: ["spr"],
         cursors: [{ eventKey: "__state_baseline__:spr", lastFoldedMatchKey: null }],
+        out: sqlPath,
+      })
+    ).toThrow(ReservedEventCursorKeyError);
+  });
+
+  // The two phase-10 shapes (plan 10-05): the district pass keeps a district's
+  // `/district/{key}/rankings` ETag and an event's `/event/{key}/awards` ETag in
+  // `event_cursor` under reserved keys. This guard is what stops a seed pass
+  // from clobbering either one and sending the next tick a full payload it
+  // would then merge over an artifact it had already merged.
+  it("throws for a cursor's eventKey that collides with the district-rankings ETag prefix", () => {
+    expect(() =>
+      emitCursorSeedSql({
+        generation: GENERATION,
+        computedAt: COMPUTED_AT,
+        algorithmIds: ["spr"],
+        cursors: [{ eventKey: districtRankingsCursorKey("2026pnw"), lastFoldedMatchKey: null }],
+        out: sqlPath,
+      })
+    ).toThrow(ReservedEventCursorKeyError);
+  });
+
+  it("throws for a cursor's eventKey that collides with the event-awards ETag prefix", () => {
+    expect(() =>
+      emitCursorSeedSql({
+        generation: GENERATION,
+        computedAt: COMPUTED_AT,
+        algorithmIds: ["spr"],
+        cursors: [{ eventKey: eventAwardsCursorKey("2026wabon"), lastFoldedMatchKey: null }],
         out: sqlPath,
       })
     ).toThrow(ReservedEventCursorKeyError);
