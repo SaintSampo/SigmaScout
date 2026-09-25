@@ -6,7 +6,7 @@ current_phase: 10
 current_phase_name: district-points-ledger
 status: executing
 stopped_at: Completed 10-08-PLAN.md
-last_updated: "2026-09-25T20:01:37.265Z"
+last_updated: "2026-09-25T20:24:10.687Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 10 execution started
 progress:
@@ -672,6 +672,8 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 235 | Rethink district locks page: sketch 021 (3 variants), per-category DP histogram feasibility, browser vs Worker split | 2026-09-25 | 9ba1bfd3 | [260925-16z-rethink-district-locks-page-3-sketches-p](./quick/260925-16z-rethink-district-locks-page-3-sketches-p/) |
 | 236 | Restyle the Road to District Champs ledger to sketch 021 A: boxed grey and sky cells, compact controls card, stage line, slider ticks | 2026-09-25 | 51d91043 | [260925-hr9-restyle-the-road-to-district-champs-ledg](./quick/260925-hr9-restyle-the-road-to-district-champs-ledg/) |
 | 237 | Ledger follow ups: keep scroll position on drawer and rewind navigation, print every week tick, tilde before every open cell figure | 2026-09-25 | 510b2ddf | [260925-m7e-ledger-follow-ups-keep-scroll-position-o](./quick/260925-m7e-ledger-follow-ups-keep-scroll-position-o/) |
+| 238 | Reorder the ledger columns (Team, Status, Grand total, Event, Event total, categories) and print the rookie bonus | 2026-09-25 | ffecfffe | [260925-mju-reorder-the-ledger-columns-team-status-g](./quick/260925-mju-reorder-the-ledger-columns-team-status-g/) |
+| 239 | Measure the two ledger tenets over every finished district at every rewind stage (tenet B holds, tenet A has 13 reversals from unreserved Impact slots) | 2026-09-25 | fae7054c | [260925-ma5-measure-the-two-ledger-tenets-over-every](./quick/260925-ma5-measure-the-two-ledger-tenets-over-every/) |
 
 ### Roadmap Evolution
 
