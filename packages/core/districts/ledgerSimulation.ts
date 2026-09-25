@@ -13,6 +13,10 @@
  *   - placement points        -> `playoffPoints` (`./bracket.js`)
  *   - the non-eight fallback  -> `divisionedDcmpPlayoffPmf` (`./bracket.js`)
  *   - award point rates       -> `awardBaseRate` (`./awardBaseRates.js`)
+ *   - the award orderings     -> `impactOrderingProbability` /
+ *                                `rookieAllStarOrderingProbability` /
+ *                                `awardResidualRate` / `orderFieldByDecoration`
+ *                                (`./awardOrderingTables.js`)
  *   - the alliance win odds   -> `allianceWinProbability`
  *                                (`../algorithms/simulation/allianceWinProbability.js`)
  *   - the ranking itself      -> `simulateRanks`
@@ -180,6 +184,15 @@ import {
   type DecorationBucket,
   type RookieState,
 } from "./awardBaseRates.js";
+import {
+  awardResidualRate,
+  hasAwardOrderingTables,
+  IMPACT_AWARD_POINTS,
+  impactOrderingProbability,
+  orderFieldByDecoration,
+  ROOKIE_ALL_STAR_AWARD_POINTS,
+  rookieAllStarOrderingProbability,
+} from "./awardOrderingTables.js";
 import { assertBracketSeason, divisionedDcmpPlayoffPmf, playoffPoints, routeBracket } from "./bracket.js";
 import { maxEventPoints, type DistrictTier } from "./pointModel.js";
 import { districtQualPoints, districtTierWeight } from "./qualPoints.js";
@@ -234,6 +247,120 @@ export interface DistrictAwardProfile {
   readonly rookieState: RookieState;
   /** Judged awards won in seasons strictly before this event's own. Absent means this field cannot be ordered. */
   readonly priorJudgedAwards?: number;
+}
+
+/**
+ * Which award pricing one run used.
+ *
+ *   `"posted"`                — the awards are already known, so nothing was
+ *                               drawn and no table was consulted at all.
+ *   `"applied"`               — the ordering tables priced every team: Impact
+ *                               from its position in the field's
+ *                               most-decorated ordering, Rookie All Star from
+ *                               its position among the rookies, and the rest
+ *                               from the residual table.
+ *   `"no-table"`              — the season has no ordering table, so the run
+ *                               kept the `awardBaseRate` path unchanged.
+ *   `"incomplete-profiles"`   — at least one roster team carries no
+ *                               `priorJudgedAwards`, so the field cannot be
+ *                               ordered and the run kept the base-rate path.
+ *
+ * THE LAST ONE IS ALL-OR-NOTHING BY DESIGN. A team with no count treated as
+ * zero would sort to the BOTTOM of its field and be priced at the tail, which
+ * is a confident, plausible-looking, wrong number — the same reason
+ * `UnratedTeamError` refuses to price the teams it can and drop the rest. So
+ * one missing count takes the WHOLE event back to the base rate, which is
+ * exactly the price the artifact was published at before the ordering existed.
+ */
+export type AwardOrderingDisposition = "posted" | "applied" | "no-table" | "incomplete-profiles";
+
+/**
+ * One team's ordering-derived award parameters. A TEST SEAM AND A CONTRACT:
+ * exported so `ledgerSimulation.test.ts` can assert that the most decorated
+ * team's Impact chance IS the table's position-1 value, exactly, rather than
+ * inferring it from a Monte Carlo frequency.
+ */
+export interface AwardOrderingAssignment {
+  readonly teamKey: string;
+  /** 1-based position in the whole field's most-decorated ordering. */
+  readonly impactPosition: number;
+  /** 1-based position among the field's ROOKIES, or 0 for a team that is not one. */
+  readonly rookieAllStarPosition: number;
+  readonly impactProbability: number;
+  /** 0 for a non-rookie — a veteran cannot win Rookie All Star, and no randomness is consumed for it. */
+  readonly rookieAllStarProbability: number;
+  /** The residual pmf over `AWARD_POINT_SUPPORT` this team's remaining judged awards are drawn from. */
+  readonly residualPmf: readonly number[];
+  /** Which rung of the residual table's fallback hierarchy this team's pmf came from. */
+  readonly residualSource: AwardBaseRateSource;
+}
+
+/**
+ * Every team's ordering-derived award parameters, or `undefined` when the
+ * ordering does not apply to this event at all.
+ *
+ * `undefined` has exactly two causes and they are both stated in
+ * `AwardOrderingDisposition`: no table for the season, or any roster team
+ * missing `priorJudgedAwards`. The caller keeps the base-rate path in both
+ * cases, and the result reports which one it was.
+ *
+ * The orderings themselves come from `orderFieldByDecoration`, imported rather
+ * than restated, so the field the ledger prices is ordered by the same rule the
+ * tables were measured under. A second comparator here would be a second rule.
+ */
+export function awardOrderingAssignments(
+  season: number,
+  baselines: readonly SimTeamBaseline[],
+  awardProfiles: ReadonlyMap<string, DistrictAwardProfile>
+): readonly AwardOrderingAssignment[] | undefined {
+  if (!hasAwardOrderingTables(season)) return undefined;
+
+  const entries: { teamKey: string; priorJudgedAwards: number }[] = [];
+  for (const baseline of baselines) {
+    const profile = awardProfiles.get(baseline.teamKey);
+    if (profile?.priorJudgedAwards === undefined) return undefined;
+    entries.push({ teamKey: baseline.teamKey, priorJudgedAwards: profile.priorJudgedAwards });
+  }
+
+  const positionByTeam = new Map<string, number>();
+  orderFieldByDecoration(entries).forEach((teamKey, index) => positionByTeam.set(teamKey, index + 1));
+
+  // The rookie block is ranked on its OWN length. No tail of veterans is
+  // invented below it, matching how the table was measured.
+  const rookiePositionByTeam = new Map<string, number>();
+  orderFieldByDecoration(
+    entries.filter((entry) => awardProfiles.get(entry.teamKey)!.rookieState === "rookie")
+  ).forEach((teamKey, index) => rookiePositionByTeam.set(teamKey, index + 1));
+
+  return baselines.map((baseline) => {
+    const profile = awardProfiles.get(baseline.teamKey)!;
+    const impactPosition = positionByTeam.get(baseline.teamKey)!;
+    const rookieAllStarPosition = rookiePositionByTeam.get(baseline.teamKey) ?? 0;
+    const residual = awardResidualRate(season, profile.bucket, profile.rookieState);
+    return {
+      teamKey: baseline.teamKey,
+      impactPosition,
+      rookieAllStarPosition,
+      impactProbability: impactOrderingProbability(season, impactPosition).p,
+      rookieAllStarProbability:
+        rookieAllStarPosition === 0 ? 0 : rookieAllStarOrderingProbability(season, rookieAllStarPosition).p,
+      residualPmf: residual.pmf,
+      residualSource: residual.source,
+    };
+  });
+}
+
+/**
+ * One AWARD-ORDERING draw's composed point value, at BASE scale.
+ *
+ * Impact and Rookie All Star are drawn INDEPENDENTLY, which allows the pair —
+ * a rookie winning Impact is rare but not impossible, and refusing it would be
+ * a rule the corpus does not support. The sum can therefore exceed the tier's
+ * award ceiling, so the caller clamps; see the draw step for why the clamp is a
+ * correctness requirement rather than a tidy-up.
+ */
+export function composeOrderedAwardPoints(impactWon: boolean, rookieAllStarWon: boolean, residualPoints: number): number {
+  return (impactWon ? IMPACT_AWARD_POINTS : 0) + (rookieAllStarWon ? ROOKIE_ALL_STAR_AWARD_POINTS : 0) + residualPoints;
 }
 
 /**
@@ -335,6 +462,11 @@ export interface DistrictLedgerResult {
    * `knownAwardPoints` was supplied, because no lookup ran.
    */
   readonly awardSources: ReadonlyMap<string, AwardBaseRateSource>;
+  /**
+   * Which award pricing this run actually used, so a caller never has to infer
+   * it from the numbers. See `AwardOrderingDisposition`.
+   */
+  readonly awardOrdering: AwardOrderingDisposition;
 }
 
 /**
@@ -680,6 +812,8 @@ export function simulateDistrictEvent(
   const awardIsKnown = input.knownAwardPoints !== undefined;
   const awardSources = new Map<string, AwardBaseRateSource>();
   const awardPmfByTeam: (readonly number[])[] = [];
+  let orderingAssignments: readonly AwardOrderingAssignment[] | undefined;
+  let awardOrdering: AwardOrderingDisposition = "posted";
   if (!awardIsKnown) {
     // A POSTED award needs no base rate, which is why this whole block — the
     // lookup and its missing-profile refusal alike — is skipped when the award
@@ -703,6 +837,21 @@ export function simulateDistrictEvent(
       throw new MissingAwardProfileError(
         `event ${eventKey}: ${missingProfiles.length} roster team(s) have no award profile and no known award points were supplied: ${missingProfiles.join(", ")}`
       );
+    }
+
+    // THE ORDERING LAYER, resolved ONCE per event outside the draw loop. When it
+    // applies it REPLACES the base-rate pmf rather than adding to it: the
+    // residual table is the same population with the Impact and Rookie All Star
+    // mass carved out, so drawing from both would count those two awards twice.
+    orderingAssignments = awardOrderingAssignments(season, baselines, awardProfiles);
+    if (orderingAssignments !== undefined) {
+      awardOrdering = "applied";
+      // The reported rung becomes the RESIDUAL table's, because that is the
+      // table this run's points were actually drawn from. Reporting the
+      // base-rate rung would name a table the run did not use.
+      for (const assignment of orderingAssignments) awardSources.set(assignment.teamKey, assignment.residualSource);
+    } else {
+      awardOrdering = hasAwardOrderingTables(season) ? "incomplete-profiles" : "no-table";
     }
   }
 
@@ -968,10 +1117,44 @@ export function simulateDistrictEvent(
     //    covers JUDGED awards only (Winner, Finalist and Highest Rookie Seed
     //    are excluded there), which makes independence a defensible modelling
     //    choice rather than a convenience — and a stated limitation for 10-08.
+    //
+    //    THREE PATHS, and exactly one runs: posted (nothing drawn), the
+    //    ORDERING path (Impact and Rookie All Star priced by position in the
+    //    field, the rest from the residual table), or the base-rate path. The
+    //    ordering path is chosen once before the loop — see
+    //    `AwardOrderingDisposition` for when and why.
     if (input.knownAwardPoints !== undefined) {
       // AWARDS POSTED: nothing is drawn and no randomness is consumed.
       const known = input.knownAwardPoints;
       for (let i = 0; i < teamCount; i++) award[i] = known.get(baselines[i]!.teamKey) ?? 0;
+    } else if (orderingAssignments !== undefined) {
+      // THE ORDERING PATH. Three consumptions per team, in this pinned order:
+      // Impact, then Rookie All Star (only for a team that can win it), then the
+      // residual. This path consumes MORE of the ledger stream per team than the
+      // base-rate path below, so an event that switches between them produces a
+      // different seeded output BY DESIGN — the two are different models, not
+      // two spellings of one.
+      for (let i = 0; i < teamCount; i++) {
+        const assignment = orderingAssignments[i]!;
+        const impactWon = ledgerRng() < assignment.impactProbability;
+        // No randomness for a team whose Rookie All Star chance is structurally
+        // zero: a veteran cannot win it, and drawing-then-discarding would make
+        // every later draw depend on the roster's rookie count for no reason.
+        const rookieAllStarWon =
+          assignment.rookieAllStarProbability > 0 ? ledgerRng() < assignment.rookieAllStarProbability : false;
+        const residualIndex = drawCategorical(assignment.residualPmf, ledgerRng);
+        const composed =
+          composeOrderedAwardPoints(impactWon, rookieAllStarWon, AWARD_POINT_SUPPORT[residualIndex]!) * weight;
+        // THE CLAMP IS A CORRECTNESS REQUIREMENT, not a tidy-up. Impact and
+        // Rookie All Star are drawn independently, so their sum plus a residual
+        // can exceed this tier's declared award ceiling (10 plus 8 plus 13 is 31
+        // against a district ceiling of 15). An out-of-range write to the
+        // Int32Array accumulator below is a SILENT NO-OP that would drop that
+        // draw's mass entirely, after which `chanceOfAnyPoints` reads a
+        // confident percentage over an incomplete distribution. The ceiling is
+        // `maxEventPoints`' own value for this event, never a literal.
+        award[i] = composed > ceilings.award ? ceilings.award : composed;
+      }
     } else {
       for (let i = 0; i < teamCount; i++) {
         const index = drawCategorical(awardPmfByTeam[i]!, ledgerRng);
@@ -1020,6 +1203,7 @@ export function simulateDistrictEvent(
     awardPoints: awardHistograms,
     eventTotal: totalHistograms,
     awardSources,
+    awardOrdering,
   };
 }
 

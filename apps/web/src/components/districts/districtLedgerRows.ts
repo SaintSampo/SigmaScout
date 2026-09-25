@@ -329,12 +329,26 @@ export type DistrictEventInputResult =
     }
   | { readonly ok: false; readonly reason: "no-qual-rows" };
 
-/** 10-03's wire bucket vocabulary mapped onto 10-02's measured module keys — one mapping, at this boundary, exactly as `DISTRICT_AWARD_BUCKETS`' doc comment requires. */
+/**
+ * 10-03's wire bucket vocabulary mapped onto 10-02's measured module keys — one
+ * mapping, at this boundary, exactly as `DISTRICT_AWARD_BUCKETS`' doc comment
+ * requires.
+ *
+ * `priorJudgedAwards` is forwarded UNCHANGED and stays absent when the artifact
+ * carries none. Defaulting it to 0 here would sort that team to the bottom of
+ * its field and price it at the ordering's tail; `awardOrderingAssignments`
+ * instead takes the whole event back to the base rate, which is the price the
+ * artifact was published at before the ordering existed.
+ */
 function awardProfileFor(team: DistrictTeam): DistrictAwardProfile | undefined {
   const profile = team.awardProfile;
   if (profile === undefined) return undefined;
   const bucket = profile.bucket === "none" ? "none" : profile.bucket === "oneOrTwo" ? "one-or-two" : "three-or-more";
-  return { bucket, rookieState: profile.rookie ? "rookie" : "veteran" };
+  return {
+    bucket,
+    rookieState: profile.rookie ? "rookie" : "veteran",
+    ...(profile.priorJudgedAwards === undefined ? {} : { priorJudgedAwards: profile.priorJudgedAwards }),
+  };
 }
 
 /**

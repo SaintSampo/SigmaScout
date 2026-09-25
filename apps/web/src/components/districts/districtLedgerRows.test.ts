@@ -804,6 +804,42 @@ describe("the per-event simulation input at three positions", () => {
     expect(input.allianceCount).toBe(8);
   });
 
+  it("forwards priorJudgedAwards onto the award profile, and leaves it absent when the artifact carries none", () => {
+    type WireAwardProfile = NonNullable<DistrictTeam["awardProfile"]>;
+    const rosterTeam = (awardProfile: WireAwardProfile) =>
+      artifactOf([
+        team({
+          teamKey: roster[0]!,
+          pointTotal: 24,
+          eventPoints: [eventPoints({ eventKey: "2026wadone", qual: 12, alliance: 6, elim: 6, award: 0, total: 24 })],
+          awardProfile,
+        }),
+      ]);
+    const profileFrom = (awardProfile: WireAwardProfile) => {
+      const built = buildDistrictEventSimulationInput({
+        eventKey: "2026wadone",
+        season: SEASON,
+        eventArtifact,
+        districtArtifact: rosterTeam(awardProfile),
+        stage: { qual: false, alliance: false, elim: false, award: false },
+        startMatchKey: "2026wadone_qm1",
+      });
+      if (!built.ok) throw new Error("expected an input");
+      return built.input.awardProfiles.get(roster[0]!);
+    };
+
+    expect(profileFrom({ bucket: "threeOrMore", rookie: false, priorJudgedAwards: 6 })).toEqual({
+      bucket: "three-or-more",
+      rookieState: "veteran",
+      priorJudgedAwards: 6,
+    });
+
+    // An artifact published before the field existed carries no count, and the
+    // profile carries none either. Defaulting it to 0 here would sort that team
+    // to the bottom of its field and price it at the ordering's tail.
+    expect(profileFrom({ bucket: "none", rookie: false })).toEqual({ bucket: "none", rookieState: "veteran" });
+  });
+
   it("reports the field size as a disclosed fallback, because the event artifact publishes none", () => {
     const built = buildDistrictEventSimulationInput({
       eventKey: "2026wadone",

@@ -20,6 +20,15 @@ import {
 } from "../algorithms/simulation/rankSimulation.js";
 import { AWARD_POINT_SUPPORT, awardBaseRate } from "./awardBaseRates.js";
 import {
+  awardResidualRate,
+  hasAwardOrderingTables,
+  IMPACT_AWARD_POINTS,
+  impactOrderingProbability,
+  MAX_IMPACT_POSITION,
+  ROOKIE_ALL_STAR_AWARD_POINTS,
+  rookieAllStarOrderingProbability,
+} from "./awardOrderingTables.js";
+import {
   BRACKET_SETS,
   divisionedDcmpPlayoffPmf,
   UnsupportedAllianceCountError,
@@ -37,6 +46,8 @@ import {
   InvalidKnownPointsError,
   MissingAwardProfileError,
   NegativeDistrictShiftError,
+  awardOrderingAssignments,
+  composeOrderedAwardPoints,
   simulateDistrictEvent,
   UnratedTeamError,
   type DistrictAwardProfile,
@@ -1288,5 +1299,223 @@ describe("simulateDistrictEvent — a known-stage value is a histogram index, so
     // 100 draws' worth of denominator and nothing in it.
     expect(() => chanceOfAnyPoints(new Int32Array(16), 100)).toThrow(EmptyDistributionError);
     expect(() => pointCellSummary(new Int32Array(16), 100)).toThrow(EmptyDistributionError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The award ORDERING layer (quick task 260925-qhh)
+// ---------------------------------------------------------------------------
+
+/**
+ * Profiles that CARRY the ordering key, with team 1 the most decorated and the
+ * decoration falling by team number. Team `n` holds `teamCount - n` prior judged
+ * awards, so the field's most-decorated ordering is exactly team 1 through team
+ * `teamCount` and every position is hand-derivable.
+ */
+function profilesWithCounts(teamCount: number, rookieState: "rookie" | "veteran" = "veteran"): Map<string, DistrictAwardProfile> {
+  const out = new Map<string, DistrictAwardProfile>();
+  for (let i = 1; i <= teamCount; i++) {
+    const priorJudgedAwards = rookieState === "rookie" ? 0 : teamCount - i;
+    out.set(teamKey(i), {
+      bucket: priorJudgedAwards === 0 ? "none" : priorJudgedAwards <= 2 ? "one-or-two" : "three-or-more",
+      rookieState,
+      priorJudgedAwards,
+    });
+  }
+  return out;
+}
+
+describe("the award ordering layer — the assignment", () => {
+  it("prices the MOST DECORATED team in the field at the table's position-1 value, exactly", () => {
+    const assignments = awardOrderingAssignments(SEASON, baselinesFor(30), profilesWithCounts(30))!;
+    expect(assignments).toBeDefined();
+    // Team 1 holds the most prior judged awards, so it is position 1.
+    expect(assignments[0]!.teamKey).toBe(teamKey(1));
+    expect(assignments[0]!.impactPosition).toBe(1);
+    expect(assignments[0]!.impactProbability).toBe(impactOrderingProbability(SEASON, 1).p);
+    // And the second most decorated is position 2 — a bucket-averaged price
+    // cannot tell these two apart and this layer exists because it should.
+    expect(assignments[1]!.impactProbability).toBe(impactOrderingProbability(SEASON, 2).p);
+    expect(assignments[0]!.impactProbability).toBeGreaterThan(assignments[1]!.impactProbability);
+  });
+
+  it("takes a team past the last named position to the TAIL, and every such team to the same tail", () => {
+    const assignments = awardOrderingAssignments(SEASON, baselinesFor(30), profilesWithCounts(30))!;
+    const tail = impactOrderingProbability(SEASON, MAX_IMPACT_POSITION + 1);
+    expect(tail.source).toBe("tail");
+    for (let i = MAX_IMPACT_POSITION; i < 30; i++) {
+      expect(assignments[i]!.impactPosition).toBe(i + 1);
+      expect(assignments[i]!.impactProbability).toBe(tail.p);
+    }
+  });
+
+  it("prices a ROOKIE from the rookie table, by its position among the rookies and never among the whole field", () => {
+    const profiles = profilesWithCounts(30);
+    // Teams 20 and 25 are the field's only rookies. Both hold zero prior judged
+    // awards, so the rookie ordering is ascending team number: 20 then 25.
+    profiles.set(teamKey(20), { bucket: "none", rookieState: "rookie", priorJudgedAwards: 0 });
+    profiles.set(teamKey(25), { bucket: "none", rookieState: "rookie", priorJudgedAwards: 0 });
+    const assignments = awardOrderingAssignments(SEASON, baselinesFor(30), profiles)!;
+    const first = assignments.find((a) => a.teamKey === teamKey(20))!;
+    const second = assignments.find((a) => a.teamKey === teamKey(25))!;
+    expect(first.rookieAllStarPosition).toBe(1);
+    expect(second.rookieAllStarPosition).toBe(2);
+    expect(first.rookieAllStarProbability).toBe(rookieAllStarOrderingProbability(SEASON, 1).p);
+    expect(second.rookieAllStarProbability).toBe(rookieAllStarOrderingProbability(SEASON, 2).p);
+    // Their positions in the ROOKIE block are 1 and 2 even though they sit deep
+    // in the whole field's ordering — the two orderings are separate.
+    expect(first.impactPosition).toBeGreaterThan(2);
+  });
+
+  it("gives a NON-rookie a Rookie All Star chance of exactly zero, and no position at all", () => {
+    const assignments = awardOrderingAssignments(SEASON, baselinesFor(30), profilesWithCounts(30))!;
+    for (const assignment of assignments) {
+      expect(assignment.rookieAllStarPosition).toBe(0);
+      expect(assignment.rookieAllStarProbability).toBe(0);
+    }
+  });
+
+  it("draws the remaining judged awards from the RESIDUAL table, never from the unreduced base rate", () => {
+    const assignments = awardOrderingAssignments(SEASON, baselinesFor(30), profilesWithCounts(30))!;
+    const decorated = assignments[0]!;
+    const profile = profilesWithCounts(30).get(teamKey(1))!;
+    expect(decorated.residualPmf).toEqual(awardResidualRate(SEASON, profile.bucket, profile.rookieState).pmf);
+    // Drawing from the base rate here and ALSO drawing Impact is the double
+    // count the residual exists to prevent, so the two must differ.
+    expect(decorated.residualPmf).not.toEqual(awardBaseRate(SEASON, profile.bucket, profile.rookieState).pmf);
+  });
+
+  it("refuses the whole field when ANY team lacks the count, and when the season has no table", () => {
+    const partial = profilesWithCounts(30);
+    partial.set(teamKey(7), { bucket: "none", rookieState: "veteran" });
+    expect(awardOrderingAssignments(SEASON, baselinesFor(30), partial)).toBeUndefined();
+    // A team treated as undecorated because its count was missing would sort to
+    // the BOTTOM of the field and be priced at the tail — a confident wrong
+    // number, which is why one absence takes the whole event back.
+    expect(hasAwardOrderingTables(2018)).toBe(false);
+    expect(awardOrderingAssignments(2018, baselinesFor(30), profilesWithCounts(30))).toBeUndefined();
+  });
+
+  it("composes the two award point values additively, and they are the measured ones", () => {
+    expect(composeOrderedAwardPoints(false, false, 5)).toBe(5);
+    expect(composeOrderedAwardPoints(true, false, 0)).toBe(IMPACT_AWARD_POINTS);
+    expect(composeOrderedAwardPoints(false, true, 0)).toBe(ROOKIE_ALL_STAR_AWARD_POINTS);
+    expect(composeOrderedAwardPoints(true, true, 5)).toBe(IMPACT_AWARD_POINTS + ROOKIE_ALL_STAR_AWARD_POINTS + 5);
+  });
+});
+
+describe("the award ordering layer — the draw", () => {
+  const draws = 2000;
+
+  it("reports which pricing it used rather than leaving a caller to infer it from the numbers", () => {
+    const ordered = simulateDistrictEvent(inputFor(30, { awardProfiles: profilesWithCounts(30) }), 20, 5);
+    expect(ordered.awardOrdering).toBe("applied");
+
+    const withoutCounts = simulateDistrictEvent(inputFor(30), 20, 5);
+    expect(withoutCounts.awardOrdering).toBe("incomplete-profiles");
+
+    const posted = simulateDistrictEvent(
+      inputFor(30, { knownAwardPoints: new Map([[teamKey(1), 5]]), awardProfiles: new Map<string, DistrictAwardProfile>() }),
+      20,
+      5
+    );
+    expect(posted.awardOrdering).toBe("posted");
+  });
+
+  it("falls back to the base-rate path BIT-IDENTICALLY when one team's count is missing", () => {
+    // The SAME buckets in both runs, so the only difference is the presence of
+    // the ordering key. Comparing against a differently-bucketed fixture would
+    // compare two base rates and prove nothing about the fallback.
+    const stripped = new Map(
+      [...profilesWithCounts(30)].map(([key, profile]) => [key, { bucket: profile.bucket, rookieState: profile.rookieState }] as const)
+    );
+    // Every count absent (every artifact published before the field existed)...
+    const allMissing = simulateDistrictEvent(inputFor(30, { awardProfiles: stripped }), draws, 11);
+    // ...and exactly one absent among twenty-nine present.
+    const oneMissing = profilesWithCounts(30);
+    oneMissing.set(teamKey(13), { bucket: stripped.get(teamKey(13))!.bucket, rookieState: "veteran" });
+    const partial = simulateDistrictEvent(inputFor(30, { awardProfiles: oneMissing }), draws, 11);
+
+    // Not "close": the same histogram, integer for integer, for every team. A
+    // single missing count must leave the event priced exactly as it was before
+    // the ordering existed.
+    for (const baseline of baselinesFor(30)) {
+      expect([...partial.awardPoints.get(baseline.teamKey)!], baseline.teamKey).toEqual([
+        ...allMissing.awardPoints.get(baseline.teamKey)!,
+      ]);
+    }
+    expect(partial.awardOrdering).toBe("incomplete-profiles");
+  });
+
+  it("changes the award marginal when it applies — a layer that changed nothing would pass every other test here", () => {
+    const base = simulateDistrictEvent(inputFor(30), draws, 11);
+    const ordered = simulateDistrictEvent(inputFor(30, { awardProfiles: profilesWithCounts(30) }), draws, 11);
+    expect([...ordered.awardPoints.get(teamKey(1))!]).not.toEqual([...base.awardPoints.get(teamKey(1))!]);
+    // The most decorated team gets MORE award mass than the bucket average gave
+    // it, which is the whole point of the layer.
+    const anyPoints = (histogram: Int32Array): number => 1 - histogram[0]! / draws;
+    expect(anyPoints(ordered.awardPoints.get(teamKey(1))!)).toBeGreaterThan(anyPoints(base.awardPoints.get(teamKey(1))!));
+  });
+
+  it("keeps every team's award histogram a complete distribution, which is what proves the ceiling clamp fires", () => {
+    // A rookie field is the case that overflows: Impact at 10, Rookie All Star
+    // at 8 and a residual of 5 or 10 compose to 23 or 28 against a district
+    // ceiling of 15. An unclamped out-of-range write to the Int32Array is a
+    // SILENT NO-OP, so a team whose mass went missing is exactly what a removed
+    // clamp looks like — and nothing else in this file would catch it.
+    const rookies = profilesWithCounts(30, "rookie");
+    const result = simulateDistrictEvent(inputFor(30, { awardProfiles: rookies }), draws, 7);
+    expect(result.awardOrdering).toBe("applied");
+    const ceiling = maxEventPoints(SEASON, TIER).award;
+    for (const baseline of baselinesFor(30)) {
+      const histogram = result.awardPoints.get(baseline.teamKey)!;
+      let total = 0;
+      for (const count of histogram) total += count;
+      expect(total, baseline.teamKey).toBe(draws);
+      expect(histogram.length).toBe(ceiling + 1);
+    }
+    // And the clamp's own bin carries mass, so the branch was actually taken.
+    const topBin = [...baselinesFor(30)].reduce((sum, b) => sum + result.awardPoints.get(b.teamKey)![ceiling]!, 0);
+    expect(topBin).toBeGreaterThan(0);
+  });
+
+  it("produces an award pmf that sums to one and that encodeDistrictPointPmf accepts", () => {
+    const result = simulateDistrictEvent(inputFor(30, { awardProfiles: profilesWithCounts(30) }), draws, 3);
+    for (const baseline of baselinesFor(30)) {
+      const encoded = encodeDistrictPointPmf(result.awardPoints.get(baseline.teamKey)!, draws);
+      const sum = encoded.p.reduce((a, b) => a + b, 0);
+      expect(Math.abs(sum - 1), baseline.teamKey).toBeLessThan(1e-9);
+      expect(encoded.offset).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("reports the RESIDUAL table's fallback rung, because that is the table the points came from", () => {
+    const result = simulateDistrictEvent(inputFor(30, { awardProfiles: profilesWithCounts(30) }), 20, 3);
+    const profile = profilesWithCounts(30).get(teamKey(1))!;
+    expect(result.awardSources.get(teamKey(1))).toBe(awardResidualRate(SEASON, profile.bucket, profile.rookieState).source);
+  });
+
+  it("is deterministic at one seed, and consumes exactly one more ledger value per team than the base-rate path", () => {
+    const input = inputFor(30, { awardProfiles: profilesWithCounts(30) });
+    const consumed = (i: DistrictLedgerEventInput, runs: number): number => {
+      let total = 0;
+      simulateDistrictEvent(i, runs, 42, (observation) => {
+        total += observation.ledgerDraws;
+      });
+      return total;
+    };
+    expect(consumed(input, 5)).toBe(consumed(input, 5));
+
+    // Scored on ONE draw, deliberately. The bracket runs BEFORE the awards and
+    // its finals are best-of-three, so from draw two onward the extra award
+    // consumption shifts the stream and the bracket's own consumption stops
+    // being comparable. On draw one both runs enter the award step at the same
+    // stream position, so the difference is exactly the award step's.
+    //
+    // TWO consumptions per team on the ordering path (Impact, then the
+    // residual) against the base-rate path's ONE, so exactly one more per team.
+    // Not two more: a veteran cannot win Rookie All Star, so no randomness is
+    // consumed for it at all.
+    expect(consumed(input, 1) - consumed(inputFor(30), 1)).toBe(1 * 30);
   });
 });
