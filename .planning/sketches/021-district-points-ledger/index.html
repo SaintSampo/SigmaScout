@@ -114,7 +114,7 @@ table.ledger{border-collapse:separate;border-spacing:0;width:100%;min-width:860p
 .cell.open{background:var(--open-bg);color:var(--open-fg);border:0;width:100%;cursor:pointer;box-shadow:inset 0 0 0 1px var(--open-edge);flex-direction:column;gap:1px}
 .cell.open:hover{background:var(--open-bg-hover)}
 .cell.open[aria-expanded="true"]{box-shadow:inset 0 0 0 2px var(--open-bar)}
-.cell.open .rg{font-size:12px;font-weight:600}
+.cell.open .rg{font-size:13px;font-weight:700}
 .cell.open .lb{font-size:10px;font-weight:500;color:#0c4a6e;letter-spacing:.02em;white-space:nowrap}
 .ledger td.num{min-width:96px}
 .cell.tot{font-size:14px}
@@ -125,7 +125,8 @@ table.ledger{border-collapse:separate;border-spacing:0;width:100%;min-width:860p
 /* inline mini histogram (C) */
 .mini{display:flex;flex-direction:column;align-items:stretch;gap:2px;width:100%}
 .mini svg{display:block;width:100%;height:24px}
-.mini .rg{font-size:11px;font-weight:600;text-align:center}
+.mini .rg{font-size:11px;font-weight:700;text-align:center}
+.mini .lb{text-align:center}
 
 /* drawer content */
 .dr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px 24px}
@@ -293,6 +294,13 @@ function fmt1(x){return (Math.round(x*10)/10).toLocaleString(undefined,{minimumF
 function fmt0(x){return Math.round(x).toLocaleString()}
 function rangeInt(P){ const lo=Math.max(P.vals[0],cq(P,.1)), hi=Math.min(P.vals[P.vals.length-1],cq(P,.9)); return fmt0(lo)+"–"+fmt0(hi); }
 function rangeText(P){ const lo=Math.max(P.vals[0],cq(P,.1)), hi=Math.min(P.vals[P.vals.length-1],cq(P,.9)); return fmt1(lo)+'–'+fmt1(hi); }
+const LUMPY={a:['picked','if picked'],e:['play','if in'],w:['award','if won']};
+function condMedian(P){ const vals=[],p=[]; let z=0; P.vals.forEach((v,i)=>{ if(v>0){vals.push(v);p.push(P.p[i]);z+=P.p[i];} }); return z>0?cq({vals,p:p.map(x=>x/z)},.5):0; }
+function cellText(P,c){ // what a blue cell prints: a chance plus a typical amount for the lumpy categories, a median plus a likely range otherwise
+  if(c&&LUMPY[c.id]){ const p0=P.p[P.vals.indexOf(0)]||0, pAny=1-p0;
+    if(pAny<0.995){ return {big:`${fmt0(pAny*100)}% ${LUMPY[c.id][0]}`, small:`~${fmt0(condMedian(P))} ${LUMPY[c.id][1]}`, chip:`${fmt0(pAny*100)}%`}; } }
+  return {big:fmt0(cq(P,.5)), small:`likely ${rangeInt(P)}`, chip:fmt0(cq(P,.5))};
+}
 function pAtLeast(P,x){ let s=0; P.vals.forEach((v,i)=>{ if(v>=x) s+=P.p[i]; }); return s; }
 
 /* ---------- state at a slider position ---------- */
@@ -391,13 +399,14 @@ function cellHtml(r,ei,ci,mini){
   const cls=ci==='tot'?' tot':'';
   if(x.fin) return `<div class="cell fin${cls}">${x.val}</div>`;
   const isOpen=open&&open.n===r.t.n&&open.key!=='grand'&&open.key.ei===ei&&open.key.ci===ci;
-  if(mini) return `<button class="cell open${cls}" aria-expanded="${isOpen}" data-n="${r.t.n}" data-ei="${ei}" data-ci="${ci}"><span class="mini">${miniSvg(x.P,x.max)}<span class="rg">${rangeText(x.P)}</span></span></button>`;
-  return `<button class="cell open${cls}" aria-expanded="${isOpen}" data-n="${r.t.n}" data-ei="${ei}" data-ci="${ci}"><span class="lb">10th–90th</span><span class="rg">${rangeText(x.P)}</span></button>`;
+  const tx=cellText(x.P, ci==='tot'?null:x.c);
+  if(mini) return `<button class="cell open${cls}" aria-expanded="${isOpen}" data-n="${r.t.n}" data-ei="${ei}" data-ci="${ci}"><span class="mini">${miniSvg(x.P,x.max)}<span class="rg">${tx.big}</span><span class="lb">${tx.small}</span></span></button>`;
+  return `<button class="cell open${cls}" aria-expanded="${isOpen}" data-n="${r.t.n}" data-ei="${ei}" data-ci="${ci}"><span class="rg">${tx.big}</span><span class="lb">${tx.small}</span></button>`;
 }
 function grandHtml(r){
   if(r.allFin) return `<div class="cell fin grand">${r.floor}</div>`;
   const isOpen=open&&open.n===r.t.n&&open.key==='grand';
-  return `<button class="cell open grand" aria-expanded="${isOpen}" data-n="${r.t.n}" data-grand="1"><span class="lb">10th–90th</span><span class="rg">${rangeText(r.grand)}</span></button>`;
+  return `<button class="cell open grand" aria-expanded="${isOpen}" data-n="${r.t.n}" data-grand="1"><span class="rg">${cellText(r.grand,null).big}</span><span class="lb">${cellText(r.grand,null).small}</span></button>`;
 }
 function visible(rows){ return rows.filter(r=>filt[r.status] && (!query || String(r.t.n).startsWith(query))); }
 
@@ -432,11 +441,11 @@ function renderCards(rows,line){
     const sel=open&&open.n===r.t.n;
     html+=`<article class="card tcard"><div class="hd"><span><span class="no">${r.t.n}</span><span class="nm">${r.t.name}</span></span><span>${chip(r)} <span class="rk">#${r.pos}</span></span></div>`;
     r.events.forEach((e,ei)=>{
-      html+=`<div class="evrow"><div class="evn">${e.ev.name}<small>wk ${e.ev.week} · ${stageWord(e.stage)}</small></div>${trackHtml(e)}<div class="evt${e.allFin?'':' open'}">${e.allFin?e.finSum:rangeText(e.tot)}${e.allFin?'':'<small>10th–90th</small>'}</div>
-        <div class="segs">${e.cats.map((x,ci)=>x.fin?`<span><span class="cat">${x.c.short}</span>${x.val}</span>`:`<button aria-expanded="${sel&&open.key!=='grand'&&open.key.ei===ei&&open.key.ci===ci}" data-n="${r.t.n}" data-ei="${ei}" data-ci="${ci}"><span class="cat">${x.c.short}</span>${rangeInt(x.P)}</button>`).join('')}</div></div>`;
+      html+=`<div class="evrow"><div class="evn">${e.ev.name}<small>wk ${e.ev.week} · ${stageWord(e.stage)}</small></div>${trackHtml(e)}<div class="evt${e.allFin?'':' open'}">${e.allFin?e.finSum:cellText(e.tot,null).big}${e.allFin?'':`<small>${cellText(e.tot,null).small}</small>`}</div>
+        <div class="segs">${e.cats.map((x,ci)=>x.fin?`<span><span class="cat">${x.c.short}</span>${x.val}</span>`:`<button aria-expanded="${sel&&open.key!=='grand'&&open.key.ei===ei&&open.key.ci===ci}" data-n="${r.t.n}" data-ei="${ei}" data-ci="${ci}"><span class="cat">${x.c.short}</span>${cellText(x.P,x.c).chip}</button>`).join('')}</div></div>`;
     });
     const glo=Math.max(0,cq(r.grand,.1)), ghi=Math.min(GM,cq(r.grand,.9)), gmd=cq(r.grand,.5);
-    html+=`<div class="grandrow"><div class="evn">Grand total</div><div class="track"><div class="rail"></div><div class="fin" style="left:0;width:${XG(r.floor)}"></div>${r.allFin?'':`<div class="band" style="left:${XG(glo)};width:${XG(ghi-glo)}"></div><div class="med" style="left:${XG(gmd)}"></div>`}<div class="cut" style="left:${XG(line)}" title="today's line"></div></div>${r.allFin?`<div class="evt">${r.floor}</div>`:`<button class="evt open" aria-expanded="${sel&&open.key==='grand'}" data-n="${r.t.n}" data-grand="1">${rangeText(r.grand)}<small>10th–90th</small></button>`}
+    html+=`<div class="grandrow"><div class="evn">Grand total</div><div class="track"><div class="rail"></div><div class="fin" style="left:0;width:${XG(r.floor)}"></div>${r.allFin?'':`<div class="band" style="left:${XG(glo)};width:${XG(ghi-glo)}"></div><div class="med" style="left:${XG(gmd)}"></div>`}<div class="cut" style="left:${XG(line)}" title="today's line"></div></div>${r.allFin?`<div class="evt">${r.floor}</div>`:`<button class="evt open" aria-expanded="${sel&&open.key==='grand'}" data-n="${r.t.n}" data-grand="1">${cellText(r.grand,null).big}<small>${cellText(r.grand,null).small}</small></button>`}
       <div class="axis"><span style="left:0">0</span><span style="left:${XG(line)}">line ${line}</span><span style="left:100%">${GM}</span></div></div>`;
     if(sel) html+=`<div class="pop">${drawerHtml(r,open.key,line)}</div>`;
     html+='</article>';
@@ -447,7 +456,7 @@ function render(){
   const {rows,line}=stateAt(pos);
   const counts={prequalified:0,locked:0,inrange:0,outofrange:0,lockedout:0}; rows.forEach(r=>counts[r.status]++);
   $('legend').innerHTML=Object.keys(STATUS).map(k=>`<button aria-pressed="${filt[k]}" data-f="${k}" title="${DEFS[k]}"><span class="chip ${k}">${STATUS[k]} <small>${counts[k]}</small></span></button>`).join('')+
-    `<span class="cellkey"><i class="f"></i>earned, final</span><span class="cellkey"><i class="o"></i>still open · click for the histogram</span>`+
+    `<span class="cellkey"><i class="f"></i>earned, final</span><span class="cellkey"><i class="o"></i>still open · click for the histogram</span><span class="cellkey">likely = 8 of 10 runs land here · ~ = typical amount when it happens</span>`+
     `<div class="defs">${Object.keys(STATUS).map(k=>`<span><b>${STATUS[k]}</b> ${DEFS[k]}</span>`).join('')}</div>`;
   const [pl,ph]=posText(pos); $('posLabel').textContent=pl; $('posHint').textContent=ph;
   const openCells=rows.reduce((s,r)=>s+r.events.reduce((t,e)=>t+e.cats.filter(x=>!x.fin).length,0),0);

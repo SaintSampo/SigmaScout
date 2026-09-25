@@ -52,6 +52,21 @@ team is that position. All three share: the slider, the five status chips as fil
 cell key, and the grey/blue rule (grey = a single earned number, blue = a printed range plus a
 click affordance, so the two never rely on hue alone).
 
+## What a blue cell prints (round four)
+
+Jacob asked whether the 10th to 90th range was the most intuitive thing to print. Two problems
+with it: ranges do not add, and a reader will try to add eight cells toward the grand total; and
+three of the four categories have a lump at zero, so their range comes out "0.0 to 15.2", honest
+and empty. Round four therefore prints:
+
+- **Qualification, event total, grand total:** the median in bold, "likely a to b" beneath, where
+  likely means 8 of 10 runs land there (the same 10th to 90th interval, in plain words, after the
+  calibration finding of sketch 006).
+- **Alliance selection, playoffs, awards:** the chance of any points in bold ("74% picked",
+  "74% play", "44% award") and the typical amount when it happens beneath ("~9 if picked"), a
+  conditional median. When the chance is above 99.5% the cell falls back to the median form.
+- **B's chips** carry only the bold half. The drawer keeps the exact percentiles.
+
 ## The slider
 
 Positions are week by stage: for each of weeks 0 to 3, quals at a quarter, half, three quarters,
