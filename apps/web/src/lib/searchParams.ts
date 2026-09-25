@@ -13,6 +13,7 @@
  */
 import { z } from "zod";
 import { PUBLISHED_ALGORITHM_IDS, type PublishedAlgorithmId } from "../../../../packages/harness/publishedAlgorithms.js";
+import { DISTRICT_KEY_PATTERN } from "../../../../packages/core/districts/keys.js";
 import { CURRENT_SEASON, SEASONS } from "./seasons.js";
 import { teamsSortKeyUniverse } from "./metricKeys.js";
 import { resolveSortKey } from "./resolveSortKey.js";
@@ -334,7 +335,33 @@ export const DEFAULT_DISTRICT_TAB = "road-to-district-champs";
  * on the event and team pages.
  */
 export const DistrictsSearchSchema = RootSearchSchema.extend({
-  district: z.string().optional(),
+  /**
+   * The selected district's TBA key. VALIDATED AT THIS BOUNDARY against the
+   * same shape the Worker validates it with (phase 10 review, WR-10).
+   *
+   * Unlike the three data-dependent fields below, this one HAS a knowable
+   * static shape: `DISTRICT_KEY_PATTERN` from `packages/core/districts/keys.ts`
+   * — the one declaration both halves of this repo import, so the browser and
+   * `apps/worker/src/districtRefresh.ts` cannot drift apart on what a district
+   * key is.
+   *
+   * WHY IT MATTERS. This value flows to `districtDetailKey(districtKey)` and
+   * `districtPreSimKey`, and from there into `v1/district/${districtKey}.json`
+   * and a `fetch` URL — a path segment, unencoded. The impact was bounded (the
+   * artifact origin is a compile-time constant, React escapes the value where
+   * it renders, and the response is Zod-parsed), which is why the review filed
+   * it as a warning rather than a critical. It was still an asymmetry: the
+   * Worker refused a malformed key before it could become an R2 key and the
+   * browser did not.
+   *
+   * `.catch(undefined)` rather than a validation error, matching every other
+   * field in this file: a hand-edited or malformed key resolves to "no
+   * district selected", which renders the page's own "Pick a district" empty
+   * state. The detail fetch is gated on `effectiveDistrict !== undefined`
+   * (`routes/districts.tsx`), so a rejected value never reaches a key builder
+   * or a fetch at all.
+   */
+  district: z.string().regex(DISTRICT_KEY_PATTERN).optional().catch(undefined),
   tab: z.enum(DISTRICT_TABS).catch(DEFAULT_DISTRICT_TAB),
   /**
    * The Road to District Champs tab's Rewind position — a timeline STEP ID.

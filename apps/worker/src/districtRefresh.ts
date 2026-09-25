@@ -43,6 +43,7 @@
  */
 import { districtDetailKey, DistrictArtifactSchema, DistrictEventStateSchema, type DistrictArtifact, type DistrictEventState } from "../../../packages/harness/pageArtifacts.js";
 import { applyDistrictEventState, applyDistrictRankings } from "../../../packages/harness/districtRankingsMerge.js";
+import { DISTRICT_KEY_PATTERN } from "../../../packages/core/districts/keys.js";
 import { districtRankingsCursorKey, eventAwardsCursorKey } from "../../../packages/harness/stateBaseline.js";
 import type { LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
 import { tbaEventAwardsResponseSchema } from "../../../packages/ingest/schemas.js";
@@ -62,8 +63,14 @@ import type { Env } from "./env.js";
  * encoded-and-hoped. The value itself is joined from the corpus `districts`
  * table by the offline builder (10-03), never concatenated, so a rejection
  * here means the manifest itself is wrong.
+ *
+ * DECLARED IN `packages/core/districts/keys.ts` SINCE THE PHASE 10 REVIEW
+ * (WR-10) and re-exported here, so this module's existing importers are
+ * unchanged. The browser validates `?district=` with the SAME declaration at
+ * `apps/web/src/lib/searchParams.ts`'s schema boundary; before the move the
+ * Worker refused a malformed key and the browser did not.
  */
-export const DISTRICT_KEY_PATTERN = /^\d{4}[a-z0-9]+$/;
+export { DISTRICT_KEY_PATTERN };
 
 /**
  * The live windows of this tick, grouped by the district each belongs to.

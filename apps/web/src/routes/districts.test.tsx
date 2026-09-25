@@ -227,6 +227,52 @@ describe("/districts route", () => {
     expect(screen.getByTestId("road-to-district-champs-panel").hasAttribute("hidden")).toBe(false);
   });
 
+  // Phase 10 review, WR-10: `?district=` used to be an unchecked `z.string()`
+  // that flowed into `districtDetailKey` and then into a fetch URL PATH
+  // SEGMENT, unencoded, while the Worker validated the very same value with
+  // `DISTRICT_KEY_PATTERN` before it could become an R2 key.
+  it("a malformed ?district= resolves to no selection, and fires no detail fetch at all", async () => {
+    const fetchSpy = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/v1/districts/")) return Promise.resolve(districtsIndexResponse());
+      return Promise.resolve(districtDetailResponse("2026fnc"));
+    });
+    global.fetch = fetchSpy as unknown as typeof fetch;
+    const router = renderDistrictsRoute("/districts?algorithm=spr&district=..%2F..%2Fetc%2Fpasswd");
+
+    await waitFor(() => expect(screen.getByText("Pick a district")).toBeDefined());
+    expect((router.state.location.search as Record<string, unknown>).district).toBeUndefined();
+    // The malformed value reached NO key builder and NO artifact URL.
+    for (const call of fetchSpy.mock.calls) {
+      expect(String(call[0])).not.toContain("passwd");
+      expect(String(call[0])).not.toContain("/v1/district/");
+    }
+  });
+
+  it("an uppercase or otherwise off-shape district key is refused the same way, never encoded and hoped", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/v1/districts/")) return Promise.resolve(districtsIndexResponse());
+      return new Promise<Response>(() => {});
+    }) as unknown as typeof fetch;
+    const router = renderDistrictsRoute("/districts?algorithm=spr&district=2026FNC");
+
+    await waitFor(() => expect(screen.getByText("Pick a district")).toBeDefined());
+    expect((router.state.location.search as Record<string, unknown>).district).toBeUndefined();
+  });
+
+  it("a well formed ?district= still loads its detail artifact unchanged", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/v1/districts/")) return Promise.resolve(districtsIndexResponse());
+      if (url.includes("/v1/district/")) return Promise.resolve(districtDetailResponse("2026fnc"));
+      return new Promise<Response>(() => {});
+    }) as unknown as typeof fetch;
+    renderDistrictsRoute("/districts?algorithm=spr&district=2026fnc");
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining("/v1/district/2026fnc.json")));
+  });
+
   it("a year change carries ?district= to the same district in the new year, or clears it when that year has none", async () => {
     const indexFor = (year: number, abbreviations: string[]) =>
       new Response(

@@ -18,6 +18,7 @@ import {
   TeamsSearchSchema,
   applyYearChange,
 } from "./searchParams.js";
+import { DISTRICT_KEY_PATTERN } from "../../../../packages/core/districts/keys.js";
 
 describe("RootSearchSchema's default algorithm", () => {
   it("defaults to vpr when algorithm is absent", () => {
@@ -172,6 +173,26 @@ describe("DistrictsSearchSchema — the Road to District Champs params", () => {
     expect(DistrictsSearchSchema.parse({ ...base, tab: "district-locks" }).tab).toBe(DEFAULT_DISTRICT_TAB);
     expect(DEFAULT_DISTRICT_TAB).toBe("road-to-district-champs");
     expect(DistrictsSearchSchema.parse({ ...base, tab: "champ-locks" }).tab).toBe("champ-locks");
+  });
+
+  // WR-10: `?district=` is the one district field with a knowable static
+  // shape, so it is validated at this boundary with the SAME pattern the
+  // Worker validates it with rather than reaching a fetch URL path unchecked.
+  it("keeps a well formed district key exactly as written", () => {
+    for (const key of ["2026pnw", "2026fim", "2025fsc", "2026ont"]) {
+      expect(DistrictsSearchSchema.parse({ ...base, district: key }).district).toBe(key);
+    }
+  });
+
+  it("falls a malformed district key back to absent, so it never reaches districtDetailKey or a fetch path", () => {
+    for (const malformed of ["../../etc/passwd", "2026PNW", "pnw", "2026", "2026 pnw", "2026pnw/../x", "", "26pnw"]) {
+      expect(DistrictsSearchSchema.parse({ ...base, district: malformed }).district).toBeUndefined();
+    }
+  });
+
+  it("validates it against the SHARED pattern, so the browser and the Worker cannot drift apart on what a district key is", () => {
+    expect(DISTRICT_KEY_PATTERN.test("2026pnw")).toBe(true);
+    expect(DISTRICT_KEY_PATTERN.test("2026PNW")).toBe(false);
   });
 
   it("survives a year change untouched — applyYearChange rewrites only the literal key `sort`", () => {
