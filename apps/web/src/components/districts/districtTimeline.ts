@@ -119,18 +119,48 @@ function stepLabel(step: DistrictTimelineStep): string {
   return `${step.eventName} awards`;
 }
 
+/** Week ordering, a null week last. Returns 0 when the two weeks are equal, including two nulls. */
+function compareWeeks(a: number | null, b: number | null): number {
+  if (a === b) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return a - b;
+}
+
+/**
+ * THE WEEK DECIDES FIRST WHENEVER EITHER SIDE IS UNTIMED, and only then does
+ * an untimed step fall behind a timed one.
+ *
+ * WHY THAT ORDER AND NOT THE OTHER. `sortMs` is `null` for an event whose
+ * artifact has not loaded — which is the ordinary FIRST-PAINT state, since the
+ * event list is the fetch set — and for a qualification row TBA published no
+ * time for. A blanket "every untimed step after every timed one" therefore
+ * pushed a finished WEEK 1 event's alliance-selection, playoff and awards steps
+ * past a live WEEK 3 event's matches, and the derived chips inherited it:
+ * `lastIndexByWeek` takes the highest index carrying each week, so "After week
+ * 1" jumped to near the end of the slider. A missing artifact must SHORTEN
+ * PRECISION, never reorder the season.
+ *
+ * Within one week the old rule still holds — an untimed step sorts after the
+ * timed ones rather than at the epoch, so it never jumps to the front.
+ *
+ * Two timed steps are still compared by instant alone, so nothing about the
+ * interleaving of two loaded events changes.
+ */
 function compareSteps(a: DistrictTimelineStep, b: DistrictTimelineStep): number {
-  // A step with no published instant sorts after every timed one, rather than
-  // at the epoch — an untimed row must never jump to the front of the season.
   const aTimed = a.sortMs !== null;
   const bTimed = b.sortMs !== null;
-  if (aTimed !== bTimed) return aTimed ? -1 : 1;
-  if (aTimed && bTimed && a.sortMs !== b.sortMs) return a.sortMs! - b.sortMs!;
-  if (a.week !== b.week) {
-    if (a.week === null) return 1;
-    if (b.week === null) return -1;
-    return a.week - b.week;
+
+  if (aTimed && bTimed) {
+    if (a.sortMs !== b.sortMs) return a.sortMs! - b.sortMs!;
+  } else {
+    const weekDelta = compareWeeks(a.week, b.week);
+    if (weekDelta !== 0) return weekDelta;
+    if (aTimed !== bTimed) return aTimed ? -1 : 1;
   }
+
+  const weekDelta = compareWeeks(a.week, b.week);
+  if (weekDelta !== 0) return weekDelta;
   if (a.eventKey !== b.eventKey) return a.eventKey < b.eventKey ? -1 : 1;
   const ordinalDelta = stepOrdinal(a.kind) - stepOrdinal(b.kind);
   if (ordinalDelta !== 0) return ordinalDelta;

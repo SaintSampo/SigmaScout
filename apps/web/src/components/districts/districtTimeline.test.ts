@@ -122,6 +122,82 @@ describe("buildDistrictTimeline", () => {
     expect(timeline.gaps.eventsWithUntimedRows).toEqual(["eva"]);
   });
 
+  it("keeps a week-1 event's unloaded stage steps AHEAD of a week-3 event's timed matches, and the chips in order", () => {
+    // The ordinary first-paint state: the event list IS the fetch set, so an
+    // event whose artifact has not arrived yet contributes four stage steps
+    // carrying no instant at all. Before this fix every one of them sorted
+    // after every timed step, so a finished week-1 event landed past a live
+    // week-3 event's matches and `lastIndexByWeek` dragged the "After week 1"
+    // chip to near the end of the slider.
+    const timeline = buildDistrictTimeline({
+      events: [
+        { eventKey: "wk1", eventName: "Week One", week: 1 },
+        { eventKey: "wk3", eventName: "Week Three", week: 3 },
+      ],
+      eventArtifacts: new Map([
+        ["wk3", eventArtifact("wk3", [{ matchNumber: 1, ms: BASE_MS }, { matchNumber: 2, ms: BASE_MS + 40_000 }])],
+      ]),
+    });
+
+    expect(timeline.gaps.eventsWithoutArtifact).toEqual(["wk1"]);
+    expect(timeline.positions.map((position) => position.id)).toEqual([
+      DISTRICT_TIMELINE_SEASON_START_ID,
+      "wk1:qualsDone",
+      "wk1:alliance",
+      "wk1:playoffs",
+      "wk1:awards",
+      "wk3:m:wk3_qm1",
+      "wk3:m:wk3_qm2",
+      "wk3:qualsDone",
+      "wk3:alliance",
+      "wk3:playoffs",
+      "wk3:awards",
+      DISTRICT_TIMELINE_NOW_ID,
+    ]);
+
+    const weekChips = timeline.chips.filter((chip) => chip.id.startsWith("week-"));
+    expect(weekChips.map((chip) => chip.id)).toEqual(["week-1", "week-3"]);
+    expect(weekChips[0]!.positionIndex).toBeLessThan(weekChips[1]!.positionIndex);
+    // "After week 1" lands on that event's last stage step, not near the end.
+    expect(timeline.positions[weekChips[0]!.positionIndex]?.id).toBe("wk1:awards");
+  });
+
+  it("within ONE week an untimed step still sorts after the timed ones, so it never jumps to the front", () => {
+    const timeline = buildDistrictTimeline({
+      events: [
+        { eventKey: "eva", eventName: "Event A", week: 2 },
+        { eventKey: "evb", eventName: "Event B", week: 2 },
+      ],
+      eventArtifacts: new Map([["eva", eventArtifact("eva", [{ matchNumber: 1, ms: BASE_MS }])]]),
+    });
+    expect(timeline.positions.map((position) => position.id)).toEqual([
+      DISTRICT_TIMELINE_SEASON_START_ID,
+      "eva:m:eva_qm1",
+      "eva:qualsDone",
+      "eva:alliance",
+      "eva:playoffs",
+      "eva:awards",
+      "evb:qualsDone",
+      "evb:alliance",
+      "evb:playoffs",
+      "evb:awards",
+      DISTRICT_TIMELINE_NOW_ID,
+    ]);
+  });
+
+  it("a null-week unloaded event still sorts last, which is the only place a week cannot place it", () => {
+    const timeline = buildDistrictTimeline({
+      events: [
+        { eventKey: "nul", eventName: "No Week", week: null },
+        { eventKey: "wk1", eventName: "Week One", week: 1 },
+      ],
+      eventArtifacts: new Map(),
+    });
+    const ids = timeline.positions.flatMap((position) => (position.step === undefined ? [] : [position.id]));
+    expect(ids.slice(0, 4)).toEqual(["wk1:qualsDone", "wk1:alliance", "wk1:playoffs", "wk1:awards"]);
+    expect(ids.slice(4)).toEqual(["nul:qualsDone", "nul:alliance", "nul:playoffs", "nul:awards"]);
+  });
+
   it("gives an event with NO loaded artifact its four stage steps and no match steps, and discloses it", () => {
     const timeline = buildDistrictTimeline({ events: EVENTS, eventArtifacts: new Map() });
     expect(timeline.gaps.eventsWithoutArtifact).toEqual(["eva", "evb"]);
