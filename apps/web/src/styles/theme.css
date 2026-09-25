@@ -1095,7 +1095,7 @@ body {
 }
 .district-ledger-ticks {
   position: relative;
-  height: 14px;
+  height: 26px; /* two rows: a label that would overprint its neighbour drops to row 1 */
   font-size: 11px;
   line-height: 1.2;
   color: var(--district-ledger-faint);
@@ -1110,6 +1110,9 @@ body {
 }
 .district-ledger-ticks > span:last-child {
   transform: translateX(-100%);
+}
+.district-ledger-ticks > span[data-row="1"] {
+  top: 13px;
 }
 
 /* The jump chips and the chip-filter buttons: small pills. `min-height: 32px`

@@ -278,10 +278,12 @@ function chanceWordsFor(cell: DistrictCellKind): { bold: string; conditional: st
 function openCellLines(cell: Extract<DistrictLedgerCell, { kind: "open" }>): { bold: string; small: string | undefined } {
   if (cell.summary.form === "median") {
     const { p10, p50, p90 } = cell.summary.percentiles;
-    return { bold: String(Math.max(0, Math.round(p50))), small: likelyRangeText(Math.max(0, p10), Math.max(0, p90)) };
+    return { bold: `~${String(Math.max(0, Math.round(p50)))}`, small: likelyRangeText(Math.max(0, p10), Math.max(0, p90)) };
   }
   const words = chanceWordsFor(cell.cell);
-  const bold = `${String(Math.round(cell.summary.chance * 100))}% ${words.bold}`;
+  // Every blue figure carries the tilde (Jacob, 2026-09-25): it is this site's
+  // prediction, never a number TBA published.
+  const bold = `~${String(Math.round(cell.summary.chance * 100))}% ${words.bold}`;
   // NO FABRICATED ZERO: 10-04 returns `undefined` when all the mass sits at
   // zero, and a printed "~0" would assert a typical amount the draws never
   // produced.
@@ -449,7 +451,12 @@ function GrandTotalPlot({ cell, todaysLineFloor }: { cell: Extract<DistrictLedge
 }
 
 /** The narrow local cast this repo already uses for a control that does not own its route's search type. */
-type DistrictLedgerNavigate = (opts: { search: (prev: Record<string, unknown>) => Record<string, unknown>; replace?: boolean }) => Promise<void>;
+type DistrictLedgerNavigate = (opts: {
+  search: (prev: Record<string, unknown>) => Record<string, unknown>;
+  replace?: boolean;
+  /** Every ledger navigation is a control on a page the visitor has scrolled into; the router must NOT reset the scroll position (Jacob, 2026-09-25: a blue box click jumped the page to the top). */
+  resetScroll?: boolean;
+}) => Promise<void>;
 
 /**
  * The Rewind slider and its DERIVED jump chips.
@@ -498,7 +505,7 @@ function RewindSlider({
       </div>
       <div className="district-ledger-ticks" data-testid="district-ledger-ticks" aria-hidden="true">
         {ticks.map((tick) => (
-          <span key={tick.id} style={{ left: `${tick.percent.toFixed(1)}%` }}>
+          <span key={tick.id} data-row={tick.row} style={{ left: `${tick.percent.toFixed(1)}%` }}>
             {tick.label}
           </span>
         ))}
@@ -529,7 +536,7 @@ function RewindSlider({
  * its own short "wk N", and the last prints "now". A district with one week
  * therefore gets two ticks, not five.
  */
-function timelineTicks(timeline: DistrictTimeline): { id: string; label: string; percent: number }[] {
+function timelineTicks(timeline: DistrictTimeline): { id: string; label: string; percent: number; row: 0 | 1 }[] {
   const span = Math.max(timeline.nowIndex, 1);
   const all = timeline.chips.map((chip) => {
     const week = /^week-(\d+)$/.exec(chip.id);
@@ -541,22 +548,19 @@ function timelineTicks(timeline: DistrictTimeline): { id: string; label: string;
           : week === null
             ? chip.label
             : districtLedgerTickWeekLabel(Number(week[1]));
-    return { id: chip.id, label, percent: Math.min(100, (chip.positionIndex / span) * 100) };
+    return { id: chip.id, label, percent: Math.min(100, (chip.positionIndex / span) * 100), row: 0 as 0 | 1 };
   });
-  if (all.length <= 2) return all;
-  // "start" and "now" are the rail's own ends and always print; a week tick
-  // that would land on top of a neighbour is DROPPED rather than drawn over
-  // it. A district whose last week ends AT "now" is the common case, and two
-  // labels stacked on the same pixel read as one corrupted word.
-  const [first, ...rest] = all;
-  const last = rest.pop()!;
-  const kept = [first!];
-  for (const tick of rest) {
-    if (tick.percent - kept[kept.length - 1]!.percent < TICK_MIN_GAP_PERCENT) continue;
-    if (last.percent - tick.percent < TICK_MIN_GAP_PERCENT) continue;
-    kept.push(tick);
+  // EVERY week prints (Jacob, 2026-09-25: a district has more weeks than
+  // four and the rail must adapt). A label that would land on top of its
+  // printed neighbour is staggered onto a second row rather than dropped, so
+  // no week disappears from the rail and no two labels overprint.
+  let lastOnRow: [number, number] = [-Infinity, -Infinity];
+  for (const tick of all) {
+    const row: 0 | 1 = tick.percent - lastOnRow[0] < TICK_MIN_GAP_PERCENT && tick.percent - lastOnRow[1] >= TICK_MIN_GAP_PERCENT ? 1 : 0;
+    tick.row = row;
+    lastOnRow[row] = tick.percent;
   }
-  return [...kept, last];
+  return all;
 }
 
 /**
@@ -698,12 +702,13 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
           ? { ...prev, drawerTeam: undefined, drawerCell: undefined }
           : { ...prev, drawerTeam: teamNumber, drawerCell: cellId };
       },
+      resetScroll: false,
     });
   }
 
   function handlePositionChange(index: number): void {
     const id = timeline.positions[index]?.id ?? DISTRICT_TIMELINE_NOW_ID;
-    void navigate({ search: (prev) => ({ ...prev, at: id === DISTRICT_TIMELINE_NOW_ID ? undefined : id }) });
+    void navigate({ search: (prev) => ({ ...prev, at: id === DISTRICT_TIMELINE_NOW_ID ? undefined : id }), resetScroll: false });
   }
 
   const data = useDistrictLedgerData({

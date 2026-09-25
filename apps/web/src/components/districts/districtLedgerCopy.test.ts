@@ -34,7 +34,7 @@ describe("the UI-SPEC copy contract", () => {
   it("pins the two legend keys and the likely/tilde explainer character for character", () => {
     expect(DISTRICT_LEDGER_LEGEND_EARNED).toBe("earned, final");
     expect(DISTRICT_LEDGER_LEGEND_OPEN).toBe("still open · click for the histogram");
-    expect(DISTRICT_LEDGER_LEGEND_EXPLAINER).toBe("likely = 8 of 10 runs land here · ~ = typical amount when it happens");
+    expect(DISTRICT_LEDGER_LEGEND_EXPLAINER).toBe("likely = 8 of 10 runs land here · ~ = this site's prediction, not a number TBA published");
   });
 
   it("pins the five status labels and the award variant", () => {

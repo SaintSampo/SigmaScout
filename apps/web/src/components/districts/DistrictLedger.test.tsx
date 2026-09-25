@@ -347,7 +347,7 @@ describe("DistrictLedger — the tracer slice", () => {
     });
     const qual = document.querySelector('[data-cell-id="2026walive:qual"]')!;
     expect(within(qual as HTMLElement).getByRole("button")).toBeDefined();
-    expect(qual.textContent ?? "").toMatch(/^\d+likely \d+\.\d+–\d+\.\d+$/);
+    expect(qual.textContent ?? "").toMatch(/^~\d+likely \d+\.\d+–\d+\.\d+$/);
   });
 
   it("renders no plus-minus codepoint anywhere in the tree", async () => {
@@ -408,7 +408,7 @@ describe("DistrictLedger — the tracer slice", () => {
     });
     expect(handle.instances).toHaveLength(0);
     const qual = document.querySelector('[data-cell-id="2026wasoon:qual"]')!;
-    expect(qual.textContent ?? "").toMatch(/^\d+likely \d+\.\d+–\d+\.\d+$/);
+    expect(qual.textContent ?? "").toMatch(/^~\d+likely \d+\.\d+–\d+\.\d+$/);
   });
 });
 
@@ -473,13 +473,13 @@ describe("DistrictLedger — the full table", () => {
       expect(document.querySelector('[data-cell-id="2026walive:qual"]')?.getAttribute("data-cell")).toBe("open");
     });
     // The median form, on qualification.
-    expect(document.querySelector('[data-cell-id="2026walive:qual"]')!.textContent ?? "").toMatch(/^\d+likely \d+\.\d+–\d+\.\d+$/);
+    expect(document.querySelector('[data-cell-id="2026walive:qual"]')!.textContent ?? "").toMatch(/^~\d+likely \d+\.\d+–\d+\.\d+$/);
     // The chance form, on awards: a percentage and a tilde-prefixed conditional amount.
     const award = document.querySelector('[data-cell-id="2026walive:award"]')!;
     expect(award.getAttribute("data-cell")).toBe("open");
-    expect(award.textContent ?? "").toMatch(/^\d+% award(~\d+ if won)?$/);
+    expect(award.textContent ?? "").toMatch(/^~\d+% award(~\d+ if won)?$/);
     // And on playoffs, with its own word.
-    expect(document.querySelector('[data-cell-id="2026walive:elim"]')!.textContent ?? "").toMatch(/^\d+% play(~\d+ if in)?$/);
+    expect(document.querySelector('[data-cell-id="2026walive:elim"]')!.textContent ?? "").toMatch(/^~\d+% play(~\d+ if in)?$/);
   });
 
   it("prints the event name, its week and its stage word in the Event cell", async () => {
