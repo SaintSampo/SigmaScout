@@ -43,7 +43,7 @@
  */
 import { districtDetailKey, DistrictArtifactSchema, DistrictEventStateSchema, type DistrictArtifact, type DistrictEventState } from "../../../packages/harness/pageArtifacts.js";
 import { applyDistrictEventState, applyDistrictRankings } from "../../../packages/harness/districtRankingsMerge.js";
-import { DISTRICT_KEY_PATTERN } from "../../../packages/core/districts/keys.js";
+import { DISTRICT_KEY_PATTERN, EVENT_KEY_PATTERN } from "../../../packages/core/districts/keys.js";
 import { districtRankingsCursorKey, eventAwardsCursorKey } from "../../../packages/harness/stateBaseline.js";
 import type { LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
 import { tbaEventAwardsResponseSchema } from "../../../packages/ingest/schemas.js";
@@ -69,8 +69,15 @@ import type { Env } from "./env.js";
  * unchanged. The browser validates `?district=` with the SAME declaration at
  * `apps/web/src/lib/searchParams.ts`'s schema boundary; before the move the
  * Worker refused a malformed key and the browser did not.
+ *
+ * ITS SIBLING `EVENT_KEY_PATTERN` EXISTS, and is what validates an EVENT key
+ * below. Until the phase 10 review (WR-03) this district pattern was the only
+ * check applied to an event key before that key became `/event/{key}/awards`
+ * and `eventAwardsCursorKey(eventKey)` — the two shapes coincide, so nothing
+ * was wrong at runtime, but narrowing this one would have switched the awards
+ * poll off with no test failing.
  */
-export { DISTRICT_KEY_PATTERN };
+export { DISTRICT_KEY_PATTERN, EVENT_KEY_PATTERN };
 
 /**
  * The live windows of this tick, grouped by the district each belongs to.
@@ -235,7 +242,12 @@ export async function runDistrictRefresh(env: Env, counter: SubrequestCounter, t
           // AWARDS DO NOT UN-POST. A monotone fact needs asking once, so a
           // published `true` skips the request forever.
           awardsPosted = true;
-        } else if (matchDerived.playoffsDone && DISTRICT_KEY_PATTERN.test(eventKey)) {
+        } else if (matchDerived.playoffsDone && EVENT_KEY_PATTERN.test(eventKey)) {
+          // AN EVENT KEY, CHECKED WITH THE EVENT PATTERN (WR-03). It becomes a
+          // TBA URL path segment (`/event/{key}/awards`) and a D1 cursor row
+          // key on the next two lines, so it is validated before it can become
+          // either — by the pattern that describes what it IS, not by the
+          // district pattern that happens to match the same strings today.
           const awardsKey = eventAwardsCursorKey(eventKey);
           const awardsCursor = cursors.get(awardsKey) ?? emptyCursor(awardsKey);
           counter.spend(1);

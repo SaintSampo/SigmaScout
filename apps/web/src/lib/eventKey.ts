@@ -10,10 +10,23 @@
  * `v1/events/{2022,2024,2026}` artifacts — 922 keys, zero non-conforming,
  * lengths 6 to 11 — so it is verified against real published data, not
  * assumed from TBA's documentation alone.
+ *
+ * THE PATTERN ITSELF MOVED to `packages/core/districts/keys.ts` in the phase 10
+ * review (WR-03) and is re-exported below, so this module is still the only
+ * place in `apps/web` that knows the shape and every existing importer is
+ * unchanged. It moved because `apps/worker` needs the same declaration and
+ * cannot import from `apps/web`: the Worker was validating an EVENT key with a
+ * DISTRICT pattern, which is harmless only for as long as the two literals
+ * agree. One declaration is what makes that agreement structural.
  */
 
-/** Four digits (the season) followed by one or more lowercase alphanumeric characters (the event code). */
-export const EVENT_KEY_PATTERN = /^\d{4}[a-z0-9]+$/;
+/**
+ * Four digits (the season) followed by one or more lowercase alphanumeric
+ * characters (the event code) — see `packages/core/districts/keys.ts` for the
+ * declaration and for why its district-key sibling is kept separate.
+ */
+export { EVENT_KEY_PATTERN } from "../../../../packages/core/districts/keys.js";
+import { EVENT_KEY_PATTERN } from "../../../../packages/core/districts/keys.js";
 
 /** `true` when `value` matches `EVENT_KEY_PATTERN` exactly. */
 export function isValidEventKey(value: string): boolean {
