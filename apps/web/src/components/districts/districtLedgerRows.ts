@@ -173,6 +173,15 @@ export interface DistrictLedgerEventRow {
   readonly stage: DistrictEventStage;
   readonly cells: readonly DistrictLedgerCell[];
   readonly eventTotal: DistrictLedgerCell;
+  /**
+   * The artifact's own per-component row for this (team, event), when TBA has
+   * published one. Carried on the row because the STATUS module needs it: a
+   * rewound position derives its floor by SUBTRACTING these earned values from
+   * `team.pointTotal`, never by re-summing categories from scratch.
+   */
+  readonly earned: DistrictEventPoints | undefined;
+  /** This event's per-tier ceiling for a wholly unstarted row, as `remainingEvents.maxPoints` published it. `undefined` for an event the team has already played. */
+  readonly remainingMaxPoints: number | undefined;
 }
 
 /** One team's whole ledger entry: its district-tier rows, its grand total, and the projection the sort and the status both read. */
@@ -218,6 +227,7 @@ interface DistrictTierEventEntry {
   readonly week: number | null;
   readonly state: DistrictEventState | undefined;
   readonly earned: DistrictEventPoints | undefined;
+  readonly remainingMaxPoints: number | undefined;
 }
 
 /**
@@ -235,15 +245,26 @@ export function districtTierEvents(team: DistrictTeam): DistrictTierEventEntry[]
   const byKey = new Map<string, DistrictTierEventEntry>();
   for (const row of team.eventPoints) {
     if (row.tier !== "district") continue;
-    byKey.set(row.eventKey, { eventKey: row.eventKey, eventName: row.eventName, week: row.week, state: row.state, earned: row });
+    byKey.set(row.eventKey, { eventKey: row.eventKey, eventName: row.eventName, week: row.week, state: row.state, earned: row, remainingMaxPoints: undefined });
   }
   for (const row of team.remainingEvents) {
     if (row.tier !== "district") continue;
     const existing = byKey.get(row.eventKey);
     if (existing === undefined) {
-      byKey.set(row.eventKey, { eventKey: row.eventKey, eventName: row.eventName, week: row.week, state: row.state, earned: undefined });
-    } else if (existing.state === undefined && row.state !== undefined) {
-      byKey.set(row.eventKey, { ...existing, state: row.state });
+      byKey.set(row.eventKey, {
+        eventKey: row.eventKey,
+        eventName: row.eventName,
+        week: row.week,
+        state: row.state,
+        earned: undefined,
+        remainingMaxPoints: row.maxPoints,
+      });
+    } else {
+      byKey.set(row.eventKey, {
+        ...existing,
+        state: existing.state ?? row.state,
+        remainingMaxPoints: existing.remainingMaxPoints ?? row.maxPoints,
+      });
     }
   }
   return [...byKey.values()].sort((a, b) => {
@@ -622,7 +643,16 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
       else if (eventTotal.kind === "open") eventTotalDistributions.push(eventTotal.distribution);
       else everyEventTotalKnown = false;
 
-      rows.push({ eventKey: entry.eventKey, eventName: entry.eventName, week: entry.week, stage, cells, eventTotal });
+      rows.push({
+        eventKey: entry.eventKey,
+        eventName: entry.eventName,
+        week: entry.week,
+        stage,
+        cells,
+        eventTotal,
+        earned: entry.earned,
+        remainingMaxPoints: entry.remainingMaxPoints,
+      });
     }
 
     const grandCeiling = eventTotalCeiling * Math.max(entries.length, 1) + Math.max(0, Math.round(team.rookieBonus + team.adjustments));

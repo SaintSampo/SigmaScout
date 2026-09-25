@@ -36,12 +36,16 @@ import { installMockWorker, type MockWorkerHandle, type MockWorkerScript } from 
 import { runDistrictSimulationJob } from "../../workers/districtSimulationProtocol.js";
 import { DistrictLedger } from "./DistrictLedger.js";
 import {
+  DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED,
   DISTRICT_LEDGER_COLUMN_LABELS,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
+  DISTRICT_LEDGER_LOCKED_AWARD_LABEL,
   DISTRICT_LEDGER_NO_MATCHES,
   DISTRICT_LEDGER_SEARCH_LABEL,
+  DISTRICT_LEDGER_STATUS_DEFINITIONS,
+  DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_STAT_LINE_LABELS,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
 } from "./districtLedgerCopy.js";
@@ -535,5 +539,121 @@ describe("DistrictLedger — the full table", () => {
     renderLedger(artifactOf([districtTeam("frc100")], { dcmpSlots: null }));
     const unknownLine = await screen.findByTestId("district-ledger-stat-line");
     expect(unknownLine.textContent).toContain(DISTRICT_LEDGER_STAT_LINE_LABELS.todaysLineUnknown);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The five status chips: labels, counts, definitions, filters and the one red.
+// ---------------------------------------------------------------------------
+
+/** A district whose slot count forces every one of the five statuses into view. */
+function statusFixture() {
+  return artifactOf(
+    [
+      // Two locked on points, one locked by an award, and two that cannot
+      // reach the line.
+      { ...multiEventTeam("frc100", 1), pointTotal: 100, eventPoints: [{ ...multiEventTeam("frc100", 1).eventPoints[0]!, qual: 22, alliance: 16, elim: 30, award: 15, total: 100 }] },
+      { ...multiEventTeam("frc101", 1), pointTotal: 90, eventPoints: [{ ...multiEventTeam("frc101", 1).eventPoints[0]!, qual: 22, alliance: 16, elim: 30, award: 15, total: 90 }] },
+      {
+        ...multiEventTeam("frc102", 1),
+        pointTotal: 5,
+        eventPoints: [{ ...multiEventTeam("frc102", 1).eventPoints[0]!, qual: 5, alliance: 0, elim: 0, award: 0, total: 5 }],
+        qualifyingAwards: [{ eventKey: "2026wa0", awardType: 0, label: "Impact", awardOnly: false }],
+      },
+      { ...multiEventTeam("frc103", 1), pointTotal: 4, eventPoints: [{ ...multiEventTeam("frc103", 1).eventPoints[0]!, qual: 4, alliance: 0, elim: 0, award: 0, total: 4 }] },
+      { ...multiEventTeam("frc104", 1), pointTotal: 3, eventPoints: [{ ...multiEventTeam("frc104", 1).eventPoints[0]!, qual: 3, alliance: 0, elim: 0, award: 0, total: 3 }] },
+    ],
+    { dcmpSlots: 3 }
+  );
+}
+
+describe("DistrictLedger — the five status chips", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("renders exactly the five labels with live counts, plus the award variant on a team locked by an award", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(statusFixture());
+
+    const chips = await screen.findAllByTestId("district-ledger-status-chip");
+    expect(chips.map((chip) => chip.getAttribute("data-status"))).toEqual(["prequalified", "locked", "inRange", "outOfRange", "lockedOut"]);
+    for (const [index, label] of Object.values(DISTRICT_LEDGER_STATUS_LABELS).entries()) {
+      expect(chips[index]!.textContent ?? "").toContain(label);
+    }
+    // The award variant renders in the team's own Status cell.
+    const statusCells = screen.getAllByTestId("district-ledger-status-cell").map((cell) => cell.textContent ?? "");
+    expect(statusCells).toContain(DISTRICT_LEDGER_LOCKED_AWARD_LABEL);
+  });
+
+  it("gives every chip its definition as an accessible description and renders all five definitions verbatim", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(statusFixture());
+
+    const chips = await screen.findAllByTestId("district-ledger-status-chip");
+    for (const chip of chips) {
+      const describedBy = chip.getAttribute("aria-describedby");
+      expect(describedBy).not.toBeNull();
+      expect(document.getElementById(describedBy!)).not.toBeNull();
+    }
+    const definitions = screen.getByTestId("district-ledger-status-definitions").textContent ?? "";
+    for (const definition of Object.values(DISTRICT_LEDGER_STATUS_DEFINITIONS)) expect(definitions).toContain(definition);
+  });
+
+  it("toggles a chip off to hide those rows and back on to restore them, WITHOUT changing the counts", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(statusFixture());
+
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-row")).toHaveLength(5));
+    const lockedChip = screen.getAllByTestId("district-ledger-status-chip").find((chip) => chip.getAttribute("data-status") === "locked")!;
+    const countBefore = lockedChip.textContent;
+    expect(lockedChip.getAttribute("aria-pressed")).toBe("true");
+
+    fireEvent.click(lockedChip);
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-row")).toHaveLength(2));
+    const lockedAfter = screen.getAllByTestId("district-ledger-status-chip").find((chip) => chip.getAttribute("data-status") === "locked")!;
+    expect(lockedAfter.getAttribute("aria-pressed")).toBe("false");
+    // A count describes the DISTRICT, not the filtered view.
+    expect(lockedAfter.textContent).toBe(countBefore);
+
+    fireEvent.click(lockedAfter);
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-row")).toHaveLength(5));
+  });
+
+  it("carries the red status modifier on the Locked out chip and its rows, and on nothing else on the tab", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(statusFixture());
+
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-status-chip")).toHaveLength(5));
+    const red = [...document.querySelectorAll(".lock-status-chip--locked-out")];
+    // One chip in the filter row, plus the Status cell of each Locked out team.
+    expect(red.length).toBeGreaterThan(0);
+    const statuses = red.map((element) => element.textContent ?? "");
+    for (const text of statuses) expect(text).toContain(DISTRICT_LEDGER_STATUS_LABELS.lockedOut);
+    // No element on the tab carries the champ tab's own eliminated modifier.
+    expect(document.querySelectorAll(".lock-status-chip--eliminated")).toHaveLength(0);
+  });
+
+  it("renders NO chip and the honest capacity copy when TBA published no capacity", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf([districtTeam("frc100"), districtTeam("frc101")], { dcmpSlots: null }));
+
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-status-cell").length).toBe(2));
+    for (const cell of screen.getAllByTestId("district-ledger-status-cell")) {
+      expect(cell.textContent).toBe(DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED);
+      expect(cell.querySelector(".lock-status-chip")).toBeNull();
+    }
   });
 });

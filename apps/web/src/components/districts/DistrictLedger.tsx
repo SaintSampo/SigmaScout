@@ -32,6 +32,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import {
+  DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED,
   DISTRICT_LEDGER_CHANCE_WORDS,
   DISTRICT_LEDGER_COLUMN_LABELS,
   DISTRICT_LEDGER_LEGEND_EARNED,
@@ -41,10 +42,19 @@ import {
   DISTRICT_LEDGER_NO_MATCHES,
   DISTRICT_LEDGER_SEARCH_LABEL,
   DISTRICT_LEDGER_SEARCH_PLACEHOLDER,
+  DISTRICT_LEDGER_LOCKED_AWARD_LABEL,
   DISTRICT_LEDGER_STAGE_WORDS,
+  DISTRICT_LEDGER_STATUS_DEFINITIONS,
+  DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_STAT_LINE_LABELS,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
 } from "./districtLedgerCopy.js";
+import {
+  DISTRICT_LEDGER_STATUS_KEYS,
+  computeDistrictLedgerStatuses,
+  type DistrictLedgerStatusKey,
+  type DistrictLedgerStatusResult,
+} from "./districtLedgerStatus.js";
 import {
   buildDistrictLedgerRows,
   deriveStageFromState,
@@ -88,6 +98,91 @@ export interface DistrictLedgerProps {
   artifact: DistrictArtifact;
   algorithm: PublishedAlgorithmId;
   season: number;
+}
+
+/**
+ * The chip modifier per status, in the shipped `statusChipClass` shape: a
+ * `Record` lookup plus a base class. Every value is a CSS class bound to a
+ * shipped custom property in `theme.css`; this file writes no colour at all.
+ *
+ * The status WORD always stays visible beside the colour — colour is never the
+ * only encoding, which is the shipped champ tab's own stated rule.
+ */
+const STATUS_CHIP_MODIFIER: Record<DistrictLedgerStatusKey, string> = {
+  prequalified: "lock-status-chip--prequalified",
+  locked: "lock-status-chip--locked",
+  inRange: "lock-status-chip--in-range",
+  outOfRange: "lock-status-chip--out-of-range",
+  lockedOut: "lock-status-chip--locked-out",
+};
+
+function statusChipClass(status: DistrictLedgerStatusKey): string {
+  return `lock-status-chip ${STATUS_CHIP_MODIFIER[status]}`;
+}
+
+/** The Status cell: a chip for the five statuses, plain text with NO chip for the honest capacity-not-published state. */
+function StatusCell({ status, rowSpan }: { status: DistrictLedgerStatusResult | undefined; rowSpan: number }) {
+  if (status === undefined || status.status === "capacityUnknown") {
+    return (
+      <TableCell rowSpan={rowSpan} data-testid="district-ledger-status-cell" className="whitespace-nowrap align-top text-[var(--color-text-muted)]">
+        {DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED}
+      </TableCell>
+    );
+  }
+  return (
+    <TableCell rowSpan={rowSpan} data-testid="district-ledger-status-cell" data-status={status.status} className="whitespace-nowrap align-top">
+      <span className={statusChipClass(status.status)}>
+        {status.byAward ? DISTRICT_LEDGER_LOCKED_AWARD_LABEL : DISTRICT_LEDGER_STATUS_LABELS[status.status]}
+      </span>
+    </TableCell>
+  );
+}
+
+/**
+ * The five chips above the table, doubling as filters.
+ *
+ * A CHIP'S COUNT DESCRIBES THE DISTRICT, NOT THE FILTERED VIEW. Recomputing a
+ * count over the visible rows is the obvious-looking bug, and it would make
+ * every count read 0 the moment its own chip was switched off.
+ */
+function StatusChips({
+  counts,
+  active,
+  onToggle,
+}: {
+  counts: Readonly<Record<DistrictLedgerStatusKey, number>>;
+  active: ReadonlySet<DistrictLedgerStatusKey>;
+  onToggle: (status: DistrictLedgerStatusKey) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-[var(--spacing-sm)]" data-testid="district-ledger-status-chips">
+      <div className="flex flex-wrap gap-[var(--spacing-sm)]">
+        {DISTRICT_LEDGER_STATUS_KEYS.map((status) => (
+          <button
+            key={status}
+            type="button"
+            data-testid="district-ledger-status-chip"
+            data-status={status}
+            aria-pressed={active.has(status)}
+            aria-describedby={`district-ledger-status-definition-${status}`}
+            onClick={() => onToggle(status)}
+            className="tap-target"
+          >
+            <span className={statusChipClass(status)}>
+              {DISTRICT_LEDGER_STATUS_LABELS[status]} {counts[status]}
+            </span>
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-col gap-[var(--spacing-xs)]" data-testid="district-ledger-status-definitions">
+        {DISTRICT_LEDGER_STATUS_KEYS.map((status) => (
+          <span key={status} id={`district-ledger-status-definition-${status}`} className="text-[var(--color-text-muted)]">
+            {DISTRICT_LEDGER_STATUS_LABELS[status]}: {DISTRICT_LEDGER_STATUS_DEFINITIONS[status]}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /** The stage WORD the Event cell prints: the earliest category still open, or "final". */
@@ -258,6 +353,7 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
   }, [artifact]);
 
   const [query, setQuery] = useState("");
+  const [hiddenStatuses, setHiddenStatuses] = useState<ReadonlySet<DistrictLedgerStatusKey>>(() => new Set());
 
   const data = useDistrictLedgerData({ artifact, activeEventKeys, stageByEvent });
 
@@ -272,9 +368,33 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
     [artifact, data.distributions, data.unavailableEvents, data.gaps]
   );
 
-  // The stat line describes the DISTRICT, not the filtered view.
+  const statuses = useMemo(() => computeDistrictLedgerStatuses({ artifact, teams: rows.teams }), [artifact, rows.teams]);
+
+  // The stat line and the chip counts both describe the DISTRICT, not the
+  // filtered view.
   const statLine = useMemo(() => districtLedgerStatLine(rows.teams, artifact.dcmpSlots), [rows.teams, artifact.dcmpSlots]);
-  const visibleTeams = useMemo(() => filterDistrictLedgerTeams(rows.teams, query), [rows.teams, query]);
+  const activeStatuses = useMemo(
+    () => new Set(DISTRICT_LEDGER_STATUS_KEYS.filter((status) => !hiddenStatuses.has(status))),
+    [hiddenStatuses]
+  );
+  const visibleTeams = useMemo(() => {
+    const searched = filterDistrictLedgerTeams(rows.teams, query);
+    if (hiddenStatuses.size === 0) return searched;
+    return searched.filter((team) => {
+      const status = statuses.byTeam.get(team.teamKey)?.status;
+      if (status === undefined || status === "capacityUnknown") return true;
+      return !hiddenStatuses.has(status);
+    });
+  }, [rows.teams, query, hiddenStatuses, statuses]);
+
+  function toggleStatus(status: DistrictLedgerStatusKey): void {
+    setHiddenStatuses((previous) => {
+      const next = new Set(previous);
+      if (next.has(status)) next.delete(status);
+      else next.add(status);
+      return next;
+    });
+  }
 
   if (artifact.teams.length === 0) {
     return (
@@ -287,7 +407,9 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
 
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]" data-testid="district-ledger-tab">
-      <ControlsCard query={query} onQueryChange={setQuery} statLine={statLine} />
+      <ControlsCard query={query} onQueryChange={setQuery} statLine={statLine}>
+        <StatusChips counts={statuses.counts} active={activeStatuses} onToggle={toggleStatus} />
+      </ControlsCard>
       {visibleTeams.length === 0 && <p className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_NO_MATCHES}</p>}
       {/* The shipped table wrapper, verbatim, so the scroll arbitration this
           site already has an e2e suite around is inherited rather than rebuilt. */}
@@ -306,7 +428,8 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
                 ? [
                     <TableRow key={team.teamKey} data-testid="district-ledger-row" data-team={team.teamKey}>
                       <TeamCell team={team} season={season} algorithm={algorithm} />
-                      <TableCell colSpan={DISTRICT_LEDGER_COLUMN_LABELS.length - 2} className="text-[var(--color-text-muted)]">
+                      <StatusCell status={statuses.byTeam.get(team.teamKey)} rowSpan={1} />
+                      <TableCell colSpan={DISTRICT_LEDGER_COLUMN_LABELS.length - 3} className="text-[var(--color-text-muted)]">
                         {DISTRICT_LEDGER_UNAVAILABLE_CELL}
                       </TableCell>
                       <LedgerCell cell={team.grandTotal} />
@@ -315,6 +438,7 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
                 : team.rows.map((row, rowIndex) => (
                     <TableRow key={`${team.teamKey}-${row.eventKey}`} data-testid="district-ledger-row" data-team={team.teamKey}>
                       {rowIndex === 0 && <TeamCell team={team} season={season} algorithm={algorithm} />}
+                      {rowIndex === 0 && <StatusCell status={statuses.byTeam.get(team.teamKey)} rowSpan={Math.max(team.rowCount, 1)} />}
                       <EventCell row={row} />
                       {row.cells.map((cell) => (
                         <LedgerCell key={cell.id} cell={cell} />

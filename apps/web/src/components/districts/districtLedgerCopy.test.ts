@@ -42,6 +42,7 @@ describe("the UI-SPEC copy contract", () => {
     expect(DISTRICT_LEDGER_TAB_LABEL).toBe("Road to District Champs");
     expect([...DISTRICT_LEDGER_COLUMN_LABELS]).toEqual([
       "Team",
+      "Status",
       "Event",
       "Qualification",
       "Alliance selection",

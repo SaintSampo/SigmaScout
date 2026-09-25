@@ -22,6 +22,7 @@ export const DISTRICT_LEDGER_TAB_LABEL = "Road to District Champs";
  */
 export const DISTRICT_LEDGER_COLUMN_LABELS = [
   "Team",
+  "Status",
   "Event",
   "Qualification",
   "Alliance selection",

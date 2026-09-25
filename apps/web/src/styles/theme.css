@@ -903,6 +903,48 @@ body {
   color: var(--lock-status-prequalified-fg);
 }
 
+/*
+ * The Road to District Champs tab's three extra chip modifiers (phase 10).
+ *
+ * THIS BLOCK ADDS NO PALETTE ENTRY. Locked out reuses the SHIPPED rose pair
+ * above verbatim (Jacob's explicit red for that status; this page has no
+ * alliance colour to collide with), Prequalified reuses the shipped purple pair
+ * and Locked the shipped green one, and In range / Out of range are
+ * outline-only chips built from `--color-text-primary`, `--color-text-muted`
+ * and `--color-border`, all three already defined. The dataviz palette
+ * validator therefore has nothing new to check. If a future change ever does
+ * introduce a literal colour VALUE here, that validator must run first.
+ */
+.lock-status-chip--locked-out {
+  background-color: var(--lock-status-eliminated-bg);
+  color: var(--lock-status-eliminated-fg);
+}
+.lock-status-chip--in-range {
+  background-color: transparent;
+  color: var(--color-text-primary);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+.lock-status-chip--out-of-range {
+  background-color: transparent;
+  color: var(--color-text-muted);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+/*
+ * REDUCED MOTION: the district ledger's drawer transition is applied through
+ * this class, and the query below removes it. A UI-SPEC backstop row — the
+ * committed test asserts the class is absent under a `matchMedia` stub, and the
+ * real verification is the UAT's manual check.
+ */
+.district-ledger-drawer--animated {
+  transition: opacity 120ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .district-ledger-drawer--animated {
+    transition: none;
+  }
+}
+
 /* Home page podium: a one-off medal vocabulary, NOT the tier palette, even where a value coincides. */
 .podium-step { border-radius: 8px 8px 0 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; padding: 10px 14px 12px; }
 .podium-step--gold { background: #fef3c7; color: #b45309; }
