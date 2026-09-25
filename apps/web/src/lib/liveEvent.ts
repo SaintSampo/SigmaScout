@@ -90,3 +90,74 @@ export function shouldPollTeamArtifact(
     (event) => event.matches.some((match) => match.actualWinner === undefined) && eventArtifactScheduleIsCurrent({ matches: event.matches, upcoming: [], startDate: event.startDate }, nowMs)
   );
 }
+
+// ---------------------------------------------------------------------------
+// The DISTRICT artifact's own poll gate (phase 10)
+// ---------------------------------------------------------------------------
+
+/** The four state facts 10-03 publishes per (team, event) cell, narrowed to what this module reads. */
+interface DistrictEventStateShape {
+  readonly qualMatchesPlayed: number;
+  readonly qualMatchesTotal: number | null;
+  readonly alliancesPicked: boolean;
+  readonly playoffsDone: boolean;
+  readonly awardsPosted: boolean;
+}
+
+/**
+ * True once ANY of the four state facts shows the event has begun. Declared
+ * here, beside the poll gate that is its only other consumer, so the district
+ * ledger's stage derivation and this predicate cannot drift apart.
+ */
+export function districtEventStateStarted(state: DistrictEventStateShape): boolean {
+  return state.qualMatchesPlayed > 0 || state.alliancesPicked || state.playoffsDone || state.awardsPosted;
+}
+
+/**
+ * True once all four categories are decided. A NULL `qualMatchesTotal` leaves
+ * qualification open rather than guessing it finished: null is the honest
+ * answer for an event whose schedule TBA has not published yet.
+ */
+export function districtEventStateFinished(state: DistrictEventStateShape): boolean {
+  return (
+    state.qualMatchesTotal !== null &&
+    state.qualMatchesPlayed === state.qualMatchesTotal &&
+    state.alliancesPicked &&
+    state.playoffsDone &&
+    state.awardsPosted
+  );
+}
+
+interface DistrictArtifactPollShape {
+  readonly teams: readonly {
+    readonly eventPoints: readonly { readonly tier: "district" | "dcmp"; readonly state?: DistrictEventStateShape }[];
+    readonly remainingEvents: readonly { readonly tier: "district" | "dcmp"; readonly state?: DistrictEventStateShape }[];
+  }[];
+}
+
+/**
+ * Poll the district artifact at the 60 s floor while at least one MEMBER
+ * district-tier event is started and not finished.
+ *
+ * THE HONEST LIMITATION, stated here because it is a real one: the district
+ * artifact carries week numbers but NO MATCH TIMES, so `eventScheduleIsCurrent`'s
+ * seven-day currency rule cannot be asked of it. A member event that starts and
+ * never finishes would therefore keep an OPEN district page polling at the
+ * floor forever. The bound is the reader's own attention plus TanStack's focus
+ * gating (`refetchIntervalInBackground` stays unset, so a hidden tab stops).
+ * The EXPENSIVE per-event artifact fetches keep the full currency rule, because
+ * they go through `eventQueryOptions`. A second, date-free approximation of
+ * currency is deliberately NOT invented to paper over this.
+ */
+export function shouldPollDistrictArtifact(artifact: DistrictArtifactPollShape | undefined): boolean {
+  if (artifact === undefined) return false;
+  for (const team of artifact.teams) {
+    for (const row of [...team.eventPoints, ...team.remainingEvents]) {
+      if (row.tier !== "district") continue;
+      const state = row.state;
+      if (state === undefined) continue;
+      if (districtEventStateStarted(state) && !districtEventStateFinished(state)) return true;
+    }
+  }
+  return false;
+}

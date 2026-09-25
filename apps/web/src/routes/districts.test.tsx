@@ -151,7 +151,34 @@ describe("/districts route", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "FIRST NC" }).getAttribute("aria-pressed")).toBe("true"));
   });
 
-  it("?district=2026fnc&tab=champ-locks deep-links directly to the Champ Locks tab", async () => {
+  it("?tab= carrying the PRE-RENAME first-tab id still lands on the Road to District Champs panel — the rename costs no shared link", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/v1/districts/")) return Promise.resolve(districtsIndexResponse());
+      if (url.includes("/v1/district/")) return Promise.resolve(districtDetailResponse("2026fnc"));
+      return new Promise<Response>(() => {});
+    });
+    renderDistrictsRoute("/districts?algorithm=spr&district=2026fnc&tab=district-locks");
+
+    await waitFor(() => expect(screen.getByTestId("road-to-district-champs-panel")).toBeDefined());
+    expect(screen.getByTestId("road-to-district-champs-panel").hasAttribute("hidden")).toBe(false);
+    expect(screen.getByTestId("champ-locks-panel").hasAttribute("hidden")).toBe(true);
+    expect(screen.queryByTestId("district-locks-panel")).toBeNull();
+  });
+
+  it("the first tab's trigger reads exactly the Road to District Champs label", async () => {
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/v1/districts/")) return Promise.resolve(districtsIndexResponse());
+      if (url.includes("/v1/district/")) return Promise.resolve(districtDetailResponse("2026fnc"));
+      return new Promise<Response>(() => {});
+    });
+    renderDistrictsRoute("/districts?algorithm=spr&district=2026fnc");
+    expect(await screen.findByRole("tab", { name: "Road to District Champs" })).toBeDefined();
+    expect(screen.queryByRole("tab", { name: "District Locks" })).toBeNull();
+  });
+
+  it("?tab=champ-locks still deep-links directly to the Champ Locks tab, which renders the shipped champ table unchanged", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/v1/districts/")) return Promise.resolve(districtsIndexResponse());
@@ -162,10 +189,15 @@ describe("/districts route", () => {
 
     await waitFor(() => expect(screen.getByTestId("champ-locks-panel")).toBeDefined());
     expect(screen.getByTestId("champ-locks-panel").hasAttribute("hidden")).toBe(false);
-    expect(screen.getByTestId("district-locks-panel").hasAttribute("hidden")).toBe(true);
+    expect(screen.getByTestId("road-to-district-champs-panel").hasAttribute("hidden")).toBe(true);
+    // Positively asserted, so the district tier's removal is provably scoped:
+    // the champ tab still renders its own header stats card and its own
+    // per-event columns toggle.
+    await waitFor(() => expect(screen.getByTestId("champ-locks-header-stats")).toBeDefined());
+    expect(screen.getByTestId("district-champ-locks-column-toggle")).toBeDefined();
   });
 
-  it("with no ?tab= the page lands on District Locks — Insights is gone, not merely hidden", async () => {
+  it("with no ?tab= the page lands on Road to District Champs — Insights is gone, not merely hidden", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/v1/districts/")) return Promise.resolve(districtsIndexResponse());
@@ -174,15 +206,15 @@ describe("/districts route", () => {
     });
     renderDistrictsRoute("/districts?algorithm=spr&district=2026fnc");
 
-    await waitFor(() => expect(screen.getByTestId("district-locks-panel")).toBeDefined());
-    expect(screen.getByTestId("district-locks-panel").hasAttribute("hidden")).toBe(false);
+    await waitFor(() => expect(screen.getByTestId("road-to-district-champs-panel")).toBeDefined());
+    expect(screen.getByTestId("road-to-district-champs-panel").hasAttribute("hidden")).toBe(false);
     expect(screen.queryByTestId("district-insights-panel")).toBeNull();
     expect(screen.queryByTestId("district-breakdown-panel")).toBeNull();
     expect(screen.queryByRole("tab", { name: "Insights" })).toBeNull();
     expect(screen.queryByRole("tab", { name: "Breakdown" })).toBeNull();
   });
 
-  it("a stale ?tab=insights URL falls back to District Locks rather than rendering nothing", async () => {
+  it("a stale ?tab=insights URL falls back to Road to District Champs rather than rendering nothing", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/v1/districts/")) return Promise.resolve(districtsIndexResponse());
@@ -191,8 +223,8 @@ describe("/districts route", () => {
     });
     renderDistrictsRoute("/districts?algorithm=spr&district=2026fnc&tab=insights");
 
-    await waitFor(() => expect(screen.getByTestId("district-locks-panel")).toBeDefined());
-    expect(screen.getByTestId("district-locks-panel").hasAttribute("hidden")).toBe(false);
+    await waitFor(() => expect(screen.getByTestId("road-to-district-champs-panel")).toBeDefined());
+    expect(screen.getByTestId("road-to-district-champs-panel").hasAttribute("hidden")).toBe(false);
   });
 
   it("a year change carries ?district= to the same district in the new year, or clears it when that year has none", async () => {
@@ -226,7 +258,7 @@ describe("/districts route", () => {
     });
     const router = renderDistrictsRoute("/districts?year=2026&algorithm=spr&district=2026fnc");
     const districtOf = () => (router.state.location.search as Record<string, unknown>).district;
-    await waitFor(() => expect(screen.getByTestId("district-locks-panel")).toBeDefined());
+    await waitFor(() => expect(screen.getByTestId("road-to-district-champs-panel")).toBeDefined());
 
     void router.navigate({ to: "/districts", search: (prev: Record<string, unknown>) => ({ ...prev, year: 2025 }) } as never);
     await waitFor(() => expect(districtOf()).toBe("2025fnc"));

@@ -32,6 +32,8 @@ import {
 } from "../../../../../packages/harness/pageArtifacts.js";
 import { artifactUrl } from "../artifactOrigin.js";
 import { markArtifactParsed } from "../perfMarks.js";
+import { EVENT_POLL_INTERVAL_MS, shouldPollDistrictArtifact } from "../liveEvent.js";
+import type { Query } from "@tanstack/react-query";
 import { ArtifactFetchError, ArtifactValidationError } from "./errors.js";
 
 export interface FetchDistrictsIndexArtifactParams {
@@ -90,9 +92,25 @@ export async function fetchDistrictArtifact({ districtKey, year }: FetchDistrict
   }
 }
 
+/**
+ * Phase 10 freshness: while at least one MEMBER district-tier event is started
+ * and not finished (per 10-03's per-cell `state` block), the district artifact
+ * refetches every `EVENT_POLL_INTERVAL_MS` — the same 60 s floor the edge
+ * cache's own `max-age` sets for event artifacts, so polling faster would only
+ * re-read the cache. `refetchIntervalInBackground` is deliberately left unset
+ * (false) for the reason `event.ts` records: TanStack fires an interval
+ * refetch only while the window is focused, so a hidden tab stops polling and
+ * resumes when it is shown again.
+ *
+ * The gate is DATE-FREE, and `shouldPollDistrictArtifact`'s own doc comment
+ * states that limitation in full rather than papering over it with a second
+ * approximation of `eventScheduleIsCurrent`.
+ */
 export function districtQueryOptions(params: FetchDistrictArtifactParams) {
   return {
     queryKey: ["district", params.districtKey] as const,
     queryFn: () => fetchDistrictArtifact(params),
+    refetchInterval: (query: Query<DistrictArtifact, Error, DistrictArtifact, readonly ["district", string]>): number | false =>
+      shouldPollDistrictArtifact(query.state.data) ? EVENT_POLL_INTERVAL_MS : false,
   };
 }

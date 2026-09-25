@@ -9,6 +9,8 @@ import { ArtifactFetchError } from "../lib/api/errors.js";
 import { EmptyState, ErrorState } from "../components/StateViews.js";
 import { DistrictSelect } from "../components/districts/DistrictSelect.js";
 import { DistrictLocksTab } from "../components/districts/DistrictLocksTab.js";
+import { DistrictLedger } from "../components/districts/DistrictLedger.js";
+import { DISTRICT_LEDGER_TAB_LABEL } from "../components/districts/districtLedgerCopy.js";
 import type { DistrictArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -160,7 +162,7 @@ function DistrictsPage() {
   const districtError = districtQuery.error;
   const districtIs404 = districtError instanceof ArtifactFetchError && districtError.status === 404;
 
-  function renderDistrictLocksContent() {
+  function renderDistrictLedgerContent() {
     return renderDistrictTabState({
       is404: districtIs404,
       error: districtError,
@@ -169,7 +171,7 @@ function DistrictsPage() {
       districtKey: effectiveDistrict ?? "",
       onRetry: () => void districtQuery.refetch(),
       renderPending: () => <DistrictsTabSkeleton />,
-      renderPopulated: (artifact) => <DistrictLocksTab artifact={artifact} which="district" algorithm={algorithm} season={year} />,
+      renderPopulated: (artifact) => <DistrictLedger artifact={artifact} algorithm={algorithm} season={year} />,
     });
   }
 
@@ -215,16 +217,16 @@ function DistrictsPage() {
             <Tabs value={activeTab} onValueChange={handleTabChange}>
               <div className="min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain [scrollbar-width:none]">
                 <TabsList variant="line" className="w-full flex-wrap justify-start border-b border-[var(--color-border)]">
-                  <TabsTrigger value="district-locks" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
-                    District Locks
+                  <TabsTrigger value="road-to-district-champs" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
+                    {DISTRICT_LEDGER_TAB_LABEL}
                   </TabsTrigger>
                   <TabsTrigger value="champ-locks" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
                     Champ Locks
                   </TabsTrigger>
                 </TabsList>
               </div>
-              <TabsContent value="district-locks" data-testid="district-locks-panel" className="min-w-0 mt-[var(--spacing-lg)]">
-                {renderDistrictLocksContent()}
+              <TabsContent value="road-to-district-champs" data-testid="road-to-district-champs-panel" className="min-w-0 mt-[var(--spacing-lg)]">
+                {renderDistrictLedgerContent()}
               </TabsContent>
               <TabsContent value="champ-locks" data-testid="champ-locks-panel" className="min-w-0 mt-[var(--spacing-lg)]">
                 {renderChampLocksContent()}

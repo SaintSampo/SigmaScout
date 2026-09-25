@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { SCHEDULE_STALE_AFTER_MS } from "../../../../packages/harness/eventSchedule.js";
 import { formatScheduledTime } from "../components/team/MatchTable.js";
-import { EVENT_POLL_INTERVAL_MS, eventArtifactScheduleIsCurrent, shouldPollEventArtifact, shouldPollTeamArtifact, sortTimeToEpochMs } from "./liveEvent.js";
+import {
+  EVENT_POLL_INTERVAL_MS,
+  districtEventStateFinished,
+  districtEventStateStarted,
+  eventArtifactScheduleIsCurrent,
+  shouldPollDistrictArtifact,
+  shouldPollEventArtifact,
+  shouldPollTeamArtifact,
+  sortTimeToEpochMs,
+} from "./liveEvent.js";
 
 const NOW = Date.parse("2026-09-15T12:00:00.000Z");
 const DAY = 24 * 60 * 60 * 1000;
@@ -102,5 +111,41 @@ describe("shouldPollTeamArtifact", () => {
     expect(shouldPollTeamArtifact({ events: [{ startDate: "2026-09-14", matches: [unplayed()] }] }, NOW)).toBe(true);
     expect(shouldPollTeamArtifact({ events: [{ startDate: "2026-08-01", matches: [unplayed()] }] }, NOW)).toBe(false);
     expect(shouldPollTeamArtifact(undefined, NOW)).toBe(false);
+  });
+});
+
+describe("the district artifact's own poll gate (phase 10)", () => {
+  const finished = { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: true, awardsPosted: true };
+  const midQuals = { qualMatchesPlayed: 20, qualMatchesTotal: 60, alliancesPicked: false, playoffsDone: false, awardsPosted: false };
+  const unstarted = { qualMatchesPlayed: 0, qualMatchesTotal: 60, alliancesPicked: false, playoffsDone: false, awardsPosted: false };
+  const noSchedule = { qualMatchesPlayed: 0, qualMatchesTotal: null, alliancesPicked: false, playoffsDone: false, awardsPosted: false };
+
+  function district(rows: { tier: "district" | "dcmp"; state?: typeof finished }[]) {
+    return { teams: [{ eventPoints: rows, remainingEvents: [] }] };
+  }
+
+  it("reads started from any one of the four facts", () => {
+    expect(districtEventStateStarted(unstarted)).toBe(false);
+    expect(districtEventStateStarted(midQuals)).toBe(true);
+    expect(districtEventStateStarted({ ...unstarted, alliancesPicked: true })).toBe(true);
+    expect(districtEventStateStarted({ ...unstarted, playoffsDone: true })).toBe(true);
+    expect(districtEventStateStarted({ ...unstarted, awardsPosted: true })).toBe(true);
+  });
+
+  it("never calls an event finished while its schedule length is unpublished", () => {
+    expect(districtEventStateFinished(finished)).toBe(true);
+    expect(districtEventStateFinished({ ...noSchedule, alliancesPicked: true, playoffsDone: true, awardsPosted: true })).toBe(false);
+  });
+
+  it("polls only while a member DISTRICT-tier event is started and not finished", () => {
+    expect(shouldPollDistrictArtifact(undefined)).toBe(false);
+    expect(shouldPollDistrictArtifact(district([{ tier: "district", state: finished }]))).toBe(false);
+    expect(shouldPollDistrictArtifact(district([{ tier: "district", state: unstarted }]))).toBe(false);
+    expect(shouldPollDistrictArtifact(district([{ tier: "district", state: midQuals }]))).toBe(true);
+  });
+
+  it("ignores a dcmp-tier row and a row carrying no state block at all", () => {
+    expect(shouldPollDistrictArtifact(district([{ tier: "dcmp", state: midQuals }]))).toBe(false);
+    expect(shouldPollDistrictArtifact(district([{ tier: "district" }]))).toBe(false);
   });
 });

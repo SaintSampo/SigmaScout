@@ -308,14 +308,22 @@ export type EventTab = (typeof EVENT_TABS)[number];
 
 /**
  * The Locks page's two tabs, in the fixed order the page's own tab strip
- * renders: District Locks, Champ Locks. A stale `?tab=` for a since-removed
- * tab is not a special case: `z.enum().catch()` below already falls any
- * unrecognized id back to `DEFAULT_DISTRICT_TAB`.
+ * renders: Road to District Champs, Champ Locks. A stale `?tab=` for a
+ * since-removed tab is not a special case: `z.enum().catch()` below already
+ * falls any unrecognized id back to `DEFAULT_DISTRICT_TAB`.
+ *
+ * THE FIRST TAB'S ID WAS RENAMED FROM `district-locks` IN PHASE 10, AND THE
+ * RENAME COSTS NO SHARED LINK. The renamed tab IS `DEFAULT_DISTRICT_TAB`, and
+ * the `.catch()` below falls any unrecognised id back to exactly that, so every
+ * pre-rename link carrying `?tab=district-locks` lands on the same panel it
+ * always did. The only alternative was keeping an id named after a removed
+ * concept, which would leave the URL asserting a vocabulary the page no longer
+ * uses.
  */
-export const DISTRICT_TABS = ["district-locks", "champ-locks"] as const;
+export const DISTRICT_TABS = ["road-to-district-champs", "champ-locks"] as const;
 
-/** The Locks page's default tab — District Locks, the page's landing tab. */
-export const DEFAULT_DISTRICT_TAB = "district-locks";
+/** The Locks page's default tab — Road to District Champs, the page's landing tab. */
+export const DEFAULT_DISTRICT_TAB = "road-to-district-champs";
 
 /**
  * Extends `RootSearchSchema` with `district` (the selected TBA

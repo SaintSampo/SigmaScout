@@ -1,0 +1,275 @@
+/**
+ * The district Worker protocol's own tests. This module is what jsdom can
+ * reach — `districtSimulation.worker.ts` is close to untestable by
+ * construction — so every branch, bound and loop is asserted here.
+ *
+ * Fixtures mirror `packages/core/districts/ledgerSimulation.test.ts`'s own
+ * shape (baselines strictly decreasing by team number, ratings a deliberate
+ * permutation of that order) so an expectation here is hand-derivable from the
+ * same starting point the core's tests use.
+ */
+import { describe, expect, it } from "vitest";
+import {
+  INVALID_DISTRICT_REQUEST_ERROR_NAME,
+  MAX_DISTRICT_SIMULATION_EVENTS,
+  MAX_DISTRICT_SIMULATION_ROSTER,
+  UNKNOWN_DISTRICT_ERROR_NAME,
+  isDistrictSimulationRequest,
+  runDistrictSimulationJob,
+  type DistrictSimulationEventRequest,
+  type DistrictSimulationOutboundMessage,
+  type DistrictSimulationRequest,
+  type DistrictSimulationResultMessage,
+} from "./districtSimulationProtocol.js";
+import { MAX_SIMULATION_DRAWS, MAX_SIMULATION_MATCHES } from "./simulationProtocol.js";
+import {
+  simulateDistrictEvent,
+  type DistrictAwardProfile,
+  type DistrictLedgerEventInput,
+} from "../../../../packages/core/districts/ledgerSimulation.js";
+import type { AllianceMemberRating } from "../../../../packages/core/algorithms/simulation/allianceWinProbability.js";
+import type { SimMatchInput, SimTeamBaseline } from "../../../../packages/core/algorithms/simulation/rankSimulation.js";
+
+const SEASON = 2026;
+const DRAWS = 24;
+const SEED = 20260925;
+
+function teamKey(n: number): string {
+  return `frc${100 + n}`;
+}
+
+function baselinesFor(teamCount: number): SimTeamBaseline[] {
+  const out: SimTeamBaseline[] = [];
+  for (let i = 1; i <= teamCount; i++) out.push({ teamKey: teamKey(i), earnedRpSum: (teamCount + 1 - i) * 10, matchesPlayed: 10 });
+  return out;
+}
+
+function ratingsFor(teamCount: number): Map<string, AllianceMemberRating> {
+  const out = new Map<string, AllianceMemberRating>();
+  for (let i = 1; i <= teamCount; i++) out.set(teamKey(i), { teamKey: teamKey(i), total: ((i * 7) % teamCount) + 1, sigma: 3 });
+  return out;
+}
+
+function profilesFor(teamCount: number): Map<string, DistrictAwardProfile> {
+  const out = new Map<string, DistrictAwardProfile>();
+  for (let i = 1; i <= teamCount; i++) out.set(teamKey(i), { bucket: "none", rookieState: "veteran" });
+  return out;
+}
+
+function remainingMatches(): SimMatchInput[] {
+  const pmf = [0.25, 0.35, 0.4];
+  const out: SimMatchInput[] = [];
+  for (let m = 0; m < 4; m++) {
+    const base = m * 2;
+    out.push({
+      redTeamKeys: [teamKey(base + 1), teamKey(base + 2), teamKey(base + 3)],
+      blueTeamKeys: [teamKey(base + 4), teamKey(base + 5), teamKey(base + 6)],
+      redRpPmf: pmf,
+      blueRpPmf: pmf,
+    });
+  }
+  return out;
+}
+
+function inputFor(eventKey: string, teamCount = 24, overrides: Partial<DistrictLedgerEventInput> = {}): DistrictLedgerEventInput {
+  return {
+    eventKey,
+    season: SEASON,
+    tier: "district",
+    fieldSize: teamCount,
+    allianceCount: 8,
+    remainingMatches: remainingMatches(),
+    baselines: baselinesFor(teamCount),
+    ratings: ratingsFor(teamCount),
+    awardProfiles: profilesFor(teamCount),
+    ...overrides,
+  };
+}
+
+function eventRequest(eventKey: string, overrides: Partial<DistrictLedgerEventInput> = {}): DistrictSimulationEventRequest {
+  return { eventKey, input: inputFor(eventKey, 24, overrides) };
+}
+
+function requestFor(events: readonly DistrictSimulationEventRequest[]): DistrictSimulationRequest {
+  return { type: "run", events, draws: DRAWS, seed: SEED };
+}
+
+function collect(message: unknown): DistrictSimulationOutboundMessage[] {
+  const emitted: DistrictSimulationOutboundMessage[] = [];
+  runDistrictSimulationJob(message, (outbound) => emitted.push(outbound));
+  return emitted;
+}
+
+function resultOf(emitted: readonly DistrictSimulationOutboundMessage[]): DistrictSimulationResultMessage {
+  const results = emitted.filter((m): m is DistrictSimulationResultMessage => m.type === "result");
+  expect(results).toHaveLength(1);
+  return results[0]!;
+}
+
+/** Deep scan for any function value — the shape a structured clone cannot carry. */
+function containsFunction(value: unknown, seen = new Set<unknown>()): boolean {
+  if (typeof value === "function") return true;
+  if (typeof value !== "object" || value === null) return false;
+  if (seen.has(value)) return false;
+  seen.add(value);
+  if (ArrayBuffer.isView(value)) return false;
+  if (value instanceof Map) {
+    for (const [k, v] of value) if (containsFunction(k, seen) || containsFunction(v, seen)) return true;
+    return false;
+  }
+  if (Array.isArray(value)) return value.some((entry) => containsFunction(entry, seen));
+  return Object.values(value as Record<string, unknown>).some((entry) => containsFunction(entry, seen));
+}
+
+describe("runDistrictSimulationJob", () => {
+  it("emits progress then exactly one result, in that order, with nothing after it", () => {
+    const emitted = collect(requestFor([eventRequest("2026waone")]));
+    expect(emitted.map((m) => m.type)).toEqual(["progress", "result"]);
+  });
+
+  it("forwards the core's per-event histograms unreshaped — equal to a direct simulateDistrictEvent call under the same seed", () => {
+    const request = requestFor([eventRequest("2026waone")]);
+    const direct = simulateDistrictEvent(request.events[0]!.input, DRAWS, SEED);
+    const result = resultOf(collect(request));
+    const entry = result.events[0]!;
+    expect(entry.status).toBe("ok");
+    if (entry.status !== "ok") throw new Error("unreachable");
+    expect(entry.result.qualPoints).toEqual(direct.qualPoints);
+    expect(entry.result.selectionPoints).toEqual(direct.selectionPoints);
+    expect(entry.result.elimPoints).toEqual(direct.elimPoints);
+    expect(entry.result.awardPoints).toEqual(direct.awardPoints);
+    expect(entry.result.eventTotal).toEqual(direct.eventTotal);
+    expect(entry.result.draws).toBe(direct.draws);
+  });
+
+  it("emits one progress message per event, cumulative, with the total set once", () => {
+    const emitted = collect(requestFor([eventRequest("2026waone"), eventRequest("2026watwo")]));
+    const progress = emitted.filter((m) => m.type === "progress");
+    expect(progress).toEqual([
+      { type: "progress", completedEvents: 1, totalEvents: 2 },
+      { type: "progress", completedEvents: 2, totalEvents: 2 },
+    ]);
+  });
+
+  it("isolates a per-event failure: one unavailable entry, one histogram entry, zero terminal errors", () => {
+    // Team 1 carries no published SPR pair, so `simulateDistrictEvent` raises
+    // `UnratedTeamError` for THIS event before any draw runs.
+    const unratedRatings = ratingsFor(24);
+    unratedRatings.set(teamKey(1), { teamKey: teamKey(1), total: undefined, sigma: undefined });
+    const emitted = collect(
+      requestFor([eventRequest("2026wabad", { ratings: unratedRatings }), eventRequest("2026wagood")])
+    );
+    expect(emitted.filter((m) => m.type === "error")).toHaveLength(0);
+    const result = resultOf(emitted);
+    expect(result.events).toHaveLength(2);
+    const bad = result.events[0]!;
+    const good = result.events[1]!;
+    expect(bad.status).toBe("unavailable");
+    if (bad.status !== "unavailable") throw new Error("unreachable");
+    expect(bad.eventKey).toBe("2026wabad");
+    expect(bad.name).toBe("UnratedTeamError");
+    expect(good.status).toBe("ok");
+    if (good.status !== "ok") throw new Error("unreachable");
+    expect(good.result.qualPoints.size).toBe(24);
+  });
+
+  it("translates a non-Error throw into an unavailable entry with the fallback name rather than crashing the loop", () => {
+    // `maxEventPoints` throws for an unregistered season; to reach the
+    // non-`Error` branch the core has to throw something that is not an
+    // `Error`, which only a poisoned input can produce. A getter on the input
+    // object throws a bare string when the core reads `season`.
+    const poisoned = { ...inputFor("2026wapoison") } as Record<string, unknown>;
+    Object.defineProperty(poisoned, "season", {
+      get() {
+        // eslint-disable-next-line @typescript-eslint/only-throw-error
+        throw "not an Error instance";
+      },
+      enumerable: true,
+    });
+    const emitted = collect(
+      requestFor([
+        { eventKey: "2026wapoison", input: poisoned as unknown as DistrictLedgerEventInput },
+        eventRequest("2026wagood"),
+      ])
+    );
+    expect(emitted.filter((m) => m.type === "error")).toHaveLength(0);
+    const result = resultOf(emitted);
+    const poisonEntry = result.events[0]!;
+    expect(poisonEntry.status).toBe("unavailable");
+    if (poisonEntry.status !== "unavailable") throw new Error("unreachable");
+    expect(poisonEntry.name).toBe(UNKNOWN_DISTRICT_ERROR_NAME);
+    expect(result.events[1]!.status).toBe("ok");
+  });
+
+  it("survives structuredClone in both directions and carries no function anywhere", () => {
+    const request = requestFor([eventRequest("2026waone")]);
+    expect(() => structuredClone(request)).not.toThrow();
+    expect(containsFunction(request)).toBe(false);
+    const result = resultOf(collect(request));
+    expect(() => structuredClone(result)).not.toThrow();
+    expect(containsFunction(result)).toBe(false);
+  });
+});
+
+describe("isDistrictSimulationRequest rejections", () => {
+  const base = requestFor([eventRequest("2026waone")]);
+
+  const rejections: ReadonlyArray<readonly [string, unknown]> = [
+    ["a wrong type discriminant", { ...base, type: "go" }],
+    ["a missing event array", { ...base, events: undefined }],
+    ["an empty event array", { ...base, events: [] }],
+    [
+      "an event array above the ceiling",
+      { ...base, events: Array.from({ length: MAX_DISTRICT_SIMULATION_EVENTS + 1 }, (_unused, i) => eventRequest(`2026wa${String(i)}`)) },
+    ],
+    ["a non-integer draw count", { ...base, draws: 10.5 }],
+    ["a draw count below one", { ...base, draws: 0 }],
+    ["a draw count above the ceiling", { ...base, draws: MAX_SIMULATION_DRAWS + 1 }],
+    ["a non-finite seed", { ...base, seed: Number.NaN }],
+    [
+      "a per-event match list above the ceiling",
+      {
+        ...base,
+        events: [
+          {
+            eventKey: "2026waone",
+            input: { ...inputFor("2026waone"), remainingMatches: Array.from({ length: MAX_SIMULATION_MATCHES + 1 }, () => remainingMatches()[0]!) },
+          },
+        ],
+      },
+    ],
+    [
+      "an empty per-event baseline list",
+      { ...base, events: [{ eventKey: "2026waone", input: { ...inputFor("2026waone"), baselines: [] } }] },
+    ],
+    [
+      "a per-event baseline list above the roster ceiling",
+      {
+        ...base,
+        events: [
+          {
+            eventKey: "2026waone",
+            input: { ...inputFor("2026waone"), baselines: baselinesFor(MAX_DISTRICT_SIMULATION_ROSTER + 1) },
+          },
+        ],
+      },
+    ],
+    ["a missing event key", { ...base, events: [{ input: inputFor("2026waone") }] }],
+    ["a non-object payload", 7],
+    ["a null payload", null],
+  ];
+
+  for (const [label, payload] of rejections) {
+    it(`rejects ${label} with exactly one error message and no result`, () => {
+      expect(isDistrictSimulationRequest(payload)).toBe(false);
+      const emitted = collect(payload);
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0]).toMatchObject({ type: "error", name: INVALID_DISTRICT_REQUEST_ERROR_NAME });
+      expect(emitted.filter((m) => m.type === "result")).toHaveLength(0);
+    });
+  }
+
+  it("accepts the well-formed base request", () => {
+    expect(isDistrictSimulationRequest(base)).toBe(true);
+  });
+});
