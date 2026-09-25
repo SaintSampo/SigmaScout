@@ -121,6 +121,21 @@ https://claude.ai/artifact/9yjeRCMN13tD8XbmQBMKzZ, version 5). Sketch 020 is sup
   corpus has a few) gets a fallback playoff pmf: the corpus's empirical distribution of playoff
   points by alliance number for 2023+, a small published table. Never a fabricated bracket.
 
+### Corrections from planning 10-01 (2026-09-25, corpus-verified), binding on 10-04 and 10-06
+- **Playoff points are a final-placement table, not a per-round table:** 1st 30, 2nd 20, 3rd 13,
+  4th 7, 5th to 8th 0 (408 of 418 eight-alliance district events 2023 to 2026 show exactly
+  {30, 20, 13, 7, 0, 0, 0, 0}; the 10 exceptions are non-district alliances and backup-robot
+  proration). The research's "two at 7 and two at 13" annotation was wrong; its topology is right.
+- **Every regular district event since 2023 uses the eight-alliance bracket, without
+  exception.** The only non-eight "district" rows are divisioned district championship parents
+  (event type 2), whose own elim points are 0 / 10 / 20 base. The fallback pmf in `bracket.ts`
+  exists for those parents only; the ledger never simulates a fabricated bracket.
+- 10-01 exposes `routeBracket(decide)` with one `BRACKET_SETS` topology table: 10-04 supplies a
+  Monte Carlo decider to it and never re-derives the bracket. `districtTierWeight(season, tier)`
+  in `qualPoints.ts` is the single DCMP weight source for the phase.
+- The reconciliation test runs only in the main checkout (corpus is gitignored; worktrees have no
+  corpus and a skipping test proves nothing).
+
 ### Corrections from research (2026-09-25), binding on the plans
 - **The browser prices nothing today.** The embedded state block that priced upcoming matches
   in the browser was deleted 2026-09-23 (quick task 260923-3w6); the sketch README's claim that
