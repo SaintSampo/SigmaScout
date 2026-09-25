@@ -699,7 +699,7 @@ Plans:
 
 **Requirements**: sketch 021 (`.planning/sketches/021-district-points-ledger/README.md`, the feasibility and placement sections) and `10-CONTEXT.md` (Jacob's locked decisions, 2026-09-25).
 **Depends on:** Phase 9
-**Plans:** 8/9 plans executed
+**Plans:** 9/9 plans executed
 
 **Success criteria:**
 
@@ -735,7 +735,7 @@ Plans:
 
 **Wave 5** *(blocked on Wave 4)*
 
-- [ ] 10-09-PLAN.md — operator gates: tests, Worker deploy, manifest and district republish, push, CI, live e2e
+- [x] 10-09-PLAN.md — operator gates: tests, Worker deploy, manifest and district republish, push, CI, live e2e
 
 ---
 *Roadmap created: 2026-08-12*

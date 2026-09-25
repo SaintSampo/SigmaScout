@@ -193,6 +193,25 @@ rewritten by `pnpm publish:seasons --write-budget`, which does not publish distr
 hand-added district row there would be erased by the next run. District figures live in this prose
 and the ceilings live in `packages/harness/publishBudget.ts`.
 
+### The PRODUCTION run (phase 10, plan 10-09, 2026-09-25)
+
+`pnpm publish:districts` ran at 15:47:19Z to 15:47:49Z on 2026-09-25, seven minutes after the
+Worker deploy (version 44f15512, 15:40:41Z), under generation `2026-09-25T15:47:20.912Z`. Every
+season passed the budget gate; zero events were bake eligible, so zero sidecars were written.
+
+| Measurement | Production, 2026-09-25 | Local, plan 10-06 | Ceiling |
+|---|---:|---:|---:|
+| district detail, largest per team | 1,414 (`2025fsc`, 35 teams) | 1,414 | 1,700 |
+| district detail, largest absolute | 641,981 (`2026fim`, 531 teams) | 641,981 | 1,300,000 |
+| 2026 season, 14 districts | 2,593,758 bytes total | 2,593,758 | — |
+| presim sidecars written | 0 | 0 | 1,300,000 each |
+
+The live `v1/district/2026pnw.json`, fetched with an Origin header after the edge TTL, carried the
+run generation, per event `state` on all 126 teams, an `awardProfile` on all 126, and an
+`awardBaseRates` table measured through 2025. The live windows manifest was rewritten by
+`pnpm publish:live-windows` at 15:48:45Z: one object, generation unchanged, `districtKey` present
+on all 52 windows (all null, every window a probe window out of season).
+
 ## Storage and write volume (DATA-05)
 
 | Resource | Allowance | One full publish |
@@ -266,6 +285,10 @@ differ from a run's own counter: retries, multipart uploads and objects left by 
 toward the dashboard but not the local figure.
 
 ## Re-baseline cadence (the D-12/D-24 resolution)
+
+When only the live windows manifest must change (for example a new field such as `districtKey`),
+`pnpm publish:live-windows` rewrites that one object under the generation it already has, with no
+seed and no prune owed; a full `pnpm publish:seasons` is never needed for that.
 
 The re-baseline that overwrites live state is a **manual, human-triggered operation**, run before
 and after an event weekend — not an automated schedule. D-24 makes publishing a local CLI command
