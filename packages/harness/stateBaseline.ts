@@ -20,7 +20,28 @@
  *
  * No real TBA event key can collide with `STATE_BASELINE_KEY_PREFIX`: every
  * TBA event key is `<year><shortname>` (digits then lowercase letters/digits,
- * e.g. `2026casj`), and never begins with an underscore.
+ * e.g. `2026casj`), and never begins with an underscore. The two phase-10
+ * prefixes below are underscore-prefixed for exactly that reason, so the
+ * collision proof covers them unchanged.
+ *
+ * WHY A DISTRICT-RANKINGS AND AN EVENT-AWARDS ETAG BELONG IN `event_cursor`
+ * AT ALL (phase 10, plan 10-05). Both are per-tick conditional-request
+ * bookkeeping with exactly the lifecycle `event_cursor.tba_etag` already has:
+ * written by the tick, read by the next tick, meaningless to anything else,
+ * and reset by a seed. `apps/worker/migrations/0001_algorithm_state.sql`'s
+ * `event_cursor` header gives co-location with the cursor it advances
+ * alongside as the reason `tba_etag` and `last_folded_match_key` share a
+ * table; a district's rankings ETag advances alongside its member events'
+ * cursors on the same tick, and an event's awards ETag alongside that event's
+ * own. `readEventCursors` also reads every one of them in ONE subrequest
+ * regardless of key count, which is what lets the district pass pay for the
+ * whole set at once.
+ *
+ * BOTH SHAPES ARE DECLARED HERE, IN ONE PLACE, ON PURPOSE. This file is the
+ * single definition of the reserved-key set that `emitCursorSeedSql`
+ * (`packages/harness/seedSql.ts`) consults before writing a seed row.
+ * Splitting the set across two plans or two files is how a seed comes to
+ * clobber a row nobody registered.
  */
 
 export const TICK_META_EVENT_KEY = "__scheduler_meta__";
@@ -40,7 +61,28 @@ export function parseStateBaselineAlgorithmId(eventKey: string): string | undefi
   return id.length > 0 ? id : undefined;
 }
 
-/** True for the tick-meta sentinel or any state-baseline marker key — the full reserved-key set a real corpus event key must never collide with. */
+/** Prefix for a district's `/district/{key}/rankings` conditional-request ETag row (10-05). Never a real TBA event key — see this file's header. */
+export const DISTRICT_RANKINGS_KEY_PREFIX = "__district_rankings__:";
+
+/** The reserved `event_cursor.event_key` a district's rankings ETag is stored under. `districtKey` is TBA's own year-prefixed key (e.g. `"2026pnw"`). */
+export function districtRankingsCursorKey(districtKey: string): string {
+  return `${DISTRICT_RANKINGS_KEY_PREFIX}${districtKey}`;
+}
+
+/** Prefix for an event's `/event/{key}/awards` conditional-request ETag row (10-05). Deliberately DISTINCT from the event's own cursor row, whose `tba_etag` belongs to the match poll and must never be overwritten by an awards response's etag. */
+export const EVENT_AWARDS_KEY_PREFIX = "__event_awards__:";
+
+/** The reserved `event_cursor.event_key` an event's awards ETag is stored under. */
+export function eventAwardsCursorKey(eventKey: string): string {
+  return `${EVENT_AWARDS_KEY_PREFIX}${eventKey}`;
+}
+
+/** True for the tick-meta sentinel, any state-baseline marker key, any district-rankings ETag key or any event-awards ETag key — the full reserved-key set a real corpus event key must never collide with. */
 export function isReservedEventCursorKey(eventKey: string): boolean {
-  return eventKey === TICK_META_EVENT_KEY || eventKey.startsWith(STATE_BASELINE_KEY_PREFIX);
+  return (
+    eventKey === TICK_META_EVENT_KEY ||
+    eventKey.startsWith(STATE_BASELINE_KEY_PREFIX) ||
+    eventKey.startsWith(DISTRICT_RANKINGS_KEY_PREFIX) ||
+    eventKey.startsWith(EVENT_AWARDS_KEY_PREFIX)
+  );
 }

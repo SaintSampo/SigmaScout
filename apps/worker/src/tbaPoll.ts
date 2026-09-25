@@ -22,7 +22,7 @@
  * else — never the TBA key, never a header dump — so the caller
  * (`scheduled.ts`) can catch per event and confine the failure to it.
  */
-import { fetchEventMatches, TbaRequestCounter, THROTTLE_INTERVAL_MS, type TbaClientContext, type TbaFetchResult } from "../../../packages/ingest/tbaClient.js";
+import { fetchDistrictRankings, fetchEventAwards, fetchEventMatches, TbaRequestCounter, THROTTLE_INTERVAL_MS, type TbaClientContext, type TbaFetchResult } from "../../../packages/ingest/tbaClient.js";
 import type { Env } from "./env.js";
 
 export { TbaRequestCounter, THROTTLE_INTERVAL_MS };
@@ -65,4 +65,74 @@ export async function pollEventMatches(ctx: TbaClientContext, eventKey: string, 
     return { status: "not-modified" };
   }
   return { status: "ok", etag: result.etag, matches: result.body as unknown[] };
+}
+
+// ---------------------------------------------------------------------------
+// The two district-pass polls (10-05). Both are ordinary conditional GETs; the
+// only reason they live here rather than at their call site is this module's
+// header: one TBA client, one politeness policy, one place a response's status
+// is turned into a value.
+// ---------------------------------------------------------------------------
+
+/**
+ * The shared shape of a conditional poll whose body this module does NOT
+ * validate. `body` is deliberately `unknown`, matching
+ * `PollEventMatchesResult`'s own contract that the CALLER parses at its own
+ * boundary — `districtRefresh.ts` runs `DistrictRankingsPayloadSchema` /
+ * `tbaEventAwardsResponseSchema` over it there, so a parse failure is confined
+ * to the one district it came from.
+ *
+ * A 304 costs the same ONE request as a 200; see this file's header.
+ */
+export type TbaConditionalBody = { readonly status: "not-modified" } | { readonly status: "ok"; readonly etag: string | undefined; readonly body: unknown };
+
+/** Thrown by `pollDistrictRankings` for any non-2xx, non-304 TBA response, or for a transport-level `fetch` failure — always names ONLY the district key, never the TBA key, never response headers. Mirrors `TbaPollError`. */
+export class TbaDistrictRankingsPollError extends Error {
+  constructor(districtKey: string, cause: unknown) {
+    super(`pollDistrictRankings: TBA poll failed for district "${districtKey}"${cause instanceof Error ? `: ${cause.message}` : ""}`);
+    this.name = "TbaDistrictRankingsPollError";
+  }
+}
+
+/** Thrown by `pollEventAwards` for any non-2xx, non-304 TBA response, or for a transport-level `fetch` failure — always names ONLY the event key, never the TBA key, never response headers. Mirrors `TbaPollError`. */
+export class TbaEventAwardsPollError extends Error {
+  constructor(eventKey: string, cause: unknown) {
+    super(`pollEventAwards: TBA poll failed for event "${eventKey}"${cause instanceof Error ? `: ${cause.message}` : ""}`);
+    this.name = "TbaEventAwardsPollError";
+  }
+}
+
+/**
+ * `GET /district/{districtKey}/rankings`, conditional on `cachedEtag`. One
+ * request per live district per tick — the whole freshness mechanism of SC-1.
+ * `districtKey` is TBA's year-prefixed key (e.g. `"2026pnw"`), the same shape
+ * `fetchDistrictRankings`'s own doc comment describes; the caller validates it
+ * against `DISTRICT_KEY_PATTERN` before it reaches this URL.
+ */
+export async function pollDistrictRankings(ctx: TbaClientContext, districtKey: string, cachedEtag: string | undefined): Promise<TbaConditionalBody> {
+  let result: TbaFetchResult;
+  try {
+    result = await fetchDistrictRankings(ctx, districtKey, cachedEtag);
+  } catch (err) {
+    throw new TbaDistrictRankingsPollError(districtKey, err);
+  }
+  if (result.status === 304) return { status: "not-modified" };
+  return { status: "ok", etag: result.etag, body: result.body };
+}
+
+/**
+ * `GET /event/{key}/awards`, conditional on `cachedEtag`. The ONE genuinely
+ * new request this phase adds, made only when an event's playoffs are done and
+ * its published state does not already say the awards are posted — see
+ * `districtRefresh.ts` for that gate.
+ */
+export async function pollEventAwards(ctx: TbaClientContext, eventKey: string, cachedEtag: string | undefined): Promise<TbaConditionalBody> {
+  let result: TbaFetchResult;
+  try {
+    result = await fetchEventAwards(ctx, eventKey, cachedEtag);
+  } catch (err) {
+    throw new TbaEventAwardsPollError(eventKey, err);
+  }
+  if (result.status === 304) return { status: "not-modified" };
+  return { status: "ok", etag: result.etag, body: result.body };
 }

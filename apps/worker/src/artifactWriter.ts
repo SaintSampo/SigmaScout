@@ -26,6 +26,8 @@
 import {
   artifactKey,
   CompareArtifactSchema,
+  districtDetailKey,
+  DistrictArtifactSchema,
   EventsArtifactSchema,
   EventArtifactSchema,
   TeamsArtifactWireSchema,
@@ -104,6 +106,65 @@ export async function writeArtifactObject(env: Env, counter: SubrequestCounter, 
   await env.ARTIFACTS.put(key, serialized, {
     httpMetadata: { contentType: ARTIFACT_CONTENT_TYPE, cacheControl: ARTIFACT_CACHE_CONTROL },
   });
+}
+
+/**
+ * The district half of the same secret refusal, thrown by
+ * `writeDistrictArtifactObject` with zero puts issued.
+ *
+ * A SEPARATE CLASS ON PURPOSE. `ArtifactSecretLeakError`'s `page` parameter is
+ * typed `PageKind` and its own doc comment above records that the union was
+ * NARROWED BACK to that after a brief widening, precisely so no caller can
+ * invent a non-page label. A district key is not a `PageKind` (see
+ * `writeDistrictArtifactObject` for why it stays outside), so it gets its own
+ * error rather than re-opening that union.
+ */
+export class DistrictArtifactSecretLeakError extends Error {
+  constructor(districtKey: string) {
+    super(`writeDistrictArtifactObject: refusing to write district "${districtKey}" artifact — serialized output contains a secret value`);
+    this.name = "DistrictArtifactSecretLeakError";
+  }
+}
+
+/**
+ * `writeArtifactObject`'s body, for `v1/district/{districtKey}.json`:
+ * `DistrictArtifactSchema.parse` FIRST (throws, issuing ZERO puts), then
+ * `JSON.stringify`, then the `env.TBA_API_KEY` substring refusal, then one
+ * counted subrequest, then exactly one `put` carrying this module's own
+ * `ARTIFACT_CONTENT_TYPE`/`ARTIFACT_CACHE_CONTROL` metadata. It lives beside
+ * `writeArtifactObject` so both halves of that refusal are in one file and a
+ * future editor of either sees the other (threat T-10-05-01, transferred from
+ * 10-03's T-10-03-03).
+ *
+ * WHY IT BYPASSES `SCHEMA_BY_PAGE` rather than adding a `"district"` page
+ * kind: district keys are outside `PageKind` by design
+ * (`packages/harness/pageArtifacts.ts`'s `districtsIndexKey`/`districtDetailKey`
+ * doc comment), and `PageKind` is the exhaustive union `SCHEMA_BY_PAGE` here
+ * and `publish.ts`'s per-season byte budget both rely on staying closed.
+ * Widening it would buy nothing and cost every exhaustive switch. This writer
+ * takes `DistrictArtifactSchema` directly instead.
+ *
+ * WHY IT RETURNS BYTES AND ASSERTS NO CEILING: `DISTRICT_DETAIL_MAX_BYTES`
+ * lives in `packages/harness/publishBudget.ts`, which imports `node:path` —
+ * importing it here would pull a Node built-in into the Worker's bundle graph,
+ * the exact accident `wrangler.toml`'s `nodejs_compat` comment records from
+ * plan 04-05. The ceiling is asserted at publish time (10-06) instead; the
+ * byte count exists so the tick's `district-refreshed` log line makes growth
+ * visible without a tail.
+ */
+export async function writeDistrictArtifactObject(env: Env, counter: SubrequestCounter, districtKey: string, artifact: unknown): Promise<number> {
+  const validated = DistrictArtifactSchema.parse(artifact);
+  const serialized = JSON.stringify(validated);
+
+  if (env.TBA_API_KEY && serialized.includes(env.TBA_API_KEY)) {
+    throw new DistrictArtifactSecretLeakError(districtKey);
+  }
+
+  counter.spend(1);
+  await env.ARTIFACTS.put(districtDetailKey(districtKey), serialized, {
+    httpMetadata: { contentType: ARTIFACT_CONTENT_TYPE, cacheControl: ARTIFACT_CACHE_CONTROL },
+  });
+  return serialized.length;
 }
 
 /**

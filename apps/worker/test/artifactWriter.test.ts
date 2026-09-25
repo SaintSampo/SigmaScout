@@ -11,8 +11,8 @@
  * `subrequestCounter.ts`'s header.
  */
 import { describe, expect, it } from "vitest";
-import { artifactKey, type ArtifactKeyParams } from "../../../packages/harness/pageArtifacts.js";
-import { ArtifactSecretLeakError, readArtifactObject, writeArtifactObject } from "../src/artifactWriter.js";
+import { artifactKey, districtDetailKey, type ArtifactKeyParams } from "../../../packages/harness/pageArtifacts.js";
+import { ArtifactSecretLeakError, DistrictArtifactSecretLeakError, readArtifactObject, writeArtifactObject, writeDistrictArtifactObject } from "../src/artifactWriter.js";
 import { SubrequestCounter } from "../src/subrequestCounter.js";
 import type { Env } from "../src/env.js";
 
@@ -175,5 +175,88 @@ describe("readArtifactObject", () => {
     await readArtifactObject(env, counter, "v1/event/2026casj/opr@3.0.0+baseline.json");
     expect(counter.used).toBe(1);
     expect(r2.getCallCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The district writer (10-05). Same body as `writeArtifactObject`, a key
+// outside `PageKind`, and its own secret refusal (threat T-10-05-01).
+// ---------------------------------------------------------------------------
+
+/** A minimal but schema-valid published district artifact — one team, one played event, no remaining events. */
+function districtArtifactFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    ...preamble,
+    districtKey: "2026pnw",
+    year: 2026,
+    abbreviation: "pnw",
+    displayName: "Pacific Northwest",
+    dcmpSlots: 1,
+    cmpSlots: 1,
+    teams: [
+      {
+        teamKey: "frc1",
+        teamNumber: 1,
+        nickname: "The Juggernauts",
+        rank: 1,
+        pointTotal: 40,
+        rookieBonus: 0,
+        adjustments: 0,
+        eventPoints: [{ eventKey: "2026wabon", eventName: "Bonney Lake", week: 1, tier: "district", qual: 20, alliance: 10, elim: 5, award: 5, total: 40 }],
+        remainingEvents: [],
+        maxRemainingDistrict: 0,
+        maxRemainingChamp: 0,
+        qualifyingAwards: [],
+        districtLock: { status: "contending", pointsToLock: null, threatCount: 0, cutLinePoints: null, allocationNote: null },
+        champLock: { status: "contending", pointsToLock: null, threatCount: 0, cutLinePoints: null, allocationNote: null },
+      },
+    ],
+    insights: { teamCount: 1, eventCount: 1, dcmpCutLinePoints: null, cmpCutLinePoints: null, districtLockedCount: 0, districtEliminatedCount: 0, champLockedCount: 0, champEliminatedCount: 0 },
+    ...overrides,
+  };
+}
+
+describe("writeDistrictArtifactObject", () => {
+  it("issues exactly one put at districtDetailKey, with the shared JSON content type and 60s cache-control", async () => {
+    const r2 = new FakeR2Bucket();
+    const counter = new SubrequestCounter();
+
+    await writeDistrictArtifactObject(makeEnv(r2), counter, "2026pnw", districtArtifactFixture());
+
+    expect(r2.putCallCount).toBe(1);
+    expect(counter.used).toBe(1);
+    expect(r2.puts[0]?.key).toBe(districtDetailKey("2026pnw"));
+    expect(r2.puts[0]?.options.httpMetadata?.contentType).toBe("application/json");
+    expect(r2.puts[0]?.options.httpMetadata?.cacheControl).toBe("public, max-age=60");
+  });
+
+  it("returns the serialized byte length of the VALIDATED object", async () => {
+    const r2 = new FakeR2Bucket();
+    const counter = new SubrequestCounter();
+    const fixture = districtArtifactFixture();
+
+    const bytes = await writeDistrictArtifactObject(makeEnv(r2), counter, "2026pnw", fixture);
+
+    expect(bytes).toBe(r2.puts[0]!.body.length);
+    expect(bytes).toBe(JSON.stringify(JSON.parse(r2.puts[0]!.body)).length);
+  });
+
+  it("throws on a schema-invalid artifact with ZERO puts and an untouched subrequest count", async () => {
+    const r2 = new FakeR2Bucket();
+    const counter = new SubrequestCounter();
+
+    await expect(writeDistrictArtifactObject(makeEnv(r2), counter, "2026pnw", { not: "a district artifact" })).rejects.toThrow();
+    expect(r2.putCallCount).toBe(0);
+    expect(counter.used).toBe(0);
+  });
+
+  it("refuses a body containing the configured secret value, throwing DistrictArtifactSecretLeakError with zero puts", async () => {
+    const r2 = new FakeR2Bucket();
+    const counter = new SubrequestCounter();
+    const leaking = districtArtifactFixture({ displayName: `Pacific Northwest ${TBA_KEY}` });
+
+    await expect(writeDistrictArtifactObject(makeEnv(r2), counter, "2026pnw", leaking)).rejects.toBeInstanceOf(DistrictArtifactSecretLeakError);
+    expect(r2.putCallCount).toBe(0);
+    expect(counter.used).toBe(0);
   });
 });

@@ -165,6 +165,7 @@ import { checkLiveEventArtifactShape, checkTeamSeasonArtifactShape } from "./art
 import { ArtifactSecretLeakError, readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
 import { readEventCursor, readEventCursors, readScopedStateChunked, scopedStateReadStatements, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
 import { splitEventMatches } from "./matchSplit.js";
+import { runDistrictRefresh, type DistrictRefreshResult } from "./districtRefresh.js";
 import { TICK_META_EVENT_KEY, stateBaselineEventKey } from "../../../packages/harness/stateBaseline.js";
 import { rotate, sortEventKeys, SubrequestCounter } from "./subrequestCounter.js";
 import { createTbaContext, pollEventMatches, TbaRequestCounter, type TbaClientContext } from "./tbaPoll.js";
@@ -1514,7 +1515,18 @@ export interface TickResult {
   readonly globalRebuildRan: boolean;
   /** The offline seed for this generation has not been applied to D1 yet; folding is suspended, not broken. See `detectStateGenerationMismatch`. */
   readonly stateGenerationMismatch: boolean;
+  /** Districts with at least one live member event this tick (`districtRefresh.ts`'s `liveDistrictsOf`). Zero against a manifest carrying no `districtKey` — which is every manifest published before phase 10. */
+  readonly districtsConsidered: number;
+  /** Districts whose artifact this tick republished. */
+  readonly districtsRefreshed: number;
+  /** Districts whose rankings and observed state both came back unchanged — one conditional TBA request and no write. */
+  readonly districtsUnchanged: number;
+  /** Districts whose refresh threw, was refused, or found no published artifact. Confined to that district: the pass still refreshed the others and the tick still wrote its rotation offset. */
+  readonly districtsFailed: number;
 }
+
+/** The four district counts every `TickResult` return site carries, as zeros — the early returns, which the district pass is deliberately unreachable from. */
+const NO_DISTRICT_REFRESH: DistrictRefreshResult = { districtsConsidered: 0, districtsRefreshed: 0, districtsUnchanged: 0, districtsFailed: 0 };
 
 export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickResult> {
   const nowMs = deps.nowMs ?? Date.now();
@@ -1536,7 +1548,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   const liveEvents = await loadLiveEventsAt(env, nowMs);
 
   if (liveEvents.length === 0) {
-    return { eventsConsidered: 0, eventsAdvanced: 0, eventsFailed: 0, eventsProbed: 0, eventsPromoted: 0, tbaRequests: tbaCounter.total, subrequestsUsed: subrequests.used, globalRebuildRan: false, stateGenerationMismatch: false };
+    return { eventsConsidered: 0, eventsAdvanced: 0, eventsFailed: 0, eventsProbed: 0, eventsPromoted: 0, tbaRequests: tbaCounter.total, subrequestsUsed: subrequests.used, globalRebuildRan: false, stateGenerationMismatch: false, ...NO_DISTRICT_REFRESH };
   }
 
   // Split into foldable (`inferred: false`, a real measured window) and
@@ -1568,6 +1580,11 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
       subrequestsUsed: subrequests.used,
       globalRebuildRan: false,
       stateGenerationMismatch: false,
+      // The district pass is deliberately NOT reached from here. A district's
+      // points cannot move while no member event has played a single match,
+      // which is CONTEXT's own rationale for deriving district liveness from
+      // member-event liveness in the first place.
+      ...NO_DISTRICT_REFRESH,
     };
   }
 
@@ -1604,6 +1621,9 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
       subrequestsUsed: subrequests.used,
       globalRebuildRan: false,
       stateGenerationMismatch: true,
+      // Nor from here: a state-generation mismatch suspends EVERY live write
+      // until the seed lands, districts included.
+      ...NO_DISTRICT_REFRESH,
     };
   }
 
@@ -1650,6 +1670,22 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   // event-completion trigger is subsumed: a completing event touched teams.
   const globalRebuildRan = await runGlobalRebuild(env, subrequests, algorithmModules, touchedTeamsByAlgorithm, stamp);
 
+  // THE DISTRICT PASS (10-05), placed here deliberately:
+  //  (a) AFTER the event loop, because the per-event state facts it writes are
+  //      collected inside `processEvent` from the match list the loop already
+  //      fetched;
+  //  (b) BEFORE `writeTickMeta`, and `runDistrictRefresh` never throws, so a
+  //      failing district can cost neither an event's fold nor this tick's
+  //      rotation offset;
+  //  (c) unreachable from both early returns above — see the comments there.
+  // THE DELIBERATE NARROWING: CONTEXT says a district is live when "any member
+  // event has a live window", and this pass is handed the windows the tick
+  // ACTUALLY processed (foldable plus promoted). A probe window that never
+  // promoted is excluded on purpose: `runProbes`'s header calls the cheap-idle
+  // ordering load-bearing, and spending a district's TBA request on an event
+  // that has not proven it has a single match would spend against exactly that.
+  const districtRefresh = await runDistrictRefresh(env, subrequests, tbaCtx, { windows: [...foldableWindows, ...promotedWindows], stamp, nowIso });
+
   const newMeta: TickMeta = {
     rotationOffset: orderedEventKeys.length > 0 ? (meta.rotationOffset + eventsAdvanced) % orderedEventKeys.length : 0,
   };
@@ -1666,6 +1702,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
     subrequestsUsed: subrequests.used,
     globalRebuildRan,
     stateGenerationMismatch: false,
+    ...districtRefresh,
   };
 }
 

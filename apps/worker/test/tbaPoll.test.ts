@@ -4,7 +4,7 @@
  * and no thrown message or returned value contains a stubbed key value.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createTbaContext, pollEventMatches, TbaPollError, TbaRequestCounter } from "../src/tbaPoll.js";
+import { createTbaContext, pollDistrictRankings, pollEventAwards, pollEventMatches, TbaDistrictRankingsPollError, TbaEventAwardsPollError, TbaPollError, TbaRequestCounter } from "../src/tbaPoll.js";
 import type { Env } from "../src/env.js";
 
 const STUB_KEY = "test-tba-secret-key-do-not-leak";
@@ -108,6 +108,96 @@ describe("pollEventMatches", () => {
     // never the URL or body — confirm the fetch call's URL never contains it.
     for (const call of fetchMock.mock.calls) {
       expect(String(call[0])).not.toContain(STUB_KEY);
+    }
+  });
+});
+
+describe("pollDistrictRankings / pollEventAwards (10-05)", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("pollDistrictRankings returns not-modified on a 304, recorded as one cache-hit request", async () => {
+    fetchMock.mockResolvedValue({ status: 304, ok: false, headers: new Map(), json: async () => ({}) });
+    const counter = new TbaRequestCounter();
+
+    const result = await pollDistrictRankings(createTbaContext(makeEnv(), counter), "2026pnw", "etag-1");
+
+    expect(result).toEqual({ status: "not-modified" });
+    expect(counter.total).toBe(1);
+    expect(counter.cacheHits).toBe(1);
+  });
+
+  it("pollDistrictRankings returns ok with the raw body and etag on a 200, against the configured base URL", async () => {
+    const body = [{ team_key: "frc1", rank: 1 }];
+    fetchMock.mockResolvedValue({ status: 200, ok: true, headers: { get: (name: string) => (name === "etag" ? "etag-2" : null) }, json: async () => body });
+    const counter = new TbaRequestCounter();
+
+    const result = await pollDistrictRankings(createTbaContext(makeEnv(), counter), "2026pnw", undefined);
+
+    expect(result).toEqual({ status: "ok", etag: "etag-2", body });
+    expect(counter.fresh).toBe(1);
+    expect(String((fetchMock.mock.calls[0] as [string])[0])).toBe("https://tba.example.invalid/api/v3/district/2026pnw/rankings");
+  });
+
+  it("pollDistrictRankings throws TbaDistrictRankingsPollError naming the district key and never the API key on a 500", async () => {
+    fetchMock.mockResolvedValue({ status: 500, ok: false, headers: new Map(), json: async () => ({}) });
+    const ctx = createTbaContext(makeEnv(), new TbaRequestCounter());
+
+    await expect(pollDistrictRankings(ctx, "2026pnw", undefined)).rejects.toBeInstanceOf(TbaDistrictRankingsPollError);
+    try {
+      await pollDistrictRankings(ctx, "2026pnw", undefined);
+      expect.fail("expected pollDistrictRankings to throw");
+    } catch (err) {
+      expect((err as Error).message).toContain("2026pnw");
+      expect((err as Error).message).not.toContain(STUB_KEY);
+      expect((err as Error).message).not.toContain("X-TBA-Auth-Key");
+      expect((err as Error).message).not.toContain("If-None-Match");
+    }
+  });
+
+  it("pollEventAwards returns not-modified on a 304, recorded as one cache-hit request", async () => {
+    fetchMock.mockResolvedValue({ status: 304, ok: false, headers: new Map(), json: async () => ({}) });
+    const counter = new TbaRequestCounter();
+
+    const result = await pollEventAwards(createTbaContext(makeEnv(), counter), "2026wabon", "etag-1");
+
+    expect(result).toEqual({ status: "not-modified" });
+    expect(counter.total).toBe(1);
+    expect(counter.cacheHits).toBe(1);
+  });
+
+  it("pollEventAwards returns ok with the raw body and etag on a 200, against the configured base URL", async () => {
+    const body = [{ name: "Winner", award_type: 1, event_key: "2026wabon", recipient_list: [], year: 2026 }];
+    fetchMock.mockResolvedValue({ status: 200, ok: true, headers: { get: (name: string) => (name === "etag" ? "awards-etag" : null) }, json: async () => body });
+    const counter = new TbaRequestCounter();
+
+    const result = await pollEventAwards(createTbaContext(makeEnv(), counter), "2026wabon", undefined);
+
+    expect(result).toEqual({ status: "ok", etag: "awards-etag", body });
+    expect(counter.fresh).toBe(1);
+    expect(String((fetchMock.mock.calls[0] as [string])[0])).toBe("https://tba.example.invalid/api/v3/event/2026wabon/awards");
+  });
+
+  it("pollEventAwards throws TbaEventAwardsPollError naming the event key and never the API key on a 500", async () => {
+    fetchMock.mockResolvedValue({ status: 500, ok: false, headers: new Map(), json: async () => ({}) });
+    const ctx = createTbaContext(makeEnv(), new TbaRequestCounter());
+
+    await expect(pollEventAwards(ctx, "2026wabon", undefined)).rejects.toBeInstanceOf(TbaEventAwardsPollError);
+    try {
+      await pollEventAwards(ctx, "2026wabon", undefined);
+      expect.fail("expected pollEventAwards to throw");
+    } catch (err) {
+      expect((err as Error).message).toContain("2026wabon");
+      expect((err as Error).message).not.toContain(STUB_KEY);
+      expect((err as Error).message).not.toContain("X-TBA-Auth-Key");
     }
   });
 });
