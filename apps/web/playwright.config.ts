@@ -120,8 +120,13 @@ export default defineConfig({
       // is either viewport-agnostic or sets its own viewport per-test via
       // `page.setViewportSize`), so the 1440x900 desktop project is the
       // natural shared home for all of them.
+      // `districts-ledger.spec.ts` belongs here for its desktop half: the
+      // ledger's chip counts, its slider and the scoped-removal control are
+      // read at the width a district's nine columns actually fit, and every
+      // one of them needs the REPUBLISHED district artifact, which only the
+      // deployed origin serves.
       testMatch:
-        /deep-link\.spec\.ts|team-page\.spec\.ts|static-shell\.spec\.ts|event-page\.spec\.ts|event-header-overflow\.spec\.ts|event-live-artifact\.spec\.ts|breakdown-desktop-overflow\.spec\.ts|zebra-stripe-full-row\.spec\.ts|search-results-overflow\.spec\.ts|metric-history-axis-legibility\.spec\.ts/,
+        /deep-link\.spec\.ts|team-page\.spec\.ts|static-shell\.spec\.ts|event-page\.spec\.ts|event-header-overflow\.spec\.ts|event-live-artifact\.spec\.ts|breakdown-desktop-overflow\.spec\.ts|zebra-stripe-full-row\.spec\.ts|search-results-overflow\.spec\.ts|metric-history-axis-legibility\.spec\.ts|districts-ledger\.spec\.ts/,
       use: { viewport: { width: 1440, height: 900 } },
     },
     {
@@ -146,7 +151,11 @@ export default defineConfig({
       // site's real-device UAT names specifically — see this file's header
       // comment for the full rationale. Every spec below reuses this same
       // 390px real-device-reported width.
-      testMatch: /event-scroll-regions\.spec\.ts|event-header-overflow\.spec\.ts|table-layout-quality\.spec\.ts|touch-action-vertical-scroll\.spec\.ts|tab-strip-trigger-sizing\.spec\.ts/,
+      // `districts-ledger.spec.ts` belongs here for its phone half: 390px is
+      // the named backstop 10-07 could only measure locally, and the ledger's
+      // sticky first column and in-card horizontal scroll are exactly the
+      // arbitration this width exists to check.
+      testMatch: /event-scroll-regions\.spec\.ts|event-header-overflow\.spec\.ts|table-layout-quality\.spec\.ts|touch-action-vertical-scroll\.spec\.ts|tab-strip-trigger-sizing\.spec\.ts|districts-ledger\.spec\.ts/,
       use: { ...devices["iPhone 17"], browserName: "chromium", viewport: { width: 390, height: 844 } },
     },
     {
