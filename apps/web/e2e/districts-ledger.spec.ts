@@ -247,9 +247,20 @@ test.describe("Road to District Champs, 1440x900", () => {
     await page.goto(sharedUrl);
     await expect(page.getByTestId(TEST_IDS.rewindReadout)).toHaveText(readoutAfter);
     const reloaded = page.getByTestId(TEST_IDS.rewind).locator('input[type="range"]');
-    await expect.poll(() => reloaded.inputValue().then(Number)).toBeGreaterThan(0);
-    const reloadedMax = Number(await reloaded.getAttribute("max"));
-    expect(Number(await reloaded.inputValue()), "a shared position must not resolve to now").toBeLessThan(reloadedMax);
+    // Value and max are read in ONE evaluation: the timeline refines after
+    // the artifacts load and both attributes change together, so two reads
+    // could pair a refined value with a stage-only max.
+    await expect
+      .poll(
+        () =>
+          reloaded.evaluate((el) => {
+            const input = el as HTMLInputElement;
+            const value = Number(input.value);
+            return value > 0 && value < Number(input.max);
+          }),
+        { message: "a shared position must resolve inside the timeline, never to its ends" },
+      )
+      .toBe(true);
   });
 
   test("a pre rename tab id still lands on the Road to District Champs panel", async ({ page }) => {
