@@ -913,7 +913,12 @@ const FAILURE_MODES: readonly FailureModeSetup[] = [
   },
 ];
 
-async function runTwoDistrictTick(mode: FailureModeSetup): Promise<{ result: Awaited<ReturnType<typeof runTick>>; d1: FakeD1Database; r2: FakeR2Bucket; fetchMock: ReturnType<typeof vi.fn>; warnSpy: ReturnType<typeof vi.spyOn> }> {
+/** A console.warn spy, narrowed to just the shape the assertions read — `ReturnType<typeof vi.spyOn>` leaves `mock.calls` implicitly `any[]` under the Worker tsconfig. */
+interface WarnSpy {
+  readonly mock: { readonly calls: readonly (readonly unknown[])[] };
+}
+
+async function runTwoDistrictTick(mode: FailureModeSetup): Promise<{ result: Awaited<ReturnType<typeof runTick>>; d1: FakeD1Database; r2: FakeR2Bucket; fetchMock: ReturnType<typeof vi.fn>; warnSpy: WarnSpy }> {
   const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
   const d1 = new FakeD1Database();
   const r2 = new FakeR2Bucket();
@@ -928,8 +933,8 @@ async function runTwoDistrictTick(mode: FailureModeSetup): Promise<{ result: Awa
   return { result, d1, r2, fetchMock, warnSpy };
 }
 
-function warnLines(warnSpy: ReturnType<typeof vi.spyOn>): string[] {
-  return warnSpy.mock.calls.map((call) => String((call as [unknown])[0]));
+function warnLines(warnSpy: WarnSpy): string[] {
+  return warnSpy.mock.calls.map((call) => String(call[0]));
 }
 
 describe("runDistrictRefresh — one bad district never stops the tick", () => {
