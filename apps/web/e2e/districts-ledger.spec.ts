@@ -238,10 +238,18 @@ test.describe("Road to District Champs, 1440x900", () => {
     const sharedUrl = page.url();
     const readoutAfter = (await page.getByTestId(TEST_IDS.rewindReadout).innerText()).trim();
 
-    // Reloading that URL lands on the same position.
+    // Reloading that URL lands on the same position. The position is the
+    // STEP ID in the URL, not the index: the reloaded page paints the
+    // stage-only timeline first and refines it once the artifacts load, so
+    // the same id sits at a different index before and after that refine.
+    // The readout is id-derived and is the honest equality; the slider must
+    // simply not be at either end.
     await page.goto(sharedUrl);
     await expect(page.getByTestId(TEST_IDS.rewindReadout)).toHaveText(readoutAfter);
-    await expect(page.getByTestId(TEST_IDS.rewind).locator('input[type="range"]')).toHaveValue(String(target));
+    const reloaded = page.getByTestId(TEST_IDS.rewind).locator('input[type="range"]');
+    await expect.poll(() => reloaded.inputValue().then(Number)).toBeGreaterThan(0);
+    const reloadedMax = Number(await reloaded.getAttribute("max"));
+    expect(Number(await reloaded.inputValue()), "a shared position must not resolve to now").toBeLessThan(reloadedMax);
   });
 
   test("a pre rename tab id still lands on the Road to District Champs panel", async ({ page }) => {
