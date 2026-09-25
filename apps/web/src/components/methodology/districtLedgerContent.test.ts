@@ -122,6 +122,16 @@ const REQUIRED_FIGURES = [
   // DISTRICT_BAKE_DRAWS_PER_SCHEDULE is the 4,000.
   "4,000 draws",
   "0.03525",
+
+  // --- `pnpm measure:award-ordering-tables` -------------------------------
+  // `npx tsx scripts/measureAwardOrderingTables.ts`, run 2026-09-25. Both
+  // figures are printed by that script's PRACTICAL ANSWER block for season
+  // 2026 and cross checked against the committed literals in
+  // `packages/core/districts/awardOrderingTables.ts`. Their full statement,
+  // the remaining positions and the sample sizes live on the Predicting awards
+  // page; this page states only the two that name the mechanism.
+  "18.0%", // Impact, position 1 in the most decorated ordering
+  "38.1%", // Rookie All Star, rookie position 1
 ];
 
 /**

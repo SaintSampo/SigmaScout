@@ -30,7 +30,7 @@
  * The voice gate runs at RUNTIME over the exported string VALUES, never as a
  * grep over this file's source. These doc comments use normal punctuation.
  *
- * EVERY NUMBER HERE TRACES TO COMMITTED CODE. Five sources, and no figure on
+ * EVERY NUMBER HERE TRACES TO COMMITTED CODE. Six sources, and no figure on
  * this page comes from anywhere else:
  *
  *   1. `pnpm measure:alliance-win-probability`
@@ -44,18 +44,24 @@
  *      run 2026-09-25) — the captain rule's slot counts, the naive rule's score,
  *      the per round and pooled pick order agreement, the top 3 agreement and
  *      each round's no information floor.
- *   3. `pnpm measure:district-award-base-rates`
+ *   3. `pnpm measure:award-ordering-tables`
+ *      (`npx tsx scripts/measureAwardOrderingTables.ts`) for the two Impact
+ *      and Rookie All Star ordering figures. Their full statement, the
+ *      remaining positions and every sample size live on
+ *      `/methodology/awards`; this page states only the two that name the
+ *      mechanism.
+ *   4. `pnpm measure:district-award-base-rates`
  *      (`npx tsx scripts/measureDistrictAwardBaseRates.ts`, run 2026-09-25) —
  *      the award base rate tables. Their full statement lives on
  *      `/methodology/awards`; this page names only the registered season set.
- *   4. `npx vitest run packages/core/districts/pointFormulas.reconciliation.test.ts`
+ *   5. `npx vitest run packages/core/districts/pointFormulas.reconciliation.test.ts`
  *      (10-01) — the qualification, alliance selection and playoff point
  *      formulas reconciled against real values The Blue Alliance reports.
- *   5. `npx vitest run packages/core/districts/selectionModel.reconciliation.test.ts`
+ *   6. `npx vitest run packages/core/districts/selectionModel.reconciliation.test.ts`
  *      (10-04) — the progressive captain rule and the serpentine draft order
  *      reconciled against every 2023 and later eight alliance district event.
  *
- * A figure that appears in none of those five is not written here.
+ * A figure that appears in none of those six is not written here.
  *
  * NO SUBSECTION LEVEL, deliberately. `awardsContent.ts` needed one because its
  * results split four ways; each of this page's six sections is one idea, so a
@@ -189,6 +195,7 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
     heading: "Award base rates",
     paragraphs: [
       "The award cell is priced from a table of how often teams in the same position have earned district award points. The table for each season is built only from the seasons before it.",
+      "Impact and Rookie All Star are priced separately, by where a team sits in its event's field rather than by that table. The most decorated team at a district event wins Impact 18.0% of the time and the lowest numbered rookie wins Rookie All Star 38.1% of the time, so the rest of the judged awards are drawn from a table with those two taken out.",
       "The full table, its sample sizes and the cells that cannot be scored are on the Predicting awards page.",
       "No award prediction moves a team's status. A Locked verdict stays a guarantee.",
       "One qualification slot is held back for every district event whose Impact award is still to come. The Impact winner at a district event takes a slot, so a team is never told it is Locked on a slot an award is about to claim. A slot held back this way returns to the points race as soon as that award is posted.",

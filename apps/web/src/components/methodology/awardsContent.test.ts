@@ -94,6 +94,19 @@ const REQUIRED_FIGURES = [
   "26.1%", // 1 - pmf[0], one-or-two|veteran
   "10,060", // n, three-or-more|veteran
   "61.6%", // 1 - pmf[0], three-or-more|veteran
+
+  // --- The Impact and Rookie All Star ordering tables ----------------------
+  // `pnpm measure:award-ordering-tables`
+  // (`npx tsx scripts/measureAwardOrderingTables.ts`, run 2026-09-25). Every
+  // figure below is printed by that script's own PRACTICAL ANSWER block for
+  // season 2026, and cross checked against the committed literals in
+  // `packages/core/districts/awardOrderingTables.ts`.
+  "18.0%", // Impact, position 1 (17.99% at full precision, 136 of 756)
+  "13.1%", // Impact, position 2
+  "0.6%", // Impact, the pooled tail from position 11 down
+  "38.1%", // Rookie All Star, rookie position 1
+  "28.6%", // Rookie All Star, rookie position 2
+  "756 district events", // the 2026 table's own event count
 ];
 
 function tableStrings(where: string, table: AwardsTable | undefined): { where: string; text: string }[] {

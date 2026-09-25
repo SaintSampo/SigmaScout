@@ -35,6 +35,15 @@
  * are cross checked against the committed table literals in
  * `packages/core/districts/awardBaseRates.ts`.
  *
+ * The Impact and Rookie All Star ORDERING figures in that same section come
+ * from `pnpm measure:award-ordering-tables`
+ * (`npx tsx scripts/measureAwardOrderingTables.ts`, run 2026-09-25), whose
+ * PRACTICAL ANSWER block prints each one, and are cross checked against the
+ * committed literals in `packages/core/districts/awardOrderingTables.ts`. That
+ * script also prints a REFERENCE ONLY ordering that scores higher (26.06% at
+ * position 1 against 17.99%); it is deliberately NOT stated on this page,
+ * because the site does not use it.
+ *
  * RETIRED BY PHASE 10, DO NOT RESTORE. `AWARDS_LEAD`'s second sentence used to
  * tell a reader that the site showed no award prediction anywhere yet. The
  * Road to District Champs ledger prints a chance of award points and a typical
@@ -48,7 +57,7 @@
 export const AWARDS_PAGE_TITLE = "Predicting awards";
 
 export const AWARDS_LEAD =
-  "SigmaScout tested whether FRC awards can be predicted. The Road to District Champs ledger prices a team's award points at a district event from the base rates at the foot of this page, and no other page on the site shows an award prediction.";
+  "SigmaScout tested whether FRC awards can be predicted. The Road to District Champs ledger prices a team's award points at a district event from the tables at the foot of this page, and no other page on the site shows an award prediction.";
 
 export const AWARDS_SECTION_IDS = ["the-goal", "the-model", "our-results", "district-award-base-rates"] as const;
 export type AwardsSectionId = (typeof AWARDS_SECTION_IDS)[number];
@@ -183,6 +192,8 @@ export const AWARDS_SECTIONS: readonly AwardsSection[] = [
       "The Road to District Champs ledger prices each team's award cell from a table of how often teams in the same position earned district award points. The table for a season is built only from the seasons before it.",
       "Seven seasons carry a table: 2019, 2020, 2022, 2023, 2024, 2025 and 2026. The three earliest district seasons carry none, because fewer than three earlier district seasons exist for them.",
       "Rookie status splits the table only where a team has never won a judged award. A rookie has no earlier season, so the two decorated buckets have no rookie cell to measure, and TBA reports a rookie year for every team here, so the three unknown rows are empty as well.",
+      "Impact and Rookie All Star are priced by a team's place in its event's field instead of by its bucket average. The most decorated team at a district event wins Impact 18.0% of the time, the second most decorated 13.1%, and everything from eleventh place down 0.6%. The lowest numbered rookie in the field wins Rookie All Star 38.1% of the time and the second lowest 28.6%.",
+      "Those two chances are layered on a table of the remaining judged awards, measured with the Impact and Rookie All Star points taken out, so neither award is counted twice. The 2026 ordering rests on 756 district events from the seasons before it. A team whose award record the site does not carry is priced from the base rates alone.",
       "No award prediction moves a team's status on the ledger. A Locked verdict stays a guarantee.",
     ],
     table: {
