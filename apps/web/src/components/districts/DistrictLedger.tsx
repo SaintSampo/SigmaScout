@@ -61,8 +61,12 @@ import {
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_STAT_LINE_LABELS,
+  DISTRICT_LEDGER_TICK_NOW,
+  DISTRICT_LEDGER_TICK_START,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
   districtLedgerNoPointsCaption,
+  districtLedgerShortEventName,
+  districtLedgerTickWeekLabel,
 } from "./districtLedgerCopy.js";
 import {
   DISTRICT_LEDGER_STATUS_KEYS,
@@ -72,6 +76,7 @@ import {
 } from "./districtLedgerStatus.js";
 import {
   DISTRICT_TIMELINE_NOW_ID,
+  DISTRICT_TIMELINE_SEASON_START_ID,
   buildDistrictTimeline,
   districtStageAtPosition,
   resolveDistrictTimelinePosition,
@@ -96,27 +101,39 @@ import {
 import { useDistrictEventArtifacts, useDistrictLedgerData } from "./useDistrictLedgerData.js";
 
 /**
- * The open cell's own class lists, declared once here rather than as new CSS
- * classes, so this plan adds NO palette entry and NO stylesheet block.
+ * THE BOXED CELL (sketch 021 variant A, restyled 2026-09-25 by 260925-hr9).
  *
- * The blue is the SHIPPED `--lock-status-locked-award-*` pair. Reusing it here
- * is safe and deliberate: on THIS tab an award-locked team is rendered with the
- * locked GREEN pair (CONTEXT names the variant "Locked · award", a note on one
- * status rather than a second status), so the blue pair carries no status
- * meaning on this tab at all and is free to mean "still open, click for the
- * histogram" — the sketch's own blue.
+ * Both fills live in `theme.css` under `.district-ledger-cell*`, which adds NO
+ * palette entry: the grey is `--color-bg-inset` under `--color-text-muted`, and
+ * the blue is the SHIPPED SKY rare pair. Sky rather than the
+ * `--lock-status-locked-award-*` blue this cell wore before: the sketch's blue
+ * is sky, and the tier palette's own note makes sky load-bearing against the
+ * epic purple under deuteranopia. On THIS tab the rare pair carries no tier
+ * meaning (an award-locked team wears the locked GREEN pair), so it is free to
+ * mean "still open, click for the histogram".
  *
  * Written as PLAIN STRINGS, never passed through `cn()`: tailwind-merge drops a
  * `text-role-*` class sitting beside a `text-[var(...)]` one, and only a
  * screenshot catches it (project memory `project_cn_drops_text_role_classes`).
  */
+const FINAL_CELL_CLASS = "district-ledger-cell district-ledger-cell--final";
 const OPEN_CELL_CLASS =
-  "flex w-full flex-col items-end rounded-sm px-[var(--spacing-xs)] py-[var(--spacing-xs)] text-[var(--lock-status-locked-award-fg)] hover:bg-[var(--lock-status-locked-award-bg)] focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]";
-const OPEN_CELL_BOLD_CLASS = "font-semibold whitespace-nowrap";
-const OPEN_CELL_SMALL_CLASS = "text-[11px] whitespace-nowrap text-[var(--lock-status-locked-award-fg)]";
+  "district-ledger-cell district-ledger-cell--open focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]";
+const OPEN_CELL_BOLD_CLASS = "district-ledger-cell__figure whitespace-nowrap";
+const OPEN_CELL_SMALL_CLASS = "district-ledger-cell__small";
+const UNAVAILABLE_CELL_CLASS = "district-ledger-cell--unavailable";
 
 /** The sticky first column — the shipped table wrapper scrolls horizontally inside its card, so the Team cell holds position. */
-const TEAM_CELL_CLASS = "sticky left-0 z-10 bg-[var(--color-bg-surface)] align-top";
+const TEAM_CELL_CLASS = "sticky left-0 z-10 bg-[var(--color-bg-surface)] align-middle";
+
+/** The first three columns are words; every column after them is a number, and a number column is centred under a centred header. */
+const FIRST_NUMERIC_COLUMN_INDEX = 3;
+
+/** The rewind rail's own id, so its label can sit beside the position readout instead of wrapping the control. */
+const REWIND_INPUT_ID = "district-ledger-rewind-input";
+
+/** How far apart two tick labels must sit before both print. Measured at 390px, where the rail is about 340px and a "wk 0" label about 28px. */
+const TICK_MIN_GAP_PERCENT = 10;
 
 export interface DistrictLedgerProps {
   artifact: DistrictArtifact;
@@ -148,13 +165,13 @@ function statusChipClass(status: DistrictLedgerStatusKey): string {
 function StatusCell({ status, rowSpan }: { status: DistrictLedgerStatusResult | undefined; rowSpan: number }) {
   if (status === undefined || status.status === "capacityUnknown") {
     return (
-      <TableCell rowSpan={rowSpan} data-testid="district-ledger-status-cell" className="whitespace-nowrap align-top text-[var(--color-text-muted)]">
+      <TableCell rowSpan={rowSpan} data-testid="district-ledger-status-cell" className="whitespace-nowrap align-middle text-[var(--color-text-muted)]">
         {DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED}
       </TableCell>
     );
   }
   return (
-    <TableCell rowSpan={rowSpan} data-testid="district-ledger-status-cell" data-status={status.status} className="whitespace-nowrap align-top">
+    <TableCell rowSpan={rowSpan} data-testid="district-ledger-status-cell" data-status={status.status} className="whitespace-nowrap align-middle">
       <span className={statusChipClass(status.status)}>
         {status.byAward ? DISTRICT_LEDGER_LOCKED_AWARD_LABEL : DISTRICT_LEDGER_STATUS_LABELS[status.status]}
       </span>
@@ -180,7 +197,9 @@ function StatusChips({
 }) {
   return (
     <div className="flex flex-col gap-[var(--spacing-sm)]" data-testid="district-ledger-status-chips">
-      <div className="flex flex-wrap gap-[var(--spacing-sm)]">
+      {/* The five chips and the cell key share ONE wrapping row, the sketch's
+          own legend line. */}
+      <div className="flex flex-wrap items-center gap-x-[var(--spacing-md)] gap-y-[var(--spacing-xs)]">
         {DISTRICT_LEDGER_STATUS_KEYS.map((status) => (
           <button
             key={status}
@@ -190,22 +209,47 @@ function StatusChips({
             aria-pressed={active.has(status)}
             aria-describedby={`district-ledger-status-definition-${status}`}
             onClick={() => onToggle(status)}
-            className="tap-target"
+            className="district-ledger-chip-button"
           >
             <span className={statusChipClass(status)}>
               {DISTRICT_LEDGER_STATUS_LABELS[status]} {counts[status]}
             </span>
           </button>
         ))}
+        <CellKey />
       </div>
-      <div className="flex flex-col gap-[var(--spacing-xs)]" data-testid="district-ledger-status-definitions">
+      <div
+        className="district-ledger-defs flex flex-wrap gap-x-[var(--spacing-md)] gap-y-[var(--spacing-xs)]"
+        data-testid="district-ledger-status-definitions"
+      >
         {DISTRICT_LEDGER_STATUS_KEYS.map((status) => (
-          <span key={status} id={`district-ledger-status-definition-${status}`} className="text-[var(--color-text-muted)]">
-            {DISTRICT_LEDGER_STATUS_LABELS[status]}: {DISTRICT_LEDGER_STATUS_DEFINITIONS[status]}
+          <span key={status} id={`district-ledger-status-definition-${status}`}>
+            <b>{DISTRICT_LEDGER_STATUS_LABELS[status]}</b> {DISTRICT_LEDGER_STATUS_DEFINITIONS[status]}
           </span>
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * The cell key: the two fills as swatches beside their words, plus the
+ * likely/tilde explainer. The swatches are drawn from the same two classes the
+ * cells wear, so the key cannot drift away from the table.
+ */
+function CellKey() {
+  return (
+    <span className="district-ledger-defs flex flex-wrap items-center gap-x-[var(--spacing-md)] gap-y-[var(--spacing-xs)]" data-testid="district-ledger-legend">
+      <span className="whitespace-nowrap">
+        <span className="district-ledger-swatch district-ledger-swatch--final" aria-hidden="true" />
+        {DISTRICT_LEDGER_LEGEND_EARNED}
+      </span>
+      <span className="whitespace-nowrap">
+        <span className="district-ledger-swatch district-ledger-swatch--open" aria-hidden="true" />
+        {DISTRICT_LEDGER_LEGEND_OPEN}
+      </span>
+      <span>{DISTRICT_LEDGER_LEGEND_EXPLAINER}</span>
+    </span>
   );
 }
 
@@ -253,18 +297,19 @@ interface CellInteraction {
   readonly onToggle: (cellId: string) => void;
 }
 
-function LedgerCell({ cell, interaction }: { cell: DistrictLedgerCell; interaction: CellInteraction }) {
+function LedgerCell({ cell, interaction, variant }: { cell: DistrictLedgerCell; interaction: CellInteraction; variant?: "total" }) {
+  const box = variant === "total" ? ` district-ledger-cell--${variant}` : "";
   if (cell.kind === "final") {
     return (
-      <TableCell data-cell="final" data-cell-id={cell.id} className="numeric-cell text-[var(--color-text-muted)]">
-        {String(Math.round(cell.earned))}
+      <TableCell data-cell="final" data-cell-id={cell.id} className="numeric-cell">
+        <div className={`${FINAL_CELL_CLASS}${box}`}>{String(Math.round(cell.earned))}</div>
       </TableCell>
     );
   }
   if (cell.kind === "unavailable") {
     return (
-      <TableCell data-cell="unavailable" data-cell-id={cell.id} className="numeric-cell text-[var(--color-text-muted)]">
-        {DISTRICT_LEDGER_UNAVAILABLE_CELL}
+      <TableCell data-cell="unavailable" data-cell-id={cell.id} className="numeric-cell">
+        <span className={UNAVAILABLE_CELL_CLASS}>{DISTRICT_LEDGER_UNAVAILABLE_CELL}</span>
       </TableCell>
     );
   }
@@ -276,7 +321,7 @@ function LedgerCell({ cell, interaction }: { cell: DistrictLedgerCell; interacti
         type="button"
         aria-expanded={interaction.openCellId === cell.id}
         onClick={() => interaction.onToggle(cell.id)}
-        className={OPEN_CELL_CLASS}
+        className={`${OPEN_CELL_CLASS}${box}`}
       >
         <span className={OPEN_CELL_BOLD_CLASS}>{lines.bold}</span>
         {lines.small !== undefined && <span className={OPEN_CELL_SMALL_CLASS}>{lines.small}</span>}
@@ -287,12 +332,10 @@ function LedgerCell({ cell, interaction }: { cell: DistrictLedgerCell; interacti
 
 function EventCell({ row }: { row: DistrictLedgerEventRow }) {
   return (
-    <TableCell data-testid="district-ledger-event-cell" className="whitespace-nowrap">
-      <span>{row.eventName}</span>{" "}
-      <span className="text-[var(--color-text-muted)]">
-        {row.week === null ? "" : `Wk ${String(row.week)} · `}
-        {stageWord(row.stage)}
-      </span>
+    <TableCell data-testid="district-ledger-event-cell" className="whitespace-nowrap align-middle">
+      <span className="district-ledger-event-name">{districtLedgerShortEventName(row.eventName)}</span>
+      {row.week !== null && <span className="district-ledger-event-week"> Wk {String(row.week)}</span>}
+      <span className="district-ledger-event-stage">{stageWord(row.stage)}</span>
     </TableCell>
   );
 }
@@ -304,17 +347,16 @@ function TeamCell({ team, season, algorithm }: { team: DistrictLedgerTeam; seaso
           a sticky box wider than its scrollport is aligned by its far edge
           instead of holding at left 0 (measured live at 390px, 2026-09-25: a
           360px cell in a 340px wrapper slid 21px). The nickname truncates. */}
-      <div className="flex min-w-0 max-w-[min(56vw,260px)] flex-col">
-        <span className="whitespace-nowrap">
-          <span className="text-[var(--color-text-muted)]">{team.position}. </span>
+      <div className="flex min-w-0 max-w-[min(56vw,176px)] flex-col">
+        <span className="district-ledger-team-number whitespace-nowrap">
           <Link to="/team/$teamNumber" params={{ teamNumber: String(team.teamNumber) }} search={{ year: season, algorithm, tab: "overview" }}>
             {team.teamNumber}
           </Link>
         </span>
-        <span className="truncate text-[var(--color-text-muted)]">{team.nickname}</span>
-        <span className="whitespace-nowrap text-[var(--color-text-muted)]">
-          {String(Math.round(team.earnedDistrictTotal))} earned
-          {team.hasOpenCategory ? ` · ${String(Math.round(team.projection))} projected` : ""}
+        <span className="district-ledger-team-name truncate">{team.nickname}</span>
+        <span className="district-ledger-team-meta whitespace-nowrap">
+          #{String(team.position)} · {String(Math.round(team.earnedDistrictTotal))} earned
+          {team.hasOpenCategory ? ` · median ${String(Math.round(team.projection))}` : ""}
         </span>
       </div>
     </TableCell>
@@ -358,7 +400,7 @@ function DrawerRow({
   const noPointsChance = Math.round(((cell.distribution.counts[0] ?? 0) / cell.distribution.denominator) * 100);
   const animated = prefersReducedMotion() ? "" : " district-ledger-drawer--animated";
   return (
-    <TableRow data-testid="district-ledger-drawer" data-drawer-cell={cell.id}>
+    <TableRow data-testid="district-ledger-drawer" data-drawer-cell={cell.id} className="district-ledger-row--drawer">
       <TableCell colSpan={columnCount}>
         <div className={`flex flex-wrap gap-[var(--spacing-lg)]${animated}`}>
           <div className="flex flex-col gap-[var(--spacing-xs)]">
@@ -426,22 +468,42 @@ function RewindSlider({
   onPositionChange: (index: number) => void;
 }) {
   const position = timeline.positions[positionIndex] ?? timeline.positions[timeline.nowIndex]!;
+  const ticks = timelineTicks(timeline);
   return (
     <div className="flex flex-col gap-[var(--spacing-sm)]" data-testid="district-ledger-rewind">
-      <label className="flex flex-col gap-[var(--spacing-xs)]">
-        <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_REWIND_LABEL}</span>
+      {/* The label, the readout and the rail are ONE block; the jump chips sit
+          beside it on a wide screen and wrap under it on a phone. */}
+      <div className="flex flex-col gap-[var(--spacing-xs)]">
+        {/* The label is `htmlFor` rather than a wrapper, so the readout can sit
+            beside it on the same line without joining the control's own
+            accessible name. */}
+        <span className="flex flex-wrap items-baseline gap-[var(--spacing-sm)]">
+          <label htmlFor={REWIND_INPUT_ID} className="th-cell-label">
+            {DISTRICT_LEDGER_REWIND_LABEL}
+          </label>
+          <span data-testid="district-ledger-rewind-readout" className="font-semibold">
+            {position.label}
+          </span>
+        </span>
         <input
+          id={REWIND_INPUT_ID}
           type="range"
           min={0}
           max={timeline.nowIndex}
           step={1}
           value={positionIndex}
           onChange={(event) => onPositionChange(Number(event.target.value))}
-          className="w-full max-w-[420px]"
+          className="district-ledger-slider w-full"
         />
-      </label>
-      <span data-testid="district-ledger-rewind-readout">{position.label}</span>
-      <div className="flex flex-wrap gap-[var(--spacing-sm)]" data-testid="district-ledger-jump-chips">
+      </div>
+      <div className="district-ledger-ticks" data-testid="district-ledger-ticks" aria-hidden="true">
+        {ticks.map((tick) => (
+          <span key={tick.id} style={{ left: `${tick.percent.toFixed(1)}%` }}>
+            {tick.label}
+          </span>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-[var(--spacing-xs)]" data-testid="district-ledger-jump-chips">
         {timeline.chips.map((chip) => (
           <button
             key={chip.id}
@@ -450,15 +512,51 @@ function RewindSlider({
             data-chip={chip.id}
             aria-pressed={chip.positionIndex === positionIndex}
             onClick={() => onPositionChange(chip.positionIndex)}
-            className="tap-target rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-sm)] py-[var(--spacing-xs)]"
+            className="district-ledger-pill"
           >
             {chip.label}
           </button>
         ))}
       </div>
-      <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_REWIND_HINT}</span>
+      <span className="district-ledger-note">{DISTRICT_LEDGER_REWIND_HINT}</span>
     </div>
   );
+}
+
+/**
+ * The rail's tick labels, DERIVED from the same jump chips rather than from a
+ * hardcoded week list: the first chip prints "start", each per-week chip prints
+ * its own short "wk N", and the last prints "now". A district with one week
+ * therefore gets two ticks, not five.
+ */
+function timelineTicks(timeline: DistrictTimeline): { id: string; label: string; percent: number }[] {
+  const span = Math.max(timeline.nowIndex, 1);
+  const all = timeline.chips.map((chip) => {
+    const week = /^week-(\d+)$/.exec(chip.id);
+    const label =
+      chip.id === DISTRICT_TIMELINE_SEASON_START_ID
+        ? DISTRICT_LEDGER_TICK_START
+        : chip.id === DISTRICT_TIMELINE_NOW_ID
+          ? DISTRICT_LEDGER_TICK_NOW
+          : week === null
+            ? chip.label
+            : districtLedgerTickWeekLabel(Number(week[1]));
+    return { id: chip.id, label, percent: Math.min(100, (chip.positionIndex / span) * 100) };
+  });
+  if (all.length <= 2) return all;
+  // "start" and "now" are the rail's own ends and always print; a week tick
+  // that would land on top of a neighbour is DROPPED rather than drawn over
+  // it. A district whose last week ends AT "now" is the common case, and two
+  // labels stacked on the same pixel read as one corrupted word.
+  const [first, ...rest] = all;
+  const last = rest.pop()!;
+  const kept = [first!];
+  for (const tick of rest) {
+    if (tick.percent - kept[kept.length - 1]!.percent < TICK_MIN_GAP_PERCENT) continue;
+    if (last.percent - tick.percent < TICK_MIN_GAP_PERCENT) continue;
+    kept.push(tick);
+  }
+  return [...kept, last];
 }
 
 /**
@@ -478,39 +576,36 @@ function ControlsCard({
   children?: ReactNode;
 }) {
   return (
-    <div className="data-card flex flex-col gap-[var(--spacing-md)] p-[var(--spacing-md)]" data-testid="district-ledger-controls">
+    <div className="data-card flex flex-col gap-[var(--spacing-sm)] p-[var(--spacing-md)]" data-testid="district-ledger-controls">
       {children}
-      <div className="flex flex-wrap items-end gap-[var(--spacing-lg)]">
-        <label className="flex flex-col gap-[var(--spacing-xs)]">
-          <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_SEARCH_LABEL}</span>
+      {/* The search box and the stat line share ONE row, the sketch's last
+          control line. */}
+      <div className="flex flex-wrap items-center gap-x-[var(--spacing-lg)] gap-y-[var(--spacing-sm)]">
+        <label className="flex items-center gap-[var(--spacing-sm)]">
+          <span className="th-cell-label">{DISTRICT_LEDGER_SEARCH_LABEL}</span>
           <input
             type="text"
             inputMode="numeric"
             value={query}
             placeholder={DISTRICT_LEDGER_SEARCH_PLACEHOLDER}
             onChange={(event) => onQueryChange(event.target.value)}
-            className="tap-target rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-sm)] py-[var(--spacing-xs)]"
+            className="min-h-[32px] w-[150px] rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-sm)] py-[var(--spacing-xs)]"
           />
         </label>
-        <div data-testid="district-ledger-stat-line" className="flex flex-wrap gap-[var(--spacing-lg)]">
-          <div>
-            <span className="block text-[var(--color-text-muted)]">
-              {statLine.todaysLineFloor === null ? DISTRICT_LEDGER_STAT_LINE_LABELS.todaysLineUnknown : DISTRICT_LEDGER_STAT_LINE_LABELS.todaysLine}
-            </span>
-            <span className="font-semibold">{statLine.todaysLineFloor === null ? "—" : String(Math.round(statLine.todaysLineFloor))}</span>
-          </div>
-          <div>
-            <span className="block text-[var(--color-text-muted)]">{DISTRICT_LEDGER_STAT_LINE_LABELS.openCells}</span>
-            <span className="font-semibold">
+        <div data-testid="district-ledger-stat-line" className="district-ledger-note flex flex-wrap gap-x-[var(--spacing-lg)] gap-y-[var(--spacing-xs)]">
+          <span>
+            {statLine.todaysLineFloor === null ? DISTRICT_LEDGER_STAT_LINE_LABELS.todaysLineUnknown : DISTRICT_LEDGER_STAT_LINE_LABELS.todaysLine}{" "}
+            <b className="font-semibold text-[var(--color-text-primary)]">
+              {statLine.todaysLineFloor === null ? "—" : String(Math.round(statLine.todaysLineFloor))}
+            </b>
+          </span>
+          <span>
+            {DISTRICT_LEDGER_STAT_LINE_LABELS.openCells}{" "}
+            <b className="font-semibold text-[var(--color-text-primary)]">
               {String(statLine.openCells)} of {String(statLine.totalCells)}
-            </span>
-          </div>
+            </b>
+          </span>
         </div>
-      </div>
-      <div className="flex flex-wrap gap-[var(--spacing-md)]" data-testid="district-ledger-legend">
-        <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_LEGEND_EARNED}</span>
-        <span className="text-[var(--lock-status-locked-award-fg)]">{DISTRICT_LEDGER_LEGEND_OPEN}</span>
-        <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_LEGEND_EXPLAINER}</span>
       </div>
     </div>
   );
@@ -699,11 +794,13 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
       {/* The shipped table wrapper, verbatim, so the scroll arbitration this
           site already has an e2e suite around is inherited rather than rebuilt. */}
       <div className="data-card w-full min-w-0 touch-pan-xy overflow-x-auto overscroll-x-contain">
-        <Table>
+        <Table className="district-ledger-table">
           <TableHeader>
             <TableRow>
-              {DISTRICT_LEDGER_COLUMN_LABELS.map((label) => (
-                <TableHead key={label}>{label}</TableHead>
+              {DISTRICT_LEDGER_COLUMN_LABELS.map((label, index) => (
+                <TableHead key={label} className={index >= FIRST_NUMERIC_COLUMN_INDEX ? "text-center" : undefined}>
+                  {label}
+                </TableHead>
               ))}
             </TableRow>
           </TableHeader>
@@ -716,7 +813,12 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
               const dataRows =
                 team.rows.length === 0
                   ? [
-                      <TableRow key={team.teamKey} data-testid="district-ledger-row" data-team={team.teamKey}>
+                      <TableRow
+                        key={team.teamKey}
+                        data-testid="district-ledger-row"
+                        data-team={team.teamKey}
+                        className="district-ledger-row--team-start"
+                      >
                         <TeamCell team={team} season={season} algorithm={algorithm} />
                         <StatusCell status={statuses.byTeam.get(team.teamKey)} rowSpan={1} />
                         <TableCell colSpan={DISTRICT_LEDGER_COLUMN_LABELS.length - 3} className="text-[var(--color-text-muted)]">
@@ -726,16 +828,21 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
                       </TableRow>,
                     ]
                   : team.rows.map((row, rowIndex) => (
-                      <TableRow key={`${team.teamKey}-${row.eventKey}`} data-testid="district-ledger-row" data-team={team.teamKey}>
+                      <TableRow
+                        key={`${team.teamKey}-${row.eventKey}`}
+                        data-testid="district-ledger-row"
+                        data-team={team.teamKey}
+                        className={rowIndex === 0 ? "district-ledger-row--team-start" : "district-ledger-row--team-inner"}
+                      >
                         {rowIndex === 0 && <TeamCell team={team} season={season} algorithm={algorithm} />}
                         {rowIndex === 0 && <StatusCell status={statuses.byTeam.get(team.teamKey)} rowSpan={Math.max(team.rowCount, 1)} />}
                         <EventCell row={row} />
                         {row.cells.map((cell) => (
                           <LedgerCell key={cell.id} cell={cell} interaction={interaction} />
                         ))}
-                        <LedgerCell cell={row.eventTotal} interaction={interaction} />
+                        <LedgerCell cell={row.eventTotal} interaction={interaction} variant="total" />
                         {rowIndex === 0 && (
-                          <TableCell rowSpan={Math.max(team.rowCount, 1)} data-testid="district-ledger-grand-total" className="numeric-cell align-top">
+                          <TableCell rowSpan={Math.max(team.rowCount, 1)} data-testid="district-ledger-grand-total" className="numeric-cell align-middle">
                             <GrandTotalContent cell={team.grandTotal} interaction={interaction} />
                           </TableCell>
                         )}
@@ -764,14 +871,14 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
 function GrandTotalContent({ cell, interaction }: { cell: DistrictLedgerCell; interaction: CellInteraction }) {
   if (cell.kind === "final") {
     return (
-      <span data-cell="final" data-cell-id={cell.id} className="text-[var(--color-text-muted)]">
+      <span data-cell="final" data-cell-id={cell.id} className={`${FINAL_CELL_CLASS} district-ledger-cell--grand`}>
         {String(Math.round(cell.earned))}
       </span>
     );
   }
   if (cell.kind === "unavailable") {
     return (
-      <span data-cell="unavailable" data-cell-id={cell.id} className="text-[var(--color-text-muted)]">
+      <span data-cell="unavailable" data-cell-id={cell.id} className={UNAVAILABLE_CELL_CLASS}>
         {DISTRICT_LEDGER_UNAVAILABLE_CELL}
       </span>
     );
@@ -784,7 +891,7 @@ function GrandTotalContent({ cell, interaction }: { cell: DistrictLedgerCell; in
       data-cell-id={cell.id}
       aria-expanded={interaction.openCellId === cell.id}
       onClick={() => interaction.onToggle(cell.id)}
-      className={OPEN_CELL_CLASS}
+      className={`${OPEN_CELL_CLASS} district-ledger-cell--grand`}
     >
       <span className={OPEN_CELL_BOLD_CLASS}>{lines.bold}</span>
       {lines.small !== undefined && <span className={OPEN_CELL_SMALL_CLASS}>{lines.small}</span>}

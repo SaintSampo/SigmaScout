@@ -32,6 +32,27 @@ export const DISTRICT_LEDGER_COLUMN_LABELS = [
   "Grand total",
 ] as const;
 
+/**
+ * TBA's own district event naming template: a district code, the word
+ * "District", an optional dash, the event's own name, then the word "Event"
+ * and an optional "#N" for a district that runs two events under one name.
+ *
+ * The Event cell prints the SHORT form so the ledger's nine columns fit at
+ * 1280px, and it only ever shortens a name that matches this template WHOLE:
+ * a name that does not carry the prefix and the "Event" suffix is printed
+ * verbatim, never guessed at. "PNW District Oregon State Fair Event" becomes
+ * "Oregon State Fair"; "FIM District - Kettering University Event #1" becomes
+ * "Kettering University #1"; "ISR District Event #1" and any non-district
+ * name are left exactly as TBA published them.
+ */
+const DISTRICT_EVENT_NAME_TEMPLATE = /^[A-Za-z]{2,6} District (?:- )?(.+) Event( #\d+)?$/;
+
+export function districtLedgerShortEventName(eventName: string): string {
+  const match = DISTRICT_EVENT_NAME_TEMPLATE.exec(eventName);
+  if (match === null) return eventName;
+  return `${match[1]!}${match[2] ?? ""}`;
+}
+
 /** The per-event stage word the Event cell prints beside the name and week. */
 export const DISTRICT_LEDGER_STAGE_WORDS = {
   unstarted: "not started",
@@ -64,6 +85,17 @@ export const DISTRICT_LEDGER_LEGEND_EXPLAINER = "likely = 8 of 10 runs land here
 
 /** The Rewind slider's label, from CONTEXT's "The slider" section. */
 export const DISTRICT_LEDGER_REWIND_LABEL = "Rewind to";
+
+/**
+ * The tick labels printed under the slider rail: the short form of the jump
+ * chips that sit above it, so the axis reads without repeating the chips' own
+ * words. Derived from the SAME chips, never a hardcoded week list.
+ */
+export const DISTRICT_LEDGER_TICK_START = "start";
+export const DISTRICT_LEDGER_TICK_NOW = "now";
+export function districtLedgerTickWeekLabel(week: number): string {
+  return `wk ${String(week)}`;
+}
 
 /** The hint under the slider, in flat third person. */
 export const DISTRICT_LEDGER_REWIND_HINT = "Rewinding reopens the categories a district event had already decided, and every status recomputes at the new position.";

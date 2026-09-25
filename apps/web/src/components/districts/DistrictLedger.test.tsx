@@ -504,10 +504,14 @@ describe("DistrictLedger — the full table", () => {
 
     const teamCell = await screen.findByTestId("district-ledger-team-cell");
     expect(within(teamCell).getByRole("link", { name: "100" }).getAttribute("href")).toContain("/team/100");
-    expect(teamCell.textContent ?? "").toContain("1. ");
+    // 260925-hr9 moved the position and the projection onto the sketch's own
+    // third line, "#1 · 24 earned · median 30": the position leads with a hash
+    // rather than trailing a full stop, and the projection is named by what it
+    // is, the median of the predicted grand total.
+    expect(teamCell.textContent ?? "").toContain("#1 · ");
     expect(teamCell.textContent ?? "").toContain("Nickname 100");
     expect(teamCell.textContent ?? "").toContain("24 earned");
-    await waitFor(() => expect(screen.getByTestId("district-ledger-team-cell").textContent ?? "").toMatch(/projected/));
+    await waitFor(() => expect(screen.getByTestId("district-ledger-team-cell").textContent ?? "").toMatch(/median \d+/));
   });
 
   it("renders the two legend keys and the explainer verbatim from the copy module", async () => {
@@ -741,6 +745,17 @@ describe("DistrictLedger — the Rewind slider", () => {
     const chips = screen.getAllByTestId("district-ledger-jump-chip").map((chip) => chip.getAttribute("data-chip"));
     expect(chips[0]).toBe("season-start");
     expect(chips[chips.length - 1]).toBe("now");
+
+    // 260925-hr9: the rail carries the chips' own short form as tick labels,
+    // DERIVED from the same chips rather than from a hardcoded week list, so a
+    // district with fewer weeks gets fewer ticks.
+    const ticks = [...screen.getByTestId("district-ledger-ticks").children].map((tick) => tick.textContent);
+    expect(ticks[0]).toBe("start");
+    expect(ticks[ticks.length - 1]).toBe("now");
+    // Never MORE than one tick per chip; a week tick that would land on top of
+    // a neighbour is dropped rather than drawn over it.
+    expect(ticks.length).toBeLessThanOrEqual(chips.length);
+    for (const tick of ticks.slice(1, -1)) expect(tick ?? "").toMatch(/^wk \d+$/);
   });
 
   it("SC-4: a position before an event's last qualification match turns its selection, playoff and award cells BLUE", async () => {

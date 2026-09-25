@@ -945,6 +945,240 @@ body {
   }
 }
 
+/*
+ * ---------------------------------------------------------------------------
+ * The Road to District Champs LEDGER (sketch 021 variant A).
+ * ---------------------------------------------------------------------------
+ *
+ * THIS BLOCK ADDS NO PALETTE ENTRY and writes no literal colour. Every value
+ * below is a shipped token or a `color-mix` derived from one, the same way
+ * `--sim-hist-bar` and `--sim-picker-selected-bg` are derived:
+ *
+ * - a FINAL cell is `--color-bg-inset` under `--color-text-muted`;
+ * - an OPEN cell is the SHIPPED SKY rare pair (`--tier-rare-bg` /
+ *   `--tier-rare-fg`) with an inset ring mixed from `--tier-rare-mark`. Sky is
+ *   load-bearing (see the tier palette's own note: a classic blue collapses
+ *   onto the epic purple under deuteranopia), and on THIS tab the rare pair
+ *   carries no tier meaning, so it is free to mean "still open, click for the
+ *   histogram" — the sketch's own blue;
+ * - `--district-ledger-faint` is `--color-text-muted` mixed toward the page, a
+ *   measured 4.83:1 on white, so the sketch's faint ink stays above the AA 4.5
+ *   floor rather than landing at the sketch's own sub-AA #7d8da3.
+ *
+ * The grey/blue split is never hue alone: a grey cell holds ONE integer and is
+ * inert, a blue cell holds TWO lines and is a real `<button>`.
+ */
+:root {
+  --district-ledger-faint: color-mix(in srgb, var(--color-text-muted) 82%, transparent);
+}
+
+/* The boxed cell. Grey and blue share the box so the two differ in fill and in
+ * content, never in shape. */
+.district-ledger-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 100%;
+  min-height: 32px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+}
+.district-ledger-cell--final {
+  background-color: var(--color-bg-inset);
+  color: var(--color-text-muted);
+}
+.district-ledger-cell--open {
+  border: 0;
+  cursor: pointer;
+  background-color: var(--tier-rare-bg);
+  color: var(--tier-rare-fg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tier-rare-mark) 40%, transparent);
+}
+.district-ledger-cell--open:hover {
+  background-color: color-mix(in srgb, var(--tier-rare-mark) 12%, var(--tier-rare-bg));
+}
+/* The open drawer's own cell keeps a stronger ring, so a reader can see which
+ * cell the histogram below belongs to. */
+.district-ledger-cell--open[aria-expanded="true"] {
+  box-shadow: inset 0 0 0 2px var(--tier-rare-mark);
+}
+.district-ledger-cell--total {
+  font-size: 14px;
+}
+/* The grand total spans the team's rows, so it is taller and one step larger. */
+.district-ledger-cell--grand {
+  min-height: 70px;
+  font-size: 15px;
+}
+.district-ledger-cell--grand.district-ledger-cell--open .district-ledger-cell__figure {
+  font-size: 14px;
+}
+.district-ledger-cell__small {
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+/* The honest absence: no fill at all, so it never reads as an earned value. */
+.district-ledger-cell--unavailable {
+  display: block;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+/* Row rhythm: a hairline above each team's first row, a dashed hairline
+ * between that team's own two event rows, and no rule anywhere else. */
+.district-ledger-table tbody tr {
+  border-bottom: 0;
+}
+/* The boxed cell carries its own height, so the row needs half the shared
+ * vertical cell padding to keep the sketch's rhythm. */
+.district-ledger-table tbody td {
+  padding-block: var(--spacing-xs);
+}
+/* Nine columns at 1280px: the boxed cell already carries its own inset, so a
+ * numeric column needs half the shared cell padding to keep the grand total on
+ * screen rather than behind the scroll. */
+.district-ledger-table td.numeric-cell,
+.district-ledger-table th.text-center {
+  padding-inline: 4px;
+}
+.district-ledger-table td.numeric-cell:last-child,
+.district-ledger-table th.text-center:last-child {
+  padding-right: var(--spacing-sm);
+}
+.district-ledger-table tbody tr.district-ledger-row--team-start > td {
+  border-top: 1px solid var(--color-border);
+}
+.district-ledger-table tbody tr.district-ledger-row--team-inner > td,
+.district-ledger-table tbody tr.district-ledger-row--drawer > td {
+  border-top: 1px dashed var(--color-border);
+}
+
+/* The team cell's three lines. */
+.district-ledger-team-number {
+  font-size: 15px;
+  font-weight: 600;
+}
+.district-ledger-team-name,
+.district-ledger-team-meta {
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--color-text-muted);
+}
+
+/* The event cell: the name in muted ink, the week as a faint suffix, the stage
+ * word as a faint second line. */
+.district-ledger-event-name {
+  color: var(--color-text-muted);
+}
+.district-ledger-event-week,
+.district-ledger-event-stage {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--district-ledger-faint);
+}
+.district-ledger-event-stage {
+  display: block;
+}
+
+/* Controls card. The slider's tick rail carries the same absolute-label
+ * geometry the simulation axis uses. */
+.district-ledger-slider {
+  accent-color: var(--color-accent);
+}
+.district-ledger-ticks {
+  position: relative;
+  height: 14px;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--district-ledger-faint);
+}
+.district-ledger-ticks > span {
+  position: absolute;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+.district-ledger-ticks > span:first-child {
+  transform: none;
+}
+.district-ledger-ticks > span:last-child {
+  transform: translateX(-100%);
+}
+
+/* The jump chips and the chip-filter buttons: small pills. `min-height: 32px`
+ * rather than `.tap-target`'s 44px — the sketch's density needs the shorter
+ * pill, and 32px still clears WCAG 2.5.8's 24px AA floor. */
+.district-ledger-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 2px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--color-text-muted);
+  background-color: var(--color-bg-surface);
+  cursor: pointer;
+}
+.district-ledger-pill[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+.district-ledger-chip-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  cursor: pointer;
+}
+/* A filter switched off keeps its word and its colour, dimmed. */
+.district-ledger-chip-button[aria-pressed="false"] {
+  opacity: 0.4;
+}
+
+/* The legend's two swatches, drawn from the same two cell fills so the key and
+ * the cells cannot drift apart. */
+.district-ledger-swatch {
+  display: inline-block;
+  width: 26px;
+  height: 14px;
+  border-radius: 3px;
+  vertical-align: -2px;
+  margin-right: 6px;
+}
+.district-ledger-swatch--final {
+  background-color: var(--color-bg-inset);
+}
+.district-ledger-swatch--open {
+  background-color: var(--tier-rare-bg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tier-rare-mark) 40%, transparent);
+}
+
+/* The five definitions as ONE wrapping row, the status word in full ink. */
+.district-ledger-defs {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-text-muted);
+}
+.district-ledger-defs b {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+.district-ledger-note {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--color-text-muted);
+  max-width: 90ch;
+}
+
 /* Home page podium: a one-off medal vocabulary, NOT the tier palette, even where a value coincides. */
 .podium-step { border-radius: 8px 8px 0 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; padding: 10px 14px 12px; }
 .podium-step--gold { background: #fef3c7; color: #b45309; }

@@ -16,6 +16,10 @@ import {
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_TAB_LABEL,
+  DISTRICT_LEDGER_TICK_NOW,
+  DISTRICT_LEDGER_TICK_START,
+  districtLedgerShortEventName,
+  districtLedgerTickWeekLabel,
 } from "./districtLedgerCopy.js";
 
 describe("the UI-SPEC copy contract", () => {
@@ -36,6 +40,25 @@ describe("the UI-SPEC copy contract", () => {
   it("pins the five status labels and the award variant", () => {
     expect(Object.values(DISTRICT_LEDGER_STATUS_LABELS)).toEqual(["Prequalified", "Locked", "In range", "Out of range", "Locked out"]);
     expect(DISTRICT_LEDGER_LOCKED_AWARD_LABEL).toBe("Locked · award");
+  });
+
+  it("pins the slider's tick labels, which are the jump chips' short form", () => {
+    expect(DISTRICT_LEDGER_TICK_START).toBe("start");
+    expect(DISTRICT_LEDGER_TICK_NOW).toBe("now");
+    expect(districtLedgerTickWeekLabel(0)).toBe("wk 0");
+    expect(districtLedgerTickWeekLabel(3)).toBe("wk 3");
+  });
+
+  it("shortens ONLY a name that matches TBA's whole district template, and prints every other name verbatim", () => {
+    expect(districtLedgerShortEventName("PNW District Oregon State Fair Event")).toBe("Oregon State Fair");
+    expect(districtLedgerShortEventName("FNC District Wake County Event")).toBe("Wake County");
+    expect(districtLedgerShortEventName("FIM District - Kettering University Event #1")).toBe("Kettering University #1");
+    // No name body between "District" and "Event": nothing to shorten to, so
+    // the published name stands.
+    expect(districtLedgerShortEventName("ISR District Event #1")).toBe("ISR District Event #1");
+    // Not a district name at all.
+    expect(districtLedgerShortEventName("Done Event")).toBe("Done Event");
+    expect(districtLedgerShortEventName("Einstein Field")).toBe("Einstein Field");
   });
 
   it("pins the tab label and the column labels in render order", () => {
