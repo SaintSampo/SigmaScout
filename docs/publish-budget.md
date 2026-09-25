@@ -197,6 +197,49 @@ ahead. `pnpm publish:districts` is therefore unchanged in cost and duration from
 the whole ten-season run takes about six seconds. The `--as-of` runs above exist to exercise the bake
 and are NOT part of a republish.
 
+#### Proving the bake still works: `pnpm verify:district-bake`
+
+The zero above is the problem this script exists for. Every district event in every ingested
+season has a start date in the past, so `pnpm publish:districts` bakes NOTHING and will keep
+baking nothing until 2027 events are scheduled. A republish that composes zero sidecars is not
+evidence that the bake path works — it is evidence that the bake path was never entered. Between
+now and the first 2027 schedule, the ONLY thing that exercises it is an `--as-of` run.
+
+```
+pnpm verify:district-bake
+```
+
+which is exactly the second run recorded above, named so it cannot drift from the numbers in
+this file:
+
+```
+tsx scripts/publishDistricts.ts --years 2026-2026 --as-of 2026-04-04 --dry-run --local-out data/local-publish/bake-verify
+```
+
+No network and no credential: `--dry-run` never reaches `putObject`, the corpus is the only
+input, and the output goes to a gitignored folder. It takes about three minutes, essentially all
+of it the walk-forward replay.
+
+Run it before a season starts, and after any change to the pricing state, the bake loop, the
+sidecar encoder or the point model. What it proves is that the bake path is ENTERED and produces
+sidecars that pass the budget gate — not that the numbers are right, which is
+`ledgerSimulation`'s own suite's job.
+
+The census line is the thing to read. Most recent run, 2026-09-25 (quick task 260925-ots):
+
+```
+publishDistricts: season 2026 bake census — considered 150, baked 2; ineligible:
+already-in-progress=8, not-a-remaining-event=131, divisioned-dcmp-parent=8;
+skipped: no-ranking-point-filler=1
+```
+
+`baked 2` is the assertion. A run reporting `baked 0` has proved nothing, whatever else it
+prints. The same run composed 14 district objects and 2 sidecars, largest
+`v1/district-presim/2026fim/2026miken.json` at 31,828 bytes, 2,667,757 bytes total, with the
+walk-forward replay covering 177,942 matches across 2016 through 2026 in 156 seconds and the
+bake itself taking 589 ms — every figure matching plan 10-06's own run, which is what makes this
+a regression check and not just a smoke test.
+
 **None of these numbers belongs in the machine-readable `json budget` block at the bottom of this
 file**, and that is worth restating here rather than only in 10-03's section above: that block is
 rewritten by `pnpm publish:seasons --write-budget`, which does not publish districts at all, so a
