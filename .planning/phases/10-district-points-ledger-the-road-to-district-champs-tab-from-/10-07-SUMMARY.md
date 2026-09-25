@@ -464,3 +464,9 @@ See `key-decisions` in the frontmatter. The load-bearing ones: the sidecar branc
 ---
 *Phase: 10-district-points-ledger*
 *Completed: 2026-09-25*
+
+## Self-Check: PASSED
+
+- All 13 production files named in `key-files.created` exist on disk.
+- All six task commits plus the SUMMARY commit exist in `git log`.
+- Every task's `<acceptance_criteria>` was re-run at its own task gate and again in the Task 6 sweep: the repo-root suite is green (278 files, 6241 passed, 1 skipped), `npx tsc --noEmit` and `npx tsc --noEmit -p apps/web/tsconfig.json` are both clean, and the four glyph, colour, ceiling and diff-scope greps return nothing.
