@@ -2173,11 +2173,99 @@ const DistrictAwardBaseRatesSchema = z
     path: ["rows"],
   });
 
-/** One team's row selector into `awardBaseRates` — without it the published table is unusable in a browser that has no corpus. */
+/**
+ * One team's row selector into `awardBaseRates` — without it the published
+ * table is unusable in a browser that has no corpus.
+ *
+ * `priorJudgedAwards` is the RAW count the bucket was derived from, and it is
+ * additive rather than a replacement for the bucket: the bucket is what
+ * `awardBaseRates` is keyed by, and the raw count is what
+ * `awardOrderingTables`' ordering sorts a whole field on. A browser cannot
+ * recover the count from the bucket (three or more is one bucket and many
+ * counts), so the ordering is impossible without it.
+ *
+ * OPTIONAL, because every artifact published before this field existed carries
+ * no count at all. The consumer's rule for that case is stated once, in
+ * `ledgerSimulation.ts`: a field where ANY team is missing the count is priced
+ * from the base rate alone, never from a partial ordering.
+ */
 const DistrictAwardProfileSchema = z.object({
   bucket: z.enum(DISTRICT_AWARD_BUCKETS),
   rookie: z.boolean(),
+  /** Judged awards won in seasons STRICTLY BEFORE this artifact's own. The ordering key, and the count the bucket was derived from. */
+  priorJudgedAwards: z.number().int().nonnegative().optional(),
 });
+
+/** One position's measured win rate in an ordering table. */
+const DistrictAwardOrderingPositionSchema = z.object({
+  /** 1-based. Position 1 is the head of the ordering. */
+  position: z.number().int().positive(),
+  /** How many (event, position) observations this rate rests on. Positive: a rate fitted on nothing is not publishable. */
+  n: z.number().int().positive(),
+  p: z.number().finite().min(0).max(1),
+});
+
+/** The pooled remainder past the last published position. Carries no `position` because it is not one. */
+const DistrictAwardOrderingTailSchema = z.object({
+  n: z.number().int().positive(),
+  p: z.number().finite().min(0).max(1),
+});
+
+/**
+ * The per-season Impact and Rookie All Star ORDERING tables, plus the RESIDUAL
+ * award-point table the two are layered on.
+ *
+ * TOP LEVEL, not per team, for the same reason `awardBaseRates` is: the tables
+ * are per season and a district artifact is one season.
+ *
+ * `residual` is the base-rate table with the Impact and Rookie All Star mass
+ * REMOVED, and it replaces `awardBaseRates` wherever the ordering applies.
+ * Both are published: a reader that cannot order a field (any team missing
+ * `priorJudgedAwards`) falls back to `awardBaseRates` unchanged, and that
+ * fallback needs the unreduced table to still be there. Shipping only the
+ * residual would make the fallback silently under-price every award cell.
+ *
+ * `measuredThroughSeason < season` is the same REFINEMENT `awardBaseRates`
+ * carries, for the same reason: the walk-forward boundary is executable at the
+ * artifact boundary, so a leaked table cannot be published at all.
+ */
+const DistrictAwardOrderingTablesSchema = z
+  .object({
+    season: z.number().int(),
+    /** The last season whose observations fed these tables. Strictly BEFORE `season`. */
+    measuredThroughSeason: z.number().int(),
+    /** The committed script that produced these numbers, e.g. `scripts/measureAwardOrderingTables.ts`. */
+    script: z.string().min(1),
+    /** Impact by position in the most-decorated ordering. A position the measurement could not score is ABSENT, never zeroed. */
+    impact: z.array(DistrictAwardOrderingPositionSchema),
+    impactTail: DistrictAwardOrderingTailSchema,
+    /** Rookie All Star by position among the event's rookies. */
+    rookieAllStar: z.array(DistrictAwardOrderingPositionSchema),
+    rookieAllStarTail: DistrictAwardOrderingTailSchema,
+    /** The award-point table with the Impact and Rookie All Star mass removed. Same row shape as `awardBaseRates.rows`. */
+    residual: z.array(DistrictAwardBaseRateRowSchema).min(1),
+  })
+  .refine((table) => table.measuredThroughSeason < table.season, {
+    message: "measuredThroughSeason must be strictly less than season — a table measured through its own season has leaked",
+    path: ["measuredThroughSeason"],
+  })
+  .refine(
+    (table) =>
+      new Set(table.impact.map((row) => row.position)).size === table.impact.length &&
+      new Set(table.rookieAllStar.map((row) => row.position)).size === table.rookieAllStar.length,
+    {
+      message: "positions must be unique within each ordering — two rows for one position leave a reader no rule for which to use",
+      path: ["impact"],
+    }
+  )
+  .refine((table) => new Set(table.residual.map((row) => `${row.bucket}:${String(row.rookie)}`)).size === table.residual.length, {
+    message: "residual rows must be unique by (bucket, rookie)",
+    path: ["residual"],
+  })
+  .refine((table) => table.residual.every((row) => row.points.o === 0), {
+    message: "every residual row's points.o must be 0 — the chance of NO residual award points has to be addressable at index 0",
+    path: ["residual"],
+  });
 
 /** One team's full district-points standing, breakdown, qualifying awards and both lock verdicts. */
 const DistrictTeamSchema = z.object({
@@ -2224,6 +2312,8 @@ export const DistrictArtifactSchema = PagePreambleSchema.extend({
   insights: DistrictInsightsSchema,
   /** The season's award base-rate table, once per artifact. Optional — absent on every artifact published before phase 10, and absent for a season with no measured table. */
   awardBaseRates: DistrictAwardBaseRatesSchema.optional(),
+  /** The season's Impact and Rookie All Star ordering tables and the residual they are layered on, once per artifact. Optional, and additive beside `awardBaseRates` rather than a replacement for it. */
+  awardOrderingTables: DistrictAwardOrderingTablesSchema.optional(),
   /**
    * The exact event keys for which a `districtPreSimKey` sidecar was published
    * in THIS generation. The reader fetches a sidecar only for a key listed

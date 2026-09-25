@@ -219,10 +219,21 @@ export const LEDGER_STREAM_SALT = 0x5d15_7c17;
 // UI thread, which is the worst possible combination.
 // ---------------------------------------------------------------------------
 
-/** One team's award-profile selector: the two keys `awardBaseRate` looks a rate up by. */
+/**
+ * One team's award-profile selector: the two keys `awardBaseRate` looks a rate
+ * up by, plus the raw count `awardOrderingTables` orders a whole field on.
+ *
+ * `priorJudgedAwards` is OPTIONAL and its absence is meaningful rather than a
+ * zero: every artifact published before the field existed carries none, and a
+ * team treated as undecorated because its count was missing would be sorted to
+ * the BOTTOM of its field and priced at the tail. The rule is therefore
+ * all-or-nothing per event — see `awardOrderingApplied`.
+ */
 export interface DistrictAwardProfile {
   readonly bucket: DecorationBucket;
   readonly rookieState: RookieState;
+  /** Judged awards won in seasons strictly before this event's own. Absent means this field cannot be ordered. */
+  readonly priorJudgedAwards?: number;
 }
 
 /**

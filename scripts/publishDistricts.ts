@@ -125,7 +125,18 @@ import {
   type AwardBaseRateSource,
   type DecorationBucket,
 } from "../packages/core/districts/awardBaseRates.js";
+import {
+  awardOrderingTables,
+  awardResidualRate,
+  AWARD_ORDERING_SEASONS,
+  hasAwardOrderingTables,
+  MAX_IMPACT_POSITION,
+  MAX_ROOKIE_ALL_STAR_POSITION,
+  impactOrderingProbability,
+  rookieAllStarOrderingProbability,
+} from "../packages/core/districts/awardOrderingTables.js";
 import type { DistrictAwardProfile } from "../packages/core/districts/ledgerSimulation.js";
+import { MEASURED_COMMAND as ORDERING_MEASURED_COMMAND } from "./measureAwardOrderingTables.js";
 import { loadAwardInstances, loadRookieYears, MEASURED_COMMAND, priorJudgedAwardCount, type AwardInstance } from "./measureDistrictAwardBaseRates.js";
 import { selectCorpusSeasons } from "../packages/corpus/db.js";
 
@@ -293,6 +304,8 @@ export interface ComposeDistrictArtifactOptions {
   readonly teamMeta: ReadonlyMap<string, { teamNumber: number; nickname: string | null }>;
   /** The season's six-cell award base-rate table, once per artifact. Absent for an unregistered season or an empty prior award corpus. */
   readonly awardBaseRates?: DistrictArtifact["awardBaseRates"];
+  /** The season's ordering tables and the residual they are layered on, once per artifact. Absent for a season with no measured table. */
+  readonly awardOrderingTables?: DistrictArtifact["awardOrderingTables"];
   /** Team key -> the SAME profile object the bake was handed, mapped to the wire vocabulary at emission. A team absent here publishes no `awardProfile`. */
   readonly awardProfiles?: ReadonlyMap<string, DistrictAwardProfile>;
 }
@@ -452,6 +465,7 @@ export function buildDistrictArtifact(options: ComposeDistrictArtifactOptions): 
     cmpSlots: district.cmpSlots,
     teams,
     ...(options.awardBaseRates === undefined ? {} : { awardBaseRates: options.awardBaseRates }),
+    ...(options.awardOrderingTables === undefined ? {} : { awardOrderingTables: options.awardOrderingTables }),
     insights: {
       teamCount: rankings.length,
       // `eventCount` is the ONE insights field the shared pass carries forward
@@ -574,6 +588,7 @@ export function composeYear(db: Corpus, season: number, generation: string, comp
       awards,
       teamMeta,
       ...(awardContext.baseRates === undefined ? {} : { awardBaseRates: awardContext.baseRates }),
+      ...(awardContext.orderingTables === undefined ? {} : { awardOrderingTables: awardContext.orderingTables }),
       awardProfiles: awardProfiles.profiles,
     });
 
@@ -864,6 +879,8 @@ export interface SeasonAwardContext {
   readonly priorInstanceCount: number;
   /** The six-cell published table, or `undefined` for an unregistered season or an empty prior corpus. */
   readonly baseRates: DistrictArtifact["awardBaseRates"];
+  /** The published ordering tables, or `undefined` whenever `baseRates` is — the two travel together or not at all. */
+  readonly orderingTables: DistrictArtifact["awardOrderingTables"];
   /** Which fallback rung each published cell landed on, keyed `${wireBucket}|${rookie}`. */
   readonly sources: ReadonlyMap<string, AwardBaseRateSource>;
   /** Derives (and memoizes) the profiles for a set of team keys. */
@@ -945,12 +962,71 @@ export function buildSeasonAwardContext(db: Corpus, season: number): SeasonAward
     );
   }
 
+  // THE ORDERING TABLES TRAVEL WITH THE BASE RATES OR NOT AT ALL. Publishing
+  // one without the other would leave a reader holding a residual it cannot
+  // fall back from, or an ordering it cannot subtract. The module registers
+  // exactly the same season set (`awardOrderingTables.test.ts` asserts that by
+  // equality), so this guard fires only if that ever stops being true.
+  let orderingTables: DistrictArtifact["awardOrderingTables"];
+  if (baseRates !== undefined && measuredThroughSeason !== undefined) {
+    if (!hasAwardOrderingTables(season)) {
+      console.log(
+        `publishDistricts: season ${season} has a base-rate table but NO ordering table (ordering seasons: ${AWARD_ORDERING_SEASONS.join(", ")}) — publishing the base rates alone, so the ledger keeps the base-rate path`
+      );
+    } else {
+      const tables = awardOrderingTables(season);
+      const impact: NonNullable<DistrictArtifact["awardOrderingTables"]>["impact"] = [];
+      for (let position = 1; position <= MAX_IMPACT_POSITION; position++) {
+        // A position the measurement could not score is ABSENT from the wire,
+        // exactly as it is `null` in the module. The reader's own fallback
+        // takes it to the tail, and shipping a zero would be a fabricated
+        // probability wearing a position's name.
+        if (tables.impact[position - 1] === null) continue;
+        const rate = impactOrderingProbability(season, position);
+        impact.push({ position, n: rate.n, p: rate.p });
+      }
+      const rookieAllStar: NonNullable<DistrictArtifact["awardOrderingTables"]>["rookieAllStar"] = [];
+      for (let position = 1; position <= MAX_ROOKIE_ALL_STAR_POSITION; position++) {
+        if (tables.rookieAllStar[position - 1] === null) continue;
+        const rate = rookieAllStarOrderingProbability(season, position);
+        rookieAllStar.push({ position, n: rate.n, p: rate.p });
+      }
+      const residual: NonNullable<DistrictArtifact["awardOrderingTables"]>["residual"] = [];
+      for (const bucket of DECORATION_BUCKETS) {
+        for (const rookieState of ["rookie", "veteran"] as const) {
+          const rate = awardResidualRate(season, bucket, rookieState);
+          residual.push({
+            bucket: WIRE_BUCKET[bucket],
+            rookie: rookieState === "rookie",
+            n: rate.n,
+            points: awardPmfOnPointAxis(rate.pmf),
+          });
+        }
+      }
+      orderingTables = {
+        season,
+        measuredThroughSeason,
+        script: ORDERING_MEASURED_COMMAND,
+        impact,
+        impactTail: tables.impactTail,
+        rookieAllStar,
+        rookieAllStarTail: tables.rookieAllStarTail,
+        residual,
+      };
+      console.log(
+        `publishDistricts: season ${season} award ordering — Impact position 1 ${(impact[0]?.p ?? 0).toFixed(4)} on n=${impact[0]?.n ?? 0}, tail ${tables.impactTail.p.toFixed(4)} on n=${tables.impactTail.n}; ` +
+          `Rookie All Star position 1 ${(rookieAllStar[0]?.p ?? 0).toFixed(4)} on n=${rookieAllStar[0]?.n ?? 0}; script "${ORDERING_MEASURED_COMMAND}"`
+      );
+    }
+  }
+
   const publishAwards = baseRates !== undefined;
 
   return {
     season,
     priorInstanceCount,
     baseRates,
+    orderingTables,
     sources,
     profilesFor(teamKeys) {
       const profiles = new Map<string, DistrictAwardProfile>();
@@ -967,8 +1043,12 @@ export function buildSeasonAwardContext(db: Corpus, season: number): SeasonAward
           unknownRookieYear.push(teamKey);
           continue;
         }
-        const bucket = decorationBucket(priorJudgedAwardCount(instancesByTeam.get(teamKey) ?? [], teamKey, season));
-        const profile: DistrictAwardProfile = { bucket, rookieState };
+        // ONE derivation of the count, shared by the bucket and by the
+        // ordering key. Deriving them separately is how a published bucket and
+        // a published ordering position come to describe different teams.
+        const priorJudgedAwards = priorJudgedAwardCount(instancesByTeam.get(teamKey) ?? [], teamKey, season);
+        const bucket = decorationBucket(priorJudgedAwards);
+        const profile: DistrictAwardProfile = { bucket, rookieState, priorJudgedAwards };
         memo.set(teamKey, profile);
         profiles.set(teamKey, profile);
       }
@@ -978,8 +1058,19 @@ export function buildSeasonAwardContext(db: Corpus, season: number): SeasonAward
 }
 
 /** One team's published row selector, mapped from the SAME profile object the bake was handed. */
-export function toWireAwardProfile(profile: DistrictAwardProfile): { bucket: DistrictAwardBucket; rookie: boolean } {
-  return { bucket: WIRE_BUCKET[profile.bucket], rookie: profile.rookieState === "rookie" };
+export function toWireAwardProfile(profile: DistrictAwardProfile): {
+  bucket: DistrictAwardBucket;
+  rookie: boolean;
+  priorJudgedAwards?: number;
+} {
+  return {
+    bucket: WIRE_BUCKET[profile.bucket],
+    rookie: profile.rookieState === "rookie",
+    // Absent stays absent rather than becoming 0: a zero would say "this team
+    // has never won a judged award", which is a different claim from "this
+    // producer did not derive a count".
+    ...(profile.priorJudgedAwards === undefined ? {} : { priorJudgedAwards: profile.priorJudgedAwards }),
+  };
 }
 
 /** Why one district event was refused a bake, in the vocabulary the per-season census counts. */

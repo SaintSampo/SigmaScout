@@ -268,11 +268,14 @@ describe("applyDistrictRankings — the baked-pmf sidecar list", () => {
     expect(merged.bakedEvents).toBeUndefined();
   });
 
-  it("carries an awardProfile forward untouched", () => {
+  it("carries an awardProfile forward untouched, priorJudgedAwards included", () => {
     const fixture = twoTeamFixture() as unknown as { teams: Array<Record<string, unknown>> };
-    fixture.teams[0]!.awardProfile = { bucket: "oneOrTwo", rookie: false };
+    fixture.teams[0]!.awardProfile = { bucket: "oneOrTwo", rookie: false, priorJudgedAwards: 2 };
     const merged = merge(DistrictArtifactSchema.parse(fixture), tracerPayload());
-    expect(merged.teams.find((t) => t.teamKey === "frc1")!.awardProfile).toEqual({ bucket: "oneOrTwo", rookie: false });
+    // The ordering key has to survive the live merge: a Worker tick that
+    // dropped it would silently take every promoted event off the ordering path
+    // and back onto the base rate, and nothing on the page would say so.
+    expect(merged.teams.find((t) => t.teamKey === "frc1")!.awardProfile).toEqual({ bucket: "oneOrTwo", rookie: false, priorJudgedAwards: 2 });
   });
 
   it("carries a top-level awardBaseRates table forward untouched", () => {
@@ -284,6 +287,21 @@ describe("applyDistrictRankings — the baked-pmf sidecar list", () => {
     };
     const merged = merge(DistrictArtifactSchema.parse({ ...twoTeamFixture(), awardBaseRates: table }), tracerPayload());
     expect(merged.awardBaseRates).toEqual(table);
+  });
+
+  it("carries a top-level awardOrderingTables block forward untouched", () => {
+    const tables = {
+      season: 2026,
+      measuredThroughSeason: 2025,
+      script: "scripts/measureAwardOrderingTables.ts",
+      impact: [{ position: 1, n: 756, p: 0.1799 }],
+      impactTail: { n: 18146, p: 0.0056 },
+      rookieAllStar: [{ position: 1, n: 645, p: 0.3814 }],
+      rookieAllStarTail: { n: 559, p: 0.1163 },
+      residual: [{ bucket: "none" as const, rookie: false, n: 500, points: { o: 0, p: [0.8, 0.2] } }],
+    };
+    const merged = merge(DistrictArtifactSchema.parse({ ...twoTeamFixture(), awardOrderingTables: tables }), tracerPayload());
+    expect(merged.awardOrderingTables).toEqual(tables);
   });
 });
 

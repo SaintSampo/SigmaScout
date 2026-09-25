@@ -22,6 +22,12 @@ import {
   decorationBucket,
   UnknownAwardBaseRateSeasonError,
 } from "../packages/core/districts/awardBaseRates.js";
+import {
+  awardResidualRate,
+  impactOrderingProbability,
+  rookieAllStarOrderingProbability,
+} from "../packages/core/districts/awardOrderingTables.js";
+import { MEASURED_COMMAND as ORDERING_MEASURED_COMMAND } from "./measureAwardOrderingTables.js";
 import { DISTRICT_REGISTERED_SEASONS } from "../packages/core/districts/pointModel.js";
 import { DISTRICT_AWARD_BUCKETS, DistrictEventStateSchema } from "../packages/harness/pageArtifacts.js";
 import { DistrictBudgetExceededError, DISTRICTS_INDEX_MAX_BYTES } from "../packages/harness/publishBudget.js";
@@ -1220,6 +1226,85 @@ describe("the award base-rate table on the wire", () => {
     }
   });
 
+  it("emits the ordering tables beside the base rates, matching the module's own lookups exactly", () => {
+    const db = populatedAwardFixture(2026, [{ team_key: "frc1", team_number: 1, rookie_year: 2010 }]);
+    try {
+      const context = buildSeasonAwardContext(db, 2026);
+      const tables = context.orderingTables;
+      expect(tables).toBeDefined();
+      expect(tables!.season).toBe(2026);
+      expect(tables!.measuredThroughSeason).toBe(2025);
+      expect(tables!.script).toBe(ORDERING_MEASURED_COMMAND);
+
+      // Every published position is the module's own lookup, to the bit. A
+      // second rounding at the publish boundary is how a published probability
+      // and the measured one come to differ in the last digit.
+      for (const row of tables!.impact) {
+        const looked = impactOrderingProbability(2026, row.position);
+        expect(looked.source, `impact ${row.position}`).toBe("position");
+        expect(row.p).toBe(looked.p);
+        expect(row.n).toBe(looked.n);
+      }
+      for (const row of tables!.rookieAllStar) {
+        const looked = rookieAllStarOrderingProbability(2026, row.position);
+        expect(row.p).toBe(looked.p);
+        expect(row.n).toBe(looked.n);
+      }
+      expect(tables!.impact.map((r) => r.position)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+      expect(tables!.rookieAllStar.map((r) => r.position)).toEqual([1, 2, 3]);
+
+      // The residual travels on the DENSE POINT AXIS the schema speaks, not on
+      // the module's six-BIN axis — the same mapping the base-rate rows take.
+      expect(tables!.residual).toHaveLength(6);
+      for (const row of tables!.residual) {
+        expect(row.points.o).toBe(0);
+        expect(row.n).toBeGreaterThan(0);
+      }
+      const decorated = tables!.residual.find((row) => row.bucket === "threeOrMore" && !row.rookie)!;
+      const moduleRate = awardResidualRate(2026, "three-or-more", "veteran");
+      expect(decorated.n).toBe(moduleRate.n);
+      // Index 5 of the dense axis is five points, which is bin 1 of the
+      // module's support. The tolerance is `roundPmf`'s own five-decimal
+      // rounding, the same boundary the base-rate rows already cross — the
+      // POSITION probabilities above are compared exactly because they do not
+      // pass through it.
+      expect(decorated.points.p[5]).toBeCloseTo(moduleRate.pmf[1]!, 4);
+
+      const artifact = buildDistrictArtifact({
+        season: 2026,
+        generation: GENERATION,
+        computedAt: COMPUTED_AT,
+        district: district(),
+        rankings: [ranking({ teamKey: "frc1", rank: 1 })],
+        events: [districtEvent({ eventKey: "2026e1" })],
+        registrations: new Map(),
+        awards: new Map(),
+        teamMeta: new Map(),
+        awardBaseRates: context.baseRates!,
+        awardOrderingTables: tables,
+        awardProfiles: context.profilesFor(["frc1"]).profiles,
+      });
+      expect(artifact.awardOrderingTables).toEqual(tables);
+      // BOTH blocks ship. The unreduced base rate is the fallback for a field
+      // that cannot be ordered, so dropping it would silently under-price
+      // every award cell on such an event.
+      expect(artifact.awardBaseRates).toBeDefined();
+    } finally {
+      db.close();
+    }
+  });
+
+  it("publishes NO ordering table for a season with no base-rate table — the two travel together or not at all", () => {
+    const db = populatedAwardFixture(2016, [{ team_key: "frc1", team_number: 1, rookie_year: 2010 }]);
+    try {
+      const context = buildSeasonAwardContext(db, 2016);
+      expect(context.baseRates).toBeUndefined();
+      expect(context.orderingTables).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  });
+
   it("pre-checks an unregistered season instead of catching the typed error — control flow through an error is not control flow", () => {
     const db = populatedAwardFixture(2016, [{ team_key: "frc1", team_number: 1, rookie_year: 2010 }]);
     try {
@@ -1285,7 +1370,7 @@ describe("the award base-rate table on the wire", () => {
         awardBaseRates: context.baseRates!,
         awardProfiles: profiles.profiles,
       });
-      expect(artifact.teams.find((t) => t.teamKey === "frc1")!.awardProfile).toEqual({ bucket: "none", rookie: false });
+      expect(artifact.teams.find((t) => t.teamKey === "frc1")!.awardProfile).toEqual({ bucket: "none", rookie: false, priorJudgedAwards: 0 });
       expect(artifact.teams.find((t) => t.teamKey === "frc2")!.awardProfile).toBeUndefined();
       const noTeamsRow = artifact.teams.find((t) => t.teamKey === "frcNoTeamsRow")!;
       expect(noTeamsRow.awardProfile).toBeUndefined();
@@ -1306,7 +1391,7 @@ describe("the award base-rate table on the wire", () => {
       const forTheBake = context.profilesFor(["frcDecorated"]).profiles.get("frcDecorated")!;
       // Four distinct prior judged awards puts this team in `three-or-more`,
       // so the mapping is exercised on a non-default bucket.
-      expect(forTheBake).toEqual({ bucket: "three-or-more", rookieState: "veteran" });
+      expect(forTheBake).toEqual({ bucket: "three-or-more", rookieState: "veteran", priorJudgedAwards: 4 });
       const artifact = buildDistrictArtifact({
         season: 2026,
         generation: GENERATION,
@@ -1342,13 +1427,16 @@ describe("the award base-rate table on the wire", () => {
     try {
       // The honest derivation counts only seasons strictly BEFORE 2026, so
       // three 2026 awards leave the team in `none`...
-      expect(buildSeasonAwardContext(withLeak, 2026).profilesFor(["frcEdge"]).profiles.get("frcEdge")).toEqual({ bucket: "none", rookieState: "veteran" });
+      // The RAW COUNT is checked beside the bucket: the bucket alone maps many
+      // counts onto one label, so a leak that moved 3 to 4 would not show in it.
+      expect(buildSeasonAwardContext(withLeak, 2026).profilesFor(["frcEdge"]).profiles.get("frcEdge")).toEqual({ bucket: "none", rookieState: "veteran", priorJudgedAwards: 0 });
       // ...while the same three awards one season earlier move it to
       // `three-or-more`. A fixture where the boundary does not change the
       // answer would prove nothing.
       expect(buildSeasonAwardContext(withoutLeak, 2026).profilesFor(["frcEdge"]).profiles.get("frcEdge")).toEqual({
         bucket: "three-or-more",
         rookieState: "veteran",
+        priorJudgedAwards: 3,
       });
     } finally {
       withLeak.close();

@@ -1688,6 +1688,81 @@ describe("DistrictArtifactSchema.awardBaseRates", () => {
   });
 });
 
+function validAwardOrderingTables() {
+  const residual = [];
+  for (const bucket of DISTRICT_AWARD_BUCKETS) {
+    for (const rookie of [false, true]) {
+      residual.push({ bucket, rookie, n: 500, points: { o: 0, p: [0.8, 0.15, 0.03, 0.01, 0.005, 0.005] } });
+    }
+  }
+  return {
+    season: 2026,
+    measuredThroughSeason: 2025,
+    script: "scripts/measureAwardOrderingTables.ts",
+    impact: [
+      { position: 1, n: 756, p: 0.1799 },
+      { position: 2, n: 756, p: 0.131 },
+    ],
+    impactTail: { n: 18146, p: 0.0056 },
+    rookieAllStar: [{ position: 1, n: 645, p: 0.3814 }],
+    rookieAllStarTail: { n: 559, p: 0.1163 },
+    residual,
+  };
+}
+
+describe("DistrictArtifactSchema.awardOrderingTables", () => {
+  function withTable(mutate: (table: ReturnType<typeof validAwardOrderingTables>) => void) {
+    const table = validAwardOrderingTables();
+    mutate(table);
+    return { ...validDistrictFixture(), awardOrderingTables: table };
+  }
+
+  it("parses beside awardBaseRates rather than instead of it — a reader that cannot order a field still needs the unreduced table", () => {
+    const fixture = { ...validDistrictFixture(), awardBaseRates: validAwardBaseRates(), awardOrderingTables: validAwardOrderingTables() };
+    const parsed = DistrictArtifactSchema.parse(fixture);
+    expect(parsed.awardBaseRates).toBeDefined();
+    expect(parsed.awardOrderingTables).toBeDefined();
+  });
+
+  it("is OPTIONAL: the pre-republish shape with neither award block still parses", () => {
+    const fixture = validDistrictFixture() as unknown as Record<string, unknown>;
+    expect(Object.keys(fixture)).not.toContain("awardOrderingTables");
+    expect(() => DistrictArtifactSchema.parse(fixture)).not.toThrow();
+  });
+
+  it("REJECTS a table whose measuredThroughSeason equals or exceeds its season — the walk-forward boundary is executable, not a comment", () => {
+    expect(() => DistrictArtifactSchema.parse(withTable((t) => (t.measuredThroughSeason = t.season)))).toThrow();
+    expect(() => DistrictArtifactSchema.parse(withTable((t) => (t.measuredThroughSeason = t.season + 1)))).toThrow();
+  });
+
+  it("REJECTS two rows sharing a position, in either ordering", () => {
+    expect(() => DistrictArtifactSchema.parse(withTable((t) => t.impact.push({ ...t.impact[0]! })))).toThrow();
+    expect(() => DistrictArtifactSchema.parse(withTable((t) => t.rookieAllStar.push({ ...t.rookieAllStar[0]! })))).toThrow();
+  });
+
+  it("ACCEPTS a GAPPED position list — a position the measurement could not score is absent, never zeroed", () => {
+    expect(() =>
+      DistrictArtifactSchema.parse(
+        withTable((t) => {
+          t.impact = [{ position: 1, n: 756, p: 0.18 }, { position: 4, n: 756, p: 0.08 }];
+        })
+      )
+    ).not.toThrow();
+  });
+
+  it("REJECTS a probability outside [0, 1] and an n of 0", () => {
+    expect(() => DistrictArtifactSchema.parse(withTable((t) => (t.impact[0]!.p = 1.5)))).toThrow();
+    expect(() => DistrictArtifactSchema.parse(withTable((t) => (t.impact[0]!.n = 0)))).toThrow();
+    expect(() => DistrictArtifactSchema.parse(withTable((t) => (t.impactTail.p = -0.01)))).toThrow();
+  });
+
+  it("REJECTS a residual row with a non-zero offset, a duplicate cell, or an empty residual list", () => {
+    expect(() => DistrictArtifactSchema.parse(withTable((t) => (t.residual[0]!.points = { o: 5, p: [0.5, 0.5] })))).toThrow();
+    expect(() => DistrictArtifactSchema.parse(withTable((t) => t.residual.push({ ...t.residual[0]! })))).toThrow();
+    expect(() => DistrictArtifactSchema.parse(withTable((t) => (t.residual = [])))).toThrow();
+  });
+});
+
 describe("DistrictTeamSchema.awardProfile", () => {
   it("parses for each of the three bucket literals", () => {
     for (const bucket of DISTRICT_AWARD_BUCKETS) {
@@ -1701,6 +1776,22 @@ describe("DistrictTeamSchema.awardProfile", () => {
     expect(() => DistrictArtifactSchema.parse(validDistrictFixture())).not.toThrow();
     const fixture = validDistrictFixture() as unknown as { teams: Array<Record<string, unknown>> };
     fixture.teams[0]!.awardProfile = { bucket: "one-or-two", rookie: false };
+    expect(() => DistrictArtifactSchema.parse(fixture)).toThrow();
+  });
+
+  it("carries priorJudgedAwards as an OPTIONAL non-negative integer — the ordering key a browser cannot recover from the bucket", () => {
+    const fixture = validDistrictFixture() as unknown as { teams: Array<Record<string, unknown>> };
+    fixture.teams[0]!.awardProfile = { bucket: "threeOrMore", rookie: false, priorJudgedAwards: 7 };
+    expect(DistrictArtifactSchema.parse(fixture).teams[0]!.awardProfile!.priorJudgedAwards).toBe(7);
+
+    // Absent parses (every artifact published before the field existed).
+    fixture.teams[0]!.awardProfile = { bucket: "none", rookie: true };
+    expect(DistrictArtifactSchema.parse(fixture).teams[0]!.awardProfile!.priorJudgedAwards).toBeUndefined();
+
+    // A negative or fractional count is not a count.
+    fixture.teams[0]!.awardProfile = { bucket: "none", rookie: true, priorJudgedAwards: -1 };
+    expect(() => DistrictArtifactSchema.parse(fixture)).toThrow();
+    fixture.teams[0]!.awardProfile = { bucket: "none", rookie: true, priorJudgedAwards: 1.5 };
     expect(() => DistrictArtifactSchema.parse(fixture)).toThrow();
   });
 });
