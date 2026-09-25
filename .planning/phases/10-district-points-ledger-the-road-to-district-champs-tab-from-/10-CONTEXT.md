@@ -106,14 +106,45 @@ https://claude.ai/artifact/9yjeRCMN13tD8XbmQBMKzZ, version 5). Sketch 020 is sup
 - Once quals are done the top eight hold a captain floor of 17 minus their alliance number;
   the cell must read as a near-certain number then, not a chance. Once alliances are announced
   the cell is grey.
-- Points: captain and first pick 17 minus alliance number, second pick 9 minus alliance
-  number (the district point model; ceilings 22 / 16 / 30 / 15 from
-  `packages/core/districts/pointModel.ts`). Playoff points per bracket exit (0, 7, 13, 20, 30).
-  Qualification points from the manual's inverse error function formula on rank and field size.
+- Points, VERIFIED against the corpus 2026-09-25 (research plus a direct check on 2026wabon):
+  captain and first pick earn 17 minus the alliance number; the second pick earns the alliance
+  number itself (alliance 1's second pick gets 1, alliance 8's gets 8); a fourth robot earns 0.
+  The "9 minus alliance number" form in the first draft of this file scored 0 of 969 rows and is
+  wrong. Ceilings 22 / 16 / 30 / 15 from `packages/core/districts/pointModel.ts`. Playoff points
+  per double elimination exit 0 / 0 / 7 / 13 / 20 / 30 by round, verified in the research.
+  Qualification points from the manual's inverse error function formula on rank and field size,
+  exact on 20,389 corpus rows.
 - The selection model's agreement with actual pick order is measured on `event_alliances` in
   the corpus before it ships and stated on the methodology page.
-- Only the 2023+ double elimination bracket is simulated; earlier seasons have no open
-  categories and need no bracket.
+- Only the 2023+ eight alliance double elimination bracket is simulated; earlier seasons have
+  no open categories and need no bracket. An event whose bracket is not eight alliances (the
+  corpus has a few) gets a fallback playoff pmf: the corpus's empirical distribution of playoff
+  points by alliance number for 2023+, a small published table. Never a fabricated bracket.
+
+### Corrections from research (2026-09-25), binding on the plans
+- **The browser prices nothing today.** The embedded state block that priced upcoming matches
+  in the browser was deleted 2026-09-23 (quick task 260923-3w6); the sketch README's claim that
+  the browser already prices any alliance is stale. The bracket needs a new browser-side
+  win-probability function built from the event artifact's per-team published SPR numbers
+  (`EventTeamSchema.metrics` total mean and Sigma Score), using the same win/tie/loss spread
+  form the rank simulation uses (uncorrected `Σ Sigma²`, never the display band). Its
+  accuracy is unmeasured, so a plan must measure it: compute the formula's P(red wins) for every
+  played match on a set of published event artifacts and compare with the artifact's own
+  `pRedWin` (mean absolute gap and Brier on outcomes); state the gap on the methodology page.
+- **`simulateRanks` discards the per-draw ranking.** Add an optional per-draw callback (the
+  research names the exact line) so one run can hand its ranking to the selection and bracket
+  steps without a second simulation and without changing the existing callers.
+- **District liveness for the Worker.** A district is live when any of its member events has a
+  live window. The offline publisher extends `v1/manifest/live-windows.json` with each window's
+  `districtKey` (null for non-district events); the Worker refreshes every distinct live
+  district's rankings each tick with an ETag request and merges them into the artifact it reads
+  back from R2, recomputing the `locks.ts` verdicts. It cannot call the offline
+  `buildDistrictArtifact` (no corpus in the Worker).
+- **The four state facts, sourced.** Qual matches played and total come from the event
+  artifact's matches; alliances picked from the event artifact's `alliances`; playoffs done from
+  the elimination matches having no upcoming rows and a finals winner; awards posted from a
+  Worker fetch of `/event/{key}/awards` once playoffs are done (one ETag request per live event
+  per tick, returning at least one award). The award cell stays blue until then.
 
 ### Process rules that apply (from memory, binding)
 - Deploy the Worker BEFORE the republish. `npx wrangler deploy` from a clean tree; Jacob grants

@@ -121,15 +121,17 @@ pushed through that function. Zero new modelling.
 **Alliance selection.** Simulate inside the same draw. Each run already yields a full ranking.
 Captains are the top eight by that ranking; picks follow a selection model. The simplest honest one
 is greedy by SPR with declines ignored, which can be measured against `event_alliances` in the
-corpus (how often the pick order follows SPR rank) before it ships. Points are the manual's table:
-17 minus the alliance number for the captain and first pick, 9 minus the alliance number for the
-second pick, so the selection pmf lives on 0 and 1 to 16. Per run it is a handful of array
+corpus (how often the pick order follows SPR rank) before it ships. Points, verified on the
+corpus: 17 minus the alliance number for the captain and first pick, the alliance number itself
+for the second pick (1 for alliance 1, 8 for alliance 8), 0 for a fourth robot, so the selection
+pmf lives on 0 and 1 to 16. (The first draft here said 9 minus the alliance number; wrong.) Per run it is a handful of array
 operations.
 
 **Playoffs.** Simulate the double elimination bracket inside the same draw from the selected
-alliances. SPR prices any three-robot alliance against any other in the browser today (the
-embedded state block that prices upcoming matches). Thirteen matches per run, each a win
-probability from two alliance means and variances. Points are per bracket exit (0, 7, 13, 20,
+alliances. *Correction 2026-09-25 (Phase 10 research):* the browser does NOT price alliances
+today; the embedded state block was deleted on 2026-09-23. The win probability has to be built
+from the event artifact's per-team SPR mean and Sigma Score with the rank simulation's spread
+form, and measured against the published `pRedWin` before it ships. Thirteen matches per run. Points are per bracket exit (0, 7, 13, 20,
 30), so the pmf has five bins.
 
 **Why one joint draw.** The three on-field categories are strongly coupled: a team that ranks
