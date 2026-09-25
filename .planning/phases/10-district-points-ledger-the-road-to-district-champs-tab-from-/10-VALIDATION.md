@@ -50,7 +50,7 @@ Success criteria to cover (from ROADMAP Phase 10):
 
 | SC | Behavior | Test type | Command | File |
 |----|----------|-----------|---------|------|
-| SC-1 | Worker republishes the district artifact on a live rankings change, merging TBA rankings into the artifact read back from R2 and recomputing `locks.ts` verdicts | unit, mocked TBA fetch and R2 | `npx vitest run apps/worker/src/scheduled.district.test.ts` | ❌ Wave 0 |
+| SC-1 | Worker republishes the district artifact on a live rankings change, merging TBA rankings into the artifact read back from R2 and recomputing `locks.ts` verdicts | unit, mocked TBA fetch and R2 | `npx vitest run apps/worker/test/scheduled.district.test.ts` | ❌ Wave 0 |
 | SC-2 | One joint run yields correlated (qual, selection, playoff) per team; marginals are the histograms; event total is the per-run sum | unit, seeded RNG | `npx vitest run packages/core/algorithms/simulation` | extend existing + new |
 | SC-2 | Browser win probability from per-team published SPR numbers matches the artifact's `pRedWin` within a stated gap | measurement script with a pinned test | `npx vitest run scripts/measureAllianceWinProbability.test.ts` | ❌ Wave 0 |
 | SC-3 | Five statuses: Locked and Locked out from `locks.ts`, In range and Out of range from the median projection; a finished district reproduces the artifact's counts | unit | `npx vitest run apps/web/src/components/districts` | ❌ Wave 0 |
@@ -67,7 +67,7 @@ Success criteria to cover (from ROADMAP Phase 10):
 ## Wave 0 Requirements
 
 - [ ] `packages/core/districts/pointFormulas.reconciliation.test.ts` — corpus-backed proof of the qual, selection and playoff formulas, before the formulas ship
-- [ ] `apps/worker/src/scheduled.district.test.ts` — the Worker district refresh pass
+- [ ] `apps/worker/test/scheduled.district.test.ts` — the Worker district refresh pass
 - [ ] `apps/web/src/components/districts/DistrictLedger.test.tsx` and `districtLedgerRows.test.ts` — table, status rule, slider, no-Worker-message case
 - [ ] `apps/web/src/workers/districtSimulationProtocol.test.ts` — protocol module tested directly (jsdom has no Worker API)
 - [ ] `scripts/measureDistrictAwardBaseRates.test.ts` — walk-forward leak test mirroring `measureAwardPredictability.test.ts`
