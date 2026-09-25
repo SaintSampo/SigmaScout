@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 10
 current_phase_name: district-points-ledger
 status: executing
-stopped_at: Completed 10-07-PLAN.md
-last_updated: "2026-09-25T14:00:18.710Z"
+stopped_at: Completed 10-08-PLAN.md
+last_updated: "2026-09-25T14:29:09.025Z"
 last_activity: 2026-09-25
 last_activity_desc: Phase 10 execution started
 progress:
   total_phases: 13
   completed_phases: 12
   total_plans: 118
-  completed_plans: 116
+  completed_plans: 117
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-12)
 ## Current Position
 
 Phase: 10 (district-points-ledger) — EXECUTING
-Plan: 8 of 9
+Plan: 9 of 9
 Status: Ready to execute
 Last activity: 2026-09-25 — Phase 10 execution started
 
-Progress: [██████████] 98%
+Progress: [██████████] 99%
 
 ## Performance Metrics
 
@@ -144,6 +144,7 @@ Progress: [██████████] 98%
 | Phase 10 P05 | 25 min | 3 tasks | 12 files |
 | Phase 10 P06 | 55 min | 3 tasks | 12 files |
 | Phase 10 P07 | 57 min | 6 tasks | 30 files |
+| Phase 10 P08 | 33 min | 4 tasks | 15 files |
 
 ## Accumulated Context
 
@@ -360,6 +361,9 @@ Recent decisions affecting current work:
 - [Phase 10]: The baked-pmf branch is SIDECAR: apps/web/src/lib/api/districtLedger.ts fetches v1/district-presim/{districtKey}/{eventKey}.json, only for a key the artifact's own bakedEvents names. — grep -c bakedEvents returned 1 and grep -c districtPreSimKey returned 3 in packages/harness/pageArtifacts.ts, so 10-03 shipped the sidecar.
 - [Phase 10]: In range and Out of range come from a SECOND call to the shipped cutLinePointsWithQualifiers over median-projection inputs with maxRemaining 0, never a hand-rolled slot subtraction; no file under packages/ was edited. — That function shares qualifierPool's exact pool and slot derivation with computeLocksWithQualifiers, which is what stops the verdicts and the cut line drifting apart.
 - [Phase 10]: The district Worker protocol does not chunk draws: progress is per EVENT, and one seed is shared across every event in a run. — simulateDistrictEvent builds both generators from the seed it is handed, so chunking would repeat a chunk or break 10-04's non-perturbation pin; the shared stream is safe because the grand total is an exact convolution, never a per-draw cross-event sum.
+- [Phase 10]: The numbers on both methodology pages are FILLED from committed constants, never authored: a figure absent from the five named sources is not written, and each pin carries its generating command in a comment
+- [Phase 10]: A retired published claim's pin is REPLACED rather than deleted, and the retired wording is described rather than re-quoted so the note cannot re-introduce it
+- [Phase 10]: The district e2e spec is registered on the two deployed Playwright projects and on no local one, written and collected here, run by 10-09 after the deploy and republish
 
 ### Pending Todos
 
@@ -695,8 +699,8 @@ silent open row; `open_count` is now 0, so `/gsd-ship` no longer blocks.
 
 ## Session Continuity
 
-Last session: 2026-09-25T14:00:18.638Z
-Stopped at: Completed 10-07-PLAN.md
+Last session: 2026-09-25T14:29:01.064Z
+Stopped at: Completed 10-08-PLAN.md
 Resume file: None
 
 ## Decisions
