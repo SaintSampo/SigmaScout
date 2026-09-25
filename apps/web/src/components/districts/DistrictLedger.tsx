@@ -35,6 +35,8 @@ import { pointPercentiles } from "../../../../../packages/core/districts/pointSu
 import { RANK_BAND_LABEL_PREFIX } from "../event/rankRows.js";
 import { DistrictPointHistogram } from "./DistrictPointHistogram.js";
 import {
+  districtLedgerRookieBonusLine,
+  districtLedgerRookieBonusCaption,
   DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED,
   DISTRICT_LEDGER_CAVEAT,
   DISTRICT_LEDGER_CHANCE_WORDS,
@@ -127,7 +129,8 @@ const UNAVAILABLE_CELL_CLASS = "district-ledger-cell--unavailable";
 const TEAM_CELL_CLASS = "sticky left-0 z-10 bg-[var(--color-bg-surface)] align-middle";
 
 /** The first three columns are words; every column after them is a number, and a number column is centred under a centred header. */
-const FIRST_NUMERIC_COLUMN_INDEX = 3;
+/** The three text columns (Team, Status, Event); every other header centres over its boxed cells. Jacob's order, 2026-09-25: Team, Status, Grand total, Event, Event total, then the four categories. */
+const TEXT_COLUMN_INDEXES: ReadonlySet<number> = new Set([0, 1, 3]);
 
 /** The rewind rail's own id, so its label can sit beside the position readout instead of wrapping the control. */
 const REWIND_INPUT_ID = "district-ledger-rewind-input";
@@ -360,6 +363,11 @@ function TeamCell({ team, season, algorithm }: { team: DistrictLedgerTeam; seaso
           #{String(team.position)} · {String(Math.round(team.earnedDistrictTotal))} earned
           {team.hasOpenCategory ? ` · median ${String(Math.round(team.projection))}` : ""}
         </span>
+        {team.rookieBonus > 0 && (
+          <span className="district-ledger-team-meta whitespace-nowrap" data-testid="district-ledger-rookie-bonus">
+            {districtLedgerRookieBonusLine(Math.round(team.rookieBonus))}
+          </span>
+        )}
       </div>
     </TableCell>
   );
@@ -392,11 +400,13 @@ function DrawerRow({
   grandTotal,
   todaysLineFloor,
   columnCount,
+  rookieBonus,
 }: {
   cell: Extract<DistrictLedgerCell, { kind: "open" }>;
   grandTotal: DistrictLedgerCell;
   todaysLineFloor: number | null;
   columnCount: number;
+  rookieBonus: number;
 }) {
   const cellPercentiles = pointPercentiles(cell.distribution.counts, cell.distribution.denominator);
   const noPointsChance = Math.round(((cell.distribution.counts[0] ?? 0) / cell.distribution.denominator) * 100);
@@ -420,14 +430,22 @@ function DrawerRow({
             <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_DRAWER_CELL_CAPTION}</span>
             {noPointsChance > 0 && <span className="text-[var(--color-text-muted)]">{districtLedgerNoPointsCaption(noPointsChance)}</span>}
           </div>
-          {grandTotal.kind === "open" && <GrandTotalPlot cell={grandTotal} todaysLineFloor={todaysLineFloor} />}
+          {grandTotal.kind === "open" && <GrandTotalPlot cell={grandTotal} todaysLineFloor={todaysLineFloor} rookieBonus={rookieBonus} />}
         </div>
       </TableCell>
     </TableRow>
   );
 }
 
-function GrandTotalPlot({ cell, todaysLineFloor }: { cell: Extract<DistrictLedgerCell, { kind: "open" }>; todaysLineFloor: number | null }) {
+function GrandTotalPlot({
+  cell,
+  todaysLineFloor,
+  rookieBonus,
+}: {
+  cell: Extract<DistrictLedgerCell, { kind: "open" }>;
+  todaysLineFloor: number | null;
+  rookieBonus: number;
+}) {
   const percentiles = pointPercentiles(cell.distribution.counts, cell.distribution.denominator);
   return (
     <div className="flex flex-col gap-[var(--spacing-xs)]">
@@ -446,6 +464,11 @@ function GrandTotalPlot({ cell, todaysLineFloor }: { cell: Extract<DistrictLedge
         {todaysLineFloor === null ? DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION : DISTRICT_LEDGER_DRAWER_LINE_CAPTION}
       </span>
       <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_DRAWER_NO_CHANCE_CAPTION}</span>
+      {rookieBonus > 0 && (
+        <span className="text-[var(--color-text-muted)]" data-testid="district-ledger-drawer-rookie-bonus">
+          {districtLedgerRookieBonusCaption(Math.round(rookieBonus))}
+        </span>
+      )}
     </div>
   );
 }
@@ -803,7 +826,7 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
           <TableHeader>
             <TableRow>
               {DISTRICT_LEDGER_COLUMN_LABELS.map((label, index) => (
-                <TableHead key={label} className={index >= FIRST_NUMERIC_COLUMN_INDEX ? "text-center" : undefined}>
+                <TableHead key={label} className={TEXT_COLUMN_INDEXES.has(index) ? undefined : "text-center"}>
                   {label}
                 </TableHead>
               ))}
@@ -826,10 +849,10 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
                       >
                         <TeamCell team={team} season={season} algorithm={algorithm} />
                         <StatusCell status={statuses.byTeam.get(team.teamKey)} rowSpan={1} />
+                        <LedgerCell cell={team.grandTotal} interaction={interaction} />
                         <TableCell colSpan={DISTRICT_LEDGER_COLUMN_LABELS.length - 3} className="text-[var(--color-text-muted)]">
                           {DISTRICT_LEDGER_UNAVAILABLE_CELL}
                         </TableCell>
-                        <LedgerCell cell={team.grandTotal} interaction={interaction} />
                       </TableRow>,
                     ]
                   : team.rows.map((row, rowIndex) => (
@@ -841,16 +864,16 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
                       >
                         {rowIndex === 0 && <TeamCell team={team} season={season} algorithm={algorithm} />}
                         {rowIndex === 0 && <StatusCell status={statuses.byTeam.get(team.teamKey)} rowSpan={Math.max(team.rowCount, 1)} />}
-                        <EventCell row={row} />
-                        {row.cells.map((cell) => (
-                          <LedgerCell key={cell.id} cell={cell} interaction={interaction} />
-                        ))}
-                        <LedgerCell cell={row.eventTotal} interaction={interaction} variant="total" />
                         {rowIndex === 0 && (
                           <TableCell rowSpan={Math.max(team.rowCount, 1)} data-testid="district-ledger-grand-total" className="numeric-cell align-middle">
                             <GrandTotalContent cell={team.grandTotal} interaction={interaction} />
                           </TableCell>
                         )}
+                        <EventCell row={row} />
+                        <LedgerCell cell={row.eventTotal} interaction={interaction} variant="total" />
+                        {row.cells.map((cell) => (
+                          <LedgerCell key={cell.id} cell={cell} interaction={interaction} />
+                        ))}
                       </TableRow>
                     ));
               if (openDrawer?.team.teamKey !== team.teamKey) return dataRows;
@@ -862,6 +885,7 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
                   grandTotal={team.grandTotal}
                   todaysLineFloor={statLine.todaysLineFloor}
                   columnCount={DISTRICT_LEDGER_COLUMN_LABELS.length}
+                  rookieBonus={team.rookieBonus}
                 />,
               ];
             })}

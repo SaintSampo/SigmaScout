@@ -200,6 +200,8 @@ export interface DistrictLedgerTeam {
   readonly hasOpenCategory: boolean;
   /** 1-based index in the sorted order — the position number the Team cell prints and the status projection consumes. */
   readonly position: number;
+  /** TBA's own rookie bonus (10 in a first season, 5 in a second, else 0), already inside `pointTotal` and the grand total; carried so the Team cell and the drawer can print it. */
+  readonly rookieBonus: number;
 }
 
 /** Every gap this assembly could not close, disclosed as named arrays rather than absorbed. A silently absorbed gap becomes a plausible, complete, WRONG distribution downstream. */
@@ -756,6 +758,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
       projection,
       hasOpenCategory,
       position: 0,
+      rookieBonus: Math.max(0, Math.round(team.rookieBonus)),
     });
   }
 

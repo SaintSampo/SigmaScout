@@ -8,6 +8,8 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  districtLedgerRookieBonusLine,
+  districtLedgerRookieBonusCaption,
   DISTRICT_LEDGER_COLUMN_LABELS,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
@@ -34,6 +36,9 @@ describe("the UI-SPEC copy contract", () => {
   it("pins the two legend keys and the likely/tilde explainer character for character", () => {
     expect(DISTRICT_LEDGER_LEGEND_EARNED).toBe("earned, final");
     expect(DISTRICT_LEDGER_LEGEND_OPEN).toBe("still open · click for the histogram");
+    expect(districtLedgerRookieBonusLine(10)).toBe("+10 rookie bonus");
+    expect(districtLedgerRookieBonusLine(5)).toBe("+5 rookie bonus");
+    expect(districtLedgerRookieBonusCaption(10)).toBe("Includes the 10 point rookie bonus, added once per season and never to an event total.");
     expect(DISTRICT_LEDGER_LEGEND_EXPLAINER).toBe("likely = 8 of 10 runs land here · ~ = this site's prediction, not a number TBA published");
   });
 
@@ -66,13 +71,13 @@ describe("the UI-SPEC copy contract", () => {
     expect([...DISTRICT_LEDGER_COLUMN_LABELS]).toEqual([
       "Team",
       "Status",
+      "Grand total",
       "Event",
+      "Event total",
       "Qualification",
       "Alliance selection",
       "Playoffs",
       "Awards",
-      "Event total",
-      "Grand total",
     ]);
   });
 

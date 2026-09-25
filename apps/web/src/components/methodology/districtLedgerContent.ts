@@ -141,6 +141,7 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
     paragraphs: [
       "One run produces a ranking, then the captains and the picks, then the bracket. A team's four numbers in a run therefore belong to the same imagined weekend, and each histogram is one marginal of the same runs.",
       "The event total is the per run sum of the four categories. The season total is the exact convolution of a team's event totals, plus the rookie bonus and any adjustments.",
+      "The rookie bonus is 10 points in a team's first season and 5 in its second. It is added once per season to the season total and to the floor the locks use, never to an event total. The Team cell prints it when it applies.",
       "A category that is already settled shows the points the team earned, not a prediction. An event nobody has played yet is priced by the pipeline before the season, and the browser computes nothing for it.",
       "An open cell shows either a median with a likely range, or a chance with the typical amount when it happens. Likely means the 10th to the 90th percentile.",
     ],

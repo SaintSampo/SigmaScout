@@ -23,13 +23,13 @@ export const DISTRICT_LEDGER_TAB_LABEL = "Road to District Champs";
 export const DISTRICT_LEDGER_COLUMN_LABELS = [
   "Team",
   "Status",
+  "Grand total",
   "Event",
+  "Event total",
   "Qualification",
   "Alliance selection",
   "Playoffs",
   "Awards",
-  "Event total",
-  "Grand total",
 ] as const;
 
 /**
@@ -175,6 +175,16 @@ export const DISTRICT_LEDGER_DRAWER_NO_CHANCE_CAPTION = "A chance of finishing a
 /** The drawer's two plot labels, used as their accessible names. */
 export const DISTRICT_LEDGER_DRAWER_CELL_PLOT_LABEL = "Points for this category";
 export const DISTRICT_LEDGER_DRAWER_GRAND_PLOT_LABEL = "Grand total district points";
+
+/** The Team cell's rookie bonus line, printed only when the bonus is non zero: 10 points in a team's first season, 5 in its second, added once per season. */
+export function districtLedgerRookieBonusLine(points: number): string {
+  return `+${String(points)} rookie bonus`;
+}
+
+/** The grand total plot's rookie bonus caption, printed only when the bonus is non zero. */
+export function districtLedgerRookieBonusCaption(points: number): string {
+  return `Includes the ${String(points)} point rookie bonus, added once per season and never to an event total.`;
+}
 
 /** The marked line's own short label beside the grand total plot. */
 export const DISTRICT_LEDGER_DRAWER_LINE_LABEL = "Today's line";
