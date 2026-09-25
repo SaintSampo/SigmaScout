@@ -446,6 +446,22 @@ export class AlliancePricingError extends Error {
   }
 }
 
+/** Raised by the grand-total convolution for a non-integer addend, a non-positive denominator, or a combined shift below zero. */
+export class NegativeDistrictShiftError extends Error {
+  constructor(message: string) {
+    super(`convolveDistrictGrandTotal: ${message}`);
+    this.name = "NegativeDistrictShiftError";
+  }
+}
+
+/** Raised by the publish-boundary encoder for an all-zero histogram or a non-positive draw count. */
+export class EmptyHistogramError extends Error {
+  constructor(message: string) {
+    super(`encodeDistrictPointPmf: ${message}`);
+    this.name = "EmptyHistogramError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // The bracket decider's pricing step, exported so its refusal branch is
 // directly testable.
@@ -989,4 +1005,138 @@ function validateSuppliedAlliances(
     );
   }
   return resolved;
+}
+
+// ---------------------------------------------------------------------------
+// The grand total, and the publish-boundary encoder
+// ---------------------------------------------------------------------------
+
+/** One event's total-point distribution as an input to the grand-total convolution. */
+export interface DistrictEventTotalInput {
+  /** Index `i` is the count, or probability, of exactly `i` points — the same offset-zero contract `DistrictLedgerResult` states. */
+  readonly counts: ArrayLike<number>;
+  /** What `counts` sums to: the draw count for a live histogram, or 1 for a baked pmf. */
+  readonly denominator: number;
+}
+
+/**
+ * The EXACT convolution of a team's event totals plus its rookie bonus and
+ * adjustments, returned as a `Float64Array` whose index is again the point
+ * value at offset zero.
+ *
+ * EXACT, AND THE PRECISE SCOPE OF THAT CLAIM. The convolution is exact because
+ * a team's events share no matches, so no match's outcome appears in two of
+ * the distributions — the sketch README's own reasoning. The half the README
+ * does NOT say, and the half a later reader has to be told rather than left to
+ * discover: the model holds the team's SPR rating FIXED across its events
+ * rather than resampling it, so the events are independent CONDITIONAL on that
+ * rating. A team whose true strength is genuinely uncertain has correlated
+ * event totals in reality, and this convolution does not carry that
+ * correlation. An honest limitation stated here is worth more than an
+ * unqualified "exact" a reader has to find the edge of.
+ *
+ * A team plays 0 TO 4 district events, not two: counting `event_points_raw`
+ * array lengths over all 16,345 corpus `district_rankings` rows gives 708 rows
+ * at zero events, 1,334 at one, 7,858 at two, 6,200 at three and 245 at four.
+ * ZERO EVENTS IS A REAL STATE, not an error — it returns a point mass at the
+ * combined shift.
+ *
+ * THERE IS DELIBERATELY NO PUBLISH-BOUNDARY ENCODER FOR THIS VALUE.
+ * `district_rankings.point_total` reaches 445 in the corpus while 10-03's
+ * `DistrictPointPmfSchema` caps a pmf at 256 entries, on the stated basis that
+ * a dcmp-tier EVENT total spans 0 to 249. The grand total is computed in the
+ * browser and is never a published field, so the absence is the mitigation.
+ */
+export function convolveDistrictGrandTotal(
+  eventTotals: readonly DistrictEventTotalInput[],
+  rookieBonus: number,
+  adjustments: number
+): Float64Array {
+  if (!Number.isInteger(rookieBonus)) {
+    throw new NegativeDistrictShiftError(`rookieBonus must be an integer, got ${rookieBonus}`);
+  }
+  if (!Number.isInteger(adjustments)) {
+    throw new NegativeDistrictShiftError(`adjustments must be an integer, got ${adjustments}`);
+  }
+  const shift = rookieBonus + adjustments;
+  if (shift < 0) {
+    // `adjustments` is 0 in every one of the 16,345 corpus `district_rankings`
+    // rows — minimum 0, maximum 0, zero negative rows — so a negative shift has
+    // never been observed. Clamping one to zero would be a FABRICATED value
+    // rather than a fallback, which is why this throws.
+    throw new NegativeDistrictShiftError(
+      `rookieBonus ${rookieBonus} plus adjustments ${adjustments} gives a combined shift of ${shift}, below zero — refusing to clamp a never-observed negative shift into a fabricated value`
+    );
+  }
+
+  let current = new Float64Array(1);
+  current[0] = 1;
+  for (const eventTotal of eventTotals) {
+    const { counts, denominator } = eventTotal;
+    if (!Number.isFinite(denominator) || denominator <= 0) {
+      throw new NegativeDistrictShiftError(`an event total carries a non-positive or non-finite denominator (${denominator})`);
+    }
+    if (counts.length === 0) {
+      throw new NegativeDistrictShiftError("an event total carries an empty distribution");
+    }
+    const next = new Float64Array(current.length + counts.length - 1);
+    for (let i = 0; i < current.length; i++) {
+      const left = current[i]!;
+      if (left === 0) continue;
+      for (let j = 0; j < counts.length; j++) {
+        const right = counts[j]!;
+        if (right === 0) continue;
+        next[i + j]! += left * (right / denominator);
+      }
+    }
+    current = next;
+  }
+
+  if (shift === 0) return current;
+  const shifted = new Float64Array(current.length + shift);
+  shifted.set(current, shift);
+  return shifted;
+}
+
+/** 10-03's offset encoding: `p[i]` is the probability of exactly `offset + i` points. */
+export interface DistrictPointPmfEncoding {
+  readonly offset: number;
+  readonly p: readonly number[];
+}
+
+/**
+ * Encodes ONE EVENT-LEVEL histogram into 10-03's offset encoding: leading
+ * zeros become the offset, trailing zeros are trimmed off the array, and entry
+ * `i` is the probability of exactly `offset + i` points — matching
+ * `DistrictPointPmfSchema`'s own contract.
+ *
+ * THE PRODUCER MUST PASS `p` THROUGH `packages/harness/rounding.ts`'s
+ * `roundPmf` at the publish boundary. This module deliberately does not import
+ * it: this is a `packages/core` leaf and `rounding.ts` is a `packages/harness`
+ * module, and the sum-to-1 tolerance belongs to the schema rather than to a
+ * producer. That is exactly the division of responsibility `rankSimulation.ts`
+ * states for `isValidPmf` — duplicating a numeric tolerance in two places is
+ * how two tolerances drift apart.
+ *
+ * EVENT LEVEL ONLY. See `convolveDistrictGrandTotal` for why no grand-total
+ * encoder exists.
+ */
+export function encodeDistrictPointPmf(histogram: ArrayLike<number>, draws: number): DistrictPointPmfEncoding {
+  if (!Number.isFinite(draws) || draws <= 0) {
+    throw new EmptyHistogramError(`draws must be a positive finite number, got ${draws}`);
+  }
+  let first = -1;
+  let last = -1;
+  for (let i = 0; i < histogram.length; i++) {
+    const value = histogram[i]!;
+    if (value === 0) continue;
+    if (first === -1) first = i;
+    last = i;
+  }
+  if (first === -1) {
+    throw new EmptyHistogramError("the histogram carries no mass at all — refusing to encode an empty distribution");
+  }
+  const p: number[] = [];
+  for (let i = first; i <= last; i++) p.push(histogram[i]! / draws);
+  return { offset: first, p };
 }

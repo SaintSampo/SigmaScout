@@ -27,15 +27,20 @@ import {
 } from "./bracket.js";
 import {
   AlliancePricingError,
+  convolveDistrictGrandTotal,
   decideBracketMatch,
+  EmptyHistogramError,
+  encodeDistrictPointPmf,
   InsufficientRosterError,
   InvalidAllianceSetError,
   InvalidFieldSizeError,
   MissingAwardProfileError,
+  NegativeDistrictShiftError,
   simulateDistrictEvent,
   UnratedTeamError,
   type DistrictAwardProfile,
   type DistrictDrawObservation,
+  type DistrictEventTotalInput,
   type DistrictLedgerEventInput,
   type SuppliedAlliance,
 } from "./ledgerSimulation.js";
@@ -975,5 +980,202 @@ describe("simulateDistrictEvent — the season guard and the tie caveat", () => 
     const result = simulateDistrictEvent(input, 20, 1);
     expect(isPointMass(result.qualPoints.get(teamKey(3))!, 20)).toBe(true);
     expect(isPointMass(result.qualPoints.get(teamKey(4))!, 20)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE GRAND TOTAL (Task 3): the exact convolution, and the publish-boundary
+// encoder for EVENT-LEVEL histograms only.
+// ---------------------------------------------------------------------------
+
+/** Event A: half its mass at 0 points and half at 1. */
+const EVENT_A: DistrictEventTotalInput = { counts: [1, 1], denominator: 2 };
+/** Event B: a quarter of its mass at 0 points and three quarters at 2. */
+const EVENT_B: DistrictEventTotalInput = { counts: [1, 0, 3], denominator: 4 };
+
+describe("convolveDistrictGrandTotal — the hand-computed case", () => {
+  it("two two-point event totals convolve to 0.125, 0.125, 0.375, 0.375, every entry to within 1e-12", () => {
+    const grand = convolveDistrictGrandTotal([EVENT_A, EVENT_B], 0, 0);
+    // By the product rule: 0.5 x 0.25, 0.5 x 0.25, 0.5 x 0.75, 0.5 x 0.75.
+    const expected = [0.125, 0.125, 0.375, 0.375];
+    expect(grand).toHaveLength(expected.length);
+    expected.forEach((value, index) => {
+      expect(Math.abs(grand[index]! - value)).toBeLessThan(1e-12);
+    });
+  });
+
+  it("a rookie bonus of 5 shifts the whole support up by exactly 5, with the same four values and zeros below", () => {
+    const grand = convolveDistrictGrandTotal([EVENT_A, EVENT_B], 5, 0);
+    expect(grand).toHaveLength(9);
+    for (let i = 0; i < 5; i++) expect(grand[i]).toBe(0);
+    const expected = [0.125, 0.125, 0.375, 0.375];
+    expected.forEach((value, index) => {
+      expect(Math.abs(grand[5 + index]! - value)).toBeLessThan(1e-12);
+    });
+  });
+
+  it("is order independent: three event totals convolve to the same result in any input order", () => {
+    const eventC: DistrictEventTotalInput = { counts: [2, 3, 5], denominator: 10 };
+    const first = convolveDistrictGrandTotal([EVENT_A, EVENT_B, eventC], 0, 0);
+    const second = convolveDistrictGrandTotal([eventC, EVENT_A, EVENT_B], 0, 0);
+    const third = convolveDistrictGrandTotal([EVENT_B, eventC, EVENT_A], 0, 0);
+    expect(first).toHaveLength(second.length);
+    for (let i = 0; i < first.length; i++) {
+      expect(Math.abs(first[i]! - second[i]!)).toBeLessThan(1e-12);
+      expect(Math.abs(first[i]! - third[i]!)).toBeLessThan(1e-12);
+    }
+  });
+
+  it("is always a distribution: finite, non-negative and summing to 1 within the same 1e-9 the publish-boundary schema applies", () => {
+    const cases: DistrictEventTotalInput[][] = [
+      [],
+      [EVENT_A],
+      [EVENT_A, EVENT_B],
+      [EVENT_A, EVENT_B, { counts: [2, 3, 5], denominator: 10 }],
+    ];
+    for (const eventTotals of cases) {
+      const grand = convolveDistrictGrandTotal(eventTotals, 5, 0);
+      let sum = 0;
+      for (const value of grand) {
+        expect(Number.isFinite(value)).toBe(true);
+        expect(value).toBeGreaterThanOrEqual(0);
+        sum += value;
+      }
+      expect(Math.abs(sum - 1)).toBeLessThan(1e-9);
+    }
+  });
+
+  it("support length is exactly a + b - 1, plus the shift", () => {
+    const a = { counts: new Array<number>(84).fill(1), denominator: 84 };
+    const b = { counts: new Array<number>(84).fill(1), denominator: 84 };
+    expect(convolveDistrictGrandTotal([a, b], 0, 0)).toHaveLength(84 + 84 - 1);
+    expect(convolveDistrictGrandTotal([a, b], 10, 0)).toHaveLength(84 + 84 - 1 + 10);
+  });
+
+  it.each([0, 1, 2, 3, 4])(
+    "%i event totals is a real state, matching the 708 / 1,334 / 7,858 / 6,200 / 245 corpus rows",
+    (eventCount) => {
+      const eventTotals = new Array<DistrictEventTotalInput>(eventCount).fill(EVENT_A);
+      const grand = convolveDistrictGrandTotal(eventTotals, 5, 0);
+      let sum = 0;
+      for (const value of grand) sum += value;
+      expect(Math.abs(sum - 1)).toBeLessThan(1e-9);
+      if (eventCount === 0) {
+        // Zero events is a point mass at the shift, not an error.
+        expect(grand).toHaveLength(6);
+        expect(grand[5]).toBe(1);
+      }
+    }
+  );
+
+  it("validates both scalar addends and throws rather than clamping a negative shift", () => {
+    expect(() => convolveDistrictGrandTotal([EVENT_A], 5.5, 0)).toThrow(NegativeDistrictShiftError);
+    expect(() => convolveDistrictGrandTotal([EVENT_A], 5, 0.5)).toThrow(NegativeDistrictShiftError);
+    // `adjustments` is 0 in all 16,345 corpus district_rankings rows, so a
+    // negative shift has NEVER been observed; clamping one to zero would be a
+    // fabricated value rather than a fallback.
+    try {
+      convolveDistrictGrandTotal([EVENT_A], 0, -3);
+      expect.fail("expected NegativeDistrictShiftError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(NegativeDistrictShiftError);
+      expect((error as Error).message).toContain("-3");
+    }
+  });
+
+  it("a counts histogram and its pre-normalised pmf give the same grand total to within 1e-12", () => {
+    const counts = Int32Array.from([120, 0, 380, 500]);
+    const draws = 1_000;
+    const normalised = Array.from(counts, (value) => value / draws);
+    const fromCounts = convolveDistrictGrandTotal([{ counts, denominator: draws }, EVENT_B], 0, 0);
+    const fromPmf = convolveDistrictGrandTotal([{ counts: normalised, denominator: 1 }, EVENT_B], 0, 0);
+    expect(fromCounts).toHaveLength(fromPmf.length);
+    for (let i = 0; i < fromCounts.length; i++) {
+      expect(Math.abs(fromCounts[i]! - fromPmf[i]!)).toBeLessThan(1e-12);
+    }
+  });
+});
+
+describe("encodeDistrictPointPmf — 10-03's offset encoding, event level only", () => {
+  it("trims leading zeros into the offset and trailing zeros off the array, and entry i is the probability of exactly offset + i points", () => {
+    const histogram = Int32Array.from([0, 0, 250, 0, 750, 0, 0]);
+    const { offset, p } = encodeDistrictPointPmf(histogram, 1_000);
+    expect(offset).toBe(2);
+    expect(p).toEqual([0.25, 0, 0.75]);
+    expect(p[0]).not.toBe(0);
+    expect(p[p.length - 1]).not.toBe(0);
+    let sum = 0;
+    for (const value of p) sum += value;
+    expect(Math.abs(sum - 1)).toBeLessThan(1e-9);
+    // The encoding's own claim, checked against the source histogram.
+    p.forEach((probability, i) => {
+      expect(probability).toBeCloseTo(histogram[offset + i]! / 1_000, 12);
+    });
+  });
+
+  it("a point-mass histogram encodes to a single-entry array at the right offset", () => {
+    const histogram = Int32Array.from([0, 0, 0, 500, 0]);
+    expect(encodeDistrictPointPmf(histogram, 500)).toEqual({ offset: 3, p: [1] });
+  });
+
+  it("an all-zero histogram and a zero draw count both throw", () => {
+    expect(() => encodeDistrictPointPmf(new Int32Array(10), 1_000)).toThrow(EmptyHistogramError);
+    expect(() => encodeDistrictPointPmf(Int32Array.from([1, 2, 3]), 0)).toThrow(EmptyHistogramError);
+  });
+
+  it("the module exports NO grand-total encoder", async () => {
+    const module = await import("./ledgerSimulation.js");
+    const grandTotalEncoders = Object.keys(module).filter(
+      (name) => /grand/i.test(name) && /encode|pmf/i.test(name)
+    );
+    // `district_rankings.point_total` reaches 445 in the corpus while
+    // DistrictPointPmfSchema caps a pmf at 256 entries. The grand total is a
+    // browser-side quantity and is never a published field, so the ABSENCE is
+    // the mitigation.
+    expect(grandTotalEncoders).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The measured cost. RECORDED, never asserted against a millisecond bar.
+// ---------------------------------------------------------------------------
+
+describe("simulateDistrictEvent — the 1,000-draw cost on a realistic fixture", () => {
+  it("completes 1,000 draws over roughly 40 teams and roughly 60 remaining matches with well-formed marginals, and PRINTS its elapsed time", () => {
+    const teamCount = 40;
+    const matches: SimMatchInput[] = [];
+    const pmf = [0.1, 0.15, 0.2, 0.25, 0.2, 0.1];
+    for (let m = 0; m < 60; m++) {
+      const red: string[] = [];
+      const blue: string[] = [];
+      for (let slot = 0; slot < 3; slot++) {
+        red.push(teamKey(((m * 6 + slot) % teamCount) + 1));
+        blue.push(teamKey(((m * 6 + slot + 3) % teamCount) + 1));
+      }
+      matches.push({ redTeamKeys: red, blueTeamKeys: blue, redRpPmf: pmf, blueRpPmf: pmf });
+    }
+    const input = inputFor(teamCount, { remainingMatches: matches });
+    const draws = 1_000;
+
+    const startedAt = performance.now();
+    const result = simulateDistrictEvent(input, draws, 2026);
+    const elapsedMs = performance.now() - startedAt;
+
+    // NO MILLISECOND BAR IS ASSERTED. Project memory
+    // `project_worker_cputime_not_reproducible` records roughly 5 ms of
+    // run-to-run spread on unchanged code, so an absolute bound would
+    // manufacture a flake while proving nothing. The figure is RECORDED in
+    // 10-04-SUMMARY.md, because 10-07 needs it to decide whether a district's
+    // two events fit inside a frame budget.
+    // eslint-disable-next-line no-console
+    console.log(
+      `[10-04 cost] ${draws} draws, ${teamCount} teams, ${matches.length} remaining matches, 8 alliances, all stages open: ${elapsedMs.toFixed(1)} ms`
+    );
+
+    for (const baseline of input.baselines) {
+      expect(result.eventTotal.get(baseline.teamKey)!.reduce((sum, v) => sum + v, 0)).toBe(draws);
+      expect(result.qualPoints.get(baseline.teamKey)!.reduce((sum, v) => sum + v, 0)).toBe(draws);
+    }
+    expect(Number.isFinite(elapsedMs)).toBe(true);
   });
 });
