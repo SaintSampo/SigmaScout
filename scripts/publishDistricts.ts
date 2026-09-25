@@ -109,6 +109,7 @@ import {
   DISTRICT_DETAIL_MAX_BYTES,
   DISTRICT_DETAIL_MAX_BYTES_PER_TEAM,
   DISTRICT_PRESIM_MAX_BYTES,
+  DISTRICTS_INDEX_MAX_BYTES,
 } from "../packages/harness/publishBudget.js";
 import { putObject } from "../packages/harness/r2Client.js";
 import { roundPmf } from "../packages/harness/rounding.js";
@@ -149,12 +150,15 @@ export interface DistrictBudgetCeilings {
   readonly detailPerTeam: number;
   readonly detailAbsolute: number;
   readonly presim: number;
+  /** `v1/districts/{year}.json`. Every composed object kind has a ceiling; a gate covering two of three is a gate with a hole in it. */
+  readonly indexAbsolute: number;
 }
 
 export const COMMITTED_DISTRICT_CEILINGS: DistrictBudgetCeilings = {
   detailPerTeam: DISTRICT_DETAIL_MAX_BYTES_PER_TEAM,
   detailAbsolute: DISTRICT_DETAIL_MAX_BYTES,
   presim: DISTRICT_PRESIM_MAX_BYTES,
+  indexAbsolute: DISTRICTS_INDEX_MAX_BYTES,
 };
 
 // ---------------------------------------------------------------------------
@@ -1464,12 +1468,19 @@ export async function run(options: CliOptions): Promise<void> {
       // overwritten, so the index never points at a detail object that is
       // not there yet.
       const indexBody = JSON.stringify(year.indexArtifact);
-      const indexBytes = Buffer.byteLength(indexBody);
+      // THROUGH THE SAME GATE AS THE OTHER TWO KINDS. This object used to be
+      // measured by a hand-rolled `Buffer.byteLength` and a hand-rolled
+      // `--local-out` write, with no `assertWithinDistrictBudget` in front of
+      // either — the one composed object that could be written and uploaded
+      // unmeasured. It grows with the district count per season and it is on
+      // the picker's page-load path.
+      const indexBytes = gateAndRecord({
+        key: year.indexKey,
+        body: indexBody,
+        ceiling: ceilings.indexAbsolute,
+        ...(options.localOut !== undefined ? { localOut: options.localOut } : {}),
+      });
       totalBytes += indexBytes;
-      if (options.localOut !== undefined) {
-        mkdirSync(options.localOut, { recursive: true });
-        writeFileSync(join(options.localOut, localOutFileName(year.indexKey)), indexBody, "utf8");
-      }
       console.log(`publishDistricts: composed "${year.indexKey}" (${indexBytes} bytes)`);
       if (!options.dryRun) {
         await putObject(options.bucket, year.indexKey, indexBody, { contentType: "application/json", cacheControl: "public, max-age=60" });

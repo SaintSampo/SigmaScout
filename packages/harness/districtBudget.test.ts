@@ -18,6 +18,7 @@ import {
   assertWithinDistrictBudget,
   DISTRICT_DETAIL_MAX_BYTES,
   DISTRICT_DETAIL_MAX_BYTES_PER_TEAM,
+  DISTRICTS_INDEX_MAX_BYTES,
   DISTRICT_PRESIM_MAX_BYTES,
   DistrictBudgetExceededError,
   PUBLISH_BUDGET_DOC_PATH,
@@ -242,10 +243,14 @@ describe("district artifact byte measurement (2026pnw)", () => {
 });
 
 describe("the district ceilings and the doc cannot drift", () => {
+  // EVERY exported district ceiling is named here EXPLICITLY. A list that is
+  // iterated rather than pinned silently skips whatever was added since it was
+  // written, which is how a new constant ships with no doc row behind it.
   const ceilings = {
     DISTRICT_DETAIL_MAX_BYTES_PER_TEAM,
     DISTRICT_DETAIL_MAX_BYTES,
     DISTRICT_PRESIM_MAX_BYTES,
+    DISTRICTS_INDEX_MAX_BYTES,
   };
 
   it("every exported ceiling is a finite, positive integer", () => {
@@ -268,7 +273,7 @@ describe("the district ceilings and the doc cannot drift", () => {
     const markdown = readFileSync(PUBLISH_BUDGET_DOC_PATH, "utf8");
     for (const name of Object.keys(ceilings)) expect(markdown.includes(name), `${name} is not named in ${PUBLISH_BUDGET_DOC_PATH}`).toBe(true);
     // The three measured totals the branch was chosen from.
-    for (const measured of ["106,920", "151,351", "717,001", "733,050", "209,043"]) {
+    for (const measured of ["106,920", "151,351", "717,001", "733,050", "209,043", "2,089"]) {
       expect(markdown.includes(measured), `measured figure ${measured} is not recorded in ${PUBLISH_BUDGET_DOC_PATH}`).toBe(true);
     }
     expect(markdown.includes("Outcome: SIDECAR")).toBe(true);

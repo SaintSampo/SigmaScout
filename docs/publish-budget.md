@@ -78,21 +78,24 @@ baked result for one event.
 | district detail, per team | `v1/district/{districtKey}.json` | 1,700 |
 | district detail, absolute | `v1/district/{districtKey}.json` | 1,300,000 |
 | district pre-simulation sidecar | `v1/district-presim/{districtKey}/{eventKey}.json` | 1,300,000 |
+| districts index | `v1/districts/{year}.json` | 30,000 |
 
-Neither object is a `PageKind`. Both have their own key function, and district rows are deliberately
+None of these objects is a `PageKind`. Each has its own key function, and district rows are deliberately
 NOT added to the machine-readable `json budget` block at the bottom of this file: that block is
 written by `pnpm publish:seasons --write-budget`, which does not publish districts, so a hand-added
 district row there would be erased by the next run.
 
 **The ceilings live in code**, in `packages/harness/publishBudget.ts`, as
-`DISTRICT_DETAIL_MAX_BYTES_PER_TEAM`, `DISTRICT_DETAIL_MAX_BYTES` and `DISTRICT_PRESIM_MAX_BYTES`.
+`DISTRICT_DETAIL_MAX_BYTES_PER_TEAM`, `DISTRICT_DETAIL_MAX_BYTES`, `DISTRICT_PRESIM_MAX_BYTES` and
+`DISTRICTS_INDEX_MAX_BYTES`.
 `packages/harness/districtBudget.test.ts` fails when a constant and the number in the table above
 disagree, so the two cannot drift.
 
 **Enforcement at publish time is `scripts/publishDistricts.ts`'s job.** 10-06 wired
 `assertWithinDistrictBudget` in before `putObject`, the same way `publishSeasons` calls
 `assertWithinPageBudget`. The gate runs on every detail object (absolute AND per-team) and every
-sidecar, BEFORE the object is written locally or uploaded, in `--dry-run` and real runs alike. Bytes
+sidecar, and (since the phase 10 review, WR-05) on the districts index, BEFORE the object is written
+locally or uploaded, in `--dry-run` and real runs alike. Bytes
 are counted with `Buffer.byteLength`, never `String.length`: measured 2026-09-25, 30 of the 3,155
 teams that appear in `district_rankings` carry a non-ASCII nickname (`frc88`'s is 3 UTF-16 code units
 and 4 UTF-8 bytes), so a code-unit count understates every district object — and a gate that
@@ -140,6 +143,13 @@ what is being bounded.
   PNW's 126 teams.
 - `DISTRICT_PRESIM_MAX_BYTES` = the largest measured sidecar, 209,043 bytes, x 4.4 (FiM's roster scale)
   x 1.4, rounded up to the next 100,000 = **1,300,000**.
+- `DISTRICTS_INDEX_MAX_BYTES` = the largest measured index, **2,089** bytes (2026, 14 districts, or 150
+  bytes per district row), x 1.4 x a 10x district-count margin, rounded up to the next 10,000 =
+  **30,000**. The 10x is a stated design margin, not a measurement: FIRST has never run more than about
+  a dozen districts in a season, and 140 leaves room for a structural field being added to every row as
+  well as for more districts. The index is three orders of magnitude under the detail object and still
+  needs a ceiling, because until the phase 10 review it was the one composed object that bypassed
+  `gateAndRecord` entirely — a gate covering two of three object kinds is a gate with a hole in it.
 
 A per-team ceiling alongside an absolute one is what makes the gate meaningful across districts of
 wildly different size: the per-team number catches structural bloat that an absolute number would hide

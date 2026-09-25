@@ -24,11 +24,12 @@ import {
 } from "../packages/core/districts/awardBaseRates.js";
 import { DISTRICT_REGISTERED_SEASONS } from "../packages/core/districts/pointModel.js";
 import { DISTRICT_AWARD_BUCKETS, DistrictEventStateSchema } from "../packages/harness/pageArtifacts.js";
-import { DistrictBudgetExceededError } from "../packages/harness/publishBudget.js";
+import { DistrictBudgetExceededError, DISTRICTS_INDEX_MAX_BYTES } from "../packages/harness/publishBudget.js";
 import {
   buildDistrictArtifact,
   buildDistrictsIndexArtifact,
   buildSeasonAwardContext,
+  COMMITTED_DISTRICT_CEILINGS,
   classifyBakeCandidate,
   deriveDistrictEventState,
   localOutFileName,
@@ -663,12 +664,56 @@ describe("run() over the real corpus — the gate and --no-bake", () => {
           asOf: COMPUTED_AT,
           localOut: outDir,
           bake: false,
-          ceilings: { detailPerTeam: 1, detailAbsolute: 1, presim: 1 },
+          ceilings: { detailPerTeam: 1, detailAbsolute: 1, presim: 1, indexAbsolute: 1 },
         })
       ).rejects.toThrow(DistrictBudgetExceededError);
       // A gate that fires AFTER the file is written is a log line, not a gate.
       expect(readdirSync(outDir)).toEqual([]);
     } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
+  });
+
+  it("the INDEX goes through the same gate: a one-byte index ceiling throws even with every other ceiling wide open (WR-05)", async () => {
+    // The index used to be measured by a hand-rolled `Buffer.byteLength` and
+    // written by a hand-rolled `--local-out` copy, with no
+    // `assertWithinDistrictBudget` in front of either. It was the one composed
+    // object that could be uploaded unmeasured.
+    const outDir = mkdtempSync(join(tmpdir(), "publish-districts-index-gate-"));
+    try {
+      await expect(
+        run({
+          years: [2026],
+          bucket: "unused",
+          dryRun: true,
+          asOf: COMPUTED_AT,
+          localOut: outDir,
+          bake: false,
+          ceilings: { ...COMMITTED_DISTRICT_CEILINGS, indexAbsolute: 1 },
+        })
+      ).rejects.toThrow(/v1\/districts\/2026\.json/);
+      // The detail objects, whose ceilings were left at their committed values,
+      // are written; the index is not.
+      expect(readdirSync(outDir).some((name) => name.startsWith("v1__district__"))).toBe(true);
+      expect(readdirSync(outDir)).not.toContain("v1__districts__2026.json");
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
+  });
+
+  it("the real 2026 index sits under its committed ceiling with real margin", async () => {
+    const outDir = mkdtempSync(join(tmpdir(), "publish-districts-index-size-"));
+    const original = console.log;
+    console.log = () => {};
+    try {
+      await run({ years: [2026], bucket: "unused", dryRun: true, asOf: COMPUTED_AT, localOut: outDir, bake: false });
+      const body = readFileSync(join(outDir, "v1__districts__2026.json"), "utf8");
+      expect(Buffer.byteLength(body)).toBeLessThanOrEqual(DISTRICTS_INDEX_MAX_BYTES);
+      // The measurement the ceiling was derived from, restated as a bound
+      // rather than an equality so a district being added does not fail it.
+      expect(Buffer.byteLength(body)).toBeLessThan(DISTRICTS_INDEX_MAX_BYTES / 2);
+    } finally {
+      console.log = original;
       rmSync(outDir, { recursive: true, force: true });
     }
   });

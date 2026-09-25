@@ -152,6 +152,29 @@ export const DISTRICT_DETAIL_MAX_BYTES = 1_300_000;
  */
 export const DISTRICT_PRESIM_MAX_BYTES = 1_300_000;
 
+/**
+ * `v1/districts/{year}.json`'s byte ceiling — the district picker's index.
+ *
+ * MEASURED, then given a district-count margin. The largest real index is
+ * 2026's at 2,089 bytes across 14 districts (measured 2026-09-25 from
+ * `publishDistricts --dry-run --local-out`), or 150 bytes per district row.
+ * This ceiling is that measurement times 1.4 — the same headroom factor
+ * `DISTRICT_DETAIL_MAX_BYTES_PER_TEAM` takes — times a stated 10x
+ * district-count margin, rounded up to the next 10,000.
+ *
+ * The 10x is a DESIGN MARGIN, not a measurement: FIRST has never run more than
+ * about a dozen districts in a season, and 140 leaves room for a structural
+ * field being added to every row as well as for more districts.
+ *
+ * WHY THE INDEX NEEDS A CEILING AT ALL, given it is three orders of magnitude
+ * under the detail object's. It grows with the district count per season, it
+ * is on the page-load path for the picker, and until this ceiling existed it
+ * was the ONE composed object that bypassed `gateAndRecord` entirely — written
+ * and uploaded with no measurement in front of it. A gate that covers two of
+ * three object kinds is a gate with a hole in it, not a smaller gate.
+ */
+export const DISTRICTS_INDEX_MAX_BYTES = 30_000;
+
 export class DistrictBudgetExceededError extends Error {
   constructor(
     readonly key: string,
