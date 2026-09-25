@@ -64,6 +64,8 @@ interface EventWindowRow {
   min_sort_time: number | null;
   max_sort_time: number | null;
   match_count: number;
+  /** TBA's YEAR-PREFIXED district key, joined from `districts`, or `null` for a non-district event (and for a district abbreviation with no row for that year). */
+  district_key: string | null;
 }
 
 /** Lead before a zero-match event's `start_date` midnight UTC that its probe window opens — covers a local morning start whose UTC date rolls back one day (e.g. UTC+11 at 08:00 local is 21:00Z the day before). */
@@ -179,11 +181,26 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
     const placeholders = seasons.map(() => "?").join(",");
     const rows = db
       .prepare(
+        // `districts.district_key` is TBA's YEAR-PREFIXED key; `events.district_key`
+        // is the bare abbreviation. JOIN, never concatenate — a manifest must
+        // never name a district that has no row and therefore no published
+        // artifact.
+        //
+        // COUNT(DISTINCT m.match_key), not COUNT(m.match_key): `match_count` is
+        // what decides probe-versus-measured, the new districts join sits inside
+        // this same grouped query, and a count over JOIN ROWS is exactly the
+        // shape that silently flips a zero-match probe event into a fake
+        // measured window. `(abbreviation, year)` is unique by construction —
+        // the districts primary key is the year-prefixed concatenation of the
+        // two — so the join cannot multiply rows today; counting distinct keys
+        // makes that a guarantee instead of a coincidence.
         `SELECT e.event_key AS event_key, e.year AS year, e.start_date AS start_date,
                 MIN(m.sort_time) AS min_sort_time, MAX(m.sort_time) AS max_sort_time,
-                COUNT(m.match_key) AS match_count
+                COUNT(DISTINCT m.match_key) AS match_count,
+                d.district_key AS district_key
          FROM events e
          LEFT JOIN matches m ON m.event_key = e.event_key
+         LEFT JOIN districts d ON d.abbreviation = e.district_key AND d.year = e.year
          WHERE e.year IN (${placeholders})
          GROUP BY e.event_key
          ORDER BY e.event_key ASC`
@@ -208,6 +225,7 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
           startMs: probe.startMs,
           endMs: probe.endMs,
           inferred: true,
+          districtKey: row.district_key,
         });
         continue;
       }
@@ -223,6 +241,7 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
         startMs: row.min_sort_time - padMs,
         endMs,
         inferred: false,
+        districtKey: row.district_key,
       });
     }
   }

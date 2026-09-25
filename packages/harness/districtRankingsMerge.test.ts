@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 import { DistrictArtifactSchema, type DistrictArtifact } from "./pageArtifacts.js";
 import {
+  applyDistrictEventState,
   applyDistrictRankings,
   DistrictMergeError,
   DistrictRankingsEventPointsEntrySchema,
@@ -302,6 +303,53 @@ describe("recomputeDistrictVerdicts", () => {
     expect(merged.insights.teamCount).toBe(merged.teams.length);
     // eventCount has no corpus-free source, so it rides forward untouched.
     expect(merged.insights.eventCount).toBe(3);
+  });
+});
+
+describe("applyDistrictEventState — the write path for a category that finished without moving a point total", () => {
+  const observed = { qualMatchesPlayed: 72, qualMatchesTotal: 72, alliancesPicked: true, playoffsDone: false, awardsPosted: false };
+
+  function applyState(eventKey: string, artifact = twoTeamFixture()) {
+    return applyDistrictEventState({ artifact, eventState: new Map([[eventKey, observed]]), generation: GENERATION, computedAt: COMPUTED_AT });
+  }
+
+  it("sets the state block on the matching rows across EVERY team", () => {
+    const updated = applyState("2026ncwak");
+    for (const team of updated.teams) {
+      expect(team.eventPoints.find((row) => row.eventKey === "2026ncwak")!.state).toEqual(observed);
+    }
+  });
+
+  it("writes onto a remainingEvents row too — an event in progress has no points yet and still lives there", () => {
+    const updated = applyState("2026ncpem");
+    expect(updated.teams[0]!.remainingEvents[0]!.state).toEqual(observed);
+  });
+
+  it("leaves pointTotal, rank, both lock verdicts and insights untouched — recomputing verdicts here is work that provably cannot alter an outcome", () => {
+    const artifact = twoTeamFixture();
+    const updated = applyState("2026ncwak", artifact);
+    for (const [index, team] of updated.teams.entries()) {
+      const before = artifact.teams[index]!;
+      expect(team.pointTotal).toBe(before.pointTotal);
+      expect(team.rank).toBe(before.rank);
+      expect(team.maxRemainingDistrict).toBe(before.maxRemainingDistrict);
+      expect(team.maxRemainingChamp).toBe(before.maxRemainingChamp);
+      expect(team.districtLock).toEqual(before.districtLock);
+      expect(team.champLock).toEqual(before.champLock);
+    }
+    expect(updated.insights).toEqual(artifact.insights);
+  });
+
+  it("stamps the caller's generation and computedAt and returns a schema-parsed artifact", () => {
+    const updated = applyState("2026ncwak");
+    expect(updated.generation).toBe(GENERATION);
+    expect(updated.computedAt).toBe(COMPUTED_AT);
+    expect(() => DistrictArtifactSchema.parse(updated)).not.toThrow();
+  });
+
+  it("throws DistrictMergeError for an event key no team in the artifact carries — a state observation for an event outside the district is a caller bug, not a silent no-op", () => {
+    expect(() => applyState("2026zzzzz")).toThrow(DistrictMergeError);
+    expect(() => applyState("2026zzzzz")).toThrow(/2026zzzzz/);
   });
 });
 

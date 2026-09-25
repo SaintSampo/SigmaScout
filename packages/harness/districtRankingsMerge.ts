@@ -445,3 +445,57 @@ export function applyDistrictRankings(options: ApplyDistrictRankingsOptions): Di
 
   return recomputeDistrictVerdicts(merged);
 }
+
+export interface ApplyDistrictEventStateOptions {
+  /** The district artifact as read back from R2 — already `DistrictArtifactSchema`-parsed. */
+  readonly artifact: DistrictArtifact;
+  /** Per-event state observations, keyed by event key. Every key must match at least one row somewhere in the artifact. */
+  readonly eventState: ReadonlyMap<string, DistrictEventState>;
+  readonly generation: string;
+  readonly computedAt: string;
+}
+
+/**
+ * Writes observed per-event state onto every matching `eventPoints` and
+ * `remainingEvents` row and changes nothing else.
+ *
+ * WHY THIS IS A SECOND ENTRY POINT rather than an argument to the first: a
+ * category can finish without moving a single team's point total. Alliances
+ * are selected, and a team that was not picked earns nothing while its row's
+ * `alliancesPicked` is now true. So the Worker needs a write path that
+ * records what it observed when the rankings poll came back unchanged — and
+ * running the verdict pass there would be work that provably cannot alter an
+ * outcome, since no floor and no ceiling moved.
+ *
+ * Both functions share the one merge core (`withState` walks the rows for
+ * each); neither duplicates the other's row walk.
+ *
+ * REFUSES an event key no team in the artifact carries. A state observation
+ * for an event outside this district is a caller bug — silently dropping it
+ * would leave the Worker believing it had written a fact it had not.
+ */
+export function applyDistrictEventState(options: ApplyDistrictEventStateOptions): DistrictArtifact {
+  const { artifact, eventState, generation, computedAt } = options;
+
+  const known = new Set<string>();
+  for (const team of artifact.teams) {
+    for (const row of team.eventPoints) known.add(row.eventKey);
+    for (const row of team.remainingEvents) known.add(row.eventKey);
+  }
+  for (const eventKey of eventState.keys()) {
+    if (!known.has(eventKey)) {
+      throw new DistrictMergeError(`applyDistrictEventState: district ${artifact.districtKey} carries no row for event ${eventKey} — refusing to drop a state observation for an event outside this district`);
+    }
+  }
+
+  return DistrictArtifactSchema.parse({
+    ...artifact,
+    generation,
+    computedAt,
+    teams: artifact.teams.map((team) => ({
+      ...team,
+      eventPoints: team.eventPoints.map((row) => withState(row, eventState)),
+      remainingEvents: team.remainingEvents.map((row) => withState(row, eventState)),
+    })),
+  });
+}

@@ -51,6 +51,36 @@ export const LiveWindowEntrySchema = z.object({
    * on the strength of the window alone.
    */
   inferred: z.boolean(),
+  /**
+   * TBA's YEAR-PREFIXED district key (e.g. `"2026pnw"`) for an event that
+   * belongs to a district, `null` for one that does not. This is how the
+   * Worker derives DISTRICT liveness from member-event liveness with no
+   * corpus and no second R2 read (10-RESEARCH Open Questions 2 and 3): a
+   * district is live exactly when one of its member events' windows is.
+   *
+   * THE CONTRACT BOTH SIDES READ, stated the way `inferred`'s own contract is
+   * stated above. The offline builder (`manifests.ts`'s
+   * `buildLiveWindowsManifest`) always writes an explicit `null` for a
+   * non-district event, so on a manifest this builder produced, `null` means
+   * "not a district event". An ABSENT key means the manifest predates phase
+   * 10 entirely, and a reader must treat that exactly as `null` — no district
+   * is live, which is the correct answer for a manifest that carries no
+   * district information.
+   *
+   * The value is JOINED from the corpus `districts` table, never concatenated
+   * from `events.district_key`'s bare abbreviation, so a manifest can never
+   * name a district key that has no row and therefore no published artifact.
+   *
+   * `MANIFEST_SCHEMA_VERSION` is deliberately NOT bumped, and this OVERRIDES
+   * 10-RESEARCH Open Question 2's recommendation to bump it. 10-09 deploys
+   * the Worker BEFORE the republish, so a bumped literal would make the newly
+   * deployed Worker reject the manifest sitting in R2 for the entire window
+   * between deploy and republish — killing live folding for every event, not
+   * just districts. `AlgorithmManifestEntrySchema.paramsSeason` below is this
+   * file's own established precedent for an additive optional manifest field
+   * at an unchanged version.
+   */
+  districtKey: z.string().min(1).nullish(),
 });
 
 export type LiveWindowEntry = z.infer<typeof LiveWindowEntrySchema>;

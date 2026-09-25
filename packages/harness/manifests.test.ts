@@ -5,11 +5,12 @@
  * manifest built from each published module, and legacy manifest keys
  * stripped on parse.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { openCorpus, upsertEvent, upsertMatch, type Corpus } from "../corpus/db.js";
+import { openCorpus, upsertDistrict, upsertEvent, upsertMatch, type Corpus } from "../corpus/db.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
@@ -18,7 +19,9 @@ import { LiveWindowsManifestEnvelopeSchema } from "./manifestSchemas.js";
 import {
   AlgorithmsManifestSchema,
   LIVE_WINDOW_PAD_MS,
+  LiveWindowEntrySchema,
   LiveWindowsManifestSchema,
+  MANIFEST_SCHEMA_VERSION,
   PROBE_WINDOW_LEAD_MS,
   PROBE_WINDOW_SPAN_MS,
   PUBLISHED_ALGORITHM_IDS,
@@ -197,6 +200,98 @@ describe("buildLiveWindowsManifest — corpus-derived windows", () => {
 
     expect(manifest.windows.every((w) => w.inferred === false)).toBe(true);
     expect(manifest.windows.map((w) => w.eventKey)).toEqual(["2026azfg"]);
+  });
+});
+
+describe("buildLiveWindowsManifest — districtKey (10-03): how the Worker finds a live district with no corpus", () => {
+  /** `districts.district_key` is TBA's YEAR-PREFIXED key; `events.district_key` is the bare abbreviation. The builder JOINS, never concatenates. */
+  function district(overrides: Partial<{ districtKey: string; year: number; abbreviation: string }> = {}) {
+    return {
+      districtKey: "2026pnw",
+      year: 2026,
+      abbreviation: "pnw",
+      displayName: "Pacific Northwest",
+      dcmpSlots: 60 as number | null,
+      cmpSlots: 20 as number | null,
+      fetchedAt: "2026-03-01T00:00:00.000Z",
+      ...overrides,
+    };
+  }
+
+  function buildOne(generation: string) {
+    return buildLiveWindowsManifest(db, { seasons: [2026], padMs: 5_000, generation, nowMs: 0, computedAt: "2026-08-22T00:00:00.000Z" });
+  }
+
+  it("emits the YEAR-PREFIXED district key for a district event whose events.district_key is the bare abbreviation", () => {
+    upsertDistrict(db, district());
+    upsertEvent(db, event({ eventKey: "2026wabon", districtKey: "pnw" }));
+    upsertMatch(db, match({ matchKey: "2026wabon_qm1", eventKey: "2026wabon", sortTime: 1_000_000 }));
+
+    const manifest = buildOne("test-gen-district-1");
+    expect(manifest.windows).toHaveLength(1);
+    expect(manifest.windows[0]!.districtKey).toBe("2026pnw");
+  });
+
+  it("emits null for a non-district event", () => {
+    upsertDistrict(db, district());
+    upsertEvent(db, event({ eventKey: "2026azfg", districtKey: null }));
+    upsertMatch(db, match({ matchKey: "2026azfg_qm1", eventKey: "2026azfg", sortTime: 1_000_000 }));
+
+    const manifest = buildOne("test-gen-district-2");
+    expect(manifest.windows[0]!.districtKey).toBeNull();
+  });
+
+  it("emits null — never a fabricated key — for a district event whose abbreviation has no districts row for that year", () => {
+    upsertDistrict(db, district({ districtKey: "2025pnw", year: 2025 }));
+    upsertEvent(db, event({ eventKey: "2026wabon", districtKey: "pnw" }));
+    upsertMatch(db, match({ matchKey: "2026wabon_qm1", eventKey: "2026wabon", sortTime: 1_000_000 }));
+
+    const manifest = buildOne("test-gen-district-3");
+    expect(manifest.windows[0]!.districtKey).toBeNull();
+  });
+
+  it("carries districtKey onto a PROBE window too — a zero-match district event stays inferred: true and is not flipped to measured by the new join", () => {
+    upsertDistrict(db, district());
+    upsertEvent(db, event({ eventKey: "2026wabon", districtKey: "pnw", startDate: "2026-03-05" }));
+
+    const manifest = buildLiveWindowsManifest(db, { seasons: [2026], generation: "test-gen-district-4", computedAt: "2026-03-01T00:00:00.000Z" });
+    expect(manifest.windows).toHaveLength(1);
+    expect(manifest.windows[0]!.inferred).toBe(true);
+    expect(manifest.windows[0]!.districtKey).toBe("2026pnw");
+  });
+
+  it("REGRESSION: the districts join moves no pre-existing window — startMs, endMs, inferred and the entry count are unchanged", () => {
+    // The exact fixture and the exact values the first two tests in
+    // "corpus-derived windows" above pin, rebuilt here with a districts row
+    // present so the new LEFT JOIN is exercised on the same inputs.
+    upsertDistrict(db, district());
+    upsertEvent(db, event({ eventKey: "2026azfg" }));
+    upsertMatch(db, match({ matchKey: "2026azfg_qm1", sortTime: 1_000_000 }));
+    upsertMatch(db, match({ matchKey: "2026azfg_qm2", matchNumber: 2, sortTime: 1_010_000 }));
+
+    const manifest = buildOne("test-gen-district-5");
+    expect(manifest.windows).toHaveLength(1);
+    expect(manifest.windows[0]!.startMs).toBe(1_000_000 - 5_000);
+    expect(manifest.windows[0]!.endMs).toBe(1_010_000 + 5_000);
+    expect(manifest.windows[0]!.inferred).toBe(false);
+    expect(manifest.windows[0]!.season).toBe(2026);
+  });
+
+  it("counts DISTINCT match keys — `match_count` decides probe-versus-measured, and a count over join rows is exactly the shape that flips a zero-match probe into a fake measured window", () => {
+    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "manifests.ts"), "utf8");
+    expect(source).toContain("COUNT(DISTINCT m.match_key)");
+  });
+
+  it("LiveWindowEntrySchema accepts an absent districtKey (a manifest published before this phase), a null, and a non-empty string — and rejects an empty string", () => {
+    const base = { eventKey: "2026wabon", season: 2026, startMs: 0, endMs: 1, inferred: false };
+    expect(() => LiveWindowEntrySchema.parse(base)).not.toThrow();
+    expect(() => LiveWindowEntrySchema.parse({ ...base, districtKey: null })).not.toThrow();
+    expect(() => LiveWindowEntrySchema.parse({ ...base, districtKey: "2026pnw" })).not.toThrow();
+    expect(() => LiveWindowEntrySchema.parse({ ...base, districtKey: "" })).toThrow();
+  });
+
+  it("MANIFEST_SCHEMA_VERSION is still 1 — a bump would make the newly deployed Worker reject the manifest sitting in R2 for the whole window between deploy and republish", () => {
+    expect(MANIFEST_SCHEMA_VERSION).toBe(1);
   });
 });
 
