@@ -1,9 +1,18 @@
 /**
  * The five statuses at one position, in Jacob's own words.
  *
- * ONE PURE MODULE, no React. It imports `packages/core/districts/locks.ts` and
- * `qualification.ts` and EDITS NEITHER — no file under `packages/` is touched
- * by this plan at all.
+ * ONE PURE MODULE, no React. It imports `packages/core/districts/locks.ts`,
+ * `qualification.ts` and `reservedSlots.ts` and defines no status rule of its
+ * own. (10-07's original "no file under `packages/` is touched" note no longer
+ * holds: quick task 260925-ms7 added the `reservedSlots` argument to
+ * `locks.ts` and the counting rule to `reservedSlots.ts`, because the offline
+ * publisher and the Worker need the same reservation this tab needs.)
+ *
+ * ONE SLOT IS HELD BACK PER IMPACT AWARD STILL TO COME. See
+ * `reservedSlotsAtPosition` below and `packages/core/districts/reservedSlots.ts`
+ * for the rule; the short version is that until an event's Impact award is
+ * posted, its slot must not sit in the points pool, or a team on the knife
+ * edge reads `Locked` one step before the award takes the slot away.
  *
  * WHERE EACH STATUS COMES FROM:
  *
@@ -40,8 +49,9 @@ import {
 } from "../../../../../packages/core/districts/locks.js";
 import { consumingAwardTypesForTier } from "../../../../../packages/core/districts/qualification.js";
 import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
+import { reservedImpactSlots, type ReservedSlotEvent } from "../../../../../packages/core/districts/reservedSlots.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import { DISTRICT_CATEGORIES, type DistrictLedgerTeam } from "./districtLedgerRows.js";
+import { DISTRICT_CATEGORIES, districtTierEvents, type DistrictLedgerTeam } from "./districtLedgerRows.js";
 
 /** The five chip keys, plus the honest capacity-not-published state that renders as plain text with NO chip. */
 export const DISTRICT_LEDGER_STATUS_KEYS = ["prequalified", "locked", "inRange", "outOfRange", "lockedOut"] as const;
@@ -74,6 +84,8 @@ export interface DistrictLedgerStatusModel {
   readonly verdictCensus: Readonly<Record<LockStatus, number>>;
   /** The slot-th highest MEDIAN PROJECTION in the narrowed pool — the In range boundary. `null` for an unpublished capacity. */
   readonly projectionCutLine: number | null;
+  /** How many slots were HELD BACK at this position for Impact awards still to come — see `reservedSlotsAtPosition`. Zero at a position where every district-tier event has posted its awards. */
+  readonly reservedSlots: number;
 }
 
 export interface ComputeDistrictLedgerStatusesOptions {
@@ -90,6 +102,55 @@ const EMPTY_CENSUS: Record<LockStatus, number> = {
   contending: 0,
   unknown: 0,
 };
+
+/**
+ * How many points slots are HELD BACK at this position, one per district-tier
+ * event whose Impact award is still to come.
+ *
+ * TWO SOURCES, DELIBERATELY. The award's finality is read at the POSITION,
+ * from the rows `districtLedgerRows.ts` already built (so the rewind slider
+ * moving an event's awards back to open turns that event from consuming a
+ * slot into reserving one, in the same step). Whether the event can still hand
+ * an award out is read at `now`, from the artifact's own `state` blocks: an
+ * event that will never happen is a fact about the world, not about the
+ * slider.
+ *
+ * FIRST ROW SEEN WINS per event, matching `DistrictLedger.tsx`'s own
+ * `nowStageByEvent` memo — every team's row for one event carries the same
+ * event state and the same position override, so the choice cannot matter
+ * except for an artifact whose rows disagree, and then the component's answer
+ * is the one to reproduce.
+ *
+ * `packages/core/districts/reservedSlots.ts` owns the rule, including the
+ * cancelled-event carve out; this function owns only the two lookups.
+ */
+export function reservedSlotsAtPosition(artifact: DistrictArtifact, teams: readonly DistrictLedgerTeam[]): number {
+  const awardFinalByEvent = new Map<string, boolean>();
+  for (const team of teams) {
+    for (const row of team.rows) {
+      if (!awardFinalByEvent.has(row.eventKey)) awardFinalByEvent.set(row.eventKey, row.stage.final.award);
+    }
+  }
+
+  const events: ReservedSlotEvent[] = [];
+  const seen = new Set<string>();
+  for (const team of artifact.teams) {
+    for (const entry of districtTierEvents(team)) {
+      if (seen.has(entry.eventKey)) continue;
+      seen.add(entry.eventKey);
+      events.push({
+        eventKey: entry.eventKey,
+        stateAtNow: entry.state,
+        // An event no row was built for cannot be reasoned about from the
+        // rows, so its own `state` answers at `now` — which is what every
+        // position outside the rewind reads anyway.
+        awardFinalAtPosition: awardFinalByEvent.get(entry.eventKey) ?? entry.state?.awardsPosted === true,
+      });
+    }
+  }
+
+  return reservedImpactSlots(events);
+}
 
 /**
  * Computes every team's status at the position the rows were built at.
@@ -167,7 +228,14 @@ export function computeDistrictLedgerStatuses(options: ComputeDistrictLedgerStat
   // `scripts/publishDistricts.ts`'s own pass 1 states.
   const qualifiers: QualifierSets = { awardQualified, prequalified: new Set<string>() };
 
-  const verdicts = computeLocksWithQualifiers(lockInputs, artifact.dcmpSlots, qualifiers);
+  // ONE SLOT HELD BACK PER AWARD STILL TO COME. It reaches the `Locked` test
+  // alone: `locks.ts` subtracts it from `lockSlots` and leaves both the
+  // elimination test and the cut line on the unreserved count, so `Locked out`
+  // and the In range line are untouched by the reservation. That asymmetry is
+  // measured rather than assumed — see `computeLocksSplit`.
+  const reservedSlots = reservedSlotsAtPosition(artifact, teams);
+
+  const verdicts = computeLocksWithQualifiers(lockInputs, artifact.dcmpSlots, qualifiers, reservedSlots);
   const projectionCutLine = cutLinePointsWithQualifiers(projectionInputs, artifact.dcmpSlots, qualifiers);
   const projectionByTeam = new Map(projectionInputs.map((input) => [input.teamKey, input.pointTotal] as const));
 
@@ -201,5 +269,5 @@ export function computeDistrictLedgerStatuses(options: ComputeDistrictLedgerStat
     byTeam.set(verdict.teamKey, { teamKey: verdict.teamKey, status, byAward, verdict: verdict.status });
   }
 
-  return { byTeam, counts, verdictCensus, projectionCutLine };
+  return { byTeam, counts, verdictCensus, projectionCutLine, reservedSlots };
 }

@@ -194,6 +194,67 @@ describe("computeLocksWithQualifiers (revision R2a)", () => {
   });
 });
 
+describe("reservedSlots — one points slot held back per award still to come (260925-ms7)", () => {
+  const noQualifiers: QualifierSets = { awardQualified: new Set(), prequalified: new Set() };
+
+  /**
+   * Two slots, three teams, nothing left to play. `a` and `b` are both safe on
+   * points against `c` when two slots are available; with one held back only
+   * `a` is.
+   */
+  const teams = [team("a", 90, 0), team("b", 60, 0), team("c", 10, 0)];
+
+  it("defaults to zero, so a caller that passes nothing reads exactly the verdicts it always did", () => {
+    expect(computeLocksWithQualifiers(teams, 2, noQualifiers)).toEqual(computeLocksWithQualifiers(teams, 2, noQualifiers, 0));
+    expect(computeLocksWithQualifiers(teams, 2, noQualifiers)).toEqual(computeLocks(teams, 2));
+  });
+
+  it("locks a team with 0 reserved and does NOT lock the same team with 1 reserved", () => {
+    expect(resultFor(computeLocksWithQualifiers(teams, 2, noQualifiers, 0), "b").status).toBe("locked");
+    expect(resultFor(computeLocksWithQualifiers(teams, 2, noQualifiers, 1), "b").status).not.toBe("locked");
+    // The top team is far enough clear that one held-back slot does not reach
+    // it, so the reservation is a cut line moving rather than a blanket.
+    expect(resultFor(computeLocksWithQualifiers(teams, 2, noQualifiers, 1), "a").status).toBe("locked");
+  });
+
+  it("leaves the ELIMINATION verdict on the unreserved slot count, which is what keeps the opposite promise", () => {
+    // `c` cannot reach either slot, and that is true with or without a
+    // reservation. What must NOT happen is `b` being told the slot is already
+    // gone: the pending award's winner is still in this pool competing, so
+    // withholding the slot AND counting the rival would price one award twice.
+    // Measured: reserving on the elimination side too turned quick task
+    // 260925-ma5's sweep from 0 tenet-B violations into 551.
+    for (const reserved of [0, 1, 2, 5]) {
+      expect(resultFor(computeLocksWithQualifiers(teams, 2, noQualifiers, reserved), "c").status).toBe("eliminated");
+    }
+    expect(resultFor(computeLocksWithQualifiers(teams, 2, noQualifiers, 1), "b").status).toBe("contending");
+    expect(resultFor(computeLocksWithQualifiers(teams, 2, noQualifiers, 5), "b").status).toBe("contending");
+  });
+
+  it("stacks with the award-consumed slots rather than replacing them", () => {
+    // 3 slots, one posted Impact winner consumes one, one pending award
+    // reserves another: one points slot is left, so only the top team locks.
+    const withWinner = [team("winner", 5, 0), ...teams];
+    const qualifiers: QualifierSets = { awardQualified: new Set(["winner"]), prequalified: new Set() };
+    const results = computeLocksWithQualifiers(withWinner, 3, qualifiers, 1);
+    expect(resultFor(results, "winner").status).toBe("lockedAward");
+    expect(resultFor(results, "a").status).toBe("locked");
+    expect(resultFor(results, "b").status).not.toBe("locked");
+  });
+
+  it("clamps a negative reservation to zero rather than WIDENING the pool", () => {
+    expect(computeLocksWithQualifiers(teams, 2, noQualifiers, -3)).toEqual(computeLocksWithQualifiers(teams, 2, noQualifiers, 0));
+  });
+
+  it("reports pointsToLock against the reserved count, so the number a team is told it needs is the number that locks it", () => {
+    const climbing = [team("a", 90, 0), team("b", 60, 0), team("chaser", 10, 100)];
+    const needed = resultFor(computeLocksWithQualifiers(climbing, 2, noQualifiers, 1), "chaser").pointsToLock;
+    expect(needed).not.toBeNull();
+    const withThosePoints = [team("a", 90, 0), team("b", 60, 0), team("chaser", 10 + needed!, 100 - needed!)];
+    expect(resultFor(computeLocksWithQualifiers(withThosePoints, 2, noQualifiers, 1), "chaser").status).toBe("locked");
+  });
+});
+
 describe("cutLinePointsWithQualifiers", () => {
   const noQualifiers: QualifierSets = { awardQualified: new Set(), prequalified: new Set() };
 
@@ -282,7 +343,13 @@ describe("cutLinePointsWithQualifiers", () => {
       const cutLine = cutLinePointsWithQualifiers(teams, slots, qualifiers);
       if (cutLine === null) continue;
 
-      const results = computeLocksWithQualifiers(teams, slots, qualifiers);
+      // HALF THESE TRIALS CARRY A RESERVATION. The cut line reads the
+      // unreserved count while the lock test reads the reserved one, so the
+      // invariant has to survive the two disagreeing — a stricter lock test
+      // only shrinks the locked set, and the elimination test the line is
+      // derived against is untouched.
+      const reservedSlots = rand() < 0.5 ? 0 : randInt(3);
+      const results = computeLocksWithQualifiers(teams, slots, qualifiers, reservedSlots);
       const byTeam = new Map(teams.map((t) => [t.teamKey, t] as const));
       for (const result of results) {
         if (result.status !== "locked" && result.status !== "eliminated" && result.status !== "contending") continue;

@@ -268,6 +268,89 @@ describe("rewinding is monotonically more conservative", () => {
   });
 });
 
+describe("one points slot held back per Impact award still to come (260925-ms7)", () => {
+  /**
+   * The `2025fnc` `frc3229` shape, at its smallest. Event `a` is over and
+   * awarded; event `b` is over and awarded too, and its Impact went to `frc3`.
+   * `frc2` never entered `b`, so nothing about `frc2` changes between the two
+   * positions below: its floor, its ceiling and its total are 80 throughout,
+   * exactly as the real trace recorded.
+   *
+   * Two DCMP slots. At `now` one is consumed by `frc3`'s Impact, leaving one
+   * points slot, and `frc2` is out. One step earlier — `b`'s playoffs decided,
+   * its award not yet posted — the award is not consuming that slot, so
+   * WITHOUT a reservation `pointsSlots` would read 2 and `frc2` would be told
+   * `Locked`, one step before the award takes it away. That is the defect, and
+   * the held-back slot is the fix.
+   */
+  function knifeEdgeArtifact(): DistrictArtifact {
+    const a = (total: number) => played("a", total, 0);
+    const b = (total: number) => played("b", total, 3);
+    return artifactOf(
+      [
+        team("frc1", { pointTotal: 100, eventPoints: [a(100)] }),
+        team("frc2", { pointTotal: 80, eventPoints: [a(80)] }),
+        team("frc3", {
+          pointTotal: 60,
+          eventPoints: [a(30), b(30)],
+          qualifyingAwards: [{ eventKey: "b", awardType: AWARD_TYPE_IMPACT, label: "Impact", awardOnly: false }],
+        }),
+        team("frc4", { pointTotal: 50, eventPoints: [a(25), b(25)] }),
+      ],
+      { dcmpSlots: 2 }
+    );
+  }
+
+  /** `b`'s playoffs are decided, its awards are not posted. Everything else is final. */
+  const B_AWARD_REOPENED = new Map<string, DistrictStageFinality>([
+    ["a", { qual: true, alliance: true, elim: true, award: true }],
+    ["b", { qual: true, alliance: true, elim: true, award: false }],
+  ]);
+
+  it("holds back exactly one slot at the position where an event's award is still open, and none at now", () => {
+    expect(statusesFor(knifeEdgeArtifact()).model.reservedSlots).toBe(0);
+    expect(statusesFor(knifeEdgeArtifact(), B_AWARD_REOPENED).model.reservedSlots).toBe(1);
+  });
+
+  it("reads In range at the open-award position and Locked out once the award posts, never Locked at either", () => {
+    const pending = statusesFor(knifeEdgeArtifact(), B_AWARD_REOPENED).model;
+    const now = statusesFor(knifeEdgeArtifact()).model;
+
+    expect(pending.byTeam.get("frc2")?.status).toBe("inRange");
+    expect(now.byTeam.get("frc2")?.status).toBe("lockedOut");
+    // The team at the top is clear of the held-back slot and stays Locked, so
+    // the reservation is a line moving rather than a blanket refusal.
+    expect(pending.byTeam.get("frc1")?.status).toBe("locked");
+    expect(now.byTeam.get("frc1")?.status).toBe("locked");
+  });
+
+  it("leaves the projection cut line on the unreserved slot count, so In range does not shrink with the reservation", () => {
+    const pending = statusesFor(knifeEdgeArtifact(), B_AWARD_REOPENED).model;
+    // Two slots, no award consumed at this position, so the line is the second
+    // highest projection. Subtracting the held-back slot here too would price
+    // one award twice: its winner is still in this pool, competing.
+    expect(pending.projectionCutLine).toBe(80);
+  });
+
+  it("reserves nothing for an event that will never happen, once every other event has finished", () => {
+    // `b` registered, never scheduled, never played, never awarded, and `a` is
+    // finished. A slot held back for it would never be released.
+    const artifact = artifactOf(
+      [
+        team("frc1", { pointTotal: 100, eventPoints: [played("a", 100, 0)] }),
+        team("frc2", {
+          pointTotal: 80,
+          eventPoints: [played("a", 80, 0)],
+          remainingEvents: [ahead("b", 3, { qualMatchesPlayed: 0, qualMatchesTotal: null, alliancesPicked: false, playoffsDone: false, awardsPosted: false })],
+          maxRemainingDistrict: EVENT_MAX,
+        }),
+      ],
+      { dcmpSlots: 2 }
+    );
+    expect(statusesFor(artifact).model.reservedSlots).toBe(0);
+  });
+});
+
 describe("SC-3 — a finished district reproduces the artifact's own two counts EXACTLY", () => {
   /**
    * A finished district shaped like the real `2026pnw` artifact: every team's

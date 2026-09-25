@@ -30,11 +30,26 @@ function lockVerdict(status: DistrictArtifact["teams"][number]["districtLock"]["
   return { status, pointsToLock: null as number | null, threatCount: 0, cutLinePoints: null as number | null, allocationNote: null as string | null };
 }
 
+/** `2026ncwak`: over, awards posted. Nothing is reserved for it. */
+const WAK_STATE = { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: true, awardsPosted: true } as const;
+
+/**
+ * `2026ncpem`: played out, Impact award NOT posted yet. This is the exact
+ * shape that made quick task 260925-ma5's thirteen tenet-A violations, so the
+ * fixture carries it deliberately: one points slot is held back here.
+ */
+const PEM_STATE = { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: true, awardsPosted: false } as const;
+
 /**
  * Two teams, one played event each, one event still ahead for `frc1` only.
  * `frc1`'s `districtLock.status` is deliberately WRONG (`"contending"` when
  * the merge will recompute `"locked"`) so a carried-over verdict fails
  * loudly rather than passing by accident.
+ *
+ * TWO DCMP SLOTS, not one, because `2026ncpem`'s Impact award is not posted
+ * and 260925-ms7 holds one slot back for it: with a single slot there would be
+ * no points slot left for anybody to lock into, and the recomputed-verdict
+ * assertion below would pass for the wrong reason.
  */
 function twoTeamFixture(): DistrictArtifact {
   return DistrictArtifactSchema.parse({
@@ -45,7 +60,7 @@ function twoTeamFixture(): DistrictArtifact {
     year: 2026,
     abbreviation: "fnc",
     displayName: "FIRST North Carolina",
-    dcmpSlots: 1,
+    dcmpSlots: 2,
     cmpSlots: 1,
     teams: [
       {
@@ -56,8 +71,8 @@ function twoTeamFixture(): DistrictArtifact {
         pointTotal: 40,
         rookieBonus: 0,
         adjustments: 0,
-        eventPoints: [{ eventKey: "2026ncwak", eventName: "Wake County Event", week: 1, tier: "district", qual: 20, alliance: 10, elim: 5, award: 5, total: 40 }],
-        remainingEvents: [{ eventKey: "2026ncpem", eventName: "Pembroke Event", week: 3, tier: "district", maxPoints: DISTRICT_EVENT_MAX }],
+        eventPoints: [{ eventKey: "2026ncwak", eventName: "Wake County Event", week: 1, tier: "district", qual: 20, alliance: 10, elim: 5, award: 5, total: 40, state: { ...WAK_STATE } }],
+        remainingEvents: [{ eventKey: "2026ncpem", eventName: "Pembroke Event", week: 3, tier: "district", maxPoints: DISTRICT_EVENT_MAX, state: { ...PEM_STATE } }],
         maxRemainingDistrict: DISTRICT_EVENT_MAX,
         maxRemainingChamp: DISTRICT_EVENT_MAX + DCMP_EVENT_MAX,
         qualifyingAwards: [{ eventKey: "2026ncwak", awardType: 9, label: "Engineering Inspiration", awardOnly: true }],
@@ -72,7 +87,7 @@ function twoTeamFixture(): DistrictArtifact {
         pointTotal: 30,
         rookieBonus: 0,
         adjustments: 0,
-        eventPoints: [{ eventKey: "2026ncwak", eventName: "Wake County Event", week: 1, tier: "district", qual: 15, alliance: 8, elim: 2, award: 5, total: 30 }],
+        eventPoints: [{ eventKey: "2026ncwak", eventName: "Wake County Event", week: 1, tier: "district", qual: 15, alliance: 8, elim: 2, award: 5, total: 30, state: { ...WAK_STATE } }],
         remainingEvents: [],
         maxRemainingDistrict: 0,
         maxRemainingChamp: DCMP_EVENT_MAX,
@@ -269,6 +284,63 @@ describe("applyDistrictRankings — the baked-pmf sidecar list", () => {
     };
     const merged = merge(DistrictArtifactSchema.parse({ ...twoTeamFixture(), awardBaseRates: table }), tracerPayload());
     expect(merged.awardBaseRates).toEqual(table);
+  });
+});
+
+describe("recomputeDistrictVerdicts — one points slot held back per award still to come (260925-ms7)", () => {
+  /** The merged tracer artifact, with `2026ncpem`'s award posted or not on every row that carries it. */
+  function mergedWithPemAwards(awardsPosted: boolean): DistrictArtifact {
+    const merged = merge(twoTeamFixture(), tracerPayload()) as unknown as {
+      teams: { eventPoints: { eventKey: string; state?: { awardsPosted: boolean } }[]; remainingEvents: { eventKey: string; state?: { awardsPosted: boolean } }[] }[];
+    };
+    for (const team of merged.teams) {
+      for (const row of [...team.eventPoints, ...team.remainingEvents]) {
+        if (row.eventKey === "2026ncpem" && row.state !== undefined) row.state.awardsPosted = awardsPosted;
+      }
+    }
+    return recomputeDistrictVerdicts(DistrictArtifactSchema.parse(merged));
+  }
+
+  it("locks one FEWER team while an Impact award is still to come, and the same district with that award posted locks both", () => {
+    const pending = mergedWithPemAwards(false);
+    const posted = mergedWithPemAwards(true);
+
+    // Two DCMP slots, no consuming district award won by either team (frc1's
+    // Engineering Inspiration is an award-only invite at this tier). With
+    // 2026ncpem's Impact still to come one slot is held back, so only the top
+    // team can be guaranteed; once it is posted both are.
+    expect(pending.teams.map((t) => t.districtLock.status)).toEqual(["locked", "contending"]);
+    expect(posted.teams.map((t) => t.districtLock.status)).toEqual(["locked", "locked"]);
+    expect(pending.insights.districtLockedCount).toBe(1);
+    expect(posted.insights.districtLockedCount).toBe(2);
+  });
+
+  it("leaves the published cut line and the eliminated count untouched by the reservation", () => {
+    const pending = mergedWithPemAwards(false);
+    const posted = mergedWithPemAwards(true);
+
+    // The cut line and the elimination test read the UNRESERVED slot count on
+    // purpose: the pending award's winner is still in the pool competing, so
+    // withholding the slot AND counting the rival would price one award twice.
+    expect(pending.insights.dcmpCutLinePoints).toBe(posted.insights.dcmpCutLinePoints);
+    expect(pending.insights.districtEliminatedCount).toBe(posted.insights.districtEliminatedCount);
+    expect(pending.teams.every((t) => t.districtLock.cutLinePoints === posted.insights.dcmpCutLinePoints)).toBe(true);
+  });
+
+  it("reserves nothing for an event that never happened once every other event in the district has finished", () => {
+    // A registered, never played, never awarded event: no schedule, nothing
+    // started, and the only other event of the district already finished. A
+    // slot held back for it would never be released, so nothing is held back.
+    const base = merge(twoTeamFixture(), tracerPayload()) as unknown as {
+      teams: { eventPoints: { eventKey: string; state?: unknown }[]; remainingEvents: unknown[] }[];
+    };
+    for (const team of base.teams) {
+      for (const row of team.eventPoints) {
+        if (row.eventKey === "2026ncpem") row.state = { qualMatchesPlayed: 0, qualMatchesTotal: null, alliancesPicked: false, playoffsDone: false, awardsPosted: false };
+      }
+    }
+    const cancelled = recomputeDistrictVerdicts(DistrictArtifactSchema.parse(base));
+    expect(cancelled.insights.districtLockedCount).toBe(2);
   });
 });
 

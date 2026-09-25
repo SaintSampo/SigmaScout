@@ -385,12 +385,20 @@ function lockVerdict(status: string) {
   return { status, pointsToLock: null, threatCount: 0, cutLinePoints: null, allocationNote: null };
 }
 
+/** `2026wabon`: over, awards posted, so nothing is held back for it. */
+const PLAYED_EVENT_STATE = { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: true, awardsPosted: true } as const;
+
 /**
  * The published district artifact the Worker reads back. `frc1` has played
- * `2026wabon` and still has `2026wayak` ahead of it; `frc2` has played only
- * `2026wabon`. Both teams' `districtLock.status` is deliberately WRONG
- * (`"contending"`) so a carried-over verdict fails loudly rather than passing
- * by accident.
+ * `2026wabon` and still has `2026wayak` ahead of it; `frc2` and `frc3` have
+ * played only `2026wabon`. Every team's `districtLock.status` is deliberately
+ * WRONG (`"contending"`) so a carried-over verdict fails loudly rather than
+ * passing by accident.
+ *
+ * TWO DCMP SLOTS AND THREE TEAMS, because `2026wayak` is live and its Impact
+ * award is not posted: 260925-ms7 holds one points slot back for it, so a
+ * one-slot district could guarantee nobody at all and the recomputed-verdict
+ * assertions below would pass for the wrong reason.
  */
 function districtArtifactFixture(overrides: Record<string, unknown> = {}): unknown {
   return {
@@ -401,7 +409,7 @@ function districtArtifactFixture(overrides: Record<string, unknown> = {}): unkno
     year: SEASON,
     abbreviation: "pnw",
     displayName: "Pacific Northwest",
-    dcmpSlots: 1,
+    dcmpSlots: 2,
     cmpSlots: 1,
     teams: [
       {
@@ -412,7 +420,7 @@ function districtArtifactFixture(overrides: Record<string, unknown> = {}): unkno
         pointTotal: 40,
         rookieBonus: 0,
         adjustments: 0,
-        eventPoints: [{ eventKey: PLAYED_EVENT, eventName: "Bonney Lake", week: 1, tier: "district", qual: 20, alliance: 10, elim: 5, award: 5, total: 40 }],
+        eventPoints: [{ eventKey: PLAYED_EVENT, eventName: "Bonney Lake", week: 1, tier: "district", qual: 20, alliance: 10, elim: 5, award: 5, total: 40, state: { ...PLAYED_EVENT_STATE } }],
         remainingEvents: [{ eventKey: LIVE_EVENT, eventName: "Yakima", week: 3, tier: "district", maxPoints: DISTRICT_EVENT_MAX }],
         maxRemainingDistrict: DISTRICT_EVENT_MAX,
         maxRemainingChamp: DISTRICT_EVENT_MAX + DCMP_EVENT_MAX,
@@ -428,7 +436,23 @@ function districtArtifactFixture(overrides: Record<string, unknown> = {}): unkno
         pointTotal: 30,
         rookieBonus: 0,
         adjustments: 0,
-        eventPoints: [{ eventKey: PLAYED_EVENT, eventName: "Bonney Lake", week: 1, tier: "district", qual: 15, alliance: 8, elim: 2, award: 5, total: 30 }],
+        eventPoints: [{ eventKey: PLAYED_EVENT, eventName: "Bonney Lake", week: 1, tier: "district", qual: 15, alliance: 8, elim: 2, award: 5, total: 30, state: { ...PLAYED_EVENT_STATE } }],
+        remainingEvents: [],
+        maxRemainingDistrict: 0,
+        maxRemainingChamp: DCMP_EVENT_MAX,
+        qualifyingAwards: [],
+        districtLock: lockVerdict("contending"),
+        champLock: lockVerdict("contending"),
+      },
+      {
+        teamKey: "frc3",
+        teamNumber: 3,
+        nickname: "Tin Whiskers",
+        rank: 3,
+        pointTotal: 10,
+        rookieBonus: 0,
+        adjustments: 0,
+        eventPoints: [{ eventKey: PLAYED_EVENT, eventName: "Bonney Lake", week: 1, tier: "district", qual: 6, alliance: 2, elim: 0, award: 2, total: 10, state: { ...PLAYED_EVENT_STATE } }],
         remainingEvents: [],
         maxRemainingDistrict: 0,
         maxRemainingChamp: DCMP_EVENT_MAX,
@@ -437,7 +461,7 @@ function districtArtifactFixture(overrides: Record<string, unknown> = {}): unkno
         champLock: lockVerdict("contending"),
       },
     ],
-    insights: { teamCount: 2, eventCount: 2, dcmpCutLinePoints: 40, cmpCutLinePoints: 40, districtLockedCount: 0, districtEliminatedCount: 0, champLockedCount: 0, champEliminatedCount: 0 },
+    insights: { teamCount: 3, eventCount: 2, dcmpCutLinePoints: 40, cmpCutLinePoints: 40, districtLockedCount: 0, districtEliminatedCount: 0, champLockedCount: 0, champEliminatedCount: 0 },
     ...overrides,
   };
 }
@@ -446,11 +470,12 @@ function eventPointsEntry(eventKey: string, total: number, districtCmp = false) 
   return { event_key: eventKey, district_cmp: districtCmp, qual_points: total, alliance_points: 0, elim_points: 0, award_points: 0, total };
 }
 
-/** `frc1` has now played `2026wayak` for 50 more points; `frc2` is unchanged. */
+/** `frc1` has now played `2026wayak` for 50 more points; `frc2` and `frc3` are unchanged. */
 function movedRankings(): unknown {
   return [
     { team_key: "frc1", rank: 1, point_total: 90, rookie_bonus: 0, adjustments: 0, event_points: [eventPointsEntry(PLAYED_EVENT, 40), eventPointsEntry(LIVE_EVENT, 50)] },
     { team_key: "frc2", rank: 2, point_total: 30, rookie_bonus: 0, adjustments: 0, event_points: [eventPointsEntry(PLAYED_EVENT, 30)] },
+    { team_key: "frc3", rank: 3, point_total: 10, rookie_bonus: 0, adjustments: 0, event_points: [eventPointsEntry(PLAYED_EVENT, 10)] },
   ];
 }
 
@@ -505,10 +530,14 @@ describe("runTick — the district pass end to end", () => {
     expect(frc1.eventPoints.map((row) => row.eventKey)).toEqual([PLAYED_EVENT, LIVE_EVENT]);
     expect(frc1.remainingEvents.map((row) => row.eventKey)).toEqual([]);
     // 7. The lock verdict was RECOMPUTED, not carried over: frc1 now has 90
-    //    points and nothing remaining, frc2 has 30 and nothing remaining, and
-    //    there is one DCMP slot.
+    //    points and nothing remaining, frc2 has 30, frc3 has 10, and there are
+    //    two DCMP slots of which ONE IS HELD BACK for the live event's Impact
+    //    award, which has not been posted. So frc1 is guaranteed the single
+    //    remaining points slot and frc3 cannot reach it; frc2 sits between the
+    //    two and is neither.
     expect(frc1.districtLock.status).toBe("locked");
-    expect(written.teams.find((team) => team.teamKey === "frc2")!.districtLock.status).toBe("eliminated");
+    expect(written.teams.find((team) => team.teamKey === "frc2")!.districtLock.status).toBe("contending");
+    expect(written.teams.find((team) => team.teamKey === "frc3")!.districtLock.status).toBe("eliminated");
     // 8. The body carries the tick's own stamp.
     expect(written.generation).toBe(`tick-${NOW_MS}`);
 
@@ -795,6 +824,32 @@ describe("runTick — the awards fetch", () => {
 
     expect(awardsRequests(fetchMock)).toHaveLength(1);
     expect(writtenLiveEventState(r2)?.awardsPosted).toBe(false);
+  });
+
+  it("publishes ONE MORE points slot once the live event's Impact award is posted — the 260925-ms7 reservation, end to end through the Worker", async () => {
+    /** The same tick, run against a published state that differs only in `awardsPosted`. */
+    async function statuses(awardsPosted: boolean): Promise<string[]> {
+      const d1 = new FakeD1Database();
+      const r2 = new FakeR2Bucket();
+      r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactWithState(stateBlock({ playoffsDone: true, awardsPosted }))));
+      const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
+      const fetchMock = makeTbaFetchStub(
+        new Map([[LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: [] })]]),
+        new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]])
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      await runTick(env, { nowMs: NOW_MS });
+      const puts = districtPuts(r2);
+      const written = DistrictArtifactSchema.parse(JSON.parse(puts[puts.length - 1]!.body));
+      return written.teams.map((team) => team.districtLock.status);
+    }
+
+    // Two DCMP slots. While the award is still to come one slot is held back,
+    // so only the top team is guaranteed; once it is posted the second slot
+    // returns to the points race and frc2 locks too. frc3 is out either way,
+    // because the elimination test reads the unreserved count in both runs.
+    expect(await statuses(false)).toEqual(["locked", "contending", "eliminated"]);
+    expect(await statuses(true)).toEqual(["locked", "locked", "eliminated"]);
   });
 
   it("issues NO awards request for an event whose published state already says awardsPosted true — awards do not un-post", async () => {

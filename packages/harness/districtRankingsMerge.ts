@@ -31,6 +31,7 @@ import { z } from "zod";
 import { computeLocksWithQualifiers, cutLinePointsWithQualifiers, type LockResult, type LockTeamInput, type QualifierSets } from "../core/districts/locks.js";
 import { maxEventPoints, type DistrictTier } from "../core/districts/pointModel.js";
 import { prequalifiedTeams } from "../core/districts/prequalified.js";
+import { reservedImpactSlots, type ReservedSlotEvent } from "../core/districts/reservedSlots.js";
 import { consumingAwardTypesForTier, specialAllocationNote, type AwardTier } from "../core/districts/qualification.js";
 import { DistrictArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type DistrictArtifact, type DistrictEventState } from "./pageArtifacts.js";
 
@@ -189,6 +190,44 @@ function awardQualifiedSets(
   return { district, dcmp };
 }
 
+/**
+ * How many DCMP points slots are held back for Impact awards still to come —
+ * one per district-tier event whose `state.awardsPosted` is not `true`, minus
+ * the events the cancelled carve out excludes.
+ * `packages/core/districts/reservedSlots.ts` owns the rule; this function owns
+ * only the walk over the artifact's own rows.
+ *
+ * DISTRICT-TIER ROWS ONLY. The DCMP's own consuming awards belong to the champ
+ * pass, against a different slot pool, and are deliberately not reserved for
+ * here.
+ *
+ * There is no rewind offline, so an event's award is final at the position
+ * exactly when its published state says the awards are posted. FIRST STATE
+ * SEEN WINS per event, matching every other per-event derivation in this file.
+ */
+function reservedDistrictSlots(teams: readonly DistrictTeam[]): number {
+  const events: ReservedSlotEvent[] = [];
+  const seen = new Set<string>();
+  for (const team of teams) {
+    for (const row of [...team.eventPoints, ...team.remainingEvents]) {
+      if (row.tier !== "district") continue;
+      const existing = seen.has(row.eventKey);
+      if (existing) {
+        // A row carrying state wins over an earlier row that carried none:
+        // the artifact's own rows can disagree about whether a state block is
+        // present, and "no state" is the weaker observation of the two.
+        const known = events.find((event) => event.eventKey === row.eventKey);
+        if (known === undefined || known.stateAtNow !== undefined || row.state === undefined) continue;
+        events[events.indexOf(known)] = { eventKey: row.eventKey, stateAtNow: row.state, awardFinalAtPosition: row.state.awardsPosted };
+        continue;
+      }
+      seen.add(row.eventKey);
+      events.push({ eventKey: row.eventKey, stateAtNow: row.state, awardFinalAtPosition: row.state?.awardsPosted === true });
+    }
+  }
+  return reservedImpactSlots(events);
+}
+
 function lockVerdict(result: LockResult, cutLinePoints: number | null, allocationNote: string | null): DistrictTeam["districtLock"] {
   return {
     status: result.status,
@@ -213,6 +252,16 @@ function lockVerdict(result: LockResult, cutLinePoints: number | null, allocatio
  * `cutLinePointsWithQualifiers` against the SAME hoisted inputs objects so the
  * verdicts and the published cut line can never disagree, and apply
  * `specialAllocationNote` over every `champLock`.
+ *
+ * ONE ADDITION TO THAT PIPELINE, quick task 260925-ms7: the district pass
+ * holds back one points slot for every district-tier event whose Impact award
+ * is still to come (`reservedDistrictSlots` above), which tightens the
+ * `"locked"` test alone — `locks.ts` leaves `"eliminated"` and the published
+ * `dcmpCutLinePoints` on the unreserved count, so neither moves. The champ
+ * pass reserves nothing at all, because its consuming awards sit at a single
+ * DCMP event against a different slot pool. For a finished season every event
+ * has posted its awards and the reservation is zero, so no published number
+ * moves there either.
  *
  * The season is the artifact's own `year` — `maxEventPoints` throws
  * `UnknownDistrictSeasonError` for a season with no declared ceiling rather
@@ -249,7 +298,12 @@ export function recomputeDistrictVerdicts(artifact: DistrictArtifact, options: R
   // only). No prequalification concept exists at the district/DCMP tier.
   const districtLockInputs: LockTeamInput[] = teams.map((team) => ({ teamKey: team.teamKey, pointTotal: team.pointTotal, maxRemaining: team.maxRemainingDistrict }));
   const districtQualifiers: QualifierSets = { awardQualified: awardQualified.district, prequalified: new Set() };
-  const districtLocks = computeLocksWithQualifiers(districtLockInputs, artifact.dcmpSlots, districtQualifiers);
+  // One slot held back per district-tier Impact award still to come, so a
+  // published `"locked"` is never revoked by an award posted the next day
+  // (quick task 260925-ms7). Zero for a district whose events have all posted
+  // their awards, which is every finished season in the corpus.
+  const reservedSlots = reservedDistrictSlots(teams);
+  const districtLocks = computeLocksWithQualifiers(districtLockInputs, artifact.dcmpSlots, districtQualifiers, reservedSlots);
   const districtLockByTeam = new Map(districtLocks.map((result) => [result.teamKey, result] as const));
 
   // Pass 2: maxRemainingChamp = maxRemainingDistrict + one hypothetical

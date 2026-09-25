@@ -14,6 +14,11 @@
  * Pure module, no React.
  */
 import { eventScheduleIsCurrent } from "../../../../packages/harness/eventSchedule.js";
+import {
+  districtEventStateFinished,
+  districtEventStateStarted,
+  type DistrictEventStateFacts as DistrictEventStateShape,
+} from "../../../../packages/core/districts/reservedSlots.js";
 
 /**
  * How often a live query refetches, event or team. The artifact origin serves
@@ -95,38 +100,20 @@ export function shouldPollTeamArtifact(
 // The DISTRICT artifact's own poll gate (phase 10)
 // ---------------------------------------------------------------------------
 
-/** The four state facts 10-03 publishes per (team, event) cell, narrowed to what this module reads. */
-interface DistrictEventStateShape {
-  readonly qualMatchesPlayed: number;
-  readonly qualMatchesTotal: number | null;
-  readonly alliancesPicked: boolean;
-  readonly playoffsDone: boolean;
-  readonly awardsPosted: boolean;
-}
-
 /**
- * True once ANY of the four state facts shows the event has begun. Declared
- * here, beside the poll gate that is its only other consumer, so the district
- * ledger's stage derivation and this predicate cannot drift apart.
+ * The four state facts 10-03 publishes per (team, event) cell, and the two
+ * predicates over them, now live in `packages/core/districts/reservedSlots.ts`
+ * — the slot-reservation rule added by quick task 260925-ms7 needs the same
+ * "started" and "finished" answers, and that module is reachable from the
+ * harness and the Worker while this one is not. They are RE-EXPORTED here,
+ * under their own names, so the poll gate below and every existing importer of
+ * this module are unchanged.
  */
-export function districtEventStateStarted(state: DistrictEventStateShape): boolean {
-  return state.qualMatchesPlayed > 0 || state.alliancesPicked || state.playoffsDone || state.awardsPosted;
-}
-
-/**
- * True once all four categories are decided. A NULL `qualMatchesTotal` leaves
- * qualification open rather than guessing it finished: null is the honest
- * answer for an event whose schedule TBA has not published yet.
- */
-export function districtEventStateFinished(state: DistrictEventStateShape): boolean {
-  return (
-    state.qualMatchesTotal !== null &&
-    state.qualMatchesPlayed === state.qualMatchesTotal &&
-    state.alliancesPicked &&
-    state.playoffsDone &&
-    state.awardsPosted
-  );
-}
+export {
+  districtEventStateFinished,
+  districtEventStateStarted,
+  type DistrictEventStateFacts,
+} from "../../../../packages/core/districts/reservedSlots.js";
 
 interface DistrictArtifactPollShape {
   readonly teams: readonly {
