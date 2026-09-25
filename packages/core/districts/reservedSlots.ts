@@ -82,18 +82,58 @@ export function districtEventStateStarted(state: DistrictEventStateFacts): boole
 }
 
 /**
+ * Which of the four district point categories are FINAL at a position. `true`
+ * means decided and already in a team's earned total; `false` means still open,
+ * so its points are still to be handed out.
+ *
+ * Declared here rather than in either consumer because BOTH the browser's stage
+ * derivation and `packages/core/districts/pointPool.ts`'s remaining-points pool
+ * read the same four booleans, and a second copy of the qualification-is-final
+ * rule is exactly the drift this module exists to prevent.
+ */
+export interface DistrictCategoryFinality {
+  readonly qual: boolean;
+  readonly alliance: boolean;
+  readonly elim: boolean;
+  readonly award: boolean;
+}
+
+/** Every category open — what an event with no observed `state` block reports. */
+export const ALL_CATEGORIES_OPEN: DistrictCategoryFinality = { qual: false, alliance: false, elim: false, award: false };
+
+/**
+ * The four category finalities implied by one event's state facts.
+ *
+ * AN ABSENT `state` REPORTS EVERY CATEGORY OPEN rather than guessing any of
+ * them finished — the same honest-unknown rule `reservedImpactSlots` applies to
+ * a missing state block, and on both sides of this module's use the open answer
+ * is the conservative one (a bigger remaining-points pool, a held-back slot).
+ *
+ * A NULL `qualMatchesTotal` likewise leaves qualification open: null is the
+ * honest answer for an event whose schedule TBA has not published yet, and
+ * reading it as finished would treat points that have not been handed out as
+ * though they had been.
+ */
+export function districtEventCategoryFinality(state: DistrictEventStateFacts | undefined): DistrictCategoryFinality {
+  if (state === undefined) return ALL_CATEGORIES_OPEN;
+  return {
+    qual: state.qualMatchesTotal !== null && state.qualMatchesPlayed === state.qualMatchesTotal,
+    alliance: state.alliancesPicked,
+    elim: state.playoffsDone,
+    award: state.awardsPosted,
+  };
+}
+
+/**
  * True once all four categories are decided. A NULL `qualMatchesTotal` leaves
  * qualification open rather than guessing it finished: null is the honest
  * answer for an event whose schedule TBA has not published yet.
  */
 export function districtEventStateFinished(state: DistrictEventStateFacts): boolean {
-  return (
-    state.qualMatchesTotal !== null &&
-    state.qualMatchesPlayed === state.qualMatchesTotal &&
-    state.alliancesPicked &&
-    state.playoffsDone &&
-    state.awardsPosted
-  );
+  // Derived from `districtEventCategoryFinality` rather than restating its four
+  // conditions, so "finished" cannot drift from "every category final".
+  const final = districtEventCategoryFinality(state);
+  return final.qual && final.alliance && final.elim && final.award;
 }
 
 /** One district-tier event, as `reservedImpactSlots` needs to see it. */

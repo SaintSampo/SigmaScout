@@ -57,6 +57,7 @@ import type {
   EventArtifact,
 } from "../../../../../packages/harness/pageArtifacts.js";
 import { districtEventStateFinished, districtEventStateStarted } from "../../lib/liveEvent.js";
+import { ALL_CATEGORIES_OPEN, districtEventCategoryFinality } from "../../../../../packages/core/districts/reservedSlots.js";
 import { buildQualRows, buildSimulationInputs } from "../../lib/simulationInputs.js";
 import { teamNumberFromKey } from "../../lib/teamKey.js";
 
@@ -102,7 +103,7 @@ export interface DistrictEventStage {
   readonly finished: boolean;
 }
 
-const ALL_OPEN: DistrictStageFinality = { qual: false, alliance: false, elim: false, award: false };
+const ALL_OPEN: DistrictStageFinality = ALL_CATEGORIES_OPEN;
 
 /**
  * The stage at the "now" position, read from 10-03's `state` block and nothing
@@ -117,12 +118,10 @@ export function deriveStageFromState(state: DistrictEventState | undefined): Dis
   if (state === undefined) {
     return { final: ALL_OPEN, stateKnown: false, started: false, finished: false };
   }
-  const final: DistrictStageFinality = {
-    qual: state.qualMatchesTotal !== null && state.qualMatchesPlayed === state.qualMatchesTotal,
-    alliance: state.alliancesPicked,
-    elim: state.playoffsDone,
-    award: state.awardsPosted,
-  };
+  // The four-booleans rule lives in `packages/core/districts/reservedSlots.ts`,
+  // beside the two state predicates below and the remaining-points pool that
+  // reads the same finalities — one rule, three consumers.
+  const final: DistrictStageFinality = districtEventCategoryFinality(state);
   // The two primitives live in `liveEvent.ts`, beside the poll gate that is
   // their only other consumer, so this derivation and that gate cannot drift.
   return { final, stateKnown: true, started: districtEventStateStarted(state), finished: districtEventStateFinished(state) };

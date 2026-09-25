@@ -11,6 +11,8 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  ALL_CATEGORIES_OPEN,
+  districtEventCategoryFinality,
   districtEventStateFinished,
   districtEventStateStarted,
   reservedImpactSlots,
@@ -45,6 +47,32 @@ describe("the two state predicates", () => {
     expect(districtEventStateFinished(FINISHED)).toBe(true);
     expect(districtEventStateFinished(PLAYOFFS_DONE_NO_AWARD)).toBe(false);
     expect(districtEventStateFinished(CANCELLED_BUT_AWARDED)).toBe(false);
+  });
+});
+
+describe("districtEventCategoryFinality", () => {
+  it("reads each category off its own state fact", () => {
+    expect(districtEventCategoryFinality(FINISHED)).toEqual({ qual: true, alliance: true, elim: true, award: true });
+    expect(districtEventCategoryFinality(PLAYOFFS_DONE_NO_AWARD)).toEqual({ qual: true, alliance: true, elim: true, award: false });
+    expect(districtEventCategoryFinality(AHEAD)).toEqual({ qual: false, alliance: false, elim: false, award: false });
+    expect(districtEventCategoryFinality(CANCELLED_BUT_AWARDED)).toEqual({ qual: false, alliance: false, elim: false, award: true });
+  });
+
+  it("leaves qualification OPEN for a partly played schedule and for a null total", () => {
+    expect(districtEventCategoryFinality({ ...FINISHED, qualMatchesPlayed: 59 }).qual).toBe(false);
+    expect(districtEventCategoryFinality({ ...FINISHED, qualMatchesTotal: null }).qual).toBe(false);
+  });
+
+  it("reports every category open for an ABSENT state block rather than guessing any of them final", () => {
+    expect(districtEventCategoryFinality(undefined)).toEqual(ALL_CATEGORIES_OPEN);
+    expect(ALL_CATEGORIES_OPEN).toEqual({ qual: false, alliance: false, elim: false, award: false });
+  });
+
+  it("is what districtEventStateFinished means, so the two can never drift", () => {
+    for (const state of [FINISHED, PLAYOFFS_DONE_NO_AWARD, AHEAD, NEVER_HAPPENED, CANCELLED_BUT_AWARDED]) {
+      const final = districtEventCategoryFinality(state);
+      expect(districtEventStateFinished(state)).toBe(final.qual && final.alliance && final.elim && final.award);
+    }
   });
 });
 
