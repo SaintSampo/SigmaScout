@@ -25,7 +25,7 @@
  * drops the role class in that combination and only a screenshot catches it
  * (project memory `project_cn_drops_text_role_classes`).
  */
-import { useMemo, useState, type ReactNode } from "react";
+import { useRef, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { EmptyState } from "@/components/StateViews";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -134,6 +134,9 @@ const TEXT_COLUMN_INDEXES: ReadonlySet<number> = new Set([0, 1, 3]);
 
 /** The rewind rail's own id, so its label can sit beside the position readout instead of wrapping the control. */
 const REWIND_INPUT_ID = "district-ledger-rewind-input";
+
+/** How long the hand must pause on the slider before its position is committed to the URL and the simulation. */
+const REWIND_COMMIT_DELAY_MS = 160;
 
 /** How far apart two tick labels must sit before both print. Measured at 390px, where the rail is about 340px and a "wk 0" label about 28px. */
 const TICK_MIN_GAP_PERCENT = 10;
@@ -339,7 +342,7 @@ function EventCell({ row }: { row: DistrictLedgerEventRow }) {
   return (
     <TableCell data-testid="district-ledger-event-cell" className="whitespace-nowrap align-middle">
       <span className="district-ledger-event-name">{districtLedgerShortEventName(row.eventName)}</span>
-      {row.week !== null && <span className="district-ledger-event-week"> Wk {String(row.week)}</span>}
+      {row.week !== null && <span className="district-ledger-event-week"> Wk {String(row.week + 1)}</span>}
       <span className="district-ledger-event-stage">{stageWord(row.stage)}</span>
     </TableCell>
   );
@@ -499,6 +502,28 @@ function RewindSlider({
 }) {
   const position = timeline.positions[positionIndex] ?? timeline.positions[timeline.nowIndex]!;
   const ticks = timelineTicks(timeline);
+  // The thumb is LOCAL state while a hand is on it (Jacob, 2026-09-25: "the
+  // slider is glitchy"). Every input event used to navigate at once, so a drag
+  // pushed one history entry per step, re-ran the simulation per step, and the
+  // controlled value fought the pointer whenever a render landed mid-drag.
+  // Now the thumb follows the hand immediately, and ONE commit fires after the
+  // hand pauses; the URL and the simulation follow that commit alone.
+  const [thumb, setThumb] = useState(positionIndex);
+  const dragging = useRef(false);
+  const commitTimer = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!dragging.current) setThumb(positionIndex);
+  }, [positionIndex]);
+  useEffect(() => () => window.clearTimeout(commitTimer.current), []);
+  function handleThumbChange(next: number): void {
+    setThumb(next);
+    dragging.current = true;
+    window.clearTimeout(commitTimer.current);
+    commitTimer.current = window.setTimeout(() => {
+      dragging.current = false;
+      onPositionChange(next);
+    }, REWIND_COMMIT_DELAY_MS);
+  }
   return (
     <div className="flex flex-col gap-[var(--spacing-sm)]" data-testid="district-ledger-rewind">
       {/* The label, the readout and the rail are ONE block; the jump chips sit
@@ -521,8 +546,8 @@ function RewindSlider({
           min={0}
           max={timeline.nowIndex}
           step={1}
-          value={positionIndex}
-          onChange={(event) => onPositionChange(Number(event.target.value))}
+          value={Math.min(thumb, timeline.nowIndex)}
+          onChange={(event) => handleThumbChange(Number(event.target.value))}
           className="district-ledger-slider w-full"
         />
       </div>
@@ -731,7 +756,8 @@ export function DistrictLedger({ artifact, algorithm, season }: DistrictLedgerPr
 
   function handlePositionChange(index: number): void {
     const id = timeline.positions[index]?.id ?? DISTRICT_TIMELINE_NOW_ID;
-    void navigate({ search: (prev) => ({ ...prev, at: id === DISTRICT_TIMELINE_NOW_ID ? undefined : id }), resetScroll: false });
+    // `replace`: a drag is one gesture, not a trail of history entries.
+    void navigate({ search: (prev) => ({ ...prev, at: id === DISTRICT_TIMELINE_NOW_ID ? undefined : id }), replace: true, resetScroll: false });
   }
 
   const data = useDistrictLedgerData({

@@ -490,10 +490,10 @@ describe("DistrictLedger — the full table", () => {
     await waitFor(() => expect(screen.getAllByTestId("district-ledger-event-cell").length).toBe(2));
     const cells = screen.getAllByTestId("district-ledger-event-cell").map((cell) => cell.textContent ?? "");
     expect(cells[0]).toContain("Done Event");
-    expect(cells[0]).toContain("Wk 0");
+    expect(cells[0]).toContain("Wk 1");
     expect(cells[0]).toContain("final");
     expect(cells[1]).toContain("Live Event");
-    expect(cells[1]).toContain("Wk 2");
+    expect(cells[1]).toContain("Wk 3");
     expect(cells[1]).toContain("quals");
   });
 

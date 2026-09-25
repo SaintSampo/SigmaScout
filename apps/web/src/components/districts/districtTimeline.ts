@@ -234,7 +234,10 @@ export function buildDistrictTimeline(options: BuildDistrictTimelineOptions): Di
     lastIndexByWeek.set(position.week, index);
   });
   for (const week of [...lastIndexByWeek.keys()].sort((a, b) => a - b)) {
-    chips.push({ id: `week-${String(week)}`, label: `After week ${String(week)}`, positionIndex: lastIndexByWeek.get(week)! });
+    // TBA weeks are zero indexed; the site prints them one based everywhere
+    // (`Week ${week + 1}` in EventHeader and the events list). The id keeps the
+    // raw week so a shared URL never shifts.
+    chips.push({ id: `week-${String(week)}`, label: `After week ${String(week + 1)}`, positionIndex: lastIndexByWeek.get(week)! });
   }
   chips.push({ id: DISTRICT_TIMELINE_NOW_ID, label: "Now", positionIndex: nowIndex });
 

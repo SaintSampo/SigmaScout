@@ -50,8 +50,8 @@ describe("the UI-SPEC copy contract", () => {
   it("pins the slider's tick labels, which are the jump chips' short form", () => {
     expect(DISTRICT_LEDGER_TICK_START).toBe("start");
     expect(DISTRICT_LEDGER_TICK_NOW).toBe("now");
-    expect(districtLedgerTickWeekLabel(0)).toBe("wk 0");
-    expect(districtLedgerTickWeekLabel(3)).toBe("wk 3");
+    expect(districtLedgerTickWeekLabel(0)).toBe("wk 1");
+    expect(districtLedgerTickWeekLabel(3)).toBe("wk 4");
   });
 
   it("shortens ONLY a name that matches TBA's whole district template, and prints every other name verbatim", () => {

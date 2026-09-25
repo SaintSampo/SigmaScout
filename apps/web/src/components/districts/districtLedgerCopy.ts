@@ -94,7 +94,8 @@ export const DISTRICT_LEDGER_REWIND_LABEL = "Rewind to";
 export const DISTRICT_LEDGER_TICK_START = "start";
 export const DISTRICT_LEDGER_TICK_NOW = "now";
 export function districtLedgerTickWeekLabel(week: number): string {
-  return `wk ${String(week)}`;
+  // TBA weeks are zero indexed; every page on this site prints them one based.
+  return `wk ${String(week + 1)}`;
 }
 
 /** The hint under the slider, in flat third person. */
