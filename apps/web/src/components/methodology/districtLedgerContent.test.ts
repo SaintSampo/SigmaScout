@@ -123,6 +123,12 @@ const REQUIRED_FIGURES = [
   "4,000 draws",
   "0.03525",
 
+  // --- `SIMULATION_DRAWS` ------------------------------------------------
+  // `apps/web/src/workers/simulationProtocol.ts` exports the one draw count
+  // every browser simulation on this site shares. The advancement chance is a
+  // share of exactly that many runs, so the page states the constant.
+  "1,000 runs",
+
   // --- `pnpm measure:award-ordering-tables` -------------------------------
   // `npx tsx scripts/measureAwardOrderingTables.ts`, run 2026-09-25. Both
   // figures are printed by that script's PRACTICAL ANSWER block for season

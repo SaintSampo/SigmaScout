@@ -60,6 +60,11 @@
  *   6. `npx vitest run packages/core/districts/selectionModel.reconciliation.test.ts`
  *      (10-04) — the progressive captain rule and the serpentine draft order
  *      reconciled against every 2023 and later eight alliance district event.
+ *   7. `SIMULATION_DRAWS` in `apps/web/src/workers/simulationProtocol.ts`
+ *      (quick task 260925-rpj) — the 1,000 runs the advancement chance is the
+ *      share of. One draw count is shared by every simulation this site runs in
+ *      a browser, so the figure on this page is the constant itself rather than
+ *      a number typed beside it.
  *
  * A figure that appears in none of those six is not written here.
  *
@@ -151,6 +156,7 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
       "The rookie bonus is 10 points in a team's first season and 5 in its second. It is added once per season to the season total and to the floor the locks use, never to an event total. The Team cell prints it when it applies.",
       "A category that is already settled shows the points the team earned, not a prediction. An event nobody has played yet is priced by the pipeline before the season, and the browser computes nothing for it.",
       "An open cell shows either a median with a likely range, or a chance with the typical amount when it happens. Likely means the 10th to the 90th percentile.",
+      "Every team still in the points race also carries its chance of qualifying on district points, which is the share of 1,000 runs where its season total lands inside the qualifying slots. Each team's total is drawn on its own, so the runs miss the fact that two teams at one event compete for the same points. A chance never moves a status, and a team whose place is already settled prints none.",
     ],
     table: {
       caption: "What decides each open category",
