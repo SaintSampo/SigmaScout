@@ -432,6 +432,13 @@ function makeTbaFetchStub(events: Map<string, TbaEventRecord>): ReturnType<typeo
       return { status: 200, ok: true, headers: { get: () => null }, json: async () => ({ key: eventKey, name: eventKey, year: record.season, event_type: record.eventType, start_date: "2026-08-01" }) };
     }
 
+    // The roster pass's conditional poll (quick task 260925-uy5), answered 304 by
+    // default so every expectation in this file holds unchanged. BEFORE the
+    // fallthrough throw, which would otherwise turn one extra request per open
+    // window into a per-window `roster-failed` warning.
+    if (/\/event\/[^/]+\/teams\/simple$/.test(u)) {
+      return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
+    }
     throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
   });
 }
@@ -470,12 +477,17 @@ describe("liveAlgorithmTier — an idle-but-considered tick's subrequest count",
    * The one budget-shaped assertion worth keeping. `subrequestsUsed` is the tick
    * log field an operator reads to see an event weekend's shape, so a silently
    * added round trip per tick is worth catching — but this pins an OBSERVED
-   * count, never a re-derivation of a formula the Worker no longer has. Six is
-   * the live-windows manifest read, the algorithms manifest read, the tick-meta
-   * read, the event's cursor read, the conditional TBA poll (a 304 here), and
-   * the tick-meta write.
+   * count, never a re-derivation of a formula the Worker no longer has. Eight is
+   * the live-windows manifest read, the roster pass's one multi-key cursor read,
+   * its one conditional roster poll (a 304 here, so no state read and no put),
+   * the algorithms manifest read, the tick-meta read, the event's cursor read,
+   * the conditional TBA match poll (also a 304), and the tick-meta write.
+   *
+   * It was SIX before quick task 260925-uy5; the two added terms are the roster
+   * pass's cursor read and its poll, and each is named above rather than folded
+   * into a new total.
    */
-  it("a tick that considers one live event and finds it unchanged spends exactly six subrequests", async () => {
+  it("a tick that considers one live event and finds it unchanged spends exactly eight subrequests", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const manifests = makeManifests([window], ["spr"]);
     const d1 = new FakeD1Database();
@@ -483,6 +495,13 @@ describe("liveAlgorithmTier — an idle-but-considered tick's subrequest count",
     const fetchMock = vi.fn(async (url: unknown) => {
       const u = String(url);
       if (/\/event\/[^/]+\/matches$/.test(u)) {
+        return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
+      }
+      // The roster pass's conditional poll (quick task 260925-uy5), answered 304 by
+      // default so every expectation in this file holds unchanged. BEFORE the
+      // fallthrough throw, which would otherwise turn one extra request per open
+      // window into a per-window `roster-failed` warning.
+      if (/\/event\/[^/]+\/teams\/simple$/.test(u)) {
         return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
       }
       throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
@@ -493,7 +512,7 @@ describe("liveAlgorithmTier — an idle-but-considered tick's subrequest count",
     const result = await runTick(env, { nowMs: NOW_MS });
 
     expect(result.eventsFailed).toBe(0);
-    expect(result.subrequestsUsed).toBe(6);
+    expect(result.subrequestsUsed).toBe(8);
   });
 });
 

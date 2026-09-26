@@ -53,6 +53,16 @@
  * The published `sortTime` is the one input that comes off the existing
  * artifact rather than the model; it is never re-derived from TBA's `time`.
  *
+ * THE ROSTER PASS (quick task 260925-uy5) runs over every OPEN live window,
+ * probe and measured alike, BEFORE any match preflight: ONE conditional
+ * `GET /event/{key}/teams/simple` per window per tick, its ETag in
+ * `event_cursor.roster_etag`, appending the teams TBA says are registered to each
+ * algorithm's event artifact with their real numbers and names. Roster-before-
+ * preflight is the ordering that lets a schedule-only write later in the same tick
+ * see those rows already merged, so the artifact never loses a row between the
+ * two writes. A 304, an empty roster and an already-complete roster each cost
+ * nothing beyond the etag.
+ *
  * AN EMPTY FOLD IS NOT NECESSARILY A NO-OP (quick task 260925-uy5). A 200 that
  * moves no match past the cursor but leaves matches ON THE SCHEDULE runs
  * `runScheduleOnlyPricing`: the same state read, accumulator resume and pricing
@@ -109,7 +119,7 @@ import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof
 import { foldsIntoRatings, isOfficialEventType } from "../../../packages/core/algorithms/eventTypes.js";
 import type { AlgorithmModule, MatchResult, Prediction, TeamMetric } from "../../../packages/core/algorithms/types.js";
 import { tbaMatchListSchema, type TbaMatch } from "../../../packages/ingest/schemas.js";
-import { tbaEventSchema } from "../../../packages/ingest/schemas.js";
+import { tbaEventSchema, tbaEventTeamsSimpleResponseSchema } from "../../../packages/ingest/schemas.js";
 import { type CorpusMatch } from "../../../packages/ingest/normalize.js";
 import { fetchEventDetail } from "../../../packages/ingest/tbaClient.js";
 import { isDemoTeamKey } from "../../../packages/core/algorithms/demoTeams.js";
@@ -168,18 +178,19 @@ import {
   touchedEventTeamMetrics,
   type MatchBand,
   type PlayedRowFacts,
+  type RosterTeamRow,
   type ScheduledMatchFacts,
   type Stamp,
 } from "./artifactMerge.js";
 import { checkLiveEventArtifactShape, checkTeamSeasonArtifactShape } from "./artifactShapeCheck.js";
 import { ArtifactSecretLeakError, readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
-import { readEventCursor, readEventCursors, readScopedStateChunked, scopedStateReadStatements, selectChangedRows, writeEventCursor, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
+import { readEventCursor, readEventCursors, readScopedStateChunked, scopedStateReadStatements, selectChangedRows, writeEventCursor, writeEventRosterEtag, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
 import { splitEventMatches } from "./matchSplit.js";
 import { runDistrictRefresh, type DistrictRefreshResult } from "./districtRefresh.js";
 import { deriveMatchDerivedEventState, type MatchDerivedEventState } from "./districtEventState.js";
 import { TICK_META_EVENT_KEY, stateBaselineEventKey } from "../../../packages/harness/stateBaseline.js";
 import { rotate, sortEventKeys, SubrequestCounter } from "./subrequestCounter.js";
-import { createTbaContext, pollEventMatches, TbaRequestCounter, type TbaClientContext } from "./tbaPoll.js";
+import { createTbaContext, pollEventMatches, pollEventTeams, TbaRequestCounter, type TbaClientContext } from "./tbaPoll.js";
 import type { Env } from "./env.js";
 
 // ---------------------------------------------------------------------------
@@ -1110,6 +1121,179 @@ async function runScheduleOnlyPricing(
   }
 }
 
+/**
+ * What the algorithms-manifest read, the module build and the tick-meta read
+ * produce, loaded AT MOST ONCE per tick and shared by the roster pass and the
+ * fold loop (quick task 260925-uy5). `runTick` owns the memo; this is only its
+ * shape, named so `runRosterPass` can be handed an accessor rather than the
+ * whole of `runTick`'s scope.
+ */
+export interface TickAlgorithmContext {
+  readonly manifest: AlgorithmsManifest;
+  readonly modules: ReadonlyMap<string, AlgorithmModule<any>>;
+  readonly meta: TickMeta;
+  readonly baselineGenerationByAlgorithm: ReadonlyMap<string, string | undefined>;
+  /** `undefined` on the healthy path; otherwise folding AND every live write is suspended until the offline seed lands. */
+  readonly mismatch: StateGenerationMismatch | undefined;
+}
+
+/** The two roster-pass figures `TickResult` reports, as zeros — the early returns the pass is deliberately unreachable from. */
+const NO_ROSTER_PASS = { rostersPolled: 0, rosterTeamsAppended: 0 } as const;
+
+interface RosterPassResult {
+  readonly rostersPolled: number;
+  readonly rosterTeamsAppended: number;
+}
+
+/**
+ * THE ROSTER PASS (quick task 260925-uy5). ONE conditional
+ * `GET /event/{key}/teams/simple` per OPEN LIVE WINDOW per tick — probe
+ * (`inferred: true`) and measured (`inferred: false`) alike — appending the teams
+ * TBA says are registered at an event to each algorithm's event artifact, with
+ * their real numbers and names.
+ *
+ * WHY IT EXISTS. Until this pass, the tick never fetched an event's team
+ * registration at all: a promoted event's roster only appeared as matches folded,
+ * so an event whose schedule was posted but unscored served a stub with zero
+ * teams. `event_cursor.roster_etag` is what keeps the cost of asking at nearly
+ * nothing — an unchanged roster is a 304, which buys no body, no parse, no state
+ * read and no R2 put.
+ *
+ * ORDERED BEFORE THE MATCH PREFLIGHT, deliberately: a schedule-only write later
+ * in the same tick then sees the roster rows already merged, and the artifact
+ * never loses rows between the two writes.
+ *
+ * NOT IN SCOPE, named so it is not mistaken for an oversight: upgrading an
+ * EXISTING `teams` row whose `nickname` is `""` / `teamNumber` is `0` (the shape a
+ * fold appends for a team it has no registration for). Roster-first ordering makes
+ * that rare and a republish heals it; this path APPENDS MISSING TEAMS ONLY.
+ *
+ * A per-window throw is confined to that window, warned as `roster-failed` with
+ * the event key and message only, and does NOT touch `eventsProbed`/`eventsFailed`
+ * — a roster poll is not a probe.
+ */
+async function runRosterPass(
+  env: Env,
+  counter: SubrequestCounter,
+  tbaCtx: TbaClientContext,
+  windows: readonly LiveWindowEntry[],
+  nowIso: string,
+  stamp: Stamp,
+  algorithmContext: () => Promise<TickAlgorithmContext>
+): Promise<RosterPassResult> {
+  const eventKeys = sortEventKeys(windows.map((w) => w.eventKey));
+  const seasonByEventKey = new Map(windows.map((w) => [w.eventKey, w.season]));
+
+  // ONE statement, ONE subrequest, for every open window. `eventPreflight` still
+  // reads its own cursor afterwards and this one is deliberately NOT threaded into
+  // it — that would change the per-event counter accounting `scheduled.rp.test.ts`
+  // pins.
+  counter.spend(1);
+  const cursors = await readEventCursors(env.DB, eventKeys);
+
+  let rostersPolled = 0;
+  let rosterTeamsAppended = 0;
+
+  for (const eventKey of eventKeys) {
+    const season = seasonByEventKey.get(eventKey);
+    if (season === undefined) continue;
+    try {
+      const cachedEtag = cursors.get(eventKey)?.rosterEtag ?? undefined;
+      counter.spend(1);
+      const poll = await pollEventTeams(tbaCtx, eventKey, cachedEtag);
+      rostersPolled++;
+      // A 304 is the common case and costs nothing further — no parse, no state
+      // read, no put, not even an etag write.
+      if (poll.status === "not-modified") continue;
+
+      const etagChanged = poll.etag !== undefined && poll.etag !== cachedEtag;
+      const roster = tbaEventTeamsSimpleResponseSchema.parse(poll.body);
+      if (roster === null || roster.length === 0) {
+        if (etagChanged) {
+          counter.spend(1);
+          await writeEventRosterEtag(env.DB, eventKey, poll.etag ?? null, nowIso);
+        }
+        continue;
+      }
+
+      const { modules, mismatch } = await algorithmContext();
+      if (mismatch !== undefined) {
+        // WRITE NOTHING AT ALL — not even the etag. A generation mismatch
+        // suspends every live write, and consuming the etag while skipping the
+        // write would strand the roster until TBA's own etag changed.
+        console.warn(JSON.stringify({ msg: "roster-suspended", reason: "state-generation-mismatch", eventKey }));
+        return { rostersPolled, rosterTeamsAppended };
+      }
+
+      const rosterRows: RosterTeamRow[] = roster.map((team) => ({ teamKey: team.key, teamNumber: team.team_number, nickname: team.nickname ?? "" }));
+      const rosterKeys = rosterRows.map((row) => row.teamKey);
+
+      for (const [algorithmId, algorithm] of modules) {
+        const eventParams = { page: "event" as const, eventKey, algorithmId, version: algorithm.version };
+        const existingEvent = await readExistingEvent(env, counter, eventParams);
+        const publishedKeys = new Set((existingEvent?.teams ?? []).map((row) => row.teamKey));
+        const missingTeams = rosterKeys.filter((teamKey) => !publishedKeys.has(teamKey));
+        // NO missing teams for this algorithm: no state read and no R2 put. The
+        // etag write below is then the whole cost of having asked.
+        if (missingTeams.length === 0) continue;
+
+        const { state } = await resumeAlgorithmState({
+          db: env.DB,
+          counter,
+          algorithmId,
+          algorithm,
+          eventKey,
+          season,
+          stateReadTeamKeys: stateScopeKeys(missingTeams),
+          coldStartTeamKeys: missingTeams.filter((teamKey) => !isDemoTeamKey(teamKey)),
+        });
+        const touchedMetrics = algorithm.teamMetrics(state, missingTeams);
+
+        const eventMergeParams = {
+          existing: existingEvent,
+          eventKey,
+          season,
+          algorithmId,
+          algorithmVersion: algorithm.version,
+          eventType: undefined,
+          newlyFolded: [],
+          newPredictions: new Map<string, Prediction>(),
+          // LOAD-BEARING: `upcoming` is an OVERRIDE key on this merge, so passing
+          // `[]` would wipe the priced schedule this same tick is about to write
+          // (or already wrote).
+          upcoming: existingEvent?.upcoming ?? [],
+          newBands: new Map<string, MatchBand>(),
+          touchedTeams: [],
+          touchedMetrics,
+          playedRowFacts: new Map<string, PlayedRowFacts>(),
+          rosterRows,
+          stamp,
+        };
+        const mergedEvent = mergeEventArtifact(eventMergeParams);
+        await writeArtifactWithBootstrapRetry(env, counter, "event", eventParams, mergedEvent, algorithmId, () =>
+          mergeEventArtifact({ ...eventMergeParams, existing: undefined })
+        );
+        rosterTeamsAppended += missingTeams.length;
+        // No team-artifact write on this path, and no `touchedTeamsByAlgorithm`
+        // feed: a registration is not a played match and moves no metric.
+      }
+
+      // LAST, and only after every algorithm's write succeeded — the same
+      // placement, for the same reason, as the schedule-only path's poll etag: a
+      // throw above leaves the etag unwritten, so the next tick re-polls, gets a
+      // 200 and retries.
+      if (etagChanged) {
+        counter.spend(1);
+        await writeEventRosterEtag(env.DB, eventKey, poll.etag ?? null, nowIso);
+      }
+    } catch (err) {
+      console.warn(JSON.stringify({ msg: "roster-failed", eventKey, error: err instanceof Error ? err.message : String(err) }));
+    }
+  }
+
+  return { rostersPolled, rosterTeamsAppended };
+}
+
 async function processEvent(
   env: Env,
   counter: SubrequestCounter,
@@ -1829,6 +2013,10 @@ export interface TickResult {
   readonly eventsPromoted: number;
   /** Events that wrote priced upcoming rows without folding a match — a posted but unscored schedule (quick task 260925-uy5). Counted instead of, never alongside, `eventsConsidered`/`eventsAdvanced`. */
   readonly eventsPriced: number;
+  /** Open live windows whose roster poll COMPLETED this tick, 304 or 200 (quick task 260925-uy5). A throwing poll is confined to its window and counted in neither this nor `eventsFailed`. */
+  readonly rostersPolled: number;
+  /** Registered teams APPENDED to an event artifact this tick, summed over algorithm-events. Together with `rostersPolled` this is how an operator confirms a stalled event picked up, from the tick log alone. */
+  readonly rosterTeamsAppended: number;
   readonly tbaRequests: number;
   readonly subrequestsUsed: number;
   readonly globalRebuildRan: boolean;
@@ -1867,7 +2055,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   const liveEvents = await loadLiveEventsAt(env, nowMs);
 
   if (liveEvents.length === 0) {
-    return { eventsConsidered: 0, eventsAdvanced: 0, eventsFailed: 0, eventsProbed: 0, eventsPromoted: 0, eventsPriced: 0, tbaRequests: tbaCounter.total, subrequestsUsed: subrequests.used, globalRebuildRan: false, stateGenerationMismatch: false, ...NO_DISTRICT_REFRESH };
+    return { eventsConsidered: 0, eventsAdvanced: 0, eventsFailed: 0, eventsProbed: 0, eventsPromoted: 0, eventsPriced: 0, ...NO_ROSTER_PASS, tbaRequests: tbaCounter.total, subrequestsUsed: subrequests.used, globalRebuildRan: false, stateGenerationMismatch: false, ...NO_DISTRICT_REFRESH };
   }
 
   // Split into foldable (`inferred: false`, a real measured window) and
@@ -1884,6 +2072,43 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
 
   const probeResult: ProbePassResult = probeWindows.length > 0 ? await runProbes(env, subrequests, tbaCtx, probeWindows, nowIso) : { promoted: new Map(), eventsProbed: 0, eventsFailed: 0 };
 
+  // THE ALGORITHMS MANIFEST, THE MODULES AND THE TICK STATE, AT MOST ONCE PER
+  // TICK (quick task 260925-uy5). The roster pass below and the fold loop further
+  // down both need them, and the tick must not pay for them twice — nor pay for
+  // them AT ALL on a tick that never reaches either. `scheduled.test.ts` pins one
+  // `buildAlgorithmModules` call per tick, and its probe-only cases pin
+  // `r2.getCallCount === 1`, which is what a lazy accessor keeps true: a 304
+  // roster never triggers this at all.
+  //
+  // The body performs today's work in today's order and with today's counter
+  // spends: the algorithms-manifest read, `buildModules`, `readTickState` (the
+  // tick-meta sentinel plus every live algorithm's state-baseline marker, in the
+  // one subrequest that used to buy the sentinel alone), then the mismatch check.
+  let tickAlgorithmContext: TickAlgorithmContext | undefined;
+  const algorithmContext = async (): Promise<TickAlgorithmContext> => {
+    if (tickAlgorithmContext !== undefined) return tickAlgorithmContext;
+    subrequests.spend(1);
+    const manifest = await loadAlgorithmsManifest(env);
+    const buildModules = deps.buildAlgorithmModules ?? buildAlgorithmModules;
+    const modules = buildModules(manifest, liveAlgorithmIds);
+
+    subrequests.spend(1);
+    const liveAlgorithmModuleIds = [...modules.keys()];
+    const { meta, baselineGenerationByAlgorithm } = await readTickState(env.DB, liveAlgorithmModuleIds);
+
+    const mismatch = detectStateGenerationMismatch(manifest.generation, liveAlgorithmModuleIds, baselineGenerationByAlgorithm);
+    tickAlgorithmContext = { manifest, modules, meta, baselineGenerationByAlgorithm, mismatch };
+    return tickAlgorithmContext;
+  };
+
+  // THE ROSTER PASS, over EVERY open window — foldable and probe alike — and
+  // placed HERE deliberately: after the probes (so a probe's cheap-idle ordering
+  // is untouched) and BEFORE the early return below (so an event that has not
+  // promoted still picks up its registration) and before any match preflight (so
+  // a schedule-only write later in this tick sees the roster rows already
+  // merged).
+  const rosterResult = await runRosterPass(env, subrequests, tbaCtx, liveEvents, nowIso, stamp, algorithmContext);
+
   if (foldableWindows.length === 0 && probeResult.promoted.size === 0) {
     // Nothing foldable and nothing promoted: a probe-only (or fully idle
     // besides probes) tick ends here, having paid ONLY for `loadLiveEventsAt`
@@ -1896,6 +2121,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
       eventsProbed: probeResult.eventsProbed,
       eventsPromoted: 0,
       eventsPriced: 0,
+      ...rosterResult,
       tbaRequests: tbaCounter.total,
       subrequestsUsed: subrequests.used,
       globalRebuildRan: false,
@@ -1908,18 +2134,11 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
     };
   }
 
-  // Something is foldable or was promoted: load the algorithms manifest and build the modules once for the tick.
-  subrequests.spend(1);
-  const algorithmsManifest = await loadAlgorithmsManifest(env);
-  const buildModules = deps.buildAlgorithmModules ?? buildAlgorithmModules;
-  const algorithmModules = buildModules(algorithmsManifest, liveAlgorithmIds);
-
-  // The tick-meta sentinel and every live algorithm's state-baseline marker,
-  // in the ONE subrequest `readTickMeta` used to spend on the sentinel alone
-  // (quick task 260920-q75).
-  subrequests.spend(1);
-  const liveAlgorithmModuleIds = [...algorithmModules.keys()];
-  const { meta, baselineGenerationByAlgorithm } = await readTickState(env.DB, liveAlgorithmModuleIds);
+  // Something is foldable or was promoted: the shared context is loaded HERE if
+  // the roster pass above did not already load it — `algorithmContext` is
+  // memoized, so this is the same one read, one build and one tick-meta read the
+  // tick has always paid for, in the same order.
+  const { manifest: algorithmsManifest, modules: algorithmModules, meta, mismatch } = await algorithmContext();
 
   // A mismatch means D1 has not yet been seeded from the generation the R2
   // manifests now name — folding against it would either double-fold (a
@@ -1927,8 +2146,8 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   // race). Return BEFORE the event loop, before `runGlobalRebuild` and before
   // `writeTickMeta`: nothing is claimed, advanced, rebuilt or written. Probes
   // above already ran and are reported as usual; a promoted event is simply
-  // never fed into the loop below.
-  const mismatch = detectStateGenerationMismatch(algorithmsManifest.generation, liveAlgorithmModuleIds, baselineGenerationByAlgorithm);
+  // never fed into the loop below, and the roster pass above wrote nothing for
+  // the same reason (see `runRosterPass`).
   if (mismatch !== undefined) {
     console.warn(JSON.stringify({ msg: "state-generation-mismatch", manifestGeneration: mismatch.manifestGeneration, markers: mismatch.markers }));
     return {
@@ -1938,6 +2157,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
       eventsProbed: probeResult.eventsProbed,
       eventsPromoted: 0,
       eventsPriced: 0,
+      ...rosterResult,
       tbaRequests: tbaCounter.total,
       subrequestsUsed: subrequests.used,
       globalRebuildRan: false,
@@ -2031,6 +2251,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
     eventsProbed: probeResult.eventsProbed,
     eventsPromoted,
     eventsPriced,
+    ...rosterResult,
     tbaRequests: tbaCounter.total,
     subrequestsUsed: subrequests.used,
     globalRebuildRan,

@@ -350,6 +350,13 @@ function makeTbaFetchStub(events: Map<string, TbaEventRecord>, districts: Map<st
       return { status: 200, ok: true, headers: { get: () => null }, json: async () => ({ key: eventKey, name: eventKey, year: record.season, event_type: record.eventType, start_date: "2026-08-01" }) };
     }
 
+    // The roster pass's conditional poll (quick task 260925-uy5), answered 304 by
+    // default so every expectation in this file holds unchanged. BEFORE the
+    // fallthrough throw, which would otherwise turn one extra request per open
+    // window into a per-window `roster-failed` warning.
+    if (/\/event\/[^/]+\/teams\/simple$/.test(u)) {
+      return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
+    }
     throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
   });
 }

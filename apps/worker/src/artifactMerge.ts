@@ -202,6 +202,19 @@ function findRpOutcomeRp(played: readonly Prediction[]): { win: number; tie: num
   return undefined;
 }
 
+/**
+ * One team off TBA's REGISTERED ROSTER for an event (`/event/{key}/teams/simple`,
+ * quick task 260925-uy5), carrying the team's REAL number and nickname — which is
+ * the whole point of polling the roster at all. A row appended from this has the
+ * same identity fields a republish would give it, rather than
+ * `fallbackTeamNumber(teamKey)` and `""`.
+ */
+export interface RosterTeamRow {
+  readonly teamKey: string;
+  readonly teamNumber: number;
+  readonly nickname: string;
+}
+
 export interface MergeEventArtifactParams {
   readonly existing: EventArtifact | undefined;
   readonly eventKey: string;
@@ -227,6 +240,19 @@ export interface MergeEventArtifactParams {
   readonly newBands: ReadonlyMap<string, MatchBand>;
   /** This tick's per-match facts for the newly-folded matches. Required (an empty map is a valid value) so no caller omits it, as `sigmaAfterTick` is. */
   readonly playedRowFacts: ReadonlyMap<string, PlayedRowFacts>;
+  /**
+   * TBA's registered roster for this event, appended for teams the artifact has
+   * no row for yet, with their REAL number and nickname (the publisher's
+   * registered-roster rule) rather than `fallbackTeamNumber`/`""` (quick task
+   * 260925-uy5).
+   *
+   * OPTIONAL, and absent on every pre-existing call site: this is an extension of
+   * the ONE merge, never a second merge. A team already in `existingTeams` or in
+   * `touchedTeams` is NOT re-written from here — existing rows keep their order,
+   * their identity fields and their metrics, and the touched branch owns a team it
+   * also touched.
+   */
+  readonly rosterRows?: readonly RosterTeamRow[];
   readonly stamp: Stamp;
 }
 
@@ -273,7 +299,7 @@ export interface MergeEventArtifactParams {
  * function's own header paragraph already warns about.
  */
 export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
-  const { existing, eventKey, season, algorithmId, algorithmVersion, eventType, newlyFolded, newPredictions, upcoming, touchedTeams, touchedMetrics, newBands, playedRowFacts, stamp } = params;
+  const { existing, eventKey, season, algorithmId, algorithmVersion, eventType, newlyFolded, newPredictions, upcoming, touchedTeams, touchedMetrics, newBands, playedRowFacts, rosterRows, stamp } = params;
   // THREE tick-owned keys destructured out before the spread, because this merge
   // may OMIT each of them and a stale value would otherwise survive:
   //   - `state` and `live`: nothing emits either any more (quick task
@@ -356,13 +382,29 @@ export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
         nickname: "",
         metrics: touchedEventTeamMetrics(undefined, touchedMetrics[teamKey] ?? {}),
       })),
+    // REGISTERED-BUT-UNSEEN teams, last (quick task 260925-uy5): present in
+    // neither the published rows nor `touchedTeams`, appended with their REAL
+    // number and nickname. Sorted by `teamKey` HERE rather than at the call site,
+    // so the roster rule has one home. Nothing above is removed, reordered or
+    // rewritten by this branch.
+    ...[...(rosterRows ?? [])]
+      .filter((row) => !existingTeams.some((t) => t.teamKey === row.teamKey) && !touchedSet.has(row.teamKey))
+      .sort((a, b) => (a.teamKey < b.teamKey ? -1 : a.teamKey > b.teamKey ? 1 : 0))
+      .map((row) => ({
+        teamKey: row.teamKey,
+        teamNumber: row.teamNumber,
+        nickname: row.nickname,
+        metrics: touchedEventTeamMetrics(undefined, touchedMetrics[row.teamKey] ?? {}),
+      })),
   ];
 
   // Counted from `matches` above — every played qualification row this event
   // has, the ones this tick just folded included. Returns the same array
   // reference and NO marker when there is nothing honest to count (see
   // `withCountedStandings`), so a playoff-only or bonus-gapped event keeps
-  // whatever the last republish published and never claims otherwise.
+  // whatever the last republish published and never claims otherwise. UNCHANGED
+  // by the roster branch above: an event with nothing played appends roster rows
+  // and keeps whatever the last republish published.
   const { teams, standings } = withCountedStandings({ matches, teams: teamsBeforeStandings, rpOutcomeRp });
 
   return {

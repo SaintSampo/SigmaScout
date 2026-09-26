@@ -60,6 +60,7 @@ interface FakeEventCursorRow {
   last_folded_match_key: string | null;
   last_polled_at: string | null;
   last_advanced_at: string | null;
+  roster_etag: string | null;
 }
 
 class FakePreparedStatement {
@@ -166,6 +167,32 @@ class FakeD1Database {
       });
       return 1;
     }
+    // BEFORE the claim's compare-and-swap below, and that ORDER IS LOAD-BEARING:
+    // the roster UPDATE matches `UPDATE event_cursor` + `WHERE event_key` too, and
+    // falling into the CAS branch would bind the wrong arity (quick task
+    // 260925-uy5).
+    if (sql.includes("SET roster_etag")) {
+      const [rosterEtag, lastPolledAt, eventKey] = args as (string | null)[];
+      const existing = this.eventCursors.get(eventKey!);
+      if (!existing) return 0; // no row matched -- the caller falls through to its INSERT
+      this.eventCursors.set(eventKey!, { ...existing, roster_etag: rosterEtag ?? null, last_polled_at: lastPolledAt ?? null });
+      return 1;
+    }
+    // `writeEventRosterEtag`'s insert fallback names `roster_etag` in its column
+    // list; `claimEventAdvance`'s does not. That is what tells the two apart.
+    if (sql.includes("INSERT INTO event_cursor") && sql.includes("roster_etag") && sql.includes("WHERE NOT EXISTS")) {
+      const [eventKey, tbaEtag, lastFoldedMatchKey, lastPolledAt, lastAdvancedAt, rosterEtag] = args as (string | null)[];
+      if (this.eventCursors.has(eventKey as string)) return 0;
+      this.eventCursors.set(eventKey as string, {
+        event_key: eventKey as string,
+        tba_etag: tbaEtag ?? null,
+        last_folded_match_key: lastFoldedMatchKey ?? null,
+        last_polled_at: lastPolledAt ?? null,
+        last_advanced_at: lastAdvancedAt ?? null,
+        roster_etag: rosterEtag ?? null,
+      });
+      return 1;
+    }
     if (sql.includes("UPDATE event_cursor") && sql.includes("WHERE event_key")) {
       const [tbaEtag, lastFoldedMatchKey, lastPolledAt, lastAdvancedAt, eventKey, expectedPrior] = args as (string | null)[];
       const existing = this.eventCursors.get(eventKey!);
@@ -176,6 +203,9 @@ class FakeD1Database {
         last_folded_match_key: lastFoldedMatchKey ?? null,
         last_polled_at: lastPolledAt ?? null,
         last_advanced_at: lastAdvancedAt ?? null,
+        // The claim's UPDATE does not NAME `roster_etag`, so a fold can never
+        // clobber it — mirrored here rather than assumed.
+        roster_etag: existing.roster_etag,
       });
       return 1;
     }
@@ -188,17 +218,19 @@ class FakeD1Database {
         last_folded_match_key: lastFoldedMatchKey ?? null,
         last_polled_at: lastPolledAt ?? null,
         last_advanced_at: lastAdvancedAt ?? null,
+        roster_etag: null,
       });
       return 1;
     }
     if (sql.includes("INSERT INTO event_cursor")) {
-      const [eventKey, tbaEtag, lastFoldedMatchKey, lastPolledAt, lastAdvancedAt] = args as (string | null)[];
+      const [eventKey, tbaEtag, lastFoldedMatchKey, lastPolledAt, lastAdvancedAt, rosterEtag] = args as (string | null)[];
       this.eventCursors.set(eventKey!, {
         event_key: eventKey!,
         tba_etag: tbaEtag ?? null,
         last_folded_match_key: lastFoldedMatchKey ?? null,
         last_polled_at: lastPolledAt ?? null,
         last_advanced_at: lastAdvancedAt ?? null,
+        roster_etag: rosterEtag ?? null,
       });
       return 1;
     }
@@ -296,10 +328,29 @@ function tbaMatch(f: MatchFixture, played: boolean): unknown {
 /** How many of `MATCHES` are revealed as PLAYED by the TBA stub. Advanced between ticks. */
 let revealed = 0;
 
+/**
+ * What the stub answers `/event/{key}/matches` with (quick task 260925-uy5).
+ * `"200"` is every pre-existing case's behaviour; `"304"` isolates the roster
+ * pass, so a roster case asserts the roster write and nothing else.
+ */
+let matchPoll: "200" | "304" = "200";
+
+/**
+ * What the stub answers `/event/{key}/teams/simple` with. `null` (the default) is
+ * a 304 — the common live case and the one every pre-existing expectation in this
+ * file was written against.
+ */
+let rosterPoll: { teams: readonly unknown[] | null; etag: string } | null = null;
+
 function makeTbaFetchStub(eventType = 0): ReturnType<typeof vi.fn> {
   return vi.fn(async (url: unknown) => {
     const u = String(url);
+    if (/\/event\/[^/]+\/teams\/simple$/.test(u)) {
+      if (rosterPoll === null) return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
+      return { status: 200, ok: true, headers: { get: (name: string) => (name === "etag" ? rosterPoll!.etag : null) }, json: async () => rosterPoll!.teams };
+    }
     if (/\/event\/[^/]+\/matches$/.test(u)) {
+      if (matchPoll === "304") return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
       const body = MATCHES.map((f, i) => tbaMatch(f, i < revealed));
       return { status: 200, ok: true, headers: { get: (name: string) => (name === "etag" ? `etag-${revealed}` : null) }, json: async () => body };
     }
@@ -364,6 +415,8 @@ async function driveTicks(env: Env, tickCount: number): Promise<void> {
 afterEach(() => {
   vi.unstubAllGlobals();
   revealed = 0;
+  matchPoll = "200";
+  rosterPoll = null;
 });
 
 // ---------------------------------------------------------------------------
@@ -624,5 +677,199 @@ describe("schedule-only pricing: a 200 that folds nothing but leaves a schedule"
     // consuming it here would leave TBA answering 304 for a schedule that was
     // never priced, with nothing to retry until TBA's own etag changed.
     expect(d1.eventCursors.get(EVENT_KEY)).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE ROSTER PASS (quick task 260925-uy5). One conditional
+// `GET /event/{key}/teams/simple` per open window per tick, appending the teams
+// TBA says are registered. These cases pin what a 304, an empty roster and an
+// already-complete roster each cost — nothing beyond the etag — and the combined
+// ordering case pins the property the whole task exists for: a roster write and a
+// schedule-only write in the SAME tick must not lose each other's rows.
+// ---------------------------------------------------------------------------
+
+describe("the roster pass", () => {
+  /** TBA's `/teams/simple` element, in the subset shape the endpoint really returns. */
+  function tbaTeam(teamNumber: number, nickname: string | null): unknown {
+    return { key: `frc${teamNumber}`, team_number: teamNumber, nickname, city: "Somewhere", state_prov: "CA", country: "USA" };
+  }
+
+  /** A published artifact with ZERO teams — the stub shape the seven stalled offseason events were actually serving. */
+  function seedZeroTeamEventArtifact(r2: FakeR2Bucket, algorithmId: "opr" | "spr" = "opr"): void {
+    r2.seed(
+      eventKeyFor(algorithmId),
+      JSON.stringify({
+        schemaVersion: 1,
+        generation: "publish-gen",
+        computedAt: "2026-08-20T00:00:00.000Z",
+        algorithmId,
+        algorithmVersion: algorithmId === "spr" ? spr.version : opr.version,
+        eventKey: EVENT_KEY,
+        season: SEASON,
+        name: "Test Event",
+        matches: [],
+        upcoming: [],
+        teams: [],
+      })
+    );
+  }
+
+  it("a 200 with teams the artifact lacks appends exactly those teams, with the REAL number and nickname, sorted by key — and writes no team artifact", async () => {
+    const r2 = new FakeR2Bucket();
+    const d1 = new FakeD1Database();
+    const env = makeEnv(makeManifests(), d1, r2);
+    seedZeroTeamEventArtifact(r2);
+    // The match poll 304s, so the ONLY write this tick makes is the roster's.
+    matchPoll = "304";
+    rosterPoll = { teams: [tbaTeam(254, "The Cheesy Poofs"), tbaTeam(1, "Juggernauts"), tbaTeam(33, null)], etag: "roster-etag-1" };
+    vi.stubGlobal("fetch", makeTbaFetchStub());
+
+    const result = await runTick(env, { nowMs: NOW_MS });
+
+    expect(result.rostersPolled).toBe(1);
+    expect(result.rosterTeamsAppended).toBe(3);
+    expect(result.eventsAdvanced).toBe(0);
+    expect(result.eventsPriced).toBe(0);
+    expect(result.eventsFailed).toBe(0);
+
+    const eventPuts = r2.puts.filter((put) => put.key === eventKeyFor("opr"));
+    expect(eventPuts).toHaveLength(1);
+    const written = JSON.parse(eventPuts.at(-1)!.body) as { teams: { teamKey: string; teamNumber: number; nickname: string }[]; upcoming: unknown[] };
+    // Sorted by teamKey, which is a STRING sort — `frc1` before `frc254` before
+    // `frc33` — and the sort lives in the merge, not at the call site.
+    expect(written.teams.map((row) => row.teamKey)).toEqual(["frc1", "frc254", "frc33"]);
+    expect(written.teams.map((row) => row.teamNumber)).toEqual([1, 254, 33]);
+    expect(written.teams.map((row) => row.nickname)).toEqual(["Juggernauts", "The Cheesy Poofs", ""]);
+    // A registration is not a played match: no team artifact, and no season feed.
+    expect(r2.puts.filter((put) => put.key.startsWith("v1/team/"))).toEqual([]);
+    expect(r2.puts.filter((put) => put.key.startsWith("v1/teams/"))).toEqual([]);
+    expect(d1.eventCursors.get(EVENT_KEY)?.roster_etag).toBe("roster-etag-1");
+  });
+
+  it("a 304 costs nothing at all: no R2 put, roster_etag untouched, and the poll still counted", async () => {
+    const r2 = new FakeR2Bucket();
+    const d1 = new FakeD1Database();
+    const env = makeEnv(makeManifests(), d1, r2);
+    seedZeroTeamEventArtifact(r2);
+    matchPoll = "304";
+    rosterPoll = null; // 304
+    vi.stubGlobal("fetch", makeTbaFetchStub());
+
+    const result = await runTick(env, { nowMs: NOW_MS });
+
+    expect(result.rostersPolled).toBe(1);
+    expect(result.rosterTeamsAppended).toBe(0);
+    expect(r2.puts).toEqual([]);
+    expect(d1.eventCursors.get(EVENT_KEY)?.roster_etag ?? null).toBeNull();
+  });
+
+  it("a 200 with an empty roster writes the etag and nothing else", async () => {
+    const r2 = new FakeR2Bucket();
+    const d1 = new FakeD1Database();
+    const env = makeEnv(makeManifests(), d1, r2);
+    seedZeroTeamEventArtifact(r2);
+    matchPoll = "304";
+    rosterPoll = { teams: [], etag: "roster-etag-empty" };
+    vi.stubGlobal("fetch", makeTbaFetchStub());
+
+    const result = await runTick(env, { nowMs: NOW_MS });
+
+    expect(result.rostersPolled).toBe(1);
+    expect(result.rosterTeamsAppended).toBe(0);
+    expect(r2.puts).toEqual([]);
+    expect(d1.eventCursors.get(EVENT_KEY)?.roster_etag).toBe("roster-etag-empty");
+  });
+
+  it("a 200 whose teams are already all published writes the etag and nothing else", async () => {
+    const r2 = new FakeR2Bucket();
+    const d1 = new FakeD1Database();
+    const env = makeEnv(makeManifests(), d1, r2);
+    r2.seed(
+      eventKeyFor("opr"),
+      JSON.stringify({
+        schemaVersion: 1,
+        generation: "publish-gen",
+        computedAt: "2026-08-20T00:00:00.000Z",
+        algorithmId: "opr",
+        algorithmVersion: opr.version,
+        eventKey: EVENT_KEY,
+        season: SEASON,
+        matches: [],
+        upcoming: [],
+        teams: [
+          { teamKey: "frc1", teamNumber: 1, nickname: "Juggernauts", metrics: {} },
+          { teamKey: "frc2", teamNumber: 2, nickname: "Two", metrics: {} },
+        ],
+      })
+    );
+    matchPoll = "304";
+    rosterPoll = { teams: [tbaTeam(1, "Juggernauts"), tbaTeam(2, "Two")], etag: "roster-etag-same" };
+    vi.stubGlobal("fetch", makeTbaFetchStub());
+
+    const result = await runTick(env, { nowMs: NOW_MS });
+
+    expect(result.rosterTeamsAppended).toBe(0);
+    // The artifact was READ (that is how "already present" was established) but
+    // never written.
+    expect(r2.gets).toContain(eventKeyFor("opr"));
+    expect(r2.puts).toEqual([]);
+    expect(d1.eventCursors.get(EVENT_KEY)?.roster_etag).toBe("roster-etag-same");
+  });
+
+  it("a foldable window with new scores still folds identically while its roster 304s", async () => {
+    const r2 = new FakeR2Bucket();
+    const env = makeEnv(makeManifests(), new FakeD1Database(), r2);
+    vi.stubGlobal("fetch", makeTbaFetchStub());
+
+    revealed = 1;
+    const result = await runTick(env, { nowMs: NOW_MS });
+
+    expect(result.eventsAdvanced).toBe(1);
+    expect(result.rostersPolled).toBe(1);
+    expect(result.rosterTeamsAppended).toBe(0);
+    expect(r2.puts.filter((put) => put.key === eventKeyFor("opr"))).toHaveLength(1);
+    expect(r2.puts.filter((put) => put.key.startsWith("v1/team/"))).toHaveLength(ALL_TEAMS.length);
+  });
+
+  it("THE COMBINED ORDERING CASE: one tick, a full roster AND an all-unplayed schedule — the LAST event put carries BOTH", async () => {
+    const r2 = new FakeR2Bucket();
+    const d1 = new FakeD1Database();
+    const env = makeEnv(makeManifests(), d1, r2);
+    seedZeroTeamEventArtifact(r2);
+    // A 200 with the whole three-match schedule unplayed, and a roster that
+    // covers the six scheduled teams plus two registered-but-unscheduled ones.
+    revealed = 0;
+    rosterPoll = {
+      teams: [...ALL_TEAMS.map((teamKey, i) => tbaTeam(i + 1, `Team ${i + 1}`)), tbaTeam(77, "Seventy Seven"), tbaTeam(88, "Eighty Eight")],
+      etag: "roster-etag-combined",
+    };
+    vi.stubGlobal("fetch", makeTbaFetchStub());
+
+    const result = await runTick(env, { nowMs: NOW_MS });
+
+    expect(result.eventsPriced).toBe(1);
+    expect(result.rostersPolled).toBe(1);
+    expect(result.rosterTeamsAppended).toBe(ALL_TEAMS.length + 2);
+
+    // THE LAST put for this key, deliberately: asserting on an earlier one would
+    // let a lost row hide in the state between the two writes.
+    const eventPuts = r2.puts.filter((put) => put.key === eventKeyFor("opr"));
+    expect(eventPuts.length).toBeGreaterThanOrEqual(2); // the roster write, then the schedule-only write
+    const written = JSON.parse(eventPuts.at(-1)!.body) as {
+      teams: { teamKey: string; teamNumber: number; nickname: string }[];
+      upcoming: { matchKey: string; pRedWin: number }[];
+    };
+
+    // BOTH halves, on the same object.
+    expect(written.teams.map((row) => row.teamKey).sort()).toEqual([...ALL_TEAMS, "frc77", "frc88"].sort());
+    for (const row of written.teams) {
+      expect(row.nickname, row.teamKey).not.toBe("");
+      expect(row.teamNumber, row.teamKey).toBeGreaterThan(0);
+    }
+    expect(written.upcoming).toHaveLength(MATCHES.length);
+    for (const row of written.upcoming) {
+      expect(typeof row.pRedWin, row.matchKey).toBe("number");
+    }
   });
 });

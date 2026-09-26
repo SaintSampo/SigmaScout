@@ -335,6 +335,13 @@ function makeTbaFetchStub(events: Map<string, TbaEventRecord>): ReturnType<typeo
       };
     }
 
+    // The roster pass's conditional poll (quick task 260925-uy5), answered 304 by
+    // default so every expectation in this file holds unchanged. BEFORE the
+    // fallthrough throw, which would otherwise turn one extra request per open
+    // window into a per-window `roster-failed` warning.
+    if (/\/event\/[^/]+\/teams\/simple$/.test(u)) {
+      return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
+    }
     throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
   });
 }
@@ -589,7 +596,7 @@ describe("runTick — the nothing-live tick and the probe-only tick issue the sa
     expect(d1.batchCallCount).toBe(0);
   });
 
-  it("a probe-only tick that sees a 304 makes exactly the ONE cursor read runProbes already paid for, and no D1 write", async () => {
+  it("a probe-only tick that sees a 304 makes exactly TWO cursor reads — runProbes' own and the roster pass's — and no D1 write", async () => {
     const manifests = makeManifests([PROBE_WINDOW]);
     const d1 = new FakeD1Database();
     const r2 = new FakeR2Bucket();
@@ -599,10 +606,13 @@ describe("runTick — the nothing-live tick and the probe-only tick issue the sa
     const result = await runTick(makeEnv(manifests, d1, r2), { nowMs: NOW_MS });
 
     expect(result).toMatchObject({ eventsProbed: 1, eventsPromoted: 0, stateGenerationMismatch: false });
-    // eventPreflight's own cursor read (pre-existing, unrelated to this
-    // task's readTickState) — never the tick-meta/baseline read, since a
-    // probe-only tick returns before that.
-    expect(d1.selectCallCount).toBe(1);
+    // TWO reads, each named: `eventPreflight`'s own cursor read (pre-existing,
+    // unrelated to this task's `readTickState`) and the roster pass's ONE
+    // multi-key `readEventCursors` over every open window (quick task
+    // 260925-uy5). Never the tick-meta/baseline read — a probe-only tick whose
+    // roster poll 304s still returns before that, which is what keeps
+    // `r2.putCallCount` at zero below.
+    expect(d1.selectCallCount).toBe(2);
     expect(d1.batchCallCount).toBe(0);
     expect(r2.putCallCount).toBe(0);
   });

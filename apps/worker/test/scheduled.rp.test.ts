@@ -119,8 +119,21 @@ import type { D1Database } from "@cloudflare/workers-types";
  * Unlike the two paragraphs above, this one was written AFTER the suite was run:
  * the arithmetic and the observation are both recorded, and the claim is only
  * that they agree.
+ *
+ * RE-DERIVED AGAIN FOR 260925-uy5, which adds the roster pass. This fixture's
+ * live-windows manifest carries TWO windows (`PRIOR_EVENT_KEY` and
+ * `LIVE_EVENT_KEY`), and the pass costs one multi-key cursor read for the tick
+ * plus one conditional poll PER OPEN WINDOW:
+ *
+ *   added: 1 roster cursor read + 2 roster polls (both 304 here)  = +3
+ *   added by the roster merge itself: nothing — a 304 reads no state and writes
+ *     no artifact, which is the whole point of `event_cursor.roster_etag`
+ *
+ *   PREDICTED: 64 + 3 = 67
+ *
+ * OBSERVED: 67.
  */
-const SUBREQUESTS_PER_LIVE_TICK = 64;
+const SUBREQUESTS_PER_LIVE_TICK = 67;
 
 interface FakeAlgorithmStateRow {
   algorithm_id: string;
@@ -438,6 +451,13 @@ function makeTbaFetchStub(): ReturnType<typeof vi.fn> {
         // silently degrades to `eventType = -1`, gating RP off on every row.
         json: async () => ({ key: detailRoute[1]!, name: "Test Event", year: SEASON, event_type: EVENT_TYPE, start_date: "2026-08-01" }),
       };
+    }
+    // The roster pass's conditional poll (quick task 260925-uy5), answered 304 by
+    // default so every expectation in this file holds unchanged. BEFORE the
+    // fallthrough throw, which would otherwise turn one extra request per open
+    // window into a per-window `roster-failed` warning.
+    if (/\/event\/[^/]+\/teams\/simple$/.test(u)) {
+      return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
     }
     throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
   });
@@ -1019,6 +1039,13 @@ describe("scheduled.rp — the mean shift survives the live Worker (shape 16)", 
           json: async () => ({ key: detailRoute[1]!, name: "Test Event", year: SEASON, event_type: EVENT_TYPE, start_date: "2026-08-01" }),
         };
       }
+      // The roster pass's conditional poll (quick task 260925-uy5), answered 304 by
+      // default so every expectation in this file holds unchanged. BEFORE the
+      // fallthrough throw, which would otherwise turn one extra request per open
+      // window into a per-window `roster-failed` warning.
+      if (/\/event\/[^/]+\/teams\/simple$/.test(u)) {
+        return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
+      }
       throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
     });
   }
@@ -1406,6 +1433,13 @@ async function sbHarness(options: SbHarnessOptions = {}): Promise<SbHarness> {
           headers: { get: () => null },
           json: async () => ({ key: detailRoute[1]!, name: "Test Event", year: SEASON, event_type: EVENT_TYPE, start_date: "2026-08-01" }),
         };
+      }
+      // The roster pass's conditional poll (quick task 260925-uy5), answered 304 by
+      // default so every expectation in this file holds unchanged. BEFORE the
+      // fallthrough throw, which would otherwise turn one extra request per open
+      // window into a per-window `roster-failed` warning.
+      if (/\/event\/[^/]+\/teams\/simple$/.test(u)) {
+        return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
       }
       throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
     })

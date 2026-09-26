@@ -407,6 +407,13 @@ function makeTbaFetchStub(): ReturnType<typeof vi.fn> {
     if (/\/event\/[^/]+$/.test(u)) {
       return { status: 200, ok: true, headers: { get: () => null }, json: async () => ({ key: EVENT_KEY, name: EVENT_KEY, year: SEASON, event_type: 0, start_date: "2026-08-01" }) };
     }
+    // The roster pass's conditional poll (quick task 260925-uy5), answered 304 by
+    // default so every expectation in this file holds unchanged. BEFORE the
+    // fallthrough throw, which would otherwise turn one extra request per open
+    // window into a per-window `roster-failed` warning.
+    if (/\/event\/[^/]+\/teams\/simple$/.test(u)) {
+      return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
+    }
     throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
   });
 }

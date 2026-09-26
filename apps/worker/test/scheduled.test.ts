@@ -363,6 +363,13 @@ function makeTbaFetchStub(events: Map<string, TbaEventRecord>): ReturnType<typeo
       };
     }
 
+    // The roster pass's conditional poll (quick task 260925-uy5), answered 304 by
+    // default so every expectation in this file holds unchanged. BEFORE the
+    // fallthrough throw, which would otherwise turn one extra request per open
+    // window into a per-window `roster-failed` warning.
+    if (/\/event\/[^/]+\/teams\/simple$/.test(u)) {
+      return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
+    }
     throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
   });
 }
@@ -1346,6 +1353,13 @@ describe("runTick — official-play scope on the global rebuild feed", () => {
         if (/\/event\/[^/]+$/.test(u)) {
           return { status: 500, ok: false, headers: { get: () => null }, json: async () => ({}) };
         }
+        // The roster pass's conditional poll (quick task 260925-uy5), answered 304 by
+        // default so every expectation in this file holds unchanged. BEFORE the
+        // fallthrough throw, which would otherwise turn one extra request per open
+        // window into a per-window `roster-failed` warning.
+        if (/\/event\/[^/]+\/teams\/simple$/.test(u)) {
+          return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
+        }
         throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
       })
     );
@@ -1767,7 +1781,7 @@ describe("runTick — the tick probes a probe window", () => {
     expect(result).toMatchObject({ eventsConsidered: 0, eventsAdvanced: 0, eventsFailed: 0, eventsProbed: 1, eventsPromoted: 0 });
   });
 
-  it("promotes a probe window that sees a played match: the normal live path runs, exactly one artifact put, and tbaRequests is 1 — the probe's own poll was not repeated", async () => {
+  it("promotes a probe window that sees a played match: the normal live path runs, exactly one artifact put, and tbaRequests is 2 — the probe's own poll plus the roster poll, never a repeat", async () => {
     const manifests = makeManifests([PROBE_WINDOW]);
     const d1 = new FakeD1Database();
     const r2 = new FakeR2Bucket();
@@ -1780,10 +1794,18 @@ describe("runTick — the tick probes a probe window", () => {
       }
       // The event-detail fetch 404s and processEvent degrades gracefully
       // (eventType -1, week null): tbaFetch throws BEFORE recording a 404 to
-      // the counter, so tbaRequests stays 1 (the matches poll alone),
-      // proving the probe's own poll was never repeated by processEvent.
+      // the counter, so tbaRequests counts the matches poll and the roster poll
+      // and nothing else — proving the probe's own poll was never repeated by
+      // processEvent.
       if (u.endsWith("/event/2026probe")) {
         return { status: 404, ok: false, headers: new Map(), json: async () => ({}) };
+      }
+      // The roster pass's conditional poll (quick task 260925-uy5), answered 304 by
+      // default so every expectation in this file holds unchanged. BEFORE the
+      // fallthrough throw, which would otherwise turn one extra request per open
+      // window into a per-window `roster-failed` warning.
+      if (/\/event\/[^/]+\/teams\/simple$/.test(u)) {
+        return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
       }
       throw new Error(`unexpected URL in promotion stub: ${u}`);
     });
@@ -1795,7 +1817,10 @@ describe("runTick — the tick probes a probe window", () => {
     expect(result.eventsFailed).toBe(0);
     expect(result.eventsProbed).toBe(1);
     expect(result.eventsPromoted).toBe(1);
-    expect(result.tbaRequests).toBe(1);
+    // TWO: the probe's own matches poll (never repeated by `processEvent`) plus
+    // the roster pass's one conditional poll for this window, a 304 here (quick
+    // task 260925-uy5). A 304 costs a request, so it counts.
+    expect(result.tbaRequests).toBe(2);
     const eventPutKey = artifactKey({ page: "event", eventKey: "2026probe", algorithmId: "opr", version: opr.version });
     const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
     // Since quick task 260921-5qw a FIRST fold also writes the event's live roster, the tiny object a
@@ -1852,6 +1877,12 @@ describe("runTick — the tick probes a probe window", () => {
       "fetch",
       vi.fn(async (url: unknown) => {
         const u = String(url);
+        // The roster pass's conditional poll (quick task 260925-uy5), 304 and
+        // NOT recorded in `calls` — `calls` is the probe's own per-window
+        // request, which is what the equality below is about.
+        if (/\/event\/[^/]+\/teams\/simple$/.test(u)) {
+          return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
+        }
         const m = /\/event\/([^/]+)\/matches$/.exec(u);
         if (!m) throw new Error(`unexpected URL in probe stub: ${u}`);
         calls.push(m[1]!);
@@ -1866,8 +1897,14 @@ describe("runTick — the tick probes a probe window", () => {
     // Exactly one TBA request per window, never two, and every window covered.
     expect(calls).toHaveLength(probeKeys.length);
     expect(new Set(calls)).toEqual(new Set(probeKeys));
-    // 1 live-windows read + 2 per probe, and nothing else: a probe-only tick
-    // still returns before the algorithms manifest, the module build and D1.
-    expect(tick.subrequestsUsed).toBe(1 + 2 * probeKeys.length);
+    // Each term named rather than a re-derived total: 1 live-windows read,
+    // 1 roster-pass cursor read for the whole tick, 1 roster poll per window and
+    // 2 probe calls per window. Nothing else — a probe-only tick whose rosters
+    // all 304 still returns before the algorithms manifest, the module build and
+    // the tick-meta read (quick task 260925-uy5).
+    expect(tick.subrequestsUsed).toBe(1 + 1 + probeKeys.length + 2 * probeKeys.length);
+    // And the pass really did answer every window, 304 or not.
+    expect(tick.rostersPolled).toBe(probeKeys.length);
+    expect(tick.rosterTeamsAppended).toBe(0);
   });
 });

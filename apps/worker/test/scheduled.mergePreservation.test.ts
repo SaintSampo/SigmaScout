@@ -481,3 +481,133 @@ describe("mergeTeamSeasonArtifact preserves tierCuts through a live tick", () =>
     expect(written.tierCuts!.total).toBeDefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// rosterRows (quick task 260925-uy5): TBA's registered roster, appended to the
+// ONE merge. These cases are about what the branch must NOT disturb as much as
+// what it adds — an existing row's order, identity and metrics, and the priced
+// `upcoming` array the same tick may have just written.
+// ---------------------------------------------------------------------------
+
+describe("mergeEventArtifact — rosterRows appends registered teams and disturbs nothing else", () => {
+  function mergeWithRoster(params: {
+    existing: EventArtifact | undefined;
+    touchedTeams?: readonly string[];
+    rosterRows: readonly { teamKey: string; teamNumber: number; nickname: string }[];
+    upcoming?: readonly EventUpcomingMatch[];
+  }): EventArtifact {
+    const merged = mergeEventArtifact({
+      existing: params.existing,
+      eventKey: EVENT_KEY,
+      season: SEASON,
+      algorithmId: spr.id,
+      algorithmVersion: spr.version,
+      eventType: undefined,
+      newlyFolded: [],
+      newPredictions: new Map(),
+      // The roster pass passes the EXISTING array through, because `upcoming` is
+      // an override key on this merge.
+      upcoming: params.upcoming ?? params.existing?.upcoming ?? [],
+      touchedTeams: params.touchedTeams ?? [],
+      touchedMetrics: {},
+      newBands: new Map(),
+      playedRowFacts: new Map(),
+      rosterRows: params.rosterRows,
+      stamp: LIVE_STAMP,
+    });
+    return json(EventArtifactSchema.parse(merged));
+  }
+
+  it("appends ONLY the teams absent from existing.teams, sorted by teamKey, with the REAL number and nickname", () => {
+    const existing = existingEvent();
+    const written = mergeWithRoster({
+      existing,
+      // Deliberately unsorted, and deliberately including two teams the artifact
+      // already publishes (frc1, frc8).
+      rosterRows: [
+        { teamKey: "frc20", teamNumber: 20, nickname: "Twenty" },
+        { teamKey: "frc8", teamNumber: 8, nickname: "Renamed Eight" },
+        { teamKey: "frc11", teamNumber: 11, nickname: "Eleven" },
+        { teamKey: "frc1", teamNumber: 1, nickname: "Renamed One" },
+      ],
+    });
+
+    expect(written.teams.map((row) => row.teamKey)).toEqual([...TEAMS, "frc11", "frc20"]);
+    const eleven = written.teams.find((row) => row.teamKey === "frc11")!;
+    expect(eleven.teamNumber).toBe(11);
+    expect(eleven.nickname).toBe("Eleven");
+    const twenty = written.teams.find((row) => row.teamKey === "frc20")!;
+    expect(twenty.teamNumber).toBe(20);
+    expect(twenty.nickname).toBe("Twenty");
+  });
+
+  it("never rewrites an existing row: order, identity fields and metrics all survive", () => {
+    const existing = existingEvent();
+    const before = json(existing.teams);
+
+    const written = mergeWithRoster({
+      existing,
+      rosterRows: [
+        { teamKey: "frc1", teamNumber: 999, nickname: "Not This Name" },
+        { teamKey: "frc30", teamNumber: 30, nickname: "Thirty" },
+      ],
+    });
+
+    // Identity and metrics per row, in published order. NOT the whole row: this
+    // fixture has played matches, so `withCountedStandings` recounts
+    // `rank`/`record`/`rp` on every roster row — that is pre-existing behaviour
+    // (quick task 260923-3w7) and has nothing to do with the roster branch, which
+    // is exactly why this asserts the fields the roster branch could plausibly
+    // have touched rather than the whole object.
+    const kept = written.teams.slice(0, before.length);
+    expect(kept.map((row) => row.teamKey)).toEqual(before.map((row) => row.teamKey));
+    for (const [i, row] of kept.entries()) {
+      expect(row.teamNumber, row.teamKey).toBe(before[i]!.teamNumber);
+      expect(row.nickname, row.teamKey).toBe(before[i]!.nickname);
+      expect(row.metrics, row.teamKey).toEqual(before[i]!.metrics);
+    }
+  });
+
+  it("the existing artifact's priced upcoming array comes back byte-identical (the roster pass must not wipe a schedule)", () => {
+    const existing = existingEvent();
+    const before = json(existing.upcoming);
+    expect(before.length).toBeGreaterThan(0); // non-vacuity
+
+    const written = mergeWithRoster({ existing, rosterRows: [{ teamKey: "frc31", teamNumber: 31, nickname: "Thirty One" }] });
+
+    expect(written.upcoming).toEqual(before);
+  });
+
+  it("a rosterRows entry that duplicates a touchedTeams entry is appended ONCE, by the touched branch", () => {
+    const written = mergeWithRoster({
+      existing: existingEvent(),
+      touchedTeams: ["frc42"],
+      rosterRows: [{ teamKey: "frc42", teamNumber: 42, nickname: "Forty Two" }],
+    });
+
+    const rows = written.teams.filter((row) => row.teamKey === "frc42");
+    expect(rows).toHaveLength(1);
+    // The touched branch's bootstrap shape, not the roster branch's real
+    // identity fields — whichever branch owns the row, exactly one row exists.
+    expect(rows[0]!.nickname).toBe("");
+  });
+
+  it("standings counting is unchanged BY the roster branch: the same marker and the same counted rows as a merge with no rosterRows at all", () => {
+    // `withCountedStandings` counts from `matches`, which the roster branch never
+    // touches. Asserted as a DIFFERENCE between two merges rather than against a
+    // hardcoded expectation, so this stays true whatever the counting rule does
+    // next.
+    const withoutRoster = mergeWithRoster({ existing: existingEvent(), rosterRows: [] });
+    const withRoster = mergeWithRoster({ existing: existingEvent(), rosterRows: [{ teamKey: "frc32", teamNumber: 32, nickname: "Thirty Two" }] });
+
+    expect(withRoster.standings).toEqual(withoutRoster.standings);
+    expect(withRoster.teams.slice(0, withoutRoster.teams.length)).toEqual(withoutRoster.teams);
+    // And the appended roster row is counted like any other roster team that has
+    // played nothing: a zero record, sorting last. `withCountedStandings`'s pool
+    // is the union of `teams` and the played rows' team keys (see its header), so
+    // a registered-but-unplayed team ranks last rather than being omitted.
+    const appended = withRoster.teams.at(-1)!;
+    expect(appended.teamKey).toBe("frc32");
+    expect(appended.record).toEqual({ wins: 0, losses: 0, ties: 0 });
+  });
+});
