@@ -6,7 +6,7 @@ current_phase: 10
 current_phase_name: district-points-ledger
 status: executing
 stopped_at: Completed 10-08-PLAN.md
-last_updated: "2026-09-26T03:07:33.718Z"
+last_updated: "2026-09-26T03:41:47.849Z"
 last_activity: 2026-09-26
 last_activity_desc: Phase 10 execution started
 progress:
@@ -682,6 +682,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 245 | Advancement chance per team from one district wide run set in the Web Worker, printed under the status chip for In range and Out of range teams only, capped at 99 and floored at under 5 | 2026-09-26 | 966d09a4 | [260925-rpj-advancement-chance-per-team-on-the-road-](./quick/260925-rpj-advancement-chance-per-team-on-the-road-/) |
 | 246 | Live tick picks up event rosters and prices a posted schedule before the first score | 2026-09-26 | 7a036706 | [260925-uy5-live-tick-picks-up-event-rosters-and-pri](./quick/260925-uy5-live-tick-picks-up-event-rosters-and-pri/) |
 | 247 | Playoff and award readability: bracket routed from played matches, playoff headline advances top 4 to finalist to winner, never a stacked award, outcome lists in the drawers, one grand total plot, chance refusal narrowed to the bad team | 2026-09-26 | 31b5ef43 | [260925-uf8-playoff-and-award-readability-a-playoff-](./quick/260925-uf8-playoff-and-award-readability-a-playoff-/) |
+| 248 | State-only district write path recomputes verdicts, fixing eight PNW Locked teams shipped as contending | 2026-09-26 | ebf0dd8c | [260926-vfx-state-only-path-recomputes-verdicts](./quick/260926-vfx-state-only-path-recomputes-verdicts/) |
 
 ### Roadmap Evolution
 
