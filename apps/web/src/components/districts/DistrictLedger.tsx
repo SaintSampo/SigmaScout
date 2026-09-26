@@ -45,9 +45,9 @@ import {
   DISTRICT_LEDGER_DRAWER_CELL_CAPTION,
   DISTRICT_LEDGER_DRAWER_CELL_PLOT_LABEL,
   DISTRICT_LEDGER_DRAWER_GRAND_PLOT_LABEL,
+  DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION,
   DISTRICT_LEDGER_DRAWER_LINE_CAPTION,
   DISTRICT_LEDGER_DRAWER_LINE_LABEL,
-  DISTRICT_LEDGER_DRAWER_NO_CHANCE_CAPTION,
   DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
@@ -68,10 +68,13 @@ import {
   DISTRICT_LEDGER_TICK_NOW,
   DISTRICT_LEDGER_TICK_START,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
+  districtLedgerChanceLine,
   districtLedgerNoPointsCaption,
   districtLedgerShortEventName,
   districtLedgerTickWeekLabel,
 } from "./districtLedgerCopy.js";
+import { buildAdvancementChanceRun, reconcileAdvancementChances } from "./districtLedgerChances.js";
+import { useDistrictAdvancementChance } from "./useDistrictAdvancementChance.js";
 import {
   DISTRICT_LEDGER_STATUS_KEYS,
   computeDistrictLedgerStatuses,
@@ -169,8 +172,30 @@ function statusChipClass(status: DistrictLedgerStatusKey): string {
   return `lock-status-chip ${STATUS_CHIP_MODIFIER[status]}`;
 }
 
-/** The Status cell: a chip for the five statuses, plain text with NO chip for the honest capacity-not-published state. */
-function StatusCell({ status, rowSpan }: { status: DistrictLedgerStatusResult | undefined; rowSpan: number }) {
+/**
+ * The Status cell: a chip for the five statuses, plain text with NO chip for
+ * the honest capacity-not-published state, and — for an In range or Out of
+ * range team alone — one line underneath carrying its chance of qualifying on
+ * district points.
+ *
+ * THE CHANCE LINE IS PASSED IN ALREADY DECIDED. Whether a status prints one at
+ * all is `districtLedgerChances.ts`'s call and the wording is
+ * `districtLedgerCopy.ts`'s; this component neither compares a status nor
+ * formats a percentage, so the rule that a guarantee never carries a number
+ * beside it lives in one tested place rather than in a JSX condition.
+ *
+ * The line wears the Team cell's own small muted meta class, as a PLAIN STRING
+ * rather than through `cn()` — the recorded tailwind-merge trap.
+ */
+function StatusCell({
+  status,
+  rowSpan,
+  chanceLine,
+}: {
+  status: DistrictLedgerStatusResult | undefined;
+  rowSpan: number;
+  chanceLine: string | undefined;
+}) {
   if (status === undefined || status.status === "capacityUnknown") {
     return (
       <TableCell rowSpan={rowSpan} data-testid="district-ledger-status-cell" className="whitespace-nowrap align-middle text-[var(--color-text-muted)]">
@@ -180,9 +205,16 @@ function StatusCell({ status, rowSpan }: { status: DistrictLedgerStatusResult | 
   }
   return (
     <TableCell rowSpan={rowSpan} data-testid="district-ledger-status-cell" data-status={status.status} className="whitespace-nowrap align-middle">
-      <span className={statusChipClass(status.status)}>
-        {status.byAward ? DISTRICT_LEDGER_LOCKED_AWARD_LABEL : DISTRICT_LEDGER_STATUS_LABELS[status.status]}
-      </span>
+      <div className="flex flex-col items-start gap-[var(--spacing-xs)]">
+        <span className={statusChipClass(status.status)}>
+          {status.byAward ? DISTRICT_LEDGER_LOCKED_AWARD_LABEL : DISTRICT_LEDGER_STATUS_LABELS[status.status]}
+        </span>
+        {chanceLine !== undefined && (
+          <span className="district-ledger-team-meta whitespace-nowrap" data-testid="district-ledger-chance">
+            {chanceLine}
+          </span>
+        )}
+      </div>
     </TableCell>
   );
 }
@@ -406,12 +438,15 @@ function DrawerRow({
   todaysLineFloor,
   columnCount,
   rookieBonus,
+  chanceLine,
 }: {
   cell: Extract<DistrictLedgerCell, { kind: "open" }>;
   grandTotal: DistrictLedgerCell;
   todaysLineFloor: number | null;
   columnCount: number;
   rookieBonus: number;
+  /** This team's printed chance line, or `undefined` where no chance is printed — the caption follows the line rather than announcing one that is not there. */
+  chanceLine: string | undefined;
 }) {
   const cellPercentiles = pointPercentiles(cell.distribution.counts, cell.distribution.denominator);
   const noPointsChance = Math.round(((cell.distribution.counts[0] ?? 0) / cell.distribution.denominator) * 100);
@@ -435,7 +470,9 @@ function DrawerRow({
             <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_DRAWER_CELL_CAPTION}</span>
             {noPointsChance > 0 && <span className="text-[var(--color-text-muted)]">{districtLedgerNoPointsCaption(noPointsChance)}</span>}
           </div>
-          {grandTotal.kind === "open" && <GrandTotalPlot cell={grandTotal} todaysLineFloor={todaysLineFloor} rookieBonus={rookieBonus} />}
+          {grandTotal.kind === "open" && (
+            <GrandTotalPlot cell={grandTotal} todaysLineFloor={todaysLineFloor} rookieBonus={rookieBonus} chanceLine={chanceLine} />
+          )}
         </div>
       </TableCell>
     </TableRow>
@@ -446,10 +483,12 @@ function GrandTotalPlot({
   cell,
   todaysLineFloor,
   rookieBonus,
+  chanceLine,
 }: {
   cell: Extract<DistrictLedgerCell, { kind: "open" }>;
   todaysLineFloor: number | null;
   rookieBonus: number;
+  chanceLine: string | undefined;
 }) {
   const percentiles = pointPercentiles(cell.distribution.counts, cell.distribution.denominator);
   return (
@@ -468,7 +507,11 @@ function GrandTotalPlot({
       <span className="text-[var(--color-text-muted)]">
         {todaysLineFloor === null ? DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION : DISTRICT_LEDGER_DRAWER_LINE_CAPTION}
       </span>
-      <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_DRAWER_NO_CHANCE_CAPTION}</span>
+      {chanceLine !== undefined && (
+        <span className="text-[var(--color-text-muted)]" data-testid="district-ledger-drawer-chance-caption">
+          {DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION}
+        </span>
+      )}
       {rookieBonus > 0 && (
         <span className="text-[var(--color-text-muted)]" data-testid="district-ledger-drawer-rookie-bonus">
           {districtLedgerRookieBonusCaption(Math.round(rookieBonus))}
@@ -808,6 +851,46 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
 
   const statuses = useMemo(() => computeDistrictLedgerStatuses({ artifact, teams: rows.teams }), [artifact, rows.teams]);
 
+  /**
+   * THE ADVANCEMENT CHANCE, in three steps that each refuse rather than guess.
+   *
+   * `buildAdvancementChanceRun` decides whether there is anything to rank at
+   * all (a published capacity, something still open, a run that is not in
+   * flight, and a grand total for every single team); the hook runs it in the
+   * district Worker, so the main thread never ranks a whole district a thousand
+   * times; `reconcileAdvancementChances` narrows the raw run set to the teams
+   * whose chip is allowed to carry a number.
+   *
+   * `runState.status === "complete"` carries the per-event run's exact
+   * signature, and a `null` in its place suppresses the whole request: while
+   * the run is in flight the grand totals are still being built. `"idle"` is
+   * NOT in flight — it is the SC-5 case where there was nothing to simulate,
+   * and the baked distributions are already in hand — so it passes an empty
+   * signature rather than a null.
+   */
+  const chanceRun = useMemo(() => {
+    const runSignature =
+      data.runState.status === "complete" ? data.runState.signature : data.runState.status === "idle" ? "" : null;
+    return buildAdvancementChanceRun({
+      artifact,
+      teams: rows.teams,
+      statuses,
+      runSignature,
+      positionId: timeline.positions[positionIndex]?.id ?? DISTRICT_TIMELINE_NOW_ID,
+    });
+  }, [artifact, rows.teams, statuses, data.runState, timeline, positionIndex]);
+
+  const chanceState = useDistrictAdvancementChance(chanceRun);
+  const chances = useMemo(
+    () => (chanceState.status === "complete" ? reconcileAdvancementChances(chanceState.chanceByTeam, statuses) : undefined),
+    [chanceState, statuses]
+  );
+  /** One team's printed line, or `undefined` where nothing is printed — a pending run and a guaranteed status are the same absence here. */
+  const chanceLineFor = (teamKey: string): string | undefined => {
+    const chance = chances?.byTeam.get(teamKey);
+    return chance === undefined ? undefined : districtLedgerChanceLine(chance);
+  };
+
   // The stat line and the chip counts both describe the DISTRICT, not the
   // filtered view.
   const statLine = useMemo(() => districtLedgerStatLine(rows.teams, artifact.dcmpSlots), [rows.teams, artifact.dcmpSlots]);
@@ -900,7 +983,7 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
                         className="district-ledger-row--team-start"
                       >
                         <TeamCell team={team} season={season} algorithm={algorithm} />
-                        <StatusCell status={statuses.byTeam.get(team.teamKey)} rowSpan={1} />
+                        <StatusCell status={statuses.byTeam.get(team.teamKey)} rowSpan={1} chanceLine={chanceLineFor(team.teamKey)} />
                         <LedgerCell cell={team.grandTotal} interaction={interaction} />
                         <TableCell colSpan={DISTRICT_LEDGER_COLUMN_LABELS.length - 3} className="text-[var(--color-text-muted)]">
                           {DISTRICT_LEDGER_UNAVAILABLE_CELL}
@@ -915,7 +998,13 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
                         className={rowIndex === 0 ? "district-ledger-row--team-start" : "district-ledger-row--team-inner"}
                       >
                         {rowIndex === 0 && <TeamCell team={team} season={season} algorithm={algorithm} />}
-                        {rowIndex === 0 && <StatusCell status={statuses.byTeam.get(team.teamKey)} rowSpan={Math.max(team.rowCount, 1)} />}
+                        {rowIndex === 0 && (
+                          <StatusCell
+                            status={statuses.byTeam.get(team.teamKey)}
+                            rowSpan={Math.max(team.rowCount, 1)}
+                            chanceLine={chanceLineFor(team.teamKey)}
+                          />
+                        )}
                         {rowIndex === 0 && (
                           <TableCell rowSpan={Math.max(team.rowCount, 1)} data-testid="district-ledger-grand-total" className="numeric-cell align-middle">
                             <GrandTotalContent cell={team.grandTotal} interaction={interaction} />
@@ -938,6 +1027,7 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
                   todaysLineFloor={statLine.todaysLineFloor}
                   columnCount={DISTRICT_LEDGER_COLUMN_LABELS.length}
                   rookieBonus={team.rookieBonus}
+                  chanceLine={chanceLineFor(team.teamKey)}
                 />,
               ];
             })}

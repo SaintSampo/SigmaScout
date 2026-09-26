@@ -34,14 +34,14 @@ import {
 } from "../../../../../packages/harness/pageArtifacts.js";
 import { RANK_BAND_LABEL_PREFIX } from "../event/rankRows.js";
 import { installMockWorker, type MockWorkerHandle, type MockWorkerScript } from "../../test/mockWorker.js";
-import { runDistrictSimulationJob } from "../../workers/districtSimulationProtocol.js";
+import { runDistrictWorkerJob } from "../../workers/districtSimulationProtocol.js";
 import { DistrictLedger } from "./DistrictLedger.js";
 import {
   DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED,
   DISTRICT_LEDGER_CAVEAT,
   DISTRICT_LEDGER_COLUMN_LABELS,
+  DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION,
   DISTRICT_LEDGER_DRAWER_LINE_CAPTION,
-  DISTRICT_LEDGER_DRAWER_NO_CHANCE_CAPTION,
   DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
@@ -296,9 +296,19 @@ function installFetch(options: FetchOptions = {}) {
   }) as unknown as typeof fetch;
 }
 
+/**
+ * THE REAL PROTOCOL DISPATCHER as the mock Worker's script, so BOTH request
+ * types this tab posts — the per-event run and the advancement chance — travel
+ * the same `structuredClone` boundary a browser would enforce.
+ */
 const realRunScript: MockWorkerScript = (message, ctx) => {
-  runDistrictSimulationJob(message, (outbound) => ctx.post(outbound));
+  runDistrictWorkerJob(message, (outbound) => ctx.post(outbound));
 };
+
+/** Every mock Worker instance that was handed a request of one kind. */
+function instancesReceiving(handle: MockWorkerHandle, type: "run" | "chance") {
+  return handle.instances.filter((instance) => instance.received.some((message) => (message as { type?: string }).type === type));
+}
 
 function renderLedger(artifact: DistrictArtifact) {
   render(
@@ -359,18 +369,37 @@ describe("DistrictLedger — the tracer slice", () => {
     expect(document.body.textContent ?? "").not.toContain(PLUS_MINUS);
   });
 
-  it("constructs exactly one Worker, terminates it once the result arrives, and sends only the in-progress event", async () => {
+  it("constructs exactly one RUN Worker, terminates it once the result arrives, and sends only the in-progress event", async () => {
     installFetch({ eventArtifact: liveEventArtifact() });
     handle = installMockWorker({ script: realRunScript });
     renderLedger(artifactOf(ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey)))));
 
-    await waitFor(() => expect(handle!.instances).toHaveLength(1));
-    const instance = handle.instances[0]!;
+    // Counted by the request each instance RECEIVED rather than by the raw
+    // instance count: since quick task 260925-rpj this tab posts a second,
+    // different request — the advancement chance — to a Worker of its own, and
+    // a bare length check could no longer tell one run from two.
+    await waitFor(() => expect(instancesReceiving(handle!, "run")).toHaveLength(1));
+    const instance = instancesReceiving(handle, "run")[0]!;
     await waitFor(() => expect(instance.terminated).toBe(true));
 
     expect(instance.received).toHaveLength(1);
     const request = instance.received[0] as { events: { eventKey: string }[] };
     expect(request.events.map((event) => event.eventKey)).toEqual(["2026walive"]);
+  });
+
+  it("posts the advancement chance to a SECOND Worker, once, and terminates it too", async () => {
+    installFetch({ eventArtifact: liveEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf(ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey)))));
+
+    await waitFor(() => expect(instancesReceiving(handle!, "chance")).toHaveLength(1));
+    const instance = instancesReceiving(handle, "chance")[0]!;
+    await waitFor(() => expect(instance.terminated).toBe(true));
+    const request = instance.received[0] as { inputs: { teams: unknown[]; slots: number } };
+    // One entry per team in the district, and the published capacity, so the
+    // ranking sees the whole field.
+    expect(request.inputs.teams).toHaveLength(ROSTER.length);
+    expect(request.inputs.slots).toBe(12);
   });
 
   it("keeps the grey cells and shows the unavailable copy in the open cells when the browser cannot construct a Worker", async () => {
@@ -397,7 +426,7 @@ describe("DistrictLedger — the tracer slice", () => {
     expect(handle.instances).toHaveLength(0);
   });
 
-  it("constructs NO Worker for an unstarted event and still paints its blue cells from the baked pmfs (SC-5)", async () => {
+  it("posts NO per-event run for an unstarted event and still paints its blue cells from the baked pmfs (SC-5)", async () => {
     installFetch({ preSim: preSimBody() });
     handle = installMockWorker({ script: realRunScript });
     renderLedger(
@@ -407,7 +436,12 @@ describe("DistrictLedger — the tracer slice", () => {
       const qual = document.querySelector('[data-cell-id="2026wasoon:qual"]');
       expect(qual?.getAttribute("data-cell")).toBe("open");
     });
-    expect(handle.instances).toHaveLength(0);
+    // SC-5 is about the SIMULATION: an event nobody has played is priced by the
+    // pipeline, so the browser re-runs nothing for it. The advancement chance
+    // is a different job on the same baked numbers — a district with something
+    // still to play has a real race to rank — so it is exempt by construction
+    // rather than by exception, and is asserted on its own below.
+    expect(instancesReceiving(handle, "run")).toHaveLength(0);
     const qual = document.querySelector('[data-cell-id="2026wasoon:qual"]')!;
     expect(qual.textContent ?? "").toMatch(/^~\d+likely \d+\.\d+–\d+\.\d+$/);
   });
@@ -920,7 +954,9 @@ describe("DistrictLedger — the drawer", () => {
     expect(screen.getByTestId("district-ledger-drawer-grand-plot")).toBeDefined();
     expect(screen.getByTestId("district-hist-marked-line")).toBeDefined();
     expect(screen.getByTestId("district-ledger-drawer").textContent).toContain(DISTRICT_LEDGER_DRAWER_LINE_CAPTION);
-    expect(screen.getByTestId("district-ledger-drawer").textContent).toContain(DISTRICT_LEDGER_DRAWER_NO_CHANCE_CAPTION);
+    await waitFor(() =>
+      expect(screen.getByTestId("district-ledger-drawer").textContent).toContain(DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION)
+    );
   });
 
   it("draws NO line and says so instead when the capacity is unpublished", async () => {
@@ -1135,5 +1171,173 @@ describe("the tab's error boundary (WR-09)", () => {
 
     await waitFor(() => expect(screen.getByTestId("district-ledger-tab")).toBeDefined());
     expect(screen.queryByRole("button", { name: /retry/i })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The advancement chance (quick task 260925-rpj)
+// ---------------------------------------------------------------------------
+
+/**
+ * A team whose points are already far enough clear to be Locked, and whose
+ * GRAND TOTAL says the same thing: the extra points arrive as a second
+ * FINISHED district event rather than as a bare `pointTotal` bump, so the
+ * verdict and the run set are reading the same district. A fixture where the
+ * two disagreed would still pass the "no chance under a Locked chip" assertion,
+ * but it would pass through the gap counter rather than through the property
+ * the design rests on.
+ */
+function lockedTeam(teamKey: string): DistrictTeam {
+  const base = withLiveEvent(districtTeam(teamKey));
+  return {
+    ...base,
+    pointTotal: 224,
+    eventPoints: [
+      ...base.eventPoints,
+      { eventKey: "2026wabig", eventName: "Big Event", week: 1, tier: "district", qual: 100, alliance: 50, elim: 30, award: 20, total: 200, state: state() },
+    ],
+  };
+}
+
+/** A finished team nobody's ceiling can fall below: 20 points, against a field whose floors are all 24. */
+function lockedOutTeam(teamKey: string): DistrictTeam {
+  const base = districtTeam(teamKey);
+  return {
+    ...base,
+    pointTotal: 20,
+    eventPoints: [{ eventKey: "2026wadone", eventName: "Done Event", week: 0, tier: "district", qual: 10, alliance: 5, elim: 5, award: 0, total: 20, state: state() }],
+  };
+}
+
+describe("DistrictLedger — the advancement chance", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  /** The live district, plus one team Locked on points and one Locked out. */
+  function mixedDistrict() {
+    const teams = ROSTER.map((teamKey) => (teamKey === ROSTER[0] ? lockedTeam(teamKey) : withLiveEvent(districtTeam(teamKey))));
+    return artifactOf([...teams, lockedOutTeam("frc900")]);
+  }
+
+  async function renderMixed() {
+    installFetch({ eventArtifact: liveEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(mixedDistrict());
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-chance").length).toBeGreaterThan(0));
+  }
+
+  function statusCellFor(teamKey: string): HTMLElement {
+    const row = document.querySelector(`[data-testid="district-ledger-row"][data-team="${teamKey}"]`)!;
+    return within(row as HTMLElement).getByTestId("district-ledger-status-cell");
+  }
+
+  it("prints one chance line under every In range and Out of range chip and under no other", async () => {
+    await renderMixed();
+    const cells = [...document.querySelectorAll('[data-testid="district-ledger-status-cell"][data-status]')];
+    expect(cells.length).toBeGreaterThan(0);
+    let printed = 0;
+    for (const cell of cells) {
+      const status = cell.getAttribute("data-status")!;
+      const lines = within(cell as HTMLElement).queryAllByTestId("district-ledger-chance");
+      if (status === "inRange" || status === "outOfRange") {
+        expect(lines, `${status} printed ${String(lines.length)} chance lines`).toHaveLength(1);
+        printed += 1;
+      } else {
+        expect(lines, `${status} printed a chance`).toHaveLength(0);
+      }
+    }
+    expect(printed).toBeGreaterThan(0);
+  });
+
+  it("prints NOTHING beside the Locked and the Locked out chip, whose verdicts are guarantees", async () => {
+    await renderMixed();
+    const locked = statusCellFor(ROSTER[0]!);
+    expect(locked.getAttribute("data-status")).toBe("locked");
+    expect(within(locked).queryByTestId("district-ledger-chance")).toBeNull();
+
+    const lockedOut = statusCellFor("frc900");
+    expect(lockedOut.getAttribute("data-status")).toBe("lockedOut");
+    expect(within(lockedOut).queryByTestId("district-ledger-chance")).toBeNull();
+  });
+
+  it("obeys the two printing limits: never a number under 5, never one above 99, and never the word eliminated", async () => {
+    await renderMixed();
+    for (const line of screen.getAllByTestId("district-ledger-chance")) {
+      const text = line.textContent ?? "";
+      expect(text).toMatch(/^(<5% chance|\d{1,2}% chance)$/);
+      const percent = /^(\d{1,2})%/.exec(text);
+      if (percent !== null) {
+        expect(Number(percent[1])).toBeGreaterThanOrEqual(5);
+        expect(Number(percent[1])).toBeLessThanOrEqual(99);
+      }
+    }
+    // The shipped caveat legitimately contains the word inside a sentence
+    // ("has not been eliminated"), so the rule is asserted where it binds: on
+    // the chance lines themselves, which never carry it and never read 100.
+    const everyLine = screen.getAllByTestId("district-ledger-chance").map((line) => line.textContent ?? "").join(" ");
+    expect(everyLine).not.toContain("eliminated");
+    expect(everyLine).not.toContain("100%");
+  });
+
+  it("prints no chance and constructs NO Worker at all on a finished district (SC-5)", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf(ROSTER.map((teamKey) => districtTeam(teamKey))));
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-row").length).toBeGreaterThan(0));
+    expect(screen.queryAllByTestId("district-ledger-chance")).toHaveLength(0);
+    expect(handle.instances).toHaveLength(0);
+  });
+
+  it("prints no chance when TBA published no capacity for the district", async () => {
+    installFetch({ eventArtifact: liveEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf(ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey))), { dcmpSlots: null }));
+    await waitFor(() => {
+      expect(document.querySelector('[data-cell-id="2026walive:qual"]')?.getAttribute("data-cell")).toBe("open");
+    });
+    expect(instancesReceiving(handle, "chance")).toHaveLength(0);
+    expect(screen.queryAllByTestId("district-ledger-chance")).toHaveLength(0);
+  });
+
+  it("prints no chance when the browser cannot construct a Worker at all", async () => {
+    installFetch({ eventArtifact: liveEventArtifact() });
+    handle = installMockWorker({ failOnConstruct: new Error("Worker is not defined") });
+    renderLedger(artifactOf(ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey)))));
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-row").length).toBeGreaterThan(0));
+    expect(screen.queryAllByTestId("district-ledger-chance")).toHaveLength(0);
+  });
+
+  it("recomputes the chance at a REWOUND position, against the race the slider reopened", async () => {
+    installFetch({ eventArtifact: liveEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+    // The plain live district here rather than `mixedDistrict()`: at
+    // season start every started event is reopened, so every team needs a
+    // distribution at every one of its events, and the stand-in team frc900 is
+    // deliberately absent from the served event roster. That absence is the
+    // refusal `districtLedgerChances.test.ts` pins; this test is about the
+    // rewind, so it uses a district the fetch mock can price in full.
+    renderLedgerAt(artifactOf(ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey)))), "/districts?algorithm=spr&at=season-start");
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-chance").length).toBeGreaterThan(0));
+
+    for (const line of screen.getAllByTestId("district-ledger-chance")) {
+      expect(line.textContent ?? "").toMatch(/^(<5% chance|\d{1,2}% chance)$/);
+    }
+    const request = instancesReceiving(handle, "chance").at(-1)!.received[0] as { inputs: { teams: unknown[] } };
+    expect(request.inputs.teams).toHaveLength(ROSTER.length);
+  });
+
+  it("ranks the whole district, including the teams whose own chip prints nothing", async () => {
+    await renderMixed();
+    const request = instancesReceiving(handle!, "chance")[0]!.received[0] as { inputs: { teams: { teamKey: string }[] } };
+    expect(request.inputs.teams.map((team) => team.teamKey)).toContain("frc900");
+    expect(request.inputs.teams).toHaveLength(ROSTER.length + 1);
   });
 });

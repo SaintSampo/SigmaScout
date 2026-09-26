@@ -108,6 +108,23 @@ export interface DistrictLedgerStatusModel {
   readonly verdictCensus: Readonly<Record<LockStatus, number>>;
   /** The slot-th highest MEDIAN PROJECTION in the narrowed pool — the In range boundary. `null` for an unpublished capacity. */
   readonly projectionCutLine: number | null;
+  /**
+   * The CONSUMING award qualifiers at this position, sorted — the exact set
+   * handed to `computeLocksWithQualifiers` above.
+   *
+   * Exposed for the advancement chance (quick task 260925-rpj), which ranks
+   * drawn season totals against `locks.ts`'s own narrowed pool and slot count
+   * and must be handed the same set the verdicts were. Deriving it a second
+   * time from the artifact is exactly how a printed chance would come to
+   * contradict the chip beside it.
+   */
+  readonly awardQualified: readonly string[];
+  /**
+   * Always EMPTY at this tier — there is no prequalification concept at the
+   * district/DCMP tier at all. Exposed anyway, so a consumer never has to
+   * assume that rule holds and never has to hardcode an empty set of its own.
+   */
+  readonly prequalified: readonly string[];
   /** How many slots were HELD BACK at this position for Impact awards still to come — see `reservedSlotsAtPosition`. Zero at a position where every district-tier event has posted its awards. */
   readonly reservedSlots: number;
   /**
@@ -318,5 +335,14 @@ export function computeDistrictLedgerStatuses(options: ComputeDistrictLedgerStat
     byTeam.set(verdict.teamKey, { teamKey: verdict.teamKey, status, byAward, verdict: verdict.status, lockedBy: verdict.lockedBy });
   }
 
-  return { byTeam, counts, verdictCensus, projectionCutLine, reservedSlots, pooledRemainingPoints: pooled.remainingPoints };
+  return {
+    byTeam,
+    counts,
+    verdictCensus,
+    projectionCutLine,
+    awardQualified: [...qualifiers.awardQualified].sort(),
+    prequalified: [...qualifiers.prequalified].sort(),
+    reservedSlots,
+    pooledRemainingPoints: pooled.remainingPoints,
+  };
 }

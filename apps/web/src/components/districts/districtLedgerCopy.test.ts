@@ -8,9 +8,12 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  districtLedgerChanceLine,
   districtLedgerRookieBonusLine,
   districtLedgerRookieBonusCaption,
+  DISTRICT_LEDGER_CHANCE_BELOW_FLOOR,
   DISTRICT_LEDGER_COLUMN_LABELS,
+  DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
@@ -81,6 +84,35 @@ describe("the UI-SPEC copy contract", () => {
     ]);
   });
 
+  /**
+   * Sketch 020's two printing limits, in Jacob's own words: "Never show
+   * '>99%', print '99%'", and "A chance under 5% is never printed as a number".
+   * Both are pinned by VALUE here rather than by re-deriving the thresholds, so
+   * a later change to either constant has to come through this test.
+   */
+  it("prints a chance as one line, and never a number outside the 5 to 99 band", () => {
+    expect(districtLedgerChanceLine(0.71)).toBe("71% chance");
+    expect(districtLedgerChanceLine(0.5)).toBe("50% chance");
+    expect(districtLedgerChanceLine(0.05)).toBe("5% chance");
+    expect(districtLedgerChanceLine(0.99)).toBe("99% chance");
+    // Rounds to 100, prints 99: a season is never over while a decline, the
+    // waitlist or a wildcard can still move a team.
+    expect(districtLedgerChanceLine(0.997)).toBe("99% chance");
+    expect(districtLedgerChanceLine(1)).toBe("99% chance");
+    // Under the floor, no number at all.
+    expect(districtLedgerChanceLine(0.049)).toBe("<5% chance");
+    expect(districtLedgerChanceLine(0.004)).toBe("<5% chance");
+    expect(districtLedgerChanceLine(0)).toBe("<5% chance");
+    expect(DISTRICT_LEDGER_CHANCE_BELOW_FLOOR).toBe("<5% chance");
+  });
+
+  it("says where the drawer's chance comes from, and no longer says the page does not compute one", () => {
+    expect(DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION).toBe(
+      "The chance beside this team's status is the share of runs where a draw from this distribution lands inside the qualifying slots, against a draw from every other team's own."
+    );
+    expect(DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION).not.toContain("does not compute");
+  });
+
   it("prints neither of the two superseded status words anywhere in this tab's vocabulary", () => {
     const everyString = [
       ...Object.values(DISTRICT_LEDGER_STATUS_LABELS),
@@ -89,5 +121,9 @@ describe("the UI-SPEC copy contract", () => {
     ].join(" ");
     expect(everyString).not.toContain("Contending");
     expect(everyString).not.toContain("eliminated");
+    // The chance line carries neither word either, at any value.
+    const chances = [0, 0.04, 0.3, 0.99, 1].map(districtLedgerChanceLine).join(" ");
+    expect(chances).not.toContain("Contending");
+    expect(chances).not.toContain("eliminated");
   });
 });

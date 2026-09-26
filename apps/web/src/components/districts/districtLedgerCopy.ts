@@ -133,6 +133,41 @@ export const DISTRICT_LEDGER_STATUS_LABELS = {
 /** The variant a team locked BY AN AWARD renders — a note on one status, never a second status. */
 export const DISTRICT_LEDGER_LOCKED_AWARD_LABEL = "Locked · award";
 
+/**
+ * The two printing limits sketch 020's language rules set on a chance, in
+ * Jacob's own words: "Never show '>99%', print '99%'", and "A chance under 5%
+ * is never printed as a number".
+ *
+ * BOTH ARE ABOUT WHAT THE NUMBER WOULD DO TO A READER, not about precision. A
+ * team's season is never actually over while a slot can still come back to it
+ * through a decline, a waitlist or a wildcard, so a printed 100 would be a
+ * promise the page cannot keep; and a printed 2 reads as a verdict the run set
+ * has no business handing down.
+ */
+export const DISTRICT_LEDGER_CHANCE_CEILING_PERCENT = 99;
+export const DISTRICT_LEDGER_CHANCE_FLOOR_PERCENT = 5;
+
+/** What a chance below the floor prints instead of a number. */
+export const DISTRICT_LEDGER_CHANCE_BELOW_FLOOR = "<5% chance";
+
+/**
+ * The one line printed under an In range or Out of range chip.
+ *
+ * Takes a chance in `[0, 1]` and returns the whole line, so no caller ever
+ * multiplies by a hundred or rounds on its own. The word `eliminated` never
+ * appears here or anywhere else on this tab.
+ */
+export function districtLedgerChanceLine(chance: number): string {
+  // The FLOOR is tested against the chance itself, before rounding: the rule
+  // is that a chance under 5% never prints as a number, and 4.9% rounded to 5
+  // would be exactly that number.
+  if (chance * 100 < DISTRICT_LEDGER_CHANCE_FLOOR_PERCENT) return DISTRICT_LEDGER_CHANCE_BELOW_FLOOR;
+  // The CEILING is a clamp on the printed value rather than on the chance,
+  // because the thing being forbidden is the printed 100.
+  const percent = Math.min(Math.round(chance * 100), DISTRICT_LEDGER_CHANCE_CEILING_PERCENT);
+  return `${String(percent)}% chance`;
+}
+
 /** What a team renders when TBA published no capacity for this district-year — plain text, no chip, exactly as the shipped champ tab does for `unknown`. */
 export const DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED = "Capacity not published";
 
@@ -170,8 +205,19 @@ export const DISTRICT_LEDGER_DRAWER_LINE_CAPTION = "The dashed line is the earne
 /** What the grand total plot says INSTEAD of drawing a line at zero when capacity is unpublished. */
 export const DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION = "TBA has published no capacity for this district, so there is no line to draw.";
 
-/** The limit this page states outright rather than letting a reader infer a chance it does not compute. */
-export const DISTRICT_LEDGER_DRAWER_NO_CHANCE_CAPTION = "A chance of finishing above the line would need the line's own distribution, which this page does not compute.";
+/**
+ * The grand total plot's chance caption, printed only where a chance is
+ * actually printed beside the team's status.
+ *
+ * REPLACES the shipped `DISTRICT_LEDGER_DRAWER_NO_CHANCE_CAPTION`, which said a
+ * chance of finishing above the line would need the line's own distribution and
+ * that this page did not compute it. Quick task 260925-rpj computes it, from
+ * this very distribution and every other team's own, so the old sentence had to
+ * go in the same commit: a page still stating a limit it no longer has is worse
+ * than one that never stated it.
+ */
+export const DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION =
+  "The chance beside this team's status is the share of runs where a draw from this distribution lands inside the qualifying slots, against a draw from every other team's own.";
 
 /** The drawer's two plot labels, used as their accessible names. */
 export const DISTRICT_LEDGER_DRAWER_CELL_PLOT_LABEL = "Points for this category";

@@ -194,6 +194,33 @@ describe("the award-qualified set is filtered three ways", () => {
     expect(withAward("a", AWARD_TYPE_IMPACT).byAward).toBe(true);
   });
 
+  /**
+   * The exposed sets, added by quick task 260925-rpj so the advancement chance
+   * ranks the SAME narrowed race the verdicts did. Asserted against the
+   * `byAward` verdicts rather than against a hand typed list, so the two can
+   * only agree by actually agreeing.
+   */
+  it("exposes the consuming award qualifiers it actually handed locks.ts, and an empty prequalified set", () => {
+    const artifact = artifactOf([
+      team("frc1", {
+        pointTotal: 5,
+        eventPoints: [played("a", 5)],
+        qualifyingAwards: [{ eventKey: "a", awardType: AWARD_TYPE_IMPACT, label: "Impact", awardOnly: false }],
+      }),
+      team("frc2", {
+        pointTotal: 80,
+        eventPoints: [played("a", 80)],
+        qualifyingAwards: [{ eventKey: "a", awardType: AWARD_TYPE_ENGINEERING_INSPIRATION, label: "EI", awardOnly: false }],
+      }),
+      team("frc3", { pointTotal: 70, eventPoints: [played("a", 70)] }),
+    ]);
+    const { model } = statusesFor(artifact);
+    expect(model.awardQualified).toEqual(["frc1"]);
+    expect(model.prequalified).toEqual([]);
+    const byAward = [...model.byTeam.values()].filter((entry) => entry.byAward).map((entry) => entry.teamKey);
+    expect(model.awardQualified).toEqual(byAward);
+  });
+
   it("keeps the prequalified set empty at this tier — no team ever reports Prequalified from the district lock", () => {
     const artifact = artifactOf([team("frc1", { pointTotal: 5, eventPoints: [played("a", 5)] })]);
     expect(statusesFor(artifact).model.counts.prequalified).toBe(0);
