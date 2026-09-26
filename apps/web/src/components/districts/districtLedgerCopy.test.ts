@@ -41,6 +41,21 @@ import {
   districtLedgerSelectionSettledLine,
   districtLedgerShortEventName,
   districtLedgerTickWeekLabel,
+  CHAMP_LEDGER_COLUMN_LABELS,
+  CHAMP_LEDGER_CONTRIBUTION_CAPTION,
+  CHAMP_LEDGER_CONTRIBUTION_COLUMN_SOURCE,
+  CHAMP_LEDGER_CONTRIBUTION_LIST_LABEL,
+  CHAMP_LEDGER_CONTRIBUTION_ROW_LABELS,
+  CHAMP_LEDGER_DISTRICT_ONLY_LINE,
+  CHAMP_LEDGER_LOCKED_WINNER_LABEL,
+  CHAMP_LEDGER_NOT_IN_FIELD_CELL,
+  CHAMP_LEDGER_NOT_IN_FIELD_LINE,
+  CHAMP_LEDGER_NOT_YET_PRICED_CELL,
+  CHAMP_LEDGER_ROW_LABELS,
+  CHAMP_LEDGER_TAB_LABEL,
+  champLedgerContributionChanceNote,
+  champLedgerDistrictSourceLine,
+  champLedgerFieldChanceLine,
 } from "./districtLedgerCopy.js";
 
 describe("the UI-SPEC copy contract", () => {
@@ -318,5 +333,88 @@ describe("the alliance selection route copy (quick task 260925-w4y)", () => {
     ].join(" ");
     for (const dash of ["—", "–", "-"]) expect(everyString).not.toContain(dash);
     expect(everyString).not.toContain("±");
+  });
+});
+
+/**
+ * THE CHAMP LOCKS TAB'S OWN COPY (sketch 022, quick task 260925-xab).
+ *
+ * Every literal is restated here rather than imported-and-compared, on the same
+ * terms as the district tier's contract above: a test that asserted a constant
+ * against itself would pin nothing.
+ */
+describe("the Champ Locks copy contract", () => {
+  it("pins the tab label and the nine column labels in render order", () => {
+    expect(CHAMP_LEDGER_TAB_LABEL).toBe("Champ Locks");
+    expect([...CHAMP_LEDGER_COLUMN_LABELS]).toEqual([
+      "Team",
+      "Status",
+      "Grand total",
+      "Source",
+      "Subtotal",
+      "Qualification",
+      "Alliance selection",
+      "Playoffs",
+      "Awards",
+    ]);
+  });
+
+  it("pins the two row labels and the winner variant of the Locked chip", () => {
+    expect(CHAMP_LEDGER_ROW_LABELS.district).toBe("District points");
+    expect(CHAMP_LEDGER_ROW_LABELS.dcmp).toBe("DCMP points");
+    expect(CHAMP_LEDGER_LOCKED_WINNER_LABEL).toBe("Locked · winner");
+    // The judged case stays the district tier's string, unchanged.
+    expect(DISTRICT_LEDGER_LOCKED_AWARD_LABEL).toBe("Locked · award");
+  });
+
+  /**
+   * THREE ABSENCES, THREE DIFFERENT WORDS. The em dash means the field has
+   * settled and left this team out; "not yet priced" means nothing was
+   * predicted at all; "not available" (the district tier's) means a prediction
+   * was attempted and refused. Asserting they are pairwise different is what
+   * stops a later edit collapsing two of them into one.
+   */
+  it("keeps the three DCMP absences distinct, and builds the em dash from its codepoint", () => {
+    expect(CHAMP_LEDGER_NOT_IN_FIELD_CELL).toBe(String.fromCharCode(0x2014));
+    expect(CHAMP_LEDGER_NOT_IN_FIELD_LINE).toBe("not in the field");
+    expect(CHAMP_LEDGER_NOT_YET_PRICED_CELL).toBe("not yet priced");
+    expect(CHAMP_LEDGER_DISTRICT_ONLY_LINE).toBe("district only");
+    const three = [CHAMP_LEDGER_NOT_IN_FIELD_CELL, CHAMP_LEDGER_NOT_YET_PRICED_CELL, "not available"];
+    expect(new Set(three).size).toBe(3);
+  });
+
+  it("prints the field chance with a mandatory tilde, inside the same 5 to 99 band the status line uses", () => {
+    expect(champLedgerFieldChanceLine(0.62)).toBe("~62% to be there");
+    expect(champLedgerFieldChanceLine(1)).toBe("~99% to be there");
+    expect(champLedgerFieldChanceLine(0.995)).toBe("~99% to be there");
+    expect(champLedgerFieldChanceLine(0.049)).toBe("<5% to be there");
+    expect(champLedgerFieldChanceLine(0)).toBe("<5% to be there");
+    expect(champLedgerFieldChanceLine(0.05)).toBe("~5% to be there");
+  });
+
+  it("writes the District points row's small line as short name, one based week, stage word", () => {
+    expect(
+      champLedgerDistrictSourceLine([
+        { eventName: "PNW District Bonney Lake Event", week: 0, stage: "done" },
+        { eventName: "PNW District Sammamish Event", week: 2, stage: "playoffs" },
+      ])
+    ).toBe("Bonney Lake Wk 1 · final · Sammamish Wk 3 · playoffs");
+    // A week-less event prints its name and stage and invents no week.
+    expect(champLedgerDistrictSourceLine([{ eventName: "Offseason Thing", week: null, stage: "quals" }])).toBe("Offseason Thing · quals");
+    // No source at all is the empty string, which the cell prints as nothing.
+    expect(champLedgerDistrictSourceLine([])).toBe("");
+  });
+
+  it("names the contribution list's two rows from the SAME table the ledger's rows come from", () => {
+    expect(CHAMP_LEDGER_CONTRIBUTION_ROW_LABELS).toBe(CHAMP_LEDGER_ROW_LABELS);
+    expect(CHAMP_LEDGER_CONTRIBUTION_LIST_LABEL).toBe("Points by source");
+    expect(CHAMP_LEDGER_CONTRIBUTION_COLUMN_SOURCE).toBe("source");
+    expect(champLedgerContributionChanceNote(0.62)).toBe("weighted by ~62% to be there");
+  });
+
+  it("says in the caption WHY the two subtotals do not add to the grand total", () => {
+    expect(CHAMP_LEDGER_CONTRIBUTION_CAPTION).toContain("weighted by the chance of being there");
+    for (const dash of ["—", "–", "-"]) expect(CHAMP_LEDGER_CONTRIBUTION_CAPTION).not.toContain(dash);
+    expect(CHAMP_LEDGER_CONTRIBUTION_CAPTION).not.toContain("±");
   });
 });

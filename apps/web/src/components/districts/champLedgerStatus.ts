@@ -94,6 +94,23 @@ export interface ComputeChampLedgerStatusesOptions {
   readonly artifact: DistrictArtifact;
   /** The rows `champLedgerRows.ts` produced AT THIS POSITION, in its own sorted order — this module computes no second ordering. */
   readonly teams: readonly ChampLedgerTeam[];
+  /**
+   * The teams the DISTRICT-tier verdict has eliminated at this position.
+   *
+   * Read for exactly one thing: the hypothetical DCMP ceiling a team gets
+   * while the championship is not on the artifact yet. A team the district
+   * tier has locked OUT cannot reach the field, so it gets none — which is
+   * `districtRankingsMerge.ts`'s own `maxRemainingChamp` gate
+   * (`stillAhead && !hasPlayedDcmp && districtLock.status !== "eliminated"`),
+   * read off the verdicts the tab already computed rather than recomputed
+   * here.
+   *
+   * ABSENT MEANS "no team is ruled out", which grants every team the ceiling.
+   * That OVERSTATES rivals' ceilings, which is the only safe direction: an
+   * overstated rival delays a `"locked"` verdict, an understated one would
+   * publish a guarantee that is not true.
+   */
+  readonly districtLockedOut?: ReadonlySet<string>;
 }
 
 const EMPTY_CENSUS: Record<LockStatus, number> = {
@@ -127,15 +144,17 @@ function rowStage(row: ChampLedgerRow): DistrictStageFinality {
  * row's. A team whose membership is `"out"` contributes NO dcmp ceiling — it is
  * not in the field and cannot earn there.
  *
- * A TEAM WHOSE MEMBERSHIP IS STILL `"open"` AND WHICH THE ARTIFACT LISTS NO
- * DCMP ROW FOR contributes no dcmp ceiling either, because the tab holds no
- * DCMP row to read a stage off. That is a narrower ceiling than the season
- * strictly allows and therefore the conservative side of `Locked out`; it is
- * stated rather than hidden because a future artifact that lists the DCMP field
- * as `remainingEvents` before the event starts would close it by itself.
+ * A TEAM THE ARTIFACT LISTS NO DCMP ROW FOR gets ONE WHOLE HYPOTHETICAL DCMP
+ * added to its ceiling, on the artifact's own `maxRemainingChamp` gates: not
+ * already played a championship, and not eliminated by the district-tier
+ * verdict. This is the pre-registration window — `remainingEvents` comes from
+ * TBA registrations and a team registers only after it qualifies, so for most
+ * of the district season NO team has a dcmp row. Reading that as "no ceiling"
+ * would Lock out most of a district in week one, which is the one direction the
+ * lock math must never err in.
  */
 export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOptions): ChampLedgerStatusModel {
-  const { artifact, teams } = options;
+  const { artifact, teams, districtLockedOut } = options;
   const districtCeilings = maxEventPoints(artifact.year, "district");
   const dcmpCeilings = maxEventPoints(artifact.year, "dcmp");
   const ceilingFor = (tier: "district" | "dcmp"): Readonly<Record<DistrictCategory, number>> => {
@@ -144,6 +163,8 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
   };
   const districtCeiling = ceilingFor("district");
   const dcmpCeiling = ceilingFor("dcmp");
+  /** One whole District Championship's maximum — the hypothetical ceiling for a team the artifact does not name a championship for yet. */
+  const dcmpMaxTotal = dcmpCeiling.qual + dcmpCeiling.alliance + dcmpCeiling.elim + dcmpCeiling.award;
 
   const sourceByKey = new Map(artifact.teams.map((team) => [team.teamKey, team] as const));
   const dcmpEventKey = dcmpEventKeyFor(artifact);
@@ -186,6 +207,19 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
         if (earned !== undefined) floor -= earned[category];
         openCeiling += dcmpCeiling[category];
       }
+    } else if (team.membership !== "out" && dcmpEntry === undefined) {
+      // THE PRE-REGISTRATION WINDOW. The artifact names no championship for
+      // this team, so there is no row to read a stage off — but the season
+      // plainly still allows one, and a status that pretended otherwise would
+      // Lock out a team that can still play three more days of competition.
+      //
+      // The ceiling is one whole hypothetical DCMP, granted on the artifact's
+      // own two gates: the team has not already played one, and the district
+      // tier has not eliminated it. This is `maxRemainingChamp`'s rule, and it
+      // is what keeps the verdicts computable all season rather than only
+      // after registrations open.
+      const hasPlayedDcmp = source.eventPoints.some((row) => row.tier === "dcmp");
+      if (!hasPlayedDcmp && districtLockedOut?.has(team.teamKey) !== true) openCeiling += dcmpMaxTotal;
     }
 
     lockInputs.push({ teamKey: team.teamKey, pointTotal: floor, maxRemaining: openCeiling });

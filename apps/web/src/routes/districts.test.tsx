@@ -180,7 +180,7 @@ describe("/districts route", () => {
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["District Locks", "Champ Locks"]);
   });
 
-  it("?tab=champ-locks still deep-links directly to the Champ Locks tab, which renders the shipped champ table unchanged", async () => {
+  it("?tab=champ-locks still deep-links directly to the Champ Locks tab, which renders the two row ledger", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/v1/districts/")) return Promise.resolve(districtsIndexResponse());
@@ -192,11 +192,11 @@ describe("/districts route", () => {
     await waitFor(() => expect(screen.getByTestId("champ-locks-panel")).toBeDefined());
     expect(screen.getByTestId("champ-locks-panel").hasAttribute("hidden")).toBe(false);
     expect(screen.getByTestId("road-to-district-champs-panel").hasAttribute("hidden")).toBe(true);
-    // Positively asserted, so the district tier's removal is provably scoped:
-    // the champ tab still renders its own header stats card and its own
-    // per-event columns toggle.
-    await waitFor(() => expect(screen.getByTestId("champ-locks-header-stats")).toBeDefined());
-    expect(screen.getByTestId("district-champ-locks-column-toggle")).toBeDefined();
+    // Positively asserted, so the deep link is provably reaching the SKETCH 022
+    // ledger and not merely an empty panel: its root and at least one of its
+    // two rows per team are on the page (quick task 260925-xab).
+    await waitFor(() => expect(screen.getByTestId("champ-ledger-tab")).toBeDefined());
+    await waitFor(() => expect(screen.getAllByTestId("champ-ledger-row").length).toBeGreaterThan(0));
   });
 
   it("with no ?tab= the page lands on District Locks — Insights is gone, not merely hidden", async () => {

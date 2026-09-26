@@ -8,9 +8,9 @@ import { districtQueryOptions, districtsIndexQueryOptions } from "../lib/api/dis
 import { ArtifactFetchError } from "../lib/api/errors.js";
 import { EmptyState, ErrorState } from "../components/StateViews.js";
 import { DistrictSelect } from "../components/districts/DistrictSelect.js";
-import { DistrictLocksTab } from "../components/districts/DistrictLocksTab.js";
+import { ChampLocksLedger } from "../components/districts/ChampLocksLedger.js";
 import { DistrictLedger } from "../components/districts/DistrictLedger.js";
-import { DISTRICT_LEDGER_TAB_LABEL } from "../components/districts/districtLedgerCopy.js";
+import { CHAMP_LEDGER_TAB_LABEL, DISTRICT_LEDGER_TAB_LABEL } from "../components/districts/districtLedgerCopy.js";
 import type { DistrictArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -184,7 +184,7 @@ function DistrictsPage() {
       districtKey: effectiveDistrict ?? "",
       onRetry: () => void districtQuery.refetch(),
       renderPending: () => <DistrictsTabSkeleton />,
-      renderPopulated: (artifact) => <DistrictLocksTab artifact={artifact} algorithm={algorithm} season={year} />,
+      renderPopulated: (artifact) => <ChampLocksLedger artifact={artifact} algorithm={algorithm} season={year} />,
     });
   }
 
@@ -221,7 +221,7 @@ function DistrictsPage() {
                     {DISTRICT_LEDGER_TAB_LABEL}
                   </TabsTrigger>
                   <TabsTrigger value="champ-locks" className="tap-target text-role-nav data-active:after:bg-[var(--color-accent)]">
-                    Champ Locks
+                    {CHAMP_LEDGER_TAB_LABEL}
                   </TabsTrigger>
                 </TabsList>
               </div>

@@ -13,6 +13,7 @@ import {
   DISTRICT_TIMELINE_SEASON_START_ID,
   buildDistrictTimeline,
   districtStageAtPosition,
+  eventStartedAtPosition,
   eventsWithOpenCategoriesAt,
   remainingQualRowsAtPosition,
   resolveDistrictTimelinePosition,
@@ -343,5 +344,29 @@ describe("the per-event stage at a position", () => {
     const index = indexOf("eva:awards");
     const stages = districtStageAtPosition(timeline, index, NOW_STAGES);
     expect(eventsWithOpenCategoriesAt(stages)).toEqual(["evb"]);
+  });
+
+  /**
+   * The Champ Locks tab reads this for one question: whether the District
+   * Championship field is a FACT yet at the position the slider is at
+   * (quick task 260925-xab).
+   */
+  it("says an event has not started before its first step and has started at it", () => {
+    expect(eventStartedAtPosition(timeline, 0, "eva")).toBe(false);
+    expect(eventStartedAtPosition(timeline, 0, "evb")).toBe(false);
+    expect(eventStartedAtPosition(timeline, indexOf("eva:qualsDone"), "eva")).toBe(true);
+    // An event key with no step at all has not started at any position.
+    expect(eventStartedAtPosition(timeline, timeline.nowIndex, "not-an-event")).toBe(false);
+  });
+
+  it("is monotone, and never reads past the end of the position list", () => {
+    let seen = false;
+    for (let i = 0; i <= timeline.nowIndex; i++) {
+      const started = eventStartedAtPosition(timeline, i, "eva");
+      if (seen) expect(started).toBe(true);
+      seen = seen || started;
+    }
+    expect(seen).toBe(true);
+    expect(eventStartedAtPosition(timeline, timeline.positions.length + 50, "eva")).toBe(true);
   });
 });

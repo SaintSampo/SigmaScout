@@ -511,18 +511,94 @@ describe("buildChampLedgerRows — the variant-A mixture", () => {
   });
 });
 
+/**
+ * THE PRE-REGISTRATION WINDOW, which is most of a district season.
+ *
+ * `scripts/publishDistricts.ts` builds `remainingEvents` from TBA
+ * registrations and a team registers for its District Championship only after
+ * it has qualified, so until then NO team carries a dcmp-tier row, the tab has
+ * no event key to fetch and no sidecar to read, and the DCMP cannot be priced
+ * for anybody. This module's first answer was to refuse the grand total in that
+ * case, which would have blanked every grand total in the district for the
+ * whole season; it now prints the district-only figure and LABELS it.
+ */
 describe("buildChampLedgerRows — a district publishing no DCMP", () => {
-  it("renders the DCMP cells unavailable and refuses a grand total rather than a district-only one", () => {
-    const built = buildChampLedgerRows({
+  function builtWithNoDcmp() {
+    return buildChampLedgerRows({
       artifact: artifactOf([team({ teamKey: "frc1", pointTotal: 23, eventPoints: [eventPoints({ eventKey: "2026wabon" })] })]),
       distributions: new Map(),
       stageByEvent: new Map([["2026wabon", ALL_FINAL]]),
     });
+  }
+
+  it("reads the whole DCMP row as NOT YET PRICED, which is a different statement from unavailable", () => {
+    const built = builtWithNoDcmp();
     const entry = built.teams[0]!;
     expect(built.dcmpEventKey).toBeUndefined();
-    expect(entry.dcmpRow.cells.every((cell) => cell.kind === "unavailable")).toBe(true);
-    expect(entry.grandTotal.kind).toBe("unavailable");
+    expect(entry.dcmpRow.cells.every((cell) => cell.kind === "notYetPriced")).toBe(true);
+    expect(entry.dcmpRow.subtotal.kind).toBe("notYetPriced");
+    // `unavailable` still means "a prediction was attempted and refused", and
+    // nothing here attempted one.
+    expect(entry.dcmpRow.cells.some((cell) => cell.kind === "unavailable")).toBe(false);
+  });
+
+  it("prints the DISTRICT-ONLY grand total, labelled, rather than refusing one", () => {
+    const built = builtWithNoDcmp();
+    const entry = built.teams[0]!;
+    expect(entry.grandTotal.kind).toBe("final");
+    if (entry.grandTotal.kind !== "final") return;
+    // The district row's own earned subtotal, nothing added and nothing missing.
+    expect(entry.grandTotal.earned).toBe(23);
     expect(entry.projection).toBe(23);
-    expect(built.gaps.teamsWithUnavailableGrandTotal).toEqual(["frc1"]);
+    expect(entry.grandTotalIsDistrictOnly).toBe(true);
+    // DISCLOSED as district-only, and NOT as a refusal: the chance run reads
+    // the second list to decide whether it may run at all, and a team in the
+    // first would be dropped from the ranking instead.
+    expect(built.gaps.teamsWithDistrictOnlyGrandTotal).toEqual(["frc1"]);
+    expect(built.gaps.teamsWithUnavailableGrandTotal).toEqual([]);
+  });
+
+  it("names the DCMP contribution as not yet priced rather than as settled", () => {
+    const contributions = champContributions(builtWithNoDcmp().teams[0]!);
+    const dcmp = contributions.find((entry) => entry.row === "dcmp")!;
+    expect(dcmp.notYetPriced).toBe(true);
+    expect(dcmp.earned).toBeUndefined();
+    expect(dcmp.open).toBeUndefined();
+    expect(contributions.find((entry) => entry.row === "district")!.notYetPriced).toBe(false);
+  });
+});
+
+/**
+ * FIELD MEMBERSHIP AT "NOW" VERSUS REWOUND (2026-09-26).
+ *
+ * A dcmp-tier row on the artifact is a REGISTRATION, and TBA lists one only
+ * after the invitation — so at the live position it is a qualification and the
+ * team is in the field. At a rewound position the same row is future knowledge
+ * and the question is open again, which is the whole point of the slider.
+ */
+describe("champFieldMembership — the three positions the field can be read at", () => {
+  const registered = team({
+    teamKey: "frc1",
+    eventPoints: [eventPoints({ eventKey: "2026wabon" })],
+    remainingEvents: [{ eventKey: "2026pncmp", eventName: "PNW District Championship", week: 6, tier: "dcmp", maxPoints: 249, state: undefined }],
+  });
+  const unregistered = team({ teamKey: "frc2", eventPoints: [eventPoints({ eventKey: "2026wabon" })] });
+
+  it("reads a LIVE registered team as IN the field", () => {
+    expect(champFieldMembership(registered, false, true)).toBe("in");
+  });
+
+  it("reads a LIVE unregistered team as OPEN, never as out — registrations arrive in batches", () => {
+    expect(champFieldMembership(unregistered, false, true)).toBe("open");
+  });
+
+  it("reads a REWOUND registered team as OPEN, because the registration is future knowledge there", () => {
+    expect(champFieldMembership(registered, false, false)).toBe("open");
+  });
+
+  it("still reads the started DCMP as a settled fact, both ways round", () => {
+    expect(champFieldMembership(registered, true, true)).toBe("in");
+    expect(champFieldMembership(registered, true, false)).toBe("in");
+    expect(champFieldMembership(unregistered, true, true)).toBe("out");
   });
 });

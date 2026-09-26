@@ -476,3 +476,158 @@ export function districtLedgerOutcomePointsRange(minPoints: number, maxPoints: n
   const high = Math.round(maxPoints);
   return low === high ? String(low) : `${String(low)} to ${String(high)}`;
 }
+
+// ---------------------------------------------------------------------------
+// THE CHAMP LOCKS TAB (sketch 022, quick task 260925-xab)
+//
+// Every string the champ tab prints lives here too, beside the district tier's,
+// rather than in a second copy module: the two tabs share every chip, every
+// definition, every legend key and the whole drawer vocabulary, and splitting
+// the file would be splitting one contract in half. The names all carry the
+// `CHAMP_LEDGER_` prefix, so a reader can see at a glance which tier a string
+// belongs to.
+// ---------------------------------------------------------------------------
+
+/** The champ tab's own label. Its URL id stays `champ-locks`, which is `searchParams.ts`'s `DISTRICT_TABS` member. */
+export const CHAMP_LEDGER_TAB_LABEL = "Champ Locks";
+
+/**
+ * The champ table's column labels, in render order.
+ *
+ * "Source" rather than "Event" (the sketch 022 question, answered): the two
+ * rows are a SUMMED set of district events and one championship, so neither
+ * one is an event, and "Points" would repeat every header beside it.
+ * "Subtotal" rather than "Event total" for the same reason.
+ */
+export const CHAMP_LEDGER_COLUMN_LABELS = [
+  "Team",
+  "Status",
+  "Grand total",
+  "Source",
+  "Subtotal",
+  "Qualification",
+  "Alliance selection",
+  "Playoffs",
+  "Awards",
+] as const;
+
+/** The two row labels, in the fixed order the table renders them. */
+export const CHAMP_LEDGER_ROW_LABELS = { district: "District points", dcmp: "DCMP points" } as const;
+
+/**
+ * The award variant the district tier never has: the District Championship's
+ * WINNING ALLIANCE also qualifies for the FIRST Championship, which is a
+ * different and more specific claim than a judged award.
+ * `DISTRICT_LEDGER_LOCKED_AWARD_LABEL` covers the judged case unchanged.
+ */
+export const CHAMP_LEDGER_LOCKED_WINNER_LABEL = "Locked · winner";
+
+/** The DCMP row's small line for a team the field has left out. */
+export const CHAMP_LEDGER_NOT_IN_FIELD_LINE = "not in the field";
+
+/**
+ * What a DCMP cell prints for a team outside the field: an EM DASH, built from
+ * its codepoint so this file never types the glyph.
+ *
+ * The dash means "not in the field" and nothing else on this tab, which is why
+ * the pre-registration window below prints words instead of reusing it.
+ */
+export const CHAMP_LEDGER_NOT_IN_FIELD_CELL = String.fromCharCode(0x2014);
+
+/**
+ * THE PRE-REGISTRATION WINDOW, in two strings.
+ *
+ * `remainingEvents` on the district artifact is built from TBA registrations,
+ * and a team registers for its District Championship only AFTER it qualifies.
+ * So for most of the district season nothing on the artifact names the DCMP at
+ * all: no dcmp-tier `eventPoints` row, no dcmp-tier `remainingEvents` row, no
+ * event key to fetch and no baked sidecar to read. The DCMP row then has
+ * nothing to predict, and it says so in words.
+ *
+ * NOT THE EM DASH, which already means "not in the field" here, and not "not
+ * available", which is what a cell says when a prediction was attempted and
+ * refused. This is a third thing: the championship has not been priced yet
+ * because the field it would be priced over does not exist yet.
+ */
+export const CHAMP_LEDGER_NOT_YET_PRICED_CELL = "not yet priced";
+
+/**
+ * The grand total's small line while the DCMP is not yet priced.
+ *
+ * The figure above it is the DISTRICT grand total, which is a real number and a
+ * true one; it is simply not the whole of what the column is named after. The
+ * line says which, so the number is never mistaken for a complete one.
+ */
+export const CHAMP_LEDGER_DISTRICT_ONLY_LINE = "district only";
+
+/**
+ * The DCMP row's small line while a team's place in the field is still open:
+ * the one chance, printed once, on the row LABEL rather than inside the four
+ * cells (sketch 022 variant A).
+ *
+ * Clamped by the SAME pair `districtLedgerChanceLine` uses, for the same two
+ * reasons, so the two lines can never disagree about what a printable chance
+ * is. The tilde is mandatory: every blue figure on this site carries one.
+ */
+export function champLedgerFieldChanceLine(chance: number): string {
+  if (chance * 100 < DISTRICT_LEDGER_CHANCE_FLOOR_PERCENT) return `<${String(DISTRICT_LEDGER_CHANCE_FLOOR_PERCENT)}% to be there`;
+  const percent = Math.min(Math.round(chance * 100), DISTRICT_LEDGER_CHANCE_CEILING_PERCENT);
+  return `~${String(percent)}% to be there`;
+}
+
+/** One source event on the District points row's small line. The stage is a KEY into `DISTRICT_LEDGER_STAGE_WORDS`, so the word is looked up here rather than assembled at a call site. */
+export interface ChampLedgerSourceEntry {
+  readonly eventName: string;
+  readonly week: number | null;
+  readonly stage: keyof typeof DISTRICT_LEDGER_STAGE_WORDS;
+}
+
+/**
+ * The District points row's small line: every district event behind the row,
+ * with its short name, its ONE-BASED week (260925-opv) and its stage word.
+ *
+ * The sketch's own example is "Bonney Lake Wk 1 · final". A row with no
+ * district event at all returns the empty string, which the caller prints as
+ * nothing rather than as an empty bullet.
+ */
+export function champLedgerDistrictSourceLine(entries: readonly ChampLedgerSourceEntry[]): string {
+  return entries
+    .map((entry) => {
+      const name = districtLedgerShortEventName(entry.eventName);
+      const week = entry.week === null ? "" : ` Wk ${String(entry.week + 1)}`;
+      return `${name}${week} · ${DISTRICT_LEDGER_STAGE_WORDS[entry.stage]}`;
+    })
+    .join(" · ");
+}
+
+/**
+ * The grand total drawer's two-row contribution list.
+ *
+ * THE SAME OBJECT the table's own row labels come from, deliberately: the list
+ * describes the very two rows above it, and two tables of the same two words
+ * are two places for them to drift.
+ */
+export const CHAMP_LEDGER_CONTRIBUTION_ROW_LABELS = CHAMP_LEDGER_ROW_LABELS;
+
+/** The champ contribution list's own label and its first column heading — the other two headings are the district tier's, unchanged. */
+export const CHAMP_LEDGER_CONTRIBUTION_LIST_LABEL = "Points by source";
+export const CHAMP_LEDGER_CONTRIBUTION_COLUMN_SOURCE = "source";
+
+/**
+ * The note under the DCMP row of the contribution list: the field chance the
+ * row is weighted by, named so a reader can see why the two subtotals do not
+ * add to the grand total.
+ */
+export function champLedgerContributionChanceNote(chance: number): string {
+  return `weighted by ${champLedgerFieldChanceLine(chance)}`;
+}
+
+/**
+ * The champ contribution list's caption, in flat third person.
+ *
+ * It states the ONE thing the district tier's caption cannot: the DCMP row is
+ * weighted by the chance of being in the field, so the grand total is less than
+ * the two subtotals added together whenever that chance is under one.
+ */
+export const CHAMP_LEDGER_CONTRIBUTION_CAPTION =
+  "A settled row contributes its earned points exactly. An open one contributes the predicted total beside it. While a team's place in the District Championship field is still open, the championship row is weighted by the chance of being there, so the grand total sits below the two rows added together.";

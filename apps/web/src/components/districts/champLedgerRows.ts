@@ -25,15 +25,24 @@
  * the cost of erasing the "if there" amount a bubble team's reader is looking
  * for.
  *
- * AN UNAVAILABLE DCMP SUBTOTAL MAKES THE GRAND TOTAL UNAVAILABLE. The champ
- * grand total is DEFINED as district points plus DCMP points; a district that
- * publishes no dcmp-tier event at all, or a team the tab holds no DCMP
- * distribution for, cannot have one predicted. Silently falling back to the
- * district-only total would print a number labelled "grand total" that is
- * missing up to 249 points — a plausible, complete, wrong figure, which is the
- * exact failure `districtLedgerRows.ts` refuses everywhere else. The team keeps
- * its rows, its earned points and its earned-total projection, and is named in
- * the disclosed gaps.
+ * AN UNPRICED DCMP GIVES A LABELLED DISTRICT-ONLY GRAND TOTAL, NOT A BLANK ONE.
+ * This module first refused the grand total outright whenever it held no DCMP
+ * distribution, on the reasoning that a district-only figure under a column
+ * headed "Grand total" is a plausible, complete, wrong number. That reasoning
+ * was right about the danger and wrong about the frequency: `remainingEvents`
+ * is built from TBA REGISTRATIONS, and a team registers for its District
+ * Championship only after it has qualified, so for most of the district season
+ * nothing on the artifact names the DCMP at all — no event key to fetch, no
+ * sidecar to read, and therefore a blank grand total for every team in the
+ * district, all season.
+ *
+ * So the number is printed and LABELLED instead: the grand total falls back to
+ * the district-only convolution, the team carries `grandTotalIsDistrictOnly`,
+ * the DCMP row's cells read "not yet priced" rather than an em dash (which
+ * already means "not in the field") or "not available" (which means a
+ * prediction was attempted and refused), and the tab prints "district only"
+ * under the figure. A reader is never shown a number without being told which
+ * number it is. The team is still named in the disclosed gaps.
  */
 import { convolveDistrictGrandTotal } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import { pointPercentiles, pointQuantile, type PointPercentiles } from "../../../../../packages/core/districts/pointSummary.js";
@@ -80,10 +89,25 @@ export function champCellId(row: ChampLedgerRowKind, cell: DistrictCellKind): st
 /** Whether a team is in the District Championship field at this position — a FACT once the DCMP has started, and an open question before. */
 export type ChampFieldMembership = "in" | "out" | "open";
 
-/** One rendered champ cell. The fourth variant is the em dash a team outside the field gets in every DCMP cell. */
+/**
+ * One rendered champ cell.
+ *
+ * TWO VARIANTS PAST THE SHIPPED THREE, and they say different things:
+ *
+ * - `notInField` — the DCMP has started and this team is not in it. The field
+ *   is a settled fact and the cell prints an em dash.
+ * - `notYetPriced` — the tab holds no DCMP distribution at all, because the
+ *   artifact does not name the championship yet (the pre-registration window)
+ *   or because no sidecar and no event artifact could be read for it. Nothing
+ *   was predicted, so the cell says so in words.
+ *
+ * Neither is `unavailable`, which stays what it always was: a prediction was
+ * attempted for this cell and refused.
+ */
 export type ChampLedgerCell =
   | DistrictLedgerCell
-  | { readonly id: string; readonly cell: DistrictCellKind; readonly kind: "notInField" };
+  | { readonly id: string; readonly cell: DistrictCellKind; readonly kind: "notInField" }
+  | { readonly id: string; readonly cell: DistrictCellKind; readonly kind: "notYetPriced" };
 
 /** One source event behind a row, for the row's small line ("{short name} Wk {week + 1} · {stage word}"). */
 export interface ChampLedgerSource {
@@ -113,7 +137,20 @@ export interface ChampLedgerTeam {
   readonly membership: ChampFieldMembership;
   /** The chance this team is in the DCMP field, for a membership of `"open"` only. `undefined` where the run did not rank the team — DISCLOSED, never a silent zero. */
   readonly fieldChance: number | undefined;
-  readonly grandTotal: ChampLedgerCell;
+  /**
+   * A `DistrictLedgerCell`, never one of the two champ-only kinds: a grand
+   * total is always a number, a prediction or an honest refusal. The DCMP row's
+   * own cells carry "not in the field" and "not yet priced"; the grand total
+   * beside them still has a district half to report.
+   */
+  readonly grandTotal: DistrictLedgerCell;
+  /**
+   * True when the grand total above is the DISTRICT-ONLY total, because the tab
+   * holds no DCMP distribution for this team. The tab prints "district only"
+   * under the figure; see this module's header for why the number is printed
+   * and labelled rather than withheld.
+   */
+  readonly grandTotalIsDistrictOnly: boolean;
   /** The continuous median of the predicted grand total, or the earned all-tier total for a team with no open category. */
   readonly projection: number;
   readonly hasOpenCategory: boolean;
@@ -131,6 +168,8 @@ export interface ChampContribution {
   readonly open: PointPercentiles | undefined;
   /** The chance the DCMP row is weighted by, on the DCMP row alone. `undefined` on the District points row and wherever the field is settled. */
   readonly fieldChance: number | undefined;
+  /** True where this row contributed nothing because it was never priced — the list says so rather than printing "settled", which would claim the row is finished. */
+  readonly notYetPriced: boolean;
 }
 
 /** Every gap the champ fold could not close: the two passes' own gaps, unioned, plus the one this tab adds. */
@@ -146,6 +185,17 @@ export interface ChampLedgerGaps extends DistrictLedgerGaps {
    * costs.
    */
   readonly teamsWithoutFieldChance: readonly string[];
+  /**
+   * Teams whose grand total is the DISTRICT-ONLY total because the tab holds no
+   * DCMP distribution for them — the pre-registration window, or a
+   * championship whose sidecar and event artifact could both not be read.
+   *
+   * Their figure is printed and labelled "district only" rather than withheld;
+   * the champ ADVANCEMENT CHANCE is suppressed while this list is non-empty,
+   * because ranking district-only totals against `cmpSlots` would rank a
+   * different quantity than the column prints.
+   */
+  readonly teamsWithDistrictOnlyGrandTotal: readonly string[];
 }
 
 export interface ChampLedgerRowsResult {
@@ -175,21 +225,34 @@ export function dcmpEventKeyFor(artifact: DistrictArtifact): string | undefined 
 }
 
 /**
- * Whether a team is in the District Championship field.
+ * Whether a team is in the District Championship field, at a POSITION.
  *
- * BEFORE THE DCMP STARTS THE ANSWER IS `"open"` FOR EVERY TEAM, including one
- * the artifact already lists a dcmp-tier row for. A published row before the
- * event starts is a registration, and this tab's whole variant-A premise is
- * that the field is a prediction until the event begins; reading a registration
- * as a settled field would print a certainty the season has not earned.
+ * THREE CASES, and the middle one is the correction this function took on
+ * 2026-09-26:
  *
- * Once it HAS started the field is a fact: a team with a dcmp-tier
- * `eventPoints` or `remainingEvents` entry is in it, and a team without one is
- * not.
+ * 1. THE DCMP HAS STARTED. The field is a fact: a team with a dcmp-tier
+ *    `eventPoints` or `remainingEvents` entry is in it, and a team without one
+ *    is not.
+ * 2. IT HAS NOT STARTED AND THE READER IS AT THE LIVE POSITION. A dcmp-tier
+ *    registration IS a qualification: `scripts/publishDistricts.ts` builds
+ *    `remainingEvents` from TBA registrations, and TBA lists a team on the
+ *    District Championship only after it has been invited. So a registered
+ *    team reads `"in"` — the earlier `"open"` reading printed a bubble chance
+ *    beside a team whose place was already settled. A team with NO dcmp row
+ *    still reads `"open"`, never `"out"`: registrations arrive in batches and
+ *    an absent one is not yet an exclusion.
+ * 3. IT HAS NOT STARTED AND THE READER IS REWOUND. Every team the district
+ *    verdict has not settled reads `"open"`, registration or not — at that
+ *    position the registration is FUTURE KNOWLEDGE, and the whole point of the
+ *    slider is to show what was known then. A team the district tier has
+ *    already Locked still reads chance 1 through `champLedgerChances.ts`, so
+ *    the certainty that WAS knowable is not lost.
  */
-export function champFieldMembership(team: DistrictTeam, dcmpStarted: boolean): ChampFieldMembership {
-  if (!dcmpStarted) return "open";
-  return tierEvents(team, "dcmp").length > 0 ? "in" : "out";
+export function champFieldMembership(team: DistrictTeam, dcmpStarted: boolean, atLivePosition = false): ChampFieldMembership {
+  const registered = tierEvents(team, "dcmp").length > 0;
+  if (dcmpStarted) return registered ? "in" : "out";
+  if (atLivePosition && registered) return "in";
+  return "open";
 }
 
 /**
@@ -232,6 +295,13 @@ export interface BuildChampLedgerRowsOptions {
    * the field question in the same step.
    */
   readonly dcmpStarted?: boolean;
+  /**
+   * Whether the reader is at the LIVE position rather than rewound. Defaults to
+   * false, which is the conservative reading: a rewound position treats a
+   * dcmp-tier registration as future knowledge. The tab supplies the real
+   * answer — see `champFieldMembership`'s three cases.
+   */
+  readonly atLivePosition?: boolean;
 }
 
 /**
@@ -265,6 +335,7 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
   const sourceByKey = new Map(artifact.teams.map((team) => [team.teamKey, team] as const));
 
   const teamsWithoutFieldChance = new Set<string>();
+  const teamsWithDistrictOnlyGrandTotal = new Set<string>();
   const teamsWithUnavailableGrandTotal = new Set([
     ...districtPass.gaps.teamsWithUnavailableGrandTotal,
     ...dcmpPass.gaps.teamsWithUnavailableGrandTotal,
@@ -277,7 +348,7 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
     const dcmpEntry = dcmpByTeam.get(team.teamKey);
     if (districtEntry === undefined || dcmpEntry === undefined) continue;
 
-    const membership = champFieldMembership(team, dcmpStarted);
+    const membership = champFieldMembership(team, dcmpStarted, options.atLivePosition ?? false);
     const suppliedChance = fieldChanceByTeam?.get(team.teamKey);
     if (membership === "open" && suppliedChance === undefined) teamsWithoutFieldChance.add(team.teamKey);
     const chance = membership === "in" ? 1 : membership === "out" ? 0 : (suppliedChance ?? 1);
@@ -286,31 +357,39 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
     const districtRow = foldDistrictRow(districtEntry, districtCeilings, districtEventTotalCeiling);
     const dcmpRow = buildDcmpRow(dcmpEntry, membership, dcmpEventKey, dcmpEventTotalCeiling);
 
+    // THE DCMP WAS NEVER PRICED — no championship on the artifact, or no
+    // sidecar and no event artifact for the one it names. The grand total falls
+    // back to the district-only convolution and says so; see this module's
+    // header.
+    const districtOnly = dcmpRow.subtotal.kind === "notYetPriced";
+    if (districtOnly) teamsWithDistrictOnlyGrandTotal.add(team.teamKey);
+
     const districtOpen = rowHasOpenCell(districtRow);
     const dcmpOpen = rowHasOpenCell(dcmpRow);
-    const hasOpenCategory = districtOpen || dcmpOpen || (membership === "open" && chance < 1);
+    const hasOpenCategory = districtOpen || dcmpOpen || (!districtOnly && membership === "open" && chance < 1);
 
     const shift = Math.max(0, Math.round(team.rookieBonus)) + Math.max(0, Math.round(team.adjustments));
     const grandCeiling =
-      districtEventTotalCeiling * Math.max(districtRow.sources.length, 1) + dcmpEventTotalCeiling + shift;
+      districtEventTotalCeiling * Math.max(districtRow.sources.length, 1) + (districtOnly ? 0 : dcmpEventTotalCeiling) + shift;
 
-    let grandTotal: ChampLedgerCell;
+    let grandTotal: DistrictLedgerCell;
     let projection: number;
     const districtPart = distributionOf(districtRow.subtotal);
-    const dcmpPart = membership === "out" ? pointMassDistribution(0) : distributionOf(dcmpRow.subtotal);
+    const dcmpPart = districtOnly
+      ? undefined
+      : membership === "out"
+        ? pointMassDistribution(0)
+        : distributionOf(dcmpRow.subtotal);
     const earnedAll = team.pointTotal;
 
-    if (districtPart === undefined || dcmpPart === undefined) {
+    if (districtPart === undefined || (!districtOnly && dcmpPart === undefined)) {
       grandTotal = { id: GRAND_TOTAL_CELL_ID, cell: "grandTotal", kind: "unavailable" };
       projection = earnedAll;
       teamsWithUnavailableGrandTotal.add(team.teamKey);
     } else {
       try {
-        const counts = convolveDistrictGrandTotal(
-          [districtPart, mixFieldMembership(dcmpPart, chance)],
-          Math.round(team.rookieBonus),
-          Math.round(team.adjustments)
-        );
+        const parts = dcmpPart === undefined ? [districtPart] : [districtPart, mixFieldMembership(dcmpPart, chance)];
+        const counts = convolveDistrictGrandTotal(parts, Math.round(team.rookieBonus), Math.round(team.adjustments));
         const distribution: DistrictPointDistribution = { counts, denominator: 1 };
         if (hasOpenCategory) {
           grandTotal = openDistrictLedgerCell(GRAND_TOTAL_CELL_ID, "grandTotal", distribution, grandCeiling);
@@ -320,7 +399,8 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
           // point mass: taking its quantile would reproduce the same number by
           // a longer route while inviting a reader to think a prediction was
           // involved.
-          const earned = earnedOf(districtRow.subtotal) + (membership === "out" ? 0 : earnedOf(dcmpRow.subtotal)) + shift;
+          const earned =
+            earnedOf(districtRow.subtotal) + (districtOnly || membership === "out" ? 0 : earnedOf(dcmpRow.subtotal)) + shift;
           grandTotal = { id: GRAND_TOTAL_CELL_ID, cell: "grandTotal", kind: "final", earned };
           projection = earned;
         }
@@ -344,6 +424,7 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
       membership,
       fieldChance,
       grandTotal,
+      grandTotalIsDistrictOnly: districtOnly && grandTotal.kind !== "unavailable",
       projection,
       hasOpenCategory,
       position: 0,
@@ -367,6 +448,7 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
       ...unionGaps(districtPass.gaps, dcmpPass.gaps),
       teamsWithUnavailableGrandTotal: [...teamsWithUnavailableGrandTotal].sort(),
       teamsWithoutFieldChance: [...teamsWithoutFieldChance].sort(),
+      teamsWithDistrictOnlyGrandTotal: [...teamsWithDistrictOnlyGrandTotal].sort(),
     },
   };
 }
@@ -385,6 +467,7 @@ export function champContributions(team: ChampLedgerTeam): readonly ChampContrib
       earned: row.subtotal.kind === "final" ? row.subtotal.earned : undefined,
       open: distribution === undefined ? undefined : pointPercentiles(distribution.counts, distribution.denominator),
       fieldChance: kind === "dcmp" ? team.fieldChance : undefined,
+      notYetPriced: row.subtotal.kind === "notYetPriced",
     };
   });
 }
@@ -483,9 +566,15 @@ function foldCells(
  * with their playoff milestone and selection routes carried through, and its
  * event total as the Subtotal.
  *
- * A team OUTSIDE the field gets `notInField` in every cell, which renders the
- * em dash. A team the tab holds no dcmp row for at all gets `unavailable`,
- * which is a different statement and is rendered differently.
+ * THREE DEGRADATIONS, each saying a different thing:
+ *
+ * - A team OUTSIDE the field gets `notInField` in every cell (the em dash).
+ * - A team the tab holds no dcmp row for AT ALL, or one whose championship the
+ *   tab could not price, gets `notYetPriced` in every cell. The commonest case
+ *   by far is the pre-registration window, where the artifact names no
+ *   championship: see this module's header.
+ * - Anything narrower — one category the run refused while the others priced —
+ *   keeps the shipped `unavailable` on that cell alone.
  */
 function buildDcmpRow(
   entry: DistrictLedgerTeam,
@@ -497,28 +586,27 @@ function buildDcmpRow(
   const sources: ChampLedgerSource[] =
     row === undefined ? [] : [{ eventKey: row.eventKey, eventName: row.eventName, week: row.week, stage: row.stage }];
 
-  if (membership === "out") {
-    return {
-      kind: "dcmp",
-      cells: DISTRICT_CATEGORIES.map((category) => ({ id: champCellId("dcmp", category), cell: category, kind: "notInField" as const })),
-      subtotal: { id: champCellId("dcmp", "eventTotal"), cell: "eventTotal", kind: "notInField" },
-      sources,
-    };
-  }
+  const wholeRow = (kind: "notInField" | "notYetPriced"): ChampLedgerRow => ({
+    kind: "dcmp",
+    cells: DISTRICT_CATEGORIES.map((category) => ({ id: champCellId("dcmp", category), cell: category, kind })),
+    subtotal: { id: champCellId("dcmp", "eventTotal"), cell: "eventTotal", kind },
+    sources,
+  });
 
-  if (row === undefined || dcmpEventKey === undefined) {
-    return {
-      kind: "dcmp",
-      cells: DISTRICT_CATEGORIES.map((category) => ({ id: champCellId("dcmp", category), cell: category, kind: "unavailable" as const })),
-      subtotal: { id: champCellId("dcmp", "eventTotal"), cell: "eventTotal", kind: "unavailable" },
-      sources,
-    };
-  }
+  if (membership === "out") return wholeRow("notInField");
+  if (row === undefined || dcmpEventKey === undefined) return wholeRow("notYetPriced");
+
+  const subtotal = reId(row.eventTotal, champCellId("dcmp", "eventTotal"), "eventTotal", eventTotalCeiling);
+  // NO SUBTOTAL MEANS NOTHING WAS PRICED. The championship is on the artifact
+  // but the tab read neither a baked sidecar nor an event artifact for it, so
+  // the four cells hold nothing either and the row says "not yet priced" as a
+  // whole rather than four times over in a word that means something else.
+  if (subtotal.kind === "unavailable") return wholeRow("notYetPriced");
 
   return {
     kind: "dcmp",
     cells: DISTRICT_CATEGORIES.map((category, index) => reId(row.cells[index], champCellId("dcmp", category), category)),
-    subtotal: reId(row.eventTotal, champCellId("dcmp", "eventTotal"), "eventTotal", eventTotalCeiling),
+    subtotal,
     sources,
   };
 }

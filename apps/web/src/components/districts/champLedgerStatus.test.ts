@@ -17,6 +17,7 @@ import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DistrictArtifactSchema, type DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { LockStatus } from "../../../../../packages/core/districts/locks.js";
+import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
 import { buildChampLedgerRows } from "./champLedgerRows.js";
 import { computeChampLedgerStatuses } from "./champLedgerStatus.js";
 import type { DistrictStageFinality } from "./districtLedgerRows.js";
@@ -174,5 +175,88 @@ describe("computeChampLedgerStatuses — the floor and the ceiling", () => {
     expect(model.status.byTeam.get(outside.teamKey)!.verdict).not.toBe("contending");
     // A team inside it still has all four DCMP categories open.
     expect(model.status.byTeam.get(inside.teamKey)).toBeDefined();
+  });
+});
+
+/**
+ * THE PRE-REGISTRATION WINDOW'S CEILING.
+ *
+ * Strip every dcmp-tier row off the fixture and the artifact names no
+ * championship at all, which is what a real artifact looks like for most of a
+ * district season. The statuses must still compute: the floor is `pointTotal`,
+ * and the ceiling adds one whole hypothetical DCMP for every team that could
+ * still reach the field. Without that ceiling most of the district would read
+ * Locked out in week one.
+ */
+describe("computeChampLedgerStatuses — the pre-registration window", () => {
+  const dcmpCeilings = maxEventPoints(FIXTURE.year, "dcmp");
+  const DCMP_MAX = dcmpCeilings.qual + dcmpCeilings.alliance + dcmpCeilings.elim + dcmpCeilings.award;
+
+  /** The fixture with every dcmp-tier `eventPoints` and `remainingEvents` row removed. */
+  const NO_DCMP: DistrictArtifact = DistrictArtifactSchema.parse({
+    ...FIXTURE,
+    teams: FIXTURE.teams.map((team) => ({
+      ...team,
+      eventPoints: team.eventPoints.filter((row) => row.tier !== "dcmp"),
+      remainingEvents: team.remainingEvents.filter((row) => row.tier !== "dcmp"),
+      // `pointTotal` is TBA's own and is NOT recomputed here: the point of the
+      // test is the ceiling, and a re-summed total would test the re-sum.
+    })),
+  });
+
+  const DISTRICT_KEYS = eventKeysOf(NO_DCMP);
+
+  function modelWithNoDcmp(districtLockedOut?: ReadonlySet<string>) {
+    const stageByEvent = new Map(DISTRICT_KEYS.map((key) => [key, ALL_FINAL] as const));
+    const rows = buildChampLedgerRows({ artifact: NO_DCMP, distributions: new Map(), stageByEvent, dcmpStarted: false });
+    return {
+      rows,
+      status: computeChampLedgerStatuses({
+        artifact: NO_DCMP,
+        teams: rows.teams,
+        ...(districtLockedOut === undefined ? {} : { districtLockedOut }),
+      }),
+    };
+  }
+
+  it("names no dcmp event and prices no DCMP row", () => {
+    expect(DISTRICT_KEYS).not.toContain("2026pncmp");
+    expect(modelWithNoDcmp().rows.dcmpEventKey).toBeUndefined();
+  });
+
+  it("computes a status for EVERY team rather than leaving the capacity unknown", () => {
+    const model = modelWithNoDcmp();
+    expect(model.status.byTeam.size).toBe(NO_DCMP.teams.length);
+    for (const result of model.status.byTeam.values()) expect(result.status).not.toBe("capacityUnknown");
+  });
+
+  /**
+   * THE CEILING IS THE WHOLE POINT. With no hypothetical DCMP the ceiling would
+   * equal the floor for every team and the 21-slot race would resolve into
+   * 21 Locked and 105 Locked out on the spot. With it, the teams below the line
+   * can still reach it, so the district is not decided in week one.
+   */
+  it("grants one whole hypothetical DCMP, so the race is not already over", () => {
+    const model = modelWithNoDcmp();
+    const contending = [...model.status.byTeam.values()].filter((result) => result.verdict === "contending");
+    expect(contending.length).toBeGreaterThan(0);
+    // The team at the artifact's own cut line can reach the top on one DCMP,
+    // and a team more than one DCMP below it cannot.
+    const totals = NO_DCMP.teams.map((team) => team.pointTotal).sort((a, b) => b - a);
+    const top = totals[0]!;
+    const reachable = NO_DCMP.teams.filter((team) => team.pointTotal + DCMP_MAX >= top);
+    expect(reachable.length).toBeGreaterThan(21);
+  });
+
+  it("gives NO hypothetical DCMP to a team the district verdict has locked out", () => {
+    const bottom = [...NO_DCMP.teams].sort((a, b) => a.pointTotal - b.pointTotal)[0]!;
+    const withGate = modelWithNoDcmp(new Set([bottom.teamKey]));
+    const withoutGate = modelWithNoDcmp();
+    // The gate can only ever narrow a ceiling, so a team it applies to is
+    // never in a FRIENDLIER status than it was without it.
+    const order: Record<string, number> = { lockedOut: 0, outOfRange: 1, inRange: 2, locked: 3, prequalified: 4, capacityUnknown: 5 };
+    const gated = withGate.status.byTeam.get(bottom.teamKey)!.status;
+    const ungated = withoutGate.status.byTeam.get(bottom.teamKey)!.status;
+    expect(order[gated]!).toBeLessThanOrEqual(order[ungated]!);
   });
 });

@@ -93,7 +93,6 @@ import type {
   DistrictEventStage,
   DistrictLedgerCell,
   DistrictLedgerStatLine,
-  DistrictLedgerTeam,
 } from "./districtLedgerRows.js";
 
 /**
@@ -278,14 +277,27 @@ export function CellKey() {
   );
 }
 
+/**
+ * WHICH stage word a row prints: the earliest category still open, or "final".
+ *
+ * The KEY rather than the word, so a caller that needs the key itself — the
+ * champ tab's District points row folds several events' stages into one small
+ * line through `champLedgerDistrictSourceLine`, which looks the word up in
+ * `DISTRICT_LEDGER_STAGE_WORDS` itself — reads this rule rather than copying
+ * its five branches (quick task 260925-xab).
+ */
+export function stageWordKey(stage: DistrictEventStage): keyof typeof DISTRICT_LEDGER_STAGE_WORDS {
+  if (!stage.started && !stage.final.qual) return "unstarted";
+  if (!stage.final.qual) return "quals";
+  if (!stage.final.alliance) return "selection";
+  if (!stage.final.elim) return "playoffs";
+  if (!stage.final.award) return "awards";
+  return "done";
+}
+
 /** The stage WORD the Event cell prints: the earliest category still open, or "final". */
 export function stageWord(stage: DistrictEventStage): string {
-  if (!stage.started && !stage.final.qual) return DISTRICT_LEDGER_STAGE_WORDS.unstarted;
-  if (!stage.final.qual) return DISTRICT_LEDGER_STAGE_WORDS.quals;
-  if (!stage.final.alliance) return DISTRICT_LEDGER_STAGE_WORDS.selection;
-  if (!stage.final.elim) return DISTRICT_LEDGER_STAGE_WORDS.playoffs;
-  if (!stage.final.award) return DISTRICT_LEDGER_STAGE_WORDS.awards;
-  return DISTRICT_LEDGER_STAGE_WORDS.done;
+  return DISTRICT_LEDGER_STAGE_WORDS[stageWordKey(stage)];
 }
 
 /** A percentile range written out with an EN DASH and one decimal — never the plus-minus codepoint, which is reserved for exactly one standard deviation of full predictive variance. */
@@ -416,7 +428,29 @@ export function LedgerCell({ cell, interaction, variant }: { cell: DistrictLedge
   );
 }
 
-export function TeamCell({ team, season, algorithm }: { team: DistrictLedgerTeam; season: number; algorithm: PublishedAlgorithmId }) {
+/**
+ * THE MINIMUM the Team cell reads off a row model.
+ *
+ * Structural rather than the concrete `DistrictLedgerTeam`, for the same reason
+ * `prepareChanceRanking`'s own input is: the champ tier's row model carries two
+ * rows per team and an all-tier earned total rather than one row per event, and
+ * one shared cell is what keeps the two tabs' team meta line from drifting
+ * (quick task 260925-xab). `DistrictLedgerTeam` satisfies it unchanged.
+ */
+export interface LedgerTeamCellTeam {
+  readonly teamNumber: number;
+  readonly nickname: string;
+  /** How many table rows this team spans — the district tier's event count, the champ tier's fixed two. */
+  readonly rowCount: number;
+  readonly position: number;
+  /** The EARNED total the meta line prints: district-tier only on the district tab, all tiers on the champ tab. */
+  readonly earnedDistrictTotal: number;
+  readonly hasOpenCategory: boolean;
+  readonly projection: number;
+  readonly rookieBonus: number;
+}
+
+export function TeamCell({ team, season, algorithm }: { team: LedgerTeamCellTeam; season: number; algorithm: PublishedAlgorithmId }) {
   return (
     <TableCell rowSpan={Math.max(team.rowCount, 1)} data-testid="district-ledger-team-cell" className={TEAM_CELL_CLASS}>
       {/* Capped so the sticky cell always fits inside the table's scrollport:

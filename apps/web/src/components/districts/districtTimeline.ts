@@ -320,6 +320,29 @@ export function startMatchKeyAtPosition(timeline: DistrictTimeline, positionInde
   return remainingQualRowsAtPosition(timeline, positionIndex, eventKey)[0] ?? null;
 }
 
+/**
+ * Whether one event has STARTED at a position: whether any of its own steps
+ * sits at or before the position.
+ *
+ * FOR A REWOUND POSITION ONLY. At the live index the honest answer is the
+ * artifact's own `state` block, not this rail: the tab fetches an artifact
+ * only for an event that is in progress, so a FINISHED event contributes no
+ * steps at all at "now" and this function would read it as unstarted. A
+ * caller at the live position must read `deriveStageFromState(...).started`
+ * instead, exactly as `champLedgerRows.ts`'s own "now" helper does.
+ *
+ * The Champ Locks tab reads this for one question: whether the District
+ * Championship field is a fact yet at the position the slider is at
+ * (quick task 260925-xab).
+ */
+export function eventStartedAtPosition(timeline: DistrictTimeline, positionIndex: number, eventKey: string): boolean {
+  const last = Math.min(positionIndex, timeline.positions.length - 1);
+  for (let i = 1; i <= last; i++) {
+    if (timeline.positions[i]?.step?.eventKey === eventKey) return true;
+  }
+  return false;
+}
+
 /** Every district-tier event with at least one OPEN category at a position — the superset the fetch and simulation gates narrow from. */
 export function eventsWithOpenCategoriesAt(stageByEvent: ReadonlyMap<string, DistrictStageFinality>): string[] {
   const out: string[] = [];
