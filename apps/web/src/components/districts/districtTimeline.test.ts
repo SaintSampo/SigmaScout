@@ -98,6 +98,57 @@ describe("buildDistrictTimeline", () => {
     ]);
   });
 
+  /**
+   * THE DCMP IS JUST ANOTHER EVENT ON THIS RAIL (quick task 260925-xab). The
+   * Champ Locks tab passes the district-tier events AND the District
+   * Championship, so the rail must run through the DCMP's matches and its four
+   * stage steps, in week order, and every DCMP stage must rewind exactly as a
+   * district event's does. `buildDistrictTimeline` is tier-agnostic by
+   * construction — it takes an `events` list and no tier at all — and this
+   * pins that it stays so.
+   */
+  it("runs through a dcmp-keyed event's matches and its four stage steps, in week order", () => {
+    const events = [
+      { eventKey: "2026wabon", eventName: "Bonney Lake", week: 0 as number | null },
+      { eventKey: "2026pncmp", eventName: "PNW District Championship", week: 5 as number | null },
+    ];
+    const timeline = buildDistrictTimeline({
+      events,
+      eventArtifacts: new Map([
+        ["2026wabon", eventArtifact("2026wabon", [{ matchNumber: 1, ms: BASE_MS }])],
+        ["2026pncmp", eventArtifact("2026pncmp", [{ matchNumber: 1, ms: BASE_MS + 5_000_000 }])],
+      ]),
+    });
+    expect(timeline.positions.map((position) => position.id)).toEqual([
+      DISTRICT_TIMELINE_SEASON_START_ID,
+      "2026wabon:m:2026wabon_qm1",
+      "2026wabon:qualsDone",
+      "2026wabon:alliance",
+      "2026wabon:playoffs",
+      "2026wabon:awards",
+      "2026pncmp:m:2026pncmp_qm1",
+      "2026pncmp:qualsDone",
+      "2026pncmp:alliance",
+      "2026pncmp:playoffs",
+      "2026pncmp:awards",
+      DISTRICT_TIMELINE_NOW_ID,
+    ]);
+
+    const nowStages: ReadonlyMap<string, DistrictStageFinality> = new Map([
+      ["2026wabon", { qual: true, alliance: true, elim: true, award: true }],
+      ["2026pncmp", { qual: true, alliance: true, elim: true, award: true }],
+    ]);
+    const at = (id: string) => districtStageAtPosition(timeline, resolveDistrictTimelinePosition(timeline, id), nowStages);
+    // The DCMP's own stages reopen one at a time, exactly as a district
+    // event's do, and rewinding into it leaves the finished district event
+    // alone.
+    expect(at("2026pncmp:qualsDone").get("2026pncmp")).toEqual({ qual: true, alliance: false, elim: false, award: false });
+    expect(at("2026pncmp:playoffs").get("2026pncmp")).toEqual({ qual: true, alliance: true, elim: true, award: false });
+    expect(at("2026pncmp:qualsDone").get("2026wabon")).toEqual({ qual: true, alliance: true, elim: true, award: true });
+    expect(at("2026wabon:alliance").get("2026pncmp")).toEqual({ qual: false, alliance: false, elim: false, award: false });
+    expect(startMatchKeyAtPosition(timeline, resolveDistrictTimelinePosition(timeline, "2026pncmp:qualsDone"), "2026pncmp")).toBeNull();
+  });
+
   it("interleaves an event published in epoch SECONDS with one published in epoch milliseconds", () => {
     const timeline = buildDistrictTimeline({
       events: EVENTS,

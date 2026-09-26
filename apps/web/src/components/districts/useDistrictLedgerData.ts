@@ -17,6 +17,7 @@ import {
 import { useDistrictSimulationRun, type DistrictSimulationRunState } from "./useDistrictSimulationRun.js";
 import type { DistrictSimulationEventRequest } from "../../workers/districtSimulationProtocol.js";
 import type { DistrictLedgerEventInput } from "../../../../../packages/core/districts/ledgerSimulation.js";
+import type { DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
 import type { DistrictArtifact, EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -103,6 +104,29 @@ export interface UseDistrictLedgerDataOptions {
    * unplayed row, which is the "now" answer.
    */
   readonly startMatchKeyByEvent?: ReadonlyMap<string, string | null>;
+  /**
+   * Which event keys a BAKED sidecar may be fetched for. Defaults to
+   * `allDistrictTierEventKeys(artifact)`, which is byte for byte the shipped
+   * behaviour.
+   *
+   * The Champ Locks tab passes the district-tier keys PLUS the dcmp event key,
+   * so an unstarted District Championship's baked sidecar is fetched rather
+   * than silently skipped. `scripts/publishDistricts.ts` already bakes dcmp-tier
+   * candidates (`tier: districtTierForEventType(event.eventType)`), so the
+   * sidecar exists and `bakedEvents` already lists it — no publisher change
+   * (quick task 260925-xab).
+   */
+  readonly allowedEventKeys?: readonly string[];
+  /**
+   * `eventKey -> the point tier it is simulated at`. Absent, or absent for one
+   * key, reads as `"district"` — the shipped behaviour.
+   *
+   * The DCMP is therefore priced at the 3x ceilings by the SAME code path as
+   * any district event, in the same Worker, in the same run, under one
+   * signature. A second run for one event would be a second place for the
+   * position, the algorithm version and the refusals to drift.
+   */
+  readonly tierByEvent?: ReadonlyMap<string, DistrictTier>;
 }
 
 export interface DistrictLedgerData {
@@ -207,16 +231,16 @@ export function districtRunSignature(events: readonly DistrictSimulationEventReq
 }
 
 export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): DistrictLedgerData {
-  const { artifact, activeEventKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent } = options;
+  const { artifact, activeEventKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent, allowedEventKeys, tierByEvent } = options;
   const activeKeys = useMemo(() => [...activeEventKeys].sort(), [activeEventKeys]);
 
   const bakedKeys = useMemo(() => {
     const listed = artifact.bakedEvents;
     if (listed === undefined || listed.length === 0) return [];
-    const districtTier = new Set(allDistrictTierEventKeys(artifact));
+    const allowed = new Set(allowedEventKeys ?? allDistrictTierEventKeys(artifact));
     const active = new Set(activeKeys);
-    return listed.filter((eventKey) => districtTier.has(eventKey) && !active.has(eventKey)).sort();
-  }, [artifact, activeKeys]);
+    return listed.filter((eventKey) => allowed.has(eventKey) && !active.has(eventKey)).sort();
+  }, [artifact, activeKeys, allowedEventKeys]);
 
   const preSimQueries = useQueries({
     queries: bakedKeys.map((eventKey) => districtPreSimQueryOptions({ districtKey: artifact.districtKey, eventKey })),
@@ -251,6 +275,7 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
         // see `UseDistrictLedgerDataOptions` — so its absence IS "now", and the
         // rewind rail's own playoff step is all-or-nothing by construction.
         conditionOnPlayedElims: startMatchKeyByEvent === undefined,
+        tier: tierByEvent?.get(eventKey) ?? "district",
       });
       if (!built.ok) continue;
       if (built.excludedMatchCount > 0) eventsWithExcludedMatches.push(eventKey);
@@ -267,7 +292,7 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
       eventsWithPartialAllianceList,
       eventsWithUnresolvedElimMatches,
     };
-  }, [activeKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent, artifact]);
+  }, [activeKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent, artifact, tierByEvent]);
 
   const runState = useDistrictSimulationRun(
     useMemo(() => ({ events: assembled.events, signature: assembled.signature }), [assembled])

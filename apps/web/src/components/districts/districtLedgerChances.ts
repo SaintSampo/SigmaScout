@@ -53,8 +53,8 @@
  */
 import type { AdvancementChanceInputs, AdvancementChanceTeam } from "../../../../../packages/core/districts/advancementChance.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import { pointMassDistribution, type DistrictLedgerTeam } from "./districtLedgerRows.js";
-import type { DistrictLedgerStatusModel } from "./districtLedgerStatus.js";
+import { pointMassDistribution, type DistrictLedgerTeam, type DistrictPointDistribution } from "./districtLedgerRows.js";
+import type { DistrictLedgerStatusModel, DistrictLedgerStatusState } from "./districtLedgerStatus.js";
 
 /** One posted chance run: the inputs, the string the hook's effect keys on, and what the ranking had to leave out. */
 export interface DistrictAdvancementChanceRun {
@@ -132,16 +132,39 @@ function chanceSignature(
 }
 
 /**
- * Assembles one chance run, or refuses.
+ * The MINIMUM a chance ranking needs from one team's row: whether anything is
+ * still open, and the grand total it would be ranked on.
  *
- * A FINISHED DISTRICT REFUSES, which is what keeps SC-5's no-Worker promise
- * true where it was made: nothing is open, every grand total is the earned
- * number, and a "chance" over a settled season would be 100% or 0% dressed up
- * as a prediction.
+ * Structural rather than the concrete `DistrictLedgerTeam`, so the champ tier's
+ * own row model satisfies it too and the refusals below are shared code rather
+ * than a second copy (quick task 260925-xab).
  */
-export function buildAdvancementChanceRun(options: BuildAdvancementChanceRunOptions): DistrictAdvancementChanceRun | undefined {
-  const { artifact, teams, statuses, runSignature } = options;
-  if (artifact.dcmpSlots === null) return undefined;
+export interface ChanceRankingTeam {
+  readonly teamKey: string;
+  readonly hasOpenCategory: boolean;
+  readonly grandTotal: {
+    readonly kind: string;
+    readonly earned?: number;
+    readonly distribution?: DistrictPointDistribution;
+  };
+}
+
+/**
+ * EVERY REFUSAL AND THE EXCLUSION RULE, in one place.
+ *
+ * Extracted from `buildAdvancementChanceRun` unchanged so the champ tier reads
+ * the SAME four refusals and the SAME two exclusion bounds rather than a
+ * restatement of them; only the CAPACITY differs between the two tiers
+ * (`dcmpSlots` against `cmpSlots`), so it is the one thing passed in.
+ * `districtLedgerChances.test.ts` passes untouched, which is the proof this
+ * moved nothing.
+ */
+export function prepareChanceRanking(
+  teams: readonly ChanceRankingTeam[],
+  capacity: number | null,
+  runSignature: string | null
+): { readonly chanceTeams: AdvancementChanceTeam[]; readonly excludedTeams: readonly string[] } | undefined {
+  if (capacity === null) return undefined;
   if (runSignature === null) return undefined;
   if (teams.length === 0) return undefined;
   if (!teams.some((team) => team.hasOpenCategory)) return undefined;
@@ -151,12 +174,16 @@ export function buildAdvancementChanceRun(options: BuildAdvancementChanceRunOpti
   let openAmongIncluded = false;
   for (const team of teams) {
     const cell = team.grandTotal;
-    if (cell.kind === "unavailable") {
+    if (cell.kind !== "final" && cell.kind !== "open") {
       excludedTeams.push(team.teamKey);
       continue;
     }
     if (team.hasOpenCategory) openAmongIncluded = true;
-    const distribution = cell.kind === "final" ? pointMassDistribution(cell.earned) : cell.distribution;
+    const distribution = cell.kind === "final" ? pointMassDistribution(cell.earned ?? 0) : cell.distribution;
+    if (distribution === undefined) {
+      excludedTeams.push(team.teamKey);
+      continue;
+    }
     chanceTeams.push({ teamKey: team.teamKey, counts: distribution.counts, denominator: distribution.denominator });
   }
 
@@ -167,22 +194,41 @@ export function buildAdvancementChanceRun(options: BuildAdvancementChanceRunOpti
   // ranking has stopped being a ranking of this district. `>=` rather than `>`:
   // a set that could take every slot leaves nothing for the printed field to be
   // competing for.
-  if (excludedTeams.length >= artifact.dcmpSlots) return undefined;
+  if (excludedTeams.length >= capacity) return undefined;
   // And a field with nothing open left in it is a settled season, where a
   // "chance" is a 1 or a 0 dressed up as a prediction — the same refusal the
   // whole-district check above makes, re-applied to what survived the exclusion.
   if (!openAmongIncluded) return undefined;
   if (chanceTeams.length === 0) return undefined;
 
+  return { chanceTeams, excludedTeams: [...excludedTeams].sort() };
+}
+
+/**
+ * Assembles one chance run, or refuses.
+ *
+ * A FINISHED DISTRICT REFUSES, which is what keeps SC-5's no-Worker promise
+ * true where it was made: nothing is open, every grand total is the earned
+ * number, and a "chance" over a settled season would be 100% or 0% dressed up
+ * as a prediction.
+ */
+export function buildAdvancementChanceRun(options: BuildAdvancementChanceRunOptions): DistrictAdvancementChanceRun | undefined {
+  const { artifact, teams, statuses, runSignature } = options;
+  const prepared = prepareChanceRanking(teams, artifact.dcmpSlots, runSignature);
+  if (prepared === undefined) return undefined;
+
   const inputs: AdvancementChanceInputs = {
-    teams: chanceTeams,
-    slots: artifact.dcmpSlots,
+    teams: prepared.chanceTeams,
+    slots: artifact.dcmpSlots!,
     awardQualified: statuses.awardQualified,
     prequalified: statuses.prequalified,
     reservedSlots: statuses.reservedSlots,
   };
-  const sortedExcluded = [...excludedTeams].sort();
-  return { inputs, signature: chanceSignature(options, chanceTeams, sortedExcluded), excludedTeams: sortedExcluded };
+  return {
+    inputs,
+    signature: chanceSignature(options, prepared.chanceTeams, prepared.excludedTeams),
+    excludedTeams: prepared.excludedTeams,
+  };
 }
 
 export interface DistrictLedgerChanceModel {
@@ -199,6 +245,15 @@ export interface DistrictLedgerChanceModel {
 const PRINTS_A_CHANCE = new Set(["inRange", "outOfRange"]);
 
 /**
+ * The MINIMUM this narrowing needs from a status model: each team's verdict
+ * word. Structural so the champ tier's own model satisfies it and the rule
+ * below is shared rather than restated (quick task 260925-xab).
+ */
+export interface VerdictLookup {
+  readonly byTeam: ReadonlyMap<string, { readonly status: DistrictLedgerStatusState }>;
+}
+
+/**
  * Narrows a raw run set to what the chips allow, and counts what they refuse.
  *
  * A team absent from `chanceByTeam` is not a gap: award qualifiers and
@@ -207,7 +262,7 @@ const PRINTS_A_CHANCE = new Set(["inRange", "outOfRange"]);
  */
 export function reconcileAdvancementChances(
   chanceByTeam: ReadonlyMap<string, number>,
-  statuses: DistrictLedgerStatusModel
+  statuses: VerdictLookup
 ): DistrictLedgerChanceModel {
   const byTeam = new Map<string, number>();
   const gaps: string[] = [];

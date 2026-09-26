@@ -14,12 +14,19 @@
  */
 import { describe, expect, it } from "vitest";
 import { districtRunSignature } from "./useDistrictLedgerData.js";
+import { buildDistrictEventSimulationInput } from "./districtLedgerRows.js";
 import type { DistrictSimulationEventRequest } from "../../workers/districtSimulationProtocol.js";
 import type { AllianceMemberRating } from "../../../../../packages/core/algorithms/simulation/allianceWinProbability.js";
 import type {
   DistrictAwardProfile,
   DistrictLedgerEventInput,
 } from "../../../../../packages/core/districts/ledgerSimulation.js";
+import {
+  DistrictArtifactSchema,
+  EventArtifactSchema,
+  type DistrictArtifact,
+  type EventArtifact,
+} from "../../../../../packages/harness/pageArtifacts.js";
 
 function baselines(): DistrictLedgerEventInput["baselines"] {
   return [
@@ -131,5 +138,143 @@ describe("districtRunSignature", () => {
     expect(signature).toContain("2026wabon");
     expect(signature).toContain("2026wasam");
     expect(signature.split(";").length).toBe(2);
+  });
+});
+
+/**
+ * THE DEFAULT PATH IS BYTE FOR BYTE TODAY'S (quick task 260925-xab).
+ *
+ * `buildDistrictEventSimulationInput` gained an optional `tier`, and
+ * `useDistrictLedgerData` gained the two options that feed it. The whole
+ * premise of the change is that a caller supplying neither reads exactly what
+ * it read before, so the Road to District Champs tab's run cannot move. That
+ * is pinned here on the ASSEMBLED input and on the signature the run is keyed
+ * on, rather than only on the two tabs' rendered output.
+ */
+describe("the tier option on the assembled per-event input", () => {
+  const roster = Array.from({ length: 6 }, (_unused, i) => `frc${String(100 + i)}`);
+  const pmf = [0.25, 0.25, 0.25, 0.25];
+
+  const eventArtifact: EventArtifact = EventArtifactSchema.parse({
+    schemaVersion: 1,
+    generation: "gen-1",
+    computedAt: "2026-09-25T00:00:00.000Z",
+    algorithmId: "spr",
+    algorithmVersion: "7.0.0+rolling",
+    eventKey: "2026pncmp",
+    season: 2026,
+    matches: Array.from({ length: 4 }, (_unused, i) => ({
+      matchKey: `2026pncmp_qm${String(i + 1)}`,
+      compLevel: "qm",
+      setNumber: 1,
+      matchNumber: i + 1,
+      sortTime: 1_760_000_000 + i * 600,
+      redTeams: roster.slice(0, 3),
+      blueTeams: roster.slice(3, 6),
+      predictedWinner: "red",
+      pRedWin: 0.5,
+      predictedRedScore: 50,
+      predictedBlueScore: 50,
+      actualWinner: "red",
+      actualRedScore: 60,
+      actualBlueScore: 50,
+      actualRedRp: 3,
+      actualBlueRp: 1,
+      redRpPmf: pmf,
+      blueRpPmf: pmf,
+    })),
+    upcoming: [],
+    teams: roster.map((teamKey, i) => ({
+      teamKey,
+      teamNumber: 100 + i,
+      rank: i + 1,
+      record: { wins: 2, losses: 2, ties: 0 },
+      rp: 2,
+      metrics: { total: { value: 60 - i }, sigma: { value: 8 } },
+    })),
+  });
+
+  const districtArtifact: DistrictArtifact = DistrictArtifactSchema.parse({
+    schemaVersion: 1,
+    generation: "gen-1",
+    computedAt: "2026-09-25T00:00:00.000Z",
+    districtKey: "2026pnw",
+    year: 2026,
+    abbreviation: "pnw",
+    displayName: "Pacific Northwest",
+    dcmpSlots: 50,
+    cmpSlots: 21,
+    teams: roster.map((teamKey, i) => ({
+      teamKey,
+      teamNumber: 100 + i,
+      nickname: `Nickname ${teamKey}`,
+      rank: i + 1,
+      pointTotal: 24,
+      rookieBonus: 0,
+      adjustments: 0,
+      eventPoints: [
+        {
+          eventKey: "2026pncmp",
+          eventName: "PNW District Championship",
+          week: 5,
+          tier: "dcmp",
+          qual: 12,
+          alliance: 6,
+          elim: 6,
+          award: 0,
+          total: 24,
+        },
+      ],
+      remainingEvents: [],
+      maxRemainingDistrict: 0,
+      maxRemainingChamp: 0,
+      qualifyingAwards: [],
+      districtLock: { status: "contending", pointsToLock: 5, threatCount: 1, cutLinePoints: 20, allocationNote: null },
+      champLock: { status: "contending", pointsToLock: 5, threatCount: 1, cutLinePoints: 40, allocationNote: null },
+      awardProfile: { bucket: "none", rookie: false },
+    })),
+    insights: {
+      teamCount: roster.length,
+      eventCount: 1,
+      dcmpCutLinePoints: 40,
+      cmpCutLinePoints: 80,
+      districtLockedCount: 0,
+      districtEliminatedCount: 0,
+      champLockedCount: 0,
+      champEliminatedCount: 0,
+    },
+  });
+
+  function inputAt(tier?: "district" | "dcmp"): DistrictLedgerEventInput {
+    const built = buildDistrictEventSimulationInput({
+      eventKey: "2026pncmp",
+      season: 2026,
+      eventArtifact,
+      districtArtifact,
+      stage: { qual: true, alliance: false, elim: false, award: false },
+      startMatchKey: null,
+      ...(tier === undefined ? {} : { tier }),
+    });
+    if (!built.ok) throw new Error("expected an input");
+    return built.input;
+  }
+
+  it("defaults to the district tier and produces the same signature as supplying it explicitly", () => {
+    const implicit = inputAt();
+    const explicit = inputAt("district");
+    expect(implicit.tier).toBe("district");
+    expect(districtRunSignature([{ eventKey: implicit.eventKey, input: implicit }])).toBe(
+      districtRunSignature([{ eventKey: explicit.eventKey, input: explicit }])
+    );
+  });
+
+  it("carries the dcmp tier through to the simulation input when the champ tab supplies it", () => {
+    expect(inputAt("dcmp").tier).toBe("dcmp");
+  });
+
+  it("changes nothing else about the input when the tier changes", () => {
+    const district = inputAt("district");
+    const dcmp = inputAt("dcmp");
+    expect({ ...dcmp, tier: "district" }).toEqual(district);
   });
 });
