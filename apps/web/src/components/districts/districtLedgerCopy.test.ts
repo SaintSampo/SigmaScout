@@ -22,7 +22,7 @@ import {
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
   DISTRICT_LEDGER_LOCKED_AWARD_LABEL,
-  DISTRICT_LEDGER_OUTCOME_CAPTION,
+  DISTRICT_LEDGER_OUTCOME_CAPTIONS,
   DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS,
   DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS,
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
@@ -212,6 +212,12 @@ describe("the playoff milestone words", () => {
     }
   });
 
+  it("gives each outcome list its OWN caption, so the award list never mentions a bracket", () => {
+    expect(DISTRICT_LEDGER_OUTCOME_CAPTIONS.elim).toContain("bracket");
+    expect(DISTRICT_LEDGER_OUTCOME_CAPTIONS.award).not.toContain("bracket");
+    expect(DISTRICT_LEDGER_OUTCOME_CAPTIONS.award).toContain("never predicted to win two awards");
+  });
+
   it("prints a contribution row's earned total, or the honest absence", () => {
     expect(districtLedgerContributionEarned(24)).toBe("24");
     expect(districtLedgerContributionEarned(0)).toBe("0");
@@ -222,7 +228,7 @@ describe("the playoff milestone words", () => {
     const everyString = [
       ...Object.values(DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS),
       ...Object.values(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS),
-      DISTRICT_LEDGER_OUTCOME_CAPTION,
+      ...Object.values(DISTRICT_LEDGER_OUTCOME_CAPTIONS),
       DISTRICT_LEDGER_CONTRIBUTION_CAPTION,
       DISTRICT_LEDGER_CONTRIBUTION_SETTLED,
       districtLedgerContributionEarned(undefined),

@@ -23,7 +23,6 @@
  * "which outcome is best".
  */
 import {
-  DISTRICT_LEDGER_OUTCOME_CAPTION,
   DISTRICT_LEDGER_OUTCOME_COLUMN_LABELS,
   districtLedgerOutcomeChance,
   districtLedgerOutcomePoints,
@@ -46,10 +45,12 @@ export interface DistrictOutcomeListProps {
   readonly rows: readonly DistrictOutcomeListRow[];
   /** The list's accessible name. */
   readonly label: string;
+  /** This list's OWN caption — the two lists say different things, so neither is hardcoded here. */
+  readonly caption: string;
   readonly testId?: string;
 }
 
-export function DistrictOutcomeList({ rows, label, testId }: DistrictOutcomeListProps) {
+export function DistrictOutcomeList({ rows, label, caption, testId }: DistrictOutcomeListProps) {
   return (
     <div className="flex flex-col gap-[var(--spacing-xs)]" data-testid={testId}>
       <span className="sr-only">{label}</span>
@@ -93,7 +94,7 @@ export function DistrictOutcomeList({ rows, label, testId }: DistrictOutcomeList
           ))}
         </tbody>
       </table>
-      <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_OUTCOME_CAPTION}</span>
+      <span className="district-ledger-pane-caption">{caption}</span>
     </div>
   );
 }

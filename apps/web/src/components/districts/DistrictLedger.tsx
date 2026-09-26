@@ -72,6 +72,7 @@ import {
   DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS,
   DISTRICT_LEDGER_CONTRIBUTION_LIST_LABEL,
   DISTRICT_LEDGER_CONTRIBUTION_SETTLED,
+  DISTRICT_LEDGER_OUTCOME_CAPTIONS,
   DISTRICT_LEDGER_OUTCOME_LIST_LABELS,
   DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS,
   DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS,
@@ -572,6 +573,7 @@ function DrawerCellPane({
         testId="district-ledger-drawer-outcomes"
         rows={rows}
         label={DISTRICT_LEDGER_OUTCOME_LIST_LABELS[cell.cell]}
+        caption={DISTRICT_LEDGER_OUTCOME_CAPTIONS[cell.cell]}
       />
     );
   }
@@ -590,8 +592,8 @@ function DrawerCellPane({
         label={DISTRICT_LEDGER_DRAWER_CELL_PLOT_LABEL}
       />
       <span data-testid="district-ledger-drawer-band-label">{bandLabel(cellPercentiles.p10, cellPercentiles.p90)}</span>
-      <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_DRAWER_CELL_CAPTION}</span>
-      {noPointsChance > 0 && <span className="text-[var(--color-text-muted)]">{districtLedgerNoPointsCaption(noPointsChance)}</span>}
+      <span className="district-ledger-pane-caption">{DISTRICT_LEDGER_DRAWER_CELL_CAPTION}</span>
+      {noPointsChance > 0 && <span className="district-ledger-pane-caption">{districtLedgerNoPointsCaption(noPointsChance)}</span>}
     </div>
   );
 }
@@ -640,7 +642,7 @@ function DistrictContributionList({ contributions }: { contributions: readonly D
           ))}
         </tbody>
       </table>
-      <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_CONTRIBUTION_CAPTION}</span>
+      <span className="district-ledger-pane-caption">{DISTRICT_LEDGER_CONTRIBUTION_CAPTION}</span>
     </div>
   );
 }
@@ -670,16 +672,16 @@ function GrandTotalPlot({
         {...(todaysLineFloor === null ? {} : { markedPosition: todaysLineFloor, markedLabel: DISTRICT_LEDGER_DRAWER_LINE_LABEL })}
         label={DISTRICT_LEDGER_DRAWER_GRAND_PLOT_LABEL}
       />
-      <span className="text-[var(--color-text-muted)]">
+      <span className="district-ledger-pane-caption">
         {todaysLineFloor === null ? DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION : DISTRICT_LEDGER_DRAWER_LINE_CAPTION}
       </span>
       {chanceLine !== undefined && (
-        <span className="text-[var(--color-text-muted)]" data-testid="district-ledger-drawer-chance-caption">
+        <span className="district-ledger-pane-caption" data-testid="district-ledger-drawer-chance-caption">
           {DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION}
         </span>
       )}
       {rookieBonus > 0 && (
-        <span className="text-[var(--color-text-muted)]" data-testid="district-ledger-drawer-rookie-bonus">
+        <span className="district-ledger-pane-caption" data-testid="district-ledger-drawer-rookie-bonus">
           {districtLedgerRookieBonusCaption(Math.round(rookieBonus))}
         </span>
       )}

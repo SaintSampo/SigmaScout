@@ -328,9 +328,18 @@ export function districtLedgerOutcomePoints(points: number): string {
   return String(Math.round(points));
 }
 
-/** The outcome list's caption, in flat third person. */
-export const DISTRICT_LEDGER_OUTCOME_CAPTION =
-  "Each row is one outcome this category can pay, with the share of runs that produced it. The rows the bracket has already ruled out are not listed.";
+/**
+ * The two outcome lists' captions, in flat third person.
+ *
+ * ONE PER LIST, not one shared. A single caption mentioning the bracket was
+ * printed under the AWARD list too, where there is no bracket to have ruled
+ * anything out; and the award list has its own fact to state, which is that a
+ * team is never predicted to win two awards at one event.
+ */
+export const DISTRICT_LEDGER_OUTCOME_CAPTIONS = {
+  elim: "Each row is one placement the playoffs can pay, with the share of runs that produced it. The rows the bracket has already ruled out are not listed.",
+  award: "Each row is one award outcome, with the share of runs that produced it. A team is never predicted to win two awards at one event, so the rows never overlap.",
+} as const;
 
 /**
  * The grand total drawer's PER-EVENT contribution list.
@@ -341,7 +350,8 @@ export const DISTRICT_LEDGER_OUTCOME_CAPTION =
  * question that pane can actually answer is which event the spread comes from.
  */
 export const DISTRICT_LEDGER_CONTRIBUTION_LIST_LABEL = "Points by event";
-export const DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS = { event: "event", earned: "earned", open: "still open" } as const;
+/** "earned so far" rather than "earned": on an event still running, the published total is only what TBA has posted up to now. */
+export const DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS = { event: "event", earned: "earned so far", open: "predicted total" } as const;
 
 /** What the open column prints for an event that is already settled: nothing is open, so there is nothing to predict. */
 export const DISTRICT_LEDGER_CONTRIBUTION_SETTLED = "settled";
@@ -354,9 +364,16 @@ export function districtLedgerContributionEarned(earned: number | undefined): st
   return earned === undefined ? DISTRICT_LEDGER_CONTRIBUTION_NONE_EARNED : String(Math.round(earned));
 }
 
-/** The contribution list's caption, in flat third person. */
+/**
+ * The contribution list's caption, in flat third person.
+ *
+ * It has to say WHICH of the two numbers on an open row is the contribution, or
+ * a reader adds them. A settled event contributes the number in the earned
+ * column; an open one contributes the predicted total, which already includes
+ * whatever it has earned so far.
+ */
 export const DISTRICT_LEDGER_CONTRIBUTION_CAPTION =
-  "The grand total is these event totals added together, plus any rookie bonus. A settled event contributes its earned points exactly.";
+  "A settled event contributes its earned points exactly. An open one contributes the predicted total beside it, which already counts what it has earned so far. The grand total is those contributions added together, plus any rookie bonus.";
 
 /** The Team cell's rookie bonus line, printed only when the bonus is non zero: 10 points in a team's first season, 5 in its second, added once per season. */
 export function districtLedgerRookieBonusLine(points: number): string {

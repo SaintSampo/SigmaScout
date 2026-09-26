@@ -1193,10 +1193,34 @@ body {
  * `--district-ledger-outcome-track` is the only derived value: the mark's own
  * colour mixed toward the page, so an empty track reads as a scale rather than
  * as a second bar. */
+/* The caption under either drawer pane.
+ *
+ * THE MAX-WIDTH IS WHAT KEEPS THE TWO PANES SIDE BY SIDE. The drawer is a
+ * `flex-wrap` row and each pane is sized by its widest child; an uncapped
+ * one-line caption made every pane as wide as the drawer, so the plot wrapped
+ * underneath and the drawer grew to twice the height it needed. Measured at
+ * 1440 on 2026-09-25: capped, both panes fit on one row. */
+.district-ledger-pane-caption {
+  /* `display: block` is load-bearing, not tidiness: `max-width` does nothing at
+   * all on a non-replaced INLINE element, so the span kept laying out at its
+   * one-line width and the cap silently did nothing. */
+  display: block;
+  max-width: 42ch;
+  /* AND SO IS THIS. Every drawer caption lives inside a `TableCell`, whose
+   * shipped class list carries `whitespace-nowrap` for the numeric columns it
+   * was written for. A capped box around text that cannot wrap just overflows,
+   * so the drawer's captions ran off the right edge of the card from the day
+   * they shipped and only a screenshot showed it (2026-09-25). */
+  white-space: normal;
+  color: var(--color-text-muted);
+}
+
 .district-ledger-outcomes {
   border-collapse: collapse;
   font-size: 12px;
   line-height: 1.3;
+  /* Sized by its content, never stretched to the pane. */
+  width: max-content;
 }
 .district-ledger-outcomes thead th {
   padding: 0 10px 2px 0;
@@ -1252,6 +1276,7 @@ body {
   border-collapse: collapse;
   font-size: 12px;
   line-height: 1.3;
+  width: max-content;
 }
 .district-ledger-contributions thead th {
   padding: 0 10px 2px 0;
