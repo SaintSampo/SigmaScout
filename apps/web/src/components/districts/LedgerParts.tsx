@@ -1,0 +1,807 @@
+/**
+ * The ledger's SHARED presentational parts: the class constants, the two cell
+ * renderers, the Team and Status cells, the chips and the cell key, the drawer
+ * panes, the Rewind slider and its tick rail, and the controls card.
+ *
+ * A MECHANICAL EXTRACTION from `DistrictLedger.tsx` with no behaviour change
+ * (quick task 260925-xab). The Champ Locks tab is the same ledger with two rows
+ * per team instead of one row per event, so every one of these parts is shared
+ * rather than copied; `DistrictLedger.test.tsx`'s 1958-line suite passes
+ * UNTOUCHED, which is the proof the Road to District Champs tab's rendered
+ * output did not move.
+ *
+ * TWO PARAMETERIZATIONS, both with the district default:
+ *
+ * - `StatusCell` takes an `awardLabel`, so the champ tier can print
+ *   `Locked · winner` for the DCMP winning alliance. Absent keeps the shipped
+ *   `Locked · award`.
+ * - `DrawerCellPane` takes a `tier`, so the DCMP's outcome lists are priced at
+ *   the 3x weight by `districtPlayoffOutcomes`/`districtAwardOutcomes`
+ *   themselves rather than by a second table of point values here.
+ *
+ * Every `data-testid`, every class string and every text-role class is
+ * unchanged, and every class list that mixes a `text-role-*` class with a
+ * colour custom property stays a PLAIN STRING — tailwind-merge drops the role
+ * class when such a list goes through `cn()` and only a screenshot catches it
+ * (project memory `project_cn_drops_text_role_classes`).
+ */
+import { useRef, useEffect, useState, type ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
+import { TableCell } from "@/components/ui/table";
+import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
+import { pointPercentiles } from "../../../../../packages/core/districts/pointSummary.js";
+import type { DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
+import { RANK_BAND_LABEL_PREFIX } from "../event/rankRows.js";
+import { DistrictPointHistogram } from "./DistrictPointHistogram.js";
+import { DistrictOutcomeList } from "./DistrictOutcomeList.js";
+import {
+  districtLedgerRookieBonusLine,
+  districtLedgerRookieBonusCaption,
+  DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED,
+  DISTRICT_LEDGER_CHANCE_WORDS,
+  DISTRICT_LEDGER_DRAWER_CELL_CAPTION,
+  DISTRICT_LEDGER_DRAWER_CELL_PLOT_LABEL,
+  DISTRICT_LEDGER_DRAWER_GRAND_PLOT_LABEL,
+  DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION,
+  DISTRICT_LEDGER_DRAWER_LINE_CAPTION,
+  DISTRICT_LEDGER_DRAWER_LINE_LABEL,
+  DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
+  DISTRICT_LEDGER_LEGEND_EARNED,
+  DISTRICT_LEDGER_LEGEND_EXPLAINER,
+  DISTRICT_LEDGER_LEGEND_OPEN,
+  DISTRICT_LEDGER_LIKELY_PREFIX,
+  DISTRICT_LEDGER_REWIND_HINT,
+  DISTRICT_LEDGER_REWIND_LABEL,
+  DISTRICT_LEDGER_SEARCH_LABEL,
+  DISTRICT_LEDGER_SEARCH_PLACEHOLDER,
+  DISTRICT_LEDGER_LOCKED_AWARD_LABEL,
+  DISTRICT_LEDGER_STAGE_WORDS,
+  DISTRICT_LEDGER_STATUS_DEFINITIONS,
+  DISTRICT_LEDGER_STATUS_LABELS,
+  DISTRICT_LEDGER_STAT_LINE_LABELS,
+  DISTRICT_LEDGER_TICK_NOW,
+  DISTRICT_LEDGER_TICK_START,
+  DISTRICT_LEDGER_AWARD_OUTCOME_LABELS,
+  DISTRICT_LEDGER_OUTCOME_CAPTIONS,
+  DISTRICT_LEDGER_OUTCOME_LIST_LABELS,
+  DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS,
+  DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS,
+  DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS,
+  DISTRICT_LEDGER_SELECTION_ROUTE_WORDS,
+  DISTRICT_LEDGER_UNAVAILABLE_CELL,
+  districtLedgerNoPointsCaption,
+  districtLedgerPlacementLine,
+  districtLedgerSelectionSettledLine,
+  districtLedgerTickWeekLabel,
+} from "./districtLedgerCopy.js";
+import {
+  districtAwardOutcomes,
+  districtCellRendersOutcomeList,
+  districtPlayoffOutcomes,
+  districtSelectionHeadline,
+  districtSelectionOutcomes,
+  districtSelectionSettledRoute,
+} from "./districtLedgerOutcomes.js";
+import {
+  DISTRICT_LEDGER_STATUS_KEYS,
+  type DistrictLedgerStatusKey,
+  type DistrictLedgerStatusResult,
+} from "./districtLedgerStatus.js";
+import { DISTRICT_TIMELINE_NOW_ID, DISTRICT_TIMELINE_SEASON_START_ID, type DistrictTimeline } from "./districtTimeline.js";
+import type {
+  DistrictCellKind,
+  DistrictEventStage,
+  DistrictLedgerCell,
+  DistrictLedgerStatLine,
+  DistrictLedgerTeam,
+} from "./districtLedgerRows.js";
+
+/**
+ * THE BOXED CELL (sketch 021 variant A, restyled 2026-09-25 by 260925-hr9).
+ *
+ * Both fills live in `theme.css` under `.district-ledger-cell*`, which adds NO
+ * palette entry: the grey is `--color-bg-inset` under `--color-text-muted`, and
+ * the blue is the SHIPPED SKY rare pair. Sky rather than the
+ * `--lock-status-locked-award-*` blue this cell wore before: the sketch's blue
+ * is sky, and the tier palette's own note makes sky load-bearing against the
+ * epic purple under deuteranopia. On THIS tab the rare pair carries no tier
+ * meaning (an award-locked team wears the locked GREEN pair), so it is free to
+ * mean "still open, click for the histogram".
+ *
+ * Written as PLAIN STRINGS, never passed through `cn()`: tailwind-merge drops a
+ * `text-role-*` class sitting beside a `text-[var(...)]` one, and only a
+ * screenshot catches it (project memory `project_cn_drops_text_role_classes`).
+ */
+export const FINAL_CELL_CLASS = "district-ledger-cell district-ledger-cell--final";
+export const OPEN_CELL_CLASS =
+  "district-ledger-cell district-ledger-cell--open focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]";
+export const OPEN_CELL_BOLD_CLASS = "district-ledger-cell__figure whitespace-nowrap";
+export const OPEN_CELL_SMALL_CLASS = "district-ledger-cell__small";
+export const UNAVAILABLE_CELL_CLASS = "district-ledger-cell--unavailable";
+
+/** The sticky first column — the shipped table wrapper scrolls horizontally inside its card, so the Team cell holds position. */
+export const TEAM_CELL_CLASS = "sticky left-0 z-10 bg-[var(--color-bg-surface)] align-middle";
+
+/** The rewind rail's own id, so its label can sit beside the position readout instead of wrapping the control. */
+export const REWIND_INPUT_ID = "district-ledger-rewind-input";
+
+/** How long the hand must pause on the slider before its position is committed to the URL and the simulation. */
+export const REWIND_COMMIT_DELAY_MS = 160;
+
+/** How far apart two tick labels must sit before both print. Measured at 390px, where the rail is about 340px and a "wk 0" label about 28px. */
+export const TICK_MIN_GAP_PERCENT = 10;
+
+/**
+ * The chip modifier per status, in the shipped `statusChipClass` shape: a
+ * `Record` lookup plus a base class. Every value is a CSS class bound to a
+ * shipped custom property in `theme.css`; this file writes no colour at all.
+ *
+ * The status WORD always stays visible beside the colour — colour is never the
+ * only encoding, which is the shipped champ tab's own stated rule.
+ */
+const STATUS_CHIP_MODIFIER: Record<DistrictLedgerStatusKey, string> = {
+  prequalified: "lock-status-chip--prequalified",
+  locked: "lock-status-chip--locked",
+  inRange: "lock-status-chip--in-range",
+  outOfRange: "lock-status-chip--out-of-range",
+  lockedOut: "lock-status-chip--locked-out",
+};
+
+export function statusChipClass(status: DistrictLedgerStatusKey): string {
+  return `lock-status-chip ${STATUS_CHIP_MODIFIER[status]}`;
+}
+
+/**
+ * The Status cell: a chip for the five statuses, plain text with NO chip for
+ * the honest capacity-not-published state, and — for an In range or Out of
+ * range team alone — one line underneath carrying its chance of qualifying on
+ * district points.
+ *
+ * THE CHANCE LINE IS PASSED IN ALREADY DECIDED. Whether a status prints one at
+ * all is `districtLedgerChances.ts`'s call and the wording is
+ * `districtLedgerCopy.ts`'s; this component neither compares a status nor
+ * formats a percentage, so the rule that a guarantee never carries a number
+ * beside it lives in one tested place rather than in a JSX condition.
+ *
+ * `awardLabel` NAMES THE KIND OF AWARD. Absent it reads the shipped
+ * `Locked · award`, which is the only variant the district tier has; the champ
+ * tier supplies `Locked · winner` for the DCMP winning alliance.
+ *
+ * The line wears the Team cell's own small muted meta class, as a PLAIN STRING
+ * rather than through `cn()` — the recorded tailwind-merge trap.
+ */
+export function StatusCell({
+  status,
+  rowSpan,
+  chanceLine,
+  awardLabel,
+}: {
+  status: DistrictLedgerStatusResult | undefined;
+  rowSpan: number;
+  chanceLine: string | undefined;
+  awardLabel?: string;
+}) {
+  if (status === undefined || status.status === "capacityUnknown") {
+    return (
+      <TableCell rowSpan={rowSpan} data-testid="district-ledger-status-cell" className="whitespace-nowrap align-middle text-[var(--color-text-muted)]">
+        {DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED}
+      </TableCell>
+    );
+  }
+  return (
+    <TableCell rowSpan={rowSpan} data-testid="district-ledger-status-cell" data-status={status.status} className="whitespace-nowrap align-middle">
+      <div className="flex flex-col items-start gap-[var(--spacing-xs)]">
+        <span className={statusChipClass(status.status)}>
+          {status.byAward ? (awardLabel ?? DISTRICT_LEDGER_LOCKED_AWARD_LABEL) : DISTRICT_LEDGER_STATUS_LABELS[status.status]}
+        </span>
+        {chanceLine !== undefined && (
+          <span className="district-ledger-team-meta whitespace-nowrap" data-testid="district-ledger-chance">
+            {chanceLine}
+          </span>
+        )}
+      </div>
+    </TableCell>
+  );
+}
+
+/**
+ * The five chips above the table, doubling as filters.
+ *
+ * A CHIP'S COUNT DESCRIBES THE DISTRICT, NOT THE FILTERED VIEW. Recomputing a
+ * count over the visible rows is the obvious-looking bug, and it would make
+ * every count read 0 the moment its own chip was switched off.
+ */
+export function StatusChips({
+  counts,
+  active,
+  onToggle,
+}: {
+  counts: Readonly<Record<DistrictLedgerStatusKey, number>>;
+  active: ReadonlySet<DistrictLedgerStatusKey>;
+  onToggle: (status: DistrictLedgerStatusKey) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-[var(--spacing-sm)]" data-testid="district-ledger-status-chips">
+      {/* The five chips and the cell key share ONE wrapping row, the sketch's
+          own legend line. */}
+      <div className="flex flex-wrap items-center gap-x-[var(--spacing-md)] gap-y-[var(--spacing-xs)]">
+        {DISTRICT_LEDGER_STATUS_KEYS.map((status) => (
+          <button
+            key={status}
+            type="button"
+            data-testid="district-ledger-status-chip"
+            data-status={status}
+            aria-pressed={active.has(status)}
+            aria-describedby={`district-ledger-status-definition-${status}`}
+            onClick={() => onToggle(status)}
+            className="district-ledger-chip-button"
+          >
+            <span className={statusChipClass(status)}>
+              {DISTRICT_LEDGER_STATUS_LABELS[status]} {counts[status]}
+            </span>
+          </button>
+        ))}
+        <CellKey />
+      </div>
+      <div
+        className="district-ledger-defs flex flex-wrap gap-x-[var(--spacing-md)] gap-y-[var(--spacing-xs)]"
+        data-testid="district-ledger-status-definitions"
+      >
+        {DISTRICT_LEDGER_STATUS_KEYS.map((status) => (
+          <span key={status} id={`district-ledger-status-definition-${status}`}>
+            <b>{DISTRICT_LEDGER_STATUS_LABELS[status]}</b> {DISTRICT_LEDGER_STATUS_DEFINITIONS[status]}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The cell key: the two fills as swatches beside their words, plus the
+ * likely/tilde explainer. The swatches are drawn from the same two classes the
+ * cells wear, so the key cannot drift away from the table.
+ */
+export function CellKey() {
+  return (
+    <span className="district-ledger-defs flex flex-wrap items-center gap-x-[var(--spacing-md)] gap-y-[var(--spacing-xs)]" data-testid="district-ledger-legend">
+      <span className="whitespace-nowrap">
+        <span className="district-ledger-swatch district-ledger-swatch--final" aria-hidden="true" />
+        {DISTRICT_LEDGER_LEGEND_EARNED}
+      </span>
+      <span className="whitespace-nowrap">
+        <span className="district-ledger-swatch district-ledger-swatch--open" aria-hidden="true" />
+        {DISTRICT_LEDGER_LEGEND_OPEN}
+      </span>
+      <span>{DISTRICT_LEDGER_LEGEND_EXPLAINER}</span>
+    </span>
+  );
+}
+
+/** The stage WORD the Event cell prints: the earliest category still open, or "final". */
+export function stageWord(stage: DistrictEventStage): string {
+  if (!stage.started && !stage.final.qual) return DISTRICT_LEDGER_STAGE_WORDS.unstarted;
+  if (!stage.final.qual) return DISTRICT_LEDGER_STAGE_WORDS.quals;
+  if (!stage.final.alliance) return DISTRICT_LEDGER_STAGE_WORDS.selection;
+  if (!stage.final.elim) return DISTRICT_LEDGER_STAGE_WORDS.playoffs;
+  if (!stage.final.award) return DISTRICT_LEDGER_STAGE_WORDS.awards;
+  return DISTRICT_LEDGER_STAGE_WORDS.done;
+}
+
+/** A percentile range written out with an EN DASH and one decimal — never the plus-minus codepoint, which is reserved for exactly one standard deviation of full predictive variance. */
+export function likelyRangeText(p10: number, p90: number): string {
+  return `${DISTRICT_LEDGER_LIKELY_PREFIX} ${p10.toFixed(1)}–${p90.toFixed(1)}`;
+}
+
+export function chanceWordsFor(cell: DistrictCellKind): { bold: string; conditional: string } {
+  if (cell === "alliance") return DISTRICT_LEDGER_CHANCE_WORDS.alliance;
+  if (cell === "elim") return DISTRICT_LEDGER_CHANCE_WORDS.elim;
+  return DISTRICT_LEDGER_CHANCE_WORDS.award;
+}
+
+/**
+ * The two lines a blue cell prints, chosen by 10-04's form selector — this
+ * component renders the words, that module decides the form and the numbers.
+ *
+ * THE PLAYOFFS CELL TAKES ITS MILESTONE FIRST, where the bracket has already
+ * moved past the top four: `districtLedgerRows.ts` puts the milestone and its
+ * two threshold-conditioned numbers on the cell, and the shipped chance form is
+ * what an alliance still short of a top-four finish prints. See
+ * `DistrictPlayoffMilestone`.
+ */
+export function openCellLines(cell: Extract<DistrictLedgerCell, { kind: "open" }>): { bold: string; small: string | undefined } {
+  const milestone = cell.playoffMilestone;
+  if (milestone !== undefined) {
+    if (milestone.kind === "placed") {
+      // The placement is settled, so there is no chance left to print: the
+      // points follow from it, and the small line names the placement.
+      return { bold: `~${String(Math.round(milestone.points))}`, small: districtLedgerPlacementLine(milestone.placement) };
+    }
+    const words = DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS[milestone.kind];
+    return {
+      bold: `${words.bold} ~${String(Math.round(milestone.chance * 100))}%`,
+      // NO FABRICATED ZERO, on the same terms as the chance form below.
+      small:
+        milestone.conditionalMedian === undefined
+          ? undefined
+          : `~${String(Math.round(milestone.conditionalMedian))} ${words.conditional}`,
+    };
+  }
+  // THE ALLIANCE SELECTION CELL'S ROUTES, where the run reported them. A baked
+  // event reports none and falls through to the shipped chance form below.
+  const selection = cell.cell === "alliance" ? cell.selection : undefined;
+  if (cell.summary.form === "median") {
+    const { p10, p50, p90 } = cell.summary.percentiles;
+    const bold = `~${String(Math.max(0, Math.round(p50)))}`;
+    // ONCE THE RANKING IS FIXED the draft is determined, so a cell whose points
+    // are a point mass can say WHICH route earned them instead of printing a
+    // percentile range whose two ends are the same number.
+    const settled = selection === undefined ? undefined : districtSelectionSettledRoute(selection);
+    if (settled !== undefined) {
+      return { bold, small: districtLedgerSelectionSettledLine(settled.id, settled.allianceNumber) };
+    }
+    return { bold, small: likelyRangeText(Math.max(0, p10), Math.max(0, p90)) };
+  }
+  if (selection !== undefined) {
+    // THE LIKELIER ROUTE, named and put first, exactly as the playoff milestone
+    // is. The small line is the typical amount given ANY selection points, which
+    // is the same conditional median the shipped cell printed — only its clause
+    // changes, because the bold line no longer covers both routes.
+    const headline = districtSelectionHeadline(selection);
+    const routeWords = DISTRICT_LEDGER_SELECTION_ROUTE_WORDS[headline.id];
+    return {
+      bold: `${routeWords.bold} ~${String(Math.round(headline.chance * 100))}%`,
+      small:
+        cell.summary.conditionalMedian === undefined
+          ? undefined
+          : `~${String(Math.round(cell.summary.conditionalMedian))} ${routeWords.conditional}`,
+    };
+  }
+  const words = chanceWordsFor(cell.cell);
+  // Every blue figure carries the tilde (Jacob, 2026-09-25): it is this site's
+  // prediction, never a number TBA published.
+  //
+  // THE PLAYOFFS CELL PUTS THE MILESTONE FIRST — `top 4 ~66%` rather than
+  // `~66% top 4` — so the three milestone headlines read the same way round as
+  // each other. The other two categories keep the shipped order.
+  const bold =
+    cell.cell === "elim"
+      ? `${words.bold} ~${String(Math.round(cell.summary.chance * 100))}%`
+      : `~${String(Math.round(cell.summary.chance * 100))}% ${words.bold}`;
+  // NO FABRICATED ZERO: 10-04 returns `undefined` when all the mass sits at
+  // zero, and a printed "~0" would assert a typical amount the draws never
+  // produced.
+  const small =
+    cell.summary.conditionalMedian === undefined
+      ? undefined
+      : `~${String(Math.round(cell.summary.conditionalMedian))} ${words.conditional}`;
+  return { bold, small };
+}
+
+export interface CellInteraction {
+  readonly openCellId: string | undefined;
+  readonly onToggle: (cellId: string) => void;
+}
+
+export function LedgerCell({ cell, interaction, variant }: { cell: DistrictLedgerCell; interaction: CellInteraction; variant?: "total" }) {
+  const box = variant === "total" ? ` district-ledger-cell--${variant}` : "";
+  if (cell.kind === "final") {
+    return (
+      <TableCell data-cell="final" data-cell-id={cell.id} className="numeric-cell">
+        <div className={`${FINAL_CELL_CLASS}${box}`}>{String(Math.round(cell.earned))}</div>
+      </TableCell>
+    );
+  }
+  if (cell.kind === "unavailable") {
+    return (
+      <TableCell data-cell="unavailable" data-cell-id={cell.id} className="numeric-cell">
+        <span className={UNAVAILABLE_CELL_CLASS}>{DISTRICT_LEDGER_UNAVAILABLE_CELL}</span>
+      </TableCell>
+    );
+  }
+  const lines = openCellLines(cell);
+  return (
+    <TableCell data-cell="open" data-cell-id={cell.id} className="numeric-cell">
+      {/* A blue cell is a real <button>: focusable, two lines, never hue alone. */}
+      <button
+        type="button"
+        aria-expanded={interaction.openCellId === cell.id}
+        onClick={() => interaction.onToggle(cell.id)}
+        className={`${OPEN_CELL_CLASS}${box}`}
+      >
+        <span className={OPEN_CELL_BOLD_CLASS}>{lines.bold}</span>
+        {lines.small !== undefined && <span className={OPEN_CELL_SMALL_CLASS}>{lines.small}</span>}
+      </button>
+    </TableCell>
+  );
+}
+
+export function TeamCell({ team, season, algorithm }: { team: DistrictLedgerTeam; season: number; algorithm: PublishedAlgorithmId }) {
+  return (
+    <TableCell rowSpan={Math.max(team.rowCount, 1)} data-testid="district-ledger-team-cell" className={TEAM_CELL_CLASS}>
+      {/* Capped so the sticky cell always fits inside the table's scrollport:
+          a sticky box wider than its scrollport is aligned by its far edge
+          instead of holding at left 0 (measured live at 390px, 2026-09-25: a
+          360px cell in a 340px wrapper slid 21px). The nickname truncates. */}
+      <div className="flex min-w-0 max-w-[min(56vw,176px)] flex-col">
+        <span className="district-ledger-team-number whitespace-nowrap">
+          <Link to="/team/$teamNumber" params={{ teamNumber: String(team.teamNumber) }} search={{ year: season, algorithm, tab: "overview" }}>
+            {team.teamNumber}
+          </Link>
+        </span>
+        <span className="district-ledger-team-name truncate">{team.nickname}</span>
+        <span className="district-ledger-team-meta whitespace-nowrap">
+          #{String(team.position)} · {String(Math.round(team.earnedDistrictTotal))} earned
+          {team.hasOpenCategory ? ` · median ${String(Math.round(team.projection))}` : ""}
+        </span>
+        {team.rookieBonus > 0 && (
+          <span className="district-ledger-team-meta whitespace-nowrap" data-testid="district-ledger-rookie-bonus">
+            {districtLedgerRookieBonusLine(Math.round(team.rookieBonus))}
+          </span>
+        )}
+      </div>
+    </TableCell>
+  );
+}
+
+/**
+ * True when the visitor asked for reduced motion.
+ *
+ * A UI-SPEC BACKSTOP ROW. The committed test asserts the animation class is
+ * absent under a `matchMedia` stub; the REAL verification is the UAT's manual
+ * check, and `theme.css` carries a `prefers-reduced-motion` query as the
+ * belt-and-braces half.
+ */
+export function prefersReducedMotion(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/** The explicit percentile label, built from the SHIPPED prefix and the same one-decimal en-dash discipline — never the plus-minus codepoint. */
+export function bandLabel(p10: number, p90: number): string {
+  return `${RANK_BAND_LABEL_PREFIX}${Math.max(0, p10).toFixed(1)}–${Math.max(0, p90).toFixed(1)}`;
+}
+
+/**
+ * The clicked cell's own pane: an OUTCOME LIST for the two lumpy, named
+ * categories and the shipped histogram for everything else.
+ *
+ * The split is `districtCellRendersOutcomeList`'s, which names the two cells
+ * rather than testing for a shape, so the Qualification, Alliance selection and
+ * event total panes are byte for byte what they were.
+ *
+ * `tier` DEFAULTS TO `"district"`. The champ tab supplies `"dcmp"` for the
+ * District Championship row, which prices the playoff and award outcome lists
+ * at the 3x weight through the phase's single weight source rather than through
+ * a second table of point values here.
+ */
+export function DrawerCellPane({
+  cell,
+  season,
+  isRookie,
+  tier = "district",
+}: {
+  cell: Extract<DistrictLedgerCell, { kind: "open" }>;
+  season: number;
+  isRookie: boolean;
+  tier?: DistrictTier;
+}) {
+  // THE ALLIANCE SELECTION LIST is chosen by DATA, not by category: a run that
+  // reported its routes can name them, and a baked event's pmf cannot, so that
+  // one keeps the histogram.
+  if (cell.cell === "alliance" && cell.selection !== undefined) {
+    const selectionRows = districtSelectionOutcomes(cell.selection).map((row) => ({
+      key: row.id,
+      label: DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS[row.id],
+      points: row.minPoints,
+      pointsHigh: row.maxPoints,
+      chance: row.chance,
+    }));
+    return (
+      <DistrictOutcomeList
+        testId="district-ledger-drawer-outcomes"
+        rows={selectionRows}
+        label={DISTRICT_LEDGER_OUTCOME_LIST_LABELS.alliance}
+        caption={DISTRICT_LEDGER_OUTCOME_CAPTIONS.alliance}
+      />
+    );
+  }
+  if (districtCellRendersOutcomeList(cell.cell)) {
+    const rows =
+      cell.cell === "elim"
+        ? districtPlayoffOutcomes(season, tier, cell.distribution, cell.playoffMilestone).map((row) => ({
+            key: row.id,
+            label: DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS[row.id],
+            points: row.points,
+            chance: row.chance,
+          }))
+        : districtAwardOutcomes(season, tier, cell.distribution, isRookie).map((row) => ({
+            key: row.id,
+            label: DISTRICT_LEDGER_AWARD_OUTCOME_LABELS[row.id],
+            points: row.points,
+            chance: row.chance,
+          }));
+    return (
+      <DistrictOutcomeList
+        testId="district-ledger-drawer-outcomes"
+        rows={rows}
+        label={DISTRICT_LEDGER_OUTCOME_LIST_LABELS[cell.cell]}
+        caption={DISTRICT_LEDGER_OUTCOME_CAPTIONS[cell.cell]}
+      />
+    );
+  }
+  const cellPercentiles = pointPercentiles(cell.distribution.counts, cell.distribution.denominator);
+  const noPointsChance = Math.round(((cell.distribution.counts[0] ?? 0) / cell.distribution.denominator) * 100);
+  return (
+    <div className="flex flex-col gap-[var(--spacing-xs)]">
+      <DistrictPointHistogram
+        testId="district-ledger-drawer-cell-plot"
+        counts={cell.distribution.counts}
+        denominator={cell.distribution.denominator}
+        maxPoints={cell.ceiling}
+        p10={cellPercentiles.p10}
+        p50={cellPercentiles.p50}
+        p90={cellPercentiles.p90}
+        label={DISTRICT_LEDGER_DRAWER_CELL_PLOT_LABEL}
+      />
+      <span data-testid="district-ledger-drawer-band-label">{bandLabel(cellPercentiles.p10, cellPercentiles.p90)}</span>
+      <span className="district-ledger-pane-caption">{DISTRICT_LEDGER_DRAWER_CELL_CAPTION}</span>
+      {noPointsChance > 0 && <span className="district-ledger-pane-caption">{districtLedgerNoPointsCaption(noPointsChance)}</span>}
+    </div>
+  );
+}
+
+export function GrandTotalPlot({
+  cell,
+  todaysLineFloor,
+  rookieBonus,
+  chanceLine,
+}: {
+  cell: Extract<DistrictLedgerCell, { kind: "open" }>;
+  todaysLineFloor: number | null;
+  rookieBonus: number;
+  chanceLine: string | undefined;
+}) {
+  const percentiles = pointPercentiles(cell.distribution.counts, cell.distribution.denominator);
+  return (
+    <div className="flex flex-col gap-[var(--spacing-xs)]">
+      <DistrictPointHistogram
+        testId="district-ledger-drawer-grand-plot"
+        counts={cell.distribution.counts}
+        denominator={cell.distribution.denominator}
+        maxPoints={cell.ceiling}
+        p10={percentiles.p10}
+        p50={percentiles.p50}
+        p90={percentiles.p90}
+        {...(todaysLineFloor === null ? {} : { markedPosition: todaysLineFloor, markedLabel: DISTRICT_LEDGER_DRAWER_LINE_LABEL })}
+        label={DISTRICT_LEDGER_DRAWER_GRAND_PLOT_LABEL}
+      />
+      <span className="district-ledger-pane-caption">
+        {todaysLineFloor === null ? DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION : DISTRICT_LEDGER_DRAWER_LINE_CAPTION}
+      </span>
+      {chanceLine !== undefined && (
+        <span className="district-ledger-pane-caption" data-testid="district-ledger-drawer-chance-caption">
+          {DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION}
+        </span>
+      )}
+      {rookieBonus > 0 && (
+        <span className="district-ledger-pane-caption" data-testid="district-ledger-drawer-rookie-bonus">
+          {districtLedgerRookieBonusCaption(Math.round(rookieBonus))}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** The narrow local cast this repo already uses for a control that does not own its route's search type. */
+export type DistrictLedgerNavigate = (opts: {
+  search: (prev: Record<string, unknown>) => Record<string, unknown>;
+  replace?: boolean;
+  /** Every ledger navigation is a control on a page the visitor has scrolled into; the router must NOT reset the scroll position (Jacob, 2026-09-25: a blue box click jumped the page to the top). */
+  resetScroll?: boolean;
+}) => Promise<void>;
+
+/**
+ * The Rewind slider and its DERIVED jump chips.
+ *
+ * Every move navigates with the search-updater form, preserving every other
+ * param — the pattern every other control in this app uses. The position
+ * readout is deliberately not animated.
+ */
+export function RewindSlider({
+  timeline,
+  positionIndex,
+  onPositionChange,
+}: {
+  timeline: DistrictTimeline;
+  positionIndex: number;
+  onPositionChange: (index: number) => void;
+}) {
+  const position = timeline.positions[positionIndex] ?? timeline.positions[timeline.nowIndex]!;
+  const ticks = timelineTicks(timeline);
+  // The thumb is LOCAL state while a hand is on it (Jacob, 2026-09-25: "the
+  // slider is glitchy"). Every input event used to navigate at once, so a drag
+  // pushed one history entry per step, re-ran the simulation per step, and the
+  // controlled value fought the pointer whenever a render landed mid-drag.
+  // Now the thumb follows the hand immediately, and ONE commit fires after the
+  // hand pauses; the URL and the simulation follow that commit alone.
+  const [thumb, setThumb] = useState(positionIndex);
+  const dragging = useRef(false);
+  const commitTimer = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!dragging.current) setThumb(positionIndex);
+  }, [positionIndex]);
+  useEffect(() => () => window.clearTimeout(commitTimer.current), []);
+  function handleThumbChange(next: number): void {
+    setThumb(next);
+    dragging.current = true;
+    window.clearTimeout(commitTimer.current);
+    commitTimer.current = window.setTimeout(() => {
+      dragging.current = false;
+      onPositionChange(next);
+    }, REWIND_COMMIT_DELAY_MS);
+  }
+  return (
+    <div className="flex flex-col gap-[var(--spacing-sm)]" data-testid="district-ledger-rewind">
+      {/* The label, the readout and the rail are ONE block; the jump chips sit
+          beside it on a wide screen and wrap under it on a phone. */}
+      <div className="flex flex-col gap-[var(--spacing-xs)]">
+        {/* The label is `htmlFor` rather than a wrapper, so the readout can sit
+            beside it on the same line without joining the control's own
+            accessible name. */}
+        <span className="flex flex-wrap items-baseline gap-[var(--spacing-sm)]">
+          <label htmlFor={REWIND_INPUT_ID} className="th-cell-label">
+            {DISTRICT_LEDGER_REWIND_LABEL}
+          </label>
+          <span data-testid="district-ledger-rewind-readout" className="font-semibold">
+            {position.label}
+          </span>
+        </span>
+        <input
+          id={REWIND_INPUT_ID}
+          type="range"
+          min={0}
+          max={timeline.nowIndex}
+          step={1}
+          value={Math.min(thumb, timeline.nowIndex)}
+          onChange={(event) => handleThumbChange(Number(event.target.value))}
+          className="district-ledger-slider w-full"
+        />
+      </div>
+      <div className="district-ledger-ticks" data-testid="district-ledger-ticks" aria-hidden="true">
+        {ticks.map((tick) => (
+          <span key={tick.id} data-row={tick.row} style={{ left: `${tick.percent.toFixed(1)}%` }}>
+            {tick.label}
+          </span>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-[var(--spacing-xs)]" data-testid="district-ledger-jump-chips">
+        {timeline.chips.map((chip) => (
+          <button
+            key={chip.id}
+            type="button"
+            data-testid="district-ledger-jump-chip"
+            data-chip={chip.id}
+            aria-pressed={chip.positionIndex === positionIndex}
+            onClick={() => onPositionChange(chip.positionIndex)}
+            className="district-ledger-pill"
+          >
+            {chip.label}
+          </button>
+        ))}
+      </div>
+      <span className="district-ledger-note">{DISTRICT_LEDGER_REWIND_HINT}</span>
+    </div>
+  );
+}
+
+/**
+ * The rail's tick labels, DERIVED from the same jump chips rather than from a
+ * hardcoded week list: the first chip prints "start", each per-week chip prints
+ * its own short "wk N", and the last prints "now". A district with one week
+ * therefore gets two ticks, not five.
+ */
+export function timelineTicks(timeline: DistrictTimeline): { id: string; label: string; percent: number; row: 0 | 1 }[] {
+  const span = Math.max(timeline.nowIndex, 1);
+  const all = timeline.chips.map((chip) => {
+    const week = /^week-(\d+)$/.exec(chip.id);
+    const label =
+      chip.id === DISTRICT_TIMELINE_SEASON_START_ID
+        ? DISTRICT_LEDGER_TICK_START
+        : chip.id === DISTRICT_TIMELINE_NOW_ID
+          ? DISTRICT_LEDGER_TICK_NOW
+          : week === null
+            ? chip.label
+            : districtLedgerTickWeekLabel(Number(week[1]));
+    return { id: chip.id, label, percent: Math.min(100, (chip.positionIndex / span) * 100), row: 0 as 0 | 1 };
+  });
+  // EVERY week prints (Jacob, 2026-09-25: a district has more weeks than
+  // four and the rail must adapt). A label that would land on top of its
+  // printed neighbour is staggered onto a second row rather than dropped, so
+  // no week disappears from the rail and no two labels overprint.
+  let lastOnRow: [number, number] = [-Infinity, -Infinity];
+  for (const tick of all) {
+    const row: 0 | 1 = tick.percent - lastOnRow[0] < TICK_MIN_GAP_PERCENT && tick.percent - lastOnRow[1] >= TICK_MIN_GAP_PERCENT ? 1 : 0;
+    tick.row = row;
+    lastOnRow[row] = tick.percent;
+  }
+  return all;
+}
+
+/**
+ * The ONE controls card: the team-number search, the stat line and the legend.
+ * The Rewind slider and its jump chips join this same card rather than getting
+ * a second layout of their own.
+ */
+export function ControlsCard({
+  query,
+  onQueryChange,
+  statLine,
+  children,
+}: {
+  query: string;
+  onQueryChange: (value: string) => void;
+  statLine: DistrictLedgerStatLine;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="data-card flex flex-col gap-[var(--spacing-sm)] p-[var(--spacing-md)]" data-testid="district-ledger-controls">
+      {children}
+      {/* The search box and the stat line share ONE row, the sketch's last
+          control line. */}
+      <div className="flex flex-wrap items-center gap-x-[var(--spacing-lg)] gap-y-[var(--spacing-sm)]">
+        <label className="flex items-center gap-[var(--spacing-sm)]">
+          <span className="th-cell-label">{DISTRICT_LEDGER_SEARCH_LABEL}</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            value={query}
+            placeholder={DISTRICT_LEDGER_SEARCH_PLACEHOLDER}
+            onChange={(event) => onQueryChange(event.target.value)}
+            className="min-h-[32px] w-[150px] rounded-md border border-[var(--color-border)] bg-[var(--color-bg-surface)] px-[var(--spacing-sm)] py-[var(--spacing-xs)]"
+          />
+        </label>
+        <div data-testid="district-ledger-stat-line" className="district-ledger-note flex flex-wrap gap-x-[var(--spacing-lg)] gap-y-[var(--spacing-xs)]">
+          <span>
+            {statLine.todaysLineFloor === null ? DISTRICT_LEDGER_STAT_LINE_LABELS.todaysLineUnknown : DISTRICT_LEDGER_STAT_LINE_LABELS.todaysLine}{" "}
+            <b className="font-semibold text-[var(--color-text-primary)]">
+              {statLine.todaysLineFloor === null ? "—" : String(Math.round(statLine.todaysLineFloor))}
+            </b>
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** The grand total's own content, rendered inside a cell that carries the team's row span rather than inside `LedgerCell`'s own `<td>`. */
+export function GrandTotalContent({ cell, interaction }: { cell: DistrictLedgerCell; interaction: CellInteraction }) {
+  if (cell.kind === "final") {
+    return (
+      <span data-cell="final" data-cell-id={cell.id} className={`${FINAL_CELL_CLASS} district-ledger-cell--grand`}>
+        {String(Math.round(cell.earned))}
+      </span>
+    );
+  }
+  if (cell.kind === "unavailable") {
+    return (
+      <span data-cell="unavailable" data-cell-id={cell.id} className={UNAVAILABLE_CELL_CLASS}>
+        {DISTRICT_LEDGER_UNAVAILABLE_CELL}
+      </span>
+    );
+  }
+  const lines = openCellLines(cell);
+  return (
+    <button
+      type="button"
+      data-cell="open"
+      data-cell-id={cell.id}
+      aria-expanded={interaction.openCellId === cell.id}
+      onClick={() => interaction.onToggle(cell.id)}
+      className={`${OPEN_CELL_CLASS} district-ledger-cell--grand`}
+    >
+      <span className={OPEN_CELL_BOLD_CLASS}>{lines.bold}</span>
+      {lines.small !== undefined && <span className={OPEN_CELL_SMALL_CLASS}>{lines.small}</span>}
+    </button>
+  );
+}
