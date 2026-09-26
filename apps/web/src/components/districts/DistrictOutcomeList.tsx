@@ -5,8 +5,9 @@
  * WHAT IT REPLACES AND WHY. The Playoffs and Awards drawers drew
  * `DistrictPointHistogram` over a 0-to-30 axis on a distribution with mass at
  * four values. The bars were correct and nearly unreadable: the reader had to
- * map an x position back onto a placement. These two categories are the only
- * ones whose outcomes have NAMES, so the names are the axis.
+ * map an x position back onto a placement. Those outcomes have NAMES, so the
+ * names are the axis. The Alliance selection drawer renders this list too, on
+ * its four named routes.
  *
  * THE MARK IS THIN AND THE LABELS ARE TEXT INK, per the dataviz skill's own
  * rules, and every colour is a shipped custom property — `--sim-hist-bar` for
@@ -26,6 +27,7 @@ import {
   DISTRICT_LEDGER_OUTCOME_COLUMN_LABELS,
   districtLedgerOutcomeChance,
   districtLedgerOutcomePoints,
+  districtLedgerOutcomePointsRange,
 } from "./districtLedgerCopy.js";
 
 /** The full-scale width of one row's mark, in pixels. A chance of 1 fills it exactly. */
@@ -38,6 +40,16 @@ export interface DistrictOutcomeListRow {
   readonly key: string;
   readonly label: string;
   readonly points: number;
+  /**
+   * The HIGH end of a row whose points are a range rather than one value — the
+   * alliance selection routes, where a captain earns anywhere from 9 to 16
+   * depending on which alliance takes that slot.
+   *
+   * Absent on the playoff and award rows, which each pay exactly one value, so
+   * those rows render byte for byte what they did before this field existed
+   * (quick task 260925-w4y).
+   */
+  readonly pointsHigh?: number;
   readonly chance: number;
 }
 
@@ -89,7 +101,11 @@ export function DistrictOutcomeList({ rows, label, caption, testId }: DistrictOu
                   />
                 </span>
               </td>
-              <td className="district-ledger-outcomes__points">{districtLedgerOutcomePoints(row.points)}</td>
+              <td className="district-ledger-outcomes__points">
+                {row.pointsHigh === undefined
+                  ? districtLedgerOutcomePoints(row.points)
+                  : districtLedgerOutcomePointsRange(row.points, row.pointsHigh)}
+              </td>
             </tr>
           ))}
         </tbody>

@@ -1231,9 +1231,13 @@ describe("DistrictLedger — the drawer", () => {
     for (const value of values) expect(value).toBeLessThanOrEqual(10);
   });
 
-  it("keeps the shipped histogram on Qualification, Alliance selection and the event total", async () => {
+  // Alliance selection LEFT this list in quick task 260925-w4y: its routes have
+  // names too, and its points are ambiguous between two of them, so it renders
+  // the outcome list whenever the run reported its routes. The route-less case
+  // (a baked event) is covered in "the alliance selection cell's routes" below.
+  it("keeps the shipped histogram on Qualification and the event total", async () => {
     await renderWithOpenCells();
-    for (const cellId of ["2026walive:qual", "2026walive:alliance", "2026walive:eventTotal"]) {
+    for (const cellId of ["2026walive:qual", "2026walive:eventTotal"]) {
       fireEvent.click(cellButton(cellId));
       await waitFor(() => expect(screen.getByTestId("district-ledger-drawer").getAttribute("data-drawer-cell")).toBe(cellId));
       expect(screen.getByTestId("district-ledger-drawer-cell-plot"), cellId).toBeDefined();
@@ -1740,5 +1744,212 @@ describe("DistrictLedger — the playoff milestone advances with the bracket", (
       award = row.querySelector('[data-cell-id="2026waplay:award"]') ?? award;
     }
     expect(award?.textContent ?? "").toMatch(/^~\d+% award(~\d+ if won)?$/);
+  });
+});
+
+describe("DistrictLedger — the alliance selection cell names the likelier route", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * THIRTY teams, because the shipped 24-team roster fills eight three-team
+   * alliances EXACTLY and every team is therefore selected in every draw — which
+   * pins the cell in the median form and hides every route wording behind the
+   * 99.5% fallback. Six teams have to miss out for the chance form to appear at
+   * all.
+   */
+  const WIDE_ROSTER = Array.from({ length: 30 }, (_unused, i) => `frc${String(300 + i)}`);
+
+  const WIDE_QUALS_OPEN = state({ qualMatchesPlayed: 6, qualMatchesTotal: 12, alliancesPicked: false, playoffsDone: false, awardsPosted: false });
+  /** Quals DONE and the alliances not yet announced: the one position where the draft is a settled ranking's own. */
+  const WIDE_QUALS_DONE = state({ qualMatchesPlayed: 12, qualMatchesTotal: 12, alliancesPicked: false, playoffsDone: false, awardsPosted: false });
+
+  function wideTeam(teamKey: string, eventState: DistrictEventState): DistrictTeam {
+    return {
+      ...districtTeam(teamKey),
+      remainingEvents: [{ eventKey: "2026wawide", eventName: "Wide Event", week: 2, tier: "district", maxPoints: 83, state: eventState }],
+      maxRemainingDistrict: 83,
+      maxRemainingChamp: 83,
+    };
+  }
+
+  /** Twelve qualification rows over thirty teams, `played` of them played and the rest still to come. */
+  function wideEventArtifact(played: number): EventArtifact {
+    const matches = [];
+    const upcoming = [];
+    for (let m = 0; m < 12; m++) {
+      const red = [WIDE_ROSTER[(m * 6) % 30]!, WIDE_ROSTER[(m * 6 + 1) % 30]!, WIDE_ROSTER[(m * 6 + 2) % 30]!];
+      const blue = [WIDE_ROSTER[(m * 6 + 3) % 30]!, WIDE_ROSTER[(m * 6 + 4) % 30]!, WIDE_ROSTER[(m * 6 + 5) % 30]!];
+      const row = {
+        matchKey: `2026wawide_qm${String(m + 1)}`,
+        compLevel: "qm",
+        setNumber: 1,
+        matchNumber: m + 1,
+        sortTime: 1_760_000_000 + m * 600,
+        redTeams: red,
+        blueTeams: blue,
+        predictedWinner: "red",
+        pRedWin: 0.55,
+        predictedRedScore: 90,
+        predictedBlueScore: 85,
+        redRpPmf: RP_PMF,
+        blueRpPmf: RP_PMF,
+      };
+      if (m < played) {
+        matches.push({ ...row, actualWinner: "red", actualRedScore: 95, actualBlueScore: 80, actualRedRp: 3, actualBlueRp: 1 });
+      } else {
+        upcoming.push(row);
+      }
+    }
+    return EventArtifactSchema.parse({
+      schemaVersion: 1,
+      generation: "gen-1",
+      computedAt: "2026-09-25T00:00:00.000Z",
+      algorithmId: "spr",
+      algorithmVersion: ALGORITHM_VERSION,
+      eventKey: "2026wawide",
+      season: SEASON,
+      matches,
+      upcoming,
+      teams: WIDE_ROSTER.map((teamKey, i) => ({
+        teamKey,
+        teamNumber: Number(teamKey.replace("frc", "")),
+        nickname: `Nickname ${teamKey}`,
+        rank: i + 1,
+        record: { wins: 3, losses: 3, ties: 0 },
+        rp: 2 + (30 - i) / 30,
+        metrics: { total: { value: 60 + (30 - i) }, sigma: { value: 8 } },
+      })),
+    });
+  }
+
+  async function renderWide(played: number, eventState: DistrictEventState) {
+    installFetch({ eventArtifact: wideEventArtifact(played) });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf(WIDE_ROSTER.map((teamKey) => wideTeam(teamKey, eventState))));
+    await waitFor(() => {
+      expect(document.querySelector('[data-cell-id="2026wawide:alliance"]')?.getAttribute("data-cell")).toBe("open");
+    });
+    await waitFor(() => {
+      expect(selectionTexts().some((text) => text.length > 0)).toBe(true);
+    });
+  }
+
+  /** Every team's Alliance selection cell text, in table order. */
+  function selectionTexts(): string[] {
+    return [...document.querySelectorAll('[data-cell-id="2026wawide:alliance"]')].map((cell) => cell.textContent ?? "");
+  }
+
+  function clickSelectionCellMatching(pattern: RegExp): string {
+    for (const cell of document.querySelectorAll('[data-cell-id="2026wawide:alliance"]')) {
+      const text = cell.textContent ?? "";
+      if (!pattern.test(text)) continue;
+      fireEvent.click(within(cell as HTMLElement).getByRole("button"));
+      return text;
+    }
+    throw new Error(`no alliance cell matching ${String(pattern)}`);
+  }
+
+  it("prints the LIKELIER route first, with `if in` beneath it, while the ranking is still open", async () => {
+    await renderWide(6, WIDE_QUALS_OPEN);
+    const texts = selectionTexts();
+    const captainCells = texts.filter((text) => /^captain ~\d+%(~\d+ if in)?$/.test(text));
+    const pickedCells = texts.filter((text) => /^picked ~\d+%(~\d+ if in)?$/.test(text));
+    expect(captainCells.length, `captain cells among ${JSON.stringify(texts)}`).toBeGreaterThan(0);
+    expect(pickedCells.length, `picked cells among ${JSON.stringify(texts)}`).toBeGreaterThan(0);
+    // The shipped clause is gone wherever a route is named: the bold line covers
+    // ONE route now, so "if picked" beside it would describe the wrong event.
+    for (const text of [...captainCells, ...pickedCells]) expect(text).not.toContain("if picked");
+  });
+
+  it("never prints the chance of ANY selection points under the word `picked`", async () => {
+    await renderWide(6, WIDE_QUALS_OPEN);
+    // The defect: a team that captains an alliance in most runs read as "picked"
+    // at the sum of all three routes. A captain-heavy cell now says captain.
+    for (const text of selectionTexts()) {
+      if (!/^captain ~/.test(text)) continue;
+      expect(text).not.toContain("picked");
+    }
+  });
+
+  it("lists the four routes in the drawer, with the points each one paid", async () => {
+    await renderWide(6, WIDE_QUALS_OPEN);
+    clickSelectionCellMatching(/^(captain|picked) ~/);
+    const list = await screen.findByTestId("district-ledger-drawer-outcomes");
+    const rows = within(list).getAllByTestId("district-ledger-outcome-row");
+    expect(rows.map((row) => row.getAttribute("data-outcome"))).toEqual(["captain", "firstPick", "secondPick", "notSelected"]);
+    // No histogram beside it: the routes ARE the axis.
+    expect(screen.queryByTestId("district-ledger-drawer-cell-plot")).toBeNull();
+    // The captain row's points read as a range, and a captain's range is 9 to 16.
+    const captainPoints = list.querySelector('[data-outcome="captain"] td.district-ledger-outcomes__points')?.textContent ?? "";
+    expect(captainPoints).toMatch(/^\d+( to \d+)?$/);
+    expect(captainPoints).not.toContain("±");
+    // Every chance in the list, and they account for the whole hundred.
+    const chances = [...list.querySelectorAll("td.district-ledger-outcomes__chance .district-ledger-outcomes__figure")].map(
+      (cell) => cell.textContent ?? ""
+    );
+    expect(chances).toHaveLength(4);
+    expect(chances.every((text) => /^(0%|<1%|~\d+%)$/.test(text))).toBe(true);
+  });
+
+  it("prints the settled route and its alliance once quals are DONE, in place of a range whose ends are equal", async () => {
+    await renderWide(12, WIDE_QUALS_DONE);
+    const texts = selectionTexts();
+    const captains = texts.filter((text) => /^~\d+captain, alliance \d$/.test(text));
+    const firstPicks = texts.filter((text) => /^~\d+first pick, alliance \d$/.test(text));
+    const secondPicks = texts.filter((text) => /^~\d+second pick, alliance \d$/.test(text));
+    // Eight alliances, so eight of each, and the remaining six teams are the
+    // ones the draft leaves out of a thirty-team field.
+    expect({ captains: captains.length, firstPicks: firstPicks.length, secondPicks: secondPicks.length }).toEqual({
+      captains: 8,
+      firstPicks: 8,
+      secondPicks: 8,
+    });
+    // "the rest print their pick chance" — and a team no run selected prints zero.
+    expect(texts.filter((text) => /^picked ~0%$/.test(text))).toHaveLength(6);
+    // No percentile range whose two ends are the same number survives anywhere.
+    for (const text of texts) expect(text).not.toContain(DISTRICT_LEDGER_LIKELY_PREFIX);
+  });
+
+  it("leaves a settled captain ONE row in the drawer, at its exact points", async () => {
+    await renderWide(12, WIDE_QUALS_DONE);
+    clickSelectionCellMatching(/^~\d+captain, alliance \d$/);
+    const list = await screen.findByTestId("district-ledger-drawer-outcomes");
+    const rows = within(list).getAllByTestId("district-ledger-outcome-row");
+    expect(rows.map((row) => row.getAttribute("data-outcome"))).toEqual(["captain"]);
+    // A point mass: one value, no range.
+    expect(list.querySelector('[data-outcome="captain"] td.district-ledger-outcomes__points')?.textContent).toMatch(/^\d+$/);
+    expect(list.querySelector('[data-outcome="captain"] .district-ledger-outcomes__figure')?.textContent).toBe("~100%");
+  });
+
+  it("leaves a settled second pick with NO captain row, which is the omission Jacob asked for", async () => {
+    await renderWide(12, WIDE_QUALS_DONE);
+    clickSelectionCellMatching(/^~\d+second pick, alliance \d$/);
+    const list = await screen.findByTestId("district-ledger-drawer-outcomes");
+    expect(within(list).getAllByTestId("district-ledger-outcome-row").map((row) => row.getAttribute("data-outcome"))).toEqual([
+      "secondPick",
+    ]);
+  });
+
+  it("keeps the shipped wording and the histogram for an UNSTARTED event, whose sidecar carries no routes", async () => {
+    installFetch({ preSim: preSimBody() });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf(ROSTER.map((teamKey) => withUnstartedEvent(districtTeam(teamKey))), { bakedEvents: ["2026wasoon"] }));
+    await waitFor(() => {
+      expect(document.querySelector('[data-cell-id="2026wasoon:alliance"]')?.getAttribute("data-cell")).toBe("open");
+    });
+    const cell = document.querySelector('[data-cell-id="2026wasoon:alliance"]')!;
+    expect(cell.textContent ?? "").toMatch(/^~\d+% picked(~\d+ if picked)?$/);
+    fireEvent.click(within(cell as HTMLElement).getByRole("button"));
+    expect(await screen.findByTestId("district-ledger-drawer-cell-plot")).toBeDefined();
+    expect(screen.queryByTestId("district-ledger-drawer-outcomes")).toBeNull();
   });
 });

@@ -25,6 +25,9 @@ import {
   DISTRICT_LEDGER_OUTCOME_CAPTIONS,
   DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS,
   DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS,
+  DISTRICT_LEDGER_OUTCOME_LIST_LABELS,
+  DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS,
+  DISTRICT_LEDGER_SELECTION_ROUTE_WORDS,
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_TAB_LABEL,
@@ -33,7 +36,9 @@ import {
   districtLedgerContributionEarned,
   districtLedgerOutcomeChance,
   districtLedgerOutcomePoints,
+  districtLedgerOutcomePointsRange,
   districtLedgerPlacementLine,
+  districtLedgerSelectionSettledLine,
   districtLedgerShortEventName,
   districtLedgerTickWeekLabel,
 } from "./districtLedgerCopy.js";
@@ -244,5 +249,74 @@ describe("the playoff milestone words", () => {
       ...[1, 4, 8].map(districtLedgerPlacementLine),
     ].join(" ");
     for (const dash of ["—", "–", "-"]) expect(everyString).not.toContain(dash);
+  });
+});
+
+describe("the alliance selection route copy (quick task 260925-w4y)", () => {
+  it("names the two headline routes, each with the SAME conditional clause", () => {
+    expect(DISTRICT_LEDGER_SELECTION_ROUTE_WORDS).toEqual({
+      captain: { bold: "captain", conditional: "if in" },
+      picked: { bold: "picked", conditional: "if in" },
+    });
+    // "if in" covers both routes, which is exactly why it replaced "if picked"
+    // on a cell whose bold line now names ONE of them.
+    expect(DISTRICT_LEDGER_SELECTION_ROUTE_WORDS.captain.conditional).toBe(DISTRICT_LEDGER_SELECTION_ROUTE_WORDS.picked.conditional);
+  });
+
+  it("leaves the shipped alliance chance words alone, because the route-less cell still prints them", () => {
+    // A baked event has no route counts, so its cell prints the chance of ANY
+    // selection points under the shipped wording. Changing this pair would change
+    // what that cell says without changing what its number means.
+    expect(DISTRICT_LEDGER_CHANCE_WORDS.alliance).toEqual({ bold: "picked", conditional: "if picked" });
+  });
+
+  it("prints the settled route and its alliance, with no tilde", () => {
+    expect(districtLedgerSelectionSettledLine("captain", 5)).toBe("captain, alliance 5");
+    expect(districtLedgerSelectionSettledLine("firstPick", 2)).toBe("first pick, alliance 2");
+    expect(districtLedgerSelectionSettledLine("secondPick", 8)).toBe("second pick, alliance 8");
+    for (const route of ["captain", "firstPick", "secondPick", "backup"] as const) {
+      expect(districtLedgerSelectionSettledLine(route, 1)).not.toContain("~");
+    }
+  });
+
+  it("names every selection route", () => {
+    expect(DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS).toEqual({
+      captain: "Captain",
+      firstPick: "First pick",
+      secondPick: "Second pick",
+      backup: "Backup robot",
+      notSelected: "Not selected",
+    });
+  });
+
+  it("prints a point range with the word `to`, and a single value where the two ends meet", () => {
+    expect(districtLedgerOutcomePointsRange(9, 16)).toBe("9 to 16");
+    expect(districtLedgerOutcomePointsRange(1, 8)).toBe("1 to 8");
+    expect(districtLedgerOutcomePointsRange(12, 12)).toBe("12");
+    expect(districtLedgerOutcomePointsRange(0, 0)).toBe("0");
+    // A dash between two numbers on this tab means a PERCENTILE range, and these
+    // are not percentiles; the plus-minus codepoint is reserved for one standard
+    // deviation of full predictive variance and never appears here.
+    for (const dash of ["—", "–", "-", "±"]) expect(districtLedgerOutcomePointsRange(9, 16)).not.toContain(dash);
+    expect(districtLedgerOutcomePointsRange(9, 16)).not.toContain("~");
+  });
+
+  it("gives the selection list its own caption, about the RANKING rather than a bracket", () => {
+    expect(DISTRICT_LEDGER_OUTCOME_CAPTIONS.alliance).toContain("ranking");
+    expect(DISTRICT_LEDGER_OUTCOME_CAPTIONS.alliance).not.toContain("bracket");
+    expect(DISTRICT_LEDGER_OUTCOME_LIST_LABELS.alliance).toBe("Alliance selection outcomes");
+  });
+
+  it("carries no dash character in any of the route copy", () => {
+    const everyString = [
+      ...Object.values(DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS),
+      ...Object.values(DISTRICT_LEDGER_SELECTION_ROUTE_WORDS).flatMap((entry) => [entry.bold, entry.conditional]),
+      DISTRICT_LEDGER_OUTCOME_CAPTIONS.alliance,
+      DISTRICT_LEDGER_OUTCOME_LIST_LABELS.alliance,
+      districtLedgerSelectionSettledLine("captain", 5),
+      districtLedgerOutcomePointsRange(9, 16),
+    ].join(" ");
+    for (const dash of ["—", "–", "-"]) expect(everyString).not.toContain(dash);
+    expect(everyString).not.toContain("±");
   });
 });

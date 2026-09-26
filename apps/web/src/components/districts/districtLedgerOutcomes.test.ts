@@ -16,14 +16,21 @@ import {
   ROOKIE_ALL_STAR_AWARD_POINTS,
 } from "../../../../../packages/core/districts/awardOrderingTables.js";
 import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
+import { districtSelectionPoints } from "../../../../../packages/core/districts/selectionPoints.js";
+import type { DistrictSelectionRouteObservation } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import {
   districtAwardOutcomes,
   districtCellRendersOutcomeList,
   districtOutcomeUnaccountedMass,
   districtPlayoffOutcomes,
+  districtSelectionHeadline,
+  districtSelectionOutcomes,
+  districtSelectionSettledRoute,
+  districtSelectionUnaccountedMass,
+  InvalidRouteDenominatorError,
   PLAYOFF_ZERO_PLACEMENTS,
 } from "./districtLedgerOutcomes.js";
-import type { DistrictPlayoffMilestone, DistrictPointDistribution } from "./districtLedgerRows.js";
+import type { DistrictPlayoffMilestone, DistrictPointDistribution, DistrictSelectionRouteView } from "./districtLedgerRows.js";
 
 const SEASON = 2026;
 const TIER = "district" as const;
@@ -213,5 +220,210 @@ describe("districtAwardOutcomes", () => {
       const weight = tier === "district" ? 1 : 3;
       expect(Math.max(...rows.map((row) => row.points))).toBe(IMPACT_AWARD_POINTS * weight);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The ALLIANCE SELECTION routes (quick task 260925-w4y)
+// ---------------------------------------------------------------------------
+
+describe("the alliance selection route helpers", () => {
+  /** The possible range each slot pays at a district event, from the measured module rather than retyped. */
+  const possibleFor = (slot: number): { low: number; high: number } => {
+    const values = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => districtSelectionPoints(SEASON, TIER, slot, n));
+    return { low: Math.min(...values), high: Math.max(...values) };
+  };
+
+  function observation(slot: number, overrides: Partial<DistrictSelectionRouteObservation> = {}): DistrictSelectionRouteObservation {
+    const possible = possibleFor(slot);
+    return {
+      draws: 0,
+      minPoints: undefined,
+      maxPoints: undefined,
+      allianceNumber: undefined,
+      possibleMinPoints: possible.low,
+      possibleMaxPoints: possible.high,
+      ...overrides,
+    };
+  }
+
+  /** A route view over `denominator` runs. `slots` gives the four pick slots' overrides. */
+  function viewOf(
+    denominator: number,
+    rankingFixed: boolean,
+    slots: readonly Partial<DistrictSelectionRouteObservation>[],
+    notSelectedDraws: number
+  ): DistrictSelectionRouteView {
+    return {
+      routes: { bySlot: slots.map((overrides, slot) => observation(slot, overrides)), notSelectedDraws },
+      denominator,
+      rankingFixed,
+    };
+  }
+
+  /** 700 captain runs, 120 first pick, 80 second pick, 100 unselected. */
+  const mixedView = (): DistrictSelectionRouteView =>
+    viewOf(
+      1000,
+      false,
+      [
+        { draws: 700, minPoints: 9, maxPoints: 16 },
+        { draws: 120, minPoints: 11, maxPoints: 16 },
+        { draws: 80, minPoints: 2, maxPoints: 7 },
+        {},
+      ],
+      100
+    );
+
+  describe("districtSelectionHeadline", () => {
+    it("names CAPTAIN when captaining is likelier than being picked, with the captain chance alone", () => {
+      const headline = districtSelectionHeadline(mixedView());
+      expect(headline.id).toBe("captain");
+      expect(headline.chance).toBeCloseTo(0.7, 12);
+      // NOT the chance of any selection points, which is 0.9 — that number under
+      // the word "picked" is the defect this replaces.
+      expect(headline.chance).not.toBeCloseTo(0.9, 6);
+    });
+
+    it("names PICKED when the two picks together beat captaining, and adds them", () => {
+      const headline = districtSelectionHeadline(
+        viewOf(1000, false, [{ draws: 300, minPoints: 9, maxPoints: 16 }, { draws: 250 }, { draws: 200 }, {}], 250)
+      );
+      expect(headline.id).toBe("picked");
+      expect(headline.chance).toBeCloseTo(0.45, 12);
+    });
+
+    it("reads a TIE as picked, which is the shipped word", () => {
+      const headline = districtSelectionHeadline(viewOf(100, false, [{ draws: 20 }, { draws: 10 }, { draws: 10 }, {}], 60));
+      expect(headline.id).toBe("picked");
+      expect(headline.chance).toBeCloseTo(0.2, 12);
+    });
+
+    it("refuses a denominator it cannot divide by rather than printing an infinite percentage", () => {
+      const broken: DistrictSelectionRouteView = { ...mixedView(), denominator: 0 };
+      expect(() => districtSelectionHeadline(broken)).toThrow(InvalidRouteDenominatorError);
+    });
+  });
+
+  describe("districtSelectionSettledRoute", () => {
+    it("names the one route every run took, at its one alliance number, once the ranking is FIXED", () => {
+      const settled = districtSelectionSettledRoute(
+        viewOf(1000, true, [{ draws: 1000, minPoints: 12, maxPoints: 12, allianceNumber: 5 }, {}, {}, {}], 0)
+      );
+      expect(settled).toEqual({ id: "captain", allianceNumber: 5 });
+    });
+
+    it("names a first pick and a second pick too, on the same terms", () => {
+      expect(
+        districtSelectionSettledRoute(viewOf(10, true, [{}, { draws: 10, minPoints: 15, maxPoints: 15, allianceNumber: 2 }, {}, {}], 0))
+      ).toEqual({ id: "firstPick", allianceNumber: 2 });
+      expect(
+        districtSelectionSettledRoute(viewOf(10, true, [{}, {}, { draws: 10, minPoints: 3, maxPoints: 3, allianceNumber: 3 }, {}], 0))
+      ).toEqual({ id: "secondPick", allianceNumber: 3 });
+    });
+
+    it("names NOTHING while the ranking is still open, however unanimous the runs are", () => {
+      // The agreement is a prediction there, and the cell already prints it as a
+      // chance. Stating it as a caption would assert a draft that has not happened.
+      expect(
+        districtSelectionSettledRoute(
+          viewOf(1000, false, [{ draws: 1000, minPoints: 12, maxPoints: 12, allianceNumber: 5 }, {}, {}, {}], 0)
+        )
+      ).toBeUndefined();
+    });
+
+    it("names nothing for a team no run selected, and nothing where the runs split", () => {
+      expect(districtSelectionSettledRoute(viewOf(50, true, [{}, {}, {}, {}], 50))).toBeUndefined();
+      expect(
+        districtSelectionSettledRoute(viewOf(50, true, [{ draws: 30, allianceNumber: 1 }, { draws: 20, allianceNumber: 2 }, {}, {}], 0))
+      ).toBeUndefined();
+    });
+
+    it("names nothing where every run took one route but its alliance number is not agreed", () => {
+      expect(
+        districtSelectionSettledRoute(viewOf(50, true, [{ draws: 50, minPoints: 9, maxPoints: 16, allianceNumber: undefined }, {}, {}, {}], 0))
+      ).toBeUndefined();
+    });
+  });
+
+  describe("districtSelectionOutcomes", () => {
+    it("lists the routes in points descending order, with the range the RUNS produced", () => {
+      const rows = districtSelectionOutcomes(mixedView());
+      expect(rows.map((row) => row.id)).toEqual(["captain", "firstPick", "secondPick", "notSelected"]);
+      expect(rows.map((row) => [row.minPoints, row.maxPoints])).toEqual([
+        [9, 16],
+        [11, 16],
+        [2, 7],
+        [0, 0],
+      ]);
+      expect(rows.map((row) => row.chance)).toEqual([0.7, 0.12, 0.08, 0.1]);
+    });
+
+    it("falls back to the range a route CAN pay where no run took it, never to a zero", () => {
+      const rows = districtSelectionOutcomes(viewOf(100, false, [{}, {}, { draws: 100, minPoints: 4, maxPoints: 4 }, {}], 0));
+      const captain = rows.find((row) => row.id === "captain")!;
+      expect(captain.chance).toBe(0);
+      // A captain pays 9 to 16 whether or not these runs produced one, and a
+      // printed 0 would read as "captaining pays nothing".
+      expect([captain.minPoints, captain.maxPoints]).toEqual([possibleFor(0).low, possibleFor(0).high]);
+    });
+
+    it("keeps a zero-chance row while the ranking is open, so the list's length does not move with the draws", () => {
+      const rows = districtSelectionOutcomes(viewOf(100, false, [{ draws: 100, minPoints: 16, maxPoints: 16, allianceNumber: 1 }, {}, {}, {}], 0));
+      expect(rows.map((row) => row.id)).toEqual(["captain", "firstPick", "secondPick", "notSelected"]);
+    });
+
+    it("omits the routes the RANKING has ruled out: a settled captain has exactly one row", () => {
+      const rows = districtSelectionOutcomes(viewOf(100, true, [{ draws: 100, minPoints: 16, maxPoints: 16, allianceNumber: 1 }, {}, {}, {}], 0));
+      expect(rows.map((row) => row.id)).toEqual(["captain"]);
+      expect(rows[0]!.chance).toBe(1);
+      expect([rows[0]!.minPoints, rows[0]!.maxPoints]).toEqual([16, 16]);
+    });
+
+    it("leaves a non-captain with NO captain row once quals are done, which is the case Jacob named", () => {
+      const rows = districtSelectionOutcomes(viewOf(100, true, [{}, {}, { draws: 100, minPoints: 6, maxPoints: 6, allianceNumber: 6 }, {}], 0));
+      expect(rows.map((row) => row.id)).toEqual(["secondPick"]);
+    });
+
+    it("leaves an unselected team with only its own row once quals are done", () => {
+      const rows = districtSelectionOutcomes(viewOf(100, true, [{}, {}, {}, {}], 100));
+      expect(rows.map((row) => row.id)).toEqual(["notSelected"]);
+      expect(rows[0]!.chance).toBe(1);
+    });
+
+    it("lists a BACKUP ROBOT only where a run produced one", () => {
+      expect(districtSelectionOutcomes(mixedView()).some((row) => row.id === "backup")).toBe(false);
+      const withBackup = districtSelectionOutcomes(viewOf(10, false, [{}, {}, {}, { draws: 10, minPoints: 0, maxPoints: 0, allianceNumber: 1 }], 0));
+      expect(withBackup.map((row) => row.id)).toEqual(["captain", "firstPick", "secondPick", "backup", "notSelected"]);
+    });
+
+    it("accounts for EVERY run in every case — the load-bearing arithmetic", () => {
+      const views = [
+        mixedView(),
+        viewOf(100, false, [{}, {}, { draws: 100, minPoints: 4, maxPoints: 4 }, {}], 0),
+        viewOf(100, true, [{ draws: 100, minPoints: 16, maxPoints: 16, allianceNumber: 1 }, {}, {}, {}], 0),
+        viewOf(100, true, [{}, {}, {}, {}], 100),
+        viewOf(10, false, [{}, {}, {}, { draws: 4, minPoints: 0, maxPoints: 0, allianceNumber: 1 }], 6),
+        viewOf(1000, false, [{ draws: 300 }, { draws: 250 }, { draws: 200 }, {}], 250),
+      ];
+      for (const view of views) {
+        expect(districtSelectionUnaccountedMass(view, districtSelectionOutcomes(view))).toBeCloseTo(0, 12);
+      }
+    });
+
+    it("keeps the headline's own number inside the list, so the two cannot disagree", () => {
+      const view = mixedView();
+      const headline = districtSelectionHeadline(view);
+      const rows = districtSelectionOutcomes(view);
+      const captain = rows.find((row) => row.id === "captain")!.chance;
+      const picked = rows.find((row) => row.id === "firstPick")!.chance + rows.find((row) => row.id === "secondPick")!.chance;
+      expect(headline.chance).toBeCloseTo(headline.id === "captain" ? captain : picked, 12);
+    });
+  });
+
+  it("does NOT name alliance selection in the by-category predicate: its list is chosen by the DATA", () => {
+    expect(districtCellRendersOutcomeList("alliance")).toBe(false);
+    expect(districtCellRendersOutcomeList("elim")).toBe(true);
+    expect(districtCellRendersOutcomeList("award")).toBe(true);
   });
 });

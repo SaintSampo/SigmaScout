@@ -76,11 +76,14 @@ import {
   DISTRICT_LEDGER_OUTCOME_LIST_LABELS,
   DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS,
   DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS,
+  DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS,
+  DISTRICT_LEDGER_SELECTION_ROUTE_WORDS,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
   districtLedgerChanceLine,
   districtLedgerContributionEarned,
   districtLedgerNoPointsCaption,
   districtLedgerPlacementLine,
+  districtLedgerSelectionSettledLine,
   districtLedgerShortEventName,
   districtLedgerTickWeekLabel,
 } from "./districtLedgerCopy.js";
@@ -89,6 +92,9 @@ import {
   districtAwardOutcomes,
   districtCellRendersOutcomeList,
   districtPlayoffOutcomes,
+  districtSelectionHeadline,
+  districtSelectionOutcomes,
+  districtSelectionSettledRoute,
 } from "./districtLedgerOutcomes.js";
 import { buildAdvancementChanceRun, reconcileAdvancementChances } from "./districtLedgerChances.js";
 import { useDistrictAdvancementChance } from "./useDistrictAdvancementChance.js";
@@ -361,9 +367,35 @@ function openCellLines(cell: Extract<DistrictLedgerCell, { kind: "open" }>): { b
           : `~${String(Math.round(milestone.conditionalMedian))} ${words.conditional}`,
     };
   }
+  // THE ALLIANCE SELECTION CELL'S ROUTES, where the run reported them. A baked
+  // event reports none and falls through to the shipped chance form below.
+  const selection = cell.cell === "alliance" ? cell.selection : undefined;
   if (cell.summary.form === "median") {
     const { p10, p50, p90 } = cell.summary.percentiles;
-    return { bold: `~${String(Math.max(0, Math.round(p50)))}`, small: likelyRangeText(Math.max(0, p10), Math.max(0, p90)) };
+    const bold = `~${String(Math.max(0, Math.round(p50)))}`;
+    // ONCE THE RANKING IS FIXED the draft is determined, so a cell whose points
+    // are a point mass can say WHICH route earned them instead of printing a
+    // percentile range whose two ends are the same number.
+    const settled = selection === undefined ? undefined : districtSelectionSettledRoute(selection);
+    if (settled !== undefined) {
+      return { bold, small: districtLedgerSelectionSettledLine(settled.id, settled.allianceNumber) };
+    }
+    return { bold, small: likelyRangeText(Math.max(0, p10), Math.max(0, p90)) };
+  }
+  if (selection !== undefined) {
+    // THE LIKELIER ROUTE, named and put first, exactly as the playoff milestone
+    // is. The small line is the typical amount given ANY selection points, which
+    // is the same conditional median the shipped cell printed — only its clause
+    // changes, because the bold line no longer covers both routes.
+    const headline = districtSelectionHeadline(selection);
+    const routeWords = DISTRICT_LEDGER_SELECTION_ROUTE_WORDS[headline.id];
+    return {
+      bold: `${routeWords.bold} ~${String(Math.round(headline.chance * 100))}%`,
+      small:
+        cell.summary.conditionalMedian === undefined
+          ? undefined
+          : `~${String(Math.round(cell.summary.conditionalMedian))} ${routeWords.conditional}`,
+    };
   }
   const words = chanceWordsFor(cell.cell);
   // Every blue figure carries the tilde (Jacob, 2026-09-25): it is this site's
@@ -553,6 +585,26 @@ function DrawerCellPane({
   season: number;
   isRookie: boolean;
 }) {
+  // THE ALLIANCE SELECTION LIST is chosen by DATA, not by category: a run that
+  // reported its routes can name them, and a baked event's pmf cannot, so that
+  // one keeps the histogram.
+  if (cell.cell === "alliance" && cell.selection !== undefined) {
+    const selectionRows = districtSelectionOutcomes(cell.selection).map((row) => ({
+      key: row.id,
+      label: DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS[row.id],
+      points: row.minPoints,
+      pointsHigh: row.maxPoints,
+      chance: row.chance,
+    }));
+    return (
+      <DistrictOutcomeList
+        testId="district-ledger-drawer-outcomes"
+        rows={selectionRows}
+        label={DISTRICT_LEDGER_OUTCOME_LIST_LABELS.alliance}
+        caption={DISTRICT_LEDGER_OUTCOME_CAPTIONS.alliance}
+      />
+    );
+  }
   if (districtCellRendersOutcomeList(cell.cell)) {
     const rows =
       cell.cell === "elim"

@@ -295,6 +295,7 @@ export const DISTRICT_LEDGER_AWARD_OUTCOME_LABELS = {
 export const DISTRICT_LEDGER_OUTCOME_LIST_LABELS = {
   elim: "Playoff outcomes",
   award: "Award outcomes",
+  alliance: "Alliance selection outcomes",
 } as const;
 
 /** The outcome list's two column headings. */
@@ -339,6 +340,8 @@ export function districtLedgerOutcomePoints(points: number): string {
 export const DISTRICT_LEDGER_OUTCOME_CAPTIONS = {
   elim: "Each row is one placement the playoffs can pay, with the share of runs that produced it. The rows the bracket has already ruled out are not listed.",
   award: "Each row is one award outcome, with the share of runs that produced it. A team is never predicted to win two awards at one event, so the rows never overlap.",
+  alliance:
+    "Each row is one route onto a playoff alliance, with the share of runs that produced it and the points that route paid in those runs. The rows the ranking has already ruled out are not listed.",
 } as const;
 
 /**
@@ -404,3 +407,72 @@ export const DISTRICT_LEDGER_CAVEAT =
  */
 export const DISTRICT_LEDGER_PROVENANCE =
   "Grey numbers are TBA's own. Every blue number is a prediction from this site's own simulation.";
+
+/**
+ * THE ALLIANCE SELECTION CELL'S ROUTE WORDS (quick task 260925-w4y).
+ *
+ * The bold line names the LIKELIER ROUTE and puts it first, exactly as the
+ * Playoffs cell's milestone does: `captain ~70%` or `picked ~44%`. The small line
+ * says `if in`, not `if picked`, because it is the typical amount given ANY
+ * selection points and the bold line no longer covers both routes.
+ *
+ * `DISTRICT_LEDGER_CHANCE_WORDS.alliance` is untouched and still ships: it is
+ * what a cell with NO route counts prints, which is every baked event. The two
+ * wordings are different because the two numbers are different, and printing the
+ * route wording over the any-points chance would be the same conflation this task
+ * exists to remove.
+ */
+export const DISTRICT_LEDGER_SELECTION_ROUTE_WORDS = {
+  captain: { bold: "captain", conditional: "if in" },
+  picked: { bold: "picked", conditional: "if in" },
+} as const;
+
+/** The route names the settled line uses. A table, so "first pick" is never assembled from a slot number at a call site. */
+export const DISTRICT_LEDGER_SELECTION_ROUTE_NAMES = {
+  captain: "captain",
+  firstPick: "first pick",
+  secondPick: "second pick",
+  backup: "backup robot",
+  notSelected: "not selected",
+} as const;
+
+/**
+ * The small line an Alliance selection cell prints once the RANKING IS FIXED and
+ * every run put the team on one alliance in one slot: the route, then the
+ * alliance it is on.
+ *
+ * No tilde, on the same terms as the Playoffs cell's settled placement line: with
+ * the ranking settled the draft this model produces from it is determined, so the
+ * route is not a prediction. The bold line beside it still carries one, because
+ * the POINTS are this site's reading until TBA posts them.
+ */
+export function districtLedgerSelectionSettledLine(
+  route: keyof typeof DISTRICT_LEDGER_SELECTION_ROUTE_NAMES,
+  allianceNumber: number
+): string {
+  return `${DISTRICT_LEDGER_SELECTION_ROUTE_NAMES[route]}, alliance ${String(allianceNumber)}`;
+}
+
+/** The Alliance selection outcome list's row labels. Sentence case, like the other two lists'. */
+export const DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS = {
+  captain: "Captain",
+  firstPick: "First pick",
+  secondPick: "Second pick",
+  backup: "Backup robot",
+  notSelected: "Not selected",
+} as const;
+
+/**
+ * One outcome row's point value as a RANGE, or as a single number where the two
+ * ends meet.
+ *
+ * "9 to 16" rather than a dash, because a dash between two numbers on this tab
+ * means a percentile range (the `likely` line) and these are not percentiles.
+ * Never the plus-minus codepoint, which is reserved for one standard deviation of
+ * full predictive variance.
+ */
+export function districtLedgerOutcomePointsRange(minPoints: number, maxPoints: number): string {
+  const low = Math.round(minPoints);
+  const high = Math.round(maxPoints);
+  return low === high ? String(low) : `${String(low)} to ${String(high)}`;
+}
