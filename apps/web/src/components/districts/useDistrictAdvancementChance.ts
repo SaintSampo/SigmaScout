@@ -53,6 +53,10 @@ export interface DistrictAdvancementChanceCompleteState {
   readonly chanceByTeam: ReadonlyMap<string, number>;
   readonly draws: number;
   readonly lockSlots: number;
+  /** The UNRESERVED slot count the simulated line was taken against — `locks.ts`'s own `pointsSlots`. */
+  readonly pointsSlots: number;
+  /** The simulated line, one entry per run. ABSENT where the core produced none; never an empty array and never a zero fill. */
+  readonly cutoffByRun?: Float64Array;
   readonly signature: string;
 }
 
@@ -120,6 +124,8 @@ export function useDistrictAdvancementChance(run: DistrictAdvancementChanceRun |
           chanceByTeam: message.chanceByTeam,
           draws: message.draws,
           lockSlots: message.lockSlots,
+          pointsSlots: message.pointsSlots,
+          ...(message.cutoffByRun === undefined ? {} : { cutoffByRun: message.cutoffByRun }),
           signature: current.signature,
         });
         return;

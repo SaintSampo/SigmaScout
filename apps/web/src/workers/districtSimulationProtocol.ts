@@ -226,6 +226,19 @@ export interface DistrictAdvancementChanceResultMessage {
   readonly draws: number;
   /** The slot count the runs were ranked against — `locks.ts`'s reserved `lockSlots`, forwarded so a test can see WHICH count produced a chance. */
   readonly lockSlots: number;
+  /** The UNRESERVED slot count the simulated line below was taken against — `locks.ts`'s own `pointsSlots`. */
+  readonly pointsSlots: number;
+  /**
+   * The simulated line, one entry per run, straight off the core and
+   * UNRESHAPED. `Float64Array` is structured cloneable, which this module's
+   * header already requires of every field.
+   *
+   * ABSENT where the core produced none — see `AdvancementChanceResult`'s own
+   * `cutoffByRun`. No validator is added for it: it is OUTBOUND, produced by
+   * this repo's own core, and the inbound validator's stated job is bounding
+   * an untrusted request.
+   */
+  readonly cutoffByRun?: Float64Array;
   /** The job's OWN `performance.now()` duration, under the same rule as the run's: never a second user-facing number. */
   readonly computeMs: number;
 }
@@ -412,6 +425,8 @@ export function runDistrictAdvancementChanceJob(
       chanceByTeam: result.chanceByTeam,
       draws: result.draws,
       lockSlots: result.lockSlots,
+      pointsSlots: result.pointsSlots,
+      ...(result.cutoffByRun === undefined ? {} : { cutoffByRun: result.cutoffByRun }),
       computeMs: performance.now() - start,
     });
   } catch (error) {

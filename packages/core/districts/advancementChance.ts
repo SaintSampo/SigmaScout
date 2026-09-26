@@ -98,8 +98,38 @@ export interface AdvancementChanceResult {
   readonly draws: number;
   /** The slot count the runs were ranked against — the reserved `lockSlots`, exposed so a test can see WHICH count produced a chance. */
   readonly lockSlots: number;
+  /**
+   * The UNRESERVED slot count — `locks.ts`'s own `pointsSlots`, beside the
+   * reserved `lockSlots` above. Always present, including for an empty pool.
+   *
+   * Exposed because the SIMULATED LINE below is taken against this count and
+   * not against the one the chance is ranked on, and a reader must be able to
+   * see which is which without inferring it.
+   */
+  readonly pointsSlots: number;
   /** `teamKey -> chance in [0, 1]`, for the points-competing pool alone. An award qualifier or a prequalified team is absent rather than present at zero. */
   readonly chanceByTeam: ReadonlyMap<string, number>;
+  /**
+   * THE SIMULATED LINE, one entry per run: the `pointsSlots`th highest drawn
+   * total of that run, in run order. Length is exactly `draws`.
+   *
+   * WHY `pointsSlots` AND NOT THE `lockSlots` THE CHANCE IS RANKED AGAINST.
+   * The cutoff is the PUBLISHED LINE's quantity — the points it took to reach
+   * the last qualifying slot — and the reservation moves the guarantee test
+   * alone: `locks.ts` subtracts it from `lockSlots` and leaves both the
+   * elimination test and `cutLinePointsWithQualifiers` on the unreserved
+   * count. A line drawn at the reserved count would sit one team higher than
+   * the line the verdicts beside it were cut at.
+   *
+   * ABSENT — never empty and never zero filled — where `pointsSlots` is 0 or
+   * the pool holds fewer teams than there are points slots. There is no
+   * `pointsSlots`th highest total to take in either case, and a zero would
+   * render as a line at the bottom of every histogram on the page.
+   *
+   * Captured inside the top down walk the ranking already performs, so it adds
+   * no pass, no sort and no per run allocation beyond this one array.
+   */
+  readonly cutoffByRun?: Float64Array;
 }
 
 /**
@@ -218,9 +248,11 @@ export function advancementChances(inputs: AdvancementChanceInputs, draws: numbe
   const poolKeys = new Set(narrowed.poolKeys);
   const pool = inputs.teams.filter((team) => poolKeys.has(team.teamKey));
   const lockSlots = narrowed.lockSlots;
+  const pointsSlots = narrowed.pointsSlots;
 
   const chanceByTeam = new Map<string, number>();
-  if (pool.length === 0) return { draws, lockSlots, chanceByTeam };
+  // An empty pool reports BOTH slot counts and NO array — see `cutoffByRun`.
+  if (pool.length === 0) return { draws, lockSlots, pointsSlots, chanceByTeam };
 
   const tables = pool.map(drawTableFor);
   let maxValue = 0;
@@ -231,6 +263,8 @@ export function advancementChances(inputs: AdvancementChanceInputs, draws: numbe
   const histogram = new Int32Array(maxValue + 1);
   const atOrAbove = new Int32Array(maxValue + 1);
   const insideRuns = new Int32Array(pool.length);
+  // THE ONE EXTRA ALLOCATION, and only where a line exists to take.
+  const cutoffByRun = pointsSlots >= 1 && pool.length >= pointsSlots ? new Float64Array(draws) : undefined;
 
   for (let run = 0; run < draws; run++) {
     histogram.fill(0);
@@ -240,10 +274,17 @@ export function advancementChances(inputs: AdvancementChanceInputs, draws: numbe
       histogram[value] = histogram[value]! + 1;
     }
     let running = 0;
+    let line = -1;
     for (let value = maxValue; value >= 0; value--) {
       running += histogram[value]!;
       atOrAbove[value] = running;
+      // The simulated line: the LARGEST value at which the running count first
+      // reaches `pointsSlots`, which walking downwards is the first one it
+      // reaches. Captured inside the walk the ranking already runs — no second
+      // pass and no sort.
+      if (line < 0 && running >= pointsSlots) line = value;
     }
+    if (cutoffByRun !== undefined) cutoffByRun[run] = line;
     for (let i = 0; i < pool.length; i++) {
       // `atOrAbove` counts this team itself, so "others at or above" is one
       // less: inside when `atOrAbove - 1 < lockSlots`, i.e. `<= lockSlots`.
@@ -254,5 +295,6 @@ export function advancementChances(inputs: AdvancementChanceInputs, draws: numbe
   }
 
   for (let i = 0; i < pool.length; i++) chanceByTeam.set(pool[i]!.teamKey, insideRuns[i]! / draws);
-  return { draws, lockSlots, chanceByTeam };
+  // The field is OMITTED rather than set to `undefined` where there is no line.
+  return { draws, lockSlots, pointsSlots, chanceByTeam, ...(cutoffByRun === undefined ? {} : { cutoffByRun }) };
 }

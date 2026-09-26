@@ -216,3 +216,102 @@ describe("advancementChances — refusals", () => {
     expect(() => advancementChances(inputsOf([negative, mass("frc2", 4)], 1), 10, SEED)).toThrow(/negative or non finite/);
   });
 });
+
+describe("advancementChances — the simulated line", () => {
+  it("returns one entry per run, each the pointsSlots-th highest drawn total of that run", () => {
+    // Five point masses, two points slots: the 2nd highest total is 80 in
+    // every run, because nothing is drawn at random.
+    const teams = [mass("frc1", 100), mass("frc2", 80), mass("frc3", 60), mass("frc4", 40), mass("frc5", 20)];
+    const draws = 25;
+    const result = advancementChances(inputsOf(teams, 2), draws, SEED);
+    expect(result.pointsSlots).toBe(2);
+    expect(result.cutoffByRun).toBeInstanceOf(Float64Array);
+    expect(result.cutoffByRun).toHaveLength(draws);
+    expect([...result.cutoffByRun!]).toEqual(new Array<number>(draws).fill(80));
+  });
+
+  it("tracks a drawn pool, entry by entry, against the 2nd highest total of the same run", () => {
+    const teams = [uniform("frc1", 0, 9), uniform("frc2", 0, 9), uniform("frc3", 0, 9), uniform("frc4", 0, 9), uniform("frc5", 0, 9)];
+    const result = advancementChances(inputsOf(teams, 2), 64, SEED);
+    expect(result.cutoffByRun).toHaveLength(64);
+    // Every entry is a whole point value inside the drawable range, and the
+    // line is at least as high as the median of a five team pool's 2nd slot
+    // can be — the weakest claim that still catches an off by one.
+    for (const value of result.cutoffByRun!) {
+      expect(Number.isInteger(value)).toBe(true);
+      expect(value).toBeGreaterThanOrEqual(0);
+      expect(value).toBeLessThanOrEqual(9);
+    }
+    // And the one entry an off by one would move: with two slots the line is
+    // the SECOND highest, so at least two teams reach it in that run and at
+    // most one team beats it.
+    const mean = [...result.cutoffByRun!].reduce((a, b) => a + b, 0) / 64;
+    expect(mean).toBeGreaterThan(5);
+    expect(mean).toBeLessThan(9);
+  });
+
+  it("reads pointsSlots and not the reserved lockSlots the chance is ranked against", () => {
+    const teams = [mass("frc1", 100), mass("frc2", 80), mass("frc3", 60), mass("frc4", 40)];
+    const reserved = advancementChances(inputsOf(teams, 3, { reservedSlots: 1 }), 10, SEED);
+    expect(reserved.lockSlots).toBe(2);
+    expect(reserved.pointsSlots).toBe(3);
+    // The line is the 3rd highest (60), never the 2nd (80).
+    expect([...reserved.cutoffByRun!]).toEqual(new Array<number>(10).fill(60));
+  });
+
+  it("starts no second stream: the same inputs and the same seed give an identical array", () => {
+    const teams = [uniform("frc1", 0, 40), uniform("frc2", 10, 50), uniform("frc3", 20, 60), uniform("frc4", 0, 30)];
+    const first = advancementChances(inputsOf(teams, 2), 200, SEED);
+    const second = advancementChances(inputsOf(teams, 2), 200, SEED);
+    expect([...second.cutoffByRun!]).toEqual([...first.cutoffByRun!]);
+  });
+
+  it("perturbs not one printed chance: chanceByTeam is bit identical to the shipped numbers for the same seed", () => {
+    // The SHIPPED values, recorded as literals rather than recomputed, so the
+    // addition cannot move them under a test that recomputes with it. They were
+    // read off this module at HEAD before the simulated line was added, and the
+    // two implementations were run side by side over thirty slot and
+    // reservation combinations to confirm the equality holds beyond this one
+    // fixture (quick task 260926-37q).
+    const teams = [uniform("frc1", 0, 40), uniform("frc2", 10, 50), uniform("frc3", 20, 60), uniform("frc4", 0, 30)];
+    const result = advancementChances(inputsOf(teams, 2), 1000, SEED);
+    expect([...result.chanceByTeam.entries()]).toEqual([
+      ["frc1", 0.314],
+      ["frc2", 0.661],
+      ["frc3", 0.887],
+      ["frc4", 0.113],
+    ]);
+  });
+
+  it("omits the array entirely where there are no points slots", () => {
+    const teams = [mass("frc1", 100), mass("frc2", 90)];
+    const result = advancementChances(inputsOf(teams, 0), 50, SEED);
+    expect(result.pointsSlots).toBe(0);
+    expect(result.cutoffByRun).toBeUndefined();
+    expect("cutoffByRun" in result).toBe(false);
+  });
+
+  it("omits the array entirely where the pool holds fewer teams than there are points slots", () => {
+    const teams = [mass("frc1", 100), mass("frc2", 90)];
+    const result = advancementChances(inputsOf(teams, 5), 50, SEED);
+    expect(result.pointsSlots).toBe(5);
+    expect(result.cutoffByRun).toBeUndefined();
+    expect("cutoffByRun" in result).toBe(false);
+  });
+
+  it("reports both slot counts and no array for an empty pool", () => {
+    const teams = [mass("frc1", 100), mass("frc2", 90)];
+    const result = advancementChances(inputsOf(teams, 4, { awardQualified: ["frc1"], prequalified: ["frc2"] }), 10, SEED);
+    expect(result.chanceByTeam.size).toBe(0);
+    expect(result.pointsSlots).toBe(3);
+    expect(result.lockSlots).toBe(3);
+    expect(result.cutoffByRun).toBeUndefined();
+  });
+
+  it("takes the line at exactly the pool size where the two coincide", () => {
+    const teams = [mass("frc1", 100), mass("frc2", 90), mass("frc3", 70)];
+    const result = advancementChances(inputsOf(teams, 3), 8, SEED);
+    expect(result.pointsSlots).toBe(3);
+    expect([...result.cutoffByRun!]).toEqual(new Array<number>(8).fill(70));
+  });
+});

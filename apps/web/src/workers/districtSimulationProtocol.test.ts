@@ -361,6 +361,37 @@ describe("runDistrictAdvancementChanceJob", () => {
     expect(result.draws).toBe(DRAWS);
   });
 
+  it("forwards the simulated line and the unreserved slot count unreshaped", () => {
+    const request = chanceRequest(CHANCE_TEAMS, 2);
+    const result = collectChance(request)[0] as DistrictAdvancementChanceResultMessage;
+    const direct = advancementChances(request.inputs, DRAWS, SEED);
+    expect(result.pointsSlots).toBe(direct.pointsSlots);
+    expect(result.pointsSlots).toBe(2);
+    expect(result.cutoffByRun).toBeInstanceOf(Float64Array);
+    expect(result.cutoffByRun).toHaveLength(DRAWS);
+    expect([...result.cutoffByRun!]).toEqual([...direct.cutoffByRun!]);
+    // Three point masses against two slots: the line is 60 in every run.
+    expect([...new Set(result.cutoffByRun!)]).toEqual([60]);
+  });
+
+  it("omits the simulated line where the core produced none, rather than forwarding an empty array", () => {
+    const result = collectChance(chanceRequest(CHANCE_TEAMS, 0))[0] as DistrictAdvancementChanceResultMessage;
+    expect(result.pointsSlots).toBe(0);
+    expect(result.cutoffByRun).toBeUndefined();
+    expect("cutoffByRun" in result).toBe(false);
+  });
+
+  it("carries the simulated line through a structured clone as a typed array", () => {
+    const result = collectChance(chanceRequest(CHANCE_TEAMS, 2))[0] as DistrictAdvancementChanceResultMessage;
+    const cloned = structuredClone(result);
+    // `instanceof` is the wrong check here: jsdom's `structuredClone` returns
+    // the array in ANOTHER REALM, whose `Float64Array` is a different
+    // constructor. The brand is what the browser's own clone preserves.
+    expect(Object.prototype.toString.call(cloned.cutoffByRun)).toBe("[object Float64Array]");
+    expect([...cloned.cutoffByRun!]).toEqual([...result.cutoffByRun!]);
+    expect(cloned.pointsSlots).toBe(result.pointsSlots);
+  });
+
   it("carries no function anywhere in the result, and survives a structured clone", () => {
     const result = collectChance(chanceRequest(CHANCE_TEAMS, 2))[0]!;
     expect(containsFunction(result)).toBe(false);
