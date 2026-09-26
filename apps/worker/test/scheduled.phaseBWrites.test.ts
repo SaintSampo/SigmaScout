@@ -92,6 +92,15 @@ class FakeD1Database {
   algorithmState = new Map<string, FakeAlgorithmStateRow>();
   eventCursors = new Map<string, FakeEventCursorRow>();
 
+  /**
+   * Every statement this fake executed, in order: the literal `"d1-batch"` for a
+   * `batch()` call and the SQL text for a single `run()`. The schedule-only
+   * cases below assert on the ABSENCE of two specific statements — the
+   * `algorithm_state` batch and the claim's compare-and-swap — which is
+   * unassertable without a log.
+   */
+  statements: string[] = [];
+
   constructor() {
     // Every fixture's algorithms manifest publishes `generation: "gen-1"`
     // (see `algorithmsManifest` below) — seeding a marker at that generation
@@ -105,6 +114,7 @@ class FakeD1Database {
   }
 
   async batch(statements: readonly FakePreparedStatement[]): Promise<{ success: true }[]> {
+    this.statements.push("d1-batch");
     for (const stmt of statements) this.executeWrite(stmt.sql, stmt.boundArgs);
     return statements.map(() => ({ success: true as const }));
   }
@@ -142,6 +152,7 @@ class FakeD1Database {
   }
 
   executeWrite(sql: string, args: readonly unknown[]): number {
+    this.statements.push(sql);
     if (sql.includes("INSERT INTO algorithm_state")) {
       const [algorithmId, algorithmVersion, scopeKind, scopeKey, stateJson, generation, computedAt] = args as string[];
       this.algorithmState.set(`${algorithmId}::${scopeKind}::${scopeKey}`, {
@@ -499,5 +510,119 @@ describe("runGlobalRebuild's touched-team bookkeeping", () => {
         expect(teams.teams.some((t) => t.teamKey === teamKey), `${teamKey} must not be fed by an offseason event`).toBe(false);
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A POSTED BUT UNSCORED SCHEDULE (quick task 260925-uy5). Before it, an event
+// whose match poll 200d with nothing played returned `unchanged` and wrote
+// nothing at all, so seven promoted offseason events served a stub with zero
+// upcoming rows while TBA already had their full schedules. These cases pin the
+// write set of the path that replaced that return — and, just as load-bearing,
+// the three writes it must NOT make.
+// ---------------------------------------------------------------------------
+
+describe("schedule-only pricing: a 200 that folds nothing but leaves a schedule", () => {
+  /** The fixture's whole three-match schedule, unplayed — `revealed = 0` is what the TBA stub reads. */
+  function driveScheduleOnlyTick(): { r2: FakeR2Bucket; d1: FakeD1Database; env: Env } {
+    const r2 = new FakeR2Bucket();
+    const d1 = new FakeD1Database();
+    const env = makeEnv(makeManifests(), d1, r2);
+    vi.stubGlobal("fetch", makeTbaFetchStub());
+    revealed = 0;
+    return { r2, d1, env };
+  }
+
+  it("prices and publishes the schedule: eventsPriced 1, real win odds, a team artifact per scheduled team, and NO state write, NO claim, NO teams/{year}", async () => {
+    const { r2, d1, env } = driveScheduleOnlyTick();
+
+    const result = await runTick(env, { nowMs: NOW_MS });
+
+    // Counted as priced, and NOT as considered/advanced — every pre-existing
+    // counter keeps the meaning it had before this outcome existed.
+    expect(result.eventsPriced).toBe(1);
+    expect(result.eventsAdvanced).toBe(0);
+    expect(result.eventsConsidered).toBe(0);
+    expect(result.eventsFailed).toBe(0);
+
+    // The event artifact carries PRICED upcoming rows — a real win probability
+    // and real predicted scores, never the unpriced schedule-only row shape
+    // quick task 260923-3w6 exists to retire, and never `upcoming: []`.
+    const eventPuts = r2.puts.filter((put) => put.key === eventKeyFor("opr"));
+    expect(eventPuts).toHaveLength(1);
+    const eventArtifact = JSON.parse(eventPuts[0]!.body) as {
+      matches: unknown[];
+      upcoming: { matchKey: string; pRedWin: number; predictedRedScore: number; predictedBlueScore: number; predictedWinner: string }[];
+    };
+    expect(eventArtifact.matches).toEqual([]);
+    expect(eventArtifact.upcoming).toHaveLength(MATCHES.length);
+    for (const row of eventArtifact.upcoming) {
+      expect(typeof row.pRedWin, row.matchKey).toBe("number");
+      expect(row.pRedWin, row.matchKey).toBeGreaterThan(0);
+      expect(row.pRedWin, row.matchKey).toBeLessThan(1);
+      expect(typeof row.predictedRedScore, row.matchKey).toBe("number");
+      expect(typeof row.predictedBlueScore, row.matchKey).toBe("number");
+      expect(["red", "blue"], row.matchKey).toContain(row.predictedWinner);
+    }
+
+    // One team artifact per REAL scheduled team, each carrying its own upcoming
+    // rows for this event and no played row at all.
+    const teamPuts = r2.puts.filter((put) => put.key.startsWith("v1/team/"));
+    expect(teamPuts).toHaveLength(ALL_TEAMS.length);
+    for (const teamKey of ALL_TEAMS) {
+      const put = teamPuts.find((candidate) => candidate.key.includes(`/${teamKey}/`));
+      expect(put, teamKey).toBeDefined();
+      const artifact = JSON.parse(put!.body) as {
+        events: { eventKey: string; matches: { matchKey: string; actualWinner?: string; pRedWin: number }[] }[];
+      };
+      const eventEntry = artifact.events.find((entry) => entry.eventKey === EVENT_KEY);
+      expect(eventEntry, teamKey).toBeDefined();
+      // Every one of the fixture's three matches has this team on one side.
+      expect(eventEntry!.matches, teamKey).toHaveLength(MATCHES.length);
+      for (const row of eventEntry!.matches) {
+        expect(row.actualWinner, `${teamKey} ${row.matchKey} must carry no played result`).toBeUndefined();
+        expect(typeof row.pRedWin, `${teamKey} ${row.matchKey}`).toBe("number");
+      }
+    }
+
+    // NOT DONE, and each for its own reason (see `runScheduleOnlyPricing`):
+    //  - no `algorithm_state` write, because nothing advanced;
+    //  - no claim, because the claim is a compare-and-swap on the FOLD ANCHOR;
+    //  - no `teams/{year}` rewrite, because no metric moved.
+    expect(d1.statements.filter((sql) => sql === "d1-batch")).toEqual([]);
+    expect(d1.statements.filter((sql) => sql.includes("last_folded_match_key IS ?"))).toEqual([]);
+    expect(r2.puts.filter((put) => put.key.startsWith("v1/teams/"))).toEqual([]);
+    expect(d1.eventCursors.get(EVENT_KEY)?.last_folded_match_key ?? null).toBeNull();
+  });
+
+  it("writes the event cursor's tba_etag on that tick, so the next poll is a 304", async () => {
+    const { d1, env } = driveScheduleOnlyTick();
+
+    await runTick(env, { nowMs: NOW_MS });
+
+    expect(d1.eventCursors.get(EVENT_KEY)?.tba_etag).toBe("etag-0");
+  });
+
+  it("a pricing failure writes NO artifact and NO etag — so the next tick re-polls and retries", async () => {
+    const { r2, d1, env } = driveScheduleOnlyTick();
+    // A module whose `predict` throws: `priceUpcomingRows` is the only caller on
+    // this path, so the throw lands exactly where a real pricing failure would.
+    const throwingOpr = {
+      ...opr,
+      predict: () => {
+        throw new Error("predict-boom");
+      },
+    };
+
+    const result = await runTick(env, { nowMs: NOW_MS, buildAlgorithmModules: () => new Map([["opr", throwingOpr]]) });
+
+    expect(result.eventsPriced).toBe(0);
+    expect(result.eventsFailed).toBe(1);
+    expect(r2.puts.filter((put) => put.key === eventKeyFor("opr"))).toEqual([]);
+    expect(r2.puts.filter((put) => put.key.startsWith("v1/team/"))).toEqual([]);
+    // The etag write sits AFTER the artifact writes for exactly this reason:
+    // consuming it here would leave TBA answering 304 for a schedule that was
+    // never priced, with nothing to retry until TBA's own etag changed.
+    expect(d1.eventCursors.get(EVENT_KEY)).toBeUndefined();
   });
 });

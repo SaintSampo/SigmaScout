@@ -53,6 +53,16 @@
  * The published `sortTime` is the one input that comes off the existing
  * artifact rather than the model; it is never re-derived from TBA's `time`.
  *
+ * AN EMPTY FOLD IS NOT NECESSARILY A NO-OP (quick task 260925-uy5). A 200 that
+ * moves no match past the cursor but leaves matches ON THE SCHEDULE runs
+ * `runScheduleOnlyPricing`: the same state read, accumulator resume and pricing
+ * model the fold path builds, then Phase B's event and per-team merges, with NO
+ * `algorithm_state` write and NO claim (nothing folded, so there is no anchor to
+ * move). That is what lets a promoted event publish priced upcoming rows and a
+ * real roster before its first score, and it reports `eventsPriced` rather than
+ * `eventsAdvanced`. Only an empty fold with an empty schedule still returns
+ * `unchanged`.
+ *
  * Between 260915-isq and 260923-3w6 the tick instead wrote schedule-only rows
  * and spliced a `state` block (a verbatim copy of the event's D1 rows) into the
  * artifact for the BROWSER to price from. That existed for one reason — the free
@@ -103,7 +113,7 @@ import { tbaEventSchema } from "../../../packages/ingest/schemas.js";
 import { type CorpusMatch } from "../../../packages/ingest/normalize.js";
 import { fetchEventDetail } from "../../../packages/ingest/tbaClient.js";
 import { isDemoTeamKey } from "../../../packages/core/algorithms/demoTeams.js";
-import { isBonusRpCompLevel, isRpEligibleEventType } from "../../../packages/core/rankingPoints/constants.js";
+import { isBonusRpCompLevel, isRpEligibleEventType, type RpRuleModule } from "../../../packages/core/rankingPoints/constants.js";
 import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
 import { RpMomentsAccumulator } from "../../../packages/core/rankingPoints/empiricalMoments.js";
 import { RpMeanShiftAccumulator, rosterIsFullyWarm } from "../../../packages/core/rankingPoints/meanShift.js";
@@ -421,6 +431,130 @@ async function loadOrInitState(
 }
 
 // ---------------------------------------------------------------------------
+// The three things BOTH the fold path and the schedule-only path do (quick task
+// 260925-uy5). Each was extracted out of `processEvent` VERBATIM — same calls,
+// same order, same degrade behaviour — so that a posted-but-unscored schedule
+// resolves its event type, resumes its accumulators and builds its pricing model
+// by the SAME rule a fold does, rather than through a second copy that agrees
+// until the day it does not. `scheduled.rowParity.test.ts` passing unmodified is
+// the proof the fold path did not move.
+// ---------------------------------------------------------------------------
+
+/**
+ * The event detail's `event_type` and `week`, which the live-windows manifest
+ * lacks. ONE subrequest, and a failed or unparseable fetch DEGRADES (RP
+ * ineligible, week unplaced) rather than failing the event.
+ *
+ * `eventType` is the tick's working value, `-1` when the fetch did not land;
+ * `fetchedEventType` is what an artifact may PUBLISH, `undefined` in that same
+ * case so the sentinel never reaches R2; `week` is `null`, not a sentinel,
+ * because TBA's own contract is nullable and corpus week 0 is a real week.
+ */
+async function fetchEventTypeAndWeek(
+  tbaCtx: TbaClientContext,
+  counter: SubrequestCounter,
+  eventKey: string
+): Promise<{ eventType: number; fetchedEventType: number | undefined; week: number | null }> {
+  counter.spend(1);
+  let eventType = -1;
+  let fetchedEventType: number | undefined;
+  let week: number | null = null;
+  try {
+    const detail = await fetchEventDetail(tbaCtx, eventKey);
+    if (detail.status === 200) {
+      const parsed = tbaEventSchema.parse(detail.body);
+      eventType = parsed.event_type;
+      fetchedEventType = parsed.event_type;
+      week = parsed.week ?? null;
+    }
+  } catch {
+    // degrade gracefully — see this function's doc comment
+  }
+  return { eventType, fetchedEventType, week };
+}
+
+interface ResumeAlgorithmStateParams {
+  readonly db: D1Database;
+  readonly counter: SubrequestCounter;
+  readonly algorithmId: string;
+  readonly algorithm: AlgorithmModule<any>;
+  readonly eventKey: string;
+  readonly season: number;
+  /** Already through `stateScopeKeys` by the caller — the raw keys plus the demo pseudo-team key. */
+  readonly stateReadTeamKeys: readonly string[];
+  /** Real keys only: no demo key may seed a level-1 `team` row. */
+  readonly coldStartTeamKeys: readonly string[];
+}
+
+interface ResumedAlgorithmState {
+  readonly rows: readonly StateRow[];
+  readonly state: any;
+  readonly sigma: SigmaScoreAccumulator | undefined;
+  readonly rpRuleModule: RpRuleModule | undefined;
+  /** Returned alongside `rp` so the fold path builds its `rpKnownTeams` set without a SECOND `readRpBeliefs` pass over the same rows. */
+  readonly rpBeliefs: ReturnType<typeof readRpBeliefs>;
+  readonly rp: RpMomentsAccumulator | undefined;
+  readonly rpMeanShift: RpMeanShiftAccumulator | undefined;
+}
+
+/**
+ * Phase A's per-algorithm PREFIX: the one scoped state read and every level-2
+ * accumulator resumed from its rows. Nothing here folds — it is exactly the work
+ * both paths need before they diverge.
+ *
+ * ORDER AND CALLS ARE THE FOLD PATH'S, UNCHANGED: `selectionsFor`, then
+ * `counter.spend(scopedStateReadStatements(selections))` BEFORE the read, then
+ * `loadOrInitState`, then `SigmaScoreAccumulator.fromBeliefs` over
+ * `readSigmaBeliefs`/`readSigmaPopulation` (a fresh accumulator would see only
+ * this event, and without the population the talent prior silently falls back to
+ * its flat form), then the INDEXED `RP_RULE_MODULES[season]` lookup — never
+ * `rpRuleModuleForSeason`, which throws, so a season with no registered rules
+ * gets no accumulator rather than failing the tick — then
+ * `RpMomentsAccumulator.fromBeliefs` and `RpMeanShiftAccumulator.fromState`
+ * (state shape 16, off the league row; `fromState` discards another season's).
+ */
+async function resumeAlgorithmState(params: ResumeAlgorithmStateParams): Promise<ResumedAlgorithmState> {
+  const { db, counter, algorithmId, algorithm, eventKey, season, stateReadTeamKeys, coldStartTeamKeys } = params;
+
+  const selections = selectionsFor(algorithmId, eventKey, stateReadTeamKeys);
+  // One statement per `MAX_SCOPE_KEYS_PER_READ` keys — SQLite's
+  // bound-parameter limit, not a budget. A full championship-division roster
+  // is the only realistic way past one.
+  counter.spend(scopedStateReadStatements(selections));
+  const { rows, state } = await loadOrInitState(db, algorithmId, selections, algorithm, coldStartTeamKeys);
+
+  const sigma = usesSigmaScore(algorithmId) ? SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(rows), readSigmaPopulation(rows)) : undefined;
+  const rpRuleModule = publishesRankingPoints(algorithmId) ? RP_RULE_MODULES[season] : undefined;
+  const rpBeliefs = readRpBeliefs(rows);
+  const rp = rpRuleModule !== undefined ? RpMomentsAccumulator.fromBeliefs(rpRuleModule, rpBeliefs) : undefined;
+  const rpMeanShift = rpRuleModule !== undefined ? RpMeanShiftAccumulator.fromState(rpRuleModule, readRpMeanShift(rows)) : undefined;
+
+  return { rows, state, sigma, rpRuleModule, rpBeliefs, rp, rpMeanShift };
+}
+
+/**
+ * The `UpcomingPricingModel` `priceUpcomingRows` wants, from a resumed (or
+ * end-of-fold) state.
+ *
+ * `sigmaScores: sigma?.scoreByTeam()`, NEVER `bandVarianceFor`: the offline
+ * publisher gives a never-seen team no Sigma Score at all, while
+ * `bandVarianceFor` prices one from the prior — that difference is a played-row
+ * rule, and applying it to an upcoming row would publish a number the next
+ * republish silently changes. The accumulators are passed by reference and only
+ * READ downstream (`momentsFor`, `apply`); nothing in pricing folds.
+ */
+function upcomingModelOf(
+  algorithm: AlgorithmModule<any>,
+  state: unknown,
+  sigma: SigmaScoreAccumulator | undefined,
+  rpRuleModule: RpRuleModule | undefined,
+  rp: RpMomentsAccumulator | undefined,
+  rpMeanShift: RpMeanShiftAccumulator | undefined
+): UpcomingPricingModel {
+  return { algorithm, state, sigmaScores: sigma?.scoreByTeam(), ruleModule: rpRuleModule, rp, shift: rpMeanShift };
+}
+
+// ---------------------------------------------------------------------------
 // TBA match -> core algorithm types
 // ---------------------------------------------------------------------------
 
@@ -650,7 +784,12 @@ interface TouchedTeamInfo {
  * had no other reader. It is not kept as an unread flag: an outcome field nothing
  * branches on is a claim the next reader has to disprove.
  */
-type EventOutcome = { readonly status: "advanced" } | { readonly status: "failed" } | { readonly status: "unchanged" };
+type EventOutcome =
+  | { readonly status: "advanced" }
+  | { readonly status: "failed" }
+  | { readonly status: "unchanged" }
+  /** A 200 that moved no match past the cursor but left matches on the schedule: priced upcoming rows and the artifacts were written, nothing folded, no `algorithm_state` row was written and no claim was taken (quick task 260925-uy5). */
+  | { readonly status: "priced" };
 
 function touchedTeamsCompositeKey(algorithmId: string, season: number): string {
   return `${algorithmId}::${season}`;
@@ -808,6 +947,169 @@ async function runProbes(env: Env, counter: SubrequestCounter, tbaCtx: TbaClient
   return { promoted, eventsProbed, eventsFailed };
 }
 
+/**
+ * A POSTED BUT UNSCORED SCHEDULE, PRICED (quick task 260925-uy5). Reached when a
+ * 200 moved no match past the cursor and the event still has upcoming matches —
+ * the case that used to return `unchanged` and write nothing, leaving a promoted
+ * event serving a stub with zero upcoming rows until its first score.
+ *
+ * It runs the fold path's own prefix and Phase B halves: `fetchEventTypeAndWeek`,
+ * `resumeAlgorithmState`, `upcomingModelOf`, `priceUpcomingRows`,
+ * `mergeEventArtifact` and `mergeTeamSeasonArtifact` — the SAME functions, so a
+ * schedule-only row and the row the next fold (or the next republish) writes for
+ * the same match agree by construction.
+ *
+ * WHAT IT DELIBERATELY DOES NOT DO:
+ *  - NO `claimEventAdvance`. The claim is a compare-and-swap on the FOLD ANCHOR
+ *    and nothing folds here, so there is no anchor to move and nothing for a
+ *    second invocation to double-apply.
+ *  - NO `writeScopedState`. Nothing advanced, so there is no changed row to
+ *    write; writing one anyway would stamp a fresh `generation`/`computedAt`
+ *    onto state that did not move.
+ *  Two overlapping invocations both running this are therefore idempotent up to
+ *  the artifact stamp, which is why this path needs no claim rather than wanting
+ *  one it cannot have.
+ *  - NO `touchedTeamsByAlgorithm` feed. No metric moved, so `teams/{year}` must
+ *    not be rewritten from here.
+ *
+ * ACCEPTED CONSEQUENCE, STATED UP FRONT: the team-artifact write puts every
+ * scheduled team through `touchedEventTeamMetrics`, which drops `percentile` from
+ * `seasonStats.metrics`. That is the existing, tracked
+ * `.planning/todos/pending/live-merges-drop-percentiles.md` limitation; this path
+ * makes it bite when the schedule is POSTED rather than at the team's first
+ * folded match. The tier box still resolves from `tierCuts`, and there is
+ * deliberately no second metrics path invented to avoid it.
+ *
+ * THROWS on any failure, the pricing throw included, so the caller leaves the
+ * event's `tba_etag` unwritten and the next tick re-polls and retries.
+ */
+async function runScheduleOnlyPricing(
+  env: Env,
+  counter: SubrequestCounter,
+  tbaCtx: TbaClientContext,
+  algorithmModules: ReadonlyMap<string, AlgorithmModule<any>>,
+  window: LiveWindowEntry,
+  stillUpcoming: readonly ScheduledMatchFacts[],
+  stamp: Stamp
+): Promise<void> {
+  const eventKey = window.eventKey;
+  // Every team on the posted schedule — the event artifact's roster for this
+  // path, and (demo keys stripped) the set of team artifacts it writes.
+  const scheduledTeams = [...new Set(stillUpcoming.flatMap((m) => [...m.redTeams, ...m.blueTeams]))].sort();
+  const realScheduledTeams = scheduledTeams.filter((teamKey) => !isDemoTeamKey(teamKey));
+
+  const { eventType, fetchedEventType } = await fetchEventTypeAndWeek(tbaCtx, counter, eventKey);
+
+  for (const [algorithmId, algorithm] of algorithmModules) {
+    const { state, sigma, rpRuleModule, rp, rpMeanShift } = await resumeAlgorithmState({
+      db: env.DB,
+      counter,
+      algorithmId,
+      algorithm,
+      eventKey,
+      season: window.season,
+      stateReadTeamKeys: stateScopeKeys(scheduledTeams),
+      coldStartTeamKeys: realScheduledTeams,
+    });
+    const model = upcomingModelOf(algorithm, state, sigma, rpRuleModule, rp, rpMeanShift);
+    const touchedMetrics = algorithm.teamMetrics(state, scheduledTeams);
+
+    const eventParams = { page: "event" as const, eventKey, algorithmId, version: algorithm.version };
+    const existingEvent = await readExistingEvent(env, counter, eventParams);
+
+    // `sortTime` is an INPUT to pricing: the value already published for the
+    // match, or no key at all — never re-derived from TBA's `time` (260915-isq).
+    const upcomingSortTimes = existingUpcomingSortTimes(existingEvent);
+    const upcoming: ScheduledMatchInput[] = stillUpcoming.map((m) => {
+      const sortTime = upcomingSortTimes.get(m.matchKey);
+      return {
+        matchKey: m.matchKey,
+        compLevel: m.compLevel,
+        setNumber: m.setNumber,
+        matchNumber: m.matchNumber,
+        ...(sortTime !== undefined ? { sortTime } : {}),
+        redTeams: m.redTeams,
+        blueTeams: m.blueTeams,
+      };
+    });
+
+    let priced: PriceUpcomingResult;
+    try {
+      priced = priceUpcomingRows({ model, eventKey, season: window.season, eventType, upcoming });
+    } catch (error) {
+      // The fold path's handler, verbatim: ids, a count and a truncated message
+      // only, then RETHROWN. Never `upcoming: []` (that tells the event page the
+      // schedule is over) and never an unpriced schedule-only row (the shape
+      // 260923-3w6 exists to retire).
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        JSON.stringify({
+          msg: "upcoming-pricing-failed",
+          eventKey,
+          algorithmId,
+          upcoming: upcoming.length,
+          error: message.slice(0, WRITE_RETRY_ERROR_MESSAGE_MAX),
+        })
+      );
+      throw error;
+    }
+
+    const eventMergeParams = {
+      existing: existingEvent,
+      eventKey,
+      season: window.season,
+      algorithmId,
+      algorithmVersion: algorithm.version,
+      eventType: fetchedEventType,
+      newlyFolded: [],
+      newPredictions: new Map<string, Prediction>(),
+      upcoming: priced.event,
+      newBands: new Map<string, MatchBand>(),
+      touchedTeams: scheduledTeams,
+      touchedMetrics,
+      playedRowFacts: new Map<string, PlayedRowFacts>(),
+      stamp,
+    };
+    const mergedEvent = mergeEventArtifact(eventMergeParams);
+    await writeArtifactWithBootstrapRetry(env, counter, "event", eventParams, mergedEvent, algorithmId, () =>
+      mergeEventArtifact({ ...eventMergeParams, existing: undefined })
+    );
+
+    for (const teamKey of realScheduledTeams) {
+      const teamParams = { page: "team" as const, teamKey, year: window.season, algorithmId, version: algorithm.version };
+      const existingTeam = await readExistingTeam(env, counter, teamParams);
+      // With `matches: []` this merge appends no metric-history row, increments
+      // no record, and creates the event's entry from `upcomingRows` alone —
+      // which is the behaviour this path needs. Its `matches.every(...)`
+      // resolution of `metricsBasis` to `"last-official-match"` on an empty match
+      // list is HONEST here (nothing this tick changed the metrics) and is
+      // deliberately not "fixed".
+      const teamMergeParams = {
+        existing: existingTeam,
+        teamKey,
+        season: window.season,
+        algorithmId,
+        algorithmVersion: algorithm.version,
+        eventKey,
+        matches: [],
+        predictions: new Map<string, Prediction>(),
+        metrics: touchedMetrics[teamKey] ?? {},
+        bands: new Map<string, MatchBand>(),
+        playedRowFacts: new Map<string, PlayedRowFacts>(),
+        // The SAME records the event artifact's `upcoming` came from, filtered to
+        // this team's own matches — one pricing call feeds both pages.
+        upcomingRows: priced.team.filter((row) => row.redTeams.includes(teamKey) || row.blueTeams.includes(teamKey)),
+        stamp,
+        sigmaAfterTick: undefined,
+      };
+      const mergedTeam = mergeTeamSeasonArtifact(teamMergeParams);
+      await writeArtifactWithBootstrapRetry(env, counter, "team", teamParams, mergedTeam, algorithmId, () =>
+        mergeTeamSeasonArtifact({ ...teamMergeParams, existing: undefined })
+      );
+    }
+  }
+}
+
 async function processEvent(
   env: Env,
   counter: SubrequestCounter,
@@ -885,15 +1187,34 @@ async function processEvent(
     // `test/matchSplit.test.ts` for the proof.
     const { orderedMatchKeys, newlyFolded, stillUpcoming } = splitEventMatches(rawMatches, approxStartDateIso, cursor);
 
-    if (newlyFolded.length === 0) {
-      // Unconditional since quick task 260923-3w4: this etag write used to sit
-      // behind a `tryConsume` so it could never be the call that squeezed out an
-      // event's real work. Skipping it costs a full payload on the next poll.
+    // Unconditional since quick task 260923-3w4: this etag write used to sit
+    // behind a `tryConsume` so it could never be the call that squeezed out an
+    // event's real work. Skipping it costs a full payload on the next poll.
+    const writePollEtag = async (): Promise<void> => {
       if (pollEtag !== undefined && pollEtag !== cursor.tbaEtag) {
         counter.spend(1);
         await writeEventCursor(env.DB, { ...cursor, tbaEtag: pollEtag, lastPolledAt: nowIso });
       }
-      return { status: "unchanged" };
+    };
+
+    if (newlyFolded.length === 0) {
+      // Nothing folded AND nothing scheduled: there is genuinely nothing to
+      // publish, which is the pre-260925-uy5 behaviour for every empty fold.
+      if (stillUpcoming.length === 0) {
+        await writePollEtag();
+        return { status: "unchanged" };
+      }
+
+      // A POSTED, UNSCORED SCHEDULE (quick task 260925-uy5) — priced and
+      // published rather than dropped.
+      await runScheduleOnlyPricing(env, counter, tbaCtx, algorithmModules, window, stillUpcoming, stamp);
+      // AFTER the writes, and that ORDER IS THE POINT, not an accident: writing
+      // the etag first and then throwing would leave TBA answering 304 for a
+      // schedule that was never priced, and nothing would retry until TBA's own
+      // etag changed. On a throw the etag is not written, so the next tick
+      // re-polls, gets a 200, and retries.
+      await writePollEtag();
+      return { status: "priced" };
     }
 
     const touchedTeams = [...new Set(newlyFolded.flatMap((m) => [...m.redTeams, ...m.blueTeams]))].sort();
@@ -929,26 +1250,10 @@ async function processEvent(
 
     try {
       // The event detail supplies `event_type` (the RP eligibility gate) and
-      // `week`, which the live-windows manifest lacks. A failed fetch
-      // degrades (RP ineligible, week unplaced) rather than failing the event.
-      counter.spend(1);
-      let eventType = -1;
-      // The published `eventType`: defined only when the fetch returned 200
-      // and parsed, so the `-1` sentinel never reaches an artifact.
-      let fetchedEventType: number | undefined;
-      // `null`, not a sentinel: `week` is nullable in TBA's contract.
-      let week: number | null = null;
-      try {
-        const detail = await fetchEventDetail(tbaCtx, eventKey);
-        if (detail.status === 200) {
-          const parsed = tbaEventSchema.parse(detail.body);
-          eventType = parsed.event_type;
-          fetchedEventType = parsed.event_type;
-          week = parsed.week ?? null;
-        }
-      } catch {
-        // degrade gracefully — see comment above
-      }
+      // `week`, which the live-windows manifest lacks. Extracted whole by quick
+      // task 260925-uy5 so the schedule-only path resolves them by the same
+      // rule; its `-1`/`null` degrade behaviour is unchanged.
+      const { eventType, fetchedEventType, week } = await fetchEventTypeAndWeek(tbaCtx, counter, eventKey);
 
       const newlyFoldedResults = newlyFolded.map((m) => toMatchResult(m, eventType, week));
 
@@ -964,22 +1269,31 @@ async function processEvent(
         // only `realTouchedTeams` restarted both from the prior on every tick
         // (quick task 260918-wfc). Since 260923-3w6 the key list also covers the
         // remaining schedule (`stateReadTeamKeys`), so Phase B can price it.
-        const selections = selectionsFor(algorithmId, eventKey, stateReadTeamKeys);
-
-        // One statement per `MAX_SCOPE_KEYS_PER_READ` keys — SQLite's
-        // bound-parameter limit, not a budget. A full championship-division
-        // roster is the only realistic way past one.
-        counter.spend(scopedStateReadStatements(selections));
-        // Cold start still gets real keys only, so no demo key seeds a level-1 `team` row.
-        const { rows, state: initialState } = await loadOrInitState(env.DB, algorithmId, selections, algorithm, realTouchedTeams);
+        //
+        // Every accumulator below is resumed by `resumeAlgorithmState`, which
+        // holds this prefix's calls and their order (quick task 260925-uy5).
+        // Cold start still gets real keys only, so no demo key seeds a level-1
+        // `team` row.
+        const {
+          rows,
+          state: initialState,
+          sigma,
+          rpRuleModule,
+          rpBeliefs,
+          rp,
+          rpMeanShift,
+        } = await resumeAlgorithmState({
+          db: env.DB,
+          counter,
+          algorithmId,
+          algorithm,
+          eventKey,
+          season: window.season,
+          stateReadTeamKeys,
+          coldStartTeamKeys: realTouchedTeams,
+        });
 
         let state = initialState;
-        // Sigma Score, resumed from the seeded beliefs (a fresh accumulator
-        // would see only this event) and the population statistics (without
-        // them the talent prior silently falls back to its flat form).
-        const sigma = usesSigmaScore(algorithmId)
-          ? SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(rows), readSigmaPopulation(rows))
-          : undefined;
         // One alliance's win-odds variance, one accessor for every played
         // row. `rpFieldsFor` reads it; `displayBandFor` derives the published
         // band from it.
@@ -998,19 +1312,6 @@ async function processEvent(
           return { ...(red !== undefined ? { red } : {}), ...(blue !== undefined ? { blue } : {}) };
         };
 
-        // Ranking points, resumed from the same rows for the same reason: a
-        // wrong RP pmf is still a valid distribution and renders silently.
-        //
-        // The rule-module lookup is INDEXED, not `rpRuleModuleForSeason`
-        // (which throws): a season with no registered rules, or an algorithm
-        // that publishes no RP, gets no accumulator rather than failing the tick.
-        const rpRuleModule = publishesRankingPoints(algorithmId) ? RP_RULE_MODULES[window.season] : undefined;
-        const rpBeliefs = readRpBeliefs(rows);
-        const rp = rpRuleModule !== undefined ? RpMomentsAccumulator.fromBeliefs(rpRuleModule, rpBeliefs) : undefined;
-        // The walk-forward RP mean shift, resumed from the league row (state
-        // shape 16) and built exactly when the RP accumulator is, as in
-        // `SigmaScoutLayer`. `fromState` discards another season's state.
-        const rpMeanShift = rpRuleModule !== undefined ? RpMeanShiftAccumulator.fromState(rpRuleModule, readRpMeanShift(rows)) : undefined;
         // Teams whose beliefs this tick resumed, plus those it folds; read by
         // the partial-roster gate below.
         const rpKnownTeams = new Set(rpBeliefs.keys());
@@ -1150,21 +1451,10 @@ async function processEvent(
         }
 
         // What Phase B prices the remaining schedule from (quick task
-        // 260923-3w6). `scoreByTeam()`, NEVER `bandVarianceFor`: the offline
-        // publisher gives a never-seen team no Sigma Score at all, while
-        // `bandVarianceFor` prices one from the prior — that difference is a
-        // played-row rule, and applying it to an upcoming row would publish a
-        // number the next republish silently changes. The accumulators are passed
-        // by reference and only READ downstream (`momentsFor`, `apply`); nothing
-        // in Phase B folds.
-        const upcomingModel: UpcomingPricingModel = {
-          algorithm,
-          state,
-          sigmaScores: sigma?.scoreByTeam(),
-          ruleModule: rpRuleModule,
-          rp,
-          shift: rpMeanShift,
-        };
+        // 260923-3w6), captured at end of fold so an upcoming match is priced
+        // from a state that has seen every played match. `upcomingModelOf` holds
+        // the `scoreByTeam()`-not-`bandVarianceFor` rule.
+        const upcomingModel = upcomingModelOf(algorithm, state, sigma, rpRuleModule, rp, rpMeanShift);
 
         // Passengers ride back into the rows after `serializeState`, so no
         // algorithm serializer knows they exist, at zero added subrequests.
@@ -1537,6 +1827,8 @@ export interface TickResult {
   readonly eventsProbed: number;
   /** Probe windows that saw real matches this tick and were folded via the normal live path, counted once per promoted event actually processed. */
   readonly eventsPromoted: number;
+  /** Events that wrote priced upcoming rows without folding a match — a posted but unscored schedule (quick task 260925-uy5). Counted instead of, never alongside, `eventsConsidered`/`eventsAdvanced`. */
+  readonly eventsPriced: number;
   readonly tbaRequests: number;
   readonly subrequestsUsed: number;
   readonly globalRebuildRan: boolean;
@@ -1575,7 +1867,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   const liveEvents = await loadLiveEventsAt(env, nowMs);
 
   if (liveEvents.length === 0) {
-    return { eventsConsidered: 0, eventsAdvanced: 0, eventsFailed: 0, eventsProbed: 0, eventsPromoted: 0, tbaRequests: tbaCounter.total, subrequestsUsed: subrequests.used, globalRebuildRan: false, stateGenerationMismatch: false, ...NO_DISTRICT_REFRESH };
+    return { eventsConsidered: 0, eventsAdvanced: 0, eventsFailed: 0, eventsProbed: 0, eventsPromoted: 0, eventsPriced: 0, tbaRequests: tbaCounter.total, subrequestsUsed: subrequests.used, globalRebuildRan: false, stateGenerationMismatch: false, ...NO_DISTRICT_REFRESH };
   }
 
   // Split into foldable (`inferred: false`, a real measured window) and
@@ -1603,6 +1895,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
       eventsFailed: probeResult.eventsFailed,
       eventsProbed: probeResult.eventsProbed,
       eventsPromoted: 0,
+      eventsPriced: 0,
       tbaRequests: tbaCounter.total,
       subrequestsUsed: subrequests.used,
       globalRebuildRan: false,
@@ -1644,6 +1937,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
       eventsFailed: probeResult.eventsFailed,
       eventsProbed: probeResult.eventsProbed,
       eventsPromoted: 0,
+      eventsPriced: 0,
       tbaRequests: tbaCounter.total,
       subrequestsUsed: subrequests.used,
       globalRebuildRan: false,
@@ -1662,6 +1956,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
   let eventsAdvanced = 0;
   let eventsFailed = probeResult.eventsFailed;
   let eventsPromoted = 0;
+  let eventsPriced = 0;
   const touchedTeamsByAlgorithm = new Map<string, Map<string, TouchedTeamInfo>>();
   // Filled by `processEvent` for district member events only; consumed by
   // `runDistrictRefresh` below.
@@ -1678,6 +1973,13 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
 
     const outcome = await processEvent(env, subrequests, tbaCtx, algorithmModules, window, nowIso, stamp, touchedTeamsByAlgorithm, matchDerivedState, preflight);
     if (outcome.status === "unchanged") continue; // considered, but not counted toward advanced/failed
+    // BEFORE `eventsConsidered++`, so every existing counter keeps the meaning
+    // it had before this outcome existed — and the rotation offset keeps
+    // advancing on `eventsAdvanced` alone.
+    if (outcome.status === "priced") {
+      eventsPriced++;
+      continue;
+    }
 
     eventsConsidered++;
     if (outcome.status === "advanced") {
@@ -1728,6 +2030,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
     eventsFailed,
     eventsProbed: probeResult.eventsProbed,
     eventsPromoted,
+    eventsPriced,
     tbaRequests: tbaCounter.total,
     subrequestsUsed: subrequests.used,
     globalRebuildRan,
