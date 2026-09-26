@@ -38,6 +38,7 @@ import {
   type DistrictAwardProfile,
   type DistrictLedgerEventInput,
   type DistrictLedgerResult,
+  type DistrictSelectionRoutes,
   type SuppliedAlliance,
 } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import {
@@ -169,6 +170,44 @@ export function pointMassDistribution(points: number): DistrictPointDistribution
  * taken on the SAME distribution the cell's histogram is drawn from, so the
  * headline and the outcome list can never disagree.
  */
+/**
+ * WHICH ROUTE ONTO A PLAYOFF ALLIANCE the runs took, carried on an open Alliance
+ * selection cell so the cell's headline and the drawer's outcome list are built
+ * from ONE object.
+ *
+ * WHY THE CELL NEEDS THIS AT ALL. `chanceOfAnyPoints` on the selection histogram
+ * is the chance of ANY selection points, which counts captains, first picks and
+ * second picks together — a captain and a first pick earn the same points at one
+ * alliance number, so the histogram cannot separate them. The shipped cell
+ * printed that number under the word "picked", which is the readability defect
+ * Jacob named: a team that is far more likely to be a captain than to be picked
+ * read as "picked".
+ *
+ * ABSENT ON A BAKED EVENT. `distributionsFromPreSim` decodes pmfs and nothing
+ * else, so an unstarted event has no route counts at all and its cell keeps the
+ * shipped wording. That absence is DISCLOSED as
+ * `gaps.eventsWithUnknownSelectionRoutes` rather than left to be inferred from
+ * the words on the cell.
+ */
+export interface DistrictSelectionRouteView {
+  /** The joint draw's own per-route counts for this team. */
+  readonly routes: DistrictSelectionRoutes;
+  /**
+   * What those counts are out of — the SAME denominator the cell's distribution
+   * carries, so the route chances and the cell's own chance are shares of one
+   * set of runs. `districtLedgerRows.test.ts` pins the two as equal.
+   */
+  readonly denominator: number;
+  /**
+   * Whether the qualification ranking was the same in every draw. It decides
+   * what an ABSENT route means: with a fixed ranking the draft is deterministic,
+   * so a route no run took is impossible and the drawer omits it; with matches
+   * still to play the same absence is only "none of these runs" and the row
+   * stays at zero.
+   */
+  readonly rankingFixed: boolean;
+}
+
 export type DistrictPlayoffMilestone =
   | { readonly kind: "finalist"; readonly chance: number; readonly conditionalMedian: number | undefined }
   | { readonly kind: "winner"; readonly chance: number; readonly conditionalMedian: number | undefined }
@@ -187,6 +226,8 @@ export type DistrictLedgerCell =
       readonly ceiling: number;
       /** Present only on a Playoffs cell whose bracket has already moved past the top four — see `DistrictPlayoffMilestone`. */
       readonly playoffMilestone?: DistrictPlayoffMilestone;
+      /** Present only on an Alliance selection cell whose run reported its routes — see `DistrictSelectionRouteView`. */
+      readonly selection?: DistrictSelectionRouteView;
     }
   | { readonly id: string; readonly cell: DistrictCellKind; readonly kind: "unavailable" };
 
@@ -281,6 +322,18 @@ export interface DistrictLedgerGaps {
   readonly eventsWithPartialAllianceList: readonly string[];
   /** Events carrying a played elimination row whose two sides could not both be resolved to one alliance, so that match was left out of the bracket conditioning — see `playedBracketMatchesFor`. */
   readonly eventsWithUnresolvedElimMatches: readonly string[];
+  /**
+   * Events whose open Alliance selection cell has a distribution but NO route
+   * counts, so it prints the chance of any selection points under the shipped
+   * word "picked" rather than naming the likelier route.
+   *
+   * In practice this is the BAKED path and only the baked path: a sidecar carries
+   * pmfs and no routes, so an unstarted event cannot say whether a team is more
+   * likely to captain an alliance or to be picked onto one. Disclosed rather than
+   * absorbed, because the two cells read differently and a reader comparing them
+   * deserves to know why (quick task 260925-w4y).
+   */
+  readonly eventsWithUnknownSelectionRoutes: readonly string[];
   /** Events the Worker could not price at all, with the error class that refused. */
   readonly unavailableEvents: readonly { readonly eventKey: string; readonly name: string }[];
   /**
@@ -726,6 +779,14 @@ export interface DistrictEventDistributions {
    * there is no bracket to have got anywhere in.
    */
   readonly playoffMilestoneByTeam?: ReadonlyMap<string, AllianceBracketMilestone>;
+  /**
+   * Which route onto a playoff alliance each team took, as 10-04's run recorded
+   * it. Absent for a BAKED event, whose sidecar carries pmfs and nothing else, so
+   * that event's Alliance selection cell keeps the shipped wording.
+   */
+  readonly selectionRoutesByTeam?: ReadonlyMap<string, DistrictSelectionRoutes>;
+  /** Whether the run's qualification ranking was the same in every draw. Absent for a baked event, which is priced before a match is played. */
+  readonly rankingFixed?: boolean;
 }
 
 function emptyCellRecord(): Record<DistrictCellKind, DistrictPointDistribution | undefined> {
@@ -748,7 +809,13 @@ export function distributionsFromResult(result: DistrictLedgerResult): DistrictE
   for (const [teamKey, counts] of result.elimPoints) put(teamKey, "elim", counts);
   for (const [teamKey, counts] of result.awardPoints) put(teamKey, "award", counts);
   for (const [teamKey, counts] of result.eventTotal) put(teamKey, "eventTotal", counts);
-  return { eventKey: result.eventKey, byTeam, playoffMilestoneByTeam: result.playoffMilestones };
+  return {
+    eventKey: result.eventKey,
+    byTeam,
+    playoffMilestoneByTeam: result.playoffMilestones,
+    selectionRoutesByTeam: result.selectionRoutes,
+    rankingFixed: result.rankingFixed,
+  };
 }
 
 /** One baked sidecar's roster-indexed rows, decoded into the same per-team cell record. */
@@ -868,6 +935,10 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
 
   const teamsWithoutAwardProfile = new Set(options.gaps?.teamsWithoutAwardProfile ?? []);
   const teamsWithUnavailableGrandTotal = new Set(options.gaps?.teamsWithUnavailableGrandTotal ?? []);
+  // Collected HERE rather than passed in: it is a fact about the distributions
+  // this builder actually read, so deriving it anywhere else would be a second
+  // opinion about which cells got routes.
+  const eventsWithUnknownSelectionRoutes = new Set(options.gaps?.eventsWithUnknownSelectionRoutes ?? []);
 
   const built: DistrictLedgerTeam[] = [];
 
@@ -926,6 +997,23 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
         const distribution = record?.[category];
         if (distribution === undefined) return { id, cell: category, kind: "unavailable" };
         const cell = openCell(id, category, distribution, categoryCeiling[category]);
+        if (category === "alliance" && cell.kind === "open") {
+          // THE ROUTES, or the honest absence. A baked event has pmfs and no
+          // routes; that cell keeps the shipped wording and the event is named in
+          // the disclosed gaps.
+          const eventDistributions = distributions.get(entry.eventKey);
+          const routes = eventDistributions?.selectionRoutesByTeam?.get(team.teamKey);
+          if (routes === undefined || eventDistributions?.rankingFixed === undefined) {
+            eventsWithUnknownSelectionRoutes.add(entry.eventKey);
+            return cell;
+          }
+          const selection: DistrictSelectionRouteView = {
+            routes,
+            denominator: distribution.denominator,
+            rankingFixed: eventDistributions.rankingFixed,
+          };
+          return { ...cell, selection };
+        }
         if (category !== "elim" || cell.kind !== "open") return cell;
         const milestone = playoffMilestoneFor(
           season,
@@ -1051,6 +1139,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
       eventsWithFallbackFieldSize: [...(options.gaps?.eventsWithFallbackFieldSize ?? [])].sort(),
       eventsWithPartialAllianceList: [...(options.gaps?.eventsWithPartialAllianceList ?? [])].sort(),
       eventsWithUnresolvedElimMatches: [...(options.gaps?.eventsWithUnresolvedElimMatches ?? [])].sort(),
+      eventsWithUnknownSelectionRoutes: [...eventsWithUnknownSelectionRoutes].sort(),
       teamsWithUnavailableGrandTotal: [...teamsWithUnavailableGrandTotal].sort(),
       unavailableEvents: [...unavailableByKey.entries()].map(([eventKey, name]) => ({ eventKey, name })).sort((a, b) => a.eventKey.localeCompare(b.eventKey)),
     },

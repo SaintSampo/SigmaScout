@@ -16,6 +16,11 @@ import {
 import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
 import { POINT_CELL_CHANCE_FORM_THRESHOLD } from "../../../../../packages/core/districts/pointSummary.js";
 import type { AllianceBracketMilestone } from "../../../../../packages/core/districts/bracket.js";
+import type {
+  DistrictLedgerResult,
+  DistrictSelectionRouteObservation,
+  DistrictSelectionRoutes,
+} from "../../../../../packages/core/districts/ledgerSimulation.js";
 import {
   DISTRICT_CATEGORIES,
   allDistrictTierEventKeys,
@@ -28,6 +33,7 @@ import {
   districtLedgerStatLine,
   districtTierEvents,
   distributionsFromPreSim,
+  distributionsFromResult,
   filterDistrictLedgerTeams,
   inProgressDistrictEventKeys,
   playedBracketMatchesFor,
@@ -1421,5 +1427,178 @@ describe("the Playoffs cell's milestone", () => {
       if (cell.cell === "elim") expect(cell.playoffMilestone).toBeDefined();
       else expect(cell.playoffMilestone, cell.cell).toBeUndefined();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The selection ROUTE VIEW (quick task 260925-w4y)
+// ---------------------------------------------------------------------------
+
+describe("the alliance selection cell's route view", () => {
+  /** One route observation, defaulting to a route no draw took. */
+  function slot(overrides: Partial<DistrictSelectionRouteObservation> = {}): DistrictSelectionRouteObservation {
+    return {
+      draws: 0,
+      minPoints: undefined,
+      maxPoints: undefined,
+      allianceNumber: undefined,
+      possibleMinPoints: 9,
+      possibleMaxPoints: 16,
+      ...overrides,
+    };
+  }
+
+  /** A four-slot route set: a captain in `captainDraws` of the runs and a second pick in the rest. */
+  function routesFor(captainDraws: number, secondPickDraws: number, notSelectedDraws: number): DistrictSelectionRoutes {
+    return {
+      bySlot: [
+        slot({ draws: captainDraws, minPoints: 12, maxPoints: 16, allianceNumber: captainDraws > 0 ? 1 : undefined }),
+        slot(),
+        slot({ draws: secondPickDraws, minPoints: 2, maxPoints: 8, possibleMinPoints: 1, possibleMaxPoints: 8 }),
+        slot({ possibleMinPoints: 0, possibleMaxPoints: 0 }),
+      ],
+      notSelectedDraws,
+    };
+  }
+
+  function builtWith(
+    routes: DistrictSelectionRoutes | undefined,
+    rankingFixed: boolean | undefined,
+    distribution: DistrictPointDistribution = lumpy(300, 16)
+  ) {
+    const artifact = artifactOf([
+      team({
+        teamKey: "frc1",
+        pointTotal: 0,
+        remainingEvents: [remainingEvent({ eventKey: "2026walive", week: 1, state: OPEN_STATE })],
+        maxRemainingDistrict: 83,
+      }),
+    ]);
+    const distributions = new Map<string, DistrictEventDistributions>([
+      [
+        "2026walive",
+        {
+          eventKey: "2026walive",
+          byTeam: new Map([
+            [
+              "frc1",
+              {
+                qual: undefined,
+                alliance: distribution,
+                elim: undefined,
+                award: undefined,
+                eventTotal: undefined,
+                grandTotal: undefined,
+              },
+            ],
+          ]),
+          ...(routes === undefined ? {} : { selectionRoutesByTeam: new Map([["frc1", routes]]) }),
+          ...(rankingFixed === undefined ? {} : { rankingFixed }),
+        },
+      ],
+    ]);
+    return buildDistrictLedgerRows({ artifact, distributions });
+  }
+
+  it("carries the routes onto the open Alliance selection cell, with the DISTRIBUTION's own denominator", () => {
+    const built = builtWith(routesFor(200, 100, 700), false);
+    const cell = built.teams[0]!.rows[0]!.cells[1]!;
+    expect(cell.kind).toBe("open");
+    if (cell.kind !== "open") throw new Error("unreachable");
+    expect(cell.selection).toBeDefined();
+    // The one agreement that matters: the route counts and the histogram are
+    // shares of the SAME runs, so the list cannot disagree with the headline.
+    expect(cell.selection!.denominator).toBe(cell.distribution.denominator);
+    expect(cell.selection!.rankingFixed).toBe(false);
+    expect(cell.selection!.routes.bySlot[0]!.draws).toBe(200);
+    expect(built.gaps.eventsWithUnknownSelectionRoutes).toEqual([]);
+  });
+
+  it("forwards a FIXED ranking as fixed", () => {
+    const built = builtWith(routesFor(1000, 0, 0), true);
+    const cell = built.teams[0]!.rows[0]!.cells[1]!;
+    if (cell.kind !== "open") throw new Error("unreachable");
+    expect(cell.selection!.rankingFixed).toBe(true);
+  });
+
+  it("leaves the cell's routes ABSENT and names the event when the run reported none", () => {
+    // The baked path: pmfs and nothing else. The cell keeps the shipped wording
+    // and the absence is disclosed rather than inferred from the words.
+    const built = builtWith(undefined, undefined);
+    const cell = built.teams[0]!.rows[0]!.cells[1]!;
+    if (cell.kind !== "open") throw new Error("unreachable");
+    expect(cell.selection).toBeUndefined();
+    expect(built.gaps.eventsWithUnknownSelectionRoutes).toEqual(["2026walive"]);
+  });
+
+  it("names the event when the routes are there but the fixed-ranking flag is not, rather than guessing one", () => {
+    const built = builtWith(routesFor(200, 100, 700), undefined);
+    const cell = built.teams[0]!.rows[0]!.cells[1]!;
+    if (cell.kind !== "open") throw new Error("unreachable");
+    expect(cell.selection).toBeUndefined();
+    expect(built.gaps.eventsWithUnknownSelectionRoutes).toEqual(["2026walive"]);
+  });
+
+  it("puts NO route view on any other category's cell", () => {
+    const built = builtWith(routesFor(200, 100, 700), false);
+    const cells = built.teams[0]!.rows[0]!.cells;
+    for (const [index, cell] of cells.entries()) {
+      if (cell.kind !== "open") continue;
+      if (index === 1) continue;
+      expect(cell.selection, `cell ${String(index)} carries a route view`).toBeUndefined();
+    }
+  });
+});
+
+describe("distributionsFromResult and the routes", () => {
+  /** A result object with empty histograms — this test is about the RESHAPING, not the math. */
+  function resultWith(routes: ReadonlyMap<string, DistrictSelectionRoutes>, rankingFixed: boolean): DistrictLedgerResult {
+    return {
+      eventKey: "2026walive",
+      draws: 1000,
+      qualPoints: new Map(),
+      selectionPoints: new Map(),
+      elimPoints: new Map(),
+      awardPoints: new Map(),
+      eventTotal: new Map(),
+      awardSources: new Map(),
+      awardOrdering: "applied",
+      playoffMilestones: new Map(),
+      selectionRoutes: routes,
+      rankingFixed,
+    };
+  }
+
+  it("forwards the run's routes and its fixed-ranking flag unreshaped", () => {
+    const routes: DistrictSelectionRoutes = {
+      bySlot: [
+        { draws: 4, minPoints: 16, maxPoints: 16, allianceNumber: 1, possibleMinPoints: 9, possibleMaxPoints: 16 },
+        { draws: 0, minPoints: undefined, maxPoints: undefined, allianceNumber: undefined, possibleMinPoints: 9, possibleMaxPoints: 16 },
+        { draws: 0, minPoints: undefined, maxPoints: undefined, allianceNumber: undefined, possibleMinPoints: 1, possibleMaxPoints: 8 },
+        { draws: 0, minPoints: undefined, maxPoints: undefined, allianceNumber: undefined, possibleMinPoints: 0, possibleMaxPoints: 0 },
+      ],
+      notSelectedDraws: 0,
+    };
+    const byTeam = new Map([["frc1", routes]]);
+    const shaped = distributionsFromResult(resultWith(byTeam, true));
+    expect(shaped.selectionRoutesByTeam).toBe(byTeam);
+    expect(shaped.rankingFixed).toBe(true);
+  });
+
+  it("gives a BAKED sidecar neither, because a sidecar carries pmfs and nothing else", () => {
+    const pmf = { o: 0, p: [0.5, 0.5] };
+    const sidecar = DistrictPreSimArtifactSchema.parse({
+      schemaVersion: 1,
+      generation: "gen-1",
+      computedAt: "2026-09-25T00:00:00.000Z",
+      districtKey: "2026pnw",
+      eventKey: "2026wasoon",
+      year: SEASON,
+      roster: ["frc1"],
+      rows: [{ t: 0, qual: pmf, alliance: pmf, elim: pmf, award: pmf, total: pmf }],
+    });
+    const decoded = distributionsFromPreSim(sidecar);
+    expect(decoded.selectionRoutesByTeam).toBeUndefined();
+    expect(decoded.rankingFixed).toBeUndefined();
   });
 });

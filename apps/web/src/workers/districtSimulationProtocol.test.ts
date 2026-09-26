@@ -152,6 +152,39 @@ describe("runDistrictSimulationJob", () => {
     expect(entry.result.draws).toBe(direct.draws);
   });
 
+  it("forwards the selection ROUTES and the fixed-ranking flag, and they survive a structured clone intact", () => {
+    // The routes cross this boundary UNRESHAPED, like every other field of the
+    // core's result, so the only thing this boundary can get wrong is carrying a
+    // value a structured clone drops. `undefined` inside a plain object is
+    // cloneable; a `Map` of them is; so the assertion is equality AFTER a clone,
+    // not merely that the clone did not throw (quick task 260925-w4y).
+    const request = requestFor([eventRequest("2026waone")]);
+    const direct = simulateDistrictEvent(request.events[0]!.input, DRAWS, SEED);
+    const entry = resultOf(collect(request)).events[0]!;
+    if (entry.status !== "ok") throw new Error("unreachable");
+    expect(entry.result.selectionRoutes).toEqual(direct.selectionRoutes);
+    expect(entry.result.rankingFixed).toBe(direct.rankingFixed);
+
+    const cloned = structuredClone(entry.result);
+    expect(cloned.selectionRoutes).toEqual(direct.selectionRoutes);
+    expect(cloned.rankingFixed).toBe(direct.rankingFixed);
+    // The `undefined` alliance number of a route no draw took is the one field
+    // whose survival is worth asserting by hand: a clone that dropped the key
+    // rather than its value would still compare equal under `toEqual`.
+    const routes = cloned.selectionRoutes.get(teamKey(1))!;
+    const backup = routes.bySlot[3]!;
+    expect(Object.keys(backup).sort()).toEqual([
+      "allianceNumber",
+      "draws",
+      "maxPoints",
+      "minPoints",
+      "possibleMaxPoints",
+      "possibleMinPoints",
+    ]);
+    expect(backup.draws).toBe(0);
+    expect(backup.allianceNumber).toBeUndefined();
+  });
+
   it("emits one progress message per event, cumulative, with the total set once", () => {
     const emitted = collect(requestFor([eventRequest("2026waone"), eventRequest("2026watwo")]));
     const progress = emitted.filter((m) => m.type === "progress");
