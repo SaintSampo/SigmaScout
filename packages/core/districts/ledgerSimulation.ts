@@ -193,7 +193,18 @@ import {
   ROOKIE_ALL_STAR_AWARD_POINTS,
   rookieAllStarOrderingProbability,
 } from "./awardOrderingTables.js";
-import { assertBracketSeason, divisionedDcmpPlayoffPmf, playoffPoints, routeBracket } from "./bracket.js";
+import {
+  allianceBracketMilestones,
+  assertBracketSeason,
+  bracketDecisionKey,
+  bracketDecisionsFromPlayedMatches,
+  divisionedDcmpPlayoffPmf,
+  playoffPoints,
+  routeBracket,
+  routePlayedBracket,
+  type AllianceBracketMilestone,
+  type PlayedBracketMatch,
+} from "./bracket.js";
 import { maxEventPoints, type DistrictTier } from "./pointModel.js";
 import { districtQualPoints, districtTierWeight } from "./qualPoints.js";
 import { districtSelectionPoints } from "./selectionPoints.js";
@@ -427,6 +438,31 @@ export interface DistrictLedgerEventInput {
    * a posted award needs no base rate. A team absent from the map scores 0.
    */
   readonly knownAwardPoints?: ReadonlyMap<string, number>;
+  /**
+   * PARTIAL STAGE INPUT — the elimination matches ALREADY PLAYED while the
+   * playoffs are still running. The bracket is still routed; every set the
+   * played rows decide takes its real result and consumes NO randomness, and
+   * every set still open is priced as before (quick task 260925-uf8).
+   *
+   * WHY THIS IS NOT A FIFTH FLAG. `knownElimPoints` says "the playoffs are
+   * OVER, here are the points", which skips the routing entirely; this says
+   * "the playoffs are UNDER WAY, here is how far", which routes the same
+   * bracket from a real starting position. The two are different facts about
+   * different stages and neither can express the other: an all-or-nothing
+   * playoff stage is exactly what made the cell print a chance of reaching the
+   * top four while the alliance was already in the final.
+   *
+   * THE LEDGER STREAM'S CONSUMED COUNT IS LOWER when this is supplied, by one
+   * draw per played match, BY DESIGN — the same stage-dependence the header
+   * already states for a skipped stage. A seeded output therefore changes when
+   * a match is played, which is the point.
+   *
+   * Only consulted for an EIGHT-ALLIANCE bracket with `knownElimPoints` absent.
+   * A divisioned district championship parent draws from the measured fallback
+   * table and has no bracket to condition, and a finished playoff has nothing
+   * left to condition.
+   */
+  readonly playedElimMatches?: readonly PlayedBracketMatch[];
 }
 
 /**
@@ -467,6 +503,23 @@ export interface DistrictLedgerResult {
    * it from the numbers. See `AwardOrderingDisposition`.
    */
   readonly awardOrdering: AwardOrderingDisposition;
+  /**
+   * Team key -> how far that team's alliance has already got in the bracket, so
+   * the Playoffs cell can print the milestone it is actually chasing rather
+   * than always printing the chance of reaching the top four.
+   *
+   * EMPTY unless the alliances are KNOWN and the bracket was routed from played
+   * matches. A milestone names an ALLIANCE's progress, and when the draft is
+   * simulated a team is on a different alliance on every draw, so there is no
+   * alliance whose progress could be reported. Elimination matches cannot be
+   * played before alliances are announced, so the two conditions coincide in
+   * practice and neither is a restriction the sport can violate.
+   *
+   * DERIVED ONCE, OUTSIDE THE DRAW LOOP, and not a marginal of the draws: it is
+   * a function of the played matches and the supplied rosters alone, so it
+   * carries no Monte Carlo error at all.
+   */
+  readonly playoffMilestones: ReadonlyMap<string, AllianceBracketMilestone>;
 }
 
 /**
@@ -858,6 +911,30 @@ export function simulateDistrictEvent(
   const teamIndex = new Map<string, number>(baselines.map((baseline, i) => [baseline.teamKey, i]));
   const suppliedAlliances = validateSuppliedAlliances(input, teamIndex, allianceCount);
 
+  // THE PARTIALLY-PLAYED BRACKET, resolved ONCE before any draw. `routePlayedBracket`
+  // raises `InvalidBracketDecisionError` for a match whose winner was not one of
+  // the two alliances in its set, which is a mis-mapped match — and it raises it
+  // HERE, before a single draw, so `districtSimulationProtocol.ts` turns it into
+  // a per-event unavailable entry rather than a table of confident wrong numbers.
+  const playedDecisions =
+    input.playedElimMatches === undefined || !usesEightAllianceBracket || elimIsKnown
+      ? undefined
+      : bracketDecisionsFromPlayedMatches(input.playedElimMatches);
+  const playoffMilestones = new Map<string, AllianceBracketMilestone>();
+  if (playedDecisions !== undefined && suppliedAlliances !== undefined) {
+    const milestoneByAlliance = allianceBracketMilestones(routePlayedBracket(playedDecisions));
+    for (const alliance of suppliedAlliances) {
+      const milestone = milestoneByAlliance.get(alliance.allianceNumber);
+      if (milestone === undefined) continue;
+      for (const teamI of alliance.memberIndices) playoffMilestones.set(baselines[teamI]!.teamKey, milestone);
+    }
+  } else if (playedDecisions !== undefined) {
+    // A played bracket with a SIMULATED draft still conditions the routing — the
+    // real results are real — but reports no milestone, because the alliance a
+    // team sits on changes from draw to draw. See `playoffMilestones`.
+    routePlayedBracket(playedDecisions);
+  }
+
   // -------------------------------------------------------------------------
   // Accumulators, buffers and every per-rank/per-team constant: allocated ONCE
   // outside the draw loop and reset in place, following `rankSimulation.ts`'s
@@ -1080,8 +1157,15 @@ export function simulateDistrictEvent(
       const known = input.knownElimPoints;
       for (let i = 0; i < teamCount; i++) elim[i] = known.get(baselines[i]!.teamKey) ?? 0;
     } else if (usesEightAllianceBracket) {
-      const routed = routeBracket((allianceA, allianceB, setId) => {
+      const routed = routeBracket((allianceA, allianceB, setId, matchNumber) => {
         bracketSetIds.push(setId);
+        // A MATCH ALREADY PLAYED IS NOT PRICED. Its real winner is returned and
+        // no randomness is consumed for it, which is what makes the cell's
+        // milestone and its chance describe the same bracket. `routeBracket`
+        // still checks the returned alliance is one of the set's two, so a
+        // mis-mapped decision cannot slip through here either.
+        const played = playedDecisions?.get(bracketDecisionKey(setId, matchNumber));
+        if (played !== undefined) return played;
         // The measured pricer is called with the ROSTER ARRAYS rather than a
         // cached mean-and-variance pair. The redundant additions are a few dozen
         // per draw, and reusing the ONE measured pricer is worth more than the
@@ -1204,6 +1288,7 @@ export function simulateDistrictEvent(
     eventTotal: totalHistograms,
     awardSources,
     awardOrdering,
+    playoffMilestones,
   };
 }
 

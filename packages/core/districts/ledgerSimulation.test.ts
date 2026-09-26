@@ -31,8 +31,10 @@ import {
 import {
   BRACKET_SETS,
   divisionedDcmpPlayoffPmf,
+  InvalidBracketDecisionError,
   UnsupportedAllianceCountError,
   UnsupportedBracketSeasonError,
+  type PlayedBracketMatch,
 } from "./bracket.js";
 import {
   AlliancePricingError,
@@ -1517,5 +1519,118 @@ describe("the award ordering layer — the draw", () => {
     // Not two more: a veteran cannot win Rookie All Star, so no randomness is
     // consumed for it at all.
     expect(consumed(input, 1) - consumed(inputFor(30), 1)).toBe(1 * 30);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The partially-played bracket (quick task 260925-uf8)
+// ---------------------------------------------------------------------------
+
+describe("simulateDistrictEvent — the playoffs already under way", () => {
+  /** `suppliedAlliances()`' own alliance `n`, as a set of team keys. */
+  const rosterOf = (allianceNumber: number): Set<string> => new Set(suppliedAlliances()[allianceNumber - 1]!.picks);
+
+  /** The played rows that put alliance 1 through sf1 and sf7, so it has reached sf11 and secured a top-four finish. */
+  const throughUpperRoundTwo: readonly PlayedBracketMatch[] = [
+    { compLevel: "sf", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 },
+    { compLevel: "sf", setNumber: 2, matchNumber: 1, winningAllianceNumber: 4 },
+    { compLevel: "sf", setNumber: 7, matchNumber: 1, winningAllianceNumber: 1 },
+  ];
+
+  it("returns the played winner for a decided set and consumes NO randomness for it", () => {
+    const base = inputFor(30, { knownAlliances: suppliedAlliances(), remainingMatches: [] });
+    const conditioned = { ...base, playedElimMatches: throughUpperRoundTwo };
+    const consumed = (input: DistrictLedgerEventInput): number => {
+      let total = 0;
+      simulateDistrictEvent(input, 1, 7, (observation) => {
+        total += observation.ledgerDraws;
+      });
+      return total;
+    };
+    // Three fewer bracket draws on the first draw, one per played match.
+    expect(consumed(base) - consumed(conditioned)).toBe(3);
+  });
+
+  it("gives alliance 1 a top-four finish in EVERY draw once it has won sf7, whatever the pricer says", () => {
+    // The ratings are a permutation of the ranking, so alliance 1 is not
+    // favoured by construction — the guarantee comes from the played rows.
+    const input = inputFor(30, {
+      knownAlliances: suppliedAlliances(),
+      remainingMatches: [],
+      playedElimMatches: throughUpperRoundTwo,
+    });
+    const result = simulateDistrictEvent(input, 500, 31337);
+    const fourthPlacePoints = 7;
+    for (const teamKeyOnAlliance of rosterOf(1)) {
+      const histogram = result.elimPoints.get(teamKeyOnAlliance)!;
+      // No mass below fourth place's own point value.
+      for (let points = 0; points < fourthPlacePoints; points++) {
+        expect(histogram[points], `${teamKeyOnAlliance} at ${String(points)} points`).toBe(0);
+      }
+    }
+  });
+
+  it("reports the milestone per TEAM, from the alliance it actually sits on", () => {
+    const input = inputFor(30, {
+      knownAlliances: suppliedAlliances(),
+      remainingMatches: [],
+      playedElimMatches: throughUpperRoundTwo,
+    });
+    const result = simulateDistrictEvent(input, 10, 1);
+    for (const key of rosterOf(1)) expect(result.playoffMilestones.get(key)).toEqual({ kind: "topFour" });
+    // Alliance 2's sf3 has not been played, so it is still alive and nothing is
+    // secured; alliance 5 lost sf2 and is not secured either.
+    for (const key of rosterOf(2)) expect(result.playoffMilestones.get(key)).toEqual({ kind: "alive" });
+    for (const key of rosterOf(5)) expect(result.playoffMilestones.get(key)).toEqual({ kind: "alive" });
+  });
+
+  it("reports NO milestone when the draft is simulated, because a team's alliance changes every draw", () => {
+    const input = inputFor(30, { remainingMatches: [], playedElimMatches: throughUpperRoundTwo });
+    const result = simulateDistrictEvent(input, 10, 1);
+    expect(result.playoffMilestones.size).toBe(0);
+  });
+
+  it("reports NO milestone and consults nothing when the playoffs are already done", () => {
+    const knownElimPoints = new Map<string, number>([[teamKey(1), 30]]);
+    const input = inputFor(30, {
+      knownAlliances: suppliedAlliances(),
+      remainingMatches: [],
+      knownElimPoints,
+      playedElimMatches: throughUpperRoundTwo,
+    });
+    const result = simulateDistrictEvent(input, 10, 1);
+    expect(result.playoffMilestones.size).toBe(0);
+    expect(result.elimPoints.get(teamKey(1))![30]).toBe(10);
+  });
+
+  it("refuses a mis-mapped played match BEFORE any draw rather than routing it", () => {
+    const input = inputFor(30, {
+      knownAlliances: suppliedAlliances(),
+      remainingMatches: [],
+      // sf1 is seed 1 against seed 8; alliance 3 was never in it.
+      playedElimMatches: [{ compLevel: "sf", setNumber: 1, matchNumber: 1, winningAllianceNumber: 3 }],
+    });
+    expect(() => simulateDistrictEvent(input, 10, 1)).toThrow(InvalidBracketDecisionError);
+  });
+
+  it("leaves an empty played set exactly where it was: every alliance alive, and the same seeded output", () => {
+    const base = inputFor(30, { knownAlliances: suppliedAlliances(), remainingMatches: [] });
+    const withEmpty = simulateDistrictEvent({ ...base, playedElimMatches: [] }, 50, 99);
+    const without = simulateDistrictEvent(base, 50, 99);
+    for (const baseline of base.baselines) {
+      expect([...withEmpty.elimPoints.get(baseline.teamKey)!]).toEqual([...without.elimPoints.get(baseline.teamKey)!]);
+    }
+    for (const key of rosterOf(1)) expect(withEmpty.playoffMilestones.get(key)).toEqual({ kind: "alive" });
+  });
+
+  it("ignores a played set for a divisioned parent, which draws from the measured fallback and has no bracket", () => {
+    const input = inputFor(30, {
+      allianceCount: 4,
+      tier: "dcmp",
+      remainingMatches: [],
+      playedElimMatches: throughUpperRoundTwo,
+    });
+    const result = simulateDistrictEvent(input, 10, 1);
+    expect(result.playoffMilestones.size).toBe(0);
   });
 });
