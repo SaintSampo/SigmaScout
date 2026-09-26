@@ -606,12 +606,18 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
       qualifiers: { awardQualified: new Set(statuses.awardQualified), prequalified: new Set(statuses.prequalified) },
       reservedSlots: statuses.reservedSlots,
     });
+    /**
+     * AND REFUSED where the run ranked a DIFFERENT FIELD: an excluded team is
+     * one whose grand total could not be built, so the simulated line is the
+     * slot th highest of a smaller pool than the cutoff was taken over. See
+     * `DistrictLedger.tsx`'s own note for the measurement that found it.
+     */
     const likely =
-      value.kind === "predicted" && champChanceState.status === "complete"
+      value.kind === "predicted" && champChanceState.status === "complete" && champChanceRun?.excludedTeams.length === 0
         ? simulatedCutoffRange(champChanceState.cutoffByRun, champChanceState.draws)
         : undefined;
     return { cutoff: value, likely, districtOnly: rows.gaps.teamsWithDistrictOnlyGrandTotal.length > 0 };
-  }, [rows, artifact.cmpSlots, statuses, champChanceState]);
+  }, [rows, artifact.cmpSlots, statuses, champChanceState, champChanceRun]);
 
   const activeStatuses = useMemo(
     () => new Set(DISTRICT_LEDGER_STATUS_KEYS.filter((status) => !hiddenStatuses.has(status))),

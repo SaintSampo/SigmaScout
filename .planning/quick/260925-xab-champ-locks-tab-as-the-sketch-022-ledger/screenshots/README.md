@@ -22,3 +22,11 @@ roster, slot count and cut line in these shots is the published one.
 `2026pncmp` event artifact or a `2026pnw/2026pncmp` presim sidecar, and the fixture set carries
 neither. The component test `ChampLocksLedger.test.tsx` covers that position instead, with a
 synthetic artifact and the real Worker protocol.
+
+## Superseded, 2026-09-26
+
+The `now-both-tiers-final-*` caption above says "Today's line 182". That line no longer renders:
+quick task 260926-37q replaced it on both tabs with a PREDICTED CUTOFF, and the same position now
+reads "Cutoff 182" on the Champ Locks tab and "Cutoff 59" on the District Locks tab. The shots
+here are kept as the record of what shipped on 2026-09-26; the new ones are in
+`../../260926-37q-predicted-cutoff-replaces-today-s-line-o/screenshots/`.

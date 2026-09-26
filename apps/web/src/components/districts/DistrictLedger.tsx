@@ -444,12 +444,24 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
       qualifiers: { awardQualified: new Set(statuses.awardQualified), prequalified: new Set(statuses.prequalified) },
       reservedSlots: statuses.reservedSlots,
     });
+    /**
+     * THE RANGE IS REFUSED WHERE THE RUN RANKED A DIFFERENT FIELD.
+     *
+     * `prepareChanceRanking` EXCLUDES a team whose grand total could not be
+     * built, so with a non empty `excludedTeams` the simulated line is the
+     * slot th highest of a SMALLER pool and sits below the cutoff, which is
+     * taken over the whole one. Measured on the 2026 PNW fixture rewound to
+     * `2026wasam:awards`, where 32 of 126 grand totals refuse: the stat line
+     * read a cutoff of 54 beside a likely range of 49 to 51, a range that
+     * cannot contain the number beside it. An absent range is this tab's own
+     * answer for a number it cannot stand behind.
+     */
     const likely =
-      value.kind === "predicted" && chanceState.status === "complete"
+      value.kind === "predicted" && chanceState.status === "complete" && chanceRun?.excludedTeams.length === 0
         ? simulatedCutoffRange(chanceState.cutoffByRun, chanceState.draws)
         : undefined;
     return { cutoff: value, likely, districtOnly: false };
-  }, [rows.teams, artifact.dcmpSlots, statuses, chanceState]);
+  }, [rows.teams, artifact.dcmpSlots, statuses, chanceState, chanceRun]);
   const activeStatuses = useMemo(
     () => new Set(DISTRICT_LEDGER_STATUS_KEYS.filter((status) => !hiddenStatuses.has(status))),
     [hiddenStatuses]
