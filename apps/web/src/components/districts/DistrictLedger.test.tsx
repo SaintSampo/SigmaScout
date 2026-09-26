@@ -1598,6 +1598,55 @@ describe("DistrictLedger — the advancement chance", () => {
     expect(request.inputs.teams.map((team) => team.teamKey)).toContain("frc900");
     expect(request.inputs.teams).toHaveLength(ROSTER.length + 1);
   });
+
+  /**
+   * THE REPRODUCTION (quick task 260925-uf8). One team entered in the live event
+   * and ABSENT from the served event artifact's roster: the simulation returns no
+   * distribution for it, so every open cell and its grand total are unavailable.
+   *
+   * Before the fix that ONE team silenced the whole district — which is what
+   * `?year=2026&district=2026pnw&tab=road-to-district-champs&at=2026wasam:awards`
+   * was showing, at 90 teams rather than one. Now it is excluded from the
+   * ranking, is named in the run, and its own row still says "not available".
+   */
+  function districtWithOneUnpriceableTeam() {
+    const teams = ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey)));
+    return artifactOf([...teams, withLiveEvent(districtTeam("frc901"))]);
+  }
+
+  it("still prints a chance for the rest of the district when ONE team's grand total cannot be built", async () => {
+    installFetch({ eventArtifact: liveEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(districtWithOneUnpriceableTeam());
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-chance").length).toBeGreaterThan(0));
+
+    // Every printed line is still a well-formed one.
+    for (const line of screen.getAllByTestId("district-ledger-chance")) {
+      expect(line.textContent ?? "").toMatch(/^(<5% chance|\d{1,2}% chance)$/);
+    }
+    // The unpriceable team is LEFT OUT of the posted ranking rather than posted
+    // with a fabricated distribution.
+    const request = instancesReceiving(handle, "chance").at(-1)!.received[0] as { inputs: { teams: { teamKey: string }[] } };
+    const posted = request.inputs.teams.map((team) => team.teamKey);
+    expect(posted).not.toContain("frc901");
+    expect(posted).toHaveLength(ROSTER.length);
+  });
+
+  it("says so in the excluded team's OWN row rather than saying nothing anywhere", async () => {
+    installFetch({ eventArtifact: liveEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(districtWithOneUnpriceableTeam());
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-chance").length).toBeGreaterThan(0));
+
+    const rows = [...document.querySelectorAll('[data-testid="district-ledger-row"][data-team="frc901"]')];
+    expect(rows.length).toBeGreaterThan(0);
+    const text = rows.map((row) => row.textContent ?? "").join(" ");
+    expect(text).toContain(DISTRICT_LEDGER_UNAVAILABLE_CELL);
+    // And no chance line under its own chip, because it was never ranked.
+    for (const row of rows) {
+      expect(within(row as HTMLElement).queryAllByTestId("district-ledger-chance")).toHaveLength(0);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

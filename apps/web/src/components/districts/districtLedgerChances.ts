@@ -6,16 +6,37 @@
  * the draws and `locks.ts` owns the slots. This module owns exactly two
  * decisions, and both are refusals:
  *
- * 1. WHEN THERE IS NO CHANCE TO COMPUTE AT ALL (`buildAdvancementChanceRequest`
+ * 1. WHEN THERE IS NO CHANCE TO COMPUTE AT ALL (`buildAdvancementChanceRun`
  *    returns `undefined`). An unpublished capacity, a district with nothing
- *    left to play, a run still in flight, or ANY team whose grand total could
- *    not be built. The last one is the one worth stating: a chance is a
- *    RANKING, so a field with a hole in it does not produce a slightly worse
- *    chance, it produces a wrong one — every other team's chance would be
- *    inflated by exactly the rival that went missing. `districtLedgerRows.ts`
- *    already names those teams in `gaps.teamsWithUnavailableGrandTotal` and
- *    prints "not available" in their cells; this tab prints no chance for
- *    anybody rather than a confident number over an incomplete district.
+ *    left to play, a run still in flight, or a hole in the field too big to
+ *    rank around.
+ *
+ *    THAT LAST ONE WAS NARROWED ON 2026-09-25 (quick task 260925-uf8), and the
+ *    narrowing is worth the space it takes. The shipped rule refused the WHOLE
+ *    district on the first team whose grand total could not be built, which is
+ *    how `?year=2026&district=2026pnw&tab=road-to-district-champs&at=2026wasam:awards`
+ *    came to render sixty-six status chips and not one chance line: production's
+ *    district artifact predates phase 10's `state`, `awardProfile` and
+ *    `bakedEvents` fields, so at a rewound position the tab holds no
+ *    distribution for any event at all and 90 of its 126 grand totals are
+ *    unavailable. One bad team silencing a hundred and twenty-five good ones is
+ *    the wrong trade.
+ *
+ *    So an unavailable grand total now EXCLUDES that team, and the excluded set
+ *    is reported in `excludedTeams`. The original argument still holds and is
+ *    exactly why there is still a bound: a chance is a RANKING, so an excluded
+ *    rival can only INFLATE every remaining chance, by at most one slot each.
+ *    The exclusion is therefore allowed only while the excluded set could not
+ *    fill the capacity on its own, and only while something is still open among
+ *    the teams that remain. A 90-of-126 hole against 50 slots still refuses,
+ *    correctly; a handful of teams whose own row refused no longer does.
+ *
+ *    THE DISCLOSURE IS ALREADY ON THE SCREEN. An excluded team is exactly a team
+ *    `districtLedgerRows.ts` names in `gaps.teamsWithUnavailableGrandTotal` and
+ *    renders every predicted number of as "not available", including its grand
+ *    total — so a reader sees, in that team's own row, that its prediction could
+ *    not be built. `excludedTeams` carries the same list for a test and for any
+ *    future surface that wants to count it.
  *
  * 2. WHEN A RUN SET DISAGREES WITH A VERDICT (`reconcileAdvancementChances`).
  *    The chip wins, always. A Locked team reading below 1 is reachable through
@@ -35,10 +56,19 @@ import type { DistrictArtifact } from "../../../../../packages/harness/pageArtif
 import { pointMassDistribution, type DistrictLedgerTeam } from "./districtLedgerRows.js";
 import type { DistrictLedgerStatusModel } from "./districtLedgerStatus.js";
 
-/** One posted chance run: the inputs, plus the string the hook's effect keys on. */
+/** One posted chance run: the inputs, the string the hook's effect keys on, and what the ranking had to leave out. */
 export interface DistrictAdvancementChanceRun {
   readonly inputs: AdvancementChanceInputs;
   readonly signature: string;
+  /**
+   * The teams left OUT of the ranking because their grand total could not be
+   * built, sorted. Empty on a healthy district.
+   *
+   * Every one of them already renders every predicted number as "not available"
+   * in its own row, which is where the reader sees it; this array is the same
+   * fact in a form a test can assert and a future surface could count.
+   */
+  readonly excludedTeams: readonly string[];
 }
 
 export interface BuildAdvancementChanceRunOptions {
@@ -76,9 +106,18 @@ export interface BuildAdvancementChanceRunOptions {
  * team's own grand-total shape. A change the composition could miss would have
  * to leave all of those fixed, which no path in `districtLedgerRows.ts` does.
  */
-function chanceSignature(options: BuildAdvancementChanceRunOptions, teams: readonly AdvancementChanceTeam[]): string {
+function chanceSignature(
+  options: BuildAdvancementChanceRunOptions,
+  teams: readonly AdvancementChanceTeam[],
+  excludedTeams: readonly string[]
+): string {
   const { artifact, statuses, runSignature, positionId } = options;
   return [
+    // The EXCLUDED set by name, not just by count. A team going from unavailable
+    // to available shortens this list and lengthens the team fold below, so
+    // either alone would do; naming them makes the re-run obvious to a reader
+    // rather than an emergent property of two lists moving together.
+    excludedTeams.join("+"),
     artifact.districtKey,
     artifact.generation,
     artifact.computedAt,
@@ -108,12 +147,32 @@ export function buildAdvancementChanceRun(options: BuildAdvancementChanceRunOpti
   if (!teams.some((team) => team.hasOpenCategory)) return undefined;
 
   const chanceTeams: AdvancementChanceTeam[] = [];
+  const excludedTeams: string[] = [];
+  let openAmongIncluded = false;
   for (const team of teams) {
     const cell = team.grandTotal;
-    if (cell.kind === "unavailable") return undefined;
+    if (cell.kind === "unavailable") {
+      excludedTeams.push(team.teamKey);
+      continue;
+    }
+    if (team.hasOpenCategory) openAmongIncluded = true;
     const distribution = cell.kind === "final" ? pointMassDistribution(cell.earned) : cell.distribution;
     chanceTeams.push({ teamKey: team.teamKey, counts: distribution.counts, denominator: distribution.denominator });
   }
+
+  // THE TWO BOUNDS ON THE EXCLUSION, both stated in this module's header.
+  //
+  // An excluded rival can only inflate every remaining chance, and by at most
+  // one slot each, so once the excluded set alone could fill the capacity the
+  // ranking has stopped being a ranking of this district. `>=` rather than `>`:
+  // a set that could take every slot leaves nothing for the printed field to be
+  // competing for.
+  if (excludedTeams.length >= artifact.dcmpSlots) return undefined;
+  // And a field with nothing open left in it is a settled season, where a
+  // "chance" is a 1 or a 0 dressed up as a prediction — the same refusal the
+  // whole-district check above makes, re-applied to what survived the exclusion.
+  if (!openAmongIncluded) return undefined;
+  if (chanceTeams.length === 0) return undefined;
 
   const inputs: AdvancementChanceInputs = {
     teams: chanceTeams,
@@ -122,7 +181,8 @@ export function buildAdvancementChanceRun(options: BuildAdvancementChanceRunOpti
     prequalified: statuses.prequalified,
     reservedSlots: statuses.reservedSlots,
   };
-  return { inputs, signature: chanceSignature(options, chanceTeams) };
+  const sortedExcluded = [...excludedTeams].sort();
+  return { inputs, signature: chanceSignature(options, chanceTeams, sortedExcluded), excludedTeams: sortedExcluded };
 }
 
 export interface DistrictLedgerChanceModel {

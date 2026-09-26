@@ -206,14 +206,60 @@ describe("buildAdvancementChanceRun", () => {
     expect(runFor(racingDistrict(), null)).toBeUndefined();
   });
 
-  it("refuses the WHOLE district when even one team's grand total is unavailable", () => {
-    // No distribution is supplied for the unstarted event at all, so every open
-    // cell and therefore every grand total on it is unavailable.
+  it("refuses when NOTHING open survives the exclusion, which is a settled season by another route", () => {
+    // No distribution is supplied for the unstarted event at all, so the one
+    // racing team's grand total is unavailable and the only team left is settled.
     const artifact = artifactOf([
       team("frc1", { pointTotal: 60, eventPoints: [played("a", 60)] }),
       team("frc2", { pointTotal: 20, eventPoints: [played("a", 20)], remainingEvents: [ahead("b")], maxRemainingDistrict: EVENT_MAX }),
     ]);
     expect(runFor(build(artifact, new Map()))).toBeUndefined();
+  });
+
+  /**
+   * THE NARROWING (quick task 260925-uf8). One team whose grand total could not
+   * be built used to silence the whole district; it now excludes that team and
+   * is bounded by the capacity. See this module's header for the production URL
+   * that found it.
+   */
+  it("EXCLUDES one team whose grand total is unavailable, and still ranks the rest", () => {
+    const artifact = artifactOf([
+      team("frc1", { pointTotal: 60, eventPoints: [played("a", 60)] }),
+      team("frc2", { pointTotal: 20, eventPoints: [played("a", 20)], remainingEvents: [ahead("b")], maxRemainingDistrict: EVENT_MAX }),
+      team("frc3", { pointTotal: 10, eventPoints: [played("a", 10)], remainingEvents: [ahead("b")], maxRemainingDistrict: EVENT_MAX }),
+    ]);
+    // Priced for frc2 only, so frc3's open cells and grand total are unavailable.
+    const run = runFor(build(artifact, distributionsFor("b", ["frc2"])));
+    expect(run).toBeDefined();
+    expect(run!.excludedTeams).toEqual(["frc3"]);
+    expect(run!.inputs.teams.map((entry) => entry.teamKey).sort()).toEqual(["frc1", "frc2"]);
+  });
+
+  it("reports an empty excluded set on a healthy district", () => {
+    expect(runFor(racingDistrict())!.excludedTeams).toEqual([]);
+  });
+
+  it("refuses when the excluded set alone could fill the capacity", () => {
+    // Two slots, and two teams excluded: whatever the remaining field's ranking
+    // said, those two could have taken every slot.
+    const artifact = artifactOf([
+      team("frc1", { pointTotal: 60, eventPoints: [played("a", 60)], remainingEvents: [ahead("b")], maxRemainingDistrict: EVENT_MAX }),
+      team("frc2", { pointTotal: 20, eventPoints: [played("a", 20)], remainingEvents: [ahead("b")], maxRemainingDistrict: EVENT_MAX }),
+      team("frc3", { pointTotal: 10, eventPoints: [played("a", 10)], remainingEvents: [ahead("b")], maxRemainingDistrict: EVENT_MAX }),
+    ]);
+    expect(runFor(build(artifact, distributionsFor("b", ["frc1"])))).toBeUndefined();
+  });
+
+  it("moves the signature when the excluded set changes, so a repaired team re-runs the ranking", () => {
+    const artifact = artifactOf([
+      team("frc1", { pointTotal: 60, eventPoints: [played("a", 60)] }),
+      team("frc2", { pointTotal: 20, eventPoints: [played("a", 20)], remainingEvents: [ahead("b")], maxRemainingDistrict: EVENT_MAX }),
+      team("frc3", { pointTotal: 10, eventPoints: [played("a", 10)], remainingEvents: [ahead("b")], maxRemainingDistrict: EVENT_MAX }),
+    ]);
+    const partial = runFor(build(artifact, distributionsFor("b", ["frc2"])))!;
+    const whole = runFor(build(artifact, distributionsFor("b", ["frc2", "frc3"])))!;
+    expect(partial.signature).not.toBe(whole.signature);
+    expect(whole.excludedTeams).toEqual([]);
   });
 });
 
