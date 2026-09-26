@@ -89,12 +89,14 @@ const TEST_IDS = {
   statusCell: "district-ledger-status-cell",
   /** `DistrictLedger.tsx:734` — the Grand total cell. */
   grandTotal: "district-ledger-grand-total",
-  /** `DistrictLocksTab.tsx`'s `LocksHeaderCard` — the champ tab's own header stats row. */
-  champHeaderStatRow: "champ-locks-header-stat-row",
-  /** `DistrictLocksTab.tsx`'s column toggle — the champ tab's per event columns toggle. */
-  champColumnToggle: "district-champ-locks-column-toggle",
-  /** `DistrictLocksTab.tsx`'s root element — the champ table itself. */
-  champTab: "district-champ-locks-tab",
+  /** `ChampLocksLedger.tsx`'s own root — the sketch 022 ledger, which replaced the pre phase 10 champ table on 2026-09-26. */
+  champLedgerTab: "champ-ledger-tab",
+  /** `ChampLocksLedger.tsx`'s one controls card. */
+  champControls: "district-ledger-controls",
+  /** `ChampLocksLedger.tsx`'s five status chips. */
+  champStatusChips: "district-ledger-status-chips",
+  /** `ChampLocksLedger.tsx`'s table row; carries `data-team` and `data-row`, two per team. */
+  champRow: "champ-ledger-row",
 } as const;
 
 /**
@@ -276,16 +278,20 @@ test.describe("District Locks, 1440x900", () => {
     await expect(page.getByTestId(TEST_IDS.champPanel)).toBeHidden();
   });
 
-  test("the Champ Locks panel still renders the shipped champ table, so this phase's removal is provably scoped", async ({ page }) => {
+  test("the Champ Locks panel renders the two row ledger, so the replacement is provably scoped", async ({ page }) => {
     test.setTimeout(120_000);
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(districtUrl("champ-locks"));
     // Asserted POSITIVELY by the champ tier's own test ids: a spec that
     // silently matched nothing could otherwise pass by absence alone.
     await expect(page.getByTestId(TEST_IDS.champPanel)).toBeVisible();
-    await expect(page.getByTestId(TEST_IDS.champTab)).toBeVisible();
-    await expect(page.getByTestId(TEST_IDS.champHeaderStatRow)).toBeVisible();
-    await expect(page.getByTestId(TEST_IDS.champColumnToggle)).toBeVisible();
+    await expect(page.getByTestId(TEST_IDS.champLedgerTab)).toBeVisible();
+    await expect(page.getByTestId(TEST_IDS.champControls)).toBeVisible();
+    await expect(page.getByTestId(TEST_IDS.champStatusChips)).toBeVisible();
+    // TWO rows per team, so a count of one would mean the fold collapsed.
+    const rows = page.getByTestId(TEST_IDS.champRow);
+    await expect(rows.first()).toBeVisible();
+    expect(await rows.count()).toBeGreaterThan(1);
   });
 });
 

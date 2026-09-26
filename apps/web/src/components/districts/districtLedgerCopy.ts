@@ -394,9 +394,9 @@ export const DISTRICT_LEDGER_DRAWER_LINE_LABEL = "Today's line";
 /**
  * THIS TAB'S OWN WORDING of the conservatism caveat.
  *
- * Declared here rather than imported from `DistrictLocksTab.tsx`: reaching
- * across a component boundary for one string would couple the two tabs for no
- * gain, and this tab needs a second sentence that one does not.
+ * Declared here rather than inside a component: this module is where every
+ * string on either Locks tab lives, and `ChampLocksLedger.tsx` prints this
+ * very constant beside its own provenance sentence.
  */
 export const DISTRICT_LEDGER_CAVEAT =
   "A Locked verdict is a guarantee. A team that is not Locked has not been eliminated: declines, waitlist movement and wildcard slots can only ever help a team's chances, never hurt them.";

@@ -3,8 +3,8 @@
  *
  * The Team cells are real router `Link`s, so every render needs a router
  * context whose tree carries a `to="/team/$teamNumber"` route: the same
- * self-contained-tree `TestHarness` technique `DistrictLocksTab.test.tsx`
- * establishes, plus a `QueryClientProvider` because this tab fetches event
+ * self-contained-tree `TestHarness` technique `ChampLocksLedger.test.tsx`
+ * shares, plus a `QueryClientProvider` because this tab fetches event
  * artifacts and baked sidecars of its own.
  *
  * THE REAL PROTOCOL IS INSTALLED AS THE MOCK WORKER'S SCRIPT, exactly as
