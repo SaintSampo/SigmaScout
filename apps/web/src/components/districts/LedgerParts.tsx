@@ -514,16 +514,28 @@ export function DrawerCellPane({
   season,
   isRookie,
   tier = "district",
+  namedOutcomes = true,
 }: {
   cell: Extract<DistrictLedgerCell, { kind: "open" }>;
   season: number;
   isRookie: boolean;
   tier?: DistrictTier;
+  /**
+   * Whether this cell's support can be described by NAMED OUTCOMES at all.
+   * Defaults to true, which is every per-event cell either tab renders.
+   *
+   * The Champ Locks tab's District points row passes false: its cells are sums
+   * over several events, and no placement or award names an outcome of two
+   * events added together. The histogram is the honest pane there, so
+   * `districtCellRendersOutcomeList` is not consulted for those cells at all
+   * (quick task 260925-xab).
+   */
+  namedOutcomes?: boolean;
 }) {
   // THE ALLIANCE SELECTION LIST is chosen by DATA, not by category: a run that
   // reported its routes can name them, and a baked event's pmf cannot, so that
   // one keeps the histogram.
-  if (cell.cell === "alliance" && cell.selection !== undefined) {
+  if (namedOutcomes && cell.cell === "alliance" && cell.selection !== undefined) {
     const selectionRows = districtSelectionOutcomes(cell.selection).map((row) => ({
       key: row.id,
       label: DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS[row.id],
@@ -540,7 +552,7 @@ export function DrawerCellPane({
       />
     );
   }
-  if (districtCellRendersOutcomeList(cell.cell)) {
+  if (namedOutcomes && districtCellRendersOutcomeList(cell.cell)) {
     const rows =
       cell.cell === "elim"
         ? districtPlayoffOutcomes(season, tier, cell.distribution, cell.playoffMilestone).map((row) => ({

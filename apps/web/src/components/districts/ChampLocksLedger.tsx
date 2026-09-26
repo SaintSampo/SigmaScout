@@ -46,19 +46,27 @@ import type { PublishedAlgorithmId } from "../../../../../packages/harness/publi
 import type { DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
 import {
   ControlsCard,
+  DrawerCellPane,
   GrandTotalContent,
+  GrandTotalPlot,
   LedgerCell,
   RewindSlider,
   StatusCell,
   StatusChips,
   TeamCell,
   UNAVAILABLE_CELL_CLASS,
+  likelyRangeText,
+  prefersReducedMotion,
   stageWordKey,
   type CellInteraction,
   type DistrictLedgerNavigate,
 } from "./LedgerParts.js";
 import {
   CHAMP_LEDGER_COLUMN_LABELS,
+  CHAMP_LEDGER_CONTRIBUTION_CAPTION,
+  CHAMP_LEDGER_CONTRIBUTION_COLUMN_SOURCE,
+  CHAMP_LEDGER_CONTRIBUTION_LIST_LABEL,
+  CHAMP_LEDGER_CONTRIBUTION_ROW_LABELS,
   CHAMP_LEDGER_DISTRICT_ONLY_LINE,
   CHAMP_LEDGER_LOCKED_WINNER_LABEL,
   CHAMP_LEDGER_NOT_IN_FIELD_CELL,
@@ -67,11 +75,15 @@ import {
   CHAMP_LEDGER_ROW_LABELS,
   CHAMP_LEDGER_TAB_LABEL,
   DISTRICT_LEDGER_CAVEAT,
+  DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS,
+  DISTRICT_LEDGER_CONTRIBUTION_SETTLED,
   DISTRICT_LEDGER_NO_MATCHES,
   DISTRICT_LEDGER_PROVENANCE,
+  champLedgerContributionChanceNote,
   champLedgerDistrictSourceLine,
   champLedgerFieldChanceLine,
   districtLedgerChanceLine,
+  districtLedgerContributionEarned,
 } from "./districtLedgerCopy.js";
 import { buildAdvancementChanceRun, reconcileAdvancementChances } from "./districtLedgerChances.js";
 import {
@@ -88,9 +100,12 @@ import {
 import { computeChampLedgerStatuses } from "./champLedgerStatus.js";
 import {
   buildChampLedgerRows,
+  champContributions,
   dcmpEventKeyFor,
+  type ChampContribution,
   type ChampLedgerCell,
   type ChampLedgerRow,
+  type ChampLedgerRowKind,
   type ChampLedgerTeam,
 } from "./champLedgerRows.js";
 import {
@@ -105,6 +120,7 @@ import {
   buildDistrictLedgerRows,
   deriveStageFromState,
   tierEvents,
+  type DistrictLedgerCell,
   type DistrictStageFinality,
 } from "./districtLedgerRows.js";
 import { useDistrictEventArtifacts, useDistrictLedgerData } from "./useDistrictLedgerData.js";
@@ -195,6 +211,133 @@ function SourceCell({ row, team }: { row: ChampLedgerRow; team: ChampLedgerTeam 
 }
 
 /**
+ * The grand total drawer's right pane: ONE row per source, so a reader can see
+ * which half of the champ total the spread comes from.
+ *
+ * `DistrictContributionList`'s shape and classes, with the one thing the
+ * district tier has no equivalent of: the DCMP row prints the FIELD CHANCE it
+ * is weighted by, which is why the two subtotals do not add to the grand total
+ * while that chance is under one.
+ */
+function ChampContributionList({ contributions }: { contributions: readonly ChampContribution[] }) {
+  return (
+    <div className="flex flex-col gap-[var(--spacing-xs)]" data-testid="champ-ledger-drawer-contributions">
+      <table className="district-ledger-contributions">
+        <caption className="sr-only">{CHAMP_LEDGER_CONTRIBUTION_LIST_LABEL}</caption>
+        <thead>
+          <tr>
+            <th scope="col">{CHAMP_LEDGER_CONTRIBUTION_COLUMN_SOURCE}</th>
+            <th scope="col">{DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS.earned}</th>
+            <th scope="col">{DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS.open}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {contributions.map((entry) => (
+            <tr key={entry.row} data-testid="champ-ledger-contribution-row" data-row={entry.row}>
+              <th scope="row" className="district-ledger-contributions__event">
+                {CHAMP_LEDGER_CONTRIBUTION_ROW_LABELS[entry.row]}
+                {entry.fieldChance !== undefined && (
+                  <span className="district-ledger-event-stage" data-testid="champ-ledger-contribution-chance">
+                    {champLedgerContributionChanceNote(entry.fieldChance)}
+                  </span>
+                )}
+              </th>
+              <td className="district-ledger-contributions__earned">
+                {entry.notYetPriced ? CHAMP_LEDGER_NOT_YET_PRICED_CELL : districtLedgerContributionEarned(entry.earned)}
+              </td>
+              <td className="district-ledger-contributions__open">
+                {entry.notYetPriced ? (
+                  // NOT "settled": nothing here is finished, it was never
+                  // priced, and the two absences mean different things.
+                  CHAMP_LEDGER_NOT_YET_PRICED_CELL
+                ) : entry.open === undefined ? (
+                  DISTRICT_LEDGER_CONTRIBUTION_SETTLED
+                ) : (
+                  <>
+                    {`~${String(Math.round(entry.open.p50))}`}{" "}
+                    <span className="district-ledger-contributions__range">
+                      {likelyRangeText(Math.max(0, entry.open.p10), Math.max(0, entry.open.p90))}
+                    </span>
+                  </>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <span className="district-ledger-pane-caption">{CHAMP_LEDGER_CONTRIBUTION_CAPTION}</span>
+    </div>
+  );
+}
+
+/**
+ * ONE drawer row at a time across the whole table, spanning every column.
+ *
+ * THE TIER FOLLOWS THE ROW THE CELL CAME FROM. A DCMP cell's outcome lists are
+ * priced at the 3x weight by `districtPlayoffOutcomes`/`districtAwardOutcomes`
+ * themselves; a District points cell is a SUM over several events, so no named
+ * outcome covers its support and it asks for the histogram instead.
+ */
+function ChampDrawerRow({
+  cell,
+  row,
+  team,
+  todaysLineFloor,
+  columnCount,
+  chanceLine,
+  season,
+  isRookie,
+}: {
+  cell: Extract<DistrictLedgerCell, { kind: "open" }>;
+  /** Which of the team's two rows the clicked cell belongs to; `undefined` for the grand total, which belongs to neither. */
+  row: ChampLedgerRowKind | undefined;
+  team: ChampLedgerTeam;
+  todaysLineFloor: number | null;
+  columnCount: number;
+  chanceLine: string | undefined;
+  season: number;
+  isRookie: boolean;
+}) {
+  const animated = prefersReducedMotion() ? "" : " district-ledger-drawer--animated";
+  // THE GRAND TOTAL IS DRAWN ONCE. When the clicked cell IS the grand total its
+  // own plot is the left pane and the contribution list is the right one,
+  // rather than a second copy of the same histogram (Jacob, 2026-09-25).
+  const isGrandTotal = cell.cell === "grandTotal";
+  return (
+    <TableRow data-testid="champ-ledger-drawer" data-drawer-cell={cell.id} className="district-ledger-row--drawer">
+      <TableCell colSpan={columnCount}>
+        <div className={`flex flex-wrap gap-[var(--spacing-lg)]${animated}`}>
+          {isGrandTotal ? (
+            <>
+              <GrandTotalPlot cell={cell} todaysLineFloor={todaysLineFloor} rookieBonus={team.rookieBonus} chanceLine={chanceLine} />
+              <ChampContributionList contributions={champContributions(team)} />
+            </>
+          ) : (
+            <>
+              <DrawerCellPane
+                cell={cell}
+                season={season}
+                isRookie={isRookie}
+                tier={row === "dcmp" ? "dcmp" : "district"}
+                namedOutcomes={row === "dcmp"}
+              />
+              {team.grandTotal.kind === "open" && (
+                <GrandTotalPlot
+                  cell={team.grandTotal}
+                  todaysLineFloor={todaysLineFloor}
+                  rookieBonus={team.rookieBonus}
+                  chanceLine={chanceLine}
+                />
+              )}
+            </>
+          )}
+        </div>
+      </TableCell>
+    </TableRow>
+  );
+}
+
+/**
  * The exported tab is the IMPLEMENTATION WRAPPED IN A BOUNDARY, exactly as
  * `DistrictLedger` is and for the same reason (phase 10 review, WR-09): the
  * refusals `convolveDistrictGrandTotal`, `maxEventPoints` and `pointCellSummary`
@@ -267,6 +410,20 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     if (dcmpEventKey === undefined) return false;
     return startedKeys.includes(dcmpEventKey);
   }, [dcmpEventKey, startedKeys]);
+
+  /**
+   * The artifact's own rookie flag per team, for the Awards drawer's outcome
+   * list: a veteran's Rookie All Star row is OMITTED rather than printed at
+   * zero, because a veteran cannot win it and the draw consumes no randomness
+   * for it.
+   */
+  const isRookieByTeam = useMemo(() => {
+    const map = new Map<string, boolean>();
+    for (const team of artifact.teams) {
+      if (team.awardProfile !== undefined) map.set(team.teamKey, team.awardProfile.rookie);
+    }
+    return map;
+  }, [artifact]);
 
   const rewinding = search.at !== undefined && search.at !== DISTRICT_TIMELINE_NOW_ID;
   const activeEventKeys = rewinding ? startedKeys : inProgressKeys;
@@ -437,6 +594,30 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     });
   }, [rows.teams, query, hiddenStatuses, statuses]);
 
+  /**
+   * At most ONE drawer is open across the whole table, driven by the two typed
+   * search params so it is shareable and survives a reload. An unknown team
+   * number or an unknown cell id resolves to CLOSED, never to a neighbouring
+   * cell — which is why this is a lookup rather than an index, and why the
+   * champ cell ids are deliberately disjoint from the district tab's.
+   */
+  const openDrawer = useMemo(() => {
+    if (search.drawerTeam === undefined || search.drawerCell === undefined) return undefined;
+    const team = rows.teams.find((entry) => entry.teamNumber === search.drawerTeam);
+    if (team === undefined) return undefined;
+    if (search.drawerCell === team.grandTotal.id && team.grandTotal.kind === "open") {
+      return { team, cell: team.grandTotal, row: undefined };
+    }
+    for (const row of team.rows) {
+      for (const cell of [...row.cells, row.subtotal]) {
+        if (cell.id !== search.drawerCell) continue;
+        if (cell.kind !== "open") return undefined;
+        return { team, cell, row: row.kind };
+      }
+    }
+    return undefined;
+  }, [rows.teams, search.drawerTeam, search.drawerCell]);
+
   function toggleStatus(status: DistrictLedgerStatusKey): void {
     setHiddenStatuses((previous) => {
       const next = new Set(previous);
@@ -479,11 +660,11 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
           <TableBody>
             {visibleTeams.flatMap((team) => {
               const interaction: CellInteraction = {
-                openCellId: search.drawerTeam === team.teamNumber ? search.drawerCell : undefined,
+                openCellId: openDrawer?.team.teamKey === team.teamKey ? openDrawer.cell.id : undefined,
                 onToggle: (cellId) => handleCellToggle(team.teamNumber, cellId),
               };
               const status = statuses.byTeam.get(team.teamKey);
-              return team.rows.map((row, rowIndex) => (
+              const dataRows = team.rows.map((row, rowIndex) => (
                 <TableRow
                   key={`${team.teamKey}-${row.kind}`}
                   data-testid="champ-ledger-row"
@@ -535,6 +716,21 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
                   ))}
                 </TableRow>
               ));
+              if (openDrawer?.team.teamKey !== team.teamKey) return dataRows;
+              return [
+                ...dataRows,
+                <ChampDrawerRow
+                  key={`${team.teamKey}-drawer`}
+                  cell={openDrawer.cell}
+                  row={openDrawer.row}
+                  team={team}
+                  todaysLineFloor={statLine.todaysLineFloor}
+                  columnCount={CHAMP_LEDGER_COLUMN_LABELS.length}
+                  chanceLine={chanceLineFor(team.teamKey)}
+                  season={season}
+                  isRookie={isRookieByTeam.get(team.teamKey) === true}
+                />,
+              ];
             })}
           </TableBody>
         </Table>

@@ -23,7 +23,7 @@
  */
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { DistrictsSearchSchema, RootSearchSchema, TeamSearchSchema } from "@/lib/searchParams";
@@ -37,7 +37,11 @@ import {
 import { installMockWorker, type MockWorkerHandle, type MockWorkerScript } from "../../test/mockWorker.js";
 import { runDistrictWorkerJob } from "../../workers/districtSimulationProtocol.js";
 import { ChampLocksLedger } from "./ChampLocksLedger.js";
-import { CHAMP_LEDGER_COLUMN_LABELS } from "./districtLedgerCopy.js";
+import {
+  CHAMP_LEDGER_COLUMN_LABELS,
+  DISTRICT_LEDGER_AWARD_OUTCOME_LABELS,
+  DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS,
+} from "./districtLedgerCopy.js";
 
 /** The forbidden glyph and the em dash, both built from their CODEPOINTS so this file never types either character. */
 const PLUS_MINUS = String.fromCharCode(0x00b1);
@@ -214,16 +218,37 @@ function districtSeasonArtifact(): DistrictArtifact {
   return artifactOf(ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey))));
 }
 
+/**
+ * THE CHAMPIONSHIP UNDER WAY: one finished district event, one live district
+ * event and the District Championship itself in progress, with every team
+ * registered for it. Both open events are priced by the same Worker run at
+ * their own tier, so the DCMP cells carry the 3x weight and the District points
+ * cells are sums over two events.
+ */
+function championshipUnderWayArtifact(): DistrictArtifact {
+  return artifactOf(
+    ROSTER.map((teamKey) => ({
+      ...withLiveEvent(districtTeam(teamKey)),
+      remainingEvents: [
+        { eventKey: LIVE_EVENT, eventName: "PNW District Sammamish Event", week: 2, tier: "district" as const, maxPoints: 83, state: MID_QUALS },
+        { eventKey: DCMP_EVENT, eventName: "PNW District Championship", week: 6, tier: "dcmp" as const, maxPoints: 249, state: MID_QUALS },
+      ],
+      maxRemainingDistrict: 83,
+      maxRemainingChamp: 332,
+    }))
+  );
+}
+
 const RP_PMF = [0.2, 0.3, 0.3, 0.2];
 
-function liveEventArtifact(): EventArtifact {
+function liveEventArtifact(eventKey: string = LIVE_EVENT): EventArtifact {
   const matches = [];
   const upcoming = [];
   for (let m = 0; m < 6; m++) {
     const red = [ROSTER[(m * 6) % 24]!, ROSTER[(m * 6 + 1) % 24]!, ROSTER[(m * 6 + 2) % 24]!];
     const blue = [ROSTER[(m * 6 + 3) % 24]!, ROSTER[(m * 6 + 4) % 24]!, ROSTER[(m * 6 + 5) % 24]!];
     matches.push({
-      matchKey: `${LIVE_EVENT}_qm${String(m + 1)}`,
+      matchKey: `${eventKey}_qm${String(m + 1)}`,
       compLevel: "qm",
       setNumber: 1,
       matchNumber: m + 1,
@@ -247,7 +272,7 @@ function liveEventArtifact(): EventArtifact {
     const red = [ROSTER[(m * 6) % 24]!, ROSTER[(m * 6 + 1) % 24]!, ROSTER[(m * 6 + 2) % 24]!];
     const blue = [ROSTER[(m * 6 + 3) % 24]!, ROSTER[(m * 6 + 4) % 24]!, ROSTER[(m * 6 + 5) % 24]!];
     upcoming.push({
-      matchKey: `${LIVE_EVENT}_qm${String(m + 1)}`,
+      matchKey: `${eventKey}_qm${String(m + 1)}`,
       compLevel: "qm",
       setNumber: 1,
       matchNumber: m + 1,
@@ -268,7 +293,7 @@ function liveEventArtifact(): EventArtifact {
     computedAt: "2026-09-25T00:00:00.000Z",
     algorithmId: "spr",
     algorithmVersion: ALGORITHM_VERSION,
-    eventKey: LIVE_EVENT,
+    eventKey,
     season: SEASON,
     matches,
     upcoming,
@@ -293,12 +318,14 @@ function manifestBody() {
   };
 }
 
-function installFetch(eventArtifact?: EventArtifact) {
+/** Event artifacts are served BY KEY, so a two-event fixture cannot silently answer both requests with one artifact. */
+function installFetch(eventArtifacts: readonly EventArtifact[] = []) {
   global.fetch = vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
     if (url.includes("/v1/manifest/algorithms.json")) return Promise.resolve(new Response(JSON.stringify(manifestBody()), { status: 200 }));
-    if (url.includes("/v1/event/") && eventArtifact !== undefined) {
-      return Promise.resolve(new Response(JSON.stringify(eventArtifact), { status: 200 }));
+    if (url.includes("/v1/event/")) {
+      const match = eventArtifacts.find((artifact) => url.includes(artifact.eventKey));
+      if (match !== undefined) return Promise.resolve(new Response(JSON.stringify(match), { status: 200 }));
     }
     return Promise.resolve(new Response("", { status: 404 }));
   }) as unknown as typeof fetch;
@@ -308,9 +335,9 @@ const realRunScript: MockWorkerScript = (message, ctx) => {
   runDistrictWorkerJob(message, (outbound) => ctx.post(outbound));
 };
 
-function renderLedger(artifact: DistrictArtifact) {
+function renderLedger(artifact: DistrictArtifact, initialEntry?: string) {
   render(
-    <TestHarness>
+    <TestHarness {...(initialEntry === undefined ? {} : { initialEntry })}>
       <ChampLocksLedger artifact={artifact} algorithm="spr" season={SEASON} />
     </TestHarness>
   );
@@ -442,7 +469,7 @@ describe("ChampLocksLedger — the district season, before registrations open", 
   });
 
   function renderDistrictSeason() {
-    installFetch(liveEventArtifact());
+    installFetch([liveEventArtifact()]);
     handle = installMockWorker({ script: realRunScript });
     renderLedger(districtSeasonArtifact());
   }
@@ -507,5 +534,144 @@ describe("ChampLocksLedger — the district season, before registrations open", 
     renderDistrictSeason();
     await waitFor(() => expect(screen.getByTestId("champ-ledger-tab")).toBeDefined());
     expect(document.body.textContent ?? "").not.toContain(PLUS_MINUS);
+  });
+});
+
+/**
+ * THE DRAWER, at the champ tier.
+ *
+ * The one structural question this tier asks that the district tier does not:
+ * which pane a clicked cell gets. A DCMP cell is ONE event, so its Playoffs and
+ * Awards cells list their named outcomes at the 3x weight; a District points
+ * cell is a SUM over several events, whose support no placement names, so it
+ * keeps the histogram.
+ */
+describe("ChampLocksLedger — the drawer", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  function renderUnderWay(initialEntry?: string) {
+    // ALL THREE events get an artifact, including the finished district one: a
+    // rewound position reopens it and fetches it, and a 404 there would make
+    // every grand total unavailable and silence the chance run.
+    installFetch([liveEventArtifact(DISTRICT_EVENT), liveEventArtifact(LIVE_EVENT), liveEventArtifact(DCMP_EVENT)]);
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(championshipUnderWayArtifact(), initialEntry);
+  }
+
+  /**
+   * Waits for one cell to be priced (a real button), then clicks it.
+   *
+   * The grand total carries its `data-cell-id` ON the button, because it is
+   * rendered inside a row-spanning cell of its own; every other cell carries it
+   * on the `<td>` with the button inside. Both shapes are handled here rather
+   * than by two helpers.
+   */
+  async function clickCell(cellId: string): Promise<void> {
+    await waitFor(
+      () => {
+        const cell = document.querySelector(`[data-cell-id="${cellId}"]`);
+        expect(cell?.getAttribute("data-cell")).toBe("open");
+      },
+      { timeout: 8000 }
+    );
+    const cell = document.querySelector(`[data-cell-id="${cellId}"]`) as HTMLElement;
+    fireEvent.click(cell.tagName === "BUTTON" ? cell : within(cell).getByRole("button"));
+    await waitFor(() => expect(screen.getByTestId("champ-ledger-drawer")).toBeDefined());
+  }
+
+  it("lists the four playoff outcomes at the DCMP WEIGHT for a DCMP Playoffs cell, and draws no histogram", async () => {
+    renderUnderWay();
+    await clickCell("dcmp-row:elim");
+    const drawer = screen.getByTestId("champ-ledger-drawer");
+    const list = within(drawer).getByTestId("district-ledger-drawer-outcomes");
+    for (const label of [
+      DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.winner,
+      DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.finalist,
+      DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.third,
+      DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.fourth,
+    ]) {
+      expect(within(list).getByText(label)).toBeDefined();
+    }
+    // 2026's dcmp-tier placement values: three times the district tier's.
+    const text = list.textContent ?? "";
+    for (const points of ["90", "60", "39", "21"]) expect(text).toContain(points);
+    expect(within(drawer).queryByTestId("district-ledger-drawer-cell-plot")).toBeNull();
+  });
+
+  it("lists the award outcomes at the DCMP weight and omits a VETERAN's Rookie All Star row", async () => {
+    renderUnderWay();
+    await clickCell("dcmp-row:award");
+    const list = within(screen.getByTestId("champ-ledger-drawer")).getByTestId("district-ledger-drawer-outcomes");
+    expect(within(list).getByText(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS.impact)).toBeDefined();
+    expect(within(list).getByText(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS.judged)).toBeDefined();
+    expect(within(list).getByText(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS.none)).toBeDefined();
+    // Every fixture team is a veteran (`awardProfile.rookie` is false), and a
+    // veteran cannot win Rookie All Star, so the row is omitted rather than
+    // printed at zero.
+    expect(within(list).queryByText(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS.rookieAllStar)).toBeNull();
+    // 30 for Impact, the 3x weight.
+    expect(list.textContent ?? "").toContain("30");
+  });
+
+  it("draws the HISTOGRAM for a District points Playoffs cell, because no named outcome covers a sum of events", async () => {
+    renderUnderWay();
+    await clickCell("district-row:elim");
+    const drawer = screen.getByTestId("champ-ledger-drawer");
+    expect(within(drawer).getByTestId("district-ledger-drawer-cell-plot")).toBeDefined();
+    expect(within(drawer).queryByTestId("district-ledger-drawer-outcomes")).toBeNull();
+  });
+
+  it("draws the grand total ONCE beside a two row contribution list", async () => {
+    renderUnderWay();
+    await clickCell("grand");
+    const drawer = screen.getByTestId("champ-ledger-drawer");
+    expect(within(drawer).getAllByTestId("district-ledger-drawer-grand-plot")).toHaveLength(1);
+    const rows = within(drawer).getAllByTestId("champ-ledger-contribution-row");
+    expect(rows.map((row) => row.getAttribute("data-row"))).toEqual(["district", "dcmp"]);
+    expect(rows[0]!.textContent).toContain("District points");
+    expect(rows[1]!.textContent).toContain("DCMP points");
+  });
+
+  /**
+   * REWOUND TO SEASON START the District Championship has not happened yet, so
+   * every team's place in the field is open again even though the artifact
+   * lists the registration — and the DCMP row is still priced, because the
+   * event's own artifact is fetched. That is the one position where a
+   * CONDITIONAL DCMP row and a weighted grand total exist together.
+   */
+  it("prints the field chance the DCMP row is weighted by, in the contribution list, at a rewound position", async () => {
+    renderUnderWay("/districts?algorithm=spr&tab=champ-locks&at=season-start");
+    // TWO Worker jobs stand between the first paint and this line: the
+    // per-event run over both open events, and the district advancement chance
+    // over its results. The default one-second wait is not enough for both.
+    await waitFor(
+      () => {
+        const dcmpSources = screen.getAllByTestId("champ-ledger-source-cell").filter((cell) => cell.getAttribute("data-row") === "dcmp");
+        expect(dcmpSources.some((cell) => /to be there/.test(cell.textContent ?? ""))).toBe(true);
+      },
+      { timeout: 20000 }
+    );
+    await clickCell("grand");
+    const dcmpRow = within(screen.getByTestId("champ-ledger-drawer"))
+      .getAllByTestId("champ-ledger-contribution-row")
+      .find((row) => row.getAttribute("data-row") === "dcmp")!;
+    expect(within(dcmpRow).getByTestId("champ-ledger-contribution-chance").textContent).toMatch(
+      /^weighted by (~\d+% to be there|<5% to be there)$/
+    );
+  }, 30000);
+
+  it("resolves an unknown cell id to CLOSED rather than to a neighbouring cell", async () => {
+    renderUnderWay("/districts?algorithm=spr&tab=champ-locks&drawerTeam=100&drawerCell=dcmp-row:nope");
+    await waitFor(() => expect(screen.getAllByTestId("champ-ledger-row").length).toBeGreaterThan(0));
+    expect(screen.queryByTestId("champ-ledger-drawer")).toBeNull();
   });
 });

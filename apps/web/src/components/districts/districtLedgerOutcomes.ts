@@ -161,6 +161,14 @@ export function districtAwardOutcomes(
  * about the DATA rather than about the category. A baked event's selection cell
  * has pmfs and no routes, so it keeps the histogram. See
  * `districtSelectionOutcomes`.
+ *
+ * IT HAS A SECOND CALLER SINCE 2026-09-26, and the second one does not always
+ * consult it. The Champ Locks tab's DCMP row is one event, so its Playoffs and
+ * Awards cells list their outcomes at the 3x weight exactly as a district
+ * event's do; its District points row is a SUM over several events, whose
+ * support no named placement covers — "Finalist" is not an outcome of two
+ * events added together — so that row asks `DrawerCellPane` for the histogram
+ * and this function is never reached for it (quick task 260925-xab).
  */
 export function districtCellRendersOutcomeList(cell: string): cell is "elim" | "award" {
   return cell === "elim" || cell === "award";
