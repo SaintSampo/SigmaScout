@@ -43,8 +43,9 @@ import {
   DISTRICT_LEDGER_DRAWER_CELL_PLOT_LABEL,
   DISTRICT_LEDGER_DRAWER_GRAND_PLOT_LABEL,
   DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION,
-  DISTRICT_LEDGER_DRAWER_LINE_CAPTION,
-  DISTRICT_LEDGER_DRAWER_LINE_LABEL,
+  DISTRICT_LEDGER_CUTOFF_LABELS,
+  DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
+  DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION,
   DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
@@ -58,7 +59,6 @@ import {
   DISTRICT_LEDGER_STAGE_WORDS,
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
-  DISTRICT_LEDGER_STAT_LINE_LABELS,
   DISTRICT_LEDGER_TICK_NOW,
   DISTRICT_LEDGER_TICK_START,
   DISTRICT_LEDGER_AWARD_OUTCOME_LABELS,
@@ -69,6 +69,8 @@ import {
   DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS,
   DISTRICT_LEDGER_SELECTION_ROUTE_WORDS,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
+  districtLedgerCutoffFigure,
+  districtLedgerCutoffLikelyText,
   districtLedgerNoPointsCaption,
   districtLedgerPlacementLine,
   districtLedgerSelectionSettledLine,
@@ -88,12 +90,8 @@ import {
   type DistrictLedgerStatusResult,
 } from "./districtLedgerStatus.js";
 import { DISTRICT_TIMELINE_NOW_ID, DISTRICT_TIMELINE_SEASON_START_ID, type DistrictTimeline } from "./districtTimeline.js";
-import type {
-  DistrictCellKind,
-  DistrictEventStage,
-  DistrictLedgerCell,
-  DistrictLedgerStatLine,
-} from "./districtLedgerRows.js";
+import type { DistrictCellKind, DistrictEventStage, DistrictLedgerCell } from "./districtLedgerRows.js";
+import type { LedgerCutoffView } from "./predictedCutoff.js";
 
 /**
  * THE BOXED CELL (sketch 021 variant A, restyled 2026-09-25 by 260925-hr9).
@@ -303,6 +301,59 @@ export function stageWord(stage: DistrictEventStage): string {
 /** A percentile range written out with an EN DASH and one decimal — never the plus-minus codepoint, which is reserved for exactly one standard deviation of full predictive variance. */
 export function likelyRangeText(p10: number, p90: number): string {
   return `${DISTRICT_LEDGER_LIKELY_PREFIX} ${p10.toFixed(1)}–${p90.toFixed(1)}`;
+}
+
+/** What one `LedgerCutoffView` puts on a screen: the same four strings on the stat line and on the grand total plot, derived ONCE. */
+export interface LedgerCutoffDisplay {
+  readonly label: string;
+  /** The tilde prefixed figure, the bare integer, or the em dash where there is no cutoff. */
+  readonly figure: string;
+  /** The likely range, or `undefined` while the run is in flight, at a settled or absent cutoff, and where the two rounded ends coincide. */
+  readonly likelyText: string | undefined;
+  /** Where the dashed rule is drawn, or `undefined` where none is drawn at all. */
+  readonly markedPosition: number | undefined;
+  /** The grand total plot's caption for this arm. */
+  readonly caption: string;
+}
+
+/**
+ * The ONE derivation both surfaces read.
+ *
+ * The stat line and the dashed rule cannot print different words or different
+ * numbers, because there is one function and one input — which is the whole
+ * point of `LedgerCutoffView` (quick task 260926-37q).
+ */
+export function ledgerCutoffDisplay(view: LedgerCutoffView): LedgerCutoffDisplay {
+  const { cutoff, likely, districtOnly } = view;
+  const predictedLabel = districtOnly ? DISTRICT_LEDGER_CUTOFF_LABELS.predictedDistrictOnly : DISTRICT_LEDGER_CUTOFF_LABELS.predicted;
+  if (cutoff.kind === "capacityUnknown") {
+    return {
+      label: DISTRICT_LEDGER_CUTOFF_LABELS.capacityUnknown,
+      figure: "—",
+      likelyText: undefined,
+      markedPosition: undefined,
+      caption: DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
+    };
+  }
+  if (cutoff.kind === "absent") {
+    return {
+      label: predictedLabel,
+      figure: "—",
+      likelyText: undefined,
+      markedPosition: undefined,
+      caption: DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION,
+    };
+  }
+  const isFinal = cutoff.kind === "final";
+  return {
+    label: isFinal ? DISTRICT_LEDGER_CUTOFF_LABELS.settled : predictedLabel,
+    figure: districtLedgerCutoffFigure(cutoff.points, isFinal),
+    // A SETTLED CUTOFF CARRIES NO RANGE, whatever the caller passed: there is
+    // nothing left to vary, and a range there would be stale by construction.
+    likelyText: isFinal || likely === undefined ? undefined : districtLedgerCutoffLikelyText(likely.p10, likely.p90),
+    markedPosition: cutoff.points,
+    caption: DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
+  };
 }
 
 export function chanceWordsFor(cell: DistrictCellKind): { bold: string; conditional: string } {
@@ -597,17 +648,25 @@ export function DrawerCellPane({
   );
 }
 
+/**
+ * The grand total histogram, with the PREDICTED CUTOFF drawn on it.
+ *
+ * Takes the SAME `LedgerCutoffView` the stat line above it takes, so the
+ * dashed rule and the printed figure are one value rendered twice rather than
+ * two quantities that happen to look alike (quick task 260926-37q).
+ */
 export function GrandTotalPlot({
   cell,
-  todaysLineFloor,
+  cutoff,
   rookieBonus,
   chanceLine,
 }: {
   cell: Extract<DistrictLedgerCell, { kind: "open" }>;
-  todaysLineFloor: number | null;
+  cutoff: LedgerCutoffView;
   rookieBonus: number;
   chanceLine: string | undefined;
 }) {
+  const display = ledgerCutoffDisplay(cutoff);
   const percentiles = pointPercentiles(cell.distribution.counts, cell.distribution.denominator);
   return (
     <div className="flex flex-col gap-[var(--spacing-xs)]">
@@ -619,12 +678,10 @@ export function GrandTotalPlot({
         p10={percentiles.p10}
         p50={percentiles.p50}
         p90={percentiles.p90}
-        {...(todaysLineFloor === null ? {} : { markedPosition: todaysLineFloor, markedLabel: DISTRICT_LEDGER_DRAWER_LINE_LABEL })}
+        {...(display.markedPosition === undefined ? {} : { markedPosition: display.markedPosition, markedLabel: display.label })}
         label={DISTRICT_LEDGER_DRAWER_GRAND_PLOT_LABEL}
       />
-      <span className="district-ledger-pane-caption">
-        {todaysLineFloor === null ? DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION : DISTRICT_LEDGER_DRAWER_LINE_CAPTION}
-      </span>
+      <span className="district-ledger-pane-caption">{display.caption}</span>
       {chanceLine !== undefined && (
         <span className="district-ledger-pane-caption" data-testid="district-ledger-drawer-chance-caption">
           {DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION}
@@ -782,14 +839,15 @@ export function timelineTicks(timeline: DistrictTimeline): { id: string; label: 
 export function ControlsCard({
   query,
   onQueryChange,
-  statLine,
+  cutoff,
   children,
 }: {
   query: string;
   onQueryChange: (value: string) => void;
-  statLine: DistrictLedgerStatLine;
+  cutoff: LedgerCutoffView;
   children?: ReactNode;
 }) {
+  const display = ledgerCutoffDisplay(cutoff);
   return (
     <div className="data-card flex flex-col gap-[var(--spacing-sm)] p-[var(--spacing-md)]" data-testid="district-ledger-controls">
       {children}
@@ -809,10 +867,11 @@ export function ControlsCard({
         </label>
         <div data-testid="district-ledger-stat-line" className="district-ledger-note flex flex-wrap gap-x-[var(--spacing-lg)] gap-y-[var(--spacing-xs)]">
           <span>
-            {statLine.todaysLineFloor === null ? DISTRICT_LEDGER_STAT_LINE_LABELS.todaysLineUnknown : DISTRICT_LEDGER_STAT_LINE_LABELS.todaysLine}{" "}
-            <b className="font-semibold text-[var(--color-text-primary)]">
-              {statLine.todaysLineFloor === null ? "—" : String(Math.round(statLine.todaysLineFloor))}
-            </b>
+            {display.label}{" "}
+            <b className="font-semibold text-[var(--color-text-primary)]">{display.figure}</b>
+            {display.likelyText !== undefined && (
+              <span data-testid="district-ledger-cutoff-likely"> · {display.likelyText}</span>
+            )}
           </span>
         </div>
       </div>

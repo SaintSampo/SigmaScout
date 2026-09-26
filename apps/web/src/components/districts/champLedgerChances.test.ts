@@ -315,7 +315,7 @@ function champStatusesOf(statuses: Record<string, DistrictLedgerStatusState>): C
     ),
     counts: { prequalified: 0, locked: 0, inRange: 0, outOfRange: 0, lockedOut: 0 },
     verdictCensus: { locked: 0, lockedAward: 0, prequalified: 0, eliminated: 0, contending: 0, unknown: 0 },
-    todaysLine: null,
+    floorCutLine: null,
     awardQualified: [],
     prequalified: [],
     reservedSlots: 0,

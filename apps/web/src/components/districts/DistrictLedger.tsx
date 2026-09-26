@@ -84,7 +84,6 @@ import {
   buildDistrictLedgerRows,
   deriveStageFromState,
   districtEventContributions,
-  districtLedgerStatLine,
   districtTierEvents,
   filterDistrictLedgerTeams,
   inProgressDistrictEventKeys,
@@ -94,6 +93,7 @@ import {
   type DistrictStageFinality,
 } from "./districtLedgerRows.js";
 import { useDistrictEventArtifacts, useDistrictLedgerData } from "./useDistrictLedgerData.js";
+import { predictedCutoff, simulatedCutoffRange, type LedgerCutoffView } from "./predictedCutoff.js";
 
 /** The first three columns are words; every column after them is a number, and a number column is centred under a centred header. */
 /** The three text columns (Team, Status, Event); every other header centres over its boxed cells. Jacob's order, 2026-09-25: Team, Status, Grand total, Event, Event total, then the four categories. */
@@ -122,7 +122,7 @@ function EventCell({ row }: { row: DistrictLedgerEventRow }) {
 function DrawerRow({
   cell,
   grandTotal,
-  todaysLineFloor,
+  cutoff,
   columnCount,
   rookieBonus,
   chanceLine,
@@ -132,7 +132,7 @@ function DrawerRow({
 }: {
   cell: Extract<DistrictLedgerCell, { kind: "open" }>;
   grandTotal: DistrictLedgerCell;
-  todaysLineFloor: number | null;
+  cutoff: LedgerCutoffView;
   columnCount: number;
   rookieBonus: number;
   /** This team's printed chance line, or `undefined` where no chance is printed — the caption follows the line rather than announcing one that is not there. */
@@ -154,14 +154,14 @@ function DrawerRow({
         <div className={`flex flex-wrap gap-[var(--spacing-lg)]${animated}`}>
           {isGrandTotal ? (
             <>
-              <GrandTotalPlot cell={cell} todaysLineFloor={todaysLineFloor} rookieBonus={rookieBonus} chanceLine={chanceLine} />
+              <GrandTotalPlot cell={cell} cutoff={cutoff} rookieBonus={rookieBonus} chanceLine={chanceLine} />
               <DistrictContributionList contributions={contributions} />
             </>
           ) : (
             <>
               <DrawerCellPane cell={cell} season={season} isRookie={isRookie} />
               {grandTotal.kind === "open" && (
-                <GrandTotalPlot cell={grandTotal} todaysLineFloor={todaysLineFloor} rookieBonus={rookieBonus} chanceLine={chanceLine} />
+                <GrandTotalPlot cell={grandTotal} cutoff={cutoff} rookieBonus={rookieBonus} chanceLine={chanceLine} />
               )}
             </>
           )}
@@ -418,9 +418,33 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
     return chance === undefined ? undefined : districtLedgerChanceLine(chance);
   };
 
-  // The stat line and the chip counts both describe the DISTRICT, not the
-  // filtered view.
-  const statLine = useMemo(() => districtLedgerStatLine(rows.teams, artifact.dcmpSlots), [rows.teams, artifact.dcmpSlots]);
+  /**
+   * THE PREDICTED CUTOFF, built ONCE and handed to both the stat line and every
+   * grand total dashed rule, so the two cannot disagree (quick task
+   * 260926-37q).
+   *
+   * It reads the tab's own sorted rows, the artifact's capacity and the SAME
+   * qualifier sets and reservation the verdicts beside it were computed with,
+   * so the line it draws is the line those verdicts were cut at. The likely
+   * range comes from the chance run's own per run simulated line, and is
+   * absent while that run is in flight, at a settled position and at every arm
+   * but the predicted one.
+   *
+   * Like the chip counts, it describes the DISTRICT and not the filtered view.
+   */
+  const cutoff = useMemo<LedgerCutoffView>(() => {
+    const value = predictedCutoff({
+      teams: rows.teams,
+      capacity: artifact.dcmpSlots,
+      qualifiers: { awardQualified: new Set(statuses.awardQualified), prequalified: new Set(statuses.prequalified) },
+      reservedSlots: statuses.reservedSlots,
+    });
+    const likely =
+      value.kind === "predicted" && chanceState.status === "complete"
+        ? simulatedCutoffRange(chanceState.cutoffByRun, chanceState.draws)
+        : undefined;
+    return { cutoff: value, likely, districtOnly: false };
+  }, [rows.teams, artifact.dcmpSlots, statuses, chanceState]);
   const activeStatuses = useMemo(
     () => new Set(DISTRICT_LEDGER_STATUS_KEYS.filter((status) => !hiddenStatuses.has(status))),
     [hiddenStatuses]
@@ -473,7 +497,7 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
 
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]" data-testid="district-ledger-tab">
-      <ControlsCard query={query} onQueryChange={setQuery} statLine={statLine}>
+      <ControlsCard query={query} onQueryChange={setQuery} cutoff={cutoff}>
         <RewindSlider timeline={timeline} positionIndex={positionIndex} onPositionChange={handlePositionChange} />
         <StatusChips counts={statuses.counts} active={activeStatuses} onToggle={toggleStatus} />
       </ControlsCard>
@@ -551,7 +575,7 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
                   key={`${team.teamKey}-drawer`}
                   cell={openDrawer.cell}
                   grandTotal={team.grandTotal}
-                  todaysLineFloor={statLine.todaysLineFloor}
+                  cutoff={cutoff}
                   columnCount={DISTRICT_LEDGER_COLUMN_LABELS.length}
                   rookieBonus={team.rookieBonus}
                   chanceLine={chanceLineFor(team.teamKey)}

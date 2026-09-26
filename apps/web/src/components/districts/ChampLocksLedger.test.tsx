@@ -496,6 +496,16 @@ describe("ChampLocksLedger — the district season, before registrations open", 
     expect(grand.querySelector('[data-cell="unavailable"]')).toBeNull();
   });
 
+  it("labels the stat line district only in this window, and prints no likely range there", async () => {
+    renderDistrictSeason();
+    const statLine = await screen.findByTestId("district-ledger-stat-line");
+    await waitFor(() => expect(statLine.textContent).toContain("Predicted cutoff (district only)"));
+    // The champ chance run is SUPPRESSED here, so the range is absent by
+    // construction rather than by a second condition (quick task 260926-37q).
+    expect(within(statLine).queryByTestId("district-ledger-cutoff-likely")).toBeNull();
+    expect(statLine.textContent).not.toContain("likely");
+  });
+
   it("computes a status for EVERY team, never Capacity not published", async () => {
     renderDistrictSeason();
     await waitFor(() => expect(screen.getAllByTestId("champ-ledger-row").length).toBe(ROSTER.length * 2));

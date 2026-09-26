@@ -61,6 +61,7 @@ import {
   type CellInteraction,
   type DistrictLedgerNavigate,
 } from "./LedgerParts.js";
+import { predictedCutoff, simulatedCutoffRange, type LedgerCutoffView } from "./predictedCutoff.js";
 import {
   CHAMP_LEDGER_COLUMN_LABELS,
   CHAMP_LEDGER_CONTRIBUTION_CAPTION,
@@ -297,7 +298,7 @@ function ChampDrawerRow({
   cell,
   row,
   team,
-  todaysLineFloor,
+  cutoff,
   columnCount,
   chanceLine,
   season,
@@ -307,7 +308,7 @@ function ChampDrawerRow({
   /** Which of the team's two rows the clicked cell belongs to; `undefined` for the grand total, which belongs to neither. */
   row: ChampLedgerRowKind | undefined;
   team: ChampLedgerTeam;
-  todaysLineFloor: number | null;
+  cutoff: LedgerCutoffView;
   columnCount: number;
   chanceLine: string | undefined;
   season: number;
@@ -324,7 +325,7 @@ function ChampDrawerRow({
         <div className={`flex flex-wrap gap-[var(--spacing-lg)]${animated}`}>
           {isGrandTotal ? (
             <>
-              <GrandTotalPlot cell={cell} todaysLineFloor={todaysLineFloor} rookieBonus={team.rookieBonus} chanceLine={chanceLine} />
+              <GrandTotalPlot cell={cell} cutoff={cutoff} rookieBonus={team.rookieBonus} chanceLine={chanceLine} />
               <ChampContributionList contributions={champContributions(team)} />
             </>
           ) : (
@@ -337,12 +338,7 @@ function ChampDrawerRow({
                 namedOutcomes={row === "dcmp"}
               />
               {team.grandTotal.kind === "open" && (
-                <GrandTotalPlot
-                  cell={team.grandTotal}
-                  todaysLineFloor={todaysLineFloor}
-                  rookieBonus={team.rookieBonus}
-                  chanceLine={chanceLine}
-                />
+                <GrandTotalPlot cell={team.grandTotal} cutoff={cutoff} rookieBonus={team.rookieBonus} chanceLine={chanceLine} />
               )}
             </>
           )}
@@ -584,15 +580,32 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   };
 
   /**
-   * Today's line comes from the CHAMP status model, never from
-   * `districtLedgerStatLine`: that function does not narrow the pool by the
-   * DCMP's own award qualifiers, so it would print a different number from the
-   * artifact's own `insights.cmpCutLinePoints`.
+   * THE PREDICTED CUTOFF, built ONCE and handed to both the stat line and every
+   * grand total dashed rule (quick task 260926-37q).
+   *
+   * It reads `cmpSlots`, this tab's OWN qualifier sets and its always zero
+   * reservation, so the line it draws is the line the verdicts beside it were
+   * cut at. `districtOnly` is the pre registration window's own gate, the same
+   * one that suppresses the champ chance run, so the label says which grand
+   * totals the cutoff was taken over.
+   *
+   * THE LIKELY RANGE COMES FROM THE CHAMP RUN, which is already suppressed in
+   * that window — so the range is absent there BY CONSTRUCTION rather than by
+   * a second condition restating the same rule.
    */
-  const statLine = useMemo(
-    () => ({ todaysLineFloor: statuses.todaysLine, openCells: 0, totalCells: 0 }),
-    [statuses.todaysLine]
-  );
+  const cutoff = useMemo<LedgerCutoffView>(() => {
+    const value = predictedCutoff({
+      teams: rows.teams,
+      capacity: artifact.cmpSlots,
+      qualifiers: { awardQualified: new Set(statuses.awardQualified), prequalified: new Set(statuses.prequalified) },
+      reservedSlots: statuses.reservedSlots,
+    });
+    const likely =
+      value.kind === "predicted" && champChanceState.status === "complete"
+        ? simulatedCutoffRange(champChanceState.cutoffByRun, champChanceState.draws)
+        : undefined;
+    return { cutoff: value, likely, districtOnly: rows.gaps.teamsWithDistrictOnlyGrandTotal.length > 0 };
+  }, [rows, artifact.cmpSlots, statuses, champChanceState]);
 
   const activeStatuses = useMemo(
     () => new Set(DISTRICT_LEDGER_STATUS_KEYS.filter((status) => !hiddenStatuses.has(status))),
@@ -653,7 +666,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
 
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]" data-testid="champ-ledger-tab">
-      <ControlsCard query={query} onQueryChange={setQuery} statLine={statLine}>
+      <ControlsCard query={query} onQueryChange={setQuery} cutoff={cutoff}>
         <RewindSlider timeline={timeline} positionIndex={positionIndex} onPositionChange={handlePositionChange} />
         <StatusChips counts={statuses.counts} active={activeStatuses} onToggle={toggleStatus} />
       </ControlsCard>
@@ -739,7 +752,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
                   cell={openDrawer.cell}
                   row={openDrawer.row}
                   team={team}
-                  todaysLineFloor={statLine.todaysLineFloor}
+                  cutoff={cutoff}
                   columnCount={CHAMP_LEDGER_COLUMN_LABELS.length}
                   chanceLine={chanceLineFor(team.teamKey)}
                   season={season}

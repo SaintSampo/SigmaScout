@@ -103,9 +103,12 @@ describe("computeChampLedgerStatuses — the finished 2026 PNW district", () => 
     expect(FINISHED.status.counts.inRange + FINISHED.status.counts.outOfRange).toBe(2);
   });
 
-  it("reads Today's line as the artifact's own cmpCutLinePoints", () => {
-    expect(FINISHED.status.todaysLine).toBe(182);
-    expect(FINISHED.status.todaysLine).toBe(FIXTURE.insights.cmpCutLinePoints);
+  it("reproduces the artifact's own cmpCutLinePoints on the floors, which is the only thing floorCutLine is kept for", () => {
+    // NOT RENDERED any more: the tab prints the predicted cutoff instead
+    // (quick task 260926-37q). This field survives as the proof that this
+    // module's recompute agrees with the published insight.
+    expect(FINISHED.status.floorCutLine).toBe(182);
+    expect(FINISHED.status.floorCutLine).toBe(FIXTURE.insights.cmpCutLinePoints);
   });
 
   it("splits the two teams tied at 182 by rank, not by the friendlier side of the line", () => {
@@ -161,7 +164,7 @@ describe("computeChampLedgerStatuses — the floor and the ceiling", () => {
       .filter((t) => !FINISHED.status.awardQualified.includes(t.teamKey))
       .map((t) => t.pointTotal)
       .sort((a, b) => b - a);
-    expect(poolTotals[12]).toBe(FINISHED.status.todaysLine);
+    expect(poolTotals[12]).toBe(FINISHED.status.floorCutLine);
   });
 
   it("gives a team outside the field no dcmp ceiling", () => {

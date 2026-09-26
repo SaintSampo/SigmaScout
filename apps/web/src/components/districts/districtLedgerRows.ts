@@ -1276,31 +1276,3 @@ export function filterDistrictLedgerTeams(teams: readonly DistrictLedgerTeam[], 
   return teams.filter((team) => String(team.teamNumber).startsWith(trimmed));
 }
 
-/** The stat line's three numbers at the current position. */
-export interface DistrictLedgerStatLine {
-  /** The slot-th highest earned district-tier total — a FLOOR on where the real line ends up, since open categories can only add points. `null` when capacity is not published. */
-  readonly todaysLineFloor: number | null;
-  readonly openCells: number;
-  readonly totalCells: number;
-}
-
-export function districtLedgerStatLine(teams: readonly DistrictLedgerTeam[], dcmpSlots: number | null): DistrictLedgerStatLine {
-  let openCells = 0;
-  let totalCells = 0;
-  for (const team of teams) {
-    for (const row of team.rows) {
-      for (const cell of row.cells) {
-        totalCells += 1;
-        if (cell.kind === "open") openCells += 1;
-      }
-    }
-  }
-  // `locks.ts`'s own honest-null contract for an unpublished capacity: never a
-  // guessed zero.
-  if (dcmpSlots === null || dcmpSlots === 0 || teams.length === 0) {
-    return { todaysLineFloor: null, openCells, totalCells };
-  }
-  const sortedDesc = teams.map((team) => team.earnedDistrictTotal).sort((a, b) => b - a);
-  const index = Math.min(dcmpSlots, sortedDesc.length) - 1;
-  return { todaysLineFloor: sortedDesc[index]!, openCells, totalCells };
-}

@@ -149,11 +149,56 @@ export const DISTRICT_LEDGER_REWIND_HINT = "Rewinding reopens the categories a d
 export const DISTRICT_LEDGER_SEARCH_LABEL = "Team number";
 export const DISTRICT_LEDGER_SEARCH_PLACEHOLDER = "Search a team number";
 
-/** The stat line's labels. "Today's line" is a FLOOR, and the label says so. The open cell count was removed at Jacob's request (2026-09-25). */
-export const DISTRICT_LEDGER_STAT_LINE_LABELS = {
-  todaysLine: "Today's line (floor)",
-  todaysLineUnknown: "Capacity not published",
+/**
+ * THE CUTOFF'S FOUR LABELS, shared by the stat line and every grand total
+ * dashed rule so the two can never print different words (quick task
+ * 260926-37q).
+ *
+ * `predicted` is the ordinary reading. `predictedDistrictOnly` is the champ
+ * tab's pre registration window, where the grand totals behind the cutoff are
+ * the district season alone and the label has to say so. `settled` drops the
+ * word predicted where every team in the pool is done. `capacityUnknown` is
+ * the shipped unpublished capacity wording, unchanged.
+ */
+export const DISTRICT_LEDGER_CUTOFF_LABELS = {
+  predicted: "Predicted cutoff",
+  predictedDistrictOnly: "Predicted cutoff (district only)",
+  settled: "Cutoff",
+  capacityUnknown: "Capacity not published",
 } as const;
+
+/**
+ * The cutoff's own figure: a tilde on a prediction, a bare integer on a settled
+ * one.
+ *
+ * THE TILDE IS THIS TAB'S STANDING RULE (quick task 260925-m7e): every
+ * predicted figure on either Locks tab carries one, and a settled figure never
+ * does.
+ */
+export function districtLedgerCutoffFigure(points: number, isFinal: boolean): string {
+  const figure = String(Math.round(points));
+  return isFinal ? figure : `~${figure}`;
+}
+
+/**
+ * The cutoff's likely range: the 10th to the 90th percentile of where the line
+ * landed across the runs, as WHOLE NUMBERS with an en dash.
+ *
+ * `undefined` where the two rounded ends coincide, on `openCellLines`' own
+ * recorded rule: a percentile range whose ends are the same number says
+ * nothing worth printing, and printing it invites a reader to read a spread
+ * into it that is not there.
+ *
+ * The en dash is the range separator and the plus minus codepoint never
+ * appears — it is reserved for exactly one standard deviation of full
+ * predictive variance, which this is not.
+ */
+export function districtLedgerCutoffLikelyText(p10: number, p90: number): string | undefined {
+  const low = Math.round(p10);
+  const high = Math.round(p90);
+  if (low === high) return undefined;
+  return `${DISTRICT_LEDGER_LIKELY_PREFIX} ${String(low)}–${String(high)}`;
+}
 
 /** The empty state when the team search matches nothing. */
 export const DISTRICT_LEDGER_NO_MATCHES = "No team matches that number.";
@@ -239,14 +284,19 @@ export function districtLedgerNoPointsCaption(chancePercent: number): string {
 }
 
 /**
- * The grand total plot's caption. Today's line is the slot-th team's EARNED
- * points at this position, a FLOOR on where the real line ends up, since open
- * categories can only add points.
+ * The grand total plot's caption: what the dashed rule is, then what the likely
+ * range is. Two sentences, flat third person, and no dash character of any kind
+ * (the en dash belongs to the numeric range alone).
  */
-export const DISTRICT_LEDGER_DRAWER_LINE_CAPTION = "The dashed line is the earned points of the team sitting at the last qualifying slot right now, a floor on where the real line ends up.";
+export const DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION =
+  "The dashed line is the predicted cutoff, the midpoint of the last team in range and the first team out of range. The likely range spans the 10th to the 90th percentile of where that line lands across the runs.";
 
 /** What the grand total plot says INSTEAD of drawing a line at zero when capacity is unpublished. */
-export const DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION = "TBA has published no capacity for this district, so there is no line to draw.";
+export const DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION = "TBA has published no capacity for this district, so there is no cutoff to draw.";
+
+/** What the grand total plot says where every team still racing for points is inside the slots, so no first team sits outside them. */
+export const DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION =
+  "Every team still racing for points is inside the slots at this position, so there is no first team outside them for a cutoff to sit above.";
 
 /**
  * The grand total plot's chance caption, printed only where a chance is
@@ -387,9 +437,6 @@ export function districtLedgerRookieBonusLine(points: number): string {
 export function districtLedgerRookieBonusCaption(points: number): string {
   return `Includes the ${String(points)} point rookie bonus, added once per season and never to an event total.`;
 }
-
-/** The marked line's own short label beside the grand total plot. */
-export const DISTRICT_LEDGER_DRAWER_LINE_LABEL = "Today's line";
 
 /**
  * THIS TAB'S OWN WORDING of the conservatism caveat.

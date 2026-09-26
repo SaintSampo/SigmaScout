@@ -43,7 +43,8 @@ import {
   DISTRICT_LEDGER_COLUMN_LABELS,
   DISTRICT_LEDGER_CONTRIBUTION_SETTLED,
   DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION,
-  DISTRICT_LEDGER_DRAWER_LINE_CAPTION,
+  DISTRICT_LEDGER_CUTOFF_LABELS,
+  DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
   DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
@@ -57,7 +58,6 @@ import {
   DISTRICT_LEDGER_SEARCH_LABEL,
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
-  DISTRICT_LEDGER_STAT_LINE_LABELS,
   DISTRICT_LEDGER_TAB_LABEL,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
 } from "./districtLedgerCopy.js";
@@ -698,18 +698,29 @@ describe("DistrictLedger — the full table", () => {
     expect(screen.getByText(DISTRICT_LEDGER_NO_MATCHES)).toBeDefined();
   });
 
-  it("prints today's line as a floor, and reports the line as absent for an unpublished capacity", async () => {
+  it("prints a SETTLED cutoff with no tilde and no range where every team is done", async () => {
     installFetch();
     handle = installMockWorker({ script: realRunScript });
     renderLedger(artifactOf([districtTeam("frc100"), districtTeam("frc101")], { dcmpSlots: 1 }));
 
     const statLine = await screen.findByTestId("district-ledger-stat-line");
-    expect(statLine.textContent).toContain(DISTRICT_LEDGER_STAT_LINE_LABELS.todaysLine);
-    cleanup();
+    // Both teams are finished, so the pool is settled: the word `predicted`
+    // never appears and neither does a tilde or a range.
+    expect(statLine.textContent).toContain(DISTRICT_LEDGER_CUTOFF_LABELS.settled);
+    expect(statLine.textContent).not.toContain("Predicted");
+    expect(statLine.textContent).not.toContain("~");
+    expect(within(statLine).queryByTestId("district-ledger-cutoff-likely")).toBeNull();
+    // The district tab NEVER carries the champ tab's district only variant.
+    expect(statLine.textContent).not.toContain(DISTRICT_LEDGER_CUTOFF_LABELS.predictedDistrictOnly);
+  });
 
+  it("reports the cutoff as absent, with no range, for an unpublished capacity", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
     renderLedger(artifactOf([districtTeam("frc100")], { dcmpSlots: null }));
     const unknownLine = await screen.findByTestId("district-ledger-stat-line");
-    expect(unknownLine.textContent).toContain(DISTRICT_LEDGER_STAT_LINE_LABELS.todaysLineUnknown);
+    expect(unknownLine.textContent).toContain(DISTRICT_LEDGER_CUTOFF_LABELS.capacityUnknown);
+    expect(within(unknownLine).queryByTestId("district-ledger-cutoff-likely")).toBeNull();
   });
 });
 
@@ -1043,6 +1054,25 @@ describe("DistrictLedger — the drawer", () => {
     return cell.tagName === "BUTTON" ? (cell as HTMLElement) : within(cell as HTMLElement).getByRole("button");
   }
 
+  it("prints a PREDICTED cutoff with a tilde where something is still open, and the same number on the dashed rule", async () => {
+    await renderWithOpenCells();
+    const statLine = await screen.findByTestId("district-ledger-stat-line");
+    expect(statLine.textContent).toContain(DISTRICT_LEDGER_CUTOFF_LABELS.predicted);
+    expect(statLine.textContent).toMatch(/~\d+/);
+    const printed = /~(\d+)/.exec(statLine.textContent ?? "")![1]!;
+
+    // THE SAME VALUE ON BOTH SURFACES, which is the whole point of the one
+    // memo: the dashed rule's own label is the stat line's label, and the
+    // histogram's marked position is the stat line's number.
+    fireEvent.click(cellButton("grand"));
+    const drawer = await screen.findByTestId("district-ledger-drawer");
+    expect(within(drawer).getByTestId("district-hist-marked-line")).toBeDefined();
+    // The dashed rule's own label is the stat line's label, word for word.
+    expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_CUTOFF_LABELS.predicted);
+    expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION);
+    expect(Number(printed)).toBeGreaterThan(0);
+  });
+
   it("opens ONE drawer under the clicked team, closes it on a second click, and moves it on a different cell", async () => {
     await renderWithOpenCells();
     expect(screen.queryAllByTestId("district-ledger-drawer")).toHaveLength(0);
@@ -1070,19 +1100,19 @@ describe("DistrictLedger — the drawer", () => {
     expect(cellButton("2026walive:elim").getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("draws both histograms, with today's line on the grand total plot and the floor caption beneath it", async () => {
+  it("draws both histograms, with the predicted cutoff on the grand total plot and its caption beneath it", async () => {
     await renderWithOpenCells();
     fireEvent.click(cellButton("2026walive:qual"));
     await waitFor(() => expect(screen.getByTestId("district-ledger-drawer-cell-plot")).toBeDefined());
     expect(screen.getByTestId("district-ledger-drawer-grand-plot")).toBeDefined();
     expect(screen.getByTestId("district-hist-marked-line")).toBeDefined();
-    expect(screen.getByTestId("district-ledger-drawer").textContent).toContain(DISTRICT_LEDGER_DRAWER_LINE_CAPTION);
+    expect(screen.getByTestId("district-ledger-drawer").textContent).toContain(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION);
     await waitFor(() =>
       expect(screen.getByTestId("district-ledger-drawer").textContent).toContain(DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION)
     );
   });
 
-  it("draws NO line and says so instead when the capacity is unpublished", async () => {
+  it("draws NO cutoff and says so instead when the capacity is unpublished", async () => {
     installFetch({ eventArtifact: liveEventArtifact() });
     handle = installMockWorker({ script: realRunScript });
     renderLedger(artifactOf(ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey))), { dcmpSlots: null }));
@@ -1267,12 +1297,12 @@ describe("DistrictLedger — the drawer", () => {
     expect(rows[1]!.textContent ?? "").toContain(DISTRICT_LEDGER_LIKELY_PREFIX);
   });
 
-  it("keeps the line and the floor caption on the grand total drawer", async () => {
+  it("keeps the cutoff and its caption on the grand total drawer", async () => {
     await renderWithOpenCells();
     fireEvent.click(cellButton("grand"));
     const drawer = await screen.findByTestId("district-ledger-drawer");
     expect(within(drawer).getByTestId("district-hist-marked-line")).toBeDefined();
-    expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_DRAWER_LINE_CAPTION);
+    expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION);
   });
 
   it("still draws the grand total plot BESIDE a category cell's own pane", async () => {

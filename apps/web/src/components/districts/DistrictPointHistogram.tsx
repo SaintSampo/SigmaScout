@@ -38,7 +38,7 @@ export interface DistrictPointHistogramProps {
   readonly p10: number;
   readonly p50: number;
   readonly p90: number;
-  /** Today's line on the grand total plot: a dashed rule with its own label. Absent when the capacity is unpublished — no line is drawn at zero. */
+  /** The PREDICTED CUTOFF on the grand total plot: a dashed rule with its own label. Absent where there is no cutoff to draw — an unpublished capacity, or a pool with no team outside the slots — and never a line drawn at zero. */
   readonly markedPosition?: number;
   readonly markedLabel?: string;
   /** The plot's accessible name, kept visually hidden beside it as `RankAxisHeader` does. */

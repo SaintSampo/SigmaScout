@@ -22,7 +22,6 @@ import type {
   DistrictSelectionRoutes,
 } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import {
-  DISTRICT_CATEGORIES,
   allDistrictTierEventKeys,
   buildDistrictEventSimulationInput,
   buildDistrictLedgerRows,
@@ -30,7 +29,6 @@ import {
   deriveStageFromState,
   districtCellId,
   districtEventContributions,
-  districtLedgerStatLine,
   districtTierEvents,
   distributionsFromPreSim,
   distributionsFromResult,
@@ -399,16 +397,10 @@ describe("filterDistrictLedgerTeams and the stat line", () => {
     expect(filterDistrictLedgerTeams(built.teams, "")).toHaveLength(2);
   });
 
-  it("reports today's line as the slot-th highest earned district-tier total, and the cell counts", () => {
-    const line = districtLedgerStatLine(built.teams, 1);
-    expect(line.todaysLineFloor).toBe(70);
-    expect(line.totalCells).toBe(2 * DISTRICT_CATEGORIES.length);
-    expect(line.openCells).toBe(0);
-  });
-
-  it("reports today's line as ABSENT for a null dcmpSlots rather than as a guessed zero", () => {
-    expect(districtLedgerStatLine(built.teams, null).todaysLineFloor).toBeNull();
-  });
+  // The two stat line tests that lived here are GONE with the function they
+  // covered: the slot th highest unnarrowed earned district total is no longer
+  // printed anywhere (quick task 260926-37q), and `predictedCutoff.test.ts`
+  // covers the cutoff that replaced it.
 });
 
 // ---------------------------------------------------------------------------

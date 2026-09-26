@@ -80,8 +80,19 @@ export interface ChampLedgerStatusModel {
   readonly counts: Readonly<Record<DistrictLedgerStatusKey, number>>;
   /** The raw six-status `locks.ts` census, which IS what `insights.champLockedCount`/`champEliminatedCount` count. */
   readonly verdictCensus: Readonly<Record<LockStatus, number>>;
-  /** `cutLinePointsWithQualifiers` on the floors — the artifact's own `insights.cmpCutLinePoints` at an all-final position. `null` for an unpublished capacity. */
-  readonly todaysLine: number | null;
+  /**
+   * `cutLinePointsWithQualifiers` ON THE FLOORS: the artifact's own
+   * `insights.cmpCutLinePoints` at an all final position, `null` for an
+   * unpublished capacity.
+   *
+   * NOT RENDERED ANYWHERE. The tab prints the PREDICTED CUTOFF instead (quick
+   * task 260926-37q), which is the midpoint of the boundary pair over the
+   * MEDIAN PROJECTIONS the table is sorted by. This field is kept for exactly
+   * one reason: it is the only thing in the repo proving this module's
+   * recompute reproduces `insights.cmpCutLinePoints`, which
+   * `champLedgerStatus.test.ts` pins.
+   */
+  readonly floorCutLine: number | null;
   readonly awardQualified: readonly string[];
   readonly prequalified: readonly string[];
   /** ALWAYS ZERO at this tier — see decision 2 in this module's header. Exposed so a consumer never has to assume the rule holds. */
@@ -256,7 +267,7 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
   // nothing has measured.
   const reservedSlots = 0;
   const verdicts = computeLocksWithQualifiers(lockInputs, artifact.cmpSlots, qualifiers, reservedSlots);
-  const todaysLine = cutLinePointsWithQualifiers(lockInputs, artifact.cmpSlots, qualifiers);
+  const floorCutLine = cutLinePointsWithQualifiers(lockInputs, artifact.cmpSlots, qualifiers);
 
   // THE POOL ORDER IS THE CHAMP LEDGER'S OWN SORTED ORDER, filtered to the
   // pool by `locks.ts`'s own exported narrowing — never a hand-rolled
@@ -305,7 +316,7 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
     byTeam,
     counts,
     verdictCensus,
-    todaysLine,
+    floorCutLine,
     awardQualified: [...awardQualified].sort(),
     prequalified: [...prequalified].sort(),
     reservedSlots,

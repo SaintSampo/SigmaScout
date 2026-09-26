@@ -9,6 +9,8 @@
 import { describe, expect, it } from "vitest";
 import {
   districtLedgerChanceLine,
+  districtLedgerCutoffFigure,
+  districtLedgerCutoffLikelyText,
   districtLedgerRookieBonusLine,
   districtLedgerRookieBonusCaption,
   DISTRICT_LEDGER_AWARD_OUTCOME_LABELS,
@@ -17,7 +19,11 @@ import {
   DISTRICT_LEDGER_CONTRIBUTION_CAPTION,
   DISTRICT_LEDGER_CONTRIBUTION_SETTLED,
   DISTRICT_LEDGER_COLUMN_LABELS,
+  DISTRICT_LEDGER_CUTOFF_LABELS,
   DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION,
+  DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
+  DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION,
+  DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
@@ -424,5 +430,70 @@ describe("the Champ Locks copy contract", () => {
     expect(CHAMP_LEDGER_CONTRIBUTION_CAPTION).toContain("weighted by the chance of being there");
     for (const dash of ["—", "–", "-"]) expect(CHAMP_LEDGER_CONTRIBUTION_CAPTION).not.toContain(dash);
     expect(CHAMP_LEDGER_CONTRIBUTION_CAPTION).not.toContain("±");
+  });
+});
+
+/**
+ * THE PREDICTED CUTOFF'S COPY (quick task 260926-37q).
+ *
+ * The four labels, the tilde rule, the whole number en dash range, and the
+ * two captions' own no dash rule.
+ */
+describe("the predicted cutoff copy", () => {
+  it("names all four labels, with the champ tab's district only variant among them", () => {
+    expect(DISTRICT_LEDGER_CUTOFF_LABELS).toEqual({
+      predicted: "Predicted cutoff",
+      predictedDistrictOnly: "Predicted cutoff (district only)",
+      settled: "Cutoff",
+      capacityUnknown: "Capacity not published",
+    });
+  });
+
+  it("puts a tilde on a predicted figure and none on a settled one", () => {
+    expect(districtLedgerCutoffFigure(59, false)).toBe("~59");
+    expect(districtLedgerCutoffFigure(59, true)).toBe("59");
+    expect(districtLedgerCutoffFigure(58.5, false)).toBe("~59");
+    expect(districtLedgerCutoffFigure(182, true)).toBe("182");
+    expect(districtLedgerCutoffFigure(182, true)).not.toContain("~");
+  });
+
+  it("writes the likely range as whole numbers with an EN DASH and never a plus minus", () => {
+    const text = districtLedgerCutoffLikelyText(55.4, 63.6);
+    expect(text).toBe("likely 55–64");
+    expect(text).toContain("–");
+    expect(text).not.toContain("±");
+    expect(text).not.toContain("-");
+    expect(text).not.toContain("—");
+  });
+
+  it("omits the range where the two rounded ends coincide, on openCellLines' own rule", () => {
+    expect(districtLedgerCutoffLikelyText(60, 60)).toBeUndefined();
+    expect(districtLedgerCutoffLikelyText(59.6, 60.4)).toBeUndefined();
+    expect(districtLedgerCutoffLikelyText(59.4, 60.4)).toBe("likely 59–60");
+  });
+
+  it("says in two sentences what the dashed rule is and what the likely range is", () => {
+    expect(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION).toContain("midpoint");
+    expect(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION).toContain("10th to the 90th percentile");
+    expect(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION.split(". ")).toHaveLength(2);
+  });
+
+  it("carries no dash character in any of the cutoff copy", () => {
+    const everyString = [
+      ...Object.values(DISTRICT_LEDGER_CUTOFF_LABELS),
+      DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
+      DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION,
+      DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
+    ].join(" ");
+    for (const dash of ["—", "–", "-"]) expect(everyString).not.toContain(dash);
+    expect(everyString).not.toContain("±");
+  });
+
+  it("says cutoff, never the retired wording, in the two absence captions", () => {
+    expect(DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION).toContain("cutoff");
+    expect(DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION).toContain("cutoff");
+    for (const caption of [DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION, DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION, DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION]) {
+      expect(caption.toLowerCase()).not.toContain("today");
+    }
   });
 });
