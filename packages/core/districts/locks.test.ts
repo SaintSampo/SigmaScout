@@ -7,7 +7,14 @@
  * a possible loss). `status(T) === "locked"` iff `threatCount(T) < slots`.
  */
 import { describe, expect, it } from "vitest";
-import { computeLocks, computeLocksWithQualifiers, cutLinePointsWithQualifiers, type LockTeamInput, type QualifierSets } from "./locks.js";
+import {
+  computeLocks,
+  computeLocksWithQualifiers,
+  cutLinePointsWithQualifiers,
+  pointsRaceSlots,
+  type LockTeamInput,
+  type QualifierSets,
+} from "./locks.js";
 
 function team(teamKey: string, pointTotal: number, maxRemaining: number): LockTeamInput {
   return { teamKey, pointTotal, maxRemaining };
@@ -593,5 +600,55 @@ describe("the pooled remaining-points lock", () => {
         if (after.status !== "locked") expect(after.status).toBe(before.status);
       }
     }
+  });
+});
+
+/**
+ * The narrowing `qualifierPool` now delegates to, asserted on its OWN terms
+ * (quick task 260925-rpj). The browser's advancement chance ranks drawn season
+ * totals rather than point totals, so it cannot call `computeLocksWithQualifiers`
+ * at all and instead asks this function for the same pool and the same two slot
+ * counts. A drift between the two would print a chance that contradicts the
+ * status word beside it, which is the whole reason the derivation was exported
+ * rather than copied.
+ */
+describe("pointsRaceSlots", () => {
+  const keys = ["frc1", "frc2", "frc3", "frc4", "frc5"];
+
+  it("removes both qualified sets from the pool and reduces the slots by the award qualifiers alone", () => {
+    const narrowed = pointsRaceSlots(keys, 4, { awardQualified: new Set(["frc1"]), prequalified: new Set(["frc2"]) }, 0);
+    expect(narrowed.poolKeys).toEqual(["frc3", "frc4", "frc5"]);
+    expect(narrowed.pointsSlots).toBe(3);
+    expect(narrowed.lockSlots).toBe(3);
+  });
+
+  it("subtracts the reservation from the lock count alone, and clamps a negative reservation to zero", () => {
+    const reserved = pointsRaceSlots(keys, 4, { awardQualified: new Set<string>(), prequalified: new Set<string>() }, 2);
+    expect(reserved.pointsSlots).toBe(4);
+    expect(reserved.lockSlots).toBe(2);
+
+    const negative = pointsRaceSlots(keys, 4, { awardQualified: new Set<string>(), prequalified: new Set<string>() }, -3);
+    expect(negative.lockSlots).toBe(4);
+  });
+
+  it("floors both counts at zero rather than going negative", () => {
+    const narrowed = pointsRaceSlots(keys, 1, { awardQualified: new Set(["frc1", "frc2", "frc3"]), prequalified: new Set<string>() }, 5);
+    expect(narrowed.pointsSlots).toBe(0);
+    expect(narrowed.lockSlots).toBe(0);
+  });
+
+  it("agrees with the pool computeLocksWithQualifiers actually ran, on the same inputs", () => {
+    const teams = keys.map((teamKey, index) => team(teamKey, 100 - index * 10, 20));
+    const qualifiers: QualifierSets = { awardQualified: new Set(["frc2"]), prequalified: new Set(["frc5"]) };
+    const narrowed = pointsRaceSlots(keys, 3, qualifiers, 1);
+    const verdicts = computeLocksWithQualifiers(teams, 3, qualifiers, 1);
+
+    // Every key the narrowing keeps is a key the verdicts resolved on points
+    // (neither "lockedAward" nor "prequalified"), and every key it drops is one
+    // of those two.
+    const pointsResolved = verdicts.filter((v) => v.status !== "lockedAward" && v.status !== "prequalified").map((v) => v.teamKey);
+    expect([...narrowed.poolKeys]).toEqual(pointsResolved);
+    expect(narrowed.pointsSlots).toBe(2);
+    expect(narrowed.lockSlots).toBe(1);
   });
 });

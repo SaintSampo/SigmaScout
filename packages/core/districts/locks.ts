@@ -374,11 +374,58 @@ function qualifierPool(
   qualifiers: QualifierSets,
   reservedSlots: number
 ): { pool: LockTeamInput[]; pointsSlots: number; lockSlots: number } {
-  const awardQualifiedRankedCount = teams.filter((t) => qualifiers.awardQualified.has(t.teamKey)).length;
+  const narrowed = pointsRaceSlots(
+    teams.map((t) => t.teamKey),
+    slots,
+    qualifiers,
+    reservedSlots
+  );
+  const poolKeys = new Set(narrowed.poolKeys);
+  return {
+    pool: teams.filter((t) => poolKeys.has(t.teamKey)),
+    pointsSlots: narrowed.pointsSlots,
+    lockSlots: narrowed.lockSlots,
+  };
+}
+
+/** What `pointsRaceSlots` answers: who is still racing for points at a position, and how many slots each of the two tests sees. */
+export interface PointsRaceNarrowing {
+  /** The points-competing team keys, in input order: every key that is neither award-qualified nor prequalified. */
+  readonly poolKeys: readonly string[];
+  /** The UNRESERVED count — what the elimination test and the published cut line read. */
+  readonly pointsSlots: number;
+  /** `pointsSlots` minus the held-back Impact slots — what the `"locked"` test reads. */
+  readonly lockSlots: number;
+}
+
+/**
+ * The narrowing ON KEYS ALONE, so a caller that ranks something other than a
+ * `pointTotal` can see the SAME pool and the SAME two slot counts the verdicts
+ * saw. `qualifierPool` above is now nothing but this function plus a filter, so
+ * there is one derivation and it cannot drift from itself.
+ *
+ * Exported for the browser's advancement chance (quick task 260925-rpj), which
+ * ranks each team's DRAWN season total rather than its point total and must
+ * count the slots exactly as `computeLocksWithQualifiers` counted them at the
+ * same position. A hand-rolled subtraction in the browser is the class of bug
+ * `qualifierPool`'s own doc comment already names: a published number that
+ * contradicts a verdict the same page prints.
+ *
+ * Every rule stays where it was: only AWARD-qualified membership consumes a
+ * slot, both qualified sets leave the pool, and a negative `reservedSlots` is
+ * clamped to zero rather than widening the pool.
+ */
+export function pointsRaceSlots(
+  teamKeys: readonly string[],
+  slots: number,
+  qualifiers: QualifierSets,
+  reservedSlots: number
+): PointsRaceNarrowing {
+  const awardQualifiedRankedCount = teamKeys.filter((teamKey) => qualifiers.awardQualified.has(teamKey)).length;
   const pointsSlots = Math.max(slots - awardQualifiedRankedCount, 0);
   const lockSlots = Math.max(pointsSlots - Math.max(reservedSlots, 0), 0);
-  const pool = teams.filter((t) => !qualifiers.awardQualified.has(t.teamKey) && !qualifiers.prequalified.has(t.teamKey));
-  return { pool, pointsSlots, lockSlots };
+  const poolKeys = teamKeys.filter((teamKey) => !qualifiers.awardQualified.has(teamKey) && !qualifiers.prequalified.has(teamKey));
+  return { poolKeys, pointsSlots, lockSlots };
 }
 
 export function computeLocksWithQualifiers(
