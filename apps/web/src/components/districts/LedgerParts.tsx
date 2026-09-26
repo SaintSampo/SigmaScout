@@ -7,7 +7,7 @@
  * (quick task 260925-xab). The Champ Locks tab is the same ledger with two rows
  * per team instead of one row per event, so every one of these parts is shared
  * rather than copied; `DistrictLedger.test.tsx`'s 1958-line suite passes
- * UNTOUCHED, which is the proof the Road to District Champs tab's rendered
+ * UNTOUCHED, which is the proof the District Locks tab's rendered
  * output did not move.
  *
  * TWO PARAMETERIZATIONS, both with the district default:

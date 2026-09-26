@@ -1,6 +1,6 @@
 /**
  * Content-as-data for `/methodology/district-points`, the published statement
- * of how the Road to District Champs ledger predicts a team's district points
+ * of how the District Locks ledger predicts a team's district points
  * (phase 10 plan 08).
  *
  * Same discipline as `awardsContent.ts`, `sprContent.ts` and

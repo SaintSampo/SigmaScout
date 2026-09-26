@@ -9,8 +9,8 @@
  * NARROWED TO THE CHAMP TIER, 2026-09-25 (quick task 260925-ots). This module
  * also carried `computeDistrictLocksHeaderStats` — a district-wide points pool,
  * a played/upcoming schedule strip and a per-tier ceiling — for the District
- * Locks tab's header card. Phase 10 replaced that tab with the Road to District
- * Champs ledger, which computes its own stat line from its own row model
+ * Locks tab's header card. Phase 10 replaced that tab with the District Locks
+ * ledger, which computes its own stat line from its own row model
  * (`districtLedgerStatLine`), so the district arm lost its last production call
  * site. It is deleted rather than kept warm: an aggregation nothing renders is
  * an aggregation nothing checks. The champ figures are unchanged, down to the

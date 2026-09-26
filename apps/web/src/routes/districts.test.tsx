@@ -151,7 +151,7 @@ describe("/districts route", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "FIRST NC" }).getAttribute("aria-pressed")).toBe("true"));
   });
 
-  it("?tab= carrying the PRE-RENAME first-tab id still lands on the Road to District Champs panel — the rename costs no shared link", async () => {
+  it("?tab= carrying the PRE-RENAME first-tab id still lands on the District Locks panel — the rename costs no shared link", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/v1/districts/")) return Promise.resolve(districtsIndexResponse());
@@ -166,7 +166,7 @@ describe("/districts route", () => {
     expect(screen.queryByTestId("district-locks-panel")).toBeNull();
   });
 
-  it("the first tab's trigger reads exactly the Road to District Champs label", async () => {
+  it("the first tab's trigger reads exactly the District Locks label", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/v1/districts/")) return Promise.resolve(districtsIndexResponse());
@@ -174,8 +174,10 @@ describe("/districts route", () => {
       return new Promise<Response>(() => {});
     });
     renderDistrictsRoute("/districts?algorithm=spr&district=2026fnc");
-    expect(await screen.findByRole("tab", { name: "Road to District Champs" })).toBeDefined();
-    expect(screen.queryByRole("tab", { name: "District Locks" })).toBeNull();
+    expect(await screen.findByRole("tab", { name: "District Locks" })).toBeDefined();
+    // Exactly two triggers, in order, so the 2026-09-26 rename REPLACED the
+    // first tab's label rather than adding a third tab beside it.
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["District Locks", "Champ Locks"]);
   });
 
   it("?tab=champ-locks still deep-links directly to the Champ Locks tab, which renders the shipped champ table unchanged", async () => {
@@ -197,7 +199,7 @@ describe("/districts route", () => {
     expect(screen.getByTestId("district-champ-locks-column-toggle")).toBeDefined();
   });
 
-  it("with no ?tab= the page lands on Road to District Champs — Insights is gone, not merely hidden", async () => {
+  it("with no ?tab= the page lands on District Locks — Insights is gone, not merely hidden", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/v1/districts/")) return Promise.resolve(districtsIndexResponse());
@@ -214,7 +216,7 @@ describe("/districts route", () => {
     expect(screen.queryByRole("tab", { name: "Breakdown" })).toBeNull();
   });
 
-  it("a stale ?tab=insights URL falls back to Road to District Champs rather than rendering nothing", async () => {
+  it("a stale ?tab=insights URL falls back to District Locks rather than rendering nothing", async () => {
     global.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/v1/districts/")) return Promise.resolve(districtsIndexResponse());

@@ -46,7 +46,7 @@
  *
  * RETIRED BY PHASE 10, DO NOT RESTORE. `AWARDS_LEAD`'s second sentence used to
  * tell a reader that the site showed no award prediction anywhere yet. The
- * Road to District Champs ledger prints a chance of award points and a typical
+ * District Locks ledger prints a chance of award points and a typical
  * amount per team per event, so that sentence became false the moment the tab
  * shipped. The assertion in `awardsContent.test.ts` that pinned it was
  * REPLACED rather than deleted, so the lead stays pinned in the other
@@ -57,7 +57,7 @@
 export const AWARDS_PAGE_TITLE = "Predicting awards";
 
 export const AWARDS_LEAD =
-  "SigmaScout tested whether FRC awards can be predicted. The Road to District Champs ledger prices a team's award points at a district event from the tables at the foot of this page, and no other page on the site shows an award prediction.";
+  "SigmaScout tested whether FRC awards can be predicted. The District Locks ledger prices a team's award points at a district event from the tables at the foot of this page, and no other page on the site shows an award prediction.";
 
 export const AWARDS_SECTION_IDS = ["the-goal", "the-model", "our-results", "district-award-base-rates"] as const;
 export type AwardsSectionId = (typeof AWARDS_SECTION_IDS)[number];
@@ -189,7 +189,7 @@ export const AWARDS_SECTIONS: readonly AwardsSection[] = [
     id: "district-award-base-rates",
     heading: "District award base rates",
     paragraphs: [
-      "The Road to District Champs ledger prices each team's award cell from a table of how often teams in the same position earned district award points. The table for a season is built only from the seasons before it.",
+      "The District Locks ledger prices each team's award cell from a table of how often teams in the same position earned district award points. The table for a season is built only from the seasons before it.",
       "Seven seasons carry a table: 2019, 2020, 2022, 2023, 2024, 2025 and 2026. The three earliest district seasons carry none, because fewer than three earlier district seasons exist for them.",
       "Rookie status splits the table only where a team has never won a judged award. A rookie has no earlier season, so the two decorated buckets have no rookie cell to measure, and TBA reports a rookie year for every team here, so the three unknown rows are empty as well.",
       "Impact and Rookie All Star are priced by a team's place in its event's field instead of by its bucket average. The most decorated team at a district event wins Impact 18.0% of the time, the second most decorated 13.1%, and everything from eleventh place down 0.6%. The lowest numbered rookie in the field wins Rookie All Star 38.1% of the time and the second lowest 28.6%.",

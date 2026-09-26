@@ -142,7 +142,7 @@ describe("MatchSearchSchema", () => {
   });
 });
 
-describe("DistrictsSearchSchema — the Road to District Champs params", () => {
+describe("DistrictsSearchSchema — the District Locks params", () => {
   const base = { year: 2026, algorithm: "spr" };
 
   it("round-trips the three phase-10 fields", () => {

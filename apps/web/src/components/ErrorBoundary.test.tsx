@@ -41,12 +41,12 @@ describe("ErrorBoundary", () => {
   it("catches a throw during a child's render and renders the site's ErrorState instead of a blank subtree", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     render(
-      <ErrorBoundary resource="the Road to District Champs tab">
+      <ErrorBoundary resource="the District Locks tab">
         <Boom shouldThrow />
       </ErrorBoundary>,
     );
 
-    expect(screen.getByText("Couldn't load the Road to District Champs tab.")).toBeDefined();
+    expect(screen.getByText("Couldn't load the District Locks tab.")).toBeDefined();
     expect(screen.getByRole("button", { name: /retry/i })).toBeDefined();
     expect(screen.queryByTestId("child")).toBeNull();
   });

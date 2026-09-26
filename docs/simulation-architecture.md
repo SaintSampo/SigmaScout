@@ -24,7 +24,7 @@ a server-side Worker (quick task 260923-1tu). Section 6's file map was checked a
 Glob; one file no longer exists and its row is dropped.
 
 **Re-verified 2026-09-25** against HEAD (phase 10, plan 10-08, a code read, not a live fetch against
-R2). Phase 10 shipped the Road to District Champs tab on `/districts`, so section 1's own count of
+R2). Phase 10 shipped the District Locks tab on `/districts`, so section 1's own count of
 tabs and engines was wrong and is corrected below: two tabs simulate and three engines exist. A new
 subsection under section 1 describes the district engine and the browser side alliance pricer it
 uses. Section 5's closed question is unaffected and carries a one sentence note saying so, and
@@ -36,7 +36,7 @@ unchanged; the pre-schedule and per-match numbers still describe what they alway
 ## 1. Two tabs simulate, and there are three engines
 
 Two tabs in this app run a simulation: the event page's Simulation tab, and the district page's
-Road to District Champs tab. Between them they use three engines.
+District Locks tab. Between them they use three engines.
 
 The Simulation tab (`apps/web/src/components/event/SimulationTab.tsx`) is a single panel
 whose content is decided by one piece of state: `StartSelection`, which has exactly two
@@ -383,7 +383,7 @@ variance fix shipped under quick task 260910-kco.
 | `apps/web/src/workers/districtSimulation.worker.ts` | the district Worker entry, no arithmetic |
 | `apps/web/src/workers/createDistrictSimulationWorker.ts` | the district Vite bundling seam |
 | `apps/web/src/components/districts/useDistrictSimulationRun.ts` | the district Worker lifecycle |
-| `apps/web/src/components/districts/DistrictLedger.tsx` | the Road to District Champs tab |
+| `apps/web/src/components/districts/DistrictLedger.tsx` | the District Locks tab |
 | `apps/web/src/lib/api/districtLedger.ts` | the baked district sidecar fetch; 404 → `null` |
 
 Every row above was checked against HEAD with Glob on 2026-09-23. One file named in the prior

@@ -32,7 +32,7 @@
  * An event is either AWARDS POSTED — its winner is known, and `qualifierPool`
  * already consumes that team's slot — or PENDING, and reserves exactly one.
  * Never both: `awardFinalAtPosition` is the discriminator, and it is read at
- * the POSITION being evaluated, so the Road to District Champs rewind slider
+ * the POSITION being evaluated, so the District Locks rewind slider
  * moving an event's awards back to open turns that event from consuming into
  * reserving in the same step.
  *

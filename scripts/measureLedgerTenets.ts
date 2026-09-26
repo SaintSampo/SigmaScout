@@ -1,5 +1,5 @@
 /**
- * Measures Jacob's two Road to District Champs tenets over every published
+ * Measures Jacob's two District Locks tenets over every published
  * district season, at every stage position the tab's rewind rail can land on.
  *
  * ---------------------------------------------------------------------------
@@ -684,7 +684,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     console.log(JSON.stringify({ dir, census, skippedNoCapacity: loaded.skippedNoCapacity, sweeps, violations }, null, 2));
   } else {
     console.log(``);
-    console.log(`LEDGER TENETS — the Road to District Champs tab's own status code, at every stage position.`);
+    console.log(`LEDGER TENETS — the District Locks tab's own status code, at every stage position.`);
     console.log(`  tenet A:    a team shown "Locked" on points is inside the final points-qualified set`);
     console.log(`  tenet B:    a team shown "Locked out" is outside it`);
     console.log(`  outcome:    the artifact's own districtLock.status at now. "locked" is qualified on points;`);

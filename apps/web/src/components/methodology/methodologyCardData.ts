@@ -71,7 +71,7 @@ export const METHODOLOGY_CARDS: readonly MethodologyCardDescriptor[] = [
   {
     to: "/methodology/district-points",
     title: "Predicting district points",
-    blurb: "How the Road to District Champs ledger scores each category, and how closely it matches the real draft.",
+    blurb: "How the District Locks ledger scores each category, and how closely it matches the real draft.",
     testId: "methodology-card-district-points",
   },
   {

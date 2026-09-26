@@ -1,5 +1,5 @@
 /**
- * The Road to District Champs tab's PURE assembly layer: the district-tier row
+ * The District Locks tab's PURE assembly layer: the district-tier row
  * model, the per-event stage derivation, the in-progress event-key derivation,
  * the baked-pmf decode, the one distribution representation every consumer
  * sees, the per-event `simulateDistrictEvent` input assembly, the cell
@@ -370,7 +370,7 @@ export interface DistrictTierEventEntry {
  * THE TIER IS AN ARGUMENT rather than the literal `"district"` it used to be,
  * because the Champ Locks tab reads the SAME union at the dcmp tier for its
  * second row (quick task 260925-xab). `districtTierEvents` below is this
- * function at `"district"` and nothing else, so the Road to District Champs
+ * function at `"district"` and nothing else, so the District Locks
  * tab's collection is byte for byte what it was.
  */
 export function tierEvents(team: DistrictTeam, tier: DistrictTier): DistrictTierEventEntry[] {
@@ -412,7 +412,7 @@ export function tierEvents(team: DistrictTeam, tier: DistrictTier): DistrictTier
 /**
  * A team's DISTRICT-tier events, in week order.
  *
- * DCMP-TIER ROWS ARE DROPPED. The Road to District Champs tab is the road to
+ * DCMP-TIER ROWS ARE DROPPED. The District Locks tab is the road to
  * the district championship; the `2026pnw` artifact's top team carries a
  * `2026pncmp` dcmp-tier `eventPoints` entry alongside two district-tier ones,
  * and that row belongs to Champ Locks.

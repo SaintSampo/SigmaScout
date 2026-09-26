@@ -5,7 +5,7 @@
  * hand out, and which teams can still collect any of them.
  *
  * ONE ADAPTER, THREE CALLERS, exactly as `reservedSlots.ts` beside it: the
- * browser's Road to District Champs tab at every rewind position, the offline
+ * browser's District Locks tab at every rewind position, the offline
  * publisher at "now", and the live Worker through the shared verdict pass. A
  * second derivation of "how much is left" in any of the three is how the
  * browser and the published artifact come to disagree about a guarantee.

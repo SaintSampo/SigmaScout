@@ -4,7 +4,7 @@
  *
  * NARROWED FROM TWO TIERS TO ONE. This component used to take a
  * `which` ("district" or "champ") prop and serve both tabs. Phase 10 replaced
- * the District Locks tab with the Road to District Champs ledger
+ * the district tier's own ranked table with the District Locks ledger
  * (`DistrictLedger.tsx`), so the `which="district"` arm lost its last
  * production call site. It is deleted rather than kept warm: an arm nothing
  * renders is an arm nothing checks, and a reader of this file should not have

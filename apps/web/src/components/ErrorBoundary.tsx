@@ -9,7 +9,7 @@
  * the general case, for a subtree whose PURE assembly is documented as
  * throwing.
  *
- * WHY IT EXISTS AT ALL (phase 10 review, WR-09). The Road to District Champs
+ * WHY IT EXISTS AT ALL (phase 10 review, WR-09). The District Locks
  * tab calls three functions that each document themselves as refusing rather
  * than fabricating — `convolveDistrictGrandTotal`
  * (`NegativeDistrictShiftError`), `maxEventPoints`
@@ -34,7 +34,7 @@ import { ErrorState } from "./StateViews.js";
 
 export interface ErrorBoundaryProps {
   children: ReactNode;
-  /** The `ErrorState` noun, e.g. `"the Road to District Champs tab"` — the same slot a failed fetch fills. */
+  /** The `ErrorState` noun, e.g. `"the District Locks tab"` — the same slot a failed fetch fills. */
   resource: string;
   /** Called after the boundary resets, for a caller that wants to refetch as well as re-render. */
   onRetry?: () => void;

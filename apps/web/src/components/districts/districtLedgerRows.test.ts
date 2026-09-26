@@ -1,5 +1,5 @@
 /**
- * The Road to District Champs tab's pure assembly layer.
+ * The District Locks tab's pure assembly layer.
  *
  * Synthetic fixtures parsed through the REAL `DistrictArtifactSchema`, so every
  * one of them matches the published shape. No corpus, no network, so CI runs

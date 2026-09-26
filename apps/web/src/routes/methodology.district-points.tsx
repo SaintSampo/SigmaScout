@@ -4,7 +4,7 @@ import { DISTRICT_LEDGER_PAGE_TITLE } from "../components/methodology/districtLe
 
 /**
  * The `/methodology/district-points` route (phase 10 plan 08). States how the
- * Road to District Champs ledger predicts each of the four district point
+ * District Locks ledger predicts each of the four district point
  * categories, how well the selection model and the bracket pricer were
  * measured to work, and what the model does not cover.
  *

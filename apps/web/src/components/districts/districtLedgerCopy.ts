@@ -1,5 +1,5 @@
 /**
- * EVERY STRING the Road to District Champs tab prints, in one module.
+ * EVERY STRING the District Locks tab prints, in one module.
  * Content-as-data: exported string constants, no JSX, no React import.
  *
  * NOT TO BE CONFUSED with 10-08's methodology module, which lives at
@@ -14,7 +14,7 @@
  */
 
 /** The tab's own label and its URL id — the id is `searchParams.ts`'s `DISTRICT_TABS` member, restated here only as the panel's test id root. */
-export const DISTRICT_LEDGER_TAB_LABEL = "Road to District Champs";
+export const DISTRICT_LEDGER_TAB_LABEL = "District Locks";
 
 /**
  * The table's column labels, in render order. The header renders FROM this

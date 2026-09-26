@@ -147,7 +147,7 @@ describe("districtRunSignature", () => {
  * `buildDistrictEventSimulationInput` gained an optional `tier`, and
  * `useDistrictLedgerData` gained the two options that feed it. The whole
  * premise of the change is that a caller supplying neither reads exactly what
- * it read before, so the Road to District Champs tab's run cannot move. That
+ * it read before, so the District Locks tab's run cannot move. That
  * is pinned here on the ASSEMBLED input and on the signature the run is keyed
  * on, rather than only on the two tabs' rendered output.
  */

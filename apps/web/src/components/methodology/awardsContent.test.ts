@@ -215,7 +215,7 @@ describe("awardsContent figures", () => {
   /**
    * REPLACES, rather than deletes, the assertion that pinned the claim phase 10
    * retired: the lead's second sentence used to tell a reader the site showed
-   * no award prediction anywhere yet. The Road to District Champs ledger prints
+   * no award prediction anywhere yet. The District Locks ledger prints
    * a chance of award points per team per event, so that sentence became false
    * when the tab shipped. A deleted assertion would leave the lead unguarded;
    * this one keeps the page pinned in the other direction, so a later edit
@@ -227,7 +227,7 @@ describe("awardsContent figures", () => {
    * removed.
    */
   it("names where award predictions appear, and says the rest of the site shows none", () => {
-    expect(AWARDS_LEAD).toContain("The Road to District Champs ledger prices a team's award points");
+    expect(AWARDS_LEAD).toContain("The District Locks ledger prices a team's award points");
     expect(AWARDS_LEAD).toContain("no other page on the site shows an award prediction");
     expect(AWARDS_LEAD).not.toMatch(/anywhere yet/);
   });

@@ -309,7 +309,7 @@ export type EventTab = (typeof EVENT_TABS)[number];
 
 /**
  * The Locks page's two tabs, in the fixed order the page's own tab strip
- * renders: Road to District Champs, Champ Locks. A stale `?tab=` for a
+ * renders: District Locks, Champ Locks. A stale `?tab=` for a
  * since-removed tab is not a special case: `z.enum().catch()` below already
  * falls any unrecognized id back to `DEFAULT_DISTRICT_TAB`.
  *
@@ -320,10 +320,15 @@ export type EventTab = (typeof EVENT_TABS)[number];
  * always did. The only alternative was keeping an id named after a removed
  * concept, which would leave the URL asserting a vocabulary the page no longer
  * uses.
+ *
+ * THE FIRST TAB'S LABEL IS "District Locks" (renamed 2026-09-26) WHILE ITS ID
+ * STAYS `road-to-district-champs`, deliberately: the id is what shared links
+ * carry, so it is kept exactly as published even though the label above it
+ * changed.
  */
 export const DISTRICT_TABS = ["road-to-district-champs", "champ-locks"] as const;
 
-/** The Locks page's default tab — Road to District Champs, the page's landing tab. */
+/** The Locks page's default tab — District Locks, the page's landing tab. */
 export const DEFAULT_DISTRICT_TAB = "road-to-district-champs";
 
 /**
@@ -364,7 +369,7 @@ export const DistrictsSearchSchema = RootSearchSchema.extend({
   district: z.string().regex(DISTRICT_KEY_PATTERN).optional().catch(undefined),
   tab: z.enum(DISTRICT_TABS).catch(DEFAULT_DISTRICT_TAB),
   /**
-   * The Road to District Champs tab's Rewind position — a timeline STEP ID.
+   * The District Locks tab's Rewind position — a timeline STEP ID.
    *
    * Typed as a plain optional string with a `.catch()`, for exactly the reason
    * `TeamsSearchSchema`'s `sort` field gives: the valid value SET is

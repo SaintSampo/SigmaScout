@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { assertNoPagePan, assertOverflows } from "./support/scrollRegions.js";
 
 /**
- * The Road to District Champs tab (phase 10), at 1440x900 and at 390px.
+ * The District Locks tab (phase 10), at 1440x900 and at 390px.
  *
  * RUNS AGAINST THE DEPLOYED ORIGIN ONLY. It is registered on `desktop` and
  * `phone-390` in `playwright.config.ts` and on NO `local-*` project: the point
@@ -65,7 +65,7 @@ const LOCKED_OUT_COUNT = 76;
  * was grepped out of, as of 2026-09-25.
  */
 const TEST_IDS = {
-  /** `routes/districts.tsx:228` — the Road to District Champs `TabsContent`. */
+  /** `routes/districts.tsx:228` — the District Locks `TabsContent`. */
   ledgerPanel: "road-to-district-champs-panel",
   /** `routes/districts.tsx:231` — the Champ Locks `TabsContent`, the scoped removal control. */
   champPanel: "champ-locks-panel",
@@ -134,7 +134,7 @@ async function chipCount(page: import("@playwright/test").Page, status: string):
   return Number(match[1]);
 }
 
-test.describe("Road to District Champs, 1440x900", () => {
+test.describe("District Locks, 1440x900", () => {
   test("the default panel renders the ledger, and the five status chips account for the whole roster", async ({ page }, testInfo) => {
     // A 126 team roster, two rows a team, nine columns, and the page polls.
     test.setTimeout(120_000);
@@ -263,7 +263,7 @@ test.describe("Road to District Champs, 1440x900", () => {
       .toBe(true);
   });
 
-  test("a pre rename tab id still lands on the Road to District Champs panel", async ({ page }) => {
+  test("a pre rename tab id still lands on the District Locks panel", async ({ page }) => {
     test.setTimeout(120_000);
     await page.setViewportSize({ width: 1440, height: 900 });
     // The tab schema falls an unrecognised id back to the default, and the
@@ -289,7 +289,7 @@ test.describe("Road to District Champs, 1440x900", () => {
   });
 });
 
-test.describe("Road to District Champs, 390px", () => {
+test.describe("District Locks, 390px", () => {
   test("the table's own region is the only horizontal scroller and the sticky Team column holds", async ({ page }, testInfo) => {
     test.setTimeout(120_000);
     // Set explicitly rather than inherited from the project. Both deployed

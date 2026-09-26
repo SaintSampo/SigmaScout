@@ -1,5 +1,5 @@
 /**
- * The Road to District Champs tab — the district tier's whole page.
+ * The District Locks tab — the district tier's whole page.
  *
  * WHAT RENDERS WHERE, and WHICH NUMBERS COME FROM WHERE:
  *

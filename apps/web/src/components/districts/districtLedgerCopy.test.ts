@@ -86,7 +86,7 @@ describe("the UI-SPEC copy contract", () => {
   });
 
   it("pins the tab label and the column labels in render order", () => {
-    expect(DISTRICT_LEDGER_TAB_LABEL).toBe("Road to District Champs");
+    expect(DISTRICT_LEDGER_TAB_LABEL).toBe("District Locks");
     expect([...DISTRICT_LEDGER_COLUMN_LABELS]).toEqual([
       "Team",
       "Status",

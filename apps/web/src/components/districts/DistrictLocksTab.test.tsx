@@ -1,8 +1,8 @@
 /**
  * `DistrictLocksTab` is the CHAMP LOCKS tab, and since 2026-09-25 (quick task
  * 260925-ots) that tier only — the `which="district"` arm lost its last
- * production call site when phase 10 replaced the District Locks tab with the
- * Road to District Champs ledger. The six cases that asserted district-tier
+ * production call site when phase 10 replaced the district tier's own ranked
+ * table with the District Locks ledger. The six cases that asserted district-tier
  * behaviour specifically (the schedule strip, the district-wide points pool,
  * the per-team pre-DCMP ceiling twice, the district header card's shape, and
  * the "(award-only invite)" annotation, which no DCMP-tier award ever carries)
