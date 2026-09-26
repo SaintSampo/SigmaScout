@@ -696,12 +696,6 @@ function ControlsCard({
               {statLine.todaysLineFloor === null ? "—" : String(Math.round(statLine.todaysLineFloor))}
             </b>
           </span>
-          <span>
-            {DISTRICT_LEDGER_STAT_LINE_LABELS.openCells}{" "}
-            <b className="font-semibold text-[var(--color-text-primary)]">
-              {String(statLine.openCells)} of {String(statLine.totalCells)}
-            </b>
-          </span>
         </div>
       </div>
     </div>

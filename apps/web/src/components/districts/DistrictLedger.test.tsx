@@ -574,14 +574,13 @@ describe("DistrictLedger — the full table", () => {
     expect(screen.getByText(DISTRICT_LEDGER_NO_MATCHES)).toBeDefined();
   });
 
-  it("prints today's line as a floor and the open-cell count, and reports the line as absent for an unpublished capacity", async () => {
+  it("prints today's line as a floor, and reports the line as absent for an unpublished capacity", async () => {
     installFetch();
     handle = installMockWorker({ script: realRunScript });
     renderLedger(artifactOf([districtTeam("frc100"), districtTeam("frc101")], { dcmpSlots: 1 }));
 
     const statLine = await screen.findByTestId("district-ledger-stat-line");
     expect(statLine.textContent).toContain(DISTRICT_LEDGER_STAT_LINE_LABELS.todaysLine);
-    expect(statLine.textContent).toContain("0 of 8");
     cleanup();
 
     renderLedger(artifactOf([districtTeam("frc100")], { dcmpSlots: null }));

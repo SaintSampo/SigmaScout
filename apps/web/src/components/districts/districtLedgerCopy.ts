@@ -105,11 +105,10 @@ export const DISTRICT_LEDGER_REWIND_HINT = "Rewinding reopens the categories a d
 export const DISTRICT_LEDGER_SEARCH_LABEL = "Team number";
 export const DISTRICT_LEDGER_SEARCH_PLACEHOLDER = "Search a team number";
 
-/** The stat line's three labels. "Today's line" is a FLOOR, and the label says so. */
+/** The stat line's labels. "Today's line" is a FLOOR, and the label says so. The open cell count was removed at Jacob's request (2026-09-25). */
 export const DISTRICT_LEDGER_STAT_LINE_LABELS = {
   todaysLine: "Today's line (floor)",
   todaysLineUnknown: "Capacity not published",
-  openCells: "Open cells",
 } as const;
 
 /** The empty state when the team search matches nothing. */
