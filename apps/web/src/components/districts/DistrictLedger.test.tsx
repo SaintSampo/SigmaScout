@@ -105,6 +105,8 @@ function state(overrides: Partial<DistrictEventState> = {}): DistrictEventState 
 
 const MID_QUALS = state({ qualMatchesPlayed: 6, qualMatchesTotal: 12, alliancesPicked: false, playoffsDone: false, awardsPosted: false });
 const UNSTARTED = state({ qualMatchesPlayed: 0, qualMatchesTotal: 12, alliancesPicked: false, playoffsDone: false, awardsPosted: false });
+/** Quals done, alliances announced, the bracket under way — the ONE state a partially-played playoff can live in. */
+const MID_PLAYOFFS = state({ playoffsDone: false, awardsPosted: false });
 
 const ROSTER = Array.from({ length: 24 }, (_unused, i) => `frc${String(100 + i)}`);
 
@@ -143,6 +145,45 @@ function withLiveEvent(team: DistrictTeam): DistrictTeam {
     maxRemainingChamp: 83,
   };
 }
+
+/** Adds one district event whose quals and alliance selection are done and whose bracket is part-played. */
+function withPlayoffEvent(team: DistrictTeam): DistrictTeam {
+  return {
+    ...team,
+    remainingEvents: [
+      { eventKey: "2026waplay", eventName: "Playoff Event", week: 2, tier: "district", maxPoints: 83, state: MID_PLAYOFFS },
+    ],
+    maxRemainingDistrict: 83,
+    maxRemainingChamp: 83,
+  };
+}
+
+/** The eight alliances of `playoffEventArtifact`: alliance `n` is `ROSTER`'s three teams at `(n - 1) * 3`. */
+const PLAYOFF_ALLIANCES = Array.from({ length: 8 }, (_unused, n) => ({
+  allianceNumber: n + 1,
+  picks: ROSTER.slice(n * 3, n * 3 + 3),
+}));
+
+function allianceRoster(allianceNumber: number): string[] {
+  return PLAYOFF_ALLIANCES[allianceNumber - 1]!.picks;
+}
+
+/**
+ * Seven played elimination rows, chosen so the milestone lands differently on
+ * four alliances at once: alliance 1 wins sf1 and sf7 and is therefore in sf11,
+ * which SECURES a top-four finish; alliance 4 loses sf7 and is still alive short
+ * of one; alliance 5 loses sf5 and is out at seventh; alliance 6 loses sf6 and is
+ * out at eighth.
+ */
+const PLAYOFF_ELIM_WINNERS: readonly { setNumber: number; red: number; blue: number; winner: number }[] = [
+  { setNumber: 1, red: 1, blue: 8, winner: 1 },
+  { setNumber: 2, red: 4, blue: 5, winner: 4 },
+  { setNumber: 3, red: 2, blue: 7, winner: 2 },
+  { setNumber: 4, red: 3, blue: 6, winner: 3 },
+  { setNumber: 5, red: 8, blue: 5, winner: 8 },
+  { setNumber: 6, red: 7, blue: 6, winner: 7 },
+  { setNumber: 7, red: 1, blue: 4, winner: 1 },
+];
 
 function withUnstartedEvent(team: DistrictTeam): DistrictTeam {
   return {
@@ -248,6 +289,81 @@ function liveEventArtifact(): EventArtifact {
       rp: 2 + (24 - i) / 24,
       metrics: { total: { value: 60 + (24 - i) }, sigma: { value: 8 } },
     })),
+  });
+}
+
+/**
+ * An event whose qualification is finished, whose alliances are published and
+ * whose bracket is PART PLAYED — the live shape the milestone headline exists
+ * for. Twelve played qualification rows, eight alliances, seven elimination
+ * rows.
+ */
+function playoffEventArtifact(): EventArtifact {
+  const matches = [];
+  for (let m = 0; m < 12; m++) {
+    const red = [ROSTER[(m * 6) % 24]!, ROSTER[(m * 6 + 1) % 24]!, ROSTER[(m * 6 + 2) % 24]!];
+    const blue = [ROSTER[(m * 6 + 3) % 24]!, ROSTER[(m * 6 + 4) % 24]!, ROSTER[(m * 6 + 5) % 24]!];
+    matches.push({
+      matchKey: `2026waplay_qm${String(m + 1)}`,
+      compLevel: "qm",
+      setNumber: 1,
+      matchNumber: m + 1,
+      sortTime: 1_760_000_000 + m * 600,
+      redTeams: red,
+      blueTeams: blue,
+      predictedWinner: "red",
+      pRedWin: 0.55,
+      predictedRedScore: 90,
+      predictedBlueScore: 85,
+      actualWinner: "red",
+      actualRedScore: 95,
+      actualBlueScore: 80,
+      actualRedRp: 3,
+      actualBlueRp: 1,
+      redRpPmf: RP_PMF,
+      blueRpPmf: RP_PMF,
+    });
+  }
+  for (const row of PLAYOFF_ELIM_WINNERS) {
+    matches.push({
+      matchKey: `2026waplay_sf${String(row.setNumber)}m1`,
+      compLevel: "sf",
+      setNumber: row.setNumber,
+      matchNumber: 1,
+      sortTime: 1_770_000_000 + row.setNumber * 600,
+      redTeams: allianceRoster(row.red),
+      blueTeams: allianceRoster(row.blue),
+      predictedWinner: "red",
+      pRedWin: 0.5,
+      predictedRedScore: 100,
+      predictedBlueScore: 100,
+      actualWinner: row.winner === row.red ? "red" : "blue",
+      actualRedScore: row.winner === row.red ? 110 : 90,
+      actualBlueScore: row.winner === row.red ? 90 : 110,
+      actualRedRp: 0,
+      actualBlueRp: 0,
+    });
+  }
+  return EventArtifactSchema.parse({
+    schemaVersion: 1,
+    generation: "gen-1",
+    computedAt: "2026-09-25T00:00:00.000Z",
+    algorithmId: "spr",
+    algorithmVersion: ALGORITHM_VERSION,
+    eventKey: "2026waplay",
+    season: SEASON,
+    matches,
+    upcoming: [],
+    teams: ROSTER.map((teamKey, i) => ({
+      teamKey,
+      teamNumber: Number(teamKey.replace("frc", "")),
+      nickname: `Nickname ${teamKey}`,
+      rank: i + 1,
+      record: { wins: 6, losses: 6, ties: 0 },
+      rp: 2 + (24 - i) / 24,
+      metrics: { total: { value: 60 + (24 - i) }, sigma: { value: 8 } },
+    })),
+    alliances: PLAYOFF_ALLIANCES,
   });
 }
 
@@ -513,8 +629,12 @@ describe("DistrictLedger — the full table", () => {
     const award = document.querySelector('[data-cell-id="2026walive:award"]')!;
     expect(award.getAttribute("data-cell")).toBe("open");
     expect(award.textContent ?? "").toMatch(/^~\d+% award(~\d+ if won)?$/);
-    // And on playoffs, with its own word.
-    expect(document.querySelector('[data-cell-id="2026walive:elim"]')!.textContent ?? "").toMatch(/^~\d+% play(~\d+ if in)?$/);
+    // And on playoffs, whose MILESTONE leads the line: the number was never the
+    // chance of playing a playoff match, it is the chance of finishing top four
+    // (fifth through eighth pay nothing), so the words say that and sit first.
+    expect(document.querySelector('[data-cell-id="2026walive:elim"]')!.textContent ?? "").toMatch(
+      /^top 4 ~\d+%(~\d+ if top 4)?$/
+    );
   });
 
   it("prints the event name, its week and its stage word in the Event cell", async () => {
@@ -1338,5 +1458,99 @@ describe("DistrictLedger — the advancement chance", () => {
     const request = instancesReceiving(handle!, "chance")[0]!.received[0] as { inputs: { teams: { teamKey: string }[] } };
     expect(request.inputs.teams.map((team) => team.teamKey)).toContain("frc900");
     expect(request.inputs.teams).toHaveLength(ROSTER.length + 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The playoff headline as the bracket advances (quick task 260925-uf8)
+// ---------------------------------------------------------------------------
+
+describe("DistrictLedger — the playoff milestone advances with the bracket", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * The Playoffs cell's rendered text for one team, whitespace and all.
+   *
+   * Across ALL of that team's rows, not just the first: every team here plays two
+   * district events, so the finished one's row comes first and carries no playoff
+   * cell for the live one.
+   */
+  function elimTextFor(teamKey: string): string {
+    for (const row of document.querySelectorAll(`[data-team="${teamKey}"]`)) {
+      const cell = row.querySelector('[data-cell-id="2026waplay:elim"]');
+      if (cell !== null) return cell.textContent ?? "";
+    }
+    return "";
+  }
+
+  async function renderPlayoffs() {
+    installFetch({ eventArtifact: playoffEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf(ROSTER.map((teamKey) => withPlayoffEvent(districtTeam(teamKey)))));
+    await waitFor(() => {
+      expect(document.querySelector('[data-cell-id="2026waplay:elim"]')?.getAttribute("data-cell")).toBe("open");
+    });
+    // The whole roster's playoff cells are open before anything is asserted, so
+    // a still-loading cell can never pass for a milestone.
+    await waitFor(() => {
+      expect(elimTextFor(allianceRoster(1)[0]!)).not.toBe("");
+    });
+  }
+
+  it("asks about the FINALIST for an alliance that has secured a top-four finish", async () => {
+    await renderPlayoffs();
+    for (const teamKey of allianceRoster(1)) {
+      expect(elimTextFor(teamKey), teamKey).toMatch(/^finalist ~\d+%(~\d+ if finalist)?$/);
+    }
+  });
+
+  it("still asks about the TOP FOUR for an alliance that is alive but has not secured one", async () => {
+    await renderPlayoffs();
+    // Alliance 4 lost sf7 and drops to sf9, whose loser is fifth and pays
+    // nothing, so nothing is secured.
+    for (const teamKey of allianceRoster(4)) {
+      expect(elimTextFor(teamKey), teamKey).toMatch(/^top 4 ~\d+%(~\d+ if top 4)?$/);
+    }
+  });
+
+  it("prints the PLACEMENT for an alliance the bracket has already decided, with no chance beside it", async () => {
+    await renderPlayoffs();
+    // Alliance 5 lost sf2 and then sf5: out at seventh, which pays nothing.
+    for (const teamKey of allianceRoster(5)) {
+      expect(elimTextFor(teamKey), teamKey).toBe("~07th place");
+    }
+    // Alliance 6 lost sf4 and then sf6: out at eighth.
+    for (const teamKey of allianceRoster(6)) {
+      expect(elimTextFor(teamKey), teamKey).toBe("~08th place");
+    }
+  });
+
+  it("gives a secured alliance NO mass below fourth place, so the headline and the histogram agree", async () => {
+    await renderPlayoffs();
+    // The chance of a top-four finish is settled at 1 for alliance 1, which is
+    // exactly why the cell has stopped asking about it.
+    const text = elimTextFor(allianceRoster(1)[0]!);
+    expect(text).not.toContain("top 4");
+    expect(text).not.toContain("~100%");
+  });
+
+  it("leaves the other three categories' wording exactly as it was", async () => {
+    await renderPlayoffs();
+    // The award cell on the SAME live event, found across that team's rows the
+    // same way the playoff cell is.
+    let award: Element | null = null;
+    for (const row of document.querySelectorAll(`[data-team="${allianceRoster(1)[0]!}"]`)) {
+      award = row.querySelector('[data-cell-id="2026waplay:award"]') ?? award;
+    }
+    expect(award?.textContent ?? "").toMatch(/^~\d+% award(~\d+ if won)?$/);
   });
 });

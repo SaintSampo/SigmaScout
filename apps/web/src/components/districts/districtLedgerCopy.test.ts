@@ -12,17 +12,20 @@ import {
   districtLedgerRookieBonusLine,
   districtLedgerRookieBonusCaption,
   DISTRICT_LEDGER_CHANCE_BELOW_FLOOR,
+  DISTRICT_LEDGER_CHANCE_WORDS,
   DISTRICT_LEDGER_COLUMN_LABELS,
   DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
   DISTRICT_LEDGER_LOCKED_AWARD_LABEL,
+  DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS,
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_TAB_LABEL,
   DISTRICT_LEDGER_TICK_NOW,
   DISTRICT_LEDGER_TICK_START,
+  districtLedgerPlacementLine,
   districtLedgerShortEventName,
   districtLedgerTickWeekLabel,
 } from "./districtLedgerCopy.js";
@@ -125,5 +128,48 @@ describe("the UI-SPEC copy contract", () => {
     const chances = [0, 0.04, 0.3, 0.99, 1].map(districtLedgerChanceLine).join(" ");
     expect(chances).not.toContain("Contending");
     expect(chances).not.toContain("eliminated");
+  });
+});
+
+describe("the playoff milestone words", () => {
+  it("names the top four rather than playing, because fifth through eighth pay nothing", () => {
+    expect(DISTRICT_LEDGER_CHANCE_WORDS.elim).toEqual({ bold: "top 4", conditional: "if top 4" });
+    // The superseded wording claimed a chance of PLAYING a playoff match, which
+    // is not what the number ever was.
+    expect(DISTRICT_LEDGER_CHANCE_WORDS.elim.bold).not.toBe("play");
+    expect(DISTRICT_LEDGER_CHANCE_WORDS.elim.conditional).not.toBe("if in");
+  });
+
+  it("carries the two milestones past the top four, and nothing else", () => {
+    expect(DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS).toEqual({
+      finalist: { bold: "finalist", conditional: "if finalist" },
+      winner: { bold: "winner", conditional: "if winner" },
+    });
+  });
+
+  it("prints a placement in plain words, with the English ordinals and no tilde", () => {
+    expect(districtLedgerPlacementLine(1)).toBe("1st place");
+    expect(districtLedgerPlacementLine(2)).toBe("2nd place");
+    expect(districtLedgerPlacementLine(3)).toBe("3rd place");
+    expect(districtLedgerPlacementLine(4)).toBe("4th place");
+    expect(districtLedgerPlacementLine(8)).toBe("8th place");
+    for (let placement = 1; placement <= 8; placement++) {
+      expect(districtLedgerPlacementLine(placement)).not.toContain("~");
+    }
+  });
+
+  it("prints a bare number rather than inventing a suffix for a placement outside the bracket", () => {
+    expect(districtLedgerPlacementLine(9)).toBe("place 9");
+    expect(districtLedgerPlacementLine(0)).toBe("place 0");
+  });
+
+  it("carries no dash character in any milestone word, matching the tab's own rule", () => {
+    const everyString = [
+      ...Object.values(DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS).flatMap((entry) => [entry.bold, entry.conditional]),
+      DISTRICT_LEDGER_CHANCE_WORDS.elim.bold,
+      DISTRICT_LEDGER_CHANCE_WORDS.elim.conditional,
+      ...[1, 4, 8].map(districtLedgerPlacementLine),
+    ].join(" ");
+    for (const dash of ["—", "–", "-"]) expect(everyString).not.toContain(dash);
   });
 });

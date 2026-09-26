@@ -222,3 +222,94 @@ export function pointCellSummary(histogram: ArrayLike<number>, denominator: numb
   }
   return { form: "chance", chance, conditionalMedian: conditionalMedianGivenPoints(histogram, denominator) };
 }
+
+// ---------------------------------------------------------------------------
+// The SAME pair, taken at an arbitrary threshold (quick task 260925-uf8)
+// ---------------------------------------------------------------------------
+
+/**
+ * A SECOND PAIR BESIDE THE FIRST, not a generalisation of it.
+ *
+ * `chanceOfAnyPoints` and `conditionalMedianGivenPoints` are the pair CONTEXT's
+ * chance form is defined in terms of, and they are load-bearing on three cells
+ * this quick task is forbidden to touch. The two functions below are the same
+ * two quantities taken at a threshold other than one point, for the ONE cell
+ * that needs them: the Playoffs cell, whose milestone advances from "reaches the
+ * top four" (any points at all) to "reaches the final" (at least the finalist's
+ * points) to "wins" (the winner's points) as the bracket is played.
+ *
+ * Generalising the shipped pair to take a threshold would have been the tidier
+ * refactor and the wrong one: it would put every qualification and alliance
+ * selection cell on a code path that changed for a reason that has nothing to do
+ * with them, in a task whose instruction was not to touch either.
+ *
+ * `chanceOfAtLeast(h, d, 1)` equals `chanceOfAnyPoints(h, d)` exactly, and
+ * `pointSummary.test.ts` pins that equality so the two can never drift.
+ */
+export function chanceOfAtLeast(histogram: ArrayLike<number>, denominator: number, threshold: number): number {
+  assertDenominator("chanceOfAtLeast", denominator);
+  assertHasMass("chanceOfAtLeast", histogram, denominator);
+  if (!Number.isInteger(threshold) || threshold < 0) {
+    throw new InvalidThresholdError("chanceOfAtLeast", threshold);
+  }
+  let atOrAbove = 0;
+  for (let i = threshold; i < histogram.length; i++) atOrAbove += histogram[i]!;
+  return atOrAbove / denominator;
+}
+
+/**
+ * The median of the distribution RESTRICTED to `threshold` points and above:
+ * the typical amount, given that the team reaches at least that much.
+ *
+ * `undefined` — never 0 and never `NaN` — when no mass sits at or above the
+ * threshold, on exactly the terms `conditionalMedianGivenPoints` states for its
+ * own absence: an outcome that never occurs has no typical amount.
+ */
+export function conditionalMedianGivenAtLeast(
+  histogram: ArrayLike<number>,
+  denominator: number,
+  threshold: number
+): number | undefined {
+  assertDenominator("conditionalMedianGivenAtLeast", denominator);
+  if (!Number.isInteger(threshold) || threshold < 0) {
+    throw new InvalidThresholdError("conditionalMedianGivenAtLeast", threshold);
+  }
+  let mass = 0;
+  const restricted = new Float64Array(histogram.length);
+  for (let i = threshold; i < histogram.length; i++) {
+    const value = histogram[i]!;
+    restricted[i] = value;
+    mass += value;
+  }
+  if (mass <= 0) return undefined;
+  return pointQuantile(restricted, 0.5, mass);
+}
+
+/** The two numbers a threshold-conditioned cell prints. Deliberately NOT a `PointCellSummary`: there is no form to choose, the caller has already chosen one. */
+export interface PointThresholdSummary {
+  readonly threshold: number;
+  readonly chance: number;
+  /** `undefined` when no mass sits at or above the threshold — see `conditionalMedianGivenAtLeast`. */
+  readonly conditionalMedian: number | undefined;
+}
+
+/** Both threshold-conditioned quantities in one object, so no caller computes one of them a second way. */
+export function pointThresholdSummary(
+  histogram: ArrayLike<number>,
+  denominator: number,
+  threshold: number
+): PointThresholdSummary {
+  return {
+    threshold,
+    chance: chanceOfAtLeast(histogram, denominator, threshold),
+    conditionalMedian: conditionalMedianGivenAtLeast(histogram, denominator, threshold),
+  };
+}
+
+/** Thrown for a threshold that is not a whole, non-negative point count — a histogram index, and never a fraction. */
+export class InvalidThresholdError extends Error {
+  constructor(where: string, threshold: number) {
+    super(`${where}: the threshold must be a whole point count of zero or more, got ${String(threshold)}`);
+    this.name = "InvalidThresholdError";
+  }
+}

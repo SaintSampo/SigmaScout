@@ -44,9 +44,11 @@ import {
   pointCellSummary,
   pointPercentiles,
   pointQuantile,
+  pointThresholdSummary,
   type PointCellSummary,
 } from "../../../../../packages/core/districts/pointSummary.js";
-import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
+import { playoffPoints, type AllianceBracketMilestone, type PlayedBracketMatch } from "../../../../../packages/core/districts/bracket.js";
+import { maxEventPoints, type DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
 import { allianceRatingsFromMetrics, type AllianceMemberRating } from "../../../../../packages/core/algorithms/simulation/allianceWinProbability.js";
 import type { SimTeamBaseline } from "../../../../../packages/core/algorithms/simulation/rankSimulation.js";
 import type {
@@ -150,6 +152,27 @@ export function pointMassDistribution(points: number): DistrictPointDistribution
 // The row model
 // ---------------------------------------------------------------------------
 
+/**
+ * THE MILESTONE A PLAYOFFS CELL IS ACTUALLY CHASING, when the bracket has
+ * already moved past the top four.
+ *
+ * Jacob, 2026-09-25: "Can we have it update as playoffs go on? top four >
+ * finalist > winner." Before the bracket starts, and while an alliance is still
+ * short of a top-four finish, the cell's chance IS the chance of reaching the
+ * top four — placements five through eight pay nothing, so "any points at all"
+ * and "top four" are the same event and the cell needs no extra field. This type
+ * covers the three positions past that, where the shipped chance would be a
+ * settled question printed as a prediction.
+ *
+ * `chance` and `conditionalMedian` are `pointThresholdSummary`'s own two numbers,
+ * taken on the SAME distribution the cell's histogram is drawn from, so the
+ * headline and the outcome list can never disagree.
+ */
+export type DistrictPlayoffMilestone =
+  | { readonly kind: "finalist"; readonly chance: number; readonly conditionalMedian: number | undefined }
+  | { readonly kind: "winner"; readonly chance: number; readonly conditionalMedian: number | undefined }
+  | { readonly kind: "placed"; readonly placement: number; readonly points: number };
+
 /** One rendered cell: a grey final integer, a blue open distribution, or an honest unavailable. */
 export type DistrictLedgerCell =
   | { readonly id: string; readonly cell: DistrictCellKind; readonly kind: "final"; readonly earned: number }
@@ -161,6 +184,8 @@ export type DistrictLedgerCell =
       readonly distribution: DistrictPointDistribution;
       /** The axis ceiling this cell's histogram is drawn on — always `maxEventPoints`-derived, never a literal. */
       readonly ceiling: number;
+      /** Present only on a Playoffs cell whose bracket has already moved past the top four — see `DistrictPlayoffMilestone`. */
+      readonly playoffMilestone?: DistrictPlayoffMilestone;
     }
   | { readonly id: string; readonly cell: DistrictCellKind; readonly kind: "unavailable" };
 
@@ -215,6 +240,8 @@ export interface DistrictLedgerGaps {
   readonly eventsWithFallbackFieldSize: readonly string[];
   /** Events whose published alliance list was not yet final, so it was dropped and the draft simulated rather than priced from a partial bracket — see `alliancesAreFinal`. */
   readonly eventsWithPartialAllianceList: readonly string[];
+  /** Events carrying a played elimination row whose two sides could not both be resolved to one alliance, so that match was left out of the bracket conditioning — see `playedBracketMatchesFor`. */
+  readonly eventsWithUnresolvedElimMatches: readonly string[];
   /** Events the Worker could not price at all, with the error class that refused. */
   readonly unavailableEvents: readonly { readonly eventKey: string; readonly name: string }[];
   /**
@@ -326,6 +353,8 @@ export type DistrictEventInputResult =
       readonly excludedMatchCount: number;
       /** The event artifact published an alliance list that is not yet final, so it was dropped and the draft is simulated — see `alliancesAreFinal`. */
       readonly allianceListIsPartial: boolean;
+      /** Played elimination rows whose two sides could not both be resolved to one alliance, so the whole match was left out of the conditioning. */
+      readonly unresolvedElimMatchKeys: readonly string[];
     }
   | { readonly ok: false; readonly reason: "no-qual-rows" };
 
@@ -382,6 +411,72 @@ function suppliedAlliances(artifact: EventArtifact): readonly SuppliedAlliance[]
   const alliances = artifact.alliances;
   if (alliances === undefined || alliances.length === 0) return undefined;
   return alliances.map((alliance) => ({ allianceNumber: alliance.allianceNumber, picks: [...alliance.picks] }));
+}
+
+/** What `playedBracketMatchesFor` resolved, and what it could not — a disclosed gap rather than a silent drop. */
+export interface PlayedBracketMatchesResult {
+  readonly matches: readonly PlayedBracketMatch[];
+  /** The match keys whose two sides could not both be resolved to exactly one alliance. */
+  readonly unresolvedMatchKeys: readonly string[];
+}
+
+/**
+ * The event artifact's PLAYED elimination rows as alliance-numbered decisions.
+ *
+ * THE ONE PLACE COLOUR BECOMES AN ALLIANCE NUMBER. `bracket.ts` deliberately
+ * refuses to know about red and blue — resolving a colour needs the event's own
+ * pick lists, which are this module's data — so the mapping lives here and
+ * nowhere else.
+ *
+ * A side resolves to an alliance only when every one of its teams that appears
+ * in ANY pick list appears in the SAME one. That tolerance is deliberate and it
+ * is what a backup robot needs: TBA's `picks` array carries a fourth entry for
+ * one, the field shows three robots, and which three changes between matches.
+ * A side whose teams span two alliances, or none, is a row this tab cannot map,
+ * and the whole match is DISCLOSED rather than guessed at — a mis-mapped match
+ * silently rewrites the placement of every set below it, which is why
+ * `routePlayedBracket` refuses one outright.
+ *
+ * A row with no `actualWinner` is not played and is skipped without comment; a
+ * tie has no winner in an elimination bracket and TBA publishes none.
+ */
+export function playedBracketMatchesFor(artifact: EventArtifact): PlayedBracketMatchesResult {
+  const alliances = artifact.alliances;
+  if (alliances === undefined || alliances.length === 0) return { matches: [], unresolvedMatchKeys: [] };
+
+  const allianceByTeam = new Map<string, number>();
+  for (const alliance of alliances) {
+    for (const pick of alliance.picks) allianceByTeam.set(pick, alliance.allianceNumber);
+  }
+  const allianceOfSide = (teamKeys: readonly string[]): number | undefined => {
+    const numbers = new Set<number>();
+    for (const teamKey of teamKeys) {
+      const allianceNumber = allianceByTeam.get(teamKey);
+      if (allianceNumber !== undefined) numbers.add(allianceNumber);
+    }
+    return numbers.size === 1 ? [...numbers][0] : undefined;
+  };
+
+  const matches: PlayedBracketMatch[] = [];
+  const unresolvedMatchKeys: string[] = [];
+  for (const match of artifact.matches) {
+    if (match.compLevel === "qm") continue;
+    const red = allianceOfSide(match.redTeams);
+    const blue = allianceOfSide(match.blueTeams);
+    if (red === undefined || blue === undefined || red === blue) {
+      unresolvedMatchKeys.push(match.matchKey);
+      continue;
+    }
+    const winningAllianceNumber = match.actualWinner === "red" ? red : match.actualWinner === "blue" ? blue : undefined;
+    if (winningAllianceNumber === undefined) continue;
+    matches.push({
+      compLevel: match.compLevel,
+      setNumber: match.setNumber,
+      matchNumber: match.matchNumber,
+      winningAllianceNumber,
+    });
+  }
+  return { matches, unresolvedMatchKeys };
 }
 
 /**
@@ -449,6 +544,23 @@ export interface BuildDistrictEventInputOptions {
    * a rewound key; the "now" position supplies the first unplayed row's key.
    */
   readonly startMatchKey: string | null;
+  /**
+   * Whether this position may condition the bracket on the elimination matches
+   * ALREADY PLAYED. True only at the LIVE position.
+   *
+   * WHY IT IS THE CALLER'S CALL AND NOT A DERIVATION. The rewind rail's playoff
+   * step is all-or-nothing by construction: a position at an event's `alliance`
+   * step is before its bracket started, and a position at its `playoffs` step is
+   * after the bracket finished, so a rewound position never sits part-way
+   * through one. Only "now" does, and only the caller knows whether it is at
+   * "now" — `stage` alone cannot say, because the stage at an `alliance` step and
+   * the stage of a live event mid-bracket are the same four booleans.
+   *
+   * Absent reads as false: a caller that has not thought about it gets the
+   * shipped behaviour rather than a bracket conditioned on a position that
+   * cannot honestly carry one.
+   */
+  readonly conditionOnPlayedElims?: boolean;
 }
 
 /**
@@ -514,6 +626,17 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
   const knownElimPoints = stage.elim ? earnedPointsMap(districtArtifact, eventKey, "elim") : undefined;
   const knownAwardPoints = stage.award ? earnedPointsMap(districtArtifact, eventKey, "award") : undefined;
 
+  // THE PARTIALLY-PLAYED BRACKET. Only where the playoffs are genuinely under
+  // way: the position must be the live one, the alliances must be final (a
+  // partial list was already dropped above, and a bracket cannot be read against
+  // rosters that are still being picked) and the playoff stage must still be
+  // open. Anything else passes no played rows at all, which is exactly the
+  // shipped behaviour.
+  const playedElims =
+    options.conditionOnPlayedElims === true && stage.alliance && !stage.elim && alliances !== undefined
+      ? playedBracketMatchesFor(eventArtifact)
+      : { matches: [], unresolvedMatchKeys: [] };
+
   const input: DistrictLedgerEventInput = {
     eventKey,
     season,
@@ -527,9 +650,17 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
     ...(stage.alliance && alliances !== undefined ? { knownAlliances: alliances } : {}),
     ...(knownElimPoints !== undefined ? { knownElimPoints } : {}),
     ...(knownAwardPoints !== undefined ? { knownAwardPoints } : {}),
+    ...(playedElims.matches.length > 0 ? { playedElimMatches: playedElims.matches } : {}),
   };
 
-  return { ok: true, input, fieldSizeFellBack: true, excludedMatchCount, allianceListIsPartial };
+  return {
+    ok: true,
+    input,
+    fieldSizeFellBack: true,
+    excludedMatchCount,
+    allianceListIsPartial,
+    unresolvedElimMatchKeys: playedElims.unresolvedMatchKeys,
+  };
 }
 
 /** `teamKey -> the artifact's own earned points` for one event and one category — the known-stage maps 10-04 consumes. */
@@ -550,6 +681,12 @@ function earnedPointsMap(artifact: DistrictArtifact, eventKey: string, category:
 export interface DistrictEventDistributions {
   readonly eventKey: string;
   readonly byTeam: ReadonlyMap<string, Readonly<Record<DistrictCellKind, DistrictPointDistribution | undefined>>>;
+  /**
+   * How far each team's alliance has already got in this event's bracket, as
+   * 10-04's run reported it. Absent for a BAKED event, which has not started, so
+   * there is no bracket to have got anywhere in.
+   */
+  readonly playoffMilestoneByTeam?: ReadonlyMap<string, AllianceBracketMilestone>;
 }
 
 function emptyCellRecord(): Record<DistrictCellKind, DistrictPointDistribution | undefined> {
@@ -572,7 +709,7 @@ export function distributionsFromResult(result: DistrictLedgerResult): DistrictE
   for (const [teamKey, counts] of result.elimPoints) put(teamKey, "elim", counts);
   for (const [teamKey, counts] of result.awardPoints) put(teamKey, "award", counts);
   for (const [teamKey, counts] of result.eventTotal) put(teamKey, "eventTotal", counts);
-  return { eventKey: result.eventKey, byTeam };
+  return { eventKey: result.eventKey, byTeam, playoffMilestoneByTeam: result.playoffMilestones };
 }
 
 /** One baked sidecar's roster-indexed rows, decoded into the same per-team cell record. */
@@ -612,6 +749,38 @@ function summaryFor(cell: DistrictCellKind, distribution: DistrictPointDistribut
 
 function openCell(id: string, cell: DistrictCellKind, distribution: DistrictPointDistribution, ceiling: number): DistrictLedgerCell {
   return { id, cell, kind: "open", summary: summaryFor(cell, distribution), distribution, ceiling };
+}
+
+/**
+ * The Playoffs cell's milestone, from the bracket's own progress and this event's
+ * OWN placement point values.
+ *
+ * `undefined` for an alliance that is still alive short of a top-four finish, and
+ * for an event with no bracket progress at all. Both print the shipped chance,
+ * which for a playoff bracket IS the chance of reaching the top four: placements
+ * five through eight pay nothing, so "any points" and "top four" are one event.
+ *
+ * Every threshold comes from `playoffPoints`, so the dcmp weight is applied by
+ * the phase's single weight source and no point value is a literal here.
+ */
+function playoffMilestoneFor(
+  season: number,
+  tier: DistrictTier,
+  milestone: AllianceBracketMilestone | undefined,
+  distribution: DistrictPointDistribution
+): DistrictPlayoffMilestone | undefined {
+  if (milestone === undefined || milestone.kind === "alive") return undefined;
+  if (milestone.kind === "decided") {
+    return { kind: "placed", placement: milestone.placement, points: playoffPoints(season, tier, milestone.placement) };
+  }
+  // A top-four finish is secured, so the next thing worth asking is whether the
+  // alliance reaches the FINAL — second place or better.
+  const placement = milestone.kind === "finals" ? 1 : 2;
+  const threshold = playoffPoints(season, tier, placement);
+  const summary = pointThresholdSummary(distribution.counts, distribution.denominator, threshold);
+  return milestone.kind === "finals"
+    ? { kind: "winner", chance: summary.chance, conditionalMedian: summary.conditionalMedian }
+    : { kind: "finalist", chance: summary.chance, conditionalMedian: summary.conditionalMedian };
 }
 
 // ---------------------------------------------------------------------------
@@ -717,7 +886,15 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
         hasOpenCategory = true;
         const distribution = record?.[category];
         if (distribution === undefined) return { id, cell: category, kind: "unavailable" };
-        return openCell(id, category, distribution, categoryCeiling[category]);
+        const cell = openCell(id, category, distribution, categoryCeiling[category]);
+        if (category !== "elim" || cell.kind !== "open") return cell;
+        const milestone = playoffMilestoneFor(
+          season,
+          "district",
+          distributions.get(entry.eventKey)?.playoffMilestoneByTeam?.get(team.teamKey),
+          distribution
+        );
+        return milestone === undefined ? cell : { ...cell, playoffMilestone: milestone };
       });
 
       const totalId = districtCellId(entry.eventKey, "eventTotal");
@@ -834,6 +1011,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
       teamsWithoutAwardProfile: [...teamsWithoutAwardProfile].sort(),
       eventsWithFallbackFieldSize: [...(options.gaps?.eventsWithFallbackFieldSize ?? [])].sort(),
       eventsWithPartialAllianceList: [...(options.gaps?.eventsWithPartialAllianceList ?? [])].sort(),
+      eventsWithUnresolvedElimMatches: [...(options.gaps?.eventsWithUnresolvedElimMatches ?? [])].sort(),
       teamsWithUnavailableGrandTotal: [...teamsWithUnavailableGrandTotal].sort(),
       unavailableEvents: [...unavailableByKey.entries()].map(([eventKey, name]) => ({ eventKey, name })).sort((a, b) => a.eventKey.localeCompare(b.eventKey)),
     },

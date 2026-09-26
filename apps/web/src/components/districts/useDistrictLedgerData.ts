@@ -146,6 +146,25 @@ function foldBaselines(baselines: DistrictLedgerEventInput["baselines"]): string
 }
 
 /**
+ * The played elimination rows folded to their VALUES, sorted.
+ *
+ * WHY IT IS IN THE SIGNATURE AT ALL. An elimination match being played changes
+ * nothing else in this input: the baselines are qualification-only, the rosters
+ * are unchanged and the four stage booleans do not move until the whole bracket
+ * is done. So a signature blind to these rows would leave the Playoffs cell
+ * printing the chance of reaching the top four for an alliance that had already
+ * won the semifinal, for as long as the tab stayed open — which is exactly the
+ * staleness this function exists to prevent, one stage later.
+ */
+function foldPlayedElims(matches: DistrictLedgerEventInput["playedElimMatches"]): string {
+  if (matches === undefined) return SIGNATURE_ABSENT;
+  return [...matches]
+    .map((match) => `${match.compLevel}${String(match.setNumber)}m${String(match.matchNumber)}=${String(match.winningAllianceNumber)}`)
+    .sort()
+    .join(",");
+}
+
+/**
  * The string `useDistrictSimulationRun` keys its effect on: everything a run's
  * OUTPUT depends on, folded to its VALUES.
  *
@@ -181,6 +200,7 @@ export function districtRunSignature(events: readonly DistrictSimulationEventReq
         foldKnownAlliances(input.knownAlliances),
         foldKnownPoints(input.knownElimPoints),
         foldKnownPoints(input.knownAwardPoints),
+        foldPlayedElims(input.playedElimMatches),
       ].join("|");
     })
     .join(";");
@@ -207,6 +227,7 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
     const eventsWithExcludedMatches: string[] = [];
     const eventsWithFallbackFieldSize: string[] = [];
     const eventsWithPartialAllianceList: string[] = [];
+    const eventsWithUnresolvedElimMatches: string[] = [];
     for (const eventKey of activeKeys) {
       const eventArtifact = eventArtifacts.get(eventKey);
       if (eventArtifact === undefined) continue;
@@ -225,11 +246,17 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
         districtArtifact: artifact,
         stage,
         startMatchKey,
+        // ONLY THE LIVE POSITION may condition the bracket on played matches.
+        // `startMatchKeyByEvent` is supplied exactly when the caller is rewound —
+        // see `UseDistrictLedgerDataOptions` — so its absence IS "now", and the
+        // rewind rail's own playoff step is all-or-nothing by construction.
+        conditionOnPlayedElims: startMatchKeyByEvent === undefined,
       });
       if (!built.ok) continue;
       if (built.excludedMatchCount > 0) eventsWithExcludedMatches.push(eventKey);
       if (built.fieldSizeFellBack) eventsWithFallbackFieldSize.push(eventKey);
       if (built.allianceListIsPartial) eventsWithPartialAllianceList.push(eventKey);
+      if (built.unresolvedElimMatchKeys.length > 0) eventsWithUnresolvedElimMatches.push(eventKey);
       events.push({ eventKey, input: built.input });
     }
     return {
@@ -238,6 +265,7 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
       eventsWithExcludedMatches,
       eventsWithFallbackFieldSize,
       eventsWithPartialAllianceList,
+      eventsWithUnresolvedElimMatches,
     };
   }, [activeKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent, artifact]);
 
@@ -274,6 +302,7 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
       eventsWithExcludedMatches: assembled.eventsWithExcludedMatches,
       eventsWithFallbackFieldSize: assembled.eventsWithFallbackFieldSize,
       eventsWithPartialAllianceList: assembled.eventsWithPartialAllianceList,
+      eventsWithUnresolvedElimMatches: assembled.eventsWithUnresolvedElimMatches,
     },
     isLoading: preSimQueries.some((query) => query.isPending),
   };

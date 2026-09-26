@@ -11,12 +11,17 @@ import { describe, expect, it } from "vitest";
 import { continuousQuantile } from "../algorithms/simulation/continuousQuantile.js";
 import {
   chanceOfAnyPoints,
+  chanceOfAtLeast,
+  conditionalMedianGivenAtLeast,
   conditionalMedianGivenPoints,
+  EmptyDistributionError,
   InvalidDenominatorError,
+  InvalidThresholdError,
   POINT_CELL_CHANCE_FORM_THRESHOLD,
   pointCellSummary,
   pointPercentiles,
   pointQuantile,
+  pointThresholdSummary,
 } from "./pointSummary.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -202,5 +207,80 @@ describe("pointSummary — numbers and a form, never a rendered string", () => {
     const importLines = source.split("\n").filter((line) => line.startsWith("import"));
     expect(importLines).toHaveLength(1);
     expect(importLines[0]).toContain("continuousQuantile.js");
+  });
+});
+
+describe("the threshold-conditioned pair", () => {
+  /** Twenty draws over the district-tier playoff placement values: 8 at nothing, 5 at fourth, 3 at third, 3 at finalist, 1 at winner. */
+  const playoffs = (): Float64Array => {
+    const histogram = new Float64Array(31);
+    histogram[0] = 8;
+    histogram[7] = 5;
+    histogram[13] = 3;
+    histogram[20] = 3;
+    histogram[30] = 1;
+    return histogram;
+  };
+
+  it("reproduces chanceOfAnyPoints EXACTLY at a threshold of one point, so the two can never drift", () => {
+    const histogram = playoffs();
+    expect(chanceOfAtLeast(histogram, 20, 1)).toBe(chanceOfAnyPoints(histogram, 20));
+    // And the conditional median agrees with the any-points one at the same
+    // threshold.
+    expect(conditionalMedianGivenAtLeast(histogram, 20, 1)).toBe(conditionalMedianGivenPoints(histogram, 20));
+  });
+
+  it("counts the mass at or above the threshold, inclusive at the threshold itself", () => {
+    const histogram = playoffs();
+    expect(chanceOfAtLeast(histogram, 20, 0)).toBe(1);
+    expect(chanceOfAtLeast(histogram, 20, 7)).toBeCloseTo(12 / 20, 12);
+    expect(chanceOfAtLeast(histogram, 20, 8)).toBeCloseTo(7 / 20, 12);
+    expect(chanceOfAtLeast(histogram, 20, 20)).toBeCloseTo(4 / 20, 12);
+    expect(chanceOfAtLeast(histogram, 20, 30)).toBeCloseTo(1 / 20, 12);
+    expect(chanceOfAtLeast(histogram, 20, 31)).toBe(0);
+  });
+
+  it("takes the conditional median over the restricted tail alone", () => {
+    const histogram = playoffs();
+    // Above the finalist's 20 points the tail is 3 draws at 20 and 1 at 30, so
+    // the median sits INSIDE the 20 bin and never between the two values. The
+    // estimator spreads a bin over a 0.8-wide window by design (sketch 005), so
+    // the claim is the bin and not an exact value.
+    const givenFinalist = conditionalMedianGivenAtLeast(histogram, 20, 20)!;
+    expect(givenFinalist).toBeGreaterThan(19.5);
+    expect(givenFinalist).toBeLessThan(20.5);
+    // At the winner's 30 the tail is a point mass, so the median is exactly 30.
+    expect(conditionalMedianGivenAtLeast(histogram, 20, 30)).toBeCloseTo(30, 10);
+  });
+
+  it("returns undefined rather than a fabricated zero when no mass sits at or above the threshold", () => {
+    expect(conditionalMedianGivenAtLeast(playoffs(), 20, 31)).toBeUndefined();
+  });
+
+  it("pairs both numbers in one object, and refuses a threshold that is not a histogram index", () => {
+    const summary = pointThresholdSummary(playoffs(), 20, 20);
+    expect(summary.threshold).toBe(20);
+    expect(summary.chance).toBeCloseTo(4 / 20, 12);
+    expect(summary.conditionalMedian).toBe(conditionalMedianGivenAtLeast(playoffs(), 20, 20));
+    for (const bad of [-1, 0.5, Number.NaN]) {
+      expect(() => chanceOfAtLeast(playoffs(), 20, bad)).toThrow(InvalidThresholdError);
+      expect(() => conditionalMedianGivenAtLeast(playoffs(), 20, bad)).toThrow(InvalidThresholdError);
+    }
+  });
+
+  it("inherits the empty-distribution and denominator refusals rather than reporting a confident number over nothing", () => {
+    expect(() => chanceOfAtLeast(new Float64Array(10), 20, 1)).toThrow(EmptyDistributionError);
+    expect(() => chanceOfAtLeast(playoffs(), 0, 1)).toThrow(InvalidDenominatorError);
+    expect(() => conditionalMedianGivenAtLeast(playoffs(), 0, 1)).toThrow(InvalidDenominatorError);
+  });
+
+  it("is monotone non-increasing in the threshold, which no other assertion here would catch", () => {
+    const histogram = playoffs();
+    let previous = Number.POSITIVE_INFINITY;
+    for (let threshold = 0; threshold <= 31; threshold++) {
+      const chance = chanceOfAtLeast(histogram, 20, threshold);
+      expect(chance, `threshold ${String(threshold)}`).toBeLessThanOrEqual(previous);
+      previous = chance;
+    }
   });
 });

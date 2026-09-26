@@ -15,6 +15,7 @@ import {
 } from "../../../../../packages/harness/pageArtifacts.js";
 import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
 import { POINT_CELL_CHANCE_FORM_THRESHOLD } from "../../../../../packages/core/districts/pointSummary.js";
+import type { AllianceBracketMilestone } from "../../../../../packages/core/districts/bracket.js";
 import {
   DISTRICT_CATEGORIES,
   allDistrictTierEventKeys,
@@ -28,6 +29,7 @@ import {
   distributionsFromPreSim,
   filterDistrictLedgerTeams,
   inProgressDistrictEventKeys,
+  playedBracketMatchesFor,
   pointMassDistribution,
   type DistrictEventDistributions,
   type DistrictPointDistribution,
@@ -1011,5 +1013,337 @@ describe("a published alliance list is used only when it is FINAL (WR-07)", () =
       gaps: { eventsWithPartialAllianceList: ["2026wapartial"] },
     });
     expect(rows.gaps.eventsWithPartialAllianceList).toEqual(["2026wapartial"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The played bracket, and the Playoffs cell's milestone (quick task 260925-uf8)
+// ---------------------------------------------------------------------------
+
+describe("playedBracketMatchesFor — colour onto alliance number", () => {
+  const roster = Array.from({ length: 24 }, (_unused, i) => `frc${String(300 + i)}`);
+  const eightAlliances = Array.from({ length: 8 }, (_unused, n) => ({
+    allianceNumber: n + 1,
+    picks: roster.slice(n * 3, n * 3 + 3),
+  }));
+  const rosterOf = (allianceNumber: number): string[] => eightAlliances[allianceNumber - 1]!.picks;
+
+  /** One elimination row between two alliance numbers, with `actualWinner` naming a side. */
+  function elimRow(options: {
+    compLevel: "sf" | "f";
+    setNumber: number;
+    matchNumber: number;
+    red: readonly string[];
+    blue: readonly string[];
+    actualWinner: "red" | "blue" | "tie";
+  }): Record<string, unknown> {
+    // A row in `matches[]` is a PLAYED row and the schema refuses one without
+    // all three actual fields; a genuinely unplayed elimination row lives in
+    // `upcoming[]` instead, which is the case the last test below covers.
+    const played = { actualWinner: options.actualWinner, actualRedScore: 100, actualBlueScore: 90, actualRedRp: 0, actualBlueRp: 0 };
+    return {
+      matchKey: `2026waplay_${options.compLevel}${String(options.setNumber)}m${String(options.matchNumber)}`,
+      compLevel: options.compLevel,
+      setNumber: options.setNumber,
+      matchNumber: options.matchNumber,
+      sortTime: 1_770_000_000,
+      redTeams: [...options.red],
+      blueTeams: [...options.blue],
+      predictedWinner: "red",
+      pRedWin: 0.5,
+      predictedRedScore: 100,
+      predictedBlueScore: 100,
+      redRpPmf: [1],
+      blueRpPmf: [1],
+      ...played,
+    };
+  }
+
+  function playoffArtifact(
+    elimRows: readonly Record<string, unknown>[],
+    overrides: { alliances?: unknown; upcoming?: readonly Record<string, unknown>[] } = {}
+  ) {
+    return EventArtifactSchema.parse({
+      schemaVersion: 1,
+      generation: "gen-1",
+      computedAt: "2026-09-25T00:00:00.000Z",
+      algorithmId: "spr",
+      algorithmVersion: "7.0.0+rolling",
+      eventKey: "2026waplay",
+      season: SEASON,
+      matches: [...elimRows],
+      upcoming: [...(overrides.upcoming ?? [])],
+      teams: roster.map((teamKey, i) => ({
+        teamKey,
+        teamNumber: 300 + i,
+        rank: i + 1,
+        record: { wins: 2, losses: 2, ties: 0 },
+        rp: 2,
+        metrics: { total: { value: 90 - i }, sigma: { value: 8 } },
+      })),
+      // `in` rather than `??`, so a test can pass `undefined` to mean "publish no
+      // alliances at all" instead of falling back to the eight.
+      ...("alliances" in overrides ? { alliances: overrides.alliances } : { alliances: eightAlliances }),
+    });
+  }
+
+  it("resolves each side to the alliance its teams sit on, and names the winner by alliance number", () => {
+    const artifact = playoffArtifact([
+      elimRow({ compLevel: "sf", setNumber: 1, matchNumber: 1, red: rosterOf(1), blue: rosterOf(8), actualWinner: "red" }),
+      elimRow({ compLevel: "sf", setNumber: 2, matchNumber: 1, red: rosterOf(4), blue: rosterOf(5), actualWinner: "blue" }),
+    ]);
+    expect(playedBracketMatchesFor(artifact).matches).toEqual([
+      { compLevel: "sf", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 },
+      { compLevel: "sf", setNumber: 2, matchNumber: 1, winningAllianceNumber: 5 },
+    ]);
+  });
+
+  it("resolves a side that fields a BACKUP ROBOT, which is only three of an alliance's four picks", () => {
+    const withBackup = eightAlliances.map((alliance) =>
+      alliance.allianceNumber === 1 ? { ...alliance, picks: [...alliance.picks, "frc999"] } : alliance
+    );
+    const artifact = playoffArtifact(
+      [
+        // The backup plays in place of the captain, so the field shows two of the
+        // original picks plus the backup.
+        elimRow({
+          compLevel: "sf",
+          setNumber: 1,
+          matchNumber: 1,
+          red: [rosterOf(1)[1]!, rosterOf(1)[2]!, "frc999"],
+          blue: rosterOf(8),
+          actualWinner: "red",
+        }),
+      ],
+      { alliances: withBackup }
+    );
+    expect(playedBracketMatchesFor(artifact).matches).toEqual([
+      { compLevel: "sf", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 },
+    ]);
+  });
+
+  it("DISCLOSES a row whose side spans two alliances rather than guessing which one it was", () => {
+    const artifact = playoffArtifact([
+      elimRow({
+        compLevel: "sf",
+        setNumber: 1,
+        matchNumber: 1,
+        red: [rosterOf(1)[0]!, rosterOf(2)[0]!, rosterOf(3)[0]!],
+        blue: rosterOf(8),
+        actualWinner: "red",
+      }),
+    ]);
+    const result = playedBracketMatchesFor(artifact);
+    expect(result.matches).toEqual([]);
+    expect(result.unresolvedMatchKeys).toEqual(["2026waplay_sf1m1"]);
+  });
+
+  it("skips a TIE, which an elimination bracket cannot route, without calling it a gap", () => {
+    const artifact = playoffArtifact([
+      elimRow({ compLevel: "sf", setNumber: 1, matchNumber: 1, red: rosterOf(1), blue: rosterOf(8), actualWinner: "tie" }),
+    ]);
+    const result = playedBracketMatchesFor(artifact);
+    expect(result.matches).toEqual([]);
+    expect(result.unresolvedMatchKeys).toEqual([]);
+  });
+
+  it("never reads a SCHEDULED elimination row, which lives in upcoming rather than matches", () => {
+    const artifact = playoffArtifact([], {
+      upcoming: [
+        {
+          matchKey: "2026waplay_sf1m1",
+          compLevel: "sf",
+          setNumber: 1,
+          matchNumber: 1,
+          sortTime: 1_770_000_000,
+          redTeams: rosterOf(1),
+          blueTeams: rosterOf(8),
+          predictedWinner: "red",
+          pRedWin: 0.5,
+          predictedRedScore: 100,
+          predictedBlueScore: 100,
+        },
+      ],
+    });
+    expect(playedBracketMatchesFor(artifact)).toEqual({ matches: [], unresolvedMatchKeys: [] });
+  });
+
+  it("returns nothing at all for an event with no published alliances", () => {
+    const artifact = playoffArtifact(
+      [elimRow({ compLevel: "sf", setNumber: 1, matchNumber: 1, red: rosterOf(1), blue: rosterOf(8), actualWinner: "red" })],
+      { alliances: undefined }
+    );
+    expect(playedBracketMatchesFor(artifact)).toEqual({ matches: [], unresolvedMatchKeys: [] });
+  });
+
+  describe("the input it feeds", () => {
+    const districtArtifact = artifactOf(
+      roster.map((teamKey) =>
+        team({
+          teamKey,
+          pointTotal: 0,
+          eventPoints: [eventPoints({ eventKey: "2026waplay", qual: 0, alliance: 0, elim: 0, award: 0, total: 0 })],
+          awardProfile: { bucket: "none", rookie: false },
+        })
+      )
+    );
+    const played = [
+      elimRow({ compLevel: "sf", setNumber: 1, matchNumber: 1, red: rosterOf(1), blue: rosterOf(8), actualWinner: "red" }),
+    ];
+
+    function buildAt(options: { conditionOnPlayedElims?: boolean; stage?: DistrictStageFinality }) {
+      const built = buildDistrictEventSimulationInput({
+        eventKey: "2026waplay",
+        season: SEASON,
+        eventArtifact: playoffArtifact(played),
+        districtArtifact,
+        stage: options.stage ?? { qual: true, alliance: true, elim: false, award: false },
+        startMatchKey: null,
+        ...(options.conditionOnPlayedElims === undefined ? {} : { conditionOnPlayedElims: options.conditionOnPlayedElims }),
+      });
+      if (!built.ok) throw new Error("expected an input");
+      return built;
+    }
+
+    it("passes the played rows at the live position", () => {
+      expect(buildAt({ conditionOnPlayedElims: true }).input.playedElimMatches).toEqual([
+        { compLevel: "sf", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 },
+      ]);
+    });
+
+    it("passes NONE at a rewound position, where the playoff step is all-or-nothing", () => {
+      expect(buildAt({ conditionOnPlayedElims: false }).input.playedElimMatches).toBeUndefined();
+      // And an absent flag reads as false rather than as the live position.
+      expect(buildAt({}).input.playedElimMatches).toBeUndefined();
+    });
+
+    it("passes NONE once the playoff stage is final, which has its own known-points input", () => {
+      const built = buildAt({ conditionOnPlayedElims: true, stage: { qual: true, alliance: true, elim: true, award: false } });
+      expect(built.input.playedElimMatches).toBeUndefined();
+      expect(built.input.knownElimPoints).toBeDefined();
+    });
+
+    it("passes NONE before alliance selection is final, because a bracket cannot be read against rosters still being picked", () => {
+      expect(
+        buildAt({ conditionOnPlayedElims: true, stage: { qual: true, alliance: false, elim: false, award: false } }).input
+          .playedElimMatches
+      ).toBeUndefined();
+    });
+  });
+});
+
+describe("the Playoffs cell's milestone", () => {
+  const eventKey = "2026wamile";
+  const districtArtifact = artifactOf([
+    team({
+      teamKey: "frc1",
+      pointTotal: 0,
+      eventPoints: [eventPoints({ eventKey, qual: 0, alliance: 0, elim: 0, award: 0, total: 0 })],
+      awardProfile: { bucket: "none", rookie: false },
+    }),
+  ]);
+
+  /** A playoff-points distribution over the district-tier placement values: 40 at nothing, 20 at fourth, 20 at third, 15 at finalist, 5 at winner. */
+  function elimDistribution(): DistrictPointDistribution {
+    const counts = new Float64Array(maxEventPoints(SEASON, "district").elim + 1);
+    counts[0] = 40;
+    counts[7] = 20;
+    counts[13] = 20;
+    counts[20] = 15;
+    counts[30] = 5;
+    return { counts, denominator: 100 };
+  }
+
+  function cellFor(milestone: AllianceBracketMilestone | undefined) {
+    const record = {
+      qual: undefined,
+      alliance: undefined,
+      elim: elimDistribution(),
+      award: undefined,
+      eventTotal: undefined,
+      grandTotal: undefined,
+    };
+    const distributions = new Map<string, DistrictEventDistributions>([
+      [
+        eventKey,
+        {
+          eventKey,
+          byTeam: new Map([["frc1", record]]),
+          ...(milestone === undefined ? {} : { playoffMilestoneByTeam: new Map([["frc1", milestone]]) }),
+        },
+      ],
+    ]);
+    const rows = buildDistrictLedgerRows({
+      artifact: districtArtifact,
+      distributions,
+      stageByEvent: new Map([[eventKey, { qual: true, alliance: true, elim: false, award: true }]]),
+    });
+    const cell = rows.teams[0]!.rows[0]!.cells.find((entry) => entry.cell === "elim")!;
+    if (cell.kind !== "open") throw new Error("expected an open playoff cell");
+    return cell;
+  }
+
+  it("carries NO milestone for an event with no bracket progress, so the cell prints the shipped top-four chance", () => {
+    expect(cellFor(undefined).playoffMilestone).toBeUndefined();
+    expect(cellFor({ kind: "alive" }).playoffMilestone).toBeUndefined();
+  });
+
+  it("asks about the FINALIST once a top-four finish is secured, at this event's own finalist point value", () => {
+    const milestone = cellFor({ kind: "topFour" }).playoffMilestone!;
+    expect(milestone.kind).toBe("finalist");
+    if (milestone.kind !== "finalist") throw new Error("unreachable");
+    // 20 draws at or above the finalist's 20 points, out of 100.
+    expect(milestone.chance).toBeCloseTo(0.2, 12);
+    expect(milestone.conditionalMedian).toBeGreaterThan(19.5);
+  });
+
+  it("asks about the WINNER once the alliance is in the final", () => {
+    const milestone = cellFor({ kind: "finals" }).playoffMilestone!;
+    expect(milestone.kind).toBe("winner");
+    if (milestone.kind !== "winner") throw new Error("unreachable");
+    // 5 draws at the winner's 30 points, out of 100.
+    expect(milestone.chance).toBeCloseTo(0.05, 12);
+    expect(milestone.conditionalMedian).toBeCloseTo(30, 10);
+  });
+
+  it("carries the PLACEMENT and its own point value once the bracket has decided, with no chance left to print", () => {
+    const milestone = cellFor({ kind: "decided", placement: 4 }).playoffMilestone!;
+    expect(milestone).toEqual({ kind: "placed", placement: 4, points: 7 });
+    expect(cellFor({ kind: "decided", placement: 1 }).playoffMilestone).toEqual({ kind: "placed", placement: 1, points: 30 });
+    expect(cellFor({ kind: "decided", placement: 6 }).playoffMilestone).toEqual({ kind: "placed", placement: 6, points: 0 });
+  });
+
+  it("puts a milestone on the PLAYOFFS cell only — the other three categories are untouched", () => {
+    const rows = buildDistrictLedgerRows({
+      artifact: districtArtifact,
+      distributions: new Map<string, DistrictEventDistributions>([
+        [
+          eventKey,
+          {
+            eventKey,
+            byTeam: new Map([
+              [
+                "frc1",
+                {
+                  qual: elimDistribution(),
+                  alliance: elimDistribution(),
+                  elim: elimDistribution(),
+                  award: elimDistribution(),
+                  eventTotal: undefined,
+                  grandTotal: undefined,
+                },
+              ],
+            ]),
+            playoffMilestoneByTeam: new Map<string, AllianceBracketMilestone>([["frc1", { kind: "finals" }]]),
+          },
+        ],
+      ]),
+      stageByEvent: new Map([[eventKey, { qual: false, alliance: false, elim: false, award: false }]]),
+    });
+    for (const cell of rows.teams[0]!.rows[0]!.cells) {
+      if (cell.kind !== "open") continue;
+      if (cell.cell === "elim") expect(cell.playoffMilestone).toBeDefined();
+      else expect(cell.playoffMilestone, cell.cell).toBeUndefined();
+    }
   });
 });

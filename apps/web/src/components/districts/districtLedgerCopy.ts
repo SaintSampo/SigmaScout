@@ -69,12 +69,56 @@ export const DISTRICT_LEDGER_UNAVAILABLE_CELL = "not available";
 /** The prefix a median-form cell's second line carries. "likely" means 8 of 10 runs land there — the 10th to 90th percentile in plain words. */
 export const DISTRICT_LEDGER_LIKELY_PREFIX = "likely";
 
-/** The lumpy-category words: the bold line's verb, and the conditional line's clause. */
+/**
+ * The lumpy-category words: the bold line's verb, and the conditional line's
+ * clause.
+ *
+ * THE PLAYOFF ENTRY IS A CORRECTION. It read `play` / `if in`, which printed
+ * "~66% play" on a cell whose points are zero for every alliance out in the
+ * first two rounds — so the number was never the chance of PLAYING a playoff
+ * match, it was the chance of finishing in the top four. Jacob, 2026-09-25:
+ * "top four > finalist > winner". The word now says what the number is, and
+ * `DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS` carries the two milestones past it.
+ */
 export const DISTRICT_LEDGER_CHANCE_WORDS = {
   alliance: { bold: "picked", conditional: "if picked" },
-  elim: { bold: "play", conditional: "if in" },
+  elim: { bold: "top 4", conditional: "if top 4" },
   award: { bold: "award", conditional: "if won" },
 } as const;
+
+/**
+ * The Playoffs cell's milestone words, for the two positions past a secured
+ * top-four finish.
+ *
+ * The bold line reads `finalist ~40%` and the small line `~20 if finalist`: the
+ * milestone first, then the tilde figure, which is the order Jacob wrote them
+ * in. `top 4` is not here because it is not a milestone the bracket has reached
+ * — it is the DEFAULT question, and its words live in
+ * `DISTRICT_LEDGER_CHANCE_WORDS.elim` beside the other two categories'.
+ */
+export const DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS = {
+  finalist: { bold: "finalist", conditional: "if finalist" },
+  winner: { bold: "winner", conditional: "if winner" },
+} as const;
+
+/** The ordinal suffixes for placements one through eight, indexed `placement - 1`. A table, not arithmetic: eight values, and every English exception is inside them. */
+const PLACEMENT_ORDINALS: readonly string[] = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th"];
+
+/**
+ * The small line a Playoffs cell prints once the bracket has DECIDED its
+ * alliance's placement: the placement, in plain words.
+ *
+ * No tilde, because a decided placement is not a prediction — it is what
+ * happened. The bold line beside it still carries one, because the POINTS are
+ * this site's own reading of that placement until TBA posts them.
+ */
+export function districtLedgerPlacementLine(placement: number): string {
+  const ordinal = PLACEMENT_ORDINALS[placement - 1];
+  // A placement outside the eight-alliance bracket cannot arise from
+  // `routePlayedBracket`, which only ever produces 1 through 8. Printing the
+  // bare number is the honest fallback rather than inventing a suffix.
+  return ordinal === undefined ? `place ${String(placement)}` : `${ordinal} place`;
+}
 
 /** The two legend keys, verbatim from the UI-SPEC. */
 export const DISTRICT_LEDGER_LEGEND_EARNED = "earned, final";

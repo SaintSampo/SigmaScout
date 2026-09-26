@@ -67,9 +67,11 @@ import {
   DISTRICT_LEDGER_TAB_LABEL,
   DISTRICT_LEDGER_TICK_NOW,
   DISTRICT_LEDGER_TICK_START,
+  DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
   districtLedgerChanceLine,
   districtLedgerNoPointsCaption,
+  districtLedgerPlacementLine,
   districtLedgerShortEventName,
   districtLedgerTickWeekLabel,
 } from "./districtLedgerCopy.js";
@@ -314,8 +316,34 @@ function chanceWordsFor(cell: DistrictCellKind): { bold: string; conditional: st
   return DISTRICT_LEDGER_CHANCE_WORDS.award;
 }
 
-/** The two lines a blue cell prints, chosen by 10-04's form selector — this component renders the words, that module decides the form and the numbers. */
+/**
+ * The two lines a blue cell prints, chosen by 10-04's form selector — this
+ * component renders the words, that module decides the form and the numbers.
+ *
+ * THE PLAYOFFS CELL TAKES ITS MILESTONE FIRST, where the bracket has already
+ * moved past the top four: `districtLedgerRows.ts` puts the milestone and its
+ * two threshold-conditioned numbers on the cell, and the shipped chance form is
+ * what an alliance still short of a top-four finish prints. See
+ * `DistrictPlayoffMilestone`.
+ */
 function openCellLines(cell: Extract<DistrictLedgerCell, { kind: "open" }>): { bold: string; small: string | undefined } {
+  const milestone = cell.playoffMilestone;
+  if (milestone !== undefined) {
+    if (milestone.kind === "placed") {
+      // The placement is settled, so there is no chance left to print: the
+      // points follow from it, and the small line names the placement.
+      return { bold: `~${String(Math.round(milestone.points))}`, small: districtLedgerPlacementLine(milestone.placement) };
+    }
+    const words = DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS[milestone.kind];
+    return {
+      bold: `${words.bold} ~${String(Math.round(milestone.chance * 100))}%`,
+      // NO FABRICATED ZERO, on the same terms as the chance form below.
+      small:
+        milestone.conditionalMedian === undefined
+          ? undefined
+          : `~${String(Math.round(milestone.conditionalMedian))} ${words.conditional}`,
+    };
+  }
   if (cell.summary.form === "median") {
     const { p10, p50, p90 } = cell.summary.percentiles;
     return { bold: `~${String(Math.max(0, Math.round(p50)))}`, small: likelyRangeText(Math.max(0, p10), Math.max(0, p90)) };
@@ -323,7 +351,14 @@ function openCellLines(cell: Extract<DistrictLedgerCell, { kind: "open" }>): { b
   const words = chanceWordsFor(cell.cell);
   // Every blue figure carries the tilde (Jacob, 2026-09-25): it is this site's
   // prediction, never a number TBA published.
-  const bold = `~${String(Math.round(cell.summary.chance * 100))}% ${words.bold}`;
+  //
+  // THE PLAYOFFS CELL PUTS THE MILESTONE FIRST — `top 4 ~66%` rather than
+  // `~66% top 4` — so the three milestone headlines read the same way round as
+  // each other. The other two categories keep the shipped order.
+  const bold =
+    cell.cell === "elim"
+      ? `${words.bold} ~${String(Math.round(cell.summary.chance * 100))}%`
+      : `~${String(Math.round(cell.summary.chance * 100))}% ${words.bold}`;
   // NO FABRICATED ZERO: 10-04 returns `undefined` when all the mass sits at
   // zero, and a printed "~0" would assert a typical amount the draws never
   // produced.
