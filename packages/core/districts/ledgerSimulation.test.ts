@@ -21,12 +21,14 @@ import {
 import { AWARD_POINT_SUPPORT, awardBaseRate } from "./awardBaseRates.js";
 import {
   awardResidualRate,
+  foldStackedAwardPmf,
   hasAwardOrderingTables,
   IMPACT_AWARD_POINTS,
   impactOrderingProbability,
   MAX_IMPACT_POSITION,
   ROOKIE_ALL_STAR_AWARD_POINTS,
   rookieAllStarOrderingProbability,
+  SINGLE_AWARD_POINT_CEILING,
 } from "./awardOrderingTables.js";
 import {
   BRACKET_SETS,
@@ -49,7 +51,7 @@ import {
   MissingAwardProfileError,
   NegativeDistrictShiftError,
   awardOrderingAssignments,
-  composeOrderedAwardPoints,
+  singleAwardPoints,
   simulateDistrictEvent,
   UnratedTeamError,
   type DistrictAwardProfile,
@@ -491,15 +493,45 @@ describe("simulateDistrictEvent — the bracket", () => {
 // ---------------------------------------------------------------------------
 
 describe("simulateDistrictEvent — the award draw", () => {
-  it("the tallied award histogram matches the 10-02 lookup's own pmf within Monte Carlo tolerance at 20,000 draws", () => {
+  it("the tallied award histogram matches the 10-02 lookup's own FOLDED pmf within Monte Carlo tolerance at 20,000 draws", () => {
     const input = inputFor(24, { remainingMatches: [] });
     const draws = 20_000;
     const result = simulateDistrictEvent(input, draws, 2024);
-    const rate = awardBaseRate(SEASON, "none", "veteran");
+    // The FOLDED pmf, because that is the distribution the draw reads: the
+    // measured table's 13 and 15 bins are stacks of two awards and the site never
+    // predicts one. Comparing against the raw pmf would pass anyway — those bins
+    // hold about a thousandth of the mass, well inside a two-decimal tolerance —
+    // which is exactly why the two assertions below are exact rather than close.
+    const folded = foldStackedAwardPmf(awardBaseRate(SEASON, "none", "veteran").pmf);
     const histogram = result.awardPoints.get(teamKey(1))!;
     AWARD_POINT_SUPPORT.forEach((points, index) => {
-      expect(histogram[points]! / draws).toBeCloseTo(rate.pmf[index]!, 2);
+      expect(histogram[points]! / draws).toBeCloseTo(folded[index]!, 2);
     });
+  });
+
+  it("puts NO mass on a stacked award: the two stacked bins are empty and their mass moved onto 10 and 8", () => {
+    const input = inputFor(24, { remainingMatches: [] });
+    const draws = 20_000;
+    const result = simulateDistrictEvent(input, draws, 2024);
+    for (const baseline of input.baselines) {
+      const histogram = result.awardPoints.get(baseline.teamKey)!;
+      // Exactly zero, not "close to zero" — the fold moves the mass, so any
+      // count at all here is the fold having been skipped.
+      expect(histogram[13], `${baseline.teamKey} at 13 points`).toBe(0);
+      expect(histogram[15], `${baseline.teamKey} at 15 points`).toBe(0);
+    }
+    // A bucket with measured 15-plus mass moves it onto 10. The raw table's
+    // top bin is non-empty, and the folded 10 bin is exactly the sum of the
+    // raw 10, 15 bins.
+    const raw = awardBaseRate(SEASON, "none", "veteran").pmf;
+    expect(raw[5]!).toBeGreaterThan(0);
+    const folded = foldStackedAwardPmf(raw);
+    expect(folded[3]!).toBeCloseTo(raw[3]! + raw[5]!, 12);
+    expect(folded[2]!).toBeCloseTo(raw[2]! + raw[4]!, 12);
+    expect(folded[4]!).toBe(0);
+    expect(folded[5]!).toBe(0);
+    // The mass is MOVED, never dropped.
+    expect(folded.reduce((sum, value) => sum + value, 0)).toBeCloseTo(1, 12);
   });
 
   it("carries the lookup's fallback rung for every team", () => {
@@ -1398,11 +1430,28 @@ describe("the award ordering layer — the assignment", () => {
     expect(awardOrderingAssignments(2018, baselinesFor(30), profilesWithCounts(30))).toBeUndefined();
   });
 
-  it("composes the two award point values additively, and they are the measured ones", () => {
-    expect(composeOrderedAwardPoints(false, false, 5)).toBe(5);
-    expect(composeOrderedAwardPoints(true, false, 0)).toBe(IMPACT_AWARD_POINTS);
-    expect(composeOrderedAwardPoints(false, true, 0)).toBe(ROOKIE_ALL_STAR_AWARD_POINTS);
-    expect(composeOrderedAwardPoints(true, true, 5)).toBe(IMPACT_AWARD_POINTS + ROOKIE_ALL_STAR_AWARD_POINTS + 5);
+  it("takes the HIGHEST SINGLE AWARD of a draw and never the sum of two", () => {
+    expect(singleAwardPoints(false, false, 0)).toBe(0);
+    expect(singleAwardPoints(false, false, 5)).toBe(5);
+    expect(singleAwardPoints(true, false, 0)).toBe(IMPACT_AWARD_POINTS);
+    expect(singleAwardPoints(false, true, 0)).toBe(ROOKIE_ALL_STAR_AWARD_POINTS);
+    // The pair, which the corpus allows and the site never predicts: Impact wins.
+    expect(singleAwardPoints(true, true, 5)).toBe(IMPACT_AWARD_POINTS);
+    // Impact plus a judged award is still Impact, not 15.
+    expect(singleAwardPoints(true, false, 5)).toBe(IMPACT_AWARD_POINTS);
+    // Rookie All Star plus a judged award is still Rookie All Star, not 13.
+    expect(singleAwardPoints(false, true, 5)).toBe(ROOKIE_ALL_STAR_AWARD_POINTS);
+    // A residual that is ITSELF a stack folds too.
+    expect(singleAwardPoints(false, false, 13)).toBe(ROOKIE_ALL_STAR_AWARD_POINTS);
+    expect(singleAwardPoints(false, false, 15)).toBe(IMPACT_AWARD_POINTS);
+    // Nothing it returns is ever above the highest single award.
+    for (const residual of AWARD_POINT_SUPPORT) {
+      for (const impact of [false, true]) {
+        for (const rookie of [false, true]) {
+          expect(singleAwardPoints(impact, rookie, residual)).toBeLessThanOrEqual(SINGLE_AWARD_POINT_CEILING);
+        }
+      }
+    }
   });
 });
 
@@ -1459,12 +1508,15 @@ describe("the award ordering layer — the draw", () => {
     expect(anyPoints(ordered.awardPoints.get(teamKey(1))!)).toBeGreaterThan(anyPoints(base.awardPoints.get(teamKey(1))!));
   });
 
-  it("keeps every team's award histogram a complete distribution, which is what proves the ceiling clamp fires", () => {
-    // A rookie field is the case that overflows: Impact at 10, Rookie All Star
-    // at 8 and a residual of 5 or 10 compose to 23 or 28 against a district
-    // ceiling of 15. An unclamped out-of-range write to the Int32Array is a
-    // SILENT NO-OP, so a team whose mass went missing is exactly what a removed
-    // clamp looks like — and nothing else in this file would catch it.
+  it("keeps every team's award histogram a complete distribution, and puts NO mass above the highest single award", () => {
+    // A rookie field is the case that used to overflow: Impact at 10, Rookie All
+    // Star at 8 and a residual of 5 or 10 SUMMED to 23 or 28 against a district
+    // ceiling of 15, and the clamp existed to keep the out-of-range write from
+    // silently no-opping. Since 260925-uf8 the draw takes the HIGHEST SINGLE
+    // AWARD instead, so the clamp is unreachable and the real property is the
+    // stronger one: no mass at all above Impact's own 10. A team whose mass went
+    // missing is still exactly what a broken write looks like, so the
+    // complete-distribution assertion stays.
     const rookies = profilesWithCounts(30, "rookie");
     const result = simulateDistrictEvent(inputFor(30, { awardProfiles: rookies }), draws, 7);
     expect(result.awardOrdering).toBe("applied");
@@ -1475,10 +1527,14 @@ describe("the award ordering layer — the draw", () => {
       for (const count of histogram) total += count;
       expect(total, baseline.teamKey).toBe(draws);
       expect(histogram.length).toBe(ceiling + 1);
+      for (let points = SINGLE_AWARD_POINT_CEILING + 1; points <= ceiling; points++) {
+        expect(histogram[points], `${baseline.teamKey} at ${String(points)} points`).toBe(0);
+      }
     }
-    // And the clamp's own bin carries mass, so the branch was actually taken.
-    const topBin = [...baselinesFor(30)].reduce((sum, b) => sum + result.awardPoints.get(b.teamKey)![ceiling]!, 0);
-    expect(topBin).toBeGreaterThan(0);
+    // And Impact's own bin carries mass, so the fold has something to fold ONTO
+    // and the assertion above is not vacuous.
+    const impactBin = [...baselinesFor(30)].reduce((sum, b) => sum + result.awardPoints.get(b.teamKey)![SINGLE_AWARD_POINT_CEILING]!, 0);
+    expect(impactBin).toBeGreaterThan(0);
   });
 
   it("produces an award pmf that sums to one and that encodeDistrictPointPmf accepts", () => {

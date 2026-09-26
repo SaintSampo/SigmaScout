@@ -51,8 +51,26 @@ const ALLIANCE_WIN_PROBABILITY_ENTRY_POINT = resolve(HERE, "..", "core", "algori
 const LEDGER_SIMULATION_ENTRY_POINT = resolve(HERE, "..", "core", "districts", "ledgerSimulation.ts");
 const FORBIDDEN_DIR = resolve(HERE, "..", "core", "algorithms");
 
-/** Matches one `import ... from "spec"` or `export ... from "spec"` line — this repo's convention keeps every such statement on one line. */
-const IMPORT_LINE_RE = /^\s*(?:import|export)\b.*\bfrom\s*["']([^"']+)["']/;
+/**
+ * Matches one `import ... from "spec"` or `export ... from "spec"` STATEMENT,
+ * whether it sits on one line or spans several.
+ *
+ * SPANNING SEVERAL IS THE WHOLE POINT, and this regex is a correction. The
+ * shipped version was anchored per LINE and required `from "spec"` on the same
+ * line as the `import` keyword, on the stated basis that "this repo's
+ * convention keeps every such statement on one line". That convention is not
+ * enforced anywhere and this repo does not follow it: a named import list long
+ * enough for Prettier to break is formatted across lines, and every one of
+ * those was invisible to this scan. The hole was found on 2026-09-25 when
+ * `ledgerSimulation.ts`'s `./bracket.js` import grew a sixth name and the
+ * not-vacuous assertion below went red — the assertion caught it, which is
+ * exactly why that assertion is there. A `node:` import inside a broken-up list
+ * would have been missed in silence.
+ *
+ * `[^;]*?` is what spans the newlines: it cannot run past the statement's own
+ * semicolon, so one statement can never swallow the next.
+ */
+const IMPORT_STATEMENT_RE = /(?:^|\n)[ \t]*(?:import|export)\b[^;]*?\bfrom\s*["']([^"']+)["']/g;
 
 interface ScanResult {
   visited: Set<string>;
@@ -60,12 +78,19 @@ interface ScanResult {
   algorithmDirViolations: string[];
 }
 
-function extractImportSpecifiers(filePath: string): string[] {
+export function extractImportSpecifiers(filePath: string): string[] {
   const content = readFileSync(filePath, "utf8");
+  return extractImportSpecifiersFromSource(content);
+}
+
+/** The source-level half, exported so a test can hand it a multi-line statement directly rather than writing a fixture file. */
+export function extractImportSpecifiersFromSource(source: string): string[] {
   const specifiers: string[] = [];
-  for (const line of content.split("\n")) {
-    const match = IMPORT_LINE_RE.exec(line);
-    if (match?.[1]) specifiers.push(match[1]);
+  // A fresh regex per call: a `g` flag carries `lastIndex` between calls.
+  const pattern = new RegExp(IMPORT_STATEMENT_RE.source, "g");
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(source)) !== null) {
+    if (match[1]) specifiers.push(match[1]);
   }
   return specifiers;
 }
@@ -106,6 +131,37 @@ function scan(entryPoints: readonly string[]): ScanResult {
 
   return { visited, nodeBuiltinViolations, algorithmDirViolations };
 }
+
+describe("the import extractor itself", () => {
+  it("sees a specifier whose statement spans several lines, which is what the per-line version missed", () => {
+    const source = [
+      'import { a } from "./one.js";',
+      "import {",
+      "  b,",
+      "  type C,",
+      '} from "./two.js";',
+      "import {",
+      "  readFileSync,",
+      '} from "node:fs";',
+      'export * from "./three.js";',
+      'export { d } from "./four.js";',
+    ].join("\n");
+    expect(extractImportSpecifiersFromSource(source)).toEqual([
+      "./one.js",
+      "./two.js",
+      "node:fs",
+      "./three.js",
+      "./four.js",
+    ]);
+  });
+
+  it("does not read a statement's specifier past its own semicolon, and is not fooled by the word from inside a string", () => {
+    const source = ['import "./side-effect.js";', 'export function label(): string {', '  return "from ./nowhere.js";', "}"].join("\n");
+    // `import "./side-effect.js"` carries no `from` at all and is not a graph
+    // edge this scan needs; what matters is that nothing invents `./nowhere.js`.
+    expect(extractImportSpecifiersFromSource(source)).toEqual([]);
+  });
+});
 
 describe("browser-safe schema import graph", () => {
   it("never reaches a Node built-in import from pageArtifacts.ts or publishedAlgorithms.ts", () => {

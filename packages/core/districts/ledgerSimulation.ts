@@ -186,6 +186,8 @@ import {
 } from "./awardBaseRates.js";
 import {
   awardResidualRate,
+  foldStackedAwardPmf,
+  foldStackedAwardPoints,
   hasAwardOrderingTables,
   IMPACT_AWARD_POINTS,
   impactOrderingProbability,
@@ -362,16 +364,27 @@ export function awardOrderingAssignments(
 }
 
 /**
- * One AWARD-ORDERING draw's composed point value, at BASE scale.
+ * One AWARD-ORDERING draw's point value, at BASE scale: the HIGHEST SINGLE
+ * AWARD the draw produced, never a sum of two.
  *
- * Impact and Rookie All Star are drawn INDEPENDENTLY, which allows the pair —
- * a rookie winning Impact is rare but not impossible, and refusing it would be
- * a rule the corpus does not support. The sum can therefore exceed the tier's
- * award ceiling, so the caller clamps; see the draw step for why the clamp is a
- * correctness requirement rather than a tidy-up.
+ * REPLACES the shipped `composeOrderedAwardPoints`, which added the three
+ * together. Impact and Rookie All Star are still drawn INDEPENDENTLY — a rookie
+ * winning Impact is rare but not impossible, and refusing that pair would be a
+ * rule the corpus does not support — so a draw genuinely can produce two awards
+ * at once. What changed is what the site PREDICTS: Jacob's rule (2026-09-25) is
+ * that two awards are never a predicted possibility, so the pair collapses onto
+ * the better of the two rather than being priced as a 18-point outcome no cell
+ * should invite a reader to plan around.
+ *
+ * The residual is folded too, by `foldStackedAwardPoints`, because the residual
+ * table's own top bins are themselves stacks. There is therefore exactly one
+ * fold rule and it lives in `awardOrderingTables.ts` beside the tables it is a
+ * claim about.
  */
-export function composeOrderedAwardPoints(impactWon: boolean, rookieAllStarWon: boolean, residualPoints: number): number {
-  return (impactWon ? IMPACT_AWARD_POINTS : 0) + (rookieAllStarWon ? ROOKIE_ALL_STAR_AWARD_POINTS : 0) + residualPoints;
+export function singleAwardPoints(impactWon: boolean, rookieAllStarWon: boolean, residualPoints: number): number {
+  if (impactWon) return IMPACT_AWARD_POINTS;
+  if (rookieAllStarWon) return ROOKIE_ALL_STAR_AWARD_POINTS;
+  return foldStackedAwardPoints(residualPoints);
 }
 
 /**
@@ -884,7 +897,12 @@ export function simulateDistrictEvent(
       // on the result so 10-07's drawer can say which one a cell rests on.
       const rate = awardBaseRate(season, profile.bucket, profile.rookieState);
       awardSources.set(baseline.teamKey, rate.source);
-      awardPmfByTeam.push(rate.pmf);
+      // FOLDED ONCE, HERE, rather than per draw: the measured table's top two
+      // bins are stacks of two awards, and two awards are never a predicted
+      // possibility. The mass is moved onto the highest single award of each
+      // stack, so the pmf still sums to one and the draw below can index
+      // `AWARD_POINT_SUPPORT` unchanged. See `foldStackedAwardPmf`.
+      awardPmfByTeam.push(foldStackedAwardPmf(rate.pmf));
     }
     if (missingProfiles.length > 0) {
       throw new MissingAwardProfileError(
@@ -1227,12 +1245,14 @@ export function simulateDistrictEvent(
         const rookieAllStarWon =
           assignment.rookieAllStarProbability > 0 ? ledgerRng() < assignment.rookieAllStarProbability : false;
         const residualIndex = drawCategorical(assignment.residualPmf, ledgerRng);
-        const composed =
-          composeOrderedAwardPoints(impactWon, rookieAllStarWon, AWARD_POINT_SUPPORT[residualIndex]!) * weight;
-        // THE CLAMP IS A CORRECTNESS REQUIREMENT, not a tidy-up. Impact and
-        // Rookie All Star are drawn independently, so their sum plus a residual
-        // can exceed this tier's declared award ceiling (10 plus 8 plus 13 is 31
-        // against a district ceiling of 15). An out-of-range write to the
+        // NEVER A STACK: the highest single award this draw produced, never the
+        // sum of two. See `singleAwardPoints`.
+        const composed = singleAwardPoints(impactWon, rookieAllStarWon, AWARD_POINT_SUPPORT[residualIndex]!) * weight;
+        // THE CLAMP IS A BACKSTOP, kept rather than removed. `singleAwardPoints`
+        // now bounds a base-scale draw at Impact's own 10, which is inside every
+        // registered tier's award ceiling, so this branch is unreachable today —
+        // and it is exactly the kind of unreachable that a later change to the
+        // fold would quietly make reachable again. An out-of-range write to the
         // Int32Array accumulator below is a SILENT NO-OP that would drop that
         // draw's mass entirely, after which `chanceOfAnyPoints` reads a
         // confident percentage over an incomplete distribution. The ceiling is
@@ -1242,10 +1262,11 @@ export function simulateDistrictEvent(
     } else {
       for (let i = 0; i < teamCount; i++) {
         const index = drawCategorical(awardPmfByTeam[i]!, ledgerRng);
-        // The top support entry means FIFTEEN OR MORE and is treated as exactly
-        // fifteen at the district tier — which is also that tier's own declared
-        // award ceiling, so the treatment is exact rather than a truncation.
-        award[i] = AWARD_POINT_SUPPORT[index]! * weight;
+        // The pmf was FOLDED once at lookup, so the two stacked bins carry no
+        // mass at all and this draw can never land on one. `foldStackedAwardPoints`
+        // is applied anyway, as the same backstop the clamp above is: a pmf that
+        // stopped being folded would otherwise print a stacked award silently.
+        award[i] = foldStackedAwardPoints(AWARD_POINT_SUPPORT[index]!) * weight;
       }
     }
 

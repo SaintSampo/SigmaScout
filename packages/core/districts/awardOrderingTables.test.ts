@@ -24,6 +24,8 @@ import {
   AWARD_ORDERING_SEASONS,
   awardOrderingTables,
   awardResidualRate,
+  foldStackedAwardPmf,
+  foldStackedAwardPoints,
   hasAwardOrderingTables,
   IMPACT_AWARD_POINTS,
   IMPACT_AWARD_TYPE,
@@ -36,6 +38,7 @@ import {
   ROOKIE_ALL_STAR_AWARD_POINTS,
   ROOKIE_ALL_STAR_AWARD_TYPE,
   rookieAllStarOrderingProbability,
+  SINGLE_AWARD_POINT_CEILING,
   teamNumberFromKey,
   UnknownAwardOrderingSeasonError,
 } from "./awardOrderingTables.js";
@@ -209,5 +212,68 @@ describe("the decomposition really removed mass", () => {
     expect(meanSupportPoints([1, 0, 0, 0, 0, 0])).toBe(0);
     expect(meanSupportPoints([0, 0, 0, 1, 0, 0])).toBe(10);
     expect(meanSupportPoints([0.5, 0.5, 0, 0, 0, 0])).toBe(2.5);
+  });
+});
+
+describe("the stacked-award fold — two awards are never a prediction", () => {
+  it("leaves every single-award support value exactly where it is", () => {
+    expect(foldStackedAwardPoints(0)).toBe(0);
+    expect(foldStackedAwardPoints(5)).toBe(5);
+    expect(foldStackedAwardPoints(ROOKIE_ALL_STAR_AWARD_POINTS)).toBe(ROOKIE_ALL_STAR_AWARD_POINTS);
+    expect(foldStackedAwardPoints(IMPACT_AWARD_POINTS)).toBe(IMPACT_AWARD_POINTS);
+  });
+
+  it("folds 13 onto Rookie All Star and 15 onto Impact, in that order — never 13 onto Impact", () => {
+    expect(foldStackedAwardPoints(13)).toBe(ROOKIE_ALL_STAR_AWARD_POINTS);
+    expect(foldStackedAwardPoints(15)).toBe(IMPACT_AWARD_POINTS);
+  });
+
+  it("folds a COMPOSED sum above Impact onto Impact, which is the highest single award that exists", () => {
+    // The ordering path can draw Impact, Rookie All Star and a residual on one
+    // draw, whose sum reaches 31.
+    for (const composed of [18, 23, 28, 31]) expect(foldStackedAwardPoints(composed)).toBe(IMPACT_AWARD_POINTS);
+  });
+
+  it("never returns a value above the highest single award, over every support value and every composed sum", () => {
+    for (const impact of [0, IMPACT_AWARD_POINTS]) {
+      for (const rookie of [0, ROOKIE_ALL_STAR_AWARD_POINTS]) {
+        for (const residual of AWARD_POINT_SUPPORT) {
+          expect(foldStackedAwardPoints(impact + rookie + residual)).toBeLessThanOrEqual(SINGLE_AWARD_POINT_CEILING);
+        }
+      }
+    }
+  });
+
+  it("moves mass rather than dropping it: a folded pmf still sums to one and empties the two stacked bins", () => {
+    for (const season of AWARD_ORDERING_SEASONS) {
+      for (const bucket of DECORATION_BUCKETS) {
+        for (const rookieState of ROOKIE_STATES) {
+          const raw = awardBaseRate(season, bucket, rookieState).pmf;
+          const folded = foldStackedAwardPmf(raw);
+          const label = `${String(season)} ${bucket} ${rookieState}`;
+          expect(folded.reduce((sum, value) => sum + value, 0), label).toBeCloseTo(
+            raw.reduce((sum, value) => sum + value, 0),
+            12
+          );
+          expect(folded[4], label).toBe(0);
+          expect(folded[5], label).toBe(0);
+          expect(folded[2], label).toBeCloseTo(raw[2]! + raw[4]!, 12);
+          expect(folded[3], label).toBeCloseTo(raw[3]! + raw[5]!, 12);
+        }
+      }
+    }
+  });
+
+  it("lowers a pmf's mean, by exactly the points the fold gives up — the stated price of the rule", () => {
+    const raw = awardBaseRate(2026, "none", "veteran").pmf;
+    const folded = foldStackedAwardPmf(raw);
+    const givenUp = raw[4]! * (13 - ROOKIE_ALL_STAR_AWARD_POINTS) + raw[5]! * (15 - IMPACT_AWARD_POINTS);
+    expect(meanSupportPoints(raw) - meanSupportPoints(folded)).toBeCloseTo(givenUp, 12);
+    expect(givenUp).toBeLessThan(0.05);
+  });
+
+  it("is idempotent, so a pmf folded twice is the pmf folded once", () => {
+    const once = foldStackedAwardPmf(awardBaseRate(2026, "three-or-more", "veteran").pmf);
+    expect([...foldStackedAwardPmf(once)]).toEqual([...once]);
   });
 });
