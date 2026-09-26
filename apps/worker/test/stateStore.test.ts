@@ -10,9 +10,11 @@ import {
   hasAlreadyFolded,
   MAX_SCOPE_KEYS_PER_READ,
   readEventCursor,
+  readEventCursors,
   readScopedState,
   selectChangedRows,
   writeEventCursor,
+  writeEventRosterEtag,
   writeScopedState,
   type EventCursor,
   type ScopeSelection,
@@ -41,6 +43,7 @@ interface FakeEventCursorRow {
   last_folded_match_key: string | null;
   last_polled_at: string | null;
   last_advanced_at: string | null;
+  roster_etag: string | null;
 }
 
 class FakePreparedStatement {
@@ -71,10 +74,15 @@ class FakePreparedStatement {
     return results.length > 0 ? results[0]! : null;
   }
 
-  async run(): Promise<{ success: true }> {
+  async run(): Promise<{ success: true; meta: { changes: number } }> {
     this.db.runCallCount++;
+    // Reset per statement: `writeEventRosterEtag` branches on `meta.changes`, so
+    // a zero-row UPDATE must fall through to its `INSERT ... WHERE NOT EXISTS`.
+    // Every other statement reports one change, as the real driver does for an
+    // UPSERT.
+    this.db.lastUpdateChanges = 1;
     this.db.executeWrite(this.sql, this.boundArgs);
-    return { success: true };
+    return { success: true, meta: { changes: this.db.lastUpdateChanges } };
   }
 }
 
@@ -87,6 +95,9 @@ class FakeD1Database {
 
   algorithmState = new Map<string, FakeAlgorithmStateRow>();
   eventCursors = new Map<string, FakeEventCursorRow>();
+
+  /** What the statement just run reports as `meta.changes` — 0 only for a narrow roster UPDATE that matched no row. */
+  lastUpdateChanges = 1;
 
   /** When set, the NEXT `batch()` call rejects with this error instead of applying anything. */
   rejectNextBatchWith: Error | null = null;
@@ -142,9 +153,10 @@ class FakeD1Database {
       });
     }
     if (sql.includes("FROM event_cursor")) {
-      const eventKey = args[0] as string;
-      const row = this.eventCursors.get(eventKey);
-      return row ? [row] : [];
+      // `readEventCursor` binds ONE key, `readEventCursors` a whole `IN (...)`
+      // list — both answered from the same table here, so a multi-key read is
+      // genuinely assertable rather than special-cased.
+      return (args as string[]).map((key) => this.eventCursors.get(key)).filter((row): row is FakeEventCursorRow => row !== undefined);
     }
     throw new Error(`FakeD1Database.executeSelect: unrecognized SQL: ${sql}`);
   }
@@ -163,14 +175,42 @@ class FakeD1Database {
       });
       return;
     }
-    if (sql.includes("INSERT INTO event_cursor")) {
-      const [eventKey, tbaEtag, lastFoldedMatchKey, lastPolledAt, lastAdvancedAt] = args as (string | null)[];
+    // BEFORE the INSERT branches below, deliberately: `writeEventRosterEtag`'s
+    // narrow UPDATE is the ONE statement allowed to touch `roster_etag` without
+    // touching the fold anchor, and the assertions below turn on it leaving
+    // every other column exactly as it found it.
+    if (sql.includes("SET roster_etag")) {
+      const [rosterEtag, lastPolledAt, eventKey] = args as (string | null)[];
+      const existing = this.eventCursors.get(eventKey!);
+      if (existing === undefined) {
+        this.lastUpdateChanges = 0; // no row matched -- the caller falls through to its INSERT
+        return;
+      }
+      this.eventCursors.set(eventKey!, { ...existing, roster_etag: rosterEtag ?? null, last_polled_at: lastPolledAt ?? null });
+      return;
+    }
+    if (sql.includes("INSERT INTO event_cursor") && sql.includes("WHERE NOT EXISTS")) {
+      const [eventKey, tbaEtag, lastFoldedMatchKey, lastPolledAt, lastAdvancedAt, rosterEtag] = args as (string | null)[];
+      if (this.eventCursors.has(eventKey!)) return;
       this.eventCursors.set(eventKey!, {
         event_key: eventKey!,
         tba_etag: tbaEtag ?? null,
         last_folded_match_key: lastFoldedMatchKey ?? null,
         last_polled_at: lastPolledAt ?? null,
         last_advanced_at: lastAdvancedAt ?? null,
+        roster_etag: rosterEtag ?? null,
+      });
+      return;
+    }
+    if (sql.includes("INSERT INTO event_cursor")) {
+      const [eventKey, tbaEtag, lastFoldedMatchKey, lastPolledAt, lastAdvancedAt, rosterEtag] = args as (string | null)[];
+      this.eventCursors.set(eventKey!, {
+        event_key: eventKey!,
+        tba_etag: tbaEtag ?? null,
+        last_folded_match_key: lastFoldedMatchKey ?? null,
+        last_polled_at: lastPolledAt ?? null,
+        last_advanced_at: lastAdvancedAt ?? null,
+        roster_etag: rosterEtag ?? null,
       });
       return;
     }
@@ -431,6 +471,7 @@ describe("stateStore", () => {
         lastFoldedMatchKey: "2026casj_qm5",
         lastPolledAt: "2026-08-22T00:00:00.000Z",
         lastAdvancedAt: "2026-08-22T00:00:01.000Z",
+        rosterEtag: null,
       };
 
       await writeEventCursor(db as unknown as D1Database, cursor);
@@ -442,6 +483,71 @@ describe("stateStore", () => {
     it("returns undefined for an event with no cursor row yet", async () => {
       const readBack = await readEventCursor(db as unknown as D1Database, "2026nonexistent");
       expect(readBack).toBeUndefined();
+    });
+  });
+
+  // roster_etag (quick task 260925-uy5). The column must round-trip BOTH ways —
+  // null and set — because a cursor that read back `undefined` for it would
+  // blank the column on the next full-cursor write.
+  describe("event_cursor.roster_etag", () => {
+    function cursorWith(overrides: Partial<EventCursor> = {}): EventCursor {
+      return {
+        eventKey: "2026isist",
+        tbaEtag: '"matches-etag"',
+        lastFoldedMatchKey: null,
+        lastPolledAt: "2026-09-25T00:00:00.000Z",
+        lastAdvancedAt: null,
+        rosterEtag: null,
+        ...overrides,
+      };
+    }
+
+    it("round-trips a null roster_etag", async () => {
+      await writeEventCursor(db as unknown as D1Database, cursorWith({ rosterEtag: null }));
+      const readBack = await readEventCursor(db as unknown as D1Database, "2026isist");
+      expect(readBack?.rosterEtag).toBeNull();
+    });
+
+    it("round-trips a set roster_etag", async () => {
+      await writeEventCursor(db as unknown as D1Database, cursorWith({ rosterEtag: "r-1" }));
+      const readBack = await readEventCursor(db as unknown as D1Database, "2026isist");
+      expect(readBack?.rosterEtag).toBe("r-1");
+    });
+
+    it("readEventCursors carries roster_etag for a multi-key read", async () => {
+      await writeEventCursor(db as unknown as D1Database, cursorWith({ eventKey: "2026isist", rosterEtag: "r-1" }));
+      await writeEventCursor(db as unknown as D1Database, cursorWith({ eventKey: "2026miwyo", rosterEtag: null }));
+
+      const cursors = await readEventCursors(db as unknown as D1Database, ["2026isist", "2026miwyo", "2026absent"]);
+
+      expect(cursors.size).toBe(2);
+      expect(cursors.get("2026isist")?.rosterEtag).toBe("r-1");
+      expect(cursors.get("2026miwyo")?.rosterEtag).toBeNull();
+    });
+
+    it("writeEventRosterEtag CANNOT move the fold anchor or the match etag (the anti-clobber property)", async () => {
+      await writeEventCursor(
+        db as unknown as D1Database,
+        cursorWith({ lastFoldedMatchKey: "2026isist_qm7", lastAdvancedAt: "2026-09-25T01:00:00.000Z", rosterEtag: null })
+      );
+
+      await writeEventRosterEtag(db as unknown as D1Database, "2026isist", "r-2", "2026-09-25T02:00:00.000Z");
+
+      const stored = db.eventCursors.get("2026isist");
+      expect(stored?.roster_etag).toBe("r-2");
+      expect(stored?.last_folded_match_key).toBe("2026isist_qm7");
+      expect(stored?.tba_etag).toBe('"matches-etag"');
+      expect(stored?.last_advanced_at).toBe("2026-09-25T01:00:00.000Z");
+      expect(stored?.last_polled_at).toBe("2026-09-25T02:00:00.000Z");
+    });
+
+    it("writeEventRosterEtag inserts a genuinely absent row with only the roster etag set", async () => {
+      await writeEventRosterEtag(db as unknown as D1Database, "2026nhgc", "r-3", "2026-09-25T02:00:00.000Z");
+
+      const stored = db.eventCursors.get("2026nhgc");
+      expect(stored?.roster_etag).toBe("r-3");
+      expect(stored?.last_folded_match_key).toBeNull();
+      expect(stored?.tba_etag).toBeNull();
     });
   });
 

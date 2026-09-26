@@ -232,7 +232,7 @@ async function readTickState(db: D1Database, algorithmIds: readonly string[]): P
 }
 
 async function writeTickMeta(db: D1Database, meta: TickMeta, nowIso: string): Promise<void> {
-  await writeEventCursor(db, { eventKey: TICK_META_EVENT_KEY, tbaEtag: null, lastFoldedMatchKey: JSON.stringify(meta), lastPolledAt: null, lastAdvancedAt: nowIso });
+  await writeEventCursor(db, { eventKey: TICK_META_EVENT_KEY, tbaEtag: null, lastFoldedMatchKey: JSON.stringify(meta), lastPolledAt: null, lastAdvancedAt: nowIso, rosterEtag: null });
 }
 
 /** What a state-generation mismatch's one warn line carries — never more than the manifest generation and each live algorithm's own marker (never a TBA value, never an artifact body). */
@@ -669,6 +669,11 @@ function touchedTeamsCompositeKey(algorithmId: string, season: number): string {
  *
  * Callers must write the cursor back if later work fails, or a rejected
  * Phase A write would desync the cursor from `algorithm_state`.
+ *
+ * NEITHER STATEMENT NAMES `roster_etag` (quick task 260925-uy5), so a fold can
+ * never clobber what the roster pass wrote, and the INSERT leaves the column
+ * NULL — an event whose first tick folds a match polls its roster
+ * unconditionally on the next one.
  */
 async function claimEventAdvance(db: D1Database, eventKey: string, expectedPriorLastFolded: string | null, newLastFoldedMatchKey: string, tbaEtag: string | null, nowIso: string): Promise<boolean> {
   const updateResult = await db
@@ -721,7 +726,7 @@ export type EventPreflightResult =
  */
 async function eventPreflight(env: Env, counter: SubrequestCounter, tbaCtx: TbaClientContext, eventKey: string): Promise<EventPreflightResult> {
   counter.spend(1);
-  const cursor: EventCursor = (await readEventCursor(env.DB, eventKey)) ?? { eventKey, tbaEtag: null, lastFoldedMatchKey: null, lastPolledAt: null, lastAdvancedAt: null };
+  const cursor: EventCursor = (await readEventCursor(env.DB, eventKey)) ?? { eventKey, tbaEtag: null, lastFoldedMatchKey: null, lastPolledAt: null, lastAdvancedAt: null, rosterEtag: null };
 
   counter.spend(1);
   const poll = await pollEventMatches(tbaCtx, eventKey, cursor.tbaEtag ?? undefined);
@@ -842,7 +847,7 @@ async function processEvent(
       rawMatchesUnknown = preflight.matches;
     } else {
       counter.spend(1);
-      cursor = (await readEventCursor(env.DB, eventKey)) ?? { eventKey, tbaEtag: null, lastFoldedMatchKey: null, lastPolledAt: null, lastAdvancedAt: null };
+      cursor = (await readEventCursor(env.DB, eventKey)) ?? { eventKey, tbaEtag: null, lastFoldedMatchKey: null, lastPolledAt: null, lastAdvancedAt: null, rosterEtag: null };
 
       counter.spend(1);
       const poll = await pollEventMatches(tbaCtx, eventKey, cursor.tbaEtag ?? undefined);

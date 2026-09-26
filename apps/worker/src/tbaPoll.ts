@@ -22,7 +22,7 @@
  * else — never the TBA key, never a header dump — so the caller
  * (`scheduled.ts`) can catch per event and confine the failure to it.
  */
-import { fetchDistrictRankings, fetchEventAwards, fetchEventMatches, TbaRequestCounter, THROTTLE_INTERVAL_MS, type TbaClientContext, type TbaFetchResult } from "../../../packages/ingest/tbaClient.js";
+import { fetchDistrictRankings, fetchEventAwards, fetchEventMatches, fetchEventTeamsSimple, TbaRequestCounter, THROTTLE_INTERVAL_MS, type TbaClientContext, type TbaFetchResult } from "../../../packages/ingest/tbaClient.js";
 import type { Env } from "./env.js";
 
 export { TbaRequestCounter, THROTTLE_INTERVAL_MS };
@@ -132,6 +132,33 @@ export async function pollEventAwards(ctx: TbaClientContext, eventKey: string, c
     result = await fetchEventAwards(ctx, eventKey, cachedEtag);
   } catch (err) {
     throw new TbaEventAwardsPollError(eventKey, err);
+  }
+  if (result.status === 304) return { status: "not-modified" };
+  return { status: "ok", etag: result.etag, body: result.body };
+}
+
+/** Thrown by `pollEventTeams` for any non-2xx, non-304 TBA response, or for a transport-level `fetch` failure — always names ONLY the event key, never the TBA key, never response headers. Mirrors `TbaPollError`. */
+export class TbaEventTeamsPollError extends Error {
+  constructor(eventKey: string, cause: unknown) {
+    super(`pollEventTeams: TBA poll failed for event "${eventKey}"${cause instanceof Error ? `: ${cause.message}` : ""}`);
+    this.name = "TbaEventTeamsPollError";
+  }
+}
+
+/**
+ * `GET /event/{key}/teams/simple`, conditional on `cachedEtag` — the ONE extra
+ * request the roster pass spends per open live window per tick, so a promoted
+ * event whose schedule is posted but unscored can still publish its registered
+ * roster. Returns the existing `TbaConditionalBody` union rather than a fourth
+ * result type for the same shape; the caller parses the body through
+ * `tbaEventTeamsSimpleResponseSchema` at its own boundary.
+ */
+export async function pollEventTeams(ctx: TbaClientContext, eventKey: string, cachedEtag: string | undefined): Promise<TbaConditionalBody> {
+  let result: TbaFetchResult;
+  try {
+    result = await fetchEventTeamsSimple(ctx, eventKey, cachedEtag);
+  } catch (err) {
+    throw new TbaEventTeamsPollError(eventKey, err);
   }
   if (result.status === 304) return { status: "not-modified" };
   return { status: "ok", etag: result.etag, body: result.body };

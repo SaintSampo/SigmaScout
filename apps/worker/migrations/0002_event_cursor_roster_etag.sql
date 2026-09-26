@@ -1,0 +1,32 @@
+-- One column: `event_cursor.roster_etag`, the ETag of the last
+-- `GET /event/{key}/teams/simple` response the roster pass saw for that event
+-- (quick task 260925-uy5). It is what makes the pass's one extra request per
+-- open live window per tick CHEAP: an event whose registered roster has not
+-- changed answers 304, which costs one subrequest and no body, no parse and no
+-- R2 put.
+--
+-- WHY NULLABLE. Every existing row predates this column, and an event whose
+-- roster has never been polled genuinely has no etag — `NULL` is the honest
+-- value for "not asked yet", never an empty string, and the pass treats it as
+-- an unconditional first poll. `0001`'s own `tba_etag`/`last_folded_match_key`
+-- are nullable for the same reason.
+--
+-- WHY D1 AND NOT KV. Same answer `0001`'s `event_cursor` header gives for every
+-- other column on this table: this value is written per event per tick during a
+-- live event, which is the exact write shape 04-RESEARCH.md's anti-pattern list
+-- rules out for KV, and it must be read in the SAME statement as the rest of
+-- the cursor (`readEventCursors`' one `WHERE event_key IN (...)`) rather than
+-- costing a second round trip. KV holds the small hot manifest pointer; this
+-- table holds what a tick remembers about ONE event between invocations.
+--
+-- ONCE-ONLY, BY NECESSITY. SQLite has no `ADD COLUMN IF NOT EXISTS`, so unlike
+-- `0001`'s `CREATE TABLE IF NOT EXISTS` this file is NOT idempotent — applying
+-- it twice errors. It relies on Wrangler's own migration tracking
+-- (`wrangler d1 migrations apply`) to run exactly once per database, which is
+-- why it is a numbered migration file rather than an edit to `0001`.
+--
+-- An offline seed that DELETEs and reinserts cursor rows loses the etag, and
+-- that loss is benign: the next tick polls unconditionally, gets a 200, finds
+-- every roster team already present in the published artifact, writes nothing
+-- but the etag back, and is conditional again from then on.
+ALTER TABLE event_cursor ADD COLUMN roster_etag TEXT;

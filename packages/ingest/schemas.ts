@@ -355,3 +355,18 @@ export type TbaEventAward = z.infer<typeof tbaEventAwardSchema>;
  */
 export const tbaEventAwardsResponseSchema = z.array(tbaEventAwardSchema).nullable();
 export type TbaEventAwardsResponse = z.infer<typeof tbaEventAwardsResponseSchema>;
+
+/**
+ * `GET /event/{key}/teams/simple` -- an event's REGISTERED roster. The element
+ * is the SAME `tbaTeamSchema` object the full `/teams` shapes use, never a
+ * second element schema for the same TBA object: the `/simple` variant returns
+ * a SUBSET of that object's keys (`key`, `team_number`, `nickname`, plus a
+ * couple this pipeline does not read), and Zod strips the extra keys it does
+ * not declare, so one schema describes both variants honestly.
+ *
+ * `.nullable()`, mirroring `tbaEventAwardsResponseSchema` above -- an event
+ * with no roster registered yet is a real "nothing to report" answer the live
+ * tick must not throw on.
+ */
+export const tbaEventTeamsSimpleResponseSchema = z.array(tbaTeamSchema).nullable();
+export type TbaEventTeamsSimpleResponse = z.infer<typeof tbaEventTeamsSimpleResponseSchema>;

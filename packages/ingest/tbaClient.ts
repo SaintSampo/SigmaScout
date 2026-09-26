@@ -116,7 +116,8 @@ export interface TbaClientContext {
 
 // --- The capabilities COVERAGE.md marks INTEGRATE --------------
 // status, teams-list (paginated), team-detail, events-list, event-detail,
-// event-teams, event-matches, match-detail, team-media, event-rankings,
+// event-teams, event-teams-simple, event-matches, match-detail, team-media,
+// event-rankings,
 // event-alliances — each new addition should get a doc comment here, so
 // the next addition has an obvious place to append rather than an
 // obvious place to forget.
@@ -160,6 +161,15 @@ export function fetchEventTeams(
   cachedEtag?: string
 ): Promise<TbaFetchResult> {
   return tbaFetch(`/event/${eventKey}/teams`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
+}
+
+/** `GET /event/{key}/teams/simple` — the registered roster, in the `/simple` (subset-of-keys) shape. Does NOT validate: `scheduled.ts` runs `tbaEventTeamsSimpleResponseSchema` at the Worker boundary, exactly as `fetchEventMatches` below leaves `tbaMatchListSchema.parse` to its caller. */
+export function fetchEventTeamsSimple(
+  ctx: TbaClientContext,
+  eventKey: string,
+  cachedEtag?: string
+): Promise<TbaFetchResult> {
+  return tbaFetch(`/event/${eventKey}/teams/simple`, ctx.apiKey, cachedEtag, ctx.counter, ctx.baseUrl);
 }
 
 /** `GET /event/{key}/matches` */

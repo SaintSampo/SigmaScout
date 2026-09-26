@@ -125,7 +125,7 @@ export interface RunDistrictRefreshOptions {
 
 /** The cursor row shape used for a reserved key that has never been written. */
 function emptyCursor(eventKey: string): EventCursor {
-  return { eventKey, tbaEtag: null, lastFoldedMatchKey: null, lastPolledAt: null, lastAdvancedAt: null };
+  return { eventKey, tbaEtag: null, lastFoldedMatchKey: null, lastPolledAt: null, lastAdvancedAt: null, rosterEtag: null };
 }
 
 /**

@@ -242,6 +242,14 @@ export interface EventCursor {
   readonly lastFoldedMatchKey: string | null;
   readonly lastPolledAt: string | null;
   readonly lastAdvancedAt: string | null;
+  /**
+   * The ETag of the last `GET /event/{key}/teams/simple` the roster pass saw
+   * (`0002_event_cursor_roster_etag.sql`, quick task 260925-uy5). REQUIRED on
+   * this interface, not optional, so the compiler names every construction site
+   * rather than letting one silently default to `undefined` and blank the
+   * column on the next round-trip write.
+   */
+  readonly rosterEtag: string | null;
 }
 
 interface EventCursorRow {
@@ -250,12 +258,13 @@ interface EventCursorRow {
   readonly last_folded_match_key: string | null;
   readonly last_polled_at: string | null;
   readonly last_advanced_at: string | null;
+  readonly roster_etag: string | null;
 }
 
 /** Returns `undefined` for an event with no cursor row yet (never polled) — not an error, a genuine "nothing known yet" state. */
 export async function readEventCursor(db: D1Database, eventKey: string): Promise<EventCursor | undefined> {
   const row = await db
-    .prepare(`SELECT event_key, tba_etag, last_folded_match_key, last_polled_at, last_advanced_at FROM event_cursor WHERE event_key = ?`)
+    .prepare(`SELECT event_key, tba_etag, last_folded_match_key, last_polled_at, last_advanced_at, roster_etag FROM event_cursor WHERE event_key = ?`)
     .bind(eventKey)
     .first<EventCursorRow>();
   if (row === null) return undefined;
@@ -265,6 +274,7 @@ export async function readEventCursor(db: D1Database, eventKey: string): Promise
     lastFoldedMatchKey: row.last_folded_match_key,
     lastPolledAt: row.last_polled_at,
     lastAdvancedAt: row.last_advanced_at,
+    rosterEtag: row.roster_etag ?? null,
   };
 }
 
@@ -287,7 +297,7 @@ export async function readEventCursors(db: D1Database, eventKeys: readonly strin
 
   const placeholders = eventKeys.map(() => "?").join(",");
   const { results } = await db
-    .prepare(`SELECT event_key, tba_etag, last_folded_match_key, last_polled_at, last_advanced_at FROM event_cursor WHERE event_key IN (${placeholders})`)
+    .prepare(`SELECT event_key, tba_etag, last_folded_match_key, last_polled_at, last_advanced_at, roster_etag FROM event_cursor WHERE event_key IN (${placeholders})`)
     .bind(...eventKeys)
     .all<EventCursorRow>();
 
@@ -298,23 +308,66 @@ export async function readEventCursors(db: D1Database, eventKeys: readonly strin
       lastFoldedMatchKey: row.last_folded_match_key,
       lastPolledAt: row.last_polled_at,
       lastAdvancedAt: row.last_advanced_at,
+      rosterEtag: row.roster_etag ?? null,
     });
   }
   return result;
 }
 
+/**
+ * The WHOLE cursor, UPSERTed. `roster_etag` is named here (rather than left out
+ * of the column list) so a caller that reads a cursor and writes it back cannot
+ * silently blank the column — see `writeEventRosterEtag` below for the narrow
+ * write the roster pass uses instead, and why the two are not one function.
+ */
 export async function writeEventCursor(db: D1Database, cursor: EventCursor): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO event_cursor (event_key, tba_etag, last_folded_match_key, last_polled_at, last_advanced_at)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO event_cursor (event_key, tba_etag, last_folded_match_key, last_polled_at, last_advanced_at, roster_etag)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(event_key) DO UPDATE SET
          tba_etag = excluded.tba_etag,
          last_folded_match_key = excluded.last_folded_match_key,
          last_polled_at = excluded.last_polled_at,
-         last_advanced_at = excluded.last_advanced_at`
+         last_advanced_at = excluded.last_advanced_at,
+         roster_etag = excluded.roster_etag`
     )
-    .bind(cursor.eventKey, cursor.tbaEtag, cursor.lastFoldedMatchKey, cursor.lastPolledAt, cursor.lastAdvancedAt)
+    .bind(cursor.eventKey, cursor.tbaEtag, cursor.lastFoldedMatchKey, cursor.lastPolledAt, cursor.lastAdvancedAt, cursor.rosterEtag)
+    .run();
+}
+
+/**
+ * A NARROW write: `roster_etag` and `last_polled_at`, nothing else — ONE
+ * subrequest, and the one statement in this module that can touch the roster
+ * etag without touching the fold anchor.
+ *
+ * WHY THIS IS NOT `writeEventCursor`. `writeEventCursor` UPSERTs EVERY column
+ * from a cursor object read earlier in the tick. The roster pass runs before the
+ * match preflight and holds a cursor read at the top of the tick, so routing its
+ * etag write through that UPSERT would write back the `last_folded_match_key`
+ * that cursor carried — and a concurrent invocation that folded matches in
+ * between would have its anchor rolled BACK, so the next tick re-folds matches
+ * already applied to `algorithm_state`. That is the exact double-fold
+ * `claimEventAdvance`'s compare-and-swap exists to make impossible. This
+ * statement names two columns, so it cannot express that bug.
+ *
+ * The `INSERT ... SELECT ... WHERE NOT EXISTS` fallback (the shape
+ * `claimEventAdvance` already uses) covers a genuinely absent row: a zero-row
+ * UPDATE is ambiguous, and inserting only when no row exists is unambiguous.
+ */
+export async function writeEventRosterEtag(db: D1Database, eventKey: string, rosterEtag: string | null, nowIso: string): Promise<void> {
+  const updateResult = await db
+    .prepare(`UPDATE event_cursor SET roster_etag = ?, last_polled_at = ? WHERE event_key = ?`)
+    .bind(rosterEtag, nowIso, eventKey)
+    .run();
+  if (((updateResult as { meta?: { changes?: number } })?.meta?.changes ?? 0) > 0) return;
+
+  await db
+    .prepare(
+      `INSERT INTO event_cursor (event_key, tba_etag, last_folded_match_key, last_polled_at, last_advanced_at, roster_etag)
+       SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM event_cursor WHERE event_key = ?)`
+    )
+    .bind(eventKey, null, null, nowIso, null, rosterEtag, eventKey)
     .run();
 }
 
