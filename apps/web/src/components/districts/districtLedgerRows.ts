@@ -5,6 +5,12 @@
  * sees, the per-event `simulateDistrictEvent` input assembly, the cell
  * descriptors, the event and grand totals and the median projection.
  *
+ * IT BUILDS NO STAT LINE. `districtLedgerStatLine` lived here and is gone: the
+ * quantity it computed, the slot th highest UNNARROWED earned district total,
+ * is no longer printed anywhere, and the predicted cutoff that replaced it is
+ * derived from the verdicts' own narrowed pool by `predictedCutoff.ts` (quick
+ * task 260926-37q).
+ *
  * Follows `apps/web/src/lib/simulationInputs.ts`'s discipline exactly, and for
  * the same reason: gather inputs, disclose every gap, call no simulator. No
  * React import anywhere in this file, and no call to `simulateDistrictEvent` —

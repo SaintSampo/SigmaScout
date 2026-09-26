@@ -97,7 +97,33 @@ const TEST_IDS = {
   champStatusChips: "district-ledger-status-chips",
   /** `ChampLocksLedger.tsx`'s table row; carries `data-team` and `data-row`, two per team. */
   champRow: "champ-ledger-row",
+  /** `LedgerParts.tsx`'s `ControlsCard` stat line, shared by BOTH tabs. */
+  statLine: "district-ledger-stat-line",
 } as const;
+
+/**
+ * The cutoff's four labels, transcribed from
+ * `districtLedgerCopy.ts`'s `DISTRICT_LEDGER_CUTOFF_LABELS` as of 2026-09-26
+ * (quick task 260926-37q). The stat line prints exactly one of them.
+ */
+const CUTOFF_LABELS = {
+  predicted: "Predicted cutoff",
+  predictedDistrictOnly: "Predicted cutoff (district only)",
+  settled: "Cutoff",
+  capacityUnknown: "Capacity not published",
+} as const;
+
+/**
+ * The RETIRED wording, for one assertion: no rendered text on either tab still
+ * carries it. It was the stat line's own label and the grand total plot's
+ * marker label in `districtLedgerCopy.ts`, both deleted by quick task
+ * 260926-37q.
+ *
+ * ASSEMBLED FROM PARTS rather than typed, so the repo wide grep that enforces
+ * the retirement stays clean — the same device, and the same reason,
+ * `DistrictLedger.test.tsx` uses to name the plus minus without typing it.
+ */
+const RETIRED_CUTOFF_WORDING = ["Today", String.fromCharCode(0x27), "s line"].join("");
 
 /**
  * The five `data-status` values the chips carry, in render order.
@@ -185,6 +211,26 @@ test.describe("District Locks, 1440x900", () => {
     // median projection.
     expect(counts["inRange"], "in range count on a finished district").toBe(0);
     expect(counts["outOfRange"], "out of range count on a finished district").toBe(0);
+
+    /**
+     * THE PREDICTED CUTOFF, on the stat line (quick task 260926-37q).
+     *
+     * `2026pnw` is finished, so the SETTLED label is the reading here: every
+     * team still racing for points is done, the figure carries no tilde and
+     * no likely range sits beside it. The retired wording must appear nowhere
+     * on the page at all.
+     */
+    const districtStatLine = page.getByTestId(TEST_IDS.statLine);
+    await expect(districtStatLine).toBeVisible();
+    const districtStatText = (await districtStatLine.innerText()).trim();
+    // eslint-disable-next-line no-console -- printed for the SUMMARY's measured-figure obligation.
+    console.log(`[districts-ledger] district stat line: ${districtStatText}`);
+    expect(
+      Object.values(CUTOFF_LABELS).some((label) => districtStatText.includes(label)),
+      `the District Locks stat line "${districtStatText}" must carry one of the cutoff labels`
+    ).toBe(true);
+    expect(districtStatText, "a finished district's cutoff is settled, so it carries no tilde").not.toContain("~");
+    expect(await page.locator("body").innerText()).not.toContain(RETIRED_CUTOFF_WORDING);
 
     // Never a plus minus anywhere inside the table's scroll region.
     const regionText = await page.locator(LEDGER_SCROLL_REGION).innerText();
@@ -292,6 +338,18 @@ test.describe("District Locks, 1440x900", () => {
     const rows = page.getByTestId(TEST_IDS.champRow);
     await expect(rows.first()).toBeVisible();
     expect(await rows.count()).toBeGreaterThan(1);
+
+    // THE CUTOFF, on this tab's own stat line. `2026pnw` is finished, so the
+    // settled label is the expected reading; the assertion accepts any of the
+    // four so a rerun mid season is a finding rather than a red spec.
+    const statLine = page.getByTestId(TEST_IDS.statLine);
+    await expect(statLine).toBeVisible();
+    const champStat = (await statLine.innerText()).trim();
+    expect(
+      Object.values(CUTOFF_LABELS).some((label) => champStat.includes(label)),
+      `the Champ Locks stat line "${champStat}" must carry one of the cutoff labels`
+    ).toBe(true);
+    expect(await page.locator("body").innerText()).not.toContain(RETIRED_CUTOFF_WORDING);
   });
 });
 

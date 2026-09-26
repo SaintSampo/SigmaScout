@@ -30,6 +30,12 @@
  *   does the champ run rank those grand totals against `cmpSlots`. The memos
  *   below are ordered so each reads only what is already resolved.
  *
+ * THE PREDICTED CUTOFF is the one number the controls card and every grand
+ * total dashed rule share, taken over the champ grand totals against
+ * `cmpSlots`. In the pre registration window it is labelled "district only",
+ * because that is what the totals behind it are, and it carries no likely
+ * range there because the champ run that would produce one is suppressed.
+ *
  * Every colour reaches the page through a CSS custom property, and every class
  * list that mixes a `text-role-*` class with a colour custom property is a
  * PLAIN STRING rather than a `cn()` call — tailwind-merge drops the role class

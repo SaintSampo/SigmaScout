@@ -15,8 +15,10 @@
  *    teams tied at the 2026 PNW cut line In range and 22 teams into 21 slots.
  *    So a pool team is In range when its 1-based position in the champ
  *    ledger's own sorted order, restricted to the pool, is at most
- *    `pointsSlots`. The district tab's rule is untouched, and Today's line
- *    keeps `cutLinePointsWithQualifiers`' own semantics.
+ *    `pointsSlots`. The district tab's rule is untouched, and `floorCutLine`
+ *    keeps `cutLinePointsWithQualifiers`' own semantics. Neither rule decides
+ *    the PREDICTED CUTOFF the tab prints: that is derived from this ordering
+ *    by `predictedCutoff.ts` and moves no chip.
  *
  * 2. THE CHAMP TIER RESERVES NOTHING AND PASSES NO POOLED ARGUMENT.
  *    `reservedSlots.ts`'s own doc comment scopes the reservation to

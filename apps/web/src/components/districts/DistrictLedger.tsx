@@ -14,6 +14,11 @@
  *   from `districtLedgerCopy.ts`; the numbers and the FORM come from 10-04's
  *   `pointSummary.ts`.
  *
+ * THE PREDICTED CUTOFF is the one number the controls card and every grand
+ * total dashed rule share: the midpoint of the last team In range and the
+ * first team Out of range, over the same median projections the table is
+ * sorted by. It follows the ranking and never moves a status.
+ *
  * THE GREY/BLUE RULE IS NEVER HUE ALONE, per the sketch README's language
  * rules: a grey cell holds ONE integer and is not focusable; a blue cell holds
  * TWO lines and is a real `<button>`. `data-cell` carries the same distinction

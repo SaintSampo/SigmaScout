@@ -19,6 +19,13 @@
  *   the 3x weight by `districtPlayoffOutcomes`/`districtAwardOutcomes`
  *   themselves rather than by a second table of point values here.
  *
+ * ONE CUTOFF FEEDS TWO SURFACES (quick task 260926-37q). `ControlsCard` and
+ * `GrandTotalPlot` both take the SAME `LedgerCutoffView`, and both read it
+ * through the one `ledgerCutoffDisplay` below, so the stat line's figure and
+ * the grand total's dashed rule are one value rendered twice. They previously
+ * printed two different quantities and neither of them sat between the teams
+ * the tab had just called In range and Out of range.
+ *
  * Every `data-testid`, every class string and every text-role class is
  * unchanged, and every class list that mixes a `text-role-*` class with a
  * colour custom property stays a PLAIN STRING — tailwind-merge drops the role
