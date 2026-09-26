@@ -1,0 +1,528 @@
+/**
+ * The Champ Locks tab's pure row model.
+ *
+ * Synthetic fixtures parsed through the REAL `DistrictArtifactSchema`, plus one
+ * pass over `data/fixtures/phase10/district-2026pnw.json` — the same finished
+ * district sketch 022 was drawn against.
+ *
+ * THE FIXTURE CARRIES NO `state` BLOCKS. Every test that needs a finished
+ * position supplies an explicit all-final `stageByEvent` for all nine event
+ * keys; `deriveStageFromState(undefined)` reports every category OPEN, by
+ * design, and that is what the fixture reads as at "now".
+ */
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+import {
+  DistrictArtifactSchema,
+  type DistrictArtifact,
+  type DistrictEventState,
+} from "../../../../../packages/harness/pageArtifacts.js";
+import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
+import { pointQuantile } from "../../../../../packages/core/districts/pointSummary.js";
+import {
+  DISTRICT_CATEGORIES,
+  districtCellId,
+  pointMassDistribution,
+  type DistrictCellKind,
+  type DistrictEventDistributions,
+  type DistrictPointDistribution,
+  type DistrictStageFinality,
+} from "./districtLedgerRows.js";
+import {
+  CHAMP_LEDGER_ROWS,
+  buildChampLedgerRows,
+  champCellId,
+  champContributions,
+  champFieldMembership,
+  dcmpEventKeyFor,
+  mixFieldMembership,
+  type ChampLedgerCell,
+  type ChampLedgerTeam,
+} from "./champLedgerRows.js";
+
+type DistrictTeam = DistrictArtifact["teams"][number];
+type EventPoints = DistrictTeam["eventPoints"][number];
+
+const SEASON = 2026;
+
+/**
+ * The repo-relative fixture path, found by walking UP from the working
+ * directory rather than off `import.meta.url` — under jsdom that URL is an
+ * `http://` one and `readFileSync` refuses it. Walking up also survives being
+ * run from the repo root (167 files) or from `apps/web` (77), which is a real
+ * difference on this repo.
+ */
+function repoFile(relative: string): string {
+  let dir = resolve(process.cwd());
+  for (;;) {
+    const candidate = join(dir, relative);
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) throw new Error(`could not find ${relative} above ${process.cwd()}`);
+    dir = parent;
+  }
+}
+
+const FIXTURE: DistrictArtifact = DistrictArtifactSchema.parse(
+  JSON.parse(readFileSync(repoFile("data/fixtures/phase10/district-2026pnw.json"), "utf8"))
+);
+
+const ALL_FINAL: DistrictStageFinality = { qual: true, alliance: true, elim: true, award: true };
+const ALL_OPEN: DistrictStageFinality = { qual: false, alliance: false, elim: false, award: false };
+
+/** Every event key in the fixture, across BOTH tiers — the champ tab's own event list. */
+function allFixtureEventKeys(artifact: DistrictArtifact): string[] {
+  const keys = new Set<string>();
+  for (const team of artifact.teams) {
+    for (const row of team.eventPoints) keys.add(row.eventKey);
+    for (const row of team.remainingEvents) keys.add(row.eventKey);
+  }
+  return [...keys].sort();
+}
+
+function allFinalStages(artifact: DistrictArtifact): ReadonlyMap<string, DistrictStageFinality> {
+  return new Map(allFixtureEventKeys(artifact).map((key) => [key, ALL_FINAL] as const));
+}
+
+// ---------------------------------------------------------------------------
+// Synthetic artifact helpers — the same shapes `districtLedgerRows.test.ts`
+// builds, so both suites describe one published artifact shape.
+// ---------------------------------------------------------------------------
+
+function state(overrides: Partial<DistrictEventState> = {}): DistrictEventState {
+  return { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: true, awardsPosted: true, ...overrides };
+}
+
+function eventPoints(overrides: Partial<EventPoints> & { eventKey: string }): EventPoints {
+  return {
+    eventName: `Event ${overrides.eventKey}`,
+    week: 1,
+    tier: "district",
+    qual: 10,
+    alliance: 6,
+    elim: 7,
+    award: 0,
+    total: 23,
+    state: state(),
+    ...overrides,
+  };
+}
+
+function team(overrides: Partial<DistrictTeam> & { teamKey: string }): DistrictTeam {
+  return {
+    teamNumber: Number(overrides.teamKey.replace("frc", "")),
+    nickname: `Nickname ${overrides.teamKey}`,
+    rank: 1,
+    pointTotal: 23,
+    rookieBonus: 0,
+    adjustments: 0,
+    eventPoints: [],
+    remainingEvents: [],
+    maxRemainingDistrict: 0,
+    maxRemainingChamp: 0,
+    qualifyingAwards: [],
+    districtLock: { status: "contending", pointsToLock: 5, threatCount: 1, cutLinePoints: 20, allocationNote: null },
+    champLock: { status: "contending", pointsToLock: 5, threatCount: 1, cutLinePoints: 40, allocationNote: null },
+    ...overrides,
+  };
+}
+
+function artifactOf(teams: DistrictTeam[], overrides: Partial<DistrictArtifact> = {}): DistrictArtifact {
+  return DistrictArtifactSchema.parse({
+    schemaVersion: 1,
+    generation: "gen-1",
+    computedAt: "2026-09-25T00:00:00.000Z",
+    districtKey: "2026pnw",
+    year: SEASON,
+    abbreviation: "pnw",
+    displayName: "Pacific Northwest",
+    dcmpSlots: 50,
+    cmpSlots: 12,
+    teams,
+    insights: {
+      teamCount: teams.length,
+      eventCount: 8,
+      dcmpCutLinePoints: 40,
+      cmpCutLinePoints: 80,
+      districtLockedCount: 0,
+      districtEliminatedCount: 0,
+      champLockedCount: 0,
+      champEliminatedCount: 0,
+    },
+    ...overrides,
+  });
+}
+
+/** A uniform distribution over `0..points`, as one event's per-category draw. */
+function uniform(points: number, draws = 100): DistrictPointDistribution {
+  const counts = new Float64Array(points + 1);
+  const share = draws / (points + 1);
+  for (let i = 0; i <= points; i++) counts[i] = share;
+  return { counts, denominator: draws };
+}
+
+/** One event's distributions for one team, over whichever cells are supplied. */
+function distributionsFor(
+  eventKey: string,
+  byTeam: Record<string, Partial<Record<DistrictCellKind, DistrictPointDistribution>>>
+): DistrictEventDistributions {
+  const map = new Map<string, Readonly<Record<DistrictCellKind, DistrictPointDistribution | undefined>>>();
+  for (const [teamKey, cells] of Object.entries(byTeam)) {
+    map.set(teamKey, {
+      qual: cells.qual,
+      alliance: cells.alliance,
+      elim: cells.elim,
+      award: cells.award,
+      eventTotal: cells.eventTotal,
+      grandTotal: undefined,
+    });
+  }
+  return { eventKey: eventKey, byTeam: map };
+}
+
+function cellOf(cells: readonly ChampLedgerCell[], category: (typeof DISTRICT_CATEGORIES)[number]): ChampLedgerCell {
+  return cells[DISTRICT_CATEGORIES.indexOf(category)]!;
+}
+
+function probabilityAt(distribution: DistrictPointDistribution, points: number): number {
+  return (distribution.counts[points] ?? 0) / distribution.denominator;
+}
+
+// ---------------------------------------------------------------------------
+
+describe("champCellId", () => {
+  it("names the row and the cell, disjoint from the district tab's eventKey:cell ids", () => {
+    expect(champCellId("district", "qual")).toBe("district-row:qual");
+    expect(champCellId("dcmp", "elim")).toBe("dcmp-row:elim");
+    expect(champCellId("district", "eventTotal")).toBe("district-row:eventTotal");
+    expect(champCellId("dcmp", "eventTotal")).toBe("dcmp-row:eventTotal");
+    // A district-tab id can never collide: an event key is never "district-row".
+    for (const cell of ["qual", "alliance", "elim", "award", "eventTotal"] as const) {
+      expect(champCellId("district", cell)).not.toBe(districtCellId("2026wabon", cell));
+      expect(champCellId("dcmp", cell)).not.toBe(districtCellId("2026pncmp", cell));
+    }
+  });
+});
+
+describe("dcmpEventKeyFor", () => {
+  it("finds the fixture's single dcmp-tier event key", () => {
+    expect(dcmpEventKeyFor(FIXTURE)).toBe("2026pncmp");
+  });
+
+  it("is undefined for a district publishing no dcmp-tier event", () => {
+    const artifact = artifactOf([team({ teamKey: "frc1", eventPoints: [eventPoints({ eventKey: "2026wabon" })] })]);
+    expect(dcmpEventKeyFor(artifact)).toBeUndefined();
+  });
+});
+
+describe("champFieldMembership", () => {
+  it("is open for every team before the DCMP starts, even one already listed in the field", () => {
+    const inField = FIXTURE.teams.find((t) => t.eventPoints.some((row) => row.tier === "dcmp"))!;
+    const outOfField = FIXTURE.teams.find((t) => !t.eventPoints.some((row) => row.tier === "dcmp"))!;
+    expect(champFieldMembership(inField, false)).toBe("open");
+    expect(champFieldMembership(outOfField, false)).toBe("open");
+  });
+
+  it("splits the fixture 51 in and 75 out once the DCMP has started, and reads open for all 126 before", () => {
+    const started = FIXTURE.teams.map((t) => champFieldMembership(t, true));
+    expect(started.filter((m) => m === "in")).toHaveLength(51);
+    expect(started.filter((m) => m === "out")).toHaveLength(75);
+    const before = FIXTURE.teams.map((t) => champFieldMembership(t, false));
+    expect(before).toHaveLength(126);
+    expect(before.every((m) => m === "open")).toBe(true);
+  });
+});
+
+describe("mixFieldMembership", () => {
+  const total = pointMassDistribution(40);
+
+  it("returns the total unchanged at a chance of one", () => {
+    expect(mixFieldMembership(total, 1)).toBe(total);
+    expect(mixFieldMembership(total, 1.5)).toBe(total);
+  });
+
+  it("returns a point mass at zero at a chance of zero", () => {
+    const mixed = mixFieldMembership(total, 0);
+    expect(probabilityAt(mixed, 0)).toBe(1);
+    expect(mixed.counts.length).toBe(1);
+  });
+
+  it("puts exactly half the mass at zero at a chance of one half", () => {
+    const mixed = mixFieldMembership(total, 0.5);
+    expect(probabilityAt(mixed, 0)).toBeCloseTo(0.5, 12);
+    expect(probabilityAt(mixed, 40)).toBeCloseTo(0.5, 12);
+  });
+
+  it("normalises a multi-draw histogram onto a denominator of one", () => {
+    const mixed = mixFieldMembership(uniform(3, 400), 0.5);
+    let sum = 0;
+    for (let i = 0; i < mixed.counts.length; i++) sum += mixed.counts[i]!;
+    expect(sum / mixed.denominator).toBeCloseTo(1, 12);
+    // Half the mass at zero plus the quarter the uniform already held there.
+    expect(probabilityAt(mixed, 0)).toBeCloseTo(0.5 + 0.125, 12);
+  });
+});
+
+describe("buildChampLedgerRows — the District points row", () => {
+  const twoEvents = () =>
+    team({
+      teamKey: "frc1",
+      pointTotal: 46,
+      eventPoints: [
+        eventPoints({ eventKey: "2026wabon", week: 0, qual: 10, alliance: 6, elim: 7, award: 0, total: 23 }),
+        eventPoints({ eventKey: "2026wasam", week: 2, qual: 12, alliance: 4, elim: 0, award: 5, total: 21 }),
+      ],
+    });
+
+  it("is grey only when the category is final at EVERY district-tier event the team has", () => {
+    const artifact = artifactOf([twoEvents()]);
+    const bothFinal = buildChampLedgerRows({
+      artifact,
+      distributions: new Map(),
+      stageByEvent: new Map([
+        ["2026wabon", ALL_FINAL],
+        ["2026wasam", ALL_FINAL],
+      ]),
+    });
+    const qual = cellOf(bothFinal.teams[0]!.districtRow.cells, "qual");
+    expect(qual.kind).toBe("final");
+    if (qual.kind === "final") expect(qual.earned).toBe(22);
+
+    const oneOpen = buildChampLedgerRows({
+      artifact,
+      distributions: new Map([["2026wasam", distributionsFor("2026wasam", { frc1: { qual: uniform(4) } })]]),
+      stageByEvent: new Map([
+        ["2026wabon", ALL_FINAL],
+        ["2026wasam", { ...ALL_FINAL, qual: false }],
+      ]),
+    });
+    expect(cellOf(oneOpen.teams[0]!.districtRow.cells, "qual").kind).toBe("open");
+  });
+
+  it("convolves the earned event with the open one, so the support starts at the earned value", () => {
+    const artifact = artifactOf([twoEvents()]);
+    const built = buildChampLedgerRows({
+      artifact,
+      distributions: new Map([["2026wasam", distributionsFor("2026wasam", { frc1: { qual: uniform(4) } })]]),
+      stageByEvent: new Map([
+        ["2026wabon", ALL_FINAL],
+        ["2026wasam", { ...ALL_FINAL, qual: false }],
+      ]),
+    });
+    const qual = cellOf(built.teams[0]!.districtRow.cells, "qual");
+    expect(qual.kind).toBe("open");
+    if (qual.kind !== "open") return;
+    // 10 earned at Bonney Lake, 0..4 uniform at Sammamish.
+    for (let k = 0; k <= 4; k++) expect(probabilityAt(qual.distribution, 10 + k)).toBeCloseTo(0.2, 12);
+    expect(probabilityAt(qual.distribution, 9)).toBe(0);
+    expect(probabilityAt(qual.distribution, 15)).toBe(0);
+    // The ceiling is the per-event maximum times the team's event count, never a literal.
+    expect(qual.ceiling).toBe(maxEventPoints(SEASON, "district").qual * 2);
+  });
+
+  it("names every district-tier event as a source, in week order", () => {
+    const built = buildChampLedgerRows({
+      artifact: artifactOf([twoEvents()]),
+      distributions: new Map(),
+      stageByEvent: new Map([
+        ["2026wabon", ALL_FINAL],
+        ["2026wasam", ALL_FINAL],
+      ]),
+    });
+    expect(built.teams[0]!.districtRow.sources.map((s) => s.eventKey)).toEqual(["2026wabon", "2026wasam"]);
+    expect(built.teams[0]!.districtRow.sources.map((s) => s.week)).toEqual([0, 2]);
+  });
+
+  it("makes the aggregate unavailable when any one event's cell is unavailable", () => {
+    const built = buildChampLedgerRows({
+      artifact: artifactOf([twoEvents()]),
+      distributions: new Map(),
+      stageByEvent: new Map([
+        ["2026wabon", ALL_FINAL],
+        ["2026wasam", { ...ALL_FINAL, elim: false }],
+      ]),
+    });
+    expect(cellOf(built.teams[0]!.districtRow.cells, "elim").kind).toBe("unavailable");
+    expect(built.teams[0]!.districtRow.subtotal.kind).toBe("unavailable");
+  });
+});
+
+describe("buildChampLedgerRows — the fixture at an all-final position", () => {
+  const built = buildChampLedgerRows({
+    artifact: FIXTURE,
+    distributions: new Map(),
+    stageByEvent: allFinalStages(FIXTURE),
+    dcmpStarted: true,
+  });
+  const byTeam = new Map(built.teams.map((t) => [t.teamKey, t] as const));
+  const sourceByKey = new Map(FIXTURE.teams.map((t) => [t.teamKey, t] as const));
+
+  it("builds two rows for all 126 teams, in the fixed order", () => {
+    expect(built.teams).toHaveLength(126);
+    for (const entry of built.teams) {
+      expect(entry.rows.map((row) => row.kind)).toEqual([...CHAMP_LEDGER_ROWS]);
+    }
+  });
+
+  it("splits the field 51 in and 75 out, with the em-dash cell for every team outside it", () => {
+    const outs = built.teams.filter((t) => t.membership === "out");
+    expect(built.teams.filter((t) => t.membership === "in")).toHaveLength(51);
+    expect(outs).toHaveLength(75);
+    for (const entry of outs) {
+      expect(entry.dcmpRow.cells.every((cell) => cell.kind === "notInField")).toBe(true);
+      expect(entry.dcmpRow.subtotal.kind).toBe("notInField");
+    }
+  });
+
+  it("sums each row's four categories to that row's own subtotal", () => {
+    for (const entry of built.teams) {
+      for (const row of entry.rows) {
+        if (row.subtotal.kind !== "final") continue;
+        let sum = 0;
+        for (const cell of row.cells) if (cell.kind === "final") sum += cell.earned;
+        expect(sum).toBe(row.subtotal.earned);
+      }
+    }
+  });
+
+  it("reproduces every team's published pointTotal as the grand total, rookie bonus included", () => {
+    for (const entry of built.teams) {
+      const source = sourceByKey.get(entry.teamKey)!;
+      expect(entry.grandTotal.kind).toBe("final");
+      if (entry.grandTotal.kind !== "final") continue;
+      expect(entry.grandTotal.earned).toBe(source.pointTotal);
+      expect(entry.projection).toBe(source.pointTotal);
+      expect(entry.hasOpenCategory).toBe(false);
+    }
+  });
+
+  it("sorts descending by projection and numbers the positions from one", () => {
+    expect(built.teams.map((t) => t.position)).toEqual(built.teams.map((_unused, i) => i + 1));
+    for (let i = 1; i < built.teams.length; i++) {
+      expect(built.teams[i - 1]!.projection).toBeGreaterThanOrEqual(built.teams[i]!.projection);
+    }
+  });
+
+  it("discloses no missing field chance, because the field is settled", () => {
+    expect(built.gaps.teamsWithoutFieldChance).toEqual([]);
+  });
+
+  it("lists two contribution rows whose earned values add to the grand total less the rookie bonus", () => {
+    const entry = byTeam.get(built.teams[0]!.teamKey)!;
+    const contributions = champContributions(entry);
+    expect(contributions.map((c) => c.row)).toEqual([...CHAMP_LEDGER_ROWS]);
+    const source = sourceByKey.get(entry.teamKey)!;
+    const summed = contributions.reduce((acc, c) => acc + (c.earned ?? 0), 0);
+    expect(summed + source.rookieBonus + source.adjustments).toBe(source.pointTotal);
+  });
+});
+
+describe("buildChampLedgerRows — the fixture before the DCMP starts", () => {
+  it("reads every team as open and discloses every team with no supplied field chance", () => {
+    const built = buildChampLedgerRows({
+      artifact: FIXTURE,
+      distributions: new Map(),
+      stageByEvent: new Map(allFixtureEventKeys(FIXTURE).map((key) => [key, key === "2026pncmp" ? ALL_OPEN : ALL_FINAL] as const)),
+    });
+    expect(built.teams.every((t) => t.membership === "open")).toBe(true);
+    expect(built.gaps.teamsWithoutFieldChance).toHaveLength(126);
+  });
+});
+
+describe("buildChampLedgerRows — the variant-A mixture", () => {
+  /** A bubble team: a finished district season and an open DCMP it may or may not reach. */
+  function bubble(chance: number | undefined): ChampLedgerTeam {
+    const subject = team({
+      teamKey: "frc1",
+      pointTotal: 60,
+      eventPoints: [
+        eventPoints({ eventKey: "2026wabon", week: 0, qual: 30, alliance: 10, elim: 20, award: 0, total: 60 }),
+        eventPoints({ eventKey: "2026pncmp", week: 5, tier: "dcmp", qual: 0, alliance: 0, elim: 0, award: 0, total: 0 }),
+      ],
+    });
+    const built = buildChampLedgerRows({
+      artifact: artifactOf([subject]),
+      distributions: new Map([
+        [
+          "2026pncmp",
+          distributionsFor("2026pncmp", {
+            frc1: { qual: uniform(20), alliance: uniform(10), elim: uniform(20), award: uniform(10), eventTotal: uniform(60) },
+          }),
+        ],
+      ]),
+      stageByEvent: new Map([
+        ["2026wabon", ALL_FINAL],
+        ["2026pncmp", ALL_OPEN],
+      ]),
+      dcmpStarted: false,
+      ...(chance === undefined ? {} : { fieldChanceByTeam: new Map([["frc1", chance]]) }),
+    });
+    return built.teams[0]!;
+  }
+
+  it("prints the DCMP cells unconditionally — variant A folds the chance into the grand total alone", () => {
+    const half = bubble(0.5);
+    const certain = bubble(1);
+    for (const category of DISTRICT_CATEGORIES) {
+      const a = cellOf(half.dcmpRow.cells, category);
+      const b = cellOf(certain.dcmpRow.cells, category);
+      expect(a.kind).toBe("open");
+      if (a.kind !== "open" || b.kind !== "open") continue;
+      expect(Array.from(a.distribution.counts)).toEqual(Array.from(b.distribution.counts));
+    }
+  });
+
+  it("puts the mixture's median between the district-only and the fully folded grand totals", () => {
+    const none = bubble(0);
+    const half = bubble(0.5);
+    const all = bubble(1);
+    expect(none.projection).toBeLessThan(half.projection);
+    expect(half.projection).toBeLessThan(all.projection);
+    // At a chance of zero the grand total is exactly the district points.
+    expect(none.projection).toBeCloseTo(60, 6);
+  });
+
+  it("carries the field chance on the DCMP contribution row and nowhere else", () => {
+    const contributions = champContributions(bubble(0.62));
+    expect(contributions[0]!.fieldChance).toBeUndefined();
+    expect(contributions[1]!.fieldChance).toBeCloseTo(0.62, 12);
+    expect(contributions[1]!.open).toBeDefined();
+  });
+
+  it("treats an absent chance as one and DISCLOSES it, never as a silent zero", () => {
+    const missing = bubble(undefined);
+    const all = bubble(1);
+    expect(missing.projection).toBe(all.projection);
+    expect(missing.fieldChance).toBeUndefined();
+  });
+
+  it("agrees with a hand-rolled mixture of the two certain grand totals", () => {
+    const all = bubble(1);
+    const half = bubble(0.5);
+    expect(all.grandTotal.kind).toBe("open");
+    expect(half.grandTotal.kind).toBe("open");
+    if (all.grandTotal.kind !== "open" || half.grandTotal.kind !== "open") return;
+    const folded = all.grandTotal.distribution;
+    const counts = new Float64Array(folded.counts.length);
+    for (let i = 0; i < folded.counts.length; i++) counts[i] = 0.5 * (folded.counts[i]! / folded.denominator);
+    counts[60]! += 0.5;
+    expect(pointQuantile(counts, 0.5, 1)).toBeCloseTo(half.projection, 9);
+  });
+});
+
+describe("buildChampLedgerRows — a district publishing no DCMP", () => {
+  it("renders the DCMP cells unavailable and refuses a grand total rather than a district-only one", () => {
+    const built = buildChampLedgerRows({
+      artifact: artifactOf([team({ teamKey: "frc1", pointTotal: 23, eventPoints: [eventPoints({ eventKey: "2026wabon" })] })]),
+      distributions: new Map(),
+      stageByEvent: new Map([["2026wabon", ALL_FINAL]]),
+    });
+    const entry = built.teams[0]!;
+    expect(built.dcmpEventKey).toBeUndefined();
+    expect(entry.dcmpRow.cells.every((cell) => cell.kind === "unavailable")).toBe(true);
+    expect(entry.grandTotal.kind).toBe("unavailable");
+    expect(entry.projection).toBe(23);
+    expect(built.gaps.teamsWithUnavailableGrandTotal).toEqual(["frc1"]);
+  });
+});

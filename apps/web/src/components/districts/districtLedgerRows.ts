@@ -351,8 +351,8 @@ export interface DistrictLedgerGaps {
 // District-tier event collection
 // ---------------------------------------------------------------------------
 
-/** One district-tier event a team is entered in, from `eventPoints` and `remainingEvents` unioned by event key. */
-interface DistrictTierEventEntry {
+/** One event at ONE tier a team is entered in, from `eventPoints` and `remainingEvents` unioned by event key. */
+export interface DistrictTierEventEntry {
   readonly eventKey: string;
   readonly eventName: string;
   readonly week: number | null;
@@ -362,24 +362,25 @@ interface DistrictTierEventEntry {
 }
 
 /**
- * A team's district-tier events in week order, a null week last with the event
+ * A team's events AT ONE TIER in week order, a null week last with the event
  * name as the tie-break — `collectAllEvents`' own ordering rule in the shipped
  * champ tab, restated here because this one is per team rather than per
  * district.
  *
- * DCMP-TIER ROWS ARE DROPPED. This tab is the road to the district
- * championship; the `2026pnw` artifact's top team carries a `2026pncmp`
- * dcmp-tier `eventPoints` entry alongside two district-tier ones, and that row
- * belongs to Champ Locks.
+ * THE TIER IS AN ARGUMENT rather than the literal `"district"` it used to be,
+ * because the Champ Locks tab reads the SAME union at the dcmp tier for its
+ * second row (quick task 260925-xab). `districtTierEvents` below is this
+ * function at `"district"` and nothing else, so the Road to District Champs
+ * tab's collection is byte for byte what it was.
  */
-export function districtTierEvents(team: DistrictTeam): DistrictTierEventEntry[] {
+export function tierEvents(team: DistrictTeam, tier: DistrictTier): DistrictTierEventEntry[] {
   const byKey = new Map<string, DistrictTierEventEntry>();
   for (const row of team.eventPoints) {
-    if (row.tier !== "district") continue;
+    if (row.tier !== tier) continue;
     byKey.set(row.eventKey, { eventKey: row.eventKey, eventName: row.eventName, week: row.week, state: row.state, earned: row, remainingMaxPoints: undefined });
   }
   for (const row of team.remainingEvents) {
-    if (row.tier !== "district") continue;
+    if (row.tier !== tier) continue;
     const existing = byKey.get(row.eventKey);
     if (existing === undefined) {
       byKey.set(row.eventKey, {
@@ -406,6 +407,18 @@ export function districtTierEvents(team: DistrictTeam): DistrictTierEventEntry[]
     }
     return a.eventName.localeCompare(b.eventName);
   });
+}
+
+/**
+ * A team's DISTRICT-tier events, in week order.
+ *
+ * DCMP-TIER ROWS ARE DROPPED. The Road to District Champs tab is the road to
+ * the district championship; the `2026pnw` artifact's top team carries a
+ * `2026pncmp` dcmp-tier `eventPoints` entry alongside two district-tier ones,
+ * and that row belongs to Champ Locks.
+ */
+export function districtTierEvents(team: DistrictTeam): DistrictTierEventEntry[] {
+  return tierEvents(team, "district");
 }
 
 /**
@@ -618,9 +631,15 @@ const DISTRICT_FINAL_ALLIANCE_PICKS = 3;
  * the eight-alliance bracket every regular district event since 2023 runs, and
  * the draft is simulated as it is before any alliance is announced. The event
  * is named in the disclosed-gap list rather than absorbed.
+ *
+ * `expectedCount` IS AN ARGUMENT rather than the literal eight it used to be
+ * (quick task 260925-xab). An undivisioned district championship such as
+ * `2026pncmp` runs the same eight-alliance bracket, but a divisioned DCMP
+ * parent does not, so the caller supplies the bracket count it is about to
+ * simulate at and this gate checks the published list against THAT.
  */
-function alliancesAreFinal(alliances: readonly SuppliedAlliance[]): boolean {
-  if (alliances.length !== DEFAULT_DISTRICT_ALLIANCE_COUNT) return false;
+function alliancesAreFinal(alliances: readonly SuppliedAlliance[], expectedCount: number): boolean {
+  if (alliances.length !== expectedCount) return false;
   return alliances.every((alliance) => alliance.picks.length >= DISTRICT_FINAL_ALLIANCE_PICKS);
 }
 
@@ -653,6 +672,13 @@ export interface BuildDistrictEventInputOptions {
    * cannot honestly carry one.
    */
   readonly conditionOnPlayedElims?: boolean;
+  /**
+   * The point tier this event is priced at. Defaults to `"district"`, which is
+   * byte for byte the shipped behaviour; the Champ Locks tab supplies `"dcmp"`
+   * for the District Championship so the SAME code path prices it at the 3x
+   * ceilings (quick task 260925-xab).
+   */
+  readonly tier?: DistrictTier;
 }
 
 /**
@@ -667,7 +693,7 @@ export interface BuildDistrictEventInputOptions {
  * than by a special case.
  */
 export function buildDistrictEventSimulationInput(options: BuildDistrictEventInputOptions): DistrictEventInputResult {
-  const { eventKey, season, eventArtifact, districtArtifact, stage, startMatchKey } = options;
+  const { eventKey, season, eventArtifact, districtArtifact, stage, startMatchKey, tier = "district" } = options;
   const qualRows = buildQualRows(eventArtifact);
 
   let baselines: readonly SimTeamBaseline[];
@@ -709,9 +735,15 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
   const fieldSize = rosterKeys.length;
 
   const published = suppliedAlliances(eventArtifact);
+  // THE BRACKET COUNT A FINISHED LIST IS CHECKED AGAINST. A district event
+  // always runs the eight-alliance bracket; a dcmp event is checked against its
+  // OWN published list length, so an undivisioned DCMP such as `2026pncmp`
+  // (eight alliances) passes and a divisioned parent is checked against the
+  // count it actually publishes rather than against a literal eight.
+  const expectedAllianceCount = tier === "district" ? DEFAULT_DISTRICT_ALLIANCE_COUNT : (published?.length ?? DEFAULT_DISTRICT_ALLIANCE_COUNT);
   // A published list that is not yet FINAL is dropped rather than handed on as
   // a two- or four-alliance bracket — see `alliancesAreFinal`.
-  const allianceListIsPartial = stage.alliance && published !== undefined && !alliancesAreFinal(published);
+  const allianceListIsPartial = stage.alliance && published !== undefined && !alliancesAreFinal(published, expectedAllianceCount);
   const alliances = allianceListIsPartial ? undefined : published;
   const allianceCount = stage.alliance && alliances !== undefined ? alliances.length : DEFAULT_DISTRICT_ALLIANCE_COUNT;
 
@@ -732,7 +764,7 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
   const input: DistrictLedgerEventInput = {
     eventKey,
     season,
-    tier: "district",
+    tier,
     fieldSize,
     allianceCount,
     remainingMatches,
@@ -853,9 +885,25 @@ function summaryFor(cell: DistrictCellKind, distribution: DistrictPointDistribut
   return pointCellSummary(distribution.counts, distribution.denominator);
 }
 
-function openCell(id: string, cell: DistrictCellKind, distribution: DistrictPointDistribution, ceiling: number): DistrictLedgerCell {
+/**
+ * ONE open cell, with the form rule applied in exactly one place.
+ *
+ * Exported for `champLedgerRows.ts`, whose District points row convolves
+ * several events' cells into one and must carry the SAME form assignment — a
+ * second copy of `MEDIAN_FORM_CELLS` in that module is precisely how a
+ * Qualification cell would come to print a chance on one tab and a median on
+ * the other (quick task 260925-xab).
+ */
+export function openDistrictLedgerCell(
+  id: string,
+  cell: DistrictCellKind,
+  distribution: DistrictPointDistribution,
+  ceiling: number
+): DistrictLedgerCell {
   return { id, cell, kind: "open", summary: summaryFor(cell, distribution), distribution, ceiling };
 }
+
+const openCell = openDistrictLedgerCell;
 
 /**
  * The Playoffs cell's milestone, from the bracket's own progress and this event's
@@ -902,6 +950,19 @@ export interface BuildDistrictLedgerRowsOptions {
   /** Events the Worker refused to price, with the error class that refused — their open cells render unavailable rather than blank. */
   readonly unavailableEvents?: readonly { readonly eventKey: string; readonly name: string }[];
   readonly gaps?: Partial<DistrictLedgerGaps>;
+  /**
+   * The tier whose events this pass builds rows for. Defaults to `"district"`,
+   * which is byte for byte the shipped behaviour — `districtLedgerRows.test.ts`
+   * passes untouched, which is the proof.
+   *
+   * It drives exactly THREE things and nothing else: which events are collected
+   * (`tierEvents(team, tier)`), which ceilings the cells are drawn on
+   * (`maxEventPoints(season, tier)`) and which tier `playoffMilestoneFor` prices
+   * its thresholds at. The Champ Locks tab runs this builder twice over the same
+   * distributions, once per tier, and folds the two passes (quick task
+   * 260925-xab).
+   */
+  readonly tier?: DistrictTier;
 }
 
 export interface DistrictLedgerRowsResult {
@@ -921,9 +982,9 @@ export interface DistrictLedgerRowsResult {
  * ordering by interval width or by any other statistic is ever introduced.
  */
 export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions): DistrictLedgerRowsResult {
-  const { artifact, distributions, stageByEvent, unavailableEvents = [] } = options;
+  const { artifact, distributions, stageByEvent, unavailableEvents = [], tier = "district" } = options;
   const season = artifact.year;
-  const ceilings = maxEventPoints(season, "district");
+  const ceilings = maxEventPoints(season, tier);
   const categoryCeiling: Readonly<Record<DistrictCategory, number>> = {
     qual: ceilings.qual,
     alliance: ceilings.alliance,
@@ -962,7 +1023,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
    * "not available" where one honest message belongs.
    */
   const buildTeam = (team: DistrictTeam): DistrictLedgerTeam => {
-    const entries = districtTierEvents(team);
+    const entries = tierEvents(team, tier);
     const rows: DistrictLedgerEventRow[] = [];
     const eventTotalDistributions: DistrictPointDistribution[] = [];
     let everyEventTotalKnown = true;
@@ -1017,7 +1078,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
         if (category !== "elim" || cell.kind !== "open") return cell;
         const milestone = playoffMilestoneFor(
           season,
-          "district",
+          tier,
           distributions.get(entry.eventKey)?.playoffMilestoneByTeam?.get(team.teamKey),
           distribution
         );
@@ -1118,7 +1179,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
       // an absorbed refusal becomes a plausible, complete, wrong row, which is
       // the whole reason these functions throw in the first place.
       teamsWithUnavailableGrandTotal.add(team.teamKey);
-      built.push(degradedLedgerTeam(team));
+      built.push(degradedLedgerTeam(team, tier));
     }
   }
 
@@ -1162,8 +1223,8 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
  * one team and make a row count disagree with an event list. It loses only the
  * numbers that could not be built.
  */
-function degradedLedgerTeam(team: DistrictTeam): DistrictLedgerTeam {
-  const entries = districtTierEvents(team);
+function degradedLedgerTeam(team: DistrictTeam, tier: DistrictTier): DistrictLedgerTeam {
+  const entries = tierEvents(team, tier);
   let earnedDistrictTotal = 0;
   const rows: DistrictLedgerEventRow[] = entries.map((entry) => {
     if (entry.earned !== undefined) earnedDistrictTotal += entry.earned.total;
