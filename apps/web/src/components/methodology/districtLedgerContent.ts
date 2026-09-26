@@ -156,6 +156,9 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
       "The rookie bonus is 10 points in a team's first season and 5 in its second. It is added once per season to the season total and to the floor the locks use, never to an event total. The Team cell prints it when it applies.",
       "A category that is already settled shows the points the team earned, not a prediction. An event nobody has played yet is priced by the pipeline before the season, and the browser computes nothing for it.",
       "An open cell shows either a median with a likely range, or a chance with the typical amount when it happens. Likely means the 10th to the 90th percentile.",
+      "The Playoffs cell asks about the milestone the bracket has actually reached. Before the playoffs it prints the chance of finishing in the top four, because fifth through eighth earn nothing; once an alliance can no longer finish worse than fourth it prints the chance of reaching the final, and once it is in the final it prints the chance of winning. An alliance whose placement is already settled prints the points that placement is worth.",
+      "An elimination match already played is taken as played rather than priced again, so every run starts from the bracket as it stands. The chance therefore moves as the playoffs go on.",
+      "Clicking a Playoffs or Awards cell lists the outcomes that category can pay rather than drawing a histogram. Each row names one outcome and carries the share of runs that produced it, read from the same distribution the cell's own figure comes from. Rows the bracket has already ruled out are left off.",
       "Every team still in the points race also carries its chance of qualifying on district points, which is the share of 1,000 runs where its season total lands inside the qualifying slots. Each team's total is drawn on its own, so the runs miss the fact that two teams at one event compete for the same points. A chance never moves a status, and a team whose place is already settled prints none.",
     ],
     table: {
@@ -169,7 +172,7 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
         ["Alliance selection", "The captains and the two picks of that same drawn ranking, then the selection point values."],
         [
           "Playoffs",
-          "The eight alliance double elimination bracket, with every match priced from the two alliances' published ratings.",
+          "The eight alliance double elimination bracket, with every match still to be played priced from the two alliances' published ratings.",
         ],
         ["Awards", "A draw from the base rate for the team's own count of prior judged awards and its rookie status."],
       ],
@@ -203,6 +206,7 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
       "The award cell is priced from a table of how often teams in the same position have earned district award points. The table for each season is built only from the seasons before it.",
       "Impact and Rookie All Star are priced separately, by where a team sits in its event's field rather than by that table. The most decorated team at a district event wins Impact 18.0% of the time and the lowest numbered rookie wins Rookie All Star 38.1% of the time, so the rest of the judged awards are drawn from a table with those two taken out.",
       "The full table, its sample sizes and the cells that cannot be scored are on the Predicting awards page.",
+      "Two awards at one event are never a predicted outcome. The tables did measure teams that won Rookie All Star and a judged award, or Impact and one more, and that share of the mass is moved onto the higher award of the pair instead. The most it costs any 2026 rate is 0.022 of a point of expected award points, which buys an award cell that never offers an outcome a reader should not plan around.",
       "No award prediction moves a team's status. A Locked verdict stays a guarantee.",
       "One qualification slot is held back for every district event whose Impact award is still to come. The Impact winner at a district event takes a slot, so a team is never told it is Locked on a slot an award is about to claim. A slot held back this way returns to the points race as soon as that award is posted.",
     ],

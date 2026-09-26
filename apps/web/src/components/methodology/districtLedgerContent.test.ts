@@ -78,6 +78,12 @@ const REQUIRED_FIGURES = [
   // districtTierWeight: the DCMP weight is 3 in every registered season.
   "three times",
 
+  // --- the stacked-award fold (quick task 260925-uf8) ---------------------
+  // `npx vitest run packages/core/districts/awardOrderingTables.test.ts`, whose
+  // "costs at most the 0.022 of a point" case walks every 2026 rate and pins the
+  // ceiling this page states.
+  "0.022 of a point",
+
   // --- `pnpm measure:selection-agreement` ---------------------------------
   // `npx tsx scripts/measureSelectionAgreement.ts --captain-seasons 2023-2026
   //  --seasons 2026 --warmup-from 2026`, run 2026-09-25. Cross checked against

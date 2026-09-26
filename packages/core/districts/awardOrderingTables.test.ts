@@ -272,6 +272,22 @@ describe("the stacked-award fold — two awards are never a prediction", () => {
     expect(givenUp).toBeLessThan(0.05);
   });
 
+  it("costs at most the 0.022 of a point the methodology page states, over every 2026 rate", () => {
+    // THE SOURCE OF A PUBLISHED FIGURE. `/methodology/district-points` states
+    // "the most it costs any 2026 rate is 0.022 of a point of expected award
+    // points", and this is where that ceiling comes from. A rerun that moves it
+    // must move the prose in the same commit.
+    let worst = 0;
+    for (const bucket of DECORATION_BUCKETS) {
+      for (const rookieState of ROOKIE_STATES) {
+        const pmf = awardBaseRate(2026, bucket, rookieState).pmf;
+        worst = Math.max(worst, meanSupportPoints(pmf) - meanSupportPoints(foldStackedAwardPmf(pmf)));
+      }
+    }
+    expect(worst).toBeCloseTo(0.0214, 4);
+    expect(worst).toBeLessThan(0.022);
+  });
+
   it("is idempotent, so a pmf folded twice is the pmf folded once", () => {
     const once = foldStackedAwardPmf(awardBaseRate(2026, "three-or-more", "veteran").pmf);
     expect([...foldStackedAwardPmf(once)]).toEqual([...once]);
