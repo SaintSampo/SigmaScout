@@ -24,6 +24,7 @@ import {
   decodeDistrictPointPmf,
   deriveStageFromState,
   districtCellId,
+  districtEventContributions,
   districtLedgerStatLine,
   districtTierEvents,
   distributionsFromPreSim,
@@ -1229,6 +1230,81 @@ describe("playedBracketMatchesFor — colour onto alliance number", () => {
           .playedElimMatches
       ).toBeUndefined();
     });
+  });
+});
+
+describe("districtEventContributions", () => {
+  it("returns one row per district-tier event, in the table's own row order, with the earned total and the open percentiles", () => {
+    const artifact = artifactOf([
+      team({
+        teamKey: "frc1",
+        pointTotal: 47,
+        eventPoints: [
+          eventPoints({ eventKey: "2026wadone", week: 0, qual: 12, alliance: 6, elim: 6, award: 0, total: 24 }),
+          eventPoints({
+            eventKey: "2026walive",
+            week: 2,
+            qual: 10,
+            alliance: 6,
+            elim: 7,
+            award: 0,
+            total: 23,
+            state: state({ playoffsDone: false, awardsPosted: false }),
+          }),
+        ],
+      }),
+    ]);
+    const counts = new Float64Array(84);
+    counts[30] = 50;
+    counts[40] = 50;
+    const distributions = new Map<string, DistrictEventDistributions>([
+      [
+        "2026walive",
+        {
+          eventKey: "2026walive",
+          byTeam: new Map([
+            [
+              "frc1",
+              {
+                qual: undefined,
+                alliance: undefined,
+                elim: { counts, denominator: 100 },
+                award: { counts, denominator: 100 },
+                eventTotal: { counts, denominator: 100 },
+                grandTotal: undefined,
+              },
+            ],
+          ]),
+        },
+      ],
+    ]);
+    const rows = buildDistrictLedgerRows({ artifact, distributions });
+    const contributions = districtEventContributions(rows.teams[0]!);
+    expect(contributions.map((entry) => entry.eventKey)).toEqual(["2026wadone", "2026walive"]);
+    // The FINISHED event is settled: its earned total is exact and there is no
+    // open distribution at all.
+    expect(contributions[0]!.earned).toBe(24);
+    expect(contributions[0]!.open).toBeUndefined();
+    // The OPEN one carries the very percentiles the grand-total convolution
+    // consumed.
+    expect(contributions[1]!.earned).toBe(23);
+    expect(contributions[1]!.open?.p50).toBeGreaterThan(29);
+    expect(contributions[1]!.open?.p50).toBeLessThan(41);
+  });
+
+  it("reports an absent earned total as undefined rather than as a zero", () => {
+    const artifact = artifactOf([
+      team({
+        teamKey: "frc1",
+        pointTotal: 0,
+        eventPoints: [],
+        remainingEvents: [remainingEvent({ eventKey: "2026wasoon", week: 4 })],
+      }),
+    ]);
+    const rows = buildDistrictLedgerRows({ artifact, distributions: NO_DISTRIBUTIONS });
+    const contributions = districtEventContributions(rows.teams[0]!);
+    expect(contributions).toHaveLength(1);
+    expect(contributions[0]!.earned).toBeUndefined();
   });
 });
 

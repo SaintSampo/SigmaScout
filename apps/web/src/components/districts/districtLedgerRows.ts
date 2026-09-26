@@ -46,6 +46,7 @@ import {
   pointQuantile,
   pointThresholdSummary,
   type PointCellSummary,
+  type PointPercentiles,
 } from "../../../../../packages/core/districts/pointSummary.js";
 import { playoffPoints, type AllianceBracketMilestone, type PlayedBracketMatch } from "../../../../../packages/core/districts/bracket.js";
 import { maxEventPoints, type DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
@@ -226,6 +227,44 @@ export interface DistrictLedgerTeam {
   readonly position: number;
   /** TBA's own rookie bonus (10 in a first season, 5 in a second, else 0), already inside `pointTotal` and the grand total; carried so the Team cell and the drawer can print it. */
   readonly rookieBonus: number;
+}
+
+/**
+ * One district-tier event's contribution to a team's grand total, for the grand
+ * total drawer's per-event list.
+ *
+ * `earned` is the artifact's own published total for that event, or `undefined`
+ * where TBA has published none. `open` is the event total's three percentiles
+ * where the event is still open, and `undefined` where it is settled — the same
+ * absence the grey cell means, never a zero.
+ */
+export interface DistrictEventContribution {
+  readonly eventKey: string;
+  readonly eventName: string;
+  readonly earned: number | undefined;
+  readonly open: PointPercentiles | undefined;
+}
+
+/**
+ * The per-event contribution rows for one team, in the row order the table
+ * already renders.
+ *
+ * DERIVED FROM THE ROWS, not from a second pass over the artifact: the earned
+ * value is the row's own `earned.total` and the open percentiles come from the
+ * row's own event-total distribution, which is the very array the grand-total
+ * convolution consumed. So the list cannot describe a different set of events
+ * than the table above it.
+ */
+export function districtEventContributions(team: DistrictLedgerTeam): readonly DistrictEventContribution[] {
+  return team.rows.map((row) => ({
+    eventKey: row.eventKey,
+    eventName: row.eventName,
+    earned: row.earned?.total,
+    open:
+      row.eventTotal.kind === "open"
+        ? pointPercentiles(row.eventTotal.distribution.counts, row.eventTotal.distribution.denominator)
+        : undefined,
+  }));
 }
 
 /** Every gap this assembly could not close, disclosed as named arrays rather than absorbed. A silently absorbed gap becomes a plausible, complete, WRONG distribution downstream. */

@@ -37,17 +37,21 @@ import { installMockWorker, type MockWorkerHandle, type MockWorkerScript } from 
 import { runDistrictWorkerJob } from "../../workers/districtSimulationProtocol.js";
 import { DistrictLedger } from "./DistrictLedger.js";
 import {
+  DISTRICT_LEDGER_AWARD_OUTCOME_LABELS,
   DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED,
   DISTRICT_LEDGER_CAVEAT,
   DISTRICT_LEDGER_COLUMN_LABELS,
+  DISTRICT_LEDGER_CONTRIBUTION_SETTLED,
   DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION,
   DISTRICT_LEDGER_DRAWER_LINE_CAPTION,
   DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
+  DISTRICT_LEDGER_LIKELY_PREFIX,
   DISTRICT_LEDGER_LOCKED_AWARD_LABEL,
   DISTRICT_LEDGER_NO_MATCHES,
+  DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS,
   DISTRICT_LEDGER_PROVENANCE,
   DISTRICT_LEDGER_REWIND_LABEL,
   DISTRICT_LEDGER_SEARCH_LABEL,
@@ -1103,18 +1107,22 @@ describe("DistrictLedger — the drawer", () => {
   });
 
   it("uses ONE maximum per column, shared down the column, for two different teams' plots", async () => {
+    // QUALIFICATION rather than Playoffs: since 260925-uf8 the Playoffs and
+    // Awards drawers render an OUTCOME LIST instead of a plot, so they have no
+    // axis to share. Qualification is one of the three that still plots, and the
+    // property under test — the maximum comes from `maxEventPoints` and not from
+    // either team's data — is the same property on either column.
     await renderWithOpenCells();
-    fireEvent.click(cellButton("2026walive:elim"));
+    fireEvent.click(cellButton("2026walive:qual"));
     await waitFor(() => expect(screen.getByTestId("district-ledger-drawer-cell-plot")).toBeDefined());
     const firstMax = screen.getByTestId("district-ledger-drawer-cell-plot").querySelector("[data-plot-max]")!.getAttribute("data-plot-max");
 
-    // Open the SAME column on a DIFFERENT team: the axis maximum is identical,
-    // because it comes from `maxEventPoints` and not from either team's data.
+    // Open the SAME column on a DIFFERENT team: the axis maximum is identical.
     // Every team carries a cell with this id, so the second element is the
-    // second team's own Playoffs cell.
-    const elimCells = [...document.querySelectorAll('[data-cell-id="2026walive:elim"]')];
-    expect(elimCells.length).toBeGreaterThan(1);
-    fireEvent.click(within(elimCells[1] as HTMLElement).getByRole("button"));
+    // second team's own Qualification cell.
+    const qualCells = [...document.querySelectorAll('[data-cell-id="2026walive:qual"]')];
+    expect(qualCells.length).toBeGreaterThan(1);
+    fireEvent.click(within(qualCells[1] as HTMLElement).getByRole("button"));
     await waitFor(() => expect(screen.getByTestId("district-ledger-drawer-cell-plot")).toBeDefined());
     const secondMax = screen.getByTestId("district-ledger-drawer-cell-plot").querySelector("[data-plot-max]")!.getAttribute("data-plot-max");
     expect(secondMax).toBe(firstMax);
@@ -1149,6 +1157,137 @@ describe("DistrictLedger — the drawer", () => {
     renderLedgerAt(liveDistrict(), "/districts?algorithm=spr&drawerTeam=100&drawerCell=never-existed");
     await waitFor(() => expect(screen.getByTestId("district-ledger-tab")).toBeDefined());
     expect(screen.queryAllByTestId("district-ledger-drawer")).toHaveLength(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // The outcome lists and the grand total pane (quick task 260925-uf8)
+  // -------------------------------------------------------------------------
+
+  it("renders an OUTCOME LIST and no histogram for the Playoffs cell", async () => {
+    await renderWithOpenCells();
+    fireEvent.click(cellButton("2026walive:elim"));
+    const list = await screen.findByTestId("district-ledger-drawer-outcomes");
+    expect(screen.queryByTestId("district-ledger-drawer-cell-plot")).toBeNull();
+    // Every named playoff outcome, ordered by points descending.
+    const rows = within(list).getAllByTestId("district-ledger-outcome-row");
+    expect(rows.map((row) => row.getAttribute("data-outcome"))).toEqual(["winner", "finalist", "third", "fourth", "none"]);
+    expect(list.textContent ?? "").toContain(DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.winner);
+    expect(list.textContent ?? "").toContain(DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.none);
+  });
+
+  it("prints each playoff outcome's own point value, from the placement table and not from the axis", async () => {
+    await renderWithOpenCells();
+    fireEvent.click(cellButton("2026walive:elim"));
+    const list = await screen.findByTestId("district-ledger-drawer-outcomes");
+    const pointsOf = (outcome: string): string =>
+      list.querySelector(`[data-outcome="${outcome}"] .district-ledger-outcomes__points`)?.textContent ?? "";
+    expect(pointsOf("winner")).toBe("30");
+    expect(pointsOf("finalist")).toBe("20");
+    expect(pointsOf("third")).toBe("13");
+    expect(pointsOf("fourth")).toBe("7");
+    expect(pointsOf("none")).toBe("0");
+  });
+
+  it("renders an OUTCOME LIST for the Awards cell, and omits Rookie All Star for a veteran", async () => {
+    await renderWithOpenCells();
+    fireEvent.click(cellButton("2026walive:award"));
+    const list = await screen.findByTestId("district-ledger-drawer-outcomes");
+    expect(screen.queryByTestId("district-ledger-drawer-cell-plot")).toBeNull();
+    const rows = within(list).getAllByTestId("district-ledger-outcome-row");
+    // The fixture's teams are veterans, so Rookie All Star is not an outcome.
+    expect(rows.map((row) => row.getAttribute("data-outcome"))).toEqual(["impact", "judged", "none"]);
+    expect(list.textContent ?? "").not.toContain(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS.rookieAllStar);
+  });
+
+  it("lists Rookie All Star for a ROOKIE, at its own point value", async () => {
+    installFetch({ eventArtifact: liveEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(
+      artifactOf(
+        ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey, { awardProfile: { bucket: "none", rookie: true } })))
+      )
+    );
+    await waitFor(() => {
+      expect(document.querySelector('[data-cell-id="2026walive:award"]')?.getAttribute("data-cell")).toBe("open");
+    });
+    fireEvent.click(cellButton("2026walive:award"));
+    const list = await screen.findByTestId("district-ledger-drawer-outcomes");
+    expect(within(list).getAllByTestId("district-ledger-outcome-row").map((row) => row.getAttribute("data-outcome"))).toEqual([
+      "impact",
+      "rookieAllStar",
+      "judged",
+      "none",
+    ]);
+    expect(list.querySelector('[data-outcome="rookieAllStar"] .district-ledger-outcomes__points')?.textContent).toBe("8");
+  });
+
+  it("never lists an award outcome above Impact, so a stacked award cannot reach a screen", async () => {
+    await renderWithOpenCells();
+    fireEvent.click(cellButton("2026walive:award"));
+    const list = await screen.findByTestId("district-ledger-drawer-outcomes");
+    // `td` only: the column heading carries the same class and reads "points".
+    const values = [...list.querySelectorAll("td.district-ledger-outcomes__points")].map((cell) => Number(cell.textContent));
+    expect(Math.max(...values)).toBe(10);
+    for (const value of values) expect(value).toBeLessThanOrEqual(10);
+  });
+
+  it("keeps the shipped histogram on Qualification, Alliance selection and the event total", async () => {
+    await renderWithOpenCells();
+    for (const cellId of ["2026walive:qual", "2026walive:alliance", "2026walive:eventTotal"]) {
+      fireEvent.click(cellButton(cellId));
+      await waitFor(() => expect(screen.getByTestId("district-ledger-drawer").getAttribute("data-drawer-cell")).toBe(cellId));
+      expect(screen.getByTestId("district-ledger-drawer-cell-plot"), cellId).toBeDefined();
+      expect(screen.queryByTestId("district-ledger-drawer-outcomes"), cellId).toBeNull();
+      fireEvent.click(cellButton(cellId));
+      await waitFor(() => expect(screen.queryAllByTestId("district-ledger-drawer")).toHaveLength(0));
+    }
+  });
+
+  it("draws the grand total histogram ONCE when the grand total is the clicked cell, beside a per-event list", async () => {
+    await renderWithOpenCells();
+    fireEvent.click(cellButton("grand"));
+    const drawer = await screen.findByTestId("district-ledger-drawer");
+    expect(drawer.getAttribute("data-drawer-cell")).toBe("grand");
+    // ONE plot, not two identical ones.
+    expect(within(drawer).getAllByTestId("district-ledger-drawer-grand-plot")).toHaveLength(1);
+    expect(within(drawer).queryByTestId("district-ledger-drawer-cell-plot")).toBeNull();
+    // And the contribution list, one row per district-tier event.
+    const list = within(drawer).getByTestId("district-ledger-drawer-contributions");
+    const rows = within(list).getAllByTestId("district-ledger-contribution-row");
+    expect(rows.map((row) => row.getAttribute("data-event"))).toEqual(["2026wadone", "2026walive"]);
+    // The finished event contributes its earned total exactly; the live one is
+    // still open and carries a median with a likely range.
+    expect(rows[0]!.textContent ?? "").toContain("24");
+    expect(rows[0]!.textContent ?? "").toContain(DISTRICT_LEDGER_CONTRIBUTION_SETTLED);
+    expect(rows[1]!.textContent ?? "").toMatch(/~\d+/);
+    expect(rows[1]!.textContent ?? "").toContain(DISTRICT_LEDGER_LIKELY_PREFIX);
+  });
+
+  it("keeps the line and the floor caption on the grand total drawer", async () => {
+    await renderWithOpenCells();
+    fireEvent.click(cellButton("grand"));
+    const drawer = await screen.findByTestId("district-ledger-drawer");
+    expect(within(drawer).getByTestId("district-hist-marked-line")).toBeDefined();
+    expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_DRAWER_LINE_CAPTION);
+  });
+
+  it("still draws the grand total plot BESIDE a category cell's own pane", async () => {
+    await renderWithOpenCells();
+    fireEvent.click(cellButton("2026walive:elim"));
+    const drawer = await screen.findByTestId("district-ledger-drawer");
+    expect(within(drawer).getByTestId("district-ledger-drawer-outcomes")).toBeDefined();
+    expect(within(drawer).getByTestId("district-ledger-drawer-grand-plot")).toBeDefined();
+  });
+
+  it("prints no plus-minus codepoint anywhere in either outcome list", async () => {
+    await renderWithOpenCells();
+    for (const cellId of ["2026walive:elim", "2026walive:award"]) {
+      fireEvent.click(cellButton(cellId));
+      const list = await screen.findByTestId("district-ledger-drawer-outcomes");
+      expect(list.textContent ?? "", cellId).not.toContain(PLUS_MINUS);
+      fireEvent.click(cellButton(cellId));
+      await waitFor(() => expect(screen.queryAllByTestId("district-ledger-drawer")).toHaveLength(0));
+    }
   });
 
   it("is shareable: a URL naming a real team and open cell opens the drawer on first paint", async () => {

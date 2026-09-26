@@ -266,6 +266,98 @@ export const DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION =
 export const DISTRICT_LEDGER_DRAWER_CELL_PLOT_LABEL = "Points for this category";
 export const DISTRICT_LEDGER_DRAWER_GRAND_PLOT_LABEL = "Grand total district points";
 
+/**
+ * The named outcomes the Playoffs and Awards drawers list instead of drawing a
+ * histogram.
+ *
+ * NAMES RATHER THAN POINT VALUES. Both categories pay exactly one of four or
+ * five values, and every one of them has a name the reader already uses. A
+ * histogram over the same distribution draws four bars and twenty-six gaps and
+ * asks the reader to read a placement off an x position.
+ */
+export const DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS = {
+  winner: "Wins the event",
+  finalist: "Finalist",
+  third: "Third place",
+  fourth: "Fourth place",
+  none: "Out before the top four",
+} as const;
+
+/** See `DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS`. `judged` is one judged award, which is the award support's own second bin. */
+export const DISTRICT_LEDGER_AWARD_OUTCOME_LABELS = {
+  impact: "Impact",
+  rookieAllStar: "Rookie All Star",
+  judged: "One judged award",
+  none: "No award",
+} as const;
+
+/** The two outcome lists' headings, and the accessible name of each list. */
+export const DISTRICT_LEDGER_OUTCOME_LIST_LABELS = {
+  elim: "Playoff outcomes",
+  award: "Award outcomes",
+} as const;
+
+/** The outcome list's two column headings. */
+export const DISTRICT_LEDGER_OUTCOME_COLUMN_LABELS = { chance: "chance", points: "points" } as const;
+
+/**
+ * One outcome row's chance, as one string.
+ *
+ * THREE CASES, and the difference between them is what the reader is being told:
+ *
+ *   exactly zero  -> `0%`, with NO tilde. No run produced this outcome, which is
+ *                    a count rather than an estimate, and a tilde would suggest
+ *                    a number that could round the other way.
+ *   under a half   -> `<1%`, because `~0%` beside a non-zero chance reads as
+ *                    impossible when it is merely unlikely.
+ *   anything else  -> `~NN%`, the tab's own tilde convention for a prediction.
+ *
+ * Deliberately NOT `districtLedgerChanceLine`'s 5-to-99 band: that band is about
+ * a chance printed as a VERDICT beside a team's status, where a 2% reads as a
+ * sentence being passed. These are the pieces one cell's own distribution breaks
+ * into, and they have to sum to a hundred for the list to make sense.
+ */
+export function districtLedgerOutcomeChance(chance: number): string {
+  if (chance <= 0) return "0%";
+  if (chance < 0.005) return "<1%";
+  return `~${String(Math.round(chance * 100))}%`;
+}
+
+/** One outcome row's point value. A whole number of points, never a tilde: the placement's value is a rule, not a prediction. */
+export function districtLedgerOutcomePoints(points: number): string {
+  return String(Math.round(points));
+}
+
+/** The outcome list's caption, in flat third person. */
+export const DISTRICT_LEDGER_OUTCOME_CAPTION =
+  "Each row is one outcome this category can pay, with the share of runs that produced it. The rows the bracket has already ruled out are not listed.";
+
+/**
+ * The grand total drawer's PER-EVENT contribution list.
+ *
+ * It replaced a second copy of the grand total histogram, which the drawer drew
+ * twice whenever the clicked cell was the grand total itself (Jacob, 2026-09-25).
+ * A reader who clicked the grand total was shown the same bars in both panes; the
+ * question that pane can actually answer is which event the spread comes from.
+ */
+export const DISTRICT_LEDGER_CONTRIBUTION_LIST_LABEL = "Points by event";
+export const DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS = { event: "event", earned: "earned", open: "still open" } as const;
+
+/** What the open column prints for an event that is already settled: nothing is open, so there is nothing to predict. */
+export const DISTRICT_LEDGER_CONTRIBUTION_SETTLED = "settled";
+
+/** What the earned column prints where TBA has published no points for that event yet. */
+export const DISTRICT_LEDGER_CONTRIBUTION_NONE_EARNED = "none yet";
+
+/** One event's earned total, or the honest absence. */
+export function districtLedgerContributionEarned(earned: number | undefined): string {
+  return earned === undefined ? DISTRICT_LEDGER_CONTRIBUTION_NONE_EARNED : String(Math.round(earned));
+}
+
+/** The contribution list's caption, in flat third person. */
+export const DISTRICT_LEDGER_CONTRIBUTION_CAPTION =
+  "The grand total is these event totals added together, plus any rookie bonus. A settled event contributes its earned points exactly.";
+
 /** The Team cell's rookie bonus line, printed only when the bonus is non zero: 10 points in a team's first season, 5 in its second, added once per season. */
 export function districtLedgerRookieBonusLine(points: number): string {
   return `+${String(points)} rookie bonus`;

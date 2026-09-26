@@ -67,14 +67,28 @@ import {
   DISTRICT_LEDGER_TAB_LABEL,
   DISTRICT_LEDGER_TICK_NOW,
   DISTRICT_LEDGER_TICK_START,
+  DISTRICT_LEDGER_AWARD_OUTCOME_LABELS,
+  DISTRICT_LEDGER_CONTRIBUTION_CAPTION,
+  DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS,
+  DISTRICT_LEDGER_CONTRIBUTION_LIST_LABEL,
+  DISTRICT_LEDGER_CONTRIBUTION_SETTLED,
+  DISTRICT_LEDGER_OUTCOME_LIST_LABELS,
   DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS,
+  DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
   districtLedgerChanceLine,
+  districtLedgerContributionEarned,
   districtLedgerNoPointsCaption,
   districtLedgerPlacementLine,
   districtLedgerShortEventName,
   districtLedgerTickWeekLabel,
 } from "./districtLedgerCopy.js";
+import { DistrictOutcomeList } from "./DistrictOutcomeList.js";
+import {
+  districtAwardOutcomes,
+  districtCellRendersOutcomeList,
+  districtPlayoffOutcomes,
+} from "./districtLedgerOutcomes.js";
 import { buildAdvancementChanceRun, reconcileAdvancementChances } from "./districtLedgerChances.js";
 import { useDistrictAdvancementChance } from "./useDistrictAdvancementChance.js";
 import {
@@ -96,11 +110,13 @@ import {
   DISTRICT_CATEGORIES,
   buildDistrictLedgerRows,
   deriveStageFromState,
+  districtEventContributions,
   districtLedgerStatLine,
   districtTierEvents,
   filterDistrictLedgerTeams,
   inProgressDistrictEventKeys,
   type DistrictCellKind,
+  type DistrictEventContribution,
   type DistrictEventStage,
   type DistrictLedgerCell,
   type DistrictLedgerEventRow,
@@ -474,6 +490,9 @@ function DrawerRow({
   columnCount,
   rookieBonus,
   chanceLine,
+  season,
+  isRookie,
+  contributions,
 }: {
   cell: Extract<DistrictLedgerCell, { kind: "open" }>;
   grandTotal: DistrictLedgerCell;
@@ -482,35 +501,147 @@ function DrawerRow({
   rookieBonus: number;
   /** This team's printed chance line, or `undefined` where no chance is printed — the caption follows the line rather than announcing one that is not there. */
   chanceLine: string | undefined;
+  season: number;
+  /** The artifact's own `awardProfile.rookie`. A veteran's Rookie All Star row is omitted rather than printed at zero. */
+  isRookie: boolean;
+  /** One row per district-tier event, for the GRAND TOTAL drawer's contribution list. */
+  contributions: readonly DistrictEventContribution[];
 }) {
-  const cellPercentiles = pointPercentiles(cell.distribution.counts, cell.distribution.denominator);
-  const noPointsChance = Math.round(((cell.distribution.counts[0] ?? 0) / cell.distribution.denominator) * 100);
   const animated = prefersReducedMotion() ? "" : " district-ledger-drawer--animated";
+  // THE GRAND TOTAL IS DRAWN ONCE. When the clicked cell IS the grand total its
+  // own plot is the left pane, and the right pane is the per-event contribution
+  // list rather than a second copy of the same histogram (Jacob, 2026-09-25).
+  const isGrandTotal = cell.cell === "grandTotal";
   return (
     <TableRow data-testid="district-ledger-drawer" data-drawer-cell={cell.id} className="district-ledger-row--drawer">
       <TableCell colSpan={columnCount}>
         <div className={`flex flex-wrap gap-[var(--spacing-lg)]${animated}`}>
-          <div className="flex flex-col gap-[var(--spacing-xs)]">
-            <DistrictPointHistogram
-              testId="district-ledger-drawer-cell-plot"
-              counts={cell.distribution.counts}
-              denominator={cell.distribution.denominator}
-              maxPoints={cell.ceiling}
-              p10={cellPercentiles.p10}
-              p50={cellPercentiles.p50}
-              p90={cellPercentiles.p90}
-              label={DISTRICT_LEDGER_DRAWER_CELL_PLOT_LABEL}
-            />
-            <span data-testid="district-ledger-drawer-band-label">{bandLabel(cellPercentiles.p10, cellPercentiles.p90)}</span>
-            <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_DRAWER_CELL_CAPTION}</span>
-            {noPointsChance > 0 && <span className="text-[var(--color-text-muted)]">{districtLedgerNoPointsCaption(noPointsChance)}</span>}
-          </div>
-          {grandTotal.kind === "open" && (
-            <GrandTotalPlot cell={grandTotal} todaysLineFloor={todaysLineFloor} rookieBonus={rookieBonus} chanceLine={chanceLine} />
+          {isGrandTotal ? (
+            <>
+              <GrandTotalPlot cell={cell} todaysLineFloor={todaysLineFloor} rookieBonus={rookieBonus} chanceLine={chanceLine} />
+              <DistrictContributionList contributions={contributions} />
+            </>
+          ) : (
+            <>
+              <DrawerCellPane cell={cell} season={season} isRookie={isRookie} />
+              {grandTotal.kind === "open" && (
+                <GrandTotalPlot cell={grandTotal} todaysLineFloor={todaysLineFloor} rookieBonus={rookieBonus} chanceLine={chanceLine} />
+              )}
+            </>
           )}
         </div>
       </TableCell>
     </TableRow>
+  );
+}
+
+/**
+ * The clicked cell's own pane: an OUTCOME LIST for the two lumpy, named
+ * categories and the shipped histogram for everything else.
+ *
+ * The split is `districtCellRendersOutcomeList`'s, which names the two cells
+ * rather than testing for a shape, so the Qualification, Alliance selection and
+ * event total panes are byte for byte what they were.
+ */
+function DrawerCellPane({
+  cell,
+  season,
+  isRookie,
+}: {
+  cell: Extract<DistrictLedgerCell, { kind: "open" }>;
+  season: number;
+  isRookie: boolean;
+}) {
+  if (districtCellRendersOutcomeList(cell.cell)) {
+    const rows =
+      cell.cell === "elim"
+        ? districtPlayoffOutcomes(season, "district", cell.distribution, cell.playoffMilestone).map((row) => ({
+            key: row.id,
+            label: DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS[row.id],
+            points: row.points,
+            chance: row.chance,
+          }))
+        : districtAwardOutcomes(season, "district", cell.distribution, isRookie).map((row) => ({
+            key: row.id,
+            label: DISTRICT_LEDGER_AWARD_OUTCOME_LABELS[row.id],
+            points: row.points,
+            chance: row.chance,
+          }));
+    return (
+      <DistrictOutcomeList
+        testId="district-ledger-drawer-outcomes"
+        rows={rows}
+        label={DISTRICT_LEDGER_OUTCOME_LIST_LABELS[cell.cell]}
+      />
+    );
+  }
+  const cellPercentiles = pointPercentiles(cell.distribution.counts, cell.distribution.denominator);
+  const noPointsChance = Math.round(((cell.distribution.counts[0] ?? 0) / cell.distribution.denominator) * 100);
+  return (
+    <div className="flex flex-col gap-[var(--spacing-xs)]">
+      <DistrictPointHistogram
+        testId="district-ledger-drawer-cell-plot"
+        counts={cell.distribution.counts}
+        denominator={cell.distribution.denominator}
+        maxPoints={cell.ceiling}
+        p10={cellPercentiles.p10}
+        p50={cellPercentiles.p50}
+        p90={cellPercentiles.p90}
+        label={DISTRICT_LEDGER_DRAWER_CELL_PLOT_LABEL}
+      />
+      <span data-testid="district-ledger-drawer-band-label">{bandLabel(cellPercentiles.p10, cellPercentiles.p90)}</span>
+      <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_DRAWER_CELL_CAPTION}</span>
+      {noPointsChance > 0 && <span className="text-[var(--color-text-muted)]">{districtLedgerNoPointsCaption(noPointsChance)}</span>}
+    </div>
+  );
+}
+
+/**
+ * The grand total drawer's right pane: one row per district-tier event, so a
+ * reader can see WHICH event the spread comes from.
+ *
+ * REPLACES A SECOND COPY OF THE SAME HISTOGRAM. Clicking the grand total used to
+ * draw its plot as the clicked cell AND again as the grand total beside it —
+ * identical bars, identical band, identical tick, twice (Jacob, 2026-09-25:
+ * "do not draw the same histogram twice").
+ */
+function DistrictContributionList({ contributions }: { contributions: readonly DistrictEventContribution[] }) {
+  return (
+    <div className="flex flex-col gap-[var(--spacing-xs)]" data-testid="district-ledger-drawer-contributions">
+      <table className="district-ledger-contributions">
+        <caption className="sr-only">{DISTRICT_LEDGER_CONTRIBUTION_LIST_LABEL}</caption>
+        <thead>
+          <tr>
+            <th scope="col">{DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS.event}</th>
+            <th scope="col">{DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS.earned}</th>
+            <th scope="col">{DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS.open}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {contributions.map((entry) => (
+            <tr key={entry.eventKey} data-testid="district-ledger-contribution-row" data-event={entry.eventKey}>
+              <th scope="row" className="district-ledger-contributions__event">
+                {districtLedgerShortEventName(entry.eventName)}
+              </th>
+              <td className="district-ledger-contributions__earned">{districtLedgerContributionEarned(entry.earned)}</td>
+              <td className="district-ledger-contributions__open">
+                {entry.open === undefined ? (
+                  DISTRICT_LEDGER_CONTRIBUTION_SETTLED
+                ) : (
+                  <>
+                    {`~${String(Math.round(entry.open.p50))}`}{" "}
+                    <span className="district-ledger-contributions__range">
+                      {likelyRangeText(Math.max(0, entry.open.p10), Math.max(0, entry.open.p90))}
+                    </span>
+                  </>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <span className="text-[var(--color-text-muted)]">{DISTRICT_LEDGER_CONTRIBUTION_CAPTION}</span>
+    </div>
   );
 }
 
@@ -793,6 +924,21 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
     return map;
   }, [artifact]);
 
+  /**
+   * The artifact's own rookie flag per team, for the Awards drawer's outcome
+   * list: a veteran's Rookie All Star row is OMITTED rather than printed at
+   * zero, because a veteran cannot win it and the draw consumes no randomness
+   * for it. An artifact that publishes no `awardProfile` yields no entry, and an
+   * outcome the tab cannot establish is not an outcome to offer.
+   */
+  const isRookieByTeam = useMemo(() => {
+    const map = new Map<string, boolean>();
+    for (const team of artifact.teams) {
+      if (team.awardProfile !== undefined) map.set(team.teamKey, team.awardProfile.rookie);
+    }
+    return map;
+  }, [artifact]);
+
   const inProgressKeys = useMemo(() => inProgressDistrictEventKeys(artifact), [artifact]);
   const startedKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -1057,6 +1203,9 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
                   columnCount={DISTRICT_LEDGER_COLUMN_LABELS.length}
                   rookieBonus={team.rookieBonus}
                   chanceLine={chanceLineFor(team.teamKey)}
+                  season={season}
+                  isRookie={isRookieByTeam.get(team.teamKey) === true}
+                  contributions={districtEventContributions(team)}
                 />,
               ];
             })}

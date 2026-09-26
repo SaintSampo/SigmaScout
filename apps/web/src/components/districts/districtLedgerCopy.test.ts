@@ -11,20 +11,28 @@ import {
   districtLedgerChanceLine,
   districtLedgerRookieBonusLine,
   districtLedgerRookieBonusCaption,
+  DISTRICT_LEDGER_AWARD_OUTCOME_LABELS,
   DISTRICT_LEDGER_CHANCE_BELOW_FLOOR,
   DISTRICT_LEDGER_CHANCE_WORDS,
+  DISTRICT_LEDGER_CONTRIBUTION_CAPTION,
+  DISTRICT_LEDGER_CONTRIBUTION_SETTLED,
   DISTRICT_LEDGER_COLUMN_LABELS,
   DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
   DISTRICT_LEDGER_LOCKED_AWARD_LABEL,
+  DISTRICT_LEDGER_OUTCOME_CAPTION,
   DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS,
+  DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS,
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_TAB_LABEL,
   DISTRICT_LEDGER_TICK_NOW,
   DISTRICT_LEDGER_TICK_START,
+  districtLedgerContributionEarned,
+  districtLedgerOutcomeChance,
+  districtLedgerOutcomePoints,
   districtLedgerPlacementLine,
   districtLedgerShortEventName,
   districtLedgerTickWeekLabel,
@@ -161,6 +169,65 @@ describe("the playoff milestone words", () => {
   it("prints a bare number rather than inventing a suffix for a placement outside the bracket", () => {
     expect(districtLedgerPlacementLine(9)).toBe("place 9");
     expect(districtLedgerPlacementLine(0)).toBe("place 0");
+  });
+
+  it("prints an outcome chance in the three cases that mean three different things", () => {
+    // A tilde for a prediction.
+    expect(districtLedgerOutcomeChance(0.4)).toBe("~40%");
+    expect(districtLedgerOutcomeChance(0.005)).toBe("~1%");
+    // Unlikely, not impossible: never `~0%`.
+    expect(districtLedgerOutcomeChance(0.004)).toBe("<1%");
+    expect(districtLedgerOutcomeChance(0.0001)).toBe("<1%");
+    // No run produced it at all — a count, so no tilde.
+    expect(districtLedgerOutcomeChance(0)).toBe("0%");
+    expect(districtLedgerOutcomeChance(0)).not.toContain("~");
+    // And nothing here carries the plus-minus codepoint.
+    for (const chance of [0, 0.004, 0.4, 1]) expect(districtLedgerOutcomeChance(chance)).not.toContain("±");
+  });
+
+  it("prints an outcome's point value as a whole number with no tilde, because a placement's value is a rule", () => {
+    expect(districtLedgerOutcomePoints(30)).toBe("30");
+    expect(districtLedgerOutcomePoints(0)).toBe("0");
+    expect(districtLedgerOutcomePoints(30)).not.toContain("~");
+  });
+
+  it("names every playoff and award outcome, and nothing above Impact", () => {
+    expect(DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS).toEqual({
+      winner: "Wins the event",
+      finalist: "Finalist",
+      third: "Third place",
+      fourth: "Fourth place",
+      none: "Out before the top four",
+    });
+    expect(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS).toEqual({
+      impact: "Impact",
+      rookieAllStar: "Rookie All Star",
+      judged: "One judged award",
+      none: "No award",
+    });
+    // No label names two awards at once, which is the whole point of the fold.
+    for (const label of Object.values(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS)) {
+      expect(label.toLowerCase()).not.toContain(" and ");
+      expect(label.toLowerCase()).not.toContain("plus");
+    }
+  });
+
+  it("prints a contribution row's earned total, or the honest absence", () => {
+    expect(districtLedgerContributionEarned(24)).toBe("24");
+    expect(districtLedgerContributionEarned(0)).toBe("0");
+    expect(districtLedgerContributionEarned(undefined)).toBe("none yet");
+  });
+
+  it("carries no dash character in the two new lists' own copy", () => {
+    const everyString = [
+      ...Object.values(DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS),
+      ...Object.values(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS),
+      DISTRICT_LEDGER_OUTCOME_CAPTION,
+      DISTRICT_LEDGER_CONTRIBUTION_CAPTION,
+      DISTRICT_LEDGER_CONTRIBUTION_SETTLED,
+      districtLedgerContributionEarned(undefined),
+    ].join(" ");
+    for (const dash of ["—", "–", "-"]) expect(everyString).not.toContain(dash);
   });
 
   it("carries no dash character in any milestone word, matching the tab's own rule", () => {
