@@ -13,7 +13,11 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  allianceBracketMilestones,
   assertBracketSeason,
+  bracketDecisionKey,
+  bracketDecisionsFromPlayedMatches,
+  bracketSetIdFor,
   BRACKET_REGISTERED_SEASONS,
   BRACKET_SETS,
   DIVISIONED_DCMP_PLAYOFF_OBSERVATIONS,
@@ -24,9 +28,11 @@ import {
   PLAYOFF_PLACEMENT_POINTS,
   playoffPoints,
   routeBracket,
+  routePlayedBracket,
   UnsupportedAllianceCountError,
   UnsupportedBracketSeasonError,
   type BracketDecider,
+  type PlayedBracketMatch,
 } from "./bracket.js";
 import { maxEventPoints } from "./pointModel.js";
 import { mulberry32 } from "../algorithms/simulation/rankSimulation.js";
@@ -327,6 +333,244 @@ describe("divisionedDcmpPlayoffPmf", () => {
           expect(pmf[i]!.points).toBe(observations[i]!.points);
           expect(pmf[i]!.probability).toBeCloseTo(observations[i]!.count / total, 12);
         }
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The played bracket, and the milestone (quick task 260925-uf8)
+// ---------------------------------------------------------------------------
+
+/**
+ * A REAL EVENT'S REAL ELIMINATION MATCHES: `2026orwil` (PNW District Wilsonville
+ * Event), derived on 2026-09-25 from
+ * `data/fixtures/phase10/event-2026orwil.json` — the published SPR event
+ * artifact — by mapping each played row's red and blue team lists onto the
+ * `alliances` pick lists and taking the side that carries `actualWinner`.
+ *
+ * COMMITTED AS A LITERAL rather than read from `data/`, which is gitignored:
+ * these tests must run on a machine that has never fetched an artifact. Fifteen
+ * rows, not sixteen, because the final was a sweep.
+ *
+ * `2026orwil` is one of the three 2026 PNW events whose earned elimination
+ * points reproduce EXACTLY for every team on every alliance. At the other five
+ * a backup robot's proration puts a partial value in a pick slot, which is the
+ * data shape this file's own header already records for `2026waahs` — a
+ * property of TBA's point allocation, not of the routing.
+ */
+const ORWIL_PLAYED_ELIMS: readonly PlayedBracketMatch[] = [
+  { compLevel: "sf", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 },
+  { compLevel: "sf", setNumber: 2, matchNumber: 1, winningAllianceNumber: 5 },
+  { compLevel: "sf", setNumber: 3, matchNumber: 1, winningAllianceNumber: 2 },
+  { compLevel: "sf", setNumber: 4, matchNumber: 1, winningAllianceNumber: 6 },
+  { compLevel: "sf", setNumber: 5, matchNumber: 1, winningAllianceNumber: 8 },
+  { compLevel: "sf", setNumber: 6, matchNumber: 1, winningAllianceNumber: 7 },
+  { compLevel: "sf", setNumber: 7, matchNumber: 1, winningAllianceNumber: 1 },
+  { compLevel: "sf", setNumber: 8, matchNumber: 1, winningAllianceNumber: 2 },
+  { compLevel: "sf", setNumber: 9, matchNumber: 1, winningAllianceNumber: 5 },
+  { compLevel: "sf", setNumber: 10, matchNumber: 1, winningAllianceNumber: 8 },
+  { compLevel: "sf", setNumber: 11, matchNumber: 1, winningAllianceNumber: 1 },
+  { compLevel: "sf", setNumber: 12, matchNumber: 1, winningAllianceNumber: 5 },
+  { compLevel: "sf", setNumber: 13, matchNumber: 1, winningAllianceNumber: 2 },
+  { compLevel: "f", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 },
+  { compLevel: "f", setNumber: 1, matchNumber: 2, winningAllianceNumber: 1 },
+];
+
+/**
+ * `2026orwil`'s own earned `elim` points per alliance, read straight off
+ * `data/fixtures/phase10/district-2026pnw.json`'s `eventPoints` rows on the
+ * same date — TBA's answer, established INDEPENDENTLY of any routing in this
+ * repo, which is what makes the cross-check below a real one.
+ */
+const ORWIL_EARNED_ELIM_BY_ALLIANCE: Readonly<Record<number, number>> = { 1: 30, 2: 20, 3: 0, 4: 0, 5: 13, 6: 0, 7: 0, 8: 7 };
+
+describe("bracketSetIdFor — TBA's coordinates onto this topology", () => {
+  it("maps every sf set number and the final, and refuses every other comp level", () => {
+    for (let setNumber = 1; setNumber <= 13; setNumber++) {
+      expect(bracketSetIdFor("sf", setNumber)).toBe(`sf${String(setNumber)}`);
+    }
+    expect(bracketSetIdFor("f", 1)).toBe("f");
+    // Everything the eight-alliance double-elimination format does not carry.
+    expect(bracketSetIdFor("sf", 14)).toBeUndefined();
+    expect(bracketSetIdFor("sf", 0)).toBeUndefined();
+    expect(bracketSetIdFor("f", 2)).toBeUndefined();
+    expect(bracketSetIdFor("qf", 1)).toBeUndefined();
+    expect(bracketSetIdFor("ef", 1)).toBeUndefined();
+    expect(bracketSetIdFor("qm", 1)).toBeUndefined();
+  });
+
+  it("every id it returns is a real member of BRACKET_SETS, so the mapping cannot name a set that does not exist", () => {
+    const ids = new Set(BRACKET_SETS.map((set) => set.id));
+    for (let setNumber = 1; setNumber <= 13; setNumber++) expect(ids.has(bracketSetIdFor("sf", setNumber)!)).toBe(true);
+    expect(ids.has(bracketSetIdFor("f", 1)!)).toBe(true);
+    expect(ids.size).toBe(14);
+  });
+
+  it("keys the final's three matches apart rather than collapsing them into one set", () => {
+    const decisions = bracketDecisionsFromPlayedMatches([
+      { compLevel: "f", setNumber: 1, matchNumber: 1, winningAllianceNumber: 3 },
+      { compLevel: "f", setNumber: 1, matchNumber: 2, winningAllianceNumber: 1 },
+    ]);
+    expect(decisions.get(bracketDecisionKey("f", 1))).toBe(3);
+    expect(decisions.get(bracketDecisionKey("f", 2))).toBe(1);
+    expect(decisions.get(bracketDecisionKey("f", 3))).toBeUndefined();
+  });
+
+  it("drops a row this topology does not carry rather than coercing it into a neighbouring set", () => {
+    const decisions = bracketDecisionsFromPlayedMatches([
+      { compLevel: "qf", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 },
+      { compLevel: "qm", setNumber: 1, matchNumber: 12, winningAllianceNumber: 1 },
+    ]);
+    expect(decisions.size).toBe(0);
+  });
+});
+
+describe("routePlayedBracket — a real event's real matches", () => {
+  it("routes 2026orwil's fifteen played rows to a complete placement permutation", () => {
+    const routing = routePlayedBracket(bracketDecisionsFromPlayedMatches(ORWIL_PLAYED_ELIMS));
+    expectPlacementPermutation(routing.placementByAlliance, "2026orwil");
+  });
+
+  it("reproduces 2026orwil's OWN earned elimination points for every one of its eight alliances", () => {
+    const routing = routePlayedBracket(bracketDecisionsFromPlayedMatches(ORWIL_PLAYED_ELIMS));
+    for (let allianceNumber = 1; allianceNumber <= 8; allianceNumber++) {
+      const placement = routing.placementByAlliance.get(allianceNumber)!;
+      expect(playoffPoints(2026, "district", placement), `alliance ${String(allianceNumber)}`).toBe(
+        ORWIL_EARNED_ELIM_BY_ALLIANCE[allianceNumber]
+      );
+    }
+  });
+
+  it("agrees with routeBracket run over the same decisions, so there is one routing and not two", () => {
+    const decisions = bracketDecisionsFromPlayedMatches(ORWIL_PLAYED_ELIMS);
+    const partial = routePlayedBracket(decisions);
+    const full = routeBracket((a, b, setId, matchNumber) => {
+      const winner = decisions.get(bracketDecisionKey(setId, matchNumber));
+      // Every match of this complete bracket is played, so the fallback is
+      // never taken; it exists only so the decider's contract is satisfied.
+      return winner ?? a;
+    });
+    expect([...partial.placementByAlliance.entries()].sort()).toEqual([...full.placementByAlliance.entries()].sort());
+    for (const set of BRACKET_SETS) {
+      expect(partial.winnerBySet.get(set.id), set.id).toBe(full.winnerBySet.get(set.id));
+      expect(partial.loserBySet.get(set.id), set.id).toBe(full.loserBySet.get(set.id));
+    }
+  });
+
+  it("determines nothing at all from an empty decision set, rather than padding a placement", () => {
+    const routing = routePlayedBracket(new Map());
+    expect(routing.placementByAlliance.size).toBe(0);
+    expect(routing.winnerBySet.size).toBe(0);
+    // The four upper-bracket round-one sets feed from SEEDS, so their
+    // participants are known before anything is played.
+    expect([...routing.participantsBySet.keys()].sort()).toEqual(["sf1", "sf2", "sf3", "sf4"]);
+  });
+
+  it("ends a set at a gap rather than reading past it — match 3 of a final is unreadable while match 2 is missing", () => {
+    const decisions = bracketDecisionsFromPlayedMatches([
+      ...ORWIL_PLAYED_ELIMS.slice(0, 13),
+      { compLevel: "f", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 },
+      { compLevel: "f", setNumber: 1, matchNumber: 3, winningAllianceNumber: 2 },
+    ]);
+    const routing = routePlayedBracket(decisions);
+    expect(routing.winnerBySet.get("f")).toBeUndefined();
+    expect(routing.placementByAlliance.get(1)).toBeUndefined();
+  });
+
+  it("refuses a mis-mapped match rather than routing it", () => {
+    // sf1 is seed 1 against seed 8; alliance 4 was never in it.
+    expect(() =>
+      routePlayedBracket(bracketDecisionsFromPlayedMatches([{ compLevel: "sf", setNumber: 1, matchNumber: 1, winningAllianceNumber: 4 }]))
+    ).toThrow(InvalidBracketDecisionError);
+  });
+});
+
+describe("allianceBracketMilestones", () => {
+  const milestonesAfter = (count: number): ReadonlyMap<number, { kind: string; placement?: number }> =>
+    allianceBracketMilestones(routePlayedBracket(bracketDecisionsFromPlayedMatches(ORWIL_PLAYED_ELIMS.slice(0, count))));
+
+  it("calls every alliance alive before any elimination match is played", () => {
+    const milestones = milestonesAfter(0);
+    expect(milestones.size).toBe(8);
+    for (let allianceNumber = 1; allianceNumber <= 8; allianceNumber++) {
+      expect(milestones.get(allianceNumber)).toEqual({ kind: "alive" });
+    }
+  });
+
+  it("secures a top-four finish for the winner of sf7, and only then", () => {
+    // After sf1 through sf6, alliance 1 has won its upper-bracket opener but
+    // sf7 has not been played: nothing is secured yet.
+    expect(milestonesAfter(6).get(1)).toEqual({ kind: "alive" });
+    // sf7 is alliance 1 against alliance 5; alliance 1 won it and is therefore
+    // in sf11, whose loser drops to sf13, whose loser is third.
+    expect(milestonesAfter(7).get(1)).toEqual({ kind: "topFour" });
+    // Alliance 5 lost sf7 and is NOT secured — it drops to sf9, whose loser is
+    // fifth and pays nothing.
+    expect(milestonesAfter(7).get(5)).toEqual({ kind: "alive" });
+  });
+
+  it("secures a top-four finish for the winner of sf9 too, which is the other way in", () => {
+    // sf9 is the loser of sf7 against the winner of sf6; alliance 5 won it and
+    // is therefore in sf12, whose loser is fourth.
+    expect(milestonesAfter(9).get(5)).toEqual({ kind: "topFour" });
+  });
+
+  it("reports a placement the moment a set's loser is fixed at one, and never before", () => {
+    // sf5's loser is SEVENTH: alliance 4 lost it to alliance 8.
+    expect(milestonesAfter(4).get(4)).toEqual({ kind: "alive" });
+    expect(milestonesAfter(5).get(4)).toEqual({ kind: "decided", placement: 7 });
+    // sf9's loser is FIFTH.
+    expect(milestonesAfter(9).get(7)).toEqual({ kind: "decided", placement: 5 });
+  });
+
+  it("puts both of the final's participants in the finals before the final is played", () => {
+    // Thirteen sf sets played, no final match yet: alliance 1 won sf11 and
+    // alliance 2 won sf13.
+    const milestones = milestonesAfter(13);
+    expect(milestones.get(1)).toEqual({ kind: "finals" });
+    expect(milestones.get(2)).toEqual({ kind: "finals" });
+    // And the alliances already out carry their placements: alliance 5 won sf12
+    // and then lost sf13, whose loser is THIRD.
+    expect(milestones.get(5)).toEqual({ kind: "decided", placement: 3 });
+    expect(milestones.get(8)).toEqual({ kind: "decided", placement: 4 });
+  });
+
+  it("decides every alliance once the whole bracket is played", () => {
+    const milestones = milestonesAfter(ORWIL_PLAYED_ELIMS.length);
+    for (let allianceNumber = 1; allianceNumber <= 8; allianceNumber++) {
+      const milestone = milestones.get(allianceNumber)!;
+      expect(milestone.kind, `alliance ${String(allianceNumber)}`).toBe("decided");
+      expect(playoffPoints(2026, "district", milestone.placement!)).toBe(ORWIL_EARNED_ELIM_BY_ALLIANCE[allianceNumber]);
+    }
+  });
+
+  it("proves the top-four claim by ROUTING every completion rather than taking the table on trust", () => {
+    // For each prefix of the real bracket, and for each alliance the milestone
+    // calls `topFour`, every completion of the remaining matches must place
+    // that alliance fourth or better. The completions are enumerated by a
+    // pseudo-random decider run many times, which for a 15-match bracket covers
+    // the reachable placements comprehensively.
+    for (let prefix = 0; prefix <= ORWIL_PLAYED_ELIMS.length; prefix++) {
+      const decisions = bracketDecisionsFromPlayedMatches(ORWIL_PLAYED_ELIMS.slice(0, prefix));
+      const milestones = allianceBracketMilestones(routePlayedBracket(decisions));
+      const worst = new Map<number, number>();
+      for (let seed = 1; seed <= 400; seed++) {
+        const rng = mulberry32(seed * 7919);
+        const routed = routeBracket((a, b, setId, matchNumber) => {
+          const played = decisions.get(bracketDecisionKey(setId, matchNumber));
+          if (played !== undefined) return played;
+          return rng() < 0.5 ? a : b;
+        });
+        for (const [allianceNumber, placement] of routed.placementByAlliance) {
+          worst.set(allianceNumber, Math.max(worst.get(allianceNumber) ?? 0, placement));
+        }
+      }
+      for (const [allianceNumber, milestone] of milestones) {
+        const label = `prefix ${String(prefix)} alliance ${String(allianceNumber)}`;
+        if (milestone.kind === "topFour") expect(worst.get(allianceNumber), label).toBeLessThanOrEqual(4);
+        if (milestone.kind === "finals") expect(worst.get(allianceNumber), label).toBeLessThanOrEqual(2);
+        if (milestone.kind === "decided") expect(worst.get(allianceNumber), label).toBe(milestone.placement);
       }
     }
   });

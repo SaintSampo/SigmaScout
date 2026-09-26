@@ -411,3 +411,228 @@ export function divisionedDcmpPlayoffPmf(allianceCount: number, allianceNumber: 
   }
   return pmf;
 }
+
+// ---------------------------------------------------------------------------
+// WHAT THE PLAYED MATCHES ALONE DETERMINE, and the per-alliance milestone that
+// follows from it (quick task 260925-uf8)
+// ---------------------------------------------------------------------------
+
+/** The eight-alliance field this module's milestones are declared over — the same count `BRACKET_SETS`' seeds span. */
+const BRACKET_ALLIANCE_FIELD = 8;
+
+/**
+ * One elimination match that has ALREADY BEEN PLAYED, in TBA's own match
+ * coordinates plus the alliance number that won it.
+ *
+ * TBA's coordinates rather than this module's set id, because the caller reads
+ * TBA's own published rows and a caller-side translation would be a second
+ * mapping. `bracketSetIdFor` below is the only one.
+ *
+ * `winningAllianceNumber` is an ALLIANCE NUMBER, never "red" or "blue": which
+ * colour an alliance wore is a property of the match and carries no bracket
+ * meaning, and resolving a colour to an alliance needs the event's own pick
+ * lists, which are the CALLER's data and not this leaf's.
+ */
+export interface PlayedBracketMatch {
+  /** TBA's `comp_level`. Anything other than `sf` or `f` is not part of this topology and is ignored. */
+  readonly compLevel: string;
+  readonly setNumber: number;
+  readonly matchNumber: number;
+  readonly winningAllianceNumber: number;
+}
+
+/** Every set id in `BRACKET_SETS`, derived from the table so the two cannot disagree. */
+const BRACKET_SET_IDS: ReadonlySet<string> = new Set(BRACKET_SETS.map((set) => set.id));
+
+/**
+ * TBA's `(comp_level, set_number)` onto this topology's own set id, or
+ * `undefined` for a row this bracket does not carry.
+ *
+ * The mapping is TBA's own numbering and nothing more: `sf` sets 1 through 13
+ * are `sf1` through `sf13` — the order `BRACKET_SETS` is declared in, which is
+ * that table's own stated contract — and `f` set 1 is the best-of-three final.
+ * A `qf` or `ef` row, or an `sf` set number outside the thirteen, belongs to a
+ * format this topology does not describe and returns `undefined` rather than
+ * being coerced into a neighbouring set.
+ */
+export function bracketSetIdFor(compLevel: string, setNumber: number): string | undefined {
+  if (compLevel === "sf") {
+    const id = `sf${String(setNumber)}`;
+    return BRACKET_SET_IDS.has(id) ? id : undefined;
+  }
+  if (compLevel === "f") return setNumber === 1 ? "f" : undefined;
+  return undefined;
+}
+
+/**
+ * The key one played decision is stored under: the set id and the WITHIN-SET
+ * match number, which is what `routeBracket` passes its decider. A set id alone
+ * would collapse the final's three matches into one.
+ */
+export function bracketDecisionKey(setId: string, matchNumber: number): string {
+  return `${setId}:${String(matchNumber)}`;
+}
+
+/**
+ * The played rows as the decision map `routePlayedBracket` and the draw-loop
+ * decider both read. A row this topology does not carry is DROPPED rather than
+ * guessed at; a later row for the same key wins, because TBA republishes a
+ * corrected match under its own key.
+ */
+export function bracketDecisionsFromPlayedMatches(matches: readonly PlayedBracketMatch[]): ReadonlyMap<string, number> {
+  const decisions = new Map<string, number>();
+  for (const match of matches) {
+    const setId = bracketSetIdFor(match.compLevel, match.setNumber);
+    if (setId === undefined) continue;
+    decisions.set(bracketDecisionKey(setId, match.matchNumber), match.winningAllianceNumber);
+  }
+  return decisions;
+}
+
+/**
+ * A PARTIALLY routed bracket: exactly what the played matches determine, and
+ * nothing beyond it.
+ *
+ * Deliberately NOT a `BracketResult`: that type's `placementByAlliance` is
+ * always a bijection onto all eight alliances, which a half-played bracket
+ * cannot honestly produce. A set absent from every map here is a set whose
+ * outcome is genuinely still open.
+ */
+export interface PartialBracketRouting {
+  readonly winnerBySet: ReadonlyMap<string, number>;
+  readonly loserBySet: ReadonlyMap<string, number>;
+  /** Set id -> its two alliance numbers, for every set whose feeds are BOTH resolved — including a set that has not been played yet. */
+  readonly participantsBySet: ReadonlyMap<string, readonly [number, number]>;
+  /** Alliance number -> final placement, for the alliances whose placement the played matches already fix. Never padded. */
+  readonly placementByAlliance: ReadonlyMap<number, number>;
+}
+
+/**
+ * Routes as much of the eight-alliance bracket as the PLAYED matches decide.
+ *
+ * Walks `BRACKET_SETS` in its declared dependency order — the same table
+ * `routeBracket` walks, because a second topology here is exactly the drift
+ * this file's header forbids. A set whose feeds are not both resolved is
+ * skipped, and so is everything downstream of it, by construction.
+ *
+ * REFUSES rather than coerces, on the same terms as `routeBracket`: a decision
+ * naming an alliance that is not one of the set's two participants raises
+ * `InvalidBracketDecisionError`. That is a mis-mapped match, and a mis-mapped
+ * match silently rewrites the placement of every set below it.
+ */
+export function routePlayedBracket(decisions: ReadonlyMap<string, number>): PartialBracketRouting {
+  const winnerBySet = new Map<string, number>();
+  const loserBySet = new Map<string, number>();
+  const participantsBySet = new Map<string, readonly [number, number]>();
+
+  const resolveFeed = (feed: BracketFeed): number | undefined => {
+    if (feed.kind === "seed") return feed.seed;
+    return (feed.kind === "winner" ? winnerBySet : loserBySet).get(feed.setId);
+  };
+
+  for (const set of BRACKET_SETS) {
+    const allianceA = resolveFeed(set.feedA);
+    const allianceB = resolveFeed(set.feedB);
+    if (allianceA === undefined || allianceB === undefined) continue;
+    participantsBySet.set(set.id, [allianceA, allianceB]);
+
+    const winsNeeded = Math.floor(set.bestOf / 2) + 1;
+    let winsA = 0;
+    let winsB = 0;
+    for (let matchNumber = 1; matchNumber <= set.bestOf; matchNumber++) {
+      const winner = decisions.get(bracketDecisionKey(set.id, matchNumber));
+      // A GAP ENDS THE SET rather than being skipped past: match 3 of a final
+      // cannot be read while match 2 is missing, because whether match 3 was
+      // played at all depends on match 2's result.
+      if (winner === undefined) break;
+      if (winner !== allianceA && winner !== allianceB) {
+        throw new InvalidBracketDecisionError(
+          `played match ${bracketDecisionKey(set.id, matchNumber)} names alliance ${String(winner)} as the winner, which is neither ${String(allianceA)} nor ${String(allianceB)} — refusing to route a mis-mapped match`
+        );
+      }
+      if (winner === allianceA) winsA++;
+      else winsB++;
+      if (winsA === winsNeeded || winsB === winsNeeded) break;
+    }
+    if (winsA < winsNeeded && winsB < winsNeeded) continue;
+    const setWinner = winsA > winsB ? allianceA : allianceB;
+    winnerBySet.set(set.id, setWinner);
+    loserBySet.set(set.id, setWinner === allianceA ? allianceB : allianceA);
+  }
+
+  const placementByAlliance = new Map<number, number>();
+  const finalWinner = winnerBySet.get("f");
+  if (finalWinner !== undefined) {
+    placementByAlliance.set(finalWinner, 1);
+    placementByAlliance.set(loserBySet.get("f")!, 2);
+  }
+  // The SAME placement table `routeBracket` reads, so a placement fixed here
+  // and the same placement drawn there can never disagree.
+  PLACEMENT_FROM_LOSER_OF.forEach((setId, index) => {
+    const loser = loserBySet.get(setId);
+    if (loser !== undefined) placementByAlliance.set(loser, index + 3);
+  });
+
+  return { winnerBySet, loserBySet, participantsBySet, placementByAlliance };
+}
+
+/**
+ * How far one alliance has got, in the four words the Playoffs cell prints.
+ *
+ *   `alive`    — still in the bracket, a top-four finish not yet secured.
+ *   `topFour`  — it can no longer finish worse than fourth.
+ *   `finals`   — it is in the final, so it is the winner or the finalist.
+ *   `decided`  — its placement is already fixed by the matches played.
+ */
+export type AllianceBracketMilestone =
+  | { readonly kind: "alive" }
+  | { readonly kind: "topFour" }
+  | { readonly kind: "finals" }
+  | { readonly kind: "decided"; readonly placement: number };
+
+/**
+ * The sets whose WINNER can no longer finish worse than fourth.
+ *
+ * DERIVED FROM THE TOPOLOGY'S OWN SHAPE, and the argument is short enough to
+ * state in full. The four placements that pay nothing are fifth through eighth,
+ * and `PLACEMENT_FROM_LOSER_OF` says they are the losers of sf9, sf10, sf5 and
+ * sf6 — so an alliance finishes outside the top four exactly when it loses one
+ * of those four sets. Winning sf9 or sf10 sends an alliance to sf12, whose
+ * loser is FOURTH; winning sf7 or sf8 sends it to sf11, whose loser drops to
+ * sf13, whose loser is THIRD. Either way every remaining path ends at fourth or
+ * better, which is what "secured" means here.
+ *
+ * A table rather than a chain of conditionals, so a topology change shows up as
+ * a table that no longer matches — and `bracket.test.ts` re-derives the claim by
+ * routing every completion of the bracket rather than taking it on trust.
+ */
+const TOP_FOUR_SECURED_BY_WINNING: readonly string[] = ["sf7", "sf8", "sf9", "sf10"];
+
+/**
+ * Each alliance's milestone, from a partial routing.
+ *
+ * Precedence is `decided` over `finals` over `topFour` over `alive`, because
+ * each is strictly more informative than the next and a cell prints one line.
+ * An alliance the routing has not reached at all is `alive`: before any
+ * elimination match is played every alliance is alive and nothing is secured,
+ * which is the honest reading and the one the Playoffs cell already printed.
+ */
+export function allianceBracketMilestones(routing: PartialBracketRouting): ReadonlyMap<number, AllianceBracketMilestone> {
+  const milestones = new Map<number, AllianceBracketMilestone>();
+  for (let allianceNumber = 1; allianceNumber <= BRACKET_ALLIANCE_FIELD; allianceNumber++) {
+    milestones.set(allianceNumber, { kind: "alive" });
+  }
+  for (const setId of TOP_FOUR_SECURED_BY_WINNING) {
+    const winner = routing.winnerBySet.get(setId);
+    if (winner !== undefined) milestones.set(winner, { kind: "topFour" });
+  }
+  // The final's two participants are in the final whether or not it has started.
+  const finalists = routing.participantsBySet.get("f");
+  if (finalists !== undefined) {
+    for (const allianceNumber of finalists) milestones.set(allianceNumber, { kind: "finals" });
+  }
+  for (const [allianceNumber, placement] of routing.placementByAlliance) {
+    milestones.set(allianceNumber, { kind: "decided", placement });
+  }
+  return milestones;
+}
