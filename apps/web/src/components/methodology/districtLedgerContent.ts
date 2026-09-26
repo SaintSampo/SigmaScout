@@ -114,6 +114,7 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
       "A team earns district points at every district event it plays. Four categories make up an event total, and a team's event totals make up its season total.",
       "Every formula below reproduces the value The Blue Alliance itself reports, checked row by row across ten seasons.",
       "A team is also Locked when the points still available in the district cannot lift enough rivals past it. Points are shared out inside an event, so the whole district has far fewer points left than the sum of what every rival could reach on its own. Either test is enough on its own, and both are applied at every position.",
+      "The Champ Locks tab predicts each team's finish in the race for the district's FIRST Championship slots, adding the District Championship's own four categories to the district season total. Before the championship field is set, that row shows what a team would earn if it is there, and only the grand total folds in the chance of being there. Where the field has not been published at all the row reads not yet priced, and the grand total is the district season alone.",
     ],
     table: {
       caption: "The four categories, and what a district championship is worth",

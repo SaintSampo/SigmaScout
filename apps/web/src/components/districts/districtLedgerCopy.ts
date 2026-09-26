@@ -601,6 +601,21 @@ export function champLedgerDistrictSourceLine(entries: readonly ChampLedgerSourc
 }
 
 /**
+ * The DCMP row's small line when the field is settled and priced: the
+ * championship's WEEK and STAGE, and not its name.
+ *
+ * Sketch 022 is explicit that this row's line is "the DCMP stage, or the chance
+ * of being in the field, or not in the field" — the name is already in the row
+ * label beside it, and a District Championship's published name
+ * ("Pacific Northwest FIRST District Championship") matches no shortening
+ * template and wrapped to three lines on a phone when it was printed here.
+ */
+export function champLedgerDcmpStageLine(entry: { readonly week: number | null; readonly stage: keyof typeof DISTRICT_LEDGER_STAGE_WORDS }): string {
+  const word = DISTRICT_LEDGER_STAGE_WORDS[entry.stage];
+  return entry.week === null ? word : `Wk ${String(entry.week + 1)} · ${word}`;
+}
+
+/**
  * The grand total drawer's two-row contribution list.
  *
  * THE SAME OBJECT the table's own row labels come from, deliberately: the list

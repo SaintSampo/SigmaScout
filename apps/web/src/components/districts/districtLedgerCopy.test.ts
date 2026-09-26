@@ -54,6 +54,7 @@ import {
   CHAMP_LEDGER_ROW_LABELS,
   CHAMP_LEDGER_TAB_LABEL,
   champLedgerContributionChanceNote,
+  champLedgerDcmpStageLine,
   champLedgerDistrictSourceLine,
   champLedgerFieldChanceLine,
 } from "./districtLedgerCopy.js";
@@ -403,6 +404,13 @@ describe("the Champ Locks copy contract", () => {
     expect(champLedgerDistrictSourceLine([{ eventName: "Offseason Thing", week: null, stage: "quals" }])).toBe("Offseason Thing · quals");
     // No source at all is the empty string, which the cell prints as nothing.
     expect(champLedgerDistrictSourceLine([])).toBe("");
+  });
+
+  it("prints the DCMP row's own line as a week and a stage, never the championship's name", () => {
+    expect(champLedgerDcmpStageLine({ week: 5, stage: "done" })).toBe("Wk 6 · final");
+    expect(champLedgerDcmpStageLine({ week: 5, stage: "quals" })).toBe("Wk 6 · quals");
+    expect(champLedgerDcmpStageLine({ week: null, stage: "unstarted" })).toBe("not started");
+    expect(champLedgerDcmpStageLine({ week: 5, stage: "done" })).not.toContain("District Championship");
   });
 
   it("names the contribution list's two rows from the SAME table the ledger's rows come from", () => {

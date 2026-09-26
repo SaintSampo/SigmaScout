@@ -80,6 +80,7 @@ import {
   DISTRICT_LEDGER_NO_MATCHES,
   DISTRICT_LEDGER_PROVENANCE,
   champLedgerContributionChanceNote,
+  champLedgerDcmpStageLine,
   champLedgerDistrictSourceLine,
   champLedgerFieldChanceLine,
   districtLedgerChanceLine,
@@ -193,19 +194,33 @@ function ChampCell({ cell, interaction, variant }: { cell: ChampLedgerCell; inte
  */
 function SourceCell({ row, team }: { row: ChampLedgerRow; team: ChampLedgerTeam }) {
   const sources = row.sources.map((source) => ({ eventName: source.eventName, week: source.week, stage: stageWordKey(source.stage) }));
-  const stageLine = champLedgerDistrictSourceLine(sources);
+  const dcmp = sources[0];
   const small =
     row.kind === "district"
-      ? stageLine
+      ? champLedgerDistrictSourceLine(sources)
       : team.membership === "out"
         ? CHAMP_LEDGER_NOT_IN_FIELD_LINE
         : team.fieldChance !== undefined
           ? champLedgerFieldChanceLine(team.fieldChance)
-          : stageLine;
+          : dcmp === undefined
+            ? ""
+            : champLedgerDcmpStageLine(dcmp);
   return (
-    <TableCell data-testid="champ-ledger-source-cell" data-row={row.kind} className="align-middle">
-      <span className="district-ledger-event-name">{CHAMP_LEDGER_ROW_LABELS[row.kind]}</span>
-      {small.length > 0 && <span className="district-ledger-event-stage">{small}</span>}
+    // `whitespace-normal` overrides the shared `TableCell`'s own
+    // `whitespace-nowrap`: without it the small line does not wrap at the cap
+    // below, it OVERFLOWS it and prints underneath the Subtotal cell
+    // (seen on a screenshot, 2026-09-26).
+    <TableCell data-testid="champ-ledger-source-cell" data-row={row.kind} className="align-middle whitespace-normal">
+      {/* CAPPED AND WRAPPING, unlike the district tier's Event cell. That one
+          prints one shortened event name and stays on one line; this one
+          prints every district event a team played, and a District
+          Championship whose published name matches no shortening template
+          ("Pacific Northwest FIRST District Championship"). Uncapped it pushed
+          the Awards column off a 1440px screen, measured 2026-09-26. */}
+      <div className="flex min-w-0 max-w-[230px] flex-col">
+        <span className="district-ledger-event-name">{CHAMP_LEDGER_ROW_LABELS[row.kind]}</span>
+        {small.length > 0 && <span className="district-ledger-event-stage">{small}</span>}
+      </div>
     </TableCell>
   );
 }
