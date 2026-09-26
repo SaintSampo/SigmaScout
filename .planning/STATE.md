@@ -6,8 +6,8 @@ current_phase: 10
 current_phase_name: district-points-ledger
 status: executing
 stopped_at: Completed 10-08-PLAN.md
-last_updated: "2026-09-25T23:54:22.220Z"
-last_activity: 2026-09-25
+last_updated: "2026-09-26T00:28:45.606Z"
+last_activity: 2026-09-26
 last_activity_desc: Phase 10 execution started
 progress:
   total_phases: 13
@@ -679,6 +679,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 242 | Ledger housekeeping: error boundary, district param validation, event key pattern, e2e typecheck in CI, MetricHistoryTab flake fixed at its cause, champ-only DistrictLocksTab, verify:district-bake script | 2026-09-25 | 8a60e397 | [260925-ots-ledger-housekeeping-error-boundary-distr](./quick/260925-ots-ledger-housekeeping-error-boundary-distr/) |
 | 243 | Pooled remaining points lock as a second proof of Locked (white paper), 213 earlier locks over history, both tenets still zero, award pool measured at 78/86/91 by rookie count | 2026-09-25 | 8472f151 | [260925-pl6-pooled-remaining-points-lock-a-second-pr](./quick/260925-pl6-pooled-remaining-points-lock-a-second-pr/) |
 | 244 | Impact and Rookie All Star ordering tables layered on the award base rates (Impact 18.0 percent at position 1, RAS 38.1 percent), prior judged award count on the artifact; republish owed | 2026-09-25 | f3c49c27 | [260925-qhh-impact-and-rookie-all-star-ordering-tabl](./quick/260925-qhh-impact-and-rookie-all-star-ordering-tabl/) |
+| 245 | Advancement chance per team from one district wide run set in the Web Worker, printed under the status chip for In range and Out of range teams only, capped at 99 and floored at under 5 | 2026-09-26 | 966d09a4 | [260925-rpj-advancement-chance-per-team-on-the-road-](./quick/260925-rpj-advancement-chance-per-team-on-the-road-/) |
 
 ### Roadmap Evolution
 
