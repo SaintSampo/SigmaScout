@@ -414,8 +414,10 @@ describe("applyDistrictEventState — the write path for a category that finishe
     expect(updated.teams[0]!.remainingEvents[0]!.state).toEqual(observed);
   });
 
-  it("leaves pointTotal, rank, both lock verdicts and insights untouched — recomputing verdicts here is work that provably cannot alter an outcome", () => {
-    const artifact = twoTeamFixture();
+  it("leaves pointTotal, rank and the ceilings untouched, and leaves the verdicts at the recompute's fixed point — which CAN differ from before, since an observed state shrinks the remaining pool", () => {
+    // The fixture's verdicts are hand-written stubs; a published artifact is
+    // already at the recompute's fixed point, so that is the reference here.
+    const artifact = recomputeDistrictVerdicts(twoTeamFixture());
     const updated = applyState("2026ncwak", artifact);
     for (const [index, team] of updated.teams.entries()) {
       const before = artifact.teams[index]!;
@@ -423,10 +425,17 @@ describe("applyDistrictEventState — the write path for a category that finishe
       expect(team.rank).toBe(before.rank);
       expect(team.maxRemainingDistrict).toBe(before.maxRemainingDistrict);
       expect(team.maxRemainingChamp).toBe(before.maxRemainingChamp);
-      expect(team.districtLock).toEqual(before.districtLock);
-      expect(team.champLock).toEqual(before.champLock);
     }
-    expect(updated.insights).toEqual(artifact.insights);
+    // Idempotent: running the pass again over the state-carrying rows changes nothing.
+    const again = recomputeDistrictVerdicts(updated);
+    expect(updated.teams.map((t) => [t.districtLock, t.champLock])).toEqual(again.teams.map((t) => [t.districtLock, t.champLock]));
+    expect(updated.insights).toEqual(again.insights);
+    // And the observation is NOT inert. With no state block a points row reads
+    // as a finished event; this observation says 2026ncwak's playoffs and awards
+    // are still ahead, so the rival can still earn them and the leader's lock
+    // correctly loosens to contending.
+    expect(artifact.teams[0]!.districtLock.status).toBe("locked");
+    expect(updated.teams[0]!.districtLock.status).toBe("contending");
   });
 
   it("stamps the caller's generation and computedAt and returns a schema-parsed artifact", () => {
@@ -606,6 +615,26 @@ describe("the two merge entry points agree on schemaVersion (WR-02)", () => {
     });
     expect(viaState.schemaVersion).toBe(viaRankings.schemaVersion);
     expect(viaState.schemaVersion).toBe(PAGE_ARTIFACT_SCHEMA_VERSION);
+  });
+
+  it("recomputes the verdicts with the state attached, so a posted award releases its held back slot (2026-09-26 regression)", () => {
+    // A missing state block counts as a PENDING Impact award, and the Locked
+    // test holds a slot back for it. Posting the awards must release that slot
+    // through the state-only path too: the publisher attaches state through
+    // this function AFTER its verdict pass, and shipped eight demotions when
+    // this path left the verdicts as found.
+    const artifact = twoTeamFixture();
+    const posted = { qualMatchesPlayed: 72, qualMatchesTotal: 72, alliancesPicked: true, playoffsDone: true, awardsPosted: true };
+    const eventKeys = new Set<string>();
+    for (const team of artifact.teams) {
+      for (const row of team.eventPoints) eventKeys.add(row.eventKey);
+      for (const row of team.remainingEvents) eventKeys.add(row.eventKey);
+    }
+    const eventState = new Map([...eventKeys].map((key) => [key, posted] as const));
+    const viaState = applyDistrictEventState({ artifact, eventState, generation: GENERATION, computedAt: COMPUTED_AT });
+    const fresh = recomputeDistrictVerdicts(viaState);
+    expect(viaState.teams.map((t) => t.districtLock)).toEqual(fresh.teams.map((t) => t.districtLock));
+    expect(viaState.insights).toEqual(fresh.insights);
   });
 });
 

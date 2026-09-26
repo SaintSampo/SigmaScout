@@ -607,7 +607,17 @@ export function composeYear(db: Corpus, season: number, generation: string, comp
       if (carriedEventKeys.has(eventKey)) eventState.set(eventKey, observed);
     }
     const artifact =
-      eventState.size === 0 ? composed : applyDistrictEventState({ artifact: composed, eventState, generation, computedAt });
+      eventState.size === 0
+        ? composed
+        : applyDistrictEventState({
+            artifact: composed,
+            eventState,
+            generation,
+            computedAt,
+            // The verdicts are recomputed inside with the state attached, so a
+            // finished event never reads as a pending Impact award (2026-09-26).
+            tierByEvent: new Map<string, DistrictTier>(events.map((e) => [e.eventKey, districtTierForEventType(e.eventType)])),
+          });
 
     detailArtifacts.push({ key: districtDetailKey(district.districtKey), district, events, registrations, artifact });
     indexRows.push({ district, teamCount: rankings.length, eventCount: events.length });

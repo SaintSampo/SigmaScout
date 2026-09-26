@@ -17,6 +17,7 @@ import { runTick } from "../src/scheduled.js";
 import { liveDistrictsOf } from "../src/districtRefresh.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import { districtDetailKey, DistrictArtifactSchema } from "../../../packages/harness/pageArtifacts.js";
+import { recomputeDistrictVerdicts } from "../../../packages/harness/districtRankingsMerge.js";
 import { districtRankingsCursorKey } from "../../../packages/harness/stateBaseline.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../../../packages/harness/publishedAlgorithms.js";
 import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
@@ -703,11 +704,13 @@ describe("runTick — the four state facts", () => {
     expect(writtenLiveEventState(r2)).toMatchObject({ alliancesPicked: true, qualMatchesPlayed: 2 });
   });
 
-  it("writes state-only through applyDistrictEventState on a 304 rankings poll, leaving every point total, rank, verdict and insight byte-identical", async () => {
+  it("writes state-only through applyDistrictEventState on a 304 rankings poll, leaving every point total and rank byte-identical and the verdicts at the recompute's fixed point", async () => {
     const d1 = new FakeD1Database();
     seedCursor(d1, districtRankingsCursorKey(DISTRICT_KEY), "rank-etag-1", null);
     const r2 = new FakeR2Bucket();
-    const seeded = districtArtifactFixture();
+    // A published artifact is already at the verdict recompute's fixed point;
+    // the fixture's stub verdicts are not, so it is seeded recomputed.
+    const seeded = recomputeDistrictVerdicts(DistrictArtifactSchema.parse(districtArtifactFixture()));
     r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(seeded));
     const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
     const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, alliancesPostedEventRecord(LIVE_EVENT, "etag-1")]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]));
@@ -719,15 +722,21 @@ describe("runTick — the four state facts", () => {
     const puts = districtPuts(r2);
     expect(puts).toHaveLength(1);
     const written = DistrictArtifactSchema.parse(JSON.parse(puts[0]!.body));
-    const seededParsed = DistrictArtifactSchema.parse(seeded);
+    const seededParsed = seeded;
 
-    expect(JSON.stringify(written.insights)).toBe(JSON.stringify(seededParsed.insights));
+    // The verdicts are recomputed with the observed state attached (an
+    // observation can shrink the remaining pool and move a verdict, and a
+    // posted award releases its held back slot), so the written artifact is
+    // the recompute's own fixed point rather than a copy of the seeded verdicts.
+    const fixedPoint = recomputeDistrictVerdicts(written);
+    expect(JSON.stringify(written.insights)).toBe(JSON.stringify(fixedPoint.insights));
     for (const team of written.teams) {
       const before = seededParsed.teams.find((t) => t.teamKey === team.teamKey)!;
+      const settled = fixedPoint.teams.find((t) => t.teamKey === team.teamKey)!;
       expect(team.pointTotal).toBe(before.pointTotal);
       expect(team.rank).toBe(before.rank);
-      expect(JSON.stringify(team.districtLock)).toBe(JSON.stringify(before.districtLock));
-      expect(JSON.stringify(team.champLock)).toBe(JSON.stringify(before.champLock));
+      expect(JSON.stringify(team.districtLock)).toBe(JSON.stringify(settled.districtLock));
+      expect(JSON.stringify(team.champLock)).toBe(JSON.stringify(settled.champLock));
     }
     expect(writtenLiveEventState(r2)).toEqual({ qualMatchesPlayed: 2, qualMatchesTotal: 2, alliancesPicked: true, playoffsDone: false, awardsPosted: false });
   });
@@ -739,7 +748,8 @@ describe("runTick — the four state facts", () => {
       seedCursor(d1, districtRankingsCursorKey(DISTRICT_KEY), "rank-etag-1", null);
       seedCursor(d1, LIVE_EVENT, "stale-etag", `${LIVE_EVENT}_qm2`);
       const r2 = new FakeR2Bucket();
-      r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactWithState(steady)));
+      // Seeded at the recompute's fixed point, as a published artifact is.
+      r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(recomputeDistrictVerdicts(DistrictArtifactSchema.parse(districtArtifactWithState(steady)))));
       const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
       vi.stubGlobal("fetch", makeTbaFetchStub(new Map([[LIVE_EVENT, alliancesPostedEventRecord(LIVE_EVENT, "etag-1")]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]])));
       const result = await runTick(env, { nowMs: NOW_MS });

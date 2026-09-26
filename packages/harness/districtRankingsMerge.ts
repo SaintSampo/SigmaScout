@@ -631,19 +631,34 @@ export interface ApplyDistrictEventStateOptions {
   readonly eventState: ReadonlyMap<string, DistrictEventState>;
   readonly generation: string;
   readonly computedAt: string;
+  /**
+   * Forwarded to `recomputeDistrictVerdicts`. The publisher passes its corpus
+   * tier map; the Worker passes none, exactly as it does through
+   * `applyDistrictRankings`.
+   */
+  readonly tierByEvent?: ReadonlyMap<string, DistrictTier>;
 }
 
 /**
  * Writes observed per-event state onto every matching `eventPoints` and
- * `remainingEvents` row and changes nothing else.
+ * `remainingEvents` row, then recomputes the verdicts.
  *
  * WHY THIS IS A SECOND ENTRY POINT rather than an argument to the first: a
  * category can finish without moving a single team's point total. Alliances
  * are selected, and a team that was not picked earns nothing while its row's
  * `alliancesPicked` is now true. So the Worker needs a write path that
- * records what it observed when the rankings poll came back unchanged — and
- * running the verdict pass there would be work that provably cannot alter an
- * outcome, since no floor and no ceiling moved.
+ * records what it observed when the rankings poll came back unchanged.
+ *
+ * WHY THE VERDICT PASS RUNS HERE TOO (2026-09-26): a state observation CAN
+ * move a verdict without moving a point. The Locked test holds back one
+ * qualifier slot for every event whose Impact award is still pending, and
+ * `reservedImpactSlots` reads that from `state.awardsPosted`, with a missing
+ * state block counting as pending. Before this the publisher computed its
+ * verdicts on state-free rows and attached the state afterwards through this
+ * function, so every finished season shipped with all of its events read as
+ * pending: eight held-back slots, and eight Locked PNW teams demoted to
+ * contending in generation 2026-09-26T03:18:01Z. The recompute is the same
+ * pass `applyDistrictRankings` ends with; this path merely stopped skipping it.
  *
  * Both functions share the one merge core (`withState` walks the rows for
  * each); neither duplicates the other's row walk.
@@ -653,7 +668,7 @@ export interface ApplyDistrictEventStateOptions {
  * would leave the Worker believing it had written a fact it had not.
  */
 export function applyDistrictEventState(options: ApplyDistrictEventStateOptions): DistrictArtifact {
-  const { artifact, eventState, generation, computedAt } = options;
+  const { artifact, eventState, generation, computedAt, tierByEvent } = options;
 
   const known = new Set<string>();
   for (const team of artifact.teams) {
@@ -666,7 +681,7 @@ export function applyDistrictEventState(options: ApplyDistrictEventStateOptions)
     }
   }
 
-  return DistrictArtifactSchema.parse({
+  const withEventState = DistrictArtifactSchema.parse({
     ...artifact,
     // STAMPED HERE TOO, exactly as `applyDistrictRankings` stamps it.
     // `districtRefresh.ts` chooses between the two entry points on whether TBA
@@ -684,4 +699,5 @@ export function applyDistrictEventState(options: ApplyDistrictEventStateOptions)
       remainingEvents: team.remainingEvents.map((row) => withState(row, eventState)),
     })),
   });
+  return recomputeDistrictVerdicts(withEventState, tierByEvent === undefined ? {} : { tierByEvent });
 }
