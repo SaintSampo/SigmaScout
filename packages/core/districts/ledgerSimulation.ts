@@ -533,6 +533,100 @@ export interface DistrictLedgerResult {
    * carries no Monte Carlo error at all.
    */
   readonly playoffMilestones: ReadonlyMap<string, AllianceBracketMilestone>;
+  /**
+   * Team key -> WHICH ROUTE onto a playoff alliance that team took, per route,
+   * across the same runs the `selectionPoints` histogram is a marginal of.
+   *
+   * WHY THE HISTOGRAM IS NOT ENOUGH, which is the whole reason this field
+   * exists. A captain and a first pick earn the SAME points at one alliance
+   * number (`selectionPoints.ts`: both are `17 - allianceNumber`), so the
+   * points histogram cannot tell the two apart, and 1 - the mass at zero is the
+   * chance of ANY selection points rather than the chance of being picked. The
+   * shipped cell therefore printed "picked" over a number that counted captains
+   * too. The route is already known inside the draw — it is how
+   * `selection[teamI]` got its value — and it was thrown away.
+   *
+   * CONSUMES NO RANDOMNESS AND CHANGES NO SEEDED OUTPUT. The draft is
+   * deterministic given the ranking and the ratings, so recording which slot a
+   * team filled adds observation and nothing else;
+   * `ledgerSimulation.test.ts` pins every marginal and every ledger-stream
+   * count as unchanged.
+   *
+   * Always populated, including when `knownAlliances` was supplied — that run's
+   * routes are the real ones, taken from the supplied slots.
+   */
+  readonly selectionRoutes: ReadonlyMap<string, DistrictSelectionRoutes>;
+  /**
+   * Whether the QUALIFICATION RANKING was the same in every draw: true exactly
+   * when the run was handed no remaining matches.
+   *
+   * Reported rather than left to be inferred, because it changes what an absent
+   * route MEANS. With a fixed ranking the draft is deterministic, so a route no
+   * run took is IMPOSSIBLE and the alliance number a route landed on is a fact;
+   * with matches still to play the same absence is merely "none of these 1,000
+   * runs", and the alliance number is a prediction. 10-07's drawer omits a
+   * ruled-out route on exactly this basis and keeps a merely-unobserved one.
+   *
+   * `remainingMatches.length === 0` is this module's own expression of a
+   * finished qualification stage — see the header's "every stage is an input"
+   * section — so this is that same fact forwarded, never a fifth flag.
+   */
+  readonly rankingFixed: boolean;
+}
+
+/**
+ * ONE team's routes onto (or off) a playoff alliance, over one run's draws.
+ *
+ * `bySlot` is indexed by TBA's OWN pick slot, exactly as `selectionPoints.ts`
+ * defines it: 0 captain, 1 first pick, 2 second pick, 3 backup robot. Reusing
+ * TBA's index rather than inventing a route enum keeps the point values, the
+ * corpus reconciliation and this observation on one vocabulary.
+ *
+ * `bySlot[i].draws` summed with `notSelectedDraws` equals the run's draw count
+ * exactly, for every team, which is what makes 10-07's outcome list add to a
+ * hundred. `ledgerSimulation.test.ts` asserts that sum rather than trusting it.
+ *
+ * Every field is a plain number or `undefined`, so the whole object is
+ * structured cloneable and crosses the Worker boundary unreshaped.
+ */
+export interface DistrictSelectionRoutes {
+  /** One entry per pick slot, length `MAX_PICK_SLOTS`, indexed by TBA's own slot. */
+  readonly bySlot: readonly DistrictSelectionRouteObservation[];
+  /** Draws in which no alliance took this team at all. Its selection points are zero in those draws. */
+  readonly notSelectedDraws: number;
+}
+
+/** What one pick slot did for one team across the draws. */
+export interface DistrictSelectionRouteObservation {
+  readonly draws: number;
+  /**
+   * The lowest and highest selection points this slot PRODUCED for this team,
+   * and `undefined` when no draw took this route.
+   *
+   * `undefined` rather than zero, on the same terms
+   * `conditionalMedianGivenPoints` states for its own absence: a route no run
+   * took paid nothing at all, and a zero here would read as "this route pays
+   * zero points", which for a captain is false.
+   */
+  readonly minPoints: number | undefined;
+  readonly maxPoints: number | undefined;
+  /**
+   * The alliance number every draw that took this route agreed on, and
+   * `undefined` where they disagree or where no draw took it. A single value
+   * here plus `rankingFixed` is what lets a cell print "captain, alliance 5"
+   * as a statement rather than a prediction.
+   */
+  readonly allianceNumber: number | undefined;
+  /**
+   * The lowest and highest points this slot CAN pay at this event's alliance
+   * count and tier, from `districtSelectionPoints` and never a literal.
+   *
+   * Reported for every slot whether or not a draw took it, so a caller
+   * rendering a route that none of the runs produced still has an honest point
+   * range to print instead of a fabricated zero.
+   */
+  readonly possibleMinPoints: number;
+  readonly possibleMaxPoints: number;
 }
 
 /**
@@ -745,6 +839,11 @@ export function decideBracketMatch(
 // ---------------------------------------------------------------------------
 
 /** The number of robots a simulated alliance drafts: a captain, a first pick and a second pick. */
+/** A route accumulator entry no draw has written yet. Negative, so it cannot collide with a real point value or alliance number. */
+const ROUTE_UNSET = -1;
+/** A route accumulator's alliance-number entry two draws disagreed on. See `DistrictSelectionRouteObservation.allianceNumber`. */
+const ROUTE_MIXED = -2;
+
 const DRAFTED_ALLIANCE_SIZE = 3;
 /** TBA's `picks` array never holds more than four entries; index 3 is a backup robot. */
 const MAX_PICK_SLOTS = 4;
@@ -1003,6 +1102,34 @@ export function simulateDistrictEvent(
     selectionPointsBySlotAndAlliance.push(row);
   }
 
+  // The range each slot CAN pay at this event's alliance count and tier, read
+  // off the table just built rather than restated: no slot's point range is a
+  // literal anywhere in this module.
+  const possiblePointsBySlot = selectionPointsBySlotAndAlliance.map((row) => {
+    let low = row[1]!;
+    let high = row[1]!;
+    for (let allianceNumber = 1; allianceNumber <= allianceCount; allianceNumber++) {
+      const value = row[allianceNumber]!;
+      if (value < low) low = value;
+      if (value > high) high = value;
+    }
+    return { low, high };
+  });
+
+  // THE ROUTE ACCUMULATORS — see `DistrictSelectionRoutes`. Flat typed arrays
+  // with one row of `MAX_PICK_SLOTS` per team, allocated once and folded in the
+  // same per-team pass the histograms are, so recording the route costs no
+  // second loop over the roster and no per-draw allocation.
+  //
+  // `ROUTE_UNSET` and `ROUTE_MIXED` are sentinels rather than a parallel
+  // occupancy array: every point value and every alliance number is
+  // non-negative, so a negative entry cannot collide with a real one.
+  const routeDraws = new Int32Array(teamCount * MAX_PICK_SLOTS);
+  const routeMinPoints = new Int32Array(teamCount * MAX_PICK_SLOTS).fill(ROUTE_UNSET);
+  const routeMaxPoints = new Int32Array(teamCount * MAX_PICK_SLOTS).fill(ROUTE_UNSET);
+  const routeAlliance = new Int32Array(teamCount * MAX_PICK_SLOTS).fill(ROUTE_UNSET);
+  const routeNotSelected = new Int32Array(teamCount);
+
   // The greedy-by-SPR pick order, computed ONCE: the draft consumes no
   // randomness and the ratings do not change between draws, so the order teams
   // are picked in is fixed. Ties on `total` break by team key, for the same
@@ -1049,6 +1176,13 @@ export function simulateDistrictEvent(
 
   const qual = new Array<number>(teamCount).fill(0);
   const selection = new Array<number>(teamCount).fill(0);
+  // THIS DRAW's route per team, beside the points: the pick slot the team
+  // filled (`ROUTE_UNSET` for a team nobody took) and the alliance number that
+  // took it (0 for a team nobody took). Written wherever `selection[teamI]` is
+  // written and nowhere else, so the points and the route can never describe
+  // two different drafts.
+  const selectionSlot = new Int32Array(teamCount);
+  const selectionAlliance = new Int32Array(teamCount);
   const elim = new Array<number>(teamCount).fill(0);
   const award = new Array<number>(teamCount).fill(0);
   const total = new Array<number>(teamCount).fill(0);
@@ -1110,6 +1244,8 @@ export function simulateDistrictEvent(
     for (let i = 0; i < teamCount; i++) {
       allied[i] = 0;
       selection[i] = 0;
+      selectionSlot[i] = ROUTE_UNSET;
+      selectionAlliance[i] = 0;
     }
 
     if (suppliedAlliances !== undefined) {
@@ -1122,6 +1258,8 @@ export function simulateDistrictEvent(
           allied[teamI] = 1;
           allianceMemberIndices[n]!.push(teamI);
           selection[teamI] = selectionPointsBySlotAndAlliance[slot]![alliance.allianceNumber]!;
+          selectionSlot[teamI] = slot;
+          selectionAlliance[teamI] = alliance.allianceNumber;
         });
       }
     } else {
@@ -1140,9 +1278,13 @@ export function simulateDistrictEvent(
         const captain = claimNextByRank();
         allianceMemberIndices[n]!.push(captain);
         selection[captain] = selectionPointsBySlotAndAlliance[0]![allianceNumber]!;
+        selectionSlot[captain] = 0;
+        selectionAlliance[captain] = allianceNumber;
         const firstPick = claimNextByTotal();
         allianceMemberIndices[n]!.push(firstPick);
         selection[firstPick] = selectionPointsBySlotAndAlliance[1]![allianceNumber]!;
+        selectionSlot[firstPick] = 1;
+        selectionAlliance[firstPick] = allianceNumber;
       }
       // Round two: alliance N back down to 1. SERPENTINE, measured — see this
       // file's header for the second-pick rank gradient that proves it.
@@ -1151,6 +1293,8 @@ export function simulateDistrictEvent(
         const secondPick = claimNextByTotal();
         allianceMemberIndices[n]!.push(secondPick);
         selection[secondPick] = selectionPointsBySlotAndAlliance[2]![allianceNumber]!;
+        selectionSlot[secondPick] = 2;
+        selectionAlliance[secondPick] = allianceNumber;
       }
     }
 
@@ -1280,6 +1424,23 @@ export function simulateDistrictEvent(
       elimByIndex[i]![elim[i]!]! += 1;
       awardByIndex[i]![award[i]!]! += 1;
       totalByIndex[i]![sum]! += 1;
+
+      // The route, folded in the same pass and from the same draw's buffers, so
+      // a team's route counts and its selection histogram are marginals of one
+      // set of runs by construction rather than by agreement.
+      const slot = selectionSlot[i]!;
+      if (slot === ROUTE_UNSET) {
+        routeNotSelected[i]! += 1;
+      } else {
+        const at = i * MAX_PICK_SLOTS + slot;
+        routeDraws[at]! += 1;
+        const points = selection[i]!;
+        if (routeMinPoints[at]! === ROUTE_UNSET || points < routeMinPoints[at]!) routeMinPoints[at] = points;
+        if (routeMaxPoints[at]! === ROUTE_UNSET || points > routeMaxPoints[at]!) routeMaxPoints[at] = points;
+        const allianceNumber = selectionAlliance[i]!;
+        if (routeAlliance[at]! === ROUTE_UNSET) routeAlliance[at] = allianceNumber;
+        else if (routeAlliance[at]! !== allianceNumber) routeAlliance[at] = ROUTE_MIXED;
+      }
     }
 
     if (observer !== undefined) {
@@ -1299,6 +1460,29 @@ export function simulateDistrictEvent(
     drawIndex++;
   });
 
+  // The route accumulators, turned into the per-team observation objects ONCE,
+  // after the last draw. A slot no draw took still reports its possible range,
+  // so a caller never has to know this module's point model to render a route
+  // the runs did not produce.
+  const selectionRoutes = new Map<string, DistrictSelectionRoutes>();
+  for (let i = 0; i < teamCount; i++) {
+    const bySlot: DistrictSelectionRouteObservation[] = [];
+    for (let slot = 0; slot < MAX_PICK_SLOTS; slot++) {
+      const at = i * MAX_PICK_SLOTS + slot;
+      const possible = possiblePointsBySlot[slot]!;
+      const alliance = routeAlliance[at]!;
+      bySlot.push({
+        draws: routeDraws[at]!,
+        minPoints: routeMinPoints[at]! === ROUTE_UNSET ? undefined : routeMinPoints[at]!,
+        maxPoints: routeMaxPoints[at]! === ROUTE_UNSET ? undefined : routeMaxPoints[at]!,
+        allianceNumber: alliance === ROUTE_UNSET || alliance === ROUTE_MIXED ? undefined : alliance,
+        possibleMinPoints: possible.low,
+        possibleMaxPoints: possible.high,
+      });
+    }
+    selectionRoutes.set(baselines[i]!.teamKey, { bySlot, notSelectedDraws: routeNotSelected[i]! });
+  }
+
   return {
     eventKey,
     draws,
@@ -1310,6 +1494,10 @@ export function simulateDistrictEvent(
     awardSources,
     awardOrdering,
     playoffMilestones,
+    selectionRoutes,
+    // `remainingMatches.length === 0` is this module's own expression of a
+    // finished qualification stage; forwarded, never re-derived.
+    rankingFixed: input.remainingMatches.length === 0,
   };
 }
 

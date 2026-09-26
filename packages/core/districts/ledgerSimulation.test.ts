@@ -1690,3 +1690,223 @@ describe("simulateDistrictEvent — the playoffs already under way", () => {
     expect(result.playoffMilestones.size).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The selection ROUTES (quick task 260925-w4y)
+// ---------------------------------------------------------------------------
+
+describe("simulateDistrictEvent — which route each team took", () => {
+  const CAPTAIN = 0;
+  const FIRST_PICK = 1;
+  const SECOND_PICK = 2;
+  const BACKUP = 3;
+
+  /**
+   * A fixture whose FINISHING ORDER GENUINELY MOVES between draws, which the
+   * module-level one deliberately does not.
+   *
+   * `baselinesFor` separates every team by a whole ranking point over ten played
+   * matches, so the order barely budges and every team takes ONE route in every
+   * draw — measured, not assumed: the module-level fixture produces zero teams
+   * with two routes. That stability is what makes the hand-derivable
+   * expectations above possible, and it is useless for the two cases below,
+   * which are about a route and an alliance number the runs DISAGREE on. So this
+   * fixture puts every team within one ranking point of the next over two played
+   * matches and hands back forty remaining rows.
+   */
+  const shuffledInput = (teamCount: number): DistrictLedgerEventInput => {
+    const tight: SimTeamBaseline[] = [];
+    for (let i = 1; i <= teamCount; i++) tight.push({ teamKey: teamKey(i), earnedRpSum: teamCount + 1 - i, matchesPlayed: 2 });
+    const pmf = [0.34, 0.33, 0.33];
+    const rows: SimMatchInput[] = [];
+    for (let m = 0; m < 40; m++) {
+      const base = (m * 6) % (teamCount - 6);
+      rows.push({
+        redTeamKeys: [teamKey(base + 1), teamKey(base + 2), teamKey(base + 3)],
+        blueTeamKeys: [teamKey(base + 4), teamKey(base + 5), teamKey(base + 6)],
+        redRpPmf: pmf,
+        blueRpPmf: pmf,
+      });
+    }
+    return inputFor(teamCount, { baselines: tight, remainingMatches: rows });
+  };
+
+  it("accounts for EVERY draw: the four slots plus not selected sum to the draw count, for every team", () => {
+    const teamCount = 30;
+    const draws = 400;
+    const result = simulateDistrictEvent(inputFor(teamCount), draws, 20260925);
+    expect(result.selectionRoutes.size).toBe(teamCount);
+    for (let i = 1; i <= teamCount; i++) {
+      const routes = result.selectionRoutes.get(teamKey(i))!;
+      const total = routes.bySlot.reduce((sum, slot) => sum + slot.draws, routes.notSelectedDraws);
+      expect(total, `${teamKey(i)} does not account for every draw`).toBe(draws);
+    }
+  });
+
+  it("agrees EXACTLY with the selection histogram's own chance of any points, for every team", () => {
+    // The load-bearing agreement: the drawer's list and the cell's headline are
+    // built from these two quantities, so a gap between them is a list that
+    // cannot add up.
+    const teamCount = 30;
+    const draws = 400;
+    const result = simulateDistrictEvent(inputFor(teamCount), draws, 4242);
+    for (let i = 1; i <= teamCount; i++) {
+      const routes = result.selectionRoutes.get(teamKey(i))!;
+      const selected = routes.bySlot[CAPTAIN]!.draws + routes.bySlot[FIRST_PICK]!.draws + routes.bySlot[SECOND_PICK]!.draws;
+      const fromHistogram = chanceOfAnyPoints(result.selectionPoints.get(teamKey(i))!, draws);
+      expect(selected / draws, `${teamKey(i)}`).toBeCloseTo(fromHistogram, 12);
+    }
+  });
+
+  it("separates a captain from a first pick, which the points histogram CANNOT do", () => {
+    // Both earn `17 - allianceNumber`, so the histogram's bin at 16 holds
+    // alliance 1's captain and alliance 1's first pick together. The routes tell
+    // them apart, which is the whole reason this field exists.
+    const result = simulateDistrictEvent(shuffledInput(30), 300, 77);
+    const captainPoints = districtSelectionPoints(SEASON, TIER, 0, 1);
+    const firstPickPoints = districtSelectionPoints(SEASON, TIER, 1, 1);
+    expect(captainPoints).toBe(firstPickPoints);
+
+    let teamsWithBothRoutes = 0;
+    for (let i = 1; i <= 30; i++) {
+      const routes = result.selectionRoutes.get(teamKey(i))!;
+      if (routes.bySlot[CAPTAIN]!.draws > 0 && routes.bySlot[FIRST_PICK]!.draws > 0) teamsWithBothRoutes++;
+    }
+    expect(teamsWithBothRoutes, "no team took both routes, so this fixture proves nothing").toBeGreaterThan(0);
+  });
+
+  it("reports the point range each slot CAN pay from the measured model, at this event's alliance count", () => {
+    const routes = simulateDistrictEvent(inputFor(30), 20, 5).selectionRoutes.get(teamKey(1))!;
+    // Derived from the measured module rather than retyped, AND pinned as the
+    // literal pair the drawer prints.
+    const captainValues = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => districtSelectionPoints(SEASON, TIER, 0, n));
+    expect(routes.bySlot[CAPTAIN]!.possibleMinPoints).toBe(Math.min(...captainValues));
+    expect(routes.bySlot[CAPTAIN]!.possibleMaxPoints).toBe(Math.max(...captainValues));
+    expect([routes.bySlot[CAPTAIN]!.possibleMinPoints, routes.bySlot[CAPTAIN]!.possibleMaxPoints]).toEqual([9, 16]);
+    expect([routes.bySlot[FIRST_PICK]!.possibleMinPoints, routes.bySlot[FIRST_PICK]!.possibleMaxPoints]).toEqual([9, 16]);
+    expect([routes.bySlot[SECOND_PICK]!.possibleMinPoints, routes.bySlot[SECOND_PICK]!.possibleMaxPoints]).toEqual([1, 8]);
+    // A backup robot earns nothing at any alliance number.
+    expect([routes.bySlot[BACKUP]!.possibleMinPoints, routes.bySlot[BACKUP]!.possibleMaxPoints]).toEqual([0, 0]);
+  });
+
+  it("carries the district championship weight into the possible range, from the single weight source", () => {
+    const routes = simulateDistrictEvent(inputFor(30, { tier: "dcmp" }), 20, 5).selectionRoutes.get(teamKey(1))!;
+    expect(routes.bySlot[CAPTAIN]!.possibleMaxPoints).toBe(districtSelectionPoints(SEASON, "dcmp", 0, 1));
+    expect(routes.bySlot[CAPTAIN]!.possibleMaxPoints).toBe(16 * 3);
+  });
+
+  it("reports `undefined` points and `undefined` alliance for a route no draw took, never a zero", () => {
+    // A backup robot is never drafted by the simulated draft, so slot 3 is the
+    // route no run can take.
+    const routes = simulateDistrictEvent(inputFor(30), 50, 11).selectionRoutes.get(teamKey(1))!;
+    expect(routes.bySlot[BACKUP]!.draws).toBe(0);
+    expect(routes.bySlot[BACKUP]!.minPoints).toBeUndefined();
+    expect(routes.bySlot[BACKUP]!.maxPoints).toBeUndefined();
+    expect(routes.bySlot[BACKUP]!.allianceNumber).toBeUndefined();
+  });
+
+  it("pins the alliance number where every draw agreed, and leaves it undefined where they disagreed", () => {
+    const withMatches = simulateDistrictEvent(shuffledInput(30), 300, 8675309);
+    let pinned = 0;
+    let mixed = 0;
+    for (let i = 1; i <= 30; i++) {
+      for (const slot of withMatches.selectionRoutes.get(teamKey(i))!.bySlot) {
+        if (slot.draws === 0) continue;
+        if (slot.allianceNumber === undefined) mixed++;
+        else pinned++;
+      }
+    }
+    expect(pinned).toBeGreaterThan(0);
+    expect(mixed, "no route landed on two alliance numbers, so the mixed case is untested here").toBeGreaterThan(0);
+
+    // On the STABLE fixture the top seed is alliance 1's captain in every draw
+    // (the correlation proof above asserts that invariant), so its alliance
+    // number is pinned to exactly 1 and no draw disagreed.
+    const stable = simulateDistrictEvent(inputFor(30), 300, 8675309);
+    const topSeed = stable.selectionRoutes.get(teamKey(1))!;
+    expect(topSeed.bySlot[CAPTAIN]!.draws).toBe(300);
+    expect(topSeed.bySlot[CAPTAIN]!.allianceNumber).toBe(1);
+  });
+
+  it("reports a FIXED ranking as fixed, and an open one as not", () => {
+    expect(simulateDistrictEvent(inputFor(30, { remainingMatches: [] }), 10, 1).rankingFixed).toBe(true);
+    expect(simulateDistrictEvent(inputFor(30), 10, 1).rankingFixed).toBe(false);
+  });
+
+  it("collapses every team onto ONE route at ONE alliance number once the ranking is fixed", () => {
+    // This is what lets 10-07 print exact captain points with "captain,
+    // alliance N" beside them: with no matches left the draft is a fact.
+    const draws = 25;
+    const result = simulateDistrictEvent(inputFor(30, { remainingMatches: [] }), draws, 999);
+    expect(result.rankingFixed).toBe(true);
+    let captains = 0;
+    for (let i = 1; i <= 30; i++) {
+      const routes = result.selectionRoutes.get(teamKey(i))!;
+      const taken = routes.bySlot.filter((slot) => slot.draws > 0);
+      if (routes.notSelectedDraws === draws) {
+        expect(taken).toEqual([]);
+        continue;
+      }
+      expect(taken.length, `${teamKey(i)} took two routes with a fixed ranking`).toBe(1);
+      expect(taken[0]!.draws).toBe(draws);
+      expect(taken[0]!.minPoints).toBe(taken[0]!.maxPoints);
+      expect(taken[0]!.allianceNumber).not.toBeUndefined();
+      if (routes.bySlot[CAPTAIN]!.draws === draws) {
+        captains++;
+        // The captain's exact points follow from its alliance number through the
+        // measured module, never from a literal here.
+        expect(taken[0]!.minPoints).toBe(districtSelectionPoints(SEASON, TIER, 0, routes.bySlot[CAPTAIN]!.allianceNumber!));
+      }
+    }
+    // Eight alliances, eight captains.
+    expect(captains).toBe(8);
+  });
+
+  it("reads the routes off the REAL slots when the alliances are known, including a backup robot", () => {
+    // A four-pick alliance: TBA's slot 3 is the backup robot, which earns
+    // nothing and is NOT the same thing as not being selected.
+    const hand = suppliedAlliances();
+    const withBackup: SuppliedAlliance[] = hand.map((alliance, index) =>
+      index === 0 ? { allianceNumber: 1, picks: [...alliance.picks, teamKey(30)] } : alliance
+    );
+    const draws = 12;
+    const result = simulateDistrictEvent(inputFor(30, { knownAlliances: withBackup, remainingMatches: [] }), draws, 3);
+    const captain = result.selectionRoutes.get(hand[0]!.picks[0]!)!;
+    expect(captain.bySlot[CAPTAIN]!.draws).toBe(draws);
+    expect(captain.bySlot[CAPTAIN]!.allianceNumber).toBe(1);
+    expect(captain.bySlot[CAPTAIN]!.minPoints).toBe(districtSelectionPoints(SEASON, TIER, 0, 1));
+
+    const secondPick = result.selectionRoutes.get(hand[3]!.picks[2]!)!;
+    expect(secondPick.bySlot[SECOND_PICK]!.draws).toBe(draws);
+    expect(secondPick.bySlot[SECOND_PICK]!.allianceNumber).toBe(4);
+    expect(secondPick.bySlot[SECOND_PICK]!.minPoints).toBe(districtSelectionPoints(SEASON, TIER, 2, 4));
+
+    const backup = result.selectionRoutes.get(teamKey(30))!;
+    expect(backup.bySlot[BACKUP]!.draws).toBe(draws);
+    expect(backup.notSelectedDraws).toBe(0);
+    expect(backup.bySlot[BACKUP]!.minPoints).toBe(0);
+    expect(backup.bySlot[BACKUP]!.allianceNumber).toBe(1);
+  });
+
+  it("keeps every point value the selection histogram holds inside a recorded route's own range", () => {
+    // Recording the route is pure observation of a DETERMINISTIC draft, so the
+    // two views of one draw cannot disagree: every non zero bin of the histogram
+    // lies inside the range of a route the same team actually took.
+    const result = simulateDistrictEvent(inputFor(30), 100, 61);
+    for (let i = 1; i <= 30; i++) {
+      const routes = result.selectionRoutes.get(teamKey(i))!;
+      const histogram = result.selectionPoints.get(teamKey(i))!;
+      let massAboveZero = 0;
+      for (let points = 1; points < histogram.length; points++) {
+        if (histogram[points] === 0) continue;
+        const covered = routes.bySlot.some(
+          (slot) =>
+            slot.minPoints !== undefined && slot.maxPoints !== undefined && points >= slot.minPoints && points <= slot.maxPoints
+        );
+        expect(covered, `${teamKey(i)} earned ${String(points)} points on no recorded route`).toBe(true);
+        massAboveZero += histogram[points]!;
+      }
+      expect(histogram[0]! + massAboveZero).toBe(100);
+    }
+  });
+});
