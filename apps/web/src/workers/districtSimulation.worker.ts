@@ -28,19 +28,19 @@
  *    worker's own message queue until it has already finished, so a `cancel`
  *    message posted mid-run could never be read.
  */
-import { runDistrictSimulationJob } from "./districtSimulationProtocol.js";
-import type { DistrictSimulationOutboundMessage } from "./districtSimulationProtocol.js";
+import { runDistrictWorkerJob } from "./districtSimulationProtocol.js";
+import type { DistrictWorkerOutboundMessage } from "./districtSimulationProtocol.js";
 
 /** The tiny slice of `DedicatedWorkerGlobalScope` this file actually uses — deliberately not the ambient `WebWorker` lib type (see file header, fact 1). */
 interface DistrictSimulationWorkerScope {
-  postMessage(message: DistrictSimulationOutboundMessage): void;
+  postMessage(message: DistrictWorkerOutboundMessage): void;
   onmessage: ((event: { data: unknown }) => void) | null;
 }
 
 const scope = self as unknown as DistrictSimulationWorkerScope;
 
 scope.onmessage = (event) => {
-  runDistrictSimulationJob(event.data, (message) => {
+  runDistrictWorkerJob(event.data, (message) => {
     scope.postMessage(message);
   });
 };

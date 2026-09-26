@@ -23,6 +23,10 @@
  * result shapes cross this boundary unreshaped.
  */
 import {
+  advancementChances,
+  type AdvancementChanceInputs,
+} from "../../../../packages/core/districts/advancementChance.js";
+import {
   simulateDistrictEvent,
   type DistrictLedgerEventInput,
   type DistrictLedgerResult,
@@ -64,6 +68,24 @@ export const MAX_DISTRICT_SIMULATION_ROSTER = 256;
 
 /** The `name` an invalid `DistrictSimulationRequest` payload's `error` message carries. */
 export const INVALID_DISTRICT_REQUEST_ERROR_NAME = "InvalidDistrictSimulationRequest";
+
+/** The `name` an invalid `DistrictAdvancementChanceRequest` payload's `error` message carries. */
+export const INVALID_DISTRICT_CHANCE_REQUEST_ERROR_NAME = "InvalidDistrictAdvancementChanceRequest";
+
+/**
+ * Upper bound on a chance request's `teams.length` — again a DoS ceiling on the
+ * visitor's own CPU. The largest district in the corpus carries a few hundred
+ * teams; 1024 leaves real margin while keeping one request's cost bounded.
+ */
+export const MAX_DISTRICT_CHANCE_TEAMS = 1024;
+
+/**
+ * Upper bound on one team's grand-total array length. A district-tier event
+ * total spans 0 to 83 and a dcmp-tier one 0 to 249; four events plus a rookie
+ * bonus cannot approach 4096, so a legitimate request can never reach this
+ * while a malformed one is still bounded.
+ */
+export const MAX_DISTRICT_CHANCE_POINTS = 4096;
 
 /**
  * The `name` an unavailable entry carries when the core threw something that
@@ -166,6 +188,54 @@ export type DistrictSimulationOutboundMessage =
   | DistrictSimulationResultMessage
   | DistrictSimulationErrorMessage;
 
+// ---------------------------------------------------------------------------
+// The advancement chance (quick task 260925-rpj)
+// ---------------------------------------------------------------------------
+
+/**
+ * One posted chance request: a whole district's grand totals, the capacity, and
+ * the two facts that narrow the points race.
+ *
+ * A SECOND MESSAGE RATHER THAN A SECOND FIELD ON THE RUN, because the two
+ * cannot be computed in one pass. A team's grand total is the convolution of
+ * its EVENT totals, and the per-event totals are exactly what the run above
+ * produces; the main thread builds the convolution for the cells anyway and
+ * posts the result back here, so the Worker ranks the district and the main
+ * thread never does.
+ *
+ * `AdvancementChanceInputs` crosses UNRESHAPED, exactly as
+ * `DistrictLedgerEventInput` does above and for the same reason: a second
+ * opinion at this boundary would be a second place for the two to drift. Every
+ * field of it is structured cloneable (`Float64Array` is; nothing is a function
+ * or a class instance).
+ */
+export interface DistrictAdvancementChanceRequest {
+  readonly type: "chance";
+  readonly inputs: AdvancementChanceInputs;
+  readonly draws: number;
+  readonly seed: number;
+}
+
+/**
+ * The terminal chance message. `Map` is structured cloneable, so the core's own
+ * return shape crosses without being flattened into a pair of arrays.
+ */
+export interface DistrictAdvancementChanceResultMessage {
+  readonly type: "chance-result";
+  readonly chanceByTeam: ReadonlyMap<string, number>;
+  readonly draws: number;
+  /** The slot count the runs were ranked against — `locks.ts`'s reserved `lockSlots`, forwarded so a test can see WHICH count produced a chance. */
+  readonly lockSlots: number;
+  /** The job's OWN `performance.now()` duration, under the same rule as the run's: never a second user-facing number. */
+  readonly computeMs: number;
+}
+
+/** What a chance job may emit: its own result, or the shared error shape. */
+export type DistrictAdvancementChanceOutboundMessage = DistrictAdvancementChanceResultMessage | DistrictSimulationErrorMessage;
+
+/** Everything the district Worker can post, whichever request it was handed. */
+export type DistrictWorkerOutboundMessage = DistrictSimulationOutboundMessage | DistrictAdvancementChanceResultMessage;
+
 function isEventRequest(value: unknown): boolean {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
@@ -257,4 +327,116 @@ export function runDistrictSimulationJob(
   }
 
   emit({ type: "result", events: entries, draws, computeMs: performance.now() - start });
+}
+
+function isStringArray(value: unknown): boolean {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function isChanceTeam(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.teamKey !== "string" || candidate.teamKey.length === 0) return false;
+  if (typeof candidate.denominator !== "number") return false;
+  const counts = candidate.counts;
+  if (typeof counts !== "object" || counts === null) return false;
+  const length = (counts as { length?: unknown }).length;
+  if (typeof length !== "number" || !Number.isInteger(length)) return false;
+  if (length < 1 || length > MAX_DISTRICT_CHANCE_POINTS) return false;
+  return true;
+}
+
+/**
+ * A bound on COST AND SHAPE, on the same terms as `isDistrictSimulationRequest`
+ * above: the roster size, the array lengths and the draw count, and NOT a
+ * re-validation of the distributions themselves. `advancementChances` owns
+ * every numeric refusal (an empty distribution, a non positive denominator, a
+ * negative count, a repeated team key) and throws a TYPED error for each,
+ * precisely so this module can translate rather than duplicate it.
+ */
+export function isDistrictAdvancementChanceRequest(value: unknown): value is DistrictAdvancementChanceRequest {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.type !== "chance") return false;
+  if (typeof candidate.draws !== "number" || !Number.isInteger(candidate.draws)) return false;
+  if (candidate.draws < 1 || candidate.draws > MAX_SIMULATION_DRAWS) return false;
+  if (typeof candidate.seed !== "number" || !Number.isFinite(candidate.seed)) return false;
+  const inputs = candidate.inputs;
+  if (typeof inputs !== "object" || inputs === null) return false;
+  const chanceInputs = inputs as Record<string, unknown>;
+  if (typeof chanceInputs.slots !== "number") return false;
+  if (typeof chanceInputs.reservedSlots !== "number") return false;
+  if (!isStringArray(chanceInputs.awardQualified)) return false;
+  if (!isStringArray(chanceInputs.prequalified)) return false;
+  if (!Array.isArray(chanceInputs.teams)) return false;
+  if (chanceInputs.teams.length < 1 || chanceInputs.teams.length > MAX_DISTRICT_CHANCE_TEAMS) return false;
+  for (const team of chanceInputs.teams) {
+    if (!isChanceTeam(team)) return false;
+  }
+  return true;
+}
+
+/**
+ * Runs one advancement-chance job: validates `message`, then calls the core
+ * once and emits exactly one terminal message.
+ *
+ * NO PROGRESS MESSAGES. The run above emits one per event because a district
+ * weekend has two or three; this is a SINGLE call over the whole district and
+ * has no honest intermediate state to report. A chunked version would either
+ * repeat draws or produce a number no single call could reproduce, which is the
+ * same trap `DistrictSimulationProgressMessage` records for the run.
+ *
+ * A CORE REFUSAL IS A TERMINAL ERROR, not a partial result. Unlike the per-event
+ * loop there is nothing to isolate: one district, one answer, and a district
+ * whose grand totals cannot be ranked has no subset worth printing. The hook
+ * shows no chance at all, which is what an absent line already means.
+ */
+export function runDistrictAdvancementChanceJob(
+  message: unknown,
+  emit: (outbound: DistrictAdvancementChanceOutboundMessage) => void
+): void {
+  if (!isDistrictAdvancementChanceRequest(message)) {
+    emit({
+      type: "error",
+      name: INVALID_DISTRICT_CHANCE_REQUEST_ERROR_NAME,
+      message: "runDistrictAdvancementChanceJob: payload did not conform to DistrictAdvancementChanceRequest",
+    });
+    return;
+  }
+
+  const start = performance.now();
+  try {
+    const result = advancementChances(message.inputs, message.draws, message.seed);
+    emit({
+      type: "chance-result",
+      chanceByTeam: result.chanceByTeam,
+      draws: result.draws,
+      lockSlots: result.lockSlots,
+      computeMs: performance.now() - start,
+    });
+  } catch (error) {
+    emit({
+      type: "error",
+      name: error instanceof Error ? error.name : UNKNOWN_DISTRICT_ERROR_NAME,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * The district Worker's SINGLE entry point: dispatch on `type`, then hand the
+ * whole untrusted payload to the job that owns it.
+ *
+ * Dispatching on the type STRING rather than trying each validator in turn is
+ * deliberate. A malformed chance request that fell through to the run job would
+ * be refused under the run's error name, and a reader would then debug the
+ * wrong shape entirely.
+ */
+export function runDistrictWorkerJob(message: unknown, emit: (outbound: DistrictWorkerOutboundMessage) => void): void {
+  const type = typeof message === "object" && message !== null ? (message as { type?: unknown }).type : undefined;
+  if (type === "chance") {
+    runDistrictAdvancementChanceJob(message, emit);
+    return;
+  }
+  runDistrictSimulationJob(message, emit);
 }

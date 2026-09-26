@@ -10,18 +10,28 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  INVALID_DISTRICT_CHANCE_REQUEST_ERROR_NAME,
   INVALID_DISTRICT_REQUEST_ERROR_NAME,
+  MAX_DISTRICT_CHANCE_POINTS,
+  MAX_DISTRICT_CHANCE_TEAMS,
   MAX_DISTRICT_SIMULATION_EVENTS,
   MAX_DISTRICT_SIMULATION_ROSTER,
   UNKNOWN_DISTRICT_ERROR_NAME,
+  isDistrictAdvancementChanceRequest,
   isDistrictSimulationRequest,
+  runDistrictAdvancementChanceJob,
   runDistrictSimulationJob,
+  runDistrictWorkerJob,
+  type DistrictAdvancementChanceOutboundMessage,
+  type DistrictAdvancementChanceRequest,
+  type DistrictAdvancementChanceResultMessage,
   type DistrictSimulationEventRequest,
   type DistrictSimulationOutboundMessage,
   type DistrictSimulationRequest,
   type DistrictSimulationResultMessage,
 } from "./districtSimulationProtocol.js";
 import { MAX_SIMULATION_DRAWS, MAX_SIMULATION_MATCHES } from "./simulationProtocol.js";
+import { advancementChances, type AdvancementChanceTeam } from "../../../../packages/core/districts/advancementChance.js";
 import {
   simulateDistrictEvent,
   type DistrictAwardProfile,
@@ -271,5 +281,123 @@ describe("isDistrictSimulationRequest rejections", () => {
 
   it("accepts the well-formed base request", () => {
     expect(isDistrictSimulationRequest(base)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The advancement chance (quick task 260925-rpj)
+// ---------------------------------------------------------------------------
+
+/** A point mass at `value`, in the one distribution representation. */
+function chanceMass(key: string, value: number): AdvancementChanceTeam {
+  const counts = new Float64Array(value + 1);
+  counts[value] = 1;
+  return { teamKey: key, counts, denominator: 1 };
+}
+
+function chanceRequest(teams: readonly AdvancementChanceTeam[], slots: number): DistrictAdvancementChanceRequest {
+  return {
+    type: "chance",
+    inputs: { teams, slots, awardQualified: [], prequalified: [], reservedSlots: 0 },
+    draws: DRAWS,
+    seed: SEED,
+  };
+}
+
+function collectChance(message: unknown): DistrictAdvancementChanceOutboundMessage[] {
+  const emitted: DistrictAdvancementChanceOutboundMessage[] = [];
+  runDistrictAdvancementChanceJob(message, (outbound) => emitted.push(outbound));
+  return emitted;
+}
+
+const CHANCE_TEAMS = [chanceMass("frc1", 90), chanceMass("frc2", 60), chanceMass("frc3", 30)];
+
+describe("runDistrictAdvancementChanceJob", () => {
+  it("emits exactly one chance-result and nothing else", () => {
+    const emitted = collectChance(chanceRequest(CHANCE_TEAMS, 2));
+    expect(emitted.map((m) => m.type)).toEqual(["chance-result"]);
+  });
+
+  it("forwards the core's own map unreshaped — equal to a direct advancementChances call under the same seed", () => {
+    const request = chanceRequest(CHANCE_TEAMS, 2);
+    const emitted = collectChance(request);
+    const result = emitted[0] as DistrictAdvancementChanceResultMessage;
+    const direct = advancementChances(request.inputs, DRAWS, SEED);
+    expect([...result.chanceByTeam.entries()]).toEqual([...direct.chanceByTeam.entries()]);
+    expect(result.lockSlots).toBe(direct.lockSlots);
+    expect(result.draws).toBe(DRAWS);
+  });
+
+  it("carries no function anywhere in the result, and survives a structured clone", () => {
+    const result = collectChance(chanceRequest(CHANCE_TEAMS, 2))[0]!;
+    expect(containsFunction(result)).toBe(false);
+    const cloned = structuredClone(result) as DistrictAdvancementChanceResultMessage;
+    expect([...cloned.chanceByTeam.entries()]).toEqual([...(result as DistrictAdvancementChanceResultMessage).chanceByTeam.entries()]);
+  });
+
+  it("translates a CORE refusal into one error message, under the core's own error name", () => {
+    const duplicated = chanceRequest([chanceMass("frc1", 10), chanceMass("frc1", 20)], 1);
+    const emitted = collectChance(duplicated);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({ type: "error", name: "AdvancementChanceInputError" });
+  });
+
+  const chanceRejections: readonly [string, unknown][] = [
+    ["a payload with the wrong type tag", { ...chanceRequest(CHANCE_TEAMS, 2), type: "run" }],
+    ["a draw count above the ceiling", { ...chanceRequest(CHANCE_TEAMS, 2), draws: MAX_SIMULATION_DRAWS + 1 }],
+    ["a non-integer draw count", { ...chanceRequest(CHANCE_TEAMS, 2), draws: 1.5 }],
+    ["a non-finite seed", { ...chanceRequest(CHANCE_TEAMS, 2), seed: Number.POSITIVE_INFINITY }],
+    ["an empty team list", chanceRequest([], 2)],
+    [
+      "a roster above the team ceiling",
+      chanceRequest(Array.from({ length: MAX_DISTRICT_CHANCE_TEAMS + 1 }, (_unused, i) => chanceMass(`frc${String(i)}`, 10)), 2),
+    ],
+    [
+      "a grand total array above the points ceiling",
+      chanceRequest([{ teamKey: "frc1", counts: new Float64Array(MAX_DISTRICT_CHANCE_POINTS + 1), denominator: 1 }], 2),
+    ],
+    ["a missing qualifier array", { type: "chance", inputs: { teams: CHANCE_TEAMS, slots: 2, prequalified: [], reservedSlots: 0 }, draws: DRAWS, seed: SEED }],
+    ["a non-object payload", 7],
+    ["a null payload", null],
+  ];
+
+  for (const [label, payload] of chanceRejections) {
+    it(`rejects ${label} with exactly one error message and no chance-result`, () => {
+      expect(isDistrictAdvancementChanceRequest(payload)).toBe(false);
+      const emitted = collectChance(payload);
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0]).toMatchObject({ type: "error", name: INVALID_DISTRICT_CHANCE_REQUEST_ERROR_NAME });
+    });
+  }
+
+  it("accepts the well-formed chance request", () => {
+    expect(isDistrictAdvancementChanceRequest(chanceRequest(CHANCE_TEAMS, 2))).toBe(true);
+  });
+});
+
+describe("runDistrictWorkerJob", () => {
+  it("routes a run request to the simulation job", () => {
+    const emitted: unknown[] = [];
+    runDistrictWorkerJob(requestFor([eventRequest("2026waone")]), (outbound) => emitted.push(outbound));
+    expect((emitted.at(-1) as { type: string }).type).toBe("result");
+  });
+
+  it("routes a chance request to the chance job", () => {
+    const emitted: unknown[] = [];
+    runDistrictWorkerJob(chanceRequest(CHANCE_TEAMS, 2), (outbound) => emitted.push(outbound));
+    expect(emitted.map((m) => (m as { type: string }).type)).toEqual(["chance-result"]);
+  });
+
+  it("refuses a MALFORMED chance request under the chance error name, never the run's", () => {
+    const emitted: unknown[] = [];
+    runDistrictWorkerJob({ type: "chance" }, (outbound) => emitted.push(outbound));
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toMatchObject({ type: "error", name: INVALID_DISTRICT_CHANCE_REQUEST_ERROR_NAME });
+  });
+
+  it("refuses anything else under the run error name", () => {
+    const emitted: unknown[] = [];
+    runDistrictWorkerJob({ type: "nonsense" }, (outbound) => emitted.push(outbound));
+    expect(emitted[0]).toMatchObject({ type: "error", name: INVALID_DISTRICT_REQUEST_ERROR_NAME });
   });
 });
