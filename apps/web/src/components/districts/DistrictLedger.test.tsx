@@ -1493,7 +1493,10 @@ describe("DistrictLedger — the advancement chance", () => {
     installFetch({ eventArtifact: liveEventArtifact() });
     handle = installMockWorker({ script: realRunScript });
     renderLedger(mixedDistrict());
-    await waitFor(() => expect(screen.getAllByTestId("district-ledger-chance").length).toBeGreaterThan(0));
+    // The chance is 1,000 joint draws run synchronously on the mock Worker.
+    // Testing-library's default 1 s wait covers it here and not on Linux CI,
+    // where all four chance tests timed out at about 1.1 s (run 36214067545).
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-chance").length).toBeGreaterThan(0), { timeout: 15_000 });
   }
 
   function statusCellFor(teamKey: string): HTMLElement {
