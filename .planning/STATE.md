@@ -6,7 +6,7 @@ current_phase: 10
 current_phase_name: district-points-ledger
 status: executing
 stopped_at: Completed 10-08-PLAN.md
-last_updated: "2026-09-27T20:21:25.401Z"
+last_updated: "2026-09-27T20:40:18.506Z"
 last_activity: 2026-09-27
 last_activity_desc: Phase 10 execution started
 progress:
@@ -689,6 +689,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 252 | Predicted cutoff replaces Today's line on both locks tabs: midpoint of the In range / Out of range boundary pair, likely range from the simulated line, one value on the stat line and the histogram | 2026-09-26 | e6412f2f | [260926-37q-predicted-cutoff-replaces-today-s-line-o](./quick/260926-37q-predicted-cutoff-replaces-today-s-line-o/) |
 | 253 | Rewind slider week ticks no longer move while rewinding, and now sits on the tick row | 2026-09-27 | d12f5547 | — |
 | 254 | Locks page rewind slider gets native tick marks at each week anchor | 2026-09-27 | d195e47d | — |
+| 255 | Champ Locks cutoff simulates DCMP award slots and the winning alliance (MAE 41.0 to 16.4), range withheld at 71% coverage, rewinds price every team, earned at position | 2026-09-27 | 5b8a25d2 | [260927-6bf-champ-cutoff-simulate-dcmp-award-slots-f](./quick/260927-6bf-champ-cutoff-simulate-dcmp-award-slots-f/) |
 
 ### Roadmap Evolution
 
