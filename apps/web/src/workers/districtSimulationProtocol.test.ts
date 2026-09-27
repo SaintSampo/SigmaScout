@@ -12,6 +12,9 @@ import { describe, expect, it } from "vitest";
 import {
   INVALID_DISTRICT_CHANCE_REQUEST_ERROR_NAME,
   INVALID_DISTRICT_REQUEST_ERROR_NAME,
+  MAX_DISTRICT_CHANCE_AWARD_COUNT_WEIGHTS,
+  MAX_DISTRICT_CHANCE_AWARD_DRAWS,
+  MAX_DISTRICT_CHANCE_PENDING_EVENTS,
   MAX_DISTRICT_CHANCE_POINTS,
   MAX_DISTRICT_CHANCE_TEAMS,
   MAX_DISTRICT_SIMULATION_EVENTS,
@@ -436,6 +439,65 @@ describe("runDistrictAdvancementChanceJob", () => {
 
   it("accepts the well-formed chance request", () => {
     expect(isDistrictAdvancementChanceRequest(chanceRequest(CHANCE_TEAMS, 2))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Champ mode (quick task 260927-6bf)
+// ---------------------------------------------------------------------------
+
+describe("runDistrictAdvancementChanceJob — champ mode", () => {
+  const dcmpTeam = { ...chanceMass("frc4", 20), dcmp: { counts: Float64Array.from([0.5, 0, 0.5]), denominator: 1, fieldChance: 0.8, winChance: 0.3 } };
+  const draw = { awardType: 0, countWeights: [0, 1], candidates: [{ teamKey: "frc3", weight: 1 }], pendingEvents: [{ eventKey: "2026wasno", entrants: [{ teamKey: "frc2", weight: 2 }] }] };
+  function champRequest(overrides: Record<string, unknown> = {}, teams: readonly unknown[] = [...CHANCE_TEAMS, dcmpTeam]): DistrictAdvancementChanceRequest {
+    const base = chanceRequest(CHANCE_TEAMS, 2);
+    return { ...base, inputs: { ...base.inputs, teams, awardDraws: [draw], ...overrides } } as unknown as DistrictAdvancementChanceRequest;
+  }
+
+  it("accepts a DCMP part and award draws, and passes the two diagnostics through unreshaped", () => {
+    const request = champRequest();
+    expect(isDistrictAdvancementChanceRequest(request)).toBe(true);
+    const result = collectChance(request)[0] as DistrictAdvancementChanceResultMessage;
+    expect(result.type).toBe("chance-result");
+    const direct = advancementChances(request.inputs, DRAWS, SEED);
+    expect(Object.prototype.toString.call(result.awardSlotsByRun)).toBe("[object Int32Array]");
+    expect([...result.awardSlotsByRun!]).toEqual([...direct.awardSlotsByRun!]);
+    expect([...result.outsideAwardSlotsByRun!]).toEqual([...direct.outsideAwardSlotsByRun!]);
+    expect(result.runsWithoutLine).toBe(direct.runsWithoutLine);
+    expect([...result.chanceByTeam.entries()]).toEqual([...direct.chanceByTeam.entries()]);
+  });
+
+  it("forwards no diagnostics for a legacy request", () => {
+    const result = collectChance(chanceRequest(CHANCE_TEAMS, 2))[0] as DistrictAdvancementChanceResultMessage;
+    expect("awardSlotsByRun" in result).toBe(false);
+    expect("outsideAwardSlotsByRun" in result).toBe(false);
+  });
+
+  const many = (count: number) => Array.from({ length: count }, (_unused, i) => ({ teamKey: `frc${String(i)}`, weight: 1 }));
+  const champRejections: readonly [string, unknown][] = [
+    ["more than three award draws", champRequest({ awardDraws: new Array(MAX_DISTRICT_CHANCE_AWARD_DRAWS + 1).fill(draw) })],
+    ["a count weights array above its bound", champRequest({ awardDraws: [{ ...draw, countWeights: new Array(MAX_DISTRICT_CHANCE_AWARD_COUNT_WEIGHTS + 1).fill(1) }] })],
+    ["an empty count weights array", champRequest({ awardDraws: [{ ...draw, countWeights: [] }] })],
+    ["a candidate list above the team ceiling", champRequest({ awardDraws: [{ ...draw, candidates: many(MAX_DISTRICT_CHANCE_TEAMS + 1) }] })],
+    ["pending events above their bound", champRequest({ awardDraws: [{ ...draw, pendingEvents: new Array(MAX_DISTRICT_CHANCE_PENDING_EVENTS + 1).fill(draw.pendingEvents[0]) }] })],
+    ["an entrant list above the team ceiling", champRequest({ awardDraws: [{ ...draw, pendingEvents: [{ eventKey: "e", entrants: many(MAX_DISTRICT_CHANCE_TEAMS + 1) }] }] })],
+    ["a candidate without a key", champRequest({ awardDraws: [{ ...draw, candidates: [{ weight: 1 }] }] })],
+    ["award draws that are not an array", champRequest({ awardDraws: {} })],
+    ["a DCMP part above the points ceiling", champRequest({}, [...CHANCE_TEAMS, { ...dcmpTeam, dcmp: { ...dcmpTeam.dcmp, counts: new Float64Array(MAX_DISTRICT_CHANCE_POINTS + 1) } }])],
+    ["a DCMP part without chances", champRequest({}, [...CHANCE_TEAMS, { ...dcmpTeam, dcmp: { counts: dcmpTeam.dcmp.counts, denominator: 1 } }])],
+  ];
+
+  for (const [label, payload] of champRejections) {
+    it(`rejects ${label}`, () => {
+      expect(isDistrictAdvancementChanceRequest(payload)).toBe(false);
+      expect(collectChance(payload)[0]).toMatchObject({ type: "error", name: INVALID_DISTRICT_CHANCE_REQUEST_ERROR_NAME });
+    });
+  }
+
+  it("leaves a numeric refusal to the core: a win chance above 1 is the core's typed error", () => {
+    const bad = champRequest({}, [...CHANCE_TEAMS, { ...dcmpTeam, dcmp: { ...dcmpTeam.dcmp, winChance: 2 } }]);
+    expect(isDistrictAdvancementChanceRequest(bad)).toBe(true);
+    expect(collectChance(bad)[0]).toMatchObject({ type: "error", name: "AdvancementChanceInputError" });
   });
 });
 

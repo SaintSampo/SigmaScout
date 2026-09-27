@@ -315,3 +315,205 @@ describe("advancementChances — the simulated line", () => {
     expect([...result.cutoffByRun!]).toEqual(new Array<number>(8).fill(70));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Champ mode (quick task 260927-6bf)
+// ---------------------------------------------------------------------------
+
+type AwardDraw = NonNullable<AdvancementChanceInputs["awardDraws"]>[number];
+
+/** One award draw spec over fixed candidates at weight 1. */
+function award(countWeights: readonly number[], candidateKeys: readonly string[], pendingEvents: AwardDraw["pendingEvents"] = []): AwardDraw {
+  return { awardType: 0, countWeights, candidates: candidateKeys.map((teamKey) => ({ teamKey, weight: 1 })), pendingEvents };
+}
+
+/** A team whose district part is `district` and whose DCMP part is `dcmp` with the given field and win chances. */
+function split(
+  teamKey: string,
+  district: AdvancementChanceTeam,
+  dcmp: AdvancementChanceTeam,
+  fieldChance: number,
+  winChance: number
+): AdvancementChanceTeam {
+  return {
+    teamKey,
+    counts: district.counts,
+    denominator: district.denominator,
+    dcmp: { counts: dcmp.counts, denominator: dcmp.denominator, fieldChance, winChance },
+  };
+}
+
+/** The exact convolution of two pmfs, for the legacy comparison. */
+function convolve(teamKey: string, a: AdvancementChanceTeam, b: AdvancementChanceTeam): AdvancementChanceTeam {
+  const counts = new Float64Array(a.counts.length + b.counts.length - 1);
+  for (let i = 0; i < a.counts.length; i++) {
+    for (let j = 0; j < b.counts.length; j++) counts[i + j] = counts[i + j]! + a.counts[i]! * b.counts[j]!;
+  }
+  return { teamKey, counts, denominator: 1 };
+}
+
+const LADDER = (): AdvancementChanceTeam[] => [mass("frc50", 50), mass("frc40", 40), mass("frc30", 30), mass("frc20", 20), mass("frc10", 10)];
+
+describe("advancementChances — champ mode", () => {
+  it("leaves every legacy pin alone: no dcmp part and no award draw is legacy mode, with no diagnostics", () => {
+    const result = advancementChances(inputsOf(LADDER(), 2), 20, SEED);
+    expect(result.awardSlotsByRun).toBeUndefined();
+    expect(result.outsideAwardSlotsByRun).toBeUndefined();
+    const empty = advancementChances(inputsOf(LADDER(), 2, { awardDraws: [] }), 20, SEED);
+    expect(empty.awardSlotsByRun).toBeUndefined();
+    expect([...empty.cutoffByRun!]).toEqual([...result.cutoffByRun!]);
+  });
+
+  it("matches the legacy chance over the convolved total when the field chance is 1 and the win chance 0", () => {
+    const draws = 20000;
+    const parts: [string, AdvancementChanceTeam, AdvancementChanceTeam][] = [
+      ["frc1", uniform("d1", 40, 70), uniform("c1", 10, 60)],
+      ["frc2", uniform("d2", 50, 60), uniform("c2", 0, 50)],
+      ["frc3", uniform("d3", 30, 90), uniform("c3", 20, 30)],
+      ["frc4", uniform("d4", 20, 40), uniform("c4", 30, 90)],
+    ];
+    const legacy = advancementChances(inputsOf(parts.map(([key, a, b]) => convolve(key, a, b)), 2), draws, SEED);
+    const champ = advancementChances(inputsOf(parts.map(([key, a, b]) => split(key, a, b, 1, 0)), 2), draws, SEED);
+    for (const [key] of parts) {
+      const p = legacy.chanceByTeam.get(key)!;
+      const tolerance = 4 * Math.sqrt((2 * Math.max(p * (1 - p), 1e-4)) / draws);
+      expect(Math.abs(champ.chanceByTeam.get(key)! - p)).toBeLessThan(tolerance);
+    }
+    expect([...champ.awardSlotsByRun!].every((slots) => slots === 0)).toBe(true);
+  });
+
+  it("reads the line after the drawn award leaves the pool with its slot", () => {
+    const none = advancementChances(inputsOf(LADDER(), 2, { awardDraws: [award([1], [])] }), 50, SEED);
+    expect([...none.cutoffByRun!].every((line) => line === 40)).toBe(true);
+
+    const outside = advancementChances(inputsOf(LADDER(), 2, { awardDraws: [award([0, 1], ["frc10"])] }), 50, SEED);
+    expect([...outside.cutoffByRun!].every((line) => line === 50)).toBe(true);
+    expect([...outside.awardSlotsByRun!].every((slots) => slots === 1)).toBe(true);
+    expect([...outside.outsideAwardSlotsByRun!].every((slots) => slots === 1)).toBe(true);
+    expect(outside.chanceByTeam.get("frc10")).toBe(1);
+
+    const inside = advancementChances(inputsOf(LADDER(), 2, { awardDraws: [award([0, 1], ["frc50"])] }), 50, SEED);
+    expect([...inside.cutoffByRun!].every((line) => line === 40)).toBe(true);
+    expect([...inside.outsideAwardSlotsByRun!].every((slots) => slots === 0)).toBe(true);
+  });
+
+  it("draws the count per run, and consumes the same randomness per run whatever the count weights say", () => {
+    const draws = 4000;
+    const half = advancementChances(inputsOf(LADDER(), 2, { awardDraws: [award([0.5, 0.5], ["frc10"])] }), draws, SEED);
+    const fifties = [...half.cutoffByRun!].filter((line) => line === 50).length;
+    const forties = [...half.cutoffByRun!].filter((line) => line === 40).length;
+    expect(fifties + forties).toBe(draws);
+    expect(Math.abs(fifties / draws - 0.5)).toBeLessThan(4 * Math.sqrt(0.25 / draws));
+
+    // A candidate absent from the ranked teams takes no slot, so two specs of
+    // the same LENGTH must leave every other draw identical: the uniform team
+    // below lands on the same values run for run.
+    const teams = [...LADDER(), uniform("frc99", 0, 60)];
+    const a = advancementChances(inputsOf(teams, 2, { awardDraws: [award([0.5, 0.5], ["frc404"])] }), 300, SEED);
+    const b = advancementChances(inputsOf(teams, 2, { awardDraws: [award([0, 1], ["frc404"])] }), 300, SEED);
+    expect([...a.cutoffByRun!]).toEqual([...b.cutoffByRun!]);
+    expect(a.chanceByTeam.get("frc99")).toBe(b.chanceByTeam.get("frc99"));
+    // A LONGER spec consumes more, which is the control proving the check above can fail.
+    const c = advancementChances(inputsOf(teams, 2, { awardDraws: [award([0, 0, 1], ["frc404"])] }), 300, SEED);
+    expect([...c.cutoffByRun!]).not.toEqual([...a.cutoffByRun!]);
+  });
+
+  it("puts a certain winner in W every run, reads it at 1, and takes its slot", () => {
+    const teams = [...LADDER().slice(1), split("frc77", mass("d77", 5), mass("c77", 60), 1, 1)];
+    const result = advancementChances(inputsOf(teams, 2), 100, SEED);
+    expect(result.chanceByTeam.get("frc77")).toBe(1);
+    expect([...result.awardSlotsByRun!].every((slots) => slots === 1)).toBe(true);
+    // One slot left for the points: the line is the top of what remains.
+    expect([...result.cutoffByRun!].every((line) => line === 40)).toBe(true);
+  });
+
+  it("couples the winner to the SAME draw as the DCMP points: every winner drew the top of its distribution", () => {
+    const counts = new Float64Array(101);
+    counts[0] = 0.5;
+    counts[100] = 0.5;
+    const teams = [split("frc1", mass("d1", 0), { teamKey: "c", counts, denominator: 1 }, 1, 0.5), mass("frc2", 50)];
+    const result = advancementChances(inputsOf(teams, 1), 2000, SEED);
+    const winners = [...result.awardSlotsByRun!].filter((slots) => slots === 1).length;
+    expect(winners).toBeGreaterThan(800);
+    expect(winners).toBeLessThan(1200);
+    // A winner that drew 0 would sit below frc2 and count as outside; none does.
+    expect([...result.outsideAwardSlotsByRun!].every((slots) => slots === 0)).toBe(true);
+    // Every winning run leaves no points slot: no line, so NaN. Every other run reads frc2.
+    const lines = [...result.cutoffByRun!];
+    expect(lines.filter((line) => Number.isNaN(line)).length).toBe(winners);
+    expect(lines.filter((line) => !Number.isNaN(line)).every((line) => line === 50)).toBe(true);
+    expect(result.runsWithoutLine).toBe(winners);
+  });
+
+  it("marks a run without a line NaN, and omits the array only when NO run has one", () => {
+    // One slot and a certain winner: no run ever has a points slot left.
+    const never = advancementChances(inputsOf([mass("frc1", 10), split("frc2", mass("d", 0), mass("c", 5), 1, 1)], 1), 30, SEED);
+    expect(never.cutoffByRun).toBeUndefined();
+    expect(never.runsWithoutLine).toBe(30);
+    // Legacy mode keeps its own rule untouched: no line, no array, no NaN.
+    const legacy = advancementChances(inputsOf(LADDER(), 0), 30, SEED);
+    expect(legacy.cutoffByRun).toBeUndefined();
+    expect(legacy.runsWithoutLine).toBeUndefined();
+  });
+
+  it("counts one slot for a team drawn twice, none for an unranked key, and takes every candidate when the count exceeds them", () => {
+    const twice = advancementChances(inputsOf(LADDER(), 3, { awardDraws: [award([0, 1], ["frc10"]), award([0, 1], ["frc10"])] }), 50, SEED);
+    expect([...twice.awardSlotsByRun!].every((slots) => slots === 1)).toBe(true);
+
+    const unranked = advancementChances(inputsOf(LADDER(), 2, { awardDraws: [award([0, 1], ["frc404"])] }), 50, SEED);
+    expect([...unranked.awardSlotsByRun!].every((slots) => slots === 0)).toBe(true);
+    expect([...unranked.cutoffByRun!].every((line) => line === 40)).toBe(true);
+
+    const every = advancementChances(inputsOf(LADDER(), 3, { awardDraws: [award([0, 0, 0, 1], ["frc10", "frc20"])] }), 50, SEED);
+    expect([...every.awardSlotsByRun!].every((slots) => slots === 2)).toBe(true);
+    expect([...every.cutoffByRun!].every((line) => line === 50)).toBe(true);
+  });
+
+  it("adds nobody from a pending event whose entrants all weigh zero, and one entrant per run otherwise", () => {
+    const zero = advancementChances(
+      inputsOf(LADDER(), 2, {
+        awardDraws: [award([0, 1], [], [{ eventKey: "2026x", entrants: [{ teamKey: "frc10", weight: 0 }, { teamKey: "frc20", weight: 0 }] }])],
+      }),
+      50,
+      SEED
+    );
+    expect([...zero.awardSlotsByRun!].every((slots) => slots === 0)).toBe(true);
+
+    const one = advancementChances(
+      inputsOf(LADDER(), 2, {
+        awardDraws: [award([0, 1], [], [{ eventKey: "2026x", entrants: [{ teamKey: "frc10", weight: 0 }, { teamKey: "frc20", weight: 2 }] }])],
+      }),
+      50,
+      SEED
+    );
+    expect([...one.awardSlotsByRun!].every((slots) => slots === 1)).toBe(true);
+    expect(one.chanceByTeam.get("frc20")).toBe(1);
+    expect(one.chanceByTeam.get("frc10")).toBe(0);
+  });
+
+  it("is deterministic under one seed", () => {
+    const teams = [split("frc1", uniform("d", 10, 40), uniform("c", 0, 60), 0.7, 0.2), uniform("frc2", 20, 70), uniform("frc3", 0, 90), ...LADDER()];
+    const spec = { awardDraws: [award([0.3, 0.7], ["frc2", "frc3"], [{ eventKey: "e", entrants: [{ teamKey: "frc1", weight: 1 }] }])] };
+    const first = advancementChances(inputsOf(teams, 4, spec), 400, SEED);
+    const second = advancementChances(inputsOf(teams, 4, spec), 400, SEED);
+    expect([...first.chanceByTeam]).toEqual([...second.chanceByTeam]);
+    expect([...first.cutoffByRun!]).toEqual([...second.cutoffByRun!]);
+    expect([...first.awardSlotsByRun!]).toEqual([...second.awardSlotsByRun!]);
+  });
+
+  it("refuses invalid weights, counts and chances", () => {
+    const run = (overrides: Partial<AdvancementChanceInputs>, teams: readonly AdvancementChanceTeam[] = LADDER()) =>
+      advancementChances(inputsOf(teams, 2, overrides), 10, SEED);
+    expect(() => run({ awardDraws: [award([], ["frc10"])] })).toThrow(AdvancementChanceInputError);
+    expect(() => run({ awardDraws: [award([0, 0], ["frc10"])] })).toThrow(AdvancementChanceInputError);
+    expect(() => run({ awardDraws: [award([-1, 2], ["frc10"])] })).toThrow(AdvancementChanceInputError);
+    expect(() => run({ awardDraws: [award([Number.NaN, 1], ["frc10"])] })).toThrow(AdvancementChanceInputError);
+    expect(() => run({ awardDraws: [{ ...award([0, 1], []), candidates: [{ teamKey: "frc10", weight: -1 }] }] })).toThrow(AdvancementChanceInputError);
+    expect(() =>
+      run({ awardDraws: [award([0, 1], [], [{ eventKey: "e", entrants: [{ teamKey: "frc10", weight: Number.POSITIVE_INFINITY }] }])] })
+    ).toThrow(AdvancementChanceInputError);
+    expect(() => run({}, [...LADDER(), split("frc9", mass("d", 1), mass("c", 1), 1.5, 0)])).toThrow(AdvancementChanceInputError);
+    expect(() => run({}, [...LADDER(), split("frc9", mass("d", 1), mass("c", 1), 1, -0.1)])).toThrow(AdvancementChanceInputError);
+    expect(() => run({}, [...LADDER(), split("frc9", mass("d", 1), mass("c", 1), Number.NaN, 0)])).toThrow(AdvancementChanceInputError);
+  });
+});

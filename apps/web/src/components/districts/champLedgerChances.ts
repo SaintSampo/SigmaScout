@@ -23,7 +23,23 @@
  * narrowing at the champ tier: a chance prints under In range and Out of range
  * alone, and a disagreement with a guarantee is counted and never printed.
  */
-import type { AdvancementChanceInputs } from "../../../../../packages/core/districts/advancementChance.js";
+import type {
+  AdvancementChanceAwardDraw,
+  AdvancementChanceInputs,
+  AdvancementChanceTeam,
+  AdvancementChanceWeightedTeam,
+} from "../../../../../packages/core/districts/advancementChance.js";
+import { awardBaseRate, awardPointsBucketIndex } from "../../../../../packages/core/districts/awardBaseRates.js";
+import {
+  DCMP_DRAWN_AWARD_TYPES,
+  champCutoffTuning,
+  dcmpAwardCountDistribution,
+  hypotheticalDcmpPart,
+  hypotheticalDcmpTable,
+  normalizedFieldRanks,
+  type ChampCutoffSetting,
+  type DcmpDrawnAwardType,
+} from "../../../../../packages/core/districts/hypotheticalDcmp.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import {
   prepareChanceRanking,
@@ -31,9 +47,11 @@ import {
   type DistrictAdvancementChanceRun,
   type DistrictLedgerChanceModel,
 } from "./districtLedgerChances.js";
+import { awardProfileFor, deriveStageFromState, tierEvents, type DistrictStageFinality } from "./districtLedgerRows.js";
 import type { DistrictLedgerStatusModel } from "./districtLedgerStatus.js";
-import type { ChampLedgerTeam } from "./champLedgerRows.js";
+import { dcmpEventKeyFor, type ChampDcmpEstimate, type ChampLedgerTeam } from "./champLedgerRows.js";
 import type { ChampLedgerStatusModel } from "./champLedgerStatus.js";
+import { simulatedChampLine, type SimulatedCutoffRange } from "./predictedCutoff.js";
 
 /**
  * THE CHANCE OF BEING IN THE DISTRICT CHAMPIONSHIP FIELD, per team.
@@ -91,6 +109,14 @@ export interface BuildChampAdvancementChanceRunOptions {
   readonly dcmpEventKey: string | undefined;
   /** The per-team field chance the grand totals were mixed at. A moving field chance moves every grand total, so it moves the signature. */
   readonly fieldChanceByTeam: ReadonlyMap<string, number>;
+  /**
+   * CHAMP MODE (quick task 260927-6bf): the DCMP award draw specs from
+   * `buildChampAwardDraws`. When SUPPLIED, even as an empty array, each team
+   * is posted as its split district and DCMP parts so the run decides the
+   * winning alliance and the drawn awards per run. When ABSENT the shipped
+   * run is posted byte for byte.
+   */
+  readonly awardDraws?: readonly AdvancementChanceAwardDraw[];
 }
 
 /**
@@ -130,7 +156,34 @@ function champChanceSignature(
       .sort()
       .join(","),
     chanceTeams.map((team) => `${team.teamKey}=${String(team.counts.length)}/${String(team.denominator)}`).join(","),
+    // CHAMP MODE ONLY, appended so the shipped signature is unchanged without it:
+    // the award draw spec and each team's DCMP part, both inputs the line is a
+    // function of and nothing above moves with.
+    ...(options.awardDraws === undefined
+      ? []
+      : [
+          champModeSignature(options.awardDraws),
+          chanceTeams
+            .map((team) =>
+              team.dcmp === undefined
+                ? `${team.teamKey}:-`
+                : `${team.teamKey}:${String(team.dcmp.counts.length)}/${String(team.dcmp.denominator)}@${team.dcmp.fieldChance.toFixed(6)}w${team.dcmp.winChance.toFixed(6)}`
+            )
+            .join(","),
+        ]),
   ].join("|");
+}
+
+function champModeSignature(awardDraws: readonly AdvancementChanceAwardDraw[]): string {
+  const weighted = (entries: readonly AdvancementChanceWeightedTeam[]): string =>
+    entries.map((entry) => `${entry.teamKey}*${entry.weight.toFixed(6)}`).join(";");
+  return awardDraws
+    .map(
+      (draw) =>
+        `${String(draw.awardType)}[${draw.countWeights.map((weight) => weight.toFixed(6)).join(";")}]{${weighted(draw.candidates)}}` +
+        draw.pendingEvents.map((event) => `(${event.eventKey}:${weighted(event.entrants)})`).join("")
+    )
+    .join("/");
 }
 
 /**
@@ -145,22 +198,50 @@ function champChanceSignature(
 export function buildChampAdvancementChanceRun(
   options: BuildChampAdvancementChanceRunOptions
 ): DistrictAdvancementChanceRun | undefined {
-  const { artifact, teams, statuses, runSignature } = options;
+  const { artifact, teams, statuses, runSignature, awardDraws } = options;
   const prepared = prepareChanceRanking(teams, artifact.cmpSlots, runSignature);
   if (prepared === undefined) return undefined;
 
+  // CHAMP MODE: the SAME included teams (every refusal and the exclusion rule
+  // above are untouched), each posted as its split district and DCMP parts.
+  const byKey = new Map(teams.map((team) => [team.teamKey, team] as const));
+  const chanceTeams: AdvancementChanceTeam[] =
+    awardDraws === undefined
+      ? prepared.chanceTeams
+      : prepared.chanceTeams.map((chanceTeam) => {
+          const team = byKey.get(chanceTeam.teamKey);
+          if (team?.districtPart === undefined) return chanceTeam;
+          const dcmp = team.dcmpPart;
+          return {
+            teamKey: chanceTeam.teamKey,
+            counts: team.districtPart.counts,
+            denominator: team.districtPart.denominator,
+            ...(dcmp === undefined
+              ? {}
+              : {
+                  dcmp: {
+                    counts: dcmp.distribution.counts,
+                    denominator: dcmp.distribution.denominator,
+                    fieldChance: dcmp.fieldChance,
+                    winChance: dcmp.winChance,
+                  },
+                }),
+          };
+        });
+
   const inputs: AdvancementChanceInputs = {
-    teams: prepared.chanceTeams,
+    teams: chanceTeams,
     slots: artifact.cmpSlots!,
     awardQualified: statuses.awardQualified,
     prequalified: statuses.prequalified,
     // ALWAYS ZERO at this tier — `champLedgerStatus.ts`'s decision 2. The run
     // must count the slots exactly as the verdicts beside it did.
     reservedSlots: statuses.reservedSlots,
+    ...(awardDraws === undefined ? {} : { awardDraws }),
   };
   return {
     inputs,
-    signature: champChanceSignature(options, prepared.chanceTeams, prepared.excludedTeams),
+    signature: champChanceSignature(options, chanceTeams, prepared.excludedTeams),
     excludedTeams: prepared.excludedTeams,
   };
 }
@@ -178,4 +259,276 @@ export function reconcileChampAdvancementChances(
   champStatuses: ChampLedgerStatusModel
 ): DistrictLedgerChanceModel {
   return reconcileAdvancementChances(chanceByTeam, champStatuses);
+}
+
+// ---------------------------------------------------------------------------
+// The simulated line (quick task 260927-6bf)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE FIELD CHANCE, including the settled district tier.
+ *
+ * `districtFieldMembershipChances`' rule, with one case it could not see:
+ * where the district run was REFUSED because no district team has an open
+ * category (`districtTierSettled`), there is no marginal to read, and In range
+ * reads 1 and Out of range 0 — the verdicts are final there, so the field is a
+ * settled tie of facts. While the district run is in flight (`raw` absent and
+ * the tier not settled) In range and Out of range are ABSENT, never a guess.
+ */
+export function champFieldChances(
+  districtStatuses: DistrictLedgerStatusModel,
+  rawChanceByTeam: ReadonlyMap<string, number> | undefined,
+  districtTierSettled: boolean
+): ReadonlyMap<string, number> {
+  const byTeam = new Map<string, number>();
+  for (const [teamKey, result] of districtStatuses.byTeam) {
+    if (result.status === "locked" || result.status === "prequalified") {
+      byTeam.set(teamKey, 1);
+      continue;
+    }
+    if (result.status === "lockedOut") {
+      byTeam.set(teamKey, 0);
+      continue;
+    }
+    if (result.status !== "inRange" && result.status !== "outOfRange") continue;
+    const raw = rawChanceByTeam?.get(teamKey);
+    if (raw !== undefined) {
+      byTeam.set(teamKey, raw);
+      continue;
+    }
+    if (rawChanceByTeam === undefined && districtTierSettled) byTeam.set(teamKey, result.status === "inRange" ? 1 : 0);
+  }
+  return byTeam;
+}
+
+/** One district team as the estimate reads it: its district projection. */
+export interface HypotheticalDcmpEstimateTeam {
+  readonly teamKey: string;
+  readonly projection: number;
+}
+
+export interface HypotheticalDcmpEstimatesOptions {
+  readonly season: number;
+  /** The DISTRICT pass's teams at this position: the projection a field rank is taken on. */
+  readonly districtTeams: readonly HypotheticalDcmpEstimateTeam[];
+  /** In 1, out 0, open the field chance; `undefined` for an open team whose chance is not in yet. */
+  readonly fieldChanceFor: (teamKey: string) => number | undefined;
+  /** K3, from `champCutoffTuning(season).setting.spreadScale`. */
+  readonly spreadScale: number;
+}
+
+/**
+ * The three results the estimate can give, kept apart because they mean
+ * different things to `champRangeState`: `noTable` is TERMINAL (no earlier
+ * season to learn from), `awaitingFieldChances` is TRANSIENT (a field chance
+ * is still coming).
+ */
+export type HypotheticalDcmpEstimates =
+  | { readonly kind: "ready"; readonly byTeam: ReadonlyMap<string, ChampDcmpEstimate> }
+  | { readonly kind: "noTable" }
+  | { readonly kind: "awaitingFieldChances" };
+
+/**
+ * Every district team's DCMP estimate by FIELD RANK: the team's place in the
+ * field chance weighted ranking of the district projections, looked up in the
+ * walk-forward table for the season. Nothing about the real DCMP roster is
+ * read, which is what keeps a rewound position free of registrations.
+ */
+export function hypotheticalDcmpEstimates(options: HypotheticalDcmpEstimatesOptions): HypotheticalDcmpEstimates {
+  const table = hypotheticalDcmpTable(options.season);
+  if (table === undefined) return { kind: "noTable" };
+  const ranked: { teamKey: string; projection: number; fieldChance: number }[] = [];
+  for (const team of options.districtTeams) {
+    const fieldChance = options.fieldChanceFor(team.teamKey);
+    if (fieldChance === undefined) return { kind: "awaitingFieldChances" };
+    ranked.push({ teamKey: team.teamKey, projection: team.projection, fieldChance });
+  }
+  const ranks = normalizedFieldRanks(ranked);
+  const byTeam = new Map<string, ChampDcmpEstimate>();
+  for (const team of ranked) {
+    const part = hypotheticalDcmpPart(table, ranks.get(team.teamKey)!, options.spreadScale);
+    byTeam.set(team.teamKey, { distribution: { counts: part.counts, denominator: part.denominator }, winChance: part.winChance });
+  }
+  return { kind: "ready", byTeam };
+}
+
+export interface BuildChampAwardDrawsOptions {
+  readonly artifact: DistrictArtifact;
+  /** The stage per event AT THE POSITION; `undefined` at now, where each event's own `state` block answers. */
+  readonly stageByEvent?: ReadonlyMap<string, DistrictStageFinality>;
+  /** Overrides the season's walk-forward setting; the backtest passes each grid setting explicitly. */
+  readonly setting?: ChampCutoffSetting;
+}
+
+/** Impact weights by the 10 point award cell, Engineering Inspiration and Rookie All Star by the 8 point one. */
+const DECORATION_POINTS: Readonly<Record<DcmpDrawnAwardType, number>> = { 0: 10, 9: 8, 10: 8 };
+
+/**
+ * One team's weight for one DCMP award. ELIGIBILITY FIRST: Rookie All Star is
+ * rookies only, Engineering Inspiration veterans only, Impact anyone; a team
+ * with no award profile is ineligible for Rookie All Star and weight 1
+ * otherwise. `decoration` then weights by the award base rate cell the award
+ * cell already prices from, falling back to 1 for a season with no table.
+ */
+function awardWeight(team: DistrictArtifact["teams"][number], awardType: DcmpDrawnAwardType, season: number, setting: ChampCutoffSetting): number {
+  const profile = awardProfileFor(team);
+  if (awardType === 10 && profile?.rookieState !== "rookie") return 0;
+  if (awardType === 9 && profile?.rookieState === "rookie") return 0;
+  if (profile === undefined || setting.weighting === "uniform") return 1;
+  try {
+    const rate = awardBaseRate(season, profile.bucket, profile.rookieState);
+    return rate.pmf[awardPointsBucketIndex(DECORATION_POINTS[awardType])!] ?? 0;
+  } catch {
+    return 1;
+  }
+}
+
+/**
+ * The DCMP judged award draws for the champ run at one position (Impact,
+ * Engineering Inspiration, Rookie All Star, in that order).
+ *
+ * - NONE once the DCMP awards stage is final at the position: posted awards
+ *   are facts already in `statuses.awardQualified`.
+ * - Candidates are the teams holding that award at a DISTRICT tier event
+ *   whose award stage is final at the position: the DCMP winner of a judged
+ *   award had won the same award at a district event that season in 148 of
+ *   149 (Impact), 110 of 111 (EI) and 84 of 85 (RAS) cases.
+ * - Each district event whose award stage is still open contributes one
+ *   entrant per run from its own roster, which is public before the event.
+ * - A DCMP tier award is NEVER a candidate.
+ */
+export function buildChampAwardDraws(options: BuildChampAwardDrawsOptions): AdvancementChanceAwardDraw[] {
+  const { artifact, stageByEvent } = options;
+  const season = artifact.year;
+  const setting = options.setting ?? champCutoffTuning(season).setting;
+
+  const nowAwardFinal = new Map<string, boolean>();
+  const districtEventKeys = new Set<string>();
+  const entrantsByEvent = new Map<string, DistrictArtifact["teams"][number][]>();
+  for (const team of artifact.teams) {
+    for (const tier of ["district", "dcmp"] as const) {
+      for (const entry of tierEvents(team, tier)) {
+        if (!nowAwardFinal.has(entry.eventKey)) nowAwardFinal.set(entry.eventKey, deriveStageFromState(entry.state).final.award);
+        if (tier !== "district") continue;
+        districtEventKeys.add(entry.eventKey);
+        const list = entrantsByEvent.get(entry.eventKey) ?? [];
+        list.push(team);
+        entrantsByEvent.set(entry.eventKey, list);
+      }
+    }
+  }
+  const awardFinal = (eventKey: string): boolean => stageByEvent?.get(eventKey)?.award ?? nowAwardFinal.get(eventKey) ?? false;
+
+  const dcmpEventKey = dcmpEventKeyFor(artifact);
+  if (dcmpEventKey !== undefined && awardFinal(dcmpEventKey)) return [];
+
+  const countWeights = dcmpAwardCountDistribution(season, artifact.districtKey, artifact.cmpSlots ?? 0, setting.countMode);
+  const pendingKeys = [...districtEventKeys].filter((eventKey) => !awardFinal(eventKey)).sort();
+
+  return DCMP_DRAWN_AWARD_TYPES.map((awardType) => {
+    const candidates: AdvancementChanceWeightedTeam[] = [];
+    for (const team of artifact.teams) {
+      const held = team.qualifyingAwards.some(
+        (award) => award.awardType === awardType && districtEventKeys.has(award.eventKey) && awardFinal(award.eventKey)
+      );
+      if (held) candidates.push({ teamKey: team.teamKey, weight: awardWeight(team, awardType, season, setting) });
+    }
+    const pendingEvents = pendingKeys.map((eventKey) => ({
+      eventKey,
+      entrants: (entrantsByEvent.get(eventKey) ?? []).map((team) => ({ teamKey: team.teamKey, weight: awardWeight(team, awardType, season, setting) })),
+    }));
+    return { awardType, countWeights: [...countWeights[awardType]], candidates, pendingEvents };
+  });
+}
+
+/** Why no simulated line can be drawn at a position: each a TERMINAL refusal, named so the page can say which. */
+export type ChampNoCallReason =
+  /** No earlier season to estimate the DCMP from (2016). */
+  | "noHistoryTable"
+  /** A team in the field whose DCMP could not be priced. */
+  | "unpricedDcmp"
+  /** The district run is not coming and an open team has no field chance. */
+  | "noFieldChance"
+  /** `buildChampAdvancementChanceRun` refused. */
+  | "runRefused"
+  /** The champ run left a team out because its grand total could not be built. */
+  | "teamsExcluded"
+  /** The champ run returned no line (`cutoffByRun` absent). */
+  | "noLine"
+  /** The district run or the champ run failed in the Worker. */
+  | "workerError";
+
+/**
+ * THE ONE STATE both the chips and the cutoff view read (decision L2 and
+ * Jacob's 2026-09-27 chip timing decision). Exactly four arms:
+ *
+ * - `settled`: the DCMP awards stage is final at the position, or `cmpSlots`
+ *   is null. Nothing is drawn any more, so the shipped rank rule stands.
+ * - `pending`: something upstream of the line is still computing.
+ * - `simulated`: the champ run is complete, excluded no team and returned a
+ *   line: its median and its 10 to 90 likely range.
+ * - `noCall`: a TERMINAL refusal, with its reason.
+ *
+ * Every transient condition maps to `pending`, never `noCall`, so a reader can
+ * only ever see `pending` to `simulated`, `pending` to `noCall`, or anything
+ * to `settled` when the slider moves.
+ */
+export type ChampRangeState =
+  | { readonly kind: "settled" }
+  | { readonly kind: "pending" }
+  | { readonly kind: "simulated"; readonly points: number; readonly likely: SimulatedCutoffRange }
+  | { readonly kind: "noCall"; readonly reason: ChampNoCallReason };
+
+/** A Worker run as `champRangeState` needs to see it: whether one was built, and the hook's state. */
+export interface ChampRangeRunInput {
+  /** Whether the builder returned a run to post. */
+  readonly built: boolean;
+  readonly status: "idle" | "running" | "complete" | "error";
+  /** For `complete`: whether the result's signature is the CURRENT run's. A stale result is still pending. */
+  readonly current?: boolean;
+}
+
+export interface ChampRangeStateInputs {
+  /** The DCMP awards stage is final at the position. */
+  readonly dcmpAwardsFinal: boolean;
+  readonly cmpSlots: number | null;
+  /** The per event run's signature, `null` while it is in flight. */
+  readonly perEventRunSignature: string | null;
+  readonly districtRun: ChampRangeRunInput;
+  readonly estimates: HypotheticalDcmpEstimates["kind"];
+  /** Teams whose membership is `in` but whose DCMP row could not be priced. */
+  readonly unpricedInTeams: number;
+  readonly champRun: ChampRangeRunInput & {
+    readonly excludedTeams?: readonly string[];
+    readonly cutoffByRun?: ArrayLike<number>;
+    readonly draws?: number;
+  };
+}
+
+/** Pure, and read by BOTH the chips and the cutoff view, so the two can never disagree. */
+export function champRangeState(inputs: ChampRangeStateInputs): ChampRangeState {
+  if (inputs.dcmpAwardsFinal || inputs.cmpSlots === null) return { kind: "settled" };
+  if (inputs.perEventRunSignature === null) return { kind: "pending" };
+
+  const district = inputs.districtRun;
+  if (district.built) {
+    if (district.status === "error") return { kind: "noCall", reason: "workerError" };
+    if (district.status !== "complete" || district.current === false) return { kind: "pending" };
+  }
+
+  if (inputs.estimates === "noTable") return { kind: "noCall", reason: "noHistoryTable" };
+  // Awaiting a field chance is transient only while the per event run or the
+  // district run is on its way, and both of those returned `pending` above;
+  // with neither coming, the missing chance is final.
+  if (inputs.estimates === "awaitingFieldChances") return { kind: "noCall", reason: "noFieldChance" };
+  if (inputs.unpricedInTeams > 0) return { kind: "noCall", reason: "unpricedDcmp" };
+
+  const champ = inputs.champRun;
+  if (!champ.built) return { kind: "noCall", reason: "runRefused" };
+  if (champ.status === "error") return { kind: "noCall", reason: "workerError" };
+  if (champ.status !== "complete" || champ.current === false) return { kind: "pending" };
+  if ((champ.excludedTeams?.length ?? 0) > 0) return { kind: "noCall", reason: "teamsExcluded" };
+  const line = champ.draws === undefined ? undefined : simulatedChampLine(champ.cutoffByRun, champ.draws);
+  if (line === undefined) return { kind: "noCall", reason: "noLine" };
+  return { kind: "simulated", points: line.points, likely: line.likely };
 }

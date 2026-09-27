@@ -49,7 +49,6 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
-import type { DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
 import {
   ControlsCard,
   DrawerCellPane,
@@ -109,6 +108,7 @@ import { computeChampLedgerStatuses } from "./champLedgerStatus.js";
 import {
   buildChampLedgerRows,
   champContributions,
+  champTierEvents,
   dcmpEventKeyFor,
   type ChampContribution,
   type ChampLedgerCell,
@@ -143,32 +143,6 @@ export interface ChampLocksLedgerProps {
   artifact: DistrictArtifact;
   algorithm: PublishedAlgorithmId;
   season: number;
-}
-
-/** One event at one tier, as the timeline and the fetch lists want it. */
-interface ChampTierEvent {
-  readonly eventKey: string;
-  readonly eventName: string;
-  readonly week: number | null;
-  readonly tier: DistrictTier;
-}
-
-/**
- * Every event the champ tab reads, across BOTH tiers, deduplicated and in the
- * order they were first seen — the district events the District points row sums
- * and the one District Championship the DCMP row prices.
- */
-function champTierEvents(artifact: DistrictArtifact): ChampTierEvent[] {
-  const byKey = new Map<string, ChampTierEvent>();
-  for (const tier of ["district", "dcmp"] as const) {
-    for (const team of artifact.teams) {
-      for (const entry of tierEvents(team, tier)) {
-        if (byKey.has(entry.eventKey)) continue;
-        byKey.set(entry.eventKey, { eventKey: entry.eventKey, eventName: entry.eventName, week: entry.week, tier });
-      }
-    }
-  }
-  return [...byKey.values()];
 }
 
 /**

@@ -239,6 +239,10 @@ export interface DistrictAdvancementChanceResultMessage {
    * an untrusted request.
    */
   readonly cutoffByRun?: Float64Array;
+  /** CHAMP MODE ONLY: the core's two per run diagnostics, forwarded UNRESHAPED (quick task 260927-6bf). */
+  readonly awardSlotsByRun?: Int32Array;
+  readonly outsideAwardSlotsByRun?: Int32Array;
+  readonly runsWithoutLine?: number;
   /** The job's OWN `performance.now()` duration, under the same rule as the run's: never a second user-facing number. */
   readonly computeMs: number;
 }
@@ -356,6 +360,59 @@ function isChanceTeam(value: unknown): boolean {
   const length = (counts as { length?: unknown }).length;
   if (typeof length !== "number" || !Number.isInteger(length)) return false;
   if (length < 1 || length > MAX_DISTRICT_CHANCE_POINTS) return false;
+  // CHAMP MODE (quick task 260927-6bf): an optional DCMP part, bounded like
+  // the district part. Its field and win chances are validated by the core.
+  if (candidate.dcmp !== undefined) {
+    const dcmp = candidate.dcmp;
+    if (typeof dcmp !== "object" || dcmp === null) return false;
+    const part = dcmp as Record<string, unknown>;
+    if (typeof part.denominator !== "number") return false;
+    if (typeof part.fieldChance !== "number" || typeof part.winChance !== "number") return false;
+    const dcmpCounts = part.counts;
+    if (typeof dcmpCounts !== "object" || dcmpCounts === null) return false;
+    const dcmpLength = (dcmpCounts as { length?: unknown }).length;
+    if (typeof dcmpLength !== "number" || !Number.isInteger(dcmpLength)) return false;
+    if (dcmpLength < 1 || dcmpLength > MAX_DISTRICT_CHANCE_POINTS) return false;
+  }
+  return true;
+}
+
+/** Upper bound on a chance request's `awardDraws.length`: the DCMP draws three judged awards. */
+export const MAX_DISTRICT_CHANCE_AWARD_DRAWS = 3;
+
+/** Upper bound on one award draw's `countWeights.length`: no DCMP gives out sixteen of one judged award. */
+export const MAX_DISTRICT_CHANCE_AWARD_COUNT_WEIGHTS = 17;
+
+/** Upper bound on one award draw's `pendingEvents.length`: the largest district runs about a dozen district events a season. */
+export const MAX_DISTRICT_CHANCE_PENDING_EVENTS = 64;
+
+function isWeightedTeamList(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  if (value.length > MAX_DISTRICT_CHANCE_TEAMS) return false;
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null) return false;
+    const weighted = entry as Record<string, unknown>;
+    if (typeof weighted.teamKey !== "string" || weighted.teamKey.length === 0) return false;
+    if (typeof weighted.weight !== "number") return false;
+  }
+  return true;
+}
+
+function isAwardDraw(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const draw = value as Record<string, unknown>;
+  if (typeof draw.awardType !== "number") return false;
+  if (!Array.isArray(draw.countWeights)) return false;
+  if (draw.countWeights.length < 1 || draw.countWeights.length > MAX_DISTRICT_CHANCE_AWARD_COUNT_WEIGHTS) return false;
+  if (!draw.countWeights.every((weight) => typeof weight === "number")) return false;
+  if (!isWeightedTeamList(draw.candidates)) return false;
+  if (!Array.isArray(draw.pendingEvents) || draw.pendingEvents.length > MAX_DISTRICT_CHANCE_PENDING_EVENTS) return false;
+  for (const event of draw.pendingEvents) {
+    if (typeof event !== "object" || event === null) return false;
+    const pending = event as Record<string, unknown>;
+    if (typeof pending.eventKey !== "string") return false;
+    if (!isWeightedTeamList(pending.entrants)) return false;
+  }
   return true;
 }
 
@@ -385,6 +442,13 @@ export function isDistrictAdvancementChanceRequest(value: unknown): value is Dis
   if (chanceInputs.teams.length < 1 || chanceInputs.teams.length > MAX_DISTRICT_CHANCE_TEAMS) return false;
   for (const team of chanceInputs.teams) {
     if (!isChanceTeam(team)) return false;
+  }
+  if (chanceInputs.awardDraws !== undefined) {
+    if (!Array.isArray(chanceInputs.awardDraws)) return false;
+    if (chanceInputs.awardDraws.length > MAX_DISTRICT_CHANCE_AWARD_DRAWS) return false;
+    for (const draw of chanceInputs.awardDraws) {
+      if (!isAwardDraw(draw)) return false;
+    }
   }
   return true;
 }
@@ -427,6 +491,9 @@ export function runDistrictAdvancementChanceJob(
       lockSlots: result.lockSlots,
       pointsSlots: result.pointsSlots,
       ...(result.cutoffByRun === undefined ? {} : { cutoffByRun: result.cutoffByRun }),
+      ...(result.awardSlotsByRun === undefined ? {} : { awardSlotsByRun: result.awardSlotsByRun }),
+      ...(result.outsideAwardSlotsByRun === undefined ? {} : { outsideAwardSlotsByRun: result.outsideAwardSlotsByRun }),
+      ...(result.runsWithoutLine === undefined ? {} : { runsWithoutLine: result.runsWithoutLine }),
       computeMs: performance.now() - start,
     });
   } catch (error) {

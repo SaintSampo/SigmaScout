@@ -480,7 +480,7 @@ export type DistrictEventInputResult =
  * instead takes the whole event back to the base rate, which is the price the
  * artifact was published at before the ordering existed.
  */
-function awardProfileFor(team: DistrictTeam): DistrictAwardProfile | undefined {
+export function awardProfileFor(team: DistrictTeam): DistrictAwardProfile | undefined {
   const profile = team.awardProfile;
   if (profile === undefined) return undefined;
   const bucket = profile.bucket === "none" ? "none" : profile.bucket === "oneOrTwo" ? "one-or-two" : "three-or-more";

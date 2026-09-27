@@ -47,7 +47,8 @@
     "measure:award-ordering-tables": "tsx scripts/measureAwardOrderingTables.ts",
     "measure:selection-agreement": "tsx scripts/measureSelectionAgreement.ts",
     "publish:live-windows": "tsx --env-file=.env scripts/publishLiveWindows.ts",
-    "measure:ledger-tenets": "tsx scripts/measureLedgerTenets.ts"
+    "measure:ledger-tenets": "tsx scripts/measureLedgerTenets.ts",
+    "measure:champ-cutoff": "tsx scripts/measureChampCutoff.ts"
   },
   "dependencies": {
     "better-sqlite3": "13.0.3",

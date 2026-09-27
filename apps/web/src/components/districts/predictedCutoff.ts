@@ -45,7 +45,7 @@
  * No React, no Worker type, nothing that is not a number in or out.
  */
 import { pointsRaceSlots, type QualifierSets } from "../../../../../packages/core/districts/locks.js";
-import { pointPercentiles } from "../../../../../packages/core/districts/pointSummary.js";
+import { pointPercentiles, type PointPercentiles } from "../../../../../packages/core/districts/pointSummary.js";
 
 /**
  * The MINIMUM the cutoff needs from one team's row: the median predicted grand
@@ -171,6 +171,12 @@ export function simulatedCutoffRange(
   cutoffByRun: ArrayLike<number> | undefined,
   draws: number
 ): SimulatedCutoffRange | undefined {
+  const percentiles = runCutoffPercentiles(cutoffByRun, draws);
+  return percentiles === undefined ? undefined : { p10: percentiles.p10, p90: percentiles.p90 };
+}
+
+/** The run cutoffs through the shipped `pointPercentiles`, on the one histogram convention; `undefined` on the same refusals as `simulatedCutoffRange`. */
+function runCutoffPercentiles(cutoffByRun: ArrayLike<number> | undefined, draws: number): PointPercentiles | undefined {
   if (cutoffByRun === undefined) return undefined;
   if (cutoffByRun.length === 0) return undefined;
   if (!Number.isFinite(draws) || draws <= 0) return undefined;
@@ -189,8 +195,37 @@ export function simulatedCutoffRange(
     histogram[index] = histogram[index]! + 1;
   }
 
-  const percentiles = pointPercentiles(histogram, draws);
-  return { p10: percentiles.p10, p90: percentiles.p90 };
+  return pointPercentiles(histogram, draws);
+}
+
+/** The champ tab's simulated line: its median as a whole number, and its 10 to 90 likely range from the same call. */
+export interface SimulatedChampLine {
+  readonly points: number;
+  readonly likely: SimulatedCutoffRange;
+}
+
+/**
+ * THE SIMULATED LINE (quick task 260927-6bf, decision L2): the median of the
+ * per run line the champ run keeps, after each run's DCMP winning alliance and
+ * drawn award winners have taken their slots, with its 10th to 90th
+ * percentile range. ONE call yields both, on the same histogram convention as
+ * `simulatedCutoffRange`, so the printed figure and its range cannot come from
+ * two different derivations. `undefined` on that function's refusals.
+ */
+export function simulatedChampLine(cutoffByRun: ArrayLike<number> | undefined, draws: number): SimulatedChampLine | undefined {
+  if (cutoffByRun === undefined || cutoffByRun.length !== draws) return undefined;
+  // The champ run marks a run with NO line (its drawn winners and awards took
+  // every slot) as NaN. The line is read CONDITIONAL ON ONE EXISTING, which is
+  // the quantity a published cut line is.
+  const withALine: number[] = [];
+  for (let i = 0; i < cutoffByRun.length; i++) {
+    const value = cutoffByRun[i]!;
+    if (Number.isNaN(value)) continue;
+    withALine.push(value);
+  }
+  const percentiles = runCutoffPercentiles(withALine, withALine.length);
+  if (percentiles === undefined) return undefined;
+  return { points: Math.round(percentiles.p50), likely: { p10: percentiles.p10, p90: percentiles.p90 } };
 }
 
 /**

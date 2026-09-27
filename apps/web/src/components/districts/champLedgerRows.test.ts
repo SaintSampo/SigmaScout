@@ -602,3 +602,119 @@ describe("champFieldMembership — the three positions the field can be read at"
     expect(champFieldMembership(unregistered, true, true)).toBe("out");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Quick task 260927-6bf: the walk-forward DCMP estimate
+// ---------------------------------------------------------------------------
+
+describe("buildChampLedgerRows — a rewound position before the DCMP, with estimates", () => {
+  // Both teams REGISTERED for the DCMP (a dcmp tier row), with a priced DCMP
+  // event: at a rewound position that registration is future knowledge.
+  const artifact = artifactOf([
+    team({
+      teamKey: "frc1",
+      pointTotal: 60,
+      eventPoints: [eventPoints({ eventKey: "2026wabon", week: 0, total: 60, qual: 30, alliance: 10, elim: 20, award: 0 })],
+      remainingEvents: [{ eventKey: "2026pncmp", eventName: "PNW DCMP", week: 5, tier: "dcmp", maxPoints: 249, state: state({ qualMatchesPlayed: 0, alliancesPicked: false, playoffsDone: false, awardsPosted: false }) }],
+    }),
+    team({
+      teamKey: "frc2",
+      pointTotal: 40,
+      eventPoints: [eventPoints({ eventKey: "2026wabon", week: 0, total: 40, qual: 20, alliance: 10, elim: 10, award: 0 })],
+      remainingEvents: [{ eventKey: "2026pncmp", eventName: "PNW DCMP", week: 5, tier: "dcmp", maxPoints: 249, state: state({ qualMatchesPlayed: 0, alliancesPicked: false, playoffsDone: false, awardsPosted: false }) }],
+    }),
+  ]);
+  const stageByEvent = new Map<string, DistrictStageFinality>([
+    ["2026wabon", ALL_FINAL],
+    ["2026pncmp", ALL_OPEN],
+  ]);
+  // The REAL roster's pricing: a leak if it ever reaches a rewound row.
+  const realRoster = new Map([
+    ["2026pncmp", distributionsFor("2026pncmp", { frc1: { qual: uniform(60), alliance: uniform(40), elim: uniform(90), award: uniform(30), eventTotal: uniform(200) }, frc2: { qual: uniform(60), alliance: uniform(40), elim: uniform(90), award: uniform(30), eventTotal: uniform(200) } })],
+  ]);
+  const estimate = { distribution: { counts: Float64Array.from([0, 0, 0, 0, 0, 1, 1]), denominator: 2 }, winChance: 0.25 };
+  const dcmpEstimateByTeam = new Map([
+    ["frc1", estimate],
+    ["frc2", estimate],
+  ]);
+  const rows = buildChampLedgerRows({
+    artifact,
+    distributions: realRoster,
+    stageByEvent,
+    fieldChanceByTeam: new Map([
+      ["frc1", 1],
+      ["frc2", 0.5],
+    ]),
+    dcmpStarted: false,
+    atLivePosition: false,
+    dcmpEstimateByTeam,
+  });
+  const byKey = new Map(rows.teams.map((entry) => [entry.teamKey, entry] as const));
+
+  it("prices every non out team from the estimate, never from the real roster", () => {
+    for (const entry of rows.teams) {
+      expect(entry.membership).toBe("open");
+      expect(entry.dcmpRow.estimated).toBe(true);
+      for (const cell of entry.dcmpRow.cells) expect(cell.kind).toBe("notYetPriced");
+      expect(entry.dcmpRow.subtotal.kind).toBe("open");
+      if (entry.dcmpRow.subtotal.kind === "open") expect(entry.dcmpRow.subtotal.distribution).toBe(estimate.distribution);
+    }
+  });
+
+  it("keeps the dcmp pass's own sources, so the status floors and ceilings are untouched", () => {
+    expect(byKey.get("frc1")!.dcmpRow.sources.map((source) => source.eventKey)).toEqual(["2026pncmp"]);
+  });
+
+  it("counts the open DCMP subtotal: a chance 1 team whose district is final still has an open category", () => {
+    const top = byKey.get("frc1")!;
+    expect(top.districtRow.subtotal.kind).toBe("final");
+    expect(top.hasOpenCategory).toBe(true);
+    expect(top.grandTotal.kind).toBe("open");
+  });
+
+  it("adds nobody to the district only list", () => {
+    expect(rows.gaps.teamsWithDistrictOnlyGrandTotal).toEqual([]);
+    expect(rows.teams.every((entry) => !entry.grandTotalIsDistrictOnly)).toBe(true);
+  });
+
+  it("exposes the split parts the champ run draws: the district part and the DCMP part with its chances", () => {
+    const top = byKey.get("frc1")!;
+    expect(probabilityAt(top.districtPart!, 60)).toBe(1);
+    expect(top.dcmpPart).toEqual({ distribution: estimate.distribution, fieldChance: 1, winChance: 0.25 });
+    expect(byKey.get("frc2")!.dcmpPart!.fieldChance).toBe(0.5);
+  });
+
+  it("without an estimate map keeps the shipped rule: the priced championship row is read", () => {
+    const shipped = buildChampLedgerRows({ artifact, distributions: realRoster, stageByEvent, dcmpStarted: false, atLivePosition: false });
+    for (const entry of shipped.teams) {
+      expect(entry.dcmpRow.estimated).toBe(false);
+      expect(entry.dcmpRow.cells.every((cell) => cell.kind === "open")).toBe(true);
+    }
+  });
+
+  it("at the live position reads a registered team's own event row, with its winner mass as the win chance", () => {
+    const live = buildChampLedgerRows({ artifact, distributions: realRoster, dcmpStarted: false, atLivePosition: true, dcmpEstimateByTeam });
+    const top = live.teams.find((entry) => entry.teamKey === "frc1")!;
+    expect(top.membership).toBe("in");
+    expect(top.dcmpRow.estimated).toBe(false);
+    const winner = maxEventPoints(SEASON, "dcmp").elim;
+    expect(top.dcmpPart!.winChance).toBeCloseTo(1 / 91, 12);
+    expect(winner).toBe(90);
+  });
+
+  it("estimates an unregistered open team at the live position", () => {
+    const openArtifact = artifactOf([
+      team({ teamKey: "frc3", pointTotal: 30, eventPoints: [eventPoints({ eventKey: "2026wabon", week: 0, total: 30 })] }),
+    ]);
+    const live = buildChampLedgerRows({
+      artifact: openArtifact,
+      distributions: new Map(),
+      dcmpStarted: false,
+      atLivePosition: true,
+      fieldChanceByTeam: new Map([["frc3", 0.4]]),
+      dcmpEstimateByTeam: new Map([["frc3", estimate]]),
+    });
+    expect(live.teams[0]!.dcmpRow.estimated).toBe(true);
+    expect(live.gaps.teamsWithDistrictOnlyGrandTotal).toEqual([]);
+  });
+});

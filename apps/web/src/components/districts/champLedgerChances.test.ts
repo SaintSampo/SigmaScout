@@ -11,9 +11,15 @@ import { buildChampLedgerRows, type ChampLedgerTeam } from "./champLedgerRows.js
 import { computeChampLedgerStatuses, type ChampLedgerStatusModel } from "./champLedgerStatus.js";
 import {
   buildChampAdvancementChanceRun,
+  buildChampAwardDraws,
+  champFieldChances,
+  champRangeState,
   districtFieldMembershipChances,
+  hypotheticalDcmpEstimates,
   reconcileChampAdvancementChances,
+  type ChampRangeStateInputs,
 } from "./champLedgerChances.js";
+import { CHAMP_CUTOFF_TUNING_GRID } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
 import type { DistrictLedgerStatusModel, DistrictLedgerStatusState } from "./districtLedgerStatus.js";
 import type { DistrictEventDistributions, DistrictPointDistribution, DistrictStageFinality } from "./districtLedgerRows.js";
 
@@ -355,5 +361,254 @@ describe("reconcileChampAdvancementChances", () => {
     );
     expect(model.byTeam.size).toBe(0);
     expect(model.gaps).toEqual(["frcLocked", "frcLockedOut"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Quick task 260927-6bf: the simulated line's pure halves
+// ---------------------------------------------------------------------------
+
+describe("champFieldChances", () => {
+  const statuses = districtStatusesOf({ frcLocked: "locked", frcOut: "lockedOut", frcIn: "inRange", frcBubble: "outOfRange", frcUnknown: "capacityUnknown" });
+
+  it("reads the settled district tier as a settled tie: In range 1, Out of range 0", () => {
+    const chances = champFieldChances(statuses, undefined, true);
+    expect(chances.get("frcIn")).toBe(1);
+    expect(chances.get("frcBubble")).toBe(0);
+    expect(chances.get("frcLocked")).toBe(1);
+    expect(chances.get("frcOut")).toBe(0);
+    expect(chances.has("frcUnknown")).toBe(false);
+  });
+
+  it("reads the marginal where the district run returned one", () => {
+    const chances = champFieldChances(statuses, new Map([["frcIn", 0.8], ["frcBubble", 0.3]]), false);
+    expect(chances.get("frcIn")).toBe(0.8);
+    expect(chances.get("frcBubble")).toBe(0.3);
+  });
+
+  it("leaves In range and Out of range ABSENT while the district run is in flight", () => {
+    const chances = champFieldChances(statuses, undefined, false);
+    expect(chances.has("frcIn")).toBe(false);
+    expect(chances.has("frcBubble")).toBe(false);
+    expect(chances.get("frcLocked")).toBe(1);
+  });
+});
+
+describe("hypotheticalDcmpEstimates", () => {
+  const districtTeams = [
+    { teamKey: "frc1", projection: 120 },
+    { teamKey: "frc2", projection: 80 },
+    { teamKey: "frc3", projection: 40 },
+  ];
+
+  it("is ready with one estimate per team, a stronger field rank priced higher", () => {
+    const result = hypotheticalDcmpEstimates({ season: 2026, districtTeams, fieldChanceFor: () => 1, spreadScale: 1 });
+    expect(result.kind).toBe("ready");
+    if (result.kind !== "ready") return;
+    expect([...result.byTeam.keys()].sort()).toEqual(["frc1", "frc2", "frc3"]);
+    const mean = (key: string): number => {
+      const { counts, denominator } = result.byTeam.get(key)!.distribution;
+      let sum = 0;
+      for (let i = 0; i < counts.length; i++) sum += i * counts[i]!;
+      return sum / denominator;
+    };
+    expect(mean("frc1")).toBeGreaterThan(mean("frc3"));
+    expect(result.byTeam.get("frc1")!.winChance).toBeGreaterThan(result.byTeam.get("frc3")!.winChance);
+  });
+
+  it("is noTable, a TERMINAL answer, for a season with no earlier history (2016)", () => {
+    expect(hypotheticalDcmpEstimates({ season: 2016, districtTeams, fieldChanceFor: () => 1, spreadScale: 1 }).kind).toBe("noTable");
+  });
+
+  it("is awaitingFieldChances, a TRANSIENT answer, while an open team lacks a chance", () => {
+    const result = hypotheticalDcmpEstimates({ season: 2026, districtTeams, fieldChanceFor: (key) => (key === "frc2" ? undefined : 1), spreadScale: 1 });
+    expect(result.kind).toBe("awaitingFieldChances");
+  });
+});
+
+describe("buildChampAwardDraws", () => {
+  const rookie = { bucket: "none" as const, rookie: true };
+  const veteran = { bucket: "threeOrMore" as const, rookie: false };
+  function awardArtifact(dcmpAwardsPosted: boolean): DistrictArtifact {
+    return artifactOf([
+      team({
+        teamKey: "frc1",
+        awardProfile: veteran,
+        eventPoints: [
+          eventPoints({ eventKey: "2026wabon", week: 0 }),
+          eventPoints({ eventKey: "2026pncmp", week: 5, tier: "dcmp", state: state({ awardsPosted: dcmpAwardsPosted }) }),
+        ],
+        qualifyingAwards: [
+          { eventKey: "2026wabon", awardType: 0, label: "Impact", awardOnly: false },
+          // A DCMP tier award: must NEVER become a candidate.
+          { eventKey: "2026pncmp", awardType: 9, label: "EI", awardOnly: false },
+        ],
+      }),
+      team({
+        teamKey: "frc2",
+        awardProfile: rookie,
+        eventPoints: [eventPoints({ eventKey: "2026wabon", week: 0 })],
+        qualifyingAwards: [{ eventKey: "2026wabon", awardType: 10, label: "RAS", awardOnly: true }],
+      }),
+      team({
+        teamKey: "frc3",
+        awardProfile: veteran,
+        remainingEvents: [{ eventKey: "2026wasno", eventName: "Sno", week: 2, tier: "district", maxPoints: 83, state: state({ awardsPosted: false, playoffsDone: false, alliancesPicked: false, qualMatchesPlayed: 0 }) }],
+        qualifyingAwards: [],
+      }),
+    ]);
+  }
+
+  it("lists district winners of each award as candidates and never a dcmp tier award", () => {
+    const draws = buildChampAwardDraws({ artifact: awardArtifact(false), setting: CHAMP_CUTOFF_TUNING_GRID[0]! });
+    expect(draws.map((draw) => draw.awardType)).toEqual([0, 9, 10]);
+    expect(draws[0]!.candidates.map((c) => c.teamKey)).toEqual(["frc1"]);
+    expect(draws[1]!.candidates).toEqual([]);
+    expect(draws[2]!.candidates).toEqual([{ teamKey: "frc2", weight: 1 }]);
+  });
+
+  it("adds each district event whose award stage is open as a pending event, with eligibility applied", () => {
+    const draws = buildChampAwardDraws({ artifact: awardArtifact(false), setting: CHAMP_CUTOFF_TUNING_GRID[0]! });
+    const pendingRas = draws[2]!.pendingEvents;
+    expect(pendingRas.map((event) => event.eventKey)).toEqual(["2026wasno"]);
+    // frc3 is a veteran: ineligible for Rookie All Star, eligible for Engineering Inspiration.
+    expect(pendingRas[0]!.entrants).toEqual([{ teamKey: "frc3", weight: 0 }]);
+    expect(draws[1]!.pendingEvents[0]!.entrants).toEqual([{ teamKey: "frc3", weight: 1 }]);
+  });
+
+  it("reads a rewound stage: an award stage not final at the position is no candidate yet", () => {
+    const stageByEvent = new Map<string, DistrictStageFinality>([
+      ["2026wabon", { ...ALL_FINAL, award: false }],
+      ["2026pncmp", ALL_OPEN],
+      ["2026wasno", ALL_OPEN],
+    ]);
+    const draws = buildChampAwardDraws({ artifact: awardArtifact(true), stageByEvent, setting: CHAMP_CUTOFF_TUNING_GRID[0]! });
+    expect(draws[0]!.candidates).toEqual([]);
+    expect(draws[0]!.pendingEvents.map((event) => event.eventKey)).toEqual(["2026wabon", "2026wasno"]);
+  });
+
+  it("returns [] once the DCMP awards stage is final at the position", () => {
+    expect(buildChampAwardDraws({ artifact: awardArtifact(true), setting: CHAMP_CUTOFF_TUNING_GRID[0]! })).toEqual([]);
+  });
+
+  it("weights by the award base rate under decoration", () => {
+    const decoration = CHAMP_CUTOFF_TUNING_GRID.find((setting) => setting.weighting === "decoration")!;
+    const draws = buildChampAwardDraws({ artifact: awardArtifact(false), setting: decoration });
+    const weight = draws[0]!.candidates[0]!.weight;
+    expect(weight).toBeGreaterThan(0);
+    expect(weight).toBeLessThan(1);
+  });
+});
+
+describe("champRangeState — ONE state for the chips and the line", () => {
+  const COMPLETE_LINE = Float64Array.from({ length: 10 }, (_unused, i) => 150 + i);
+  function inputs(overrides: Partial<ChampRangeStateInputs> = {}): ChampRangeStateInputs {
+    return {
+      dcmpAwardsFinal: false,
+      cmpSlots: 21,
+      perEventRunSignature: "sig",
+      districtRun: { built: true, status: "complete", current: true },
+      estimates: "ready",
+      unpricedInTeams: 0,
+      champRun: { built: true, status: "complete", current: true, excludedTeams: [], cutoffByRun: COMPLETE_LINE, draws: 10 },
+      ...overrides,
+    };
+  }
+
+  it("walks pending, then simulated, over a scripted sequence of run states", () => {
+    const sequence: ChampRangeStateInputs[] = [
+      inputs({ perEventRunSignature: null }),
+      inputs({ districtRun: { built: true, status: "idle" } }),
+      inputs({ districtRun: { built: true, status: "running" } }),
+      inputs({ districtRun: { built: true, status: "complete", current: false } }),
+      inputs({ champRun: { built: true, status: "idle" } }),
+      inputs({ champRun: { built: true, status: "running" } }),
+      inputs({ champRun: { built: true, status: "complete", current: false } }),
+      inputs(),
+    ];
+    const kinds = sequence.map((step) => champRangeState(step).kind);
+    expect(kinds).toEqual(["pending", "pending", "pending", "pending", "pending", "pending", "pending", "simulated"]);
+    const last = champRangeState(inputs());
+    expect(last).toMatchObject({ kind: "simulated" });
+    if (last.kind === "simulated") expect(last.likely.p10).toBeLessThan(last.likely.p90);
+  });
+
+  it("reaches every named noCall reason, and never a rank rule outside settled", () => {
+    const reasons = [
+      champRangeState(inputs({ districtRun: { built: true, status: "error" } })),
+      champRangeState(inputs({ estimates: "noTable" })),
+      champRangeState(inputs({ districtRun: { built: false, status: "idle" }, estimates: "awaitingFieldChances" })),
+      champRangeState(inputs({ unpricedInTeams: 1 })),
+      champRangeState(inputs({ champRun: { built: false, status: "idle" } })),
+      champRangeState(inputs({ champRun: { built: true, status: "error" } })),
+      champRangeState(inputs({ champRun: { built: true, status: "complete", current: true, excludedTeams: ["frc1"], cutoffByRun: COMPLETE_LINE, draws: 10 } })),
+      champRangeState(inputs({ champRun: { built: true, status: "complete", current: true, excludedTeams: [], draws: 10 } })),
+    ];
+    expect(reasons.map((state) => (state.kind === "noCall" ? state.reason : state.kind))).toEqual([
+      "workerError",
+      "noHistoryTable",
+      "noFieldChance",
+      "unpricedDcmp",
+      "runRefused",
+      "workerError",
+      "teamsExcluded",
+      "noLine",
+    ]);
+  });
+
+  it("is settled once the DCMP awards are final or the capacity is unpublished, whatever else is in flight", () => {
+    expect(champRangeState(inputs({ dcmpAwardsFinal: true, perEventRunSignature: null })).kind).toBe("settled");
+    expect(champRangeState(inputs({ cmpSlots: null, champRun: { built: false, status: "error" } })).kind).toBe("settled");
+  });
+
+  it("maps every transient input to pending, never noCall", () => {
+    for (const step of [
+      inputs({ perEventRunSignature: null, estimates: "noTable" }),
+      inputs({ districtRun: { built: true, status: "running" }, estimates: "awaitingFieldChances" }),
+      inputs({ champRun: { built: true, status: "running" } }),
+    ]) {
+      expect(champRangeState(step).kind).toBe("pending");
+    }
+  });
+});
+
+describe("buildChampAdvancementChanceRun — champ mode", () => {
+  it("posts the shipped run byte for byte when no award draws are supplied", () => {
+    const built = build({});
+    const run = runOf(built)!;
+    expect(run.inputs.awardDraws).toBeUndefined();
+    expect(run.inputs.teams.every((t) => t.dcmp === undefined)).toBe(true);
+  });
+
+  it("posts split district and DCMP parts plus the draw spec when award draws are supplied, and the signature moves with them", () => {
+    const built = build({});
+    const awardDraws = [{ awardType: 0, countWeights: [0, 1], candidates: [{ teamKey: "frc20", weight: 1 }], pendingEvents: [] }];
+    const champ = buildChampAdvancementChanceRun({
+      artifact: built.artifact,
+      teams: built.teams,
+      statuses: built.statuses,
+      runSignature: "run-1",
+      positionId: "now",
+      dcmpEventKey: "2026pncmp",
+      fieldChanceByTeam: built.fieldChanceByTeam,
+      awardDraws,
+    })!;
+    expect(champ.inputs.awardDraws).toEqual(awardDraws);
+    const first = champ.inputs.teams[0]!;
+    expect(first.dcmp).toBeDefined();
+    expect(first.dcmp!.fieldChance).toBe(0.5);
+    expect(champ.excludedTeams).toEqual([]);
+    expect(champ.signature).not.toBe(runOf(built)!.signature);
+    const other = buildChampAdvancementChanceRun({
+      artifact: built.artifact,
+      teams: built.teams,
+      statuses: built.statuses,
+      runSignature: "run-1",
+      positionId: "now",
+      dcmpEventKey: "2026pncmp",
+      fieldChanceByTeam: built.fieldChanceByTeam,
+      awardDraws: [{ ...awardDraws[0]!, countWeights: [0.5, 0.5] }],
+    })!;
+    expect(other.signature).not.toBe(champ.signature);
   });
 });
