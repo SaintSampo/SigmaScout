@@ -129,6 +129,9 @@ export const TEAM_CELL_CLASS = "sticky left-0 z-10 bg-[var(--color-bg-surface)] 
 /** The rewind rail's own id, so its label can sit beside the position readout instead of wrapping the control. */
 export const REWIND_INPUT_ID = "district-ledger-rewind-input";
 
+/** The rail's tick-mark datalist id: the browser draws a mark at each anchor and pulls a nearby drag onto it. */
+export const REWIND_TICKS_ID = "district-ledger-rewind-ticks";
+
 /** How long the hand must pause on the slider before its position is committed to the URL and the simulation. */
 export const REWIND_COMMIT_DELAY_MS = 160;
 
@@ -789,10 +792,20 @@ export function RewindSlider({
           value={Math.round((fractions[thumbIndex] ?? 1) * REWIND_RAIL_MAX)}
           aria-valuetext={timeline.positions[thumbIndex]?.label}
           data-now-index={timeline.nowIndex}
+          list={REWIND_TICKS_ID}
           onChange={(event) => handleThumbChange(nearestRailPosition(fractions, Number(event.target.value) / REWIND_RAIL_MAX))}
           onKeyDown={handleKeyDown}
           className="district-ledger-slider w-full"
         />
+        {/* Tick marks on the track itself, one per jump chip, at the same
+            fixed anchors the labels below use (Jacob, 2026-09-27: ticks make
+            the slider easier to use). The browser also pulls a drag that ends
+            near a mark onto it, so landing exactly on a week is easy. */}
+        <datalist id={REWIND_TICKS_ID}>
+          {ticks.map((tick) => (
+            <option key={tick.id} value={Math.round((tick.percent / 100) * REWIND_RAIL_MAX)} />
+          ))}
+        </datalist>
       </div>
       <div className="district-ledger-ticks" data-testid="district-ledger-ticks" aria-hidden="true">
         {ticks.map((tick) => (
