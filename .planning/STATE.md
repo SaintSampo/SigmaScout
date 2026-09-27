@@ -6,7 +6,7 @@ current_phase: 10
 current_phase_name: district-points-ledger
 status: executing
 stopped_at: Completed 10-08-PLAN.md
-last_updated: "2026-09-27T06:04:52.355Z"
+last_updated: "2026-09-27T20:21:25.401Z"
 last_activity: 2026-09-27
 last_activity_desc: Phase 10 execution started
 progress:
@@ -688,6 +688,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 251 | Champ Locks tab as the sketch 022 ledger: District points and DCMP points rows per team, champ tier statuses, DCMP in the fetch and chance runs, not-yet-priced window, old table deleted; Road to District Champs renamed District Locks | 2026-09-26 | 8400aa10 | [260925-xab-champ-locks-tab-as-the-sketch-022-ledger](./quick/260925-xab-champ-locks-tab-as-the-sketch-022-ledger/) |
 | 252 | Predicted cutoff replaces Today's line on both locks tabs: midpoint of the In range / Out of range boundary pair, likely range from the simulated line, one value on the stat line and the histogram | 2026-09-26 | e6412f2f | [260926-37q-predicted-cutoff-replaces-today-s-line-o](./quick/260926-37q-predicted-cutoff-replaces-today-s-line-o/) |
 | 253 | Rewind slider week ticks no longer move while rewinding, and now sits on the tick row | 2026-09-27 | d12f5547 | — |
+| 254 | Locks page rewind slider gets native tick marks at each week anchor | 2026-09-27 | d195e47d | — |
 
 ### Roadmap Evolution
 
