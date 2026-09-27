@@ -32,6 +32,7 @@ import {
 import {
   CHAMP_LEDGER_ROWS,
   buildChampLedgerRows,
+  earnedAtPositionOf,
   champCellId,
   champContributions,
   champFieldMembership,
@@ -716,5 +717,56 @@ describe("buildChampLedgerRows — a rewound position before the DCMP, with esti
     });
     expect(live.teams[0]!.dcmpRow.estimated).toBe(true);
     expect(live.gaps.teamsWithDistrictOnlyGrandTotal).toEqual([]);
+  });
+});
+
+describe("ChampLedgerTeam.earnedAtPosition — the rewound header (finding 4)", () => {
+  // One team that played a district event (qual 20, alliance 10, elim 10,
+  // award 5) and then the DCMP (qual 30, alliance 15, elim 0, award 0), with a
+  // rookie bonus of 8 and an adjustment of 2: pointTotal 100.
+  const artifact = artifactOf([
+    team({
+      teamKey: "frc1",
+      pointTotal: 100,
+      rookieBonus: 8,
+      adjustments: 2,
+      eventPoints: [
+        eventPoints({ eventKey: "2026wabon", week: 0, qual: 20, alliance: 10, elim: 10, award: 5, total: 45 }),
+        eventPoints({ eventKey: "2026pncmp", week: 5, tier: "dcmp", qual: 30, alliance: 15, elim: 0, award: 0, total: 45 }),
+      ],
+    }),
+  ]);
+  const at = (stageByEvent: ReadonlyMap<string, DistrictStageFinality> | undefined) =>
+    buildChampLedgerRows({ artifact, distributions: new Map(), ...(stageByEvent === undefined ? {} : { stageByEvent }), fieldChanceByTeam: new Map([["frc1", 1]]) })
+      .teams[0]!;
+
+  it("equals pointTotal at now, exactly as the header printed before", () => {
+    expect(at(undefined).earnedAtPosition).toBe(100);
+    expect(earnedAtPositionOf(artifact.teams[0]!, undefined)).toBe(100);
+  });
+
+  it("excludes the DCMP points a team earned later, at a rewound position before the DCMP", () => {
+    const beforeDcmp = new Map<string, DistrictStageFinality>([
+      ["2026wabon", ALL_FINAL],
+      ["2026pncmp", ALL_OPEN],
+    ]);
+    expect(at(beforeDcmp).earnedAtPosition).toBe(55);
+    expect(at(beforeDcmp).earnedAllTierTotal).toBe(100);
+  });
+
+  it("is the rookie bonus plus the adjustments at season start", () => {
+    const seasonStart = new Map<string, DistrictStageFinality>([
+      ["2026wabon", ALL_OPEN],
+      ["2026pncmp", ALL_OPEN],
+    ]);
+    expect(at(seasonStart).earnedAtPosition).toBe(10);
+  });
+
+  it("subtracts only the categories still open: mid playoffs keeps qual and alliance", () => {
+    const midPlayoffs = new Map<string, DistrictStageFinality>([
+      ["2026wabon", { qual: true, alliance: true, elim: false, award: false }],
+      ["2026pncmp", ALL_OPEN],
+    ]);
+    expect(at(midPlayoffs).earnedAtPosition).toBe(40);
   });
 });

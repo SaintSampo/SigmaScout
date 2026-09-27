@@ -693,3 +693,69 @@ export function champLedgerContributionChanceNote(chance: number): string {
  */
 export const CHAMP_LEDGER_CONTRIBUTION_CAPTION =
   "A settled row contributes its earned points exactly. An open one contributes the predicted total beside it. While a team's place in the District Championship field is still open, the championship row is weighted by the chance of being there, so the grand total sits below the two rows added together.";
+
+// ---------------------------------------------------------------------------
+// The simulated champ cutoff (quick task 260927-6bf)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE TWO WITHHELD CHIPS, per Jacob's 2026-09-27 chip timing decision. While
+ * the simulated line is still being computed, a contending team's chip reads
+ * the neutral `pending` word; where no line can be drawn it reads `No call`.
+ * Neither word says In range or Out of range, because neither side has been
+ * called. Flat, and no dash character.
+ */
+export const CHAMP_LEDGER_RANGE_CALL_LABELS = {
+  pending: "Pending",
+  noCall: "No call",
+} as const;
+
+/** The withheld chips' accessible descriptions. The No call one is completed by the reason. */
+export const CHAMP_LEDGER_RANGE_PENDING_DESCRIPTION =
+  "The simulated cutoff is still running, so this team is not yet called in or out of range.";
+
+/**
+ * Each TERMINAL refusal, named. Printed after the stat line's figure and in
+ * the No call chip's description, lower case so either can carry it.
+ */
+export const CHAMP_LEDGER_NO_CALL_REASONS = {
+  noHistoryTable: "no earlier season to estimate the District Championship from",
+  unpricedDcmp: "a team in the District Championship field has no priced championship points",
+  noFieldChance: "a team's chance of reaching the District Championship could not be computed",
+  runRefused: "the championship run could not be built at this position",
+  teamsExcluded: "a team's grand total could not be built, so the run would rank a smaller field",
+  noLine: "no run left a points slot to read a line at",
+  workerError: "the simulation did not finish in this browser",
+} as const;
+
+/** The No call chip's accessible description: what it means, then why. */
+export function champLedgerNoCallDescription(reason: keyof typeof CHAMP_LEDGER_NO_CALL_REASONS): string {
+  return `No predicted cutoff can be drawn at this position: ${CHAMP_LEDGER_NO_CALL_REASONS[reason]}.`;
+}
+
+/** The stat line's figure while the simulated line is still being computed: a word, never a number. */
+export const CHAMP_LEDGER_CUTOFF_PENDING_FIGURE = "pending";
+
+/**
+ * The grand total plot's caption for the SIMULATED line. It says what the
+ * number is and nothing about a range, which is withheld until its coverage is
+ * calibrated (Jacob, 2026-09-27).
+ */
+export const CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION =
+  "The dashed line is the predicted cutoff, the median of a simulated line. In each run the District Championship winning alliance and its Impact, Engineering Inspiration and Rookie All Star winners take their slots first, and the line is read from the teams left.";
+
+/** What the grand total plot says while the line is still being simulated. */
+export const CHAMP_LEDGER_DRAWER_PENDING_CAPTION = "The predicted cutoff is still being simulated, so no line is drawn yet.";
+
+/** What the grand total plot says where no line can be drawn, with the reason. */
+export function champLedgerDrawerNoCallCaption(reason: keyof typeof CHAMP_LEDGER_NO_CALL_REASONS): string {
+  return champLedgerNoCallDescription(reason);
+}
+
+/**
+ * The DCMP row's small line for an ESTIMATED row: before the District
+ * Championship starts, its points come from how teams at the same place in
+ * past championship fields scored, not from any roster. Printed only when no
+ * field chance line is.
+ */
+export const CHAMP_LEDGER_ESTIMATED_DCMP_LINE = "estimated from past District Championships";

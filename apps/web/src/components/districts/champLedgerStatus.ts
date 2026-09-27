@@ -33,6 +33,17 @@
  *    `insights.cmpCutLinePoints`. If a champ-tier reservation is ever wanted it
  *    is a separate MEASURED task, not a guess here.
  *
+ * 3. IN RANGE / OUT OF RANGE, AS SHOWN, CUT AT THE SIMULATED LINE (quick task
+ *    260927-6bf, decision L2). Decision 1's rank rule above is the VERDICT the
+ *    rest of the tab and the champ run read. What the chips SHOW comes from
+ *    `applyChampRangeState`, below, over the one `champRangeState` the cutoff
+ *    view also reads: until the DCMP awards post, a contending team is In
+ *    range iff its median is at or above the simulated line, and while that
+ *    line is still being computed (Jacob's 2026-09-27 chip timing decision) or
+ *    cannot be drawn at all, the two chips read a neutral placeholder or No
+ *    call, never the rank rule. Once the awards post, nothing is drawn any
+ *    more and the rank rule stands.
+ *
  * AWARD-QUALIFIED AT THIS TIER means the DCMP winning alliance once the
  * playoffs are done, and Impact, Engineering Inspiration or Rookie All Star at
  * the DCMP once awards are posted. A district-event Impact win qualifies a team
@@ -54,6 +65,7 @@ import type { DistrictArtifact } from "../../../../../packages/harness/pageArtif
 import { DISTRICT_CATEGORIES, type DistrictCategory, type DistrictStageFinality } from "./districtLedgerRows.js";
 import { DISTRICT_LEDGER_STATUS_KEYS, type DistrictLedgerStatusKey, type DistrictLedgerStatusState } from "./districtLedgerStatus.js";
 import { dcmpEventKeyFor, type ChampLedgerRow, type ChampLedgerTeam } from "./champLedgerRows.js";
+import type { ChampNoCallReason, ChampRangeState } from "./champLedgerChances.js";
 
 /** Which kind of award locked a team — the chip reads `Locked · winner` or `Locked · award`. */
 export type ChampAwardKind = "winner" | "award";
@@ -323,6 +335,74 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
     prequalified: [...prequalified].sort(),
     reservedSlots,
     pointsSlots,
+  };
+}
+
+/** What a contending team's chip SHOWS while the simulated line is not in hand: a neutral placeholder, never the rank rule. */
+export type ChampRangeCall = "pending" | "noCall";
+
+/** One team's DISPLAYED status. `rangeCall` is set only for a contending team whose In range or Out of range call is withheld. */
+export interface ChampDisplayStatusResult extends ChampLedgerStatusResult {
+  readonly rangeCall?: ChampRangeCall;
+}
+
+/** The statuses the chips render: the verdict model, with the contending teams' calls taken from the range state. */
+export interface ChampDisplayStatusModel extends ChampLedgerStatusModel {
+  readonly byTeam: ReadonlyMap<string, ChampDisplayStatusResult>;
+  /** Set while the In range and Out of range calls are withheld: their filter chips print an em dash, never a count. */
+  readonly withheld: ChampRangeCall | undefined;
+  /** The named terminal reason, for the `noCall` arm alone. */
+  readonly noCallReason: ChampNoCallReason | undefined;
+}
+
+/**
+ * THE CHIPS, from the ONE range state the cutoff view also reads (decision L2
+ * and Jacob's 2026-09-27 chip timing decision).
+ *
+ * Touches ONLY contending teams, the ones decision 1 called In range or Out of
+ * range. Locked, Locked · award, Locked · winner, Locked out, prequalified and
+ * the capacity refusal come straight from the verdicts in every arm, so they
+ * render immediately. Verdicts, `verdictCensus`, `floorCutLine`,
+ * `awardQualified`, `prequalified`, `reservedSlots` and `pointsSlots` pass
+ * through untouched.
+ *
+ * - `settled`: the shipped rank rule, unchanged.
+ * - `simulated`: In range iff the median projection is at or above the line.
+ * - `pending` and `noCall`: the call is WITHHELD. The team is carried as
+ *   `capacityUnknown`, the one state that already means no chip call, no
+ *   chance line and visible under every filter, with `rangeCall` naming why,
+ *   and the two counts read as withheld. The rank rule ordering never leaves
+ *   this function in these two arms.
+ */
+export function applyChampRangeState(
+  statuses: ChampLedgerStatusModel,
+  teams: readonly ChampLedgerTeam[],
+  state: ChampRangeState
+): ChampDisplayStatusModel {
+  if (state.kind === "settled") return { ...statuses, withheld: undefined, noCallReason: undefined };
+  const projectionByTeam = new Map(teams.map((team) => [team.teamKey, team.projection] as const));
+  const byTeam = new Map<string, ChampDisplayStatusResult>();
+  const counts: Record<DistrictLedgerStatusKey, number> = { ...statuses.counts, inRange: 0, outOfRange: 0 };
+  for (const [teamKey, result] of statuses.byTeam) {
+    if (result.status !== "inRange" && result.status !== "outOfRange") {
+      byTeam.set(teamKey, result);
+      continue;
+    }
+    if (state.kind === "simulated") {
+      const projection = projectionByTeam.get(teamKey);
+      const status = projection !== undefined && projection >= state.points ? "inRange" : "outOfRange";
+      counts[status] += 1;
+      byTeam.set(teamKey, { ...result, status });
+      continue;
+    }
+    byTeam.set(teamKey, { ...result, status: "capacityUnknown", rangeCall: state.kind });
+  }
+  return {
+    ...statuses,
+    byTeam,
+    counts,
+    withheld: state.kind === "simulated" ? undefined : state.kind,
+    noCallReason: state.kind === "noCall" ? state.reason : undefined,
   };
 }
 

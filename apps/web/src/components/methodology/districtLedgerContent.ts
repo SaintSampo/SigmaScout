@@ -66,7 +66,16 @@
  *      a browser, so the figure on this page is the constant itself rather than
  *      a number typed beside it.
  *
- * A figure that appears in none of those six is not written here.
+ *   8. `pnpm measure:champ-cutoff`
+ *      (`npx tsx scripts/measureChampCutoff.ts`, run 2026-09-27, quick task
+ *      260927-6bf) — the Champ Locks simulated line's error at the end of each
+ *      district season, walk forward over 68 district seasons: 16.4 points
+ *      against 41.0 for the midpoint rule at the same position. Its likely
+ *      range covered the published line in 49 of 69 seasons, short of the
+ *      pre-registered band, which is why the page says the range is withheld
+ *      rather than quoting it.
+ *
+ * A figure that appears in none of those sources is not written here.
  *
  * NO SUBSECTION LEVEL, deliberately. `awardsContent.ts` needed one because its
  * results split four ways; each of this page's six sections is one idea, so a
@@ -114,7 +123,8 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
       "A team earns district points at every district event it plays. Four categories make up an event total, and a team's event totals make up its season total.",
       "Every formula below reproduces the value The Blue Alliance itself reports, checked row by row across ten seasons.",
       "A team is also Locked when the points still available in the district cannot lift enough rivals past it. Points are shared out inside an event, so the whole district has far fewer points left than the sum of what every rival could reach on its own. Either test is enough on its own, and both are applied at every position.",
-      "The Champ Locks tab predicts each team's finish in the race for the district's FIRST Championship slots, adding the District Championship's own four categories to the district season total. Before the championship field is set, that row shows what a team would earn if it is there, and only the grand total folds in the chance of being there. Where the field has not been published at all the row reads not yet priced, and the grand total is the district season alone.",
+      "The Champ Locks tab predicts each team's finish in the race for the district's FIRST Championship slots, adding the District Championship's own four categories to the district season total. Until the championship field is set, a team's championship points are estimated from how teams at the same place in past championship fields scored, using only seasons before the one shown. Only the grand total folds in the chance of being there, and the four championship categories read not yet priced.",
+      "Once the field is set, the championship's own prediction replaces the estimate. A season with no earlier season to learn from shows the district season alone.",
     ],
     table: {
       caption: "The four categories, and what a district championship is worth",
@@ -162,7 +172,11 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
       "Clicking a Playoffs, Awards or Alliance selection cell lists the outcomes that category can pay rather than drawing a histogram. Each row names one outcome and carries the share of runs that produced it, read from the same runs the cell's own figure comes from. Rows the bracket or the ranking has already ruled out are left off.",
       "The Alliance selection cell names the likelier of the two routes onto a playoff alliance, either captaining one or being picked onto one. The points alone cannot tell those two apart, because a captain and a first pick earn the same amount on the same alliance. Once qualification is over the ranking is settled, so the cell prints the exact points and the alliance the draft gives that team.",
       "Every team still in the points race also carries its chance of qualifying on district points, which is the share of 1,000 runs where its season total lands inside the qualifying slots. Each team's total is drawn on its own, so the runs miss the fact that two teams at one event compete for the same points. A chance never moves a status, and a team whose place is already settled prints none.",
-      "Each Locks tab also prints a predicted cutoff, the midpoint of the last team inside the slots and the first team outside them, taken over the same pool of teams still racing for points that the statuses use. The likely range beside it is the 10th to the 90th percentile of where that line landed across the 1,000 runs, and the dashed line on every grand total plot is drawn at the same number. The cutoff follows the ranking and never moves a status.",
+      "The District Locks tab also prints a predicted cutoff, the midpoint of the last team inside the slots and the first team outside them, taken over the same pool of teams still racing for points that the statuses use. The likely range beside it is the 10th to the 90th percentile of where that line landed across the 1,000 runs, and the dashed line on every grand total plot is drawn at the same number. The cutoff follows the ranking and never moves a status.",
+      "On the Champ Locks tab the predicted cutoff is the median of a simulated line. In each run the District Championship winning alliance and its Impact, Engineering Inspiration and Rookie All Star winners are drawn and take their slots first, and the line is read from the teams left. Award winners come from that season's district winners of the same award, and each award's count starts from the number the district gave the season before.",
+      "Teams at or above that line are In range and teams below it are Out of range. Until the runs finish those two chips read Pending, and where no line can be drawn they read No call. Once the District Championship awards are posted nothing is drawn any more, and the midpoint rule applies.",
+      "At the end of each district season, predicted only from the seasons before it, the simulated line missed the published line by 16.4 points on average over 68 district seasons, against 41.0 for the midpoint rule. Its likely range is withheld until its coverage is calibrated.",
+      "On the Champ Locks tab a run also counts a team as qualified when it lands on the winning alliance or draws one of those awards.",
     ],
     table: {
       caption: "What decides each open category",
@@ -211,6 +225,7 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
       "The full table, its sample sizes and the cells that cannot be scored are on the Predicting awards page.",
       "Two awards at one event are never a predicted outcome. The tables did measure teams that won Rookie All Star and a judged award, or Impact and one more, and that share of the mass is moved onto the higher award of the pair instead. The most it costs any 2026 rate is 0.022 of a point of expected award points, which buys an award cell that never offers an outcome a reader should not plan around.",
       "No award prediction moves a team's status. A Locked verdict stays a guarantee.",
+      "A team with no published award profile is priced as a veteran with no prior judged awards.",
       "One qualification slot is held back for every district event whose Impact award is still to come. The Impact winner at a district event takes a slot, so a team is never told it is Locked on a slot an award is about to claim. A slot held back this way returns to the points race as soon as that award is posted.",
     ],
   },

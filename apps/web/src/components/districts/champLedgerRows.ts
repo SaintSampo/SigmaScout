@@ -208,8 +208,18 @@ export interface ChampLedgerTeam {
   /** 1-based index in the sorted order — the `#` the Team cell prints and the In range rank rule reads. */
   readonly position: number;
   readonly rookieBonus: number;
-  /** The artifact's own `pointTotal`: the earned all-tier total, the sort's first tie-break. */
+  /** The artifact's own `pointTotal`: the earned all-tier total at the end of the artifact. */
   readonly earnedAllTierTotal: number;
+  /**
+   * THE EARNED TOTAL AT THE POSITION (quick task 260927-6bf, finding 4): the
+   * number the Team cell prints, the sort's first tie-break and the
+   * unavailable grand total's fallback projection. At "now" it is exactly
+   * `earnedAllTierTotal`. Rewound, it is `pointTotal` minus, over every
+   * district and dcmp tier event, the earned points of each category not final
+   * at the position: the same subtraction `champLedgerStatus.ts` makes for the
+   * floor, so a rewound header never prints DCMP points earned later.
+   */
+  readonly earnedAtPosition: number;
   /**
    * The DISTRICT PART the champ run draws: the district subtotal convolved with
    * the rookie bonus and adjustments. `undefined` where the district subtotal
@@ -464,6 +474,7 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
         ? pointMassDistribution(0)
         : distributionOf(dcmpRow.subtotal);
     const earnedAll = team.pointTotal;
+    const earnedAtPosition = earnedAtPositionOf(team, stageByEvent);
 
     // The two parts the champ run draws SEPARATELY, so its DCMP winner and its
     // DCMP points come from one draw (quick task 260927-6bf).
@@ -480,7 +491,7 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
 
     if (districtPart === undefined || (!districtOnly && dcmpPart === undefined)) {
       grandTotal = { id: GRAND_TOTAL_CELL_ID, cell: "grandTotal", kind: "unavailable" };
-      projection = earnedAll;
+      projection = earnedAtPosition;
       teamsWithUnavailableGrandTotal.add(team.teamKey);
     } else {
       try {
@@ -505,7 +516,7 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
         // rule, for the same reason: an absorbed refusal becomes a plausible,
         // complete, wrong row.
         grandTotal = { id: GRAND_TOTAL_CELL_ID, cell: "grandTotal", kind: "unavailable" };
-        projection = earnedAll;
+        projection = earnedAtPosition;
         teamsWithUnavailableGrandTotal.add(team.teamKey);
       }
     }
@@ -526,6 +537,7 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
       position: 0,
       rookieBonus: districtEntry.rookieBonus,
       earnedAllTierTotal: earnedAll,
+      earnedAtPosition,
       districtPart: districtRunPart,
       dcmpPart: dcmpRunPart,
     });
@@ -533,7 +545,7 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
 
   built.sort((a, b) => {
     if (a.projection !== b.projection) return b.projection - a.projection;
-    if (a.earnedAllTierTotal !== b.earnedAllTierTotal) return b.earnedAllTierTotal - a.earnedAllTierTotal;
+    if (a.earnedAtPosition !== b.earnedAtPosition) return b.earnedAtPosition - a.earnedAtPosition;
     return a.teamNumber - b.teamNumber;
   });
 
@@ -549,6 +561,26 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
       teamsWithDistrictOnlyGrandTotal: [...teamsWithDistrictOnlyGrandTotal].sort(),
     },
   };
+}
+
+/**
+ * `ChampLedgerTeam.earnedAtPosition`: `pointTotal` at "now" (no
+ * `stageByEvent`), and rewound, `pointTotal` minus each category not final at
+ * the position over every district and dcmp tier event. A category's stage is
+ * the position's own where the rail supplies one, the event's `state` block
+ * otherwise.
+ */
+export function earnedAtPositionOf(team: DistrictArtifact["teams"][number], stageByEvent: ReadonlyMap<string, DistrictStageFinality> | undefined): number {
+  let earned = team.pointTotal;
+  if (stageByEvent === undefined) return earned;
+  for (const tier of ["district", "dcmp"] as const) {
+    for (const entry of tierEvents(team, tier)) {
+      if (entry.earned === undefined) continue;
+      const final = stageByEvent.get(entry.eventKey) ?? deriveStageFromState(entry.state).final;
+      for (const category of DISTRICT_CATEGORIES) if (!final[category]) earned -= entry.earned[category];
+    }
+  }
+  return earned;
 }
 
 /**

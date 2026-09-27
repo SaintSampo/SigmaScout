@@ -76,6 +76,11 @@ import {
   DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS,
   DISTRICT_LEDGER_SELECTION_ROUTE_WORDS,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
+  CHAMP_LEDGER_CUTOFF_PENDING_FIGURE,
+  CHAMP_LEDGER_DRAWER_PENDING_CAPTION,
+  CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
+  CHAMP_LEDGER_NO_CALL_REASONS,
+  champLedgerDrawerNoCallCaption,
   districtLedgerCutoffFigure,
   districtLedgerCutoffLikelyText,
   districtLedgerNoPointsCaption,
@@ -161,6 +166,19 @@ export function statusChipClass(status: DistrictLedgerStatusKey): string {
   return `lock-status-chip ${STATUS_CHIP_MODIFIER[status]}`;
 }
 
+/** A withheld champ call, as `StatusCell` renders it: the neutral chip's word and its accessible description. */
+export interface StatusPlaceholder {
+  readonly kind: "pending" | "no-call";
+  readonly label: string;
+  readonly description: string;
+}
+
+/** The two chips whose counts a withheld champ call replaces with an em dash. */
+const WITHHELD_STATUS_KEYS: ReadonlySet<DistrictLedgerStatusKey> = new Set(["inRange", "outOfRange"]);
+
+/** The em dash, built from its codepoint so this file never types the glyph. */
+const EM_DASH = String.fromCharCode(0x2014);
+
 /**
  * The Status cell: a chip for the five statuses, plain text with NO chip for
  * the honest capacity-not-published state, and — for an In range or Out of
@@ -185,12 +203,32 @@ export function StatusCell({
   rowSpan,
   chanceLine,
   awardLabel,
+  placeholder,
 }: {
   status: DistrictLedgerStatusResult | undefined;
   rowSpan: number;
   chanceLine: string | undefined;
   awardLabel?: string;
+  /**
+   * THE CHAMP TAB'S WITHHELD CALL (quick task 260927-6bf): a neutral chip in
+   * place of In range or Out of range while the simulated line is pending, or
+   * where no line can be drawn. It wins over `status` and carries no chance
+   * line. The district tab never passes it.
+   */
+  placeholder?: StatusPlaceholder;
 }) {
+  if (placeholder !== undefined) {
+    return (
+      <TableCell rowSpan={rowSpan} data-testid="district-ledger-status-cell" data-status={placeholder.kind} className="whitespace-nowrap align-middle">
+        <div className="flex flex-col items-start gap-[var(--spacing-xs)]">
+          <span className="lock-status-chip lock-status-chip--withheld" title={placeholder.description}>
+            {placeholder.label}
+            <span className="sr-only">. {placeholder.description}</span>
+          </span>
+        </div>
+      </TableCell>
+    );
+  }
   if (status === undefined || status.status === "capacityUnknown") {
     return (
       <TableCell rowSpan={rowSpan} data-testid="district-ledger-status-cell" className="whitespace-nowrap align-middle text-[var(--color-text-muted)]">
@@ -225,10 +263,18 @@ export function StatusChips({
   counts,
   active,
   onToggle,
+  withheld = false,
 }: {
   counts: Readonly<Record<DistrictLedgerStatusKey, number>>;
   active: ReadonlySet<DistrictLedgerStatusKey>;
   onToggle: (status: DistrictLedgerStatusKey) => void;
+  /**
+   * THE CHAMP TAB'S WITHHELD COUNTS (quick task 260927-6bf): while the In range
+   * and Out of range calls are withheld, their two chips print an em dash for
+   * the count, never a number the rank rule produced. The district tab never
+   * passes it.
+   */
+  withheld?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-[var(--spacing-sm)]" data-testid="district-ledger-status-chips">
@@ -247,7 +293,7 @@ export function StatusChips({
             className="district-ledger-chip-button"
           >
             <span className={statusChipClass(status)}>
-              {DISTRICT_LEDGER_STATUS_LABELS[status]} {counts[status]}
+              {DISTRICT_LEDGER_STATUS_LABELS[status]} {withheld && WITHHELD_STATUS_KEYS.has(status) ? EM_DASH : counts[status]}
             </span>
           </button>
         ))}
@@ -327,6 +373,8 @@ export interface LedgerCutoffDisplay {
   readonly markedPosition: number | undefined;
   /** The grand total plot's caption for this arm. */
   readonly caption: string;
+  /** The stat line's small text naming why no cutoff can be drawn, for the `unavailable` arm alone. */
+  readonly reason: string | undefined;
 }
 
 /**
@@ -346,6 +394,7 @@ export function ledgerCutoffDisplay(view: LedgerCutoffView): LedgerCutoffDisplay
       likelyText: undefined,
       markedPosition: undefined,
       caption: DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
+      reason: undefined,
     };
   }
   if (cutoff.kind === "absent") {
@@ -355,9 +404,35 @@ export function ledgerCutoffDisplay(view: LedgerCutoffView): LedgerCutoffDisplay
       likelyText: undefined,
       markedPosition: undefined,
       caption: DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION,
+      reason: undefined,
+    };
+  }
+  // THE CHAMP TAB'S TWO NON FIGURES (quick task 260927-6bf): a line still
+  // being simulated prints a word and draws no rule, and a line that cannot be
+  // drawn prints "not available" with its reason and draws no rule. Neither
+  // ever prints the midpoint in the meantime.
+  if (cutoff.kind === "pending") {
+    return {
+      label: DISTRICT_LEDGER_CUTOFF_LABELS.predicted,
+      figure: CHAMP_LEDGER_CUTOFF_PENDING_FIGURE,
+      likelyText: undefined,
+      markedPosition: undefined,
+      caption: CHAMP_LEDGER_DRAWER_PENDING_CAPTION,
+      reason: undefined,
+    };
+  }
+  if (cutoff.kind === "unavailable") {
+    return {
+      label: DISTRICT_LEDGER_CUTOFF_LABELS.predicted,
+      figure: DISTRICT_LEDGER_UNAVAILABLE_CELL,
+      likelyText: undefined,
+      markedPosition: undefined,
+      caption: champLedgerDrawerNoCallCaption(cutoff.reason),
+      reason: CHAMP_LEDGER_NO_CALL_REASONS[cutoff.reason],
     };
   }
   const isFinal = cutoff.kind === "final";
+  const simulated = cutoff.kind === "predicted" && cutoff.source === "simulated";
   return {
     label: isFinal ? DISTRICT_LEDGER_CUTOFF_LABELS.settled : predictedLabel,
     figure: districtLedgerCutoffFigure(cutoff.points, isFinal),
@@ -365,7 +440,8 @@ export function ledgerCutoffDisplay(view: LedgerCutoffView): LedgerCutoffDisplay
     // nothing left to vary, and a range there would be stale by construction.
     likelyText: isFinal || likely === undefined ? undefined : districtLedgerCutoffLikelyText(likely.p10, likely.p90),
     markedPosition: cutoff.points,
-    caption: DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
+    caption: simulated ? CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION : DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
+    reason: undefined,
   };
 }
 
@@ -507,8 +583,13 @@ export interface LedgerTeamCellTeam {
   /** How many table rows this team spans — the district tier's event count, the champ tier's fixed two. */
   readonly rowCount: number;
   readonly position: number;
-  /** The EARNED total the meta line prints: district-tier only on the district tab, all tiers on the champ tab. */
-  readonly earnedDistrictTotal: number;
+  /**
+   * The EARNED total the meta line prints AT THE POSITION: district-tier only
+   * on the district tab, all tiers on the champ tab. At "now" it is the
+   * published total; rewound, only what was final there (quick task
+   * 260927-6bf, finding 4).
+   */
+  readonly earnedAtPosition: number;
   readonly hasOpenCategory: boolean;
   readonly projection: number;
   readonly rookieBonus: number;
@@ -529,7 +610,7 @@ export function TeamCell({ team, season, algorithm }: { team: LedgerTeamCellTeam
         </span>
         <span className="district-ledger-team-name truncate">{team.nickname}</span>
         <span className="district-ledger-team-meta whitespace-nowrap">
-          #{String(team.position)} · {String(Math.round(team.earnedDistrictTotal))} earned
+          #{String(team.position)} · {String(Math.round(team.earnedAtPosition))} earned
           {team.hasOpenCategory ? ` · median ${String(Math.round(team.projection))}` : ""}
         </span>
         {team.rookieBonus > 0 && (
@@ -946,6 +1027,12 @@ export function ControlsCard({
             <b className="font-semibold text-[var(--color-text-primary)]">{display.figure}</b>
             {display.likelyText !== undefined && (
               <span data-testid="district-ledger-cutoff-likely"> · {display.likelyText}</span>
+            )}
+            {display.reason !== undefined && (
+              <span className="district-ledger-team-meta" data-testid="district-ledger-cutoff-reason">
+                {" "}
+                · {display.reason}
+              </span>
             )}
           </span>
         </div>

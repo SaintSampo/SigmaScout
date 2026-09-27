@@ -144,6 +144,14 @@ const REQUIRED_FIGURES = [
   // page; this page states only the two that name the mechanism.
   "18.0%", // Impact, position 1 in the most decorated ordering
   "38.1%", // Rookie All Star, rookie position 1
+
+  // --- `pnpm measure:champ-cutoff` ----------------------------------------
+  // `npx tsx scripts/measureChampCutoff.ts`, run 2026-09-27 (quick task
+  // 260927-6bf). Its WALK-FORWARD TUNED LINES block: simulated MAE 16.35 and
+  // same position naive MAE 40.96, n = 68, both printed to one decimal.
+  "16.4 points",
+  "41.0",
+  "68 district seasons",
 ];
 
 /**

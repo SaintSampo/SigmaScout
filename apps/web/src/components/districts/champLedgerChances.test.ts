@@ -491,6 +491,34 @@ describe("buildChampAwardDraws", () => {
     expect(buildChampAwardDraws({ artifact: awardArtifact(true), setting: CHAMP_CUTOFF_TUNING_GRID[0]! })).toEqual([]);
   });
 
+  it("reads a team with NO award profile as the zero profile: a veteran with no decorations (Jacob, 2026-09-27)", () => {
+    const unprofiled = artifactOf([
+      team({
+        teamKey: "frc4",
+        eventPoints: [eventPoints({ eventKey: "2026wabon", week: 0 })],
+        qualifyingAwards: [{ eventKey: "2026wabon", awardType: 0, label: "Impact", awardOnly: false }],
+      }),
+      team({
+        teamKey: "frc5",
+        remainingEvents: [{ eventKey: "2026wasno", eventName: "Sno", week: 2, tier: "district", maxPoints: 83, state: state({ awardsPosted: false, playoffsDone: false, alliancesPicked: false, qualMatchesPlayed: 0 }) }],
+        qualifyingAwards: [],
+      }),
+    ]);
+    expect(unprofiled.teams.every((entry) => entry.awardProfile === undefined)).toBe(true);
+    const uniform = buildChampAwardDraws({ artifact: unprofiled, setting: CHAMP_CUTOFF_TUNING_GRID[0]! });
+    // Never a Rookie All Star entrant; weight 1 for Impact and EI under uniform.
+    expect(uniform[2]!.pendingEvents[0]!.entrants).toEqual([{ teamKey: "frc5", weight: 0 }]);
+    expect(uniform[1]!.pendingEvents[0]!.entrants).toEqual([{ teamKey: "frc5", weight: 1 }]);
+    expect(uniform[0]!.candidates).toEqual([{ teamKey: "frc4", weight: 1 }]);
+    // Under decoration it weighs as the none bucket veteran, which is below
+    // the three or more bucket veteran the base rate table ranks highest.
+    const decoration = CHAMP_CUTOFF_TUNING_GRID.find((setting) => setting.weighting === "decoration")!;
+    const none = buildChampAwardDraws({ artifact: unprofiled, setting: decoration })[0]!.candidates[0]!.weight;
+    const decorated = buildChampAwardDraws({ artifact: awardArtifact(false), setting: decoration })[0]!.candidates[0]!.weight;
+    expect(none).toBeGreaterThan(0);
+    expect(none).toBeLessThan(decorated);
+  });
+
   it("weights by the award base rate under decoration", () => {
     const decoration = CHAMP_CUTOFF_TUNING_GRID.find((setting) => setting.weighting === "decoration")!;
     const draws = buildChampAwardDraws({ artifact: awardArtifact(false), setting: decoration });
@@ -559,6 +587,12 @@ describe("champRangeState — ONE state for the chips and the line", () => {
   it("is settled once the DCMP awards are final or the capacity is unpublished, whatever else is in flight", () => {
     expect(champRangeState(inputs({ dcmpAwardsFinal: true, perEventRunSignature: null })).kind).toBe("settled");
     expect(champRangeState(inputs({ cmpSlots: null, champRun: { built: false, status: "error" } })).kind).toBe("settled");
+  });
+
+  it("reads a FAILED per event run as a terminal workerError, never pending forever", () => {
+    expect(champRangeState(inputs({ perEventRunSignature: null, perEventRunFailed: true }))).toEqual({ kind: "noCall", reason: "workerError" });
+    // The DCMP awards being final still wins: nothing is drawn any more.
+    expect(champRangeState(inputs({ dcmpAwardsFinal: true, perEventRunFailed: true })).kind).toBe("settled");
   });
 
   it("maps every transient input to pending, never noCall", () => {

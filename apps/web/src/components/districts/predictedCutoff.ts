@@ -43,6 +43,20 @@
  * NO LOCK RULE OF ITS OWN, and no second convention: `pointsRaceSlots` owns the
  * pool and the slot count, `pointPercentiles` owns the percentile convention.
  * No React, no Worker type, nothing that is not a number in or out.
+ *
+ * THE CHAMP TAB'S SIMULATED LINE (quick task 260927-6bf, decision L2). Until
+ * the District Championship's awards post, the champ tab does NOT print the
+ * midpoint above: it prints `simulatedChampLine`, the median of the per run
+ * line read after each run's DCMP winning alliance and drawn Impact,
+ * Engineering Inspiration and Rookie All Star winners have taken their slots,
+ * as a `predicted` arm with `source: "simulated"`. The chips beside it cut at
+ * that same number (`applyChampRangeState`), so the between property still
+ * holds by construction. Per Jacob's 2026-09-27 chip timing decision, a line
+ * still being computed is the `pending` arm (no figure, no dashed rule) and a
+ * terminal refusal is `unavailable` with its reason; neither ever falls back to
+ * the midpoint. The midpoint rule is the `boundary` source, and it stands
+ * wherever nothing is drawn any more: the district tab always, and the champ
+ * tab once the DCMP awards are posted.
  */
 import { pointsRaceSlots, type QualifierSets } from "../../../../../packages/core/districts/locks.js";
 import { pointPercentiles, type PointPercentiles } from "../../../../../packages/core/districts/pointSummary.js";
@@ -82,8 +96,56 @@ export interface CutoffBoundary {
 export type PredictedCutoff =
   | { readonly kind: "capacityUnknown" }
   | { readonly kind: "absent" }
-  | { readonly kind: "predicted"; readonly points: number; readonly boundary: CutoffBoundary }
-  | { readonly kind: "final"; readonly points: number; readonly boundary: CutoffBoundary };
+  | {
+      readonly kind: "predicted";
+      readonly points: number;
+      readonly boundary: CutoffBoundary;
+      /** `boundary` is the midpoint rule above; `simulated` is the champ tab's simulated line (decision L2). */
+      readonly source: CutoffSource;
+    }
+  | { readonly kind: "final"; readonly points: number; readonly boundary: CutoffBoundary }
+  /** The champ tab while its simulated line is still being computed: no figure, no range, no dashed rule. */
+  | { readonly kind: "pending" }
+  /** The champ tab where no simulated line can be drawn, with the TERMINAL reason named. No figure and no dashed rule. */
+  | { readonly kind: "unavailable"; readonly reason: ChampNoCallReason };
+
+/** Which derivation a `predicted` cutoff came from. */
+export type CutoffSource = "boundary" | "simulated";
+
+/** Why no simulated line can be drawn at a position: each a TERMINAL refusal, named so the page can say which. */
+export type ChampNoCallReason =
+  /** No earlier season to estimate the DCMP from (2016). */
+  | "noHistoryTable"
+  /** A team in the field whose DCMP could not be priced. */
+  | "unpricedDcmp"
+  /** The district run is not coming and an open team has no field chance. */
+  | "noFieldChance"
+  /** `buildChampAdvancementChanceRun` refused. */
+  | "runRefused"
+  /** The champ run left a team out because its grand total could not be built. */
+  | "teamsExcluded"
+  /** The champ run returned no line (`cutoffByRun` absent). */
+  | "noLine"
+  /** The district run or the champ run failed in the Worker. */
+  | "workerError";
+
+/**
+ * WHETHER THE SIMULATED LINE'S 10 TO 90 LIKELY RANGE IS SHOWN. OFF, by Jacob's
+ * ruling of 2026-09-27 ("ship the line, not the range").
+ *
+ * The walk-forward backtest (`scripts/measureChampCutoff.ts`, quick task
+ * 260927-6bf) measured the printed range covering the published cut line in
+ * 49 of 69 district seasons, 71.0%, against a pre-registered bar of 72% to
+ * 88%. The line itself passed every one of its own conditions (end of district
+ * MAE 16.5 against 41.0 for the old rule at the ruling; 16.4 once the champ
+ * sort's tie break stopped reading DCMP points earned later), so it ships and
+ * the range does not. Coverage was 49 of 69 both times.
+ * `simulatedChampLine` still computes the range, and `champRangeState` still
+ * carries it, so a later pre-registered calibration round can switch it on
+ * here and nowhere else. The District Locks tab's own likely range is a
+ * different quantity and does not read this flag.
+ */
+export const SHOW_SIMULATED_CHAMP_LIKELY_RANGE = false;
 
 export interface PredictedCutoffOptions {
   /** The tab's OWN sorted rows, never re-sorted here. */
@@ -144,7 +206,7 @@ export function predictedCutoff(options: PredictedCutoffOptions): PredictedCutof
   const points = midpointOf(above, below);
   const boundary: CutoffBoundary = { above, below };
   const settled = pool.every((team) => !team.hasOpenCategory);
-  return settled ? { kind: "final", points, boundary } : { kind: "predicted", points, boundary };
+  return settled ? { kind: "final", points, boundary } : { kind: "predicted", points, boundary, source: "boundary" };
 }
 
 /** The 10th and 90th percentiles of where the simulated line landed across the runs. */
@@ -237,8 +299,17 @@ export function simulatedChampLine(cutoffByRun: ArrayLike<number> | undefined, d
  */
 export interface LedgerCutoffView {
   readonly cutoff: PredictedCutoff;
-  /** Absent while the run is in flight or suppressed, at a settled position, and at every arm but `predicted`. Never a zero. */
+  /**
+   * Absent while the run is in flight or suppressed, at a settled position, and
+   * at every arm but `predicted`. Never a zero. ALSO absent for the champ tab's
+   * simulated line while `SHOW_SIMULATED_CHAMP_LIKELY_RANGE` is off.
+   */
   readonly likely: SimulatedCutoffRange | undefined;
-  /** The champ tab's pre registration window: the grand totals behind this cutoff are the district season alone. */
+  /**
+   * The grand totals behind a SETTLED champ cutoff are the district season
+   * alone. Never set while the simulated line is in play: the stat line never
+   * prints a district only number there, which would be the rank rule fallback
+   * Jacob ruled out.
+   */
   readonly districtOnly: boolean;
 }

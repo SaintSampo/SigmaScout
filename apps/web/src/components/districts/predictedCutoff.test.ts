@@ -192,6 +192,8 @@ describe("predictedCutoff — the between property over 240 seeded random pools"
         continue;
       }
       if (cutoff.kind === "capacityUnknown") throw new Error("a numeric capacity never reports capacityUnknown");
+      // The champ tab's two non figures are never produced by the midpoint rule.
+      if (cutoff.kind === "pending" || cutoff.kind === "unavailable") throw new Error("predictedCutoff never reports a champ range state arm");
       sweptPredicted += 1;
 
       const slots = capacity;

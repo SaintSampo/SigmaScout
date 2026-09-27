@@ -47,11 +47,17 @@ import {
   type DistrictAdvancementChanceRun,
   type DistrictLedgerChanceModel,
 } from "./districtLedgerChances.js";
-import { awardProfileFor, deriveStageFromState, tierEvents, type DistrictStageFinality } from "./districtLedgerRows.js";
+import { awardProfileOrZero, deriveStageFromState, tierEvents, type DistrictStageFinality } from "./districtLedgerRows.js";
 import type { DistrictLedgerStatusModel } from "./districtLedgerStatus.js";
 import { dcmpEventKeyFor, type ChampDcmpEstimate, type ChampLedgerTeam } from "./champLedgerRows.js";
 import type { ChampLedgerStatusModel } from "./champLedgerStatus.js";
-import { simulatedChampLine, type SimulatedCutoffRange } from "./predictedCutoff.js";
+import {
+  SHOW_SIMULATED_CHAMP_LIKELY_RANGE,
+  simulatedChampLine,
+  type ChampNoCallReason,
+  type LedgerCutoffView,
+  type SimulatedCutoffRange,
+} from "./predictedCutoff.js";
 
 /**
  * THE CHANCE OF BEING IN THE DISTRICT CHAMPIONSHIP FIELD, per team.
@@ -365,16 +371,18 @@ const DECORATION_POINTS: Readonly<Record<DcmpDrawnAwardType, number>> = { 0: 10,
 
 /**
  * One team's weight for one DCMP award. ELIGIBILITY FIRST: Rookie All Star is
- * rookies only, Engineering Inspiration veterans only, Impact anyone; a team
- * with no award profile is ineligible for Rookie All Star and weight 1
- * otherwise. `decoration` then weights by the award base rate cell the award
- * cell already prices from, falling back to 1 for a season with no table.
+ * rookies only, Engineering Inspiration veterans only, Impact anyone. A team
+ * with no award profile reads the ZERO profile (Jacob, 2026-09-27): a veteran
+ * with no decorations, so it is ineligible for Rookie All Star, exactly as
+ * before, and under `decoration` it weighs as the `none` bucket rather than 1.
+ * `decoration` weights by the award base rate cell the award cell already
+ * prices from, falling back to 1 for a season with no table.
  */
 function awardWeight(team: DistrictArtifact["teams"][number], awardType: DcmpDrawnAwardType, season: number, setting: ChampCutoffSetting): number {
-  const profile = awardProfileFor(team);
-  if (awardType === 10 && profile?.rookieState !== "rookie") return 0;
-  if (awardType === 9 && profile?.rookieState === "rookie") return 0;
-  if (profile === undefined || setting.weighting === "uniform") return 1;
+  const profile = awardProfileOrZero(team);
+  if (awardType === 10 && profile.rookieState !== "rookie") return 0;
+  if (awardType === 9 && profile.rookieState === "rookie") return 0;
+  if (setting.weighting === "uniform") return 1;
   try {
     const rate = awardBaseRate(season, profile.bucket, profile.rookieState);
     return rate.pmf[awardPointsBucketIndex(DECORATION_POINTS[awardType])!] ?? 0;
@@ -441,22 +449,8 @@ export function buildChampAwardDraws(options: BuildChampAwardDrawsOptions): Adva
   });
 }
 
-/** Why no simulated line can be drawn at a position: each a TERMINAL refusal, named so the page can say which. */
-export type ChampNoCallReason =
-  /** No earlier season to estimate the DCMP from (2016). */
-  | "noHistoryTable"
-  /** A team in the field whose DCMP could not be priced. */
-  | "unpricedDcmp"
-  /** The district run is not coming and an open team has no field chance. */
-  | "noFieldChance"
-  /** `buildChampAdvancementChanceRun` refused. */
-  | "runRefused"
-  /** The champ run left a team out because its grand total could not be built. */
-  | "teamsExcluded"
-  /** The champ run returned no line (`cutoffByRun` absent). */
-  | "noLine"
-  /** The district run or the champ run failed in the Worker. */
-  | "workerError";
+/** The TERMINAL refusal reasons, declared beside the cutoff arm that carries them. */
+export type { ChampNoCallReason };
 
 /**
  * THE ONE STATE both the chips and the cutoff view read (decision L2 and
@@ -494,6 +488,8 @@ export interface ChampRangeStateInputs {
   readonly cmpSlots: number | null;
   /** The per event run's signature, `null` while it is in flight. */
   readonly perEventRunSignature: string | null;
+  /** The per event run FAILED in the Worker: terminal, never `pending` forever. Absent reads as false. */
+  readonly perEventRunFailed?: boolean;
   readonly districtRun: ChampRangeRunInput;
   readonly estimates: HypotheticalDcmpEstimates["kind"];
   /** Teams whose membership is `in` but whose DCMP row could not be priced. */
@@ -508,6 +504,7 @@ export interface ChampRangeStateInputs {
 /** Pure, and read by BOTH the chips and the cutoff view, so the two can never disagree. */
 export function champRangeState(inputs: ChampRangeStateInputs): ChampRangeState {
   if (inputs.dcmpAwardsFinal || inputs.cmpSlots === null) return { kind: "settled" };
+  if (inputs.perEventRunFailed === true) return { kind: "noCall", reason: "workerError" };
   if (inputs.perEventRunSignature === null) return { kind: "pending" };
 
   const district = inputs.districtRun;
@@ -531,4 +528,60 @@ export function champRangeState(inputs: ChampRangeStateInputs): ChampRangeState 
   const line = champ.draws === undefined ? undefined : simulatedChampLine(champ.cutoffByRun, champ.draws);
   if (line === undefined) return { kind: "noCall", reason: "noLine" };
   return { kind: "simulated", points: line.points, likely: line.likely };
+}
+
+/** The minimum `champCutoffView` reads per team: its median, and the chip it is shown with. */
+export interface ChampCutoffViewTeam {
+  readonly teamKey: string;
+  readonly projection: number;
+}
+
+export interface ChampCutoffViewOptions {
+  /** The ONE state the chips were cut with. */
+  readonly state: ChampRangeState;
+  /** The tab's own sorted rows. */
+  readonly teams: readonly ChampCutoffViewTeam[];
+  /** The DISPLAYED statuses: `applyChampRangeState`'s output for the same state. */
+  readonly displayStatus: (teamKey: string) => string | undefined;
+  /** The shipped midpoint view, built only for the `settled` arm. */
+  readonly settledView: () => LedgerCutoffView;
+}
+
+/**
+ * THE CUTOFF VIEW, from the SAME `ChampRangeState` the chips read (decision
+ * L2), so the stat line, every grand total dashed rule and every chip describe
+ * one number:
+ *
+ * - `settled`: the shipped midpoint view, unchanged.
+ * - `pending`: no figure, no range, no dashed rule.
+ * - `noCall`: `unavailable`, carrying the reason, and no dashed rule.
+ * - `simulated`: a `predicted` arm with `source: "simulated"` printing the
+ *   simulated line. Its boundary pair is the lowest In range median and the
+ *   highest Out of range median as the chips were cut, the line itself
+ *   standing in for an empty side, so the between property holds by
+ *   construction. The likely range rides along only while
+ *   `SHOW_SIMULATED_CHAMP_LIKELY_RANGE` is on, which it is not (Jacob,
+ *   2026-09-27).
+ */
+export function champCutoffView(options: ChampCutoffViewOptions): LedgerCutoffView {
+  const { state } = options;
+  if (state.kind === "settled") return options.settledView();
+  if (state.kind === "pending") return { cutoff: { kind: "pending" }, likely: undefined, districtOnly: false };
+  if (state.kind === "noCall") return { cutoff: { kind: "unavailable", reason: state.reason }, likely: undefined, districtOnly: false };
+  let lowestIn = Number.POSITIVE_INFINITY;
+  let highestOut = Number.NEGATIVE_INFINITY;
+  for (const team of options.teams) {
+    const status = options.displayStatus(team.teamKey);
+    if (status === "inRange") lowestIn = Math.min(lowestIn, team.projection);
+    else if (status === "outOfRange") highestOut = Math.max(highestOut, team.projection);
+  }
+  const boundary = {
+    above: Number.isFinite(lowestIn) ? lowestIn : state.points,
+    below: Number.isFinite(highestOut) ? highestOut : state.points,
+  };
+  return {
+    cutoff: { kind: "predicted", points: state.points, boundary, source: "simulated" },
+    likely: SHOW_SIMULATED_CHAMP_LIKELY_RANGE ? state.likely : undefined,
+    districtOnly: false,
+  };
 }

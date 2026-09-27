@@ -348,6 +348,17 @@ function rowsFor(teamKey: string): HTMLElement[] {
   return screen.getAllByTestId("champ-ledger-row").filter((row) => row.getAttribute("data-team") === teamKey);
 }
 
+/**
+ * Waits for the SETTLED simulated line: the stat line's tilde figure. Three
+ * Worker jobs stand in front of it (the per event run, the district run and
+ * the champ run), so the wait is long.
+ */
+async function waitForSimulatedLine(): Promise<HTMLElement> {
+  const statLine = await screen.findByTestId("district-ledger-stat-line");
+  await waitFor(() => expect(statLine.textContent).toMatch(/Predicted cutoff ~\d+/), { timeout: 20000 });
+  return statLine;
+}
+
 // ---------------------------------------------------------------------------
 
 describe("ChampLocksLedger — the finished district and championship", () => {
@@ -452,9 +463,17 @@ describe("ChampLocksLedger — the finished district and championship", () => {
 /**
  * THE PRE-REGISTRATION WINDOW, rendered.
  *
- * The orchestrator's own acceptance for quick task 260925-xab: a synthetic
- * artifact with no dcmp-tier event anywhere must render the "not yet priced"
- * cells, the "district only" grand total, and a computed status for every team.
+ * The orchestrator's own acceptance for quick task 260925-xab was a synthetic
+ * artifact with no dcmp-tier event anywhere rendering "not yet priced" DCMP
+ * cells, a "district only" grand total and a computed status for every team.
+ *
+ * MOVED BY QUICK TASK 260927-6bf, deliberately. The DCMP row's Subtotal is now
+ * ESTIMATED from past District Championships by field rank, so the grand total
+ * is a real champ total rather than a district only one, the champ run is no
+ * longer suppressed, and the stat line prints the SIMULATED line. The four
+ * DCMP category cells still read "not yet priced". Each test waits for the
+ * SETTLED render (the stat line's figure), because the transient render before
+ * the estimate arrives still shows the district only fallback.
  */
 describe("ChampLocksLedger — the district season, before registrations open", () => {
   const originalFetch = global.fetch;
@@ -474,77 +493,215 @@ describe("ChampLocksLedger — the district season, before registrations open", 
     renderLedger(districtSeasonArtifact());
   }
 
-  it("reads every DCMP cell as not yet priced rather than as an em dash or as not available", async () => {
+  it("reads every DCMP CATEGORY cell as not yet priced, and prices the DCMP Subtotal from past championships", async () => {
     renderDistrictSeason();
-    await waitFor(() => expect(screen.getAllByTestId("champ-ledger-row").length).toBe(ROSTER.length * 2));
+    await waitForSimulatedLine();
     const dcmpRow = rowsFor(ROSTER[0]!)[1]!;
     const unpriced = [...dcmpRow.querySelectorAll('[data-cell="not-yet-priced"]')];
-    expect(unpriced).toHaveLength(5);
+    // The four categories; the Subtotal is the estimate.
+    expect(unpriced).toHaveLength(4);
     for (const cell of unpriced) expect(cell.textContent).toBe("not yet priced");
+    expect(dcmpRow.querySelector('[data-cell-id="dcmp-row:eventTotal"]')?.getAttribute("data-cell")).toBe("open");
     expect(dcmpRow.querySelectorAll('[data-cell="not-in-field"]')).toHaveLength(0);
     expect(dcmpRow.querySelectorAll('[data-cell="unavailable"]')).toHaveLength(0);
-  });
+  }, 30000);
 
-  it("prints the DISTRICT-ONLY grand total, labelled, for every team rather than blanking the column", async () => {
+  it("prints NO district only label once the estimate is in, and no grand total is unavailable", async () => {
     renderDistrictSeason();
-    // Waited for rather than asserted on the first paint: the live event's
-    // distributions arrive from the Worker, and until they do the district
-    // half has nothing to convolve either.
-    await waitFor(() => expect(screen.getAllByTestId("champ-ledger-district-only")).toHaveLength(ROSTER.length));
-    for (const label of screen.getAllByTestId("champ-ledger-district-only")) expect(label.textContent).toBe("district only");
-    const grand = within(rowsFor(ROSTER[0]!)[0]!).getByTestId("champ-ledger-grand-total");
-    expect(grand.querySelector('[data-cell="unavailable"]')).toBeNull();
-  });
+    await waitForSimulatedLine();
+    expect(screen.queryAllByTestId("champ-ledger-district-only")).toHaveLength(0);
+    for (const grand of screen.getAllByTestId("champ-ledger-grand-total")) expect(grand.querySelector('[data-cell="unavailable"]')).toBeNull();
+  }, 30000);
 
-  it("labels the stat line district only in this window, and prints no likely range there", async () => {
+  it("prints the SIMULATED line on the stat line, with no likely range and never the district only label", async () => {
     renderDistrictSeason();
-    const statLine = await screen.findByTestId("district-ledger-stat-line");
-    await waitFor(() => expect(statLine.textContent).toContain("Predicted cutoff (district only)"));
-    // The champ chance run is SUPPRESSED here, so the range is absent by
-    // construction rather than by a second condition (quick task 260926-37q).
+    const statLine = await waitForSimulatedLine();
+    expect(statLine.textContent).toMatch(/^Predicted cutoff ~\d+$/);
+    // Jacob, 2026-09-27: ship the line, not the range.
     expect(within(statLine).queryByTestId("district-ledger-cutoff-likely")).toBeNull();
     expect(statLine.textContent).not.toContain("likely");
-  });
+    expect(statLine.textContent).not.toContain("district only");
+  }, 30000);
 
   it("computes a status for EVERY team, never Capacity not published", async () => {
     renderDistrictSeason();
-    await waitFor(() => expect(screen.getAllByTestId("champ-ledger-row").length).toBe(ROSTER.length * 2));
+    await waitForSimulatedLine();
     const cells = screen.getAllByTestId("district-ledger-status-cell");
     expect(cells).toHaveLength(ROSTER.length);
     for (const cell of cells) {
       expect(cell.getAttribute("data-status")).not.toBeNull();
       expect(cell.textContent).not.toContain("Capacity not published");
     }
-  });
+  }, 30000);
 
   /**
-   * THE ONE CHANCE THIS WINDOW MAY PRINT is the chance of being in the field,
-   * on the DCMP row's own label. The CHAMP chance — the chance of reaching the
-   * FIRST Championship — is suppressed, because the grand totals it would rank
-   * are district-only and ranking them would answer a different question.
+   * TWO CHANCES NOW PRINT. The chance of being in the field sits on the DCMP
+   * row's own label, and the champ chance beside the status, under In range
+   * and Out of range alone, because the champ run is no longer suppressed.
    */
-  it("carries the to be there line on the DCMP row and NO chance beside the status", async () => {
+  it("carries the to be there line on the DCMP row, and a champ chance only beside In range and Out of range", async () => {
     renderDistrictSeason();
-    await waitFor(() => {
-      const dcmpSources = screen.getAllByTestId("champ-ledger-source-cell").filter((cell) => cell.getAttribute("data-row") === "dcmp");
-      expect(dcmpSources.some((cell) => /to be there/.test(cell.textContent ?? ""))).toBe(true);
-    });
+    await waitForSimulatedLine();
     const dcmpSources = screen.getAllByTestId("champ-ledger-source-cell").filter((cell) => cell.getAttribute("data-row") === "dcmp");
+    expect(dcmpSources.some((cell) => /to be there/.test(cell.textContent ?? ""))).toBe(true);
     for (const cell of dcmpSources) {
       const text = cell.textContent ?? "";
       if (!text.includes("to be there")) continue;
       expect(text).toMatch(/(~\d+% to be there|<5% to be there)/);
     }
-    // Never a silent zero and never a champ chance: the status chips carry no
-    // number at all in this window.
-    expect(screen.queryAllByTestId("district-ledger-chance")).toHaveLength(0);
-  });
+    for (const line of screen.queryAllByTestId("district-ledger-chance")) {
+      const status = line.closest('[data-testid="district-ledger-status-cell"]')?.getAttribute("data-status");
+      expect(["inRange", "outOfRange"]).toContain(status);
+    }
+  }, 30000);
+
+  it("cuts In range and Out of range at the printed line: the BETWEEN property", async () => {
+    renderDistrictSeason();
+    const statLine = await waitForSimulatedLine();
+    const points = Number(/~(\d+)/.exec(statLine.textContent ?? "")![1]);
+    let called = 0;
+    for (const teamKey of ROSTER) {
+      const first = rowsFor(teamKey)[0]!;
+      const status = within(first).getByTestId("district-ledger-status-cell").getAttribute("data-status");
+      if (status !== "inRange" && status !== "outOfRange") continue;
+      const median = Number(/median (\d+)/.exec(within(first).getByTestId("district-ledger-team-cell").textContent ?? "")![1]);
+      called += 1;
+      if (status === "inRange") expect(median).toBeGreaterThanOrEqual(points);
+      else expect(median).toBeLessThanOrEqual(points);
+    }
+    expect(called).toBeGreaterThan(0);
+  }, 30000);
 
   it("renders no plus-minus codepoint anywhere in the tree", async () => {
     renderDistrictSeason();
     await waitFor(() => expect(screen.getByTestId("champ-ledger-tab")).toBeDefined());
     expect(document.body.textContent ?? "").not.toContain(PLUS_MINUS);
   });
+});
+
+/**
+ * THE CHIP TIMING (Jacob, 2026-09-27): while the champ run is in flight, In
+ * range and Out of range read a neutral Pending and the stat line prints no
+ * figure, while every verdict chip is already there. They settle ONCE. A
+ * Worker error reads No call with its reason, never the rank rule.
+ *
+ * The Worker here is CONTROLLABLE: the per event run and the district run go
+ * through the real protocol, and the champ run (the one chance request that
+ * carries award draws) is held until the test releases or fails it.
+ */
+describe("ChampLocksLedger — the simulated cutoff's chip timing", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  /** A prequalified team, so a verdict chip exists to prove it renders before the line does. */
+  function prequalifiedSeasonArtifact(): DistrictArtifact {
+    return artifactOf(
+      ROSTER.map((teamKey) => {
+        const team = withLiveEvent(districtTeam(teamKey));
+        return teamKey === ROSTER[5]
+          ? { ...team, champLock: { status: "prequalified" as const, pointsToLock: 0, threatCount: 0, cutLinePoints: 40, allocationNote: null } }
+          : team;
+      })
+    );
+  }
+
+  function renderHeld(mode: "hold" | "error") {
+    const held: { message: unknown; post: (outbound: unknown) => void }[] = [];
+    installFetch([liveEventArtifact()]);
+    handle = installMockWorker({
+      script: (message, ctx) => {
+        const request = message as { type?: string; inputs?: { awardDraws?: unknown } };
+        if (request.type === "chance" && request.inputs?.awardDraws !== undefined) {
+          if (mode === "error") ctx.post({ type: "error", name: "Error", message: "forced by the test" });
+          else held.push({ message, post: (outbound) => ctx.post(outbound) });
+          return;
+        }
+        runDistrictWorkerJob(message, (outbound) => ctx.post(outbound));
+      },
+    });
+    renderLedger(prequalifiedSeasonArtifact());
+    return held;
+  }
+
+  function statusesOnScreen(): (string | null)[] {
+    return screen.getAllByTestId("district-ledger-status-cell").map((cell) => cell.getAttribute("data-status"));
+  }
+
+  it("reads Pending, with no figure and no rank chip, until the champ run lands, and then settles ONCE", async () => {
+    const statLineTexts: string[] = [];
+    const statusesBeforeRelease = new Set<string | null>();
+    let released = false;
+    const observer = new MutationObserver(() => {
+      const statLine = document.querySelector('[data-testid="district-ledger-stat-line"]');
+      if (statLine !== null) statLineTexts.push(statLine.textContent ?? "");
+      if (released) return;
+      for (const cell of document.querySelectorAll('[data-testid="district-ledger-status-cell"]')) statusesBeforeRelease.add(cell.getAttribute("data-status"));
+    });
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+
+    const held = renderHeld("hold");
+    await waitFor(() => expect(held.length).toBeGreaterThan(0), { timeout: 20000 });
+    await waitFor(() => expect(statusesOnScreen()).toContain("pending"));
+
+    const statuses = statusesOnScreen();
+    expect(statuses).not.toContain("inRange");
+    expect(statuses).not.toContain("outOfRange");
+    // The verdict chip is already there.
+    expect(statuses).toContain("prequalified");
+    const statLine = screen.getByTestId("district-ledger-stat-line");
+    expect(statLine.textContent).toBe("Predicted cutoff pending");
+    for (const chip of screen.getAllByTestId("district-ledger-status-chip")) {
+      const status = chip.getAttribute("data-status");
+      if (status === "inRange" || status === "outOfRange") expect(chip.textContent).toContain(String.fromCharCode(0x2014));
+    }
+    expect(screen.queryAllByTestId("district-ledger-chance")).toHaveLength(0);
+
+    // Release the LATEST held run (an earlier one may be stale by now).
+    const latest = held[held.length - 1]!;
+    released = true;
+    runDistrictWorkerJob(latest.message, latest.post);
+    await waitFor(() => expect(screen.getByTestId("district-ledger-stat-line").textContent).toMatch(/^Predicted cutoff ~\d+$/), { timeout: 20000 });
+    const settled = statusesOnScreen();
+    expect(settled).not.toContain("pending");
+    expect(settled.some((status) => status === "inRange" || status === "outOfRange")).toBe(true);
+    observer.disconnect();
+
+    // SETTLES ONCE: every stat line the page ever showed is either the
+    // pending one or the final figure, never a second number in between.
+    const figures = new Set(statLineTexts.filter((text) => /~\d+/.test(text)));
+    expect(figures.size).toBe(1);
+    for (const text of statLineTexts) {
+      expect(text).not.toContain("district only");
+      expect(text).not.toContain("not available");
+    }
+    // And no chip ever showed a rank rule call or a transient No call first.
+    for (const status of ["inRange", "outOfRange", "no-call"]) expect(statusesBeforeRelease.has(status)).toBe(false);
+    expect(statusesBeforeRelease.has("pending")).toBe(true);
+  }, 40000);
+
+  it("reads No call with its reason when the champ run fails, and never the rank rule", async () => {
+    renderHeld("error");
+    await waitFor(() => expect(statusesOnScreen()).toContain("no-call"), { timeout: 20000 });
+    const statuses = statusesOnScreen();
+    expect(statuses).not.toContain("inRange");
+    expect(statuses).not.toContain("outOfRange");
+    expect(statuses).not.toContain("pending");
+    expect(statuses).toContain("prequalified");
+    const noCall = screen.getAllByTestId("district-ledger-status-cell").find((cell) => cell.getAttribute("data-status") === "no-call")!;
+    expect(noCall.textContent).toContain("No call");
+    expect(noCall.textContent).toContain("the simulation did not finish in this browser");
+    const statLine = screen.getByTestId("district-ledger-stat-line");
+    expect(statLine.textContent).toContain("Predicted cutoff not available");
+    expect(within(statLine).getByTestId("district-ledger-cutoff-reason").textContent).toContain("the simulation did not finish in this browser");
+  }, 40000);
 });
 
 /**
@@ -654,9 +811,9 @@ describe("ChampLocksLedger — the drawer", () => {
   /**
    * REWOUND TO SEASON START the District Championship has not happened yet, so
    * every team's place in the field is open again even though the artifact
-   * lists the registration — and the DCMP row is still priced, because the
-   * event's own artifact is fetched. That is the one position where a
-   * CONDITIONAL DCMP row and a weighted grand total exist together.
+   * lists the registration. Since quick task 260927-6bf the DCMP row there is
+   * the ESTIMATE by field rank, never the real roster's prediction, and the
+   * grand total weighs it by the chance of being there.
    */
   it("prints the field chance the DCMP row is weighted by, in the contribution list, at a rewound position", async () => {
     renderUnderWay("/districts?algorithm=spr&tab=champ-locks&at=season-start");
@@ -677,6 +834,24 @@ describe("ChampLocksLedger — the drawer", () => {
     expect(within(dcmpRow).getByTestId("champ-ledger-contribution-chance").textContent).toMatch(
       /^weighted by (~\d+% to be there|<5% to be there)$/
     );
+  }, 30000);
+
+  /**
+   * FINDING 3 (quick task 260927-6bf): a rewound position before the DCMP
+   * starts used to read "district only" and suppress the champ run. It now
+   * prices every team from the estimate, draws the simulated line, and reads
+   * nothing off the real DCMP roster: the DCMP category cells stay "not yet
+   * priced" even though the championship's own artifact is on hand.
+   */
+  it("prices every team from the estimate at a rewound position before the DCMP, with no district only and the champ run not suppressed", async () => {
+    renderUnderWay("/districts?algorithm=spr&tab=champ-locks&at=season-start");
+    const statLine = await waitForSimulatedLine();
+    expect(statLine.textContent).not.toContain("district only");
+    expect(within(statLine).queryByTestId("district-ledger-cutoff-likely")).toBeNull();
+    expect(screen.queryAllByTestId("champ-ledger-district-only")).toHaveLength(0);
+    const dcmpRow = rowsFor(ROSTER[0]!)[1]!;
+    expect(dcmpRow.querySelectorAll('[data-cell="not-yet-priced"]')).toHaveLength(4);
+    expect(dcmpRow.querySelector('[data-cell-id="dcmp-row:eventTotal"]')?.getAttribute("data-cell")).toBe("open");
   }, 30000);
 
   it("resolves an unknown cell id to CLOSED rather than to a neighbouring cell", async () => {

@@ -8,6 +8,14 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  CHAMP_LEDGER_CUTOFF_PENDING_FIGURE,
+  CHAMP_LEDGER_DRAWER_PENDING_CAPTION,
+  CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
+  CHAMP_LEDGER_ESTIMATED_DCMP_LINE,
+  CHAMP_LEDGER_NO_CALL_REASONS,
+  CHAMP_LEDGER_RANGE_CALL_LABELS,
+  CHAMP_LEDGER_RANGE_PENDING_DESCRIPTION,
+  champLedgerNoCallDescription,
   districtLedgerChanceLine,
   districtLedgerCutoffFigure,
   districtLedgerCutoffLikelyText,
@@ -487,6 +495,31 @@ describe("the predicted cutoff copy", () => {
     ].join(" ");
     for (const dash of ["—", "–", "-"]) expect(everyString).not.toContain(dash);
     expect(everyString).not.toContain("±");
+  });
+
+  it("carries no dash character in any of the simulated champ cutoff copy (quick task 260927-6bf)", () => {
+    const everyString = [
+      ...Object.values(CHAMP_LEDGER_RANGE_CALL_LABELS),
+      CHAMP_LEDGER_RANGE_PENDING_DESCRIPTION,
+      ...Object.values(CHAMP_LEDGER_NO_CALL_REASONS),
+      ...Object.keys(CHAMP_LEDGER_NO_CALL_REASONS).map((reason) => champLedgerNoCallDescription(reason as keyof typeof CHAMP_LEDGER_NO_CALL_REASONS)),
+      CHAMP_LEDGER_CUTOFF_PENDING_FIGURE,
+      CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
+      CHAMP_LEDGER_DRAWER_PENDING_CAPTION,
+      CHAMP_LEDGER_ESTIMATED_DCMP_LINE,
+    ].join(" ");
+    for (const dash of ["—", "–", "-"]) expect(everyString).not.toContain(dash);
+    expect(everyString).not.toContain("±");
+  });
+
+  it("never says In range or Out of range on a withheld chip, and never describes a likely range as shown", () => {
+    for (const label of Object.values(CHAMP_LEDGER_RANGE_CALL_LABELS)) {
+      expect(label).not.toMatch(/in range|out of range/i);
+    }
+    // Jacob, 2026-09-27: the simulated line ships, its range does not.
+    expect(CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION).not.toMatch(/likely|percentile|range/i);
+    expect(CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION).toContain("winning alliance");
+    for (const award of ["Impact", "Engineering Inspiration", "Rookie All Star"]) expect(CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION).toContain(award);
   });
 
   it("says cutoff, never the retired wording, in the two absence captions", () => {

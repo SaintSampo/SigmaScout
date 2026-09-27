@@ -264,8 +264,17 @@ export interface DistrictLedgerTeam {
   readonly rows: readonly DistrictLedgerEventRow[];
   /** This team's DISTRICT-tier event count — never a hardcoded two (the real `2026pnw` artifact carries 0 to 4). */
   readonly rowCount: number;
-  /** The artifact's own `pointTotal` minus every dcmp-tier event total: the district-tier earned number this tab reports. */
+  /** The artifact's own `pointTotal` minus every dcmp-tier event total: the district-tier earned number the sort and the fallback projection read. */
   readonly earnedDistrictTotal: number;
+  /**
+   * THE EARNED NUMBER THE TEAM CELL PRINTS (quick task 260927-6bf, finding 4):
+   * `earnedDistrictTotal` at "now", and AT A REWOUND POSITION only the
+   * categories final there, so a rewound header never prints points the team
+   * earned later. DISPLAY ONLY: the sort and the fallback projection keep
+   * reading `earnedDistrictTotal`, so the tab's In range split and
+   * `measureLedgerTenets.ts` stay byte identical.
+   */
+  readonly earnedAtPosition: number;
   readonly grandTotal: DistrictLedgerCell;
   /** The continuous median of the predicted grand total, or the earned district-tier total for a team with no open category. */
   readonly projection: number;
@@ -489,6 +498,31 @@ export function awardProfileFor(team: DistrictTeam): DistrictAwardProfile | unde
     rookieState: profile.rookie ? "rookie" : "veteran",
     ...(profile.priorJudgedAwards === undefined ? {} : { priorJudgedAwards: profile.priorJudgedAwards }),
   };
+}
+
+/**
+ * THE ZERO AWARD PROFILE (Jacob, 2026-09-27, quick task 260927-6bf): a team
+ * with no published profile counts as having NO DECORATIONS. It is a veteran
+ * in the `none` bucket with no prior judged award, so it sorts to the tail of
+ * any decoration ordering and is never eligible for Rookie All Star.
+ *
+ * Before this rule one such team refused its WHOLE EVENT
+ * (`MissingAwardProfileError`): a visiting team from outside the district, or
+ * a team TBA lists with no rookie year, blanked every cell of every team at
+ * that event on BOTH Locks tabs. 2026orore lost its whole simulation to one
+ * guest team, frc3669.
+ *
+ * This is NOT `awardProfileFor`'s defaulting, which that function's own doc
+ * comment rules out: a PUBLISHED profile that only lacks `priorJudgedAwards`
+ * still passes through unchanged. Only a team with no profile at all reads
+ * this one. The guarantee side (`districtLedgerStatus.ts`) keeps passing such
+ * a team as a rookie, the widening direction, and is untouched.
+ */
+export const ZERO_AWARD_PROFILE: DistrictAwardProfile = Object.freeze({ bucket: "none", rookieState: "veteran", priorJudgedAwards: 0 });
+
+/** `awardProfileFor`, with the zero profile standing in for a team that has none or is not on the district artifact at all. */
+export function awardProfileOrZero(team: DistrictTeam | undefined): DistrictAwardProfile {
+  return (team === undefined ? undefined : awardProfileFor(team)) ?? ZERO_AWARD_PROFILE;
 }
 
 /**
@@ -727,11 +761,10 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
 
   const awardProfiles = new Map<string, DistrictAwardProfile>();
   const districtTeamByKey = new Map(districtArtifact.teams.map((team) => [team.teamKey, team] as const));
-  for (const teamKey of rosterKeys) {
-    const districtTeam = districtTeamByKey.get(teamKey);
-    const profile = districtTeam === undefined ? undefined : awardProfileFor(districtTeam);
-    if (profile !== undefined) awardProfiles.set(teamKey, profile);
-  }
+  // EVERY roster team gets a profile: a team with none, including a guest from
+  // outside the district, reads the zero profile rather than refusing the
+  // whole event. See `ZERO_AWARD_PROFILE`.
+  for (const teamKey of rosterKeys) awardProfiles.set(teamKey, awardProfileOrZero(districtTeamByKey.get(teamKey)));
 
   // The event artifact publishes no official field size of its own (that field
   // lives on the TEAM artifact's per-event row), so the roster length is the
@@ -1035,6 +1068,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
     let everyEventTotalKnown = true;
     let hasOpenCategory = false;
     let earnedDistrictTotal = 0;
+    let earnedAtPosition = 0;
 
     for (const entry of entries) {
       const derived = deriveStageFromState(entry.state);
@@ -1048,6 +1082,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
       };
       const record = distributions.get(entry.eventKey)?.byTeam.get(team.teamKey);
       if (entry.earned !== undefined) earnedDistrictTotal += entry.earned.total;
+      earnedAtPosition += earnedAtStage(entry.earned, final, stageByEvent !== undefined);
 
       const cells: DistrictLedgerCell[] = DISTRICT_CATEGORIES.map((category) => {
         const id = districtCellId(entry.eventKey, category);
@@ -1165,6 +1200,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
       rows,
       rowCount: rows.length,
       earnedDistrictTotal,
+      earnedAtPosition,
       grandTotal,
       projection,
       hasOpenCategory,
@@ -1185,7 +1221,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
       // an absorbed refusal becomes a plausible, complete, wrong row, which is
       // the whole reason these functions throw in the first place.
       teamsWithUnavailableGrandTotal.add(team.teamKey);
-      built.push(degradedLedgerTeam(team, tier));
+      built.push(degradedLedgerTeam(team, tier, stageByEvent));
     }
   }
 
@@ -1214,6 +1250,24 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
 }
 
 /**
+ * ONE EVENT'S EARNED POINTS AT THE POSITION (quick task 260927-6bf, finding 4).
+ *
+ * At "now" (`rewound` false) it is the artifact's own `total`, exactly as
+ * before, so every now pin stands. Rewound, a finished event still reads its
+ * published `total`, and an event the slider has reopened reads only the
+ * categories FINAL at the position: the header's "earned" figure then says
+ * what the team had earned at that position rather than what it earned by the
+ * end of the season.
+ */
+function earnedAtStage(earned: DistrictEventPoints | undefined, final: DistrictStageFinality, rewound: boolean): number {
+  if (earned === undefined) return 0;
+  if (!rewound || DISTRICT_CATEGORIES.every((category) => final[category])) return earned.total;
+  let sum = 0;
+  for (const category of DISTRICT_CATEGORIES) if (final[category]) sum += earned[category];
+  return sum;
+}
+
+/**
  * The row model for a team whose ordinary build REFUSED — the fallback
  * `buildDistrictLedgerRows`' per-team catch pushes.
  *
@@ -1229,12 +1283,18 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
  * one team and make a row count disagree with an event list. It loses only the
  * numbers that could not be built.
  */
-function degradedLedgerTeam(team: DistrictTeam, tier: DistrictTier): DistrictLedgerTeam {
+function degradedLedgerTeam(
+  team: DistrictTeam,
+  tier: DistrictTier,
+  stageByEvent: ReadonlyMap<string, DistrictStageFinality> | undefined
+): DistrictLedgerTeam {
   const entries = tierEvents(team, tier);
   let earnedDistrictTotal = 0;
+  let earnedAtPosition = 0;
   const rows: DistrictLedgerEventRow[] = entries.map((entry) => {
     if (entry.earned !== undefined) earnedDistrictTotal += entry.earned.total;
     const derived = deriveStageFromState(entry.state);
+    earnedAtPosition += earnedAtStage(entry.earned, stageByEvent?.get(entry.eventKey) ?? derived.final, stageByEvent !== undefined);
     return {
       eventKey: entry.eventKey,
       eventName: entry.eventName,
@@ -1254,6 +1314,7 @@ function degradedLedgerTeam(team: DistrictTeam, tier: DistrictTier): DistrictLed
     rows,
     rowCount: rows.length,
     earnedDistrictTotal,
+    earnedAtPosition,
     grandTotal: { id: GRAND_TOTAL_CELL_ID, cell: "grandTotal", kind: "unavailable" },
     projection: earnedDistrictTotal + team.rookieBonus + team.adjustments,
     hasOpenCategory: false,

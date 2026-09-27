@@ -135,6 +135,14 @@ export interface DistrictLedgerData {
   readonly unavailableEvents: readonly { readonly eventKey: string; readonly name: string }[];
   readonly gaps: Partial<DistrictLedgerGaps>;
   readonly isLoading: boolean;
+  /**
+   * TRUE while the per event run for the CURRENT inputs has not landed: events
+   * are assembled and the run state is idle (the effect has not started it
+   * yet), running, or complete for a stale signature. A failed run is not
+   * pending. The champ tab reads it so an unstarted run is never mistaken for
+   * "nothing to run" (quick task 260927-6bf); the district tab does not.
+   */
+  readonly runPending: boolean;
 }
 
 /** The "now" start key: the first genuinely unplayed qualification row, or `null` when every row is played. */
@@ -330,5 +338,9 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
       eventsWithUnresolvedElimMatches: assembled.eventsWithUnresolvedElimMatches,
     },
     isLoading: preSimQueries.some((query) => query.isPending),
+    runPending:
+      assembled.events.length > 0 &&
+      runState.status !== "error" &&
+      !(runState.status === "complete" && runState.signature === assembled.signature),
   };
 }

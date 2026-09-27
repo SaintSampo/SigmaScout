@@ -19,7 +19,9 @@ import { DistrictArtifactSchema, type DistrictArtifact } from "../../../../../pa
 import type { LockStatus } from "../../../../../packages/core/districts/locks.js";
 import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
 import { buildChampLedgerRows } from "./champLedgerRows.js";
-import { computeChampLedgerStatuses } from "./champLedgerStatus.js";
+import { applyChampRangeState, computeChampLedgerStatuses } from "./champLedgerStatus.js";
+import { champCutoffView, type ChampRangeState } from "./champLedgerChances.js";
+import { SHOW_SIMULATED_CHAMP_LIKELY_RANGE, predictedCutoff, type LedgerCutoffView } from "./predictedCutoff.js";
 import type { DistrictStageFinality } from "./districtLedgerRows.js";
 
 function repoFile(relative: string): string {
@@ -261,5 +263,143 @@ describe("computeChampLedgerStatuses — the pre-registration window", () => {
     const gated = withGate.status.byTeam.get(bottom.teamKey)!.status;
     const ungated = withoutGate.status.byTeam.get(bottom.teamKey)!.status;
     expect(order[gated]!).toBeLessThanOrEqual(order[ungated]!);
+  });
+});
+
+/**
+ * THE CHIPS AND THE LINE FROM ONE STATE (quick task 260927-6bf, decision L2
+ * and Jacob's 2026-09-27 chip timing decision), on the real 2026 PNW fixture
+ * reopened to just before the DCMP, where 20 odd teams are still contending.
+ */
+describe("applyChampRangeState and champCutoffView", () => {
+  const beforeDcmp = new Map(eventKeysOf(FIXTURE).map((key) => [key, key === "2026pncmp" ? ALL_OPEN : ALL_FINAL] as const));
+  const MODEL = modelAt(beforeDcmp, false);
+  const contendingKeys = [...MODEL.status.byTeam.values()]
+    .filter((result) => result.status === "inRange" || result.status === "outOfRange")
+    .map((result) => result.teamKey);
+  const LIKELY = { p10: 150, p90: 210 };
+  const settledView = (): LedgerCutoffView => ({
+    cutoff: predictedCutoff({
+      teams: MODEL.rows.teams,
+      capacity: FIXTURE.cmpSlots,
+      qualifiers: { awardQualified: new Set(MODEL.status.awardQualified), prequalified: new Set(MODEL.status.prequalified) },
+      reservedSlots: MODEL.status.reservedSlots,
+    }),
+    likely: undefined,
+    districtOnly: false,
+  });
+  const viewFor = (state: ChampRangeState, display: ReturnType<typeof applyChampRangeState>) =>
+    champCutoffView({ state, teams: MODEL.rows.teams, displayStatus: (teamKey) => display.byTeam.get(teamKey)?.status, settledView });
+
+  /** Every non contending team's result, verbatim, and the untouched model level fields. */
+  function expectVerdictsUntouched(display: ReturnType<typeof applyChampRangeState>): void {
+    for (const [teamKey, result] of MODEL.status.byTeam) {
+      if (contendingKeys.includes(teamKey)) continue;
+      expect(display.byTeam.get(teamKey)).toBe(result);
+    }
+    expect(display.verdictCensus).toEqual(MODEL.status.verdictCensus);
+    expect(display.floorCutLine).toBe(MODEL.status.floorCutLine);
+    expect(display.awardQualified).toEqual(MODEL.status.awardQualified);
+    expect(display.prequalified).toEqual(MODEL.status.prequalified);
+    expect(display.reservedSlots).toBe(MODEL.status.reservedSlots);
+    expect(display.pointsSlots).toBe(MODEL.status.pointsSlots);
+    for (const key of ["prequalified", "locked", "lockedOut"] as const) expect(display.counts[key]).toBe(MODEL.status.counts[key]);
+  }
+
+  it("has contending teams to call, so the tests below are not vacuous", () => {
+    expect(contendingKeys.length).toBeGreaterThan(5);
+  });
+
+  it("settled: the shipped rank rule and the shipped midpoint view, unchanged", () => {
+    const display = applyChampRangeState(MODEL.status, MODEL.rows.teams, { kind: "settled" });
+    for (const [teamKey, result] of MODEL.status.byTeam) expect(display.byTeam.get(teamKey)).toBe(result);
+    expect(display.counts).toEqual(MODEL.status.counts);
+    expect(display.withheld).toBeUndefined();
+    expect(viewFor({ kind: "settled" }, display)).toEqual(settledView());
+  });
+
+  it("pending: every contending call is withheld, no rank rule leaks, and the view has no figure", () => {
+    const display = applyChampRangeState(MODEL.status, MODEL.rows.teams, { kind: "pending" });
+    expectVerdictsUntouched(display);
+    for (const teamKey of contendingKeys) {
+      expect(display.byTeam.get(teamKey)!.rangeCall).toBe("pending");
+      expect(display.byTeam.get(teamKey)!.status).toBe("capacityUnknown");
+    }
+    expect(display.withheld).toBe("pending");
+    expect(display.counts.inRange).toBe(0);
+    expect(display.counts.outOfRange).toBe(0);
+    expect(viewFor({ kind: "pending" }, display)).toEqual({ cutoff: { kind: "pending" }, likely: undefined, districtOnly: false });
+  });
+
+  it("noCall: the same withholding, with the reason carried to the chip and the view", () => {
+    const state: ChampRangeState = { kind: "noCall", reason: "teamsExcluded" };
+    const display = applyChampRangeState(MODEL.status, MODEL.rows.teams, state);
+    expectVerdictsUntouched(display);
+    for (const teamKey of contendingKeys) expect(display.byTeam.get(teamKey)!.rangeCall).toBe("noCall");
+    expect(display.noCallReason).toBe("teamsExcluded");
+    expect(viewFor(state, display)).toEqual({ cutoff: { kind: "unavailable", reason: "teamsExcluded" }, likely: undefined, districtOnly: false });
+  });
+
+  it("simulated: In range iff the median is at or above the line, the view prints that line, and the range is WITHHELD", () => {
+    const projections = MODEL.rows.teams.filter((team) => contendingKeys.includes(team.teamKey)).map((team) => team.projection);
+    const points = Math.round((Math.max(...projections) + Math.min(...projections)) / 2);
+    const state: ChampRangeState = { kind: "simulated", points, likely: LIKELY };
+    const display = applyChampRangeState(MODEL.status, MODEL.rows.teams, state);
+    expectVerdictsUntouched(display);
+    const view = viewFor(state, display);
+    expect(view.cutoff.kind).toBe("predicted");
+    if (view.cutoff.kind !== "predicted") return;
+    expect(view.cutoff.source).toBe("simulated");
+    expect(view.cutoff.points).toBe(points);
+    // Jacob, 2026-09-27: the line ships, the range does not.
+    expect(SHOW_SIMULATED_CHAMP_LIKELY_RANGE).toBe(false);
+    expect(view.likely).toBeUndefined();
+    expect(display.counts.inRange + display.counts.outOfRange).toBe(contendingKeys.length);
+    expect(display.counts.inRange).toBeGreaterThan(0);
+    expect(display.counts.outOfRange).toBeGreaterThan(0);
+  });
+
+  /**
+   * THE BETWEEN PROPERTY, swept. A seeded generator places the simulated line
+   * anywhere across (and beyond) the contending medians; at every line every
+   * In range median is at or above the printed points, every Out of range
+   * median below them, and the view's boundary pair brackets the line.
+   */
+  it("holds the between property at every line a seeded sweep can place, in simulated and settled mode", () => {
+    let seed = 20260927;
+    const next = (): number => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+    const projectionOf = new Map(MODEL.rows.teams.map((team) => [team.teamKey, team.projection] as const));
+    const projections = contendingKeys.map((key) => projectionOf.get(key)!);
+    const low = Math.min(...projections) - 20;
+    const high = Math.max(...projections) + 20;
+    for (let i = 0; i < 200; i++) {
+      const points = Math.round(low + next() * (high - low));
+      const state: ChampRangeState = { kind: "simulated", points, likely: LIKELY };
+      const display = applyChampRangeState(MODEL.status, MODEL.rows.teams, state);
+      const view = viewFor(state, display);
+      if (view.cutoff.kind !== "predicted") throw new Error("a simulated state always prints a predicted arm");
+      for (const teamKey of contendingKeys) {
+        const status = display.byTeam.get(teamKey)!.status;
+        const projection = projectionOf.get(teamKey)!;
+        if (status === "inRange") expect(projection).toBeGreaterThanOrEqual(view.cutoff.points);
+        else expect(projection).toBeLessThan(view.cutoff.points);
+      }
+      expect(view.cutoff.boundary.above).toBeGreaterThanOrEqual(view.cutoff.points);
+      expect(view.cutoff.boundary.below).toBeLessThanOrEqual(view.cutoff.points);
+    }
+    // Settled mode: the shipped rank rule and midpoint, which the 260926-37q
+    // sweep in predictedCutoff.test.ts already pins; here, that the settled arm
+    // hands them through untouched.
+    const settled = applyChampRangeState(MODEL.status, MODEL.rows.teams, { kind: "settled" });
+    const view = viewFor({ kind: "settled" }, settled);
+    if (view.cutoff.kind !== "predicted" && view.cutoff.kind !== "final") throw new Error("expected a numeric settled cutoff");
+    for (const teamKey of contendingKeys) {
+      const status = settled.byTeam.get(teamKey)!.status;
+      if (status === "inRange") expect(projectionOf.get(teamKey)!).toBeGreaterThanOrEqual(view.cutoff.points);
+      else expect(projectionOf.get(teamKey)!).toBeLessThanOrEqual(view.cutoff.points);
+    }
   });
 });

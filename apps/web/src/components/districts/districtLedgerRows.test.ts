@@ -21,7 +21,9 @@ import type {
   DistrictSelectionRouteObservation,
   DistrictSelectionRoutes,
 } from "../../../../../packages/core/districts/ledgerSimulation.js";
+import { simulateDistrictEvent } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import {
+  ZERO_AWARD_PROFILE,
   allDistrictTierEventKeys,
   buildDistrictEventSimulationInput,
   buildDistrictLedgerRows,
@@ -375,6 +377,44 @@ describe("buildDistrictLedgerRows", () => {
     ]);
     const built = buildDistrictLedgerRows({ artifact, distributions: NO_DISTRIBUTIONS });
     expect(built.teams.map((entry) => entry.teamNumber)).toEqual([10, 20, 30]);
+  });
+
+  it("prints the earned total AT THE POSITION when rewound, and the published totals at now (finding 4)", () => {
+    const artifact = artifactOf([
+      team({
+        teamKey: "frc1",
+        pointTotal: 70,
+        eventPoints: [
+          eventPoints({ eventKey: "a", qual: 20, alliance: 10, elim: 10, award: 5, total: 45 }),
+          eventPoints({ eventKey: "b", qual: 12, alliance: 6, elim: 7, award: 0, total: 25 }),
+        ],
+      }),
+    ]);
+    const now = buildDistrictLedgerRows({ artifact, distributions: NO_DISTRIBUTIONS });
+    expect(now.teams[0]!.earnedAtPosition).toBe(70);
+    expect(now.teams[0]!.earnedDistrictTotal).toBe(70);
+    const rewound = buildDistrictLedgerRows({
+      artifact,
+      distributions: NO_DISTRIBUTIONS,
+      stageByEvent: new Map<string, DistrictStageFinality>([
+        ["a", { qual: true, alliance: true, elim: true, award: true }],
+        ["b", { qual: true, alliance: false, elim: false, award: false }],
+      ]),
+    });
+    // Event a is final (its published 45); event b has only its 12 qual points.
+    expect(rewound.teams[0]!.earnedAtPosition).toBe(57);
+    // DISPLAY ONLY: the sort and the fallback projection keep the published
+    // total, so the tab's In range split and the ledger tenets do not move.
+    expect(rewound.teams[0]!.earnedDistrictTotal).toBe(70);
+    const seasonStart = buildDistrictLedgerRows({
+      artifact,
+      distributions: NO_DISTRIBUTIONS,
+      stageByEvent: new Map<string, DistrictStageFinality>([
+        ["a", { qual: false, alliance: false, elim: false, award: false }],
+        ["b", { qual: false, alliance: false, elim: false, award: false }],
+      ]),
+    });
+    expect(seasonStart.teams[0]!.earnedAtPosition).toBe(0);
   });
 
   it("discloses a team with no awardProfile rather than absorbing it", () => {
@@ -936,6 +976,40 @@ describe("a published alliance list is used only when it is FINAL (WR-07)", () =
     if (!built.ok) throw new Error("expected an input");
     return built;
   }
+
+  it("gives a team with NO award profile the zero profile, so its event still simulates (Jacob, 2026-09-27)", () => {
+    // Two shapes of one gap: roster[0] is on the district artifact with no
+    // profile, and roster[20] to roster[23] are guests the district artifact
+    // does not list at all (2026orore's frc3669). Before this rule either one
+    // refused the whole event with `MissingAwardProfileError`.
+    const unprofiled = artifactOf(
+      roster.slice(0, 20).map((teamKey, index) =>
+        team({
+          teamKey,
+          pointTotal: 24,
+          eventPoints: [eventPoints({ eventKey: "2026wapartial", qual: 12, alliance: 6, elim: 6, award: 0, total: 24 })],
+          ...(index === 0 ? {} : { awardProfile: { bucket: "oneOrTwo" as const, rookie: false } }),
+        })
+      )
+    );
+    expect(unprofiled.teams[0]!.awardProfile).toBeUndefined();
+    const built = buildDistrictEventSimulationInput({
+      eventKey: "2026wapartial",
+      season: SEASON,
+      eventArtifact: artifactWithAlliances(finalAlliances()),
+      districtArtifact: unprofiled,
+      stage: { qual: true, alliance: true, elim: false, award: false },
+      startMatchKey: null,
+    });
+    if (!built.ok) throw new Error("expected an input");
+    expect(ZERO_AWARD_PROFILE).toEqual({ bucket: "none", rookieState: "veteran", priorJudgedAwards: 0 });
+    for (const teamKey of [roster[0]!, ...roster.slice(20)]) expect(built.input.awardProfiles.get(teamKey)).toEqual(ZERO_AWARD_PROFILE);
+    // A PUBLISHED profile passes through unchanged, not zeroed.
+    expect(built.input.awardProfiles.get(roster[1]!)).toEqual({ bucket: "one-or-two", rookieState: "veteran" });
+    // The awards stage is OPEN here, which is exactly where the refusal lived.
+    const result = simulateDistrictEvent(built.input, 200, 7);
+    expect([...result.awardPoints.keys()].sort()).toEqual([...roster].sort());
+  });
 
   it("a FINAL eight-alliance list is used as published, and discloses no gap", () => {
     const built = buildWith(finalAlliances());
