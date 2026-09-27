@@ -9,6 +9,12 @@ dist/
 data/*
 !data/baselines/
 !data/diagnostics/
+# Phase 10 fixtures: the district artifact and index are read by committed
+# tests (champLedgerRows, champLedgerStatus, predictedCutoff, districtBudget)
+# and must exist on CI. The per-event and presim artifacts stay local-only.
+!data/fixtures/
+data/fixtures/phase10/event-*.json
+data/fixtures/phase10/presim-*.json
 reports/
 
 # wrangler local dev state (D1/KV/R2 emulation) — generated, machine-local,
