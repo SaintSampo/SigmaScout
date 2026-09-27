@@ -943,7 +943,7 @@ body {
   box-shadow: none;
   outline: 1px dashed var(--color-border);
   outline-offset: -1px;
-  min-width: 5.75rem;
+  min-width: 5.5rem;
   text-align: center;
 }
 
