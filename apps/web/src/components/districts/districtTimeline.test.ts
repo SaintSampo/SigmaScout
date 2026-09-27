@@ -19,6 +19,7 @@ import {
   resolveDistrictTimelinePosition,
   startMatchKeyAtPosition,
 } from "./districtTimeline.js";
+import { nearestRailPosition, timelineRailFractions, timelineTicks } from "./LedgerParts.js";
 
 const BASE_MS = Date.parse("2026-03-06T17:00:00.000Z");
 
@@ -294,6 +295,48 @@ describe("the derived jump chips", () => {
   it("derives only one week chip on a single-week fixture — never a hardcoded week list", () => {
     const oneWeek = buildDistrictTimeline({ events: EVENTS, eventArtifacts: new Map() });
     expect(oneWeek.chips.map((chip) => chip.id)).toEqual([DISTRICT_TIMELINE_SEASON_START_ID, "week-0", DISTRICT_TIMELINE_NOW_ID]);
+  });
+});
+
+describe("the rewind rail", () => {
+  const weeks = [
+    { eventKey: "eva", eventName: "Event A", week: 0 as number | null },
+    { eventKey: "evb", eventName: "Event B", week: 1 as number | null },
+    { eventKey: "evc", eventName: "Event C", week: 2 as number | null },
+  ];
+  const stageOnly = buildDistrictTimeline({ events: weeks, eventArtifacts: new Map() });
+  const withMatches = buildDistrictTimeline({
+    events: weeks,
+    eventArtifacts: new Map([
+      ["eva", eventArtifact("eva", Array.from({ length: 40 }, (_, i) => ({ matchNumber: i + 1, ms: BASE_MS + i * 60_000 })))],
+      ["evb", eventArtifact("evb", [{ matchNumber: 1, ms: BASE_MS + 7 * 86_400_000 }])],
+    ]),
+  });
+
+  it("never moves a tick when a rewind loads the event artifacts, and prints every tick on one row", () => {
+    const layout = (timeline: typeof stageOnly) => timelineTicks(timeline).map(({ label, percent, row }) => ({ label, percent, row }));
+    expect(withMatches.nowIndex).toBeGreaterThan(stageOnly.nowIndex);
+    expect(layout(withMatches)).toEqual(layout(stageOnly));
+    expect(layout(stageOnly)).toEqual([
+      { label: "start", percent: 0, row: 0 },
+      { label: "wk 1", percent: 25, row: 0 },
+      { label: "wk 2", percent: 50, row: 0 },
+      { label: "wk 3", percent: 75, row: 0 },
+      { label: "now", percent: 100, row: 0 },
+    ]);
+  });
+
+  it("puts every jump chip's position exactly on its tick, and snaps a rail value back to that position", () => {
+    for (const timeline of [stageOnly, withMatches]) {
+      const fractions = timelineRailFractions(timeline);
+      expect(fractions).toHaveLength(timeline.nowIndex + 1);
+      for (let i = 1; i < fractions.length; i++) expect(fractions[i]!).toBeGreaterThan(fractions[i - 1]!);
+      const ticks = timelineTicks(timeline);
+      timeline.chips.forEach((chip, i) => {
+        expect(fractions[chip.positionIndex]! * 100).toBeCloseTo(ticks[i]!.percent);
+        expect(nearestRailPosition(fractions, ticks[i]!.percent / 100)).toBe(chip.positionIndex);
+      });
+    }
   });
 });
 

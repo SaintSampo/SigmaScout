@@ -32,7 +32,7 @@
  * class when such a list goes through `cn()` and only a screenshot catches it
  * (project memory `project_cn_drops_text_role_classes`).
  */
-import { useRef, useEffect, useState, type ReactNode } from "react";
+import { useRef, useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { TableCell } from "@/components/ui/table";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
@@ -131,6 +131,9 @@ export const REWIND_INPUT_ID = "district-ledger-rewind-input";
 
 /** How long the hand must pause on the slider before its position is committed to the URL and the simulation. */
 export const REWIND_COMMIT_DELAY_MS = 160;
+
+/** The rail's own resolution: the range input runs from 0 to this, and every move snaps to the nearest timeline position. */
+export const REWIND_RAIL_MAX = 1000;
 
 /** How far apart two tick labels must sit before both print. Measured at 390px, where the rail is about 340px and a "wk 0" label about 28px. */
 export const TICK_MIN_GAP_PERCENT = 10;
@@ -738,6 +741,8 @@ export function RewindSlider({
   const [thumb, setThumb] = useState(positionIndex);
   const dragging = useRef(false);
   const commitTimer = useRef<number | undefined>(undefined);
+  const fractions = useMemo(() => timelineRailFractions(timeline), [timeline]);
+  const thumbIndex = Math.min(thumb, timeline.nowIndex);
   useEffect(() => {
     if (!dragging.current) setThumb(positionIndex);
   }, [positionIndex]);
@@ -750,6 +755,14 @@ export function RewindSlider({
       dragging.current = false;
       onPositionChange(next);
     }, REWIND_COMMIT_DELAY_MS);
+  }
+  // The rail's native arrow step is one thousandth, which usually snaps back
+  // to the same position; an arrow key moves one timeline step instead.
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
+    const delta = event.key === "ArrowLeft" || event.key === "ArrowDown" ? -1 : event.key === "ArrowRight" || event.key === "ArrowUp" ? 1 : 0;
+    if (delta === 0) return;
+    event.preventDefault();
+    handleThumbChange(Math.max(0, Math.min(timeline.nowIndex, thumbIndex + delta)));
   }
   return (
     <div className="flex flex-col gap-[var(--spacing-sm)]" data-testid="district-ledger-rewind">
@@ -771,10 +784,13 @@ export function RewindSlider({
           id={REWIND_INPUT_ID}
           type="range"
           min={0}
-          max={timeline.nowIndex}
+          max={REWIND_RAIL_MAX}
           step={1}
-          value={Math.min(thumb, timeline.nowIndex)}
-          onChange={(event) => handleThumbChange(Number(event.target.value))}
+          value={Math.round((fractions[thumbIndex] ?? 1) * REWIND_RAIL_MAX)}
+          aria-valuetext={timeline.positions[thumbIndex]?.label}
+          data-now-index={timeline.nowIndex}
+          onChange={(event) => handleThumbChange(nearestRailPosition(fractions, Number(event.target.value) / REWIND_RAIL_MAX))}
+          onKeyDown={handleKeyDown}
           className="district-ledger-slider w-full"
         />
       </div>
@@ -809,11 +825,12 @@ export function RewindSlider({
  * The rail's tick labels, DERIVED from the same jump chips rather than from a
  * hardcoded week list: the first chip prints "start", each per-week chip prints
  * its own short "wk N", and the last prints "now". A district with one week
- * therefore gets two ticks, not five.
+ * therefore gets two ticks, not five. Each tick sits at its chip's fixed
+ * anchor on the rail (see `timelineRailFractions`), never at its index.
  */
 export function timelineTicks(timeline: DistrictTimeline): { id: string; label: string; percent: number; row: 0 | 1 }[] {
-  const span = Math.max(timeline.nowIndex, 1);
-  const all = timeline.chips.map((chip) => {
+  const segments = Math.max(timeline.chips.length - 1, 1);
+  const all = timeline.chips.map((chip, chipIndex) => {
     const week = /^week-(\d+)$/.exec(chip.id);
     const label =
       chip.id === DISTRICT_TIMELINE_SEASON_START_ID
@@ -823,7 +840,7 @@ export function timelineTicks(timeline: DistrictTimeline): { id: string; label: 
           : week === null
             ? chip.label
             : districtLedgerTickWeekLabel(Number(week[1]));
-    return { id: chip.id, label, percent: Math.min(100, (chip.positionIndex / span) * 100), row: 0 as 0 | 1 };
+    return { id: chip.id, label, percent: (chipIndex / segments) * 100, row: 0 as 0 | 1 };
   });
   // EVERY week prints (Jacob, 2026-09-25: a district has more weeks than
   // four and the rail must adapt). A label that would land on top of its
@@ -836,6 +853,44 @@ export function timelineTicks(timeline: DistrictTimeline): { id: string; label: 
     lastOnRow[row] = tick.percent;
   }
   return all;
+}
+
+/**
+ * Where each timeline position sits on the rail, as a fraction from 0 to 1.
+ *
+ * THE JUMP CHIPS ARE FIXED, EVENLY SPACED ANCHORS: start, one per week, now.
+ * Positions between two anchors spread linearly by index. The anchors depend
+ * only on which weeks the district has, never on which event artifacts have
+ * loaded (Jacob, 2026-09-27: the week ticks moved as the slider moved, and they
+ * should never move). A rewind widens the fetch set, the timeline grows from
+ * stage steps to one step per match, and ticks placed by index all slid while
+ * the hand was on the rail; "now", one step past the last week, also sat alone
+ * on the second row.
+ */
+export function timelineRailFractions(timeline: DistrictTimeline): number[] {
+  const segments = Math.max(timeline.chips.length - 1, 1);
+  // Clamped non decreasing, so an out of order chip can never fold the rail back on itself.
+  const anchors: number[] = [];
+  for (const chip of timeline.chips) anchors.push(Math.max(anchors[anchors.length - 1] ?? 0, chip.positionIndex));
+  const fractions: number[] = [];
+  let segment = 0;
+  for (let index = 0; index <= timeline.nowIndex; index++) {
+    while (segment < anchors.length - 2 && index >= anchors[segment + 1]!) segment++;
+    const from = anchors[segment]!;
+    const to = anchors[segment + 1] ?? from;
+    const within = to > from ? Math.min(1, (index - from) / (to - from)) : 1;
+    fractions.push(Math.min(1, (segment + within) / segments));
+  }
+  return fractions;
+}
+
+/** The position whose rail fraction sits nearest `fraction`; a tie goes to the earlier position. */
+export function nearestRailPosition(fractions: readonly number[], fraction: number): number {
+  let best = 0;
+  for (let index = 1; index < fractions.length; index++) {
+    if (Math.abs(fractions[index]! - fraction) < Math.abs(fractions[best]! - fraction)) best = index;
+  }
+  return best;
 }
 
 /**

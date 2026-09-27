@@ -250,7 +250,7 @@ test.describe("District Locks, 1440x900", () => {
 
     const slider = page.getByTestId(TEST_IDS.rewind).locator('input[type="range"]');
     await expect(slider).toHaveCount(1);
-    const max = Number(await slider.getAttribute("max"));
+    const max = Number(await slider.getAttribute("data-now-index"));
     // eslint-disable-next-line no-console -- printed for the SUMMARY's measured-figure obligation.
     console.log(`[districts-ledger] rewind slider max (the now index): ${max}`);
     // At "now" on a finished district no event artifact is loaded (the tab
@@ -263,15 +263,14 @@ test.describe("District Locks, 1440x900", () => {
     expect(max, "the slider's maximum must hold every event's four stage steps").toBeGreaterThanOrEqual(4 * 8 + 1);
 
     const readoutBefore = (await page.getByTestId(TEST_IDS.rewindReadout).innerText()).trim();
-    const target = Math.max(0, Math.floor(max / 2));
-    await slider.fill(String(target));
+    await slider.fill(String(Math.floor(Number(await slider.getAttribute("max")) / 2)));
     await expect(page.getByTestId(TEST_IDS.rewindReadout)).not.toHaveText(readoutBefore);
 
     // The rewind loads every started event's artifact, and the timeline
     // refines to one step per qualification match: the maximum must grow well
     // past the stage-only floor (measured live 2026-09-25: 33 became 549).
     await expect
-      .poll(() => slider.getAttribute("max").then((value) => Number(value)), {
+      .poll(() => slider.getAttribute("data-now-index").then((value) => Number(value)), {
         message: "a rewind must load the event artifacts and refine the timeline to match steps",
         timeout: 30_000,
       })
