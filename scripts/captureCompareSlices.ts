@@ -21,6 +21,11 @@
  * USAGE (no `.env`, no network):
  *   npx tsx scripts/captureCompareSlices.ts --out experiments/x/base.json
  *   npx tsx scripts/captureCompareSlices.ts --diff experiments/x/base.json experiments/x/after.json
+ *
+ * `--sigma-carry` runs the same capture with the Sigma-carry CANDIDATE on
+ * (`packages/harness/sigmaCarry.ts`), the Decision 1 arm of debug session
+ * `presim-bake-rp-filler-refuses`. It is a verification switch only: the
+ * capture is always a dry run and no production entry point sets it.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -127,7 +132,7 @@ export function diffSlices(before: readonly CapturedSlice[], after: readonly Cap
   return deltas;
 }
 
-async function capture(out: string): Promise<void> {
+async function capture(out: string, sigmaCarry: boolean): Promise<void> {
   const db = openCorpusReadOnly(CORPUS_PATH);
   const slices: CapturedSlice[] = [];
   try {
@@ -141,6 +146,8 @@ async function capture(out: string): Promise<void> {
       preScheduleFromSeason: 9999,
       generation: CAPTURE_GENERATION,
       computedAt: CAPTURE_COMPUTED_AT,
+      // Off passes nothing, so the default capture is exactly what it always was.
+      ...(sigmaCarry ? { sigmaCarry: true } : {}),
       artifactSink: (pageKind: PageKind, _key: string, body: string): void => {
         if (pageKind === "compare") slices.push(...slicesOf(body));
       },
@@ -174,7 +181,7 @@ async function main(argv: readonly string[]): Promise<void> {
   const { values, positionals } = parseArgs({
     args: [...argv],
     allowPositionals: true,
-    options: { out: { type: "string" }, diff: { type: "boolean" }, view: { type: "string" } },
+    options: { out: { type: "string" }, diff: { type: "boolean" }, view: { type: "string" }, "sigma-carry": { type: "boolean" } },
   });
   if (values.diff === true) {
     if (positionals.length !== 2) throw new Error("--diff needs exactly two capture files: before, then after");
@@ -182,7 +189,8 @@ async function main(argv: readonly string[]): Promise<void> {
     return;
   }
   if (values.out === undefined) throw new Error("--out is required");
-  await capture(values.out);
+  if (values["sigma-carry"] === true) console.log("captureCompareSlices: Sigma-carry CANDIDATE ON (verification arm; see packages/harness/sigmaCarry.ts)");
+  await capture(values.out, values["sigma-carry"] === true);
 }
 
 const isEntryPoint = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
