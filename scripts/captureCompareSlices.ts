@@ -22,16 +22,17 @@
  *   npx tsx scripts/captureCompareSlices.ts --out experiments/x/base.json
  *   npx tsx scripts/captureCompareSlices.ts --diff experiments/x/base.json experiments/x/after.json
  *
- * `--sigma-carry` runs the same capture with the Sigma-carry CANDIDATE on
- * (`packages/harness/sigmaCarry.ts`), the Decision 1 arm of debug session
- * `presim-bake-rp-filler-refuses`. It is a verification switch only: the
- * capture is always a dry run and no production entry point sets it.
+ * The default capture is the shipped model, SPR 9.0.0: the Sigma carry
+ * (`packages/harness/sigmaCarry.ts`) and the RP cold-team prior (`rpColdPrior`
+ * in `packages/core/rankingPoints/empiricalMoments.ts`) both on, passed to
+ * `publishSeasons` explicitly rather than left to its defaults.
  *
- * `--rp-cold-prior` runs the capture with the RP cold-team prior CANDIDATE on
- * (`rpColdPrior` in `packages/core/rankingPoints/empiricalMoments.ts`), gate R0
- * of `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`
- * and, combined with `--sigma-carry`, the retry's G1 arm. It is a verification
- * switch only, under the same terms as `--sigma-carry`.
+ * `--no-sigma-carry` and `--no-rp-cold-prior` turn one off each; together they
+ * rebuild the pre-9.0.0 incumbent for a Rule A comparison against the default
+ * capture (the Decision 1 arm of debug session `presim-bake-rp-filler-refuses`,
+ * and gate R0 and the retry's G1 arm of
+ * `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`).
+ * The capture is always a dry run, so no arm reaches R2.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -138,18 +139,19 @@ export function diffSlices(before: readonly CapturedSlice[], after: readonly Cap
   return deltas;
 }
 
-/** The candidate switches this capture can turn on. */
+/** The SPR 9.0.0 model switches this capture passes. Both default on, the shipped model. */
 export interface CaptureSwitches {
   readonly sigmaCarry: boolean;
   readonly rpColdPrior: boolean;
 }
 
-/** The `publishSeasons` keys for the switches that are ON, and no key for one that is off, so off passes nothing. */
-export function captureSwitches(switches: CaptureSwitches): Pick<PublishSeasonsOptions, "sigmaCarry" | "rpColdPrior"> {
-  return {
-    ...(switches.sigmaCarry ? { sigmaCarry: true } : {}),
-    ...(switches.rpColdPrior ? { rpColdPrior: true } : {}),
-  };
+/**
+ * The `publishSeasons` keys for the switches, always as explicit booleans: an absent switch is ON
+ * (the shipped model), and only an explicit `false` builds the pre-9.0.0 arm. Never left to
+ * `publishSeasons`' own defaults, so the capture says what it measured.
+ */
+export function captureSwitches(switches: Partial<CaptureSwitches> = {}): Required<Pick<PublishSeasonsOptions, "sigmaCarry" | "rpColdPrior">> {
+  return { sigmaCarry: switches.sigmaCarry !== false, rpColdPrior: switches.rpColdPrior !== false };
 }
 
 async function capture(out: string, switches: CaptureSwitches): Promise<void> {
@@ -166,7 +168,7 @@ async function capture(out: string, switches: CaptureSwitches): Promise<void> {
       preScheduleFromSeason: 9999,
       generation: CAPTURE_GENERATION,
       computedAt: CAPTURE_COMPUTED_AT,
-      // Off passes nothing, so the default capture is exactly what it always was.
+      // Explicit booleans either way (`captureSwitches`).
       ...captureSwitches(switches),
       artifactSink: (pageKind: PageKind, _key: string, body: string): void => {
         if (pageKind === "compare") slices.push(...slicesOf(body));
@@ -197,7 +199,16 @@ function printDiff(beforePath: string, afterPath: string, view: string): void {
   }
 }
 
-async function main(argv: readonly string[]): Promise<void> {
+/** The parsed command line. Strict: an unknown option, including the retired `--sigma-carry` and `--rp-cold-prior`, throws. */
+export interface CaptureCli {
+  readonly out: string | undefined;
+  readonly diff: boolean;
+  readonly view: string | undefined;
+  readonly positionals: readonly string[];
+  readonly switches: CaptureSwitches;
+}
+
+export function parseCaptureArgs(argv: readonly string[]): CaptureCli {
   const { values, positionals } = parseArgs({
     args: [...argv],
     allowPositionals: true,
@@ -205,23 +216,37 @@ async function main(argv: readonly string[]): Promise<void> {
       out: { type: "string" },
       diff: { type: "boolean" },
       view: { type: "string" },
-      "sigma-carry": { type: "boolean" },
-      "rp-cold-prior": { type: "boolean" },
+      "no-sigma-carry": { type: "boolean" },
+      "no-rp-cold-prior": { type: "boolean" },
     },
   });
-  if (values.diff === true) {
-    if (positionals.length !== 2) throw new Error("--diff needs exactly two capture files: before, then after");
-    printDiff(positionals[0]!, positionals[1]!, values.view ?? "qualification");
+  return {
+    out: values.out,
+    diff: values.diff === true,
+    view: values.view,
+    positionals,
+    switches: captureSwitches({
+      ...(values["no-sigma-carry"] === true ? { sigmaCarry: false } : {}),
+      ...(values["no-rp-cold-prior"] === true ? { rpColdPrior: false } : {}),
+    }),
+  };
+}
+
+async function main(argv: readonly string[]): Promise<void> {
+  const cli = parseCaptureArgs(argv);
+  if (cli.diff) {
+    if (cli.positionals.length !== 2) throw new Error("--diff needs exactly two capture files: before, then after");
+    printDiff(cli.positionals[0]!, cli.positionals[1]!, cli.view ?? "qualification");
     return;
   }
-  if (values.out === undefined) throw new Error("--out is required");
-  if (values["sigma-carry"] === true) console.log("captureCompareSlices: Sigma-carry CANDIDATE ON (verification arm; see packages/harness/sigmaCarry.ts)");
-  if (values["rp-cold-prior"] === true) {
+  if (cli.out === undefined) throw new Error("--out is required");
+  if (!cli.switches.sigmaCarry) console.log("captureCompareSlices: Sigma carry OFF (--no-sigma-carry, the pre-9.0.0 arm; see packages/harness/sigmaCarry.ts)");
+  if (!cli.switches.rpColdPrior) {
     console.log(
-      "captureCompareSlices: RP cold-team prior CANDIDATE ON (verification arm; see .planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md)"
+      "captureCompareSlices: RP cold-team prior OFF (--no-rp-cold-prior, the pre-9.0.0 arm; see .planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md)"
     );
   }
-  await capture(values.out, { sigmaCarry: values["sigma-carry"] === true, rpColdPrior: values["rp-cold-prior"] === true });
+  await capture(cli.out, cli.switches);
 }
 
 const isEntryPoint = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;

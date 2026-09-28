@@ -1,15 +1,16 @@
 /**
- * The RP cold-team prior CANDIDATE (`rpColdPrior`,
- * `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`)
- * through the real `SigmaScoutLayer` and `publishSeasons`.
+ * The RP cold-team prior (`rpColdPrior`,
+ * `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`),
+ * the production model since SPR 9.0.0, through the real `SigmaScoutLayer` and `publishSeasons`.
  *
- *   - OFF IS THE INCUMBENT: a layer built with no options and one built with
- *     `rpColdPrior: false` return identical records and state; `publishSeasons`
- *     absent and `false` publish byte-identical bodies.
- *   - ON MOVES RP ONLY (PREREG item 4): scores, win odds, the match band, Sigma,
- *     the folded beliefs and the mean shift's booking are unchanged; at least
- *     one bonus probability moves (non-vacuity); every Compare page (winner
- *     accuracy and Brier) is byte-identical.
+ *   - ABSENT IS PRODUCTION: a layer built with no options and one built with
+ *     `rpColdPrior: true` return identical records and state; `publishSeasons`
+ *     absent and `true` publish byte-identical bodies.
+ *   - `false` IS THE PRE-9.0.0 INCUMBENT, and the prior moves RP only (PREREG
+ *     item 4): scores, win odds, the match band, Sigma, the folded beliefs and
+ *     the mean shift's booking are unchanged; at least one bonus probability
+ *     moves (non-vacuity); every Compare page (winner accuracy and Brier) is
+ *     byte-identical.
  */
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -67,34 +68,35 @@ describe("SigmaScoutLayer rpColdPrior on the committed digest slice", () => {
     expect(records.length).toBeGreaterThan(10);
   });
 
-  it("off absent and off false return identical records and identical final state", () => {
-    expect(off.out).toStrictEqual(absent.out);
-    expect(off.layer.rpMeanShiftState()).toStrictEqual(absent.layer.rpMeanShiftState());
-    expect(off.layer.rpVariableBeliefs()).toStrictEqual(absent.layer.rpVariableBeliefs());
-    expect(absent.layer.rpAccumulator?.rpColdPrior).toBe(false);
-    expect(off.layer.rpAccumulator?.rpColdPrior).toBe(false);
+  it("absent and true return identical records and identical final state: the prior is the layer's default", () => {
+    expect(on.out).toStrictEqual(absent.out);
+    expect(on.layer.rpMeanShiftState()).toStrictEqual(absent.layer.rpMeanShiftState());
+    expect(on.layer.rpVariableBeliefs()).toStrictEqual(absent.layer.rpVariableBeliefs());
+    expect(on.layer.rpPopulationState()).toStrictEqual(absent.layer.rpPopulationState());
+    expect(absent.layer.rpAccumulator?.rpColdPrior).toBe(true);
     expect(on.layer.rpAccumulator?.rpColdPrior).toBe(true);
+    expect(off.layer.rpAccumulator?.rpColdPrior).toBe(false);
   });
 
-  it("on changes nothing but RP: scores, win odds, the match band, Sigma, beliefs and the mean shift are the incumbent's", () => {
-    expect(on.out.length).toBe(absent.out.length);
+  it("the prior changes nothing but RP: scores, win odds, the match band, Sigma, beliefs and the mean shift are the pre-9.0.0 incumbent's", () => {
+    expect(on.out.length).toBe(off.out.length);
     on.out.forEach((record, i) => {
-      const incumbent = absent.out[i]!;
+      const incumbent = off.out[i]!;
       expect(record.match).toStrictEqual(incumbent.match);
       expect(record.prediction.redScore).toBe(incumbent.prediction.redScore);
       expect(record.prediction.blueScore).toBe(incumbent.prediction.blueScore);
       expect(record.prediction.pRedWin).toBe(incumbent.prediction.pRedWin);
       expect(record.matchBand).toStrictEqual(incumbent.matchBand);
     });
-    expect([...on.layer.sigmaScoreByTeam()]).toStrictEqual([...absent.layer.sigmaScoreByTeam()]);
-    expect(on.layer.rpVariableBeliefs()).toStrictEqual(absent.layer.rpVariableBeliefs());
-    expect(on.layer.rpMeanShiftState()).toStrictEqual(absent.layer.rpMeanShiftState());
+    expect([...on.layer.sigmaScoreByTeam()]).toStrictEqual([...off.layer.sigmaScoreByTeam()]);
+    expect(on.layer.rpVariableBeliefs()).toStrictEqual(off.layer.rpVariableBeliefs());
+    expect(on.layer.rpMeanShiftState()).toStrictEqual(off.layer.rpMeanShiftState());
   });
 
-  it("the stream's first record is identical (n = 0 at that instant), and at least one bonus probability moves", () => {
-    expect(on.out[0]).toStrictEqual(absent.out[0]);
+  it("the stream's first record is identical (n = 0 at that instant), and at least one bonus probability moves against false (non-vacuity)", () => {
+    expect(on.out[0]).toStrictEqual(off.out[0]);
     const moved = on.out.filter((record, i) => {
-      const incumbent = absent.out[i]!.prediction;
+      const incumbent = off.out[i]!.prediction;
       return (
         JSON.stringify(record.prediction.redBonusRp) !== JSON.stringify(incumbent.redBonusRp) ||
         JSON.stringify(record.prediction.blueBonusRp) !== JSON.stringify(incumbent.blueBonusRp)
@@ -218,24 +220,28 @@ describe("publishSeasons rpColdPrior", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("absent and false publish byte-identical bodies", async () => {
+  it("absent and true publish byte-identical bodies: the prior is publishSeasons' production default", async () => {
     const absent = await bodies(db, undefined);
-    const off = await bodies(db, false);
-    expect([...off.keys()]).toEqual([...absent.keys()]);
-    for (const [key, body] of absent) expect(off.get(key), key).toBe(body);
+    const on = await bodies(db, true);
+    expect([...on.keys()]).toEqual([...absent.keys()]);
+    for (const [key, body] of absent) expect(on.get(key), key).toBe(body);
     expect(absent.size).toBeGreaterThan(0);
   });
 
-  it("ON leaves every Compare page byte-identical (winner odds cannot move) and does move a published RP body", async () => {
-    const off = await bodies(db, undefined);
+  it("false leaves every Compare page byte-identical across all three (winner odds cannot move) and does move a published RP body", async () => {
+    const absent = await bodies(db, undefined);
     const on = await bodies(db, true);
-    expect([...on.keys()]).toEqual([...off.keys()]);
+    const off = await bodies(db, false);
+    expect([...off.keys()]).toEqual([...absent.keys()]);
 
-    const compareKeys = [...off.keys()].filter((key) => key.startsWith("v1/compare/"));
+    const compareKeys = [...absent.keys()].filter((key) => key.startsWith("v1/compare/"));
     expect(compareKeys.length).toBeGreaterThan(0);
-    for (const key of compareKeys) expect(on.get(key), key).toBe(off.get(key));
+    for (const key of compareKeys) {
+      expect(off.get(key), key).toBe(absent.get(key));
+      expect(on.get(key), key).toBe(absent.get(key));
+    }
 
-    const changed = [...off.keys()].filter((key) => !key.startsWith("v1/compare/") && on.get(key) !== off.get(key));
+    const changed = [...absent.keys()].filter((key) => !key.startsWith("v1/compare/") && off.get(key) !== absent.get(key));
     expect(changed.length).toBeGreaterThan(0);
   });
 });

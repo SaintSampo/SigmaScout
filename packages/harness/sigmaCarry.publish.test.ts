@@ -2,11 +2,11 @@
  * `publishSeasons`' `sigmaCarry` switch, end to end on a two-season temp corpus, dry run (nothing is
  * uploaded; bodies are read through `artifactSink`).
  *
- *   - OFF IS THE INCUMBENT: absent and `false` publish byte-identical bodies.
- *   - ON NEVER MOVES WINNER ODDS: the Compare page (winner accuracy and Brier, the published scorer) is
- *     byte-identical with the candidate on, which is the structural claim behind gate G1 of the
- *     pre-registered bar. The second season's team pages DO change (non-vacuity: the carry reached
- *     the published Sigma).
+ *   - ABSENT IS PRODUCTION (SPR 9.0.0): absent and `true` publish byte-identical bodies.
+ *   - THE CARRY NEVER MOVES WINNER ODDS: the Compare page (winner accuracy and Brier, the published
+ *     scorer) is byte-identical across absent, `true` and `false`, which is the structural claim behind
+ *     gate G1 of the pre-registered bar. `false`, the pre-9.0.0 incumbent, DOES change the second
+ *     season's team pages (non-vacuity: the carry reached the published Sigma).
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -105,22 +105,26 @@ describe("publishSeasons sigmaCarry", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("absent and false publish byte-identical bodies", async () => {
+  it("absent and true publish byte-identical bodies: the carry is publishSeasons' production default", async () => {
     const absent = await bodies(db, undefined);
-    const off = await bodies(db, false);
-    expect([...off.keys()]).toEqual([...absent.keys()]);
-    for (const [key, body] of absent) expect(off.get(key), key).toBe(body);
+    const on = await bodies(db, true);
+    expect([...on.keys()]).toEqual([...absent.keys()]);
+    for (const [key, body] of absent) expect(on.get(key), key).toBe(body);
     expect(absent.size).toBeGreaterThan(0);
   });
 
-  it("ON leaves every Compare page byte-identical (winner odds cannot move) and does move the second season's published Sigma", async () => {
-    const off = await bodies(db, undefined);
+  it("every Compare page is byte-identical across absent, true and false (winner odds cannot move), and false moves the second season's published Sigma", async () => {
+    const absent = await bodies(db, undefined);
     const on = await bodies(db, true);
+    const off = await bodies(db, false);
     expect([...on.keys()]).toEqual([...off.keys()]);
 
     const compareKeys = [...off.keys()].filter((key) => key.startsWith("v1/compare/"));
     expect(compareKeys.length).toBe(2);
-    for (const key of compareKeys) expect(on.get(key), key).toBe(off.get(key));
+    for (const key of compareKeys) {
+      expect(on.get(key), key).toBe(off.get(key));
+      expect(absent.get(key), key).toBe(off.get(key));
+    }
 
     // The cold-start season carries nothing in, so it is identical too; 2026 is where the carry lands.
     for (const [key, body] of off) if (key.includes("/2025/")) expect(on.get(key), key).toBe(body);

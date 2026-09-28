@@ -20,6 +20,11 @@
  * `fieldMeanShiftVector`); they differ only in the pmf inputs. A scorer mismatch has manufactured a ~0.003 phantom
  * regression on this project before.
  *
+ * Since SPR 9.0.0 the pre-event snapshot applies the rookie rule (a roster team
+ * with no Sigma belief takes the prior-only Sigma at SPR's unseen-team total),
+ * and both arms read that map. This script still replays without the Sigma
+ * carry, so its pre-event Sigma is not the published presim's since SPR 9.0.0.
+ *
  * Reads `data/corpus.sqlite` read-only: no network, no credential, no R2 or D1,
  * no environment variable, and `.env` is never read.
  */
@@ -662,7 +667,8 @@ export function replaySeason(
     carriedState = records.carryStates.get(algorithm.id);
 
     if (s === season) {
-      const layer = new SigmaScoutLayer(RP_RULE_MODULES[s], algorithm.id);
+      // The published presim's RP model (SPR 9.0.0), named rather than left to the layer's default.
+      const layer = new SigmaScoutLayer(RP_RULE_MODULES[s], algorithm.id, { rpColdPrior: true });
       // Every team in each target event's matches: the roster-scoped snapshot answers for any roster inside it.
       const targetTeamKeys = new Map<string, Set<string>>();
       for (const m of stream) {
@@ -676,8 +682,15 @@ export function replaySeason(
         if (r.algorithmId !== algorithm.id) continue;
         // Before this record folds: a target event's first record freezes its pre-event filler inputs,
         // exactly as publishSeasons' fold loop does.
+        // The rookie rule reads the event's pre-event state, the same instant, as the publisher's does.
         if (targetEventKeys.has(r.match.eventKey) && !preEventFillerInputsByEvent.has(r.match.eventKey)) {
-          preEventFillerInputsByEvent.set(r.match.eventKey, snapshotRankingPointFillerInputs(layer, [...(targetTeamKeys.get(r.match.eventKey) ?? [])]));
+          const rookieRule = preEventStateByEvent.has(r.match.eventKey)
+            ? { algorithm, state: preEventStateByEvent.get(r.match.eventKey) }
+            : undefined;
+          preEventFillerInputsByEvent.set(
+            r.match.eventKey,
+            snapshotRankingPointFillerInputs(layer, [...(targetTeamKeys.get(r.match.eventKey) ?? [])], rookieRule)
+          );
         }
         layer.foldPlayed(r.match, r.prediction, talentAfterMatch.get(r.match.matchKey));
       }
@@ -814,7 +827,9 @@ export function measureEvent(
   const metrics = algorithm.teamMetrics(pricingState, roster);
   const teamTotals = new Map<string, number>();
   for (const teamKey of roster) {
-    const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
+    // A team the pre-event metrics lack takes the rookie rule's total (SPR's unseen-team total), the
+    // same rating the baked arm's filler map gave it.
+    const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value ?? fillerInputs.rosterRatings?.get(teamKey)?.total;
     if (total !== undefined) teamTotals.set(teamKey, total);
   }
   const contributions = buildFieldContributions({

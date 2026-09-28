@@ -490,16 +490,25 @@ export function measureSigmaCarry(options: MeasureSigmaCarryOptions): SeasonFigu
 
     const ruleModule = RP_RULE_MODULES[season];
     const counted = options.counted.has(season);
-    // Default: today's arms. Retry: both arms add the RP cold-team prior. Bar R: no carry anywhere, and
-    // the candidate differs from the incumbent by the prior alone (no sigmaCarry key, which would turn
-    // the carry on by its presence).
-    const incumbent = retry ? new SigmaScoutLayer(ruleModule, algorithm.id, { rpColdPrior: true }) : new SigmaScoutLayer(ruleModule, algorithm.id);
+    // Every arm names `rpColdPrior` explicitly: since SPR 9.0.0 the layer defaults it ON, so an arm left
+    // to the default would silently change its registered meaning. Sigma-carry mode: both arms prior off,
+    // the candidate adds the carry. Retry: both arms prior on, the candidate adds the carry. Bar R: no
+    // carry anywhere, and the candidate differs from the incumbent by the prior alone (no sigmaCarry key,
+    // which would turn the carry on by its presence).
+    const incumbent = retry
+      ? new SigmaScoutLayer(ruleModule, algorithm.id, { rpColdPrior: true })
+      : new SigmaScoutLayer(ruleModule, algorithm.id, { rpColdPrior: false });
     const candidate = barR
       ? new SigmaScoutLayer(ruleModule, algorithm.id, { rpColdPrior: true })
-      : new SigmaScoutLayer(ruleModule, algorithm.id, {
-          sigmaCarry: { from: boundary.isColdStart ? undefined : sigmaCarry },
-          ...(retry ? { rpColdPrior: true } : {}),
-        });
+      : retry
+        ? new SigmaScoutLayer(ruleModule, algorithm.id, {
+            sigmaCarry: { from: boundary.isColdStart ? undefined : sigmaCarry },
+            rpColdPrior: true,
+          })
+        : new SigmaScoutLayer(ruleModule, algorithm.id, {
+            sigmaCarry: { from: boundary.isColdStart ? undefined : sigmaCarry },
+            rpColdPrior: false,
+          });
 
     const bonusNames = ruleModule?.bonusNames ?? [];
     const flagsByMatch = actualBonusFlagsForSeason(stream, season);

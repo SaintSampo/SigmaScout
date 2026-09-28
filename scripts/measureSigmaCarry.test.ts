@@ -310,3 +310,55 @@ describe("measureSigmaCarry bar R and retry modes on the committed 2022 slice", 
     expect(() => measureSigmaCarry({ ...oneSeason, rpPriorArms: true, rpColdPrior: true })).toThrow(/rpPriorArms.*rpColdPrior|rpColdPrior.*rpPriorArms/);
   });
 });
+
+/**
+ * SPR 9.0.0 made the layer's `rpColdPrior` default ON. An arm here that left it to the default would
+ * silently change its registered meaning, so every arm names it, and each mode's arms keep the value
+ * their pre-registration gave them.
+ */
+describe("every SigmaScoutLayer arm names rpColdPrior explicitly (structural)", () => {
+  /** Each `new SigmaScoutLayer(...)` call's full argument text, in source order, by balanced-paren scan. */
+  function layerConstructions(source: string): string[] {
+    const calls: string[] = [];
+    const marker = "new SigmaScoutLayer(";
+    for (let at = source.indexOf(marker); at >= 0; at = source.indexOf(marker, at + marker.length)) {
+      let depth = 0;
+      let end = at + marker.length - 1;
+      for (; end < source.length; end++) {
+        if (source[end] === "(") depth++;
+        else if (source[end] === ")" && --depth === 0) break;
+      }
+      calls.push(source.slice(at, end + 1));
+    }
+    return calls;
+  }
+
+  const source = readFileSync(join("scripts", "measureSigmaCarry.ts"), "utf8");
+  const calls = layerConstructions(source);
+  const priorOf = (call: string): string | undefined => /rpColdPrior:\s*(true|false)/.exec(call)?.[1];
+
+  it("finds the five arm constructions, and every one passes an explicit rpColdPrior boolean", () => {
+    expect(calls).toHaveLength(5);
+    for (const call of calls) expect(priorOf(call), call).toBeDefined();
+  });
+
+  it("incumbent: retry true, otherwise (sigma-carry and bar R) false; neither carries Sigma", () => {
+    const incumbent = /const incumbent = retry\s*\?\s*(new SigmaScoutLayer\([^)]*\))\s*:\s*(new SigmaScoutLayer\([^)]*\))/.exec(source);
+    expect(incumbent, "the incumbent construction moved; re-read the arms").not.toBeNull();
+    expect(priorOf(incumbent![1]!)).toBe("true");
+    expect(priorOf(incumbent![2]!)).toBe("false");
+    for (const arm of [incumbent![1]!, incumbent![2]!]) expect(arm).not.toContain("sigmaCarry");
+  });
+
+  it("candidate: bar R prior on with no carry, retry carry plus prior on, sigma-carry mode carry plus prior off", () => {
+    // Source order after the two incumbent calls: bar R, retry, sigma-carry.
+    const [barR, retry, sigmaCarryMode] = calls.slice(2);
+    expect(priorOf(barR!)).toBe("true");
+    expect(barR).not.toContain("sigmaCarry");
+    expect(priorOf(retry!)).toBe("true");
+    expect(retry).toContain("sigmaCarry:");
+    expect(priorOf(sigmaCarryMode!)).toBe("false");
+    expect(sigmaCarryMode).toContain("sigmaCarry:");
+    expect(source).toMatch(/const candidate = barR\s*\?\s*new SigmaScoutLayer\(/);
+  });
+});

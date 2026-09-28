@@ -98,7 +98,7 @@ import { analyticRpPmf } from "../core/rankingPoints/analyticPmf.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 // The level-2 layer (Sigma Score, the band and ranking points), driven only by `publishSeasons`.
 import { SigmaScoutLayer } from "./sigmaScoutLayer.js";
-import type { SigmaSeasonCarry } from "./sigmaCarry.js";
+import { candidateRosterRatings, candidateSigmaMap, type CandidateRosterRating, type SigmaSeasonCarry } from "./sigmaCarry.js";
 import { roundMetric, roundTo, ROUNDING_RULE } from "./rounding.js";
 import {
   actualBonusFlagsForMatch,
@@ -460,6 +460,13 @@ function eventTeamRankingFields(
  * `meanShift` is the season's walk-forward RP mean shift, read at the same instant as `accumulator`;
  * each synthetic alliance gets the same fully-warm check `SigmaScoutLayer` applies. The publisher
  * always passes it; absent means unshifted pricing.
+ *
+ * WHICH `sigmaByTeam` PRODUCTION PASSES. Since SPR 9.0.0 a presim sidecar passes the rookie rule's map
+ * (`rookieRuleRatings` then `candidateSigmaMap`): a roster team with no Sigma belief carries the
+ * prior-only Sigma at SPR's unseen-team total, read at the same instant as the pricing state, so the
+ * all-or-nothing gate below refuses only a team with neither. The district bake passes the same rule's
+ * map. Upcoming rows never come through here: `SigmaScoutLayer.enrichUpcoming`, `upcomingPricing.ts`
+ * and the Worker keep today's per-alliance Sigma gating.
  */
 export function makeRankingPointFiller(
   accumulator: RpMomentsAccumulator | undefined,
@@ -518,6 +525,40 @@ export interface RankingPointFillerInputs {
   readonly accumulator: RpMomentsAccumulator | undefined;
   readonly sigmaByTeam: ReadonlyMap<string, number>;
   readonly meanShiftState: RpMeanShiftState | undefined;
+  /** The rookie rule's rating per team, when the snapshot applied it; `sigmaByTeam` is then its `candidateSigmaMap`. */
+  readonly rosterRatings?: ReadonlyMap<string, CandidateRosterRating>;
+}
+
+/** What the presim rookie rule rates a roster from: the algorithm and its state at the pricing instant. */
+export interface RookieRuleSource {
+  readonly algorithm: AlgorithmModule<unknown>;
+  readonly state: unknown;
+}
+
+/**
+ * The Sigma carry's rookie rule over `teamKeys`, read now (`candidateRosterRatings`, never
+ * re-implemented): the algorithm's published total, else its unseen-team total at `source.state`;
+ * the layer's Sigma Score, else the prior-only Sigma at that total. Production since SPR 9.0.0 for
+ * the presim sidecars; the district bake applies the same rule.
+ */
+export function rookieRuleRatings(
+  layer: SigmaScoutLayer,
+  teamKeys: readonly string[],
+  source: RookieRuleSource
+): ReadonlyMap<string, CandidateRosterRating> {
+  const metrics = source.algorithm.teamMetrics(source.state, [...teamKeys]);
+  const totalByTeam = new Map<string, number>();
+  for (const teamKey of teamKeys) {
+    const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
+    if (total !== undefined) totalByTeam.set(teamKey, total);
+  }
+  return candidateRosterRatings({
+    roster: teamKeys,
+    totalByTeam,
+    unseenTotal: source.algorithm.unseenTeamMetrics?.(source.state)?.[TOTAL_METRIC_KEY]?.value,
+    sigmaByTeam: layer.sigmaScoresFor(teamKeys),
+    priorSigmaAtTalent: (talent) => layer.sigmaPriorAtTalent(talent),
+  });
 }
 
 /**
@@ -525,12 +566,30 @@ export interface RankingPointFillerInputs {
  * roster teams only (its membership gate, `momentsFor`, `hasHistory`, `allianceSigmaBandVariance`),
  * so for any roster inside `teamKeys` the snapshot prices exactly as the layer would at this instant,
  * and folds after it never reach it.
+ *
+ * With `rookieRule` (production since SPR 9.0.0, when the Sigma carry is on) the Sigma map is the
+ * rookie rule's, computed NOW so the prior-only Sigma is read at the snapshot instant, and the
+ * ratings ride along as `rosterRatings`. Without it the map is `layer.sigmaScoresFor(teamKeys)`, the
+ * pre-9.0.0 map.
  */
-export function snapshotRankingPointFillerInputs(layer: SigmaScoutLayer, teamKeys: readonly string[]): RankingPointFillerInputs {
+export function snapshotRankingPointFillerInputs(
+  layer: SigmaScoutLayer,
+  teamKeys: readonly string[],
+  rookieRule?: RookieRuleSource
+): RankingPointFillerInputs {
+  if (rookieRule === undefined) {
+    return {
+      accumulator: layer.rpAccumulator?.snapshotFor(teamKeys),
+      sigmaByTeam: layer.sigmaScoresFor(teamKeys),
+      meanShiftState: layer.rpMeanShiftState(),
+    };
+  }
+  const rosterRatings = rookieRuleRatings(layer, teamKeys, rookieRule);
   return {
     accumulator: layer.rpAccumulator?.snapshotFor(teamKeys),
-    sigmaByTeam: layer.sigmaScoresFor(teamKeys),
+    sigmaByTeam: candidateSigmaMap(rosterRatings),
     meanShiftState: layer.rpMeanShiftState(),
+    rosterRatings,
   };
 }
 
@@ -1550,19 +1609,19 @@ export interface PublishSeasonsOptions {
   /** An optional read-only observer of every recorded artifact body — see `ArtifactSink`. No CLI flag; `undefined` means no call and no behavior change. */
   readonly artifactSink?: ArtifactSink;
   /**
-   * The Sigma-carry CANDIDATE (`sigmaCarry.ts`), for offline verification only. No CLI flag on
-   * `publish:seasons`; `scripts/captureCompareSlices.ts --sigma-carry` is its one caller. `true` starts
-   * each Sigma algorithm's layer from the previous season's carry. Absent or `false`: every layer is
-   * constructed exactly as before and nothing is carried, so every output is byte-identical.
+   * The Sigma carry (`sigmaCarry.ts`), the production model since SPR 9.0.0 and ON unless `false`. On:
+   * each Sigma algorithm's layer starts from the previous season's carry, and the presim sidecars rate
+   * a roster team with no Sigma belief with the rookie rule. `false` builds the pre-9.0.0 incumbent, for
+   * instruments only (`scripts/captureCompareSlices.ts --no-sigma-carry`). Still no CLI flag on
+   * `publish:seasons`.
    */
   readonly sigmaCarry?: boolean;
   /**
-   * The RP cold-team prior CANDIDATE (`empiricalMoments.ts`,
-   * `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`), for
-   * offline verification only. No CLI flag on `publish:seasons`; `scripts/captureCompareSlices.ts
-   * --rp-cold-prior` and `scripts/measureSigmaCarry.ts` are its instruments. `true` builds every layer's
-   * RP accumulator with the prior on. Absent or `false`: every layer is constructed exactly as before,
-   * so every output is byte-identical.
+   * The RP cold-team prior (`empiricalMoments.ts`,
+   * `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`), the
+   * production model since SPR 9.0.0 and ON unless `false`. On: every layer's RP accumulator runs the
+   * prior. `false` builds the pre-9.0.0 incumbent, for instruments only
+   * (`scripts/captureCompareSlices.ts --no-rp-cold-prior`). Still no CLI flag on `publish:seasons`.
    */
   readonly rpColdPrior?: boolean;
 }
@@ -1840,8 +1899,11 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
     );
   }
 
+  /** SPR 9.0.0's production model: both on unless an instrument passes an explicit `false`. */
+  const sigmaCarryOn = options.sigmaCarry !== false;
+  const rpColdPriorOn = options.rpColdPrior !== false;
   let liveStatesAcrossSeasons = new Map<string, unknown>();
-  /** The Sigma-carry candidate's per-algorithm carry into the next season. Stays empty unless `options.sigmaCarry` is `true`. */
+  /** The Sigma carry's per-algorithm carry into the next season (production since SPR 9.0.0). Stays empty only when `options.sigmaCarry` is `false`. */
   let sigmaCarryAcrossSeasons = new Map<string, SigmaSeasonCarry>();
   /**
    * The final season's seed-row getters (`memoizedSeedStateRows`), keyed by algorithm id; absent for
@@ -2018,17 +2080,13 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
     const rpRuleModule = RP_RULE_MODULES[season];
     const layers = new Map<string, SigmaScoutLayer>();
     for (const algorithm of options.algorithms) {
-      // The Sigma-carry and RP cold-team prior candidates are off unless asked for; both off passes no
-      // options at all. The carry turns on by the PRESENCE of its key, so its key is written only when on.
-      const layerOptions =
-        options.sigmaCarry === true || options.rpColdPrior === true
-          ? {
-              ...(options.sigmaCarry === true
-                ? { sigmaCarry: { from: boundary.isColdStart ? undefined : sigmaCarryAcrossSeasons.get(algorithm.id) } }
-                : {}),
-              ...(options.rpColdPrior === true ? { rpColdPrior: true } : {}),
-            }
-          : undefined;
+      // Both are the production model since SPR 9.0.0 (`sigmaCarryOn`, `rpColdPriorOn`), and both are
+      // passed explicitly. The carry turns on by the PRESENCE of its key, so its key is written only when
+      // on; the prior is always an explicit boolean, never left to the layer's default.
+      const layerOptions = {
+        ...(sigmaCarryOn ? { sigmaCarry: { from: boundary.isColdStart ? undefined : sigmaCarryAcrossSeasons.get(algorithm.id) } } : {}),
+        rpColdPrior: rpColdPriorOn,
+      };
       layers.set(algorithm.id, new SigmaScoutLayer(rpRuleModule, algorithm.id, layerOptions));
     }
 
@@ -2073,7 +2131,18 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       // Before this record folds: the first record of an event freezes that event's pre-event inputs.
       const preEventInputs = preEventFillerInputsByAlgoEvent.get(r.algorithmId);
       if (preEventInputs !== undefined && !preEventInputs.has(r.match.eventKey)) {
-        preEventInputs.set(r.match.eventKey, snapshotRankingPointFillerInputs(layer, matchTeamKeysByEvent.get(r.match.eventKey) ?? []));
+        // With the Sigma carry on, the rookie rule reads the algorithm's own pre-event state, the same
+        // instant this snapshot freezes. The cold-start first event has no pre-event state and gets no
+        // rookie source; its sidecar is skipped later anyway.
+        const preEventStates = preEventStateByAlgoEvent.get(r.algorithmId);
+        const rookieRule: RookieRuleSource | undefined =
+          sigmaCarryOn && preEventStates !== undefined && preEventStates.has(r.match.eventKey)
+            ? { algorithm: algorithmById.get(r.algorithmId)!, state: preEventStates.get(r.match.eventKey) }
+            : undefined;
+        preEventInputs.set(
+          r.match.eventKey,
+          snapshotRankingPointFillerInputs(layer, matchTeamKeysByEvent.get(r.match.eventKey) ?? [], rookieRule)
+        );
       }
       const pr: PredictionRecord = {
         ...layer.foldPlayed(r.match, r.prediction, talentAfterMatch.get(`${r.algorithmId}:${r.match.matchKey}`)),
@@ -2444,7 +2513,13 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
               fillRankingPointsFor: (pricedFrom) => {
                 let inputs: RankingPointFillerInputs;
                 if (pricedFrom === "current-state") {
-                  inputs = { accumulator: layerForAlgo.rpAccumulator, sigmaByTeam: sigmaByTeamForAlgo, meanShiftState: layerForAlgo.rpMeanShiftState() };
+                  // With the Sigma carry on, the rookie rule at the season-final state, the instant this
+                  // price is read at; otherwise the season-final Sigma Scores.
+                  const sigmaByTeam =
+                    sigmaCarryOn && state !== undefined
+                      ? candidateSigmaMap(rookieRuleRatings(layerForAlgo, eventTeamKeys, { algorithm, state }))
+                      : sigmaByTeamForAlgo;
+                  inputs = { accumulator: layerForAlgo.rpAccumulator, sigmaByTeam, meanShiftState: layerForAlgo.rpMeanShiftState() };
                 } else {
                   const preEventInputs = preEventFillerInputsByAlgoEvent.get(algorithm.id)?.get(e.event_key);
                   // A pre-event SPR state exists only for an event with a folded record, and every such
@@ -2570,7 +2645,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
     // `finalStates` is the D1 seed the live Worker resumes, which continues the offseason-inclusive
     // season, so a rewound seed would make live and offline disagree.
     liveStatesAcrossSeasons = new Map(records.carryStates);
-    if (options.sigmaCarry === true) {
+    if (sigmaCarryOn) {
       const nextCarry = new Map<string, SigmaSeasonCarry>();
       for (const [algorithmId, layer] of layers) {
         const carry = layer.sigmaCarryOut();

@@ -28,16 +28,18 @@
  * uses `carryStates` to thread across a season boundary and `finalStates` to
  * price, exactly as those two contracts require.
  *
- * THE SIGMA-CARRY CANDIDATE (`options.sigmaCarry`, off by default and off on
- * every production path) is the one switch here that changes a number. With it
- * on, each warmup season also folds a Sigma-only layer so it can hand the next
- * season its carry, and the pricing closures rate a never-seen team with the
- * candidate's rookie rule. `packages/harness/sigmaCarry.ts` holds the whole
- * definition; the acceptance bar it has to pass is pre-registered in debug
- * session `presim-bake-rp-filler-refuses`. The RP cold-team prior CANDIDATE
- * (`options.rpColdPrior`, also off by default and off on every production path,
- * `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`)
- * builds the target season's layer with its RP accumulator's prior on.
+ * THE SIGMA CARRY AND THE RP COLD-TEAM PRIOR are the production model since SPR
+ * 9.0.0, and both are on by default here. With the carry on, each warmup
+ * season also folds a Sigma-only layer so it can hand the next season its
+ * carry, and the pricing closures rate a team with no Sigma yet with the
+ * carry's rookie rule. `packages/harness/sigmaCarry.ts` holds the whole
+ * definition; the bar it passed is pre-registered in debug session
+ * `presim-bake-rp-filler-refuses`. The RP cold-team prior builds the target
+ * season's layer with its RP accumulator's prior on
+ * (`.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`).
+ * `sigmaCarry: false` and `rpColdPrior: false` rebuild the pre-9.0.0 model for
+ * verification only (`publishDistricts --no-sigma-carry` and
+ * `--no-rp-cold-prior`, which refuse to run without `--dry-run`).
  *
  * CREDENTIALS: reads `data/corpus.sqlite` READ-ONLY through the handle the
  * caller opens and the caller closes. No network request, no environment
@@ -236,18 +238,18 @@ export interface BuildDistrictPricingStateOptions {
   /** The resolved SPR algorithm — `resolveDistrictPricingAlgorithm`'s output, or a test's own module. */
   readonly algorithm: AlgorithmModule<any>;
   /**
-   * The Sigma-carry CANDIDATE (`packages/harness/sigmaCarry.ts`), for verification only
-   * (`publishDistricts --sigma-carry`, which refuses to run without `--dry-run`). `true`: every
-   * replayed season folds a Sigma layer and carries it into the next, the target season's layer starts
-   * from that carry, and `ratingsFor`/`predictFor` rate a team the replay never saw with the
-   * candidate's rookie rule. Absent or `false`: exactly the incumbent path, byte for byte.
+   * The Sigma carry (`packages/harness/sigmaCarry.ts`), the production model since SPR 9.0.0 and ON
+   * unless `false`. On: every replayed season folds a Sigma layer and carries it into the next, the
+   * target season's layer starts from that carry, and `ratingsFor`/`predictFor` rate a team with no
+   * Sigma yet with the rookie rule. `false`: the pre-9.0.0 path, a verification opt-out only
+   * (`publishDistricts --no-sigma-carry`, which refuses to run without `--dry-run`).
    */
   readonly sigmaCarry?: boolean;
   /**
-   * The RP cold-team prior CANDIDATE (`rpColdPrior` in `packages/core/rankingPoints/empiricalMoments.ts`),
-   * for verification only (`publishDistricts --rp-cold-prior`, which refuses to run without `--dry-run`).
-   * `true`: the target season's layer is built with `rpColdPrior` on. Absent or `false`: exactly the
-   * incumbent path, byte for byte. Pre-registered in
+   * The RP cold-team prior (`rpColdPrior` in `packages/core/rankingPoints/empiricalMoments.ts`), the
+   * production model since SPR 9.0.0 and ON unless `false`. On: the target season's layer is built with
+   * `rpColdPrior` on. `false`: the pre-9.0.0 path, a verification opt-out only
+   * (`publishDistricts --no-rp-cold-prior`, which refuses to run without `--dry-run`). Pre-registered in
    * `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`.
    */
   readonly rpColdPrior?: boolean;
@@ -275,7 +277,7 @@ export interface DistrictPricingState {
   readonly predictFor: (roster: readonly string[]) => ((match: UpcomingMatch) => Prediction) | undefined;
   /** The roster teams with no Sigma Score in the map `predictFor` gates on: the teams a refused roster was refused for. */
   readonly teamsWithoutSigmaFor: (roster: readonly string[]) => string[];
-  /** Whether the Sigma-carry candidate priced this state. `false` on every production path. */
+  /** Whether the Sigma carry priced this state. `true` on every production path since SPR 9.0.0; `false` only under the verification opt-out. */
   readonly sigmaCarry: boolean;
 }
 
@@ -327,8 +329,8 @@ export function resolveDistrictPricingAlgorithm(): AlgorithmModule<any> | null {
  */
 export function buildDistrictPricingState(db: Corpus, options: BuildDistrictPricingStateOptions): DistrictPricingState | null {
   const { season, asOf, algorithm } = options;
-  const sigmaCarryOn = options.sigmaCarry === true;
-  const rpColdPriorOn = options.rpColdPrior === true;
+  const sigmaCarryOn = options.sigmaCarry !== false;
+  const rpColdPriorOn = options.rpColdPrior !== false;
   const seasons =[...options.warmupSeasons].filter((s) => s < season).sort((a, b) => a - b);
   seasons.push(season);
 
@@ -339,7 +341,7 @@ export function buildDistrictPricingState(db: Corpus, options: BuildDistrictPric
   let layer: SigmaScoutLayer | undefined;
   let matchesReplayed = 0;
   let matchesTruncated = 0;
-  /** The Sigma-carry candidate's carry into the next replayed season. Never set when the candidate is off. */
+  /** The Sigma carry into the next replayed season. Never set when the carry is off. */
   let sigmaCarry: SigmaSeasonCarry | undefined;
 
   for (const [seasonIdx, s] of seasons.entries()) {
@@ -379,16 +381,14 @@ export function buildDistrictPricingState(db: Corpus, options: BuildDistrictPric
     const records = simulator.runAll([algorithm], teams, initialStates, onMatchComplete);
     carriedState = records.carryStates.get(algorithm.id);
 
-    // Candidate only: the carry into this season, or none for the cold-start season (as SPR's own).
-    // The RP prior's key reaches the warmup Sigma-only layer too, where it is inert (no rule module, so no
-    // RP accumulator). The carry turns on by its key's presence, so that key is written only when on.
-    const layerOptions =
-      sigmaCarryOn || rpColdPriorOn
-        ? {
-            ...(sigmaCarryOn ? { sigmaCarry: { from: boundary.isColdStart ? undefined : sigmaCarry } } : {}),
-            ...(rpColdPriorOn ? { rpColdPrior: true } : {}),
-          }
-        : undefined;
+    // The carry into this season, or none for the cold-start season (as SPR's own). The RP prior's key
+    // reaches the warmup Sigma-only layer too, where it is inert (no rule module, so no RP accumulator).
+    // The carry turns on by its key's presence, so that key is written only when on; the prior is
+    // always an explicit boolean, never left to the layer's default.
+    const layerOptions = {
+      ...(sigmaCarryOn ? { sigmaCarry: { from: boundary.isColdStart ? undefined : sigmaCarry } } : {}),
+      rpColdPrior: rpColdPriorOn,
+    };
     if (s === season) {
       // `finalStates`, not `carryStates` — see this file's header.
       endState = records.finalStates.get(algorithm.id);
@@ -423,9 +423,9 @@ export function buildDistrictPricingState(db: Corpus, options: BuildDistrictPric
   const resolvedState = endState;
 
   /**
-   * The candidate's rating for every roster team (`candidateRosterRatings`): the published total,
+   * The rookie rule's rating for every roster team (`candidateRosterRatings`): the published total,
    * else what SPR's own `predict` assigns an unseen team; the layer's Sigma, else the prior-only Sigma
-   * at that total. Only ever called with the candidate on.
+   * at that total. Only ever called with the carry on.
    */
   const candidateRatings = (roster: readonly string[]) => {
     const metrics = algorithm.teamMetrics(resolvedState, [...roster]);

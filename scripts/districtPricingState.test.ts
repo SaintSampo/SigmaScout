@@ -388,12 +388,13 @@ describe("buildDistrictPricingState over the real corpus", () => {
 });
 
 /**
- * THE SIGMA-CARRY CANDIDATE (`packages/harness/sigmaCarry.ts`), over the real corpus at 2026-03-01: the
- * instant the debug session's trigger reported, when no 2026 match had folded (the first folding 2026
- * match is 2026-03-04; Week 0 folds nothing). Warmup [2025] keeps it cheap: the carry into 2026 is then
- * 2025's, and 2025 is this run's cold-start season.
+ * THE SIGMA CARRY (`packages/harness/sigmaCarry.ts`, production since SPR 9.0.0), over the real corpus at
+ * 2026-03-01: the instant the debug session's trigger reported, when no 2026 match had folded (the first
+ * folding 2026 match is 2026-03-04; Week 0 folds nothing). Warmup [2025] keeps it cheap: the carry into
+ * 2026 is then 2025's, and 2025 is this run's cold-start season. `on` is built with NO options, so it is
+ * the production default; `off` is the verification opt-out, `sigmaCarry: false`.
  */
-describe("buildDistrictPricingState with the Sigma-carry candidate, over the real corpus", () => {
+describe("buildDistrictPricingState with the Sigma carry, over the real corpus", () => {
   if (!CORPUS_AVAILABLE) {
     it.skip(`skipped: ${CORPUS_PATH} not found — run the ingest pipeline (pnpm ingest:districts) first`, () => {});
     return;
@@ -411,12 +412,19 @@ describe("buildDistrictPricingState with the Sigma-carry candidate, over the rea
   beforeAll(() => {
     db = openCorpusReadOnly(CORPUS_PATH);
     const algorithm = resolveDistrictPricingAlgorithm()!;
-    off = buildDistrictPricingState(db, { season: SEASON, warmupSeasons: WARMUP, asOf: AS_OF, algorithm })!;
-    on = buildDistrictPricingState(db, { season: SEASON, warmupSeasons: WARMUP, asOf: AS_OF, algorithm, sigmaCarry: true })!;
+    off = buildDistrictPricingState(db, { season: SEASON, warmupSeasons: WARMUP, asOf: AS_OF, algorithm, sigmaCarry: false })!;
+    on = buildDistrictPricingState(db, { season: SEASON, warmupSeasons: WARMUP, asOf: AS_OF, algorithm })!;
     roster = (db.prepare(`SELECT team_key FROM event_teams WHERE event_key = ?`).all(STILL_AHEAD_EVENT) as { team_key: string }[]).map((r) => r.team_key);
   }, 600_000);
   afterAll(() => {
     db.close();
+  });
+
+  it("absent options mean both knobs on: the carry is reported and the target layer's RP accumulator runs the prior", () => {
+    expect(on.sigmaCarry).toBe(true);
+    expect(on.layer.rpAccumulator?.rpColdPrior).toBe(true);
+    // The opt-out touches the carry only; the prior stays on.
+    expect(off.layer.rpAccumulator?.rpColdPrior).toBe(true);
   });
 
   it("the knob changes no replay: the same matches replayed and truncated, the same SPR end state, the flag reported", () => {
@@ -429,7 +437,7 @@ describe("buildDistrictPricingState with the Sigma-carry candidate, over the rea
     expect(algorithm.teamMetrics(on.endState, roster)).toEqual(algorithm.teamMetrics(off.endState, roster));
   });
 
-  it("OFF is the incumbent at 03-01: no Sigma Score exists, the filler refuses the roster, a rookie has no total", () => {
+  it("OFF is the pre-9.0.0 carry path at 03-01: no Sigma Score exists, the filler refuses the roster, a rookie has no total", () => {
     expect(off.layer.sigmaScoreByTeam().size).toBe(0);
     expect(off.predictFor(roster)).toBeUndefined();
     const ratings = off.ratingsFor(roster);
@@ -500,8 +508,8 @@ describe("buildDistrictPricingState with the Sigma-carry candidate, over the rea
         .get(SEASON, instant) as { n: number }
     ).n;
     const algorithm = resolveDistrictPricingAlgorithm()!;
-    const onLater = buildDistrictPricingState(db, { season: SEASON, warmupSeasons: WARMUP, asOf: IN_PROGRESS, algorithm, sigmaCarry: true })!;
-    const offLater = buildDistrictPricingState(db, { season: SEASON, warmupSeasons: WARMUP, asOf: IN_PROGRESS, algorithm })!;
+    const onLater = buildDistrictPricingState(db, { season: SEASON, warmupSeasons: WARMUP, asOf: IN_PROGRESS, algorithm })!;
+    const offLater = buildDistrictPricingState(db, { season: SEASON, warmupSeasons: WARMUP, asOf: IN_PROGRESS, algorithm, sigmaCarry: false })!;
     // The same replay cut as the incumbent's: 2025 whole, 2026 up to the instant.
     expect(onLater.matchesReplayed).toBe(offLater.matchesReplayed);
     expect(onLater.matchesTruncated).toBe(offLater.matchesTruncated);
@@ -527,7 +535,11 @@ function playedBeforeAt(db: Corpus, season: number, asOf: string): number {
   ).n;
 }
 
-describe("buildDistrictPricingState with the RP cold-team prior candidate, over the real corpus", () => {
+/**
+ * The RP cold-team prior (production since SPR 9.0.0), isolated from the carry: both arms pass
+ * `sigmaCarry: false`, `on` leaves `rpColdPrior` absent (the default) and `off` opts out with `false`.
+ */
+describe("buildDistrictPricingState with the RP cold-team prior, over the real corpus", () => {
   if (!CORPUS_AVAILABLE) {
     it.skip(`skipped: ${CORPUS_PATH} not found — run the ingest pipeline (pnpm ingest:districts) first`, () => {});
     return;
@@ -543,8 +555,8 @@ describe("buildDistrictPricingState with the RP cold-team prior candidate, over 
   beforeAll(() => {
     db = openCorpusReadOnly(CORPUS_PATH);
     const algorithm = resolveDistrictPricingAlgorithm()!;
-    off = buildDistrictPricingState(db, { season: SEASON, warmupSeasons: [], asOf: AS_OF, algorithm })!;
-    on = buildDistrictPricingState(db, { season: SEASON, warmupSeasons: [], asOf: AS_OF, algorithm, rpColdPrior: true })!;
+    off = buildDistrictPricingState(db, { season: SEASON, warmupSeasons: [], asOf: AS_OF, algorithm, sigmaCarry: false, rpColdPrior: false })!;
+    on = buildDistrictPricingState(db, { season: SEASON, warmupSeasons: [], asOf: AS_OF, algorithm, sigmaCarry: false })!;
   }, 600_000);
   afterAll(() => {
     db.close();

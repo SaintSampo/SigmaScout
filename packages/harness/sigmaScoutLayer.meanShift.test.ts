@@ -164,9 +164,10 @@ describe("mean shift on a synthetic 2020 season, default layer", () => {
     readonly expectedBlue: readonly number[] | undefined;
   }
 
-  const layer = new SigmaScoutLayer(rp2020, "spr");
+  // Both run the RP cold-team prior, the production model since SPR 9.0.0, named explicitly.
+  const layer = new SigmaScoutLayer(rp2020, "spr", { rpColdPrior: true });
   // The test's OWN walk-forward reference: beliefs, band variance, residual count and sum.
-  const reference = new RpMomentsAccumulator(rp2020);
+  const reference = new RpMomentsAccumulator(rp2020, { rpColdPrior: true });
   const sigma = new SigmaScoreAccumulator();
   let refCount = 0;
   let refSum = 0;

@@ -498,9 +498,17 @@ export interface FieldContributionInputs {
  * A one-team `momentsFor` call returns the team's own belief: its scaling
  * factor `roster.length^2 / contributing` is exactly 1.
  *
- * A team with no belief for a variable contributes mean `0` and variance `0`
- * and stays in the field, because a cold team is part of the field; dropping it
- * would shift `meanOfVariableMeans` upward and narrow every band in the event.
+ * A cold team stays in the field, because a cold team is part of the field;
+ * dropping it would shift `meanOfVariableMeans` upward and narrow every band in
+ * the event. What it contributes changed with SPR 9.0.0's RP cold-team prior,
+ * which the production accumulator now runs: a one-team `momentsFor` call gives
+ * a team with no belief for a variable the league's per-ALLIANCE mean and
+ * variance (the prior scales by roster size, and the roster here is 1), and a
+ * thin team (one observation) the per-alliance variance. Neither is a per-team
+ * share, so such a team is over-weighted in the field by roughly the alliance
+ * size. Before 9.0.0 it contributed mean `0` and variance `0`. The
+ * field-averaged path is measurement-only and unshipped, so this is recorded,
+ * not corrected here (quick task 260928-p8i).
  */
 export function buildFieldContributions(inputs: FieldContributionInputs): FieldTeamContribution[] | null {
   const { rpAccumulator, sigmaScoreByTeam, teamTotals } = inputs;

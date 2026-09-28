@@ -800,21 +800,35 @@ describe("parseOptions — the new flags", () => {
     expect(() => parseOptions(["--years", "2026", "--warmup-from", "early"])).toThrow(/--warmup-from/);
   });
 
-  it("--sigma-carry (the unpromoted Sigma-carry candidate) is a verification switch: refused without --dry-run, absent by default", () => {
-    expect(() => parseOptions(["--years", "2026", "--sigma-carry"])).toThrow(/--sigma-carry .* refuses to run without --dry-run/);
-    expect(parseOptions(["--years", "2026", "--sigma-carry", "--dry-run"]).sigmaCarry).toBe(true);
-    const production = parseOptions(["--years", "2026", "--dry-run"]);
-    expect("sigmaCarry" in production).toBe(false);
+  it("production is both knobs on: absent flags leave sigmaCarry and rpColdPrior unset, and the bake reads unset as on", () => {
+    for (const argv of [["--years", "2026"], ["--years", "2026", "--dry-run"]]) {
+      const production = parseOptions(argv);
+      expect("sigmaCarry" in production).toBe(false);
+      expect("rpColdPrior" in production).toBe(false);
+    }
   });
 
-  it("--rp-cold-prior (the unpromoted RP cold-team prior candidate) is a verification switch: refused without --dry-run, absent by default, combinable with --sigma-carry", () => {
-    expect(() => parseOptions(["--years", "2026", "--rp-cold-prior"])).toThrow(/--rp-cold-prior .* refuses to run without --dry-run/);
-    expect(parseOptions(["--years", "2026", "--rp-cold-prior", "--dry-run"]).rpColdPrior).toBe(true);
-    const production = parseOptions(["--years", "2026", "--dry-run"]);
-    expect("rpColdPrior" in production).toBe(false);
-    const both = parseOptions(["--years", "2026", "--rp-cold-prior", "--sigma-carry", "--dry-run"]);
-    expect(both.rpColdPrior).toBe(true);
-    expect(both.sigmaCarry).toBe(true);
+  it("the pre-9.0.0 flags are gone: --sigma-carry and --rp-cold-prior are rejected as unknown options", () => {
+    expect(() => parseOptions(["--years", "2026", "--sigma-carry", "--dry-run"])).toThrow(/Unknown option '--sigma-carry'/);
+    expect(() => parseOptions(["--years", "2026", "--rp-cold-prior", "--dry-run"])).toThrow(/Unknown option '--rp-cold-prior'/);
+  });
+
+  it("--no-sigma-carry is a verification opt-out: refused without --dry-run, sets sigmaCarry false only when given", () => {
+    expect(() => parseOptions(["--years", "2026", "--no-sigma-carry"])).toThrow(/--no-sigma-carry .* refuses to run without --dry-run/);
+    const optedOut = parseOptions(["--years", "2026", "--no-sigma-carry", "--dry-run"]);
+    expect(optedOut.sigmaCarry).toBe(false);
+    expect("rpColdPrior" in optedOut).toBe(false);
+  });
+
+  it("--no-rp-cold-prior is a verification opt-out: refused without --dry-run, sets rpColdPrior false only when given, combinable with --no-sigma-carry", () => {
+    expect(() => parseOptions(["--years", "2026", "--no-rp-cold-prior"])).toThrow(/--no-rp-cold-prior .* refuses to run without --dry-run/);
+    const optedOut = parseOptions(["--years", "2026", "--no-rp-cold-prior", "--dry-run"]);
+    expect(optedOut.rpColdPrior).toBe(false);
+    expect("sigmaCarry" in optedOut).toBe(false);
+    const both = parseOptions(["--years", "2026", "--no-rp-cold-prior", "--no-sigma-carry", "--dry-run"]);
+    expect(both.rpColdPrior).toBe(false);
+    expect(both.sigmaCarry).toBe(false);
+    expect(() => parseOptions(["--years", "2026", "--no-rp-cold-prior", "--no-sigma-carry"])).toThrow(/refuses to run without --dry-run/);
   });
 });
 

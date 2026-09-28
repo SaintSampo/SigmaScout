@@ -5,7 +5,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { captureSwitches, diffSlices, slicesOf, type CapturedSlice } from "./captureCompareSlices.js";
+import { captureSwitches, diffSlices, parseCaptureArgs, slicesOf, type CapturedSlice } from "./captureCompareSlices.js";
 
 function slice(algorithmId: string, season: number, scoredCount: number, winnerAccuracy: number, brierScore: number, compLevelView = "qualification"): CapturedSlice {
   return { algorithmId, season, compLevelView, headlineEligible: true, brierScore, winnerAccuracy, scoredCount, candidateCount: scoredCount, exclusionCounts: {} };
@@ -50,14 +50,42 @@ describe("safety", () => {
 });
 
 describe("captureSwitches", () => {
-  it("passes no key at all with both switches off, so the default capture is what it always was", () => {
-    expect(captureSwitches({ sigmaCarry: false, rpColdPrior: false })).toStrictEqual({});
-    expect(Object.keys(captureSwitches({ sigmaCarry: false, rpColdPrior: false }))).toEqual([]);
+  it("defaults both switches on, as explicit booleans: the default capture is the shipped SPR 9.0.0 model", () => {
+    expect(captureSwitches()).toStrictEqual({ sigmaCarry: true, rpColdPrior: true });
+    expect(captureSwitches({})).toStrictEqual({ sigmaCarry: true, rpColdPrior: true });
   });
 
-  it("each switch alone sets only its own key, and both together set both", () => {
-    expect(captureSwitches({ sigmaCarry: true, rpColdPrior: false })).toStrictEqual({ sigmaCarry: true });
-    expect(captureSwitches({ sigmaCarry: false, rpColdPrior: true })).toStrictEqual({ rpColdPrior: true });
+  it("only an explicit false turns a switch off, and every result carries both keys", () => {
+    expect(captureSwitches({ sigmaCarry: false })).toStrictEqual({ sigmaCarry: false, rpColdPrior: true });
+    expect(captureSwitches({ rpColdPrior: false })).toStrictEqual({ sigmaCarry: true, rpColdPrior: false });
+    expect(captureSwitches({ sigmaCarry: false, rpColdPrior: false })).toStrictEqual({ sigmaCarry: false, rpColdPrior: false });
     expect(captureSwitches({ sigmaCarry: true, rpColdPrior: true })).toStrictEqual({ sigmaCarry: true, rpColdPrior: true });
+  });
+});
+
+describe("parseCaptureArgs", () => {
+  it("the default capture passes both knobs on explicitly", () => {
+    expect(parseCaptureArgs(["--out", "x.json"]).switches).toStrictEqual({ sigmaCarry: true, rpColdPrior: true });
+  });
+
+  it("--no-sigma-carry and --no-rp-cold-prior pass false, alone and together", () => {
+    expect(parseCaptureArgs(["--out", "x.json", "--no-sigma-carry"]).switches).toStrictEqual({ sigmaCarry: false, rpColdPrior: true });
+    expect(parseCaptureArgs(["--out", "x.json", "--no-rp-cold-prior"]).switches).toStrictEqual({ sigmaCarry: true, rpColdPrior: false });
+    expect(parseCaptureArgs(["--out", "x.json", "--no-sigma-carry", "--no-rp-cold-prior"]).switches).toStrictEqual({
+      sigmaCarry: false,
+      rpColdPrior: false,
+    });
+  });
+
+  it("the pre-9.0.0 flags are gone: --sigma-carry and --rp-cold-prior are rejected as unknown", () => {
+    expect(() => parseCaptureArgs(["--out", "x.json", "--sigma-carry"])).toThrow(/Unknown option '--sigma-carry'/);
+    expect(() => parseCaptureArgs(["--out", "x.json", "--rp-cold-prior"])).toThrow(/Unknown option '--rp-cold-prior'/);
+  });
+
+  it("keeps --diff, --view and the two positionals", () => {
+    const cli = parseCaptureArgs(["--diff", "a.json", "b.json", "--view", "playoff"]);
+    expect(cli.diff).toBe(true);
+    expect(cli.view).toBe("playoff");
+    expect(cli.positionals).toEqual(["a.json", "b.json"]);
   });
 });

@@ -56,23 +56,28 @@ export interface UpcomingLayerRecord {
   readonly matchBand?: { red?: number; blue?: number };
 }
 
-/** Optional construction switches. Every one is inert when absent. */
+/** Optional construction switches. `rpColdPrior` defaults on; `sigmaCarry` is inert when absent. */
 export interface SigmaScoutLayerOptions {
   /**
-   * The Sigma-carry CANDIDATE (`sigmaCarry.ts`), off unless present. Present:
-   * the Sigma accumulator starts from `from` (`undefined` for a cold-start
-   * season, which starts empty exactly as today), and the layer keeps its
+   * The Sigma carry (`sigmaCarry.ts`), part of the production model since SPR
+   * 9.0.0. Present: the Sigma accumulator starts from `from` (`undefined` for a
+   * cold-start season, which starts empty), and the layer keeps its
    * last-official-match checkpoint so `sigmaCarryOut()` can hand the next
-   * season its start. Absent: the layer is byte-for-byte the incumbent.
+   * season its start. Absent: no carry, the pre-9.0.0 model.
+   *
+   * It stays presence-based here because only a season loop holds the
+   * previous season's carry. Both production season loops, `publishSeasons`
+   * and the district bake's `buildDistrictPricingState`, turn it on by default.
    */
   readonly sigmaCarry?: { readonly from: SigmaSeasonCarry | undefined };
   /**
-   * The RP cold-team prior CANDIDATE (`empiricalMoments.ts`,
-   * `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`),
-   * off unless `true`. True: the layer's RP accumulator prices a team with no
-   * belief (or no variance yet) from the season's league summary. Nothing else
-   * in the layer changes: Sigma, the win odds, the match band and the mean
-   * shift stay the incumbent's. Absent: the layer is byte-for-byte the incumbent.
+   * The RP cold-team prior (`empiricalMoments.ts`), the production model since
+   * SPR 9.0.0 and ON unless `false`. On: the layer's RP accumulator prices a
+   * team with no belief (or no variance yet) from the season's league summary.
+   * Nothing else in the layer changes: Sigma, the win odds, the match band and
+   * the mean shift are the same either way. `false` builds the pre-9.0.0 model,
+   * kept for instruments that measure against it. Pre-registered in
+   * `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`.
    */
   readonly rpColdPrior?: boolean;
 }
@@ -118,9 +123,9 @@ export class SigmaScoutLayer {
     this.#ruleModule = rankingPoints ? ruleModule : undefined;
     this.#rp =
       rankingPoints && ruleModule !== undefined
-        ? options?.rpColdPrior === true
-          ? new RpMomentsAccumulator(ruleModule, { rpColdPrior: true })
-          : new RpMomentsAccumulator(ruleModule)
+        ? options?.rpColdPrior === false
+          ? new RpMomentsAccumulator(ruleModule)
+          : new RpMomentsAccumulator(ruleModule, { rpColdPrior: true })
         : undefined;
     this.#rpMeanShift = rankingPoints && ruleModule !== undefined ? new RpMeanShiftAccumulator(ruleModule) : undefined;
     const sigma = algorithmId !== undefined && usesSigmaScore(algorithmId);

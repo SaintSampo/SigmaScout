@@ -129,7 +129,16 @@ function bonusHalfDigest(rows: readonly DecomposedRow[]): string {
  * NEVER EDIT except on a developer-decided bonus-half model change: a mismatch
  * otherwise means an outcome-half change reached the bonus half.
  */
-const PINNED_BONUS_HALF_DIGEST = "db06b44e954d6b860314a7581b4120defb47140e8adc3d361700e33893d78ca2";
+//
+// RE-PINNED 2026-09-28 (quick task 260928-p8i, SPR 9.0.0, Jacob's decision D1: the RP cold-team prior is
+// the production default, a developer-decided bonus-half model change). Old value
+// db06b44e954d6b860314a7581b4120defb47140e8adc3d361700e33893d78ca2, new
+// 9afb9640d7ceceed16df73d6ba0b13b7a937a80bbf5a5e48ff842e98cf5a439d. The default two-argument layer now
+// runs the prior, which moves the bonus pmfs of 43 of the slice's 265 played rows (2022azfl_qm2 through
+// 2022alhu_qm17): 23 with a team that has no RP history yet, 20 with a one-observation team.
+// PINNED_OUTCOME_HALF_DIGEST above did not move (no outcome field changed on any row), and with
+// `{ rpColdPrior: false }` the old bonus-half value reproduces bitwise.
+const PINNED_BONUS_HALF_DIGEST = "9afb9640d7ceceed16df73d6ba0b13b7a937a80bbf5a5e48ff842e98cf5a439d";
 
 describe("SHIPPED outcome half (WIN+TIE) on the default two-argument SigmaScoutLayer", () => {
   const fixture = loadFixture();

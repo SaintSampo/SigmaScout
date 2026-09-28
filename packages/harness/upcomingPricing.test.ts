@@ -59,9 +59,11 @@ import {
   serializeState,
   withRpBeliefs,
   withRpMeanShift,
+  withRpPopulation,
   withSigmaBeliefs,
   withSigmaPopulation,
   readRpMeanShift,
+  readRpPopulation,
   stateScopeKeys,
   type StateRow,
 } from "./stateSnapshot.js";
@@ -121,7 +123,8 @@ function runOfflineArm(played: readonly MatchResult[], upcoming: readonly Upcomi
       talentAfterMatch.set(`${algorithmId}:${match.matchKey}`, talent);
     }
   });
-  const layer = new SigmaScoutLayer(RP_RULE_MODULES[SEASON], "spr");
+  // Explicit: the production model since SPR 9.0.0 runs the RP cold-team prior, and so does the Worker.
+  const layer = new SigmaScoutLayer(RP_RULE_MODULES[SEASON], "spr", { rpColdPrior: true });
   for (const r of records) layer.foldPlayed(r.match, r.prediction, talentAfterMatch.get(`${r.algorithmId}:${r.match.matchKey}`));
   const finalState = records.finalStates.get("spr") as SprState;
 
@@ -133,6 +136,8 @@ function runOfflineArm(played: readonly MatchResult[], upcoming: readonly Upcomi
   if (sigmaPopulation !== undefined) rows = withSigmaPopulation(rows, sigmaPopulation);
   const rpMeanShift = layer.rpMeanShiftState();
   if (rpMeanShift !== undefined) rows = withRpMeanShift(rows, rpMeanShift);
+  const rpPopulation = layer.rpPopulationState();
+  if (rpPopulation !== undefined) rows = withRpPopulation(rows, rpPopulation);
   return { layer, finalState, rows };
 }
 
@@ -158,7 +163,8 @@ function modelFrom(rows: readonly StateRow[], ruleModule: RpRuleModule | undefin
     state: deserializeState(spr.id, rows) as SprState,
     sigmaScores: usesSigmaScore(spr.id) ? SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(rows), readSigmaPopulation(rows)).scoreByTeam() : undefined,
     ruleModule,
-    rp: ruleModule === undefined ? undefined : RpMomentsAccumulator.fromBeliefs(ruleModule, readRpBeliefs(rows)),
+    // The Worker's resume (shape 17): the prior on, the population off the league row.
+    rp: ruleModule === undefined ? undefined : RpMomentsAccumulator.fromBeliefs(ruleModule, readRpBeliefs(rows), { population: readRpPopulation(rows) }),
     shift: ruleModule === undefined ? undefined : RpMeanShiftAccumulator.fromState(ruleModule, readRpMeanShift(rows)),
   };
 }

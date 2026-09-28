@@ -59,6 +59,7 @@ import {
   type BuildEventArtifactParams,
   type EventTeamRankingInput,
   type PublishedObjectRecord,
+  type PublishSeasonsOptions,
   type RpCalibrationMeasurement,
 } from "./publish.js";
 import { buildLiveWindowsManifest } from "./manifests.js";
@@ -118,6 +119,7 @@ import {
   serializeState,
   withRpBeliefs,
   withRpMeanShift,
+  withRpPopulation,
   withSigmaBeliefs,
   withSigmaPopulation,
   type StateRow,
@@ -4252,7 +4254,8 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
   async function publishPreEventPair2024(
     rewriteLate: boolean,
     lateCompLevel: "qm" | "f",
-    extra?: (target: Corpus) => void
+    extra?: (target: Corpus) => void,
+    knobs?: Pick<PublishSeasonsOptions, "sigmaCarry">
   ): Promise<(readonly [string, string])[]> {
     const variantDir = mkdtempSync(join(tmpdir(), "sigmascout-publish-f3-"));
     const variantDb = openCorpus(join(variantDir, "corpus.sqlite"));
@@ -4269,6 +4272,7 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
         preScheduleFromSeason: 2024,
         generation: "f3-fixed-generation",
         computedAt: "2026-09-28T00:00:00.000Z",
+        ...knobs,
       });
       return vi.mocked(putObject).mock.calls.map(([, key, body]) => [key as string, body as string] as const);
     } finally {
@@ -4311,10 +4315,12 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     expect(putBody(finalsOnly, "v1/presim/2024lat/"), "a played event with no qualification rows must get no presim sidecar").toBeUndefined();
   });
 
-  it("a roster the pre-event filler refuses gets no sidecar and ONE log line naming the teams with no pre-event Sigma Score", async () => {
+  it("a roster the pre-event filler refuses gets no sidecar and ONE log line naming the teams with no pre-event Sigma Score (sigmaCarry: false, the pre-9.0.0 model)", async () => {
     const logSpy = vi.spyOn(console, "log");
     try {
-      // frc7 debuts at the later event, so it has no Sigma Score before that event's first match.
+      // frc7 debuts at the later event, so it has no Sigma Score before that event's first match. Since
+      // SPR 9.0.0 the rookie rule rates such a team (`presimRookieRule.test.ts`), so the refusal path is
+      // reached only with the Sigma carry explicitly off.
       const puts = await publishPreEventPair2024(false, "qm", (target) => {
         upsertMatch(
           target,
@@ -4334,7 +4340,7 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
             scoreBreakdownRaw: JSON.stringify(rawBreakdown2024()),
           })
         );
-      });
+      }, { sigmaCarry: false });
       expect(putBody(puts, "v1/event/2024lat/"), "the event itself still publishes").toBeDefined();
       expect(putBody(puts, "v1/presim/2024lat/"), "a refused roster gets no sidecar").toBeUndefined();
       const lines = logSpy.mock.calls.map((args) => String(args[0])).filter((line) => line.startsWith("publish: presim skip 2024lat"));
@@ -5600,7 +5606,8 @@ describe("publishSeasons — the seed rows are still emitted, and no event artif
       }
       talentAfterMatch.set(match.matchKey, talent);
     });
-    const layer = new SigmaScoutLayer(RP_RULE_MODULES[SEASON_2024], spr.id);
+    // Explicit: publishSeasons runs the RP cold-team prior by default since SPR 9.0.0.
+    const layer = new SigmaScoutLayer(RP_RULE_MODULES[SEASON_2024], spr.id, { rpColdPrior: true });
     for (const r of records) layer.foldPlayed(r.match, r.prediction, talentAfterMatch.get(r.match.matchKey));
 
     const stamp = { generation: seedRows[0]!.generation, computedAt: seedRows[0]!.computedAt };
@@ -5614,6 +5621,10 @@ describe("publishSeasons — the seed rows are still emitted, and no event artif
     const shift = layer.rpMeanShiftState();
     expect(shift).toBeDefined();
     expected = withRpMeanShift(expected, shift!);
+    // Shape 17: the RP population rides the league row last.
+    const rpPopulation = layer.rpPopulationState();
+    expect(rpPopulation).toBeDefined();
+    expected = withRpPopulation(expected, rpPopulation!);
 
     expect(seedRows).toEqual(expected);
     // Non-vacuity: the passengers are really in the seed.

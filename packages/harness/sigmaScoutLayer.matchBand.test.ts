@@ -39,9 +39,21 @@ function loadFixture(): DigestSliceFixture {
   return JSON.parse(readFileSync(DIGEST_SLICE_FIXTURE_PATH, "utf8")) as DigestSliceFixture;
 }
 
-/** Pinned digest, captured on the shipped lattice+meanShift source. Never edit except on a developer-decided model change. */
+/**
+ * Pinned digest, captured on the shipped lattice+meanShift source. Never edit except on a developer-decided model change.
+ *
+ * RE-PINNED 2026-09-28 (quick task 260928-p8i, SPR 9.0.0, Jacob's decision D1: the RP cold-team prior is
+ * the production default). Old spr value 0172067f94b2ea52338eff58f9683973634b57ef0e925c0adee95a569b511caa,
+ * new 36a342e2241818c5f2423704d5af1647e497a5900b63ebc712f7d95d6d99a90a. The default two-argument layer
+ * now runs the prior. On this cold-started 2022 slice it moves 43 of 265 PLAYED rows, from
+ * 2022azfl_qm2 (the first match with a population to read) to 2022alhu_qm17: 23 carry a team with no RP
+ * history yet (priced from the season-to-date league mean instead of zero) and 20 carry a one-observation
+ * team (the league variance instead of 0). None of the 265 upcoming rows moves (every team is warm by the
+ * slice's end). With `{ rpColdPrior: false }` the old value reproduces bitwise, and level1Digest.test.ts
+ * and PINNED_OUTCOME_HALF_DIGEST were confirmed unchanged before this edit.
+ */
 const PINNED_RP_DIGESTS: Readonly<Record<string, string>> = {
-  spr: "0172067f94b2ea52338eff58f9683973634b57ef0e925c0adee95a569b511caa",
+  spr: "36a342e2241818c5f2423704d5af1647e497a5900b63ebc712f7d95d6d99a90a",
 };
 
 const RP_FIELDS = [
