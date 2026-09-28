@@ -14,7 +14,7 @@ import {
   type DistrictEventState,
 } from "../../../../../packages/harness/pageArtifacts.js";
 import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
-import { POINT_CELL_CHANCE_FORM_THRESHOLD } from "../../../../../packages/core/districts/pointSummary.js";
+import { POINT_CELL_CHANCE_FORM_THRESHOLD, pointQuantile } from "../../../../../packages/core/districts/pointSummary.js";
 import type { AllianceBracketMilestone } from "../../../../../packages/core/districts/bracket.js";
 import type {
   DistrictLedgerResult,
@@ -42,6 +42,7 @@ import {
   type DistrictPointDistribution,
   type DistrictStageFinality,
 } from "./districtLedgerRows.js";
+import { computeDistrictLedgerStatuses } from "./districtLedgerStatus.js";
 
 type DistrictTeam = DistrictArtifact["teams"][number];
 type EventPoints = DistrictTeam["eventPoints"][number];
@@ -1671,5 +1672,191 @@ describe("distributionsFromResult and the routes", () => {
     const decoded = distributionsFromPreSim(sidecar);
     expect(decoded.selectionRoutesByTeam).toBeUndefined();
     expect(decoded.rankingFixed).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A registered no show at a started district event (quick task 260927-vmb)
+// ---------------------------------------------------------------------------
+
+describe("a registered team missing from a started event's schedule is priced from awards alone", () => {
+  const EVENT = "2026wastart";
+  const NO_SHOW = "frc2635";
+  const ELSEWHERE = "frc3000";
+  const ROSTER = Array.from({ length: 24 }, (_unused, i) => `frc${String(1001 + i)}`);
+  const RP_PMF = [0.2, 0.3, 0.3, 0.2];
+  const startedState = state({ qualMatchesPlayed: 4, qualMatchesTotal: 12, alliancesPicked: false, playoffsDone: false, awardsPosted: false });
+
+  function registered(teamKey: string, eventState: DistrictEventState, eventKey = EVENT): DistrictTeam {
+    return team({
+      teamKey,
+      pointTotal: 0,
+      remainingEvents: [remainingEvent({ eventKey, week: 2, state: eventState })],
+    });
+  }
+
+  function districtArtifact(eventState: DistrictEventState, extra: DistrictTeam[]): DistrictArtifact {
+    return artifactOf([...ROSTER.map((teamKey) => registered(teamKey, eventState)), registered(ELSEWHERE, eventState, "2026waother"), ...extra], {
+      dcmpSlots: 12,
+    });
+  }
+
+  function qualRow(m: number, played: boolean) {
+    const red = [ROSTER[(m * 6) % 24]!, ROSTER[(m * 6 + 1) % 24]!, ROSTER[(m * 6 + 2) % 24]!];
+    const blue = [ROSTER[(m * 6 + 3) % 24]!, ROSTER[(m * 6 + 4) % 24]!, ROSTER[(m * 6 + 5) % 24]!];
+    const base = {
+      matchKey: `${EVENT}_qm${String(m + 1)}`,
+      compLevel: "qm",
+      setNumber: 1,
+      matchNumber: m + 1,
+      sortTime: 1_760_000_000 + m * 600,
+      redTeams: red,
+      blueTeams: blue,
+      predictedWinner: "red",
+      pRedWin: 0.55,
+      predictedRedScore: 90,
+      predictedBlueScore: 85,
+      redRpPmf: RP_PMF,
+      blueRpPmf: RP_PMF,
+    };
+    return played ? { ...base, actualWinner: "red", actualRedScore: 95, actualBlueScore: 80, actualRedRp: 3, actualBlueRp: 1 } : base;
+  }
+
+  function eventArtifactWith(scheduled: boolean) {
+    return EventArtifactSchema.parse({
+      schemaVersion: 1,
+      generation: "gen-1",
+      computedAt: "2026-09-25T00:00:00.000Z",
+      algorithmId: "spr",
+      algorithmVersion: "7.0.0+rolling",
+      eventKey: EVENT,
+      season: SEASON,
+      matches: scheduled ? Array.from({ length: 4 }, (_unused, m) => qualRow(m, true)) : [],
+      upcoming: scheduled ? Array.from({ length: 8 }, (_unused, m) => qualRow(m + 4, false)) : [],
+      teams: ROSTER.map((teamKey, i) => ({
+        teamKey,
+        teamNumber: Number(teamKey.replace("frc", "")),
+        rank: i + 1,
+        record: { wins: 2, losses: 2, ties: 0 },
+        rp: 2 + (24 - i) / 24,
+        metrics: { total: { value: 60 + (24 - i) }, sigma: { value: 8 } },
+      })),
+    });
+  }
+
+  const OPEN_STAGE: DistrictStageFinality = { qual: false, alliance: false, elim: false, award: false };
+  const artifact = districtArtifact(startedState, [registered(NO_SHOW, startedState)]);
+  const eventArtifact = eventArtifactWith(true);
+  const built = buildDistrictEventSimulationInput({
+    eventKey: EVENT,
+    season: SEASON,
+    eventArtifact,
+    districtArtifact: artifact,
+    stage: OPEN_STAGE,
+    startMatchKey: `${EVENT}_qm5`,
+  });
+  if (!built.ok) throw new Error("fixture: the event input did not build");
+  const draws = 200;
+  const result = simulateDistrictEvent(built.input, draws, 13);
+  const rows = buildDistrictLedgerRows({ artifact, distributions: new Map([[EVENT, distributionsFromResult(result)]]) });
+  const noShow = rows.teams.find((entry) => entry.teamKey === NO_SHOW)!;
+  const rosterTeam = rows.teams.find((entry) => entry.teamKey === ROSTER[0])!;
+
+  it("puts only the registered team on no qualification row in the award only list, never a team registered elsewhere", () => {
+    expect(built.input.awardOnlyTeams).toEqual([NO_SHOW]);
+    expect(built.input.awardOnlyTeams).not.toContain(ELSEWHERE);
+  });
+
+  it("reads three grey zeros, an open Awards cell equal to the run's award draw, and an event total equal to the award mass", () => {
+    const row = noShow.rows[0]!;
+    for (const category of ["qual", "alliance", "elim"] as const) {
+      const cell = row.cells.find((entry) => entry.cell === category)!;
+      expect(cell.kind, category).toBe("final");
+      if (cell.kind === "final") expect(cell.earned, category).toBe(0);
+    }
+    const award = row.cells.find((entry) => entry.cell === "award")!;
+    expect(award.kind).toBe("open");
+    if (award.kind !== "open") return;
+    const awardCounts = result.awardPoints.get(NO_SHOW)!;
+    expect([...award.distribution.counts]).toEqual([...awardCounts]);
+
+    expect(row.eventTotal.kind).toBe("open");
+    if (row.eventTotal.kind !== "open") return;
+    const total = row.eventTotal.distribution;
+    for (let points = 0; points < Math.max(total.counts.length, awardCounts.length); points++) {
+      expect((total.counts[points] ?? 0) / total.denominator, `points ${String(points)}`).toBeCloseTo((awardCounts[points] ?? 0) / draws, 12);
+    }
+  });
+
+  it("gives an open grand total whose projection is its median, and keeps the event's own stage on the row", () => {
+    expect(noShow.hasOpenCategory).toBe(true);
+    expect(noShow.grandTotal.kind).toBe("open");
+    if (noShow.grandTotal.kind !== "open") return;
+    expect(noShow.projection).toBe(pointQuantile(noShow.grandTotal.distribution.counts, 0.5, 1));
+    expect(noShow.rows[0]!.stage).toEqual(rosterTeam.rows[0]!.stage);
+  });
+
+  it("reads In range or Out of range from the award only projection, never capacity unknown", () => {
+    const statuses = computeDistrictLedgerStatuses({ artifact, teams: rows.teams });
+    const status = statuses.byTeam.get(NO_SHOW)!.status;
+    expect(statuses.projectionCutLine).not.toBeNull();
+    expect(status).not.toBe("capacityUnknown");
+    expect(status).toBe(noShow.projection >= statuses.projectionCutLine! ? "inRange" : "outOfRange");
+  });
+
+  it("reads a posted award as final and the three on field cells as grey zeros", () => {
+    const postedState = state({ qualMatchesPlayed: 4, qualMatchesTotal: 12, alliancesPicked: false, playoffsDone: false, awardsPosted: true });
+    const postedNoShow = team({
+      teamKey: NO_SHOW,
+      pointTotal: 8,
+      eventPoints: [eventPoints({ eventKey: EVENT, week: 2, qual: 0, alliance: 0, elim: 0, award: 8, total: 8, state: postedState })],
+    });
+    const postedArtifact = districtArtifact(postedState, [postedNoShow]);
+    const stage = deriveStageFromState(postedState).final;
+    const posted = buildDistrictEventSimulationInput({
+      eventKey: EVENT,
+      season: SEASON,
+      eventArtifact,
+      districtArtifact: postedArtifact,
+      stage,
+      startMatchKey: null,
+    });
+    if (!posted.ok) throw new Error("fixture: the posted input did not build");
+    expect(posted.input.awardOnlyTeams).toEqual([NO_SHOW]);
+    const postedResult = simulateDistrictEvent(posted.input, 50, 5);
+    expect(postedResult.awardPoints.get(NO_SHOW)![8]).toBe(50);
+    const postedRows = buildDistrictLedgerRows({
+      artifact: postedArtifact,
+      distributions: new Map([[EVENT, distributionsFromResult(postedResult)]]),
+    });
+    const row = postedRows.teams.find((entry) => entry.teamKey === NO_SHOW)!.rows[0]!;
+    const byCell = new Map(row.cells.map((cell) => [cell.cell, cell] as const));
+    expect(byCell.get("award")).toMatchObject({ kind: "final", earned: 8 });
+    for (const category of ["qual", "alliance", "elim"] as const) expect(byCell.get(category)).toMatchObject({ kind: "final", earned: 0 });
+    expect(row.eventTotal).toMatchObject({ kind: "final", earned: 8 });
+  });
+
+  it("derives no award only list before the schedule posts, or when every registered team is scheduled", () => {
+    const unscheduled = buildDistrictEventSimulationInput({
+      eventKey: EVENT,
+      season: SEASON,
+      eventArtifact: eventArtifactWith(false),
+      districtArtifact: artifact,
+      stage: OPEN_STAGE,
+      startMatchKey: null,
+    });
+    expect(unscheduled.ok).toBe(true);
+    if (unscheduled.ok) expect("awardOnlyTeams" in unscheduled.input).toBe(false);
+
+    const everyoneScheduled = buildDistrictEventSimulationInput({
+      eventKey: EVENT,
+      season: SEASON,
+      eventArtifact,
+      districtArtifact: districtArtifact(startedState, []),
+      stage: OPEN_STAGE,
+      startMatchKey: `${EVENT}_qm5`,
+    });
+    expect(everyoneScheduled.ok).toBe(true);
+    if (everyoneScheduled.ok) expect("awardOnlyTeams" in everyoneScheduled.input).toBe(false);
   });
 });

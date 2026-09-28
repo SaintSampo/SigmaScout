@@ -278,3 +278,16 @@ describe("the tier option on the assembled per-event input", () => {
     expect({ ...dcmp, tier: "district" }).toEqual(district);
   });
 });
+
+describe("districtRunSignature — the award only list (quick task 260927-vmb)", () => {
+  it("keeps exactly nine pipe separated segments for a request without an award only list", () => {
+    expect(districtRunSignature(requestFor()).split("|")).toHaveLength(9);
+  });
+
+  it("MOVES when only the award only list changes", () => {
+    const before = districtRunSignature(requestFor({ awardOnlyTeams: ["frc9"] }));
+    const after = districtRunSignature(requestFor({ awardOnlyTeams: ["frc9", "frc10"] }));
+    expect(after).not.toBe(before);
+    expect(before).not.toBe(districtRunSignature(requestFor()));
+  });
+});

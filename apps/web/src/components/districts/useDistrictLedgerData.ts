@@ -218,6 +218,11 @@ function foldPlayedElims(matches: DistrictLedgerEventInput["playedElimMatches"])
  *
  * Exported for its own test: the staleness this closes is invisible to a
  * render test and only a direct assertion on this string can pin it.
+ *
+ * A registration arriving mid event changes the award only list and must re
+ * run the event, so that list is folded as a TENTH segment, and only when the
+ * input carries one: every signature without it is byte for byte unchanged
+ * (quick task 260927-vmb).
  */
 export function districtRunSignature(events: readonly DistrictSimulationEventRequest[]): string {
   return events
@@ -233,6 +238,7 @@ export function districtRunSignature(events: readonly DistrictSimulationEventReq
         foldKnownPoints(input.knownElimPoints),
         foldKnownPoints(input.knownAwardPoints),
         foldPlayedElims(input.playedElimMatches),
+        ...(input.awardOnlyTeams === undefined ? [] : [`awardOnly=${input.awardOnlyTeams.join(",")}`]),
       ].join("|");
     })
     .join(";");
