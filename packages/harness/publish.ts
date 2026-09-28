@@ -500,6 +500,15 @@ export function makeRankingPointFiller(
 }
 
 /**
+ * The roster teams `makeRankingPointFiller`'s all-or-nothing rule refuses on: every team with no Sigma
+ * Score in `sigmaByTeam`, in roster order. Empty means the roster passes that rule. Read by the refusal
+ * log lines, so a refused roster names the teams that refused it.
+ */
+export function teamsWithoutSigmaScore(sigmaByTeam: ReadonlyMap<string, number>, roster: readonly string[]): string[] {
+  return roster.filter((teamKey) => !sigmaByTeam.has(teamKey));
+}
+
+/**
  * The three things `makeRankingPointFiller` reads from a `SigmaScoutLayer`, read at ONE instant: the
  * RP beliefs, the Sigma Scores and the mean shift. A pre-schedule sidecar must take all three from the
  * same instant its SPR state comes from, or its pmfs see matches its win odds never saw.
@@ -2413,21 +2422,29 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
               // The filler from the same instant as the pricing state: the pre-event snapshot for a
               // pre-event price, the season-final (current) layer for a current-state price.
               fillRankingPointsFor: (pricedFrom) => {
+                let inputs: RankingPointFillerInputs;
                 if (pricedFrom === "current-state") {
-                  return rankingPointFillerFrom(
-                    { accumulator: layerForAlgo.rpAccumulator, sigmaByTeam: sigmaByTeamForAlgo, meanShiftState: layerForAlgo.rpMeanShiftState() },
-                    rpRuleModule,
-                    eventTeamKeys
+                  inputs = { accumulator: layerForAlgo.rpAccumulator, sigmaByTeam: sigmaByTeamForAlgo, meanShiftState: layerForAlgo.rpMeanShiftState() };
+                } else {
+                  const preEventInputs = preEventFillerInputsByAlgoEvent.get(algorithm.id)?.get(e.event_key);
+                  // A pre-event SPR state exists only for an event with a folded record, and every such
+                  // record froze these inputs first, so a miss is a bookkeeping bug: fail the run loudly
+                  // rather than skip the sidecar as if the algorithm had no RP model.
+                  if (preEventInputs === undefined) {
+                    throw new Error(`publish: ${e.event_key} [${algorithm.id}] is priced pre-event but no pre-event ranking-point snapshot was taken`);
+                  }
+                  inputs = preEventInputs;
+                }
+                const filler = rankingPointFillerFrom(inputs, rpRuleModule, eventTeamKeys);
+                // A refused roster produces no sidecar, and nothing downstream says why: name it here, once
+                // per event, with the teams that refused it.
+                const missing = teamsWithoutSigmaScore(inputs.sigmaByTeam, eventTeamKeys);
+                if (filler === undefined && missing.length > 0) {
+                  console.log(
+                    `publish: presim skip ${e.event_key} [${algorithm.id}]: the all-or-nothing ranking-point filler refused this roster; ${missing.length} of ${eventTeamKeys.length} team(s) have no ${pricedFrom === "current-state" ? "current" : "pre-event"} Sigma Score: ${missing.join(", ")}`
                   );
                 }
-                const preEventInputs = preEventFillerInputsByAlgoEvent.get(algorithm.id)?.get(e.event_key);
-                // A pre-event SPR state exists only for an event with a folded record, and every such
-                // record froze these inputs first, so a miss is a bookkeeping bug: fail the run loudly
-                // rather than skip the sidecar as if the algorithm had no RP model.
-                if (preEventInputs === undefined) {
-                  throw new Error(`publish: ${e.event_key} [${algorithm.id}] is priced pre-event but no pre-event ranking-point snapshot was taken`);
-                }
-                return rankingPointFillerFrom(preEventInputs, rpRuleModule, eventTeamKeys);
+                return filler;
               },
             })
           : undefined;

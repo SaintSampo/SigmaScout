@@ -4311,6 +4311,41 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     expect(putBody(finalsOnly, "v1/presim/2024lat/"), "a played event with no qualification rows must get no presim sidecar").toBeUndefined();
   });
 
+  it("a roster the pre-event filler refuses gets no sidecar and ONE log line naming the teams with no pre-event Sigma Score", async () => {
+    const logSpy = vi.spyOn(console, "log");
+    try {
+      // frc7 debuts at the later event, so it has no Sigma Score before that event's first match.
+      const puts = await publishPreEventPair2024(false, "qm", (target) => {
+        upsertMatch(
+          target,
+          seasonMatch({
+            matchKey: "2024lat_qm3",
+            eventKey: "2024lat",
+            matchNumber: 3,
+            sortTime: 12_000,
+            redTeams: ["frc7", "frc1", "frc2"],
+            blueTeams: ["frc3", "frc4", "frc5"],
+            redScore: 120,
+            blueScore: 110,
+            winner: "red",
+            redRpEarned: 4,
+            blueRpEarned: 1,
+            hasScoreBreakdown: true,
+            scoreBreakdownRaw: JSON.stringify(rawBreakdown2024()),
+          })
+        );
+      });
+      expect(putBody(puts, "v1/event/2024lat/"), "the event itself still publishes").toBeDefined();
+      expect(putBody(puts, "v1/presim/2024lat/"), "a refused roster gets no sidecar").toBeUndefined();
+      const lines = logSpy.mock.calls.map((args) => String(args[0])).filter((line) => line.startsWith("publish: presim skip 2024lat"));
+      expect(lines).toEqual([
+        `publish: presim skip 2024lat [${spr.id}]: the all-or-nothing ranking-point filler refused this roster; 1 of 7 team(s) have no pre-event Sigma Score: frc7`,
+      ]);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it("F3b control: an UNPLAYED event with no qualification rows and a registered roster still gets its pre-schedule sidecar, priced from current state", async () => {
     const roster = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
     const puts = await publishPreEventPair2024(false, "qm", (target) => {

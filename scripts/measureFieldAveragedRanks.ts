@@ -4,8 +4,10 @@
  *
  *   `baked` — the shipped path: synthetic qualification schedules from
  *   `packages/harness/generatedSchedules.ts`, every match priced by the
- *   publisher's own `makeRankingPointFiller`, ranks baked by
- *   `buildPreScheduleArtifact`.
+ *   publisher's own filler (`rankingPointFillerFrom`) over the PRE-EVENT
+ *   snapshot the publisher takes (`snapshotRankingPointFillerInputs`, RP
+ *   beliefs, Sigma Scores and mean shift frozen before the event's first
+ *   record folds), ranks baked by `buildPreScheduleArtifact`.
  *
  *   `fieldAveraged` — no schedule. Each team's per-match pmf comes from its own
  *   belief plus the roster's field statistics (mean and variance of per-team
@@ -13,8 +15,9 @@
  *   exact `convolvePmf` of `matchesPerTeam` copies.
  *
  * Both arms share the imported `simulateRanks` and `continuousQuantile`, one
- * replay, one model state and one `SigmaScoutLayer` per event; they differ only
- * in the pmf inputs. A scorer mismatch has manufactured a ~0.003 phantom
+ * replay, one pre-event model state and one pre-event filler snapshot per event
+ * (the field-averaged arm takes the same mean shift through
+ * `fieldMeanShiftVector`); they differ only in the pmf inputs. A scorer mismatch has manufactured a ~0.003 phantom
  * regression on this project before.
  *
  * Reads `data/corpus.sqlite` read-only: no network, no credential, no R2 or D1,
@@ -45,8 +48,16 @@ import {
   buildPreScheduleArtifact,
   buildFieldAveragedPreScheduleArtifact,
   buildFieldContributions,
+  fieldMeanShiftVector,
 } from "../packages/harness/preSchedule.js";
-import { BASE_PUBLISH_ALGORITHMS, makeRankingPointFiller } from "../packages/harness/publish.js";
+import {
+  BASE_PUBLISH_ALGORITHMS,
+  rankingPointFillerFrom,
+  snapshotRankingPointFillerInputs,
+  teamsWithoutSigmaScore,
+  type RankingPointFillerInputs,
+} from "../packages/harness/publish.js";
+import { RpMeanShiftAccumulator } from "../packages/core/rankingPoints/meanShift.js";
 import type { PreScheduleArtifact } from "../packages/harness/pageArtifacts.js";
 import {
   ALLIANCE_SIZE,
@@ -73,6 +84,11 @@ export interface TargetEvent {
  * so a re-ingest that moved one is loud rather than a silently different
  * measurement. Corpus rosters for 2022-2026 span 14 to 78 teams, and this table
  * spans that range end to end.
+ *
+ * Chosen when the filler read season-final inputs. At the pre-event instant
+ * (measured 2026-09-28) the roster rule refuses five of them, each with a team
+ * that debuted there: only `2025cur` prices, below the criterion's six-event
+ * minimum. A pre-event verdict needs a new sample, fixed before the run.
  */
 export const DEFAULT_TARGET_EVENTS: readonly TargetEvent[] = [
   { eventKey: "2022on034", season: 2022, expectedRoster: 14, expectedQuals: 21 },
@@ -455,6 +471,28 @@ export interface ByteSizes {
   readonly bakedSchedulesFraction: number;
 }
 
+/**
+ * A target event the pre-event filler cannot price: a roster team had no Sigma Score before the
+ * event's first match (it debuted there), so the all-or-nothing roster rule refuses the roster, as
+ * the publisher refuses that event's sidecar. The CLI excludes such an event from the sample and
+ * names it, rather than pricing it from a later instant.
+ */
+export class PreEventFillerRefusedError extends Error {
+  constructor(
+    readonly eventKey: string,
+    readonly missingTeams: readonly string[]
+  ) {
+    super(
+      `measureFieldAveragedRanks: the ranking-point filler is unavailable for ${eventKey} — the all-or-nothing roster rule rejected this roster; ${missingTeams.length} team(s) with no pre-event Sigma Score: ${missingTeams.join(", ")}`
+    );
+  }
+}
+
+export interface RefusedTargetEvent {
+  readonly eventKey: string;
+  readonly missingTeams: readonly string[];
+}
+
 export interface EventMeasurement {
   readonly eventKey: string;
   readonly season: number;
@@ -543,7 +581,13 @@ function meanAndSd(values: readonly number[]): { mean: number; sd: number; maxAb
 // ---------------------------------------------------------------------------
 
 export interface SeasonReplayResult {
-  readonly layer: SigmaScoutLayer;
+  /**
+   * Each TARGET event's ranking-point filler inputs (RP beliefs, Sigma Scores, mean shift), frozen
+   * right before the event's first record folds: the instant `preEventStateByEvent` holds the SPR
+   * state for, and the snapshot `publishSeasons` prices a played event's presim sidecar from since
+   * spr 8.0.0. The season-final layer is not exposed, because it has folded the event's own matches.
+   */
+  readonly preEventFillerInputsByEvent: ReadonlyMap<string, RankingPointFillerInputs>;
   readonly preEventStateByEvent: ReadonlyMap<string, unknown>;
   readonly preTargetMatchCountByEvent: ReadonlyMap<string, number>;
   readonly replayMode: string;
@@ -619,12 +663,26 @@ export function replaySeason(
 
     if (s === season) {
       const layer = new SigmaScoutLayer(RP_RULE_MODULES[s], algorithm.id);
+      // Every team in each target event's matches: the roster-scoped snapshot answers for any roster inside it.
+      const targetTeamKeys = new Map<string, Set<string>>();
+      for (const m of stream) {
+        if (!targetEventKeys.has(m.eventKey)) continue;
+        const set = targetTeamKeys.get(m.eventKey) ?? new Set<string>();
+        for (const teamKey of [...m.redTeams, ...m.blueTeams]) set.add(teamKey);
+        targetTeamKeys.set(m.eventKey, set);
+      }
+      const preEventFillerInputsByEvent = new Map<string, RankingPointFillerInputs>();
       for (const r of records) {
         if (r.algorithmId !== algorithm.id) continue;
+        // Before this record folds: a target event's first record freezes its pre-event filler inputs,
+        // exactly as publishSeasons' fold loop does.
+        if (targetEventKeys.has(r.match.eventKey) && !preEventFillerInputsByEvent.has(r.match.eventKey)) {
+          preEventFillerInputsByEvent.set(r.match.eventKey, snapshotRankingPointFillerInputs(layer, [...(targetTeamKeys.get(r.match.eventKey) ?? [])]));
+        }
         layer.foldPlayed(r.match, r.prediction, talentAfterMatch.get(r.match.matchKey));
       }
       result = {
-        layer,
+        preEventFillerInputsByEvent,
         preEventStateByEvent,
         preTargetMatchCountByEvent,
         replayMode:
@@ -687,11 +745,18 @@ export function measureEvent(
     );
   }
 
-  const layer = replay.layer;
-  const sigmaScores = layer.sigmaScoreByTeam();
-  const filler = makeRankingPointFiller(layer.rpAccumulator, ruleModule, sigmaScores, roster);
+  // The PRE-EVENT filler inputs, from the same instant as `pricingState`, the way the publisher prices a
+  // played event's sidecar. The season-final layer would hand the pmfs this event's own results.
+  const fillerInputs = replay.preEventFillerInputsByEvent.get(target.eventKey);
+  if (fillerInputs === undefined) {
+    throw new Error(`measureFieldAveragedRanks: no pre-event ranking-point snapshot was taken for ${target.eventKey}, although a pre-event state was.`);
+  }
+  const sigmaScores = fillerInputs.sigmaByTeam;
+  const filler = rankingPointFillerFrom(fillerInputs, ruleModule, roster);
   if (filler === undefined) {
-    throw new Error(`measureFieldAveragedRanks: the ranking-point filler is unavailable for ${target.eventKey} — the all-or-nothing roster rule rejected this roster.`);
+    const missing = teamsWithoutSigmaScore(sigmaScores, roster);
+    if (missing.length > 0) throw new PreEventFillerRefusedError(target.eventKey, missing);
+    throw new Error(`measureFieldAveragedRanks: the ranking-point filler is unavailable for ${target.eventKey} — season ${target.season} carries no ranking-point accumulator.`);
   }
 
   // --- Arm `baked`: the publisher's own path and closure. ---
@@ -754,9 +819,15 @@ export function measureEvent(
   }
   const contributions = buildFieldContributions({
     roster,
-    rpAccumulator: layer.rpAccumulator,
+    rpAccumulator: fillerInputs.accumulator,
     sigmaScoreByTeam: sigmaScores,
     teamTotals,
+  });
+  // The baked arm's filler applies the pre-event mean shift, so this arm prices with the same one.
+  const fieldMeanShift = fieldMeanShiftVector({
+    roster,
+    rpAccumulator: fillerInputs.accumulator,
+    meanShift: RpMeanShiftAccumulator.fromState(ruleModule, fillerInputs.meanShiftState),
   });
   if (contributions === null) {
     throw new Error(`measureFieldAveragedRanks: the field-averaged arm returned null for ${target.eventKey} — the all-or-nothing roster rule rejected this roster.`);
@@ -776,6 +847,7 @@ export function measureEvent(
     computedAt: "1970-01-01T00:00:00.000Z",
     ruleModule,
     contributions,
+    ...(fieldMeanShift !== undefined ? { meanShift: fieldMeanShift } : {}),
   });
   if (fieldArtifact === null) {
     throw new Error(`measureFieldAveragedRanks: buildFieldAveragedPreScheduleArtifact returned null for ${target.eventKey}.`);
@@ -1048,6 +1120,7 @@ export async function main(argv: readonly string[]): Promise<void> {
 
   const db: Corpus = openCorpusReadOnly(CORPUS_PATH);
   const measurements: EventMeasurement[] = [];
+  const refused: RefusedTargetEvent[] = [];
   try {
     const bySeason = new Map<number, TargetEvent[]>();
     for (const t of targets) {
@@ -1060,7 +1133,17 @@ export async function main(argv: readonly string[]): Promise<void> {
       console.log(`\nmeasureFieldAveragedRanks: replaying season ${season} (from ${replayFrom})...`);
       const replay = replaySeason(db, algorithm, season, replayFrom, new Set(seasonTargets.map((t) => t.eventKey)));
       for (const target of seasonTargets) {
-        const m = measureEvent(db, algorithm, target, replay, { draws, algorithmId: algorithm.id, replayFrom, scheduleCount: scheduleCountFlag });
+        let m: EventMeasurement;
+        try {
+          m = measureEvent(db, algorithm, target, replay, { draws, algorithmId: algorithm.id, replayFrom, scheduleCount: scheduleCountFlag });
+        } catch (error) {
+          if (!(error instanceof PreEventFillerRefusedError)) throw error;
+          console.log(
+            `measureFieldAveragedRanks: ${target.eventKey} EXCLUDED — refused at its pre-event instant; ${error.missingTeams.length} team(s) with no pre-event Sigma Score: ${error.missingTeams.join(", ")}`
+          );
+          refused.push({ eventKey: target.eventKey, missingTeams: error.missingTeams });
+          continue;
+        }
         measurements.push(m);
         printEvent(m);
       }
@@ -1077,6 +1160,9 @@ export async function main(argv: readonly string[]): Promise<void> {
       `roster sizes ${Math.min(...rosterSizes)}-${Math.max(...rosterSizes)}, pooled team count ${pooledRows.length} ` +
       `(= the sum of the sampled roster sizes: ${rosterSizes.join(" + ")})`
   );
+  if (refused.length > 0) {
+    console.log(`EXCLUDED: ${refused.length} target event(s) refused at their pre-event instant: ${refused.map((r) => r.eventKey).join(", ")}`);
+  }
 
   const verdict = evaluateRungOneCriterion(pooledRows);
   const pct = (x: number): string => `${(x * 100).toFixed(1)}%`;
@@ -1135,7 +1221,7 @@ export async function main(argv: readonly string[]): Promise<void> {
   console.log(verdict.pass ? "PASS" : "FAIL");
 
   if (values["write-doc"] === true) {
-    writeFileSync(FIELD_AVERAGED_DOC_PATH, renderDoc(measurements, verdict, `${algorithm.id}@${algorithm.version}`), "utf8");
+    writeFileSync(FIELD_AVERAGED_DOC_PATH, renderDoc(measurements, verdict, `${algorithm.id}@${algorithm.version}`, refused), "utf8");
     console.log(`
 wrote ${FIELD_AVERAGED_DOC_PATH}`);
   }
@@ -1198,7 +1284,12 @@ export function measureSeedNoiseFloor(
 // ---------------------------------------------------------------------------
 
 /** Renders `docs/models/field-averaged-presim.md`; the script writes it so figures are never hand-transcribed. */
-export function renderDoc(measurements: readonly EventMeasurement[], verdict: RungOneVerdict, algorithmLabel: string): string {
+export function renderDoc(
+  measurements: readonly EventMeasurement[],
+  verdict: RungOneVerdict,
+  algorithmLabel: string,
+  refused: readonly RefusedTargetEvent[] = []
+): string {
   const rosterSizes = measurements.map((m) => m.rosterSize);
   const pct = (x: number): string => `${(x * 100).toFixed(1)}%`;
 
@@ -1226,6 +1317,9 @@ export function renderDoc(measurements: readonly EventMeasurement[], verdict: Ru
   const block = {
     verdict: verdict.pass ? "PASS" : "FAIL",
     algorithm: algorithmLabel,
+    /** Both arms' pmf inputs: the snapshot frozen before each event's first match. */
+    rankingPointFiller: "pre-event",
+    excludedPreEventRefusals: refused.map((r) => ({ eventKey: r.eventKey, teamsWithoutPreEventSigma: [...r.missingTeams] })),
     scheduleCount,
     drawsPerSchedule,
     totalDraws: scheduleCount * drawsPerSchedule,
@@ -1319,6 +1413,19 @@ export function renderDoc(measurements: readonly EventMeasurement[], verdict: Ru
     )} total draws per arm.** Every figure in this document is a figure AT THAT COUNT and at no other. A rank tolerance is only meaningful relative to the measurement's own resolution, so the binding noise floor at the same count is quoted beside every candidate rate below rather than left to be looked up.`
   );
   lines.push("");
+  lines.push(
+    "**Priced from the pre-event instant.** Both arms price each event only from what was known before its first match: the walk-forward state and the ranking-point inputs (RP beliefs, Sigma Scores and mean shift) frozen at that instant, the same snapshot `publishSeasons` has priced a played event's presim sidecar from since spr 8.0.0. " +
+      "Figures recorded before 2026-09-28 read the season-final inputs instead, which had already folded each event's own matches, and carried no mean shift."
+  );
+  lines.push("");
+  if (refused.length > 0) {
+    lines.push(
+      `**${refused.length} of ${refused.length + measurements.length} target events are excluded, not scored.** At the pre-event instant the all-or-nothing roster rule refuses them, because a roster team had no Sigma Score before the event (the publisher refuses their sidecars for the same reason): ` +
+        refused.map((r) => `\`${r.eventKey}\` (${r.missingTeams.join(", ")})`).join("; ") +
+        "."
+    );
+    lines.push("");
+  }
   lines.push(
     `**${verdict.pass ? "PASS" : "FAIL"}.** Across ${verdict.eventCount} real finished events (${verdict.teamCount} teams, every team of every event scored, roster sizes ${Math.min(
       ...rosterSizes

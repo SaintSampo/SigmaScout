@@ -1503,7 +1503,10 @@ function bakeSeason(
     const label = `publishDistricts: bake skip ${candidate.eventKey} [${pricing.algorithmId}]`;
     const predict = pricing.predictFor(candidate.roster);
     if (predict === undefined) {
-      console.log(`${label}: the all-or-nothing ranking-point filler rejected this roster`);
+      const missing = pricing.teamsWithoutSigmaFor(candidate.roster);
+      console.log(
+        `${label}: the all-or-nothing ranking-point filler rejected this roster; ${missing.length} of ${candidate.roster.length} team(s) have no pre-event Sigma Score: ${missing.join(", ") || "(none; no ranking-point model for this season)"}`
+      );
       bump(census.skipped, "no-ranking-point-filler");
       continue;
     }

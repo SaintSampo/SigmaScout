@@ -29,6 +29,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { pathToFileURL } from "node:url";
 
 const STEPS = ["ingest", "deploy", "publish", "seed", "verify", "prune"] as const;
 type Step = (typeof STEPS)[number];
@@ -84,18 +85,33 @@ function ingest(year: number): void {
   }
 }
 
+/**
+ * One seed file's wrangler call. It runs from `apps/worker`, the package that installs wrangler,
+ * exactly as the deploy step does: from the repo root `npx wrangler` finds no local binary and
+ * waits forever on an install prompt. With the cwd moved, `--env-file` and `--file` are absolute
+ * paths, so neither resolves against `apps/worker`. Quoted, in case the checkout path holds a space.
+ */
+export function seedCommand(file: string, repoRoot: string = REPO_ROOT): { readonly command: string; readonly cwd: string } {
+  const envFile = resolve(repoRoot, ".env");
+  const seedFile = resolve(repoRoot, SEED_DIR, file);
+  return {
+    command: `npx wrangler d1 execute ${D1_DATABASE} --remote --env-file "${envFile}" --file "${seedFile}"`,
+    cwd: resolve(repoRoot, "apps/worker"),
+  };
+}
+
 function seed(): void {
   for (const file of SEED_FILES) {
     const path = `${SEED_DIR}/${file}`;
     if (!existsSync(resolve(REPO_ROOT, path))) throw new StepFailure("seed", `${path} is missing — run the publish step first`);
-    const command = `npx wrangler d1 execute ${D1_DATABASE} --remote --env-file .env --file ${path}`;
+    const { command, cwd } = seedCommand(file);
     try {
-      run("seed", command);
+      run("seed", command, cwd);
     } catch {
       // `--file` uploads then imports as two steps; a first call can fail after the upload and a
       // second then succeeds with "File already uploaded" (docs/worker-operations.md).
       console.log(`[rebaseline:seed] ${file} failed once, retrying`);
-      run("seed", command);
+      run("seed", command, cwd);
     }
   }
 }
@@ -183,8 +199,12 @@ async function main(): Promise<void> {
   console.log("\n[rebaseline] done. Commit docs/publish-budget.md if the publish rewrote it.");
 }
 
-main().catch((error: unknown) => {
-  console.error(`\n[rebaseline] FAILED ${(error as Error).message}`);
-  if (error instanceof StepFailure) console.error(`[rebaseline] resume with: pnpm rebaseline --from ${error.step}`);
-  process.exitCode = 1;
-});
+// Guard: only run `main()` when this file is the process entry point, so a test can import `seedCommand`.
+const isEntryPoint = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isEntryPoint) {
+  main().catch((error: unknown) => {
+    console.error(`\n[rebaseline] FAILED ${(error as Error).message}`);
+    if (error instanceof StepFailure) console.error(`[rebaseline] resume with: pnpm rebaseline --from ${error.step}`);
+    process.exitCode = 1;
+  });
+}

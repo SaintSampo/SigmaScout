@@ -54,7 +54,7 @@ import type { AllianceMemberRating } from "../packages/core/algorithms/simulatio
 import { RP_RULE_MODULES } from "../packages/core/rankingPoints/rules.js";
 import { RpMeanShiftAccumulator } from "../packages/core/rankingPoints/meanShift.js";
 import { corpusColdStartIndex } from "../packages/harness/corpusColdStart.js";
-import { BASE_PUBLISH_ALGORITHMS, makeRankingPointFiller } from "../packages/harness/publish.js";
+import { BASE_PUBLISH_ALGORITHMS, makeRankingPointFiller, teamsWithoutSigmaScore } from "../packages/harness/publish.js";
 import { buildSeasonStream, WalkForwardSimulator } from "../packages/harness/replay.js";
 import { seasonBoundaryFor } from "../packages/harness/seasonBoundary.js";
 import { SigmaScoutLayer } from "../packages/harness/sigmaScoutLayer.js";
@@ -262,6 +262,8 @@ export interface DistrictPricingState {
   readonly ratingsFor: (roster: readonly string[]) => ReadonlyMap<string, AllianceMemberRating>;
   /** The bound `predict` a bake needs, or `undefined` when the all-or-nothing roster rule rejects this roster. */
   readonly predictFor: (roster: readonly string[]) => ((match: UpcomingMatch) => Prediction) | undefined;
+  /** The roster teams with no Sigma Score in the map `predictFor` gates on: the teams a refused roster was refused for. */
+  readonly teamsWithoutSigmaFor: (roster: readonly string[]) => string[];
   /** Whether the Sigma-carry candidate priced this state. `false` on every production path. */
   readonly sigmaCarry: boolean;
 }
@@ -457,6 +459,7 @@ export function buildDistrictPricingState(db: Corpus, options: BuildDistrictPric
       if (filler === undefined) return undefined;
       return (match: UpcomingMatch) => filler(match, algorithm.predict(resolvedState, match));
     },
+    teamsWithoutSigmaFor: (roster) => teamsWithoutSigmaScore(sigmaCarryOn ? candidateSigmaMap(candidateRatings(roster)) : sigmaByTeam, roster),
   };
 }
 
