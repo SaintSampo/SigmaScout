@@ -752,12 +752,11 @@ export function champLedgerNoCallDescription(reason: keyof typeof CHAMP_LEDGER_N
 export const CHAMP_LEDGER_CUTOFF_PENDING_FIGURE = "pending";
 
 /**
- * The grand total plot's caption for the SIMULATED line. It says what the
- * number is and nothing about a range, which is withheld until its coverage is
- * calibrated (Jacob, 2026-09-27).
+ * The grand total plot's caption for the SIMULATED line: what the number is,
+ * then what its likely range spans (shown since Jacob, 2026-09-27).
  */
 export const CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION =
-  "The dashed line is the predicted cutoff, the median of a simulated line. In each run the District Championship winning alliance and its Impact, Engineering Inspiration and Rookie All Star winners take their slots first, and the line is read from the teams left.";
+  "The dashed line is the predicted cutoff, the median of a simulated line. In each run the District Championship winning alliance and its Impact, Engineering Inspiration and Rookie All Star winners take their slots first, and the line is read from the teams left. The likely range spans the 10th to the 90th percentile of where that line lands across the runs.";
 
 /** What the grand total plot says while the line is still being simulated. */
 export const CHAMP_LEDGER_DRAWER_PENDING_CAPTION = "The predicted cutoff is still being simulated, so no line is drawn yet.";

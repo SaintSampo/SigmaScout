@@ -72,8 +72,8 @@
  *      district season, walk forward over 68 district seasons: 16.4 points
  *      against 41.0 for the midpoint rule at the same position. Its likely
  *      range covered the published line in 49 of 69 seasons, short of the
- *      pre-registered band, which is why the page says the range is withheld
- *      rather than quoting it.
+ *      pre-registered 72% to 88% band. The range is shown anyway (Jacob,
+ *      2026-09-27), so the page quotes that coverage.
  *
  * A figure that appears in none of those sources is not written here.
  *
@@ -175,7 +175,7 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
       "The District Locks tab also prints a predicted cutoff, the midpoint of the last team inside the slots and the first team outside them, taken over the same pool of teams still racing for points that the statuses use. The likely range beside it is the 10th to the 90th percentile of where that line landed across the 1,000 runs, and the dashed line on every grand total plot is drawn at the same number. The cutoff follows the ranking and never moves a status.",
       "On the Champ Locks tab the predicted cutoff is the median of a simulated line. In each run the District Championship winning alliance and its Impact, Engineering Inspiration and Rookie All Star winners are drawn and take their slots first, and the line is read from the teams left. Award winners come from that season's district winners of the same award, and each award's count starts from the number the district gave the season before.",
       "Teams at or above that line are In range and teams below it are Out of range. Until the runs finish those two chips read Pending, and where no line can be drawn they read No call. Once the District Championship awards are posted nothing is drawn any more, and the midpoint rule applies.",
-      "At the end of each district season, predicted only from the seasons before it, the simulated line missed the published line by 16.4 points on average over 68 district seasons, against 41.0 for the midpoint rule. Its likely range is withheld until its coverage is calibrated.",
+      "At the end of each district season, predicted only from the seasons before it, the simulated line missed the published line by 16.4 points on average over 68 district seasons, against 41.0 for the midpoint rule. Its likely range, the 10th to the 90th percentile of that line across the runs, held the published line in 49 of 69 seasons, 71%, where a range this wide should hold about 80%.",
       "On the Champ Locks tab a run also counts a team as qualified when it lands on the winning alliance or draws one of those awards.",
     ],
     table: {

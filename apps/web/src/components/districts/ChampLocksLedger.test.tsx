@@ -522,13 +522,12 @@ describe("ChampLocksLedger — the district season, before registrations open", 
     for (const grand of screen.getAllByTestId("champ-ledger-grand-total")) expect(grand.querySelector('[data-cell="unavailable"]')).toBeNull();
   }, 30000);
 
-  it("prints the SIMULATED line on the stat line, with no likely range and never the district only label", async () => {
+  it("prints the SIMULATED line on the stat line, with its likely range and never the district only label", async () => {
     renderDistrictSeason();
     const statLine = await waitForSimulatedLine();
-    expect(statLine.textContent).toMatch(/^Predicted cutoff ~\d+$/);
-    // Jacob, 2026-09-27: ship the line, not the range.
-    expect(within(statLine).queryByTestId("district-ledger-cutoff-likely")).toBeNull();
-    expect(statLine.textContent).not.toContain("likely");
+    expect(statLine.textContent).toMatch(/^Predicted cutoff ~\d+ · likely \d+–\d+$/);
+    // Jacob, 2026-09-27: the range is shown with the line.
+    expect(within(statLine).queryByTestId("district-ledger-cutoff-likely")).not.toBeNull();
     expect(statLine.textContent).not.toContain("district only");
   }, 30000);
 
@@ -677,7 +676,7 @@ describe("ChampLocksLedger — the simulated cutoff's chip timing", () => {
     const latest = held[held.length - 1]!;
     released = true;
     runDistrictWorkerJob(latest.message, latest.post);
-    await waitFor(() => expect(screen.getByTestId("district-ledger-stat-line").textContent).toMatch(/^Predicted cutoff ~\d+$/), { timeout: 20000 });
+    await waitFor(() => expect(screen.getByTestId("district-ledger-stat-line").textContent).toMatch(/^Predicted cutoff ~\d+ · likely \d+–\d+$/), { timeout: 20000 });
     const settled = statusesOnScreen();
     expect(settled).not.toContain("pending");
     expect(settled.some((status) => status === "inRange" || status === "outOfRange")).toBe(true);
@@ -856,7 +855,7 @@ describe("ChampLocksLedger — the drawer", () => {
     renderUnderWay("/districts?algorithm=spr&tab=champ-locks&at=season-start");
     const statLine = await waitForSimulatedLine();
     expect(statLine.textContent).not.toContain("district only");
-    expect(within(statLine).queryByTestId("district-ledger-cutoff-likely")).toBeNull();
+    expect(within(statLine).queryByTestId("district-ledger-cutoff-likely")).not.toBeNull();
     expect(screen.queryAllByTestId("champ-ledger-district-only")).toHaveLength(0);
     const dcmpRow = rowsFor(ROSTER[0]!)[1]!;
     expect(dcmpRow.querySelectorAll('[data-cell="not-yet-priced"]')).toHaveLength(4);

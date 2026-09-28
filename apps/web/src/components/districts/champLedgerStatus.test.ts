@@ -351,9 +351,9 @@ describe("applyChampRangeState and champCutoffView", () => {
     if (view.cutoff.kind !== "predicted") return;
     expect(view.cutoff.source).toBe("simulated");
     expect(view.cutoff.points).toBe(points);
-    // Jacob, 2026-09-27: the line ships, the range does not.
-    expect(SHOW_SIMULATED_CHAMP_LIKELY_RANGE).toBe(false);
-    expect(view.likely).toBeUndefined();
+    // Jacob, 2026-09-27: the range is shown with the line.
+    expect(SHOW_SIMULATED_CHAMP_LIKELY_RANGE).toBe(true);
+    expect(view.likely).toEqual(LIKELY);
     expect(display.counts.inRange + display.counts.outOfRange).toBe(contendingKeys.length);
     expect(display.counts.inRange).toBeGreaterThan(0);
     expect(display.counts.outOfRange).toBeGreaterThan(0);

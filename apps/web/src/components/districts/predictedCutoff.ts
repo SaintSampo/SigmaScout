@@ -130,22 +130,25 @@ export type ChampNoCallReason =
   | "workerError";
 
 /**
- * WHETHER THE SIMULATED LINE'S 10 TO 90 LIKELY RANGE IS SHOWN. OFF, by Jacob's
- * ruling of 2026-09-27 ("ship the line, not the range").
+ * WHETHER THE SIMULATED LINE'S 10 TO 90 LIKELY RANGE IS SHOWN. ON, by Jacob's
+ * later ruling of 2026-09-27, which reversed his earlier same-day ruling
+ * ("ship the line, not the range") knowing the range missed its bar by one
+ * season. The Methodology page publishes the measured coverage rather than
+ * implying the range is calibrated.
  *
  * The walk-forward backtest (`scripts/measureChampCutoff.ts`, quick task
  * 260927-6bf) measured the printed range covering the published cut line in
  * 49 of 69 district seasons, 71.0%, against a pre-registered bar of 72% to
  * 88%. The line itself passed every one of its own conditions (end of district
  * MAE 16.5 against 41.0 for the old rule at the ruling; 16.4 once the champ
- * sort's tie break stopped reading DCMP points earned later), so it ships and
- * the range does not. Coverage was 49 of 69 both times.
- * `simulatedChampLine` still computes the range, and `champRangeState` still
- * carries it, so a later pre-registered calibration round can switch it on
- * here and nowhere else. The District Locks tab's own likely range is a
- * different quantity and does not read this flag.
+ * sort's tie break stopped reading DCMP points earned later). Coverage was 49
+ * of 69 both times. The range runs a little narrow and is shown with that
+ * coverage quoted on the Methodology page (`districtLedgerContent.ts`); a
+ * later calibration round that changes the coverage must update that sentence.
+ * The District Locks tab's own likely range is a different quantity and does
+ * not read this flag.
  */
-export const SHOW_SIMULATED_CHAMP_LIKELY_RANGE = false;
+export const SHOW_SIMULATED_CHAMP_LIKELY_RANGE = true;
 
 export interface PredictedCutoffOptions {
   /** The tab's OWN sorted rows, never re-sorted here. */

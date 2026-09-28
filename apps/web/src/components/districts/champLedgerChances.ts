@@ -560,7 +560,7 @@ export interface ChampCutoffViewOptions {
  *   highest Out of range median as the chips were cut, the line itself
  *   standing in for an empty side, so the between property holds by
  *   construction. The likely range rides along only while
- *   `SHOW_SIMULATED_CHAMP_LIKELY_RANGE` is on, which it is not (Jacob,
+ *   `SHOW_SIMULATED_CHAMP_LIKELY_RANGE` is on, which it is (Jacob,
  *   2026-09-27).
  */
 export function champCutoffView(options: ChampCutoffViewOptions): LedgerCutoffView {

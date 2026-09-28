@@ -522,12 +522,12 @@ describe("the predicted cutoff copy", () => {
     expect(everyString).not.toContain("±");
   });
 
-  it("never says In range or Out of range on a withheld chip, and never describes a likely range as shown", () => {
+  it("never says In range or Out of range on a withheld chip, and describes the simulated line's likely range", () => {
     for (const label of Object.values(CHAMP_LEDGER_RANGE_CALL_LABELS)) {
       expect(label).not.toMatch(/in range|out of range/i);
     }
-    // Jacob, 2026-09-27: the simulated line ships, its range does not.
-    expect(CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION).not.toMatch(/likely|percentile|range/i);
+    // Jacob, 2026-09-27: the simulated line's range is shown.
+    expect(CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION).toContain("10th to the 90th percentile");
     expect(CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION).toContain("winning alliance");
     for (const award of ["Impact", "Engineering Inspiration", "Rookie All Star"]) expect(CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION).toContain(award);
   });

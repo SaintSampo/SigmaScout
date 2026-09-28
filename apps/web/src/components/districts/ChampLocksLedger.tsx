@@ -43,7 +43,7 @@
  * "Pending" and the stat line prints no figure; they settle ONCE, and a
  * terminal refusal reads "No call" with its reason, never the rank rule.
  * Locked, Locked out and the award locks render immediately. The line's 10 to
- * 90 likely range is computed and NOT shown (`SHOW_SIMULATED_CHAMP_LIKELY_RANGE`,
+ * 90 likely range is shown beside it (`SHOW_SIMULATED_CHAMP_LIKELY_RANGE`,
  * Jacob, 2026-09-27). Once the DCMP awards post, nothing is drawn any more and
  * the shipped midpoint rule and rank chips stand.
  *
