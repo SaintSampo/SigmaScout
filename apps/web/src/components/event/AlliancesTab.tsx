@@ -33,8 +33,8 @@ import { SkeletonRows } from "@/components/Skeletons";
 import { algorithmDisplayLabel } from "@/components/ribbon/AlgorithmSelect";
 import { TOTAL_KEY } from "@/lib/metricKeys";
 import { teamNumberFromKey } from "@/lib/teamKey";
-import { resolveMetricTier, tierForPercentile } from "@/lib/tiers";
-import { buildTeamValuePercentilePoints, estimateCombinedTier, type AllianceApproxTier } from "@/lib/allianceTierApproximation";
+import { resolveMetricTier, tierForPercentile, type Tier } from "@/lib/tiers";
+import { estimateCombinedTier } from "@/lib/allianceTierApproximation";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { allianceSigmaBandVariance, sigmaMatchBandVariance, SIGMA_METRIC_KEY, usesSigmaScore } from "../../../../../packages/harness/sigmaScore.js";
 import type { EventArtifact, SeasonTierCuts } from "../../../../../packages/harness/pageArtifacts.js";
@@ -96,11 +96,12 @@ export interface AllianceRow {
   combinable: boolean;
   /**
    * The 3x heuristic approximate tier for `combined` — `undefined` when
-   * `combined` itself is `undefined`, or when this event publishes no team
-   * with a percentile to interpolate against. NEVER an exact tier; see
-   * `@/lib/allianceTierApproximation`'s header comment for the full method.
+   * `combined` itself is `undefined`, or when the artifact carries no
+   * `tierCuts` Total entry (a bootstrap or pre-republish artifact). NEVER
+   * an exact tier; see `@/lib/allianceTierApproximation`'s header comment
+   * for the full method.
    */
-  combinedApproxTier: AllianceApproxTier | undefined;
+  combinedApproxTier: Tier | undefined;
   /**
    * The neutral, untiered `±` for the Combined Total pill's Sigma half —
    * `sqrt(3 * (a^2 + b^2 + c^2))` over the first three picks' own Sigma
@@ -237,11 +238,6 @@ export function buildAllianceRows(artifact: EventArtifact, algorithmId: string):
   void algorithmId; // reserved for signature symmetry with the column builder
   const alliances = artifact.alliances ?? [];
   const ordered = [...alliances].sort(byAllianceNumberThenFirstPick);
-  // Interpolated against THIS event's standings roster only, matching
-  // `ALLIANCE_APPROX_TIER_DISCLOSURE`'s own claim — widening this pool with
-  // `allianceTeams` would make that sentence false, since a never-played
-  // pick was never ranked at this event.
-  const tierPoints = buildTeamValuePercentilePoints(artifact.teams);
   const allianceTeams = artifact.allianceTeams ?? [];
 
   return ordered.map((alliance) => {
@@ -252,7 +248,7 @@ export function buildAllianceRows(artifact: EventArtifact, algorithmId: string):
       picks,
       combined,
       combinable: combined !== undefined,
-      combinedApproxTier: combined !== undefined ? estimateCombinedTier(combined.value, tierPoints) : undefined,
+      combinedApproxTier: combined !== undefined ? estimateCombinedTier(combined.value, artifact.tierCuts) : undefined,
       combinedSigma: combined !== undefined ? combinedSigmaBand(picks) : undefined,
       record: alliance.record,
     };
@@ -278,7 +274,7 @@ export function hasAllianceData(artifact: EventArtifact): boolean {
  * gives in full.
  */
 export const ALLIANCE_APPROX_TIER_DISCLOSURE =
-  "Approximate tier: no percentile is published for a 3-team sum, so this is estimated by dividing the combined total by 3 and comparing that to this event's own single-team totals.";
+  "Approximate tier: no percentile is published for a 3-team sum, so this is estimated by dividing the combined total by 3 and comparing that to the season's single-team totals.";
 
 /**
  * The incomplete-combination notice. Pluralizes the alliance noun's verb
@@ -539,7 +535,7 @@ function BackupCell({
  * untiered slate half rather than inventing a tier. `undefined` degrades
  * the cell to the plain `TotalSigmaValue` no-sigma path.
  */
-function CombinedCell({ metric, approx, sigma }: { metric: DisplayMetric | undefined; approx: AllianceApproxTier | undefined; sigma: number | undefined }) {
+function CombinedCell({ metric, approx, sigma }: { metric: DisplayMetric | undefined; approx: Tier | undefined; sigma: number | undefined }) {
   const boxed = approx !== undefined;
   // No visible "≈" glyph. The tier is still a 3x-heuristic APPROXIMATION
   // (see `@/lib/allianceTierApproximation`), so the disclosure survives
@@ -560,7 +556,7 @@ function CombinedCell({ metric, approx, sigma }: { metric: DisplayMetric | undef
       title={boxed ? ALLIANCE_APPROX_TIER_DISCLOSURE : undefined}
       aria-label={boxed ? ALLIANCE_APPROX_TIER_DISCLOSURE : undefined}
     >
-      <TotalSigmaValue total={metric} totalTier={approx?.tier} sigma={sigma !== undefined ? { value: sigma, neutral: true } : undefined} />
+      <TotalSigmaValue total={metric} totalTier={approx} sigma={sigma !== undefined ? { value: sigma, neutral: true } : undefined} />
     </span>
   );
 }

@@ -267,7 +267,7 @@ describe("AlliancesTab — seven-column anatomy", () => {
     expect(backupCell.textContent).toBe("");
   });
 
-  it("the Combined Total cell has NO tier box when no event team publishes a percentile to interpolate against", async () => {
+  it("the Combined Total cell has NO tier box when the event artifact carries no tierCuts", async () => {
     renderAlliances(makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
     const cell = await screen.findByTestId("alliances-cell-combined");
     expect(cell.querySelector(".metric-tier")).toBeNull();
@@ -275,13 +275,12 @@ describe("AlliancesTab — seven-column anatomy", () => {
   });
 
   it("the Combined Total cell renders the 3x-heuristic APPROXIMATE tier — no visible marker, the disclosure riding the cell title instead", async () => {
-    // Every event team at value 10, percentile 99 (Legendary): combined 30 / 3 = 10 matches
-    // exactly, so the interpolated percentile is exactly 99, not merely "some non-common value".
-    const highPercentileTeams = FOUR_TEAMS.map((t) => ({
-      ...t,
-      metrics: { [TOTAL_KEY]: { value: 10, spread: 10, percentile: 99, tier: "legendary" as const } },
-    }));
-    renderAlliances(makeArtifact(highPercentileTeams, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
+    // FOUR_TEAMS carries no percentile on any team. Combined 30 / 3 = 10, exactly on the
+    // Legendary cut of the tierCuts Total entry below, so the tier is Legendary regardless of
+    // what any event team publishes.
+    renderAlliances(
+      makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })], { tierCuts: { [TOTAL_KEY]: { cuts: [4, 6, 10] } } }),
+    );
     const cell = await screen.findByTestId("alliances-cell-combined");
     expect(cell.querySelector(".metric-tier--legendary")).not.toBeNull();
     expect(screen.queryByTestId("alliances-combined-approx-marker")).toBeNull();
@@ -298,11 +297,11 @@ describe("AlliancesTab — seven-column anatomy", () => {
     // visible "≈" glyph stays removed; this pins only that the remaining
     // disclosure is exposed, the same way
     // `BonusRpDots.tsx` exposes its own title+aria-label pairing.
-    const highPercentileTeams = FOUR_TEAMS.map((t) => ({
-      ...t,
-      metrics: { [TOTAL_KEY]: { value: 10, spread: 10, percentile: 99, tier: "legendary" as const } },
-    }));
-    renderAlliances(makeArtifact(highPercentileTeams, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
+    // FOUR_TEAMS carries no percentile on any team; combined 30 / 3 = 10 sits exactly on the
+    // Legendary cut of the tierCuts Total entry below.
+    renderAlliances(
+      makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })], { tierCuts: { [TOTAL_KEY]: { cuts: [4, 6, 10] } } }),
+    );
     const cell = await screen.findByTestId("alliances-cell-combined");
     const disclosed = within(cell).getByRole("group", { name: ALLIANCE_APPROX_TIER_DISCLOSURE });
     expect(disclosed.getAttribute("title")).toBe(ALLIANCE_APPROX_TIER_DISCLOSURE);
@@ -317,16 +316,14 @@ describe("AlliancesTab — seven-column anatomy", () => {
     expect(cell.querySelector("[aria-label]")).toBeNull();
   });
 
-  it("the Combined Total cell renders the common tier ring AND the approximation disclosure when the interpolated percentile lands in Common (sketch 008 winner C)", async () => {
-    // Every event team at value 10, percentile 10 (Common): combined 30 / 3 = 10 matches
-    // exactly, interpolated percentile 10 -> Common -> the hairline ring, per
-    // MetricValue's own contract. The disclosure tracks "a box is drawn",
-    // and Common draws one, so it is exposed here too.
-    const commonPercentileTeams = FOUR_TEAMS.map((t) => ({
-      ...t,
-      metrics: { [TOTAL_KEY]: { value: 10, spread: 10, percentile: 10 } },
-    }));
-    renderAlliances(makeArtifact(commonPercentileTeams, [alliance({ picks: ["frc1", "frc2", "frc3"] })]));
+  it("the Combined Total cell renders the common tier ring AND the approximation disclosure when the per team equivalent lands in Common (sketch 008 winner C)", async () => {
+    // FOUR_TEAMS carries no percentile on any team. Combined 30 / 3 = 10, under the Rare cut
+    // of 20 in the tierCuts Total entry below -> Common -> the hairline ring, per MetricValue's
+    // own contract. The disclosure tracks "a box is drawn", and Common draws one, so it is
+    // exposed here too.
+    renderAlliances(
+      makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })], { tierCuts: { [TOTAL_KEY]: { cuts: [20, 30, 40] } } }),
+    );
     const cell = await screen.findByTestId("alliances-cell-combined");
     expect(cell.querySelector(".metric-tier--common")).not.toBeNull();
     const disclosed = within(cell).getByRole("group", { name: ALLIANCE_APPROX_TIER_DISCLOSURE });
@@ -383,6 +380,21 @@ describe("AlliancesTab — seven-column anatomy", () => {
     const pick2Cell = screen.getByTestId("alliances-cell-pick2");
     expect(pick2Cell.textContent).toContain("50.37");
     expect(pick2Cell.querySelector(".metric-tier--epic")).not.toBeNull();
+  });
+});
+
+describe("AlliancesTab — Combined Total tier from the season cut points (260927-wnh)", () => {
+  it("a live folded roster (no team publishes a percentile) still tiers the Combined Total from tierCuts", async () => {
+    // FOUR_TEAMS carries values only, no percentile anywhere — exactly what a live fold leaves
+    // behind. Combined 30 (frc1..frc3), per team 10, sits exactly on the Epic cut below.
+    const artifact = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })], {
+      tierCuts: { [TOTAL_KEY]: { cuts: [5, 8, 12] } },
+    });
+    renderAlliances(artifact);
+    const cell = await screen.findByTestId("alliances-cell-combined");
+    expect(cell.querySelector(".metric-tier--epic")).not.toBeNull();
+    expect(within(cell).getByRole("group", { name: ALLIANCE_APPROX_TIER_DISCLOSURE })).toBeDefined();
+    expect(buildAllianceRows(artifact, "spr")[0]?.combinedApproxTier).toBe("epic");
   });
 });
 
@@ -838,8 +850,8 @@ describe("AlliancesTab — Combined Total's neutral Sigma band", () => {
 // D-02: a playoff pick who never took the field at this event has no `teams`
 // row. `artifact.allianceTeams` (additive, optional) is the fallback source
 // for that pick's pill — read only after a `teams` lookup misses, so a real
-// standings row always wins, and never a source `buildTeamValuePercentilePoints`
-// or the combined arithmetic (D-03) treats any differently from a `teams` row.
+// standings row always wins, and the combined arithmetic (D-03) treats an
+// `allianceTeams` row no differently from a `teams` row.
 // ---------------------------------------------------------------------------
 
 describe("AlliancesTab — the allianceTeams fallback for a pick with no teams row (D-02)", () => {
