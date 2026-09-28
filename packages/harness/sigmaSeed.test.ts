@@ -208,8 +208,10 @@ describe("publish.ts's seed block chains every level-2 passenger (structural)", 
     // listed beside the others deliberately: it writes the LEAGUE row rather
     // than a team row, which is exactly why it is the one easy to forget.
     // `withRpMeanShift` joined 2026-09-14 (shape 16, quick task 260914-01x):
-    // another LEAGUE-row passenger, so exactly as easy to forget.
-    for (const passenger of ["withSigmaBeliefs(", "withSigmaPopulation(", "withRpBeliefs(", "withRpMeanShift("]) {
+    // another LEAGUE-row passenger, so exactly as easy to forget. `withRpPopulation`
+    // joined 2026-09-28 (shape 17, quick task 260928-p8i): the RP cold-team prior's
+    // population summary, a third LEAGUE-row passenger.
+    for (const passenger of ["withSigmaBeliefs(", "withSigmaPopulation(", "withRpBeliefs(", "withRpMeanShift(", "withRpPopulation("]) {
       expect(body, `publish.ts's seedStateRows no longer chains ${passenger}`).toContain(passenger);
     }
   });

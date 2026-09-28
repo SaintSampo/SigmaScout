@@ -27,7 +27,7 @@ import { acrossSigmaBoundary, seasonOwnPopulation, ZERO_SIGMA_POPULATION, type S
 import type { PredictionRecord } from "./replay.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 import { isRpEligibleEventType } from "../core/rankingPoints/constants.js";
-import { RpMomentsAccumulator, type RpTeamBeliefs } from "../core/rankingPoints/empiricalMoments.js";
+import { RpMomentsAccumulator, type RpPopulationState, type RpTeamBeliefs } from "../core/rankingPoints/empiricalMoments.js";
 import { RpMeanShiftAccumulator, rosterIsFullyWarm, type RpMeanShiftState } from "../core/rankingPoints/meanShift.js";
 import {
   analyticRpPmf,
@@ -167,6 +167,15 @@ export class SigmaScoutLayer {
    */
   rpMeanShiftState(): RpMeanShiftState | undefined {
     return this.#rpMeanShift?.toState();
+  }
+
+  /**
+   * The RP cold-team prior's population summary for the spr LEAGUE row (shape
+   * 17), or `undefined` when the layer publishes no ranking points or runs
+   * with the prior off. A snapshot: mutating it never reaches the layer.
+   */
+  rpPopulationState(): RpPopulationState | undefined {
+    return this.#rp?.populationState();
   }
 
   /** A fresh copy of the resolved-family tally, so a caller cannot mutate the running counts. */

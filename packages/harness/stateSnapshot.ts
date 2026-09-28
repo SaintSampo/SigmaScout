@@ -25,7 +25,12 @@ import { DEMO_PSEUDO_TEAM_KEY, isDemoTeamKey } from "../core/algorithms/demoTeam
 import type { OprObservation, OprState } from "../core/algorithms/opr.js";
 import type { ExpandingStats } from "../core/scoring/expandingStats.js";
 import type { SigmaBelief, SigmaPopulation } from "./sigmaScore.js";
-import type { RpTeamBeliefs, RpVariableBelief } from "../core/rankingPoints/empiricalMoments.js";
+import type {
+  RpPopulationState,
+  RpPopulationVariableState,
+  RpTeamBeliefs,
+  RpVariableBelief,
+} from "../core/rankingPoints/empiricalMoments.js";
 import type { RpMeanShiftState, RpMeanShiftVariableState } from "../core/rankingPoints/meanShift.js";
 
 // ---------------------------------------------------------------------------
@@ -108,10 +113,16 @@ export class UnknownStateAlgorithmError extends Error {
  * would resume a fresh shift and silently misprice live matches). Every bump
  * needs a Worker re-seed from a fresh publish: seed first, deploy second.
  *
+ * 16 -> 17 (SPR 9.0.0): the spr league row gains `sigmascoutRpPopulation`,
+ * the RP cold-team prior's season-tagged population summary. A shape-16 row
+ * lacks the key; a Worker reading one would resume an empty population and
+ * price cold and thin teams differently from the artifacts it serves, with no
+ * error. Like every bump, it needs a reseed from a fresh publish.
+ *
  * Removing a field needs no bump: deserializers read named fields and ignore
  * extras.
  */
-export const STATE_SNAPSHOT_SHAPE_VERSION = 16;
+export const STATE_SNAPSHOT_SHAPE_VERSION = 17;
 
 /** Thrown when the league row's `snapshotShapeVersion` is absent or not `STATE_SNAPSHOT_SHAPE_VERSION`, instead of misreading its fields. */
 export class LeagueRowShapeVersionError extends Error {
@@ -720,6 +731,53 @@ export function withRpMeanShift(rows: readonly StateRow[], state: RpMeanShiftSta
     if (row.scopeKind !== "league") return row;
     const parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
     return { ...row, stateJson: JSON.stringify({ ...parsed, [RP_MEAN_SHIFT_KEY]: state }) };
+  });
+}
+
+/** The league-row key for the RP cold-team prior's population summary (`empiricalMoments.ts`, shape 17). */
+const RP_POPULATION_KEY = "sigmascoutRpPopulation";
+
+/**
+ * The inverse of `withRpPopulation`, or `undefined` (the Worker resumes an
+ * empty population). All-or-nothing: any malformed field makes the whole
+ * summary `undefined`, since a half-read summary would price some variables
+ * from the league and others from nothing. The season tag is checked against
+ * the rule module by `RpMomentsAccumulator.fromBeliefs`, not here.
+ */
+export function readRpPopulation(rows: readonly StateRow[]): RpPopulationState | undefined {
+  for (const row of rows) {
+    if (row.scopeKind !== "league") continue;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
+    } catch {
+      return undefined;
+    }
+    const raw = parsed[RP_POPULATION_KEY];
+    if (raw === null || typeof raw !== "object") return undefined;
+    const { season, variables } = raw as { season?: unknown; variables?: unknown };
+    if (typeof season !== "number" || !Number.isInteger(season)) return undefined;
+    if (variables === null || typeof variables !== "object" || Array.isArray(variables)) return undefined;
+    const out: Record<string, RpPopulationVariableState> = {};
+    for (const [name, entry] of Object.entries(variables as Record<string, unknown>)) {
+      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return undefined;
+      const { n, mean, m2 } = entry as { n?: unknown; mean?: unknown; m2?: unknown };
+      if (typeof n !== "number" || !Number.isInteger(n) || n < 0) return undefined;
+      if (typeof mean !== "number" || !Number.isFinite(mean)) return undefined;
+      if (typeof m2 !== "number" || !Number.isFinite(m2) || m2 < 0) return undefined;
+      out[name] = { n, mean, m2 };
+    }
+    return { season, variables: out };
+  }
+  return undefined;
+}
+
+/** Injects the RP population summary into the LEAGUE row, returning new rows. Three numbers per variable, so it cannot scale with team count. */
+export function withRpPopulation(rows: readonly StateRow[], state: RpPopulationState): StateRow[] {
+  return rows.map((row) => {
+    if (row.scopeKind !== "league") return row;
+    const parsed = JSON.parse(row.stateJson) as Record<string, unknown>;
+    return { ...row, stateJson: JSON.stringify({ ...parsed, [RP_POPULATION_KEY]: state }) };
   });
 }
 

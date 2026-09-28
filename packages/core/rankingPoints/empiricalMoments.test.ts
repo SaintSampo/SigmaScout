@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RpMomentsAccumulator } from "./empiricalMoments.js";
+import { RpMomentsAccumulator, type RpPopulationState } from "./empiricalMoments.js";
 import { rpRuleModuleForSeason } from "./rules.js";
 import { analyticRpPmf } from "./analyticPmf.js";
 
@@ -482,7 +482,7 @@ describe("RpMomentsAccumulator rpColdPrior (260928-n6i-PREREG.md)", () => {
     expect(acc.momentsFor(roster, 300, 900)).not.toStrictEqual(live);
   });
 
-  it("the resume path carries no summary: beliefsByTeam matches off, and fromBeliefs rebuilds the incumbent", () => {
+  it("beliefsByTeam carries no summary, and fromBeliefs with no third argument rebuilds the pre-9.0.0 model", () => {
     const acc = on();
     const off = new RpMomentsAccumulator(RULES_2026);
     for (const a of [acc, off]) foldMixed(a);
@@ -495,5 +495,151 @@ describe("RpMomentsAccumulator rpColdPrior (260928-n6i-PREREG.md)", () => {
       [0, 0],
       [0, 0],
     ]);
+  });
+});
+
+// ──────── RP population on the resume path (shape 17) ─────────────────────
+
+/**
+ * The live Worker resumes the RP cold-team prior from the league row's
+ * population summary (SPR 9.0.0). A resumed accumulator must answer exactly
+ * as the one that wrote the summary, before and after further folds.
+ */
+describe("RpMomentsAccumulator populationState/fromBeliefs population, the Worker's shape 17 resume path", () => {
+  const BLUE = ["frc4", "frc5", "frc6"];
+  const COLD = ["frc900", "frc901", "frc902"];
+  const THIN = ["frc7", "frc900", "frc901"];
+
+  /** Warm RED and BLUE (two observations each), a thin frc7 (one observation). */
+  function source(): RpMomentsAccumulator {
+    const acc = new RpMomentsAccumulator(RULES_2026, { rpColdPrior: true });
+    acc.fold(RED, { [HUB]: 30, [TOWER]: 20 });
+    acc.fold(BLUE, { [HUB]: 66, [TOWER]: 41 });
+    acc.fold(RED, { [HUB]: 90, [TOWER]: 50 });
+    acc.fold(BLUE, { [HUB]: 72, [TOWER]: 18 });
+    acc.fold(["frc7", "frc8", "frc9"], { [HUB]: 54, [TOWER]: 27 });
+    return acc;
+  }
+
+  function resume(src: RpMomentsAccumulator): RpMomentsAccumulator {
+    return RpMomentsAccumulator.fromBeliefs(RULES_2026, src.beliefsByTeam(), { population: src.populationState() });
+  }
+
+  const ROSTERS: readonly (readonly string[])[] = [COLD, THIN, RED, [RED[0]!, BLUE[1]!, "frc900"]];
+
+  it("populationState is undefined with the prior off", () => {
+    const off = new RpMomentsAccumulator(RULES_2026);
+    off.fold(RED, { [HUB]: 30, [TOWER]: 20 });
+    expect(off.populationState()).toBeUndefined();
+  });
+
+  it("populationState carries the season and every declared variable, a never-observed one as zeros", () => {
+    const fresh = new RpMomentsAccumulator(RULES_2026, { rpColdPrior: true });
+    const empty = fresh.populationState()!;
+    expect(empty.season).toBe(RULES_2026.season);
+    expect(Object.keys(empty.variables)).toEqual(RULES_2026.thresholdVariables.map((v) => v.name));
+    for (const entry of Object.values(empty.variables)) expect(entry).toEqual({ n: 0, mean: 0, m2: 0 });
+
+    const acc = new RpMomentsAccumulator(RULES_2026, { rpColdPrior: true });
+    acc.fold(RED, { [HUB]: 30 });
+    acc.fold(BLUE, { [HUB]: 90 });
+    const state = acc.populationState()!;
+    expect(Object.keys(state.variables)).toEqual([HUB, TOWER]);
+    expect(state.variables[HUB]!.n).toBe(2);
+    expect(state.variables[HUB]!.mean).toBeCloseTo(60, 10);
+    expect(state.variables[HUB]!.m2).toBeCloseTo(1800, 8);
+    expect(state.variables[TOWER]).toEqual({ n: 0, mean: 0, m2: 0 });
+  });
+
+  it("a resumed accumulator runs the prior and answers momentsFor exactly as the source for cold, thin and warm rosters", () => {
+    const src = source();
+    const resumed = resume(src);
+    expect(resumed.rpColdPrior).toBe(true);
+    for (const roster of ROSTERS) expect(resumed.momentsFor(roster, 300, 900)).toEqual(src.momentsFor(roster, 300, 900));
+    expect(resumed.populationState()).toEqual(src.populationState());
+  });
+
+  it("the source and the resumed accumulator stay identical after folding the same five further alliances", () => {
+    const src = source();
+    const resumed = resume(src);
+    const further: readonly [readonly string[], Record<string, number>][] = [
+      [COLD, { [HUB]: 44, [TOWER]: 12 }],
+      [THIN, { [HUB]: 81, [TOWER]: 39 }],
+      [RED, { [HUB]: 105, [TOWER]: 61 }],
+      [["frc20", "frc21", "frc22"], { [HUB]: 8, [TOWER]: Number.NaN }],
+      [BLUE, { [HUB]: 59, [TOWER]: 33 }],
+    ];
+    for (const [roster, observed] of further) {
+      src.fold(roster, observed);
+      resumed.fold(roster, observed);
+    }
+    for (const roster of [...ROSTERS, ["frc30", "frc31", "frc32"]]) {
+      expect(resumed.momentsFor(roster, 300, 900)).toEqual(src.momentsFor(roster, 300, 900));
+    }
+    expect(resumed.populationState()).toEqual(src.populationState());
+  });
+
+  it("non-vacuity: resuming WITHOUT the population prices the cold and thin rosters differently", () => {
+    const src = source();
+    const withoutPopulation = RpMomentsAccumulator.fromBeliefs(RULES_2026, src.beliefsByTeam());
+    expect(withoutPopulation.momentsFor(COLD, 300, 900)).not.toEqual(src.momentsFor(COLD, 300, 900));
+    expect(withoutPopulation.momentsFor(THIN, 300, 900)).not.toEqual(src.momentsFor(THIN, 300, 900));
+  });
+
+  /** A resume whose population is empty: the prior is on, and a cold roster reads as a fresh knob-on accumulator. */
+  function expectEmptyPopulation(resumed: RpMomentsAccumulator): void {
+    expect(resumed.rpColdPrior).toBe(true);
+    const fresh = new RpMomentsAccumulator(RULES_2026, { rpColdPrior: true });
+    expect(resumed.momentsFor(COLD, 300, 900)).toEqual(fresh.momentsFor(COLD, 300, 900));
+    expect(resumed.populationState()).toEqual(fresh.populationState());
+  }
+
+  it("another season's population and a missing population resume an EMPTY population with the prior on", () => {
+    const src = source();
+    const state = src.populationState()!;
+    expectEmptyPopulation(
+      RpMomentsAccumulator.fromBeliefs(RULES_2026, src.beliefsByTeam(), { population: { ...state, season: 2025 } })
+    );
+    expectEmptyPopulation(RpMomentsAccumulator.fromBeliefs(RULES_2026, src.beliefsByTeam(), { population: undefined }));
+  });
+
+  it("each malformed entry resumes an EMPTY population (all-or-nothing)", () => {
+    const src = source();
+    const state = src.populationState()!;
+    const good = state.variables[TOWER]!;
+    const defects: readonly unknown[] = [
+      { ...good, n: 2.5 },
+      { ...good, n: -1 },
+      { ...good, n: Number.NaN },
+      { ...good, mean: Number.POSITIVE_INFINITY },
+      { ...good, mean: Number.NaN },
+      { ...good, mean: "3" },
+      { ...good, m2: -0.5 },
+      { ...good, m2: Number.POSITIVE_INFINITY },
+      { n: good.n, mean: good.mean },
+      null,
+      7,
+      "entry",
+    ];
+    for (const defect of defects) {
+      const population = { season: state.season, variables: { ...state.variables, [TOWER]: defect } } as unknown as RpPopulationState;
+      expectEmptyPopulation(RpMomentsAccumulator.fromBeliefs(RULES_2026, src.beliefsByTeam(), { population }));
+    }
+    for (const variables of [null, 42, "variables", [state.variables[HUB]]]) {
+      const population = { season: state.season, variables } as unknown as RpPopulationState;
+      expectEmptyPopulation(RpMomentsAccumulator.fromBeliefs(RULES_2026, src.beliefsByTeam(), { population }));
+    }
+  });
+
+  it("an unknown variable name is skipped and the rest restores", () => {
+    const src = source();
+    const state = src.populationState()!;
+    const population: RpPopulationState = {
+      season: state.season,
+      variables: { ...state.variables, cargoBonus: { n: 40, mean: 999, m2: 12 } },
+    };
+    const resumed = RpMomentsAccumulator.fromBeliefs(RULES_2026, src.beliefsByTeam(), { population });
+    expect(resumed.populationState()).toEqual(state);
+    expect(resumed.momentsFor(COLD, 300, 900)).toEqual(src.momentsFor(COLD, 300, 900));
   });
 });

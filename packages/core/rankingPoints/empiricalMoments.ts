@@ -109,6 +109,33 @@ interface PopulationSummary {
   m2: number;
 }
 
+/** One threshold variable's population summary as it rides the D1 league row: a Welford count, mean and sum of squared deviations. */
+export interface RpPopulationVariableState {
+  readonly n: number;
+  readonly mean: number;
+  readonly m2: number;
+}
+
+/**
+ * The serializable form of one season's population summary. Three numbers
+ * per threshold variable, so it rides the D1 LEAGUE row and cannot scale with
+ * team count. Season-tagged: another season's summary never resumes.
+ */
+export interface RpPopulationState {
+  readonly season: number;
+  readonly variables: Readonly<Record<string, RpPopulationVariableState>>;
+}
+
+/** A valid population entry: a non-negative integer count, a finite mean and a finite, non-negative sum of squares. */
+function isPopulationEntry(entry: unknown): entry is RpPopulationVariableState {
+  if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return false;
+  const { n, mean, m2 } = entry as { n?: unknown; mean?: unknown; m2?: unknown };
+  if (typeof n !== "number" || !Number.isInteger(n) || n < 0) return false;
+  if (typeof mean !== "number" || !Number.isFinite(mean)) return false;
+  if (typeof m2 !== "number" || !Number.isFinite(m2) || m2 < 0) return false;
+  return true;
+}
+
 /**
  * Walk-forward per-team beliefs over one season's threshold variables. Read a
  * match's moments before folding it in (predict-before-update). With the knob
@@ -268,16 +295,43 @@ export class RpMomentsAccumulator {
   }
 
   /**
+   * The season's population summary for the D1 seed and the live Worker's
+   * write-back, or `undefined` with the prior off (there is no summary to
+   * carry). One entry per declared threshold variable in rule-module order; a
+   * variable never folded reads as zeros, which `momentsFor` and `fold` treat
+   * exactly as a missing entry.
+   */
+  populationState(): RpPopulationState | undefined {
+    if (!this.#rpColdPrior) return undefined;
+    const variables: Record<string, RpPopulationVariableState> = {};
+    for (const name of this.variableNames) {
+      const population = this.#population.get(name);
+      variables[name] = { n: population?.n ?? 0, mean: population?.mean ?? 0, m2: population?.m2 ?? 0 };
+    }
+    return { season: this.#ruleModule.season, variables };
+  }
+
+  /**
    * Rebuilds an accumulator from `beliefsByTeam()`'s output (the live Worker's
    * resume path). Keeps only the variable names `ruleModule` declares, so a
-   * seed from another season's rules cannot carry a stale variable. The
-   * rebuilt accumulator has the knob off: the `rpColdPrior` population summary
-   * is not part of the resume path, so the knob is offline-only until a rollout
-   * adds the summary to the D1 seed and the Worker's resume path
-   * (260928-n6i-PREREG.md).
+   * seed from another season's rules cannot carry a stale variable.
+   *
+   * With a third argument the rebuilt accumulator runs the RP cold-team prior,
+   * and `population` (`populationState()`'s output, carried on the spr league
+   * row since shape 17) restores the season's population summary. The live
+   * Worker always passes it. The summary is all-or-nothing: `undefined`,
+   * another season's summary, or any malformed entry resumes an EMPTY
+   * population with the prior still on, mirroring
+   * `RpMeanShiftAccumulator.fromState`. A variable name the rule module does
+   * not declare is skipped. With no third argument the prior is off, as for
+   * the pre-9.0.0 model.
    */
-  static fromBeliefs(ruleModule: RpRuleModule, beliefs: ReadonlyMap<string, RpTeamBeliefs>): RpMomentsAccumulator {
-    const accumulator = new RpMomentsAccumulator(ruleModule);
+  static fromBeliefs(
+    ruleModule: RpRuleModule,
+    beliefs: ReadonlyMap<string, RpTeamBeliefs>,
+    coldPrior?: { readonly population: RpPopulationState | undefined }
+  ): RpMomentsAccumulator {
+    const accumulator = new RpMomentsAccumulator(ruleModule, coldPrior !== undefined ? { rpColdPrior: true } : undefined);
     const known = new Set(ruleModule.thresholdVariables.map((v) => v.name));
     for (const [teamKey, record] of beliefs) {
       const byVariable = new Map<string, VariableBelief>();
@@ -287,7 +341,24 @@ export class RpMomentsAccumulator {
       }
       if (byVariable.size > 0) accumulator.#byTeam.set(teamKey, byVariable);
     }
+    if (coldPrior !== undefined) accumulator.#restorePopulation(coldPrior.population, known);
     return accumulator;
+  }
+
+  /** All-or-nothing restore of a population summary; any defect leaves the population empty. */
+  #restorePopulation(population: RpPopulationState | undefined, known: ReadonlySet<string>): void {
+    const raw = population as unknown;
+    if (raw === null || typeof raw !== "object") return;
+    const { season, variables } = raw as { season?: unknown; variables?: unknown };
+    if (season !== this.#ruleModule.season) return;
+    if (variables === null || typeof variables !== "object" || Array.isArray(variables)) return;
+    const restored = new Map<string, PopulationSummary>();
+    for (const [name, entry] of Object.entries(variables as Record<string, unknown>)) {
+      if (!isPopulationEntry(entry)) return;
+      if (!known.has(name)) continue;
+      restored.set(name, { n: entry.n, mean: entry.mean, m2: entry.m2 });
+    }
+    for (const [name, summary] of restored) this.#population.set(name, summary);
   }
 
   /** True once this team has at least one observation of every tracked variable — the caller's cue that a prediction rests on real history. */

@@ -128,6 +128,7 @@ import {
   serializeState,
   withRpBeliefs,
   withRpMeanShift,
+  withRpPopulation,
   withSigmaBeliefs,
   withSigmaPopulation,
   type StateRow,
@@ -643,6 +644,8 @@ export function buildEventArtifact(params: BuildEventArtifactParams): EventArtif
  * - RP beliefs (team rows): without them the Worker cold-starts every RP belief.
  * - Sigma population (LEAGUE row): without it resumed beliefs fall back to the flat talent prior.
  * - RP mean shift (LEAGUE row): without it the Worker prices live matches unshifted.
+ * - RP population (LEAGUE row): without it the Worker prices a cold or thin team from an empty league
+ *   summary.
  * LEAGUE-row passengers are the easy ones to forget.
  *
  * A belief whose key has no level-1 team row is not dropped: it gets a passenger-only row. That is
@@ -666,6 +669,8 @@ function seedStateRows(algorithm: AlgorithmModule<unknown>, state: unknown, laye
   if (sigmaPopulation !== undefined) rows = withSigmaPopulation(rows, sigmaPopulation);
   const rpMeanShift = layer.rpMeanShiftState();
   if (rpMeanShift !== undefined) rows = withRpMeanShift(rows, rpMeanShift);
+  const rpPopulation = layer.rpPopulationState();
+  if (rpPopulation !== undefined) rows = withRpPopulation(rows, rpPopulation);
   return rows;
 }
 

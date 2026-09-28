@@ -19,7 +19,15 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { SigmaScoutLayer } from "./sigmaScoutLayer.js";
-import { readRpBeliefs, readRpMeanShift, withRpBeliefs, withRpMeanShift, serializeState } from "./stateSnapshot.js";
+import {
+  readRpBeliefs,
+  readRpMeanShift,
+  readRpPopulation,
+  withRpBeliefs,
+  withRpMeanShift,
+  withRpPopulation,
+  serializeState,
+} from "./stateSnapshot.js";
 import { makeRankingPointFiller } from "./publish.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
 import { spr } from "../core/algorithms/spr.js";
@@ -200,6 +208,71 @@ describe("the D1 seed carries the RP mean shift (shape 16)", () => {
     expect(source).toMatch(/emitSeedSql\(rows, /);
     expect(source).toContain("memoizedSeedStateRows(algorithm, state, layerForAlgo, stamp)");
     expect(source).toContain("finalSeasonStateRows = seasonStateRows;");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shape 17 (quick task 260928-p8i, SPR 9.0.0): the seed carries the RP cold-team
+// prior's population summary on the LEAGUE row, and the Worker resumes it with
+// the prior on, so a cold or thin team prices live exactly as offline.
+// ---------------------------------------------------------------------------
+
+describe("the D1 seed carries the RP population (shape 17)", () => {
+  const COLD = ["frc900", "frc901", "frc902"];
+  /** frc7 has exactly one folded observation: a thin team. */
+  const THIN = ["frc7", "frc900", "frc901"];
+  const MIXED = ["frc1", "frc7", "frc900"];
+
+  /** A prior-on layer: warm RED and BLUE, a thin frc7, never-seen teams everywhere else. */
+  function priorOnLayer(): SigmaScoutLayer {
+    const layer = new SigmaScoutLayer(RULES_2026, "spr", { rpColdPrior: true });
+    layer.foldPlayed(match(1, 120, 95, breakdown(140, 90, 42, 28)), prediction(118, 99));
+    layer.foldPlayed(match(2, 105, 130, breakdown(118, 165, 31, 55)), prediction(110, 125));
+    const withThin = { ...match(3, 99, 101, breakdown(77, 131, 24, 47)), redTeams: ["frc7", "frc8", "frc9"] };
+    layer.foldPlayed(withThin, prediction(97, 104));
+    return layer;
+  }
+
+  /** The chain `seedStateRows` builds, minus the Sigma passengers this test does not read. */
+  function seedRows(layer: SigmaScoutLayer): ReturnType<typeof serializeState> {
+    let rows = withRpBeliefs(serializeState("spr", spr.version, spr.initState([...ALL_TEAMS]) as never, STAMP), layer.rpVariableBeliefs());
+    rows = withRpMeanShift(rows, layer.rpMeanShiftState()!);
+    const rpPopulation = layer.rpPopulationState();
+    if (rpPopulation !== undefined) rows = withRpPopulation(rows, rpPopulation);
+    return rows;
+  }
+
+  it("the population rides the LEAGUE row only, equal to layer.rpPopulationState()", () => {
+    const layer = priorOnLayer();
+    const population = layer.rpPopulationState()!;
+    expect(population.variables.hubTotalCount!.n, "the fixture folded no population at all").toBeGreaterThan(2);
+    const rows = seedRows(layer);
+    const league = rows.find((row) => row.scopeKind === "league")!;
+    expect(JSON.parse(league.stateJson).sigmascoutRpPopulation).toEqual(population);
+    expect(rows.filter((row) => row.scopeKind === "team").every((row) => !row.stateJson.includes("sigmascoutRpPopulation"))).toBe(true);
+    expect(readRpPopulation(rows)).toEqual(population);
+  });
+
+  it("resumed through the Worker's entry point, cold, thin and warm rosters price exactly as the layer's own accumulator", () => {
+    const layer = priorOnLayer();
+    const rows = seedRows(layer);
+    const resumed = RpMomentsAccumulator.fromBeliefs(RULES_2026, readRpBeliefs(rows), { population: readRpPopulation(rows) });
+    for (const roster of [COLD, THIN, MIXED, RED, BLUE]) {
+      expect(resumed.momentsFor(roster, 130, 400), roster.join(",")).toEqual(layer.rpAccumulator!.momentsFor(roster, 130, 400));
+    }
+
+    // Non-vacuity: a resume WITHOUT the population prices the cold and thin rosters differently.
+    const withoutPopulation = RpMomentsAccumulator.fromBeliefs(RULES_2026, readRpBeliefs(rows));
+    expect(withoutPopulation.momentsFor(COLD, 130, 400)).not.toEqual(layer.rpAccumulator!.momentsFor(COLD, 130, 400));
+    expect(withoutPopulation.momentsFor(THIN, 130, 400)).not.toEqual(layer.rpAccumulator!.momentsFor(THIN, 130, 400));
+  });
+
+  it("publish.ts chains withRpPopulation into seedStateRows (structural)", () => {
+    const source = readFileSync(new URL("./publish.ts", import.meta.url), "utf8");
+    const helper = /function seedStateRows\([\s\S]*?\n}\n/.exec(source);
+    expect(helper, "expected to find publish.ts's seedStateRows helper").not.toBeNull();
+    expect(helper![0]).toContain("layer.rpPopulationState()");
+    expect(helper![0]).toContain("withRpPopulation(rows, rpPopulation)");
   });
 });
 

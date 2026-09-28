@@ -137,10 +137,12 @@ import {
   readSigmaPopulation,
   readRpBeliefs,
   readRpMeanShift,
+  readRpPopulation,
   serializeState,
   stateScopeKeys,
   withRpBeliefs,
   withRpMeanShift,
+  withRpPopulation,
   withSigmaBeliefs,
   withSigmaPopulation,
   type StateRow,
@@ -524,8 +526,13 @@ interface ResumedAlgorithmState {
  * its flat form), then the INDEXED `RP_RULE_MODULES[season]` lookup — never
  * `rpRuleModuleForSeason`, which throws, so a season with no registered rules
  * gets no accumulator rather than failing the tick — then
- * `RpMomentsAccumulator.fromBeliefs` and `RpMeanShiftAccumulator.fromState`
- * (state shape 16, off the league row; `fromState` discards another season's).
+ * `RpMomentsAccumulator.fromBeliefs` and `RpMeanShiftAccumulator.fromState`.
+ *
+ * The RP accumulator always resumes with the RP cold-team prior on, the
+ * production model since SPR 9.0.0: `fromBeliefs` gets the population summary
+ * `readRpPopulation` finds on the spr league row (state shape 17), and the mean
+ * shift comes off the same row (shape 16). Both discard another season's
+ * state, so a new season resumes an empty population and an unshifted mean.
  */
 async function resumeAlgorithmState(params: ResumeAlgorithmStateParams): Promise<ResumedAlgorithmState> {
   const { db, counter, algorithmId, algorithm, eventKey, season, stateReadTeamKeys, coldStartTeamKeys } = params;
@@ -540,7 +547,8 @@ async function resumeAlgorithmState(params: ResumeAlgorithmStateParams): Promise
   const sigma = usesSigmaScore(algorithmId) ? SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(rows), readSigmaPopulation(rows)) : undefined;
   const rpRuleModule = publishesRankingPoints(algorithmId) ? RP_RULE_MODULES[season] : undefined;
   const rpBeliefs = readRpBeliefs(rows);
-  const rp = rpRuleModule !== undefined ? RpMomentsAccumulator.fromBeliefs(rpRuleModule, rpBeliefs) : undefined;
+  const rp =
+    rpRuleModule !== undefined ? RpMomentsAccumulator.fromBeliefs(rpRuleModule, rpBeliefs, { population: readRpPopulation(rows) }) : undefined;
   const rpMeanShift = rpRuleModule !== undefined ? RpMeanShiftAccumulator.fromState(rpRuleModule, readRpMeanShift(rows)) : undefined;
 
   return { rows, state, sigma, rpRuleModule, rpBeliefs, rp, rpMeanShift };
@@ -1650,6 +1658,10 @@ async function processEvent(
         if (rp !== undefined) candidateRows = withRpBeliefs(candidateRows, rp.beliefsByTeam());
         // The mean shift rides on the LEAGUE row.
         if (rpMeanShift !== undefined) candidateRows = withRpMeanShift(candidateRows, rpMeanShift.toState());
+        // So does the RP population summary (shape 17), which `foldObservedRp`
+        // has grown with every alliance this tick folded.
+        const rpPopulation = rp?.populationState();
+        if (rpPopulation !== undefined) candidateRows = withRpPopulation(candidateRows, rpPopulation);
         if (sigma !== undefined) {
           candidateRows = withSigmaPopulation(withSigmaBeliefs(candidateRows, sigma.beliefsByTeam()), sigma.population());
         }

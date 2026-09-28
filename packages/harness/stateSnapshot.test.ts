@@ -37,7 +37,11 @@ import {
   withRpBeliefs,
   readRpMeanShift,
   withRpMeanShift,
+  readRpPopulation,
+  withRpPopulation,
 } from "./stateSnapshot.js";
+import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
+import type { SprState } from "../core/algorithms/spr.js";
 import { SeedRowTooLargeError, emitSeedSql } from "./seedSql.js";
 import { emptyEpaWeekOneState } from "../core/algorithms/epaWeekOne.js";
 
@@ -421,10 +425,10 @@ describe("deserializeState — league row shape version", () => {
     expect(() => deserializeState("opr", rows)).not.toThrow();
   });
 
-  it("STATE_SNAPSHOT_SHAPE_VERSION is 16, and a league row declaring ANY earlier shape throws (shape 16 added the spr league row's ranking-point mean shift)", () => {
+  it("STATE_SNAPSHOT_SHAPE_VERSION is 17, and a league row declaring ANY earlier shape throws (shape 17 added the spr league row's RP population summary)", () => {
     // Pinned by literal value. Stale shapes fail silently otherwise (a valid pmf,
     // a legal zero rate), so this is the only guard against live/offline drift.
-    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(16);
+    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(17);
 
     // Derived from the current version, so a bump cannot leave the newest stale shape untested.
     const staleVersions = Array.from({ length: STATE_SNAPSHOT_SHAPE_VERSION - 3 }, (_, i) => i + 3);
@@ -1312,7 +1316,7 @@ describe("the ranking-point mean-shift league passenger", () => {
     expect(readRpMeanShift(bad({ ...SHIFT.variables, totalTowerPoints: { count: 3, sum: null } }))).toBeUndefined();
   });
 
-  it("shape 16 is the guard: a shape-15 league row throws with or without the passenger, and a current row carrying it deserializes (seed first, deploy second)", () => {
+  it("a shape-15 league row throws with or without the passenger, and a current row carrying it deserializes (seed first, deploy second)", () => {
     const current = withRpMeanShift(rows(), SHIFT);
     expect(() => deserializeState("spr", current)).not.toThrow();
     const stale = (withPassenger: boolean) =>
@@ -1328,6 +1332,135 @@ describe("the ranking-point mean-shift league passenger", () => {
     const all = withRpMeanShift(withSigmaPopulation(rows(), population), SHIFT);
     expect(readSigmaPopulation(all)).toEqual(population);
     expect(readRpMeanShift(all)).toEqual(SHIFT);
+  });
+});
+
+describe("the RP population league passenger (shape 17)", () => {
+  const POPULATION = {
+    season: 2026,
+    variables: { hubTotalCount: { n: 412, mean: 61.25, m2: 90210.5 }, totalTowerPoints: { n: 0, mean: 0, m2: 0 } },
+  };
+
+  function rows(): StateRow[] {
+    return serializeState("spr", spr.version, spr.initState(["frc1", "frc2"]) as any, STAMP);
+  }
+
+  function withRawLeaguePassenger(value: unknown): StateRow[] {
+    return rows().map((row) =>
+      row.scopeKind === "league" ? { ...row, stateJson: JSON.stringify({ ...JSON.parse(row.stateJson), sigmascoutRpPopulation: value }) } : row
+    );
+  }
+
+  it("round-trips through withRpPopulation and readRpPopulation, including a variable with n 0", () => {
+    expect(readRpPopulation(withRpPopulation(rows(), POPULATION))).toEqual(POPULATION);
+  });
+
+  it("writes only the league row and returns new rows without mutating the input", () => {
+    const input = rows();
+    const before = input.map((r) => r.stateJson);
+    const out = withRpPopulation(input, POPULATION);
+    expect(out).not.toBe(input);
+    expect(input.map((r) => r.stateJson)).toEqual(before);
+    for (let i = 0; i < input.length; i++) {
+      if (input[i]!.scopeKind === "league") {
+        expect(out[i]!.stateJson).toContain("sigmascoutRpPopulation");
+      } else {
+        expect(out[i]).toBe(input[i]);
+      }
+    }
+  });
+
+  it("reads undefined when absent, and ignores a passenger smuggled onto a team row", () => {
+    expect(readRpPopulation(rows())).toBeUndefined();
+    const teamOnly = rows().map((row) =>
+      row.scopeKind === "team" ? { ...row, stateJson: JSON.stringify({ ...JSON.parse(row.stateJson), sigmascoutRpPopulation: POPULATION }) } : row
+    );
+    expect(teamOnly.some((r) => r.scopeKind === "team")).toBe(true);
+    expect(readRpPopulation(teamOnly)).toBeUndefined();
+  });
+
+  it("is all-or-nothing: every malformed field reads as undefined", () => {
+    const good = POPULATION.variables.hubTotalCount;
+    const bad = (variables: unknown, season: unknown = 2026) => withRawLeaguePassenger({ season, variables });
+    const defects: unknown[] = [
+      { ...good, n: 1.5 },
+      { ...good, n: -1 },
+      { ...good, n: "3" },
+      { ...good, n: null },
+      { ...good, mean: "61" },
+      { ...good, mean: null },
+      { ...good, m2: -0.25 },
+      { ...good, m2: null },
+      { n: good.n, mean: good.mean },
+      null,
+      7,
+      [good.n, good.mean, good.m2],
+    ];
+    for (const defect of defects) {
+      expect(readRpPopulation(bad({ ...POPULATION.variables, totalTowerPoints: defect })), JSON.stringify(defect)).toBeUndefined();
+    }
+    expect(readRpPopulation(bad(POPULATION.variables, "2026"))).toBeUndefined();
+    expect(readRpPopulation(bad(POPULATION.variables, 2026.5))).toBeUndefined();
+    expect(readRpPopulation(withRawLeaguePassenger({ variables: POPULATION.variables }))).toBeUndefined();
+    expect(readRpPopulation(withRawLeaguePassenger({ season: 2026 }))).toBeUndefined();
+    expect(readRpPopulation(bad(null))).toBeUndefined();
+    expect(readRpPopulation(bad([good]))).toBeUndefined();
+    expect(readRpPopulation(withRawLeaguePassenger(null))).toBeUndefined();
+    expect(readRpPopulation(withRawLeaguePassenger("population"))).toBeUndefined();
+  });
+
+  it("a shape-16 league row throws with or without the passenger, and a current row carrying it deserializes", () => {
+    const current = withRpPopulation(rows(), POPULATION);
+    expect(() => deserializeState("spr", current)).not.toThrow();
+    const stale = (withPassenger: boolean) =>
+      (withPassenger ? current : rows()).map((row) =>
+        row.scopeKind === "league" ? { ...row, stateJson: JSON.stringify({ ...JSON.parse(row.stateJson), snapshotShapeVersion: 16 }) } : row
+      );
+    expect(() => deserializeState("spr", stale(false))).toThrow(LeagueRowShapeVersionError);
+    expect(() => deserializeState("spr", stale(true))).toThrow(LeagueRowShapeVersionError);
+  });
+
+  it("coexists with the Sigma population and the mean shift on the same league row", () => {
+    const sigma = { sumSquares: 12.5, talentSquares: 99.25, count: 40 };
+    const shift = { season: 2026, variables: { hubTotalCount: { count: 212, sum: 403.25 }, totalTowerPoints: { count: 0, sum: 0 } } };
+    const all = withRpPopulation(withRpMeanShift(withSigmaPopulation(rows(), sigma), shift), POPULATION);
+    expect(readSigmaPopulation(all)).toEqual(sigma);
+    expect(readRpMeanShift(all)).toEqual(shift);
+    expect(readRpPopulation(all)).toEqual(POPULATION);
+  });
+
+  it("a worst-case spr league row (realistic SprState, every league passenger, the widest rule module, full-precision doubles) fits MAX_LEAGUE_ROW_BYTES", () => {
+    seedFixtureSeason(db);
+    const allMatches = buildSeasonStream(db, 2024);
+    const allTeams = [...new Set(allMatches.flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
+    const sprState = new WalkForwardSimulator(allMatches).runAll([spr], allTeams).finalStates.get(spr.id) as SprState;
+
+    const widest = Object.values(RP_RULE_MODULES).reduce((a, b) => (b!.thresholdVariables.length > a!.thresholdVariables.length ? b : a))!;
+    // Every double printed at 17 significant digits, every count at 10,000,000.
+    const FULL_MEAN = -1234.5678901234567;
+    const FULL_M2 = 123456789012.34567;
+    const population = {
+      season: widest.season,
+      variables: Object.fromEntries(widest.thresholdVariables.map((v) => [v.name, { n: 10_000_000, mean: FULL_MEAN, m2: FULL_M2 }])),
+    };
+    const shift = {
+      season: widest.season,
+      variables: Object.fromEntries(widest.thresholdVariables.map((v) => [v.name, { count: 10_000_000, sum: FULL_MEAN }])),
+    };
+    const sigma = { sumSquares: FULL_M2, talentSquares: FULL_M2, count: 10_000_000 };
+
+    const rowsOut = withRpPopulation(
+      withRpMeanShift(withSigmaPopulation(serializeState("spr", spr.version, sprState, STAMP), sigma), shift),
+      population
+    );
+    const league = leagueRowOf(rowsOut);
+    expect(readRpPopulation(rowsOut)).toEqual(population);
+    const bytes = Buffer.byteLength(league.stateJson);
+    // Quoted in the 260928-p8i SUMMARY.
+    console.log(
+      `worst-case spr league row: ${bytes} bytes of ${MAX_LEAGUE_ROW_BYTES} (${widest.thresholdVariables.length} threshold variables, season ${widest.season})`
+    );
+    expect(bytes).toBeLessThanOrEqual(MAX_LEAGUE_ROW_BYTES);
   });
 });
 

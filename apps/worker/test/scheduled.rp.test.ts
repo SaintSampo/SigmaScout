@@ -32,6 +32,7 @@ import {
   serializeState,
   withRpBeliefs,
   withRpMeanShift,
+  withRpPopulation,
   withSigmaBeliefs,
   withSigmaPopulation,
   type StateRow,
@@ -520,7 +521,8 @@ interface OfflineRow {
 /** Drives the REAL `SigmaScoutLayer` over the whole chronological stream and returns the LIVE event's RP rows. */
 function offlineRpRows(algorithmId: string): OfflineRow[] {
   const module = buildOfflineModule(algorithmId);
-  const layer = new SigmaScoutLayer(RULES_2026, algorithmId);
+  // Explicit: the Worker resumes the RP cold-team prior on (SPR 9.0.0), so the offline arm must too.
+  const layer = new SigmaScoutLayer(RULES_2026, algorithmId, { rpColdPrior: true });
   let state: unknown = module.initState([...ALL_TEAMS]);
   const rows: OfflineRow[] = [];
 
@@ -939,8 +941,8 @@ interface MsOffline {
  * `analyticRpPmf`, which proves the shift actually moves the live rows.
  */
 function msOffline(): MsOffline {
-  const layer = new SigmaScoutLayer(RULES_2026, "spr");
-  const reference = new RpMomentsAccumulator(RULES_2026);
+  const layer = new SigmaScoutLayer(RULES_2026, "spr", { rpColdPrior: true });
+  const reference = new RpMomentsAccumulator(RULES_2026, { rpColdPrior: true });
   const referenceSigma = new SigmaScoreAccumulator();
   let state = spr.initState([...ALL_TEAMS]);
   const out: MsOffline = { shifted: [], unshifted: [], priorShifted: [], priorUnshifted: [], stateBeforeLive: undefined };
@@ -1173,9 +1175,9 @@ describe("scheduled.rp — the mean shift survives the live Worker (shape 16)", 
       const league = d1.algorithmState.get("spr::league::league");
       expect(league, "the Worker wrote no spr league row").toBeDefined();
       const json = JSON.parse(league!.state_json) as { snapshotShapeVersion: number; sigmascoutRpMeanShift?: unknown };
-      expect(json.snapshotShapeVersion).toBe(16);
+      expect(json.snapshotShapeVersion).toBe(17);
 
-      const layer = new SigmaScoutLayer(RULES_2026, "spr");
+      const layer = new SigmaScoutLayer(RULES_2026, "spr", { rpColdPrior: true });
       let state = spr.initState([...ALL_TEAMS]);
       for (const f of [...MS_PRIOR_FIXTURES, ...MS_LIVE_FIXTURES.slice(0, MS_LIVE_PLAYED)]) {
         const result = toMatchResult(f);
@@ -1272,7 +1274,7 @@ interface SbOffline {
 
 /** The offline arm after the prior event and live matches 1..k, driven as `msOffline` drives the real `SigmaScoutLayer`. */
 function sbOfflineAt(k: number): SbOffline {
-  const layer = new SigmaScoutLayer(RULES_2026, "spr");
+  const layer = new SigmaScoutLayer(RULES_2026, "spr", { rpColdPrior: true });
   let state = spr.initState([...SB_TEAMS]);
   for (const f of [...SB_PRIOR_FIXTURES, ...SB_LIVE_FIXTURES.slice(0, k)]) {
     const result = toMatchResult(f);
@@ -1293,6 +1295,8 @@ function sbOfflineAt(k: number): SbOffline {
   if (sigmaPopulation !== undefined) rows = withSigmaPopulation(rows, sigmaPopulation);
   const rpMeanShift = layer.rpMeanShiftState();
   if (rpMeanShift !== undefined) rows = withRpMeanShift(rows, rpMeanShift);
+  const rpPopulation = layer.rpPopulationState();
+  if (rpPopulation !== undefined) rows = withRpPopulation(rows, rpPopulation);
 
   const upcoming = SB_LIVE_FIXTURES.slice(k).map((f) => {
     const view = toUpcomingMatchView(f);
@@ -1660,6 +1664,210 @@ describe("scheduled.rp — a published state block is dropped, and eventType", (
       } finally {
         quiet.mockRestore();
       }
+    },
+    120_000
+  );
+});
+
+// ---------------------------------------------------------------------------
+// The RP population, live (shape 17, quick task 260928-p8i, SPR 9.0.0).
+//
+// The RP cold-team prior prices a team with no belief from the season's
+// population summary and a one-observation (thin) team with the population's
+// variance. The Worker has to resume that summary off the spr league row, grow
+// it with every alliance it folds, and write it back, or a thin team prices
+// differently live and offline. Nothing is hand-seeded: the Worker folds the
+// prior event itself. frc7 and frc8 each play exactly one prior match, so both
+// are thin when the live event starts; frc7 plays a live PLAYED match (priced
+// thin, before its fold) and upcoming matches, and frc8 plays only upcoming
+// matches, so an upcoming row is priced thin too. Every live team played the
+// prior event: there is no debut team, whose first played row the Worker's
+// partial-roster gate withholds by design.
+// ---------------------------------------------------------------------------
+
+const PP_PRIOR_EVENT_KEY = "2026ppprior";
+const PP_LIVE_EVENT_KEY = "2026pplive";
+const PP_TEAMS: readonly string[] = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6", "frc7", "frc8"];
+const PP_PRIOR_WARM_MATCHES = 24;
+
+const PP_PRIOR_FIXTURES: readonly MatchFixture[] = [
+  ...Array.from({ length: PP_PRIOR_WARM_MATCHES }, (_, i) => msFixture(PP_PRIOR_EVENT_KEY, i + 1, i)),
+  // The one prior match frc7 and frc8 play: each leaves with exactly one observation.
+  { ...msFixture(PP_PRIOR_EVENT_KEY, PP_PRIOR_WARM_MATCHES + 1, PP_PRIOR_WARM_MATCHES), redTeams: ["frc7", "frc1", "frc2"], blueTeams: ["frc8", "frc3", "frc4"] },
+];
+
+const PP_LIVE_ROSTERS: readonly [readonly string[], readonly string[]][] = [
+  [["frc1", "frc2", "frc3"], ["frc4", "frc5", "frc6"]],
+  // frc7's first live match, priced from its one prior observation.
+  [["frc7", "frc5", "frc6"], ["frc1", "frc2", "frc4"]],
+  [["frc3", "frc4", "frc5"], ["frc6", "frc1", "frc2"]],
+  // Upcoming: frc8 is still thin, frc7 plays again.
+  [["frc8", "frc1", "frc3"], ["frc7", "frc2", "frc4"]],
+  [["frc5", "frc6", "frc8"], ["frc1", "frc3", "frc7"]],
+];
+const PP_LIVE_PLAYED = 3;
+
+const PP_LIVE_FIXTURES: readonly MatchFixture[] = PP_LIVE_ROSTERS.map(([red, blue], i) => ({
+  ...msFixture(PP_LIVE_EVENT_KEY, i + 1, PP_PRIOR_WARM_MATCHES + 1 + i),
+  redTeams: red,
+  blueTeams: blue,
+}));
+
+interface PpOffline {
+  /** Live played rows, then the live upcoming rows as of after the last played match. */
+  readonly rows: MsRow[];
+  readonly population: ReturnType<SigmaScoutLayer["rpPopulationState"]>;
+}
+
+/** The offline arm: the real `SigmaScoutLayer` over the prior event and the live played matches, with the prior as given. */
+function ppOffline(rpColdPrior: boolean): PpOffline {
+  const layer = new SigmaScoutLayer(RULES_2026, "spr", { rpColdPrior });
+  let state = spr.initState([...PP_TEAMS]);
+  const rows: MsRow[] = [];
+  for (const f of [...PP_PRIOR_FIXTURES, ...PP_LIVE_FIXTURES.slice(0, PP_LIVE_PLAYED)]) {
+    const result = toMatchResult(f);
+    const prediction = spr.predict(state, toLeakProofUpcoming(result));
+    state = spr.update(state, result);
+    const roster = [...result.redTeams, ...result.blueTeams];
+    const metrics = spr.teamMetrics(state, roster);
+    const talent = new Map<string, number>();
+    for (const teamKey of roster) {
+      const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
+      if (total !== undefined) talent.set(teamKey, total);
+    }
+    const enriched = layer.foldPlayed(result, prediction, talent);
+    if (f.eventKey === PP_LIVE_EVENT_KEY) rows.push(msRowOf(result.matchKey, enriched.prediction));
+  }
+  for (const f of PP_LIVE_FIXTURES.slice(PP_LIVE_PLAYED)) {
+    const view = toUpcomingMatchView(f);
+    rows.push(msRowOf(view.matchKey, layer.enrichUpcoming(view, spr.predict(state, view)).prediction));
+  }
+  return { rows, population: layer.rpPopulationState() };
+}
+
+describe("scheduled.rp — the RP population survives the live Worker (shape 17)", () => {
+  let ppRevealedPrior = 0;
+  let ppRevealedLive = 0;
+
+  afterEach(() => {
+    ppRevealedPrior = 0;
+    ppRevealedLive = 0;
+  });
+
+  function ppTbaStub(): ReturnType<typeof vi.fn> {
+    return vi.fn(async (url: unknown) => {
+      const u = String(url);
+      const matchesRoute = /\/event\/([^/]+)\/matches$/.exec(u);
+      if (matchesRoute) {
+        const eventKey = matchesRoute[1]!;
+        const body =
+          eventKey === PP_PRIOR_EVENT_KEY
+            ? PP_PRIOR_FIXTURES.slice(0, ppRevealedPrior).map(toTbaMatch)
+            : [...PP_LIVE_FIXTURES.slice(0, ppRevealedLive).map(toTbaMatch), ...PP_LIVE_FIXTURES.slice(ppRevealedLive).map(toUpcomingTbaMatch)];
+        const revealed = eventKey === PP_PRIOR_EVENT_KEY ? ppRevealedPrior : ppRevealedLive;
+        return {
+          status: 200,
+          ok: true,
+          headers: { get: (name: string) => (name === "etag" ? `etag-${eventKey}-${revealed}` : null) },
+          json: async () => body,
+        };
+      }
+      const detailRoute = /\/event\/([^/]+)$/.exec(u);
+      if (detailRoute) {
+        return {
+          status: 200,
+          ok: true,
+          headers: { get: () => null },
+          json: async () => ({ key: detailRoute[1]!, name: "Test Event", year: SEASON, event_type: EVENT_TYPE, start_date: "2026-08-01" }),
+        };
+      }
+      if (/\/event\/[^/]+\/teams\/simple$/.test(u)) {
+        return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
+      }
+      throw new Error(`unexpected TBA fetch URL in test stub: ${u}`);
+    });
+  }
+
+  /** The prior event in one tick, then the live event one played match per tick. */
+  async function drivePopulationFixture(): Promise<{ r2: FakeR2Bucket; d1: FakeD1Database }> {
+    const windows = [PP_PRIOR_EVENT_KEY, PP_LIVE_EVENT_KEY].map((eventKey) => ({
+      eventKey,
+      season: SEASON,
+      startMs: NOW_MS - 3_600_000,
+      endMs: NOW_MS + 3_600_000,
+      inferred: false,
+    }));
+    const manifests = new Map([
+      [LIVE_WINDOWS_MANIFEST_KEY, JSON.stringify({ schemaVersion: 1, generation: "gen-1", computedAt: "2026-08-22T00:00:00.000Z", windows })],
+      [ALGORITHMS_MANIFEST_KEY, algorithmsManifestJson()],
+    ]);
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    vi.stubGlobal("fetch", ppTbaStub());
+    const env = { ...makeEnv(manifests, d1, r2), LIVE_ALGORITHM_IDS: "spr" } as Env;
+    const tick = (i: number) => runTick(env, { nowMs: NOW_MS + i * 60_000 });
+
+    ppRevealedPrior = PP_PRIOR_FIXTURES.length;
+    expect((await tick(0)).eventsFailed).toBe(0);
+    for (let i = 0; i < PP_LIVE_PLAYED; i++) {
+      ppRevealedLive = i + 1;
+      expect((await tick(1 + i)).eventsFailed).toBe(0);
+    }
+    return { r2, d1 };
+  }
+
+  async function ppPublishedRows(r2: FakeR2Bucket): Promise<MsRow[]> {
+    const key = artifactKey({ page: "event", eventKey: PP_LIVE_EVENT_KEY, algorithmId: "spr", version: spr.version });
+    const object = await r2.get(key);
+    expect(object, `no published event artifact at ${key}`).not.toBeNull();
+    const artifact = JSON.parse(await object!.text()) as {
+      matches: (PublishedMatchRow & { matchKey: string })[];
+      upcoming: (PublishedMatchRow & { matchKey: string })[];
+    };
+    const byKey = new Map([...artifact.matches, ...artifact.upcoming].map((m) => [m.matchKey, m]));
+    return PP_LIVE_FIXTURES.map((f) => {
+      const row = byKey.get(matchKeyOf(f));
+      expect(row, `live artifact is missing ${matchKeyOf(f)}`).toBeDefined();
+      return { matchKey: row!.matchKey, red: row!.redRpPmf, blue: row!.blueRpPmf, redBonus: row!.redBonusRpPmf, blueBonus: row!.blueBonusRpPmf };
+    });
+  }
+
+  it(
+    "live played AND upcoming RP rows equal an offline prior-on SigmaScoutLayer replay, thin teams included; prior off digests differently",
+    async () => {
+      const { r2 } = await drivePopulationFixture();
+      const online = await ppPublishedRows(r2);
+      const on = ppOffline(true);
+      const off = ppOffline(false);
+
+      // Non-vacuity: every live row, played and upcoming, carries a pmf on both arms.
+      expect(online.every((r) => r.red !== undefined && r.blue !== undefined), "a live row carried no pmf").toBe(true);
+      expect(on.rows.every((r) => r.red !== undefined && r.blue !== undefined), "an offline row carried no pmf").toBe(true);
+
+      expect(
+        msDigest(online),
+        "the live Worker's RP rows diverged from the offline prior-on layer's — check the league-row population resume and write-back"
+      ).toBe(msDigest(on.rows));
+      // The prior really moves these rows: the thin frc7 played row and the thin frc8 upcoming rows.
+      expect(msDigest(on.rows)).not.toBe(msDigest(off.rows));
+      const thinPlayed = PP_LIVE_ROSTERS.findIndex(([red]) => red.includes("frc7"));
+      expect(JSON.stringify(on.rows[thinPlayed])).not.toBe(JSON.stringify(off.rows[thinPlayed]));
+      expect(JSON.stringify(on.rows[PP_LIVE_PLAYED])).not.toBe(JSON.stringify(off.rows[PP_LIVE_PLAYED]));
+    },
+    120_000
+  );
+
+  it(
+    "after the last tick the D1 spr league row carries the offline layer's population summary",
+    async () => {
+      const { d1 } = await drivePopulationFixture();
+      const league = d1.algorithmState.get("spr::league::league");
+      expect(league, "the Worker wrote no spr league row").toBeDefined();
+      const json = JSON.parse(league!.state_json) as { snapshotShapeVersion: number; sigmascoutRpPopulation?: unknown };
+      expect(json.snapshotShapeVersion).toBe(17);
+      const expected = ppOffline(true).population;
+      expect(expected, "the offline prior-on layer exposes no population").toBeDefined();
+      expect(json.sigmascoutRpPopulation).toEqual(expected);
     },
     120_000
   );

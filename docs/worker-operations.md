@@ -323,6 +323,31 @@ just before `foldObservedRp`, and writes it back beside `withRpBeliefs`. That mi
   that the live rows equal the offline layer's. It was seen failing with the write-back removed,
   and again with the Worker's `apply` removed.
 
+**Shape 17, 2026-09-28 (quick task `260928-p8i`, SPR 9.0.0).** The spr league row gains
+`sigmascoutRpPopulation`: the RP cold-team prior's population summary, a count, a mean and a sum of
+squared deviations per threshold variable, tagged with its season. The Worker always resumes the
+RP accumulator with the prior on (`readRpPopulation` → `RpMomentsAccumulator.fromBeliefs` with
+`{ population }`), grows the summary with every alliance `foldObservedRp` folds, and writes it back
+beside `withRpMeanShift`, at zero extra subrequests. Another season's summary, or a malformed one,
+resumes as an empty population.
+
+- **Order hazard.** Every Worker deserializes all three algorithms' league rows, and
+  `deserializeState` refuses any shape but the current one. Between a shape-17 Worker deploy and the
+  shape-17 seed, every fold attempt fails with `LeagueRowShapeVersionError`; the reverse order fails
+  the old Worker the same way against the new rows. The state-generation-mismatch guard only covers
+  the stretch after the publish flips the manifest, not this one. Keep the window short, and check
+  the live windows manifest before starting: with nothing real live, the gap costs nothing.
+- **Why the bump is load-bearing.** A shape-16 row has no population. Without the bump the Worker
+  would resume an empty population and price cold and thin teams differently from the artifacts it
+  serves, with no error anywhere.
+- **Proof.** `apps/worker/test/scheduled.rp.test.ts`'s population block folds a generated prior
+  event through the real Worker, with two teams left thin (one observation each), then a live event
+  one played match per tick; the live played and upcoming rows equal an offline prior-on
+  `SigmaScoutLayer` replay and differ from a prior-off one, and the D1 league row ends holding the
+  offline layer's summary. It was seen failing with the write-back removed. The Worker's
+  played-row partial-roster gate (`rpKnownTeams`) is unchanged, so a team making its season debut
+  still gets no played-row pmf live on its first match.
+
 **The D1 write cap — historical.** Roughly **four seed passes used to exhaust D1's 100,000 daily
 row-write cap** on the free plan (hit once, 2026-09-10), which was decidedly not benign during an
 event, since exhausting it would have rejected the tick's own state writes too. D1 is 50M row
