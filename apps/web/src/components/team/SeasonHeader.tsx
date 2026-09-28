@@ -3,7 +3,7 @@ import { MetricValue } from "@/components/MetricValue";
 import { TotalSigmaValue } from "@/components/TotalSigmaValue";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { METRIC_GROUPS, withDerivedGroupMetrics } from "@/lib/metricGroups";
-import { tierForPercentile } from "@/lib/tiers";
+import { resolveMetricTier, tierForPercentile } from "@/lib/tiers";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
@@ -75,10 +75,17 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   const resolvedSeasonStats = artifact.seasonStats;
   const { record } = resolvedSeasonStats;
   // Tiles read the last-official-match snapshot when the route could derive
-  // one; season-final otherwise. Each snapshot metric carries its own
-  // published percentile, ranked against the one season ranking pool (every
-  // team's last official match) that the Teams list and seasonStats use, so
-  // a tile and the Teams list cannot disagree about a tier.
+  // one; season-final otherwise. Each snapshot metric normally carries its
+  // own published percentile, ranked against the one season ranking pool
+  // (every team's last official match) that the Teams list and seasonStats
+  // use, so a tile and the Teams list cannot disagree about a tier. A
+  // live-folded row (the tick's own write, mid-event) carries a value with
+  // no percentile instead — `resolveMetricTier` below falls back to
+  // `artifact.tierCuts` for that case. `HISTORY_PERCENTILE_METRIC_KEYS`
+  // (`packages/harness/percentiles.ts`) is exactly this header's tile keys
+  // (`METRIC_GROUPS` plus Total), ranked against the SAME `rankingPools` the
+  // cuts are built from, so a cut-derived tier here reproduces the tier the
+  // publisher would stamp on that displayed value exactly — never a guess.
   const resolvedMetrics = metricsOverride ?? resolvedSeasonStats.metrics;
   // Widened with any derivable group entries this algorithm/season supports,
   // before the tiles read it — a no-op once the pipeline already publishes an
@@ -125,6 +132,11 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   // when this algorithm/team carries none, so the label never over-promises.
   const totalLabel = seasonSigmaScore !== undefined ? "Total ± Sigma" : metricLabel(TOTAL_KEY);
   const totalMetric = metrics[TOTAL_KEY];
+  // Total is never a derived entry (`withDerivedGroupMetrics` only adds
+  // group keys, never Total itself), so it needs no derived guard before
+  // reading `artifact.tierCuts` — see Finding 1/2 in the quick task's
+  // PLAN.md context for why that guard exists for the phase tiles instead.
+  const totalTier = resolveMetricTier(totalMetric, TOTAL_KEY, artifact.tierCuts);
   const tbaUrl = `https://www.thebluealliance.com/team/${teamNumber}`;
 
   return (
@@ -236,7 +248,7 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
               <span className="text-role-label text-[var(--color-text-muted)]">{totalLabel}</span>
               <TotalSigmaValue
                 total={totalMetric}
-                totalTier={tierForPercentile(totalMetric?.percentile)}
+                totalTier={totalTier}
                 sigma={seasonSigmaScore !== undefined ? { value: seasonSigmaScore, tier: seasonSigmaTier } : undefined}
               />
             </div>

@@ -370,4 +370,35 @@ describe("/team/$teamNumber route — one artifact, no overlay (260923-3w7)", ()
     // tier box and not the whole tile.
     expect(snapshot.textContent).toContain("61.40");
   });
+
+  it("260927-uen: the header's Total tile tiers from the team artifact's own tierCuts on a live-folded artifact", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    renderWithArtifact(() => artifactWithLiveFoldedRow(true));
+
+    await waitFor(() => expect(screen.getByTestId("season-header-metric-grid")).toBeDefined());
+    // This fixture's events/{year} fetch returns a team-shaped body, which
+    // EventsArtifactSchema rejects — eventsQuery never resolves, so
+    // metricsOverride stays undefined and the header renders season-final
+    // (confirmed by the as-of label below), not the live-folded history row.
+    // seasonStats.total is 48.33, which sits in [31.17, 52.4) on this
+    // fixture's cuts: rare.
+    expect(screen.getByTestId("season-header-as-of").textContent).toContain("Season-final");
+    const grid = screen.getByTestId("season-header-metric-grid");
+    expect(grid.querySelector(".metric-tier--rare")).not.toBeNull();
+    expect(grid.textContent).toContain("48.33");
+  });
+
+  it("260927-uen: the same live-folded artifact WITHOUT tierCuts renders the header's grid with no tier element", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+    renderWithArtifact(() => artifactWithLiveFoldedRow(false));
+
+    await waitFor(() => expect(screen.getByTestId("season-header-metric-grid")).toBeDefined());
+    const grid = screen.getByTestId("season-header-metric-grid");
+    expect(grid.querySelector('[class*="metric-tier"]')).toBeNull();
+    // Non-vacuity: the value itself still rendered, so what is missing is
+    // the tier box and not the whole tile.
+    expect(grid.textContent).toContain("48.33");
+  });
 });
