@@ -5,7 +5,7 @@
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { diffSlices, slicesOf, type CapturedSlice } from "./captureCompareSlices.js";
+import { captureSwitches, diffSlices, slicesOf, type CapturedSlice } from "./captureCompareSlices.js";
 
 function slice(algorithmId: string, season: number, scoredCount: number, winnerAccuracy: number, brierScore: number, compLevelView = "qualification"): CapturedSlice {
   return { algorithmId, season, compLevelView, headlineEligible: true, brierScore, winnerAccuracy, scoredCount, candidateCount: scoredCount, exclusionCounts: {} };
@@ -46,5 +46,18 @@ describe("safety", () => {
     expect(source).not.toMatch(/r2Client|@aws-sdk|aws4fetch|process\.env|\bfetch\(/);
     expect(source).toMatch(/dryRun: true/);
     expect(source).toMatch(/skipState: true/);
+  });
+});
+
+describe("captureSwitches", () => {
+  it("passes no key at all with both switches off, so the default capture is what it always was", () => {
+    expect(captureSwitches({ sigmaCarry: false, rpColdPrior: false })).toStrictEqual({});
+    expect(Object.keys(captureSwitches({ sigmaCarry: false, rpColdPrior: false }))).toEqual([]);
+  });
+
+  it("each switch alone sets only its own key, and both together set both", () => {
+    expect(captureSwitches({ sigmaCarry: true, rpColdPrior: false })).toStrictEqual({ sigmaCarry: true });
+    expect(captureSwitches({ sigmaCarry: false, rpColdPrior: true })).toStrictEqual({ rpColdPrior: true });
+    expect(captureSwitches({ sigmaCarry: true, rpColdPrior: true })).toStrictEqual({ sigmaCarry: true, rpColdPrior: true });
   });
 });

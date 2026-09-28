@@ -15,9 +15,11 @@ import {
   climatologyBonusProbability,
   climatologyRpPmf,
   EMPTY_RP_FIGURES,
+  judgeRpPriorBar,
   judgeSigmaCarryBar,
   measureSigmaCarry,
   NOMINAL_1SIGMA_COVERAGE,
+  poolColdSplit,
   poolRpFigures,
   poolSeasons,
   rpFiguresOf,
@@ -185,5 +187,126 @@ describe("measureSigmaCarry on the committed 2022 slice", () => {
     expect(s.played.candidate.totalRpRps).not.toBe(s.played.incumbent.totalRpRps);
     const verdict = judgeSigmaCarryBar(poolSeasons(seasons));
     expect(verdict.gates.map((g) => g.gate)).toEqual(["G2", "G3", "G4-cover", "G4a", "G4b"]);
+  });
+});
+
+// ──────── bar R and the retry (260928-n6i-PREREG.md) ─────────────────────
+
+describe("judgeRpPriorBar — bar R's mechanical verdict", () => {
+  const pooledOf = (played: { incumbent: RpFigures; candidate: RpFigures }, matched: { incumbent: RpFigures; candidate: RpFigures }) => ({
+    ...passing(),
+    played,
+    matched,
+  });
+
+  it("PASS when R1 improves both metrics strictly and R2 is not worse on either, in the order R1, R2", () => {
+    const verdict = judgeRpPriorBar(
+      pooledOf({ incumbent: figures(0.2, 0.1), candidate: figures(0.19, 0.09) }, { incumbent: figures(0.2, 0.1), candidate: figures(0.2, 0.1) })
+    );
+    expect(verdict.gates.map((g) => `${g.gate}:${g.status}`)).toEqual(["R1:PASS", "R2:PASS"]);
+    expect(verdict.overall).toBe("PASS");
+  });
+
+  it("R1 is strict on both metrics: a tie on either FAILS it", () => {
+    const tiedBonus = judgeRpPriorBar(
+      pooledOf({ incumbent: figures(0.2, 0.1), candidate: figures(0.2, 0.09) }, { incumbent: figures(0.2, 0.1), candidate: figures(0.19, 0.09) })
+    );
+    expect(tiedBonus.gates.find((g) => g.gate === "R1")!.status).toBe("FAIL");
+    expect(tiedBonus.overall).toBe("FAIL");
+    const tiedRps = judgeRpPriorBar(
+      pooledOf({ incumbent: figures(0.2, 0.1), candidate: figures(0.19, 0.1) }, { incumbent: figures(0.2, 0.1), candidate: figures(0.19, 0.09) })
+    );
+    expect(tiedRps.gates.find((g) => g.gate === "R1")!.status).toBe("FAIL");
+    const worse = judgeRpPriorBar(
+      pooledOf({ incumbent: figures(0.2, 0.1), candidate: figures(0.21, 0.09) }, { incumbent: figures(0.2, 0.1), candidate: figures(0.19, 0.09) })
+    );
+    expect(worse.gates.find((g) => g.gate === "R1")!.status).toBe("FAIL");
+  });
+
+  it("R2 is not-worse: ties pass, either metric worse fails", () => {
+    const strictPlayed = { incumbent: figures(0.2, 0.1), candidate: figures(0.19, 0.09) };
+    expect(judgeRpPriorBar(pooledOf(strictPlayed, { incumbent: figures(0.2, 0.1), candidate: figures(0.2, 0.1) })).gates.find((g) => g.gate === "R2")!.status).toBe("PASS");
+    expect(
+      judgeRpPriorBar(pooledOf(strictPlayed, { incumbent: figures(0.2, 0.1), candidate: figures(0.2001, 0.09) })).gates.find((g) => g.gate === "R2")!.status
+    ).toBe("FAIL");
+    expect(
+      judgeRpPriorBar(pooledOf(strictPlayed, { incumbent: figures(0.2, 0.1), candidate: figures(0.19, 0.1001) })).gates.find((g) => g.gate === "R2")!.status
+    ).toBe("FAIL");
+  });
+
+  it("VOID on an observation-count mismatch or an empty set; FAIL outranks VOID overall", () => {
+    const mismatched = judgeRpPriorBar(
+      pooledOf({ incumbent: figures(0.2, 0.1, 100), candidate: figures(0.1, 0.05, 99) }, { incumbent: figures(0.2, 0.1), candidate: figures(0.2, 0.1) })
+    );
+    expect(mismatched.gates.find((g) => g.gate === "R1")!.status).toBe("VOID");
+    expect(mismatched.overall).toBe("VOID");
+    const empty = judgeRpPriorBar(pooledOf({ incumbent: figures(0.2, 0.1), candidate: figures(0.19, 0.09) }, { incumbent: EMPTY_RP_FIGURES, candidate: EMPTY_RP_FIGURES }));
+    expect(empty.gates.find((g) => g.gate === "R2")!.status).toBe("VOID");
+    const failAndVoid = judgeRpPriorBar(
+      pooledOf({ incumbent: figures(0.2, 0.1, 100), candidate: figures(0.1, 0.05, 99) }, { incumbent: figures(0.2, 0.1), candidate: figures(0.3, 0.1) })
+    );
+    expect(failAndVoid.overall).toBe("FAIL");
+  });
+});
+
+describe("measureSigmaCarry bar R and retry modes on the committed 2022 slice", () => {
+  const streamFor = (season: number): MatchResult[] => {
+    if (season !== fixture.sliceSeason) throw new Error(`unexpected season ${season}`);
+    return fixture.matches;
+  };
+  const oneSeason = { seasons: [2022], counted: new Set([2022]), algorithm: spr, streamFor } as const;
+
+  /**
+   * Every slice event after the first has a debut team, so the all-or-nothing Sigma refusal prices none
+   * of them pre-event. A re-keyed repeat of the first event, appended last, has a fully seen roster, so
+   * bar R's matched set (and so its cold split) is non-empty.
+   */
+  const withRepeatEvent = (season: number): MatchResult[] => {
+    const matches = streamFor(season);
+    const firstEvent = matches[0]!.eventKey;
+    const repeat = matches
+      .filter((m) => m.eventKey === firstEvent)
+      .map((m) => ({ ...m, eventKey: `${firstEvent}rpt`, matchKey: m.matchKey.replace(firstEvent, `${firstEvent}rpt`) }));
+    return [...matches, ...repeat];
+  };
+
+  it("bar R: Sigma is untouched, both arms price the same set, and the prior moves the played rows", () => {
+    const seasons = measureSigmaCarry({ ...oneSeason, streamFor: withRepeatEvent, rpPriorArms: true });
+    const s = seasons[0]!;
+    expect(s.band.candidate).toEqual(s.band.incumbent);
+    expect(s.played.candidate.bonusCount).toBe(s.played.incumbent.bonusCount);
+    expect(s.played.candidate.totalRpCount).toBe(s.played.incumbent.totalRpCount);
+    expect(s.played.incumbent.bonusCount).toBeGreaterThan(0);
+    // Non-vacuity: the prior moved played-row pricing.
+    expect(s.played.candidate.bonusBrier).not.toBe(s.played.incumbent.bonusBrier);
+    expect(s.coverage.candidate).toBe(s.coverage.incumbent);
+    expect(s.coverage.newlyCovered).toBe(0);
+    expect(s.coverage.dropped).toBe(0);
+    expect(s.matched.candidate.bonusCount).toBe(s.matched.incumbent.bonusCount);
+    expect(s.matched.candidate.totalRpCount).toBe(s.matched.incumbent.totalRpCount);
+    expect(s.matched.incumbent.bonusCount).toBeGreaterThan(0);
+
+    const keys = Object.keys(s.coldSplit);
+    expect(keys.length).toBeGreaterThan(0);
+    for (const key of keys) expect(["0", "1", "2", "3"]).toContain(key);
+    const sum = (arm: "incumbent" | "candidate"): number => keys.reduce((n, key) => n + s.coldSplit[key]![arm].bonusCount, 0);
+    expect(sum("incumbent")).toBe(s.matched.incumbent.bonusCount);
+    expect(sum("candidate")).toBe(s.matched.candidate.bonusCount);
+
+    const pooledSplit = poolColdSplit(seasons);
+    expect(Object.keys(pooledSplit).sort()).toEqual([...keys].sort());
+    expect(judgeRpPriorBar(poolSeasons(seasons)).gates.map((g) => g.gate)).toEqual(["R1", "R2"]);
+  });
+
+  it("retry: both arms carry the prior, so with nothing to carry the played figures are identical, and they differ from the default run's", () => {
+    const [retry] = measureSigmaCarry({ ...oneSeason, rpColdPrior: true });
+    const [incumbentBar] = measureSigmaCarry(oneSeason);
+    expect(retry!.played.candidate).toEqual(retry!.played.incumbent);
+    expect(retry!.coverage.dropped).toBe(0);
+    expect(retry!.played.incumbent.bonusBrier).not.toBe(incumbentBar!.played.incumbent.bonusBrier);
+  });
+
+  it("refuses bar R and the retry together", () => {
+    expect(() => measureSigmaCarry({ ...oneSeason, rpPriorArms: true, rpColdPrior: true })).toThrow(/rpPriorArms.*rpColdPrior|rpColdPrior.*rpPriorArms/);
   });
 });

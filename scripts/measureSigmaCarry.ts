@@ -34,11 +34,27 @@
  *
  * Coverage counts are printed beside the accuracy figures, never inside them.
  *
+ * TWO MORE MODES, pre-registered in
+ * `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`:
+ *
+ *   --rp-prior-arms  BAR R. The Sigma carry is OFF in both arms. The incumbent is today's layer, the
+ *                    candidate the same layer with the RP cold-team prior (`rpColdPrior`) on. Pre-event,
+ *                    each arm prices through its own `sigmaScoreByTeam()` with no rookie rule, so both
+ *                    price the same match set. R1 (played rows): both metrics strictly better. R2
+ *                    (pre-event, matched set): neither metric worse.
+ *   --rp-cold-prior  THE SIGMA-CARRY RETRY. The registered bar unchanged, except that both arms carry
+ *                    the RP cold-team prior. The two flags together are refused.
+ *
+ * Every mode also prints, descriptively, the pre-event bonus Brier split by the number of RP-cold teams
+ * on the side (0 to 3).
+ *
  * SAFETY: no network module, no environment variable, the corpus opened read-only, nothing written
  * except `--out`. `.env` is never read.
  *
  * USAGE (repo root, ~10-20 minutes; run it detached with a log):
  *   npx tsx scripts/measureSigmaCarry.ts --out <path>.json
+ *   npx tsx scripts/measureSigmaCarry.ts --rp-prior-arms --out <path>.json
+ *   npx tsx scripts/measureSigmaCarry.ts --rp-cold-prior --out <path>.json
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -78,6 +94,8 @@ export const SIGMA_CARRY_COUNTED_SEASONS: readonly number[] = CAPTURE_SEASONS.sl
 export const NOMINAL_1SIGMA_COVERAGE = 0.683;
 /** The two season groups G4b's figures are also printed for, descriptively: rookieMean was chosen on 2016-2022. */
 export const DESIGN_ERA_SEASONS: ReadonlySet<number> = new Set([2016, 2017, 2018, 2019, 2020, 2022]);
+/** The pre-registration bar R and the retry run under. */
+export const RP_PRIOR_PREREG_PATH = ".planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md";
 
 // ───────────────────────────── pure figures ─────────────────────────────
 
@@ -192,7 +210,7 @@ export function climatologyRpPmf(counts: readonly number[], sides: number, maxRp
 export type GateStatus = "PASS" | "FAIL" | "VOID";
 
 export interface GateVerdict {
-  readonly gate: "G2" | "G3" | "G4-cover" | "G4a" | "G4b";
+  readonly gate: "G2" | "G3" | "G4-cover" | "G4a" | "G4b" | "R1" | "R2";
   readonly status: GateStatus;
   readonly detail: string;
 }
@@ -207,14 +225,20 @@ export interface PooledSigmaCarry {
 
 const fmt = (x: number): string => (Number.isFinite(x) ? x.toFixed(6) : "n/a");
 
-/** Pass iff candidate <= incumbent on both metrics; VOID when the arms' counts differ or nothing was scored. */
-function notWorse(gate: "G3" | "G4a", incumbent: RpFigures, candidate: RpFigures): GateVerdict {
+/**
+ * One paired ranking-point gate. Not strict: pass iff candidate <= incumbent on both metrics. Strict:
+ * pass iff candidate < incumbent on both, so a tie fails. VOID when the arms' counts differ or nothing
+ * was scored.
+ */
+function pairedRpGate(gate: "G3" | "G4a" | "R1" | "R2", incumbent: RpFigures, candidate: RpFigures, strict: boolean): GateVerdict {
   const counts = `bonus n=${incumbent.bonusCount}/${candidate.bonusCount}, total-RP n=${incumbent.totalRpCount}/${candidate.totalRpCount}`;
   if (incumbent.bonusCount !== candidate.bonusCount || incumbent.totalRpCount !== candidate.totalRpCount) {
     return { gate, status: "VOID", detail: `the arms scored different observation sets (${counts})` };
   }
   if (incumbent.bonusCount === 0 || incumbent.totalRpCount === 0) return { gate, status: "VOID", detail: `nothing scored (${counts})` };
-  const pass = candidate.bonusBrier <= incumbent.bonusBrier && candidate.totalRpRps <= incumbent.totalRpRps;
+  const pass = strict
+    ? candidate.bonusBrier < incumbent.bonusBrier && candidate.totalRpRps < incumbent.totalRpRps
+    : candidate.bonusBrier <= incumbent.bonusBrier && candidate.totalRpRps <= incumbent.totalRpRps;
   return {
     gate,
     status: pass ? "PASS" : "FAIL",
@@ -241,7 +265,7 @@ export function judgeSigmaCarryBar(pooled: PooledSigmaCarry): { gates: GateVerdi
     });
   }
 
-  gates.push(notWorse("G3", pooled.played.incumbent, pooled.played.candidate));
+  gates.push(pairedRpGate("G3", pooled.played.incumbent, pooled.played.candidate, false));
 
   gates.push({
     gate: "G4-cover",
@@ -249,7 +273,7 @@ export function judgeSigmaCarryBar(pooled: PooledSigmaCarry): { gates: GateVerdi
     detail: `incumbent priced ${pooled.coverage.incumbent}, candidate ${pooled.coverage.candidate}, newly covered ${pooled.coverage.newlyCovered}, dropped ${pooled.coverage.dropped}`,
   });
 
-  gates.push(notWorse("G4a", pooled.matched.incumbent, pooled.matched.candidate));
+  gates.push(pairedRpGate("G4a", pooled.matched.incumbent, pooled.matched.candidate, false));
 
   const { candidate: fresh, reference } = pooled.fresh;
   const freshCounts = `bonus n=${fresh.bonusCount}/${reference.bonusCount}, total-RP n=${fresh.totalRpCount}/${reference.totalRpCount}`;
@@ -266,6 +290,19 @@ export function judgeSigmaCarryBar(pooled: PooledSigmaCarry): { gates: GateVerdi
     });
   }
 
+  const overall: GateStatus = gates.some((g) => g.status === "FAIL") ? "FAIL" : gates.some((g) => g.status === "VOID") ? "VOID" : "PASS";
+  return { gates, overall };
+}
+
+/**
+ * Bar R's mechanical verdicts, exactly as pre-registered in 260928-n6i-PREREG.md. R1 (played rows, the
+ * published RP scorer): both metrics STRICTLY better. R2 (pre-event, the matched set): neither worse.
+ */
+export function judgeRpPriorBar(pooled: Pick<PooledSigmaCarry, "played" | "matched">): { gates: GateVerdict[]; overall: GateStatus } {
+  const gates: GateVerdict[] = [
+    pairedRpGate("R1", pooled.played.incumbent, pooled.played.candidate, true),
+    pairedRpGate("R2", pooled.matched.incumbent, pooled.matched.candidate, false),
+  ];
   const overall: GateStatus = gates.some((g) => g.status === "FAIL") ? "FAIL" : gates.some((g) => g.status === "VOID") ? "VOID" : "PASS";
   return { gates, overall };
 }
@@ -298,15 +335,19 @@ class PairedRp {
       this.b.outcome.push({ pmf3: b.matchOutcomePmf, winner: match.winner });
     }
     if (flags === null || flags === undefined) return;
-    for (const side of ["red", "blue"] as const) {
-      const actual = flags[side];
-      const pa = side === "red" ? a.redBonusRp : a.blueBonusRp;
-      const pb = side === "red" ? b.redBonusRp : b.blueBonusRp;
-      if (pa === undefined || pb === undefined || pa.length !== actual.length || pb.length !== actual.length) continue;
-      for (let i = 0; i < actual.length; i++) {
-        this.a.perBonus[i]?.push({ predicted: pa[i]!, actual: actual[i]! });
-        this.b.perBonus[i]?.push({ predicted: pb[i]!, actual: actual[i]! });
-      }
+    for (const side of ["red", "blue"] as const) this.addSide(side, a, b, flags);
+  }
+
+  /** One side's per-bonus observations only, both forecasters, under `add`'s guards. Pushes no total-RP or outcome rows. */
+  addSide(side: "red" | "blue", a: Prediction, b: Prediction, flags: { red: readonly boolean[]; blue: readonly boolean[] } | null | undefined): void {
+    if (flags === null || flags === undefined) return;
+    const actual = flags[side];
+    const pa = side === "red" ? a.redBonusRp : a.blueBonusRp;
+    const pb = side === "red" ? b.redBonusRp : b.blueBonusRp;
+    if (pa === undefined || pb === undefined || pa.length !== actual.length || pb.length !== actual.length) return;
+    for (let i = 0; i < actual.length; i++) {
+      this.a.perBonus[i]?.push({ predicted: pa[i]!, actual: actual[i]! });
+      this.b.perBonus[i]?.push({ predicted: pb[i]!, actual: actual[i]! });
     }
   }
 
@@ -365,6 +406,12 @@ export interface SeasonFigures {
   readonly matched: { incumbent: RpFigures; candidate: RpFigures };
   readonly fresh: { candidate: RpFigures; reference: RpFigures; ceiling: RpFigures };
   readonly coverage: { eventsPriced: number; incumbent: number; candidate: number; newlyCovered: number; dropped: number };
+  /**
+   * Descriptive only: the matched set's per-side bonus figures keyed by how many of the side's teams were
+   * RP-cold (no `hasHistory`) at the pre-event instant, "0" to "3". Bonus rows only: total-RP and
+   * outcome counts are 0.
+   */
+  readonly coldSplit: Record<string, { incumbent: RpFigures; candidate: RpFigures }>;
 }
 
 export interface MeasureSigmaCarryOptions {
@@ -376,12 +423,28 @@ export interface MeasureSigmaCarryOptions {
   readonly coldStartIndex?: ReadonlySet<string>;
   /** Progress lines; defaults to silence. */
   readonly log?: (line: string) => void;
+  /**
+   * The Sigma-carry RETRY baseline (260928-n6i-PREREG.md, "The Sigma-carry retry"): both arms carry the
+   * RP cold-team prior (`rpColdPrior`); everything else is the registered bar.
+   */
+  readonly rpColdPrior?: boolean;
+  /**
+   * BAR R (260928-n6i-PREREG.md, "Bar R"): the Sigma carry is OFF in both arms; the incumbent is today's
+   * layer and the candidate the same layer with `rpColdPrior` on, each pricing pre-event through its own
+   * `sigmaScoreByTeam()`. Refused together with `rpColdPrior`.
+   */
+  readonly rpPriorArms?: boolean;
 }
 
 /** Replays every season once and scores both arms. Seasons are processed one at a time, so only one season's stream is ever held. */
 export function measureSigmaCarry(options: MeasureSigmaCarryOptions): SeasonFigures[] {
   const { algorithm } = options;
   if (!usesSigmaScore(algorithm.id)) throw new Error(`measureSigmaCarry: algorithm "${algorithm.id}" publishes no Sigma Score`);
+  if (options.rpPriorArms === true && options.rpColdPrior === true) {
+    throw new Error("measureSigmaCarry: rpPriorArms (bar R) and rpColdPrior (the retry) are separate runs; pass one, not both");
+  }
+  const barR = options.rpPriorArms === true;
+  const retry = options.rpColdPrior === true;
   const log = options.log ?? (() => {});
   const out: SeasonFigures[] = [];
   let carriedState: unknown;
@@ -427,8 +490,16 @@ export function measureSigmaCarry(options: MeasureSigmaCarryOptions): SeasonFigu
 
     const ruleModule = RP_RULE_MODULES[season];
     const counted = options.counted.has(season);
-    const incumbent = new SigmaScoutLayer(ruleModule, algorithm.id);
-    const candidate = new SigmaScoutLayer(ruleModule, algorithm.id, { sigmaCarry: { from: boundary.isColdStart ? undefined : sigmaCarry } });
+    // Default: today's arms. Retry: both arms add the RP cold-team prior. Bar R: no carry anywhere, and
+    // the candidate differs from the incumbent by the prior alone (no sigmaCarry key, which would turn
+    // the carry on by its presence).
+    const incumbent = retry ? new SigmaScoutLayer(ruleModule, algorithm.id, { rpColdPrior: true }) : new SigmaScoutLayer(ruleModule, algorithm.id);
+    const candidate = barR
+      ? new SigmaScoutLayer(ruleModule, algorithm.id, { rpColdPrior: true })
+      : new SigmaScoutLayer(ruleModule, algorithm.id, {
+          sigmaCarry: { from: boundary.isColdStart ? undefined : sigmaCarry },
+          ...(retry ? { rpColdPrior: true } : {}),
+        });
 
     const bonusNames = ruleModule?.bonusNames ?? [];
     const flagsByMatch = actualBonusFlagsForSeason(stream, season);
@@ -436,6 +507,7 @@ export function measureSigmaCarry(options: MeasureSigmaCarryOptions): SeasonFigu
     const matched = new PairedRp(bonusNames);
     const fresh = new PairedRp(bonusNames);
     const ceiling = new PairedRp(bonusNames);
+    const coldSplit = new Map<string, PairedRp>();
     const climatology = ruleModule === undefined ? undefined : new Climatology(ruleModule);
     const band = { incumbent: emptyBand(), candidate: emptyBand() };
     const byBucket = Object.fromEntries(COLDEST_BUCKETS.map((b) => [b, { incumbent: emptyBand(), candidate: emptyBand() }])) as Record<
@@ -477,26 +549,38 @@ export function measureSigmaCarry(options: MeasureSigmaCarryOptions): SeasonFigu
             roster,
             RpMeanShiftAccumulator.fromState(ruleModule, incumbent.rpMeanShiftState())
           );
-          const metrics = algorithm.teamMetrics(state, roster);
-          const totalByTeam = new Map<string, number>();
-          for (const teamKey of roster) {
-            const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
-            if (total !== undefined) totalByTeam.set(teamKey, total);
-          }
-          const ratings = candidateRosterRatings({
-            roster,
-            totalByTeam,
-            unseenTotal: algorithm.unseenTeamMetrics?.(state)?.[TOTAL_METRIC_KEY]?.value,
-            sigmaByTeam: candidate.sigmaScoreByTeam(),
-            priorSigmaAtTalent: (talent) => candidate.sigmaPriorAtTalent(talent),
-          });
-          const candidateFiller = makeRankingPointFiller(
-            candidate.rpAccumulator,
-            ruleModule,
-            candidateSigmaMap(ratings),
-            roster,
-            RpMeanShiftAccumulator.fromState(ruleModule, candidate.rpMeanShiftState())
-          );
+          // Bar R: the candidate prices exactly as the incumbent does, from its own layer, with no rookie
+          // rule (260928-n6i-PREREG.md). Otherwise: the carried layer plus the rookie rule, as registered.
+          const candidateFiller = barR
+            ? makeRankingPointFiller(
+                candidate.rpAccumulator,
+                ruleModule,
+                candidate.sigmaScoreByTeam(),
+                roster,
+                RpMeanShiftAccumulator.fromState(ruleModule, candidate.rpMeanShiftState())
+              )
+            : (() => {
+                const metrics = algorithm.teamMetrics(state, roster);
+                const totalByTeam = new Map<string, number>();
+                for (const teamKey of roster) {
+                  const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
+                  if (total !== undefined) totalByTeam.set(teamKey, total);
+                }
+                const ratings = candidateRosterRatings({
+                  roster,
+                  totalByTeam,
+                  unseenTotal: algorithm.unseenTeamMetrics?.(state)?.[TOTAL_METRIC_KEY]?.value,
+                  sigmaByTeam: candidate.sigmaScoreByTeam(),
+                  priorSigmaAtTalent: (talent) => candidate.sigmaPriorAtTalent(talent),
+                });
+                return makeRankingPointFiller(
+                  candidate.rpAccumulator,
+                  ruleModule,
+                  candidateSigmaMap(ratings),
+                  roster,
+                  RpMeanShiftAccumulator.fromState(ruleModule, candidate.rpMeanShiftState())
+                );
+              })();
           const reference = climatology.forecast();
           for (const qual of quals) {
             const upcoming = toLeakProofUpcoming(qual);
@@ -511,8 +595,21 @@ export function measureSigmaCarry(options: MeasureSigmaCarryOptions): SeasonFigu
             if (byCandidate && candidatePriced!.redRpPmf!.length !== ruleModule.maxRp + 1) {
               throw new Error(`measureSigmaCarry: ${qual.matchKey} priced a pmf of length ${candidatePriced!.redRpPmf!.length} against maxRp ${ruleModule.maxRp}`);
             }
-            if (byIncumbent && byCandidate) matched.add(qual, incumbentPriced!, candidatePriced!, flags);
-            else if (byCandidate) {
+            if (byIncumbent && byCandidate) {
+              matched.add(qual, incumbentPriced!, candidatePriced!, flags);
+              // Descriptive cold split. Both arms fold identical records, so their RP beliefs (and so
+              // `hasHistory`) are identical; the incumbent's is read for both.
+              for (const side of ["red", "blue"] as const) {
+                const teams = side === "red" ? qual.redTeams : qual.blueTeams;
+                const cold = String(teams.filter((teamKey) => incumbent.rpAccumulator?.hasHistory(teamKey) !== true).length);
+                let bucket = coldSplit.get(cold);
+                if (bucket === undefined) {
+                  bucket = new PairedRp(bonusNames);
+                  coldSplit.set(cold, bucket);
+                }
+                bucket.addSide(side, incumbentPriced!, candidatePriced!, flags);
+              }
+            } else if (byCandidate) {
               coverage.newlyCovered++;
               newlyCoveredKeys.add(qual.matchKey);
               fresh.add(qual, candidatePriced!, { ...prediction, ...reference }, flags);
@@ -588,6 +685,14 @@ export function measureSigmaCarry(options: MeasureSigmaCarryOptions): SeasonFigu
         matched: { incumbent: matchedFigures.a, candidate: matchedFigures.b },
         fresh: { candidate: freshFigures.a, reference: freshFigures.b, ceiling: ceiling.figures().a },
         coverage,
+        coldSplit: Object.fromEntries(
+          [...coldSplit.entries()]
+            .sort(([p], [q]) => Number(p) - Number(q))
+            .map(([key, bucket]) => {
+              const f = bucket.figures();
+              return [key, { incumbent: f.a, candidate: f.b }];
+            })
+        ),
       });
       log(
         `measureSigmaCarry: ${season} — ${records.length} matches replayed; band rows ${band.incumbent.n}; played RP sides ${playedFigures.a.totalRpCount}; pre-event: ${coverage.eventsPriced} events, incumbent ${coverage.incumbent}, candidate ${coverage.candidate}, newly covered ${coverage.newlyCovered}, dropped ${coverage.dropped}`
@@ -615,18 +720,43 @@ export function poolSeasons(seasons: readonly SeasonFigures[]): PooledSigmaCarry
   };
 }
 
+/** The descriptive cold split pooled over the given seasons, each key count-weighted with `poolRpFigures`. */
+export function poolColdSplit(seasons: readonly SeasonFigures[]): Record<string, { incumbent: RpFigures; candidate: RpFigures }> {
+  const keys = [...new Set(seasons.flatMap((s) => Object.keys(s.coldSplit)))].sort((p, q) => Number(p) - Number(q));
+  return Object.fromEntries(
+    keys.map((key) => {
+      const parts = seasons.map((s) => s.coldSplit[key]).filter((part) => part !== undefined);
+      return [key, { incumbent: poolRpFigures(parts.map((p) => p.incumbent)), candidate: poolRpFigures(parts.map((p) => p.candidate)) }];
+    })
+  );
+}
+
 /** JSON-safe: NaN becomes null. */
 function jsonSafe(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value, (_k, v) => (typeof v === "number" && !Number.isFinite(v) ? null : v)));
 }
 
 async function main(argv: readonly string[]): Promise<void> {
-  const { values } = parseArgs({ args: [...argv], options: { out: { type: "string" } } });
+  const { values } = parseArgs({
+    args: [...argv],
+    options: { out: { type: "string" }, "rp-cold-prior": { type: "boolean" }, "rp-prior-arms": { type: "boolean" } },
+  });
   if (values.out === undefined) throw new Error("measureSigmaCarry: --out <path>.json is required");
+  const rpColdPrior = values["rp-cold-prior"] === true;
+  const rpPriorArms = values["rp-prior-arms"] === true;
+  if (rpColdPrior && rpPriorArms) throw new Error("measureSigmaCarry: --rp-prior-arms (bar R) and --rp-cold-prior (the retry) are separate runs; pass one, not both");
+  const mode = rpPriorArms ? "bar-R" : rpColdPrior ? "sigma-carry-retry" : "sigma-carry";
   const [algorithm] = resolvePublishAlgorithms("spr");
   if (algorithm === undefined) throw new Error("measureSigmaCarry: spr did not resolve");
   const startedAt = new Date().toISOString();
   console.log(`measureSigmaCarry: ${algorithm.id}@${algorithm.version}; replay ${SIGMA_CARRY_REPLAY_SEASONS.join(", ")}; counted ${SIGMA_CARRY_COUNTED_SEASONS.join(", ")}`);
+  console.log(
+    mode === "bar-R"
+      ? `measureSigmaCarry: mode bar-R (RP cold-team prior arms, Sigma carry OFF in both; ${RP_PRIOR_PREREG_PATH})`
+      : mode === "sigma-carry-retry"
+        ? `measureSigmaCarry: mode sigma-carry-retry (both arms carry the RP cold-team prior; ${RP_PRIOR_PREREG_PATH})`
+        : `measureSigmaCarry: mode sigma-carry (the registered bar; the retry and bar R are in ${RP_PRIOR_PREREG_PATH})`
+  );
 
   const db = openCorpusReadOnly(CORPUS_PATH);
   let seasons: SeasonFigures[];
@@ -638,22 +768,41 @@ async function main(argv: readonly string[]): Promise<void> {
       streamFor: (season) => buildSeasonStream(db, season, { includeOffseason: true }),
       coldStartIndex: corpusColdStartIndex(db),
       log: (line) => console.log(line),
+      ...(rpColdPrior ? { rpColdPrior: true } : {}),
+      ...(rpPriorArms ? { rpPriorArms: true } : {}),
     });
   } finally {
     db.close();
   }
 
   const pooled = poolSeasons(seasons);
-  const verdict = judgeSigmaCarryBar(pooled);
+  const verdict = rpPriorArms ? judgeRpPriorBar(pooled) : judgeSigmaCarryBar(pooled);
   const designEra = poolSeasons(seasons.filter((s) => DESIGN_ERA_SEASONS.has(s.season)));
   const later = poolSeasons(seasons.filter((s) => !DESIGN_ERA_SEASONS.has(s.season)));
+  const coldSplit = poolColdSplit(seasons);
+  const coldSplitLine = `descriptive pre-event cold split (matched set; RP-cold teams on the side: n, incumbent/candidate bonus Brier): ${["0", "1", "2", "3"]
+    .map((key) => {
+      const part = coldSplit[key];
+      return part === undefined ? `${key}: n=0` : `${key}: n=${part.incumbent.bonusCount} ${fmt(part.incumbent.bonusBrier)}/${fmt(part.candidate.bonusBrier)}`;
+    })
+    .join("; ")}`;
 
   console.log("");
   for (const gate of verdict.gates) console.log(`GATE ${gate.gate} ${gate.status}: ${gate.detail}`);
-  console.log(`GATES G2-G4 OVERALL: ${verdict.overall}`);
-  console.log(
-    `descriptive G4b split: 2017-2020+2022 candidate/reference bonus Brier ${fmt(designEra.fresh.candidate.bonusBrier)}/${fmt(designEra.fresh.reference.bonusBrier)}; 2023-2026 ${fmt(later.fresh.candidate.bonusBrier)}/${fmt(later.fresh.reference.bonusBrier)}`
-  );
+  if (rpPriorArms) {
+    console.log(`GATES R1-R2 OVERALL: ${verdict.overall}`);
+    for (const s of seasons) {
+      console.log(
+        `descriptive ${s.season}: played bonus Brier ${fmt(s.played.incumbent.bonusBrier)}/${fmt(s.played.candidate.bonusBrier)} (n=${s.played.incumbent.bonusCount}), total-RP RPS ${fmt(s.played.incumbent.totalRpRps)}/${fmt(s.played.candidate.totalRpRps)} (n=${s.played.incumbent.totalRpCount}); matched bonus Brier ${fmt(s.matched.incumbent.bonusBrier)}/${fmt(s.matched.candidate.bonusBrier)} (n=${s.matched.incumbent.bonusCount}), total-RP RPS ${fmt(s.matched.incumbent.totalRpRps)}/${fmt(s.matched.candidate.totalRpRps)} (n=${s.matched.incumbent.totalRpCount}); pre-event priced ${s.coverage.incumbent}/${s.coverage.candidate} over ${s.coverage.eventsPriced} events`
+      );
+    }
+  } else {
+    console.log(`GATES G2-G4 OVERALL: ${verdict.overall}`);
+    console.log(
+      `descriptive G4b split: 2017-2020+2022 candidate/reference bonus Brier ${fmt(designEra.fresh.candidate.bonusBrier)}/${fmt(designEra.fresh.reference.bonusBrier)}; 2023-2026 ${fmt(later.fresh.candidate.bonusBrier)}/${fmt(later.fresh.reference.bonusBrier)}`
+    );
+  }
+  console.log(coldSplitLine);
 
   mkdirSync(dirname(values.out), { recursive: true });
   writeFileSync(
@@ -662,13 +811,15 @@ async function main(argv: readonly string[]): Promise<void> {
       jsonSafe({
         instrument: "scripts/measureSigmaCarry.ts",
         algorithm: `${algorithm.id}@${algorithm.version}`,
+        mode,
+        prereg: RP_PRIOR_PREREG_PATH,
         startedAt,
         finishedAt: new Date().toISOString(),
         seasonsReplayed: SIGMA_CARRY_REPLAY_SEASONS,
         seasonsCounted: SIGMA_CARRY_COUNTED_SEASONS,
         verdicts: verdict,
         pooled,
-        descriptive: { designEra2017to2022: designEra, later2023to2026: later },
+        descriptive: { designEra2017to2022: designEra, later2023to2026: later, coldSplit },
         seasons,
       }),
       null,

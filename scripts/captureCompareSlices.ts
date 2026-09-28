@@ -26,13 +26,19 @@
  * (`packages/harness/sigmaCarry.ts`), the Decision 1 arm of debug session
  * `presim-bake-rp-filler-refuses`. It is a verification switch only: the
  * capture is always a dry run and no production entry point sets it.
+ *
+ * `--rp-cold-prior` runs the capture with the RP cold-team prior CANDIDATE on
+ * (`rpColdPrior` in `packages/core/rankingPoints/empiricalMoments.ts`), gate R0
+ * of `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`
+ * and, combined with `--sigma-carry`, the retry's G1 arm. It is a verification
+ * switch only, under the same terms as `--sigma-carry`.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
 import { openCorpusReadOnly } from "../packages/corpus/db.js";
-import { publishSeasons, resolvePublishAlgorithms } from "../packages/harness/publish.js";
+import { publishSeasons, resolvePublishAlgorithms, type PublishSeasonsOptions } from "../packages/harness/publish.js";
 import type { PageKind } from "../packages/harness/pageArtifacts.js";
 
 const CORPUS_PATH = join("data", "corpus.sqlite");
@@ -132,7 +138,21 @@ export function diffSlices(before: readonly CapturedSlice[], after: readonly Cap
   return deltas;
 }
 
-async function capture(out: string, sigmaCarry: boolean): Promise<void> {
+/** The candidate switches this capture can turn on. */
+export interface CaptureSwitches {
+  readonly sigmaCarry: boolean;
+  readonly rpColdPrior: boolean;
+}
+
+/** The `publishSeasons` keys for the switches that are ON, and no key for one that is off, so off passes nothing. */
+export function captureSwitches(switches: CaptureSwitches): Pick<PublishSeasonsOptions, "sigmaCarry" | "rpColdPrior"> {
+  return {
+    ...(switches.sigmaCarry ? { sigmaCarry: true } : {}),
+    ...(switches.rpColdPrior ? { rpColdPrior: true } : {}),
+  };
+}
+
+async function capture(out: string, switches: CaptureSwitches): Promise<void> {
   const db = openCorpusReadOnly(CORPUS_PATH);
   const slices: CapturedSlice[] = [];
   try {
@@ -147,7 +167,7 @@ async function capture(out: string, sigmaCarry: boolean): Promise<void> {
       generation: CAPTURE_GENERATION,
       computedAt: CAPTURE_COMPUTED_AT,
       // Off passes nothing, so the default capture is exactly what it always was.
-      ...(sigmaCarry ? { sigmaCarry: true } : {}),
+      ...captureSwitches(switches),
       artifactSink: (pageKind: PageKind, _key: string, body: string): void => {
         if (pageKind === "compare") slices.push(...slicesOf(body));
       },
@@ -181,7 +201,13 @@ async function main(argv: readonly string[]): Promise<void> {
   const { values, positionals } = parseArgs({
     args: [...argv],
     allowPositionals: true,
-    options: { out: { type: "string" }, diff: { type: "boolean" }, view: { type: "string" }, "sigma-carry": { type: "boolean" } },
+    options: {
+      out: { type: "string" },
+      diff: { type: "boolean" },
+      view: { type: "string" },
+      "sigma-carry": { type: "boolean" },
+      "rp-cold-prior": { type: "boolean" },
+    },
   });
   if (values.diff === true) {
     if (positionals.length !== 2) throw new Error("--diff needs exactly two capture files: before, then after");
@@ -190,7 +216,12 @@ async function main(argv: readonly string[]): Promise<void> {
   }
   if (values.out === undefined) throw new Error("--out is required");
   if (values["sigma-carry"] === true) console.log("captureCompareSlices: Sigma-carry CANDIDATE ON (verification arm; see packages/harness/sigmaCarry.ts)");
-  await capture(values.out, values["sigma-carry"] === true);
+  if (values["rp-cold-prior"] === true) {
+    console.log(
+      "captureCompareSlices: RP cold-team prior CANDIDATE ON (verification arm; see .planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md)"
+    );
+  }
+  await capture(values.out, { sigmaCarry: values["sigma-carry"] === true, rpColdPrior: values["rp-cold-prior"] === true });
 }
 
 const isEntryPoint = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
