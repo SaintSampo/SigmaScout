@@ -661,8 +661,10 @@ live event (quick task 260923-3w7, closed by 260923-3x0). The publisher now writ
 every team-season artifact as well, so the robot page tiers those tiles from the one file it already
 fetches. **It takes one republish per (algorithm, season) to populate the key**: a team file published
 before 260923-3x0 carries no block, parses fine, and renders a live-folded row untiered until that
-season and algorithm are republished. The percentile NUMBER is a separate, still-open question —
-`.planning/todos/pending/live-merges-drop-percentiles.md`.
+season and algorithm are republished. Since quick task 260927-uen, the team page header's Total tile,
+phase tiles and World rank card tier from that same block too, not only the event page's tiles. The
+percentile NUMBER is a separate question, accepted rather than open —
+`.planning/todos/completed/live-merges-drop-percentiles.md`.
 
 - **New events on the calendar:** a full `pnpm publish:seasons` emits the stubs. To get them out
   WITHOUT a full republish (about 109,000 R2 writes), run `pnpm publish:stubs` (about 120). It reads

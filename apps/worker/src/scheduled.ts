@@ -25,9 +25,12 @@
  * 260917-jr4): one read and one merge-write per touched team per live algorithm,
  * carrying that team's newly-played rows AND its priced upcoming rows for the
  * event. The write is unconditional; only the `teams/{year}` feed is gated on
- * officialness. Known accepted limitation, tracked in
- * `.planning/todos/pending/live-merges-drop-percentiles.md`: a live-merged row
- * carries no percentile number.
+ * officialness. Known accepted limitation, recorded in
+ * `.planning/todos/completed/live-merges-drop-percentiles.md`: a live-merged row
+ * carries no percentile number. That file closed 2026-09-27 (quick task
+ * 260927-uen) — the tier box still resolves from `tierCuts`, on the team
+ * page header too, and the missing percentile NUMBER is accepted rather than
+ * open.
  *
  * GLOBAL REBUILD: an incremental merge of the teams this tick touched into the
  * year-wide `teams` table. With no corpus access it is never a from-scratch
@@ -985,10 +988,11 @@ async function runProbes(env: Env, counter: SubrequestCounter, tbaCtx: TbaClient
  *
  * ACCEPTED CONSEQUENCE, STATED UP FRONT: the team-artifact write puts every
  * scheduled team through `touchedEventTeamMetrics`, which drops `percentile` from
- * `seasonStats.metrics`. That is the existing, tracked
- * `.planning/todos/pending/live-merges-drop-percentiles.md` limitation; this path
- * makes it bite when the schedule is POSTED rather than at the team's first
- * folded match. The tier box still resolves from `tierCuts`, and there is
+ * `seasonStats.metrics`. That is the accepted
+ * `.planning/todos/completed/live-merges-drop-percentiles.md` limitation (closed
+ * 2026-09-27, quick task 260927-uen); this path makes it bite when the schedule
+ * is POSTED rather than at the team's first folded match. The tier box still
+ * resolves from `tierCuts`, on the team page header too, and there is
  * deliberately no second metrics path invented to avoid it.
  *
  * THROWS on any failure, the pricing throw included, so the caller leaves the

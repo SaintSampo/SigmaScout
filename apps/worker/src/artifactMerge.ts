@@ -610,7 +610,10 @@ export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): 
     // owns `metrics`, so it owns the label describing them: blindly carrying
     // a published "last-official-match" through an offseason tick would
     // mislabel the value. The missing percentiles and the unscoped offseason
-    // write stay open in `live-merges-drop-percentiles`.
+    // write are recorded, accepted rather than fixed, in
+    // `.planning/todos/completed/live-merges-drop-percentiles.md` (closed
+    // 2026-09-27, quick task 260927-uen) — the team page header tiers this
+    // live value through `tierCuts` regardless of the missing percentile.
     seasonStats: {
       ...existing?.seasonStats,
       record,
@@ -635,9 +638,11 @@ type PublishedEventTeamMetric = { value: number; spread?: number; percentile?: n
  * other metrics still lose their `percentile` on a live tick — the Worker
  * computes none, because it holds no season ranking pool. That is no longer a
  * CPU question: `rp-fold-exceeds-worker-cpu-budget` is CLOSED (the account is on
- * Workers Paid), and what is left to decide is whether a live percentile number
- * is worth shipping a compact pool for one more read per touched tick — the open
- * half of `live-merges-drop-percentiles`.
+ * Workers Paid), and shipping a compact pool for one more read per touched
+ * tick was weighed against the tier alone already being correct on every
+ * surface and closed accepted, not built — see
+ * `.planning/todos/completed/live-merges-drop-percentiles.md` (closed
+ * 2026-09-27, quick task 260927-uen) for the full account.
  *
  * What no longer disappears with the percentile is the TIER: the client
  * re-derives it from the `tierCuts` block on whichever artifact it is holding
@@ -645,9 +650,11 @@ type PublishedEventTeamMetric = { value: number; spread?: number; percentile?: n
  * but no percentile, which is exactly this function's output shape. BOTH
  * artifacts this function feeds carry that block — the event artifact since
  * quick task 260920-qzf, the team-season artifact since 260923-3x0 — and it is
- * the SAME per-(algorithm, season) object on both. The percentile NUMBER itself
- * stays absent on every surface that prints one and is never approximated from
- * `tierCuts` — only the tier box is recoverable this way.
+ * the SAME per-(algorithm, season) object on both. The team page header reads
+ * the team-season copy the same way, since quick task 260927-uen. The
+ * percentile NUMBER itself stays absent on every surface that prints one and
+ * is never approximated from `tierCuts` — only the tier box is recoverable
+ * this way.
  */
 export function touchedEventTeamMetrics(
   priorMetrics: Readonly<Record<string, PublishedEventTeamMetric>> | undefined,

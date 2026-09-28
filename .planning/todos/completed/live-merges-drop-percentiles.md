@@ -5,6 +5,28 @@ source: quick task 260912-tnk (rarity-tier consistency audit) — audited, recor
 priority: low
 ---
 
+> **STATUS 2026-09-27: CLOSED (quick task 260927-uen).** The percentile NUMBER half needed no work:
+> no web surface prints a percentile number at all, only a tier colour and, on the World card, a rank
+> plus its pool size. The real remaining gap was the team page header. The Total tile, the phase tiles
+> and the World rank card tiered only from a published percentile, and the tick strips those
+> percentiles from `seasonStats.metrics` on every fold and on schedule only ticks. 260927-uen resolves
+> the header tiles through `resolveMetricTier` with the team artifact's own `tierCuts`, and a derived
+> group tile (one summed client side from a stale cached artifact) takes no cut, staying untiered
+> exactly as before. The World card keeps the published `seasonStats` Total percentile first, falls
+> back to the last official snapshot row's own tier next, and never reads cuts against the live
+> `seasonStats` value: the tick rewrites that value with the algorithm's current state, an instant the
+> rank beside the card and the Teams list do not describe. The Sigma pill needed nothing at all: the
+> tick carries the published Sigma entry, percentile included, unchanged through every merge, pinned by
+> `apps/worker/test/scheduled.officialRecord.test.ts` and `apps/worker/test/scheduled.test.ts`.
+> Accepted and out of scope: the Alliances Combined Total tier still thins during live folds, because
+> `allianceTierApproximation.ts` needs published percentiles as interpolation points, and cuts give a
+> tier, not a number. The unscoped offseason `seasonStats` write named by `artifactMerge.ts`'s own
+> comment is still how the Worker behaves; after this task no web surface tiers or ranks from that live
+> value except the header tiles of a team with no official snapshot, and those tiles are labelled
+> season final and tiered against the pool the publisher uses for a season final basis. No reader
+> visible defect remains. Revisit only if a new surface reads `seasonStats.metrics` or `metricsBasis`,
+> which today only `SeasonHeader` does. Everything below this block is retained as history.
+
 # Live Worker merges still publish no percentile NUMBER for a touched team (the TIER gap is closed)
 
 > **STATUS 2026-09-23 (quick task 260923-3x0). The tier half of this todo is CLOSED on EVERY surface,
