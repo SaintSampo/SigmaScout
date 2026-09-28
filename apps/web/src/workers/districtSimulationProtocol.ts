@@ -265,6 +265,15 @@ function isEventRequest(value: unknown): boolean {
   if (!Array.isArray(eventInput.baselines)) return false;
   if (eventInput.baselines.length < 1) return false;
   if (eventInput.baselines.length > MAX_DISTRICT_SIMULATION_ROSTER) return false;
+  // THE AWARD ONLY TEAMS (quick task 260927-vmb) are drawn per team like the
+  // roster, so they count against the same roster bound. Shape and cost only:
+  // an empty, duplicated or roster overlapping key is `simulateDistrictEvent`'s
+  // own `InvalidAwardOnlyTeamsError`, which becomes a per-event unavailable
+  // entry through the existing catch.
+  if (eventInput.awardOnlyTeams !== undefined) {
+    if (!Array.isArray(eventInput.awardOnlyTeams)) return false;
+    if (eventInput.baselines.length + eventInput.awardOnlyTeams.length > MAX_DISTRICT_SIMULATION_ROSTER) return false;
+  }
   return true;
 }
 

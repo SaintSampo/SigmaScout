@@ -300,6 +300,25 @@ describe("isDistrictSimulationRequest rejections", () => {
         ],
       },
     ],
+    [
+      "a non-array award only list",
+      { ...base, events: [{ eventKey: "2026waone", input: { ...inputFor("2026waone"), awardOnlyTeams: "frc9001" } }] },
+    ],
+    [
+      "a roster plus award only list above the roster ceiling",
+      {
+        ...base,
+        events: [
+          {
+            eventKey: "2026waone",
+            input: {
+              ...inputFor("2026waone"),
+              awardOnlyTeams: Array.from({ length: MAX_DISTRICT_SIMULATION_ROSTER + 1 - 24 }, (_unused, i) => `frc${String(9000 + i)}`),
+            },
+          },
+        ],
+      },
+    ],
     ["a missing event key", { ...base, events: [{ input: inputFor("2026waone") }] }],
     ["a non-object payload", 7],
     ["a null payload", null],
@@ -317,6 +336,11 @@ describe("isDistrictSimulationRequest rejections", () => {
 
   it("accepts the well-formed base request", () => {
     expect(isDistrictSimulationRequest(base)).toBe(true);
+  });
+
+  it("accepts a valid award only list (quick task 260927-vmb)", () => {
+    const withAwardOnly = requestFor([eventRequest("2026waone", { awardOnlyTeams: ["frc9001", "frc9002"] })]);
+    expect(isDistrictSimulationRequest(withAwardOnly)).toBe(true);
   });
 });
 

@@ -1778,7 +1778,7 @@ describe("a registered team missing from a started event's schedule is priced fr
     expect(award.kind).toBe("open");
     if (award.kind !== "open") return;
     const awardCounts = result.awardPoints.get(NO_SHOW)!;
-    expect([...award.distribution.counts]).toEqual([...awardCounts]);
+    expect(Array.from(award.distribution.counts)).toEqual([...awardCounts]);
 
     expect(row.eventTotal.kind).toBe("open");
     if (row.eventTotal.kind !== "open") return;

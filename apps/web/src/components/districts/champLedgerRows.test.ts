@@ -876,7 +876,7 @@ describe("buildChampLedgerRows — a registered DCMP no show is priced from awar
     const award = cellOf(noShow.dcmpRow.cells, "award");
     expect(award.kind).toBe("open");
     if (award.kind !== "open") return;
-    expect([...award.distribution.counts]).toEqual([...result.awardPoints.get(NO_SHOW)!]);
+    expect(Array.from(award.distribution.counts)).toEqual([...result.awardPoints.get(NO_SHOW)!]);
     expect(award.distribution.denominator).toBe(draws);
   });
 

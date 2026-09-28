@@ -1645,13 +1645,18 @@ describe("DistrictLedger — the advancement chance", () => {
    * `?year=2026&district=2026pnw&tab=road-to-district-champs&at=2026wasam:awards`
    * was showing, at 90 teams rather than one. Now it is excluded from the
    * ranking, is named in the run, and its own row still says "not available".
+   *
+   * SINCE QUICK TASK 260927-vmb this fixture's team is no longer unpriceable:
+   * `liveEventArtifact()` posts qualification rows and frc901 is on none of
+   * them, so the event's own run prices it from awards alone. The two tests
+   * below now pin that reading instead of the unavailable one.
    */
   function districtWithOneUnpriceableTeam() {
     const teams = ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey)));
     return artifactOf([...teams, withLiveEvent(districtTeam("frc901"))]);
   }
 
-  it("still prints a chance for the rest of the district when ONE team's grand total cannot be built", async () => {
+  it("prints a chance for the whole district, the registered no show included (260927-vmb)", async () => {
     installFetch({ eventArtifact: liveEventArtifact() });
     handle = installMockWorker({ script: realRunScript });
     renderLedger(districtWithOneUnpriceableTeam());
@@ -1661,15 +1666,15 @@ describe("DistrictLedger — the advancement chance", () => {
     for (const line of screen.getAllByTestId("district-ledger-chance")) {
       expect(line.textContent ?? "").toMatch(/^(<5% chance|\d{1,2}% chance)$/);
     }
-    // The unpriceable team is LEFT OUT of the posted ranking rather than posted
-    // with a fabricated distribution.
+    // 260927-vmb: the registered no show is priced from awards alone, so it is
+    // POSTED to the ranking with the roster rather than left out.
     const request = instancesReceiving(handle, "chance").at(-1)!.received[0] as { inputs: { teams: { teamKey: string }[] } };
     const posted = request.inputs.teams.map((team) => team.teamKey);
-    expect(posted).not.toContain("frc901");
-    expect(posted).toHaveLength(ROSTER.length);
+    expect(posted).toContain("frc901");
+    expect(posted).toHaveLength(ROSTER.length + 1);
   });
 
-  it("says so in the excluded team's OWN row rather than saying nothing anywhere", async () => {
+  it("prices the registered no show's OWN row from awards alone rather than printing unavailable (260927-vmb)", async () => {
     installFetch({ eventArtifact: liveEventArtifact() });
     handle = installMockWorker({ script: realRunScript });
     renderLedger(districtWithOneUnpriceableTeam());
@@ -1678,11 +1683,8 @@ describe("DistrictLedger — the advancement chance", () => {
     const rows = [...document.querySelectorAll('[data-testid="district-ledger-row"][data-team="frc901"]')];
     expect(rows.length).toBeGreaterThan(0);
     const text = rows.map((row) => row.textContent ?? "").join(" ");
-    expect(text).toContain(DISTRICT_LEDGER_UNAVAILABLE_CELL);
-    // And no chance line under its own chip, because it was never ranked.
-    for (const row of rows) {
-      expect(within(row as HTMLElement).queryAllByTestId("district-ledger-chance")).toHaveLength(0);
-    }
+    // 260927-vmb: priced from awards alone, so no cell of its row is unavailable.
+    expect(text).not.toContain(DISTRICT_LEDGER_UNAVAILABLE_CELL);
   });
 });
 
