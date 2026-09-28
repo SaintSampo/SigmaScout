@@ -74,7 +74,7 @@
  * The filter's own variance is ~2x its realized variance, which `tau` hides in
  * the win probability but which used to ship straight to the screen.
  */
-import { TOTAL_METRIC_KEY, type AlgorithmModule, type MatchResult, type Prediction, type SeasonBoundary, type TeamMetrics, type UpcomingMatch } from "./types.js";
+import { TOTAL_METRIC_KEY, type AlgorithmModule, type MatchResult, type Prediction, type SeasonBoundary, type TeamMetric, type TeamMetrics, type UpcomingMatch } from "./types.js";
 import { foldsIntoRatings } from "./eventTypes.js";
 import {
   COMPONENT_GROUP_IDS,
@@ -930,6 +930,35 @@ function carrySeason(state: SprState, boundary: SeasonBoundary): SprState {
   };
 }
 
+/**
+ * One team's published TOTAL at `unit` points per rating unit. The one
+ * transcription of that formula: `teamMetrics` and `unseenTeamMetrics` both
+ * call it, so the rookie rating below cannot drift from a published total.
+ */
+function totalMetricOf(s: SprTeamState, unit: number): TeamMetric {
+  return {
+    value: (s.muL + s.muS) * unit,
+    spread: Math.sqrt(Math.max(s.pL + s.pS, 0)) * unit,
+  };
+}
+
+/**
+ * What `predict` assigns a team the state has never seen, as a TOTAL at this
+ * instant: `viewOfMap` reads an absent team as `freshTeam(SPR_PARAMS)`, so its
+ * rating is `rookieMean` and its spread `sqrt(priorVar + fastPriorVar)`, times
+ * the same contemporaneous `unit` `teamMetrics` uses. Walk-forward by
+ * construction: `rookieMean`, `priorVar` and `fastPriorVar` are the frozen
+ * 2026-09-08 parameters (chosen on 2016-2022 only) and `unit` is the online
+ * scale, which has seen only folded matches.
+ *
+ * Publishes nothing (`AlgorithmModule.unseenTeamMetrics`); `teamMetrics` is
+ * unchanged and still omits every team the state does not hold. Phase keys are
+ * absent: they are display-only and nothing prices from them.
+ */
+function unseenTeamMetrics(state: SprState): TeamMetrics[string] {
+  return { [TOTAL_METRIC_KEY]: totalMetricOf(freshTeam(SPR_PARAMS), state.scale / 3) };
+}
+
 function teamMetrics(state: SprState, teams?: readonly string[]): TeamMetrics {
   // Points per league-average robot AS OF THIS CALL — a point sample of the
   // rolling global EWMA described in this file's header, not an event-local
@@ -946,10 +975,7 @@ function teamMetrics(state: SprState, teams?: readonly string[]): TeamMetrics {
     const s = state.teams.get(key);
     if (s === undefined) continue;
     const metrics: TeamMetrics[string] = {
-      [TOTAL_METRIC_KEY]: {
-        value: (s.muL + s.muS) * unit,
-        spread: Math.sqrt(Math.max(s.pL + s.pS, 0)) * unit,
-      },
+      [TOTAL_METRIC_KEY]: totalMetricOf(s, unit),
     };
 
     // Display-only phase roll-ups. A phase is emitted only once its own scale
@@ -979,6 +1005,7 @@ export const spr: AlgorithmModule<SprState> = {
   predict,
   update,
   teamMetrics,
+  unseenTeamMetrics,
   carrySeason,
   /**
    * Quick task 260910-kco (2026-09-10, ships inside the same 2.0.0 bump as

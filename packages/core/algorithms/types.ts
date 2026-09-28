@@ -261,4 +261,16 @@ export interface AlgorithmModule<S> {
    * module contract rather than in a parameter set.
    */
   carryFrom?: "season-final" | "last-official-match";
+  /**
+   * What `predict` itself assigns a team this state has never seen, as one
+   * `teamMetrics` row (the `TOTAL_METRIC_KEY` entry only), at this instant.
+   * Optional: only SPR implements it.
+   *
+   * It PUBLISHES NOTHING. `teamMetrics` never lists a team the state does not
+   * hold, and this does not change that. Its one caller is the district bake's
+   * Sigma-carry CANDIDATE (`packages/harness/sigmaCarry.ts`), which is off by
+   * default, so every published output is unchanged by its existence. Pure and
+   * read-only, like `teamMetrics`.
+   */
+  unseenTeamMetrics?(state: S): TeamMetrics[string];
 }

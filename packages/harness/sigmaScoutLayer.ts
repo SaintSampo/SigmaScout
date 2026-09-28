@@ -22,7 +22,8 @@
  */
 
 import type { CompLevel, MatchResult, Prediction, UpcomingMatch } from "../core/algorithms/types.js";
-import { foldsIntoRatings } from "../core/algorithms/eventTypes.js";
+import { foldsIntoRatings, isOfficialEventType } from "../core/algorithms/eventTypes.js";
+import { acrossSigmaBoundary, seasonOwnPopulation, ZERO_SIGMA_POPULATION, type SigmaSeasonCarry } from "./sigmaCarry.js";
 import type { PredictionRecord } from "./replay.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 import { isRpEligibleEventType } from "../core/rankingPoints/constants.js";
@@ -55,6 +56,18 @@ export interface UpcomingLayerRecord {
   readonly matchBand?: { red?: number; blue?: number };
 }
 
+/** Optional construction switches. Every one is inert when absent. */
+export interface SigmaScoutLayerOptions {
+  /**
+   * The Sigma-carry CANDIDATE (`sigmaCarry.ts`), off unless present. Present:
+   * the Sigma accumulator starts from `from` (`undefined` for a cold-start
+   * season, which starts empty exactly as today), and the layer keeps its
+   * last-official-match checkpoint so `sigmaCarryOut()` can hand the next
+   * season its start. Absent: the layer is byte-for-byte the incumbent.
+   */
+  readonly sigmaCarry?: { readonly from: SigmaSeasonCarry | undefined };
+}
+
 /**
  * One algorithm's level-2 state for one season: drive it with that algorithm's
  * chronological played stream via `foldPlayed`, then read `sigmaScoreByTeam()`
@@ -63,6 +76,16 @@ export interface UpcomingLayerRecord {
 export class SigmaScoutLayer {
   /** Present only for Sigma algorithms: the source of Sigma Score, the win-odds variance and the match band. */
   readonly #sigma: SigmaScoreAccumulator | undefined;
+  /** True only when the Sigma-carry candidate is on AND this layer carries Sigma. Every carry branch below reads it first. */
+  readonly #sigmaCarryOn: boolean;
+  /** The population this season's accumulator started from, subtracted to find what the season folded itself. */
+  readonly #sigmaCarriedInPopulation: SigmaPopulation;
+  /** Whether any official match has reached `foldPlayed`. */
+  #sawOfficialMatch = false;
+  /** Whether the live accumulator still equals its state right after the last official match (no non-official fold since). */
+  #liveAtLastOfficial = false;
+  /** The carry snapshot taken just before the first non-official fold after an official match, when the live state moved on. */
+  #officialCheckpoint: SigmaSeasonCarry | undefined;
   readonly #rp: RpMomentsAccumulator | undefined;
   readonly #ruleModule: RpRuleModule | undefined;
   /**
@@ -81,12 +104,47 @@ export class SigmaScoutLayer {
    * mean shift need `ruleModule` and `publishesRankingPoints`. With no id the
    * layer produces nothing.
    */
-  constructor(ruleModule: RpRuleModule | undefined, algorithmId?: string) {
+  constructor(ruleModule: RpRuleModule | undefined, algorithmId?: string, options?: SigmaScoutLayerOptions) {
     const rankingPoints = algorithmId !== undefined && publishesRankingPoints(algorithmId);
     this.#ruleModule = rankingPoints ? ruleModule : undefined;
     this.#rp = rankingPoints && ruleModule !== undefined ? new RpMomentsAccumulator(ruleModule) : undefined;
     this.#rpMeanShift = rankingPoints && ruleModule !== undefined ? new RpMeanShiftAccumulator(ruleModule) : undefined;
-    this.#sigma = algorithmId !== undefined && usesSigmaScore(algorithmId) ? new SigmaScoreAccumulator() : undefined;
+    const sigma = algorithmId !== undefined && usesSigmaScore(algorithmId);
+    const carryFrom = options?.sigmaCarry?.from;
+    // Candidate on with a carry: resume through the Worker's own entry point, so
+    // the beliefs and the population are read exactly as a live tick reads a seed.
+    this.#sigma = !sigma
+      ? undefined
+      : carryFrom !== undefined
+        ? SigmaScoreAccumulator.fromBeliefs(carryFrom.beliefs, carryFrom.population)
+        : new SigmaScoreAccumulator();
+    this.#sigmaCarryOn = sigma && options?.sigmaCarry !== undefined;
+    this.#sigmaCarriedInPopulation = carryFrom?.population ?? ZERO_SIGMA_POPULATION;
+  }
+
+  /**
+   * The candidate's carry into the NEXT season (`sigmaCarry.ts`), or
+   * `undefined` when the candidate is off or the layer carries no Sigma. Taken
+   * as of this season's last official match; with no official match at all,
+   * as of the end of the stream (replay.ts's own `carryStates` fallback).
+   */
+  sigmaCarryOut(): SigmaSeasonCarry | undefined {
+    if (!this.#sigmaCarryOn) return undefined;
+    if (this.#liveAtLastOfficial || !this.#sawOfficialMatch) return this.#takeSigmaCarry();
+    return this.#officialCheckpoint;
+  }
+
+  #takeSigmaCarry(): SigmaSeasonCarry {
+    const sigma = this.#sigma!;
+    return {
+      beliefs: acrossSigmaBoundary(sigma.beliefsByTeam()),
+      population: seasonOwnPopulation(sigma.population(), this.#sigmaCarriedInPopulation),
+    };
+  }
+
+  /** The prior-only Sigma Score of a team whose only information is this talent (`SigmaScoreAccumulator.priorSigmaAtTalent`), or `undefined` for a non-Sigma layer. Read-only. */
+  sigmaPriorAtTalent(talent: number): number | undefined {
+    return this.#sigma?.priorSigmaAtTalent(talent);
   }
 
   /**
@@ -193,11 +251,25 @@ export class SigmaScoutLayer {
     // them. `foldMatch` applies the same rule itself; the talent, the mean shift
     // and the threshold fold have no such gate of their own, so it is here.
     const folds = foldsIntoRatings(match.eventType);
+    // Candidate only (`sigmaCarry.ts`): a non-official match that folds (an
+    // offseason event) is about to move the accumulator past its state at the
+    // last official match, which is the instant the next season carries from.
+    // Snapshot it first. A Week 0 match folds nothing, so it needs none.
+    const official = isOfficialEventType(match.eventType);
+    if (this.#sigmaCarryOn && folds && !official && this.#liveAtLastOfficial) {
+      this.#officialCheckpoint = this.#takeSigmaCarry();
+      this.#liveAtLastOfficial = false;
+    }
     this.#sigma?.foldMatch(match, prediction);
     // Talent after the fold: it is read from post-match state, so applying it
     // first would let a match inform its own prior.
     if (folds && talentAfterMatch !== undefined && this.#sigma !== undefined) {
       for (const [teamKey, talent] of talentAfterMatch) this.#sigma.observeTalent(teamKey, talent);
+    }
+    if (this.#sigmaCarryOn && official) {
+      this.#sawOfficialMatch = true;
+      this.#liveAtLastOfficial = true;
+      this.#officialCheckpoint = undefined;
     }
 
     // Win odds: the UNCORRECTED variance.

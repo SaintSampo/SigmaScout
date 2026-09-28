@@ -28,6 +28,14 @@
  * uses `carryStates` to thread across a season boundary and `finalStates` to
  * price, exactly as those two contracts require.
  *
+ * THE SIGMA-CARRY CANDIDATE (`options.sigmaCarry`, off by default and off on
+ * every production path) is the one switch here that changes a number. With it
+ * on, each warmup season also folds a Sigma-only layer so it can hand the next
+ * season its carry, and the pricing closures rate a never-seen team with the
+ * candidate's rookie rule. `packages/harness/sigmaCarry.ts` holds the whole
+ * definition; the acceptance bar it has to pass is pre-registered in debug
+ * session `presim-bake-rp-filler-refuses`.
+ *
  * CREDENTIALS: reads `data/corpus.sqlite` READ-ONLY through the handle the
  * caller opens and the caller closes. No network request, no environment
  * variable, no credential, no R2 and no D1. `.env` is never read, printed or
@@ -51,6 +59,7 @@ import { buildSeasonStream, WalkForwardSimulator } from "../packages/harness/rep
 import { seasonBoundaryFor } from "../packages/harness/seasonBoundary.js";
 import { SigmaScoutLayer } from "../packages/harness/sigmaScoutLayer.js";
 import { usesSigmaScore } from "../packages/harness/sigmaScore.js";
+import { candidateRosterRatings, candidateSigmaMap, type SigmaSeasonCarry } from "../packages/harness/sigmaCarry.js";
 
 /** The default corpus path, the same literal every other script in this directory uses. */
 export const CORPUS_PATH = "data/corpus.sqlite";
@@ -193,6 +202,14 @@ export interface BuildDistrictPricingStateOptions {
   readonly asOf: string;
   /** The resolved SPR algorithm — `resolveDistrictPricingAlgorithm`'s output, or a test's own module. */
   readonly algorithm: AlgorithmModule<any>;
+  /**
+   * The Sigma-carry CANDIDATE (`packages/harness/sigmaCarry.ts`), for verification only
+   * (`publishDistricts --sigma-carry`, which refuses to run without `--dry-run`). `true`: every
+   * replayed season folds a Sigma layer and carries it into the next, the target season's layer starts
+   * from that carry, and `ratingsFor`/`predictFor` rate a team the replay never saw with the
+   * candidate's rookie rule. Absent or `false`: exactly the incumbent path, byte for byte.
+   */
+  readonly sigmaCarry?: boolean;
 }
 
 export interface DistrictPricingState {
@@ -215,6 +232,8 @@ export interface DistrictPricingState {
   readonly ratingsFor: (roster: readonly string[]) => ReadonlyMap<string, AllianceMemberRating>;
   /** The bound `predict` a bake needs, or `undefined` when the all-or-nothing roster rule rejects this roster. */
   readonly predictFor: (roster: readonly string[]) => ((match: UpcomingMatch) => Prediction) | undefined;
+  /** Whether the Sigma-carry candidate priced this state. `false` on every production path. */
+  readonly sigmaCarry: boolean;
 }
 
 /**
@@ -265,6 +284,7 @@ export function resolveDistrictPricingAlgorithm(): AlgorithmModule<any> | null {
  */
 export function buildDistrictPricingState(db: Corpus, options: BuildDistrictPricingStateOptions): DistrictPricingState | null {
   const { season, asOf, algorithm } = options;
+  const sigmaCarryOn = options.sigmaCarry === true;
   const seasons = [...options.warmupSeasons].filter((s) => s < season).sort((a, b) => a - b);
   seasons.push(season);
 
@@ -275,6 +295,8 @@ export function buildDistrictPricingState(db: Corpus, options: BuildDistrictPric
   let layer: SigmaScoutLayer | undefined;
   let matchesReplayed = 0;
   let matchesTruncated = 0;
+  /** The Sigma-carry candidate's carry into the next replayed season. Never set when the candidate is off. */
+  let sigmaCarry: SigmaSeasonCarry | undefined;
 
   for (const [seasonIdx, s] of seasons.entries()) {
     const fullStream = buildSeasonStream(db, s, { includeOffseason: true });
@@ -313,14 +335,26 @@ export function buildDistrictPricingState(db: Corpus, options: BuildDistrictPric
     const records = simulator.runAll([algorithm], teams, initialStates, onMatchComplete);
     carriedState = records.carryStates.get(algorithm.id);
 
+    // Candidate only: the carry into this season, or none for the cold-start season (as SPR's own).
+    const layerOptions = sigmaCarryOn ? { sigmaCarry: { from: boundary.isColdStart ? undefined : sigmaCarry } } : undefined;
     if (s === season) {
       // `finalStates`, not `carryStates` — see this file's header.
       endState = records.finalStates.get(algorithm.id);
-      layer = new SigmaScoutLayer(RP_RULE_MODULES[s], algorithm.id);
+      layer = new SigmaScoutLayer(RP_RULE_MODULES[s], algorithm.id, layerOptions);
       for (const record of records) {
         if (record.algorithmId !== algorithm.id) continue;
         layer.foldPlayed(record.match, record.prediction, talentAfterMatch.get(record.match.matchKey));
       }
+    } else if (sigmaCarryOn) {
+      // A warmup season folds a Sigma-only layer (no rule module: its ranking points are never read),
+      // purely to hand the next season its carry. Sigma folding never reads the rule module, so the
+      // carry is the one a full layer would hand over.
+      const warmupLayer = new SigmaScoutLayer(undefined, algorithm.id, layerOptions);
+      for (const record of records) {
+        if (record.algorithmId !== algorithm.id) continue;
+        warmupLayer.foldPlayed(record.match, record.prediction, talentAfterMatch.get(record.match.matchKey));
+      }
+      sigmaCarry = warmupLayer.sigmaCarryOut();
     }
   }
 
@@ -336,6 +370,27 @@ export function buildDistrictPricingState(db: Corpus, options: BuildDistrictPric
   const resolvedLayer = layer;
   const resolvedState = endState;
 
+  /**
+   * The candidate's rating for every roster team (`candidateRosterRatings`): the published total,
+   * else what SPR's own `predict` assigns an unseen team; the layer's Sigma, else the prior-only Sigma
+   * at that total. Only ever called with the candidate on.
+   */
+  const candidateRatings = (roster: readonly string[]) => {
+    const metrics = algorithm.teamMetrics(resolvedState, [...roster]);
+    const totalByTeam = new Map<string, number>();
+    for (const teamKey of roster) {
+      const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
+      if (total !== undefined) totalByTeam.set(teamKey, total);
+    }
+    return candidateRosterRatings({
+      roster,
+      totalByTeam,
+      unseenTotal: algorithm.unseenTeamMetrics?.(resolvedState)?.[TOTAL_METRIC_KEY]?.value,
+      sigmaByTeam,
+      priorSigmaAtTalent: (talent) => resolvedLayer.sigmaPriorAtTalent(talent),
+    });
+  };
+
   return {
     algorithmId: algorithm.id,
     algorithmVersion: algorithm.version,
@@ -346,9 +401,14 @@ export function buildDistrictPricingState(db: Corpus, options: BuildDistrictPric
     matchesTruncated,
     endState: resolvedState,
     layer: resolvedLayer,
+    sigmaCarry: sigmaCarryOn,
     ratingsFor: (roster) => {
-      const metrics = algorithm.teamMetrics(resolvedState, [...roster]);
       const ratings = new Map<string, AllianceMemberRating>();
+      if (sigmaCarryOn) {
+        for (const [teamKey, rating] of candidateRatings(roster)) ratings.set(teamKey, { teamKey, total: rating.total, sigma: rating.sigma });
+        return ratings;
+      }
+      const metrics = algorithm.teamMetrics(resolvedState, [...roster]);
       for (const teamKey of roster) {
         const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
         const sigma = sigmaByTeam.get(teamKey);
@@ -360,7 +420,7 @@ export function buildDistrictPricingState(db: Corpus, options: BuildDistrictPric
       const filler = makeRankingPointFiller(
         resolvedLayer.rpAccumulator,
         ruleModule,
-        sigmaByTeam,
+        sigmaCarryOn ? candidateSigmaMap(candidateRatings(roster)) : sigmaByTeam,
         roster,
         ruleModule === undefined ? undefined : RpMeanShiftAccumulator.fromState(ruleModule, resolvedLayer.rpMeanShiftState())
       );

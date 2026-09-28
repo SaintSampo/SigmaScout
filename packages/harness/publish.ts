@@ -98,6 +98,7 @@ import { analyticRpPmf } from "../core/rankingPoints/analyticPmf.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 // The level-2 layer (Sigma Score, the band and ranking points), driven only by `publishSeasons`.
 import { SigmaScoutLayer } from "./sigmaScoutLayer.js";
+import type { SigmaSeasonCarry } from "./sigmaCarry.js";
 import { roundMetric, roundTo, ROUNDING_RULE } from "./rounding.js";
 import {
   actualBonusFlagsForMatch,
@@ -1534,6 +1535,13 @@ export interface PublishSeasonsOptions {
   readonly rpCalibration?: RpCalibrationMeasurement;
   /** An optional read-only observer of every recorded artifact body — see `ArtifactSink`. No CLI flag; `undefined` means no call and no behavior change. */
   readonly artifactSink?: ArtifactSink;
+  /**
+   * The Sigma-carry CANDIDATE (`sigmaCarry.ts`), for offline verification only. No CLI flag on
+   * `publish:seasons`; `scripts/captureCompareSlices.ts --sigma-carry` is its one caller. `true` starts
+   * each Sigma algorithm's layer from the previous season's carry. Absent or `false`: every layer is
+   * constructed exactly as before and nothing is carried, so every output is byte-identical.
+   */
+  readonly sigmaCarry?: boolean;
 }
 
 export interface PublishSummary {
@@ -1810,6 +1818,8 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
   }
 
   let liveStatesAcrossSeasons = new Map<string, unknown>();
+  /** The Sigma-carry candidate's per-algorithm carry into the next season. Stays empty unless `options.sigmaCarry` is `true`. */
+  let sigmaCarryAcrossSeasons = new Map<string, SigmaSeasonCarry>();
   /**
    * The final season's seed-row getters (`memoizedSeedStateRows`), keyed by algorithm id; absent for
    * an algorithm with no final state. The D1 seed calls the same getter the season's event blocks
@@ -1984,7 +1994,14 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
     // One level-2 layer per algorithm. `records` is chronological, which is the order `foldPlayed` requires.
     const rpRuleModule = RP_RULE_MODULES[season];
     const layers = new Map<string, SigmaScoutLayer>();
-    for (const algorithm of options.algorithms) layers.set(algorithm.id, new SigmaScoutLayer(rpRuleModule, algorithm.id));
+    for (const algorithm of options.algorithms) {
+      // The Sigma-carry candidate is off unless asked for; off passes no options at all.
+      const layerOptions =
+        options.sigmaCarry === true
+          ? { sigmaCarry: { from: boundary.isColdStart ? undefined : sigmaCarryAcrossSeasons.get(algorithm.id) } }
+          : undefined;
+      layers.set(algorithm.id, new SigmaScoutLayer(rpRuleModule, algorithm.id, layerOptions));
+    }
 
     /**
      * algorithm id -> team key -> match key -> Sigma Score right after that match's fold, merged by
@@ -2516,6 +2533,14 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
     // `finalStates` is the D1 seed the live Worker resumes, which continues the offseason-inclusive
     // season, so a rewound seed would make live and offline disagree.
     liveStatesAcrossSeasons = new Map(records.carryStates);
+    if (options.sigmaCarry === true) {
+      const nextCarry = new Map<string, SigmaSeasonCarry>();
+      for (const [algorithmId, layer] of layers) {
+        const carry = layer.sigmaCarryOut();
+        if (carry !== undefined) nextCarry.set(algorithmId, carry);
+      }
+      sigmaCarryAcrossSeasons = nextCarry;
+    }
     // The seed rows come from `records.finalStates` and these layers' passengers (RP beliefs, the mean
     // shift, Sigma beliefs and population), all from the same offseason-inclusive population, for the
     // same reason.

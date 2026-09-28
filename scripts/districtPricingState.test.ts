@@ -21,6 +21,11 @@ import {
   startedEventKeysAsOf,
   underwayEventKeysAsOf,
 } from "./districtPricingState.js";
+import { TOTAL_METRIC_KEY, type MatchResult } from "../packages/core/algorithms/types.js";
+import { corpusColdStartIndex } from "../packages/harness/corpusColdStart.js";
+import { buildSeasonStream, WalkForwardSimulator } from "../packages/harness/replay.js";
+import { SigmaScoreAccumulator } from "../packages/harness/sigmaScore.js";
+import { SigmaScoutLayer } from "../packages/harness/sigmaScoutLayer.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const CORPUS_AVAILABLE = existsSync(CORPUS_PATH);
@@ -337,3 +342,143 @@ describe("buildDistrictPricingState over the real corpus", () => {
     expect(state.layer.sigmaScoreByTeam().size).toBeGreaterThan(0);
   });
 });
+
+/**
+ * THE SIGMA-CARRY CANDIDATE (`packages/harness/sigmaCarry.ts`), over the real corpus at 2026-03-01: the
+ * instant the debug session's trigger reported, when no 2026 match had folded (the first folding 2026
+ * match is 2026-03-04; Week 0 folds nothing). Warmup [2025] keeps it cheap: the carry into 2026 is then
+ * 2025's, and 2025 is this run's cold-start season.
+ */
+describe("buildDistrictPricingState with the Sigma-carry candidate, over the real corpus", () => {
+  if (!CORPUS_AVAILABLE) {
+    it.skip(`skipped: ${CORPUS_PATH} not found — run the ingest pipeline (pnpm ingest:districts) first`, () => {});
+    return;
+  }
+
+  const AS_OF = "2026-03-01";
+  const SEASON = 2026;
+  const WARMUP = [2025];
+  const STILL_AHEAD_EVENT = "2026mibig";
+
+  let db: Corpus;
+  let off: NonNullable<ReturnType<typeof buildDistrictPricingState>>;
+  let on: NonNullable<ReturnType<typeof buildDistrictPricingState>>;
+  let roster: string[];
+  beforeAll(() => {
+    db = openCorpusReadOnly(CORPUS_PATH);
+    const algorithm = resolveDistrictPricingAlgorithm()!;
+    off = buildDistrictPricingState(db, { season: SEASON, warmupSeasons: WARMUP, asOf: AS_OF, algorithm })!;
+    on = buildDistrictPricingState(db, { season: SEASON, warmupSeasons: WARMUP, asOf: AS_OF, algorithm, sigmaCarry: true })!;
+    roster = (db.prepare(`SELECT team_key FROM event_teams WHERE event_key = ?`).all(STILL_AHEAD_EVENT) as { team_key: string }[]).map((r) => r.team_key);
+  }, 600_000);
+  afterAll(() => {
+    db.close();
+  });
+
+  it("the knob changes no replay: the same matches replayed and truncated, the same SPR end state, the flag reported", () => {
+    expect(off.sigmaCarry).toBe(false);
+    expect(on.sigmaCarry).toBe(true);
+    expect(on.matchesReplayed).toBe(off.matchesReplayed);
+    expect(on.matchesTruncated).toBe(off.matchesTruncated);
+    expect(on.replayedSeasons).toEqual(off.replayedSeasons);
+    const algorithm = resolveDistrictPricingAlgorithm()!;
+    expect(algorithm.teamMetrics(on.endState, roster)).toEqual(algorithm.teamMetrics(off.endState, roster));
+  });
+
+  it("OFF is the incumbent at 03-01: no Sigma Score exists, the filler refuses the roster, a rookie has no total", () => {
+    expect(off.layer.sigmaScoreByTeam().size).toBe(0);
+    expect(off.predictFor(roster)).toBeUndefined();
+    const ratings = off.ratingsFor(roster);
+    expect([...ratings.values()].every((r) => r.sigma === undefined)).toBe(true);
+    expect([...ratings.values()].some((r) => r.total === undefined)).toBe(true);
+  });
+
+  it("ON prices the same roster: every team carries a finite total and a positive Sigma, and a rookie's total is SPR's own unseen-team total", () => {
+    expect(roster.length).toBeGreaterThan(0);
+    expect(on.predictFor(roster)).toBeDefined();
+    const ratings = on.ratingsFor(roster);
+    for (const teamKey of roster) {
+      const rating = ratings.get(teamKey)!;
+      expect(Number.isFinite(rating.total), teamKey).toBe(true);
+      expect(rating.sigma! > 0, teamKey).toBe(true);
+    }
+    const algorithm = resolveDistrictPricingAlgorithm()!;
+    const published = algorithm.teamMetrics(on.endState, roster);
+    const rookies = roster.filter((teamKey) => published[teamKey] === undefined);
+    expect(rookies.length).toBeGreaterThan(0);
+    const unseen = algorithm.unseenTeamMetrics!(on.endState)[TOTAL_METRIC_KEY]!.value;
+    for (const teamKey of rookies) {
+      expect(ratings.get(teamKey)!.total).toBe(unseen);
+      expect(ratings.get(teamKey)!.sigma).toBe(on.layer.sigmaPriorAtTalent(unseen));
+    }
+  });
+
+  it("2026 IS SEEDED FROM 2025 ONLY: the target layer is exactly the carry an independent 2025 replay hands on", () => {
+    const algorithm = resolveDistrictPricingAlgorithm()!;
+    const cut = playedMatchKeysAtOrAfter(db, 2025, AS_OF);
+    const stream = buildSeasonStream(db, 2025, { includeOffseason: true }).filter((m) => !cut.has(m.matchKey));
+    const talentAfterMatch = new Map<string, Map<string, number>>();
+    const records = new WalkForwardSimulator(stream, corpusColdStartIndex(db)).runAll(
+      [algorithm],
+      [...new Set(stream.flatMap((m) => [...m.redTeams, ...m.blueTeams]))],
+      undefined,
+      (match: MatchResult, _id: string, state: unknown) => {
+        const involved = [...match.redTeams, ...match.blueTeams];
+        const metrics = algorithm.teamMetrics(state, involved);
+        const talent = new Map<string, number>();
+        for (const teamKey of involved) {
+          const total = metrics[teamKey]?.[TOTAL_METRIC_KEY]?.value;
+          if (total !== undefined) talent.set(teamKey, total);
+        }
+        talentAfterMatch.set(match.matchKey, talent);
+      }
+    );
+    const layer2025 = new SigmaScoutLayer(undefined, algorithm.id, { sigmaCarry: { from: undefined } });
+    for (const record of records) layer2025.foldPlayed(record.match, record.prediction, talentAfterMatch.get(record.match.matchKey));
+    const carry = layer2025.sigmaCarryOut()!;
+
+    // No 2026 match had folded by the instant, so the target layer IS the carry.
+    expect(on.layer.sigmaPopulation()).toEqual(carry.population);
+    expect([...on.layer.sigmaScoreByTeam()]).toEqual([...SigmaScoreAccumulator.fromBeliefs(carry.beliefs, carry.population).scoreByTeam()]);
+    // Non-vacuity: the carry is 2025's official season, not an empty map.
+    expect(carry.beliefs.size).toBeGreaterThan(1000);
+    expect(carry.population.count).toBeGreaterThan(10_000);
+  });
+
+  it("the walk-forward cut holds with the knob on: in-season, the carried layer folds exactly the matches played before the instant", () => {
+    const IN_PROGRESS = "2026-03-07";
+    const instant = Date.parse(IN_PROGRESS);
+    const playedBefore = (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM matches m JOIN events e ON e.event_key = m.event_key WHERE e.year = ? AND m.winner IS NOT NULL AND m.sort_time < ?`
+        )
+        .get(SEASON, instant) as { n: number }
+    ).n;
+    const algorithm = resolveDistrictPricingAlgorithm()!;
+    const onLater = buildDistrictPricingState(db, { season: SEASON, warmupSeasons: WARMUP, asOf: IN_PROGRESS, algorithm, sigmaCarry: true })!;
+    const offLater = buildDistrictPricingState(db, { season: SEASON, warmupSeasons: WARMUP, asOf: IN_PROGRESS, algorithm })!;
+    // The same replay cut as the incumbent's: 2025 whole, 2026 up to the instant.
+    expect(onLater.matchesReplayed).toBe(offLater.matchesReplayed);
+    expect(onLater.matchesTruncated).toBe(offLater.matchesTruncated);
+    expect(onLater.matchesReplayed - on.matchesReplayed).toBe(playedBefore - playedBeforeAt(db, SEASON, AS_OF));
+    // The carried layer = the 2025 carry (the 03-01 layer, previous test) plus exactly the 2026 folds the
+    // incumbent layer made before the instant, and nothing after it.
+    const carriedIn = on.layer.sigmaPopulation()!;
+    const own = offLater.layer.sigmaPopulation()!;
+    expect(own.count).toBeGreaterThan(0);
+    expect(onLater.layer.sigmaPopulation()!.count).toBe(carriedIn.count + own.count);
+    expect(playedBefore).toBeGreaterThan(playedBeforeAt(db, SEASON, AS_OF));
+  }, 600_000);
+});
+
+/** Played matches of `season` stamped strictly before `asOf`. */
+function playedBeforeAt(db: Corpus, season: number, asOf: string): number {
+  return (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM matches m JOIN events e ON e.event_key = m.event_key WHERE e.year = ? AND m.winner IS NOT NULL AND m.sort_time < ?`
+      )
+      .get(season, Date.parse(asOf)) as { n: number }
+  ).n;
+}

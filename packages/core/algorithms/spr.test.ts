@@ -11,7 +11,7 @@
  */
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { spr, correctionsOf, type SprState, type SprTeamState } from "./spr.js";
+import { spr, correctionsOf, SPR_PARAMS, type SprState, type SprTeamState } from "./spr.js";
 import { accuracyCall, scoreSet } from "../scoring/brier.js";
 import type { MatchResult, UpcomingMatch } from "./types.js";
 import { DEMO_PSEUDO_TEAM_KEY } from "./demoTeams.js";
@@ -506,5 +506,49 @@ describe("spr phase folding survives an offseason breakdown missing only adjustP
     // it closely -- not the pre-fix 141.4-vs-316.31 divergence (< 45% of
     // total) this bug produced.
     expect(Math.abs(phaseSum - total) / Math.abs(total)).toBeLessThan(0.3);
+  });
+});
+
+describe("spr.unseenTeamMetrics — what predict already assigns a never-seen team (the Sigma-carry candidate's rookie rating)", () => {
+  /** A state that has folded a few matches, so its scale (and so `unit`) is non-zero. */
+  function playedState(): SprState {
+    let state = spr.initState([...SIX]);
+    for (let i = 0; i < 6; i++) {
+      state = spr.update(state, result({ matchKey: `2016test_qm${i + 1}`, matchNumber: i + 1, redScore: 80 + i * 7, blueScore: 60 + i * 3, winner: "red" }));
+    }
+    return state;
+  }
+
+  const unseenTotal = (state: SprState): { value: number; spread?: number } => {
+    const entry = spr.unseenTeamMetrics!(state)["total"];
+    if (entry === undefined) throw new Error("unseenTeamMetrics carried no total");
+    return entry;
+  };
+
+  it("equals the TOTAL teamMetrics publishes for a team holding exactly the fresh prior state", () => {
+    const state = playedState();
+    const withFresh: SprState = {
+      ...state,
+      teams: new Map([...state.teams, ["frc9000", { muL: SPR_PARAMS.rookieMean, pL: SPR_PARAMS.priorVar, muS: 0, pS: SPR_PARAMS.fastPriorVar }]]),
+    };
+    expect(unseenTotal(state)).toEqual(spr.teamMetrics(withFresh, ["frc9000"])["frc9000"]!["total"]);
+    expect(unseenTotal(state).value).toBeGreaterThan(0);
+  });
+
+  it("is one third of the score predict gives an alliance of three never-seen teams", () => {
+    const state = playedState();
+    const prediction = spr.predict(state, upcoming({ redTeams: ["frc7001", "frc7002", "frc7003"], blueTeams: ["frc1", "frc2", "frc3"] }));
+    expect(prediction.redScore / 3).toBeCloseTo(unseenTotal(state).value, 9);
+  });
+
+  it("publishes nothing: teamMetrics still omits a team the state does not hold", () => {
+    const state = playedState();
+    expect(spr.teamMetrics(state, ["frc7001"])).toEqual({});
+  });
+
+  it("is zero at a scale-0 state, the honest cold-start answer teamMetrics gives too", () => {
+    const cold = spr.initState([...SIX]);
+    expect(unseenTotal(cold).value).toBe(0);
+    expect(spr.teamMetrics(cold, ["frc1"])["frc1"]!["total"]!.value).toBe(0);
   });
 });

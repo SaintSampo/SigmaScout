@@ -284,13 +284,23 @@ export class SigmaScoreAccumulator {
 
   /** The prior spread for one team: its talent-implied typical variation. */
   priorSigmaFor(teamKey: string): number {
+    return this.priorSigmaAtTalent(this.#readBelief(teamKey).talent);
+  }
+
+  /**
+   * The prior spread for a team of this talent, read-only. With no volatility
+   * evidence this is exactly what `sigmaFor` reads (see its `(alpha0 - 1)`
+   * note), so it is the Sigma Score of a team whose only information is its
+   * talent. `priorSigmaFor` is this at the team's stored talent.
+   */
+  priorSigmaAtTalent(rawTalent: number): number {
     const populationSigma = this.populationSigma();
 
     // Talent scaling waits until `priorK` and the clamp band, both population
     // statistics, have enough observations to mean anything.
     if (this.#populationCount < MIN_POPULATION_FOR_TALENT_PRIOR) return populationSigma;
 
-    const talent = Math.max(this.#readBelief(teamKey).talent, TALENT_FLOOR);
+    const talent = Math.max(rawTalent, TALENT_FLOOR);
     const scaled = this.priorK() * talent;
 
     // Clamped around the population's own spread. Early in a season ratings are

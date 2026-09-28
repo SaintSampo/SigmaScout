@@ -37,7 +37,9 @@
  * only if that event was underway by then. With `--as-of` absent the instant is
  * the run's own clock, nothing in the corpus is stamped after it, and both cuts
  * are identities, so the verification path and the production path are one
- * code path. `--no-bake` skips the replay entirely and says so.
+ * code path. `--no-bake` skips the replay entirely and says so. `--sigma-carry`
+ * (refused without `--dry-run`) prices the bake with the unpromoted Sigma-carry
+ * candidate (`packages/harness/sigmaCarry.ts`) for verification only.
  *
  * WHAT AN AS-OF RUN STILL READS SEASON-FINAL, named rather than hidden: each
  * candidate's registered roster (`event_teams`), its qualification-schedule
@@ -1371,7 +1373,19 @@ function bakeSeason(
   for (let s = warmupFrom; s < season; s++) warmupSeasons.push(s);
 
   const replayStart = performance.now();
-  const pricing = buildDistrictPricingState(db, { season, warmupSeasons, asOf: computedAt, algorithm });
+  if (options.sigmaCarry === true) {
+    console.log(
+      `publishDistricts: season ${season} — Sigma-carry CANDIDATE ON (--sigma-carry, verification only): every warmup season carries its Sigma layer forward and a never-seen team is rated with the candidate's rookie rule`
+    );
+  }
+  const pricing = buildDistrictPricingState(db, {
+    season,
+    warmupSeasons,
+    asOf: computedAt,
+    algorithm,
+    // Off passes nothing, so the production call is exactly what it always was.
+    ...(options.sigmaCarry === true ? { sigmaCarry: true } : {}),
+  });
   const replayMs = performance.now() - replayStart;
   if (pricing === null) {
     console.log(`publishDistricts: season ${season} — the walk-forward replay produced no state, so no event can be priced; skipping the bake`);
@@ -1500,6 +1514,12 @@ export interface CliOptions {
   readonly bakeLimit?: number;
   /** The byte ceilings the publish gate enforces. Defaults to the committed constants. */
   readonly ceilings?: DistrictBudgetCeilings;
+  /**
+   * `--sigma-carry`: price the bake with the Sigma-carry CANDIDATE on (`packages/harness/sigmaCarry.ts`).
+   * A verification switch for debug session `presim-bake-rp-filler-refuses`, refused without `--dry-run`
+   * so a candidate that has not earned promotion can never reach R2. Absent: the production path.
+   */
+  readonly sigmaCarry?: boolean;
 }
 
 export function parseOptions(argv: readonly string[]): CliOptions {
@@ -1513,6 +1533,7 @@ export function parseOptions(argv: readonly string[]): CliOptions {
       "local-out": { type: "string" },
       "no-bake": { type: "boolean" },
       "warmup-from": { type: "string" },
+      "sigma-carry": { type: "boolean" },
     },
   });
 
@@ -1539,6 +1560,13 @@ export function parseOptions(argv: readonly string[]): CliOptions {
     asOf = new Date(parsed).toISOString();
   }
 
+  const sigmaCarry = values["sigma-carry"] === true;
+  if (sigmaCarry && values["dry-run"] !== true) {
+    throw new Error(
+      "publishDistricts: --sigma-carry prices the bake with an unpromoted CANDIDATE model and is a verification switch only — it refuses to run without --dry-run"
+    );
+  }
+
   let warmupFrom: number | undefined;
   if (values["warmup-from"] !== undefined) {
     warmupFrom = Number(values["warmup-from"]);
@@ -1553,6 +1581,7 @@ export function parseOptions(argv: readonly string[]): CliOptions {
     ...(values["local-out"] !== undefined ? { localOut: values["local-out"] } : {}),
     bake: values["no-bake"] !== true,
     ...(warmupFrom !== undefined ? { warmupFrom } : {}),
+    ...(sigmaCarry ? { sigmaCarry: true } : {}),
   };
 }
 

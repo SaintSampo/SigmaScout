@@ -793,6 +793,13 @@ describe("parseOptions — the new flags", () => {
     expect(parseOptions(["--years", "2026", "--warmup-from", "2024"]).warmupFrom).toBe(2024);
     expect(() => parseOptions(["--years", "2026", "--warmup-from", "early"])).toThrow(/--warmup-from/);
   });
+
+  it("--sigma-carry (the unpromoted Sigma-carry candidate) is a verification switch: refused without --dry-run, absent by default", () => {
+    expect(() => parseOptions(["--years", "2026", "--sigma-carry"])).toThrow(/--sigma-carry .* refuses to run without --dry-run/);
+    expect(parseOptions(["--years", "2026", "--sigma-carry", "--dry-run"]).sigmaCarry).toBe(true);
+    const production = parseOptions(["--years", "2026", "--dry-run"]);
+    expect("sigmaCarry" in production).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
