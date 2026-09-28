@@ -4245,42 +4245,84 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     upsertMatch(target, played("2024lat", 2, 11_000, ["frc1", "frc5", "frc6"], ["frc2", "frc3", "frc4"], rewriteLate ? 240 : 180, rewriteLate ? 20 : 80, rewriteLate ? breakdown : swapped, lateCompLevel));
   }
 
-  it.each([
-    ["with a qualification schedule (F3)", "qm"],
-    ["finals-only, no qualification rows (F3b)", "f"],
-  ] as const)("a played event's sidecar never sees that event's own results, %s: rewriting only them leaves the sidecar byte-identical", async (_label, lateCompLevel) => {
-    const sidecarBodies: string[] = [];
-    const eventBodies: string[] = [];
-    for (const rewriteLate of [false, true]) {
-      const variantDir = mkdtempSync(join(tmpdir(), "sigmascout-publish-f3-"));
-      const variantDb = openCorpus(join(variantDir, "corpus.sqlite"));
-      try {
-        seedPreEventPair2024(variantDb, rewriteLate, lateCompLevel);
-        vi.mocked(putObject).mockClear();
-        await publishSeasons(variantDb, {
-          seasons: [2024],
-          algorithms: [spr],
-          bucket: "test-bucket",
-          dryRun: false,
-          skipState: true,
-          preScheduleFromSeason: 2024,
-          generation: "f3-fixed-generation",
-          computedAt: "2026-09-28T00:00:00.000Z",
-        });
-        const sidecar = findPresimCall("2024lat", spr.id);
-        expect(sidecar, "fixture vacuity guard: the later event must get a layer-filled sidecar").toBeDefined();
-        sidecarBodies.push(sidecar![2] as string);
-        const event = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/event/2024lat/${spr.id}@`));
-        eventBodies.push(event![2] as string);
-      } finally {
-        variantDb.close();
-        rmSync(variantDir, { recursive: true, force: true });
-      }
+  /**
+   * Publishes one `seedPreEventPair2024` corpus (plus whatever `extra` seeds) with the real SPR, on a
+   * pinned generation and clock, and returns every put as `[key, body]` in upload order.
+   */
+  async function publishPreEventPair2024(
+    rewriteLate: boolean,
+    lateCompLevel: "qm" | "f",
+    extra?: (target: Corpus) => void
+  ): Promise<(readonly [string, string])[]> {
+    const variantDir = mkdtempSync(join(tmpdir(), "sigmascout-publish-f3-"));
+    const variantDb = openCorpus(join(variantDir, "corpus.sqlite"));
+    try {
+      seedPreEventPair2024(variantDb, rewriteLate, lateCompLevel);
+      extra?.(variantDb);
+      vi.mocked(putObject).mockClear();
+      await publishSeasons(variantDb, {
+        seasons: [2024],
+        algorithms: [spr],
+        bucket: "test-bucket",
+        dryRun: false,
+        skipState: true,
+        preScheduleFromSeason: 2024,
+        generation: "f3-fixed-generation",
+        computedAt: "2026-09-28T00:00:00.000Z",
+      });
+      return vi.mocked(putObject).mock.calls.map(([, key, body]) => [key as string, body as string] as const);
+    } finally {
+      variantDb.close();
+      rmSync(variantDir, { recursive: true, force: true });
     }
+  }
+
+  const putBody = (puts: readonly (readonly [string, string])[], prefix: string): string | undefined =>
+    puts.find(([key]) => key.startsWith(prefix))?.[1];
+
+  it("F3: a played event's sidecar never sees that event's own results: rewriting only them leaves the sidecar byte-identical", async () => {
+    const original = await publishPreEventPair2024(false, "qm");
+    const rewritten = await publishPreEventPair2024(true, "qm");
+    const sidecarPrefix = `v1/presim/2024lat/${spr.id}@`;
+    const eventPrefix = `v1/event/2024lat/${spr.id}@`;
+    expect(putBody(original, sidecarPrefix), "fixture vacuity guard: the later event must get a layer-filled sidecar").toBeDefined();
+    expect(putBody(rewritten, sidecarPrefix), "fixture vacuity guard: the later event must get a layer-filled sidecar").toBeDefined();
     // Control: the rewrite really reached the published record of that event.
-    expect(eventBodies[1]).not.toBe(eventBodies[0]);
-    expect((JSON.parse(sidecarBodies[0]!) as { pricedFrom: string }).pricedFrom).toBe("pre-event-walk-forward");
-    expect(sidecarBodies[1], "the pre-event sidecar changed when only the event's own results changed: a walk-forward leak").toBe(sidecarBodies[0]);
+    expect(putBody(original, eventPrefix)).toBeDefined();
+    expect(putBody(rewritten, eventPrefix)).not.toBe(putBody(original, eventPrefix));
+    expect((JSON.parse(putBody(original, sidecarPrefix)!) as { pricedFrom: string }).pricedFrom).toBe("pre-event-walk-forward");
+    expect(putBody(rewritten, sidecarPrefix), "the pre-event sidecar changed when only the event's own results changed: a walk-forward leak").toBe(
+      putBody(original, sidecarPrefix)
+    );
+  });
+
+  it("F3b: a played event with no qualification rows (a finals-only parent, Einstein) gets NO sidecar, while the same event with a qualification schedule does", async () => {
+    const withQuals = await publishPreEventPair2024(false, "qm");
+    const finalsOnly = await publishPreEventPair2024(false, "f");
+    // Non-vacuity: with quals, this very fixture's later event is sidecar-eligible (event type, roster
+    // size, a pre-event state), so the finals-only absence below comes from the missing quals alone.
+    expect(putBody(withQuals, `v1/presim/2024lat/${spr.id}@`)).toBeDefined();
+    // The finals-only event is published, with its played matches...
+    const eventBody = putBody(finalsOnly, `v1/event/2024lat/${spr.id}@`);
+    expect(eventBody).toBeDefined();
+    expect((JSON.parse(eventBody!) as { matches: unknown[] }).matches.length).toBeGreaterThan(0);
+    // ...but it has no qualification tournament to forecast, and pricing one after the fact would read
+    // its own results (season-final state) or invent a tournament that never existed (pre-event state).
+    expect(putBody(finalsOnly, "v1/presim/2024lat/"), "a played event with no qualification rows must get no presim sidecar").toBeUndefined();
+  });
+
+  it("F3b control: an UNPLAYED event with no qualification rows and a registered roster still gets its pre-schedule sidecar, priced from current state", async () => {
+    const roster = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
+    const puts = await publishPreEventPair2024(false, "qm", (target) => {
+      upsertEvent(target, seasonEvent({ eventKey: "2024reg", year: 2024, name: "Registered Only", startDate: "2024-04-01" }));
+      for (const teamKey of roster) upsertEventTeam(target, { eventKey: "2024reg", teamKey, fetchedAt: "2024-03-20T00:00:00.000Z" });
+    });
+    const body = putBody(puts, `v1/presim/2024reg/${spr.id}@`);
+    expect(body, "an unplayed event with no schedule yet must keep its pre-schedule forecast").toBeDefined();
+    const artifact = PublishedPreScheduleArtifactSchema.parse(JSON.parse(body!));
+    // Nothing has been played, so "before the event" is "now".
+    expect(artifact.pricedFrom).toBe("current-state");
+    expect(artifact.roster).toEqual(roster);
   });
 
   it.each([opr.id, epa.id])(

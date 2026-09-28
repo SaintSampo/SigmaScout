@@ -1283,7 +1283,7 @@ interface PreScheduleSidecarArgs {
  * "Freeze once the schedule lands" is a source-of-state switch, not an R2 read: any qualification row
  * in the corpus means the schedule landed, so pricing uses the walk-forward pre-event state (stable
  * across republishes). No qualification rows means pricing from current state, regenerated each publish,
- * unless the event has already been played (a finals-only parent event): that is priced pre-event too.
+ * unless the event has already been played (a finals-only parent event): that gets no sidecar at all.
  *
  * Out-of-range rosters are skipped by an explicit size check, so any error the builder throws fails
  * the run. A `null` artifact means an RP-less algorithm and is skipped silently.
@@ -1325,15 +1325,11 @@ function buildPreScheduleSidecarForEvent(args: PreScheduleSidecarArgs): { key: s
       pricedFrom = "pre-event-walk-forward";
     }
   } else if (args.hasCompletedMatches) {
-    // No qualification rows, yet played (a divisioned championship's finals-only parent, Einstein):
-    // the season-final state has folded this event's own matches, so it is priced from its pre-event
-    // state like every other played event, never from the season-final state.
-    if (!args.hasPreEventState) {
-      console.log(`${label}: played without a qualification schedule, and no pre-event walk-forward state was captured`);
-      return undefined;
-    }
-    pricingState = args.preEventState;
-    pricedFrom = "pre-event-walk-forward";
+    // No qualification rows, yet played (a divisioned championship's finals-only parent, Einstein).
+    // The season-final state has folded this event's own matches, so current-state pricing would leak
+    // them, and there is no qualification tournament to forecast at all: such an event gets no sidecar.
+    console.log(`${label}: played without a qualification schedule, so there is no qualification tournament to forecast`);
+    return undefined;
   } else {
     if (!args.hasSeasonFinalState) {
       console.log(`${label}: no season-final state exists for this algorithm`);
