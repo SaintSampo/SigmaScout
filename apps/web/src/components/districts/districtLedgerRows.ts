@@ -771,6 +771,29 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
   // whole event. See `ZERO_AWARD_PROFILE`.
   for (const teamKey of rosterKeys) awardProfiles.set(teamKey, awardProfileOrZero(districtTeamByKey.get(teamKey)));
 
+  // THE AWARD ONLY TEAMS (quick task 260927-vmb): a team the district artifact
+  // registers for this event at this tier, once the schedule is KNOWN (at least
+  // one qualification row), but on neither the roster nor any qualification
+  // row. The posted schedule settles its qualification, selection and playoff
+  // points at zero; its award is still open, so the event's own simulation
+  // draws it in the same field as the roster. With zero qualification rows
+  // nothing is derived, which is the before the schedule posts guarantee.
+  const awardOnlyTeams: string[] = [];
+  if (qualRows.length > 0) {
+    const scheduled = new Set<string>(rosterKeys);
+    for (const row of qualRows) {
+      for (const teamKey of row.redTeams) scheduled.add(teamKey);
+      for (const teamKey of row.blueTeams) scheduled.add(teamKey);
+    }
+    for (const team of districtArtifact.teams) {
+      if (scheduled.has(team.teamKey)) continue;
+      if (!tierEvents(team, tier).some((entry) => entry.eventKey === eventKey)) continue;
+      awardOnlyTeams.push(team.teamKey);
+    }
+    awardOnlyTeams.sort();
+    for (const teamKey of awardOnlyTeams) awardProfiles.set(teamKey, awardProfileOrZero(districtTeamByKey.get(teamKey)));
+  }
+
   // The event artifact publishes no official field size of its own (that field
   // lives on the TEAM artifact's per-event row), so the roster length is the
   // fallback every time — recorded per event in the disclosed-gap list rather
@@ -819,6 +842,7 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
     ...(knownElimPoints !== undefined ? { knownElimPoints } : {}),
     ...(knownAwardPoints !== undefined ? { knownAwardPoints } : {}),
     ...(playedElims.matches.length > 0 ? { playedElimMatches: playedElims.matches } : {}),
+    ...(awardOnlyTeams.length > 0 ? { awardOnlyTeams } : {}),
   };
 
   return {
@@ -863,6 +887,16 @@ export interface DistrictEventDistributions {
   readonly selectionRoutesByTeam?: ReadonlyMap<string, DistrictSelectionRoutes>;
   /** Whether the run's qualification ranking was the same in every draw. Absent for a baked event, which is priced before a match is played. */
   readonly rankingFixed?: boolean;
+  /**
+   * The registered teams this run priced from AWARDS ALONE, because they are on
+   * no posted qualification row (quick task 260927-vmb). Their Qualification,
+   * Alliance selection and Playoffs cells read a grey zero, and their event
+   * total is their award draw. Set only when the run had at least one; never
+   * set for a BAKED event, whose pre event bake prices every registered team
+   * as a full participant, which is the unchanged before the schedule posts
+   * behaviour.
+   */
+  readonly awardOnlyTeams?: ReadonlySet<string>;
 }
 
 function emptyCellRecord(): Record<DistrictCellKind, DistrictPointDistribution | undefined> {
@@ -891,6 +925,9 @@ export function distributionsFromResult(result: DistrictLedgerResult): DistrictE
     playoffMilestoneByTeam: result.playoffMilestones,
     selectionRoutesByTeam: result.selectionRoutes,
     rankingFixed: result.rankingFixed,
+    ...(result.awardOnlyTeams !== undefined && result.awardOnlyTeams.length > 0
+      ? { awardOnlyTeams: new Set(result.awardOnlyTeams) }
+      : {}),
   };
 }
 
@@ -1086,11 +1123,23 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
         finished: final.qual && final.alliance && final.elim && final.award,
       };
       const record = distributions.get(entry.eventKey)?.byTeam.get(team.teamKey);
+      // A REGISTERED TEAM ON NO POSTED QUALIFICATION ROW (quick task
+      // 260927-vmb). Its event's own run priced it from awards alone.
+      const awardOnly = distributions.get(entry.eventKey)?.awardOnlyTeams?.has(team.teamKey) === true;
       if (entry.earned !== undefined) earnedDistrictTotal += entry.earned.total;
       earnedAtPosition += earnedAtStage(entry.earned, final, stageByEvent !== undefined);
 
       const cells: DistrictLedgerCell[] = DISTRICT_CATEGORIES.map((category) => {
         const id = districtCellId(entry.eventKey, category);
+        if (awardOnly && category !== "award") {
+          // THE THREE ON FIELD CATEGORIES ARE SETTLED BY THE POSTED SCHEDULE,
+          // not by TBA's row: a team with no match to play earns nothing in
+          // them. The grey number is still the artifact's own value where TBA
+          // has published a row, and 0 before it has. Never an open category,
+          // and `row.stage` stays the event's, so floors, ceilings and the
+          // pooled lock read the same event facts they always did.
+          return { id, cell: category, kind: "final", earned: entry.earned === undefined ? 0 : entry.earned[category] };
+        }
         if (final[category]) {
           // THE GREY NUMBER IS ALWAYS THE ARTIFACT'S OWN `eventPoints[category]`,
           // never a value derived from the simulation: 10-04's ranking
@@ -1133,7 +1182,9 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
 
       const totalId = districtCellId(entry.eventKey, "eventTotal");
       let eventTotal: DistrictLedgerCell;
-      if (stage.finished) {
+      // An award only row is finished once its award is: the other three
+      // categories are already settled at zero by the schedule.
+      if (stage.finished || (awardOnly && final.award)) {
         // The artifact's own `total` is TBA's arithmetic over TBA's own
         // components, so where the two ever disagree the published total is the
         // quantity this tab prints.

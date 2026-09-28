@@ -340,7 +340,9 @@ export interface AwardOrderingAssignment {
  */
 export function awardOrderingAssignments(
   season: number,
-  baselines: readonly SimTeamBaseline[],
+  // Only `teamKey` is read, so the award field (roster plus award only teams,
+  // quick task 260927-vmb) passes here as readily as a baseline list.
+  baselines: readonly { readonly teamKey: string }[],
   awardProfiles: ReadonlyMap<string, DistrictAwardProfile>
 ): readonly AwardOrderingAssignment[] | undefined {
   if (!hasAwardOrderingTables(season)) return undefined;
@@ -493,6 +495,21 @@ export interface DistrictLedgerEventInput {
    * left to condition.
    */
   readonly playedElimMatches?: readonly PlayedBracketMatch[];
+  /**
+   * AWARD ONLY TEAMS (quick task 260927-vmb): registered teams that are NOT on
+   * the posted qualification schedule. They earn no qualification, selection
+   * or playoff points, but they are still in the event's award field: they
+   * join the decoration ordering and the posted / ordering / base-rate path
+   * choice exactly as a roster team does, and each is drawn by the SAME
+   * per-team award draw, after every roster team in each draw.
+   *
+   * Absent or empty is byte for byte the shipped run; `ledgerSimulation.test.ts`
+   * pins the two as deep equal. WHO these teams are is the caller's decision:
+   * this module only refuses an empty key, a duplicate, or a key that is also
+   * in `baselines` (`InvalidAwardOnlyTeamsError`), and needs an award profile
+   * for each unless `knownAwardPoints` is supplied.
+   */
+  readonly awardOnlyTeams?: readonly string[];
 }
 
 /**
@@ -589,6 +606,14 @@ export interface DistrictLedgerResult {
    * section — so this is that same fact forwarded, never a fifth flag.
    */
   readonly rankingFixed: boolean;
+  /**
+   * The input's `awardOnlyTeams`, in their given order, present ONLY when that
+   * list was non-empty. These keys appear in `awardPoints`, `eventTotal` and
+   * `awardSources` and nowhere else, and their `eventTotal` equals their award
+   * draw by construction: the three on-field categories are zero for a team
+   * with no match to play.
+   */
+  readonly awardOnlyTeams?: readonly string[];
 }
 
 /**
@@ -655,7 +680,10 @@ export interface DistrictSelectionRouteObservation {
  * overwritten on the next draw — an observer that needs to keep one must copy
  * it, exactly as `SimDrawHook`'s own contract states for `order`.
  *
- * Per-team arrays are indexed by position in `baselines`. `alliances`'s entry
+ * Per-team arrays are indexed by position in `baselines` and stay ROSTER
+ * INDEXED when `awardOnlyTeams` is supplied: an award only team has no entry in
+ * `award` or `total` here, though `ledgerDraws` does count the stream its award
+ * draw consumed (quick task 260927-vmb). `alliances`'s entry
  * at index `n - 1` is alliance `n`'s roster in pick-slot order.
  */
 export interface DistrictDrawObservation {
@@ -706,7 +734,20 @@ export class UnratedTeamError extends Error {
   }
 }
 
-/** Raised before any draw when a roster member has no award profile and no known award points were supplied. */
+/**
+ * Raised before any draw when `awardOnlyTeams` holds an empty key, a
+ * duplicate, or a key that is also in `baselines`. A team cannot be both on
+ * the schedule and off it, and a duplicate would be drawn twice into one
+ * histogram. Every offender is named, not the first.
+ */
+export class InvalidAwardOnlyTeamsError extends Error {
+  constructor(message: string) {
+    super(`simulateDistrictEvent: ${message}`);
+    this.name = "InvalidAwardOnlyTeamsError";
+  }
+}
+
+/** Raised before any draw when a roster member (or an award only team) has no award profile and no known award points were supplied. */
 export class MissingAwardProfileError extends Error {
   constructor(message: string) {
     super(`simulateDistrictEvent: ${message}`);
@@ -991,6 +1032,32 @@ export function simulateDistrictEvent(
     );
   }
 
+  // THE AWARD ONLY TEAMS, validated before any draw and every offender named.
+  const awardOnlyKeys: readonly string[] = input.awardOnlyTeams ?? [];
+  if (awardOnlyKeys.length > 0) {
+    const rosterKeySet = new Set(baselines.map((baseline) => baseline.teamKey));
+    const seen = new Set<string>();
+    const offenders: string[] = [];
+    for (const key of awardOnlyKeys) {
+      if (key.length === 0) offenders.push(`${JSON.stringify(key)} (empty)`);
+      else if (seen.has(key)) offenders.push(`${key} (duplicate)`);
+      else if (rosterKeySet.has(key)) offenders.push(`${key} (also on the roster)`);
+      seen.add(key);
+    }
+    if (offenders.length > 0) {
+      throw new InvalidAwardOnlyTeamsError(
+        `event ${eventKey}: ${String(offenders.length)} award only key(s) are empty, duplicated or also in baselines: ${offenders.join(", ")}`
+      );
+    }
+  }
+  // THE AWARD FIELD: the roster in `baselines` order, then the award only teams
+  // in their given order. Index `i < teamCount` is roster team `i`, so every
+  // roster-indexed structure below keeps its meaning, and with no award only
+  // team this list is the roster exactly.
+  const awardField: readonly { readonly teamKey: string }[] =
+    awardOnlyKeys.length === 0 ? baselines : [...baselines, ...awardOnlyKeys.map((teamKey) => ({ teamKey }))];
+  const awardFieldCount = awardField.length;
+
   const awardIsKnown = input.knownAwardPoints !== undefined;
   const awardSources = new Map<string, AwardBaseRateSource>();
   const awardPmfByTeam: (readonly number[])[] = [];
@@ -1002,7 +1069,7 @@ export function simulateDistrictEvent(
     // outcome is already known. That is what genuinely distinguishes the two
     // stages rather than merely short-circuiting one of them.
     const missingProfiles: string[] = [];
-    for (const baseline of baselines) {
+    for (const baseline of awardField) {
       const profile = awardProfiles.get(baseline.teamKey);
       if (profile === undefined) {
         missingProfiles.push(baseline.teamKey);
@@ -1030,7 +1097,10 @@ export function simulateDistrictEvent(
     // applies it REPLACES the base-rate pmf rather than adding to it: the
     // residual table is the same population with the Impact and Rookie All Star
     // mass carved out, so drawing from both would count those two awards twice.
-    orderingAssignments = awardOrderingAssignments(season, baselines, awardProfiles);
+    // Over the whole AWARD FIELD, so an award only team takes a real position
+    // in the ordering and a missing count on one sends the event back to the
+    // base rate exactly as a roster team's would.
+    orderingAssignments = awardOrderingAssignments(season, awardField, awardProfiles);
     if (orderingAssignments !== undefined) {
       awardOrdering = "applied";
       // The reported rung becomes the RESIDUAL table's, because that is the
@@ -1101,6 +1171,20 @@ export function simulateDistrictEvent(
   const elimByIndex = baselines.map((b) => elimHistograms.get(b.teamKey)!);
   const awardByIndex = baselines.map((b) => awardHistograms.get(b.teamKey)!);
   const totalByIndex = baselines.map((b) => totalHistograms.get(b.teamKey)!);
+  // THE AWARD ONLY TEAMS' two histograms, sized from the same ceilings and
+  // inserted AFTER every roster team, so iterating either map visits the roster
+  // first and in the order it always did. Award and event total only: a team
+  // with no match to play has no qualification, selection or playoff marginal.
+  const awardOnlyAwardByIndex: Int32Array[] = [];
+  const awardOnlyTotalByIndex: Int32Array[] = [];
+  for (const teamKey of awardOnlyKeys) {
+    const awardHistogram = new Int32Array(awardLength);
+    const totalHistogram = new Int32Array(totalLength);
+    awardHistograms.set(teamKey, awardHistogram);
+    totalHistograms.set(teamKey, totalHistogram);
+    awardOnlyAwardByIndex.push(awardHistogram);
+    awardOnlyTotalByIndex.push(totalHistogram);
+  }
 
   // Qualification points are a pure function of rank, so the whole rank-to-
   // points table is computed once rather than `teamCount x draws` times.
@@ -1231,6 +1315,61 @@ export function simulateDistrictEvent(
   const ledgerRng = (): number => {
     ledgerDrawCount++;
     return rawLedgerRng();
+  };
+
+  /**
+   * ONE award-field member's award points for one draw, at event scale: the
+   * ONE copy of the three award paths, indexed over the AWARD FIELD (roster
+   * index `i < teamCount`, then the award only teams). Every team, on the
+   * schedule or not, is drawn by this function and no other.
+   *
+   * The path is chosen once per event before the loop — see
+   * `AwardOrderingDisposition` for when and why — so every call in one run
+   * takes the same branch.
+   */
+  const knownAwardPoints = input.knownAwardPoints;
+  const assignments = orderingAssignments;
+  const drawAwardPoints = (i: number): number => {
+    if (knownAwardPoints !== undefined) {
+      // AWARDS POSTED: nothing is drawn and no randomness is consumed. A team
+      // absent from the map scores 0.
+      return knownAwardPoints.get(awardField[i]!.teamKey) ?? 0;
+    }
+    if (assignments !== undefined) {
+      // THE ORDERING PATH. Three consumptions per team, in this pinned order:
+      // Impact, then Rookie All Star (only for a team that can win it), then the
+      // residual. This path consumes MORE of the ledger stream per team than the
+      // base-rate path below, so an event that switches between them produces a
+      // different seeded output BY DESIGN — the two are different models, not
+      // two spellings of one.
+      const assignment = assignments[i]!;
+      const impactWon = ledgerRng() < assignment.impactProbability;
+      // No randomness for a team whose Rookie All Star chance is structurally
+      // zero: a veteran cannot win it, and drawing-then-discarding would make
+      // every later draw depend on the roster's rookie count for no reason.
+      const rookieAllStarWon =
+        assignment.rookieAllStarProbability > 0 ? ledgerRng() < assignment.rookieAllStarProbability : false;
+      const residualIndex = drawCategorical(assignment.residualPmf, ledgerRng);
+      // NEVER A STACK: the highest single award this draw produced, never the
+      // sum of two. See `singleAwardPoints`.
+      const composed = singleAwardPoints(impactWon, rookieAllStarWon, AWARD_POINT_SUPPORT[residualIndex]!) * weight;
+      // THE CLAMP IS A BACKSTOP, kept rather than removed. `singleAwardPoints`
+      // now bounds a base-scale draw at Impact's own 10, which is inside every
+      // registered tier's award ceiling, so this branch is unreachable today —
+      // and it is exactly the kind of unreachable that a later change to the
+      // fold would quietly make reachable again. An out-of-range write to the
+      // Int32Array accumulator below is a SILENT NO-OP that would drop that
+      // draw's mass entirely, after which `chanceOfAnyPoints` reads a
+      // confident percentage over an incomplete distribution. The ceiling is
+      // `maxEventPoints`' own value for this event, never a literal.
+      return composed > ceilings.award ? ceilings.award : composed;
+    }
+    const index = drawCategorical(awardPmfByTeam[i]!, ledgerRng);
+    // The pmf was FOLDED once at lookup, so the two stacked bins carry no
+    // mass at all and this draw can never land on one. `foldStackedAwardPoints`
+    // is applied anyway, as the same backstop the clamp above is: a pmf that
+    // stopped being folded would otherwise print a stacked award silently.
+    return foldStackedAwardPoints(AWARD_POINT_SUPPORT[index]!) * weight;
   };
 
   let drawIndex = 0;
@@ -1382,53 +1521,17 @@ export function simulateDistrictEvent(
     //    choice rather than a convenience — and a stated limitation for 10-08.
     //
     //    THREE PATHS, and exactly one runs: posted (nothing drawn), the
-    //    ORDERING path (Impact and Rookie All Star priced by position in the
-    //    field, the rest from the residual table), or the base-rate path. The
-    //    ordering path is chosen once before the loop — see
-    //    `AwardOrderingDisposition` for when and why.
-    if (input.knownAwardPoints !== undefined) {
-      // AWARDS POSTED: nothing is drawn and no randomness is consumed.
-      const known = input.knownAwardPoints;
-      for (let i = 0; i < teamCount; i++) award[i] = known.get(baselines[i]!.teamKey) ?? 0;
-    } else if (orderingAssignments !== undefined) {
-      // THE ORDERING PATH. Three consumptions per team, in this pinned order:
-      // Impact, then Rookie All Star (only for a team that can win it), then the
-      // residual. This path consumes MORE of the ledger stream per team than the
-      // base-rate path below, so an event that switches between them produces a
-      // different seeded output BY DESIGN — the two are different models, not
-      // two spellings of one.
-      for (let i = 0; i < teamCount; i++) {
-        const assignment = orderingAssignments[i]!;
-        const impactWon = ledgerRng() < assignment.impactProbability;
-        // No randomness for a team whose Rookie All Star chance is structurally
-        // zero: a veteran cannot win it, and drawing-then-discarding would make
-        // every later draw depend on the roster's rookie count for no reason.
-        const rookieAllStarWon =
-          assignment.rookieAllStarProbability > 0 ? ledgerRng() < assignment.rookieAllStarProbability : false;
-        const residualIndex = drawCategorical(assignment.residualPmf, ledgerRng);
-        // NEVER A STACK: the highest single award this draw produced, never the
-        // sum of two. See `singleAwardPoints`.
-        const composed = singleAwardPoints(impactWon, rookieAllStarWon, AWARD_POINT_SUPPORT[residualIndex]!) * weight;
-        // THE CLAMP IS A BACKSTOP, kept rather than removed. `singleAwardPoints`
-        // now bounds a base-scale draw at Impact's own 10, which is inside every
-        // registered tier's award ceiling, so this branch is unreachable today —
-        // and it is exactly the kind of unreachable that a later change to the
-        // fold would quietly make reachable again. An out-of-range write to the
-        // Int32Array accumulator below is a SILENT NO-OP that would drop that
-        // draw's mass entirely, after which `chanceOfAnyPoints` reads a
-        // confident percentage over an incomplete distribution. The ceiling is
-        // `maxEventPoints`' own value for this event, never a literal.
-        award[i] = composed > ceilings.award ? ceilings.award : composed;
-      }
-    } else {
-      for (let i = 0; i < teamCount; i++) {
-        const index = drawCategorical(awardPmfByTeam[i]!, ledgerRng);
-        // The pmf was FOLDED once at lookup, so the two stacked bins carry no
-        // mass at all and this draw can never land on one. `foldStackedAwardPoints`
-        // is applied anyway, as the same backstop the clamp above is: a pmf that
-        // stopped being folded would otherwise print a stacked award silently.
-        award[i] = foldStackedAwardPoints(AWARD_POINT_SUPPORT[index]!) * weight;
-      }
+    //    ORDERING path, or the base-rate path. See `drawAwardPoints` above.
+    for (let i = 0; i < teamCount; i++) award[i] = drawAwardPoints(i);
+
+    // 4b. The AWARD ONLY TEAMS, drawn AFTER every roster team so the roster's
+    //     stream consumption is exactly what it is with none (quick task
+    //     260927-vmb). Their event total IS their award: they have no match to
+    //     play, so the other three categories are zero by construction.
+    for (let j = teamCount; j < awardFieldCount; j++) {
+      const points = drawAwardPoints(j);
+      awardOnlyAwardByIndex[j - teamCount]![points]! += 1;
+      awardOnlyTotalByIndex[j - teamCount]![points]! += 1;
     }
 
     // 5. Accumulate. Every histogram is a marginal of THESE runs, and the
@@ -1515,6 +1618,9 @@ export function simulateDistrictEvent(
     // `remainingMatches.length === 0` is this module's own expression of a
     // finished qualification stage; forwarded, never re-derived.
     rankingFixed: input.remainingMatches.length === 0,
+    // Present ONLY for a non-empty list, so a run without one is deep equal to
+    // the shipped result.
+    ...(awardOnlyKeys.length > 0 ? { awardOnlyTeams: [...awardOnlyKeys] } : {}),
   };
 }
 

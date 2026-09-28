@@ -704,7 +704,11 @@ function foldCells(
  *    milestone and selection routes carried through and its event total as
  *    the Subtotal. Its win chance is the Playoffs cell's mass at the winner
  *    value; 0 once that cell is final, because a posted winner is already a
- *    fact in the statuses.
+ *    fact in the statuses. A registered team missing from the posted schedule
+ *    reaches this case once its championship is simulated, because its event
+ *    row is priced from awards alone (`districtLedgerRows.ts`
+ *    `awardOnlyTeams`, quick task 260927-vmb): the Subtotal is open and the
+ *    Playoffs cell is a grey zero, so its win chance is 0.
  * 3. Otherwise, when a walk-forward ESTIMATE is supplied for the team: the
  *    four category cells read "not yet priced", the Subtotal is open over the
  *    estimate, and `estimated` is true. `sources` stays the dcmp pass's own,
