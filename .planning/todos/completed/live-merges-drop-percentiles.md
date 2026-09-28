@@ -18,9 +18,11 @@ priority: low
 > rank beside the card and the Teams list do not describe. The Sigma pill needed nothing at all: the
 > tick carries the published Sigma entry, percentile included, unchanged through every merge, pinned by
 > `apps/worker/test/scheduled.officialRecord.test.ts` and `apps/worker/test/scheduled.test.ts`.
-> Accepted and out of scope: the Alliances Combined Total tier still thins during live folds, because
-> `allianceTierApproximation.ts` needs published percentiles as interpolation points, and cuts give a
-> tier, not a number. The unscoped offseason `seasonStats` write named by `artifactMerge.ts`'s own
+> The Alliances Combined Total tier, which thinned during live folds because
+> `allianceTierApproximation.ts` interpolated the event roster's published percentiles, is
+> fixed by 260927-wnh: it now classifies the combined total divided by 3 against the same
+> `tierCuts` block, so it no longer depends on published percentiles or clamps at the event's
+> own range. The unscoped offseason `seasonStats` write named by `artifactMerge.ts`'s own
 > comment is still how the Worker behaves; after this task no web surface tiers or ranks from that live
 > value except the header tiles of a team with no official snapshot, and those tiles are labelled
 > season final and tiered against the pool the publisher uses for a season final basis. No reader
