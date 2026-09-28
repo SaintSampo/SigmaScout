@@ -398,6 +398,8 @@ function manifestBody() {
 interface FetchOptions {
   readonly eventArtifact?: EventArtifact;
   readonly preSim?: unknown;
+  /** Event keys whose event artifact 404s even when `eventArtifact` is set: an artifact not published yet. */
+  readonly missingEventKeys?: readonly string[];
 }
 
 function installFetch(options: FetchOptions = {}) {
@@ -409,6 +411,9 @@ function installFetch(options: FetchOptions = {}) {
       return Promise.resolve(new Response(JSON.stringify(options.preSim), { status: 200 }));
     }
     if (url.includes("/v1/event/")) {
+      if (options.missingEventKeys?.some((eventKey) => url.includes(`/v1/event/${eventKey}/`)) === true) {
+        return Promise.resolve(new Response("", { status: 404 }));
+      }
       if (options.eventArtifact === undefined) return Promise.resolve(new Response("", { status: 404 }));
       return Promise.resolve(new Response(JSON.stringify(options.eventArtifact), { status: 200 }));
     }
@@ -1686,6 +1691,74 @@ describe("DistrictLedger — the advancement chance", () => {
     // 260927-vmb: priced from awards alone, so no cell of its row is unavailable.
     expect(text).not.toContain(DISTRICT_LEDGER_UNAVAILABLE_CELL);
   });
+
+  /**
+   * THE 260925-uf8 GUARD, RESTORED (quick task 260927-vmb). The two tests above
+   * used to reach it through a registered team missing from the served roster,
+   * which is now priced from awards alone. These reach it through the two
+   * single team refusals that still exist:
+   *
+   * - A MISSING EVENT ARTIFACT. frc901's only open event, `2026waghost`, has
+   *   started but its artifact 404s (`useDistrictEventArtifacts` lists it in
+   *   `missingEventArtifacts`), so the tab holds no distribution for it, that
+   *   event's open cells read unavailable, and so does the grand total.
+   * - A REFUSED CONVOLUTION. frc901 plays the served live event, but its
+   *   rookie bonus plus adjustments is negative, so `convolveDistrictGrandTotal`
+   *   throws `NegativeDistrictShiftError` and `buildDistrictLedgerRows` degrades
+   *   that team alone through `degradedLedgerTeam`.
+   *
+   * Either way the team is left out of the chance ranking, its own row says
+   * "not available" with no chance line, and every other team keeps its chance.
+   */
+  const REFUSALS: ReadonlyArray<readonly [string, () => DistrictArtifact, readonly string[]]> = [
+    [
+      "an event artifact that is not served",
+      () =>
+        artifactOf([
+          ...ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey))),
+          {
+            ...districtTeam("frc901"),
+            remainingEvents: [{ eventKey: "2026waghost", eventName: "Ghost Event", week: 2, tier: "district", maxPoints: 83, state: MID_QUALS }],
+            maxRemainingDistrict: 83,
+            maxRemainingChamp: 83,
+          },
+        ]),
+      ["2026waghost"],
+    ],
+    [
+      "a grand total convolution that refuses (degradedLedgerTeam)",
+      () =>
+        artifactOf([
+          ...ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey))),
+          withLiveEvent(districtTeam("frc901", { adjustments: -5 })),
+        ]),
+      [],
+    ],
+  ];
+
+  for (const [label, districtFor, missingEventKeys] of REFUSALS) {
+    it(`excludes ONE refused team from the chance ranking and still prints the rest of the district's chances: ${label}`, async () => {
+      installFetch({ eventArtifact: liveEventArtifact(), missingEventKeys });
+      handle = installMockWorker({ script: realRunScript });
+      renderLedger(districtFor());
+      await waitFor(() => expect(screen.getAllByTestId("district-ledger-chance").length).toBeGreaterThan(0));
+
+      for (const line of screen.getAllByTestId("district-ledger-chance")) {
+        expect(line.textContent ?? "").toMatch(/^(<5% chance|\d{1,2}% chance)$/);
+      }
+      const request = instancesReceiving(handle, "chance").at(-1)!.received[0] as { inputs: { teams: { teamKey: string }[] } };
+      const posted = request.inputs.teams.map((team) => team.teamKey);
+      expect(posted).not.toContain("frc901");
+      expect(posted).toHaveLength(ROSTER.length);
+
+      const rows = [...document.querySelectorAll('[data-testid="district-ledger-row"][data-team="frc901"]')];
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.map((row) => row.textContent ?? "").join(" ")).toContain(DISTRICT_LEDGER_UNAVAILABLE_CELL);
+      for (const row of rows) {
+        expect(within(row as HTMLElement).queryAllByTestId("district-ledger-chance")).toHaveLength(0);
+      }
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------
