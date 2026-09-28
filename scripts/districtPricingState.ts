@@ -427,7 +427,7 @@ export function buildDistrictPricingState(db: Corpus, options: BuildDistrictPric
    * else what SPR's own `predict` assigns an unseen team; the layer's Sigma, else the prior-only Sigma
    * at that total. Only ever called with the carry on.
    */
-  const candidateRatings = (roster: readonly string[]) => {
+  const rookieRatings = (roster: readonly string[]) => {
     const metrics = algorithm.teamMetrics(resolvedState, [...roster]);
     const totalByTeam = new Map<string, number>();
     for (const teamKey of roster) {
@@ -457,7 +457,7 @@ export function buildDistrictPricingState(db: Corpus, options: BuildDistrictPric
     ratingsFor: (roster) => {
       const ratings = new Map<string, AllianceMemberRating>();
       if (sigmaCarryOn) {
-        for (const [teamKey, rating] of candidateRatings(roster)) ratings.set(teamKey, { teamKey, total: rating.total, sigma: rating.sigma });
+        for (const [teamKey, rating] of rookieRatings(roster)) ratings.set(teamKey, { teamKey, total: rating.total, sigma: rating.sigma });
         return ratings;
       }
       const metrics = algorithm.teamMetrics(resolvedState, [...roster]);
@@ -472,14 +472,14 @@ export function buildDistrictPricingState(db: Corpus, options: BuildDistrictPric
       const filler = makeRankingPointFiller(
         resolvedLayer.rpAccumulator,
         ruleModule,
-        sigmaCarryOn ? candidateSigmaMap(candidateRatings(roster)) : sigmaByTeam,
+        sigmaCarryOn ? candidateSigmaMap(rookieRatings(roster)) : sigmaByTeam,
         roster,
         ruleModule === undefined ? undefined : RpMeanShiftAccumulator.fromState(ruleModule, resolvedLayer.rpMeanShiftState())
       );
       if (filler === undefined) return undefined;
       return (match: UpcomingMatch) => filler(match, algorithm.predict(resolvedState, match));
     },
-    teamsWithoutSigmaFor: (roster) => teamsWithoutSigmaScore(sigmaCarryOn ? candidateSigmaMap(candidateRatings(roster)) : sigmaByTeam, roster),
+    teamsWithoutSigmaFor: (roster) => teamsWithoutSigmaScore(sigmaCarryOn ? candidateSigmaMap(rookieRatings(roster)) : sigmaByTeam, roster),
   };
 }
 

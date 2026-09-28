@@ -17,14 +17,18 @@
  *      denominator `W − W2/W`, which is 0 after one observation, so one
  *      observation yields no variance rather than a fake zero.
  *
- * A team with no history for a variable contributes a zero mean and no
- * variance, so a fully cold alliance is priced from a degenerate belief. The
- * `rpColdPrior` CANDIDATE (off unless asked for; off is byte-for-byte the
- * incumbent) prices such a team from the season-to-date league summary of that
- * variable instead, and gives a one-observation team the league variance in
+ * THE RP COLD-TEAM PRIOR (`rpColdPrior`), the production model since SPR
+ * 9.0.0. Without it a team with no history for a variable contributes a zero
+ * mean and no variance, so a fully cold alliance is priced from a degenerate
+ * belief. With it such a team is priced from the season-to-date league summary
+ * of that variable, and a one-observation team takes the league variance in
  * place of 0. It is not a blend: no second model's output is mixed in, and a
  * team with its own history is untouched. It is the RP analogue of SPR's
- * treatment of an unseen team. Pre-registered in
+ * treatment of an unseen team. The summary rides the spr league row (shape
+ * 17), so the live Worker resumes it with the prior on. This constructor still
+ * needs the explicit opt-in (its own unit tests measure the pre-9.0.0 model);
+ * `SigmaScoutLayer` is the policy point that turns it on by default. The bar it
+ * passed is pre-registered in
  * `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`.
  */
 
@@ -90,10 +94,12 @@ function varianceOf(belief: VariableBelief): number | undefined {
 /** Construction switches for `RpMomentsAccumulator`. Every one is inert when absent. */
 export interface RpMomentsAccumulatorOptions {
   /**
-   * The RP cold-team prior CANDIDATE (260928-n6i-PREREG.md), off unless `true`.
-   * On: a team with no belief for a variable is priced from the season's
-   * population summary of that variable, and a team whose belief has no
-   * variance yet takes the population's. Absent or `false`: the incumbent.
+   * The RP cold-team prior (260928-n6i-PREREG.md), the production model since
+   * SPR 9.0.0; at this low level it is on only when `true` (`SigmaScoutLayer`
+   * defaults it on). On: a team with no belief for a variable is priced from
+   * the season's population summary of that variable, and a team whose belief
+   * has no variance yet takes the population's. Absent or `false`: the
+   * pre-9.0.0 model.
    */
   readonly rpColdPrior?: boolean;
 }
@@ -138,11 +144,11 @@ function isPopulationEntry(entry: unknown): entry is RpPopulationVariableState {
 
 /**
  * Walk-forward per-team beliefs over one season's threshold variables. Read a
- * match's moments before folding it in (predict-before-update). With the knob
+ * match's moments before folding it in (predict-before-update). With the prior
  * off, a team with no history contributes a zero mean and no variance. With
- * the `rpColdPrior` candidate on, it contributes the season-to-date league
- * summary instead (see the module header); a team with its own history is
- * untouched either way.
+ * the RP cold-team prior on (the production model since SPR 9.0.0), it
+ * contributes the season-to-date league summary instead (see the module
+ * header); a team with its own history is untouched either way.
  */
 export class RpMomentsAccumulator {
   readonly #ruleModule: RpRuleModule;
@@ -156,7 +162,7 @@ export class RpMomentsAccumulator {
     this.#rpColdPrior = options?.rpColdPrior === true;
   }
 
-  /** Whether the RP cold-team prior candidate is on (260928-n6i-PREREG.md). */
+  /** Whether the RP cold-team prior is on (260928-n6i-PREREG.md; production since SPR 9.0.0). */
   get rpColdPrior(): boolean {
     return this.#rpColdPrior;
   }
@@ -189,7 +195,7 @@ export class RpMomentsAccumulator {
       for (const teamKey of roster) {
         const belief = this.#byTeam.get(teamKey)?.get(name);
         if (belief === undefined) {
-          // Cold team (candidate only): the league's mean share, and its variance once defined.
+          // Cold team (prior on): the league's mean share, and its variance once defined.
           if (population !== undefined && population.n >= 1) {
             mean += population.mean / roster.length;
             if (coldVarianceTerm !== undefined) {
@@ -200,7 +206,7 @@ export class RpMomentsAccumulator {
           continue;
         }
         mean += belief.mean;
-        // Thin team (candidate only): no variance of its own yet, so the league's.
+        // Thin team (prior on): no variance of its own yet, so the league's.
         varianceSum += varianceOf(belief) ?? coldVarianceTerm ?? 0;
         contributing++;
       }
@@ -236,7 +242,7 @@ export class RpMomentsAccumulator {
       const allianceValue = observedThresholdVariables[name];
       if (allianceValue === undefined || !Number.isFinite(allianceValue)) continue;
       if (this.#rpColdPrior) {
-        // Candidate only: the league summary, once per variable per alliance.
+        // Prior on: the league summary, once per variable per alliance.
         let population = this.#population.get(name);
         if (population === undefined) {
           population = { n: 0, mean: 0, m2: 0 };

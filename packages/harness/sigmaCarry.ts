@@ -1,10 +1,14 @@
 /**
- * THE SIGMA-CARRY CANDIDATE (Decision 1 of debug session
- * `presim-bake-rp-filler-refuses`, Jacob 2026-09-28). A gated model change,
- * INERT AT ITS DEFAULT, that has not earned promotion: nothing in production
- * turns it on.
+ * THE SIGMA CARRY (Decision 1 of debug session `presim-bake-rp-filler-refuses`,
+ * Jacob 2026-09-28), the production model since SPR 9.0.0. The layer carry
+ * runs in both production season loops, `publishSeasons` and the district
+ * bake's `buildDistrictPricingState`; the rookie rule prices the presim
+ * sidecars (`rookieRuleRatings` in `publish.ts`) and the district bake, and
+ * never an upcoming row (`SigmaScoutLayer.enrichUpcoming`,
+ * `upcomingPricing.ts` and the Worker keep per-alliance Sigma gating).
+ * `sigmaCarry: false` rebuilds the pre-9.0.0 model, for instruments only.
  *
- * WHAT IT CHANGES WHEN ON. Two things, and only these two:
+ * WHAT IT CHANGES. Two things, and only these two:
  *
  *   1. CARRY. A season's SPR Sigma accumulator starts from the previous
  *      season's, as it stood right after that season's LAST OFFICIAL match
@@ -21,30 +25,34 @@
  *      population (`seasonOwnPopulation`), so no season's residuals reach
  *      further than the next season.
  *
- *   2. ROOKIE RATING (`candidateRosterRatings`). A roster team the algorithm
+ *   2. THE ROOKIE RULE (`candidateRosterRatings`). A roster team the algorithm
  *      has never seen is rated with what the algorithm's own `predict` already
  *      assigns it (`AlgorithmModule.unseenTeamMetrics`), and a roster team with
  *      no Sigma belief gets the accumulator's own prior-only Sigma at that
- *      total (`SigmaScoreAccumulator.priorSigmaAtTalent`). Used by the district
- *      bake's pricing state and by `scripts/measureSigmaCarry.ts` only.
+ *      total (`SigmaScoreAccumulator.priorSigmaAtTalent`), read at the same
+ *      instant as the pricing state. Used by the presim sidecars, the district
+ *      bake's pricing state and `scripts/measureSigmaCarry.ts`.
  *
- * NO NUMERIC PARAMETER. The candidate is one configuration, on or off.
+ * NO NUMERIC PARAMETER. The carry is one configuration, on or off.
  *
  * WHAT IT CANNOT CHANGE. SPR's `pRedWin` is computed from SPR state alone
  * before any `SigmaScoutLayer` runs, and the published winner accuracy and
  * Brier read `pRedWin` alone, so neither can move. What can move: Sigma Score,
  * the Match Band, ranking-point pmfs (through the score variance), and which
- * upcoming rosters the all-or-nothing Sigma gate prices.
+ * rosters the Sigma gates price: upcoming rows through the carried beliefs
+ * alone, presim sidecars and district bakes through the carry and the rookie
+ * rule.
  *
  * WALK-FORWARD. The carry into season S holds only what the layer folded in
  * earlier seasons (up to their last official match); inside S the layer still
  * reads each match before folding it. The rookie rating reads frozen
  * parameters and the online scale at the pricing instant.
  *
- * The acceptance bar it must pass is pre-registered in
+ * The acceptance bar it passed is pre-registered in
  * `.planning/debug/presim-bake-rp-filler-refuses.md` ("Pre-registered
- * Acceptance Bar (Decision 1)"). Shipping it needs Jacob, an SPR version bump,
- * a republish and a reseed.
+ * Acceptance Bar (Decision 1)"), and the retry with the RP cold-team prior in
+ * `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`.
+ * It shipped as SPR 9.0.0 (quick task 260928-p8i).
  */
 import type { SigmaBelief, SigmaPopulation } from "./sigmaScore.js";
 
@@ -91,7 +99,7 @@ export function seasonOwnPopulation(atCarry: SigmaPopulation, carriedIn: SigmaPo
   };
 }
 
-/** One roster team under the candidate's rating rule. */
+/** One roster team under the rookie rule. */
 export interface CandidateRosterRating {
   /** The algorithm's published total, or its unseen-team total when it holds no state for this team. `undefined` only when neither exists. */
   readonly total: number | undefined;
@@ -116,8 +124,8 @@ export interface CandidateRosterRatingsInput {
 }
 
 /**
- * The candidate's rating for every roster team. A non-finite total is treated
- * as absent, so it can never become a talent that reads as a Sigma.
+ * The rookie rule's rating for every roster team. A non-finite total is
+ * treated as absent, so it can never become a talent that reads as a Sigma.
  */
 export function candidateRosterRatings(input: CandidateRosterRatingsInput): ReadonlyMap<string, CandidateRosterRating> {
   const out = new Map<string, CandidateRosterRating>();
@@ -143,8 +151,8 @@ export function candidateRosterRatings(input: CandidateRosterRatingsInput): Read
 
 /**
  * The Sigma map a roster-scoped pricing closure (`makeRankingPointFiller`)
- * reads under the candidate: every roster team with a defined candidate Sigma,
- * and nothing else. The filler only ever reads roster teams.
+ * reads under the rookie rule: every roster team with a defined rookie-rule
+ * Sigma, and nothing else. The filler only ever reads roster teams.
  */
 export function candidateSigmaMap(ratings: ReadonlyMap<string, CandidateRosterRating>): Map<string, number> {
   const map = new Map<string, number>();

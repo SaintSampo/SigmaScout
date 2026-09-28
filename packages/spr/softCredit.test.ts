@@ -110,7 +110,9 @@ describe("softCredit", () => {
     // event's presim sidecar is priced only from its pre-event instant, and a
     // played event with no qualification rows gets none. softCredit is
     // untouched by it.
-    expect(SPR_VERSION).toBe("8.0.0+baseline");
+    // 9.0.0 (quick task 260928-p8i): the RP cold-team prior and the Sigma
+    // carry become the production model. softCredit is untouched by it.
+    expect(SPR_VERSION).toBe("9.0.0+baseline");
   });
 
   it("shipped research params enable it too, so the two modules match", async () => {

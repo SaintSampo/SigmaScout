@@ -1,10 +1,13 @@
 /**
- * THE PART 2 INSTRUMENT for the Sigma-carry CANDIDATE (`packages/harness/sigmaCarry.ts`): gates G2, G3
- * and G4 of the acceptance bar pre-registered in `.planning/debug/presim-bake-rp-filler-refuses.md`
- * ("Pre-registered Acceptance Bar (Decision 1)"). Gate G1 (winner accuracy and Brier, exact equality) is
- * `scripts/captureCompareSlices.ts --sigma-carry`; gate G5 (district bake coverage) is
- * `scripts/publishDistricts.ts --sigma-carry`. This script prints its gate lines and writes them, with
- * every figure behind them, to `--out`.
+ * THE PART 2 INSTRUMENT for the Sigma carry (`packages/harness/sigmaCarry.ts`): gates G2, G3 and G4 of
+ * the acceptance bar pre-registered in `.planning/debug/presim-bake-rp-filler-refuses.md`
+ * ("Pre-registered Acceptance Bar (Decision 1)"). Both configurations it measured, the Sigma carry and
+ * the RP cold-team prior, shipped in SPR 9.0.0, so every arm below is built with an explicit
+ * `rpColdPrior` and keeps its registered meaning. Gate G1 (winner accuracy and Brier, exact equality)
+ * was `scripts/captureCompareSlices.ts --sigma-carry` when registered; since SPR 9.0.0 it is the default
+ * capture against `--no-sigma-carry`. Gate G5 (district bake coverage) is likewise the default
+ * `scripts/publishDistricts.ts --dry-run` bake against `--no-sigma-carry`. This script prints its gate
+ * lines and writes them, with every figure behind them, to `--out`.
  *
  * ONE REPLAY, TWO ARMS. Every season is replayed ONCE, the way `publishSeasons` replays it (SPR only,
  * offseason included, `seasonBoundaryFor` + `carrySeason` over the published gapped season list, the

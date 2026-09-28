@@ -266,11 +266,13 @@ export interface AlgorithmModule<S> {
    * `teamMetrics` row (the `TOTAL_METRIC_KEY` entry only), at this instant.
    * Optional: only SPR implements it.
    *
-   * It PUBLISHES NOTHING. `teamMetrics` never lists a team the state does not
-   * hold, and this does not change that. Its one caller is the district bake's
-   * Sigma-carry CANDIDATE (`packages/harness/sigmaCarry.ts`), which is off by
-   * default, so every published output is unchanged by its existence. Pure and
-   * read-only, like `teamMetrics`.
+   * It still publishes no rating of its own: `teamMetrics` never lists a team
+   * the state does not hold, and this does not change that. Its callers are
+   * the Sigma carry's rookie rule (`packages/harness/sigmaCarry.ts`, production
+   * since SPR 9.0.0) in the presim sidecars (`rookieRuleRatings` in
+   * `packages/harness/publish.ts`) and in the district bake
+   * (`scripts/districtPricingState.ts`), which rate a roster team with no Sigma
+   * yet from it. Pure and read-only, like `teamMetrics`.
    */
   unseenTeamMetrics?(state: S): TeamMetrics[string];
 }

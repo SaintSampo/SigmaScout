@@ -155,17 +155,20 @@ const REQUIRED_FIGURES = [
 ];
 
 /**
- * The seven recorded limitations, by their own row labels, hand typed. A later
+ * The eight recorded limitations, by their own row labels, hand typed. A later
  * edit cannot drop one without turning this red. Sources: 10-04 records the
  * first three in `ledgerSimulation.ts`, 10-06 the next three in
  * `districtBake.ts` and `publishDistricts.ts`, and 10-05 the last in
- * `districtRefresh.ts`'s module header.
+ * `districtRefresh.ts`'s module header. Quick task 260928-p8i (SPR 9.0.0)
+ * added the fifth, the rookie rule's rating of a team with no result yet
+ * (`packages/harness/sigmaCarry.ts`).
  */
 const EXPECTED_LIMITS = [
   "Declines are not modelled",
   "The award draw does not depend on how a team did on the field",
   "The district level award table is applied at the district championship too",
   "An event nobody has played is priced from each team's current rating over generated schedules",
+  "A team with no result yet this season is rated as SPR rates a team it has not seen",
   "Every baked number's resolution is set by its draw count",
   "An event whose awards are posted can still read as open",
   "Awards posted after every event in the district has finished wait for the next offline republish",
@@ -257,7 +260,7 @@ describe("districtLedgerContent structure", () => {
     expect(DISTRICT_LEDGER_PAGE_TITLE).not.toMatch(/[.*+?^${}()|[\]\\]/);
   });
 
-  it("states exactly the seven recorded limitations, by equality against a hand typed literal", () => {
+  it("states exactly the eight recorded limitations, by equality against a hand typed literal", () => {
     const limits = DISTRICT_LEDGER_SECTIONS.find((section) => section.id === "what-this-does-not-model");
     expect(limits, "the limits section is gone from the page").toBeDefined();
     expect(limits?.table?.rows.map((row) => row[0])).toEqual(EXPECTED_LIMITS);

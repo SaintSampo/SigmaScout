@@ -303,8 +303,32 @@ export const SPR_PARAMS: SprParams = {
  * found all 36,392 page bodies identical once the version string is
  * normalized). Cause and measurements: the debug session
  * event-presim-rp-season-final-leak in .planning/debug/resolved.
+ *
+ * Bumped 8.0.0 to 9.0.0+baseline. Changelog entry, in the methodology voice:
+ *
+ *   Ranking point odds for a team with no earlier result this season now
+ *   start from the season's average for each bonus measure instead of from
+ *   zero, and a team with one result takes the season's variation. Sigma now
+ *   continues from a team's previous season instead of starting over, so
+ *   Sigma, match bands and ranking point odds early in a season rest on more
+ *   than a few matches. The Before schedule release view and the district
+ *   point predictions rate a team with no Sigma yet from what SPR predicts for
+ *   a team it has not seen, so events with first time teams now get a
+ *   forecast. Ratings, win probabilities and winner accuracy are unchanged.
+ *
+ * MAJOR because published numbers move. Both changes earned promotion on
+ * bars pre-registered in quick task 260928-n6i (260928-n6i-RUNLOG.md): the
+ * RP cold-team prior's played-row bonus Brier went 0.136178 to 0.134220 (R1);
+ * with both on, newly covered pre-event rows scored bonus Brier 0.132851
+ * against a season-to-date climatology's 0.140040 (G4b); the district bake
+ * priced 135 / 135 / 108 / 82 / 20 events at the five registered instants
+ * against 0 / 0 / 1 / 1 / 14 (G5); and every published winner accuracy and
+ * Brier figure was exactly equal (G1). `predict()` is untouched, so the
+ * level-1 digest reproduces bitwise. STATE_SNAPSHOT_SHAPE_VERSION moved to 17
+ * in this same change: the spr league row now carries the RP population
+ * summary the live Worker resumes.
  */
-export const SPR_VERSION = "8.0.0+baseline";
+export const SPR_VERSION = "9.0.0+baseline";
 
 /**
  * The two-timescale state, described by what the FROZEN PARAMETERS actually do

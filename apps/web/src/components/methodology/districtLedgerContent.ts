@@ -274,6 +274,10 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
           "The schedule The Blue Alliance will publish is not known when those numbers are baked.",
         ],
         [
+          "A team with no result yet this season is rated as SPR rates a team it has not seen",
+          "Its uncertainty is the league's prior for that rating, not anything the team has shown.",
+        ],
+        [
           "Every baked number's resolution is set by its draw count",
           "4,000 draws per event, with a measured movement between seeds of at most 0.03525.",
         ],

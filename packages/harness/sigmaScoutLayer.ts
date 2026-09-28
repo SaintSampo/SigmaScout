@@ -90,7 +90,7 @@ export interface SigmaScoutLayerOptions {
 export class SigmaScoutLayer {
   /** Present only for Sigma algorithms: the source of Sigma Score, the win-odds variance and the match band. */
   readonly #sigma: SigmaScoreAccumulator | undefined;
-  /** True only when the Sigma-carry candidate is on AND this layer carries Sigma. Every carry branch below reads it first. */
+  /** True only when the Sigma carry is on AND this layer carries Sigma. Every carry branch below reads it first. */
   readonly #sigmaCarryOn: boolean;
   /** The population this season's accumulator started from, subtracted to find what the season folded itself. */
   readonly #sigmaCarriedInPopulation: SigmaPopulation;
@@ -130,7 +130,7 @@ export class SigmaScoutLayer {
     this.#rpMeanShift = rankingPoints && ruleModule !== undefined ? new RpMeanShiftAccumulator(ruleModule) : undefined;
     const sigma = algorithmId !== undefined && usesSigmaScore(algorithmId);
     const carryFrom = options?.sigmaCarry?.from;
-    // Candidate on with a carry: resume through the Worker's own entry point, so
+    // Carry on with a carry to start from: resume through the Worker's own entry point, so
     // the beliefs and the population are read exactly as a live tick reads a seed.
     this.#sigma = !sigma
       ? undefined
@@ -142,8 +142,8 @@ export class SigmaScoutLayer {
   }
 
   /**
-   * The candidate's carry into the NEXT season (`sigmaCarry.ts`), or
-   * `undefined` when the candidate is off or the layer carries no Sigma. Taken
+   * The Sigma carry into the NEXT season (`sigmaCarry.ts`), or
+   * `undefined` when the carry is off or the layer carries no Sigma. Taken
    * as of this season's last official match; with no official match at all,
    * as of the end of the stream (replay.ts's own `carryStates` fallback).
    */
@@ -279,7 +279,7 @@ export class SigmaScoutLayer {
     // them. `foldMatch` applies the same rule itself; the talent, the mean shift
     // and the threshold fold have no such gate of their own, so it is here.
     const folds = foldsIntoRatings(match.eventType);
-    // Candidate only (`sigmaCarry.ts`): a non-official match that folds (an
+    // Carry on only (`sigmaCarry.ts`): a non-official match that folds (an
     // offseason event) is about to move the accumulator past its state at the
     // last official match, which is the instant the next season carries from.
     // Snapshot it first. A Week 0 match folds nothing, so it needs none.
