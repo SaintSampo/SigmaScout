@@ -1621,9 +1621,10 @@ describe("DistrictLedger — the advancement chance", () => {
     // The plain live district here rather than `mixedDistrict()`: at
     // season start every started event is reopened, so every team needs a
     // distribution at every one of its events, and the stand-in team frc900 is
-    // deliberately absent from the served event roster. That absence is the
-    // refusal `districtLedgerChances.test.ts` pins; this test is about the
-    // rewind, so it uses a district the fetch mock can price in full.
+    // deliberately absent from the served event roster. Since quick task
+    // 260927-vmb that absence prices frc900 from awards alone rather than
+    // refusing it; this test is about the rewind, so it uses a district whose
+    // every team is on the served roster.
     renderLedgerAt(artifactOf(ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey)))), "/districts?algorithm=spr&at=season-start");
     await waitFor(() => expect(screen.getAllByTestId("district-ledger-chance").length).toBeGreaterThan(0));
 
