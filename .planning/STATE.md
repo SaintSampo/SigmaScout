@@ -6,7 +6,7 @@ current_phase: 10
 current_phase_name: district-points-ledger
 status: executing
 stopped_at: Completed 10-08-PLAN.md
-last_updated: "2026-09-28T03:54:01.157Z"
+last_updated: "2026-09-28T21:03:31.956Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 10 execution started
 progress:
@@ -698,6 +698,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 261 | A registered team absent from a posted schedule (like frc2635 at 2026pncmp) is priced from awards alone on both Locks tabs: grey 0 in qual, alliance and playoffs, open Awards, event total equals the award draw. Optional awardOnlyTeams in the core ledger simulation, bake unchanged, 260925-uf8 guard re-tested. Web and core only, not yet deployed | 2026-09-28 | 75fafc8b | [260927-vmb-price-a-registered-dcmp-no-show-from-awa](./quick/260927-vmb-price-a-registered-dcmp-no-show-from-awa/) |
 | 262 | fast: dropped the Locks drawer fade, which never played (nothing started it at opacity 0); Phase 10 UAT reduced motion check resolved by removal after a live Playwright check | 2026-09-28 | c344c4e3 | — |
 | 263 | Alliances Combined Total tier from season cut points instead of interpolating event percentiles | 2026-09-28 | 9e73a4c0 | [260927-wnh-alliances-combined-tier-from-season-cut-](./quick/260927-wnh-alliances-combined-tier-from-season-cut-/) |
+| 264 | Undivided DCMPs bake; as-of runs wait for the DCMP field; field-averaged measurement reads pre-event inputs; rebaseline seeds from apps/worker; refusals name their teams | 2026-09-28 | bdb8faa2 | [260928-n2h-unsplit-dcmps-bake-as-of-dcmp-roster-rul](./quick/260928-n2h-unsplit-dcmps-bake-as-of-dcmp-roster-rul/) |
 
 ### Roadmap Evolution
 
