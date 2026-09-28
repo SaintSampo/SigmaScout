@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { districtDisplayName } from "@/lib/districtNames";
 import { cn } from "@/lib/utils";
-import { tierForPercentile } from "@/lib/tiers";
+import { tierForPercentile, type Tier } from "@/lib/tiers";
 import { percentileForRank, USA_COUNTRY_VALUE } from "../../../../../packages/harness/teamRanks.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
@@ -14,11 +14,14 @@ export interface RankCardsProps {
   /** The algorithm the page is currently showing — every card's link carries this. */
   algorithmId: PublishedAlgorithmId;
   /**
-   * The team's published Total percentile (`seasonStats.metrics.total.percentile`)
-   * — the World card's tier comes from this, never from its rank. Absent
-   * renders the World card with no tier modifier at all.
+   * The World card's already-resolved tier, computed by `SeasonHeader`
+   * (published `seasonStats` Total percentile, falling back to the
+   * last-official snapshot row through `resolveMetricTier` — see that
+   * module's comment above its `RankCards` call for the full rule). This
+   * component never derives it from the card's own rank. Absent renders the
+   * World card with no tier modifier at all.
    */
-  worldPercentile?: number;
+  worldTier?: Tier;
 }
 
 type RankScopeEntry = NonNullable<TeamSeasonArtifact["ranks"]>[number];
@@ -82,25 +85,28 @@ function scopeSearch(entry: RankScopeEntry, season: number, algorithmId: Publish
  * (`teamRanks.ts`'s `buildTeamRankScopes` contract) — this component renders
  * them in the order given, never re-sorting.
  *
- * The World card's tier comes from `worldPercentile`, the same `seasonStats`
- * Total percentile the Teams list stamps its Total tier from, never from its
- * own rank. Regional pools (country, district, state) are subsets no
+ * The World card's tier arrives already resolved, as `worldTier`, from
+ * `SeasonHeader` — the source rule (published `seasonStats` Total percentile,
+ * falling back to the last-official snapshot row, never the live
+ * `seasonStats` value) lives there, not here; `SeasonHeader` is this
+ * component's only caller, and TypeScript's excess-property check fails any
+ * stale call site. Regional pools (country, district, state) are subsets no
  * published percentile covers, so those cards use `percentileForRank`'s
- * rank-specialised mid-rank convention instead — they differ from the Total
- * tier only by pool.
+ * rank-specialised mid-rank convention instead — they differ from the World
+ * card's tier source entirely, not just by pool.
  *
  * There is no "ranked by" basis caption: the cards sit inside the same card
  * as `data-testid="season-header-as-of"`, and the ranks are computed from
  * the same last-official-match snapshot pool that as-of line already labels.
  */
-export function RankCards({ ranks, season, algorithmId, worldPercentile }: RankCardsProps) {
+export function RankCards({ ranks, season, algorithmId, worldTier }: RankCardsProps) {
   if (ranks === undefined || ranks.length === 0) return null;
 
   return (
     <div data-testid="rank-cards" className="flex flex-wrap gap-[var(--spacing-sm)]">
       {ranks.map((entry) => {
         const label = scopeLabel(entry);
-        const tier = tierForPercentile(entry.scope === "world" ? worldPercentile : percentileForRank(entry.rank, entry.total));
+        const tier = entry.scope === "world" ? worldTier : tierForPercentile(percentileForRank(entry.rank, entry.total));
         return (
           <Link
             key={entry.scope}

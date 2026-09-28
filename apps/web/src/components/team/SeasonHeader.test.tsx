@@ -547,3 +547,164 @@ describe("SeasonHeader — record basis caption", () => {
     expect(screen.getByTestId("team-record").textContent).toContain("28");
   });
 });
+
+describe("SeasonHeader — live-folded tiers from tierCuts (260927-uen)", () => {
+  afterEach(() => cleanup());
+
+  it("a live-folded seasonStats with no override tiers all four tiles from tierCuts: epic, legendary, rare, common", () => {
+    const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
+      total: { value: 61.4 },
+      phaseAuto: { value: 16 },
+      phaseTeleop: { value: 12 },
+      phaseEndgame: { value: 2 },
+    };
+    const artifact = baseArtifact({
+      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics },
+      tierCuts: {
+        total: { cuts: [31.17, 52.4, 88.05] },
+        phaseAuto: { cuts: [5, 10, 15] },
+        phaseTeleop: { cuts: [10, 20, 30] },
+        phaseEndgame: { cuts: [4, 8, 12] },
+      },
+    });
+
+    render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
+
+    const cells = screen.getAllByTestId("metric-grid-cell");
+    const [totalCell, autoCell, teleopCell, endgameCell] = cells;
+    expect(totalCell?.querySelector(".metric-tier--epic")).not.toBeNull();
+    expect(autoCell?.querySelector(".metric-tier--legendary")).not.toBeNull();
+    expect(teleopCell?.querySelector(".metric-tier--rare")).not.toBeNull();
+    expect(endgameCell?.querySelector(".metric-tier--common")).not.toBeNull();
+  });
+
+  it("a published percentile wins over cuts on the Total tile: percentile 97 renders Legendary even though cuts alone would give Common", () => {
+    const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = { total: { value: 10, percentile: 97 } };
+    const artifact = baseArtifact({
+      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics },
+      tierCuts: { total: { cuts: [50, 60, 70] } },
+    });
+
+    render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
+
+    const [totalCell] = screen.getAllByTestId("metric-grid-cell");
+    expect(totalCell?.querySelector(".metric-tier--legendary")).not.toBeNull();
+    expect(totalCell?.querySelector(".metric-tier--common")).toBeNull();
+  });
+
+  it("the same live-folded values with no tierCuts render the grid with no tier element at all, values still shown", () => {
+    const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
+      total: { value: 61.4 },
+      phaseAuto: { value: 16 },
+      phaseTeleop: { value: 12 },
+      phaseEndgame: { value: 2 },
+    };
+    const artifact = baseArtifact({ seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics } });
+
+    render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
+
+    const grid = screen.getByTestId("season-header-metric-grid");
+    expect(grid.querySelector('[class*="metric-tier"]')).toBeNull();
+    expect(grid.textContent).toContain("61.40");
+  });
+
+  it("override row source (Finding 3): the World card never takes a tier from the live seasonStats value, even when it would disagree with metricsOverride's", () => {
+    // seasonStats.total 48.33 has no percentile and would be Rare by cuts;
+    // metricsOverride.total 61.4 has no percentile and is Epic by the same
+    // cuts. The Total tile and the World card must both read the override
+    // row, landing on Epic, never Rare from the live seasonStats value.
+    const artifact = baseArtifact({
+      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 48.33 } } },
+      tierCuts: { total: { cuts: [31.17, 52.4, 88.05] } },
+    });
+    const metricsOverride: TeamSeasonArtifact["seasonStats"]["metrics"] = { total: { value: 61.4 } };
+    const ranks: NonNullable<TeamSeasonArtifact["ranks"]> = [{ scope: "world", rank: 12, total: 3481 }];
+
+    renderWithRouter(
+      <SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} metricsOverride={metricsOverride} ranks={ranks} />
+    );
+
+    const [totalCell] = screen.getAllByTestId("metric-grid-cell");
+    expect(totalCell?.querySelector(".metric-tier--epic")).not.toBeNull();
+    const rankCardClassName = screen.getByTestId("rank-card").className;
+    expect(rankCardClassName).toContain("rank-card--epic");
+    expect(rankCardClassName).not.toContain("rank-card--rare");
+  });
+
+  it("World fallback: a published percentile on the last-official snapshot row wins over cuts", () => {
+    const artifact = baseArtifact({
+      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 48.33 } } },
+      tierCuts: { total: { cuts: [50, 60, 70] } },
+    });
+    const metricsOverride: TeamSeasonArtifact["seasonStats"]["metrics"] = { total: { value: 20, percentile: 96 } };
+    const ranks: NonNullable<TeamSeasonArtifact["ranks"]> = [{ scope: "world", rank: 12, total: 3481 }];
+
+    renderWithRouter(
+      <SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} metricsOverride={metricsOverride} ranks={ranks} />
+    );
+
+    const className = screen.getByTestId("rank-card").className;
+    expect(className).toContain("rank-card--legendary");
+  });
+
+  it("World with no snapshot row: seasonStats has no percentile, tierCuts are present, and there is no metricsOverride — the card carries no tier modifier", () => {
+    const artifact = baseArtifact({
+      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 48.33 } } },
+      tierCuts: { total: { cuts: [31.17, 52.4, 88.05] } },
+    });
+    const ranks: NonNullable<TeamSeasonArtifact["ranks"]> = [{ scope: "world", rank: 12, total: 3481 }];
+
+    renderWithRouter(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} ranks={ranks} />);
+
+    expect(screen.getByTestId("rank-card").className).not.toMatch(/rank-card--/);
+  });
+
+  it("World published percentile still wins outright: seasonStats Total {value:10, percentile:97} against cuts [50,60,70] renders Legendary", () => {
+    const artifact = baseArtifact({
+      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 10, percentile: 97 } } },
+      tierCuts: { total: { cuts: [50, 60, 70] } },
+    });
+    const ranks: NonNullable<TeamSeasonArtifact["ranks"]> = [{ scope: "world", rank: 1, total: 100 }];
+
+    renderWithRouter(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} ranks={ranks} />);
+
+    expect(screen.getByTestId("rank-card").className).toContain("rank-card--legendary");
+  });
+
+  it("derived guard: an EPA stale-artifact fixture with components but no published group entry carries no tier even when tierCuts publishes entries for all three group names", () => {
+    const metrics: TeamSeasonArtifact["seasonStats"]["metrics"] = {
+      autoTower: { value: 4 },
+      hubAuto: { value: 6 },
+      total: { value: 10 },
+    };
+    const artifact = baseArtifact({
+      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics },
+      tierCuts: {
+        phaseAuto: { cuts: [1, 2, 3] },
+        phaseTeleop: { cuts: [1, 2, 3] },
+        phaseEndgame: { cuts: [1, 2, 3] },
+      },
+    });
+
+    render(<SeasonHeader artifact={artifact} algorithmId="epa" season={2026} teamNumber={1114} />);
+
+    const cells = screen.getAllByTestId("metric-grid-cell");
+    const [, autoCell] = cells;
+    // Non-vacuity: the derived sum (4 + 6) still renders.
+    expect(autoCell?.textContent).toContain("10");
+    expect(autoCell?.querySelector('[class*="metric-tier"]')).toBeNull();
+  });
+
+  it("Sigma guard: the Sigma pill never takes a tier from tierCuts, even when a tierCuts.sigma entry exists — the schema never publishes one, but the header's own rule holds regardless", () => {
+    const artifact = baseArtifact({
+      seasonStats: { record: { wins: 1, losses: 0, ties: 0 }, metrics: { total: { value: 50 }, sigma: { value: 30 } } },
+      tierCuts: { sigma: { cuts: [1, 2, 3] } },
+    });
+
+    render(<SeasonHeader artifact={artifact} algorithmId="spr" season={2026} teamNumber={1114} />);
+
+    const pill = screen.getByTestId("total-sigma-pill");
+    expect(pill.querySelector('[class*="metric-tier"]')).toBeNull();
+    expect(pill.textContent).toContain("30.00");
+  });
+});

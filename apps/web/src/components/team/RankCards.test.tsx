@@ -152,15 +152,15 @@ describe("RankCards — tier colour (World card by Total percentile)", () => {
     expect(screen.getByTestId("rank-card").className).toContain("rank-card--rare");
   });
 
-  it("the World card carries the tier of worldPercentile, NOT of its rank: rank 1 of 3481 with a published Total percentile of 94.9 is Epic", () => {
+  it("the World card carries the resolved worldTier prop directly, NOT a tier of its own rank: rank 1 of 3481 with worldTier epic renders Epic", () => {
     const ranks: Ranks = [{ scope: "world", rank: 1, total: 3481 }];
-    renderWithRouter(<RankCards ranks={ranks} {...DEFAULT_PROPS} worldPercentile={94.9} />);
+    renderWithRouter(<RankCards ranks={ranks} {...DEFAULT_PROPS} worldTier="epic" />);
     const className = screen.getByTestId("rank-card").className;
     expect(className).toContain("rank-card--epic");
     expect(className).not.toContain("rank-card--legendary");
   });
 
-  it("with worldPercentile absent the World card carries no tier modifier at all -- never a rank-derived fallback", () => {
+  it("with worldTier absent the World card carries no tier modifier at all -- never a rank-derived fallback", () => {
     const ranks: Ranks = [{ scope: "world", rank: 1, total: 3481 }];
     renderWithRouter(<RankCards ranks={ranks} {...DEFAULT_PROPS} />);
     expect(screen.getByTestId("rank-card").className).not.toMatch(/rank-card--/);
@@ -174,10 +174,10 @@ describe("RankCards — tier colour (World card by Total percentile)", () => {
 
   it("the tier is derived per card -- four cards on one team page can carry different tiers", () => {
     const ranks: Ranks = [
-      { scope: "world", rank: 3481, total: 3481 }, // Common, from worldPercentile
+      { scope: "world", rank: 3481, total: 3481 }, // Common, from worldTier
       { scope: "district", value: "fim", rank: 1, total: 60 }, // Legendary
     ];
-    renderWithRouter(<RankCards ranks={ranks} {...DEFAULT_PROPS} worldPercentile={10} />);
+    renderWithRouter(<RankCards ranks={ranks} {...DEFAULT_PROPS} worldTier="common" />);
     const cards = screen.getAllByTestId("rank-card");
     expect(cards[0]?.className).toContain("rank-card--common");
     expect(cards[1]?.className).toContain("rank-card--legendary");

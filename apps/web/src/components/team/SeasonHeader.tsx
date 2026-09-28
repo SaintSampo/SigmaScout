@@ -3,7 +3,7 @@ import { MetricValue } from "@/components/MetricValue";
 import { TotalSigmaValue } from "@/components/TotalSigmaValue";
 import { metricKeysFor, TOTAL_KEY } from "@/lib/metricKeys";
 import { METRIC_GROUPS, withDerivedGroupMetrics } from "@/lib/metricGroups";
-import { resolveMetricTier, tierForPercentile } from "@/lib/tiers";
+import { resolveMetricTier, tierForPercentile, type Tier } from "@/lib/tiers";
 import type { TeamSeasonArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js";
@@ -34,12 +34,17 @@ function formatWinRate(value: number | null): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-/** One labelled, tier-boxed metric tile; the box hugs its value like every other metric cell on the site. */
-function MetricGridCell({ tile }: { tile: { label: string; metric?: TeamSeasonArtifact["seasonStats"]["metrics"][string] } }) {
+/**
+ * One labelled, tier-boxed metric tile; the box hugs its value like every
+ * other metric cell on the site. `tier` arrives already resolved by the
+ * caller (`resolveMetricTier`, guarded against a derived entry) — this
+ * component derives nothing itself.
+ */
+function MetricGridCell({ tile }: { tile: { label: string; metric?: TeamSeasonArtifact["seasonStats"]["metrics"][string]; tier?: Tier } }) {
   return (
     <div data-testid="metric-grid-cell" className="flex min-w-0 flex-col items-start gap-[var(--spacing-xs)]">
       <span className="text-role-label text-[var(--color-text-muted)]">{tile.label}</span>
-      <MetricValue metric={tile.metric} tier={tierForPercentile(tile.metric?.percentile)} />
+      <MetricValue metric={tile.metric} tier={tile.tier} />
     </div>
   );
 }
@@ -105,8 +110,13 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   // Each phase group tile reads `metrics[group.metricKey]` — a published
   // metric read straight from the artifact, never summed here, except in the
   // stale-artifact case where it is a derived entry from
-  // `withDerivedGroupMetrics` above. `tierForPercentile(undefined)` yields no
-  // tier for a derived tile — the honest outcome for stale data.
+  // `withDerivedGroupMetrics` above. Its tier resolves through
+  // `resolveMetricTier`, but ONLY when `resolvedMetrics[group.metricKey]` is
+  // itself defined — a derived entry sums rounded components client-side and
+  // is not guaranteed to equal the value the publisher would rank, so it
+  // must never take a cut-derived tier (`tierCuts` is passed as `undefined`
+  // for that tile, and `resolveMetricTier` returns no tier for an absent
+  // cuts block). A published or live-folded entry has no such guard.
   //
   // Sigma renders as the right half of a joined split pill
   // (`TotalSigmaValue`) beside the Total tile, instead of a separate tile or
@@ -121,12 +131,21 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   // already publishes. Absent entry (every OPR and EPA artifact, or a
   // pre-republish SPR one) means the Total tile degrades to a plain single
   // box — `TotalSigmaValue` is byte-identical to `MetricValue` whenever
-  // `sigma` is `undefined`.
+  // `sigma` is `undefined`. The pill is never tiered from `artifact.tierCuts`
+  // either: Sigma's published percentile ranks a team against its own
+  // rating-window neighbours, not the season pool `tierCuts` describes
+  // (`SeasonTierCutsSchema`'s own doc comment), and the live tick carries the
+  // published Sigma entry forward unchanged, percentile included — so
+  // `tierForPercentile` alone is always the right and sufficient answer here.
   const seasonSigmaMetric = resolvedSeasonStats.metrics[SIGMA_METRIC_KEY];
   const seasonSigmaScore = seasonSigmaMetric?.value;
   const seasonSigmaTier = tierForPercentile(seasonSigmaMetric?.percentile);
   const groupTiles = publishesComponents
-    ? METRIC_GROUPS.map((group) => ({ key: group.id, label: group.label, metric: metrics[group.metricKey] }))
+    ? METRIC_GROUPS.map((group) => {
+        const metric = metrics[group.metricKey];
+        const cuts = resolvedMetrics[group.metricKey] !== undefined ? artifact.tierCuts : undefined;
+        return { key: group.id, label: group.label, metric, tier: resolveMetricTier(metric, group.metricKey, cuts) };
+      })
     : [];
   // The tile's label names Sigma only when the pill actually renders — never
   // when this algorithm/team carries none, so the label never over-promises.
@@ -137,6 +156,15 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
   // reading `artifact.tierCuts` — see Finding 1/2 in the quick task's
   // PLAN.md context for why that guard exists for the phase tiles instead.
   const totalTier = resolveMetricTier(totalMetric, TOTAL_KEY, artifact.tierCuts);
+  // The World card's tier — see the comment above `RankCards` below for the
+  // full reasoning. The published `seasonStats` Total percentile always
+  // wins; the fallback reads the last-official snapshot row
+  // (`metricsOverride`), never the live `seasonStats` value itself.
+  const seasonTotalPercentile = artifact.seasonStats.metrics[TOTAL_KEY]?.percentile;
+  const worldTier: Tier | undefined =
+    seasonTotalPercentile !== undefined
+      ? tierForPercentile(seasonTotalPercentile)
+      : resolveMetricTier(metricsOverride?.[TOTAL_KEY], TOTAL_KEY, artifact.tierCuts);
   const tbaUrl = `https://www.thebluealliance.com/team/${teamNumber}`;
 
   return (
@@ -204,13 +232,24 @@ export function SeasonHeader({ artifact, algorithmId, season, teamNumber, metric
           </div>
         </div>
         {/*
-          The World card is tiered by the published seasonStats Total
-          percentile — deliberately not the resolved `metricsOverride` row.
-          seasonStats is the record measured equal to the Teams list; before a
-          republish, history rows still carry the old season-final-pool
-          percentile.
+          The World card's tier is `worldTier`, computed above: the published
+          `seasonStats` Total percentile when it exists, deliberately not the
+          resolved `metricsOverride` row — seasonStats is the record measured
+          equal to the Teams list; before a republish, history rows still
+          carry the old season-final-pool percentile.
+
+          When `seasonStats` carries no percentile (a live-folded row — the
+          tick rewrites `seasonStats.metrics` with the algorithm's CURRENT
+          state on the schedule-only path and on every offseason fold), the
+          fallback reads the last-official snapshot row's Total through
+          `resolveMetricTier` — its own published percentile, or cuts on its
+          value for a live-folded official row — NEVER cuts on the live
+          `seasonStats` value itself. The snapshot row is the same
+          last-official-match instant the rank beside it and the Teams list
+          both describe; the live `seasonStats` value is not. With no
+          snapshot row there is no tier, same as today.
         */}
-        <RankCards ranks={ranks} season={season} algorithmId={algorithmId} worldPercentile={artifact.seasonStats.metrics[TOTAL_KEY]?.percentile} />
+        <RankCards ranks={ranks} season={season} algorithmId={algorithmId} worldTier={worldTier} />
       </div>
 
       <div className="flex flex-col gap-[var(--spacing-sm)]">

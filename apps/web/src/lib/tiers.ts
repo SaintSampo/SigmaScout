@@ -71,9 +71,11 @@ export function tierForPercentile(percentile: number | undefined): Tier | undefi
 /**
  * Resolves a metric entry's rarity tier for surfaces that may hold a
  * live-folded row: prefers the published `percentile` (via
- * `tierForPercentile` above) when present, and falls back to the event
- * artifact's `tierCuts` block (via `tierFromCuts`,
- * `packages/harness/tierCuts.ts`) for that metric name when it is not.
+ * `tierForPercentile` above) when present, and falls back to the `tierCuts`
+ * block (via `tierFromCuts`, `packages/harness/tierCuts.ts`) for that metric
+ * name when it is not — read off whichever artifact the caller holds (the
+ * event artifact for `EventSection`, the team-season artifact for
+ * `SeasonHeader`; both carry the identical per-(algorithm, season) block).
  * Quick task 260920-qzf: a live tick's `touchedEventTeamMetrics`
  * (`apps/worker/src/artifactMerge.ts`) writes a fresh VALUE for a touched
  * team's other metrics but carries no percentile forward — this is what
