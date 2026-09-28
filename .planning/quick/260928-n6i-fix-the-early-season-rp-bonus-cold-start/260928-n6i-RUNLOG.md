@@ -42,3 +42,17 @@ Descriptive, pre-event matched set by RP-cold teams on the side (n, bonus Brier 
 Descriptive G4b split: 2017-2020 and 2022 candidate/reference bonus Brier 0.118409/0.125974; 2023-2026 0.143945/0.150844. Both halves beat climatology. The first attempt's G4b bonus Brier was 0.173994, so the cold-team prior accounts for the whole shortfall.
 
 **Decision: both GO.** Nothing shipped. Promotion is Jacob's decision (see PREREG "What a GO does and does not do").
+
+## After the runs: rebase onto main
+
+Every run above was measured at 7543ccc2, which sits on eb90c0d7 and predates quick 260928-n2h's district bake changes (1fff4919, e015e48d, bdb8faa2). The branch was then rebased onto main 6cd5db9d. The SHA mapping is:
+
+| Before rebase | After rebase |
+|---|---|
+| 73259f8d | 1a605d50 |
+| 9d33de86 | d518614d |
+| b6498bb3 | c6a27fcf |
+| 7543ccc2 | 7b451d9f |
+| ceaf7405 | 16f57385 |
+
+The PREREG blob is unchanged (cb8c8bf4; LF sha256 5deea93e...). After the rebase, the root and Worker typechecks are clean, and 9 affected test files pass (406/406). G5's counts describe the pre-n2h bake; any rollout reruns G5 on the rollout HEAD.
