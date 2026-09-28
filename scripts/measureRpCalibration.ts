@@ -844,10 +844,11 @@ export const RP_DOT_THRESHOLD_DEFAULT = 0.5;
 /**
  * The shipped RP-layer combination in words, written into the measurement
  * header (zero wire bytes; `buildCompareArtifact` never attaches the header).
- * The frozen `-09b` and `-09d` calibration baselines pin older literals.
+ * The frozen `-09b`, `-09d` and `-09f` calibration baselines pin older literals;
+ * `coldTeam` joined the label with SPR 9.0.0 (the RP cold-team prior, quick 260928-p8i).
  */
 export const SHIPPED_RP_LAYER_LABEL =
-  "winSource=algorithm-pRedWin, tieModel=discrete-integer-margin, marginal=lattice, meanShift=fully-warm-walk-forward";
+  "winSource=algorithm-pRedWin, tieModel=discrete-integer-margin, marginal=lattice, meanShift=fully-warm-walk-forward, coldTeam=league-season-to-date";
 
 /** One scored cell under one arm. Figures are `null`, never `NaN`, when `count` is 0, so "no data" stays distinguishable. */
 export interface RpAttributionCell {

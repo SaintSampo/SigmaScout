@@ -27,7 +27,7 @@ import { PUBLISHED_ALGORITHM_IDS } from "../packages/harness/publishedAlgorithms
  */
 const FROZEN_BASELINE_ALGORITHM_ID_ALIASES: Readonly<Record<string, string>> = { bpr: "spr" };
 const liveAlgorithmId = (frozenId: string): string => FROZEN_BASELINE_ALGORITHM_ID_ALIASES[frozenId] ?? frozenId;
-import { RpCalibrationMeasurementSchema } from "../packages/harness/publish.js";
+import { RP_CALIBRATION_MEASUREMENT_PATH, RpCalibrationMeasurementSchema } from "../packages/harness/publish.js";
 import type { Prediction } from "../packages/core/algorithms/types.js";
 import {
   applyRpBonusArmBar,
@@ -958,12 +958,30 @@ describe("buildRpCalibrationRecord — the optional third argument", () => {
     }
   });
 
-  it("the committed data/baselines/rp-calibration-2026-09f.json parses, carries the shipped rpLayer label, and every spr record has non-empty totalRp/outcome blocks", () => {
-    // The file RP_CALIBRATION_MEASUREMENT_PATH points at. When the label next
-    // changes, re-pin this to its own frozen literal, as the -09d block does.
-    const raw: unknown = JSON.parse(readFileSync(new URL("../data/baselines/rp-calibration-2026-09f.json", import.meta.url), "utf8"));
+  it("the committed data/baselines/rp-calibration-2026-09g.json parses, carries the shipped rpLayer label, names spr 9.0.0, and every spr record has non-empty totalRp/outcome blocks", () => {
+    // The file RP_CALIBRATION_MEASUREMENT_PATH points at: the first measured with the RP cold-team
+    // prior (quick 260928-p8i). When the label next changes, re-pin this to its own frozen literal.
+    expect(RP_CALIBRATION_MEASUREMENT_PATH).toBe("data/baselines/rp-calibration-2026-09g.json");
+    const raw: unknown = JSON.parse(readFileSync(new URL("../data/baselines/rp-calibration-2026-09g.json", import.meta.url), "utf8"));
     const parsed = RpCalibrationMeasurementSchema.parse(raw);
     expect(parsed.rpLayer).toBe(SHIPPED_RP_LAYER_LABEL);
+    expect(parsed.algorithmVersions).toEqual({ spr: "9.0.0+baseline" });
+    const sprRecords = parsed.records.filter((r) => r.algorithmId === "spr");
+    expect(sprRecords.map((r) => r.season)).toEqual([2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026]);
+    for (const r of sprRecords) {
+      expect(r.calibration.totalRp, `season ${r.season} totalRp`).toBeDefined();
+      expect(r.calibration.totalRp!.count, `season ${r.season} totalRp.count`).toBeGreaterThan(0);
+      expect(r.calibration.outcome, `season ${r.season} outcome`).toBeDefined();
+      expect(r.calibration.outcome!.count, `season ${r.season} outcome.count`).toBeGreaterThan(0);
+    }
+  });
+
+  it("the committed data/baselines/rp-calibration-2026-09f.json parses, carries its own frozen rpLayer label, and every spr record has non-empty totalRp/outcome blocks", () => {
+    // Superseded by -09g (SPR 9.0.0) and byte-untouched, so it is pinned to the label it was emitted with.
+    const raw: unknown = JSON.parse(readFileSync(new URL("../data/baselines/rp-calibration-2026-09f.json", import.meta.url), "utf8"));
+    const parsed = RpCalibrationMeasurementSchema.parse(raw);
+    expect(parsed.rpLayer).toBe("winSource=algorithm-pRedWin, tieModel=discrete-integer-margin, marginal=lattice, meanShift=fully-warm-walk-forward");
+    expect(parsed.rpLayer).not.toBe(SHIPPED_RP_LAYER_LABEL);
     // -09f (quick task 260919-368) is the first file measured on OFFICIAL play only and under the
     // Week 0 no-fold rule, so it names the version that rule shipped as.
     expect(parsed.algorithmVersions).toEqual({ spr: "6.0.0+baseline" });

@@ -1080,7 +1080,7 @@ void _rpCalibrationSchemaMatchesWireType;
  * files stay pinned by their own tests. `attachRpCalibration` matches algorithm ids literally, so the
  * file must be measured for the algorithms that publish ranking points.
  */
-export const RP_CALIBRATION_MEASUREMENT_PATH = "data/baselines/rp-calibration-2026-09f.json";
+export const RP_CALIBRATION_MEASUREMENT_PATH = "data/baselines/rp-calibration-2026-09g.json";
 
 /**
  * `scripts/measureRpCalibration.ts --emit-artifact` output: per-season calibration for each measured
