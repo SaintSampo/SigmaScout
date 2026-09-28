@@ -6,7 +6,7 @@ current_phase: 10
 current_phase_name: district-points-ledger
 status: executing
 stopped_at: Completed 10-08-PLAN.md
-last_updated: "2026-09-28T02:17:06.473Z"
+last_updated: "2026-09-28T03:16:19.080Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 10 execution started
 progress:
@@ -695,6 +695,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 258 | Champ Locks simulated likely range shown (49 of 69 coverage quoted on Methodology) | 2026-09-28 | 3e455ded | — |
 | 259 | Real-browser screenshots of the Champ Locks No call chip (forced by corrupting only the champ run's Worker request, 51 chips at 88 px, reason text verbatim) and a DCMP priced from a stand-in sidecar before it starts (every registered row priced, zero event requests). Finding: award-only DCMP attendee frc2635 has no sidecar row. No source change, harness deleted | 2026-09-28 | f846c01a | [260927-ue3-local-visual-check-of-the-no-call-chip-a](./quick/260927-ue3-local-visual-check-of-the-no-call-chip-a/) |
 | 260 | Team page header tiles and World rank card tier from season cut points during live folds; closed live-merges-drop-percentiles | 2026-09-28 | a44ba6f9 | [260927-uen-team-header-tiers-from-season-cut-points](./quick/260927-uen-team-header-tiers-from-season-cut-points/) |
+| 261 | A registered team absent from a posted schedule (like frc2635 at 2026pncmp) is priced from awards alone on both Locks tabs: grey 0 in qual, alliance and playoffs, open Awards, event total equals the award draw. Optional awardOnlyTeams in the core ledger simulation, bake unchanged, 260925-uf8 guard re-tested. Web and core only, not yet deployed | 2026-09-28 | 75fafc8b | [260927-vmb-price-a-registered-dcmp-no-show-from-awa](./quick/260927-vmb-price-a-registered-dcmp-no-show-from-awa/) |
 
 ### Roadmap Evolution
 
