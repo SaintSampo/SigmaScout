@@ -149,8 +149,8 @@ other ~76 ms is Worker construction plus request/result transfer.
 | `roster` | match-derived when matches exist, `event_teams` otherwise; sorted — the sort **is** the published index space |
 | `matchesPerTeam` | the real schedule's own when it exists, else Statbotics' 12 (10 for Champs divisions) |
 | pairing structure | `packages/harness/generatedSchedules.ts` — generates a fresh balanced structure per schedule, seeded from `eventKey`, `algorithmVersion`, a `generate` salt and `k`; needs no files |
-| `predict` closure | bound to the walk-forward **pre-event** state when the schedule has landed, **season-final** state when it hasn't (`pricedFrom`) |
-| `fillRankingPoints` | the SigmaScout level-2 RP filler, so opr/epa get pmfs too (before 2026-09-09 this was VPR-only) |
+| `predict` closure | bound to the walk-forward **pre-event** state when the schedule has landed, **season-final** state when it hasn't and nothing has been played (`pricedFrom`). A played event with no qualification rows (a divisioned championship's finals-only parent, Einstein) gets **no sidecar** (spr 8.0.0) |
+| `fillRankingPoints` | the SigmaScout level-2 RP filler, read at the **same instant** as the pricing state: for a `pre-event-walk-forward` price, the layer's Sigma Scores, RP beliefs and mean shift frozen just before the event's first folded record; for `current-state`, the season-final layer. Before spr 8.0.0 it was always the season-final layer, so a played event's pmfs saw its own results. All-or-nothing on the roster: one team with no Sigma yet means no sidecar |
 
 K = `PRESIM_SCHEDULE_COUNT` = **1,000** synthetic schedules. Each schedule is its own generated
 structure plus a seeded Fisher-Yates shuffle of the roster onto its slots. Structure k is shared
