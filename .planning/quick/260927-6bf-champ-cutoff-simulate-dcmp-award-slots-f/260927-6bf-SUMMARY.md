@@ -57,7 +57,7 @@ On 2026 FNC the Champ Locks tab predicted about 170 for most of the season, but 
 ## Jacob's rulings after the NO-GO (2026-09-27)
 
 - **Ship the line, not the range.** The simulated cutoff passed all four of its own conditions, so it ships. The likely range stays hidden until a separate, pre-registered calibration round gets its coverage into the band.
-- **Treat a team with no award profile as having no decorations.** It gets a zero profile, so its event still simulates. The team is simply never drawn for a judged award.
+- **Treat a team with no award profile as having no decorations.** It gets a zero profile, so its event still simulates. The team is still drawn for judged awards, at the lowest (`none` bucket, veteran) rate. That rate comes from real teams with no prior judged award, and they do win awards, so a zero rate would be wrong. (Corrected 2026-09-27: this line first said such a team is never drawn.)
 
 ## Task 2: the tab reads the simulated line (commit 52883284)
 
