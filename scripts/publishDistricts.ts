@@ -1197,19 +1197,50 @@ export interface BakeCandidate {
 }
 
 /**
+ * Every DCMP (TBA `event_type` 2) that has at least one DIVISION: an
+ * `event_type` 5 event whose key starts with the parent's key and is longer
+ * than it (`2026micmp` -> `2026micmp1`..`2026micmp4`). Pure over the event
+ * list it is handed, so the bake's classifier reads it as data.
+ *
+ * Measured 2026 (corpus of 2026-09-28): 4 divided parents (micmp with 4
+ * divisions; necmp, oncmp and txcmp with 2 each) and 11 undivided DCMPs
+ * (cancmp, cascmp, chcmp, gacmp, incmp, iscmp, mrcmp, nccmp, pncmp, sccmp,
+ * wicmp), every one of which ran its own 8-alliance qualification tournament.
+ */
+export function dividedDcmpParentKeys(events: ReadonlyArray<{ readonly eventKey: string; readonly eventType: number }>): Set<string> {
+  const divisions = events.filter((e) => e.eventType === 5).map((e) => e.eventKey);
+  const divided = new Set<string>();
+  for (const parent of events) {
+    if (parent.eventType !== 2) continue;
+    if (divisions.some((key) => key.length > parent.eventKey.length && key.startsWith(parent.eventKey))) divided.add(parent.eventKey);
+  }
+  return divided;
+}
+
+/** Every DCMP-tier event of `season` (TBA `event_type` 2 and 5), across every district: `dividedDcmpParentKeys`'s input. */
+function selectDcmpTierEvents(db: Corpus, season: number): Array<{ eventKey: string; eventType: number }> {
+  const rows = db
+    .prepare(`SELECT event_key, event_type FROM events WHERE year = ? AND event_type IN (2, 5) ORDER BY event_key ASC`)
+    .all(season) as { event_key: string; event_type: number }[];
+  return rows.map((row) => ({ eventKey: row.event_key, eventType: row.event_type }));
+}
+
+/**
  * ELIGIBILITY, as one named predicate with one reason string per rejection.
  *
  * An event is baked when, AT THE RUN'S OWN INSTANT: at least one team still
- * had it ahead (`remainingEventKeysAsOf`); its TBA `event_type` is not 2; it
+ * had it ahead (`remainingEventKeysAsOf`); it is not a divided DCMP parent; it
  * had played no qualification match; and its registered roster is inside the
  * schedule generator's size range.
  *
- * `event_type` 2 — the divisioned DCMP parent — is excluded because it has no
- * qualification schedule to generate at all (measured: 6 of 150 2026 district
- * events carry zero `qm` rows and four of them are exactly these parents) and
- * because its alliance count is not knowable before its divisions run
- * (measured: every 2026 district event with an alliance count other than eight
- * is one of them).
+ * A DIVIDED DCMP parent (`event_type` 2 with at least one `event_type` 5
+ * division, `dividedDcmpParentKeys`) is excluded because it has no
+ * qualification schedule to generate at all (its divisions carry the
+ * qualification matches and the parent plays finals only) and because its
+ * alliance count is not knowable before its divisions run (measured: every
+ * 2026 district event with an alliance count other than eight is one of the
+ * four divided parents). An UNDIVIDED DCMP is an ordinary qualification
+ * tournament with eight alliances and is a candidate like any district event.
  *
  * BOTH AS-OF INPUTS ARRIVE ALREADY CUT, so this predicate holds no clock of its
  * own. `remainingEventKeys` is `remainingEventKeysAsOf`'s answer and
@@ -1226,9 +1257,11 @@ export function classifyBakeCandidate(args: {
   readonly roster: readonly string[];
   /** AS-OF counts from `selectQualMatchCounts`; `undefined` when the event has no qualification rows at all. */
   readonly quals: QualMatchCounts | undefined;
+  /** `dividedDcmpParentKeys` over the season's DCMP-tier events. */
+  readonly dividedDcmpParentKeys: ReadonlySet<string>;
 }): BakeIneligibilityReason | null {
   if (!args.remainingEventKeys.has(args.event.eventKey)) return "not-a-remaining-event";
-  if (args.event.eventType === 2) return "divisioned-dcmp-parent";
+  if (args.event.eventType === 2 && args.dividedDcmpParentKeys.has(args.event.eventKey)) return "divisioned-dcmp-parent";
   if ((args.quals?.played ?? 0) > 0) return "already-in-progress";
   if (args.roster.length === 0) return "empty-roster";
   if (args.roster.length < MIN_SCHEDULE_TEAMS || args.roster.length > MAX_SCHEDULE_TEAMS) return "roster-out-of-generator-range";
@@ -1285,6 +1318,8 @@ function bakeSeason(
   // The events underway at the instant, once per season: the as-of cut every
   // district's candidacy below reads, on the replay's own match clock.
   const underwayEventKeys = underwayEventKeysAsOf(db, season, computedAt);
+  // Which DCMPs have divisions, once per season, handed to the classifier as data.
+  const dividedParents = dividedDcmpParentKeys(selectDcmpTierEvents(db, season));
 
   // Collect candidates across EVERY district first, so the decision to replay is
   // made once for the season rather than once per district.
@@ -1306,7 +1341,13 @@ function bakeSeason(
     for (const event of composed.events) {
       census.considered++;
       const roster = composed.registrations.get(event.eventKey) ?? [];
-      const reason = classifyBakeCandidate({ event, remainingEventKeys, roster, quals: quals.get(event.eventKey) });
+      const reason = classifyBakeCandidate({
+        event,
+        remainingEventKeys,
+        roster,
+        quals: quals.get(event.eventKey),
+        dividedDcmpParentKeys: dividedParents,
+      });
       if (reason !== null) {
         bump(census.ineligible, reason);
         continue;
@@ -1426,9 +1467,10 @@ function bakeSeason(
       week: candidate.week,
       roster: candidate.roster,
       // Eight, with Fact 2 as the reason: every 2026 district event with an
-      // alliance count other than eight is a divisioned DCMP parent, and those
-      // are excluded by `classifyBakeCandidate` — the other half of the same
-      // finding.
+      // alliance count other than eight is a DIVIDED DCMP parent, and those are
+      // excluded by `classifyBakeCandidate` — the other half of the same
+      // finding. An undivided DCMP is no exception: all 11 of 2026's drafted
+      // eight alliances (measured 2026-09-28 from `event_alliances`).
       allianceCount: 8,
       // The REGISTERED roster size. A started event's field size is
       // `event_rankings.total_teams`; those are two different facts (a team that
@@ -1436,6 +1478,8 @@ function bakeSeason(
       // `DistrictLedgerEventInput.fieldSize`'s own doc comment names resolving
       // the discrepancy as the caller's decision. An unstarted event has no
       // rankings row at all, so the registered roster is the only honest answer.
+      // An undivided DCMP takes the same rule: its registered roster (31 to 66
+      // teams in 2026) is its field.
       fieldSize: candidate.roster.length,
       ratings: pricing.ratingsFor(candidate.roster),
       awardProfiles: profilesByTeam,

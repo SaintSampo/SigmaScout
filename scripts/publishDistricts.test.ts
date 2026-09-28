@@ -39,6 +39,7 @@ import {
   classifyBakeCandidate,
   composeYear,
   deriveDistrictEventState,
+  dividedDcmpParentKeys,
   localOutFileName,
   measuredThroughSeasonFor,
   parseOptions,
@@ -1055,6 +1056,7 @@ describe("classifyBakeCandidate — the bake-eligibility taxonomy", () => {
       remainingEventKeys: new Set(["2026e1"]),
       roster: ROSTER,
       quals: undefined,
+      dividedDcmpParentKeys: new Set<string>(),
       ...overrides,
     };
   }
@@ -1067,12 +1069,31 @@ describe("classifyBakeCandidate — the bake-eligibility taxonomy", () => {
     expect(classifyBakeCandidate(args({ remainingEventKeys: new Set<string>() }))).toBe("not-a-remaining-event");
   });
 
-  it("a divisioned DCMP parent (TBA event_type 2) is never baked", () => {
+  it("a DIVIDED DCMP parent (TBA event_type 2 with a division) is never baked", () => {
     // Measured: every 2026 district event whose alliance count is not eight is
     // one of these, and they carry no qualification schedule to generate.
     expect(
-      classifyBakeCandidate(args({ event: districtEvent({ eventKey: "2026micmp", eventType: 2 }), remainingEventKeys: new Set(["2026micmp"]) }))
+      classifyBakeCandidate(
+        args({
+          event: districtEvent({ eventKey: "2026micmp", eventType: 2 }),
+          remainingEventKeys: new Set(["2026micmp"]),
+          dividedDcmpParentKeys: new Set(["2026micmp"]),
+        })
+      )
     ).toBe("divisioned-dcmp-parent");
+  });
+
+  it("an UNDIVIDED DCMP (event_type 2, no division) is a candidate like any district event", () => {
+    // 11 of 2026's 15 type 2 DCMPs ran their own 8-alliance qualification tournament.
+    const undivided = args({
+      event: districtEvent({ eventKey: "2026nccmp", eventType: 2 }),
+      remainingEventKeys: new Set(["2026nccmp"]),
+      // A different parent's divisions say nothing about this one.
+      dividedDcmpParentKeys: new Set(["2026micmp"]),
+    });
+    expect(classifyBakeCandidate(undivided)).toBeNull();
+    // Its other gates still apply.
+    expect(classifyBakeCandidate({ ...undivided, quals: { played: 1, total: 100 } })).toBe("already-in-progress");
   });
 
   it("an event with any qualification match played before the instant is the browser's, not the pipeline's", () => {
@@ -1086,6 +1107,25 @@ describe("classifyBakeCandidate — the bake-eligibility taxonomy", () => {
   it("a roster outside the schedule generator's range is not eligible", () => {
     expect(classifyBakeCandidate(args({ roster: ["frc1", "frc2"] }))).toBe("roster-out-of-generator-range");
     expect(classifyBakeCandidate(args({ roster: [] }))).toBe("empty-roster");
+  });
+});
+
+describe("dividedDcmpParentKeys — which DCMPs have divisions, as data", () => {
+  it("marks a type 2 event divided when a type 5 key extends its key, and only then", () => {
+    const events = [
+      { eventKey: "2026micmp", eventType: 2 },
+      { eventKey: "2026micmp1", eventType: 5 },
+      { eventKey: "2026micmp4", eventType: 5 },
+      { eventKey: "2026necmp", eventType: 2 },
+      { eventKey: "2026necmp2", eventType: 5 },
+      { eventKey: "2026nccmp", eventType: 2 },
+      // A type 1 event whose key happens to extend a DCMP key is not a division.
+      { eventKey: "2026nccmpx", eventType: 1 },
+      // A division of a parent absent from the list names nobody.
+      { eventKey: "2026txcmp1", eventType: 5 },
+    ];
+    expect([...dividedDcmpParentKeys(events)].sort()).toEqual(["2026micmp", "2026necmp"]);
+    expect(dividedDcmpParentKeys([])).toEqual(new Set());
   });
 });
 
