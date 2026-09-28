@@ -46,6 +46,7 @@ import {
   encodeDistrictPointPmf,
   InsufficientRosterError,
   InvalidAllianceSetError,
+  InvalidAwardOnlyTeamsError,
   InvalidFieldSizeError,
   InvalidKnownPointsError,
   MissingAwardProfileError,
@@ -63,7 +64,7 @@ import {
 import { chanceOfAnyPoints, EmptyDistributionError, pointCellSummary } from "./pointSummary.js";
 import { maxEventPoints } from "./pointModel.js";
 import { UnknownDistrictSeasonError } from "./pointModel.js";
-import { districtQualPoints } from "./qualPoints.js";
+import { districtQualPoints, districtTierWeight } from "./qualPoints.js";
 import { districtSelectionPoints } from "./selectionPoints.js";
 import type { AllianceMemberRating } from "../algorithms/simulation/allianceWinProbability.js";
 
@@ -1908,5 +1909,102 @@ describe("simulateDistrictEvent — which route each team took", () => {
       }
       expect(histogram[0]! + massAboveZero).toBe(100);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Award only teams: a registered team missing from the posted schedule
+// (quick task 260927-vmb)
+// ---------------------------------------------------------------------------
+
+describe("simulateDistrictEvent — award only teams", () => {
+  const AWARD_ONLY = "frc9001";
+
+  it("an absent and an empty award only list produce deep equal results, with no awardOnlyTeams member", () => {
+    for (const awardProfiles of [profilesFor(30), profilesWithCounts(30)]) {
+      const absent = simulateDistrictEvent(inputFor(30, { awardProfiles }), 300, 17);
+      const empty = simulateDistrictEvent(inputFor(30, { awardProfiles, awardOnlyTeams: [] }), 300, 17);
+      expect(empty).toEqual(absent);
+      expect("awardOnlyTeams" in absent).toBe(false);
+      expect("awardOnlyTeams" in empty).toBe(false);
+    }
+  });
+
+  it("draws an award only team's award and nothing else, with its event total equal to its award bin for bin", () => {
+    const awardProfiles = profilesWithCounts(30);
+    awardProfiles.set(AWARD_ONLY, { bucket: "none", rookieState: "veteran", priorJudgedAwards: 0 });
+    const draws = 500;
+    const result = simulateDistrictEvent(inputFor(30, { awardProfiles, awardOnlyTeams: [AWARD_ONLY] }), draws, 23);
+
+    expect(result.awardOnlyTeams).toEqual([AWARD_ONLY]);
+    expect(result.qualPoints.has(AWARD_ONLY)).toBe(false);
+    expect(result.selectionPoints.has(AWARD_ONLY)).toBe(false);
+    expect(result.elimPoints.has(AWARD_ONLY)).toBe(false);
+    expect(result.selectionRoutes.has(AWARD_ONLY)).toBe(false);
+    expect(result.awardSources.has(AWARD_ONLY)).toBe(true);
+
+    const award = result.awardPoints.get(AWARD_ONLY)!;
+    const total = result.eventTotal.get(AWARD_ONLY)!;
+    expect(award.reduce((sum, count) => sum + count, 0)).toBe(draws);
+    expect(total.length).toBe(result.eventTotal.get(teamKey(1))!.length);
+    for (let points = 0; points < total.length; points++) {
+      expect(total[points], `bin ${String(points)}`).toBe(points < award.length ? award[points] : 0);
+    }
+  });
+
+  it("reads a posted award as a point mass for an award only team, 0 when the map omits it", () => {
+    const knownAwardPoints = new Map<string, number>([[AWARD_ONLY, 8]]);
+    const input = inputFor(30, {
+      knownAwardPoints,
+      awardProfiles: new Map<string, DistrictAwardProfile>(),
+      awardOnlyTeams: [AWARD_ONLY, "frc9002"],
+    });
+    const draws = 40;
+    const result = simulateDistrictEvent(input, draws, 3);
+    expect(result.awardPoints.get(AWARD_ONLY)![8]).toBe(draws);
+    expect(result.awardPoints.get("frc9002")![0]).toBe(draws);
+    expect(result.eventTotal.get(AWARD_ONLY)![8]).toBe(draws);
+  });
+
+  it("puts the most decorated award only team at ordering position 1 and prices its Impact from that position", () => {
+    const awardProfiles = profilesWithCounts(30);
+    awardProfiles.set(AWARD_ONLY, { bucket: "three-or-more", rookieState: "veteran", priorJudgedAwards: 1000 });
+    const draws = 4000;
+    const result = simulateDistrictEvent(inputFor(30, { awardProfiles, awardOnlyTeams: [AWARD_ONLY] }), draws, 29);
+    expect(result.awardOrdering).toBe("applied");
+    const impactPoints = IMPACT_AWARD_POINTS * districtTierWeight(SEASON, TIER);
+    const share = result.awardPoints.get(AWARD_ONLY)![impactPoints]! / draws;
+    expect(Math.abs(share - impactOrderingProbability(SEASON, 1).p)).toBeLessThan(0.03);
+  });
+
+  it("refuses an empty, duplicated or roster overlapping key before any draw, naming every offender", () => {
+    let observed = 0;
+    const run = (): unknown =>
+      simulateDistrictEvent(
+        inputFor(30, { awardOnlyTeams: ["", AWARD_ONLY, AWARD_ONLY, teamKey(4)] }),
+        10,
+        1,
+        () => {
+          observed++;
+        }
+      );
+    expect(run).toThrow(InvalidAwardOnlyTeamsError);
+    try {
+      run();
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toContain('""');
+      expect(message).toContain(AWARD_ONLY);
+      expect(message).toContain(teamKey(4));
+    }
+    expect(observed).toBe(0);
+  });
+
+  it("names an award only team with no profile in MissingAwardProfileError like any roster team", () => {
+    const awardProfiles = profilesFor(30);
+    awardProfiles.delete(teamKey(2));
+    expect(() => simulateDistrictEvent(inputFor(30, { awardProfiles, awardOnlyTeams: [AWARD_ONLY] }), 10, 1)).toThrow(
+      new RegExp(`${teamKey(2)}.*${AWARD_ONLY}`)
+    );
   });
 });

@@ -15,14 +15,18 @@ import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   DistrictArtifactSchema,
+  EventArtifactSchema,
   type DistrictArtifact,
   type DistrictEventState,
 } from "../../../../../packages/harness/pageArtifacts.js";
+import { simulateDistrictEvent } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
 import { pointQuantile } from "../../../../../packages/core/districts/pointSummary.js";
 import {
   DISTRICT_CATEGORIES,
+  buildDistrictEventSimulationInput,
   districtCellId,
+  distributionsFromResult,
   pointMassDistribution,
   type DistrictCellKind,
   type DistrictEventDistributions,
@@ -768,5 +772,126 @@ describe("ChampLedgerTeam.earnedAtPosition — the rewound header (finding 4)", 
       ["2026pncmp", ALL_OPEN],
     ]);
     expect(at(midPlayoffs).earnedAtPosition).toBe(40);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A registered DCMP no show, priced from awards alone (quick task 260927-vmb)
+// ---------------------------------------------------------------------------
+
+describe("buildChampLedgerRows — a registered DCMP no show is priced from awards alone", () => {
+  const DCMP = "2026pncmp";
+  const NO_SHOW = "frc2635";
+  const ROSTER = Array.from({ length: 24 }, (_unused, i) => `frc${String(1001 + i)}`);
+  const RP_PMF = [0.2, 0.3, 0.3, 0.2];
+  const dcmpState = state({ qualMatchesPlayed: 6, qualMatchesTotal: 12, alliancesPicked: false, playoffsDone: false, awardsPosted: false });
+
+  const districtTeam = (teamKey: string, points: number): DistrictTeam =>
+    team({
+      teamKey,
+      pointTotal: points,
+      eventPoints: [eventPoints({ eventKey: "2026wabon", week: 1, qual: points, alliance: 0, elim: 0, award: 0, total: points })],
+      remainingEvents: [{ eventKey: DCMP, eventName: "PNW DCMP", week: 6, tier: "dcmp", maxPoints: 249, state: dcmpState }],
+    });
+
+  const artifact = artifactOf([...ROSTER.map((teamKey, i) => districtTeam(teamKey, 40 - i)), districtTeam(NO_SHOW, 30)]);
+
+  const row = (m: number, played: boolean) => {
+    const red = [ROSTER[(m * 6) % 24]!, ROSTER[(m * 6 + 1) % 24]!, ROSTER[(m * 6 + 2) % 24]!];
+    const blue = [ROSTER[(m * 6 + 3) % 24]!, ROSTER[(m * 6 + 4) % 24]!, ROSTER[(m * 6 + 5) % 24]!];
+    const base = {
+      matchKey: `${DCMP}_qm${String(m + 1)}`,
+      compLevel: "qm",
+      setNumber: 1,
+      matchNumber: m + 1,
+      sortTime: 1_760_000_000 + m * 600,
+      redTeams: red,
+      blueTeams: blue,
+      predictedWinner: "red",
+      pRedWin: 0.55,
+      predictedRedScore: 90,
+      predictedBlueScore: 85,
+      redRpPmf: RP_PMF,
+      blueRpPmf: RP_PMF,
+    };
+    return played
+      ? { ...base, actualWinner: "red", actualRedScore: 95, actualBlueScore: 80, actualRedRp: 3, actualBlueRp: 1 }
+      : base;
+  };
+  const eventArtifact = EventArtifactSchema.parse({
+    schemaVersion: 1,
+    generation: "gen-1",
+    computedAt: "2026-09-25T00:00:00.000Z",
+    algorithmId: "spr",
+    algorithmVersion: "7.0.0+rolling",
+    eventKey: DCMP,
+    season: SEASON,
+    matches: Array.from({ length: 6 }, (_unused, m) => row(m, true)),
+    upcoming: Array.from({ length: 6 }, (_unused, m) => row(m + 6, false)),
+    teams: ROSTER.map((teamKey, i) => ({
+      teamKey,
+      teamNumber: Number(teamKey.replace("frc", "")),
+      rank: i + 1,
+      record: { wins: 3, losses: 3, ties: 0 },
+      rp: 2 + (24 - i) / 24,
+      metrics: { total: { value: 60 + (24 - i) }, sigma: { value: 8 } },
+    })),
+  });
+
+  const built = buildDistrictEventSimulationInput({
+    eventKey: DCMP,
+    season: SEASON,
+    eventArtifact,
+    districtArtifact: artifact,
+    stage: ALL_OPEN,
+    startMatchKey: `${DCMP}_qm7`,
+    tier: "dcmp",
+  });
+  if (!built.ok) throw new Error("fixture: the DCMP input did not build");
+  const draws = 400;
+  const result = simulateDistrictEvent(built.input, draws, 7);
+  const rows = buildChampLedgerRows({
+    artifact,
+    distributions: new Map([[DCMP, distributionsFromResult(result)]]),
+    dcmpStarted: true,
+    atLivePosition: true,
+    // A walk forward estimate the no show must NOT read: its own event row is priced.
+    dcmpEstimateByTeam: new Map([[NO_SHOW, { distribution: { counts: Float64Array.from([0, 0, 1]), denominator: 1 }, winChance: 0.5 }]]),
+  });
+  const noShow = rows.teams.find((entry) => entry.teamKey === NO_SHOW)!;
+
+  it("puts exactly the registered team missing from the schedule in the award only list", () => {
+    expect(built.input.awardOnlyTeams).toEqual([NO_SHOW]);
+    expect(built.input.awardProfiles.has(NO_SHOW)).toBe(true);
+  });
+
+  it("reads the event's own row: three grey zeros and an open Awards cell equal to the run's award draw", () => {
+    expect(noShow.membership).toBe("in");
+    expect(noShow.dcmpRow.estimated).toBe(false);
+    for (const category of ["qual", "alliance", "elim"] as const) {
+      const cell = cellOf(noShow.dcmpRow.cells, category);
+      expect(cell.kind, category).toBe("final");
+      if (cell.kind === "final") expect(cell.earned, category).toBe(0);
+    }
+    const award = cellOf(noShow.dcmpRow.cells, "award");
+    expect(award.kind).toBe("open");
+    if (award.kind !== "open") return;
+    expect([...award.distribution.counts]).toEqual([...result.awardPoints.get(NO_SHOW)!]);
+    expect(award.distribution.denominator).toBe(draws);
+  });
+
+  it("gives an open Subtotal whose mass equals the award mass at every point value, and carries it into dcmpPart with win chance 0", () => {
+    const subtotal = noShow.dcmpRow.subtotal;
+    expect(subtotal.kind).toBe("open");
+    if (subtotal.kind !== "open") return;
+    const award = result.awardPoints.get(NO_SHOW)!;
+    const length = Math.max(subtotal.distribution.counts.length, award.length);
+    for (let points = 0; points < length; points++) {
+      expect(probabilityAt(subtotal.distribution, points), `points ${String(points)}`).toBeCloseTo((award[points] ?? 0) / draws, 12);
+    }
+    expect(noShow.dcmpPart).toBeDefined();
+    expect(noShow.dcmpPart!.distribution).toBe(subtotal.distribution);
+    expect(noShow.dcmpPart!.winChance).toBe(0);
+    expect(noShow.grandTotal.kind).not.toBe("unavailable");
   });
 });
