@@ -1551,6 +1551,15 @@ export interface PublishSeasonsOptions {
    * constructed exactly as before and nothing is carried, so every output is byte-identical.
    */
   readonly sigmaCarry?: boolean;
+  /**
+   * The RP cold-team prior CANDIDATE (`empiricalMoments.ts`,
+   * `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`), for
+   * offline verification only. No CLI flag on `publish:seasons`; `scripts/captureCompareSlices.ts
+   * --rp-cold-prior` and `scripts/measureSigmaCarry.ts` are its instruments. `true` builds every layer's
+   * RP accumulator with the prior on. Absent or `false`: every layer is constructed exactly as before,
+   * so every output is byte-identical.
+   */
+  readonly rpColdPrior?: boolean;
 }
 
 export interface PublishSummary {
@@ -2004,10 +2013,16 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
     const rpRuleModule = RP_RULE_MODULES[season];
     const layers = new Map<string, SigmaScoutLayer>();
     for (const algorithm of options.algorithms) {
-      // The Sigma-carry candidate is off unless asked for; off passes no options at all.
+      // The Sigma-carry and RP cold-team prior candidates are off unless asked for; both off passes no
+      // options at all. The carry turns on by the PRESENCE of its key, so its key is written only when on.
       const layerOptions =
-        options.sigmaCarry === true
-          ? { sigmaCarry: { from: boundary.isColdStart ? undefined : sigmaCarryAcrossSeasons.get(algorithm.id) } }
+        options.sigmaCarry === true || options.rpColdPrior === true
+          ? {
+              ...(options.sigmaCarry === true
+                ? { sigmaCarry: { from: boundary.isColdStart ? undefined : sigmaCarryAcrossSeasons.get(algorithm.id) } }
+                : {}),
+              ...(options.rpColdPrior === true ? { rpColdPrior: true } : {}),
+            }
           : undefined;
       layers.set(algorithm.id, new SigmaScoutLayer(rpRuleModule, algorithm.id, layerOptions));
     }

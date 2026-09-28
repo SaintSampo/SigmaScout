@@ -66,6 +66,15 @@ export interface SigmaScoutLayerOptions {
    * season its start. Absent: the layer is byte-for-byte the incumbent.
    */
   readonly sigmaCarry?: { readonly from: SigmaSeasonCarry | undefined };
+  /**
+   * The RP cold-team prior CANDIDATE (`empiricalMoments.ts`,
+   * `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`),
+   * off unless `true`. True: the layer's RP accumulator prices a team with no
+   * belief (or no variance yet) from the season's league summary. Nothing else
+   * in the layer changes: Sigma, the win odds, the match band and the mean
+   * shift stay the incumbent's. Absent: the layer is byte-for-byte the incumbent.
+   */
+  readonly rpColdPrior?: boolean;
 }
 
 /**
@@ -107,7 +116,12 @@ export class SigmaScoutLayer {
   constructor(ruleModule: RpRuleModule | undefined, algorithmId?: string, options?: SigmaScoutLayerOptions) {
     const rankingPoints = algorithmId !== undefined && publishesRankingPoints(algorithmId);
     this.#ruleModule = rankingPoints ? ruleModule : undefined;
-    this.#rp = rankingPoints && ruleModule !== undefined ? new RpMomentsAccumulator(ruleModule) : undefined;
+    this.#rp =
+      rankingPoints && ruleModule !== undefined
+        ? options?.rpColdPrior === true
+          ? new RpMomentsAccumulator(ruleModule, { rpColdPrior: true })
+          : new RpMomentsAccumulator(ruleModule)
+        : undefined;
     this.#rpMeanShift = rankingPoints && ruleModule !== undefined ? new RpMeanShiftAccumulator(ruleModule) : undefined;
     const sigma = algorithmId !== undefined && usesSigmaScore(algorithmId);
     const carryFrom = options?.sigmaCarry?.from;

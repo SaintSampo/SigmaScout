@@ -283,3 +283,217 @@ describe("RpMomentsAccumulator — beliefsByTeam/fromBeliefs, the live Worker's 
     expect(restored.momentsFor(RED, 130, 400)).toEqual(acc.momentsFor(RED, 130, 400));
   });
 });
+
+// ──────── RP cold-team prior candidate ─────────────────────
+
+/**
+ * `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`,
+ * Candidate R items 1 to 4. Every expected value is computed here from the
+ * observation lists, never by calling into the module under test.
+ */
+describe("RpMomentsAccumulator rpColdPrior (260928-n6i-PREREG.md)", () => {
+  const BLUE = ["frc4", "frc5", "frc6"];
+  const COLD = ["frc900", "frc901", "frc902"];
+
+  function populationMean(values: readonly number[]): number {
+    return values.reduce((a, b) => a + b, 0) / values.length;
+  }
+
+  /** The unbiased sample variance, denominator n - 1. */
+  function populationVariance(values: readonly number[]): number {
+    const m = populationMean(values);
+    return values.reduce((acc, v) => acc + (v - m) ** 2, 0) / (values.length - 1);
+  }
+
+  /** The decayed weighted mean `empiricalMoments.ts` keeps per team, derived here independently. */
+  function weightedMeanOf(values: readonly number[]): number {
+    const decay = 0.5 ** (1 / 6);
+    const last = values.length - 1;
+    const weights = values.map((_, i) => decay ** (last - i));
+    const w = weights.reduce((a, b) => a + b, 0);
+    return values.reduce((acc, v, i) => acc + weights[i]! * v, 0) / w;
+  }
+
+  /** The same decayed weighted variance as the describe block above, derived independently. */
+  function weightedVarianceOf(values: readonly number[]): number {
+    const decay = 0.5 ** (1 / 6);
+    const last = values.length - 1;
+    const weights = values.map((_, i) => decay ** (last - i));
+    const w = weights.reduce((a, b) => a + b, 0);
+    const w2 = weights.reduce((a, b) => a + b * b, 0);
+    const mean = values.reduce((acc, v, i) => acc + weights[i]! * v, 0) / w;
+    const ss = values.reduce((acc, v, i) => acc + weights[i]! * (v - mean) ** 2, 0);
+    return ss / (w - w2 / w);
+  }
+
+  function on(): RpMomentsAccumulator {
+    return new RpMomentsAccumulator(RULES_2026, { rpColdPrior: true });
+  }
+
+  /** A warm RED (two differing observations), a thin BLUE (one), and never-folded teams everywhere else. */
+  function foldMixed(acc: RpMomentsAccumulator): void {
+    acc.fold(RED, { [HUB]: 30, [TOWER]: 20 });
+    acc.fold(RED, { [HUB]: 90, [TOWER]: 50 });
+    acc.fold(BLUE, { [HUB]: 66, [TOWER]: 41 });
+  }
+
+  it("knob off is the incumbent: no options, undefined, an empty object and false all price identically, with today's cold behaviour", () => {
+    const variants = [
+      new RpMomentsAccumulator(RULES_2026),
+      new RpMomentsAccumulator(RULES_2026, undefined),
+      new RpMomentsAccumulator(RULES_2026, {}),
+      new RpMomentsAccumulator(RULES_2026, { rpColdPrior: false }),
+    ];
+    for (const acc of variants) foldMixed(acc);
+    const rosters = [COLD, BLUE, [RED[0]!, "frc900", "frc901"], RED, [RED[0]!, BLUE[0]!, "frc900"]];
+    for (const roster of rosters) {
+      const reference = variants[0]!.momentsFor(roster, 300, 900);
+      for (const acc of variants.slice(1)) expect(acc.momentsFor(roster, 300, 900)).toStrictEqual(reference);
+    }
+    for (const acc of variants) {
+      expect(acc.rpColdPrior).toBe(false);
+      const cold = acc.momentsFor(COLD, 300, 900);
+      expect(cold.meanVector).toEqual([0, 0]);
+      expect(cold.varianceBlock).toEqual([
+        [0, 0],
+        [0, 0],
+      ]);
+      // The thin roster keeps today's zero variance.
+      expect(acc.momentsFor(BLUE, 300, 900).varianceBlock[0]?.[0]).toBe(0);
+    }
+  });
+
+  it("n = 0: a fresh accumulator with the knob on prices a fully cold roster exactly as off does", () => {
+    const acc = on();
+    expect(acc.rpColdPrior).toBe(true);
+    expect(acc.momentsFor(COLD, 300, 900)).toStrictEqual(new RpMomentsAccumulator(RULES_2026).momentsFor(COLD, 300, 900));
+  });
+
+  it("n = 1: a fully cold roster's mean is the one alliance value seen, and its variance is 0", () => {
+    const acc = on();
+    acc.fold(RED, { [HUB]: 72, [TOWER]: 33 });
+    const m = acc.momentsFor(COLD, 300, 900);
+    expect(m.meanVector[0]).toBeCloseTo(72, 10);
+    expect(m.meanVector[1]).toBeCloseTo(33, 10);
+    expect(m.varianceBlock[0]?.[0]).toBe(0);
+    expect(m.varianceBlock[1]?.[1]).toBe(0);
+  });
+
+  it("n >= 2: a fully cold 3-team roster prices the league's mean and unbiased variance of the alliance values", () => {
+    const acc = on();
+    const hub = [40, 95, 61, 120, 18];
+    const tower = [10, 35, 22, 48, 30];
+    hub.forEach((h, i) => acc.fold([`frc${10 + 3 * i}`, `frc${11 + 3 * i}`, `frc${12 + 3 * i}`], { [HUB]: h, [TOWER]: tower[i]! }));
+    const m = acc.momentsFor(COLD, 300, 900);
+    expect(m.meanVector[0]).toBeCloseTo(populationMean(hub), 8);
+    expect(m.meanVector[1]).toBeCloseTo(populationMean(tower), 8);
+    expect(m.varianceBlock[0]?.[0]).toBeCloseTo(populationVariance(hub), 6);
+    expect(m.varianceBlock[1]?.[1]).toBeCloseTo(populationVariance(tower), 6);
+    expect(m.varianceBlock[0]?.[1]).toBe(0);
+  });
+
+  it("n >= 2: a fully cold 2-team roster prices the same league moments, so the scale is the roster size and nothing hardcodes 3", () => {
+    const acc = on();
+    const hub = [20, 80, 50, 35];
+    hub.forEach((h, i) => acc.fold([`frc${10 + 2 * i}`, `frc${11 + 2 * i}`], { [HUB]: h, [TOWER]: 5 + i }));
+    const m = acc.momentsFor(["frc900", "frc901"], 300, 900);
+    expect(m.meanVector[0]).toBeCloseTo(populationMean(hub), 8);
+    expect(m.varianceBlock[0]?.[0]).toBeCloseTo(populationVariance(hub), 6);
+  });
+
+  it("partial roster: one warm team plus two cold ones adds 2m/3 to the mean and averages 2v/9 into the variance", () => {
+    const acc = on();
+    acc.fold(RED, { [HUB]: 30, [TOWER]: 20 });
+    acc.fold(RED, { [HUB]: 90, [TOWER]: 50 });
+    acc.fold(BLUE, { [HUB]: 60, [TOWER]: 44 });
+    const hubValues = [30, 90, 60];
+    const m = populationMean(hubValues);
+    const v = populationVariance(hubValues);
+    const warmShares = [30 / 3, 90 / 3];
+
+    const priced = acc.momentsFor([RED[0]!, "frc900", "frc901"], 300, 900);
+    expect(priced.meanVector[0]).toBeCloseTo(weightedMeanOf(warmShares) + (2 * m) / 3, 8);
+    expect(priced.varianceBlock[0]?.[0]).toBeCloseTo(((weightedVarianceOf(warmShares) + (2 * v) / 9) * 9) / 3, 6);
+  });
+
+  it("thin team: a belief with an undefined variance takes v/r^2 instead of 0 once n >= 2", () => {
+    const hub = [30, 90, 60];
+    const tower = [12, 40, 25];
+    const rosters = [RED, BLUE, ["frc7", "frc8", "frc9"]];
+    const acc = on();
+    const off = new RpMomentsAccumulator(RULES_2026);
+    rosters.forEach((roster, i) => {
+      acc.fold(roster, { [HUB]: hub[i]!, [TOWER]: tower[i]! });
+      off.fold(roster, { [HUB]: hub[i]!, [TOWER]: tower[i]! });
+    });
+    const mixed = [RED[0]!, BLUE[0]!, "frc7"];
+    const priced = acc.momentsFor(mixed, 300, 900);
+    // Every team is thin: its mean is its one share.
+    expect(priced.meanVector[0]).toBeCloseTo(hub.reduce((a, b) => a + b / 3, 0), 8);
+    expect(priced.varianceBlock[0]?.[0]).toBeCloseTo(populationVariance(hub), 6);
+    expect(priced.varianceBlock[1]?.[1]).toBeCloseTo(populationVariance(tower), 6);
+    expect(off.momentsFor(mixed, 300, 900).varianceBlock[0]?.[0]).toBe(0);
+  });
+
+  it("the population summary is per variable: a non-finite value grows nothing, a finite one grows its own variable", () => {
+    const acc = on();
+    acc.fold(RED, { [HUB]: 40, [TOWER]: 10 });
+    acc.fold(BLUE, { [HUB]: 80, [TOWER]: 30 });
+    const before = acc.momentsFor(COLD, 300, 900);
+    acc.fold(["frc7", "frc8", "frc9"], { [HUB]: Number.NaN, [TOWER]: 110 });
+    const after = acc.momentsFor(COLD, 300, 900);
+    expect(after.meanVector[0]).toBe(before.meanVector[0]);
+    expect(after.varianceBlock[0]?.[0]).toBe(before.varianceBlock[0]?.[0]);
+    expect(after.meanVector[1]).toBeCloseTo(populationMean([10, 30, 110]), 8);
+    expect(after.meanVector[1]).not.toBeCloseTo(before.meanVector[1] as number, 4);
+  });
+
+  it("warm teams are untouched: a fully warm roster prices identically on and off, and hasHistory is unchanged", () => {
+    const acc = on();
+    const off = new RpMomentsAccumulator(RULES_2026);
+    for (const a of [acc, off]) {
+      foldMixed(a);
+      a.fold(["frc900", "frc901", "frc903"], { [HUB]: 12, [TOWER]: 7 });
+    }
+    expect(acc.momentsFor(RED, 300, 900)).toStrictEqual(off.momentsFor(RED, 300, 900));
+    expect(acc.hasHistory("frc999")).toBe(false);
+    expect(acc.hasHistory(RED[0]!)).toBe(true);
+    expect(acc.hasHistory(BLUE[0]!)).toBe(off.hasHistory(BLUE[0]!));
+  });
+
+  it("snapshotFor carries the knob and the population summary, and later live folds never reach the copy", () => {
+    const acc = on();
+    foldMixed(acc);
+    acc.fold(["frc7", "frc8", "frc9"], { [HUB]: 25, [TOWER]: 70 });
+    const roster = [RED[0]!, "frc900", BLUE[1]!];
+    const snapshot = acc.snapshotFor([...roster, "frc901"]);
+    expect(snapshot.rpColdPrior).toBe(true);
+    const live = acc.momentsFor(roster, 300, 900);
+    expect(snapshot.momentsFor(roster, 300, 900)).toStrictEqual(live);
+    // The cold team really was priced from the summary (non-vacuity).
+    const offCopy = new RpMomentsAccumulator(RULES_2026);
+    foldMixed(offCopy);
+    offCopy.fold(["frc7", "frc8", "frc9"], { [HUB]: 25, [TOWER]: 70 });
+    expect(live.meanVector[0]).not.toBe(offCopy.momentsFor(roster, 300, 900).meanVector[0]);
+
+    acc.fold(["frc30", "frc31", "frc32"], { [HUB]: 500, [TOWER]: 400 });
+    acc.fold(RED, { [HUB]: 3, [TOWER]: 1 });
+    expect(snapshot.momentsFor(roster, 300, 900)).toStrictEqual(live);
+    expect(acc.momentsFor(roster, 300, 900)).not.toStrictEqual(live);
+  });
+
+  it("the resume path carries no summary: beliefsByTeam matches off, and fromBeliefs rebuilds the incumbent", () => {
+    const acc = on();
+    const off = new RpMomentsAccumulator(RULES_2026);
+    for (const a of [acc, off]) foldMixed(a);
+    expect(acc.beliefsByTeam()).toStrictEqual(off.beliefsByTeam());
+    const resumed = RpMomentsAccumulator.fromBeliefs(RULES_2026, acc.beliefsByTeam());
+    expect(resumed.rpColdPrior).toBe(false);
+    const cold = resumed.momentsFor(COLD, 300, 900);
+    expect(cold.meanVector).toEqual([0, 0]);
+    expect(cold.varianceBlock).toEqual([
+      [0, 0],
+      [0, 0],
+    ]);
+  });
+});

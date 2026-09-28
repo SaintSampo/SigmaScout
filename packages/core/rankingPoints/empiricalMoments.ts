@@ -16,6 +16,16 @@
  *   3. Variance is about the team's own mean, with the effective-sample
  *      denominator `W − W2/W`, which is 0 after one observation, so one
  *      observation yields no variance rather than a fake zero.
+ *
+ * A team with no history for a variable contributes a zero mean and no
+ * variance, so a fully cold alliance is priced from a degenerate belief. The
+ * `rpColdPrior` CANDIDATE (off unless asked for; off is byte-for-byte the
+ * incumbent) prices such a team from the season-to-date league summary of that
+ * variable instead, and gives a one-observation team the league variance in
+ * place of 0. It is not a blend: no second model's output is mixed in, and a
+ * team with its own history is untouched. It is the RP analogue of SPR's
+ * treatment of an unseen team. Pre-registered in
+ * `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`.
  */
 
 import type { AllianceRpMoments } from "./moments.js";
@@ -77,17 +87,51 @@ function varianceOf(belief: VariableBelief): number | undefined {
   return Math.max(0, belief.m2 / denominator);
 }
 
+/** Construction switches for `RpMomentsAccumulator`. Every one is inert when absent. */
+export interface RpMomentsAccumulatorOptions {
+  /**
+   * The RP cold-team prior CANDIDATE (260928-n6i-PREREG.md), off unless `true`.
+   * On: a team with no belief for a variable is priced from the season's
+   * population summary of that variable, and a team whose belief has no
+   * variance yet takes the population's. Absent or `false`: the incumbent.
+   */
+  readonly rpColdPrior?: boolean;
+}
+
+/**
+ * The season-to-date league summary of one threshold variable: an
+ * unweighted, undecayed Welford running count, mean and sum of squared
+ * deviations over every finite ALLIANCE value `fold` has folded.
+ */
+interface PopulationSummary {
+  n: number;
+  mean: number;
+  m2: number;
+}
+
 /**
  * Walk-forward per-team beliefs over one season's threshold variables. Read a
- * match's moments before folding it in (predict-before-update). A team with no
- * history contributes a zero mean and no variance.
+ * match's moments before folding it in (predict-before-update). With the knob
+ * off, a team with no history contributes a zero mean and no variance. With
+ * the `rpColdPrior` candidate on, it contributes the season-to-date league
+ * summary instead (see the module header); a team with its own history is
+ * untouched either way.
  */
 export class RpMomentsAccumulator {
   readonly #ruleModule: RpRuleModule;
   readonly #byTeam = new Map<string, Map<string, VariableBelief>>();
+  readonly #rpColdPrior: boolean;
+  /** Per variable, the population summary; written only with the knob on, so off it stays empty. */
+  readonly #population = new Map<string, PopulationSummary>();
 
-  constructor(ruleModule: RpRuleModule) {
+  constructor(ruleModule: RpRuleModule, options?: RpMomentsAccumulatorOptions) {
     this.#ruleModule = ruleModule;
+    this.#rpColdPrior = options?.rpColdPrior === true;
+  }
+
+  /** Whether the RP cold-team prior candidate is on (260928-n6i-PREREG.md). */
+  get rpColdPrior(): boolean {
+    return this.#rpColdPrior;
   }
 
   /** Every threshold-variable name this season tracks, in rule-module order. */
@@ -102,14 +146,35 @@ export class RpMomentsAccumulator {
     const variances: number[] = [];
 
     for (const name of names) {
+      // Knob off: no summary, so no cold or thin fill below, and every statement
+      // runs exactly as the incumbent's.
+      const population = this.#rpColdPrior ? this.#population.get(name) : undefined;
+      // The per-team variance term `v / r²`, which the `r² / contributing` scaling
+      // below turns back into the alliance variance `v`. Defined only once the
+      // summary has an unbiased variance (n >= 2).
+      const coldVarianceTerm =
+        population !== undefined && population.n >= 2 && roster.length > 0
+          ? Math.max(0, population.m2 / (population.n - 1)) / (roster.length * roster.length)
+          : undefined;
       let mean = 0;
       let varianceSum = 0;
       let contributing = 0;
       for (const teamKey of roster) {
         const belief = this.#byTeam.get(teamKey)?.get(name);
-        if (belief === undefined) continue;
+        if (belief === undefined) {
+          // Cold team (candidate only): the league's mean share, and its variance once defined.
+          if (population !== undefined && population.n >= 1) {
+            mean += population.mean / roster.length;
+            if (coldVarianceTerm !== undefined) {
+              varianceSum += coldVarianceTerm;
+              contributing++;
+            }
+          }
+          continue;
+        }
         mean += belief.mean;
-        varianceSum += varianceOf(belief) ?? 0;
+        // Thin team (candidate only): no variance of its own yet, so the league's.
+        varianceSum += varianceOf(belief) ?? coldVarianceTerm ?? 0;
         contributing++;
       }
       meanVector.push(mean);
@@ -143,6 +208,18 @@ export class RpMomentsAccumulator {
     for (const name of this.variableNames) {
       const allianceValue = observedThresholdVariables[name];
       if (allianceValue === undefined || !Number.isFinite(allianceValue)) continue;
+      if (this.#rpColdPrior) {
+        // Candidate only: the league summary, once per variable per alliance.
+        let population = this.#population.get(name);
+        if (population === undefined) {
+          population = { n: 0, mean: 0, m2: 0 };
+          this.#population.set(name, population);
+        }
+        population.n += 1;
+        const delta = allianceValue - population.mean;
+        population.mean += delta / population.n;
+        population.m2 += delta * (allianceValue - population.mean);
+      }
       const share = allianceValue / roster.length;
       for (const teamKey of roster) {
         let byVariable = this.#byTeam.get(teamKey);
@@ -173,24 +250,31 @@ export class RpMomentsAccumulator {
 
   /**
    * A new accumulator holding deep copies of `teamKeys`' beliefs only, as they
-   * stand now. `momentsFor` and `hasHistory` read nothing but the teams they
-   * are given, so for any roster inside `teamKeys` the copy answers exactly as
+   * stand now, plus the knob and (with it on) deep copies of the season's
+   * population summary. `momentsFor` and `hasHistory` read nothing but the
+   * teams they are given and, with the knob on, that summary, which the copy
+   * carries. So for any roster inside `teamKeys` the copy answers exactly as
    * this accumulator does at this instant, and later folds here never reach it.
    */
   snapshotFor(teamKeys: Iterable<string>): RpMomentsAccumulator {
-    const copy = new RpMomentsAccumulator(this.#ruleModule);
+    const copy = new RpMomentsAccumulator(this.#ruleModule, this.#rpColdPrior ? { rpColdPrior: true } : undefined);
     for (const teamKey of teamKeys) {
       const byVariable = this.#byTeam.get(teamKey);
       if (byVariable === undefined || copy.#byTeam.has(teamKey)) continue;
       copy.#byTeam.set(teamKey, new Map(Object.entries(copyBeliefs(byVariable))));
     }
+    for (const [name, population] of this.#population) copy.#population.set(name, { ...population });
     return copy;
   }
 
   /**
    * Rebuilds an accumulator from `beliefsByTeam()`'s output (the live Worker's
    * resume path). Keeps only the variable names `ruleModule` declares, so a
-   * seed from another season's rules cannot carry a stale variable.
+   * seed from another season's rules cannot carry a stale variable. The
+   * rebuilt accumulator has the knob off: the `rpColdPrior` population summary
+   * is not part of the resume path, so the knob is offline-only until a rollout
+   * adds the summary to the D1 seed and the Worker's resume path
+   * (260928-n6i-PREREG.md).
    */
   static fromBeliefs(ruleModule: RpRuleModule, beliefs: ReadonlyMap<string, RpTeamBeliefs>): RpMomentsAccumulator {
     const accumulator = new RpMomentsAccumulator(ruleModule);
