@@ -50,6 +50,17 @@
  * published surface and keeps its season-final rows; only the bake's
  * candidacy reads the as-of view.
  *
+ * The roster leak is bounded, not closed. For a DCMP it would be the worst
+ * case, because a DCMP roster is DECIDED by the district's results: so an
+ * as-of run refuses every DCMP-tier event (`event_type` 2 or 5) as
+ * `dcmp-field-not-final-as-of` until every regular event of its district has
+ * finished before the instant, after which the roster is information the
+ * instant already had. A REGULAR event's roster and schedule length stay
+ * season-final: a team that registered or dropped after the instant, and a
+ * schedule published after it, still reach an as-of bake. Closing that needs a
+ * roster and schedule history the corpus does not keep. Production is not
+ * affected: at the run's own clock the season-final roster IS the current one.
+ *
  * Never reads, prints or interpolates `.env` or any value from it —
  * `putObject` (`packages/harness/r2Client.js`) reads its own credentials
  * from `process.env`, exactly as every other publish tool in this repo does;
@@ -129,7 +140,12 @@ import {
 import { putObject } from "../packages/harness/r2Client.js";
 import { roundPmf } from "../packages/harness/rounding.js";
 import { parseSeasonSpec } from "../packages/harness/seasonSpec.js";
-import { buildDistrictPricingState, resolveDistrictPricingAlgorithm, underwayEventKeysAsOf } from "./districtPricingState.js";
+import {
+  buildDistrictPricingState,
+  finishedEventKeysAsOf,
+  resolveDistrictPricingAlgorithm,
+  underwayEventKeysAsOf,
+} from "./districtPricingState.js";
 import {
   awardBaseRate,
   AWARD_POINT_SUPPORT,
@@ -1182,6 +1198,7 @@ export function toWireAwardProfile(profile: DistrictAwardProfile): {
 export type BakeIneligibilityReason =
   | "not-a-remaining-event"
   | "divisioned-dcmp-parent"
+  | "dcmp-field-not-final-as-of"
   | "already-in-progress"
   | "roster-out-of-generator-range"
   | "empty-roster";
@@ -1217,6 +1234,19 @@ export function dividedDcmpParentKeys(events: ReadonlyArray<{ readonly eventKey:
   return divided;
 }
 
+/**
+ * Whether a district's DCMP field was still UNKNOWABLE at an as-of instant:
+ * true while any of the district's regular events (TBA `event_type` 1) is
+ * missing from `finishedEventKeys` (`finishedEventKeysAsOf`). Pure; the caller
+ * decides that the question is asked only in an `--as-of` run.
+ */
+export function dcmpFieldPendingAsOf(
+  events: ReadonlyArray<{ readonly eventKey: string; readonly eventType: number }>,
+  finishedEventKeys: ReadonlySet<string>
+): boolean {
+  return events.some((e) => e.eventType === 1 && !finishedEventKeys.has(e.eventKey));
+}
+
 /** Every DCMP-tier event of `season` (TBA `event_type` 2 and 5), across every district: `dividedDcmpParentKeys`'s input. */
 function selectDcmpTierEvents(db: Corpus, season: number): Array<{ eventKey: string; eventType: number }> {
   const rows = db
@@ -1242,6 +1272,15 @@ function selectDcmpTierEvents(db: Corpus, season: number): Array<{ eventKey: str
  * four divided parents). An UNDIVIDED DCMP is an ordinary qualification
  * tournament with eight alliances and is a candidate like any district event.
  *
+ * IN AN `--as-of` RUN ONLY, a DCMP-tier event (`event_type` 2 or a type 5
+ * division) is refused as `dcmp-field-not-final-as-of` while any regular
+ * district event of its district is unfinished at the instant
+ * (`dcmpFieldPendingAsOf`). Its roster is read season-final, and a DCMP roster
+ * is the product of that district's results, so before they are all in, that
+ * roster is information from after the instant. At the run's own clock the
+ * rule is off: TBA lists a DCMP roster only once the district has qualified
+ * its field, so the roster a production run reads is already knowable.
+ *
  * BOTH AS-OF INPUTS ARRIVE ALREADY CUT, so this predicate holds no clock of its
  * own. `remainingEventKeys` is `remainingEventKeysAsOf`'s answer and
  * `quals.played` is `selectQualMatchCounts`'s as-of count: qualification matches
@@ -1259,9 +1298,15 @@ export function classifyBakeCandidate(args: {
   readonly quals: QualMatchCounts | undefined;
   /** `dividedDcmpParentKeys` over the season's DCMP-tier events. */
   readonly dividedDcmpParentKeys: ReadonlySet<string>;
+  /**
+   * `dcmpFieldPendingAsOf` for this event's district in an `--as-of` run: a regular district
+   * event of the district had not finished at the instant. Always `false` without `--as-of`.
+   */
+  readonly dcmpFieldPendingAsOf: boolean;
 }): BakeIneligibilityReason | null {
   if (!args.remainingEventKeys.has(args.event.eventKey)) return "not-a-remaining-event";
   if (args.event.eventType === 2 && args.dividedDcmpParentKeys.has(args.event.eventKey)) return "divisioned-dcmp-parent";
+  if (districtTierForEventType(args.event.eventType) === "dcmp" && args.dcmpFieldPendingAsOf) return "dcmp-field-not-final-as-of";
   if ((args.quals?.played ?? 0) > 0) return "already-in-progress";
   if (args.roster.length === 0) return "empty-roster";
   if (args.roster.length < MIN_SCHEDULE_TEAMS || args.roster.length > MAX_SCHEDULE_TEAMS) return "roster-out-of-generator-range";
@@ -1320,6 +1365,9 @@ function bakeSeason(
   const underwayEventKeys = underwayEventKeysAsOf(db, season, computedAt);
   // Which DCMPs have divisions, once per season, handed to the classifier as data.
   const dividedParents = dividedDcmpParentKeys(selectDcmpTierEvents(db, season));
+  // The events finished at the instant, read ONLY in an `--as-of` run: the DCMP
+  // field rule does not exist at the run's own clock (see `classifyBakeCandidate`).
+  const finishedEventKeys = options.asOfRun === true ? finishedEventKeysAsOf(db, season, computedAt) : undefined;
 
   // Collect candidates across EVERY district first, so the decision to replay is
   // made once for the season rather than once per district.
@@ -1337,6 +1385,7 @@ function bakeSeason(
       underwayEventKeys,
       computedAt,
     });
+    const fieldPending = finishedEventKeys !== undefined && dcmpFieldPendingAsOf(composed.events, finishedEventKeys);
 
     for (const event of composed.events) {
       census.considered++;
@@ -1347,6 +1396,7 @@ function bakeSeason(
         roster,
         quals: quals.get(event.eventKey),
         dividedDcmpParentKeys: dividedParents,
+        dcmpFieldPendingAsOf: fieldPending,
       });
       if (reason !== null) {
         bump(census.ineligible, reason);
@@ -1546,6 +1596,12 @@ export interface CliOptions {
   readonly dryRun: boolean;
   /** The instant this run is computed at. Becomes `computedAt`, drives `eventStillAhead`, cuts bake candidacy to what had happened by then, and cuts the walk-forward replay at each match's own timestamp. */
   readonly asOf: string;
+  /**
+   * `true` only when `--as-of` was given: the instant is in the past, so the rules that exist
+   * only for verification fidelity apply (the DCMP field rule in `classifyBakeCandidate`).
+   * Absent at the run's own clock, which is every production run.
+   */
+  readonly asOfRun?: boolean;
   /** When set, every composed object is written here as a file named from its R2 key with the separators flattened. */
   readonly localOut?: string;
   /** `false` under `--no-bake`. */
@@ -1622,6 +1678,7 @@ export function parseOptions(argv: readonly string[]): CliOptions {
     bucket: values.bucket ?? DEFAULT_BUCKET,
     dryRun: values["dry-run"] === true,
     asOf,
+    ...(values["as-of"] !== undefined ? { asOfRun: true } : {}),
     ...(values["local-out"] !== undefined ? { localOut: values["local-out"] } : {}),
     bake: values["no-bake"] !== true,
     ...(warmupFrom !== undefined ? { warmupFrom } : {}),

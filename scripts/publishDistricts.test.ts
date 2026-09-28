@@ -38,6 +38,7 @@ import {
   COMMITTED_DISTRICT_CEILINGS,
   classifyBakeCandidate,
   composeYear,
+  dcmpFieldPendingAsOf,
   deriveDistrictEventState,
   dividedDcmpParentKeys,
   localOutFileName,
@@ -50,7 +51,7 @@ import {
   toWireAwardProfile,
   type DistrictEventMeta,
 } from "./publishDistricts.js";
-import { underwayEventKeysAsOf } from "./districtPricingState.js";
+import { finishedEventKeysAsOf, underwayEventKeysAsOf } from "./districtPricingState.js";
 
 /** The corpus this file's corpus-guarded describes read, guarded exactly as `reconciliation.test.ts` guards its own. */
 const CORPUS_PATH = "data/corpus.sqlite";
@@ -768,6 +769,8 @@ describe("parseOptions — the new flags", () => {
     expect(options.localOut).toBe("data/out");
     expect(options.bake).toBe(false);
     expect(options.dryRun).toBe(true);
+    // An explicit instant is an as-of run: the verification-only rules apply.
+    expect(options.asOfRun).toBe(true);
   });
 
   it("defaults --as-of to the run's own clock and leaves baking ON", () => {
@@ -779,6 +782,8 @@ describe("parseOptions — the new flags", () => {
     expect(parsed).toBeLessThanOrEqual(after + 1000);
     expect(options.bake).toBe(true);
     expect(options.localOut).toBeUndefined();
+    // No --as-of: a production run, where the DCMP field rule does not exist.
+    expect("asOfRun" in options).toBe(false);
   });
 
   it("throws naming the flag and the value for an unparseable --as-of", () => {
@@ -1057,6 +1062,7 @@ describe("classifyBakeCandidate — the bake-eligibility taxonomy", () => {
       roster: ROSTER,
       quals: undefined,
       dividedDcmpParentKeys: new Set<string>(),
+      dcmpFieldPendingAsOf: false,
       ...overrides,
     };
   }
@@ -1096,6 +1102,29 @@ describe("classifyBakeCandidate — the bake-eligibility taxonomy", () => {
     expect(classifyBakeCandidate({ ...undivided, quals: { played: 1, total: 100 } })).toBe("already-in-progress");
   });
 
+  it("in an as-of run, a DCMP-tier event (type 2 or a type 5 division) waits until its district's field is final", () => {
+    const undividedDcmp = { event: districtEvent({ eventKey: "2026nccmp", eventType: 2 }), remainingEventKeys: new Set(["2026nccmp"]) };
+    const division = { event: districtEvent({ eventKey: "2026micmp1", eventType: 5 }), remainingEventKeys: new Set(["2026micmp1"]) };
+    expect(classifyBakeCandidate(args({ ...undividedDcmp, dcmpFieldPendingAsOf: true }))).toBe("dcmp-field-not-final-as-of");
+    expect(classifyBakeCandidate(args({ ...division, dcmpFieldPendingAsOf: true }))).toBe("dcmp-field-not-final-as-of");
+    // Once every regular event of the district has finished, both are candidates.
+    expect(classifyBakeCandidate(args({ ...undividedDcmp, dcmpFieldPendingAsOf: false }))).toBeNull();
+    expect(classifyBakeCandidate(args({ ...division, dcmpFieldPendingAsOf: false }))).toBeNull();
+    // A regular district event never waits on the field rule.
+    expect(classifyBakeCandidate(args({ dcmpFieldPendingAsOf: true }))).toBeNull();
+    // A divided parent keeps its own reason.
+    expect(
+      classifyBakeCandidate(
+        args({
+          event: districtEvent({ eventKey: "2026micmp", eventType: 2 }),
+          remainingEventKeys: new Set(["2026micmp"]),
+          dividedDcmpParentKeys: new Set(["2026micmp"]),
+          dcmpFieldPendingAsOf: true,
+        })
+      )
+    ).toBe("divisioned-dcmp-parent");
+  });
+
   it("an event with any qualification match played before the instant is the browser's, not the pipeline's", () => {
     expect(classifyBakeCandidate(args({ quals: { played: 1, total: 60 } }))).toBe("already-in-progress");
     // ...but an event that played all sixty AFTER the instant arrives with an
@@ -1126,6 +1155,57 @@ describe("dividedDcmpParentKeys — which DCMPs have divisions, as data", () => 
     ];
     expect([...dividedDcmpParentKeys(events)].sort()).toEqual(["2026micmp", "2026necmp"]);
     expect(dividedDcmpParentKeys([])).toEqual(new Set());
+  });
+});
+
+describe("dcmpFieldPendingAsOf — a DCMP field is knowable once every regular district event has finished", () => {
+  const events = [
+    { eventKey: "2026wk1", eventType: 1 },
+    { eventKey: "2026wk5", eventType: 1 },
+    { eventKey: "2026cmp", eventType: 2 },
+    { eventKey: "2026cmp1", eventType: 5 },
+  ];
+  it("is pending while any type 1 event is unfinished, and only type 1 events count", () => {
+    expect(dcmpFieldPendingAsOf(events, new Set(["2026wk1"]))).toBe(true);
+    expect(dcmpFieldPendingAsOf(events, new Set(["2026wk1", "2026wk5"]))).toBe(false);
+    // The DCMP's own events finishing or not says nothing about its field.
+    expect(dcmpFieldPendingAsOf(events, new Set(["2026cmp", "2026cmp1", "2026wk1"]))).toBe(true);
+    expect(dcmpFieldPendingAsOf([], new Set())).toBe(false);
+  });
+});
+
+describe("the DCMP field rule over the real corpus, as of 2026-04-04", () => {
+  if (!existsSync(CORPUS_PATH)) {
+    it.skip(`skipped: ${CORPUS_PATH} not found — run the ingest pipeline (pnpm ingest:districts) first`, () => {});
+    return;
+  }
+
+  it("clears exactly the districts whose last regular match was played before the instant", () => {
+    const AS_OF = "2026-04-04T00:00:00.000Z";
+    const db = openCorpusReadOnly(CORPUS_PATH);
+    try {
+      const original = console.log;
+      console.log = () => {};
+      let year: ReturnType<typeof composeYear>;
+      try {
+        year = composeYear(db, 2026, GENERATION, AS_OF);
+      } finally {
+        console.log = original;
+      }
+      const finished = finishedEventKeysAsOf(db, 2026, AS_OF);
+      const cleared = year.detailArtifacts
+        .filter((c) => !dcmpFieldPendingAsOf(c.events, finished))
+        .map((c) => c.district.districtKey)
+        .sort();
+      // Measured 2026-09-28: fch, fnc, fsc and pnw finished their last regular
+      // event on 03-28..03-30; every other district played one on or after 04-04.
+      expect(cleared).toEqual(["2026fch", "2026fnc", "2026fsc", "2026pnw"]);
+      // At the run's own clock every district is cleared, so the rule could not refuse anything there.
+      const now = finishedEventKeysAsOf(db, 2026, "2026-09-28T00:00:00.000Z");
+      expect(year.detailArtifacts.filter((c) => dcmpFieldPendingAsOf(c.events, now)).map((c) => c.district.districtKey)).toEqual([]);
+    } finally {
+      db.close();
+    }
   });
 });
 

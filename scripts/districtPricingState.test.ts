@@ -16,6 +16,7 @@ import { openCorpusReadOnly, type Corpus } from "../packages/corpus/db.js";
 import { readFileSync } from "node:fs";
 import {
   buildDistrictPricingState,
+  finishedEventKeysAsOf,
   playedMatchKeysAtOrAfter,
   resolveDistrictPricingAlgorithm,
   startedEventKeysAsOf,
@@ -215,6 +216,49 @@ describe("underwayEventKeysAsOf — which events' district points already existe
     });
     try {
       expect([...underwayEventKeysAsOf(db, 2026, "2026-09-28T00:00:00.000Z")].sort()).toEqual(["2026a", "2026b"]);
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("finishedEventKeysAsOf — which events had played their last match by the instant", () => {
+  it("reads an event as finished only once EVERY played match precedes the instant, falling back to the start date only when it has no played match", () => {
+    const db = matchClockFixture({
+      events: [
+        { event_key: "2026done", year: 2026, start_date: "2026-03-26" },
+        // Underway at the instant but not finished: its last match is at the instant exactly.
+        { event_key: "2026lastatcut", year: 2026, start_date: "2026-04-02" },
+        { event_key: "2026midway", year: 2026, start_date: "2026-04-02" },
+        { event_key: "2026ahead", year: 2026, start_date: "2026-04-10" },
+        // Registered, never played: nothing left to decide once it had started.
+        { event_key: "2026noshow", year: 2026, start_date: "2026-03-20" },
+        { event_key: "2026noshowahead", year: 2026, start_date: "2026-04-20" },
+        { event_key: "2025other", year: 2025, start_date: "2025-03-01" },
+      ],
+      matches: [
+        { match_key: "2026done_qm1", event_key: "2026done", sort_time: "2026-03-27T15:00:00.000Z", winner: "red" },
+        { match_key: "2026done_f1m2", event_key: "2026done", sort_time: "2026-03-28T20:00:00.000Z", winner: "blue" },
+        { match_key: "2026lastatcut_qm1", event_key: "2026lastatcut", sort_time: "2026-04-03T15:00:00.000Z", winner: "red" },
+        { match_key: "2026lastatcut_f1m1", event_key: "2026lastatcut", sort_time: CUT, winner: "red" },
+        { match_key: "2026midway_qm1", event_key: "2026midway", sort_time: "2026-04-03T15:00:00.000Z", winner: "red" },
+        { match_key: "2026midway_qm2", event_key: "2026midway", sort_time: "2026-04-04T15:00:00.000Z", winner: "blue" },
+        { match_key: "2026ahead_qm1", event_key: "2026ahead", sort_time: "2026-04-11T15:00:00.000Z", winner: "red" },
+        // An unplayed row is not play, so it neither finishes nor holds open an event.
+        { match_key: "2026noshow_qm1", event_key: "2026noshow", sort_time: "2026-03-21T15:00:00.000Z", winner: null },
+      ],
+    });
+    try {
+      expect([...finishedEventKeysAsOf(db, 2026, CUT)].sort()).toEqual(["2026done", "2026noshow"]);
+      // At the run's own clock every played event is finished.
+      expect([...finishedEventKeysAsOf(db, 2026, "2026-09-28T00:00:00.000Z")].sort()).toEqual([
+        "2026ahead",
+        "2026done",
+        "2026lastatcut",
+        "2026midway",
+        "2026noshow",
+        "2026noshowahead",
+      ]);
     } finally {
       db.close();
     }

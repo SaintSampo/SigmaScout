@@ -193,6 +193,36 @@ export function underwayEventKeysAsOf(db: Corpus, season: number, asOf: string):
   return underway;
 }
 
+/**
+ * Every event key in `season` that had FINISHED by `asOf`, on the same match
+ * clock `underwayEventKeysAsOf` reads: an event with at least one played match
+ * is finished once every one of its played matches is stamped strictly before
+ * the instant. An event the corpus holds no played match for (registered, never
+ * played) has nothing left to decide, so it counts as finished once it had
+ * started by date (`startedEventKeysAsOf`).
+ *
+ * Read only by an `--as-of` district bake, to tell whether a district's DCMP
+ * field was knowable at the instant (`publishDistricts.ts`
+ * `dcmpFieldPendingAsOf`).
+ */
+export function finishedEventKeysAsOf(db: Corpus, season: number, asOf: string): ReadonlySet<string> {
+  const instant = parseAsOf(asOf);
+  const rows = db
+    .prepare(
+      `SELECT e.event_key AS event_key, MAX(m.sort_time) AS last_played
+       FROM events e LEFT JOIN matches m ON m.event_key = e.event_key AND m.winner IS NOT NULL
+       WHERE e.year = ? GROUP BY e.event_key`
+    )
+    .all(season) as { event_key: string; last_played: number | null }[];
+  const started = startedEventKeysAsOf(db, season, asOf);
+  const finished = new Set<string>();
+  for (const row of rows) {
+    const isFinished = row.last_played === null ? started.has(row.event_key) : row.last_played < instant;
+    if (isFinished) finished.add(row.event_key);
+  }
+  return finished;
+}
+
 export interface BuildDistrictPricingStateOptions {
   /** The season whose events are to be priced. */
   readonly season: number;
