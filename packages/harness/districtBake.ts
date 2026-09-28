@@ -35,6 +35,7 @@ import {
   type DistrictAwardProfile,
   type DistrictLedgerEventInput,
   type DistrictLedgerResult,
+  ZERO_AWARD_PROFILE,
 } from "../core/districts/ledgerSimulation.js";
 import { maxEventPoints, type DistrictTier } from "../core/districts/pointModel.js";
 import type { AwardBaseRateSource } from "../core/districts/awardBaseRates.js";
@@ -88,7 +89,6 @@ export const DISTRICT_BAKE_DRAW_SALT = 0x44_15_7c_a7;
 /** Every reason a district event is refused a bake, each carrying its own offenders. */
 export type DistrictBakeSkipReason =
   | "unrated-teams"
-  | "missing-award-profiles"
   | "roster-out-of-generator-range"
   | "roster-too-small-for-alliances"
   | "rp-less-algorithm";
@@ -116,6 +116,8 @@ export interface DistrictBakeBaked {
   readonly rows: readonly DistrictBakeRow[];
   /** Team key -> which rung of `awardBaseRate`'s fallback hierarchy that team's award cell rests on, so 10-07's drawer can say so. */
   readonly awardSources: ReadonlyMap<string, AwardBaseRateSource>;
+  /** Roster teams that carried no award profile and were priced with `ZERO_AWARD_PROFILE`, ascending. Empty for a fully profiled roster. */
+  readonly zeroProfileTeams: readonly string[];
 }
 
 /** A refused event: the reason and EVERY offender, never the first. */
@@ -285,14 +287,16 @@ export function bakeDistrictEvent(params: DistrictBakeParams): DistrictBakeOutco
       offenders: unrated,
     };
   }
+  // A TEAM WITH NO AWARD PROFILE COUNTS AS HAVING NO DECORATIONS (Jacob,
+  // 2026-09-27, quick task 260927-syh). It reads core's `ZERO_AWARD_PROFILE`,
+  // the same constant the browser's event input builder reads, rather than
+  // refusing the whole event. The team is named on the outcome so the
+  // publisher can log it.
+  let awardProfiles: ReadonlyMap<string, DistrictAwardProfile> = params.awardProfiles;
   if (unprofiled.length > 0) {
-    return {
-      status: "skipped",
-      eventKey,
-      reason: "missing-award-profiles",
-      detail: `${unprofiled.length} of ${sortedRoster.length} roster team(s) carry no award profile: ${unprofiled.join(", ")}`,
-      offenders: unprofiled,
-    };
+    const filled = new Map(params.awardProfiles);
+    for (const teamKey of unprofiled) filled.set(teamKey, ZERO_AWARD_PROFILE);
+    awardProfiles = filled;
   }
 
   // ---------------------------------------------------------------------
@@ -362,7 +366,7 @@ export function bakeDistrictEvent(params: DistrictBakeParams): DistrictBakeOutco
       remainingMatches: priced.simInputsBySchedule[k]!,
       baselines,
       ratings: params.ratings,
-      awardProfiles: params.awardProfiles,
+      awardProfiles,
     };
     // This schedule's own published seed XORed with the district salt: the
     // district draw stream can never alias the shuffle stream or the presim
@@ -391,5 +395,5 @@ export function bakeDistrictEvent(params: DistrictBakeParams): DistrictBakeOutco
     total: encodeAndRound(pooled.total[t]!, draws),
   }));
 
-  return { status: "baked", eventKey, roster: sortedRoster, draws, rows, awardSources };
+  return { status: "baked", eventKey, roster: sortedRoster, draws, rows, awardSources, zeroProfileTeams: unprofiled };
 }

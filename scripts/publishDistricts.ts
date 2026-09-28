@@ -1331,6 +1331,11 @@ function bakeSeason(
       bump(census.skipped, outcome.reason);
       continue;
     }
+    if (outcome.zeroProfileTeams.length > 0) {
+      console.log(
+        `publishDistricts: bake ${candidate.eventKey} [${pricing.algorithmId}]: ${outcome.zeroProfileTeams.length} roster team(s) carry no award profile and are priced with no decorations: ${outcome.zeroProfileTeams.join(", ")}`
+      );
+    }
 
     const artifact = DistrictPreSimArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,

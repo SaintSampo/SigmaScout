@@ -20,7 +20,7 @@ import {
 import { buildPricedSyntheticSchedules } from "./preSchedule.js";
 import { DistrictPointPmfSchema, type DistrictPointPmf } from "./pageArtifacts.js";
 import { maxEventPoints } from "../core/districts/pointModel.js";
-import type { DistrictAwardProfile } from "../core/districts/ledgerSimulation.js";
+import { ZERO_AWARD_PROFILE, type DistrictAwardProfile } from "../core/districts/ledgerSimulation.js";
 import type { AllianceMemberRating } from "../core/algorithms/simulation/allianceWinProbability.js";
 import type { Prediction, UpcomingMatch } from "../core/algorithms/types.js";
 
@@ -233,15 +233,25 @@ describe("bakeDistrictEvent — the all-or-nothing roster decision, one reason a
     }
   });
 
-  it("a roster team with no award profile is refused, naming every unprofiled team", () => {
+  it("a roster team with no award profile is priced with no decorations, never refused, and is named on the outcome (260927-syh)", () => {
     const awardProfiles = profilesFor();
     awardProfiles.delete(ROSTER[2]!);
     awardProfiles.delete(ROSTER[11]!);
     const outcome = bakeDistrictEvent(params({ awardProfiles }));
-    expect(outcome.status).toBe("skipped");
-    if (outcome.status !== "skipped") return;
-    expect(outcome.reason).toBe("missing-award-profiles");
-    expect(outcome.offenders).toEqual([ROSTER[11]!, ROSTER[2]!].sort());
+    expect(outcome.status).toBe("baked");
+    if (outcome.status !== "baked") return;
+    expect(outcome.zeroProfileTeams).toEqual([ROSTER[11]!, ROSTER[2]!].sort());
+
+    // THE SAME NUMBERS as a roster that carried the zero profile explicitly:
+    // the fill is the shared constant, nothing more.
+    const explicit = profilesFor();
+    explicit.set(ROSTER[2]!, ZERO_AWARD_PROFILE);
+    explicit.set(ROSTER[11]!, ZERO_AWARD_PROFILE);
+    const reference = bakeDistrictEvent(params({ awardProfiles: explicit }));
+    expect(reference.status).toBe("baked");
+    if (reference.status !== "baked") return;
+    expect(outcome.rows).toEqual(reference.rows);
+    expect(reference.zeroProfileTeams).toEqual([]);
   });
 
   it("a roster outside the schedule generator's size range is refused before anything is priced", () => {

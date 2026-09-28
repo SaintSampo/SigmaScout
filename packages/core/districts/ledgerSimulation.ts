@@ -263,6 +263,23 @@ export interface DistrictAwardProfile {
 }
 
 /**
+ * THE ZERO AWARD PROFILE (Jacob, 2026-09-27, quick tasks 260927-6bf and
+ * 260927-syh): a roster team with no profile at all counts as having NO
+ * DECORATIONS. It is a veteran in the `none` bucket with no prior judged award,
+ * so it sorts to the tail of any decoration ordering and is never eligible for
+ * Rookie All Star.
+ *
+ * ONE CONSTANT FOR BOTH PRICERS. The browser's event input builder and the
+ * publisher's bake both read this, so a baked sidecar and the browser's own
+ * run price an unprofiled team the same way. Before it, one such team refused
+ * its WHOLE EVENT in both places.
+ *
+ * A PUBLISHED profile that only lacks `priorJudgedAwards` is NOT this case and
+ * still passes through unchanged; see `DistrictAwardProfile` above.
+ */
+export const ZERO_AWARD_PROFILE: DistrictAwardProfile = Object.freeze({ bucket: "none", rookieState: "veteran", priorJudgedAwards: 0 });
+
+/**
  * Which award pricing one run used.
  *
  *   `"posted"`                — the awards are already known, so nothing was

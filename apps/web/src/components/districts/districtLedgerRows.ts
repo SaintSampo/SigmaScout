@@ -46,6 +46,7 @@ import {
   type DistrictLedgerResult,
   type DistrictSelectionRoutes,
   type SuppliedAlliance,
+  ZERO_AWARD_PROFILE,
 } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import {
   pointCellSummary,
@@ -517,8 +518,11 @@ export function awardProfileFor(team: DistrictTeam): DistrictAwardProfile | unde
  * still passes through unchanged. Only a team with no profile at all reads
  * this one. The guarantee side (`districtLedgerStatus.ts`) keeps passing such
  * a team as a rookie, the widening direction, and is untouched.
+ *
+ * The constant itself lives in core (`ledgerSimulation.ts`) since 260927-syh,
+ * so the publisher bake reads the same one. It is re-exported here.
  */
-export const ZERO_AWARD_PROFILE: DistrictAwardProfile = Object.freeze({ bucket: "none", rookieState: "veteran", priorJudgedAwards: 0 });
+export { ZERO_AWARD_PROFILE };
 
 /** `awardProfileFor`, with the zero profile standing in for a team that has none or is not on the district artifact at all. */
 export function awardProfileOrZero(team: DistrictTeam | undefined): DistrictAwardProfile {
