@@ -95,6 +95,7 @@ import {
   CHAMP_LEDGER_RANGE_CALL_LABELS,
   CHAMP_LEDGER_RANGE_PENDING_DESCRIPTION,
   CHAMP_LEDGER_ROW_LABELS,
+  CHAMP_LEDGER_STATUS_DEFINITIONS,
   CHAMP_LEDGER_TAB_LABEL,
   DISTRICT_LEDGER_CAVEAT,
   DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS,
@@ -801,7 +802,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     <div className="flex flex-col gap-[var(--spacing-md)]" data-testid="champ-ledger-tab">
       <ControlsCard query={query} onQueryChange={setQuery} cutoff={cutoff}>
         <RewindSlider timeline={timeline} positionIndex={positionIndex} onPositionChange={handlePositionChange} />
-        <StatusChips counts={displayStatuses.counts} active={activeStatuses} onToggle={toggleStatus} withheld={displayStatuses.withheld !== undefined} />
+        <StatusChips counts={displayStatuses.counts} active={activeStatuses} onToggle={toggleStatus} withheld={displayStatuses.withheld !== undefined} definitions={CHAMP_LEDGER_STATUS_DEFINITIONS} />
       </ControlsCard>
       <p className="text-[var(--color-text-muted)]" data-testid="champ-ledger-caveat">
         {DISTRICT_LEDGER_CAVEAT} {DISTRICT_LEDGER_PROVENANCE}

@@ -385,6 +385,15 @@ describe("ChampLocksLedger — the finished district and championship", () => {
     expect(screen.getAllByRole("columnheader").map((el) => el.textContent)).toEqual([...CHAMP_LEDGER_COLUMN_LABELS]);
   });
 
+  it("defines In range and Out of range against the predicted cutoff, never the every team earns its median rule (260927-syh)", async () => {
+    renderFinished();
+    await waitFor(() => expect(screen.getByTestId("district-ledger-status-definitions")).toBeTruthy());
+    const definitions = screen.getByTestId("district-ledger-status-definitions").textContent ?? "";
+    expect(definitions).toContain("this team's median predicted points sit at or above the predicted cutoff, which already counts the slots DCMP award winners take");
+    expect(definitions).toContain("this team's median predicted points sit below the predicted cutoff");
+    expect(definitions).not.toContain("if every team earned its median predicted points");
+  });
+
   it("gives every team exactly two rows, labelled District points and DCMP points in that order", async () => {
     renderFinished();
     await waitFor(() => expect(screen.getAllByTestId("champ-ledger-row").length).toBe(ROSTER.length * 2));

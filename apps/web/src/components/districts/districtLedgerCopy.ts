@@ -269,6 +269,21 @@ export const DISTRICT_LEDGER_STATUS_DEFINITIONS = {
 } as const;
 
 /**
+ * THE CHAMP TAB'S DEFINITIONS (quick task 260927-syh). Its In range and Out of
+ * range no longer cut at "every team earns its median": since 260927-6bf they
+ * cut at the predicted cutoff, which is the simulated line while DCMP awards
+ * are still to come, so the Championship slots award winners take are already
+ * in it. The between property makes both sentences true of the boundary
+ * cutoff after the awards post as well. The other three read as the district
+ * tab's do.
+ */
+export const CHAMP_LEDGER_STATUS_DEFINITIONS: Readonly<Record<keyof typeof DISTRICT_LEDGER_STATUS_DEFINITIONS, string>> = {
+  ...DISTRICT_LEDGER_STATUS_DEFINITIONS,
+  inRange: "this team's median predicted points sit at or above the predicted cutoff, which already counts the slots DCMP award winners take",
+  outOfRange: "this team's median predicted points sit below the predicted cutoff",
+};
+
+/**
  * The drawer's captions. Flat third person, no dash characters other than the
  * en dash inside a printed percentile range.
  *

@@ -264,6 +264,7 @@ export function StatusChips({
   active,
   onToggle,
   withheld = false,
+  definitions = DISTRICT_LEDGER_STATUS_DEFINITIONS,
 }: {
   counts: Readonly<Record<DistrictLedgerStatusKey, number>>;
   active: ReadonlySet<DistrictLedgerStatusKey>;
@@ -275,6 +276,8 @@ export function StatusChips({
    * passes it.
    */
   withheld?: boolean;
+  /** The line under each chip. The champ tab passes `CHAMP_LEDGER_STATUS_DEFINITIONS`, whose In range cuts at the predicted cutoff. */
+  definitions?: Readonly<Record<DistrictLedgerStatusKey, string>>;
 }) {
   return (
     <div className="flex flex-col gap-[var(--spacing-sm)]" data-testid="district-ledger-status-chips">
@@ -305,7 +308,7 @@ export function StatusChips({
       >
         {DISTRICT_LEDGER_STATUS_KEYS.map((status) => (
           <span key={status} id={`district-ledger-status-definition-${status}`}>
-            <b>{DISTRICT_LEDGER_STATUS_LABELS[status]}</b> {DISTRICT_LEDGER_STATUS_DEFINITIONS[status]}
+            <b>{DISTRICT_LEDGER_STATUS_LABELS[status]}</b> {definitions[status]}
           </span>
         ))}
       </div>

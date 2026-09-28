@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  CHAMP_LEDGER_STATUS_DEFINITIONS,
   CHAMP_LEDGER_CUTOFF_PENDING_FIGURE,
   CHAMP_LEDGER_DRAWER_PENDING_CAPTION,
   CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
@@ -80,6 +81,15 @@ describe("the UI-SPEC copy contract", () => {
     expect(DISTRICT_LEDGER_STATUS_DEFINITIONS.inRange).toBe("if every team earned its median predicted points, this team would qualify");
     expect(DISTRICT_LEDGER_STATUS_DEFINITIONS.outOfRange).toBe("if every team earned its median predicted points, this team would not qualify");
     expect(DISTRICT_LEDGER_STATUS_DEFINITIONS.lockedOut).toBe("cannot earn enough district points to qualify");
+  });
+
+  it("pins the champ tab's In range and Out of range to the predicted cutoff, and keeps its other three definitions the district tab's (260927-syh)", () => {
+    expect(CHAMP_LEDGER_STATUS_DEFINITIONS.inRange).toBe("this team's median predicted points sit at or above the predicted cutoff, which already counts the slots DCMP award winners take");
+    expect(CHAMP_LEDGER_STATUS_DEFINITIONS.outOfRange).toBe("this team's median predicted points sit below the predicted cutoff");
+    expect(CHAMP_LEDGER_STATUS_DEFINITIONS.prequalified).toBe(DISTRICT_LEDGER_STATUS_DEFINITIONS.prequalified);
+    expect(CHAMP_LEDGER_STATUS_DEFINITIONS.locked).toBe(DISTRICT_LEDGER_STATUS_DEFINITIONS.locked);
+    expect(CHAMP_LEDGER_STATUS_DEFINITIONS.lockedOut).toBe(DISTRICT_LEDGER_STATUS_DEFINITIONS.lockedOut);
+    for (const definition of Object.values(CHAMP_LEDGER_STATUS_DEFINITIONS)) expect(definition).not.toMatch(/[\u002d\u2010-\u2015\u2212]/);
   });
 
   it("pins the two legend keys and the likely/tilde explainer character for character", () => {
