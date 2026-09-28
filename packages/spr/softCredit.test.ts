@@ -106,7 +106,11 @@ describe("softCredit", () => {
     // never folded. softCredit is untouched by it.
     // 7.0.0 (quick task 260920-qgg): an offseason adjustPoints-absence data-
     // shape fix. softCredit is untouched by it.
-    expect(SPR_VERSION).toBe("7.0.0+baseline");
+    // 8.0.0 (debug session event-presim-rp-season-final-leak): a played
+    // event's presim sidecar is priced only from its pre-event instant, and a
+    // played event with no qualification rows gets none. softCredit is
+    // untouched by it.
+    expect(SPR_VERSION).toBe("8.0.0+baseline");
   });
 
   it("shipped research params enable it too, so the two modules match", async () => {

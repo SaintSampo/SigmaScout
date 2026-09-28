@@ -286,8 +286,25 @@ export const SPR_PARAMS: SprParams = {
  * offseason event that precedes official play in its own season
  * (`2026wima`) now steps that shared scale for every subsequent match.
  * MAJOR because a published number moves, even though it is display-only.
+ *
+ * Bumped 7.0.0 to 8.0.0+baseline. Changelog entry, in the methodology voice:
+ *
+ *   The rank distributions in the Simulation tab's Before schedule release
+ *   view are now computed only from what was known before the event. Before
+ *   this version a played event's view also drew on that event's own results
+ *   and later ones. An event where any team had no earlier result that season
+ *   no longer gets one. An event with no qualification matches, such as a
+ *   championship's finals, no longer gets one. Ratings, match predictions and
+ *   every other published page are unchanged.
+ *
+ * MAJOR because published numbers move: the 2026 presim sidecars go from 214
+ * to 41, and the 41 that remain change. `predict()`, `pRedWin`, `variance`,
+ * the match band and every page body are untouched (a full publisher dry run
+ * found all 36,392 page bodies identical once the version string is
+ * normalized). Cause and measurements: the debug session
+ * event-presim-rp-season-final-leak in .planning/debug/resolved.
  */
-export const SPR_VERSION = "7.0.0+baseline";
+export const SPR_VERSION = "8.0.0+baseline";
 
 /**
  * The two-timescale state, described by what the FROZEN PARAMETERS actually do
