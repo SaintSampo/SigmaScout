@@ -35,9 +35,9 @@ harness (a private build, a Playwright script, a prep script and fixtures) lived
 
 ## Finding
 
-frc2635 earned 24 DCMP points from an award alone and played no DCMP match, so it has no row in a
-sidecar built from the event roster. Registered as a DCMP entrant, its row would read unavailable.
-Whether a real bake meets this case is unverified.
+frc2635 earned 24 DCMP points from an award alone and played no DCMP match. It is missing only from
+the stand in sidecar, which was built from the match roster. Follow up: TBA registered it, and the real
+bake uses registrations, so production is unaffected. See the screenshots README.
 
 ## Deviations
 

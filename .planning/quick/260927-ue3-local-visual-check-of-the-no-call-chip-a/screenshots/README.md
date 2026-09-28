@@ -79,11 +79,17 @@ route handler answered every `/v1/**` request, and the page made no off host req
 ## Finding: an award only DCMP attendee has no sidecar row
 
 frc2635 has a `2026pncmp` points row of 24, all awards (Engineering Inspiration), but played no DCMP
-match, so it is not on the event artifact's 50 team roster. The stand in sidecar, like any sidecar
-built from the event roster, has no row for it. Registered as an unstarted DCMP entrant, its DCMP row
-would read unavailable. The roster variant therefore registers the 50 match roster teams, not all 51.
-Whether a real bake meets this case depends on where its roster comes from and whether TBA lists
-such a team before the event. That is unverified.
+match, so it is not on the event artifact's 50 team roster. This stand in sidecar was built from that
+match roster, so it has no row for 2635, and the roster variant registers the 50 match roster teams
+rather than all 51.
+
+**Follow up (checked the same day): this is a harness artifact, not a production bug.** TBA lists
+2635 among 2026pncmp's 51 registered teams (`event_teams`). `scripts/publishDistricts.ts` builds both
+the page's `remainingEvents` and the real bake's roster from that one registrations map, so a real
+sidecar carries a row for every registered team and none reads unavailable. Once the DCMP has started,
+a registered team missing from the schedule gets no row from the event's own simulation, so its row
+falls back to the walk forward estimate (`buildDcmpRow` case 3). Until its awards post, it shows
+estimated DCMP points as if it were playing.
 
 ## What these shots do not prove
 
