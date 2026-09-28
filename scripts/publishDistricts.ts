@@ -29,11 +29,24 @@
  * priced offline from walk-forward SPR state and published as a
  * `v1/district-presim/{districtKey}/{eventKey}.json` sidecar, so the browser
  * paints it with zero simulation compute. `--as-of` is the one instant that
- * decides which events are still ahead AND which matches enter the replay, so
- * an event can never be priced from a state that saw its own results. With
- * `--as-of` absent the instant is the run's own clock and the truncation is
- * provably an identity, so the verification path and the production path are
- * one code path. `--no-bake` skips the replay entirely and says so.
+ * decides which events are still ahead, which events are bake candidates, and
+ * which matches enter the replay, so an event can never be priced from a state
+ * that saw its own results. Both as-of cuts are keyed on each match's own
+ * timestamp: the replay keeps only played matches stamped before the instant,
+ * and candidacy counts a team's district points at an event as already earned
+ * only if that event was underway by then. With `--as-of` absent the instant is
+ * the run's own clock, nothing in the corpus is stamped after it, and both cuts
+ * are identities, so the verification path and the production path are one
+ * code path. `--no-bake` skips the replay entirely and says so.
+ *
+ * WHAT AN AS-OF RUN STILL READS SEASON-FINAL, named rather than hidden: each
+ * candidate's registered roster (`event_teams`), its qualification-schedule
+ * length (the `qm` row count that sets matches per team), and the composed
+ * district artifact itself (points, ranks, remaining events). The corpus holds
+ * no timestamp for a registration or a schedule row, so neither can be cut
+ * without changing what a production run publishes. The artifact is the
+ * published surface and keeps its season-final rows; only the bake's
+ * candidacy reads the as-of view.
  *
  * Never reads, prints or interpolates `.env` or any value from it —
  * `putObject` (`packages/harness/r2Client.js`) reads its own credentials
@@ -114,7 +127,7 @@ import {
 import { putObject } from "../packages/harness/r2Client.js";
 import { roundPmf } from "../packages/harness/rounding.js";
 import { parseSeasonSpec } from "../packages/harness/seasonSpec.js";
-import { buildDistrictPricingState, resolveDistrictPricingAlgorithm, startedEventKeysAsOf } from "./districtPricingState.js";
+import { buildDistrictPricingState, resolveDistrictPricingAlgorithm, underwayEventKeysAsOf } from "./districtPricingState.js";
 import {
   awardBaseRate,
   AWARD_POINT_SUPPORT,
@@ -237,6 +250,42 @@ function eventStillAhead(event: DistrictEventMeta, computedAt: string): boolean 
   return start >= Date.parse(computedAt) - 7 * 24 * 60 * 60 * 1000;
 }
 
+/**
+ * `teamKey -> the set of the district's own event keys that team registered
+ * for`. Registrations for an event outside `eventsByKey` are dropped, so a
+ * team's list is scoped strictly to this district's events.
+ */
+function registeredEventKeysByTeam(
+  registrations: ReadonlyMap<string, readonly string[]>,
+  eventsByKey: ReadonlyMap<string, DistrictEventMeta>
+): Map<string, Set<string>> {
+  const registeredByTeam = new Map<string, Set<string>>();
+  for (const [eventKey, teamKeys] of registrations) {
+    if (!eventsByKey.has(eventKey)) continue; // scope strictly to this district's own events
+    for (const teamKey of teamKeys) {
+      if (!registeredByTeam.has(teamKey)) registeredByTeam.set(teamKey, new Set());
+      registeredByTeam.get(teamKey)!.add(eventKey);
+    }
+  }
+  return registeredByTeam;
+}
+
+/**
+ * THE ONE REMAINING-EVENTS RULE: a registered event the team has not played
+ * that is still ahead at `computedAt`. Two callers hand it two views of
+ * "played": the published artifact passes the season-final event points, and
+ * the bake's candidacy (`remainingEventKeysAsOf`) passes those same points cut
+ * to the events underway at its instant. One rule, so the two cannot drift.
+ */
+function remainingRegisteredEventKeys(
+  registered: ReadonlySet<string>,
+  played: ReadonlySet<string>,
+  eventsByKey: ReadonlyMap<string, DistrictEventMeta>,
+  computedAt: string
+): string[] {
+  return [...registered].filter((eventKey) => !played.has(eventKey) && eventStillAhead(eventsByKey.get(eventKey)!, computedAt));
+}
+
 interface EventRow {
   event_key: string;
   name: string | null;
@@ -331,14 +380,7 @@ export function buildDistrictArtifact(options: ComposeDistrictArtifactOptions): 
   const dcmpEventMaxTotal = dcmpBase.qual + dcmpBase.alliance + dcmpBase.elim + dcmpBase.award;
 
   // teamKey -> the set of this district's own event keys that team is registered for.
-  const registeredByTeam = new Map<string, Set<string>>();
-  for (const [eventKey, teamKeys] of registrations) {
-    if (!eventsByKey.has(eventKey)) continue; // scope strictly to this district's own events
-    for (const teamKey of teamKeys) {
-      if (!registeredByTeam.has(teamKey)) registeredByTeam.set(teamKey, new Set());
-      registeredByTeam.get(teamKey)!.add(eventKey);
-    }
-  }
+  const registeredByTeam = registeredEventKeysByTeam(registrations, eventsByKey);
 
   // Award-based qualification. Walk every district event's award recipients
   // ONCE, building each team's display-ready `qualifyingAwards` list. The two
@@ -391,8 +433,7 @@ export function buildDistrictArtifact(options: ComposeDistrictArtifactOptions): 
     });
     const playedEventKeys = new Set(eventPoints.map((ep) => ep.eventKey));
     const registeredEventKeys = registeredByTeam.get(ranking.teamKey) ?? new Set<string>();
-    const remainingEvents = [...registeredEventKeys]
-      .filter((eventKey) => !playedEventKeys.has(eventKey) && eventStillAhead(eventsByKey.get(eventKey)!, computedAt))
+    const remainingEvents = remainingRegisteredEventKeys(registeredEventKeys, playedEventKeys, eventsByKey, computedAt)
       .map((eventKey) => {
         const meta = eventsByKey.get(eventKey)!;
         const tier = districtTierForEventType(meta.eventType);
@@ -640,9 +681,9 @@ export function composeYear(db: Corpus, season: number, generation: string, comp
 // ---------------------------------------------------------------------------
 
 export interface QualMatchCounts {
-  /** Qualification matches with a decided winner. */
+  /** Qualification matches with a decided winner, stamped strictly before the as-of instant — the AS-OF played count. */
   readonly played: number;
-  /** Qualification rows of any kind — played and merely scheduled together. */
+  /** Qualification rows of any kind — played and merely scheduled together. Season-final: the corpus holds no timestamp for when a schedule was published. */
   readonly total: number;
 }
 
@@ -651,22 +692,74 @@ export interface QualMatchCounts {
  * SQL against the `Corpus` instance, following `selectTeamMeta`'s own
  * local-helper style: a publish-only query earns no new
  * `packages/corpus/db.ts` accessor.
+ *
+ * `played` is cut at `asOf` by each match's own `sort_time`, the same clock the
+ * replay's cut reads (`playedMatchKeysAtOrAfter`), so "had this event played a
+ * qualification match at the instant" and "which matches the pricing state
+ * saw" are one fact. It used to be the season-final count, gated only by the
+ * event's start date, so an event that had started but not yet played at the
+ * instant read as already in progress on the strength of matches played later.
+ * At the run's own clock the two counts agree, because no played match is
+ * stamped after it.
  */
-function selectQualMatchCounts(db: Corpus, eventKeys: readonly string[]): Map<string, QualMatchCounts> {
+export function selectQualMatchCounts(db: Corpus, eventKeys: readonly string[], asOf: string): Map<string, QualMatchCounts> {
   const counts = new Map<string, QualMatchCounts>();
   if (eventKeys.length === 0) return counts;
+  const instant = Date.parse(asOf);
+  if (Number.isNaN(instant)) throw new Error(`publishDistricts: as-of instant "${asOf}" is not a parseable date`);
   const placeholders = eventKeys.map(() => "?").join(", ");
   const rows = db
     .prepare(
       `SELECT event_key,
               COUNT(DISTINCT match_key) AS total,
-              COUNT(DISTINCT CASE WHEN winner IS NOT NULL THEN match_key END) AS played
+              COUNT(DISTINCT CASE WHEN winner IS NOT NULL AND sort_time < ? THEN match_key END) AS played
        FROM matches WHERE comp_level = 'qm' AND event_key IN (${placeholders})
        GROUP BY event_key`
     )
-    .all(...eventKeys) as { event_key: string; total: number; played: number }[];
+    .all(instant, ...eventKeys) as { event_key: string; total: number; played: number }[];
   for (const row of rows) counts.set(row.event_key, { played: row.played, total: row.total });
   return counts;
+}
+
+/**
+ * THE AS-OF REMAINING SET the bake chooses its candidates from: every event at
+ * least one ranked team still had ahead of it AT `computedAt`.
+ *
+ * It is `buildDistrictArtifact`'s own remaining-events rule
+ * (`remainingRegisteredEventKeys`) with one input changed. A team's district
+ * points are season-final, so a points row at an event says the team played
+ * there at SOME point in the season, not that it had by the instant. Only the
+ * rows whose event was underway at the instant (`underwayEventKeys`, from
+ * `underwayEventKeysAsOf`) count as played here.
+ *
+ * Measured 2026-09-28, the season-final version this replaced marked 119 of 150
+ * 2026 events "not a remaining event" at an as-of of 2026-03-01, although 135
+ * non-parent events had not started. The only candidates it left were events
+ * where some registered team never earned points (a no-show), so an early
+ * as-of dry run exercised the bake on 23 unrepresentative events.
+ *
+ * At the run's own clock every event carrying points is underway, so this set
+ * equals the union of the published artifact's `remainingEvents` lists — the
+ * production answer is unchanged.
+ */
+export function remainingEventKeysAsOf(args: {
+  readonly events: readonly DistrictEventMeta[];
+  readonly registrations: ReadonlyMap<string, readonly string[]>;
+  /** The district's ranked teams, each with its season-final district-points rows. */
+  readonly teams: ReadonlyArray<{ readonly teamKey: string; readonly eventPoints: ReadonlyArray<{ readonly eventKey: string }> }>;
+  readonly underwayEventKeys: ReadonlySet<string>;
+  readonly computedAt: string;
+}): ReadonlySet<string> {
+  const eventsByKey = new Map(args.events.map((e) => [e.eventKey, e] as const));
+  const registeredByTeam = registeredEventKeysByTeam(args.registrations, eventsByKey);
+  const remaining = new Set<string>();
+  for (const team of args.teams) {
+    const registered = registeredByTeam.get(team.teamKey);
+    if (registered === undefined) continue;
+    const playedAsOf = new Set(team.eventPoints.map((row) => row.eventKey).filter((eventKey) => args.underwayEventKeys.has(eventKey)));
+    for (const eventKey of remainingRegisteredEventKeys(registered, playedAsOf, eventsByKey, args.computedAt)) remaining.add(eventKey);
+  }
+  return remaining;
 }
 
 // ---------------------------------------------------------------------------
@@ -1105,9 +1198,9 @@ export interface BakeCandidate {
  * ELIGIBILITY, as one named predicate with one reason string per rejection.
  *
  * An event is baked when, AT THE RUN'S OWN INSTANT: at least one team still
- * carries it in `remainingEvents`; its TBA `event_type` is not 2; it has no
- * played qualification match; and its registered roster is inside the schedule
- * generator's size range.
+ * had it ahead (`remainingEventKeysAsOf`); its TBA `event_type` is not 2; it
+ * had played no qualification match; and its registered roster is inside the
+ * schedule generator's size range.
  *
  * `event_type` 2 — the divisioned DCMP parent — is excluded because it has no
  * qualification schedule to generate at all (measured: 6 of 150 2026 district
@@ -1116,23 +1209,25 @@ export interface BakeCandidate {
  * (measured: every 2026 district event with an alliance count other than eight
  * is one of them).
  *
- * "No played qualification match" is evaluated IN THE AS-OF VIEW: an event that
- * had not started at `startedEventKeys`' instant contributes no played row,
- * because at that instant it had played nothing. That is what makes the
- * verification path and the production path one code path — with the instant at
- * the run's own clock the as-of view is the corpus itself.
+ * BOTH AS-OF INPUTS ARRIVE ALREADY CUT, so this predicate holds no clock of its
+ * own. `remainingEventKeys` is `remainingEventKeysAsOf`'s answer and
+ * `quals.played` is `selectQualMatchCounts`'s as-of count: qualification matches
+ * played strictly before the instant, by each match's own timestamp. An event
+ * that had not played a qualification match at the instant reads zero here,
+ * even if it played sixty afterwards. That is what makes the verification path
+ * and the production path one code path — with the instant at the run's own
+ * clock both inputs are the corpus itself.
  */
 export function classifyBakeCandidate(args: {
   readonly event: DistrictEventMeta;
   readonly remainingEventKeys: ReadonlySet<string>;
   readonly roster: readonly string[];
+  /** AS-OF counts from `selectQualMatchCounts`; `undefined` when the event has no qualification rows at all. */
   readonly quals: QualMatchCounts | undefined;
-  readonly startedEventKeys: ReadonlySet<string>;
 }): BakeIneligibilityReason | null {
   if (!args.remainingEventKeys.has(args.event.eventKey)) return "not-a-remaining-event";
   if (args.event.eventType === 2) return "divisioned-dcmp-parent";
-  const playedAsOf = args.startedEventKeys.has(args.event.eventKey) ? (args.quals?.played ?? 0) : 0;
-  if (playedAsOf > 0) return "already-in-progress";
+  if ((args.quals?.played ?? 0) > 0) return "already-in-progress";
   if (args.roster.length === 0) return "empty-roster";
   if (args.roster.length < MIN_SCHEDULE_TEAMS || args.roster.length > MAX_SCHEDULE_TEAMS) return "roster-out-of-generator-range";
   return null;
@@ -1185,21 +1280,31 @@ function bakeSeason(
   const sidecars: Array<{ key: string; artifact: DistrictPreSimArtifact }> = [];
   const bakedEventsByDistrict = new Map<string, string[]>();
 
-  const startedEventKeys = startedEventKeysAsOfSeason(db, season, computedAt);
+  // The events underway at the instant, once per season: the as-of cut every
+  // district's candidacy below reads, on the replay's own match clock.
+  const underwayEventKeys = underwayEventKeysAsOf(db, season, computedAt);
 
   // Collect candidates across EVERY district first, so the decision to replay is
   // made once for the season rather than once per district.
   const candidates: BakeCandidate[] = [];
   for (const composed of year.detailArtifacts) {
     const eventKeys = composed.events.map((e) => e.eventKey);
-    const quals = selectQualMatchCounts(db, eventKeys);
-    const remainingEventKeys = new Set<string>();
-    for (const team of composed.artifact.teams) for (const row of team.remainingEvents) remainingEventKeys.add(row.eventKey);
+    const quals = selectQualMatchCounts(db, eventKeys, computedAt);
+    // NOT the composed artifact's `remainingEvents`: those are built from
+    // season-final district points, which in an as-of run include points earned
+    // after the instant. At the run's own clock the two sets are equal.
+    const remainingEventKeys = remainingEventKeysAsOf({
+      events: composed.events,
+      registrations: composed.registrations,
+      teams: composed.artifact.teams,
+      underwayEventKeys,
+      computedAt,
+    });
 
     for (const event of composed.events) {
       census.considered++;
       const roster = composed.registrations.get(event.eventKey) ?? [];
-      const reason = classifyBakeCandidate({ event, remainingEventKeys, roster, quals: quals.get(event.eventKey), startedEventKeys });
+      const reason = classifyBakeCandidate({ event, remainingEventKeys, roster, quals: quals.get(event.eventKey) });
       if (reason !== null) {
         bump(census.ineligible, reason);
         continue;
@@ -1367,11 +1472,6 @@ function pushBakedEvent(into: Map<string, string[]>, districtKey: string, eventK
   else if (!list.includes(eventKey)) list.push(eventKey);
 }
 
-/** `startedEventKeysAsOf` re-exported through one call site, so the publisher and the pricing state share one predicate. */
-function startedEventKeysAsOfSeason(db: Corpus, season: number, asOf: string): ReadonlySet<string> {
-  return startedEventKeysAsOf(db, season, asOf);
-}
-
 function reportCensus(season: number, census: BakeCensus): void {
   const ineligible = [...census.ineligible.entries()].map(([reason, n]) => `${reason}=${n}`).join(", ") || "none";
   const skipped = [...census.skipped.entries()].map(([reason, n]) => `${reason}=${n}`).join(", ") || "none";
@@ -1386,7 +1486,7 @@ export interface CliOptions {
   readonly years: number[];
   readonly bucket: string;
   readonly dryRun: boolean;
-  /** The instant this run is computed at. Becomes `computedAt`, drives `eventStillAhead`, and truncates the walk-forward replay. */
+  /** The instant this run is computed at. Becomes `computedAt`, drives `eventStillAhead`, cuts bake candidacy to what had happened by then, and cuts the walk-forward replay at each match's own timestamp. */
   readonly asOf: string;
   /** When set, every composed object is written here as a file named from its R2 key with the separators flattened. */
   readonly localOut?: string;
@@ -1505,8 +1605,10 @@ export async function run(options: CliOptions): Promise<void> {
   const generation = new Date().toISOString();
   // `--as-of` IS `computedAt`. One instant decides which events are still ahead
   // (`eventStillAhead`), which matches enter the walk-forward replay
-  // (`startedEventKeysAsOf`) and which events are bake-eligible — so a past
-  // event provably cannot be priced from a state that saw its own results.
+  // (`playedMatchKeysAtOrAfter`, by each match's own timestamp) and which events
+  // are bake-eligible (`remainingEventKeysAsOf` and the as-of qualification
+  // count) — so a past event cannot be priced from a state that saw its own
+  // results.
   const computedAt = options.asOf;
   const ceilings = options.ceilings ?? COMMITTED_DISTRICT_CEILINGS;
 

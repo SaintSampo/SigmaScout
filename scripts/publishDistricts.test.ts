@@ -37,15 +37,19 @@ import {
   buildSeasonAwardContext,
   COMMITTED_DISTRICT_CEILINGS,
   classifyBakeCandidate,
+  composeYear,
   deriveDistrictEventState,
   localOutFileName,
   measuredThroughSeasonFor,
   parseOptions,
   parseYearsSpec,
+  remainingEventKeysAsOf,
   run,
+  selectQualMatchCounts,
   toWireAwardProfile,
   type DistrictEventMeta,
 } from "./publishDistricts.js";
+import { underwayEventKeysAsOf } from "./districtPricingState.js";
 
 /** The corpus this file's corpus-guarded describes read, guarded exactly as `reconciliation.test.ts` guards its own. */
 const CORPUS_PATH = "data/corpus.sqlite";
@@ -1044,7 +1048,6 @@ describe("classifyBakeCandidate — the bake-eligibility taxonomy", () => {
       remainingEventKeys: new Set(["2026e1"]),
       roster: ROSTER,
       quals: undefined,
-      startedEventKeys: new Set<string>(),
       ...overrides,
     };
   }
@@ -1065,16 +1068,163 @@ describe("classifyBakeCandidate — the bake-eligibility taxonomy", () => {
     ).toBe("divisioned-dcmp-parent");
   });
 
-  it("an event with any played qualification match is the browser's, not the pipeline's", () => {
-    expect(classifyBakeCandidate(args({ quals: { played: 1, total: 60 }, startedEventKeys: new Set(["2026e1"]) }))).toBe("already-in-progress");
-    // ...but the SAME row set, at an instant before the event started, reads as
-    // zero played, because at that instant it had played nothing.
-    expect(classifyBakeCandidate(args({ quals: { played: 60, total: 60 }, startedEventKeys: new Set<string>() }))).toBeNull();
+  it("an event with any qualification match played before the instant is the browser's, not the pipeline's", () => {
+    expect(classifyBakeCandidate(args({ quals: { played: 1, total: 60 } }))).toBe("already-in-progress");
+    // ...but an event that played all sixty AFTER the instant arrives with an
+    // as-of count of zero (`selectQualMatchCounts`), and zero is eligible: a
+    // published schedule says nothing about whether play had begun.
+    expect(classifyBakeCandidate(args({ quals: { played: 0, total: 60 } }))).toBeNull();
   });
 
   it("a roster outside the schedule generator's range is not eligible", () => {
     expect(classifyBakeCandidate(args({ roster: ["frc1", "frc2"] }))).toBe("roster-out-of-generator-range");
     expect(classifyBakeCandidate(args({ roster: [] }))).toBe("empty-roster");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bake candidacy is AS-OF (debug session presim-bake-rp-filler-refuses,
+// Decision 2): candidates come from what had happened by the instant, never
+// from season-final district points or season-final played counts.
+// ---------------------------------------------------------------------------
+
+describe("remainingEventKeysAsOf — candidacy reads only what had happened by the instant", () => {
+  const AS_OF = "2026-03-01T00:00:00.000Z";
+  const events = [
+    districtEvent({ eventKey: "2026wk1", startDate: "2026-03-05" }),
+    districtEvent({ eventKey: "2026wk2", startDate: "2026-03-12" }),
+    // More than seven days before the instant: never remaining, whatever the points say.
+    districtEvent({ eventKey: "2026past", startDate: "2026-02-01" }),
+  ];
+  const registrations = new Map<string, readonly string[]>([
+    ["2026wk1", ["frc1", "frc2"]],
+    ["2026wk2", ["frc1", "frc3"]],
+    ["2026past", ["frc2"]],
+    // Outside this district's event list: scoped out, exactly as the published rule does.
+    ["2026elsewhere", ["frc1"]],
+  ]);
+  /** SEASON-FINAL points: frc1 later played both events, frc2 played week 1, frc3 is a week-2 no-show. */
+  const pointsRow = (eventKey: string) => ({ event_key: eventKey, district_cmp: false, qual_points: 10, alliance_points: 0, elim_points: 0, award_points: 0, total: 10 });
+  const rankings = [
+    ranking({ teamKey: "frc1", rank: 1, eventPointsRaw: eventPointsRaw([pointsRow("2026wk1"), pointsRow("2026wk2")]) }),
+    ranking({ teamKey: "frc2", rank: 2, eventPointsRaw: eventPointsRaw([pointsRow("2026wk1")]) }),
+    ranking({ teamKey: "frc3", rank: 3 }),
+  ];
+  const artifact = buildDistrictArtifact({
+    season: 2026,
+    generation: GENERATION,
+    computedAt: AS_OF,
+    district: district(),
+    rankings,
+    events,
+    registrations,
+    awards: new Map(),
+    teamMeta: new Map(),
+  });
+  const cut = (underwayEventKeys: ReadonlySet<string>) =>
+    [...remainingEventKeysAsOf({ events, registrations, teams: artifact.teams, underwayEventKeys, computedAt: AS_OF })].sort();
+
+  it("keeps an event every registered team LATER earned points at, when none of that play had happened by the instant", () => {
+    // The leak this replaced: the season-final rule drops 2026wk1 here, because
+    // both of its registered teams eventually earned points there.
+    const published = new Set(artifact.teams.flatMap((team) => team.remainingEvents.map((row) => row.eventKey)));
+    expect(published.has("2026wk1")).toBe(false);
+    expect(cut(new Set())).toEqual(["2026wk1", "2026wk2"]);
+  });
+
+  it("counts a points row as already earned only once its event was underway", () => {
+    // Week 1 underway, week 2 not: frc1's week-2 points were earned later, so week 2 stays ahead.
+    expect(cut(new Set(["2026wk1"]))).toEqual(["2026wk2"]);
+  });
+
+  it("with every points event underway, the run's own-clock condition, it IS the published remainingEvents union", () => {
+    const published = [...new Set(artifact.teams.flatMap((team) => team.remainingEvents.map((row) => row.eventKey)))].sort();
+    // Non-vacuity: the published union is not empty, so equality is not empty-equals-empty.
+    expect(published).toEqual(["2026wk2"]);
+    expect(cut(new Set(["2026wk1", "2026wk2"]))).toEqual(published);
+  });
+});
+
+describe("selectQualMatchCounts — the as-of played count the in-progress gate reads", () => {
+  /** An in-memory corpus carrying only the `matches` columns the count reads; `sort_time` is epoch ms. */
+  function qualClockFixture(rows: ReadonlyArray<{ match_key: string; event_key: string; comp_level: string; sort_time: string; winner: string | null }>): Corpus {
+    const db = new Database(":memory:") as unknown as Corpus;
+    db.prepare(`CREATE TABLE matches (match_key TEXT PRIMARY KEY, event_key TEXT, comp_level TEXT, sort_time INTEGER, winner TEXT)`).run();
+    const insert = db.prepare(`INSERT INTO matches VALUES (?,?,?,?,?)`);
+    for (const row of rows) insert.run(row.match_key, row.event_key, row.comp_level, Date.parse(row.sort_time), row.winner);
+    return db;
+  }
+  const CUT = "2026-04-04T00:00:00.000Z";
+
+  it("counts only qualification matches PLAYED STRICTLY BEFORE the instant, and the schedule length in full", () => {
+    const db = qualClockFixture([
+      { match_key: "2026e1_qm1", event_key: "2026e1", comp_level: "qm", sort_time: "2026-04-03T15:00:00.000Z", winner: "red" },
+      // Exactly at the instant: not yet played at it.
+      { match_key: "2026e1_qm2", event_key: "2026e1", comp_level: "qm", sort_time: CUT, winner: "blue" },
+      { match_key: "2026e1_qm3", event_key: "2026e1", comp_level: "qm", sort_time: "2026-04-04T15:00:00.000Z", winner: "red" },
+      { match_key: "2026e1_qm4", event_key: "2026e1", comp_level: "qm", sort_time: "2026-04-04T16:00:00.000Z", winner: null },
+      // An elimination row never counts toward the qualification gate.
+      { match_key: "2026e1_f1m1", event_key: "2026e1", comp_level: "f", sort_time: "2026-04-02T15:00:00.000Z", winner: "red" },
+      // An event that started by date but played everything later: the start-date gate read it as in progress.
+      { match_key: "2026e2_qm1", event_key: "2026e2", comp_level: "qm", sort_time: "2026-04-04T15:00:00.000Z", winner: "red" },
+    ]);
+    try {
+      const counts = selectQualMatchCounts(db, ["2026e1", "2026e2", "2026none"], CUT);
+      expect(counts.get("2026e1")).toEqual({ played: 1, total: 4 });
+      expect(counts.get("2026e2")).toEqual({ played: 0, total: 1 });
+      expect(counts.has("2026none")).toBe(false);
+      // At the run's own clock the as-of count is the season-final one.
+      expect(selectQualMatchCounts(db, ["2026e1", "2026e2"], "2026-09-28T00:00:00.000Z").get("2026e1")).toEqual({ played: 3, total: 4 });
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe("bake candidacy over the real corpus honors the as-of instant", () => {
+  if (!existsSync(CORPUS_PATH)) {
+    it.skip(`skipped: ${CORPUS_PATH} not found — run the ingest pipeline (pnpm ingest:districts) first`, () => {});
+    return;
+  }
+
+  it("at 2026-03-01 regains the unstarted events season-final points dropped, and is the season-final set once every points event is underway", () => {
+    const AS_OF = "2026-03-01T00:00:00.000Z";
+    const db = openCorpusReadOnly(CORPUS_PATH);
+    try {
+      const original = console.log;
+      console.log = () => {};
+      let year: ReturnType<typeof composeYear>;
+      try {
+        year = composeYear(db, 2026, GENERATION, AS_OF);
+      } finally {
+        console.log = original;
+      }
+      const underway = underwayEventKeysAsOf(db, 2026, AS_OF);
+      const everyPointsEvent = new Set(year.detailArtifacts.flatMap((c) => c.artifact.teams.flatMap((t) => t.eventPoints.map((row) => row.eventKey))));
+      const regained: string[] = [];
+      let seasonFinalCount = 0;
+      let asOfCount = 0;
+      for (const composed of year.detailArtifacts) {
+        const seasonFinal = new Set(composed.artifact.teams.flatMap((t) => t.remainingEvents.map((row) => row.eventKey)));
+        const inputs = { events: composed.events, registrations: composed.registrations, teams: composed.artifact.teams, computedAt: AS_OF };
+        const asOf = remainingEventKeysAsOf({ ...inputs, underwayEventKeys: underway });
+        // ONE RULE: with every points event underway, the as-of set is the published one exactly.
+        expect([...remainingEventKeysAsOf({ ...inputs, underwayEventKeys: everyPointsEvent })].sort(), composed.district.districtKey).toEqual([...seasonFinal].sort());
+        // The as-of set only ever ADDS events: nothing still ahead at season's end was behind at the instant.
+        for (const eventKey of seasonFinal) expect(asOf.has(eventKey), eventKey).toBe(true);
+        for (const eventKey of asOf) if (!seasonFinal.has(eventKey)) regained.push(eventKey);
+        seasonFinalCount += seasonFinal.size;
+        asOfCount += asOf.size;
+      }
+      console.log(
+        `bake candidacy at ${AS_OF}: ${asOfCount} remaining event(s) as of the instant vs ${seasonFinalCount} from season-final points; ${regained.length} regained, e.g. ${regained.slice(0, 6).join(", ")}`
+      );
+      // A FLOOR, measured 2026-09-28 (the season-final rule left 31; see the debug session).
+      expect(seasonFinalCount).toBeLessThan(asOfCount);
+      expect(regained.length).toBeGreaterThanOrEqual(100);
+    } finally {
+      db.close();
+    }
   });
 });
 
