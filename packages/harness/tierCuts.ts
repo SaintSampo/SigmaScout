@@ -3,8 +3,9 @@
  * tier from three published CUT POINTS alone — no percentile, no season
  * pool, no network request. This is the one place the cut-point evaluation
  * rule is stated; `packages/harness/percentiles.ts`'s `buildTierCutsFromPools`
- * builds the cuts this file evaluates, and `apps/web/src/lib/tiers.ts`'s
- * resolver is this file's only client-side caller.
+ * builds the cuts this file evaluates, and this file has two client-side
+ * callers: `apps/web/src/lib/tiers.ts`'s resolver, and
+ * `apps/web/src/lib/allianceTierApproximation.ts`.
  *
  * BROWSER-SAFE BY CONSTRUCTION: this module may import `roundMetric` from
  * `./rounding.js` and TYPES ONLY from `./pageArtifacts.js`, and nothing

@@ -207,16 +207,6 @@ function pickFromTeamKey(teamKey: string, teams: readonly EventTeam[], allianceT
 }
 
 /**
- * `buildAllianceRows(artifact, algorithmId)`: maps each published alliance to
- * an `AllianceRow`, ordered by ascending `allianceNumber` (never array
- * index). `picks` is read positionally — there is no field for the leader
- * position or the fourth/backup position, so a parallel field on
- * `AllianceRow` would be a copy that can drift. Also computes the combined total's approximate
- * tier (against the FULL event roster, not just this alliance's three
- * picks — `estimateCombinedTier`'s own contract) and carries the
- * alliance's published playoff record straight through.
- */
-/**
  * The Combined Total's neutral band, all or nothing over the first
  * `ALLIANCE_COMBINED_PICK_COUNT` picks — `undefined` unless every one of
  * them carries a `sigma` entry. Built entirely from the shipping
@@ -234,6 +224,19 @@ function combinedSigmaBand(picks: readonly AlliancePick[]): number | undefined {
   return variance === undefined ? undefined : Math.sqrt(variance);
 }
 
+/**
+ * `buildAllianceRows(artifact, algorithmId)`: maps each published alliance to
+ * an `AllianceRow`, ordered by ascending `allianceNumber` (never array
+ * index). `picks` is read positionally — there is no field for the leader
+ * position or the fourth/backup position, so a parallel field on
+ * `AllianceRow` would be a copy that can drift. Also computes the combined
+ * total's approximate tier — the combined total divided by 3 classified
+ * against the artifact's `tierCuts` Total entry, the same per (algorithm,
+ * season) block the pick cells fall back to, so it does not depend on
+ * which teams are at this event or which of them still carry a published
+ * percentile — and carries the alliance's published playoff record
+ * straight through.
+ */
 export function buildAllianceRows(artifact: EventArtifact, algorithmId: string): AllianceRow[] {
   void algorithmId; // reserved for signature symmetry with the column builder
   const alliances = artifact.alliances ?? [];
@@ -520,8 +523,9 @@ function BackupCell({
 
 /**
  * The Combined Total cell: the published `√(Σσ²)` value through
- * `TotalSigmaValue`, tiered by the 3x heuristic's APPROXIMATE percentile
- * when one is available, plus a small, quiet marker disclosing the
+ * `TotalSigmaValue`, tiered by the 3x heuristic's approximate tier
+ * whenever the artifact carries a `tierCuts` Total entry, plus a small,
+ * quiet marker disclosing the
  * approximation — never a loud banner. The disclosure attaches whenever a
  * tier BOX is actually drawn (Common draws the hairline ring too, and its
  * tier is just as approximate as any other, so it is disclosed on the same

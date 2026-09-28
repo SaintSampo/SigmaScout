@@ -396,6 +396,61 @@ describe("AlliancesTab — Combined Total tier from the season cut points (26092
     expect(within(cell).getByRole("group", { name: ALLIANCE_APPROX_TIER_DISCLOSURE })).toBeDefined();
     expect(buildAllianceRows(artifact, "spr")[0]?.combinedApproxTier).toBe("epic");
   });
+
+  it("no clamp at the event's range: an alliance drawing on allianceTeams tiers above every standings team", async () => {
+    // When all three picks are percentile-carrying standings teams, their average can never
+    // leave the standings range — the old clamp bound only when a pick came through
+    // allianceTeams (this case) or when the roster's strongest teams had been live folded (the
+    // tracer case above).
+    const teams = [
+      team({ teamKey: "frc1", teamNumber: 1, nickname: "Alpha", metrics: { [TOTAL_KEY]: { value: 10, spread: 10, percentile: 20 } } }),
+      team({ teamKey: "frc2", teamNumber: 2, nickname: "Beta", metrics: { [TOTAL_KEY]: { value: 10, spread: 10, percentile: 20 } } }),
+      team({ teamKey: "frc3", teamNumber: 3, nickname: "Gamma", metrics: { [TOTAL_KEY]: { value: 10, spread: 10, percentile: 20 } } }),
+      team({ teamKey: "frc4", teamNumber: 4, nickname: "Delta", metrics: { [TOTAL_KEY]: { value: 10, spread: 10, percentile: 20 } } }),
+    ];
+    const allianceTeams = [
+      team({ teamKey: "frc5", teamNumber: 5, nickname: "Epsilon", metrics: { [TOTAL_KEY]: { value: 70 } } }),
+      team({ teamKey: "frc6", teamNumber: 6, nickname: "Zeta", metrics: { [TOTAL_KEY]: { value: 70 } } }),
+    ];
+    const artifact = makeArtifact(teams, [alliance({ picks: ["frc1", "frc5", "frc6"] })], {
+      allianceTeams,
+      tierCuts: { [TOTAL_KEY]: { cuts: [20, 30, 45] } },
+    });
+    renderAlliances(artifact);
+    const combinedCell = await screen.findByTestId("alliances-cell-combined");
+    expect(combinedCell.querySelector(".metric-tier--legendary")).not.toBeNull(); // combined 150, per team 50
+    const captainCell = screen.getByTestId("alliances-cell-pick0");
+    expect(captainCell.querySelector(".metric-tier--common")).not.toBeNull(); // frc1's own published percentile, 20 -> Common
+  });
+
+  it("published percentiles without cuts render no fallback: the combined cell stays untiered while pick cells still tier from their own percentile", async () => {
+    const highPercentileTeams = FOUR_TEAMS.map((t) => ({
+      ...t,
+      metrics: { [TOTAL_KEY]: { value: 10, spread: 10, percentile: 99 } },
+    }));
+    const artifact = makeArtifact(highPercentileTeams, [alliance({ picks: ["frc1", "frc2", "frc3"] })]);
+    renderAlliances(artifact);
+    const combinedCell = await screen.findByTestId("alliances-cell-combined");
+    expect(combinedCell.querySelector(".metric-tier")).toBeNull();
+    expect(within(combinedCell).queryByRole("group")).toBeNull();
+    expect(buildAllianceRows(artifact, "spr")[0]?.combinedApproxTier).toBeUndefined();
+    const captainCell = screen.getByTestId("alliances-cell-pick0");
+    expect(captainCell.querySelector(".metric-tier--legendary")).not.toBeNull();
+  });
+
+  it("tierCuts present but with no Total entry renders the combined cell untiered", async () => {
+    const artifact = makeArtifact(FOUR_TEAMS, [alliance({ picks: ["frc1", "frc2", "frc3"] })], {
+      tierCuts: { autoPoints: { cuts: [1, 2, 3] } },
+    });
+    renderAlliances(artifact);
+    const combinedCell = await screen.findByTestId("alliances-cell-combined");
+    expect(combinedCell.querySelector(".metric-tier")).toBeNull();
+    expect(within(combinedCell).queryByRole("group")).toBeNull();
+  });
+
+  it("the disclosure text compares to the season's single-team totals, not the event's own", () => {
+    expect(ALLIANCE_APPROX_TIER_DISCLOSURE).toContain("the season's single-team totals");
+  });
 });
 
 // ---------------------------------------------------------------------------
