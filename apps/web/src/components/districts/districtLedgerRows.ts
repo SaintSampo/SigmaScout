@@ -265,15 +265,16 @@ export interface DistrictLedgerTeam {
   readonly rows: readonly DistrictLedgerEventRow[];
   /** This team's DISTRICT-tier event count — never a hardcoded two (the real `2026pnw` artifact carries 0 to 4). */
   readonly rowCount: number;
-  /** The artifact's own `pointTotal` minus every dcmp-tier event total: the district-tier earned number the sort and the fallback projection read. */
+  /** The artifact's own `pointTotal` minus every dcmp-tier event total: the district-tier earned number at the end of the artifact. */
   readonly earnedDistrictTotal: number;
   /**
-   * THE EARNED NUMBER THE TEAM CELL PRINTS (quick task 260927-6bf, finding 4):
-   * `earnedDistrictTotal` at "now", and AT A REWOUND POSITION only the
-   * categories final there, so a rewound header never prints points the team
-   * earned later. DISPLAY ONLY: the sort and the fallback projection keep
-   * reading `earnedDistrictTotal`, so the tab's In range split and
-   * `measureLedgerTenets.ts` stay byte identical.
+   * THE EARNED NUMBER AT THE POSITION (quick task 260927-6bf, finding 4): the
+   * number the Team cell prints, the sort's first tie-break and the
+   * unavailable grand total's fallback projection. `earnedDistrictTotal` at
+   * "now", and AT A REWOUND POSITION only the categories final there, so a
+   * rewound tab never reads points the team earned later. At "now" it equals
+   * `earnedDistrictTotal`, so the live In range split and
+   * `measureLedgerTenets.ts` are unchanged.
    */
   readonly earnedAtPosition: number;
   readonly grandTotal: DistrictLedgerCell;
@@ -1169,7 +1170,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
     let projection: number;
     if (!everyEventTotalKnown) {
       grandTotal = { id: GRAND_TOTAL_CELL_ID, cell: "grandTotal", kind: "unavailable" };
-      projection = earnedDistrictTotal + team.rookieBonus + team.adjustments;
+      projection = earnedAtPosition + team.rookieBonus + team.adjustments;
     } else {
       // `NegativeDistrictShiftError` is allowed to propagate rather than
       // clamped: 10-04's corpus pass measured `adjustments` as 0 in all 16,345
@@ -1231,7 +1232,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
 
   built.sort((a, b) => {
     if (a.projection !== b.projection) return b.projection - a.projection;
-    if (a.earnedDistrictTotal !== b.earnedDistrictTotal) return b.earnedDistrictTotal - a.earnedDistrictTotal;
+    if (a.earnedAtPosition !== b.earnedAtPosition) return b.earnedAtPosition - a.earnedAtPosition;
     return a.teamNumber - b.teamNumber;
   });
 
@@ -1277,8 +1278,8 @@ function earnedAtStage(earned: DistrictEventPoints | undefined, final: DistrictS
  *
  * ARITHMETIC ONLY, no simulation and no summary: every cell is `unavailable`,
  * the earned totals are summed straight off the artifact's own published
- * `eventPoints[].total`, and the projection is that sum plus the published
- * rookie bonus and adjustments — the same expression the `!everyEventTotalKnown`
+ * `eventPoints[].total`, and the projection is the earned total at the
+ * position plus the published rookie bonus and adjustments — the same expression the `!everyEventTotalKnown`
  * branch above already uses for a team the tab holds no distribution for. So
  * this function has nothing left in it that can throw, which is what makes the
  * catch that calls it a genuine floor rather than a second place to fail.
@@ -1320,7 +1321,7 @@ function degradedLedgerTeam(
     earnedDistrictTotal,
     earnedAtPosition,
     grandTotal: { id: GRAND_TOTAL_CELL_ID, cell: "grandTotal", kind: "unavailable" },
-    projection: earnedDistrictTotal + team.rookieBonus + team.adjustments,
+    projection: earnedAtPosition + team.rookieBonus + team.adjustments,
     hasOpenCategory: false,
     position: 0,
     rookieBonus: Math.max(0, Math.round(team.rookieBonus)),

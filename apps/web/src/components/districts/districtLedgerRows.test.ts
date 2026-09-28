@@ -403,9 +403,13 @@ describe("buildDistrictLedgerRows", () => {
     });
     // Event a is final (its published 45); event b has only its 12 qual points.
     expect(rewound.teams[0]!.earnedAtPosition).toBe(57);
-    // DISPLAY ONLY: the sort and the fallback projection keep the published
-    // total, so the tab's In range split and the ledger tenets do not move.
     expect(rewound.teams[0]!.earnedDistrictTotal).toBe(70);
+    // No distributions, so the grand total is unavailable and the projection
+    // falls back to the earned total AT THE POSITION, never the 13 points of
+    // event b earned later.
+    expect(rewound.teams[0]!.grandTotal.kind).toBe("unavailable");
+    expect(rewound.teams[0]!.projection).toBe(57);
+    expect(now.teams[0]!.projection).toBe(70);
     const seasonStart = buildDistrictLedgerRows({
       artifact,
       distributions: NO_DISTRIBUTIONS,
@@ -415,6 +419,7 @@ describe("buildDistrictLedgerRows", () => {
       ]),
     });
     expect(seasonStart.teams[0]!.earnedAtPosition).toBe(0);
+    expect(seasonStart.teams[0]!.projection).toBe(0);
   });
 
   it("discloses a team with no awardProfile rather than absorbing it", () => {
