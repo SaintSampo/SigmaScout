@@ -39,7 +39,10 @@
  * are identities, so the verification path and the production path are one
  * code path. `--no-bake` skips the replay entirely and says so. `--sigma-carry`
  * (refused without `--dry-run`) prices the bake with the unpromoted Sigma-carry
- * candidate (`packages/harness/sigmaCarry.ts`) for verification only.
+ * candidate (`packages/harness/sigmaCarry.ts`) for verification only, and
+ * `--rp-cold-prior` (also refused without `--dry-run`, combinable with it) does
+ * the same with the unpromoted RP cold-team prior candidate
+ * (`.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`).
  *
  * WHAT AN AS-OF RUN STILL READS SEASON-FINAL, named rather than hidden: each
  * candidate's registered roster (`event_teams`), its qualification-schedule
@@ -1469,6 +1472,11 @@ function bakeSeason(
       `publishDistricts: season ${season} — Sigma-carry CANDIDATE ON (--sigma-carry, verification only): every warmup season carries its Sigma layer forward and a never-seen team is rated with the candidate's rookie rule`
     );
   }
+  if (options.rpColdPrior === true) {
+    console.log(
+      `publishDistricts: season ${season} — RP cold-team prior CANDIDATE ON (--rp-cold-prior, verification only): a team with no RP history this season is priced from the season-to-date league summary`
+    );
+  }
   const pricing = buildDistrictPricingState(db, {
     season,
     warmupSeasons,
@@ -1476,6 +1484,7 @@ function bakeSeason(
     algorithm,
     // Off passes nothing, so the production call is exactly what it always was.
     ...(options.sigmaCarry === true ? { sigmaCarry: true } : {}),
+    ...(options.rpColdPrior === true ? { rpColdPrior: true } : {}),
   });
   const replayMs = performance.now() - replayStart;
   if (pricing === null) {
@@ -1623,6 +1632,13 @@ export interface CliOptions {
    * so a candidate that has not earned promotion can never reach R2. Absent: the production path.
    */
   readonly sigmaCarry?: boolean;
+  /**
+   * `--rp-cold-prior`: price the bake with the RP cold-team prior CANDIDATE on (`rpColdPrior`,
+   * `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`). A
+   * verification switch, refused without `--dry-run` so a candidate that has not earned promotion can
+   * never reach R2. Absent: the production path.
+   */
+  readonly rpColdPrior?: boolean;
 }
 
 export function parseOptions(argv: readonly string[]): CliOptions {
@@ -1637,6 +1653,7 @@ export function parseOptions(argv: readonly string[]): CliOptions {
       "no-bake": { type: "boolean" },
       "warmup-from": { type: "string" },
       "sigma-carry": { type: "boolean" },
+      "rp-cold-prior": { type: "boolean" },
     },
   });
 
@@ -1669,6 +1686,12 @@ export function parseOptions(argv: readonly string[]): CliOptions {
       "publishDistricts: --sigma-carry prices the bake with an unpromoted CANDIDATE model and is a verification switch only — it refuses to run without --dry-run"
     );
   }
+  const rpColdPrior = values["rp-cold-prior"] === true;
+  if (rpColdPrior && values["dry-run"] !== true) {
+    throw new Error(
+      "publishDistricts: --rp-cold-prior prices the bake with an unpromoted CANDIDATE model and is a verification switch only — it refuses to run without --dry-run"
+    );
+  }
 
   let warmupFrom: number | undefined;
   if (values["warmup-from"] !== undefined) {
@@ -1686,6 +1709,7 @@ export function parseOptions(argv: readonly string[]): CliOptions {
     bake: values["no-bake"] !== true,
     ...(warmupFrom !== undefined ? { warmupFrom } : {}),
     ...(sigmaCarry ? { sigmaCarry: true } : {}),
+    ...(rpColdPrior ? { rpColdPrior: true } : {}),
   };
 }
 

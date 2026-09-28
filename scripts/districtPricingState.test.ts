@@ -526,3 +526,48 @@ function playedBeforeAt(db: Corpus, season: number, asOf: string): number {
       .get(season, Date.parse(asOf)) as { n: number }
   ).n;
 }
+
+describe("buildDistrictPricingState with the RP cold-team prior candidate, over the real corpus", () => {
+  if (!CORPUS_AVAILABLE) {
+    it.skip(`skipped: ${CORPUS_PATH} not found — run the ingest pipeline (pnpm ingest:districts) first`, () => {});
+    return;
+  }
+
+  const AS_OF = "2026-03-14";
+  const SEASON = 2026;
+  const NEVER_SEEN = ["frc999991", "frc999992", "frc999993"];
+
+  let db: Corpus;
+  let off: NonNullable<ReturnType<typeof buildDistrictPricingState>>;
+  let on: NonNullable<ReturnType<typeof buildDistrictPricingState>>;
+  beforeAll(() => {
+    db = openCorpusReadOnly(CORPUS_PATH);
+    const algorithm = resolveDistrictPricingAlgorithm()!;
+    off = buildDistrictPricingState(db, { season: SEASON, warmupSeasons: [], asOf: AS_OF, algorithm })!;
+    on = buildDistrictPricingState(db, { season: SEASON, warmupSeasons: [], asOf: AS_OF, algorithm, rpColdPrior: true })!;
+  }, 600_000);
+  afterAll(() => {
+    db.close();
+  });
+
+  const sorted = <V>(map: ReadonlyMap<string, V>): [string, V][] => [...map.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+
+  it("reaches the target season's layer: the on state's RP accumulator has the knob, the off state's does not", () => {
+    expect(on.layer.rpAccumulator?.rpColdPrior).toBe(true);
+    expect(off.layer.rpAccumulator?.rpColdPrior).toBe(false);
+  });
+
+  it("changes no replay, no Sigma and no belief", () => {
+    expect(on.matchesReplayed).toBe(off.matchesReplayed);
+    expect(on.matchesTruncated).toBe(off.matchesTruncated);
+    expect(sorted(on.layer.sigmaScoreByTeam())).toEqual(sorted(off.layer.sigmaScoreByTeam()));
+    expect(sorted(on.layer.rpVariableBeliefs())).toEqual(sorted(off.layer.rpVariableBeliefs()));
+  });
+
+  it("non-vacuity: a roster of never-seen teams prices a positive mean with the prior on, and all zeros off", () => {
+    const onMoments = on.layer.rpAccumulator!.momentsFor(NEVER_SEEN, 0, 0);
+    const offMoments = off.layer.rpAccumulator!.momentsFor(NEVER_SEEN, 0, 0);
+    expect(onMoments.meanVector.some((m) => m > 0)).toBe(true);
+    expect(offMoments.meanVector.every((m) => m === 0)).toBe(true);
+  });
+});

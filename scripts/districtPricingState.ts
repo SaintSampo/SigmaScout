@@ -34,7 +34,10 @@
  * season its carry, and the pricing closures rate a never-seen team with the
  * candidate's rookie rule. `packages/harness/sigmaCarry.ts` holds the whole
  * definition; the acceptance bar it has to pass is pre-registered in debug
- * session `presim-bake-rp-filler-refuses`.
+ * session `presim-bake-rp-filler-refuses`. The RP cold-team prior CANDIDATE
+ * (`options.rpColdPrior`, also off by default and off on every production path,
+ * `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`)
+ * builds the target season's layer with its RP accumulator's prior on.
  *
  * CREDENTIALS: reads `data/corpus.sqlite` READ-ONLY through the handle the
  * caller opens and the caller closes. No network request, no environment
@@ -240,6 +243,14 @@ export interface BuildDistrictPricingStateOptions {
    * candidate's rookie rule. Absent or `false`: exactly the incumbent path, byte for byte.
    */
   readonly sigmaCarry?: boolean;
+  /**
+   * The RP cold-team prior CANDIDATE (`rpColdPrior` in `packages/core/rankingPoints/empiricalMoments.ts`),
+   * for verification only (`publishDistricts --rp-cold-prior`, which refuses to run without `--dry-run`).
+   * `true`: the target season's layer is built with `rpColdPrior` on. Absent or `false`: exactly the
+   * incumbent path, byte for byte. Pre-registered in
+   * `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/260928-n6i-PREREG.md`.
+   */
+  readonly rpColdPrior?: boolean;
 }
 
 export interface DistrictPricingState {
@@ -317,7 +328,8 @@ export function resolveDistrictPricingAlgorithm(): AlgorithmModule<any> | null {
 export function buildDistrictPricingState(db: Corpus, options: BuildDistrictPricingStateOptions): DistrictPricingState | null {
   const { season, asOf, algorithm } = options;
   const sigmaCarryOn = options.sigmaCarry === true;
-  const seasons = [...options.warmupSeasons].filter((s) => s < season).sort((a, b) => a - b);
+  const rpColdPriorOn = options.rpColdPrior === true;
+  const seasons =[...options.warmupSeasons].filter((s) => s < season).sort((a, b) => a - b);
   seasons.push(season);
 
   const coldStartIndex = corpusColdStartIndex(db);
@@ -368,7 +380,15 @@ export function buildDistrictPricingState(db: Corpus, options: BuildDistrictPric
     carriedState = records.carryStates.get(algorithm.id);
 
     // Candidate only: the carry into this season, or none for the cold-start season (as SPR's own).
-    const layerOptions = sigmaCarryOn ? { sigmaCarry: { from: boundary.isColdStart ? undefined : sigmaCarry } } : undefined;
+    // The RP prior's key reaches the warmup Sigma-only layer too, where it is inert (no rule module, so no
+    // RP accumulator). The carry turns on by its key's presence, so that key is written only when on.
+    const layerOptions =
+      sigmaCarryOn || rpColdPriorOn
+        ? {
+            ...(sigmaCarryOn ? { sigmaCarry: { from: boundary.isColdStart ? undefined : sigmaCarry } } : {}),
+            ...(rpColdPriorOn ? { rpColdPrior: true } : {}),
+          }
+        : undefined;
     if (s === season) {
       // `finalStates`, not `carryStates` — see this file's header.
       endState = records.finalStates.get(algorithm.id);

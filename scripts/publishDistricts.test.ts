@@ -806,6 +806,16 @@ describe("parseOptions — the new flags", () => {
     const production = parseOptions(["--years", "2026", "--dry-run"]);
     expect("sigmaCarry" in production).toBe(false);
   });
+
+  it("--rp-cold-prior (the unpromoted RP cold-team prior candidate) is a verification switch: refused without --dry-run, absent by default, combinable with --sigma-carry", () => {
+    expect(() => parseOptions(["--years", "2026", "--rp-cold-prior"])).toThrow(/--rp-cold-prior .* refuses to run without --dry-run/);
+    expect(parseOptions(["--years", "2026", "--rp-cold-prior", "--dry-run"]).rpColdPrior).toBe(true);
+    const production = parseOptions(["--years", "2026", "--dry-run"]);
+    expect("rpColdPrior" in production).toBe(false);
+    const both = parseOptions(["--years", "2026", "--rp-cold-prior", "--sigma-carry", "--dry-run"]);
+    expect(both.rpColdPrior).toBe(true);
+    expect(both.sigmaCarry).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
