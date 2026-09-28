@@ -4204,8 +4204,10 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
    * Two events, six teams, every match carrying a parseable 2024 breakdown, so the real SPR's
    * synthetic predictions get their pmfs from the SigmaScout layer (Sigma Scores, RP beliefs and the
    * mean shift), not from the algorithm. `rewriteLate` changes ONLY the later event's own results.
+   * `lateCompLevel` "f" makes the later event finals-only (no qualification rows), like a divisioned
+   * championship's parent event or Einstein.
    */
-  function seedPreEventPair2024(target: Corpus, rewriteLate: boolean): void {
+  function seedPreEventPair2024(target: Corpus, rewriteLate: boolean, lateCompLevel: "qm" | "f" = "qm"): void {
     const breakdown = rawBreakdown2024() as { red: Record<string, unknown>; blue: Record<string, unknown> };
     const swapped = { red: breakdown.blue, blue: breakdown.red };
     const played = (
@@ -4216,11 +4218,13 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
       blue: string[],
       redScore: number,
       blueScore: number,
-      raw: unknown
+      raw: unknown,
+      compLevel: "qm" | "f" = "qm"
     ): CorpusMatch =>
       seasonMatch({
-        matchKey: `${eventKey}_qm${n}`,
+        matchKey: compLevel === "qm" ? `${eventKey}_qm${n}` : `${eventKey}_f1m${n}`,
         eventKey,
+        compLevel,
         matchNumber: n,
         sortTime,
         redTeams: red,
@@ -4237,18 +4241,21 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     upsertMatch(target, played("2024ear", 1, 1_000, ["frc1", "frc2", "frc3"], ["frc4", "frc5", "frc6"], 150, 90, breakdown));
     upsertMatch(target, played("2024ear", 2, 2_000, ["frc1", "frc4", "frc5"], ["frc2", "frc3", "frc6"], 100, 140, swapped));
     upsertEvent(target, seasonEvent({ eventKey: "2024lat", year: 2024, name: "Late Event", startDate: "2024-03-15" }));
-    upsertMatch(target, played("2024lat", 1, 10_000, ["frc1", "frc2", "frc3"], ["frc4", "frc5", "frc6"], rewriteLate ? 30 : 60, rewriteLate ? 260 : 200, rewriteLate ? swapped : breakdown));
-    upsertMatch(target, played("2024lat", 2, 11_000, ["frc1", "frc5", "frc6"], ["frc2", "frc3", "frc4"], rewriteLate ? 240 : 180, rewriteLate ? 20 : 80, rewriteLate ? breakdown : swapped));
+    upsertMatch(target, played("2024lat", 1, 10_000, ["frc1", "frc2", "frc3"], ["frc4", "frc5", "frc6"], rewriteLate ? 30 : 60, rewriteLate ? 260 : 200, rewriteLate ? swapped : breakdown, lateCompLevel));
+    upsertMatch(target, played("2024lat", 2, 11_000, ["frc1", "frc5", "frc6"], ["frc2", "frc3", "frc4"], rewriteLate ? 240 : 180, rewriteLate ? 20 : 80, rewriteLate ? breakdown : swapped, lateCompLevel));
   }
 
-  it("F3: a played event's sidecar never sees that event's own results — rewriting only them leaves the sidecar byte-identical", async () => {
+  it.each([
+    ["with a qualification schedule (F3)", "qm"],
+    ["finals-only, no qualification rows (F3b)", "f"],
+  ] as const)("a played event's sidecar never sees that event's own results, %s: rewriting only them leaves the sidecar byte-identical", async (_label, lateCompLevel) => {
     const sidecarBodies: string[] = [];
     const eventBodies: string[] = [];
     for (const rewriteLate of [false, true]) {
       const variantDir = mkdtempSync(join(tmpdir(), "sigmascout-publish-f3-"));
       const variantDb = openCorpus(join(variantDir, "corpus.sqlite"));
       try {
-        seedPreEventPair2024(variantDb, rewriteLate);
+        seedPreEventPair2024(variantDb, rewriteLate, lateCompLevel);
         vi.mocked(putObject).mockClear();
         await publishSeasons(variantDb, {
           seasons: [2024],
