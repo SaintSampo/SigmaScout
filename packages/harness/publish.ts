@@ -93,7 +93,7 @@ import {
   usesSigmaScore,
 } from "./sigmaScore.js";
 import type { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
-import { RpMeanShiftAccumulator, rosterIsFullyWarm } from "../core/rankingPoints/meanShift.js";
+import { RpMeanShiftAccumulator, rosterIsFullyWarm, type RpMeanShiftState } from "../core/rankingPoints/meanShift.js";
 import { analyticRpPmf } from "../core/rankingPoints/analyticPmf.js";
 import type { RpRuleModule } from "../core/rankingPoints/constants.js";
 // The level-2 layer (Sigma Score, the band and ranking points), driven only by `publishSeasons`.
@@ -496,6 +496,46 @@ export function makeRankingPointFiller(
       ...(pmf.blueBonusProbabilities !== undefined ? { blueBonusRp: pmf.blueBonusProbabilities } : {}),
     };
   };
+}
+
+/**
+ * The three things `makeRankingPointFiller` reads from a `SigmaScoutLayer`, read at ONE instant: the
+ * RP beliefs, the Sigma Scores and the mean shift. A pre-schedule sidecar must take all three from the
+ * same instant its SPR state comes from, or its pmfs see matches its win odds never saw.
+ */
+export interface RankingPointFillerInputs {
+  readonly accumulator: RpMomentsAccumulator | undefined;
+  readonly sigmaByTeam: ReadonlyMap<string, number>;
+  readonly meanShiftState: RpMeanShiftState | undefined;
+}
+
+/**
+ * Freezes `layer`'s filler inputs for the teams in `teamKeys`, as they stand now. The filler reads
+ * roster teams only (its membership gate, `momentsFor`, `hasHistory`, `allianceSigmaBandVariance`),
+ * so for any roster inside `teamKeys` the snapshot prices exactly as the layer would at this instant,
+ * and folds after it never reach it.
+ */
+export function snapshotRankingPointFillerInputs(layer: SigmaScoutLayer, teamKeys: readonly string[]): RankingPointFillerInputs {
+  return {
+    accumulator: layer.rpAccumulator?.snapshotFor(teamKeys),
+    sigmaByTeam: layer.sigmaScoresFor(teamKeys),
+    meanShiftState: layer.rpMeanShiftState(),
+  };
+}
+
+/** `makeRankingPointFiller` over one instant's frozen inputs, with the mean shift rebuilt through the Worker's resume path. */
+export function rankingPointFillerFrom(
+  inputs: RankingPointFillerInputs,
+  ruleModule: RpRuleModule | undefined,
+  roster: readonly string[]
+): ((match: UpcomingMatch, prediction: Prediction) => Prediction) | undefined {
+  return makeRankingPointFiller(
+    inputs.accumulator,
+    ruleModule,
+    inputs.sigmaByTeam,
+    roster,
+    ruleModule === undefined ? undefined : RpMeanShiftAccumulator.fromState(ruleModule, inputs.meanShiftState)
+  );
 }
 
 export function buildEventArtifact(params: BuildEventArtifactParams): EventArtifact {
@@ -1222,8 +1262,15 @@ interface PreScheduleSidecarArgs {
   readonly hasCompletedMatches: boolean;
   /** Whether a season-final state exists: the current-state pricing source for scheduleless events. */
   readonly hasSeasonFinalState: boolean;
-  /** Fills SigmaScout-layer ranking points onto a synthetic prediction when the algorithm models none (see `makeRankingPointFiller`). */
-  readonly fillRankingPoints?: (match: UpcomingMatch, prediction: Prediction) => Prediction;
+  /**
+   * The SigmaScout-layer ranking-point filler for synthetic predictions (see `makeRankingPointFiller`),
+   * read at the SAME instant as the chosen pricing state: asked for once, with the `pricedFrom` this
+   * function settles on, so the win odds and the pmfs can never come from two different instants.
+   * `undefined` (from the function, or as the whole field) leaves predictions unfilled.
+   */
+  readonly fillRankingPointsFor?: (
+    pricedFrom: "pre-event-walk-forward" | "current-state"
+  ) => ((match: UpcomingMatch, prediction: Prediction) => Prediction) | undefined;
   readonly seasonFinalState: unknown;
   readonly generation: string;
   readonly computedAt: string;
@@ -1289,6 +1336,7 @@ function buildPreScheduleSidecarForEvent(args: PreScheduleSidecarArgs): { key: s
   const matchesPerTeam =
     args.qualMatchCount > 0 ? matchesPerTeamFor(args.roster.length, args.qualMatchCount) : defaultMatchesPerTeam(args.eventType);
 
+  const fillRankingPoints = args.fillRankingPointsFor?.(pricedFrom);
   const artifact = buildPreScheduleArtifact({
     eventKey: args.eventKey,
     season: args.season,
@@ -1306,7 +1354,7 @@ function buildPreScheduleSidecarForEvent(args: PreScheduleSidecarArgs): { key: s
     // Bound to the chosen state, so synthetic matches are priced by the same `predict()` path as real ones.
     predict: (match) => {
       const prediction = args.algorithm.predict(pricingState, match);
-      return args.fillRankingPoints === undefined ? prediction : args.fillRankingPoints(match, prediction);
+      return fillRankingPoints === undefined ? prediction : fillRankingPoints(match, prediction);
     },
   });
   if (artifact === null) return undefined; // RP-less algorithm, silent by design
@@ -1939,10 +1987,41 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
     const sigmaByMatchKeyForAlgoTeam = new Map<string, Map<string, Map<string, number>>>();
     for (const algorithm of options.algorithms) sigmaByMatchKeyForAlgoTeam.set(algorithm.id, new Map());
 
+    /**
+     * algorithm id -> event key -> the layer's ranking-point filler inputs right before that event's
+     * first folded record: the instant `preEventStateByAlgoEvent` holds the algorithm's own state at
+     * (both walk the same chronological stream, and `records` interleaves algorithms inside a match).
+     * A sidecar priced from the pre-event state fills its pmfs from these, never from the season-final
+     * layer, which has folded the event's own matches. Only presim-covered, RP-publishing algorithms.
+     */
+    const preEventFillerInputsByAlgoEvent = new Map<string, Map<string, RankingPointFillerInputs>>();
+    if (presimEnabled) {
+      for (const algorithm of options.algorithms) {
+        if (publishesRankingPoints(algorithm.id)) preEventFillerInputsByAlgoEvent.set(algorithm.id, new Map());
+      }
+    }
+    // Every team that appears in an event's played or scheduled matches: a superset of the
+    // match-derived roster the sidecar is priced for, so the roster-scoped snapshot answers for it.
+    const matchTeamKeysByEvent = new Map<string, string[]>();
+    if (preEventFillerInputsByAlgoEvent.size > 0) {
+      const sets = new Map<string, Set<string>>();
+      for (const m of [...stream, ...scheduled]) {
+        const set = sets.get(m.eventKey) ?? new Set<string>();
+        for (const teamKey of [...m.redTeams, ...m.blueTeams]) set.add(teamKey);
+        sets.set(m.eventKey, set);
+      }
+      for (const [eventKey, set] of sets) matchTeamKeysByEvent.set(eventKey, [...set]);
+    }
+
     for (const r of records) {
       // One object for both maps below, so event and team pages cannot disagree. `foldPlayed` builds a
       // fresh record without the cold-start stamp, so it is spread back in here.
       const layer = layers.get(r.algorithmId)!;
+      // Before this record folds: the first record of an event freezes that event's pre-event inputs.
+      const preEventInputs = preEventFillerInputsByAlgoEvent.get(r.algorithmId);
+      if (preEventInputs !== undefined && !preEventInputs.has(r.match.eventKey)) {
+        preEventInputs.set(r.match.eventKey, snapshotRankingPointFillerInputs(layer, matchTeamKeysByEvent.get(r.match.eventKey) ?? []));
+      }
       const pr: PredictionRecord = {
         ...layer.foldPlayed(r.match, r.prediction, talentAfterMatch.get(`${r.algorithmId}:${r.match.matchKey}`)),
         ...(r.coldStart === true ? { coldStart: true as const } : {}),
@@ -2097,8 +2176,8 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       // The layer walked the played stream above, so an unplayed match is priced from everything
       // played so far.
       const layerForAlgo = layers.get(algorithm.id)!;
-      // Season-final Sigma Scores (empty for non-Sigma algorithms), one accessor so the presim win-odds
-      // variance and the metric entry below agree.
+      // Season-final Sigma Scores (empty for non-Sigma algorithms), one accessor so a current-state
+      // presim's win-odds variance and the metric entry below agree. A pre-event presim never reads it.
       const sigmaByTeamForAlgo = layerForAlgo.sigmaScoreByTeam();
       // The season-final seed rows, serialized at most once: every SPR event block this season reads
       // them, and the D1 seed reuses this getter when this is the final season.
@@ -2307,14 +2386,25 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
               seasonFinalState: state,
               generation,
               computedAt,
-              // The mean shift at the same instant as the accumulator, rebuilt through the Worker's resume path.
-              fillRankingPoints: makeRankingPointFiller(
-                layerForAlgo.rpAccumulator,
-                rpRuleModule,
-                sigmaByTeamForAlgo,
-                eventTeamKeys,
-                rpRuleModule === undefined ? undefined : RpMeanShiftAccumulator.fromState(rpRuleModule, layerForAlgo.rpMeanShiftState())
-              ),
+              // The filler from the same instant as the pricing state: the pre-event snapshot for a
+              // pre-event price, the season-final (current) layer for a current-state price.
+              fillRankingPointsFor: (pricedFrom) => {
+                if (pricedFrom === "current-state") {
+                  return rankingPointFillerFrom(
+                    { accumulator: layerForAlgo.rpAccumulator, sigmaByTeam: sigmaByTeamForAlgo, meanShiftState: layerForAlgo.rpMeanShiftState() },
+                    rpRuleModule,
+                    eventTeamKeys
+                  );
+                }
+                const preEventInputs = preEventFillerInputsByAlgoEvent.get(algorithm.id)?.get(e.event_key);
+                // A pre-event SPR state exists only for an event with a folded record, and every such
+                // record froze these inputs first, so a miss is a bookkeeping bug: fail the run loudly
+                // rather than skip the sidecar as if the algorithm had no RP model.
+                if (preEventInputs === undefined) {
+                  throw new Error(`publish: ${e.event_key} [${algorithm.id}] is priced pre-event but no pre-event ranking-point snapshot was taken`);
+                }
+                return rankingPointFillerFrom(preEventInputs, rpRuleModule, eventTeamKeys);
+              },
             })
           : undefined;
         sidecarMs += performance.now() - sidecarStart;

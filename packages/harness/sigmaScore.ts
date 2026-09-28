@@ -369,6 +369,19 @@ export class SigmaScoreAccumulator {
   }
 
   /**
+   * `scoreByTeam()` restricted to `teamKeys`: a team with no stored belief is
+   * absent, exactly as it is from `scoreByTeam()`. Read-only, and it costs the
+   * listed teams only, so a caller can freeze one roster's scores mid-season.
+   */
+  scoreFor(teamKeys: Iterable<string>): ReadonlyMap<string, number> {
+    const scores = new Map<string, number>();
+    for (const teamKey of teamKeys) {
+      if (this.#beliefs.has(teamKey)) scores.set(teamKey, this.sigmaFor(teamKey));
+    }
+    return scores;
+  }
+
+  /**
    * One alliance's WIN-ODDS variance, the sum of its roster's squared Sigma
    * Scores; the display band is `sigmaMatchBandVariance(roster.length, this)`.
    * Undefined only for an empty roster: every member contributes a real term,

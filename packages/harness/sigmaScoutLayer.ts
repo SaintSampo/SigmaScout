@@ -123,6 +123,15 @@ export class SigmaScoutLayer {
     return this.#sigma?.sigmaFor(teamKey);
   }
 
+  /**
+   * `sigmaScoreByTeam()` restricted to `teamKeys`, read now: a team the layer
+   * has not seen is absent, as it is from the full map. Costs only the listed
+   * teams, so it is safe once per event. Empty for a non-Sigma algorithm.
+   */
+  sigmaScoresFor(teamKeys: Iterable<string>): ReadonlyMap<string, number> {
+    return this.#sigma?.scoreFor(teamKeys) ?? new Map();
+  }
+
   /** One alliance's WIN-ODDS variance from history so far (what `#rpFieldsFor` reads), or `undefined` for a non-Sigma layer. */
   #bandVarianceFor(roster: readonly string[]): number | undefined {
     return this.#sigma?.bandVarianceFor(roster);

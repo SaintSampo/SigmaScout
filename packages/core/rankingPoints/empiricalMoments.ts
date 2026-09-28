@@ -46,6 +46,13 @@ function emptyBelief(): VariableBelief {
   return { weight: 0, weightSquares: 0, mean: 0, m2: 0 };
 }
 
+/** One team's beliefs as a plain record of deep copies, in the team's own variable order. */
+function copyBeliefs(byVariable: ReadonlyMap<string, VariableBelief>): Record<string, RpVariableBelief> {
+  const record: Record<string, RpVariableBelief> = {};
+  for (const [name, belief] of byVariable) record[name] = { ...belief };
+  return record;
+}
+
 /**
  * West's weighted incremental update, decaying every prior weight first.
  * Unlike the naive `E[x²] − E[x]²`, it never subtracts two large nearly-equal numbers.
@@ -160,12 +167,24 @@ export class RpMomentsAccumulator {
    */
   beliefsByTeam(): ReadonlyMap<string, RpTeamBeliefs> {
     const out = new Map<string, RpTeamBeliefs>();
-    for (const [teamKey, byVariable] of this.#byTeam) {
-      const record: Record<string, RpVariableBelief> = {};
-      for (const [name, belief] of byVariable) record[name] = { ...belief };
-      out.set(teamKey, record);
-    }
+    for (const [teamKey, byVariable] of this.#byTeam) out.set(teamKey, copyBeliefs(byVariable));
     return out;
+  }
+
+  /**
+   * A new accumulator holding deep copies of `teamKeys`' beliefs only, as they
+   * stand now. `momentsFor` and `hasHistory` read nothing but the teams they
+   * are given, so for any roster inside `teamKeys` the copy answers exactly as
+   * this accumulator does at this instant, and later folds here never reach it.
+   */
+  snapshotFor(teamKeys: Iterable<string>): RpMomentsAccumulator {
+    const copy = new RpMomentsAccumulator(this.#ruleModule);
+    for (const teamKey of teamKeys) {
+      const byVariable = this.#byTeam.get(teamKey);
+      if (byVariable === undefined || copy.#byTeam.has(teamKey)) continue;
+      copy.#byTeam.set(teamKey, new Map(Object.entries(copyBeliefs(byVariable))));
+    }
+    return copy;
   }
 
   /**

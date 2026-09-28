@@ -4200,6 +4200,82 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     expect(presimCall).toBeUndefined();
   });
 
+  /**
+   * Two events, six teams, every match carrying a parseable 2024 breakdown, so the real SPR's
+   * synthetic predictions get their pmfs from the SigmaScout layer (Sigma Scores, RP beliefs and the
+   * mean shift), not from the algorithm. `rewriteLate` changes ONLY the later event's own results.
+   */
+  function seedPreEventPair2024(target: Corpus, rewriteLate: boolean): void {
+    const breakdown = rawBreakdown2024() as { red: Record<string, unknown>; blue: Record<string, unknown> };
+    const swapped = { red: breakdown.blue, blue: breakdown.red };
+    const played = (
+      eventKey: string,
+      n: number,
+      sortTime: number,
+      red: string[],
+      blue: string[],
+      redScore: number,
+      blueScore: number,
+      raw: unknown
+    ): CorpusMatch =>
+      seasonMatch({
+        matchKey: `${eventKey}_qm${n}`,
+        eventKey,
+        matchNumber: n,
+        sortTime,
+        redTeams: red,
+        blueTeams: blue,
+        redScore,
+        blueScore,
+        winner: redScore > blueScore ? "red" : "blue",
+        redRpEarned: redScore > blueScore ? 5 : 1,
+        blueRpEarned: redScore > blueScore ? 1 : 5,
+        hasScoreBreakdown: true,
+        scoreBreakdownRaw: JSON.stringify(raw),
+      });
+    upsertEvent(target, seasonEvent({ eventKey: "2024ear", year: 2024, name: "Early Event", startDate: "2024-03-01" }));
+    upsertMatch(target, played("2024ear", 1, 1_000, ["frc1", "frc2", "frc3"], ["frc4", "frc5", "frc6"], 150, 90, breakdown));
+    upsertMatch(target, played("2024ear", 2, 2_000, ["frc1", "frc4", "frc5"], ["frc2", "frc3", "frc6"], 100, 140, swapped));
+    upsertEvent(target, seasonEvent({ eventKey: "2024lat", year: 2024, name: "Late Event", startDate: "2024-03-15" }));
+    upsertMatch(target, played("2024lat", 1, 10_000, ["frc1", "frc2", "frc3"], ["frc4", "frc5", "frc6"], rewriteLate ? 30 : 60, rewriteLate ? 260 : 200, rewriteLate ? swapped : breakdown));
+    upsertMatch(target, played("2024lat", 2, 11_000, ["frc1", "frc5", "frc6"], ["frc2", "frc3", "frc4"], rewriteLate ? 240 : 180, rewriteLate ? 20 : 80, rewriteLate ? breakdown : swapped));
+  }
+
+  it("F3: a played event's sidecar never sees that event's own results — rewriting only them leaves the sidecar byte-identical", async () => {
+    const sidecarBodies: string[] = [];
+    const eventBodies: string[] = [];
+    for (const rewriteLate of [false, true]) {
+      const variantDir = mkdtempSync(join(tmpdir(), "sigmascout-publish-f3-"));
+      const variantDb = openCorpus(join(variantDir, "corpus.sqlite"));
+      try {
+        seedPreEventPair2024(variantDb, rewriteLate);
+        vi.mocked(putObject).mockClear();
+        await publishSeasons(variantDb, {
+          seasons: [2024],
+          algorithms: [spr],
+          bucket: "test-bucket",
+          dryRun: false,
+          skipState: true,
+          preScheduleFromSeason: 2024,
+          generation: "f3-fixed-generation",
+          computedAt: "2026-09-28T00:00:00.000Z",
+        });
+        const sidecar = findPresimCall("2024lat", spr.id);
+        expect(sidecar, "fixture vacuity guard: the later event must get a layer-filled sidecar").toBeDefined();
+        sidecarBodies.push(sidecar![2] as string);
+        const event = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith(`v1/event/2024lat/${spr.id}@`));
+        eventBodies.push(event![2] as string);
+      } finally {
+        variantDb.close();
+        rmSync(variantDir, { recursive: true, force: true });
+      }
+    }
+    // Control: the rewrite really reached the published record of that event.
+    expect(eventBodies[1]).not.toBe(eventBodies[0]);
+    expect((JSON.parse(sidecarBodies[0]!) as { pricedFrom: string }).pricedFrom).toBe("pre-event-walk-forward");
+    expect(sidecarBodies[1], "the pre-event sidecar changed when only the event's own results changed: a walk-forward leak").toBe(sidecarBodies[0]);
+  });
+
   it.each([opr.id, epa.id])(
     "the sidecar gate is by algorithm id, not by probe: the same RP-modeling fake registered under %s gets NO sidecar",
     async (algorithmId) => {
