@@ -6,7 +6,7 @@ current_phase: 10
 current_phase_name: district-points-ledger
 status: executing
 stopped_at: Completed 10-08-PLAN.md
-last_updated: "2026-09-28T01:43:06.932Z"
+last_updated: "2026-09-28T01:59:23.658Z"
 last_activity: 2026-09-28
 last_activity_desc: Phase 10 execution started
 progress:
@@ -692,6 +692,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 255 | Champ Locks cutoff simulates DCMP award slots and the winning alliance (MAE 41.0 to 16.4), range withheld at 71% coverage, rewinds price every team, earned at position | 2026-09-27 | 5b8a25d2 | [260927-6bf-champ-cutoff-simulate-dcmp-award-slots-f](./quick/260927-6bf-champ-cutoff-simulate-dcmp-award-slots-f/) |
 | 256 | Champ tab defines In range against the predicted cutoff; bake prices unprofiled teams with the shared zero profile; districts republished (119 objects) | 2026-09-28 | 2e413731 | [260927-syh-champ-in-range-wording-for-the-simulated](./quick/260927-syh-champ-in-range-wording-for-the-simulated/) |
 | 257 | District Locks rewinds: fallback projection and sort tie-break read the earned total at the position, not the full season total | 2026-09-28 | 26beb05d | — |
+| 258 | Champ Locks simulated likely range shown (49 of 69 coverage quoted on Methodology) | 2026-09-28 | 3e455ded | — |
 
 ### Roadmap Evolution
 
