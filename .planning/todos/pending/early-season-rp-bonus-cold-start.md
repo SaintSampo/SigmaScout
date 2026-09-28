@@ -26,3 +26,9 @@ Bonus Brier is identical to 17 digits with the carry on and off, so the bonus pr
 
 - G2 passed pooled, but the band was worse in 2019 (0.200 to 0.273) and 2022 (0.060 to 0.146).
 - Jacob has not yet signed off on reading Rule A as exact equality of the published winner figures (G1).
+
+## Status (2026-09-28, quick 260928-n6i)
+
+Steps 1 to 3 are DONE, and both bars are GO. The cause was confirmed: a team with no RP history this season added a zero mean and no variance. The fix is the `rpColdPrior` candidate, OFF by default: a cold team takes the season-to-date league summary. It passed its own pre-registered bar. The Sigma carry, retried against the same bar with the prior in both arms, now passes G4b (bonus Brier 0.132851 against climatology 0.140040) and every other gate. Details: `.planning/quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/`.
+
+Open: step 4, Jacob's rollout decision. It needs both knobs on by default, an SPR version bump, the RP population summary added to the D1 seed and the Worker resume path, a republish, a reseed, and a Worker deploy. The G2 per-season split (2019, 2022 worse) is still unaddressed.
