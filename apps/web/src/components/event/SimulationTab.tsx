@@ -65,6 +65,14 @@ export const SIMULATION_EMPTY_STATE_BODY =
   "This event doesn't have a qualification schedule yet. Check back once matches are published.";
 
 /**
+ * The same empty state for an event that has already PLAYED with no
+ * qualification schedule (a finals only event such as 2026cmptx). Since spr
+ * 8.0.0 such an event publishes no presim sidecar, and "yet" and "check back"
+ * would be wrong for it.
+ */
+export const SIMULATION_EMPTY_STATE_PLAYED_BODY = "This event had no qualification matches, so there is no qualification tournament to simulate.";
+
+/**
  * Qualification matches exist but not one of them carries both
  * `redRpPmf`/`blueRpPmf` (see `hasSimulatableRankInputs` below for the
  * mechanism). Two causes are stated, both hedged, neither asserted for any
@@ -333,7 +341,12 @@ export function SimulationTab({ artifact, algorithmId, season, preSchedule = nul
   // `hasPreSchedule` is false exactly where that state is the right answer.
   if (!hasPreSchedule && qualRows.length === 0) {
     if (preScheduleIsPending) return <SimulationTabSkeleton />;
-    return <EmptyState heading={SIMULATION_EMPTY_STATE_HEADING} body={SIMULATION_EMPTY_STATE_BODY} />;
+    return (
+      <EmptyState
+        heading={SIMULATION_EMPTY_STATE_HEADING}
+        body={artifact.matches.length > 0 ? SIMULATION_EMPTY_STATE_PLAYED_BODY : SIMULATION_EMPTY_STATE_BODY}
+      />
+    );
   }
 
   if (!hasPreSchedule && !hasSimulatableRankInputs(artifact)) {

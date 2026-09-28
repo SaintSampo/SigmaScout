@@ -6,6 +6,7 @@ import {
   hasSimulatableRankInputs,
   SIMULATION_EMPTY_STATE_BODY,
   SIMULATION_EMPTY_STATE_HEADING,
+  SIMULATION_EMPTY_STATE_PLAYED_BODY,
   SIMULATION_PRE_RUN_BODY,
   SIMULATION_PRE_RUN_TESTID,
   SIMULATION_STACK_TESTID,
@@ -144,7 +145,18 @@ describe("SimulationTab", () => {
     const artifact = baseArtifact({ matches: [sfRow as EventArtifact["matches"][number]] });
     render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
     expect(screen.getByText(SIMULATION_EMPTY_STATE_HEADING)).toBeDefined();
+    // A PLAYED playoff row means the event has been played without a
+    // qualification schedule, so the body says so rather than "check back".
+    expect(screen.getByText(SIMULATION_EMPTY_STATE_PLAYED_BODY)).toBeDefined();
+    expect(screen.queryByText(SIMULATION_EMPTY_STATE_BODY)).toBeNull();
+  });
+
+  it("keeps the check back body for an event with no matches played at all", () => {
+    const artifact = baseArtifact({ matches: [] });
+    render(<SimulationTab artifact={artifact} algorithmId="spr" season={2024} />);
+    expect(screen.getByText(SIMULATION_EMPTY_STATE_HEADING)).toBeDefined();
     expect(screen.getByText(SIMULATION_EMPTY_STATE_BODY)).toBeDefined();
+    expect(screen.queryByText(SIMULATION_EMPTY_STATE_PLAYED_BODY)).toBeNull();
   });
 
   it("renders the UNAVAILABLE state (not the empty state) when qualification matches exist but carry no pmf anywhere", () => {
