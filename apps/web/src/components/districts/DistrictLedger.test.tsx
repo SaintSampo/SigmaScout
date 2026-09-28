@@ -1163,24 +1163,6 @@ describe("DistrictLedger — the drawer", () => {
     expect(secondMax).toBe(firstMax);
   });
 
-  it("opens with NO animation class when a reduced-motion preference is set (the UAT's manual check is the real one)", async () => {
-    window.matchMedia = ((query: string) => ({
-      matches: query.includes("prefers-reduced-motion"),
-      media: query,
-      onchange: null,
-      addListener: () => undefined,
-      removeListener: () => undefined,
-      addEventListener: () => undefined,
-      removeEventListener: () => undefined,
-      dispatchEvent: () => false,
-    })) as unknown as typeof window.matchMedia;
-
-    await renderWithOpenCells();
-    fireEvent.click(cellButton("2026walive:qual"));
-    const drawer = await screen.findByTestId("district-ledger-drawer");
-    expect(drawer.innerHTML).not.toContain("district-ledger-drawer--animated");
-  });
-
   it("resolves an unknown drawer team or cell id to CLOSED, never to a neighbouring cell", async () => {
     installFetch({ eventArtifact: liveEventArtifact() });
     handle = installMockWorker({ script: realRunScript });

@@ -51,7 +51,6 @@ import {
   StatusChips,
   TeamCell,
   likelyRangeText,
-  prefersReducedMotion,
   stageWord,
   type CellInteraction,
   type DistrictLedgerNavigate,
@@ -148,7 +147,6 @@ function DrawerRow({
   /** One row per district-tier event, for the GRAND TOTAL drawer's contribution list. */
   contributions: readonly DistrictEventContribution[];
 }) {
-  const animated = prefersReducedMotion() ? "" : " district-ledger-drawer--animated";
   // THE GRAND TOTAL IS DRAWN ONCE. When the clicked cell IS the grand total its
   // own plot is the left pane, and the right pane is the per-event contribution
   // list rather than a second copy of the same histogram (Jacob, 2026-09-25).
@@ -156,7 +154,7 @@ function DrawerRow({
   return (
     <TableRow data-testid="district-ledger-drawer" data-drawer-cell={cell.id} className="district-ledger-row--drawer">
       <TableCell colSpan={columnCount}>
-        <div className={`flex flex-wrap gap-[var(--spacing-lg)]${animated}`}>
+        <div className="flex flex-wrap gap-[var(--spacing-lg)]">
           {isGrandTotal ? (
             <>
               <GrandTotalPlot cell={cell} cutoff={cutoff} rookieBonus={rookieBonus} chanceLine={chanceLine} />

@@ -948,21 +948,6 @@ body {
 }
 
 /*
- * REDUCED MOTION: the district ledger's drawer transition is applied through
- * this class, and the query below removes it. A UI-SPEC backstop row — the
- * committed test asserts the class is absent under a `matchMedia` stub, and the
- * real verification is the UAT's manual check.
- */
-.district-ledger-drawer--animated {
-  transition: opacity 120ms ease-out;
-}
-@media (prefers-reduced-motion: reduce) {
-  .district-ledger-drawer--animated {
-    transition: none;
-  }
-}
-
-/*
  * ---------------------------------------------------------------------------
  * The District Locks LEDGER (sketch 021 variant A).
  * ---------------------------------------------------------------------------

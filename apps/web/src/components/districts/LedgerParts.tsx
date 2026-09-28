@@ -626,19 +626,6 @@ export function TeamCell({ team, season, algorithm }: { team: LedgerTeamCellTeam
   );
 }
 
-/**
- * True when the visitor asked for reduced motion.
- *
- * A UI-SPEC BACKSTOP ROW. The committed test asserts the animation class is
- * absent under a `matchMedia` stub; the REAL verification is the UAT's manual
- * check, and `theme.css` carries a `prefers-reduced-motion` query as the
- * belt-and-braces half.
- */
-export function prefersReducedMotion(): boolean {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
 /** The explicit percentile label, built from the SHIPPED prefix and the same one-decimal en-dash discipline — never the plus-minus codepoint. */
 export function bandLabel(p10: number, p90: number): string {
   return `${RANK_BAND_LABEL_PREFIX}${Math.max(0, p10).toFixed(1)}–${Math.max(0, p90).toFixed(1)}`;

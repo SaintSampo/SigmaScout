@@ -72,7 +72,6 @@ import {
   TeamCell,
   UNAVAILABLE_CELL_CLASS,
   likelyRangeText,
-  prefersReducedMotion,
   stageWordKey,
   type CellInteraction,
   type DistrictLedgerNavigate,
@@ -323,7 +322,6 @@ function ChampDrawerRow({
   season: number;
   isRookie: boolean;
 }) {
-  const animated = prefersReducedMotion() ? "" : " district-ledger-drawer--animated";
   // THE GRAND TOTAL IS DRAWN ONCE. When the clicked cell IS the grand total its
   // own plot is the left pane and the contribution list is the right one,
   // rather than a second copy of the same histogram (Jacob, 2026-09-25).
@@ -331,7 +329,7 @@ function ChampDrawerRow({
   return (
     <TableRow data-testid="champ-ledger-drawer" data-drawer-cell={cell.id} className="district-ledger-row--drawer">
       <TableCell colSpan={columnCount}>
-        <div className={`flex flex-wrap gap-[var(--spacing-lg)]${animated}`}>
+        <div className="flex flex-wrap gap-[var(--spacing-lg)]">
           {isGrandTotal ? (
             <>
               <GrandTotalPlot cell={cell} cutoff={cutoff} rookieBonus={team.rookieBonus} chanceLine={chanceLine} />
