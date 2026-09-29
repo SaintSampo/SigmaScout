@@ -109,6 +109,7 @@ import { eventTeamsUrlFor, selectOfficialEventKeysForYear } from "./eventTeams.j
 import { normalizeDistricts, normalizeDistrictRankings, normalizeEventAwards } from "./districts.js";
 import { pickRobotPhotoUrl } from "./media.js";
 import { normalizeEvent, normalizeMatch } from "./normalize.js";
+import { ingestEventsSkippingNotFound } from "./perEvent.js";
 import { normalizeEventRankings } from "./rankings.js";
 import {
   tbaAllianceResponseSchema,
@@ -372,9 +373,8 @@ async function ingestSeason(
   }
 
   console.log(`Season ${year}: ${eventKeys.length} events`);
-  for (const eventKey of eventKeys) {
-    await ingestEvent(db, ctx, eventKey, force);
-  }
+  const skipped = await ingestEventsSkippingNotFound(eventKeys, (eventKey) => ingestEvent(db, ctx, eventKey, force));
+  if (skipped.length > 0) console.log(`Season ${year}: skipped ${skipped.length} event(s) TBA answered 404 for: ${skipped.join(", ")}`);
 }
 
 /**
