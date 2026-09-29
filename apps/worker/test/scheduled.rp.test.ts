@@ -1680,9 +1680,9 @@ describe("scheduled.rp — a published state block is dropped, and eventType", (
 // prior event itself. frc7 and frc8 each play exactly one prior match, so both
 // are thin when the live event starts; frc7 plays a live PLAYED match (priced
 // thin, before its fold) and upcoming matches, and frc8 plays only upcoming
-// matches, so an upcoming row is priced thin too. Every live team played the
-// prior event: there is no debut team, whose first played row the Worker's
-// partial-roster gate withholds by design.
+// matches, so an upcoming row is priced thin too. Every live team in PP_SET
+// played the prior event; PP_DEBUT_SET adds a debut team, whose first played
+// row the Worker prices from the population exactly as offline (260928-spa).
 // ---------------------------------------------------------------------------
 
 const PP_PRIOR_EVENT_KEY = "2026ppprior";
@@ -1713,6 +1713,36 @@ const PP_LIVE_FIXTURES: readonly MatchFixture[] = PP_LIVE_ROSTERS.map(([red, blu
   blueTeams: blue,
 }));
 
+/** One fixture set the helpers below replay: the teams `initState` seeds, the prior event, and the live event. */
+interface PpFixtureSet {
+  readonly teams: readonly string[];
+  readonly prior: readonly MatchFixture[];
+  readonly live: readonly MatchFixture[];
+  readonly livePlayed: number;
+}
+const PP_SET: PpFixtureSet = { teams: PP_TEAMS, prior: PP_PRIOR_FIXTURES, live: PP_LIVE_FIXTURES, livePlayed: PP_LIVE_PLAYED };
+
+// A debut team (quick task 260928-spa): frc9 plays no prior match, so its first
+// live PLAYED match is priced with no RP belief of its own. Offline, the RP
+// cold-team prior prices it from the season's population; the Worker must
+// publish the same pmf, not withhold it. Its second played match prices it thin.
+const PP_DEBUT_ROSTERS: readonly [readonly string[], readonly string[]][] = [
+  [["frc1", "frc2", "frc3"], ["frc4", "frc5", "frc6"]],
+  [["frc9", "frc5", "frc6"], ["frc1", "frc2", "frc4"]],
+  [["frc3", "frc4", "frc9"], ["frc6", "frc1", "frc2"]],
+  [["frc9", "frc1", "frc3"], ["frc7", "frc2", "frc4"]],
+];
+const PP_DEBUT_SET: PpFixtureSet = {
+  teams: [...PP_TEAMS, "frc9"],
+  prior: PP_PRIOR_FIXTURES,
+  live: PP_DEBUT_ROSTERS.map(([red, blue], i) => ({
+    ...msFixture(PP_LIVE_EVENT_KEY, i + 1, PP_PRIOR_WARM_MATCHES + 1 + i),
+    redTeams: red,
+    blueTeams: blue,
+  })),
+  livePlayed: 3,
+};
+
 interface PpOffline {
   /** Live played rows, then the live upcoming rows as of after the last played match. */
   readonly rows: MsRow[];
@@ -1720,11 +1750,11 @@ interface PpOffline {
 }
 
 /** The offline arm: the real `SigmaScoutLayer` over the prior event and the live played matches, with the prior as given. */
-function ppOffline(rpColdPrior: boolean): PpOffline {
+function ppOffline(rpColdPrior: boolean, set: PpFixtureSet = PP_SET): PpOffline {
   const layer = new SigmaScoutLayer(RULES_2026, "spr", { rpColdPrior });
-  let state = spr.initState([...PP_TEAMS]);
+  let state = spr.initState([...set.teams]);
   const rows: MsRow[] = [];
-  for (const f of [...PP_PRIOR_FIXTURES, ...PP_LIVE_FIXTURES.slice(0, PP_LIVE_PLAYED)]) {
+  for (const f of [...set.prior, ...set.live.slice(0, set.livePlayed)]) {
     const result = toMatchResult(f);
     const prediction = spr.predict(state, toLeakProofUpcoming(result));
     state = spr.update(state, result);
@@ -1738,7 +1768,7 @@ function ppOffline(rpColdPrior: boolean): PpOffline {
     const enriched = layer.foldPlayed(result, prediction, talent);
     if (f.eventKey === PP_LIVE_EVENT_KEY) rows.push(msRowOf(result.matchKey, enriched.prediction));
   }
-  for (const f of PP_LIVE_FIXTURES.slice(PP_LIVE_PLAYED)) {
+  for (const f of set.live.slice(set.livePlayed)) {
     const view = toUpcomingMatchView(f);
     rows.push(msRowOf(view.matchKey, layer.enrichUpcoming(view, spr.predict(state, view)).prediction));
   }
@@ -1754,7 +1784,7 @@ describe("scheduled.rp — the RP population survives the live Worker (shape 17)
     ppRevealedLive = 0;
   });
 
-  function ppTbaStub(): ReturnType<typeof vi.fn> {
+  function ppTbaStub(set: PpFixtureSet): ReturnType<typeof vi.fn> {
     return vi.fn(async (url: unknown) => {
       const u = String(url);
       const matchesRoute = /\/event\/([^/]+)\/matches$/.exec(u);
@@ -1762,8 +1792,8 @@ describe("scheduled.rp — the RP population survives the live Worker (shape 17)
         const eventKey = matchesRoute[1]!;
         const body =
           eventKey === PP_PRIOR_EVENT_KEY
-            ? PP_PRIOR_FIXTURES.slice(0, ppRevealedPrior).map(toTbaMatch)
-            : [...PP_LIVE_FIXTURES.slice(0, ppRevealedLive).map(toTbaMatch), ...PP_LIVE_FIXTURES.slice(ppRevealedLive).map(toUpcomingTbaMatch)];
+            ? set.prior.slice(0, ppRevealedPrior).map(toTbaMatch)
+            : [...set.live.slice(0, ppRevealedLive).map(toTbaMatch), ...set.live.slice(ppRevealedLive).map(toUpcomingTbaMatch)];
         const revealed = eventKey === PP_PRIOR_EVENT_KEY ? ppRevealedPrior : ppRevealedLive;
         return {
           status: 200,
@@ -1789,7 +1819,7 @@ describe("scheduled.rp — the RP population survives the live Worker (shape 17)
   }
 
   /** The prior event in one tick, then the live event one played match per tick. */
-  async function drivePopulationFixture(): Promise<{ r2: FakeR2Bucket; d1: FakeD1Database }> {
+  async function drivePopulationFixture(set: PpFixtureSet = PP_SET): Promise<{ r2: FakeR2Bucket; d1: FakeD1Database }> {
     const windows = [PP_PRIOR_EVENT_KEY, PP_LIVE_EVENT_KEY].map((eventKey) => ({
       eventKey,
       season: SEASON,
@@ -1803,20 +1833,20 @@ describe("scheduled.rp — the RP population survives the live Worker (shape 17)
     ]);
     const d1 = new FakeD1Database();
     const r2 = new FakeR2Bucket();
-    vi.stubGlobal("fetch", ppTbaStub());
+    vi.stubGlobal("fetch", ppTbaStub(set));
     const env = { ...makeEnv(manifests, d1, r2), LIVE_ALGORITHM_IDS: "spr" } as Env;
     const tick = (i: number) => runTick(env, { nowMs: NOW_MS + i * 60_000 });
 
-    ppRevealedPrior = PP_PRIOR_FIXTURES.length;
+    ppRevealedPrior = set.prior.length;
     expect((await tick(0)).eventsFailed).toBe(0);
-    for (let i = 0; i < PP_LIVE_PLAYED; i++) {
+    for (let i = 0; i < set.livePlayed; i++) {
       ppRevealedLive = i + 1;
       expect((await tick(1 + i)).eventsFailed).toBe(0);
     }
     return { r2, d1 };
   }
 
-  async function ppPublishedRows(r2: FakeR2Bucket): Promise<MsRow[]> {
+  async function ppPublishedRows(r2: FakeR2Bucket, set: PpFixtureSet = PP_SET): Promise<MsRow[]> {
     const key = artifactKey({ page: "event", eventKey: PP_LIVE_EVENT_KEY, algorithmId: "spr", version: spr.version });
     const object = await r2.get(key);
     expect(object, `no published event artifact at ${key}`).not.toBeNull();
@@ -1825,7 +1855,7 @@ describe("scheduled.rp — the RP population survives the live Worker (shape 17)
       upcoming: (PublishedMatchRow & { matchKey: string })[];
     };
     const byKey = new Map([...artifact.matches, ...artifact.upcoming].map((m) => [m.matchKey, m]));
-    return PP_LIVE_FIXTURES.map((f) => {
+    return set.live.map((f) => {
       const row = byKey.get(matchKeyOf(f));
       expect(row, `live artifact is missing ${matchKeyOf(f)}`).toBeDefined();
       return { matchKey: row!.matchKey, red: row!.redRpPmf, blue: row!.blueRpPmf, redBonus: row!.redBonusRpPmf, blueBonus: row!.blueBonusRpPmf };
@@ -1853,6 +1883,23 @@ describe("scheduled.rp — the RP population survives the live Worker (shape 17)
       const thinPlayed = PP_LIVE_ROSTERS.findIndex(([red]) => red.includes("frc7"));
       expect(JSON.stringify(on.rows[thinPlayed])).not.toBe(JSON.stringify(off.rows[thinPlayed]));
       expect(JSON.stringify(on.rows[PP_LIVE_PLAYED])).not.toBe(JSON.stringify(off.rows[PP_LIVE_PLAYED]));
+    },
+    120_000
+  );
+
+  it(
+    "a debut team's first played row carries the offline layer's RP pmf live, not an absent one (260928-spa)",
+    async () => {
+      const { r2 } = await drivePopulationFixture(PP_DEBUT_SET);
+      const online = await ppPublishedRows(r2, PP_DEBUT_SET);
+      const on = ppOffline(true, PP_DEBUT_SET);
+      const debutPlayed = PP_DEBUT_ROSTERS.findIndex(([red]) => red.includes("frc9"));
+
+      // Non-vacuity: the debut row is really priced offline, and the prior is what prices it.
+      expect(on.rows[debutPlayed]!.red, "the offline layer priced no pmf for the debut row").toBeDefined();
+      expect(JSON.stringify(on.rows[debutPlayed])).not.toBe(JSON.stringify(ppOffline(false, PP_DEBUT_SET).rows[debutPlayed]));
+      expect(online[debutPlayed]!.red, "the live Worker withheld the debut team's first played pmf").toBeDefined();
+      expect(msDigest(online), "the live Worker's RP rows diverged from the offline prior-on layer's for a debut team").toBe(msDigest(on.rows));
     },
     120_000
   );

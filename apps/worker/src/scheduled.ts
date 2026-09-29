@@ -507,8 +507,6 @@ interface ResumedAlgorithmState {
   readonly state: any;
   readonly sigma: SigmaScoreAccumulator | undefined;
   readonly rpRuleModule: RpRuleModule | undefined;
-  /** Returned alongside `rp` so the fold path builds its `rpKnownTeams` set without a SECOND `readRpBeliefs` pass over the same rows. */
-  readonly rpBeliefs: ReturnType<typeof readRpBeliefs>;
   readonly rp: RpMomentsAccumulator | undefined;
   readonly rpMeanShift: RpMeanShiftAccumulator | undefined;
 }
@@ -551,7 +549,7 @@ async function resumeAlgorithmState(params: ResumeAlgorithmStateParams): Promise
     rpRuleModule !== undefined ? RpMomentsAccumulator.fromBeliefs(rpRuleModule, rpBeliefs, { population: readRpPopulation(rows) }) : undefined;
   const rpMeanShift = rpRuleModule !== undefined ? RpMeanShiftAccumulator.fromState(rpRuleModule, readRpMeanShift(rows)) : undefined;
 
-  return { rows, state, sigma, rpRuleModule, rpBeliefs, rp, rpMeanShift };
+  return { rows, state, sigma, rpRuleModule, rp, rpMeanShift };
 }
 
 /**
@@ -1475,7 +1473,6 @@ async function processEvent(
           state: initialState,
           sigma,
           rpRuleModule,
-          rpBeliefs,
           rp,
           rpMeanShift,
         } = await resumeAlgorithmState({
@@ -1508,9 +1505,12 @@ async function processEvent(
           return { ...(red !== undefined ? { red } : {}), ...(blue !== undefined ? { blue } : {}) };
         };
 
-        // Teams whose beliefs this tick resumed, plus those it folds; read by
-        // the partial-roster gate below.
-        const rpKnownTeams = new Set(rpBeliefs.keys());
+        // Every team whose state this tick READ (`stateReadTeamKeys` covers the
+        // touched and scheduled teams); read by the partial-roster gate below.
+        // Loaded, not known: a loaded team with no RP belief is a debut team,
+        // which the RP cold-team prior prices from the season's population
+        // exactly as the offline layer does (quick task 260928-spa).
+        const rpLoadedTeams = new Set([...touchedTeams, ...scheduledTeams]);
 
         // One accessor for this tick's played-row RP. Mirrors
         // `SigmaScoutLayer.#rpFieldsFor`; change them together. An UPCOMING
@@ -1526,12 +1526,11 @@ async function processEvent(
           if (!isRpEligibleEventType(view.eventType)) return {};
           if (redBandVariance === undefined || blueBandVariance === undefined) return {};
           // Partial-roster gate: the Worker loads state only for teams touched
-          // this tick, and `momentsFor` would silently sum a narrower,
-          // overconfident pmf over an unloaded team. Every played roster team
-          // is touched, so it guards played rows as defence in depth.
-          // Stricter than the offline path: an absent pmf, never a wrong one.
+          // this tick, and `momentsFor` would price an unloaded team as if it
+          // had no history. Every played roster team is touched, so it guards
+          // played rows as defence in depth: an absent pmf, never a wrong one.
           for (const teamKey of [...view.redTeams, ...view.blueTeams]) {
-            if (!rpKnownTeams.has(teamKey)) return {};
+            if (!rpLoadedTeams.has(teamKey)) return {};
           }
 
           const pmf = analyticRpPmf({
@@ -1597,7 +1596,6 @@ async function processEvent(
             }
           }
           observedBonusSides.set(result.matchKey, { red: redBonusFlags, blue: blueBonusFlags });
-          if (folds) for (const teamKey of [...result.redTeams, ...result.blueTeams]) rpKnownTeams.add(teamKey);
         };
 
         const newBands = new Map<string, { red?: number; blue?: number }>();

@@ -344,9 +344,12 @@ resumes as an empty population.
   event through the real Worker, with two teams left thin (one observation each), then a live event
   one played match per tick; the live played and upcoming rows equal an offline prior-on
   `SigmaScoutLayer` replay and differ from a prior-off one, and the D1 league row ends holding the
-  offline layer's summary. It was seen failing with the write-back removed. The Worker's
-  played-row partial-roster gate (`rpKnownTeams`) is unchanged, so a team making its season debut
-  still gets no played-row pmf live on its first match.
+  offline layer's summary. It was seen failing with the write-back removed.
+- **Debut teams (quick task 260928-spa).** The played-row partial-roster gate checks that every
+  roster team's state was LOADED this tick (`rpLoadedTeams`: the touched and scheduled teams), not
+  that it already has an RP belief. So a team making its season debut gets its first played-row pmf
+  live, priced from the population exactly as offline. The same test file's debut case was seen
+  failing against the old belief-based gate.
 
 **The D1 write cap — historical.** Roughly **four seed passes used to exhaust D1's 100,000 daily
 row-write cap** on the free plan (hit once, 2026-09-10), which was decidedly not benign during an
