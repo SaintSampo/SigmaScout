@@ -279,15 +279,16 @@ describe("buildFieldContributions (the all-or-nothing roster rule, reproduced)",
     expect(buildFieldContributions({ ...faInputs(), rpAccumulator: undefined })).toBeNull();
   });
 
-  it("returns one contribution per roster team, in SORTED roster order, reading each team's OWN belief from a one-team momentsFor call", () => {
+  it("returns one contribution per roster team, in SORTED roster order, carrying each team's OWN belief", () => {
     const inputs = faInputs();
     const contributions = buildFieldContributions(inputs)!;
     expect(contributions.map((c) => c.teamKey)).toEqual(["frc1", "frc2", "frc3"]);
     for (const contribution of contributions) {
-      // Against the accumulator directly: a one-team roster returns the team's own belief.
+      // Against the accumulator directly: a one-team roster returns the team's
+      // own belief, which the three-copy pricing reproduces up to float rounding.
       const own = inputs.rpAccumulator!.momentsFor([contribution.teamKey], 0, 0);
-      expect(contribution.variableMeans).toEqual(own.meanVector);
-      expect(contribution.variableVariances).toEqual(own.varianceBlock.map((row, i) => row[i]));
+      contribution.variableMeans.forEach((mean, i) => expect(mean).toBeCloseTo(own.meanVector[i]!, 12));
+      contribution.variableVariances.forEach((variance, i) => expect(variance).toBeCloseTo(own.varianceBlock[i]![i]!, 12));
       expect(contribution.scoreMean).toBe(inputs.teamTotals.get(contribution.teamKey));
       // `allianceSigmaBandVariance`'s own per-team term is `sigma * sigma`.
       expect(contribution.bandVariance).toBe(12 * 12);
@@ -311,6 +312,42 @@ describe("buildFieldContributions (the all-or-nothing roster rule, reproduced)",
     // `meanOfVariableMeans` upward and silently narrow every band.
     const stats = fieldStatistics(contributions, FA_VARIABLE_NAMES);
     expect(stats.teamCount).toBe(3);
+  });
+
+  it("under the RP cold-team prior, a cold or thin team contributes ONE team's share, not the whole alliance's (260929-fav)", () => {
+    const accumulator = new RpMomentsAccumulator(FA_RULE, { rpColdPrior: true });
+    // Three-team alliances, so the league summary is of whole-alliance values.
+    for (let i = 0; i < 6; i++) {
+      const values: Record<string, number> = {};
+      for (const [v, name] of FA_VARIABLE_NAMES.entries()) values[name] = 12 + v * 6 + i;
+      accumulator.fold(["frcW1", "frcW2", "frcW3"], values);
+    }
+    const thinValues: Record<string, number> = {};
+    for (const [v, name] of FA_VARIABLE_NAMES.entries()) thinValues[name] = 15 + v * 6;
+    accumulator.fold(["frcThin", "frcW1", "frcW2"], thinValues);
+
+    const roster = ["frcCold", "frcThin", "frcW1"];
+    const contributions = buildFieldContributions({
+      roster,
+      rpAccumulator: accumulator,
+      sigmaScoreByTeam: new Map(roster.map((t) => [t, 9])),
+      teamTotals: new Map(roster.map((t) => [t, 50])),
+    })!;
+    // The reference: a real match of three cold teams, priced by the prior,
+    // is the league's whole-alliance mean and variance.
+    const league = accumulator.momentsFor(["frcNew1", "frcNew2", "frcNew3"], 0, 0);
+    const cold = contributions.find((c) => c.teamKey === "frcCold")!;
+    const thin = contributions.find((c) => c.teamKey === "frcThin")!;
+    FA_VARIABLE_NAMES.forEach((_, i) => {
+      const allianceMean = league.meanVector[i]!;
+      const allianceVariance = league.varianceBlock[i]![i]!;
+      expect(allianceVariance).toBeGreaterThan(0);
+      expect(cold.variableMeans[i]).toBeCloseTo(allianceMean / 3, 12);
+      expect(cold.variableVariances[i]).toBeCloseTo(allianceVariance / 9, 12);
+      // A thin team keeps its own mean and takes the per-team variance share.
+      expect(thin.variableMeans[i]).toBeCloseTo(accumulator.momentsFor(["frcThin"], 0, 0).meanVector[i]!, 12);
+      expect(thin.variableVariances[i]).toBeCloseTo(allianceVariance / 9, 12);
+    });
   });
 });
 

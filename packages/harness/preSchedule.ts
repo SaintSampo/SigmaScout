@@ -27,6 +27,7 @@ import {
   fieldAveragedMatchPmf,
   fieldStatistics,
   type FieldTeamContribution,
+  ALLIANCE_SIZE,
 } from "../core/rankingPoints/fieldAveraged.js";
 import type { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js";
 import { rosterIsFullyWarm, type RpMeanShiftAccumulator } from "../core/rankingPoints/meanShift.js";
@@ -495,20 +496,24 @@ export interface FieldContributionInputs {
  * A team missing from `sigmaScoreByTeam` has played too little; one missing
  * from `teamTotals` was never rated. Either way the roster cannot be priced.
  *
- * A one-team `momentsFor` call returns the team's own belief: its scaling
- * factor `roster.length^2 / contributing` is exactly 1.
+ * EACH TEAM IS PRICED AS AN ALLIANCE OF THREE COPIES OF ITSELF, then divided
+ * back to one team's share: the mean by `ALLIANCE_SIZE`, the variance by
+ * `ALLIANCE_SIZE^2`. For a team with its own belief that is the team's own
+ * belief again (up to float rounding), exactly what a one-team call returns.
+ *
+ * It matters for the RP cold-team prior (SPR 9.0.0), which scales the league
+ * summary by the roster it is handed. A one-team call handed a cold team the
+ * league's whole-ALLIANCE mean and variance, and a thin team (one observation)
+ * the whole-alliance variance, so such a team weighed about `ALLIANCE_SIZE`
+ * times too much in the field (recorded by 260928-p8i). Handed a three-team
+ * roster, the prior gives each copy the per-team share it gives a cold team in a
+ * real match, and the division returns that share. Corrected by quick task
+ * 260929-fav. With the prior off a cold team still contributes mean `0` and
+ * variance `0`, as before.
  *
  * A cold team stays in the field, because a cold team is part of the field;
  * dropping it would shift `meanOfVariableMeans` upward and narrow every band in
- * the event. What it contributes changed with SPR 9.0.0's RP cold-team prior,
- * which the production accumulator now runs: a one-team `momentsFor` call gives
- * a team with no belief for a variable the league's per-ALLIANCE mean and
- * variance (the prior scales by roster size, and the roster here is 1), and a
- * thin team (one observation) the per-alliance variance. Neither is a per-team
- * share, so such a team is over-weighted in the field by roughly the alliance
- * size. Before 9.0.0 it contributed mean `0` and variance `0`. The
- * field-averaged path is measurement-only and unshipped, so this is recorded,
- * not corrected here (quick task 260928-p8i).
+ * the event.
  */
 export function buildFieldContributions(inputs: FieldContributionInputs): FieldTeamContribution[] | null {
   const { rpAccumulator, sigmaScoreByTeam, teamTotals } = inputs;
@@ -520,13 +525,14 @@ export function buildFieldContributions(inputs: FieldContributionInputs): FieldT
     if (!sigmaScoreByTeam.has(teamKey)) return null;
     if (!teamTotals.has(teamKey)) return null;
   }
+  const copies = ALLIANCE_SIZE;
   return sortedRoster.map((teamKey) => {
-    const own = rpAccumulator.momentsFor([teamKey], 0, 0);
+    const asAlliance = rpAccumulator.momentsFor(Array.from({ length: copies }, () => teamKey), 0, 0);
     const sigmaScore = sigmaScoreByTeam.get(teamKey) as number;
     return {
       teamKey,
-      variableMeans: own.meanVector,
-      variableVariances: own.varianceBlock.map((row, i) => row[i] ?? 0),
+      variableMeans: asAlliance.meanVector.map((mean) => mean / copies),
+      variableVariances: asAlliance.varianceBlock.map((row, i) => (row[i] ?? 0) / (copies * copies)),
       scoreMean: teamTotals.get(teamKey) as number,
       // Squared, matching `allianceSigmaBandVariance`'s per-team `sigma * sigma` term.
       bandVariance: sigmaScore * sigmaScore,
