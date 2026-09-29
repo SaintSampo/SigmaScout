@@ -5,7 +5,7 @@ milestone_name: milestone
 current_phase: 10
 status: completed
 stopped_at: Completed 10-09-PLAN.md (operator gates run from the main context)
-last_updated: "2026-09-29T04:30:26.123Z"
+last_updated: "2026-09-29T04:48:48.224Z"
 last_activity: 2026-09-29
 last_activity_desc: Phase 10 complete
 progress:
@@ -706,6 +706,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 268 | Alliance selection headline reads picked when both routes print as 0 percent | 2026-09-29 | 3ec9f0b3 | [260929-cz0-selection-headline-reads-picked-when-both](./quick/260929-cz0-selection-headline-reads-picked-when-both/) |
 | 269 | Field-averaged contributions carry one team's share under the RP cold-team prior | 2026-09-29 | a4020eb5 | [260929-fav-field-averaged-per-team-share-under-the](./quick/260929-fav-field-averaged-per-team-share-under-the/) |
 | 270 | Impact award ordering sorts on prior Impact wins first, with priorImpactWins on every district award profile | 2026-09-29 | ef034ceb | [260929-imp-impact-first-award-ordering](./quick/260929-imp-impact-first-award-ordering/) |
+| 271 | Seed tests read either line ending, and the alliance win probability figures are re-measured on the current corpus | 2026-09-29 | 93e8ff84 | [260929-eol-seed-tests-read-either-line-ending-and-t](./quick/260929-eol-seed-tests-read-either-line-ending-and-t/) |
 
 ### Roadmap Evolution
 
