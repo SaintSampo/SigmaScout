@@ -1,0 +1,1372 @@
+{
+ "host": {
+  "node": "v24.15.0",
+  "chromium": "151.0.7922.34",
+  "cpu": "AMD Ryzen 5 7600X 6-Core Processor             ",
+  "logicalCpus": 12,
+  "os": "win32 10.0.26200",
+  "esbuild": "0.28.2",
+  "throttleMeaning": "CDP Emulation.setCPUThrottlingRate on a desktop host, main thread; 4x is Lighthouse's mobile preset, 6x read as a low-end phone; approximations only",
+  "throttleCalibrationMs": {
+   "2026txmca": {
+    "1": 60.1,
+    "4": 219.9,
+    "6": 386.5
+   },
+   "2026joh": {
+    "1": 51,
+    "4": 217.8,
+    "6": 392.6
+   },
+   "2026casnd": {
+    "1": 59.2,
+    "4": 212,
+    "6": 383.5
+   }
+  },
+  "browserNetworkAttemptsMaxPerInvocation": 0
+ },
+ "events": [
+  {
+   "eventKey": "2026txmca",
+   "rosterSize": 27,
+   "quals": 36,
+   "matchesPerTeam": 8,
+   "asOf": "2026-03-13T18:07:11.000Z",
+   "sprVersion": "9.0.0+baseline",
+   "replaySeconds": 172.1,
+   "referenceBakeSeconds": 5.5
+  },
+  {
+   "eventKey": "2026joh",
+   "rosterSize": 75,
+   "quals": 125,
+   "matchesPerTeam": 10,
+   "asOf": "2026-04-30T13:05:39.000Z",
+   "sprVersion": "9.0.0+baseline",
+   "replaySeconds": 212.8,
+   "referenceBakeSeconds": 22.9
+  },
+  {
+   "eventKey": "2026casnd",
+   "rosterSize": 40,
+   "quals": 80,
+   "matchesPerTeam": 12,
+   "asOf": "2026-03-21T17:29:02.000Z",
+   "sprVersion": "9.0.0+baseline",
+   "replaySeconds": 200.1,
+   "referenceBakeSeconds": 9.8
+  }
+ ],
+ "parity": {
+  "2026txmca": {
+   "nodeUncachedDiff": 0,
+   "nodeCachedDiff": 0,
+   "chromium1xUncachedDiff": 0,
+   "chromium1xCachedDiff": 0,
+   "armMatches": 36000,
+   "armMatchesDiffering": 0,
+   "armMaxAbsPmfDiff": 0
+  },
+  "2026joh": {
+   "nodeUncachedDiff": 0,
+   "nodeCachedDiff": 0,
+   "chromium1xUncachedDiff": 0,
+   "chromium1xCachedDiff": 0,
+   "armMatches": 125000,
+   "armMatchesDiffering": 0,
+   "armMaxAbsPmfDiff": 0
+  },
+  "2026casnd": {
+   "nodeUncachedDiff": 0,
+   "nodeCachedDiff": 0,
+   "chromium1xUncachedDiff": 0,
+   "chromium1xCachedDiff": 0,
+   "armMatches": 80000,
+   "armMatchesDiffering": 0,
+   "armMaxAbsPmfDiff": 0
+  }
+ },
+ "q1": {
+  "2026txmca": {
+   "distinctAlliancesPossible": 2925,
+   "alliancePricingSlotsAt1000": 72000,
+   "uniqueAlliancesAt1000": 2925,
+   "cacheHitRateAt1000": 0.959375,
+   "node": {
+    "rate": "node",
+    "p1": {
+     "uncachedUsPerCall": [
+      23.35262500000024,
+      24.26944444444416,
+      24.307750000000144
+     ],
+     "cachedUsPerCall": [
+      15.144083333332977,
+      16.093805555555164,
+      17.87677777777794
+     ],
+     "reps": [
+      {
+       "uncachedMs": 168.13890000000174,
+       "cachedMs": 109.03739999999743,
+       "ratio": 0.6484959756486828
+      },
+      {
+       "uncachedMs": 174.73999999999796,
+       "cachedMs": 115.87539999999717,
+       "ratio": 0.663130365113875
+      },
+      {
+       "uncachedMs": 175.01580000000104,
+       "cachedMs": 128.71280000000115,
+       "ratio": 0.7354353149829923
+      }
+     ],
+     "medianRatio": 0.663130365113875,
+     "minRatio": 0.6484959756486828,
+     "maxRatio": 0.7354353149829923
+    },
+    "perEventTotalMsAt1000": {
+     "uncachedMs": 912.3777999999984,
+     "uncachedExtrapolated": false,
+     "uncachedBasis": "measured at K=1000",
+     "cachedMs": 466.6416999999995,
+     "cachedBasis": "progressive run's 1000-schedule checkpoint, price phase only, measured",
+     "cachedDirectAtK1000Ms": 534.5920000000006
+    }
+   },
+   "browser": {
+    "1": {
+     "rate": 1,
+     "p1": {
+      "uncachedUsPerCall": [
+       13.624999986754524,
+       10.76388888888889,
+       10.874999993377262
+      ],
+      "cachedUsPerCall": [
+       7.055555582046509,
+       6.680555542310079,
+       6.625000006622738
+      ],
+      "reps": [
+       {
+        "uncachedMs": 98.09999990463257,
+        "cachedMs": 50.80000019073486,
+        "ratio": 0.5178389423049932
+       },
+       {
+        "uncachedMs": 77.5,
+        "cachedMs": 48.09999990463257,
+        "ratio": 0.6206451600597751
+       },
+       {
+        "uncachedMs": 78.29999995231628,
+        "cachedMs": 47.700000047683716,
+        "ratio": 0.6091954032788304
+       }
+      ],
+      "medianRatio": 0.6091954032788304,
+      "minRatio": 0.5178389423049932,
+      "maxRatio": 0.6206451600597751
+     },
+     "perEventTotalMsAt1000": {
+      "uncachedMs": 431.2999999523163,
+      "uncachedExtrapolated": false,
+      "uncachedBasis": "measured at K=1000",
+      "cachedMs": 285.99999952316284,
+      "cachedBasis": "progressive run's 1000-schedule checkpoint, price phase only, measured",
+      "cachedDirectAtK1000Ms": 234.89999985694885
+     }
+    },
+    "4": {
+     "rate": 4,
+     "p1": {
+      "uncachedUsPerCall": [
+       62.013888888888886,
+       49.27777777115504,
+       56.736111111111114
+      ],
+      "cachedUsPerCall": [
+       32.43055555555556,
+       30.805555548932816,
+       38.06944443119897
+      ],
+      "reps": [
+       {
+        "uncachedMs": 446.5,
+        "cachedMs": 233.5,
+        "ratio": 0.522956326987682
+       },
+       {
+        "uncachedMs": 354.7999999523163,
+        "cachedMs": 221.79999995231628,
+        "ratio": 0.6251409244141075
+       },
+       {
+        "uncachedMs": 408.5,
+        "cachedMs": 274.09999990463257,
+        "ratio": 0.6709914318350858
+       }
+      ],
+      "medianRatio": 0.6251409244141075,
+      "minRatio": 0.522956326987682,
+      "maxRatio": 0.6709914318350858
+     },
+     "perEventTotalMsAt1000": {
+      "uncachedMs": 2042.5,
+      "uncachedExtrapolated": true,
+      "uncachedBasis": "K=200 median-rep uncached ms x 5",
+      "cachedMs": 1180.7999999523163,
+      "cachedBasis": "progressive run's 1000-schedule checkpoint, price phase only, measured",
+      "cachedDirectAtK1000Ms": null
+     }
+    },
+    "6": {
+     "rate": 6,
+     "p1": {
+      "uncachedUsPerCall": [
+       142.9583333267106,
+       106.875,
+       107.73611111773386
+      ],
+      "cachedUsPerCall": [
+       74.50000001324548,
+       65.7916666732894,
+       73.00000001986821
+      ],
+      "reps": [
+       {
+        "uncachedMs": 1029.2999999523163,
+        "cachedMs": 536.4000000953674,
+        "ratio": 0.5211308657536353
+       },
+       {
+        "uncachedMs": 769.5,
+        "cachedMs": 473.7000000476837,
+        "ratio": 0.6155945419722986
+       },
+       {
+        "uncachedMs": 775.7000000476837,
+        "cachedMs": 525.6000001430511,
+        "ratio": 0.6775815393976299
+       }
+      ],
+      "medianRatio": 0.6155945419722986,
+      "minRatio": 0.5211308657536353,
+      "maxRatio": 0.6775815393976299
+     },
+     "perEventTotalMsAt1000": {
+      "uncachedMs": 3878.5000002384186,
+      "uncachedExtrapolated": true,
+      "uncachedBasis": "K=200 median-rep uncached ms x 5",
+      "cachedMs": 2388.2999997138977,
+      "cachedBasis": "progressive run's 1000-schedule checkpoint, price phase only, measured",
+      "cachedDirectAtK1000Ms": null
+     }
+    }
+   }
+  },
+  "2026joh": {
+   "distinctAlliancesPossible": 67525,
+   "alliancePricingSlotsAt1000": 250000,
+   "uniqueAlliancesAt1000": 65871,
+   "cacheHitRateAt1000": 0.736516,
+   "node": {
+    "rate": "node",
+    "p1": {
+     "uncachedUsPerCall": [
+      18.54655999999959,
+      19.326571999998997,
+      18.85780800000066
+     ],
+     "cachedUsPerCall": [
+      18.326947999999394,
+      17.557780000000495,
+      19.10413600000087
+     ],
+     "reps": [
+      {
+       "uncachedMs": 463.66399999998976,
+       "cachedMs": 458.1736999999848,
+       "ratio": 0.9881588822940641
+      },
+      {
+       "uncachedMs": 483.1642999999749,
+       "cachedMs": 438.94450000001234,
+       "ratio": 0.9084787514310042
+      },
+      {
+       "uncachedMs": 471.4452000000165,
+       "cachedMs": 477.6034000000218,
+       "ratio": 1.013062387738819
+      }
+     ],
+     "medianRatio": 0.9881588822940641,
+     "minRatio": 0.9084787514310042,
+     "maxRatio": 1.013062387738819
+    },
+    "perEventTotalMsAt1000": {
+     "uncachedMs": 2481.7053000000014,
+     "uncachedExtrapolated": false,
+     "uncachedBasis": "measured at K=1000",
+     "cachedMs": 1931.9115999999992,
+     "cachedBasis": "progressive run's 1000-schedule checkpoint, price phase only, measured",
+     "cachedDirectAtK1000Ms": 1615.3957999999984
+    }
+   },
+   "browser": {
+    "1": {
+     "rate": 1,
+     "p1": {
+      "uncachedUsPerCall": [
+       11.79199999809265,
+       10.384000005722045,
+       10.352000007629394
+      ],
+      "cachedUsPerCall": [
+       10.503999996185303,
+       10.167999992370605,
+       9.643999996185302
+      ],
+      "reps": [
+       {
+        "uncachedMs": 294.7999999523163,
+        "cachedMs": 262.59999990463257,
+        "ratio": 0.8907734055193621
+       },
+       {
+        "uncachedMs": 259.60000014305115,
+        "cachedMs": 254.19999980926514,
+        "ratio": 0.9791987660600525
+       },
+       {
+        "uncachedMs": 258.80000019073486,
+        "cachedMs": 241.09999990463257,
+        "ratio": 0.9316074178011691
+       }
+      ],
+      "medianRatio": 0.9316074178011691,
+      "minRatio": 0.8907734055193621,
+      "maxRatio": 0.9791987660600525
+     },
+     "perEventTotalMsAt1000": {
+      "uncachedMs": 1371.3999998569489,
+      "uncachedExtrapolated": false,
+      "uncachedBasis": "measured at K=1000",
+      "cachedMs": 1067.3000004291534,
+      "cachedBasis": "progressive run's 1000-schedule checkpoint, price phase only, measured",
+      "cachedDirectAtK1000Ms": 1012.9000000953674
+     }
+    },
+    "4": {
+     "rate": 4,
+     "p1": {
+      "uncachedUsPerCall": [
+       68.95199999809265,
+       60.11199999809265,
+       59.25599999427796
+      ],
+      "cachedUsPerCall": [
+       62.54800000190735,
+       59.096000003814694,
+       61.6360000038147
+      ],
+      "reps": [
+       {
+        "uncachedMs": 1723.7999999523163,
+        "cachedMs": 1563.7000000476837,
+        "ratio": 0.9071237963168226
+       },
+       {
+        "uncachedMs": 1502.7999999523163,
+        "cachedMs": 1477.4000000953674,
+        "ratio": 0.9830982167568839
+       },
+       {
+        "uncachedMs": 1481.3999998569489,
+        "cachedMs": 1540.9000000953674,
+        "ratio": 1.0401647092238182
+       }
+      ],
+      "medianRatio": 0.9830982167568839,
+      "minRatio": 0.9071237963168226,
+      "maxRatio": 1.0401647092238182
+     },
+     "perEventTotalMsAt1000": {
+      "uncachedMs": 7513.999999761581,
+      "uncachedExtrapolated": true,
+      "uncachedBasis": "K=200 median-rep uncached ms x 5",
+      "cachedMs": 6655.299999475479,
+      "cachedBasis": "progressive run's 1000-schedule checkpoint, price phase only, measured",
+      "cachedDirectAtK1000Ms": null
+     }
+    },
+    "6": {
+     "rate": 6,
+     "p1": {
+      "uncachedUsPerCall": [
+       121.9560000038147,
+       99.23199999809265,
+       98.69599999427795
+      ],
+      "cachedUsPerCall": [
+       103.69199999809265,
+       99.86,
+       98.4160000038147
+      ],
+      "reps": [
+       {
+        "uncachedMs": 3048.9000000953674,
+        "cachedMs": 2592.2999999523163,
+        "ratio": 0.8502410705077998
+       },
+       {
+        "uncachedMs": 2480.7999999523163,
+        "cachedMs": 2496.5,
+        "ratio": 1.0063286036955763
+       },
+       {
+        "uncachedMs": 2467.399999856949,
+        "cachedMs": 2460.4000000953674,
+        "ratio": 0.9971630056893948
+       }
+      ],
+      "medianRatio": 0.9971630056893948,
+      "minRatio": 0.8502410705077998,
+      "maxRatio": 1.0063286036955763
+     },
+     "perEventTotalMsAt1000": {
+      "uncachedMs": 12403.999999761581,
+      "uncachedExtrapolated": true,
+      "uncachedBasis": "K=200 median-rep uncached ms x 5",
+      "cachedMs": 10906.500000476837,
+      "cachedBasis": "progressive run's 1000-schedule checkpoint, price phase only, measured",
+      "cachedDirectAtK1000Ms": null
+     }
+    }
+   }
+  },
+  "2026casnd": {
+   "distinctAlliancesPossible": 9880,
+   "alliancePricingSlotsAt1000": 160000,
+   "uniqueAlliancesAt1000": 9880,
+   "cacheHitRateAt1000": 0.93825,
+   "node": {
+    "rate": "node",
+    "p1": {
+     "uncachedUsPerCall": [
+      24.170687499999985,
+      24.442793749999964,
+      23.976256250000006
+     ],
+     "cachedUsPerCall": [
+      19.42701249999982,
+      17.441812500000196,
+      17.459937499999796
+     ],
+     "reps": [
+      {
+       "uncachedMs": 386.73099999999977,
+       "cachedMs": 310.8321999999971,
+       "ratio": 0.80374265316201
+      },
+      {
+       "uncachedMs": 391.08469999999943,
+       "cachedMs": 279.06900000000314,
+       "ratio": 0.7135768798932905
+      },
+      {
+       "uncachedMs": 383.6201000000001,
+       "cachedMs": 279.35899999999674,
+       "ratio": 0.7282178384292082
+      }
+     ],
+     "medianRatio": 0.7282178384292082,
+     "minRatio": 0.7135768798932905,
+     "maxRatio": 0.80374265316201
+    },
+    "perEventTotalMsAt1000": {
+     "uncachedMs": 1936.8132000000041,
+     "uncachedExtrapolated": false,
+     "uncachedBasis": "measured at K=1000",
+     "cachedMs": 1260.2651000000005,
+     "cachedBasis": "progressive run's 1000-schedule checkpoint, price phase only, measured",
+     "cachedDirectAtK1000Ms": 1241.999800000005
+    }
+   },
+   "browser": {
+    "1": {
+     "rate": 1,
+     "p1": {
+      "uncachedUsPerCall": [
+       13.474999994039536,
+       10.787499994039536,
+       11.131250008940697
+      ],
+      "cachedUsPerCall": [
+       8.400000005960464,
+       9.356250002980232,
+       8.174999997019768
+      ],
+      "reps": [
+       {
+        "uncachedMs": 215.59999990463257,
+        "cachedMs": 134.40000009536743,
+        "ratio": 0.6233766240946997
+       },
+       {
+        "uncachedMs": 172.59999990463257,
+        "cachedMs": 149.70000004768372,
+        "ratio": 0.8673232916013796
+       },
+       {
+        "uncachedMs": 178.10000014305115,
+        "cachedMs": 130.79999995231628,
+        "ratio": 0.7344188649481012
+       }
+      ],
+      "medianRatio": 0.7344188649481012,
+      "minRatio": 0.6233766240946997,
+      "maxRatio": 0.8673232916013796
+     },
+     "perEventTotalMsAt1000": {
+      "uncachedMs": 859.1000001430511,
+      "uncachedExtrapolated": false,
+      "uncachedBasis": "measured at K=1000",
+      "cachedMs": 597.7000000476837,
+      "cachedBasis": "progressive run's 1000-schedule checkpoint, price phase only, measured",
+      "cachedDirectAtK1000Ms": 521.5
+     }
+    },
+    "4": {
+     "rate": 4,
+     "p1": {
+      "uncachedUsPerCall": [
+       55.0562499910593,
+       46.631249994039536,
+       45.443749994039536
+      ],
+      "cachedUsPerCall": [
+       41.9437500089407,
+       33.63750000298023,
+       42.681250005960464
+      ],
+      "reps": [
+       {
+        "uncachedMs": 880.8999998569489,
+        "cachedMs": 671.1000001430511,
+        "ratio": 0.7618344877421188
+       },
+       {
+        "uncachedMs": 746.0999999046326,
+        "cachedMs": 538.2000000476837,
+        "ratio": 0.7213510254878396
+       },
+       {
+        "uncachedMs": 727.0999999046326,
+        "cachedMs": 682.9000000953674,
+        "ratio": 0.9392105627629453
+       }
+      ],
+      "medianRatio": 0.7618344877421188,
+      "minRatio": 0.7213510254878396,
+      "maxRatio": 0.9392105627629453
+     },
+     "perEventTotalMsAt1000": {
+      "uncachedMs": 3730.499999523163,
+      "uncachedExtrapolated": true,
+      "uncachedBasis": "K=200 median-rep uncached ms x 5",
+      "cachedMs": 2901.3999996185303,
+      "cachedBasis": "progressive run's 1000-schedule checkpoint, price phase only, measured",
+      "cachedDirectAtK1000Ms": null
+     }
+    },
+    "6": {
+     "rate": 6,
+     "p1": {
+      "uncachedUsPerCall": [
+       119.0625,
+       96.79375000298023,
+       96.1875
+      ],
+      "cachedUsPerCall": [
+       78.25624999403954,
+       80.31874999403954,
+       78.8500000089407
+      ],
+      "reps": [
+       {
+        "uncachedMs": 1905,
+        "cachedMs": 1252.0999999046326,
+        "ratio": 0.6572703411572874
+       },
+       {
+        "uncachedMs": 1548.7000000476837,
+        "cachedMs": 1285.0999999046326,
+        "ratio": 0.8297927292988087
+       },
+       {
+        "uncachedMs": 1539,
+        "cachedMs": 1261.6000001430511,
+        "ratio": 0.8197530865127038
+       }
+      ],
+      "medianRatio": 0.8197530865127038,
+      "minRatio": 0.6572703411572874,
+      "maxRatio": 0.8297927292988087
+     },
+     "perEventTotalMsAt1000": {
+      "uncachedMs": 7743.500000238419,
+      "uncachedExtrapolated": true,
+      "uncachedBasis": "K=200 median-rep uncached ms x 5",
+      "cachedMs": 4468.700000286102,
+      "cachedBasis": "progressive run's 1000-schedule checkpoint, price phase only, measured",
+      "cachedDirectAtK1000Ms": null
+     }
+    }
+   }
+  }
+ },
+ "components": {
+  "2026txmca": {
+   "node": {
+    "scheduleCount": 200,
+    "matches": 7200,
+    "allianceSlots": 14400,
+    "uniqueAlliances": 2906,
+    "sprPredictUsPerMatch": 2.3471666666667566,
+    "alliancePieceUsPerAlliance": 6.6812112869925215,
+    "combineUsPerMatch": 2.0565277777773696,
+    "roundUsPerMatch": 9.149305555555555,
+    "sprPredictMs": 16.899600000000646,
+    "alliancePieceMs": 19.415600000000268,
+    "combineMs": 14.80699999999706,
+    "roundMs": 65.875
+   },
+   "chromium1x": {
+    "scheduleCount": 200,
+    "matches": 7200,
+    "allianceSlots": 14400,
+    "uniqueAlliances": 2906,
+    "sprPredictUsPerMatch": 2.527777784400516,
+    "alliancePieceUsPerAlliance": 4.955264919803459,
+    "combineUsPerMatch": 1.152777804268731,
+    "roundUsPerMatch": 3.3888888690206738,
+    "sprPredictMs": 18.200000047683716,
+    "alliancePieceMs": 14.399999856948853,
+    "combineMs": 8.300000190734863,
+    "roundMs": 24.399999856948853
+   }
+  },
+  "2026joh": {
+   "node": {
+    "scheduleCount": 200,
+    "matches": 25000,
+    "allianceSlots": 50000,
+    "uniqueAlliances": 35380,
+    "sprPredictUsPerMatch": 1.7712159999995492,
+    "alliancePieceUsPerAlliance": 4.570859242510011,
+    "combineUsPerMatch": 1.5894000000006054,
+    "roundUsPerMatch": 9.56832800000091,
+    "sprPredictMs": 44.28039999998873,
+    "alliancePieceMs": 161.7170000000042,
+    "combineMs": 39.735000000015134,
+    "roundMs": 239.20820000002277
+   },
+   "chromium1x": {
+    "scheduleCount": 200,
+    "matches": 25000,
+    "allianceSlots": 50000,
+    "uniqueAlliances": 35380,
+    "sprPredictUsPerMatch": 1.8839999961853027,
+    "alliancePieceUsPerAlliance": 3.3634821933295647,
+    "combineUsPerMatch": 1.2760000038146972,
+    "roundUsPerMatch": 3.1439999961853027,
+    "sprPredictMs": 47.09999990463257,
+    "alliancePieceMs": 119,
+    "combineMs": 31.90000009536743,
+    "roundMs": 78.59999990463257
+   }
+  },
+  "2026casnd": {
+   "node": {
+    "scheduleCount": 200,
+    "matches": 16000,
+    "allianceSlots": 32000,
+    "uniqueAlliances": 9521,
+    "sprPredictUsPerMatch": 2.3423375000002125,
+    "alliancePieceUsPerAlliance": 5.811647936141059,
+    "combineUsPerMatch": 2.2704562500002794,
+    "roundUsPerMatch": 9.561693749999904,
+    "sprPredictMs": 37.4774000000034,
+    "alliancePieceMs": 55.33269999999902,
+    "combineMs": 36.32730000000447,
+    "roundMs": 152.98709999999846
+   },
+   "chromium1x": {
+    "scheduleCount": 200,
+    "matches": 16000,
+    "allianceSlots": 32000,
+    "uniqueAlliances": 9521,
+    "sprPredictUsPerMatch": 2.0499999970197678,
+    "alliancePieceUsPerAlliance": 4.631866390571639,
+    "combineUsPerMatch": 1.9562499970197678,
+    "roundUsPerMatch": 3.7000000029802322,
+    "sprPredictMs": 32.799999952316284,
+    "alliancePieceMs": 44.09999990463257,
+    "combineMs": 31.299999952316284,
+    "roundMs": 59.200000047683716
+   }
+  }
+ },
+ "q2": {
+  "events": {
+   "2026txmca": {
+    "payloadBytes": {
+     "raw": 3698,
+     "gzip": 1335,
+     "brotli": 1158
+    },
+    "rebuiltSidecarBytes": {
+     "raw": 4157,
+     "gzip": 1958,
+     "brotli": 1622
+    },
+    "structuresBytesFor1000": {
+     "matchesPerSchedule": 36,
+     "raw": 216000,
+     "gzip": 131909
+    }
+   },
+   "2026joh": {
+    "payloadBytes": {
+     "raw": 21078,
+     "gzip": 8005,
+     "brotli": 6818
+    },
+    "rebuiltSidecarBytes": {
+     "raw": 23777,
+     "gzip": 10327,
+     "brotli": 8841
+    },
+    "structuresBytesFor1000": {
+     "matchesPerSchedule": 125,
+     "raw": 750000,
+     "gzip": 592385
+    }
+   },
+   "2026casnd": {
+    "payloadBytes": {
+     "raw": 6111,
+     "gzip": 2384,
+     "brotli": 2066
+    },
+    "rebuiltSidecarBytes": {
+     "raw": 8122,
+     "gzip": 3655,
+     "brotli": 3044
+    },
+    "structuresBytesFor1000": {
+     "matchesPerSchedule": 80,
+     "raw": 480000,
+     "gzip": 326267
+    }
+   }
+  },
+  "sidecarPublishRun": {
+   "count": 211,
+   "median": 7145,
+   "p95": 15983,
+   "max": 23806
+  },
+  "bundle": {
+   "minified": {
+    "raw": 408913,
+    "gzip": 89007,
+    "brotli": 74625
+   },
+   "largestInputs": [
+    {
+     "path": "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/schemas.js",
+     "bytes": 31819
+    },
+    {
+     "path": "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/schemas.js",
+     "bytes": 22520
+    },
+    {
+     "path": "packages/core/rankingPoints/analyticPmf.ts",
+     "bytes": 10859
+    },
+    {
+     "path": "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/util.js",
+     "bytes": 10631
+    },
+    {
+     "path": "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/api.js",
+     "bytes": 10124
+    }
+   ],
+   "withoutZodSizeOnly": {
+    "raw": 81702,
+    "gzip": 24394,
+    "brotli": 21093
+   },
+   "withoutZodNote": "size-only build with zod stubbed, never executed; a bound on the bundle if the season rule modules did not import zod"
+  }
+ },
+ "q3": {
+  "2026txmca": {
+   "node": {
+    "checkpoints": [
+     {
+      "count": 150,
+      "elapsedMs": 448.9336,
+      "generateMs": 290.1494000000002,
+      "priceMs": 95.93929999999995,
+      "drawMs": 62.81720000000007
+     },
+     {
+      "count": 300,
+      "elapsedMs": 822.7305999999999,
+      "generateMs": 555.2956000000001,
+      "priceMs": 159.0156,
+      "drawMs": 108.32359999999983
+     },
+     {
+      "count": 1000,
+      "elapsedMs": 2597.6869,
+      "generateMs": 1818.000300000001,
+      "priceMs": 466.6416999999995,
+      "drawMs": 312.6617999999995
+     },
+     {
+      "count": 2000,
+      "elapsedMs": 5558.8637,
+      "generateMs": 3892.832000000001,
+      "priceMs": 1000.6640000000009,
+      "drawMs": 664.9573999999999
+     },
+     {
+      "count": 4000,
+      "elapsedMs": 11460.1014,
+      "generateMs": 8036.218900000002,
+      "priceMs": 2058.9084999999977,
+      "drawMs": 1364.5106
+     }
+    ],
+    "completed": 4000,
+    "stoppedEarly": false,
+    "capMs": 240000,
+    "elapsedMs": 11460.193
+   },
+   "browser": {
+    "1": {
+     "checkpoints": [
+      {
+       "count": 150,
+       "elapsedMs": 392.09999990463257,
+       "generateMs": 278.7999999523163,
+       "priceMs": 60.799999952316284,
+       "drawMs": 52.5
+      },
+      {
+       "count": 300,
+       "elapsedMs": 729.4000000953674,
+       "generateMs": 535.900000333786,
+       "priceMs": 100.59999966621399,
+       "drawMs": 92.90000009536743
+      },
+      {
+       "count": 1000,
+       "elapsedMs": 2308.5,
+       "generateMs": 1749.4000005722046,
+       "priceMs": 285.99999952316284,
+       "drawMs": 273.09999990463257
+      },
+      {
+       "count": 2000,
+       "elapsedMs": 4498,
+       "generateMs": 3469.5000009536743,
+       "priceMs": 511.2999997138977,
+       "drawMs": 517.199999332428
+      },
+      {
+       "count": 4000,
+       "elapsedMs": 8839.299999952316,
+       "generateMs": 6877.700001001358,
+       "priceMs": 956.6999990940094,
+       "drawMs": 1004.6999998092651
+      }
+     ],
+     "completed": 4000,
+     "stoppedEarly": false,
+     "capMs": 240000,
+     "elapsedMs": 8839.400000095367
+    },
+    "4": {
+     "checkpoints": [
+      {
+       "count": 150,
+       "elapsedMs": 1636.4000000953674,
+       "generateMs": 1183.4999997615814,
+       "priceMs": 263.30000019073486,
+       "drawMs": 189.60000014305115
+      },
+      {
+       "count": 300,
+       "elapsedMs": 3104.7000000476837,
+       "generateMs": 2337.9999997615814,
+       "priceMs": 423.7999999523163,
+       "drawMs": 342.6000003814697
+      },
+      {
+       "count": 1000,
+       "elapsedMs": 10037.5,
+       "generateMs": 7720.299999237061,
+       "priceMs": 1180.7999999523163,
+       "drawMs": 1135.9000008106232
+      },
+      {
+       "count": 2000,
+       "elapsedMs": 19698.900000095367,
+       "generateMs": 15290.499998569489,
+       "priceMs": 2186.800000667572,
+       "drawMs": 2221.100000858307
+      },
+      {
+       "count": 4000,
+       "elapsedMs": 39538.799999952316,
+       "generateMs": 30799.799998283386,
+       "priceMs": 4288.099999189377,
+       "drawMs": 4450.300002336502
+      }
+     ],
+     "completed": 4000,
+     "stoppedEarly": false,
+     "capMs": 240000,
+     "elapsedMs": 39539
+    },
+    "6": {
+     "checkpoints": [
+      {
+       "count": 150,
+       "elapsedMs": 3067.899999856949,
+       "generateMs": 2182.600000143051,
+       "priceMs": 537.6999998092651,
+       "drawMs": 347.19999980926514
+      },
+      {
+       "count": 300,
+       "elapsedMs": 5815,
+       "generateMs": 4309.000000476837,
+       "priceMs": 869.8999998569489,
+       "drawMs": 635.1999995708466
+      },
+      {
+       "count": 1000,
+       "elapsedMs": 18476.39999985695,
+       "generateMs": 14041.300000190735,
+       "priceMs": 2388.2999997138977,
+       "drawMs": 2045.5
+      },
+      {
+       "count": 2000,
+       "elapsedMs": 36760.5,
+       "generateMs": 28101.000000476837,
+       "priceMs": 4576.899999380112,
+       "drawMs": 4081.100000143051
+      },
+      {
+       "count": 4000,
+       "elapsedMs": 74450.59999990463,
+       "generateMs": 57197.40000009537,
+       "priceMs": 9057.69999909401,
+       "drawMs": 8193.800000667572
+      }
+     ],
+     "completed": 4000,
+     "stoppedEarly": false,
+     "capMs": 240000,
+     "elapsedMs": 74450.89999985695
+    }
+   }
+  },
+  "2026joh": {
+   "node": {
+    "checkpoints": [
+     {
+      "count": 150,
+      "elapsedMs": 3001.0791999999997,
+      "generateMs": 2384.5412,
+      "priceMs": 426.4849999999999,
+      "drawMs": 190.03610000000003
+     },
+     {
+      "count": 300,
+      "elapsedMs": 5848.533899999999,
+      "generateMs": 4770.070100000001,
+      "priceMs": 747.9584000000002,
+      "drawMs": 330.4100999999989
+     },
+     {
+      "count": 1000,
+      "elapsedMs": 18606.7103,
+      "generateMs": 15609.087400000002,
+      "priceMs": 1931.9115999999992,
+      "drawMs": 1065.517099999998
+     },
+     {
+      "count": 2000,
+      "elapsedMs": 36609.9521,
+      "generateMs": 31042.224599999998,
+      "priceMs": 3513.0983000000087,
+      "drawMs": 2054.4088999999885
+     },
+     {
+      "count": 4000,
+      "elapsedMs": 72794.03480000001,
+      "generateMs": 62060.700399999994,
+      "priceMs": 6653.322200000057,
+      "drawMs": 4079.741599999973
+     }
+    ],
+    "completed": 4000,
+    "stoppedEarly": false,
+    "capMs": 240000,
+    "elapsedMs": 72794.1254
+   },
+   "browser": {
+    "1": {
+     "checkpoints": [
+      {
+       "count": 150,
+       "elapsedMs": 2571.4000000953674,
+       "generateMs": 2191.300000190735,
+       "priceMs": 237.59999990463257,
+       "drawMs": 142.5
+      },
+      {
+       "count": 300,
+       "elapsedMs": 4969.5,
+       "generateMs": 4293.800000190735,
+       "priceMs": 403.59999990463257,
+       "drawMs": 272.09999990463257
+      },
+      {
+       "count": 1000,
+       "elapsedMs": 16103.799999952316,
+       "generateMs": 14178.20000052452,
+       "priceMs": 1067.3000004291534,
+       "drawMs": 858.299998998642
+      },
+      {
+       "count": 2000,
+       "elapsedMs": 32051.60000014305,
+       "generateMs": 28378.10000061989,
+       "priceMs": 1939.0000002384186,
+       "drawMs": 1734.4999992847443
+      },
+      {
+       "count": 4000,
+       "elapsedMs": 63695,
+       "generateMs": 56505.800000190735,
+       "priceMs": 3639.8000013828278,
+       "drawMs": 3549.3999984264374
+      }
+     ],
+     "completed": 4000,
+     "stoppedEarly": false,
+     "capMs": 240000,
+     "elapsedMs": 63695.10000014305
+    },
+    "4": {
+     "checkpoints": [
+      {
+       "count": 150,
+       "elapsedMs": 11717.099999904633,
+       "generateMs": 9889.200000047684,
+       "priceMs": 1181.2999997138977,
+       "drawMs": 646.5
+      },
+      {
+       "count": 300,
+       "elapsedMs": 23110,
+       "generateMs": 19733.800000190735,
+       "priceMs": 2107.399999856949,
+       "drawMs": 1268.2999997138977
+      },
+      {
+       "count": 1000,
+       "elapsedMs": 80552.5,
+       "generateMs": 69334.79999995232,
+       "priceMs": 6655.299999475479,
+       "drawMs": 4561.700000286102
+      },
+      {
+       "count": 2000,
+       "elapsedMs": 190227.20000004768,
+       "generateMs": 164099.69999980927,
+       "priceMs": 15571.299999952316,
+       "drawMs": 10552.600000143051
+      }
+     ],
+     "completed": 2600,
+     "stoppedEarly": true,
+     "capMs": 240000,
+     "elapsedMs": 240336.70000004768
+    },
+    "6": {
+     "checkpoints": [
+      {
+       "count": 150,
+       "elapsedMs": 21090.799999952316,
+       "generateMs": 17619.900000095367,
+       "priceMs": 2354.399999856949,
+       "drawMs": 1116.2999999523163
+      },
+      {
+       "count": 300,
+       "elapsedMs": 41699.09999990463,
+       "generateMs": 35210.99999976158,
+       "priceMs": 4278.000000238419,
+       "drawMs": 2208.9999997615814
+      },
+      {
+       "count": 1000,
+       "elapsedMs": 135059.70000004768,
+       "generateMs": 117009.19999957085,
+       "priceMs": 10906.500000476837,
+       "drawMs": 7142.499999761581
+      }
+     ],
+     "completed": 1800,
+     "stoppedEarly": true,
+     "capMs": 240000,
+     "elapsedMs": 240667.70000004768
+    }
+   },
+   "browser1xRun2": {
+    "checkpoints": [
+     {
+      "count": 150,
+      "elapsedMs": 2569.399999856949,
+      "generateMs": 2192.600000143051,
+      "priceMs": 233.599999666214,
+      "drawMs": 143.20000004768372
+     },
+     {
+      "count": 300,
+      "elapsedMs": 5000.099999904633,
+      "generateMs": 4311.300000190735,
+      "priceMs": 410.2999999523163,
+      "drawMs": 278.4999997615814
+     },
+     {
+      "count": 1000,
+      "elapsedMs": 16164.399999856949,
+      "generateMs": 14239.200000286102,
+      "priceMs": 1061.2000005245209,
+      "drawMs": 863.9999990463257
+     },
+     {
+      "count": 2000,
+      "elapsedMs": 31944.700000047684,
+      "generateMs": 28333.700000286102,
+      "priceMs": 1910.8000001907349,
+      "drawMs": 1700.1999995708466
+     },
+     {
+      "count": 4000,
+      "elapsedMs": 63573.799999952316,
+      "generateMs": 56597.40000104904,
+      "priceMs": 3592.5,
+      "drawMs": 3383.799998998642
+     }
+    ],
+    "completed": 4000,
+    "stoppedEarly": false,
+    "capMs": 240000,
+    "elapsedMs": 63573.799999952316
+   }
+  },
+  "2026casnd": {
+   "node": {
+    "checkpoints": [
+     {
+      "count": 150,
+      "elapsedMs": 1233.5221,
+      "generateMs": 900.3699999999999,
+      "priceMs": 236.63260000000002,
+      "drawMs": 96.50430000000006
+     },
+     {
+      "count": 300,
+      "elapsedMs": 2386.2382,
+      "generateMs": 1785.9535999999998,
+      "priceMs": 403.2288999999997,
+      "drawMs": 196.76999999999975
+     },
+     {
+      "count": 1000,
+      "elapsedMs": 8373.2687,
+      "generateMs": 6435.801699999999,
+      "priceMs": 1260.2651000000005,
+      "drawMs": 676.8342999999998
+     },
+     {
+      "count": 2000,
+      "elapsedMs": 16866.938199999997,
+      "generateMs": 13058.793999999996,
+      "priceMs": 2483.2729999999992,
+      "drawMs": 1324.4857000000004
+     },
+     {
+      "count": 4000,
+      "elapsedMs": 33800.5102,
+      "generateMs": 26258.808999999997,
+      "priceMs": 4897.869899999992,
+      "drawMs": 2643.4060999999956
+     }
+    ],
+    "completed": 4000,
+    "stoppedEarly": false,
+    "capMs": 240000,
+    "elapsedMs": 33800.6095
+   },
+   "browser": {
+    "1": {
+     "checkpoints": [
+      {
+       "count": 150,
+       "elapsedMs": 1127.7000000476837,
+       "generateMs": 887.2999999523163,
+       "priceMs": 142.70000004768372,
+       "drawMs": 97.70000004768372
+      },
+      {
+       "count": 300,
+       "elapsedMs": 2088.2000000476837,
+       "generateMs": 1685.3000001907349,
+       "priceMs": 232.79999995231628,
+       "drawMs": 170.09999990463257
+      },
+      {
+       "count": 1000,
+       "elapsedMs": 6500,
+       "generateMs": 5408.399999856949,
+       "priceMs": 597.7000000476837,
+       "drawMs": 493.90000009536743
+      },
+      {
+       "count": 2000,
+       "elapsedMs": 12682.400000095367,
+       "generateMs": 10656.699999332428,
+       "priceMs": 1095.4000008106232,
+       "drawMs": 930.2999999523163
+      },
+      {
+       "count": 4000,
+       "elapsedMs": 25426.5,
+       "generateMs": 21419.699998617172,
+       "priceMs": 2162.0000014305115,
+       "drawMs": 1844.7999999523163
+      }
+     ],
+     "completed": 4000,
+     "stoppedEarly": false,
+     "capMs": 240000,
+     "elapsedMs": 25426.599999904633
+    },
+    "4": {
+     "checkpoints": [
+      {
+       "count": 150,
+       "elapsedMs": 4678.5,
+       "generateMs": 3669.4999997615814,
+       "priceMs": 666.2000000476837,
+       "drawMs": 342.7000000476837
+      },
+      {
+       "count": 300,
+       "elapsedMs": 8907.599999904633,
+       "generateMs": 7238.799999952316,
+       "priceMs": 1030.5,
+       "drawMs": 638
+      },
+      {
+       "count": 1000,
+       "elapsedMs": 29501.699999809265,
+       "generateMs": 24463.400000095367,
+       "priceMs": 2901.3999996185303,
+       "drawMs": 2136.2000000476837
+      },
+      {
+       "count": 2000,
+       "elapsedMs": 57803.39999985695,
+       "generateMs": 48396.199999809265,
+       "priceMs": 5262.599999904633,
+       "drawMs": 4143.900000095367
+      },
+      {
+       "count": 4000,
+       "elapsedMs": 116952.79999995232,
+       "generateMs": 98268.59999966621,
+       "priceMs": 10335,
+       "drawMs": 8348.500000238419
+      }
+     ],
+     "completed": 4000,
+     "stoppedEarly": false,
+     "capMs": 240000,
+     "elapsedMs": 116952.79999995232
+    },
+    "6": {
+     "checkpoints": [
+      {
+       "count": 150,
+       "elapsedMs": 7637.400000095367,
+       "generateMs": 6151.100000143051,
+       "priceMs": 959.8999998569489,
+       "drawMs": 526.4000000953674
+      },
+      {
+       "count": 300,
+       "elapsedMs": 14466.200000047684,
+       "generateMs": 11935.200000047684,
+       "priceMs": 1543.1999998092651,
+       "drawMs": 987.4000000953674
+      },
+      {
+       "count": 1000,
+       "elapsedMs": 46271.5,
+       "generateMs": 38616.10000014305,
+       "priceMs": 4468.700000286102,
+       "drawMs": 3185.799999475479
+      },
+      {
+       "count": 2000,
+       "elapsedMs": 97069,
+       "generateMs": 80912.79999923706,
+       "priceMs": 9354.10000038147,
+       "drawMs": 6801.000000238419
+      },
+      {
+       "count": 4000,
+       "elapsedMs": 201849.5,
+       "generateMs": 168708.3999993801,
+       "priceMs": 18938.500000476837,
+       "drawMs": 14201.299999952316
+      }
+     ],
+     "completed": 4000,
+     "stoppedEarly": false,
+     "capMs": 240000,
+     "elapsedMs": 201849.80000019073
+    }
+   }
+  }
+ }
+}

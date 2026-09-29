@@ -354,6 +354,8 @@ interface BundleInfo {
   code: string;
   minified: ByteSizes;
   largestInputs: { path: string; bytes: number }[];
+  /** SIZE-ONLY bound, never executed: the same bundle with zod stubbed out by a Proxy module. */
+  withoutZodSizeOnly: ByteSizes;
 }
 
 interface EsbuildApi {
@@ -386,10 +388,33 @@ async function buildBundle(): Promise<BundleInfo> {
     .map(([path, v]) => ({ path, bytes: v.bytesInOutput }))
     .sort((a, b) => b.bytes - a.bytes)
     .slice(0, 5);
-  const info: BundleInfo = { code, minified: sizesOf(code), largestInputs };
+  // Every season's rule module and breakdown schema imports zod at load. Stubbing it shows what the same modules cost without it (the bundle is measured, never run).
+  const stubZod = {
+    name: "stub-zod",
+    setup(build: { onResolve: (o: { filter: RegExp }, cb: (a: { path: string }) => unknown) => void; onLoad: (o: { filter: RegExp; namespace: string }, cb: () => unknown) => void }) {
+      build.onResolve({ filter: /^zod(\/.*)?$/ }, (a) => ({ path: a.path, namespace: "stub-zod" }));
+      build.onLoad({ filter: /.*/, namespace: "stub-zod" }, () => ({
+        contents: "const p=new Proxy(function(){},{get:()=>p,apply:()=>p,construct:()=>p});export const z=p;export default p;export const ZodError=p;",
+        loader: "js",
+      }));
+    },
+  };
+  const stubbed = await esbuild.build({
+    entryPoints: [join(process.cwd(), "scripts/browserPresimPricing.ts")],
+    bundle: true,
+    minify: true,
+    format: "iife",
+    globalName: "__presimSpikeNoZod",
+    platform: "browser",
+    target: "es2022",
+    write: false,
+    logLevel: "silent",
+    plugins: [stubZod],
+  });
+  const info: BundleInfo = { code, minified: sizesOf(code), largestInputs, withoutZodSizeOnly: sizesOf(stubbed.outputFiles[0]!.text) };
   ensureOut();
   writeFileSync(join(OUT, "bundle.js"), code);
-  writeJson("bundle-info.json", { esbuildVersion: esbuild.version, minified: info.minified, largestInputs });
+  writeJson("bundle-info.json", { esbuildVersion: esbuild.version, minified: info.minified, largestInputs, withoutZodSizeOnly: info.withoutZodSizeOnly });
   console.log(`bundle: esbuild ${esbuild.version}, minified ${info.minified.raw} B raw, ${info.minified.gzip} B gzip, ${info.minified.brotli} B brotli`);
   return info;
 }
@@ -694,7 +719,7 @@ async function browserPhase(eventsArg: string[], rate: number, only: string | un
 function summarizePhase(): void {
   const eventKeys = [...FIXED_EVENTS, resolveEventToken("mid40")];
   const files = new Set(readdirSync(OUT));
-  const bundleInfo = readJson<{ esbuildVersion: string; minified: ByteSizes; largestInputs: { path: string; bytes: number }[] }>("bundle-info.json");
+  const bundleInfo = readJson<{ esbuildVersion: string; minified: ByteSizes; largestInputs: { path: string; bytes: number }[]; withoutZodSizeOnly: ByteSizes }>("bundle-info.json");
 
   interface NodeFile {
     parity: { nodeUncachedDiff: number; nodeCachedDiff: number; arms: { matches: number; matchesDiffering: number; maxAbsDiff: number } };
@@ -826,7 +851,12 @@ function summarizePhase(): void {
     q2: {
       events: q2Events,
       sidecarPublishRun: SIDECAR_PUBLISH_RUN,
-      bundle: { minified: bundleInfo.minified, largestInputs: bundleInfo.largestInputs },
+      bundle: {
+        minified: bundleInfo.minified,
+        largestInputs: bundleInfo.largestInputs,
+        withoutZodSizeOnly: bundleInfo.withoutZodSizeOnly,
+        withoutZodNote: "size-only build with zod stubbed, never executed; a bound on the bundle if the season rule modules did not import zod",
+      },
     },
     q3,
   };
@@ -869,6 +899,9 @@ async function main(): Promise<void> {
       await browserPhase(eventsArg, rate, values.only, values.suffix ?? "");
       break;
     }
+    case "bundle":
+      await buildBundle();
+      break;
     case "summarize":
       summarizePhase();
       break;
