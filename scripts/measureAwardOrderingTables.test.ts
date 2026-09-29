@@ -30,6 +30,7 @@ import {
   MAX_ROOKIE_ALL_STAR_POSITION,
   MIN_ORDERED_FIELD_SIZE,
   MIN_POSITION_OBSERVATIONS,
+  orderFieldByImpactHistory,
   ROOKIE_ALL_STAR_AWARD_POINTS,
   rookieAllStarOrderingProbability,
 } from "../packages/core/districts/awardOrderingTables.js";
@@ -44,7 +45,7 @@ import {
   indexSeasonAwards,
   measureAwardOrderingTables,
   modalValue,
-  orderFieldByImpactHistory,
+  priorImpactWinCount,
   residualAwardPoints,
   toPositionRate,
   toSeasonOrderingTables,
@@ -120,6 +121,57 @@ describe("LEAK HALF ONE — the decoration feature reorders the field", () => {
   });
 });
 
+describe("LEAK HALF ONE — the prior Impact win count reorders the field too", () => {
+  // frc200 wins Impact in 2002 and frc100 carries the larger judged award
+  // count. At a 2002 event the honest Impact count is 0 for both, so the
+  // decoration fallback puts frc100 first. Leaked by one season, frc200 carries
+  // an Impact win and takes position 1.
+  const instances: AwardInstance[] = [
+    { year: 2002, eventKey: "2002a", awardType: 0, teamKey: "frc200" },
+    { year: 2001, eventKey: "2001a", awardType: 9, teamKey: "frc100" },
+    { year: 2001, eventKey: "2001b", awardType: 9, teamKey: "frc100" },
+  ];
+
+  const buildFieldAt = (beforeYear: number): EventField => {
+    const leaders = [
+      attendee("frc100", {
+        priorJudgedAwards: priorJudgedAwardCount(instances, "frc100", 2002),
+        priorImpactWins: priorImpactWinCount(instances, "frc100", beforeYear),
+      }),
+      attendee("frc200", {
+        priorJudgedAwards: priorJudgedAwardCount(instances, "frc200", 2002),
+        priorImpactWins: priorImpactWinCount(instances, "frc200", beforeYear),
+        wonImpact: true,
+        awardPoints: IMPACT_AWARD_POINTS,
+        judgedAwardTypesWon: 1,
+      }),
+    ];
+    return { season: 2002, eventKey: "2002ev", attendees: [...leaders, ...filler(MIN_ORDERED_FIELD_SIZE - 2)] };
+  };
+
+  it("counts only seasons strictly before the event's own, and the leak moves the Impact winner to position 1", () => {
+    expect(priorImpactWinCount(instances, "frc200", 2002)).toBe(0);
+    expect(priorImpactWinCount(instances, "frc200", 2003)).toBe(1);
+
+    const honest = buildSeasonOrderingTables(2003, [buildFieldAt(2002)]);
+    const leaked = buildSeasonOrderingTables(2003, [buildFieldAt(2003)]);
+    expect(honest.impact[0]!.wins).toBe(0);
+    expect(honest.impact[1]!.wins).toBe(1);
+    expect(leaked.impact[0]!.wins).toBe(1);
+  });
+
+  it("counts one Impact per (year, event), however many rows a shared award wrote, and ignores other award types", () => {
+    const shared: AwardInstance[] = [
+      { year: 2001, eventKey: "2001a", awardType: 0, teamKey: "frc1" },
+      { year: 2001, eventKey: "2001a", awardType: 0, teamKey: "frc1" },
+      { year: 2001, eventKey: "2001b", awardType: 0, teamKey: "frc1" },
+      { year: 2001, eventKey: "2001c", awardType: 9, teamKey: "frc1" },
+      { year: 2001, eventKey: "2001d", awardType: 0, teamKey: "frc2" },
+    ];
+    expect(priorImpactWinCount(shared, "frc1", 2002)).toBe(2);
+  });
+});
+
 describe("LEAK HALF TWO — the tables themselves", () => {
   it("the table registered for a season is unchanged by that season's own events, by deep equality", () => {
     // Prior seasons: nobody ever wins Impact.
@@ -185,22 +237,23 @@ describe("the ordering", () => {
     expect(measurement.impactTail.wins).toBe(1);
   });
 
-  it("the REFERENCE ordering sorts on prior Impact wins first and is NOT the shipped one", () => {
+  it("the SHIPPED Impact ordering sorts on prior Impact wins first; the one-number REFERENCE does not", () => {
     const attendees = [
       attendee("frc1", { priorJudgedAwards: 9, priorImpactWins: 0 }),
       attendee("frc2", { priorJudgedAwards: 1, priorImpactWins: 3 }),
     ];
     expect(orderFieldByImpactHistory(attendees)[0]).toBe("frc2");
-    // The shipped ordering disagrees, which is exactly why the reference block
-    // is measured rather than assumed to be the same thing.
+    // The two orderings disagree on this field, so the Impact table and the
+    // reference line see different teams at position 1. frc2 won.
     const measurement = buildSeasonOrderingTables(2003, [
       field(2000, "2000ev", [
-        attendee("frc1", { priorJudgedAwards: 9, priorImpactWins: 0, wonImpact: true }),
-        attendee("frc2", { priorJudgedAwards: 1, priorImpactWins: 3 }),
+        attendee("frc1", { priorJudgedAwards: 9, priorImpactWins: 0 }),
+        attendee("frc2", { priorJudgedAwards: 1, priorImpactWins: 3, wonImpact: true }),
       ]),
     ]);
     expect(measurement.impact[0]!.wins).toBe(1);
     expect(measurement.referenceImpact[0]!.wins).toBe(0);
+    expect(measurement.referenceImpact[1]!.wins).toBe(1);
   });
 });
 

@@ -1008,7 +1008,7 @@ describe("a published alliance list is used only when it is FINAL (WR-07)", () =
       startMatchKey: null,
     });
     if (!built.ok) throw new Error("expected an input");
-    expect(ZERO_AWARD_PROFILE).toEqual({ bucket: "none", rookieState: "veteran", priorJudgedAwards: 0 });
+    expect(ZERO_AWARD_PROFILE).toEqual({ bucket: "none", rookieState: "veteran", priorJudgedAwards: 0, priorImpactWins: 0 });
     for (const teamKey of [roster[0]!, ...roster.slice(20)]) expect(built.input.awardProfiles.get(teamKey)).toEqual(ZERO_AWARD_PROFILE);
     // A PUBLISHED profile passes through unchanged, not zeroed.
     expect(built.input.awardProfiles.get(roster[1]!)).toEqual({ bucket: "one-or-two", rookieState: "veteran" });

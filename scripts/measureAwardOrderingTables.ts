@@ -16,6 +16,13 @@
  * award cell can price the most decorated team in a field from what the corpus
  * says about that position rather than from its decoration bucket's average.
  *
+ * THE IMPACT ORDERING IS AWARD-TYPE-FIRST since quick task 260929-imp: prior
+ * IMPACT wins descending, then prior judged awards, then ascending team number
+ * (`orderFieldByImpactHistory` in the core module). The one-number ordering it
+ * replaced (prior judged awards alone) is still scored at positions 1 to 3 and
+ * printed as the REFERENCE line, so the gap stays visible in both directions.
+ * The Rookie All Star ordering is unchanged.
+ *
  * ---------------------------------------------------------------------------
  * THE DECOMPOSITION IS MEASURED, NOT SUBTRACTED
  * ---------------------------------------------------------------------------
@@ -43,7 +50,9 @@
  *   event counts only judged awards from seasons strictly before S. That rule
  *   is 10-02's `priorJudgedAwardCount`, IMPORTED rather than restated, so the
  *   published `priorJudgedAwards` field and the ordering measured here cannot
- *   disagree about what a decoration is.
+ *   disagree about what a decoration is. The Impact ordering's primary key,
+ *   prior Impact wins, follows the same strict rule through
+ *   `priorImpactWinCount`, which the publisher imports too.
  *
  *   HALF TWO, THE TABLES. The tables registered for season Y are fit only on
  *   district-tier events from seasons strictly before Y.
@@ -120,9 +129,9 @@ import {
   MIN_ORDERED_FIELD_SIZE,
   MIN_POSITION_OBSERVATIONS,
   orderFieldByDecoration,
+  orderFieldByImpactHistory,
   ROOKIE_ALL_STAR_AWARD_POINTS,
   ROOKIE_ALL_STAR_AWARD_TYPE,
-  teamNumberFromKey,
   type OrderingPositionRate,
   type SeasonAwardOrderingTables,
 } from "../packages/core/districts/awardOrderingTables.js";
@@ -148,13 +157,13 @@ const CORPUS_PATH = "data/corpus.sqlite";
 /** The default window: every season `pointModel.ts` carries a district point ceiling for. */
 export const DEFAULT_SEASON_SPEC = DISTRICT_REGISTERED_SEASONS.join(",");
 
-/** How many positions the REFERENCE-ONLY award-type-first ordering is scored at. Three: enough to see the gradient, never shipped. */
+/** How many positions the REFERENCE-ONLY one-number ordering is scored at. Three: enough to see the gradient, never shipped. */
 export const REFERENCE_IMPACT_POSITIONS = 3;
 
 /** The exact command that produced the tables committed in `awardOrderingTables.ts`. */
 export const MEASURED_COMMAND = "npx tsx scripts/measureAwardOrderingTables.ts";
 /** The date that command was run. */
-export const MEASURED_DATE = "2026-09-25";
+export const MEASURED_DATE = "2026-09-29";
 
 // ───────────────────────────── pure helpers ─────────────────────────────
 // Everything in this section is pure and unit-tested in
@@ -173,10 +182,10 @@ export interface AttendeeOutcome {
   /** How many DISTINCT judged award types this team won at this event — the AWARD POINT VALUES census's selector. */
   readonly judgedAwardTypesWon: number;
   /**
-   * Prior IMPACT wins alone, for the REFERENCE-ONLY ordering below. NOT part of
-   * the shipped ordering and NOT published on any artifact — it exists so the
-   * script can print how much the shipped one-number ordering leaves on the
-   * table, rather than leaving that an open question.
+   * Prior IMPACT wins alone, seasons strictly before this event's own. The
+   * PRIMARY key of the shipped Impact ordering (`orderFieldByImpactHistory`,
+   * quick task 260929-imp) and published on every district award profile as
+   * `priorImpactWins`, counted by `priorImpactWinCount` in both places.
    */
   readonly priorImpactWins: number;
 }
@@ -230,8 +239,7 @@ export function residualAwardPoints(attendee: AttendeeOutcome): number {
  * How many DISTINCT prior wins of ONE award type a team holds. Distinct on
  * `(year, eventKey)` for the same positional-primary-key reason
  * `priorJudgedAwardCount` is distinct on `(year, eventKey, awardType)`.
- *
- * REFERENCE ONLY. Nothing shipped reads this.
+ * `beforeYear` is strict, which is leak half one for the Impact key.
  */
 export function priorAwardTypeCount(
   instances: readonly AwardInstance[],
@@ -250,27 +258,15 @@ export function priorAwardTypeCount(
 }
 
 /**
- * THE REFERENCE ORDERING, NOT SHIPPED: prior IMPACT wins descending, then
- * prior judged awards descending, then ascending team number. This is
- * `scripts/measureAwardPredictability.ts`'s own `compareDecoration` for award
- * type 0, and measuring it beside the shipped ordering is what turns "the
- * one-number ordering might be leaving something on the table" from a worry
- * into a number.
- *
- * It is not shipped because it needs a SECOND per-team count on every district
- * artifact, and that trade is Jacob's to make with the gap in front of him.
+ * A team's prior IMPACT wins before `beforeYear`: `priorAwardTypeCount` for
+ * award type 0. THE ONE COUNTING RULE for the Impact ordering's primary key.
+ * This script measures the tables with it and `scripts/publishDistricts.ts`
+ * publishes `priorImpactWins` with it, imported rather than restated, so the
+ * published key and the measured ordering cannot disagree about what a prior
+ * Impact win is.
  */
-export function orderFieldByImpactHistory(attendees: readonly AttendeeOutcome[]): string[] {
-  return [...attendees]
-    .sort((a, b) => {
-      if (a.priorImpactWins !== b.priorImpactWins) return b.priorImpactWins - a.priorImpactWins;
-      if (a.priorJudgedAwards !== b.priorJudgedAwards) return b.priorJudgedAwards - a.priorJudgedAwards;
-      const na = teamNumberFromKey(a.teamKey);
-      const nb = teamNumberFromKey(b.teamKey);
-      if (na !== nb) return na < nb ? -1 : 1;
-      return a.teamKey < b.teamKey ? -1 : a.teamKey > b.teamKey ? 1 : 0;
-    })
-    .map((attendee) => attendee.teamKey);
+export function priorImpactWinCount(instances: readonly AwardInstance[], teamKey: string, beforeYear: number): number {
+  return priorAwardTypeCount(instances, teamKey, IMPACT_AWARD_TYPE, beforeYear);
 }
 
 /** One season's measured result, before it becomes a committed literal. */
@@ -285,7 +281,12 @@ export interface SeasonOrderingMeasurement {
   /** Index `j - 1` is rookie position `j`. */
   readonly rookieAllStar: PositionAccumulator[];
   readonly rookieAllStarTail: PositionAccumulator;
-  /** REFERENCE ONLY, never shipped: Impact positions 1 to 3 under `orderFieldByImpactHistory`. */
+  /**
+   * REFERENCE ONLY, never shipped: Impact positions 1 to 3 under the ONE-NUMBER
+   * ordering (`orderFieldByDecoration`, prior judged awards alone), which
+   * shipped before 260929-imp. Printed so the gap stays visible from the other
+   * side.
+   */
   readonly referenceImpact: PositionAccumulator[];
   readonly residualCells: Map<string, CellAccumulator>;
   readonly residualBucketPooled: Map<DecorationBucket, CellAccumulator>;
@@ -347,8 +348,9 @@ export function buildSeasonOrderingTables(
   for (const field of priorFields) {
     const byKey = new Map(field.attendees.map((attendee) => [attendee.teamKey, attendee] as const));
 
-    // The whole-field Impact ordering.
-    const ordered = orderFieldByDecoration(field.attendees);
+    // The whole-field Impact ordering: prior Impact wins first. The SAME
+    // function the ledger draw orders a field with.
+    const ordered = orderFieldByImpactHistory(field.attendees);
     ordered.forEach((teamKey, index) => {
       const attendee = byKey.get(teamKey)!;
       const cell = index < MAX_IMPACT_POSITION ? impact[index]! : impactTail;
@@ -356,8 +358,9 @@ export function buildSeasonOrderingTables(
       if (attendee.wonImpact) cell.wins++;
     });
 
-    // REFERENCE ONLY, never shipped — see `orderFieldByImpactHistory`.
-    orderFieldByImpactHistory(field.attendees)
+    // REFERENCE ONLY, never shipped: the one-number ordering the Impact table
+    // used before 260929-imp.
+    orderFieldByDecoration(field.attendees)
       .slice(0, REFERENCE_IMPACT_POSITIONS)
       .forEach((teamKey, index) => {
         const attendee = byKey.get(teamKey)!;
@@ -604,7 +607,7 @@ export function measureAwardOrderingTables(db: Corpus, seasons: readonly number[
     const priorImpactCountFor = (teamKey: string): number => {
       let cached = impactCache.get(teamKey);
       if (cached === undefined) {
-        cached = priorAwardTypeCount(instancesByTeam.get(teamKey) ?? [], teamKey, IMPACT_AWARD_TYPE, season);
+        cached = priorImpactWinCount(instancesByTeam.get(teamKey) ?? [], teamKey, season);
         impactCache.set(teamKey, cached);
       }
       return cached;
@@ -662,7 +665,7 @@ function reportSeason(measurement: SeasonOrderingMeasurement): void {
   console.log(
     `── ${measurement.season} ── fit on seasons ${measurement.priorSeasons.join(", ") || "none"} (${measurement.eventCount} events, ${measurement.attendeeCount} team-events)`
   );
-  console.log(`   IMPACT by position in the most-decorated ordering`);
+  console.log(`   IMPACT by position in the Impact ordering (prior Impact wins, then prior judged awards, then ascending team number)`);
   for (let k = 1; k <= MAX_IMPACT_POSITION; k++) {
     console.log(`     position ${String(k).padStart(2)}   ${rateString(measurement.impact[k - 1]!)}`);
   }
@@ -699,8 +702,8 @@ function reportSeason(measurement: SeasonOrderingMeasurement): void {
   console.log(
     `     UNMODELLED RESIDUALS: ${census.length === 0 ? "none" : census.map(([value, count]) => `${value} x${count}`).join(", ")}`
   );
-  console.log(`   REFERENCE ONLY, NOT SHIPPED — Impact by position under the award-type-first ordering`);
-  console.log(`     (prior Impact wins, then prior judged awards, then ascending team number)`);
+  console.log(`   REFERENCE ONLY, NOT SHIPPED — Impact by position under the one-number ordering shipped before 260929-imp`);
+  console.log(`     (prior judged awards, then ascending team number)`);
   for (let k = 1; k <= REFERENCE_IMPACT_POSITIONS; k++) {
     console.log(`     position ${String(k).padStart(2)}   ${rateString(measurement.referenceImpact[k - 1]!)}`);
   }
@@ -726,8 +729,8 @@ function reportPracticalAnswer(result: OrderingMeasurementResult): void {
   };
   console.log(`── PRACTICAL ANSWER ──`);
   console.log(
-    `   At a regular district event, the single most decorated team in the field wins Impact about\n` +
-      `   ${pct(latest.impact[0]!)} of the time. The second most decorated: ${pct(latest.impact[1]!)}. The third: ${pct(latest.impact[2]!)}. Everything from\n` +
+    `   At a regular district event, the team first in the Impact ordering (most prior Impact wins, then most\n` +
+      `   prior judged awards) wins Impact about ${pct(latest.impact[0]!)} of the time. The second: ${pct(latest.impact[1]!)}. The third: ${pct(latest.impact[2]!)}. Everything from\n` +
       `   position ${MAX_IMPACT_POSITION + 1} down shares ${pct(latest.impactTail)}. The lowest-numbered rookie in the field wins Rookie All Star\n` +
       `   ${pct(latest.rookieAllStar[0]!)} of the time, the second ${pct(latest.rookieAllStar[1]!)}. Every true rookie has no prior judged award, so the\n` +
       `   rookie ordering is ascending team number and those two numbers are mostly the answer to\n` +
@@ -748,9 +751,10 @@ async function main(): Promise<void> {
   const asJson = args.includes("--json");
 
   if (!asJson) {
-    console.log(`IMPACT AND ROOKIE ALL STAR ORDERING TABLES — walk-forward, district tier only, by position in the most-decorated ordering.`);
+    console.log(`IMPACT AND ROOKIE ALL STAR ORDERING TABLES — walk-forward, district tier only, by position in each award's ordering.`);
     console.log(`seasons:    ${seasons.join(", ")}`);
-    console.log(`ordering:   prior judged award count descending, ties by ASCENDING TEAM NUMBER`);
+    console.log(`ordering:   Impact: prior Impact wins descending, then prior judged award count descending, ties by ASCENDING TEAM NUMBER`);
+    console.log(`            Rookie All Star: prior judged award count descending among rookies, ties by ASCENDING TEAM NUMBER`);
     console.log(`positions:  Impact 1 to ${MAX_IMPACT_POSITION} then a pooled tail; Rookie All Star 1 to ${MAX_ROOKIE_ALL_STAR_POSITION} then a pooled tail`);
     console.log(`bar:        ${MIN_POSITION_OBSERVATIONS} observations per position, ${MIN_CELL_OBSERVATIONS} per residual cell`);
     console.log(`population: district-tier team-events at events carrying at least one event_awards_all row`);

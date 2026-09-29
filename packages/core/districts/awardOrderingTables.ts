@@ -1,6 +1,6 @@
 /**
  * IMPACT AND ROOKIE ALL STAR ORDERING TABLES — per season, the chance a team
- * wins Impact given its POSITION in its event's most-decorated ordering, and
+ * wins Impact given its POSITION in its event's Impact ordering, and
  * the chance a rookie wins Rookie All Star given its position among that
  * event's rookies. Plus the RESIDUAL award-point table those two probabilities
  * are layered on, so nothing is counted twice.
@@ -19,8 +19,8 @@
  * becomes the probability.
  *
  * `awardBaseRates.ts` prices a team's award cell from its decoration BUCKET,
- * which is the bucket's average. A team that is the single most decorated in
- * its field is priced here from what the corpus says about that position
+ * which is the bucket's average. A team at the head of its field's Impact
+ * ordering is priced here from what the corpus says about that position
  * instead.
  *
  * ---------------------------------------------------------------------------
@@ -32,7 +32,10 @@
  *     npx tsx scripts/measureAwardOrderingTables.ts
  *     pnpm measure:award-ordering-tables
  *
- * run on 2026-09-25. They are not hand-typed and not remembered. The
+ * run on 2026-09-25, and the Impact rows re-run on 2026-09-29 under the
+ * award-type-first ordering (quick task 260929-imp; the Rookie All Star and
+ * residual rows came out identical and did not move). They are not hand-typed
+ * and not remembered. The
  * corpus-guarded describe in `scripts/measureAwardOrderingTables.test.ts`
  * re-measures every registered season and asserts each `p` within 1e-9 and
  * each `n` exactly, so an ingest or a rule change turns that test red rather
@@ -89,22 +92,32 @@
  *      is then bit-identical to the pre-ordering one.
  *
  * ---------------------------------------------------------------------------
- * WHAT THIS ORDERING LEAVES ON THE TABLE, MEASURED
+ * THE IMPACT ORDERING IS AWARD-TYPE-FIRST, AND WHAT THAT BOUGHT, MEASURED
  * ---------------------------------------------------------------------------
  *
- * The ordering here uses ONE number per team: total prior judged awards.
- * `scripts/measureAwardPredictability.ts`'s own ordering sorts on prior wins
- * of THE SAME AWARD TYPE first and falls back to the total. The script
- * measures both and prints the stronger one as REFERENCE ONLY, NOT SHIPPED.
+ * Until quick task 260929-imp the Impact ordering used ONE number per team:
+ * total prior judged awards. It now ships the award-type-first ordering
+ * `scripts/measureAwardPredictability.ts` sorts on: prior IMPACT wins first,
+ * then total prior judged awards, then ascending team number. That is
+ * `orderFieldByImpactHistory`, and it needs a second per-team count,
+ * `priorImpactWins`, on every district award profile. Jacob made that payload
+ * trade on 2026-09-29.
  *
- * Season 2026, position 1: this module's ordering 17.99% (136 of 756), the
- * award-type-first ordering 26.06% (197 of 756). An 8.1 percentage point gap,
- * and it is real rather than noise on that n.
+ * Season 2026, position 1: the award-type-first ordering 26.06% (197 of 756),
+ * the one-number ordering it replaced 17.99% (136 of 756). An 8.1 percentage
+ * point gain, and it is real rather than noise on that n. The measurement
+ * script still scores the one-number ordering at positions 1 to 3 and prints
+ * it as the REFERENCE line, so the gap stays visible from the other side.
  *
- * It is not shipped because closing it needs a SECOND per-team count
- * (`priorImpactWins`) on every district artifact, and that is a payload and
- * scope decision rather than a modelling one. The gap is recorded here so it
- * cannot be rediscovered as a surprise.
+ * THE TABLES AND THE ORDERING TRAVEL TOGETHER. A field where any team lacks
+ * `priorImpactWins` (an artifact published before the field existed) cannot be
+ * put in this ordering, and pricing it under the one-number ordering against
+ * these tables would misprice position 1 by those eight points. The ledger
+ * takes the base-rate path for such a field instead, exactly as it does for a
+ * missing `priorJudgedAwards`.
+ *
+ * The Rookie All Star ordering is unchanged: `orderFieldByDecoration` among
+ * the event's rookies.
  *
  * NO AWARD PREDICTION EVER REACHES `locks.ts`. A Locked verdict stays a
  * guarantee. This module prices a blue cell; it never moves a status. Read the
@@ -249,8 +262,12 @@ export interface OrderingEntry {
 }
 
 /**
- * THE ORDERING, in one place so the measurement script, the published table
- * and the ledger draw cannot disagree about it: prior judged award count
+ * THE ROOKIE ALL STAR ORDERING (applied to the rookie block only), in one place
+ * so the measurement script, the published table and the ledger draw cannot
+ * disagree about it. The Impact ordering is `orderFieldByImpactHistory` below,
+ * which sorts on prior Impact wins first and falls back to this one's keys; the
+ * measurement script also scores this ordering over the whole field as the
+ * REFERENCE line the Impact ordering replaced. Prior judged award count
  * DESCENDING, ties broken by ASCENDING TEAM NUMBER, and the key itself as the
  * final total key so the sort is a total order and never depends on the input
  * array's incoming order.
@@ -274,6 +291,44 @@ export function orderFieldByDecoration(entries: readonly OrderingEntry[]): strin
     .map((entry) => entry.teamKey);
 }
 
+/** One attendee, as the IMPACT ordering sees it: the decoration count plus prior Impact wins alone. */
+export interface ImpactOrderingEntry extends OrderingEntry {
+  /**
+   * Impact wins in seasons STRICTLY BEFORE the event's own season, distinct on
+   * `(year, eventKey)`. The primary sort key of `orderFieldByImpactHistory`.
+   */
+  readonly priorImpactWins: number;
+}
+
+/**
+ * THE IMPACT ORDERING (quick task 260929-imp), in one place so the measurement
+ * script, the published table and the ledger draw cannot disagree about it:
+ * prior IMPACT wins DESCENDING, then prior judged award count DESCENDING, then
+ * ASCENDING TEAM NUMBER, and the key itself as the final total key so the sort
+ * is a total order and never depends on the input array's incoming order.
+ *
+ * This is `scripts/measureAwardPredictability.ts`'s own `compareDecoration`
+ * for award type 0. The Impact tables below were measured under it; the Rookie
+ * All Star tables were measured under `orderFieldByDecoration` among rookies,
+ * and that ordering is unchanged. Swapping the two comparators would misprice
+ * every position, so the Impact lookup and the Impact table only ever meet
+ * through this function.
+ *
+ * Returns the team keys in order; position `k` is index `k - 1`.
+ */
+export function orderFieldByImpactHistory(entries: readonly ImpactOrderingEntry[]): string[] {
+  return [...entries]
+    .sort((a, b) => {
+      if (a.priorImpactWins !== b.priorImpactWins) return b.priorImpactWins - a.priorImpactWins;
+      if (a.priorJudgedAwards !== b.priorJudgedAwards) return b.priorJudgedAwards - a.priorJudgedAwards;
+      const na = teamNumberFromKey(a.teamKey);
+      const nb = teamNumberFromKey(b.teamKey);
+      if (na !== nb) return na < nb ? -1 : 1;
+      return a.teamKey < b.teamKey ? -1 : a.teamKey > b.teamKey ? 1 : 0;
+    })
+    .map((entry) => entry.teamKey);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // THE MEASURED TABLES
 // Written from the printed output of the command named in this file's header.
@@ -282,18 +337,18 @@ export function orderFieldByDecoration(entries: readonly OrderingEntry[]): strin
 const AWARD_ORDERING_TABLES: Readonly<Record<number, SeasonAwardOrderingTables>> = {
   2019: {
     impact: [
-      { n: 230, p: 0.16956521739130434 },
-      { n: 230, p: 0.12173913043478261 },
-      { n: 230, p: 0.1 },
-      { n: 230, p: 0.08695652173913043 },
-      { n: 230, p: 0.08695652173913043 },
-      { n: 230, p: 0.06521739130434782 },
+      { n: 230, p: 0.23043478260869565 },
+      { n: 230, p: 0.13043478260869565 },
+      { n: 230, p: 0.11304347826086956 },
       { n: 230, p: 0.05652173913043478 },
-      { n: 230, p: 0.043478260869565216 },
-      { n: 230, p: 0.013043478260869565 },
+      { n: 230, p: 0.07391304347826087 },
       { n: 230, p: 0.04782608695652174 },
+      { n: 230, p: 0.05217391304347826 },
+      { n: 230, p: 0.034782608695652174 },
+      { n: 230, p: 0.02608695652173913 },
+      { n: 230, p: 0.034782608695652174 },
     ],
-    impactTail: { n: 5914, p: 0.00524179912073047 },
+    impactTail: { n: 5914, p: 0.004903618532296246 },
     rookieAllStar: [
       { n: 211, p: 0.2985781990521327 },
       { n: 178, p: 0.29775280898876405 },
@@ -315,18 +370,18 @@ const AWARD_ORDERING_TABLES: Readonly<Record<number, SeasonAwardOrderingTables>>
   },
   2020: {
     impact: [
-      { n: 330, p: 0.18484848484848485 },
-      { n: 330, p: 0.14242424242424243 },
-      { n: 330, p: 0.10606060606060606 },
-      { n: 330, p: 0.08787878787878788 },
-      { n: 330, p: 0.08484848484848485 },
-      { n: 330, p: 0.0696969696969697 },
+      { n: 330, p: 0.2606060606060606 },
+      { n: 330, p: 0.12121212121212122 },
+      { n: 330, p: 0.1303030303030303 },
+      { n: 330, p: 0.05757575757575758 },
+      { n: 330, p: 0.07575757575757576 },
       { n: 330, p: 0.048484848484848485 },
-      { n: 330, p: 0.03939393939393939 },
-      { n: 330, p: 0.015151515151515152 },
-      { n: 330, p: 0.03636363636363636 },
+      { n: 330, p: 0.048484848484848485 },
+      { n: 330, p: 0.03333333333333333 },
+      { n: 330, p: 0.024242424242424242 },
+      { n: 330, p: 0.02727272727272727 },
     ],
-    impactTail: { n: 8433, p: 0.004743270484999407 },
+    impactTail: { n: 8433, p: 0.004268943436499467 },
     rookieAllStar: [
       { n: 303, p: 0.33663366336633666 },
       { n: 249, p: 0.2891566265060241 },
@@ -348,18 +403,18 @@ const AWARD_ORDERING_TABLES: Readonly<Record<number, SeasonAwardOrderingTables>>
   },
   2022: {
     impact: [
-      { n: 365, p: 0.18904109589041096 },
-      { n: 365, p: 0.14246575342465753 },
-      { n: 365, p: 0.1095890410958904 },
-      { n: 365, p: 0.09315068493150686 },
-      { n: 365, p: 0.09315068493150686 },
+      { n: 365, p: 0.273972602739726 },
+      { n: 365, p: 0.12602739726027398 },
+      { n: 365, p: 0.1232876712328767 },
       { n: 365, p: 0.06575342465753424 },
+      { n: 365, p: 0.07397260273972603 },
+      { n: 365, p: 0.04657534246575343 },
       { n: 365, p: 0.052054794520547946 },
-      { n: 365, p: 0.03561643835616438 },
-      { n: 365, p: 0.0136986301369863 },
-      { n: 365, p: 0.03287671232876712 },
+      { n: 365, p: 0.030136986301369864 },
+      { n: 365, p: 0.021917808219178082 },
+      { n: 365, p: 0.024657534246575342 },
     ],
-    impactTail: { n: 9279, p: 0.0045263498221791145 },
+    impactTail: { n: 9279, p: 0.004095268886733484 },
     rookieAllStar: [
       { n: 332, p: 0.35843373493975905 },
       { n: 274, p: 0.291970802919708 },
@@ -381,18 +436,18 @@ const AWARD_ORDERING_TABLES: Readonly<Record<number, SeasonAwardOrderingTables>>
   },
   2023: {
     impact: [
-      { n: 461, p: 0.18004338394793926 },
-      { n: 461, p: 0.14316702819956617 },
-      { n: 461, p: 0.11496746203904555 },
-      { n: 461, p: 0.08676789587852494 },
-      { n: 461, p: 0.09327548806941431 },
-      { n: 461, p: 0.06073752711496746 },
-      { n: 461, p: 0.049891540130151846 },
-      { n: 461, p: 0.03253796095444685 },
-      { n: 461, p: 0.015184381778741865 },
-      { n: 461, p: 0.03036876355748373 },
+      { n: 461, p: 0.2646420824295011 },
+      { n: 461, p: 0.13665943600867678 },
+      { n: 461, p: 0.1193058568329718 },
+      { n: 461, p: 0.07158351409978309 },
+      { n: 461, p: 0.07158351409978309 },
+      { n: 461, p: 0.04121475054229935 },
+      { n: 461, p: 0.04772234273318872 },
+      { n: 461, p: 0.028199566160520606 },
+      { n: 461, p: 0.021691973969631236 },
+      { n: 461, p: 0.019522776572668113 },
     ],
-    impactTail: { n: 11165, p: 0.00483654276757725 },
+    impactTail: { n: 11165, p: 0.004209583519928347 },
     rookieAllStar: [
       { n: 384, p: 0.3567708333333333 },
       { n: 301, p: 0.27906976744186046 },
@@ -414,18 +469,18 @@ const AWARD_ORDERING_TABLES: Readonly<Record<number, SeasonAwardOrderingTables>>
   },
   2024: {
     impact: [
-      { n: 555, p: 0.17297297297297298 },
+      { n: 555, p: 0.25765765765765763 },
       { n: 555, p: 0.13873873873873874 },
-      { n: 555, p: 0.11891891891891893 },
-      { n: 555, p: 0.07747747747747748 },
-      { n: 555, p: 0.0972972972972973 },
-      { n: 555, p: 0.06486486486486487 },
-      { n: 555, p: 0.04864864864864865 },
-      { n: 555, p: 0.03783783783783784 },
-      { n: 555, p: 0.016216216216216217 },
-      { n: 555, p: 0.02882882882882883 },
+      { n: 555, p: 0.11711711711711711 },
+      { n: 555, p: 0.08288288288288288 },
+      { n: 555, p: 0.07207207207207207 },
+      { n: 555, p: 0.04684684684684685 },
+      { n: 555, p: 0.043243243243243246 },
+      { n: 555, p: 0.025225225225225224 },
+      { n: 555, p: 0.023423423423423424 },
+      { n: 555, p: 0.018018018018018018 },
     ],
-    impactTail: { n: 13371, p: 0.0053847879739735245 },
+    impactTail: { n: 13371, p: 0.004412534589783861 },
     rookieAllStar: [
       { n: 462, p: 0.37445887445887444 },
       { n: 357, p: 0.2913165266106443 },
@@ -447,18 +502,18 @@ const AWARD_ORDERING_TABLES: Readonly<Record<number, SeasonAwardOrderingTables>>
   },
   2025: {
     impact: [
-      { n: 653, p: 0.17457886676875958 },
-      { n: 653, p: 0.13169984686064318 },
-      { n: 653, p: 0.11638591117917305 },
-      { n: 653, p: 0.0781010719754977 },
-      { n: 653, p: 0.09494640122511486 },
-      { n: 653, p: 0.06738131699846861 },
-      { n: 653, p: 0.05053598774885146 },
+      { n: 653, p: 0.25880551301684535 },
+      { n: 653, p: 0.13476263399693722 },
+      { n: 653, p: 0.11332312404287902 },
+      { n: 653, p: 0.08116385911179173 },
+      { n: 653, p: 0.07503828483920368 },
+      { n: 653, p: 0.05359877488514548 },
       { n: 653, p: 0.04134762633996937 },
-      { n: 653, p: 0.027565084226646247 },
-      { n: 653, p: 0.026033690658499236 },
+      { n: 653, p: 0.02450229709035222 },
+      { n: 653, p: 0.02909647779479326 },
+      { n: 653, p: 0.018376722817764167 },
     ],
-    impactTail: { n: 15712, p: 0.005409877800407332 },
+    impactTail: { n: 15712, p: 0.0045188391038696535 },
     rookieAllStar: [
       { n: 548, p: 0.3740875912408759 },
       { n: 419, p: 0.2935560859188544 },
@@ -480,18 +535,18 @@ const AWARD_ORDERING_TABLES: Readonly<Record<number, SeasonAwardOrderingTables>>
   },
   2026: {
     impact: [
-      { n: 756, p: 0.17989417989417988 },
-      { n: 756, p: 0.13095238095238096 },
-      { n: 756, p: 0.11772486772486772 },
-      { n: 756, p: 0.08068783068783068 },
-      { n: 756, p: 0.08994708994708994 },
-      { n: 756, p: 0.06481481481481481 },
-      { n: 756, p: 0.05026455026455026 },
+      { n: 756, p: 0.2605820105820106 },
+      { n: 756, p: 0.14417989417989419 },
+      { n: 756, p: 0.10978835978835978 },
+      { n: 756, p: 0.08333333333333333 },
+      { n: 756, p: 0.07407407407407407 },
+      { n: 756, p: 0.051587301587301584 },
       { n: 756, p: 0.03968253968253968 },
-      { n: 756, p: 0.031746031746031744 },
-      { n: 756, p: 0.023809523809523808 },
+      { n: 756, p: 0.026455026455026454 },
+      { n: 756, p: 0.0291005291005291 },
+      { n: 756, p: 0.017195767195767195 },
     ],
-    impactTail: { n: 18146, p: 0.005565964950953378 },
+    impactTail: { n: 18146, p: 0.0044637936735368675 },
     rookieAllStar: [
       { n: 645, p: 0.3813953488372093 },
       { n: 486, p: 0.28600823045267487 },
@@ -541,8 +596,9 @@ function positionRate(
 }
 
 /**
- * The chance the team at `position` in its event's most-decorated ordering
- * wins Impact. Position is 1-based. Beyond the table, or below the observation
+ * The chance the team at `position` in its event's Impact ordering
+ * (`orderFieldByImpactHistory`: prior Impact wins, then prior judged awards,
+ * then team number) wins Impact. Position is 1-based. Beyond the table, or below the observation
  * bar, the pooled tail — and `source` says which.
  */
 export function impactOrderingProbability(season: number, position: number): AwardOrderingResult {

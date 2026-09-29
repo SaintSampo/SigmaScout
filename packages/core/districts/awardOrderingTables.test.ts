@@ -35,6 +35,7 @@ import {
   MIN_ORDERED_FIELD_SIZE,
   meanSupportPoints,
   orderFieldByDecoration,
+  orderFieldByImpactHistory,
   ROOKIE_ALL_STAR_AWARD_POINTS,
   ROOKIE_ALL_STAR_AWARD_TYPE,
   rookieAllStarOrderingProbability,
@@ -91,6 +92,48 @@ describe("the ordering rule", () => {
         { teamKey: "frc9999", priorJudgedAwards: 0 },
       ])
     ).toEqual(["frc9999", "sigmascout-demo"]);
+  });
+});
+
+describe("the Impact ordering rule (260929-imp)", () => {
+  it("sorts by prior Impact wins FIRST, ahead of a larger judged award count", () => {
+    expect(
+      orderFieldByImpactHistory([
+        { teamKey: "frc1", priorJudgedAwards: 20, priorImpactWins: 0 },
+        { teamKey: "frc2", priorJudgedAwards: 2, priorImpactWins: 1 },
+        { teamKey: "frc3", priorJudgedAwards: 5, priorImpactWins: 3 },
+      ])
+    ).toEqual(["frc3", "frc2", "frc1"]);
+  });
+
+  it("falls back to prior judged awards, then ASCENDING TEAM NUMBER, on an Impact tie", () => {
+    expect(
+      orderFieldByImpactHistory([
+        { teamKey: "frc1000", priorJudgedAwards: 4, priorImpactWins: 2 },
+        { teamKey: "frc99", priorJudgedAwards: 4, priorImpactWins: 2 },
+        { teamKey: "frc5", priorJudgedAwards: 9, priorImpactWins: 2 },
+      ])
+    ).toEqual(["frc5", "frc99", "frc1000"]);
+  });
+
+  it("reduces to the decoration ordering when nobody in the field has won Impact", () => {
+    const entries = [
+      { teamKey: "frc7", priorJudgedAwards: 1, priorImpactWins: 0 },
+      { teamKey: "frc3", priorJudgedAwards: 6, priorImpactWins: 0 },
+      { teamKey: "frc4", priorJudgedAwards: 1, priorImpactWins: 0 },
+    ];
+    expect(orderFieldByImpactHistory(entries)).toEqual(orderFieldByDecoration(entries));
+  });
+
+  it("is a TOTAL order that never depends on the incoming array order and never mutates it", () => {
+    const entries = [
+      { teamKey: "frc5", priorJudgedAwards: 1, priorImpactWins: 1 },
+      { teamKey: "frc6", priorJudgedAwards: 1, priorImpactWins: 1 },
+      { teamKey: "sigmascout-demo", priorJudgedAwards: 1, priorImpactWins: 1 },
+    ];
+    expect(orderFieldByImpactHistory(entries)).toEqual(orderFieldByImpactHistory([...entries].reverse()));
+    expect(orderFieldByImpactHistory(entries)).toEqual(["frc5", "frc6", "sigmascout-demo"]);
+    expect(entries.map((e) => e.teamKey)).toEqual(["frc5", "frc6", "sigmascout-demo"]);
   });
 });
 

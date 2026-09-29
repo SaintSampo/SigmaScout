@@ -1342,10 +1342,11 @@ describe("simulateDistrictEvent — a known-stage value is a histogram index, so
 // ---------------------------------------------------------------------------
 
 /**
- * Profiles that CARRY the ordering key, with team 1 the most decorated and the
- * decoration falling by team number. Team `n` holds `teamCount - n` prior judged
- * awards, so the field's most-decorated ordering is exactly team 1 through team
- * `teamCount` and every position is hand-derivable.
+ * Profiles that CARRY both ordering keys, with team 1 the most decorated and
+ * the decoration falling by team number. Team `n` holds `teamCount - n` prior
+ * judged awards and NO prior Impact win, so the Impact ordering falls through
+ * to decoration and is exactly team 1 through team `teamCount`, and every
+ * position is hand-derivable.
  */
 function profilesWithCounts(teamCount: number, rookieState: "rookie" | "veteran" = "veteran"): Map<string, DistrictAwardProfile> {
   const out = new Map<string, DistrictAwardProfile>();
@@ -1355,6 +1356,7 @@ function profilesWithCounts(teamCount: number, rookieState: "rookie" | "veteran"
       bucket: priorJudgedAwards === 0 ? "none" : priorJudgedAwards <= 2 ? "one-or-two" : "three-or-more",
       rookieState,
       priorJudgedAwards,
+      priorImpactWins: 0,
     });
   }
   return out;
@@ -1374,6 +1376,20 @@ describe("the award ordering layer — the assignment", () => {
     expect(assignments[0]!.impactProbability).toBeGreaterThan(assignments[1]!.impactProbability);
   });
 
+  it("puts a prior IMPACT winner ahead of every more decorated team, then orders the rest by decoration (260929-imp)", () => {
+    const profiles = profilesWithCounts(30);
+    // Team 20 holds 10 prior judged awards against team 1's 29, but it has won
+    // Impact before and nobody else has. The committed tables were measured
+    // under this ordering, so team 20 is position 1 and team 1 drops to 2.
+    profiles.set(teamKey(20), { ...profiles.get(teamKey(20))!, priorImpactWins: 1 });
+    const assignments = awardOrderingAssignments(SEASON, baselinesFor(30), profiles)!;
+    const byTeam = new Map(assignments.map((a) => [a.teamKey, a] as const));
+    expect(byTeam.get(teamKey(20))!.impactPosition).toBe(1);
+    expect(byTeam.get(teamKey(20))!.impactProbability).toBe(impactOrderingProbability(SEASON, 1).p);
+    expect(byTeam.get(teamKey(1))!.impactPosition).toBe(2);
+    expect(byTeam.get(teamKey(2))!.impactPosition).toBe(3);
+  });
+
   it("takes a team past the last named position to the TAIL, and every such team to the same tail", () => {
     const assignments = awardOrderingAssignments(SEASON, baselinesFor(30), profilesWithCounts(30))!;
     const tail = impactOrderingProbability(SEASON, MAX_IMPACT_POSITION + 1);
@@ -1388,8 +1404,8 @@ describe("the award ordering layer — the assignment", () => {
     const profiles = profilesWithCounts(30);
     // Teams 20 and 25 are the field's only rookies. Both hold zero prior judged
     // awards, so the rookie ordering is ascending team number: 20 then 25.
-    profiles.set(teamKey(20), { bucket: "none", rookieState: "rookie", priorJudgedAwards: 0 });
-    profiles.set(teamKey(25), { bucket: "none", rookieState: "rookie", priorJudgedAwards: 0 });
+    profiles.set(teamKey(20), { bucket: "none", rookieState: "rookie", priorJudgedAwards: 0, priorImpactWins: 0 });
+    profiles.set(teamKey(25), { bucket: "none", rookieState: "rookie", priorJudgedAwards: 0, priorImpactWins: 0 });
     const assignments = awardOrderingAssignments(SEASON, baselinesFor(30), profiles)!;
     const first = assignments.find((a) => a.teamKey === teamKey(20))!;
     const second = assignments.find((a) => a.teamKey === teamKey(25))!;
@@ -1424,6 +1440,13 @@ describe("the award ordering layer — the assignment", () => {
     const partial = profilesWithCounts(30);
     partial.set(teamKey(7), { bucket: "none", rookieState: "veteran" });
     expect(awardOrderingAssignments(SEASON, baselinesFor(30), partial)).toBeUndefined();
+    // The Impact count on its own is required too: a field published with
+    // `priorJudgedAwards` but before `priorImpactWins` existed cannot be put in
+    // the ordering the committed Impact tables were measured under.
+    const noImpactCount = profilesWithCounts(30);
+    const { priorImpactWins: _dropped, ...withoutImpact } = noImpactCount.get(teamKey(7))!;
+    noImpactCount.set(teamKey(7), withoutImpact);
+    expect(awardOrderingAssignments(SEASON, baselinesFor(30), noImpactCount)).toBeUndefined();
     // A team treated as undecorated because its count was missing would sort to
     // the BOTTOM of the field and be priced at the tail — a confident wrong
     // number, which is why one absence takes the whole event back.
@@ -1497,6 +1520,20 @@ describe("the award ordering layer — the draw", () => {
       ]);
     }
     expect(partial.awardOrdering).toBe("incomplete-profiles");
+
+    // And exactly one team missing ONLY its Impact count (260929-imp): the
+    // same base-rate price, never the one-number ordering against tables
+    // measured under the award-type-first one.
+    const oneImpactMissing = profilesWithCounts(30);
+    const { priorImpactWins: _dropped, ...withoutImpact } = oneImpactMissing.get(teamKey(13))!;
+    oneImpactMissing.set(teamKey(13), withoutImpact);
+    const impactPartial = simulateDistrictEvent(inputFor(30, { awardProfiles: oneImpactMissing }), draws, 11);
+    for (const baseline of baselinesFor(30)) {
+      expect([...impactPartial.awardPoints.get(baseline.teamKey)!], baseline.teamKey).toEqual([
+        ...allMissing.awardPoints.get(baseline.teamKey)!,
+      ]);
+    }
+    expect(impactPartial.awardOrdering).toBe("incomplete-profiles");
   });
 
   it("changes the award marginal when it applies — a layer that changed nothing would pass every other test here", () => {
@@ -1932,7 +1969,7 @@ describe("simulateDistrictEvent — award only teams", () => {
 
   it("draws an award only team's award and nothing else, with its event total equal to its award bin for bin", () => {
     const awardProfiles = profilesWithCounts(30);
-    awardProfiles.set(AWARD_ONLY, { bucket: "none", rookieState: "veteran", priorJudgedAwards: 0 });
+    awardProfiles.set(AWARD_ONLY, { bucket: "none", rookieState: "veteran", priorJudgedAwards: 0, priorImpactWins: 0 });
     const draws = 500;
     const result = simulateDistrictEvent(inputFor(30, { awardProfiles, awardOnlyTeams: [AWARD_ONLY] }), draws, 23);
 
@@ -1968,7 +2005,7 @@ describe("simulateDistrictEvent — award only teams", () => {
 
   it("puts the most decorated award only team at ordering position 1 and prices its Impact from that position", () => {
     const awardProfiles = profilesWithCounts(30);
-    awardProfiles.set(AWARD_ONLY, { bucket: "three-or-more", rookieState: "veteran", priorJudgedAwards: 1000 });
+    awardProfiles.set(AWARD_ONLY, { bucket: "three-or-more", rookieState: "veteran", priorJudgedAwards: 1000, priorImpactWins: 3 });
     const draws = 4000;
     const result = simulateDistrictEvent(inputFor(30, { awardProfiles, awardOnlyTeams: [AWARD_ONLY] }), draws, 29);
     expect(result.awardOrdering).toBe("applied");

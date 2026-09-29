@@ -15,7 +15,8 @@
  *   - award point rates       -> `awardBaseRate` (`./awardBaseRates.js`)
  *   - the award orderings     -> `impactOrderingProbability` /
  *                                `rookieAllStarOrderingProbability` /
- *                                `awardResidualRate` / `orderFieldByDecoration`
+ *                                `awardResidualRate` / `orderFieldByImpactHistory`
+ *                                / `orderFieldByDecoration`
  *                                (`./awardOrderingTables.js`)
  *   - the alliance win odds   -> `allianceWinProbability`
  *                                (`../algorithms/simulation/allianceWinProbability.js`)
@@ -192,6 +193,7 @@ import {
   IMPACT_AWARD_POINTS,
   impactOrderingProbability,
   orderFieldByDecoration,
+  orderFieldByImpactHistory,
   ROOKIE_ALL_STAR_AWARD_POINTS,
   rookieAllStarOrderingProbability,
 } from "./awardOrderingTables.js";
@@ -247,19 +249,26 @@ export const LEDGER_STREAM_SALT = 0x5d15_7c17;
 
 /**
  * One team's award-profile selector: the two keys `awardBaseRate` looks a rate
- * up by, plus the raw count `awardOrderingTables` orders a whole field on.
+ * up by, plus the two raw counts `awardOrderingTables` orders a whole field on.
  *
- * `priorJudgedAwards` is OPTIONAL and its absence is meaningful rather than a
- * zero: every artifact published before the field existed carries none, and a
- * team treated as undecorated because its count was missing would be sorted to
- * the BOTTOM of its field and priced at the tail. The rule is therefore
- * all-or-nothing per event — see `awardOrderingApplied`.
+ * `priorJudgedAwards` and `priorImpactWins` are OPTIONAL and their absence is
+ * meaningful rather than a zero: every artifact published before a field
+ * existed carries none, and a team treated as undecorated because its count
+ * was missing would be sorted to the BOTTOM of its field and priced at the
+ * tail. The rule is therefore all-or-nothing per event, for EACH count — see
+ * `awardOrderingAssignments`. A field that carries `priorJudgedAwards` but not
+ * `priorImpactWins` (an artifact published between 10-06 and 260929-imp)
+ * cannot be put in the Impact ordering the committed tables were measured
+ * under, and pricing it under the older one-number ordering against those
+ * tables would misprice position 1.
  */
 export interface DistrictAwardProfile {
   readonly bucket: DecorationBucket;
   readonly rookieState: RookieState;
   /** Judged awards won in seasons strictly before this event's own. Absent means this field cannot be ordered. */
   readonly priorJudgedAwards?: number;
+  /** Impact wins in seasons strictly before this event's own, distinct on `(year, event)`. Absent means this field cannot be ordered. */
+  readonly priorImpactWins?: number;
 }
 
 /**
@@ -274,10 +283,19 @@ export interface DistrictAwardProfile {
  * run price an unprofiled team the same way. Before it, one such team refused
  * its WHOLE EVENT in both places.
  *
- * A PUBLISHED profile that only lacks `priorJudgedAwards` is NOT this case and
- * still passes through unchanged; see `DistrictAwardProfile` above.
+ * It carries BOTH ordering counts at zero (`priorImpactWins` since 260929-imp),
+ * so a zero-profile team never takes its whole field off the ordering path.
+ *
+ * A PUBLISHED profile that only lacks `priorJudgedAwards` or `priorImpactWins`
+ * is NOT this case and still passes through unchanged; see
+ * `DistrictAwardProfile` above.
  */
-export const ZERO_AWARD_PROFILE: DistrictAwardProfile = Object.freeze({ bucket: "none", rookieState: "veteran", priorJudgedAwards: 0 });
+export const ZERO_AWARD_PROFILE: DistrictAwardProfile = Object.freeze({
+  bucket: "none",
+  rookieState: "veteran",
+  priorJudgedAwards: 0,
+  priorImpactWins: 0,
+});
 
 /**
  * Which award pricing one run used.
@@ -286,14 +304,15 @@ export const ZERO_AWARD_PROFILE: DistrictAwardProfile = Object.freeze({ bucket: 
  *                               drawn and no table was consulted at all.
  *   `"applied"`               — the ordering tables priced every team: Impact
  *                               from its position in the field's
- *                               most-decorated ordering, Rookie All Star from
+ *                               Impact ordering, Rookie All Star from
  *                               its position among the rookies, and the rest
  *                               from the residual table.
  *   `"no-table"`              — the season has no ordering table, so the run
  *                               kept the `awardBaseRate` path unchanged.
  *   `"incomplete-profiles"`   — at least one roster team carries no
- *                               `priorJudgedAwards`, so the field cannot be
- *                               ordered and the run kept the base-rate path.
+ *                               `priorJudgedAwards` or no `priorImpactWins`,
+ *                               so the field cannot be ordered and the run
+ *                               kept the base-rate path.
  *
  * THE LAST ONE IS ALL-OR-NOTHING BY DESIGN. A team with no count treated as
  * zero would sort to the BOTTOM of its field and be priced at the tail, which
@@ -312,7 +331,7 @@ export type AwardOrderingDisposition = "posted" | "applied" | "no-table" | "inco
  */
 export interface AwardOrderingAssignment {
   readonly teamKey: string;
-  /** 1-based position in the whole field's most-decorated ordering. */
+  /** 1-based position in the whole field's Impact ordering (`orderFieldByImpactHistory`). */
   readonly impactPosition: number;
   /** 1-based position among the field's ROOKIES, or 0 for a team that is not one. */
   readonly rookieAllStarPosition: number;
@@ -331,12 +350,14 @@ export interface AwardOrderingAssignment {
  *
  * `undefined` has exactly two causes and they are both stated in
  * `AwardOrderingDisposition`: no table for the season, or any roster team
- * missing `priorJudgedAwards`. The caller keeps the base-rate path in both
- * cases, and the result reports which one it was.
+ * missing `priorJudgedAwards` or `priorImpactWins`. The caller keeps the
+ * base-rate path in both cases, and the result reports which one it was.
  *
- * The orderings themselves come from `orderFieldByDecoration`, imported rather
- * than restated, so the field the ledger prices is ordered by the same rule the
- * tables were measured under. A second comparator here would be a second rule.
+ * The orderings themselves come from `orderFieldByImpactHistory` (Impact, the
+ * whole field) and `orderFieldByDecoration` (Rookie All Star, the rookie
+ * block), imported rather than restated, so the field the ledger prices is
+ * ordered by the same rules the tables were measured under. A second
+ * comparator here would be a second rule.
  */
 export function awardOrderingAssignments(
   season: number,
@@ -347,15 +368,22 @@ export function awardOrderingAssignments(
 ): readonly AwardOrderingAssignment[] | undefined {
   if (!hasAwardOrderingTables(season)) return undefined;
 
-  const entries: { teamKey: string; priorJudgedAwards: number }[] = [];
+  const entries: { teamKey: string; priorJudgedAwards: number; priorImpactWins: number }[] = [];
   for (const baseline of baselines) {
     const profile = awardProfiles.get(baseline.teamKey);
-    if (profile?.priorJudgedAwards === undefined) return undefined;
-    entries.push({ teamKey: baseline.teamKey, priorJudgedAwards: profile.priorJudgedAwards });
+    // BOTH counts or neither: the committed Impact tables were measured under
+    // the award-type-first ordering, and ordering a field without its Impact
+    // counts would pair those tables with a different ordering.
+    if (profile?.priorJudgedAwards === undefined || profile.priorImpactWins === undefined) return undefined;
+    entries.push({
+      teamKey: baseline.teamKey,
+      priorJudgedAwards: profile.priorJudgedAwards,
+      priorImpactWins: profile.priorImpactWins,
+    });
   }
 
   const positionByTeam = new Map<string, number>();
-  orderFieldByDecoration(entries).forEach((teamKey, index) => positionByTeam.set(teamKey, index + 1));
+  orderFieldByImpactHistory(entries).forEach((teamKey, index) => positionByTeam.set(teamKey, index + 1));
 
   // The rookie block is ranked on its OWN length. No tail of veterans is
   // invented below it, matching how the table was measured.
