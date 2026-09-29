@@ -699,7 +699,7 @@ Plans:
 
 **Requirements**: sketch 021 (`.planning/sketches/021-district-points-ledger/README.md`, the feasibility and placement sections) and `10-CONTEXT.md` (Jacob's locked decisions, 2026-09-25).
 **Depends on:** Phase 9
-**Plans:** 9/9 plans executed
+**Plans:** 9/9 plans complete
 
 **Success criteria:**
 
