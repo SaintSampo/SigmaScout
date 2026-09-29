@@ -4371,7 +4371,7 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     expect(artifact.roster).toEqual(roster);
   });
 
-  it.each([opr.id, epa.id])(
+  it.each([opr.id])(
     "the sidecar gate is by algorithm id, not by probe: the same RP-modeling fake registered under %s gets NO sidecar",
     async (algorithmId) => {
       seedTwoEventSeason(db);
@@ -4389,6 +4389,21 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
       expect(keys.some((key) => key.startsWith("v1/presim/"))).toBe(false);
     }
   );
+
+  it("the same RP-modeling fake registered under epa DOES get a sidecar, priced from its own predict with no SPR filler (quick task 260929-mat)", async () => {
+    seedTwoEventSeason(db);
+
+    await publishSeasons(db, {
+      seasons: [2026],
+      algorithms: [{ ...fakeRpAlgorithm, id: epa.id }],
+      bucket: "test-bucket",
+      dryRun: false,
+      skipState: true,
+    });
+
+    const keys = vi.mocked(putObject).mock.calls.map(([, key]) => key as string);
+    expect(keys.some((key) => key.startsWith(`v1/presim/2026lat/${epa.id}@`))).toBe(true);
+  });
 });
 
 describe("buildCompareArtifact", () => {
@@ -4496,7 +4511,7 @@ describe("buildCompareArtifact — rpCalibration attachment", () => {
     expect(MEASUREMENT.records[0]?.calibration.bonuses[0]?.meanPredicted).toBe(0.123456789);
   });
 
-  it("a measurement record for opr or epa attaches nothing; one for spr attaches as before", () => {
+  it("a measurement record for opr attaches nothing; one for spr attaches as before, and one for epa attaches since EPA publishes ranking points (quick task 260929-mat)", () => {
     const record = MEASUREMENT.records[0]!;
     const measurement: RpCalibrationMeasurement = {
       ...MEASUREMENT,
@@ -4508,7 +4523,7 @@ describe("buildCompareArtifact — rpCalibration attachment", () => {
     );
     expect(slices.find((s) => s.algorithmId === "spr")?.rpCalibration).toBeDefined();
     expect(slices.find((s) => s.algorithmId === "opr")?.rpCalibration).toBeUndefined();
-    expect(slices.find((s) => s.algorithmId === "epa")?.rpCalibration).toBeUndefined();
+    expect(slices.find((s) => s.algorithmId === "epa")?.rpCalibration).toBeDefined();
   });
 
   it("rpCalibration undefined (no committed baseline yet) is a no-op over every slice", () => {
@@ -5264,7 +5279,7 @@ describe("publishSeasons — event standings carry the season-final Sigma entry"
 
 });
 
-describe("publishSeasons — the pre-schedule sidecar is SPR-only", () => {
+describe("publishSeasons — the pre-schedule sidecar is built for SPR and EPA, never OPR", () => {
   let dir: string;
   let db: Corpus;
 
@@ -5279,7 +5294,7 @@ describe("publishSeasons — the pre-schedule sidecar is SPR-only", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("OPR and EPA build no pre-schedule sidecar on the fixture where SPR builds one", async () => {
+  it("OPR builds no pre-schedule sidecar on the fixture where SPR and EPA each build one; EPA's is keyed by its own version", async () => {
     const { lateEventKey } = seedTwoEventSeason(db);
     await publishSeasons(db, { seasons: [2026], algorithms: [opr, epa, spr], bucket: "test-bucket", dryRun: false, skipState: true });
     const presimKeys = vi
@@ -5288,7 +5303,8 @@ describe("publishSeasons — the pre-schedule sidecar is SPR-only", () => {
       .filter((key) => key.startsWith(`v1/presim/${lateEventKey}/`));
     expect(presimKeys.some((key) => key.startsWith(`v1/presim/${lateEventKey}/${spr.id}@`)), "non-vacuous: SPR's sidecar is built").toBe(true);
     expect(presimKeys.some((key) => key.startsWith(`v1/presim/${lateEventKey}/${opr.id}@`))).toBe(false);
-    expect(presimKeys.some((key) => key.startsWith(`v1/presim/${lateEventKey}/${epa.id}@`))).toBe(false);
+    expect(epa.version).toBe("14.0.0+baseline");
+    expect(presimKeys.some((key) => key.startsWith(`v1/presim/${lateEventKey}/${epa.id}@${epa.version}`)), "EPA's own sidecar is built").toBe(true);
   });
 
 });
@@ -5356,6 +5372,10 @@ describe("RP_CALIBRATION_MEASUREMENT_PATH — the measurement the publisher atta
     // alias here could pass over a file with no `spr` record and ship a Compare
     // page with no RP card.
     const rpAlgorithmIds = PUBLISHED_ALGORITHM_IDS.filter(publishesRankingPoints);
+
+    it("the ranking-point algorithms are exactly epa and spr, in PUBLISHED_ALGORITHM_IDS order (literal ids, quick task 260929-mat)", () => {
+      expect(rpAlgorithmIds).toEqual(["epa", "spr"]);
+    });
 
     it("has a record for every registered RP season and every algorithm that publishes ranking points, by literal id — set equality", () => {
       const expected = new Set(Object.keys(RP_RULE_MODULES).flatMap((season) => rpAlgorithmIds.map((a) => `${season}:${a}`)));

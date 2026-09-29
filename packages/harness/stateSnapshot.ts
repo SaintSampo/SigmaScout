@@ -19,7 +19,6 @@
  */
 import { z } from "zod";
 import type { EpaState } from "../core/algorithms/epa.js";
-import { emptyEpaRpLeague } from "../core/algorithms/epaRankingPoints.js";
 import type { SprPhaseRecord, SprState, SprTeamState } from "../core/algorithms/spr.js";
 import { COMPONENT_GROUP_IDS, type ComponentGroupId } from "../core/algorithms/breakdown/index.js";
 import { DEMO_PSEUDO_TEAM_KEY, isDemoTeamKey } from "../core/algorithms/demoTeams.js";
@@ -120,10 +119,18 @@ export class UnknownStateAlgorithmError extends Error {
  * price cold and thin teams differently from the artifacts it serves, with no
  * error. Like every bump, it needs a reseed from a fresh publish.
  *
+ * 17 -> 18 (EPA 14.0.0, quick task 260929-mat): epa team rows gain
+ * `rpSlotOffsets` (each team's season-scoped bonus RP slot offsets, omitted
+ * when empty) and the epa league row gains `rpLeague` (the walk-forward bonus
+ * rate state and the frozen week 1 rates). A shape-17 row lacks both; a Worker
+ * reading one would resume every EPA slot at its cold value and fold live RP
+ * odds that diverge from the artifacts it serves, with no error. Like every
+ * bump, it needs a reseed from a fresh publish.
+ *
  * Removing a field needs no bump: deserializers read named fields and ignore
  * extras.
  */
-export const STATE_SNAPSHOT_SHAPE_VERSION = 17;
+export const STATE_SNAPSHOT_SHAPE_VERSION = 18;
 
 /** Thrown when the league row's `snapshotShapeVersion` is absent or not `STATE_SNAPSHOT_SHAPE_VERSION`, instead of misreading its fields. */
 export class LeagueRowShapeVersionError extends Error {
@@ -214,6 +221,17 @@ interface SerializedEpaLeague {
   weekOne: SerializedEpaWeekOne;
   fallbackSkipped: number;
   breakdownParseFailureCount: number;
+  /** EPA's bonus RP league rate state (`EpaRpLeagueState`), field for field; `frozenRates` is `null` until the week 1 seal freezes it. Shape 18. */
+  rpLeague: SerializedEpaRpLeague;
+}
+
+/** The wire form of `EpaRpLeagueState`; plain JSON already. Flat in team count: one entry per bonus name. */
+interface SerializedEpaRpLeague {
+  alliances: number;
+  sums: Record<string, number>;
+  weekOneAlliances: number;
+  weekOneSums: Record<string, number>;
+  frozenRates: Record<string, number> | null;
 }
 
 /** The wire form of `EpaWeekOneState`; already plain JSON, so no NaN handling. */
@@ -235,6 +253,8 @@ interface SerializedEpaTeamRow {
   priorSeasonYearBefore?: number;
   /** Carried across the latest season boundary but not yet rescaled to the new season's points. Omitted when false, so ordinary rows stay byte-identical. */
   carryPending?: true;
+  /** This season's bonus RP slot offsets, keyed by bonus name (shape 18). Omitted when the team has none. */
+  rpSlotOffsets?: Record<string, number>;
 }
 
 function serializeEpaState(algorithmId: string, algorithmVersion: string, state: EpaState, stamp: StateStamp): StateRow[] {
@@ -258,6 +278,13 @@ function serializeEpaState(algorithmId: string, algorithmVersion: string, state:
     },
     fallbackSkipped: state.fallbackSkipped,
     breakdownParseFailureCount: state.breakdownParseFailureCount,
+    rpLeague: {
+      alliances: state.rpLeague.alliances,
+      sums: { ...state.rpLeague.sums },
+      weekOneAlliances: state.rpLeague.weekOneAlliances,
+      weekOneSums: { ...state.rpLeague.weekOneSums },
+      frozenRates: state.rpLeague.frozenRates === null ? null : { ...state.rpLeague.frozenRates },
+    },
   };
 
   const rows: StateRow[] = [makeRow(algorithmId, algorithmVersion, "league", "league", leagueJson, stamp)];
@@ -271,6 +298,8 @@ function serializeEpaState(algorithmId: string, algorithmVersion: string, state:
     // Redundant today (pending teams come from `teamComponents`), but keeps the
     // flag if that ever stops being true.
     ...state.carryPending,
+    // Redundant too (a team with slot offsets has played), kept for the same reason.
+    ...state.rpSlotOffsets.keys(),
   ]);
   for (const teamKey of [...teamKeys].sort()) {
     const components = state.teamComponents.get(teamKey);
@@ -278,11 +307,13 @@ function serializeEpaState(algorithmId: string, algorithmVersion: string, state:
     const hasCurrent = components !== undefined || matchCount !== undefined;
     const priorSeasonLastSeason = state.priorSeasonRatings.lastSeason.get(teamKey);
     const priorSeasonYearBefore = state.priorSeasonRatings.yearBefore.get(teamKey);
+    const rpSlotOffsets = state.rpSlotOffsets.get(teamKey);
     const teamJson: SerializedEpaTeamRow = {
       ...(hasCurrent ? { current: { components: components ?? {}, matchCount: matchCount ?? 0 } } : {}),
       ...(priorSeasonLastSeason !== undefined ? { priorSeasonLastSeason } : {}),
       ...(priorSeasonYearBefore !== undefined ? { priorSeasonYearBefore } : {}),
       ...(state.carryPending.has(teamKey) ? { carryPending: true as const } : {}),
+      ...(rpSlotOffsets !== undefined && Object.keys(rpSlotOffsets).length > 0 ? { rpSlotOffsets: { ...rpSlotOffsets } } : {}),
     };
     rows.push(makeRow(algorithmId, algorithmVersion, "team", teamKey, teamJson, stamp));
   }
@@ -302,11 +333,13 @@ function deserializeEpaState(algorithmId: string, rows: readonly StateRow[]): Ep
   const lastSeason = new Map<string, number>();
   const yearBefore = new Map<string, number>();
   const carryPending = new Set<string>();
+  const rpSlotOffsets = new Map<string, Readonly<Record<string, number>>>();
   for (const row of rows) {
     if (row.scopeKind !== "team") continue;
     const teamJson = JSON.parse(row.stateJson) as SerializedEpaTeamRow;
     if (isPassengerOnlyTeamJson(teamJson as unknown as Record<string, unknown>)) continue;
     if (teamJson.carryPending === true) carryPending.add(row.scopeKey);
+    if (teamJson.rpSlotOffsets !== undefined) rpSlotOffsets.set(row.scopeKey, teamJson.rpSlotOffsets);
     if (teamJson.current !== undefined) {
       teamComponents.set(row.scopeKey, teamJson.current.components);
       teamMatchCounts.set(row.scopeKey, teamJson.current.matchCount);
@@ -341,8 +374,16 @@ function deserializeEpaState(algorithmId: string, rows: readonly StateRow[]): Ep
     },
     fallbackSkipped: leagueJson.fallbackSkipped,
     priorSeasonRatings: { lastSeason, yearBefore },
-    rpSlotOffsets: new Map(),
-    rpLeague: emptyEpaRpLeague(),
+    rpSlotOffsets,
+    // No `??` default: the shape gate guarantees presence, and a default would
+    // silently restart every live EPA bonus rate at the uninformed 0.5.
+    rpLeague: {
+      alliances: leagueJson.rpLeague.alliances,
+      sums: leagueJson.rpLeague.sums,
+      weekOneAlliances: leagueJson.rpLeague.weekOneAlliances,
+      weekOneSums: leagueJson.rpLeague.weekOneSums,
+      frozenRates: leagueJson.rpLeague.frozenRates,
+    },
     breakdownParseFailureCount: leagueJson.breakdownParseFailureCount,
   };
 }

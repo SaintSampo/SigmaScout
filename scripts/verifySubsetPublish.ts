@@ -95,8 +95,11 @@ export interface SubsetEntry {
    * `"partial"`: at least one played `qm` row carries BOTH fields, and NO
    * row anywhere carries exactly one of them — the honest current claim on
    * RP-eligible events, where coverage is not yet complete for every
-   * qualification row. OPR and EPA publish no ranking-point pmfs at all, so
-   * their arms expect `"absent"`; only Sigma algorithms can be `"partial"`.
+   * qualification row. OPR publishes no ranking-point pmfs at all, so its arm
+   * expects `"absent"`. EPA (since 14.0.0, quick task 260929-mat) prices every
+   * qualification row at an RP-eligible event from its own bonus RP slots,
+   * with no cold-start gap, so its arm expects `"present"`. Only SPR, whose
+   * layer needs a Sigma Score for every roster team, is `"partial"`.
    * When coverage completes, the Sigma entries should be promoted back to
    * `"present"`; `"partial"` exists so the gap stays measured without
    * leaving the whole subset red-for-known-reasons.
@@ -177,9 +180,10 @@ export function assertSubsetEntryShape<T extends AbsenceCapableEntry>(entries: r
  * measurement; none may be adjusted to match an observed result.
  *
  * The fifteen `spr` entries expect `"partial"` RP pmfs on RP-eligible events
- * (see `expectPlayedQmRpPmf`'s doc comment) and `"absent"` on offseasons. The
- * `opr`/`epa` arms at `2024casf` expect no pmfs at all: only `spr` publishes
- * ranking-point odds.
+ * (see `expectPlayedQmRpPmf`'s doc comment) and `"absent"` on offseasons. At
+ * `2024casf` the `opr` arm expects no pmfs at all, and the `epa` arm expects
+ * them on every played qm row: `publishesRankingPoints()` is true for spr and
+ * epa, and EPA's own slots have no cold-start gap.
  *
  * `2024auwarp` (event type 99, offseason, `start_date` 2024-08-23) is
  * corpus-measured: 47 `qm` + 13 `sf` + 2 `f` played rows (62 total) and zero
@@ -453,7 +457,7 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
       "OPR-selected Breakdown tab is a legitimately 2-column table; OPR sets no alliance-level own variance, so " +
       "every Quals/Elims row publishes NEITHER variance field. The negative half that gives the spr " +
       "assertion its meaning. publishesRankingPoints() is true " +
-      "for spr only, " +
+      "for spr and epa only, " +
       "so OPR " +
       "publishes no pmf on any row " +
       "(0 of 72 played qm rows " +
@@ -475,16 +479,16 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     note:
       "The same no-variance state at a different column set — the third arm, so flipping " +
       "?algorithm= on ONE real event page shows three real, differently-shaped artifacts. publishesRankingPoints() " +
-      "is true for spr only, so EPA publishes no pmf on any row either " +
-      "(0 of 72 played qm rows " +
-      "live-measured at generation 2dcc057f).",
+      "is true for spr and epa, and since epa@14.0.0 (quick task 260929-mat) EPA prices every qualification row " +
+      "at an RP-eligible event from its own bonus RP slots, with no cold-start gap, so all 72 played qm rows " +
+      "carry both pmfs (expected, not yet live-measured: owed after the republish).",
     expectMatches: 87,
     expectUpcoming: 0,
     expectTeams: 43,
     expectRankedTeams: 43,
     expectAlliances: "populated",
     expectVariance: "absent",
-    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmRpPmf: "present",
     expectPlayedQmActualRp: "present",
   },
   {

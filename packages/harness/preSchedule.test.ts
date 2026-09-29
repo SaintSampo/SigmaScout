@@ -26,6 +26,7 @@ import { RpMomentsAccumulator } from "../core/rankingPoints/empiricalMoments.js"
 import { RP_MEAN_SHIFT_WARMUP_OBSERVATIONS, RpMeanShiftAccumulator } from "../core/rankingPoints/meanShift.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
 import { fieldStatistics } from "../core/rankingPoints/fieldAveraged.js";
+import { epa } from "../core/algorithms/epa.js";
 
 /** Sums to exactly 1 and survives `roundPmf` unchanged (every entry already at pmf precision). */
 const STUB_PMF = [0.05, 0.1, 0.15, 0.2, 0.25, 0.15, 0.1];
@@ -606,5 +607,31 @@ describe("buildPricedSyntheticSchedules (the ONE priced-synthetic-schedule build
     const priced = buildPricedSyntheticSchedules(params)!;
     const matchesPerSchedule = priced.schedules[0]!.matches.length;
     expect(calls).toBe(params.scheduleCount * matchesPerSchedule);
+  });
+});
+
+describe("buildPreScheduleArtifact under EPA's own predict (quick task 260929-mat)", () => {
+  it("an EPA predict closure, emitting its own pmfs and decomposition, yields a non-null sidecar whose every simInput carries the decomposition", () => {
+    const teams = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
+    const state = epa.initState(teams);
+    const params = baseParams({
+      algorithmId: epa.id,
+      algorithmVersion: epa.version,
+      roster: teams,
+      predict: (match) => epa.predict(state, match),
+    });
+    const artifact = buildPreScheduleArtifact(params);
+    expect(artifact).not.toBeNull();
+    expect(artifact!.algorithmVersion).toBe("14.0.0+baseline");
+    const priced = buildPricedSyntheticSchedules(params)!;
+    const inputs = priced.simInputsBySchedule.flat();
+    expect(inputs.length).toBeGreaterThan(0);
+    const rules = RP_RULE_MODULES[2026]!;
+    for (const input of inputs) {
+      expect(input.redRpPmf).toHaveLength(rules.maxRp + 1);
+      expect(input.outcome, "EPA's decomposition must reach the coupled draw").toBeDefined();
+      expect(input.outcome!.outcomePmf[1]).toBe(0);
+      expect(input.outcome!.redOutcomeRp).toEqual([rules.winRp, rules.tieRp, 0]);
+    }
   });
 });

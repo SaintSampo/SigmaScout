@@ -168,7 +168,7 @@ describe("SimulationTab", () => {
     expect(screen.queryByText(SIMULATION_EMPTY_STATE_HEADING)).toBeNull();
   });
 
-  it("an OPR artifact carries no pmfs (ranking-point odds are Sigma-only) and renders the unavailable heading AND body", () => {
+  it("an OPR artifact carries no pmfs (ranking-point odds are published by SPR and EPA only) and renders the unavailable heading AND body", () => {
     const artifact = baseArtifact({
       matches: [playedQualRow(), playedQualRow({ matchKey: "2024test_qm2", matchNumber: 2 })],
     });

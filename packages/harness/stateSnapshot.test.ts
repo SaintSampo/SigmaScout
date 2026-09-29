@@ -426,10 +426,10 @@ describe("deserializeState — league row shape version", () => {
     expect(() => deserializeState("opr", rows)).not.toThrow();
   });
 
-  it("STATE_SNAPSHOT_SHAPE_VERSION is 17, and a league row declaring ANY earlier shape throws (shape 17 added the spr league row's RP population summary)", () => {
+  it("STATE_SNAPSHOT_SHAPE_VERSION is 18, and a league row declaring ANY earlier shape throws (shape 18 added EPA's bonus RP slots and league rate state)", () => {
     // Pinned by literal value. Stale shapes fail silently otherwise (a valid pmf,
     // a legal zero rate), so this is the only guard against live/offline drift.
-    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(17);
+    expect(STATE_SNAPSHOT_SHAPE_VERSION).toBe(18);
 
     // Derived from the current version, so a bump cannot leave the newest stale shape untested.
     const staleVersions = Array.from({ length: STATE_SNAPSHOT_SHAPE_VERSION - 3 }, (_, i) => i + 3);
@@ -1548,5 +1548,110 @@ describe("a level-2 belief with no level-1 team row rides a passenger-only row",
     const state = deserializeState("spr", seeded);
     const again = withSigmaBeliefs(serializeState("spr", spr.version, state as never, STAMP), readSigmaBeliefs(seeded));
     expect(again).toEqual(seeded);
+  });
+});
+
+// ──────── EPA bonus RP slots (shape 18, quick task 260929-mat) ───────────
+
+describe("serializeState/deserializeState — EPA's bonus RP slots and league rate state (shape 18)", () => {
+  function rpEpaState(frozenRates: Record<string, number> | null): EpaState {
+    return {
+      ...(epa.initState(["frc1", "frc2", "frc3"]) as EpaState),
+      season: 2026,
+      teamComponents: new Map<string, Record<string, number>>([
+        ["frc1", { auto: 3 }],
+        ["frc2", { auto: 5 }],
+        ["frc3", { auto: 7 }],
+      ]),
+      teamMatchCounts: new Map([
+        ["frc1", 1],
+        ["frc2", 1],
+        ["frc3", 1],
+      ]),
+      rpSlotOffsets: new Map([
+        ["frc1", { energized: 0.0123456789, supercharged: -0.2, traversal: 1 / 3 }],
+        ["frc2", { energized: -0.05, supercharged: 0, traversal: 0.1 }],
+      ]),
+      rpLeague: {
+        alliances: 412,
+        sums: { energized: 300, supercharged: 12, traversal: 199 },
+        weekOneAlliances: 96,
+        weekOneSums: { energized: 60, supercharged: 1, traversal: 40 },
+        frozenRates,
+      },
+    };
+  }
+
+  for (const frozenRates of [null, { energized: 60 / 96, supercharged: 1 / 96, traversal: 40 / 96 }]) {
+    it(`round-trips rpSlotOffsets and rpLeague deep-equal (frozenRates ${frozenRates === null ? "null" : "set"})`, () => {
+      const state = rpEpaState(frozenRates);
+      const reconstructed = deserializeState("epa", serializeState("epa", epa.version, state, STAMP)) as EpaState;
+      expect([...reconstructed.rpSlotOffsets.entries()].sort()).toEqual([...state.rpSlotOffsets.entries()].sort());
+      expect(reconstructed.rpLeague).toEqual(state.rpLeague);
+      // The round trip is a fixed point: serializing again gives identical rows.
+      expect(serializeState("epa", epa.version, reconstructed, STAMP)).toEqual(serializeState("epa", epa.version, state, STAMP));
+    });
+  }
+
+  it("a team with no offsets serializes with no rpSlotOffsets key, and reads back with none", () => {
+    const rows = serializeState("epa", epa.version, rpEpaState(null), STAMP);
+    const frc3 = rows.find((row) => row.scopeKind === "team" && row.scopeKey === "frc3")!;
+    expect(JSON.parse(frc3.stateJson)).not.toHaveProperty("rpSlotOffsets");
+    const frc1 = rows.find((row) => row.scopeKind === "team" && row.scopeKey === "frc1")!;
+    expect(JSON.parse(frc1.stateJson)).toHaveProperty("rpSlotOffsets");
+    const reconstructed = deserializeState("epa", rows) as EpaState;
+    expect(reconstructed.rpSlotOffsets.has("frc3")).toBe(false);
+  });
+
+  it("refuses a shape-17 EPA league row with LeagueRowShapeVersionError", () => {
+    const rows = serializeState("epa", epa.version, rpEpaState(null), STAMP).map((row) => {
+      if (row.scopeKind !== "league") return row;
+      const json = JSON.parse(row.stateJson) as Record<string, unknown>;
+      delete json.rpLeague;
+      return { ...row, stateJson: JSON.stringify({ ...json, snapshotShapeVersion: 17 }) };
+    });
+    expect(() => deserializeState("epa", rows)).toThrow(LeagueRowShapeVersionError);
+  });
+
+  it("a replayed 2026 EPA state carries non-empty slots, and serialize/deserialize/predict reproduces its RP odds exactly", () => {
+    const teams = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
+    const side = (hub: number) => ({
+      autoTowerPoints: 15,
+      endGameTowerPoints: hub > 100 ? 40 : 0,
+      hubScore: { totalCount: hub, transitionPoints: 0, shift1Points: hub, shift2Points: 0, shift3Points: 0, shift4Points: 0, endgamePoints: 0, autoPoints: 0 },
+      adjustPoints: 0,
+      foulPoints: 0,
+      energizedAchieved: false,
+      superchargedAchieved: false,
+      traversalAchieved: false,
+    });
+    const match: MatchResult = {
+      matchKey: "2026test_qm1",
+      eventKey: "2026test",
+      compLevel: "qm",
+      setNumber: 1,
+      matchNumber: 1,
+      redTeams: ["frc1", "frc2", "frc3"],
+      blueTeams: ["frc4", "frc5", "frc6"],
+      redSurrogates: [],
+      blueSurrogates: [],
+      eventType: 0,
+      week: 0,
+      winner: "red",
+      redScore: 150,
+      blueScore: 60,
+      redRpEarned: 5,
+      blueRpEarned: 0,
+      redDqs: [],
+      blueDqs: [],
+      hasScoreBreakdown: true,
+      scoreBreakdownRaw: JSON.stringify({ red: side(150), blue: side(60) }),
+    };
+    const state = epa.update(epa.initState(teams), match);
+    expect(state.rpSlotOffsets.size).toBe(6);
+    const reconstructed = deserializeState("epa", serializeState("epa", epa.version, state, STAMP)) as EpaState;
+    const next: UpcomingMatch = { ...match, matchKey: "2026test_qm2", matchNumber: 2 };
+    expect(epa.predict(reconstructed, next).redRpPmf).toEqual(epa.predict(state, next).redRpPmf);
+    expect(epa.predict(reconstructed, next).blueBonusRp).toEqual(epa.predict(state, next).blueBonusRp);
   });
 });

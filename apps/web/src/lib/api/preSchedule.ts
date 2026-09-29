@@ -13,7 +13,8 @@
  * for every event outside the covered season set (`--presim-from-season`,
  * defaulting to 2026), for every RP-ineligible event type (the pipeline
  * skips them, PD-06), for a cold-start season's very first event (PD-04),
- * and for every algorithm with no ranking-point model at all. A thrown 404
+ * and for every algorithm with no ranking-point model at all (OPR; SPR and
+ * EPA both publish sidecars). A thrown 404
  * would surface as a rendered ERROR state on a tab whose correct behaviour
  * there is simply to fall back to the existing pre-run placeholder and let
  * the reader run the client engine. Every OTHER non-ok status still throws

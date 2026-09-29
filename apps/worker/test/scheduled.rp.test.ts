@@ -659,8 +659,41 @@ describe("scheduled.rp — ranking points on live rows", () => {
     60_000
   );
 
-  /** OPR and EPA publish no ranking points, live or offline. */
-  async function expectNoRpLiveOrOffline(r2: FakeR2Bucket, algorithmId: "opr" | "epa"): Promise<void> {
+  it(
+    "epa: the LIVE pmf stream (EPA's own Statbotics RP slots, persisted through D1) EQUALS an independent offline SigmaScoutLayer replay of the same matches",
+    async () => {
+      const { r2 } = await driveFixture();
+      const algorithmId = "epa";
+      const offline = offlineRpRows(algorithmId);
+      // Non-vacuity on both arms: every live fixture match is a qm row at an
+      // RP-eligible event, so EPA prices every one of them.
+      expect(
+        offline.filter((r) => r.red !== undefined && r.blue !== undefined).length,
+        `algorithm "${algorithmId}": the offline arm did not price every live match`
+      ).toBe(LIVE_FIXTURES.length);
+
+      const online = (await publishedLiveRows(r2, algorithmId)).map((row) => ({
+        matchKey: row.matchKey,
+        red: row.redRpPmf,
+        blue: row.blueRpPmf,
+      }));
+      expect(
+        online.filter((r) => r.red !== undefined && r.blue !== undefined).length,
+        `algorithm "${algorithmId}": the live arm did not price every live match`
+      ).toBe(LIVE_FIXTURES.length);
+      // Not a stream of uninformed coin flips: the slots moved off their cold values.
+      expect(new Set(online.map((r) => JSON.stringify(r.red))).size).toBeGreaterThan(1);
+
+      expect(
+        computeRpStreamDigest(online),
+        `algorithm "${algorithmId}": the live (deployed-tick) and offline RP pmf streams diverged — the Worker resumed EPA's bonus RP slots from a different history`
+      ).toBe(computeRpStreamDigest(offline));
+    },
+    60_000
+  );
+
+  /** OPR publishes no ranking points, live or offline. */
+  async function expectNoRpLiveOrOffline(r2: FakeR2Bucket, algorithmId: "opr"): Promise<void> {
     const offline = offlineRpRows(algorithmId);
     expect(offline.length, `algorithm "${algorithmId}": the offline arm produced rows`).toBe(LIVE_FIXTURES.length);
     expect(offline.every((r) => r.red === undefined && r.blue === undefined), `algorithm "${algorithmId}": offline pmf present`).toBe(true);
@@ -675,30 +708,31 @@ describe("scheduled.rp — ranking points on live rows", () => {
   }
 
   it(
-    "opr and epa: neither the live tick nor the offline layer produces a ranking-point pmf",
+    "opr: neither the live tick nor the offline layer produces a ranking-point pmf",
     async () => {
       const { r2 } = await driveFixture();
       await expectNoRpLiveOrOffline(r2, "opr");
-      await expectNoRpLiveOrOffline(r2, "epa");
     },
     60_000
   );
 
   it(
-    "the decomposition fields reach live PLAYED rows alongside the totals",
+    "the decomposition fields reach live PLAYED rows alongside the totals, for spr and epa",
     async () => {
       const { r2 } = await driveFixture();
-      const rows = await publishedLiveRows(r2, "spr");
-      const decomposed = rows.filter((r) => r?.matchOutcomePmf !== undefined);
-      expect(
-        decomposed.length,
-        "no played row carried the decomposition, so the rank simulation would silently fall back to the legacy path on every live row"
-      ).toBeGreaterThan(0);
-      for (const row of decomposed) {
-        expect(row.matchOutcomePmf).toHaveLength(3);
-        expect(row.matchOutcomePmf!.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 6);
-        expect(row.redBonusRpPmf!.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 6);
-        expect(row.blueBonusRpPmf!.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 6);
+      for (const algorithmId of ["spr", "epa"]) {
+        const rows = await publishedLiveRows(r2, algorithmId);
+        const decomposed = rows.filter((r) => r?.matchOutcomePmf !== undefined);
+        expect(
+          decomposed.length,
+          `${algorithmId}: no played row carried the decomposition, so the rank simulation would silently fall back to the legacy path on every live row`
+        ).toBeGreaterThan(0);
+        for (const row of decomposed) {
+          expect(row.matchOutcomePmf).toHaveLength(3);
+          expect(row.matchOutcomePmf!.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 6);
+          expect(row.redBonusRpPmf!.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 6);
+          expect(row.blueBonusRpPmf!.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 6);
+        }
       }
     },
     60_000
@@ -724,7 +758,7 @@ describe("scheduled.rp — ranking points on live rows", () => {
    * Phase A's RP fold ALREADY parsed (`observedBonusSides`), passed through to
    * Phase B rather than parsed a second time against the tick's CPU budget.
    * They describe the MATCH, not the model, so OPR's and EPA's rows — whose
-   * own folds parse nothing — must carry the same arrays (260915-p0a).
+   * Phase A captures no bonus sides — must carry the same arrays (260915-p0a).
    */
   it(
     "live played rows carry the actual per-bonus flags the offline rule module derives, on every algorithm's artifact",
@@ -1175,7 +1209,7 @@ describe("scheduled.rp — the mean shift survives the live Worker (shape 16)", 
       const league = d1.algorithmState.get("spr::league::league");
       expect(league, "the Worker wrote no spr league row").toBeDefined();
       const json = JSON.parse(league!.state_json) as { snapshotShapeVersion: number; sigmascoutRpMeanShift?: unknown };
-      expect(json.snapshotShapeVersion).toBe(17);
+      expect(json.snapshotShapeVersion).toBe(18);
 
       const layer = new SigmaScoutLayer(RULES_2026, "spr", { rpColdPrior: true });
       let state = spr.initState([...ALL_TEAMS]);
@@ -1911,7 +1945,7 @@ describe("scheduled.rp — the RP population survives the live Worker (shape 17)
       const league = d1.algorithmState.get("spr::league::league");
       expect(league, "the Worker wrote no spr league row").toBeDefined();
       const json = JSON.parse(league!.state_json) as { snapshotShapeVersion: number; sigmascoutRpPopulation?: unknown };
-      expect(json.snapshotShapeVersion).toBe(17);
+      expect(json.snapshotShapeVersion).toBe(18);
       const expected = ppOffline(true).population;
       expect(expected, "the offline prior-on layer exposes no population").toBeDefined();
       expect(json.sigmascoutRpPopulation).toEqual(expected);

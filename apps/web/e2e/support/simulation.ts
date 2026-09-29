@@ -42,7 +42,7 @@ export const SIMULATION_TEST_IDS = Object.freeze({
   rankRow: "rank-distribution-row",
 } as const);
 
-/** Navigates to `/event/{eventKey}?algorithm=spr&tab=simulation` (the tab is SPR-only — any other algorithm lands on a disabled trigger) and waits for the layout stack to be visible. */
+/** Navigates to `/event/{eventKey}?algorithm=spr&tab=simulation` (the tab is enabled on SPR and EPA; OPR lands on a disabled trigger) and waits for the layout stack to be visible. */
 export async function openSimulationTab(page: Page, eventKey: string): Promise<void> {
   await page.goto(`/event/${eventKey}?algorithm=spr&tab=simulation`, { waitUntil: "networkidle" });
   await page.getByTestId(SIMULATION_TEST_IDS.stack).waitFor({ state: "visible", timeout: 15_000 });

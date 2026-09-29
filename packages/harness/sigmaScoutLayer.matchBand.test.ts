@@ -8,7 +8,10 @@
  * corrected display band reaching `#rpFieldsFor`), not a fixture to refresh;
  * the pin changes only on a developer-decided model change. The mean shift is
  * live on this slice (its three 2022 variables pass warmup after
- * `2022azva_qm48`). OPR and EPA publish no RP fields, asserted by absence.
+ * `2022azva_qm48`). OPR publishes no RP fields, asserted by absence. EPA
+ * prices its own RP fields in `predict` (quick task 260929-mat); the layer
+ * passes them through untouched and builds no RP state for it, asserted by
+ * presence and pass-through.
  *
  * The slice comes from the committed fixture only, never the corpus, so the
  * digest is deterministic.
@@ -154,8 +157,18 @@ describe("RP and simulation fields are byte-identical to the pinned digests", ()
     expectNoRpFields("opr");
   });
 
-  it("epa: publishes no ranking-point field on any played or upcoming row", () => {
-    expectNoRpFields("epa");
+  it("epa: every qualification row carries EPA's own nine RP fields, passed through the layer untouched, and the layer builds no RP state", () => {
+    const algorithm = byId("epa");
+    const run = runLayer(algorithm, fixture);
+    expect(run.rows.length).toBe(fixture.matches.length * 2);
+    const qmRows = run.rows.filter((row) => fixture.matches.find((m) => m.matchKey === row.matchKey)?.compLevel === "qm");
+    expect(qmRows.length, "non-vacuous: the slice has qualification rows").toBeGreaterThan(0);
+    for (const row of qmRows) {
+      for (const field of RP_FIELDS) {
+        expect(field in (row.prediction as unknown as Record<string, unknown>), `epa ${row.matchKey} lacks ${field}`).toBe(true);
+      }
+    }
+    expect(new SigmaScoutLayer(RP_RULE_MODULES[fixture.sliceSeason], "epa").rpAccumulator).toBeUndefined();
   });
 });
 
@@ -235,7 +248,7 @@ describe("the layer publishes a Sigma-only display band (D1b, D3)", () => {
     expect("matchBand" in enriched).toBe(false);
   });
 
-  /** OPR and EPA: no band, no pmf, no Sigma figure and no RP beliefs. */
+  /** OPR and EPA: no band, no Sigma figure and no RP beliefs. OPR has no pmf at all; EPA's pmf is its own, passed through untouched. */
   function expectNoLevelTwoFeatures(id: string): void {
     const algorithm = byId(id);
     const { records, finalState } = replay(algorithm);
@@ -245,14 +258,17 @@ describe("the layer publishes a Sigma-only display band (D1b, D3)", () => {
     for (const record of records) {
       const folded = layer.foldPlayed(record.match, record.prediction);
       expect("matchBand" in folded).toBe(false);
-      expect(folded.prediction.redRpPmf).toBeUndefined();
+      if (id === "epa") expect(folded.prediction).toBe(record.prediction);
+      else expect(folded.prediction.redRpPmf).toBeUndefined();
     }
 
     for (const match of fixture.matches) {
       const upcoming = toLeakProofUpcoming(match);
-      const enriched = layer.enrichUpcoming(upcoming, algorithm.predict(finalState, upcoming));
+      const own = algorithm.predict(finalState, upcoming);
+      const enriched = layer.enrichUpcoming(upcoming, own);
       expect("matchBand" in enriched).toBe(false);
-      expect(enriched.prediction.redRpPmf).toBeUndefined();
+      if (id === "epa") expect(enriched.prediction).toEqual(own);
+      else expect(enriched.prediction.redRpPmf).toBeUndefined();
     }
 
     expect(layer.sigmaScoreByTeam().size).toBe(0);
@@ -264,7 +280,7 @@ describe("the layer publishes a Sigma-only display band (D1b, D3)", () => {
     expectNoLevelTwoFeatures("opr");
   });
 
-  it("epa: no matchBand key and no pmf from foldPlayed or enrichUpcoming, and no consistency or RP state", () => {
+  it("epa: no matchBand key from foldPlayed or enrichUpcoming, its own pmf untouched, and no consistency or RP state", () => {
     expectNoLevelTwoFeatures("epa");
   });
 });

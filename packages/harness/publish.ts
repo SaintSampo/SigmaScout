@@ -89,6 +89,7 @@ import { buildTeamRankScopesByTeam, deriveTeamRegions, type RankableTeamRow, typ
 import { sigmaMetricByTeam, type SigmaMetricEntry } from "./sigmaMetric.js";
 import {
   allianceSigmaBandVariance,
+  layerPricesRankingPoints,
   publishesRankingPoints,
   SIGMA_METRIC_KEY,
   usesSigmaScore,
@@ -452,7 +453,10 @@ function eventTeamRankingFields(
 
 /**
  * Builds the `fillRankingPoints` wrapper a pre-schedule sidecar needs, or `undefined` when there is
- * nothing to add (no rule module, or an algorithm that publishes no ranking points). Wrapping here
+ * nothing to add (no rule module, or an algorithm whose ranking points the layer does not price).
+ * It serves LAYER-PRICED ranking points only (SPR, `layerPricesRankingPoints`): EPA's synthetic
+ * matches carry EPA's own odds straight from `predict`, and the publisher never builds this filler
+ * for EPA (quick task 260929-mat). Wrapping here
  * keeps `preSchedule.ts` free of pricing math. Synthetic matches have no history, so moments come from
  * every team's play so far and score variance from the same per-team Sigma Scores
  * (`allianceSigmaBandVariance`). Exported so `scripts/measureFieldAveragedRanks.ts` prices with this
@@ -1341,7 +1345,8 @@ interface PreScheduleSidecarArgs {
    * The SigmaScout-layer ranking-point filler for synthetic predictions (see `makeRankingPointFiller`),
    * read at the SAME instant as the chosen pricing state: asked for once, with the `pricedFrom` this
    * function settles on, so the win odds and the pmfs can never come from two different instants.
-   * `undefined` (from the function, or as the whole field) leaves predictions unfilled.
+   * `undefined` (from the function, or as the whole field) leaves predictions unfilled: the whole
+   * field is `undefined` for EPA, whose own `predict` already carries its ranking-point odds.
    */
   readonly fillRankingPointsFor?: (
     pricedFrom: "pre-event-walk-forward" | "current-state"
@@ -2160,12 +2165,13 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
      * first folded record: the instant `preEventStateByAlgoEvent` holds the algorithm's own state at
      * (both walk the same chronological stream, and `records` interleaves algorithms inside a match).
      * A sidecar priced from the pre-event state fills its pmfs from these, never from the season-final
-     * layer, which has folded the event's own matches. Only presim-covered, RP-publishing algorithms.
+     * layer, which has folded the event's own matches. Only presim-covered algorithms whose RP the
+     * LAYER prices (SPR): EPA's sidecar reads its own odds from `predict` and needs no snapshot.
      */
     const preEventFillerInputsByAlgoEvent = new Map<string, Map<string, RankingPointFillerInputs>>();
     if (presimEnabled) {
       for (const algorithm of options.algorithms) {
-        if (publishesRankingPoints(algorithm.id)) preEventFillerInputsByAlgoEvent.set(algorithm.id, new Map());
+        if (layerPricesRankingPoints(algorithm.id)) preEventFillerInputsByAlgoEvent.set(algorithm.id, new Map());
       }
     }
     // Every team that appears in an event's played or scheduled matches: a superset of the
@@ -2544,10 +2550,11 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
         });
         const key = artifactKey({ page: "event", eventKey: e.event_key, algorithmId: algorithm.id, version });
         const eventBody = JSON.stringify(eventArtifact);
-        // The pre-schedule sidecar, only for in-scope seasons and RP-publishing algorithms (any other
-        // algorithm's probe would return null after pricing a match for nothing). Other skips are decided
-        // inside `buildPreScheduleSidecarForEvent`. It rides one queued task with the event artifact,
-        // sidecar first, so the two never race.
+        // The pre-schedule sidecar, only for in-scope seasons and RP-publishing algorithms, SPR and EPA
+        // (OPR's probe would return null after pricing a match for nothing). SPR's pmfs come from the
+        // layer's filler; EPA's come from its own `predict`, so it gets no filler at all and borrows
+        // nothing from SPR. Other skips are decided inside `buildPreScheduleSidecarForEvent`. It rides
+        // one queued task with the event artifact, sidecar first, so the two never race.
         const sidecarStart = performance.now();
         const sidecar = presimEnabled && publishesRankingPoints(algorithm.id)
           ? buildPreScheduleSidecarForEvent({
@@ -2566,8 +2573,8 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
               generation,
               computedAt,
               // The filler from the same instant as the pricing state: the pre-event snapshot for a
-              // pre-event price, the season-final (current) layer for a current-state price.
-              fillRankingPointsFor: (pricedFrom) => {
+              // pre-event price, the season-final (current) layer for a current-state price. SPR only.
+              fillRankingPointsFor: !layerPricesRankingPoints(algorithm.id) ? undefined : (pricedFrom) => {
                 let inputs: RankingPointFillerInputs;
                 if (pricedFrom === "current-state") {
                   // With the Sigma carry on, the rookie rule at the season-final state, the instant this

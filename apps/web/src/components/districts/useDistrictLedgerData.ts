@@ -40,10 +40,11 @@ import type { DistrictArtifact, EventArtifact } from "../../../../../packages/ha
  * matches could not rewind into it. The SIMULATION set stays narrower still:
  * an event whose four categories are all final at the position is skipped.
  *
- * THE ALGORITHM IS PINNED TO `spr`, never taken from `?algorithm=`. Ranking-
- * point distributions are published for SPR only, so an OPR or EPA event
- * artifact carries no `redRpPmf`/`blueRpPmf` pair and the joint run would have
- * nothing to consume. The DISTRICT artifact itself remains algorithm-free, so
+ * THE ALGORITHM IS PINNED TO `spr`, never taken from `?algorithm=`. The
+ * district ledger deliberately stays on SPR's ranking-point distributions. SPR
+ * and EPA both publish a `redRpPmf`/`blueRpPmf` pair (EPA since 14.0.0, quick
+ * task 260929-mat), but OPR publishes none, so following `?algorithm=` would
+ * leave the joint run with nothing to consume on OPR. The DISTRICT artifact itself remains algorithm-free, so
  * `lib/api/districts.ts`'s own header note about not adding a version gate by
  * symmetry still holds and must not be undone.
  *

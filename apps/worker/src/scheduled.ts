@@ -149,7 +149,7 @@ import {
 } from "../../../packages/harness/stateSnapshot.js";
 import { type ParsedBonusSides } from "../../../packages/harness/publishedRows.js";
 import {
-  publishesRankingPoints,
+  layerPricesRankingPoints,
   SIGMA_METRIC_KEY,
   SigmaScoreAccumulator,
   sigmaMatchBandVariance,
@@ -543,7 +543,11 @@ async function resumeAlgorithmState(params: ResumeAlgorithmStateParams): Promise
   const { rows, state } = await loadOrInitState(db, algorithmId, selections, algorithm, coldStartTeamKeys);
 
   const sigma = usesSigmaScore(algorithmId) ? SigmaScoreAccumulator.fromBeliefs(readSigmaBeliefs(rows), readSigmaPopulation(rows)) : undefined;
-  const rpRuleModule = publishesRankingPoints(algorithmId) ? RP_RULE_MODULES[season] : undefined;
+  // The LAYER's RP machinery (accumulator, mean shift) is SPR's alone. EPA
+  // publishes RP odds too since 14.0.0, but its own `predict` prices them from
+  // bonus RP slots that ride EPA's own D1 rows (state shape 18) and fold inside
+  // `algorithm.update`, so it resumes none of this (quick task 260929-mat).
+  const rpRuleModule = layerPricesRankingPoints(algorithmId) ? RP_RULE_MODULES[season] : undefined;
   const rpBeliefs = readRpBeliefs(rows);
   const rp =
     rpRuleModule !== undefined ? RpMomentsAccumulator.fromBeliefs(rpRuleModule, rpBeliefs, { population: readRpPopulation(rows) }) : undefined;
@@ -659,8 +663,9 @@ interface PerAlgorithmFold {
    * parse threw is `undefined`. A pure pass-through of a value the fold
    * computed anyway, so Phase B publishes the actual bonus flags without a
    * second breakdown parse against the tick's CPU budget. Empty for an
-   * algorithm that publishes no ranking points (it never parses), in which
-   * case Phase B falls back to parsing.
+   * algorithm whose ranking points the layer does not price (OPR, and EPA,
+   * whose own `update` parses inside its slot fold), in which case Phase B
+   * falls back to parsing.
    */
   readonly observedBonusSides: ReadonlyMap<string, ParsedBonusSides>;
 }
@@ -1493,7 +1498,7 @@ async function processEvent(
         const winOddsVarianceFor = (roster: readonly string[]): number | undefined =>
           sigma === undefined ? undefined : sigma.bandVarianceFor(roster);
         // The published Match Band, through the same helper the offline
-        // `SigmaScoutLayer` uses. OPR and EPA publish none.
+        // `SigmaScoutLayer` uses. OPR and EPA publish no Match Band.
         const displayBandFor = (
           view: { redTeams: readonly string[]; blueTeams: readonly string[] },
           redWinOddsVariance: number | undefined,
@@ -1513,7 +1518,9 @@ async function processEvent(
         const rpLoadedTeams = new Set([...touchedTeams, ...scheduledTeams]);
 
         // One accessor for this tick's played-row RP. Mirrors
-        // `SigmaScoutLayer.#rpFieldsFor`; change them together. An UPCOMING
+        // `SigmaScoutLayer.#rpFieldsFor`; change them together. Empty for EPA,
+        // whose own prediction already carries its RP odds (kept by the spread
+        // below, exactly as `foldPlayed` keeps them offline). An UPCOMING
         // match's RP comes from `priceUpcomingRows` instead, which mirrors the
         // same layer method — see `upcomingPricing.ts`.
         const rpFieldsFor = (
@@ -1743,7 +1750,7 @@ async function runPhaseBAndReport(
     // Algorithm-independent, so computed ONCE for the whole tick. The bonus
     // flags reuse whatever breakdown Phase A already parsed (any algorithm's
     // capture will do — they describe the match, not the model); only a tier
-    // with no RP-publishing algorithm falls back to parsing here.
+    // with no layer-priced RP algorithm falls back to parsing here.
     const observedBonusSides = new Map<string, ParsedBonusSides>();
     for (const info of perAlgorithm.values()) {
       for (const [matchKey, sides] of info.observedBonusSides) {
