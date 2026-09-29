@@ -763,6 +763,17 @@ describe("team_media — corpus table and accessors", () => {
     ]);
   });
 
+  it("selectTeamKeysForYear omits teams seen only at excludeEventKeys events, and is unchanged when the option is absent (quick task 260929-mcf)", () => {
+    upsertEvent(db, event({ eventKey: "2024live" }));
+    upsertEvent(db, event({ eventKey: "2024dead" }));
+    upsertMatch(db, match({ matchKey: "2024live_qm1", eventKey: "2024live", redTeams: ["frc1", "frc2", "frc3"], blueTeams: ["frc4", "frc5", "frc6"] }));
+    upsertMatch(db, match({ matchKey: "2024dead_qm1", eventKey: "2024dead", redTeams: ["frc1", "frc2", "frc77"], blueTeams: ["frc4", "frc5", "frc6"] }));
+
+    expect(selectTeamKeysForYear(db, 2024)).toEqual(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6", "frc77"]);
+    expect(selectTeamKeysForYear(db, 2024, { excludeEventKeys: new Set(["2024dead"]) })).toEqual(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]);
+    expect(selectTeamKeysForYear(db, 2024, { excludeEventKeys: new Set() })).toEqual(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6", "frc77"]);
+  });
+
   it("selectTeamKeysForYear excludes offseason events when excludeOffseason is set", () => {
     upsertEvent(db, event({ eventKey: "2024normal", eventType: 0, isOffseason: false }));
     upsertEvent(db, event({ eventKey: "2024off", eventType: 99, isOffseason: true }));

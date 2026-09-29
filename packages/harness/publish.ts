@@ -1932,7 +1932,10 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
   // real years from the team page's year dropdown, so the narrowing is logged.
   const activeYearsByTeam = new Map<string, number[]>();
   for (const activeYearsSeason of seasonsSorted) {
-    const teamKeysThisSeason = selectTeamKeysForYear(db, activeYearsSeason, { excludeOffseason: !includeOffseason });
+    const teamKeysThisSeason = selectTeamKeysForYear(db, activeYearsSeason, {
+      excludeOffseason: !includeOffseason,
+      excludeEventKeys: cancelledBySeason.get(activeYearsSeason),
+    });
     for (const teamKey of teamKeysThisSeason) {
       const years = activeYearsByTeam.get(teamKey) ?? [];
       years.push(activeYearsSeason);

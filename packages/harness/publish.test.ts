@@ -5686,4 +5686,54 @@ describe("publishSeasons — cancelled events (quick task 260929-mcf)", () => {
     expect(keys.filter((k) => k.includes("/2026gone/"))).toEqual([]);
     expect(keys.some((k) => k.startsWith("v1/event/2026soon/"))).toBe(true);
   });
+
+  /** The 2026casj played fixture plus frc77, who is in 2026 ONLY through never-scored schedules. */
+  function seedNeverScored(): void {
+    upsertEvent(db, seasonEvent({ eventKey: "2025abc", year: 2025, name: "Last Year", startDate: "2025-03-01" }));
+    upsertMatch(db, seasonMatch({ matchKey: "2025abc_qm1", eventKey: "2025abc", redTeams: ["frc77", "frc2", "frc3"], blueTeams: ["frc4", "frc5", "frc6"] }));
+    upsertEvent(db, seasonEvent({ eventKey: "2026casj", name: "Sacramento Regional" }));
+    upsertMatch(db, seasonMatch());
+    upsertEvent(db, seasonEvent({ eventKey: "2026dead", name: "Dead Offseason", eventType: 99, isOffseason: true, startDate: "2026-04-10" }));
+    upsertEvent(db, seasonEvent({ eventKey: "2026later", name: "Later Offseason", eventType: 99, isOffseason: true, startDate: "2026-10-10" }));
+    for (const [eventKey, first] of [["2026dead", "frc77"], ["2026later", "frc1"]] as const) {
+      for (const n of [1, 2]) {
+        upsertMatch(
+          db,
+          unplayed({
+            matchKey: `${eventKey}_qm${n}`,
+            eventKey,
+            matchNumber: n,
+            sortTime: 5_000 + n,
+            redTeams: [first, "frc2", "frc3"],
+            blueTeams: ["frc4", "frc5", "frc6"],
+          })
+        );
+      }
+    }
+  }
+
+  it("a team seen only in a cancelled event's never-scored schedule gets no 2026 page, no Teams row and no activeYears entry; the cancelled schedule is not priced (2026dead)", async () => {
+    seedNeverScored();
+
+    await publishSeasons(db, { seasons: [2025, 2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true, includeOffseason: true, computedAt: COMPUTED_AT });
+
+    const keys = vi.mocked(putObject).mock.calls.map(([, key]) => key as string);
+    expect(keys.filter((k) => k.includes("/team/frc77/2026/"))).toEqual([]);
+    expect(keys.filter((k) => k.includes("/event/2026dead/"))).toEqual([]);
+    expect(findTeamArtifact("frc77", 2025).activeYears).toEqual([2025]);
+    expect(findTeamArtifact("frc1").events.map((e) => e.eventKey)).not.toContain("2026dead");
+    const teamsCall = vi.mocked(putObject).mock.calls.find(([, key]) => (key as string).startsWith("v1/teams/2026/"));
+    const teams = (JSON.parse(teamsCall![2] as string) as { teams: { teamKey: string }[] }).teams.map((t) => t.teamKey);
+    expect(teams).not.toContain("frc77");
+    expect(teams).toContain("frc1");
+  });
+
+  it("an upcoming schedule is still priced: 2026later keeps its event artifact and its section on a team page", async () => {
+    seedNeverScored();
+
+    await publishSeasons(db, { seasons: [2025, 2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true, includeOffseason: true, computedAt: COMPUTED_AT });
+
+    expect(findEventArtifact("2026later", opr.id).upcoming.length).toBe(2);
+    expect(findTeamArtifact("frc1").events.map((e) => e.eventKey)).toContain("2026later");
+  });
 });

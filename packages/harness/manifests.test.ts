@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openCorpus, upsertDistrict, upsertEvent, upsertMatch, type Corpus } from "../corpus/db.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
+import { EVENT_SPAN_ALLOWANCE_MS, isCancelledEvent } from "../core/algorithms/cancelledEvent.js";
 import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
 import { spr } from "../core/algorithms/spr.js";
@@ -28,6 +29,7 @@ import {
   buildAlgorithmsManifest,
   buildLiveWindowsManifest,
   isLiveAt,
+  probeWindowFor,
 } from "./manifests.js";
 
 let dir: string;
@@ -684,5 +686,31 @@ describe("LiveWindowsManifestEnvelopeSchema — lockstep with LiveWindowsManifes
     const withBadEntry = { ...PREAMBLE, windows: [{ eventKey: "", season: "nope", startMs: 0, endMs: 1, inferred: "maybe" }] };
     expect(LiveWindowsManifestSchema.safeParse(withBadEntry).success).toBe(false);
     expect(LiveWindowsManifestEnvelopeSchema.safeParse(withBadEntry).success).toBe(true);
+  });
+});
+
+describe("a cancelled event never holds a probe window (quick task 260929-mcf)", () => {
+  it("the event span allowance equals the probe window span", () => {
+    expect(EVENT_SPAN_ALLOWANCE_MS).toBe(PROBE_WINDOW_SPAN_MS);
+  });
+
+  it("wherever isCancelledEvent is true for a zero-match event, probeWindowFor is undefined (the Worker needs no change)", () => {
+    const HOUR = 60 * 60 * 1000;
+    let cancelledSamples = 0;
+    let windowedSamples = 0;
+    for (const startDate of ["2020-03-19", "2026-09-22", "2026-10-03"]) {
+      const midnight = Date.parse(startDate);
+      for (let nowMs = midnight - 2 * 24 * HOUR; nowMs <= midnight + 10 * 24 * HOUR; nowMs += HOUR) {
+        const window = probeWindowFor(startDate, nowMs);
+        if (window !== undefined) windowedSamples += 1;
+        if (isCancelledEvent({ startDate, playedMatchCount: 0 }, nowMs)) {
+          cancelledSamples += 1;
+          expect({ startDate, nowMs, window }).toEqual({ startDate, nowMs, window: undefined });
+        }
+      }
+    }
+    // Non-vacuity: the sweep really crosses both states.
+    expect(cancelledSamples).toBeGreaterThan(0);
+    expect(windowedSamples).toBeGreaterThan(0);
   });
 });

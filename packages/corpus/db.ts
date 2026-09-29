@@ -1212,9 +1212,18 @@ export function selectEventAlliancesForSeason(
 export interface SelectTeamKeysForYearOptions {
   /** Drop matches belonging to an event flagged is_offseason — mirrors selectScheduledMatches' clause. */
   excludeOffseason?: boolean;
+  /**
+   * Skip matches belonging to these event keys. The publisher passes the season's cancelled events
+   * (quick task 260929-mcf) so a team seen only in a cancelled event's never-scored schedule gets no
+   * activeYears entry; otherwise the year dropdown would offer a year whose team artifact the
+   * publisher no longer writes, and the page would 404. Absent, behaviour is unchanged (the media
+   * pass never passes it).
+   */
+  excludeEventKeys?: ReadonlySet<string>;
 }
 
 interface TeamKeysRow {
+  event_key: string;
   red_teams: string;
   blue_teams: string;
 }
@@ -1238,7 +1247,7 @@ export function selectTeamKeysForYear(
 
   const rows = db
     .prepare(
-      `SELECT m.red_teams, m.blue_teams
+      `SELECT m.event_key, m.red_teams, m.blue_teams
        FROM matches m
        JOIN events e ON e.event_key = m.event_key
        WHERE ${clauses.join(" AND ")}`
@@ -1247,6 +1256,7 @@ export function selectTeamKeysForYear(
 
   const teamKeys = new Set<string>();
   for (const row of rows) {
+    if (options.excludeEventKeys?.has(row.event_key) === true) continue;
     for (const key of JSON.parse(row.red_teams) as string[]) teamKeys.add(key);
     for (const key of JSON.parse(row.blue_teams) as string[]) teamKeys.add(key);
   }
