@@ -36,6 +36,7 @@
     "worker:deploy": "pnpm --filter worker run deploy",
     "replay:rig": "tsx --env-file=.env scripts/replayRig.ts",
     "cleanup:r2-generations": "tsx --env-file=.env scripts/pruneR2Generations.ts",
+    "prune:cancelled-events": "tsx --env-file=.env scripts/pruneCancelledEvents.ts",
     "rebaseline": "tsx scripts/rebaseline.ts",
     "publish:stubs": "tsx --env-file=.env scripts/publishProbeStubs.ts",
     "recon:fields": "tsx --env-file=.env scripts/recon-breakdown-fields.ts",

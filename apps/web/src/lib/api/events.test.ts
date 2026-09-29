@@ -90,3 +90,64 @@ describe("fetchEventsArtifact", () => {
     expect(fetchMock).toHaveBeenCalledWith("https://data.sigmascout.org/v1/events/2025/spr@2.0.0+tuned-2026-08.json");
   });
 });
+
+describe("fetchEventsArtifact: cancelled rows (quick task 260929-mcf)", () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  function row(eventKey: string, startDate: string, playedMatchCount: number) {
+    return {
+      eventKey,
+      name: eventKey,
+      eventType: 0,
+      isOffseason: false,
+      startDate,
+      week: null,
+      teamCount: 0,
+      matchCount: playedMatchCount,
+      playedMatchCount,
+      country: null,
+      stateProv: null,
+      districtKey: null,
+    };
+  }
+
+  function respondWith(computedAt: string): void {
+    const artifact = {
+      ...makeValidArtifact(),
+      computedAt,
+      events: [row("2020casj", "2020-03-19", 0), row("2026soon", "2026-10-03", 0), row("2026edge", "2026-09-24", 0), row("2025alhu", "2025-03-12", 96)],
+    };
+    global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));
+  }
+
+  const params = { year: 2026, algorithmId: "spr", version: "2.0.0+tuned-2026-08" };
+
+  it("drops the row cancelled at the artifact's computedAt and keeps the rest in input order", async () => {
+    respondWith("2026-09-28T12:00:00.000Z");
+    const result = await fetchEventsArtifact(params);
+    expect(result.events.map((e) => e.eventKey)).toEqual(["2026soon", "2026edge", "2025alhu"]);
+  });
+
+  it("judges by the artifact's computedAt, never the browser clock", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2027-06-01T00:00:00.000Z"));
+    respondWith("2026-09-28T12:00:00.000Z");
+    const result = await fetchEventsArtifact(params);
+    expect(result.events.map((e) => e.eventKey)).toContain("2026soon");
+  });
+
+  it("keeps every row when computedAt does not parse", async () => {
+    const artifact = { ...makeValidArtifact(), computedAt: "not-a-date", events: [row("2020casj", "2020-03-19", 0), row("2025alhu", "2025-03-12", 96)] };
+    global.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(artifact), { status: 200 }));
+    // Non-vacuity: the schema accepts any non-empty computedAt, so the guard is reachable.
+    expect(EventsArtifactSchema.safeParse(artifact).success).toBe(true);
+    const result = await fetchEventsArtifact(params);
+    expect(result.events.map((e) => e.eventKey)).toEqual(["2020casj", "2025alhu"]);
+  });
+});

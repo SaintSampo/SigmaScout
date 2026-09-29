@@ -8,6 +8,7 @@
  * Import depth matches `teams.ts`'s corrected, verified depth: from
  * `apps/web/src/lib/api/`, the repo root is FIVE levels up.
  */
+import { isCancelledEvent } from "../../../../../packages/core/algorithms/cancelledEvent.js";
 import { artifactKey, EventsArtifactSchema, type EventsArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { artifactUrl } from "../artifactOrigin.js";
 import { markArtifactParsed } from "../perfMarks.js";
@@ -32,7 +33,15 @@ export async function fetchEventsArtifact({ year, algorithmId, version }: FetchE
     // side of the parse-to-paint split, marked identically to
     // `fetchTeamsArtifact` immediately after the schema parse resolves.
     markArtifactParsed();
-    return parsed;
+    // Drop rows that were already cancelled when the list was published (quick task 260929-mcf). The
+    // reference instant is the artifact's OWN `computedAt`, never `Date.now()`: the live Worker never
+    // rebuilds this list, so an event it promotes and folds after a publish keeps `playedMatchCount` 0
+    // in its row, and a browser-clock check would hide it a week later. A `computedAt` check hides only
+    // rows the publisher itself would have dropped at that instant, which makes this a pure guard for
+    // lists published before the change and a no-op for every list published after. An unparseable
+    // `computedAt` gives a NaN instant, and `isCancelledEvent` then keeps every row.
+    const publishedAtMs = Date.parse(parsed.computedAt);
+    return { ...parsed, events: parsed.events.filter((row) => !isCancelledEvent(row, publishedAtMs)) };
   } catch (err) {
     throw new ArtifactValidationError("events", year, err);
   }
