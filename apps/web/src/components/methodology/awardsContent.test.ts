@@ -97,13 +97,15 @@ const REQUIRED_FIGURES = [
 
   // --- The Impact and Rookie All Star ordering tables ----------------------
   // `pnpm measure:award-ordering-tables`
-  // (`npx tsx scripts/measureAwardOrderingTables.ts`, run 2026-09-25). Every
+  // (`npx tsx scripts/measureAwardOrderingTables.ts`, Impact rows re-run
+  // 2026-09-29 under the Impact first ordering, quick task 260929-imp). Every
   // figure below is printed by that script's own PRACTICAL ANSWER block for
   // season 2026, and cross checked against the committed literals in
   // `packages/core/districts/awardOrderingTables.ts`.
-  "18.0%", // Impact, position 1 (17.99% at full precision, 136 of 756)
-  "13.1%", // Impact, position 2
-  "0.6%", // Impact, the pooled tail from position 11 down
+  "earlier Impact wins, then by earlier judged awards", // the Impact ordering itself
+  "Impact 26.1%", // Impact, position 1 (26.06% at full precision, 197 of 756)
+  "the second 14.4%", // Impact, position 2
+  "down 0.4%", // Impact, the pooled tail from position 11 down
   "38.1%", // Rookie All Star, rookie position 1
   "28.6%", // Rookie All Star, rookie position 2
   "756 district events", // the 2026 table's own event count

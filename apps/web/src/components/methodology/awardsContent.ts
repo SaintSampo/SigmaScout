@@ -37,12 +37,14 @@
  *
  * The Impact and Rookie All Star ORDERING figures in that same section come
  * from `pnpm measure:award-ordering-tables`
- * (`npx tsx scripts/measureAwardOrderingTables.ts`, run 2026-09-25), whose
- * PRACTICAL ANSWER block prints each one, and are cross checked against the
- * committed literals in `packages/core/districts/awardOrderingTables.ts`. That
- * script also prints a REFERENCE ONLY ordering that scores higher (26.06% at
- * position 1 against 17.99%); it is deliberately NOT stated on this page,
- * because the site does not use it.
+ * (`npx tsx scripts/measureAwardOrderingTables.ts`, Impact rows re-run
+ * 2026-09-29 by quick task 260929-imp), whose PRACTICAL ANSWER block prints
+ * each one, and are cross checked against the committed literals in
+ * `packages/core/districts/awardOrderingTables.ts`. The Impact ordering sorts
+ * on prior Impact wins first, then prior judged awards (26.06% at position 1,
+ * 197 of 756). The script also prints the one number ordering it replaced as a
+ * REFERENCE ONLY line (17.99%, 136 of 756); that figure is deliberately NOT
+ * stated on this page, because the site no longer uses it.
  *
  * RETIRED BY PHASE 10, DO NOT RESTORE. `AWARDS_LEAD`'s second sentence used to
  * tell a reader that the site showed no award prediction anywhere yet. The
@@ -192,7 +194,7 @@ export const AWARDS_SECTIONS: readonly AwardsSection[] = [
       "The District Locks ledger prices each team's award cell from a table of how often teams in the same position earned district award points. The table for a season is built only from the seasons before it.",
       "Seven seasons carry a table: 2019, 2020, 2022, 2023, 2024, 2025 and 2026. The three earliest district seasons carry none, because fewer than three earlier district seasons exist for them.",
       "Rookie status splits the table only where a team has never won a judged award. A rookie has no earlier season, so the two decorated buckets have no rookie cell to measure, and TBA reports a rookie year for every team here, so the three unknown rows are empty as well.",
-      "Impact and Rookie All Star are priced by a team's place in its event's field instead of by its bucket average. The most decorated team at a district event wins Impact 18.0% of the time, the second most decorated 13.1%, and everything from eleventh place down 0.6%. The lowest numbered rookie in the field wins Rookie All Star 38.1% of the time and the second lowest 28.6%.",
+      "Impact and Rookie All Star are priced by a team's place in its event's field instead of by its bucket average. For Impact the field is ordered by earlier Impact wins, then by earlier judged awards. The team at the top of that order wins Impact 26.1% of the time, the second 14.4%, and everything from eleventh place down 0.4%. The lowest numbered rookie in the field wins Rookie All Star 38.1% of the time and the second lowest 28.6%.",
       "Those two chances are layered on a table of the remaining judged awards, measured with the Impact and Rookie All Star points taken out, so neither award is counted twice. The 2026 ordering rests on 756 district events from the seasons before it. A team whose award record the site does not carry is priced from the base rates alone.",
       "No award prediction moves a team's status on the ledger. A Locked verdict stays a guarantee.",
     ],

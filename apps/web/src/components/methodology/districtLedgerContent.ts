@@ -45,8 +45,9 @@
  *      the per round and pooled pick order agreement, the top 3 agreement and
  *      each round's no information floor.
  *   3. `pnpm measure:award-ordering-tables`
- *      (`npx tsx scripts/measureAwardOrderingTables.ts`) for the two Impact
- *      and Rookie All Star ordering figures. Their full statement, the
+ *      (`npx tsx scripts/measureAwardOrderingTables.ts`, Impact rows re-run
+ *      2026-09-29 under the Impact first ordering, quick task 260929-imp) for
+ *      the two Impact and Rookie All Star ordering figures. Their full statement, the
  *      remaining positions and every sample size live on
  *      `/methodology/awards`; this page states only the two that name the
  *      mechanism.
@@ -222,7 +223,7 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
     heading: "Award base rates",
     paragraphs: [
       "The award cell is priced from a table of how often teams in the same position have earned district award points. The table for each season is built only from the seasons before it.",
-      "Impact and Rookie All Star are priced separately, by where a team sits in its event's field rather than by that table. The most decorated team at a district event wins Impact 18.0% of the time and the lowest numbered rookie wins Rookie All Star 38.1% of the time, so the rest of the judged awards are drawn from a table with those two taken out.",
+      "Impact and Rookie All Star are priced separately, by where a team sits in its event's field rather than by that table. The team with the most earlier Impact wins, ties broken by earlier judged awards, wins Impact 26.1% of the time, and the lowest numbered rookie wins Rookie All Star 38.1% of the time. The rest of the judged awards are drawn from a table with those two taken out.",
       "The full table, its sample sizes and the cells that cannot be scored are on the Predicting awards page.",
       "Two awards at one event are never a predicted outcome. The tables did measure teams that won Rookie All Star and a judged award, or Impact and one more, and that share of the mass is moved onto the higher award of the pair instead. The most it costs any 2026 rate is 0.022 of a point of expected award points, which buys an award cell that never offers an outcome a reader should not plan around.",
       "No award prediction moves a team's status. A Locked verdict stays a guarantee.",

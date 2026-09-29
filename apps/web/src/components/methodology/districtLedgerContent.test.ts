@@ -136,13 +136,15 @@ const REQUIRED_FIGURES = [
   "1,000 runs",
 
   // --- `pnpm measure:award-ordering-tables` -------------------------------
-  // `npx tsx scripts/measureAwardOrderingTables.ts`, run 2026-09-25. Both
+  // `npx tsx scripts/measureAwardOrderingTables.ts`, Impact rows re-run
+  // 2026-09-29 under the Impact first ordering (quick task 260929-imp). Both
   // figures are printed by that script's PRACTICAL ANSWER block for season
   // 2026 and cross checked against the committed literals in
   // `packages/core/districts/awardOrderingTables.ts`. Their full statement,
   // the remaining positions and the sample sizes live on the Predicting awards
   // page; this page states only the two that name the mechanism.
-  "18.0%", // Impact, position 1 in the most decorated ordering
+  "earlier Impact wins, ties broken by earlier judged awards", // the Impact ordering itself
+  "Impact 26.1%", // Impact, position 1 in the Impact ordering (26.06%, 197 of 756)
   "38.1%", // Rookie All Star, rookie position 1
 
   // --- `pnpm measure:champ-cutoff` ----------------------------------------
