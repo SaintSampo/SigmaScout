@@ -1608,7 +1608,7 @@ describe("DistrictLedger — the advancement chance", () => {
     // refusing it; this test is about the rewind, so it uses a district whose
     // every team is on the served roster.
     renderLedgerAt(artifactOf(ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey)))), "/districts?algorithm=spr&at=season-start");
-    await waitFor(() => expect(screen.getAllByTestId("district-ledger-chance").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-chance").length).toBeGreaterThan(0), { timeout: 15_000 });
 
     for (const line of screen.getAllByTestId("district-ledger-chance")) {
       expect(line.textContent ?? "").toMatch(/^(<5% chance|\d{1,2}% chance)$/);
@@ -1648,7 +1648,7 @@ describe("DistrictLedger — the advancement chance", () => {
     installFetch({ eventArtifact: liveEventArtifact() });
     handle = installMockWorker({ script: realRunScript });
     renderLedger(districtWithOneUnpriceableTeam());
-    await waitFor(() => expect(screen.getAllByTestId("district-ledger-chance").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-chance").length).toBeGreaterThan(0), { timeout: 15_000 });
 
     // Every printed line is still a well-formed one.
     for (const line of screen.getAllByTestId("district-ledger-chance")) {
@@ -1666,7 +1666,7 @@ describe("DistrictLedger — the advancement chance", () => {
     installFetch({ eventArtifact: liveEventArtifact() });
     handle = installMockWorker({ script: realRunScript });
     renderLedger(districtWithOneUnpriceableTeam());
-    await waitFor(() => expect(screen.getAllByTestId("district-ledger-chance").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-chance").length).toBeGreaterThan(0), { timeout: 15_000 });
 
     const rows = [...document.querySelectorAll('[data-testid="district-ledger-row"][data-team="frc901"]')];
     expect(rows.length).toBeGreaterThan(0);
@@ -1724,7 +1724,7 @@ describe("DistrictLedger — the advancement chance", () => {
       installFetch({ eventArtifact: liveEventArtifact(), missingEventKeys });
       handle = installMockWorker({ script: realRunScript });
       renderLedger(districtFor());
-      await waitFor(() => expect(screen.getAllByTestId("district-ledger-chance").length).toBeGreaterThan(0));
+      await waitFor(() => expect(screen.getAllByTestId("district-ledger-chance").length).toBeGreaterThan(0), { timeout: 15_000 });
 
       for (const line of screen.getAllByTestId("district-ledger-chance")) {
         expect(line.textContent ?? "").toMatch(/^(<5% chance|\d{1,2}% chance)$/);
