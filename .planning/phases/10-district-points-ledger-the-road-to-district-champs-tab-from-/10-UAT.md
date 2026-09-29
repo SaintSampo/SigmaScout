@@ -1,18 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 10-district-points-ledger
 source: [10-VERIFICATION.md]
 started: 2026-09-25T16:20:00.000Z
-updated: 2026-09-28T04:00:00.000Z
+updated: 2026-09-29T12:00:00.000Z
 ---
 
 ## Current Test
 
-number: 2
-name: First live district weekend, the Worker refresh fires in production
-expected: |
-  See test 2 below. Not observable until the first 2027 district event weekend.
-awaiting: 2027 district season
+[testing complete]
 
 ## Tests
 
@@ -23,15 +19,18 @@ reported: "2026-09-28 Playwright on sigmascout.org, PNW at season-start: reduce 
 
 ### 2. First live district weekend, the Worker refresh fires in production
 expected: During the first district event weekend, `wrangler tail sigmascout-worker --format json` shows `districtsConsidered` above 0 and at least one `district-refreshed` line for the live district; on the district page a finished category (quals, selection, playoffs, awards) turns grey with TBA's points within a few minutes, and the tab's blue cells re-run after the 60 s refetch. Every observed tick since the deploy has `districtsConsidered` 0 because no district event is live in late September; the manifest carrying `districtKey` on all 52 windows is eligibility, not evidence.
-result: [pending]
+result: pass
+note: "Accepted by Jacob 2026-09-29 without a live observation: no district event runs before the 2027 season, so the production refresh path has still never fired. Eligibility (districtKey on all 52 manifest windows) is the only evidence so far."
 
 ## Summary
 
 total: 2
-passed: 1
+passed: 2
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
 ## Gaps
+
+[none]

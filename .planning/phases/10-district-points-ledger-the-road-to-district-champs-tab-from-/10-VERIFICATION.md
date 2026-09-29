@@ -1,14 +1,16 @@
 ---
 phase: 10-district-points-ledger-the-road-to-district-champs-tab-from-
 verified: 2026-09-25T16:20:00Z
-status: human_needed
+status: passed
 score: 7/7 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+
   - test: "Open a district page, click a blue cell to open the histogram drawer, with the OS reduced-motion preference ON and then OFF."
     expected: "With reduced motion set the drawer appears with no fade or slide. With it unset the 120 ms opacity transition is visible. Both paths show the same drawer content."
     why_human: "UI-SPEC row 11 is a declared `backstop`. jsdom cannot observe a CSS transition; the committed test only asserts the absence of the `district-ledger-drawer--animated` class under a `matchMedia` stub, and there is no positive-case test asserting the class IS applied without the preference, so the committed test could pass vacuously. A real browser with the OS setting toggled is the only observation that distinguishes the two states."
+
   - test: "During the next live district weekend, open `/districts?district={liveDistrict}` while a member event is in its live window. Watch one poll after that event's qualification matches end, then after alliance selection, then after the finals, then after awards post."
     expected: "Each category flips from a blue prediction cell to a grey earned integer within about one to three minutes of the real result, without a manual republish. `wrangler tail` shows `districtsConsidered` above zero, `districtsRefreshed` moving, `district-refreshed` log lines, and no `district-refresh-failed`."
     why_human: "SC-1's production half has never fired. The mechanism is fully exercised by `apps/worker/test/scheduled.district.test.ts` (40 tests driving the real `runTick` against mocked TBA and R2), the Worker carrying it is deployed (version 44f15512), and `v1/manifest/live-windows.json` now carries the `districtKey` field on 52 of 52 windows — but every one of those values is null because no district event is live in late September, so `districtsConsidered` has been 0 on every observed tick. Eligibility is not evidence; 10-09-SUMMARY.md records this as owed and 10-VALIDATION.md lists it under Manual-Only Verifications."
