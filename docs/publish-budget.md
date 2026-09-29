@@ -545,12 +545,12 @@ block. `pnpm publish:seasons` rewrites it (`--write-budget`); its `budgetMaxByte
 
 ```json budget
 {
-  "measuredAt": "2026-09-28T19:44:55.567Z",
-  "run": "tsx packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 2026 --write-budget -- generation f764e08e-439c-4dad-8be0-595ac1642f9b, 109159 objects, 3946173513 bytes total, 41 presim sidecars (median 8309 B, p95 23495 B, max 23771 B), 2026-09-28T19:20:57.220Z to 2026-09-28T19:44:55.567Z (0h23m58s)",
+  "measuredAt": "2026-09-29T00:07:56.368Z",
+  "run": "tsx packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 2026 --write-budget -- generation b2bfe488-09b6-41bb-9205-4c581c624dd0, 109159 objects, 3949121520 bytes total, 211 presim sidecars (median 7145 B, p95 15983 B, max 23806 B), 2026-09-28T23:35:52.882Z to 2026-09-29T00:07:56.368Z (0h32m03s)",
   "pages": {
     "teams": {
       "count": 30,
-      "medianBytes": 913274,
+      "medianBytes": 913236,
       "p95Bytes": 1371940,
       "maxBytes": 1500082,
       "budgetMaxBytes": 3500000,
@@ -558,11 +558,11 @@ block. `pnpm publish:seasons` rewrites it (`--write-budget`); its `budgetMaxByte
     },
     "team": {
       "count": 101397,
-      "medianBytes": 29089,
-      "p95Bytes": 82656,
-      "maxBytes": 262432,
+      "medianBytes": 29107,
+      "p95Bytes": 82691,
+      "maxBytes": 262483,
       "budgetMaxBytes": 500000,
-      "largestKey": "v1/team/frc3538/2024/spr@8.0.0+baseline.json"
+      "largestKey": "v1/team/frc3538/2024/spr@9.0.0+baseline.json"
     },
     "events": {
       "count": 30,
@@ -574,17 +574,17 @@ block. `pnpm publish:seasons` rewrites it (`--write-budget`); its `budgetMaxByte
     },
     "event": {
       "count": 7692,
-      "medianBytes": 53559,
-      "p95Bytes": 105614,
+      "medianBytes": 53561,
+      "p95Bytes": 105876,
       "maxBytes": 228914,
       "budgetMaxBytes": 350000,
-      "largestKey": "v1/event/2016micmp/spr@8.0.0+baseline.json"
+      "largestKey": "v1/event/2016micmp/spr@9.0.0+baseline.json"
     },
     "compare": {
       "count": 10,
-      "medianBytes": 14588,
-      "p95Bytes": 14748,
-      "maxBytes": 14748,
+      "medianBytes": 14585,
+      "p95Bytes": 14751,
+      "maxBytes": 14751,
       "budgetMaxBytes": 20000,
       "largestKey": "v1/compare/2026.json"
     }
