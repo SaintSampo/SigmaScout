@@ -6,8 +6,7 @@ description: >-
   (captain or picked), an outcome list in the drawer, exact captain points once
   quals are done
 status: complete
-owed:
-  - "The 1440 screenshot pass over the selection cell (route-chance form and settled form) and the selection drawer was never captured; the recipe and the two fixture positions are recorded under Screenshots below."
+owed: []
 ---
 
 # Alliance selection readability — summary
@@ -207,13 +206,21 @@ characters, three sentences, no new measured figure to pin.
 - After the push (main session): CI Test and Pages deploy green on `cca73281`, and
   the live `districts-ledger.spec.ts` passed 10/10 against the deployed site.
 
-## Screenshots — NOT TAKEN
+## Screenshots
 
-**This is the one item of the task that did not land.** The recipe was rebuilt and
-the servers were running when the session ended; no shot was captured and there are
-no paths to record.
+Captured 2026-09-28 on the live site (not the fixture rig), PNW 2026 at 1440 wide,
+rewound on `2026wayak`:
 
-What is established, for whoever picks it up:
+- `screenshots/route-chance-mid-quals-cells-1440.png` and `-drawer-1440.png`, at
+  `2026wayak:m:2026wayak_qm30`: the route-chance form (`captain ~15%` over
+  `~10 if in`) and the four-row list, with first and second pick kept at 0% because
+  matches remain.
+- `screenshots/settled-after-quals-cells-1440.png` and `-drawer-1440.png`, at
+  `2026wayak:qualsDone`: the settled form (`~16` over `captain, alliance 1`,
+  `first pick, alliance 3`) and the one-row list (Captain ~100%, 16).
+- No page errors in either run.
+
+The executor's original fixture recipe, kept for reference:
 
 - 260925-uf8's doctored fixture tree survived in the executor session's scratchpad
   (`.../04f3ffd4-5db9-4a50-8e61-363d6723b0e6/scratchpad/fixtures`), along with
