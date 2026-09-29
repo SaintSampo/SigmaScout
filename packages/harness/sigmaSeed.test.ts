@@ -186,7 +186,9 @@ describe("publish.ts's seed block chains every level-2 passenger (structural)", 
     // 260923-3w6 deleted the second consumer — the live Worker prices upcoming
     // matches itself again, so no artifact carries a copy of the seed rows. What is
     // left is the ONE consumer that matters: the D1 seed the live tick resumes from.
-    const source = readFileSync(new URL("./publish.ts", import.meta.url), "utf8");
+    // Line endings normalised: a checkout with core.autocrlf writes CRLF, and the
+    // structural regexes below are written for LF.
+    const source = readFileSync(new URL("./publish.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
     const helper = /function seedStateRows\([\s\S]*?\n}\n/.exec(source);
     expect(helper, "expected to find publish.ts's seedStateRows helper").not.toBeNull();
     const body = helper![0];

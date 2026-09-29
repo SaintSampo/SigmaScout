@@ -112,15 +112,15 @@ const REQUIRED_FIGURES = [
   // `npx tsx scripts/measureAllianceWinProbability.ts --seasons 2026
   //  --warmup-from 2026`, run 2026-09-25. Cross checked against the exported
   // MEASURED_* constants beside that script.
-  "19,792", // MEASURED_SCORED_ROWS
-  "0.0552", // MEASURED_MEAN_ABSOLUTE_GAP
-  "0.0417", // MEASURED_MEDIAN_ABSOLUTE_GAP
-  "0.1224", // MEASURED_P90_ABSOLUTE_GAP
-  "4.44%", // MEASURED_WINNER_DISAGREEMENT_RATE
-  "0.1462", // MEASURED_BROWSER_FORMULA_BRIER
-  "0.1443", // MEASURED_PUBLISHED_BRIER
+  "20,048", // MEASURED_SCORED_ROWS
+  "0.0555", // MEASURED_MEAN_ABSOLUTE_GAP
+  "0.0420", // MEASURED_MEDIAN_ABSOLUTE_GAP
+  "0.1227", // MEASURED_P90_ABSOLUTE_GAP
+  "4.49%", // MEASURED_WINNER_DISAGREEMENT_RATE
+  "0.1464", // MEASURED_BROWSER_FORMULA_BRIER
+  "0.1445", // MEASURED_PUBLISHED_BRIER
   "0.2494", // MEASURED_COIN_BRIER
-  "0.2112", // MEASURED_SIGN_ONLY_BRIER
+  "0.2114", // MEASURED_SIGN_ONLY_BRIER
 
   // --- the recorded limits ------------------------------------------------
   // 10-06's districtBake.test.ts prints the seed to seed spread at the

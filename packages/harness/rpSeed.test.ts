@@ -196,7 +196,9 @@ describe("the D1 seed carries the RP mean shift (shape 16)", () => {
     // Retargeted in 260915-isq: the chain moved out of the seed loop into `seedStateRows`, the one
     // helper both the D1 seed and every SPR event `state` block are built from. The shift is still read
     // off the season's layer at the same instant, and still rides the LEAGUE row.
-    const source = readFileSync(new URL("./publish.ts", import.meta.url), "utf8");
+    // Line endings normalised: a checkout with core.autocrlf writes CRLF, and the
+    // structural regexes below are written for LF.
+    const source = readFileSync(new URL("./publish.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
     const helper = /function seedStateRows\([\s\S]*?\n}\n/.exec(source);
     expect(helper, "expected to find publish.ts's seedStateRows helper").not.toBeNull();
     expect(helper![0]).toContain("layer.rpMeanShiftState()");
@@ -268,7 +270,9 @@ describe("the D1 seed carries the RP population (shape 17)", () => {
   });
 
   it("publish.ts chains withRpPopulation into seedStateRows (structural)", () => {
-    const source = readFileSync(new URL("./publish.ts", import.meta.url), "utf8");
+    // Line endings normalised: a checkout with core.autocrlf writes CRLF, and the
+    // structural regexes below are written for LF.
+    const source = readFileSync(new URL("./publish.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
     const helper = /function seedStateRows\([\s\S]*?\n}\n/.exec(source);
     expect(helper, "expected to find publish.ts's seedStateRows helper").not.toBeNull();
     expect(helper![0]).toContain("layer.rpPopulationState()");
