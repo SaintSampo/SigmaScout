@@ -88,7 +88,7 @@ describe("/methodology/epa-vs-statbotics route", () => {
   it("renders the page title from first paint", async () => {
     global.fetch = (() => new Promise<Response>(() => {})) as typeof fetch;
     renderEpaComparisonRoute();
-    await waitFor(() => expect(screen.getByText("Our EPA vs Statbotics' EPA")).toBeDefined());
+    await waitFor(() => expect(screen.getByText("SigmaScout EPA vs Statbotics EPA")).toBeDefined());
   });
 
   it("renders the shared paragraph and the difference table while pending, with a skeleton and no head-to-head table", async () => {

@@ -59,7 +59,7 @@
 export const AWARDS_PAGE_TITLE = "Predicting awards";
 
 export const AWARDS_LEAD =
-  "SigmaScout tested whether FRC awards can be predicted. The District Locks ledger prices a team's award points at a district event from the tables at the foot of this page, and no other page on the site shows an award prediction.";
+  "SigmaScout tested whether FRC awards can be predicted. The District Locks ledger prices a team's award points at a district event from the tables at the foot of this page, the Champ Locks tab draws the District Championship's Impact, Engineering Inspiration and Rookie All Star winners when it sets its predicted cutoff, and no other page on the site shows an award prediction.";
 
 export const AWARDS_SECTION_IDS = ["the-goal", "the-model", "our-results", "district-award-base-rates"] as const;
 export type AwardsSectionId = (typeof AWARDS_SECTION_IDS)[number];

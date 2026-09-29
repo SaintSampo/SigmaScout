@@ -52,7 +52,7 @@ export const METHODOLOGY_CARDS: readonly MethodologyCardDescriptor[] = [
   },
   {
     to: "/methodology/epa-vs-statbotics",
-    title: "Our EPA vs Statbotics' EPA",
+    title: "SigmaScout EPA vs Statbotics EPA",
     blurb: "Both sites publish a rating called EPA. See where the two numbers come apart, and by how much.",
     testId: "methodology-card-epa-vs-statbotics",
   },

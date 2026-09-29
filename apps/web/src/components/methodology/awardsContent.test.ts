@@ -230,6 +230,7 @@ describe("awardsContent figures", () => {
    */
   it("names where award predictions appear, and says the rest of the site shows none", () => {
     expect(AWARDS_LEAD).toContain("The District Locks ledger prices a team's award points");
+    expect(AWARDS_LEAD).toContain("the Champ Locks tab draws the District Championship's Impact");
     expect(AWARDS_LEAD).toContain("no other page on the site shows an award prediction");
     expect(AWARDS_LEAD).not.toMatch(/anywhere yet/);
   });

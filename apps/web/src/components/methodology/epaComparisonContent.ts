@@ -29,7 +29,7 @@
  * it). This page deliberately does not render it.
  */
 
-export const EPA_COMPARISON_PAGE_TITLE = "Our EPA vs Statbotics' EPA";
+export const EPA_COMPARISON_PAGE_TITLE = "SigmaScout EPA vs Statbotics EPA";
 
 export const EPA_COMPARISON_LEAD =
   "Statbotics publishes EPA (Expected Points Added), a rating of how many points an FRC team adds to its alliance's score. SigmaScout reimplements EPA for the purpose of comparison. Most of the calculations are the same on both sites, but there are minor differences. This page lists where the two differ and how much the differences change match predictions.";
