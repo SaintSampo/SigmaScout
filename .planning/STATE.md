@@ -5,7 +5,7 @@ milestone_name: milestone
 current_phase: 10
 status: completed
 stopped_at: Completed 10-09-PLAN.md (operator gates run from the main context)
-last_updated: "2026-09-29T04:00:35.517Z"
+last_updated: "2026-09-29T04:17:33.134Z"
 last_activity: 2026-09-29
 last_activity_desc: Phase 10 complete
 progress:
@@ -703,6 +703,8 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 265 | RP cold-team prior (rpColdPrior, off) passed its pre-registered bar; Sigma carry retried with it on in both arms and is GO on every gate; rollout awaits Jacob | 2026-09-28 | b9b45e6f | [260928-n6i-fix-the-early-season-rp-bonus-cold-start](./quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/) |
 | 266 | Shipped SPR 9.0.0: RP cold-team prior and Sigma carry on by default, presim rookie rule, RP population on the D1 league row (shape 17), republished (b2bfe488) and Worker deployed | 2026-09-29 | 3498a0d8 | [260928-p8i-ship-the-rp-cold-team-prior-and-the-sigm](./quick/260928-p8i-ship-the-rp-cold-team-prior-and-the-sigm/) |
 | 267 | Ingest skips an event TBA answers 404 for (2026cascc); live Worker prices a debut team's first played row like offline (Worker f840bc1d) | 2026-09-29 | f3278acb | [260928-spa-ingest-tolerates-a-per-event-tba-404-the](./quick/260928-spa-ingest-tolerates-a-per-event-tba-404-the/) |
+| 268 | Alliance selection headline reads picked when both routes print as 0 percent | 2026-09-29 | 3ec9f0b3 | [260929-cz0-selection-headline-reads-picked-when-both](./quick/260929-cz0-selection-headline-reads-picked-when-both/) |
+| 269 | Field-averaged contributions carry one team's share under the RP cold-team prior | 2026-09-29 | a4020eb5 | [260929-fav-field-averaged-per-team-share-under-the](./quick/260929-fav-field-averaged-per-team-share-under-the/) |
 
 ### Roadmap Evolution
 
