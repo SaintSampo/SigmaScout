@@ -262,6 +262,14 @@ function assertRouteDenominator(where: string, view: DistrictSelectionRouteView)
  * under the word "picked". A team that captains an alliance in 70 runs of a
  * hundred and is picked in 12 therefore read as "~82% picked", which is true of
  * nothing a reader would call being picked.
+ *
+ * A ROUTE NAME NEEDS A CHANCE THAT PRINTS (quick task 260929-cz0). The cell
+ * prints the chance rounded to a whole percent, so a team that captained in 3
+ * runs of a thousand and was never picked would read "captain ~0%": a route
+ * named beside a zero. When BOTH routes round to 0% the headline reads as
+ * picked, the shipped word, so the cell says "picked ~0%" exactly as it does for
+ * a team no run selected. The rounding is the cell's own `Math.round(p * 100)`,
+ * so the rule and the printed digits cannot disagree.
  */
 export interface DistrictSelectionHeadline {
   readonly id: "captain" | "picked";
@@ -273,7 +281,13 @@ export function districtSelectionHeadline(view: DistrictSelectionRouteView): Dis
   const bySlot = view.routes.bySlot;
   const captain = (bySlot[0]?.draws ?? 0) / view.denominator;
   const picked = ((bySlot[1]?.draws ?? 0) + (bySlot[2]?.draws ?? 0)) / view.denominator;
+  if (printsAsZeroPercent(captain) && printsAsZeroPercent(picked)) return { id: "picked", chance: picked };
   return captain > picked ? { id: "captain", chance: captain } : { id: "picked", chance: picked };
+}
+
+/** Whether the cell's whole-percent rounding prints this chance as 0%. */
+function printsAsZeroPercent(chance: number): boolean {
+  return Math.round(chance * 100) === 0;
 }
 
 /**

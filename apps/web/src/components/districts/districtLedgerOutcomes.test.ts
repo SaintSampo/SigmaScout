@@ -299,6 +299,20 @@ describe("the alliance selection route helpers", () => {
       expect(headline.chance).toBeCloseTo(0.2, 12);
     });
 
+    it("reads as PICKED when both routes print as 0%, so the cell never names a route beside a zero (260929-cz0)", () => {
+      // 3 captain runs in 1,000 is 0.3%, which the cell prints as ~0%.
+      const headline = districtSelectionHeadline(viewOf(1000, false, [{ draws: 3 }, {}, {}, {}], 997));
+      expect(headline.id).toBe("picked");
+      expect(Math.round(headline.chance * 100)).toBe(0);
+    });
+
+    it("still names CAPTAIN once the captain chance prints as 1%, even with no pick at all", () => {
+      // 6 in 1,000 is 0.6%, which rounds to 1%: a route beside a printed number.
+      const headline = districtSelectionHeadline(viewOf(1000, false, [{ draws: 6 }, {}, {}, {}], 994));
+      expect(headline.id).toBe("captain");
+      expect(Math.round(headline.chance * 100)).toBe(1);
+    });
+
     it("refuses a denominator it cannot divide by rather than printing an infinite percentage", () => {
       const broken: DistrictSelectionRouteView = { ...mixedView(), denominator: 0 };
       expect(() => districtSelectionHeadline(broken)).toThrow(InvalidRouteDenominatorError);
