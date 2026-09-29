@@ -851,7 +851,7 @@ describe("the per-event simulation input at three positions", () => {
     expect(input.allianceCount).toBe(8);
   });
 
-  it("forwards priorJudgedAwards onto the award profile, and leaves it absent when the artifact carries none", () => {
+  it("forwards priorJudgedAwards and priorImpactWins onto the award profile, and leaves each absent when the artifact carries none", () => {
     type WireAwardProfile = NonNullable<DistrictTeam["awardProfile"]>;
     const rosterTeam = (awardProfile: WireAwardProfile) =>
       artifactOf([
@@ -875,6 +875,16 @@ describe("the per-event simulation input at three positions", () => {
       return built.input.awardProfiles.get(roster[0]!);
     };
 
+    expect(profileFrom({ bucket: "threeOrMore", rookie: false, priorJudgedAwards: 6, priorImpactWins: 2 })).toEqual({
+      bucket: "three-or-more",
+      rookieState: "veteran",
+      priorJudgedAwards: 6,
+      priorImpactWins: 2,
+    });
+
+    // An artifact published between 10-06 and 260929-imp carries the judged
+    // count and no Impact count. The Impact count stays absent, so the draw
+    // takes the base-rate path rather than the older one-number ordering.
     expect(profileFrom({ bucket: "threeOrMore", rookie: false, priorJudgedAwards: 6 })).toEqual({
       bucket: "three-or-more",
       rookieState: "veteran",

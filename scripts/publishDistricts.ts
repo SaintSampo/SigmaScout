@@ -171,7 +171,7 @@ import {
   rookieAllStarOrderingProbability,
 } from "../packages/core/districts/awardOrderingTables.js";
 import type { DistrictAwardProfile } from "../packages/core/districts/ledgerSimulation.js";
-import { MEASURED_COMMAND as ORDERING_MEASURED_COMMAND } from "./measureAwardOrderingTables.js";
+import { MEASURED_COMMAND as ORDERING_MEASURED_COMMAND, priorImpactWinCount } from "./measureAwardOrderingTables.js";
 import { loadAwardInstances, loadRookieYears, MEASURED_COMMAND, priorJudgedAwardCount, type AwardInstance } from "./measureDistrictAwardBaseRates.js";
 import { selectCorpusSeasons } from "../packages/corpus/db.js";
 
@@ -1172,8 +1172,12 @@ export function buildSeasonAwardContext(db: Corpus, season: number): SeasonAward
         // ordering key. Deriving them separately is how a published bucket and
         // a published ordering position come to describe different teams.
         const priorJudgedAwards = priorJudgedAwardCount(instancesByTeam.get(teamKey) ?? [], teamKey, season);
+        // The Impact ordering's first key (260929-imp), counted by the SAME
+        // helper the measurement script built the Impact tables with: distinct
+        // (year, event) Impact wins, seasons strictly before this one.
+        const priorImpactWins = priorImpactWinCount(instancesByTeam.get(teamKey) ?? [], teamKey, season);
         const bucket = decorationBucket(priorJudgedAwards);
-        const profile: DistrictAwardProfile = { bucket, rookieState, priorJudgedAwards };
+        const profile: DistrictAwardProfile = { bucket, rookieState, priorJudgedAwards, priorImpactWins };
         memo.set(teamKey, profile);
         profiles.set(teamKey, profile);
       }
@@ -1187,14 +1191,16 @@ export function toWireAwardProfile(profile: DistrictAwardProfile): {
   bucket: DistrictAwardBucket;
   rookie: boolean;
   priorJudgedAwards?: number;
+  priorImpactWins?: number;
 } {
   return {
     bucket: WIRE_BUCKET[profile.bucket],
     rookie: profile.rookieState === "rookie",
     // Absent stays absent rather than becoming 0: a zero would say "this team
     // has never won a judged award", which is a different claim from "this
-    // producer did not derive a count".
+    // producer did not derive a count". The same holds for the Impact count.
     ...(profile.priorJudgedAwards === undefined ? {} : { priorJudgedAwards: profile.priorJudgedAwards }),
+    ...(profile.priorImpactWins === undefined ? {} : { priorImpactWins: profile.priorImpactWins }),
   };
 }
 

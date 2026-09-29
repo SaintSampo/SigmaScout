@@ -15,6 +15,7 @@ import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { openCorpusReadOnly, selectCorpusSeasons, type Corpus, type CorpusDistrict, type CorpusDistrictRanking, type CorpusEventAward } from "../packages/corpus/db.js";
 import { loadAwardInstances, priorJudgedAwardCount } from "./measureDistrictAwardBaseRates.js";
+import { priorImpactWinCount } from "./measureAwardOrderingTables.js";
 import { applyDistrictEventState, recomputeDistrictVerdicts } from "../packages/harness/districtRankingsMerge.js";
 import {
   awardBaseRate,
@@ -1463,14 +1464,14 @@ function populatedAwardFixture(
   season: number,
   teams: Array<{ team_key: string; team_number: number; rookie_year: number | null }>,
   /** Extra judged awards, each at its OWN event so `priorJudgedAwardCount`'s DISTINCT `(year, eventKey, awardType)` rule counts them separately. */
-  extraAwards: Array<{ year: number; teamKey: string }> = []
+  extraAwards: Array<{ year: number; teamKey: string; awardType?: number }> = []
 ) {
   const seasons = DISTRICT_REGISTERED_SEASONS.filter((s) => s <= season).map((s) => ({ eventKey: `${s}e1`, year: s }));
   const prior = DISTRICT_REGISTERED_SEASONS.filter((s) => s < season);
   const awardsAll = prior.map((s, i) => ({ event_key: `${s}e1`, award_type: 5, award_index: i, recipient_index: 0, team_key: "frcSeed", year: s }));
   for (const [i, extra] of extraAwards.entries()) {
     seasons.push({ eventKey: `${extra.year}x${i}`, year: extra.year });
-    awardsAll.push({ event_key: `${extra.year}x${i}`, award_type: 5, award_index: 0, recipient_index: 0, team_key: extra.teamKey, year: extra.year });
+    awardsAll.push({ event_key: `${extra.year}x${i}`, award_type: extra.awardType ?? 5, award_index: 0, recipient_index: 0, team_key: extra.teamKey, year: extra.year });
   }
   return awardFixture({ seasons, awardsAll, teams });
 }
@@ -1671,7 +1672,7 @@ describe("the award base-rate table on the wire", () => {
         awardBaseRates: context.baseRates!,
         awardProfiles: profiles.profiles,
       });
-      expect(artifact.teams.find((t) => t.teamKey === "frc1")!.awardProfile).toEqual({ bucket: "none", rookie: false, priorJudgedAwards: 0 });
+      expect(artifact.teams.find((t) => t.teamKey === "frc1")!.awardProfile).toEqual({ bucket: "none", rookie: false, priorJudgedAwards: 0, priorImpactWins: 0 });
       expect(artifact.teams.find((t) => t.teamKey === "frc2")!.awardProfile).toBeUndefined();
       const noTeamsRow = artifact.teams.find((t) => t.teamKey === "frcNoTeamsRow")!;
       expect(noTeamsRow.awardProfile).toBeUndefined();
@@ -1692,7 +1693,7 @@ describe("the award base-rate table on the wire", () => {
       const forTheBake = context.profilesFor(["frcDecorated"]).profiles.get("frcDecorated")!;
       // Four distinct prior judged awards puts this team in `three-or-more`,
       // so the mapping is exercised on a non-default bucket.
-      expect(forTheBake).toEqual({ bucket: "three-or-more", rookieState: "veteran", priorJudgedAwards: 4 });
+      expect(forTheBake).toEqual({ bucket: "three-or-more", rookieState: "veteran", priorJudgedAwards: 4, priorImpactWins: 0 });
       const artifact = buildDistrictArtifact({
         season: 2026,
         generation: GENERATION,
@@ -1730,7 +1731,7 @@ describe("the award base-rate table on the wire", () => {
       // three 2026 awards leave the team in `none`...
       // The RAW COUNT is checked beside the bucket: the bucket alone maps many
       // counts onto one label, so a leak that moved 3 to 4 would not show in it.
-      expect(buildSeasonAwardContext(withLeak, 2026).profilesFor(["frcEdge"]).profiles.get("frcEdge")).toEqual({ bucket: "none", rookieState: "veteran", priorJudgedAwards: 0 });
+      expect(buildSeasonAwardContext(withLeak, 2026).profilesFor(["frcEdge"]).profiles.get("frcEdge")).toEqual({ bucket: "none", rookieState: "veteran", priorJudgedAwards: 0, priorImpactWins: 0 });
       // ...while the same three awards one season earlier move it to
       // `three-or-more`. A fixture where the boundary does not change the
       // answer would prove nothing.
@@ -1738,10 +1739,38 @@ describe("the award base-rate table on the wire", () => {
         bucket: "three-or-more",
         rookieState: "veteran",
         priorJudgedAwards: 3,
+        priorImpactWins: 0,
       });
     } finally {
       withLeak.close();
       withoutLeak.close();
+    }
+  });
+
+  it("publishes priorImpactWins WALK-FORWARD with the measurement's own counting rule (260929-imp)", () => {
+    // Two prior Impact wins at two events, one 2026 Impact win (the published
+    // season itself, so it must not count) and one prior non-Impact award.
+    const db = populatedAwardFixture(
+      2026,
+      [{ team_key: "frcImpact", team_number: 11, rookie_year: 2005 }],
+      [
+        { year: 2024, teamKey: "frcImpact", awardType: 0 },
+        { year: 2025, teamKey: "frcImpact", awardType: 0 },
+        { year: 2026, teamKey: "frcImpact", awardType: 0 },
+        { year: 2025, teamKey: "frcImpact", awardType: 5 },
+      ]
+    );
+    try {
+      const context = buildSeasonAwardContext(db, 2026);
+      const profile = context.profilesFor(["frcImpact"]).profiles.get("frcImpact")!;
+      expect(profile).toEqual({ bucket: "three-or-more", rookieState: "veteran", priorJudgedAwards: 3, priorImpactWins: 2 });
+      // The same helper the measurement script builds the Impact tables with,
+      // over the same instances, gives the same answer.
+      const instances = [2024, 2025, 2026].flatMap((season) => loadAwardInstances(db, season));
+      expect(priorImpactWinCount(instances, "frcImpact", 2026)).toBe(2);
+      expect(toWireAwardProfile(profile)).toEqual({ bucket: "threeOrMore", rookie: false, priorJudgedAwards: 3, priorImpactWins: 2 });
+    } finally {
+      db.close();
     }
   });
 });

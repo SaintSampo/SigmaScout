@@ -485,11 +485,15 @@ export type DistrictEventInputResult =
  * mapping, at this boundary, exactly as `DISTRICT_AWARD_BUCKETS`' doc comment
  * requires.
  *
- * `priorJudgedAwards` is forwarded UNCHANGED and stays absent when the artifact
- * carries none. Defaulting it to 0 here would sort that team to the bottom of
- * its field and price it at the ordering's tail; `awardOrderingAssignments`
- * instead takes the whole event back to the base rate, which is the price the
- * artifact was published at before the ordering existed.
+ * `priorJudgedAwards` and `priorImpactWins` are forwarded UNCHANGED and each
+ * stays absent when the artifact carries none. Defaulting either to 0 here
+ * would sort that team to the bottom of its field and price it at the
+ * ordering's tail; `awardOrderingAssignments` instead takes the whole event
+ * back to the base rate, which is the price the artifact was published at
+ * before the ordering existed. That includes an artifact published with the
+ * judged count but before the Impact count (260929-imp): the committed Impact
+ * tables were measured under the Impact-first ordering, and the one-number
+ * ordering against them would misprice position 1.
  */
 export function awardProfileFor(team: DistrictTeam): DistrictAwardProfile | undefined {
   const profile = team.awardProfile;
@@ -499,6 +503,7 @@ export function awardProfileFor(team: DistrictTeam): DistrictAwardProfile | unde
     bucket,
     rookieState: profile.rookie ? "rookie" : "veteran",
     ...(profile.priorJudgedAwards === undefined ? {} : { priorJudgedAwards: profile.priorJudgedAwards }),
+    ...(profile.priorImpactWins === undefined ? {} : { priorImpactWins: profile.priorImpactWins }),
   };
 }
 
@@ -516,7 +521,7 @@ export function awardProfileFor(team: DistrictTeam): DistrictAwardProfile | unde
  *
  * This is NOT `awardProfileFor`'s defaulting, which that function's own doc
  * comment rules out: a PUBLISHED profile that only lacks `priorJudgedAwards`
- * still passes through unchanged. Only a team with no profile at all reads
+ * or `priorImpactWins` still passes through unchanged. Only a team with no profile at all reads
  * this one. The guarantee side (`districtLedgerStatus.ts`) keeps passing such
  * a team as a rookie, the widening direction, and is untouched.
  *

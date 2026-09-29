@@ -1794,6 +1794,22 @@ describe("DistrictTeamSchema.awardProfile", () => {
     fixture.teams[0]!.awardProfile = { bucket: "none", rookie: true, priorJudgedAwards: 1.5 };
     expect(() => DistrictArtifactSchema.parse(fixture)).toThrow();
   });
+
+  it("carries priorImpactWins as an OPTIONAL non-negative integer — the Impact ordering's first key (260929-imp)", () => {
+    const fixture = validDistrictFixture() as unknown as { teams: Array<Record<string, unknown>> };
+    fixture.teams[0]!.awardProfile = { bucket: "threeOrMore", rookie: false, priorJudgedAwards: 7, priorImpactWins: 2 };
+    expect(DistrictArtifactSchema.parse(fixture).teams[0]!.awardProfile!.priorImpactWins).toBe(2);
+
+    // Absent parses (every artifact published before the field existed).
+    fixture.teams[0]!.awardProfile = { bucket: "threeOrMore", rookie: false, priorJudgedAwards: 7 };
+    expect(DistrictArtifactSchema.parse(fixture).teams[0]!.awardProfile!.priorImpactWins).toBeUndefined();
+
+    // A negative or fractional count is not a count.
+    fixture.teams[0]!.awardProfile = { bucket: "none", rookie: true, priorImpactWins: -1 };
+    expect(() => DistrictArtifactSchema.parse(fixture)).toThrow();
+    fixture.teams[0]!.awardProfile = { bucket: "none", rookie: true, priorImpactWins: 0.5 };
+    expect(() => DistrictArtifactSchema.parse(fixture)).toThrow();
+  });
 });
 
 describe("the district pre-simulation sidecar (the SIDECAR branch the byte measurement selected)", () => {

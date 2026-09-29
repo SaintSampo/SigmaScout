@@ -2184,16 +2184,25 @@ const DistrictAwardBaseRatesSchema = z
  * recover the count from the bucket (three or more is one bucket and many
  * counts), so the ordering is impossible without it.
  *
- * OPTIONAL, because every artifact published before this field existed carries
- * no count at all. The consumer's rule for that case is stated once, in
- * `ledgerSimulation.ts`: a field where ANY team is missing the count is priced
- * from the base rate alone, never from a partial ordering.
+ * `priorImpactWins` is the Impact ordering's PRIMARY key since quick task
+ * 260929-imp: `awardOrderingTables`' Impact table was measured under an
+ * ordering that sorts on prior Impact wins first, then on `priorJudgedAwards`,
+ * then on team number. Like the judged count it is walk-forward and a browser
+ * cannot recover it from anything else on the artifact.
+ *
+ * OPTIONAL, both of them, because every artifact published before a field
+ * existed carries no count at all. The consumer's rule for that case is stated
+ * once, in `ledgerSimulation.ts`: a field where ANY team is missing EITHER
+ * count is priced from the base rate alone, never from a partial ordering and
+ * never from the one-number ordering against tables measured under the other.
  */
 const DistrictAwardProfileSchema = z.object({
   bucket: z.enum(DISTRICT_AWARD_BUCKETS),
   rookie: z.boolean(),
-  /** Judged awards won in seasons STRICTLY BEFORE this artifact's own. The ordering key, and the count the bucket was derived from. */
+  /** Judged awards won in seasons STRICTLY BEFORE this artifact's own. The Impact ordering's second key, the Rookie All Star ordering's key, and the count the bucket was derived from. */
   priorJudgedAwards: z.number().int().nonnegative().optional(),
+  /** Impact wins in seasons STRICTLY BEFORE this artifact's own, distinct on `(year, event)`. The Impact ordering's first key. */
+  priorImpactWins: z.number().int().nonnegative().optional(),
 });
 
 /** One position's measured win rate in an ordering table. */
@@ -2221,7 +2230,8 @@ const DistrictAwardOrderingTailSchema = z.object({
  * `residual` is the base-rate table with the Impact and Rookie All Star mass
  * REMOVED, and it replaces `awardBaseRates` wherever the ordering applies.
  * Both are published: a reader that cannot order a field (any team missing
- * `priorJudgedAwards`) falls back to `awardBaseRates` unchanged, and that
+ * `priorJudgedAwards` or `priorImpactWins`) falls back to `awardBaseRates`
+ * unchanged, and that
  * fallback needs the unreduced table to still be there. Shipping only the
  * residual would make the fallback silently under-price every award cell.
  *
@@ -2236,7 +2246,7 @@ const DistrictAwardOrderingTablesSchema = z
     measuredThroughSeason: z.number().int(),
     /** The committed script that produced these numbers, e.g. `scripts/measureAwardOrderingTables.ts`. */
     script: z.string().min(1),
-    /** Impact by position in the most-decorated ordering. A position the measurement could not score is ABSENT, never zeroed. */
+    /** Impact by position in the Impact ordering (prior Impact wins, then prior judged awards, then team number). A position the measurement could not score is ABSENT, never zeroed. */
     impact: z.array(DistrictAwardOrderingPositionSchema),
     impactTail: DistrictAwardOrderingTailSchema,
     /** Rookie All Star by position among the event's rookies. */

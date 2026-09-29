@@ -268,14 +268,19 @@ describe("applyDistrictRankings — the baked-pmf sidecar list", () => {
     expect(merged.bakedEvents).toBeUndefined();
   });
 
-  it("carries an awardProfile forward untouched, priorJudgedAwards included", () => {
+  it("carries an awardProfile forward untouched, priorJudgedAwards and priorImpactWins included", () => {
     const fixture = twoTeamFixture() as unknown as { teams: Array<Record<string, unknown>> };
-    fixture.teams[0]!.awardProfile = { bucket: "oneOrTwo", rookie: false, priorJudgedAwards: 2 };
+    fixture.teams[0]!.awardProfile = { bucket: "oneOrTwo", rookie: false, priorJudgedAwards: 2, priorImpactWins: 1 };
     const merged = merge(DistrictArtifactSchema.parse(fixture), tracerPayload());
     // The ordering key has to survive the live merge: a Worker tick that
     // dropped it would silently take every promoted event off the ordering path
     // and back onto the base rate, and nothing on the page would say so.
-    expect(merged.teams.find((t) => t.teamKey === "frc1")!.awardProfile).toEqual({ bucket: "oneOrTwo", rookie: false, priorJudgedAwards: 2 });
+    expect(merged.teams.find((t) => t.teamKey === "frc1")!.awardProfile).toEqual({
+      bucket: "oneOrTwo",
+      rookie: false,
+      priorJudgedAwards: 2,
+      priorImpactWins: 1,
+    });
   });
 
   it("carries a top-level awardBaseRates table forward untouched", () => {
