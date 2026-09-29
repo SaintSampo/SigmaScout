@@ -6,7 +6,7 @@ current_phase: 10
 current_phase_name: district-points-ledger
 status: executing
 stopped_at: Completed 10-08-PLAN.md
-last_updated: "2026-09-29T00:11:44.082Z"
+last_updated: "2026-09-29T00:48:35.336Z"
 last_activity: 2026-09-29
 last_activity_desc: Phase 10 execution started
 progress:
@@ -701,6 +701,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 264 | Undivided DCMPs bake; as-of runs wait for the DCMP field; field-averaged measurement reads pre-event inputs; rebaseline seeds from apps/worker; refusals name their teams | 2026-09-28 | bdb8faa2 | [260928-n2h-unsplit-dcmps-bake-as-of-dcmp-roster-rul](./quick/260928-n2h-unsplit-dcmps-bake-as-of-dcmp-roster-rul/) |
 | 265 | RP cold-team prior (rpColdPrior, off) passed its pre-registered bar; Sigma carry retried with it on in both arms and is GO on every gate; rollout awaits Jacob | 2026-09-28 | b9b45e6f | [260928-n6i-fix-the-early-season-rp-bonus-cold-start](./quick/260928-n6i-fix-the-early-season-rp-bonus-cold-start/) |
 | 266 | Shipped SPR 9.0.0: RP cold-team prior and Sigma carry on by default, presim rookie rule, RP population on the D1 league row (shape 17), republished (b2bfe488) and Worker deployed | 2026-09-29 | 3498a0d8 | [260928-p8i-ship-the-rp-cold-team-prior-and-the-sigm](./quick/260928-p8i-ship-the-rp-cold-team-prior-and-the-sigm/) |
+| 267 | Ingest skips an event TBA answers 404 for (2026cascc); live Worker prices a debut team's first played row like offline (Worker f840bc1d) | 2026-09-29 | f3278acb | [260928-spa-ingest-tolerates-a-per-event-tba-404-the](./quick/260928-spa-ingest-tolerates-a-per-event-tba-404-the/) |
 
 ### Roadmap Evolution
 
