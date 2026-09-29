@@ -44,6 +44,7 @@ import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
 import type { SprState } from "../core/algorithms/spr.js";
 import { SeedRowTooLargeError, emitSeedSql } from "./seedSql.js";
 import { emptyEpaWeekOneState } from "../core/algorithms/epaWeekOne.js";
+import { emptyEpaRpLeague } from "../core/algorithms/epaRankingPoints.js";
 
 const STAMP: StateStamp = { generation: "test-gen-1", computedAt: "2026-08-22T00:00:00.000Z" };
 
@@ -545,6 +546,8 @@ describe("serializeState/deserializeState — Map members survive by size", () =
         yearBefore: new Map([["frc1", 1490]]),
       },
       breakdownParseFailureCount: 0,
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
     };
@@ -932,6 +935,8 @@ describe("serializeState/deserializeState — EPA's season-boundary carry scale 
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
       breakdownParseFailureCount: 0,
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       // The outgoing season's alliance-score mean: LEAGUE-scoped, one number.
       carrySeedMean: 292.5,
       // Carried-but-not-yet-rescaled teams: a flag on each team's own row, since

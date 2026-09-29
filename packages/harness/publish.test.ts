@@ -5737,3 +5737,97 @@ describe("publishSeasons — cancelled events (quick task 260929-mcf)", () => {
     expect(findTeamArtifact("frc1").events.map((e) => e.eventKey)).toContain("2026later");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Quick task 260929-mat tracer: EPA's own RP odds reach the published event
+// artifact end to end (predict -> SigmaScoutLayer -> buildEventArtifact), and
+// OPR's never do.
+// ---------------------------------------------------------------------------
+
+describe("EPA 14.0.0 ranking-point odds, end to end through the layer into the event artifact", () => {
+  const breakdown2026 = (redHub: number, blueHub: number): string => {
+    const side = (hub: number) => ({
+      autoTowerPoints: 15,
+      endGameTowerPoints: hub > 100 ? 40 : 0,
+      hubScore: { totalCount: hub, transitionPoints: 0, shift1Points: hub, shift2Points: 0, shift3Points: 0, shift4Points: 0, endgamePoints: 0, autoPoints: 0 },
+      adjustPoints: 0,
+      foulPoints: 0,
+      energizedAchieved: hub >= 100,
+      superchargedAchieved: hub >= 360,
+      traversalAchieved: hub > 100,
+    });
+    return JSON.stringify({ red: side(redHub), blue: side(blueHub) });
+  };
+  const played: MatchResult[] = [
+    fixtureMatch({ matchKey: "2026casj_qm1", matchNumber: 1, scoreBreakdownRaw: breakdown2026(150, 60) }),
+    fixtureMatch({
+      matchKey: "2026casj_qm2",
+      matchNumber: 2,
+      redTeams: ["frc254", "frc604", "frc2054"],
+      blueTeams: ["frc1678", "frc971", "frc1323"],
+      redScore: 90,
+      blueScore: 140,
+      winner: "blue",
+      scoreBreakdownRaw: breakdown2026(80, 380),
+    }),
+    fixtureMatch({ matchKey: "2026casj_sf1m1", compLevel: "sf", setNumber: 1, matchNumber: 1, redRpEarned: 0, scoreBreakdownRaw: breakdown2026(200, 120) }),
+  ];
+  const upcomingMatches: UpcomingMatch[] = [
+    fixtureUpcoming({ matchKey: "2026casj_qm3", matchNumber: 3 }),
+    fixtureUpcoming({ matchKey: "2026casj_f1m1", compLevel: "f", setNumber: 1, matchNumber: 1 }),
+  ];
+
+  function artifactFor(algorithm: AlgorithmModule<unknown>): EventArtifact {
+    const teams = [...new Set([...played, ...upcomingMatches].flatMap((m) => [...m.redTeams, ...m.blueTeams]))];
+    const layer = new SigmaScoutLayer(RP_RULE_MODULES[2026], algorithm.id);
+    let state = algorithm.initState(teams);
+    const records: PredictionRecord[] = [];
+    for (const match of played) {
+      records.push(layer.foldPlayed(match, algorithm.predict(state, match)));
+      state = algorithm.update(state, match);
+    }
+    const upcoming = upcomingMatches.map((match) => layer.enrichUpcoming(match, algorithm.predict(state, match)));
+    return buildEventArtifact({
+      eventKey: "2026casj",
+      season: 2026,
+      algorithmId: algorithm.id,
+      algorithmVersion: algorithm.version,
+      predictions: records,
+      upcoming,
+      generation: "g-260929-mat-tracer",
+    });
+  }
+
+  it("under epa every RP-eligible qm row, played and upcoming, carries the pmfs and the decomposition; every non-qm row carries at most the [1] pmfs", () => {
+    const artifact = artifactFor(epa as AlgorithmModule<unknown>);
+    const rows = [...artifact.matches, ...artifact.upcoming];
+    expect(rows.filter((row) => row.compLevel === "qm")).toHaveLength(3);
+    for (const row of rows) {
+      if (row.compLevel === "qm") {
+        expect(row.redRpPmf, row.matchKey).toBeDefined();
+        expect(row.blueRpPmf, row.matchKey).toBeDefined();
+        expect(row.matchOutcomePmf, row.matchKey).toBeDefined();
+        expect(row.redBonusRpPmf, row.matchKey).toBeDefined();
+        expect(row.redBonusRp, row.matchKey).toHaveLength(3);
+        expect(row.redRpPmf!.length).toBe(RP_RULE_MODULES[2026]!.maxRp + 1);
+        expect(row.matchOutcomePmf![1]).toBe(0);
+      } else {
+        for (const pmf of [row.redRpPmf, row.blueRpPmf]) if (pmf !== undefined) expect(pmf).toEqual([1]);
+        expect(row.matchOutcomePmf).toBeUndefined();
+        expect(row.redBonusRp).toBeUndefined();
+      }
+    }
+    expect(artifact.rpOutcomeRp).toEqual({ win: 3, tie: 1 });
+  });
+
+  it("the same fixture under opr carries no RP field on any row", () => {
+    const artifact = artifactFor(opr as AlgorithmModule<unknown>);
+    for (const row of [...artifact.matches, ...artifact.upcoming]) {
+      expect(row.redRpPmf).toBeUndefined();
+      expect(row.blueRpPmf).toBeUndefined();
+      expect(row.matchOutcomePmf).toBeUndefined();
+      expect(row.redBonusRp).toBeUndefined();
+    }
+    expect(artifact.rpOutcomeRp).toBeUndefined();
+  });
+});

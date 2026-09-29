@@ -60,13 +60,36 @@ export function usesSigmaScore(algorithmId: string): boolean {
 }
 
 /**
- * Whether this algorithm publishes ranking-point odds (RP pmfs, their
- * decomposition, bonus-RP probabilities and pre-schedule sidecars). They need a
- * per-robot score variance, which only Sigma algorithms carry. Kept separate
- * from `usesSigmaScore` so an RP gate names the capability it asks about.
+ * Who prices each algorithm's ranking-point odds. `"sigma-layer"`: the
+ * SigmaScout layer builds them from the algorithm's scores and a per-robot
+ * variance (SPR). `"algorithm"`: the algorithm's own `predict` emits them
+ * (EPA, by Statbotics' bonus RP slots since 14.0.0, quick task 260929-mat).
+ * An algorithm absent from this map publishes no ranking-point odds (OPR).
+ */
+export const RANKING_POINT_SOURCES: Readonly<Record<string, "sigma-layer" | "algorithm">> = {
+  spr: "sigma-layer",
+  epa: "algorithm",
+};
+
+/**
+ * Whether this algorithm PUBLISHES ranking-point odds at all (RP pmfs, their
+ * decomposition, bonus-RP probabilities, pre-schedule sidecars and the event
+ * Simulation tab), whoever prices them. SPR and EPA. Kept separate from
+ * `usesSigmaScore` so an RP gate names the capability it asks about.
  */
 export function publishesRankingPoints(algorithmId: string): boolean {
-  return usesSigmaScore(algorithmId);
+  return Object.prototype.hasOwnProperty.call(RANKING_POINT_SOURCES, algorithmId);
+}
+
+/**
+ * Whether the SIGMASCOUT LAYER prices this algorithm's ranking-point odds
+ * (the RP moments accumulator, the mean shift and the pre-event RP filler).
+ * SPR only: EPA's odds come from its own `predict` and never borrow SPR's
+ * machinery, so a layer or Worker gate that builds that machinery asks this,
+ * not `publishesRankingPoints`.
+ */
+export function layerPricesRankingPoints(algorithmId: string): boolean {
+  return RANKING_POINT_SOURCES[algorithmId] === "sigma-layer";
 }
 
 /**

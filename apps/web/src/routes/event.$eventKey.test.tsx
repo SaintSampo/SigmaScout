@@ -494,14 +494,14 @@ describe("/event/$eventKey route — the identity header", () => {
   });
 });
 
-describe("/event/$eventKey route — the Simulation tab, SPR-gated", () => {
-  // `isSimulationDisabled` is `!usesSigmaScore(algorithm)`, so the trigger
-  // is enabled for SPR and disabled for OPR/EPA — the boolean still
-  // resolves before any data does.
-  it("with the artifact fetch left permanently pending, the Simulation trigger is enabled for spr and disabled for epa and opr", async () => {
+describe("/event/$eventKey route — the Simulation tab, gated on ranking-point odds", () => {
+  // `isSimulationDisabled` is `!publishesRankingPoints(algorithm)`, so the
+  // trigger is enabled for SPR and EPA and disabled for OPR — the boolean
+  // still resolves before any data does.
+  it("with the artifact fetch left permanently pending, the Simulation trigger is enabled for spr and epa and disabled for opr", async () => {
     for (const [algorithm, expectedDisabled] of [
       ["spr", false],
-      ["epa", true],
+      ["epa", false],
       ["opr", true],
     ] as const) {
       stubFetch("pending");
@@ -511,7 +511,7 @@ describe("/event/$eventKey route — the Simulation tab, SPR-gated", () => {
     }
   });
 
-  it("the enabled spr trigger has no title, no aria-label and no aria-describedby, and its textContent is exactly 'Simulation'; for opr the wrapper span's title is the SPR-only sentence", async () => {
+  it("the enabled spr trigger has no title, no aria-label and no aria-describedby, and its textContent is exactly 'Simulation'; for opr the wrapper span's title is the SPR and EPA sentence", async () => {
     stubFetch("pending");
     renderEventRoute("/event/2024casf?algorithm=spr");
     const trigger = await screen.findByRole("tab", { name: "Simulation" });
@@ -526,10 +526,10 @@ describe("/event/$eventKey route — the Simulation tab, SPR-gated", () => {
     renderEventRoute("/event/2024casf?algorithm=opr");
     const oprTrigger = await screen.findByRole("tab", { name: "Simulation" });
     await waitFor(() => expect(oprTrigger.hasAttribute("disabled")).toBe(true));
-    expect(oprTrigger.parentElement?.getAttribute("title")).toBe("Simulation is only available on SPR. Switch the algorithm selector to SPR.");
+    expect(oprTrigger.parentElement?.getAttribute("title")).toBe("Simulation is available on SPR and EPA. Switch the algorithm selector to SPR or EPA.");
   });
 
-  it("?algorithm=opr&tab=simulation shows the Insights panel while the URL's tab search param still reads 'simulation' (resolve-only, never rewritten); ?algorithm=spr&tab=simulation shows the Simulation panel", async () => {
+  it("?algorithm=opr&tab=simulation shows the Insights panel while the URL's tab search param still reads 'simulation' (resolve-only, never rewritten); ?algorithm=spr&tab=simulation and ?algorithm=epa&tab=simulation show the Simulation panel", async () => {
     stubFetch(() => eventArtifactResponse());
     const oprRouter = renderEventRoute("/event/2024casf?algorithm=opr&tab=simulation");
 
@@ -540,6 +540,13 @@ describe("/event/$eventKey route — the Simulation tab, SPR-gated", () => {
 
     stubFetch(() => eventArtifactResponse());
     renderEventRoute("/event/2024casf?algorithm=spr&tab=simulation");
+
+    await waitFor(() => expect(screen.getByTestId("simulation-panel").hasAttribute("hidden")).toBe(false));
+    expect(screen.getByTestId("insights-panel").hasAttribute("hidden")).toBe(true);
+    cleanup();
+
+    stubFetch(() => eventArtifactResponse());
+    renderEventRoute("/event/2024casf?algorithm=epa&tab=simulation");
 
     await waitFor(() => expect(screen.getByTestId("simulation-panel").hasAttribute("hidden")).toBe(false));
     expect(screen.getByTestId("insights-panel").hasAttribute("hidden")).toBe(true);

@@ -16,7 +16,7 @@ import { QualsTab, QualsTabSkeleton } from "../components/event/QualsTab.js";
 import { AlliancesTab, AlliancesTabSkeleton, hasAllianceData } from "../components/event/AlliancesTab.js";
 import { ElimsTab, ElimsTabSkeleton } from "../components/event/ElimsTab.js";
 import { SimulationTab, SimulationTabSkeleton } from "../components/event/SimulationTab.js";
-import { usesSigmaScore } from "../../../../packages/harness/sigmaScore.js";
+import { publishesRankingPoints } from "../../../../packages/harness/sigmaScore.js";
 import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
 /**
@@ -44,9 +44,10 @@ export const Route = createFileRoute("/event/$eventKey")({
  *
  * Registering an id here is not the ONLY reachability rule on this page.
  * `simulation` is registered (has a trigger and a panel) but still
- * conditionally UNREACHABLE — a Sigma-algorithm-only rule plain-disables its
- * trigger on OPR/EPA (see `isSimulationDisabled` below), a second narrowing
- * this array cannot express on its own.
+ * conditionally UNREACHABLE — a ranking-point-odds rule plain-disables its
+ * trigger on an algorithm that publishes none, OPR today (see
+ * `isSimulationDisabled` below), a second narrowing this array cannot express
+ * on its own.
  */
 const REGISTERED_EVENT_TABS: readonly EventTab[] = ["insights", "breakdown", "quals", "alliances", "elims", "simulation"];
 
@@ -164,7 +165,7 @@ function EventPage() {
   // published id set before this component ever reads it. Gating it on
   // query state would make a nav element's state wait on a fetch for no
   // reason, and would blur two genuinely different rules into one shape.
-  const isSimulationDisabled = !usesSigmaScore(algorithm);
+  const isSimulationDisabled = !publishesRankingPoints(algorithm);
   const activeTab = resolveActiveTab(tab, { isAlliancesDisabled, isSimulationDisabled });
 
   /**
@@ -178,12 +179,11 @@ function EventPage() {
    * every event page load in the app, defeating the lazy requirement
    * entirely.
    *
-   * `!isSimulationDisabled` is part of the gate because the tab is
-   * Sigma-algorithm-only: on OPR/EPA the trigger is disabled,
-   * `resolveActiveTab` sends `?tab=simulation` back to the default tab, and
-   * no sidecar exists for those algorithms anyway (they model no ranking
-   * points, so `buildPreScheduleArtifact` returns `null` and publishes
-   * nothing).
+   * `!isSimulationDisabled` is part of the gate because the tab needs
+   * ranking-point odds, which SPR and EPA publish and OPR does not: on OPR the
+   * trigger is disabled, `resolveActiveTab` sends `?tab=simulation` back to
+   * the default tab, and no sidecar exists for it anyway (it models no
+   * ranking points, so no pre-schedule sidecar is ever published for it).
    */
   const isPreScheduleEnabled = isValidKey && version !== undefined && !isSimulationDisabled && activeTab === "simulation";
   const { data: preSchedule, isPending: isPreScheduleQueryPending } = useQuery({
@@ -409,7 +409,7 @@ function EventPage() {
             {/* Same wrapper-span `title` treatment as Alliances above, and for the same pointer-events-none reason. */}
             <span
               className="inline-flex"
-              title={isSimulationDisabled ? "Simulation is only available on SPR. Switch the algorithm selector to SPR." : undefined}
+              title={isSimulationDisabled ? "Simulation is available on SPR and EPA. Switch the algorithm selector to SPR or EPA." : undefined}
             >
               <TabsTrigger
                 value="simulation"

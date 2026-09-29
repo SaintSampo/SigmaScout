@@ -112,9 +112,10 @@ export interface Prediction {
    * in `0..maxRp`. Sums to 1 within 1e-9. Optional — omitted entirely
    * (never an empty array standing in for "not modelled"). The mean is
    * derived from this array at read time (`pmfMean`), never stored
-   * alongside it. No algorithm's own `predict()` populates this field: it
-   * is attached uniformly, for every algorithm, by the level-2
-   * `SigmaScoutLayer` via `analyticRpPmf`.
+   * alongside it. SPR's is attached by the level-2 `SigmaScoutLayer` via
+   * `analyticRpPmf`. EPA's own `predict()` emits it (since 14.0.0) from its
+   * Statbotics bonus RP slots via `bonusMarginalRpPmf`, and the layer passes
+   * it through untouched. OPR publishes none.
    */
   redRpPmf?: readonly number[];
   /** The blue alliance's counterpart to `redRpPmf` — see its doc comment for the full contract. */

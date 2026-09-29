@@ -17,6 +17,7 @@ import {
   PRIOR_SIGMA_MIN_RATIO,
   PRIOR_SIGMA_MAX_RATIO,
   allianceSigmaBandVariance,
+  layerPricesRankingPoints,
   publishesRankingPoints,
   type SigmaFoldMatch,
 } from "./sigmaScore.js";
@@ -310,10 +311,20 @@ describe("allianceSigmaBandVariance", () => {
 });
 
 describe("publishesRankingPoints", () => {
-  it("is true for spr and false for opr and epa", () => {
+  it("is true for spr and epa and false for opr (literal ids, no alias)", () => {
     expect(publishesRankingPoints("spr")).toBe(true);
+    expect(publishesRankingPoints("epa")).toBe(true);
     expect(publishesRankingPoints("opr")).toBe(false);
-    expect(publishesRankingPoints("epa")).toBe(false);
+    expect(publishesRankingPoints("toString")).toBe(false);
+  });
+});
+
+describe("layerPricesRankingPoints", () => {
+  it("is true for spr only: EPA prices its own odds and borrows none of the layer's machinery", () => {
+    expect(layerPricesRankingPoints("spr")).toBe(true);
+    expect(layerPricesRankingPoints("epa")).toBe(false);
+    expect(layerPricesRankingPoints("opr")).toBe(false);
+    expect(layerPricesRankingPoints("toString")).toBe(false);
   });
 });
 

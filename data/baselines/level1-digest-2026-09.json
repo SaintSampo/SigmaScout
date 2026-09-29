@@ -15,7 +15,7 @@
     },
     {
       "algorithmId": "epa",
-      "algorithmVersion": "13.0.0+baseline",
+      "algorithmVersion": "14.0.0+baseline",
       "predictionStreamSha256": "b30d7aa5f668369f28b4597edc6fc2832a17ae12701ff8342f7e21805c87f9a9"
     },
     {

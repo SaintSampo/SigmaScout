@@ -3,6 +3,7 @@ import { COMPONENT_GROUP_METRIC_KEYS } from "../../../../packages/core/algorithm
 import { epa, type EpaState } from "../../../../packages/core/algorithms/epa.js";
 import { emptyExpandingStats } from "../../../../packages/core/scoring/expandingStats.js";
 import { emptyEpaWeekOneState } from "../../../../packages/core/algorithms/epaWeekOne.js";
+import { emptyEpaRpLeague } from "../../../../packages/core/algorithms/epaRankingPoints.js";
 import { METRIC_GROUPS, withDerivedGroupMetrics } from "./metricGroups.js";
 
 /**
@@ -142,6 +143,8 @@ describe("metricGroups <-> epa.teamMetrics parity", () => {
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),

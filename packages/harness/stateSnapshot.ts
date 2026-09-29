@@ -19,6 +19,7 @@
  */
 import { z } from "zod";
 import type { EpaState } from "../core/algorithms/epa.js";
+import { emptyEpaRpLeague } from "../core/algorithms/epaRankingPoints.js";
 import type { SprPhaseRecord, SprState, SprTeamState } from "../core/algorithms/spr.js";
 import { COMPONENT_GROUP_IDS, type ComponentGroupId } from "../core/algorithms/breakdown/index.js";
 import { DEMO_PSEUDO_TEAM_KEY, isDemoTeamKey } from "../core/algorithms/demoTeams.js";
@@ -340,6 +341,8 @@ function deserializeEpaState(algorithmId: string, rows: readonly StateRow[]): Ep
     },
     fallbackSkipped: leagueJson.fallbackSkipped,
     priorSeasonRatings: { lastSeason, yearBefore },
+    rpSlotOffsets: new Map(),
+    rpLeague: emptyEpaRpLeague(),
     breakdownParseFailureCount: leagueJson.breakdownParseFailureCount,
   };
 }

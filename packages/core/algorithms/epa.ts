@@ -24,8 +24,9 @@
  *     cross-alliance quantity (`breakdown/{year}.ts`'s `parse()`).
  *   - Elimination matches blend at `EPA_ELIM_WEIGHT` (1/3) and do not advance
  *     a team's match counter, matching Statbotics' `ELIM_WEIGHT`.
- *   - No per-season post-processing beyond the attribution split above — no
- *     `post_process_breakdown` equivalent.
+ *   - No per-season post-processing of SCORE components beyond the attribution
+ *     split above. The only `post_process_breakdown` piece ported is its RP
+ *     `unit_sigmoid`, which never touches a score (see ranking points below).
  *   - The win-probability scale denominator is an expanding-window
  *     alliance-score SD (Welford, `scoring/expandingStats.ts`), never a
  *     season-final constant — a season-batch SD would leak future variance
@@ -35,6 +36,21 @@
  *     since no season point scale exists yet at a team's first-ever match.
  *     Cross-season carry (a team WITH prior-season history) is `carrySeason`
  *     below, backed by `carryover.ts`'s `epaCarryover`.
+ *   - Ranking points (14.0.0, `epaRankingPoints.ts`), Statbotics' slots with
+ *     these named differences:
+ *     P-1 one slot per season `bonusNames` entry, keyed by bonus name, not by
+ *         Statbotics' `rp_1..rp_3` position.
+ *     P-2 the observed flag is the rule module's `parse(...).bonusFlags` (the
+ *         flag the site publishes as the actual result), not TBA's `*Achieved`.
+ *     P-3 `get_init_epa` kept whole (z term included); the league rate is
+ *         walk-forward: frozen week 1 rate after the seal, else the live season
+ *         rate after `EPA_CARRY_RESCALE_MIN_OBS` alliances, else 0.5.
+ *     P-4 no tie: the outcome is `[pRedWin, 0, 1 - pRedWin]`, independent of
+ *         the bonuses, matching Statbotics' binary `win_prob`.
+ *     P-5 bonuses are independent, except `nestedSameVariable` groups, which
+ *         are clamped monotone and enumerated by interval.
+ *     P-6 the error is split across the rating-eligible teams (surrogates
+ *         excluded), ruling-zero alliances skip, a demo match skips whole.
  *
  * Current measured fidelity against Statbotics: `docs/models/epa-vs-statbotics.md`
  * (re-runnable via `npx tsx scripts/epaVsStatbotics.ts --check`).
@@ -98,6 +114,24 @@ import {
   EPA_CARRY_RESCALE_MIN_OBS,
   EPA_SCORE_SD_SEED_COUNT,
 } from "./epaCarryScale.js";
+import { isStatboticsWeekOne } from "./epaWeekOne.js";
+import {
+  applyEpaRpSlotUpdate,
+  emptyEpaRpLeague,
+  epaRpColdSlot,
+  epaRpLeagueRate,
+  epaRpPreImage,
+  epaRpTeamZ,
+  EPA_RP_NUM_TEAMS,
+  foldEpaRpLeague,
+  freezeEpaRpLeague,
+  rpPredictionFieldsFrom,
+  unitSigmoid,
+  type EpaRpLeagueState,
+} from "./epaRankingPoints.js";
+import { RP_RULE_MODULES } from "../rankingPoints/rules.js";
+import { isRpEligibleEventType, type RpRuleModule } from "../rankingPoints/constants.js";
+import { bonusMarginalRpPmf } from "../rankingPoints/bonusMarginalPmf.js";
 
 // EPA_NORM_MEAN/EPA_NORM_SD/EPA_INIT_PENALTY/EPA_MEAN_REVERSION are owned by
 // carryover.ts (avoids a circular import at module-init time) and
@@ -258,6 +292,18 @@ export interface EpaState extends BreakdownParseTelemetry {
   readonly weekOne: EpaWeekOneState;
   readonly fallbackSkipped: number;
   readonly priorSeasonRatings: EpaCarryoverPriorRatings;
+  /**
+   * Per team, one season-scoped OFFSET per bonus RP (keyed by the season rule
+   * module's bonus name), on top of the cold slot `epaRankingPoints.ts` derives
+   * from the league rate and the team's carried strength. A team's effective
+   * Statbotics `rp_x` rating is `cold + offset`. Never read by a score, a
+   * winner or a component. Reset at every season boundary: each season's
+   * bonuses are different tasks, and carried strength reaches the cold slot
+   * through `priorSeasonRatings` instead.
+   */
+  readonly rpSlotOffsets: ReadonlyMap<string, Readonly<Record<string, number>>>;
+  /** League-scoped bonus-rate state (`EpaRpLeagueState`), the walk-forward `year.rp_x_mean` source. Reset at every season boundary. */
+  readonly rpLeague: EpaRpLeagueState;
   // Cumulative over the algorithm's whole lifetime, incremented only for a
   // "malformed" `tryParseBreakdownPair` outcome. Kept SEPARATE from
   // `fallbackSkipped` above — that field is a permanently-zero invariant
@@ -298,13 +344,84 @@ function carryRescaleRatioFor(state: EpaState): { ratio: number; deferred: boole
   // (the fallback path imputes components from these very means, so folding
   // an imputed value would be circular). Registered in
   // `docs/models/epa-statbotics-gap.md`'s R3 entry.
-  const numerator =
-    state.weekOne.frozenFoul !== null
-      ? state.weekOne.frozenFoul.noFoulMean
-      : state.weekOne.frozen !== null
-        ? state.weekOne.frozen.mean
-        : cleanSeasonMean(state.allianceScoreStats, state.carrySeedMean, EPA_SCORE_SD_SEED_COUNT, EPA_CARRY_RESCALE_MIN_OBS);
+  const numerator = seasonMeanAnchorFor(state);
   return carryRescaleRatio(numerator, state.carrySeedMean);
+}
+
+/**
+ * The season's alliance-score mean anchor, Statbotics' `get_constants`
+ * `curr_mean` analogue: the frozen week-1 no-foul mean, else the frozen week-1
+ * raw mean, else `cleanSeasonMean`'s live unwind (`null` when unreadable). The
+ * expression `carryRescaleRatioFor` has always used, extracted so the RP cold
+ * slot reads the identical number.
+ */
+function seasonMeanAnchorFor(state: EpaState): number | null {
+  return state.weekOne.frozenFoul !== null
+    ? state.weekOne.frozenFoul.noFoulMean
+    : state.weekOne.frozen !== null
+      ? state.weekOne.frozen.mean
+      : cleanSeasonMean(state.allianceScoreStats, state.carrySeedMean, EPA_SCORE_SD_SEED_COUNT, EPA_CARRY_RESCALE_MIN_OBS);
+}
+
+/**
+ * The win-probability denominator, Statbotics' `year.score_sd`: the frozen
+ * week-1 SD once the seal has fired, else the live expanding-window SD. The
+ * expression `predictCore` has always used, extracted so the RP cold slot reads
+ * the identical number.
+ */
+function seasonScoreSdFor(state: EpaState): number {
+  return state.weekOne.frozen !== null
+    ? state.weekOne.frozen.sd
+    : standardDeviation(state.allianceScoreStats, EPA_FALLBACK_SCORE_SD);
+}
+
+/** Per-match inputs to every team's RP cold slot, computed once per match from the pre-update state. */
+interface EpaRpColdContext {
+  readonly preImages: readonly number[];
+  readonly sdFrac: number | null;
+  readonly zFloor: number;
+}
+
+function epaRpColdContext(state: EpaState, ruleModule: RpRuleModule): EpaRpColdContext {
+  const preImages = ruleModule.bonusNames.map((name) => epaRpPreImage(epaRpLeagueRate(state.rpLeague, name)));
+  const mean = seasonMeanAnchorFor(state);
+  const sd = seasonScoreSdFor(state);
+  // `get_init_epa`'s `sd_frac = year_sd / year_mean` and its floor
+  // `-year_mean / num_teams / year_sd`; unreadable scale drops the z term.
+  const readable = mean !== null && Number.isFinite(mean) && mean > 0 && Number.isFinite(sd) && sd > 0;
+  return {
+    preImages,
+    sdFrac: readable ? sd / mean : null,
+    zFloor: readable ? -mean / EPA_RP_NUM_TEAMS / sd : 0,
+  };
+}
+
+/**
+ * One alliance's per-bonus probability, in `bonusNames` order: the sum of each
+ * eligible team's `cold + offset` passed through `unitSigmoid`
+ * (`post_process_breakdown`).
+ */
+function epaRpAllianceProbabilities(
+  state: EpaState,
+  teams: readonly string[],
+  ruleModule: RpRuleModule,
+  context: EpaRpColdContext
+): number[] {
+  const zs = teams.map((team) => epaRpTeamZ(state.priorSeasonRatings, team));
+  return ruleModule.bonusNames.map((name, index) => {
+    let sum = 0;
+    teams.forEach((team, t) => {
+      sum += epaRpColdSlot(context.preImages[index]!, context.sdFrac, context.zFloor, zs[t]!) + (state.rpSlotOffsets.get(team)?.[name] ?? 0);
+    });
+    return unitSigmoid(sum);
+  });
+}
+
+/** The season's RP rules for this event, or `undefined` when the season has none or the event type awards none. */
+function epaRpRuleModuleFor(eventKey: string, eventType: number): RpRuleModule | undefined {
+  const ruleModule = RP_RULE_MODULES[deriveSeasonFromEventKey(eventKey)];
+  if (ruleModule === undefined || !isRpEligibleEventType(eventType)) return undefined;
+  return ruleModule;
 }
 
 /** Both alliances' rating-eligible teams, through the SAME remap/surrogate filter `predict`/`update` already apply. */
@@ -345,6 +462,8 @@ function initState(teams: string[]): EpaState {
     weekOne: emptyEpaWeekOneState(),
     fallbackSkipped: 0,
     priorSeasonRatings: EMPTY_PRIOR_SEASON_RATINGS,
+    rpSlotOffsets: new Map(),
+    rpLeague: emptyEpaRpLeague(),
     breakdownParseFailureCount: 0,
   };
 }
@@ -522,10 +641,7 @@ function predictCore(state: EpaState, match: UpcomingMatch): Prediction {
   // SD is used for every remaining match of the season; until then the live
   // expanding-window SD applies. Neither branch can incorporate a match that
   // has not been replayed yet.
-  const seasonScoreSd =
-    state.weekOne.frozen !== null
-      ? state.weekOne.frozen.sd
-      : standardDeviation(state.allianceScoreStats, EPA_FALLBACK_SCORE_SD);
+  const seasonScoreSd = seasonScoreSdFor(state);
   const scale = seasonScoreSd / (-EPA_K * Math.LN10);
   // The margin carries no foul term at all. `main.py:125-130` (reference
   // section 14) computes `norm_diff` and `win_prob` from the foul-free
@@ -545,6 +661,26 @@ function predictCore(state: EpaState, match: UpcomingMatch): Prediction {
   const redScore = redOffensiveTotal * (1 + foulRate);
   const blueScore = blueOffensiveTotal * (1 + foulRate);
 
+  // RANKING POINTS (14.0.0, Statbotics' method). Appended AFTER every score
+  // field is final and reads none of them except `pRedWin`, so the slots can
+  // never move a score, a winner or a component. No key at all when the season
+  // has no RP rules or the event type awards none (offseason).
+  const rpRuleModule = epaRpRuleModuleFor(match.eventKey, match.eventType);
+  let rankingPoints: Partial<Prediction> = {};
+  if (rpRuleModule !== undefined) {
+    const context = epaRpColdContext(state, rpRuleModule);
+    rankingPoints = rpPredictionFieldsFrom(
+      bonusMarginalRpPmf({
+        redBonusProbabilities: epaRpAllianceProbabilities(state, redTeams, rpRuleModule, context),
+        blueBonusProbabilities: epaRpAllianceProbabilities(state, blueTeams, rpRuleModule, context),
+        pRedWin,
+        ruleModule: rpRuleModule,
+        eventType: match.eventType,
+        compLevel: match.compLevel,
+      })
+    );
+  }
+
   return {
     // Ties (margin === 0) give pRedWin exactly 0.5 via the logistic form
     // itself (exp(0) === 1), and `>= 0.5` resolves to "red" — matching
@@ -559,6 +695,7 @@ function predictCore(state: EpaState, match: UpcomingMatch): Prediction {
     // of any component.
     redComponents,
     blueComponents,
+    ...rankingPoints,
   };
 }
 
@@ -912,6 +1049,43 @@ function updateCore(state: EpaState, result: MatchResult, componentMap?: SeasonC
     }
   }
 
+  // RANKING-POINT SLOTS (14.0.0). Computed from the PRE-update `state` (the
+  // probability each alliance was priced at) and written to the two RP fields
+  // only; every field above is byte-identical to what 13.0.0 returned.
+  //
+  // The week 1 seal's RP half runs FIRST, then this match folds: the same
+  // "seal first, then fold" order the score aggregate follows.
+  let rpLeague = state.rpLeague;
+  if (!state.weekOne.sealed && weekOne.sealed) rpLeague = freezeEpaRpLeague(rpLeague);
+  let rpSlotOffsets = state.rpSlotOffsets;
+  const rpRuleModule = epaRpRuleModuleFor(result.eventKey, result.eventType);
+  // Qualification only: an elimination match leaves every slot and the league
+  // rate alone (Statbotics' `post_process_attrib` elim freeze).
+  if (rpRuleModule !== undefined && result.compLevel === "qm" && result.scoreBreakdownRaw !== null) {
+    const context = epaRpColdContext(state, rpRuleModule);
+    const inWeekOne = isStatboticsWeekOne(result.week) && !weekOne.sealed;
+    const sides = [
+      { side: "red" as const, teams: redTeams, rulingZero: redIsRulingZero },
+      { side: "blue" as const, teams: blueTeams, rulingZero: blueIsRulingZero },
+    ];
+    for (const { side, teams, rulingZero } of sides) {
+      if (rulingZero || teams.length === 0) continue;
+      let flags: Record<string, boolean>;
+      try {
+        flags = rpRuleModule.parse(JSON.parse(result.scoreBreakdownRaw), side, result.eventType).bonusFlags;
+      } catch {
+        // An unparseable breakdown moves no slot and no league rate. It is not a
+        // component-parse failure, so `breakdownParseFailureCount` is untouched.
+        continue;
+      }
+      const probabilities = epaRpAllianceProbabilities(state, teams, rpRuleModule, context);
+      rpSlotOffsets = applyEpaRpSlotUpdate(rpSlotOffsets, teams, rpRuleModule.bonusNames, flags, probabilities, (team) =>
+        epaPercentFunc(state.teamMatchCounts.get(team) ?? 0)
+      );
+      rpLeague = foldEpaRpLeague(rpLeague, rpRuleModule.bonusNames, flags, inWeekOne);
+    }
+  }
+
   return {
     season,
     teamComponents: afterBlue.teamComponents,
@@ -931,6 +1105,8 @@ function updateCore(state: EpaState, result: MatchResult, componentMap?: SeasonC
     // Untouched by an ordinary match update — only carrySeason moves this
     // forward, at a season boundary.
     priorSeasonRatings: state.priorSeasonRatings,
+    rpSlotOffsets,
+    rpLeague,
     breakdownParseFailureCount,
   };
 }
@@ -1117,6 +1293,12 @@ function carrySeason(state: EpaState, boundary: SeasonBoundary, toSeasonMap?: Se
     carryPending: new Set(teamComponents.keys()),
     fallbackSkipped: 0,
     priorSeasonRatings: carryResult.priorSeasonRatings,
+    // RESET, like the foul accumulators: each season's bonuses are different
+    // tasks with different rates. A team's carried strength still reaches its
+    // cold RP slot, through `priorSeasonRatings` just above (Statbotics'
+    // `get_init_epa` z term).
+    rpSlotOffsets: new Map(),
+    rpLeague: emptyEpaRpLeague(),
     // Carried forward UNCHANGED, unlike the `fallbackSkipped` reset above —
     // see EpaState's doc comment for why the two counters diverge here.
     breakdownParseFailureCount: state.breakdownParseFailureCount,
@@ -1168,6 +1350,17 @@ export const epa = {
   // 5,963 in 2025) — real components now flow instead of the proportional
   // fallback split. MAJOR because a published number moves.
   //
+  // 14.0.0 (quick task 260929-mat, 2026-09-29): L-02 lifted by Jacob. EPA now
+  // predicts ranking points by Statbotics' own method: per-team bonus RP slots
+  // (`epaRankingPoints.ts`), summed across the alliance and passed through
+  // `unit_sigmoid`, emit `redRpPmf`/`blueRpPmf`, the per-bonus marginals and
+  // the five decomposition fields the rank simulation reads. `predict`'s and
+  // `update`'s score arithmetic is untouched (the slots are appended after the
+  // score fields and never read by them), which is why the epa
+  // `predictionStreamSha256` in `data/baselines/level1-digest-2026-09.json` is
+  // byte-unchanged across this bump. MAJOR because every published qualification
+  // row at an RP-eligible event gains RP fields.
+  //
   // 13.0.0 (quick task 260923-3w8, 2026-09-23): nothing in this file changed.
   // The live folding tier widened from `spr` alone to all three published
   // algorithms (`LIVE_ALGORITHM_IDS` in `apps/worker/wrangler.toml`), so the
@@ -1183,7 +1376,7 @@ export const epa = {
   // bump. Jacob's decision, on `260923-1tu-FINDINGS.md` item C6: the free
   // plan's 50-subrequest cap and then its 10 ms CPU cap were what held the
   // tier at one algorithm, and Workers Paid (2026-09-22) retired both.
-  version: "13.0.0+baseline",
+  version: "14.0.0+baseline",
   initState,
   predict,
   update,

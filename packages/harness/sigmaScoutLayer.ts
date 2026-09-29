@@ -10,7 +10,10 @@
  *            algorithm models them and no algorithm may import them.
  *
  * All three are published for Sigma algorithms only (SPR), gated by
- * `usesSigmaScore` and `publishesRankingPoints`.
+ * `usesSigmaScore` and `layerPricesRankingPoints`. EPA also publishes
+ * ranking-point odds since 14.0.0, but prices them in its own `predict`
+ * (Statbotics' bonus RP slots); this layer passes those through untouched and
+ * builds no RP machinery for EPA.
  *
  * Level-2 per-match math lives only here; adding a level-2 field in a caller's
  * loop instead creates a second write path that can drop it.
@@ -36,7 +39,7 @@ import {
 } from "../core/rankingPoints/analyticPmf.js";
 import {
   allianceSigmaBandVariance,
-  publishesRankingPoints,
+  layerPricesRankingPoints,
   SigmaScoreAccumulator,
   sigmaMatchBandVariance,
   usesSigmaScore,
@@ -108,18 +111,19 @@ export class SigmaScoutLayer {
    * never written to any artifact.
    */
   readonly #rpMarginalResolutionTally: MarginalResolutionTally = emptyMarginalResolutionTally();
-  /** The walk-forward RP mean shift (`meanShift.ts`), present whenever this layer publishes ranking points. */
+  /** The walk-forward RP mean shift (`meanShift.ts`), present whenever this layer prices ranking points. */
   readonly #rpMeanShift: RpMeanShiftAccumulator | undefined;
 
   /**
    * `ruleModule` is the season's RP rules, or `undefined` for a season without
    * them (bands still work; RP simply does not appear). `algorithmId` opts in to
    * features: Sigma and the band need `usesSigmaScore`, the RP accumulator and
-   * mean shift need `ruleModule` and `publishesRankingPoints`. With no id the
-   * layer produces nothing.
+   * mean shift need `ruleModule` and `layerPricesRankingPoints` (SPR only; an
+   * algorithm that prices its own RP, EPA, gets neither). With no id the layer
+   * produces nothing.
    */
   constructor(ruleModule: RpRuleModule | undefined, algorithmId?: string, options?: SigmaScoutLayerOptions) {
-    const rankingPoints = algorithmId !== undefined && publishesRankingPoints(algorithmId);
+    const rankingPoints = algorithmId !== undefined && layerPricesRankingPoints(algorithmId);
     this.#ruleModule = rankingPoints ? ruleModule : undefined;
     this.#rp =
       rankingPoints && ruleModule !== undefined
@@ -176,7 +180,7 @@ export class SigmaScoutLayer {
 
   /**
    * The RP cold-team prior's population summary for the spr LEAGUE row (shape
-   * 17), or `undefined` when the layer publishes no ranking points or runs
+   * 17), or `undefined` when the layer prices no ranking points or runs
    * with the prior off. A snapshot: mutating it never reaches the layer.
    */
   rpPopulationState(): RpPopulationState | undefined {
@@ -252,12 +256,12 @@ export class SigmaScoutLayer {
     return this.#sigma?.population();
   }
 
-  /** The RP beliefs learned so far, or `undefined` for a season with no registered rules or an algorithm that publishes no ranking points. */
+  /** The RP beliefs learned so far, or `undefined` for a season with no registered rules or an algorithm whose ranking points this layer does not price. */
   get rpAccumulator(): RpMomentsAccumulator | undefined {
     return this.#rp;
   }
 
-  /** The season's RP rules, or `undefined` (including for an algorithm that publishes no ranking points). */
+  /** The season's RP rules, or `undefined` (including for an algorithm whose ranking points this layer does not price). */
   get ruleModule(): RpRuleModule | undefined {
     return this.#ruleModule;
   }

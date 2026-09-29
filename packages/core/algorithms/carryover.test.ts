@@ -19,6 +19,7 @@ import { epa, EPA_SCORE_SD_SEED_COUNT, type EpaState } from "./epa.js";
 import { emptyExpandingStats, standardDeviation } from "../scoring/expandingStats.js";
 import type { SeasonBoundary } from "./types.js";
 import { emptyEpaWeekOneState } from "./epaWeekOne.js";
+import { emptyEpaRpLeague } from "./epaRankingPoints.js";
 
 describe("EPA_ROOKIE_BASELINE", () => {
   it("is the expression NORM_MEAN - INIT_PENALTY * NORM_SD, evaluating to 1450", () => {
@@ -109,6 +110,8 @@ describe("epa.carrySeason — isColdStart short-circuit", () => {
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
@@ -186,6 +189,8 @@ describe("epa.carrySeason — end-to-end state carry", () => {
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
@@ -229,6 +234,8 @@ describe("epa.carrySeason — end-to-end state carry", () => {
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
@@ -251,6 +258,8 @@ describe("epa.carrySeason — end-to-end state carry", () => {
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
@@ -285,6 +294,8 @@ describe("epa.carrySeason — end-to-end state carry", () => {
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: { lastSeason: new Map(), yearBefore: new Map() },
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),

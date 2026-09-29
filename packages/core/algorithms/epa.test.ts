@@ -30,6 +30,8 @@ import type { EpaCarryoverPriorRatings } from "./carryover.js";
 import type { ComponentPrediction, MatchResult, SeasonBoundary, UpcomingMatch } from "./types.js";
 import { DEMO_PSEUDO_TEAM_KEY } from "./demoTeams.js";
 import { emptyEpaWeekOneState } from "./epaWeekOne.js";
+import { emptyEpaRpLeague } from "./epaRankingPoints.js";
+import { rpRuleModuleForSeason } from "../rankingPoints/rules.js";
 
 /** Empty `EpaState.priorSeasonRatings` — the value every intra-season fixture in this file carries, since none of these tests exercise a season boundary. */
 function emptyPriorSeasonRatings(): EpaCarryoverPriorRatings {
@@ -127,6 +129,8 @@ describe("epa.update — two-stage EWMA reproduces a hand-computed value", () =>
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
@@ -176,6 +180,8 @@ describe("epa.update — error-split attribution (Statbotics post_process_attrib
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
@@ -251,6 +257,8 @@ describe("epa.update — error-split attribution (Statbotics post_process_attrib
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
@@ -283,6 +291,8 @@ describe("epa.update — Statbotics' elimination discount, adopted", () => {
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
@@ -408,6 +418,8 @@ describe("epa.predict — win-probability scale derivation (Pitfall EPA-1)", () 
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
@@ -451,6 +463,8 @@ describe("epa.predict — foulsCommitted no longer enters either predicted score
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
@@ -491,6 +505,8 @@ describe("epa.update — event-boundary invariance", () => {
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
@@ -560,6 +576,8 @@ describe("epa — contract shape", () => {
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
@@ -586,6 +604,8 @@ describe("epa — contract shape", () => {
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
@@ -608,6 +628,8 @@ describe("epa — contract shape", () => {
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
@@ -648,6 +670,8 @@ describe("epa.teamMetrics — phase groups published as first-class metrics", ()
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
@@ -726,6 +750,8 @@ describe("epa.carrySeason — the carryover input stays fouls-INCLUSIVE, deliber
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
@@ -766,6 +792,8 @@ describe("epa.update — breakdown-less fallback attribution", () => {
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
@@ -1193,6 +1221,8 @@ describe("epa — adjust pinned at 0 per team", () => {
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
@@ -1344,6 +1374,8 @@ describe("epa — season-boundary scale anchor: a carried rating enters in the I
       weekOne: emptyEpaWeekOneState(),
       fallbackSkipped: 0,
       priorSeasonRatings: emptyPriorSeasonRatings(),
+      rpSlotOffsets: new Map(),
+      rpLeague: emptyEpaRpLeague(),
       breakdownParseFailureCount: 0,
       carrySeedMean: Number.NaN,
       carryPending: new Set<string>(),
@@ -1680,7 +1712,7 @@ describe("epa — the optional component-map seam is inert at its default and li
   // and proven so by the replay assertions above. Pinning by equality is
   // what forces a version bump to be deliberate rather than a silent drift.
   it("carries exactly one version string, pinned by equality so any bump is deliberate", () => {
-    expect(epa.version).toBe("13.0.0+baseline");
+    expect(epa.version).toBe("14.0.0+baseline");
   });
 });
 
@@ -2000,6 +2032,8 @@ function foulPredictState(overrides: Partial<EpaState> = {}): EpaState {
     weekOne: emptyEpaWeekOneState(),
     fallbackSkipped: 0,
     priorSeasonRatings: emptyPriorSeasonRatings(),
+    rpSlotOffsets: new Map(),
+    rpLeague: emptyEpaRpLeague(),
     breakdownParseFailureCount: 0,
     carrySeedMean: Number.NaN,
     carryPending: new Set<string>(),
@@ -2138,5 +2172,271 @@ describe("epa.predict — the foul term is a post-win-probability scalar (l2k)",
     expect(prediction.pRedWin).toBe(0.5);
     expect(prediction.winner).toBe("red");
     expect(prediction.redScore).toBeCloseTo(prediction.blueScore, 10);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 14.0.0: ranking points by Statbotics' method (quick task 260929-mat)
+// ---------------------------------------------------------------------------
+
+interface Side2026Fixture {
+  readonly hub: number;
+  readonly autoTower: number;
+  readonly endTower: number;
+}
+
+/** A 2026 score_breakdown that parses under BOTH EPA's component schema and the RP rule module. */
+function breakdown2026Json(red: Side2026Fixture, blue: Side2026Fixture): string {
+  const side = (s: Side2026Fixture) => ({
+    autoTowerPoints: s.autoTower,
+    endGameTowerPoints: s.endTower,
+    hubScore: {
+      totalCount: s.hub,
+      transitionPoints: 0,
+      shift1Points: s.hub,
+      shift2Points: 0,
+      shift3Points: 0,
+      shift4Points: 0,
+      endgamePoints: 0,
+      autoPoints: 0,
+    },
+    adjustPoints: 0,
+    foulPoints: 0,
+    energizedAchieved: false,
+    superchargedAchieved: false,
+    traversalAchieved: false,
+  });
+  return JSON.stringify({ red: side(red), blue: side(blue) });
+}
+
+const RP_TEAMS_2026 = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"];
+
+function upcoming2026(overrides: Partial<UpcomingMatch> = {}): UpcomingMatch {
+  return upcoming({ matchKey: "2026test_qm1", eventKey: "2026test", ...overrides });
+}
+
+function result2026(overrides: Partial<MatchResult> = {}): MatchResult {
+  return matchResult({
+    matchKey: "2026test_qm1",
+    eventKey: "2026test",
+    redScore: 150,
+    blueScore: 20,
+    scoreBreakdownRaw: breakdown2026Json({ hub: 150, autoTower: 30, endTower: 30 }, { hub: 0, autoTower: 0, endTower: 0 }),
+    ...overrides,
+  });
+}
+
+const RP_FIELD_NAMES = [
+  "redRpPmf",
+  "blueRpPmf",
+  "redBonusRp",
+  "blueBonusRp",
+  "matchOutcomePmf",
+  "redOutcomeRp",
+  "blueOutcomeRp",
+  "redBonusRpPmf",
+  "blueBonusRpPmf",
+] as const;
+
+describe("epa 14.0.0 — predict emits ranking-point odds from its own bonus RP slots", () => {
+  it("a qm row at an RP-eligible event carries all nine RP fields, shaped exactly like SPR's", () => {
+    const prediction = epa.predict(epa.initState(RP_TEAMS_2026), upcoming2026());
+    for (const name of RP_FIELD_NAMES) expect(prediction[name]).toBeDefined();
+    const ruleModule = rpRuleModuleForSeason(2026);
+    expect(prediction.redRpPmf!.length).toBe(ruleModule.maxRp + 1);
+    expect(Math.abs(prediction.redRpPmf!.reduce((a, b) => a + b, 0) - 1)).toBeLessThan(1e-9);
+    expect(Math.abs(prediction.blueRpPmf!.reduce((a, b) => a + b, 0) - 1)).toBeLessThan(1e-9);
+    expect(prediction.matchOutcomePmf).toEqual([prediction.pRedWin, 0, 1 - prediction.pRedWin]);
+    expect(prediction.redOutcomeRp).toEqual([ruleModule.winRp, ruleModule.tieRp, 0]);
+    expect(prediction.blueOutcomeRp).toEqual([0, ruleModule.tieRp, ruleModule.winRp]);
+    expect(prediction.redBonusRp!.length).toBe(ruleModule.bonusNames.length);
+    // A fresh season: the uninformed rate 0.5 has pre-image 0.5 and the scale is
+    // unreadable, so each team's cold slot is 0.5/3 and every alliance is a coin flip.
+    for (const p of [...prediction.redBonusRp!, ...prediction.blueBonusRp!]) expect(p).toBeCloseTo(0.5, 12);
+  });
+
+  it("a non-qm row carries only the two [1] pmfs", () => {
+    const prediction = epa.predict(epa.initState(RP_TEAMS_2026), upcoming2026({ matchKey: "2026test_sf1m1", compLevel: "sf" }));
+    expect(prediction.redRpPmf).toEqual([1]);
+    expect(prediction.blueRpPmf).toEqual([1]);
+    for (const name of RP_FIELD_NAMES.slice(2)) expect(name in prediction).toBe(false);
+  });
+
+  it("an offseason event, or a season with no rule module, carries no RP key at all", () => {
+    const offseason = epa.predict(epa.initState(RP_TEAMS_2026), upcoming2026({ eventType: 99 }));
+    const noRules = epa.predict(epa.initState(RP_TEAMS_2026), upcoming({ matchKey: "2015test_qm1", eventKey: "2015test" }));
+    for (const prediction of [offseason, noRules]) {
+      for (const name of RP_FIELD_NAMES) expect(name in prediction).toBe(false);
+    }
+  });
+
+  it("2026: the published supercharged marginal never exceeds energized, and the bonus pmf never places supercharged without energized", () => {
+    // Offsets that would put supercharged ABOVE energized before the clamp.
+    const state: EpaState = {
+      ...epa.initState(RP_TEAMS_2026),
+      rpSlotOffsets: new Map(
+        ["frc1", "frc2", "frc3"].map((team) => [team, { energized: -0.3, supercharged: 0.4, traversal: 0 }] as const)
+      ),
+    };
+    const prediction = epa.predict(state, upcoming2026());
+    const [energized, supercharged] = prediction.redBonusRp!;
+    expect(supercharged!).toBeLessThanOrEqual(energized!);
+    expect(supercharged).toBe(energized);
+    // Interval enumeration: with supercharged clamped to energized, "exactly one
+    // nested bonus" has zero mass, so the bonus pmf is [1-e, 0, e] * traversal.
+    const traversal = prediction.redBonusRp![2]!;
+    const e = energized!;
+    const expected = [(1 - e) * (1 - traversal), (1 - e) * traversal, e * (1 - traversal), e * traversal];
+    prediction.redBonusRpPmf!.forEach((p, i) => expect(p).toBeCloseTo(expected[i]!, 12));
+  });
+});
+
+describe("epa 14.0.0 — update folds the bonus RP slots, qualification only", () => {
+  it("moves each eligible team's offset by percent(pre-update count) * (flag - p) / eligibleCount, p from the pre-update state", () => {
+    const before = epa.initState(RP_TEAMS_2026);
+    const priced = epa.predict(before, upcoming2026());
+    const after = epa.update(before, result2026());
+    const percent = epaPercentFunc(0);
+    // Red: hub 150 earns energized (base 100) but not supercharged (360); tower 60 earns traversal (50).
+    const [pE, pS, pT] = priced.redBonusRp!;
+    for (const team of ["frc1", "frc2", "frc3"]) {
+      expect(after.rpSlotOffsets.get(team)).toEqual({
+        energized: (percent * (1 - pE!)) / 3,
+        supercharged: (percent * (0 - pS!)) / 3,
+        traversal: (percent * (1 - pT!)) / 3,
+      });
+    }
+    const [bE, bS, bT] = priced.blueBonusRp!;
+    for (const team of ["frc4", "frc5", "frc6"]) {
+      expect(after.rpSlotOffsets.get(team)).toEqual({
+        energized: (percent * (0 - bE!)) / 3,
+        supercharged: (percent * (0 - bS!)) / 3,
+        traversal: (percent * (0 - bT!)) / 3,
+      });
+    }
+    expect(after.rpLeague.alliances).toBe(2);
+    expect(after.rpLeague.sums).toEqual({ energized: 1, supercharged: 0, traversal: 1 });
+  });
+
+  it("uses the PRE-update match count: a team's second match learns at percent(1)", () => {
+    const once = epa.update(epa.initState(RP_TEAMS_2026), result2026());
+    const priced = epa.predict(once, upcoming2026({ matchKey: "2026test_qm2" }));
+    const twice = epa.update(once, result2026({ matchKey: "2026test_qm2" }));
+    const delta = twice.rpSlotOffsets.get("frc1")!.energized! - once.rpSlotOffsets.get("frc1")!.energized!;
+    expect(delta).toBeCloseTo((epaPercentFunc(1) * (1 - priced.redBonusRp![0]!)) / 3, 15);
+  });
+
+  it("splits the error across the rating-eligible teams only (surrogates excluded)", () => {
+    const after = epa.update(epa.initState(RP_TEAMS_2026), result2026({ redSurrogates: ["frc3"] }));
+    expect(after.rpSlotOffsets.has("frc3")).toBe(false);
+    const priced = epa.predict(epa.initState(RP_TEAMS_2026), upcoming2026({ redSurrogates: ["frc3"] }));
+    expect(after.rpSlotOffsets.get("frc1")!.energized).toBeCloseTo((epaPercentFunc(0) * (1 - priced.redBonusRp![0]!)) / 2, 15);
+  });
+
+  it("an elimination, offseason, Week 0 or demo match, a ruling-zero alliance and an absent or unparseable breakdown leave the relevant offsets untouched and never throw", () => {
+    const base = epa.initState(RP_TEAMS_2026);
+    const untouched = [
+      result2026({ matchKey: "2026test_sf1m1", compLevel: "sf" }),
+      result2026({ eventType: 99 }),
+      result2026({ eventType: 100 }),
+      // A fully-placeholder alliance is a demo non-contest (`isFullyDemoAlliance`).
+      result2026({ blueTeams: ["frc0", "frc00", "frc000"] }),
+      result2026({ scoreBreakdownRaw: null, hasScoreBreakdown: false }),
+      result2026({ scoreBreakdownRaw: "{not json" }),
+      result2026({ scoreBreakdownRaw: JSON.stringify({ red: {}, blue: {} }) }),
+    ];
+    for (const result of untouched) {
+      const after = epa.update(base, result);
+      expect(after.rpSlotOffsets.size).toBe(0);
+      expect(after.rpLeague).toEqual(base.rpLeague);
+    }
+    // Ruling zero: red fully disqualified with a zero score skips red only.
+    const dq = epa.update(base, result2026({ redScore: 0, redDqs: ["frc1", "frc2", "frc3"] }));
+    expect(dq.rpSlotOffsets.has("frc1")).toBe(false);
+    expect(dq.rpSlotOffsets.has("frc4")).toBe(true);
+    expect(dq.rpLeague.alliances).toBe(1);
+  });
+
+  it("freezes the week 1 league rate on the seal, BEFORE folding the sealing match", () => {
+    let state = epa.initState(RP_TEAMS_2026);
+    state = epa.update(state, result2026({ matchKey: "2026w1_qm1", eventKey: "2026w1", week: 0 }));
+    state = epa.update(
+      state,
+      result2026({
+        matchKey: "2026w1_qm2",
+        eventKey: "2026w1",
+        week: 0,
+        scoreBreakdownRaw: breakdown2026Json({ hub: 400, autoTower: 0, endTower: 0 }, { hub: 120, autoTower: 30, endTower: 30 }),
+      })
+    );
+    expect(state.rpLeague.weekOneAlliances).toBe(4);
+    expect(state.rpLeague.frozenRates).toBeNull();
+    const sealed = epa.update(state, result2026({ matchKey: "2026w2_qm1", eventKey: "2026w2", week: 1 }));
+    expect(sealed.weekOne.sealed).toBe(true);
+    // Week 1 alliances: red1 {E,T}, blue1 {}, red2 {E,S}, blue2 {E,T}.
+    expect(sealed.rpLeague.frozenRates).toEqual({ energized: 3 / 4, supercharged: 1 / 4, traversal: 2 / 4 });
+    expect(sealed.rpLeague.alliances).toBe(6);
+    expect(sealed.rpLeague.weekOneAlliances).toBe(4);
+  });
+});
+
+describe("epa 14.0.0 — the RP slots can never move a score, a winner or a component", () => {
+  function playedState(): EpaState {
+    let state = epa.initState(RP_TEAMS_2026);
+    state = epa.update(state, result2026({ matchKey: "2026test_qm1" }));
+    state = epa.update(
+      state,
+      result2026({
+        matchKey: "2026test_qm2",
+        redTeams: ["frc1", "frc4", "frc5"],
+        blueTeams: ["frc2", "frc3", "frc6"],
+        scoreBreakdownRaw: breakdown2026Json({ hub: 90, autoTower: 15, endTower: 10 }, { hub: 200, autoTower: 30, endTower: 30 }),
+        redScore: 115,
+        blueScore: 260,
+      })
+    );
+    return state;
+  }
+
+  it("two states differing only in rpSlotOffsets and rpLeague give bitwise-identical score fields, and updates give identical components and counts", () => {
+    const a = playedState();
+    const b: EpaState = {
+      ...a,
+      rpSlotOffsets: new Map(RP_TEAMS_2026.map((team, i) => [team, { energized: 0.7 - i, supercharged: -2 + i, traversal: 3.1 }] as const)),
+      rpLeague: {
+        alliances: 900,
+        sums: { energized: 800, supercharged: 5, traversal: 400 },
+        weekOneAlliances: 9,
+        weekOneSums: {},
+        frozenRates: { energized: 0.9, supercharged: 0.01, traversal: 0.4 },
+      },
+    };
+    const match = upcoming2026({ matchKey: "2026test_qm3" });
+    const pa = epa.predict(a, match);
+    const pb = epa.predict(b, match);
+    expect(Object.is(pa.pRedWin, pb.pRedWin)).toBe(true);
+    expect(Object.is(pa.redScore, pb.redScore)).toBe(true);
+    expect(Object.is(pa.blueScore, pb.blueScore)).toBe(true);
+    expect(pa.winner).toBe(pb.winner);
+    expect(JSON.stringify(pa.redComponents)).toBe(JSON.stringify(pb.redComponents));
+    expect(JSON.stringify(pa.blueComponents)).toBe(JSON.stringify(pb.blueComponents));
+    // Not vacuous: the RP odds DO differ.
+    expect(pa.redBonusRp).not.toEqual(pb.redBonusRp);
+
+    const result = result2026({ matchKey: "2026test_qm3" });
+    const ua = epa.update(a, result);
+    const ub = epa.update(b, result);
+    expect(JSON.stringify([...ua.teamComponents])).toBe(JSON.stringify([...ub.teamComponents]));
+    expect([...ua.teamMatchCounts]).toEqual([...ub.teamMatchCounts]);
+    expect(ua.allianceScoreStats).toEqual(ub.allianceScoreStats);
+    expect(ua.weekOne).toEqual(ub.weekOne);
+  });
+
+  it("carrySeason empties rpSlotOffsets and rpLeague", () => {
+    const played = playedState();
+    expect(played.rpSlotOffsets.size).toBeGreaterThan(0);
+    const carried = epa.carrySeason(played, { fromSeason: 2025, toSeason: 2026, isColdStart: false });
+    expect(carried.rpSlotOffsets.size).toBe(0);
+    expect(carried.rpLeague).toEqual(emptyEpaRpLeague());
   });
 });
