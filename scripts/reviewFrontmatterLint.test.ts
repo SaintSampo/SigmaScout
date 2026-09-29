@@ -5,12 +5,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { findReviewFiles, lintReviewFile, type ReviewLintProblem } from "./reviewFrontmatterLint.js";
+import { defaultPhasesDirs, findReviewFiles, lintReviewFile, type ReviewLintProblem } from "./reviewFrontmatterLint.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, "..");
-const PHASES_DIR = join(REPO_ROOT, ".planning", "phases");
+const PHASES_DIRS = defaultPhasesDirs(REPO_ROOT);
 const SCRIPT_PATH = join(__dirname, "reviewFrontmatterLint.ts");
 const TSX_CLI_PATH = join(REPO_ROOT, "node_modules", "tsx", "dist", "cli.mjs");
 
@@ -233,8 +233,8 @@ Resolved via commit def5678.
     expect(problems[0]!.message).toMatch(/no frontmatter delimiters/);
   });
 
-  it("runs over every real review file under .planning/phases/ and reports zero problems (the regression proof)", () => {
-    const files = findReviewFiles(PHASES_DIR);
+  it("runs over every real review file, active and archived, and reports zero problems (the regression proof)", () => {
+    const files = PHASES_DIRS.flatMap((dir) => findReviewFiles(dir));
     expect(files.length).toBeGreaterThan(0);
     const allProblems: ReviewLintProblem[] = [];
     for (const file of files) {

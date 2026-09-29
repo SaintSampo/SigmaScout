@@ -264,21 +264,40 @@ export function findReviewFiles(phasesDir: string): string[] {
 }
 
 /**
+ * Every phases directory a review file can live in: the active `.planning/phases/` plus each
+ * archived `.planning/milestones/v*-phases/` that `/gsd-complete-milestone` moves them into.
+ */
+export function defaultPhasesDirs(repoRoot: string): string[] {
+  const dirs = [join(repoRoot, ".planning", "phases")];
+  const milestonesDir = join(repoRoot, ".planning", "milestones");
+  let entries: string[];
+  try {
+    entries = readdirSync(milestonesDir);
+  } catch {
+    return dirs;
+  }
+  for (const entry of entries.sort()) {
+    if (/^v.*-phases$/.test(entry)) dirs.push(join(milestonesDir, entry));
+  }
+  return dirs;
+}
+
+/**
  * Script entry point: runs the check over every real review file and reports the result.
  * `phasesDirOverride` lets a test point this at a temporary directory instead of the real
- * `.planning/phases/` — the default (positional CLI arg omitted) is the real project directory.
+ * `.planning/phases/` — the default (positional CLI arg omitted) is every real phases directory, active and archived.
  */
 function runScript(phasesDirOverride?: string): void {
-  let phasesDir: string;
+  let phasesDirs: string[];
   if (phasesDirOverride) {
-    phasesDir = phasesDirOverride;
+    phasesDirs = [phasesDirOverride];
   } else {
     const scriptDir = dirname(fileURLToPath(import.meta.url));
     const repoRoot = resolve(scriptDir, "..");
-    phasesDir = join(repoRoot, ".planning", "phases");
+    phasesDirs = defaultPhasesDirs(repoRoot);
   }
 
-  const files = findReviewFiles(phasesDir);
+  const files = phasesDirs.flatMap((dir) => findReviewFiles(dir));
   let problemCount = 0;
 
   for (const file of files) {
