@@ -41,6 +41,7 @@ import type { EpaState } from "../core/algorithms/epa.js";
 import { type SprState } from "../core/algorithms/spr.js";
 import { isDemoTeamKey } from "../core/algorithms/demoTeams.js";
 import { isOfficialEventType } from "../core/algorithms/eventTypes.js";
+import { isCancelledEvent } from "../core/algorithms/cancelledEvent.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
 import { isRpEligibleEventType } from "../core/rankingPoints/constants.js";
 import {
@@ -1768,6 +1769,38 @@ function selectEventMeta(db: Corpus, season: number): EventMetaRow[] {
     .all(season) as EventMetaRow[];
 }
 
+/**
+ * Played matches per event for one season (quick task 260929-mcf): the same "played" definition
+ * `selectMatchesChronological` uses (`winner IS NOT NULL`). Deliberately carries NO official or
+ * offseason clause. Cancellation is a property of the world, not of this run's `--include-offseason`
+ * scope; without that, a run without the flag would see every offseason event as zero-played.
+ */
+function selectPlayedMatchCountsByEvent(db: Corpus, season: number): Map<string, number> {
+  const rows = db
+    .prepare(
+      `SELECT m.event_key AS event_key, COUNT(*) AS played
+       FROM matches m JOIN events e ON e.event_key = m.event_key
+       WHERE e.year = ? AND m.winner IS NOT NULL
+       GROUP BY m.event_key`
+    )
+    .all(season) as { event_key: string; played: number }[];
+  return new Map(rows.map((r) => [r.event_key, r.played]));
+}
+
+/**
+ * The event keys of `season` that `isCancelledEvent` judges cancelled at `nowMs` (the publish
+ * `computedAt`): zero played matches and `start_date` 7+ days before it. These events are never
+ * listed, priced or written (quick task 260929-mcf).
+ */
+export function cancelledEventKeysForSeason(db: Corpus, season: number, nowMs: number): Set<string> {
+  const counts = selectPlayedMatchCountsByEvent(db, season);
+  const cancelled = new Set<string>();
+  for (const e of selectEventMeta(db, season)) {
+    if (isCancelledEvent({ startDate: e.start_date, playedMatchCount: counts.get(e.event_key) ?? 0 }, nowMs)) cancelled.add(e.event_key);
+  }
+  return cancelled;
+}
+
 interface MatchTimeRow {
   match_key: string;
   sort_time: number;
@@ -1880,6 +1913,21 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
   const seedFiles: string[] = [];
   const manifestKeys: string[] = [];
 
+  // Cancelled events (zero played matches, start_date 7+ days before `computedAt`), per season. Built
+  // before the activeYears pre-pass so both read one set (quick task 260929-mcf).
+  const nowMs = Date.parse(computedAt);
+  const cancelledBySeason = new Map<number, Set<string>>();
+  for (const cancelledSeason of seasonsSorted) {
+    const keys = cancelledEventKeysForSeason(db, cancelledSeason, nowMs);
+    cancelledBySeason.set(cancelledSeason, keys);
+    if (keys.size > 0) {
+      const sample = [...keys].slice(0, 10).join(", ");
+      console.log(
+        `publish: season ${cancelledSeason}: ${keys.size} cancelled event(s) skipped (zero played matches, start_date 7+ days before ${computedAt.slice(0, 10)}): ${sample}${keys.size > 10 ? ", ..." : ""}`
+      );
+    }
+  }
+
   // activeYears pre-pass over every requested season. A narrower run under-reports it and would hide
   // real years from the team page's year dropdown, so the narrowing is logged.
   const activeYearsByTeam = new Map<string, number[]>();
@@ -1925,7 +1973,13 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
 
   for (const [seasonIdx, season] of seasonsSorted.entries()) {
     const stream = buildSeasonStream(db, season, { includeOffseason });
-    const scheduled = selectScheduledMatches(db, { year: season, excludeOffseason: !includeOffseason });
+    const cancelledEventKeys = cancelledBySeason.get(season) ?? new Set<string>();
+    // A cancelled event's never-scored schedule is dropped here, together with its `eventMeta` row below:
+    // the team-season section builder looks up `eventMeta` for every event a team's matches name, so
+    // filtering only one of the two would publish sections with an empty startDate (quick task 260929-mcf).
+    const scheduled = selectScheduledMatches(db, { year: season, excludeOffseason: !includeOffseason }).filter(
+      (m) => !cancelledEventKeys.has(m.eventKey)
+    );
     // The `frc9970`-`frc9999` demo team keys are dropped here, the one place the published team list is
     // built, so no page, row, search hit or rank exists for them. The model-side exclusion in
     // `demoTeams.ts` is independent.
@@ -1936,7 +1990,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
     // "the walk-forward saw this team, and it is not a demo key" — the same gate `teamsThisSeason`
     // itself already encodes.
     const teamsThisSeasonSet = new Set(teamsThisSeason);
-    const eventMeta = selectEventMeta(db, season);
+    const eventMeta = selectEventMeta(db, season).filter((e) => !cancelledEventKeys.has(e.event_key));
     const offseasonEventKeys = new Set(eventMeta.filter((e) => e.is_offseason === 1).map((e) => e.event_key));
     // Scopes the Teams-list snapshot to official play via the shared `isOfficialEventType`, which the
     // Worker and web also read.

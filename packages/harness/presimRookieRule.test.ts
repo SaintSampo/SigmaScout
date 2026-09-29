@@ -233,7 +233,8 @@ describe("publishSeasons presim sidecars under the rookie rule", () => {
         skipState: true,
         preScheduleFromSeason: 2024,
         generation: "presim-rookie-test",
-        computedAt: "2026-09-28T00:00:00.000Z",
+        // Inside the unplayed 2024sch event's span (start 2024-04-01): in progress, so not cancelled (quick task 260929-mcf).
+        computedAt: "2024-04-02T00:00:00.000Z",
         ...(sigmaCarry === undefined ? {} : { sigmaCarry }),
       });
       const puts = vi.mocked(putObject).mock.calls.map(([, key, body]) => [key as string, body as string] as const);

@@ -13,6 +13,7 @@ import { opr } from "../core/algorithms/opr.js";
 import { epa } from "../core/algorithms/epa.js";
 import { spr } from "../core/algorithms/spr.js";
 import { OFFSEASON_EVENT_TYPE } from "../core/algorithms/eventTypes.js";
+import { isCancelledEvent } from "../core/algorithms/cancelledEvent.js";
 import { PUBLISHED_ALGORITHM_IDS } from "./publishedAlgorithms.js";
 import type { CorpusEvent, CorpusMatch } from "../ingest/normalize.js";
 import {
@@ -210,6 +211,9 @@ function findEventArtifact(eventKey: string, algorithmId: string): EventArtifact
   expect(call, `expected a v1/event/${eventKey}/${algorithmId}@... putObject call`).toBeDefined();
   return JSON.parse(call![2] as string) as EventArtifact;
 }
+
+/** An instant inside the default fixture event's span (start_date 2026-03-01): a zero-match event is in progress, so it is not cancelled (quick task 260929-mcf). */
+const IN_PROGRESS_AT = "2026-03-02T00:00:00.000Z";
 
 function seasonEvent(overrides: Partial<CorpusEvent> = {}): CorpusEvent {
   return {
@@ -2633,7 +2637,7 @@ describe("publishSeasons — team-artifact wiring against a real corpus", () => 
       })
     );
 
-    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true, computedAt: IN_PROGRESS_AT });
 
     const artifact = findTeamArtifact("frc1");
     const casj = artifact.events.find((e) => e.eventKey === "2026casj");
@@ -3896,7 +3900,7 @@ describe("publishSeasons — as-of-event value + season-pool percentile on publi
       })
     );
 
-    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true, computedAt: IN_PROGRESS_AT });
 
     const schedArtifact = findEventArtifact("2026sch", "opr");
     const row = schedArtifact.teams.find((t) => t.teamKey === "frc1")!;
@@ -4131,7 +4135,7 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     upsertEventTeam(db, { eventKey: "2026reg", teamKey: "frc2", fetchedAt: "2026-09-05T00:00:00.000Z" });
     upsertEventTeam(db, { eventKey: "2026reg", teamKey: "frc1", fetchedAt: "2026-09-05T00:00:00.000Z" });
 
-    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true });
+    await publishSeasons(db, { seasons: [2026], algorithms: [opr], bucket: "test-bucket", dryRun: false, skipState: true, computedAt: IN_PROGRESS_AT });
 
     const artifact = findEventArtifact("2026reg", "opr");
     expect(artifact.teams.map((t) => t.teamKey)).toEqual(["frc1", "frc2"]);
@@ -4177,6 +4181,7 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
       bucket: "test-bucket",
       dryRun: false,
       skipState: true,
+      computedAt: IN_PROGRESS_AT,
     });
 
     const call = findPresimCall("2026sch", spr.id);
@@ -4255,7 +4260,7 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     rewriteLate: boolean,
     lateCompLevel: "qm" | "f",
     extra?: (target: Corpus) => void,
-    knobs?: Pick<PublishSeasonsOptions, "sigmaCarry">
+    knobs?: Pick<PublishSeasonsOptions, "sigmaCarry" | "computedAt">
   ): Promise<(readonly [string, string])[]> {
     const variantDir = mkdtempSync(join(tmpdir(), "sigmascout-publish-f3-"));
     const variantDb = openCorpus(join(variantDir, "corpus.sqlite"));
@@ -4357,7 +4362,7 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     const puts = await publishPreEventPair2024(false, "qm", (target) => {
       upsertEvent(target, seasonEvent({ eventKey: "2024reg", year: 2024, name: "Registered Only", startDate: "2024-04-01" }));
       for (const teamKey of roster) upsertEventTeam(target, { eventKey: "2024reg", teamKey, fetchedAt: "2024-03-20T00:00:00.000Z" });
-    });
+    }, { computedAt: "2024-04-02T00:00:00.000Z" }); // inside 2024reg's span (start 2024-04-01): in progress, not cancelled (quick task 260929-mcf)
     const body = putBody(puts, `v1/presim/2024reg/${spr.id}@`);
     expect(body, "an unplayed event with no schedule yet must keep its pre-schedule forecast").toBeDefined();
     const artifact = PublishedPreScheduleArtifactSchema.parse(JSON.parse(body!));
@@ -5630,5 +5635,55 @@ describe("publishSeasons — the seed rows are still emitted, and no event artif
     // Non-vacuity: the passengers are really in the seed.
     expect(readRpBeliefs(seedRows).size).toBe(TEAMS.length);
     expect(readSigmaBeliefs(seedRows).size).toBe(TEAMS.length);
+  });
+});
+
+describe("publishSeasons — cancelled events (quick task 260929-mcf)", () => {
+  let dir: string;
+  let db: Corpus;
+  const COMPUTED_AT = "2026-09-29T00:00:00.000Z";
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "sigmascout-publish-cancelled-"));
+    db = openCorpus(join(dir, "corpus.sqlite"));
+    vi.mocked(putObject).mockClear();
+  });
+
+  afterEach(() => {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  function eventsListKeys(algorithm: { id: string; version: string }): string[] {
+    const key = artifactKey({ page: "events", year: 2026, algorithmId: algorithm.id, version: algorithm.version });
+    const call = vi.mocked(putObject).mock.calls.find(([, k]) => k === key);
+    expect(call, `expected the events list ${key} to be uploaded`).toBeDefined();
+    const body = JSON.parse(call![2] as string) as { computedAt: string; events: { eventKey: string; startDate: string; playedMatchCount: number }[] };
+    // Every row this publisher writes is one the browser's computedAt filter would keep.
+    for (const row of body.events) expect(isCancelledEvent(row, Date.parse(body.computedAt))).toBe(false);
+    return body.events.map((e) => e.eventKey);
+  }
+
+  function unplayed(overrides: Partial<CorpusMatch>): CorpusMatch {
+    return seasonMatch({ winner: null, redScore: null, blueScore: null, redRpEarned: null, blueRpEarned: null, hasScoreBreakdown: false, scoreBreakdownRaw: null, ...overrides });
+  }
+
+  it("a past zero-match event is not listed and gets no artifact; upcoming and in-progress ones stay listed (2026gone / 2026soon / 2026edge)", async () => {
+    upsertEvent(db, seasonEvent({ eventKey: "2026casj", name: "Sacramento Regional" }));
+    upsertMatch(db, seasonMatch());
+    upsertEvent(db, seasonEvent({ eventKey: "2026gone", name: "Gone Regional", startDate: "2026-03-15" }));
+    upsertEvent(db, seasonEvent({ eventKey: "2026soon", name: "Soon Invitational", eventType: 99, isOffseason: true, startDate: "2026-10-03" }));
+    upsertEvent(db, seasonEvent({ eventKey: "2026edge", name: "Edge Invitational", eventType: 99, isOffseason: true, startDate: "2026-09-23" }));
+    for (const teamKey of ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"]) {
+      upsertEventTeam(db, { eventKey: "2026gone", teamKey, fetchedAt: "2026-09-05T00:00:00.000Z" });
+      upsertEventTeam(db, { eventKey: "2026soon", teamKey, fetchedAt: "2026-09-05T00:00:00.000Z" });
+    }
+
+    await publishSeasons(db, { seasons: [2026], algorithms: [spr], bucket: "test-bucket", dryRun: false, skipState: true, computedAt: COMPUTED_AT });
+
+    expect(eventsListKeys(spr)).toEqual(["2026casj", "2026edge", "2026soon"]);
+    const keys = vi.mocked(putObject).mock.calls.map(([, key]) => key as string);
+    expect(keys.filter((k) => k.includes("/2026gone/"))).toEqual([]);
+    expect(keys.some((k) => k.startsWith("v1/event/2026soon/"))).toBe(true);
   });
 });
