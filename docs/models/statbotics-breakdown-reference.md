@@ -535,7 +535,7 @@ now answers.
 
 | season | entries `get_score_from_breakdown` reads | linear in the rated entries? | can SigmaScout reproduce it under L-01 + L-02? | evidence |
 |---|---|---|---|---|
-| 2016 | `no_foul_points`; **plus `rp_1_pred * 20 + rp_2_pred * 25` in ELIM matches** | linear in quals; linear in elims too, but two of its terms are RP probabilities | **quals yes, elims NO** — the elim terms are RP predictions, dropped by L-02 | section 15, 2016 branch; section 18 |
+| 2016 | `no_foul_points`; **plus `rp_1_pred * 20 + rp_2_pred * 25` in ELIM matches** | linear in quals; linear in elims too, but two of its terms are RP probabilities | **quals yes, elims NO** — the elim terms are RP predictions, dropped by L-02 (L-02 lifted 2026-09-29 for published RP odds; these score terms stay NOT adopted, EPA's score must not change) | section 15, 2016 branch; section 18 |
 | 2017 | `no_foul_points`; **plus `rp_1_pred * 100 + rp_2_pred * 20` in ELIM matches** | same as 2016 | **quals yes, elims NO** — same collision | section 15, 2017 branch; section 18 |
 | 2018 | 7 own entries + 2 opponent entries: `auto_run_points`, `auto_switch_secs`, `auto_scale_power`, `switch_power`, `scale_power`, `vault_points`, `endgame_points` | **NO** — two `min()` caps at 15/45/90 and three `zero_sigmoid` terms, two of which are differences against the OPPONENT's rated entries | yes in principle, but it requires implementing `zero_sigmoid` and the opponent-coupled terms; no RP dependency | section 15, 2018 branch; section 12 (`zero_sigmoid`) |
 | 2019 | `no_foul_points` | yes | yes | section 15, 2019 branch |
@@ -663,7 +663,7 @@ class EPARating:
 ```
 
 The three sigmoids. `zero_sigmoid` is the 2018 switch/scale contest function; `unit_sigmoid` and
-`inv_unit_sigmoid` are the ranking-point pair, **NOT ADOPTED by SigmaScout per L-02**, transcribed
+`inv_unit_sigmoid` are the ranking-point pair, **ADOPTED 2026-09-29 (quick task 260929-mat, L-02 lifted; formerly NOT ADOPTED by SigmaScout per L-02)**, transcribed
 here because the reference must be complete:
 
 ```python
@@ -737,6 +737,10 @@ Note the non-negativity floor at `max(-year_mean / num_teams / year_sd, curr_epa
 that `mean[4]`/`mean[5]`/`mean[6]` — the three RP slots — are pre-imaged through
 `inv_unit_sigmoid` so that `post_process_breakdown`'s forward sigmoid recovers them. Both are
 season-aggregate-dependent; see section 19.
+
+The RP pre-image and its z-score term are **ADOPTED 2026-09-29 (quick task 260929-mat)** as EPA's
+cold bonus RP slot, `epaRpColdSlot` in `packages/core/algorithms/epaRankingPoints.ts`, with the
+league rate taken walk-forward (`docs/models/epa-statbotics-gap.md` mechanism 4, P-3).
 
 ## 14. `backend/src/models/epa/main.py`
 
@@ -1160,7 +1164,9 @@ def get_score_from_breakdown(
 ```
 
 `post_process_attrib` in full — 2018's total-points overwrite, 2025's processor correction, and
-the elimination-match RP freeze:
+the elimination-match RP freeze (the RP freeze, and `post_process_breakdown`'s RP `unit_sigmoid`
+above, are **ADOPTED 2026-09-29, quick task 260929-mat**; the score-side branches are unchanged
+by that adoption):
 
 ```python
 def post_process_attrib(year: Year, epa: Any, err: Any, elim: bool) -> Any:
@@ -2321,7 +2327,7 @@ document's claim.
 | 2 | `TeamYear.norm_epa` — how a season's final rating becomes the normalized carry input | `backend/src/db/models/team_year.py`, plus whatever writes it | `get_init_epa` reads it for both prior seasons. SigmaScout's `carryover.ts` has its own derivation; whether the two agree is unverifiable without this. |
 | 3 | The match loop ORDER — where `predict_match`, `attribute_match`, `update_team` and `record_match` are called relative to each other, and where `self.num_teams`/`self.year_obj`/`self.year_num` are set | `backend/src/models/template.py` | This is the predict-before-update sequencing the project's own methodology constraint turns on. The four methods are transcribed; the loop that calls them is not. |
 | 4 | `r()` — the rounding helper applied to `epa_start`, `win_prob` and both predicted scores | `backend/src/utils/utils.py` | `record_match` rounds `win_prob` to 4 places and scores to 2. Whether `r()` is plain `round()`, half-even, or None-tolerant is not established, and it affects the last digit of every published figure. |
-| 5 | `EPS` | `backend/src/constants.py` | Clamps the RP sigmoid pre-image in `get_init_epa`. NOT ADOPTED under L-02, so this gap is inert for SigmaScout. |
+| 5 | ~~`EPS`~~ **CLOSED 2026-09-29: `EPS = 1e-6` and `CURR_YEAR = 2026`**, per the planner's 2026-09-29 fetch of `backend/src/constants.py` (quick task 260929-mat) | `backend/src/constants.py` | Clamps the RP sigmoid pre-image in `get_init_epa`. Formerly NOT ADOPTED under L-02 and inert; now live as `EPA_RP_EPS` in `epaRankingPoints.ts`. |
 | 6 | `CURR_YEAR` | `backend/src/constants.py` | Bounds the `all_keys` loop. Inferable as 2026 from `key_to_name`'s highest season, but not stated, so not asserted. |
 | 7 | `AlliancePred`, `Attribution`, `MatchPred` field shapes | `backend/src/models/types.py` | Field ORDER in the `AlliancePred(...)` positional constructor is inferable from the call site but not confirmed. |
 | 8 | `BreakdownDict`, `empty_breakdown` | `backend/src/tba/types.py` | `empty_breakdown`'s default values decide what a match with no breakdown contributes. SigmaScout's D-05 fallback is a documented divergence here regardless. |

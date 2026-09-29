@@ -1083,9 +1083,10 @@ void _rpCalibrationSchemaMatchesWireType;
  * The committed RP calibration measurement `buildCompareArtifact` attaches. A re-measurement gets a new
  * dated file and this path is repointed; a committed baseline is never edited in place, because older
  * files stay pinned by their own tests. `attachRpCalibration` matches algorithm ids literally, so the
- * file must be measured for the algorithms that publish ranking points.
+ * file must be measured for the algorithms that publish ranking points: spr and, since quick task
+ * 260929-mat, epa (09h carries both; its spr records equal 09g's).
  */
-export const RP_CALIBRATION_MEASUREMENT_PATH = "data/baselines/rp-calibration-2026-09g.json";
+export const RP_CALIBRATION_MEASUREMENT_PATH = "data/baselines/rp-calibration-2026-09h.json";
 
 /**
  * `scripts/measureRpCalibration.ts --emit-artifact` output: per-season calibration for each measured

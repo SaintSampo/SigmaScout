@@ -136,6 +136,17 @@ predicting RP at all ever."* `rp_1`/`rp_2`/`rp_3`, `unit_sigmoid`, `inv_unit_sig
 slot are DROPPED from any SigmaScout adoption. They are transcribed in the reference (sections 12,
 13, 15) because the reference must be complete, and they are NOT ADOPTED here.
 
+**L-02 LIFTED 2026-09-29 by Jacob (quick task 260929-mat).** The locked decision that replaced it:
+EPA gets its own ranking point odds by Statbotics' method, so the event Simulation tab (live start
+match and pre-schedule) runs under EPA. Per-team RP slots, initialized through `inv_unit_sigmoid`,
+summed across the alliance and passed through `unit_sigmoid` at prediction time, frozen during
+elimination matches. EPA's RP comes only from EPA's own slots and its own win probability, never from
+SPR's Sigma, RP moments or mean shift (not an ensemble). EPA's winner and score stay byte-identical,
+and OPR stays RP-free. Jacob also decided the same day to keep Statbotics' bonus slot seeding exactly
+as Statbotics does it, carried-strength init included (P-3 in mechanism 4), rather than substitute a
+league rate seed. The paragraph above is kept verbatim as history; every "L-02" reference below that
+predates 2026-09-29 describes the rule as it stood then. Shipped as `epa@14.0.0+baseline`.
+
 ## How to read a verdict
 
 Exactly three labels are used, and the rule that assigns them is:
@@ -143,7 +154,7 @@ Exactly three labels are used, and the rule that assigns them is:
 | label | means |
 |---|---|
 | `ALREADY MATCHES` | The two implementations compute the same thing. Confirmed against both sources in this task, not inherited from a prior claim. |
-| `DELIBERATE DIFFERENCE` | Reproduction is refused by L-01 or L-02. Not a defect and not a backlog item. |
+| `DELIBERATE DIFFERENCE` | Reproduction is refused by L-01 or L-02 (L-02 is historical since 2026-09-29, when it was lifted), or carries a named deliberate difference. Not a defect and not a backlog item. |
 | `GAP` | The two differ, no locked decision forbids closing it, and closing it is future work. A `GAP` that also has an unclosable remainder carries a pointer into the cannot-be-reproduced register. |
 
 **2020 is excluded from the matrix.** `breakdown/index.ts` registers a 2020 component map and
@@ -164,7 +175,7 @@ Eleven mechanisms, nine corpus seasons, ninety-nine cells, no blanks.
 | 1. Rated component vector | GAP | GAP | GAP | GAP | GAP | GAP | GAP | GAP | GAP |
 | 2. Score formula | GAP (see register R1) | GAP (see register R2) | GAP | ALREADY MATCHES | ALREADY MATCHES | GAP | ALREADY MATCHES | ALREADY MATCHES | ALREADY MATCHES |
 | 3. Prediction post-processing | ALREADY MATCHES | ALREADY MATCHES | GAP | ALREADY MATCHES | ALREADY MATCHES | GAP | ALREADY MATCHES | GAP | ALREADY MATCHES |
-| 4. RP `unit_sigmoid` path | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE |
+| 4. RP `unit_sigmoid` path (ADOPTED 2026-09-29) | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE |
 | 5. Foul model | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE | DELIBERATE DIFFERENCE |
 | 6. Init and carryover | GAP | GAP | GAP | GAP | GAP | GAP | GAP | GAP | GAP |
 | 7. Elimination weighting | ALREADY MATCHES | ALREADY MATCHES | ALREADY MATCHES | ALREADY MATCHES | ALREADY MATCHES | ALREADY MATCHES | ALREADY MATCHES | ALREADY MATCHES | ALREADY MATCHES |
@@ -175,8 +186,9 @@ Eleven mechanisms, nine corpus seasons, ninety-nine cells, no blanks.
 
 **Tally:** 37 `ALREADY MATCHES`, 35 `GAP`, 27 `DELIBERATE DIFFERENCE` (counted from the table
 above, not by hand). The three
-`DELIBERATE DIFFERENCE` rows are mechanisms 4 (L-02), 5 (L-01, as of quick task 260911-l2k) and
-8 (L-01); every other locked-decision collision is a remainder inside a `GAP` cell and is
+`DELIBERATE DIFFERENCE` rows are mechanisms 4 (L-02 until 2026-09-29; since then ADOPTED with the
+named differences P-1 to P-7, of which the walk-forward league rate is the L-01 remainder), 5 (L-01,
+as of quick task 260911-l2k) and 8 (L-01); every other locked-decision collision is a remainder inside a `GAP` cell and is
 registered below.
 
 **Mechanism 5 moved from `GAP` to `DELIBERATE DIFFERENCE` on 2026-09-11 (quick task 260911-l2k),
@@ -379,7 +391,9 @@ deliberately not invented.
   formula adds them back at their playoff bonus-point values (`rp_1 * 20 + rp_2 * 25` in 2016,
   `rp_1 * 100 + rp_2 * 20` in 2017 — reference section 15). Registers R1 and R2 record what that
   does and does not license; in particular those terms are INTERNAL score arithmetic and **L-02
-  stands unchanged** — EPA publishes no ranking-point number, anywhere, in any season.
+  stands unchanged** — EPA publishes no ranking-point number, anywhere, in any season. *(Historical:
+  L-02 was lifted 2026-09-29 and EPA now publishes ranking point odds from its own bonus RP slots,
+  mechanism 4. The R1/R2 score terms are still NOT adopted: EPA's score must not change.)*
 
 **This task closes NOTHING in the verdict matrix.** Mechanism 1's nine cells still read `GAP` in
 every season and the tally beneath the matrix is untouched. What changed is what closing mechanism 1
@@ -440,7 +454,60 @@ Setting aside the RP `unit_sigmoid` block, which is mechanism 4, only three seas
 | 2025 | adds 3 points per processor algae scored by **both** alliances, into `processor_algae_points`, `net_algae_points`, `teleop_points` and index 0 (ref. 15) | nothing | implement it, and note it makes 2025's apparently one-entry score read **opponent-coupled** (ref. 18, observation 2) | GAP |
 | 2026 | no branch | nothing | nothing | ALREADY MATCHES |
 
-## Mechanism 4 — the RP `unit_sigmoid` path — NOT ADOPTED (L-02)
+## Mechanism 4 — the RP `unit_sigmoid` path — ADOPTED 2026-09-29 (quick task 260929-mat)
+
+**ADOPTED 2026-09-29.** L-02 was lifted by Jacob and `epa@14.0.0+baseline` carries Statbotics' RP
+slots (`packages/core/algorithms/epaRankingPoints.ts`, wired in `epa.ts` `predictCore` and
+`updateCore`). Per season: every registered RP season (2016 to 2020, 2022 to 2026) predicts each
+bonus from the alliance's summed slots through `unit_sigmoid`, updates the slots on qualification
+matches only, and publishes the RP pmf, the per-bonus marginals and the decomposition the rank
+simulation reads. The verdict stays `DELIBERATE DIFFERENCE` in every season, now for the named
+differences below rather than for L-02; the walk-forward league rate (P-3) is the L-01 remainder.
+
+Named deliberate differences:
+
+- **P-1** one slot per `rpRuleModuleForSeason(season).bonusNames` entry, keyed by bonus name
+  rather than Statbotics' `rp_1..rp_3` position (SigmaScout's order differs, for example 2017 is
+  kPa then rotor). `constant` predicates (2019 completeRocket) still get a slot, because `parse()`
+  computes their real flag.
+- **P-2** the observed flag is the rule module's `parse(...).bonusFlags`, the flag the site
+  publishes as the actual result and the calibration scorer scores against. Statbotics reads TBA's
+  recorded `*Achieved` flags; the reconciliation suite measures the two as identical outside a few
+  documented tolerances.
+- **P-3** `get_init_epa` kept whole, z-score term included:
+  `cold = preImage(rate) * (1/3 + sdFrac * max(-mean/(3*sd), z_team))`. This reproduces its quirk:
+  below a league rate of about 12% the pre-image is negative, so a stronger team's cold slot goes
+  DOWN. Recorded, not corrected (Jacob's decision, 2026-09-29, to keep Statbotics' seeding exactly).
+  The rate is walk-forward like every other week 1 aggregate: the frozen week 1 rate once EPA's
+  week 1 seal fires, else the live season rate once `EPA_CARRY_RESCALE_MIN_OBS` alliances have
+  folded, else 0.5 (whose pre-image is exactly 0.5). Slots are stored as season-scoped offsets on
+  top of that cold value, so after the seal a team's slot is exactly Statbotics' `init + sum of
+  updates`.
+- **P-4** no tie: the outcome is `[pRedWin, 0, 1 - pRedWin]`, matching Statbotics' binary
+  `win_prob`, and the bonus RPs are independent of the outcome.
+- **P-5** bonuses are independent Bernoullis, as in Statbotics, except `nestedSameVariable` groups
+  (2026 energized and supercharged), which are sorted by resolved tier threshold, clamped monotone
+  (`q_hard = min(q_hard, q_easy)`) and enumerated by interval, so "supercharged implies energized"
+  always holds.
+- **P-6** attribution follows EPA's existing component convention: the alliance is the
+  rating-eligible teams (surrogates excluded) and the error is split by that count. Ruling-zero
+  alliances are skipped per alliance, and a demo match is skipped whole.
+- **P-7** `EPS = 1e-6` (and `CURR_YEAR = 2026`), from the planner's 2026-09-29 fetch of
+  `backend/src/constants.py`; closes reference section 20 row 5.
+
+Residuals, named rather than guessed:
+
+- The `rp_x_mean` WRITE site in `avg.py` is not transcribed, so the exact population Statbotics
+  averages is unknown. SigmaScout uses week 1 qualification alliances at RP-eligible events with a
+  parsed breakdown.
+- The 2016 and 2017 elimination score terms (registers R1 and R2) remain NOT adopted: EPA's score
+  must not change, and the slots never feed a score, a winner or a component. The level 1 digest
+  sha for epa is byte-identical across the bump, which is the proof.
+
+Calibration, measured walk-forward: `data/baselines/rp-calibration-2026-09h.json` (the quick task
+260929-mat SUMMARY carries the per-season table beside SPR).
+
+*Historical text, kept as it stood before 2026-09-29:*
 
 **One sentence for all nine seasons, rather than nine rows.** Statbotics maintains three RP slots
 (indices 4, 5, 6) that are pre-imaged through `inv_unit_sigmoid` at init (reference section 13),
@@ -729,7 +796,8 @@ replayed 2015 or earlier would silently diverge. Recorded so it is not a surpris
 - **2025:** subtracts `3 * err[processor_algae]` from `processor_algae_points`, `teleop_points` and
   `no_foul_points`, then recomputes `attrib = epa + err`.
 - **All seasons >= 2016:** freezes the RP slots during elimination matches. **Not adopted, L-02**,
-  and it touches only indices 4/5/6, so it cannot affect a score.
+  and it touches only indices 4/5/6, so it cannot affect a score. *(ADOPTED 2026-09-29 with
+  mechanism 4: `updateCore` folds the slots on qualification matches only.)*
 
 SigmaScout's attribution is the plain error split with no post-processing at all.
 
@@ -870,6 +938,9 @@ construction: `rp_1` and `rp_2` are two ordinary slots of the same rated vector
 adds them back at their playoff bonus-point values (`models_epa_breakdown.py:94-115`, reference
 section 15). R1 and R2 therefore become ordinary implementation work rather than permanent
 divergences, and stage 7 below is unblocked accordingly.
+
+*(Historical: L-02 was lifted 2026-09-29, quick task 260929-mat. The paragraph below describes it as
+it stood; R1 and R2 are still not adopted.)*
 
 **This does NOT reopen L-02, and the two must not be collapsed into each other.** L-02 governs
 OUTPUT — no published bonus-RP probability, no RP pmf into the rank simulation, no RP predictor
@@ -1155,6 +1226,9 @@ output like any other slot — they are not a separate model and they need no se
 bonus-point values: `rp_1 * 20 + rp_2 * 25` in 2016, `rp_1 * 100 + rp_2 * 20` in 2017. In quals
 those two seasons, and in every other season, those slots are multiplied by nothing and contribute
 exactly zero to the score.
+
+*(Historical: L-02 was lifted 2026-09-29, quick task 260929-mat, and EPA now publishes ranking
+point odds by mechanism 4. The paragraph below describes it as it stood.)*
 
 **L-02 IS UNCHANGED, and the distinction is stated here so a later session does not "fix" one into
 the other.** L-02 governs OUTPUT: EPA must publish no bonus-RP probability, must feed the rank

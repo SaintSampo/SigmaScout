@@ -63,7 +63,7 @@ baked result for one event.
 - **It is not a `PageKind`.** It has its own key function, its own size-summary line, no
   `budgetMaxBytes` ceiling, and no `pages.presim` row in the block below. The live Worker's artifact
   writer is keyed on `PageKind`, so it cannot clobber a sidecar.
-- **SPR only.** A sidecar is built only for an algorithm that publishes ranking points.
+- **SPR and EPA (since quick task 260929-mat).** A sidecar is built only for an algorithm that publishes ranking points; OPR gets none.
 - **1,000 schedules x 50 draws.** Each sidecar is priced from 1,000 seeded synthetic qualification
   schedules at 50 draws each; the published body carries `scheduleCount` and the baked
   distribution, not the priced schedules.

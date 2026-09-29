@@ -43,7 +43,7 @@ export const EPA_HEAD_TO_HEAD_INTRO =
   "How often each site's EPA picked the match winner, and its Brier score. Lower Brier is better.";
 
 export const EPA_SAME_PARAGRAPH =
-  "Both sites update ratings with the same formula, count elimination matches one third as much as qualification matches, use the same logistic win probability curve, and add fouls back the same way. A new season starts from the same blend: 70 percent of last season, 30 percent of the season before, pulled 40 percent of the way back toward average. Neither site shows a ± range on EPA.";
+  "Both sites update ratings with the same formula, count elimination matches one third as much as qualification matches, use the same logistic win probability curve, and add fouls back the same way. A new season starts from the same blend: 70 percent of last season, 30 percent of the season before, pulled 40 percent of the way back toward average. Neither site shows a ± range on EPA. Both sites also predict each bonus ranking point the same way. Every team carries a rating for it, the alliance adds its ratings, a curve turns the sum into a chance, and elimination matches leave those ratings alone.";
 
 /** Column headers of the difference table. The first column (the topic) has no header. */
 export const EPA_DIFFERENCE_STATBOTICS_LABEL = "Statbotics";
@@ -83,7 +83,7 @@ export const EPA_DIFFERENCE_ROWS: readonly EpaDifferenceRow[] = [
   {
     id: "week-one-numbers",
     topic: "Week 1 numbers",
-    statbotics: "Score spread and foul rate come from all of week 1 and apply to every match, week 1 included",
+    statbotics: "Score spread, foul rate and bonus ranking point rates come from all of week 1 and apply to every match, week 1 included",
     sigmascout: "Same numbers from week 2 on. Running estimates during week 1",
     note: "Changes week 1 confidence. It never changes a winner pick",
   },

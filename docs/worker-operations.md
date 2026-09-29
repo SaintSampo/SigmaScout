@@ -302,8 +302,9 @@ just before `foldObservedRp`, and writes it back beside `withRpBeliefs`. That mi
 `SigmaScoutLayer` field for field and costs no extra subrequests.
 
 - **Order.** Publish, then seed `seed-spr.sql`, then deploy the Worker. Seed first, deploy second,
-  as above. Only `seed-spr.sql` carries the passenger, because opr and epa publish no ranking
-  points. **This bullet used to add that a shape-15 opr or epa row never reaches the Worker, because
+  as above. Only `seed-spr.sql` carries the passenger, because opr and epa have no layer-priced
+  ranking points (EPA's own bonus RP slots ride its ordinary team and league rows since shape 18,
+  2026-09-29). **This bullet used to add that a shape-15 opr or epa row never reaches the Worker, because
   the live tier was spr only. That is no longer true** — since 2026-09-23 (quick task 260923-3w8) all
   three fold live and the Worker deserializes every one of their league rows, so all three must be at
   the current `STATE_SNAPSHOT_SHAPE_VERSION` or they raise `LeagueRowShapeVersionError` on every
@@ -435,8 +436,17 @@ untouched by any of this. **Until 2026-09-23 they refreshed only at the manual
 pre/post-event-weekend re-baseline and not on the cron, so during an event weekend their numbers
 were as of the last re-baseline. That is no longer the case** — they fold on the cron like spr, and
 opr or epa standing still mid-event is now a symptom to investigate rather than expected behavior.
-One thing is still SPR's alone: the ranking-point layer. OPR and EPA publish no RP odds, no Match
-Band and no pre-schedule simulation sidecar.
+One thing is still SPR's alone: the ranking-point LAYER (the RP moments accumulator, the mean shift
+and the pre-event filler). ~~OPR and EPA publish no RP odds, no Match Band and no pre-schedule
+simulation sidecar.~~ **Since 2026-09-29 (quick task 260929-mat, `epa@14.0.0+baseline`) EPA
+publishes its own RP odds** from Statbotics' bonus RP slots, which fold live inside `epa.update` on
+every tick and persist through D1 as part of EPA state: `rpSlotOffsets` on each epa team row and
+`rpLeague` on the epa league row, `STATE_SNAPSHOT_SHAPE_VERSION` 18. EPA also gets pre-schedule
+sidecars, priced from its own `predict`. OPR still publishes no RP odds, and neither OPR nor EPA
+publishes a Match Band. **The shape 18 bump needs a reseed from a fresh publish**: until the four
+seed files land, a Worker at shape 18 refuses every shape 17 league row with
+`LeagueRowShapeVersionError`, so an event with new matches logs `event-failed`, reverts its cursor
+claim and retries next tick, writing nothing.
 
 **~~SPR-only was decided permanent on 2026-09-13 (quick task 260913-ppk).~~ HISTORICAL — both of its
 reasons are now answered.** OPR and EPA were not to be rotated into the live tick because (a) the

@@ -12,6 +12,11 @@ recommendation) and 6 otherwise still carry the 2026-09-10 audit.
 **2026-09-13:** as of quick task 260913-it4 the rank simulation runs under SPR only, because OPR and
 EPA publish no ranking-point odds. Sections below that describe pmfs on every algorithm predate it.
 
+**2026-09-29:** as of quick task 260929-mat (L-02 lifted by Jacob) the rank simulation runs under SPR
+and EPA, live start match and pre-schedule sidecar both. EPA's odds come from its own Statbotics
+bonus RP slots in `epa@14.0.0+baseline`'s `predict`, never from SPR's layer. OPR is still RP-free
+and its Simulation tab stays disabled.
+
 **Re-verified 2026-09-23** against HEAD (quick task 260923-3w9, a code read, not a live fetch
 against R2). Section 3's schema description and size tables were two generations stale, still
 quoting 388 to 394 KB per sidecar from before quick task 260912-2ur dropped the priced `schedules`
