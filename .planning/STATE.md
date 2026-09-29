@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-09-29T20:00:17.548Z"
+last_updated: "2026-09-29T20:28:05.786Z"
 last_activity: 2026-09-29
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -706,6 +706,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 270 | Impact award ordering sorts on prior Impact wins first, with priorImpactWins on every district award profile | 2026-09-29 | ef034ceb | [260929-imp-impact-first-award-ordering](./quick/260929-imp-impact-first-award-ordering/) |
 | 271 | Seed tests read either line ending, and the alliance win probability figures are re-measured on the current corpus | 2026-09-29 | 93e8ff84 | [260929-eol-seed-tests-read-either-line-ending-and-t](./quick/260929-eol-seed-tests-read-either-line-ending-and-t/) |
 | 272 | Awards lead names the Champ Locks award draw, EPA comparison page retitled SigmaScout EPA vs Statbotics EPA | 2026-09-29 | cd8c7bdc | — |
+| 273 | Hide cancelled events (zero played, 7 days past start) from publish, team pages and the browser; add prune:cancelled-events | 2026-09-29 | d11e8be4 | [260929-mcf-hide-cancelled-events-and-skip-their-com](./quick/260929-mcf-hide-cancelled-events-and-skip-their-com/) |
 
 ### Roadmap Evolution
 
