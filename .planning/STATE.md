@@ -1,18 +1,18 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.0
-milestone_name: milestone
-current_phase: 10
-status: completed
-stopped_at: Completed 10-09-PLAN.md (operator gates run from the main context)
-last_updated: "2026-09-29T04:48:48.224Z"
+milestone_name: Launch
+status: Awaiting next milestone
+stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
+last_updated: "2026-09-29T05:12:38.242Z"
 last_activity: 2026-09-29
-last_activity_desc: Phase 10 complete
+last_activity_desc: Milestone v1.0 completed and archived
 progress:
   total_phases: 13
   completed_phases: 13
   total_plans: 118
   completed_plans: 118
+current_phase: 10
 current_phase_name: district-points-ledger
 ---
 
@@ -20,19 +20,17 @@ current_phase_name: district-points-ledger
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-12)
+See: .planning/PROJECT.md (updated 2026-09-29)
 
 **Core value:** Predictions that are *measurably* better than Statbotics — proven by walk-forward backtests scored on winner accuracy first and Brier second — delivered on pages that load fast.
-**Current focus:** Phase 10 — district-points-ledger
+**Current focus:** Planning next milestone (v1.0 carry-overs are in PROJECT.md Active)
 
 ## Current Position
 
-Phase: 10
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-09-29 — Phase 10 complete
-
-Progress: [██████████] 100%
+Phase: Milestone v1.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-09-29 — Milestone v1.0 completed and archived
 
 ## Performance Metrics
 
@@ -734,13 +732,38 @@ updates are during an event, which is why they were acceptable scope boundaries 
 remain so at v1.0 close. Each is waived in `WINDOWS.md` with the same reason rather than left as a
 silent open row; `open_count` is now 0, so `/gsd-ship` no longer blocks.
 
+Items acknowledged and deferred at the v1.0 milestone close on 2026-09-29 (override closeout; audit `07850809`, status tech_debt, 36/38):
+
+| Category | Item | Status |
+|----------|------|--------|
+| verification | Phase 09 `09-VERIFICATION.md` | gaps_found (clause 2: RP scorecard removed from page, still published) |
+| requirement | DATA-04 | partial: code path wired, no production fold observed yet |
+| requirement | DATA-05 | partial: R2 Class A for September probably over 1M, needs the dashboard |
+| debug | knowledge-base | unknown |
+| quick_task | 260902-disp-team-spread-means-robot-consistency | missing |
+| quick_task | 260902-varopr-per-team-variance-decomposition | missing |
+| quick_task | 260903-750-recency-weighted-robot-consistency-repla | unknown |
+| quick_task | 260906-8ao-residual-gap-autopsy-where-the-remaining | missing |
+| quick_task | 260906-8i1-attribution-shrinkage-blend-the-alliance | missing |
+| quick_task | 260910-kco-bpr-carry-from-official-play-only | missing |
+| quick_task | 260917-01e-per-event-team-artifacts-so-a-tick-stops | missing |
+| quick_task | 260917-0p3-measure-a-split-tick-chunk-before-buildi | closed |
+| uat | 04-UAT.md, 07-UAT.md | passed, 0 pending (tool false positive) |
+| context | 05-CONTEXT.md, 07-CONTEXT.md open questions | unanswered at close |
+
+WINDOWS #9 above (one live algorithm) is superseded: since 2026-09-23 all three algorithms fold live on Workers Paid.
+
 ## Session Continuity
 
 Last session: 2026-09-29
-Stopped at: Phase 10 complete (UAT 2/2), milestone v1.0 ready to close
+Stopped at: Milestone v1.0 Launch archived (tag v1.0), next is /gsd-new-milestone
 Phase 10 operator record (2026-09-25): Worker version 44f15512 deployed 15:40:41Z with two bindings and the every minute schedule; three ticks then one post manifest tick all ok with the four district counters at 0. District republish generation 2026-09-25T15:47:20.912Z at 15:47:19Z to 15:47:49Z, 14 districts for 2026, 2,593,758 bytes, zero sidecars, budget gate clean, content verified on data.sigmascout.org with an Origin header. Live windows manifest rewritten 15:48:45Z by publish:live-windows, generation 6c6585d0 unchanged, districtKey field on 52 of 52 windows, 0 non null (out of season). Pushed e0fd02c9 then the fix commit cf809985 (spec drift plus the sticky Team cell cap at 390px); CI Test and Deploy green for both (runs 36156850808, 36156850846, 36157968026, 36157968031). Live e2e: district spec 10 of 10 on desktop and phone-390, full family 289 passed. Owed: no real district fold has been observed because no district event is live in late September; the manifest carrying the field is eligibility, not evidence. Later the same day: Worker version ac41800f deployed 21:17:01Z at 762739ce carrying the held back Impact slot rule (quick task 260925-ms7), four healthy ticks; no district republish because every finished season recomputes with zero diff.
 Resume file: None
 
 ## Decisions
 
 - 2026-09-01: UI reviews for phases 05/06/08 permanently WAIVED by user decision ("never going to run") — do not propose /gsd-ui-review for them. 07-UI-REVIEW fixes 1+2 shipped; fix 3 resolved via ui-polish F3.
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
