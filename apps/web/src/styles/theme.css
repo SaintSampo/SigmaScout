@@ -1090,54 +1090,7 @@ body {
   display: block;
 }
 
-/* Controls card. The slider's tick rail carries the same absolute-label
- * geometry the simulation axis uses. */
-.district-ledger-slider {
-  accent-color: var(--color-accent);
-}
-.district-ledger-ticks {
-  position: relative;
-  height: 26px; /* two rows: a label that would overprint its neighbour drops to row 1 */
-  font-size: 11px;
-  line-height: 1.2;
-  color: var(--district-ledger-faint);
-}
-.district-ledger-ticks > span {
-  position: absolute;
-  white-space: nowrap;
-  transform: translateX(-50%);
-}
-.district-ledger-ticks > span:first-child {
-  transform: none;
-}
-.district-ledger-ticks > span:last-child {
-  transform: translateX(-100%);
-}
-.district-ledger-ticks > span[data-row="1"] {
-  top: 13px;
-}
-
-/* The jump chips and the chip-filter buttons: small pills. `min-height: 32px`
- * rather than `.tap-target`'s 44px — the sketch's density needs the shorter
- * pill, and 32px still clears WCAG 2.5.8's 24px AA floor. */
-.district-ledger-pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  padding: 2px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  font-size: 12px;
-  line-height: 1.3;
-  color: var(--color-text-muted);
-  background-color: var(--color-bg-surface);
-  cursor: pointer;
-}
-.district-ledger-pill[aria-pressed="true"] {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-  font-weight: 600;
-}
+/* The status chip filters in the controls card. */
 .district-ledger-chip-button {
   display: inline-flex;
   align-items: center;

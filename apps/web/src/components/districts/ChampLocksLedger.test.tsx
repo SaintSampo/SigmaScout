@@ -379,6 +379,14 @@ describe("ChampLocksLedger — the finished district and championship", () => {
     renderLedger(finishedArtifact());
   }
 
+  it("renders the Locks milestone picker with a DCMP group in its event menu, and no range input", async () => {
+    renderFinished();
+    await waitFor(() => expect(screen.getByTestId("district-ledger-rewind")).toBeDefined());
+    const groups = [...screen.getByTestId("locks-picker-event").querySelectorAll("optgroup")].map((group) => group.getAttribute("label") ?? "");
+    expect(groups.some((label) => label.startsWith("DCMP ·"))).toBe(true);
+    expect(screen.getByTestId("champ-ledger-tab").querySelector('input[type="range"]')).toBeNull();
+  });
+
   it("renders every column label, in order, from the exported tuple", async () => {
     renderFinished();
     await waitFor(() => expect(screen.getAllByRole("columnheader").length).toBeGreaterThan(0));

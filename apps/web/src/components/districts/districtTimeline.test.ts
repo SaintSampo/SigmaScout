@@ -1,6 +1,6 @@
 /**
- * The district's interleaved timeline, its step resolver, its derived jump
- * chips and the per-event stage at a position.
+ * The district's interleaved timeline, its step resolver and the per-event
+ * stage at a position.
  *
  * Pure and synthetic, with the event artifacts parsed through the REAL
  * `EventArtifactSchema` so every fixture matches the published shape.
@@ -19,7 +19,6 @@ import {
   resolveDistrictTimelinePosition,
   startMatchKeyAtPosition,
 } from "./districtTimeline.js";
-import { nearestRailPosition, timelineRailFractions, timelineTicks } from "./LedgerParts.js";
 
 const BASE_MS = Date.parse("2026-03-06T17:00:00.000Z");
 
@@ -175,13 +174,12 @@ describe("buildDistrictTimeline", () => {
     expect(timeline.gaps.eventsWithUntimedRows).toEqual(["eva"]);
   });
 
-  it("keeps a week-1 event's unloaded stage steps AHEAD of a week-3 event's timed matches, and the chips in order", () => {
+  it("keeps a week-1 event's unloaded stage steps AHEAD of a week-3 event's timed matches", () => {
     // The ordinary first-paint state: the event list IS the fetch set, so an
     // event whose artifact has not arrived yet contributes four stage steps
     // carrying no instant at all. Before this fix every one of them sorted
     // after every timed step, so a finished week-1 event landed past a live
-    // week-3 event's matches and `lastIndexByWeek` dragged the "After week 1"
-    // chip to near the end of the slider.
+    // week-3 event's matches, near the end of the season.
     const timeline = buildDistrictTimeline({
       events: [
         { eventKey: "wk1", eventName: "Week One", week: 1 },
@@ -208,11 +206,6 @@ describe("buildDistrictTimeline", () => {
       DISTRICT_TIMELINE_NOW_ID,
     ]);
 
-    const weekChips = timeline.chips.filter((chip) => chip.id.startsWith("week-"));
-    expect(weekChips.map((chip) => chip.id)).toEqual(["week-1", "week-3"]);
-    expect(weekChips[0]!.positionIndex).toBeLessThan(weekChips[1]!.positionIndex);
-    // "After week 1" lands on that event's last stage step, not near the end.
-    expect(timeline.positions[weekChips[0]!.positionIndex]?.id).toBe("wk1:awards");
   });
 
   it("within ONE week an untimed step still sorts after the timed ones, so it never jumps to the front", () => {
@@ -273,70 +266,6 @@ describe("resolveDistrictTimelinePosition", () => {
     const timeline = interleavedTimeline();
     const index = resolveDistrictTimelinePosition(timeline, "eva:qualsDone");
     expect(timeline.positions[index]!.id).toBe("eva:qualsDone");
-  });
-});
-
-describe("the derived jump chips", () => {
-  it("derives one chip after each distinct week present, plus season start and now", () => {
-    const fourWeeks = buildDistrictTimeline({
-      events: [0, 1, 2, 3].map((week) => ({ eventKey: `ev${String(week)}`, eventName: `Event ${String(week)}`, week })),
-      eventArtifacts: new Map(),
-    });
-    expect(fourWeeks.chips.map((chip) => chip.id)).toEqual([
-      DISTRICT_TIMELINE_SEASON_START_ID,
-      "week-0",
-      "week-1",
-      "week-2",
-      "week-3",
-      DISTRICT_TIMELINE_NOW_ID,
-    ]);
-  });
-
-  it("derives only one week chip on a single-week fixture — never a hardcoded week list", () => {
-    const oneWeek = buildDistrictTimeline({ events: EVENTS, eventArtifacts: new Map() });
-    expect(oneWeek.chips.map((chip) => chip.id)).toEqual([DISTRICT_TIMELINE_SEASON_START_ID, "week-0", DISTRICT_TIMELINE_NOW_ID]);
-  });
-});
-
-describe("the rewind rail", () => {
-  const weeks = [
-    { eventKey: "eva", eventName: "Event A", week: 0 as number | null },
-    { eventKey: "evb", eventName: "Event B", week: 1 as number | null },
-    { eventKey: "evc", eventName: "Event C", week: 2 as number | null },
-  ];
-  const stageOnly = buildDistrictTimeline({ events: weeks, eventArtifacts: new Map() });
-  const withMatches = buildDistrictTimeline({
-    events: weeks,
-    eventArtifacts: new Map([
-      ["eva", eventArtifact("eva", Array.from({ length: 40 }, (_, i) => ({ matchNumber: i + 1, ms: BASE_MS + i * 60_000 })))],
-      ["evb", eventArtifact("evb", [{ matchNumber: 1, ms: BASE_MS + 7 * 86_400_000 }])],
-    ]),
-  });
-
-  it("never moves a tick when a rewind loads the event artifacts, and prints every tick on one row", () => {
-    const layout = (timeline: typeof stageOnly) => timelineTicks(timeline).map(({ label, percent, row }) => ({ label, percent, row }));
-    expect(withMatches.nowIndex).toBeGreaterThan(stageOnly.nowIndex);
-    expect(layout(withMatches)).toEqual(layout(stageOnly));
-    expect(layout(stageOnly)).toEqual([
-      { label: "start", percent: 0, row: 0 },
-      { label: "wk 1", percent: 25, row: 0 },
-      { label: "wk 2", percent: 50, row: 0 },
-      { label: "wk 3", percent: 75, row: 0 },
-      { label: "now", percent: 100, row: 0 },
-    ]);
-  });
-
-  it("puts every jump chip's position exactly on its tick, and snaps a rail value back to that position", () => {
-    for (const timeline of [stageOnly, withMatches]) {
-      const fractions = timelineRailFractions(timeline);
-      expect(fractions).toHaveLength(timeline.nowIndex + 1);
-      for (let i = 1; i < fractions.length; i++) expect(fractions[i]!).toBeGreaterThan(fractions[i - 1]!);
-      const ticks = timelineTicks(timeline);
-      timeline.chips.forEach((chip, i) => {
-        expect(fractions[chip.positionIndex]! * 100).toBeCloseTo(ticks[i]!.percent);
-        expect(nearestRailPosition(fractions, ticks[i]!.percent / 100)).toBe(chip.positionIndex);
-      });
-    }
   });
 });
 

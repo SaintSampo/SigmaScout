@@ -46,8 +46,6 @@ import {
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_TAB_LABEL,
-  DISTRICT_LEDGER_TICK_NOW,
-  DISTRICT_LEDGER_TICK_START,
   districtLedgerContributionEarned,
   districtLedgerOutcomeChance,
   districtLedgerOutcomePoints,
@@ -55,7 +53,6 @@ import {
   districtLedgerPlacementLine,
   districtLedgerSelectionSettledLine,
   districtLedgerShortEventName,
-  districtLedgerTickWeekLabel,
   CHAMP_LEDGER_COLUMN_LABELS,
   CHAMP_LEDGER_CONTRIBUTION_CAPTION,
   CHAMP_LEDGER_CONTRIBUTION_COLUMN_SOURCE,
@@ -72,6 +69,23 @@ import {
   champLedgerDcmpStageLine,
   champLedgerDistrictSourceLine,
   champLedgerFieldChanceLine,
+  DISTRICT_LEDGER_MILESTONE_GROUPS,
+  DISTRICT_LEDGER_MILESTONE_LONG_WORDS,
+  DISTRICT_LEDGER_MILESTONE_SUB_WORDS,
+  LOCKS_PICKER_EVENT_LABEL,
+  LOCKS_PICKER_LIVE,
+  LOCKS_PICKER_NEXT_LABEL,
+  LOCKS_PICKER_NOW_MARK,
+  LOCKS_PICKER_PREV_LABEL,
+  LOCKS_PICKER_SEASON_START,
+  LOCKS_PICKER_THIS_IS_LIVE,
+  locksPickerGroupLabel,
+  locksPickerLiveCaption,
+  locksPickerMilestoneTitle,
+  locksPickerNextText,
+  locksPickerOptionLabel,
+  locksPickerStopLabel,
+  locksPickerUpCaption,
 } from "./districtLedgerCopy.js";
 
 describe("the UI-SPEC copy contract", () => {
@@ -106,11 +120,80 @@ describe("the UI-SPEC copy contract", () => {
     expect(DISTRICT_LEDGER_LOCKED_AWARD_LABEL).toBe("Locked · award");
   });
 
-  it("pins the slider's tick labels, which are the jump chips' short form", () => {
-    expect(DISTRICT_LEDGER_TICK_START).toBe("start");
-    expect(DISTRICT_LEDGER_TICK_NOW).toBe("now");
-    expect(districtLedgerTickWeekLabel(0)).toBe("wk 1");
-    expect(districtLedgerTickWeekLabel(3)).toBe("wk 4");
+  it("pins the Locks milestone picker's words, sketch 024 Q's own, with eight stops", () => {
+    expect(LOCKS_PICKER_EVENT_LABEL).toBe("Event");
+    expect(LOCKS_PICKER_SEASON_START).toBe("Season start");
+    expect(LOCKS_PICKER_LIVE).toBe("Live");
+    expect(LOCKS_PICKER_NOW_MARK).toBe("now");
+    expect(LOCKS_PICKER_PREV_LABEL).toBe("Previous milestone");
+    expect(LOCKS_PICKER_NEXT_LABEL).toBe("Next milestone");
+    expect(LOCKS_PICKER_THIS_IS_LIVE).toBe("This is live");
+    expect(DISTRICT_LEDGER_MILESTONE_GROUPS.map(({ label, from, to }) => `${label} ${String(from)}/${String(to)}`)).toEqual([
+      "Schedule 1/2",
+      "Qualification 2/6",
+      "Alliances 6/7",
+      "Playoffs 7/8",
+      "Awards 8/9",
+    ]);
+    expect(Object.entries(DISTRICT_LEDGER_MILESTONE_SUB_WORDS)).toEqual([
+      ["schedule", "Out"],
+      ["q1", "¼"],
+      ["q2", "½"],
+      ["q3", "¾"],
+      ["qualsDone", "Done"],
+      ["alliance", "Done"],
+      ["playoffs", "Done"],
+      ["awards", "Done"],
+    ]);
+    expect(Object.values(DISTRICT_LEDGER_MILESTONE_LONG_WORDS)).toEqual([
+      "schedule released",
+      "quals ¼ done",
+      "quals ½ done",
+      "quals ¾ done",
+      "quals done",
+      "alliance selection done",
+      "playoffs done",
+      "awards done",
+    ]);
+    expect(locksPickerMilestoneTitle("Belleville", "q1")).toBe("Belleville · Quals ¼ done");
+    expect(locksPickerMilestoneTitle("Belleville", "alliance")).toBe("Belleville · Alliance selection done");
+    expect(locksPickerStopLabel("Belleville", "q1", true)).toBe("Belleville quals ¼ done");
+    expect(locksPickerStopLabel("Belleville", "awards", false)).toBe("Belleville awards done, not played yet");
+    expect(locksPickerNextText("Belleville · Quals done")).toBe("Next: Belleville · Quals done");
+    expect(locksPickerNextText(undefined)).toBe("This is live");
+    expect(locksPickerGroupLabel({ week: 0, isDcmp: false }, "done")).toBe("Week 1 · done");
+    expect(locksPickerGroupLabel({ week: 3, isDcmp: false }, "live")).toBe("Week 4 · live");
+    expect(locksPickerGroupLabel({ week: 5, isDcmp: false }, "up")).toBe("Week 6 · not played yet");
+    expect(locksPickerGroupLabel({ week: null, isDcmp: false }, "up")).toBe("Week not published · not played yet");
+    expect(locksPickerGroupLabel({ week: 5, isDcmp: true }, "done")).toBe("DCMP · done");
+    expect(locksPickerOptionLabel("Lansing", true)).toBe("Lansing (live)");
+    expect(locksPickerOptionLabel("Lansing", false)).toBe("Lansing");
+    expect(locksPickerUpCaption("Marysville")).toBe("Marysville has not started. Its milestones open as they happen.");
+    expect(locksPickerLiveCaption("Lansing")).toBe("Lansing is live. Milestones past the red line have not happened yet; use Live for the current state.");
+  });
+
+  it("writes no hyphen, en dash or em dash in any Locks milestone picker string", () => {
+    const strings = [
+      LOCKS_PICKER_EVENT_LABEL,
+      LOCKS_PICKER_SEASON_START,
+      LOCKS_PICKER_LIVE,
+      LOCKS_PICKER_NOW_MARK,
+      LOCKS_PICKER_PREV_LABEL,
+      LOCKS_PICKER_NEXT_LABEL,
+      LOCKS_PICKER_THIS_IS_LIVE,
+      ...DISTRICT_LEDGER_MILESTONE_GROUPS.map((group) => group.label),
+      ...Object.values(DISTRICT_LEDGER_MILESTONE_SUB_WORDS),
+      ...Object.values(DISTRICT_LEDGER_MILESTONE_LONG_WORDS),
+      locksPickerMilestoneTitle("Belleville", "q3"),
+      locksPickerStopLabel("Belleville", "playoffs", false),
+      locksPickerNextText("Belleville · Awards done"),
+      locksPickerGroupLabel({ week: null, isDcmp: false }, "up"),
+      locksPickerGroupLabel({ week: 2, isDcmp: true }, "live"),
+      locksPickerOptionLabel("Lansing", true),
+      locksPickerUpCaption("Marysville"),
+      locksPickerLiveCaption("Lansing"),
+    ];
+    for (const text of strings) expect(text).not.toMatch(/[-‐-―−]/);
   });
 
   it("shortens ONLY a name that matches TBA's whole district template, and prints every other name verbatim", () => {
