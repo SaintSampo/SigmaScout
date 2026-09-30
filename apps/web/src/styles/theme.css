@@ -1312,6 +1312,339 @@ body {
   color: var(--district-ledger-faint);
 }
 
+/*
+ * ---------------------------------------------------------------------------
+ * The Locks milestone picker (sketch 024 variant Q)
+ * ---------------------------------------------------------------------------
+ *
+ * Every rule below ports one sketch 024 Q rule LITERALLY: sizes, paddings,
+ * gaps, radii, font sizes, weights, opacities, the transition and the
+ * keyframes are the sketch's own. Only these change:
+ *
+ * - colours are shipped tokens (surface, border, text, muted, accent), the
+ *   sketch's faint ink is `--district-ledger-faint`, and the sketch's `--r` is
+ *   `var(--radius)`, which is also 6px;
+ * - four derived tokens below stand in for the sketch's accent-soft, track,
+ *   chrome and live colours, each built from a shipped token, so this block
+ *   adds no palette entry and writes no literal colour;
+ * - the stepper has EIGHT columns, not nine, because the Playoffs half stop is
+ *   not modelled yet: `repeat(8, ...)`, a line inset of `100% / 16`, a fill of
+ *   `/ 7` and a now marker at `/ 8` (the last two are inline in the component);
+ * - the sketch's page-wide rules (the body font, `:focus-visible`, the 520px
+ *   rule and reduced motion) are scoped to the picker;
+ * - Tailwind's preflight zeroes borders, margins and padding and makes button
+ *   backgrounds transparent, so every border, margin, padding and background
+ *   the sketch set, or took from the browser's own defaults, is written out.
+ *
+ * The site has no dark theme, so only the sketch's light values are ported.
+ */
+:root {
+  /* the sketch's --accent-soft: its accent green at 16 percent over transparent */
+  --locks-picker-accent-soft: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  /* the sketch's --track, the same slate as the border */
+  --locks-picker-track: var(--color-border);
+  /* the sketch's --chrome, the stop hover fill */
+  --locks-picker-chrome: var(--color-bg-inset);
+  /* the sketch's --live, the red now marker and the live dot */
+  --locks-picker-live: var(--color-destructive);
+}
+
+/* ports body { font: 14px/1.5; color: var(--text) }, scoped to the picker.
+ * The max-width is the sketch's own content width: its 880px main, less the
+ * 32px main gutter, less the 32px card padding, is 814px, so the stops sit at
+ * the sketch's pitch on a wide page. Below that the picker stays fluid. */
+.locks-picker {
+  max-width: 814px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-text-primary);
+}
+/* ports :focus-visible */
+.locks-picker :focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+/* ports .row */
+.locks-picker-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+/* ports the inline style="margin-top:6px" on Q's arrow row */
+.locks-picker-row--nav {
+  margin-top: 6px;
+}
+/* ports .lbl */
+.locks-picker-lbl {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+/* ports .spacer */
+.locks-picker-spacer {
+  flex: 1;
+}
+/* ports .pill */
+.locks-picker-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 2px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  background: var(--color-bg-surface);
+  cursor: pointer;
+  white-space: nowrap;
+}
+/* ports .pill[aria-pressed="true"] */
+.locks-picker-pill[aria-pressed="true"] {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 600;
+  background: var(--locks-picker-accent-soft);
+}
+/* ports .pill:disabled */
+.locks-picker-pill:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+/* ports .live-dot */
+.locks-picker-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--locks-picker-live);
+  box-shadow: 0 0 0 0 var(--locks-picker-live);
+  animation: locks-picker-pulse 1.8s infinite;
+}
+/* ports @keyframes pulse */
+@keyframes locks-picker-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--locks-picker-live) 60%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+/* ports .ibtn. The padding is the browser's own button default, which the
+ * sketch relied on and preflight zeroes. */
+.locks-picker-ibtn {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 1px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg-surface);
+  cursor: pointer;
+  color: var(--color-text-primary);
+  flex: none;
+}
+/* ports .ibtn svg */
+.locks-picker-ibtn svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+/* ports .ibtn:disabled */
+.locks-picker-ibtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* ports .nav */
+.locks-picker-nav {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+/* ports .nav .nx */
+.locks-picker-next {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* ports select.ev. No appearance reset: Q is a native select with its native arrow. */
+.locks-picker-select {
+  min-height: 38px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg-surface);
+  font-size: 14px;
+  font-weight: 600;
+  max-width: 100%;
+}
+/* ports .stp */
+.locks-picker-stepper {
+  margin-top: 6px;
+}
+/* ports .stp-g, .stp-t (eight columns) */
+.locks-picker-groups,
+.locks-picker-track {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+}
+/* ports .stp-g span */
+.locks-picker-groups > span {
+  font-size: 11px;
+  color: var(--district-ledger-faint);
+  text-align: center;
+  border-bottom: 1px solid var(--color-border);
+  margin: 0 3px;
+  padding-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* ports .stp-t */
+.locks-picker-track {
+  position: relative;
+  margin-top: 4px;
+}
+/* ports .stp-line (eight columns: centre of the first stop to centre of the last) */
+.locks-picker-line {
+  position: absolute;
+  left: calc(100% / 16);
+  right: calc(100% / 16);
+  top: 17px;
+  height: 3px;
+  background: var(--locks-picker-track);
+  border-radius: 2px;
+}
+/* ports .stp-line i */
+.locks-picker-line-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--color-accent);
+  border-radius: 2px;
+  transition: width 0.15s;
+}
+/* ports .stp-b */
+.locks-picker-stop {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 6px 0 4px;
+  min-height: 48px;
+  border-radius: var(--radius);
+}
+/* ports .stp-b:hover:not(:disabled) */
+.locks-picker-stop:hover:not(:disabled) {
+  background: var(--locks-picker-chrome);
+}
+/* ports .stp-b .dot */
+.locks-picker-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--district-ledger-faint);
+  background: var(--color-bg-surface);
+  z-index: 1;
+}
+/* ports .stp-b.done .dot */
+.locks-picker-stop--done .locks-picker-dot {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+/* ports .stp-b[aria-pressed="true"] .dot */
+.locks-picker-stop[aria-pressed="true"] .locks-picker-dot {
+  width: 20px;
+  height: 20px;
+  margin: -2px 0;
+  box-shadow: 0 0 0 4px var(--locks-picker-accent-soft);
+  background: var(--color-bg-surface);
+  border: 5px solid var(--color-accent);
+}
+/* ports .stp-b .t */
+.locks-picker-stop-label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+/* ports .stp-b[aria-pressed="true"] .t */
+.locks-picker-stop[aria-pressed="true"] .locks-picker-stop-label {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+/* ports .stp-b:disabled */
+.locks-picker-stop:disabled {
+  cursor: default;
+}
+/* ports .stp-b:disabled .dot */
+.locks-picker-stop:disabled .locks-picker-dot {
+  border-style: dashed;
+  opacity: 0.55;
+}
+/* ports .stp-b:disabled .t */
+.locks-picker-stop:disabled .locks-picker-stop-label {
+  color: var(--district-ledger-faint);
+  opacity: 0.7;
+}
+/* ports .stp-now */
+.locks-picker-now {
+  position: absolute;
+  top: -2px;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--locks-picker-live);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  z-index: 2;
+}
+/* ports .stp-now::after */
+.locks-picker-now::after {
+  content: "";
+  width: 2px;
+  height: 30px;
+  background: var(--locks-picker-live);
+  border-radius: 1px;
+}
+/* ports .stp-cap */
+.locks-picker-caption {
+  font-size: 12px;
+  color: var(--district-ledger-faint);
+  margin: 4px 0 0;
+}
+/* ports @media (max-width:520px) { .stp-b .t { font-size: 11px } } */
+@media (max-width: 520px) {
+  .locks-picker-stop-label {
+    font-size: 11px;
+  }
+}
+/* ports @media (prefers-reduced-motion: reduce), scoped to the picker */
+@media (prefers-reduced-motion: reduce) {
+  .locks-picker *,
+  .locks-picker *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+/* end of the Locks milestone picker block */
+
 /* Home page podium: a one-off medal vocabulary, NOT the tier palette, even where a value coincides. */
 .podium-step { border-radius: 8px 8px 0 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; padding: 10px 14px 12px; }
 .podium-step--gold { background: #fef3c7; color: #b45309; }
