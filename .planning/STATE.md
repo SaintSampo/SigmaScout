@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-09-29T21:25:10.628Z"
-last_activity: 2026-09-29
+last_updated: "2026-09-30T02:16:05.486Z"
+last_activity: 2026-09-30
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
   total_phases: 13
@@ -709,6 +709,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 273 | Hide cancelled events (zero played, 7 days past start) from publish, team pages and the browser; add prune:cancelled-events | 2026-09-29 | d11e8be4 | [260929-mcf-hide-cancelled-events-and-skip-their-com](./quick/260929-mcf-hide-cancelled-events-and-skip-their-com/) |
 | 274 | Browser presim pricing spike: parity exact, but 75-team event takes 80.6 s at 4x CPU throttle; generation not pricing is 86-88 percent; no-go as sidecar replacement | 2026-09-29 | 0433e0a8 | [260929-mkn-browser-presim-pricing-measurement-spike](./quick/260929-mkn-browser-presim-pricing-measurement-spike/) |
 | 275 | EPA predicts ranking points by Statbotics' method (L-02 lifted), epa 14.0.0, Simulation tab enabled under EPA | 2026-09-29 | 01a19793 | [260929-mat-add-statbotics-style-rp-odds-to-epa-and-](./quick/260929-mat-add-statbotics-style-rp-odds-to-epa-and-/) |
+| 276 | Locks rewind becomes sketch 024 Q's event then milestone picker on both tabs (8 stops, cutoff strip deferred) | 2026-09-30 | 26d1514e | [260929-ttp-locks-rewind-sketch-024-q-milestone-pick](./quick/260929-ttp-locks-rewind-sketch-024-q-milestone-pick/) |
 
 ### Roadmap Evolution
 
