@@ -1340,8 +1340,10 @@ body {
 .locks-picker-spacer {
   flex: 1;
 }
-/* ports .pill */
+/* ports .pill. `appearance: auto` is the browser's own button default, which
+ * the sketch relied on and preflight overrides. */
 .locks-picker-pill {
+  appearance: auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1388,9 +1390,10 @@ body {
     box-shadow: 0 0 0 0 transparent;
   }
 }
-/* ports .ibtn. The padding is the browser's own button default, which the
- * sketch relied on and preflight zeroes. */
+/* ports .ibtn. The padding and `appearance: auto` are the browser's own button
+ * defaults, which the sketch relied on and preflight overrides. */
 .locks-picker-ibtn {
+  appearance: auto;
   display: inline-grid;
   place-items: center;
   width: 36px;
@@ -1488,8 +1491,9 @@ body {
   border-radius: 2px;
   transition: width 0.15s;
 }
-/* ports .stp-b */
+/* ports .stp-b. `appearance: auto` is the browser's own button default, as on the pill. */
 .locks-picker-stop {
+  appearance: auto;
   position: relative;
   display: flex;
   flex-direction: column;

@@ -73,10 +73,20 @@ const TEST_IDS = {
   ledgerTab: "district-ledger-tab",
   /** `DistrictLedger.tsx:477` — the one controls card. */
   controls: "district-ledger-controls",
-  /** `DistrictLedger.tsx:426` — the Rewind slider's wrapper. */
+  /** `LocksMilestonePicker.tsx:156` — the milestone picker's root, which keeps the old rewind control's id. */
   rewind: "district-ledger-rewind",
-  /** `DistrictLedger.tsx:439` — the slider's position readout. */
-  rewindReadout: "district-ledger-rewind-readout",
+  /** `LocksMilestonePicker.tsx:164` — the event menu, a native select whose value is an event key. */
+  pickerEvent: "locks-picker-event",
+  /** `LocksMilestonePicker.tsx:182` — the Season start pill; carries `aria-pressed`. */
+  pickerSeasonStart: "locks-picker-season-start",
+  /** `LocksMilestonePicker.tsx:191` — the Live pill; carries `aria-pressed`. */
+  pickerLive: "locks-picker-live",
+  /** `LocksMilestonePicker.tsx:244` — the previous milestone arrow. */
+  pickerPrev: "locks-picker-prev",
+  /** `LocksMilestonePicker.tsx:258` — the next milestone arrow. */
+  pickerNext: "locks-picker-next",
+  /** `LocksMilestonePicker.tsx:269` — the text beside the arrows naming the next stop. */
+  pickerNextText: "locks-picker-next-text",
   /** `DistrictLedger.tsx:182` — the five status chips. */
   statusChips: "district-ledger-status-chips",
   /** `DistrictLedger.tsx:188` — one chip; carries `data-status`. */
@@ -242,72 +252,58 @@ test.describe("District Locks, 1440x900", () => {
     console.log(`[districts-ledger] desktop screenshot: ${shotPath}`);
   });
 
-  test("the Rewind slider spans the district's timeline and its position is shareable", async ({ page }) => {
+  test("the milestone picker walks the district's timeline and its position is shareable", async ({ page }) => {
     test.setTimeout(120_000);
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(districtUrl());
-    await expect(page.getByTestId(TEST_IDS.rewind)).toBeVisible();
+    const picker = page.getByTestId(TEST_IDS.rewind);
+    await expect(picker).toBeVisible();
+    // The old range input is gone for good.
+    await expect(picker.locator("input[type=range]")).toHaveCount(0);
+    // The stops carry `data-milestone`; exactly eight per event (sketch 024 Q, less its Playoffs half stop).
+    const stops = picker.locator("[data-milestone]");
+    await expect(stops).toHaveCount(8);
+    const pressedStops = picker.locator('[data-milestone][aria-pressed="true"]');
 
-    const slider = page.getByTestId(TEST_IDS.rewind).locator('input[type="range"]');
-    await expect(slider).toHaveCount(1);
-    const max = Number(await slider.getAttribute("data-now-index"));
-    // eslint-disable-next-line no-console -- printed for the SUMMARY's measured-figure obligation.
-    console.log(`[districts-ledger] rewind slider max (the now index): ${max}`);
-    // At "now" on a finished district no event artifact is loaded (the tab
-    // fetches only events in progress), so the timeline holds the four stage
-    // steps per district-tier event plus season start and now: 34 positions
-    // for this eight event district, a now index of 33. The by-match rows
-    // appear once a rewind loads the artifacts, which the second half of this
-    // test proves by watching the maximum grow. A max below the stage floor
-    // would mean the timeline never built.
-    expect(max, "the slider's maximum must hold every event's four stage steps").toBeGreaterThanOrEqual(4 * 8 + 1);
+    // At the district URL the page is live.
+    await expect(page.getByTestId(TEST_IDS.pickerLive)).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId(TEST_IDS.pickerNextText)).toHaveText("This is live");
 
-    const readoutBefore = (await page.getByTestId(TEST_IDS.rewindReadout).innerText()).trim();
-    await slider.fill(String(Math.floor(Number(await slider.getAttribute("max")) / 2)));
-    await expect(page.getByTestId(TEST_IDS.rewindReadout)).not.toHaveText(readoutBefore);
-
-    // The rewind loads every started event's artifact, and the timeline
-    // refines to one step per qualification match: the maximum must grow well
-    // past the stage-only floor (measured live 2026-09-25: 33 became 549).
-    await expect
-      .poll(() => slider.getAttribute("data-now-index").then((value) => Number(value)), {
-        message: "a rewind must load the event artifacts and refine the timeline to match steps",
-        timeout: 30_000,
-      })
-      .toBeGreaterThan(50);
-
-    // Moving it writes a shareable search param.
+    // One step back from Live lands on the district's latest milestone.
+    await page.getByTestId(TEST_IDS.pickerPrev).click();
     await expect
       .poll(() => new URL(page.url()).searchParams.get(REWIND_PARAM), {
-        message: `moving the slider must write ?${REWIND_PARAM}= into the URL`,
+        message: `stepping back must write ?${REWIND_PARAM}= into the URL`,
       })
       .not.toBeNull();
-    const sharedUrl = page.url();
-    const readoutAfter = (await page.getByTestId(TEST_IDS.rewindReadout).innerText()).trim();
+    await expect(pressedStops).toHaveCount(1);
+    await expect(page.getByTestId(TEST_IDS.pickerLive)).toHaveAttribute("aria-pressed", "false");
 
-    // Reloading that URL lands on the same position. The position is the
-    // STEP ID in the URL, not the index: the reloaded page paints the
-    // stage-only timeline first and refines it once the artifacts load, so
-    // the same id sits at a different index before and after that refine.
-    // The readout is id-derived and is the honest equality; the slider must
-    // simply not be at either end.
+    // And one more.
+    const firstAt = new URL(page.url()).searchParams.get(REWIND_PARAM);
+    await page.getByTestId(TEST_IDS.pickerPrev).click();
+    await expect.poll(() => new URL(page.url()).searchParams.get(REWIND_PARAM)).not.toBe(firstAt);
+    await expect(pressedStops).toHaveCount(1);
+    const sharedUrl = page.url();
+    const pressedKey = await pressedStops.getAttribute("data-milestone");
+    const eventKey = await page.getByTestId(TEST_IDS.pickerEvent).inputValue();
+    // eslint-disable-next-line no-console -- printed so a failed reload names what it expected.
+    console.log(`[districts-ledger] shared milestone: ${String(pressedKey)} of ${eventKey} (${sharedUrl})`);
+
+    // Reloading that URL lands on the same event and the same stop. The rewind
+    // loads the started events' artifacts first, so this polls.
     await page.goto(sharedUrl);
-    await expect(page.getByTestId(TEST_IDS.rewindReadout)).toHaveText(readoutAfter);
-    const reloaded = page.getByTestId(TEST_IDS.rewind).locator('input[type="range"]');
-    // Value and max are read in ONE evaluation: the timeline refines after
-    // the artifacts load and both attributes change together, so two reads
-    // could pair a refined value with a stage-only max.
     await expect
       .poll(
-        () =>
-          reloaded.evaluate((el) => {
-            const input = el as HTMLInputElement;
-            const value = Number(input.value);
-            return value > 0 && value < Number(input.max);
-          }),
-        { message: "a shared position must resolve inside the timeline, never to its ends" },
+        async () => {
+          const key = await page.getByTestId(TEST_IDS.rewind).locator('[data-milestone][aria-pressed="true"]').getAttribute("data-milestone", { timeout: 1_000 }).catch(() => null);
+          const value = await page.getByTestId(TEST_IDS.pickerEvent).inputValue({ timeout: 1_000 }).catch(() => null);
+          return `${String(key)} of ${String(value)}`;
+        },
+        { message: "a shared milestone link must reopen on the same event and the same stop", timeout: 30_000 },
       )
-      .toBe(true);
+      .toBe(`${String(pressedKey)} of ${eventKey}`);
+    await expect(page.getByTestId(TEST_IDS.pickerLive)).toHaveAttribute("aria-pressed", "false");
   });
 
   test("a pre rename tab id still lands on the District Locks panel", async ({ page }) => {
