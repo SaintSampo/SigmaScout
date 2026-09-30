@@ -249,17 +249,44 @@ export function buildDistrictTimeline(options: BuildDistrictTimelineOptions): Di
   };
 }
 
+/** The suffix of the Schedule milestone's alias id. No step id ends in it, so the alias can never shadow a real step. */
+const SCHEDULE_ALIAS_SUFFIX = ":schedule";
+
+/**
+ * The id the Locks milestone picker stores in `?at=` for one event's Schedule
+ * stop: `<eventKey>:schedule`, an ALIAS rather than a step id. See
+ * `resolveDistrictTimelinePosition` for how it resolves and why it exists.
+ */
+export function districtScheduleMilestoneId(eventKey: string): string {
+  return `${eventKey}${SCHEDULE_ALIAS_SUFFIX}`;
+}
+
 /**
  * Resolves an arbitrary string to a position index, or to the "now" index.
  *
  * A HAND-EDITED OR STALE ID RESOLVES TO NOW, never to a neighbouring step: a
  * neighbour would render a position the reader did not ask for while the URL
  * claimed otherwise.
+ *
+ * AN EXACT POSITION ID ALWAYS WINS FIRST, so no existing id changes meaning.
+ * After that, `<eventKey>:schedule` resolves to the position just before that
+ * event's FIRST match step. Schedule needs its own alias because that position
+ * is some OTHER step (another event's match, or season start), so storing its
+ * id would reopen a shared Schedule link as a different event, and it cannot be
+ * computed at all while the event's own artifact is not loaded. An alias whose
+ * event has no match step in the timeline falls under the rule above and
+ * resolves to now, exactly as a match step id does while artifacts load.
  */
 export function resolveDistrictTimelinePosition(timeline: DistrictTimeline, id: string | undefined): number {
   if (id === undefined) return timeline.nowIndex;
   const index = timeline.positions.findIndex((position) => position.id === id);
-  return index === -1 ? timeline.nowIndex : index;
+  if (index !== -1) return index;
+  if (id.endsWith(SCHEDULE_ALIAS_SUFFIX)) {
+    const eventKey = id.slice(0, -SCHEDULE_ALIAS_SUFFIX.length);
+    const firstMatch = timeline.positions.findIndex((position) => position.step?.kind === "match" && position.step.eventKey === eventKey);
+    if (firstMatch !== -1) return firstMatch - 1;
+  }
+  return timeline.nowIndex;
 }
 
 /**

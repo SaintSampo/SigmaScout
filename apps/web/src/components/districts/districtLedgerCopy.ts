@@ -145,6 +145,104 @@ export function districtLedgerTickWeekLabel(week: number): string {
 /** The hint under the slider, in flat third person. */
 export const DISTRICT_LEDGER_REWIND_HINT = "Rewinding reopens the categories a district event had already decided, and every status recomputes at the new position.";
 
+// ---------------------------------------------------------------------------
+// The Locks milestone picker (sketch 024 variant Q)
+// ---------------------------------------------------------------------------
+
+/** The label beside the event menu, and the two pills. Sketch 024 Q's own words. */
+export const LOCKS_PICKER_EVENT_LABEL = "Event";
+export const LOCKS_PICKER_SEASON_START = "Season start";
+export const LOCKS_PICKER_LIVE = "Live";
+/** The word above the red line that marks where a live event is. */
+export const LOCKS_PICKER_NOW_MARK = "now";
+/** The two arrow buttons' accessible names. */
+export const LOCKS_PICKER_PREV_LABEL = "Previous milestone";
+export const LOCKS_PICKER_NEXT_LABEL = "Next milestone";
+/** The Next text at the end of the walk. */
+export const LOCKS_PICKER_THIS_IS_LIVE = "This is live";
+
+/**
+ * The stepper's group row: each label and its grid column span over the eight
+ * stops. Sketch 024 Q has nine stops; the Playoffs half stop is not modelled
+ * yet, so Playoffs spans one column and Awards moves to the eighth.
+ */
+export const DISTRICT_LEDGER_MILESTONE_GROUPS: readonly { readonly label: string; readonly from: number; readonly to: number }[] = [
+  { label: "Schedule", from: 1, to: 2 },
+  { label: "Qualification", from: 2, to: 6 },
+  { label: "Alliances", from: 6, to: 7 },
+  { label: "Playoffs", from: 7, to: 8 },
+  { label: "Awards", from: 8, to: 9 },
+];
+
+/** The short word under each stop, keyed by milestone. */
+export const DISTRICT_LEDGER_MILESTONE_SUB_WORDS = {
+  schedule: "Out",
+  q1: "¼",
+  q2: "½",
+  q3: "¾",
+  qualsDone: "Done",
+  alliance: "Done",
+  playoffs: "Done",
+  awards: "Done",
+} as const;
+
+/** The long form of each stop, used in its title and its accessible name. */
+export const DISTRICT_LEDGER_MILESTONE_LONG_WORDS = {
+  schedule: "schedule released",
+  q1: "quals ¼ done",
+  q2: "quals ½ done",
+  q3: "quals ¾ done",
+  qualsDone: "quals done",
+  alliance: "alliance selection done",
+  playoffs: "playoffs done",
+  awards: "awards done",
+} as const;
+
+type LocksPickerMilestoneKey = keyof typeof DISTRICT_LEDGER_MILESTONE_LONG_WORDS;
+
+/** A milestone's title: `Belleville · Quals ¼ done`. */
+export function locksPickerMilestoneTitle(eventName: string, key: LocksPickerMilestoneKey): string {
+  const long = DISTRICT_LEDGER_MILESTONE_LONG_WORDS[key];
+  return `${eventName} · ${long[0]!.toUpperCase()}${long.slice(1)}`;
+}
+
+/** A stop's accessible name, with the not-played suffix on a stop that has not happened. */
+export function locksPickerStopLabel(eventName: string, key: LocksPickerMilestoneKey, happened: boolean): string {
+  return `${eventName} ${DISTRICT_LEDGER_MILESTONE_LONG_WORDS[key]}${happened ? "" : ", not played yet"}`;
+}
+
+/** The text beside the arrows: where the next arrow lands, or the end of the walk. */
+export function locksPickerNextText(nextTitle: string | undefined): string {
+  return nextTitle === undefined ? LOCKS_PICKER_THIS_IS_LIVE : `Next: ${nextTitle}`;
+}
+
+/** The three words an event menu group carries after its week. */
+export const LOCKS_PICKER_GROUP_STATUS_WORDS = { done: "done", live: "live", up: "not played yet" } as const;
+
+/**
+ * The event menu's group label. TBA weeks are zero indexed and every page on
+ * this site prints them one based; the DCMP tier gets its own group.
+ */
+export function locksPickerGroupLabel(group: { readonly week: number | null; readonly isDcmp: boolean }, status: keyof typeof LOCKS_PICKER_GROUP_STATUS_WORDS): string {
+  const head = group.isDcmp ? "DCMP" : group.week === null ? "Week not published" : `Week ${String(group.week + 1)}`;
+  return `${head} · ${LOCKS_PICKER_GROUP_STATUS_WORDS[status]}`;
+}
+
+/** One event menu option: the event's name, marked when it is live. */
+export function locksPickerOptionLabel(eventName: string, live: boolean): string {
+  return live ? `${eventName} (live)` : eventName;
+}
+
+/** The caption under the stepper for an event that has not started. */
+export function locksPickerUpCaption(eventName: string): string {
+  return `${eventName} has not started. Its milestones open as they happen.`;
+}
+
+/** The caption under the stepper for a live event. */
+export function locksPickerLiveCaption(eventName: string): string {
+  return `${eventName} is live. Milestones past the red line have not happened yet; use Live for the current state.`;
+}
+
 /** The team-number search box's label and placeholder. */
 export const DISTRICT_LEDGER_SEARCH_LABEL = "Team number";
 export const DISTRICT_LEDGER_SEARCH_PLACEHOLDER = "Search a team number";

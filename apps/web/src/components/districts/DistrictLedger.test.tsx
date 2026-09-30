@@ -36,6 +36,7 @@ import { RANK_BAND_LABEL_PREFIX } from "../event/rankRows.js";
 import { installMockWorker, type MockWorkerHandle, type MockWorkerScript } from "../../test/mockWorker.js";
 import { runDistrictWorkerJob } from "../../workers/districtSimulationProtocol.js";
 import { DistrictLedger } from "./DistrictLedger.js";
+import { DISTRICT_MILESTONE_KEYS } from "./districtMilestones.js";
 import {
   DISTRICT_LEDGER_AWARD_OUTCOME_LABELS,
   DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED,
@@ -54,7 +55,6 @@ import {
   DISTRICT_LEDGER_NO_MATCHES,
   DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS,
   DISTRICT_LEDGER_PROVENANCE,
-  DISTRICT_LEDGER_REWIND_LABEL,
   DISTRICT_LEDGER_SEARCH_LABEL,
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
@@ -846,7 +846,7 @@ describe("DistrictLedger — the five status chips", () => {
 });
 
 // ---------------------------------------------------------------------------
-// The Rewind slider (SC-4)
+// The milestone picker (SC-4)
 // ---------------------------------------------------------------------------
 
 /** The finished event's own artifact: the same 12-match schedule, every row played. */
@@ -894,7 +894,7 @@ function renderLedgerAt(artifact: DistrictArtifact, initialEntry: string) {
   );
 }
 
-describe("DistrictLedger — the Rewind slider", () => {
+describe("DistrictLedger — the milestone picker", () => {
   const originalFetch = global.fetch;
   let handle: MockWorkerHandle | undefined;
 
@@ -908,28 +908,25 @@ describe("DistrictLedger — the Rewind slider", () => {
 
   const finishedDistrict = () => artifactOf(ROSTER.map((teamKey) => districtTeam(teamKey)));
 
-  it("renders the slider with its label, a position readout and the derived jump chips", async () => {
+  /** The picker's eight stops, in render order. */
+  const stops = () => [...within(screen.getByTestId("district-ledger-rewind")).getAllByRole("button")].filter((button) => button.hasAttribute("data-milestone"));
+  const stop = (key: string) => screen.getByTestId("district-ledger-rewind").querySelector(`[data-milestone="${key}"]`)!;
+
+  it("renders the milestone picker at now: eight stops in order, Live pressed, and nothing after it", async () => {
     installFetch();
     handle = installMockWorker({ script: realRunScript });
     renderLedger(finishedDistrict());
 
     await waitFor(() => expect(screen.getByTestId("district-ledger-rewind")).toBeDefined());
-    expect(screen.getByLabelText(DISTRICT_LEDGER_REWIND_LABEL)).toBeDefined();
-    expect(screen.getByTestId("district-ledger-rewind-readout").textContent).toBe("Now");
-    const chips = screen.getAllByTestId("district-ledger-jump-chip").map((chip) => chip.getAttribute("data-chip"));
-    expect(chips[0]).toBe("season-start");
-    expect(chips[chips.length - 1]).toBe("now");
-
-    // 260925-hr9: the rail carries the chips' own short form as tick labels,
-    // DERIVED from the same chips rather than from a hardcoded week list, so a
-    // district with fewer weeks gets fewer ticks.
-    const ticks = [...screen.getByTestId("district-ledger-ticks").children].map((tick) => tick.textContent);
-    expect(ticks[0]).toBe("start");
-    expect(ticks[ticks.length - 1]).toBe("now");
-    // Never MORE than one tick per chip; a week tick that would land on top of
-    // a neighbour is dropped rather than drawn over it.
-    expect(ticks.length).toBeLessThanOrEqual(chips.length);
-    for (const tick of ticks.slice(1, -1)) expect(tick ?? "").toMatch(/^wk \d+$/);
+    expect(stops().map((button) => button.getAttribute("data-milestone"))).toEqual([...DISTRICT_MILESTONE_KEYS]);
+    // A finished event: every stop has happened, so every stop is solid and clickable.
+    for (const button of stops()) expect((button as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByTestId("locks-picker-live").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("locks-picker-season-start").getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByTestId("locks-picker-next-text").textContent).toBe("This is live");
+    expect((screen.getByTestId("locks-picker-event") as HTMLSelectElement).value).toBe("2026wadone");
+    // No range input survives anywhere in the tab.
+    expect(document.querySelector('input[type="range"]')).toBeNull();
   });
 
   it("SC-4: a position before an event's last qualification match turns its selection, playoff and award cells BLUE", async () => {
@@ -984,32 +981,53 @@ describe("DistrictLedger — the Rewind slider", () => {
     expect(rewound).not.toEqual(atNow);
   });
 
-  it("marks a clicked jump chip pressed and moves the readout to it", async () => {
-    installFetch();
+  it("presses the Season start pill and a clicked stop, each through the URL", async () => {
+    installFetch({ eventArtifact: doneEventArtifact() });
     handle = installMockWorker({ script: realRunScript });
     renderLedger(finishedDistrict());
 
-    const seasonStart = await waitFor(() => screen.getAllByTestId("district-ledger-jump-chip")[0]!);
+    const seasonStart = await waitFor(() => screen.getByTestId("locks-picker-season-start"));
     expect(seasonStart.getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(seasonStart);
-    await waitFor(() => expect(screen.getAllByTestId("district-ledger-jump-chip")[0]!.getAttribute("aria-pressed")).toBe("true"));
-    expect(screen.getByTestId("district-ledger-rewind-readout").textContent).toBe("Season start");
+    await waitFor(() => expect(screen.getByTestId("locks-picker-season-start").getAttribute("aria-pressed")).toBe("true"));
+    expect(screen.getByTestId("locks-picker-live").getAttribute("aria-pressed")).toBe("false");
+
+    // The picker keeps no selection of its own, so a pressed stop after a click
+    // proves the id went into `?at=` and came back out.
+    fireEvent.click(stop("playoffs"));
+    await waitFor(() => expect(stop("playoffs").getAttribute("aria-pressed")).toBe("true"));
+    expect(screen.getByTestId("locks-picker-season-start").getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("starts at the step a URL names, and at NOW for an unknown step id with no error state", async () => {
+  it("starts at the milestone a URL names, and at Live for an unknown step id with no error state", async () => {
     installFetch({ eventArtifact: doneEventArtifact() });
     handle = installMockWorker({ script: realRunScript });
 
     renderLedgerAt(finishedDistrict(), "/districts?algorithm=spr&at=2026wadone%3Aalliance");
-    await waitFor(() => expect(screen.getByTestId("district-ledger-rewind-readout").textContent).toContain("alliance selection"));
+    await waitFor(() => expect(stop("alliance").getAttribute("aria-pressed")).toBe("true"));
+    expect(screen.getByTestId("locks-picker-live").getAttribute("aria-pressed")).toBe("false");
     cleanup();
 
     renderLedgerAt(finishedDistrict(), "/districts?algorithm=spr&at=a-step-that-never-existed");
-    await waitFor(() => expect(screen.getByTestId("district-ledger-rewind-readout").textContent).toBe("Now"));
+    await waitFor(() => expect(screen.getByTestId("locks-picker-live").getAttribute("aria-pressed")).toBe("true"));
+    expect(stops().some((button) => button.getAttribute("aria-pressed") === "true")).toBe(false);
     expect(screen.getByTestId("district-ledger-tab")).toBeDefined();
   });
 
-  it("constructs a Worker when the slider moves into a finished event, even though the now position constructs none", async () => {
+  it("round trips a Schedule link through its alias: Schedule pressed, and the event's qualification reopens once its artifact loads", async () => {
+    installFetch({ eventArtifact: doneEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+
+    renderLedgerAt(finishedDistrict(), "/districts?algorithm=spr&at=2026wadone%3Aschedule");
+    await waitFor(() => expect(stop("schedule").getAttribute("aria-pressed")).toBe("true"));
+    expect((screen.getByTestId("locks-picker-event") as HTMLSelectElement).value).toBe("2026wadone");
+    await waitFor(() => {
+      expect(document.querySelector('[data-cell-id="2026wadone:qual"]')?.getAttribute("data-cell")).toBe("open");
+    });
+    expect(stop("schedule").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("constructs a Worker when the picker moves into a finished event, even though the now position constructs none", async () => {
     installFetch({ eventArtifact: doneEventArtifact() });
     handle = installMockWorker({ script: realRunScript });
 

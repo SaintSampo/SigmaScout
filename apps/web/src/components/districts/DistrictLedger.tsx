@@ -38,7 +38,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 // The ledger's shared presentational parts, extracted UNCHANGED so the Champ
-// Locks tab renders the same cells, chips, drawer panes and slider rather than
+// Locks tab renders the same cells, chips and drawer panes rather than
 // a second copy of them (quick task 260925-xab).
 import {
   ControlsCard,
@@ -46,7 +46,6 @@ import {
   GrandTotalContent,
   GrandTotalPlot,
   LedgerCell,
-  RewindSlider,
   StatusCell,
   StatusChips,
   TeamCell,
@@ -97,6 +96,8 @@ import {
   type DistrictStageFinality,
 } from "./districtLedgerRows.js";
 import { useDistrictEventArtifacts, useDistrictLedgerData } from "./useDistrictLedgerData.js";
+import { LocksMilestonePicker } from "./LocksMilestonePicker.js";
+import { districtMilestoneEvents } from "./districtMilestones.js";
 import { predictedCutoff, simulatedCutoffRange, type LedgerCutoffView } from "./predictedCutoff.js";
 
 /** The first three columns are words; every column after them is a number, and a number column is centred under a centred header. */
@@ -321,6 +322,7 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
   );
   const positionIndex = resolveDistrictTimelinePosition(timeline, search.at);
   const atNow = positionIndex >= timeline.nowIndex;
+  const milestoneEvents = useMemo(() => districtMilestoneEvents(artifact, ["district"]), [artifact]);
 
   const stageByEvent = useMemo(
     () => districtStageAtPosition(timeline, positionIndex, nowStageByEvent),
@@ -353,9 +355,9 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
     });
   }
 
-  function handlePositionChange(index: number): void {
-    const id = timeline.positions[index]?.id ?? DISTRICT_TIMELINE_NOW_ID;
-    // `replace`: a drag is one gesture, not a trail of history entries.
+  /** The milestone picker's one commit: `now` clears the param, anything else is stored verbatim for the resolver. */
+  function handleAtChange(id: string): void {
+    // `replace`: stepping through milestones is browsing one control, not a trail of history entries.
     void navigate({ search: (prev) => ({ ...prev, at: id === DISTRICT_TIMELINE_NOW_ID ? undefined : id }), replace: true, resetScroll: false });
   }
 
@@ -513,7 +515,7 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]" data-testid="district-ledger-tab">
       <ControlsCard query={query} onQueryChange={setQuery} cutoff={cutoff}>
-        <RewindSlider timeline={timeline} positionIndex={positionIndex} onPositionChange={handlePositionChange} />
+        <LocksMilestonePicker timeline={timeline} events={milestoneEvents} at={search.at} positionIndex={positionIndex} onAtChange={handleAtChange} />
         <StatusChips counts={statuses.counts} active={activeStatuses} onToggle={toggleStatus} />
       </ControlsCard>
       <p className="text-[var(--color-text-muted)]" data-testid="district-ledger-caveat">
