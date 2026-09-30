@@ -1,7 +1,7 @@
 /**
  * The ledger's SHARED presentational parts: the class constants, the two cell
  * renderers, the Team and Status cells, the chips and the cell key, the drawer
- * panes, the Rewind slider and its tick rail, and the controls card.
+ * panes, and the controls card.
  *
  * A MECHANICAL EXTRACTION from `DistrictLedger.tsx` with no behaviour change
  * (quick task 260925-xab). The Champ Locks tab is the same ledger with two rows
@@ -32,7 +32,7 @@
  * class when such a list goes through `cn()` and only a screenshot catches it
  * (project memory `project_cn_drops_text_role_classes`).
  */
-import { useRef, useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { TableCell } from "@/components/ui/table";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
@@ -58,16 +58,12 @@ import {
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
   DISTRICT_LEDGER_LIKELY_PREFIX,
-  DISTRICT_LEDGER_REWIND_HINT,
-  DISTRICT_LEDGER_REWIND_LABEL,
   DISTRICT_LEDGER_SEARCH_LABEL,
   DISTRICT_LEDGER_SEARCH_PLACEHOLDER,
   DISTRICT_LEDGER_LOCKED_AWARD_LABEL,
   DISTRICT_LEDGER_STAGE_WORDS,
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
-  DISTRICT_LEDGER_TICK_NOW,
-  DISTRICT_LEDGER_TICK_START,
   DISTRICT_LEDGER_AWARD_OUTCOME_LABELS,
   DISTRICT_LEDGER_OUTCOME_CAPTIONS,
   DISTRICT_LEDGER_OUTCOME_LIST_LABELS,
@@ -86,7 +82,6 @@ import {
   districtLedgerNoPointsCaption,
   districtLedgerPlacementLine,
   districtLedgerSelectionSettledLine,
-  districtLedgerTickWeekLabel,
 } from "./districtLedgerCopy.js";
 import {
   districtAwardOutcomes,
@@ -101,7 +96,6 @@ import {
   type DistrictLedgerStatusKey,
   type DistrictLedgerStatusResult,
 } from "./districtLedgerStatus.js";
-import { DISTRICT_TIMELINE_NOW_ID, DISTRICT_TIMELINE_SEASON_START_ID, type DistrictTimeline } from "./districtTimeline.js";
 import type { DistrictCellKind, DistrictEventStage, DistrictLedgerCell } from "./districtLedgerRows.js";
 import type { LedgerCutoffView } from "./predictedCutoff.js";
 
@@ -130,21 +124,6 @@ export const UNAVAILABLE_CELL_CLASS = "district-ledger-cell--unavailable";
 
 /** The sticky first column — the shipped table wrapper scrolls horizontally inside its card, so the Team cell holds position. */
 export const TEAM_CELL_CLASS = "sticky left-0 z-10 bg-[var(--color-bg-surface)] align-middle";
-
-/** The rewind rail's own id, so its label can sit beside the position readout instead of wrapping the control. */
-export const REWIND_INPUT_ID = "district-ledger-rewind-input";
-
-/** The rail's tick-mark datalist id: the browser draws a mark at each anchor and pulls a nearby drag onto it. */
-export const REWIND_TICKS_ID = "district-ledger-rewind-ticks";
-
-/** How long the hand must pause on the slider before its position is committed to the URL and the simulation. */
-export const REWIND_COMMIT_DELAY_MS = 160;
-
-/** The rail's own resolution: the range input runs from 0 to this, and every move snaps to the nearest timeline position. */
-export const REWIND_RAIL_MAX = 1000;
-
-/** How far apart two tick labels must sit before both print. Measured at 390px, where the rail is about 340px and a "wk 0" label about 28px. */
-export const TICK_MIN_GAP_PERCENT = 10;
 
 /**
  * The chip modifier per status, in the shipped `statusChipClass` shape: a
@@ -789,198 +768,9 @@ export type DistrictLedgerNavigate = (opts: {
 }) => Promise<void>;
 
 /**
- * The Rewind slider and its DERIVED jump chips.
- *
- * Every move navigates with the search-updater form, preserving every other
- * param — the pattern every other control in this app uses. The position
- * readout is deliberately not animated.
- */
-export function RewindSlider({
-  timeline,
-  positionIndex,
-  onPositionChange,
-}: {
-  timeline: DistrictTimeline;
-  positionIndex: number;
-  onPositionChange: (index: number) => void;
-}) {
-  const position = timeline.positions[positionIndex] ?? timeline.positions[timeline.nowIndex]!;
-  const ticks = timelineTicks(timeline);
-  // The thumb is LOCAL state while a hand is on it (Jacob, 2026-09-25: "the
-  // slider is glitchy"). Every input event used to navigate at once, so a drag
-  // pushed one history entry per step, re-ran the simulation per step, and the
-  // controlled value fought the pointer whenever a render landed mid-drag.
-  // Now the thumb follows the hand immediately, and ONE commit fires after the
-  // hand pauses; the URL and the simulation follow that commit alone.
-  const [thumb, setThumb] = useState(positionIndex);
-  const dragging = useRef(false);
-  const commitTimer = useRef<number | undefined>(undefined);
-  const fractions = useMemo(() => timelineRailFractions(timeline), [timeline]);
-  const thumbIndex = Math.min(thumb, timeline.nowIndex);
-  useEffect(() => {
-    if (!dragging.current) setThumb(positionIndex);
-  }, [positionIndex]);
-  useEffect(() => () => window.clearTimeout(commitTimer.current), []);
-  function handleThumbChange(next: number): void {
-    setThumb(next);
-    dragging.current = true;
-    window.clearTimeout(commitTimer.current);
-    commitTimer.current = window.setTimeout(() => {
-      dragging.current = false;
-      onPositionChange(next);
-    }, REWIND_COMMIT_DELAY_MS);
-  }
-  // The rail's native arrow step is one thousandth, which usually snaps back
-  // to the same position; an arrow key moves one timeline step instead.
-  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
-    const delta = event.key === "ArrowLeft" || event.key === "ArrowDown" ? -1 : event.key === "ArrowRight" || event.key === "ArrowUp" ? 1 : 0;
-    if (delta === 0) return;
-    event.preventDefault();
-    handleThumbChange(Math.max(0, Math.min(timeline.nowIndex, thumbIndex + delta)));
-  }
-  return (
-    <div className="flex flex-col gap-[var(--spacing-sm)]" data-testid="district-ledger-rewind">
-      {/* The label, the readout and the rail are ONE block; the jump chips sit
-          beside it on a wide screen and wrap under it on a phone. */}
-      <div className="flex flex-col gap-[var(--spacing-xs)]">
-        {/* The label is `htmlFor` rather than a wrapper, so the readout can sit
-            beside it on the same line without joining the control's own
-            accessible name. */}
-        <span className="flex flex-wrap items-baseline gap-[var(--spacing-sm)]">
-          <label htmlFor={REWIND_INPUT_ID} className="th-cell-label">
-            {DISTRICT_LEDGER_REWIND_LABEL}
-          </label>
-          <span data-testid="district-ledger-rewind-readout" className="font-semibold">
-            {position.label}
-          </span>
-        </span>
-        <input
-          id={REWIND_INPUT_ID}
-          type="range"
-          min={0}
-          max={REWIND_RAIL_MAX}
-          step={1}
-          value={Math.round((fractions[thumbIndex] ?? 1) * REWIND_RAIL_MAX)}
-          aria-valuetext={timeline.positions[thumbIndex]?.label}
-          data-now-index={timeline.nowIndex}
-          list={REWIND_TICKS_ID}
-          onChange={(event) => handleThumbChange(nearestRailPosition(fractions, Number(event.target.value) / REWIND_RAIL_MAX))}
-          onKeyDown={handleKeyDown}
-          className="district-ledger-slider w-full"
-        />
-        {/* Tick marks on the track itself, one per jump chip, at the same
-            fixed anchors the labels below use (Jacob, 2026-09-27: ticks make
-            the slider easier to use). The browser also pulls a drag that ends
-            near a mark onto it, so landing exactly on a week is easy. */}
-        <datalist id={REWIND_TICKS_ID}>
-          {ticks.map((tick) => (
-            <option key={tick.id} value={Math.round((tick.percent / 100) * REWIND_RAIL_MAX)} />
-          ))}
-        </datalist>
-      </div>
-      <div className="district-ledger-ticks" data-testid="district-ledger-ticks" aria-hidden="true">
-        {ticks.map((tick) => (
-          <span key={tick.id} data-row={tick.row} style={{ left: `${tick.percent.toFixed(1)}%` }}>
-            {tick.label}
-          </span>
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-[var(--spacing-xs)]" data-testid="district-ledger-jump-chips">
-        {timeline.chips.map((chip) => (
-          <button
-            key={chip.id}
-            type="button"
-            data-testid="district-ledger-jump-chip"
-            data-chip={chip.id}
-            aria-pressed={chip.positionIndex === positionIndex}
-            onClick={() => onPositionChange(chip.positionIndex)}
-            className="district-ledger-pill"
-          >
-            {chip.label}
-          </button>
-        ))}
-      </div>
-      <span className="district-ledger-note">{DISTRICT_LEDGER_REWIND_HINT}</span>
-    </div>
-  );
-}
-
-/**
- * The rail's tick labels, DERIVED from the same jump chips rather than from a
- * hardcoded week list: the first chip prints "start", each per-week chip prints
- * its own short "wk N", and the last prints "now". A district with one week
- * therefore gets two ticks, not five. Each tick sits at its chip's fixed
- * anchor on the rail (see `timelineRailFractions`), never at its index.
- */
-export function timelineTicks(timeline: DistrictTimeline): { id: string; label: string; percent: number; row: 0 | 1 }[] {
-  const segments = Math.max(timeline.chips.length - 1, 1);
-  const all = timeline.chips.map((chip, chipIndex) => {
-    const week = /^week-(\d+)$/.exec(chip.id);
-    const label =
-      chip.id === DISTRICT_TIMELINE_SEASON_START_ID
-        ? DISTRICT_LEDGER_TICK_START
-        : chip.id === DISTRICT_TIMELINE_NOW_ID
-          ? DISTRICT_LEDGER_TICK_NOW
-          : week === null
-            ? chip.label
-            : districtLedgerTickWeekLabel(Number(week[1]));
-    return { id: chip.id, label, percent: (chipIndex / segments) * 100, row: 0 as 0 | 1 };
-  });
-  // EVERY week prints (Jacob, 2026-09-25: a district has more weeks than
-  // four and the rail must adapt). A label that would land on top of its
-  // printed neighbour is staggered onto a second row rather than dropped, so
-  // no week disappears from the rail and no two labels overprint.
-  let lastOnRow: [number, number] = [-Infinity, -Infinity];
-  for (const tick of all) {
-    const row: 0 | 1 = tick.percent - lastOnRow[0] < TICK_MIN_GAP_PERCENT && tick.percent - lastOnRow[1] >= TICK_MIN_GAP_PERCENT ? 1 : 0;
-    tick.row = row;
-    lastOnRow[row] = tick.percent;
-  }
-  return all;
-}
-
-/**
- * Where each timeline position sits on the rail, as a fraction from 0 to 1.
- *
- * THE JUMP CHIPS ARE FIXED, EVENLY SPACED ANCHORS: start, one per week, now.
- * Positions between two anchors spread linearly by index. The anchors depend
- * only on which weeks the district has, never on which event artifacts have
- * loaded (Jacob, 2026-09-27: the week ticks moved as the slider moved, and they
- * should never move). A rewind widens the fetch set, the timeline grows from
- * stage steps to one step per match, and ticks placed by index all slid while
- * the hand was on the rail; "now", one step past the last week, also sat alone
- * on the second row.
- */
-export function timelineRailFractions(timeline: DistrictTimeline): number[] {
-  const segments = Math.max(timeline.chips.length - 1, 1);
-  // Clamped non decreasing, so an out of order chip can never fold the rail back on itself.
-  const anchors: number[] = [];
-  for (const chip of timeline.chips) anchors.push(Math.max(anchors[anchors.length - 1] ?? 0, chip.positionIndex));
-  const fractions: number[] = [];
-  let segment = 0;
-  for (let index = 0; index <= timeline.nowIndex; index++) {
-    while (segment < anchors.length - 2 && index >= anchors[segment + 1]!) segment++;
-    const from = anchors[segment]!;
-    const to = anchors[segment + 1] ?? from;
-    const within = to > from ? Math.min(1, (index - from) / (to - from)) : 1;
-    fractions.push(Math.min(1, (segment + within) / segments));
-  }
-  return fractions;
-}
-
-/** The position whose rail fraction sits nearest `fraction`; a tie goes to the earlier position. */
-export function nearestRailPosition(fractions: readonly number[], fraction: number): number {
-  let best = 0;
-  for (let index = 1; index < fractions.length; index++) {
-    if (Math.abs(fractions[index]! - fraction) < Math.abs(fractions[best]! - fraction)) best = index;
-  }
-  return best;
-}
-
-/**
  * The ONE controls card: the team-number search, the stat line and the legend.
- * The Rewind slider and its jump chips join this same card rather than getting
- * a second layout of their own.
+ * The Locks milestone picker joins this same card, as its first child, rather
+ * than getting a second layout of its own.
  */
 export function ControlsCard({
   query,

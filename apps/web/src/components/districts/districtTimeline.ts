@@ -1,8 +1,9 @@
 /**
  * The district's INTERLEAVED timeline: every district-tier event's
  * qualification rows in one `sortTime` order, with four stage steps after each
- * event's last qualification row, plus the derived jump chips and the per-event
- * stage at any position.
+ * event's last qualification row, plus the per-event stage at any position.
+ * The Locks milestone picker (`districtMilestones.ts`) exposes a handful of
+ * these positions per event; the ledger itself still steps by match.
  *
  * One pure module, no React.
  *
@@ -63,8 +64,8 @@ export interface DistrictTimelineStep {
 }
 
 /**
- * One slider position. `positions[0]` is season start, `positions[last]` is
- * now, and everything between is a step — so the slider is an index into ONE
+ * One timeline position. `positions[0]` is season start, `positions[last]` is
+ * now, and everything between is a step — so a position is an index into ONE
  * array rather than a step id plus two special cases.
  */
 export interface DistrictTimelinePosition {
@@ -76,15 +77,8 @@ export interface DistrictTimelinePosition {
   readonly step: DistrictTimelineStep | undefined;
 }
 
-/** A derived jump chip. Never a hardcoded week list — the sketch's eight chips are its own fixture's shape. */
-export interface DistrictTimelineChip {
-  readonly id: string;
-  readonly label: string;
-  readonly positionIndex: number;
-}
-
 export interface DistrictTimelineGaps {
-  /** Events with no loaded artifact: they contribute their four stage steps but no match steps, so the slider still spans the season honestly. */
+  /** Events with no loaded artifact: they contribute their four stage steps but no match steps, so the timeline still spans the season honestly. */
   readonly eventsWithoutArtifact: readonly string[];
   /** Events with at least one qualification row carrying no published `sortTime` — those rows order by match key after the timed ones. */
   readonly eventsWithUntimedRows: readonly string[];
@@ -92,7 +86,6 @@ export interface DistrictTimelineGaps {
 
 export interface DistrictTimeline {
   readonly positions: readonly DistrictTimelinePosition[];
-  readonly chips: readonly DistrictTimelineChip[];
   readonly nowIndex: number;
   readonly gaps: DistrictTimelineGaps;
 }
@@ -136,10 +129,9 @@ function compareWeeks(a: number | null, b: number | null): number {
  * event list is the fetch set — and for a qualification row TBA published no
  * time for. A blanket "every untimed step after every timed one" therefore
  * pushed a finished WEEK 1 event's alliance-selection, playoff and awards steps
- * past a live WEEK 3 event's matches, and the derived chips inherited it:
- * `lastIndexByWeek` takes the highest index carrying each week, so "After week
- * 1" jumped to near the end of the slider. A missing artifact must SHORTEN
- * PRECISION, never reorder the season.
+ * past a live WEEK 3 event's matches, so the end of week 1 landed near the end
+ * of the season. A missing artifact must SHORTEN PRECISION, never reorder the
+ * season.
  *
  * Within one week the old rule still holds — an untimed step sorts after the
  * timed ones rather than at the epoch, so it never jumps to the front.
@@ -180,7 +172,7 @@ export function buildDistrictTimeline(options: BuildDistrictTimelineOptions): Di
     let lastQualMs: number | null = null;
     if (artifact === undefined) {
       // An event whose artifact is NOT loaded still contributes its four stage
-      // steps. Dropping it would silently shorten the slider and misrepresent
+      // steps. Dropping it would silently shorten the timeline and misrepresent
       // where the season is.
       eventsWithoutArtifact.push(event.eventKey);
     } else {
@@ -225,25 +217,8 @@ export function buildDistrictTimeline(options: BuildDistrictTimelineOptions): Di
   ];
   const nowIndex = positions.length - 1;
 
-  // The chips are DERIVED: season start, one after each distinct week present,
-  // and now.
-  const chips: DistrictTimelineChip[] = [{ id: DISTRICT_TIMELINE_SEASON_START_ID, label: "Season start", positionIndex: 0 }];
-  const lastIndexByWeek = new Map<number, number>();
-  positions.forEach((position, index) => {
-    if (position.step === undefined || position.week === null) return;
-    lastIndexByWeek.set(position.week, index);
-  });
-  for (const week of [...lastIndexByWeek.keys()].sort((a, b) => a - b)) {
-    // TBA weeks are zero indexed; the site prints them one based everywhere
-    // (`Week ${week + 1}` in EventHeader and the events list). The id keeps the
-    // raw week so a shared URL never shifts.
-    chips.push({ id: `week-${String(week)}`, label: `After week ${String(week + 1)}`, positionIndex: lastIndexByWeek.get(week)! });
-  }
-  chips.push({ id: DISTRICT_TIMELINE_NOW_ID, label: "Now", positionIndex: nowIndex });
-
   return {
     positions,
-    chips,
     nowIndex,
     gaps: { eventsWithoutArtifact: [...eventsWithoutArtifact].sort(), eventsWithUntimedRows: [...eventsWithUntimedRows].sort() },
   };
@@ -359,7 +334,7 @@ export function startMatchKeyAtPosition(timeline: DistrictTimeline, positionInde
  * instead, exactly as `champLedgerRows.ts`'s own "now" helper does.
  *
  * The Champ Locks tab reads this for one question: whether the District
- * Championship field is a fact yet at the position the slider is at
+ * Championship field is a fact yet at the position the ledger is at
  * (quick task 260925-xab).
  */
 export function eventStartedAtPosition(timeline: DistrictTimeline, positionIndex: number, eventKey: string): boolean {

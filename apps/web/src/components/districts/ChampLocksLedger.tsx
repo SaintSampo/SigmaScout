@@ -5,9 +5,10 @@
  * THE SAME LEDGER AS THE DISTRICT LOCKS TAB, with two rows per team instead of
  * one row per event: District points (the team's district-tier events summed
  * per category) and DCMP points (the District Championship's four categories at
- * the 3x weight). Every cell renderer, chip, definition, legend key, drawer pane
- * and slider comes from `LedgerParts.tsx` rather than from a second copy, so a
- * refinement shipped on one tab reaches the other (quick task 260925-xab).
+ * the 3x weight). Every cell renderer, chip, definition, legend key and drawer
+ * pane comes from `LedgerParts.tsx`, and the milestone picker from
+ * `LocksMilestonePicker.tsx`, rather than from a second copy, so a refinement
+ * shipped on one tab reaches the other (quick task 260925-xab).
  *
  * WHAT IS DIFFERENT, AND WHY:
  *
@@ -66,7 +67,6 @@ import {
   GrandTotalContent,
   GrandTotalPlot,
   LedgerCell,
-  RewindSlider,
   StatusCell,
   StatusChips,
   TeamCell,
@@ -155,6 +155,8 @@ import {
   type DistrictStageFinality,
 } from "./districtLedgerRows.js";
 import { useDistrictEventArtifacts, useDistrictLedgerData } from "./useDistrictLedgerData.js";
+import { LocksMilestonePicker } from "./LocksMilestonePicker.js";
+import { districtMilestoneEvents } from "./districtMilestones.js";
 
 /** The three TEXT columns (Team, Status, Source); every other header centres over its boxed cells, exactly as the district tier's does. */
 const TEXT_COLUMN_INDEXES: ReadonlySet<number> = new Set([0, 1, 3]);
@@ -450,6 +452,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   const timeline = useMemo(() => buildDistrictTimeline({ events, eventArtifacts: artifacts.eventArtifacts }), [events, artifacts.eventArtifacts]);
   const positionIndex = resolveDistrictTimelinePosition(timeline, search.at);
   const atNow = positionIndex >= timeline.nowIndex;
+  const milestoneEvents = useMemo(() => districtMilestoneEvents(artifact, ["district", "dcmp"]), [artifact]);
 
   const stageByEvent = useMemo(
     () => districtStageAtPosition(timeline, positionIndex, nowStageByEvent),
@@ -484,8 +487,8 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     });
   }
 
-  function handlePositionChange(index: number): void {
-    const id = timeline.positions[index]?.id ?? DISTRICT_TIMELINE_NOW_ID;
+  /** The milestone picker's one commit, with the District Locks tab's own navigate options. */
+  function handleAtChange(id: string): void {
     void navigate({ search: (prev) => ({ ...prev, at: id === DISTRICT_TIMELINE_NOW_ID ? undefined : id }), replace: true, resetScroll: false });
   }
 
@@ -799,7 +802,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]" data-testid="champ-ledger-tab">
       <ControlsCard query={query} onQueryChange={setQuery} cutoff={cutoff}>
-        <RewindSlider timeline={timeline} positionIndex={positionIndex} onPositionChange={handlePositionChange} />
+        <LocksMilestonePicker timeline={timeline} events={milestoneEvents} at={search.at} positionIndex={positionIndex} onAtChange={handleAtChange} />
         <StatusChips counts={displayStatuses.counts} active={activeStatuses} onToggle={toggleStatus} withheld={displayStatuses.withheld !== undefined} definitions={CHAMP_LEDGER_STATUS_DEFINITIONS} />
       </ControlsCard>
       <p className="text-[var(--color-text-muted)]" data-testid="champ-ledger-caveat">

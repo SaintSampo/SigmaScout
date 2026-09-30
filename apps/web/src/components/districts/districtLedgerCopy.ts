@@ -127,24 +127,6 @@ export const DISTRICT_LEDGER_LEGEND_OPEN = "still open · click for the histogra
 /** The likely/tilde explainer, verbatim from the UI-SPEC. */
 export const DISTRICT_LEDGER_LEGEND_EXPLAINER = "likely = 8 of 10 runs land here · ~ = this site's prediction, not a number TBA published";
 
-/** The Rewind slider's label, from CONTEXT's "The slider" section. */
-export const DISTRICT_LEDGER_REWIND_LABEL = "Rewind to";
-
-/**
- * The tick labels printed under the slider rail: the short form of the jump
- * chips that sit above it, so the axis reads without repeating the chips' own
- * words. Derived from the SAME chips, never a hardcoded week list.
- */
-export const DISTRICT_LEDGER_TICK_START = "start";
-export const DISTRICT_LEDGER_TICK_NOW = "now";
-export function districtLedgerTickWeekLabel(week: number): string {
-  // TBA weeks are zero indexed; every page on this site prints them one based.
-  return `wk ${String(week + 1)}`;
-}
-
-/** The hint under the slider, in flat third person. */
-export const DISTRICT_LEDGER_REWIND_HINT = "Rewinding reopens the categories a district event had already decided, and every status recomputes at the new position.";
-
 // ---------------------------------------------------------------------------
 // The Locks milestone picker (sketch 024 variant Q)
 // ---------------------------------------------------------------------------
