@@ -1,0 +1,596 @@
+<title>Locks Milestone Picker</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap">
+<style>
+/* Layout: one column tool page. Ribbon, round two notes, tab strips, the picker under test, one shared preview.
+   Palette: the shipped pine theme plus the shipped lock status colours, as in sketch 023. */
+:root{
+  --bg:#f8fafc; --surface:#ffffff; --chrome:#f1f5f9; --border:#e2e8f0;
+  --text:#0f172a; --muted:#475569; --faint:#64748b;
+  --accent:#2e7d32; --accent-soft:rgba(46,125,50,.16); --on-accent:#ffffff;
+  --ribbon:#14532d; --ribbon-ink:#ffffff; --ribbon-muted:rgba(255,255,255,.74); --ribbon-accent:#81c784;
+  --track:#e2e8f0; --hatch:rgba(100,116,139,.22); --live:#dc2626;
+  --st-locked:#2e7d32; --st-inrange:#a5d6a7; --st-out:#cbd5e1; --st-lockedout:#f43f5e;
+  --chip-locked-bg:rgba(76,175,80,.16); --chip-locked-fg:#2e7d32;
+  --chip-lo-bg:rgba(225,29,72,.12); --chip-lo-fg:#be123c;
+  --band:rgba(46,125,50,.16); --hl:rgba(46,125,50,.08);
+  --font:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --r:6px; --name:104px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1311; --surface:#121b18; --chrome:#17221e; --border:#27362f;
+  --text:#e6ede9; --muted:#a8b8b0; --faint:#83948b;
+  --accent:#81c784; --accent-soft:rgba(129,199,132,.18); --on-accent:#0c1311;
+  --ribbon:#0f3d22; --ribbon-ink:#ffffff; --ribbon-muted:rgba(255,255,255,.72); --ribbon-accent:#81c784;
+  --track:#26342e; --hatch:rgba(148,163,184,.18); --live:#f87171;
+  --st-locked:#66bb6a; --st-inrange:#2f6135; --st-out:#3a4757; --st-lockedout:#be123c;
+  --chip-locked-bg:rgba(102,187,106,.18); --chip-locked-fg:#8fd694;
+  --chip-lo-bg:rgba(244,63,94,.16); --chip-lo-fg:#fda4af;
+  --band:rgba(129,199,132,.18); --hl:rgba(129,199,132,.08); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1311; --surface:#121b18; --chrome:#17221e; --border:#27362f;
+  --text:#e6ede9; --muted:#a8b8b0; --faint:#83948b;
+  --accent:#81c784; --accent-soft:rgba(129,199,132,.18); --on-accent:#0c1311;
+  --ribbon:#0f3d22; --ribbon-ink:#ffffff; --ribbon-muted:rgba(255,255,255,.72); --ribbon-accent:#81c784;
+  --track:#26342e; --hatch:rgba(148,163,184,.18); --live:#f87171;
+  --st-locked:#66bb6a; --st-inrange:#2f6135; --st-out:#3a4757; --st-lockedout:#be123c;
+  --chip-locked-bg:rgba(102,187,106,.18); --chip-locked-fg:#8fd694;
+  --chip-lo-bg:rgba(244,63,94,.16); --chip-lo-fg:#fda4af;
+  --band:rgba(129,199,132,.18); --hl:rgba(129,199,132,.08); color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font:14px/1.5 var(--font);margin:0}
+button,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ribbon{background:var(--ribbon);color:var(--ribbon-ink);padding:14px 16px}
+.ribbon .in{max-width:880px;margin:0 auto;display:flex;flex-wrap:wrap;gap:4px 16px;align-items:baseline}
+.ribbon h1{font-size:20px;font-weight:600;margin:0;text-wrap:balance}
+.ribbon span{color:var(--ribbon-muted);font-size:13px}
+.ribbon b{color:var(--ribbon-accent);font-weight:600}
+main{max-width:880px;margin:0 auto;padding:16px 16px 48px;display:flex;flex-direction:column;gap:16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;min-width:0}
+.lbl,.eyebrow{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.03em;text-transform:uppercase}
+.muted{color:var(--muted)} .faint{color:var(--faint)}
+.diag ul{margin:8px 0 0;padding-left:18px;color:var(--muted)} .diag li{margin:2px 0}
+.tabs{display:flex;flex-wrap:wrap;gap:6px}
+.tab{border:1px solid var(--border);background:var(--surface);border-radius:999px;padding:6px 12px;min-height:34px;cursor:pointer;font-size:13px;color:var(--muted)}
+.tab[aria-selected="true"]{border-color:var(--accent);color:var(--accent);font-weight:600;background:var(--accent-soft)}
+.tab .k{font-weight:600;margin-right:4px}
+.switch{display:inline-flex;border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.switch button{border:0;background:var(--surface);padding:6px 14px;min-height:34px;cursor:pointer;color:var(--muted)}
+.switch button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);font-weight:600}
+.bar-top{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between}
+.why{margin:0 0 14px;color:var(--muted);max-width:68ch}
+.why b{color:var(--text);font-weight:600}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.readout{font-weight:600}
+.readout .when{font-weight:400;color:var(--muted);font-size:13px}
+.spacer{flex:1}
+.note{font-size:12px;color:var(--faint);margin:0}
+.hatch{background-image:repeating-linear-gradient(135deg,var(--hatch) 0 3px,transparent 3px 7px)}
+.pill{display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:2px 12px;border:1px solid var(--border);border-radius:999px;font-size:13px;color:var(--muted);background:var(--surface);cursor:pointer;white-space:nowrap}
+.pill[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);font-weight:600;background:var(--accent-soft)}
+.pill:disabled{opacity:.45;cursor:default}
+.live-dot{width:8px;height:8px;border-radius:50%;background:var(--live);box-shadow:0 0 0 0 var(--live);animation:pulse 1.8s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--live) 60%,transparent)}70%{box-shadow:0 0 0 6px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.ibtn{display:inline-grid;place-items:center;width:36px;height:36px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface);cursor:pointer;color:var(--text);flex:none}
+.ibtn svg{width:14px;height:14px;fill:currentColor}
+.ibtn:disabled{opacity:.4;cursor:default}
+.nav{display:flex;gap:6px;align-items:center;min-width:0}
+.nav .nx{font-size:12px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+select.ev{min-height:38px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface);font-size:14px;font-weight:600;max-width:100%}
+
+/* preview */
+.preview{display:flex;flex-direction:column;gap:10px}
+.pv-top{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.pv-bar{display:flex;height:14px;border-radius:4px;overflow:hidden;background:var(--track)}
+.pv-bar i{display:block;height:100%;transition:width .15s linear}
+.pv-chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;gap:6px;align-items:center;padding:3px 10px;border-radius:999px;font-size:12px;font-variant-numeric:tabular-nums}
+.chip b{font-weight:600}
+.chip.locked{background:var(--chip-locked-bg);color:var(--chip-locked-fg)}
+.chip.inrange{box-shadow:inset 0 0 0 1px var(--border);color:var(--text)}
+.chip.out{box-shadow:inset 0 0 0 1px var(--border);color:var(--muted)}
+.chip.lockedout{background:var(--chip-lo-bg);color:var(--chip-lo-fg)}
+.sw{width:10px;height:10px;border-radius:2px;display:inline-block}
+.pv-cut{font-variant-numeric:tabular-nums}
+.pv-cut b{font-weight:600}
+.pv-change{font-size:13px;color:var(--muted);border-top:1px solid var(--border);padding-top:8px}
+.pv-change b{color:var(--text);font-weight:600}
+
+/* cutoff chart */
+.ch{position:relative;padding-top:30px;margin-top:4px}
+.ch-plot{position:relative}
+.ch-plot svg{display:block;width:100%}
+.l-band{fill:var(--band)} .l-line{fill:none;stroke:var(--accent);stroke-width:2;vector-effect:non-scaling-stroke}
+.ch-fut{position:absolute;top:0;bottom:0;right:0;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--faint);pointer-events:none}
+.ch-hl{position:absolute;top:0;bottom:0;background:var(--hl);border-left:1px solid var(--border);border-right:1px solid var(--border);pointer-events:none}
+.ch-dot{position:absolute;width:7px;height:7px;margin:-3.5px 0 0 -3.5px;border-radius:50%;background:var(--surface);border:1.5px solid var(--accent);pointer-events:none}
+.ch-cur,.ch-ghost{position:absolute;top:-4px;bottom:0;width:2px;margin-left:-1px;pointer-events:none}
+.ch-cur{background:var(--text)} .ch-ghost{background:var(--faint);opacity:.5}
+.ch-lab{position:absolute;top:-28px;background:var(--ribbon);color:var(--ribbon-ink);font-size:12px;padding:3px 8px;border-radius:5px;white-space:nowrap;pointer-events:none}
+.ch-lab span{color:var(--ribbon-muted)}
+.ch-over{position:absolute;inset:0;touch-action:none;cursor:crosshair}
+.ch-axis{display:flex;font-size:11px;color:var(--faint)}
+.ch-axis span{flex:1;min-width:0;border-left:1px solid var(--border);padding-left:4px;white-space:nowrap;overflow:hidden}
+.ch-axis .live{color:var(--accent);font-weight:600}
+.ch-title{display:flex;justify-content:space-between;font-size:11px;color:var(--faint);margin-top:2px}
+
+/* milestone stepper */
+.stp{margin-top:6px}
+.stp-g,.stp-t{display:grid;grid-template-columns:repeat(9,minmax(0,1fr))}
+.stp-g span{font-size:11px;color:var(--faint);text-align:center;border-bottom:1px solid var(--border);margin:0 3px;padding-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stp-t{position:relative;margin-top:4px}
+.stp-line{position:absolute;left:calc(100%/18);right:calc(100%/18);top:17px;height:3px;background:var(--track);border-radius:2px}
+.stp-line i{position:absolute;left:0;top:0;bottom:0;background:var(--accent);border-radius:2px;transition:width .15s}
+.stp-b{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;border:0;background:transparent;cursor:pointer;padding:6px 0 4px;min-height:48px;border-radius:var(--r)}
+.stp-b:hover:not(:disabled){background:var(--chrome)}
+.stp-b .dot{width:16px;height:16px;border-radius:50%;border:2px solid var(--faint);background:var(--surface);z-index:1}
+.stp-b.done .dot{background:var(--accent);border-color:var(--accent)}
+.stp-b[aria-pressed="true"] .dot{width:20px;height:20px;margin:-2px 0;box-shadow:0 0 0 4px var(--accent-soft);background:var(--surface);border:5px solid var(--accent)}
+.stp-b .t{font-size:12px;color:var(--muted);white-space:nowrap}
+.stp-b[aria-pressed="true"] .t{color:var(--accent);font-weight:600}
+.stp-b:disabled{cursor:default}
+.stp-b:disabled .dot{border-style:dashed;opacity:.55}
+.stp-b:disabled .t{color:var(--faint);opacity:.7}
+.stp-now{position:absolute;top:-2px;transform:translateX(-50%);font-size:10px;font-weight:600;color:var(--live);display:flex;flex-direction:column;align-items:center;pointer-events:none;z-index:2}
+.stp-now::after{content:"";width:2px;height:30px;background:var(--live);border-radius:1px}
+.stp-cap{font-size:12px;color:var(--faint);margin:4px 0 0}
+
+/* P packed lanes */
+.pk{position:relative;margin-top:4px}
+.pk-lane{position:relative;height:26px;margin-top:3px}
+.pk-bar{position:absolute;top:0;height:24px;border:1px solid var(--border);border-radius:5px;background:var(--surface);cursor:pointer;overflow:hidden;padding:0;text-align:left}
+.pk-bar .f{position:absolute;left:0;top:0;bottom:0;background:var(--accent-soft)}
+.pk-bar .nm{position:relative;display:block;font-size:11px;line-height:22px;padding:0 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pk-bar .tk{position:absolute;bottom:2px;width:3px;height:3px;margin-left:-1.5px;border-radius:50%;background:var(--faint);opacity:.7}
+.pk-bar.fut{border-style:dashed;color:var(--faint);background:transparent}
+.pk-bar.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.pk-bar.sel .nm{font-weight:600;color:var(--accent)}
+.pk-cur{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--text);pointer-events:none;z-index:2}
+
+/* R week grid */
+.wk-tabs{display:flex;gap:4px;flex-wrap:wrap;margin-top:12px}
+.wk-tabs .pill{padding:2px 10px}
+.wk-tabs .pill .st{font-size:11px;color:var(--faint);font-weight:400}
+.grid{margin-top:10px}
+.grid .gr{display:grid;grid-template-columns:var(--name) repeat(9,minmax(0,1fr));align-items:center}
+.grid .gh span{font-size:11px;color:var(--faint);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.grid .gh .grp{grid-row:1;border-bottom:1px solid var(--border);margin:0 3px}
+.grid .gh .sub{grid-row:2}
+.grid .ge{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:6px}
+.grid .gr.body{position:relative;height:40px;border-top:1px solid var(--border)}
+.grid .gr.body::before{content:"";position:absolute;left:calc(var(--name) + (100% - var(--name))/18);right:calc((100% - var(--name))/18);top:50%;height:2px;margin-top:-1px;background:var(--track)}
+.gc{position:relative;display:grid;place-items:center;height:40px;border:0;background:transparent;cursor:pointer;border-radius:var(--r);padding:0}
+.gc:hover:not(:disabled){background:var(--chrome)}
+.gc .dot{width:14px;height:14px;border-radius:50%;border:2px solid var(--faint);background:var(--surface);z-index:1}
+.gc.done .dot{background:var(--accent);border-color:var(--accent)}
+.gc[aria-pressed="true"] .dot{width:20px;height:20px;border:5px solid var(--accent);background:var(--surface);box-shadow:0 0 0 4px var(--accent-soft)}
+.gc:disabled{cursor:default}
+.gc:disabled .dot{border-style:dashed;opacity:.5}
+.gc.nowc::after{content:"now";position:absolute;top:1px;left:0;transform:translateX(-50%);font-size:9px;font-weight:600;color:var(--live)}
+
+@media (max-width:520px){:root{--name:78px}.stp-b .t{font-size:11px}.grid .ge{font-size:12px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<header class="ribbon"><div class="in">
+  <h1>Locks milestone picker</h1>
+  <span>Sketch 024 · round two of 023 · sample district, <b>Week 4 live</b></span>
+</div></header>
+
+<main>
+  <section class="card diag">
+    <div class="lbl">What round one taught</div>
+    <ul>
+      <li>Most points in time are not interesting. The ones that matter are event milestones, so the picker offers nine per event instead of every match.</li>
+      <li>Picking an event first, then a milestone inside it (023 B), was the right model. B's per-event lanes cost too much height.</li>
+      <li>Live is its own first-class choice, one tap from anywhere.</li>
+      <li>The cutoff chart from 023 D stays: it shows where the line moved, and tapping it jumps to the nearest milestone.</li>
+    </ul>
+  </section>
+
+  <div class="bar-top">
+    <div class="switch" role="group" aria-label="Tab">
+      <button id="t-dcmp" aria-pressed="true">DCMP Locks</button>
+      <button id="t-champ" aria-pressed="false">Champ Locks</button>
+    </div>
+    <span class="note">All three drive the same preview below.</span>
+  </div>
+
+  <nav class="tabs" role="tablist" id="vtabs"></nav>
+
+  <section class="card" id="stage">
+    <p class="why" id="why"></p>
+    <div id="ctl"></div>
+  </section>
+
+  <section class="card preview" id="preview"></section>
+</main>
+
+<script>
+(() => {
+"use strict";
+const $ = (s, r = document) => r.querySelector(s);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const WK = 28, NOW = 3 * WK + 13, TEAMS = 160, NQ = 72;
+
+const EVENTS = [
+  {k:"mibel",n:"Belleville",w:1,o:0},{k:"miket",n:"Kettering",w:1,o:.7},{k:"mitvc",n:"Traverse City",w:1,o:1.3},
+  {k:"mimil",n:"Milford",w:2,o:0},{k:"miliv",n:"Livonia",w:2,o:.5},{k:"miesc",n:"Escanaba",w:2,o:1.1},
+  {k:"mimac",n:"Macomb",w:3,o:0},{k:"milak",n:"Lakeview",w:3,o:.2},{k:"midet",n:"Detroit",w:3,o:.9},
+  {k:"milan",n:"Lansing",w:4,o:0},{k:"misal",n:"Saline",w:4,o:.4},{k:"mitry",n:"Troy",w:4,o:.8},
+  {k:"mimar",n:"Marysville",w:5,o:0},{k:"mijac",n:"Jackson",w:5,o:.6},
+  {k:"micmp1",n:"DCMP Aptiv",w:6,o:0,dcmp:true},{k:"micmp2",n:"DCMP Consumers",w:6,o:.3,dcmp:true},
+];
+const qT = q => 1 + 19 * (Math.round(NQ * q) - 1) / (NQ - 1);
+// The nine milestones, in order. `sub` is the short word under its group label.
+const MS = [
+  {k:"schedule", dt:.3, sub:"Out", long:"schedule released"},
+  {k:"q1", dt:qT(.25), sub:"¼", long:"quals ¼ done"},
+  {k:"q2", dt:qT(.5), sub:"½", long:"quals ½ done"},
+  {k:"q3", dt:qT(.75), sub:"¾", long:"quals ¾ done"},
+  {k:"qualsDone", dt:20.2, sub:"Done", long:"quals done"},
+  {k:"alliance", dt:21, sub:"Done", long:"alliance selection done"},
+  {k:"playoffsHalf", dt:22.8, sub:"½", long:"playoffs ½ done"},
+  {k:"playoffs", dt:24.5, sub:"Done", long:"playoffs done"},
+  {k:"awards", dt:25.4, sub:"Done", long:"awards done"},
+];
+const GROUPS = [["Schedule",1,2],["Qualification",2,6],["Alliances",6,7],["Playoffs",7,9],["Awards",9,10]];
+
+function rng(seed){return()=>{seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+const dayOf = local => local < 1 ? "Thu" : local < 11 ? "Fri" : "Sat";
+
+function buildTab(tab){
+  const weeks = tab === "dcmp" ? 5 : 6, span = weeks * WK;
+  const evs = EVENTS.filter(e => tab === "champ" || !e.dcmp);
+  // Match level steps underneath: the page still steps by match; the picker only exposes milestones.
+  const steps = [];
+  for (const e of evs){
+    const base = (e.w - 1) * WK + e.o;
+    for (let i = 0; i < NQ; i++) steps.push({kind:"match", ev:e, t: base + 1 + 19 * i / (NQ - 1)});
+    for (const m of MS) if (!m.k.startsWith("q") || m.k === "qualsDone") steps.push({kind:m.k, ev:e, t: base + m.dt});
+  }
+  steps.sort((a, b) => a.t - b.t || a.ev.k.localeCompare(b.ev.k));
+  const P = [{kind:"start", t:0}, ...steps.filter(s => s.t <= NOW), {kind:"now", t:NOW}];
+  const n = P.length - 1;
+  const r = rng(tab === "dcmp" ? 7 : 11), slots = tab === "dcmp" ? 82 : 32;
+  let locked = tab === "dcmp" ? 0 : 4, lockedOut = 0, cut = tab === "dcmp" ? 58 : 190;
+  const M = P.map(p => {
+    const w = p.ev ? p.ev.w : 4, x = r(), f = p.t / span;
+    if (tab === "dcmp"){
+      if (p.kind === "awards" && w >= 2) locked += x < .5 ? 1 : 2;
+      if (p.kind === "playoffs" && w >= 2 && x < .45) locked += 1;
+      if (p.kind === "qualsDone" && w >= 3){ lockedOut += 1 + Math.floor(x * 3); if (x < .3) locked += 1; }
+      if (p.kind === "match" && w >= 3){ if (x < .012 * w) locked += 1; else if (x > 1 - .01 * w) lockedOut += 1; }
+      cut += (r() - .52) * (p.kind === "match" ? .3 : 1.4);
+    } else {
+      if (p.kind === "awards" && w >= 2 && x < .6) locked += 1;
+      if (p.kind === "qualsDone" && w >= 2 && x > .4) lockedOut += 1 + Math.floor(x * 2);
+      if (p.kind === "match" && w >= 3){ if (x < .008) locked += 1; else if (x > .99) lockedOut += 1; }
+      cut += (r() - .54) * (p.kind === "match" ? .6 : 2.5);
+    }
+    const half = (tab === "dcmp" ? 12 : 26) * (1 - .75 * f) + 2;
+    const open = TEAMS - locked - lockedOut, inRange = clamp(slots - locked, 0, open);
+    return {locked, lockedOut, inRange, out: open - inRange, cut: Math.round(cut), lo: Math.round(cut - half), hi: Math.round(cut + half)};
+  });
+  const idxAtT = t => { let lo = 0, hi = n; while (hi - lo > 1){ const m = (lo + hi) >> 1; if (P[m].t <= t + 1e-9) lo = m; else hi = m; } return P[hi].t <= t + 1e-9 ? hi : lo; };
+
+  // Moments: every milestone of every event, plus season start and live.
+  const byEv = {}, all = [];
+  for (const e of evs){
+    const base = (e.w - 1) * WK + e.o;
+    byEv[e.k] = MS.map((m, mi) => {
+      const t = base + m.dt, local = t - (e.w - 1) * WK;
+      const o = {kind:"ms", ev:e, mi, t, f: t / span, past: t <= NOW, idx: t <= NOW ? idxAtT(t) : -1,
+        title: `${e.n} · ${m.long[0].toUpperCase() + m.long.slice(1)}`, when: `Week ${e.w} · ${dayOf(local)}`};
+      all.push(o); return o;
+    });
+  }
+  const start = {kind:"start", t:0, f:0, idx:0, past:true, title:"Season start", when:"before Week 1"};
+  const live = {kind:"live", t:NOW, f:NOW / span, idx:n, past:true, title:"Live", when:"Week 4 · Sat, as of now"};
+  const order = [start, ...all.filter(o => o.past).sort((a, b) => a.t - b.t), live];
+  order.forEach((o, i) => o.oi = i);
+  const evState = e => { const a = byEv[e.k]; return a[8].past ? "done" : a[0].past ? "live" : "up"; };
+  return {tab, weeks, span, P, M, n, evs, byEv, order, start, live, evState, slots, liveWeek: 4,
+    target: tab === "dcmp" ? "DCMP" : "Champs", unit: tab === "dcmp" ? "district points" : "district plus DCMP points"};
+}
+
+const DATA = {dcmp: buildTab("dcmp"), champ: buildTab("champ")};
+let D = DATA.dcmp;
+const S = {tab:"dcmp", v:"P", sel:null, focus:"milan"};
+let onSel = () => {};
+
+function initialSel(){ S.sel = D.byEv.midet[8]; S.focus = "midet"; } // rewound to a finished event, so every control shows a real position
+function select(o){
+  if (!o || !o.past) return;
+  if (o.ev) S.focus = o.ev.k;
+  S.sel = o; onSel(); renderPreview();
+}
+function focusEvent(k){ // pick an event: keep the same milestone if it has happened, else its latest one
+  const a = D.byEv[k]; S.focus = k;
+  const same = S.sel && S.sel.kind === "ms" ? a[S.sel.mi] : null;
+  if (same && same.past) return select(same);
+  const lastPast = [...a].reverse().find(o => o.past);
+  if (lastPast) return select(lastPast);
+  onSel(); renderPreview();
+}
+function readout(o){ return `${o.title} <span class="when">${o.when}</span>`; }
+function changeText(a, b){
+  const m = D.M[b], q = D.M[a], parts = [];
+  if (m.locked > q.locked) parts.push(`${m.locked - q.locked} ${m.locked - q.locked > 1 ? "teams" : "team"} locked`);
+  if (m.lockedOut > q.lockedOut) parts.push(`${m.lockedOut - q.lockedOut} locked out`);
+  if (m.cut !== q.cut) parts.push(`cutoff ${q.cut} to ${m.cut}`);
+  return parts.join(", ");
+}
+const ICON = {
+  prev:'<svg viewBox="0 0 16 16"><path d="M11 2v12L3 8z"/></svg>',
+  next:'<svg viewBox="0 0 16 16"><path d="M5 2v12l8-6z"/></svg>',
+};
+function liveBtn(id){ return `<button class="pill" id="${id}"><span class="live-dot"></span>Live</button>`; }
+function stepNav(id){ // previous / next milestone across every event, in time order
+  return `<div class="nav"><button class="ibtn" id="${id}-p" aria-label="Previous milestone">${ICON.prev}</button>
+    <button class="ibtn" id="${id}-n" aria-label="Next milestone">${ICON.next}</button><span class="nx" id="${id}-x"></span></div>`;
+}
+function wireNav(id){
+  $(`#${id}-p`).onclick = () => select(D.order[S.sel.oi - 1]);
+  $(`#${id}-n`).onclick = () => select(D.order[S.sel.oi + 1]);
+}
+function updNav(id){
+  const i = S.sel.oi, nx = D.order[i + 1];
+  $(`#${id}-p`).disabled = i === 0; $(`#${id}-n`).disabled = !nx;
+  $(`#${id}-x`).textContent = nx ? `Next: ${nx.title}` : "This is live";
+}
+function keys(el){
+  el.addEventListener("keydown", e => {
+    if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
+    const i = S.sel.oi;
+    if (e.key === "ArrowLeft" && i > 0){ e.preventDefault(); select(D.order[i - 1]); }
+    if (e.key === "ArrowRight" && D.order[i + 1]){ e.preventDefault(); select(D.order[i + 1]); }
+    if (e.key === "Home"){ e.preventDefault(); select(D.start); }
+    if (e.key === "End"){ e.preventDefault(); select(D.live); }
+  });
+}
+function drag(el, fn){
+  el.addEventListener("pointerdown", e => { if (e.button !== 0) return; el.setPointerCapture(e.pointerId); el.dataset.drag = "1"; fn(e); });
+  el.addEventListener("pointermove", e => { if (el.dataset.drag) fn(e); });
+  const end = () => { delete el.dataset.drag; };
+  el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+}
+function nearestMoment(t, list = D.order){
+  let best = list[0]; for (const o of list) if (Math.abs(o.t - t) < Math.abs(best.t - t)) best = o; return best;
+}
+
+/* ---------- the cutoff chart (from 023 D) ---------- */
+function chartHTML(h){
+  const P = D.P, M = D.M, xs = P.map(p => (p.t / D.span * 1000).toFixed(1));
+  const lo = Math.min(...M.map(m => m.lo)), hi = Math.max(...M.map(m => m.hi));
+  const y = v => (h - 3 - (v - lo) / (hi - lo) * (h - 6));
+  let band = "M" + xs.map((x, i) => `${x},${y(M[i].hi).toFixed(1)}`).join("L");
+  for (let i = M.length - 1; i >= 0; i--) band += `L${xs[i]},${y(M[i].lo).toFixed(1)}`;
+  const line = "M" + xs.map((x, i) => `${x},${y(M[i].cut).toFixed(1)}`).join("L");
+  chartY = y;
+  return `<div class="ch" id="ch">
+    <div class="ch-plot" id="ch-plot" style="height:${h}px">
+      <svg viewBox="0 0 1000 ${h}" preserveAspectRatio="none" style="height:${h}px" aria-hidden="true"><path class="l-band" d="${band}Z"/><path class="l-line" d="${line}"/></svg>
+      <div class="ch-hl" id="ch-hl" hidden></div>
+      <div class="ch-fut hatch" style="left:${D.live.f * 100}%">not played yet</div>
+      <div id="ch-dots"></div><div class="ch-ghost" id="ch-ghost" hidden></div><div class="ch-cur" id="ch-cur"></div><div class="ch-lab" id="ch-lab"></div>
+      <div class="ch-over" id="ch-over" tabindex="0" role="slider" aria-label="Predicted cutoff over the season; pick a milestone"></div>
+    </div>
+    <div class="ch-axis">${Array.from({length: D.weeks}, (_, k) => `<span class="${k + 1 === D.liveWeek ? "live" : ""}">${k + 1 === 6 ? "DCMP" : "Week " + (k + 1)}${k + 1 === D.liveWeek ? " · live" : ""}</span>`).join("")}</div>
+    <div class="ch-title"><span>Predicted ${D.target} cutoff, with its likely range</span><span>tap to jump to the nearest milestone</span></div>
+  </div>`;
+}
+let chartY = () => 0;
+function wireChart(){
+  const over = $("#ch-over");
+  const at = e => { const r = over.getBoundingClientRect(); return clamp((e.clientX - r.left) / r.width, 0, D.live.f) * D.span; };
+  drag(over, e => select(nearestMoment(at(e))));
+  over.addEventListener("pointermove", e => { if (over.dataset.drag) return; const g = $("#ch-ghost"); g.hidden = false; g.style.left = nearestMoment(at(e)).f * 100 + "%"; });
+  over.addEventListener("pointerleave", () => { $("#ch-ghost").hidden = true; });
+}
+function updChart(hl){ // hl: [fromF, toF] or null
+  const o = S.sel, m = D.M[o.idx], plot = $("#ch-plot");
+  $("#ch-cur").style.left = o.f * 100 + "%";
+  const lab = $("#ch-lab");
+  lab.innerHTML = `cutoff ${m.cut} <span>· likely ${m.lo}–${m.hi}</span>`;
+  const w = plot.clientWidth, bw = lab.offsetWidth;
+  lab.style.left = clamp(o.f * w - bw / 2, 0, Math.max(0, w - bw)) + "px";
+  const box = $("#ch-hl"); box.hidden = !hl;
+  if (hl){ box.style.left = hl[0] * 100 + "%"; box.style.width = (hl[1] - hl[0]) * 100 + "%"; }
+  const a = D.byEv[S.focus] || [];
+  $("#ch-dots").innerHTML = a.filter(x => x.past).map(x => `<i class="ch-dot" style="left:${x.f * 100}%;top:${chartY(D.M[x.idx].cut)}px"></i>`).join("");
+}
+const evSpan = k => { const a = D.byEv[k]; return [a[0].f, a[8].f]; };
+
+/* ---------- the milestone stepper ---------- */
+function stepperHTML(){
+  return `<div class="stp" id="stp">
+    <div class="stp-g">${GROUPS.map(([l, a, b]) => `<span style="grid-column:${a}/${b}">${l}</span>`).join("")}</div>
+    <div class="stp-t" id="stp-t"><div class="stp-line"><i id="stp-fill"></i></div>
+      ${MS.map((m, mi) => `<button class="stp-b" data-mi="${mi}"><span class="dot"></span><span class="t">${m.sub}</span></button>`).join("")}
+      <span class="stp-now" id="stp-now" hidden>now</span></div>
+    <p class="stp-cap" id="stp-cap"></p></div>`;
+}
+function wireStepper(){
+  $("#stp-t").addEventListener("click", e => { const b = e.target.closest(".stp-b"); if (b) select(D.byEv[S.focus][+b.dataset.mi]); });
+}
+function updStepper(){
+  const a = D.byEv[S.focus], t = S.sel.t, st = D.evState(a[0].ev);
+  let done = 0;
+  $("#stp-t").querySelectorAll(".stp-b").forEach((b, mi) => {
+    const o = a[mi];
+    b.disabled = !o.past; b.classList.toggle("done", o.t <= t);
+    b.setAttribute("aria-pressed", S.sel === o);
+    b.setAttribute("aria-label", `${a[0].ev.n} ${MS[mi].long}${o.past ? "" : ", not played yet"}`);
+    if (o.t <= t) done = mi;
+  });
+  $("#stp-fill").style.width = (a[0].t <= t ? done / 8 * 100 : 0) + "%";
+  const nowEl = $("#stp-now"), past = a.filter(o => o.past).length;
+  nowEl.hidden = st !== "live";
+  if (st === "live") nowEl.style.left = `calc(${past} * 100% / 9)`;
+  $("#stp-cap").textContent = st === "up" ? `${a[0].ev.n} has not started. Its milestones open as they happen.`
+    : st === "live" ? `${a[0].ev.n} is live. Milestones past the red line have not happened yet; use Live for the current state.` : "";
+}
+
+/* ---------- preview ---------- */
+function renderPreview(){
+  const o = S.sel, m = D.M[o.idx], prev = D.order[o.oi - 1];
+  const seg = (v, c) => `<i style="width:${(v / TEAMS * 100).toFixed(2)}%;background:var(${c})"></i>`;
+  const ch = prev ? changeText(prev.idx, o.idx) : "";
+  $("#preview").innerHTML = `
+    <div class="pv-top"><span class="eyebrow">${D.target} locks as of</span><span class="readout">${readout(o)}</span></div>
+    <div class="pv-bar" aria-hidden="true">${seg(m.locked, "--st-locked")}${seg(m.inRange, "--st-inrange")}${seg(m.out, "--st-out")}${seg(m.lockedOut, "--st-lockedout")}</div>
+    <div class="pv-chips">
+      <span class="chip locked">Locked <b>${m.locked}</b></span>
+      <span class="chip inrange"><span class="sw" style="background:var(--st-inrange)"></span>In range <b>${m.inRange}</b></span>
+      <span class="chip out"><span class="sw" style="background:var(--st-out)"></span>Out of range <b>${m.out}</b></span>
+      <span class="chip lockedout">Locked out <b>${m.lockedOut}</b></span>
+    </div>
+    <div class="pv-cut">Predicted ${D.target} cutoff <b>${m.cut}</b> ${D.unit} <span class="muted">· likely ${m.lo}–${m.hi}</span></div>
+    <div class="pv-change">${!prev ? "Nothing has been played yet." : ch ? `<b>Since the previous milestone (${prev.title}):</b> ${ch}` : `No status changed since the previous milestone (${prev.title}).`}</div>`;
+}
+
+/* ---------- variants ---------- */
+const V = {};
+
+V.P = {name: "Season strip", why: "<b>B's lanes, packed into three rows.</b> Events in one week run at the same time, but weeks never overlap, so the whole season fits in three thin rows under the cutoff chart on one shared time axis. Tap an event bar to pick it; the nine milestones open under it as big targets.",
+build(root){
+  const lanes = [[], [], []];
+  for (const w of new Set(D.evs.map(e => e.w))) D.evs.filter(e => e.w === w).sort((a, b) => a.o - b.o).forEach((e, i) => lanes[i].push(e));
+  root.innerHTML = `
+    <div class="row"><span class="readout" id="rd"></span><span class="spacer"></span>${liveBtn("live")}</div>
+    ${chartHTML(84)}
+    <div class="pk" id="pk">
+      ${lanes.map(L => `<div class="pk-lane">${L.map(e => { const [a, b] = evSpan(e.k);
+        return `<button class="pk-bar" data-ev="${e.k}" style="left:${a * 100}%;width:${(b - a) * 100}%" title="${e.n}"><i class="f"></i><span class="nm">${e.n}</span>
+          ${D.byEv[e.k].map(o => `<i class="tk" style="left:${(o.f - a) / (b - a) * 100}%"></i>`).join("")}</button>`; }).join("")}</div>`).join("")}
+      <div class="pk-cur" id="pk-cur"></div>
+    </div>
+    <div class="row" style="margin-top:12px"><span class="lbl" id="stp-name"></span><span class="spacer"></span>${stepNav("nv")}</div>
+    ${stepperHTML()}`;
+  wireChart(); wireStepper(); wireNav("nv"); keys(root);
+  $("#live").onclick = () => select(D.live);
+  $("#pk").addEventListener("click", e => { const b = e.target.closest(".pk-bar"); if (b) focusEvent(b.dataset.ev); });
+  onSel = () => {
+    $("#rd").innerHTML = readout(S.sel);
+    $("#live").setAttribute("aria-pressed", S.sel === D.live);
+    updChart(evSpan(S.focus)); updStepper(); updNav("nv");
+    $("#stp-name").textContent = D.byEv[S.focus][0].ev.n;
+    $("#pk-cur").style.left = S.sel.f * 100 + "%";
+    $("#pk").querySelectorAll(".pk-bar").forEach(b => {
+      const k = b.dataset.ev, [a, z] = evSpan(k), st = D.evState(D.byEv[k][0].ev);
+      b.classList.toggle("sel", k === S.focus); b.classList.toggle("fut", st === "up");
+      b.querySelector(".f").style.width = clamp((S.sel.t / D.span - a) / (z - a), 0, 1) * 100 + "%";
+    });
+  };
+}};
+
+V.Q = {name: "Event, then milestone", why: "<b>The smallest version.</b> One event menu, grouped by week (a native picker on a phone), then the nine milestones. The arrows walk every milestone in the district in time order, and say where the next step lands. The chart shrinks to a strip that marks the chosen event.",
+build(root){
+  const weeks = [...new Set(D.evs.map(e => e.w))];
+  root.innerHTML = `
+    <div class="row">
+      <label class="lbl" for="evsel">Event</label>
+      <select class="ev" id="evsel">${weeks.map(w => {
+        const s = w < D.liveWeek ? "done" : w === D.liveWeek ? "live" : "not played yet";
+        return `<optgroup label="${w === 6 ? "DCMP" : "Week " + w} · ${s}">${D.evs.filter(e => e.w === w).map(e =>
+          `<option value="${e.k}" ${D.evState(e) === "up" ? "disabled" : ""}>${e.n}${D.evState(e) === "live" ? " (live)" : ""}</option>`).join("")}</optgroup>`; }).join("")}
+      </select>
+      <span class="spacer"></span>
+      <button class="pill" id="st">Season start</button>${liveBtn("live")}
+    </div>
+    ${stepperHTML()}
+    <div class="row" style="margin-top:6px">${stepNav("nv")}</div>
+    ${chartHTML(52)}`;
+  wireChart(); wireStepper(); wireNav("nv"); keys(root);
+  $("#evsel").onchange = e => focusEvent(e.target.value);
+  $("#live").onclick = () => select(D.live);
+  $("#st").onclick = () => select(D.start);
+  onSel = () => {
+    $("#evsel").value = S.focus;
+    $("#live").setAttribute("aria-pressed", S.sel === D.live);
+    $("#st").setAttribute("aria-pressed", S.sel === D.start);
+    updStepper(); updNav("nv"); updChart(evSpan(S.focus));
+  };
+}};
+
+V.R = {name: "Week grid", why: "<b>B, one week at a time.</b> Week tabs sit under the chart; the chosen week's events are rows and the nine milestones are columns, so every milestone of that week is one tap. A finished week never costs more than three rows. Tapping the chart moves to the right week.",
+build(root){
+  let week = S.sel.ev ? S.sel.ev.w : D.liveWeek, seen = S.sel;
+  const weeks = [...new Set(D.evs.map(e => e.w))];
+  root.innerHTML = `
+    <div class="row"><span class="readout" id="rd"></span><span class="spacer"></span>${stepNav("nv")}</div>
+    ${chartHTML(72)}
+    <div class="wk-tabs" id="wks">
+      <button class="pill" data-go="start">Start</button>
+      ${weeks.map(w => { const s = w < D.liveWeek ? "done" : w === D.liveWeek ? "live" : "later";
+        return `<button class="pill" data-w="${w}" ${s === "later" ? "disabled" : ""}>${w === 6 ? "DCMP" : "Week " + w} <span class="st">${s}</span></button>`; }).join("")}
+      ${liveBtn("live")}
+    </div>
+    <div class="grid" id="grid"></div>`;
+  wireChart(); wireNav("nv"); keys(root);
+  $("#live").onclick = () => select(D.live);
+  $("#wks").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b || b.id === "live") return;
+    if (b.dataset.go) return select(D.start);
+    week = +b.dataset.w; renderGrid(); onSel();
+  });
+  function renderGrid(){
+    const evs = D.evs.filter(e => e.w === week);
+    $("#grid").innerHTML = `
+      <div class="gr gh">${GROUPS.map(([l, a, b]) => `<span class="grp" style="grid-column:${a + 1}/${b + 1}">${l}</span>`).join("")}
+        <span class="sub" style="grid-column:1"></span>${MS.map(m => `<span class="sub">${m.sub}</span>`).join("")}</div>
+      ${evs.map(e => `<div class="gr body"><span class="ge" title="${e.n}">${e.n}</span>
+        ${D.byEv[e.k].map((o, mi) => `<button class="gc" data-ev="${e.k}" data-mi="${mi}" aria-label="${e.n} ${MS[mi].long}"><span class="dot"></span></button>`).join("")}</div>`).join("")}`;
+  }
+  $("#grid").addEventListener("click", e => { const b = e.target.closest(".gc"); if (b) select(D.byEv[b.dataset.ev][+b.dataset.mi]); });
+  renderGrid();
+  onSel = () => {
+    const w = S.sel.ev ? S.sel.ev.w : S.sel === D.live ? D.liveWeek : week;
+    // follow the selection only when it changed, so a week tab can be browsed without snapping back
+    if (S.sel !== seen){ seen = S.sel; if (w !== week && S.sel.kind !== "start"){ week = w; renderGrid(); } }
+    $("#rd").innerHTML = readout(S.sel);
+    $("#live").setAttribute("aria-pressed", S.sel === D.live);
+    $("#wks").querySelectorAll("[data-w]").forEach(b => b.setAttribute("aria-pressed", +b.dataset.w === week));
+    $("#wks").querySelector("[data-go]").setAttribute("aria-pressed", S.sel === D.start);
+    $("#grid").querySelectorAll(".gc").forEach(b => {
+      const o = D.byEv[b.dataset.ev][+b.dataset.mi], a = D.byEv[b.dataset.ev];
+      b.disabled = !o.past; b.classList.toggle("done", o.t <= S.sel.t); b.setAttribute("aria-pressed", S.sel === o);
+      b.classList.toggle("nowc", !o.past && a[+b.dataset.mi - 1] && a[+b.dataset.mi - 1].past);
+    });
+    updNav("nv");
+    updChart([(week - 1) / D.weeks, week / D.weeks]);
+  };
+}};
+
+/* ---------- shell ---------- */
+const ORDER = ["P", "Q", "R"];
+function mount(){
+  onSel = () => {};
+  $("#why").innerHTML = V[S.v].why;
+  V[S.v].build($("#ctl"));
+  onSel(); renderPreview();
+}
+$("#vtabs").innerHTML = ORDER.map(k => `<button class="tab" role="tab" data-v="${k}" aria-selected="${k === S.v}"><span class="k">${k}</span>${V[k].name}${k === "Q" ? " ★" : ""}</button>`).join("");
+$("#vtabs").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  S.v = b.dataset.v;
+  for (const x of $("#vtabs").children) x.setAttribute("aria-selected", x === b);
+  try { localStorage.setItem("s024v", S.v); } catch (_) {}
+  mount();
+});
+for (const t of ["dcmp", "champ"]) $("#t-" + t).onclick = () => {
+  S.tab = t; D = DATA[t]; initialSel();
+  $("#t-dcmp").setAttribute("aria-pressed", t === "dcmp"); $("#t-champ").setAttribute("aria-pressed", t === "champ");
+  mount();
+};
+window.addEventListener("resize", () => onSel());
+try { const saved = localStorage.getItem("s024v"); if (saved && V[saved]){ S.v = saved;
+  for (const x of $("#vtabs").children) x.setAttribute("aria-selected", x.dataset.v === saved); } } catch (_) {}
+initialSel();
+mount();
+})();
+</script>

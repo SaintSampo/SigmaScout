@@ -1,0 +1,880 @@
+<title>Locks Rewind Five Ways</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap">
+<style>
+/* Layout: one column tool page. Ribbon, diagnosis, tab strips, the control under test, then one shared preview every variant drives.
+   Palette: the shipped pine theme (sketches/themes/pine.css) plus the shipped lock status colours. */
+:root{
+  --bg:#f8fafc; --surface:#ffffff; --chrome:#f1f5f9; --border:#e2e8f0;
+  --text:#0f172a; --muted:#475569; --faint:#64748b;
+  --accent:#2e7d32; --accent-soft:rgba(46,125,50,.16); --on-accent:#ffffff;
+  --ribbon:#14532d; --ribbon-ink:#ffffff; --ribbon-muted:rgba(255,255,255,.74); --ribbon-accent:#81c784;
+  --track:#e2e8f0; --hatch:rgba(100,116,139,.22);
+  --st-locked:#2e7d32; --st-inrange:#a5d6a7; --st-out:#cbd5e1; --st-lockedout:#f43f5e;
+  --chip-locked-bg:rgba(76,175,80,.16); --chip-locked-fg:#2e7d32;
+  --chip-lo-bg:rgba(225,29,72,.12); --chip-lo-fg:#be123c;
+  --band:rgba(46,125,50,.16);
+  --font:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --r:6px; --name:112px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1311; --surface:#121b18; --chrome:#17221e; --border:#27362f;
+  --text:#e6ede9; --muted:#a8b8b0; --faint:#83948b;
+  --accent:#81c784; --accent-soft:rgba(129,199,132,.18); --on-accent:#0c1311;
+  --ribbon:#0f3d22; --ribbon-ink:#ffffff; --ribbon-muted:rgba(255,255,255,.72); --ribbon-accent:#81c784;
+  --track:#26342e; --hatch:rgba(148,163,184,.18);
+  --st-locked:#66bb6a; --st-inrange:#2f6135; --st-out:#3a4757; --st-lockedout:#be123c;
+  --chip-locked-bg:rgba(102,187,106,.18); --chip-locked-fg:#8fd694;
+  --chip-lo-bg:rgba(244,63,94,.16); --chip-lo-fg:#fda4af;
+  --band:rgba(129,199,132,.18); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1311; --surface:#121b18; --chrome:#17221e; --border:#27362f;
+  --text:#e6ede9; --muted:#a8b8b0; --faint:#83948b;
+  --accent:#81c784; --accent-soft:rgba(129,199,132,.18); --on-accent:#0c1311;
+  --ribbon:#0f3d22; --ribbon-ink:#ffffff; --ribbon-muted:rgba(255,255,255,.72); --ribbon-accent:#81c784;
+  --track:#26342e; --hatch:rgba(148,163,184,.18);
+  --st-locked:#66bb6a; --st-inrange:#2f6135; --st-out:#3a4757; --st-lockedout:#be123c;
+  --chip-locked-bg:rgba(102,187,106,.18); --chip-locked-fg:#8fd694;
+  --chip-lo-bg:rgba(244,63,94,.16); --chip-lo-fg:#fda4af;
+  --band:rgba(129,199,132,.18); color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font:14px/1.5 var(--font);margin:0}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ribbon{background:var(--ribbon);color:var(--ribbon-ink);padding:14px 16px}
+.ribbon .in{max-width:880px;margin:0 auto;display:flex;flex-wrap:wrap;gap:4px 16px;align-items:baseline}
+.ribbon h1{font-size:20px;font-weight:600;margin:0;text-wrap:balance}
+.ribbon span{color:var(--ribbon-muted);font-size:13px}
+.ribbon b{color:var(--ribbon-accent);font-weight:600}
+main{max-width:880px;margin:0 auto;padding:16px 16px 48px;display:flex;flex-direction:column;gap:16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px;min-width:0}
+.lbl,.eyebrow{font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.03em;text-transform:uppercase}
+.muted{color:var(--muted)} .faint{color:var(--faint)}
+.diag ul{margin:8px 0 0;padding-left:18px;color:var(--muted)} .diag li{margin:2px 0}
+.tabs{display:flex;flex-wrap:wrap;gap:6px}
+.tab{border:1px solid var(--border);background:var(--surface);border-radius:999px;padding:6px 12px;min-height:34px;cursor:pointer;font-size:13px;color:var(--muted)}
+.tab[aria-selected="true"]{border-color:var(--accent);color:var(--accent);font-weight:600;background:var(--accent-soft)}
+.tab .k{font-weight:600;margin-right:4px}
+.switch{display:inline-flex;border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.switch button{border:0;background:var(--surface);padding:6px 14px;min-height:34px;cursor:pointer;color:var(--muted)}
+.switch button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);font-weight:600}
+.bar-top{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between}
+.why{margin:0 0 14px;color:var(--muted);max-width:68ch}
+.why b{color:var(--text);font-weight:600}
+.rowline{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.readout{font-weight:600}
+.readout .when{font-weight:400;color:var(--muted);font-size:13px}
+.spacer{flex:1}
+.pill{display:inline-flex;align-items:center;min-height:32px;padding:2px 10px;border:1px solid var(--border);border-radius:999px;font-size:12px;color:var(--muted);background:var(--surface);cursor:pointer}
+.pill[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);font-weight:600}
+.pill:disabled{opacity:.45;cursor:default}
+.ibtn{display:inline-grid;place-items:center;width:36px;height:36px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface);cursor:pointer;color:var(--text)}
+.ibtn svg{width:16px;height:16px;fill:currentColor}
+.ibtn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);width:auto;padding:0 14px;gap:6px;grid-auto-flow:column;font-weight:600}
+.seg{display:inline-flex;border:1px solid var(--border);border-radius:var(--r);overflow:hidden;flex-wrap:wrap}
+.seg button{border:0;background:var(--surface);padding:6px 10px;min-height:34px;font-size:12px;cursor:pointer;color:var(--muted)}
+.seg button+button{border-left:1px solid var(--border)}
+.seg button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.check{display:inline-flex;gap:6px;align-items:center;font-size:13px;color:var(--muted);cursor:pointer}
+.check input{accent-color:var(--accent);width:16px;height:16px}
+.note{font-size:12px;color:var(--faint);margin:0}
+.hatch{background-image:repeating-linear-gradient(135deg,var(--hatch) 0 3px,transparent 3px 7px)}
+
+/* shared preview */
+.preview{display:flex;flex-direction:column;gap:10px}
+.pv-top{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.pv-bar{display:flex;height:14px;border-radius:4px;overflow:hidden;background:var(--track)}
+.pv-bar i{display:block;height:100%;transition:width .12s linear}
+.pv-chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;gap:6px;align-items:center;padding:3px 10px;border-radius:999px;font-size:12px;font-variant-numeric:tabular-nums}
+.chip b{font-weight:600}
+.chip.locked{background:var(--chip-locked-bg);color:var(--chip-locked-fg)}
+.chip.inrange{box-shadow:inset 0 0 0 1px var(--border);color:var(--text)}
+.chip.out{box-shadow:inset 0 0 0 1px var(--border);color:var(--muted)}
+.chip.lockedout{background:var(--chip-lo-bg);color:var(--chip-lo-fg)}
+.sw{width:10px;height:10px;border-radius:2px;display:inline-block}
+.pv-cut{font-variant-numeric:tabular-nums}
+.pv-cut b{font-weight:600}
+.pv-change{font-size:13px;color:var(--muted);border-top:1px solid var(--border);padding-top:8px}
+.pv-change b{color:var(--text);font-weight:600}
+
+/* shipped */
+.z-range{width:100%;accent-color:var(--accent);margin:8px 0 0}
+.z-ticks{position:relative;height:18px;font-size:11px;color:var(--faint)}
+.z-ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.z-ticks span:first-child{transform:none}.z-ticks span:last-child{transform:translateX(-100%)}
+.z-chips{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}
+
+/* A snap rail */
+.a-wrap{padding-top:52px}
+.a-rail{position:relative;height:36px;touch-action:none;cursor:pointer;border-radius:4px}
+.a-segs{position:absolute;left:0;right:0;top:14px;height:8px;display:flex;gap:3px}
+.a-segs i{flex:1;background:var(--track);border-radius:4px}
+.a-played,.a-sel,.a-future{position:absolute;top:14px;height:8px;left:0;border-radius:4px;pointer-events:none}
+.a-played{background:var(--accent-soft)}
+.a-sel{background:var(--accent)}
+.a-future{right:0}
+.a-notch{position:absolute;width:2px;margin-left:-1px;background:var(--faint);pointer-events:none;border-radius:1px}
+.a-notch.aw{top:6px;height:24px}
+.a-notch.st{top:10px;height:16px;opacity:.5;width:1px}
+.a-thumb{position:absolute;top:8px;width:20px;height:20px;margin-left:-10px;border-radius:50%;background:var(--surface);border:3px solid var(--accent);box-shadow:0 1px 3px rgba(0,0,0,.25);pointer-events:none}
+.a-bubble{position:absolute;bottom:28px;left:50%;background:var(--ribbon);color:var(--ribbon-ink);padding:5px 10px;border-radius:6px;white-space:nowrap;font-size:12px;line-height:1.3;text-align:center}
+.a-bubble b{display:block;font-weight:600;font-size:13px}
+.a-bubble span{color:var(--ribbon-muted)}
+.a-weeks{display:flex;gap:3px;margin-top:4px}
+.a-weeks button{flex:1;min-width:0;min-height:34px;border:0;border-radius:4px;background:transparent;font-size:12px;color:var(--muted);cursor:pointer;padding:2px}
+.a-weeks button:hover:not(:disabled){background:var(--chrome)}
+.a-weeks button.live{color:var(--accent);font-weight:600}
+.a-weeks button:disabled{color:var(--faint);opacity:.6;cursor:default}
+.a-controls{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-top:10px}
+
+/* B lanes */
+.b-week{border:1px solid var(--border);border-radius:var(--r);margin-top:6px;overflow:hidden}
+.b-head{display:flex;gap:10px;align-items:center;width:100%;border:0;background:var(--chrome);padding:8px 12px;min-height:40px;cursor:pointer;text-align:left}
+.b-head .nm{font-weight:600;min-width:60px}
+.b-head .mt{color:var(--muted);font-size:12px;white-space:nowrap}
+.b-head .mini{flex:1;height:6px;border-radius:3px;background:var(--track);position:relative;overflow:hidden;min-width:40px}
+.b-head .mini i{position:absolute;left:0;top:0;bottom:0;background:var(--accent)}
+.b-head .car{color:var(--faint);transition:transform .15s}
+.b-week.open .b-head .car{transform:rotate(90deg)}
+.b-week.up .b-head .nm{color:var(--faint)}
+.b-lanes{position:relative;padding:2px 12px 8px}
+.b-axis{display:grid;grid-template-columns:var(--name) 1fr;font-size:11px;color:var(--faint);height:18px;align-items:end}
+.b-axis div{position:relative}
+.b-axis span{position:absolute}
+.b-lane{display:grid;grid-template-columns:var(--name) 1fr;align-items:center;height:34px}
+.b-ev{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:8px}
+.b-track{position:relative;height:100%;touch-action:none;cursor:pointer}
+.b-track.dis{cursor:default}
+.b-q{position:absolute;top:50%;height:8px;margin-top:-4px;background:var(--track);border-radius:4px;overflow:hidden;pointer-events:none}
+.b-q .n,.b-q .s{position:absolute;left:0;top:0;bottom:0}
+.b-q .n{background:var(--accent-soft)} .b-q .s{background:var(--accent)}
+.b-pip{position:absolute;top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;border:2px solid var(--faint);background:var(--surface);pointer-events:none}
+.b-pip.aw{width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:2px;transform:rotate(45deg)}
+.b-pip.on{background:var(--accent);border-color:var(--accent)}
+.b-pip.fut{border-style:dashed;opacity:.6}
+.b-cur{position:absolute;top:18px;bottom:6px;width:2px;margin-left:-1px;background:var(--accent);pointer-events:none;border-radius:1px}
+.b-nowline{position:absolute;top:18px;bottom:6px;border-left:1px dashed var(--faint);pointer-events:none}
+.b-tip{position:absolute;background:var(--ribbon);color:var(--ribbon-ink);font-size:12px;padding:3px 8px;border-radius:5px;white-space:nowrap;pointer-events:none;transform:translate(-50%,-100%);z-index:3}
+.b-controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px}
+
+/* C replay */
+.c-bar{position:relative;display:flex;gap:4px;height:28px;align-items:center;touch-action:none;cursor:pointer;margin-top:10px}
+.c-ch{flex:1;height:10px;border-radius:5px;background:var(--track);position:relative;overflow:hidden}
+.c-ch .n,.c-ch .s,.c-ch .f{position:absolute;top:0;bottom:0}
+.c-ch .n{left:0;background:var(--accent-soft)} .c-ch .s{left:0;background:var(--accent)} .c-ch .f{right:0}
+.c-bar:hover .c-ch{height:14px;border-radius:7px}
+.c-head{position:absolute;top:50%;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--surface);pointer-events:none}
+.c-tip{position:absolute;bottom:32px;background:var(--ribbon);color:var(--ribbon-ink);font-size:12px;padding:4px 8px;border-radius:5px;white-space:nowrap;pointer-events:none;transform:translateX(-50%)}
+.c-tip span{color:var(--ribbon-muted)}
+.c-labels{display:flex;gap:4px;font-size:11px;color:var(--faint)}
+.c-labels span{flex:1;min-width:0}
+.c-labels .live{color:var(--accent);font-weight:600}
+.c-transport{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-top:12px}
+.c-transport .grp{display:flex;gap:6px}
+.c-feed{margin-top:14px}
+.c-feed ol{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:4px}
+.c-feed li button{width:100%;text-align:left;border:1px solid var(--border);background:var(--surface);border-radius:var(--r);padding:6px 10px;cursor:pointer;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;min-height:36px}
+.c-feed li button.fresh{border-color:var(--accent);background:var(--accent-soft)}
+.c-feed .wk{font-size:11px;color:var(--faint);width:44px}
+.c-feed .d{font-size:12px;color:var(--muted)}
+
+/* D chart */
+.d-wrap{position:relative;padding-top:36px}
+.d-plot{position:relative}
+.d-plot svg{display:block;width:100%}
+.d-area{height:150px} .d-cutsvg{height:54px;margin-top:6px}
+.d-fut{position:absolute;top:0;bottom:0;right:0;pointer-events:none;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--faint);background:color-mix(in srgb,var(--surface) 55%,transparent)}
+.d-over{position:absolute;inset:0;touch-action:none;cursor:crosshair}
+.d-cur,.d-ghost{position:absolute;top:-6px;bottom:0;width:2px;margin-left:-1px;pointer-events:none}
+.d-cur{background:var(--text)} .d-ghost{background:var(--faint);opacity:.5}
+.d-lab{position:absolute;top:-34px;background:var(--ribbon);color:var(--ribbon-ink);font-size:12px;padding:4px 8px;border-radius:5px;white-space:nowrap;pointer-events:none}
+.d-lab span{color:var(--ribbon-muted)}
+.d-marks{position:relative;height:10px;margin-top:4px}
+.d-marks i{position:absolute;top:0;width:1px;height:6px;background:var(--faint);opacity:.6}
+.d-marks i.aw{height:10px;width:2px;opacity:1}
+.d-weeks{display:flex;font-size:11px;color:var(--faint)}
+.d-weeks span{flex:1;border-left:1px solid var(--border);padding-left:4px}
+.d-legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--muted);margin-top:10px;align-items:center}
+.d-side{font-size:11px;color:var(--faint);margin:10px 0 2px}
+.d-controls{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-top:10px}
+.l-locked{fill:var(--st-locked)} .l-inrange{fill:var(--st-inrange)} .l-out{fill:var(--st-out)} .l-lockedout{fill:var(--st-lockedout)}
+.l-band{fill:var(--band)} .l-line{fill:none;stroke:var(--accent);stroke-width:2;vector-effect:non-scaling-stroke}
+
+/* E jump */
+.e-sentence{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:15px}
+.e-sentence select{font:inherit;font-size:14px;min-height:38px;padding:4px 8px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface);color:var(--text);max-width:100%}
+.e-sentence select:disabled{opacity:.5}
+.e-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+@media (max-width:640px){.e-grid{grid-template-columns:1fr}}
+.e-box{display:flex;flex-direction:column;gap:6px;min-width:0}
+.e-box input{font:inherit;min-height:38px;padding:4px 10px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface);color:var(--text);width:100%}
+.e-sug{display:flex;flex-direction:column;gap:3px}
+.e-sug button,.e-list button{text-align:left;border:1px solid var(--border);background:var(--surface);border-radius:var(--r);padding:6px 10px;min-height:34px;cursor:pointer;font-size:13px}
+.e-sug button:hover,.e-list button:hover{border-color:var(--accent)}
+.e-list{display:flex;flex-direction:column;gap:4px}
+.e-list .d{color:var(--muted);font-size:12px}
+.e-mini{position:relative;height:8px;border-radius:4px;background:var(--track);margin-top:16px;cursor:pointer}
+.e-mini .n{position:absolute;left:0;top:0;bottom:0;background:var(--accent-soft);border-radius:4px}
+.e-mini .t{position:absolute;top:-4px;width:4px;height:16px;margin-left:-2px;background:var(--accent);border-radius:2px}
+
+@media (max-width:520px){:root{--name:84px}.b-ev{font-size:12px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<header class="ribbon"><div class="in">
+  <h1>Locks rewind, five ways</h1>
+  <span>Sketch 023 · sample district, <b>Week 4 in progress</b></span>
+</div></header>
+
+<main>
+  <section class="card diag">
+    <div class="lbl">What the shipped slider gets wrong</div>
+    <ul>
+      <li>Over 800 steps by Week 4, and more than 1,000 by the end of the season, share one thin track, so a pixel covers several matches and landing on a chosen match is luck.</li>
+      <li>The position prints beside the label, away from the thumb, so the eye leaves the hand while dragging.</li>
+      <li>The tick labels and the jump chips say the same thing twice, and the chips take a row of their own.</li>
+      <li>Nothing on the track shows where statuses changed, so finding the moment a team locked is a blind search.</li>
+    </ul>
+  </section>
+
+  <div class="bar-top">
+    <div class="switch" role="group" aria-label="Tab">
+      <button id="t-dcmp" aria-pressed="true">DCMP Locks</button>
+      <button id="t-champ" aria-pressed="false">Champ Locks</button>
+    </div>
+    <span class="note">Every variant drives the same preview below. The two tabs share one control.</span>
+  </div>
+
+  <nav class="tabs" role="tablist" id="vtabs"></nav>
+
+  <section class="card" id="stage">
+    <p class="why" id="why"></p>
+    <div id="ctl"></div>
+  </section>
+
+  <section class="card preview" id="preview"></section>
+</main>
+
+<script>
+(() => {
+"use strict";
+const $ = (s, r = document) => r.querySelector(s);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const WK = 28;                 // hours per week lane: quals Fri to Sat, then stages
+const NOW = 3 * WK + 13;       // Week 4, Saturday morning
+const TEAMS = 160;
+
+const EVENTS = [
+  {k:"mibel",n:"Belleville",w:1,o:0},{k:"miket",n:"Kettering",w:1,o:.7},{k:"mitvc",n:"Traverse City",w:1,o:1.3},
+  {k:"mimil",n:"Milford",w:2,o:0},{k:"miliv",n:"Livonia",w:2,o:.5},{k:"miesc",n:"Escanaba",w:2,o:1.1},
+  {k:"milak",n:"Lakeview",w:3,o:.2},{k:"mimac",n:"Macomb",w:3,o:0},{k:"midet",n:"Detroit",w:3,o:.9},
+  {k:"milan",n:"Lansing",w:4,o:0},{k:"misal",n:"Saline",w:4,o:.4},{k:"mitry",n:"Troy",w:4,o:.8},
+  {k:"mimar",n:"Marysville",w:5,o:0},{k:"mijac",n:"Jackson",w:5,o:.6},
+  {k:"micmp1",n:"DCMP Aptiv",w:6,o:0,dcmp:true},{k:"micmp2",n:"DCMP Consumers",w:6,o:.3,dcmp:true},
+];
+const STAGES = [["qualsDone",20.2,"Quals done"],["alliance",21,"Alliance selection"],["playoffs",24.5,"Playoffs"],["awards",25.4,"Awards"]];
+const TEAM_EVENTS = {2767:["mitvc","milan"],33:["miliv","misal"],67:["mibel","milak"],3538:["miket","mitry"],5460:["miesc","mimar"]};
+
+function rng(seed){return()=>{seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+function buildTab(tab){
+  const weeks = tab === "dcmp" ? 5 : 6, span = weeks * WK;
+  const evs = EVENTS.filter(e => tab === "champ" || !e.dcmp);
+  const steps = [];
+  const mk = (kind, ev, t, num) => {
+    const local = t - (ev.w - 1) * WK;
+    const short = kind === "match" ? `Qual ${num}` : STAGES.find(s => s[0] === kind)[2];
+    return {kind, ev, t, num, w: ev.w, f: t / span, short, label: `${ev.n} ${kind === "match" ? short : short.toLowerCase()}`,
+      when: `Week ${ev.w} · ${local < 11 ? "Fri" : "Sat"}`};
+  };
+  for (const e of evs){
+    const base = (e.w - 1) * WK + e.o, N = e.dcmp ? 80 : 72;
+    for (let i = 0; i < N; i++) steps.push(mk("match", e, base + 1 + 19 * i / (N - 1), i + 1));
+    for (const [k, dt] of STAGES) steps.push(mk(k, e, base + dt));
+  }
+  steps.sort((a, b) => a.t - b.t || a.ev.k.localeCompare(b.ev.k));
+  const past = steps.filter(s => s.t <= NOW), future = steps.filter(s => s.t > NOW);
+  const P = [{kind:"start",t:0,f:0,w:0,short:"Season start",label:"Season start",when:"before Week 1"},
+    ...past, {kind:"now",t:NOW,f:NOW/span,w:4,short:"Now",label:"Now",when:"Week 4 · Sat · live"}];
+  const n = P.length - 1;
+
+  // Fake but coherent consequences: locks arrive mostly at awards and quals done, the cutoff wanders and its likely range narrows.
+  const r = rng(tab === "dcmp" ? 7 : 11);
+  const slots = tab === "dcmp" ? 82 : 32;
+  let locked = tab === "dcmp" ? 0 : 4, lockedOut = 0, cut = tab === "dcmp" ? 58 : 190;
+  const M = [];
+  P.forEach((p, i) => {
+    const w = p.w, x = r();
+    if (tab === "dcmp"){
+      if (p.kind === "awards" && w >= 2) locked += x < .5 ? 1 : 2;
+      if (p.kind === "playoffs" && w >= 2 && x < .45) locked += 1;
+      if (p.kind === "qualsDone" && w >= 3){ lockedOut += 1 + Math.floor(x * 3); if (x < .3) locked += 1; }
+      if (p.kind === "match" && w >= 3){ if (x < .012 * w) locked += 1; else if (x > 1 - .01 * w) lockedOut += 1; }
+      cut += (r() - .52) * (p.kind === "match" ? .3 : 1.4);
+    } else {
+      if (p.kind === "awards" && w >= 2 && x < .6) locked += 1;
+      if (p.kind === "qualsDone" && w >= 2 && x > .4) lockedOut += 1 + Math.floor(x * 2);
+      if (p.kind === "match" && w >= 3){ if (x < .008) locked += 1; else if (x > .99) lockedOut += 1; }
+      cut += (r() - .54) * (p.kind === "match" ? .6 : 2.5);
+    }
+    const half = (tab === "dcmp" ? 12 : 26) * (1 - .75 * p.f) + 2;
+    const open = TEAMS - locked - lockedOut, inRange = clamp(slots - locked, 0, open);
+    const c = Math.round(cut), prev = M[i - 1];
+    const changed = !!prev && (locked !== prev.locked || lockedOut !== prev.lockedOut);
+    M.push({locked, lockedOut, inRange, out: open - inRange, cut: c, lo: Math.round(cut - half), hi: Math.round(cut + half), changed});
+  });
+
+  const evIdx = {};
+  P.forEach((p, i) => { if (p.ev) (evIdx[p.ev.k] ||= []).push(i); });
+  const stageIdx = [], changeIdx = [];
+  P.forEach((p, i) => { if (p.kind !== "match") stageIdx.push(i); if (M[i].changed) changeIdx.push(i); });
+  const weekEnd = w => { let last = -1; P.forEach((p, i) => { if (p.w === w && p.kind !== "now") last = i; }); return last; };
+  const liveWeek = 4;
+  return {tab, weeks, span, P, n, M, evs, future, evIdx, stageIdx, changeIdx, weekEnd, liveWeek, slots,
+    target: tab === "dcmp" ? "DCMP" : "Champs", unit: tab === "dcmp" ? "district points" : "district plus DCMP points"};
+}
+
+const DATA = {dcmp: buildTab("dcmp"), champ: buildTab("champ")};
+const S = {tab: "dcmp", v: "A", pos: DATA.dcmp.n};
+let D = DATA.dcmp;
+let onPos = () => {};          // the active variant's in-place updater
+let teardown = () => {};
+
+function setPos(i){ i = clamp(i, 0, D.n); if (i === S.pos) return; S.pos = i; onPos(); renderPreview(); }
+function nearestT(t, list){ // list of indices, nearest by time
+  let best = list[0], bd = Infinity;
+  for (const j of list){ const d = Math.abs(D.P[j].t - t); if (d < bd){ bd = d; best = j; } }
+  return best;
+}
+function idxAtF(f){ // any position, nearest by rail fraction; binary search, positions are time ordered
+  const P = D.P; let lo = 0, hi = D.n;
+  while (hi - lo > 1){ const m = (lo + hi) >> 1; if (P[m].f <= f) lo = m; else hi = m; }
+  return Math.abs(P[hi].f - f) < Math.abs(P[lo].f - f) ? hi : lo;
+}
+function isWeekEnd(j){ return j === 0 || j === D.n || (D.P[j + 1] && D.P[j + 1].w !== D.P[j].w); }
+function stepFrom(i, unit, dir){
+  if (unit === "match") return clamp(i + dir, 0, D.n);
+  const pred = unit === "stage" ? j => D.P[j].kind !== "match"
+    : unit === "change" ? j => D.M[j].changed || j === 0 || j === D.n : isWeekEnd;
+  for (let j = i + dir; j >= 0 && j <= D.n; j += dir) if (pred(j)) return j;
+  return dir < 0 ? 0 : D.n;
+}
+function readout(p){
+  if (!p.ev) return `${p.label} <span class="when">${p.when}</span>`;
+  return `${p.ev.n} · ${p.short} <span class="when">${p.when}</span>`;
+}
+function changeText(i){
+  const m = D.M[i], q = D.M[i - 1]; if (!q) return "";
+  const parts = [];
+  if (m.locked > q.locked) parts.push(`${m.locked - q.locked} ${m.locked - q.locked > 1 ? "teams" : "team"} locked`);
+  if (m.lockedOut > q.lockedOut) parts.push(`${m.lockedOut - q.lockedOut} locked out`);
+  if (m.cut !== q.cut) parts.push(`cutoff ${q.cut} to ${m.cut}`);
+  return parts.join(", ");
+}
+const ICON = {
+  start:'<svg viewBox="0 0 16 16"><path d="M3 3h2v10H3zM14 3v10L6 8z"/></svg>',
+  back:'<svg viewBox="0 0 16 16"><path d="M8 3v10L1 8zM15 3v10L8 8z"/></svg>',
+  fwd:'<svg viewBox="0 0 16 16"><path d="M1 3v10l7-5zM8 3v10l7-5z"/></svg>',
+  end:'<svg viewBox="0 0 16 16"><path d="M2 3v10l8-5zM11 3h2v10h-2z"/></svg>',
+  prev:'<svg viewBox="0 0 16 16"><path d="M11 2v12L3 8z"/></svg>',
+  next:'<svg viewBox="0 0 16 16"><path d="M5 2v12l8-6z"/></svg>',
+  play:'<svg viewBox="0 0 16 16"><path d="M4 2v12l10-6z"/></svg>',
+  pause:'<svg viewBox="0 0 16 16"><path d="M3 2h4v12H3zM9 2h4v12H9z"/></svg>',
+};
+function kbd(el, unitFn){
+  el.addEventListener("keydown", e => {
+    const u = e.shiftKey ? "stage" : unitFn();
+    let j = null;
+    if (e.key === "ArrowLeft" || e.key === "ArrowDown") j = stepFrom(S.pos, u, -1);
+    else if (e.key === "ArrowRight" || e.key === "ArrowUp") j = stepFrom(S.pos, u, 1);
+    else if (e.key === "PageDown") j = stepFrom(S.pos, "week", -1);
+    else if (e.key === "PageUp") j = stepFrom(S.pos, "week", 1);
+    else if (e.key === "Home") j = 0; else if (e.key === "End") j = D.n;
+    if (j !== null){ e.preventDefault(); setPos(j); }
+  });
+}
+function drag(el, fn){ // pointer scrubbing with capture; fn(event, isStart)
+  el.addEventListener("pointerdown", e => {
+    if (e.button !== 0) return;
+    el.setPointerCapture(e.pointerId); el.dataset.drag = "1"; fn(e, true);
+  });
+  el.addEventListener("pointermove", e => { if (el.dataset.drag) fn(e, false); });
+  const end = () => { delete el.dataset.drag; };
+  el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+}
+function weekStatus(w){ return w < D.liveWeek ? "done" : w === D.liveWeek ? "live" : "up"; }
+function segButtons(opts, cur, id){
+  return `<div class="seg" id="${id}" role="group">${opts.map(([v, l]) => `<button data-v="${v}" aria-pressed="${v === cur}">${l}</button>`).join("")}</div>`;
+}
+function wireSeg(id, cb){
+  $("#" + id).addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    for (const x of $("#" + id).children) x.setAttribute("aria-pressed", x === b);
+    cb(b.dataset.v);
+  });
+}
+
+/* ---------- preview ---------- */
+function renderPreview(){
+  const p = D.P[S.pos], m = D.M[S.pos];
+  const seg = (v, c) => `<i style="width:${(v / TEAMS * 100).toFixed(2)}%;background:var(${c})"></i>`;
+  const ch = changeText(S.pos);
+  $("#preview").innerHTML = `
+    <div class="pv-top"><span class="eyebrow">${D.target} locks as of</span><span class="readout">${readout(p)}</span></div>
+    <div class="pv-bar" aria-hidden="true">${seg(m.locked, "--st-locked")}${seg(m.inRange, "--st-inrange")}${seg(m.out, "--st-out")}${seg(m.lockedOut, "--st-lockedout")}</div>
+    <div class="pv-chips">
+      <span class="chip locked">Locked <b>${m.locked}</b></span>
+      <span class="chip inrange"><span class="sw" style="background:var(--st-inrange)"></span>In range <b>${m.inRange}</b></span>
+      <span class="chip out"><span class="sw" style="background:var(--st-out)"></span>Out of range <b>${m.out}</b></span>
+      <span class="chip lockedout">Locked out <b>${m.lockedOut}</b></span>
+    </div>
+    <div class="pv-cut">Predicted ${D.target} cutoff <b>${m.cut}</b> ${D.unit} <span class="muted">· likely ${m.lo}–${m.hi}</span> <span class="faint">· ${D.slots} slots, ${TEAMS} teams</span></div>
+    <div class="pv-change">${S.pos === 0 ? "Nothing has been played yet." : S.pos === D.n ? "The live state. Everything after this has not happened."
+      : ch ? `<b>Changed at this step:</b> ${ch}` : "No status changed at this step."}</div>`;
+}
+
+/* ---------- variants ---------- */
+const V = {};
+
+V.Z = {name: "Shipped", why: "<b>Today's control, reproduced for comparison.</b> A native range over every step, anchors evenly spaced per week, tick labels under the track, then a row of jump chips repeating the same anchors.",
+build(root){
+  const anchors = [0]; for (let w = 1; w < D.liveWeek; w++) anchors.push(D.weekEnd(w)); anchors.push(D.n);
+  const seg = anchors.length - 1;
+  const frac = i => { let s = 0; while (s < seg - 1 && i >= anchors[s + 1]) s++;
+    const a = anchors[s], b = anchors[s + 1]; return Math.min(1, (s + (b > a ? Math.min(1, (i - a) / (b - a)) : 1)) / seg); };
+  const F = D.P.map((_, i) => frac(i));
+  const labels = ["start", ...anchors.slice(1, -1).map((_, k) => `wk ${k + 1}`), "now"];
+  const chipLabels = ["Season start", ...anchors.slice(1, -1).map((_, k) => `After week ${k + 1}`), "Now"];
+  root.innerHTML = `
+    <div class="rowline"><label class="lbl" for="z-in">Rewind to</label><span class="readout" id="z-read"></span></div>
+    <input type="range" id="z-in" class="z-range" min="0" max="1000" step="1" list="z-list">
+    <datalist id="z-list">${anchors.map((_, k) => `<option value="${Math.round(k / seg * 1000)}"></option>`).join("")}</datalist>
+    <div class="z-ticks">${labels.map((l, k) => `<span style="left:${(k / seg * 100).toFixed(1)}%">${l}</span>`).join("")}</div>
+    <div class="z-chips">${chipLabels.map((l, k) => `<button class="pill" data-i="${anchors[k]}">${l}</button>`).join("")}</div>
+    <p class="note">Rewinding reopens the categories a district event had already decided, and every status recomputes at the new position.</p>`;
+  const inp = $("#z-in");
+  inp.addEventListener("input", () => {
+    const f = inp.value / 1000; let best = 0;
+    F.forEach((x, i) => { if (Math.abs(x - f) < Math.abs(F[best] - f)) best = i; });
+    setPos(best);
+  });
+  root.querySelector(".z-chips").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setPos(+b.dataset.i); });
+  onPos = () => {
+    const p = D.P[S.pos];
+    $("#z-read").textContent = p.kind === "match" ? `${p.ev.n} qm${p.num}` : p.label;
+    if (document.activeElement !== inp) inp.value = Math.round(F[S.pos] * 1000);
+    root.querySelectorAll(".z-chips button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.i === S.pos));
+  };
+}};
+
+V.A = {name: "Snap rail", why: "<b>The same slider, fixed.</b> The position rides on the thumb, each week is a big click target under its own segment, every stage is a notch the drag snaps to, and the step buttons move by the unit you pick. Arrow keys follow that unit; Shift steps by stage; Page Up and Page Down jump a week.",
+build(root){
+  let unit = "stage";
+  const nowF = D.P[D.n].f;
+  const weeks = Array.from({length: D.weeks}, (_, k) => k + 1);
+  root.innerHTML = `
+    <div class="a-wrap">
+      <div class="a-rail" id="a-rail" tabindex="0" role="slider" aria-label="Rewind to" aria-valuemin="0" aria-valuemax="${D.n}">
+        <div class="a-segs">${weeks.map(() => "<i></i>").join("")}</div>
+        <div class="a-played" style="width:${nowF * 100}%"></div>
+        <div class="a-future hatch" style="left:${nowF * 100}%"></div>
+        <div class="a-sel" id="a-sel"></div>
+        ${D.stageIdx.filter(j => D.P[j].ev).map(j => `<i class="a-notch ${D.P[j].kind === "awards" ? "aw" : "st"}" style="left:${(D.P[j].f * 100).toFixed(2)}%"></i>`).join("")}
+        <div class="a-thumb" id="a-thumb"><div class="a-bubble" id="a-bub"></div></div>
+      </div>
+      <div class="a-weeks">${weeks.map(w => { const s = weekStatus(w);
+        return `<button data-w="${w}" class="${s}" ${s === "up" ? "disabled" : ""}>Week ${w}${s === "live" ? " · live" : ""}</button>`; }).join("")}</div>
+    </div>
+    <div class="a-controls">
+      <button class="pill" id="a-start">Season start</button>
+      <button class="ibtn" id="a-prev" aria-label="Step back">${ICON.prev}</button>
+      ${segButtons([["match", "Match"], ["stage", "Stage"], ["change", "Status change"], ["week", "Week"]], unit, "a-unit")}
+      <button class="ibtn" id="a-next" aria-label="Step forward">${ICON.next}</button>
+      <button class="pill" id="a-now">Now</button>
+      <label class="check"><input type="checkbox" id="a-mag" checked> Snap to stages</label>
+    </div>`;
+  const rail = $("#a-rail");
+  drag(rail, e => {
+    const r = rail.getBoundingClientRect(), f = clamp((e.clientX - r.left) / r.width, 0, nowF);
+    let i = idxAtF(f);
+    if ($("#a-mag").checked){
+      const j = nearestT(f * D.span, D.stageIdx);
+      if (Math.abs(D.P[j].f - f) * r.width < 10) i = j;
+    }
+    setPos(i);
+  });
+  kbd(rail, () => unit);
+  wireSeg("a-unit", v => unit = v);
+  $("#a-prev").onclick = () => setPos(stepFrom(S.pos, unit, -1));
+  $("#a-next").onclick = () => setPos(stepFrom(S.pos, unit, 1));
+  $("#a-start").onclick = () => setPos(0);
+  $("#a-now").onclick = () => setPos(D.n);
+  root.querySelector(".a-weeks").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    const w = +b.dataset.w; setPos(w === D.liveWeek ? D.n : D.weekEnd(w));
+  });
+  onPos = () => {
+    const p = D.P[S.pos], f = p.f * 100;
+    $("#a-thumb").style.left = f + "%"; $("#a-sel").style.width = f + "%";
+    const bub = $("#a-bub");
+    bub.innerHTML = p.ev ? `<b>${p.ev.n} · ${p.short}</b><span>${p.when}</span>` : `<b>${p.label}</b><span>${p.when}</span>`;
+    const rw = rail.clientWidth, x = p.f * rw, bw = bub.offsetWidth;
+    const shift = clamp(x - bw / 2, 0, Math.max(0, rw - bw)) - (x - bw / 2);
+    bub.style.transform = `translateX(calc(-50% + ${shift}px))`;
+    rail.setAttribute("aria-valuenow", S.pos); rail.setAttribute("aria-valuetext", p.label);
+  };
+}};
+
+V.B = {name: "Event lanes", why: "<b>One lane per event, grouped by week, Friday to Saturday.</b> Drag along an event's lane to scrub its own matches, so a neighbouring event's matches never get in the way. The dots after each lane are quals done, alliance selection, playoffs, and the awards diamond. Finished weeks fold to one line.",
+build(root){
+  const open = new Set([D.P[S.pos].w || 1]);
+  root.innerHTML = `
+    <div class="b-controls">
+      <span class="readout" id="b-read"></span><span class="spacer"></span>
+      <button class="ibtn" id="b-prev" aria-label="Previous match">${ICON.prev}</button>
+      <button class="ibtn" id="b-next" aria-label="Next match">${ICON.next}</button>
+      <button class="pill" id="b-start">Season start</button><button class="pill" id="b-now">Now</button>
+    </div>
+    <div id="b-weeks"></div>`;
+  const x = t => ((t % WK) / WK * 100); // position within the week lane
+  function lanes(w){
+    const evs = D.evs.filter(e => e.w === w), s = weekStatus(w);
+    const nowIn = s === "live" ? `<div class="b-nowline" style="left:calc(var(--name) + (100% - var(--name) - 24px) * ${x(NOW) / 100} + 12px)"></div>` : "";
+    return `<div class="b-lanes" data-w="${w}">
+      <div class="b-axis"><span></span><div><span style="left:${x(1)}%">Fri</span><span style="left:${x(11)}%">Sat</span><span style="left:${x(21)}%">Stages</span></div></div>
+      ${evs.map(e => { const base = (e.w - 1) * WK + e.o;
+        return `<div class="b-lane"><span class="b-ev" title="${e.n}">${e.n}</span>
+        <div class="b-track ${D.evIdx[e.k] ? "" : "dis"}" data-ev="${e.k}">
+          <div class="b-q" style="left:${x(base + 1)}%;width:${x(base + 20) - x(base + 1)}%"><i class="n"></i><i class="s"></i></div>
+          ${STAGES.map(([k, dt]) => `<i class="b-pip ${k === "awards" ? "aw" : ""}" data-t="${base + dt}" style="left:${x(base + dt)}%"></i>`).join("")}
+        </div></div>`; }).join("")}
+      ${nowIn}<div class="b-cur" hidden></div><div class="b-tip" hidden></div></div>`;
+  }
+  function renderWeeks(){
+    $("#b-weeks").innerHTML = Array.from({length: D.weeks}, (_, k) => k + 1).map(w => {
+      const s = weekStatus(w), n = D.evs.filter(e => e.w === w).length;
+      const meta = `${n} events · ${s === "done" ? "done" : s === "live" ? "live now" : "not played yet"}`;
+      return `<section class="b-week ${open.has(w) ? "open" : ""} ${s}">
+        <button class="b-head" data-w="${w}" aria-expanded="${open.has(w)}"><span class="car">▸</span><span class="nm">Week ${w}</span><span class="mt">${meta}</span><span class="mini"><i data-mini="${w}"></i></span></button>
+        ${open.has(w) ? lanes(w) : ""}</section>`;
+    }).join("");
+    $("#b-weeks").querySelectorAll(".b-track:not(.dis)").forEach(tr => {
+      const idx = D.evIdx[tr.dataset.ev];
+      const pick = e => { const r = tr.getBoundingClientRect(), w = +tr.closest(".b-lanes").dataset.w;
+        return nearestT((w - 1) * WK + clamp((e.clientX - r.left) / r.width, 0, 1) * WK, idx); };
+      drag(tr, e => setPos(pick(e)));
+      const tip = tr.closest(".b-lanes").querySelector(".b-tip");
+      tr.addEventListener("pointermove", e => {
+        const j = pick(e), host = tr.closest(".b-lanes").getBoundingClientRect(), r = tr.getBoundingClientRect();
+        tip.hidden = false; tip.textContent = `${D.P[j].ev.n} · ${D.P[j].short}`;
+        tip.style.left = (r.left - host.left + D.P[j].t % WK / WK * r.width) + "px"; tip.style.top = (r.top - host.top + 4) + "px";
+      });
+      tr.addEventListener("pointerleave", () => { tip.hidden = true; });
+    });
+    onPos();
+  }
+  $("#b-weeks").addEventListener("click", e => {
+    const h = e.target.closest(".b-head"); if (!h) return;
+    const w = +h.dataset.w; open.has(w) ? open.delete(w) : open.add(w); renderWeeks();
+  });
+  $("#b-prev").onclick = () => setPos(S.pos - 1);
+  $("#b-next").onclick = () => setPos(S.pos + 1);
+  $("#b-start").onclick = () => setPos(0);
+  $("#b-now").onclick = () => setPos(D.n);
+  onPos = () => {
+    const p = D.P[S.pos], t = p.t;
+    if (p.w && !open.has(p.w)){ open.add(p.w); renderWeeks(); return; }
+    $("#b-read").innerHTML = readout(p);
+    document.querySelectorAll("[data-mini]").forEach(el => {
+      const w = +el.dataset.mini; el.style.width = clamp((t - (w - 1) * WK) / (WK - 1.5), 0, 1) * 100 + "%"; });
+    document.querySelectorAll(".b-lanes").forEach(L => {
+      const w = +L.dataset.w, cur = L.querySelector(".b-cur");
+      cur.hidden = p.w !== w || !p.ev;
+      if (!cur.hidden){ const tr = L.querySelector(".b-track"), lr = L.getBoundingClientRect(), r = tr.getBoundingClientRect();
+        cur.style.left = (r.left - lr.left + (t % WK) / WK * r.width) + "px"; }
+      L.querySelectorAll(".b-track").forEach(tr => {
+        const e = D.evs.find(v => v.k === tr.dataset.ev), base = (e.w - 1) * WK + e.o;
+        const q = tr.querySelector(".b-q"), fr = v => clamp((v - base - 1) / 19, 0, 1) * 100 + "%";
+        q.querySelector(".n").style.width = fr(NOW); q.querySelector(".s").style.width = fr(t);
+        tr.querySelectorAll(".b-pip").forEach(pp => { const pt = +pp.dataset.t;
+          pp.classList.toggle("on", pt <= t); pp.classList.toggle("fut", pt > NOW); });
+      });
+    });
+  };
+  renderWeeks();
+}};
+
+V.C = {name: "Replay", why: "<b>Play the district forward and watch statuses move.</b> Chapters are weeks. The skip buttons jump between status changes, and the list keeps every change you have passed, so you can hop straight back to the moment a team locked.",
+build(root){
+  let playing = false, speed = 40, raf = 0, last = 0, acc = 0;
+  const nowF = D.P[D.n].f, weeks = Array.from({length: D.weeks}, (_, k) => k + 1);
+  root.innerHTML = `
+    <div class="rowline"><span class="lbl">Replaying</span><span class="readout" id="c-read"></span></div>
+    <div class="c-bar" id="c-bar" tabindex="0" role="slider" aria-label="Replay position">
+      ${weeks.map(w => `<div class="c-ch"><i class="n"></i><i class="s"></i><i class="f hatch"></i></div>`).join("")}
+      <div class="c-head" id="c-head"></div><div class="c-tip" id="c-tip" hidden></div>
+    </div>
+    <div class="c-labels">${weeks.map(w => `<span class="${weekStatus(w) === "live" ? "live" : ""}">Week ${w}${weekStatus(w) === "live" ? " · live" : ""}</span>`).join("")}</div>
+    <div class="c-transport">
+      <div class="grp">
+        <button class="ibtn" id="c-start" aria-label="Season start">${ICON.start}</button>
+        <button class="ibtn" id="c-back" aria-label="Previous status change">${ICON.back}</button>
+        <button class="ibtn primary" id="c-play">${ICON.play}<span>Play</span></button>
+        <button class="ibtn" id="c-fwd" aria-label="Next status change">${ICON.fwd}</button>
+        <button class="ibtn" id="c-now" aria-label="Now">${ICON.end}</button>
+      </div>
+      ${segButtons([["10", "Slow"], ["40", "Normal"], ["160", "Fast"]], "40", "c-speed")}
+      <label class="check"><input type="checkbox" id="c-pause"> Pause when a status changes</label>
+    </div>
+    <div class="c-feed"><div class="lbl">Changes up to here</div><ol id="c-feed"></ol></div>`;
+  const bar = $("#c-bar"), fAt = e => { const r = bar.getBoundingClientRect(); return clamp((e.clientX - r.left) / r.width, 0, nowF); };
+  drag(bar, e => { stop(); setPos(idxAtF(fAt(e))); });
+  bar.addEventListener("pointermove", e => {
+    const j = idxAtF(fAt(e)), tip = $("#c-tip"), r = bar.getBoundingClientRect();
+    tip.hidden = false; tip.innerHTML = `${D.P[j].ev ? D.P[j].ev.n + " · " + D.P[j].short : D.P[j].label} <span>· ${D.M[j].locked} locked</span>`;
+    tip.style.left = clamp(D.P[j].f * r.width, 70, r.width - 70) + "px";
+  });
+  bar.addEventListener("pointerleave", () => { $("#c-tip").hidden = true; });
+  kbd(bar, () => "match");
+  const setPlayBtn = () => { $("#c-play").innerHTML = playing ? `${ICON.pause}<span>Pause</span>` : `${ICON.play}<span>Play</span>`; };
+  function stop(){ playing = false; cancelAnimationFrame(raf); setPlayBtn(); }
+  function frame(ts){
+    if (!playing) return;
+    acc += (ts - last) / 1000 * speed; last = ts;
+    let steps = Math.floor(acc); acc -= steps; let i = S.pos, halt = false;
+    while (steps-- > 0 && i < D.n){ i++; if ($("#c-pause").checked && D.M[i].changed){ halt = true; break; } }
+    setPos(i);
+    if (halt || i >= D.n) stop(); else raf = requestAnimationFrame(frame);
+  }
+  $("#c-play").onclick = () => {
+    if (playing) return stop();
+    if (S.pos >= D.n) setPos(0);
+    playing = true; acc = 0; setPlayBtn(); raf = requestAnimationFrame(ts => { last = ts; frame(ts); });
+  };
+  wireSeg("c-speed", v => speed = +v);
+  $("#c-start").onclick = () => { stop(); setPos(0); };
+  $("#c-now").onclick = () => { stop(); setPos(D.n); };
+  $("#c-back").onclick = () => { stop(); setPos(stepFrom(S.pos, "change", -1)); };
+  $("#c-fwd").onclick = () => { stop(); setPos(stepFrom(S.pos, "change", 1)); };
+  $("#c-feed").addEventListener("click", e => { const b = e.target.closest("button"); if (b){ stop(); setPos(+b.dataset.i); } });
+  teardown = stop;
+  onPos = () => {
+    const p = D.P[S.pos];
+    $("#c-read").innerHTML = readout(p);
+    [...bar.querySelectorAll(".c-ch")].forEach((ch, k) => {
+      const part = v => clamp(v * D.weeks - k, 0, 1) * 100 + "%";
+      ch.querySelector(".n").style.width = part(nowF); ch.querySelector(".s").style.width = part(p.f);
+      ch.querySelector(".f").style.width = (100 - parseFloat(part(nowF))) + "%";
+    });
+    // the head sits on the chapter geometry: chapters are equal, with 4px gaps between
+    const w = bar.clientWidth, cw = (w - 4 * (D.weeks - 1)) / D.weeks, k = Math.min(D.weeks - 1, Math.floor(p.f * D.weeks));
+    $("#c-head").style.left = (k * (cw + 4) + (p.f * D.weeks - k) * cw) + "px";
+    const items = D.changeIdx.filter(j => j <= S.pos).slice(-6).reverse();
+    $("#c-feed").innerHTML = items.length ? items.map(j => `<li><button data-i="${j}" class="${j === S.pos ? "fresh" : ""}">
+        <span class="wk">Week ${D.P[j].w}</span><b>${D.P[j].ev.n} · ${D.P[j].short}</b><span class="d">${changeText(j)}</span></button></li>`).join("")
+      : `<li class="note">No status has changed yet at this point.</li>`;
+  };
+}};
+
+V.D = {name: "Status chart", why: "<b>The track is a chart of the statuses themselves.</b> You can see where the season was decided and drag straight to it, with the cutoff and its likely range underneath. Hover to read any moment, drag to set it. Ticks under the chart mark every stage; the tall ones are awards.",
+build(root){
+  const P = D.P, M = D.M, H = 150, CH = 54, nowF = P[D.n].f;
+  const xs = P.map(p => (p.f * 1000).toFixed(1));
+  const y = v => (H - v / TEAMS * H).toFixed(1);
+  const layers = [["locked", m => m.locked], ["inrange", m => m.inRange], ["out", m => m.out], ["lockedout", m => m.lockedOut]];
+  let base = M.map(() => 0), paths = "";
+  for (const [cls, g] of layers){
+    const top = M.map((m, i) => base[i] + g(m));
+    let d = "M" + xs.map((x, i) => `${x},${y(top[i])}`).join("L");
+    for (let i = M.length - 1; i >= 0; i--) d += `L${xs[i]},${y(base[i])}`;
+    paths += `<path class="l-${cls}" d="${d}Z"/>`; base = top;
+  }
+  const lo = Math.min(...M.map(m => m.lo)), hi = Math.max(...M.map(m => m.hi));
+  const cy = v => (CH - 3 - (v - lo) / (hi - lo) * (CH - 6)).toFixed(1);
+  let band = "M" + xs.map((x, i) => `${x},${cy(M[i].hi)}`).join("L");
+  for (let i = M.length - 1; i >= 0; i--) band += `L${xs[i]},${cy(M[i].lo)}`;
+  const line = "M" + xs.map((x, i) => `${x},${cy(M[i].cut)}`).join("L");
+  root.innerHTML = `
+    <div class="d-wrap">
+      <div class="d-plot" id="d-plot">
+        <svg class="d-area" viewBox="0 0 1000 ${H}" preserveAspectRatio="none" aria-hidden="true">${paths}</svg>
+        <div class="d-side">Predicted cutoff and likely range</div>
+        <svg class="d-cutsvg" viewBox="0 0 1000 ${CH}" preserveAspectRatio="none" aria-hidden="true"><path class="l-band" d="${band}Z"/><path class="l-line" d="${line}"/></svg>
+        <div class="d-fut hatch" style="left:${nowF * 100}%">Not played yet</div>
+        <div class="d-ghost" id="d-ghost" hidden></div><div class="d-cur" id="d-cur"></div><div class="d-lab" id="d-lab"></div>
+        <div class="d-over" id="d-over" tabindex="0" role="slider" aria-label="Rewind to"></div>
+      </div>
+      <div class="d-marks">${D.stageIdx.filter(j => P[j].ev).map(j => `<i class="${P[j].kind === "awards" ? "aw" : ""}" style="left:${(P[j].f * 100).toFixed(2)}%"></i>`).join("")}</div>
+      <div class="d-weeks">${Array.from({length: D.weeks}, (_, k) => `<span>Week ${k + 1}${k + 1 === D.liveWeek ? " · live" : ""}</span>`).join("")}</div>
+    </div>
+    <div class="d-legend">
+      <span><span class="sw" style="background:var(--st-locked)"></span> Locked</span>
+      <span><span class="sw" style="background:var(--st-inrange)"></span> In range</span>
+      <span><span class="sw" style="background:var(--st-out)"></span> Out of range</span>
+      <span><span class="sw" style="background:var(--st-lockedout)"></span> Locked out</span>
+    </div>
+    <div class="d-controls">
+      <button class="ibtn" id="d-prev" aria-label="Previous status change">${ICON.prev}</button>
+      <button class="ibtn" id="d-next" aria-label="Next status change">${ICON.next}</button>
+      <button class="pill" id="d-start">Season start</button><button class="pill" id="d-now">Now</button>
+      <label class="check"><input type="checkbox" id="d-snap" checked> Snap to status changes</label>
+    </div>`;
+  const over = $("#d-over"), plot = $("#d-plot");
+  const pick = e => { const r = over.getBoundingClientRect(), f = clamp((e.clientX - r.left) / r.width, 0, nowF);
+    let i = idxAtF(f);
+    if ($("#d-snap").checked && D.changeIdx.length){ const j = nearestT(f * D.span, D.changeIdx); if (Math.abs(P[j].f - f) * r.width < 12) i = j; }
+    return i; };
+  drag(over, e => setPos(pick(e)));
+  over.addEventListener("pointermove", e => { if (over.dataset.drag) return;
+    const g = $("#d-ghost"); g.hidden = false; g.style.left = P[pick(e)].f * 100 + "%"; });
+  over.addEventListener("pointerleave", () => { $("#d-ghost").hidden = true; });
+  kbd(over, () => "match");
+  $("#d-prev").onclick = () => setPos(stepFrom(S.pos, "change", -1));
+  $("#d-next").onclick = () => setPos(stepFrom(S.pos, "change", 1));
+  $("#d-start").onclick = () => setPos(0);
+  $("#d-now").onclick = () => setPos(D.n);
+  onPos = () => {
+    const p = P[S.pos], m = M[S.pos];
+    $("#d-cur").style.left = p.f * 100 + "%";
+    const lab = $("#d-lab");
+    lab.innerHTML = `${p.ev ? p.ev.n + " · " + p.short : p.label} <span>· ${m.locked} locked · cutoff ${m.cut}</span>`;
+    const w = plot.clientWidth, x = p.f * w, bw = lab.offsetWidth;
+    lab.style.left = clamp(x - bw / 2, 0, Math.max(0, w - bw)) + "px";
+    over.setAttribute("aria-valuetext", p.label);
+  };
+}};
+
+V.E = {name: "Jump to", why: "<b>No dragging at all.</b> Pick a week, an event and a moment from three menus, which become native pickers on a phone. Or type something like <i>lansing 41</i>, or jump to moments around your own team's events.",
+build(root){
+  root.innerHTML = `
+    <div class="e-sentence">
+      <span>Show the district as it stood</span>
+      <select id="e-week" aria-label="Week"></select>
+      <select id="e-ev" aria-label="Event"></select>
+      <select id="e-mo" aria-label="Moment"></select>
+    </div>
+    <div class="e-mini" id="e-mini" title="Season so far"><i class="n" style="width:${D.P[D.n].f * 100}%"></i><i class="t" id="e-t"></i></div>
+    <div class="e-grid">
+      <div class="e-box">
+        <label class="lbl" for="e-q">Search a match or stage</label>
+        <input id="e-q" placeholder="lansing 41, detroit awards" autocomplete="off">
+        <div class="e-sug" id="e-sug"></div>
+      </div>
+      <div class="e-box">
+        <label class="lbl" for="e-team">Around my team</label>
+        <input id="e-team" inputmode="numeric" value="2767">
+        <div class="e-list" id="e-teamlist"></div>
+      </div>
+      <div class="e-box" style="grid-column:1/-1">
+        <span class="lbl">Recent status changes</span>
+        <div class="e-list" id="e-recent"></div>
+      </div>
+    </div>`;
+  const P = D.P, wk = $("#e-week"), ev = $("#e-ev"), mo = $("#e-mo");
+  let hold = false; // a pick from the moment menu keeps the menus as the visitor set them
+  const lastOfEvent = k => { const a = D.evIdx[k]; return a[a.length - 1]; };
+  function fillWeek(){
+    wk.innerHTML = `<option value="start">at season start</option>` +
+      Array.from({length: D.liveWeek}, (_, k) => k + 1).map(w => `<option value="${w}">in Week ${w}${w === D.liveWeek ? " (live)" : ""}</option>`).join("") +
+      `<option value="now">right now</option>`;
+  }
+  function fillEvents(w){
+    const evs = D.evs.filter(e => e.w === w && D.evIdx[e.k]);
+    ev.innerHTML = `<option value="end">${w === D.liveWeek ? "as of now" : "after every event finished"}</option>` + evs.map(e => `<option value="${e.k}">at ${e.n}</option>`).join("");
+  }
+  function fillMoments(k){
+    const e = D.evs.find(v => v.k === k), a = D.evIdx[k];
+    mo.innerHTML = `<option value="${a[0] - 1}">before its first match</option>` +
+      a.map(j => `<option value="${j}">${P[j].kind === "match" ? "after " + P[j].short : P[j].short === "Awards" ? "after awards" : "after " + P[j].short.toLowerCase()}</option>`).join("");
+  }
+  fillWeek();
+  wk.onchange = () => { const v = wk.value; setPos(v === "start" ? 0 : v === "now" ? D.n : +v === D.liveWeek ? D.n : D.weekEnd(+v)); };
+  ev.onchange = () => { const w = +wk.value; setPos(ev.value === "end" ? (w === D.liveWeek ? D.n : D.weekEnd(w)) : lastOfEvent(ev.value)); };
+  mo.onchange = () => { hold = true; setPos(+mo.value); };
+  $("#e-mini").addEventListener("click", e => { const r = e.currentTarget.getBoundingClientRect(); setPos(idxAtF(clamp((e.clientX - r.left) / r.width, 0, P[D.n].f))); });
+
+  const q = $("#e-q");
+  function suggest(){
+    const toks = q.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    if (!toks.length){ $("#e-sug").innerHTML = ""; return; }
+    const words = toks.filter(t => !/^\d+$/.test(t)), num = toks.find(t => /^\d+$/.test(t));
+    const hits = [];
+    for (let j = 1; j < D.n && hits.length < 6; j++){
+      const p = P[j], hay = (p.ev.n + " " + p.short).toLowerCase().split(/\s+/);
+      if (!words.every(t => hay.some(h => h.startsWith(t)))) continue;
+      if (num ? p.num !== +num : p.kind === "match") continue;
+      hits.push(j);
+    }
+    $("#e-sug").innerHTML = hits.length ? hits.map(j => `<button data-i="${j}">${P[j].ev.n} · ${P[j].short} <span class="faint">${P[j].when}</span></button>`).join("")
+      : `<span class="note">Nothing played matches that yet.</span>`;
+  }
+  q.addEventListener("input", suggest);
+  q.addEventListener("keydown", e => { if (e.key === "Enter"){ const b = $("#e-sug button"); if (b) setPos(+b.dataset.i); } });
+  $("#e-sug").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setPos(+b.dataset.i); });
+
+  function teamList(){
+    const t = $("#e-team").value.trim(), evs = TEAM_EVENTS[t];
+    if (!evs){ $("#e-teamlist").innerHTML = `<span class="note">Team ${t || "?"} is not in this sample. Try 2767, 33, 67, 3538 or 5460.</span>`; return; }
+    const items = [];
+    for (const k of evs){
+      const e = D.evs.find(v => v.k === k), a = D.evIdx[k];
+      if (!a){ items.push(`<button disabled>${e.n} <span class="d">Week ${e.w}, not played yet</span></button>`); continue; }
+      items.push(`<button data-i="${a[0] - 1}">Before ${e.n} <span class="d">Week ${e.w}</span></button>`);
+      const qd = a.find(j => P[j].kind === "qualsDone"), aw = a.find(j => P[j].kind === "awards");
+      if (qd) items.push(`<button data-i="${qd}">After ${e.n} quals</button>`);
+      if (aw) items.push(`<button data-i="${aw}">After ${e.n} awards</button>`);
+      else items.push(`<button data-i="${D.n}">${e.n} so far <span class="d">live</span></button>`);
+    }
+    $("#e-teamlist").innerHTML = items.join("");
+  }
+  $("#e-team").addEventListener("input", teamList); teamList();
+  $("#e-teamlist").addEventListener("click", e => { const b = e.target.closest("button"); if (b && !b.disabled) setPos(+b.dataset.i); });
+  $("#e-recent").innerHTML = D.changeIdx.slice(-5).reverse().map(j => `<button data-i="${j}"><b>${P[j].ev.n} · ${P[j].short}</b> <span class="d">${changeText(j)}</span></button>`).join("");
+  $("#e-recent").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setPos(+b.dataset.i); });
+
+  onPos = () => {
+    const p = P[S.pos];
+    $("#e-t").style.left = p.f * 100 + "%";
+    if (hold){ hold = false; return; }
+    wk.value = S.pos === 0 ? "start" : S.pos === D.n ? "now" : String(p.w);
+    const w = +wk.value;
+    ev.disabled = mo.disabled = !(w >= 1);
+    if (w >= 1){ fillEvents(w); ev.value = p.ev ? p.ev.k : "end";
+      if (p.ev){ fillMoments(p.ev.k); mo.value = String(S.pos); } else { mo.innerHTML = "<option>any moment</option>"; mo.disabled = true; } }
+    else { ev.innerHTML = "<option>every event</option>"; mo.innerHTML = "<option>any moment</option>"; }
+  };
+}};
+
+/* ---------- shell ---------- */
+const ORDER = ["Z", "A", "B", "C", "D", "E"];
+function mount(){
+  teardown(); teardown = () => {}; onPos = () => {};
+  const v = V[S.v];
+  $("#why").innerHTML = v.why;
+  v.build($("#ctl"));
+  onPos(); renderPreview();
+}
+$("#vtabs").innerHTML = ORDER.map(k => `<button class="tab" role="tab" data-v="${k}" aria-selected="${k === S.v}"><span class="k">${k === "Z" ? "Now" : k}</span>${V[k].name}</button>`).join("");
+$("#vtabs").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  S.v = b.dataset.v;
+  for (const x of $("#vtabs").children) x.setAttribute("aria-selected", x === b);
+  try { localStorage.setItem("s023v", S.v); } catch (_) {}
+  mount();
+});
+for (const t of ["dcmp", "champ"]) $("#t-" + t).onclick = () => {
+  S.tab = t; D = DATA[t]; S.pos = D.n;
+  $("#t-dcmp").setAttribute("aria-pressed", t === "dcmp"); $("#t-champ").setAttribute("aria-pressed", t === "champ");
+  mount();
+};
+window.addEventListener("resize", () => onPos());
+try { const saved = localStorage.getItem("s023v"); if (saved && V[saved]){ S.v = saved;
+  for (const x of $("#vtabs").children) x.setAttribute("aria-selected", x.dataset.v === saved); } } catch (_) {}
+// Open rewound a little, so each control shows a real position rather than the far right edge.
+S.pos = D.changeIdx[D.changeIdx.length - 4] ?? D.n;
+mount();
+})();
+</script>
