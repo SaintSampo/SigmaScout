@@ -241,5 +241,44 @@ describe("the Simulation tab's SPR rewind on the published fixture", () => {
     expect(await fallbackReason({ ...base, index: async (eventKey) => (eventKey === "2024ccc" ? noLb : base.index(eventKey)) }, eventArtifact(full, "2024ccc"), "2024ccc_qm1")).toMatch(/no league row before/);
     // An outage is not a fallback: it rejects, and the run shows its error state.
     await expect(loadSimulationAsOf({ artifact: bbbArtifact, startMatchKey: "2024bbb_qm6" }, { ...base, index: () => Promise.reject(new Error("outage")) })).rejects.toThrow("outage");
+
+    // ---- COPIES OF DIFFERENT AGES (C4, R1): a cached LOG older than its INDEX is refetched fresh, once. ----
+    const shortLog = { ...bbbLog, rows: bbbLog.rows.slice(0, 2) };
+    const withLog = (fresh: typeof bbbLog) => {
+      const calls: string[] = [];
+      const fetchers: AsOfFetchers = {
+        ...base,
+        log: async (eventKey, options) => {
+          if (eventKey !== "2024bbb") return base.log(eventKey);
+          calls.push(options?.fresh === true ? "fresh" : "cached");
+          return options?.fresh === true ? fresh : shortLog;
+        },
+      };
+      return { fetchers, calls };
+    };
+    const healed = withLog(bbbLog);
+    const healedPlan = await loadSimulationAsOf({ artifact: bbbArtifact, startMatchKey: "2024bbb_qm6" }, healed.fetchers);
+    expect(healed.calls).toEqual(["cached", "fresh"]);
+    expect(drawnFrom(ready(healedPlan))).toEqual(midDrawn);
+    // Still short after the fresh fetch: today's stored rows, never a tuple from the short copy.
+    const stuck = withLog(shortLog);
+    expect(await fallbackReason(stuck.fetchers, bbbArtifact, "2024bbb_qm6")).toMatch(/out of step \(log:2024bbb\)/);
+    expect(stuck.calls).toEqual(["cached", "fresh"]);
+    // A cached INDEX older than the artifact (it lacks the start row) is refetched fresh before falling back.
+    const olderIndex = { ...bbb, m: bbb.m.slice(0, 3) };
+    const indexCalls: string[] = [];
+    const staleIndexPlan = await loadSimulationAsOf(
+      { artifact: bbbArtifact, startMatchKey: "2024bbb_qm6" },
+      {
+        ...base,
+        index: async (eventKey, options) => {
+          if (eventKey !== "2024bbb") return base.index(eventKey);
+          indexCalls.push(options?.fresh === true ? "fresh" : "cached");
+          return options?.fresh === true ? bbb : olderIndex;
+        },
+      }
+    );
+    expect(indexCalls).toEqual(["cached", "fresh"]);
+    expect(drawnFrom(ready(staleIndexPlan))).toEqual(midDrawn);
   }, 180_000);
 });

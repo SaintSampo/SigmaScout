@@ -33,16 +33,18 @@
  * `buildSimulationInputs`' rewind path sums it.
  *
  * FALLBACK. Any as-of object unpublished (a fetch answers `null`), an artifact
- * with no event type, or a walk that cannot finish: the run uses the stored
- * rows, which is today's behaviour. A fetch that FAILS (an outage, a bad body)
- * throws, and the run shows its error state.
+ * with no event type, a walk that cannot finish, or a copy `resolveAsOf`
+ * reports out of step with another (a LOG older than its INDEX, a season
+ * object behind an INDEX) that is STILL out of step after one fresh refetch:
+ * the run uses the stored rows, which is today's behaviour. A fetch that FAILS
+ * (an outage, a bad body) throws, and the run shows its error state.
  */
 import { asOfCutBeforeMatch, AsOfResolveError, resolveAsOf } from "../../../../../packages/harness/asOfLookup.js";
-import type { AsOfCut, AsOfIndex, AsOfLog, AsOfSeason, AsOfStart } from "../../../../../packages/harness/asOfState.js";
+import type { AsOfCut, AsOfIndex, AsOfLog, AsOfSeason } from "../../../../../packages/harness/asOfState.js";
 import type { SimTeamBaseline } from "../../../../../packages/core/algorithms/simulation/rankSimulation.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { SimulationAsOfBlock } from "../../workers/simulationAsOfJob.js";
-import { asOfCutId, asOfQualSplit, type AsOfFetchers } from "../districts/asOfRewind.js";
+import { asOfCutId, AsOfObjectSet, asOfQualSplit, asOfStaleObjectIds, type AsOfFetchers } from "../districts/asOfRewind.js";
 
 /** The one algorithm whose as-of state is published: the layer prices ranking points for it, and the wire format describes its state. */
 export const SIMULATION_AS_OF_ALGORITHM_ID = "spr";
@@ -94,10 +96,18 @@ export async function loadSimulationAsOf(params: { readonly artifact: EventArtif
   const eventKey = artifact.eventKey;
   if (artifact.eventType === undefined) return { status: "fallback", reason: `${eventKey}'s artifact names no event type` };
 
-  const [index, log, season] = await Promise.all([fetchers.index(eventKey), fetchers.log(eventKey), fetchers.season()]);
+  const [cachedIndex, log, season] = await Promise.all([fetchers.index(eventKey), fetchers.log(eventKey), fetchers.season()]);
+  let index = cachedIndex;
   if (index === null) return { status: "fallback", reason: `${eventKey} has no published INDEX` };
   if (season === null) return { status: "fallback", reason: "the season object is not published" };
-  const cut = asOfCutBeforeMatch(index, startMatchKey);
+  let cut = asOfCutBeforeMatch(index, startMatchKey);
+  if (cut === undefined) {
+    // The start row is in the artifact but not in this INDEX copy, which may
+    // simply be older than the artifact: refetch it fresh, once.
+    index = await fetchers.index(eventKey, { fresh: true });
+    if (index === null) return { status: "fallback", reason: `${eventKey} has no published INDEX` };
+    cut = asOfCutBeforeMatch(index, startMatchKey);
+  }
   if (cut === undefined) return { status: "fallback", reason: `${startMatchKey} is not in ${eventKey}'s INDEX` };
   if (cut.i === -1 && index.lb === undefined) return { status: "fallback", reason: `${eventKey}'s INDEX carries no league row before its first match` };
 
@@ -121,39 +131,43 @@ export async function resolveSimulationAsOfAtCut(
   const split = asOfQualSplit({ eventKey, tier: "district", eventArtifact: artifact, index, cut, week: artifact.week ?? null });
   const roster = split.baselines.map((baseline) => baseline.teamKey);
 
-  const indexes = new Map<string, AsOfIndex | null>([[eventKey, index]]);
-  const logs = new Map<string, AsOfLog | null>([[eventKey, log]]);
-  let start: AsOfStart | null | undefined;
+  const objects = new AsOfObjectSet(season, fetchers);
+  objects.indexes.set(eventKey, index);
+  objects.logs.set(eventKey, log);
   for (let round = 0; round < MAX_RESOLVE_ROUNDS; round++) {
     let result: ReturnType<typeof resolveAsOf>;
     try {
-      result = resolveAsOf({ cut, teams: roster.map((teamKey) => ({ teamKey, knownEventKeys: [eventKey] })), season, indexes, logs, start });
+      result = resolveAsOf({
+        cut,
+        teams: roster.map((teamKey) => ({ teamKey, knownEventKeys: [eventKey] })),
+        season: objects.season,
+        indexes: objects.indexes,
+        logs: objects.logs,
+        start: objects.start,
+      });
     } catch (error) {
       if (!(error instanceof AsOfResolveError)) throw error;
       return { status: "fallback", reason: error.message };
     }
+    // Copies of different ages: refetch the reported ones fresh, once; still
+    // out of step after that, the run falls back rather than price from them.
+    const stale = asOfStaleObjectIds(result);
+    if (stale.length > 0 && objects.refreshable(stale).length === 0) return { status: "fallback", reason: `the as-of objects are out of step (${stale.join(", ")})` };
     const nothingMissing = result.missingIndexes.length === 0 && result.missingLogs.length === 0 && !result.missingStart;
-    if (nothingMissing) {
+    if (nothingMissing && stale.length === 0) {
       if (result.league === undefined) return { status: "fallback", reason: "no league row at the cut" };
       const teams = [...result.states].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
       return {
         status: "ready",
         cutId: asOfCutId(cut),
-        block: { season: season.season, vars: season.vars, league: result.league, teams, rows: split.rows },
+        block: { season: objects.season.season, vars: objects.season.vars, league: result.league, teams, rows: split.rows },
         baselines: split.baselines,
         incompleteBaselineTeamKeys: incompleteAtCut(artifact, index, cut),
       };
     }
-    const indexKeys = result.missingIndexes.filter((key) => !indexes.has(key));
-    const logKeys = result.missingLogs.filter((key) => !logs.has(key));
-    const [loadedIndexes, loadedLogs, loadedStart] = await Promise.all([
-      Promise.all(indexKeys.map((key) => fetchers.index(key))),
-      Promise.all(logKeys.map((key) => fetchers.log(key))),
-      result.missingStart && start === undefined ? fetchers.start() : Promise.resolve(start),
-    ]);
-    indexKeys.forEach((key, n) => indexes.set(key, loadedIndexes[n]!));
-    logKeys.forEach((key, n) => logs.set(key, loadedLogs[n]!));
-    start = loadedStart;
+    if (!(await objects.load({ missingIndexes: result.missingIndexes, missingLogs: result.missingLogs, missingStart: result.missingStart, stale }))) {
+      return { status: "fallback", reason: "the season object is not published" };
+    }
   }
   return { status: "fallback", reason: "the as-of walk did not finish" };
 }

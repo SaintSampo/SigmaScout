@@ -7,9 +7,11 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ARTIFACTS, CANDIDATES, EVENTS, FIXTURE_VERSION, NOW_STAGES, OBJECTS, asOfBodyFor, districtArtifact } from "./asOfTestFixtures.js";
+import { ARTIFACTS, CANDIDATES, EVENTS, FIXTURE_VERSION, NOW_STAGES, OBJECTS, T0, asOfBodyFor, districtArtifact } from "./asOfTestFixtures.js";
+import { EVENT_POLL_INTERVAL_MS } from "../../lib/liveEvent.js";
+import type { AsOfRewindResult } from "./asOfRewind.js";
 import { buildDistrictTimeline, districtStageAtPosition } from "./districtTimeline.js";
-import { useAsOfRewind, type UseAsOfRewindOptions } from "./useAsOfRewind.js";
+import { asOfRewindRefetchInterval, useAsOfRewind, type UseAsOfRewindOptions } from "./useAsOfRewind.js";
 
 function manifestBody() {
   return {
@@ -104,5 +106,26 @@ describe("useAsOfRewind", () => {
     installFetch((url) => (url.includes("/v1/asof-season/") ? 503 : 200));
     const { result } = renderHook(() => useAsOfRewind(options("2026wabbb:m:2026wabbb_qm2")), { wrapper });
     await waitFor(() => expect(result.current?.status).toBe("failed"));
+  });
+});
+
+describe("asOfRewindRefetchInterval (R1): an unavailable plan does not stick while an event is live", () => {
+  // 2026wabbb has four of eight rows left; its schedule is current an hour after its last played row.
+  const liveNow = (T0 + 7 * 86_400 + 3_600) * 1000;
+  const finishedLater = Date.parse("2026-10-05T00:00:00.000Z");
+  const ready: AsOfRewindResult = { status: "ready", cutId: "start", events: new Map() };
+  const oneUnavailable: AsOfRewindResult = { status: "ready", cutId: "start", events: new Map([["2026wabbb", { status: "unavailable", reason: "out of step" }]]) };
+  const stopUnavailable: AsOfRewindResult = { status: "unavailable", reason: "the stop's INDEX did not load" };
+
+  it("asks again on the live cadence while any fetched event is live, for an unavailable stop or event", () => {
+    expect(asOfRewindRefetchInterval(oneUnavailable, ARTIFACTS, liveNow)).toBe(EVENT_POLL_INTERVAL_MS);
+    expect(asOfRewindRefetchInterval(stopUnavailable, ARTIFACTS, liveNow)).toBe(EVENT_POLL_INTERVAL_MS);
+  });
+
+  it("never re-asks a plan with nothing unavailable, nor any plan once no event is live (a finished district)", () => {
+    expect(asOfRewindRefetchInterval(ready, ARTIFACTS, liveNow)).toBe(false);
+    expect(asOfRewindRefetchInterval(undefined, ARTIFACTS, liveNow)).toBe(false);
+    expect(asOfRewindRefetchInterval(oneUnavailable, ARTIFACTS, finishedLater)).toBe(false);
+    expect(asOfRewindRefetchInterval(oneUnavailable, new Map([["2026waaa", ARTIFACTS.get("2026waaa")!]]), liveNow)).toBe(false);
   });
 });

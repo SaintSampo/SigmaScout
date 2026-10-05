@@ -11,9 +11,13 @@
  * while a walk that has to step INTO an unpublished object is a broken publish
  * and throws `AsOfResolveError`.
  *
- * THE WALK, per team. Start from the team's earliest segment, among the
- * caller's known events, that begins after the cut; with none, from the
- * segment its season tail ends. Then:
+ * THE WALK, per team. A known segment that STRADDLES the cut (begins at or
+ * before it, ends after it) answers at once from its own event's LOG. Else
+ * start from the team's earliest segment, among the caller's known events,
+ * that begins after the cut; with none, from the segment its season tail ends,
+ * unless an INDEX in hand holds a segment for the team at or after the tail
+ * (the season object is written after the INDEX, so its copy can be behind,
+ * and the INDEX wins). Then:
  *
  *   - the segment begins at or before the cut: `x` when it also ends at or
  *     before it, else the team's last LOG row inside the segment at or before
@@ -24,6 +28,17 @@
  * Starting from a segment AFTER the cut and walking back through `p` is what
  * makes the answer exact without knowing every event the team played: `p`
  * names the team's true previous match, so the walk can never skip one.
+ *
+ * OBJECTS OF DIFFERENT AGES. A browser holds each object under its own cache
+ * lifetime, so a LOG can be older than its INDEX and a season object older or
+ * newer than an INDEX. Nothing is answered from an object that is behind the
+ * one that named a row in it: a tail or `p` naming a row the INDEX copy does
+ * not hold reports `staleIndexes` (and `staleSeason` when the INDEX holds the
+ * row for other teams), and a LOG copy shorter than, or out of step with, the
+ * rows its INDEX names at or before the cut reports `staleLogs`. A team that
+ * met one is left unresolved; the caller refetches those objects fresh and
+ * calls again, and reads the stop as unavailable only if they are still out
+ * of step. A LOG is never read for a tuple it might be missing.
  *
  * A team with no starting segment and no tail has played no match this season
  * that the caller's objects know of: it reads its SEASON START tuple
@@ -92,6 +107,18 @@ export interface AsOfResolveResult {
   readonly missingLogs: string[];
   /** Whether some requested team needs the season start object the caller has not supplied. */
   readonly missingStart: boolean;
+  /**
+   * INDEX objects whose copy in hand is behind (or out of step with) another
+   * object the walk read: a tail or a `p` names a row it does not hold, or it
+   * lacks the cut's own row. Sorted. A team that met one is NOT resolved; the
+   * caller refetches these fresh (bypassing every cache it controls) and
+   * calls again.
+   */
+  readonly staleIndexes: string[];
+  /** LOG objects whose copy in hand is shorter than, or out of step with, the rows its INDEX names at or before the cut. Sorted; as `staleIndexes`. */
+  readonly staleLogs: string[];
+  /** Whether the season object's tail named a row its INDEX holds for some other team: the season object is out of step and is refetched too. */
+  readonly staleSeason: boolean;
 }
 
 export class AsOfResolveError extends Error {
@@ -109,11 +136,16 @@ interface Located {
 
 /** The marker a step returns when it needs an object the caller has not supplied yet. */
 const PENDING = Symbol("pending");
+/** The marker a step returns when an object in hand is out of step with another (recorded as stale). */
+const STALE = Symbol("stale");
 
 class Resolver {
   readonly missingIndexes = new Set<string>();
   readonly missingLogs = new Set<string>();
   missingStart = false;
+  readonly staleIndexes = new Set<string>();
+  readonly staleLogs = new Set<string>();
+  staleSeason = false;
 
   constructor(private readonly input: AsOfResolveInput) {
     const { start, season } = input;
@@ -153,19 +185,93 @@ class Resolver {
     return log;
   }
 
-  /** The segment of `teamKey` at `eventKey` that ends at row `i`, or `PENDING`. */
-  segmentEndingAt(teamKey: string, eventKey: string, i: number): Located | typeof PENDING {
+  /**
+   * The segment of `teamKey` at `eventKey` holding row `i`, or `PENDING`, or
+   * `STALE`. A tail or a `p` names a segment's LAST row in objects written
+   * together; a segment that runs past `i` means this INDEX copy is newer than
+   * the object that named the row, and the INDEX wins (its segment holds every
+   * row the walk reads from it: `f`, `s`, `p`, and LOG rows at or before a cut
+   * that `i` is already after). No segment holding `i` means this copy is
+   * behind the object that named it (or, with the row present, out of step
+   * with it): stale, never a guess.
+   */
+  segmentHolding(teamKey: string, eventKey: string, i: number, fromTail: boolean): Located | typeof PENDING | typeof STALE {
     const index = this.index(eventKey);
     if (index === PENDING) return PENDING;
     if (index === null) throw new AsOfResolveError(`${teamKey}'s walk needs ${eventKey}'s INDEX, which is not published`);
-    const segment = index.teams[teamKey]?.find((candidate) => candidate.l[1] === i);
-    if (segment === undefined) throw new AsOfResolveError(`${teamKey} has no segment at ${eventKey} ending at row ${i}`);
-    return { eventKey, segment };
+    const segment = index.teams[teamKey]?.find((candidate) => candidate.f[1] <= i && i <= candidate.l[1]);
+    if (segment !== undefined) return { eventKey, segment };
+    this.staleIndexes.add(eventKey);
+    // The INDEX holds the row, for other teams: the season object is the one out of step.
+    if (fromTail && i < index.m.length) this.staleSeason = true;
+    return STALE;
   }
 
-  /** One team's tuple at the cut, or `PENDING`. */
-  team(teamKey: string, knownEventKeys: readonly string[]): AsOfTeamTuple | typeof PENDING {
+  /**
+   * The team's LOG row at the cut inside a segment that begins at or before it
+   * and ends after it: its last row there at or before the cut. Every row read
+   * is checked against the INDEX in hand, so a LOG copy shorter than (or out
+   * of step with) the rows its INDEX names there is reported stale, never read.
+   */
+  fromLog(teamKey: string, eventKey: string, segment: AsOfSegment): AsOfTeamTuple | typeof PENDING | typeof STALE {
+    const { cut } = this.input;
+    const index = this.input.indexes.get(eventKey);
+    if (index === undefined || index === null) throw new AsOfResolveError(`${teamKey}'s segment at ${eventKey} was read from an INDEX that is no longer in hand`);
+    const log = this.log(eventKey);
+    if (log === PENDING) return PENDING;
+    for (let i = segment.l[1]; i >= segment.f[1]; i--) {
+      const m = index.m[i];
+      if (m === undefined) {
+        // The INDEX names a segment past its own rows: malformed, so refetch it.
+        this.staleIndexes.add(eventKey);
+        return STALE;
+      }
+      if (!asOfAtOrBefore(eventKey, [m[1], i], cut)) continue;
+      const row = log.rows[i];
+      if (row === undefined || row.k !== m[0]) {
+        this.staleLogs.add(eventKey);
+        return STALE;
+      }
+      for (const [key, tuple] of row.tm) if (key === teamKey) return tuple;
+    }
+    // Row `f` always carries the team; a LOG that does not is out of step with its INDEX.
+    this.staleLogs.add(eventKey);
+    return STALE;
+  }
+
+  /**
+   * The team's latest segment among every INDEX in hand, by its last row: the
+   * evidence a walk from the season tail must not ignore when the season
+   * object is behind an INDEX (`applyAsOfFold` writes the INDEX first).
+   */
+  latestSegment(teamKey: string): Located | undefined {
+    let latest: Located | undefined;
+    for (const [eventKey, index] of this.input.indexes) {
+      const segments = index?.teams[teamKey];
+      const last = segments?.[segments.length - 1];
+      if (last === undefined) continue;
+      if (latest === undefined || compareAsOfPositions(eventKey, last.l, latest.eventKey, latest.segment.l) > 0) latest = { eventKey, segment: last };
+    }
+    return latest;
+  }
+
+  /** One team's tuple at the cut, or `PENDING`, or `STALE`. */
+  team(teamKey: string, knownEventKeys: readonly string[]): AsOfTeamTuple | typeof PENDING | typeof STALE {
     const { cut, season } = this.input;
+
+    // A KNOWN SEGMENT THAT STRADDLES THE CUT holds the answer: a segment is a
+    // run of the team's consecutive matches, so nothing it played elsewhere
+    // falls between its first row and its last, and the team's last row there
+    // at or before the cut is its state at the cut. Read from that event's own
+    // LOG, with no walk through any other event.
+    for (const eventKey of knownEventKeys) {
+      const index = this.input.indexes.get(eventKey);
+      if (index === undefined || index === null) continue;
+      for (const segment of index.teams[teamKey] ?? []) {
+        if (asOfAtOrBefore(eventKey, segment.f, cut) && !asOfAtOrBefore(eventKey, segment.l, cut)) return this.fromLog(teamKey, eventKey, segment);
+      }
+    }
+
     let start: Located | undefined;
     let pending = false;
     for (const eventKey of knownEventKeys) {
@@ -182,33 +288,32 @@ class Resolver {
     // The starting segment depends on every known event, so nothing is walked until all of them are in.
     if (pending) return PENDING;
 
-    let current: Located | typeof PENDING;
+    let current: Located | typeof PENDING | typeof STALE;
     if (start !== undefined) {
       current = start;
     } else {
+      // THE TAIL, unless an INDEX in hand holds a segment for the team at or
+      // after it: the season object is written after the INDEX, so a copy of
+      // it can be behind, and the INDEX wins. With objects written together
+      // the latest segment IS the tail's, so nothing changes.
       const tail = season.tails[teamKey];
-      if (tail === undefined) return this.startTuple(teamKey);
-      current = this.segmentEndingAt(teamKey, tail[0], tail[2]);
+      const latest = this.latestSegment(teamKey);
+      if (latest !== undefined && (tail === undefined || compareAsOfPositions(latest.eventKey, latest.segment.l, tail[0], [tail[1], tail[2]]) >= 0)) current = latest;
+      else if (tail === undefined) return this.startTuple(teamKey);
+      else current = this.segmentHolding(teamKey, tail[0], tail[2], true);
     }
 
     // A walk visits each of the team's segments at most once, and a season holds far fewer than this.
     for (let guard = 0; guard < 10_000; guard++) {
-      if (current === PENDING) return PENDING;
+      if (current === PENDING || current === STALE) return current;
       const { eventKey, segment } = current;
       if (asOfAtOrBefore(eventKey, segment.f, cut)) {
         if (asOfAtOrBefore(eventKey, segment.l, cut)) return segment.x;
-        const log = this.log(eventKey);
-        if (log === PENDING) return PENDING;
-        for (let i = Math.min(segment.l[1], log.rows.length - 1); i >= segment.f[1]; i--) {
-          const row = log.rows[i]!;
-          if (!asOfAtOrBefore(eventKey, [row.t, i], cut)) continue;
-          for (const [key, tuple] of row.tm) if (key === teamKey) return tuple;
-        }
-        throw new AsOfResolveError(`${teamKey}'s segment at ${eventKey} begins at or before the cut but its LOG holds no row for it there`);
+        return this.fromLog(teamKey, eventKey, segment);
       }
       const p = segment.p;
       if (p === null || asOfAtOrBefore(p[0], [p[1], p[2]], cut)) return segment.s;
-      current = this.segmentEndingAt(teamKey, p[0], p[2]);
+      current = this.segmentHolding(teamKey, p[0], p[2], false);
     }
     throw new AsOfResolveError(`${teamKey} did not resolve within 10,000 steps`);
   }
@@ -223,13 +328,22 @@ class Resolver {
       if (index.lb === undefined) throw new AsOfResolveError(`the cut is before ${cut.eventKey}'s first row and its INDEX carries no lb`);
       return index.lb;
     }
+    const m = index.m[cut.i];
+    if (m === undefined || m[1] !== cut.t) {
+      // The cut was read from a newer copy of this INDEX than the one in hand.
+      this.staleIndexes.add(cut.eventKey);
+      return undefined;
+    }
     for (const keyed of [index.lq, index.le]) {
       if (keyed !== null && keyed.k[1] === cut.i && keyed.k[0] === cut.t) return keyed.L;
     }
     const log = this.log(cut.eventKey);
     if (log === PENDING) return undefined;
     const row = log.rows[cut.i];
-    if (row === undefined || row.t !== cut.t) throw new AsOfResolveError(`the cut row ${cut.eventKey}[${cut.i}] at ${cut.t} is not in its LOG`);
+    if (row === undefined || row.k !== m[0] || row.t !== cut.t) {
+      this.staleLogs.add(cut.eventKey);
+      return undefined;
+    }
     return row.L;
   }
 }
@@ -257,7 +371,7 @@ export function resolveAsOf(input: AsOfResolveInput): AsOfResolveResult {
   const states = new Map<string, AsOfTeamTuple>();
   for (const [teamKey, known] of requests) {
     const tuple = resolver.team(teamKey, [...known]);
-    if (tuple !== PENDING) states.set(teamKey, tuple);
+    if (tuple !== PENDING && tuple !== STALE) states.set(teamKey, tuple);
   }
   const league = resolver.league();
   return {
@@ -266,7 +380,15 @@ export function resolveAsOf(input: AsOfResolveInput): AsOfResolveResult {
     missingIndexes: [...resolver.missingIndexes].sort(),
     missingLogs: [...resolver.missingLogs].sort(),
     missingStart: resolver.missingStart,
+    staleIndexes: [...resolver.staleIndexes].sort(),
+    staleLogs: [...resolver.staleLogs].sort(),
+    staleSeason: resolver.staleSeason,
   };
+}
+
+/** Whether a result reports any object out of step: its caller refetches those fresh before trusting the answer. */
+export function asOfResultIsStale(result: Pick<AsOfResolveResult, "staleIndexes" | "staleLogs" | "staleSeason">): boolean {
+  return result.staleIndexes.length > 0 || result.staleLogs.length > 0 || result.staleSeason;
 }
 
 /**

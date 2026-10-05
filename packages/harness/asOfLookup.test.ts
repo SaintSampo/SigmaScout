@@ -24,7 +24,7 @@ import {
   type AsOfStart,
   type AsOfTeamTuple,
 } from "./asOfState.js";
-import { asOfCutAtMatch, asOfCutBeforeMatch, AsOfResolveError, resolveAsOf, type AsOfResolveInput, type AsOfResolveTeam } from "./asOfLookup.js";
+import { asOfCutAtMatch, asOfCutBeforeMatch, AsOfResolveError, asOfResultIsStale, resolveAsOf, type AsOfResolveInput, type AsOfResolveTeam } from "./asOfLookup.js";
 
 const STAMP: AsOfStamp = { generation: "g1", computedAt: "2026-10-05T00:00:00.000Z", algorithmId: "spr", algorithmVersion: "10.0.0+test" };
 
@@ -291,6 +291,134 @@ describe("resolveAsOf — objects a live write left behind a lost season object 
   });
 });
 
+/** A JSON copy, so a test can hand the resolver an object of another age without touching the live one. */
+function copy<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+describe("resolveAsOf — a straddling segment answers from its own LOG (R2)", () => {
+  it("a cut inside a known segment reads that event's LOG with no other event's object and no tail walk", () => {
+    const s = threeEvents();
+    const cut = s.cut("2026a", "2026a_qm1");
+    // Only 2026a's objects are in hand: the old walk went to the tail (2026c), then back through 2026b.
+    const r = resolveAsOf({ cut, teams: [{ teamKey: "frc1", knownEventKeys: ["2026a"] }], season: s.season, indexes: new Map([["2026a", s.indexes.get("2026a")!]]), logs: new Map([["2026a", s.logs.get("2026a")!]]), start: s.start });
+    expect(r.states.get("frc1")).toEqual(tuple(1));
+    expect(r.missingIndexes).toEqual([]);
+    expect(r.missingLogs).toEqual([]);
+  });
+
+  it("a straddling segment answers even while another known event's INDEX is still missing", () => {
+    const s = threeEvents();
+    const r = resolveAsOf({ cut: s.cut("2026c", "2026c_qm1"), teams: [{ teamKey: "frc1", knownEventKeys: ["2026zz", "2026c"] }], season: s.season, indexes: new Map([["2026c", s.indexes.get("2026c")!]]), logs: s.logs, start: s.start });
+    expect(r.states.get("frc1")).toEqual(tuple(4));
+  });
+});
+
+describe("resolveAsOf — an INDEX ahead of the season object wins (R1)", () => {
+  it("a season copy whose tail is behind an INDEX in hand: the walk starts from the INDEX's segment, not the tail", () => {
+    const s = threeEvents();
+    // The season copy predates 2026c: frc1's tail still names 2026b.
+    const olderSeason = { ...copy(s.season), tails: { ...copy(s.season.tails), frc1: ["2026b", 200, 0] as [string, number, number] } };
+    const r = resolveAsOf({ ...s.input(s.cut("2026c", "2026c_qm1"), [{ teamKey: "frc1", knownEventKeys: [] }]), season: olderSeason });
+    expect(r.states.get("frc1")).toEqual(tuple(4));
+    expect(r.staleIndexes).toEqual([]);
+    // A season copy with no tail at all for a team an INDEX in hand holds.
+    const noTail = { ...copy(s.season), tails: {} };
+    expect(resolveAsOf({ ...s.input(s.cut("2026c", "2026c_qm2"), [{ teamKey: "frc3", knownEventKeys: [] }]), season: noTail }).states.get("frc3")).toEqual(tuple(31));
+  });
+
+  it("a tail naming a row inside a longer segment of a newer INDEX copy reads that segment", () => {
+    const s = new Season();
+    s.fold("2026a", "2026a_qm1", 100, { frc1: [0, 1] });
+    s.fold("2026a", "2026a_qm2", 110, { frc1: [1, 2] });
+    s.fold("2026a", "2026a_qm3", 120, { frc1: [2, 3] });
+    const olderSeason = { ...copy(s.season), tails: { frc1: ["2026a", 100, 0] as [string, number, number] } };
+    // The tail names row 0; the INDEX's segment for frc1 now runs to row 2, and is in hand only under another key's walk.
+    const r = resolveAsOf({ cut: s.cut("2026a", "2026a_qm3"), teams: [{ teamKey: "frc1", knownEventKeys: [] }], season: olderSeason, indexes: s.indexes, logs: s.logs, start: s.start });
+    expect(r.states.get("frc1")).toEqual(tuple(3));
+  });
+});
+
+describe("resolveAsOf — objects of different ages are reported, never answered from (C4)", () => {
+  it("a tail naming a row the INDEX copy does not hold yet: staleIndexes, the team unresolved, no throw", () => {
+    const s = threeEvents();
+    const older = new Season();
+    older.fold("2026a", "2026a_qm1", 100, { frc1: [0, 1], frc2: [20, 21] });
+    older.fold("2026a", "2026a_qm2", 110, { frc1: [1, 2] });
+    older.fold("2026b", "2026b_qm1", 200, { frc1: [2, 3] });
+    older.fold("2026c", "2026c_qm1", 300, { frc1: [3, 4] });
+    const indexes = new Map<string, AsOfIndex | null>(s.indexes).set("2026c", older.indexes.get("2026c")!);
+    const r = resolveAsOf({ ...s.input(s.cut("2026b", "2026b_qm1"), [{ teamKey: "frc1", knownEventKeys: [] }, { teamKey: "frc2", knownEventKeys: [] }]), indexes });
+    expect(r.states.has("frc1")).toBe(false);
+    expect(r.staleIndexes).toEqual(["2026c"]);
+    expect(r.staleSeason).toBe(false);
+    // Another team in the same call still resolves.
+    expect(r.states.get("frc2")).toEqual(tuple(21));
+    // Refetched fresh, it resolves.
+    expect(resolveAsOf(s.input(s.cut("2026b", "2026b_qm1"), [{ teamKey: "frc1", knownEventKeys: [] }])).states.get("frc1")).toEqual(tuple(3));
+  });
+
+  it("a tail naming a row its INDEX holds for other teams only: the season object is reported out of step too", () => {
+    const s = threeEvents();
+    const season = { ...copy(s.season), tails: { ...copy(s.season.tails), frc2: ["2026c", 300, 0] as [string, number, number] } };
+    const r = resolveAsOf({ ...s.input(s.cut("2026a", "2026a_qm2"), [{ teamKey: "frc2", knownEventKeys: [] }]), season });
+    expect(r.states.has("frc2")).toBe(false);
+    expect(r.staleIndexes).toEqual(["2026c"]);
+    expect(r.staleSeason).toBe(true);
+  });
+
+  it("a p naming a row the hop's INDEX copy does not hold yet: staleIndexes", () => {
+    const s = threeEvents();
+    const older = new Season();
+    older.fold("2026a", "2026a_qm1", 100, { frc1: [0, 1], frc2: [20, 21] });
+    const indexes = new Map<string, AsOfIndex | null>(s.indexes).set("2026a", older.indexes.get("2026a")!);
+    // frc1's 2026b segment has p = 2026a row 1, which the older 2026a copy lacks; the cut is 2026a row 0.
+    const r = resolveAsOf({ ...s.input(asOfCutAtMatch(older.indexes.get("2026a")!, "2026a_qm1")!, [{ teamKey: "frc1", knownEventKeys: ["2026b"] }]), indexes });
+    expect(r.states.has("frc1")).toBe(false);
+    expect(r.staleIndexes).toEqual(["2026a"]);
+  });
+
+  it("a LOG copy shorter than the rows its INDEX names at or before the cut is reported, never read for an older row", () => {
+    const s = new Season();
+    s.fold("2026g", "2026g_qm1", 100, { frc1: [0, 1] });
+    s.fold("2026g", "2026g_qm2", 110, { frc1: [1, 2] });
+    s.fold("2026g", "2026g_qm3", 120, { frc1: [2, 3] });
+    s.fold("2026g", "2026g_qm4", 130, { frc1: [3, 4] });
+    s.fold("2026f", "2026f_qm1", 125, { frc9: [0, 1] });
+    // The cut is 2026f's row at 125: frc1's segment at 2026g straddles it (rows 0 to 3, row 2 at 120 is the last before it).
+    const shortLog = { ...copy(s.logs.get("2026g")!), rows: copy(s.logs.get("2026g")!.rows.slice(0, 2)) };
+    const logs = new Map<string, AsOfLog | null>(s.logs).set("2026g", shortLog);
+    const cut = s.cut("2026f", "2026f_qm1");
+    const r = resolveAsOf({ ...s.input(cut, [{ teamKey: "frc1", knownEventKeys: ["2026g"] }]), logs });
+    expect(r.states.has("frc1")).toBe(false);
+    expect(r.staleLogs).toEqual(["2026g"]);
+    // The whole LOG in hand answers the true row.
+    expect(resolveAsOf(s.input(cut, [{ teamKey: "frc1", knownEventKeys: ["2026g"] }])).states.get("frc1")).toEqual(tuple(3));
+  });
+
+  it("a LOG copy whose rows are not the ones its INDEX names (another capture's) is reported too", () => {
+    const s = threeEvents();
+    const log = copy(s.logs.get("2026a")!);
+    log.rows[0]!.k = "2026a_qm99";
+    const r = resolveAsOf({ ...s.input(s.cut("2026a", "2026a_qm1"), [{ teamKey: "frc1", knownEventKeys: ["2026a"] }]), logs: new Map(s.logs).set("2026a", log) });
+    expect(r.states.has("frc1")).toBe(false);
+    expect(r.staleLogs).toEqual(["2026a"]);
+  });
+
+  it("the league: a cut row the INDEX copy lacks is a stale INDEX, a cut row the LOG copy lacks a stale LOG", () => {
+    const s = threeEvents();
+    const cut = s.cut("2026a", "2026a_qm1");
+    const shortIndex = { ...copy(s.indexes.get("2026a")!), m: [] };
+    const noRow = resolveAsOf({ ...s.input(cut, []), indexes: new Map(s.indexes).set("2026a", shortIndex) });
+    expect(noRow.league).toBeUndefined();
+    expect(noRow.staleIndexes).toEqual(["2026a"]);
+    const shortLog = { ...copy(s.logs.get("2026a")!), rows: [] };
+    const noLogRow = resolveAsOf({ ...s.input(cut, []), logs: new Map(s.logs).set("2026a", shortLog) });
+    expect(noLogRow.league).toBeUndefined();
+    expect(noLogRow.staleLogs).toEqual(["2026a"]);
+  });
+});
+
 describe("resolveAsOf — ties and demo robots", () => {
   it("rows at an equal sort_time across events order by event key: before the cut's event is in, after it is out", () => {
     const s = new Season();
@@ -337,44 +465,64 @@ function mulberry32(seed: number): () => number {
   };
 }
 
+/**
+ * A seeded random season (overlapping events, shared sort_times, demo robots)
+ * folded through the real reducer, with every object's JSON after each of the
+ * folds that touched it, so a test can hand the resolver copies of any age.
+ */
+function randomSeason() {
+  const rand = mulberry32(20261005);
+  const events = ["2026aa", "2026bb", "2026cc", "2026dd", "2026ee"];
+  const teams = [...Array.from({ length: 14 }, (_, n) => `frc${n + 1}`), "frc9970", "frc9971"];
+  // Rows in stream order: (sort_time, eventKey, per-event play order). Few distinct times, so ties are common,
+  // and events interleave so teams overlap events.
+  const rows: { eventKey: string; t: number; red: string[]; blue: string[] }[] = [];
+  for (let n = 0; n < 160; n++) {
+    const shuffled = [...teams].sort(() => rand() - 0.5);
+    rows.push({ eventKey: events[Math.floor(rand() * events.length)]!, t: 1000 + Math.floor(rand() * 40) * 10, red: shuffled.slice(0, 3), blue: shuffled.slice(3, 6) });
+  }
+  rows.sort((a, b) => a.t - b.t || (a.eventKey < b.eventKey ? -1 : a.eventKey > b.eventKey ? 1 : 0));
+
+  const s = new Season();
+  s.start = createAsOfStart({ season: 2026, vars: [], teams: new Map(asOfTupleKeysOfRows(rows).map((key) => [key, tuple(-1)])), stamp: STAMP });
+  const current = new Map<string, number>();
+  const history: { eventKey: string; matchKey: string; after: Map<string, number> }[] = [];
+  const folds: { eventKey: string; matchKey: string; t: number; folded: Record<string, [number, number]> }[] = [];
+  /** Per event, its INDEX and LOG JSON after each of its own folds (entry k-1 is the copy after its k-th row). */
+  const versions = new Map<string, { index: string[]; log: string[] }>();
+  /** The season object's JSON after each fold of the season (entry g is the copy after fold g; the copy before any fold is `seasonBefore`). */
+  const seasonVersions: string[] = [];
+  const seasonBefore = JSON.stringify(s.season);
+  rows.forEach((row, g) => {
+    const keys = asOfTupleKeys(row.red, row.blue);
+    const folded: Record<string, [number, number]> = {};
+    for (const key of keys) {
+      const before = current.get(key) ?? -1;
+      folded[key] = [before, g * 100 + keys.indexOf(key)];
+      current.set(key, g * 100 + keys.indexOf(key));
+    }
+    const matchKey = `${row.eventKey}_qm${g}`;
+    s.fold(row.eventKey, matchKey, row.t, folded);
+    folds.push({ eventKey: row.eventKey, matchKey, t: row.t, folded });
+    history.push({ eventKey: row.eventKey, matchKey, after: new Map(current) });
+    const v = versions.get(row.eventKey) ?? { index: [], log: [] };
+    v.index.push(JSON.stringify(s.indexes.get(row.eventKey)));
+    v.log.push(JSON.stringify(s.logs.get(row.eventKey)));
+    versions.set(row.eventKey, v);
+    seasonVersions.push(JSON.stringify(s.season));
+  });
+
+  const allKeys = [...teams, DEMO_PSEUDO_TEAM_KEY];
+  const playedAt = new Map<string, Set<string>>();
+  rows.forEach((row) => {
+    for (const key of asOfTupleKeys(row.red, row.blue)) playedAt.set(key, (playedAt.get(key) ?? new Set()).add(row.eventKey));
+  });
+  return { rand, events, teams, rows, s, history, folds, versions, seasonVersions, seasonBefore, allKeys, playedAt };
+}
+
 describe("resolveAsOf — every cut of a random season against a brute force answer", () => {
   it("matches the team's tuple after its last row at or before the cut, for every team, every cut and several known-event choices", () => {
-    const rand = mulberry32(20261005);
-    const events = ["2026aa", "2026bb", "2026cc", "2026dd", "2026ee"];
-    const teams = [...Array.from({ length: 14 }, (_, n) => `frc${n + 1}`), "frc9970", "frc9971"];
-    // Rows in stream order: (sort_time, eventKey, per-event play order). Few distinct times, so ties are common,
-    // and events interleave so teams overlap events.
-    const rows: { eventKey: string; t: number; red: string[]; blue: string[] }[] = [];
-    for (let n = 0; n < 160; n++) {
-      const shuffled = [...teams].sort(() => rand() - 0.5);
-      rows.push({ eventKey: events[Math.floor(rand() * events.length)]!, t: 1000 + Math.floor(rand() * 40) * 10, red: shuffled.slice(0, 3), blue: shuffled.slice(3, 6) });
-    }
-    rows.sort((a, b) => a.t - b.t || (a.eventKey < b.eventKey ? -1 : a.eventKey > b.eventKey ? 1 : 0));
-
-    const s = new Season();
-    s.start = createAsOfStart({ season: 2026, vars: [], teams: new Map(asOfTupleKeysOfRows(rows).map((key) => [key, tuple(-1)])), stamp: STAMP });
-    const current = new Map<string, number>();
-    const history: { eventKey: string; matchKey: string; after: Map<string, number> }[] = [];
-    const folds: { eventKey: string; matchKey: string; t: number; folded: Record<string, [number, number]> }[] = [];
-    rows.forEach((row, g) => {
-      const keys = asOfTupleKeys(row.red, row.blue);
-      const folded: Record<string, [number, number]> = {};
-      for (const key of keys) {
-        const before = current.get(key) ?? -1;
-        folded[key] = [before, g * 100 + keys.indexOf(key)];
-        current.set(key, g * 100 + keys.indexOf(key));
-      }
-      const matchKey = `${row.eventKey}_qm${g}`;
-      s.fold(row.eventKey, matchKey, row.t, folded);
-      folds.push({ eventKey: row.eventKey, matchKey, t: row.t, folded });
-      history.push({ eventKey: row.eventKey, matchKey, after: new Map(current) });
-    });
-
-    const allKeys = [...teams, DEMO_PSEUDO_TEAM_KEY];
-    const playedAt = new Map<string, Set<string>>();
-    rows.forEach((row) => {
-      for (const key of asOfTupleKeys(row.red, row.blue)) playedAt.set(key, (playedAt.get(key) ?? new Set()).add(row.eventKey));
-    });
+    const { events, rows, s, history, folds, allKeys, playedAt } = randomSeason();
 
     let compared = 0;
     const cuts: { cut: AsOfCut; expected: Map<string, number> }[] = [{ cut: AS_OF_SEASON_START_CUT, expected: new Map() }];
@@ -459,9 +607,76 @@ describe("resolveAsOf — every cut of a random season against a brute force ans
     });
     expect(firstRows).toBe(events.length);
     expect(beforeCompared).toBeGreaterThan(2000);
+    expect(rows.length).toBe(folds.length);
     // Non-vacuity: the random season really holds overlapping segments and demo rows.
     const multiSegment = [...s.indexes.values()].some((index) => Object.values(index.teams).some((segments) => segments.length > 1));
     expect(multiSegment).toBe(true);
     expect(rows.some((row) => [...row.red, ...row.blue].some((key) => isDemoTeamKey(key)))).toBe(true);
+  });
+
+  it("OBJECTS OF DIFFERENT AGES (C4, R1): at every cut, with each INDEX and LOG copy of a random age, every answer is the truth or a stale report, and refetching the reported objects resolves everything", () => {
+    const { rand, s, history, versions, seasonVersions, seasonBefore, allKeys, playedAt } = randomSeason();
+    const truthOf = (expected: Map<string, number>, teamKey: string): AsOfTeamTuple => {
+      const want = expected.get(teamKey);
+      return want === undefined ? (playedAt.has(teamKey) ? tuple(-1) : UNSEEN_AS_OF_TUPLE) : tuple(want);
+    };
+    const newestIndex = (eventKey: string): AsOfIndex => JSON.parse(versions.get(eventKey)!.index.at(-1)!) as AsOfIndex;
+    const newestLog = (eventKey: string): AsOfLog => JSON.parse(versions.get(eventKey)!.log.at(-1)!) as AsOfLog;
+
+    let staleRounds = 0;
+    let answeredFromOldCopies = 0;
+    history.forEach((h, g) => {
+      const cut = s.cut(h.eventKey, h.matchKey);
+      for (const knownChoice of ["all", "none"] as const) {
+        // The season object newest (the tails name every row), each INDEX and LOG at its own random age; the
+        // cut's own INDEX holds the cut row, because the caller read the cut from it.
+        const indexes = new Map<string, AsOfIndex | null>();
+        const logs = new Map<string, AsOfLog | null>();
+        for (const [eventKey, v] of versions) {
+          let indexAge = 1 + Math.floor(rand() * v.index.length);
+          if (eventKey === cut.eventKey) indexAge = Math.max(indexAge, cut.i + 1);
+          indexes.set(eventKey, JSON.parse(v.index[indexAge - 1]!) as AsOfIndex);
+          logs.set(eventKey, JSON.parse(v.log[Math.floor(rand() * v.log.length)]!) as AsOfLog);
+        }
+        const requests = allKeys.map((teamKey) => ({ teamKey, knownEventKeys: knownChoice === "all" ? [...(playedAt.get(teamKey) ?? [])].sort() : [] }));
+        for (let round = 0; ; round++) {
+          expect(round, `cut ${g} did not settle`).toBeLessThan(4);
+          const r = resolveAsOf({ cut, teams: requests, season: s.season, indexes, logs, start: s.start });
+          for (const [teamKey, got] of r.states) expect(got, `${teamKey} at fold ${g} (${knownChoice}, round ${round})`).toEqual(truthOf(h.after, teamKey));
+          if (r.league !== undefined) expect(r.league).toEqual(league(cut.t));
+          expect(r.missingIndexes).toEqual([]);
+          expect(r.missingLogs).toEqual([]);
+          if (r.staleIndexes.length === 0 && r.staleLogs.length === 0) {
+            expect(r.staleSeason).toBe(false);
+            expect(r.states.size).toBe(allKeys.length);
+            expect(r.league).toEqual(league(cut.t));
+            if (round === 0) answeredFromOldCopies += 1;
+            break;
+          }
+          staleRounds += 1;
+          for (const eventKey of r.staleIndexes) indexes.set(eventKey, newestIndex(eventKey));
+          for (const eventKey of r.staleLogs) logs.set(eventKey, newestLog(eventKey));
+        }
+      }
+    });
+    // Non-vacuity: some calls really met an out of step copy, and some answered at once from older copies.
+    expect(staleRounds).toBeGreaterThan(50);
+    expect(answeredFromOldCopies).toBeGreaterThan(10);
+
+    // And the other way round: the season object at a random age (its tails behind), every INDEX and LOG newest.
+    // The INDEX wins, so every team resolves to the truth in one call with nothing reported.
+    const indexes = new Map<string, AsOfIndex | null>([...versions.keys()].map((eventKey) => [eventKey, newestIndex(eventKey)]));
+    const logs = new Map<string, AsOfLog | null>([...versions.keys()].map((eventKey) => [eventKey, newestLog(eventKey)]));
+    let olderSeasons = 0;
+    history.forEach((h, g) => {
+      const cut = s.cut(h.eventKey, h.matchKey);
+      const age = Math.floor(rand() * (seasonVersions.length + 1)) - 1;
+      const season = JSON.parse(age < 0 ? seasonBefore : seasonVersions[age]!) as AsOfSeason;
+      if (age < seasonVersions.length - 1) olderSeasons += 1;
+      const r = resolveAsOf({ cut, teams: allKeys.map((teamKey) => ({ teamKey, knownEventKeys: [] })), season, indexes, logs, start: s.start });
+      expect(asOfResultIsStale(r), `fold ${g} with the season object after fold ${age}`).toBe(false);
+      for (const teamKey of allKeys) expect(r.states.get(teamKey), `${teamKey} at fold ${g}, season object after fold ${age}`).toEqual(truthOf(h.after, teamKey));
+    });
+    expect(olderSeasons).toBeGreaterThan(100);
   });
 });

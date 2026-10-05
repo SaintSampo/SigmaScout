@@ -6,7 +6,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { asOfIndexKey, asOfLogKey, asOfSeasonKey, asOfStartKey } from "../../../../../packages/harness/pageArtifacts.js";
 import { FIXTURE_VERSION, OBJECTS } from "../../components/districts/asOfTestFixtures.js";
-import { asOfIndexQueryOptions, asOfStartQueryOptions, fetchAsOfIndex, fetchAsOfLog, fetchAsOfSeason, fetchAsOfStart } from "./asOf.js";
+import { asOfIndexQueryOptions, asOfLogQueryOptions, asOfSeasonQueryOptions, asOfStartQueryOptions, fetchAsOfIndex, fetchAsOfLog, fetchAsOfSeason, fetchAsOfStart } from "./asOf.js";
 import { ArtifactFetchError, ArtifactValidationError } from "./errors.js";
 
 const PARAMS = { algorithmId: "spr", version: FIXTURE_VERSION };
@@ -57,5 +57,21 @@ describe("lib/api/asOf", () => {
   it("keys each query by kind and its fetcher's params, and never refetches the season start object", () => {
     expect(asOfIndexQueryOptions({ eventKey: "2026wabbb", ...PARAMS }).queryKey).toEqual(["asOfIndex", "2026wabbb", "spr", FIXTURE_VERSION]);
     expect(asOfStartQueryOptions({ season: 2026, ...PARAMS }).staleTime).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("a FRESH fetch skips the query cache (staleTime 0, same key) and revalidates the browser's HTTP cache; an ordinary one does neither", async () => {
+    const seen: (RequestInit | undefined)[] = [];
+    global.fetch = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(init);
+      return Promise.resolve(new Response(OBJECTS.bodies.get(asOfIndexKey({ eventKey: "2026wabbb", ...PARAMS })), { status: 200 }));
+    }) as unknown as typeof fetch;
+    await fetchAsOfIndex({ eventKey: "2026wabbb", ...PARAMS });
+    await fetchAsOfIndex({ eventKey: "2026wabbb", ...PARAMS }, { fresh: true });
+    expect(seen).toEqual([undefined, { cache: "no-cache" }]);
+    const fresh = asOfLogQueryOptions({ eventKey: "2026wabbb", ...PARAMS }, { fresh: true });
+    expect(fresh.staleTime).toBe(0);
+    expect(fresh.queryKey).toEqual(asOfLogQueryOptions({ eventKey: "2026wabbb", ...PARAMS }).queryKey);
+    expect(asOfSeasonQueryOptions({ season: 2026, ...PARAMS }, { fresh: true }).staleTime).toBe(0);
+    expect(asOfIndexQueryOptions({ eventKey: "2026wabbb", ...PARAMS }).staleTime).toBe(60_000);
   });
 });

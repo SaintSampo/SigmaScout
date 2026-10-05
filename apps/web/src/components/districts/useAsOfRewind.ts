@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import type { DistrictArtifact, EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
 import { asOfIndexQueryOptions, asOfLogQueryOptions, asOfSeasonQueryOptions, asOfStartQueryOptions } from "../../lib/api/asOf.js";
+import { EVENT_POLL_INTERVAL_MS, shouldPollEventArtifact } from "../../lib/liveEvent.js";
 import { useAlgorithmVersion } from "../ribbon/AlgorithmSelect.js";
 import { asOfCandidateEvents, asOfScheduleStopEventKey, loadAsOfRewind, type AsOfFetchers, type AsOfRewindResult } from "./asOfRewind.js";
 import type { DistrictTimeline } from "./districtTimeline.js";
@@ -22,7 +23,10 @@ import { DISTRICT_LEDGER_ALGORITHM_ID } from "./districtRunAssembly.js";
  *
  * Every object goes through the query cache under its own key
  * (`lib/api/asOf.ts`), so stepping between stops refetches only the objects the
- * new stop needs that the last one did not.
+ * new stop needs that the last one did not. An object the resolve reports out
+ * of step with another is refetched FRESH once (`fetchOptions.fresh`), and an
+ * unavailable plan is asked again on the live cadence while an event is live
+ * (`asOfRewindRefetchInterval`).
  */
 
 export type AsOfRewindView =
@@ -45,6 +49,26 @@ export interface UseAsOfRewindOptions {
   readonly at: string | undefined;
   /** Every event this tab may simulate, with its tier and week. */
   readonly candidates: readonly { readonly eventKey: string; readonly tier: DistrictTier; readonly week: number | null }[];
+}
+
+/** Whether a plan reads anything unavailable: the whole stop, or one event in it. */
+export function asOfRewindHasUnavailable(result: AsOfRewindResult | undefined): boolean {
+  if (result === undefined) return false;
+  if (result.status === "unavailable") return true;
+  return [...result.events.values()].some((outcome) => outcome.status === "unavailable");
+}
+
+/**
+ * How often the stop's plan is asked again. An UNAVAILABLE plan (an object
+ * not published yet, or copies still out of step after a fresh refetch) must
+ * not stick while any event in the fetch set is live: its as-of objects are
+ * still being written, so it is asked again on the live artifacts' own
+ * cadence. A finished district, or a plan with nothing unavailable, is never
+ * re-asked on a timer (a refreshed artifact re-plans it through the key).
+ */
+export function asOfRewindRefetchInterval(data: AsOfRewindResult | undefined, eventArtifacts: ReadonlyMap<string, EventArtifact>, nowMs: number): number | false {
+  if (!asOfRewindHasUnavailable(data)) return false;
+  return [...eventArtifacts.values()].some((artifact) => shouldPollEventArtifact(artifact, nowMs)) ? EVENT_POLL_INTERVAL_MS : false;
 }
 
 /** Each fetched event artifact's identity, so a refreshed artifact re-plans the stop. */
@@ -78,9 +102,9 @@ export function useAsOfRewind(options: UseAsOfRewindOptions): AsOfRewindView | u
       const v = version!;
       const season = districtArtifact.year;
       const fetchers: AsOfFetchers = {
-        index: (eventKey) => queryClient.fetchQuery(asOfIndexQueryOptions({ eventKey, algorithmId, version: v })),
-        log: (eventKey) => queryClient.fetchQuery(asOfLogQueryOptions({ eventKey, algorithmId, version: v })),
-        season: () => queryClient.fetchQuery(asOfSeasonQueryOptions({ season, algorithmId, version: v })),
+        index: (eventKey, fetchOptions) => queryClient.fetchQuery(asOfIndexQueryOptions({ eventKey, algorithmId, version: v }, fetchOptions)),
+        log: (eventKey, fetchOptions) => queryClient.fetchQuery(asOfLogQueryOptions({ eventKey, algorithmId, version: v }, fetchOptions)),
+        season: (fetchOptions) => queryClient.fetchQuery(asOfSeasonQueryOptions({ season, algorithmId, version: v }, fetchOptions)),
         start: () => queryClient.fetchQuery(asOfStartQueryOptions({ season, algorithmId, version: v })),
       };
       return loadAsOfRewind({ districtArtifact, timeline, positionIndex, eventArtifacts, stageByEvent, candidates: open, scheduleStopEventKey }, fetchers);
@@ -88,6 +112,7 @@ export function useAsOfRewind(options: UseAsOfRewindOptions): AsOfRewindView | u
     enabled: active,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
+    refetchInterval: (q) => asOfRewindRefetchInterval(q.state.data, eventArtifacts, Date.now()),
     // A live event's artifact refetches every minute, which changes the
     // fingerprint and so the key. The SAME stop's previous plan stands while
     // the new one loads, so the run is not torn down and restarted each minute

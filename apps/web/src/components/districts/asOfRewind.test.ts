@@ -248,7 +248,74 @@ describe("loadAsOfRewind: the fetch loop", () => {
     expect(result.status).toBe("ready");
     if (result.status !== "ready") return;
     expect(result.events.get("2026wabbb")?.status).toBe("unavailable");
-    // Every 2026waaa team's season tail is at 2026wabbb, so its walk needs that INDEX.
-    expect(result.events.get("2026waaa")?.status).toBe("unavailable");
+    // Mid 2026waaa every roster team resolves inside 2026waaa (a segment that straddles the cut is read from
+    // its own LOG, one that begins after it from its `s`), so none walks to its season tail at 2026wabbb and
+    // an unrelated event's missing INDEX no longer fails this one (review R2).
+    expect(result.events.get("2026waaa")?.status).toBe("ready");
+    // After 2026waaa every team's last segment ends before the cut and its tail is at 2026wabbb, so the
+    // unstarted 2026wazzz's walks must step into the unpublished INDEX too: unavailable, and the stop stands.
+    const after = await loadAsOfRewind(input("2026waaa:awards"), fetchers);
+    expect(after.status).toBe("ready");
+    if (after.status !== "ready") return;
+    expect(after.events.get("2026wazzz")?.status).toBe("unavailable");
+  });
+
+  it("refetches FRESH, once, a LOG copy older than its INDEX, then resolves; a copy still out of step after that reads unavailable (C4, R1)", async () => {
+    const shortLog = (() => {
+      const log = JSON.parse(OBJECTS.bodies.get(`v1/asof-log/2026wabbb/spr@${VERSION}.json`)!) as AsOfLog;
+      return JSON.stringify({ ...log, rows: log.rows.slice(0, 1) });
+    })();
+    const fresh: string[] = [];
+    const make = (freshLog: string) => {
+      const { fetchers, calls } = countingFetchers();
+      const wrapped: AsOfFetchers = {
+        ...fetchers,
+        log: async (eventKey, options) => {
+          if (eventKey !== "2026wabbb") return fetchers.log(eventKey, options);
+          calls.push(`log:${eventKey}:${options?.fresh === true ? "fresh" : "cached"}`);
+          if (options?.fresh === true) fresh.push(eventKey);
+          return JSON.parse(options?.fresh === true ? freshLog : shortLog) as AsOfLog;
+        },
+      };
+      return { fetchers: wrapped, calls };
+    };
+    // The cached copy lacks rows the INDEX names at or before the cut; the fresh one is whole.
+    const healed = make(OBJECTS.bodies.get(`v1/asof-log/2026wabbb/spr@${VERSION}.json`)!);
+    const result = await loadAsOfRewind(input("2026wabbb:m:2026wabbb_qm2"), healed.fetchers);
+    expect(result.status === "ready" && result.events.get("2026wabbb")?.status).toBe("ready");
+    expect(healed.calls.filter((call) => call.startsWith("log:2026wabbb"))).toEqual(["log:2026wabbb:cached", "log:2026wabbb:fresh"]);
+    // The same answer as a load whose copies were never out of step.
+    const clean = await loadAsOfRewind(input("2026wabbb:m:2026wabbb_qm2"), countingFetchers().fetchers);
+    expect(result).toEqual(clean);
+
+    // A fresh copy that is STILL short: one fresh fetch, then unavailable, never an older row.
+    fresh.length = 0;
+    const stuck = make(shortLog);
+    const stuckResult = await loadAsOfRewind(input("2026wabbb:m:2026wabbb_qm2"), stuck.fetchers);
+    expect(fresh).toEqual(["2026wabbb"]);
+    expect(stuckResult.status === "ready" && stuckResult.events.get("2026wabbb")?.status).toBe("unavailable");
+  });
+
+  it("refetches the stop's own INDEX fresh when the anchor row is newer than the cached copy", async () => {
+    const indexKey = `v1/asof/2026wabbb/spr@${VERSION}.json`;
+    const whole = OBJECTS.bodies.get(indexKey)!;
+    const older = (() => {
+      const index = JSON.parse(whole) as AsOfIndex;
+      return JSON.stringify({ ...index, m: index.m.slice(0, 1) });
+    })();
+    const { fetchers } = countingFetchers();
+    const freshCalls: string[] = [];
+    const wrapped: AsOfFetchers = {
+      ...fetchers,
+      index: async (eventKey, options) => {
+        if (eventKey !== "2026wabbb") return fetchers.index(eventKey, options);
+        if (options?.fresh === true) freshCalls.push(eventKey);
+        return JSON.parse(options?.fresh === true ? whole : older) as AsOfIndex;
+      },
+    };
+    const result = await loadAsOfRewind(input("2026wabbb:m:2026wabbb_qm2"), wrapped);
+    expect(freshCalls).toEqual(["2026wabbb"]);
+    expect(result.status).toBe("ready");
+    expect(result).toEqual(await loadAsOfRewind(input("2026wabbb:m:2026wabbb_qm2"), countingFetchers().fetchers));
   });
 });

@@ -25,8 +25,16 @@
  * event with no artifact, a scheduled row not played yet, a step placed after
  * every timed step) walks back to the nearest earlier position that has one:
  * the state at a future instant is the state after the last real fold before
- * it. A played row whose INDEX is unpublished, or lacks the row, makes the
- * whole stop unavailable: no exact instant exists to rebuild at.
+ * it. A played row whose INDEX is unpublished, or lacks the row even after a
+ * fresh refetch of that INDEX, makes the whole stop unavailable: no exact
+ * instant exists to rebuild at.
+ *
+ * COPIES OF DIFFERENT AGES. Every object is cached on its own, so the loader
+ * can hold a LOG older than its INDEX, or a season object out of step with an
+ * INDEX. `resolveAsOf` reports such a copy instead of answering from it; the
+ * loader refetches each reported object fresh once (`AsOfObjectSet`) and only
+ * then reads the event as unavailable. `useAsOfRewind.ts` asks again on the
+ * live refresh cadence while any event in the fetch set is live.
  *
  * MODES, per event with an open category at the stop:
  *
@@ -50,7 +58,7 @@ import {
   type AsOfStart,
   type AsOfTeamTuple,
 } from "../../../../../packages/harness/asOfState.js";
-import { asOfCutAtMatch, AsOfResolveError, resolveAsOf } from "../../../../../packages/harness/asOfLookup.js";
+import { asOfCutAtMatch, AsOfResolveError, asOfResultIsStale, resolveAsOf, type AsOfResolveResult } from "../../../../../packages/harness/asOfLookup.js";
 import type { UpcomingMatch } from "../../../../../packages/core/algorithms/types.js";
 import type { SimTeamBaseline } from "../../../../../packages/core/algorithms/simulation/rankSimulation.js";
 import type { DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
@@ -66,7 +74,8 @@ import { DISTRICT_CATEGORIES, tierEvents, type DistrictStageFinality } from "./d
 export type AsOfStopCut =
   | { readonly status: "ok"; readonly cut: AsOfCut; readonly id: string }
   | { readonly status: "pending"; readonly missingIndexes: readonly string[] }
-  | { readonly status: "unavailable"; readonly reason: string };
+  /** `staleIndex`: the anchor's event, when its INDEX copy lacks the anchor's row (a copy older than the artifact, which a fresh fetch may cure). */
+  | { readonly status: "unavailable"; readonly reason: string; readonly staleIndex?: string };
 
 /** A cut's stable id, for the run signature: `start`, or `eventKey@t#i`. */
 export function asOfCutId(cut: AsOfCut): string {
@@ -88,7 +97,7 @@ export function resolveStopCut(timeline: DistrictTimeline, positionIndex: number
     if (index === undefined) return { status: "pending", missingIndexes: [anchor.eventKey] };
     if (index === null) return { status: "unavailable", reason: `${anchor.eventKey} has no published INDEX` };
     const at = asOfCutAtMatch(index, anchor.matchKey);
-    if (at === undefined) return { status: "unavailable", reason: `${anchor.matchKey} is not in ${anchor.eventKey}'s INDEX` };
+    if (at === undefined) return { status: "unavailable", reason: `${anchor.matchKey} is not in ${anchor.eventKey}'s INDEX`, staleIndex: anchor.eventKey };
     let i = at.i;
     if (anchor.stage) while (index.m[i + 1] !== undefined && index.m[i + 1]![1] === at.t) i++;
     const cut: AsOfCut = { eventKey: at.eventKey, t: at.t, i };
@@ -344,11 +353,79 @@ export type AsOfRewindResult =
   /** No exact instant exists for the stop: every candidate event is unavailable. */
   | { readonly status: "unavailable"; readonly reason: string };
 
+/** `fresh`: skip every cache the fetcher controls, for an object `resolveAsOf` reported out of step (`lib/api/asOf.ts` `AsOfFetchOptions`). */
+export interface AsOfFetchOptions {
+  readonly fresh?: boolean;
+}
+
 export interface AsOfFetchers {
-  index(eventKey: string): Promise<AsOfIndex | null>;
-  log(eventKey: string): Promise<AsOfLog | null>;
-  season(): Promise<AsOfSeason | null>;
+  index(eventKey: string, options?: AsOfFetchOptions): Promise<AsOfIndex | null>;
+  log(eventKey: string, options?: AsOfFetchOptions): Promise<AsOfLog | null>;
+  season(options?: AsOfFetchOptions): Promise<AsOfSeason | null>;
   start(): Promise<AsOfStart | null>;
+}
+
+/** One as-of object's identity in a stale report: `index:<eventKey>`, `log:<eventKey>`, or `season`. */
+type AsOfObjectId = `index:${string}` | `log:${string}` | "season";
+
+/** The objects a resolve reported out of step, as ids. */
+export function asOfStaleObjectIds(result: Pick<AsOfResolveResult, "staleIndexes" | "staleLogs" | "staleSeason">): AsOfObjectId[] {
+  return [...result.staleIndexes.map((key): AsOfObjectId => `index:${key}`), ...result.staleLogs.map((key): AsOfObjectId => `log:${key}`), ...(result.staleSeason ? (["season"] as const) : [])];
+}
+
+/**
+ * The objects one load holds, and the FRESH refetch of the ones a resolve
+ * reported out of step: each object at most once per load, so a copy that is
+ * still out of step after a fresh fetch is the caller's cue to give up on
+ * whatever needed it (an unavailable event, or the Simulation tab's fallback)
+ * rather than loop.
+ */
+export class AsOfObjectSet {
+  readonly indexes = new Map<string, AsOfIndex | null>();
+  readonly logs = new Map<string, AsOfLog | null>();
+  start: AsOfStart | null | undefined;
+  readonly #refreshed = new Set<AsOfObjectId>();
+
+  constructor(
+    public season: AsOfSeason,
+    private readonly fetchers: AsOfFetchers
+  ) {}
+
+  /** The reported objects not refetched fresh yet in this load. Empty means every one already was: give up. */
+  refreshable(ids: readonly AsOfObjectId[]): AsOfObjectId[] {
+    return ids.filter((id) => !this.#refreshed.has(id));
+  }
+
+  /**
+   * Fetches what resolves named missing (through the cache) and refetches the
+   * stale ids fresh. Returns `false` when a fresh season object is no longer
+   * published, which leaves nothing to resolve against.
+   */
+  async load(params: { readonly missingIndexes: Iterable<string>; readonly missingLogs: Iterable<string>; readonly missingStart: boolean; readonly stale: Iterable<AsOfObjectId> }): Promise<boolean> {
+    const indexKeys = [...new Set(params.missingIndexes)].filter((key) => !this.indexes.has(key));
+    const logKeys = [...new Set(params.missingLogs)].filter((key) => !this.logs.has(key));
+    const stale = [...new Set(params.stale)].filter((id) => !this.#refreshed.has(id));
+    const freshIndexKeys = stale.filter((id) => id.startsWith("index:")).map((id) => id.slice("index:".length));
+    const freshLogKeys = stale.filter((id) => id.startsWith("log:")).map((id) => id.slice("log:".length));
+    const freshSeason = stale.includes("season");
+    const [loadedIndexes, loadedLogs, loadedStart, freshIndexes, freshLogs, season] = await Promise.all([
+      Promise.all(indexKeys.map((key) => this.fetchers.index(key))),
+      Promise.all(logKeys.map((key) => this.fetchers.log(key))),
+      params.missingStart && this.start === undefined ? this.fetchers.start() : Promise.resolve(this.start),
+      Promise.all(freshIndexKeys.map((key) => this.fetchers.index(key, { fresh: true }))),
+      Promise.all(freshLogKeys.map((key) => this.fetchers.log(key, { fresh: true }))),
+      freshSeason ? this.fetchers.season({ fresh: true }) : Promise.resolve(this.season),
+    ]);
+    indexKeys.forEach((key, n) => this.indexes.set(key, loadedIndexes[n]!));
+    logKeys.forEach((key, n) => this.logs.set(key, loadedLogs[n]!));
+    this.start = loadedStart;
+    freshIndexKeys.forEach((key, n) => this.indexes.set(key, freshIndexes[n]!));
+    freshLogKeys.forEach((key, n) => this.logs.set(key, freshLogs[n]!));
+    for (const id of stale) this.#refreshed.add(id);
+    if (season === null) return false;
+    this.season = season;
+    return true;
+  }
 }
 
 export interface AsOfRewindInput {
@@ -396,20 +473,28 @@ export function asOfCandidateEvents(input: Pick<AsOfRewindInput, "candidates" | 
  * unavailable and the others still resolve.
  */
 export async function loadAsOfRewind(input: AsOfRewindInput, fetchers: AsOfFetchers): Promise<AsOfRewindResult> {
-  const indexes = new Map<string, AsOfIndex | null>();
-  const logs = new Map<string, AsOfLog | null>();
-  let start: AsOfStart | null | undefined;
-
   const fetchSet = [...input.eventArtifacts.keys()].sort();
   const [season, fetched] = await Promise.all([fetchers.season(), Promise.all(fetchSet.map((eventKey) => fetchers.index(eventKey)))]);
-  fetchSet.forEach((eventKey, n) => indexes.set(eventKey, fetched[n]!));
   if (season === null) return { status: "unavailable", reason: "the season object is not published" };
+  const objects = new AsOfObjectSet(season, fetchers);
+  const { indexes } = objects;
+  fetchSet.forEach((eventKey, n) => indexes.set(eventKey, fetched[n]!));
 
   let stop = resolveStopCut(input.timeline, input.positionIndex, indexes);
-  for (let round = 0; stop.status === "pending" && round < MAX_RESOLVE_ROUNDS; round++) {
-    const missing = stop.missingIndexes;
-    const loaded = await Promise.all(missing.map((eventKey) => fetchers.index(eventKey)));
-    missing.forEach((eventKey, n) => indexes.set(eventKey, loaded[n]!));
+  for (let round = 0; round < MAX_RESOLVE_ROUNDS; round++) {
+    if (stop.status === "pending") {
+      const missing = stop.missingIndexes;
+      const loaded = await Promise.all(missing.map((eventKey) => fetchers.index(eventKey)));
+      missing.forEach((eventKey, n) => indexes.set(eventKey, loaded[n]!));
+    } else if (stop.status === "unavailable" && stop.staleIndex !== undefined && objects.refreshable([`index:${stop.staleIndex}`]).length > 0) {
+      // The stop's row is in the event artifact but not in the INDEX copy in
+      // hand: the copy is older than the artifact. Refetch it fresh, once.
+      if (!(await objects.load({ missingIndexes: [], missingLogs: [], missingStart: false, stale: [`index:${stop.staleIndex}`] }))) {
+        return { status: "unavailable", reason: "the season object is not published" };
+      }
+    } else {
+      break;
+    }
     stop = resolveStopCut(input.timeline, input.positionIndex, indexes);
   }
   if (stop.status !== "ok") return { status: "unavailable", reason: stop.status === "pending" ? "the stop's INDEX did not load" : stop.reason };
@@ -435,17 +520,33 @@ export async function loadAsOfRewind(input: AsOfRewindInput, fetchers: AsOfFetch
   for (let round = 0; pending.size > 0 && round < MAX_RESOLVE_ROUNDS; round++) {
     const missingIndexes = new Set<string>();
     const missingLogs = new Set<string>();
+    const stale = new Set<AsOfObjectId>();
     let missingStart = false;
     for (const [eventKey, plan] of pending) {
       try {
         const result = resolveAsOf({
           cut,
           teams: plan.roster.map((teamKey) => ({ teamKey, knownEventKeys: fetchSet })),
-          season,
+          season: objects.season,
           indexes,
-          logs,
-          start,
+          logs: objects.logs,
+          start: objects.start,
         });
+        if (asOfResultIsStale(result)) {
+          // Copies of different ages: refetch the reported ones fresh, once.
+          // Still out of step after that, the event is unavailable at the stop.
+          const refreshable = objects.refreshable(asOfStaleObjectIds(result));
+          if (refreshable.length === 0) {
+            outcomes.set(eventKey, { status: "unavailable", reason: `its as-of objects are out of step (${asOfStaleObjectIds(result).join(", ")})` });
+            pending.delete(eventKey);
+            continue;
+          }
+          for (const id of refreshable) stale.add(id);
+          for (const key of result.missingIndexes) missingIndexes.add(key);
+          for (const key of result.missingLogs) missingLogs.add(key);
+          if (result.missingStart) missingStart = true;
+          continue;
+        }
         if (result.missingIndexes.length > 0 || result.missingLogs.length > 0 || result.missingStart || result.league === undefined) {
           for (const key of result.missingIndexes) missingIndexes.add(key);
           for (const key of result.missingLogs) missingLogs.add(key);
@@ -459,7 +560,7 @@ export async function loadAsOfRewind(input: AsOfRewindInput, fetchers: AsOfFetch
           continue;
         }
         const teams = [...result.states].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-        outcomes.set(eventKey, { status: "ready", state: { plan, season: season.season, vars: season.vars, league: result.league, teams } });
+        outcomes.set(eventKey, { status: "ready", state: { plan, season: objects.season.season, vars: objects.season.vars, league: result.league, teams } });
         pending.delete(eventKey);
       } catch (error) {
         if (!(error instanceof AsOfResolveError)) throw error;
@@ -468,16 +569,10 @@ export async function loadAsOfRewind(input: AsOfRewindInput, fetchers: AsOfFetch
       }
     }
     if (pending.size === 0) break;
-    const indexKeys = [...missingIndexes].filter((key) => !indexes.has(key));
-    const logKeys = [...missingLogs].filter((key) => !logs.has(key));
-    const [loadedIndexes, loadedLogs, loadedStart] = await Promise.all([
-      Promise.all(indexKeys.map((key) => fetchers.index(key))),
-      Promise.all(logKeys.map((key) => fetchers.log(key))),
-      missingStart && start === undefined ? fetchers.start() : Promise.resolve(start),
-    ]);
-    indexKeys.forEach((key, n) => indexes.set(key, loadedIndexes[n]!));
-    logKeys.forEach((key, n) => logs.set(key, loadedLogs[n]!));
-    start = loadedStart;
+    if (!(await objects.load({ missingIndexes, missingLogs, missingStart, stale }))) {
+      for (const eventKey of pending.keys()) outcomes.set(eventKey, { status: "unavailable", reason: "the season object is not published" });
+      pending.clear();
+    }
   }
   for (const eventKey of pending.keys()) outcomes.set(eventKey, { status: "unavailable", reason: "the as-of walk did not finish" });
 

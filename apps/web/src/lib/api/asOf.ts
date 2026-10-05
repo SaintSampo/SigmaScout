@@ -45,14 +45,30 @@ const AS_OF_RESOURCE = "rewound forecast state";
 /**
  * How long a fetched as-of object is reused before a reader asks again. A
  * finished event's objects never change; a live event's INDEX and LOG grow by
- * one row per folded match, and a rewound stop only ever reads rows at or
- * before itself, so a minute old copy can lack only a row the stop is not
- * built on (or, for a stop at the newest fold, delay it by one refetch).
+ * one row per folded match, and the season object moves with every fold
+ * anywhere. Each object is cached on its own, so copies of different ages
+ * meet: a LOG a minute older than its INDEX, a season object behind or ahead
+ * of an INDEX. `resolveAsOf` never answers from a copy that is behind another
+ * one it read; it reports it stale, and the loaders refetch that object FRESH
+ * (`AsOfFetchOptions`) before reading the stop as unavailable.
  */
 export const AS_OF_STALE_TIME_MS = 60_000;
 
-async function fetchAsOfObject<T>(key: string, year: number, parse: (body: unknown) => T): Promise<T | null> {
-  const res = await fetch(artifactUrl(key));
+/** `fresh`: skip the query cache and revalidate the browser's HTTP cache, for an object `resolveAsOf` reported out of step. */
+export interface AsOfFetchOptions {
+  readonly fresh?: boolean;
+}
+
+/**
+ * A FRESH fetch revalidates the browser's own HTTP cache (`cache: "no-cache"`),
+ * which otherwise serves the object for its `max-age` without asking. It does
+ * not reach past the CDN's edge copy, whose own lifetime (60 s) bounds how old
+ * a fresh copy can still be: a stop that stays out of step after one is read
+ * as unavailable and asked again on the live refresh cadence
+ * (`useAsOfRewind.ts`).
+ */
+async function fetchAsOfObject<T>(key: string, year: number, parse: (body: unknown) => T, options?: AsOfFetchOptions): Promise<T | null> {
+  const res = options?.fresh === true ? await fetch(artifactUrl(key), { cache: "no-cache" }) : await fetch(artifactUrl(key));
   // Checked BEFORE the general `!res.ok` branch so the ordinary absence can
   // never fall through into the failure case.
   if (res.status === 404) return null;
@@ -77,44 +93,48 @@ export interface AsOfSeasonObjectParams {
   readonly version: string;
 }
 
-export function fetchAsOfIndex(params: AsOfEventObjectParams): Promise<AsOfIndex | null> {
-  return fetchAsOfObject(asOfIndexKey(params), seasonFromEventKey(params.eventKey), (body) => AsOfIndexSchema.parse(body));
+export function fetchAsOfIndex(params: AsOfEventObjectParams, options?: AsOfFetchOptions): Promise<AsOfIndex | null> {
+  return fetchAsOfObject(asOfIndexKey(params), seasonFromEventKey(params.eventKey), (body) => AsOfIndexSchema.parse(body), options);
 }
 
-export function fetchAsOfLog(params: AsOfEventObjectParams): Promise<AsOfLog | null> {
-  return fetchAsOfObject(asOfLogKey(params), seasonFromEventKey(params.eventKey), (body) => AsOfLogSchema.parse(body));
+export function fetchAsOfLog(params: AsOfEventObjectParams, options?: AsOfFetchOptions): Promise<AsOfLog | null> {
+  return fetchAsOfObject(asOfLogKey(params), seasonFromEventKey(params.eventKey), (body) => AsOfLogSchema.parse(body), options);
 }
 
-export function fetchAsOfSeason(params: AsOfSeasonObjectParams): Promise<AsOfSeason | null> {
-  return fetchAsOfObject(asOfSeasonKey(params), params.season, (body) => AsOfSeasonSchema.parse(body));
+export function fetchAsOfSeason(params: AsOfSeasonObjectParams, options?: AsOfFetchOptions): Promise<AsOfSeason | null> {
+  return fetchAsOfObject(asOfSeasonKey(params), params.season, (body) => AsOfSeasonSchema.parse(body), options);
 }
 
 export function fetchAsOfStart(params: AsOfSeasonObjectParams): Promise<AsOfStart | null> {
   return fetchAsOfObject(asOfStartKey(params), params.season, (body) => AsOfStartSchema.parse(body));
 }
 
-/** `eventQueryOptions`' positional key convention: `[kind, ...the fetcher's params, in order]`. */
-export function asOfIndexQueryOptions(params: AsOfEventObjectParams) {
+/**
+ * `eventQueryOptions`' positional key convention: `[kind, ...the fetcher's params, in order]`.
+ * With `fresh`, `staleTime` 0 makes `fetchQuery` skip the cached copy, and the
+ * fresh copy replaces it under the same key.
+ */
+export function asOfIndexQueryOptions(params: AsOfEventObjectParams, options?: AsOfFetchOptions) {
   return {
     queryKey: ["asOfIndex", params.eventKey, params.algorithmId, params.version] as const,
-    queryFn: () => fetchAsOfIndex(params),
-    staleTime: AS_OF_STALE_TIME_MS,
+    queryFn: () => fetchAsOfIndex(params, options),
+    staleTime: options?.fresh === true ? 0 : AS_OF_STALE_TIME_MS,
   };
 }
 
-export function asOfLogQueryOptions(params: AsOfEventObjectParams) {
+export function asOfLogQueryOptions(params: AsOfEventObjectParams, options?: AsOfFetchOptions) {
   return {
     queryKey: ["asOfLog", params.eventKey, params.algorithmId, params.version] as const,
-    queryFn: () => fetchAsOfLog(params),
-    staleTime: AS_OF_STALE_TIME_MS,
+    queryFn: () => fetchAsOfLog(params, options),
+    staleTime: options?.fresh === true ? 0 : AS_OF_STALE_TIME_MS,
   };
 }
 
-export function asOfSeasonQueryOptions(params: AsOfSeasonObjectParams) {
+export function asOfSeasonQueryOptions(params: AsOfSeasonObjectParams, options?: AsOfFetchOptions) {
   return {
     queryKey: ["asOfSeason", params.season, params.algorithmId, params.version] as const,
-    queryFn: () => fetchAsOfSeason(params),
-    staleTime: AS_OF_STALE_TIME_MS,
+    queryFn: () => fetchAsOfSeason(params, options),
+    staleTime: options?.fresh === true ? 0 : AS_OF_STALE_TIME_MS,
   };
 }
 
