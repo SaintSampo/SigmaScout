@@ -53,6 +53,19 @@ export function districtLedgerShortEventName(eventName: string): string {
   return `${match[1]!}${match[2] ?? ""}`;
 }
 
+/**
+ * The name the Locks milestone picker prints for an event. A district
+ * championship prints "DCMP" (Jacob, 2026-10-04: the full name made the event
+ * menu too wide), and one of its divisions prints "DCMP <division>" so two
+ * divisions never share a label. Every other event prints the ledger's own
+ * short form.
+ */
+export function locksPickerEventName(eventName: string, isDcmp: boolean): string {
+  if (!isDcmp) return districtLedgerShortEventName(eventName);
+  const division = / - ([^-]+?) Division$/.exec(eventName);
+  return division === null ? "DCMP" : `DCMP ${division[1]!.trim()}`;
+}
+
 /** The per-event stage word the Event cell prints beside the name and week. */
 export const DISTRICT_LEDGER_STAGE_WORDS = {
   unstarted: "not started",
