@@ -30,6 +30,7 @@ import {
   EPA_CARRY_RESCALE_MIN_OBS,
   EPA_SCORE_SD_SEED_COUNT,
   materializePendingTeams,
+  materializePendingTeamsScoped,
   rescaleComponents,
 } from "./epaCarryScale.js";
 
@@ -133,6 +134,71 @@ describe("rescaleComponents / materializePendingTeams", () => {
     );
     expect(touched).toEqual([]);
     expect(teamComponents.get("frc111")).toEqual({ autoPoints: 10 });
+  });
+});
+
+/**
+ * `materializePendingTeamsScoped` is what `epa.predict` reads through. It must
+ * answer every lookup of a listed team exactly as the full-map function does,
+ * while holding nothing else: the full-map copy cost a pass over every team in
+ * the state per predicted match (debug session `epa-presim-pricing-slow`).
+ */
+describe("materializePendingTeamsScoped — the match-scoped form predict reads", () => {
+  /** Ten teams with distinct, non-round component values, so a wrong ratio or a wrong team cannot hide behind a round number. */
+  function tenTeams(): Map<string, Readonly<Record<string, number>>> {
+    return new Map(
+      Array.from({ length: 10 }, (_, i) => [`frc${i + 1}`, { autoPoints: 3.7 * (i + 1), teleopPoints: 11.3 * (i + 2), adjust: 0 }])
+    );
+  }
+
+  const RATIO = 55 / 292;
+  const SHAPES: ReadonlyArray<{ readonly name: string; readonly teams: readonly string[]; readonly pending: readonly string[] }> = [
+    { name: "no listed team pending", teams: ["frc1", "frc2", "frc3"], pending: ["frc9"] },
+    { name: "one of three pending", teams: ["frc1", "frc2", "frc3"], pending: ["frc2", "frc9"] },
+    { name: "all listed teams pending", teams: ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"], pending: ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6", "frc9"] },
+    { name: "a single listed team", teams: ["frc4"], pending: ["frc4"] },
+    { name: "an empty team list", teams: [], pending: ["frc1"] },
+    { name: "a pending team with no state", teams: ["frc1", "frc404"], pending: ["frc1", "frc404"] },
+    { name: "one key listed twice (two demo robots share one pseudo key)", teams: ["frc1", "frc2", "frc2"], pending: ["frc2"] },
+  ];
+
+  it("returns the same touched list and the same record for every listed team as the full-map function", () => {
+    for (const { name, teams, pending } of SHAPES) {
+      const before = tenTeams();
+      const full = materializePendingTeams(before, teams, new Set(pending), RATIO);
+      const scoped = materializePendingTeamsScoped(before, teams, new Set(pending), RATIO);
+      expect(scoped.touched, name).toEqual(full.touched);
+      for (const team of teams) {
+        // Exact, not close: predictions built from the two must be bit for bit equal.
+        expect(scoped.teamComponents.get(team), `${name}: ${team}`).toStrictEqual(full.teamComponents.get(team));
+      }
+    }
+  });
+
+  it("holds the listed teams only when it materializes, and leaves untouched records as the same object", () => {
+    const before = tenTeams();
+    const { teamComponents, touched } = materializePendingTeamsScoped(before, ["frc1", "frc2", "frc3"], new Set(["frc2", "frc9"]), RATIO);
+    expect(touched).toEqual(["frc2"]);
+    expect([...teamComponents.keys()].sort()).toEqual(["frc1", "frc2", "frc3"]);
+    // A bystander is absent, pending or not: this map is never a state's team map.
+    expect(teamComponents.has("frc9")).toBe(false);
+    expect(teamComponents.has("frc10")).toBe(false);
+    expect(teamComponents.get("frc1")).toBe(before.get("frc1"));
+    // `frc2` is index 1 of the fixture: 3.7 * 2 and 11.3 * 3, written as the fixture computes them.
+    expect(teamComponents.get("frc2")).toEqual({ autoPoints: 3.7 * 2 * RATIO, teleopPoints: 11.3 * 3 * RATIO, adjust: 0 });
+    // The un-rescaled value, asserted wrong explicitly.
+    expect(teamComponents.get("frc2")).not.toEqual(before.get("frc2"));
+  });
+
+  it("returns the input map itself when nothing is touched, and never mutates it", () => {
+    const before = tenTeams();
+    const snapshot = JSON.stringify([...before]);
+    const untouched = materializePendingTeamsScoped(before, ["frc1", "frc2"], new Set(["frc9"]), RATIO);
+    expect(untouched.touched).toEqual([]);
+    expect(untouched.teamComponents).toBe(before);
+
+    materializePendingTeamsScoped(before, ["frc1", "frc2"], new Set(["frc1", "frc2"]), RATIO);
+    expect(JSON.stringify([...before])).toBe(snapshot);
   });
 });
 

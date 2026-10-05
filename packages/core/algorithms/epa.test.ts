@@ -13,7 +13,7 @@ import {
   EPA_ELIM_WEIGHT,
   type EpaState,
 } from "./epa.js";
-import { opr } from "./opr.js";
+import { opr, ratingEligibleTeams } from "./opr.js";
 import { breakdown2024 } from "./breakdown/2024.js";
 import {
   ADJUST_COMPONENT,
@@ -25,7 +25,14 @@ import {
 } from "./breakdown/index.js";
 import { distributeResidual } from "./breakdown/fallback.js";
 import { emptyExpandingStats, foldObservation, standardDeviation } from "../scoring/expandingStats.js";
-import { EPA_CARRY_RESCALE_MIN_OBS, EPA_SCORE_SD_SEED_COUNT, rescaleComponents } from "./epaCarryScale.js";
+import {
+  carryRescaleRatio,
+  cleanSeasonMean,
+  EPA_CARRY_RESCALE_MIN_OBS,
+  EPA_SCORE_SD_SEED_COUNT,
+  materializePendingTeams,
+  rescaleComponents,
+} from "./epaCarryScale.js";
 import type { EpaCarryoverPriorRatings } from "./carryover.js";
 import type { ComponentPrediction, MatchResult, SeasonBoundary, UpcomingMatch } from "./types.js";
 import { DEMO_PSEUDO_TEAM_KEY } from "./demoTeams.js";
@@ -1516,6 +1523,136 @@ describe("epa — season-boundary scale anchor: a carried rating enters in the I
     const carried = epa.carrySeason!(outgoingState(), BOUNDARY);
     const rawRedTotal = RED.reduce((sum, team) => sum + componentSum(carried.teamComponents.get(team)), 0);
     expect(allianceComponentSum(epa.predict(empty, match).redComponents)).toBeCloseTo(rawRedTotal, 9);
+  });
+
+  /**
+   * A `Map` that counts every whole-map enumeration: the iterator protocol
+   * `new Map(source)` copies through, plus `forEach`. `get` and `has` stay
+   * uncounted, since a per-team lookup is exactly what `predict` may do.
+   */
+  class EnumerationCountingMap<K, V> extends Map<K, V> {
+    enumerations = 0;
+    override [Symbol.iterator](): ReturnType<Map<K, V>["entries"]> {
+      this.enumerations++;
+      return super[Symbol.iterator]();
+    }
+    override entries(): ReturnType<Map<K, V>["entries"]> {
+      this.enumerations++;
+      return super.entries();
+    }
+    override keys(): ReturnType<Map<K, V>["keys"]> {
+      this.enumerations++;
+      return super.keys();
+    }
+    override values(): ReturnType<Map<K, V>["values"]> {
+      this.enumerations++;
+      return super.values();
+    }
+    override forEach(callback: (value: V, key: K, map: Map<K, V>) => void, thisArg?: unknown): void {
+      this.enumerations++;
+      super.forEach(callback, thisArg);
+    }
+  }
+
+  /** `warmedState()` plus two teams no match below names: `frc7` still pending, `frc8` not. */
+  function warmedStateWithBystanders(): EpaState {
+    const warmed = warmedState();
+    return {
+      ...warmed,
+      teamComponents: new Map<string, Readonly<Record<string, number>>>([
+        ...warmed.teamComponents,
+        ["frc7", { synthetic: 90 }],
+        ["frc8", { synthetic: 100 }],
+      ]),
+      carryPending: new Set<string>([...warmed.carryPending, "frc7"]),
+    };
+  }
+
+  it("predict reads only the match's own teams: a pending team never makes it enumerate the whole team map", () => {
+    // The presim sidecars call `predict` tens of thousands of times against one
+    // pre-event state. Copying `teamComponents` (one entry per team in the
+    // state) on each of those calls made EPA's 2026 sidecar pass about 8x SPR's
+    // (debug session epa-presim-pricing-slow). A pending team in the match must
+    // cost a handful of lookups, never a pass over every team.
+    const state = warmedStateWithBystanders();
+    const counting = new EnumerationCountingMap(state.teamComponents);
+    counting.enumerations = 0;
+    const match = upcoming({ redTeams: RED, blueTeams: ["frc4", "frc5", "frc6"] });
+
+    const prediction = epa.predict({ ...state, teamComponents: counting }, match);
+
+    expect(counting.enumerations).toBe(0);
+    // The rescale still happened: this is the materialized path, not a skipped one.
+    const rawRedTotal = RED.reduce((sum, team) => sum + componentSum(state.teamComponents.get(team)), 0);
+    expect(allianceComponentSum(prediction.redComponents)).toBeCloseTo(rawRedTotal * EXPECTED_RATIO, 9);
+    expect(Math.abs(allianceComponentSum(prediction.redComponents) - rawRedTotal)).toBeGreaterThan(1);
+  });
+
+  it("predict's match-scoped materialization is bit for bit the full-map one, for every roster shape", () => {
+    // The reference model: materialize the match's teams on a full copy of the
+    // map (what `update` does permanently), clear `carryPending`, and predict
+    // from that. `predict` builds a map of the match's teams only, so the two
+    // agree exactly if and only if `predictCore` reads no other team. The
+    // bystanders (`frc7`, `frc8`) are what make a stray read show up here.
+    const base = warmedStateWithBystanders();
+    const { ratio } = carryRescaleRatio(cleanSeasonMean(base.allianceScoreStats, base.carrySeedMean), base.carrySeedMean);
+    expect(ratio).toBeCloseTo(EXPECTED_RATIO, 12);
+
+    const withDemo: EpaState = {
+      ...base,
+      teamComponents: new Map<string, Readonly<Record<string, number>>>([
+        ...base.teamComponents,
+        [DEMO_PSEUDO_TEAM_KEY, { synthetic: 20 }],
+      ]),
+      carryPending: new Set<string>([...base.carryPending, DEMO_PSEUDO_TEAM_KEY]),
+    };
+    const BLUE = ["frc4", "frc5", "frc6"];
+    const cases: ReadonlyArray<{ readonly name: string; readonly state: EpaState; readonly match: UpcomingMatch }> = [
+      { name: "all six pending", state: base, match: upcoming({ redTeams: RED, blueTeams: BLUE }) },
+      {
+        name: "none of the six pending (only a bystander is)",
+        state: { ...base, carryPending: new Set<string>(["frc7"]) },
+        match: upcoming({ redTeams: RED, blueTeams: BLUE }),
+      },
+      {
+        name: "exactly one pending",
+        state: { ...base, carryPending: new Set<string>(["frc2", "frc7"]) },
+        match: upcoming({ redTeams: RED, blueTeams: BLUE }),
+      },
+      {
+        name: "five of six pending",
+        state: { ...base, carryPending: new Set<string>(["frc1", "frc2", "frc3", "frc4", "frc5", "frc7"]) },
+        match: upcoming({ redTeams: RED, blueTeams: BLUE }),
+      },
+      {
+        name: "a pending surrogate, which is not rating-eligible",
+        state: base,
+        match: upcoming({ redTeams: RED, blueTeams: BLUE, redSurrogates: ["frc1"] }),
+      },
+      {
+        name: "a pending team with no state at all",
+        state: { ...base, carryPending: new Set<string>([...base.carryPending, "frc999"]) },
+        match: upcoming({ redTeams: ["frc1", "frc2", "frc999"], blueTeams: BLUE }),
+      },
+      {
+        name: "two demo robots on one alliance (one shared pseudo key, listed twice)",
+        state: withDemo,
+        match: upcoming({ redTeams: ["frc1", "frc9970", "frc9971"], blueTeams: BLUE }),
+      },
+    ];
+
+    for (const { name, state, match } of cases) {
+      const eligible = [
+        ...ratingEligibleTeams(match.redTeams, match.redSurrogates),
+        ...ratingEligibleTeams(match.blueTeams, match.blueSurrogates),
+      ];
+      const reference: EpaState = {
+        ...state,
+        teamComponents: materializePendingTeams(state.teamComponents, eligible, state.carryPending, ratio).teamComponents,
+        carryPending: new Set<string>(),
+      };
+      expect(epa.predict(state, match), name).toStrictEqual(epa.predict(reference, match));
+    }
   });
 });
 

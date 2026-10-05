@@ -101,10 +101,34 @@ export function rescaleComponents(
 }
 
 /**
+ * The teams in `teams` a materialization rescales: still `pending` and held in
+ * `teamComponents`, in `teams` order, one entry per occurrence. The one rule
+ * both materializers below share, so they can never disagree on who is touched.
+ */
+function pendingTeamsToMaterialize(
+  teamComponents: ReadonlyMap<string, Readonly<Record<string, number>>>,
+  teams: readonly string[],
+  pending: ReadonlySet<string>
+): string[] {
+  const touched: string[] = [];
+  for (const team of teams) {
+    if (!pending.has(team)) continue;
+    if (!teamComponents.has(team)) continue;
+    touched.push(team);
+  }
+  return touched;
+}
+
+/**
  * Applies `ratio` to every team in `teams` that is still `pending`, returning
  * a new map and the list of teams touched. Never mutates its input, never
  * rescales a team twice, and leaves untouched entries as the same object
  * reference.
+ *
+ * The returned map is a copy of ALL of `teamComponents`, so one call costs a
+ * pass over every team in the state. That is right for `update`, whose result
+ * becomes the next state. A caller that only reads `teams` back wants
+ * `materializePendingTeamsScoped`.
  */
 export function materializePendingTeams(
   teamComponents: ReadonlyMap<string, Readonly<Record<string, number>>>,
@@ -112,14 +136,44 @@ export function materializePendingTeams(
   pending: ReadonlySet<string>,
   ratio: number
 ): { teamComponents: ReadonlyMap<string, Readonly<Record<string, number>>>; touched: string[] } {
-  const touched: string[] = [];
-  for (const team of teams) {
-    if (!pending.has(team)) continue;
-    if (!teamComponents.has(team)) continue;
-    touched.push(team);
-  }
+  const touched = pendingTeamsToMaterialize(teamComponents, teams, pending);
   if (touched.length === 0) return { teamComponents, touched };
   const next = new Map(teamComponents);
+  for (const team of touched) next.set(team, rescaleComponents(next.get(team)!, ratio));
+  return { teamComponents: next, touched };
+}
+
+/**
+ * `materializePendingTeams` for a read that only ever looks up `teams`: same
+ * `touched`, same rescale, but the returned map holds `teams`' entries ONLY,
+ * never the rest of `teamComponents`. For every team in `teams` its `get` is
+ * exactly what the full-map function's `get` returns: the same record by
+ * reference when untouched, the same rescaled values when touched, `undefined`
+ * when the team has no state. Any other key reads as absent, so the result
+ * must never be stored as a state's `teamComponents`.
+ *
+ * One call costs `teams.length` lookups instead of a pass over every team in
+ * the state. `epa.predict` runs once per priced match, and a pre-schedule
+ * sidecar prices tens of thousands of synthetic matches against one state, so
+ * the full-map copy there was most of EPA's sidecar time (debug session
+ * `epa-presim-pricing-slow`, 2026-10-04).
+ *
+ * With nothing touched it returns `teamComponents` itself, like the full-map
+ * function, and the caller keeps its original state.
+ */
+export function materializePendingTeamsScoped(
+  teamComponents: ReadonlyMap<string, Readonly<Record<string, number>>>,
+  teams: readonly string[],
+  pending: ReadonlySet<string>,
+  ratio: number
+): { teamComponents: ReadonlyMap<string, Readonly<Record<string, number>>>; touched: string[] } {
+  const touched = pendingTeamsToMaterialize(teamComponents, teams, pending);
+  if (touched.length === 0) return { teamComponents, touched };
+  const next = new Map<string, Readonly<Record<string, number>>>();
+  for (const team of teams) {
+    const components = teamComponents.get(team);
+    if (components !== undefined) next.set(team, components);
+  }
   for (const team of touched) next.set(team, rescaleComponents(next.get(team)!, ratio));
   return { teamComponents: next, touched };
 }

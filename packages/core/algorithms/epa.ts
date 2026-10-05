@@ -111,6 +111,7 @@ import {
   carryRescaleRatio,
   cleanSeasonMean,
   materializePendingTeams,
+  materializePendingTeamsScoped,
   EPA_CARRY_RESCALE_MIN_OBS,
   EPA_SCORE_SD_SEED_COUNT,
 } from "./epaCarryScale.js";
@@ -597,11 +598,19 @@ function fallbackObserved(
  * the common path (every team already seen) must do no work at all, and an
  * empty set is the state for all but the first appearance of each team after a
  * boundary.
+ *
+ * The temporary map comes from `materializePendingTeamsScoped`, never the
+ * full-map `materializePendingTeams` that `update` uses: it holds this match's
+ * rating-eligible teams and nothing else, so a prediction costs one lookup per
+ * team in the match, not a copy of every team in the state. That is sound only
+ * because `predictCore` reads `state.teamComponents` through this match's own
+ * rating-eligible teams and no others; `epa.test.ts` pins the two paths equal
+ * on a state that holds bystander teams.
  */
 function predict(state: EpaState, match: UpcomingMatch): Prediction {
   if (state.carryPending.size > 0) {
     const { ratio } = carryRescaleRatioFor(state);
-    const { teamComponents, touched } = materializePendingTeams(
+    const { teamComponents, touched } = materializePendingTeamsScoped(
       state.teamComponents,
       carryEligibleTeams(match),
       state.carryPending,
@@ -616,6 +625,8 @@ function predictCore(state: EpaState, match: UpcomingMatch): Prediction {
   const redTeams = ratingEligibleTeams(match.redTeams, match.redSurrogates);
   const blueTeams = ratingEligibleTeams(match.blueTeams, match.blueSurrogates);
 
+  // The only reads of `state.teamComponents` in this function, and only for
+  // this match's own teams: `predict` may hand in a map that holds no others.
   const redComponents = sumComponentsAcrossTeam(state.teamComponents, redTeams);
   const blueComponents = sumComponentsAcrossTeam(state.teamComponents, blueTeams);
 
