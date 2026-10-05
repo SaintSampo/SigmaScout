@@ -28,6 +28,7 @@ import {
   asOfCutId,
   asOfDefaultMatchesPerTeam,
   asOfQualSplit,
+  asOfStopAnchorId,
   districtRegistrations,
   loadAsOfRewind,
   planAsOfEvent,
@@ -85,6 +86,14 @@ describe("resolveStopCut", () => {
   it("walks back from a scheduled row nobody has played to the last played position before it", () => {
     const stop = resolveStopCut(timeline(), at("2026wabbb:m:2026wabbb_qm6"), INDEXES);
     expect(stop.status === "ok" && stop.id).toBe(asOfCutId({ eventKey: "2026wabbb", t: T0 + 7 * 86_400 + 1_800, i: 3 }));
+  });
+
+  it("asOfStopAnchorId names the row the cut is read from, without any INDEX (R5)", () => {
+    expect(asOfStopAnchorId(timeline(), 0)).toBe("start");
+    expect(asOfStopAnchorId(timeline(), at("2026wabbb:m:2026wabbb_qm2"))).toBe("2026wabbb|2026wabbb_qm2|row");
+    expect(asOfStopAnchorId(timeline(), at("2026waaa:awards"))).toBe("2026waaa|2026waaa_f1m1|stage");
+    // A scheduled row nobody has played walks back to the last played one, as resolveStopCut does.
+    expect(asOfStopAnchorId(timeline(), at("2026wabbb:m:2026wabbb_qm6"))).toBe("2026wabbb|2026wabbb_qm4|row");
   });
 
   it("is pending until the anchor event's INDEX is in hand, and unavailable when it is unpublished", () => {

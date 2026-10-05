@@ -103,6 +103,30 @@ describe("useAsOfRewind", () => {
     await waitFor(() => expect(result.current?.status).toBe("ready"));
   });
 
+  it("keeps the same stop's plan when a refreshed artifact also reorders the timeline and moves the stop's index (R5)", async () => {
+    const calls = installFetch();
+    const first = options("2026wabbb:m:2026wabbb_qm2");
+    const { result, rerender } = renderHook((props: UseAsOfRewindOptions) => useAsOfRewind(props), { wrapper, initialProps: first });
+    await waitFor(() => expect(result.current?.status).toBe("ready"));
+    const plan = result.current?.status === "ready" ? result.current.result : undefined;
+    // A live refetch moved a row from its predicted time to its actual one: one more position now sits before
+    // the stop, so the same stop id lives one index later, and the artifacts' fingerprint moved too.
+    const shifted = {
+      ...first.timeline,
+      positions: [first.timeline.positions[0]!, { id: "evx:m:evx_qm1", label: "moved", week: 0, step: undefined }, ...first.timeline.positions.slice(1)],
+      nowIndex: first.timeline.nowIndex + 1,
+    };
+    const refreshed = new Map([...first.eventArtifacts].map(([eventKey, artifact]) => [eventKey, { ...artifact, computedAt: "2026-09-25T00:01:00.000Z" }] as const));
+    const before = calls.length;
+    rerender({ ...first, timeline: shifted, positionIndex: first.positionIndex + 1, eventArtifacts: refreshed });
+    expect(shifted.positions[first.positionIndex + 1]!.id).toBe("2026wabbb:m:2026wabbb_qm2");
+    // No drop to loading: the placeholder is the same stop's plan, so the run is not torn down.
+    expect(result.current?.status).toBe("ready");
+    expect(result.current?.status === "ready" && result.current.result).toEqual(plan);
+    await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(before));
+    expect(result.current?.status).toBe("ready");
+  });
+
   it("reads a failed fetch (not a 404) as failed, never as an unpublished object", async () => {
     installFetch((url) => (url.includes("/v1/asof-season/") ? 503 : 200));
     const { result } = renderHook(() => useAsOfRewind(options("2026wabbb:m:2026wabbb_qm2")), { wrapper });

@@ -5,7 +5,7 @@ import type { DistrictTier } from "../../../../../packages/core/districts/pointM
 import { asOfIndexQueryOptions, asOfLogQueryOptions, asOfSeasonQueryOptions, asOfStartQueryOptions } from "../../lib/api/asOf.js";
 import { EVENT_POLL_INTERVAL_MS, shouldPollEventArtifact } from "../../lib/liveEvent.js";
 import { useAlgorithmVersion } from "../ribbon/AlgorithmSelect.js";
-import { asOfCandidateEvents, asOfScheduleStopEventKey, loadAsOfRewind, type AsOfFetchers, type AsOfRewindResult } from "./asOfRewind.js";
+import { asOfCandidateEvents, asOfScheduleStopEventKey, asOfStopAnchorId, loadAsOfRewind, type AsOfFetchers, type AsOfRewindResult } from "./asOfRewind.js";
 import type { DistrictTimeline } from "./districtTimeline.js";
 import type { DistrictStageFinality } from "./districtLedgerRows.js";
 import { DISTRICT_LEDGER_ALGORITHM_ID } from "./districtRunAssembly.js";
@@ -91,13 +91,19 @@ export function useAsOfRewind(options: UseAsOfRewindOptions): AsOfRewindView | u
   const queryClient = useQueryClient();
 
   const open = useMemo(() => asOfCandidateEvents({ candidates, stageByEvent }), [candidates, stageByEvent]);
-  const positionId = timeline.positions[positionIndex]?.id ?? "";
+  // THE STOP'S OWN IDENTITY, never its index: the `?at=` value the reader
+  // picked (a step id, or a Schedule alias) and the row its cut is read from.
+  // A live refetch that moves a row from its predicted time to its actual one
+  // reorders the timeline and shifts the stop's index; keyed on the index, the
+  // same stop refused its own placeholder and restarted the run (review R5).
+  const stopId = options.at ?? timeline.positions[positionIndex]?.id ?? "";
+  const anchorId = asOfStopAnchorId(timeline, positionIndex);
   const fingerprint = useMemo(() => artifactsFingerprint(eventArtifacts), [eventArtifacts]);
   const openKeys = open.map((candidate) => candidate.eventKey).join(",");
   const unloadedKeys = [...options.unloadedEventKeys].sort().join(",");
   const active = enabled && !artifactsLoading && version !== undefined;
 
-  const queryKey = ["asOfRewind", districtArtifact.districtKey, version ?? "", positionId, positionIndex, fingerprint, openKeys, scheduleStopEventKey ?? "", unloadedKeys] as const;
+  const queryKey = ["asOfRewind", districtArtifact.districtKey, version ?? "", stopId, anchorId, fingerprint, openKeys, scheduleStopEventKey ?? "", unloadedKeys] as const;
   const query = useQuery({
     queryKey,
     queryFn: async (): Promise<AsOfRewindResult> => {

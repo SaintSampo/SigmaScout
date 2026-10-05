@@ -106,6 +106,24 @@ export function resolveStopCut(timeline: DistrictTimeline, positionIndex: number
   return { status: "ok", cut: AS_OF_SEASON_START_CUT, id: asOfCutId(AS_OF_SEASON_START_CUT) };
 }
 
+/**
+ * The identity of the row a stop's cut is read from, known without any INDEX:
+ * `start`, or the anchor `resolveStopCut` walks back to. Two timelines that
+ * place the same stop at different indexes (a live refetch moving a row from
+ * its predicted time to its actual one) give the same id whenever the stop
+ * reads the same row, so a plan keyed on it survives the reorder.
+ */
+export function asOfStopAnchorId(timeline: DistrictTimeline, positionIndex: number): string {
+  for (let p = positionIndex; p >= 0; p--) {
+    const anchor = cutAtPosition(timeline, p);
+    if (anchor === null) continue;
+    if (anchor.kind === "seasonStart") return "start";
+    if (!anchor.played) continue;
+    return `${anchor.eventKey}|${anchor.matchKey}|${anchor.stage ? "stage" : "row"}`;
+  }
+  return "start";
+}
+
 // ---------------------------------------------------------------------------
 // One event's plan
 // ---------------------------------------------------------------------------
