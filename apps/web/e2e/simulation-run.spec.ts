@@ -17,15 +17,16 @@
  * live against the real artifact origin before this spec was written:
  * 78 teams (the corpus's measured maximum roster) and 130
  * played qualification rows, every one of the 130 carrying both
- * `redRpPmf`/`blueRpPmf`. The event is fully played (`upcoming: []`), so no
- * row is pre-selected by default (D-01) — this spec selects the FIRST
- * qualification row explicitly, leaving all 130 matches remaining, which is
+ * `redRpPmf`/`blueRpPmf`. The event is fully played (`upcoming: []`), and the
+ * tab opens on its baked "Before schedule release" stop — this spec selects the FIRST
+ * qualification match explicitly, leaving all 130 matches remaining, which is
  * both the heaviest reachable case at this event and the most representative
  * one (a reader most often starts a simulation from the very beginning of a
  * finished event's schedule). The next person re-measuring should reproduce
  * this exact run, not a different one.
  */
 import { test, expect } from "@playwright/test";
+import { selectStartMatch, SIMULATION_TEST_IDS } from "./support/simulation.js";
 
 const EVENT_KEY = "2023cur";
 const EVENT_URL = `/event/${EVENT_KEY}?algorithm=spr&tab=simulation`;
@@ -43,9 +44,12 @@ test.describe("Simulation round-trip measurement — 2023cur, real Worker, real 
   test("a full round trip from the first qualification match prints a shape-only, real-browser measurement", async ({ page, browserName }) => {
     await page.goto(EVENT_URL);
 
-    const firstRow = page.getByTestId(START_MATCH_ROW_TESTID);
-    await expect(firstRow).toBeVisible({ timeout: 15_000 });
-    await firstRow.click();
+    // Since quick task 261005-kzs every season has a pre-schedule sidecar, so
+    // this tab opens on "Before schedule release" and shows no match row until
+    // a start match is chosen. Choosing match 1 leaves all 130 remaining.
+    await page.getByTestId(SIMULATION_TEST_IDS.stack).waitFor({ state: "visible", timeout: 15_000 });
+    await selectStartMatch(page, 0);
+    await expect(page.getByTestId(START_MATCH_ROW_TESTID)).toBeVisible({ timeout: 15_000 });
 
     const runButton = page.getByRole("button", { name: RUN_LABEL_UPDATE });
     await expect(runButton).toBeEnabled();

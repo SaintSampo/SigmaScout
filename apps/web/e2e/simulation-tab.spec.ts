@@ -153,8 +153,9 @@ test.describe("S3 — the rank-distribution table at its largest real roster (20
  * ranking point odds. The picker is a slider plus a number input, so there is
  * no row list to overflow: the facts worth pinning are that both controls span
  * the whole slate and that the panel never pushes the page sideways at 390px.
- * The simulation sidecars exist from 2026 on, so the target is that season's
- * largest slate.
+ * The target is the 2026 season's largest slate. It was chosen when the
+ * simulation sidecars existed from 2026 on; every season has them since quick
+ * task 261005-kzs.
  */
 const S1_EVENT_KEY = "2026mrcmp";
 const S1_MATCH_COUNT = 132;
