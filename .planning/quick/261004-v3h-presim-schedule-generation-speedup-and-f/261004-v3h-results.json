@@ -1,0 +1,246 @@
+{
+  "partA": {
+    "sample": {
+      "files": 12,
+      "identical": true,
+      "perEventBefore": {
+        "epa|2026arc": {
+          "structureMs": 23788,
+          "predictMs": 3320,
+          "wallMs": 33669
+        },
+        "epa|2026arli": {
+          "structureMs": 3615,
+          "predictMs": 1515,
+          "wallMs": 7492
+        },
+        "epa|2026casnd": {
+          "structureMs": 6369,
+          "predictMs": 1394,
+          "wallMs": 10377
+        },
+        "epa|2026mibel": {
+          "structureMs": 5646,
+          "predictMs": 1027,
+          "wallMs": 8729
+        },
+        "epa|2026mrcmp": {
+          "structureMs": 15266,
+          "predictMs": 1538,
+          "wallMs": 20210
+        },
+        "epa|2026txwac": {
+          "structureMs": 8,
+          "predictMs": 586,
+          "wallMs": 1775
+        },
+        "spr|2026arc": {
+          "structureMs": 8,
+          "predictMs": 353,
+          "wallMs": 5040
+        },
+        "spr|2026arli": {
+          "structureMs": 4,
+          "predictMs": 135,
+          "wallMs": 1820
+        },
+        "spr|2026casnd": {
+          "structureMs": 9,
+          "predictMs": 192,
+          "wallMs": 2941
+        },
+        "spr|2026mibel": {
+          "structureMs": 6,
+          "predictMs": 223,
+          "wallMs": 2968
+        },
+        "spr|2026mrcmp": {
+          "structureMs": 16,
+          "predictMs": 386,
+          "wallMs": 5345
+        },
+        "spr|2026txwac": {
+          "structureMs": 11,
+          "predictMs": 152,
+          "wallMs": 2227
+        }
+      },
+      "perEventAfter": {
+        "epa|2026arc": {
+          "structureMs": 3341,
+          "predictMs": 1756,
+          "wallMs": 9025
+        },
+        "epa|2026arli": {
+          "structureMs": 763,
+          "predictMs": 847,
+          "wallMs": 3124
+        },
+        "epa|2026casnd": {
+          "structureMs": 1429,
+          "predictMs": 1240,
+          "wallMs": 4990
+        },
+        "epa|2026mibel": {
+          "structureMs": 1466,
+          "predictMs": 1260,
+          "wallMs": 5219
+        },
+        "epa|2026mrcmp": {
+          "structureMs": 2980,
+          "predictMs": 1607,
+          "wallMs": 7988
+        },
+        "epa|2026txwac": {
+          "structureMs": 4,
+          "predictMs": 637,
+          "wallMs": 2087
+        },
+        "spr|2026arc": {
+          "structureMs": 16,
+          "predictMs": 356,
+          "wallMs": 5296
+        },
+        "spr|2026arli": {
+          "structureMs": 4,
+          "predictMs": 134,
+          "wallMs": 1918
+        },
+        "spr|2026casnd": {
+          "structureMs": 7,
+          "predictMs": 217,
+          "wallMs": 3347
+        },
+        "spr|2026mibel": {
+          "structureMs": 12,
+          "predictMs": 211,
+          "wallMs": 2861
+        },
+        "spr|2026mrcmp": {
+          "structureMs": 17,
+          "predictMs": 321,
+          "wallMs": 4758
+        },
+        "spr|2026txwac": {
+          "structureMs": 7,
+          "predictMs": 121,
+          "wallMs": 1753
+        }
+      },
+      "sidecarSecondsBefore": {
+        "epaSidecars": 82.7,
+        "sprSidecars": 20.4,
+        "total": 189.6
+      },
+      "sidecarSecondsAfter": {
+        "epaSidecars": 32.6,
+        "sprSidecars": 20,
+        "total": 147.8
+      },
+      "crossCheckAgainstDebugSessionBodiesIdentical": true,
+      "finalTreeSampleIdentical": true
+    },
+    "injection": {
+      "identical": true,
+      "files": 12
+    },
+    "full": {
+      "sidecars": 418,
+      "bodiesOld": 418,
+      "identical": true,
+      "crossCheckAgainstDebugSessionBodiesIdentical": true,
+      "oldGeneratorArm": {
+        "epaSidecars": 1189.5,
+        "sprSidecars": 591.5,
+        "total": 1968.6
+      },
+      "newGeneratorArm": {
+        "epaSidecars": 853.6,
+        "sprSidecars": 635.4,
+        "total": 1676.5
+      },
+      "note": "arms launched together; the new arm shared the machine with the structure sweep, the Part B smoke run and the all-seasons census, the old arm with the census and later the sweep"
+    },
+    "sweep": {
+      "census": {
+        "structures": 171000,
+        "mismatches": 0,
+        "oldSeconds": 1117.3198154999925,
+        "newSeconds": 231.48986870001193,
+        "oldOverNew": 4.83
+      },
+      "season2026": {
+        "structures": 65000,
+        "mismatches": 0,
+        "oldSeconds": 403.77525000000924,
+        "newSeconds": 86.90073630000799,
+        "oldOverNew": 4.65
+      },
+      "denseGrid": {
+        "structures": 5250,
+        "mismatches": 0,
+        "oldSeconds": 65.88464640000215,
+        "newSeconds": 11.557653100013516,
+        "oldOverNew": 5.7
+      },
+      "cellsCompared": 171,
+      "cellsWithMismatch": 0
+    },
+    "census": {
+      "seasons": [
+        2016,
+        2017,
+        2018,
+        2019,
+        2020,
+        2022,
+        2023,
+        2024,
+        2025,
+        2026
+      ],
+      "accesses": 3336,
+      "distinctCells": 171,
+      "distinctCellsBySeason": {
+        "2016": 48,
+        "2017": 64,
+        "2018": 60,
+        "2019": 60,
+        "2020": 29,
+        "2022": 70,
+        "2023": 62,
+        "2024": 60,
+        "2025": 60,
+        "2026": 65
+      },
+      "repeatMissesAt128": 16,
+      "missesAt128": 187,
+      "repeatMissesAt512": 0,
+      "payloadBytes": {
+        "total": 74430000,
+        "largest": 1224000,
+        "median": 444000,
+        "mean": 435263
+      },
+      "largestRoster": 102
+    },
+    "cap": {
+      "before": 128,
+      "after": 512,
+      "reason": "all-seasons census reached 171 distinct cells (> 128), below the 400 rule, so 512; 16 seen-before cells were missed again at 128, none at 512; total encoded payload 74430000 bytes"
+    },
+    "diskCacheRule": {
+      "share": 0.0584,
+      "threshold": 0.1,
+      "verdict": "the cache is not worth its stale-state risk",
+      "numeratorSeconds": 86.90073630000799,
+      "denominatorSeconds": 1489
+    },
+    "host": {
+      "cpuModel": "AMD Ryzen 5 7600X 6-Core Processor             ",
+      "logicalCpus": 12,
+      "node": "v24.15.0",
+      "platform": "win32 10.0.26200"
+    }
+  }
+}
