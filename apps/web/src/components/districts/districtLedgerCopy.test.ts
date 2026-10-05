@@ -623,3 +623,12 @@ describe("the predicted cutoff copy", () => {
     }
   });
 });
+
+describe("locksPickerEventName", () => {
+  it("prints DCMP for a district championship and keeps divisions apart", async () => {
+    const { locksPickerEventName } = await import("./districtLedgerCopy.js");
+    expect(locksPickerEventName("Pacific Northwest FIRST District Championship", true)).toBe("DCMP");
+    expect(locksPickerEventName("FIRST in Michigan State Championship - Aptiv Division", true)).toBe("DCMP Aptiv");
+    expect(locksPickerEventName("PNW District Oregon State Fair Event", false)).toBe("Oregon State Fair");
+  });
+});

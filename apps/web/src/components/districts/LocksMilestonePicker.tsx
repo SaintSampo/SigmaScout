@@ -24,7 +24,7 @@ import {
   LOCKS_PICKER_NOW_MARK,
   LOCKS_PICKER_PREV_LABEL,
   LOCKS_PICKER_SEASON_START,
-  districtLedgerShortEventName,
+  locksPickerEventName,
   locksPickerGroupLabel,
   locksPickerLiveCaption,
   locksPickerMilestoneTitle,
@@ -57,15 +57,16 @@ export interface LocksMilestonePickerProps {
   readonly onAtChange: (id: string) => void;
 }
 
-/** The name the picker prints: the ledger's own short form of TBA's district event name, as the sketch's short names read. */
-function displayName(eventName: string): string {
-  return districtLedgerShortEventName(eventName);
+/** The name the picker prints: "DCMP" for a district championship (Jacob, 2026-10-04: the full name made the menu too wide), else the ledger's own short form of TBA's district event name. */
+function displayName(input: { readonly eventName: string; readonly isDcmp: boolean }): string {
+  return locksPickerEventName(input.eventName, input.isDcmp);
 }
 
-function walkItemTitle(item: DistrictMilestoneWalkItem): string {
+function walkItemTitle(item: DistrictMilestoneWalkItem, isDcmp: (eventKey: string) => boolean): string {
   if (item.kind === "start") return LOCKS_PICKER_SEASON_START;
   if (item.kind === "live") return LOCKS_PICKER_LIVE;
-  return locksPickerMilestoneTitle(displayName(item.milestone.eventName), item.milestone.key);
+  const { eventKey, eventName, key } = item.milestone;
+  return locksPickerMilestoneTitle(displayName({ eventName, isDcmp: isDcmp(eventKey) }), key);
 }
 
 interface MenuGroup {
@@ -119,7 +120,7 @@ export function LocksMilestonePicker({ timeline, events, at, positionIndex, onAt
         ? focusState
         : defaultMilestoneFocus(model);
   const focused = focusKey === undefined ? undefined : model.byEvent.get(focusKey);
-  const focusedName = focused === undefined ? "" : displayName(focused.input.eventName);
+  const focusedName = focused === undefined ? "" : displayName(focused.input);
 
   const stops = milestoneStopStates(model, focusKey, selection);
   const { prev, next } = milestoneWalkNeighbours(model, selection);
@@ -169,7 +170,7 @@ export function LocksMilestonePicker({ timeline, events, at, positionIndex, onAt
             <optgroup key={group.id} label={locksPickerGroupLabel(group, groupStatus(group))}>
               {group.events.map((event) => (
                 <option key={event.input.eventKey} value={event.input.eventKey} disabled={event.status === "up"}>
-                  {locksPickerOptionLabel(displayName(event.input.eventName), event.status === "live")}
+                  {locksPickerOptionLabel(displayName(event.input), event.status === "live")}
                 </option>
               ))}
             </optgroup>
@@ -267,7 +268,7 @@ export function LocksMilestonePicker({ timeline, events, at, positionIndex, onAt
             </svg>
           </button>
           <span className="locks-picker-next" data-testid="locks-picker-next-text">
-            {locksPickerNextText(next === undefined ? undefined : walkItemTitle(next))}
+            {locksPickerNextText(next === undefined ? undefined : walkItemTitle(next, (eventKey) => model.byEvent.get(eventKey)?.input.isDcmp === true))}
           </span>
         </div>
       </div>

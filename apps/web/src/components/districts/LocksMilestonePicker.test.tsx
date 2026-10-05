@@ -135,7 +135,7 @@ describe("LocksMilestonePicker — the focused event's state", () => {
       ["Bravo (live)", false],
       ["Charlie", false],
       ["Delta", true],
-      ["Big Championship", true],
+      ["DCMP", true],
     ]);
   });
 });
