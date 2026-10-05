@@ -281,6 +281,12 @@ export class RpMomentsAccumulator {
     return out;
   }
 
+  /** One team's raw running state as a deep copy, or `undefined` when it has none. Read-only: never creates a belief. */
+  beliefsFor(teamKey: string): RpTeamBeliefs | undefined {
+    const byVariable = this.#byTeam.get(teamKey);
+    return byVariable === undefined ? undefined : copyBeliefs(byVariable);
+  }
+
   /**
    * A new accumulator holding deep copies of `teamKeys`' beliefs only, as they
    * stand now, plus the knob and (with it on) deep copies of the season's
