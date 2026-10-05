@@ -67,8 +67,9 @@ baked result for one event.
 - **1,000 schedules x 50 draws.** Each sidecar is priced from 1,000 seeded synthetic qualification
   schedules at 50 draws each; the published body carries `scheduleCount` and the baked
   distribution, not the priced schedules.
-- **Gated by `--presim-from-season`** (`pnpm publish:seasons` passes 2026) and by RP-eligible event
-  types. `--write-budget` records the run's sidecar count and median/p95/max sizes in the block's
+- **Gated by `--presim-from-season`** (`pnpm publish:seasons` passes 2016, every published season,
+  since quick task 261005-kzs) and by RP-eligible event types. Offseason events get no sidecar even
+  though they are RP-eligible (explicit gate, quick task 261004-uyc). `--write-budget` records the run's sidecar count and median/p95/max sizes in the block's
   `run` string.
 
 ## The district artifact and its pre-simulation sidecar (phase 10, plan 10-03)

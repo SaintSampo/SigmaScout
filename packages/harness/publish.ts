@@ -160,8 +160,11 @@ const SEED_OUT_DIR = join("reports", "publish");
 /** The live Worker's D1 database name (`apps/worker/wrangler.toml`'s `[[d1_databases]]` binding) — used only to print `SEED-COMMANDS.txt`'s ready-to-run `wrangler d1 execute` invocations, never to run one. */
 const D1_DATABASE_NAME = "sigmascout-state";
 /**
- * Default first season that gets pre-schedule sidecars; overridable per run via
- * `--presim-from-season`. This default is the only place the cutoff appears.
+ * Fallback first season for pre-schedule sidecars, used only when a run omits
+ * `--presim-from-season`. `pnpm publish:seasons` never omits it: it always passes an explicit
+ * year (2016, so every published season, since quick task 261005-kzs). This fallback stays 2026
+ * and therefore differs from the script. The presim-flag drift tripwire in `publish.test.ts`
+ * fails if that flag is deleted or set later than the latest season the script publishes.
  */
 const DEFAULT_PRESCHEDULE_FROM_SEASON = 2026;
 /**

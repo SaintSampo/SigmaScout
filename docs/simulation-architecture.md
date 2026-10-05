@@ -214,8 +214,9 @@ mid-event. It also sits outside `payloadBudget`'s machine-readable gate.
 Route `event.$eventKey.tsx:188` gates the fetch on `activeTab === "simulation"` — lazily, and
 never inside `SimulationTab` itself (Radix would otherwise fetch on every event page load).
 `fetchPreScheduleArtifact` returns **`null` on 404** rather than throwing, because an absent
-sidecar is an ordinary permanent state (pre-2026 season, offseason event, cold-start first
-event, RP-less algorithm). Every other non-OK status still throws.
+sidecar is an ordinary permanent state (a season below the `--presim-from-season` cutoff, which
+is 2016 in `pnpm publish:seasons`; an offseason event; a cold-start first event; an RP-less
+algorithm). Every other non-OK status still throws.
 
 `decodePreScheduleResult` then rebuilds `{rankHistograms, draws}` from `baked` alone. Nothing
 else in the published body is read: `roster` supplies the team-key index, `baked` supplies the
