@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-05T19:20:33.469Z"
+last_updated: "2026-10-05T23:05:26.660Z"
 last_activity: 2026-10-05
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -718,6 +718,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 282 | Champ cutoff backtest re-run on the district tier floor: 18.2 against 40.4 and 48 of 69, walk-forward tuning regenerated, Methodology corrected (fast task) | 2026-10-05 | 8319959c | — |
 | 283 | Pre-schedule simulation on for every season: publish:seasons passes presim-from-season 2016 after the all-seasons dry run measured 9,822.6 s and 3,336 sidecars | 2026-10-05 | 211e2744 | [261005-kzs-pre-schedule-simulation-on-for-every-sea](./quick/261005-kzs-pre-schedule-simulation-on-for-every-sea/) |
 | 284 | Browser presim pricing reopening and measured no-go recorded in the simulation architecture doc and the closed todo (fast task, presim handoff step 5) | 2026-10-05 | fc31d1a6 | — |
+| 285 | Rewound Locks views are true as-of forecasts: per match state captured at fold (offline and live Worker), rebuilt and priced in the browser; generated schedules before a Schedule stop; Simulation tab SPR rewind too. Built and verified on branch locks-rewind-asof, NOT yet merged, published or deployed | 2026-10-05 | b63021d4 | [261005-5g0-make-every-rewound-locks-view-a-true-for](./quick/261005-5g0-make-every-rewound-locks-view-a-true-for/) |
 
 ### Roadmap Evolution
 
