@@ -77,6 +77,24 @@ describe("tbaFetch", () => {
     expect(result.status === 200 && result.etag).toBe("\"new-etag\"");
   });
 
+  it("returns TBA's last-modified header as lastModified on a 200", async () => {
+    const headers = new Headers({ etag: "\"e\"", "last-modified": "Sat, 03 Oct 2026 22:55:19 GMT" });
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200, headers }));
+
+    const result = await tbaFetch("/status", "key", undefined);
+
+    expect(result).toEqual({ status: 200, etag: "\"e\"", body: { ok: true }, lastModified: "Sat, 03 Oct 2026 22:55:19 GMT" });
+  });
+
+  it("returns an object with no lastModified key at all when TBA sent no last-modified header", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true }, { etag: "\"e\"" }));
+
+    const result = await tbaFetch("/status", "key", undefined);
+
+    expect(Object.keys(result)).not.toContain("lastModified");
+    expect(result).toEqual({ status: 200, etag: "\"e\"", body: { ok: true } });
+  });
+
   it("throws with the request path and status for a non-OK, non-304 response", async () => {
     fetchMock.mockResolvedValueOnce(new Response("boom", { status: 500 }));
 

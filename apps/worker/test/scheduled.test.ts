@@ -23,8 +23,10 @@ import {
 import { opr } from "../../../packages/core/algorithms/opr.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../../../packages/harness/publishedAlgorithms.js";
 import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
+import { buildLiveReport } from "../../../scripts/liveReport.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
+import { IngestLogFakeStore, isIngestLogSql } from "./support/ingestLogFake.js";
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -81,6 +83,8 @@ class FakeD1Database {
   batchCallCount = 0;
   algorithmState = new Map<string, FakeAlgorithmStateRow>();
   eventCursors = new Map<string, FakeEventCursorRow>();
+  /** The ingest log table (quick task 261004-uyc). */
+  readonly ingestLog = new IngestLogFakeStore();
   rejectNextBatchWith: Error | null = null;
 
   constructor(private readonly sharedLog: SharedLogEntry[] = []) {
@@ -149,6 +153,7 @@ class FakeD1Database {
   }
 
   executeWrite(sql: string, args: readonly unknown[]): number {
+    if (isIngestLogSql(sql)) return this.ingestLog.apply(sql, args);
     if (sql.includes("INSERT INTO algorithm_state")) {
       const [algorithmId, algorithmVersion, scopeKind, scopeKey, stateJson, generation, computedAt] = args as string[];
       this.algorithmState.set(`${algorithmId}::${scopeKind}::${scopeKey}`, {
@@ -298,6 +303,8 @@ interface TbaMatchFixture {
   redScore?: number | null;
   blueScore?: number | null;
   actualTimeSec?: number;
+  /** Emitted only when defined (`post_result_time` is not in the shared ingest schema, so the tick reads it off the raw object). */
+  postResultTimeSec?: number;
   predictedTimeSec?: number;
   /** Emitted only when defined, so every existing fixture's payload stays byte-identical. */
   videos?: readonly { type: string; key: string }[];
@@ -314,6 +321,7 @@ function tbaMatch(f: TbaMatchFixture): unknown {
     time: null,
     predicted_time: f.predictedTimeSec ?? null,
     actual_time: f.actualTimeSec ?? null,
+    ...(f.postResultTimeSec !== undefined ? { post_result_time: f.postResultTimeSec } : {}),
     winning_alliance: played ? (f.redScore! > f.blueScore! ? "red" : f.blueScore! > f.redScore! ? "blue" : "") : "",
     alliances: {
       red: { team_keys: f.redTeams, surrogate_team_keys: [], dq_team_keys: [], score: f.redScore ?? null },
@@ -327,6 +335,8 @@ function tbaMatch(f: TbaMatchFixture): unknown {
 interface TbaEventRecord {
   matches: unknown[];
   etag: string;
+  /** Sent as the `Last-Modified` header on a 200 when defined. */
+  lastModified?: string;
   eventType: number;
   season: number;
 }
@@ -344,7 +354,7 @@ function makeTbaFetchStub(events: Map<string, TbaEventRecord>): ReturnType<typeo
       if (ifNoneMatch && ifNoneMatch === record.etag) {
         return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
       }
-      return { status: 200, ok: true, headers: { get: (name: string) => (name === "etag" ? record.etag : null) }, json: async () => record.matches };
+      return { status: 200, ok: true, headers: { get: (name: string) => (name === "etag" ? record.etag : name === "last-modified" ? (record.lastModified ?? null) : null) }, json: async () => record.matches };
     }
 
     const detailMatch = /\/event\/([^/]+)$/.exec(u);
@@ -1790,7 +1800,7 @@ describe("runTick — the tick probes a probe window", () => {
     const fetchMock = vi.fn(async (url: unknown) => {
       const u = String(url);
       if (u.endsWith("/event/2026probe/matches")) {
-        return { status: 200, ok: true, headers: { get: (name: string) => (name === "etag" ? record.etag : null) }, json: async () => record.matches };
+        return { status: 200, ok: true, headers: { get: (name: string) => (name === "etag" ? record.etag : name === "last-modified" ? (record.lastModified ?? null) : null) }, json: async () => record.matches };
       }
       // The event-detail fetch 404s and processEvent degrades gracefully
       // (eventType -1, week null): tbaFetch throws BEFORE recording a 404 to
@@ -1906,5 +1916,114 @@ describe("runTick — the tick probes a probe window", () => {
     // And the pass really did answer every window, 304 or not.
     expect(tick.rostersPolled).toBe(probeKeys.length);
     expect(tick.rosterTeamsAppended).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The ingest log (quick task 261004-uyc). A fold writes rows; a 304 writes none;
+// a failing log never changes the fold.
+// ---------------------------------------------------------------------------
+
+describe("runTick - the ingest log", () => {
+  const LOG_WINDOW: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 7_200_000 };
+  const POST_RESULT_SEC = Math.floor(NOW_MS / 1000) - 45;
+
+  /** One played match (carrying TBA's two times) and one upcoming, behind a Last-Modified header. */
+  function loggedEventRecord(): TbaEventRecord {
+    const base = twoMatchEventRecord("2026casj", "etag-1");
+    base.lastModified = "Sat, 22 Aug 2026 11:59:20 GMT";
+    base.matches[0] = tbaMatch({ key: "2026casj_qm1", eventKey: "2026casj", matchNumber: 1, redTeams: RED_TEAMS, blueTeams: BLUE_TEAMS, redScore: 120, blueScore: 95, actualTimeSec: POST_RESULT_SEC - 130, postResultTimeSec: POST_RESULT_SEC });
+    return base;
+  }
+
+  /** The tick's clock: each reading is one second after the last, so observed < folded < published is strict. */
+  function steppingClock(): () => number {
+    let t = NOW_MS;
+    return () => (t += 1000);
+  }
+
+  it("a tick that folds one new match writes one endpoint row (matches) and one match row, both published", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", loggedEventRecord()]])));
+
+    const result = await runTick(makeEnv(makeManifests([LOG_WINDOW]), d1, r2), { nowMs: NOW_MS, ingestClock: steppingClock() });
+
+    expect(result.eventsAdvanced).toBe(1);
+    expect(result.ingestRowsWritten).toBe(2);
+    expect(d1.ingestLog.statementCount).toBe(1);
+    const [endpoint, match] = d1.ingestLog.rows;
+    expect(endpoint).toMatchObject({ eventKey: "2026casj", kind: "endpoint", subject: "matches", tbaLastModified: "Sat, 22 Aug 2026 11:59:20 GMT" });
+    expect(endpoint!.publishedAt).not.toBeNull();
+    expect(match).toMatchObject({ kind: "match", subject: "2026casj_qm1", tbaPostResultTime: POST_RESULT_SEC, tbaActualTime: POST_RESULT_SEC - 130, observedAt: endpoint!.observedAt });
+    expect(Date.parse(match!.observedAt)).toBeLessThan(Date.parse(match!.foldedAt!));
+    expect(Date.parse(match!.foldedAt!)).toBeLessThan(Date.parse(match!.publishedAt!));
+
+    // The tracer's point: the rows, passed through the report, name the match with a real latency.
+    const report = buildLiveReport(d1.ingestLog.rows);
+    expect(report.matches).toHaveLength(1);
+    expect(report.matches[0]!.matchKey).toBe("2026casj_qm1");
+    expect(report.matches[0]!.postToPublishedSeconds).toEqual(expect.any(Number));
+  });
+
+  it("a second tick whose every poll answers 304 writes no row and spends no extra subrequest", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", loggedEventRecord()]])));
+    await runTick(makeEnv(makeManifests([LOG_WINDOW]), d1, r2), { nowMs: NOW_MS });
+    const rowsAfterFirst = d1.ingestLog.rows.length;
+    const statementsAfterFirst = d1.ingestLog.statementCount;
+
+    const second = await runTick(makeEnv(makeManifests([LOG_WINDOW]), d1, r2), { nowMs: NOW_MS + 60_000 });
+
+    expect(second.eventsAdvanced).toBe(0);
+    expect(second.ingestRowsWritten).toBe(0);
+    expect(d1.ingestLog.rows).toHaveLength(rowsAfterFirst);
+    expect(d1.ingestLog.statementCount).toBe(statementsAfterFirst);
+    // 1 live windows + 1 roster cursors + 1 roster poll + 1 cursor + 1 poll (304)
+    // + 1 algorithms manifest + 1 tick state + 1 tick meta: the figure this tick
+    // spent before the log existed.
+    expect(second.subrequestsUsed).toBe(8);
+  });
+
+  it("with the log's table rejecting every insert the tick still advances and writes the same artifacts", async () => {
+    const control = { d1: new FakeD1Database(), r2: new FakeR2Bucket() };
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", loggedEventRecord()]])));
+    const controlResult = await runTick(makeEnv(makeManifests([LOG_WINDOW]), control.d1, control.r2), { nowMs: NOW_MS });
+
+    const d1 = new FakeD1Database();
+    d1.ingestLog.rejectWith = new Error("no such table: ingest_log");
+    const r2 = new FakeR2Bucket();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const result = await runTick(makeEnv(makeManifests([LOG_WINDOW]), d1, r2), { nowMs: NOW_MS });
+
+    expect(result.eventsAdvanced).toBe(1);
+    expect(result.eventsAdvanced).toBe(controlResult.eventsAdvanced);
+    expect(result.eventsFailed).toBe(0);
+    expect(result.ingestRowsWritten).toBe(0);
+    expect(r2.puts.map((p) => p.key).sort()).toEqual(control.r2.puts.map((p) => p.key).sort());
+    expect(d1.algorithmState.size).toBe(control.d1.algorithmState.size);
+    const flushWarnings = warn.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("ingest-log-flush-failed"));
+    expect(flushWarnings).toHaveLength(1);
+  });
+
+  it("a Phase B write that rejects produces a failure row with subject phase-b and a phase-b-failed warning", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    r2.rejectPutsWith = new Error("simulated R2 put failure");
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", loggedEventRecord()]])));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await runTick(makeEnv(makeManifests([LOG_WINDOW]), d1, r2), { nowMs: NOW_MS });
+
+    expect(result.eventsAdvanced).toBe(1);
+    const failure = d1.ingestLog.rows.find((row) => row.kind === "failure");
+    expect(failure).toMatchObject({ eventKey: "2026casj", subject: "phase-b" });
+    expect(failure!.detail).toContain("simulated R2 put failure");
+    const lines = warn.mock.calls.map(([line]) => JSON.parse(String(line)) as Record<string, unknown>).filter((line) => line.msg === "phase-b-failed");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ eventKey: "2026casj" });
+    // The matches endpoint row is never stamped published when the artifacts did not land.
+    expect(d1.ingestLog.rows.find((row) => row.kind === "endpoint")!.publishedAt).toBeNull();
   });
 });

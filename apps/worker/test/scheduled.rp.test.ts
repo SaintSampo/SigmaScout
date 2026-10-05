@@ -57,6 +57,7 @@ import { PUBLISHED_ALGORITHM_IDS } from "../../../packages/harness/publishedAlgo
 import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
+import { IngestLogFakeStore, isIngestLogSql } from "./support/ingestLogFake.js";
 
 /**
  * The final live tick's subrequest cost on this fixture. RP beliefs ride
@@ -133,8 +134,13 @@ import type { D1Database } from "@cloudflare/workers-types";
  *   PREDICTED: 64 + 3 = 67
  *
  * OBSERVED: 67.
+ *
+ * MOVED TO 68 on purpose by quick task 261004-uyc: a tick that folds a match now
+ * writes its ingest log in ONE flush statement, and that flush is one subrequest.
+ * A tick that folds nothing writes no row and spends none (the 304 pins elsewhere
+ * did not move).
  */
-const SUBREQUESTS_PER_LIVE_TICK = 67;
+const SUBREQUESTS_PER_LIVE_TICK = 68;
 
 interface FakeAlgorithmStateRow {
   algorithm_id: string;
@@ -183,6 +189,8 @@ class FakePreparedStatement {
 class FakeD1Database {
   algorithmState = new Map<string, FakeAlgorithmStateRow>();
   eventCursors = new Map<string, FakeEventCursorRow>();
+  /** The ingest log table (quick task 261004-uyc). */
+  readonly ingestLog = new IngestLogFakeStore();
 
   constructor() {
     // Every fixture's algorithms manifest publishes `generation: "gen-1"`
@@ -234,6 +242,7 @@ class FakeD1Database {
   }
 
   executeWrite(sql: string, args: readonly unknown[]): number {
+    if (isIngestLogSql(sql)) return this.ingestLog.apply(sql, args);
     if (sql.includes("INSERT INTO algorithm_state")) {
       const [algorithmId, algorithmVersion, scopeKind, scopeKey, stateJson, generation, computedAt] = args as string[];
       this.algorithmState.set(`${algorithmId}::${scopeKind}::${scopeKey}`, {

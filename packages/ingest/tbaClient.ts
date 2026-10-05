@@ -29,7 +29,8 @@ export const THROTTLE_INTERVAL_MS = 100;
 
 export type TbaFetchResult =
   | { status: 304 }
-  | { status: 200; etag: string | undefined; body: unknown };
+  // `lastModified` is TBA's own `Last-Modified` header: absent (no key at all) when TBA sent none.
+  | { status: 200; etag: string | undefined; body: unknown; lastModified?: string };
 
 /** Tallies a run's request volume against TBA — persisted to `ingest_runs` so cost is measured, not assumed. */
 export class TbaRequestCounter {
@@ -94,7 +95,8 @@ export async function tbaFetch(
     throw new Error(`TBA request failed: ${path} -> HTTP ${res.status}`);
   }
   counter?.recordFresh();
-  return { status: 200, etag: res.headers.get("etag") ?? undefined, body: await res.json() };
+  const lastModified = res.headers.get("last-modified");
+  return { status: 200, etag: res.headers.get("etag") ?? undefined, body: await res.json(), ...(lastModified ? { lastModified } : {}) };
 }
 
 export interface TbaClientContext {

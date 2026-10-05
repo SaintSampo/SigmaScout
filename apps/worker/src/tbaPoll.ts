@@ -35,7 +35,7 @@ export function createTbaContext(env: Env, counter: TbaRequestCounter): TbaClien
 
 export type PollEventMatchesResult =
   | { readonly status: "not-modified" }
-  | { readonly status: "ok"; readonly etag: string | undefined; readonly matches: readonly unknown[] };
+  | { readonly status: "ok"; readonly etag: string | undefined; readonly matches: readonly unknown[]; readonly lastModified?: string };
 
 /** Thrown by `pollEventMatches` for any non-2xx, non-304 TBA response, or for a transport-level `fetch` failure — always names ONLY the event key, never the TBA key, never response headers. */
 export class TbaPollError extends Error {
@@ -64,7 +64,7 @@ export async function pollEventMatches(ctx: TbaClientContext, eventKey: string, 
   if (result.status === 304) {
     return { status: "not-modified" };
   }
-  return { status: "ok", etag: result.etag, matches: result.body as unknown[] };
+  return { status: "ok", etag: result.etag, matches: result.body as unknown[], ...(result.lastModified !== undefined ? { lastModified: result.lastModified } : {}) };
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +84,7 @@ export async function pollEventMatches(ctx: TbaClientContext, eventKey: string, 
  *
  * A 304 costs the same ONE request as a 200; see this file's header.
  */
-export type TbaConditionalBody = { readonly status: "not-modified" } | { readonly status: "ok"; readonly etag: string | undefined; readonly body: unknown };
+export type TbaConditionalBody = { readonly status: "not-modified" } | { readonly status: "ok"; readonly etag: string | undefined; readonly body: unknown; readonly lastModified?: string };
 
 /** Thrown by `pollDistrictRankings` for any non-2xx, non-304 TBA response, or for a transport-level `fetch` failure — always names ONLY the district key, never the TBA key, never response headers. Mirrors `TbaPollError`. */
 export class TbaDistrictRankingsPollError extends Error {
@@ -117,7 +117,7 @@ export async function pollDistrictRankings(ctx: TbaClientContext, districtKey: s
     throw new TbaDistrictRankingsPollError(districtKey, err);
   }
   if (result.status === 304) return { status: "not-modified" };
-  return { status: "ok", etag: result.etag, body: result.body };
+  return { status: "ok", etag: result.etag, body: result.body, ...(result.lastModified !== undefined ? { lastModified: result.lastModified } : {}) };
 }
 
 /**
@@ -134,7 +134,7 @@ export async function pollEventAwards(ctx: TbaClientContext, eventKey: string, c
     throw new TbaEventAwardsPollError(eventKey, err);
   }
   if (result.status === 304) return { status: "not-modified" };
-  return { status: "ok", etag: result.etag, body: result.body };
+  return { status: "ok", etag: result.etag, body: result.body, ...(result.lastModified !== undefined ? { lastModified: result.lastModified } : {}) };
 }
 
 /** Thrown by `pollEventTeams` for any non-2xx, non-304 TBA response, or for a transport-level `fetch` failure — always names ONLY the event key, never the TBA key, never response headers. Mirrors `TbaPollError`. */
@@ -161,5 +161,5 @@ export async function pollEventTeams(ctx: TbaClientContext, eventKey: string, ca
     throw new TbaEventTeamsPollError(eventKey, err);
   }
   if (result.status === 304) return { status: "not-modified" };
-  return { status: "ok", etag: result.etag, body: result.body };
+  return { status: "ok", etag: result.etag, body: result.body, ...(result.lastModified !== undefined ? { lastModified: result.lastModified } : {}) };
 }

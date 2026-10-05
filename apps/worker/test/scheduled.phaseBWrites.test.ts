@@ -39,6 +39,7 @@ import { PUBLISHED_ALGORITHM_IDS } from "../../../packages/harness/publishedAlgo
 import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
+import { IngestLogFakeStore, isIngestLogSql } from "./support/ingestLogFake.js";
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -92,6 +93,8 @@ class FakePreparedStatement {
 class FakeD1Database {
   algorithmState = new Map<string, FakeAlgorithmStateRow>();
   eventCursors = new Map<string, FakeEventCursorRow>();
+  /** The ingest log table (quick task 261004-uyc). */
+  readonly ingestLog = new IngestLogFakeStore();
 
   /**
    * Every statement this fake executed, in order: the literal `"d1-batch"` for a
@@ -154,6 +157,7 @@ class FakeD1Database {
 
   executeWrite(sql: string, args: readonly unknown[]): number {
     this.statements.push(sql);
+    if (isIngestLogSql(sql)) return this.ingestLog.apply(sql, args);
     if (sql.includes("INSERT INTO algorithm_state")) {
       const [algorithmId, algorithmVersion, scopeKind, scopeKey, stateJson, generation, computedAt] = args as string[];
       this.algorithmState.set(`${algorithmId}::${scopeKind}::${scopeKey}`, {

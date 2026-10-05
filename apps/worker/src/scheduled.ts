@@ -196,6 +196,7 @@ import { deriveMatchDerivedEventState, type MatchDerivedEventState } from "./dis
 import { TICK_META_EVENT_KEY, stateBaselineEventKey } from "../../../packages/harness/stateBaseline.js";
 import { rotate, sortEventKeys, SubrequestCounter } from "./subrequestCounter.js";
 import { createTbaContext, pollEventMatches, pollEventTeams, TbaRequestCounter, type TbaClientContext } from "./tbaPoll.js";
+import { flushIngestLog, IngestLogBuffer, matchArrivalFacts, type LiveTickContext } from "./ingestLog.js";
 import type { Env } from "./env.js";
 
 // ---------------------------------------------------------------------------
@@ -881,7 +882,7 @@ function changesOf(result: unknown): number {
  */
 export type EventPreflightResult =
   | { readonly status: "not-modified"; readonly cursor: EventCursor }
-  | { readonly status: "ok"; readonly cursor: EventCursor; readonly etag: string | undefined; readonly matches: readonly unknown[] };
+  | { readonly status: "ok"; readonly cursor: EventCursor; readonly etag: string | undefined; readonly matches: readonly unknown[]; readonly lastModified?: string };
 
 /**
  * `processEvent`'s own first two calls, extracted so a probe can pay for them
@@ -895,12 +896,12 @@ async function eventPreflight(env: Env, counter: SubrequestCounter, tbaCtx: TbaC
   counter.spend(1);
   const poll = await pollEventMatches(tbaCtx, eventKey, cursor.tbaEtag ?? undefined);
   if (poll.status === "not-modified") return { status: "not-modified", cursor };
-  return { status: "ok", cursor, etag: poll.etag, matches: poll.matches };
+  return { status: "ok", cursor, etag: poll.etag, matches: poll.matches, ...(poll.lastModified !== undefined ? { lastModified: poll.lastModified } : {}) };
 }
 
 /** What `runProbes` hands back to `runTick`: promoted events (probe saw real matches — keyed by event key, ready to pass straight into `processEvent` as its preflight) plus the two tallies the tick's tail line reports. A throwing probe is confined to itself and counted in `eventsFailed`, never in `eventsProbed`. */
 interface ProbePassResult {
-  readonly promoted: ReadonlyMap<string, { readonly cursor: EventCursor; readonly etag: string | undefined; readonly matches: readonly unknown[] }>;
+  readonly promoted: ReadonlyMap<string, { readonly cursor: EventCursor; readonly etag: string | undefined; readonly matches: readonly unknown[]; readonly lastModified?: string }>;
   readonly eventsProbed: number;
   readonly eventsFailed: number;
 }
@@ -943,7 +944,7 @@ interface ProbePassResult {
 async function runProbes(env: Env, counter: SubrequestCounter, tbaCtx: TbaClientContext, probeWindows: readonly LiveWindowEntry[], nowIso: string): Promise<ProbePassResult> {
   const ordered = sortEventKeys(probeWindows.map((w) => w.eventKey));
 
-  const promoted = new Map<string, { cursor: EventCursor; etag: string | undefined; matches: readonly unknown[] }>();
+  const promoted = new Map<string, { cursor: EventCursor; etag: string | undefined; matches: readonly unknown[]; lastModified?: string }>();
   let eventsProbed = 0;
   let eventsFailed = 0;
 
@@ -962,7 +963,7 @@ async function runProbes(env: Env, counter: SubrequestCounter, tbaCtx: TbaClient
         continue;
       }
 
-      promoted.set(eventKey, { cursor: preflight.cursor, etag: preflight.etag, matches: preflight.matches });
+      promoted.set(eventKey, { cursor: preflight.cursor, etag: preflight.etag, matches: preflight.matches, ...(preflight.lastModified !== undefined ? { lastModified: preflight.lastModified } : {}) });
     } catch (err) {
       eventsFailed++;
       console.warn(JSON.stringify({ msg: "probe-failed", eventKey, error: err instanceof Error ? err.message : String(err) }));
@@ -1325,6 +1326,8 @@ async function processEvent(
    * `districtKey` ever writes to it.
    */
   matchDerivedState: Map<string, MatchDerivedEventState>,
+  /** The tick's ingest log buffer (quick task 261004-uyc). */
+  live: LiveTickContext,
   /**
    * A probe's already-paid-for `eventPreflight` result (`runProbes`), for a
    * PROMOTED event only. When supplied, `processEvent` counts NO subrequest for
@@ -1333,7 +1336,7 @@ async function processEvent(
    * `inferred: false`) path, which still runs its own preflight exactly as
    * before this parameter existed.
    */
-  preflight?: { readonly cursor: EventCursor; readonly etag: string | undefined; readonly matches: readonly unknown[] }
+  preflight?: { readonly cursor: EventCursor; readonly etag: string | undefined; readonly matches: readonly unknown[]; readonly lastModified?: string }
 ): Promise<EventOutcome> {
   const eventKey = window.eventKey;
 
@@ -1341,11 +1344,13 @@ async function processEvent(
     let cursor: EventCursor;
     let pollEtag: string | undefined;
     let rawMatchesUnknown: readonly unknown[];
+    let matchesLastModified: string | undefined;
 
     if (preflight) {
       cursor = preflight.cursor;
       pollEtag = preflight.etag;
       rawMatchesUnknown = preflight.matches;
+      matchesLastModified = preflight.lastModified;
     } else {
       counter.spend(1);
       cursor = (await readEventCursor(env.DB, eventKey)) ?? { eventKey, tbaEtag: null, lastFoldedMatchKey: null, lastPolledAt: null, lastAdvancedAt: null, rosterEtag: null };
@@ -1355,6 +1360,7 @@ async function processEvent(
       if (poll.status === "not-modified") return { status: "unchanged" };
       pollEtag = poll.etag;
       rawMatchesUnknown = poll.matches;
+      matchesLastModified = poll.lastModified;
     }
 
     const rawMatches = tbaMatchListSchema.parse(rawMatchesUnknown);
@@ -1385,6 +1391,7 @@ async function processEvent(
     // `matchSplit.ts`'s header for what that guarantees and
     // `test/matchSplit.test.ts` for the proof.
     const { orderedMatchKeys, newlyFolded, stillUpcoming } = splitEventMatches(rawMatches, approxStartDateIso, cursor);
+    live.ingest.endpointChanged(eventKey, "matches", { lastModified: matchesLastModified, detail: { played: rawMatches.length - stillUpcoming.length, scheduled: stillUpcoming.length } });
 
     // Unconditional since quick task 260923-3w4: this etag write used to sit
     // behind a `tryConsume` so it could never be the call that squeezed out an
@@ -1407,6 +1414,7 @@ async function processEvent(
       // A POSTED, UNSCORED SCHEDULE (quick task 260925-uy5) — priced and
       // published rather than dropped.
       await runScheduleOnlyPricing(env, counter, tbaCtx, algorithmModules, window, stillUpcoming, stamp);
+      live.ingest.eventPublished(eventKey);
       // AFTER the writes, and that ORDER IS THE POINT, not an accident: writing
       // the etag first and then throwing would leave TBA answering 304 for a
       // schedule that was never priced, and nothing would retry until TBA's own
@@ -1696,7 +1704,8 @@ async function processEvent(
         perAlgorithm.set(algorithmId, { algorithm, newPredictions, touchedMetrics, newBands, touchedSigma, observedBonusSides, upcomingModel });
       }
 
-      return await runPhaseBAndReport(env, counter, window, eventKey, eventType, fetchedEventType, rawMatches, newlyFolded, newlyFoldedResults, stillUpcoming, touchedTeams, realTouchedTeams, perAlgorithm, touchedTeamsByAlgorithm, stamp);
+      live.ingest.matchesFolded(eventKey, matchArrivalFacts(rawMatchesUnknown, new Set(newlyFolded.map((m) => m.matchKey))));
+      return await runPhaseBAndReport(env, counter, window, eventKey, eventType, fetchedEventType, rawMatches, newlyFolded, newlyFoldedResults, stillUpcoming, touchedTeams, realTouchedTeams, perAlgorithm, touchedTeamsByAlgorithm, stamp, live);
     } catch (phaseAError) {
       // Revert the claim: state did not advance, so a later tick must be free
       // to fold these matches again. Unconditional since quick task 260923-3w4 —
@@ -1711,6 +1720,7 @@ async function processEvent(
     // `"ok":true`). Logs only the event key and error message, never the TBA
     // key or a response header/body.
     console.error(JSON.stringify({ msg: "event-failed", eventKey, error: err instanceof Error ? err.message : String(err) }));
+    live.ingest.failure(eventKey, "event", err);
     return { status: "failed" };
   }
 }
@@ -1744,7 +1754,8 @@ async function runPhaseBAndReport(
   realTouchedTeams: readonly string[],
   perAlgorithm: ReadonlyMap<string, PerAlgorithmFold>,
   touchedTeamsByAlgorithm: Map<string, Map<string, TouchedTeamInfo>>,
-  stamp: Stamp
+  stamp: Stamp,
+  live: LiveTickContext
 ): Promise<EventOutcome> {
   try {
     // Algorithm-independent, so computed ONCE for the whole tick. The bonus
@@ -1898,8 +1909,14 @@ async function runPhaseBAndReport(
 
       if (isOfficial) touchedTeamsByAlgorithm.set(compositeKey, seasonMap);
     }
-  } catch {
-    // Best-effort: state already advanced; some artifacts may lag.
+    live.ingest.eventPublished(eventKey);
+  } catch (phaseBError) {
+    // Best-effort: state already advanced; some artifacts may lag. NOT silent any
+    // more (quick task 261004-uyc): this bare catch is why nobody could say why
+    // 2026vari showed no playoff rows. The line and the log row carry the event
+    // key and a truncated message only.
+    console.warn(JSON.stringify({ msg: "phase-b-failed", eventKey, error: (phaseBError instanceof Error ? phaseBError.message : String(phaseBError)).slice(0, WRITE_RETRY_ERROR_MESSAGE_MAX) }));
+    live.ingest.failure(eventKey, "phase-b", phaseBError);
   }
 
   return { status: "advanced" };
@@ -2021,6 +2038,8 @@ export interface RunTickDeps {
   readonly nowMs?: number;
   /** Test-only: lets a test count `buildAlgorithmModules` calls to assert one construction per tick. */
   readonly buildAlgorithmModules?: (algorithmsManifest: AlgorithmsManifest, liveAlgorithmIds: readonly string[]) => Map<string, AlgorithmModule<any>>;
+  /** Test-only: the clock the ingest log stamps its observed, folded and published times from. Defaults to `Date.now`. */
+  readonly ingestClock?: () => number;
 }
 
 export interface TickResult {
@@ -2051,12 +2070,38 @@ export interface TickResult {
   readonly districtsUnchanged: number;
   /** Districts whose refresh threw, was refused, or found no published artifact. Confined to that district: the pass still refreshed the others and the tick still wrote its rotation offset. */
   readonly districtsFailed: number;
+  /** Rows the tick's ingest log flush wrote to D1 (quick task 261004-uyc). Zero on a tick that saw no change, and zero when the flush failed: the log never changes the fold's outcome. */
+  readonly ingestRowsWritten: number;
 }
+
+/** What `runTickCore` returns: every `TickResult` field the wrapper does not own. */
+type CoreTickResult = Omit<TickResult, "ingestRowsWritten">;
 
 /** The four district counts every `TickResult` return site carries, as zeros — the early returns, which the district pass is deliberately unreachable from. */
 const NO_DISTRICT_REFRESH: DistrictRefreshResult = { districtsConsidered: 0, districtsRefreshed: 0, districtsUnchanged: 0, districtsFailed: 0 };
 
+/**
+ * One tick, with its ingest log (quick task 261004-uyc). The core does the work
+ * and fills the buffer; this wrapper flushes it in a `finally`, after the fold,
+ * so a failing log write can neither fail nor delay a fold. The flush is ONE
+ * statement and costs ONE subrequest, and only when there is something to write.
+ */
 export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickResult> {
+  const startMs = deps.nowMs ?? Date.now();
+  const live: LiveTickContext = { ingest: new IngestLogBuffer(new Date(startMs).toISOString(), deps.ingestClock) };
+  let core: CoreTickResult;
+  let flushAttempted = false;
+  let ingestRowsWritten = 0;
+  try {
+    core = await runTickCore(env, deps, live);
+  } finally {
+    flushAttempted = live.ingest.rows().length > 0;
+    ingestRowsWritten = await flushIngestLog(env.DB, live.ingest);
+  }
+  return { ...core, ingestRowsWritten, subrequestsUsed: core.subrequestsUsed + (flushAttempted ? 1 : 0) };
+}
+
+async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): Promise<CoreTickResult> {
   const nowMs = deps.nowMs ?? Date.now();
   const nowIso = new Date(nowMs).toISOString();
   const stamp: Stamp = { generation: `tick-${nowMs}`, computedAt: nowIso };
@@ -2212,7 +2257,7 @@ export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickRes
     const preflight = probeResult.promoted.get(eventKey);
     if (preflight) eventsPromoted++;
 
-    const outcome = await processEvent(env, subrequests, tbaCtx, algorithmModules, window, nowIso, stamp, touchedTeamsByAlgorithm, matchDerivedState, preflight);
+    const outcome = await processEvent(env, subrequests, tbaCtx, algorithmModules, window, nowIso, stamp, touchedTeamsByAlgorithm, matchDerivedState, live, preflight);
     if (outcome.status === "unchanged") continue; // considered, but not counted toward advanced/failed
     // BEFORE `eventsConsidered++`, so every existing counter keeps the meaning
     // it had before this outcome existed — and the rotation offset keeps
