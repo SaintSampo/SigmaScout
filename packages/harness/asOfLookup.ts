@@ -312,7 +312,19 @@ class Resolver {
         return this.fromLog(teamKey, eventKey, segment);
       }
       const p = segment.p;
-      if (p === null || asOfAtOrBefore(p[0], [p[1], p[2]], cut)) return segment.s;
+      if (p === null) return segment.s;
+      if (asOfAtOrBefore(p[0], [p[1], p[2]], cut)) {
+        // A `p` taken from a season tail that was behind its INDEX (a lost live
+        // write) names a row INSIDE the team's segment there rather than its
+        // end, and `s` then holds matches played after `p`, maybe after the
+        // cut. When that INDEX is in hand and its segment runs past `p`, the
+        // INDEX wins: walk on from that segment. With objects written together
+        // the segment holding `p` ends at `p`, so nothing changes.
+        const held = this.input.indexes.get(p[0])?.teams[teamKey]?.find((candidate) => candidate.f[1] <= p[2] && p[2] <= candidate.l[1]);
+        if (held === undefined || held.l[1] === p[2]) return segment.s;
+        current = { eventKey: p[0], segment: held };
+        continue;
+      }
       current = this.segmentHolding(teamKey, p[0], p[2], false);
     }
     throw new AsOfResolveError(`${teamKey} did not resolve within 10,000 steps`);

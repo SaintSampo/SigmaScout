@@ -289,6 +289,19 @@ describe("resolveAsOf — objects a live write left behind a lost season object 
       expect(r.states.get("frc1"), `cut at row ${row}`).toEqual(tuple(row + 1));
     }
   });
+
+  it("a team whose next match after a lost season write is at ANOTHER event: its p there is stale, and the INDEX in hand wins over it", () => {
+    const s = new Season();
+    for (let row = 0; row < 4; row++) s.fold("2026e", `2026e_qm${row + 1}`, 100 + 10 * row, { frc1: [row, row + 1] });
+    s.season.tails.frc1 = ["2026e", 110, 1];
+    // frc1's next match is at 2026g: its segment there opens with p = 2026e row 1 and s = its state after row 3.
+    s.fold("2026g", "2026g_qm1", 200, { frc1: [4, 5] });
+    expect(s.indexes.get("2026g")!.teams.frc1![0]!.p).toEqual(["2026e", 110, 1]);
+    // A cut at 2026e row 2, asked from 2026g only: p is before the cut, but 2026e's INDEX in hand shows the
+    // segment runs on past p, so the walk reads 2026e's LOG instead of s (the state after row 3).
+    const r = resolveAsOf(s.input(s.cut("2026e", "2026e_qm3"), [{ teamKey: "frc1", knownEventKeys: ["2026g"] }]));
+    expect(r.states.get("frc1")).toEqual(tuple(3));
+  });
 });
 
 /** A JSON copy, so a test can hand the resolver an object of another age without touching the live one. */
