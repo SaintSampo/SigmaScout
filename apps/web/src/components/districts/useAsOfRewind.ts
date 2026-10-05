@@ -7,7 +7,7 @@ import { useAlgorithmVersion } from "../ribbon/AlgorithmSelect.js";
 import { asOfCandidateEvents, loadAsOfRewind, type AsOfFetchers, type AsOfRewindResult } from "./asOfRewind.js";
 import type { DistrictTimeline } from "./districtTimeline.js";
 import type { DistrictStageFinality } from "./districtLedgerRows.js";
-import { DISTRICT_LEDGER_ALGORITHM_ID } from "./useDistrictLedgerData.js";
+import { DISTRICT_LEDGER_ALGORITHM_ID } from "./districtRunAssembly.js";
 
 /**
  * A REWOUND LOCKS STOP'S AS-OF STATE (quick task 261005-5g0), for both Locks

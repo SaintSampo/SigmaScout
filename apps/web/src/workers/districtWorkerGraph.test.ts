@@ -72,7 +72,7 @@ describe("the district Worker chunks and the main thread", () => {
   });
 
   it("the main thread's district data hooks reach none of the pricer, the bake or the generator", () => {
-    for (const entry of ["useDistrictLedgerData.ts", "useDistrictSimulationRun.ts", "useAsOfRewind.ts", "asOfRewind.ts"]) {
+    for (const entry of ["useDistrictLedgerData.ts", "districtRunAssembly.ts", "useDistrictSimulationRun.ts", "useAsOfRewind.ts", "asOfRewind.ts"]) {
       const { files } = reach(resolve(HERE, "..", "components", "districts", entry));
       const heavy = ["asOfPricing.ts", "districtBake.ts", "preSchedule.ts", "generatedSchedules.ts"].map((name) => resolve(HARNESS, name));
       expect(heavy.filter((file) => files.has(file)), entry).toEqual([]);
