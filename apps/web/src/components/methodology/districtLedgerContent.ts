@@ -68,13 +68,16 @@
  *      a number typed beside it.
  *
  *   8. `pnpm measure:champ-cutoff`
- *      (`npx tsx scripts/measureChampCutoff.ts`, run 2026-09-27, quick task
- *      260927-6bf) — the Champ Locks simulated line's error at the end of each
- *      district season, walk forward over 68 district seasons: 16.4 points
- *      against 41.0 for the midpoint rule at the same position. Its likely
- *      range covered the published line in 49 of 69 seasons, short of the
+ *      (`npx tsx scripts/measureChampCutoff.ts`, quick task 260927-6bf, re-run
+ *      2026-10-05 on the district tier lock floor of quick task 261005-04t) —
+ *      the Champ Locks simulated line's error at the end of each district
+ *      season, walk forward over 68 district seasons: 18.2 points against
+ *      40.4 for the midpoint rule at the same position. Its likely range
+ *      covered the published line in 48 of 69 seasons, short of the
  *      pre-registered 72% to 88% band. The range is shown anyway (Jacob,
- *      2026-09-27), so the page quotes that coverage.
+ *      2026-09-27), so the page quotes that coverage. The 2026-09-27 run read
+ *      16.4, 41.0 and 49 of 69, on verdicts that already held championship
+ *      points.
  *
  * THE DISTRICT LOCKS LINE CARRIES NO MEASURED FIGURE ON THIS PAGE (quick task
  * 261004-uw4). Its predicted cutoff became the median of the simulated line on
@@ -196,7 +199,7 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
       "Once every team still racing for points has finished its season, nothing is drawn any more. The cutoff is then the midpoint of the last team inside the slots and the first team outside them, which is the midpoint rule. The midpoint rule also applies, with no likely range, where the runs left out a team whose season total could not be built, because they ranked a smaller field.",
       "The Champ Locks tab reads its predicted cutoff the same way, with one step added. In each run the District Championship winning alliance and its Impact, Engineering Inspiration and Rookie All Star winners are drawn and take their slots first, and the line is read from the teams left. Award winners come from that season's district winners of the same award, and each award's count starts from the number the district gave the season before.",
       "Teams at or above that line are In range and teams below it are Out of range. Until the runs finish those two chips read Pending, and where no line can be drawn they read No call. Once the District Championship awards are posted nothing is drawn any more, and the midpoint rule applies.",
-      "On the Champ Locks tab, at the end of each district season and predicted only from the seasons before it, the simulated line missed the published line by 16.4 points on average over 68 district seasons, against 41.0 for the midpoint rule. Its likely range, the 10th to the 90th percentile of that line across the runs, held the published line in 49 of 69 seasons, 71%, where a range this wide should hold about 80%.",
+      "On the Champ Locks tab, at the end of each district season and predicted only from the seasons before it, the simulated line missed the published line by 18.2 points on average over 68 district seasons, against 40.4 for the midpoint rule. Its likely range, the 10th to the 90th percentile of that line across the runs, held the published line in 48 of 69 seasons, 70%, where a range this wide should hold about 80%.",
       "On the Champ Locks tab a run also counts a team as qualified when it lands on the winning alliance or draws one of those awards.",
       "A rewound view predicts every match still ahead from the ratings and odds as they stood at that stop. An event whose schedule was not yet posted then is predicted over generated schedules, as an event that has not started is.",
     ],

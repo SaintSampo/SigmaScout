@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-05T05:46:51.279Z"
+last_updated: "2026-10-05T19:20:33.469Z"
 last_activity: 2026-10-05
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -715,6 +715,9 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 279 | Presim schedule generation 4.8x faster with 418 of 418 sidecars byte-identical; structure memo cap 128 to 512; fewer-schedules floor measured, keep 1000 | 2026-10-05 | f62462e3 | [261004-v3h-presim-schedule-generation-speedup-and-f](./quick/261004-v3h-presim-schedule-generation-speedup-and-f/) |
 | 280 | Live ingestion rethink after SVS (2026vari): D1 ingest log and pnpm live:report, event phase model, TBA rankings and alliances polled by the tick, counted standings double count fixed, offseason events get ranking points and simulation, live Sigma on the event row, spr 10.0.0. Migration 0003, Worker deploy and rebaseline HELD for Jacob | 2026-10-05 | 3515159f | [261004-uyc-live-ingestion-rethink-phase-aware-event](./quick/261004-uyc-live-ingestion-rethink-phase-aware-event/) |
 | 281 | District Locks verdicts count district tier points only when rewound; Declined state on the Live field; rewind note on both Locks tabs (branch locks-fixes) | 2026-10-05 | 1ead5f4c | [261005-04t-district-locks-verdicts-stop-reading-dcm](./quick/261005-04t-district-locks-verdicts-stop-reading-dcm/) |
+| 282 | Champ cutoff backtest re-run on the district tier floor: 18.2 against 40.4 and 48 of 69, walk-forward tuning regenerated, Methodology corrected (fast task) | 2026-10-05 | 8319959c | — |
+| 283 | Pre-schedule simulation on for every season: publish:seasons passes presim-from-season 2016 after the all-seasons dry run measured 9,822.6 s and 3,336 sidecars | 2026-10-05 | 211e2744 | [261005-kzs-pre-schedule-simulation-on-for-every-sea](./quick/261005-kzs-pre-schedule-simulation-on-for-every-sea/) |
+| 284 | Browser presim pricing reopening and measured no-go recorded in the simulation architecture doc and the closed todo (fast task, presim handoff step 5) | 2026-10-05 | fc31d1a6 | — |
 
 ### Roadmap Evolution
 

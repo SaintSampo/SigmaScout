@@ -214,8 +214,9 @@ mid-event. It also sits outside `payloadBudget`'s machine-readable gate.
 Route `event.$eventKey.tsx:188` gates the fetch on `activeTab === "simulation"` — lazily, and
 never inside `SimulationTab` itself (Radix would otherwise fetch on every event page load).
 `fetchPreScheduleArtifact` returns **`null` on 404** rather than throwing, because an absent
-sidecar is an ordinary permanent state (pre-2026 season, offseason event, cold-start first
-event, RP-less algorithm). Every other non-OK status still throws.
+sidecar is an ordinary permanent state (a season below the `--presim-from-season` cutoff, which
+is 2016 in `pnpm publish:seasons`; an offseason event; a cold-start first event; an RP-less
+algorithm). Every other non-OK status still throws.
 
 `decodePreScheduleResult` then rebuilds `{rankHistograms, draws}` from `baked` alone. Nothing
 else in the published body is read: `roster` supplies the team-key index, `baked` supplies the
@@ -333,6 +334,27 @@ this compute was never CPU-constrained on the client in the first place.
 section 1a runs IN THE BROWSER, which is consistent with the decision this section records rather
 than a departure from it.
 
+**Reopened by Jacob on 2026-09-29 and closed again by measurement.** The question was whether the
+browser could generate and price the pre-schedule schedules itself, so that no sidecar would need
+baking. Quick task 260929-mkn measured it on three 2026 events in Node and in Chromium at 1x, 4x
+and 6x CPU throttle
+(`.planning/quick/260929-mkn-browser-presim-pricing-measurement-spike/260929-mkn-FINDINGS.md`).
+
+- The browser reproduces the offline histograms exactly. All 241,000 priced matches compared equal
+  after rounding, in every arm and engine.
+- Bytes are not the obstacle. The per-event inputs are 22% to 35% smaller gzipped than the sidecar
+  they would replace, plus one lazy bundle of 89 KB gzipped.
+- Time is. Reaching 1,000 schedules for the 75 team event (2026joh) took 16.1 s on the desktop
+  host at 1x, 80.6 s at 4x and 135.1 s at 6x, against a line of 15 s fixed before measuring.
+- Generating the schedules is the cost, not pricing them: 88% of the wall time at 1x for that
+  event, with pricing at 6.6%. Shipping the pairing structures in place of generating them costs
+  about 592 KB gzipped per 1,000 schedules for 75 teams.
+
+So the baked sidecar stays the first paint and the only source. The offline generator has since
+been made about 4.8 times faster with unchanged output (quick task 261004-v3h). The browser was not
+measured again with it. Dividing the measured generation seconds by 4.8 gives about 26 s at 4x for
+the 75 team event, which is still over the line, and that figure is derived, not measured.
+
 ### Historical record: Options A, B and C
 
 Evaluated 2026-09-10 through 2026-09-19, before the question closed. Kept as the record of what
@@ -348,6 +370,10 @@ was considered, not as a live recommendation.
   full joint-covariance RP model, a Cholesky decomposition via `ml-matrix` and 4,000 joint draws
   per match, client-side. Estimated at about 10.5 million multivariate draws per event, three to
   four orders of magnitude above the rank draws the browser already runs. Not viable as evaluated.
+  That argument describes a model SPR's ranking point odds stopped using on 2026-09-14, when the
+  bonus odds moved to marginal fits on a lattice, and nothing under `packages/core/rankingPoints`
+  imports `ml-matrix` now. Option B was measured directly on the current model in 260929-mkn, the
+  reopening recorded above, and failed on schedule generation time, not on pricing.
 - **Option C, ship per-team RP parameters and price alliances cheaply in the browser.** The
   smallest possible payload, a few KB per event, but needs a new, less exact approximation judged
   honest enough to publish under. `FieldAveragedPreScheduleArtifactSchema` in

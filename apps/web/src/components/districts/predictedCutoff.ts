@@ -150,7 +150,10 @@ export type ChampNoCallReason =
  * 88%. The line itself passed every one of its own conditions (end of district
  * MAE 16.5 against 41.0 for the old rule at the ruling; 16.4 once the champ
  * sort's tie break stopped reading DCMP points earned later). Coverage was 49
- * of 69 both times. The range runs a little narrow and is shown with that
+ * of 69 both times. Re-run 2026-10-05 after the district lock floor stopped
+ * holding championship points (quick task 261005-04t), with the walk-forward
+ * tuning regenerated: MAE 18.2 against 40.4, coverage 48 of 69, 69.6%, the
+ * same four line conditions passing. The range runs a little narrow and is shown with that
  * coverage quoted on the Methodology page (`districtLedgerContent.ts`); a
  * later calibration round that changes the coverage must update that sentence.
  * The District Locks tab's likely range comes from the same estimator
