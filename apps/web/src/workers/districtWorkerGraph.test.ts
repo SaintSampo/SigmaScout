@@ -8,6 +8,12 @@
  * - The main thread's district data modules never reach them either.
  * - The AS-OF Worker entry reaches the pricer and the bake (so this scan is
  *   not vacuous) and no Node built-in, so it builds for the browser.
+ *
+ * The Simulation tab's two Worker chunks (Part 4) are held to the same rules:
+ * the default entry, which every EPA, OPR, forward and fallback run loads,
+ * reaches none of the as-of pricer; the as-of entry reaches it and no Node
+ * built-in; the tab's main thread modules reach neither the pricer nor the
+ * as-of job.
  */
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -84,6 +90,23 @@ describe("the district Worker chunks and the main thread", () => {
     const { files, nodeBuiltins } = reach(resolve(HERE, "districtAsOfSimulation.worker.ts"));
     expect(files.has(resolve(HARNESS, "asOfPricing.ts"))).toBe(true);
     expect(files.has(resolve(HARNESS, "districtBake.ts"))).toBe(true);
+    expect(nodeBuiltins).toEqual([]);
+  });
+});
+
+describe("the Simulation tab's Worker chunks and the main thread", () => {
+  it("the default simulation Worker entry reaches none of the as-of pricer, the schemas or the as-of job", () => {
+    const { files } = reach(resolve(HERE, "simulation.worker.ts"));
+    expect(files.has(resolve(HERE, "simulationProtocol.ts"))).toBe(true);
+    expect(HEAVY.filter((file) => files.has(file))).toEqual([]);
+    expect(files.has(resolve(HERE, "simulationAsOfJob.ts"))).toBe(false);
+    expect(files.has(resolve(HERE, "asOfBlockGuards.ts"))).toBe(false);
+  });
+
+  it("the as-of simulation Worker entry reaches the pricer and the shared guards, and no Node built-in", () => {
+    const { files, nodeBuiltins } = reach(resolve(HERE, "simulationAsOf.worker.ts"));
+    expect(files.has(resolve(HARNESS, "asOfPricing.ts"))).toBe(true);
+    expect(files.has(resolve(HERE, "asOfBlockGuards.ts"))).toBe(true);
     expect(nodeBuiltins).toEqual([]);
   });
 });

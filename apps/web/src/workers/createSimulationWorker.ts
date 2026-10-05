@@ -39,3 +39,14 @@
 export function createSimulationWorker(): Worker {
   return new Worker(new URL("./simulation.worker.ts", import.meta.url), { type: "module" });
 }
+
+/**
+ * The SPR rewind's Worker (quick task 261005-5g0): the as-of run, in its own
+ * chunk so the default simulation Worker and the main bundle stay as they
+ * were. The URL sits inline for the reason this file's header gives, and every
+ * lifecycle rule above applies to it unchanged. `useSimulationRun.ts`
+ * constructs it only once an as-of plan is ready.
+ */
+export function createSimulationAsOfWorker(): Worker {
+  return new Worker(new URL("./simulationAsOf.worker.ts", import.meta.url), { type: "module" });
+}
