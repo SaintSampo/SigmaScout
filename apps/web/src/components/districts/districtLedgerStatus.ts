@@ -48,6 +48,18 @@
  * slot-th highest value in the narrowed pool" over a DIFFERENT quantity, which
  * is exactly the projection cut line CONTEXT's In range definition needs.
  *
+ * THAT IS THE VERDICT LEVEL RULE, AND NOT ALWAYS WHAT THE TAB SHOWS (quick
+ * task 261004-uw4; the same split `champLedgerStatus.ts` documents as its
+ * decision 3). The In range and Out of range this module returns are what the
+ * rest of the tab and the advancement chance run read. What the District tab
+ * SHOWS while anything is still open is cut at the simulated line by
+ * `applyLedgerRangeState` in `ledgerRangeState.ts`: at or above the median of
+ * the per run line is In range, and while that line is pending or cannot be
+ * drawn the two chips read Pending or No call. The median rule above stands,
+ * as shown, where every pool team is settled, and where a chance run landed
+ * but left a team out. Prequalified, Locked and Locked out are never touched
+ * by any of that.
+ *
  * THE DATA WORD `eliminated` IS NEVER PRINTED (the sketch's language rules),
  * and neither is the champ tab's sixth verdict word for `contending`. Note
  * carefully that the shipped champ tab's own label for `eliminated` reads as

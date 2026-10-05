@@ -24,7 +24,10 @@
  * through the one `ledgerCutoffDisplay` below, so the stat line's figure and
  * the grand total's dashed rule are one value rendered twice. They previously
  * printed two different quantities and neither of them sat between the teams
- * the tab had just called In range and Out of range.
+ * the tab had just called In range and Out of range. On BOTH tabs that view
+ * and the chips beside it now come from one range state (`ledgerRangeState.ts`,
+ * quick tasks 260927-6bf and 261004-uw4), so the withheld chip, the withheld
+ * counts and the two non figure arms below are shared parts as well.
  *
  * Every `data-testid`, every class string and every text-role class is
  * unchanged, and every class list that mixes a `text-role-*` class with a

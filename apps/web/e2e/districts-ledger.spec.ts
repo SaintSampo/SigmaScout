@@ -304,6 +304,32 @@ test.describe("District Locks, 1440x900", () => {
       )
       .toBe(`${String(pressedKey)} of ${eventKey}`);
     await expect(page.getByTestId(TEST_IDS.pickerLive)).toHaveAttribute("aria-pressed", "false");
+
+    // THE HEADLINE NEVER SITS OUTSIDE ITS OWN RANGE (quick task 261004-uw4).
+    // At this rewound position a race is open again, so the cutoff is the
+    // median of the simulated line and its likely range comes from the same
+    // call. Measured live on 2026-10-04, before the fix, the figure sat BELOW
+    // its printed range at 8 of 22 rewound positions ("~56 · likely 59–64").
+    // The runs land a moment after the rows do, so this waits out "pending".
+    const rewoundStatLine = page.getByTestId(TEST_IDS.statLine);
+    await expect
+      .poll(async () => (await rewoundStatLine.innerText()).trim(), {
+        message: "the rewound stat line must leave pending: a figure, a settled cutoff, or not available with its reason",
+        timeout: 60_000,
+      })
+      .not.toContain("pending");
+    const rewoundStat = (await rewoundStatLine.innerText()).trim();
+    // eslint-disable-next-line no-console -- printed so a failure names the stat line it read.
+    console.log(`[districts-ledger] rewound stat line: ${rewoundStat}`);
+    // An en dash separates the two ends of the likely range.
+    const figureWithRange = /~(\d+)\s*·\s*likely\s+(\d+)–(\d+)/.exec(rewoundStat);
+    if (figureWithRange !== null) {
+      const [figure, low, high] = [Number(figureWithRange[1]), Number(figureWithRange[2]), Number(figureWithRange[3])];
+      expect(low, `the predicted cutoff sits below its own likely range: "${rewoundStat}"`).toBeLessThanOrEqual(figure);
+      expect(figure, `the predicted cutoff sits above its own likely range: "${rewoundStat}"`).toBeLessThanOrEqual(high);
+    }
+    // A refused run prints no figure at all, never a figure beside its refusal.
+    expect(/~\d/.test(rewoundStat) && rewoundStat.includes("not available"), `a figure printed beside a refusal: "${rewoundStat}"`).toBe(false);
   });
 
   test("a pre rename tab id still lands on the District Locks panel", async ({ page }) => {

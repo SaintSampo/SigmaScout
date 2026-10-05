@@ -429,9 +429,16 @@ export function districtLedgerNoPointsCaption(chancePercent: number): string {
 }
 
 /**
- * The grand total plot's caption: what the dashed rule is, then what the likely
- * range is. Two sentences, flat third person, and no dash character of any kind
- * (the en dash belongs to the numeric range alone).
+ * The grand total plot's caption for the MIDPOINT RULE: what the dashed rule
+ * is, then what the likely range is. Two sentences, flat third person, and no
+ * dash character of any kind (the en dash belongs to the numeric range alone).
+ *
+ * Since quick task 261004-uw4 the District Locks tab prints it only where the
+ * midpoint rule still draws the line, which at an open position is the
+ * excluded team fallback alone (and there no likely range is printed beside
+ * the figure). An open position otherwise reads
+ * `DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION`. The Champ Locks tab keeps
+ * it for its own settled view.
  */
 export const DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION =
   "The dashed line is the predicted cutoff, the midpoint of the last team in range and the first team out of range. The likely range spans the 10th to the 90th percentile of where that line lands across the runs.";

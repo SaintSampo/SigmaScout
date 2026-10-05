@@ -28,7 +28,7 @@
  * pass and its chance run, `champFieldChances`, `hypotheticalDcmpEstimates`,
  * `buildChampLedgerRows`, `computeChampLedgerStatuses`, `buildChampAwardDraws`,
  * `buildChampAdvancementChanceRun`, `advancementChances`, `champRangeState` and
- * `simulatedChampLine`, which is the call order `ChampLocksLedger.tsx` uses.
+ * `simulatedLine`, which is the call order `ChampLocksLedger.tsx` uses.
  *
  * PREDICT BEFORE UPDATE. The one position per season is the LAST rail step
  * before the District Championship starts, with no event artifacts, so no

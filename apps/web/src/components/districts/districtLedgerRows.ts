@@ -9,7 +9,8 @@
  * quantity it computed, the slot th highest UNNARROWED earned district total,
  * is no longer printed anywhere, and the predicted cutoff that replaced it is
  * derived from the verdicts' own narrowed pool by `predictedCutoff.ts` (quick
- * task 260926-37q).
+ * task 260926-37q) and, while anything is still open, read off the per run
+ * simulated line through `ledgerRangeState.ts` (quick task 261004-uw4).
  *
  * Follows `apps/web/src/lib/simulationInputs.ts`'s discipline exactly, and for
  * the same reason: gather inputs, disclose every gap, call no simulator. No
