@@ -5,7 +5,7 @@ import type { MockWorkerHandle, MockWorkerOptions, MockWorkerScript } from "../.
 import { PROGRESS_CHUNK_DRAWS, SIMULATION_DRAWS, DEFAULT_SIMULATION_SEED, runSimulationJob } from "../../workers/simulationProtocol.js";
 import type { SimulationOutboundMessage, SimulationResultMessage } from "../../workers/simulationProtocol.js";
 import { SIMULATION_TICK_INTERVAL_MS, useSimulationRun } from "./useSimulationRun.js";
-import type { SimulationRunRequest } from "./useSimulationRun.js";
+import type { SimulationAsOfRun, SimulationRunRequest } from "./useSimulationRun.js";
 import type { SimMatchInput, SimTeamBaseline } from "../../../../../packages/core/algorithms/simulation/rankSimulation.js";
 
 /**
@@ -406,5 +406,99 @@ describe("useSimulationRun", () => {
 
     expect(() => act(() => result.current.start(buildRequest("sig-h13")))).not.toThrow();
     expect(result.current.state).toEqual({ status: "error" });
+  });
+});
+
+/**
+ * The as-of path (quick task 261005-5g0, Part 4): `loadAsOf` resolves before
+ * any Worker is built; a plan goes to the as-of Worker, `null` to today's
+ * default Worker with the stored rows, a rejection to the error state.
+ */
+describe("useSimulationRun — an SPR rewind's as-of load", () => {
+  const asOfScript: MockWorkerScript = (message, ctx) => {
+    if ((message as { type?: string }).type === "runAsOf") {
+      // A stand in for the as-of job: it simulates the stored fixture rows and adds the as-of result fields.
+      const { matches } = buildFixture();
+      const request = message as { baselines: SimTeamBaseline[]; draws: number; seed: number };
+      runSimulationJob({ type: "run", matches, baselines: request.baselines, draws: request.draws, seed: request.seed }, (out) =>
+        ctx.post((out as { type: string }).type === "result" ? { ...(out as object), excludedMatchKeys: ["2024x_qm9"], simulatedMatches: 3 } : out)
+      );
+    } else {
+      runSimulationJob(message, ctx.post);
+    }
+  };
+
+  function asOfRun(): SimulationAsOfRun {
+    const { baselines } = buildFixture();
+    return {
+      block: { season: 2024, vars: [], league: [0, 1, 0, 0, 0], teams: [], rows: [] },
+      // The as-of split's own baselines: the same teams, other totals, so a test can tell them from the stored ones.
+      baselines: baselines.map((baseline) => ({ ...baseline, earnedRpSum: 0, matchesPlayed: 0 })),
+      incompleteBaselineTeamKeys: ["frc2"],
+    };
+  }
+
+  it("A1: a ready plan builds the as-of Worker only after the load, posts the plan, and completes as asOf", async () => {
+    const handle = install({ script: asOfScript });
+    const { result } = renderHook(() => useSimulationRun());
+    let resolveLoad: (run: SimulationAsOfRun | null) => void = () => {};
+    const loadAsOf = vi.fn(() => new Promise<SimulationAsOfRun | null>((resolve) => (resolveLoad = resolve)));
+    act(() => result.current.start({ ...buildRequest("sig-a1"), loadAsOf }));
+    expect(result.current.state.status).toBe("running");
+    expect(handle.instances).toHaveLength(0);
+
+    const plan = asOfRun();
+    await act(async () => resolveLoad(plan));
+    expect(handle.instances).toHaveLength(1);
+    expect(String(handle.instances[0]!.url)).toContain("simulationAsOf.worker");
+    expect(handle.instances[0]!.received).toEqual([{ type: "runAsOf", asOf: plan.block, baselines: plan.baselines, draws: SIMULATION_DRAWS, seed: DEFAULT_SIMULATION_SEED }]);
+
+    await waitFor(() => expect(result.current.state.status).toBe("complete"));
+    const state = result.current.state;
+    if (state.status !== "complete") throw new Error("unreachable");
+    expect(state.source).toBe("asOf");
+    expect(state.teamCount).toBe(6);
+    expect(state.remainingMatches).toBe(3);
+    expect(state.excludedMatchKeys).toEqual(["2024x_qm9"]);
+    expect(state.incompleteBaselineTeamKeys).toEqual(["frc2"]);
+    expect(handle.instances[0]!.terminated).toBe(true);
+  });
+
+  it("A2: a null plan runs today's stored request through today's default Worker", async () => {
+    const handle = install({ script: asOfScript });
+    const { result } = renderHook(() => useSimulationRun());
+    const request = buildRequest("sig-a2");
+    await act(async () => result.current.start({ ...request, loadAsOf: async () => null }));
+    expect(String(handle.instances[0]!.url)).toContain("simulation.worker");
+    expect(handle.instances[0]!.received).toEqual([{ type: "run", matches: request.matches, baselines: request.baselines, draws: SIMULATION_DRAWS, seed: DEFAULT_SIMULATION_SEED }]);
+    await waitFor(() => expect(result.current.state.status).toBe("complete"));
+    const state = result.current.state;
+    if (state.status !== "complete") throw new Error("unreachable");
+    expect(state.source).toBe("stored");
+    expect(state.excludedMatchKeys).toBeUndefined();
+  });
+
+  it("A3: a failed load is the error state, and no Worker is built", async () => {
+    const handle = install({ script: asOfScript });
+    const { result } = renderHook(() => useSimulationRun());
+    await act(async () => result.current.start({ ...buildRequest("sig-a3"), loadAsOf: () => Promise.reject(new Error("outage")) }));
+    await waitFor(() => expect(result.current.state).toEqual({ status: "error" }));
+    expect(handle.instances).toHaveLength(0);
+  });
+
+  it("A4: a run superseded while its as-of objects load builds no Worker for the stale run", async () => {
+    const handle = install({ script: asOfScript });
+    const { result } = renderHook(() => useSimulationRun());
+    let resolveStale: (run: SimulationAsOfRun | null) => void = () => {};
+    act(() => result.current.start({ ...buildRequest("sig-stale"), loadAsOf: () => new Promise((resolve) => (resolveStale = resolve)) }));
+    act(() => result.current.start(buildRequest("sig-fresh")));
+    expect(handle.instances).toHaveLength(1);
+    await act(async () => resolveStale(asOfRun()));
+    expect(handle.instances).toHaveLength(1);
+    await waitFor(() => expect(result.current.state.status).toBe("complete"));
+    const state = result.current.state;
+    if (state.status !== "complete") throw new Error("unreachable");
+    expect(state.signature).toBe("sig-fresh");
+    expect(state.source).toBe("stored");
   });
 });

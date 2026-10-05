@@ -109,4 +109,15 @@ describe("the Simulation tab's Worker chunks and the main thread", () => {
     expect(files.has(resolve(HERE, "asOfBlockGuards.ts"))).toBe(true);
     expect(nodeBuiltins).toEqual([]);
   });
+
+  it("the tab's main thread modules reach neither the pricer nor the as-of job", () => {
+    for (const entry of ["SimulationTab.tsx", "useSimulationRun.ts", "simulationAsOf.ts"]) {
+      const { files } = reach(resolve(HERE, "..", "components", "event", entry));
+      expect(files.has(resolve(HARNESS, "asOfPricing.ts")), entry).toBe(false);
+      expect(files.has(resolve(HERE, "simulationAsOfJob.ts")), entry).toBe(false);
+    }
+    // Not vacuous: the scan does reach the run hook's Worker factory and the loader's resolver.
+    expect(reach(resolve(HERE, "..", "components", "event", "useSimulationRun.ts")).files.has(resolve(HERE, "createSimulationWorker.ts"))).toBe(true);
+    expect(reach(resolve(HERE, "..", "components", "event", "SimulationTab.tsx")).files.has(resolve(HARNESS, "asOfLookup.ts"))).toBe(true);
+  });
 });

@@ -7,7 +7,9 @@ import { useSimulationRun } from "./useSimulationRun.js";
 import { RankDistributionTable } from "./RankDistributionTable.js";
 import { buildRankDistributionRows } from "./rankRows.js";
 import { decodePreScheduleResult } from "../../lib/preScheduleResult.js";
-import { buildQualRows, buildSimulationInputs, defaultStartMatchKey } from "../../lib/simulationInputs.js";
+import { buildQualRows, buildSimulationInputs, defaultStartMatchKey, type SimulationInputs } from "../../lib/simulationInputs.js";
+import { loadSimulationAsOf, usesSimulationAsOf } from "./simulationAsOf.js";
+import type { AsOfFetchers } from "../districts/asOfRewind.js";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import type { EventArtifact, PublishedPreScheduleArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 
@@ -57,6 +59,14 @@ export interface SimulationTabProps {
    * what stops this tab claiming an empty state it is about to contradict.
    */
   preScheduleIsPending?: boolean;
+  /**
+   * The as-of object fetchers (`simulationAsOf.ts` `simulationAsOfFetchers`),
+   * built by the route over its query cache. With them, an SPR rewind start
+   * prices every remaining row from the model as it stood just before the
+   * start match; without them (every test that predates Part 4) it reads the
+   * stored rows, exactly as before. Nothing is fetched until Run is pressed.
+   */
+  asOfFetchers?: AsOfFetchers;
 }
 
 /** The event genuinely has zero published `qm` matches (rare). */
@@ -183,7 +193,7 @@ export function SimulationTabSkeleton() {
  *    empty-state block would replace the picker/run-control mount above
  *    it rather than sitting beneath them.
  */
-export function SimulationTab({ artifact, algorithmId, season, preSchedule = null, preScheduleIsPending = false }: SimulationTabProps) {
+export function SimulationTab({ artifact, algorithmId, season, preSchedule = null, preScheduleIsPending = false, asOfFetchers }: SimulationTabProps) {
   const qualRows = useMemo(() => buildQualRows(artifact), [artifact]);
   const hasPreSchedule = preSchedule !== null;
 
@@ -318,8 +328,38 @@ export function SimulationTab({ artifact, algorithmId, season, preSchedule = nul
     // the picker silently jumped to "Before schedule release". Pressing the
     // button is an unambiguous act of choosing, so record it as one.
     setSelection({ kind: "match", matchKey: resolvedMatchKey });
-    startRun({ matches: simulationInputs.remainingMatches, baselines: simulationInputs.baselines, signature: simulationSignature });
-  }, [isPreScheduleSelected, resolvedMatchKey, simulationInputs, simulationSignature, startRun]);
+    // An SPR rewind prices from the model as it stood just before the start
+    // match (`simulationAsOf.ts`); the decision reads the ARTIFACT's own
+    // algorithm, whose generation the as-of objects are keyed by. EPA, OPR and
+    // a forward start send the stored rows, exactly as before.
+    const startMatchKey = resolvedMatchKey;
+    const loadAsOf =
+      asOfFetchers !== undefined && usesSimulationAsOf(artifact.algorithmId, simulationInputs.isRewindStart)
+        ? async () => {
+            const plan = await loadSimulationAsOf({ artifact, startMatchKey }, asOfFetchers);
+            return plan.status === "ready" ? { block: plan.block, baselines: plan.baselines, incompleteBaselineTeamKeys: plan.incompleteBaselineTeamKeys } : null;
+          }
+        : undefined;
+    startRun({
+      matches: simulationInputs.remainingMatches,
+      baselines: simulationInputs.baselines,
+      signature: simulationSignature,
+      ...(loadAsOf !== undefined ? { loadAsOf } : {}),
+    });
+  }, [isPreScheduleSelected, resolvedMatchKey, simulationInputs, simulationSignature, startRun, asOfFetchers, artifact]);
+
+  // The scope line's two disclosures describe the rows the CURRENT result was
+  // drawn from. An as-of run prices its own rows, so once its result is on
+  // screen the line counts that run's unpriced rows and incomplete baselines;
+  // before any run, and for a stored run, it counts the stored rows as before.
+  const scopeInputs: SimulationInputs | null = useMemo(() => {
+    if (simulationInputs === null || runState.status !== "complete" || !isResultCurrent || runState.source !== "asOf") return simulationInputs;
+    return {
+      ...simulationInputs,
+      excludedMatchKeys: runState.excludedMatchKeys ?? [],
+      incompleteBaselineTeamKeys: runState.incompleteBaselineTeamKeys ?? [],
+    };
+  }, [simulationInputs, runState, isResultCurrent]);
 
   // Both early returns are now skipped when a baked result EXISTS: a
   // scheduleless event trips both — it has no qualification rows and
@@ -358,7 +398,11 @@ export function SimulationTab({ artifact, algorithmId, season, preSchedule = nul
   }
 
   return (
-    <div data-testid={SIMULATION_STACK_TESTID} className="flex flex-col gap-[var(--spacing-lg)]">
+    <div
+      data-testid={SIMULATION_STACK_TESTID}
+      data-simulation-source={rankResult !== null && !isPreScheduleSelected && runState.status === "complete" ? runState.source : undefined}
+      className="flex flex-col gap-[var(--spacing-lg)]"
+    >
       {/* Mounts the start-match picker here (max-height: 320px, internal overflow-y-auto). */}
       <StartMatchPicker
         rows={qualRows}
@@ -367,7 +411,7 @@ export function SimulationTab({ artifact, algorithmId, season, preSchedule = nul
         hasPreScheduleStop={hasPreSchedule}
         preScheduleScheduleCount={preSchedule?.scheduleCount}
         preScheduleDraws={preSchedule?.baked.draws}
-        inputs={simulationInputs}
+        inputs={scopeInputs}
         startMatchNumber={startMatchNumber}
         // Inert for the duration of a run, so a mid-run click cannot
         // change the start match under a running simulation.
