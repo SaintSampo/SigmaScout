@@ -186,9 +186,11 @@ export function assembleLiveDistrictEvents(params: AssembleLiveDistrictEventsPar
       stage,
       startMatchKey,
       // ONLY THE LIVE POSITION may condition the bracket on played matches.
-      // `startMatchKeyByEvent` is supplied exactly when the caller is rewound —
-      // see `UseDistrictLedgerDataOptions` — so its absence IS "now", and the
-      // rewind rail's own playoff step is all-or-nothing by construction.
+      // No tab supplies `startMatchKeyByEvent` any more (a rewound stop takes
+      // `assembleAsOfDistrictEvents` since quick task 261005-5g0), so in the
+      // app it is always absent here and this is always "now". A caller that
+      // passes it (the frozen-copy parity tests) asks for the retired stored
+      // odds rewind, whose playoff step is all-or-nothing by construction.
       conditionOnPlayedElims: startMatchKeyByEvent === undefined,
       tier: tierByEvent?.get(eventKey) ?? "district",
     });

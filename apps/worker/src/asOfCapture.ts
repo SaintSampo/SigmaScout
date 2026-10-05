@@ -42,11 +42,20 @@
  *     folded in between.
  *   - A season object write that is lost (it fails, or conflicts twice) leaves
  *     the tails of that tick's teams behind their INDEX. The team's next fold
- *     at the same event grows its segment from the INDEX (`applyAsOfFold`), so
- *     no segment is corrupted, but until a team folds again a rewound lookup
- *     that starts from its tail can read the state before the lost matches
- *     (older than the truth, never later) or find the objects inconsistent
- *     and read the stop as unavailable.
+ *     at the SAME event grows its segment from the INDEX (`applyAsOfFold`), so
+ *     that segment is never corrupted, and a lookup holding that INDEX lets it
+ *     win over the tail (`resolveAsOf`). A lookup that does not hold it and
+ *     walks from the stale tail reads the state before the lost matches:
+ *     older than the truth, never later.
+ *   - NOT HEALED BEFORE A REPUBLISH: if that team's next fold is at ANOTHER
+ *     event, the segment it opens there takes the stale tail as `p`, which
+ *     points before the team's true previous match. A lookup holding the
+ *     earlier event's INDEX sees that segment run past `p` and reads its LOG
+ *     (`resolveAsOf`). One that does not hold it, at a cut between `p` and the
+ *     true previous match, reads the new segment's `s`: the state after a
+ *     match played after the cut. It needs a lost season write and the
+ *     team's next match elsewhere before the next republish; the reducer
+ *     cannot see it without reading that other event's INDEX.
  *   - A failed write here is not retried: those matches are already folded,
  *     so the next tick never captures them again, and a rewound stop anchored
  *     on one of them reads as unavailable. A LOG put that landed before a

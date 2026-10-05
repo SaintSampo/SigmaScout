@@ -126,7 +126,8 @@ export interface UseDistrictLedgerDataOptions {
    * Per-event override for the first qualification row still to be played at
    * this position — `null` means qualification is FINISHED there, expressed as
    * zero remaining matches. Absent falls back to the event artifact's own first
-   * unplayed row, which is the "now" answer.
+   * unplayed row, which is the "now" answer. No tab passes it since quick task
+   * 261005-5g0 (a rewound stop uses `asOf`); only the parity tests still do.
    */
   readonly startMatchKeyByEvent?: ReadonlyMap<string, string | null>;
   /**

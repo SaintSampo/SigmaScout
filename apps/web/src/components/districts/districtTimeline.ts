@@ -449,6 +449,11 @@ export function remainingQualRowsAtPosition(timeline: DistrictTimeline, position
  *
  * `null` is 10-04's own expression of a finished qualification stage — ZERO
  * remaining matches, never a fifth flag.
+ *
+ * Since quick task 261005-5g0 no tab reads this or `remainingQualRowsAtPosition`
+ * (a rewound stop splits rows at its as-of cut, `asOfRewind.ts`); only
+ * `scripts/measureChampCutoff.ts`, which measures the retired stored odds
+ * rewind, and tests do.
  */
 export function startMatchKeyAtPosition(timeline: DistrictTimeline, positionIndex: number, eventKey: string): string | null {
   return remainingQualRowsAtPosition(timeline, positionIndex, eventKey)[0] ?? null;
