@@ -116,16 +116,43 @@ interface Candidate {
   readonly objective: number;
 }
 
+/** Pair counts, as flat symmetric `numTeams x numTeams` tables. One set per `generateSchedule` call, zero-filled per candidate. */
+interface PairTables {
+  readonly partner: Int32Array;
+  readonly opponent: Int32Array;
+}
+
+/** The ten distinct 3/3 splits of six slots: three bits set, bit 0 set (fixes slot 0 to red and removes the mirror duplicate), in the ascending order a 0..63 scan visits them. */
+const SPLIT_MASKS: readonly number[] = (() => {
+  const masks: number[] = [];
+  for (let mask = 0; mask < 64; mask++) {
+    let bits = 0;
+    for (let b = 0; b < 6; b++) if ((mask & (1 << b)) !== 0) bits++;
+    if (bits === ALLIANCE_SIZE && (mask & 1) !== 0) masks.push(mask);
+  }
+  return masks;
+})();
+
 /**
  * Builds ONE greedy-randomised candidate. Feasibility is guaranteed rather than
  * hoped for: at match `i` of `rows`, a team still needing `rows - i`
  * appearances MUST play this match, and since the remaining need sums to
  * exactly `(rows - i) * 6` at most six teams can be in that state at once. Those
  * teams are force-placed first; the remaining slots are filled greedily.
+ *
+ * SPEED, NOT BEHAVIOUR: pair counts live in flat typed tables and each team's
+ * repeat penalty against the match so far is a running sum, updated as a team
+ * joins. The `rng` call sequence, the cost expression and every tie-break are
+ * exactly those of the plain-`Map` construction this replaced, so the output for
+ * a given stream is unchanged; `generatedSchedules.test.ts` pins that with
+ * golden digests.
  */
-function buildCandidate(numTeams: number, matchesPerTeam: number, rng: () => number): Candidate {
+function buildCandidate(numTeams: number, matchesPerTeam: number, rng: () => number, tables: PairTables): Candidate {
   const rows = scheduleMatchCount(numTeams, matchesPerTeam);
   const extra = surrogateSlotCount(numTeams, matchesPerTeam);
+  const { partner, opponent } = tables;
+  partner.fill(0);
+  opponent.fill(0);
 
   // Rule 1: the surrogate teams, chosen uniformly at random among distinct teams.
   const order = Array.from({ length: numTeams }, (_, i) => i);
@@ -137,11 +164,17 @@ function buildCandidate(numTeams: number, matchesPerTeam: number, rng: () => num
   }
   const surrogateTeams = new Set(order.slice(0, extra));
 
-  const remaining = Array.from({ length: numTeams }, (_, t) => matchesPerTeam + (surrogateTeams.has(t) ? 1 : 0));
-  const lastPlayed = new Array<number>(numTeams).fill(-1);
-  const partnerCount = new Map<number, number>();
-  const opponentCount = new Map<number, number>();
+  const remaining = new Int32Array(numTeams);
+  for (let t = 0; t < numTeams; t++) remaining[t] = matchesPerTeam + (surrogateTeams.has(t) ? 1 : 0);
+  const lastPlayed = new Int32Array(numTeams).fill(-1);
   const appearances: number[][] = Array.from({ length: numTeams }, () => []);
+  /** Whether a team is already in the match being built. */
+  const inMatch = new Uint8Array(numTeams);
+  /** For each team, its summed partner and opponent counts against the teams already in the match. */
+  const repeatSum = new Int32Array(numTeams);
+  // The objective's repeat terms, kept as pairs reach a second meeting.
+  let excessPartnerPairs = 0;
+  let excessOpponentPairs = 0;
 
   // Rule 4: the natural spacing between a team's appearances.
   const targetGap = rows / matchesPerTeam;
@@ -158,16 +191,21 @@ function buildCandidate(numTeams: number, matchesPerTeam: number, rng: () => num
         `match ${i} of ${rows} forces ${chosen.length} teams into ${SLOTS_PER_MATCH} slots for ${numTeams} teams at ${matchesPerTeam} matches/team`
       );
     }
+    inMatch.fill(0);
+    repeatSum.fill(0);
+    const join = (c: number): void => {
+      inMatch[c] = 1;
+      const base = c * numTeams;
+      for (let t = 0; t < numTeams; t++) repeatSum[t]! += partner[base + t]! + opponent[base + t]!;
+    };
+    for (const c of chosen) join(c);
     while (chosen.length < SLOTS_PER_MATCH) {
       let bestTeam = -1;
       let bestCost = Number.POSITIVE_INFINITY;
       for (let t = 0; t < numTeams; t++) {
         if (remaining[t]! <= 0) continue;
-        if (chosen.includes(t)) continue;
-        let repeat = 0;
-        for (const c of chosen) {
-          repeat += (partnerCount.get(pairKey(t, c)) ?? 0) + (opponentCount.get(pairKey(t, c)) ?? 0);
-        }
+        if (inMatch[t] === 1) continue;
+        const repeat = repeatSum[t]!;
         const gap = lastPlayed[t]! < 0 ? targetGap : i - lastPlayed[t]!;
         const recency = Math.max(0, targetGap - gap);
         const urgency = remaining[t]! / matchesLeft;
@@ -185,25 +223,30 @@ function buildCandidate(numTeams: number, matchesPerTeam: number, rng: () => num
         throw new GeneratedScheduleError(`match ${i} of ${rows} ran out of candidate teams (${numTeams} teams at ${matchesPerTeam} matches/team)`);
       }
       chosen.push(bestTeam);
+      join(bestTeam);
     }
 
     // Rule 3, locally: of the ten ways to split six teams into two alliances,
     // take the one with the fewest existing partnerships, random tie-break.
-    const split = bestSplit(chosen, partnerCount, rng);
+    const split = bestSplit(chosen, partner, numTeams, rng);
     const red = split.red;
     const blue = split.blue;
     for (const trio of [red, blue]) {
       for (let a = 0; a < ALLIANCE_SIZE; a++) {
         for (let b = a + 1; b < ALLIANCE_SIZE; b++) {
-          const key = pairKey(trio[a]!, trio[b]!);
-          partnerCount.set(key, (partnerCount.get(key) ?? 0) + 1);
+          const x = trio[a]!;
+          const y = trio[b]!;
+          if (partner[x * numTeams + y]! >= 1) excessPartnerPairs++;
+          partner[x * numTeams + y]! += 1;
+          partner[y * numTeams + x]! += 1;
         }
       }
     }
     for (const r of red) {
       for (const b of blue) {
-        const key = pairKey(r, b);
-        opponentCount.set(key, (opponentCount.get(key) ?? 0) + 1);
+        if (opponent[r * numTeams + b]! >= 1) excessOpponentPairs++;
+        opponent[r * numTeams + b]! += 1;
+        opponent[b * numTeams + r]! += 1;
       }
     }
     for (const t of chosen) {
@@ -236,25 +279,29 @@ function buildCandidate(numTeams: number, matchesPerTeam: number, rng: () => num
     else (match.blueSurrogate as boolean[])[match.blue.indexOf(t)] = true;
   }
 
-  return { matches, objective: objectiveOf(matches, numTeams) };
+  // The module header's objective, from the running counts: `objectiveOf` on the
+  // finished matches gives the same number. Appearance lists are built in
+  // ascending row order, so consecutive entries one apart are back-to-backs.
+  let backToBackCount = 0;
+  for (const list of appearances) {
+    for (let x = 1; x < list.length; x++) if (list[x]! - list[x - 1]! === 1) backToBackCount++;
+  }
+  const objective = PARTNER_WEIGHT * excessPartnerPairs + OPPONENT_WEIGHT * excessOpponentPairs + BACK_TO_BACK_WEIGHT * backToBackCount;
+  return { matches, objective };
 }
 
 /** The ten distinct 3/3 splits of six teams, scored by existing partnerships only (opponent counts are a consequence of the split, and weighting both here double-counts). */
-function bestSplit(six: readonly number[], partnerCount: ReadonlyMap<number, number>, rng: () => number): { red: number[]; blue: number[] } {
+function bestSplit(six: readonly number[], partner: Int32Array, numTeams: number, rng: () => number): { red: number[]; blue: number[] } {
   let best: { red: number[]; blue: number[] } | undefined;
   let bestScore = Number.POSITIVE_INFINITY;
-  for (let mask = 0; mask < 64; mask++) {
-    let bits = 0;
-    for (let b = 0; b < 6; b++) if ((mask & (1 << b)) !== 0) bits++;
-    if (bits !== ALLIANCE_SIZE) continue;
-    if ((mask & 1) === 0) continue; // fix team 0 to red — halves the search and removes the mirror duplicate
+  for (const mask of SPLIT_MASKS) {
     const red: number[] = [];
     const blue: number[] = [];
     for (let b = 0; b < 6; b++) ((mask & (1 << b)) !== 0 ? red : blue).push(six[b]!);
     let score = 0;
     for (const trio of [red, blue]) {
       for (let a = 0; a < ALLIANCE_SIZE; a++) {
-        for (let b = a + 1; b < ALLIANCE_SIZE; b++) score += partnerCount.get(pairKey(trio[a]!, trio[b]!)) ?? 0;
+        for (let b = a + 1; b < ALLIANCE_SIZE; b++) score += partner[trio[a]! * numTeams + trio[b]!]!;
       }
     }
     score += GREEDY_JITTER * rng();
@@ -286,9 +333,10 @@ export function generateSchedule(
     throw new GeneratedScheduleError(`${numTeams} teams exceeds the ${MAX_SCHEDULE_TEAMS}-team maximum the pair index can hold`);
   }
   if (matchesPerTeam < 1) throw new GeneratedScheduleError(`matchesPerTeam must be at least 1, got ${matchesPerTeam}`);
+  const tables: PairTables = { partner: new Int32Array(numTeams * numTeams), opponent: new Int32Array(numTeams * numTeams) };
   let best: Candidate | undefined;
   for (let attempt = 0; attempt < restarts; attempt++) {
-    const candidate = buildCandidate(numTeams, matchesPerTeam, rng);
+    const candidate = buildCandidate(numTeams, matchesPerTeam, rng, tables);
     if (best === undefined || candidate.objective < best.objective) best = candidate;
   }
   return best!.matches;
