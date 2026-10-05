@@ -25,18 +25,28 @@
  * format describes `SprState`.
  *
  * WHAT IT COSTS a tick that folds matches at one event: three R2 reads and
- * three R2 writes, for SPR only. No D1 statement. A tick that folds nothing
- * costs nothing.
+ * three R2 writes, for SPR only, plus one read and one write when another
+ * invocation wrote the season object in between. No D1 statement. A tick that
+ * folds nothing costs nothing.
  *
- * KNOWN LIMITS, all healed by the next republish, which rewrites every as-of
- * object from the offline replay:
+ * THE SEASON OBJECT is shared by every event, so its put back is conditional
+ * on the etag it was read with (`*`, "still absent", for one that was not
+ * there). When another invocation wrote it in between, the tick re-reads it,
+ * lays the tails it moved over the fresh object and tries ONCE more; a second
+ * conflict is one logged line.
+ *
+ * KNOWN LIMITS. The next republish rewrites every as-of object from the
+ * offline replay and heals all of them; until then:
  *   - The tick folds concurrent events in tick order, not sort-time order, so a
  *     league row can differ from the replay's by the other events' matches
  *     folded in between.
- *   - Two overlapping invocations folding different events can each read the
- *     season object before the other writes it; the later write drops the
- *     earlier one's tails. Ticks run once a minute and fold sequentially, so
- *     this needs an invocation that outlives a minute.
+ *   - A season object write that is lost (it fails, or conflicts twice) leaves
+ *     the tails of that tick's teams behind their INDEX. The team's next fold
+ *     at the same event grows its segment from the INDEX (`applyAsOfFold`), so
+ *     no segment is corrupted, but until a team folds again a rewound lookup
+ *     that starts from its tail can read the state before the lost matches
+ *     (older than the truth, never later) or find the objects inconsistent
+ *     and read the stop as unavailable.
  *   - A failed write here is not retried: those matches are already folded,
  *     so the next tick never captures them again.
  */
@@ -50,6 +60,7 @@ import {
   AsOfLogSchema,
   AsOfSeasonSchema,
   asOfTupleKeys,
+  compareAsOfPositions,
   createAsOfSeason,
   readAsOfLeagueTuple,
   readAsOfTeamTuple,
@@ -57,13 +68,15 @@ import {
   type AsOfFold,
   type AsOfLeagueTuple,
   type AsOfMeanShiftSource,
+  type AsOfPointer,
   type AsOfRpSource,
+  type AsOfSeason,
   type AsOfSigmaSource,
   type AsOfStamp,
   type AsOfTeamTuple,
 } from "../../../packages/harness/asOfState.js";
 import { asOfIndexKey, asOfLogKey, asOfSeasonKey } from "../../../packages/harness/pageArtifacts.js";
-import { readArtifactObject, writeAsOfObject } from "./artifactWriter.js";
+import { readArtifactObject, readArtifactObjectWithEtag, writeAsOfObject } from "./artifactWriter.js";
 import type { Env } from "./env.js";
 import type { SubrequestCounter } from "./subrequestCounter.js";
 
@@ -181,6 +194,42 @@ async function readParsed<T>(env: Env, counter: SubrequestCounter, key: string, 
   return text === undefined ? undefined : schema.parse(JSON.parse(text));
 }
 
+/** The season object as read, with the etag its put back is conditioned on; `undefined` when absent. */
+interface SeasonRead {
+  readonly season: AsOfSeason;
+  readonly etag: string | undefined;
+}
+
+async function readSeason(env: Env, counter: SubrequestCounter, key: string): Promise<SeasonRead | undefined> {
+  const read = await readArtifactObjectWithEtag(env, counter, key);
+  return read === undefined ? undefined : { season: AsOfSeasonSchema.parse(JSON.parse(read.text)), etag: read.etag };
+}
+
+/**
+ * The put-back condition for a season object read as `read`: the same etag,
+ * or, when it was absent, still absent (`*`, the HTTP If-None-Match wildcard).
+ * A binding that reported no etag (a test fake) gets an unconditional put.
+ */
+function seasonCondition(read: SeasonRead | undefined): R2Conditional | undefined {
+  if (read === undefined) return { etagDoesNotMatch: "*" };
+  return read.etag === undefined ? undefined : { etagMatches: read.etag };
+}
+
+/**
+ * This tick's tails laid over a season object another invocation wrote since
+ * this one read it. Only the tails this tick moved are laid; where both moved
+ * the same team's tail, the later position wins. `L0` and every other tail are
+ * the fresh object's.
+ */
+export function mergeAsOfSeasonTails(fresh: AsOfSeason, moved: ReadonlyMap<string, AsOfPointer>, stamp: AsOfStamp): AsOfSeason {
+  const tails = { ...fresh.tails };
+  for (const [teamKey, ours] of moved) {
+    const theirs = tails[teamKey];
+    if (theirs === undefined || compareAsOfPositions(ours[0], [ours[1], ours[2]], theirs[0], [theirs[1], theirs[2]]) > 0) tails[teamKey] = ours;
+  }
+  return { ...fresh, ...stamp, tails };
+}
+
 /**
  * Phase B: folds `params.folds` into the event's INDEX and LOG and the season
  * object in R2. Three reads, three writes. Throws on anything it cannot place
@@ -198,13 +247,18 @@ export async function writeAsOfFolds(env: Env, counter: SubrequestCounter, param
 
   const index = await readParsed(env, counter, indexKey, AsOfIndexSchema);
   const log = await readParsed(env, counter, logKey, AsOfLogSchema);
-  const season = (await readParsed(env, counter, seasonKey, AsOfSeasonSchema)) ?? createAsOfSeason({ season: params.season, vars: params.vars, L0: null, stamp: params.stamp });
-  for (const [label, vars] of [["season object", season.vars], ["INDEX", index?.vars], ["LOG", log?.vars]] as const) {
+  const seasonRead = await readSeason(env, counter, seasonKey);
+  const season = seasonRead?.season ?? createAsOfSeason({ season: params.season, vars: params.vars, L0: null, stamp: params.stamp });
+  const checkVars = (label: string, vars: readonly string[] | undefined): void => {
     if (vars !== undefined && !sameVars(vars, params.vars)) {
       throw new AsOfLiveWriteError(`${params.eventKey}: the ${label}'s vars [${vars.join(", ")}] are not the season rule module's [${params.vars.join(", ")}]`);
     }
-  }
+  };
+  checkVars("season object", season.vars);
+  checkVars("INDEX", index?.vars);
+  checkVars("LOG", log?.vars);
 
+  const tailsBefore = { ...season.tails };
   let state: AsOfEventState = { index, log, season };
   for (const fold of params.folds) {
     if (fold.eventKey !== params.eventKey) throw new AsOfLiveWriteError(`${fold.matchKey} is not a ${params.eventKey} match`);
@@ -213,5 +267,17 @@ export async function writeAsOfFolds(env: Env, counter: SubrequestCounter, param
 
   await writeAsOfObject(env, counter, "asof-log", logKey, state.log);
   await writeAsOfObject(env, counter, "asof", indexKey, state.index);
-  await writeAsOfObject(env, counter, "asof-season", seasonKey, state.season);
+  if (await writeAsOfObject(env, counter, "asof-season", seasonKey, state.season, seasonCondition(seasonRead))) return;
+
+  // Another invocation wrote the season object after this one read it. Lay
+  // this tick's tails over its object and try once more; a second conflict
+  // throws (one logged line), and this tick's tails wait for the team's next
+  // fold, which the reducer places from the INDEX (`applyAsOfFold`).
+  const moved = new Map<string, AsOfPointer>();
+  for (const [teamKey, tail] of Object.entries(state.season.tails)) if (tailsBefore[teamKey] !== tail) moved.set(teamKey, tail);
+  const freshRead = await readSeason(env, counter, seasonKey);
+  if (freshRead !== undefined) checkVars("season object", freshRead.season.vars);
+  const fresh = freshRead?.season ?? createAsOfSeason({ season: params.season, vars: params.vars, L0: null, stamp: params.stamp });
+  if (await writeAsOfObject(env, counter, "asof-season", seasonKey, mergeAsOfSeasonTails(fresh, moved, params.stamp), seasonCondition(freshRead))) return;
+  throw new AsOfLiveWriteError(`${params.eventKey}: the season object changed under this tick twice; ${moved.size} tails were not written`);
 }

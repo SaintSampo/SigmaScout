@@ -19,7 +19,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { D1Database } from "@cloudflare/workers-types";
 import { runTick } from "../src/scheduled.js";
-import { AsOfTickCapture, type AsOfModelView } from "../src/asOfCapture.js";
+import { AsOfLiveWriteError, AsOfTickCapture, writeAsOfFolds, type AsOfModelView } from "../src/asOfCapture.js";
+import { SubrequestCounter } from "../src/subrequestCounter.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import { spr, type SprState } from "../../../packages/core/algorithms/spr.js";
 import { toLeakProofUpcoming } from "../../../packages/core/algorithms/leakProof.js";
@@ -27,7 +28,18 @@ import { TOTAL_METRIC_KEY, type MatchResult } from "../../../packages/core/algor
 import { RP_RULE_MODULES } from "../../../packages/core/rankingPoints/rules.js";
 import { SigmaScoutLayer } from "../../../packages/harness/sigmaScoutLayer.js";
 import { AsOfSeasonCapture, type AsOfSeasonCaptureResult } from "../../../packages/harness/asOfCapture.js";
-import { AsOfIndexSchema, AsOfLogSchema, AsOfSeasonSchema, type AsOfIndex, type AsOfLog, type AsOfSeason } from "../../../packages/harness/asOfState.js";
+import {
+  AsOfIndexSchema,
+  asOfLeagueLength,
+  AsOfLogSchema,
+  AsOfSeasonSchema,
+  createAsOfSeason,
+  type AsOfFold,
+  type AsOfIndex,
+  type AsOfLog,
+  type AsOfSeason,
+  type AsOfTeamTuple,
+} from "../../../packages/harness/asOfState.js";
 import { artifactKey, asOfIndexKey, asOfLogKey, asOfSeasonKey } from "../../../packages/harness/pageArtifacts.js";
 import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
 import { IngestLogFakeStore, isIngestLogSql } from "./support/ingestLogFake.js";
@@ -175,29 +187,64 @@ class FakeD1Database {
 }
 
 class FakeR2Object {
-  constructor(private readonly value: string) {}
+  constructor(
+    private readonly value: string,
+    readonly etag: string
+  ) {}
   async text(): Promise<string> {
     return this.value;
   }
 }
 
+/** R2's conditional put, as far as the Worker uses it: `etagMatches`, and `etagDoesNotMatch: "*"` for "still absent". */
+interface FakeConditional {
+  readonly etagMatches?: string;
+  readonly etagDoesNotMatch?: string;
+}
+
 class FakeR2Bucket {
   readonly puts: { key: string; body: string }[] = [];
   readonly store = new Map<string, string>();
+  readonly etags = new Map<string, string>();
+  /** Conditional puts refused, by key. */
+  readonly refused: string[] = [];
   /** When set, every put whose key starts with it throws, as an R2 outage would. */
   failPutsWithPrefix: string | undefined;
+  /** When set, every put whose key starts with it throws AFTER this many such puts succeeded. */
+  failPutsAfter: { prefix: string; remaining: number } | undefined;
+  /** Called after every get, with the key: a test's overlapping invocation writes here. */
+  afterGet: ((key: string) => void) | undefined;
+  #version = 0;
 
-  async put(key: string, body: string): Promise<void> {
+  async put(key: string, body: string, options?: { onlyIf?: FakeConditional }): Promise<{ key: string } | null> {
     if (this.failPutsWithPrefix !== undefined && key.startsWith(this.failPutsWithPrefix)) throw new Error(`R2 put failed: ${key}`);
+    if (this.failPutsAfter !== undefined && key.startsWith(this.failPutsAfter.prefix)) {
+      if (this.failPutsAfter.remaining === 0) throw new Error(`R2 put failed: ${key}`);
+      this.failPutsAfter.remaining -= 1;
+    }
+    const onlyIf = options?.onlyIf;
+    if (onlyIf !== undefined) {
+      const current = this.etags.get(key);
+      const ok = (onlyIf.etagMatches === undefined || onlyIf.etagMatches === current) && (onlyIf.etagDoesNotMatch !== "*" || current === undefined);
+      if (!ok) {
+        this.refused.push(key);
+        return null;
+      }
+    }
     this.puts.push({ key, body });
-    this.store.set(key, body);
+    this.seed(key, body);
+    return { key };
   }
   async get(key: string): Promise<FakeR2Object | null> {
     const value = this.store.get(key);
-    return value === undefined ? null : new FakeR2Object(value);
+    const object = value === undefined ? null : new FakeR2Object(value, this.etags.get(key)!);
+    this.afterGet?.(key);
+    return object;
   }
   seed(key: string, body: string): void {
+    this.#version += 1;
     this.store.set(key, body);
+    this.etags.set(key, `etag-${this.#version}`);
   }
 }
 
@@ -507,6 +554,94 @@ describe("scheduled.asOf — the tick's capture equals the offline publisher's",
     },
     60_000
   );
+});
+
+describe("scheduled.asOf — the season object's read-modify-write (C1)", () => {
+  const STAMP = { generation: "live", computedAt: "2026-08-22T12:00:00.000Z", algorithmId: spr.id, algorithmVersion: spr.version };
+  const SEASON_KEY = asOfSeasonKey({ season: SEASON, ...KEY_PARAMS });
+  const L = (n: number): number[] => Array.from({ length: asOfLeagueLength(VARS.length) }, () => n);
+  const T = (n: number): AsOfTeamTuple => [[n, 1, 0, 1], null, null];
+  const foldAt = (eventKey: string, row: number, teams: readonly string[]): AsOfFold => ({
+    eventKey,
+    matchKey: `${eventKey}_qm${row + 1}`,
+    t: 1000 + row,
+    compLevel: "qm",
+    L: L(row),
+    Lb: L(row - 1),
+    teams: teams.map((teamKey) => ({ teamKey, before: T(row), after: T(row + 1) })),
+  });
+  /** What an overlapping invocation folding another event writes: the season object with one more tail. */
+  const rivalSeason = (r2: FakeR2Bucket, teamKey: string, eventKey: string): void => {
+    const body = r2.store.get(SEASON_KEY);
+    const season: AsOfSeason = body === undefined ? createAsOfSeason({ season: SEASON, vars: VARS, L0: null, stamp: STAMP }) : AsOfSeasonSchema.parse(JSON.parse(body));
+    season.tails[teamKey] = [eventKey, 5000, 0];
+    r2.seed(SEASON_KEY, JSON.stringify(season));
+  };
+
+  it("an overlapping invocation's season write between this tick's read and put: the put is refused, the tick re-reads once, and both invocations' tails survive with L0 kept", async () => {
+    const r2 = new FakeR2Bucket();
+    const env = makeEnv(new FakeD1Database(), r2);
+    r2.seed(SEASON_KEY, JSON.stringify(createAsOfSeason({ season: SEASON, vars: VARS, L0: L(-1), stamp: STAMP })));
+    let rivals = 0;
+    r2.afterGet = (key) => {
+      if (key === SEASON_KEY && rivals === 0) {
+        rivals += 1;
+        rivalSeason(r2, "frc99", "2026zzz");
+      }
+    };
+    await writeAsOfFolds(env, new SubrequestCounter(), { eventKey: EVENT_A, season: SEASON, vars: VARS, folds: [foldAt(EVENT_A, 0, ["frc1", "frc2"])], stamp: STAMP });
+    expect(r2.refused).toEqual([SEASON_KEY]);
+    const season = read(r2, SEASON_KEY, AsOfSeasonSchema);
+    expect(season.tails).toEqual({ frc1: [EVENT_A, 1000, 0], frc2: [EVENT_A, 1000, 0], frc99: ["2026zzz", 5000, 0] });
+    expect(season.L0).toEqual(L(-1));
+    expect(season.generation).toBe("live");
+  });
+
+  it("a season object created by another invocation after this tick found none is not overwritten: the tick lays its tails over it", async () => {
+    const r2 = new FakeR2Bucket();
+    const env = makeEnv(new FakeD1Database(), r2);
+    let rivals = 0;
+    r2.afterGet = (key) => {
+      if (key === SEASON_KEY && rivals === 0) {
+        rivals += 1;
+        rivalSeason(r2, "frc99", "2026zzz");
+      }
+    };
+    await writeAsOfFolds(env, new SubrequestCounter(), { eventKey: EVENT_A, season: SEASON, vars: VARS, folds: [foldAt(EVENT_A, 0, ["frc1"])], stamp: STAMP });
+    expect(r2.refused).toEqual([SEASON_KEY]);
+    expect(read(r2, SEASON_KEY, AsOfSeasonSchema).tails).toEqual({ frc1: [EVENT_A, 1000, 0], frc99: ["2026zzz", 5000, 0] });
+  });
+
+  it("where both invocations moved the same team's tail, the later position wins", async () => {
+    const r2 = new FakeR2Bucket();
+    const env = makeEnv(new FakeD1Database(), r2);
+    r2.afterGet = (key) => {
+      if (key === SEASON_KEY && r2.refused.length === 0 && !r2.store.get(SEASON_KEY)?.includes("2026zzz")) rivalSeason(r2, "frc1", "2026zzz");
+    };
+    await writeAsOfFolds(env, new SubrequestCounter(), { eventKey: EVENT_A, season: SEASON, vars: VARS, folds: [foldAt(EVENT_A, 0, ["frc1", "frc2"])], stamp: STAMP });
+    expect(read(r2, SEASON_KEY, AsOfSeasonSchema).tails).toEqual({ frc1: ["2026zzz", 5000, 0], frc2: [EVENT_A, 1000, 0] });
+  });
+
+  it("a second conflict throws (the tick logs it) and leaves the other invocation's object as it wrote it; the next fold grows the segment from the INDEX", async () => {
+    const r2 = new FakeR2Bucket();
+    const env = makeEnv(new FakeD1Database(), r2);
+    r2.afterGet = (key) => {
+      if (key === SEASON_KEY) rivalSeason(r2, `frc${900 + r2.refused.length}`, "2026zzz");
+    };
+    await expect(
+      writeAsOfFolds(env, new SubrequestCounter(), { eventKey: EVENT_A, season: SEASON, vars: VARS, folds: [foldAt(EVENT_A, 0, ["frc1"])], stamp: STAMP })
+    ).rejects.toBeInstanceOf(AsOfLiveWriteError);
+    expect(r2.refused).toEqual([SEASON_KEY, SEASON_KEY]);
+    const lost = read(r2, SEASON_KEY, AsOfSeasonSchema);
+    expect(lost.tails.frc1).toBeUndefined();
+    expect(Object.keys(lost.tails).sort()).toEqual(["frc900", "frc901"]);
+    // frc1's tail was lost; its next fold at A grows its one segment instead of opening a second one inside it.
+    r2.afterGet = undefined;
+    await writeAsOfFolds(env, new SubrequestCounter(), { eventKey: EVENT_A, season: SEASON, vars: VARS, folds: [foldAt(EVENT_A, 1, ["frc1"])], stamp: STAMP });
+    const index = read(r2, asOfIndexKey({ eventKey: EVENT_A, ...KEY_PARAMS }), AsOfIndexSchema);
+    expect(index.teams.frc1).toEqual([{ f: [1000, 0], l: [1001, 1], p: null, s: T(0), x: T(2) }]);
+    expect(read(r2, SEASON_KEY, AsOfSeasonSchema).tails.frc1).toEqual([EVENT_A, 1001, 1]);
+  });
 });
 
 describe("scheduled.asOf — best effort", () => {

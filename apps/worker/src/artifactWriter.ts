@@ -205,7 +205,7 @@ export class AsOfSecretLeakError extends Error {
  * reason: `AS_OF_BUDGET_MAX_BYTES` lives beside `node:path` in
  * `publishBudget.ts`, and the offline publisher asserts it on every republish.
  */
-export async function writeAsOfObject(env: Env, counter: SubrequestCounter, family: LiveAsOfFamily, key: string, object: unknown): Promise<void> {
+export async function writeAsOfObject(env: Env, counter: SubrequestCounter, family: LiveAsOfFamily, key: string, object: unknown, onlyIf?: R2Conditional): Promise<boolean> {
   const validated = AS_OF_SCHEMA_BY_FAMILY[family].parse(object);
   const serialized = JSON.stringify(validated);
 
@@ -214,9 +214,27 @@ export async function writeAsOfObject(env: Env, counter: SubrequestCounter, fami
   }
 
   counter.spend(1);
-  await env.ARTIFACTS.put(key, serialized, {
-    httpMetadata: { contentType: ARTIFACT_CONTENT_TYPE, cacheControl: ARTIFACT_CACHE_CONTROL },
-  });
+  const httpMetadata = { contentType: ARTIFACT_CONTENT_TYPE, cacheControl: ARTIFACT_CACHE_CONTROL };
+  if (onlyIf === undefined) {
+    await env.ARTIFACTS.put(key, serialized, { httpMetadata });
+    return true;
+  }
+  // A conditional put resolves to `null` when its precondition fails, writing nothing.
+  return (await env.ARTIFACTS.put(key, serialized, { httpMetadata, onlyIf })) !== null;
+}
+
+/**
+ * `readArtifactObject` plus the object's etag, for a read-modify-write that
+ * puts back with `onlyIf: { etagMatches }` (`writeAsOfObject`). `etag` is
+ * `undefined` only from a binding that reports none (a test fake), and the
+ * caller then writes unconditionally, as before.
+ */
+export async function readArtifactObjectWithEtag(env: Env, counter: SubrequestCounter, key: string): Promise<{ readonly text: string; readonly etag: string | undefined } | undefined> {
+  counter.spend(1);
+  const object = await env.ARTIFACTS.get(key);
+  if (object === null) return undefined;
+  const etag = (object as { etag?: unknown }).etag;
+  return { text: await object.text(), etag: typeof etag === "string" ? etag : undefined };
 }
 
 /**

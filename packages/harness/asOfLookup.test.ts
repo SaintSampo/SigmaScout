@@ -277,6 +277,20 @@ describe("resolveAsOf — the league", () => {
   });
 });
 
+describe("resolveAsOf — objects a live write left behind a lost season object (C1)", () => {
+  it("a fold after the season object's write was lost grows the team's segment, so every cut inside it reads the true row and none throws", () => {
+    const s = new Season();
+    for (let row = 0; row < 4; row++) s.fold("2026e", `2026e_qm${row + 1}`, 100 + 10 * row, { frc1: [row, row + 1] });
+    // Tick N wrote the LOG and the INDEX and lost the season object: frc1's tail still names row 1.
+    s.season.tails.frc1 = ["2026e", 110, 1];
+    s.fold("2026e", "2026e_qm5", 140, { frc1: [4, 5] });
+    for (let row = 0; row < 5; row++) {
+      const r = resolveAsOf(s.input(s.cut("2026e", `2026e_qm${row + 1}`), [{ teamKey: "frc1", knownEventKeys: ["2026e"] }]));
+      expect(r.states.get("frc1"), `cut at row ${row}`).toEqual(tuple(row + 1));
+    }
+  });
+});
+
 describe("resolveAsOf — ties and demo robots", () => {
   it("rows at an equal sort_time across events order by event key: before the cut's event is in, after it is out", () => {
     const s = new Season();

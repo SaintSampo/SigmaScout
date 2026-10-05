@@ -154,6 +154,44 @@ describe("applyAsOfFold — segments and tails", () => {
     expect(s.season.L0).toEqual(league(-1));
   });
 
+  it("the INDEX wins over a tail behind it at this event: the last segment grows, so no second segment points inside the first (C1)", () => {
+    // The review's failure: rows 0 to 3 indexed for frc1, then the season object's write was lost, so its tail still names row 1.
+    const s = new Season();
+    for (let row = 0; row < 4; row++) s.fold(fold("2026e", `2026e_qm${row + 1}`, 100 + 10 * row, { frc1: [row, row + 1] }));
+    s.season.tails.frc1 = ["2026e", 110, 1];
+    s.fold(fold("2026e", "2026e_qm5", 140, { frc1: [4, 5] }));
+    expect(s.indexes.get("2026e")!.teams.frc1).toEqual([{ f: [100, 0], l: [140, 4], p: null, s: tuple(0), x: tuple(5) }]);
+    // The fold's own tail write repairs the season object.
+    expect(s.season.tails.frc1).toEqual(["2026e", 140, 4]);
+  });
+
+  it("the INDEX wins over a tail at an EARLIER event, and over a lost tail: the last segment grows (C1)", () => {
+    const s = new Season();
+    s.fold(fold("2026d", "2026d_qm1", 50, { frc1: [0, 1] }));
+    s.fold(fold("2026e", "2026e_qm1", 100, { frc1: [1, 2] }));
+    s.fold(fold("2026e", "2026e_qm2", 110, { frc1: [2, 3] }));
+    // The season object lost E's ticks: the tail is back at D, before E's segment ends.
+    s.season.tails.frc1 = ["2026d", 50, 0];
+    s.fold(fold("2026e", "2026e_qm3", 120, { frc1: [3, 4] }));
+    expect(s.indexes.get("2026e")!.teams.frc1).toEqual([{ f: [100, 0], l: [120, 2], p: ["2026d", 50, 0], s: tuple(1), x: tuple(4) }]);
+    // A season object with no tail at all for the team (lost entirely) grows it too.
+    delete s.season.tails.frc1;
+    s.fold(fold("2026e", "2026e_qm4", 130, { frc1: [4, 5] }));
+    expect(s.indexes.get("2026e")!.teams.frc1).toHaveLength(1);
+    expect(s.indexes.get("2026e")!.teams.frc1![0]!.l).toEqual([130, 3]);
+  });
+
+  it("a tail at another event AFTER the last segment still opens a new one, including at an equal sort_time decided by the event key", () => {
+    const s = new Season();
+    s.fold(fold("2026b", "2026b_qm1", 100, { frc1: [0, 1] }));
+    s.fold(fold("2026c", "2026c_qm1", 100, { frc1: [1, 2] }));
+    s.fold(fold("2026b", "2026b_qm2", 200, { frc1: [2, 3] }));
+    expect(s.indexes.get("2026b")!.teams.frc1).toEqual([
+      { f: [100, 0], l: [100, 0], p: null, s: tuple(0), x: tuple(1) },
+      { f: [200, 1], l: [200, 1], p: ["2026c", 100, 0], s: tuple(2), x: tuple(3) },
+    ]);
+  });
+
   it("refuses a league tuple of the wrong length and a fold for another event's objects", () => {
     const s = new Season();
     expect(() => s.fold({ ...fold("2026a", "2026a_qm1", 100, { frc1: [0, 1] }), L: [1, 2, 3] })).toThrow(AsOfFoldError);

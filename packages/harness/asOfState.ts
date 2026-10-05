@@ -409,8 +409,28 @@ export class AsOfFoldError extends Error {
   }
 }
 
-function sameKey(a: readonly [number, number], b: readonly [number, number]): boolean {
-  return a[0] === b[0] && a[1] === b[1];
+/**
+ * Whether a fold at `eventKey` by a team whose last segment here is `last`
+ * opens a NEW segment rather than growing `last`: only when the team's tail
+ * names a row at ANOTHER event that comes after `last` ends, which is the one
+ * shape "the team played elsewhere in between" takes.
+ *
+ * THE INDEX IS AUTHORITATIVE when the tail is behind it. The season object is
+ * a separate object written after the INDEX, so a live write that lands the
+ * INDEX and then loses the season object (a failed put, or an overlapping
+ * invocation's write) leaves a tail older than this event's last segment:
+ * one at this event behind `last.l`, or one at an earlier event. Opening a
+ * segment from such a tail would give it a `p` inside (or before) `last`, and
+ * a cut in that gap would then read the new segment's `s`, the state after a
+ * match played after the cut. Growing `last` keeps every segment's `p` honest,
+ * and the fold's own tail write repairs the season object. Every tail the
+ * offline publisher holds is the team's latest fold, so it is either `last.l`
+ * itself or a row at another event after it, and this decides exactly as the
+ * tail-only test it replaced.
+ */
+function opensNewSegment(eventKey: string, last: AsOfSegment, tail: AsOfPointer | undefined): boolean {
+  if (tail === undefined || tail[0] === eventKey) return false;
+  return compareAsOfPositions(tail[0], [tail[1], tail[2]], eventKey, last.l) > 0;
 }
 
 /**
@@ -421,11 +441,13 @@ function sameKey(a: readonly [number, number], b: readonly [number, number]): bo
  * season publish folds about 20,000 matches into one season object, and a
  * copying reducer would copy every team's tail per fold.
  *
- * Per tuple key: if the team's tail is this event's own last segment, that
- * segment grows (`l`, `x`); otherwise a new segment opens with `p` the tail
- * (`null` for the team's first match of the season) and `s` the tuple before
- * this match. The tail then points here. `lq` moves on a qualification match,
- * `le` on every match.
+ * Per tuple key: the team's last segment here grows (`l`, `x`) unless its
+ * tail names a row at another event after that segment (`opensNewSegment`,
+ * which also says why a tail behind the INDEX grows it); otherwise, and for
+ * the team's first match here, a new segment opens with `p` the tail (`null`
+ * for the team's first match of the season) and `s` the tuple before this
+ * match. The tail then points here. `lq` moves on a qualification match, `le`
+ * on every match.
  *
  * IDEMPOTENT: a match key already in this event's INDEX is a no-op, so a
  * re-fold (a Worker retry) never adds a second row.
@@ -470,7 +492,7 @@ export function applyAsOfFold(state: AsOfEventState, fold: AsOfFold, stamp: AsOf
     const tail = season.tails[teamKey];
     const segments = index.teams[teamKey];
     const last = segments?.[segments.length - 1];
-    if (tail !== undefined && tail[0] === fold.eventKey && last !== undefined && sameKey(last.l, [tail[1], tail[2]])) {
+    if (last !== undefined && !opensNewSegment(fold.eventKey, last, tail)) {
       last.l = key;
       last.x = after;
     } else {
