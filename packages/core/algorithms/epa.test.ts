@@ -2399,12 +2399,19 @@ describe("epa 14.0.0 — predict emits ranking-point odds from its own bonus RP 
     for (const name of RP_FIELD_NAMES.slice(2)) expect(name in prediction).toBe(false);
   });
 
-  it("an offseason event, or a season with no rule module, carries no RP key at all", () => {
-    const offseason = epa.predict(epa.initState(RP_TEAMS_2026), upcoming2026({ eventType: 99 }));
+  it("an event type with no tier (6), or a season with no rule module, carries no RP key at all", () => {
+    const untiered = epa.predict(epa.initState(RP_TEAMS_2026), upcoming2026({ eventType: 6 }));
     const noRules = epa.predict(epa.initState(RP_TEAMS_2026), upcoming({ matchKey: "2015test_qm1", eventKey: "2015test" }));
-    for (const prediction of [offseason, noRules]) {
+    for (const prediction of [untiered, noRules]) {
       for (const name of RP_FIELD_NAMES) expect(name in prediction).toBe(false);
     }
+  });
+
+  it("an offseason event (99) is a base tier RP event: it carries the same RP keys, and the same numbers, as a regional", () => {
+    const offseason = epa.predict(epa.initState(RP_TEAMS_2026), upcoming2026({ eventType: 99 }));
+    const regional = epa.predict(epa.initState(RP_TEAMS_2026), upcoming2026({ eventType: 0 }));
+    for (const name of RP_FIELD_NAMES) expect(name in offseason, name).toBe(true);
+    expect(offseason).toEqual(regional);
   });
 
   it("2026: the published supercharged marginal never exceeds energized, and the bonus pmf never places supercharged without energized", () => {
@@ -2470,11 +2477,20 @@ describe("epa 14.0.0 — update folds the bonus RP slots, qualification only", (
     expect(after.rpSlotOffsets.get("frc1")!.energized).toBeCloseTo((epaPercentFunc(0) * (1 - priced.redBonusRp![0]!)) / 2, 15);
   });
 
-  it("an elimination, offseason, Week 0 or demo match, a ruling-zero alliance and an absent or unparseable breakdown leave the relevant offsets untouched and never throw", () => {
+  it("an offseason (99) qualification match moves the bonus slots and the league exactly as a regional's does", () => {
+    const base = epa.initState(RP_TEAMS_2026);
+    const offseason = epa.update(base, result2026({ eventType: 99 }));
+    const regional = epa.update(base, result2026({ eventType: 0 }));
+    expect(offseason.rpSlotOffsets.size).toBeGreaterThan(0);
+    expect(offseason.rpSlotOffsets).toEqual(regional.rpSlotOffsets);
+    expect(offseason.rpLeague).toEqual(regional.rpLeague);
+  });
+
+  it("an elimination, untiered-event-type (6), Week 0 or demo match, a ruling-zero alliance and an absent or unparseable breakdown leave the relevant offsets untouched and never throw", () => {
     const base = epa.initState(RP_TEAMS_2026);
     const untouched = [
       result2026({ matchKey: "2026test_sf1m1", compLevel: "sf" }),
-      result2026({ eventType: 99 }),
+      result2026({ eventType: 6 }),
       result2026({ eventType: 100 }),
       // A fully-placeholder alliance is a demo non-contest (`isFullyDemoAlliance`).
       result2026({ blueTeams: ["frc0", "frc00", "frc000"] }),

@@ -70,16 +70,27 @@ export type EventTier = "base" | "districtChampionship" | "championship";
 /**
  * TBA `event_type` enum -> `EventTier`
  * (`github.com/the-blue-alliance/the-blue-alliance/blob/master/consts/event_type.py`):
- * `0`=Regional, `1`=District, `100`=Preseason -> base;
+ * `0`=Regional, `1`=District, `99`=Offseason, `100`=Preseason -> base;
  * `2`=District Championship, `5`=District Championship Division ->
  * districtChampionship; `3`=Championship Division, `4`=Championship Finals
- * -> championship. `99`=Offseason is deliberately absent: offseason breakdowns are
- * self-reported and not guaranteed to follow the season schema, so they are
- * excluded from every RP population.
+ * -> championship.
+ *
+ * `99`=Offseason is a base tier event since quick task 261004-uyc, so an offseason
+ * event is priced and displayed like a regional: its qualification matches carry
+ * RP pmfs and per bonus odds, and they fold into the RP beliefs, the population
+ * summary, the mean shift and EPA's bonus slots exactly as they fold into ratings.
+ * Its breakdowns are self reported and not guaranteed to follow the season schema,
+ * so a breakdown the season's module cannot parse still contributes nothing (every
+ * parse site is inside a try/catch) and its actual bonus flags publish as null.
+ * None of it crosses a season boundary (see `offseasonRpCarry.test.ts`). The RP
+ * scorecards stay official only because they filter on `isOfficialEventType`, not
+ * on this table. A type absent here, such as `6`=Festival of Champions, is still
+ * unmapped and still throws.
  */
 export const EVENT_TYPE_TIERS: Readonly<Record<number, EventTier>> = {
   0: "base",
   1: "base",
+  99: "base",
   100: "base",
   2: "districtChampionship",
   5: "districtChampionship",
@@ -87,21 +98,21 @@ export const EVENT_TYPE_TIERS: Readonly<Record<number, EventTier>> = {
   4: "championship",
 };
 
-/** Throws for an unmapped `event_type` (including `99` offseason) rather than defaulting to `base`, which would silently mispredict every higher-tier match of an unknown type. */
+/** Throws for an unmapped `event_type` (such as `6`, Festival of Champions) rather than defaulting to `base`, which would silently mispredict every higher-tier match of an unknown type. */
 export function eventTierFor(eventType: number): EventTier {
   const tier = EVENT_TYPE_TIERS[eventType];
   if (tier === undefined) {
     throw new Error(
-      `eventTierFor: unmapped TBA event_type ${eventType} (registered: ${Object.keys(EVENT_TYPE_TIERS).join(", ")}) — offseason (99) is deliberately excluded from every RP population`
+      `eventTierFor: unmapped TBA event_type ${eventType} (registered: ${Object.keys(EVENT_TYPE_TIERS).join(", ")}) — only the registered types carry ranking points`
     );
   }
   return tier;
 }
 
 /**
- * Precondition check for callers that cannot guarantee an upstream offseason filter
+ * Precondition check for callers that cannot guarantee the event type is mapped
  * (e.g. the Worker's live RP fold), applied before `eventTierFor`'s throw. Reads the
- * same `EVENT_TYPE_TIERS` table, so the two can never disagree.
+ * same `EVENT_TYPE_TIERS` table, so the two can never disagree. True for offseason.
  */
 export function isRpEligibleEventType(eventType: number): boolean {
   return EVENT_TYPE_TIERS[eventType] !== undefined;

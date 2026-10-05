@@ -120,11 +120,11 @@ describe("rosterIsFullyWarm", () => {
 });
 
 describe("observeMatch", () => {
-  it("adds nothing to either side for an elimination match, an offseason event type, a missing breakdown, or a side that fails to parse", () => {
+  it("adds nothing to either side for an elimination match, an event type with no tier, a missing breakdown, or a side that fails to parse", () => {
     const cases: Partial<MatchResult>[] = [
       { compLevel: "qf" },
       { compLevel: "f" },
-      { eventType: 99 },
+      { eventType: 6 },
       { hasScoreBreakdown: false, scoreBreakdownRaw: null },
       { hasScoreBreakdown: true, scoreBreakdownRaw: null },
       { scoreBreakdownRaw: "{not json" },
@@ -136,6 +136,15 @@ describe("observeMatch", () => {
       shift.observeMatch(warmBeliefs(), match(overrides));
       expect(shift.toState(), JSON.stringify(overrides)).toEqual(stateOf(0, 0));
     }
+  });
+
+  it("an offseason (99) qualification match books residuals exactly as a regional's does", () => {
+    const regional = new RpMeanShiftAccumulator(rp2020);
+    regional.observeMatch(warmBeliefs(), match({ eventType: 0 }));
+    const offseason = new RpMeanShiftAccumulator(rp2020);
+    offseason.observeMatch(warmBeliefs(), match({ eventType: 99 }));
+    expect(regional.toState().variables.endgamePoints!.count).toBe(2);
+    expect(offseason.toState()).toEqual(regional.toState());
   });
 
   it("a side with any roster team lacking history adds nothing, while a warm side still counts", () => {

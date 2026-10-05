@@ -2031,10 +2031,27 @@ describe("actualBonusFlagsForSeason", () => {
   });
 
   it("publishes null (strictly, not undefined) for an RP-ineligible event type", () => {
-    // eventType 99 (offseason) is not in EVENT_TYPE_TIERS — isRpEligibleEventType returns false.
-    const match = fixtureMatch({ matchKey: "2024off_qm1", eventType: 99, scoreBreakdownRaw: JSON.stringify(rawBreakdown2024()) });
+    // eventType 6 (Festival of Champions) is not in EVENT_TYPE_TIERS — isRpEligibleEventType returns false.
+    const match = fixtureMatch({ matchKey: "2024fcc_qm1", eventType: 6, scoreBreakdownRaw: JSON.stringify(rawBreakdown2024()) });
     const result = actualBonusFlagsForSeason([match], 2024);
     expect(result.get(match.matchKey)).toBeNull();
+  });
+
+  it("offseason (event type 99) is a base tier RP event: a parseable breakdown publishes real flags, the same as a regional's", () => {
+    const offseason = fixtureMatch({ matchKey: "2024off_qm1", eventType: 99, scoreBreakdownRaw: JSON.stringify(rawBreakdown2024()) });
+    const regional = fixtureMatch({ matchKey: "2024casj_qm1", eventType: 0, scoreBreakdownRaw: JSON.stringify(rawBreakdown2024()) });
+    const flags = actualBonusFlagsForSeason([offseason], 2024).get(offseason.matchKey);
+    expect(flags).not.toBeNull();
+    expect(flags).toEqual(actualBonusFlagsForSeason([regional], 2024).get(regional.matchKey));
+  });
+
+  it("offseason: a self reported breakdown the season cannot parse publishes null rather than throwing, and so does one with no breakdown", () => {
+    const malformed = fixtureMatch({ matchKey: "2024off_qm2", eventType: 99, scoreBreakdownRaw: JSON.stringify({ red: {}, blue: {} }) });
+    const missing = fixtureMatch({ matchKey: "2024off_qm3", eventType: 99, hasScoreBreakdown: false, scoreBreakdownRaw: null });
+    expect(() => actualBonusFlagsForSeason([malformed, missing], 2024)).not.toThrow();
+    const result = actualBonusFlagsForSeason([malformed, missing], 2024);
+    expect(result.get(malformed.matchKey)).toBeNull();
+    expect(result.get(missing.matchKey)).toBeNull();
   });
 
   it("publishes null (strictly, not undefined) for a match with no score breakdown", () => {
@@ -4189,6 +4206,48 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     const artifact = PublishedPreScheduleArtifactSchema.parse(JSON.parse(call![2] as string));
     // With no match played, "before the event" is "now", so `current-state` is the honest label.
     expect(artifact.pricedFrom).toBe("current-state");
+  });
+
+  it("offseason events are RP eligible (261004-uyc) but still get NO pre schedule sidecar: the sidecar set is the one it was before, and an official sibling with the same schedule still gets one", async () => {
+    seedTwoEventSeason(db);
+    const schedule = (eventKey: string) =>
+      seasonMatch({
+        matchKey: `${eventKey}_qm1`,
+        eventKey,
+        matchNumber: 1,
+        sortTime: 9_000,
+        redTeams: ["frc1", "frc2", "frc3"],
+        blueTeams: ["frc4", "frc5", "frc6"],
+        redScore: null,
+        blueScore: null,
+        winner: null,
+      });
+    upsertEvent(db, seasonEvent({ eventKey: "2026sch", name: "Scheduled Official" }));
+    upsertMatch(db, schedule("2026sch"));
+    upsertEvent(db, seasonEvent({ eventKey: "2026off", name: "Scheduled Offseason", eventType: 99, isOffseason: true }));
+    upsertMatch(db, schedule("2026off"));
+
+    const logs: string[] = [];
+    const log = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(" "));
+    });
+    try {
+      await publishSeasons(db, {
+        seasons: [2026],
+        algorithms: [fakeRpAlgorithm],
+        bucket: "test-bucket",
+        dryRun: false,
+        skipState: true,
+        includeOffseason: true,
+        computedAt: IN_PROGRESS_AT,
+      });
+    } finally {
+      log.mockRestore();
+    }
+
+    expect(findPresimCall("2026sch", spr.id), "non-vacuity: the official sibling must get its sidecar").toBeDefined();
+    expect(findPresimCall("2026off", spr.id), "an offseason event must get no pre schedule sidecar").toBeUndefined();
+    expect(logs.some((line) => line.includes("presim skip 2026off") && line.includes("offseason"))).toBe(true);
   });
 
   it("C-05: preScheduleFromSeason is a real parameter — a cutoff above the season suppresses every sidecar", async () => {

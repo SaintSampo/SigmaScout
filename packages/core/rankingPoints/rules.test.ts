@@ -1,6 +1,6 @@
 /** Pure unit tests for the RP leaf module and dispatch table; no corpus access (`reconciliation.test.ts` exercises `parse` corpus-wide). */
 import { describe, expect, it } from "vitest";
-import { eventTierFor } from "./constants.js";
+import { eventTierFor, isRpEligibleEventType } from "./constants.js";
 import { RP_REGISTERED_SEASONS, RP_RULE_MODULES, resolveRpThreshold, rpRuleModuleForSeason, type BonusPredicate } from "./rules.js";
 
 /** Test-only: collects every threshold-variable name a `BonusPredicate` reads, for the "every referenced variable is declared" case. */
@@ -136,10 +136,18 @@ describe.each(RP_REGISTERED_SEASONS)("season %i RP rule module shape", (season) 
     }
   });
 
-  it("predictThresholds throws for an unmapped TBA event_type (99, offseason) before any comparison", () => {
+  it("predictThresholds throws for an unmapped TBA event_type (6, Festival of Champions) before any comparison", () => {
     const zeroed: Record<string, number> = {};
     for (const v of module.thresholdVariables) zeroed[v.name] = 0;
-    expect(() => module.predictThresholds(zeroed, 99)).toThrow(/unmapped TBA event_type 99/);
+    expect(() => module.predictThresholds(zeroed, 6)).toThrow(/unmapped TBA event_type 6/);
+  });
+
+  it("predictThresholds at offseason (99) is the base tier: it equals the regional (0) result for the same values", () => {
+    const values: Record<string, number> = {};
+    module.thresholdVariables.forEach((v, i) => {
+      values[v.name] = 3 + i * 7;
+    });
+    expect(module.predictThresholds(values, 99)).toEqual(module.predictThresholds(values, 0));
   });
 });
 
@@ -374,8 +382,14 @@ describe("eventTierFor", () => {
     expect(eventTierFor(4)).toBe("championship");
   });
 
-  it("throws for 99 (offseason) rather than defaulting to base", () => {
-    expect(() => eventTierFor(99)).toThrow();
+  it("maps 99 (offseason) to base: offseason is priced and displayed like a regional", () => {
+    expect(eventTierFor(99)).toBe("base");
+    expect(isRpEligibleEventType(99)).toBe(true);
+  });
+
+  it("still throws for 6 (Festival of Champions) rather than defaulting to base", () => {
+    expect(() => eventTierFor(6)).toThrow();
+    expect(isRpEligibleEventType(6)).toBe(false);
   });
 
   it("throws for an unknown event_type value", () => {

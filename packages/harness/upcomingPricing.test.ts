@@ -414,8 +414,23 @@ describe("upcomingPricing parity: the full gating matrix", async () => {
     expect(empty).not.toHaveProperty("blueMatchBandVariance");
   });
 
-  it("RP-ineligible event type: bands price, no RP key appears, and every row still matches exactly", () => {
-    const INELIGIBLE = 99;
+  it("offseason (event type 99) is a base tier RP event: both arms carry the qualification pmfs and every row matches exactly", () => {
+    const OFFSEASON = 99;
+    expect(isRpEligibleEventType(OFFSEASON)).toBe(true);
+    const upcoming = upcomingAll.map((m) => ({ ...m, eventType: OFFSEASON }));
+    const { priced } = expectCaseParity({ arm, upcoming, eventType: OFFSEASON, sortTimes: sortTimesAll, ruleModule: loadedRuleModule });
+    // Non-vacuity: the pmfs are really there on the offseason rows, on the pricer's arm.
+    for (let i = 0; i < withheldQm.length; i++) {
+      for (const row of [jsonNormal(priced.event[i]!), jsonNormal(priced.team[i]!)] as Record<string, unknown>[]) {
+        expect(row.redRpPmf, String(row.matchKey)).toBeDefined();
+        expect(row.blueRpPmf, String(row.matchKey)).toBeDefined();
+        expect(row.redBonusRp, String(row.matchKey)).toBeDefined();
+      }
+    }
+  });
+
+  it("RP-ineligible event type (6, Festival of Champions, has no tier): bands price, no RP key appears, and every row still matches exactly", () => {
+    const INELIGIBLE = 6;
     expect(isRpEligibleEventType(INELIGIBLE)).toBe(false);
     const upcoming = upcomingAll.map((m) => ({ ...m, eventType: INELIGIBLE }));
     const { priced } = expectCaseParity({ arm, upcoming, eventType: INELIGIBLE, sortTimes: sortTimesAll, ruleModule: loadedRuleModule });

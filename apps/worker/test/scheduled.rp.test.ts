@@ -29,6 +29,9 @@ import {
 } from "../../../packages/harness/pageArtifacts.js";
 import { eventUpcomingRow } from "../../../packages/harness/publishedRows.js";
 import {
+  readRpBeliefs,
+  readRpMeanShift,
+  readRpPopulation,
   serializeState,
   withRpBeliefs,
   withRpMeanShift,
@@ -322,6 +325,12 @@ const SEASON = 2026;
 const PRIOR_EVENT_KEY = "2026prior";
 const LIVE_EVENT_KEY = "2026casj";
 const EVENT_TYPE = 0; // Regional — official AND RP-eligible.
+/**
+ * The TBA event type the fixture's two events are served as: the detail route, and
+ * the offline arm's `MatchResult`s. Defaults to the Regional above; the offseason
+ * block below sets it to 99 and `afterEach` puts it back.
+ */
+let fixtureEventType = EVENT_TYPE;
 const NOW_MS = Date.parse("2026-08-22T12:00:00.000Z");
 
 const RULES_2026 = RP_RULE_MODULES[SEASON]!;
@@ -428,7 +437,7 @@ function toMatchResult(f: MatchFixture): MatchResult {
     blueSurrogates: [],
     redDqs: [],
     blueDqs: [],
-    eventType: EVENT_TYPE,
+    eventType: fixtureEventType,
     week: null,
     winner: winnerOf(f),
     redScore: f.redScore,
@@ -469,7 +478,7 @@ function makeTbaFetchStub(): ReturnType<typeof vi.fn> {
         headers: { get: () => null },
         // `name` is required by `tbaEventSchema`; without it the detail parse
         // silently degrades to `eventType = -1`, gating RP off on every row.
-        json: async () => ({ key: detailRoute[1]!, name: "Test Event", year: SEASON, event_type: EVENT_TYPE, start_date: "2026-08-01" }),
+        json: async () => ({ key: detailRoute[1]!, name: "Test Event", year: SEASON, event_type: fixtureEventType, start_date: "2026-08-01" }),
       };
     }
     // The roster pass's conditional poll (quick task 260925-uy5), answered 304 by
@@ -584,6 +593,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   revealedPrior = 0;
   revealedLive = 0;
+  fixtureEventType = EVENT_TYPE;
 });
 
 describe("scheduled.rp — ranking points on live rows", () => {
@@ -790,7 +800,7 @@ describe("scheduled.rp — ranking points on live rows", () => {
         LIVE_FIXTURES.map((f) => {
           const raw = breakdownOf(f);
           const sideFlags = (side: "red" | "blue") => {
-            const parsed = RULES_2026.parse(raw, side, EVENT_TYPE);
+            const parsed = RULES_2026.parse(raw, side, fixtureEventType);
             return RULES_2026.bonusNames.map((name) => parsed.bonusFlags[name] ?? false);
           };
           return [matchKeyOf(f), { red: sideFlags("red"), blue: sideFlags("blue") }];
@@ -854,17 +864,131 @@ describe("scheduled.rp — ranking points on live rows", () => {
   });
 
   it("every event type the Worker will PROCESS is RP-eligible, so the eventType gate is defence in depth rather than a live branch", () => {
-    // Not driven end-to-end: every official event type is in
-    // `EVENT_TYPE_TIERS`, so no live tick reaches `rpFieldsFor`'s eventType
-    // gate with an ineligible value.
+    // Offseason (99) joined `EVENT_TYPE_TIERS` in quick task 261004-uyc: it is not
+    // official, but the Worker processes live offseason events and now prices them
+    // like a regional (the block below drives one end to end). An unmapped type, 6
+    // (Festival of Champions), is the value that still reaches the gate.
     for (const eventType of [0, 1, 2, 3, 4, 5]) {
       expect(isOfficialEventType(eventType), `event type ${eventType}`).toBe(true);
       expect(isRpEligibleEventType(eventType), `event type ${eventType}`).toBe(true);
     }
     expect(isOfficialEventType(99)).toBe(false);
-    expect(isRpEligibleEventType(99)).toBe(false);
-    expect(Object.keys(EVENT_TYPE_TIERS)).not.toContain("99");
+    expect(isRpEligibleEventType(99)).toBe(true);
+    expect(isRpEligibleEventType(6)).toBe(false);
+    expect(Object.keys(EVENT_TYPE_TIERS)).toContain("99");
+    expect(Object.keys(EVENT_TYPE_TIERS)).not.toContain("6");
   });
+});
+
+// ---------------------------------------------------------------------------
+// OFFSEASON, END TO END (quick task 261004-uyc plan 03). Event type 99 is a base
+// tier RP event: the same fixture, served as offseason, must price, fold and
+// publish exactly as the offline layer does for the same stream. The block above
+// is the Regional control; this block changes ONE thing, the event type.
+// ---------------------------------------------------------------------------
+
+describe("scheduled.rp — an offseason event (type 99) is priced and folded like a regional", () => {
+  // The same drive as the block above with the type switched. Duplicated rather
+  // than shared because `driveFixture` lives inside that describe.
+  async function driveOffseason(): Promise<{ r2: FakeR2Bucket; d1: FakeD1Database }> {
+    fixtureEventType = 99;
+    const manifests = new Map([
+      [LIVE_WINDOWS_MANIFEST_KEY, liveWindowsManifest()],
+      [ALGORITHMS_MANIFEST_KEY, algorithmsManifestJson()],
+    ]);
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    vi.stubGlobal("fetch", makeTbaFetchStub());
+    const env = makeEnv(manifests, d1, r2);
+    revealedPrior = PRIOR_FIXTURES.length;
+    for (let i = 0; i < PRIOR_FIXTURES.length; i++) {
+      expect((await runTick(env, { nowMs: NOW_MS + i * 60_000 })).eventsFailed).toBe(0);
+    }
+    for (let i = 0; i < LIVE_FIXTURES.length; i++) {
+      revealedLive = i + 1;
+      expect((await runTick(env, { nowMs: NOW_MS + (PRIOR_FIXTURES.length + i) * 60_000 })).eventsFailed).toBe(0);
+    }
+    return { r2, d1 };
+  }
+
+  async function liveRows(r2: FakeR2Bucket, algorithmId: string): Promise<PublishedMatchRow[]> {
+    const module = buildOfflineModule(algorithmId);
+    const key = artifactKey({ page: "event", eventKey: LIVE_EVENT_KEY, algorithmId, version: module.version });
+    const text = await r2.get(key);
+    expect(text, `no published event artifact at ${key} for algorithm "${algorithmId}"`).not.toBeNull();
+    const artifact = JSON.parse(await text!.text()) as { matches: PublishedMatchRow[] };
+    const byKey = new Map(artifact.matches.map((m) => [m.matchKey, m]));
+    return LIVE_FIXTURES.map((f) => byKey.get(matchKeyOf(f))!);
+  }
+
+  for (const algorithmId of ["spr", "epa"] as const) {
+    it(
+      `${algorithmId}: every played offseason row carries RP pmfs and they EQUAL the offline layer's stream for the same matches`,
+      async () => {
+        const { r2 } = await driveOffseason();
+        const offline = offlineRpRows(algorithmId);
+        expect(
+          offline.filter((r) => r.red !== undefined && r.blue !== undefined).length,
+          `algorithm "${algorithmId}": the offline arm priced no offseason match, so the comparison would be vacuous`
+        ).toBe(LIVE_FIXTURES.length);
+        const online = (await liveRows(r2, algorithmId)).map((row) => ({ matchKey: row.matchKey, red: row.redRpPmf, blue: row.blueRpPmf }));
+        expect(
+          online.filter((r) => r.red !== undefined && r.blue !== undefined).length,
+          `${algorithmId}: the tick left an offseason row without an RP pmf`
+        ).toBe(LIVE_FIXTURES.length);
+        expect(computeRpStreamDigest(online), `${algorithmId}: the live and offline offseason RP streams diverged`).toBe(computeRpStreamDigest(offline));
+      },
+      60_000
+    );
+  }
+
+  it(
+    "opr prices no ranking points at an offseason event either",
+    async () => {
+      const { r2 } = await driveOffseason();
+      for (const row of await liveRows(r2, "opr")) {
+        expect(row.redRpPmf).toBeUndefined();
+        expect(row.matchOutcomePmf).toBeUndefined();
+      }
+    },
+    60_000
+  );
+
+  it(
+    "the played rows carry the actual per bonus flags the rule module derives, and the artifact carries rpOutcomeRp",
+    async () => {
+      const { r2 } = await driveOffseason();
+      for (const row of await liveRows(r2, "spr")) {
+        const f = LIVE_FIXTURES.find((x) => matchKeyOf(x) === row.matchKey)!;
+        for (const side of ["red", "blue"] as const) {
+          const parsed = RULES_2026.parse(breakdownOf(f), side, 99);
+          const expected = RULES_2026.bonusNames.map((name) => parsed.bonusFlags[name] ?? false);
+          expect(side === "red" ? row.actualRedBonusRp : row.actualBlueBonusRp, `${row.matchKey} ${side}`).toEqual(expected);
+        }
+      }
+      const key = artifactKey({ page: "event", eventKey: LIVE_EVENT_KEY, algorithmId: "spr", version: spr.version });
+      const artifact = JSON.parse(await (await r2.get(key))!.text()) as { rpOutcomeRp?: { win: number; tie: number } };
+      expect(artifact.rpOutcomeRp).toEqual({ win: RULES_2026.winRp, tie: RULES_2026.tieRp });
+    },
+    60_000
+  );
+
+  it(
+    "the spr D1 rows hold RP beliefs for every team that played and a grown RP population and mean shift after offseason folds",
+    async () => {
+      const { d1 } = await driveOffseason();
+      const rows = [...d1.algorithmState.values()].filter((row) => row.algorithm_id === "spr").map(sbStateRowOf);
+      const beliefs = readRpBeliefs(rows);
+      expect([...beliefs.keys()].sort(), "an offseason fold left a team with no RP belief").toEqual(ALL_TEAMS);
+      const population = readRpPopulation(rows);
+      expect(population, "the league row carries no RP population").toBeDefined();
+      expect(Object.values(population!.variables).some((v) => v.n > 0), "the population summary never grew").toBe(true);
+      const shift = readRpMeanShift(rows);
+      expect(shift, "the league row carries no RP mean shift").toBeDefined();
+      expect(Object.values(shift!.variables).some((v) => v.count > 0), "the mean shift never booked a residual").toBe(true);
+    },
+    60_000
+  );
 });
 
 // ---------------------------------------------------------------------------

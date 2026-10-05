@@ -40,7 +40,7 @@ import type { OprState } from "../core/algorithms/opr.js";
 import type { EpaState } from "../core/algorithms/epa.js";
 import { type SprState } from "../core/algorithms/spr.js";
 import { isDemoTeamKey } from "../core/algorithms/demoTeams.js";
-import { isOfficialEventType } from "../core/algorithms/eventTypes.js";
+import { isOfficialEventType, OFFSEASON_EVENT_TYPE } from "../core/algorithms/eventTypes.js";
 import { isCancelledEvent } from "../core/algorithms/cancelledEvent.js";
 import { RP_RULE_MODULES } from "../core/rankingPoints/rules.js";
 import { isRpEligibleEventType } from "../core/rankingPoints/constants.js";
@@ -1326,7 +1326,7 @@ class BoundedUploader {
 interface PreScheduleSidecarArgs {
   readonly eventKey: string;
   readonly season: number;
-  /** The real event's TBA `event_type`. `eventTierFor` throws for unmapped types (99/Offseason), so RP-ineligible events are gated out before any synthetic match exists. */
+  /** The real event's TBA `event_type`. `eventTierFor` throws for unmapped types, so RP-ineligible events are gated out before any synthetic match exists; offseason (99) is RP eligible but is gated out too, see `buildPreScheduleSidecarForEvent`. */
   readonly eventType: number;
   /** The real event's TBA week (0-indexed) or `null`, passed through to every synthetic `UpcomingMatch`. */
   readonly week: number | null;
@@ -1377,6 +1377,13 @@ function buildPreScheduleSidecarForEvent(args: PreScheduleSidecarArgs): { key: s
   const label = `publish: presim skip ${args.eventKey} [${args.algorithm.id}]`;
   if (!isRpEligibleEventType(args.eventType)) {
     console.log(`${label}: event_type ${args.eventType} is not RP-eligible`);
+    return undefined;
+  }
+  // Offseason is RP eligible (quick task 261004-uyc) but gets no sidecar: the Simulation tab at an
+  // offseason event runs from its posted schedule's rows, and baking a sidecar for each of the ~111
+  // offseason events a season is hours of publish time nobody asked for. The sidecar set stays as it was.
+  if (args.eventType === OFFSEASON_EVENT_TYPE) {
+    console.log(`${label}: offseason events get no pre schedule sidecar`);
     return undefined;
   }
   if (args.roster.length < MIN_SCHEDULE_TEAMS || args.roster.length > MAX_SCHEDULE_TEAMS) {

@@ -122,16 +122,18 @@ describe("deficitFraction", () => {
 });
 
 describe("foldObservedThresholds equivalence against SigmaScoutLayer's own #foldObservedThresholds", () => {
-  it("produces exactly the same momentsFor(...) meanVector and varianceBlock as the shipped layer, over a 3-match synthetic sequence (eligible+breakdown, ineligible event type, missing breakdown)", () => {
+  it("produces exactly the same momentsFor(...) meanVector and varianceBlock as the shipped layer, over a 5-match synthetic sequence (eligible+breakdown, an unmapped event type, missing breakdown, offseason)", () => {
     const matches: MatchResult[] = [
       // 1. RP-eligible, has a breakdown — folds normally.
       baseMatch({ matchKey: "2026test_qm1", eventType: 0, hasScoreBreakdown: true, scoreBreakdownRaw: breakdown(60, 30) }),
-      // 2. Offseason (event_type 99) — NOT in EVENT_TYPE_TIERS, ineligible, skipped entirely.
-      baseMatch({ matchKey: "2026test_qm2", eventType: 99, hasScoreBreakdown: true, scoreBreakdownRaw: breakdown(999, 999) }),
+      // 2. An event type with no tier (6, Festival of Champions) — NOT in EVENT_TYPE_TIERS, ineligible, skipped entirely.
+      baseMatch({ matchKey: "2026test_qm2", eventType: 6, hasScoreBreakdown: true, scoreBreakdownRaw: breakdown(999, 999) }),
       // 3. RP-eligible but no score breakdown — skipped entirely.
       baseMatch({ matchKey: "2026test_qm3", eventType: 0, hasScoreBreakdown: false, scoreBreakdownRaw: null }),
       // 4. RP-eligible, has a breakdown — folds normally, second observation.
       baseMatch({ matchKey: "2026test_qm4", eventType: 0, hasScoreBreakdown: true, scoreBreakdownRaw: breakdown(70, 35) }),
+      // 5. Offseason (event_type 99) — a base tier RP event since quick task 261004-uyc, so it folds like a regional.
+      baseMatch({ matchKey: "2026test_qm5", eventType: 99, hasScoreBreakdown: true, scoreBreakdownRaw: breakdown(80, 40) }),
     ];
 
     // Arm A: the standalone script loop.
@@ -168,8 +170,12 @@ describe("foldObservedThresholds equivalence against SigmaScoutLayer's own #fold
     expect(eligible.sideResults.red.parsed).toBe(true);
     expect(eligible.sideResults.red.records.length).toBe(2); // hubTotalCount, totalTowerPoints
 
-    const ineligibleEventType = foldObservedThresholds(accumulator, rp2026, baseMatch({ eventType: 99, hasScoreBreakdown: true, scoreBreakdownRaw: breakdown(60, 30) }));
+    const ineligibleEventType = foldObservedThresholds(accumulator, rp2026, baseMatch({ eventType: 6, hasScoreBreakdown: true, scoreBreakdownRaw: breakdown(60, 30) }));
     expect(ineligibleEventType.eligible).toBe(false);
+
+    const offseason = foldObservedThresholds(accumulator, rp2026, baseMatch({ eventType: 99, hasScoreBreakdown: true, scoreBreakdownRaw: breakdown(60, 30) }));
+    expect(offseason.eligible).toBe(true);
+    expect(offseason.sideResults.red.parsed).toBe(true);
 
     const missingBreakdown = foldObservedThresholds(accumulator, rp2026, baseMatch({ eventType: 0, hasScoreBreakdown: false, scoreBreakdownRaw: null }));
     expect(missingBreakdown.eligible).toBe(false);

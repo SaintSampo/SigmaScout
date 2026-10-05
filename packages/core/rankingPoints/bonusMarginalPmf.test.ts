@@ -106,16 +106,27 @@ describe("bonusMarginalRpPmf — 2026 nested energized and supercharged", () => 
     }
   });
 
-  it("throws for an unmapped event type (offseason) rather than guessing a tier", () => {
+  it("offseason (99) prices at the base tier: the same result as a regional for the same inputs", () => {
+    const input = {
+      redBonusProbabilities: [0.3, 0.2, 0.5],
+      blueBonusProbabilities: [0.3, 0.2, 0.5],
+      pRedWin: 0.5,
+      ruleModule: RP_2026,
+      compLevel: "qm" as const,
+    };
+    expect(bonusMarginalRpPmf({ ...input, eventType: 99 })).toEqual(bonusMarginalRpPmf({ ...input, eventType: 0 }));
+  });
+
+  it("throws for an unmapped event type (6, Festival of Champions) rather than guessing a tier", () => {
     expect(() =>
       bonusMarginalRpPmf({
         redBonusProbabilities: [0.3, 0.2, 0.5],
         blueBonusProbabilities: [0.3, 0.2, 0.5],
         pRedWin: 0.5,
         ruleModule: RP_2026,
-        eventType: 99,
+        eventType: 6,
         compLevel: "qm",
       })
-    ).toThrow(/unmapped TBA event_type 99/);
+    ).toThrow(/unmapped TBA event_type 6/);
   });
 });

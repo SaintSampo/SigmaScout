@@ -107,7 +107,7 @@ function tbaMatch(f: TbaFixture): unknown {
 }
 
 /** Exactly `scheduled.ts`'s own `toMatchResult`, which is not exported. */
-function toMatchResult(match: CorpusMatch): MatchResult {
+function toMatchResult(match: CorpusMatch, eventType: number): MatchResult {
   return {
     matchKey: match.matchKey,
     eventKey: match.eventKey,
@@ -120,7 +120,7 @@ function toMatchResult(match: CorpusMatch): MatchResult {
     blueSurrogates: match.blueSurrogates,
     redDqs: match.redDqs,
     blueDqs: match.blueDqs,
-    eventType: EVENT_TYPE,
+    eventType,
     week: null,
     winner: match.winner as "red" | "blue" | "tie",
     redScore: match.redScore!,
@@ -153,13 +153,13 @@ const PREDICTION: Prediction = {
 const MATCH_BAND = { red: 331.125, blue: 288.5 };
 
 /** One fold's worth of shared inputs: the raw TBA list, the corpus rows and the MatchResults, from the SAME objects both arms read. */
-function foldOf(fixtures: readonly TbaFixture[]) {
+function foldOf(fixtures: readonly TbaFixture[], eventType: number = EVENT_TYPE) {
   const rawMatches = tbaMatchListSchema.parse(fixtures.map(tbaMatch));
   const folded = rawMatches.map((m) => normalizeMatch(m, EVENT_START_ISO));
-  const results = folded.map(toMatchResult);
+  const results = folded.map((m) => toMatchResult(m, eventType));
   const predictions = new Map(results.map((r) => [r.matchKey, PREDICTION]));
   const bands = new Map(results.map((r) => [r.matchKey, MATCH_BAND]));
-  return { rawMatches, folded, results, predictions, bands };
+  return { rawMatches, folded, results, predictions, bands, eventType };
 }
 
 function offlineLookups(fold: ReturnType<typeof foldOf>) {
@@ -189,7 +189,7 @@ function offlineEvent(fold: ReturnType<typeof foldOf>, lookups: ReturnType<typeo
       algorithmVersion: spr.version,
       generation: STAMP.generation,
       computedAt: STAMP.computedAt,
-      eventType: EVENT_TYPE,
+      eventType: fold.eventType,
       predictions: offlineRecords(fold),
       upcoming: [],
       teams: [],
@@ -210,7 +210,7 @@ function liveEvent(fold: ReturnType<typeof foldOf>, options: LiveEventOptions = 
     season: SEASON,
     algorithmId: spr.id,
     algorithmVersion: spr.version,
-    eventType: EVENT_TYPE,
+    eventType: fold.eventType,
     newlyFolded: fold.results,
     newPredictions: fold.predictions,
     upcoming: [],
@@ -331,6 +331,52 @@ describe("live played rows equal the offline publisher's rows", () => {
   it("the exception is pinned: no live row carries a coldStart key", () => {
     for (const row of liveEvent(fold).matches) expect(row).not.toHaveProperty("coldStart");
     for (const row of liveTeamSeason(fold).events[0]!.matches) expect(row).not.toHaveProperty("coldStart");
+  });
+});
+
+/**
+ * Offseason (TBA event type 99) became a base tier RP event in quick task
+ * 261004-uyc, so the played row a tick writes for an offseason match must again
+ * equal the publisher's, and carry the same per bonus flags a regional's would.
+ * The control above is the Regional; this block changes the event type and nothing
+ * else.
+ */
+describe("an offseason event's live played rows equal the offline publisher's rows", () => {
+  const fold = foldOf([QM, SF], 99);
+  const lookups = offlineLookups(fold);
+
+  it("non-vacuity: the offseason qualification row publishes real actual bonus flags and a total, not null", () => {
+    const qm = offlineEvent(fold, lookups).matches.find((m) => m.matchKey === QM.key)! as unknown as Record<string, unknown>;
+    expect(Array.isArray(qm.actualRedBonusRp)).toBe(true);
+    expect((qm.actualRedBonusRp as boolean[]).some(Boolean)).toBe(true);
+    expect(qm.actualRedRp).toBe(4);
+  });
+
+  it("event: every played row has the offline key list minus coldStart, and the same values", () => {
+    const offline = offlineEvent(fold, lookups);
+    const live = liveEvent(fold);
+    expect(live.matches.map((m) => m.matchKey)).toEqual(offline.matches.map((m) => m.matchKey));
+    for (const [i, liveRow] of live.matches.entries()) {
+      const offlineRow = offline.matches[i]! as unknown as Record<string, unknown>;
+      expect(liveRow as unknown as Record<string, unknown>, liveRow.matchKey).toEqual(withoutExceptions(offlineRow));
+    }
+  });
+
+  it("the same flags as a regional's for the same match", () => {
+    const regional = offlineEvent(foldOf([QM, SF], EVENT_TYPE), offlineLookups(foldOf([QM, SF], EVENT_TYPE))).matches.find((m) => m.matchKey === QM.key)! as unknown as Record<string, unknown>;
+    const offseason = offlineEvent(fold, lookups).matches.find((m) => m.matchKey === QM.key)! as unknown as Record<string, unknown>;
+    expect(offseason.actualRedBonusRp).toEqual(regional.actualRedBonusRp);
+    expect(offseason.actualBlueBonusRp).toEqual(regional.actualBlueBonusRp);
+  });
+
+  it("an offseason breakdown the season cannot parse publishes null flags on both sides, live and offline, and does not throw", () => {
+    const bad = foldOf([{ ...QM, breakdown: { red: {}, blue: {} } }], 99);
+    const badLookups = offlineLookups(bad);
+    const offline = offlineEvent(bad, badLookups).matches[0]! as unknown as Record<string, unknown>;
+    const live = liveEvent(bad).matches[0]! as unknown as Record<string, unknown>;
+    expect(offline.actualRedBonusRp ?? null).toBeNull();
+    expect(live.actualRedBonusRp ?? null).toBeNull();
+    expect(live).toEqual(withoutExceptions(offline));
   });
 });
 
