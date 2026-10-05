@@ -20,6 +20,16 @@ priority: medium
 >
 > **Do not re-propose.** Reopen only if a reader-facing need appears that the baked histogram cannot
 > serve. Everything below is the record of why the question existed.
+>
+> **REOPENED by Jacob on 2026-09-29, closed again by measurement (quick task 260929-mkn).** The
+> browser reproduces the offline histograms exactly (241,000 priced matches, none differing), and
+> the bytes are fine (inputs 22% to 35% smaller gzipped than the sidecar, plus an 89 KB gzipped lazy
+> bundle). Time fails it: 1,000 schedules for the 75 team event took 16.1 s at 1x, 80.6 s at 4x and
+> 135.1 s at 6x CPU throttle, against a 15 s line fixed beforehand. Schedule generation is 88% of
+> that, not pricing. The bake stays the first paint. Findings:
+> `.planning/quick/260929-mkn-browser-presim-pricing-measurement-spike/260929-mkn-FINDINGS.md`.
+> The offline generator was later made about 4.8 times faster (261004-v3h) and the browser was not
+> measured again; about 26 s at 4x is the derived figure, still over the line.
 
 
 This is the remainder of Phase 9's original fourth goal clause, carried forward when that clause was
