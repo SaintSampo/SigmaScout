@@ -367,6 +367,7 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
     positionIndex,
     eventArtifacts: artifacts.eventArtifacts,
     stageByEvent,
+    at: search.at,
     candidates,
   });
 

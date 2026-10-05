@@ -50,6 +50,7 @@ function options(positionId: string, enabled = true): UseAsOfRewindOptions {
     positionIndex,
     eventArtifacts: ARTIFACTS,
     stageByEvent: districtStageAtPosition(timeline, positionIndex, NOW_STAGES),
+    at: positionId,
     candidates: CANDIDATES,
   };
 }

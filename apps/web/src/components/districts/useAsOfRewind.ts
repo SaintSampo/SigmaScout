@@ -4,7 +4,7 @@ import type { DistrictArtifact, EventArtifact } from "../../../../../packages/ha
 import type { DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
 import { asOfIndexQueryOptions, asOfLogQueryOptions, asOfSeasonQueryOptions, asOfStartQueryOptions } from "../../lib/api/asOf.js";
 import { useAlgorithmVersion } from "../ribbon/AlgorithmSelect.js";
-import { asOfCandidateEvents, loadAsOfRewind, type AsOfFetchers, type AsOfRewindResult } from "./asOfRewind.js";
+import { asOfCandidateEvents, asOfScheduleStopEventKey, loadAsOfRewind, type AsOfFetchers, type AsOfRewindResult } from "./asOfRewind.js";
 import type { DistrictTimeline } from "./districtTimeline.js";
 import type { DistrictStageFinality } from "./districtLedgerRows.js";
 import { DISTRICT_LEDGER_ALGORITHM_ID } from "./districtRunAssembly.js";
@@ -41,6 +41,8 @@ export interface UseAsOfRewindOptions {
   readonly positionIndex: number;
   readonly eventArtifacts: ReadonlyMap<string, EventArtifact>;
   readonly stageByEvent: ReadonlyMap<string, DistrictStageFinality>;
+  /** The raw `?at=` value: a Schedule milestone (`<eventKey>:schedule`) prices that event on its real schedule. */
+  readonly at: string | undefined;
   /** Every event this tab may simulate, with its tier and week. */
   readonly candidates: readonly { readonly eventKey: string; readonly tier: DistrictTier; readonly week: number | null }[];
 }
@@ -55,6 +57,7 @@ function artifactsFingerprint(eventArtifacts: ReadonlyMap<string, EventArtifact>
 
 export function useAsOfRewind(options: UseAsOfRewindOptions): AsOfRewindView | undefined {
   const { enabled, artifactsLoading, districtArtifact, timeline, positionIndex, eventArtifacts, stageByEvent, candidates } = options;
+  const scheduleStopEventKey = asOfScheduleStopEventKey(options.at);
   const version = useAlgorithmVersion(DISTRICT_LEDGER_ALGORITHM_ID);
   const queryClient = useQueryClient();
 
@@ -65,7 +68,7 @@ export function useAsOfRewind(options: UseAsOfRewindOptions): AsOfRewindView | u
   const active = enabled && !artifactsLoading && version !== undefined;
 
   const query = useQuery({
-    queryKey: ["asOfRewind", districtArtifact.districtKey, version ?? "", positionId, positionIndex, fingerprint, openKeys] as const,
+    queryKey: ["asOfRewind", districtArtifact.districtKey, version ?? "", positionId, positionIndex, fingerprint, openKeys, scheduleStopEventKey ?? ""] as const,
     queryFn: async (): Promise<AsOfRewindResult> => {
       const algorithmId = DISTRICT_LEDGER_ALGORITHM_ID;
       const v = version!;
@@ -76,7 +79,7 @@ export function useAsOfRewind(options: UseAsOfRewindOptions): AsOfRewindView | u
         season: () => queryClient.fetchQuery(asOfSeasonQueryOptions({ season, algorithmId, version: v })),
         start: () => queryClient.fetchQuery(asOfStartQueryOptions({ season, algorithmId, version: v })),
       };
-      return loadAsOfRewind({ districtArtifact, timeline, positionIndex, eventArtifacts, stageByEvent, candidates: open }, fetchers);
+      return loadAsOfRewind({ districtArtifact, timeline, positionIndex, eventArtifacts, stageByEvent, candidates: open, scheduleStopEventKey }, fetchers);
     },
     enabled: active,
     staleTime: 60_000,

@@ -31,7 +31,7 @@
  * MODES, per event with an open category at the stop:
  *
  *   - REAL when the event has a folded row at or before the cut, or the stop
- *     is the position immediately before its first match (its Schedule stop):
+ *     is its own Schedule milestone (the reader picked `<eventKey>:schedule`):
  *     its real schedule is known then. Remaining qualification rows are its
  *     rows strictly after the cut; baselines are the actual RP of its rows at
  *     or before it (TBA's own final ranking once every qualification row is).
@@ -56,7 +56,7 @@ import type { SimTeamBaseline } from "../../../../../packages/core/algorithms/si
 import type { DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
 import type { DistrictArtifact, EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { buildQualRows } from "../../lib/simulationInputs.js";
-import { cutAtPosition, firstMatchPositionIndex, type DistrictTimeline } from "./districtTimeline.js";
+import { cutAtPosition, districtScheduleMilestoneId, type DistrictTimeline } from "./districtTimeline.js";
 import { DISTRICT_CATEGORIES, tierEvents, type DistrictStageFinality } from "./districtLedgerRows.js";
 
 // ---------------------------------------------------------------------------
@@ -270,8 +270,14 @@ export interface PlanAsOfEventParams {
   /** The event's INDEX: `null` when known unpublished (or never folded), `undefined` when not fetched (an event unstarted today). */
   readonly index: AsOfIndex | null | undefined;
   readonly cut: AsOfCut;
-  readonly timeline: DistrictTimeline;
-  readonly positionIndex: number;
+  /**
+   * The event whose SCHEDULE milestone the reader picked (`?at=<eventKey>:schedule`),
+   * if any. Read from the selection, never from which position happens to sit
+   * just before an event's first match: that adjacency moves when another
+   * event's playoffs are played (an unplayed Playoffs step sits after every
+   * timed step), so it would let a later result move a number at the stop.
+   */
+  readonly scheduleStopEventKey: string | undefined;
 }
 
 export type AsOfEventPlanResult = { readonly ok: true; readonly plan: AsOfEventPlan } | { readonly ok: false; readonly reason: string };
@@ -286,8 +292,7 @@ export function planAsOfEvent(params: PlanAsOfEventParams): AsOfEventPlanResult 
     return { ok: false, reason: `${eventKey} has played matches and no published INDEX` };
   }
   const foldedByCut = index !== null && index !== undefined && index.m.length > 0 && asOfAtOrBefore(eventKey, [index.m[0]![1], 0], cut);
-  const firstMatch = firstMatchPositionIndex(params.timeline, eventKey);
-  const atScheduleStop = firstMatch > 0 && params.positionIndex === firstMatch - 1;
+  const atScheduleStop = params.scheduleStopEventKey === eventKey;
 
   if (eventArtifact !== undefined && (foldedByCut || atScheduleStop)) {
     const split = asOfQualSplit({ eventKey, tier, eventArtifact, index: index ?? null, cut, week: params.week });
@@ -356,6 +361,16 @@ export interface AsOfRewindInput {
   readonly stageByEvent: ReadonlyMap<string, DistrictStageFinality>;
   /** The events this tab may simulate, with their tier and week. Only those with an open category at the stop are planned. */
   readonly candidates: readonly { readonly eventKey: string; readonly tier: DistrictTier; readonly week: number | null }[];
+  /** See `PlanAsOfEventParams.scheduleStopEventKey`; `asOfScheduleStopEventKey` reads it off `?at=`. */
+  readonly scheduleStopEventKey: string | undefined;
+}
+
+/** The event a `?at=` value names as its Schedule milestone (`districtScheduleMilestoneId`), or `undefined`. */
+export function asOfScheduleStopEventKey(at: string | undefined): string | undefined {
+  // `districtScheduleMilestoneId("")` is the alias suffix itself, spelled once in `districtTimeline.ts`.
+  const suffix = districtScheduleMilestoneId("");
+  if (at === undefined || !at.endsWith(suffix) || at.length === suffix.length) return undefined;
+  return at.slice(0, -suffix.length);
 }
 
 /** An upper bound on fetch rounds: each round fetches every object the previous resolve named, and a walk crosses a handful of events. */
@@ -411,8 +426,7 @@ export async function loadAsOfRewind(input: AsOfRewindInput, fetchers: AsOfFetch
       eventArtifact: input.eventArtifacts.get(candidate.eventKey),
       index: indexes.get(candidate.eventKey),
       cut,
-      timeline: input.timeline,
-      positionIndex: input.positionIndex,
+      scheduleStopEventKey: input.scheduleStopEventKey,
     });
     if (!planned.ok) outcomes.set(candidate.eventKey, { status: "unavailable", reason: planned.reason });
     else pending.set(candidate.eventKey, planned.plan);

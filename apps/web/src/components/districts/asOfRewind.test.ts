@@ -124,7 +124,7 @@ describe("asOfQualSplit: the ONE order", () => {
 });
 
 describe("planAsOfEvent: modes", () => {
-  const plan = (eventKey: string, positionId: string) => {
+  const plan = (eventKey: string, positionId: string, scheduleStop?: string) => {
     const tl = timeline();
     const positionIndex = tl.positions.findIndex((position) => position.id === positionId);
     const stop = resolveStopCut(tl, positionIndex, INDEXES);
@@ -137,8 +137,7 @@ describe("planAsOfEvent: modes", () => {
       eventArtifact: ARTIFACTS.get(eventKey),
       index: INDEXES.get(eventKey),
       cut: stop.cut,
-      timeline: tl,
-      positionIndex,
+      scheduleStopEventKey: scheduleStop,
     });
   };
 
@@ -147,10 +146,13 @@ describe("planAsOfEvent: modes", () => {
     expect(result.ok && result.plan.mode).toBe("real");
   });
 
-  it("is REAL at the Schedule stop, the position just before the event's first match", () => {
+  it("is REAL at the event's own Schedule milestone, and only there", () => {
     const tl = timeline();
     const first = tl.positions.findIndex((position) => position.id === "2026wabbb:m:2026wabbb_qm1");
-    const result = plan("2026wabbb", tl.positions[first - 1]!.id);
+    const result = plan("2026wabbb", tl.positions[first - 1]!.id, "2026wabbb");
+    // The same position, reached as another stop rather than as B's Schedule milestone, is GENERATED for B.
+    const sameWithoutAlias = plan("2026wabbb", tl.positions[first - 1]!.id);
+    expect(sameWithoutAlias.ok && sameWithoutAlias.plan.mode).toBe("generated");
     expect(result.ok && result.plan.mode).toBe("real");
     expect(result.ok && result.plan.mode === "real" && result.plan.rows).toHaveLength(8);
   });
@@ -177,8 +179,7 @@ describe("planAsOfEvent: modes", () => {
       eventArtifact: AAA,
       index: null,
       cut: { eventKey: "2026wabbb", t: T0 + 7 * 86_400 + 600, i: 1 },
-      timeline: tl,
-      positionIndex,
+      scheduleStopEventKey: undefined,
     });
     expect(result.ok).toBe(false);
   });
@@ -199,6 +200,7 @@ describe("loadAsOfRewind: the fetch loop", () => {
       eventArtifacts: ARTIFACTS,
       stageByEvent: districtStageAtPosition(tl, positionIndex, NOW_STAGES),
       candidates: CANDIDATES,
+      scheduleStopEventKey: undefined,
     };
   };
 

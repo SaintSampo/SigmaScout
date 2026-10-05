@@ -468,6 +468,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     positionIndex,
     eventArtifacts: artifacts.eventArtifacts,
     stageByEvent,
+    at: search.at,
     candidates,
   });
 

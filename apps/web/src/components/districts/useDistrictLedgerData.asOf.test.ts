@@ -189,7 +189,7 @@ async function rewoundAt(positionId: string): Promise<{ result: AsOfRewindResult
   const timeline = buildDistrictTimeline({ events: EVENTS, eventArtifacts: ARTIFACTS });
   const positionIndex = timeline.positions.findIndex((position) => position.id === positionId);
   const stageByEvent = districtStageAtPosition(timeline, positionIndex, NOW_STAGES);
-  const result = await loadAsOfRewind({ districtArtifact: districtArtifact(), timeline, positionIndex, eventArtifacts: ARTIFACTS, stageByEvent, candidates: CANDIDATES }, fetchers());
+  const result = await loadAsOfRewind({ districtArtifact: districtArtifact(), timeline, positionIndex, eventArtifacts: ARTIFACTS, stageByEvent, candidates: CANDIDATES, scheduleStopEventKey: undefined }, fetchers());
   return { result, stageByEvent };
 }
 
