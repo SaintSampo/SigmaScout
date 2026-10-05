@@ -984,6 +984,85 @@ not a defect in the pass. The same limit is stated for a reader on
 
 ---
 
+## The ingest log (quick task 261004-uyc)
+
+The tick keeps a durable, queryable record of what it saw and when, in the D1 table `ingest_log`
+(`apps/worker/migrations/0003_ingest_log.sql`). It exists so a finished live event can be analysed
+afterwards: when TBA posted each result, when the tick saw it, when it was folded, when the page
+could show it, where the event moved between phases, and what failed. It is D1 and not Workers Logs
+because logs expire and an event must stay queryable for as long as anyone wants to ask why a page
+was late.
+
+**Four kinds of row.** A tick that saw nothing new (every poll answered 304) writes none, so the
+table grows with what TBA did and not with the cron's cadence.
+
+| `kind` | One row per | `subject` | Notable columns |
+|---|---|---|---|
+| `endpoint` | TBA endpoint that answered with a changed body | the endpoint name (`matches`, later `rankings`, `alliances`, `teams`) | `tba_last_modified` is TBA's own header, `observed_at` is when the tick saw it, `published_at` is when the artifacts were written, `detail` holds the played and scheduled counts |
+| `match` | newly folded match | the match key | `tba_actual_time` and `tba_post_result_time` as TBA states them (epoch seconds), then the tick's `observed_at`, `folded_at` and `published_at`: the whole latency chain on one row |
+| `phase` | change of the event's phase | the new phase | `detail` holds the previous phase |
+| `failure` | stage the tick swallowed | the failing stage (`phase-b`, `event`, `live-event-pass`) | `detail` is the error message cut to 300 characters |
+
+Rows carry ids, counts, times and that truncated message, never a TBA key, a header dump, an
+artifact body or an environment value. The `phase` column is the event's phase at the time of the
+row.
+
+**The seven phases**, derived by a pure function from the match list the tick already holds
+(`apps/worker/src/eventPhase.ts`):
+
+| Phase | The event is here when |
+|---|---|
+| `no-schedule` | TBA lists no match for it |
+| `schedule-posted` | a qualification schedule exists and nothing is played |
+| `quals-in-progress` | some, not all, qualification matches are played |
+| `quals-complete` | every qualification match is played and alliances are not known yet |
+| `alliances-posted` | a playoff row names both alliances, or the alliances endpoint has answered with some |
+| `playoffs-in-progress` | a playoff match is played and the event is not over |
+| `complete` | every playoff row is played and one colour has two wins in the same finals set |
+
+A phase can move backward: TBA creates the next playoff row after a result, so a `complete` event
+that gains an unplayed row derives `playoffs-in-progress` again. The phase is remembered across
+ticks in `event_cursor`, under the reserved key `__live_ingest__:{eventKey}` (a JSON blob in
+`last_folded_match_key`), so a tick that answered 304 for everything still knows it. The
+cursor seed refuses that key shape, like the other reserved ones. The row is written only when the
+phase changes.
+
+**Reading it.** From the repo root, after the event:
+
+```bash
+pnpm live:report 2026vari                    # reads D1 through the logged in wrangler session
+pnpm live:report 2026vari --from-json rows.json
+pnpm live:report 2026vari --json             # the report object instead of text
+```
+
+It prints, in order: the timeline of every row; the four intervals per folded match (post to seen,
+seen to folded, folded to published, post to published); the median and worst post to published
+delay overall and per phase (matches TBA gave no `post_result_time` for are counted apart and
+measured from `actual_time` instead, never mixed into the median); the lag between TBA's
+`Last-Modified` and the tick per endpoint; the gaps (folded but unpublished matches, matches TBA
+showed played that no row ever folded, and any quiet stretch over fifteen minutes while matches
+should be arriving); every failure; and the time spent in each phase.
+
+**Retention.** The tick prunes rows older than 60 days when an event reaches `complete`. To prune on
+demand: `pnpm live:report --prune-before 2026-08-01`.
+
+**Apply the migration before the Worker that writes to it is deployed**, with the same
+`migrations apply` command the Database section gives, then confirm with
+`SELECT COUNT(*) FROM ingest_log`. A Worker running against a missing table loses only this log:
+the flush never throws, it warns `ingest-log-flush-failed` once per changed tick and the fold goes
+on, so skipping the order costs rows and nothing else.
+
+**A `--command` D1 call must run without the `.env` token.** `pnpm live:report` already passes no
+env file flag. Do not add `--env-file .env` to a hand run of the same query: that token is accepted
+by `--file` imports and refused by `--command`, and the logged in wrangler session is the one that
+works.
+
+**New log lines to filter on:** `ingest-log-flush-failed` (`rows`, `error`), `phase-b-failed`
+(`eventKey`, `error`; Phase B's artifact writes used to fail silently) and `live-event-pass-failed`
+(`eventKey`, `error`). The tick line gains `ingestRowsWritten`.
+
+---
+
 ## Watching it
 
 ```bash
@@ -1057,6 +1136,7 @@ above. An observation your model says is impossible is the most valuable one you
 | About to run an event; unsure the deployed bundle can read the rows in D1 | Untested since the last seed — a green idle tick does not exercise it | Apply `seed-cursors.sql` from the same publish run and deploy in that order, then watch the first tick for `state-generation-mismatch` or `LeagueRowShapeVersionError`. (The pre-event probe that used to answer this by hand was deleted 2026-09-23 — see "Pre-event probe" above) |
 | Earned district points not moving on `/districts` during a live district weekend | The district refresh pass is not seeing the district as live, is failing on it, or has nothing published to merge into | Read `districtsConsidered`, `districtsRefreshed`, `districtsUnchanged` and `districtsFailed` on the tick line, in that order. `districtsConsidered: 0` means no member event's window carries a `districtKey` — the live-windows manifest predates phase 10 or has gone stale, so re-run `pnpm publish:seasons`. Non-zero considered with `districtsFailed` above zero: grep the tail for `district-refresh-failed` and `district-artifact-missing` (the Worker never CREATES a district artifact, so a district the offline publisher has not published yet fails every tick). All considered and all unchanged is the healthy answer when TBA's rankings have genuinely not moved |
 | An `upcoming-pricing-failed` warn line in the tail | The tick could not price the event's remaining schedule — the priced row failed `EventUpcomingMatchSchema` (a pmf that does not sum, a band that is not finite). The event's state is durable in D1; its artifacts lag until the next tick | Read the truncated `error` field and the `upcoming` count on the line. It is a model-output problem, not a config one: the offline publisher would fail the same parse on the same state, so reproduce it with a replay rather than by redeploying |
+| The page was late, or a result took a long time to show | Anything between TBA posting the result and the artifact landing: TBA itself, the cron cadence, a tick that skipped the event, a Phase B write that failed | Run `pnpm live:report <eventKey>` and read the median and worst post to published delay by phase, then the gaps and the failures (see "The ingest log" above). A large `Last-Modified` to observed lag is TBA or the cron; a `phase-b` failure row is the artifact write; a gap is a tick that never saw the event |
 
 ---
 
