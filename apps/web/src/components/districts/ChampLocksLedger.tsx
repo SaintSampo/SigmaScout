@@ -71,6 +71,7 @@ import {
   StatusChips,
   TeamCell,
   UNAVAILABLE_CELL_CLASS,
+  ledgerRangeCallChip,
   likelyRangeText,
   stageWordKey,
   type CellInteraction,
@@ -91,8 +92,6 @@ import {
   CHAMP_LEDGER_NOT_IN_FIELD_CELL,
   CHAMP_LEDGER_NOT_IN_FIELD_LINE,
   CHAMP_LEDGER_NOT_YET_PRICED_CELL,
-  CHAMP_LEDGER_RANGE_CALL_LABELS,
-  CHAMP_LEDGER_RANGE_PENDING_DESCRIPTION,
   CHAMP_LEDGER_ROW_LABELS,
   CHAMP_LEDGER_STATUS_DEFINITIONS,
   CHAMP_LEDGER_TAB_LABEL,
@@ -105,7 +104,6 @@ import {
   champLedgerDcmpStageLine,
   champLedgerDistrictSourceLine,
   champLedgerFieldChanceLine,
-  champLedgerNoCallDescription,
   districtLedgerChanceLine,
   districtLedgerContributionEarned,
 } from "./districtLedgerCopy.js";
@@ -699,16 +697,9 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     const chance = chances?.byTeam.get(teamKey);
     return chance === undefined ? undefined : districtLedgerChanceLine(chance);
   };
-  const placeholderFor = (teamKey: string): StatusPlaceholder | undefined => {
-    const rangeCall = displayStatuses.byTeam.get(teamKey)?.rangeCall;
-    if (rangeCall === "pending") {
-      return { kind: "pending", label: CHAMP_LEDGER_RANGE_CALL_LABELS.pending, description: CHAMP_LEDGER_RANGE_PENDING_DESCRIPTION };
-    }
-    if (rangeCall === "noCall" && displayStatuses.noCallReason !== undefined) {
-      return { kind: "no-call", label: CHAMP_LEDGER_RANGE_CALL_LABELS.noCall, description: champLedgerNoCallDescription(displayStatuses.noCallReason) };
-    }
-    return undefined;
-  };
+  /** The withheld chip, from the ONE mapping both tabs read (quick task 261004-uw4). */
+  const placeholderFor = (teamKey: string): StatusPlaceholder | undefined =>
+    ledgerRangeCallChip(displayStatuses.byTeam.get(teamKey)?.rangeCall, displayStatuses.noCallReason);
 
   /**
    * THE PREDICTED CUTOFF, built ONCE from the SAME range state and handed to

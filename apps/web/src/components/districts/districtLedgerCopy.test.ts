@@ -33,6 +33,7 @@ import {
   DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
   DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION,
   DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
+  DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
@@ -43,6 +44,7 @@ import {
   DISTRICT_LEDGER_OUTCOME_LIST_LABELS,
   DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS,
   DISTRICT_LEDGER_SELECTION_ROUTE_WORDS,
+  DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_TAB_LABEL,
@@ -95,6 +97,22 @@ describe("the UI-SPEC copy contract", () => {
     expect(DISTRICT_LEDGER_STATUS_DEFINITIONS.inRange).toBe("if every team earned its median predicted points, this team would qualify");
     expect(DISTRICT_LEDGER_STATUS_DEFINITIONS.outOfRange).toBe("if every team earned its median predicted points, this team would not qualify");
     expect(DISTRICT_LEDGER_STATUS_DEFINITIONS.lockedOut).toBe("cannot earn enough district points to qualify");
+  });
+
+  // Quick task 261004-uw4: the five 10-UI-SPEC sentences above still print
+  // where the district tab's chips cut at the median projections. While its
+  // predicted cutoff is the simulated line (or pending, or refused) the tab
+  // prints this second set, whose In range and Out of range name that cutoff.
+  it("pins the district tab's simulated In range and Out of range to the predicted cutoff, and keeps its other three definitions (261004-uw4)", () => {
+    expect(DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS.inRange).toBe("this team's median predicted points sit at or above the predicted cutoff");
+    expect(DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS.outOfRange).toBe("this team's median predicted points sit below the predicted cutoff");
+    expect(DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS.prequalified).toBe(DISTRICT_LEDGER_STATUS_DEFINITIONS.prequalified);
+    expect(DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS.locked).toBe(DISTRICT_LEDGER_STATUS_DEFINITIONS.locked);
+    expect(DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS.lockedOut).toBe(DISTRICT_LEDGER_STATUS_DEFINITIONS.lockedOut);
+    for (const definition of Object.values(DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS)) expect(definition).not.toMatch(/[-‐-―−]/);
+    // The district line hands no slot to an award winner inside a run, so it
+    // must not borrow the champ tab's clause that says it does.
+    expect(DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS.inRange).not.toContain("award");
   });
 
   it("pins the champ tab's In range and Out of range to the predicted cutoff, and keeps its other three definitions the district tab's (260927-syh)", () => {
@@ -586,11 +604,19 @@ describe("the predicted cutoff copy", () => {
     const everyString = [
       ...Object.values(DISTRICT_LEDGER_CUTOFF_LABELS),
       DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
+      DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
       DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION,
       DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
     ].join(" ");
     for (const dash of ["—", "–", "-"]) expect(everyString).not.toContain(dash);
     expect(everyString).not.toContain("±");
+  });
+
+  it("describes the district tab's simulated line as a median with its own range, never as a midpoint (261004-uw4)", () => {
+    expect(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION).toContain("median");
+    expect(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION).toContain("10th to the 90th percentile");
+    expect(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION).not.toContain("midpoint");
+    expect(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION.split(". ")).toHaveLength(2);
   });
 
   it("carries no dash character in any of the simulated champ cutoff copy (quick task 260927-6bf)", () => {

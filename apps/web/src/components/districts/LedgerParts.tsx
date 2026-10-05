@@ -278,7 +278,13 @@ export function StatusChips({
    * Both tabs pass it.
    */
   withheld?: boolean;
-  /** The line under each chip. The champ tab passes `CHAMP_LEDGER_STATUS_DEFINITIONS`, whose In range cuts at the predicted cutoff. */
+  /**
+   * The line under each chip. The champ tab passes
+   * `CHAMP_LEDGER_STATUS_DEFINITIONS`, whose In range cuts at the predicted
+   * cutoff; the district tab passes its simulated set wherever its chips cut
+   * at the predicted cutoff too, and this default where they cut at the
+   * median projections.
+   */
   definitions?: Readonly<Record<DistrictLedgerStatusKey, string>>;
 }) {
   return (

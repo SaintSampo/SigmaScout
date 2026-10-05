@@ -79,6 +79,8 @@ import {
   DISTRICT_LEDGER_COLUMN_LABELS,
   DISTRICT_LEDGER_NO_MATCHES,
   DISTRICT_LEDGER_PROVENANCE,
+  DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS,
+  DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_TAB_LABEL,
   DISTRICT_LEDGER_CONTRIBUTION_CAPTION,
   DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS,
@@ -605,7 +607,16 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
     <div className="flex flex-col gap-[var(--spacing-md)]" data-testid="district-ledger-tab">
       <ControlsCard query={query} onQueryChange={setQuery} cutoff={cutoff}>
         <LocksMilestonePicker timeline={timeline} events={milestoneEvents} at={search.at} positionIndex={positionIndex} onAtChange={handleAtChange} />
-        <StatusChips counts={displayStatuses.counts} active={activeStatuses} onToggle={toggleStatus} withheld={displayStatuses.withheld !== undefined} />
+        <StatusChips
+          counts={displayStatuses.counts}
+          active={activeStatuses}
+          onToggle={toggleStatus}
+          withheld={displayStatuses.withheld !== undefined}
+          // The definitions follow the rule the chips are cut by: `settled`
+          // (a finished position, and the excluded team fallback) keeps the
+          // median rule's own sentences; every other arm reads the cutoff's.
+          definitions={rangeState.kind === "settled" ? DISTRICT_LEDGER_STATUS_DEFINITIONS : DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS}
+        />
       </ControlsCard>
       <p className="text-[var(--color-text-muted)]" data-testid="district-ledger-caveat">
         {DISTRICT_LEDGER_CAVEAT} {DISTRICT_LEDGER_PROVENANCE}

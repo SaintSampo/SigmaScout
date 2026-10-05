@@ -358,7 +358,17 @@ export function districtLedgerChanceLine(chance: number): string {
 /** What a team renders when TBA published no capacity for this district-year — plain text, no chip, exactly as the shipped champ tab does for `unknown`. */
 export const DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED = "Capacity not published";
 
-/** The five definitions, VERBATIM from `10-UI-SPEC.md`'s `## Copy` section. A test pins them character for character. */
+/**
+ * The five definitions, VERBATIM from `10-UI-SPEC.md`'s `## Copy` section. A
+ * test pins them character for character.
+ *
+ * WHERE THE DISTRICT TAB PRINTS THEM since quick task 261004-uw4: wherever In
+ * range and Out of range are still cut at the median projections, which is a
+ * position where every team still racing for points is settled, and the
+ * excluded team fallback (a run that landed but left a team out). Both
+ * sentences are exactly that rule. Everywhere else the tab prints
+ * `DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS` below.
+ */
 export const DISTRICT_LEDGER_STATUS_DEFINITIONS = {
   prequalified: "prequalified by FIRST",
   locked: "mathematically qualified, no matter what, on district points or an award",
@@ -366,6 +376,27 @@ export const DISTRICT_LEDGER_STATUS_DEFINITIONS = {
   outOfRange: "if every team earned its median predicted points, this team would not qualify",
   lockedOut: "cannot earn enough district points to qualify",
 } as const;
+
+/**
+ * THE DISTRICT TAB'S DEFINITIONS WHILE THE SIMULATED LINE IS IN PLAY (quick
+ * task 261004-uw4): printed while the predicted cutoff is the median of the
+ * simulated line, and while that line is pending or cannot be drawn. In range
+ * and Out of range cut at the predicted cutoff there, so the two "if every
+ * team earned its median" sentences above would be false for every team
+ * between the old line and the new one.
+ *
+ * TWO SETS RATHER THAN ONE SENTENCE FOR BOTH, deliberately. Under the midpoint
+ * rule an Out of range team can sit exactly AT the printed cutoff (a first
+ * team out at 59 and a last team in at 59.4 print a cutoff of 59), so "sit
+ * below the predicted cutoff" is not true of that rule, and "would not
+ * qualify at the medians" is not true of this one. The other three read as
+ * the set above.
+ */
+export const DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS: Readonly<Record<keyof typeof DISTRICT_LEDGER_STATUS_DEFINITIONS, string>> = {
+  ...DISTRICT_LEDGER_STATUS_DEFINITIONS,
+  inRange: "this team's median predicted points sit at or above the predicted cutoff",
+  outOfRange: "this team's median predicted points sit below the predicted cutoff",
+};
 
 /**
  * THE CHAMP TAB'S DEFINITIONS (quick task 260927-syh). Its In range and Out of
