@@ -49,14 +49,18 @@ export { DEFAULT_SIMULATION_SEED, SIMULATION_DRAWS };
 
 /**
  * Upper bound on `events.length` accepted from a request — a denial-of-service
- * ceiling on the visitor's own CPU, not an operating value. CONTEXT says a
- * district weekend puts at most two or three events live at once, and the
- * largest district in the corpus (`2026fim`) runs about a dozen district-tier
- * events across a whole season, which is the worst case a full-season rewind
- * could ever ask for. 24 is double that, so a legitimate request can never
- * reach it while a malformed or hostile one is still bounded.
+ * ceiling on the visitor's own CPU, not an operating value.
+ *
+ * MEASURED, NOT ASSUMED (2026-10-04). This was 24, justified by a claim that
+ * the largest district (`2026fim`) runs "about a dozen" district-tier events.
+ * It runs 27, and the champ tier adds its championship divisions on top. A
+ * rewind to Michigan's first week asked for 25 events, the whole request was
+ * refused as malformed, and the tab printed every cell unavailable beside a
+ * cutoff of 0. 64 is about double the real worst case (27 district events plus
+ * a divided championship), so a legitimate request cannot reach it while a
+ * malformed or hostile one is still bounded.
  */
-export const MAX_DISTRICT_SIMULATION_EVENTS = 24;
+export const MAX_DISTRICT_SIMULATION_EVENTS = 64;
 
 /**
  * Upper bound on one event's `baselines.length`. The largest district event

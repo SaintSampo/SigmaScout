@@ -44,8 +44,14 @@ export const DISTRICT_LEDGER_COLUMN_LABELS = [
  * "Oregon State Fair"; "FIM District - Kettering University Event #1" becomes
  * "Kettering University #1"; "ISR District Event #1" and any non-district
  * name are left exactly as TBA published them.
+ *
+ * A SPONSOR TAIL IS DROPPED (Jacob, 2026-10-04): most Michigan events publish
+ * as "FIM District Chelsea Event presented by DTE", which the template used to
+ * refuse whole, so the picker's menu and the Event cell printed the full name.
+ * "presented by <anyone>" after the word "Event" is now part of the template
+ * and is not printed; the event's own name is still never guessed at.
  */
-const DISTRICT_EVENT_NAME_TEMPLATE = /^[A-Za-z]{2,6} District (?:- )?(.+) Event( #\d+)?$/;
+const DISTRICT_EVENT_NAME_TEMPLATE = /^[A-Za-z]{2,6} District (?:- )?(.+?) Event( #\d+)?(?: presented by .+)?$/;
 
 export function districtLedgerShortEventName(eventName: string): string {
   const match = DISTRICT_EVENT_NAME_TEMPLATE.exec(eventName);

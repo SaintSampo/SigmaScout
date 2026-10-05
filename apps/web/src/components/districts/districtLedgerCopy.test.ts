@@ -200,6 +200,9 @@ describe("the UI-SPEC copy contract", () => {
     expect(districtLedgerShortEventName("PNW District Oregon State Fair Event")).toBe("Oregon State Fair");
     expect(districtLedgerShortEventName("FNC District Wake County Event")).toBe("Wake County");
     expect(districtLedgerShortEventName("FIM District - Kettering University Event #1")).toBe("Kettering University #1");
+    expect(districtLedgerShortEventName("FIM District Chelsea Event presented by DTE")).toBe("Chelsea");
+    expect(districtLedgerShortEventName("FIM District Milford Event presented by GM Proving Grounds")).toBe("Milford");
+    expect(districtLedgerShortEventName("FIM District Kettering University Event #2 presented by Ford")).toBe("Kettering University #2");
     // No name body between "District" and "Event": nothing to shorten to, so
     // the published name stands.
     expect(districtLedgerShortEventName("ISR District Event #1")).toBe("ISR District Event #1");
