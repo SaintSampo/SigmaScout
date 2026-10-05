@@ -321,6 +321,24 @@ describe("Bonus-RP dots — the tab's defining negative", () => {
   });
 });
 
+describe("Playoff rows render whenever they exist (quick task 261004-uyc)", () => {
+  it("an artifact with semifinal rows in upcoming and no alliances key renders the elims table with those rows", () => {
+    const upcoming = [
+      makeUpcomingMatch({ matchKey: "sf1m1", compLevel: "sf", setNumber: 1, matchNumber: 1 }),
+      makeUpcomingMatch({ matchKey: "sf2m1", compLevel: "sf", setNumber: 2, matchNumber: 1 }),
+    ];
+    const artifact = makeArtifact({ upcoming });
+    expect(artifact).not.toHaveProperty("alliances");
+
+    renderWithRouter(<ElimsTab artifact={artifact} algorithmId="spr" season={2022} />);
+
+    expect(screen.getByTestId("elims-table-scroll")).toBeDefined();
+    expect(screen.getAllByTestId(/^match-row-/)).toHaveLength(2);
+    expect(screen.getByTestId("match-row-sf1m1")).toBeDefined();
+    expect(screen.getByTestId("match-row-sf2m1")).toBeDefined();
+  });
+});
+
 describe("Unplayed and absent-variance rows", () => {
   it("an unplayed elimination row renders both alliance bands and ticks and NO actual dot for either alliance; Actual and Call cells render an em-dash", () => {
     const upcoming = [makeUpcomingMatch({ matchKey: "qf1m2", redScoreVarianceOwn: 25, blueScoreVarianceOwn: 16 })];

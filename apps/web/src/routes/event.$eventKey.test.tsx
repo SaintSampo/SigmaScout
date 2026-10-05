@@ -353,7 +353,7 @@ describe("/event/$eventKey route — the Insights tab registered", () => {
     ]);
   });
 
-  it("?tab=insights with a populated ranked artifact renders the nine Insights headers and no fallback banner; with an unranked artifact it renders the banner", async () => {
+  it("?tab=insights with a populated ranked artifact renders the nine Insights headers and no fallback banner; with an unranked artifact it renders the pending banner, and the fallback banner once a qualification match is played", async () => {
     stubFetch(() => eventArtifactResponse());
     renderEventRoute("/event/2024casf?algorithm=spr&tab=insights");
     await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
@@ -366,6 +366,36 @@ describe("/event/$eventKey route — the Insights tab registered", () => {
       const metrics: Record<string, { value: number }> = { total: { value: 48.33 } };
       return Promise.resolve(
         eventArtifactResponse({ teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", metrics }] }),
+      );
+    });
+    renderEventRoute("/event/2024casf?algorithm=spr&tab=insights");
+    // Nothing played yet (quick task 261004-uyc): the pending banner, not the claim that TBA has no ranking.
+    await waitFor(() => expect(screen.getByTestId("insights-pending-banner")).toBeDefined());
+    expect(screen.queryByTestId("insights-fallback-banner")).toBeNull();
+    cleanup();
+
+    // With a played qualification row and still no rank and no marker, the original sentence stands.
+    const playedQual = {
+      matchKey: "2024casf_qm1",
+      compLevel: "qm",
+      setNumber: 1,
+      matchNumber: 1,
+      redTeams: ["frc254"],
+      blueTeams: ["frc1"],
+      predictedWinner: "red",
+      pRedWin: 0.6,
+      predictedRedScore: 120,
+      predictedBlueScore: 100,
+      actualWinner: "red",
+      actualRedScore: 130,
+      actualBlueScore: 90,
+    };
+    global.fetch = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("manifest")) return Promise.resolve(manifestResponse());
+      const metrics: Record<string, { value: number }> = { total: { value: 48.33 } };
+      return Promise.resolve(
+        eventArtifactResponse({ matches: [playedQual], teams: [{ teamKey: "frc254", teamNumber: 254, nickname: "The Cheesy Poofs", metrics }] }),
       );
     });
     renderEventRoute("/event/2024casf?algorithm=spr&tab=insights");

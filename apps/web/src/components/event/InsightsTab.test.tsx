@@ -25,8 +25,11 @@ import { SIGMA_METRIC_KEY } from "../../../../../packages/harness/sigmaScore.js"
 import {
   buildInsightsRows,
   formatEventRecord,
+  insightsAwaitingOfficialNotice,
   insightsFallbackNotice,
   insightsLiveNotice,
+  insightsNoticeFor,
+  insightsPreEventNotice,
   InsightsTab,
   InsightsTabSkeleton,
 } from "./InsightsTab";
@@ -420,8 +423,25 @@ describe("InsightsTab — Total ± Sigma pill", () => {
   });
 });
 
+/** One played qualification row: the fact `insightsNoticeFor` reads to tell an event that has started from one that has not. */
+const PLAYED_QM = {
+  matchKey: "2024casf_qm1",
+  compLevel: "qm" as const,
+  setNumber: 1,
+  matchNumber: 1,
+  redTeams: ["frc1", "frc2", "frc3"],
+  blueTeams: ["frc4", "frc5", "frc6"],
+  predictedWinner: "red" as const,
+  pRedWin: 0.6,
+  predictedRedScore: 120,
+  predictedBlueScore: 100,
+  actualWinner: "red" as const,
+  actualRedScore: 130,
+  actualBlueScore: 90,
+};
+
 describe("InsightsTab — no-ranking fallback header and banner", () => {
-  function artifactWithRanks(teams: { rank?: number }[]) {
+  function artifactWithRanks(teams: { rank?: number }[], matches: unknown[] = [PLAYED_QM]) {
     return EventArtifactSchema.parse({
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "gen-1",
@@ -430,7 +450,7 @@ describe("InsightsTab — no-ranking fallback header and banner", () => {
       algorithmVersion: "2.0.0+tuned-2026-08",
       eventKey: "2024casf",
       season: 2024,
-      matches: [],
+      matches,
       upcoming: [],
       teams: teams.map((overrides, index) => ({
         teamKey: `frc${index + 1}`,
@@ -463,6 +483,70 @@ describe("InsightsTab — no-ranking fallback header and banner", () => {
     const rankHeader = screen.getAllByRole("columnheader")[0];
     expect(rankHeader?.textContent).toBe("Rank");
     expect(screen.queryByTestId("insights-fallback-banner")).toBeNull();
+    expect(screen.queryByTestId("insights-pending-banner")).toBeNull();
+    expect(screen.queryByTestId("insights-live-banner")).toBeNull();
+  });
+
+  it("a posted schedule with nothing played shows the pending banner with the pre event sentence and NOT the fallback banner", async () => {
+    renderInsights(artifactWithRanks([{}, {}], []), "spr", 2024);
+
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
+    expect(screen.queryByTestId("insights-fallback-banner")).toBeNull();
+    expect(screen.getByTestId("insights-pending-banner").textContent).toBe(insightsPreEventNotice(algorithmDisplayLabel("spr")));
+  });
+
+  it("played rows, counted records and no ranks show the pending banner with the awaiting sentence and not the fallback banner", async () => {
+    const base = artifactWithRanks([{}, {}]);
+    renderInsights({ ...base, standings: { source: "tick-counted" as const, ranked: false } }, "spr", 2024);
+
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
+    expect(screen.queryByTestId("insights-fallback-banner")).toBeNull();
+    expect(screen.getByTestId("insights-pending-banner").textContent).toBe(insightsAwaitingOfficialNotice(algorithmDisplayLabel("spr")));
+  });
+
+  it("played rows, no ranks and no marker still show the fallback banner with its existing sentence", async () => {
+    renderInsights(artifactWithRanks([{}, {}]), "spr", 2024);
+
+    await waitFor(() => expect(screen.getAllByRole("columnheader")).toHaveLength(9));
+    expect(screen.queryByTestId("insights-pending-banner")).toBeNull();
+    expect(screen.getByTestId("insights-fallback-banner").textContent).toBe(insightsFallbackNotice(algorithmDisplayLabel("spr")));
+  });
+});
+
+describe("insightsNoticeFor — which sentence the Insights tab shows", () => {
+  const withMatches = (matches: unknown[], extra: Partial<EventArtifact> = {}) => ({ ...makeArtifact([team()]), matches: matches as EventArtifact["matches"], ...extra });
+
+  it("official order gives none", () => {
+    expect(insightsNoticeFor(withMatches([PLAYED_QM]), "official")).toBe("none");
+  });
+
+  it("live order gives counted", () => {
+    expect(insightsNoticeFor(withMatches([PLAYED_QM], { standings: { source: "tick-counted", ranked: true } }), "live")).toBe("counted");
+  });
+
+  it("fallback with no played qualification row gives pre-event, even when only playoff rows are played", () => {
+    expect(insightsNoticeFor(withMatches([]), "fallback")).toBe("pre-event");
+    expect(insightsNoticeFor(withMatches([{ ...PLAYED_QM, matchKey: "2024casf_sf1m1", compLevel: "sf" }]), "fallback")).toBe("pre-event");
+  });
+
+  it("fallback with a played qualification row and a standings marker gives awaiting-official", () => {
+    expect(insightsNoticeFor(withMatches([PLAYED_QM], { standings: { source: "tick-counted", ranked: false } }), "fallback")).toBe("awaiting-official");
+  });
+
+  it("fallback with a played qualification row and no marker gives no-official", () => {
+    expect(insightsNoticeFor(withMatches([PLAYED_QM]), "fallback")).toBe("no-official");
+  });
+
+  it("neither new sentence, nor the counted sentence, nor the fallback sentence contains a hyphen or a dash of any kind", () => {
+    // ASCII hyphen-minus plus the Unicode dash block (U+2010-U+2015).
+    for (const sentence of [insightsPreEventNotice("SPR"), insightsAwaitingOfficialNotice("SPR"), insightsLiveNotice(), insightsFallbackNotice("SPR")]) {
+      expect(sentence).not.toMatch(/[-‐-―]/);
+    }
+  });
+
+  it("the pre event sentence is exactly the agreed copy", () => {
+    expect(insightsPreEventNotice("SPR")).toBe("Official rankings appear once qualification results post. Until then teams are ordered by SPR's rank.");
+    expect(insightsAwaitingOfficialNotice("SPR")).toBe("Official rankings have not arrived yet. Teams are ordered by SPR's rank for now.");
   });
 });
 

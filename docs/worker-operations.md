@@ -1063,6 +1063,55 @@ works.
 
 ---
 
+## Official rankings and alliances (quick task 261004-uyc, plan 02)
+
+The tick asks TBA for an open event's own standings and alliance selection and writes them onto
+**every** live algorithm's event artifact. It used to count the standings itself and never fetched
+alliances, so a Worker promoted event showed a counted order, an empty Alliances tab and, on an event
+with no counted rank, the "no official TBA ranking" banner.
+
+**Which phase polls which endpoint** (`apps/worker/src/eventPhase.ts`, `endpointsToPoll`):
+
+| Phase | `/event/{key}/rankings` | `/event/{key}/alliances` |
+|---|---|---|
+| no schedule, schedule posted | no | no |
+| quals in progress | yes | no |
+| quals complete, alliances posted | yes | yes |
+| playoffs in progress | only while it changed in the last 30 minutes | yes |
+| complete | only while it changed in the last 30 minutes | only while it changed in the last 30 minutes |
+
+Both are conditional GETs. The ETag lives in the event's `__live_ingest__:<eventKey>` cursor row, so an
+unchanged answer is a 304 that costs one request and writes nothing. The polls run from the **stored**
+phase when the tick fetched no match list for the event, which is how an alliance selection is picked up
+while no match is being played, and for a probe window event whose `/matches` answered 304.
+
+**What the artifact carries.** TBA's rank, record and Ranking Score on each ranked team row, and the
+alliances with their playoff records. An artifact holding TBA's ranks has **no `standings` marker**; the
+marker means "counted by the tick", so its absence beside ranks means "official" (the Insights tab
+derives its notice from exactly that). A later fold never counts over official ranks
+(`hasOfficialStandings`), and a retry only writes artifacts that differ from what is already there, so a
+rewrite is never a no-op put.
+
+**Counting is the gap filler.** Until TBA's first rankings response the tick counts record and Ranking
+Score from the played qualification rows. Each row credits its alliance's `actualRedRp` /
+`actualBlueRp` once: that value is TBA's reported ranking points for the match, the total including win
+or tie points. It is ranked only when every played qualification row carries a number on both sides. A
+mid event republish is safe because the offline publisher writes TBA's own ranks and the tick then never
+counts over them.
+
+**When the ETag is not stored.** A state generation mismatch, a live algorithm with no event artifact
+yet, a refused Ranking Score vocabulary and any failed write all leave the ETag unstored, so the next
+tick asks again. A published algorithm id whose artifact does not exist at all (an unpublished version
+named by the algorithms manifest) therefore re-fetches that endpoint every tick until it is published:
+one request a tick, not a failure.
+
+**Log lines and rows.** `official-data-failed` (`endpoint`, `eventKey`, `error`) and a `failure` ingest
+log row whose subject is `rankings` or `alliances`. A write logs one `endpoint` row with that subject, TBA's
+Last-Modified and a published time, so `pnpm live:report` now shows when TBA's standings changed and how
+long the site took to carry them. The tick line gains `officialDataPolled` and `officialDataWritten`.
+
+---
+
 ## Watching it
 
 ```bash

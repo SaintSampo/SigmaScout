@@ -210,6 +210,47 @@ export function insightsLiveNotice(): string {
 }
 
 /**
+ * `insightsPreEventNotice(algorithmLabel)`: the sentence for an event with no
+ * played qualification row yet, where no official ranking can exist and the
+ * fallback order is simply how the page reads before the event starts. Flat
+ * third person, zero hyphen or dash characters of any kind. The ONLY place this
+ * sentence appears in source.
+ */
+export function insightsPreEventNotice(algorithmLabel: string): string {
+  return `Official rankings appear once qualification results post. Until then teams are ordered by ${algorithmLabel}'s rank.`;
+}
+
+/**
+ * `insightsAwaitingOfficialNotice(algorithmLabel)`: the sentence while counted
+ * records (a `standings` marker with no counted rank) stand in for TBA's
+ * rankings that have not arrived yet. Same copy rules as the pre event sentence.
+ * The ONLY place this sentence appears in source.
+ */
+export function insightsAwaitingOfficialNotice(algorithmLabel: string): string {
+  return `Official rankings have not arrived yet. Teams are ordered by ${algorithmLabel}'s rank for now.`;
+}
+
+/** Which notice the Insights tab shows above the table, derived from `orderSource` and the artifact and deciding the sentence only. */
+export type InsightsNotice = "none" | "counted" | "pre-event" | "awaiting-official" | "no-official";
+
+/**
+ * `insightsNoticeFor(artifact, orderSource)`: the one place the notice is
+ * chosen. `buildInsightsRows` stays the one function that knows the ORDER; this
+ * reads its `orderSource` and decides the sentence, so the notice and the order
+ * can never be two independently consulted facts. The "no official TBA ranking"
+ * sentence is reachable only for an event with a played qualification row, no
+ * ranks and no counted marker: an event that has not started, or whose counted
+ * records are standing in for rankings still on their way, is not an event TBA
+ * declined to rank.
+ */
+export function insightsNoticeFor(artifact: EventArtifact, orderSource: InsightsOrderSource): InsightsNotice {
+  if (orderSource === "official") return "none";
+  if (orderSource === "live") return "counted";
+  if (!artifact.matches.some((match) => match.compLevel === "qm")) return "pre-event";
+  return artifact.standings !== undefined ? "awaiting-official" : "no-official";
+}
+
+/**
  * The decimal count the RP cell formats to. Mirrors
  * `packages/harness/rounding.ts`'s `ROUNDING_RULE.rankingPoints` —
  * mirrored rather than imported, following `MetricValue.tsx`'s own
@@ -484,6 +525,8 @@ export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps)
   const isNarrow = useIsMobile();
   const isF3Width = useIsF3MetricFirstWidth();
   const { rows, orderSource } = useMemo(() => buildInsightsRows(artifact, algorithmId), [artifact, algorithmId]);
+  const notice = insightsNoticeFor(artifact, orderSource);
+  const algorithmLabel = algorithmDisplayLabel(algorithmId as PublishedAlgorithmId);
   const columns = useMemo(
     () => buildInsightsColumns(algorithmId, season, orderSource, isNarrow, artifact.tierCuts),
     [algorithmId, season, orderSource, isNarrow, artifact.tierCuts],
@@ -503,16 +546,25 @@ export function InsightsTab({ artifact, algorithmId, season }: InsightsTabProps)
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]">
       <TierKeyRow />
-      {orderSource === "fallback" && (
+      {notice === "no-official" && (
         <div
           data-testid="insights-fallback-banner"
           className="flex items-center gap-[var(--spacing-sm)] rounded-[var(--radius)] bg-[var(--color-bg-inset)] px-[var(--spacing-md)] py-[var(--spacing-sm)] text-role-body text-[var(--color-text-muted)]"
         >
           <InfoIcon aria-hidden="true" className="size-4 shrink-0" />
-          <span>{insightsFallbackNotice(algorithmDisplayLabel(algorithmId as PublishedAlgorithmId))}</span>
+          <span>{insightsFallbackNotice(algorithmLabel)}</span>
         </div>
       )}
-      {orderSource === "live" && (
+      {(notice === "pre-event" || notice === "awaiting-official") && (
+        <div
+          data-testid="insights-pending-banner"
+          className="flex items-center gap-[var(--spacing-sm)] rounded-[var(--radius)] bg-[var(--color-bg-inset)] px-[var(--spacing-md)] py-[var(--spacing-sm)] text-role-body text-[var(--color-text-muted)]"
+        >
+          <InfoIcon aria-hidden="true" className="size-4 shrink-0" />
+          <span>{notice === "pre-event" ? insightsPreEventNotice(algorithmLabel) : insightsAwaitingOfficialNotice(algorithmLabel)}</span>
+        </div>
+      )}
+      {notice === "counted" && (
         <div
           data-testid="insights-live-banner"
           className="flex items-center gap-[var(--spacing-sm)] rounded-[var(--radius)] bg-[var(--color-bg-inset)] px-[var(--spacing-md)] py-[var(--spacing-sm)] text-role-body text-[var(--color-text-muted)]"
