@@ -55,6 +55,9 @@ function artifactsFingerprint(eventArtifacts: ReadonlyMap<string, EventArtifact>
     .join(",");
 }
 
+/** Where the artifacts fingerprint sits in the query key: the one part a same stop placeholder may differ in. */
+const FINGERPRINT_KEY_INDEX = 5;
+
 export function useAsOfRewind(options: UseAsOfRewindOptions): AsOfRewindView | undefined {
   const { enabled, artifactsLoading, districtArtifact, timeline, positionIndex, eventArtifacts, stageByEvent, candidates } = options;
   const scheduleStopEventKey = asOfScheduleStopEventKey(options.at);
@@ -67,8 +70,9 @@ export function useAsOfRewind(options: UseAsOfRewindOptions): AsOfRewindView | u
   const openKeys = open.map((candidate) => candidate.eventKey).join(",");
   const active = enabled && !artifactsLoading && version !== undefined;
 
+  const queryKey = ["asOfRewind", districtArtifact.districtKey, version ?? "", positionId, positionIndex, fingerprint, openKeys, scheduleStopEventKey ?? ""] as const;
   const query = useQuery({
-    queryKey: ["asOfRewind", districtArtifact.districtKey, version ?? "", positionId, positionIndex, fingerprint, openKeys, scheduleStopEventKey ?? ""] as const,
+    queryKey,
     queryFn: async (): Promise<AsOfRewindResult> => {
       const algorithmId = DISTRICT_LEDGER_ALGORITHM_ID;
       const v = version!;
@@ -84,6 +88,17 @@ export function useAsOfRewind(options: UseAsOfRewindOptions): AsOfRewindView | u
     enabled: active,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
+    // A live event's artifact refetches every minute, which changes the
+    // fingerprint and so the key. The SAME stop's previous plan stands while
+    // the new one loads, so the run is not torn down and restarted each minute
+    // (its signature only moves if the plan does). A different stop never
+    // borrows another stop's plan.
+    placeholderData: (previous, previousQuery) => {
+      const key = previousQuery?.queryKey;
+      if (previous === undefined || key === undefined) return undefined;
+      const same = key.length === queryKey.length && key.every((part, n) => n === FINGERPRINT_KEY_INDEX || part === queryKey[n]);
+      return same ? previous : undefined;
+    },
   });
 
   if (!enabled) return undefined;

@@ -85,6 +85,21 @@ describe("useAsOfRewind", () => {
     expect(ready?.status === "ready" && ready.result.status).toBe("ready");
   });
 
+  it("keeps the same stop's plan while a refreshed artifact re-plans it, and never lends a plan to another stop", async () => {
+    installFetch();
+    const first = options("2026wabbb:m:2026wabbb_qm2");
+    const { result, rerender } = renderHook((props: UseAsOfRewindOptions) => useAsOfRewind(props), { wrapper, initialProps: first });
+    await waitFor(() => expect(result.current?.status).toBe("ready"));
+    // A live event's artifact refetched: same stop, new fingerprint.
+    const refreshed = new Map([...first.eventArtifacts].map(([eventKey, artifact]) => [eventKey, { ...artifact, computedAt: "2026-09-25T00:01:00.000Z" }] as const));
+    rerender({ ...first, eventArtifacts: refreshed });
+    expect(result.current?.status).toBe("ready");
+    // Another stop starts from loading.
+    rerender(options("2026wabbb:m:2026wabbb_qm3"));
+    expect(result.current?.status).toBe("loading");
+    await waitFor(() => expect(result.current?.status).toBe("ready"));
+  });
+
   it("reads a failed fetch (not a 404) as failed, never as an unpublished object", async () => {
     installFetch((url) => (url.includes("/v1/asof-season/") ? 503 : 200));
     const { result } = renderHook(() => useAsOfRewind(options("2026wabbb:m:2026wabbb_qm2")), { wrapper });
