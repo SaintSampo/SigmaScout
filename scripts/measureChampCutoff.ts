@@ -801,6 +801,22 @@ export function selectTuning(results: GridResults): ChampCutoffTuningEntry[] {
   });
 }
 
+
+/**
+ * The last timeline position of each distinct week, in week order: the
+ * measurement points the retired rewind slider's jump chips used to supply
+ * (quick task 260929-ttp removed `DistrictTimeline.chips` with the slider).
+ * The derivation is the same one, kept here because this script is its only
+ * remaining reader. TBA weeks are zero indexed; the label prints one based.
+ */
+function weekEndPositions(timeline: ReturnType<typeof buildDistrictTimeline>): { index: number; label: string }[] {
+  const lastIndexByWeek = new Map<number, number>();
+  timeline.positions.forEach((position, index) => {
+    if (position.step === undefined || position.week === null) return;
+    lastIndexByWeek.set(position.week, index);
+  });
+  return [...lastIndexByWeek.keys()].sort((a, b) => a - b).map((week) => ({ index: lastIndexByWeek.get(week)!, label: `After week ${String(week + 1)}` }));
+}
 function gridIndexOf(setting: ChampCutoffSetting): number {
   return CHAMP_CUTOFF_TUNING_GRID.findIndex(
     (entry) => entry.weighting === setting.weighting && entry.countMode === setting.countMode && entry.spreadScale === setting.spreadScale
@@ -842,7 +858,7 @@ export function earlierPositionsPnw2026(artifact: DistrictArtifact, setting: Cha
   const tierByEvent = new Map(events.map((event) => [event.eventKey, event.tier] as const));
   const positions = [
     { index: 0, label: "Season start" },
-    ...timeline.chips.filter((chip) => chip.id.startsWith("week-")).map((chip) => ({ index: chip.positionIndex, label: chip.label })),
+    ...weekEndPositions(timeline),
   ].filter(({ index }) => !eventStartedAtPosition(timeline, index, dcmpEventKey));
 
   return positions.map(({ index, label }) => {
