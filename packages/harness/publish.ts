@@ -2683,6 +2683,11 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
 
       const blockLabel = `${season}/${algorithm.id}`;
       timings.add(`${blockLabel} build`, performance.now() - blockStart - sidecarMs - uploadWaitMs);
+      // NOT like for like across algorithms: `sidecarMs` includes generating every schedule structure
+      // this algorithm was the first to ask `SHARED_STRUCTURE_CACHE` for, and algorithms run in
+      // `options.algorithms` order. The first RP-publishing algorithm (EPA) therefore carries the
+      // season's structure generation and the next (SPR) reads warm cells. Set that share aside before
+      // comparing two algorithms' pricing cost (debug session `epa-presim-pricing-slow`, 2026-10-04).
       timings.add(`${blockLabel} sidecars`, sidecarMs);
       timings.add(`${blockLabel} uploadWait`, uploadWaitMs);
     }
