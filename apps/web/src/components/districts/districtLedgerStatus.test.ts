@@ -5,6 +5,8 @@
  * `DistrictArtifactSchema`, plus one test over a finished-district fixture
  * shaped exactly like the real artifact — that one is SC-3's acceptance.
  */
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   cutLinePointsWithQualifiers,
@@ -22,11 +24,13 @@ import {
   type DistrictEventState,
 } from "../../../../../packages/harness/pageArtifacts.js";
 import {
+  DISTRICT_CATEGORIES,
   buildDistrictLedgerRows,
+  districtTierEvents,
   type DistrictEventDistributions,
   type DistrictStageFinality,
 } from "./districtLedgerRows.js";
-import { computeDistrictLedgerStatuses } from "./districtLedgerStatus.js";
+import { computeDistrictLedgerStatuses, districtLockBounds } from "./districtLedgerStatus.js";
 
 type DistrictTeam = DistrictArtifact["teams"][number];
 
@@ -101,7 +105,7 @@ function statusesFor(artifact: DistrictArtifact, stageByEvent?: ReadonlyMap<stri
 // ---------------------------------------------------------------------------
 
 describe("the floor and the ceiling at a position", () => {
-  it("makes the floor EXACTLY team.pointTotal at the now position, with nothing reopened", () => {
+  it("makes the floor EXACTLY the team's district tier total at the now position, with nothing reopened", () => {
     const artifact = artifactOf([
       team("frc1", { pointTotal: 40, eventPoints: [played("a", 40)] }),
       team("frc2", { pointTotal: 10, eventPoints: [played("a", 10)] }),
@@ -378,7 +382,7 @@ describe("one points slot held back per Impact award still to come (260925-ms7)"
   });
 });
 
-describe("SC-3 — a finished district reproduces the artifact's own two counts EXACTLY", () => {
+describe("SC-3 — a finished district with no championship points reproduces the artifact's own two counts EXACTLY", () => {
   /**
    * A finished district shaped like the real `2026pnw` artifact: every team's
    * district-tier events final, a handful of Impact winners, and a published
@@ -510,5 +514,197 @@ describe("the pooled remaining-points lock at a position (260925-pl6)", () => {
     // event's qualification pool back on the table on top of event `b`'s.
     const reopened = statusesFor(artifact, new Map([["a", { qual: false, alliance: true, elim: true, award: true }]])).model;
     expect(reopened.pooledRemainingPoints).toBeGreaterThan(statusesFor(artifact).model.pooledRemainingPoints);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Quick task 261005-04t, D-01: the floor holds DISTRICT TIER points only.
+// ---------------------------------------------------------------------------
+
+/**
+ * The repo-relative fixture path, found by walking UP from the working
+ * directory rather than off `import.meta.url` (an `http://` URL under jsdom).
+ * `champLedgerRows.test.ts`'s own helper, restated.
+ */
+function repoFile(relative: string): string {
+  let dir = resolve(process.cwd());
+  for (;;) {
+    const candidate = join(dir, relative);
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) throw new Error(`could not find ${relative} above ${process.cwd()}`);
+    dir = parent;
+  }
+}
+
+const ALL_FINAL: DistrictStageFinality = { qual: true, alliance: true, elim: true, award: true };
+const ALL_OPEN: DistrictStageFinality = { qual: false, alliance: false, elim: false, award: false };
+
+describe("District Championship points never reach the district lock floor (261005-04t, D-01)", () => {
+  /** A finished dcmp tier entry: the points a team earned at the championship, two months after week one. */
+  const CHAMPIONSHIP = { eventKey: "cmp", eventName: "DCMP", week: 5, tier: "dcmp" as const, qual: 300, alliance: 0, elim: 0, award: 0, total: 300, state: FINISHED };
+
+  /** Four teams, one finished district event, two slots. `withChampionship` puts 300 championship points on the LAST team. */
+  function twin(withChampionship: boolean): DistrictArtifact {
+    return artifactOf(
+      [
+        team("frc1", { pointTotal: 40, eventPoints: [played("a", 40)] }),
+        team("frc2", { pointTotal: 30, eventPoints: [played("a", 30)] }),
+        team("frc3", { pointTotal: 20, eventPoints: [played("a", 20)] }),
+        withChampionship
+          ? team("frc4", { pointTotal: 310, eventPoints: [played("a", 10), CHAMPIONSHIP] })
+          : team("frc4", { pointTotal: 10, eventPoints: [played("a", 10)] }),
+      ],
+      { dcmpSlots: 2 }
+    );
+  }
+
+  function expectTwinsEqual(stage?: ReadonlyMap<string, DistrictStageFinality>): void {
+    const a = statusesFor(twin(true), stage).model;
+    const b = statusesFor(twin(false), stage).model;
+    for (const teamKey of ["frc1", "frc2", "frc3", "frc4"]) {
+      const left = a.byTeam.get(teamKey)!;
+      const right = b.byTeam.get(teamKey)!;
+      expect({ teamKey, status: left.status, byAward: left.byAward, verdict: left.verdict, lockedBy: left.lockedBy }).toEqual({
+        teamKey,
+        status: right.status,
+        byAward: right.byAward,
+        verdict: right.verdict,
+        lockedBy: right.lockedBy,
+      });
+    }
+    expect(a.counts).toEqual(b.counts);
+    expect(a.verdictCensus).toEqual(b.verdictCensus);
+  }
+
+  it("U1: at now, a team with championship points reads exactly as the same team without them, and so does every rival", () => {
+    expectTwinsEqual();
+    // And the twin without championship points is the plain standing, so the
+    // equality above is not two wrong answers agreeing.
+    const plain = statusesFor(twin(false)).model;
+    expect(plain.byTeam.get("frc1")?.status).toBe("locked");
+    expect(plain.byTeam.get("frc2")?.status).toBe("locked");
+    expect(plain.byTeam.get("frc4")?.status).toBe("lockedOut");
+  });
+
+  it("U2: at a rewound position (qualification reopened), the same equalities hold", () => {
+    expectTwinsEqual(new Map([["a", { qual: false, alliance: true, elim: true, award: true }]]));
+  });
+});
+
+describe("the committed 2026 PNW fixture, district tier floor at four positions (261005-04t, D-01)", () => {
+  const FIXTURE: DistrictArtifact = DistrictArtifactSchema.parse(
+    JSON.parse(readFileSync(repoFile("data/fixtures/phase10/district-2026pnw.json"), "utf8"))
+  );
+
+  /** Every district tier event key in the fixture with its own week, read through `districtTierEvents`. */
+  const WEEK_BY_EVENT = new Map<string, number | null>();
+  for (const source of FIXTURE.teams) {
+    for (const entry of districtTierEvents(source)) WEEK_BY_EVENT.set(entry.eventKey, entry.week);
+  }
+
+  /** An explicit stage for EVERY district tier event: all four categories final through `finalThroughWeek`, all four open after it. `null` opens everything. */
+  function positionThrough(finalThroughWeek: number | null): Map<string, DistrictStageFinality> {
+    const stage = new Map<string, DistrictStageFinality>();
+    for (const [eventKey, week] of WEEK_BY_EVENT) {
+      const final = finalThroughWeek !== null && week !== null && week <= finalThroughWeek;
+      stage.set(eventKey, final ? ALL_FINAL : ALL_OPEN);
+    }
+    return stage;
+  }
+
+  const LAST_WEEK = Math.max(...[...WEEK_BY_EVENT.values()].map((week) => week ?? 0));
+  const POSITIONS: readonly (readonly [string, Map<string, DistrictStageFinality>])[] = [
+    ["every category open", positionThrough(null)],
+    ["week 0 final", positionThrough(0)],
+    ["weeks 0 to 2 final", positionThrough(2)],
+    ["every category final", positionThrough(LAST_WEEK)],
+  ];
+
+  it("has the premise: many teams carry a dcmp tier entry with a positive total, and the fixture's weeks run 0 to 3", () => {
+    const withChampionshipPoints = FIXTURE.teams.filter((source) =>
+      source.eventPoints.some((entry) => entry.tier !== "district" && entry.total > 0)
+    );
+    expect(withChampionshipPoints.length).toBeGreaterThan(1);
+    expect(FIXTURE.teams).toHaveLength(126);
+    expect(FIXTURE.dcmpSlots).toBe(50);
+    expect([...new Set(WEEK_BY_EVENT.values())].sort()).toEqual([0, 1, 2, 3]);
+  });
+
+  it("R1: with every district category open, nobody is Locked and nobody is Locked out", () => {
+    const { model } = statusesFor(FIXTURE, positionThrough(null));
+    expect(model.verdictCensus.locked).toBe(0);
+    expect(model.verdictCensus.lockedAward).toBe(0);
+    expect(model.verdictCensus.eliminated).toBe(0);
+    expect(model.verdictCensus.contending).toBe(126);
+  });
+
+  it("R2: with week 0 final and later weeks open, only the two award winners are Locked", () => {
+    const { model } = statusesFor(FIXTURE, positionThrough(0));
+    expect(model.verdictCensus.locked).toBe(0);
+    expect(model.verdictCensus.lockedAward).toBe(2);
+    expect(model.verdictCensus.eliminated).toBe(0);
+  });
+
+  it("R3: with weeks 0 to 2 final and week 3 open, the chips read 15 Locked and 16 Locked out", () => {
+    const { model } = statusesFor(FIXTURE, positionThrough(2));
+    expect(model.counts.locked).toBe(15);
+    expect(model.counts.lockedOut).toBe(16);
+    expect(model.verdictCensus.locked).toBe(9);
+    expect(model.verdictCensus.lockedAward).toBe(6);
+    expect(model.verdictCensus.eliminated).toBe(16);
+  });
+
+  it("R4: with every district category final, the finished standing does not move", () => {
+    const { model } = statusesFor(FIXTURE, positionThrough(LAST_WEEK));
+    expect(model.verdictCensus.locked).toBe(42);
+    expect(model.verdictCensus.lockedAward).toBe(8);
+    expect(model.verdictCensus.eliminated).toBe(76);
+    expect(model.verdictCensus.contending).toBe(0);
+  });
+
+  it("F1: the floor is the district tier points final at the position, plus the rookie bonus and the adjustments, for all 126 teams", () => {
+    const sourceByKey = new Map(FIXTURE.teams.map((source) => [source.teamKey, source] as const));
+    for (const [label, stage] of POSITIONS) {
+      const { rows } = statusesFor(FIXTURE, stage);
+      expect(rows.teams).toHaveLength(126);
+      for (const entry of rows.teams) {
+        const source = sourceByKey.get(entry.teamKey)!;
+        // RE-SUMMED ON PURPOSE. The code derives the floor by subtraction from
+        // `pointTotal`; this is the independent arithmetic it has to agree with.
+        let expected = source.rookieBonus + source.adjustments;
+        for (const row of entry.rows) {
+          for (const category of DISTRICT_CATEGORIES) {
+            if (row.stage.final[category] && row.earned !== undefined) expected += row.earned[category];
+          }
+        }
+        expect({ label, teamKey: entry.teamKey, floor: districtLockBounds(source, entry.rows, CEILINGS).floor }).toEqual({
+          label,
+          teamKey: entry.teamKey,
+          floor: expected,
+        });
+      }
+    }
+  });
+
+  it("F2: the open ceiling is the season's district category ceilings over every open category of every row", () => {
+    const sourceByKey = new Map(FIXTURE.teams.map((source) => [source.teamKey, source] as const));
+    for (const [label, stage] of POSITIONS) {
+      const { rows } = statusesFor(FIXTURE, stage);
+      for (const entry of rows.teams) {
+        const source = sourceByKey.get(entry.teamKey)!;
+        let expected = 0;
+        for (const row of entry.rows) {
+          for (const category of DISTRICT_CATEGORIES) {
+            if (!row.stage.final[category]) expected += CEILINGS[category];
+          }
+        }
+        expect({ label, teamKey: entry.teamKey, openCeiling: districtLockBounds(source, entry.rows, CEILINGS).openCeiling }).toEqual({
+          label,
+          teamKey: entry.teamKey,
+          openCeiling: expected,
+        });
+      }
+    }
   });
 });

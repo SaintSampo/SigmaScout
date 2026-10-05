@@ -76,6 +76,19 @@
  *      pre-registered 72% to 88% band. The range is shown anyway (Jacob,
  *      2026-09-27), so the page quotes that coverage.
  *
+ * THE DISTRICT LOCKS LINE CARRIES NO MEASURED FIGURE ON THIS PAGE (quick task
+ * 261004-uw4). Its predicted cutoff became the median of the simulated line on
+ * 2026-10-04, and neither that line's error nor its likely range's coverage
+ * has been measured; the page says so in one sentence. Source 8's figures are
+ * the Champ Locks tab's alone, and the sentence carrying them names that tab.
+ * The backtest that would supply the district figures is todo
+ * `district-cutoff-line-backtest`.
+ *
+ * THE REWOUND VIEW AND THE CHAMPIONSHIP FIELD PARAGRAPHS CARRY NO MEASURED
+ * FIGURE (quick task 261005-04t), because the only rewind measurement is the
+ * event page's, inside one event (docs/models/rewind-overconfidence-gap.md),
+ * and the gap across weeks is unmeasured (todo locks-rewind-as-of-forecasts).
+ *
  * A figure that appears in none of those sources is not written here.
  *
  * NO SUBSECTION LEVEL, deliberately. `awardsContent.ts` needed one because its
@@ -124,6 +137,8 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
       "A team earns district points at every district event it plays. Four categories make up an event total, and a team's event totals make up its season total.",
       "Every formula below reproduces the value The Blue Alliance itself reports, checked row by row across ten seasons.",
       "A team is also Locked when the points still available in the district cannot lift enough rivals past it. Points are shared out inside an event, so the whole district has far fewer points left than the sum of what every rival could reach on its own. Either test is enough on its own, and both are applied at every position.",
+      "On the District Locks tab, Locked and Locked out at a rewound point count only the district event points a team had earned by then, never District Championship points.",
+      "Once the District Championship has started, the live District Locks view shows who is in its field. A team in the field reads Locked, a team that earned a place and is not in the field reads Declined, and every other team reads Locked out.",
       "The Champ Locks tab predicts each team's finish in the race for the district's FIRST Championship slots, adding the District Championship's own four categories to the district season total. Until the championship field is set, a team's championship points are estimated from how teams at the same place in past championship fields scored, using only seasons before the one shown. Only the grand total folds in the chance of being there, and the four championship categories read not yet priced.",
       "Once the field is set, the championship's own prediction replaces the estimate. A season with no earlier season to learn from shows the district season alone.",
     ],
@@ -174,11 +189,15 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
       "Clicking a Playoffs, Awards or Alliance selection cell lists the outcomes that category can pay rather than drawing a histogram. Each row names one outcome and carries the share of runs that produced it, read from the same runs the cell's own figure comes from. Rows the bracket or the ranking has already ruled out are left off.",
       "The Alliance selection cell names the likelier of the two routes onto a playoff alliance, either captaining one or being picked onto one. The points alone cannot tell those two apart, because a captain and a first pick earn the same amount on the same alliance. Once qualification is over the ranking is settled, so the cell prints the exact points and the alliance the draft gives that team.",
       "Every team still in the points race also carries its chance of qualifying on district points, which is the share of 1,000 runs where its season total lands inside the qualifying slots. Each team's total is drawn on its own, so the runs miss the fact that two teams at one event compete for the same points. A chance never moves a status, and a team whose place is already settled prints none.",
-      "The District Locks tab also prints a predicted cutoff, the midpoint of the last team inside the slots and the first team outside them, taken over the same pool of teams still racing for points that the statuses use. The likely range beside it is the 10th to the 90th percentile of where that line landed across the 1,000 runs, and the dashed line on every grand total plot is drawn at the same number. The cutoff follows the ranking and never moves a status.",
-      "On the Champ Locks tab the predicted cutoff is the median of a simulated line. In each run the District Championship winning alliance and its Impact, Engineering Inspiration and Rookie All Star winners are drawn and take their slots first, and the line is read from the teams left. Award winners come from that season's district winners of the same award, and each award's count starts from the number the district gave the season before.",
+      "The District Locks tab also prints a predicted cutoff. In each of the 1,000 runs the line is the season total of the last team inside the qualifying slots, taken over the same pool of teams still racing for points that the statuses use. The predicted cutoff is the median of that line across the runs, and the likely range beside it is the 10th to the 90th percentile of the same line.",
+      "Teams whose median predicted total sits at or above the predicted cutoff are In range, and teams below it are Out of range. The dashed line on every grand total plot is drawn at the same number. Locked, Locked out and Prequalified are guarantees and never depend on the cutoff.",
+      "Until the runs finish those two chips read Pending and no cutoff is printed. Where the runs fail or cannot be set up they read No call and no cutoff is printed. How close this line lands to the published cutoff has not been measured.",
+      "Once every team still racing for points has finished its season, nothing is drawn any more. The cutoff is then the midpoint of the last team inside the slots and the first team outside them, which is the midpoint rule. The midpoint rule also applies, with no likely range, where the runs left out a team whose season total could not be built, because they ranked a smaller field.",
+      "The Champ Locks tab reads its predicted cutoff the same way, with one step added. In each run the District Championship winning alliance and its Impact, Engineering Inspiration and Rookie All Star winners are drawn and take their slots first, and the line is read from the teams left. Award winners come from that season's district winners of the same award, and each award's count starts from the number the district gave the season before.",
       "Teams at or above that line are In range and teams below it are Out of range. Until the runs finish those two chips read Pending, and where no line can be drawn they read No call. Once the District Championship awards are posted nothing is drawn any more, and the midpoint rule applies.",
-      "At the end of each district season, predicted only from the seasons before it, the simulated line missed the published line by 16.4 points on average over 68 district seasons, against 41.0 for the midpoint rule. Its likely range, the 10th to the 90th percentile of that line across the runs, held the published line in 49 of 69 seasons, 71%, where a range this wide should hold about 80%.",
+      "On the Champ Locks tab, at the end of each district season and predicted only from the seasons before it, the simulated line missed the published line by 16.4 points on average over 68 district seasons, against 41.0 for the midpoint rule. Its likely range, the 10th to the 90th percentile of that line across the runs, held the published line in 49 of 69 seasons, 71%, where a range this wide should hold about 80%.",
       "On the Champ Locks tab a run also counts a team as qualified when it lands on the winning alliance or draws one of those awards.",
+      "Both Locks tabs can be rewound to an earlier point in the season. A rewound view predicts later events with the odds this site published just before each of their matches and with each team's rating from the end of that event, so its predictions know more than a forecast made at that point could.",
     ],
     table: {
       caption: "What decides each open category",

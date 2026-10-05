@@ -48,6 +48,18 @@
  * slot-th highest value in the narrowed pool" over a DIFFERENT quantity, which
  * is exactly the projection cut line CONTEXT's In range definition needs.
  *
+ * THAT IS THE VERDICT LEVEL RULE, AND NOT ALWAYS WHAT THE TAB SHOWS (quick
+ * task 261004-uw4; the same split `champLedgerStatus.ts` documents as its
+ * decision 3). The In range and Out of range this module returns are what the
+ * rest of the tab and the advancement chance run read. What the District tab
+ * SHOWS while anything is still open is cut at the simulated line by
+ * `applyLedgerRangeState` in `ledgerRangeState.ts`: at or above the median of
+ * the per run line is In range, and while that line is pending or cannot be
+ * drawn the two chips read Pending or No call. The median rule above stands,
+ * as shown, where every pool team is settled, and where a chance run landed
+ * but left a team out. Prequalified, Locked and Locked out are never touched
+ * by any of that.
+ *
  * THE DATA WORD `eliminated` IS NEVER PRINTED (the sketch's language rules),
  * and neither is the champ tab's sixth verdict word for `contending`. Note
  * carefully that the shipped champ tab's own label for `eliminated` reads as
@@ -67,7 +79,7 @@ import { maxEventPoints } from "../../../../../packages/core/districts/pointMode
 import { reservedImpactSlots, type ReservedSlotEvent } from "../../../../../packages/core/districts/reservedSlots.js";
 import { pooledLockInputs, type PooledTeamEntry } from "../../../../../packages/core/districts/pooledLockInputs.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import { DISTRICT_CATEGORIES, districtTierEvents, type DistrictLedgerTeam } from "./districtLedgerRows.js";
+import { DISTRICT_CATEGORIES, districtTierEvents, type DistrictLedgerEventRow, type DistrictLedgerTeam } from "./districtLedgerRows.js";
 
 /** The five chip keys, plus the honest capacity-not-published state that renders as plain text with NO chip. */
 export const DISTRICT_LEDGER_STATUS_KEYS = ["prequalified", "locked", "inRange", "outOfRange", "lockedOut"] as const;
@@ -82,7 +94,13 @@ export interface DistrictLedgerStatusResult {
   readonly status: DistrictLedgerStatusState;
   /** True when an AWARD is the reason a team is Locked — the "Locked · award" variant, a note on one status rather than a second status. */
   readonly byAward: boolean;
-  /** The raw `locks.ts` verdict this status was mapped from, exposed so a test can compare the census against the artifact's own counts. */
+  /**
+   * The raw `locks.ts` verdict this status was mapped from: the GUARANTEE, on
+   * the district tier floor (`districtLockBounds`). It equals the artifact's
+   * own `districtLock.status` only while no team has District Championship
+   * points, because the publisher ranks the all tier total (todo
+   * `publisher-district-lock-all-tier-total`).
+   */
   readonly verdict: LockStatus;
   /**
    * Which of the two points arguments proved a `Locked` verdict, straight off
@@ -104,7 +122,13 @@ export interface DistrictLedgerStatusModel {
    * field counts the `locked` verdict alone.
    */
   readonly counts: Readonly<Record<DistrictLedgerStatusKey, number>>;
-  /** The raw six-status `locks.ts` census, which IS what `insights.districtLockedCount`/`districtEliminatedCount` count. */
+  /**
+   * The raw six-status `locks.ts` census on the district tier floor. It is the
+   * same COUNT `insights.districtLockedCount`/`districtEliminatedCount` take,
+   * and the same NUMBER only while no team has District Championship points:
+   * the publisher's census ranks the all tier total (todo
+   * `publisher-district-lock-all-tier-total`).
+   */
   readonly verdictCensus: Readonly<Record<LockStatus, number>>;
   /** The slot-th highest MEDIAN PROJECTION in the narrowed pool — the In range boundary. `null` for an unpublished capacity. */
   readonly projectionCutLine: number | null;
@@ -200,25 +224,81 @@ export function reservedSlotsAtPosition(artifact: DistrictArtifact, teams: reado
   return reservedImpactSlots(events);
 }
 
+/** One district-tier category's ceiling per event, as `maxEventPoints(season, "district")` publishes it. */
+export type DistrictCategoryCeilings = Readonly<Record<(typeof DISTRICT_CATEGORIES)[number], number>>;
+
+/** One team's two lock inputs at a position: what it is certain to hold, and how much more its open categories could add. */
+export interface DistrictLockBounds {
+  readonly floor: number;
+  readonly openCeiling: number;
+}
+
+/**
+ * THE ONE PLACE THE DISTRICT TAB'S FLOOR AND OPEN CEILING ARE DERIVED (quick
+ * task 261005-04t, D-01).
+ *
+ * THE FLOOR HOLDS DISTRICT TIER POINTS ONLY. `pointTotal` is TBA's ALL TIER
+ * total, so a team's District Championship points sit inside it once the
+ * championship has been played. The road to the championship cannot be paved
+ * with points earned AT the championship, so every `eventPoints` entry whose
+ * tier is not `"district"` leaves the floor first. Before that subtraction
+ * existed, a rewound week one view called a team Locked on points it earned two
+ * months later.
+ *
+ * STILL DERIVED BY SUBTRACTION from `pointTotal`, never by re-summing the four
+ * categories: `pointTotal` carries the rookie bonus, the adjustments and TBA's
+ * own arithmetic, and a re-sum would silently drop all three.
+ *
+ * Then the position: every category that is NOT final in a row's stage takes
+ * its earned points out of the floor and puts its ceiling into `openCeiling`.
+ * A wholly unstarted event contributes all four ceilings, which equals its own
+ * `remainingEvents.maxPoints`. With no rows the floor is the team's whole
+ * district tier total and the ceiling is zero.
+ */
+export function districtLockBounds(
+  source: DistrictArtifact["teams"][number],
+  rows: readonly DistrictLedgerEventRow[],
+  ceilings: DistrictCategoryCeilings
+): DistrictLockBounds {
+  let floor = source.pointTotal;
+  for (const entry of source.eventPoints) {
+    if (entry.tier !== "district") floor -= entry.total;
+  }
+
+  let openCeiling = 0;
+  for (const row of rows) {
+    for (const category of DISTRICT_CATEGORIES) {
+      if (row.stage.final[category]) continue;
+      // Reopened (or never earned): this category's earned points leave the
+      // floor and its ceiling joins the ceiling.
+      if (row.earned !== undefined) floor -= row.earned[category];
+      openCeiling += ceilings[category];
+    }
+  }
+
+  return { floor, openCeiling };
+}
+
 /**
  * Computes every team's status at the position the rows were built at.
  *
- * THE FLOOR IS DERIVED BY SUBTRACTION from `team.pointTotal`, never by
- * re-summing the four categories. `pointTotal` carries the rookie bonus, the
- * adjustments and TBA's own arithmetic; a re-sum would silently drop all three,
- * and the district-tier lock's own shipped input is that whole `pointTotal`.
- * At the "now" position nothing is reopened, so the floor is EXACTLY
- * `team.pointTotal` — which is the entire reason a finished district reproduces
- * the artifact's own counts.
+ * THE FLOOR AND THE CEILING come from `districtLockBounds` above and from
+ * nowhere else. At the "now" position nothing is reopened, so the floor is the
+ * team's DISTRICT TIER total: `pointTotal` minus every point it earned at the
+ * District Championship.
  *
- * THE CEILING is the floor plus `maxEventPoints(season, "district")`'s value
- * for every OPEN district-tier category at this position. A wholly unstarted
- * event contributes all four, which equals its own `remainingEvents.maxPoints`.
+ * THAT REPRODUCES THE ARTIFACT'S OWN COUNTS ONLY WHILE NO TEAM HAS
+ * CHAMPIONSHIP POINTS. The publisher's (and the Worker's) `districtLock`
+ * verdicts and `insights.districtLockedCount` rank the all tier `pointTotal`,
+ * so once a championship has been played the two disagree over declined
+ * places, teams that played from below the line and ties. Nothing on the site
+ * displays the published verdicts; todo `publisher-district-lock-all-tier-total`
+ * tracks bringing them onto this floor.
  */
 export function computeDistrictLedgerStatuses(options: ComputeDistrictLedgerStatusesOptions): DistrictLedgerStatusModel {
   const { artifact, teams } = options;
   const ceilings = maxEventPoints(artifact.year, "district");
-  const categoryCeiling: Readonly<Record<(typeof DISTRICT_CATEGORIES)[number], number>> = {
+  const categoryCeiling: DistrictCategoryCeilings = {
     qual: ceilings.qual,
     alliance: ceilings.alliance,
     elim: ceilings.elim,
@@ -237,21 +317,13 @@ export function computeDistrictLedgerStatuses(options: ComputeDistrictLedgerStat
     const source = sourceByKey.get(team.teamKey);
     if (source === undefined) continue;
 
-    let floor = source.pointTotal;
-    let openCeiling = 0;
+    const { floor, openCeiling } = districtLockBounds(source, team.rows, categoryCeiling);
     const districtTierEventKeys = new Set<string>();
     const awardFinalByEvent = new Map<string, boolean>();
 
     for (const row of team.rows) {
       districtTierEventKeys.add(row.eventKey);
       awardFinalByEvent.set(row.eventKey, row.stage.final.award);
-      for (const category of DISTRICT_CATEGORIES) {
-        if (row.stage.final[category]) continue;
-        // Reopened (or never earned): this category's earned points leave the
-        // floor and its ceiling joins the ceiling.
-        if (row.earned !== undefined) floor -= row.earned[category];
-        openCeiling += categoryCeiling[category];
-      }
     }
 
     lockInputs.push({ teamKey: team.teamKey, pointTotal: floor, maxRemaining: openCeiling });

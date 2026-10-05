@@ -54,7 +54,8 @@
 import type { AdvancementChanceInputs, AdvancementChanceTeam } from "../../../../../packages/core/districts/advancementChance.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { pointMassDistribution, type DistrictLedgerTeam, type DistrictPointDistribution } from "./districtLedgerRows.js";
-import type { DistrictLedgerStatusModel, DistrictLedgerStatusState } from "./districtLedgerStatus.js";
+import type { DistrictLedgerShownState } from "./districtFieldOverlay.js";
+import type { DistrictLedgerStatusModel } from "./districtLedgerStatus.js";
 
 /** One posted chance run: the inputs, the string the hook's effect keys on, and what the ranking had to leave out. */
 export interface DistrictAdvancementChanceRun {
@@ -250,7 +251,7 @@ const PRINTS_A_CHANCE = new Set(["inRange", "outOfRange"]);
  * below is shared rather than restated (quick task 260925-xab).
  */
 export interface VerdictLookup {
-  readonly byTeam: ReadonlyMap<string, { readonly status: DistrictLedgerStatusState }>;
+  readonly byTeam: ReadonlyMap<string, { readonly status: DistrictLedgerShownState }>;
 }
 
 /**

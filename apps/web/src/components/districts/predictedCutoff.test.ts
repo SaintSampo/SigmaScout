@@ -23,7 +23,7 @@ import { buildChampLedgerRows } from "./champLedgerRows.js";
 import { computeChampLedgerStatuses } from "./champLedgerStatus.js";
 import { buildDistrictLedgerRows, type DistrictStageFinality } from "./districtLedgerRows.js";
 import { computeDistrictLedgerStatuses } from "./districtLedgerStatus.js";
-import { predictedCutoff, simulatedChampLine, simulatedCutoffRange, type CutoffRankingTeam } from "./predictedCutoff.js";
+import { predictedCutoff, simulatedLine, simulatedCutoffRange, type CutoffRankingTeam } from "./predictedCutoff.js";
 
 function repoFile(relative: string): string {
   let dir = resolve(process.cwd());
@@ -344,10 +344,10 @@ describe("simulatedCutoffRange", () => {
   });
 });
 
-describe("simulatedChampLine (quick task 260927-6bf)", () => {
+describe("simulatedLine (quick task 260927-6bf)", () => {
   it("prints the rounded median and the likely range from ONE call on the simulatedCutoffRange convention", () => {
     const runs = Float64Array.from([150, 152, 154, 156, 158, 160, 162, 164, 166, 168]);
-    const line = simulatedChampLine(runs, 10)!;
+    const line = simulatedLine(runs, 10)!;
     expect(line.likely).toEqual(simulatedCutoffRange(runs, 10));
     expect(line.points).toBeGreaterThanOrEqual(Math.round(line.likely.p10));
     expect(line.points).toBeLessThanOrEqual(Math.round(line.likely.p90));
@@ -356,12 +356,12 @@ describe("simulatedChampLine (quick task 260927-6bf)", () => {
 
   it("reads the line over the runs that HAVE one: a NaN run carries no line", () => {
     const withGap = Float64Array.from([150, Number.NaN, 154, 156, Number.NaN, 160]);
-    expect(simulatedChampLine(withGap, 6)).toEqual(simulatedChampLine(Float64Array.from([150, 154, 156, 160]), 4));
+    expect(simulatedLine(withGap, 6)).toEqual(simulatedLine(Float64Array.from([150, 154, 156, 160]), 4));
   });
 
   it("is undefined for an absent array, a length disagreeing with the draw count, or no run with a line", () => {
-    expect(simulatedChampLine(undefined, 10)).toBeUndefined();
-    expect(simulatedChampLine(Float64Array.from([1, 2]), 3)).toBeUndefined();
-    expect(simulatedChampLine(Float64Array.from([Number.NaN, Number.NaN]), 2)).toBeUndefined();
+    expect(simulatedLine(undefined, 10)).toBeUndefined();
+    expect(simulatedLine(Float64Array.from([1, 2]), 3)).toBeUndefined();
+    expect(simulatedLine(Float64Array.from([Number.NaN, Number.NaN]), 2)).toBeUndefined();
   });
 });

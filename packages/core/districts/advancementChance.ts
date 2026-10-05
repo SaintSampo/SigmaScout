@@ -715,7 +715,7 @@ function champAdvancementChances(
     pointsSlots: staticPointsSlots,
     chanceByTeam,
     // Omitted only when NO run has a line. Otherwise runs without one carry
-    // NaN, and `simulatedChampLine` reads the line CONDITIONAL ON ONE EXISTING,
+    // NaN, and `simulatedLine` reads the line CONDITIONAL ON ONE EXISTING,
     // which is the quantity a published cut line is: TBA publishes one only
     // where a team qualified on points. (Deviation from the plan's "any run"
     // rule, quick task 260927-6bf: that rule left 10 of the 69 backtested

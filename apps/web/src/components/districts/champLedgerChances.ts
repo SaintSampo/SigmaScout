@@ -52,12 +52,13 @@ import type { DistrictLedgerStatusModel } from "./districtLedgerStatus.js";
 import { dcmpEventKeyFor, type ChampDcmpEstimate, type ChampLedgerTeam } from "./champLedgerRows.js";
 import type { ChampLedgerStatusModel } from "./champLedgerStatus.js";
 import {
-  SHOW_SIMULATED_CHAMP_LIKELY_RANGE,
-  simulatedChampLine,
-  type ChampNoCallReason,
-  type LedgerCutoffView,
-  type SimulatedCutoffRange,
-} from "./predictedCutoff.js";
+  ledgerCutoffView,
+  rangeStateFromRun,
+  type LedgerRangeLineRunInput,
+  type LedgerRangeRunInput,
+  type LedgerRangeState,
+} from "./ledgerRangeState.js";
+import { SHOW_SIMULATED_CHAMP_LIKELY_RANGE, type ChampNoCallReason, type LedgerCutoffView } from "./predictedCutoff.js";
 
 /**
  * THE CHANCE OF BEING IN THE DISTRICT CHAMPIONSHIP FIELD, per team.
@@ -466,21 +467,15 @@ export type { ChampNoCallReason };
  * Every transient condition maps to `pending`, never `noCall`, so a reader can
  * only ever see `pending` to `simulated`, `pending` to `noCall`, or anything
  * to `settled` when the slider moves.
+ *
+ * The four arms themselves live in `ledgerRangeState.ts` since quick task
+ * 261004-uw4, where the District Locks tab reads the same state; this name is
+ * an alias of that type.
  */
-export type ChampRangeState =
-  | { readonly kind: "settled" }
-  | { readonly kind: "pending" }
-  | { readonly kind: "simulated"; readonly points: number; readonly likely: SimulatedCutoffRange }
-  | { readonly kind: "noCall"; readonly reason: ChampNoCallReason };
+export type ChampRangeState = LedgerRangeState;
 
-/** A Worker run as `champRangeState` needs to see it: whether one was built, and the hook's state. */
-export interface ChampRangeRunInput {
-  /** Whether the builder returned a run to post. */
-  readonly built: boolean;
-  readonly status: "idle" | "running" | "complete" | "error";
-  /** For `complete`: whether the result's signature is the CURRENT run's. A stale result is still pending. */
-  readonly current?: boolean;
-}
+/** A Worker run as `champRangeState` needs to see it: whether one was built, and the hook's state. An alias of the shared input. */
+export type ChampRangeRunInput = LedgerRangeRunInput;
 
 export interface ChampRangeStateInputs {
   /** The DCMP awards stage is final at the position. */
@@ -494,11 +489,7 @@ export interface ChampRangeStateInputs {
   readonly estimates: HypotheticalDcmpEstimates["kind"];
   /** Teams whose membership is `in` but whose DCMP row could not be priced. */
   readonly unpricedInTeams: number;
-  readonly champRun: ChampRangeRunInput & {
-    readonly excludedTeams?: readonly string[];
-    readonly cutoffByRun?: ArrayLike<number>;
-    readonly draws?: number;
-  };
+  readonly champRun: LedgerRangeLineRunInput;
 }
 
 /** Pure, and read by BOTH the chips and the cutoff view, so the two can never disagree. */
@@ -520,14 +511,9 @@ export function champRangeState(inputs: ChampRangeStateInputs): ChampRangeState 
   if (inputs.estimates === "awaitingFieldChances") return { kind: "noCall", reason: "noFieldChance" };
   if (inputs.unpricedInTeams > 0) return { kind: "noCall", reason: "unpricedDcmp" };
 
-  const champ = inputs.champRun;
-  if (!champ.built) return { kind: "noCall", reason: "runRefused" };
-  if (champ.status === "error") return { kind: "noCall", reason: "workerError" };
-  if (champ.status !== "complete" || champ.current === false) return { kind: "pending" };
-  if ((champ.excludedTeams?.length ?? 0) > 0) return { kind: "noCall", reason: "teamsExcluded" };
-  const line = champ.draws === undefined ? undefined : simulatedChampLine(champ.cutoffByRun, champ.draws);
-  if (line === undefined) return { kind: "noCall", reason: "noLine" };
-  return { kind: "simulated", points: line.points, likely: line.likely };
+  // The champ run's own reading: refused, failed, pending, a team left out,
+  // no line, or the line. Shared with the District Locks tab.
+  return rangeStateFromRun(inputs.champRun);
 }
 
 /** The minimum `champCutoffView` reads per team: its median, and the chip it is shown with. */
@@ -562,26 +548,10 @@ export interface ChampCutoffViewOptions {
  *   construction. The likely range rides along only while
  *   `SHOW_SIMULATED_CHAMP_LIKELY_RANGE` is on, which it is (Jacob,
  *   2026-09-27).
+ *
+ * A delegation to the shared `ledgerCutoffView` since quick task 261004-uw4,
+ * with no tier, so the surface keeps the champ wording.
  */
 export function champCutoffView(options: ChampCutoffViewOptions): LedgerCutoffView {
-  const { state } = options;
-  if (state.kind === "settled") return options.settledView();
-  if (state.kind === "pending") return { cutoff: { kind: "pending" }, likely: undefined, districtOnly: false };
-  if (state.kind === "noCall") return { cutoff: { kind: "unavailable", reason: state.reason }, likely: undefined, districtOnly: false };
-  let lowestIn = Number.POSITIVE_INFINITY;
-  let highestOut = Number.NEGATIVE_INFINITY;
-  for (const team of options.teams) {
-    const status = options.displayStatus(team.teamKey);
-    if (status === "inRange") lowestIn = Math.min(lowestIn, team.projection);
-    else if (status === "outOfRange") highestOut = Math.max(highestOut, team.projection);
-  }
-  const boundary = {
-    above: Number.isFinite(lowestIn) ? lowestIn : state.points,
-    below: Number.isFinite(highestOut) ? highestOut : state.points,
-  };
-  return {
-    cutoff: { kind: "predicted", points: state.points, boundary, source: "simulated" },
-    likely: SHOW_SIMULATED_CHAMP_LIKELY_RANGE ? state.likely : undefined,
-    districtOnly: false,
-  };
+  return ledgerCutoffView({ ...options, showLikelyRange: SHOW_SIMULATED_CHAMP_LIKELY_RANGE });
 }

@@ -44,8 +44,14 @@ export const DISTRICT_LEDGER_COLUMN_LABELS = [
  * "Oregon State Fair"; "FIM District - Kettering University Event #1" becomes
  * "Kettering University #1"; "ISR District Event #1" and any non-district
  * name are left exactly as TBA published them.
+ *
+ * A SPONSOR TAIL IS DROPPED (Jacob, 2026-10-04): most Michigan events publish
+ * as "FIM District Chelsea Event presented by DTE", which the template used to
+ * refuse whole, so the picker's menu and the Event cell printed the full name.
+ * "presented by <anyone>" after the word "Event" is now part of the template
+ * and is not printed; the event's own name is still never guessed at.
  */
-const DISTRICT_EVENT_NAME_TEMPLATE = /^[A-Za-z]{2,6} District (?:- )?(.+) Event( #\d+)?$/;
+const DISTRICT_EVENT_NAME_TEMPLATE = /^[A-Za-z]{2,6} District (?:- )?(.+?) Event( #\d+)?(?: presented by .+)?$/;
 
 export function districtLedgerShortEventName(eventName: string): string {
   const match = DISTRICT_EVENT_NAME_TEMPLATE.exec(eventName);
@@ -238,6 +244,16 @@ export function locksPickerLiveCaption(eventName: string): string {
   return `${eventName} is live. Milestones past the red line have not happened yet; use Live for the current state.`;
 }
 
+/**
+ * THE REWIND NOTE (quick task 261005-04t, D-03), printed below the arrows row
+ * on both Locks tabs whenever the selection is not Live; Season start counts
+ * as rewound. It quotes no number on purpose: the only rewind measurement is
+ * the event page's, inside one event, and the gap across weeks is unmeasured
+ * (todo `locks-rewind-as-of-forecasts`).
+ */
+export const LOCKS_PICKER_REWIND_NOTE =
+  "This is a rewound view. Later events are predicted with the odds this site published just before each of their matches and with each team's rating from the end of that event, so these predictions know more than a forecast made at this point could.";
+
 /** The team-number search box's label and placeholder. */
 export const DISTRICT_LEDGER_SEARCH_LABEL = "Team number";
 export const DISTRICT_LEDGER_SEARCH_PLACEHOLDER = "Search a team number";
@@ -315,6 +331,15 @@ export const DISTRICT_LEDGER_STATUS_LABELS = {
 export const DISTRICT_LEDGER_LOCKED_AWARD_LABEL = "Locked · award";
 
 /**
+ * THE SIXTH STATUS WORD (quick task 261005-04t, D-06), kept OUT of
+ * `DISTRICT_LEDGER_STATUS_LABELS` on purpose: tests iterate that record's
+ * values, and Declined is shown only on the Live view once the District
+ * Championship has started, only where some team earned a place and is not in
+ * its field.
+ */
+export const DISTRICT_LEDGER_DECLINED_LABEL = "Declined";
+
+/**
  * The two printing limits sketch 020's language rules set on a chance, in
  * Jacob's own words: "Never show '>99%', print '99%'", and "A chance under 5%
  * is never printed as a number".
@@ -352,7 +377,17 @@ export function districtLedgerChanceLine(chance: number): string {
 /** What a team renders when TBA published no capacity for this district-year — plain text, no chip, exactly as the shipped champ tab does for `unknown`. */
 export const DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED = "Capacity not published";
 
-/** The five definitions, VERBATIM from `10-UI-SPEC.md`'s `## Copy` section. A test pins them character for character. */
+/**
+ * The five definitions, VERBATIM from `10-UI-SPEC.md`'s `## Copy` section. A
+ * test pins them character for character.
+ *
+ * WHERE THE DISTRICT TAB PRINTS THEM since quick task 261004-uw4: wherever In
+ * range and Out of range are still cut at the median projections, which is a
+ * position where every team still racing for points is settled, and the
+ * excluded team fallback (a run that landed but left a team out). Both
+ * sentences are exactly that rule. Everywhere else the tab prints
+ * `DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS` below.
+ */
 export const DISTRICT_LEDGER_STATUS_DEFINITIONS = {
   prequalified: "prequalified by FIRST",
   locked: "mathematically qualified, no matter what, on district points or an award",
@@ -360,6 +395,46 @@ export const DISTRICT_LEDGER_STATUS_DEFINITIONS = {
   outOfRange: "if every team earned its median predicted points, this team would not qualify",
   lockedOut: "cannot earn enough district points to qualify",
 } as const;
+
+/**
+ * THE DISTRICT TAB'S DEFINITIONS WHILE THE SIMULATED LINE IS IN PLAY (quick
+ * task 261004-uw4): printed while the predicted cutoff is the median of the
+ * simulated line, and while that line is pending or cannot be drawn. In range
+ * and Out of range cut at the predicted cutoff there, so the two "if every
+ * team earned its median" sentences above would be false for every team
+ * between the old line and the new one.
+ *
+ * TWO SETS RATHER THAN ONE SENTENCE FOR BOTH, deliberately. Under the midpoint
+ * rule an Out of range team can sit exactly AT the printed cutoff (a first
+ * team out at 59 and a last team in at 59.4 print a cutoff of 59), so "sit
+ * below the predicted cutoff" is not true of that rule, and "would not
+ * qualify at the medians" is not true of this one. The other three read as
+ * the set above.
+ */
+export const DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS: Readonly<Record<keyof typeof DISTRICT_LEDGER_STATUS_DEFINITIONS, string>> = {
+  ...DISTRICT_LEDGER_STATUS_DEFINITIONS,
+  inRange: "this team's median predicted points sit at or above the predicted cutoff",
+  outOfRange: "this team's median predicted points sit below the predicted cutoff",
+};
+
+/**
+ * THE DISTRICT TAB'S DEFINITIONS WHILE IT SHOWS THE CHAMPIONSHIP FIELD (quick
+ * task 261005-04t, D-06): printed on the Live view once the District
+ * Championship has started and capacity is published, where who is in its
+ * field decides what the tab shows. Locked, Declined and Locked out describe
+ * the field there, not the points guarantee, so the base set's two sentences
+ * would be false for a late entry and for a team that gave its place up.
+ *
+ * Declined MAKES NO CLAIM ABOUT WHY a team is absent: earned a place and is
+ * not in the field is all the artifact can show. Its line prints only where
+ * some team reads Declined. The other three read as the base set's.
+ */
+export const DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS: Readonly<Record<keyof typeof DISTRICT_LEDGER_STATUS_DEFINITIONS, string>> & { readonly declined: string } = {
+  ...DISTRICT_LEDGER_STATUS_DEFINITIONS,
+  locked: "in the District Championship field",
+  declined: "earned a place at the District Championship and is not in its field",
+  lockedOut: "did not earn a place at the District Championship",
+};
 
 /**
  * THE CHAMP TAB'S DEFINITIONS (quick task 260927-syh). Its In range and Out of
@@ -392,12 +467,28 @@ export function districtLedgerNoPointsCaption(chancePercent: number): string {
 }
 
 /**
- * The grand total plot's caption: what the dashed rule is, then what the likely
- * range is. Two sentences, flat third person, and no dash character of any kind
- * (the en dash belongs to the numeric range alone).
+ * The grand total plot's caption for the MIDPOINT RULE: what the dashed rule
+ * is, then what the likely range is. Two sentences, flat third person, and no
+ * dash character of any kind (the en dash belongs to the numeric range alone).
+ *
+ * Since quick task 261004-uw4 the District Locks tab prints it only where the
+ * midpoint rule still draws the line, which at an open position is the
+ * excluded team fallback alone (and there no likely range is printed beside
+ * the figure). An open position otherwise reads
+ * `DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION`. The Champ Locks tab keeps
+ * it for its own settled view.
  */
 export const DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION =
   "The dashed line is the predicted cutoff, the midpoint of the last team in range and the first team out of range. The likely range spans the 10th to the 90th percentile of where that line lands across the runs.";
+
+/**
+ * The grand total plot's caption for the District Locks tab's SIMULATED line
+ * (quick task 261004-uw4): what the number is, then what its likely range
+ * spans. The caption above stays for the midpoint rule, which still prints at
+ * an open position where a run left a team out. No dash character.
+ */
+export const DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION =
+  "The dashed line is the predicted cutoff, the median across the runs of the points the last team inside the qualifying slots finishes with. The likely range spans the 10th to the 90th percentile of that same line.";
 
 /** What the grand total plot says INSTEAD of drawing a line at zero when capacity is unpublished. */
 export const DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION = "TBA has published no capacity for this district, so there is no cutoff to draw.";
@@ -804,6 +895,12 @@ export const CHAMP_LEDGER_CONTRIBUTION_CAPTION =
 
 // ---------------------------------------------------------------------------
 // The simulated champ cutoff (quick task 260927-6bf)
+//
+// THE DISTRICT LOCKS TAB READS THESE TOO since quick task 261004-uw4: the two
+// range call labels, the pending description, the pending figure, the pending
+// caption and the no call reasons below. They keep the `CHAMP_LEDGER_` prefix
+// and their text, because the champ suites pin both and the words are true of
+// either tab's simulated line.
 // ---------------------------------------------------------------------------
 
 /**

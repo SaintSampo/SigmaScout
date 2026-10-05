@@ -9,7 +9,8 @@
  * quantity it computed, the slot th highest UNNARROWED earned district total,
  * is no longer printed anywhere, and the predicted cutoff that replaced it is
  * derived from the verdicts' own narrowed pool by `predictedCutoff.ts` (quick
- * task 260926-37q).
+ * task 260926-37q) and, while anything is still open, read off the per run
+ * simulated line through `ledgerRangeState.ts` (quick task 261004-uw4).
  *
  * Follows `apps/web/src/lib/simulationInputs.ts`'s discipline exactly, and for
  * the same reason: gather inputs, disclose every gap, call no simulator. No
@@ -250,7 +251,7 @@ export interface DistrictLedgerEventRow {
    * The artifact's own per-component row for this (team, event), when TBA has
    * published one. Carried on the row because the STATUS module needs it: a
    * rewound position derives its floor by SUBTRACTING these earned values from
-   * `team.pointTotal`, never by re-summing categories from scratch.
+   * the team's district tier total (`districtLockBounds`), never by re-summing categories from scratch.
    */
   readonly earned: DistrictEventPoints | undefined;
   /** This event's per-tier ceiling for a wholly unstarted row, as `remainingEvents.maxPoints` published it. `undefined` for an event the team has already played. */

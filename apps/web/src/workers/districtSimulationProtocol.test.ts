@@ -551,3 +551,12 @@ describe("runDistrictWorkerJob", () => {
     expect(emitted[0]).toMatchObject({ type: "error", name: INVALID_DISTRICT_REQUEST_ERROR_NAME });
   });
 });
+
+describe("MAX_DISTRICT_SIMULATION_EVENTS covers the largest real district", () => {
+  it("accepts a full season rewind of 2026fim: 27 district events plus a divided championship", () => {
+    // 2026fim's own district tier event count, read off the live picker on 2026-10-04.
+    const FIM_DISTRICT_EVENTS = 27;
+    const FIM_CHAMPIONSHIP_EVENTS = 5;
+    expect(MAX_DISTRICT_SIMULATION_EVENTS).toBeGreaterThanOrEqual(FIM_DISTRICT_EVENTS + FIM_CHAMPIONSHIP_EVENTS);
+  });
+});

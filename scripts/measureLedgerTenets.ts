@@ -38,16 +38,62 @@
  * positions, and both tenets stayed at zero. The census carries those two
  * counts and the size of the pool beside them, for the same reason the
  * reservation's own numbers are there — so a reader can watch the argument
- * fire rather than take an unchanged zero on trust.
+ * fire rather than take an unchanged zero on trust. (213 and 110 were measured
+ * under the floor shipped then; the next paragraph has today's counts.)
+ *
+ * THE FLOOR AND THE YARDSTICK BOTH CARRIED CHAMPIONSHIP POINTS UNTIL QUICK TASK
+ * 261005-04t (2026-10-05). `pointTotal` is TBA's ALL TIER total, so once a
+ * District Championship had been played every team's championship points sat
+ * in the District tab's lock floor at every position, AND in the publisher's
+ * `districtLock.status` this sweep scored against. Both sides knew who played
+ * the championship, so they agreed with each other and the sweep read zero
+ * while a rewound week one view was calling teams `Locked` on points earned two
+ * months later. The displays now come from a district tier floor
+ * (`districtLockBounds`) and the yardstick is the district tier final standing
+ * (`districtTierFinalVerdicts`), which carries no championship points either.
+ *
+ * Measured over the same 109 seasons, 4,022 positions and 921,658 team
+ * positions, before and after:
+ *
+ *   `Locked` on points shown   130,718 -> 77,115  (kept 75,950, award 1,165)
+ *   `Locked out` shown         190,854 -> 167,333 (kept 167,288, award 45)
+ *   `Locked · award` chip       24,192 -> 24,192
+ *   pooled only locks              213 -> 6,552, at 110 -> 1,074 positions
+ *   slots held back             26,604 -> 26,604, at 3,804 positions
+ *   tenet A, tenet B, unresolved ties: 0, 0, 0
+ *
+ * Fewer promises, and every one of them kept. The pooled argument now carries
+ * far more of the `Locked` displays, because without championship points the
+ * gaps between teams are small beside what one event can still hand out, which
+ * is exactly the case the ceiling test cannot reach.
+ *
+ * AGAINST THE PUBLISHER'S VERDICT (`publishedFinalVerdicts`, passed as the
+ * second argument) the same sweep reports 571 tenet A and 477 tenet B rows.
+ * None of them is a broken promise on this tab. They are two yardsticks
+ * disagreeing: over places a team earned and gave up, over teams that played
+ * the championship from below the line, and over ties the all tier total
+ * happens to break. Bringing the publisher onto the district tier floor is
+ * todo `publisher-district-lock-all-tier-total`.
+ *
+ * THIS SWEEP READS THE RAW VERDICT MODEL ONLY. It calls
+ * `computeDistrictLedgerStatuses` and does not import `districtFieldOverlay`:
+ * the tenets are about the guarantee, and the Live overlay shows the field.
  *
  * ---------------------------------------------------------------------------
- * "QUALIFIED ON POINTS" IS THE ARTIFACT'S OWN FINAL VERDICT
+ * "QUALIFIED ON POINTS" IS THE DISTRICT TIER FINAL STANDING
  * ---------------------------------------------------------------------------
  *
- * The final outcome is `team.districtLock.status` read straight off the
- * district artifact at the `now` position — the site's own published answer, so
- * a violation is a promise the site broke to itself rather than a disagreement
- * between two of my derivations. Its four reachable values are NOT two buckets:
+ * The final outcome is `districtTierFinalVerdicts(artifact)`: the tab's own
+ * verdict for every team with every district tier category final, on district
+ * tier points alone. It is the site's own answer to "who earned a place at the
+ * District Championship", recomputed through the same modules the displays
+ * came from, so a violation is a promise the tab broke to itself. It is NOT
+ * `team.districtLock.status`, which ranks the all tier total (see above), and
+ * it is NOT the verdict at the `now` position, which leaves an event open
+ * wherever its recorded state does not read finished (see
+ * `districtTierFinalVerdicts`). The outcome names below still say "at now" for
+ * the history's sake; read them as "in the final standing". Its four reachable
+ * values are NOT two buckets:
  *
  *   - `locked`       -> qualified ON POINTS.
  *   - `lockedAward`  -> qualified, by an AWARD rather than by points. Whether
@@ -70,7 +116,9 @@
  *                       `locked` needs `threatCount < slots`. Two teams tied
  *                       for the last slot are therefore both `contending` at
  *                       the finish and NEITHER is reported as having qualified.
- *                       Fifteen of these 109 seasons end that way.
+ *                       Fifty of these 109 seasons end that way on district
+ *                       tier points (fifteen on the publisher's all tier
+ *                       total, which championship points happen to untie).
  *   - `unknown`      -> capacity not published. Cannot arise: every artifact
  *                       with a null `dcmpSlots` is skipped and counted by name.
  *
@@ -112,9 +160,11 @@
  *   3. `districtStageAtPosition(timeline, i, nowStageByEvent)`.
  *   4. `buildDistrictLedgerRows({ artifact, distributions, stageByEvent: atNow
  *      ? undefined : stageByEvent })` — the `atNow ? undefined` fallback is the
- *      component's own, and it is what makes the `now` position reproduce the
- *      artifact's published verdicts exactly.
- *   5. `computeDistrictLedgerStatuses({ artifact, teams: rows.teams })`.
+ *      component's own: at `now` every stage comes from the artifact's own
+ *      `state` blocks and nothing is overridden.
+ *   5. `computeDistrictLedgerStatuses({ artifact, teams: rows.teams })`, the
+ *      RAW model. The component then lays the Live field overlay over it for
+ *      display; this sweep stops here on purpose.
  *
  * All three district modules are React free: `districtLedgerStatus.ts` imports
  * only `packages/core/districts/*`, and `districtLedgerRows.ts` /
@@ -167,17 +217,19 @@ import { DistrictArtifactSchema, type DistrictArtifact, type EventArtifact } fro
 import type { LockStatus } from "../packages/core/districts/locks.js";
 import { maxEventPoints } from "../packages/core/districts/pointModel.js";
 import {
-  DISTRICT_CATEGORIES,
   buildDistrictLedgerRows,
   deriveStageFromState,
   districtTierEvents,
-  type DistrictCategory,
   type DistrictEventDistributions,
   type DistrictLedgerTeam,
   type DistrictStageFinality,
 } from "../apps/web/src/components/districts/districtLedgerRows.js";
 import { buildDistrictTimeline, districtStageAtPosition } from "../apps/web/src/components/districts/districtTimeline.js";
-import { computeDistrictLedgerStatuses } from "../apps/web/src/components/districts/districtLedgerStatus.js";
+import {
+  computeDistrictLedgerStatuses,
+  districtLockBounds,
+  type DistrictCategoryCeilings,
+} from "../apps/web/src/components/districts/districtLedgerStatus.js";
 
 /** 10-06's dry run wrote every published district season here. Read-only. */
 export const LOCAL_DISTRICT_DIR = "data/local-publish/districts";
@@ -247,9 +299,14 @@ export interface LedgerTenetViolation {
    */
   readonly floor: number;
   readonly ceiling: number;
-  /** The artifact's own final `pointTotal` at `now`. */
+  /**
+   * The team's final DISTRICT TIER total: `districtLockBounds` with no rows,
+   * which is `pointTotal` minus every point earned at the District
+   * Championship. The all tier `pointTotal` is not printed, because it is not
+   * what either the display or the yardstick ranks.
+   */
   readonly finalTotal: number;
-  /** The artifact's own final `districtLock.status` at `now`. */
+  /** The team's final verdict in the yardstick the sweep was scored against: `districtTierFinalVerdicts` unless the caller passed another map. */
   readonly finalStatus: LockStatus;
 }
 
@@ -277,7 +334,7 @@ export interface DistrictTenetSweep {
   readonly outOfRangeShown: number;
   readonly prequalifiedShown: number;
   readonly capacityUnknownShown: number;
-  /** The artifact's own final verdict census at `now`. */
+  /** The YARDSTICK's final verdict census: `districtTierFinalVerdicts` unless the caller passed another map. */
   readonly finalLocked: number;
   readonly finalLockedAward: number;
   readonly finalEliminated: number;
@@ -300,36 +357,70 @@ export interface DistrictTenetSweep {
 /**
  * The floor/ceiling pair at one position, for a VIOLATION REPORT LINE ONLY.
  *
- * It restates `districtLedgerStatus.ts`'s own subtraction rule — floor is
- * `pointTotal` minus every reopened category's earned points, ceiling is that
- * floor plus `maxEventPoints`' value for every open category — because that
- * module exposes neither number. Nothing in this file branches on the result.
+ * READ FROM THE TAB'S OWN `districtLockBounds`, the one place the District
+ * Locks floor and open ceiling are derived, so this file restates no rule.
+ * Nothing in this file branches on the result.
  */
 function floorAndCeilingForReport(
+  source: DistrictArtifact["teams"][number],
   team: DistrictLedgerTeam,
-  pointTotal: number,
-  categoryCeiling: Readonly<Record<DistrictCategory, number>>
+  categoryCeiling: DistrictCategoryCeilings
 ): { readonly floor: number; readonly ceiling: number } {
-  let floor = pointTotal;
-  let openCeiling = 0;
-  for (const row of team.rows) {
-    for (const category of DISTRICT_CATEGORIES) {
-      if (row.stage.final[category]) continue;
-      if (row.earned !== undefined) floor -= row.earned[category];
-      openCeiling += categoryCeiling[category];
-    }
-  }
+  const { floor, openCeiling } = districtLockBounds(source, team.rows, categoryCeiling);
   return { floor, ceiling: floor + openCeiling };
 }
 
-/** Scores one `Locked` (on points) display against the season's own final verdict. */
+/** Every category of an event decided: the stage a finished district tier event reads at. */
+const ALL_CATEGORIES_FINAL: DistrictStageFinality = { qual: true, alliance: true, elim: true, award: true };
+
+/**
+ * THE PUBLISHER'S OWN FINAL VERDICTS: each team's `districtLock.status`, read
+ * straight off the artifact.
+ *
+ * NOT THE DEFAULT YARDSTICK since quick task 261005-04t. The publisher ranks
+ * the ALL TIER `pointTotal`, so once a championship has been played these
+ * verdicts know who played it. Exported so a caller can still score against
+ * them on purpose, which is how the corrupted fixture test proves the checker
+ * can fail and how the 571 and 477 in this file's header were measured.
+ */
+export function publishedFinalVerdicts(artifact: DistrictArtifact): ReadonlyMap<string, LockStatus> {
+  return new Map(artifact.teams.map((team) => [team.teamKey, team.districtLock.status] as const));
+}
+
+/**
+ * THE YARDSTICK: the standing with every district tier category final, on
+ * district tier points alone.
+ *
+ * Built through the tab's own modules: a stage map marking all four categories
+ * final for every district tier event key in the artifact, the real row
+ * builder with that map and no distributions, and
+ * `computeDistrictLedgerStatuses`. A team with no result reads `unknown`.
+ *
+ * DELIBERATELY NOT THE VERDICT AT `now`. 19 of the 109 local seasons carry an
+ * event whose own state blocks do not read finished, and against `now` 186
+ * `Locked` and 307 `Locked out` displays end `contending`, all of them inside
+ * those 19 seasons (55 and 127 under the floor shipped before 261005-04t).
+ * That is a quirk of the recorded state, not a broken promise: the points
+ * those events handed out are in the artifact.
+ */
+export function districtTierFinalVerdicts(artifact: DistrictArtifact): ReadonlyMap<string, LockStatus> {
+  const stageByEvent = new Map<string, DistrictStageFinality>();
+  for (const team of artifact.teams) {
+    for (const entry of districtTierEvents(team)) stageByEvent.set(entry.eventKey, ALL_CATEGORIES_FINAL);
+  }
+  const rows = buildDistrictLedgerRows({ artifact, distributions: NO_DISTRIBUTIONS, stageByEvent });
+  const statuses = computeDistrictLedgerStatuses({ artifact, teams: rows.teams });
+  return new Map(artifact.teams.map((team) => [team.teamKey, statuses.byTeam.get(team.teamKey)?.verdict ?? "unknown"] as const));
+}
+
+/** Scores one `Locked` (on points) display against the yardstick's final verdict. */
 export function outcomeForLockedShown(finalStatus: LockStatus): LedgerTenetOutcome {
   if (finalStatus === "locked") return "kept";
   if (finalStatus === "lockedAward") return "award-qualified-at-now";
   return "violation";
 }
 
-/** Scores one `Locked out` display against the season's own final verdict. */
+/** Scores one `Locked out` display against the yardstick's final verdict. */
 export function outcomeForLockedOutShown(finalStatus: LockStatus): LedgerTenetOutcome {
   if (finalStatus === "eliminated") return "kept";
   if (finalStatus === "locked") return "violation";
@@ -337,21 +428,30 @@ export function outcomeForLockedOutShown(finalStatus: LockStatus): LedgerTenetOu
   return "unresolved-tie-at-now";
 }
 
-/** Sweeps one district season across every stage position, through the component's own wiring. */
-export function sweepDistrict(artifact: DistrictArtifact): DistrictTenetSweep {
-  const finalStatusByTeam = new Map<string, LockStatus>();
-  const pointTotalByTeam = new Map<string, number>();
+/**
+ * Sweeps one district season across every stage position, through the
+ * component's own wiring.
+ *
+ * `finalVerdicts` IS THE YARDSTICK every `Locked` and `Locked out` display is
+ * scored against. It defaults to `districtTierFinalVerdicts(artifact)`; every
+ * read of a final status and the four final census counts come from this map
+ * and from nowhere else.
+ */
+export function sweepDistrict(
+  artifact: DistrictArtifact,
+  finalVerdicts: ReadonlyMap<string, LockStatus> = districtTierFinalVerdicts(artifact)
+): DistrictTenetSweep {
+  const sourceByTeam = new Map(artifact.teams.map((team) => [team.teamKey, team] as const));
   let finalLocked = 0;
   let finalLockedAward = 0;
   let finalEliminated = 0;
   let finalContending = 0;
   for (const team of artifact.teams) {
-    finalStatusByTeam.set(team.teamKey, team.districtLock.status);
-    pointTotalByTeam.set(team.teamKey, team.pointTotal);
-    if (team.districtLock.status === "locked") finalLocked += 1;
-    else if (team.districtLock.status === "lockedAward") finalLockedAward += 1;
-    else if (team.districtLock.status === "eliminated") finalEliminated += 1;
-    else if (team.districtLock.status === "contending") finalContending += 1;
+    const finalStatus = finalVerdicts.get(team.teamKey) ?? "unknown";
+    if (finalStatus === "locked") finalLocked += 1;
+    else if (finalStatus === "lockedAward") finalLockedAward += 1;
+    else if (finalStatus === "eliminated") finalEliminated += 1;
+    else if (finalStatus === "contending") finalContending += 1;
   }
 
   // The component's own two memos: the district's district-tier event list, and
@@ -373,7 +473,7 @@ export function sweepDistrict(artifact: DistrictArtifact): DistrictTenetSweep {
 
   const timeline = buildDistrictTimeline({ events: [...eventsByKey.values()], eventArtifacts: NO_EVENT_ARTIFACTS });
   const ceilings = maxEventPoints(artifact.year, "district");
-  const categoryCeiling: Readonly<Record<DistrictCategory, number>> = {
+  const categoryCeiling: DistrictCategoryCeilings = {
     qual: ceilings.qual,
     alliance: ceilings.alliance,
     elim: ceilings.elim,
@@ -422,7 +522,7 @@ export function sweepDistrict(artifact: DistrictArtifact): DistrictTenetSweep {
       if (status === undefined) continue;
       teamPositions += 1;
 
-      const finalStatus = finalStatusByTeam.get(team.teamKey) ?? "unknown";
+      const finalStatus = finalVerdicts.get(team.teamKey) ?? "unknown";
       let tenet: LedgerTenet;
       let outcome: LedgerTenetOutcome;
 
@@ -466,7 +566,9 @@ export function sweepDistrict(artifact: DistrictArtifact): DistrictTenetSweep {
 
       if (outcome !== "violation") continue;
 
-      const { floor, ceiling } = floorAndCeilingForReport(team, pointTotalByTeam.get(team.teamKey) ?? 0, categoryCeiling);
+      const source = sourceByTeam.get(team.teamKey);
+      if (source === undefined) continue;
+      const { floor, ceiling } = floorAndCeilingForReport(source, team, categoryCeiling);
       violations.push({
         tenet,
         districtKey: artifact.districtKey,
@@ -477,7 +579,7 @@ export function sweepDistrict(artifact: DistrictArtifact): DistrictTenetSweep {
         teamKey: team.teamKey,
         floor,
         ceiling,
-        finalTotal: pointTotalByTeam.get(team.teamKey) ?? 0,
+        finalTotal: districtLockBounds(source, [], categoryCeiling).floor,
         finalStatus,
       });
     }
@@ -633,14 +735,14 @@ function reportTotals(census: LedgerTenetCensus, loaded: LoadedDistricts): void 
   console.log(`  team-positions evaluated            ${String(census.teamPositions)}`);
   console.log(``);
   console.log(`  TENET A — "Locked" shown on points  ${String(census.lockedPointsShown)}`);
-  console.log(`    kept (locked at now)              ${String(census.lockedKept)}`);
-  console.log(`    award-qualified at now            ${String(census.lockedAwardQualifiedAtNow)}  (qualified, by award — indeterminate on points, not a failure)`);
+  console.log(`    kept (locked at the finish)       ${String(census.lockedKept)}`);
+  console.log(`    award-qualified at the finish     ${String(census.lockedAwardQualifiedAtNow)}  (qualified, by award — indeterminate on points, not a failure)`);
   console.log(`    VIOLATIONS                        ${String(census.lockedViolations)}`);
   console.log(``);
   console.log(`  TENET B — "Locked out" shown        ${String(census.lockedOutShown)}`);
-  console.log(`    kept (eliminated at now)          ${String(census.lockedOutKept)}`);
-  console.log(`    award-qualified at now            ${String(census.lockedOutAwardQualifiedAtNow)}  (qualified by award — says nothing about the points claim)`);
-  console.log(`    unresolved tie at now             ${String(census.lockedOutUnresolvedTieAtNow)}  (contending — alive but never guaranteed)`);
+  console.log(`    kept (eliminated at the finish)   ${String(census.lockedOutKept)}`);
+  console.log(`    award-qualified at the finish     ${String(census.lockedOutAwardQualifiedAtNow)}  (qualified by award — says nothing about the points claim)`);
+  console.log(`    unresolved tie at the finish      ${String(census.lockedOutUnresolvedTieAtNow)}  (contending — alive but never guaranteed)`);
   console.log(`    VIOLATIONS                        ${String(census.lockedOutViolations)}`);
   console.log(``);
   console.log(`  "Locked · award" chip shown         ${String(census.lockedAwardShown)}  (a different promise; not tenet A's subject)`);
@@ -660,7 +762,7 @@ function reportTotals(census: LedgerTenetCensus, loaded: LoadedDistricts): void 
     `  violations landed on step kinds:    ${census.violationPositionKinds.length === 0 ? "(none)" : census.violationPositionKinds.join(", ")}`
   );
   console.log(
-    `  seasons with a tie at the final line (contending at now): ${String(census.seasonsWithTieAtTheLine.length)}` +
+    `  seasons with a tie at the final line (contending at the finish): ${String(census.seasonsWithTieAtTheLine.length)}` +
       `${census.seasonsWithTieAtTheLine.length === 0 ? "" : ` — ${census.seasonsWithTieAtTheLine.join(", ")}`}`
   );
   console.log(
@@ -676,7 +778,9 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   const dir = dirFlag === -1 ? LOCAL_DISTRICT_DIR : (argv[dirFlag + 1] ?? LOCAL_DISTRICT_DIR);
 
   const loaded = loadDistrictArtifacts(dir);
-  const sweeps = loaded.artifacts.map(sweepDistrict);
+  // One argument on purpose: `Array.map` would hand `sweepDistrict` the index
+  // as its yardstick.
+  const sweeps = loaded.artifacts.map((artifact) => sweepDistrict(artifact));
   const census = censusOf(sweeps);
   const violations = sweeps.flatMap((s) => s.violations);
 
@@ -687,7 +791,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     console.log(`LEDGER TENETS — the District Locks tab's own status code, at every stage position.`);
     console.log(`  tenet A:    a team shown "Locked" on points is inside the final points-qualified set`);
     console.log(`  tenet B:    a team shown "Locked out" is outside it`);
-    console.log(`  outcome:    the artifact's own districtLock.status at now. "locked" is qualified on points;`);
+    console.log(`  outcome:    the tab's own verdict with every district tier category final, on district tier points`);
+    console.log(`              only (no District Championship points on either side). "locked" is qualified on points;`);
     console.log(`              "lockedAward" is qualified by an award and INDETERMINATE on points, because`);
     console.log(`              computeLocksWithQualifiers short-circuits award qualifiers before the points math;`);
     console.log(`              "contending" is an unbroken tie at the line, which never counts as qualified.`);

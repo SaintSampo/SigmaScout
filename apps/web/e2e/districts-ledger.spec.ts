@@ -56,8 +56,29 @@ const LOCKED_COUNT = 50;
 /** No team in this artifact carries a `prequalified` verdict. */
 const PREQUALIFIED_COUNT = 0;
 
-/** The artifact's own `insights.districtEliminatedCount`, and its `districtLock.status` census of `eliminated`. */
+/**
+ * Locked out on the Live view. Since quick task 261005-04t the Live view of a
+ * district whose championship has started shows its FIELD, and on `2026pnw`
+ * that reads 76 Locked out and no Declined team, measured on the committed
+ * fixture with a finished state on every row and on the live 2026 artifacts.
+ */
 const LOCKED_OUT_COUNT = 76;
+
+/**
+ * A district whose Live view shows Declined teams (quick task 261005-04t,
+ * D-06), measured twice on 2026-10-05 (the live artifacts and the local
+ * corpus): 100 Locked, 8 Declined, 92 Locked out. Locked equals its slot count.
+ */
+const DECLINED_DISTRICT_KEY = "2026ne";
+const DECLINED_DISTRICT_LOCKED = 100;
+const DECLINED_DISTRICT_DECLINED = 8;
+const DECLINED_DISTRICT_LOCKED_OUT = 92;
+
+/**
+ * The Declined definition line, transcribed from `districtLedgerCopy.ts`'s
+ * `DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.declined` as of 2026-10-05.
+ */
+const DECLINED_DEFINITION = "earned a place at the District Championship and is not in its field";
 
 /**
  * Test ids, transcribed by hand from shipped source (an e2e spec does not
@@ -109,6 +130,8 @@ const TEST_IDS = {
   champRow: "champ-ledger-row",
   /** `LedgerParts.tsx`'s `ControlsCard` stat line, shared by BOTH tabs. */
   statLine: "district-ledger-stat-line",
+  /** `LocksMilestonePicker.tsx` — the rewind note below the arrows row, present whenever the selection is not Live (quick task 261005-04t). */
+  pickerRewindNote: "locks-picker-rewind-note",
 } as const;
 
 /**
@@ -141,6 +164,13 @@ const RETIRED_CUTOFF_WORDING = ["Today", String.fromCharCode(0x27), "s line"].jo
  */
 const STATUS_KEYS = ["prequalified", "locked", "inRange", "outOfRange", "lockedOut"] as const;
 
+/**
+ * The sixth chip's `data-status` (quick task 261005-04t). It renders only on
+ * the Live view of a district whose championship has started, and only where
+ * at least one team reads Declined, between Locked and In range.
+ */
+const DECLINED_STATUS = "declined";
+
 /** The PRE RENAME first tab id, retired in phase 10. `searchParams.ts:315`'s own rename note names it. */
 const PRE_RENAME_TAB_ID = "district-locks";
 
@@ -150,8 +180,8 @@ const REWIND_PARAM = "at";
 /** The plus minus sign, which must never render on this tab (10-CONTEXT.md, locked). */
 const PLUS_MINUS = "±";
 
-function districtUrl(tab?: string): string {
-  const base = `/districts?year=${SEASON}&district=${DISTRICT_KEY}`;
+function districtUrl(tab?: string, districtKey: string = DISTRICT_KEY): string {
+  const base = `/districts?year=${SEASON}&district=${districtKey}`;
   return tab === undefined ? base : `${base}&tab=${tab}`;
 }
 
@@ -196,21 +226,28 @@ test.describe("District Locks, 1440x900", () => {
     await expect(page.getByTestId(TEST_IDS.statusCell)).toHaveCount(ROSTER_SIZE);
     await expect(page.getByTestId(TEST_IDS.grandTotal)).toHaveCount(ROSTER_SIZE);
 
-    // The five chips, each with a count.
+    // The five chips, each with a count, and a sixth, Declined, only where
+    // some team reads Declined (quick task 261005-04t).
     await expect(page.getByTestId(TEST_IDS.statusChips)).toBeVisible();
-    await expect(page.getByTestId(TEST_IDS.statusChip)).toHaveCount(STATUS_KEYS.length);
+    const chipTotal = await page.getByTestId(TEST_IDS.statusChip).count();
+    expect([STATUS_KEYS.length, STATUS_KEYS.length + 1], "the chip row holds five chips, or six with Declined").toContain(chipTotal);
     const counts: Record<string, number> = {};
     for (const status of STATUS_KEYS) counts[status] = await chipCount(page, status);
+    const declinedChip = page.locator(`[data-testid="${TEST_IDS.statusChip}"][data-status="${DECLINED_STATUS}"]`);
+    const declinedPresent = (await declinedChip.count()) > 0;
+    if (declinedPresent) counts[DECLINED_STATUS] = await chipCount(page, DECLINED_STATUS);
+    expect(declinedPresent, "a sixth chip must be the Declined chip").toBe(chipTotal === STATUS_KEYS.length + 1);
     // eslint-disable-next-line no-console -- printed for the SUMMARY's measured-figure obligation.
     console.log(`[districts-ledger] chip counts: ${JSON.stringify(counts)}`);
 
     // A FAILURE ON ANY PIN BELOW MEANS THE PUBLISHED VERDICTS MOVED. That is a
     // finding to triage against the artifact, never a number to soften here.
-    const total = STATUS_KEYS.reduce((sum, status) => sum + (counts[status] ?? 0), 0);
-    expect(total, "the five chip counts must account for the whole district roster").toBe(ROSTER_SIZE);
+    const total = [...STATUS_KEYS, DECLINED_STATUS].reduce((sum, status) => sum + (counts[status] ?? 0), 0);
+    expect(total, "the chip counts must account for the whole district roster").toBe(ROSTER_SIZE);
+    if (declinedPresent) expect(counts[DECLINED_STATUS], "a Declined chip renders only where some team reads Declined").toBeGreaterThanOrEqual(1);
     expect(counts["prequalified"], "prequalified count").toBe(PREQUALIFIED_COUNT);
     expect(counts["locked"], "locked count, which includes the lockedAward variant").toBe(LOCKED_COUNT);
-    expect(counts["lockedOut"], "locked out count, the artifact's own districtEliminatedCount").toBe(LOCKED_OUT_COUNT);
+    expect(counts["lockedOut"], "locked out count on the Live view, which shows the District Championship field").toBe(LOCKED_OUT_COUNT);
     // The two pins check each other: on a finished district every slot that can
     // be locked is locked.
     expect(
@@ -265,9 +302,10 @@ test.describe("District Locks, 1440x900", () => {
     await expect(stops).toHaveCount(8);
     const pressedStops = picker.locator('[data-milestone][aria-pressed="true"]');
 
-    // At the district URL the page is live.
+    // At the district URL the page is live, and Live carries no rewind note.
     await expect(page.getByTestId(TEST_IDS.pickerLive)).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId(TEST_IDS.pickerNextText)).toHaveText("This is live");
+    await expect(page.getByTestId(TEST_IDS.pickerRewindNote)).toHaveCount(0);
 
     // One step back from Live lands on the district's latest milestone.
     await page.getByTestId(TEST_IDS.pickerPrev).click();
@@ -278,6 +316,8 @@ test.describe("District Locks, 1440x900", () => {
       .not.toBeNull();
     await expect(pressedStops).toHaveCount(1);
     await expect(page.getByTestId(TEST_IDS.pickerLive)).toHaveAttribute("aria-pressed", "false");
+    // A rewound view says its predictions use later knowledge (quick task 261005-04t).
+    await expect(page.getByTestId(TEST_IDS.pickerRewindNote)).toBeVisible();
 
     // And one more.
     const firstAt = new URL(page.url()).searchParams.get(REWIND_PARAM);
@@ -304,6 +344,77 @@ test.describe("District Locks, 1440x900", () => {
       )
       .toBe(`${String(pressedKey)} of ${eventKey}`);
     await expect(page.getByTestId(TEST_IDS.pickerLive)).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByTestId(TEST_IDS.pickerRewindNote)).toBeVisible();
+
+    // THE HEADLINE NEVER SITS OUTSIDE ITS OWN RANGE (quick task 261004-uw4).
+    // At this rewound position a race is open again, so the cutoff is the
+    // median of the simulated line and its likely range comes from the same
+    // call. Measured live on 2026-10-04, before the fix, the figure sat BELOW
+    // its printed range at 8 of 22 rewound positions ("~56 · likely 59–64").
+    // The runs land a moment after the rows do, so this waits out "pending".
+    const rewoundStatLine = page.getByTestId(TEST_IDS.statLine);
+    await expect
+      .poll(async () => (await rewoundStatLine.innerText()).trim(), {
+        message: "the rewound stat line must leave pending: a figure, a settled cutoff, or not available with its reason",
+        timeout: 60_000,
+      })
+      .not.toContain("pending");
+    const rewoundStat = (await rewoundStatLine.innerText()).trim();
+    // eslint-disable-next-line no-console -- printed so a failure names the stat line it read.
+    console.log(`[districts-ledger] rewound stat line: ${rewoundStat}`);
+    // An en dash separates the two ends of the likely range.
+    const figureWithRange = /~(\d+)\s*·\s*likely\s+(\d+)–(\d+)/.exec(rewoundStat);
+    if (figureWithRange !== null) {
+      const [figure, low, high] = [Number(figureWithRange[1]), Number(figureWithRange[2]), Number(figureWithRange[3])];
+      expect(low, `the predicted cutoff sits below its own likely range: "${rewoundStat}"`).toBeLessThanOrEqual(figure);
+      expect(figure, `the predicted cutoff sits above its own likely range: "${rewoundStat}"`).toBeLessThanOrEqual(high);
+    }
+    // A refused run prints no figure at all, never a figure beside its refusal.
+    expect(/~\d/.test(rewoundStat) && rewoundStat.includes("not available"), `a figure printed beside a refusal: "${rewoundStat}"`).toBe(false);
+  });
+
+  test("Season start reads nobody Locked and nobody Locked out", async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(districtUrl());
+    await expect(page.getByTestId(TEST_IDS.ledgerTab)).toBeVisible();
+    await page.getByTestId(TEST_IDS.pickerSeasonStart).click();
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get(REWIND_PARAM), {
+        message: `pressing Season start must write ?${REWIND_PARAM}= into the URL`,
+      })
+      .not.toBeNull();
+    await expect(page.getByTestId(TEST_IDS.pickerSeasonStart)).toHaveAttribute("aria-pressed", "true");
+
+    // ONLY these two chips are read here: In range and Out of range can read
+    // Pending with no count while the runs are in flight.
+    const message =
+      "the shipped floor read 2 Locked here on the committed fixture because it counted District Championship points (quick task 261005-04t); a failure is a finding to triage against the artifact, never a number to soften";
+    await expect.poll(() => chipCount(page, "locked"), { message: `Locked at Season start: ${message}`, timeout: 30_000 }).toBe(0);
+    await expect.poll(() => chipCount(page, "lockedOut"), { message: `Locked out at Season start: ${message}`, timeout: 30_000 }).toBe(0);
+    await expect(
+      page.locator(`[data-testid="${TEST_IDS.statusChip}"][data-status="${DECLINED_STATUS}"]`),
+      "a rewound view never shows the District Championship field, so no Declined chip"
+    ).toHaveCount(0);
+  });
+
+  test("the Live view of a district where some team declined its place shows Declined", async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(districtUrl(undefined, DECLINED_DISTRICT_KEY));
+    await expect(page.getByTestId(TEST_IDS.ledgerTab)).toBeVisible();
+    await expect(page.getByTestId(TEST_IDS.pickerLive)).toHaveAttribute("aria-pressed", "true");
+
+    const message = "Locked equal to the slot count is the check that the overlay finds the real field";
+    await expect
+      .poll(() => chipCount(page, "locked"), { message: `${DECLINED_DISTRICT_KEY} Locked at Live: ${message}`, timeout: 30_000 })
+      .toBe(DECLINED_DISTRICT_LOCKED);
+    expect(await chipCount(page, DECLINED_STATUS), `${DECLINED_DISTRICT_KEY} Declined at Live: ${message}`).toBe(DECLINED_DISTRICT_DECLINED);
+    expect(await chipCount(page, "lockedOut"), `${DECLINED_DISTRICT_KEY} Locked out at Live: ${message}`).toBe(DECLINED_DISTRICT_LOCKED_OUT);
+
+    const definition = page.locator(`[id="district-ledger-status-definition-${DECLINED_STATUS}"]`);
+    await expect(definition, "the Declined chip carries its own definition line").toBeVisible();
+    await expect(definition).toContainText(DECLINED_DEFINITION);
   });
 
   test("a pre rename tab id still lands on the District Locks panel", async ({ page }) => {

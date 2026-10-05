@@ -32,7 +32,8 @@ import {
   type DistrictPointDistribution,
 } from "./districtLedgerRows.js";
 import { computeDistrictLedgerStatuses, type DistrictLedgerStatusModel } from "./districtLedgerStatus.js";
-import { buildAdvancementChanceRun, reconcileAdvancementChances } from "./districtLedgerChances.js";
+import { buildAdvancementChanceRun, reconcileAdvancementChances, type VerdictLookup } from "./districtLedgerChances.js";
+import type { DistrictLedgerShownState } from "./districtFieldOverlay.js";
 
 type DistrictTeam = DistrictArtifact["teams"][number];
 
@@ -341,6 +342,34 @@ describe("reconcileAdvancementChances", () => {
     const statuses = statusesWith([["frc1", "inRange"]]);
     const model = reconcileAdvancementChances(new Map(), statuses);
     expect(model.byTeam.size).toBe(0);
+    expect(model.gaps).toEqual([]);
+  });
+
+  /**
+   * P2 (quick task 261005-04t, D-06). Declined is a fact about who is in the
+   * championship field, shown on the Live view only. It is neither a contending
+   * call nor a guarantee the run set could contradict, so a chance beside it
+   * prints nothing and is not counted as a disagreement, whatever its value.
+   */
+  it("P2: prints no chance for a Declined team and does not list it as a gap", () => {
+    const statuses: VerdictLookup = {
+      byTeam: new Map<string, { readonly status: DistrictLedgerShownState }>([
+        ["frc1", { status: "declined" }],
+        ["frc2", { status: "declined" }],
+        ["frc3", { status: "declined" }],
+        ["frc4", { status: "inRange" }],
+      ]),
+    };
+    const model = reconcileAdvancementChances(
+      new Map([
+        ["frc1", 0.4],
+        ["frc2", 1],
+        ["frc3", 0],
+        ["frc4", 0.5],
+      ]),
+      statuses
+    );
+    expect([...model.byTeam.keys()]).toEqual(["frc4"]);
     expect(model.gaps).toEqual([]);
   });
 });

@@ -29,10 +29,13 @@ import {
   DISTRICT_LEDGER_CONTRIBUTION_SETTLED,
   DISTRICT_LEDGER_COLUMN_LABELS,
   DISTRICT_LEDGER_CUTOFF_LABELS,
+  DISTRICT_LEDGER_DECLINED_LABEL,
+  DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION,
   DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
   DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION,
   DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
+  DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
@@ -43,6 +46,7 @@ import {
   DISTRICT_LEDGER_OUTCOME_LIST_LABELS,
   DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS,
   DISTRICT_LEDGER_SELECTION_ROUTE_WORDS,
+  DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_TAB_LABEL,
@@ -77,6 +81,7 @@ import {
   LOCKS_PICKER_NEXT_LABEL,
   LOCKS_PICKER_NOW_MARK,
   LOCKS_PICKER_PREV_LABEL,
+  LOCKS_PICKER_REWIND_NOTE,
   LOCKS_PICKER_SEASON_START,
   LOCKS_PICKER_THIS_IS_LIVE,
   locksPickerGroupLabel,
@@ -95,6 +100,22 @@ describe("the UI-SPEC copy contract", () => {
     expect(DISTRICT_LEDGER_STATUS_DEFINITIONS.inRange).toBe("if every team earned its median predicted points, this team would qualify");
     expect(DISTRICT_LEDGER_STATUS_DEFINITIONS.outOfRange).toBe("if every team earned its median predicted points, this team would not qualify");
     expect(DISTRICT_LEDGER_STATUS_DEFINITIONS.lockedOut).toBe("cannot earn enough district points to qualify");
+  });
+
+  // Quick task 261004-uw4: the five 10-UI-SPEC sentences above still print
+  // where the district tab's chips cut at the median projections. While its
+  // predicted cutoff is the simulated line (or pending, or refused) the tab
+  // prints this second set, whose In range and Out of range name that cutoff.
+  it("pins the district tab's simulated In range and Out of range to the predicted cutoff, and keeps its other three definitions (261004-uw4)", () => {
+    expect(DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS.inRange).toBe("this team's median predicted points sit at or above the predicted cutoff");
+    expect(DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS.outOfRange).toBe("this team's median predicted points sit below the predicted cutoff");
+    expect(DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS.prequalified).toBe(DISTRICT_LEDGER_STATUS_DEFINITIONS.prequalified);
+    expect(DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS.locked).toBe(DISTRICT_LEDGER_STATUS_DEFINITIONS.locked);
+    expect(DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS.lockedOut).toBe(DISTRICT_LEDGER_STATUS_DEFINITIONS.lockedOut);
+    for (const definition of Object.values(DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS)) expect(definition).not.toMatch(/[-‐-―−]/);
+    // The district line hands no slot to an award winner inside a run, so it
+    // must not borrow the champ tab's clause that says it does.
+    expect(DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS.inRange).not.toContain("award");
   });
 
   it("pins the champ tab's In range and Out of range to the predicted cutoff, and keeps its other three definitions the district tab's (260927-syh)", () => {
@@ -196,10 +217,37 @@ describe("the UI-SPEC copy contract", () => {
     for (const text of strings) expect(text).not.toMatch(/[-‐-―−]/);
   });
 
+  // Quick task 261005-04t (D-06): once the District Championship has started,
+  // the Live view shows its field, with a sixth status word and its own
+  // Locked and Locked out sentences.
+  it("pins the Declined label and the field definition set, whose other three read as the base set's (261005-04t)", () => {
+    expect(DISTRICT_LEDGER_DECLINED_LABEL).toBe("Declined");
+    expect(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.locked).toBe("in the District Championship field");
+    expect(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.declined).toBe("earned a place at the District Championship and is not in its field");
+    expect(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.lockedOut).toBe("did not earn a place at the District Championship");
+    expect(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.prequalified).toBe(DISTRICT_LEDGER_STATUS_DEFINITIONS.prequalified);
+    expect(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.inRange).toBe(DISTRICT_LEDGER_STATUS_DEFINITIONS.inRange);
+    expect(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.outOfRange).toBe(DISTRICT_LEDGER_STATUS_DEFINITIONS.outOfRange);
+    for (const text of [DISTRICT_LEDGER_DECLINED_LABEL, ...Object.values(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS)]) {
+      expect(text).not.toMatch(/[-‐-―−]/);
+    }
+  });
+
+  it("pins the rewind note, with no dash character and no digit (261005-04t)", () => {
+    expect(LOCKS_PICKER_REWIND_NOTE).toBe(
+      "This is a rewound view. Later events are predicted with the odds this site published just before each of their matches and with each team's rating from the end of that event, so these predictions know more than a forecast made at this point could."
+    );
+    expect(LOCKS_PICKER_REWIND_NOTE).not.toMatch(/[-‐-―−]/);
+    expect(LOCKS_PICKER_REWIND_NOTE).not.toMatch(/\d/);
+  });
+
   it("shortens ONLY a name that matches TBA's whole district template, and prints every other name verbatim", () => {
     expect(districtLedgerShortEventName("PNW District Oregon State Fair Event")).toBe("Oregon State Fair");
     expect(districtLedgerShortEventName("FNC District Wake County Event")).toBe("Wake County");
     expect(districtLedgerShortEventName("FIM District - Kettering University Event #1")).toBe("Kettering University #1");
+    expect(districtLedgerShortEventName("FIM District Chelsea Event presented by DTE")).toBe("Chelsea");
+    expect(districtLedgerShortEventName("FIM District Milford Event presented by GM Proving Grounds")).toBe("Milford");
+    expect(districtLedgerShortEventName("FIM District Kettering University Event #2 presented by Ford")).toBe("Kettering University #2");
     // No name body between "District" and "Event": nothing to shorten to, so
     // the published name stands.
     expect(districtLedgerShortEventName("ISR District Event #1")).toBe("ISR District Event #1");
@@ -583,11 +631,19 @@ describe("the predicted cutoff copy", () => {
     const everyString = [
       ...Object.values(DISTRICT_LEDGER_CUTOFF_LABELS),
       DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
+      DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
       DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION,
       DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
     ].join(" ");
     for (const dash of ["—", "–", "-"]) expect(everyString).not.toContain(dash);
     expect(everyString).not.toContain("±");
+  });
+
+  it("describes the district tab's simulated line as a median with its own range, never as a midpoint (261004-uw4)", () => {
+    expect(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION).toContain("median");
+    expect(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION).toContain("10th to the 90th percentile");
+    expect(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION).not.toContain("midpoint");
+    expect(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION.split(". ")).toHaveLength(2);
   });
 
   it("carries no dash character in any of the simulated champ cutoff copy (quick task 260927-6bf)", () => {

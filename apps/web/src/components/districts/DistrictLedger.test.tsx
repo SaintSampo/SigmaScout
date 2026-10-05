@@ -19,6 +19,9 @@
  * this component so a future second caller of the hook cannot reintroduce the
  * empty run.
  */
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -38,6 +41,8 @@ import { runDistrictWorkerJob } from "../../workers/districtSimulationProtocol.j
 import { DistrictLedger } from "./DistrictLedger.js";
 import { DISTRICT_MILESTONE_KEYS } from "./districtMilestones.js";
 import {
+  CHAMP_LEDGER_DRAWER_PENDING_CAPTION,
+  CHAMP_LEDGER_NO_CALL_REASONS,
   DISTRICT_LEDGER_AWARD_OUTCOME_LABELS,
   DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED,
   DISTRICT_LEDGER_CAVEAT,
@@ -45,8 +50,11 @@ import {
   DISTRICT_LEDGER_CONTRIBUTION_SETTLED,
   DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION,
   DISTRICT_LEDGER_CUTOFF_LABELS,
+  DISTRICT_LEDGER_DECLINED_LABEL,
+  DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
   DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
+  DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
@@ -56,6 +64,7 @@ import {
   DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS,
   DISTRICT_LEDGER_PROVENANCE,
   DISTRICT_LEDGER_SEARCH_LABEL,
+  DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_TAB_LABEL,
@@ -846,6 +855,155 @@ describe("DistrictLedger — the five status chips", () => {
 });
 
 // ---------------------------------------------------------------------------
+// The championship field on the Live view (quick task 261005-04t, D-06)
+// ---------------------------------------------------------------------------
+
+const CHAMPIONSHIP_KEY = "2026wacmp";
+
+/** One finished district event row, every point in qualification. */
+function doneDistrictRow(total: number) {
+  return { eventKey: "2026wadone", eventName: "Done Event", week: 0, tier: "district" as const, qual: total, alliance: 0, elim: 0, award: 0, total, state: state() };
+}
+
+/** One finished District Championship row: the team played it. */
+function championshipRow(qual: number) {
+  return { eventKey: CHAMPIONSHIP_KEY, eventName: "District Championship", week: 5, tier: "dcmp" as const, qual, alliance: 0, elim: 0, award: 0, total: qual, state: state() };
+}
+
+/**
+ * A finished district whose championship has been played. Two slots: frc100
+ * and frc101 earn them on district points, the other three cannot.
+ *
+ * frc100 plays the championship. frc101 plays it only when `everyEarnedPlacePlays`;
+ * otherwise it carries no championship row and is the Declined team. frc102 is
+ * a late entry from below the line and plays it.
+ */
+function fieldDistrict(everyEarnedPlacePlays: boolean): DistrictArtifact {
+  const team = (teamKey: string, district: number, championship: number | undefined) =>
+    districtTeam(teamKey, {
+      pointTotal: district + (championship ?? 0),
+      eventPoints: championship === undefined ? [doneDistrictRow(district)] : [doneDistrictRow(district), championshipRow(championship)],
+    });
+  return artifactOf(
+    [
+      team("frc100", 100, 20),
+      team("frc101", 90, everyEarnedPlacePlays ? 15 : undefined),
+      team("frc102", 10, 5),
+      team("frc103", 5, undefined),
+      team("frc104", 3, undefined),
+    ],
+    { dcmpSlots: 2 }
+  );
+}
+
+describe("DistrictLedger — the championship field on the Live view (261005-04t)", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  const chips = () => screen.getAllByTestId("district-ledger-status-chip");
+  const chip = (status: string) => chips().find((element) => element.getAttribute("data-status") === status);
+  const statusCellOf = (teamKey: string) =>
+    document.querySelector(`[data-testid="district-ledger-row"][data-team="${teamKey}"] [data-testid="district-ledger-status-cell"]`);
+
+  it("C1: at Live, six chips with Declined between Locked and In range, the field's definitions, and a Declined team that prints no chance", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(fieldDistrict(false));
+
+    await waitFor(() => expect(chips()).toHaveLength(6));
+    expect(chips().map((element) => element.getAttribute("data-status"))).toEqual(["prequalified", "locked", "declined", "inRange", "outOfRange", "lockedOut"]);
+    expect(chip("declined")!.textContent).toBe(`${DISTRICT_LEDGER_DECLINED_LABEL} 1`);
+    expect(chip("locked")!.textContent).toBe(`${DISTRICT_LEDGER_STATUS_LABELS.locked} 2`);
+    expect(chip("lockedOut")!.textContent).toBe(`${DISTRICT_LEDGER_STATUS_LABELS.lockedOut} 2`);
+    expect(chip("declined")!.querySelector(".lock-status-chip--declined")).not.toBeNull();
+
+    const definitions = screen.getByTestId("district-ledger-status-definitions").textContent ?? "";
+    expect(definitions).toContain(`${DISTRICT_LEDGER_DECLINED_LABEL} ${DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.declined}`);
+    expect(definitions).toContain(`${DISTRICT_LEDGER_STATUS_LABELS.locked} ${DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.locked}`);
+    expect(definitions).toContain(`${DISTRICT_LEDGER_STATUS_LABELS.lockedOut} ${DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.lockedOut}`);
+    expect(definitions).not.toContain(DISTRICT_LEDGER_STATUS_DEFINITIONS.locked);
+    expect(definitions).not.toContain(DISTRICT_LEDGER_STATUS_DEFINITIONS.lockedOut);
+    // The Declined chip is described by its own definition line.
+    const describedBy = chip("declined")!.getAttribute("aria-describedby");
+    expect(document.getElementById(describedBy!)?.textContent).toBe(`${DISTRICT_LEDGER_DECLINED_LABEL} ${DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.declined}`);
+
+    const declinedCell = statusCellOf("frc101")!;
+    expect(declinedCell.getAttribute("data-status")).toBe("declined");
+    expect(declinedCell.querySelector(".lock-status-chip--declined")).not.toBeNull();
+    expect(declinedCell.textContent).toBe(DISTRICT_LEDGER_DECLINED_LABEL);
+    expect(within(declinedCell as HTMLElement).queryByTestId("district-ledger-chance")).toBeNull();
+    // The late entry from below the line is in the field, so it reads Locked.
+    expect(statusCellOf("frc102")?.getAttribute("data-status")).toBe("locked");
+
+    // The Declined chip filters like the other five.
+    expect(screen.getAllByTestId("district-ledger-row")).toHaveLength(5);
+    fireEvent.click(chip("declined")!);
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-row")).toHaveLength(4));
+    expect(statusCellOf("frc101")).toBeNull();
+    expect(chip("declined")!.getAttribute("aria-pressed")).toBe("false");
+    expect(chip("declined")!.textContent).toBe(`${DISTRICT_LEDGER_DECLINED_LABEL} 1`);
+    fireEvent.click(chip("declined")!);
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-row")).toHaveLength(5));
+    expect(statusCellOf("frc101")).not.toBeNull();
+  });
+
+  it("C2: the same district rewound to Season start shows five chips, no Declined chip and no field definitions", async () => {
+    installFetch({ eventArtifact: doneEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedgerAt(fieldDistrict(false), "/districts?algorithm=spr&at=season-start");
+
+    await waitFor(() => expect(screen.getByTestId("locks-picker-season-start").getAttribute("aria-pressed")).toBe("true"));
+    await waitFor(() => expect(chips()).toHaveLength(5));
+    expect(chips().map((element) => element.getAttribute("data-status"))).toEqual(["prequalified", "locked", "inRange", "outOfRange", "lockedOut"]);
+    expect(chip("declined")).toBeUndefined();
+    const definitions = screen.getByTestId("district-ledger-status-definitions").textContent ?? "";
+    expect(definitions).not.toContain(DISTRICT_LEDGER_DECLINED_LABEL);
+    expect(definitions).not.toContain(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.declined);
+    expect(definitions).not.toContain(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.locked);
+    expect(definitions).not.toContain(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.lockedOut);
+    // The base set's Locked and Locked out, which the simulated set shares.
+    expect(definitions).toContain(DISTRICT_LEDGER_STATUS_DEFINITIONS.locked);
+    expect(definitions).toContain(DISTRICT_LEDGER_STATUS_DEFINITIONS.lockedOut);
+    expect(document.querySelectorAll('[data-testid="district-ledger-status-cell"][data-status="declined"]')).toHaveLength(0);
+  });
+
+  it("C3: a started championship where every team that earned a place plays it: five chips, no Declined, the field's Locked and Locked out", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(fieldDistrict(true));
+
+    await waitFor(() => expect(chips()).toHaveLength(5));
+    expect(chip("declined")).toBeUndefined();
+    expect(chip("locked")!.textContent).toBe(`${DISTRICT_LEDGER_STATUS_LABELS.locked} 3`);
+    expect(chip("lockedOut")!.textContent).toBe(`${DISTRICT_LEDGER_STATUS_LABELS.lockedOut} 2`);
+    const definitions = screen.getByTestId("district-ledger-status-definitions").textContent ?? "";
+    expect(definitions).not.toContain(DISTRICT_LEDGER_DECLINED_LABEL);
+    expect(definitions).toContain(`${DISTRICT_LEDGER_STATUS_LABELS.locked} ${DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.locked}`);
+    expect(definitions).toContain(`${DISTRICT_LEDGER_STATUS_LABELS.lockedOut} ${DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.lockedOut}`);
+  });
+
+  it("C4: the Declined chip is drawn by the Out of range rule itself, sharing one declaration block", () => {
+    // `core.autocrlf` is true on this machine, so a checkout can carry CRLF.
+    const css = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "styles", "theme.css"), "utf8")
+      .replace(/\r\n/g, "\n")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    const selectors = [...css.matchAll(/([^{}]+)\{[^{}]*\}/g)].map((match) => match[1]!.split(",").map((selector) => selector.trim()));
+    const declined = selectors.filter((list) => list.includes(".lock-status-chip--declined"));
+    expect(declined).toHaveLength(1);
+    expect(declined[0]).toContain(".lock-status-chip--out-of-range");
+    expect(selectors.filter((list) => list.some((selector) => selector.includes("lock-status-chip--declined")))).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The milestone picker (SC-4)
 // ---------------------------------------------------------------------------
 
@@ -1080,9 +1238,22 @@ describe("DistrictLedger — the drawer", () => {
   it("prints a PREDICTED cutoff with a tilde where something is still open, and the same number on the dashed rule", async () => {
     await renderWithOpenCells();
     const statLine = await screen.findByTestId("district-ledger-stat-line");
+    // The figure is the median of the SIMULATED line (quick task 261004-uw4),
+    // so it arrives with the chance run: 1,000 draws on the mock Worker.
+    await waitFor(() => expect(statLine.textContent).toMatch(/~\d+/), { timeout: 15_000 });
     expect(statLine.textContent).toContain(DISTRICT_LEDGER_CUTOFF_LABELS.predicted);
-    expect(statLine.textContent).toMatch(/~\d+/);
-    const printed = /~(\d+)/.exec(statLine.textContent ?? "")![1]!;
+    const printed = Number(/~(\d+)/.exec(statLine.textContent ?? "")![1]!);
+
+    // THE FIGURE SITS INSIDE THE RANGE PRINTED BESIDE IT, because both come
+    // from one call over one set of runs. Before this task the figure was the
+    // midpoint of two medians and could sit below its own range.
+    const likely = within(statLine).queryByTestId("district-ledger-cutoff-likely");
+    if (likely !== null) {
+      const ends = /(\d+)–(\d+)/.exec(likely.textContent ?? "");
+      expect(ends, `the likely range reads "${likely.textContent ?? ""}"`).not.toBeNull();
+      expect(Number(ends![1])).toBeLessThanOrEqual(printed);
+      expect(printed).toBeLessThanOrEqual(Number(ends![2]));
+    }
 
     // THE SAME VALUE ON BOTH SURFACES, which is the whole point of the one
     // memo: the dashed rule's own label is the stat line's label, and the
@@ -1092,8 +1263,9 @@ describe("DistrictLedger — the drawer", () => {
     expect(within(drawer).getByTestId("district-hist-marked-line")).toBeDefined();
     // The dashed rule's own label is the stat line's label, word for word.
     expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_CUTOFF_LABELS.predicted);
-    expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION);
-    expect(Number(printed)).toBeGreaterThan(0);
+    expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION);
+    expect(drawer.textContent ?? "").not.toContain(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION);
+    expect(printed).toBeGreaterThan(0);
   });
 
   it("opens ONE drawer under the clicked team, closes it on a second click, and moves it on a different cell", async () => {
@@ -1128,8 +1300,9 @@ describe("DistrictLedger — the drawer", () => {
     fireEvent.click(cellButton("2026walive:qual"));
     await waitFor(() => expect(screen.getByTestId("district-ledger-drawer-cell-plot")).toBeDefined());
     expect(screen.getByTestId("district-ledger-drawer-grand-plot")).toBeDefined();
-    expect(screen.getByTestId("district-hist-marked-line")).toBeDefined();
-    expect(screen.getByTestId("district-ledger-drawer").textContent).toContain(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION);
+    // The dashed rule is drawn at the simulated line, so it arrives with the chance run.
+    await waitFor(() => expect(screen.getByTestId("district-hist-marked-line")).toBeDefined(), { timeout: 15_000 });
+    expect(screen.getByTestId("district-ledger-drawer").textContent).toContain(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION);
     await waitFor(() =>
       expect(screen.getByTestId("district-ledger-drawer").textContent).toContain(DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION)
     );
@@ -1306,8 +1479,9 @@ describe("DistrictLedger — the drawer", () => {
     await renderWithOpenCells();
     fireEvent.click(cellButton("grand"));
     const drawer = await screen.findByTestId("district-ledger-drawer");
-    expect(within(drawer).getByTestId("district-hist-marked-line")).toBeDefined();
-    expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION);
+    // The dashed rule is drawn at the simulated line, so it arrives with the chance run.
+    await waitFor(() => expect(within(drawer).getByTestId("district-hist-marked-line")).toBeDefined(), { timeout: 15_000 });
+    expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION);
   });
 
   it("still draws the grand total plot BESIDE a category cell's own pane", async () => {
@@ -1613,6 +1787,19 @@ describe("DistrictLedger — the advancement chance", () => {
     renderLedger(artifactOf(ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey)))));
     await waitFor(() => expect(screen.getAllByTestId("district-ledger-row").length).toBeGreaterThan(0));
     expect(screen.queryAllByTestId("district-ledger-chance")).toHaveLength(0);
+
+    // THE LIVE DEFECT, PINNED (quick task 261004-uw4). With no Worker no
+    // distribution is ever built, so every projection is a fallback, and the
+    // old stat line printed their midpoint as a prediction: "Predicted cutoff
+    // ~0" with every team In range. Now a failed run prints no figure at all.
+    const statLine = screen.getByTestId("district-ledger-stat-line");
+    await waitFor(() => expect(statLine.textContent).toContain("not available"), { timeout: 20_000 });
+    expect(within(statLine).getByTestId("district-ledger-cutoff-reason").textContent).toContain(CHAMP_LEDGER_NO_CALL_REASONS.workerError);
+    expect(statLine.textContent).not.toMatch(/~\d/);
+    const statuses = screen.getAllByTestId("district-ledger-status-cell").map((cell) => cell.getAttribute("data-status"));
+    expect(statuses).toContain("no-call");
+    expect(statuses).not.toContain("inRange");
+    expect(statuses).not.toContain("outOfRange");
   });
 
   it("recomputes the chance at a REWOUND position, against the race the slider reopened", async () => {
@@ -1760,6 +1947,200 @@ describe("DistrictLedger — the advancement chance", () => {
       }
     });
   }
+
+  /**
+   * THE EXCLUDED TEAM FALLBACK (quick task 261004-uw4). The two tests above
+   * pin that one refused team does not silence the district's chances. These
+   * pin what the CUTOFF does there: the run ranked a smaller field, so its
+   * line is not the district's line, and the tab keeps the shipped midpoint
+   * rule exactly, with no likely range, the median rule's chips and the
+   * median rule's own definitions under them.
+   */
+  for (const [label, districtFor, missingEventKeys] of REFUSALS) {
+    it(`keeps the midpoint cutoff, with no likely range and the median rule's chips, where the run left ONE team out: ${label}`, async () => {
+      installFetch({ eventArtifact: liveEventArtifact(), missingEventKeys });
+      handle = installMockWorker({ script: realRunScript });
+      renderLedger(districtFor());
+      await waitFor(() => expect(screen.getAllByTestId("district-ledger-chance").length).toBeGreaterThan(0), { timeout: 15_000 });
+
+      const statLine = screen.getByTestId("district-ledger-stat-line");
+      expect(statLine.textContent).toMatch(/^Predicted cutoff ~\d+$/);
+      expect(within(statLine).queryByTestId("district-ledger-cutoff-likely")).toBeNull();
+      expect(statLine.textContent).not.toContain("not available");
+
+      const statuses = screen.getAllByTestId("district-ledger-status-cell").map((cell) => cell.getAttribute("data-status"));
+      expect(statuses.some((status) => status === "inRange" || status === "outOfRange")).toBe(true);
+      expect(statuses).not.toContain("no-call");
+      expect(statuses).not.toContain("pending");
+      for (const chip of screen.getAllByTestId("district-ledger-status-chip")) {
+        expect(chip.textContent ?? "").not.toContain(String.fromCharCode(0x2014));
+      }
+
+      const definitions = screen.getByTestId("district-ledger-status-definitions").textContent ?? "";
+      expect(definitions).toContain(DISTRICT_LEDGER_STATUS_DEFINITIONS.inRange);
+      expect(definitions).toContain(DISTRICT_LEDGER_STATUS_DEFINITIONS.outOfRange);
+
+      // The dashed rule is the midpoint rule's, under the midpoint caption.
+      const grand = document.querySelector('[data-cell-id="grand"][data-cell="open"]')!;
+      fireEvent.click(grand.tagName === "BUTTON" ? grand : within(grand as HTMLElement).getByRole("button"));
+      const drawer = await screen.findByTestId("district-ledger-drawer");
+      expect(within(drawer).getByTestId("district-hist-marked-line")).toBeDefined();
+      expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION);
+      expect(drawer.textContent ?? "").not.toContain(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION);
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// The simulated cutoff's chip timing (quick task 261004-uw4)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE CHIP TIMING, on the District Locks tab (Jacob's 2026-09-27 decision,
+ * applied here on 2026-10-04): while the chance run is in flight, In range and
+ * Out of range read a neutral Pending and the stat line prints no figure,
+ * while every verdict chip is already there. They settle ONCE. A failed run
+ * reads No call with its reason and never prints a figure.
+ *
+ * The Worker here is CONTROLLABLE, the shape `ChampLocksLedger.test.tsx` uses:
+ * the per event run goes through the real protocol, and every chance request
+ * is held until the test releases it, or failed.
+ */
+describe("DistrictLedger — the simulated cutoff's chip timing", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  const EM_DASH = String.fromCharCode(0x2014);
+
+  /** The live district, plus one team Locked on points and one Locked out, so verdict chips exist. */
+  function mixedDistrict() {
+    const teams = ROSTER.map((teamKey) => (teamKey === ROSTER[0] ? lockedTeam(teamKey) : withLiveEvent(districtTeam(teamKey))));
+    return artifactOf([...teams, lockedOutTeam("frc900")]);
+  }
+
+  function renderHeld(mode: "hold" | "error") {
+    const held: { message: unknown; post: (outbound: unknown) => void }[] = [];
+    installFetch({ eventArtifact: liveEventArtifact() });
+    handle = installMockWorker({
+      script: (message, ctx) => {
+        if ((message as { type?: string }).type === "chance") {
+          if (mode === "error") ctx.post({ type: "error", name: "Error", message: "forced by the test" });
+          else held.push({ message, post: (outbound) => ctx.post(outbound) });
+          return;
+        }
+        runDistrictWorkerJob(message, (outbound) => ctx.post(outbound));
+      },
+    });
+    renderLedger(mixedDistrict());
+    return held;
+  }
+
+  function statusesOnScreen(): (string | null)[] {
+    return screen.getAllByTestId("district-ledger-status-cell").map((cell) => cell.getAttribute("data-status"));
+  }
+
+  function filterChip(status: string): HTMLElement {
+    return screen.getAllByTestId("district-ledger-status-chip").find((chip) => chip.getAttribute("data-status") === status)!;
+  }
+
+  it("reads Pending, with no figure, no dashed rule and no range chip, until the chance run lands, and then settles ONCE", async () => {
+    const statLineTexts: string[] = [];
+    const statusesBeforeRelease = new Set<string | null>();
+    let released = false;
+    const observer = new MutationObserver(() => {
+      const statLine = document.querySelector('[data-testid="district-ledger-stat-line"]');
+      if (statLine !== null) statLineTexts.push(statLine.textContent ?? "");
+      if (released) return;
+      for (const cell of document.querySelectorAll('[data-testid="district-ledger-status-cell"]')) statusesBeforeRelease.add(cell.getAttribute("data-status"));
+    });
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+
+    const held = renderHeld("hold");
+    await waitFor(() => expect(held.length).toBeGreaterThan(0), { timeout: 20_000 });
+    await waitFor(() => expect(statusesOnScreen()).toContain("pending"));
+
+    const statuses = statusesOnScreen();
+    expect(statuses).not.toContain("inRange");
+    expect(statuses).not.toContain("outOfRange");
+    // D-04: the verdict chips are already there.
+    expect(statuses).toContain("locked");
+    expect(statuses).toContain("lockedOut");
+    const statLine = screen.getByTestId("district-ledger-stat-line");
+    expect(statLine.textContent).toBe("Predicted cutoff pending");
+    expect(filterChip("inRange").textContent).toContain(EM_DASH);
+    expect(filterChip("outOfRange").textContent).toContain(EM_DASH);
+    expect(screen.queryAllByTestId("district-ledger-chance")).toHaveLength(0);
+    // The definitions under the chips already name the cutoff the chips will cut at.
+    const definitions = screen.getByTestId("district-ledger-status-definitions").textContent ?? "";
+    expect(definitions).toContain(DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS.inRange);
+    expect(definitions).toContain(DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS.outOfRange);
+
+    // An opened grand total drawer draws NO dashed rule while the line is pending.
+    const grand = document.querySelector('[data-cell-id="grand"][data-cell="open"]')!;
+    fireEvent.click(grand.tagName === "BUTTON" ? grand : within(grand as HTMLElement).getByRole("button"));
+    const drawer = await screen.findByTestId("district-ledger-drawer");
+    expect(within(drawer).queryByTestId("district-hist-marked-line")).toBeNull();
+    expect(drawer.textContent ?? "").toContain(CHAMP_LEDGER_DRAWER_PENDING_CAPTION);
+
+    // Release the LATEST held run (an earlier one may be stale by now).
+    const latest = held[held.length - 1]!;
+    released = true;
+    runDistrictWorkerJob(latest.message, latest.post);
+    await waitFor(() => expect(screen.getByTestId("district-ledger-stat-line").textContent).toMatch(/^Predicted cutoff ~\d+( · likely \d+–\d+)?$/), {
+      timeout: 20_000,
+    });
+    const settled = statusesOnScreen();
+    expect(settled).not.toContain("pending");
+    expect(settled.some((status) => status === "inRange" || status === "outOfRange")).toBe(true);
+    // The dashed rule arrives with the figure, in the drawer that was already open.
+    expect(within(screen.getByTestId("district-ledger-drawer")).getByTestId("district-hist-marked-line")).toBeDefined();
+    observer.disconnect();
+
+    // SETTLES ONCE: every stat line the page ever showed is either the
+    // pending one or the final figure, never a second number in between.
+    const figures = new Set(statLineTexts.filter((text) => /~\d+/.test(text)));
+    expect(figures.size).toBe(1);
+    for (const text of statLineTexts) expect(text).not.toContain("not available");
+    // And no chip ever showed a median rule call or a transient No call first.
+    for (const status of ["inRange", "outOfRange", "no-call"]) expect(statusesBeforeRelease.has(status)).toBe(false);
+    expect(statusesBeforeRelease.has("pending")).toBe(true);
+  }, 40_000);
+
+  it("reads No call with its reason when the chance run fails, prints no figure, and leaves every verdict alone", async () => {
+    renderHeld("error");
+    await waitFor(() => expect(statusesOnScreen()).toContain("no-call"), { timeout: 20_000 });
+    const statuses = statusesOnScreen();
+    expect(statuses).not.toContain("inRange");
+    expect(statuses).not.toContain("outOfRange");
+    expect(statuses).not.toContain("pending");
+    const noCall = screen.getAllByTestId("district-ledger-status-cell").find((cell) => cell.getAttribute("data-status") === "no-call")!;
+    expect(noCall.textContent).toContain("No call");
+    expect(noCall.textContent).toContain(CHAMP_LEDGER_NO_CALL_REASONS.workerError);
+
+    const statLine = screen.getByTestId("district-ledger-stat-line");
+    expect(statLine.textContent).toContain("Predicted cutoff not available");
+    expect(within(statLine).getByTestId("district-ledger-cutoff-reason").textContent).toContain(CHAMP_LEDGER_NO_CALL_REASONS.workerError);
+    expect(statLine.textContent).not.toMatch(/~\d/);
+    expect(screen.queryAllByTestId("district-ledger-chance")).toHaveLength(0);
+
+    // D-04: the guarantees keep their chips and their counts.
+    expect(statuses).toContain("locked");
+    expect(statuses).toContain("lockedOut");
+    expect(filterChip("locked").textContent).toMatch(/\d/);
+    expect(filterChip("lockedOut").textContent).toMatch(/\d/);
+    expect(filterChip("locked").textContent).not.toContain(EM_DASH);
+    expect(filterChip("lockedOut").textContent).not.toContain(EM_DASH);
+    expect(filterChip("inRange").textContent).toContain(EM_DASH);
+    expect(filterChip("outOfRange").textContent).toContain(EM_DASH);
+  }, 40_000);
 });
 
 // ---------------------------------------------------------------------------

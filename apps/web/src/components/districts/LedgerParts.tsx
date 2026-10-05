@@ -24,7 +24,10 @@
  * through the one `ledgerCutoffDisplay` below, so the stat line's figure and
  * the grand total's dashed rule are one value rendered twice. They previously
  * printed two different quantities and neither of them sat between the teams
- * the tab had just called In range and Out of range.
+ * the tab had just called In range and Out of range. On BOTH tabs that view
+ * and the chips beside it now come from one range state (`ledgerRangeState.ts`,
+ * quick tasks 260927-6bf and 261004-uw4), so the withheld chip, the withheld
+ * counts and the two non figure arms below are shared parts as well.
  *
  * Every `data-testid`, every class string and every text-role class is
  * unchanged, and every class list that mixes a `text-role-*` class with a
@@ -54,12 +57,15 @@ import {
   DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
   DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION,
   DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
+  DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
   DISTRICT_LEDGER_LIKELY_PREFIX,
   DISTRICT_LEDGER_SEARCH_LABEL,
   DISTRICT_LEDGER_SEARCH_PLACEHOLDER,
+  DISTRICT_LEDGER_DECLINED_LABEL,
+  DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_LOCKED_AWARD_LABEL,
   DISTRICT_LEDGER_STAGE_WORDS,
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
@@ -76,7 +82,10 @@ import {
   CHAMP_LEDGER_DRAWER_PENDING_CAPTION,
   CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
   CHAMP_LEDGER_NO_CALL_REASONS,
+  CHAMP_LEDGER_RANGE_CALL_LABELS,
+  CHAMP_LEDGER_RANGE_PENDING_DESCRIPTION,
   champLedgerDrawerNoCallCaption,
+  champLedgerNoCallDescription,
   districtLedgerCutoffFigure,
   districtLedgerCutoffLikelyText,
   districtLedgerNoPointsCaption,
@@ -91,11 +100,13 @@ import {
   districtSelectionOutcomes,
   districtSelectionSettledRoute,
 } from "./districtLedgerOutcomes.js";
+import type { DistrictLedgerStatusKey } from "./districtLedgerStatus.js";
 import {
-  DISTRICT_LEDGER_STATUS_KEYS,
-  type DistrictLedgerStatusKey,
-  type DistrictLedgerStatusResult,
-} from "./districtLedgerStatus.js";
+  DISTRICT_LEDGER_SHOWN_STATUS_KEYS,
+  type DistrictLedgerShownCounts,
+  type DistrictLedgerShownResult,
+  type DistrictLedgerShownStatusKey,
+} from "./districtFieldOverlay.js";
 import type { DistrictCellKind, DistrictEventStage, DistrictLedgerCell } from "./districtLedgerRows.js";
 import type { LedgerCutoffView } from "./predictedCutoff.js";
 
@@ -133,27 +144,57 @@ export const TEAM_CELL_CLASS = "sticky left-0 z-10 bg-[var(--color-bg-surface)] 
  * The status WORD always stays visible beside the colour — colour is never the
  * only encoding, which is the shipped champ tab's own stated rule.
  */
-const STATUS_CHIP_MODIFIER: Record<DistrictLedgerStatusKey, string> = {
+const STATUS_CHIP_MODIFIER: Record<DistrictLedgerShownStatusKey, string> = {
   prequalified: "lock-status-chip--prequalified",
   locked: "lock-status-chip--locked",
+  // Drawn by the Out of range rule itself in `theme.css`: one declaration block, a second selector.
+  declined: "lock-status-chip--declined",
   inRange: "lock-status-chip--in-range",
   outOfRange: "lock-status-chip--out-of-range",
   lockedOut: "lock-status-chip--locked-out",
 };
 
-export function statusChipClass(status: DistrictLedgerStatusKey): string {
+export function statusChipClass(status: DistrictLedgerShownStatusKey): string {
   return `lock-status-chip ${STATUS_CHIP_MODIFIER[status]}`;
 }
 
-/** A withheld champ call, as `StatusCell` renders it: the neutral chip's word and its accessible description. */
+/**
+ * The word a shown status prints. Declined (quick task 261005-04t, D-06) lives
+ * beside the five labels rather than inside them, because tests iterate that
+ * record's values and Declined is shown only on the Live view's field.
+ */
+function shownStatusLabel(status: DistrictLedgerShownStatusKey): string {
+  return status === "declined" ? DISTRICT_LEDGER_DECLINED_LABEL : DISTRICT_LEDGER_STATUS_LABELS[status];
+}
+
+/** A withheld In range or Out of range call, on either tab, as `StatusCell` renders it: the neutral chip's word and its accessible description. */
 export interface StatusPlaceholder {
   readonly kind: "pending" | "no-call";
   readonly label: string;
   readonly description: string;
 }
 
-/** The two chips whose counts a withheld champ call replaces with an em dash. */
-const WITHHELD_STATUS_KEYS: ReadonlySet<DistrictLedgerStatusKey> = new Set(["inRange", "outOfRange"]);
+/**
+ * THE WITHHELD CHIP for one team, or `undefined` where its call is not
+ * withheld. ONE mapping for both tabs (quick task 261004-uw4): `pending` is
+ * the neutral word while the simulated line is still being computed, and
+ * `noCall` names the terminal reason no line can be drawn.
+ */
+export function ledgerRangeCallChip(
+  rangeCall: "pending" | "noCall" | undefined,
+  noCallReason: keyof typeof CHAMP_LEDGER_NO_CALL_REASONS | undefined
+): StatusPlaceholder | undefined {
+  if (rangeCall === "pending") {
+    return { kind: "pending", label: CHAMP_LEDGER_RANGE_CALL_LABELS.pending, description: CHAMP_LEDGER_RANGE_PENDING_DESCRIPTION };
+  }
+  if (rangeCall === "noCall" && noCallReason !== undefined) {
+    return { kind: "no-call", label: CHAMP_LEDGER_RANGE_CALL_LABELS.noCall, description: champLedgerNoCallDescription(noCallReason) };
+  }
+  return undefined;
+}
+
+/** The two chips whose counts a withheld call replaces with an em dash. */
+const WITHHELD_STATUS_KEYS: ReadonlySet<DistrictLedgerShownStatusKey> = new Set(["inRange", "outOfRange"]);
 
 /** The em dash, built from its codepoint so this file never types the glyph. */
 const EM_DASH = String.fromCharCode(0x2014);
@@ -184,15 +225,15 @@ export function StatusCell({
   awardLabel,
   placeholder,
 }: {
-  status: DistrictLedgerStatusResult | undefined;
+  status: DistrictLedgerShownResult | undefined;
   rowSpan: number;
   chanceLine: string | undefined;
   awardLabel?: string;
   /**
-   * THE CHAMP TAB'S WITHHELD CALL (quick task 260927-6bf): a neutral chip in
-   * place of In range or Out of range while the simulated line is pending, or
-   * where no line can be drawn. It wins over `status` and carries no chance
-   * line. The district tab never passes it.
+   * THE WITHHELD CALL (quick tasks 260927-6bf and 261004-uw4): a neutral chip
+   * in place of In range or Out of range while the simulated line is pending,
+   * or where no line can be drawn. It wins over `status` and carries no chance
+   * line. Both tabs pass it, built by `ledgerRangeCallChip`.
    */
   placeholder?: StatusPlaceholder;
 }) {
@@ -219,7 +260,7 @@ export function StatusCell({
     <TableCell rowSpan={rowSpan} data-testid="district-ledger-status-cell" data-status={status.status} className="whitespace-nowrap align-middle">
       <div className="flex flex-col items-start gap-[var(--spacing-xs)]">
         <span className={statusChipClass(status.status)}>
-          {status.byAward ? (awardLabel ?? DISTRICT_LEDGER_LOCKED_AWARD_LABEL) : DISTRICT_LEDGER_STATUS_LABELS[status.status]}
+          {status.byAward ? (awardLabel ?? DISTRICT_LEDGER_LOCKED_AWARD_LABEL) : shownStatusLabel(status.status)}
         </span>
         {chanceLine !== undefined && (
           <span className="district-ledger-team-meta whitespace-nowrap" data-testid="district-ledger-chance">
@@ -232,7 +273,10 @@ export function StatusCell({
 }
 
 /**
- * The five chips above the table, doubling as filters.
+ * The five chips above the table, doubling as filters, and a sixth, Declined,
+ * between Locked and In range ONLY where some team reads Declined (quick task
+ * 261005-04t, D-06), so no season shows Declined 0. Its definition line follows
+ * the same rule.
  *
  * A CHIP'S COUNT DESCRIBES THE DISTRICT, NOT THE FILTERED VIEW. Recomputing a
  * count over the visible rows is the obvious-looking bug, and it would make
@@ -245,25 +289,36 @@ export function StatusChips({
   withheld = false,
   definitions = DISTRICT_LEDGER_STATUS_DEFINITIONS,
 }: {
-  counts: Readonly<Record<DistrictLedgerStatusKey, number>>;
-  active: ReadonlySet<DistrictLedgerStatusKey>;
-  onToggle: (status: DistrictLedgerStatusKey) => void;
+  counts: DistrictLedgerShownCounts;
+  active: ReadonlySet<DistrictLedgerShownStatusKey>;
+  onToggle: (status: DistrictLedgerShownStatusKey) => void;
   /**
-   * THE CHAMP TAB'S WITHHELD COUNTS (quick task 260927-6bf): while the In range
-   * and Out of range calls are withheld, their two chips print an em dash for
-   * the count, never a number the rank rule produced. The district tab never
-   * passes it.
+   * THE WITHHELD COUNTS (quick tasks 260927-6bf and 261004-uw4): while the In
+   * range and Out of range calls are withheld, their two chips print an em
+   * dash for the count, never a number the tab's verdict level rule produced.
+   * Both tabs pass it.
    */
   withheld?: boolean;
-  /** The line under each chip. The champ tab passes `CHAMP_LEDGER_STATUS_DEFINITIONS`, whose In range cuts at the predicted cutoff. */
-  definitions?: Readonly<Record<DistrictLedgerStatusKey, string>>;
+  /**
+   * The line under each chip. The champ tab passes
+   * `CHAMP_LEDGER_STATUS_DEFINITIONS`, whose In range cuts at the predicted
+   * cutoff; the district tab passes its simulated set wherever its chips cut
+   * at the predicted cutoff too, and this default where they cut at the
+   * median projections, and its field set while the Live view shows the
+   * District Championship field. Only that set carries a `declined` line.
+   */
+  definitions?: Readonly<Record<DistrictLedgerStatusKey, string>> & { readonly declined?: string };
 }) {
+  const shownKeys = DISTRICT_LEDGER_SHOWN_STATUS_KEYS.filter((status) => status !== "declined" || (counts.declined ?? 0) > 0);
+  const definitionOf = (status: DistrictLedgerShownStatusKey): string =>
+    status === "declined" ? (definitions.declined ?? DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.declined) : definitions[status];
+  const countOf = (status: DistrictLedgerShownStatusKey): number => (status === "declined" ? (counts.declined ?? 0) : counts[status]);
   return (
     <div className="flex flex-col gap-[var(--spacing-sm)]" data-testid="district-ledger-status-chips">
-      {/* The five chips and the cell key share ONE wrapping row, the sketch's
+      {/* The chips and the cell key share ONE wrapping row, the sketch's
           own legend line. */}
       <div className="flex flex-wrap items-center gap-x-[var(--spacing-md)] gap-y-[var(--spacing-xs)]">
-        {DISTRICT_LEDGER_STATUS_KEYS.map((status) => (
+        {shownKeys.map((status) => (
           <button
             key={status}
             type="button"
@@ -275,7 +330,7 @@ export function StatusChips({
             className="district-ledger-chip-button"
           >
             <span className={statusChipClass(status)}>
-              {DISTRICT_LEDGER_STATUS_LABELS[status]} {withheld && WITHHELD_STATUS_KEYS.has(status) ? EM_DASH : counts[status]}
+              {shownStatusLabel(status)} {withheld && WITHHELD_STATUS_KEYS.has(status) ? EM_DASH : countOf(status)}
             </span>
           </button>
         ))}
@@ -285,9 +340,9 @@ export function StatusChips({
         className="district-ledger-defs flex flex-wrap gap-x-[var(--spacing-md)] gap-y-[var(--spacing-xs)]"
         data-testid="district-ledger-status-definitions"
       >
-        {DISTRICT_LEDGER_STATUS_KEYS.map((status) => (
+        {shownKeys.map((status) => (
           <span key={status} id={`district-ledger-status-definition-${status}`}>
-            <b>{DISTRICT_LEDGER_STATUS_LABELS[status]}</b> {definitions[status]}
+            <b>{shownStatusLabel(status)}</b> {definitionOf(status)}
           </span>
         ))}
       </div>
@@ -389,10 +444,10 @@ export function ledgerCutoffDisplay(view: LedgerCutoffView): LedgerCutoffDisplay
       reason: undefined,
     };
   }
-  // THE CHAMP TAB'S TWO NON FIGURES (quick task 260927-6bf): a line still
-  // being simulated prints a word and draws no rule, and a line that cannot be
-  // drawn prints "not available" with its reason and draws no rule. Neither
-  // ever prints the midpoint in the meantime.
+  // THE TWO NON FIGURES, on either tab (quick tasks 260927-6bf and
+  // 261004-uw4): a line still being simulated prints a word and draws no rule,
+  // and a line that cannot be drawn prints "not available" with its reason and
+  // draws no rule. Neither ever prints the midpoint in the meantime.
   if (cutoff.kind === "pending") {
     return {
       label: DISTRICT_LEDGER_CUTOFF_LABELS.predicted,
@@ -415,6 +470,10 @@ export function ledgerCutoffDisplay(view: LedgerCutoffView): LedgerCutoffDisplay
   }
   const isFinal = cutoff.kind === "final";
   const simulated = cutoff.kind === "predicted" && cutoff.source === "simulated";
+  // WHICH SIMULATED CAPTION is the one thing `view.tier` decides: the District
+  // Locks tab's plain per run line, or (absent) the champ wording, whose runs
+  // hand slots to the DCMP winners and award winners first.
+  const simulatedCaption = view.tier === "district" ? DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION : CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION;
   return {
     label: isFinal ? DISTRICT_LEDGER_CUTOFF_LABELS.settled : predictedLabel,
     figure: districtLedgerCutoffFigure(cutoff.points, isFinal),
@@ -422,7 +481,7 @@ export function ledgerCutoffDisplay(view: LedgerCutoffView): LedgerCutoffDisplay
     // nothing left to vary, and a range there would be stale by construction.
     likelyText: isFinal || likely === undefined ? undefined : districtLedgerCutoffLikelyText(likely.p10, likely.p90),
     markedPosition: cutoff.points,
-    caption: simulated ? CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION : DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
+    caption: simulated ? simulatedCaption : DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
     reason: undefined,
   };
 }

@@ -140,8 +140,9 @@ export interface DistrictLedgerData {
    * TRUE while the per event run for the CURRENT inputs has not landed: events
    * are assembled and the run state is idle (the effect has not started it
    * yet), running, or complete for a stale signature. A failed run is not
-   * pending. The champ tab reads it so an unstarted run is never mistaken for
-   * "nothing to run" (quick task 260927-6bf); the district tab does not.
+   * pending. Both tabs read it so an unstarted run is never mistaken for
+   * "nothing to run": the champ tab since quick task 260927-6bf, and the
+   * district tab since 261004-uw4, when its cutoff became the simulated line.
    */
   readonly runPending: boolean;
 }

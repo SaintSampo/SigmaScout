@@ -36,6 +36,15 @@
  * from 130,505 to 130,718, every one of the 213 new displays a team the ceiling
  * test could not reach, across 110 of the 4,022 swept positions. Those two
  * counts are pinned as floors beside the reservation's for the same reason.
+ *
+ * QUICK TASK 261005-04t (2026-10-05) MOVED BOTH SIDES OF THE COMPARISON OFF
+ * CHAMPIONSHIP POINTS. The displays come from a district tier floor and the
+ * default yardstick is `districtTierFinalVerdicts`, the standing with every
+ * district tier category final, never the artifact's own `districtLock.status`
+ * (which ranks the all tier total). So the three synthetic tests that set
+ * verdicts ON THE ARTIFACT now pass `publishedFinalVerdicts` explicitly, which
+ * keeps the checker proven able to fail, and the corpus pins below were
+ * re-measured: fewer promises, both tenets still zero.
  */
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -46,14 +55,18 @@ import type { LockStatus } from "../packages/core/districts/locks.js";
 import {
   LOCAL_DISTRICT_DIR,
   censusOf,
+  districtTierFinalVerdicts,
   loadDistrictArtifacts,
   outcomeForLockedOutShown,
   outcomeForLockedShown,
+  publishedFinalVerdicts,
   sweepDistrict,
 } from "./measureLedgerTenets.js";
 
 // ---------------------------------------------------------------------------
-// The measured answer, 2026-09-25, over data/local-publish/districts
+// The measured answer over data/local-publish/districts: first taken
+// 2026-09-25, re-measured 2026-10-05 on the district tier floor and yardstick
+// (quick task 261005-04t). The corpus itself did not change between the two.
 // ---------------------------------------------------------------------------
 
 export const MEASURED_SEASONS = 109;
@@ -62,18 +75,30 @@ export const MEASURED_SKIPPED_NO_CAPACITY = 0;
 export const MEASURED_POSITIONS = 4022;
 export const MEASURED_TEAM_POSITIONS = 921_658;
 /**
- * 138,702 before 260925-ms7 held a slot back; 8,197 of those displays moved off
- * `Locked`, leaving 130,505. Quick task 260925-pl6's pooled remaining-points
- * argument then added 213 back, every one of them a team the ceiling test could
- * not reach.
+ * THE HISTORY OF THIS NUMBER. 138,702 before 260925-ms7 held a slot back; 8,197
+ * of those displays moved off `Locked`, leaving 130,505. Quick task 260925-pl6's
+ * pooled remaining-points argument then added 213 back, giving 130,718.
+ *
+ * All three were measured on a floor that held District Championship points.
+ * On the district tier floor (261005-04t) it is 77,115: 53,603 `Locked`
+ * displays existed only because of points earned at a championship that had
+ * not been played at the position they were shown at.
  */
-export const MEASURED_LOCKED_SHOWN = 130_718;
-/** Unchanged by the reservation, which is the point: it reaches the `Locked` test alone. */
-export const MEASURED_LOCKED_OUT_SHOWN = 190_854;
+export const MEASURED_LOCKED_SHOWN = 77_115;
+/**
+ * 190,854 on the floor that held championship points, 167,333 on the district
+ * tier floor (261005-04t): a rival's championship points no longer push a team
+ * out of reach of the line. Unchanged by the reservation in either reading,
+ * which is the point: the reservation reaches the `Locked` test alone.
+ */
+export const MEASURED_LOCKED_OUT_SHOWN = 167_333;
+/** Unchanged by 261005-04t: an award locks a team whatever its points are. */
 export const MEASURED_LOCKED_AWARD_CHIP_SHOWN = 24_192;
+/** A `Locked out` display that ends `contending` in the yardstick. Zero against the district tier final standing. */
+export const MEASURED_LOCKED_OUT_UNRESOLVED_TIES = 0;
 export const MEASURED_TENET_A_VIOLATIONS = 0;
 export const MEASURED_TENET_B_VIOLATIONS = 0;
-/** Slots held back across the whole sweep, and the positions that held at least one. Pinned as floors so a reservation that silently stopped firing fails here. */
+/** Slots held back across the whole sweep, and the positions that held at least one. Pinned as floors so a reservation that silently stopped firing fails here. Unchanged by 261005-04t: the reservation reads award finality, never points. */
 export const MEASURED_RESERVED_SLOTS_TOTAL = 26_604;
 export const MEASURED_POSITIONS_WITH_RESERVED_SLOTS = 3_804;
 /**
@@ -82,12 +107,19 @@ export const MEASURED_POSITIONS_WITH_RESERVED_SLOTS = 3_804;
  * silently stopped firing would leave both tenets at zero and be
  * indistinguishable from the argument working.
  *
- * 213 is also precisely the rise in `MEASURED_LOCKED_SHOWN` (130,505 to
- * 130,718), so the two pins cross-check each other: every display the pooled
- * argument produced is a display that was not there before.
+ * ON THE FLOOR THAT HELD CHAMPIONSHIP POINTS this was 213 displays at 110
+ * positions, and 213 was also precisely the rise in `MEASURED_LOCKED_SHOWN`
+ * (130,505 to 130,718), so the two pins cross-checked each other.
+ *
+ * THAT CROSS-CHECK NO LONGER HOLDS, and is not expected to. On the district
+ * tier floor (261005-04t) the pooled argument alone produces 6,552 displays at
+ * 1,074 positions, against a `Locked` count that FELL to 77,115: without
+ * championship points the gaps between teams are small beside what one event
+ * can still hand out, which is the case the ceiling test cannot reach. The two
+ * numbers moved for different reasons and neither is a difference of the other.
  */
-export const MEASURED_LOCKED_BY_POOLED_ONLY = 213;
-export const MEASURED_POSITIONS_WITH_POOLED_ONLY_LOCK = 110;
+export const MEASURED_LOCKED_BY_POOLED_ONLY = 6_552;
+export const MEASURED_POSITIONS_WITH_POOLED_ONLY_LOCK = 1_074;
 
 /**
  * The thirteen tenet-A violations 260925-ma5 measured, kept as the RECORD of
@@ -252,7 +284,13 @@ describe("measureLedgerTenets — pure", () => {
   it("FAILS BOTH TENETS on a deliberately corrupted final verdict, proving the checker can fail", () => {
     // frc1 was shown Locked and is now recorded as eliminated -> tenet A.
     // frc2 was shown Locked out and is now recorded as locked  -> tenet B.
-    const sweep = sweepDistrict(syntheticDistrict({ frc1: "eliminated", frc2: "locked", frc3: "eliminated" }));
+    //
+    // SCORED AGAINST THE ARTIFACT'S OWN VERDICTS, passed explicitly. The default
+    // yardstick is recomputed from district tier points and never reads
+    // `districtLock.status`, so flipping that field alone would no longer make
+    // the checker fail (the test below pins exactly that).
+    const corrupted = syntheticDistrict({ frc1: "eliminated", frc2: "locked", frc3: "eliminated" });
+    const sweep = sweepDistrict(corrupted, publishedFinalVerdicts(corrupted));
     expect(sweep.lockedViolations).toBe(2);
     expect(sweep.lockedOutViolations).toBe(3);
     expect(sweep.violations).toHaveLength(5);
@@ -274,17 +312,98 @@ describe("measureLedgerTenets — pure", () => {
   });
 
   it("reports a lockedAward finish as indeterminate, never as a broken Locked promise", () => {
-    const sweep = sweepDistrict(syntheticDistrict({ frc1: "lockedAward", frc2: "eliminated", frc3: "eliminated" }));
+    const artifact = syntheticDistrict({ frc1: "lockedAward", frc2: "eliminated", frc3: "eliminated" });
+    const sweep = sweepDistrict(artifact, publishedFinalVerdicts(artifact));
     expect(sweep.lockedAwardQualifiedAtNow).toBe(2);
     expect(sweep.lockedViolations).toBe(0);
     expect(sweep.violations).toEqual([]);
   });
 
   it("reports a contending finish under a Locked out display as an unresolved tie, not as a tenet B failure", () => {
-    const sweep = sweepDistrict(syntheticDistrict({ frc1: "locked", frc2: "contending", frc3: "eliminated" }));
+    const artifact = syntheticDistrict({ frc1: "locked", frc2: "contending", frc3: "eliminated" });
+    const sweep = sweepDistrict(artifact, publishedFinalVerdicts(artifact));
     expect(sweep.lockedOutUnresolvedTieAtNow).toBe(3);
     expect(sweep.lockedOutViolations).toBe(0);
     expect(sweep.violations).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Quick task 261005-04t: the yardstick is the DISTRICT TIER final standing.
+  // -------------------------------------------------------------------------
+
+  it("publishedFinalVerdicts reads each team's districtLock.status straight off the artifact", () => {
+    const artifact = syntheticDistrict({ frc1: "eliminated", frc2: "locked", frc3: "contending" });
+    expect([...publishedFinalVerdicts(artifact)]).toEqual([
+      ["frc1", "eliminated"],
+      ["frc2", "locked"],
+      ["frc3", "contending"],
+    ]);
+  });
+
+  it("districtTierFinalVerdicts is the standing with every district category final, recomputed and never read off the artifact", () => {
+    const expected = [
+      ["frc1", "locked"],
+      ["frc2", "eliminated"],
+      ["frc3", "eliminated"],
+    ];
+    expect([...districtTierFinalVerdicts(syntheticDistrict(HONEST_FINISH))]).toEqual(expected);
+    // The artifact's own verdicts flipped: the yardstick does not move.
+    expect([...districtTierFinalVerdicts(syntheticDistrict({ frc1: "eliminated", frc2: "locked", frc3: "eliminated" }))]).toEqual(expected);
+  });
+
+  it("championship points move neither the yardstick nor the sweep, so a started championship cannot trip it", () => {
+    const plain = syntheticDistrict(HONEST_FINISH);
+    // frc3, last on district points, also earned 300 at the District
+    // Championship. On the all tier total it would lead the district.
+    const withChampionship: DistrictArtifact = {
+      ...plain,
+      teams: plain.teams.map((team) =>
+        team.teamKey === "frc3"
+          ? {
+              ...team,
+              pointTotal: team.pointTotal + 300,
+              eventPoints: [
+                ...team.eventPoints,
+                {
+                  eventKey: "9999zzcmp",
+                  eventName: "ZZ District Championship",
+                  week: 5,
+                  tier: "dcmp" as const,
+                  qual: 300,
+                  alliance: 0,
+                  elim: 0,
+                  award: 0,
+                  total: 300,
+                  state: { ...FINISHED_EVENT_STATE },
+                },
+              ],
+            }
+          : team
+      ),
+    };
+    expect(withChampionship.teams.find((team) => team.teamKey === "frc3")?.pointTotal).toBe(305);
+    expect([...districtTierFinalVerdicts(withChampionship)]).toEqual([...districtTierFinalVerdicts(plain)]);
+    expect(sweepDistrict(withChampionship)).toEqual(sweepDistrict(plain));
+    expect(censusOf([sweepDistrict(withChampionship)])).toEqual(censusOf([sweepDistrict(plain)]));
+  });
+
+  it("no longer takes the artifact's own verdict as the yardstick: flipping districtLock.status alone trips nothing by default", () => {
+    const corrupted = syntheticDistrict({ frc1: "eliminated", frc2: "locked", frc3: "eliminated" });
+    const sweep = sweepDistrict(corrupted);
+    expect(sweep.violations).toEqual([]);
+    expect(sweep.lockedViolations).toBe(0);
+    expect(sweep.lockedOutViolations).toBe(0);
+    // And the default sweep is the honest one, display for display.
+    expect(sweep).toEqual(sweepDistrict(syntheticDistrict(HONEST_FINISH)));
+    // The final census is the yardstick's, not the artifact's.
+    expect({ locked: sweep.finalLocked, eliminated: sweep.finalEliminated }).toEqual({ locked: 1, eliminated: 2 });
+  });
+
+  it("reports a violation's final total as the DISTRICT TIER total, read through the tab's own bounds", () => {
+    const corrupted = syntheticDistrict({ frc1: "eliminated", frc2: "locked", frc3: "eliminated" });
+    const sweep = sweepDistrict(corrupted, publishedFinalVerdicts(corrupted));
+    const atNow = sweep.violations.find((v) => v.teamKey === "frc1" && v.positionKind === "now")!;
+    expect({ floor: atNow.floor, ceiling: atNow.ceiling, finalTotal: atNow.finalTotal }).toEqual({ floor: 66, ceiling: 66, finalTotal: 66 });
   });
 
   it("loads district DETAIL files, skips a null-capacity season by name, and never parses the per-year index as a district", () => {
@@ -334,7 +453,8 @@ if (!CORPUS_PRESENT) {
 } else {
   describe("measureLedgerTenets — corpus", () => {
     const loaded = loadDistrictArtifacts(LOCAL_DISTRICT_DIR);
-    const sweeps = loaded.artifacts.map(sweepDistrict);
+    // One argument on purpose: Array.map would hand sweepDistrict the index as its yardstick.
+    const sweeps = loaded.artifacts.map((artifact) => sweepDistrict(artifact));
     const census = censusOf(sweeps);
 
     it("sweeps every published district season, skipping none for an unpublished capacity", () => {
@@ -357,6 +477,10 @@ if (!CORPUS_PRESENT) {
     it("TENET B holds everywhere: no team displayed Locked out ever qualified on points", () => {
       expect(census.lockedOutViolations).toBe(MEASURED_TENET_B_VIOLATIONS);
       expect(sweeps.flatMap((s) => s.violations).filter((v) => v.tenet === "B-locked-out-must-not-qualify-on-points")).toEqual([]);
+    });
+
+    it("no Locked out display ends in an unresolved tie against the district tier final standing", () => {
+      expect(census.lockedOutUnresolvedTieAtNow).toBe(MEASURED_LOCKED_OUT_UNRESOLVED_TIES);
     });
 
     it("TENET A holds everywhere: no team displayed Locked on points ever failed to qualify on points", () => {
