@@ -94,27 +94,47 @@ export function championshipHasStarted(artifact: DistrictArtifact): boolean {
  *
  * 1. A dcmp tier `eventPoints` entry with qualification plus alliance plus
  *    playoff points above zero: playing. Those three are earned on the field.
- * 2. A dcmp tier `eventPoints` entry with none of those (award points only):
- *    NOT playing. An award only invitee attends and can win an award there.
- * 3. NO dcmp tier `eventPoints` entry at all (points not yet reported for this
- *    team): playing when it has a dcmp tier `remainingEvents` entry, UNLESS it
- *    did not earn a place (`earnedPlace` false) AND it holds a qualifying award
- *    with `awardOnly` true from one of its own district tier events. That
- *    exception is the award only invitee before any points are reported.
- * 4. No championship entry of either kind: not playing.
+ * 2. A dcmp tier `eventPoints` entry with award points above zero and none of
+ *    those three: NOT playing through that entry. An award only invitee attends
+ *    and can win an award there.
+ * 3. A dcmp tier `eventPoints` entry whose four categories are ALL ZERO:
+ *    - while its own `state` does not show qualification finished (an absent
+ *      state counts as not finished) it is POINTS NOT YET REPORTED, and is read
+ *      exactly as rule 4 reads a `remainingEvents` entry. A live championship
+ *      can publish the row before any points land, and reading that empty row
+ *      as "not playing" would show a team that earned its place as Declined,
+ *      and a late entry as Locked out, during the championship itself;
+ *    - once its state shows qualification finished, zero qualification points
+ *      is a result and not a gap: NOT playing through that entry.
+ * 4. NO dcmp tier `eventPoints` entry at all (points not yet reported for this
+ *    team): PROVISIONALLY playing when it has a dcmp tier `remainingEvents`
+ *    entry, UNLESS it did not earn a place (`earnedPlace` false) AND it holds a
+ *    qualifying award with `awardOnly` true from one of its own district tier
+ *    events. That exception is the award only invitee before any points are
+ *    reported.
+ * 5. No championship entry of either kind: not playing.
+ *
+ * Each `eventPoints` entry is read on its own, so where a team carries more
+ * than one championship row the strongest reading wins: playing, then points
+ * not yet reported, then not playing.
  *
  * `earnedPlace` is whether the team's raw verdict is `locked` or `lockedAward`.
  */
 export function isPlayingChampionship(team: DistrictTeam, earnedPlace: boolean): boolean {
   let reported = false;
+  let pointsNotYetReported = false;
   for (const entry of team.eventPoints) {
     if (entry.tier !== "dcmp") continue;
-    reported = true;
     if (entry.qual + entry.alliance + entry.elim > 0) return true;
+    // The same qualification finality the tab's own stage reads.
+    if (entry.award === 0 && !deriveStageFromState(entry.state).final.qual) pointsNotYetReported = true;
+    else reported = true;
   }
-  if (reported) return false;
 
-  if (!team.remainingEvents.some((entry) => entry.tier === "dcmp")) return false;
+  if (!pointsNotYetReported) {
+    if (reported) return false;
+    if (!team.remainingEvents.some((entry) => entry.tier === "dcmp")) return false;
+  }
   if (earnedPlace) return true;
 
   const districtTierEventKeys = new Set(districtTierEvents(team).map((entry) => entry.eventKey));

@@ -425,6 +425,101 @@ describe("O4: points not yet reported for a team (no dcmp tier eventPoints entry
   });
 });
 
+describe("O6: a championship row that carries no points yet is not a decline", () => {
+  /** Qualification over, nothing else decided: the row's zero qualification points are a result, not a gap. */
+  const QUAL_DONE: DistrictEventState = { qualMatchesPlayed: 12, qualMatchesTotal: 12, alliancesPicked: false, playoffsDone: false, awardsPosted: false };
+  const one = (overrides: Partial<DistrictTeam>) => team("frc1", { pointTotal: 40, eventPoints: [played("a", 40)], ...overrides });
+  const withRow = (row: ReturnType<typeof championship>, overrides: Partial<DistrictTeam> = {}) =>
+    one({ eventPoints: [played("a", 40), row], ...overrides });
+
+  it("case 1: a row with qualification, alliance or playoff points is playing, whatever its state and whatever the team earned", () => {
+    for (const state of [STARTED, FINISHED, null]) {
+      expect(isPlayingChampionship(withRow(championship({ qual: 4 }, state)), false)).toBe(true);
+      expect(isPlayingChampionship(withRow(championship({ alliance: 4 }, state)), false)).toBe(true);
+      expect(isPlayingChampionship(withRow(championship({ elim: 4 }, state), { qualifyingAwards: [AWARD_ONLY("a")] }), false)).toBe(true);
+    }
+  });
+
+  it("case 2: a row with award points and no playing points is not playing through that row, even while qualification is open", () => {
+    for (const state of [STARTED, UNSTARTED, FINISHED, null]) {
+      expect(isPlayingChampionship(withRow(championship({ award: 10 }, state)), true)).toBe(false);
+      expect(isPlayingChampionship(withRow(championship({ award: 10 }, state)), false)).toBe(false);
+    }
+  });
+
+  it("case 3: an all zero row whose qualification is not finished reads as points not yet reported, exactly as a remainingEvents entry does", () => {
+    // An absent state block counts as not finished.
+    for (const state of [STARTED, UNSTARTED, null]) {
+      const empty = withRow(championship({}, state));
+      const emptyInvitee = withRow(championship({}, state), { qualifyingAwards: [AWARD_ONLY("a")] });
+      // The same team entered through remainingEvents instead: the two must agree in every arm.
+      const ahead = one({ remainingEvents: [championshipAhead(state)] });
+      const aheadInvitee = one({ remainingEvents: [championshipAhead(state)], qualifyingAwards: [AWARD_ONLY("a")] });
+
+      expect(isPlayingChampionship(empty, true)).toBe(true);
+      expect(isPlayingChampionship(empty, false)).toBe(true);
+      expect(isPlayingChampionship(emptyInvitee, true)).toBe(true);
+      expect(isPlayingChampionship(emptyInvitee, false)).toBe(false);
+
+      expect(isPlayingChampionship(empty, true)).toBe(isPlayingChampionship(ahead, true));
+      expect(isPlayingChampionship(empty, false)).toBe(isPlayingChampionship(ahead, false));
+      expect(isPlayingChampionship(emptyInvitee, true)).toBe(isPlayingChampionship(aheadInvitee, true));
+      expect(isPlayingChampionship(emptyInvitee, false)).toBe(isPlayingChampionship(aheadInvitee, false));
+    }
+    // An award only entry from an event that is not one of the team's district tier events does not make it an invitee.
+    expect(isPlayingChampionship(withRow(championship({}, STARTED), { qualifyingAwards: [AWARD_ONLY(CMP)] }), false)).toBe(true);
+  });
+
+  it("case 4: an all zero row whose qualification has finished is not playing through that row", () => {
+    for (const state of [QUAL_DONE, FINISHED]) {
+      expect(isPlayingChampionship(withRow(championship({}, state)), true)).toBe(false);
+      expect(isPlayingChampionship(withRow(championship({}, state)), false)).toBe(false);
+    }
+  });
+
+  it("a second championship row cannot undo a row that shows the team playing or still waiting on points", () => {
+    const awardRow = { ...championship({ award: 10 }, FINISHED), eventKey: "cmpfinals" };
+    expect(isPlayingChampionship(one({ eventPoints: [played("a", 40), awardRow, championship({}, STARTED)] }), true)).toBe(true);
+    expect(isPlayingChampionship(one({ eventPoints: [played("a", 40), championship({}, STARTED), awardRow] }), true)).toBe(true);
+    expect(isPlayingChampionship(one({ eventPoints: [played("a", 40), awardRow, championship({ qual: 4 }, STARTED)] }), false)).toBe(true);
+  });
+
+  it("at Live, a championship under way with empty rows shows no team Declined and no late entry Locked out", () => {
+    const artifact = artifactOf(
+      [
+        // Earned a place, row published empty.
+        team("frc1", { pointTotal: 100, eventPoints: [played("a", 100), championship({}, STARTED)] }),
+        team("frc2", { pointTotal: 90, eventPoints: [played("a", 90), championship({}, STARTED)] }),
+        // A late entry from below the line, row published empty.
+        team("frc3", { pointTotal: 10, eventPoints: [played("a", 10), championship({}, STARTED)] }),
+        // An award only invitee, row published empty: attends, does not play.
+        team("frc4", { pointTotal: 5, eventPoints: [played("a", 5), championship({}, STARTED)], qualifyingAwards: [AWARD_ONLY("a")] }),
+        // Not entered.
+        team("frc5", { pointTotal: 1, eventPoints: [played("a", 1)] }),
+      ],
+      { dcmpSlots: 2 }
+    );
+    const raw = rawFor(artifact);
+    expect(["frc1", "frc2", "frc3", "frc4", "frc5"].map((teamKey) => raw.byTeam.get(teamKey)?.verdict)).toEqual([
+      "locked",
+      "locked",
+      "eliminated",
+      "eliminated",
+      "eliminated",
+    ]);
+    const shown = applyChampionshipFieldOverlay(raw, artifact, { atLive: true });
+    expect(shown.fieldOverlay).toBe(true);
+    expect(["frc1", "frc2", "frc3", "frc4", "frc5"].map((teamKey) => shown.byTeam.get(teamKey)?.status)).toEqual([
+      "locked",
+      "locked",
+      "locked",
+      "lockedOut",
+      "lockedOut",
+    ]);
+    expect(shown.counts).toEqual({ prequalified: 0, locked: 3, declined: 0, inRange: 0, outOfRange: 0, lockedOut: 2 });
+  });
+});
+
 describe("O5: the committed 2026 PNW fixture", () => {
   const FIXTURE: DistrictArtifact = DistrictArtifactSchema.parse(
     JSON.parse(readFileSync(repoFile("data/fixtures/phase10/district-2026pnw.json"), "utf8"))
@@ -443,6 +538,13 @@ describe("O5: the committed 2026 PNW fixture", () => {
     const shown = applyChampionshipFieldOverlay(raw, FIXTURE, { atLive: true });
     expect(shown.fieldOverlay).toBe(false);
     expect(shown.byTeam).toBe(raw.byTeam);
+  });
+
+  it("has no championship row that is all zero, so the points not yet reported rule cannot move a finished pin", () => {
+    const allZero = FIXTURE.teams.flatMap((source) =>
+      source.eventPoints.filter((entry) => entry.tier === "dcmp" && entry.qual + entry.alliance + entry.elim + entry.award === 0)
+    );
+    expect(allZero).toEqual([]);
   });
 
   it("with a finished state everywhere, the Live view shows 50 Locked (8 by award), 0 Declined, 76 Locked out", () => {
