@@ -196,3 +196,46 @@ Local only, gitignored, on Jacob's machine:
   so two trees can be compared byte for byte (`presimProbe.mts`), the schedule-count driver
   (`scheduleCount.mts`), the generator sweep (`structureSweep.mts`) and each run's arguments
   (`*.args.txt`), logs and sidecar bodies.
+
+## 2026-10-05: released, steps 4 and 5 done
+
+Combined with the 261004-uyc release (offseason ranking points, ingest log, official standings) as
+one rebaseline. Record:
+
+- D1 migration `0003_ingest_log.sql` applied to production before the deploy. `ingest_log` exists,
+  0 rows at release.
+- `pnpm rebaseline` from the main session, 15:18 to 18:40 local. Worker version
+  `19547f0c-f4d7-42fc-91b3-f31bc6e06318` deployed before the publish.
+- Publish generation `8ee290cd-ba94-424e-8dca-ffc8bf08a283`: opr 6.0.0, epa 14.0.0, spr 10.0.0,
+  108,703 objects, 4,199,364,570 bytes, 3,336 presim sidecars, 11,784.2 s (3 h 16 min with uploads;
+  the dry run was 2 h 44 min).
+- Seed: four files, cursors last. `seed-opr.sql` needed the script's one built in retry. D1 read
+  back: every `algorithm_state` row on generation 8ee290cd.
+- The chain's own verify step ended on `fetch failed`, a network error and not a failed stage. The
+  checks were done by hand: algorithms and live windows manifests on the same generation, 52
+  windows, sidecars answering for 2016, 2022 and 2026 events.
+- Pushed `1ead5f4c..1dcf1939`. GitHub Test and Deploy green (runs 37384063316 and 37384063187).
+- `pnpm verify:subset`: 18 entries, 0 failing, one generation.
+- `/event/2026vari?algorithm=spr` in a real browser: TBA order, no banner, Sigma on team rows, 8
+  alliances, 16 playoff rows, Simulation returns 27 rows.
+- Live e2e 184 of 184 on the four deployed projects. Local projects 109 of 109 after one spec fix
+  (bfa602f7): the 2023cur round trip waited for a match row that is no longer on screen now that
+  2023 events open on the pre-schedule stop.
+- Step 5: the reopening and the measured no-go are in `docs/simulation-architecture.md` section 5
+  and the closed browser pricing todo (fc31d1a6).
+- Superseded generations epa 13.0.0 and spr 9.0.0 pruned the same evening. The rebaseline's own
+  prune refused first because `reports/publish/rebaseline-superseded.json` still named spr 7.0.0
+  and 8.0.0, which had been deleted by hand earlier; the list was corrected by hand.
+
+Answered from "Things to check":
+
+- **Demo robots in a roster: yes.** The published `v1/presim/2026txmca/spr@10.0.0+baseline.json`
+  has 27 teams, nine of them frc9991 to frc9999. Filed as todo `presim-roster-demo-robots`.
+
+Still open, each with its own todo or note:
+
+- `presim-roster-demo-robots` (new).
+- `presim-sidecars-worker-threads` (new): the full publish is now 3 h 16 min.
+- The comment above `PRESIM_SCHEDULE_COUNT` still quotes the retired measurement.
+- No live fold has been observed on Worker 19547f0c. After the next live event run
+  `pnpm live:report <eventKey>`.

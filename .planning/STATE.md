@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-05T19:20:33.469Z"
+last_updated: "2026-10-05T22:53:13.251Z"
 last_activity: 2026-10-05
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -718,6 +718,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 282 | Champ cutoff backtest re-run on the district tier floor: 18.2 against 40.4 and 48 of 69, walk-forward tuning regenerated, Methodology corrected (fast task) | 2026-10-05 | 8319959c | — |
 | 283 | Pre-schedule simulation on for every season: publish:seasons passes presim-from-season 2016 after the all-seasons dry run measured 9,822.6 s and 3,336 sidecars | 2026-10-05 | 211e2744 | [261005-kzs-pre-schedule-simulation-on-for-every-sea](./quick/261005-kzs-pre-schedule-simulation-on-for-every-sea/) |
 | 284 | Browser presim pricing reopening and measured no-go recorded in the simulation architecture doc and the closed todo (fast task, presim handoff step 5) | 2026-10-05 | fc31d1a6 | — |
+| 285 | Simulation round trip e2e picks match 1 explicitly; 2023 events open on the pre-schedule stop since 261005-kzs (fast task) | 2026-10-05 | bfa602f7 | — |
 
 ### Roadmap Evolution
 
