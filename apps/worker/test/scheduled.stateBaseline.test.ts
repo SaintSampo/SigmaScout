@@ -15,7 +15,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runTick } from "../src/scheduled.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
-import { artifactKey } from "../../../packages/harness/pageArtifacts.js";
+import { artifactKey, asOfIndexKey, asOfLogKey, asOfSeasonKey } from "../../../packages/harness/pageArtifacts.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import { TICK_META_EVENT_KEY } from "../../../packages/harness/stateBaseline.js";
 import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
@@ -422,7 +422,11 @@ describe("runTick — state-generation marker equals the manifest generation (co
     // the write set is enumerated as the three fixed keys PLUS one per team rather
     // than as a closed list.
     const teamPutKeys = [...RED_TEAMS, ...BLUE_TEAMS].map((teamKey) => artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "spr", version: spr.version }));
-    expect(r2.puts.map((p) => p.key).sort()).toEqual([eventPutKey, teamsPutKey, ...teamPutKeys].sort());
+    // Since quick task 261005-5g0 an SPR fold also writes the event's as-of INDEX
+    // and LOG and the season's as-of object, each named here.
+    const asOfParams = { algorithmId: "spr", version: spr.version };
+    const asOfPutKeys = [asOfIndexKey({ eventKey: EVENT_KEY, ...asOfParams }), asOfLogKey({ eventKey: EVENT_KEY, ...asOfParams }), asOfSeasonKey({ season: SEASON, ...asOfParams })];
+    expect(r2.puts.map((p) => p.key).sort()).toEqual([eventPutKey, teamsPutKey, ...teamPutKeys, ...asOfPutKeys].sort());
   });
 });
 

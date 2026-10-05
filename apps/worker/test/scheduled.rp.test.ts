@@ -150,8 +150,13 @@ import { officialDataStubResponse } from "./support/officialDataStubs.js";
  * and the live one), so that is four conditional polls, each one subrequest, each
  * answered with an empty body here so nothing is written (68 + 4). It stood at 70
  * after the rankings poll alone, before the alliances poll existed.
+ *
+ * MOVED TO 78 on purpose by quick task 261005-5g0: a tick that folds a match now
+ * reads the event's as-of INDEX and LOG and the season's as-of object from R2 and
+ * writes all three back, for SPR only (72 + 3 + 3). None of the six is a D1
+ * statement, so this test's claim, that RP costs no D1 subrequest, is untouched.
  */
-const SUBREQUESTS_PER_LIVE_TICK = 72;
+const SUBREQUESTS_PER_LIVE_TICK = 78;
 
 interface FakeAlgorithmStateRow {
   algorithm_id: string;

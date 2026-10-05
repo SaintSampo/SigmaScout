@@ -86,9 +86,12 @@ every season.
 - **Not `PageKind`s.** Like the presim sidecar they have their own key functions (`asOfIndexKey`,
   `asOfLogKey`, `asOfSeasonKey`, `asOfStartKey` in `pageArtifacts.ts`), so the Worker's
   `PageKind`-keyed artifact writer cannot address them, and the `pages` block is unchanged.
-- **Who writes them.** The publisher writes all four for every published season. The season start
-  object (`asof-start`, the tuple of every team the carried state holds before the season's first
-  match) is the publisher's alone.
+- **Who writes them.** The publisher writes all four for every published season. The live Worker
+  tick also folds each SPR match into its event's INDEX and LOG and the season object (three reads
+  and three writes per event per tick that folds a match), with no ceiling check of its own; the
+  next republish rewrites them and asserts the ceilings. The season start object (`asof-start`, the
+  tuple of every team the carried state holds before the season's first match) is the publisher's
+  alone.
 - **Ceilings are enforced.** `publishSeasons` asserts every as-of object against
   `AS_OF_BUDGET_MAX_BYTES` (`packages/harness/publishBudget.ts`) before it is recorded or queued,
   exactly as it does a page, and `--write-budget` writes an `asOf` section beside `pages` in the

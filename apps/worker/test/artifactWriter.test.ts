@@ -11,8 +11,17 @@
  * `subrequestCounter.ts`'s header.
  */
 import { describe, expect, it } from "vitest";
-import { artifactKey, districtDetailKey, type ArtifactKeyParams } from "../../../packages/harness/pageArtifacts.js";
-import { ArtifactSecretLeakError, DistrictArtifactSecretLeakError, readArtifactObject, writeArtifactObject, writeDistrictArtifactObject } from "../src/artifactWriter.js";
+import { artifactKey, asOfSeasonKey, districtDetailKey, type ArtifactKeyParams } from "../../../packages/harness/pageArtifacts.js";
+import { createAsOfSeason } from "../../../packages/harness/asOfState.js";
+import {
+  ArtifactSecretLeakError,
+  AsOfSecretLeakError,
+  DistrictArtifactSecretLeakError,
+  readArtifactObject,
+  writeArtifactObject,
+  writeAsOfObject,
+  writeDistrictArtifactObject,
+} from "../src/artifactWriter.js";
 import { SubrequestCounter } from "../src/subrequestCounter.js";
 import type { Env } from "../src/env.js";
 
@@ -278,6 +287,44 @@ describe("writeDistrictArtifactObject", () => {
     const leaking = districtArtifactFixture({ displayName: `Pacific Northwest ${TBA_KEY}` });
 
     await expect(writeDistrictArtifactObject(makeEnv(r2), counter, "2026pnw", leaking)).rejects.toBeInstanceOf(DistrictArtifactSecretLeakError);
+    expect(r2.putCallCount).toBe(0);
+    expect(counter.used).toBe(0);
+  });
+});
+
+describe("writeAsOfObject (quick task 261005-5g0)", () => {
+  const key = asOfSeasonKey({ season: 2026, algorithmId: "spr", version: "10.0.0+baseline" });
+  const season = (generation = "g1") =>
+    createAsOfSeason({ season: 2026, vars: [], L0: null, stamp: { generation, computedAt: "2026-10-05T00:00:00.000Z", algorithmId: "spr", algorithmVersion: "10.0.0+baseline" } });
+
+  it("issues exactly one put at the caller's key, with the shared JSON content type and 60s cache-control", async () => {
+    const r2 = new FakeR2Bucket();
+    const counter = new SubrequestCounter();
+
+    await writeAsOfObject(makeEnv(r2), counter, "asof-season", key, season());
+
+    expect(r2.putCallCount).toBe(1);
+    expect(counter.used).toBe(1);
+    expect(r2.puts[0]?.key).toBe(key);
+    expect(JSON.parse(r2.puts[0]!.body)).toEqual(season());
+    expect(r2.puts[0]?.options.httpMetadata?.contentType).toBe("application/json");
+    expect(r2.puts[0]?.options.httpMetadata?.cacheControl).toBe("public, max-age=60");
+  });
+
+  it("throws on an object its family's schema refuses (an INDEX handed a season object) with ZERO puts and an untouched subrequest count", async () => {
+    const r2 = new FakeR2Bucket();
+    const counter = new SubrequestCounter();
+
+    await expect(writeAsOfObject(makeEnv(r2), counter, "asof", key, season())).rejects.toThrow();
+    expect(r2.putCallCount).toBe(0);
+    expect(counter.used).toBe(0);
+  });
+
+  it("refuses a body containing the configured secret value, throwing AsOfSecretLeakError with zero puts", async () => {
+    const r2 = new FakeR2Bucket();
+    const counter = new SubrequestCounter();
+
+    await expect(writeAsOfObject(makeEnv(r2), counter, "asof-season", key, season(`leak-${TBA_KEY}`))).rejects.toBeInstanceOf(AsOfSecretLeakError);
     expect(r2.putCallCount).toBe(0);
     expect(counter.used).toBe(0);
   });

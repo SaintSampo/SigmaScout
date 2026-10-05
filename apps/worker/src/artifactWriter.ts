@@ -35,6 +35,7 @@ import {
   type ArtifactKeyParams,
   type PageKind,
 } from "../../../packages/harness/pageArtifacts.js";
+import { AsOfIndexSchema, AsOfLogSchema, AsOfSeasonSchema } from "../../../packages/harness/asOfState.js";
 import type { SubrequestCounter } from "./subrequestCounter.js";
 import type { Env } from "./env.js";
 
@@ -175,6 +176,47 @@ export async function writeDistrictArtifactObject(env: Env, counter: SubrequestC
   // warning for. `TextEncoder` is in the Workers runtime and pulls in no Node
   // built-in, which is the whole reason `publishBudget.ts` stays unimported here.
   return new TextEncoder().encode(serialized).length;
+}
+
+/** The three as-of families the live tick writes (quick task 261005-5g0). The season start object (`asof-start`) is the offline publisher's alone. */
+export type LiveAsOfFamily = "asof" | "asof-log" | "asof-season";
+
+const AS_OF_SCHEMA_BY_FAMILY: Record<LiveAsOfFamily, { parse(input: unknown): unknown }> = {
+  asof: AsOfIndexSchema,
+  "asof-log": AsOfLogSchema,
+  "asof-season": AsOfSeasonSchema,
+};
+
+/** The as-of half of the same secret refusal, a separate class for the reason `DistrictArtifactSecretLeakError` gives. */
+export class AsOfSecretLeakError extends Error {
+  constructor(key: string) {
+    super(`writeAsOfObject: refusing to write as-of object "${key}" — serialized output contains a secret value`);
+    this.name = "AsOfSecretLeakError";
+  }
+}
+
+/**
+ * `writeArtifactObject`'s body for one as-of object (`asOfIndexKey`,
+ * `asOfLogKey`, `asOfSeasonKey`, computed by the caller): the family's schema
+ * FIRST (throws, issuing ZERO puts), then `JSON.stringify`, then the
+ * `env.TBA_API_KEY` refusal, then one counted subrequest and exactly one `put`
+ * with this module's metadata. Outside `PageKind` for the reason
+ * `writeDistrictArtifactObject` gives, and with no byte ceiling for the same
+ * reason: `AS_OF_BUDGET_MAX_BYTES` lives beside `node:path` in
+ * `publishBudget.ts`, and the offline publisher asserts it on every republish.
+ */
+export async function writeAsOfObject(env: Env, counter: SubrequestCounter, family: LiveAsOfFamily, key: string, object: unknown): Promise<void> {
+  const validated = AS_OF_SCHEMA_BY_FAMILY[family].parse(object);
+  const serialized = JSON.stringify(validated);
+
+  if (env.TBA_API_KEY && serialized.includes(env.TBA_API_KEY)) {
+    throw new AsOfSecretLeakError(key);
+  }
+
+  counter.spend(1);
+  await env.ARTIFACTS.put(key, serialized, {
+    httpMetadata: { contentType: ARTIFACT_CONTENT_TYPE, cacheControl: ARTIFACT_CACHE_CONTROL },
+  });
 }
 
 /**

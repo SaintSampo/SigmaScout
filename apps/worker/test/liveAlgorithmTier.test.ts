@@ -58,7 +58,7 @@ import {
   EVENT_SCOPED_ALGORITHM_IDS,
 } from "../src/scheduled.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
-import { artifactKey } from "../../../packages/harness/pageArtifacts.js";
+import { artifactKey, asOfIndexKey, asOfLogKey } from "../../../packages/harness/pageArtifacts.js";
 import { AlgorithmsManifestSchema } from "../../../packages/harness/manifestSchemas.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import { opr } from "../../../packages/core/algorithms/opr.js";
@@ -653,12 +653,17 @@ describe("liveAlgorithmTier — with the TRACKED tier, every published algorithm
       new Set(ids.flatMap((id) => ALL_TEAMS.map((teamKey) => artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: id, version: testVersionFor(id) }))))
     );
 
-    // Exactly ONE per-event object per tracked id: the event artifact. Asserted by
+    // Exactly ONE per-event ARTIFACT per tracked id: the event artifact. Asserted by
     // equality over every key mentioning this event, so a reintroduced second
     // object fails here by name — 260921-5qw's live roster was that second
-    // object, and quick task 260923-3w6 deleted it.
+    // object, and quick task 260923-3w6 deleted it. The as-of INDEX and LOG (quick
+    // task 261005-5g0) are the only other per-event objects, SPR's alone, each named.
     expect(new Set(r2.puts.filter((p) => p.key.includes(EVENT_KEY)).map((p) => p.key))).toEqual(
-      new Set(ids.map((id) => artifactKey({ page: "event", eventKey: EVENT_KEY, algorithmId: id, version: testVersionFor(id) })))
+      new Set([
+        ...ids.map((id) => artifactKey({ page: "event", eventKey: EVENT_KEY, algorithmId: id, version: testVersionFor(id) })),
+        asOfIndexKey({ eventKey: EVENT_KEY, algorithmId: "spr", version: testVersionFor("spr") }),
+        asOfLogKey({ eventKey: EVENT_KEY, algorithmId: "spr", version: testVersionFor("spr") }),
+      ])
     );
   });
 });
@@ -708,8 +713,14 @@ describe("liveAlgorithmTier — a NARROWED tier folds only its own members", () 
       new Set(ALL_TEAMS.map((teamKey) => artifactKey({ page: "team", teamKey, year: SEASON, algorithmId: "spr", version: PREMIER_TEST_VERSION })))
     );
 
-    // ONE per-event object, for the narrowed tier only.
-    expect(new Set(r2.puts.filter((p) => p.key.includes("2026casj")).map((p) => p.key))).toEqual(new Set([premierEventKey]));
+    // ONE per-event artifact, for the narrowed tier only, plus SPR's as-of INDEX and LOG (quick task 261005-5g0).
+    expect(new Set(r2.puts.filter((p) => p.key.includes("2026casj")).map((p) => p.key))).toEqual(
+      new Set([
+        premierEventKey,
+        asOfIndexKey({ eventKey: "2026casj", algorithmId: "spr", version: PREMIER_TEST_VERSION }),
+        asOfLogKey({ eventKey: "2026casj", algorithmId: "spr", version: PREMIER_TEST_VERSION }),
+      ])
+    );
   });
 });
 
