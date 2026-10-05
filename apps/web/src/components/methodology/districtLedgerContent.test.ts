@@ -148,12 +148,14 @@ const REQUIRED_FIGURES = [
   "38.1%", // Rookie All Star, rookie position 1
 
   // --- `pnpm measure:champ-cutoff` ----------------------------------------
-  // `npx tsx scripts/measureChampCutoff.ts`, run 2026-09-27 (quick task
-  // 260927-6bf). Its WALK-FORWARD TUNED LINES block: simulated MAE 16.35 and
-  // same position naive MAE 40.96, n = 68, both printed to one decimal.
-  "16.4 points",
-  "41.0",
+  // `npx tsx scripts/measureChampCutoff.ts`, re-run 2026-10-05 on the district
+  // tier lock floor (quick tasks 260927-6bf and 261005-04t). Its WALK-FORWARD
+  // TUNED LINES block: simulated MAE 18.19 and same position naive MAE 40.38,
+  // n = 68, both printed to one decimal; gate line 5 reads 48 of 69 (69.6%).
+  "18.2 points",
+  "40.4",
   "68 district seasons",
+  "48 of 69 seasons, 70%",
 ];
 
 /**
