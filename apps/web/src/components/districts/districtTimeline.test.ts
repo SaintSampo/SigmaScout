@@ -12,12 +12,15 @@ import {
   DISTRICT_TIMELINE_NOW_ID,
   DISTRICT_TIMELINE_SEASON_START_ID,
   buildDistrictTimeline,
+  cutAtPosition,
   districtStageAtPosition,
   eventStartedAtPosition,
   eventsWithOpenCategoriesAt,
+  firstMatchPositionIndex,
   remainingQualRowsAtPosition,
   resolveDistrictTimelinePosition,
   startMatchKeyAtPosition,
+  timelineEventsOf,
 } from "./districtTimeline.js";
 
 const BASE_MS = Date.parse("2026-03-06T17:00:00.000Z");
@@ -340,5 +343,159 @@ describe("the per-event stage at a position", () => {
     }
     expect(seen).toBe(true);
     expect(eventStartedAtPosition(timeline, timeline.positions.length + 50, "eva")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The playoffs and awards instants, and the as-of cut (quick task 261005-5g0)
+// ---------------------------------------------------------------------------
+
+/** One event with two PLAYED qualification rows and, optionally, played playoff rows at the given instants. */
+function playedEventArtifact(eventKey: string, qualMs: readonly number[], playoffMs: readonly number[]): EventArtifact {
+  const played = (matchKey: string, compLevel: string, setNumber: number, matchNumber: number, ms: number) => ({
+    matchKey,
+    compLevel,
+    setNumber,
+    matchNumber,
+    sortTime: Math.floor(ms / 1000),
+    redTeams: ["frc1", "frc2", "frc3"],
+    blueTeams: ["frc4", "frc5", "frc6"],
+    predictedWinner: "red",
+    pRedWin: 0.5,
+    predictedRedScore: 50,
+    predictedBlueScore: 50,
+    actualWinner: "red",
+    actualRedScore: 60,
+    actualBlueScore: 40,
+  });
+  return EventArtifactSchema.parse({
+    schemaVersion: 1,
+    generation: "gen-1",
+    computedAt: "2026-09-25T00:00:00.000Z",
+    algorithmId: "spr",
+    algorithmVersion: "7.0.0+rolling",
+    eventKey,
+    season: 2026,
+    matches: [
+      ...qualMs.map((ms, n) => played(`${eventKey}_qm${String(n + 1)}`, "qm", 1, n + 1, ms)),
+      ...playoffMs.map((ms, n) => played(`${eventKey}_sf${String(n + 1)}m1`, "sf", n + 1, 1, ms)),
+    ],
+    upcoming: [],
+    teams: [],
+  });
+}
+
+describe("buildDistrictTimeline: playoffs and awards sit at the last played playoff row (261005-5g0)", () => {
+  /** A's quals at t+0 and t+10 min, its playoffs at t+60 and t+90 min; B's quals at t+20 and t+70 min. */
+  function concurrentTimeline(options: { aPlayoffs?: readonly number[]; aPlayoffsDone?: boolean } = {}) {
+    const minute = 60_000;
+    return buildDistrictTimeline({
+      events: [
+        { eventKey: "eva", eventName: "Event A", week: 0, ...(options.aPlayoffsDone === undefined ? {} : { playoffsDone: options.aPlayoffsDone }) },
+        { eventKey: "evb", eventName: "Event B", week: 0 },
+      ],
+      eventArtifacts: new Map([
+        ["eva", playedEventArtifact("eva", [BASE_MS, BASE_MS + 10 * minute], options.aPlayoffs ?? [BASE_MS + 60 * minute, BASE_MS + 90 * minute])],
+        ["evb", playedEventArtifact("evb", [BASE_MS + 20 * minute, BASE_MS + 70 * minute], [])],
+      ]),
+    });
+  }
+
+  it("keeps Quals done and Alliance selection at the last qualification row and moves Playoffs and Awards to the last played playoff row", () => {
+    const timeline = concurrentTimeline();
+    expect(timeline.positions.map((position) => position.id)).toEqual([
+      DISTRICT_TIMELINE_SEASON_START_ID,
+      "eva:m:eva_qm1",
+      "eva:m:eva_qm2",
+      "eva:qualsDone",
+      "eva:alliance",
+      "evb:m:evb_qm1",
+      "evb:m:evb_qm2",
+      // B has no played playoff row and no state, so its four steps keep its last qualification instant.
+      "evb:qualsDone",
+      "evb:alliance",
+      "evb:playoffs",
+      "evb:awards",
+      // A's playoffs end at t+90, after B's last qualification row at t+70.
+      "eva:playoffs",
+      "eva:awards",
+      DISTRICT_TIMELINE_NOW_ID,
+    ]);
+  });
+
+  it("anchors every step on the row its instant came from", () => {
+    const timeline = concurrentTimeline();
+    const anchorOf = (id: string) => timeline.positions.find((position) => position.id === id)?.step?.anchor;
+    expect(anchorOf("eva:m:eva_qm1")).toEqual({ matchKey: "eva_qm1", played: true });
+    expect(anchorOf("eva:qualsDone")).toEqual({ matchKey: "eva_qm2", played: true });
+    expect(anchorOf("eva:alliance")).toEqual({ matchKey: "eva_qm2", played: true });
+    expect(anchorOf("eva:playoffs")).toEqual({ matchKey: "eva_sf2m1", played: true });
+    expect(anchorOf("eva:awards")).toEqual({ matchKey: "eva_sf2m1", played: true });
+    expect(anchorOf("evb:playoffs")).toEqual({ matchKey: "evb_qm2", played: true });
+  });
+
+  it("reads A's playoffs as still OPEN at B's later qualification match, which the old shared instant read as final", () => {
+    const timeline = concurrentTimeline();
+    const atB2 = timeline.positions.findIndex((position) => position.id === "evb:m:evb_qm2");
+    const stage = districtStageAtPosition(timeline, atB2, NOW_STAGES);
+    expect(stage.get("eva")).toEqual({ qual: true, alliance: true, elim: false, award: false });
+  });
+
+  it("places Playoffs and Awards after every timed step while an event's playoffs are still ahead", () => {
+    const timeline = concurrentTimeline({ aPlayoffs: [], aPlayoffsDone: false });
+    const ids = timeline.positions.map((position) => position.id);
+    expect(ids.slice(-3)).toEqual(["eva:playoffs", "eva:awards", DISTRICT_TIMELINE_NOW_ID]);
+    expect(timeline.positions.find((position) => position.id === "eva:playoffs")?.step?.anchor).toBeUndefined();
+    // A stop at B's last match does not read A's unplayed playoffs as final.
+    const atB2 = ids.indexOf("evb:m:evb_qm2");
+    expect(districtStageAtPosition(timeline, atB2, NOW_STAGES).get("eva")?.elim).toBe(false);
+  });
+
+  it("falls back to the last qualification instant for an event with no played playoff row whose playoffs are done", () => {
+    const timeline = concurrentTimeline({ aPlayoffs: [], aPlayoffsDone: true });
+    const ids = timeline.positions.map((position) => position.id);
+    expect(ids.indexOf("eva:playoffs")).toBe(ids.indexOf("eva:alliance") + 1);
+    expect(timeline.positions[ids.indexOf("eva:awards")]?.step?.anchor).toEqual({ matchKey: "eva_qm2", played: true });
+  });
+});
+
+describe("cutAtPosition (261005-5g0)", () => {
+  it("names the season start, a match step's own row, and a stage step's anchor with the stage flag", () => {
+    const timeline = buildDistrictTimeline({
+      events: [{ eventKey: "eva", eventName: "Event A", week: 0 }],
+      eventArtifacts: new Map([["eva", playedEventArtifact("eva", [BASE_MS, BASE_MS + 60_000], [BASE_MS + 600_000])]]),
+    });
+    const at = (id: string) => timeline.positions.findIndex((position) => position.id === id);
+    expect(cutAtPosition(timeline, 0)).toEqual({ kind: "seasonStart" });
+    expect(cutAtPosition(timeline, at("eva:m:eva_qm2"))).toEqual({ kind: "row", eventKey: "eva", matchKey: "eva_qm2", played: true, stage: false });
+    expect(cutAtPosition(timeline, at("eva:qualsDone"))).toEqual({ kind: "row", eventKey: "eva", matchKey: "eva_qm2", played: true, stage: true });
+    expect(cutAtPosition(timeline, at("eva:awards"))).toEqual({ kind: "row", eventKey: "eva", matchKey: "eva_sf1m1", played: true, stage: true });
+    expect(firstMatchPositionIndex(timeline, "eva")).toBe(1);
+  });
+
+  it("returns null for a step with no anchor: an event whose artifact is not loaded", () => {
+    const timeline = buildDistrictTimeline({ events: [{ eventKey: "eva", eventName: "Event A", week: 0 }], eventArtifacts: new Map() });
+    const qualsDone = timeline.positions.findIndex((position) => position.id === "eva:qualsDone");
+    expect(cutAtPosition(timeline, qualsDone)).toBeNull();
+    expect(firstMatchPositionIndex(timeline, "eva")).toBe(-1);
+  });
+
+  it("marks an unplayed scheduled row's anchor as not played", () => {
+    const timeline = interleavedTimeline();
+    const step = timeline.positions.findIndex((position) => position.id === "eva:m:eva_qm1");
+    expect(cutAtPosition(timeline, step)).toEqual({ kind: "row", eventKey: "eva", matchKey: "eva_qm1", played: false, stage: false });
+  });
+});
+
+describe("timelineEventsOf (261005-5g0)", () => {
+  it("adds each event's playoffsDone from its state and leaves an event with no state untouched", () => {
+    const events = [
+      { eventKey: "eva", eventName: "A", week: 0 },
+      { eventKey: "evb", eventName: "B", week: 1 },
+    ];
+    expect(timelineEventsOf(events, [{ eventKey: "eva", state: { playoffsDone: false } }, { eventKey: "evb", state: undefined }])).toEqual([
+      { eventKey: "eva", eventName: "A", week: 0, playoffsDone: false },
+      { eventKey: "evb", eventName: "B", week: 1 },
+    ]);
   });
 });
