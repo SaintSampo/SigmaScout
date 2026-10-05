@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { emitCursorSeedSql, emitSeedSql, ReservedEventCursorKeyError, writeSeedCommandsFile } from "./seedSql.js";
-import { districtRankingsCursorKey, eventAwardsCursorKey } from "./stateBaseline.js";
+import { districtRankingsCursorKey, eventAwardsCursorKey, isReservedEventCursorKey, liveIngestCursorKey } from "./stateBaseline.js";
 import type { StateRow } from "./stateSnapshot.js";
 
 type SqliteDb = InstanceType<typeof Database>;
@@ -241,6 +241,31 @@ describe("emitCursorSeedSql — reserved-key refusal (fallback: string match, no
         out: sqlPath,
       })
     ).toThrow(ReservedEventCursorKeyError);
+  });
+});
+
+describe("emitCursorSeedSql — the live ingest state key (quick task 261004-uyc)", () => {
+  it("names the reserved key and is recognised as reserved", () => {
+    expect(liveIngestCursorKey("2026vari")).toBe("__live_ingest__:2026vari");
+    expect(isReservedEventCursorKey(liveIngestCursorKey("2026vari"))).toBe(true);
+    expect(isReservedEventCursorKey("2026vari")).toBe(false);
+  });
+
+  it("throws for a cursor's eventKey that collides with the live ingest prefix", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sigmascout-seedsql-live-"));
+    try {
+      expect(() =>
+        emitCursorSeedSql({
+          generation: GENERATION,
+          computedAt: COMPUTED_AT,
+          algorithmIds: ["spr"],
+          cursors: [{ eventKey: liveIngestCursorKey("2026vari"), lastFoldedMatchKey: null }],
+          out: join(dir, "seed-cursors.sql"),
+        })
+      ).toThrow(ReservedEventCursorKeyError);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

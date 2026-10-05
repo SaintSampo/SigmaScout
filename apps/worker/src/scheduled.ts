@@ -197,6 +197,8 @@ import { TICK_META_EVENT_KEY, stateBaselineEventKey } from "../../../packages/ha
 import { rotate, sortEventKeys, SubrequestCounter } from "./subrequestCounter.js";
 import { createTbaContext, pollEventMatches, pollEventTeams, TbaRequestCounter, type TbaClientContext } from "./tbaPoll.js";
 import { flushIngestLog, IngestLogBuffer, matchArrivalFacts, type LiveTickContext } from "./ingestLog.js";
+import { deriveLivePhaseFacts } from "./eventPhase.js";
+import { readOpenWindowCursors, runLiveEventPass } from "./liveEventPass.js";
 import type { Env } from "./env.js";
 
 // ---------------------------------------------------------------------------
@@ -1195,18 +1197,19 @@ async function runRosterPass(
   windows: readonly LiveWindowEntry[],
   nowIso: string,
   stamp: Stamp,
-  algorithmContext: () => Promise<TickAlgorithmContext>
+  algorithmContext: () => Promise<TickAlgorithmContext>,
+  /** Every open window's cursor row, read ONCE at the top of the tick by `readOpenWindowCursors` (it also carries each event's live ingest state row). */
+  cursors: ReadonlyMap<string, EventCursor>
 ): Promise<RosterPassResult> {
   const eventKeys = sortEventKeys(windows.map((w) => w.eventKey));
   const seasonByEventKey = new Map(windows.map((w) => [w.eventKey, w.season]));
 
-  // ONE statement, ONE subrequest, for every open window. `eventPreflight` still
+  // The cursors arrive from the caller since quick task 261004-uyc: the tick
+  // reads them ONCE for the roster pass and the live event pass together, in the
+  // same one subrequest the roster pass used to spend here. `eventPreflight` still
   // reads its own cursor afterwards and this one is deliberately NOT threaded into
   // it — that would change the per-event counter accounting `scheduled.rp.test.ts`
   // pins.
-  counter.spend(1);
-  const cursors = await readEventCursors(env.DB, eventKeys);
-
   let rostersPolled = 0;
   let rosterTeamsAppended = 0;
 
@@ -1378,6 +1381,9 @@ async function processEvent(
     if (typeof window.districtKey === "string" && window.districtKey.length > 0) {
       matchDerivedState.set(eventKey, deriveMatchDerivedEventState(rawMatches));
     }
+    // THE PHASE FACTS (quick task 261004-uyc), for EVERY event, so a non-district
+    // event gets a phase too. `runLiveEventPass` reads them after the loop.
+    live.phaseFacts.set(eventKey, deriveLivePhaseFacts(rawMatches));
     // The live-windows manifest has no real start_date; this approximation
     // feeds only normalizeMatch's rarely used sortTime fallback.
     const approxStartDateIso = new Date(window.startMs).toISOString();
@@ -2088,7 +2094,7 @@ const NO_DISTRICT_REFRESH: DistrictRefreshResult = { districtsConsidered: 0, dis
  */
 export async function runTick(env: Env, deps: RunTickDeps = {}): Promise<TickResult> {
   const startMs = deps.nowMs ?? Date.now();
-  const live: LiveTickContext = { ingest: new IngestLogBuffer(new Date(startMs).toISOString(), deps.ingestClock) };
+  const live: LiveTickContext = { ingest: new IngestLogBuffer(new Date(startMs).toISOString(), deps.ingestClock), phaseFacts: new Map() };
   let core: CoreTickResult;
   let flushAttempted = false;
   let ingestRowsWritten = 0;
@@ -2173,7 +2179,10 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
   // promoted still picks up its registration) and before any match preflight (so
   // a schedule-only write later in this tick sees the roster rows already
   // merged).
-  const rosterResult = await runRosterPass(env, subrequests, tbaCtx, liveEvents, nowIso, stamp, algorithmContext);
+  // The one cursor read for every open window, the roster pass's and the live
+  // event pass's alike (see `readOpenWindowCursors`).
+  const openCursors = await readOpenWindowCursors(env.DB, subrequests, liveEvents);
+  const rosterResult = await runRosterPass(env, subrequests, tbaCtx, liveEvents, nowIso, stamp, algorithmContext, openCursors);
 
   if (foldableWindows.length === 0 && probeResult.promoted.size === 0) {
     // Nothing foldable and nothing promoted: a probe-only (or fully idle
@@ -2303,6 +2312,11 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
   // ordering load-bearing, and spending a district's TBA request on an event
   // that has not proven it has a single match would spend against exactly that.
   const districtRefresh = await runDistrictRefresh(env, subrequests, tbaCtx, { windows: [...foldableWindows, ...promotedWindows], matchDerivedState, stamp, nowIso });
+
+  // THE LIVE EVENT PASS (quick task 261004-uyc): each open event's phase, a phase
+  // change logged and remembered. Never throws; unreachable from both early
+  // returns above.
+  await runLiveEventPass(env, subrequests, { windows: liveEvents, cursors: openCursors, live, nowIso });
 
   const newMeta: TickMeta = {
     rotationOffset: orderedEventKeys.length > 0 ? (meta.rotationOffset + eventsAdvanced) % orderedEventKeys.length : 0,

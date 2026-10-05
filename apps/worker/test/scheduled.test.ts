@@ -1942,7 +1942,7 @@ describe("runTick - the ingest log", () => {
     return () => (t += 1000);
   }
 
-  it("a tick that folds one new match writes one endpoint row (matches) and one match row, both published", async () => {
+  it("a tick that folds one new match writes one endpoint row (matches) and one match row, both published, plus the event's first phase row", async () => {
     const d1 = new FakeD1Database();
     const r2 = new FakeR2Bucket();
     vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", loggedEventRecord()]])));
@@ -1950,9 +1950,12 @@ describe("runTick - the ingest log", () => {
     const result = await runTick(makeEnv(makeManifests([LOG_WINDOW]), d1, r2), { nowMs: NOW_MS, ingestClock: steppingClock() });
 
     expect(result.eventsAdvanced).toBe(1);
-    expect(result.ingestRowsWritten).toBe(2);
+    // endpoint, match, and the first phase the event is seen in (no-schedule to quals-in-progress).
+    expect(result.ingestRowsWritten).toBe(3);
     expect(d1.ingestLog.statementCount).toBe(1);
-    const [endpoint, match] = d1.ingestLog.rows;
+    const [endpoint, match, phaseRow] = d1.ingestLog.rows;
+    expect(phaseRow).toMatchObject({ kind: "phase", subject: "quals-in-progress", phase: "quals-in-progress" });
+    expect(endpoint!.phase).toBe("quals-in-progress");
     expect(endpoint).toMatchObject({ eventKey: "2026casj", kind: "endpoint", subject: "matches", tbaLastModified: "Sat, 22 Aug 2026 11:59:20 GMT" });
     expect(endpoint!.publishedAt).not.toBeNull();
     expect(match).toMatchObject({ kind: "match", subject: "2026casj_qm1", tbaPostResultTime: POST_RESULT_SEC, tbaActualTime: POST_RESULT_SEC - 130, observedAt: endpoint!.observedAt });
@@ -2025,5 +2028,77 @@ describe("runTick - the ingest log", () => {
     expect(lines[0]).toMatchObject({ eventKey: "2026casj" });
     // The matches endpoint row is never stamped published when the artifacts did not land.
     expect(d1.ingestLog.rows.find((row) => row.kind === "endpoint")!.publishedAt).toBeNull();
+  });
+});
+
+describe("runTick - the phase model (quick task 261004-uyc)", () => {
+  const PHASE_WINDOW: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 7_200_000 };
+  const STATE_KEY = "__live_ingest__:2026casj";
+
+  /** A fake that counts writes to the reserved live ingest state row, and can be told to reject them. */
+  class StateWriteCountingD1 extends FakeD1Database {
+    stateWrites = 0;
+    rejectStateWrites = false;
+    override executeWrite(sql: string, args: readonly unknown[]): number {
+      if (sql.includes("INSERT INTO event_cursor") && args[0] === STATE_KEY) {
+        if (this.rejectStateWrites) throw new Error("D1_ERROR: simulated state write failure");
+        this.stateWrites++;
+      }
+      return super.executeWrite(sql, args);
+    }
+  }
+
+  it("writes one phase row and one reserved cursor row on the change, and nothing on a repeat of the same phase", async () => {
+    const d1 = new StateWriteCountingD1();
+    const r2 = new FakeR2Bucket();
+    const tbaEvents = new Map([["2026casj", twoMatchEventRecord("2026casj", "etag-1")]]);
+    vi.stubGlobal("fetch", makeTbaFetchStub(tbaEvents));
+
+    await runTick(makeEnv(makeManifests([PHASE_WINDOW]), d1, r2), { nowMs: NOW_MS });
+
+    expect(d1.stateWrites).toBe(1);
+    expect(JSON.parse(d1.eventCursors.get(STATE_KEY)!.last_folded_match_key!)).toMatchObject({ phase: "quals-in-progress" });
+    expect(d1.ingestLog.rows.filter((row) => row.kind === "phase")).toHaveLength(1);
+
+    // A new etag with the same two matches: a 200, the same phase.
+    tbaEvents.set("2026casj", twoMatchEventRecord("2026casj", "etag-2"));
+    await runTick(makeEnv(makeManifests([PHASE_WINDOW]), d1, r2), { nowMs: NOW_MS + 60_000 });
+
+    expect(d1.stateWrites).toBe(1);
+    expect(d1.ingestLog.rows.filter((row) => row.kind === "phase")).toHaveLength(1);
+    // The matches change itself IS logged: a 200 is a change TBA reported.
+    expect(d1.ingestLog.rows.filter((row) => row.kind === "endpoint")).toHaveLength(2);
+  });
+
+  it("a 304 tick holds no match list, so it keeps the remembered phase and writes no row and no state", async () => {
+    const d1 = new StateWriteCountingD1();
+    const r2 = new FakeR2Bucket();
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", twoMatchEventRecord("2026casj", "etag-1")]])));
+    await runTick(makeEnv(makeManifests([PHASE_WINDOW]), d1, r2), { nowMs: NOW_MS });
+    const rowsAfterFirst = d1.ingestLog.rows.length;
+
+    const second = await runTick(makeEnv(makeManifests([PHASE_WINDOW]), d1, r2), { nowMs: NOW_MS + 60_000 });
+
+    expect(second.ingestRowsWritten).toBe(0);
+    expect(d1.ingestLog.rows).toHaveLength(rowsAfterFirst);
+    expect(d1.stateWrites).toBe(1);
+  });
+
+  it("a rejecting phase state write is caught, logged as a live-event-pass failure, and the fold outcome is unchanged", async () => {
+    const control = new FakeD1Database();
+    const controlR2 = new FakeR2Bucket();
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", twoMatchEventRecord("2026casj", "etag-1")]])));
+    const controlResult = await runTick(makeEnv(makeManifests([PHASE_WINDOW]), control, controlR2), { nowMs: NOW_MS });
+
+    const d1 = new StateWriteCountingD1();
+    d1.rejectStateWrites = true;
+    const r2 = new FakeR2Bucket();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const result = await runTick(makeEnv(makeManifests([PHASE_WINDOW]), d1, r2), { nowMs: NOW_MS });
+
+    expect(result.eventsAdvanced).toBe(controlResult.eventsAdvanced);
+    expect(result.eventsFailed).toBe(0);
+    expect(r2.puts.map((p) => p.key).sort()).toEqual(controlR2.puts.map((p) => p.key).sort());
+    expect(d1.ingestLog.rows.find((row) => row.kind === "failure")).toMatchObject({ subject: "live-event-pass", eventKey: "2026casj" });
   });
 });

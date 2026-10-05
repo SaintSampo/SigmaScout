@@ -22,6 +22,7 @@
  * Worker safe: no zod at runtime, no Node built in.
  */
 import type { D1Database } from "@cloudflare/workers-types";
+import type { LivePhaseFacts } from "./eventPhase.js";
 
 /** Rows older than this are pruned when an event completes. */
 export const INGEST_LOG_RETENTION_DAYS = 60;
@@ -233,6 +234,8 @@ export const INGEST_LOG_PRUNE_SQL = `DELETE FROM ingest_log WHERE observed_at < 
 /** The per tick context the tick threads through its helpers. */
 export interface LiveTickContext {
   readonly ingest: IngestLogBuffer;
+  /** The phase facts `processEvent` derived from each match list this tick fetched, by event key (`liveEventPass.ts` reads them). An event with no entry held no fresh list. */
+  readonly phaseFacts: Map<string, LivePhaseFacts>;
 }
 
 /**

@@ -77,12 +77,29 @@ export function eventAwardsCursorKey(eventKey: string): string {
   return `${EVENT_AWARDS_KEY_PREFIX}${eventKey}`;
 }
 
-/** True for the tick-meta sentinel, any state-baseline marker key, any district-rankings ETag key or any event-awards ETag key — the full reserved-key set a real corpus event key must never collide with. */
+/**
+ * Prefix for an event's live ingest state row (quick task 261004-uyc): the
+ * event's remembered phase and, from a later plan on, the ETags and change times
+ * of the rankings and alliances polls. Deliberately DISTINCT from the event's own
+ * cursor row, whose columns belong to the match poll and the fold anchor and must
+ * never be overwritten by this row's. The state is one JSON blob held in this
+ * row's `last_folded_match_key` column, the same reuse `TICK_META_EVENT_KEY`
+ * already makes. Never a real TBA event key: see this file's header.
+ */
+export const LIVE_INGEST_KEY_PREFIX = "__live_ingest__:";
+
+/** The reserved `event_cursor.event_key` an event's live ingest state is stored under. */
+export function liveIngestCursorKey(eventKey: string): string {
+  return `${LIVE_INGEST_KEY_PREFIX}${eventKey}`;
+}
+
+/** True for the tick-meta sentinel, any state-baseline marker key, any district-rankings ETag key, any event-awards ETag key or any live-ingest state key — the full reserved-key set a real corpus event key must never collide with. */
 export function isReservedEventCursorKey(eventKey: string): boolean {
   return (
     eventKey === TICK_META_EVENT_KEY ||
     eventKey.startsWith(STATE_BASELINE_KEY_PREFIX) ||
     eventKey.startsWith(DISTRICT_RANKINGS_KEY_PREFIX) ||
-    eventKey.startsWith(EVENT_AWARDS_KEY_PREFIX)
+    eventKey.startsWith(EVENT_AWARDS_KEY_PREFIX) ||
+    eventKey.startsWith(LIVE_INGEST_KEY_PREFIX)
   );
 }
