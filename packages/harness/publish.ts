@@ -1254,6 +1254,9 @@ const UPLOAD_HEADERS = { contentType: "application/json", cacheControl: "public,
  */
 export type ArtifactSink = (pageKind: PageKind, key: string, body: string) => void;
 
+/** `ArtifactSink`'s twin for the as-of objects (quick task 261005-5g0), which are not `PageKind`s. Same contract: read-only, no CLI flag, never called when absent. */
+export type AsOfSink = (family: AsOfFamily, key: string, body: string) => void;
+
 /**
  * The publisher's uploader (`application/json`, `max-age=60`). Records every object's page kind, key and
  * size even under `--dry-run`, which exists to re-measure budgets without spending Class-A operations.
@@ -1279,7 +1282,8 @@ class BoundedUploader {
     private readonly bucket: string,
     concurrency: number,
     private readonly dryRun: boolean,
-    private readonly artifactSink?: ArtifactSink
+    private readonly artifactSink?: ArtifactSink,
+    private readonly asOfSink?: AsOfSink
   ) {
     this.#queue = new UploadQueue({ concurrency });
   }
@@ -1310,6 +1314,8 @@ class BoundedUploader {
     const bytes = Buffer.byteLength(body, "utf8");
     assertWithinAsOfBudget(family, key, bytes);
     this.asOfRecords.push({ pageKind: family, key, bytes });
+    // After the ceiling assertion and the record, like `artifactSink`. Absent by default.
+    this.asOfSink?.(family, key, body);
     if (this.dryRun) return Promise.resolve();
     return this.#queue.enqueue(() => this.#put(key, body));
   }
@@ -1666,6 +1672,8 @@ export interface PublishSeasonsOptions {
    * byte-identical either way; `false` exists for the test that proves it. No CLI flag.
    */
   readonly asOfCapture?: boolean;
+  /** An optional read-only observer of every as-of object body — see `AsOfSink`. No CLI flag. */
+  readonly asOfSink?: AsOfSink;
 }
 
 export interface PublishSummary {
@@ -1931,7 +1939,7 @@ function sortTeamSeasonMatches(
  * `buildSeasonStream`/`WalkForwardSimulator` are the leak-proof replay primitives, reused unchanged.
  */
 export async function publishSeasons(db: Corpus, options: PublishSeasonsOptions): Promise<PublishSummary> {
-  const uploader = new BoundedUploader(options.bucket, options.concurrency ?? DEFAULT_CONCURRENCY, options.dryRun ?? false, options.artifactSink);
+  const uploader = new BoundedUploader(options.bucket, options.concurrency ?? DEFAULT_CONCURRENCY, options.dryRun ?? false, options.artifactSink, options.asOfSink);
   try {
     return await publishSeasonsWith(db, options, uploader);
   } catch (err) {
