@@ -49,6 +49,11 @@ const ALLIANCE_WIN_PROBABILITY_ENTRY_POINT = resolve(HERE, "..", "core", "algori
 // callers are a browser Web Worker (10-07) and the offline publisher (10-06),
 // so a Node built-in anywhere in its reachable graph would break the web build.
 const LEDGER_SIMULATION_ENTRY_POINT = resolve(HERE, "..", "core", "districts", "ledgerSimulation.ts");
+// The as-of modules (quick task 261005-5g0): the rewound Locks views and the
+// Simulation tab rebuild and price from them in the browser's Web Workers.
+// `asOfPricing.ts` reaches `spr.ts` and the season rule modules on purpose, so
+// all three are checked for Node built-ins only.
+const AS_OF_ENTRY_POINTS = [resolve(HERE, "asOfState.ts"), resolve(HERE, "asOfLookup.ts"), resolve(HERE, "asOfPricing.ts")];
 const FORBIDDEN_DIR = resolve(HERE, "..", "core", "algorithms");
 
 /**
@@ -313,6 +318,19 @@ describe("browser-safe schema import graph", () => {
     if (nodeBuiltinViolations.length > 0) {
       const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
       expect.fail(`Node built-in import(s) reachable from packages/core/districts/ledgerSimulation.ts: ${detail}`);
+    }
+  });
+
+  it("never reaches a Node built-in import from asOfState.ts, asOfLookup.ts or asOfPricing.ts (checked for Node built-ins only — the pricer reaches packages/core/algorithms/ on purpose, for spr.ts)", () => {
+    const { nodeBuiltinViolations, visited } = scan(AS_OF_ENTRY_POINTS);
+    for (const entry of AS_OF_ENTRY_POINTS) expect(visited.has(entry), entry).toBe(true);
+    // Sanity check the scan is not vacuous: it must follow the pricer into the model and the rule modules.
+    expect(visited.has(resolve(HERE, "..", "core", "algorithms", "spr.ts"))).toBe(true);
+    expect(visited.has(resolve(HERE, "..", "core", "rankingPoints", "rules.ts"))).toBe(true);
+    expect(visited.has(resolve(HERE, "sigmaScore.ts"))).toBe(true);
+    if (nodeBuiltinViolations.length > 0) {
+      const detail = nodeBuiltinViolations.map((v) => `${v.file} imports "${v.specifier}"`).join("; ");
+      expect.fail(`Node built-in import(s) reachable from the as-of modules: ${detail}`);
     }
   });
 });
