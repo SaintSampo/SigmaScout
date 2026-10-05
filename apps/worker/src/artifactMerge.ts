@@ -38,6 +38,7 @@ import { SIGMA_METRIC_KEY } from "../../../packages/harness/sigmaScore.js";
 import { PAGE_ARTIFACT_SCHEMA_VERSION, type EventUpcomingMatch, type EventArtifact, type TeamSeasonArtifact, type TeamSeasonMatch } from "../../../packages/harness/pageArtifacts.js";
 import { roundMetric } from "../../../packages/harness/rounding.js";
 import { withCountedStandings } from "./liveStandings.js";
+import { hasOfficialStandings } from "./officialStandings.js";
 
 // ---------------------------------------------------------------------------
 // Narrowed input shapes — the fields each function actually reads, named so a
@@ -356,12 +357,14 @@ export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
   const existingTeams = existing?.teams ?? [];
   const touchedSet = new Set(touchedTeams);
   // Touched rows are replaced IN PLACE, so a tick never reorders the
-  // standings. `rank`, `record` and `rp` used to be TBA's own official
-  // standings, preserved as last published and stale until the next republish
-  // — this Worker still never fetches `/event/{key}/rankings`. Since quick task
-  // 260923-3w7 it COUNTS them instead, from the merged played qualification
-  // rows below (`withCountedStandings`), which is the derivation the browser
-  // used to run on every poll of this same artifact.
+  // standings. `rank`, `record` and `rp` are TBA's own official standings
+  // whenever TBA has published them: `liveEventPass.ts` polls
+  // `/event/{key}/rankings` by event phase and writes them onto the artifact
+  // (quick task 261004-uyc), and an artifact carrying them keeps them through
+  // this merge (see the `hasOfficialStandings` branch below). Until TBA's first
+  // rankings response arrives the tick COUNTS a stand-in from the merged played
+  // qualification rows (`withCountedStandings`, quick task 260923-3w7), which is
+  // a gap filler and nothing more.
   const teamsBeforeStandings = [
     ...existingTeams.map((row) =>
       touchedSet.has(row.teamKey)
@@ -398,14 +401,19 @@ export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
       })),
   ];
 
-  // Counted from `matches` above — every played qualification row this event
-  // has, the ones this tick just folded included. Returns the same array
-  // reference and NO marker when there is nothing honest to count (see
-  // `withCountedStandings`), so a playoff-only or bonus-gapped event keeps
-  // whatever the last republish published and never claims otherwise. UNCHANGED
-  // by the roster branch above: an event with nothing played appends roster rows
-  // and keeps whatever the last republish published.
-  const { teams, standings } = withCountedStandings({ matches, teams: teamsBeforeStandings, rpOutcomeRp });
+  // The gap filler: counted from `matches` above, every played qualification row
+  // this event has, the ones this tick just folded included, and ONLY while the
+  // artifact does not already hold TBA's own standings. An artifact whose rows
+  // carry ranks and no `standings` marker is TBA's (`hasOfficialStandings`), and
+  // a count must never overwrite them: the counted order is the one TBA's order
+  // exists to replace. Returns the same array reference and NO marker when there
+  // is nothing honest to count (see `withCountedStandings`), so a playoff-only or
+  // bonus-gapped event keeps whatever was last published and never claims
+  // otherwise. UNCHANGED by the roster branch above: an event with nothing played
+  // appends roster rows and keeps whatever was last published.
+  const { teams, standings }: { readonly teams: readonly (typeof teamsBeforeStandings)[number][]; readonly standings?: EventArtifact["standings"] } = hasOfficialStandings(existing)
+    ? { teams: teamsBeforeStandings }
+    : withCountedStandings({ matches, teams: teamsBeforeStandings, rpOutcomeRp });
 
   return {
     ...carriedFromExisting,

@@ -4,7 +4,22 @@
  * and no thrown message or returned value contains a stubbed key value.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createTbaContext, pollDistrictRankings, pollEventAwards, pollEventMatches, pollEventTeams, TbaDistrictRankingsPollError, TbaEventAwardsPollError, TbaEventTeamsPollError, TbaPollError, TbaRequestCounter } from "../src/tbaPoll.js";
+import {
+  createTbaContext,
+  pollDistrictRankings,
+  pollEventAlliances,
+  pollEventAwards,
+  pollEventMatches,
+  pollEventRankings,
+  pollEventTeams,
+  TbaDistrictRankingsPollError,
+  TbaEventAlliancesPollError,
+  TbaEventAwardsPollError,
+  TbaEventRankingsPollError,
+  TbaEventTeamsPollError,
+  TbaPollError,
+  TbaRequestCounter,
+} from "../src/tbaPoll.js";
 import type { Env } from "../src/env.js";
 
 const STUB_KEY = "test-tba-secret-key-do-not-leak";
@@ -265,6 +280,72 @@ describe("pollEventTeams (260925-uy5)", () => {
     expect(JSON.stringify(okResult)).not.toContain(STUB_KEY);
     for (const call of fetchMock.mock.calls) {
       expect(String(call[0])).not.toContain(STUB_KEY);
+    }
+  });
+});
+
+describe.each([
+  { name: "pollEventRankings", poll: pollEventRankings, path: "rankings", ErrorClass: TbaEventRankingsPollError },
+  { name: "pollEventAlliances", poll: pollEventAlliances, path: "alliances", ErrorClass: TbaEventAlliancesPollError },
+])("$name (261004-uyc)", ({ poll, path, ErrorClass }) => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("sends If-None-Match when given an etag, returns not-modified on a 304 and records one cache hit", async () => {
+    fetchMock.mockResolvedValue({ status: 304, ok: false, headers: new Map(), json: async () => ({}) });
+    const counter = new TbaRequestCounter();
+
+    const result = await poll(createTbaContext(makeEnv(), counter), "2026vari", "etag-1");
+
+    expect(result).toEqual({ status: "not-modified" });
+    expect(counter.total).toBe(1);
+    expect(counter.cacheHits).toBe(1);
+    const init = (fetchMock.mock.calls[0] as [string, { headers: Record<string, string> }])[1];
+    expect(init.headers["If-None-Match"]).toBe("etag-1");
+  });
+
+  it("returns the raw body, etag and last modified on a 200, against the configured base URL", async () => {
+    const body = { sample: true };
+    const headers = { get: (name: string) => (name === "etag" ? "etag-2" : name === "last-modified" ? "Sat, 03 Oct 2026 22:55:19 GMT" : null) };
+    fetchMock.mockResolvedValue({ status: 200, ok: true, headers, json: async () => body });
+    const counter = new TbaRequestCounter();
+
+    const result = await poll(createTbaContext(makeEnv(), counter), "2026vari", undefined);
+
+    expect(result).toEqual({ status: "ok", etag: "etag-2", body, lastModified: "Sat, 03 Oct 2026 22:55:19 GMT" });
+    expect(counter.fresh).toBe(1);
+    expect(String((fetchMock.mock.calls[0] as [string])[0])).toBe(`https://tba.example.invalid/api/v3/event/2026vari/${path}`);
+  });
+
+  it("returns a bare null body as an ok answer, not a failure", async () => {
+    fetchMock.mockResolvedValue({ status: 200, ok: true, headers: { get: () => null }, json: async () => null });
+
+    const result = await poll(createTbaContext(makeEnv(), new TbaRequestCounter()), "2026vari", undefined);
+
+    expect(result).toEqual({ status: "ok", etag: undefined, body: null });
+  });
+
+  it("throws an error naming only the event key on a 500, never the API key or a header name", async () => {
+    fetchMock.mockResolvedValue({ status: 500, ok: false, headers: new Map(), json: async () => ({}) });
+    const ctx = createTbaContext(makeEnv(), new TbaRequestCounter());
+
+    await expect(poll(ctx, "2026vari", undefined)).rejects.toBeInstanceOf(ErrorClass);
+    try {
+      await poll(ctx, "2026vari", undefined);
+      expect.fail("expected the poll to throw");
+    } catch (err) {
+      expect((err as Error).message).toContain("2026vari");
+      expect((err as Error).message).not.toContain(STUB_KEY);
+      expect((err as Error).message).not.toContain("X-TBA-Auth-Key");
+      expect((err as Error).message).not.toContain("If-None-Match");
     }
   });
 });

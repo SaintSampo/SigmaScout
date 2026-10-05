@@ -58,6 +58,7 @@ import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
 import { IngestLogFakeStore, isIngestLogSql } from "./support/ingestLogFake.js";
+import { officialDataStubResponse } from "./support/officialDataStubs.js";
 
 /**
  * The final live tick's subrequest cost on this fixture. RP beliefs ride
@@ -139,8 +140,13 @@ import { IngestLogFakeStore, isIngestLogSql } from "./support/ingestLogFake.js";
  * writes its ingest log in ONE flush statement, and that flush is one subrequest.
  * A tick that folds nothing writes no row and spends none (the 304 pins elsewhere
  * did not move).
+ *
+ * MOVED TO 70 on purpose by quick task 261004-uyc plan 02: the live event pass now
+ * asks TBA for the event's rankings and, because this fixture's qualifications are
+ * all played, its alliances: two conditional polls, each one subrequest, each
+ * answered with an empty body here so nothing is written.
  */
-const SUBREQUESTS_PER_LIVE_TICK = 68;
+const SUBREQUESTS_PER_LIVE_TICK = 70;
 
 interface FakeAlgorithmStateRow {
   algorithm_id: string;
@@ -440,6 +446,8 @@ let revealedLive = 0;
 function makeTbaFetchStub(): ReturnType<typeof vi.fn> {
   return vi.fn(async (url: unknown) => {
     const u = String(url);
+    const quietOfficialData = officialDataStubResponse(u);
+    if (quietOfficialData !== undefined) return quietOfficialData;
     const matchesRoute = /\/event\/([^/]+)\/matches$/.exec(u);
     if (matchesRoute) {
       const eventKey = matchesRoute[1]!;
@@ -1056,6 +1064,8 @@ describe("scheduled.rp — the mean shift survives the live Worker (shape 16)", 
   function msTbaStub(): ReturnType<typeof vi.fn> {
     return vi.fn(async (url: unknown) => {
       const u = String(url);
+      const quietOfficialData = officialDataStubResponse(u);
+      if (quietOfficialData !== undefined) return quietOfficialData;
       const matchesRoute = /\/event\/([^/]+)\/matches$/.exec(u);
       if (matchesRoute) {
         const eventKey = matchesRoute[1]!;
@@ -1459,6 +1469,8 @@ async function sbHarness(options: SbHarnessOptions = {}): Promise<SbHarness> {
     "fetch",
     vi.fn(async (url: unknown) => {
       const u = String(url);
+      const quietOfficialData = officialDataStubResponse(u);
+      if (quietOfficialData !== undefined) return quietOfficialData;
       const matchesRoute = /\/event\/([^/]+)\/matches$/.exec(u);
       if (matchesRoute) {
         const body = [...SB_LIVE_FIXTURES.slice(0, revealed).map(toTbaMatch), ...SB_LIVE_FIXTURES.slice(revealed).map(toUpcomingTbaMatch)];
@@ -1830,6 +1842,8 @@ describe("scheduled.rp — the RP population survives the live Worker (shape 17)
   function ppTbaStub(set: PpFixtureSet): ReturnType<typeof vi.fn> {
     return vi.fn(async (url: unknown) => {
       const u = String(url);
+      const quietOfficialData = officialDataStubResponse(u);
+      if (quietOfficialData !== undefined) return quietOfficialData;
       const matchesRoute = /\/event\/([^/]+)\/matches$/.exec(u);
       if (matchesRoute) {
         const eventKey = matchesRoute[1]!;

@@ -27,6 +27,7 @@ import { buildLiveReport } from "../../../scripts/liveReport.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
 import { IngestLogFakeStore, isIngestLogSql } from "./support/ingestLogFake.js";
+import { officialDataStubResponse } from "./support/officialDataStubs.js";
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -344,6 +345,8 @@ interface TbaEventRecord {
 function makeTbaFetchStub(events: Map<string, TbaEventRecord>): ReturnType<typeof vi.fn> {
   return vi.fn(async (url: unknown, init?: { headers?: Record<string, string> }) => {
     const u = String(url);
+    const quietOfficialData = officialDataStubResponse(u);
+    if (quietOfficialData !== undefined) return quietOfficialData;
     const ifNoneMatch = init?.headers?.["If-None-Match"];
 
     const matchesMatch = /\/event\/([^/]+)\/matches$/.exec(u);
@@ -594,6 +597,8 @@ describe("runTick — per-event error confinement", () => {
 
     const fetchMock = vi.fn(async (url: unknown, init?: { headers?: Record<string, string> }) => {
       const u = String(url);
+      const quietOfficialData = officialDataStubResponse(u);
+      if (quietOfficialData !== undefined) return quietOfficialData;
       if (u.includes("/event/2026aaaa/matches")) {
         return { status: 500, ok: false, headers: new Map(), json: async () => ({}) };
       }
@@ -1355,6 +1360,8 @@ describe("runTick — official-play scope on the global rebuild feed", () => {
       "fetch",
       vi.fn(async (url: unknown, init?: { headers?: Record<string, string> }) => {
         const u = String(url);
+        const quietOfficialData = officialDataStubResponse(u);
+        if (quietOfficialData !== undefined) return quietOfficialData;
         if (/\/event\/[^/]+\/matches$/.test(u)) {
           const ifNoneMatch = init?.headers?.["If-None-Match"];
           if (ifNoneMatch) return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
@@ -1799,6 +1806,8 @@ describe("runTick — the tick probes a probe window", () => {
 
     const fetchMock = vi.fn(async (url: unknown) => {
       const u = String(url);
+      const quietOfficialData = officialDataStubResponse(u);
+      if (quietOfficialData !== undefined) return quietOfficialData;
       if (u.endsWith("/event/2026probe/matches")) {
         return { status: 200, ok: true, headers: { get: (name: string) => (name === "etag" ? record.etag : name === "last-modified" ? (record.lastModified ?? null) : null) }, json: async () => record.matches };
       }
@@ -1827,10 +1836,12 @@ describe("runTick — the tick probes a probe window", () => {
     expect(result.eventsFailed).toBe(0);
     expect(result.eventsProbed).toBe(1);
     expect(result.eventsPromoted).toBe(1);
-    // TWO: the probe's own matches poll (never repeated by `processEvent`) plus
-    // the roster pass's one conditional poll for this window, a 304 here (quick
-    // task 260925-uy5). A 304 costs a request, so it counts.
-    expect(result.tbaRequests).toBe(2);
+    // THREE: the probe's own matches poll (never repeated by `processEvent`), the
+    // roster pass's one conditional poll for this window, a 304 here (quick task
+    // 260925-uy5), and the live event pass's rankings poll, which this played
+    // match's phase (quals in progress) wants (quick task 261004-uyc plan 02,
+    // moved from 2 on purpose). A 304 costs a request, so it counts.
+    expect(result.tbaRequests).toBe(3);
     const eventPutKey = artifactKey({ page: "event", eventKey: "2026probe", algorithmId: "opr", version: opr.version });
     const teamsPutKey = artifactKey({ page: "teams", year: SEASON, algorithmId: "opr", version: opr.version });
     // Since quick task 260921-5qw a FIRST fold also writes the event's live roster, the tiny object a
@@ -1850,6 +1861,8 @@ describe("runTick — the tick probes a probe window", () => {
 
     const fetchMock = vi.fn(async (url: unknown, init?: { headers?: Record<string, string> }) => {
       const u = String(url);
+      const quietOfficialData = officialDataStubResponse(u);
+      if (quietOfficialData !== undefined) return quietOfficialData;
       if (u.includes("/event/2026probe/")) {
         return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
       }
@@ -1887,6 +1900,8 @@ describe("runTick — the tick probes a probe window", () => {
       "fetch",
       vi.fn(async (url: unknown) => {
         const u = String(url);
+        const quietOfficialData = officialDataStubResponse(u);
+        if (quietOfficialData !== undefined) return quietOfficialData;
         // The roster pass's conditional poll (quick task 260925-uy5), 304 and
         // NOT recorded in `calls` — `calls` is the probe's own per-window
         // request, which is what the equality below is about.
@@ -1985,8 +2000,10 @@ describe("runTick - the ingest log", () => {
     expect(d1.ingestLog.statementCount).toBe(statementsAfterFirst);
     // 1 live windows + 1 roster cursors + 1 roster poll + 1 cursor + 1 poll (304)
     // + 1 algorithms manifest + 1 tick state + 1 tick meta: the figure this tick
-    // spent before the log existed.
-    expect(second.subrequestsUsed).toBe(8);
+    // spent before the log existed, plus 1 for the live event pass's rankings poll
+    // (quick task 261004-uyc plan 02, moved from 8 on purpose). The stub answers
+    // that poll with an empty body, so it writes nothing and logs nothing.
+    expect(second.subrequestsUsed).toBe(9);
   });
 
   it("with the log's table rejecting every insert the tick still advances and writes the same artifacts", async () => {
@@ -2100,5 +2117,115 @@ describe("runTick - the phase model (quick task 261004-uyc)", () => {
     expect(result.eventsFailed).toBe(0);
     expect(r2.puts.map((p) => p.key).sort()).toEqual(controlR2.puts.map((p) => p.key).sort());
     expect(d1.ingestLog.rows.find((row) => row.kind === "failure")).toMatchObject({ subject: "live-event-pass", eventKey: "2026casj" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TBA's own rankings through a real tick (quick task 261004-uyc plan 02): they
+// land on the artifact the fold just wrote, and a LATER fold never counts over
+// them.
+// ---------------------------------------------------------------------------
+
+describe("runTick - TBA's rankings survive the next fold", () => {
+  const RANK_WINDOW: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 7_200_000 };
+
+  function rankingsResponse(): unknown {
+    return {
+      rankings: ALL_TEAMS.map((teamKey, i) => ({
+        team_key: teamKey,
+        rank: ALL_TEAMS.length - i,
+        matches_played: 1,
+        dq: 0,
+        qual_average: null,
+        sort_orders: [2 + i * 0.5, 0],
+        extra_stats: [],
+        record: { wins: i < 3 ? 1 : 0, losses: i < 3 ? 0 : 1, ties: 0 },
+      })),
+      sort_order_info: [{ name: "Ranking Score", precision: 2 }],
+      extra_stats_info: [],
+    };
+  }
+
+  /** The base stub, with `/rankings` answered like TBA: a 200 with an ETag, then a 304 for that ETag. */
+  function stubWithRankings(events: Map<string, TbaEventRecord>, rankingRequests: (string | undefined)[]): void {
+    const base = makeTbaFetchStub(events) as unknown as (url: unknown, init?: { headers?: Record<string, string> }) => Promise<unknown>;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown, init?: { headers?: Record<string, string> }) => {
+        if (/\/event\/[^/]+\/rankings$/.test(String(url))) {
+          const ifNoneMatch = init?.headers?.["If-None-Match"];
+          rankingRequests.push(ifNoneMatch);
+          if (ifNoneMatch === "rank-etag-1") return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
+          return { status: 200, ok: true, headers: { get: (name: string) => (name === "etag" ? "rank-etag-1" : null) }, json: async () => rankingsResponse() };
+        }
+        return base(url, init);
+      })
+    );
+  }
+
+  function eventArtifactOf(r2: FakeR2Bucket): ReturnType<typeof EventArtifactSchema.parse> {
+    const key = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "opr", version: opr.version });
+    return EventArtifactSchema.parse(JSON.parse(r2.puts.filter((put) => put.key === key).at(-1)!.body));
+  }
+
+  it("tick one folds a qualification match and merges TBA's rankings; tick two folds another and the ranks and the missing marker survive", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    const rankingRequests: (string | undefined)[] = [];
+    stubWithRankings(new Map([["2026casj", twoMatchEventRecord("2026casj", "etag-1")]]), rankingRequests);
+
+    const first = await runTick(makeEnv(makeManifests([RANK_WINDOW]), d1, r2), { nowMs: NOW_MS });
+
+    expect(first.eventsAdvanced).toBe(1);
+    expect(first.officialDataPolled).toBe(1);
+    expect(first.officialDataWritten).toBe(1);
+    const afterFirst = eventArtifactOf(r2);
+    expect(afterFirst).not.toHaveProperty("standings");
+    expect(afterFirst.teams.find((row) => row.teamKey === "frc6")).toMatchObject({ rank: 1, record: { wins: 0, losses: 1, ties: 0 } });
+    expect(afterFirst.teams.find((row) => row.teamKey === "frc1")).toMatchObject({ rank: 6, rp: 2 });
+
+    // Tick two: qm2 is now played too, a fold the counting rule would have turned
+    // into a counted standing with a marker.
+    const secondRecord = twoMatchEventRecord("2026casj", "etag-2");
+    secondRecord.matches[1] = tbaMatch({ key: "2026casj_qm2", eventKey: "2026casj", matchNumber: 2, redTeams: ["frc7", "frc8", "frc9"], blueTeams: ["frc10", "frc11", "frc12"], redScore: 100, blueScore: 90, actualTimeSec: Math.floor(NOW_MS / 1000) - 10 });
+    stubWithRankings(new Map([["2026casj", secondRecord]]), rankingRequests);
+    const second = await runTick(makeEnv(makeManifests([RANK_WINDOW]), d1, r2), { nowMs: NOW_MS + 60_000 });
+
+    expect(second.eventsAdvanced).toBe(1);
+    // The remembered ETag is sent, answered 304, and nothing further is written.
+    expect(rankingRequests).toEqual([undefined, "rank-etag-1"]);
+    expect(second.officialDataPolled).toBe(1);
+    expect(second.officialDataWritten).toBe(0);
+    const afterSecond = eventArtifactOf(r2);
+    expect(afterSecond).not.toHaveProperty("standings");
+    expect(afterSecond.matches.map((row) => row.matchKey).sort()).toEqual(["2026casj_qm1", "2026casj_qm2"]);
+    expect(afterSecond.teams.filter((row) => row.rank !== undefined).map((row) => [row.teamKey, row.rank]).sort()).toEqual(
+      ALL_TEAMS.map((teamKey, i) => [teamKey, ALL_TEAMS.length - i]).sort()
+    );
+  });
+
+  it("a rankings poll that throws does not change the fold's outcome", async () => {
+    const control = { d1: new FakeD1Database(), r2: new FakeR2Bucket() };
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", twoMatchEventRecord("2026casj", "etag-1")]])));
+    const controlResult = await runTick(makeEnv(makeManifests([RANK_WINDOW]), control.d1, control.r2), { nowMs: NOW_MS });
+
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    const base = makeTbaFetchStub(new Map([["2026casj", twoMatchEventRecord("2026casj", "etag-1")]])) as unknown as (url: unknown, init?: { headers?: Record<string, string> }) => Promise<unknown>;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown, init?: { headers?: Record<string, string> }) => {
+        if (/\/rankings$/.test(String(url))) return { status: 500, ok: false, headers: new Map(), json: async () => ({}) };
+        return base(url, init);
+      })
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await runTick(makeEnv(makeManifests([RANK_WINDOW]), d1, r2), { nowMs: NOW_MS });
+
+    expect(result.eventsAdvanced).toBe(controlResult.eventsAdvanced);
+    expect(result.eventsFailed).toBe(0);
+    expect(r2.puts.map((p) => p.key).sort()).toEqual(control.r2.puts.map((p) => p.key).sort());
+    expect(d1.ingestLog.rows.find((row) => row.kind === "failure")).toMatchObject({ subject: "rankings", eventKey: "2026casj" });
   });
 });

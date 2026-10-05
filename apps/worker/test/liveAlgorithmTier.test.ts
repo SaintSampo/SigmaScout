@@ -70,6 +70,7 @@ import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
 import { IngestLogFakeStore, isIngestLogSql } from "./support/ingestLogFake.js";
+import { officialDataStubResponse } from "./support/officialDataStubs.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -415,6 +416,8 @@ interface TbaEventRecord {
 function makeTbaFetchStub(events: Map<string, TbaEventRecord>): ReturnType<typeof vi.fn> {
   return vi.fn(async (url: unknown, init?: { headers?: Record<string, string> }) => {
     const u = String(url);
+    const quietOfficialData = officialDataStubResponse(u);
+    if (quietOfficialData !== undefined) return quietOfficialData;
     const ifNoneMatch = init?.headers?.["If-None-Match"];
 
     const matchesMatch = /\/event\/([^/]+)\/matches$/.exec(u);
@@ -498,6 +501,8 @@ describe("liveAlgorithmTier — an idle-but-considered tick's subrequest count",
     const r2 = new FakeR2Bucket();
     const fetchMock = vi.fn(async (url: unknown) => {
       const u = String(url);
+      const quietOfficialData = officialDataStubResponse(u);
+      if (quietOfficialData !== undefined) return quietOfficialData;
       if (/\/event\/[^/]+\/matches$/.test(u)) {
         return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
       }

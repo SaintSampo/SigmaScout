@@ -22,7 +22,7 @@
  * else — never the TBA key, never a header dump — so the caller
  * (`scheduled.ts`) can catch per event and confine the failure to it.
  */
-import { fetchDistrictRankings, fetchEventAwards, fetchEventMatches, fetchEventTeamsSimple, TbaRequestCounter, THROTTLE_INTERVAL_MS, type TbaClientContext, type TbaFetchResult } from "../../../packages/ingest/tbaClient.js";
+import { fetchDistrictRankings, fetchEventAlliances, fetchEventAwards, fetchEventMatches, fetchEventRankings, fetchEventTeamsSimple, TbaRequestCounter, THROTTLE_INTERVAL_MS, type TbaClientContext, type TbaFetchResult } from "../../../packages/ingest/tbaClient.js";
 import type { Env } from "./env.js";
 
 export { TbaRequestCounter, THROTTLE_INTERVAL_MS };
@@ -159,6 +159,60 @@ export async function pollEventTeams(ctx: TbaClientContext, eventKey: string, ca
     result = await fetchEventTeamsSimple(ctx, eventKey, cachedEtag);
   } catch (err) {
     throw new TbaEventTeamsPollError(eventKey, err);
+  }
+  if (result.status === 304) return { status: "not-modified" };
+  return { status: "ok", etag: result.etag, body: result.body, ...(result.lastModified !== undefined ? { lastModified: result.lastModified } : {}) };
+}
+
+/** Thrown by `pollEventRankings` for any non-2xx, non-304 TBA response, or for a transport-level `fetch` failure: always names ONLY the event key, never the TBA key, never response headers. Mirrors `TbaPollError`. */
+export class TbaEventRankingsPollError extends Error {
+  constructor(eventKey: string, cause: unknown) {
+    super(`pollEventRankings: TBA poll failed for event "${eventKey}"${cause instanceof Error ? `: ${cause.message}` : ""}`);
+    this.name = "TbaEventRankingsPollError";
+  }
+}
+
+/** Thrown by `pollEventAlliances` for any non-2xx, non-304 TBA response, or for a transport-level `fetch` failure: always names ONLY the event key, never the TBA key, never response headers. Mirrors `TbaPollError`. */
+export class TbaEventAlliancesPollError extends Error {
+  constructor(eventKey: string, cause: unknown) {
+    super(`pollEventAlliances: TBA poll failed for event "${eventKey}"${cause instanceof Error ? `: ${cause.message}` : ""}`);
+    this.name = "TbaEventAlliancesPollError";
+  }
+}
+
+/**
+ * `GET /event/{key}/rankings`, conditional on `cachedEtag` (quick task
+ * 261004-uyc). TBA's own standings for the event: rank, record and Ranking Score
+ * per team. The body is returned raw; `liveEventPass.ts` parses it through
+ * `tbaEventRankingsResponseSchema` and `normalizeEventRankings` at its own
+ * boundary, so a parse failure is confined to the one event it came from. A 200
+ * whose body is a bare `null` is a real answer (no ranking structure yet), not a
+ * failure. A 304 costs the same ONE request as a 200; see this file's header.
+ */
+export async function pollEventRankings(ctx: TbaClientContext, eventKey: string, cachedEtag: string | undefined): Promise<TbaConditionalBody> {
+  let result: TbaFetchResult;
+  try {
+    result = await fetchEventRankings(ctx, eventKey, cachedEtag);
+  } catch (err) {
+    throw new TbaEventRankingsPollError(eventKey, err);
+  }
+  if (result.status === 304) return { status: "not-modified" };
+  return { status: "ok", etag: result.etag, body: result.body, ...(result.lastModified !== undefined ? { lastModified: result.lastModified } : {}) };
+}
+
+/**
+ * `GET /event/{key}/alliances`, conditional on `cachedEtag` (quick task
+ * 261004-uyc). The playoff alliance selection with each alliance's playoff
+ * status. Same contract as `pollEventRankings`: raw body, parsed by the caller
+ * through `tbaAllianceResponseSchema`, a bare `null` or an empty array being real
+ * answers.
+ */
+export async function pollEventAlliances(ctx: TbaClientContext, eventKey: string, cachedEtag: string | undefined): Promise<TbaConditionalBody> {
+  let result: TbaFetchResult;
+  try {
+    result = await fetchEventAlliances(ctx, eventKey, cachedEtag);
+  } catch (err) {
+    throw new TbaEventAlliancesPollError(eventKey, err);
   }
   if (result.status === 304) return { status: "not-modified" };
   return { status: "ok", etag: result.etag, body: result.body, ...(result.lastModified !== undefined ? { lastModified: result.lastModified } : {}) };

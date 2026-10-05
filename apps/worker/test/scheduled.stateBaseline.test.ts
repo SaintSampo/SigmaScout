@@ -22,6 +22,7 @@ import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
 import { IngestLogFakeStore, isIngestLogSql } from "./support/ingestLogFake.js";
+import { officialDataStubResponse } from "./support/officialDataStubs.js";
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -313,6 +314,8 @@ interface TbaEventRecord {
 function makeTbaFetchStub(events: Map<string, TbaEventRecord>): ReturnType<typeof vi.fn> {
   return vi.fn(async (url: unknown, init?: { headers?: Record<string, string> }) => {
     const u = String(url);
+    const quietOfficialData = officialDataStubResponse(u);
+    if (quietOfficialData !== undefined) return quietOfficialData;
     const ifNoneMatch = init?.headers?.["If-None-Match"];
 
     const matchesMatch = /\/event\/([^/]+)\/matches$/.exec(u);

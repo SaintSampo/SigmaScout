@@ -35,6 +35,7 @@ import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
 import { IngestLogFakeStore, isIngestLogSql } from "./support/ingestLogFake.js";
+import { officialDataStubResponse } from "./support/officialDataStubs.js";
 
 /**
  * `packages/harness/replay.ts` (`WalkForwardSimulator`) and
@@ -404,6 +405,8 @@ function toMatchResult(f: MatchFixture): MatchResult {
 function makeTbaFetchStub(): ReturnType<typeof vi.fn> {
   return vi.fn(async (url: unknown) => {
     const u = String(url);
+    const quietOfficialData = officialDataStubResponse(u);
+    if (quietOfficialData !== undefined) return quietOfficialData;
     if (/\/event\/[^/]+\/matches$/.test(u)) {
       const revealed = MATCH_FIXTURES.slice(0, revealedCount).map(toTbaMatch);
       return { status: 200, ok: true, headers: { get: (name: string) => (name === "etag" ? `etag-${revealedCount}` : null) }, json: async () => revealed };

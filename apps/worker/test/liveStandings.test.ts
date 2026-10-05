@@ -193,7 +193,7 @@ describe("deriveEventStandings — the counted tally", () => {
 describe("mergeEventArtifact wiring", () => {
   const EVENT_KEY = "2026casf";
 
-  function existingArtifact(): EventArtifact {
+  function existingArtifact(marker: boolean = true): EventArtifact {
     return {
       schemaVersion: PAGE_ARTIFACT_SCHEMA_VERSION,
       generation: "published-gen",
@@ -208,8 +208,11 @@ describe("mergeEventArtifact wiring", () => {
         { matchKey: `${EVENT_KEY}_qm2`, compLevel: "qm", setNumber: 1, matchNumber: 2, redTeams: ["frc2"], blueTeams: ["frc1"], actualWinner: "red", actualRedRp: 3, actualBlueRp: 0 },
       ],
       upcoming: [],
-      // The published standings are deliberately WRONG for these rows: a stale
-      // rank frozen at publish time is exactly what the tick now corrects.
+      // The standings are deliberately WRONG for these rows: a stale rank is
+      // exactly what the tick corrects, while the artifact carries the tick
+      // counted marker. Without the marker the same rows are TBA's own and are
+      // never counted over (quick task 261004-uyc), which the case below pins.
+      ...(marker ? { standings: { source: "tick-counted", ranked: true } } : {}),
       teams: [
         { teamKey: "frc1", teamNumber: 1, nickname: "One", metrics: {}, rank: 1, record: { wins: 9, losses: 9, ties: 9 }, rp: 99 },
         { teamKey: "frc2", teamNumber: 2, nickname: "Two", metrics: {}, rank: 2, record: { wins: 9, losses: 9, ties: 9 }, rp: 99 },
@@ -217,7 +220,7 @@ describe("mergeEventArtifact wiring", () => {
     } as unknown as EventArtifact;
   }
 
-  it("the merged teams rows carry the counted record, rp and rank, replacing the stale published standings", () => {
+  it("the merged teams rows carry the counted record, rp and rank, replacing the stale counted standings", () => {
     const merged = mergeEventArtifact({
       existing: existingArtifact(),
       eventKey: EVENT_KEY,
@@ -241,5 +244,28 @@ describe("mergeEventArtifact wiring", () => {
       expect.objectContaining({ teamKey: "frc1", record: { wins: 1, losses: 1, ties: 0 }, rp: 1.5, rank: 2 }),
       expect.objectContaining({ teamKey: "frc2", record: { wins: 1, losses: 1, ties: 0 }, rp: 2.5, rank: 1 }),
     ]);
+  });
+
+  it("rows carrying TBA's ranks and no marker are returned unchanged: a count never overwrites official standings (quick task 261004-uyc)", () => {
+    const existing = existingArtifact(false);
+    const merged = mergeEventArtifact({
+      existing,
+      eventKey: EVENT_KEY,
+      season: 2026,
+      algorithmId: spr.id,
+      algorithmVersion: spr.version,
+      eventType: 0,
+      newlyFolded: [],
+      newPredictions: new Map(),
+      upcoming: [],
+      touchedTeams: [],
+      touchedMetrics: {},
+      newBands: new Map(),
+      playedRowFacts: new Map(),
+      stamp: { generation: "tick-1", computedAt: "2026-09-23T00:00:00.000Z" },
+    }) as { teams: unknown[]; standings?: unknown };
+
+    expect(merged.teams).toEqual(existing.teams);
+    expect(merged).not.toHaveProperty("standings");
   });
 });

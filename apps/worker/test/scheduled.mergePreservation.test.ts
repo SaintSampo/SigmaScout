@@ -138,6 +138,11 @@ function existingEvent(): EventArtifact {
   return EventArtifactSchema.parse(offlineEventArtifact());
 }
 
+/** The same artifact after a tick counted its standings: ranks present AND the marker, which is what lets a merge count over them. */
+function countedExistingEvent(): EventArtifact {
+  return EventArtifactSchema.parse({ ...offlineEventArtifact(), standings: { source: "tick-counted", ranked: true } });
+}
+
 const TICK_QM2 = matchResult({ matchKey: UPCOMING_QM2.matchKey, matchNumber: 2, redTeams: [...UPCOMING_QM2.redTeams], blueTeams: [...UPCOMING_QM2.blueTeams], winner: "blue", redScore: 90, blueScore: 101 });
 const TOUCHED = [...TICK_QM2.redTeams, ...TICK_QM2.blueTeams].sort();
 const FRESH_METRICS: Record<string, Record<string, TeamMetric>> = Object.fromEntries(TOUCHED.map((teamKey, i) => [teamKey, { total: { value: 60.123 + i } }]));
@@ -231,13 +236,23 @@ describe("mergeEventArtifact keeps every key the tick does not own", () => {
     }
   });
 
-  it("the counted columns really moved: at least one row's record differs from the published one", () => {
+  it("the counted columns really moved: over a tick counted artifact, at least one row's record differs from the one it held", () => {
     // Non-vacuity for the case above — without this, a merge that silently
-    // stopped counting would still pass it.
-    const offline = offlineEventArtifact();
-    const written = mergeEvent({ existing: existingEvent() });
-    const moved = written.teams.filter((row, i) => JSON.stringify(row.record) !== JSON.stringify(offline.teams[i]!.record));
+    // stopped counting would still pass it. The existing artifact carries the
+    // tick counted marker (quick task 261004-uyc): an artifact holding TBA's own
+    // ranks and NO marker is never counted over, which the next case pins.
+    const counted = countedExistingEvent();
+    const written = mergeEvent({ existing: counted });
+    const moved = written.teams.filter((row, i) => JSON.stringify(row.record) !== JSON.stringify(counted.teams[i]!.record));
     expect(moved.length).toBeGreaterThan(0);
+    expect(written.standings).toEqual({ source: "tick-counted", ranked: true });
+  });
+
+  it("an artifact carrying TBA's official ranks keeps rank, record and rp through the merge and gains no standings marker (quick task 261004-uyc)", () => {
+    const offline = offlineEventArtifact();
+    const written = mergeEventRaw({ existing: existingEvent() }) as { teams: EventArtifact["teams"] };
+    expect(written).not.toHaveProperty("standings");
+    expect(written.teams.map((row) => [row.teamKey, row.rank, row.record, row.rp])).toEqual(offline.teams.map((row) => [row.teamKey, row.rank, row.record, row.rp]));
   });
 
   it("writes no stale state block for a non-SPR artifact with upcoming matches", () => {
@@ -597,8 +612,11 @@ describe("mergeEventArtifact — rosterRows appends registered teams and disturb
     // touches. Asserted as a DIFFERENCE between two merges rather than against a
     // hardcoded expectation, so this stays true whatever the counting rule does
     // next.
-    const withoutRoster = mergeWithRoster({ existing: existingEvent(), rosterRows: [] });
-    const withRoster = mergeWithRoster({ existing: existingEvent(), rosterRows: [{ teamKey: "frc32", teamNumber: 32, nickname: "Thirty Two" }] });
+    // Over a TICK COUNTED artifact: an artifact holding TBA's own ranks is never
+    // counted over (quick task 261004-uyc), so the roster branch would have
+    // nothing to be "unchanged by".
+    const withoutRoster = mergeWithRoster({ existing: countedExistingEvent(), rosterRows: [] });
+    const withRoster = mergeWithRoster({ existing: countedExistingEvent(), rosterRows: [{ teamKey: "frc32", teamNumber: 32, nickname: "Thirty Two" }] });
 
     expect(withRoster.standings).toEqual(withoutRoster.standings);
     expect(withRoster.teams.slice(0, withoutRoster.teams.length)).toEqual(withoutRoster.teams);

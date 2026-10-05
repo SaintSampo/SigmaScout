@@ -25,6 +25,7 @@ import type { LiveWindowEntry } from "../../../packages/harness/manifestSchemas.
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
 import { IngestLogFakeStore, isIngestLogSql } from "./support/ingestLogFake.js";
+import { officialDataStubResponse } from "./support/officialDataStubs.js";
 
 // ---------------------------------------------------------------------------
 // Fakes (duplicated from scheduled.test.ts — see this file's header)
@@ -315,6 +316,8 @@ interface TbaDistrictRecord {
 function makeTbaFetchStub(events: Map<string, TbaEventRecord>, districts: Map<string, TbaDistrictRecord> = new Map(), districtStatusOverride: Map<string, number> = new Map()): ReturnType<typeof vi.fn> {
   return vi.fn(async (url: unknown, init?: { headers?: Record<string, string> }) => {
     const u = String(url);
+    const quietOfficialData = officialDataStubResponse(u);
+    if (quietOfficialData !== undefined) return quietOfficialData;
     const ifNoneMatch = init?.headers?.["If-None-Match"];
 
     const rankingsMatch = /\/district\/([^/]+)\/rankings$/.exec(u);

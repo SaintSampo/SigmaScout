@@ -40,6 +40,7 @@ import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
 import type { Env } from "../src/env.js";
 import type { D1Database } from "@cloudflare/workers-types";
 import { IngestLogFakeStore, isIngestLogSql } from "./support/ingestLogFake.js";
+import { officialDataStubResponse } from "./support/officialDataStubs.js";
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -349,6 +350,8 @@ let rosterPoll: { teams: readonly unknown[] | null; etag: string } | null = null
 function makeTbaFetchStub(eventType = 0): ReturnType<typeof vi.fn> {
   return vi.fn(async (url: unknown) => {
     const u = String(url);
+    const quietOfficialData = officialDataStubResponse(u);
+    if (quietOfficialData !== undefined) return quietOfficialData;
     if (/\/event\/[^/]+\/teams\/simple$/.test(u)) {
       if (rosterPoll === null) return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
       return { status: 200, ok: true, headers: { get: (name: string) => (name === "etag" ? rosterPoll!.etag : null) }, json: async () => rosterPoll!.teams };

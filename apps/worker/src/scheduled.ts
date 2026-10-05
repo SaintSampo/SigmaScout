@@ -198,7 +198,7 @@ import { rotate, sortEventKeys, SubrequestCounter } from "./subrequestCounter.js
 import { createTbaContext, pollEventMatches, pollEventTeams, TbaRequestCounter, type TbaClientContext } from "./tbaPoll.js";
 import { flushIngestLog, IngestLogBuffer, matchArrivalFacts, type LiveTickContext } from "./ingestLog.js";
 import { deriveLivePhaseFacts } from "./eventPhase.js";
-import { readOpenWindowCursors, runLiveEventPass } from "./liveEventPass.js";
+import { NO_OFFICIAL_DATA, readOpenWindowCursors, runLiveEventPass, type LiveEventPassResult } from "./liveEventPass.js";
 import type { Env } from "./env.js";
 
 // ---------------------------------------------------------------------------
@@ -2078,6 +2078,10 @@ export interface TickResult {
   readonly districtsFailed: number;
   /** Rows the tick's ingest log flush wrote to D1 (quick task 261004-uyc). Zero on a tick that saw no change, and zero when the flush failed: the log never changes the fold's outcome. */
   readonly ingestRowsWritten: number;
+  /** TBA rankings and alliances requests that COMPLETED this tick, 304 or 200, over every open event (quick task 261004-uyc). A throwing poll is confined to its event and counted in neither this nor `eventsFailed`. */
+  readonly officialDataPolled: number;
+  /** Event artifacts the official data pass rewrote this tick, summed over algorithms and events. Zero on a tick whose polls all answered 304. */
+  readonly officialDataWritten: number;
 }
 
 /** What `runTickCore` returns: every `TickResult` field the wrapper does not own. */
@@ -2127,7 +2131,7 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
   const liveEvents = await loadLiveEventsAt(env, nowMs);
 
   if (liveEvents.length === 0) {
-    return { eventsConsidered: 0, eventsAdvanced: 0, eventsFailed: 0, eventsProbed: 0, eventsPromoted: 0, eventsPriced: 0, ...NO_ROSTER_PASS, tbaRequests: tbaCounter.total, subrequestsUsed: subrequests.used, globalRebuildRan: false, stateGenerationMismatch: false, ...NO_DISTRICT_REFRESH };
+    return { eventsConsidered: 0, eventsAdvanced: 0, eventsFailed: 0, eventsProbed: 0, eventsPromoted: 0, eventsPriced: 0, ...NO_ROSTER_PASS, tbaRequests: tbaCounter.total, subrequestsUsed: subrequests.used, globalRebuildRan: false, stateGenerationMismatch: false, ...NO_DISTRICT_REFRESH, ...NO_OFFICIAL_DATA };
   }
 
   // Split into foldable (`inferred: false`, a real measured window) and
@@ -2189,6 +2193,13 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
     // besides probes) tick ends here, having paid ONLY for `loadLiveEventsAt`
     // and each probe's own two calls — no algorithms manifest, no
     // `buildAlgorithmModules`, no D1 batch, no artifact write.
+    //
+    // THE ONE ADDITION (quick task 261004-uyc): the live event pass, so an open
+    // event whose `/matches` answered 304 or never promoted is still asked for
+    // its rankings and alliances from the phase it was last stored in. A window
+    // whose stored phase wants neither costs nothing here: no request, no
+    // algorithm context, no write, which keeps every cheap-idle pin above true.
+    const officialData = await runLiveEventPass(env, subrequests, { windows: liveEvents, cursors: openCursors, live, nowIso, tbaCtx, algorithmContext, stamp });
     return {
       eventsConsidered: 0,
       eventsAdvanced: 0,
@@ -2206,6 +2217,7 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
       // which is CONTEXT's own rationale for deriving district liveness from
       // member-event liveness in the first place.
       ...NO_DISTRICT_REFRESH,
+      ...officialData,
     };
   }
 
@@ -2238,8 +2250,10 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
       globalRebuildRan: false,
       stateGenerationMismatch: true,
       // Nor from here: a state-generation mismatch suspends EVERY live write
-      // until the seed lands, districts included.
+      // until the seed lands, districts included, and the official data pass
+      // with them.
       ...NO_DISTRICT_REFRESH,
+      ...NO_OFFICIAL_DATA,
     };
   }
 
@@ -2313,10 +2327,14 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
   // that has not proven it has a single match would spend against exactly that.
   const districtRefresh = await runDistrictRefresh(env, subrequests, tbaCtx, { windows: [...foldableWindows, ...promotedWindows], matchDerivedState, stamp, nowIso });
 
-  // THE LIVE EVENT PASS (quick task 261004-uyc): each open event's phase, a phase
-  // change logged and remembered. Never throws; unreachable from both early
-  // returns above.
-  await runLiveEventPass(env, subrequests, { windows: liveEvents, cursors: openCursors, live, nowIso });
+  // THE LIVE EVENT PASS (quick task 261004-uyc): each open event's phase, TBA's
+  // own rankings and alliances polled by that phase and written onto every live
+  // algorithm's event artifact, a phase change logged and remembered. Never
+  // throws. It runs AFTER the fold loop on purpose: it reads the artifact the
+  // fold just wrote and merges TBA's data into that. The probe-only return above
+  // carries the pass's other call site; the state-generation mismatch return
+  // does not, because a mismatch suspends every live write.
+  const officialData: LiveEventPassResult = await runLiveEventPass(env, subrequests, { windows: liveEvents, cursors: openCursors, live, nowIso, tbaCtx, algorithmContext, stamp });
 
   const newMeta: TickMeta = {
     rotationOffset: orderedEventKeys.length > 0 ? (meta.rotationOffset + eventsAdvanced) % orderedEventKeys.length : 0,
@@ -2337,6 +2355,7 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
     globalRebuildRan,
     stateGenerationMismatch: false,
     ...districtRefresh,
+    ...officialData,
   };
 }
 
