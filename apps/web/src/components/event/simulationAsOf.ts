@@ -44,7 +44,7 @@ import type { AsOfCut, AsOfIndex, AsOfLog, AsOfSeason } from "../../../../../pac
 import type { SimTeamBaseline } from "../../../../../packages/core/algorithms/simulation/rankSimulation.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { SimulationAsOfBlock } from "../../workers/simulationAsOfJob.js";
-import { asOfCutId, AsOfObjectSet, asOfQualSplit, asOfStaleObjectIds, type AsOfFetchers } from "../districts/asOfRewind.js";
+import { asOfCutId, AsOfObjectSet, asOfQualSplit, asOfSeasonIsPriceable, asOfStaleObjectIds, type AsOfFetchers } from "../districts/asOfRewind.js";
 
 /** The one algorithm whose as-of state is published: the layer prices ranking points for it, and the wire format describes its state. */
 export const SIMULATION_AS_OF_ALGORITHM_ID = "spr";
@@ -95,6 +95,9 @@ export async function loadSimulationAsOf(params: { readonly artifact: EventArtif
   const { artifact, startMatchKey } = params;
   const eventKey = artifact.eventKey;
   if (artifact.eventType === undefined) return { status: "fallback", reason: `${eventKey}'s artifact names no event type` };
+  // The pricer has no rule set for an unregistered season and would throw in
+  // the Worker, which is the error state: fall back before fetching anything.
+  if (!asOfSeasonIsPriceable(artifact.season)) return { status: "fallback", reason: `season ${String(artifact.season)} has no registered RP rule module` };
 
   const [cachedIndex, log, season] = await Promise.all([fetchers.index(eventKey), fetchers.log(eventKey), fetchers.season()]);
   let index = cachedIndex;

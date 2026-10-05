@@ -475,6 +475,22 @@ export function asOfScheduleStopEventKey(at: string | undefined): string | undef
   return at.slice(0, -suffix.length);
 }
 
+/**
+ * The seasons the as-of pricer can price: those with a registered RP rule
+ * module (`packages/core/rankingPoints/rules.ts` `RP_REGISTERED_SEASONS`).
+ * `buildAsOfPricer` throws for any other season, so a rewind in one (a new
+ * season before its module lands) never reaches the Worker: the Locks tabs
+ * read every event unavailable and the Simulation tab falls back to today's
+ * behaviour. Restated, not imported, so the main bundle does not carry every
+ * season's rule module for one lookup; `asOfRewind.test.ts` pins the two
+ * equal, so registering a season fails that test until this list follows.
+ */
+export const AS_OF_PRICEABLE_SEASONS: readonly number[] = [2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026];
+
+export function asOfSeasonIsPriceable(season: number): boolean {
+  return AS_OF_PRICEABLE_SEASONS.includes(season);
+}
+
 /** An upper bound on fetch rounds: each round fetches every object the previous resolve named, and a walk crosses a handful of events. */
 const MAX_RESOLVE_ROUNDS = 32;
 
@@ -498,6 +514,7 @@ export function asOfCandidateEvents(input: Pick<AsOfRewindInput, "candidates" | 
  * unavailable and the others still resolve.
  */
 export async function loadAsOfRewind(input: AsOfRewindInput, fetchers: AsOfFetchers): Promise<AsOfRewindResult> {
+  if (!asOfSeasonIsPriceable(input.districtArtifact.year)) return { status: "unavailable", reason: `season ${String(input.districtArtifact.year)} has no registered RP rule module` };
   const fetchSet = [...input.eventArtifacts.keys()].sort();
   const [season, fetched] = await Promise.all([fetchers.season(), Promise.all(fetchSet.map((eventKey) => fetchers.index(eventKey)))]);
   if (season === null) return { status: "unavailable", reason: "the season object is not published" };

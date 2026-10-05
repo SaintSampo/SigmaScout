@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { defaultMatchesPerTeam } from "../../../../../packages/harness/generatedSchedules.js";
+import { RP_REGISTERED_SEASONS } from "../../../../../packages/core/rankingPoints/rules.js";
 import { AS_OF_SEASON_START_CUT, type AsOfIndex, type AsOfLog, type AsOfSeason, type AsOfStart } from "../../../../../packages/harness/asOfState.js";
 import {
   AAA,
@@ -27,6 +28,7 @@ import {
 import {
   asOfCutId,
   asOfDefaultMatchesPerTeam,
+  AS_OF_PRICEABLE_SEASONS,
   asOfQualSplit,
   asOfStopAnchorId,
   districtRegistrations,
@@ -249,6 +251,15 @@ describe("loadAsOfRewind: the fetch loop", () => {
   it("reads every event unavailable when the season object is unpublished", async () => {
     const { fetchers } = countingFetchers({ ...OBJECTS, bodies: new Map([...OBJECTS.bodies].filter(([key]) => !key.includes("asof-season"))) });
     expect((await loadAsOfRewind(input("2026wabbb:m:2026wabbb_qm2"), fetchers)).status).toBe("unavailable");
+  });
+
+  it("reads every event unavailable, fetching nothing, in a season with no registered RP rule module (N5)", async () => {
+    const { fetchers, calls } = countingFetchers();
+    const result = await loadAsOfRewind({ ...input("2026wabbb:m:2026wabbb_qm2"), districtArtifact: { ...districtArtifact(), year: 2027 } }, fetchers);
+    expect(result).toEqual({ status: "unavailable", reason: "season 2027 has no registered RP rule module" });
+    expect(calls).toEqual([]);
+    // The restated list is the registry, exactly: registering a season fails here until the list follows.
+    expect([...AS_OF_PRICEABLE_SEASONS]).toEqual([...RP_REGISTERED_SEASONS]);
   });
 
   it("reads an event with an unpublished INDEX unavailable, and every event whose teams' walks must step into it, without failing the stop", async () => {

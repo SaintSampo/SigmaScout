@@ -234,6 +234,10 @@ describe("the Simulation tab's SPR rewind on the published fixture", () => {
     expect(await fallbackReason({ ...base, season: async () => null }, bbbArtifact, "2024bbb_qm6")).toMatch(/season object/);
     expect(await fallbackReason({ ...base, log: async () => null }, bbbArtifact, "2024bbb_qm6")).toMatch(/LOG/);
     expect(await fallbackReason(base, { ...bbbArtifact, eventType: undefined }, "2024bbb_qm6")).toMatch(/event type/);
+    // A season with no registered RP rule module (N5): today's behaviour, before any fetch, never the Worker's error state.
+    const callsBefore = base.calls.length;
+    expect(await fallbackReason(base, { ...bbbArtifact, season: 2027 }, "2024bbb_qm6")).toMatch(/season 2027 has no registered RP rule module/);
+    expect(base.calls.length).toBe(callsBefore);
     // A row the INDEX does not hold (2024ddd qm7 was never played).
     expect(await fallbackReason(base, eventArtifact(full, "2024ddd"), "2024ddd_qm7")).toMatch(/not in 2024ddd's INDEX/);
     // An INDEX written before lb existed cannot price a start at the event's first row.
