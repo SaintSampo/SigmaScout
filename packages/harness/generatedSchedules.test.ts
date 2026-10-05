@@ -303,8 +303,8 @@ describe("buildPreScheduleArtifact — one generated structure per schedule", ()
 });
 
 describe("ScheduleStructureCache — transparent, bounded, compact", () => {
-  it("the shared instance is capped at SCHEDULE_STRUCTURE_CACHE_CELLS (128)", () => {
-    expect(SCHEDULE_STRUCTURE_CACHE_CELLS).toBe(128);
+  it("the shared instance is capped at SCHEDULE_STRUCTURE_CACHE_CELLS (512)", () => {
+    expect(SCHEDULE_STRUCTURE_CACHE_CELLS).toBe(512);
     expect(SHARED_STRUCTURE_CACHE.maxCells).toBe(SCHEDULE_STRUCTURE_CACHE_CELLS);
     expect(SHARED_STRUCTURE_CACHE.cellCount).toBeLessThanOrEqual(SCHEDULE_STRUCTURE_CACHE_CELLS);
   });

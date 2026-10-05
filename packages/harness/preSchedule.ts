@@ -127,8 +127,14 @@ function fnv1a32(input: string): number {
   return hash >>> 0;
 }
 
-/** How many (roster size, matches per team) cells the shared structure memo holds. 2026's publish reaches 72 distinct cells. */
-export const SCHEDULE_STRUCTURE_CACHE_CELLS = 128;
+/**
+ * How many (roster size, matches per team) cells the shared structure memo holds.
+ * An all-seasons presim run (2016 to 2026, EPA and SPR) reaches 171 distinct cells, 74.4 MB of
+ * encoded structures in total (largest cell 1.22 MB, median 0.44 MB); at 128 cells it evicted and
+ * regenerated cells it had already built 16 times. 2026 alone reaches 65 to 72. 512 holds every
+ * cell with room to spare, and the memory it can reach is the census's, not 512 times the largest.
+ */
+export const SCHEDULE_STRUCTURE_CACHE_CELLS = 512;
 
 /** A slot index shares its code unit with the surrogate flag: the flag is the top bit, the index the bits below it. */
 const NARROW_SURROGATE_BIT = 0x80;
