@@ -179,8 +179,9 @@ export function assertSubsetEntryShape<T extends AbsenceCapableEntry>(entries: r
  * The event-level expectation table. Every number came from a direct corpus
  * measurement; none may be adjusted to match an observed result.
  *
- * The fifteen `spr` entries expect `"partial"` RP pmfs on RP-eligible events
- * (see `expectPlayedQmRpPmf`'s doc comment) and `"absent"` on offseasons. At
+ * The fifteen `spr` entries expect `"partial"` RP pmfs on every event with played
+ * qualification rows (see `expectPlayedQmRpPmf`'s doc comment), offseasons included
+ * since quick task 261004-uyc made offseason a base tier RP event. At
  * `2024casf` the `opr` arm expects no pmfs at all, and the `epa` arm expects
  * them on every played qm row: `publishesRankingPoints()` is true for spr and
  * epa, and EPA's own slots have no cold-start gap.
@@ -231,15 +232,15 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     note:
       "The pure all-unplayed elimination slate: zero played elimination rows against 60 upcoming ef " +
       "rows across 20 sets. Offseason, so only a publish that includes offseason events reaches it. " +
-      "event_type 99 (Offseason) is excluded from isRpEligibleEventType, so it " +
-      "expects ZERO pmf on any of its 38 played qm rows while still carrying actual-RP.",
+      "event_type 99 (Offseason) is a base tier RP event (quick task 261004-uyc), so isRpEligibleEventType " +
+      "holds and it expects pmfs on its 38 played qm rows, partial under SPR, while still carrying actual-RP.",
     expectMatches: 38,
     expectUpcoming: 60,
     expectTeams: 15,
     expectRankedTeams: 15,
     expectAlliances: "populated",
     expectVariance: "present",
-    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmRpPmf: "partial",
     expectPlayedQmActualRp: "present",
   },
   {
@@ -263,16 +264,16 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     algorithmId: "spr",
     note:
       "A named no-ranking event, one of the exact three the no-ranking fallback was measured and " +
-      "written around. Offseason, zero ranking rows. event_type 99 (Offseason) is excluded from " +
-      "isRpEligibleEventType, so it expects ZERO pmf on any of its 58 played qm rows " +
-      "while still carrying actual-RP.",
+      "written around. Offseason, zero ranking rows. event_type 99 (Offseason) is a base tier RP event " +
+      "(quick task 261004-uyc), so isRpEligibleEventType holds and it expects pmfs on its 58 played qm rows, " +
+      "partial under SPR, while still carrying actual-RP.",
     expectMatches: 62,
     expectUpcoming: 0,
     expectTeams: 29,
     expectRankedTeams: 0,
     expectAlliances: "populated",
     expectVariance: "present",
-    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmRpPmf: "partial",
     expectPlayedQmActualRp: "present",
   },
   {
@@ -314,8 +315,8 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     note:
       "Three shapes in one: offseason, zero ranking rows (the no-ranking fallback banner), and " +
       "five alliances of exactly two picks (the incomplete-sum rule on every row). event_type 99 " +
-      "(Offseason) is excluded from isRpEligibleEventType, so it expects ZERO pmf on " +
-      "any of its 16 played qm rows while still carrying actual-RP.",
+      "(Offseason) is a base tier RP event (quick task 261004-uyc), so isRpEligibleEventType holds and it " +
+      "expects pmfs on its 16 played qm rows, partial under SPR, while still carrying actual-RP.",
     expectMatches: 26,
     expectUpcoming: 0,
     expectTeams: 13,
@@ -324,7 +325,7 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     expectVariance: "present",
     expectAllianceCount: 5,
     expectEveryAlliancePicks: 2,
-    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmRpPmf: "partial",
     expectPlayedQmActualRp: "present",
   },
   {
@@ -333,8 +334,8 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     note:
       "The true corpus quals maximum (135 qualification rows) and the " +
       "live-observed absent alliance name case — an alliance carrying declines/picks/status but no name key. " +
-      "event_type 99 (Offseason) is excluded from isRpEligibleEventType, so it " +
-      "expects ZERO pmf on any of its 135 played qm rows while still carrying actual-RP.",
+      "event_type 99 (Offseason) is a base tier RP event (quick task 261004-uyc), so isRpEligibleEventType " +
+      "holds and it expects pmfs on its 135 played qm rows, partial under SPR, while still carrying actual-RP.",
     expectMatches: 154,
     expectUpcoming: 0,
     expectTeams: 30,
@@ -342,7 +343,7 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     expectAlliances: "populated",
     expectVariance: "present",
     expectSomeAllianceWithoutName: true,
-    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmRpPmf: "partial",
     expectPlayedQmActualRp: "present",
   },
   {
@@ -370,15 +371,15 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
       "expectAlliances is empty, confirmed live " +
       "against TBA (GET /event/2025isios/alliances -> 200, []) as real production state, " +
       "not a data defect. " +
-      "event_type 99 (Offseason) is excluded from isRpEligibleEventType, so it expects " +
-      "ZERO pmf on any of its 43 played qm rows while still carrying actual-RP.",
+      "event_type 99 (Offseason) is a base tier RP event (quick task 261004-uyc), so isRpEligibleEventType " +
+      "holds and it expects pmfs on its 43 played qm rows, partial under SPR, while still carrying actual-RP.",
     expectMatches: 43,
     expectUpcoming: 25,
     expectTeams: 45,
     expectRankedTeams: 0,
     expectAlliances: "empty",
     expectVariance: "present",
-    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmRpPmf: "partial",
     expectPlayedQmActualRp: "present",
   },
   {
@@ -387,15 +388,15 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     note:
       "The empty-alliances case: an EMPTY alliances array was live-observed here — a valid 200 with [], on an " +
       "event that ran 83 qualification matches and published 62 rankings. event_type 99 (Offseason) is " +
-      "excluded from isRpEligibleEventType, so it expects ZERO pmf on any of its 83 " +
-      "played qm rows while still carrying actual-RP.",
+      "a base tier RP event (quick task 261004-uyc), so isRpEligibleEventType holds and it expects pmfs on " +
+      "its 83 played qm rows, partial under SPR, while still carrying actual-RP.",
     expectMatches: 113,
     expectUpcoming: 0,
     expectTeams: 62,
     expectRankedTeams: 62,
     expectAlliances: "empty",
     expectVariance: "present",
-    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmRpPmf: "partial",
     expectPlayedQmActualRp: "present",
   },
   {
@@ -437,16 +438,16 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     note:
       "The empty-alliances case, second season: the other live-observed empty-alliances event, so the [] case is proven in two " +
       "seasons. Also 5 upcoming qualification rows against 120 played — the quals merge in a third " +
-      "season and a different ratio. event_type 99 (Offseason) is excluded from isRpEligibleEventType, " +
-      "so it expects ZERO pmf on any of its 120 played qm rows while still carrying " +
-      "actual-RP.",
+      "season and a different ratio. event_type 99 (Offseason) is a base tier RP event (quick task " +
+      "261004-uyc), so isRpEligibleEventType holds and it expects pmfs on its 120 played qm rows, " +
+      "partial under SPR, while still carrying actual-RP.",
     expectMatches: 120,
     expectUpcoming: 5,
     expectTeams: 30,
     expectRankedTeams: 30,
     expectAlliances: "empty",
     expectVariance: "present",
-    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmRpPmf: "partial",
     expectPlayedQmActualRp: "present",
   },
   {
@@ -497,8 +498,8 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     note:
       "The third named no-ranking-fallback event. " +
       "Offseason, zero ranking rows, zero alliances. Corpus-measured: 47 qm + 13 sf + 2 f played, 0 scheduled, " +
-      "25-team roster. event_type 99 (Offseason) is excluded from isRpEligibleEventType, so this entry " +
-      "expects ZERO pmf on any of its 47 played qm rows while still carrying actual-RP — this is also the " +
+      "25-team roster. event_type 99 (Offseason) is a base tier RP event (quick task 261004-uyc), so this entry " +
+      "expects pmfs on its 47 played qm rows, partial under SPR, while still carrying actual-RP — this is also the " +
       "summed-RP fallback's own proof case (0 teams carry EventTeamSchema.rp on this offseason-with-zero-rankings " +
       "event, so the fallback branch reads its 47 rows' actualRedRp/actualBlueRp directly).",
     expectMatches: 62,
@@ -507,7 +508,7 @@ export const PUBLISHED_SUBSET: readonly SubsetEntry[] = [
     expectRankedTeams: 0,
     expectAlliances: "empty",
     expectVariance: "present",
-    expectPlayedQmRpPmf: "absent",
+    expectPlayedQmRpPmf: "partial",
     expectPlayedQmActualRp: "present",
   },
 ];

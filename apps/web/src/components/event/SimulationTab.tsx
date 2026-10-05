@@ -124,14 +124,17 @@ export const SIMULATION_SKELETON_PICKER_HEIGHT_PX = 320;
  *
  * Mechanism this predicate is detecting, recorded here so the next reader
  * does not have to rediscover it: pmf production gates on
- * `isRpEligibleEventType(match.eventType)`; TBA event type `99`
- * (Offseason) is deliberately absent from `EVENT_TYPE_TIERS`
- * (`packages/core/rankingPoints/constants.ts`); and the publisher's
- * conditional spread then OMITS the `redRpPmf`/`blueRpPmf` keys entirely
- * rather than writing an empty array, never a degenerate certain-zero
- * distribution — that would be a POSITIVE claim that an alliance certainly
- * earns no ranking points, which is false for an offseason match that does
- * award RP under whatever rules that event ran.
+ * `isRpEligibleEventType(match.eventType)` and on the algorithm pricing
+ * ranking points at all. Offseason (TBA event type `99`) is a base tier event
+ * in `EVENT_TYPE_TIERS` (`packages/core/rankingPoints/constants.ts`) since quick
+ * task 261004-uyc, so an offseason event now carries pmfs and runs this tab. What
+ * is still pmf less: a season with no RP rule module, an event type that has no
+ * tier (such as `6`, Festival of Champions), and an algorithm that prices no
+ * ranking points (OPR). In each the publisher's conditional spread OMITS the
+ * `redRpPmf`/`blueRpPmf` keys entirely rather than writing an empty array, never
+ * a degenerate certain-zero distribution — that would be a POSITIVE claim that
+ * an alliance certainly earns no ranking points, which is false for a match that
+ * does award RP under whatever rules that event ran.
  */
 export function hasSimulatableRankInputs(artifact: EventArtifact): boolean {
   const hasBothPmfs = (row: { compLevel: string; redRpPmf?: readonly number[]; blueRpPmf?: readonly number[] }): boolean =>

@@ -277,7 +277,7 @@ describe("simulationScopeText discloses both counts", () => {
 });
 
 describe("the largest reachable schedule stays a fixed footprint (S1 overflow)", () => {
-  it("2022oncmp's measured 134 played qualification rows — the largest RP-eligible qualification schedule, not 2024wvrox (offseason, publishes no distributions) — render as ONE summary, so the picker's height no longer grows with the schedule", () => {
+  it("2022oncmp's measured 134 played qualification rows — the largest RP-eligible qualification schedule, not 2024wvrox (offseason) — render as ONE summary, so the picker's height no longer grows with the schedule", () => {
     const rows = Array.from({ length: 134 }, (_, i) => row({ matchKey: `2022oncmp_qm${i + 1}`, matchNumber: i + 1, played: true }));
     render(<StartMatchPicker rows={rows} selection={null} onSelect={() => {}} inputs={null} startMatchNumber={null} disabled={false} hasPreScheduleStop={false} />);
     // Exactly one match summary exists no matter how long the schedule is.

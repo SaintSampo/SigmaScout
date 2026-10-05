@@ -184,10 +184,13 @@ const S1_CONTROL_EVENT_KEY = "2024wvrox";
 /** `SimulationTab.tsx`'s own `SIMULATION_UNAVAILABLE_HEADING`, verbatim. */
 const SIMULATION_UNAVAILABLE_HEADING = "Rank simulation isn't available for this event";
 
-test.describe("S1 control — 2024wvrox, the largest qualification slate in the corpus (135 rows), renders the unavailable state and zero picker rows", () => {
-  test("the event-type gate, made legible as a control: TBA event type 99 is deliberately absent from EVENT_TYPE_TIERS, so the RP algorithm emits no pmf here, so hasSimulatableRankInputs is false and the unavailable branch renders instead of a picker", async ({ page }) => {
+test.describe("S1 offseason — 2024wvrox, the largest qualification slate in the corpus (135 rows), renders a picker and not the unavailable state", () => {
+  // Offseason (TBA event type 99) became a base tier RP event in quick task 261004-uyc, so the RP
+  // algorithm now emits pmfs here and hasSimulatableRankInputs is true. This case was the control
+  // for the opposite claim; it is expected GREEN only after the republish that ships spr 10.0.0.
+  test("the event-type gate, made legible: TBA event type 99 is in EVENT_TYPE_TIERS, so the RP algorithm emits pmfs here, so hasSimulatableRankInputs is true and a picker renders instead of the unavailable branch", async ({ page }) => {
     await page.goto(`/event/${S1_CONTROL_EVENT_KEY}?algorithm=spr&tab=simulation`, { waitUntil: "networkidle" });
-    await expect(page.getByText(SIMULATION_UNAVAILABLE_HEADING)).toBeVisible();
-    expect(await page.locator(`[data-testid^="${SIMULATION_TEST_IDS.rowPrefix}"]`).count()).toBe(0);
+    await expect(page.getByText(SIMULATION_UNAVAILABLE_HEADING)).toHaveCount(0);
+    expect(await page.locator(`[data-testid^="${SIMULATION_TEST_IDS.rowPrefix}"]`).count()).toBeGreaterThan(0);
   });
 });

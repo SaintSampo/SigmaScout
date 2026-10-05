@@ -1110,6 +1110,38 @@ log row whose subject is `rankings` or `alliances`. A write logs one `endpoint` 
 Last-Modified and a published time, so `pnpm live:report` now shows when TBA's standings changed and how
 long the site took to carry them. The tick line gains `officialDataPolled` and `officialDataWritten`.
 
+## Offseason ranking points and the live Sigma (quick task 261004-uyc, plan 03)
+
+**Offseason is a base tier ranking point event.** TBA event type 99 is mapped to the `base` tier in
+`EVENT_TYPE_TIERS` (`packages/core/rankingPoints/constants.ts`), and every ranking point gate in the system
+reads that one table through `isRpEligibleEventType`: the offline layer, the publisher's rows, the upcoming
+pricer, EPA, and the tick's `rpFieldsFor` and `foldObservedRp`. So an offseason qualification match is
+priced with the base thresholds, live and offline alike, under SPR and under EPA. OPR prices no ranking
+points anywhere. A played offseason row carries its actual per bonus flags when the breakdown parses under
+the season's rules and an explicit `null` when it does not (offseason breakdowns are self reported, and every
+parse site is inside a try and catch). The rank simulation runs at an offseason event from those rows.
+
+**Offseason folds into the ranking point state, and none of it carries to the next season.** An offseason
+match folds into the RP beliefs, the RP population summary, the RP mean shift and EPA's bonus slots exactly
+as it folds into ratings. No ranking point state crosses a season boundary at all (the layer's only
+cross season output is the Sigma carry, and every resume path discards another season's RP state), which
+`packages/harness/offseasonRpCarry.test.ts` pins. One consequence worth knowing: an offseason event that
+precedes official play in the same season (`2026isrtp`, 2026-04-03) teaches the 2026 official events after
+it. SPR went to 10.0.0 for this and the RP calibration was re-measured as
+`data/baselines/rp-calibration-2026-10a.json`.
+
+**Offseason events still get no pre schedule sidecar.** `buildPreScheduleSidecarForEvent` skips event type 99
+with a log line, because baking a sidecar for each of roughly 111 offseason events a season is hours of
+publish time. The Simulation tab at an offseason event runs from its posted schedule's rows.
+
+**The live Sigma.** Under SPR the tick writes a Sigma on the event row for a team that has none, from the
+`SigmaScoreAccumulator` it already resumed (`scoreFor`, so a team with no Sigma belief gets none). It is a value
+with no percentile, which the page renders as an untiered pill: the Worker holds no rating window pool, so
+it cannot tier a Sigma. A published entry that has a percentile is never replaced; an entry with none is
+one an earlier tick wrote and is refreshed each tick. The next publish writes the tiered figure. The
+team page already gets the per match Sigma through its metric history, so the team season artifact is
+unchanged.
+
 ---
 
 ## Watching it

@@ -112,7 +112,9 @@ describe("softCredit", () => {
     // untouched by it.
     // 9.0.0 (quick task 260928-p8i): the RP cold-team prior and the Sigma
     // carry become the production model. softCredit is untouched by it.
-    expect(SPR_VERSION).toBe("9.0.0+baseline");
+    // 10.0.0 (quick task 261004-uyc): offseason is a base tier RP event.
+    // softCredit is untouched by it.
+    expect(SPR_VERSION).toBe("10.0.0+baseline");
   });
 
   it("shipped research params enable it too, so the two modules match", async () => {

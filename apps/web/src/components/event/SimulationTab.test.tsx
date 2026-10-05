@@ -96,7 +96,7 @@ describe("hasSimulatableRankInputs", () => {
     expect(hasSimulatableRankInputs(baseArtifact())).toBe(false);
   });
 
-  it("is false when qm rows exist but carry no pmf anywhere (the measured offseason case)", () => {
+  it("is false when qm rows exist but carry no pmf anywhere (a pmf less event, such as OPR's or an unmapped event type's)", () => {
     const artifact = baseArtifact({
       matches: [playedQualRow(), playedQualRow({ matchKey: "2024test_qm2", matchNumber: 2 })],
     });

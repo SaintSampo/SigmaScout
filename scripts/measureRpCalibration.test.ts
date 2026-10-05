@@ -958,11 +958,39 @@ describe("buildRpCalibrationRecord — the optional third argument", () => {
     }
   });
 
+  it("the committed data/baselines/rp-calibration-2026-10a.json is the file RP_CALIBRATION_MEASUREMENT_PATH points at, names spr 10.0.0 and epa 14.0.0, and differs from -09h in 2026 only", () => {
+    // Quick task 261004-uyc: offseason became a base tier RP event, so 2026 (whose official events
+    // follow the 2026 Israel Team Practice offseason event) re-measured differently and no other season did.
+    expect(RP_CALIBRATION_MEASUREMENT_PATH).toBe("data/baselines/rp-calibration-2026-10a.json");
+    const raw: unknown = JSON.parse(readFileSync(new URL("../data/baselines/rp-calibration-2026-10a.json", import.meta.url), "utf8"));
+    const parsed = RpCalibrationMeasurementSchema.parse(raw);
+    expect(parsed.rpLayer).toBe(SHIPPED_RP_LAYER_LABEL);
+    expect(parsed.algorithmVersions).toEqual({ spr: "10.0.0+baseline", epa: "14.0.0+baseline" });
+    const previous = RpCalibrationMeasurementSchema.parse(
+      JSON.parse(readFileSync(new URL("../data/baselines/rp-calibration-2026-09h.json", import.meta.url), "utf8"))
+    );
+    const seasons = [2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026];
+    for (const algorithmId of ["spr", "epa"]) {
+      const records = parsed.records.filter((r) => r.algorithmId === algorithmId);
+      expect(records.map((r) => r.season), algorithmId).toEqual(seasons);
+      for (const r of records) {
+        const before = previous.records.find((p) => p.algorithmId === algorithmId && p.season === r.season);
+        if (r.season === 2026) {
+          expect(r, `${algorithmId} 2026 must have moved`).not.toEqual(before);
+          // The scored set is official matches only, so the same matches are scored.
+          expect(r.calibration.scoredCount, `${algorithmId} 2026 scoredCount`).toBe(before!.calibration.scoredCount);
+        } else {
+          expect(r, `${algorithmId} ${r.season} must be identical to -09h`).toEqual(before);
+        }
+      }
+    }
+  });
+
   it("the committed data/baselines/rp-calibration-2026-09h.json parses, carries the shipped rpLayer label, names spr 9.0.0 and epa 14.0.0, and its spr records equal -09g's exactly", () => {
-    // The file RP_CALIBRATION_MEASUREMENT_PATH points at since quick task 260929-mat: -09g's SPR
+    // Superseded by -10a (quick task 261004-uyc) and byte-untouched. It was the file
+    // RP_CALIBRATION_MEASUREMENT_PATH pointed at since quick task 260929-mat: -09g's SPR
     // measurement re-run unchanged, plus EPA's own Statbotics-method RP odds (L-02 lifted 2026-09-29).
     // The rpLayer label describes SPR's layer only; EPA's odds do not come from that layer.
-    expect(RP_CALIBRATION_MEASUREMENT_PATH).toBe("data/baselines/rp-calibration-2026-09h.json");
     const raw: unknown = JSON.parse(readFileSync(new URL("../data/baselines/rp-calibration-2026-09h.json", import.meta.url), "utf8"));
     const parsed = RpCalibrationMeasurementSchema.parse(raw);
     expect(parsed.rpLayer).toBe(SHIPPED_RP_LAYER_LABEL);

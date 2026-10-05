@@ -327,8 +327,24 @@ export const SPR_PARAMS: SprParams = {
  * level-1 digest reproduces bitwise. STATE_SNAPSHOT_SHAPE_VERSION moved to 17
  * in this same change: the spr league row now carries the RP population
  * summary the live Worker resumes.
+ *
+ * Bumped 9.0.0 to 10.0.0+baseline (quick task 261004-uyc). Changelog entry, in
+ * the methodology voice:
+ *
+ *   Ranking points are now predicted and learned at offseason events under
+ *   the same rules as a regional, so offseason events show ranking point odds
+ *   and run the rank simulation. Ratings, win probabilities and scores are
+ *   unchanged.
+ *
+ * MAJOR because published numbers move: offseason rows gain ranking point
+ * distributions and per bonus odds they never had, and the ranking point odds
+ * of official 2026 events played after the 2026 Israel Team Practice offseason
+ * event move a little, because that event now folds into the 2026 ranking point
+ * beliefs. `predict()` is untouched, so the level-1 digest reproduces bitwise.
+ * No ranking point state crosses a season boundary, so no other season moves.
+ * The RP calibration was re-measured as data/baselines/rp-calibration-2026-10a.json.
  */
-export const SPR_VERSION = "9.0.0+baseline";
+export const SPR_VERSION = "10.0.0+baseline";
 
 /**
  * The two-timescale state, described by what the FROZEN PARAMETERS actually do
