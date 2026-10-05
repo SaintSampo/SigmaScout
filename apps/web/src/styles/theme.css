@@ -904,16 +904,20 @@ body {
 }
 
 /*
- * The District Locks tab's three extra chip modifiers (phase 10).
+ * The District Locks tab's four extra chip modifiers (phase 10, plus Declined
+ * from quick task 261005-04t).
  *
  * THIS BLOCK ADDS NO PALETTE ENTRY. Locked out reuses the SHIPPED rose pair
  * above verbatim (Jacob's explicit red for that status; this page has no
  * alliance colour to collide with), Prequalified reuses the shipped purple pair
  * and Locked the shipped green one, and In range / Out of range are
  * outline-only chips built from `--color-text-primary`, `--color-text-muted`
- * and `--color-border`, all three already defined. The dataviz palette
- * validator therefore has nothing new to check. If a future change ever does
- * introduce a literal colour VALUE here, that validator must run first.
+ * and `--color-border`, all three already defined. Declined is drawn by the
+ * Out of range rule itself, as a second selector on it, so the two share one
+ * declaration block and cannot drift; it has no rule of its own. The dataviz
+ * palette validator therefore has nothing new to check. If a future change
+ * ever does introduce a literal colour VALUE here, that validator must run
+ * first.
  */
 .lock-status-chip--locked-out {
   background-color: var(--lock-status-eliminated-bg);
@@ -924,7 +928,8 @@ body {
   color: var(--color-text-primary);
   box-shadow: inset 0 0 0 1px var(--color-border);
 }
-.lock-status-chip--out-of-range {
+.lock-status-chip--out-of-range,
+.lock-status-chip--declined {
   background-color: transparent;
   color: var(--color-text-muted);
   box-shadow: inset 0 0 0 1px var(--color-border);

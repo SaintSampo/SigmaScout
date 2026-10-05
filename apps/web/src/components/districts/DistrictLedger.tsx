@@ -77,6 +77,7 @@ import {
 import {
   DISTRICT_LEDGER_CAVEAT,
   DISTRICT_LEDGER_COLUMN_LABELS,
+  DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_NO_MATCHES,
   DISTRICT_LEDGER_PROVENANCE,
   DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS,
@@ -93,11 +94,8 @@ import {
 } from "./districtLedgerCopy.js";
 import { buildAdvancementChanceRun, reconcileAdvancementChances } from "./districtLedgerChances.js";
 import { useDistrictAdvancementChance } from "./useDistrictAdvancementChance.js";
-import {
-  DISTRICT_LEDGER_STATUS_KEYS,
-  computeDistrictLedgerStatuses,
-  type DistrictLedgerStatusKey,
-} from "./districtLedgerStatus.js";
+import { computeDistrictLedgerStatuses } from "./districtLedgerStatus.js";
+import { DISTRICT_LEDGER_SHOWN_STATUS_KEYS, applyChampionshipFieldOverlay, type DistrictLedgerShownStatusKey } from "./districtFieldOverlay.js";
 import {
   DISTRICT_TIMELINE_NOW_ID,
   buildDistrictTimeline,
@@ -278,7 +276,7 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
   const navigate = useNavigate() as unknown as DistrictLedgerNavigate;
 
   const [query, setQuery] = useState("");
-  const [hiddenStatuses, setHiddenStatuses] = useState<ReadonlySet<DistrictLedgerStatusKey>>(() => new Set());
+  const [hiddenStatuses, setHiddenStatuses] = useState<ReadonlySet<DistrictLedgerShownStatusKey>>(() => new Set());
 
   /** The district's own district-tier events, deduplicated, in the order they were first seen. */
   const districtEvents = useMemo(() => {
@@ -510,12 +508,24 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
   );
 
   /**
-   * What the chips SHOW. Only In range and Out of range ever differ from
-   * `statuses`; Locked, Locked out, Prequalified and the capacity refusal are
-   * the verdicts in every arm. The chance run above keeps reading `statuses`,
-   * the verdicts, so there is no cycle.
+   * THE CHAMPIONSHIP FIELD (quick task 261005-04t, D-06). On the Live view
+   * only, once the District Championship has started and capacity is
+   * published, who is in its field decides what the tab SHOWS: Locked,
+   * Declined or Locked out. At every rewound position, and at Live before the
+   * championship starts, this is the raw model untouched. It changes the shown
+   * status and nothing else: `verdict` and `lockedBy` stay the guarantee, and
+   * the chance run, the boundary cutoff and their qualifier sets above keep
+   * reading the raw `statuses`.
    */
-  const displayStatuses = useMemo(() => applyLedgerRangeState(statuses, rows.teams, rangeState), [statuses, rows.teams, rangeState]);
+  const shownStatuses = useMemo(() => applyChampionshipFieldOverlay(statuses, artifact, { atLive: atNow }), [statuses, artifact, atNow]);
+
+  /**
+   * What the chips SHOW. Only In range and Out of range ever differ from
+   * `shownStatuses`; Locked, Declined, Locked out, Prequalified and the
+   * capacity refusal pass through in every arm. The chance run above keeps
+   * reading `statuses`, the verdicts, so there is no cycle.
+   */
+  const displayStatuses = useMemo(() => applyLedgerRangeState(shownStatuses, rows.teams, rangeState), [shownStatuses, rows.teams, rangeState]);
 
   const chances = useMemo(
     () =>
@@ -554,7 +564,7 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
     [rangeState, rows.teams, displayStatuses, boundaryCutoff]
   );
   const activeStatuses = useMemo(
-    () => new Set(DISTRICT_LEDGER_STATUS_KEYS.filter((status) => !hiddenStatuses.has(status))),
+    () => new Set(DISTRICT_LEDGER_SHOWN_STATUS_KEYS.filter((status) => !hiddenStatuses.has(status))),
     [hiddenStatuses]
   );
   const visibleTeams = useMemo(() => {
@@ -585,7 +595,7 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
     return { team, cell };
   }, [rows.teams, search.drawerTeam, search.drawerCell]);
 
-  function toggleStatus(status: DistrictLedgerStatusKey): void {
+  function toggleStatus(status: DistrictLedgerShownStatusKey): void {
     setHiddenStatuses((previous) => {
       const next = new Set(previous);
       if (next.has(status)) next.delete(status);
@@ -612,10 +622,17 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
           active={activeStatuses}
           onToggle={toggleStatus}
           withheld={displayStatuses.withheld !== undefined}
-          // The definitions follow the rule the chips are cut by: `settled`
-          // (a finished position, and the excluded team fallback) keeps the
-          // median rule's own sentences; every other arm reads the cutoff's.
-          definitions={rangeState.kind === "settled" ? DISTRICT_LEDGER_STATUS_DEFINITIONS : DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS}
+          // The definitions follow the rule the chips are cut by: the field
+          // overlay prints the field's own sentences; otherwise `settled` (a
+          // finished position, and the excluded team fallback) keeps the
+          // median rule's own sentences, and every other arm reads the cutoff's.
+          definitions={
+            displayStatuses.fieldOverlay
+              ? DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS
+              : rangeState.kind === "settled"
+                ? DISTRICT_LEDGER_STATUS_DEFINITIONS
+                : DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS
+          }
         />
       </ControlsCard>
       <p className="text-[var(--color-text-muted)]" data-testid="district-ledger-caveat">

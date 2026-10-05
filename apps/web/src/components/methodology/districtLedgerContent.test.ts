@@ -269,6 +269,27 @@ describe("districtLedgerContent structure", () => {
   });
 });
 
+describe("districtLedgerContent: the rewound view and the championship field (261005-04t)", () => {
+  const paragraphsOf = (id: string) => DISTRICT_LEDGER_SECTIONS.find((section) => section.id === id)?.paragraphs ?? [];
+
+  it("states, directly after the award lock paragraph, what a rewound District Locks view counts and what Live shows once the championship starts", () => {
+    const paragraphs = paragraphsOf("how-district-points-work");
+    const anchor = paragraphs.findIndex((text) => text.startsWith("A team is also Locked when"));
+    expect(anchor).toBeGreaterThan(-1);
+    expect(paragraphs.slice(anchor + 1, anchor + 3)).toEqual([
+      "On the District Locks tab, Locked and Locked out at a rewound point count only the district event points a team had earned by then, never District Championship points.",
+      "Once the District Championship has started, the live District Locks view shows who is in its field. A team in the field reads Locked, a team that earned a place and is not in the field reads Declined, and every other team reads Locked out.",
+    ]);
+  });
+
+  it("closes the open categories section with what a rewound view's predictions know", () => {
+    const paragraphs = paragraphsOf("how-open-categories-are-predicted");
+    expect(paragraphs[paragraphs.length - 1]).toBe(
+      "Both Locks tabs can be rewound to an earlier point in the season. A rewound view predicts later events with the odds this site published just before each of their matches and with each team's rating from the end of that event, so its predictions know more than a forecast made at that point could."
+    );
+  });
+});
+
 describe("districtLedgerContent voice", () => {
   it("contains no hyphen minus in any exported string", () => {
     for (const { where, text } of allStrings()) {

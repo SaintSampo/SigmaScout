@@ -11,6 +11,11 @@
  * A CLICK COMMITS AT ONCE. Every control here is discrete, so the delayed
  * commit a dragged control needs has no job to do and is gone on purpose.
  *
+ * THE REWIND NOTE (quick task 261005-04t, D-03) is the one addition to sketch
+ * 024 Q: below the arrows row, whenever the selection is not Live (Season
+ * start counts as rewound), in the stepper caption's own look. At Live
+ * nothing renders there at all.
+ *
  * Every class below is a plain string bound to the `.locks-picker*` rules in
  * `theme.css`, never passed through `cn()`, and this file writes no colour.
  */
@@ -23,6 +28,7 @@ import {
   LOCKS_PICKER_NEXT_LABEL,
   LOCKS_PICKER_NOW_MARK,
   LOCKS_PICKER_PREV_LABEL,
+  LOCKS_PICKER_REWIND_NOTE,
   LOCKS_PICKER_SEASON_START,
   locksPickerEventName,
   locksPickerGroupLabel,
@@ -272,6 +278,11 @@ export function LocksMilestonePicker({ timeline, events, at, positionIndex, onAt
           </span>
         </div>
       </div>
+      {selection.kind !== "live" && (
+        <p className="locks-picker-caption" data-testid="locks-picker-rewind-note">
+          {LOCKS_PICKER_REWIND_NOTE}
+        </p>
+      )}
     </div>
   );
 }

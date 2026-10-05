@@ -64,6 +64,8 @@ import {
   DISTRICT_LEDGER_LIKELY_PREFIX,
   DISTRICT_LEDGER_SEARCH_LABEL,
   DISTRICT_LEDGER_SEARCH_PLACEHOLDER,
+  DISTRICT_LEDGER_DECLINED_LABEL,
+  DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_LOCKED_AWARD_LABEL,
   DISTRICT_LEDGER_STAGE_WORDS,
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
@@ -98,11 +100,13 @@ import {
   districtSelectionOutcomes,
   districtSelectionSettledRoute,
 } from "./districtLedgerOutcomes.js";
+import type { DistrictLedgerStatusKey } from "./districtLedgerStatus.js";
 import {
-  DISTRICT_LEDGER_STATUS_KEYS,
-  type DistrictLedgerStatusKey,
-  type DistrictLedgerStatusResult,
-} from "./districtLedgerStatus.js";
+  DISTRICT_LEDGER_SHOWN_STATUS_KEYS,
+  type DistrictLedgerShownCounts,
+  type DistrictLedgerShownResult,
+  type DistrictLedgerShownStatusKey,
+} from "./districtFieldOverlay.js";
 import type { DistrictCellKind, DistrictEventStage, DistrictLedgerCell } from "./districtLedgerRows.js";
 import type { LedgerCutoffView } from "./predictedCutoff.js";
 
@@ -140,16 +144,27 @@ export const TEAM_CELL_CLASS = "sticky left-0 z-10 bg-[var(--color-bg-surface)] 
  * The status WORD always stays visible beside the colour — colour is never the
  * only encoding, which is the shipped champ tab's own stated rule.
  */
-const STATUS_CHIP_MODIFIER: Record<DistrictLedgerStatusKey, string> = {
+const STATUS_CHIP_MODIFIER: Record<DistrictLedgerShownStatusKey, string> = {
   prequalified: "lock-status-chip--prequalified",
   locked: "lock-status-chip--locked",
+  // Drawn by the Out of range rule itself in `theme.css`: one declaration block, a second selector.
+  declined: "lock-status-chip--declined",
   inRange: "lock-status-chip--in-range",
   outOfRange: "lock-status-chip--out-of-range",
   lockedOut: "lock-status-chip--locked-out",
 };
 
-export function statusChipClass(status: DistrictLedgerStatusKey): string {
+export function statusChipClass(status: DistrictLedgerShownStatusKey): string {
   return `lock-status-chip ${STATUS_CHIP_MODIFIER[status]}`;
+}
+
+/**
+ * The word a shown status prints. Declined (quick task 261005-04t, D-06) lives
+ * beside the five labels rather than inside them, because tests iterate that
+ * record's values and Declined is shown only on the Live view's field.
+ */
+function shownStatusLabel(status: DistrictLedgerShownStatusKey): string {
+  return status === "declined" ? DISTRICT_LEDGER_DECLINED_LABEL : DISTRICT_LEDGER_STATUS_LABELS[status];
 }
 
 /** A withheld In range or Out of range call, on either tab, as `StatusCell` renders it: the neutral chip's word and its accessible description. */
@@ -179,7 +194,7 @@ export function ledgerRangeCallChip(
 }
 
 /** The two chips whose counts a withheld call replaces with an em dash. */
-const WITHHELD_STATUS_KEYS: ReadonlySet<DistrictLedgerStatusKey> = new Set(["inRange", "outOfRange"]);
+const WITHHELD_STATUS_KEYS: ReadonlySet<DistrictLedgerShownStatusKey> = new Set(["inRange", "outOfRange"]);
 
 /** The em dash, built from its codepoint so this file never types the glyph. */
 const EM_DASH = String.fromCharCode(0x2014);
@@ -210,7 +225,7 @@ export function StatusCell({
   awardLabel,
   placeholder,
 }: {
-  status: DistrictLedgerStatusResult | undefined;
+  status: DistrictLedgerShownResult | undefined;
   rowSpan: number;
   chanceLine: string | undefined;
   awardLabel?: string;
@@ -245,7 +260,7 @@ export function StatusCell({
     <TableCell rowSpan={rowSpan} data-testid="district-ledger-status-cell" data-status={status.status} className="whitespace-nowrap align-middle">
       <div className="flex flex-col items-start gap-[var(--spacing-xs)]">
         <span className={statusChipClass(status.status)}>
-          {status.byAward ? (awardLabel ?? DISTRICT_LEDGER_LOCKED_AWARD_LABEL) : DISTRICT_LEDGER_STATUS_LABELS[status.status]}
+          {status.byAward ? (awardLabel ?? DISTRICT_LEDGER_LOCKED_AWARD_LABEL) : shownStatusLabel(status.status)}
         </span>
         {chanceLine !== undefined && (
           <span className="district-ledger-team-meta whitespace-nowrap" data-testid="district-ledger-chance">
@@ -258,7 +273,10 @@ export function StatusCell({
 }
 
 /**
- * The five chips above the table, doubling as filters.
+ * The five chips above the table, doubling as filters, and a sixth, Declined,
+ * between Locked and In range ONLY where some team reads Declined (quick task
+ * 261005-04t, D-06), so no season shows Declined 0. Its definition line follows
+ * the same rule.
  *
  * A CHIP'S COUNT DESCRIBES THE DISTRICT, NOT THE FILTERED VIEW. Recomputing a
  * count over the visible rows is the obvious-looking bug, and it would make
@@ -271,9 +289,9 @@ export function StatusChips({
   withheld = false,
   definitions = DISTRICT_LEDGER_STATUS_DEFINITIONS,
 }: {
-  counts: Readonly<Record<DistrictLedgerStatusKey, number>>;
-  active: ReadonlySet<DistrictLedgerStatusKey>;
-  onToggle: (status: DistrictLedgerStatusKey) => void;
+  counts: DistrictLedgerShownCounts;
+  active: ReadonlySet<DistrictLedgerShownStatusKey>;
+  onToggle: (status: DistrictLedgerShownStatusKey) => void;
   /**
    * THE WITHHELD COUNTS (quick tasks 260927-6bf and 261004-uw4): while the In
    * range and Out of range calls are withheld, their two chips print an em
@@ -286,16 +304,21 @@ export function StatusChips({
    * `CHAMP_LEDGER_STATUS_DEFINITIONS`, whose In range cuts at the predicted
    * cutoff; the district tab passes its simulated set wherever its chips cut
    * at the predicted cutoff too, and this default where they cut at the
-   * median projections.
+   * median projections, and its field set while the Live view shows the
+   * District Championship field. Only that set carries a `declined` line.
    */
-  definitions?: Readonly<Record<DistrictLedgerStatusKey, string>>;
+  definitions?: Readonly<Record<DistrictLedgerStatusKey, string>> & { readonly declined?: string };
 }) {
+  const shownKeys = DISTRICT_LEDGER_SHOWN_STATUS_KEYS.filter((status) => status !== "declined" || (counts.declined ?? 0) > 0);
+  const definitionOf = (status: DistrictLedgerShownStatusKey): string =>
+    status === "declined" ? (definitions.declined ?? DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.declined) : definitions[status];
+  const countOf = (status: DistrictLedgerShownStatusKey): number => (status === "declined" ? (counts.declined ?? 0) : counts[status]);
   return (
     <div className="flex flex-col gap-[var(--spacing-sm)]" data-testid="district-ledger-status-chips">
-      {/* The five chips and the cell key share ONE wrapping row, the sketch's
+      {/* The chips and the cell key share ONE wrapping row, the sketch's
           own legend line. */}
       <div className="flex flex-wrap items-center gap-x-[var(--spacing-md)] gap-y-[var(--spacing-xs)]">
-        {DISTRICT_LEDGER_STATUS_KEYS.map((status) => (
+        {shownKeys.map((status) => (
           <button
             key={status}
             type="button"
@@ -307,7 +330,7 @@ export function StatusChips({
             className="district-ledger-chip-button"
           >
             <span className={statusChipClass(status)}>
-              {DISTRICT_LEDGER_STATUS_LABELS[status]} {withheld && WITHHELD_STATUS_KEYS.has(status) ? EM_DASH : counts[status]}
+              {shownStatusLabel(status)} {withheld && WITHHELD_STATUS_KEYS.has(status) ? EM_DASH : countOf(status)}
             </span>
           </button>
         ))}
@@ -317,9 +340,9 @@ export function StatusChips({
         className="district-ledger-defs flex flex-wrap gap-x-[var(--spacing-md)] gap-y-[var(--spacing-xs)]"
         data-testid="district-ledger-status-definitions"
       >
-        {DISTRICT_LEDGER_STATUS_KEYS.map((status) => (
+        {shownKeys.map((status) => (
           <span key={status} id={`district-ledger-status-definition-${status}`}>
-            <b>{DISTRICT_LEDGER_STATUS_LABELS[status]}</b> {definitions[status]}
+            <b>{shownStatusLabel(status)}</b> {definitionOf(status)}
           </span>
         ))}
       </div>

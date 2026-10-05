@@ -19,6 +19,9 @@
  * this component so a future second caller of the hook cannot reintroduce the
  * empty run.
  */
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -47,6 +50,8 @@ import {
   DISTRICT_LEDGER_CONTRIBUTION_SETTLED,
   DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION,
   DISTRICT_LEDGER_CUTOFF_LABELS,
+  DISTRICT_LEDGER_DECLINED_LABEL,
+  DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
   DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
   DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
@@ -846,6 +851,155 @@ describe("DistrictLedger — the five status chips", () => {
       expect(cell.textContent).toBe(DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED);
       expect(cell.querySelector(".lock-status-chip")).toBeNull();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The championship field on the Live view (quick task 261005-04t, D-06)
+// ---------------------------------------------------------------------------
+
+const CHAMPIONSHIP_KEY = "2026wacmp";
+
+/** One finished district event row, every point in qualification. */
+function doneDistrictRow(total: number) {
+  return { eventKey: "2026wadone", eventName: "Done Event", week: 0, tier: "district" as const, qual: total, alliance: 0, elim: 0, award: 0, total, state: state() };
+}
+
+/** One finished District Championship row: the team played it. */
+function championshipRow(qual: number) {
+  return { eventKey: CHAMPIONSHIP_KEY, eventName: "District Championship", week: 5, tier: "dcmp" as const, qual, alliance: 0, elim: 0, award: 0, total: qual, state: state() };
+}
+
+/**
+ * A finished district whose championship has been played. Two slots: frc100
+ * and frc101 earn them on district points, the other three cannot.
+ *
+ * frc100 plays the championship. frc101 plays it only when `everyEarnedPlacePlays`;
+ * otherwise it carries no championship row and is the Declined team. frc102 is
+ * a late entry from below the line and plays it.
+ */
+function fieldDistrict(everyEarnedPlacePlays: boolean): DistrictArtifact {
+  const team = (teamKey: string, district: number, championship: number | undefined) =>
+    districtTeam(teamKey, {
+      pointTotal: district + (championship ?? 0),
+      eventPoints: championship === undefined ? [doneDistrictRow(district)] : [doneDistrictRow(district), championshipRow(championship)],
+    });
+  return artifactOf(
+    [
+      team("frc100", 100, 20),
+      team("frc101", 90, everyEarnedPlacePlays ? 15 : undefined),
+      team("frc102", 10, 5),
+      team("frc103", 5, undefined),
+      team("frc104", 3, undefined),
+    ],
+    { dcmpSlots: 2 }
+  );
+}
+
+describe("DistrictLedger — the championship field on the Live view (261005-04t)", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  const chips = () => screen.getAllByTestId("district-ledger-status-chip");
+  const chip = (status: string) => chips().find((element) => element.getAttribute("data-status") === status);
+  const statusCellOf = (teamKey: string) =>
+    document.querySelector(`[data-testid="district-ledger-row"][data-team="${teamKey}"] [data-testid="district-ledger-status-cell"]`);
+
+  it("C1: at Live, six chips with Declined between Locked and In range, the field's definitions, and a Declined team that prints no chance", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(fieldDistrict(false));
+
+    await waitFor(() => expect(chips()).toHaveLength(6));
+    expect(chips().map((element) => element.getAttribute("data-status"))).toEqual(["prequalified", "locked", "declined", "inRange", "outOfRange", "lockedOut"]);
+    expect(chip("declined")!.textContent).toBe(`${DISTRICT_LEDGER_DECLINED_LABEL} 1`);
+    expect(chip("locked")!.textContent).toBe(`${DISTRICT_LEDGER_STATUS_LABELS.locked} 2`);
+    expect(chip("lockedOut")!.textContent).toBe(`${DISTRICT_LEDGER_STATUS_LABELS.lockedOut} 2`);
+    expect(chip("declined")!.querySelector(".lock-status-chip--declined")).not.toBeNull();
+
+    const definitions = screen.getByTestId("district-ledger-status-definitions").textContent ?? "";
+    expect(definitions).toContain(`${DISTRICT_LEDGER_DECLINED_LABEL} ${DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.declined}`);
+    expect(definitions).toContain(`${DISTRICT_LEDGER_STATUS_LABELS.locked} ${DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.locked}`);
+    expect(definitions).toContain(`${DISTRICT_LEDGER_STATUS_LABELS.lockedOut} ${DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.lockedOut}`);
+    expect(definitions).not.toContain(DISTRICT_LEDGER_STATUS_DEFINITIONS.locked);
+    expect(definitions).not.toContain(DISTRICT_LEDGER_STATUS_DEFINITIONS.lockedOut);
+    // The Declined chip is described by its own definition line.
+    const describedBy = chip("declined")!.getAttribute("aria-describedby");
+    expect(document.getElementById(describedBy!)?.textContent).toBe(`${DISTRICT_LEDGER_DECLINED_LABEL} ${DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.declined}`);
+
+    const declinedCell = statusCellOf("frc101")!;
+    expect(declinedCell.getAttribute("data-status")).toBe("declined");
+    expect(declinedCell.querySelector(".lock-status-chip--declined")).not.toBeNull();
+    expect(declinedCell.textContent).toBe(DISTRICT_LEDGER_DECLINED_LABEL);
+    expect(within(declinedCell as HTMLElement).queryByTestId("district-ledger-chance")).toBeNull();
+    // The late entry from below the line is in the field, so it reads Locked.
+    expect(statusCellOf("frc102")?.getAttribute("data-status")).toBe("locked");
+
+    // The Declined chip filters like the other five.
+    expect(screen.getAllByTestId("district-ledger-row")).toHaveLength(5);
+    fireEvent.click(chip("declined")!);
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-row")).toHaveLength(4));
+    expect(statusCellOf("frc101")).toBeNull();
+    expect(chip("declined")!.getAttribute("aria-pressed")).toBe("false");
+    expect(chip("declined")!.textContent).toBe(`${DISTRICT_LEDGER_DECLINED_LABEL} 1`);
+    fireEvent.click(chip("declined")!);
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-row")).toHaveLength(5));
+    expect(statusCellOf("frc101")).not.toBeNull();
+  });
+
+  it("C2: the same district rewound to Season start shows five chips, no Declined chip and no field definitions", async () => {
+    installFetch({ eventArtifact: doneEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedgerAt(fieldDistrict(false), "/districts?algorithm=spr&at=season-start");
+
+    await waitFor(() => expect(screen.getByTestId("locks-picker-season-start").getAttribute("aria-pressed")).toBe("true"));
+    await waitFor(() => expect(chips()).toHaveLength(5));
+    expect(chips().map((element) => element.getAttribute("data-status"))).toEqual(["prequalified", "locked", "inRange", "outOfRange", "lockedOut"]);
+    expect(chip("declined")).toBeUndefined();
+    const definitions = screen.getByTestId("district-ledger-status-definitions").textContent ?? "";
+    expect(definitions).not.toContain(DISTRICT_LEDGER_DECLINED_LABEL);
+    expect(definitions).not.toContain(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.declined);
+    expect(definitions).not.toContain(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.locked);
+    expect(definitions).not.toContain(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.lockedOut);
+    // The base set's Locked and Locked out, which the simulated set shares.
+    expect(definitions).toContain(DISTRICT_LEDGER_STATUS_DEFINITIONS.locked);
+    expect(definitions).toContain(DISTRICT_LEDGER_STATUS_DEFINITIONS.lockedOut);
+    expect(document.querySelectorAll('[data-testid="district-ledger-status-cell"][data-status="declined"]')).toHaveLength(0);
+  });
+
+  it("C3: a started championship where every team that earned a place plays it: five chips, no Declined, the field's Locked and Locked out", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(fieldDistrict(true));
+
+    await waitFor(() => expect(chips()).toHaveLength(5));
+    expect(chip("declined")).toBeUndefined();
+    expect(chip("locked")!.textContent).toBe(`${DISTRICT_LEDGER_STATUS_LABELS.locked} 3`);
+    expect(chip("lockedOut")!.textContent).toBe(`${DISTRICT_LEDGER_STATUS_LABELS.lockedOut} 2`);
+    const definitions = screen.getByTestId("district-ledger-status-definitions").textContent ?? "";
+    expect(definitions).not.toContain(DISTRICT_LEDGER_DECLINED_LABEL);
+    expect(definitions).toContain(`${DISTRICT_LEDGER_STATUS_LABELS.locked} ${DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.locked}`);
+    expect(definitions).toContain(`${DISTRICT_LEDGER_STATUS_LABELS.lockedOut} ${DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.lockedOut}`);
+  });
+
+  it("C4: the Declined chip is drawn by the Out of range rule itself, sharing one declaration block", () => {
+    // `core.autocrlf` is true on this machine, so a checkout can carry CRLF.
+    const css = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "styles", "theme.css"), "utf8")
+      .replace(/\r\n/g, "\n")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    const selectors = [...css.matchAll(/([^{}]+)\{[^{}]*\}/g)].map((match) => match[1]!.split(",").map((selector) => selector.trim()));
+    const declined = selectors.filter((list) => list.includes(".lock-status-chip--declined"));
+    expect(declined).toHaveLength(1);
+    expect(declined[0]).toContain(".lock-status-chip--out-of-range");
+    expect(selectors.filter((list) => list.some((selector) => selector.includes("lock-status-chip--declined")))).toHaveLength(1);
   });
 });
 

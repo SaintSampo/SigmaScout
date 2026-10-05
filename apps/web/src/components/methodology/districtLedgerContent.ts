@@ -84,6 +84,11 @@
  * The backtest that would supply the district figures is todo
  * `district-cutoff-line-backtest`.
  *
+ * THE REWOUND VIEW AND THE CHAMPIONSHIP FIELD PARAGRAPHS CARRY NO MEASURED
+ * FIGURE (quick task 261005-04t), because the only rewind measurement is the
+ * event page's, inside one event (docs/models/rewind-overconfidence-gap.md),
+ * and the gap across weeks is unmeasured (todo locks-rewind-as-of-forecasts).
+ *
  * A figure that appears in none of those sources is not written here.
  *
  * NO SUBSECTION LEVEL, deliberately. `awardsContent.ts` needed one because its
@@ -132,6 +137,8 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
       "A team earns district points at every district event it plays. Four categories make up an event total, and a team's event totals make up its season total.",
       "Every formula below reproduces the value The Blue Alliance itself reports, checked row by row across ten seasons.",
       "A team is also Locked when the points still available in the district cannot lift enough rivals past it. Points are shared out inside an event, so the whole district has far fewer points left than the sum of what every rival could reach on its own. Either test is enough on its own, and both are applied at every position.",
+      "On the District Locks tab, Locked and Locked out at a rewound point count only the district event points a team had earned by then, never District Championship points.",
+      "Once the District Championship has started, the live District Locks view shows who is in its field. A team in the field reads Locked, a team that earned a place and is not in the field reads Declined, and every other team reads Locked out.",
       "The Champ Locks tab predicts each team's finish in the race for the district's FIRST Championship slots, adding the District Championship's own four categories to the district season total. Until the championship field is set, a team's championship points are estimated from how teams at the same place in past championship fields scored, using only seasons before the one shown. Only the grand total folds in the chance of being there, and the four championship categories read not yet priced.",
       "Once the field is set, the championship's own prediction replaces the estimate. A season with no earlier season to learn from shows the district season alone.",
     ],
@@ -190,6 +197,7 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
       "Teams at or above that line are In range and teams below it are Out of range. Until the runs finish those two chips read Pending, and where no line can be drawn they read No call. Once the District Championship awards are posted nothing is drawn any more, and the midpoint rule applies.",
       "On the Champ Locks tab, at the end of each district season and predicted only from the seasons before it, the simulated line missed the published line by 16.4 points on average over 68 district seasons, against 41.0 for the midpoint rule. Its likely range, the 10th to the 90th percentile of that line across the runs, held the published line in 49 of 69 seasons, 71%, where a range this wide should hold about 80%.",
       "On the Champ Locks tab a run also counts a team as qualified when it lands on the winning alliance or draws one of those awards.",
+      "Both Locks tabs can be rewound to an earlier point in the season. A rewound view predicts later events with the odds this site published just before each of their matches and with each team's rating from the end of that event, so its predictions know more than a forecast made at that point could.",
     ],
     table: {
       caption: "What decides each open category",

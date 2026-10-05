@@ -29,6 +29,8 @@ import {
   DISTRICT_LEDGER_CONTRIBUTION_SETTLED,
   DISTRICT_LEDGER_COLUMN_LABELS,
   DISTRICT_LEDGER_CUTOFF_LABELS,
+  DISTRICT_LEDGER_DECLINED_LABEL,
+  DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION,
   DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
   DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION,
@@ -79,6 +81,7 @@ import {
   LOCKS_PICKER_NEXT_LABEL,
   LOCKS_PICKER_NOW_MARK,
   LOCKS_PICKER_PREV_LABEL,
+  LOCKS_PICKER_REWIND_NOTE,
   LOCKS_PICKER_SEASON_START,
   LOCKS_PICKER_THIS_IS_LIVE,
   locksPickerGroupLabel,
@@ -212,6 +215,30 @@ describe("the UI-SPEC copy contract", () => {
       locksPickerLiveCaption("Lansing"),
     ];
     for (const text of strings) expect(text).not.toMatch(/[-‐-―−]/);
+  });
+
+  // Quick task 261005-04t (D-06): once the District Championship has started,
+  // the Live view shows its field, with a sixth status word and its own
+  // Locked and Locked out sentences.
+  it("pins the Declined label and the field definition set, whose other three read as the base set's (261005-04t)", () => {
+    expect(DISTRICT_LEDGER_DECLINED_LABEL).toBe("Declined");
+    expect(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.locked).toBe("in the District Championship field");
+    expect(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.declined).toBe("earned a place at the District Championship and is not in its field");
+    expect(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.lockedOut).toBe("did not earn a place at the District Championship");
+    expect(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.prequalified).toBe(DISTRICT_LEDGER_STATUS_DEFINITIONS.prequalified);
+    expect(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.inRange).toBe(DISTRICT_LEDGER_STATUS_DEFINITIONS.inRange);
+    expect(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.outOfRange).toBe(DISTRICT_LEDGER_STATUS_DEFINITIONS.outOfRange);
+    for (const text of [DISTRICT_LEDGER_DECLINED_LABEL, ...Object.values(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS)]) {
+      expect(text).not.toMatch(/[-‐-―−]/);
+    }
+  });
+
+  it("pins the rewind note, with no dash character and no digit (261005-04t)", () => {
+    expect(LOCKS_PICKER_REWIND_NOTE).toBe(
+      "This is a rewound view. Later events are predicted with the odds this site published just before each of their matches and with each team's rating from the end of that event, so these predictions know more than a forecast made at this point could."
+    );
+    expect(LOCKS_PICKER_REWIND_NOTE).not.toMatch(/[-‐-―−]/);
+    expect(LOCKS_PICKER_REWIND_NOTE).not.toMatch(/\d/);
   });
 
   it("shortens ONLY a name that matches TBA's whole district template, and prints every other name verbatim", () => {

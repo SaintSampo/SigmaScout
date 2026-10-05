@@ -244,6 +244,16 @@ export function locksPickerLiveCaption(eventName: string): string {
   return `${eventName} is live. Milestones past the red line have not happened yet; use Live for the current state.`;
 }
 
+/**
+ * THE REWIND NOTE (quick task 261005-04t, D-03), printed below the arrows row
+ * on both Locks tabs whenever the selection is not Live; Season start counts
+ * as rewound. It quotes no number on purpose: the only rewind measurement is
+ * the event page's, inside one event, and the gap across weeks is unmeasured
+ * (todo `locks-rewind-as-of-forecasts`).
+ */
+export const LOCKS_PICKER_REWIND_NOTE =
+  "This is a rewound view. Later events are predicted with the odds this site published just before each of their matches and with each team's rating from the end of that event, so these predictions know more than a forecast made at this point could.";
+
 /** The team-number search box's label and placeholder. */
 export const DISTRICT_LEDGER_SEARCH_LABEL = "Team number";
 export const DISTRICT_LEDGER_SEARCH_PLACEHOLDER = "Search a team number";
@@ -321,6 +331,15 @@ export const DISTRICT_LEDGER_STATUS_LABELS = {
 export const DISTRICT_LEDGER_LOCKED_AWARD_LABEL = "Locked · award";
 
 /**
+ * THE SIXTH STATUS WORD (quick task 261005-04t, D-06), kept OUT of
+ * `DISTRICT_LEDGER_STATUS_LABELS` on purpose: tests iterate that record's
+ * values, and Declined is shown only on the Live view once the District
+ * Championship has started, only where some team earned a place and is not in
+ * its field.
+ */
+export const DISTRICT_LEDGER_DECLINED_LABEL = "Declined";
+
+/**
  * The two printing limits sketch 020's language rules set on a chance, in
  * Jacob's own words: "Never show '>99%', print '99%'", and "A chance under 5%
  * is never printed as a number".
@@ -396,6 +415,25 @@ export const DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS: Readonly<Record<keyof
   ...DISTRICT_LEDGER_STATUS_DEFINITIONS,
   inRange: "this team's median predicted points sit at or above the predicted cutoff",
   outOfRange: "this team's median predicted points sit below the predicted cutoff",
+};
+
+/**
+ * THE DISTRICT TAB'S DEFINITIONS WHILE IT SHOWS THE CHAMPIONSHIP FIELD (quick
+ * task 261005-04t, D-06): printed on the Live view once the District
+ * Championship has started and capacity is published, where who is in its
+ * field decides what the tab shows. Locked, Declined and Locked out describe
+ * the field there, not the points guarantee, so the base set's two sentences
+ * would be false for a late entry and for a team that gave its place up.
+ *
+ * Declined MAKES NO CLAIM ABOUT WHY a team is absent: earned a place and is
+ * not in the field is all the artifact can show. Its line prints only where
+ * some team reads Declined. The other three read as the base set's.
+ */
+export const DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS: Readonly<Record<keyof typeof DISTRICT_LEDGER_STATUS_DEFINITIONS, string>> & { readonly declined: string } = {
+  ...DISTRICT_LEDGER_STATUS_DEFINITIONS,
+  locked: "in the District Championship field",
+  declined: "earned a place at the District Championship and is not in its field",
+  lockedOut: "did not earn a place at the District Championship",
 };
 
 /**

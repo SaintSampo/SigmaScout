@@ -118,11 +118,8 @@ import {
   reconcileChampAdvancementChances,
 } from "./champLedgerChances.js";
 import { useDistrictAdvancementChance } from "./useDistrictAdvancementChance.js";
-import {
-  DISTRICT_LEDGER_STATUS_KEYS,
-  computeDistrictLedgerStatuses,
-  type DistrictLedgerStatusKey,
-} from "./districtLedgerStatus.js";
+import { DISTRICT_LEDGER_STATUS_KEYS, computeDistrictLedgerStatuses } from "./districtLedgerStatus.js";
+import type { DistrictLedgerShownStatusKey } from "./districtFieldOverlay.js";
 import { applyChampRangeState, computeChampLedgerStatuses, type ChampDisplayStatusModel } from "./champLedgerStatus.js";
 import {
   buildChampLedgerRows,
@@ -376,7 +373,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   const navigate = useNavigate() as unknown as DistrictLedgerNavigate;
 
   const [query, setQuery] = useState("");
-  const [hiddenStatuses, setHiddenStatuses] = useState<ReadonlySet<DistrictLedgerStatusKey>>(() => new Set());
+  const [hiddenStatuses, setHiddenStatuses] = useState<ReadonlySet<DistrictLedgerShownStatusKey>>(() => new Set());
 
   const events = useMemo(() => champTierEvents(artifact), [artifact]);
   const dcmpEventKey = useMemo(() => dcmpEventKeyFor(artifact), [artifact]);
@@ -772,7 +769,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     return undefined;
   }, [rows.teams, search.drawerTeam, search.drawerCell]);
 
-  function toggleStatus(status: DistrictLedgerStatusKey): void {
+  function toggleStatus(status: DistrictLedgerShownStatusKey): void {
     setHiddenStatuses((previous) => {
       const next = new Set(previous);
       if (next.has(status)) next.delete(status);
