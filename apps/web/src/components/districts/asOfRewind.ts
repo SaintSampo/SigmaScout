@@ -440,6 +440,13 @@ export interface AsOfRewindInput {
   readonly candidates: readonly { readonly eventKey: string; readonly tier: DistrictTier; readonly week: number | null }[];
   /** See `PlanAsOfEventParams.scheduleStopEventKey`; `asOfScheduleStopEventKey` reads it off `?at=`. */
   readonly scheduleStopEventKey: string | undefined;
+  /**
+   * Events started today whose artifact did not load (the fetch failed). Each
+   * reads UNAVAILABLE at the stop: without its artifact neither its played
+   * rows nor its INDEX check can be made, and planning it as unstarted would
+   * print a generated forecast for an event that has played.
+   */
+  readonly unloadedEventKeys?: readonly string[];
 }
 
 /** The event a `?at=` value names as its Schedule milestone (`districtScheduleMilestoneId`), or `undefined`. */
@@ -502,7 +509,12 @@ export async function loadAsOfRewind(input: AsOfRewindInput, fetchers: AsOfFetch
 
   const outcomes = new Map<string, AsOfEventOutcome>();
   const pending = new Map<string, AsOfEventPlan>();
+  const unloaded = new Set(input.unloadedEventKeys ?? []);
   for (const candidate of asOfCandidateEvents(input)) {
+    if (unloaded.has(candidate.eventKey) && !input.eventArtifacts.has(candidate.eventKey)) {
+      outcomes.set(candidate.eventKey, { status: "unavailable", reason: `${candidate.eventKey} has started and its artifact did not load` });
+      continue;
+    }
     const planned = planAsOfEvent({
       eventKey: candidate.eventKey,
       tier: candidate.tier,

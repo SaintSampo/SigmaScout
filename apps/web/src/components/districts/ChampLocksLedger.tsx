@@ -463,6 +463,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   const asOf = useAsOfRewind({
     enabled: rewinding && (artifacts.isLoading || !atNow),
     artifactsLoading: artifacts.isLoading,
+    unloadedEventKeys: artifacts.missingEventArtifacts,
     districtArtifact: artifact,
     timeline,
     positionIndex,

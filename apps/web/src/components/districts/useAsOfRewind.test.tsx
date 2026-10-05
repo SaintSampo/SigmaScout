@@ -47,6 +47,7 @@ function options(positionId: string, enabled = true): UseAsOfRewindOptions {
   return {
     enabled,
     artifactsLoading: false,
+    unloadedEventKeys: [],
     districtArtifact: districtArtifact(),
     timeline,
     positionIndex,

@@ -233,4 +233,37 @@ describe("a rewound stop's requests", () => {
     expect(assembled.events).toEqual([]);
     expect(assembled.asOfUnavailable).toEqual([{ eventKey: "2026wabbb", name: AS_OF_UNAVAILABLE_NAME }]);
   });
+
+  it("a REAL event the input builder refuses, or whose artifact is gone, reads unavailable instead of vanishing (C6)", async () => {
+    const { result, stageByEvent } = await rewoundAt("2026wabbb:m:2026wabbb_qm2");
+    if (result.status !== "ready") throw new Error("expected a ready plan");
+    const bbb = result.events.get("2026wabbb")!;
+    if (bbb.status !== "ready" || bbb.state.plan.mode !== "real") throw new Error("expected a REAL 2026wabbb");
+    // No roster team and no remaining row at the stop: `buildDistrictEventSimulationInput` refuses it.
+    const refused: AsOfRewindResult = { ...result, events: new Map(result.events).set("2026wabbb", { status: "ready", state: { ...bbb.state, plan: { ...bbb.state.plan, baselines: [], rows: [] } } }) };
+    const params = { artifact: districtArtifact(), algorithmVersion: FIXTURE_VERSION, eventArtifacts: ARTIFACTS, stageByEvent, candidateKeys: ["2026wabbb", "2026wazzz"] };
+    const assembled = assembleAsOfDistrictEvents({ ...params, result: refused });
+    expect(assembled.events.map((event) => event.eventKey)).toEqual(["2026wazzz"]);
+    expect(assembled.asOfUnavailable).toEqual([{ eventKey: "2026wabbb", name: AS_OF_UNAVAILABLE_NAME }]);
+    // The same for a REAL plan whose artifact is not in hand.
+    const noArtifact = assembleAsOfDistrictEvents({ ...params, result, eventArtifacts: new Map([["2026waaa", ARTIFACTS.get("2026waaa")!]]) });
+    expect(noArtifact.asOfUnavailable).toEqual([{ eventKey: "2026wabbb", name: AS_OF_UNAVAILABLE_NAME }]);
+  });
+
+  it("a started event whose artifact failed to load reads unavailable at a rewound stop, never simulated as unstarted (R3)", async () => {
+    const timeline = buildDistrictTimeline({ events: EVENTS, eventArtifacts: ARTIFACTS });
+    const positionIndex = timeline.positions.findIndex((position) => position.id === "2026waaa:awards");
+    const stageByEvent = districtStageAtPosition(timeline, positionIndex, NOW_STAGES);
+    // 2026wabbb's artifact query errored: the fetch set holds 2026waaa only.
+    const loaded = new Map([["2026waaa", ARTIFACTS.get("2026waaa")!]]);
+    const input = { districtArtifact: districtArtifact(), timeline, positionIndex, eventArtifacts: loaded, stageByEvent, candidates: CANDIDATES, scheduleStopEventKey: undefined };
+    const told = await loadAsOfRewind({ ...input, unloadedEventKeys: ["2026wabbb"] }, fetchers());
+    expect(told.status === "ready" && told.events.get("2026wabbb")).toMatchObject({ status: "unavailable" });
+    // Without the fact, the same stop would have generated a full forecast for an event that has played.
+    const blind = await loadAsOfRewind(input, fetchers());
+    const generated = blind.status === "ready" ? blind.events.get("2026wabbb") : undefined;
+    expect(generated?.status === "ready" && generated.state.plan.mode).toBe("generated");
+    // Unstarted events are untouched.
+    expect(told.status === "ready" && told.events.get("2026wazzz")?.status).toBe("ready");
+  });
 });

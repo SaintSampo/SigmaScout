@@ -40,6 +40,8 @@ export interface UseAsOfRewindOptions {
   readonly enabled: boolean;
   /** While the fetch set's event artifacts are still loading the timeline is not final, so nothing is planned yet. */
   readonly artifactsLoading: boolean;
+  /** Fetch set events whose artifact did not load (`useDistrictEventArtifacts`' `missingEventArtifacts`): each reads unavailable at the stop. */
+  readonly unloadedEventKeys: readonly string[];
   readonly districtArtifact: DistrictArtifact;
   readonly timeline: DistrictTimeline;
   readonly positionIndex: number;
@@ -92,9 +94,10 @@ export function useAsOfRewind(options: UseAsOfRewindOptions): AsOfRewindView | u
   const positionId = timeline.positions[positionIndex]?.id ?? "";
   const fingerprint = useMemo(() => artifactsFingerprint(eventArtifacts), [eventArtifacts]);
   const openKeys = open.map((candidate) => candidate.eventKey).join(",");
+  const unloadedKeys = [...options.unloadedEventKeys].sort().join(",");
   const active = enabled && !artifactsLoading && version !== undefined;
 
-  const queryKey = ["asOfRewind", districtArtifact.districtKey, version ?? "", positionId, positionIndex, fingerprint, openKeys, scheduleStopEventKey ?? ""] as const;
+  const queryKey = ["asOfRewind", districtArtifact.districtKey, version ?? "", positionId, positionIndex, fingerprint, openKeys, scheduleStopEventKey ?? "", unloadedKeys] as const;
   const query = useQuery({
     queryKey,
     queryFn: async (): Promise<AsOfRewindResult> => {
@@ -107,7 +110,10 @@ export function useAsOfRewind(options: UseAsOfRewindOptions): AsOfRewindView | u
         season: (fetchOptions) => queryClient.fetchQuery(asOfSeasonQueryOptions({ season, algorithmId, version: v }, fetchOptions)),
         start: () => queryClient.fetchQuery(asOfStartQueryOptions({ season, algorithmId, version: v })),
       };
-      return loadAsOfRewind({ districtArtifact, timeline, positionIndex, eventArtifacts, stageByEvent, candidates: open, scheduleStopEventKey }, fetchers);
+      return loadAsOfRewind(
+        { districtArtifact, timeline, positionIndex, eventArtifacts, stageByEvent, candidates: open, scheduleStopEventKey, unloadedEventKeys: options.unloadedEventKeys },
+        fetchers
+      );
     },
     enabled: active,
     staleTime: 60_000,

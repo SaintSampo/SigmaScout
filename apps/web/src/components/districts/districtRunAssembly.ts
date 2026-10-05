@@ -264,8 +264,15 @@ export function assembleAsOfDistrictEvents(params: AssembleAsOfDistrictEventsPar
         teams: outcome.state.teams,
       };
       if (plan.mode === "real") {
+        // A REAL event the stop cannot build (no artifact, or the input
+        // builder refuses it) reads UNAVAILABLE, as a GENERATED event with no
+        // roster does: dropping it would leave its open cells with neither a
+        // distribution nor a marker.
         const eventArtifact = eventArtifacts.get(eventKey);
-        if (eventArtifact === undefined) continue;
+        if (eventArtifact === undefined) {
+          asOfUnavailable.push({ eventKey, name: AS_OF_UNAVAILABLE_NAME });
+          continue;
+        }
         const built = buildDistrictEventSimulationInput({
           eventKey,
           season: artifact.year,
@@ -277,7 +284,10 @@ export function assembleAsOfDistrictEvents(params: AssembleAsOfDistrictEventsPar
           tier,
           asOfBaselines: plan.baselines,
         });
-        if (!built.ok) continue;
+        if (!built.ok) {
+          asOfUnavailable.push({ eventKey, name: AS_OF_UNAVAILABLE_NAME });
+          continue;
+        }
         if (built.fieldSizeFellBack) eventsWithFallbackFieldSize.push(eventKey);
         if (built.allianceListIsPartial) eventsWithPartialAllianceList.push(eventKey);
         real.push({ eventKey, input: built.input, asOf: { ...common, mode: "real", rows: plan.rows } });
