@@ -107,10 +107,16 @@ describe("renderPublishBudgetBlock / parsePublishBudget / replacePublishBudgetBl
     for (const family of AS_OF_FAMILIES) expect(parsed.asOf![family]).toEqual({ ...asOf[family], budgetMaxBytes: AS_OF_BUDGET_MAX_BYTES[family] });
     // A run that published none (an OPR-only run) writes no section at all.
     expect(Object.keys(parsePublishBudget(renderPublishBudgetBlock({ measuredAt: "m", run: "r", pages: FULL_PAGES, asOf: {} })))).toEqual(["measuredAt", "run", "pages"]);
-    // A run that published some families but not all is refused.
-    const partial: Partial<Record<AsOfFamily, PageKindSizeStats>> = { ...asOf };
-    delete partial["asof-season"];
-    expect(() => renderPublishBudgetBlock({ measuredAt: "m", run: "r", pages: FULL_PAGES, asOf: partial })).toThrow("asof-season");
+  });
+
+  it("a run that published only some as-of families (seasons with no played match: no INDEX, no LOG) renders the ones present, in order, without throwing (C5)", () => {
+    const partial: Partial<Record<AsOfFamily, PageKindSizeStats>> = {
+      "asof-start": stats(1_000_000, "v1/asof-start/2027/spr@10.0.0+baseline.json"),
+      "asof-season": stats(2_000, "v1/asof-season/2027/spr@10.0.0+baseline.json"),
+    };
+    const parsed = parsePublishBudget(renderPublishBudgetBlock({ measuredAt: "m", run: "r", pages: FULL_PAGES, asOf: partial }));
+    expect(Object.keys(parsed.asOf!)).toEqual(["asof-season", "asof-start"]);
+    expect(parsed.asOf!["asof-start"]).toEqual({ ...partial["asof-start"], budgetMaxBytes: AS_OF_BUDGET_MAX_BYTES["asof-start"] });
   });
 
   it("assertWithinAsOfBudget passes exactly at the ceiling and throws the named error above it; the constant is frozen", () => {

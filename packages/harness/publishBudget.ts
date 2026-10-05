@@ -326,8 +326,11 @@ function budgetEntry(stats: PageKindSizeStats, budgetMaxBytes: number): PublishB
  *
  * Then, when the run published as-of objects, an `asOf` section in the same
  * entry shape, families in `AS_OF_FAMILIES` order, ceilings from
- * `AS_OF_BUDGET_MAX_BYTES`. A run that published some families but not all
- * throws for the same reason.
+ * `AS_OF_BUDGET_MAX_BYTES`, holding the families the run published. A family
+ * can be legitimately absent: a run whose seasons have no played match yet (a
+ * pre-kickoff publish) writes the season and season start objects and no
+ * INDEX or LOG, so its section records those two only. The block's own `run`
+ * string names the run, and the doc test checks every family present.
  */
 export function renderPublishBudgetBlock(params: RenderPublishBudgetParams): string {
   const pages: Record<string, PublishBudgetPageEntry> = {};
@@ -344,10 +347,7 @@ export function renderPublishBudgetBlock(params: RenderPublishBudgetParams): str
     const asOf: Record<string, PublishBudgetPageEntry> = {};
     for (const family of AS_OF_FAMILIES) {
       const stats = asOfStats[family];
-      if (stats === undefined) {
-        throw new Error(`renderPublishBudgetBlock: the run published as-of objects but none of family "${family}" — the asOf section needs all of ${AS_OF_FAMILIES.join(", ")}`);
-      }
-      asOf[family] = budgetEntry(stats, AS_OF_BUDGET_MAX_BYTES[family]);
+      if (stats !== undefined) asOf[family] = budgetEntry(stats, AS_OF_BUDGET_MAX_BYTES[family]);
     }
     block.asOf = asOf;
   }

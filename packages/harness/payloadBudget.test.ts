@@ -143,12 +143,14 @@ describe("published payload budget", () => {
     }
   });
 
-  it("an asOf section, once a run has written one, carries every family consistently and mirrors AS_OF_BUDGET_MAX_BYTES (quick task 261005-5g0)", () => {
-    // Absent until the first full publish after the as-of capture landed; never a partial section.
+  it("an asOf section, once a run has written one, carries every family it holds consistently and mirrors AS_OF_BUDGET_MAX_BYTES (quick task 261005-5g0)", () => {
+    // Absent until the first publish after the as-of capture landed. A run whose seasons have no played match
+    // writes no INDEX or LOG, so a family may be absent; every family present must be consistent.
     if (budget.asOf === undefined) return;
+    expect(Object.keys(budget.asOf).length, "an asOf section is never empty").toBeGreaterThan(0);
     for (const family of AS_OF_FAMILIES) {
       const entry = budget.asOf[family];
-      expect(entry, `missing asOf entry for family "${family}"`).toBeDefined();
+      if (entry === undefined) continue;
       expect(entry!.count, `${family}.count`).toBeGreaterThan(0);
       expect(entry!.medianBytes).toBeLessThanOrEqual(entry!.p95Bytes);
       expect(entry!.p95Bytes).toBeLessThanOrEqual(entry!.maxBytes);
