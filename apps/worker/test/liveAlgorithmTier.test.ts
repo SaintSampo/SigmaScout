@@ -579,6 +579,35 @@ describe("liveAlgorithmTier — with the TRACKED tier, every published algorithm
     return byId;
   }
 
+  it("a bracket placeholder row with an empty side stops no tracked algorithm's other rows from publishing (quick task 261004-uyc plan 02)", async () => {
+    const ids = trackedLiveAlgorithmIds();
+    const window: WindowFixture = { eventKey: EVENT_KEY, season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    const record = twoMatchEventRecord(EVENT_KEY, "etag-1");
+    const soon = Math.floor(NOW_MS / 1000) + 1800;
+    const asPlayoff = (key: string, setNumber: number, redKeys: readonly string[], blueKeys: readonly string[], predicted: number): unknown => ({
+      ...(tbaMatch({ key, eventKey: EVENT_KEY, matchNumber: 1, redTeams: redKeys, blueTeams: blueKeys, predictedTimeSec: predicted }) as Record<string, unknown>),
+      comp_level: "sf",
+      set_number: setNumber,
+    });
+    record.matches.push(asPlayoff(`${EVENT_KEY}_sf1m1`, 1, RED_TEAMS, BLUE_TEAMS, soon), asPlayoff(`${EVENT_KEY}_sf3m1`, 3, RED_TEAMS, [], soon + 600));
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([[EVENT_KEY, record]])));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await runTick(makeEnv(makeManifests([window], ids), d1, r2, trackedLiveAlgorithmIdsRaw()), { nowMs: NOW_MS });
+
+    expect(result.eventsFailed).toBe(0);
+    expect(result.eventsAdvanced).toBe(1);
+    for (const id of ids) {
+      const puts = r2.puts.filter((put) => put.key.startsWith(`v1/event/${EVENT_KEY}/${id}@`));
+      expect(puts.length, `${id}: no event artifact written`).toBeGreaterThan(0);
+      const written = JSON.parse(puts.at(-1)!.body) as { matches: { matchKey: string }[]; upcoming: { matchKey: string }[] };
+      expect(written.matches.map((row) => row.matchKey), id).toEqual([`${EVENT_KEY}_qm1`]);
+      expect(written.upcoming.map((row) => row.matchKey), id).toEqual(expect.arrayContaining([`${EVENT_KEY}_qm2`, `${EVENT_KEY}_sf1m1`]));
+    }
+  });
+
   it("every tracked id writes league and team state, and exactly the event-scoped ones write an event row", async () => {
     const { ids, d1 } = await runTrackedTick();
     const byId = scopeKindsById(d1);

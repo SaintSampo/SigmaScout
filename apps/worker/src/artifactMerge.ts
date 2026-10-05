@@ -413,7 +413,7 @@ export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
   // appends roster rows and keeps whatever was last published.
   const { teams, standings }: { readonly teams: readonly (typeof teamsBeforeStandings)[number][]; readonly standings?: EventArtifact["standings"] } = hasOfficialStandings(existing)
     ? { teams: teamsBeforeStandings }
-    : withCountedStandings({ matches, teams: teamsBeforeStandings, rpOutcomeRp });
+    : withCountedStandings({ matches, teams: teamsBeforeStandings });
 
   return {
     ...carriedFromExisting,

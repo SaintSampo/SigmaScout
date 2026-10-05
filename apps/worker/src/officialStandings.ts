@@ -1,11 +1,12 @@
 /**
- * TBA's OWN rankings, merged into a live event artifact (quick task 261004-uyc),
- * and the predicate that says an artifact's standings are TBA's.
+ * TBA's OWN rankings and alliances, merged into a live event artifact (quick task
+ * 261004-uyc), and the predicate that says an artifact's standings are TBA's.
  *
  * WHY THIS IS A SMALL MIRROR AND NOT SHARED CODE. `rank`, `record` and `rp` are
  * built for the offline publisher by `eventTeamRankingFields` in
  * `packages/harness/publish.ts`, a Node module that reaches `better-sqlite3`, so
- * the Worker cannot import it. Extracting the rule into a Worker safe module the
+ * the Worker cannot import it. The alliances mapper in `buildEventArtifact` is
+ * mirrored the same way, by `applyOfficialAlliances`. Extracting the rule into a Worker safe module the
  * publisher also imports is the right end state; it was not done here because
  * that file is under concurrent edit by another session. What holds the two
  * copies together instead is `officialStandings.test.ts`, which builds an artifact
@@ -25,6 +26,7 @@
  */
 import type { EventArtifact } from "../../../packages/harness/pageArtifacts.js";
 import { ROUNDING_RULE, roundTo } from "../../../packages/harness/rounding.js";
+import { parseAllianceRecord, type NormalizedEventAlliance } from "../../../packages/ingest/alliances.js";
 import type { NormalizedEventRanking } from "../../../packages/ingest/rankings.js";
 
 /**
@@ -59,4 +61,31 @@ export function hasOfficialStandings(existing: EventArtifact | undefined): boole
   if (existing === undefined) return false;
   if (existing.standings !== undefined) return false;
   return existing.teams.some((row) => row.rank !== undefined);
+}
+
+/**
+ * `artifact` with TBA's playoff alliance selection on its `alliances` key, one
+ * entry per normalized alliance, by the offline publisher's rule: `allianceNumber`
+ * as TBA's seed order, `name` only when non empty (an absent key, never `""` or a
+ * made up label), `picks` copied in TBA's order and never truncated (a fourth
+ * entry is the reserve robot), `record` only when TBA's status carries a well
+ * formed one (`parseAllianceRecord`, never a fabricated zero record).
+ *
+ * An empty list writes an EMPTY `alliances` array: the key's presence, not its
+ * length, says the selection was consulted, and `[]` is a real "no selection"
+ * answer. Every other key is untouched.
+ */
+export function applyOfficialAlliances(artifact: EventArtifact, alliances: readonly NormalizedEventAlliance[]): EventArtifact {
+  return {
+    ...artifact,
+    alliances: alliances.map((alliance) => {
+      const record = alliance.statusRaw === null ? null : parseAllianceRecord(alliance.statusRaw);
+      return {
+        allianceNumber: alliance.allianceNumber,
+        ...(alliance.name !== null && alliance.name.length > 0 ? { name: alliance.name } : {}),
+        picks: [...alliance.picks],
+        ...(record !== null ? { record } : {}),
+      };
+    }),
+  };
 }

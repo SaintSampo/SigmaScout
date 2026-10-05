@@ -10,7 +10,8 @@
  */
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { applyOfficialRankings, hasOfficialStandings } from "../src/officialStandings.js";
+import { applyOfficialAlliances, applyOfficialRankings, hasOfficialStandings } from "../src/officialStandings.js";
+import { normalizeEventAlliances, parseAllianceRecord } from "../../../packages/ingest/alliances.js";
 import { normalizeEventRankings, type NormalizedEventRanking } from "../../../packages/ingest/rankings.js";
 import { spr } from "../../../packages/core/algorithms/spr.js";
 import { EventArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type EventArtifact } from "../../../packages/harness/pageArtifacts.js";
@@ -153,5 +154,61 @@ describe("hasOfficialStandings", () => {
   it("is false for no ranks, and for undefined", () => {
     expect(hasOfficialStandings(artifact())).toBe(false);
     expect(hasOfficialStandings(undefined)).toBe(false);
+  });
+});
+
+describe("applyOfficialAlliances", () => {
+  const RESPONSE = [
+    { name: "Alliance 1", declines: [], picks: ["frc10", "frc20", "frc30", "frc40"], status: { record: { wins: 4, losses: 1, ties: 0 }, level: "f", status: "won" } },
+    // No name key at all, and a status this pipeline does not model: no name, no record.
+    { declines: [], picks: ["frc50", "frc60", "frc70"], status: { playoff_type: 10 } },
+    // An empty name collapses to an absent key.
+    { name: "", declines: [], picks: ["frc80", "frc90"] },
+  ];
+
+  it("writes one entry per alliance: number, picks in TBA's order, name only when non empty, record only when the status parses", () => {
+    const next = applyOfficialAlliances(artifact(), normalizeEventAlliances(RESPONSE));
+
+    expect(next.alliances).toEqual([
+      { allianceNumber: 1, name: "Alliance 1", picks: ["frc10", "frc20", "frc30", "frc40"], record: { wins: 4, losses: 1, ties: 0 } },
+      { allianceNumber: 2, picks: ["frc50", "frc60", "frc70"] },
+      { allianceNumber: 3, picks: ["frc80", "frc90"] },
+    ]);
+    expect(next.alliances![1]).not.toHaveProperty("name");
+    expect(next.alliances![1]).not.toHaveProperty("record");
+  });
+
+  it("applying an empty list writes an empty alliances array, a real no selection answer", () => {
+    const next = applyOfficialAlliances(artifact({ alliances: [{ allianceNumber: 1, picks: ["frc10"] }] }), []);
+
+    expect(next.alliances).toEqual([]);
+  });
+
+  it("leaves every other key untouched", () => {
+    const base = artifact({ standings: { source: "tick-counted", ranked: true } });
+
+    const { alliances: _alliances, ...rest } = applyOfficialAlliances(base, normalizeEventAlliances(RESPONSE));
+
+    expect(rest).toEqual(base);
+  });
+
+  it("matches what the offline publisher writes from the same selections", () => {
+    const normalized = normalizeEventAlliances(RESPONSE);
+    const base = artifact();
+
+    const live = applyOfficialAlliances(base, normalized);
+    const offline = publisher.buildEventArtifact({
+      eventKey: EVENT_KEY,
+      season: 2026,
+      algorithmId: spr.id,
+      algorithmVersion: spr.version,
+      predictions: [],
+      generation: "g",
+      computedAt: "2026-10-03T22:00:00.000Z",
+      alliances: normalized.map((a) => ({ allianceNumber: a.allianceNumber, name: a.name, picks: a.picks, record: a.statusRaw === null ? null : parseAllianceRecord(a.statusRaw) })),
+    });
+
+    expect(live.alliances).toEqual(offline.alliances);
+    expect(live.alliances).toHaveLength(3);
   });
 });

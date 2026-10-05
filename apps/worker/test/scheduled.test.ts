@@ -2172,7 +2172,13 @@ describe("runTick - TBA's rankings survive the next fold", () => {
     const d1 = new FakeD1Database();
     const r2 = new FakeR2Bucket();
     const rankingRequests: (string | undefined)[] = [];
-    stubWithRankings(new Map([["2026casj", twoMatchEventRecord("2026casj", "etag-1")]]), rankingRequests);
+    // Every played row reports ranking points, so the COUNTED standings would be
+    // fully ranked here: without the official-ranks guard the second fold would
+    // overwrite TBA's order with a counted one and stamp the marker.
+    const withReportedRp = (match: unknown, red: number, blue: number): unknown => ({ ...(match as Record<string, unknown>), score_breakdown: { red: { rp: red }, blue: { rp: blue } } });
+    const firstRecord = twoMatchEventRecord("2026casj", "etag-1");
+    firstRecord.matches[0] = withReportedRp(firstRecord.matches[0], 3, 0);
+    stubWithRankings(new Map([["2026casj", firstRecord]]), rankingRequests);
 
     const first = await runTick(makeEnv(makeManifests([RANK_WINDOW]), d1, r2), { nowMs: NOW_MS });
 
@@ -2187,14 +2193,17 @@ describe("runTick - TBA's rankings survive the next fold", () => {
     // Tick two: qm2 is now played too, a fold the counting rule would have turned
     // into a counted standing with a marker.
     const secondRecord = twoMatchEventRecord("2026casj", "etag-2");
-    secondRecord.matches[1] = tbaMatch({ key: "2026casj_qm2", eventKey: "2026casj", matchNumber: 2, redTeams: ["frc7", "frc8", "frc9"], blueTeams: ["frc10", "frc11", "frc12"], redScore: 100, blueScore: 90, actualTimeSec: Math.floor(NOW_MS / 1000) - 10 });
+    secondRecord.matches[0] = firstRecord.matches[0]!;
+    secondRecord.matches[1] = withReportedRp(tbaMatch({ key: "2026casj_qm2", eventKey: "2026casj", matchNumber: 2, redTeams: ["frc7", "frc8", "frc9"], blueTeams: ["frc10", "frc11", "frc12"], redScore: 100, blueScore: 90, actualTimeSec: Math.floor(NOW_MS / 1000) - 10 }), 4, 0);
     stubWithRankings(new Map([["2026casj", secondRecord]]), rankingRequests);
     const second = await runTick(makeEnv(makeManifests([RANK_WINDOW]), d1, r2), { nowMs: NOW_MS + 60_000 });
 
     expect(second.eventsAdvanced).toBe(1);
     // The remembered ETag is sent, answered 304, and nothing further is written.
+    // The second poll is the alliances request: every qualification match is now
+    // played, and the stub answers it with an empty body.
     expect(rankingRequests).toEqual([undefined, "rank-etag-1"]);
-    expect(second.officialDataPolled).toBe(1);
+    expect(second.officialDataPolled).toBe(2);
     expect(second.officialDataWritten).toBe(0);
     const afterSecond = eventArtifactOf(r2);
     expect(afterSecond).not.toHaveProperty("standings");
@@ -2227,5 +2236,54 @@ describe("runTick - TBA's rankings survive the next fold", () => {
     expect(result.eventsFailed).toBe(0);
     expect(r2.puts.map((p) => p.key).sort()).toEqual(control.r2.puts.map((p) => p.key).sort());
     expect(d1.ingestLog.rows.find((row) => row.kind === "failure")).toMatchObject({ subject: "rankings", eventKey: "2026casj" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A bracket row TBA created before its teams are known (quick task 261004-uyc
+// plan 02). It must not stop the event's other rows from publishing. A regression
+// pin: written first, it PASSED against the unchanged code, so no source moved.
+// ---------------------------------------------------------------------------
+
+describe("runTick - an unplayed playoff row with an empty side", () => {
+  const BRACKET_WINDOW: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 7_200_000 };
+
+  /** A playoff row shaped like TBA's `/matches` element, with `redKeys` and `blueKeys` as its two sides. */
+  function playoffRow(key: string, setNumber: number, matchNumber: number, redKeys: readonly string[], blueKeys: readonly string[], predictedTimeSec: number): unknown {
+    return {
+      ...(tbaMatch({ key, eventKey: "2026casj", matchNumber, redTeams: redKeys, blueTeams: blueKeys, predictedTimeSec }) as Record<string, unknown>),
+      comp_level: "sf",
+      set_number: setNumber,
+    };
+  }
+
+  it("still publishes the event's other upcoming rows and its played rows, and does not fail the event", async () => {
+    const d1 = new FakeD1Database();
+    const r2 = new FakeR2Bucket();
+    const record = twoMatchEventRecord("2026casj", "etag-1");
+    const soon = Math.floor(NOW_MS / 1000) + 1800;
+    record.matches.push(
+      // Both sides named: a normal bracket row.
+      playoffRow("2026casj_sf1m1", 1, 1, ["frc1", "frc2", "frc3"], ["frc4", "frc5", "frc6"], soon),
+      // TBA's placeholder: the next round's row exists before its blue side is decided.
+      playoffRow("2026casj_sf3m1", 3, 1, ["frc1", "frc2", "frc3"], [], soon + 600)
+    );
+    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([["2026casj", record]])));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await runTick(makeEnv(makeManifests([BRACKET_WINDOW]), d1, r2), { nowMs: NOW_MS });
+
+    expect(result.eventsFailed).toBe(0);
+    expect(result.eventsAdvanced).toBe(1);
+    expect(warn.mock.calls.map((call) => String(call[0])).filter((line) => line.includes("phase-b-failed"))).toEqual([]);
+    const key = artifactKey({ page: "event", eventKey: "2026casj", algorithmId: "opr", version: opr.version });
+    const written = EventArtifactSchema.parse(JSON.parse(r2.puts.filter((put) => put.key === key).at(-1)!.body));
+    expect(written.matches.map((row) => row.matchKey)).toEqual(["2026casj_qm1"]);
+    const upcomingKeys = written.upcoming.map((row) => row.matchKey);
+    expect(upcomingKeys).toContain("2026casj_qm2");
+    expect(upcomingKeys).toContain("2026casj_sf1m1");
+    // TBA's placeholder row publishes like any other unplayed row (this probe was
+    // written to find out whether an empty side stops the others, and it does not).
+    expect(upcomingKeys).toContain("2026casj_sf3m1");
   });
 });

@@ -529,6 +529,146 @@ describe("runLiveEventPass: TBA's rankings", () => {
   });
 });
 
+describe("runLiveEventPass: TBA's alliances", () => {
+  const EVENT = "2026vari";
+  const QUALS_DONE: LivePhaseFacts = { qualTotal: 10, qualPlayed: 10, playoffTotal: 0, playoffPlayed: 0, playoffWithBothAlliances: 0, finalsDecided: false };
+
+  function alliancesBody(wins = 0): unknown {
+    return Array.from({ length: 8 }, (_, i) => ({
+      name: `Alliance ${i + 1}`,
+      declines: [],
+      picks: [`frc${100 + i}`, `frc${200 + i}`, `frc${300 + i}`],
+      status: { record: { wins: i === 0 ? wins : 0, losses: 0, ties: 0 }, level: "sf" },
+    }));
+  }
+
+  it("quals complete and a 200 with eight alliances writes them to every live algorithm, stores the ETag and alliancesSeen, logs one alliances row and moves the phase that tick", async () => {
+    const { env, writes, artifacts } = recordingEnv();
+    seedAll(artifacts, EVENT);
+    stubTba({ rankings: { body: null }, alliances: { etag: "ally-1", body: alliancesBody(2) } });
+    const live = context();
+    live.phaseFacts.set(EVENT, QUALS_DONE);
+
+    const { result } = await runPass(env, { windows: [windowOf(EVENT)], cursors: storedState(EVENT, { phase: "quals-in-progress" }), live });
+
+    expect(result).toEqual({ officialDataPolled: 2, officialDataWritten: 2 });
+    for (const put of artifacts.puts) {
+      const written = JSON.parse(put.body) as EventArtifact;
+      expect(written.alliances).toHaveLength(8);
+      expect(written.alliances![0]).toEqual({ allianceNumber: 1, name: "Alliance 1", picks: ["frc100", "frc200", "frc300"], record: { wins: 2, losses: 0, ties: 0 } });
+    }
+    expect(lastState(writes, EVENT)).toMatchObject({ alliancesEtag: "ally-1", alliancesSeen: true, alliancesChangedAt: NOW_ISO, phase: "alliances-posted" });
+    const allianceRows = live.ingest.rows().filter((row) => row.kind === "endpoint" && row.subject === "alliances");
+    expect(allianceRows).toHaveLength(1);
+    expect(allianceRows[0]).toMatchObject({ tbaLastModified: LAST_MODIFIED, detail: '{"alliances":8}' });
+    expect(allianceRows[0]!.publishedAt).not.toBeNull();
+    // One transition row, written the tick the alliances arrive.
+    expect(live.ingest.rows().filter((row) => row.kind === "phase").map((row) => row.subject)).toEqual(["alliances-posted"]);
+  });
+
+  it("alliances seen on a tick with no match list still moves quals-complete to alliances-posted", async () => {
+    const { env, writes, artifacts } = recordingEnv();
+    seedAll(artifacts, EVENT);
+    stubTba({ rankings: { body: null }, alliances: { etag: "ally-1", body: alliancesBody() } });
+    const live = context(); // /matches answered 304: no facts
+
+    await runPass(env, { windows: [windowOf(EVENT)], cursors: storedState(EVENT, { phase: "quals-complete" }), live });
+
+    expect(lastState(writes, EVENT).phase).toBe("alliances-posted");
+    expect(live.ingest.rows().filter((row) => row.kind === "phase")).toHaveLength(1);
+  });
+
+  it("a later fold's phase derivation keeps alliances-posted once the alliances were seen, with no playoff row yet", async () => {
+    const { env, writes } = recordingEnv();
+    stubTba({ rankings: { body: null }, alliances: { body: null } });
+    const live = context();
+    live.phaseFacts.set(EVENT, QUALS_DONE);
+
+    await runPass(env, { windows: [windowOf(EVENT)], cursors: storedState(EVENT, { phase: "alliances-posted", alliancesSeen: true }), live });
+
+    expect(writes).toHaveLength(0);
+  });
+
+  it("during playoffs a changed alliances response (a record moved) is written again", async () => {
+    const { env, writes, artifacts } = recordingEnv();
+    seedAll(artifacts, EVENT);
+    stubTba({ rankings: { body: null }, alliances: { etag: "ally-1", body: alliancesBody(0) } });
+    const live1 = context();
+    live1.phaseFacts.set(EVENT, QUALS_DONE);
+    await runPass(env, { windows: [windowOf(EVENT)], cursors: storedState(EVENT, { phase: "quals-complete" }), live: live1 });
+    const putsBefore = artifacts.puts.length;
+
+    // Playoffs under way; TBA's alliances move a record and carry a new ETag.
+    stubTba({ rankings: { body: null }, alliances: { etag: "ally-2", body: alliancesBody(3) } });
+    const live2 = context();
+    live2.phaseFacts.set(EVENT, { qualTotal: 10, qualPlayed: 10, playoffTotal: 8, playoffPlayed: 4, playoffWithBothAlliances: 8, finalsDecided: false });
+    const second = await runPass(env, { windows: [windowOf(EVENT)], cursors: cursorsAfter(writes, EVENT), live: live2 });
+
+    expect(second.result.officialDataWritten).toBe(2);
+    expect(artifacts.puts.length - putsBefore).toBe(2);
+    const written = JSON.parse(artifacts.puts.at(-1)!.body) as EventArtifact;
+    expect(written.alliances![0]!.record).toEqual({ wins: 3, losses: 0, ties: 0 });
+    expect(lastState(writes, EVENT)).toMatchObject({ alliancesEtag: "ally-2", phase: "playoffs-in-progress" });
+  });
+
+  it("rankings and alliances both changing in one tick cost one read and one write per algorithm, not two", async () => {
+    const { env, artifacts } = recordingEnv();
+    seedAll(artifacts, EVENT);
+    stubTba({ rankings: { etag: "rank-1", body: rankingsBody(["frc1", "frc2"]) }, alliances: { etag: "ally-1", body: alliancesBody() } });
+    const live = context();
+    live.phaseFacts.set(EVENT, QUALS_DONE);
+
+    const { result } = await runPass(env, { windows: [windowOf(EVENT)], live });
+
+    expect(artifacts.gets).toBe(MODULES.size);
+    expect(artifacts.puts).toHaveLength(MODULES.size);
+    expect(result.officialDataWritten).toBe(MODULES.size);
+    const written = JSON.parse(artifacts.puts[0]!.body) as EventArtifact;
+    expect(written.alliances).toHaveLength(8);
+    expect(written.teams[0]).toMatchObject({ teamKey: "frc1", rank: 1 });
+    const endpointSubjects = live.ingest.rows().filter((row) => row.kind === "endpoint").map((row) => row.subject);
+    expect(endpointSubjects).toEqual(["rankings", "alliances"]);
+  });
+
+  it("phase quals-in-progress makes no alliances request", async () => {
+    const { env } = recordingEnv();
+    const calls = stubTba({ rankings: { body: null }, alliances: { body: alliancesBody() } });
+    const live = context();
+    live.phaseFacts.set(EVENT, IN_PROGRESS);
+
+    await runPass(env, { windows: [windowOf(EVENT)], live });
+
+    expect(calls.map((call) => call.url.split("/").at(-1))).toEqual(["rankings"]);
+  });
+
+  it("an event in a probe window is polled for alliances on a tick whose matches answered 304", async () => {
+    const { env, artifacts } = recordingEnv();
+    seedAll(artifacts, EVENT);
+    const calls = stubTba({ rankings: { body: null }, alliances: { etag: "ally-1", body: alliancesBody() } });
+
+    const { result } = await runPass(env, {
+      windows: [{ ...windowOf(EVENT), inferred: true }],
+      cursors: storedState(EVENT, { phase: "quals-complete" }),
+    });
+
+    expect(calls.map((call) => call.url.split("/").at(-1)).sort()).toEqual(["alliances", "rankings"]);
+    expect(result.officialDataWritten).toBe(2);
+  });
+
+  it("a null alliances body stores the ETag and writes nothing", async () => {
+    const { env, writes, artifacts } = recordingEnv();
+    seedAll(artifacts, EVENT);
+    stubTba({ rankings: { body: null }, alliances: { etag: "ally-empty", body: null } });
+    const live = context();
+    live.phaseFacts.set(EVENT, QUALS_DONE);
+
+    const { result } = await runPass(env, { windows: [windowOf(EVENT)], cursors: storedState(EVENT, { phase: "quals-complete" }), live });
+
+    expect(result.officialDataWritten).toBe(0);
+    expect(lastState(writes, EVENT)).toMatchObject({ alliancesEtag: "ally-empty", alliancesSeen: false, phase: "quals-complete" });
+  });
+});
+
 describe("readOpenWindowCursors", () => {
   it("reads every window's cursor and live ingest row in ONE statement and ONE subrequest", async () => {
     const statements: { sql: string; args: readonly unknown[] }[] = [];

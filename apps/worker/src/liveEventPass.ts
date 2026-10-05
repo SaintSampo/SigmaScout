@@ -43,18 +43,19 @@
 import { liveIngestCursorKey } from "../../../packages/harness/stateBaseline.js";
 import type { LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
 import { artifactKey, type EventArtifact } from "../../../packages/harness/pageArtifacts.js";
-import { normalizeEventRankings, type NormalizedEventRanking } from "../../../packages/ingest/rankings.js";
-import { tbaEventRankingsResponseSchema } from "../../../packages/ingest/schemas.js";
+import { normalizeEventAlliances } from "../../../packages/ingest/alliances.js";
+import { normalizeEventRankings } from "../../../packages/ingest/rankings.js";
+import { tbaAllianceResponseSchema, tbaEventRankingsResponseSchema } from "../../../packages/ingest/schemas.js";
 import { checkLiveEventArtifactShape } from "./artifactShapeCheck.js";
 import { readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
 import type { Stamp } from "./artifactMerge.js";
 import { deriveEventPhase, endpointsToPoll, type EventPhase } from "./eventPhase.js";
 import { INGEST_LOG_PRUNE_SQL, INGEST_LOG_RETENTION_DAYS, type LiveTickContext } from "./ingestLog.js";
 import { parseLiveIngestState, serializeLiveIngestState, type LiveIngestState } from "./liveIngestState.js";
-import { applyOfficialRankings } from "./officialStandings.js";
+import { applyOfficialAlliances, applyOfficialRankings } from "./officialStandings.js";
 import { readEventCursors, writeEventCursor, type EventCursor } from "./stateStore.js";
 import { sortEventKeys, type SubrequestCounter } from "./subrequestCounter.js";
-import { pollEventRankings, type TbaClientContext } from "./tbaPoll.js";
+import { pollEventAlliances, pollEventRankings, type TbaClientContext } from "./tbaPoll.js";
 import type { Env } from "./env.js";
 
 /** D1 allows 100 bound parameters per statement; 90 keys per read leaves headroom. */
@@ -117,19 +118,29 @@ export interface LiveEventPassResult {
 /** The two figures as zeros: the returns the pass is deliberately unreachable from. */
 export const NO_OFFICIAL_DATA: LiveEventPassResult = { officialDataPolled: 0, officialDataWritten: 0 };
 
-/** One endpoint's parsed 200, waiting to be merged. */
-interface GatheredRankings {
-  readonly normalized: readonly NormalizedEventRanking[];
+type OfficialEndpoint = "rankings" | "alliances";
+
+/** One endpoint's parsed non empty 200, waiting to be merged into every algorithm's artifact. */
+interface Gathered {
+  readonly endpoint: OfficialEndpoint;
+  /** Ranked teams, or alliances: the figure the endpoint's log row carries. */
+  readonly count: number;
   readonly etag: string | null;
   readonly lastModified: string | undefined;
+  readonly apply: (artifact: EventArtifact) => EventArtifact;
+  /** What this endpoint contributes to an artifact, as text, so two artifacts compare exactly. */
+  readonly projection: (artifact: EventArtifact) => string;
 }
 
-/** What identifies an artifact's official standings, as text, so two artifacts compare exactly. */
 function rankingsProjection(artifact: EventArtifact): string {
   return JSON.stringify({
     teams: artifact.teams.map((row) => [row.teamKey, row.rank ?? null, row.record ?? null, row.rp ?? null]),
     standings: artifact.standings ?? null,
   });
+}
+
+function alliancesProjection(artifact: EventArtifact): string {
+  return JSON.stringify(artifact.alliances ?? null);
 }
 
 function warnOfficialDataFailed(eventKey: string, endpoint: string, error: unknown): void {
@@ -147,14 +158,22 @@ export async function runLiveEventPass(env: Env, counter: SubrequestCounter, opt
       const stateKey = liveIngestCursorKey(eventKey);
       const stored = parseLiveIngestState(cursors.get(stateKey)?.lastFoldedMatchKey);
       const facts = live.phaseFacts.get(eventKey);
-      const phase: EventPhase = facts === undefined ? stored.phase : deriveEventPhase(facts, stored.alliancesSeen);
+      const derivePhase = (current: EventPhase, alliancesKnown: boolean): EventPhase => {
+        if (facts !== undefined) return deriveEventPhase(facts, alliancesKnown);
+        // No fresh match list: the phase stays what was stored, except that the
+        // alliances endpoint answering during alliance selection IS the move to
+        // alliances-posted, and nothing else would notice it on a quiet tick.
+        return current === "quals-complete" && alliancesKnown ? "alliances-posted" : current;
+      };
+      const phase = derivePhase(stored.phase, stored.alliancesSeen);
       let state: LiveIngestState = { ...stored, phase };
       live.ingest.setPhase(eventKey, phase);
 
       const wanted = endpointsToPoll(phase, state, nowMs);
 
       // ---- Gather: one conditional request per wanted endpoint ----------------
-      let rankings: GatheredRankings | undefined;
+      const gathered: Gathered[] = [];
+
       if (wanted.rankings) {
         try {
           counter.spend(1);
@@ -167,7 +186,14 @@ export async function runLiveEventPass(env: Env, counter: SubrequestCounter, opt
               // the ETag so an unchanged answer is a 304 next time, write nothing.
               state = { ...state, rankingsEtag: poll.etag ?? null };
             } else {
-              rankings = { normalized, etag: poll.etag ?? null, lastModified: poll.lastModified };
+              gathered.push({
+                endpoint: "rankings",
+                count: normalized.length,
+                etag: poll.etag ?? null,
+                lastModified: poll.lastModified,
+                apply: (artifact) => applyOfficialRankings(artifact, normalized),
+                projection: rankingsProjection,
+              });
             }
           }
         } catch (error) {
@@ -176,11 +202,38 @@ export async function runLiveEventPass(env: Env, counter: SubrequestCounter, opt
         }
       }
 
-      // ---- Apply: ONE read and at most ONE write per algorithm ----------------
-      if (rankings !== undefined) {
+      if (wanted.alliances) {
+        try {
+          counter.spend(1);
+          const poll = await pollEventAlliances(tbaCtx, eventKey, state.alliancesEtag ?? undefined);
+          officialDataPolled++;
+          if (poll.status === "ok") {
+            const normalized = normalizeEventAlliances(tbaAllianceResponseSchema.parse(poll.body));
+            if (normalized.length === 0) {
+              state = { ...state, alliancesEtag: poll.etag ?? null };
+            } else {
+              gathered.push({
+                endpoint: "alliances",
+                count: normalized.length,
+                etag: poll.etag ?? null,
+                lastModified: poll.lastModified,
+                apply: (artifact) => applyOfficialAlliances(artifact, normalized),
+                projection: alliancesProjection,
+              });
+            }
+          }
+        } catch (error) {
+          warnOfficialDataFailed(eventKey, "alliances", error);
+          live.ingest.failure(eventKey, "alliances", error);
+        }
+      }
+
+      // ---- Apply: ONE read and at most ONE write per algorithm, however many
+      // endpoints changed ------------------------------------------------------
+      if (gathered.length > 0) {
         let skippedAlgorithm = false;
-        let rankingsWrote = false;
         let failed = false;
+        const wrote = new Set<OfficialEndpoint>();
         try {
           const { modules, mismatch } = await options.algorithmContext();
           if (mismatch !== undefined) {
@@ -203,26 +256,41 @@ export async function runLiveEventPass(env: Env, counter: SubrequestCounter, opt
                 skippedAlgorithm = true;
                 continue;
               }
-              const next = applyOfficialRankings(existing, rankings.normalized);
-              if (rankingsProjection(next) === rankingsProjection(existing)) continue;
+              let next: EventArtifact = existing;
+              for (const item of gathered) next = item.apply(next);
+              const changed = gathered.filter((item) => item.projection(next) !== item.projection(existing));
+              if (changed.length === 0) continue;
               await writeArtifactObject(env, counter, "event", params, { ...next, generation: stamp.generation, computedAt: stamp.computedAt });
               officialDataWritten++;
-              rankingsWrote = true;
+              for (const item of changed) wrote.add(item.endpoint);
             }
           }
         } catch (error) {
           failed = true;
-          warnOfficialDataFailed(eventKey, "rankings", error);
-          live.ingest.failure(eventKey, "rankings", error);
+          for (const item of gathered) {
+            warnOfficialDataFailed(eventKey, item.endpoint, error);
+            live.ingest.failure(eventKey, item.endpoint, error);
+          }
         }
-        if (!skippedAlgorithm && !failed) {
-          state = { ...state, rankingsEtag: rankings.etag, rankingsSeen: true, ...(rankingsWrote ? { rankingsChangedAt: nowIso } : {}) };
-        }
-        if (rankingsWrote) {
-          live.ingest.endpointChanged(eventKey, "rankings", { lastModified: rankings.lastModified, detail: { rankedTeams: rankings.normalized.length } });
-          live.ingest.endpointPublished(eventKey, "rankings");
+        for (const item of gathered) {
+          if (!skippedAlgorithm && !failed) {
+            const changedAt = wrote.has(item.endpoint) ? nowIso : undefined;
+            state =
+              item.endpoint === "rankings"
+                ? { ...state, rankingsEtag: item.etag, rankingsSeen: true, ...(changedAt !== undefined ? { rankingsChangedAt: changedAt } : {}) }
+                : { ...state, alliancesEtag: item.etag, alliancesSeen: true, ...(changedAt !== undefined ? { alliancesChangedAt: changedAt } : {}) };
+          }
+          if (wrote.has(item.endpoint)) {
+            live.ingest.endpointChanged(eventKey, item.endpoint, { lastModified: item.lastModified, detail: item.endpoint === "rankings" ? { rankedTeams: item.count } : { alliances: item.count } });
+            live.ingest.endpointPublished(eventKey, item.endpoint);
+          }
         }
       }
+
+      // The alliances endpoint having answered moves the phase THIS tick, so the
+      // transition row is written the tick the alliances arrive.
+      state = { ...state, phase: derivePhase(state.phase, state.alliancesSeen) };
+      live.ingest.setPhase(eventKey, state.phase);
 
       // ---- Persist the state once, and log a phase transition ----------------
       const stateText = serializeLiveIngestState(state);

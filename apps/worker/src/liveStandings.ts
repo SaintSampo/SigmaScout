@@ -1,6 +1,7 @@
 /**
- * THE LIVE EVENT'S COUNTED STANDINGS, computed inside the tick that folds the
- * matches they are counted from.
+ * THE LIVE EVENT'S COUNTED STANDINGS: the gap filler for the minutes before TBA's
+ * own rankings arrive, computed inside the tick that folds the matches they are
+ * counted from.
  *
  * WHERE THIS CAME FROM, AND WHY IT MOVED. This derivation was written for the
  * BROWSER (`apps/web/src/lib/liveStandings.ts`, quick task 260921-q2s), because
@@ -12,6 +13,28 @@
  * every played qualification row it needs, it writes the artifact anyway, and a
  * derivation that runs once per fold beats the same derivation re-run in every
  * reader's browser on every poll.
+ *
+ * WHAT CHANGED WITH QUICK TASK 261004-uyc. The tick now DOES fetch TBA's rankings
+ * (`liveEventPass.ts` polls `/event/{key}/rankings` by event phase and
+ * `officialStandings.ts` writes them onto the artifact), so these counted
+ * standings are only what stands in until the first rankings response, and
+ * `mergeEventArtifact` never counts over an artifact that already carries TBA's
+ * ranks and no marker (`hasOfficialStandings`). The same task fixed the
+ * arithmetic below, which had been wrong since the move.
+ *
+ * WHAT A PLAYED ROW'S RANKING POINTS ARE. A played row's `actualRedRp` and
+ * `actualBlueRp` are TBA's reported ranking points for that match, the TOTAL for
+ * the alliance, win or tie points and every bonus included. They come off
+ * `score_breakdown.{color}.rp` (`packages/ingest/normalize.ts` `extractRp`, then
+ * `eventPlayedRow`). The corpus shows it: over 2026 official qualification matches
+ * a winning red alliance carries 3, 4, 5 or 6 (1,178, 4,376, 460 and 1 rows) and a
+ * losing one 0, 1 or 2, so a win is never below the season's win value. The
+ * browser's `simulationInputs.ts` sums the value as it stands, which is correct.
+ * This module used to ADD the season's win and tie points on top of it, crediting
+ * a 2026 winner reported at 4 with 7. It never showed in production because the
+ * only live events so far were offseason, where no outcome vector existed and the
+ * count stayed records only. A row therefore credits each of its alliance's teams
+ * with the reported value and nothing more.
  *
  * THE TRIGGER CHANGED SHAPE, NOT MEANING. The browser fired on
  * `artifact.live !== undefined` — "this artifact carries matches the published
@@ -59,12 +82,11 @@ export interface CountedStandingsRow {
 }
 
 /**
- * `ranked` is false when `rpOutcomeRp` is absent, or when any played
- * qualification row is missing a numeric bonus RP for either alliance —
- * ranking points are all-or-nothing for the whole event (see
- * `deriveEventStandings`'s doc comment). `rows` is keyed by team key and covers
- * the pool: the union of the artifact's `teams` and every team key appearing in
- * a played qualification row.
+ * `ranked` is false when any played qualification row is missing a numeric
+ * ranking point value for either alliance: ranking points are all or nothing for
+ * the whole event (see `deriveEventStandings`'s doc comment). `rows` is keyed by
+ * team key and covers the pool: the union of the artifact's `teams` and every
+ * team key appearing in a played qualification row.
  */
 export interface CountedStandings {
   readonly ranked: boolean;
@@ -77,6 +99,7 @@ export interface StandingsMatchRow {
   readonly redTeams: readonly string[];
   readonly blueTeams: readonly string[];
   readonly actualWinner?: "red" | "blue" | "tie";
+  /** TBA's reported ranking points for the match: the alliance's TOTAL, win or tie points and every bonus included. */
   readonly actualRedRp?: number | null;
   readonly actualBlueRp?: number | null;
 }
@@ -91,8 +114,6 @@ export interface StandingsTeamRow {
 export interface DeriveEventStandingsInput {
   readonly matches: readonly StandingsMatchRow[];
   readonly teams: readonly StandingsTeamRow[];
-  /** The season's win/tie outcome ranking points, as the artifact publishes them. Absent for a season or algorithm that publishes none. */
-  readonly rpOutcomeRp?: { readonly win: number; readonly tie: number };
 }
 
 const TEAM_NUMBER_PATTERN = /^frc(\d+)$/;
@@ -124,7 +145,7 @@ function resolveTeamNumber(teamKey: string, teamNumberByKey: ReadonlyMap<string,
  * score-breakdown fields this artifact does not carry. A played row also
  * carries no surrogate field and no disqualification field, so a surrogate
  * appearance is counted here where TBA excludes it, and a disqualified team is
- * credited its outcome ranking points where TBA credits zero. Those are this
+ * credited its alliance's ranking points where TBA credits zero. Those are this
  * derivation's two known divergences from TBA's own published order; no field
  * is invented to fix them.
  */
@@ -141,7 +162,7 @@ interface Tally {
   wins: number;
   losses: number;
   ties: number;
-  /** Total ranking points credited to this team — accumulated unconditionally during the scan; only ever READ when the scan finished `ranked`. */
+  /** Total ranking points credited to this team: TBA's reported match totals, accumulated unconditionally during the scan; only ever READ when the scan finished `ranked`. */
   rpTotal: number;
 }
 
@@ -163,12 +184,16 @@ function allianceOutcome(actualWinner: StandingsMatchRow["actualWinner"], side: 
  * the merged played rows alone. Returns `undefined` when there is no played
  * qualification row at all.
  *
+ * EACH APPEARANCE CREDITS THE ROW'S REPORTED RANKING POINTS AND NOTHING MORE.
+ * `actualRedRp` and `actualBlueRp` are TBA's own total for the alliance in that
+ * match (see the module header for the corpus evidence), so adding the season's
+ * win or tie points on top would count them twice.
+ *
  * Ranking points are ALL OR NOTHING for the whole event: the result is `ranked`
- * only when `rpOutcomeRp` is present AND every played qualification row carries
- * a numeric bonus RP for both alliances. A `null` or absent bonus is a real gap
- * in TBA's data and is never coerced to zero, so a single gap makes the WHOLE
- * result unranked (records only) rather than producing a rank built on an
- * invented zero.
+ * only when every played qualification row carries a number for both alliances.
+ * A `null` or absent value is a real gap in TBA's data and is never coerced to
+ * zero, so a single gap makes the WHOLE result unranked (records only) rather
+ * than producing a rank built on an invented zero.
  *
  * The ranking pool is the union of the team keys in `teams` and the team keys
  * appearing in a played qualification row. A pool member with no appearance
@@ -179,8 +204,7 @@ export function deriveEventStandings(input: DeriveEventStandingsInput): CountedS
   const qualRows = input.matches.filter((row) => row.compLevel === "qm");
   if (qualRows.length === 0) return undefined;
 
-  const rpOutcomeRp = input.rpOutcomeRp;
-  let ranked = rpOutcomeRp !== undefined;
+  let ranked = true;
 
   const tallies = new Map<string, Tally>();
   function tallyFor(teamKey: string): Tally {
@@ -199,12 +223,10 @@ export function deriveEventStandings(input: DeriveEventStandingsInput): CountedS
 
     const redOutcome = allianceOutcome(row.actualWinner, "red");
     const blueOutcome = allianceOutcome(row.actualWinner, "blue");
-    const redOutcomeRp = rpOutcomeRp === undefined ? 0 : redOutcome === "win" ? rpOutcomeRp.win : redOutcome === "tie" ? rpOutcomeRp.tie : 0;
-    const blueOutcomeRp = rpOutcomeRp === undefined ? 0 : blueOutcome === "win" ? rpOutcomeRp.win : blueOutcome === "tie" ? rpOutcomeRp.tie : 0;
-    const redBonusRp = typeof row.actualRedRp === "number" ? row.actualRedRp : 0;
-    const blueBonusRp = typeof row.actualBlueRp === "number" ? row.actualBlueRp : 0;
-    const redRp = redOutcomeRp + redBonusRp;
-    const blueRp = blueOutcomeRp + blueBonusRp;
+    // Only ever READ when the scan finishes `ranked`, which is exactly when both
+    // are numbers on every row, so the zero here is never a credited zero.
+    const redRp = typeof row.actualRedRp === "number" ? row.actualRedRp : 0;
+    const blueRp = typeof row.actualBlueRp === "number" ? row.actualBlueRp : 0;
 
     for (const teamKey of row.redTeams) creditAppearance(tallyFor(teamKey), redOutcome, redRp);
     for (const teamKey of row.blueTeams) creditAppearance(tallyFor(teamKey), blueOutcome, blueRp);
@@ -269,7 +291,6 @@ export function deriveEventStandings(input: DeriveEventStandingsInput): CountedS
 export function withCountedStandings<T extends StandingsTeamRow>(params: {
   readonly matches: readonly StandingsMatchRow[];
   readonly teams: readonly T[];
-  readonly rpOutcomeRp?: { readonly win: number; readonly tie: number };
 }): { readonly teams: readonly T[]; readonly standings?: EventStandingsMarker } {
   const derived = deriveEventStandings(params);
   if (derived === undefined) return { teams: params.teams };

@@ -7,7 +7,8 @@
  * `2022roe` response RESEARCH.md recorded, not an invention.
  */
 import { describe, expect, it } from "vitest";
-import { normalizeEventAlliances } from "./alliances.js";
+import { normalizeEventAlliances, parseAllianceRecord } from "./alliances.js";
+import { parseAllianceRecord as parseAllianceRecordFromCorpus } from "../corpus/db.js";
 import { tbaAllianceResponseSchema, type TbaAllianceEntry, type TbaAllianceResponse } from "./schemas.js";
 
 function allianceEntry(overrides: Partial<TbaAllianceEntry> = {}): TbaAllianceEntry {
@@ -200,5 +201,28 @@ describe("normalizeEventAlliances", () => {
     const result = normalizeEventAlliances(entries);
     expect(result.map((r) => r.name)).toEqual(["Third", "First", "Second"]);
     expect(result.map((r) => r.allianceNumber)).toEqual([1, 2, 3]);
+  });
+});
+
+describe("parseAllianceRecord (moved here from the corpus module, quick task 261004-uyc)", () => {
+  it("is null for a null status", () => {
+    expect(parseAllianceRecord(null)).toBeNull();
+  });
+
+  it("is null for invalid JSON", () => {
+    expect(parseAllianceRecord("{not json")).toBeNull();
+  });
+
+  it("is null for a status with no record triple", () => {
+    expect(parseAllianceRecord(JSON.stringify({ status: "unknown" }))).toBeNull();
+    expect(parseAllianceRecord(JSON.stringify({ record: { wins: 4, losses: 3 } }))).toBeNull();
+  });
+
+  it("reads a well formed record and ignores the other status keys", () => {
+    expect(parseAllianceRecord(JSON.stringify({ record: { wins: 4, losses: 3, ties: 0 }, level: "f", status: "won" }))).toEqual({ wins: 4, losses: 3, ties: 0 });
+  });
+
+  it("is the same function the corpus module re-exports", () => {
+    expect(parseAllianceRecordFromCorpus).toBe(parseAllianceRecord);
   });
 });

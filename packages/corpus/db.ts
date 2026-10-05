@@ -18,8 +18,8 @@ import { dirname } from "node:path";
 // `node:url` parameter type. Importing Node's `URL` keeps both types from the same
 // module, so the file typechecks identically under the root and worker tsconfigs.
 import { fileURLToPath, URL } from "node:url";
-import { z } from "zod";
 import type { CompLevel, MatchResult, UpcomingMatch } from "../core/algorithms/types.js";
+import { parseAllianceRecord } from "../ingest/alliances.js";
 import { OFFSEASON_EVENT_TYPE, PRESEASON_EVENT_TYPE } from "../core/algorithms/eventTypes.js";
 import {
   detectReplay,
@@ -1079,56 +1079,11 @@ export interface EventAllianceSelection {
   record: { wins: number; losses: number; ties: number } | null;
 }
 
-/**
- * TBA's `status` object shape this pipeline recognises (07-UAT.md G-8):
- * `{ record: { wins, losses, ties }, ... }`, with any other keys (`status`,
- * `level`, `double_elim_round`, all observed live) ignored — Zod's default
- * object parsing strips unknown keys rather than rejecting them, so this
- * schema stays valid across every `playoff_type` shape RESEARCH.md Q2
- * measured (values 0, 4, 8 and 10) as long as the `record` triple itself is
- * well-formed. All three counts are required TOGETHER — there is no
- * half-present alliance record the way `EventTeamSchema.record` allows for
- * TBA's per-team rankings; a `status` object missing any one of the three
- * fails this schema entirely and `parseAllianceRecord` returns `null`.
- */
-const AllianceStatusSchema = z.object({
-  record: z.object({
-    wins: z.number().int().nonnegative(),
-    losses: z.number().int().nonnegative(),
-    ties: z.number().int().nonnegative(),
-  }),
-});
-
-/**
- * Recovers an alliance's playoff win-loss-tie record from
- * `event_alliances.status_raw` — the verbatim `JSON.stringify` of TBA's
- * `status` object that `packages/ingest/alliances.ts`'s
- * `normalizeEventAlliances` stores (`statusRaw`), or `null` when TBA sent
- * none. Three independent absence paths all collapse to `null`, through the
- * SAME rule, with no special case for any of them (07-14's own "same rule,
- * no special case" precedent for `combineAlliancePicks`): `statusRaw` itself
- * is `null` (no status ever recorded), `statusRaw` is present but is not
- * valid JSON (defensive — `JSON.stringify` always produces valid JSON, so
- * this branch should be unreachable against real ingested data, but a
- * `JSON.parse` is never trusted to succeed without a `try`/`catch` here),
- * and `statusRaw` parses as JSON but does not satisfy `AllianceStatusSchema`
- * (a `playoff_type` shape this pipeline has not modelled — RESEARCH.md Q2's
- * observed values 0/4/8/10 vary in shape). No default of `{wins: 0, losses:
- * 0, ties: 0}` is ever substituted for any of these — that would fabricate
- * a real-looking playoff result for an alliance whose record is genuinely
- * unknown to this pipeline.
- */
-export function parseAllianceRecord(statusRaw: string | null): { wins: number; losses: number; ties: number } | null {
-  if (statusRaw === null) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(statusRaw);
-  } catch {
-    return null;
-  }
-  const result = AllianceStatusSchema.safeParse(parsed);
-  return result.success ? result.data.record : null;
-}
+// `parseAllianceRecord` and its status schema moved to `packages/ingest/alliances.ts`
+// (quick task 261004-uyc) so the live Worker can use the same rule without
+// importing this module, which reaches `better-sqlite3`. It is re-exported here
+// under the same name, so every importer and test is untouched.
+export { parseAllianceRecord };
 
 /**
  * Upserts one playoff alliance's selection for one event. Mirrors

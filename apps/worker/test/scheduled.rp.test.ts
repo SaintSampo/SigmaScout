@@ -141,12 +141,14 @@ import { officialDataStubResponse } from "./support/officialDataStubs.js";
  * A tick that folds nothing writes no row and spends none (the 304 pins elsewhere
  * did not move).
  *
- * MOVED TO 70 on purpose by quick task 261004-uyc plan 02: the live event pass now
- * asks TBA for the event's rankings and, because this fixture's qualifications are
- * all played, its alliances: two conditional polls, each one subrequest, each
- * answered with an empty body here so nothing is written.
+ * MOVED TO 72 on purpose by quick task 261004-uyc plan 02: the live event pass now
+ * asks TBA for each open event's rankings and, because this fixture's qualifications
+ * are all played, its alliances. The fixture has TWO open events (the prior event
+ * and the live one), so that is four conditional polls, each one subrequest, each
+ * answered with an empty body here so nothing is written (68 + 4). It stood at 70
+ * after the rankings poll alone, before the alliances poll existed.
  */
-const SUBREQUESTS_PER_LIVE_TICK = 70;
+const SUBREQUESTS_PER_LIVE_TICK = 72;
 
 interface FakeAlgorithmStateRow {
   algorithm_id: string;

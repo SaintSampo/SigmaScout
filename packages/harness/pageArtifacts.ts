@@ -474,7 +474,10 @@ const EventMatchSchema = z
      */
     coldStart: z.literal(true).optional(),
     /**
-     * This alliance's actual bonus ranking points for this match — the
+     * This alliance's actual ranking points for this match: TBA's reported
+     * TOTAL for the alliance, the win or tie points and every bonus included,
+     * never the bonus points alone. Over 2026 official qualification matches a
+     * winning red alliance carries 3 to 6 and a losing one 0 to 2. The
      * same quantity under the same name that
      * `TeamSeasonMatchSchema.actualRedRp` carries (see that field's doc
      * comment for the full provenance through the ingest's ranking-point
@@ -482,7 +485,7 @@ const EventMatchSchema = z
      * conflated: the key **absent** entirely means this artifact predates
      * the field; an explicit **`null`** means the fact is not derivable
      * from the available data; a present **integer**, including a real
-     * `0`, is TBA's own reported bonus RP for that alliance. `null` is
+     * `0`, is TBA's own reported ranking point total for that alliance. `null` is
      * never coerced to `0` — a coerced zero would be a positive claim that
      * an alliance earned no ranking points, and the summed fallback then
      * sums exactly these values into a team's already-earned baseline on
@@ -732,7 +735,7 @@ const EventTeamSchema = z.object({
    * count. Rounded exactly once, at the publish boundary, at
    * `ROUNDING_RULE.rankingPoints`. It is explicitly NOT the same quantity
    * as `TeamSeasonMatchSchema.actualRedRp`/`actualBlueRp`, which are
-   * integer bonus-RP counts published unrounded — the two share three
+   * integer ranking point totals published unrounded — the two share three
    * letters and nothing else, and a reader who conflates them will misread
    * both.
    */
@@ -819,7 +822,8 @@ export const TeamSeasonMatchSchema = z
     /** The mirror of `EventMatchSchema.coldStart` — see its doc comment for the full contract. */
     coldStart: z.literal(true).optional(),
     /**
-     * Actual bonus ranking points, sourced from
+     * Actual ranking points, TBA's reported total for the alliance in the match
+     * (win or tie points included, never the bonus alone), sourced from
      * `MatchResult.redRpEarned`/`blueRpEarned` (`packages/core/algorithms/
      * types.ts`), populated at ingest time from TBA's raw
      * `score_breakdown.{color}.rp` via `packages/ingest/normalize.ts`'s
@@ -832,7 +836,7 @@ export const TeamSeasonMatchSchema = z
      * for every played match regardless of tier, including elimination
      * matches (`ELIMINATION_RP_TOTAL`, `rp/constants.ts`). A genuine
      * integer `0` is therefore a meaningfully different, more informative
-     * value than `null` and must never be conflated with it. Bonus RP is
+     * value than `null` and must never be conflated with it. The value is
      * always a non-negative integer count, never rounded at the publish
      * boundary (asserted by a schema-level `.int()` rather than a new
      * `ROUNDING_RULE` entry).
@@ -1647,7 +1651,8 @@ export const EventArtifactSchema = AlgorithmScopedPreambleSchema.extend({
    * TICK rather than published from TBA's own rankings
    * (`apps/worker/src/liveStandings.ts`, quick task 260923-3w7). The offline
    * publisher never writes this key: it publishes TBA's official standings, so
-   * its absence is the statement that the table below is official.
+   * its absence is the statement that the table below is official. The live
+   * tick does not write it either once TBA's rankings have arrived.
    *
    * It exists because the reader is owed that distinction. A counted order can
    * diverge from TBA's own published order on an exact tie, a surrogate
@@ -1658,9 +1663,16 @@ export const EventArtifactSchema = AlgorithmScopedPreambleSchema.extend({
    * doing the counting.
    *
    * `ranked: false` means only the Record column was counted (a gap in TBA's
-   * bonus data makes ranking points all-or-nothing unavailable for the whole
-   * event), so no row carries a counted `rank` or `rp` and the order is
+   * ranking point data makes ranking points all-or-nothing unavailable for the
+   * whole event), so no row carries a counted `rank` or `rp` and the order is
    * whatever it already was.
+   *
+   * SINCE QUICK TASK 261004-uyc THE LIVE TICK ALSO WRITES TBA'S OWN STANDINGS
+   * (`apps/worker/src/liveEventPass.ts` polls `/event/{key}/rankings` and
+   * `officialStandings.ts` writes them onto every live algorithm's artifact).
+   * An artifact carrying them has no `standings` key, exactly as an offline
+   * published one has none, so the key's absence still means "official", and a
+   * counted standing is only the stand-in until TBA's first rankings response.
    *
    * Declared on `EventArtifactSchema` itself for exactly the reason `tierCuts`
    * above is: the Worker's write-side parse would otherwise strip the key on
