@@ -242,5 +242,1383 @@
       "node": "v24.15.0",
       "platform": "win32 10.0.26200"
     }
+  },
+  "partB": {
+    "events": [
+      {
+        "eventKey": "2026txmca",
+        "rosterSize": 27,
+        "quals": 36,
+        "matchesPerTeam": 8,
+        "asOf": "2026-03-13T18:07:11.000Z"
+      },
+      {
+        "eventKey": "2026casnd",
+        "rosterSize": 40,
+        "quals": 80,
+        "matchesPerTeam": 12,
+        "asOf": "2026-03-21T17:29:02.000Z"
+      },
+      {
+        "eventKey": "2026joh",
+        "rosterSize": 75,
+        "quals": 125,
+        "matchesPerTeam": 10,
+        "asOf": "2026-04-30T13:05:39.000Z"
+      }
+    ],
+    "sprVersion": "9.0.0+baseline",
+    "frame": {
+      "g1WithinRanks": 1,
+      "g1Bar": 0.95,
+      "g2MaxRanks": 2,
+      "g3WithinRanks": 1,
+      "g3Bar": 0.9,
+      "atBarSharePoints": 0.01,
+      "atBarRanks": 0.1,
+      "pairs": 10
+    },
+    "main": [
+      {
+        "n": 100,
+        "draws": 50,
+        "pooled": {
+          "teams": 142,
+          "pairs": 10,
+          "shareWithin1": 0.673943661971831,
+          "shareWithin05": 0.4345070422535211,
+          "meanAbsDelta": 0.897037036453769,
+          "worstTeamMeanOverPairs": 4.8428341905990955,
+          "maxAbsDelta": 6.9521921128001765,
+          "q95AbsDelta": 2.7476649865855247,
+          "shareIdenticalPrintedMedian": 0.4154929577464788,
+          "shareTwoOrMoreApart": 0.20915492957746476,
+          "shareIdenticalBandLabel": 0.005633802816901409,
+          "shareUnchangedRowPosition": 0.3232394366197183,
+          "largestRowDisplacement": 13,
+          "shareP10Within1": 0.7492957746478873,
+          "shareP90Within1": 0.782394366197183,
+          "deltaOverBandMedian": 0.02060406463196275,
+          "deltaOverBandP95": 0.0627880250053831
+        },
+        "perEvent": {
+          "2026txmca": {
+            "teams": 27,
+            "pairs": 10,
+            "shareWithin1": 0.9777777777777779,
+            "shareWithin05": 0.737037037037037,
+            "meanAbsDelta": 0.36478886480520056,
+            "worstTeamMeanOverPairs": 1.109977687294425,
+            "maxAbsDelta": 1.6096969696969694,
+            "q95AbsDelta": 0.9327243939849168,
+            "shareIdenticalPrintedMedian": 0.6925925925925925,
+            "shareTwoOrMoreApart": 0.0037037037037037034,
+            "shareIdenticalBandLabel": 0.0037037037037037034,
+            "shareUnchangedRowPosition": 0.38888888888888884,
+            "largestRowDisplacement": 6,
+            "shareP10Within1": 1,
+            "shareP90Within1": 0.9925925925925926,
+            "deltaOverBandMedian": 0.01616135806069676,
+            "deltaOverBandP95": 0.04765898168584806
+          },
+          "2026casnd": {
+            "teams": 40,
+            "pairs": 10,
+            "shareWithin1": 0.8299999999999998,
+            "shareWithin05": 0.5575,
+            "meanAbsDelta": 0.554501703756906,
+            "worstTeamMeanOverPairs": 1.815724243325962,
+            "maxAbsDelta": 2.494449313467719,
+            "q95AbsDelta": 1.436359606349453,
+            "shareIdenticalPrintedMedian": 0.48250000000000004,
+            "shareTwoOrMoreApart": 0.06500000000000002,
+            "shareIdenticalBandLabel": 0.005,
+            "shareUnchangedRowPosition": 0.4025,
+            "largestRowDisplacement": 10,
+            "shareP10Within1": 0.9324999999999999,
+            "shareP90Within1": 0.9424999999999999,
+            "deltaOverBandMedian": 0.01762835134929159,
+            "deltaOverBandP95": 0.053161994418355375
+          },
+          "2026joh": {
+            "teams": 75,
+            "pairs": 10,
+            "shareWithin1": 0.48133333333333334,
+            "shareWithin05": 0.26,
+            "meanAbsDelta": 1.2713318890189136,
+            "worstTeamMeanOverPairs": 4.8428341905990955,
+            "maxAbsDelta": 6.9521921128001765,
+            "q95AbsDelta": 3.212693727218652,
+            "shareIdenticalPrintedMedian": 0.27999999999999997,
+            "shareTwoOrMoreApart": 0.36,
+            "shareIdenticalBandLabel": 0.006666666666666666,
+            "shareUnchangedRowPosition": 0.2573333333333333,
+            "largestRowDisplacement": 13,
+            "shareP10Within1": 0.5613333333333334,
+            "shareP90Within1": 0.6213333333333334,
+            "deltaOverBandMedian": 0.026089498512001597,
+            "deltaOverBandP95": 0.07370555206651576
+          }
+        },
+        "gates": {
+          "g1": "fail",
+          "g2": "fail",
+          "g3": "fail",
+          "g3p10": "fail",
+          "g3p90": "fail",
+          "acceptable": false
+        }
+      },
+      {
+        "n": 150,
+        "draws": 50,
+        "pooled": {
+          "teams": 142,
+          "pairs": 10,
+          "shareWithin1": 0.7359154929577465,
+          "shareWithin05": 0.4894366197183098,
+          "meanAbsDelta": 0.7361944161338974,
+          "worstTeamMeanOverPairs": 3.6383302608795773,
+          "maxAbsDelta": 4.50709219858156,
+          "q95AbsDelta": 2.184657024898389,
+          "shareIdenticalPrintedMedian": 0.44225352112676053,
+          "shareTwoOrMoreApart": 0.14295774647887322,
+          "shareIdenticalBandLabel": 0.013380281690140845,
+          "shareUnchangedRowPosition": 0.3697183098591549,
+          "largestRowDisplacement": 10,
+          "shareP10Within1": 0.8028169014084507,
+          "shareP90Within1": 0.8056338028169014,
+          "deltaOverBandMedian": 0.017368821483489363,
+          "deltaOverBandP95": 0.05468085351211968
+        },
+        "perEvent": {
+          "2026txmca": {
+            "teams": 27,
+            "pairs": 10,
+            "shareWithin1": 0.9888888888888889,
+            "shareWithin05": 0.8222222222222222,
+            "meanAbsDelta": 0.2908133443976552,
+            "worstTeamMeanOverPairs": 0.8750479671331937,
+            "maxAbsDelta": 1.131502714528807,
+            "q95AbsDelta": 0.6933074534161491,
+            "shareIdenticalPrintedMedian": 0.7296296296296296,
+            "shareTwoOrMoreApart": 0,
+            "shareIdenticalBandLabel": 0.029629629629629627,
+            "shareUnchangedRowPosition": 0.46296296296296297,
+            "largestRowDisplacement": 6,
+            "shareP10Within1": 1,
+            "shareP90Within1": 0.9962962962962962,
+            "deltaOverBandMedian": 0.013187516591314008,
+            "deltaOverBandP95": 0.035860252397970534
+          },
+          "2026casnd": {
+            "teams": 40,
+            "pairs": 10,
+            "shareWithin1": 0.9024999999999999,
+            "shareWithin05": 0.6375,
+            "meanAbsDelta": 0.4503596218978019,
+            "worstTeamMeanOverPairs": 1.387803294725531,
+            "maxAbsDelta": 1.7734920634920641,
+            "q95AbsDelta": 1.1410952026115944,
+            "shareIdenticalPrintedMedian": 0.5325,
+            "shareTwoOrMoreApart": 0.019999999999999997,
+            "shareIdenticalBandLabel": 0.017499999999999998,
+            "shareUnchangedRowPosition": 0.42750000000000005,
+            "largestRowDisplacement": 7,
+            "shareP10Within1": 0.9624999999999998,
+            "shareP90Within1": 0.9575000000000001,
+            "deltaOverBandMedian": 0.01469866195626355,
+            "deltaOverBandP95": 0.04226374544299492
+          },
+          "2026joh": {
+            "teams": 75,
+            "pairs": 10,
+            "shareWithin1": 0.5559999999999999,
+            "shareWithin05": 0.2906666666666667,
+            "meanAbsDelta": 1.0489768255515288,
+            "worstTeamMeanOverPairs": 3.6383302608795773,
+            "maxAbsDelta": 4.50709219858156,
+            "q95AbsDelta": 2.6488644728844433,
+            "shareIdenticalPrintedMedian": 0.2906666666666667,
+            "shareTwoOrMoreApart": 0.25999999999999995,
+            "shareIdenticalBandLabel": 0.005333333333333334,
+            "shareUnchangedRowPosition": 0.30533333333333335,
+            "largestRowDisplacement": 10,
+            "shareP10Within1": 0.6466666666666667,
+            "shareP90Within1": 0.6559999999999999,
+            "deltaOverBandMedian": 0.02171733685799938,
+            "deltaOverBandP95": 0.06105170996515087
+          }
+        },
+        "gates": {
+          "g1": "fail",
+          "g2": "fail",
+          "g3": "fail",
+          "g3p10": "fail",
+          "g3p90": "fail",
+          "acceptable": false
+        }
+      },
+      {
+        "n": 200,
+        "draws": 50,
+        "pooled": {
+          "teams": 142,
+          "pairs": 10,
+          "shareWithin1": 0.7795774647887324,
+          "shareWithin05": 0.5380281690140845,
+          "meanAbsDelta": 0.6492272029707707,
+          "worstTeamMeanOverPairs": 3.227896805932262,
+          "maxAbsDelta": 4.716955359218787,
+          "q95AbsDelta": 1.9493725189131004,
+          "shareIdenticalPrintedMedian": 0.4816901408450704,
+          "shareTwoOrMoreApart": 0.11267605633802817,
+          "shareIdenticalBandLabel": 0.02323943661971831,
+          "shareUnchangedRowPosition": 0.37323943661971837,
+          "largestRowDisplacement": 7,
+          "shareP10Within1": 0.8274647887323944,
+          "shareP90Within1": 0.8492957746478872,
+          "deltaOverBandMedian": 0.015572164395838266,
+          "deltaOverBandP95": 0.0490598388293875
+        },
+        "perEvent": {
+          "2026txmca": {
+            "teams": 27,
+            "pairs": 10,
+            "shareWithin1": 0.9962962962962962,
+            "shareWithin05": 0.8851851851851851,
+            "meanAbsDelta": 0.2513563810478884,
+            "worstTeamMeanOverPairs": 0.7950706969168749,
+            "maxAbsDelta": 1.086843139356267,
+            "q95AbsDelta": 0.637574201942553,
+            "shareIdenticalPrintedMedian": 0.7592592592592593,
+            "shareTwoOrMoreApart": 0,
+            "shareIdenticalBandLabel": 0.04444444444444444,
+            "shareUnchangedRowPosition": 0.47037037037037044,
+            "largestRowDisplacement": 6,
+            "shareP10Within1": 1,
+            "shareP90Within1": 0.9962962962962962,
+            "deltaOverBandMedian": 0.011269625218443985,
+            "deltaOverBandP95": 0.03302221359099852
+          },
+          "2026casnd": {
+            "teams": 40,
+            "pairs": 10,
+            "shareWithin1": 0.9324999999999999,
+            "shareWithin05": 0.6649999999999999,
+            "meanAbsDelta": 0.40605827789208826,
+            "worstTeamMeanOverPairs": 1.2556261587529511,
+            "maxAbsDelta": 1.427764547841484,
+            "q95AbsDelta": 1.1191436910830992,
+            "shareIdenticalPrintedMedian": 0.5925,
+            "shareTwoOrMoreApart": 0.0075000000000000015,
+            "shareIdenticalBandLabel": 0.02,
+            "shareUnchangedRowPosition": 0.4575,
+            "largestRowDisplacement": 7,
+            "shareP10Within1": 0.9774999999999998,
+            "shareP90Within1": 0.985,
+            "deltaOverBandMedian": 0.013830738087859465,
+            "deltaOverBandP95": 0.04123207375279437
+          },
+          "2026joh": {
+            "teams": 75,
+            "pairs": 10,
+            "shareWithin1": 0.6200000000000001,
+            "shareWithin05": 0.3453333333333334,
+            "meanAbsDelta": 0.9221507922383056,
+            "worstTeamMeanOverPairs": 3.227896805932262,
+            "maxAbsDelta": 4.716955359218787,
+            "q95AbsDelta": 2.438412497973521,
+            "shareIdenticalPrintedMedian": 0.3226666666666666,
+            "shareTwoOrMoreApart": 0.20933333333333332,
+            "shareIdenticalBandLabel": 0.017333333333333333,
+            "shareUnchangedRowPosition": 0.29333333333333333,
+            "largestRowDisplacement": 7,
+            "shareP10Within1": 0.6853333333333335,
+            "shareP90Within1": 0.724,
+            "deltaOverBandMedian": 0.01890092321459521,
+            "deltaOverBandP95": 0.05351746292614424
+          }
+        },
+        "gates": {
+          "g1": "fail",
+          "g2": "fail",
+          "g3": "fail",
+          "g3p10": "fail",
+          "g3p90": "fail",
+          "acceptable": false
+        }
+      },
+      {
+        "n": 300,
+        "draws": 50,
+        "pooled": {
+          "teams": 142,
+          "pairs": 10,
+          "shareWithin1": 0.8471830985915494,
+          "shareWithin05": 0.623943661971831,
+          "meanAbsDelta": 0.52681457414906,
+          "worstTeamMeanOverPairs": 2.693574893931193,
+          "maxAbsDelta": 3.250915032679739,
+          "q95AbsDelta": 1.597300980463891,
+          "shareIdenticalPrintedMedian": 0.545774647887324,
+          "shareTwoOrMoreApart": 0.06690140845070423,
+          "shareIdenticalBandLabel": 0.024647887323943664,
+          "shareUnchangedRowPosition": 0.4338028169014085,
+          "largestRowDisplacement": 7,
+          "shareP10Within1": 0.869718309859155,
+          "shareP90Within1": 0.8711267605633802,
+          "deltaOverBandMedian": 0.012195474896098103,
+          "deltaOverBandP95": 0.037913941300394494
+        },
+        "perEvent": {
+          "2026txmca": {
+            "teams": 27,
+            "pairs": 10,
+            "shareWithin1": 1,
+            "shareWithin05": 0.9555555555555555,
+            "meanAbsDelta": 0.20345528659415163,
+            "worstTeamMeanOverPairs": 0.601312905032807,
+            "maxAbsDelta": 0.8674208283829721,
+            "q95AbsDelta": 0.48872169603428056,
+            "shareIdenticalPrintedMedian": 0.788888888888889,
+            "shareTwoOrMoreApart": 0,
+            "shareIdenticalBandLabel": 0.07037037037037037,
+            "shareUnchangedRowPosition": 0.47777777777777775,
+            "largestRowDisplacement": 5,
+            "shareP10Within1": 1,
+            "shareP90Within1": 1,
+            "deltaOverBandMedian": 0.009089958985910217,
+            "deltaOverBandP95": 0.025300208527605603
+          },
+          "2026casnd": {
+            "teams": 40,
+            "pairs": 10,
+            "shareWithin1": 0.985,
+            "shareWithin05": 0.7775000000000001,
+            "meanAbsDelta": 0.31439852517039235,
+            "worstTeamMeanOverPairs": 0.9954042393137141,
+            "maxAbsDelta": 1.23030011542901,
+            "q95AbsDelta": 0.7832899755794706,
+            "shareIdenticalPrintedMedian": 0.6825,
+            "shareTwoOrMoreApart": 0,
+            "shareIdenticalBandLabel": 0.019999999999999997,
+            "shareUnchangedRowPosition": 0.5275000000000001,
+            "largestRowDisplacement": 6,
+            "shareP10Within1": 0.9974999999999999,
+            "shareP90Within1": 0.9974999999999999,
+            "deltaOverBandMedian": 0.010302576254193348,
+            "deltaOverBandP95": 0.029388943322976292
+          },
+          "2026joh": {
+            "teams": 75,
+            "pairs": 10,
+            "shareWithin1": 0.7186666666666666,
+            "shareWithin05": 0.42266666666666663,
+            "meanAbsDelta": 0.7565124771241165,
+            "worstTeamMeanOverPairs": 2.693574893931193,
+            "maxAbsDelta": 3.250915032679739,
+            "q95AbsDelta": 1.9105341128195121,
+            "shareIdenticalPrintedMedian": 0.38533333333333325,
+            "shareTwoOrMoreApart": 0.12666666666666668,
+            "shareIdenticalBandLabel": 0.010666666666666668,
+            "shareUnchangedRowPosition": 0.368,
+            "largestRowDisplacement": 7,
+            "shareP10Within1": 0.7546666666666667,
+            "shareP90Within1": 0.7573333333333332,
+            "deltaOverBandMedian": 0.015157131764957312,
+            "deltaOverBandP95": 0.04253673065320047
+          }
+        },
+        "gates": {
+          "g1": "fail",
+          "g2": "fail",
+          "g3": "fail",
+          "g3p10": "fail",
+          "g3p90": "fail",
+          "acceptable": false
+        }
+      },
+      {
+        "n": 500,
+        "draws": 50,
+        "pooled": {
+          "teams": 142,
+          "pairs": 10,
+          "shareWithin1": 0.904225352112676,
+          "shareWithin05": 0.7112676056338028,
+          "meanAbsDelta": 0.4134273549743912,
+          "worstTeamMeanOverPairs": 2.0813713460699153,
+          "maxAbsDelta": 2.4243161094224916,
+          "q95AbsDelta": 1.2689957840639308,
+          "shareIdenticalPrintedMedian": 0.608450704225352,
+          "shareTwoOrMoreApart": 0.03450704225352113,
+          "shareIdenticalBandLabel": 0.05140845070422535,
+          "shareUnchangedRowPosition": 0.4830985915492958,
+          "largestRowDisplacement": 6,
+          "shareP10Within1": 0.923943661971831,
+          "shareP90Within1": 0.921830985915493,
+          "deltaOverBandMedian": 0.009429296919803449,
+          "deltaOverBandP95": 0.029935195147921652
+        },
+        "perEvent": {
+          "2026txmca": {
+            "teams": 27,
+            "pairs": 10,
+            "shareWithin1": 1,
+            "shareWithin05": 0.9851851851851853,
+            "meanAbsDelta": 0.15858489521380792,
+            "worstTeamMeanOverPairs": 0.4722500721438239,
+            "maxAbsDelta": 0.6040726852877896,
+            "q95AbsDelta": 0.43276254235314743,
+            "shareIdenticalPrintedMedian": 0.8592592592592592,
+            "shareTwoOrMoreApart": 0,
+            "shareIdenticalBandLabel": 0.12222222222222219,
+            "shareUnchangedRowPosition": 0.5259259259259258,
+            "largestRowDisplacement": 5,
+            "shareP10Within1": 1,
+            "shareP90Within1": 1,
+            "deltaOverBandMedian": 0.007300368019382365,
+            "deltaOverBandP95": 0.022372484787470972
+          },
+          "2026casnd": {
+            "teams": 40,
+            "pairs": 10,
+            "shareWithin1": 1,
+            "shareWithin05": 0.8574999999999999,
+            "meanAbsDelta": 0.26357908697269455,
+            "worstTeamMeanOverPairs": 0.827134274616917,
+            "maxAbsDelta": 0.9870113493064316,
+            "q95AbsDelta": 0.6859175734948977,
+            "shareIdenticalPrintedMedian": 0.7025,
+            "shareTwoOrMoreApart": 0,
+            "shareIdenticalBandLabel": 0.07749999999999999,
+            "shareUnchangedRowPosition": 0.5325,
+            "largestRowDisplacement": 6,
+            "shareP10Within1": 1,
+            "shareP90Within1": 1,
+            "deltaOverBandMedian": 0.009017364329251546,
+            "deltaOverBandP95": 0.025659336223627104
+          },
+          "2026joh": {
+            "teams": 75,
+            "pairs": 10,
+            "shareWithin1": 0.8186666666666668,
+            "shareWithin05": 0.5346666666666667,
+            "meanAbsDelta": 0.5850897167557727,
+            "worstTeamMeanOverPairs": 2.0813713460699153,
+            "maxAbsDelta": 2.4243161094224916,
+            "q95AbsDelta": 1.546341268682234,
+            "shareIdenticalPrintedMedian": 0.46799999999999986,
+            "shareTwoOrMoreApart": 0.06533333333333333,
+            "shareIdenticalBandLabel": 0.012,
+            "shareUnchangedRowPosition": 0.4413333333333333,
+            "largestRowDisplacement": 6,
+            "shareP10Within1": 0.8560000000000001,
+            "shareP90Within1": 0.852,
+            "deltaOverBandMedian": 0.011371996837180603,
+            "deltaOverBandP95": 0.03470086794321865
+          }
+        },
+        "gates": {
+          "g1": "fail",
+          "g2": "fail",
+          "g3": "pass",
+          "g3p10": "pass",
+          "g3p90": "pass",
+          "acceptable": false
+        }
+      },
+      {
+        "n": 750,
+        "draws": 50,
+        "pooled": {
+          "teams": 142,
+          "pairs": 10,
+          "shareWithin1": 0.9514084507042252,
+          "shareWithin05": 0.7788732394366196,
+          "meanAbsDelta": 0.3288064538553521,
+          "worstTeamMeanOverPairs": 1.899588754268531,
+          "maxAbsDelta": 2.3145094003782347,
+          "q95AbsDelta": 0.9808902726735729,
+          "shareIdenticalPrintedMedian": 0.6894366197183098,
+          "shareTwoOrMoreApart": 0.015492957746478872,
+          "shareIdenticalBandLabel": 0.057746478873239436,
+          "shareUnchangedRowPosition": 0.554225352112676,
+          "largestRowDisplacement": 6,
+          "shareP10Within1": 0.954225352112676,
+          "shareP90Within1": 0.95,
+          "deltaOverBandMedian": 0.007388568943267251,
+          "deltaOverBandP95": 0.023694965930450614
+        },
+        "perEvent": {
+          "2026txmca": {
+            "teams": 27,
+            "pairs": 10,
+            "shareWithin1": 1,
+            "shareWithin05": 1,
+            "meanAbsDelta": 0.1301725563517231,
+            "worstTeamMeanOverPairs": 0.4010875994650471,
+            "maxAbsDelta": 0.49873232621743213,
+            "q95AbsDelta": 0.3571791891525624,
+            "shareIdenticalPrintedMedian": 0.888888888888889,
+            "shareTwoOrMoreApart": 0,
+            "shareIdenticalBandLabel": 0.137037037037037,
+            "shareUnchangedRowPosition": 0.548148148148148,
+            "largestRowDisplacement": 6,
+            "shareP10Within1": 1,
+            "shareP90Within1": 1,
+            "deltaOverBandMedian": 0.005653787396959761,
+            "deltaOverBandP95": 0.01847895341055185
+          },
+          "2026casnd": {
+            "teams": 40,
+            "pairs": 10,
+            "shareWithin1": 1,
+            "shareWithin05": 0.9475,
+            "meanAbsDelta": 0.20673980776038853,
+            "worstTeamMeanOverPairs": 0.6751323188792538,
+            "maxAbsDelta": 0.8477222222222203,
+            "q95AbsDelta": 0.5260976215568318,
+            "shareIdenticalPrintedMedian": 0.76,
+            "shareTwoOrMoreApart": 0,
+            "shareIdenticalBandLabel": 0.08499999999999999,
+            "shareUnchangedRowPosition": 0.6100000000000001,
+            "largestRowDisplacement": 4,
+            "shareP10Within1": 1,
+            "shareP90Within1": 1,
+            "deltaOverBandMedian": 0.0070482245546224995,
+            "deltaOverBandP95": 0.019413794696236938
+          },
+          "2026joh": {
+            "teams": 75,
+            "pairs": 10,
+            "shareWithin1": 0.908,
+            "shareWithin05": 0.6093333333333334,
+            "meanAbsDelta": 0.4654168682073059,
+            "worstTeamMeanOverPairs": 1.899588754268531,
+            "maxAbsDelta": 2.3145094003782347,
+            "q95AbsDelta": 1.165376321951234,
+            "shareIdenticalPrintedMedian": 0.58,
+            "shareTwoOrMoreApart": 0.029333333333333333,
+            "shareIdenticalBandLabel": 0.014666666666666666,
+            "shareUnchangedRowPosition": 0.5266666666666666,
+            "largestRowDisplacement": 5,
+            "shareP10Within1": 0.9133333333333333,
+            "shareP90Within1": 0.9053333333333333,
+            "deltaOverBandMedian": 0.008884864647280236,
+            "deltaOverBandP95": 0.027828233323570976
+          }
+        },
+        "gates": {
+          "g1": "at the bar",
+          "g2": "fail",
+          "g3": "pass",
+          "g3p10": "pass",
+          "g3p90": "pass",
+          "acceptable": false
+        }
+      },
+      {
+        "n": 1000,
+        "draws": 50,
+        "pooled": {
+          "teams": 142,
+          "pairs": 10,
+          "shareWithin1": 0.9661971830985916,
+          "shareWithin05": 0.8204225352112676,
+          "meanAbsDelta": 0.29045763950792824,
+          "worstTeamMeanOverPairs": 1.540464581501715,
+          "maxAbsDelta": 2.10823525378796,
+          "q95AbsDelta": 0.8781088700373815,
+          "shareIdenticalPrintedMedian": 0.726056338028169,
+          "shareTwoOrMoreApart": 0.007746478873239438,
+          "shareIdenticalBandLabel": 0.07605633802816901,
+          "shareUnchangedRowPosition": 0.5838028169014085,
+          "largestRowDisplacement": 6,
+          "shareP10Within1": 0.973943661971831,
+          "shareP90Within1": 0.9683098591549296,
+          "deltaOverBandMedian": 0.006655041022164465,
+          "deltaOverBandP95": 0.020699212893372274
+        },
+        "perEvent": {
+          "2026txmca": {
+            "teams": 27,
+            "pairs": 10,
+            "shareWithin1": 1,
+            "shareWithin05": 1,
+            "meanAbsDelta": 0.10827737347805433,
+            "worstTeamMeanOverPairs": 0.3231565044096083,
+            "maxAbsDelta": 0.4420081210778868,
+            "q95AbsDelta": 0.2755432928214899,
+            "shareIdenticalPrintedMedian": 0.9185185185185185,
+            "shareTwoOrMoreApart": 0,
+            "shareIdenticalBandLabel": 0.2074074074074074,
+            "shareUnchangedRowPosition": 0.5481481481481482,
+            "largestRowDisplacement": 6,
+            "shareP10Within1": 1,
+            "shareP90Within1": 1,
+            "deltaOverBandMedian": 0.00425213379705091,
+            "deltaOverBandP95": 0.014327826260469434
+          },
+          "2026casnd": {
+            "teams": 40,
+            "pairs": 10,
+            "shareWithin1": 1,
+            "shareWithin05": 0.9824999999999999,
+            "meanAbsDelta": 0.1782214107572441,
+            "worstTeamMeanOverPairs": 0.5182296429720343,
+            "maxAbsDelta": 0.6682632926254293,
+            "q95AbsDelta": 0.43539948317560057,
+            "shareIdenticalPrintedMedian": 0.805,
+            "shareTwoOrMoreApart": 0,
+            "shareIdenticalBandLabel": 0.09499999999999999,
+            "shareUnchangedRowPosition": 0.6275000000000001,
+            "largestRowDisplacement": 4,
+            "shareP10Within1": 1,
+            "shareP90Within1": 1,
+            "deltaOverBandMedian": 0.005671541203735993,
+            "deltaOverBandP95": 0.01653857969685009
+          },
+          "2026joh": {
+            "teams": 75,
+            "pairs": 10,
+            "shareWithin1": 0.9359999999999999,
+            "shareWithin05": 0.6693333333333333,
+            "meanAbsDelta": 0.41590185727904777,
+            "worstTeamMeanOverPairs": 1.540464581501715,
+            "maxAbsDelta": 2.10823525378796,
+            "q95AbsDelta": 1.0857047088014342,
+            "shareIdenticalPrintedMedian": 0.6146666666666667,
+            "shareTwoOrMoreApart": 0.014666666666666666,
+            "shareIdenticalBandLabel": 0.018666666666666668,
+            "shareUnchangedRowPosition": 0.5733333333333335,
+            "largestRowDisplacement": 4,
+            "shareP10Within1": 0.9506666666666665,
+            "shareP90Within1": 0.9400000000000001,
+            "deltaOverBandMedian": 0.007999621254885587,
+            "deltaOverBandP95": 0.024372253445271864
+          }
+        },
+        "gates": {
+          "g1": "pass",
+          "g2": "fail",
+          "g3": "pass",
+          "g3p10": "pass",
+          "g3p90": "pass",
+          "acceptable": false
+        }
+      },
+      {
+        "n": 2000,
+        "draws": 50,
+        "pooled": {
+          "teams": 142,
+          "pairs": 10,
+          "shareWithin1": 0.9957746478873238,
+          "shareWithin05": 0.9154929577464788,
+          "meanAbsDelta": 0.19752968189530334,
+          "worstTeamMeanOverPairs": 1.0385233610259177,
+          "maxAbsDelta": 1.6623615161997805,
+          "q95AbsDelta": 0.618170981808813,
+          "shareIdenticalPrintedMedian": 0.7992957746478873,
+          "shareTwoOrMoreApart": 0.002112676056338028,
+          "shareIdenticalBandLabel": 0.12253521126760565,
+          "shareUnchangedRowPosition": 0.6852112676056338,
+          "largestRowDisplacement": 4,
+          "shareP10Within1": 0.991549295774648,
+          "shareP90Within1": 0.993661971830986,
+          "deltaOverBandMedian": 0.004689981538094078,
+          "deltaOverBandP95": 0.01427645491194721
+        },
+        "perEvent": {
+          "2026txmca": {
+            "teams": 27,
+            "pairs": 10,
+            "shareWithin1": 1,
+            "shareWithin05": 1,
+            "meanAbsDelta": 0.0816647142728845,
+            "worstTeamMeanOverPairs": 0.23402022283802815,
+            "maxAbsDelta": 0.2815418940393677,
+            "q95AbsDelta": 0.2078097531119293,
+            "shareIdenticalPrintedMedian": 0.937037037037037,
+            "shareTwoOrMoreApart": 0,
+            "shareIdenticalBandLabel": 0.3074074074074074,
+            "shareUnchangedRowPosition": 0.5851851851851853,
+            "largestRowDisplacement": 4,
+            "shareP10Within1": 1,
+            "shareP90Within1": 1,
+            "deltaOverBandMedian": 0.003470337236563892,
+            "deltaOverBandP95": 0.010425928097998837
+          },
+          "2026casnd": {
+            "teams": 40,
+            "pairs": 10,
+            "shareWithin1": 1,
+            "shareWithin05": 1,
+            "meanAbsDelta": 0.12395179490396954,
+            "worstTeamMeanOverPairs": 0.36892387051340875,
+            "maxAbsDelta": 0.4782688288586243,
+            "q95AbsDelta": 0.31058051651763247,
+            "shareIdenticalPrintedMedian": 0.85,
+            "shareTwoOrMoreApart": 0,
+            "shareIdenticalBandLabel": 0.145,
+            "shareUnchangedRowPosition": 0.7625,
+            "largestRowDisplacement": 3,
+            "shareP10Within1": 1,
+            "shareP90Within1": 1,
+            "deltaOverBandMedian": 0.004169045403349705,
+            "deltaOverBandP95": 0.011689335488809434
+          },
+          "2026joh": {
+            "teams": 75,
+            "pairs": 10,
+            "shareWithin1": 0.9919999999999998,
+            "shareWithin05": 0.8400000000000001,
+            "meanAbsDelta": 0.2784826099680855,
+            "worstTeamMeanOverPairs": 1.0385233610259177,
+            "maxAbsDelta": 1.6623615161997805,
+            "q95AbsDelta": 0.725877820867189,
+            "shareIdenticalPrintedMedian": 0.7226666666666668,
+            "shareTwoOrMoreApart": 0.004,
+            "shareIdenticalBandLabel": 0.044,
+            "shareUnchangedRowPosition": 0.68,
+            "largestRowDisplacement": 3,
+            "shareP10Within1": 0.984,
+            "shareP90Within1": 0.9880000000000001,
+            "deltaOverBandMedian": 0.005496066384346009,
+            "deltaOverBandP95": 0.016279191644625535
+          }
+        },
+        "gates": {
+          "g1": "pass",
+          "g2": "pass",
+          "g3": "pass",
+          "g3p10": "pass",
+          "g3p90": "pass",
+          "acceptable": true
+        }
+      }
+    ],
+    "secondary": [
+      {
+        "n": 250,
+        "draws": 200,
+        "pooled": {
+          "teams": 142,
+          "pairs": 10,
+          "shareWithin1": 0.8338028169014085,
+          "shareWithin05": 0.6112676056338027,
+          "meanAbsDelta": 0.5442001063193675,
+          "worstTeamMeanOverPairs": 2.906735052674828,
+          "maxAbsDelta": 4.153422132496544,
+          "q95AbsDelta": 1.649693458646126,
+          "shareIdenticalPrintedMedian": 0.5309859154929577,
+          "shareTwoOrMoreApart": 0.07816901408450704,
+          "shareIdenticalBandLabel": 0.02816901408450704,
+          "shareUnchangedRowPosition": 0.4225352112676056,
+          "largestRowDisplacement": 7,
+          "shareP10Within1": 0.8669014084507042,
+          "shareP90Within1": 0.8739436619718308,
+          "deltaOverBandMedian": 0.012372704590215047,
+          "deltaOverBandP95": 0.03928527514150326
+        },
+        "perEvent": {
+          "2026txmca": {
+            "teams": 27,
+            "pairs": 10,
+            "shareWithin1": 1,
+            "shareWithin05": 0.9444444444444443,
+            "meanAbsDelta": 0.20121398153552725,
+            "worstTeamMeanOverPairs": 0.6057474126649742,
+            "maxAbsDelta": 0.8066227237579398,
+            "q95AbsDelta": 0.5124182646877077,
+            "shareIdenticalPrintedMedian": 0.837037037037037,
+            "shareTwoOrMoreApart": 0,
+            "shareIdenticalBandLabel": 0.059259259259259255,
+            "shareUnchangedRowPosition": 0.4962962962962963,
+            "largestRowDisplacement": 5,
+            "shareP10Within1": 1,
+            "shareP90Within1": 1,
+            "deltaOverBandMedian": 0.00908027423918945,
+            "deltaOverBandP95": 0.02684434855684536
+          },
+          "2026casnd": {
+            "teams": 40,
+            "pairs": 10,
+            "shareWithin1": 0.9799999999999999,
+            "shareWithin05": 0.7849999999999999,
+            "meanAbsDelta": 0.31544819284588693,
+            "worstTeamMeanOverPairs": 1.1495534600864334,
+            "maxAbsDelta": 1.7665432108264945,
+            "q95AbsDelta": 0.8240386021724095,
+            "shareIdenticalPrintedMedian": 0.6375000000000001,
+            "shareTwoOrMoreApart": 0,
+            "shareIdenticalBandLabel": 0.0375,
+            "shareUnchangedRowPosition": 0.49749999999999994,
+            "largestRowDisplacement": 7,
+            "shareP10Within1": 0.9949999999999999,
+            "shareP90Within1": 0.9899999999999999,
+            "deltaOverBandMedian": 0.00976397156403088,
+            "deltaOverBandP95": 0.030541458188303602
+          },
+          "2026joh": {
+            "teams": 75,
+            "pairs": 10,
+            "shareWithin1": 0.696,
+            "shareWithin05": 0.39866666666666667,
+            "meanAbsDelta": 0.7896761317607397,
+            "worstTeamMeanOverPairs": 2.906735052674828,
+            "maxAbsDelta": 4.153422132496544,
+            "q95AbsDelta": 1.9844155312704022,
+            "shareIdenticalPrintedMedian": 0.364,
+            "shareTwoOrMoreApart": 0.14799999999999996,
+            "shareIdenticalBandLabel": 0.012,
+            "shareUnchangedRowPosition": 0.356,
+            "largestRowDisplacement": 7,
+            "shareP10Within1": 0.7506666666666666,
+            "shareP90Within1": 0.7666666666666666,
+            "deltaOverBandMedian": 0.01616578828362519,
+            "deltaOverBandP95": 0.04413837977998261
+          }
+        },
+        "gates": {
+          "g1": "fail",
+          "g2": "fail",
+          "g3": "fail",
+          "g3p10": "fail",
+          "g3p90": "fail",
+          "acceptable": false
+        }
+      },
+      {
+        "n": 500,
+        "draws": 100,
+        "pooled": {
+          "teams": 142,
+          "pairs": 10,
+          "shareWithin1": 0.9098591549295774,
+          "shareWithin05": 0.7091549295774648,
+          "meanAbsDelta": 0.4003333641668755,
+          "worstTeamMeanOverPairs": 2.0054405407299543,
+          "maxAbsDelta": 2.5268292939936785,
+          "q95AbsDelta": 1.252553540321652,
+          "shareIdenticalPrintedMedian": 0.6274647887323944,
+          "shareTwoOrMoreApart": 0.030281690140845068,
+          "shareIdenticalBandLabel": 0.05140845070422535,
+          "shareUnchangedRowPosition": 0.49577464788732384,
+          "largestRowDisplacement": 6,
+          "shareP10Within1": 0.9323943661971832,
+          "shareP90Within1": 0.9295774647887324,
+          "deltaOverBandMedian": 0.009289743094861913,
+          "deltaOverBandP95": 0.029241989274270665
+        },
+        "perEvent": {
+          "2026txmca": {
+            "teams": 27,
+            "pairs": 10,
+            "shareWithin1": 1,
+            "shareWithin05": 0.9777777777777779,
+            "meanAbsDelta": 0.1493960881057494,
+            "worstTeamMeanOverPairs": 0.46958629745694314,
+            "maxAbsDelta": 0.6250908275112899,
+            "q95AbsDelta": 0.3853048050006392,
+            "shareIdenticalPrintedMedian": 0.8703703703703705,
+            "shareTwoOrMoreApart": 0,
+            "shareIdenticalBandLabel": 0.14444444444444443,
+            "shareUnchangedRowPosition": 0.5666666666666667,
+            "largestRowDisplacement": 6,
+            "shareP10Within1": 1,
+            "shareP90Within1": 1,
+            "deltaOverBandMedian": 0.006764221371517913,
+            "deltaOverBandP95": 0.020139667750939
+          },
+          "2026casnd": {
+            "teams": 40,
+            "pairs": 10,
+            "shareWithin1": 0.9974999999999999,
+            "shareWithin05": 0.8574999999999999,
+            "meanAbsDelta": 0.2523353703800692,
+            "worstTeamMeanOverPairs": 0.7959649785749153,
+            "maxAbsDelta": 1.0081356444715546,
+            "q95AbsDelta": 0.6496167813512616,
+            "shareIdenticalPrintedMedian": 0.7225,
+            "shareTwoOrMoreApart": 0,
+            "shareIdenticalBandLabel": 0.05,
+            "shareUnchangedRowPosition": 0.5174999999999998,
+            "largestRowDisplacement": 4,
+            "shareP10Within1": 1,
+            "shareP90Within1": 1,
+            "deltaOverBandMedian": 0.008374633838897192,
+            "deltaOverBandP95": 0.0249021537746182
+          },
+          "2026joh": {
+            "teams": 75,
+            "pairs": 10,
+            "shareWithin1": 0.8306666666666667,
+            "shareWithin05": 0.5333333333333333,
+            "meanAbsDelta": 0.5696030469018442,
+            "worstTeamMeanOverPairs": 2.0054405407299543,
+            "maxAbsDelta": 2.5268292939936785,
+            "q95AbsDelta": 1.4959913242093266,
+            "shareIdenticalPrintedMedian": 0.48933333333333334,
+            "shareTwoOrMoreApart": 0.05733333333333333,
+            "shareIdenticalBandLabel": 0.018666666666666668,
+            "shareUnchangedRowPosition": 0.4586666666666666,
+            "largestRowDisplacement": 6,
+            "shareP10Within1": 0.8720000000000001,
+            "shareP90Within1": 0.8666666666666666,
+            "deltaOverBandMedian": 0.011473252244356111,
+            "deltaOverBandP95": 0.033204080344377614
+          }
+        },
+        "gates": {
+          "g1": "fail",
+          "g2": "fail",
+          "g3": "pass",
+          "g3p10": "pass",
+          "g3p90": "pass",
+          "acceptable": false
+        }
+      },
+      {
+        "n": 250,
+        "draws": 50,
+        "pooled": {
+          "teams": 142,
+          "pairs": 10,
+          "shareWithin1": 0.8154929577464788,
+          "shareWithin05": 0.5894366197183099,
+          "meanAbsDelta": 0.563848506508484,
+          "worstTeamMeanOverPairs": 2.913653119397891,
+          "maxAbsDelta": 3.7601302357323654,
+          "q95AbsDelta": 1.7214925589216938,
+          "shareIdenticalPrintedMedian": 0.5366197183098591,
+          "shareTwoOrMoreApart": 0.08450704225352113,
+          "shareIdenticalBandLabel": 0.028169014084507043,
+          "shareUnchangedRowPosition": 0.4288732394366198,
+          "largestRowDisplacement": 7,
+          "shareP10Within1": 0.8528169014084506,
+          "shareP90Within1": 0.8690140845070422,
+          "deltaOverBandMedian": 0.013324481272642495,
+          "deltaOverBandP95": 0.04041394224679162
+        },
+        "perEvent": {
+          "2026txmca": {
+            "teams": 27,
+            "pairs": 10,
+            "shareWithin1": 1,
+            "shareWithin05": 0.9296296296296296,
+            "meanAbsDelta": 0.2207451804148463,
+            "worstTeamMeanOverPairs": 0.6672600997847958,
+            "maxAbsDelta": 0.9647498172535407,
+            "q95AbsDelta": 0.5598720284149895,
+            "shareIdenticalPrintedMedian": 0.8111111111111111,
+            "shareTwoOrMoreApart": 0,
+            "shareIdenticalBandLabel": 0.06296296296296296,
+            "shareUnchangedRowPosition": 0.5222222222222223,
+            "largestRowDisplacement": 6,
+            "shareP10Within1": 1,
+            "shareP90Within1": 1,
+            "deltaOverBandMedian": 0.009529282474815146,
+            "deltaOverBandP95": 0.028592611740458795
+          },
+          "2026casnd": {
+            "teams": 40,
+            "pairs": 10,
+            "shareWithin1": 0.9649999999999999,
+            "shareWithin05": 0.725,
+            "meanAbsDelta": 0.3441502520901421,
+            "worstTeamMeanOverPairs": 1.11887460113222,
+            "maxAbsDelta": 1.4040695998154753,
+            "q95AbsDelta": 0.8546365124300855,
+            "shareIdenticalPrintedMedian": 0.64,
+            "shareTwoOrMoreApart": 0.0025,
+            "shareIdenticalBandLabel": 0.045,
+            "shareUnchangedRowPosition": 0.5025000000000001,
+            "largestRowDisplacement": 7,
+            "shareP10Within1": 0.9949999999999999,
+            "shareP90Within1": 0.9875,
+            "deltaOverBandMedian": 0.011128512492455854,
+            "deltaOverBandP95": 0.032204550098855006
+          },
+          "2026joh": {
+            "teams": 75,
+            "pairs": 10,
+            "shareWithin1": 0.6693333333333332,
+            "shareWithin05": 0.3946666666666666,
+            "meanAbsDelta": 0.8045381062586427,
+            "worstTeamMeanOverPairs": 2.913653119397891,
+            "maxAbsDelta": 3.7601302357323654,
+            "q95AbsDelta": 2.0075823670096726,
+            "shareIdenticalPrintedMedian": 0.38266666666666665,
+            "shareTwoOrMoreApart": 0.15866666666666668,
+            "shareIdenticalBandLabel": 0.006666666666666666,
+            "shareUnchangedRowPosition": 0.356,
+            "largestRowDisplacement": 6,
+            "shareP10Within1": 0.7240000000000001,
+            "shareP90Within1": 0.7586666666666667,
+            "deltaOverBandMedian": 0.016342616790305745,
+            "deltaOverBandP95": 0.045843917488148374
+          }
+        },
+        "gates": {
+          "g1": "fail",
+          "g2": "fail",
+          "g3": "fail",
+          "g3p10": "fail",
+          "g3p90": "fail",
+          "acceptable": false
+        }
+      }
+    ],
+    "seconds": {
+      "note": "three events ran in parallel on one machine: indicative only",
+      "perEvent": {
+        "2026txmca": {
+          "generationCumulativeSeconds": {
+            "100": 0.07265739999993821,
+            "150": 0.09906479999984731,
+            "200": 0.12713189999997848,
+            "250": 0.15771329999994488,
+            "300": 0.18773139999993146,
+            "500": 0.29775469999964116,
+            "750": 0.43082899999982327,
+            "1000": 0.560078799999872,
+            "2000": 1.0963425999992178
+          },
+          "pricePlusDrawSecondsPerBuild": [
+            {
+              "arm": "main",
+              "n": 100,
+              "draws": 50,
+              "meanSeconds": 0.14855372999999383
+            },
+            {
+              "arm": "main",
+              "n": 150,
+              "draws": 50,
+              "meanSeconds": 0.21318079499999582
+            },
+            {
+              "arm": "main",
+              "n": 200,
+              "draws": 50,
+              "meanSeconds": 0.28510144500000023
+            },
+            {
+              "arm": "main",
+              "n": 300,
+              "draws": 50,
+              "meanSeconds": 0.4140224150000023
+            },
+            {
+              "arm": "main",
+              "n": 500,
+              "draws": 50,
+              "meanSeconds": 0.6993345850000028
+            },
+            {
+              "arm": "main",
+              "n": 750,
+              "draws": 50,
+              "meanSeconds": 1.056418945000005
+            },
+            {
+              "arm": "main",
+              "n": 1000,
+              "draws": 50,
+              "meanSeconds": 1.407318650000005
+            },
+            {
+              "arm": "main",
+              "n": 2000,
+              "draws": 50,
+              "meanSeconds": 2.801655040000003
+            },
+            {
+              "arm": "secondary",
+              "n": 250,
+              "draws": 200,
+              "meanSeconds": 0.5824247200000029
+            },
+            {
+              "arm": "secondary",
+              "n": 500,
+              "draws": 100,
+              "meanSeconds": 0.8540841249999925
+            },
+            {
+              "arm": "secondary",
+              "n": 250,
+              "draws": 50,
+              "meanSeconds": 0.3500773699999903
+            }
+          ]
+        },
+        "2026casnd": {
+          "generationCumulativeSeconds": {
+            "100": 0.1927025000001304,
+            "150": 0.2712520000002696,
+            "200": 0.34408660000003877,
+            "250": 0.41488459999964106,
+            "300": 0.48554499999969264,
+            "500": 0.7485079999993323,
+            "750": 1.113656799999473,
+            "1000": 1.4614694999996574,
+            "2000": 2.896579799998377
+          },
+          "pricePlusDrawSecondsPerBuild": [
+            {
+              "arm": "main",
+              "n": 100,
+              "draws": 50,
+              "meanSeconds": 0.29174436999999165
+            },
+            {
+              "arm": "main",
+              "n": 150,
+              "draws": 50,
+              "meanSeconds": 0.44076255500001416
+            },
+            {
+              "arm": "main",
+              "n": 200,
+              "draws": 50,
+              "meanSeconds": 0.5672674150000007
+            },
+            {
+              "arm": "main",
+              "n": 300,
+              "draws": 50,
+              "meanSeconds": 0.8846090199999891
+            },
+            {
+              "arm": "main",
+              "n": 500,
+              "draws": 50,
+              "meanSeconds": 1.4369915949999965
+            },
+            {
+              "arm": "main",
+              "n": 750,
+              "draws": 50,
+              "meanSeconds": 2.195540669999999
+            },
+            {
+              "arm": "main",
+              "n": 1000,
+              "draws": 50,
+              "meanSeconds": 2.862698354999997
+            },
+            {
+              "arm": "main",
+              "n": 2000,
+              "draws": 50,
+              "meanSeconds": 5.7960159849999915
+            },
+            {
+              "arm": "secondary",
+              "n": 250,
+              "draws": 200,
+              "meanSeconds": 1.1317952450000042
+            },
+            {
+              "arm": "secondary",
+              "n": 500,
+              "draws": 100,
+              "meanSeconds": 1.6819171500000052
+            },
+            {
+              "arm": "secondary",
+              "n": 250,
+              "draws": 50,
+              "meanSeconds": 0.7355662300000171
+            }
+          ]
+        },
+        "2026joh": {
+          "generationCumulativeSeconds": {
+            "100": 0.3815763000004808,
+            "150": 0.5573232000005665,
+            "200": 0.7271379000003799,
+            "250": 0.879581800000451,
+            "300": 1.048194900000468,
+            "500": 1.7242024000004166,
+            "750": 2.636064499999804,
+            "1000": 3.471998799999943,
+            "2000": 6.847601299999922
+          },
+          "pricePlusDrawSecondsPerBuild": [
+            {
+              "arm": "main",
+              "n": 100,
+              "draws": 50,
+              "meanSeconds": 0.5003425850000144
+            },
+            {
+              "arm": "main",
+              "n": 150,
+              "draws": 50,
+              "meanSeconds": 0.6693924549999994
+            },
+            {
+              "arm": "main",
+              "n": 200,
+              "draws": 50,
+              "meanSeconds": 0.8988527849999869
+            },
+            {
+              "arm": "main",
+              "n": 300,
+              "draws": 50,
+              "meanSeconds": 1.3938451300000072
+            },
+            {
+              "arm": "main",
+              "n": 500,
+              "draws": 50,
+              "meanSeconds": 2.2687040599999917
+            },
+            {
+              "arm": "main",
+              "n": 750,
+              "draws": 50,
+              "meanSeconds": 3.374672395000008
+            },
+            {
+              "arm": "main",
+              "n": 1000,
+              "draws": 50,
+              "meanSeconds": 4.6069856400000075
+            },
+            {
+              "arm": "main",
+              "n": 2000,
+              "draws": 50,
+              "meanSeconds": 9.248958349999997
+            },
+            {
+              "arm": "secondary",
+              "n": 250,
+              "draws": 200,
+              "meanSeconds": 1.8442974549999955
+            },
+            {
+              "arm": "secondary",
+              "n": 500,
+              "draws": 100,
+              "meanSeconds": 2.717179260000007
+            },
+            {
+              "arm": "secondary",
+              "n": 250,
+              "draws": 50,
+              "meanSeconds": 1.1098419850000036
+            }
+          ]
+        }
+      },
+      "savedVs1000PerEventSeconds": [
+        {
+          "n": 100,
+          "2026txmca": 1.746,
+          "2026casnd": 3.84,
+          "2026joh": 7.197
+        },
+        {
+          "n": 150,
+          "2026txmca": 1.655,
+          "2026casnd": 3.612,
+          "2026joh": 6.852
+        },
+        {
+          "n": 200,
+          "2026txmca": 1.555,
+          "2026casnd": 3.413,
+          "2026joh": 6.453
+        },
+        {
+          "n": 300,
+          "2026txmca": 1.366,
+          "2026casnd": 2.954,
+          "2026joh": 5.637
+        },
+        {
+          "n": 500,
+          "2026txmca": 0.97,
+          "2026casnd": 2.139,
+          "2026joh": 4.086
+        },
+        {
+          "n": 750,
+          "2026txmca": 0.48,
+          "2026casnd": 1.015,
+          "2026joh": 2.068
+        },
+        {
+          "n": 1000,
+          "2026txmca": 0,
+          "2026casnd": 0,
+          "2026joh": 0
+        },
+        {
+          "n": 2000,
+          "2026txmca": -1.931,
+          "2026casnd": -4.368,
+          "2026joh": -8.018
+        }
+      ],
+      "seasonExtrapolated": {
+        "label": "EXTRAPOLATED: the 2026 SPR sidecar seconds of the new-generator full run (warm structure memo, contended machine) scaled linearly in n",
+        "sprSidecarSecondsAt1000": 635.4,
+        "perCount": [
+          {
+            "n": 100,
+            "seconds": 63.5,
+            "savedVs1000": 571.9
+          },
+          {
+            "n": 150,
+            "seconds": 95.3,
+            "savedVs1000": 540.1
+          },
+          {
+            "n": 200,
+            "seconds": 127.1,
+            "savedVs1000": 508.3
+          },
+          {
+            "n": 300,
+            "seconds": 190.6,
+            "savedVs1000": 444.8
+          },
+          {
+            "n": 500,
+            "seconds": 317.7,
+            "savedVs1000": 317.7
+          },
+          {
+            "n": 750,
+            "seconds": 476.6,
+            "savedVs1000": 158.8
+          },
+          {
+            "n": 1000,
+            "seconds": 635.4,
+            "savedVs1000": 0
+          },
+          {
+            "n": 2000,
+            "seconds": 1270.8,
+            "savedVs1000": -635.4
+          }
+        ]
+      }
+    },
+    "acceptableMainCounts": [
+      2000
+    ],
+    "recommendedCount": "keep 1000"
   }
 }
