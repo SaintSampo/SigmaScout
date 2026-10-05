@@ -2,6 +2,8 @@
 
 *2026-09-13: the code this record measured was deleted by quick task 260913-it4, restorable from the commit recorded in that task's SUMMARY.*
 
+*2026-10-05: the Simulation tab's SPR rewind now prices every remaining match from the as-of state just before the start match (quick task 261005-5g0), so this gap no longer applies to it. The measured gap describes the stored-odds shortcut, which EPA rewinds and the SPR fallback (as-of objects unpublished) still use.*
+
 This is the single narrative home for D-02's required measurement: how much narrower the
 Simulation tab's rank distribution comes out when its rewind start match is already played,
 compared to an honest from-here forecast at the same match. D-01 lets the tab rewind into an
