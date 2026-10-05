@@ -14,10 +14,29 @@
  *   from `districtLedgerCopy.ts`; the numbers and the FORM come from 10-04's
  *   `pointSummary.ts`.
  *
- * THE PREDICTED CUTOFF is the one number the controls card and every grand
- * total dashed rule share: the midpoint of the last team In range and the
- * first team Out of range, over the same median projections the table is
- * sorted by. It follows the ranking and never moves a status.
+ * THE PREDICTED CUTOFF is the one number the controls card, every grand total
+ * dashed rule AND the In range and Out of range chips share (quick task
+ * 261004-uw4). All of them read ONE range state, `districtRangeState`, through
+ * the mechanism in `ledgerRangeState.ts` that the Champ Locks tab also reads.
+ * While anything is still open:
+ *
+ * - The chance run landed and left no team out: the cutoff is the MEDIAN of
+ *   the per run simulated line, its likely range is the 10th to 90th
+ *   percentile from the same call, and In range and Out of range cut at that
+ *   number.
+ * - The chance run landed but left a team out: the simulated line is taken
+ *   over a smaller field, so the shipped midpoint rule stands, with no likely
+ *   range, the chips cut at the median projections, and every other team's
+ *   chance still printed.
+ * - Either run is still in flight: the stat line reads pending, no dashed rule
+ *   is drawn, and the two chips read Pending. A run that failed or could not
+ *   be built reads not available with its reason, and the two chips read No
+ *   call. Neither ever prints a figure.
+ *
+ * Where every team still racing for points is settled the cutoff is the
+ * midpoint of the last team In range and the first team Out of range, with no
+ * tilde. Locked, Locked out and Prequalified come straight from the verdicts
+ * and render immediately in every one of those arms.
  *
  * THE GREY/BLUE RULE IS NEVER HUE ALONE, per the sketch README's language
  * rules: a grey cell holds ONE integer and is not focusable; a blue cell holds
@@ -49,6 +68,7 @@ import {
   StatusCell,
   StatusChips,
   TeamCell,
+  ledgerRangeCallChip,
   likelyRangeText,
   stageWord,
   type CellInteraction,
@@ -98,7 +118,8 @@ import {
 import { useDistrictEventArtifacts, useDistrictLedgerData } from "./useDistrictLedgerData.js";
 import { LocksMilestonePicker } from "./LocksMilestonePicker.js";
 import { districtMilestoneEvents } from "./districtMilestones.js";
-import { predictedCutoff, simulatedCutoffRange, type LedgerCutoffView } from "./predictedCutoff.js";
+import { applyLedgerRangeState, districtRangeState, ledgerCutoffView } from "./ledgerRangeState.js";
+import { predictedCutoff, type LedgerCutoffView } from "./predictedCutoff.js";
 
 /** The first three columns are words; every column after them is a number, and a number column is centred under a centred header. */
 /** The three text columns (Team, Status, Event); every other header centres over its boxed cells. Jacob's order, 2026-09-25: Team, Status, Grand total, Event, Event total, then the four categories. */
@@ -400,68 +421,136 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
    * and the baked distributions are already in hand — so it passes an empty
    * signature rather than a null.
    */
-  const chanceRun = useMemo(() => {
-    const runSignature =
-      data.runState.status === "complete" ? data.runState.signature : data.runState.status === "idle" ? "" : null;
-    return buildAdvancementChanceRun({
-      artifact,
-      teams: rows.teams,
-      statuses,
-      runSignature,
-      positionId: timeline.positions[positionIndex]?.id ?? DISTRICT_TIMELINE_NOW_ID,
-    });
-  }, [artifact, rows.teams, statuses, data.runState, timeline, positionIndex]);
+  const positionId = timeline.positions[positionIndex]?.id ?? DISTRICT_TIMELINE_NOW_ID;
+  const runSignature = data.runState.status === "complete" ? data.runState.signature : data.runState.status === "idle" ? "" : null;
+  const chanceRun = useMemo(
+    () => buildAdvancementChanceRun({ artifact, teams: rows.teams, statuses, runSignature, positionId }),
+    [artifact, rows.teams, statuses, runSignature, positionId]
+  );
 
   const chanceState = useDistrictAdvancementChance(chanceRun);
-  const chances = useMemo(
-    () => (chanceState.status === "complete" ? reconcileAdvancementChances(chanceState.chanceByTeam, statuses) : undefined),
-    [chanceState, statuses]
+  /** A result for a stale signature is still pending: the run for THESE inputs has not landed. */
+  const chanceRunCurrent = chanceState.status === "complete" && chanceState.signature === chanceRun?.signature;
+
+  /**
+   * THE BOUNDARY RULE'S OWN READING at this position: the shipped midpoint of
+   * the last team In range and the first team Out of range (quick task
+   * 260926-37q), over the tab's own sorted rows, the artifact's capacity and
+   * the SAME qualifier sets and reservation the verdicts were computed with.
+   *
+   * Since quick task 261004-uw4 it is printed in two places only: where it is
+   * not a prediction at all (final, absent, capacity unknown), and in the
+   * excluded team fallback below. Its KIND is what tells the range state
+   * whether there is a prediction to make.
+   */
+  const boundaryCutoff = useMemo(
+    () =>
+      predictedCutoff({
+        teams: rows.teams,
+        capacity: artifact.dcmpSlots,
+        qualifiers: { awardQualified: new Set(statuses.awardQualified), prequalified: new Set(statuses.prequalified) },
+        reservedSlots: statuses.reservedSlots,
+      }),
+    [rows.teams, artifact.dcmpSlots, statuses]
   );
-  /** One team's printed line, or `undefined` where nothing is printed — a pending run and a guaranteed status are the same absence here. */
+
+  /**
+   * THE ONE RANGE STATE (quick task 261004-uw4): read by the chips, the two
+   * filter counts, the stat line and every dashed rule, so none of them can
+   * disagree about where the line is or whether it is in yet.
+   *
+   * THE THREE WAY RULE, while the boundary rule would predict:
+   *
+   * 1. The chance run landed and left NO team out: `simulated`. The headline
+   *    is the median of the per run line with its 10 to 90 range from the
+   *    same call, and In range and Out of range cut at that number.
+   * 2. The chance run landed but LEFT A TEAM OUT: `settled`, which is today's
+   *    behaviour exactly. `prepareChanceRanking` excludes a team whose grand
+   *    total could not be built, so the simulated line is the slot th highest
+   *    of a SMALLER field and is not the district's line (measured on the
+   *    2026 PNW fixture rewound to `2026wasam:awards`: a cutoff of 54 beside
+   *    a simulated range of 49 to 51). So the boundary midpoint prints with
+   *    no likely range, the chips keep the median rule, and every other
+   *    team's chance still prints: silencing a whole district for one
+   *    unpriceable team is what quick task 260925-uf8 closed.
+   * 3. Otherwise NO FIGURE: `pending` while a run is in flight, and `noCall`
+   *    with its reason when the per event run failed, the chance run failed
+   *    (a browser that cannot construct a Worker included) or could not be
+   *    built. Never a headline from fallback projections, which is how a
+   *    failed run printed a predicted cutoff of zero with every team In range.
+   *
+   * Where the boundary rule does NOT predict (final, absent, capacity
+   * unknown) the state is `settled` whatever is in flight, so those arms read
+   * exactly as they did.
+   */
+  const rangeState = useMemo(
+    () =>
+      districtRangeState({
+        boundaryKind: boundaryCutoff.kind,
+        // NOT the bare `runSignature`, on the champ tab's own recipe: on the
+        // first paint the run is `idle` because its effect has not started it,
+        // and event artifacts or sidecars may still be loading, and each of
+        // those reads as "nothing to run" there. Treating them as in flight
+        // keeps a transient refusal from flashing No call before the line
+        // arrives.
+        perEventRunSignature: artifacts.isLoading || data.isLoading || data.runPending ? null : (runSignature ?? ""),
+        perEventRunFailed: data.runState.status === "error",
+        run: {
+          built: chanceRun !== undefined,
+          status: chanceState.status,
+          current: chanceRunCurrent,
+          excludedTeams: chanceRun?.excludedTeams ?? [],
+          ...(chanceState.status === "complete" && chanceState.cutoffByRun !== undefined ? { cutoffByRun: chanceState.cutoffByRun } : {}),
+          ...(chanceState.status === "complete" ? { draws: chanceState.draws } : {}),
+        },
+      }),
+    [boundaryCutoff.kind, artifacts.isLoading, data.isLoading, data.runPending, data.runState.status, runSignature, chanceRun, chanceState, chanceRunCurrent]
+  );
+
+  /**
+   * What the chips SHOW. Only In range and Out of range ever differ from
+   * `statuses`; Locked, Locked out, Prequalified and the capacity refusal are
+   * the verdicts in every arm. The chance run above keeps reading `statuses`,
+   * the verdicts, so there is no cycle.
+   */
+  const displayStatuses = useMemo(() => applyLedgerRangeState(statuses, rows.teams, rangeState), [statuses, rows.teams, rangeState]);
+
+  const chances = useMemo(
+    () =>
+      chanceState.status === "complete" && chanceRunCurrent ? reconcileAdvancementChances(chanceState.chanceByTeam, displayStatuses) : undefined,
+    [chanceState, chanceRunCurrent, displayStatuses]
+  );
+  /** One team's printed line, or `undefined` where nothing is printed — a pending run, a withheld call and a guaranteed status are the same absence here. */
   const chanceLineFor = (teamKey: string): string | undefined => {
     const chance = chances?.byTeam.get(teamKey);
     return chance === undefined ? undefined : districtLedgerChanceLine(chance);
   };
 
   /**
-   * THE PREDICTED CUTOFF, built ONCE and handed to both the stat line and every
-   * grand total dashed rule, so the two cannot disagree (quick task
-   * 260926-37q).
+   * THE PREDICTED CUTOFF, built ONCE from the SAME range state the chips read
+   * and handed to both the stat line and every grand total dashed rule (quick
+   * tasks 260926-37q and 261004-uw4).
    *
-   * It reads the tab's own sorted rows, the artifact's capacity and the SAME
-   * qualifier sets and reservation the verdicts beside it were computed with,
-   * so the line it draws is the line those verdicts were cut at. The likely
-   * range comes from the chance run's own per run simulated line, and is
-   * absent while that run is in flight, at a settled position and at every arm
-   * but the predicted one.
+   * `simulated` prints the median of the per run line with its likely range
+   * from the same call, so the figure cannot sit outside the range beside it.
+   * `pending` and `noCall` print no figure and draw no rule. `settled` is the
+   * boundary rule's own reading with no likely range: the settled cutoff, the
+   * absent and capacity unknown arms, and the excluded team fallback.
    *
    * Like the chip counts, it describes the DISTRICT and not the filtered view.
    */
-  const cutoff = useMemo<LedgerCutoffView>(() => {
-    const value = predictedCutoff({
-      teams: rows.teams,
-      capacity: artifact.dcmpSlots,
-      qualifiers: { awardQualified: new Set(statuses.awardQualified), prequalified: new Set(statuses.prequalified) },
-      reservedSlots: statuses.reservedSlots,
-    });
-    /**
-     * THE RANGE IS REFUSED WHERE THE RUN RANKED A DIFFERENT FIELD.
-     *
-     * `prepareChanceRanking` EXCLUDES a team whose grand total could not be
-     * built, so with a non empty `excludedTeams` the simulated line is the
-     * slot th highest of a SMALLER pool and sits below the cutoff, which is
-     * taken over the whole one. Measured on the 2026 PNW fixture rewound to
-     * `2026wasam:awards`, where 32 of 126 grand totals refuse: the stat line
-     * read a cutoff of 54 beside a likely range of 49 to 51, a range that
-     * cannot contain the number beside it. An absent range is this tab's own
-     * answer for a number it cannot stand behind.
-     */
-    const likely =
-      value.kind === "predicted" && chanceState.status === "complete" && chanceRun?.excludedTeams.length === 0
-        ? simulatedCutoffRange(chanceState.cutoffByRun, chanceState.draws)
-        : undefined;
-    return { cutoff: value, likely, districtOnly: false };
-  }, [rows.teams, artifact.dcmpSlots, statuses, chanceState, chanceRun]);
+  const cutoff = useMemo<LedgerCutoffView>(
+    () =>
+      ledgerCutoffView({
+        state: rangeState,
+        teams: rows.teams,
+        displayStatus: (teamKey) => displayStatuses.byTeam.get(teamKey)?.status,
+        settledView: () => ({ cutoff: boundaryCutoff, likely: undefined, districtOnly: false }),
+        showLikelyRange: true,
+        tier: "district",
+      }),
+    [rangeState, rows.teams, displayStatuses, boundaryCutoff]
+  );
   const activeStatuses = useMemo(
     () => new Set(DISTRICT_LEDGER_STATUS_KEYS.filter((status) => !hiddenStatuses.has(status))),
     [hiddenStatuses]
@@ -470,11 +559,11 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
     const searched = filterDistrictLedgerTeams(rows.teams, query);
     if (hiddenStatuses.size === 0) return searched;
     return searched.filter((team) => {
-      const status = statuses.byTeam.get(team.teamKey)?.status;
+      const status = displayStatuses.byTeam.get(team.teamKey)?.status;
       if (status === undefined || status === "capacityUnknown") return true;
       return !hiddenStatuses.has(status);
     });
-  }, [rows.teams, query, hiddenStatuses, statuses]);
+  }, [rows.teams, query, hiddenStatuses, displayStatuses]);
 
   /**
    * At most ONE drawer is open across the whole table. An unknown team number
@@ -516,7 +605,7 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
     <div className="flex flex-col gap-[var(--spacing-md)]" data-testid="district-ledger-tab">
       <ControlsCard query={query} onQueryChange={setQuery} cutoff={cutoff}>
         <LocksMilestonePicker timeline={timeline} events={milestoneEvents} at={search.at} positionIndex={positionIndex} onAtChange={handleAtChange} />
-        <StatusChips counts={statuses.counts} active={activeStatuses} onToggle={toggleStatus} />
+        <StatusChips counts={displayStatuses.counts} active={activeStatuses} onToggle={toggleStatus} withheld={displayStatuses.withheld !== undefined} />
       </ControlsCard>
       <p className="text-[var(--color-text-muted)]" data-testid="district-ledger-caveat">
         {DISTRICT_LEDGER_CAVEAT} {DISTRICT_LEDGER_PROVENANCE}
@@ -541,6 +630,10 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
                 openCellId: openDrawer?.team.teamKey === team.teamKey ? openDrawer.cell.id : undefined,
                 onToggle: (cellId) => handleCellToggle(team.teamNumber, cellId),
               };
+              // The DISPLAYED status, and the neutral chip that replaces an In
+              // range or Out of range call while it is withheld.
+              const status = displayStatuses.byTeam.get(team.teamKey);
+              const withheldChip = ledgerRangeCallChip(status?.rangeCall, displayStatuses.noCallReason);
               const dataRows =
                 team.rows.length === 0
                   ? [
@@ -551,7 +644,7 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
                         className="district-ledger-row--team-start"
                       >
                         <TeamCell team={team} season={season} algorithm={algorithm} />
-                        <StatusCell status={statuses.byTeam.get(team.teamKey)} rowSpan={1} chanceLine={chanceLineFor(team.teamKey)} />
+                        <StatusCell status={status} rowSpan={1} chanceLine={chanceLineFor(team.teamKey)} placeholder={withheldChip} />
                         <LedgerCell cell={team.grandTotal} interaction={interaction} />
                         <TableCell colSpan={DISTRICT_LEDGER_COLUMN_LABELS.length - 3} className="text-[var(--color-text-muted)]">
                           {DISTRICT_LEDGER_UNAVAILABLE_CELL}
@@ -568,9 +661,10 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
                         {rowIndex === 0 && <TeamCell team={team} season={season} algorithm={algorithm} />}
                         {rowIndex === 0 && (
                           <StatusCell
-                            status={statuses.byTeam.get(team.teamKey)}
+                            status={status}
                             rowSpan={Math.max(team.rowCount, 1)}
                             chanceLine={chanceLineFor(team.teamKey)}
+                            placeholder={withheldChip}
                           />
                         )}
                         {rowIndex === 0 && (

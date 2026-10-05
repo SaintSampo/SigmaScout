@@ -46,7 +46,7 @@
  *
  * THE CHAMP TAB'S SIMULATED LINE (quick task 260927-6bf, decision L2). Until
  * the District Championship's awards post, the champ tab does NOT print the
- * midpoint above: it prints `simulatedChampLine`, the median of the per run
+ * midpoint above: it prints `simulatedLine`, the median of the per run
  * line read after each run's DCMP winning alliance and drawn Impact,
  * Engineering Inspiration and Rookie All Star winners have taken their slots,
  * as a `predicted` arm with `source: "simulated"`. The chips beside it cut at
@@ -54,9 +54,17 @@
  * holds by construction. Per Jacob's 2026-09-27 chip timing decision, a line
  * still being computed is the `pending` arm (no figure, no dashed rule) and a
  * terminal refusal is `unavailable` with its reason; neither ever falls back to
- * the midpoint. The midpoint rule is the `boundary` source, and it stands
- * wherever nothing is drawn any more: the district tab always, and the champ
- * tab once the DCMP awards are posted.
+ * the midpoint.
+ *
+ * THE DISTRICT TAB'S SIMULATED LINE (quick task 261004-uw4). The midpoint rule
+ * is the `boundary` source, and it stands where every pool team is settled:
+ * the district tab at a finished position, and the champ tab once the DCMP
+ * awards are posted. While anything is open the district tab prints the same
+ * `simulatedLine` over its own plain per run line, under the same pending and
+ * unavailable rules, through the one mechanism in `ledgerRangeState.ts`. ONE
+ * exception, the district tab's alone: a run that landed but left a team out
+ * ranked a smaller field, so its line is not the district's line, and there
+ * the midpoint stands as a `predicted` arm with no likely range.
  */
 import { pointsRaceSlots, type QualifierSets } from "../../../../../packages/core/districts/locks.js";
 import { pointPercentiles, type PointPercentiles } from "../../../../../packages/core/districts/pointSummary.js";
@@ -100,13 +108,13 @@ export type PredictedCutoff =
       readonly kind: "predicted";
       readonly points: number;
       readonly boundary: CutoffBoundary;
-      /** `boundary` is the midpoint rule above; `simulated` is the champ tab's simulated line (decision L2). */
+      /** `boundary` is the midpoint rule above; `simulated` is the median of the per run simulated line, on either tab. */
       readonly source: CutoffSource;
     }
   | { readonly kind: "final"; readonly points: number; readonly boundary: CutoffBoundary }
-  /** The champ tab while its simulated line is still being computed: no figure, no range, no dashed rule. */
+  /** Either tab while its simulated line is still being computed: no figure, no range, no dashed rule. */
   | { readonly kind: "pending" }
-  /** The champ tab where no simulated line can be drawn, with the TERMINAL reason named. No figure and no dashed rule. */
+  /** Either tab where no simulated line can be drawn, with the TERMINAL reason named. No figure and no dashed rule. */
   | { readonly kind: "unavailable"; readonly reason: ChampNoCallReason };
 
 /** Which derivation a `predicted` cutoff came from. */
@@ -145,8 +153,9 @@ export type ChampNoCallReason =
  * of 69 both times. The range runs a little narrow and is shown with that
  * coverage quoted on the Methodology page (`districtLedgerContent.ts`); a
  * later calibration round that changes the coverage must update that sentence.
- * The District Locks tab's own likely range is a different quantity and does
- * not read this flag.
+ * The District Locks tab's likely range comes from the same estimator
+ * (`simulatedLine`), is always shown, and does not read this flag; its
+ * coverage has not been measured.
  */
 export const SHOW_SIMULATED_CHAMP_LIKELY_RANGE = true;
 
@@ -263,21 +272,27 @@ function runCutoffPercentiles(cutoffByRun: ArrayLike<number> | undefined, draws:
   return pointPercentiles(histogram, draws);
 }
 
-/** The champ tab's simulated line: its median as a whole number, and its 10 to 90 likely range from the same call. */
-export interface SimulatedChampLine {
+/** A simulated line: its median as a whole number, and its 10 to 90 likely range from the same call. */
+export interface SimulatedLine {
   readonly points: number;
   readonly likely: SimulatedCutoffRange;
 }
 
 /**
- * THE SIMULATED LINE (quick task 260927-6bf, decision L2): the median of the
- * per run line the champ run keeps, after each run's DCMP winning alliance and
- * drawn award winners have taken their slots, with its 10th to 90th
- * percentile range. ONE call yields both, on the same histogram convention as
+ * THE SIMULATED LINE (quick tasks 260927-6bf and 261004-uw4): the median of
+ * the per run line an advancement run keeps, with its 10th to 90th percentile
+ * range. ONE call yields both, on the same histogram convention as
  * `simulatedCutoffRange`, so the printed figure and its range cannot come from
- * two different derivations. `undefined` on that function's refusals.
+ * two different derivations, and the figure cannot sit outside its own range.
+ * `undefined` on that function's refusals.
+ *
+ * BOTH TABS READ IT. The champ tab reads it over runs where the DCMP winning
+ * alliance and the drawn award winners took their slots first; the district
+ * tab reads it over the plain per run line, the `pointsSlots`th highest drawn
+ * season total. District mode never writes a NaN and returns no array at all
+ * where there is no line, so the body below reads both arrays correctly.
  */
-export function simulatedChampLine(cutoffByRun: ArrayLike<number> | undefined, draws: number): SimulatedChampLine | undefined {
+export function simulatedLine(cutoffByRun: ArrayLike<number> | undefined, draws: number): SimulatedLine | undefined {
   if (cutoffByRun === undefined || cutoffByRun.length !== draws) return undefined;
   // The champ run marks a run with NO line (its drawn winners and awards took
   // every slot) as NaN. The line is read CONDITIONAL ON ONE EXISTING, which is
@@ -315,4 +330,11 @@ export interface LedgerCutoffView {
    * Jacob ruled out.
    */
   readonly districtOnly: boolean;
+  /**
+   * WHICH TAB THE VIEW BELONGS TO, read for exactly one thing: which caption
+   * the surface prints under a SIMULATED line. `"district"` is the District
+   * Locks tab's plain per run line; absent is the champ wording that shipped
+   * with quick task 260927-6bf.
+   */
+  readonly tier?: "district";
 }

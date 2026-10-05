@@ -47,6 +47,7 @@ import {
   DISTRICT_LEDGER_CUTOFF_LABELS,
   DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
   DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
+  DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
@@ -1080,9 +1081,22 @@ describe("DistrictLedger — the drawer", () => {
   it("prints a PREDICTED cutoff with a tilde where something is still open, and the same number on the dashed rule", async () => {
     await renderWithOpenCells();
     const statLine = await screen.findByTestId("district-ledger-stat-line");
+    // The figure is the median of the SIMULATED line (quick task 261004-uw4),
+    // so it arrives with the chance run: 1,000 draws on the mock Worker.
+    await waitFor(() => expect(statLine.textContent).toMatch(/~\d+/), { timeout: 15_000 });
     expect(statLine.textContent).toContain(DISTRICT_LEDGER_CUTOFF_LABELS.predicted);
-    expect(statLine.textContent).toMatch(/~\d+/);
-    const printed = /~(\d+)/.exec(statLine.textContent ?? "")![1]!;
+    const printed = Number(/~(\d+)/.exec(statLine.textContent ?? "")![1]!);
+
+    // THE FIGURE SITS INSIDE THE RANGE PRINTED BESIDE IT, because both come
+    // from one call over one set of runs. Before this task the figure was the
+    // midpoint of two medians and could sit below its own range.
+    const likely = within(statLine).queryByTestId("district-ledger-cutoff-likely");
+    if (likely !== null) {
+      const ends = /(\d+)–(\d+)/.exec(likely.textContent ?? "");
+      expect(ends, `the likely range reads "${likely.textContent ?? ""}"`).not.toBeNull();
+      expect(Number(ends![1])).toBeLessThanOrEqual(printed);
+      expect(printed).toBeLessThanOrEqual(Number(ends![2]));
+    }
 
     // THE SAME VALUE ON BOTH SURFACES, which is the whole point of the one
     // memo: the dashed rule's own label is the stat line's label, and the
@@ -1092,8 +1106,9 @@ describe("DistrictLedger — the drawer", () => {
     expect(within(drawer).getByTestId("district-hist-marked-line")).toBeDefined();
     // The dashed rule's own label is the stat line's label, word for word.
     expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_CUTOFF_LABELS.predicted);
-    expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION);
-    expect(Number(printed)).toBeGreaterThan(0);
+    expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION);
+    expect(drawer.textContent ?? "").not.toContain(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION);
+    expect(printed).toBeGreaterThan(0);
   });
 
   it("opens ONE drawer under the clicked team, closes it on a second click, and moves it on a different cell", async () => {
@@ -1128,8 +1143,9 @@ describe("DistrictLedger — the drawer", () => {
     fireEvent.click(cellButton("2026walive:qual"));
     await waitFor(() => expect(screen.getByTestId("district-ledger-drawer-cell-plot")).toBeDefined());
     expect(screen.getByTestId("district-ledger-drawer-grand-plot")).toBeDefined();
-    expect(screen.getByTestId("district-hist-marked-line")).toBeDefined();
-    expect(screen.getByTestId("district-ledger-drawer").textContent).toContain(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION);
+    // The dashed rule is drawn at the simulated line, so it arrives with the chance run.
+    await waitFor(() => expect(screen.getByTestId("district-hist-marked-line")).toBeDefined(), { timeout: 15_000 });
+    expect(screen.getByTestId("district-ledger-drawer").textContent).toContain(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION);
     await waitFor(() =>
       expect(screen.getByTestId("district-ledger-drawer").textContent).toContain(DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION)
     );
@@ -1306,8 +1322,9 @@ describe("DistrictLedger — the drawer", () => {
     await renderWithOpenCells();
     fireEvent.click(cellButton("grand"));
     const drawer = await screen.findByTestId("district-ledger-drawer");
-    expect(within(drawer).getByTestId("district-hist-marked-line")).toBeDefined();
-    expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION);
+    // The dashed rule is drawn at the simulated line, so it arrives with the chance run.
+    await waitFor(() => expect(within(drawer).getByTestId("district-hist-marked-line")).toBeDefined(), { timeout: 15_000 });
+    expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION);
   });
 
   it("still draws the grand total plot BESIDE a category cell's own pane", async () => {

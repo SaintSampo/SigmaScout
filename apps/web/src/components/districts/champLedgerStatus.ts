@@ -66,6 +66,7 @@ import { DISTRICT_CATEGORIES, type DistrictCategory, type DistrictStageFinality 
 import { DISTRICT_LEDGER_STATUS_KEYS, type DistrictLedgerStatusKey, type DistrictLedgerStatusState } from "./districtLedgerStatus.js";
 import { dcmpEventKeyFor, type ChampLedgerRow, type ChampLedgerTeam } from "./champLedgerRows.js";
 import type { ChampNoCallReason, ChampRangeState } from "./champLedgerChances.js";
+import { applyLedgerRangeState, type LedgerRangeCall } from "./ledgerRangeState.js";
 
 /** Which kind of award locked a team — the chip reads `Locked · winner` or `Locked · award`. */
 export type ChampAwardKind = "winner" | "award";
@@ -338,8 +339,8 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
   };
 }
 
-/** What a contending team's chip SHOWS while the simulated line is not in hand: a neutral placeholder, never the rank rule. */
-export type ChampRangeCall = "pending" | "noCall";
+/** What a contending team's chip SHOWS while the simulated line is not in hand: a neutral placeholder, never the rank rule. An alias of the shared type. */
+export type ChampRangeCall = LedgerRangeCall;
 
 /** One team's DISPLAYED status. `rangeCall` is set only for a contending team whose In range or Out of range call is withheld. */
 export interface ChampDisplayStatusResult extends ChampLedgerStatusResult {
@@ -373,37 +374,16 @@ export interface ChampDisplayStatusModel extends ChampLedgerStatusModel {
  *   chance line and visible under every filter, with `rangeCall` naming why,
  *   and the two counts read as withheld. The rank rule ordering never leaves
  *   this function in these two arms.
+ *
+ * A delegation to the shared `applyLedgerRangeState` since quick task
+ * 261004-uw4, where the District Locks tab's chips read the same function.
  */
 export function applyChampRangeState(
   statuses: ChampLedgerStatusModel,
   teams: readonly ChampLedgerTeam[],
   state: ChampRangeState
 ): ChampDisplayStatusModel {
-  if (state.kind === "settled") return { ...statuses, withheld: undefined, noCallReason: undefined };
-  const projectionByTeam = new Map(teams.map((team) => [team.teamKey, team.projection] as const));
-  const byTeam = new Map<string, ChampDisplayStatusResult>();
-  const counts: Record<DistrictLedgerStatusKey, number> = { ...statuses.counts, inRange: 0, outOfRange: 0 };
-  for (const [teamKey, result] of statuses.byTeam) {
-    if (result.status !== "inRange" && result.status !== "outOfRange") {
-      byTeam.set(teamKey, result);
-      continue;
-    }
-    if (state.kind === "simulated") {
-      const projection = projectionByTeam.get(teamKey);
-      const status = projection !== undefined && projection >= state.points ? "inRange" : "outOfRange";
-      counts[status] += 1;
-      byTeam.set(teamKey, { ...result, status });
-      continue;
-    }
-    byTeam.set(teamKey, { ...result, status: "capacityUnknown", rangeCall: state.kind });
-  }
-  return {
-    ...statuses,
-    byTeam,
-    counts,
-    withheld: state.kind === "simulated" ? undefined : state.kind,
-    noCallReason: state.kind === "noCall" ? state.reason : undefined,
-  };
+  return applyLedgerRangeState(statuses, teams, state);
 }
 
 /** Re-exported so the champ tab reads ONE list of chip keys rather than declaring a second. */

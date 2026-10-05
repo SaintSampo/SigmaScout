@@ -54,6 +54,7 @@ import {
   DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
   DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION,
   DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
+  DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
@@ -76,7 +77,10 @@ import {
   CHAMP_LEDGER_DRAWER_PENDING_CAPTION,
   CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
   CHAMP_LEDGER_NO_CALL_REASONS,
+  CHAMP_LEDGER_RANGE_CALL_LABELS,
+  CHAMP_LEDGER_RANGE_PENDING_DESCRIPTION,
   champLedgerDrawerNoCallCaption,
+  champLedgerNoCallDescription,
   districtLedgerCutoffFigure,
   districtLedgerCutoffLikelyText,
   districtLedgerNoPointsCaption,
@@ -145,14 +149,33 @@ export function statusChipClass(status: DistrictLedgerStatusKey): string {
   return `lock-status-chip ${STATUS_CHIP_MODIFIER[status]}`;
 }
 
-/** A withheld champ call, as `StatusCell` renders it: the neutral chip's word and its accessible description. */
+/** A withheld In range or Out of range call, on either tab, as `StatusCell` renders it: the neutral chip's word and its accessible description. */
 export interface StatusPlaceholder {
   readonly kind: "pending" | "no-call";
   readonly label: string;
   readonly description: string;
 }
 
-/** The two chips whose counts a withheld champ call replaces with an em dash. */
+/**
+ * THE WITHHELD CHIP for one team, or `undefined` where its call is not
+ * withheld. ONE mapping for both tabs (quick task 261004-uw4): `pending` is
+ * the neutral word while the simulated line is still being computed, and
+ * `noCall` names the terminal reason no line can be drawn.
+ */
+export function ledgerRangeCallChip(
+  rangeCall: "pending" | "noCall" | undefined,
+  noCallReason: keyof typeof CHAMP_LEDGER_NO_CALL_REASONS | undefined
+): StatusPlaceholder | undefined {
+  if (rangeCall === "pending") {
+    return { kind: "pending", label: CHAMP_LEDGER_RANGE_CALL_LABELS.pending, description: CHAMP_LEDGER_RANGE_PENDING_DESCRIPTION };
+  }
+  if (rangeCall === "noCall" && noCallReason !== undefined) {
+    return { kind: "no-call", label: CHAMP_LEDGER_RANGE_CALL_LABELS.noCall, description: champLedgerNoCallDescription(noCallReason) };
+  }
+  return undefined;
+}
+
+/** The two chips whose counts a withheld call replaces with an em dash. */
 const WITHHELD_STATUS_KEYS: ReadonlySet<DistrictLedgerStatusKey> = new Set(["inRange", "outOfRange"]);
 
 /** The em dash, built from its codepoint so this file never types the glyph. */
@@ -189,10 +212,10 @@ export function StatusCell({
   chanceLine: string | undefined;
   awardLabel?: string;
   /**
-   * THE CHAMP TAB'S WITHHELD CALL (quick task 260927-6bf): a neutral chip in
-   * place of In range or Out of range while the simulated line is pending, or
-   * where no line can be drawn. It wins over `status` and carries no chance
-   * line. The district tab never passes it.
+   * THE WITHHELD CALL (quick tasks 260927-6bf and 261004-uw4): a neutral chip
+   * in place of In range or Out of range while the simulated line is pending,
+   * or where no line can be drawn. It wins over `status` and carries no chance
+   * line. Both tabs pass it, built by `ledgerRangeCallChip`.
    */
   placeholder?: StatusPlaceholder;
 }) {
@@ -249,10 +272,10 @@ export function StatusChips({
   active: ReadonlySet<DistrictLedgerStatusKey>;
   onToggle: (status: DistrictLedgerStatusKey) => void;
   /**
-   * THE CHAMP TAB'S WITHHELD COUNTS (quick task 260927-6bf): while the In range
-   * and Out of range calls are withheld, their two chips print an em dash for
-   * the count, never a number the rank rule produced. The district tab never
-   * passes it.
+   * THE WITHHELD COUNTS (quick tasks 260927-6bf and 261004-uw4): while the In
+   * range and Out of range calls are withheld, their two chips print an em
+   * dash for the count, never a number the tab's verdict level rule produced.
+   * Both tabs pass it.
    */
   withheld?: boolean;
   /** The line under each chip. The champ tab passes `CHAMP_LEDGER_STATUS_DEFINITIONS`, whose In range cuts at the predicted cutoff. */
@@ -389,10 +412,10 @@ export function ledgerCutoffDisplay(view: LedgerCutoffView): LedgerCutoffDisplay
       reason: undefined,
     };
   }
-  // THE CHAMP TAB'S TWO NON FIGURES (quick task 260927-6bf): a line still
-  // being simulated prints a word and draws no rule, and a line that cannot be
-  // drawn prints "not available" with its reason and draws no rule. Neither
-  // ever prints the midpoint in the meantime.
+  // THE TWO NON FIGURES, on either tab (quick tasks 260927-6bf and
+  // 261004-uw4): a line still being simulated prints a word and draws no rule,
+  // and a line that cannot be drawn prints "not available" with its reason and
+  // draws no rule. Neither ever prints the midpoint in the meantime.
   if (cutoff.kind === "pending") {
     return {
       label: DISTRICT_LEDGER_CUTOFF_LABELS.predicted,
@@ -415,6 +438,10 @@ export function ledgerCutoffDisplay(view: LedgerCutoffView): LedgerCutoffDisplay
   }
   const isFinal = cutoff.kind === "final";
   const simulated = cutoff.kind === "predicted" && cutoff.source === "simulated";
+  // WHICH SIMULATED CAPTION is the one thing `view.tier` decides: the District
+  // Locks tab's plain per run line, or (absent) the champ wording, whose runs
+  // hand slots to the DCMP winners and award winners first.
+  const simulatedCaption = view.tier === "district" ? DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION : CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION;
   return {
     label: isFinal ? DISTRICT_LEDGER_CUTOFF_LABELS.settled : predictedLabel,
     figure: districtLedgerCutoffFigure(cutoff.points, isFinal),
@@ -422,7 +449,7 @@ export function ledgerCutoffDisplay(view: LedgerCutoffView): LedgerCutoffDisplay
     // nothing left to vary, and a range there would be stale by construction.
     likelyText: isFinal || likely === undefined ? undefined : districtLedgerCutoffLikelyText(likely.p10, likely.p90),
     markedPosition: cutoff.points,
-    caption: simulated ? CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION : DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
+    caption: simulated ? simulatedCaption : DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
     reason: undefined,
   };
 }

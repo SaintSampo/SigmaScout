@@ -405,6 +405,15 @@ export function districtLedgerNoPointsCaption(chancePercent: number): string {
 export const DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION =
   "The dashed line is the predicted cutoff, the midpoint of the last team in range and the first team out of range. The likely range spans the 10th to the 90th percentile of where that line lands across the runs.";
 
+/**
+ * The grand total plot's caption for the District Locks tab's SIMULATED line
+ * (quick task 261004-uw4): what the number is, then what its likely range
+ * spans. The caption above stays for the midpoint rule, which still prints at
+ * an open position where a run left a team out. No dash character.
+ */
+export const DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION =
+  "The dashed line is the predicted cutoff, the median across the runs of the points the last team inside the qualifying slots finishes with. The likely range spans the 10th to the 90th percentile of that same line.";
+
 /** What the grand total plot says INSTEAD of drawing a line at zero when capacity is unpublished. */
 export const DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION = "TBA has published no capacity for this district, so there is no cutoff to draw.";
 
@@ -810,6 +819,12 @@ export const CHAMP_LEDGER_CONTRIBUTION_CAPTION =
 
 // ---------------------------------------------------------------------------
 // The simulated champ cutoff (quick task 260927-6bf)
+//
+// THE DISTRICT LOCKS TAB READS THESE TOO since quick task 261004-uw4: the two
+// range call labels, the pending description, the pending figure, the pending
+// caption and the no call reasons below. They keep the `CHAMP_LEDGER_` prefix
+// and their text, because the champ suites pin both and the words are true of
+// either tab's simulated line.
 // ---------------------------------------------------------------------------
 
 /**
