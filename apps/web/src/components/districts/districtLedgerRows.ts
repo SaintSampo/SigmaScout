@@ -251,7 +251,7 @@ export interface DistrictLedgerEventRow {
    * The artifact's own per-component row for this (team, event), when TBA has
    * published one. Carried on the row because the STATUS module needs it: a
    * rewound position derives its floor by SUBTRACTING these earned values from
-   * `team.pointTotal`, never by re-summing categories from scratch.
+   * the team's district tier total (`districtLockBounds`), never by re-summing categories from scratch.
    */
   readonly earned: DistrictEventPoints | undefined;
   /** This event's per-tier ceiling for a wholly unstarted row, as `remainingEvents.maxPoints` published it. `undefined` for an event the team has already played. */
