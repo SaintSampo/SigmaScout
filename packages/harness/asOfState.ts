@@ -116,6 +116,15 @@ export const AsOfIndexSchema = AlgorithmScopedPreambleSchema.extend({
   lq: KeyedLeagueSchema.nullable(),
   /** League after the last match folded here. */
   le: KeyedLeagueSchema,
+  /**
+   * League BEFORE this event's first folded row: the row the season stream
+   * held just before it, which no object of this event otherwise names. Set
+   * once, when the INDEX is created, and never moved. It is what prices a cut
+   * just before the event's first row (`asOfCutBeforeMatch`), the Simulation
+   * tab's rewind to the first qualification match. Optional: an INDEX written
+   * before the field existed has none, and a reader then falls back.
+   */
+  lb: AsOfLeagueTupleSchema.optional(),
   teams: z.record(z.string(), z.array(AsOfSegmentSchema).min(1)),
 });
 
@@ -336,6 +345,13 @@ export interface AsOfFold {
   readonly compLevel: string;
   /** League tuple after this match. */
   readonly L: AsOfLeagueTuple;
+  /**
+   * League tuple BEFORE this match: the row the writer's own previous fold
+   * left (the season start row for its first). Read only when the match opens
+   * its event's INDEX, where it becomes `lb`. Optional, so a writer that does
+   * not supply it writes an INDEX without `lb`.
+   */
+  readonly Lb?: AsOfLeagueTuple;
   /** Every tuple key of the match (`asOfTupleKeys`), in that order. */
   readonly teams: readonly AsOfFoldTeam[];
 }
@@ -420,6 +436,9 @@ export function applyAsOfFold(state: AsOfEventState, fold: AsOfFold, stamp: AsOf
   if (fold.L.length !== asOfLeagueLength(vars.length)) {
     throw new AsOfFoldError(`${fold.matchKey}: league tuple has ${fold.L.length} entries, expected ${asOfLeagueLength(vars.length)}`);
   }
+  if (fold.Lb !== undefined && fold.Lb.length !== asOfLeagueLength(vars.length)) {
+    throw new AsOfFoldError(`${fold.matchKey}: league tuple before it has ${fold.Lb.length} entries, expected ${asOfLeagueLength(vars.length)}`);
+  }
   const index: AsOfIndex = state.index ?? {
     ...stampOf(stamp),
     eventKey: fold.eventKey,
@@ -428,6 +447,9 @@ export function applyAsOfFold(state: AsOfEventState, fold: AsOfFold, stamp: AsOf
     m: [],
     lq: null,
     le: { k: [fold.t, 0], L: fold.L },
+    // Only the fold that CREATES the INDEX sets `lb`: it is the league before
+    // the event's first row, and no later fold may move it.
+    ...(fold.Lb !== undefined ? { lb: fold.Lb } : {}),
     teams: {},
   };
   const log: AsOfLog = state.log ?? { ...stampOf(stamp), eventKey: fold.eventKey, season: season.season, vars: [...vars], rows: [] };

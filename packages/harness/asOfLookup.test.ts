@@ -24,7 +24,7 @@ import {
   type AsOfStart,
   type AsOfTeamTuple,
 } from "./asOfState.js";
-import { asOfCutAtMatch, AsOfResolveError, resolveAsOf, type AsOfResolveInput, type AsOfResolveTeam } from "./asOfLookup.js";
+import { asOfCutAtMatch, asOfCutBeforeMatch, AsOfResolveError, resolveAsOf, type AsOfResolveInput, type AsOfResolveTeam } from "./asOfLookup.js";
 
 const STAMP: AsOfStamp = { generation: "g1", computedAt: "2026-10-05T00:00:00.000Z", algorithmId: "spr", algorithmVersion: "10.0.0+test" };
 
@@ -42,6 +42,8 @@ class Season {
   readonly season: AsOfSeason = createAsOfSeason({ season: 2026, vars: [], L0: league(-1), stamp: STAMP });
   /** The season start tuples; each test sets the ones it needs. */
   start: AsOfStart = createAsOfStart({ season: 2026, vars: [], teams: new Map(), stamp: STAMP });
+  /** The league the last fold left: what the next fold hands the reducer as `Lb`. */
+  lastL: number[] = league(-1);
 
   fold(eventKey: string, matchKey: string, t: number, teams: Record<string, [number, number]>, compLevel = "qm"): void {
     const f: AsOfFold = {
@@ -50,8 +52,10 @@ class Season {
       t,
       compLevel,
       L: league(t),
+      Lb: this.lastL,
       teams: Object.entries(teams).map(([teamKey, [before, after]]) => ({ teamKey, before: tuple(before), after: tuple(after) })),
     };
+    this.lastL = league(t);
     const out = applyAsOfFold({ index: this.indexes.get(eventKey), log: this.logs.get(eventKey), season: this.season }, f, STAMP);
     this.indexes.set(eventKey, out.index);
     this.logs.set(eventKey, out.log);
@@ -245,6 +249,28 @@ describe("resolveAsOf — the league", () => {
     expect(resolveAsOf(s.input(s.cut("2026a", "2026a_qm1"), [])).league).toEqual(league(100));
   });
 
+  it("a cut just before an event's first row reads the INDEX's lb; without lb it throws", () => {
+    const s = threeEvents();
+    const cut = asOfCutBeforeMatch(s.indexes.get("2026b")!, "2026b_qm1")!;
+    expect(cut).toEqual({ eventKey: "2026b", t: 200, i: -1 });
+    // lb is the league the season held just before 2026b's first row: after 2026a_qm2.
+    expect(s.indexes.get("2026b")!.lb).toEqual(league(110));
+    const r = resolveAsOf(s.input(cut, [{ teamKey: "frc1", knownEventKeys: ["2026b"] }]));
+    expect(r.league).toEqual(league(110));
+    expect(r.missingLogs).toEqual([]);
+    expect(r.states.get("frc1")).toEqual(tuple(2));
+    const { lb: _lb, ...withoutLb } = s.indexes.get("2026b")!;
+    const indexes = new Map(s.indexes).set("2026b", withoutLb);
+    expect(() => resolveAsOf({ ...s.input(cut, []), indexes })).toThrow(AsOfResolveError);
+  });
+
+  it("asOfCutBeforeMatch: the row before in the event's own fold order, i -1 for its first row, undefined when not folded", () => {
+    const s = threeEvents();
+    expect(asOfCutBeforeMatch(s.indexes.get("2026c")!, "2026c_qm2")).toEqual({ eventKey: "2026c", t: 300, i: 0 });
+    expect(asOfCutBeforeMatch(s.indexes.get("2026c")!, "2026c_qm1")).toEqual({ eventKey: "2026c", t: 300, i: -1 });
+    expect(asOfCutBeforeMatch(s.indexes.get("2026c")!, "2026c_qm9")).toBeUndefined();
+  });
+
   it("a Worker-created season object (L0 null) has no season start league", () => {
     const s = threeEvents();
     expect(resolveAsOf({ ...s.input(AS_OF_SEASON_START_CUT, []), season: { ...s.season, L0: null } }).league).toBeUndefined();
@@ -385,6 +411,40 @@ describe("resolveAsOf — every cut of a random season against a brute force ans
       expect(fromTruncated.league).toEqual(fromFull.league);
     }
     expect(truncatedCompared).toBeGreaterThan(2000);
+
+    // JUST BEFORE every match (`asOfCutBeforeMatch`): every team and the league equal the brute force state
+    // after the event's previous row, or, for an event's first row, after the season stream's previous row.
+    let beforeCompared = 0;
+    let firstRows = 0;
+    folds.forEach((f, g) => {
+      const index = s.indexes.get(f.eventKey)!;
+      const cut = asOfCutBeforeMatch(index, f.matchKey)!;
+      const i = index.m.findIndex(([matchKey]) => matchKey === f.matchKey);
+      let expected: Map<string, number>;
+      let expectedLeague: number[];
+      if (i > 0) {
+        const previous = history.find((h) => h.matchKey === index.m[i - 1]![0])!;
+        expected = previous.after;
+        expectedLeague = league(index.m[i - 1]![1]);
+      } else {
+        firstRows += 1;
+        expected = g > 0 ? history[g - 1]!.after : new Map();
+        expectedLeague = g > 0 ? league(folds[g - 1]!.t) : league(-1);
+      }
+      const r = resolveAsOf(s.input(cut, allKeys.map((teamKey) => ({ teamKey, knownEventKeys: [f.eventKey] }))));
+      expect(r.missingIndexes).toEqual([]);
+      expect(r.missingLogs).toEqual([]);
+      for (const teamKey of allKeys) {
+        beforeCompared += 1;
+        const want = expected.get(teamKey);
+        const got = r.states.get(teamKey);
+        if (want === undefined) expect(got, `${teamKey} before ${f.matchKey}`).toEqual(playedAt.has(teamKey) ? tuple(-1) : UNSEEN_AS_OF_TUPLE);
+        else expect(got, `${teamKey} before ${f.matchKey}`).toEqual(tuple(want));
+      }
+      expect(r.league, `league before ${f.matchKey}`).toEqual(expectedLeague);
+    });
+    expect(firstRows).toBe(events.length);
+    expect(beforeCompared).toBeGreaterThan(2000);
     // Non-vacuity: the random season really holds overlapping segments and demo rows.
     const multiSegment = [...s.indexes.values()].some((index) => Object.values(index.teams).some((segments) => segments.length > 1));
     expect(multiSegment).toBe(true);

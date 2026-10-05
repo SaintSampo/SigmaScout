@@ -9,7 +9,8 @@
  *
  *   - PHASE A (`AsOfTickCapture`): inside the fold loop, each tuple key's
  *     tuple BEFORE the match's first fold step and AFTER its last (the talent
- *     observation), and the league tuple after. Reads only: every reader
+ *     observation), and the league tuple before and after (the row before is
+ *     what an INDEX the match opens records as `lb`). Reads only: every reader
  *     returns a copy or a snapshot, and nothing here touches the fold.
  *   - PHASE B (`writeAsOfFolds`): best effort, after state has advanced. Reads
  *     the event's INDEX and LOG and the season object from R2 (absent means
@@ -54,6 +55,7 @@ import {
   readAsOfTeamTuple,
   type AsOfEventState,
   type AsOfFold,
+  type AsOfLeagueTuple,
   type AsOfMeanShiftSource,
   type AsOfRpSource,
   type AsOfSigmaSource,
@@ -86,6 +88,8 @@ export interface AsOfBefore {
   readonly matchKey: string;
   readonly keys: readonly string[];
   readonly tuples: readonly AsOfTeamTuple[];
+  /** The league tuple before the match: an INDEX this match opens records it as `lb`. */
+  readonly league: AsOfLeagueTuple;
 }
 
 /**
@@ -114,7 +118,12 @@ export class AsOfTickCapture {
     try {
       const keys = asOfTupleKeys(result.redTeams, result.blueTeams);
       const sources = { spr: view.state, sigma: view.sigma, rp: view.rp, vars: this.vars };
-      return { matchKey: result.matchKey, keys, tuples: keys.map((key) => readAsOfTeamTuple(key, sources)) };
+      return {
+        matchKey: result.matchKey,
+        keys,
+        tuples: keys.map((key) => readAsOfTeamTuple(key, sources)),
+        league: readAsOfLeagueTuple({ spr: view.state, sigma: view.sigma, rp: view.rp, meanShift: view.meanShift, vars: this.vars }),
+      };
     } catch (error) {
       this.#error = error;
       return undefined;
@@ -134,6 +143,7 @@ export class AsOfTickCapture {
         t,
         compLevel: result.compLevel,
         L: readAsOfLeagueTuple({ spr: view.state, sigma: view.sigma, rp: view.rp, meanShift: view.meanShift, vars: this.vars }),
+        Lb: before.league,
         teams: before.keys.map((teamKey, j) => ({ teamKey, before: before.tuples[j]!, after: readAsOfTeamTuple(teamKey, sources) })),
       });
     } catch (error) {

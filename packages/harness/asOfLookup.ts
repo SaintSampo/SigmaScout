@@ -36,7 +36,9 @@
  *
  * League: `L0` at the season start cut, else the cut row's own `L`, read from
  * `lq`/`le` when the cut is exactly that key, from the cut event's LOG
- * otherwise.
+ * otherwise. A cut just BEFORE an event's first row (`i` of -1, which
+ * `asOfCutBeforeMatch` builds) reads that INDEX's `lb`, the league row the
+ * season held just before it; an INDEX without `lb` cannot answer and throws.
  *
  * DEMO ROBOTS. A requested demo key carries no SPR part, so the demo pseudo
  * team is resolved alongside it (known events: the union of the demo keys'),
@@ -217,6 +219,10 @@ class Resolver {
     const index = this.index(cut.eventKey);
     if (index === PENDING) return undefined;
     if (index === null) throw new AsOfResolveError(`the cut's event ${cut.eventKey} has no published INDEX`);
+    if (cut.i === -1) {
+      if (index.lb === undefined) throw new AsOfResolveError(`the cut is before ${cut.eventKey}'s first row and its INDEX carries no lb`);
+      return index.lb;
+    }
     for (const keyed of [index.lq, index.le]) {
       if (keyed !== null && keyed.k[1] === cut.i && keyed.k[0] === cut.t) return keyed.L;
     }
@@ -271,4 +277,25 @@ export function asOfCutAtMatch(index: AsOfIndex, matchKey: string): AsOfCut | un
   const i = index.m.findIndex(([key]) => key === matchKey);
   if (i < 0) return undefined;
   return { eventKey: index.eventKey, t: index.m[i]![1], i };
+}
+
+/**
+ * The cut JUST BEFORE a folded match, in the event's own fold order: the row
+ * before it (`i - 1`, an exact instant: everything at or before that row in
+ * the season stream), or, for the event's first row, `i` of -1 at the
+ * match's own time, which is everything strictly before it in the season
+ * stream and prices its league from the INDEX's `lb`. `undefined` when the
+ * match is not in the INDEX.
+ *
+ * The two cases are both exact, but not the same instant relative to other
+ * events: a cut at row `i - 1` stops at that row, so another event's rows
+ * between it and the match are not in it. Neither the INDEX nor the LOG names
+ * the season's last row before an event's later row, so that instant cannot be
+ * rebuilt from published objects; the row before is the closest exact one.
+ */
+export function asOfCutBeforeMatch(index: AsOfIndex, matchKey: string): AsOfCut | undefined {
+  const at = asOfCutAtMatch(index, matchKey);
+  if (at === undefined) return undefined;
+  if (at.i === 0) return { eventKey: at.eventKey, t: at.t, i: -1 };
+  return { eventKey: at.eventKey, t: index.m[at.i - 1]![1], i: at.i - 1 };
 }

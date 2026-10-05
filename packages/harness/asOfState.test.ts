@@ -122,6 +122,19 @@ describe("applyAsOfFold — segments and tails", () => {
     expect(s.indexes.get("2026cmp")!.lq).toBeNull();
   });
 
+  it("lb: the fold that creates the INDEX records the league before it, no later fold moves it, and a fold without Lb writes none", () => {
+    const s = new Season();
+    s.fold({ ...fold("2026a", "2026a_qm1", 100, { frc1: [0, 1] }), Lb: league(-1) });
+    s.fold({ ...fold("2026a", "2026a_qm2", 200, { frc1: [1, 2] }), Lb: league(100) });
+    expect(s.indexes.get("2026a")!.lb).toEqual(league(-1));
+    s.fold(fold("2026b", "2026b_qm1", 300, { frc1: [2, 3] }));
+    expect("lb" in s.indexes.get("2026b")!).toBe(false);
+    // Backward compatible: an INDEX with and without lb both parse, and lb survives the round trip.
+    expect(AsOfIndexSchema.parse(JSON.parse(JSON.stringify(s.indexes.get("2026a")))).lb).toEqual(league(-1));
+    expect(AsOfIndexSchema.parse(JSON.parse(JSON.stringify(s.indexes.get("2026b")))).lb).toBeUndefined();
+    expect(() => s.fold({ ...fold("2026c", "2026c_qm1", 400, { frc1: [3, 4] }), Lb: [1, 2] })).toThrow(AsOfFoldError);
+  });
+
   it("is idempotent: re-folding a match key already in the event changes nothing", () => {
     const s = new Season();
     const first = fold("2026a", "2026a_qm1", 100, { frc1: [0, 1] });

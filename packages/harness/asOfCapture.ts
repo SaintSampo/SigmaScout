@@ -21,6 +21,11 @@
  * `readAsOfTeamTuple` rules a fold uses. Team state moves only when the team
  * plays, so this is exactly the `s` its first segment will carry.
  *
+ * The league row BEFORE each match is read too (SPR's pair from the state the
+ * previous match left, the layer's populations before its fold), so the match
+ * that opens an event's INDEX records the row the season held just before it
+ * (`lb`).
+ *
  * The SPR part BEFORE a match is read from the state the previous match left
  * (the season's initial state for the first), which is exactly the state
  * `predict` and `update` saw: `runAll` threads it unchanged.
@@ -90,6 +95,9 @@ interface PendingMatch {
   readonly sprAfter: readonly (AsOfSprPart | null)[];
   readonly logTau: number;
   readonly scale: number;
+  /** SPR's league pair BEFORE the match: the state its `update` saw. */
+  readonly logTauBefore: number;
+  readonly scaleBefore: number;
 }
 
 export interface AsOfSeasonCaptureResult {
@@ -135,6 +143,8 @@ export class AsOfSeasonCapture {
       sprAfter: keys.map((key) => (asOfTupleParts(key).spr ? readAsOfSprPart(state, key) : null)),
       logTau: state.logTau,
       scale: state.scale,
+      logTauBefore: before.logTau,
+      scaleBefore: before.scale,
     });
     this.#previous = state;
   }
@@ -182,6 +192,9 @@ export class AsOfSeasonCapture {
     const level2 = pending.keys.map((key) => asOfTupleParts(key).level2);
     const sigmaBefore = pending.keys.map((key, j) => (level2[j] ? readAsOfSigmaPart(sigma, key) : null));
     const rpBefore = pending.keys.map((key, j) => (level2[j] ? readAsOfRpPart(rp, key, vars) : null));
+    // The league row just before this match, for an INDEX this match opens
+    // (`lb`): SPR's pair as its `update` saw it, the layer's before its fold.
+    const Lb = readAsOfLeagueTuple({ spr: { logTau: pending.logTauBefore, scale: pending.scaleBefore }, ...this.#leagueSources(layer) });
 
     const result = fold();
 
@@ -193,7 +206,7 @@ export class AsOfSeasonCapture {
     const L = readAsOfLeagueTuple({ spr: { logTau: pending.logTau, scale: pending.scale }, ...this.#leagueSources(layer) });
     const folded = applyAsOfFold(
       { index: this.#indexes.get(match.eventKey), log: this.#logs.get(match.eventKey), season: this.#season! },
-      { eventKey: match.eventKey, matchKey: match.matchKey, t, compLevel: match.compLevel, L, teams },
+      { eventKey: match.eventKey, matchKey: match.matchKey, t, compLevel: match.compLevel, L, Lb, teams },
       this.#options.stamp
     );
     this.#indexes.set(match.eventKey, folded.index);

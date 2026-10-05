@@ -483,6 +483,11 @@ describe("scheduled.asOf — the tick's capture equals the offline publisher's",
       expect(rowsAfterTick.map((r) => r.b)).toEqual([0, 1, 1, 2, 2]);
       expect(indexA.teams.frc1![2]!.x[2]?.some((part) => part !== null)).toBe(true);
       expect(season.tails.frc1).toEqual([EVENT_A, sortTimeOf(A4), 3]);
+      // lb (the league before each event's first row) is captured by both writers and compared above:
+      // A's is the season start row, B's the row A1 left, since A1 is the fold before B1.
+      expect(indexA.lb).toEqual(seasonAtStart.L0);
+      const logA = read(r2, asOfLogKey({ eventKey: EVENT_A, ...KEY_PARAMS }), AsOfLogSchema);
+      expect(read(r2, asOfIndexKey({ eventKey: EVENT_B, ...KEY_PARAMS }), AsOfIndexSchema).lb).toEqual(logA.rows[0]!.L);
     },
     60_000
   );
