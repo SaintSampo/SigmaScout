@@ -101,8 +101,9 @@ import {
   buildDistrictTimeline,
   districtStageAtPosition,
   resolveDistrictTimelinePosition,
-  startMatchKeyAtPosition,
+  timelineEventsOf,
 } from "./districtTimeline.js";
+import { useAsOfRewind } from "./useAsOfRewind.js";
 import {
   buildDistrictLedgerRows,
   deriveStageFromState,
@@ -336,28 +337,38 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
   const rewinding = search.at !== undefined && search.at !== DISTRICT_TIMELINE_NOW_ID;
   const activeEventKeys = rewinding ? startedKeys : inProgressKeys;
   const artifacts = useDistrictEventArtifacts(activeEventKeys);
+  const milestoneEvents = useMemo(() => districtMilestoneEvents(artifact, ["district"]), [artifact]);
 
   const timeline = useMemo(
-    () => buildDistrictTimeline({ events: districtEvents, eventArtifacts: artifacts.eventArtifacts }),
-    [districtEvents, artifacts.eventArtifacts]
+    () => buildDistrictTimeline({ events: timelineEventsOf(districtEvents, milestoneEvents), eventArtifacts: artifacts.eventArtifacts }),
+    [districtEvents, milestoneEvents, artifacts.eventArtifacts]
   );
   const positionIndex = resolveDistrictTimelinePosition(timeline, search.at);
   const atNow = positionIndex >= timeline.nowIndex;
-  const milestoneEvents = useMemo(() => districtMilestoneEvents(artifact, ["district"]), [artifact]);
 
   const stageByEvent = useMemo(
     () => districtStageAtPosition(timeline, positionIndex, nowStageByEvent),
     [timeline, positionIndex, nowStageByEvent]
   );
-  // At "now" no override is supplied at all, so each event falls back to its
-  // own first unplayed row — the honest live answer, which a rewound position
-  // replaces with the first row strictly after the step.
-  const startMatchKeyByEvent = useMemo(() => {
-    if (atNow) return undefined;
-    const map = new Map<string, string | null>();
-    for (const event of districtEvents) map.set(event.eventKey, startMatchKeyAtPosition(timeline, positionIndex, event.eventKey));
-    return map;
-  }, [atNow, districtEvents, timeline, positionIndex]);
+
+  /**
+   * THE AS-OF STATE AT A REWOUND STOP (quick task 261005-5g0): every event with
+   * an open category is simulated from the model as it stood at the stop, never
+   * from a stored prediction. Enabled from the raw `?at=` while the fetch set
+   * loads, so no Live run starts in between, and off once the id resolves to
+   * now (an unknown id reads as Live).
+   */
+  const candidates = useMemo(() => districtEvents.map((event) => ({ eventKey: event.eventKey, tier: "district" as const, week: event.week })), [districtEvents]);
+  const asOf = useAsOfRewind({
+    enabled: rewinding && (artifacts.isLoading || !atNow),
+    artifactsLoading: artifacts.isLoading,
+    districtArtifact: artifact,
+    timeline,
+    positionIndex,
+    eventArtifacts: artifacts.eventArtifacts,
+    stageByEvent,
+    candidates,
+  });
 
   /**
    * The drawer is driven by the two typed search params, so it is shareable and
@@ -387,7 +398,7 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
     activeEventKeys,
     eventArtifacts: artifacts.eventArtifacts,
     stageByEvent,
-    startMatchKeyByEvent,
+    asOf,
   });
 
   const rows = useMemo(
@@ -422,7 +433,10 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
    * signature rather than a null.
    */
   const positionId = timeline.positions[positionIndex]?.id ?? DISTRICT_TIMELINE_NOW_ID;
-  const runSignature = data.runState.status === "complete" ? data.runState.signature : data.runState.status === "idle" ? "" : null;
+  // While a rewound stop's as-of objects load nothing is assembled yet, so the
+  // idle run is in flight rather than "nothing to simulate".
+  const runSignature =
+    asOf?.status === "loading" ? null : data.runState.status === "complete" ? data.runState.signature : data.runState.status === "idle" ? "" : null;
   const chanceRun = useMemo(
     () => buildAdvancementChanceRun({ artifact, teams: rows.teams, statuses, runSignature, positionId }),
     [artifact, rows.teams, statuses, runSignature, positionId]

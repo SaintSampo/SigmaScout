@@ -36,7 +36,9 @@ import {
 } from "../../../../../packages/harness/pageArtifacts.js";
 import { installMockWorker, type MockWorkerHandle, type MockWorkerScript } from "../../test/mockWorker.js";
 import { runDistrictWorkerJob } from "../../workers/districtSimulationProtocol.js";
+import { runAsOfEvent } from "../../workers/districtAsOfJob.js";
 import { ChampLocksLedger } from "./ChampLocksLedger.js";
+import { asOfBodyFor, buildAsOfTestObjects } from "./asOfTestFixtures.js";
 import {
   CHAMP_LEDGER_COLUMN_LABELS,
   DISTRICT_LEDGER_AWARD_OUTCOME_LABELS,
@@ -320,9 +322,19 @@ function manifestBody() {
 
 /** Event artifacts are served BY KEY, so a two-event fixture cannot silently answer both requests with one artifact. */
 function installFetch(eventArtifacts: readonly EventArtifact[] = []) {
+  // The as-of objects a rewound stop reads (quick task 261005-5g0), folded from
+  // the served event artifacts.
+  const asOf =
+    eventArtifacts.length === 0
+      ? undefined
+      : buildAsOfTestObjects({ season: SEASON, version: ALGORITHM_VERSION, eventArtifacts, extraTeams: ROSTER });
   global.fetch = vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
     if (url.includes("/v1/manifest/algorithms.json")) return Promise.resolve(new Response(JSON.stringify(manifestBody()), { status: 200 }));
+    if (url.includes("/v1/asof")) {
+      const body = asOfBodyFor(asOf, url);
+      return Promise.resolve(body === undefined ? new Response("", { status: 404 }) : new Response(body, { status: 200 }));
+    }
     if (url.includes("/v1/event/")) {
       const match = eventArtifacts.find((artifact) => url.includes(artifact.eventKey));
       if (match !== undefined) return Promise.resolve(new Response(JSON.stringify(match), { status: 200 }));
@@ -332,7 +344,7 @@ function installFetch(eventArtifacts: readonly EventArtifact[] = []) {
 }
 
 const realRunScript: MockWorkerScript = (message, ctx) => {
-  runDistrictWorkerJob(message, (outbound) => ctx.post(outbound));
+  runDistrictWorkerJob(message, (outbound) => ctx.post(outbound), runAsOfEvent);
 };
 
 function renderLedger(artifact: DistrictArtifact, initialEntry?: string) {
@@ -640,7 +652,7 @@ describe("ChampLocksLedger — the simulated cutoff's chip timing", () => {
           else held.push({ message, post: (outbound) => ctx.post(outbound) });
           return;
         }
-        runDistrictWorkerJob(message, (outbound) => ctx.post(outbound));
+        runDistrictWorkerJob(message, (outbound) => ctx.post(outbound), runAsOfEvent);
       },
     });
     renderLedger(prequalifiedSeasonArtifact());

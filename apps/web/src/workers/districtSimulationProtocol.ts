@@ -37,6 +37,9 @@ import {
   MAX_SIMULATION_MATCHES,
   SIMULATION_DRAWS,
 } from "./simulationProtocol.js";
+import type { AsOfTeamTuple } from "../../../../packages/harness/asOfState.js";
+import type { DistrictBakeRow } from "../../../../packages/harness/districtBake.js";
+import type { UpcomingMatch } from "../../../../packages/core/algorithms/types.js";
 
 /**
  * Re-exported, never restated: ONE draw count and ONE fixed seed across the
@@ -98,10 +101,51 @@ export const MAX_DISTRICT_CHANCE_POINTS = 4096;
  */
 export const UNKNOWN_DISTRICT_ERROR_NAME = "Error";
 
+/**
+ * A REWOUND STOP'S AS-OF STATE for one event (quick task 261005-5g0): the
+ * tuples `resolveAsOf` rebuilt at the stop, from which this Worker builds the
+ * pricer (`buildAsOfPricer`) on its own side of the boundary. Plain arrays and
+ * numbers only, so the block is structured cloneable and carries no function.
+ *
+ * - `real`: `rows` are the event's qualification rows still to play at the
+ *   stop. The Worker prices them (`priceRowsForSimulation`) and rates the
+ *   roster (`ratingsFor`), fills both into `input` and runs
+ *   `simulateDistrictEvent`.
+ * - `generated`: the Worker runs `bakeDistrictEvent` over generated schedules
+ *   with the pricer's `predictFor` and `ratingsFor`, the roster being
+ *   `input.baselines`' team keys, with `bake`'s parameters.
+ *
+ * Absent on every Live request, which therefore reaches the shipped path
+ * unchanged.
+ */
+export interface DistrictAsOfBlock {
+  /** The stop's cut id (`asOfRewind.ts` `asOfCutId`), folded into the run signature. */
+  readonly cutId: string;
+  readonly mode: "real" | "generated";
+  readonly season: number;
+  readonly vars: readonly string[];
+  readonly league: readonly number[];
+  /** Every roster team's tuple (and the demo pseudo team's), sorted by key. */
+  readonly teams: readonly (readonly [string, AsOfTeamTuple])[];
+  /** `real` only. */
+  readonly rows?: readonly UpcomingMatch[];
+  /** `generated` only: `scripts/publishDistricts.ts`'s own bake parameters for this event. */
+  readonly bake?: {
+    readonly districtKey: string;
+    readonly eventType: number;
+    readonly week: number | null;
+    readonly matchesPerTeam: number;
+    readonly algorithmId: string;
+    readonly algorithmVersion: string;
+  };
+}
+
 /** One event to simulate: its key, plus 10-04's own per-event input object, imported as a type and never restated field by field. */
 export interface DistrictSimulationEventRequest {
   readonly eventKey: string;
   readonly input: DistrictLedgerEventInput;
+  /** A rewound stop's as-of state; see `DistrictAsOfBlock`. */
+  readonly asOf?: DistrictAsOfBlock;
 }
 
 /**
@@ -143,6 +187,14 @@ export interface DistrictSimulationProgressMessage {
   readonly type: "progress";
   readonly completedEvents: number;
   readonly totalEvents: number;
+  /**
+   * The event that just completed, on an AS-OF run only (quick task
+   * 261005-5g0, decision A: results fill in event by event). A GENERATED
+   * event takes about an eighth of a second on a desktop and up to a second on
+   * a slow phone, so a rewound stop shows each event as it lands. A Live run
+   * never carries it, so its messages are unchanged.
+   */
+  readonly entry?: DistrictSimulationEventEntry;
 }
 
 /** One event that ran: 10-04's result object forwarded UNRESHAPED — a second opinion at this boundary would be a second place for the two to drift. */
@@ -150,6 +202,8 @@ export interface DistrictSimulationEventSuccess {
   readonly status: "ok";
   readonly eventKey: string;
   readonly result: DistrictLedgerResult;
+  /** AS-OF REAL events only: the remaining rows the as-of pricer returned no RP pmf pair for, left out of the run and disclosed. */
+  readonly excludedMatchKeys?: readonly string[];
 }
 
 /**
@@ -165,7 +219,20 @@ export interface DistrictSimulationEventUnavailable {
   readonly message: string;
 }
 
-export type DistrictSimulationEventEntry = DistrictSimulationEventSuccess | DistrictSimulationEventUnavailable;
+/**
+ * One GENERATED event baked at a rewound stop: `bakeDistrictEvent`'s own
+ * roster and rows, which decode through `distributionsFromPreSim` exactly as a
+ * published sidecar does (quick task 261005-5g0).
+ */
+export interface DistrictSimulationEventBaked {
+  readonly status: "baked";
+  readonly eventKey: string;
+  readonly roster: readonly string[];
+  readonly rows: readonly DistrictBakeRow[];
+  readonly draws: number;
+}
+
+export type DistrictSimulationEventEntry = DistrictSimulationEventSuccess | DistrictSimulationEventUnavailable | DistrictSimulationEventBaked;
 
 /** The terminal success message: one entry per requested event, in request order. */
 export interface DistrictSimulationResultMessage {
@@ -278,7 +345,105 @@ function isEventRequest(value: unknown): boolean {
     if (!Array.isArray(eventInput.awardOnlyTeams)) return false;
     if (eventInput.baselines.length + eventInput.awardOnlyTeams.length > MAX_DISTRICT_SIMULATION_ROSTER) return false;
   }
+  if (candidate.asOf !== undefined && !isAsOfBlock(candidate.asOf)) return false;
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// The as-of block (quick task 261005-5g0)
+// ---------------------------------------------------------------------------
+
+/** Upper bound on an as-of block's `vars.length`: a season's RP rule module names a handful of threshold variables. */
+export const MAX_AS_OF_VARS = 16;
+
+/** Upper bound on an as-of block's `teams.length`: the roster, plus the demo pseudo team. */
+export const MAX_AS_OF_TEAMS = MAX_DISTRICT_SIMULATION_ROSTER + 1;
+
+/** Robots on one alliance of a remaining row: three, or four in the oldest seasons' rare surrogate shapes. */
+const MAX_AS_OF_ALLIANCE = 4;
+
+/** The largest matches per team the schedule generator is ever asked for (`matchesPerTeamFor`'s clamp). */
+const MAX_AS_OF_MATCHES_PER_TEAM = 14;
+
+/**
+ * `asOfState.ts`'s `asOfLeagueLength`, restated: importing that module would
+ * bring its schemas (and the schema library) into the Live Worker chunk and the
+ * main bundle, both of which this module is part of.
+ * `districtSimulationProtocol.test.ts` pins the two equal.
+ */
+export function asOfLeagueTupleLength(varCount: number): number {
+  return 5 + 5 * varCount;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isFiniteTuple(value: unknown, length: number): boolean {
+  return Array.isArray(value) && value.length === length && value.every(isFiniteNumber);
+}
+
+/** `AsOfTeamTupleSchema`'s shape, checked by hand so the Worker carries no schema library for it. */
+function isAsOfTeamTuple(value: unknown, varCount: number): boolean {
+  if (!Array.isArray(value) || value.length !== 3) return false;
+  const [sprPart, sigmaPart, varsPart] = value as unknown[];
+  if (sprPart !== null && !isFiniteTuple(sprPart, 4)) return false;
+  if (sigmaPart !== null && !isFiniteTuple(sigmaPart, 5)) return false;
+  if (varsPart === null) return true;
+  if (!Array.isArray(varsPart) || varsPart.length > varCount) return false;
+  return varsPart.every((part) => part === null || isFiniteTuple(part, 4));
+}
+
+function isTeamList(value: unknown): boolean {
+  return Array.isArray(value) && value.length <= MAX_AS_OF_ALLIANCE && value.every((teamKey) => typeof teamKey === "string" && teamKey.length > 0);
+}
+
+function isAsOfRow(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const row = value as Record<string, unknown>;
+  if (typeof row.matchKey !== "string" || row.matchKey.length === 0) return false;
+  if (typeof row.eventKey !== "string" || row.eventKey.length === 0) return false;
+  if (row.compLevel !== "qm") return false;
+  if (!Number.isInteger(row.setNumber) || !Number.isInteger(row.matchNumber) || !Number.isInteger(row.eventType)) return false;
+  if (row.week !== null && !Number.isInteger(row.week)) return false;
+  return isTeamList(row.redTeams) && isTeamList(row.blueTeams) && isTeamList(row.redSurrogates) && isTeamList(row.blueSurrogates);
+}
+
+/**
+ * The as-of block's shape and cost, with the strictness the rest of the
+ * request is checked with: every bound is a ceiling on the visitor's own CPU.
+ * Numeric validity beyond finiteness (a league row the pricer cannot use, vars
+ * that are not the season's) is `buildAsOfPricer`'s own typed refusal, which
+ * becomes a per event unavailable entry.
+ */
+function isAsOfBlock(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const block = value as Record<string, unknown>;
+  if (typeof block.cutId !== "string" || block.cutId.length === 0) return false;
+  if (block.mode !== "real" && block.mode !== "generated") return false;
+  if (!Number.isInteger(block.season)) return false;
+  if (!Array.isArray(block.vars) || block.vars.length > MAX_AS_OF_VARS || !block.vars.every((name) => typeof name === "string")) return false;
+  if (!Array.isArray(block.league) || block.league.length !== asOfLeagueTupleLength(block.vars.length) || !block.league.every(isFiniteNumber)) return false;
+  if (!Array.isArray(block.teams) || block.teams.length > MAX_AS_OF_TEAMS) return false;
+  for (const entry of block.teams) {
+    if (!Array.isArray(entry) || entry.length !== 2) return false;
+    if (typeof entry[0] !== "string" || entry[0].length === 0) return false;
+    if (!isAsOfTeamTuple(entry[1], block.vars.length)) return false;
+  }
+  if (block.mode === "real") {
+    if (block.bake !== undefined) return false;
+    if (!Array.isArray(block.rows) || block.rows.length > MAX_SIMULATION_MATCHES) return false;
+    return block.rows.every(isAsOfRow);
+  }
+  if (block.rows !== undefined) return false;
+  const bake = block.bake;
+  if (typeof bake !== "object" || bake === null) return false;
+  const params = bake as Record<string, unknown>;
+  if (typeof params.districtKey !== "string" || typeof params.algorithmId !== "string" || typeof params.algorithmVersion !== "string") return false;
+  if (!Number.isInteger(params.eventType)) return false;
+  if (params.week !== null && !Number.isInteger(params.week)) return false;
+  const matchesPerTeam = params.matchesPerTeam;
+  return Number.isInteger(matchesPerTeam) && (matchesPerTeam as number) >= 1 && (matchesPerTeam as number) <= MAX_AS_OF_MATCHES_PER_TEAM;
 }
 
 /**
@@ -308,6 +473,20 @@ export function isDistrictSimulationRequest(value: unknown): value is DistrictSi
   return true;
 }
 
+/** An event request that carries an as-of block. */
+export type DistrictAsOfEventRequest = DistrictSimulationEventRequest & { readonly asOf: DistrictAsOfBlock };
+
+/** Runs one as-of event and returns its entry, or throws a typed error the job isolates into an unavailable entry. */
+export type DistrictAsOfRunner = (event: DistrictAsOfEventRequest, draws: number, seed: number) => DistrictSimulationEventEntry;
+
+/** Raised for an as-of event handed to a job with no as-of runner (the Live Worker): unavailable, never simulated from stored inputs. */
+export class AsOfRunnerMissingError extends Error {
+  constructor(eventKey: string) {
+    super(`${eventKey}: this Worker carries no as-of runner`);
+    this.name = "AsOfRunnerMissingError";
+  }
+}
+
 /**
  * Runs one district simulation job: validates `message`, then loops the events
  * calling `simulateDistrictEvent` once each under the SAME seed, emitting one
@@ -321,10 +500,18 @@ export function isDistrictSimulationRequest(value: unknown): value is DistrictSi
  * Takes `message: unknown` deliberately: the untrusted-input boundary lives
  * here, in the tested module, so `districtSimulation.worker.ts` never has to
  * cast `event.data` itself.
+ *
+ * `runAsOf` is the as-of event runner (`districtAsOfJob.ts`), supplied only by
+ * the as-of Worker entry (quick task 261005-5g0). It is INJECTED rather than
+ * imported so the Live Worker chunk, and the main bundle that imports this
+ * module's constants, carry none of the pricer, the bake or the schedule
+ * generator. An as-of event reaching a job with no runner is an unavailable
+ * entry, never a Live run.
  */
 export function runDistrictSimulationJob(
   message: unknown,
-  emit: (outbound: DistrictSimulationOutboundMessage) => void
+  emit: (outbound: DistrictSimulationOutboundMessage) => void,
+  runAsOf?: DistrictAsOfRunner
 ): void {
   if (!isDistrictSimulationRequest(message)) {
     emit({
@@ -342,18 +529,27 @@ export function runDistrictSimulationJob(
 
   for (let i = 0; i < totalEvents; i++) {
     const event = events[i]!;
+    let entry: DistrictSimulationEventEntry;
     try {
-      const result = simulateDistrictEvent(event.input, draws, seed);
-      entries.push({ status: "ok", eventKey: event.eventKey, result });
+      // An as-of event (a rewound stop) prices or bakes from its own state; a
+      // Live event takes the shipped call, untouched.
+      if (event.asOf === undefined) {
+        entry = { status: "ok", eventKey: event.eventKey, result: simulateDistrictEvent(event.input, draws, seed) };
+      } else if (runAsOf === undefined) {
+        throw new AsOfRunnerMissingError(event.eventKey);
+      } else {
+        entry = runAsOf(event as DistrictAsOfEventRequest, draws, seed);
+      }
     } catch (error) {
-      entries.push({
+      entry = {
         status: "unavailable",
         eventKey: event.eventKey,
         name: error instanceof Error ? error.name : UNKNOWN_DISTRICT_ERROR_NAME,
         message: error instanceof Error ? error.message : String(error),
-      });
+      };
     }
-    emit({ type: "progress", completedEvents: i + 1, totalEvents });
+    entries.push(entry);
+    emit({ type: "progress", completedEvents: i + 1, totalEvents, ...(event.asOf !== undefined ? { entry } : {}) });
   }
 
   emit({ type: "result", events: entries, draws, computeMs: performance.now() - start });
@@ -527,11 +723,15 @@ export function runDistrictAdvancementChanceJob(
  * be refused under the run's error name, and a reader would then debug the
  * wrong shape entirely.
  */
-export function runDistrictWorkerJob(message: unknown, emit: (outbound: DistrictWorkerOutboundMessage) => void): void {
+export function runDistrictWorkerJob(
+  message: unknown,
+  emit: (outbound: DistrictWorkerOutboundMessage) => void,
+  runAsOf?: DistrictAsOfRunner
+): void {
   const type = typeof message === "object" && message !== null ? (message as { type?: unknown }).type : undefined;
   if (type === "chance") {
     runDistrictAdvancementChanceJob(message, emit);
     return;
   }
-  runDistrictSimulationJob(message, emit);
+  runDistrictSimulationJob(message, emit, runAsOf);
 }

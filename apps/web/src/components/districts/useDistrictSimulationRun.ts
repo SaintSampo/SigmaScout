@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { createDistrictSimulationWorker } from "../../workers/createDistrictSimulationWorker.js";
+import { createDistrictAsOfSimulationWorker, createDistrictSimulationWorker } from "../../workers/createDistrictSimulationWorker.js";
 import {
   DEFAULT_SIMULATION_SEED,
   SIMULATION_DRAWS,
@@ -46,6 +46,14 @@ export interface DistrictSimulationRunRunningState {
   readonly status: "running";
   readonly completedEvents: number;
   readonly totalEvents: number;
+  /**
+   * The events that have landed so far, on an AS-OF run only (a rewound stop,
+   * quick task 261005-5g0), so the tab fills in event by event. Absent on a
+   * Live run, whose progress messages carry no entry.
+   */
+  readonly events?: DistrictSimulationResultMessage["events"];
+  /** The signature these partial events belong to. */
+  readonly signature?: string;
 }
 
 export interface DistrictSimulationRunCompleteState {
@@ -107,7 +115,9 @@ export function useDistrictSimulationRun(request: DistrictSimulationRunRequest):
     // synchronously from `new Worker(...)`.
     let worker: Worker;
     try {
-      worker = createDistrictSimulationWorker();
+      // A rewound stop's request (every event carries an as-of block) runs in
+      // the as-of Worker; a Live request in the shipped one (quick task 261005-5g0).
+      worker = current.events.some((event) => event.asOf !== undefined) ? createDistrictAsOfSimulationWorker() : createDistrictSimulationWorker();
     } catch {
       setState(ERROR_STATE);
       return;
@@ -121,11 +131,25 @@ export function useDistrictSimulationRun(request: DistrictSimulationRunRequest):
       }
     };
 
+    // An as-of run's events as they land, in completion order.
+    const landed: DistrictSimulationResultMessage["events"][number][] = [];
+
     worker.onmessage = (event: MessageEvent): void => {
       if (runIdRef.current !== runId) return;
       const message = event.data as DistrictSimulationOutboundMessage;
       if (message.type === "progress") {
-        setState({ status: "running", completedEvents: message.completedEvents, totalEvents: message.totalEvents });
+        if (message.entry === undefined) {
+          setState({ status: "running", completedEvents: message.completedEvents, totalEvents: message.totalEvents });
+          return;
+        }
+        landed.push(message.entry);
+        setState({
+          status: "running",
+          completedEvents: message.completedEvents,
+          totalEvents: message.totalEvents,
+          events: [...landed],
+          signature: current.signature,
+        });
         return;
       }
       if (message.type === "result") {

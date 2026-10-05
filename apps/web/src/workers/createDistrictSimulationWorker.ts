@@ -37,3 +37,14 @@
 export function createDistrictSimulationWorker(): Worker {
   return new Worker(new URL("./districtSimulation.worker.ts", import.meta.url), { type: "module" });
 }
+
+/**
+ * The REWOUND stops' Worker (quick task 261005-5g0): the same protocol plus the
+ * as-of runner, in its own chunk so the Live Worker and the main bundle stay as
+ * they were. The URL sits inline for the reason this file's header gives.
+ * `useDistrictSimulationRun.ts` constructs it only for a request carrying an
+ * as-of block.
+ */
+export function createDistrictAsOfSimulationWorker(): Worker {
+  return new Worker(new URL("./districtAsOfSimulation.worker.ts", import.meta.url), { type: "module" });
+}

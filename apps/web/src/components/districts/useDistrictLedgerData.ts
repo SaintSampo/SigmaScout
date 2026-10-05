@@ -7,6 +7,7 @@ import { buildQualRows } from "../../lib/simulationInputs.js";
 import {
   DISTRICT_CATEGORIES,
   allDistrictTierEventKeys,
+  awardProfileOrZero,
   buildDistrictEventSimulationInput,
   distributionsFromPreSim,
   distributionsFromResult,
@@ -15,7 +16,13 @@ import {
   type DistrictStageFinality,
 } from "./districtLedgerRows.js";
 import { useDistrictSimulationRun, type DistrictSimulationRunState } from "./useDistrictSimulationRun.js";
-import type { DistrictSimulationEventRequest } from "../../workers/districtSimulationProtocol.js";
+import type {
+  DistrictAsOfBlock,
+  DistrictSimulationEventEntry,
+  DistrictSimulationEventRequest,
+} from "../../workers/districtSimulationProtocol.js";
+import type { AsOfRewindView } from "./useAsOfRewind.js";
+import type { AsOfRewindResult } from "./asOfRewind.js";
 import type { DistrictLedgerEventInput } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import type { DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
 import type { DistrictArtifact, EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
@@ -47,6 +54,14 @@ import type { DistrictArtifact, EventArtifact } from "../../../../../packages/ha
  * leave the joint run with nothing to consume on OPR. The DISTRICT artifact itself remains algorithm-free, so
  * `lib/api/districts.ts`'s own header note about not adding a version gate by
  * symmetry still holds and must not be undone.
+ *
+ * A REWOUND STOP IS AN AS-OF FORECAST (quick task 261005-5g0). With `asOf`
+ * supplied (`useAsOfRewind`), every simulated event is assembled from the
+ * model as it stood at the stop (`assembleAsOfDistrictEvents`): a REAL event's
+ * remaining rows and every draft rating are priced in the as-of Worker, a
+ * GENERATED event is baked there, and no sidecar, stored per row prediction or
+ * `teams[].metrics` is read. Without it (Live) the shipped assembly runs,
+ * `assembleLiveDistrictEvents`, byte for byte.
  *
  * A SIDECAR IS FETCHED ONLY FOR A KEY THE ARTIFACT LISTS. 10-03's
  * `bakedEvents` is the exact set published in this generation, so a 404 is
@@ -128,6 +143,17 @@ export interface UseDistrictLedgerDataOptions {
    * position, the algorithm version and the refusals to drift.
    */
   readonly tierByEvent?: ReadonlyMap<string, DistrictTier>;
+  /**
+   * A REWOUND STOP'S AS-OF STATE (quick task 261005-5g0), from
+   * `useAsOfRewind`. Absent at Live, which therefore takes the shipped path
+   * byte for byte: the same sidecar fetches, the same requests, the same run.
+   * Present, every simulated event is assembled from it and nothing else (no
+   * sidecar, no stored per row prediction, no `teams[].metrics`), and an event
+   * it marks unavailable is unavailable.
+   */
+  readonly asOf?: AsOfRewindView;
+  /** Rewound only: events the caller will not read at this stop, so they cost no Worker time (`assembleAsOfDistrictEvents`). Ignored at Live. */
+  readonly skipEventKeys?: ReadonlySet<string>;
 }
 
 export interface DistrictLedgerData {
@@ -241,78 +267,275 @@ export function districtRunSignature(events: readonly DistrictSimulationEventReq
         foldKnownPoints(input.knownAwardPoints),
         foldPlayedElims(input.playedElimMatches),
         ...(input.awardOnlyTeams === undefined ? [] : [`awardOnly=${input.awardOnlyTeams.join(",")}`]),
+        // A REWOUND STOP (quick task 261005-5g0): the cut, the mode and what
+        // the Worker prices or bakes, so a stop change always re-runs. Only an
+        // as-of request carries it, so every Live signature is unchanged.
+        ...(event.asOf === undefined ? [] : [foldAsOf(event.asOf)]),
       ].join("|");
     })
     .join(";");
 }
 
+/** An as-of block folded to the values a run's output depends on beyond the cut's own state: the cut, the mode, the rows or the bake parameters. */
+function foldAsOf(block: DistrictAsOfBlock): string {
+  const tail =
+    block.mode === "real"
+      ? (block.rows ?? []).map((row) => row.matchKey).join(",")
+      : block.bake === undefined
+        ? SIGNATURE_ABSENT
+        : `${block.bake.algorithmVersion}/${String(block.bake.eventType)}/${String(block.bake.matchesPerTeam)}/${String(block.bake.week)}`;
+  return `asOf=${block.cutId}:${block.mode}:${tail}`;
+}
+
+/** What one assembly hands the run and the gap lists. */
+export interface AssembledDistrictEvents {
+  readonly events: DistrictSimulationEventRequest[];
+  readonly signature: string;
+  readonly eventsWithExcludedMatches: string[];
+  readonly eventsWithFallbackFieldSize: string[];
+  readonly eventsWithPartialAllianceList: string[];
+  readonly eventsWithUnresolvedElimMatches: string[];
+  /** Events a rewound stop could not rebuild (as-of objects unpublished or unreadable), shown unavailable. Always empty at Live. */
+  readonly asOfUnavailable: { readonly eventKey: string; readonly name: string }[];
+}
+
+export interface AssembleLiveDistrictEventsParams {
+  readonly artifact: DistrictArtifact;
+  readonly activeKeys: readonly string[];
+  readonly eventArtifacts: ReadonlyMap<string, EventArtifact>;
+  readonly stageByEvent: ReadonlyMap<string, DistrictStageFinality>;
+  readonly startMatchKeyByEvent?: ReadonlyMap<string, string | null>;
+  readonly tierByEvent?: ReadonlyMap<string, DistrictTier>;
+}
+
+/**
+ * THE SHIPPED ASSEMBLY, moved out of the hook's `useMemo` verbatim so the Live
+ * request list is pinned by a test against a frozen copy of the code it came
+ * from (quick task 261005-5g0): Live must stay byte for byte what it was.
+ */
+export function assembleLiveDistrictEvents(params: AssembleLiveDistrictEventsParams): AssembledDistrictEvents {
+  const { artifact, activeKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent, tierByEvent } = params;
+  const events: DistrictSimulationEventRequest[] = [];
+  const eventsWithExcludedMatches: string[] = [];
+  const eventsWithFallbackFieldSize: string[] = [];
+  const eventsWithPartialAllianceList: string[] = [];
+  const eventsWithUnresolvedElimMatches: string[] = [];
+  for (const eventKey of activeKeys) {
+    const eventArtifact = eventArtifacts.get(eventKey);
+    if (eventArtifact === undefined) continue;
+    const stage = stageByEvent.get(eventKey);
+    if (stage === undefined) continue;
+    // An event with NO open category at this position costs no simulation,
+    // however it got into the fetch set.
+    if (DISTRICT_CATEGORIES.every((category) => stage[category])) continue;
+    const startMatchKey = startMatchKeyByEvent?.has(eventKey)
+      ? (startMatchKeyByEvent.get(eventKey) ?? null)
+      : defaultStartKey(eventArtifact);
+    const built = buildDistrictEventSimulationInput({
+      eventKey,
+      season: artifact.year,
+      eventArtifact,
+      districtArtifact: artifact,
+      stage,
+      startMatchKey,
+      // ONLY THE LIVE POSITION may condition the bracket on played matches.
+      // `startMatchKeyByEvent` is supplied exactly when the caller is rewound —
+      // see `UseDistrictLedgerDataOptions` — so its absence IS "now", and the
+      // rewind rail's own playoff step is all-or-nothing by construction.
+      conditionOnPlayedElims: startMatchKeyByEvent === undefined,
+      tier: tierByEvent?.get(eventKey) ?? "district",
+    });
+    if (!built.ok) continue;
+    if (built.excludedMatchCount > 0) eventsWithExcludedMatches.push(eventKey);
+    if (built.fieldSizeFellBack) eventsWithFallbackFieldSize.push(eventKey);
+    if (built.allianceListIsPartial) eventsWithPartialAllianceList.push(eventKey);
+    if (built.unresolvedElimMatchKeys.length > 0) eventsWithUnresolvedElimMatches.push(eventKey);
+    events.push({ eventKey, input: built.input });
+  }
+  return {
+    events,
+    signature: districtRunSignature(events),
+    eventsWithExcludedMatches,
+    eventsWithFallbackFieldSize,
+    eventsWithPartialAllianceList,
+    eventsWithUnresolvedElimMatches,
+    asOfUnavailable: [],
+  };
+}
+
+/** The `name` an event the rewound stop could not rebuild carries in `unavailableEvents`. */
+export const AS_OF_UNAVAILABLE_NAME = "AsOfStateUnavailable";
+
+/** The bracket a GENERATED event is baked at: `scripts/publishDistricts.ts` passes eight for every bake. */
+const AS_OF_BAKE_ALLIANCE_COUNT = 8;
+
+export interface AssembleAsOfDistrictEventsParams {
+  readonly artifact: DistrictArtifact;
+  readonly result: AsOfRewindResult;
+  readonly algorithmVersion: string;
+  readonly eventArtifacts: ReadonlyMap<string, EventArtifact>;
+  readonly stageByEvent: ReadonlyMap<string, DistrictStageFinality>;
+  readonly tierByEvent?: ReadonlyMap<string, DistrictTier>;
+  /** Events the caller has no use for at this stop (the Champ Locks tab's DCMP before its field is a fact). */
+  readonly skipEventKeys?: ReadonlySet<string>;
+  /** The events the stop would simulate, so an unavailable stop can name each one. */
+  readonly candidateKeys: readonly string[];
+}
+
+/**
+ * A REWOUND STOP'S REQUESTS (quick task 261005-5g0): one per event the as-of
+ * plan readied, REAL events first and GENERATED after (the slow ones), each
+ * group in key order, so the fast events land first.
+ */
+export function assembleAsOfDistrictEvents(params: AssembleAsOfDistrictEventsParams): AssembledDistrictEvents {
+  const { artifact, result, eventArtifacts, stageByEvent, tierByEvent, skipEventKeys } = params;
+  const real: DistrictSimulationEventRequest[] = [];
+  const generated: DistrictSimulationEventRequest[] = [];
+  const eventsWithFallbackFieldSize: string[] = [];
+  const eventsWithPartialAllianceList: string[] = [];
+  const asOfUnavailable: { eventKey: string; name: string }[] = [];
+  const districtTeamByKey = new Map(artifact.teams.map((team) => [team.teamKey, team] as const));
+
+  if (result.status === "unavailable") {
+    for (const eventKey of params.candidateKeys) if (skipEventKeys?.has(eventKey) !== true) asOfUnavailable.push({ eventKey, name: AS_OF_UNAVAILABLE_NAME });
+  } else {
+    for (const [eventKey, outcome] of [...result.events].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+      if (skipEventKeys?.has(eventKey) === true) continue;
+      if (outcome.status === "unavailable") {
+        asOfUnavailable.push({ eventKey, name: AS_OF_UNAVAILABLE_NAME });
+        continue;
+      }
+      const { plan } = outcome.state;
+      const stage = stageByEvent.get(eventKey);
+      if (stage === undefined) continue;
+      const tier = tierByEvent?.get(eventKey) ?? "district";
+      const common = {
+        cutId: result.cutId,
+        season: outcome.state.season,
+        vars: outcome.state.vars,
+        league: outcome.state.league,
+        teams: outcome.state.teams,
+      };
+      if (plan.mode === "real") {
+        const eventArtifact = eventArtifacts.get(eventKey);
+        if (eventArtifact === undefined) continue;
+        const built = buildDistrictEventSimulationInput({
+          eventKey,
+          season: artifact.year,
+          eventArtifact,
+          districtArtifact: artifact,
+          stage,
+          startMatchKey: null,
+          conditionOnPlayedElims: false,
+          tier,
+          asOfBaselines: plan.baselines,
+        });
+        if (!built.ok) continue;
+        if (built.fieldSizeFellBack) eventsWithFallbackFieldSize.push(eventKey);
+        if (built.allianceListIsPartial) eventsWithPartialAllianceList.push(eventKey);
+        real.push({ eventKey, input: built.input, asOf: { ...common, mode: "real", rows: plan.rows } });
+        continue;
+      }
+      if (plan.roster.length === 0) {
+        asOfUnavailable.push({ eventKey, name: AS_OF_UNAVAILABLE_NAME });
+        continue;
+      }
+      const awardProfiles = new Map(plan.roster.map((teamKey) => [teamKey, awardProfileOrZero(districtTeamByKey.get(teamKey))] as const));
+      const input: DistrictLedgerEventInput = {
+        eventKey,
+        season: artifact.year,
+        tier,
+        // The REGISTERED roster size, as the publisher's bake passes it.
+        fieldSize: plan.roster.length,
+        allianceCount: AS_OF_BAKE_ALLIANCE_COUNT,
+        remainingMatches: [],
+        baselines: plan.roster.map((teamKey) => ({ teamKey, earnedRpSum: 0, matchesPlayed: 0 })),
+        ratings: new Map(),
+        awardProfiles,
+      };
+      generated.push({
+        eventKey,
+        input,
+        asOf: { ...common, mode: "generated", bake: { ...plan.bake, algorithmId: DISTRICT_LEDGER_ALGORITHM_ID, algorithmVersion: params.algorithmVersion } },
+      });
+    }
+  }
+  const events = [...real, ...generated];
+  return {
+    events,
+    signature: districtRunSignature(events),
+    eventsWithExcludedMatches: [],
+    eventsWithFallbackFieldSize,
+    eventsWithPartialAllianceList,
+    eventsWithUnresolvedElimMatches: [],
+    asOfUnavailable,
+  };
+}
+
+/** Every event entry the run has produced so far: the terminal set, or an as-of run's partial set for the current signature. */
+function landedEntries(runState: DistrictSimulationRunState, signature: string): readonly DistrictSimulationEventEntry[] {
+  if (runState.status === "complete") return runState.events;
+  if (runState.status === "running" && runState.events !== undefined && runState.signature === signature) return runState.events;
+  return [];
+}
+
 export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): DistrictLedgerData {
-  const { artifact, activeEventKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent, allowedEventKeys, tierByEvent } = options;
+  const { artifact, activeEventKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent, allowedEventKeys, tierByEvent, asOf } = options;
   const activeKeys = useMemo(() => [...activeEventKeys].sort(), [activeEventKeys]);
+  const rewound = asOf !== undefined;
 
   const bakedKeys = useMemo(() => {
+    // A REWOUND STOP NEVER READS A SIDECAR: it is priced at the publish
+    // clock, after the stop. A GENERATED event is baked in the Worker instead.
+    if (rewound) return [];
     const listed = artifact.bakedEvents;
     if (listed === undefined || listed.length === 0) return [];
     const allowed = new Set(allowedEventKeys ?? allDistrictTierEventKeys(artifact));
     const active = new Set(activeKeys);
     return listed.filter((eventKey) => allowed.has(eventKey) && !active.has(eventKey)).sort();
-  }, [artifact, activeKeys, allowedEventKeys]);
+  }, [rewound, artifact, activeKeys, allowedEventKeys]);
 
   const preSimQueries = useQueries({
     queries: bakedKeys.map((eventKey) => districtPreSimQueryOptions({ districtKey: artifact.districtKey, eventKey })),
   });
 
-  const assembled = useMemo(() => {
-    const events: DistrictSimulationEventRequest[] = [];
-    const eventsWithExcludedMatches: string[] = [];
-    const eventsWithFallbackFieldSize: string[] = [];
-    const eventsWithPartialAllianceList: string[] = [];
-    const eventsWithUnresolvedElimMatches: string[] = [];
-    for (const eventKey of activeKeys) {
-      const eventArtifact = eventArtifacts.get(eventKey);
-      if (eventArtifact === undefined) continue;
-      const stage = stageByEvent.get(eventKey);
-      if (stage === undefined) continue;
-      // An event with NO open category at this position costs no simulation,
-      // however it got into the fetch set.
-      if (DISTRICT_CATEGORIES.every((category) => stage[category])) continue;
-      const startMatchKey = startMatchKeyByEvent?.has(eventKey)
-        ? (startMatchKeyByEvent.get(eventKey) ?? null)
-        : defaultStartKey(eventArtifact);
-      const built = buildDistrictEventSimulationInput({
-        eventKey,
-        season: artifact.year,
-        eventArtifact,
-        districtArtifact: artifact,
-        stage,
-        startMatchKey,
-        // ONLY THE LIVE POSITION may condition the bracket on played matches.
-        // `startMatchKeyByEvent` is supplied exactly when the caller is rewound —
-        // see `UseDistrictLedgerDataOptions` — so its absence IS "now", and the
-        // rewind rail's own playoff step is all-or-nothing by construction.
-        conditionOnPlayedElims: startMatchKeyByEvent === undefined,
-        tier: tierByEvent?.get(eventKey) ?? "district",
+  const skipEventKeys = options.skipEventKeys;
+  const assembled = useMemo((): AssembledDistrictEvents => {
+    if (asOf === undefined) return assembleLiveDistrictEvents({ artifact, activeKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent, tierByEvent });
+    if (asOf.status === "ready") {
+      return assembleAsOfDistrictEvents({
+        artifact,
+        result: asOf.result,
+        algorithmVersion: asOf.algorithmVersion,
+        eventArtifacts,
+        stageByEvent,
+        tierByEvent,
+        skipEventKeys,
+        candidateKeys: openEventKeys(allowedEventKeys ?? allDistrictTierEventKeys(artifact), stageByEvent),
       });
-      if (!built.ok) continue;
-      if (built.excludedMatchCount > 0) eventsWithExcludedMatches.push(eventKey);
-      if (built.fieldSizeFellBack) eventsWithFallbackFieldSize.push(eventKey);
-      if (built.allianceListIsPartial) eventsWithPartialAllianceList.push(eventKey);
-      if (built.unresolvedElimMatchKeys.length > 0) eventsWithUnresolvedElimMatches.push(eventKey);
-      events.push({ eventKey, input: built.input });
     }
+    const asOfUnavailable =
+      asOf.status === "failed"
+        ? openEventKeys(allowedEventKeys ?? allDistrictTierEventKeys(artifact), stageByEvent)
+            .filter((eventKey) => skipEventKeys?.has(eventKey) !== true)
+            .map((eventKey) => ({ eventKey, name: AS_OF_UNAVAILABLE_NAME }))
+        : [];
     return {
-      events,
-      signature: districtRunSignature(events),
-      eventsWithExcludedMatches,
-      eventsWithFallbackFieldSize,
-      eventsWithPartialAllianceList,
-      eventsWithUnresolvedElimMatches,
+      events: [],
+      signature: "",
+      eventsWithExcludedMatches: [],
+      eventsWithFallbackFieldSize: [],
+      eventsWithPartialAllianceList: [],
+      eventsWithUnresolvedElimMatches: [],
+      asOfUnavailable,
     };
-  }, [activeKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent, artifact, tierByEvent]);
+  }, [asOf, activeKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent, artifact, tierByEvent, skipEventKeys, allowedEventKeys]);
 
   const runState = useDistrictSimulationRun(
     useMemo(() => ({ events: assembled.events, signature: assembled.signature }), [assembled])
   );
+
+  const entries = useMemo(() => landedEntries(runState, assembled.signature), [runState, assembled.signature]);
 
   const distributions = useMemo(() => {
     const map = new Map<string, DistrictEventDistributions>();
@@ -321,34 +544,50 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
       if (data === undefined || data === null) return;
       map.set(eventKey, distributionsFromPreSim(data));
     });
-    if (runState.status === "complete") {
-      for (const entry of runState.events) {
-        if (entry.status !== "ok") continue;
-        map.set(entry.eventKey, distributionsFromResult(entry.result));
-      }
+    for (const entry of entries) {
+      if (entry.status === "ok") map.set(entry.eventKey, distributionsFromResult(entry.result));
+      else if (entry.status === "baked") map.set(entry.eventKey, distributionsFromPreSim(entry));
     }
     return map;
-  }, [bakedKeys, preSimQueries, runState]);
+  }, [bakedKeys, preSimQueries, entries]);
 
   const unavailableEvents = useMemo(() => {
-    if (runState.status !== "complete") return [];
-    return runState.events.flatMap((entry) => (entry.status === "unavailable" ? [{ eventKey: entry.eventKey, name: entry.name }] : []));
-  }, [runState]);
+    const fromRun = runState.status !== "complete" ? [] : runState.events.flatMap((entry) => (entry.status === "unavailable" ? [{ eventKey: entry.eventKey, name: entry.name }] : []));
+    return assembled.asOfUnavailable.length === 0 ? fromRun : [...assembled.asOfUnavailable, ...fromRun];
+  }, [runState, assembled.asOfUnavailable]);
+
+  const eventsWithExcludedMatches = useMemo(() => {
+    const asOfExcluded = entries.flatMap((entry) => (entry.status === "ok" && entry.excludedMatchKeys !== undefined ? [entry.eventKey] : []));
+    return asOfExcluded.length === 0 ? assembled.eventsWithExcludedMatches : [...assembled.eventsWithExcludedMatches, ...asOfExcluded];
+  }, [entries, assembled.eventsWithExcludedMatches]);
 
   return {
     distributions,
     runState,
     unavailableEvents,
     gaps: {
-      eventsWithExcludedMatches: assembled.eventsWithExcludedMatches,
+      eventsWithExcludedMatches,
       eventsWithFallbackFieldSize: assembled.eventsWithFallbackFieldSize,
       eventsWithPartialAllianceList: assembled.eventsWithPartialAllianceList,
       eventsWithUnresolvedElimMatches: assembled.eventsWithUnresolvedElimMatches,
     },
     isLoading: preSimQueries.some((query) => query.isPending),
     runPending:
-      assembled.events.length > 0 &&
-      runState.status !== "error" &&
-      !(runState.status === "complete" && runState.signature === assembled.signature),
+      // The as-of objects for a rewound stop are still loading: nothing can be
+      // assembled yet, and that is not "nothing to run".
+      asOf?.status === "loading" ||
+      (assembled.events.length > 0 &&
+        runState.status !== "error" &&
+        !(runState.status === "complete" && runState.signature === assembled.signature)),
   };
+}
+
+/** The events with an open category at the stop, sorted. */
+function openEventKeys(keys: readonly string[], stageByEvent: ReadonlyMap<string, DistrictStageFinality>): string[] {
+  return keys
+    .filter((eventKey) => {
+      const stage = stageByEvent.get(eventKey);
+      return stage !== undefined && DISTRICT_CATEGORIES.some((category) => !stage[category]);
+    })
+    .sort();
 }
