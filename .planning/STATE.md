@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-05T01:48:38.826Z"
+last_updated: "2026-10-05T02:54:21.980Z"
 last_activity: 2026-10-05
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -711,6 +711,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 275 | EPA predicts ranking points by Statbotics' method (L-02 lifted), epa 14.0.0, Simulation tab enabled under EPA | 2026-09-29 | 01a19793 | [260929-mat-add-statbotics-style-rp-odds-to-epa-and-](./quick/260929-mat-add-statbotics-style-rp-odds-to-epa-and-/) |
 | 276 | Locks rewind becomes sketch 024 Q's event then milestone picker on both tabs (8 stops, cutoff strip deferred) | 2026-09-30 | 26d1514e | [260929-ttp-locks-rewind-sketch-024-q-milestone-pick](./quick/260929-ttp-locks-rewind-sketch-024-q-milestone-pick/) |
 | 277 | Locks picker prints DCMP for a district championship (fast task) | 2026-10-05 | baeee619 | — |
+| 278 | District Locks headline cutoff is the median of the simulated line; large district rewinds simulate again; sponsored event names shorten (branch locks-fixes) | 2026-10-05 | c1626f2a | [261004-uw4-district-locks-headline-cutoff-becomes-t](./quick/261004-uw4-district-locks-headline-cutoff-becomes-t/) |
 
 ### Roadmap Evolution
 
