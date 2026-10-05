@@ -19,7 +19,7 @@
  * `predictedCutoff.ts`'s `simulatedLine`, and the percentile convention is the
  * one that function already reads.
  */
-import type { DistrictLedgerStatusKey, DistrictLedgerStatusState } from "./districtLedgerStatus.js";
+import type { DistrictLedgerShownCounts, DistrictLedgerShownState } from "./districtFieldOverlay.js";
 import {
   simulatedLine,
   type ChampNoCallReason,
@@ -153,7 +153,7 @@ export function districtRangeState(inputs: DistrictRangeStateInputs): LedgerRang
  * both satisfy it.
  */
 export interface RangeCallableStatusResult {
-  readonly status: DistrictLedgerStatusState;
+  readonly status: DistrictLedgerShownState;
   readonly rangeCall?: LedgerRangeCall;
 }
 
@@ -166,7 +166,7 @@ export interface RangeCallableStatusResult {
  */
 export interface RangeCallableStatusModel<Result extends RangeCallableStatusResult> {
   readonly byTeam: ReadonlyMap<string, Result>;
-  readonly counts: Readonly<Record<DistrictLedgerStatusKey, number>>;
+  readonly counts: DistrictLedgerShownCounts;
 }
 
 /** The minimum the chips and the cutoff view read per team: the median the tab's own sort ordered on. */
@@ -181,7 +181,7 @@ export type LedgerDisplayStatusResult<Result extends RangeCallableStatusResult> 
 /** The four fields the range state decides. Everything else on a status model is the verdicts' and passes through. */
 export interface LedgerDisplayFields<Result extends RangeCallableStatusResult> {
   readonly byTeam: ReadonlyMap<string, LedgerDisplayStatusResult<Result>>;
-  readonly counts: Readonly<Record<DistrictLedgerStatusKey, number>>;
+  readonly counts: DistrictLedgerShownCounts;
   /** Set while the In range and Out of range calls are withheld: their filter chips print an em dash, never a count. */
   readonly withheld: LedgerRangeCall | undefined;
   /** The named terminal reason, for the `noCall` arm alone. */
@@ -194,7 +194,7 @@ export type LedgerDisplayStatusModel<Model, Result extends RangeCallableStatusRe
 /** The four decided fields, from the verdicts' own map and counts. Generic over the result alone, so no field of it is lost. */
 function rangeCalledFields<Result extends RangeCallableStatusResult>(
   verdicts: ReadonlyMap<string, Result>,
-  verdictCounts: Readonly<Record<DistrictLedgerStatusKey, number>>,
+  verdictCounts: DistrictLedgerShownCounts,
   teams: readonly RangeCallableTeam[],
   state: LedgerRangeState
 ): LedgerDisplayFields<Result> {
@@ -203,7 +203,7 @@ function rangeCalledFields<Result extends RangeCallableStatusResult>(
   if (state.kind === "settled") return { byTeam: verdicts, counts: verdictCounts, withheld: undefined, noCallReason: undefined };
   const projectionByTeam = new Map(teams.map((team) => [team.teamKey, team.projection] as const));
   const byTeam = new Map<string, LedgerDisplayStatusResult<Result>>();
-  const counts: Record<DistrictLedgerStatusKey, number> = { ...verdictCounts, inRange: 0, outOfRange: 0 };
+  const counts: { -readonly [Key in keyof DistrictLedgerShownCounts]: DistrictLedgerShownCounts[Key] } = { ...verdictCounts, inRange: 0, outOfRange: 0 };
   for (const [teamKey, result] of verdicts) {
     if (result.status !== "inRange" && result.status !== "outOfRange") {
       byTeam.set(teamKey, result);

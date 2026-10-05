@@ -24,6 +24,7 @@ import { DistrictArtifactSchema, type DistrictArtifact } from "../../../../../pa
 import { DEFAULT_SIMULATION_SEED, SIMULATION_DRAWS } from "../../workers/districtSimulationProtocol.js";
 import { buildDistrictLedgerRows, type DistrictStageFinality } from "./districtLedgerRows.js";
 import { computeDistrictLedgerStatuses, type DistrictLedgerStatusModel, type DistrictLedgerStatusResult } from "./districtLedgerStatus.js";
+import type { DistrictLedgerShownModel, DistrictLedgerShownResult } from "./districtFieldOverlay.js";
 import {
   applyLedgerRangeState,
   districtRangeState,
@@ -323,5 +324,53 @@ describe("applyLedgerRangeState and ledgerCutoffView on a district status model"
     });
     expect("tier" in view).toBe(false);
     expect(view.likely).toBeUndefined();
+  });
+});
+
+/**
+ * P1 (quick task 261005-04t, D-06). The Live field overlay's SHOWN model is
+ * what the District tab hands this function, so a Declined result, the sixth
+ * count and the `fieldOverlay` flag all have to come out the far side of every
+ * arm. The model is built by hand over the same open race as above, so the
+ * simulated, pending and refused arms still have contending teams to work on
+ * while the Declined team sits beside them.
+ */
+describe("P1: a Declined result passes through every arm of the range state (261005-04t)", () => {
+  const districtEvents = new Map<string, number>();
+  for (const team of FIXTURE.teams) {
+    for (const row of team.eventPoints) if (row.tier === "district") districtEvents.set(row.eventKey, row.week ?? 0);
+  }
+  const lastWeek = Math.max(...districtEvents.values());
+  const stageByEvent = new Map([...districtEvents].map(([eventKey, week]) => [eventKey, week === lastWeek ? ALL_OPEN : ALL_FINAL] as const));
+  const rows = buildDistrictLedgerRows({ artifact: FIXTURE, distributions: new Map(), stageByEvent });
+  const RAW = computeDistrictLedgerStatuses({ artifact: FIXTURE, teams: rows.teams });
+  const declinedKey = [...RAW.byTeam.values()].find((result) => result.status === "locked")!.teamKey;
+  const declined: DistrictLedgerShownResult = { ...RAW.byTeam.get(declinedKey)!, status: "declined", byAward: false };
+  const SHOWN: DistrictLedgerShownModel = {
+    ...RAW,
+    byTeam: new Map<string, DistrictLedgerShownResult>([...RAW.byTeam].map(([teamKey, result]) => [teamKey, teamKey === declinedKey ? declined : result])),
+    counts: { ...RAW.counts, locked: RAW.counts.locked - 1, declined: 1 },
+    fieldOverlay: true,
+  };
+  const ARMS: readonly LedgerRangeState[] = [
+    { kind: "settled" },
+    { kind: "simulated", points: 50, likely: { p10: 40, p90: 70 } },
+    { kind: "pending" },
+    { kind: "noCall", reason: "workerError" },
+  ];
+
+  it("has contending teams beside the Declined one, so the three working arms are not vacuous", () => {
+    expect([...SHOWN.byTeam.values()].filter((result) => result.status === "inRange" || result.status === "outOfRange").length).toBeGreaterThan(5);
+  });
+
+  it("keeps the Declined result as the same object, counts.declined at 1 and fieldOverlay, in all four arms", () => {
+    for (const state of ARMS) {
+      const display = applyLedgerRangeState(SHOWN, rows.teams, state);
+      expect({ arm: state.kind, same: display.byTeam.get(declinedKey) === declined }).toEqual({ arm: state.kind, same: true });
+      expect(display.byTeam.get(declinedKey)?.status).toBe("declined");
+      expect(display.counts.declined).toBe(1);
+      expect(display.counts.locked).toBe(RAW.counts.locked - 1);
+      expect(display.fieldOverlay).toBe(true);
+    }
   });
 });
