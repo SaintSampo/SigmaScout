@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  AS_OF_BUDGET_MAX_BYTES,
+  AS_OF_FAMILIES,
+  AsOfBudgetExceededError,
+  assertWithinAsOfBudget,
   assertWithinPageBudget,
   computeSizeStats,
   PAGE_BUDGET_MAX_BYTES,
@@ -8,6 +12,7 @@ import {
   PublishBudgetParseError,
   renderPublishBudgetBlock,
   replacePublishBudgetBlock,
+  type AsOfFamily,
   type PageKindSizeStats,
 } from "./publishBudget.js";
 import type { PageKind } from "./pageArtifacts.js";
@@ -87,6 +92,30 @@ describe("renderPublishBudgetBlock / parsePublishBudget / replacePublishBudgetBl
       expect(replaced).toBe(before + block + after);
       expect(parsePublishBudget(replaced).measuredAt).toBe("new");
     }
+  });
+
+  it("an asOf section is rendered after pages, families in order, ceilings from AS_OF_BUDGET_MAX_BYTES, only when the run published as-of objects", () => {
+    const asOf: Record<AsOfFamily, PageKindSizeStats> = {
+      asof: stats(30_000, "v1/asof/2016cmp/spr@10.0.0+baseline.json"),
+      "asof-log": stats(1_300_000, "v1/asof-log/2016cmp/spr@10.0.0+baseline.json"),
+      "asof-season": stats(160_000, "v1/asof-season/2025/spr@10.0.0+baseline.json"),
+    };
+    const parsed = parsePublishBudget(renderPublishBudgetBlock({ measuredAt: "m", run: "r", pages: FULL_PAGES, asOf }));
+    expect(Object.keys(parsed)).toEqual(["measuredAt", "run", "pages", "asOf"]);
+    expect(Object.keys(parsed.asOf!)).toEqual([...AS_OF_FAMILIES]);
+    for (const family of AS_OF_FAMILIES) expect(parsed.asOf![family]).toEqual({ ...asOf[family], budgetMaxBytes: AS_OF_BUDGET_MAX_BYTES[family] });
+    // A run that published none (an OPR-only run) writes no section at all.
+    expect(Object.keys(parsePublishBudget(renderPublishBudgetBlock({ measuredAt: "m", run: "r", pages: FULL_PAGES, asOf: {} })))).toEqual(["measuredAt", "run", "pages"]);
+    // A run that published some families but not all is refused.
+    const partial: Partial<Record<AsOfFamily, PageKindSizeStats>> = { ...asOf };
+    delete partial["asof-season"];
+    expect(() => renderPublishBudgetBlock({ measuredAt: "m", run: "r", pages: FULL_PAGES, asOf: partial })).toThrow("asof-season");
+  });
+
+  it("assertWithinAsOfBudget passes exactly at the ceiling and throws the named error above it; the constant is frozen", () => {
+    expect(() => assertWithinAsOfBudget("asof-log", "k", 10, { ...AS_OF_BUDGET_MAX_BYTES, "asof-log": 10 })).not.toThrow();
+    expect(() => assertWithinAsOfBudget("asof-log", "k", 11, { ...AS_OF_BUDGET_MAX_BYTES, "asof-log": 10 })).toThrow(AsOfBudgetExceededError);
+    expect(Object.isFrozen(AS_OF_BUDGET_MAX_BYTES)).toBe(true);
   });
 
   it("a document with no block makes replace throw the named parse error", () => {

@@ -38,7 +38,7 @@ import { COMP_LEVEL_PLAY_ORDER } from "../ingest/normalize.js";
 import { seasonBoundaryFor } from "./seasonBoundary.js";
 import type { OprState } from "../core/algorithms/opr.js";
 import type { EpaState } from "../core/algorithms/epa.js";
-import { type SprState } from "../core/algorithms/spr.js";
+import { spr, type SprState } from "../core/algorithms/spr.js";
 import { isDemoTeamKey } from "../core/algorithms/demoTeams.js";
 import { isOfficialEventType, OFFSEASON_EVENT_TYPE } from "../core/algorithms/eventTypes.js";
 import { isCancelledEvent } from "../core/algorithms/cancelledEvent.js";
@@ -64,6 +64,9 @@ import { buildSeasonStream, WalkForwardSimulator, OUTCOME_KEYS, type PredictionR
 import { corpusColdStartIndex } from "./corpusColdStart.js";
 import {
   artifactKey,
+  asOfIndexKey,
+  asOfLogKey,
+  asOfSeasonKey,
   CompareArtifactSchema,
   composeEventLocation,
   deriveMetricKeyOrder,
@@ -142,6 +145,8 @@ import type { MetricHistoryRow } from "./metricHistorySchema.js";
 import { putObject } from "./r2Client.js";
 import { UploadQueue } from "./uploadQueue.js";
 import {
+  AS_OF_FAMILIES,
+  assertWithinAsOfBudget,
   assertWithinPageBudget,
   computeSizeStats,
   PAGE_BUDGET_MAX_BYTES,
@@ -149,9 +154,12 @@ import {
   PUBLISH_BUDGET_DOC_PATH,
   renderPublishBudgetBlock,
   replacePublishBudgetBlock,
+  type AsOfFamily,
   type PageKindSizeStats,
   type PublishedObjectRecord,
 } from "./publishBudget.js";
+import { AsOfSeasonCapture } from "./asOfCapture.js";
+import { AsOfIndexSchema, AsOfLogSchema, AsOfSeasonSchema } from "./asOfState.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const DEFAULT_BUCKET = "sigmascout-artifacts";
@@ -1262,6 +1270,8 @@ class BoundedUploader {
    * so it stays out of per-kind budget accounting and has no ceiling. Summarized at the end of the run.
    */
   readonly sidecarRecords: { key: string; bytes: number }[] = [];
+  /** As-of objects (quick task 261005-5g0), kept apart from `records` like the sidecars: not `PageKind`s, ceilings in `AS_OF_BUDGET_MAX_BYTES`. */
+  readonly asOfRecords: { pageKind: AsOfFamily; key: string; bytes: number }[] = [];
   readonly #queue: UploadQueue;
 
   constructor(
@@ -1290,6 +1300,15 @@ class BoundedUploader {
   /** Asserts the ceiling, records, and (real runs only) resolves once the put is accepted by the queue. */
   publish(pageKind: PageKind, key: string, body: string): Promise<void> {
     this.#record(pageKind, key, body);
+    if (this.dryRun) return Promise.resolve();
+    return this.#queue.enqueue(() => this.#put(key, body));
+  }
+
+  /** One as-of object: the family's ceiling is asserted before it is recorded or queued, exactly as `publish` does for a page. */
+  publishAsOf(family: AsOfFamily, key: string, body: string): Promise<void> {
+    const bytes = Buffer.byteLength(body, "utf8");
+    assertWithinAsOfBudget(family, key, bytes);
+    this.asOfRecords.push({ pageKind: family, key, bytes });
     if (this.dryRun) return Promise.resolve();
     return this.#queue.enqueue(() => this.#put(key, body));
   }
@@ -1639,6 +1658,13 @@ export interface PublishSeasonsOptions {
    * (`scripts/captureCompareSlices.ts --no-rp-cold-prior`). Still no CLI flag on `publish:seasons`.
    */
   readonly rpColdPrior?: boolean;
+  /**
+   * The as-of capture (quick task 261005-5g0), ON unless `false`: for the algorithm whose ranking points
+   * the layer prices (SPR), every fold's state is captured and one INDEX and one LOG per event and one
+   * season object per season are published. It only reads the replay, so every other object is
+   * byte-identical either way; `false` exists for the test that proves it. No CLI flag.
+   */
+  readonly asOfCapture?: boolean;
 }
 
 export interface PublishSummary {
@@ -1653,6 +1679,8 @@ export interface PublishSummary {
   readonly timings: Readonly<Record<string, number>>;
   /** Pre-schedule sidecar size stats (not a `PageKind`, so outside `pages`); `undefined` when the run wrote none. */
   readonly sidecars?: PageKindSizeStats;
+  /** As-of object size stats per family (not `PageKind`s, so outside `pages`); empty when the run wrote none. */
+  readonly asOf: Partial<Record<AsOfFamily, PageKindSizeStats>>;
 }
 
 interface TeamSeasonStats {
@@ -1967,6 +1995,17 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
   /** SPR 9.0.0's production model: both on unless an instrument passes an explicit `false`. */
   const sigmaCarryOn = options.sigmaCarry !== false;
   const rpColdPriorOn = options.rpColdPrior !== false;
+  /**
+   * The algorithm the as-of capture follows (quick task 261005-5g0): the one whose ranking points the
+   * layer prices (SPR), since that is the state a rewound view rebuilds and prices from. The wire format
+   * describes `SprState`, so the module must run SPR's own `predict` and `update` (a test stand-in that
+   * borrows the spr id over another state is skipped). `undefined` when the run carries no such
+   * algorithm or the capture is switched off.
+   */
+  const asOfAlgorithm =
+    options.asOfCapture === false
+      ? undefined
+      : options.algorithms.find((algorithm) => layerPricesRankingPoints(algorithm.id) && algorithm.predict === spr.predict && algorithm.update === spr.update);
   let liveStatesAcrossSeasons = new Map<string, unknown>();
   /** The Sigma carry's per-algorithm carry into the next season (production since SPR 9.0.0). Stays empty only when `options.sigmaCarry` is `false`. */
   let sigmaCarryAcrossSeasons = new Map<string, SigmaSeasonCarry>();
@@ -2058,6 +2097,20 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       initialStates = carried;
     }
 
+    // The as-of capture (quick task 261005-5g0). It reads SPR's state in `onMatchComplete` and the layer's
+    // around each `foldPlayed` below, and changes neither. Its initial state is the one `runAll` starts
+    // from: the carried state, else `initState` over the same team list (pure, so an equal object).
+    const asOfCapture =
+      asOfAlgorithm === undefined
+        ? undefined
+        : new AsOfSeasonCapture({
+            season,
+            vars: RP_RULE_MODULES[season]?.thresholdVariables.map((v) => v.name) ?? [],
+            initialState: (initialStates?.get(asOfAlgorithm.id) ?? asOfAlgorithm.initState([...teamsThisSeason])) as SprState,
+            stamp: { generation, computedAt, algorithmId: asOfAlgorithm.id, algorithmVersion: asOfAlgorithm.version },
+            sortTimeOf: (matchKey) => sortTimeByMatchKey.get(matchKey),
+          });
+
     // Per-match, per-algorithm metric snapshots for `metricHistory`, collected in the same pass.
     const matchIndexByKey = new Map(stream.map((m, i) => [m.matchKey, i]));
     const algorithmById = new Map(options.algorithms.map((a) => [a.id, a]));
@@ -2126,6 +2179,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
         list.push(row);
         byTeam.set(teamKey, list);
       }
+      if (asOfCapture !== undefined && algorithmId === asOfAlgorithm?.id) asOfCapture.onMatchComplete(match, state as SprState);
     };
 
     const simulator = new WalkForwardSimulator(stream, corpusColdStartIndex(db));
@@ -2160,6 +2214,8 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       };
       layers.set(algorithm.id, new SigmaScoutLayer(rpRuleModule, algorithm.id, layerOptions));
     }
+    // Before any fold: the season object's `L0` is the league row at this instant.
+    if (asOfCapture !== undefined && asOfAlgorithm !== undefined) asOfCapture.attachLayer(layers.get(asOfAlgorithm.id)!);
 
     /**
      * algorithm id -> team key -> match key -> Sigma Score right after that match's fold, merged by
@@ -2216,8 +2272,10 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
           snapshotRankingPointFillerInputs(layer, matchTeamKeysByEvent.get(r.match.eventKey) ?? [], rookieRule)
         );
       }
+      const foldPlayed = (): PredictionRecord =>
+        layer.foldPlayed(r.match, r.prediction, talentAfterMatch.get(`${r.algorithmId}:${r.match.matchKey}`));
       const pr: PredictionRecord = {
-        ...layer.foldPlayed(r.match, r.prediction, talentAfterMatch.get(`${r.algorithmId}:${r.match.matchKey}`)),
+        ...(asOfCapture !== undefined && r.algorithmId === asOfAlgorithm?.id ? asOfCapture.foldLayer(r.match, foldPlayed) : foldPlayed()),
         ...(r.coldStart === true ? { coldStart: true as const } : {}),
       };
       // Read after this match's fold, one team at a time via `sigmaFor`; never `sigmaScoreByTeam()`,
@@ -2700,6 +2758,21 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       timings.add(`${blockLabel} uploadWait`, uploadWaitMs);
     }
 
+    // --- v1/asof/, v1/asof-log/, v1/asof-season/ (quick task 261005-5g0) ---
+    // One INDEX and one LOG per event the season folded, and one season object, each parsed through its
+    // schema (a non-finite number fails here rather than serializing as `null`).
+    if (asOfCapture !== undefined && asOfAlgorithm !== undefined) {
+      const asOfStart = performance.now();
+      const captured = asOfCapture.finish();
+      const keyParams = { algorithmId: asOfAlgorithm.id, version: asOfAlgorithm.version };
+      for (const [eventKey, index] of captured.indexes) {
+        await uploader.publishAsOf("asof", asOfIndexKey({ eventKey, ...keyParams }), JSON.stringify(AsOfIndexSchema.parse(index)));
+        await uploader.publishAsOf("asof-log", asOfLogKey({ eventKey, ...keyParams }), JSON.stringify(AsOfLogSchema.parse(captured.logs.get(eventKey))));
+      }
+      await uploader.publishAsOf("asof-season", asOfSeasonKey({ season, ...keyParams }), JSON.stringify(AsOfSeasonSchema.parse(captured.season)));
+      timings.add(`season ${season} asof`, performance.now() - asOfStart);
+    }
+
     // --- compare/{year}.json — one file, every algorithm ---
     // `corpusSeasons` is the corpus-held season set, never `[season]` or `seasonsSorted`: passing this
     // season alone silently makes every slice's `headlineEligible` false, and eligibility must not
@@ -2842,6 +2915,12 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       `  presim: count=${sidecars.count} median=${sidecars.medianBytes}B p95=${sidecars.p95Bytes}B max=${sidecars.maxBytes}B key=${sidecars.largestKey}`
     );
   }
+  const asOf = computeSizeStats(uploader.asOfRecords);
+  for (const family of AS_OF_FAMILIES) {
+    const stats = asOf[family];
+    if (stats === undefined) continue;
+    console.log(`  ${family}: count=${stats.count} median=${stats.medianBytes}B p95=${stats.p95Bytes}B max=${stats.maxBytes}B key=${stats.largestKey}`);
+  }
   if (manifestKeys.length > 0) console.log(`  manifests: ${manifestKeys.join(", ")}`);
   if (seedFiles.length > 0) console.log(`  seed files: ${seedFiles.join(", ")}`);
   timings.add("total", performance.now() - runStart);
@@ -2849,7 +2928,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
     console.log(`  timing: ${label} ${(elapsedMs / 1000).toFixed(1)}s`);
   }
 
-  return { generation, computedAt, objectCount, totalBytes, pages, seedFiles, manifestKeys, timings: { ...timings.ms }, sidecars };
+  return { generation, computedAt, objectCount, totalBytes, pages, seedFiles, manifestKeys, timings: { ...timings.ms }, sidecars, asOf };
 }
 
 // ---------------------------------------------------------------------------
@@ -2954,12 +3033,13 @@ function writePublishBudgetDoc(summary: PublishSummary, startedAt: Date, finishe
     summary.sidecars === undefined
       ? "0 presim sidecars"
       : `${summary.sidecars.count} presim sidecars (median ${summary.sidecars.medianBytes} B, p95 ${summary.sidecars.p95Bytes} B, max ${summary.sidecars.maxBytes} B)`;
+  const asOfCount = AS_OF_FAMILIES.reduce((sum, family) => sum + (summary.asOf[family]?.count ?? 0), 0);
   const run =
     `tsx packages/harness/publish.ts ${process.argv.slice(2).join(" ")} -- generation ${summary.generation}, ` +
-    `${summary.objectCount} objects, ${summary.totalBytes} bytes total, ${sidecarText}, ` +
+    `${summary.objectCount} objects, ${summary.totalBytes} bytes total, ${sidecarText}, ${asOfCount} as-of objects, ` +
     `${startedAt.toISOString()} to ${finishedAt.toISOString()} (${duration})` +
     (dryRun ? " (dry-run: nothing uploaded)" : "");
-  const block = renderPublishBudgetBlock({ measuredAt: finishedAt.toISOString(), run, pages: summary.pages });
+  const block = renderPublishBudgetBlock({ measuredAt: finishedAt.toISOString(), run, pages: summary.pages, asOf: summary.asOf });
   const doc = readFileSync(PUBLISH_BUDGET_DOC_PATH, "utf8");
   writeFileSync(PUBLISH_BUDGET_DOC_PATH, replacePublishBudgetBlock(doc, block));
   console.log(`publish: wrote the json budget block to ${PUBLISH_BUDGET_DOC_PATH}`);
