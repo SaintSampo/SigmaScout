@@ -99,6 +99,7 @@ describe("renderPublishBudgetBlock / parsePublishBudget / replacePublishBudgetBl
       asof: stats(30_000, "v1/asof/2016cmp/spr@10.0.0+baseline.json"),
       "asof-log": stats(1_300_000, "v1/asof-log/2016cmp/spr@10.0.0+baseline.json"),
       "asof-season": stats(160_000, "v1/asof-season/2025/spr@10.0.0+baseline.json"),
+      "asof-start": stats(1_000_000, "v1/asof-start/2026/spr@10.0.0+baseline.json"),
     };
     const parsed = parsePublishBudget(renderPublishBudgetBlock({ measuredAt: "m", run: "r", pages: FULL_PAGES, asOf }));
     expect(Object.keys(parsed)).toEqual(["measuredAt", "run", "pages", "asOf"]);

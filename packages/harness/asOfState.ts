@@ -146,11 +146,29 @@ export const AsOfSeasonSchema = AlgorithmScopedPreambleSchema.extend({
   tails: z.record(z.string(), PointerSchema),
 });
 
+/**
+ * SEASON START TUPLES (Part 1b). The tuple every team the model carries into
+ * the season holds before the season's first fold: SPR's carried team state
+ * and the carried Sigma belief (the RP part is null, since RP beliefs restart
+ * each season). A team with no match yet by a cut has no segment and no tail
+ * there, so this is the only object that can answer for it; without it a
+ * rewound stop would price that team as a rookie and the number would move
+ * once the team played. Written by the offline publisher only, for every
+ * published season (one with no played match too); the Worker never writes it.
+ */
+export const AsOfStartSchema = AlgorithmScopedPreambleSchema.extend({
+  season: z.number().int(),
+  vars: z.array(z.string()),
+  /** Tuple key -> tuple before the season's first fold. A key absent here held no state then (unseen). */
+  teams: z.record(z.string(), AsOfTeamTupleSchema),
+});
+
 export type AsOfSegment = z.infer<typeof AsOfSegmentSchema>;
 export type AsOfIndex = z.infer<typeof AsOfIndexSchema>;
 export type AsOfLogRow = z.infer<typeof AsOfLogRowSchema>;
 export type AsOfLog = z.infer<typeof AsOfLogSchema>;
 export type AsOfSeason = z.infer<typeof AsOfSeasonSchema>;
+export type AsOfStart = z.infer<typeof AsOfStartSchema>;
 
 /** The stamp every as-of object carries, the event artifact's own preamble fields. */
 export interface AsOfStamp {
@@ -355,6 +373,16 @@ function applyStamp(target: { generation: string; computedAt: string; algorithmI
 /** A new season object. `L0` is the league row before the first fold, or `null` from a writer that never saw it. */
 export function createAsOfSeason(params: { season: number; vars: readonly string[]; L0: AsOfLeagueTuple | null; stamp: AsOfStamp }): AsOfSeason {
   return { ...stampOf(params.stamp), season: params.season, vars: [...params.vars], L0: params.L0 === null ? null : [...params.L0], tails: {} };
+}
+
+/**
+ * The season start object from the tuples read at the season's first instant.
+ * Keys are written sorted, so the same state always serializes to the same bytes.
+ */
+export function createAsOfStart(params: { season: number; vars: readonly string[]; teams: ReadonlyMap<string, AsOfTeamTuple>; stamp: AsOfStamp }): AsOfStart {
+  const teams: Record<string, AsOfTeamTuple> = {};
+  for (const teamKey of [...params.teams.keys()].sort()) teams[teamKey] = params.teams.get(teamKey)!;
+  return { ...stampOf(params.stamp), season: params.season, vars: [...params.vars], teams };
 }
 
 /** Raised for a fold the reducer cannot place without corrupting an object. */

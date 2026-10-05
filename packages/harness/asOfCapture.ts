@@ -15,6 +15,12 @@
  *     layer's own fold, reads them after with the league populations, and
  *     applies the whole match.
  *
+ * `attachLayer` also reads the SEASON START object (Part 1b): every key the
+ * carried state holds (SPR's team map, the carried Sigma beliefs, and any RP
+ * belief, of which a fresh season has none), each read with the same
+ * `readAsOfTeamTuple` rules a fold uses. Team state moves only when the team
+ * plays, so this is exactly the `s` its first segment will carry.
+ *
  * The SPR part BEFORE a match is read from the state the previous match left
  * (the season's initial state for the first), which is exactly the state
  * `predict` and `update` saw: `runAll` threads it unchanged.
@@ -34,10 +40,12 @@ import {
   asOfTupleKeys,
   asOfTupleParts,
   createAsOfSeason,
+  createAsOfStart,
   readAsOfLeagueTuple,
   readAsOfRpPart,
   readAsOfSigmaPart,
   readAsOfSprPart,
+  readAsOfTeamTuple,
   type AsOfFoldTeam,
   type AsOfIndex,
   type AsOfLog,
@@ -46,6 +54,7 @@ import {
   type AsOfSigmaSource,
   type AsOfSprPart,
   type AsOfStamp,
+  type AsOfStart,
   type AsOfTeamTuple,
 } from "./asOfState.js";
 
@@ -56,6 +65,10 @@ export interface AsOfCaptureLayer {
   rpBeliefsFor(teamKey: string): RpTeamBeliefs | undefined;
   rpPopulationState(): RpPopulationState | undefined;
   rpMeanShiftState(): RpMeanShiftState | undefined;
+  /** Every team holding a Sigma belief: read once, for the season start object's key set. */
+  sigmaBeliefs(): ReadonlyMap<string, SigmaBelief>;
+  /** Every team holding an RP belief: read once, for the season start object's key set. */
+  rpVariableBeliefs(): ReadonlyMap<string, RpTeamBeliefs>;
 }
 
 export interface AsOfSeasonCaptureOptions {
@@ -81,6 +94,8 @@ interface PendingMatch {
 
 export interface AsOfSeasonCaptureResult {
   readonly season: AsOfSeason;
+  /** The season start tuples, read when the layer was attached. */
+  readonly start: AsOfStart;
   /** Per event key, in first-fold order. */
   readonly indexes: ReadonlyMap<string, AsOfIndex>;
   readonly logs: ReadonlyMap<string, AsOfLog>;
@@ -100,6 +115,7 @@ export class AsOfSeasonCapture {
   #consumed = 0;
   #layer: AsOfCaptureLayer | undefined;
   #season: AsOfSeason | undefined;
+  #start: AsOfStart | undefined;
   readonly #indexes = new Map<string, AsOfIndex>();
   readonly #logs = new Map<string, AsOfLog>();
 
@@ -136,6 +152,12 @@ export class AsOfSeasonCapture {
       L0: readAsOfLeagueTuple({ spr: this.#options.initialState, ...this.#leagueSources(layer) }),
       stamp: this.#options.stamp,
     });
+    const { sigma, rp } = this.#teamSources(layer);
+    const sources = { spr: this.#options.initialState, sigma, rp, vars: this.#options.vars };
+    const keys = new Set([...this.#options.initialState.teams.keys(), ...layer.sigmaBeliefs().keys(), ...layer.rpVariableBeliefs().keys()]);
+    const teams = new Map<string, AsOfTeamTuple>();
+    for (const key of keys) teams.set(key, readAsOfTeamTuple(key, sources));
+    this.#start = createAsOfStart({ season: this.#options.season, vars: this.#options.vars, teams, stamp: this.#options.stamp });
   }
 
   /**
@@ -185,8 +207,8 @@ export class AsOfSeasonCapture {
       throw new AsOfCaptureError(`season ${this.#options.season}: ${this.#pending.length - this.#consumed} replayed match(es) never reached the layer fold`);
     }
     const season = this.#season;
-    if (season === undefined) throw new AsOfCaptureError(`season ${this.#options.season}: finish before attachLayer`);
-    return { season, indexes: this.#indexes, logs: this.#logs };
+    if (season === undefined || this.#start === undefined) throw new AsOfCaptureError(`season ${this.#options.season}: finish before attachLayer`);
+    return { season, start: this.#start, indexes: this.#indexes, logs: this.#logs };
   }
 
   #teamSources(layer: AsOfCaptureLayer): { sigma: AsOfSigmaSource; rp: AsOfRpSource } {

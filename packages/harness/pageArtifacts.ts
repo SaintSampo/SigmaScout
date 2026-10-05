@@ -2479,12 +2479,13 @@ export function preScheduleKey(params: { eventKey: string; algorithmId: string; 
 }
 
 // ---------------------------------------------------------------------------
-// As-of state (quick task 261005-5g0) — v1/asof/, v1/asof-log/, v1/asof-season/
+// As-of state (quick task 261005-5g0) — v1/asof/, v1/asof-log/, v1/asof-season/, v1/asof-start/
 // ---------------------------------------------------------------------------
 
 /**
- * The three as-of object keys: one INDEX and one LOG per event, one season
- * object per season, all algorithm scoped (SPR only today). Their shapes and
+ * The four as-of object keys: one INDEX and one LOG per event, one season
+ * object and one season start object per season, all algorithm scoped (SPR
+ * only today). Their shapes and
  * the reducer that writes them live in `asOfState.ts`.
  *
  * Own functions, NOT `PageKind`s, following `preScheduleKey`'s precedent: the
@@ -2508,6 +2509,12 @@ export function asOfLogKey(params: { eventKey: string; algorithmId: string; vers
 export function asOfSeasonKey(params: { season: number; algorithmId: string; version: string }): string {
   assertVersionShape(params.algorithmId, params.version);
   return `v1/asof-season/${params.season}/${params.algorithmId}@${params.version}.json`;
+}
+
+/** The season start object: every carried team's tuple before the season's first fold. Offline publisher only. See `asOfIndexKey`. */
+export function asOfStartKey(params: { season: number; algorithmId: string; version: string }): string {
+  assertVersionShape(params.algorithmId, params.version);
+  return `v1/asof-start/${params.season}/${params.algorithmId}@${params.version}.json`;
 }
 
 /**

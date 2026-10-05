@@ -36,12 +36,13 @@ export const PAGE_BUDGET_MAX_BYTES: Readonly<Record<PageKind, number>> = Object.
 // ---------------------------------------------------------------------------
 
 /**
- * The three as-of object families (`asOfIndexKey`, `asOfLogKey`,
- * `asOfSeasonKey` in `pageArtifacts.ts`), in the block's committed order. Not
+ * The four as-of object families (`asOfIndexKey`, `asOfLogKey`,
+ * `asOfSeasonKey`, `asOfStartKey` in `pageArtifacts.ts`), in the block's
+ * committed order. Not
  * `PageKind`s, so the page block above is unchanged; the block carries them in
  * its own optional `asOf` section.
  */
-export const AS_OF_FAMILIES = ["asof", "asof-log", "asof-season"] as const;
+export const AS_OF_FAMILIES = ["asof", "asof-log", "asof-season", "asof-start"] as const;
 export type AsOfFamily = (typeof AS_OF_FAMILIES)[number];
 
 /**
@@ -61,6 +62,8 @@ export const AS_OF_BUDGET_MAX_BYTES: Readonly<Record<AsOfFamily, number>> = Obje
   "asof-log": 1_900_000,
   // 156,807 B (2019) x 1.4.
   "asof-season": 300_000,
+  // 745,881 B (2026) x 1.4. Grows each season: the carried state keeps every team it has seen.
+  "asof-start": 1_100_000,
 });
 
 /** Throws `AsOfBudgetExceededError` when `bytes` is above the family's ceiling; exactly at the ceiling passes. */

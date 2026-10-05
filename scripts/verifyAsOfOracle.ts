@@ -18,14 +18,18 @@
  *     roster team's rating, and every remaining qualification match's whole
  *     prediction.
  *   - TRUNCATION at cut (b): the season replayed again with every match after
- *     the cut removed; every team the truncated season has seen, and the
- *     league, read back at the cut from both captures, deep strict equal.
+ *     the cut removed; every team either season saw and every district roster
+ *     team, played or not by the cut (Part 1b: a team with no match yet reads
+ *     the season start object in the truncated world), and the league, read
+ *     back at the cut from both captures, deep strict equal.
  *   - OVERLAP, 2023: a team with two segments at one event (a team that
  *     played elsewhere in between), at a cut inside that overlap; the event
  *     roster's rebuilt ratings against the oracle's.
  *   - SIZES of every object the publisher would upload, per family and per
  *     season, measured the way the publisher serializes them. These are the
- *     measurement behind `AS_OF_BUDGET_MAX_BYTES`.
+ *     measurement behind `AS_OF_BUDGET_MAX_BYTES`. The season start object
+ *     also gets its gzip and brotli sizes per season, since a rewound view
+ *     fetches it whole.
  *
  * `--init-teams publish` starts the cold-start season from the publisher's
  * own team list (scheduled teams in, demo keys out) instead of the oracle's
@@ -39,6 +43,7 @@
  * variable, no credential, no R2, no D1. `.env` is never read.
  */
 import { parseArgs } from "node:util";
+import { brotliCompressSync, gzipSync } from "node:zlib";
 import { openCorpusReadOnly, selectMatchesChronological, selectScheduledMatches, type Corpus } from "../packages/corpus/db.js";
 import { TOTAL_METRIC_KEY, type AlgorithmModule, type MatchResult, type Prediction, type UpcomingMatch } from "../packages/core/algorithms/types.js";
 import type { SprState } from "../packages/core/algorithms/spr.js";
@@ -57,6 +62,7 @@ import {
   AsOfIndexSchema,
   AsOfLogSchema,
   AsOfSeasonSchema,
+  AsOfStartSchema,
   type AsOfCut,
   type AsOfIndex,
   type AsOfLog,
@@ -175,7 +181,9 @@ function replaySeason(
 // Sizes, serialized exactly as the publisher serializes them
 // ---------------------------------------------------------------------------
 
-const sizes: Record<AsOfFamily, { key: string; bytes: number; season: number }[]> = { asof: [], "asof-log": [], "asof-season": [] };
+const sizes: Record<AsOfFamily, { key: string; bytes: number; season: number }[]> = { asof: [], "asof-log": [], "asof-season": [], "asof-start": [] };
+/** The season start object per season: raw, gzip (default level) and brotli (default quality) bytes, and its team count. */
+const startSizes: { season: number; teams: number; rawBytes: number; gzipBytes: number; brotliBytes: number }[] = [];
 
 function measure(capture: AsOfSeasonCaptureResult): void {
   const season = capture.season.season;
@@ -184,6 +192,9 @@ function measure(capture: AsOfSeasonCaptureResult): void {
     sizes["asof-log"].push({ key: `v1/asof-log/${eventKey}`, bytes: Buffer.byteLength(JSON.stringify(AsOfLogSchema.parse(capture.logs.get(eventKey)))), season });
   }
   sizes["asof-season"].push({ key: `v1/asof-season/${season}`, bytes: Buffer.byteLength(JSON.stringify(AsOfSeasonSchema.parse(capture.season))), season });
+  const start = Buffer.from(JSON.stringify(AsOfStartSchema.parse(capture.start)));
+  sizes["asof-start"].push({ key: `v1/asof-start/${season}`, bytes: start.byteLength, season });
+  startSizes.push({ season, teams: Object.keys(capture.start.teams).length, rawBytes: start.byteLength, gzipBytes: gzipSync(start).byteLength, brotliBytes: brotliCompressSync(start).byteLength });
 }
 
 function printSizes(): void {
@@ -205,6 +216,7 @@ function printSizes(): void {
     return { season, objects: objects.length, bytes: objects.reduce((sum, r) => sum + r.bytes, 0) };
   });
   line("sizes per season", perSeason);
+  line("sizes asof-start per season", startSizes);
 }
 
 // ---------------------------------------------------------------------------
@@ -212,14 +224,22 @@ function printSizes(): void {
 // ---------------------------------------------------------------------------
 
 /** The browser's loop over in-memory objects: resolve, supply what was missing (absent means unpublished), repeat. */
-function resolveFrom(capture: AsOfSeasonCaptureResult, cut: AsOfCut, teams: readonly AsOfResolveTeam[]): AsOfResolveResult & { indexReads: number; logReads: number } {
+function resolveFrom(
+  capture: AsOfSeasonCaptureResult,
+  cut: AsOfCut,
+  teams: readonly AsOfResolveTeam[]
+): AsOfResolveResult & { indexReads: number; logReads: number; startRead: boolean } {
   const indexes = new Map<string, AsOfIndex | null>();
   const logs = new Map<string, AsOfLog | null>();
+  let start: AsOfSeasonCaptureResult["start"] | undefined;
   for (let round = 0; round < 200; round++) {
-    const result = resolveAsOf({ cut, teams, season: capture.season, indexes, logs });
-    if (result.missingIndexes.length === 0 && result.missingLogs.length === 0) return { ...result, indexReads: indexes.size, logReads: logs.size };
+    const result = resolveAsOf({ cut, teams, season: capture.season, indexes, logs, start });
+    if (result.missingIndexes.length === 0 && result.missingLogs.length === 0 && !result.missingStart) {
+      return { ...result, indexReads: indexes.size, logReads: logs.size, startRead: start !== undefined };
+    }
     for (const key of result.missingIndexes) indexes.set(key, capture.indexes.get(key) ?? null);
     for (const key of result.missingLogs) logs.set(key, capture.logs.get(key) ?? null);
+    if (result.missingStart) start = capture.start;
   }
   throw new Error("verifyAsOfOracle: resolveAsOf did not settle in 200 rounds");
 }
@@ -423,25 +443,42 @@ function runCut(db: Corpus, algorithm: AlgorithmModule<any>, season: number, eve
   });
 }
 
-function runTruncation(full: AsOfSeasonCaptureResult, truncated: AsOfSeasonCaptureResult, spec: CutSpec): void {
-  const teams = Object.keys(truncated.season.tails).map((teamKey) => ({ teamKey, knownEventKeys: [] as string[] }));
+function runTruncation(full: AsOfSeasonCaptureResult, truncated: AsOfSeasonCaptureResult, spec: CutSpec, events: readonly DistrictEvent[]): void {
+  // EVERY team: each district roster team (with its roster events, as the browser knows them) and every team
+  // either season saw worldwide. A team with no match by the cut has no segment and no tail in the truncated
+  // world, so it reads the season start object there and its first segment's `s` in the full one (Part 1b).
+  const rosterEvents = new Map<string, Set<string>>();
+  for (const event of events) for (const teamKey of event.roster) rosterEvents.set(teamKey, (rosterEvents.get(teamKey) ?? new Set()).add(event.eventKey));
+  const allKeys = new Set([...rosterEvents.keys(), ...Object.keys(full.season.tails), ...Object.keys(truncated.season.tails)]);
+  const teams = [...allKeys].sort().map((teamKey) => ({ teamKey, knownEventKeys: [...(rosterEvents.get(teamKey) ?? [])] }));
   const fromFull = resolveFrom(full, spec.cut, teams);
   const fromTrunc = resolveFrom(truncated, spec.cut, teams);
   let mismatches = 0;
+  let unresolved = 0;
   const examples: string[] = [];
   for (const { teamKey } of teams) {
+    if (!fromTrunc.states.has(teamKey) || !fromFull.states.has(teamKey)) unresolved += 1;
     if (strictEqual(fromFull.states.get(teamKey), fromTrunc.states.get(teamKey))) continue;
     mismatches += 1;
     if (examples.length < 12) examples.push(teamKey);
   }
+  const unplayed = teams.filter(({ teamKey }) => truncated.season.tails[teamKey] === undefined);
   const leagueIdentical = strictEqual(fromFull.league, fromTrunc.league);
-  mismatchTotal += mismatches + (leagueIdentical ? 0 : 1);
+  // The start object is the carried state alone, so both replays must have built the same one.
+  const startObjectsIdentical = JSON.stringify(full.start.teams) === JSON.stringify(truncated.start.teams);
+  mismatchTotal += mismatches + unresolved + (leagueIdentical ? 0 : 1) + (startObjectsIdentical ? 0 : 1);
   line(`truncation cut ${spec.id}`, {
     label: spec.label,
     teamsCompared: teams.length,
+    districtRosterTeams: rosterEvents.size,
+    noMatchByTheCut: unplayed.length,
+    noMatchByTheCutWithAStartTuple: unplayed.filter(({ teamKey }) => truncated.start.teams[teamKey] !== undefined).length,
     demoOrPseudoAmongThem: teams.filter(({ teamKey }) => isDemoTeamKey(teamKey) || teamKey === DEMO_PSEUDO_TEAM_KEY).length,
     tupleMismatches: mismatches,
+    unresolved,
     leagueIdentical,
+    startObjectsIdentical,
+    truncatedCaptureReadTheStartObject: fromTrunc.startRead,
     fullCaptureIndexReads: fromFull.indexReads,
     fullCaptureLogReads: fromFull.logReads,
     examples,
@@ -566,7 +603,7 @@ function main(): void {
       initTeams,
       coldStartIndex,
     });
-    runTruncation(target, truncated.capture, b);
+    runTruncation(target, truncated.capture, b, events);
 
     runOverlap(db, algorithm, overlap);
   } finally {

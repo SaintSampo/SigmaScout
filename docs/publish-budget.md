@@ -81,10 +81,14 @@ every season.
 | `asof` (INDEX) | `v1/asof/{eventKey}/{algorithm}@{version}.json` | event with a played match | 300,000 |
 | `asof-log` (LOG) | `v1/asof-log/{eventKey}/{algorithm}@{version}.json` | event with a played match | 1,900,000 |
 | `asof-season` | `v1/asof-season/{season}/{algorithm}@{version}.json` | season | 300,000 |
+| `asof-start` | `v1/asof-start/{season}/{algorithm}@{version}.json` | season | 1,100,000 |
 
 - **Not `PageKind`s.** Like the presim sidecar they have their own key functions (`asOfIndexKey`,
-  `asOfLogKey`, `asOfSeasonKey` in `pageArtifacts.ts`), so the Worker's `PageKind`-keyed artifact
-  writer cannot address them, and the `pages` block is unchanged.
+  `asOfLogKey`, `asOfSeasonKey`, `asOfStartKey` in `pageArtifacts.ts`), so the Worker's
+  `PageKind`-keyed artifact writer cannot address them, and the `pages` block is unchanged.
+- **Who writes them.** The publisher writes all four for every published season. The season start
+  object (`asof-start`, the tuple of every team the carried state holds before the season's first
+  match) is the publisher's alone.
 - **Ceilings are enforced.** `publishSeasons` asserts every as-of object against
   `AS_OF_BUDGET_MAX_BYTES` (`packages/harness/publishBudget.ts`) before it is recorded or queued,
   exactly as it does a page, and `--write-budget` writes an `asOf` section beside `pages` in the
@@ -99,8 +103,12 @@ every season.
   | `asof` | 2,379 | 32,020 | 69,213 | 179,328 | `2016micmp` |
   | `asof-log` | 2,379 | 214,253 | 478,949 | 1,309,513 | `2016micmp` |
   | `asof-season` | 10 | 139,256 | 156,807 | 156,807 | 2019 |
+  | `asof-start` | 10 | 568,072 | 745,881 | 745,881 | 2026 |
 
-  4,768 objects, 651.9 MB raw in total. 2025 is the largest season (649 objects, 132.0 MB).
+  4,778 objects, 657.3 MB raw in total. 2025 is the largest season (650 objects, 132.7 MB). The
+  season start object grows every season, because the carried state keeps every team it has
+  seen (5,989 teams in 2026); compressed it is far smaller (2026: 270,241 B gzip, 221,124 B
+  brotli), and a rewound view fetches it only when a roster team has no match by the stop.
 - **SPR only, full precision.** The objects describe SPR's state; OPR and EPA get none.
 
 ## The district artifact and its pre-simulation sidecar (phase 10, plan 10-03)

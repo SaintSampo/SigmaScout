@@ -67,6 +67,7 @@ import {
   asOfIndexKey,
   asOfLogKey,
   asOfSeasonKey,
+  asOfStartKey,
   CompareArtifactSchema,
   composeEventLocation,
   deriveMetricKeyOrder,
@@ -159,7 +160,7 @@ import {
   type PublishedObjectRecord,
 } from "./publishBudget.js";
 import { AsOfSeasonCapture } from "./asOfCapture.js";
-import { AsOfIndexSchema, AsOfLogSchema, AsOfSeasonSchema } from "./asOfState.js";
+import { AsOfIndexSchema, AsOfLogSchema, AsOfSeasonSchema, AsOfStartSchema } from "./asOfState.js";
 
 const CORPUS_PATH = "data/corpus.sqlite";
 const DEFAULT_BUCKET = "sigmascout-artifacts";
@@ -2758,9 +2759,12 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
       timings.add(`${blockLabel} uploadWait`, uploadWaitMs);
     }
 
-    // --- v1/asof/, v1/asof-log/, v1/asof-season/ (quick task 261005-5g0) ---
-    // One INDEX and one LOG per event the season folded, and one season object, each parsed through its
-    // schema (a non-finite number fails here rather than serializing as `null`).
+    // --- v1/asof/, v1/asof-log/, v1/asof-season/, v1/asof-start/ (quick task 261005-5g0) ---
+    // One INDEX and one LOG per event the season folded, one season object and one season start object
+    // (written for a season with no played match too), each parsed through its schema (a non-finite
+    // number fails here rather than serializing as `null`). The start object holds the carried state,
+    // so it moves with no match of its own season; in the run's cold-start season it is SPR's
+    // `initState` over this season's team list instead, which no live season ever is.
     if (asOfCapture !== undefined && asOfAlgorithm !== undefined) {
       const asOfStart = performance.now();
       const captured = asOfCapture.finish();
@@ -2770,6 +2774,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
         await uploader.publishAsOf("asof-log", asOfLogKey({ eventKey, ...keyParams }), JSON.stringify(AsOfLogSchema.parse(captured.logs.get(eventKey))));
       }
       await uploader.publishAsOf("asof-season", asOfSeasonKey({ season, ...keyParams }), JSON.stringify(AsOfSeasonSchema.parse(captured.season)));
+      await uploader.publishAsOf("asof-start", asOfStartKey({ season, ...keyParams }), JSON.stringify(AsOfStartSchema.parse(captured.start)));
       timings.add(`season ${season} asof`, performance.now() - asOfStart);
     }
 

@@ -14,10 +14,12 @@ import {
   AsOfIndexSchema,
   AsOfLogSchema,
   AsOfSeasonSchema,
+  AsOfStartSchema,
   asOfTupleKeys,
   asOfTupleParts,
   compareAsOfPositions,
   createAsOfSeason,
+  createAsOfStart,
   readAsOfLeagueTuple,
   readAsOfTeamTuple,
   type AsOfFold,
@@ -229,6 +231,26 @@ describe("schemas", () => {
     expect(AsOfSeasonSchema.parse(JSON.parse(JSON.stringify(s.season)))).toEqual(s.season);
     // A Worker-created season object has no L0.
     expect(AsOfSeasonSchema.parse({ ...s.season, L0: null }).L0).toBeNull();
+  });
+
+  it("the season start object round trips, writes its keys sorted whatever order they were read in, and copies its vars", () => {
+    const vars = ["v"];
+    const start = createAsOfStart({
+      season: 2026,
+      vars,
+      teams: new Map<string, AsOfTeamTuple>([
+        ["frc254", [[1, 2, 3, 4], [1, 2, 3, 4, 5], null]],
+        [DEMO_PSEUDO_TEAM_KEY, [[5, 6, 7, 8], null, null]],
+        ["frc1", [null, [1, 2, 3, 4, 5], null]],
+      ]),
+      stamp: STAMP,
+    });
+    vars.push("mutated");
+    expect(start.vars).toEqual(["v"]);
+    expect(Object.keys(start.teams)).toEqual(["frc1", "frc254", DEMO_PSEUDO_TEAM_KEY].sort());
+    expect(start).toMatchObject({ schemaVersion: 1, generation: STAMP.generation, algorithmId: "spr", season: 2026 });
+    expect(AsOfStartSchema.parse(JSON.parse(JSON.stringify(start)))).toEqual(start);
+    expect(() => AsOfStartSchema.parse({ ...start, teams: { frc1: [[Number.NaN, 0, 0, 0], null, null] } })).toThrow();
   });
 
   it("rejects a non-finite number and a mis-sized tuple rather than publishing them", () => {

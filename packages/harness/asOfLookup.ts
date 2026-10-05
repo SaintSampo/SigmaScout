@@ -2,10 +2,11 @@
  * AS-OF LOOKUP (quick task 261005-5g0): every requested team's tuple and the
  * league tuple at a cut, rebuilt from the objects `asOfState.ts` defines.
  *
- * PURE, NO I/O. The caller hands in whatever INDEX and LOG objects it already
- * holds; `resolveAsOf` answers every team it can and lists the objects it
- * still needs (`missingIndexes`, `missingLogs`). The caller fetches those and
- * calls again until both lists are empty. A map entry of `null` means "known
+ * PURE, NO I/O. The caller hands in whatever INDEX, LOG and season start
+ * objects it already holds; `resolveAsOf` answers every team it can and lists
+ * the objects it still needs (`missingIndexes`, `missingLogs`,
+ * `missingStart`). The caller fetches those and calls again until nothing is
+ * missing. A map entry (or `start`) of `null` means "known
  * not published": a known event with no INDEX simply contributes no segment,
  * while a walk that has to step INTO an unpublished object is a broken publish
  * and throws `AsOfResolveError`.
@@ -22,8 +23,16 @@
  *
  * Starting from a segment AFTER the cut and walking back through `p` is what
  * makes the answer exact without knowing every event the team played: `p`
- * names the team's true previous match, so the walk can never skip one. A team
- * with no tail never played this season and reads as unseen.
+ * names the team's true previous match, so the walk can never skip one.
+ *
+ * A team with no starting segment and no tail has played no match this season
+ * that the caller's objects know of: it reads its SEASON START tuple
+ * (`input.start.teams[teamKey]`), or unseen when the start object holds none.
+ * That is the same tuple its first segment's `s` would carry once it plays, so
+ * a stop before a team's first match prices it identically whether or not
+ * that match has happened yet. `start: undefined` means "not fetched yet": a
+ * team that needs it stays unresolved and the result says `missingStart`, so
+ * the caller fetches the object only when some requested team needs it.
  *
  * League: `L0` at the season start cut, else the cut row's own `L`, read from
  * `lq`/`le` when the cut is exactly that key, from the cut event's LOG
@@ -48,6 +57,7 @@ import {
   type AsOfLog,
   type AsOfSeason,
   type AsOfSegment,
+  type AsOfStart,
   type AsOfTeamTuple,
 } from "./asOfState.js";
 
@@ -65,6 +75,8 @@ export interface AsOfResolveInput {
   readonly indexes: ReadonlyMap<string, AsOfIndex | null>;
   /** LOG per event key; `null` is "known not published". */
   readonly logs: ReadonlyMap<string, AsOfLog | null>;
+  /** The season start object; `undefined` while not fetched, `null` when known not published (a walk that needs it then throws). */
+  readonly start: AsOfStart | null | undefined;
 }
 
 export interface AsOfResolveResult {
@@ -76,6 +88,8 @@ export interface AsOfResolveResult {
   readonly missingIndexes: string[];
   /** LOG objects still needed, sorted. */
   readonly missingLogs: string[];
+  /** Whether some requested team needs the season start object the caller has not supplied. */
+  readonly missingStart: boolean;
 }
 
 export class AsOfResolveError extends Error {
@@ -97,8 +111,25 @@ const PENDING = Symbol("pending");
 class Resolver {
   readonly missingIndexes = new Set<string>();
   readonly missingLogs = new Set<string>();
+  missingStart = false;
 
-  constructor(private readonly input: AsOfResolveInput) {}
+  constructor(private readonly input: AsOfResolveInput) {
+    const { start, season } = input;
+    if (start !== null && start !== undefined && start.season !== season.season) {
+      throw new AsOfResolveError(`the season start object is season ${start.season}, the season object is ${season.season}`);
+    }
+  }
+
+  /** A team's season start tuple (unseen when the object holds none), or `PENDING` (recorded as missing). */
+  startTuple(teamKey: string): AsOfTeamTuple | typeof PENDING {
+    const start = this.input.start;
+    if (start === undefined) {
+      this.missingStart = true;
+      return PENDING;
+    }
+    if (start === null) throw new AsOfResolveError(`${teamKey} has played no match by the cut and the season start object is not published`);
+    return start.teams[teamKey] ?? UNSEEN_AS_OF_TUPLE;
+  }
 
   /** The event's INDEX, `null` when known unpublished, or `PENDING` (recorded as missing). */
   index(eventKey: string): AsOfIndex | null | typeof PENDING {
@@ -154,7 +185,7 @@ class Resolver {
       current = start;
     } else {
       const tail = season.tails[teamKey];
-      if (tail === undefined) return UNSEEN_AS_OF_TUPLE;
+      if (tail === undefined) return this.startTuple(teamKey);
       current = this.segmentEndingAt(teamKey, tail[0], tail[2]);
     }
 
@@ -228,6 +259,7 @@ export function resolveAsOf(input: AsOfResolveInput): AsOfResolveResult {
     league,
     missingIndexes: [...resolver.missingIndexes].sort(),
     missingLogs: [...resolver.missingLogs].sort(),
+    missingStart: resolver.missingStart,
   };
 }
 

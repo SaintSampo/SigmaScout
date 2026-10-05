@@ -10,7 +10,9 @@
  *     compared with `Object.is`.
  *   - TRUNCATION: remove every match after the cut from the corpus, publish
  *     again, and every tuple and the league read back at the cut are deep
- *     strict equal: nothing after a stop can move a number at the stop.
+ *     strict equal: nothing after a stop can move a number at the stop. Every
+ *     team is compared, including every roster team with no match by the cut,
+ *     which the truncated world answers from the season start object (Part 1b).
  *   - BYTE IDENTITY: every object the publisher already wrote is byte for
  *     byte the same with the capture on and off.
  */
@@ -30,17 +32,19 @@ import {
   AsOfIndexSchema,
   AsOfLogSchema,
   AsOfSeasonSchema,
+  AsOfStartSchema,
   isAsOfSeasonStart,
   UNSEEN_AS_OF_TUPLE,
   type AsOfCut,
   type AsOfIndex,
   type AsOfLog,
   type AsOfSeason,
+  type AsOfStart,
   type AsOfTeamTuple,
 } from "../packages/harness/asOfState.js";
 import { asOfCutAtMatch, resolveAsOf, type AsOfResolveTeam } from "../packages/harness/asOfLookup.js";
 import { buildAsOfPricer, priceRowsForSimulation } from "../packages/harness/asOfPricing.js";
-import { asOfIndexKey, asOfLogKey, asOfSeasonKey } from "../packages/harness/pageArtifacts.js";
+import { asOfIndexKey, asOfLogKey, asOfSeasonKey, asOfStartKey } from "../packages/harness/pageArtifacts.js";
 import { asOfFixture } from "../packages/harness/fixtures/asOfFixtureCorpus.js";
 import { buildDistrictPricingState } from "./districtPricingState.js";
 
@@ -83,6 +87,7 @@ async function publish(db: Corpus, options: { asOfCapture?: boolean; presim?: bo
 /** The published as-of objects of one season, read back through their schemas exactly as a browser would. */
 interface Published {
   readonly season: AsOfSeason;
+  readonly start: AsOfStart;
   readonly indexes: Map<string, AsOfIndex>;
   readonly logs: Map<string, AsOfLog>;
 }
@@ -91,6 +96,8 @@ function published(uploads: Uploads, season: number): Published {
   const keyParams = { algorithmId: spr.id, version: spr.version };
   const seasonBody = uploads.get(asOfSeasonKey({ season, ...keyParams }));
   expect(seasonBody, `no as-of season object for ${season}`).toBeDefined();
+  const startBody = uploads.get(asOfStartKey({ season, ...keyParams }));
+  expect(startBody, `no as-of season start object for ${season}`).toBeDefined();
   const indexes = new Map<string, AsOfIndex>();
   const logs = new Map<string, AsOfLog>();
   for (const [key, body] of uploads) {
@@ -105,18 +112,20 @@ function published(uploads: Uploads, season: number): Published {
       if (parsed.season === season) logs.set(log[1]!, parsed);
     }
   }
-  return { season: AsOfSeasonSchema.parse(JSON.parse(seasonBody!)), indexes, logs };
+  return { season: AsOfSeasonSchema.parse(JSON.parse(seasonBody!)), start: AsOfStartSchema.parse(JSON.parse(startBody!)), indexes, logs };
 }
 
 /** The browser's loop: call `resolveAsOf`, "fetch" what it reports missing (absent means not published), repeat. */
 function resolveLikeTheBrowser(objects: Published, cut: AsOfCut, teams: readonly AsOfResolveTeam[]) {
   const indexes = new Map<string, AsOfIndex | null>();
   const logs = new Map<string, AsOfLog | null>();
+  let start: AsOfStart | undefined;
   for (let round = 0; round < 50; round++) {
-    const result = resolveAsOf({ cut, teams, season: objects.season, indexes, logs });
-    if (result.missingIndexes.length === 0 && result.missingLogs.length === 0) return result;
+    const result = resolveAsOf({ cut, teams, season: objects.season, indexes, logs, start });
+    if (result.missingIndexes.length === 0 && result.missingLogs.length === 0 && !result.missingStart) return { ...result, startFetched: start !== undefined };
     for (const key of result.missingIndexes) indexes.set(key, objects.indexes.get(key) ?? null);
     for (const key of result.missingLogs) logs.set(key, objects.logs.get(key) ?? null);
+    if (result.missingStart) start = objects.start;
   }
   throw new Error("resolveAsOf did not settle in 50 rounds");
 }
@@ -331,18 +340,30 @@ describe("as-of capture through the real publisher (fixture corpus)", () => {
         } finally {
           truncDb.close();
         }
-        // Every team the truncated season has seen, worldwide, walked back from each capture's own tails.
-        const teams = Object.keys(truncated.season.tails).map((teamKey) => ({ teamKey, knownEventKeys: [] }));
+        // EVERY team: each 2024 roster team (played or not by the cut, with its roster events as the browser
+        // would know them) plus every team either capture's season saw, worldwide. A team with no match by the
+        // cut has no segment and no tail in the truncated world, so it is answered by the season start object
+        // there, and by its first segment's `s` in the full one (Part 1b).
+        const rosterEvents = new Map<string, Set<string>>();
+        for (const event of eventsOf2024()) for (const teamKey of event.roster) rosterEvents.set(teamKey, (rosterEvents.get(teamKey) ?? new Set()).add(event.eventKey));
+        const allKeys = new Set([...rosterEvents.keys(), ...Object.keys(full.season.tails), ...Object.keys(truncated.season.tails)]);
+        const teams = [...allKeys].sort().map((teamKey) => ({ teamKey, knownEventKeys: [...(rosterEvents.get(teamKey) ?? [])] }));
         const fromFull = resolveLikeTheBrowser(full, spec.cut, teams);
         const fromTrunc = resolveLikeTheBrowser(truncated, spec.cut, teams);
+        let unplayedByCut = 0;
         for (const { teamKey } of teams) {
           teamsCompared += 1;
+          if (truncated.season.tails[teamKey] === undefined) unplayedByCut += 1;
+          expect(fromTrunc.states.has(teamKey), `${spec.label} ${teamKey} resolved`).toBe(true);
           expect(strictEqual(fromFull.states.get(teamKey), fromTrunc.states.get(teamKey)), `${spec.label} ${teamKey}`).toBe(true);
         }
         expect(strictEqual(fromFull.league, fromTrunc.league), `${spec.label} league`).toBe(true);
-        // A team with no row at or before the cut has nothing in the truncated capture: it reads as unseen there,
-        // and from the full capture as its pre-season tuple (`s`), which the oracle test above prices.
-        if (isAsOfSeasonStart(spec.cut)) expect(teams).toEqual([]);
+        // Non-vacuity: every cut compares teams that have not played by it, and those really read the start object.
+        expect(unplayedByCut, spec.label).toBeGreaterThan(0);
+        expect(fromTrunc.startFetched, spec.label).toBe(true);
+        if (isAsOfSeasonStart(spec.cut)) expect(unplayedByCut).toBe(teams.length);
+        // The start object is built from the carried state alone, so the truncated world's equals the full one's.
+        expect(strictEqual(full.start.teams, truncated.start.teams), `${spec.label} start object`).toBe(true);
         expect(fromTrunc.states.get("frc9999") ?? UNSEEN_AS_OF_TUPLE).toEqual(UNSEEN_AS_OF_TUPLE);
       } finally {
         rmSync(truncDir, { recursive: true, force: true });
@@ -356,7 +377,7 @@ describe("as-of capture through the real publisher (fixture corpus)", () => {
     try {
       const on = await publish(db, { presim: true });
       const off = await publish(db, { presim: true, asOfCapture: false });
-      const isAsOf = (key: string): boolean => /^v1\/asof(-log|-season)?\//.test(key);
+      const isAsOf = (key: string): boolean => /^v1\/asof(-log|-season|-start)?\//.test(key);
       const onExisting = [...on.keys()].filter((key) => !isAsOf(key)).sort();
       expect(onExisting).toEqual([...off.keys()].sort());
       expect([...off.keys()].some(isAsOf)).toBe(false);
@@ -365,12 +386,15 @@ describe("as-of capture through the real publisher (fixture corpus)", () => {
       for (const prefix of ["v1/event/", "v1/team/", "v1/teams/", "v1/events/", "v1/compare/", "v1/presim/"]) {
         expect(onExisting.some((key) => key.startsWith(prefix)), prefix).toBe(true);
       }
-      // What the capture adds per season: one INDEX and one LOG per event with a played match, and one season object.
+      // What the capture adds per season: one INDEX and one LOG per event with a played match, one season object
+      // and one season start object.
       const asOfKeys = [...on.keys()].filter(isAsOf);
       const keyParams = { algorithmId: spr.id, version: spr.version };
       const expected = [
         asOfSeasonKey({ season: 2023, ...keyParams }),
         asOfSeasonKey({ season: 2024, ...keyParams }),
+        asOfStartKey({ season: 2023, ...keyParams }),
+        asOfStartKey({ season: 2024, ...keyParams }),
         ...["2023warm", "2024aaa", "2024bbb", "2024ccc", "2024ddd", "2024cmpdiv", "2024cmp"].flatMap((eventKey) => [
           asOfIndexKey({ eventKey, ...keyParams }),
           asOfLogKey({ eventKey, ...keyParams }),
