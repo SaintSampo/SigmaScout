@@ -48,7 +48,10 @@
  *     (older than the truth, never later) or find the objects inconsistent
  *     and read the stop as unavailable.
  *   - A failed write here is not retried: those matches are already folded,
- *     so the next tick never captures them again.
+ *     so the next tick never captures them again, and a rewound stop anchored
+ *     on one of them reads as unavailable. A LOG put that landed before a
+ *     failed INDEX put leaves orphan rows; the next tick cuts them off
+ *     (`withoutOrphanRows`) and captures normally from there.
  */
 import { spr, type SprState } from "../../../packages/core/algorithms/spr.js";
 import type { AlgorithmModule, MatchResult } from "../../../packages/core/algorithms/types.js";
@@ -66,7 +69,9 @@ import {
   readAsOfTeamTuple,
   type AsOfEventState,
   type AsOfFold,
+  type AsOfIndex,
   type AsOfLeagueTuple,
+  type AsOfLog,
   type AsOfMeanShiftSource,
   type AsOfPointer,
   type AsOfRpSource,
@@ -194,6 +199,24 @@ async function readParsed<T>(env: Env, counter: SubrequestCounter, key: string, 
   return text === undefined ? undefined : schema.parse(JSON.parse(text));
 }
 
+/**
+ * The LOG cut back to its INDEX's rows. The LOG is put first, so a tick whose
+ * INDEX put then failed (or that was killed between the two) leaves LOG rows
+ * no INDEX names. Those rows can never be indexed (their matches are already
+ * folded and are not captured again) and the reducer refuses a LOG longer
+ * than its INDEX, so without this every later tick would throw and the event
+ * would stop capturing for good. Each kept row must be the row the INDEX
+ * names at its position; anything else is not this failure and still throws.
+ */
+export function withoutOrphanRows(eventKey: string, index: AsOfIndex | undefined, log: AsOfLog | undefined): AsOfLog | undefined {
+  const indexed = index?.m.length ?? 0;
+  if (log === undefined || log.rows.length <= indexed) return log;
+  for (let i = 0; i < indexed; i++) {
+    if (log.rows[i]!.k !== index!.m[i]![0]) throw new AsOfLiveWriteError(`${eventKey}: LOG row ${i} is ${log.rows[i]!.k}, its INDEX names ${index!.m[i]![0]}`);
+  }
+  return { ...log, rows: log.rows.slice(0, indexed) };
+}
+
 /** The season object as read, with the etag its put back is conditioned on; `undefined` when absent. */
 interface SeasonRead {
   readonly season: AsOfSeason;
@@ -232,11 +255,14 @@ export function mergeAsOfSeasonTails(fresh: AsOfSeason, moved: ReadonlyMap<strin
 
 /**
  * Phase B: folds `params.folds` into the event's INDEX and LOG and the season
- * object in R2. Three reads, three writes. Throws on anything it cannot place
- * without corrupting an object (an unparseable object, a `vars` mismatch, a
- * reducer refusal) and writes nothing then; the caller logs and moves on. A
- * corrupt object is never replaced by a fresh one, which would silently drop
- * every earlier row.
+ * object in R2. Three reads, three writes, and one more of each when the
+ * season object conflicts. Throws on anything it cannot place without
+ * corrupting an object (an unparseable object, a `vars` mismatch, a reducer
+ * refusal) and writes nothing then; a second season conflict throws after the
+ * LOG and INDEX are written. The caller logs and moves on. A corrupt
+ * object is never replaced by a fresh one, which would silently drop every
+ * earlier row. Orphan LOG rows are the one repair it makes
+ * (`withoutOrphanRows`).
  */
 export async function writeAsOfFolds(env: Env, counter: SubrequestCounter, params: WriteAsOfFoldsParams): Promise<void> {
   if (params.folds.length === 0) return;
@@ -259,7 +285,7 @@ export async function writeAsOfFolds(env: Env, counter: SubrequestCounter, param
   checkVars("LOG", log?.vars);
 
   const tailsBefore = { ...season.tails };
-  let state: AsOfEventState = { index, log, season };
+  let state: AsOfEventState = { index, log: withoutOrphanRows(params.eventKey, index, log), season };
   for (const fold of params.folds) {
     if (fold.eventKey !== params.eventKey) throw new AsOfLiveWriteError(`${fold.matchKey} is not a ${params.eventKey} match`);
     state = applyAsOfFold(state, fold, params.stamp);

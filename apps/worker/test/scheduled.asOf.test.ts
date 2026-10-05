@@ -19,7 +19,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { D1Database } from "@cloudflare/workers-types";
 import { runTick } from "../src/scheduled.js";
-import { AsOfLiveWriteError, AsOfTickCapture, writeAsOfFolds, type AsOfModelView } from "../src/asOfCapture.js";
+import { AsOfLiveWriteError, AsOfTickCapture, withoutOrphanRows, writeAsOfFolds, type AsOfModelView } from "../src/asOfCapture.js";
 import { SubrequestCounter } from "../src/subrequestCounter.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import { spr, type SprState } from "../../../packages/core/algorithms/spr.js";
@@ -415,7 +415,7 @@ interface Drive {
   readonly rowsAfterTick: { a: number; b: number }[];
 }
 
-async function drive(options: { seedSeason?: AsOfSeason; failAsOfPuts?: boolean; seedCorruptIndex?: boolean } = {}): Promise<Drive> {
+async function drive(options: { seedSeason?: AsOfSeason; failAsOfPuts?: boolean; seedCorruptIndex?: boolean; failIndexPutOnTick?: number } = {}): Promise<Drive> {
   const d1 = new FakeD1Database();
   const r2 = new FakeR2Bucket();
   if (options.seedSeason !== undefined) r2.seed(asOfSeasonKey({ season: SEASON, ...KEY_PARAMS }), JSON.stringify(options.seedSeason));
@@ -426,6 +426,8 @@ async function drive(options: { seedSeason?: AsOfSeason; failAsOfPuts?: boolean;
   const rowsAfterTick: { a: number; b: number }[] = [];
   for (const [i, tick] of TICKS.entries()) {
     revealed = tick;
+    // The INDEX put alone fails on this tick, after its LOG put landed.
+    r2.failPutsWithPrefix = i === options.failIndexPutOnTick ? "v1/asof/" : options.failAsOfPuts === true ? "v1/asof" : undefined;
     const result = await runTick(env, { nowMs: NOW_MS + i * 60_000 });
     expect(result.eventsFailed, `tick ${i}`).toBe(0);
     expect(result.eventsAdvanced, `tick ${i}`).toBe(1);
@@ -688,6 +690,56 @@ describe("scheduled.asOf — best effort", () => {
     },
     60_000
   );
+
+  it(
+    "a LOG put that landed before a failed INDEX put does not stop the event's capture: the next tick cuts the orphan rows off and captures normally (C2)",
+    async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      // Tick 2 folds A2 and A3: their LOG put lands, the INDEX put fails, so the season object is never written either.
+      const run = await drive({ seedSeason: offlineCapture([]).season, failIndexPutOnTick: 2 });
+      const asOfWarnings = warn.mock.calls.map(([line]) => String(line)).filter((line) => line.includes("asof-write-failed"));
+      expect(asOfWarnings).toHaveLength(1);
+      expect(JSON.parse(asOfWarnings[0]!)).toMatchObject({ eventKey: EVENT_A });
+      // A gains a row again on tick 4 instead of throwing on every later tick.
+      expect(run.rowsAfterTick.map((r) => r.a)).toEqual([1, 1, 1, 1, 2]);
+      expect(run.rowsAfterTick.map((r) => r.b)).toEqual([0, 1, 1, 2, 2]);
+
+      const indexA = read(run.r2, asOfIndexKey({ eventKey: EVENT_A, ...KEY_PARAMS }), AsOfIndexSchema);
+      const logA = read(run.r2, asOfLogKey({ eventKey: EVENT_A, ...KEY_PARAMS }), AsOfLogSchema);
+      expect(indexA.m).toEqual([A1, A4].map((f) => [matchKeyOf(f), sortTimeOf(f)]));
+      expect(logA.rows.map((row) => row.k)).toEqual([A1, A4].map(matchKeyOf));
+
+      // Every row the tick captured equals the offline capture's row for that match: the model's state never
+      // depended on the as-of write, so A4's tuples and league are the ones a republish writes. The lost
+      // matches (A2, A3) are simply absent, as the Worker header's known limits say.
+      const offline = offlineCapture(FOLD_ORDER);
+      for (const eventKey of [EVENT_A, EVENT_B]) {
+        const offlineRows = new Map(offline.logs.get(eventKey)!.rows.map((row) => [row.k, row]));
+        const rows = read(run.r2, asOfLogKey({ eventKey, ...KEY_PARAMS }), AsOfLogSchema).rows;
+        for (const row of rows) expect(row, `${eventKey} ${row.k}`).toEqual(offlineRows.get(row.k));
+      }
+      // A4 opens frc1's second segment at A from its tail at B2, exactly where its previous recorded match is.
+      expect(indexA.teams.frc1!.map((segment) => [segment.f, segment.p])).toEqual([
+        [[sortTimeOf(A1), 0], null],
+        [[sortTimeOf(A4), 1], [EVENT_B, sortTimeOf(B2), 1]],
+      ]);
+      expect(read(run.r2, asOfSeasonKey({ season: SEASON, ...KEY_PARAMS }), AsOfSeasonSchema).tails.frc1).toEqual([EVENT_A, sortTimeOf(A4), 1]);
+    },
+    60_000
+  );
+
+  it("withoutOrphanRows cuts a LOG back to its INDEX, and still refuses a LOG whose kept rows are not the INDEX's", () => {
+    const stamp = { generation: "g", computedAt: "2026-08-22T00:00:00.000Z", algorithmId: spr.id, algorithmVersion: spr.version };
+    const base = { schemaVersion: 1 as const, ...stamp, eventKey: EVENT_A, season: SEASON, vars: VARS };
+    const row = (k: string) => ({ k, t: 1, L: [], tm: [] });
+    const log = { ...base, rows: [row("a"), row("b"), row("c")] } as unknown as AsOfLog;
+    const index = { ...base, m: [["a", 1]], lq: null, le: { k: [1, 0], L: [] }, teams: {} } as unknown as AsOfIndex;
+    expect(withoutOrphanRows(EVENT_A, index, log)!.rows.map((r) => r.k)).toEqual(["a"]);
+    // A LOG put that landed for an event whose INDEX was never written: every row is an orphan.
+    expect(withoutOrphanRows(EVENT_A, undefined, log)!.rows).toEqual([]);
+    expect(withoutOrphanRows(EVENT_A, index, { ...log, rows: [row("a")] })).toEqual({ ...log, rows: [row("a")] });
+    expect(() => withoutOrphanRows(EVENT_A, { ...index, m: [["z", 1]] } as unknown as AsOfIndex, log)).toThrow(AsOfLiveWriteError);
+  });
 
   it("a read that throws inside Phase A is held, never thrown into the fold: later calls are no-ops and Phase B gets the error", () => {
     const capture = new AsOfTickCapture(VARS);
