@@ -3,6 +3,7 @@
  * header states, so the header cannot drift from the code without a failure.
  * Pure: no corpus, network or files.
  */
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { mulberry32 } from "../core/algorithms/simulation/rankSimulation.js";
 import {
@@ -366,4 +367,74 @@ describe("ScheduleStructureCache — transparent, bounded, compact", () => {
     expect(cache.hasCell(5, 2)).toBe(false);
     expect(cache.hasCell(6, 2)).toBe(true);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Golden digests
+// ---------------------------------------------------------------------------
+
+/**
+ * One structure as canonical text, built from the named fields only (never
+ * JSON.stringify of the object, whose key order is an accident of construction):
+ * a header line, then per match the red slots, the blue slots and the six
+ * surrogate flags.
+ */
+function canonicalStructureLines(numTeams: number, matchesPerTeam: number, k: number, matches: readonly ScheduleMatch[]): string[] {
+  const flags = (side: readonly boolean[]): string => side.map((f) => (f ? "1" : "0")).join("");
+  const lines = [`structure ${numTeams} ${matchesPerTeam} ${k}`];
+  for (const m of matches) {
+    lines.push(`${m.red.join(",")} / ${m.blue.join(",")} / ${flags(m.redSurrogate)} ${flags(m.blueSurrogate)}`);
+  }
+  return lines;
+}
+
+/**
+ * These digests pin the pairing structures every published presim sidecar and
+ * district bake is built from. A changed digest means published bytes change,
+ * which ships only under new spr and epa versions. Never edit one to make a
+ * refactor pass.
+ *
+ * Key is `numTeams|matchesPerTeam`; the value is the sha256 of the canonical
+ * text of schedules 0, 1, 2, 17, 499 and 999 (0 and 1 only for the two wide
+ * cells), read through the production seed path.
+ */
+const GOLDEN_DIGESTS: Record<string, string> = {
+  "6|1": "ffe4da94a01cad7463d0cf29260818a3bfb301f351907b7b63c54a734c2e0643",
+  "6|12": "dab06aeac195c6767010f1d5df1f9ca8a9a3552b04feba98df2374f751fb2d44",
+  "7|5": "980197c7c7b09cc86f1c19c443c0d3199963c9d67584298a9c820466ed5b7471",
+  "12|14": "170eedfd6ea13ed0775b63d5a8caba29a11c088d8c0a1b4f684f682a20074ade",
+  "14|9": "2ef5e89160e278dccd3f6ab9a0814b06e2f973a04e378b98d6575e3675d6908a",
+  "18|12": "7eb0073e8b5810f92b7c4f5d306c1b8371a5e7ae9790489639ee7378b8c4d0a7",
+  "21|12": "219980015ef886d7e51d7b99e08ca8db1e481611f1f1bdb6b66e5256bc136c7e",
+  "25|12": "62889d08442d5d671d48a83de2449f8fb81513f5f6cf461ba6c59e9f3f1d7c63",
+  "27|8": "e6edc308f98c2ee6bdd7a343121118c0206a103a8aa05d2d4172b1e15f526264",
+  "40|11": "7f8f53208abdeae051b1cbc6115ea1ab601cb57b89277def4f314be2b60ab2db",
+  "40|12": "808a4b3f16de705d0154109a1d0541a56ab0bc29f03636f96ece70bb1edb1ac9",
+  "58|8": "d19a11e588f1af7e12ff542a575933455929e131d6d5c470887878e53b5f88e5",
+  "66|12": "1cc113545aefebb32e724d5fd70187df7221371a2039d474b0ae4994faddcb25",
+  "75|10": "f35aafb8f1321b530cfda1fa888bb8dc9a5ddd0054c38d9a66606f93acd1aa93",
+  "76|10": "1ec43cfb6b9daae35593aea4a5927dc3d9fda965b611ad6b65accf32ab572243",
+  "130|3": "93a487c8bf094d3fbd785024cb77725e60167e6eb1ace58cbb427c453f652d9d",
+  "300|2": "9622280627a12f502f2137b53f89e54d66163a83f33356890b8cf168d7b5b82d",
+};
+
+const GOLDEN_NARROW_KS: readonly number[] = [0, 1, 2, 17, 499, 999];
+const GOLDEN_WIDE_KS: readonly number[] = [0, 1];
+
+describe("generateSchedule golden digests (through ScheduleStructureCache.get)", () => {
+  for (const cellKey of Object.keys(GOLDEN_DIGESTS)) {
+    const [numTeams, matchesPerTeam] = cellKey.split("|").map(Number) as [number, number];
+    it(`cell ${cellKey} reproduces its pinned digest, cold and warm`, () => {
+      const ks = numTeams > 76 ? GOLDEN_WIDE_KS : GOLDEN_NARROW_KS;
+      const cache = new ScheduleStructureCache(1);
+      const lines: string[] = [];
+      for (const k of ks) {
+        const first = canonicalStructureLines(numTeams, matchesPerTeam, k, cache.get(numTeams, matchesPerTeam, k));
+        const warm = canonicalStructureLines(numTeams, matchesPerTeam, k, cache.get(numTeams, matchesPerTeam, k));
+        expect(warm).toEqual(first);
+        lines.push(...first);
+      }
+      expect(createHash("sha256").update(lines.join("\n"), "utf8").digest("hex")).toBe(GOLDEN_DIGESTS[cellKey]);
+    });
+  }
 });
