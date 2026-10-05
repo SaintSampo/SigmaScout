@@ -254,6 +254,16 @@ export interface MergeEventArtifactParams {
    * also touched.
    */
   readonly rosterRows?: readonly RosterTeamRow[];
+  /**
+   * Sigma at the end of this tick, by team key, for teams whose state this tick
+   * resumed AND that hold a Sigma belief (`SigmaScoreAccumulator.scoreFor`, never
+   * `sigmaFor`: a team the accumulator has never seen has no Sigma Score, offline
+   * or live). Absent on a caller that has none (OPR and EPA carry no Sigma, and a
+   * pre-existing call site passes nothing), in which case the merge is byte for
+   * byte what it was. Written to the event row as a value with no percentile, see
+   * `touchedEventTeamMetrics`.
+   */
+  readonly liveSigma?: ReadonlyMap<string, number>;
   readonly stamp: Stamp;
 }
 
@@ -300,7 +310,7 @@ export interface MergeEventArtifactParams {
  * function's own header paragraph already warns about.
  */
 export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
-  const { existing, eventKey, season, algorithmId, algorithmVersion, eventType, newlyFolded, newPredictions, upcoming, touchedTeams, touchedMetrics, newBands, playedRowFacts, rosterRows, stamp } = params;
+  const { existing, eventKey, season, algorithmId, algorithmVersion, eventType, newlyFolded, newPredictions, upcoming, touchedTeams, touchedMetrics, newBands, playedRowFacts, rosterRows, liveSigma, stamp } = params;
   // THREE tick-owned keys destructured out before the spread, because this merge
   // may OMIT each of them and a stale value would otherwise survive:
   //   - `state` and `live`: nothing emits either any more (quick task
@@ -370,11 +380,11 @@ export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
       touchedSet.has(row.teamKey)
         ? {
             ...row,
-            // Carries the prior row's published Sigma entry forward; a live
-            // tick computes no season-final Sigma of its own.
-            metrics: touchedEventTeamMetrics(row.metrics, touchedMetrics[row.teamKey] ?? {}),
+            // Carries the prior row's published (tiered) Sigma entry forward; a
+            // team with none gets the tick's own live value, untiered.
+            metrics: touchedEventTeamMetrics(row.metrics, touchedMetrics[row.teamKey] ?? {}, liveSigma?.get(row.teamKey)),
           }
-        : row
+        : withLiveSigmaIfMissing(row, liveSigma)
     ),
     // A touched team with no published row yet is appended, in the bootstrap shape.
     ...touchedTeams
@@ -383,7 +393,7 @@ export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
         teamKey,
         teamNumber: fallbackTeamNumber(teamKey),
         nickname: "",
-        metrics: touchedEventTeamMetrics(undefined, touchedMetrics[teamKey] ?? {}),
+        metrics: touchedEventTeamMetrics(undefined, touchedMetrics[teamKey] ?? {}, liveSigma?.get(teamKey)),
       })),
     // REGISTERED-BUT-UNSEEN teams, last (quick task 260925-uy5): present in
     // neither the published rows nor `touchedTeams`, appended with their REAL
@@ -397,7 +407,7 @@ export function mergeEventArtifact(params: MergeEventArtifactParams): unknown {
         teamKey: row.teamKey,
         teamNumber: row.teamNumber,
         nickname: row.nickname,
-        metrics: touchedEventTeamMetrics(undefined, touchedMetrics[row.teamKey] ?? {}),
+        metrics: touchedEventTeamMetrics(undefined, touchedMetrics[row.teamKey] ?? {}, liveSigma?.get(row.teamKey)),
       })),
   ];
 
@@ -637,10 +647,20 @@ export function mergeTeamSeasonArtifact(params: MergeTeamSeasonArtifactParams): 
 type PublishedEventTeamMetric = { value: number; spread?: number; percentile?: number };
 
 /**
- * The metrics record the event and team-season merges write for a touched
- * team: fresh entries rounded, then the prior `SIGMA_METRIC_KEY` entry
- * appended when the fresh record lacks it, so a live tick never strips a
- * published Sigma Score.
+ * The metrics record the event merge writes for a touched team: fresh entries
+ * rounded, then the Sigma entry resolved when the fresh record lacks one:
+ *
+ *   1. a prior entry WITH a percentile is carried unchanged: it is the
+ *      publisher's season final figure, tiered against the rating window pool;
+ *   2. otherwise a defined `liveSigma` (the tick's own end of tick value for the
+ *      team) is written as a value only, rounded, with no percentile;
+ *   3. otherwise a prior entry is carried as it was, so a tick never strips one.
+ *
+ * The percentile is the discriminator because the publisher always attaches one
+ * to a Sigma entry it tiers and the tick never can: Sigma's tier is a rank inside
+ * the team's rating window, and the Worker holds no rating window pool. A
+ * percentile less entry is therefore one a tick wrote, safe to refresh with the
+ * next tick's value. It renders as an untiered pill until the next publish.
  *
  * Known limitation, narrowed by quick task 260920-qzf: a touched team's
  * other metrics still lose their `percentile` on a live tick — the Worker
@@ -666,12 +686,36 @@ type PublishedEventTeamMetric = { value: number; spread?: number; percentile?: n
  */
 export function touchedEventTeamMetrics(
   priorMetrics: Readonly<Record<string, PublishedEventTeamMetric>> | undefined,
-  freshMetrics: Readonly<Record<string, TeamMetric>>
+  freshMetrics: Readonly<Record<string, TeamMetric>>,
+  liveSigma?: number
 ): Record<string, PublishedEventTeamMetric> {
   const result: Record<string, PublishedEventTeamMetric> = roundTeamMetricRecord(freshMetrics);
+  if (SIGMA_METRIC_KEY in result) return result;
   const carried = priorMetrics?.[SIGMA_METRIC_KEY];
-  if (carried !== undefined && !(SIGMA_METRIC_KEY in result)) {
+  // A prior entry WITH a percentile is the publisher's: tiered against the season's
+  // rating window pool, final, and not the tick's to replace.
+  if (carried !== undefined && carried.percentile !== undefined) {
+    result[SIGMA_METRIC_KEY] = carried;
+  } else if (liveSigma !== undefined) {
+    result[SIGMA_METRIC_KEY] = { value: roundMetric(liveSigma) };
+  } else if (carried !== undefined) {
     result[SIGMA_METRIC_KEY] = carried;
   }
   return result;
+}
+
+/**
+ * An existing row the tick did not touch: returned by reference unless it has no
+ * Sigma entry and the tick holds a live Sigma for the team, in which case it gains
+ * that one entry (a value with no percentile). A row that already has a Sigma entry,
+ * published or written by an earlier tick, is never rewritten here.
+ */
+function withLiveSigmaIfMissing<Row extends { readonly teamKey: string; readonly metrics: Readonly<Record<string, PublishedEventTeamMetric>> }>(
+  row: Row,
+  liveSigma: ReadonlyMap<string, number> | undefined
+): Row {
+  if (liveSigma === undefined || SIGMA_METRIC_KEY in row.metrics) return row;
+  const sigma = liveSigma.get(row.teamKey);
+  if (sigma === undefined) return row;
+  return { ...row, metrics: { ...row.metrics, [SIGMA_METRIC_KEY]: { value: roundMetric(sigma) } } };
 }

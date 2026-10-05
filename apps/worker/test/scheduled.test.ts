@@ -1178,6 +1178,32 @@ describe("live ticks keep the published Sigma entry", () => {
     expect(result).not.toHaveProperty("phaseAuto");
   });
 
+  it("with a live Sigma and no prior Sigma entry: the rounded live value is written, with no percentile", () => {
+    const result = touchedEventTeamMetrics(undefined, { total: { value: 12.34 } }, 18.3456);
+    expect(result).toEqual({ total: { value: 12.34 }, sigma: { value: 18.35 } });
+    expect(result.sigma).not.toHaveProperty("percentile");
+    // A prior record that simply has no Sigma entry behaves the same.
+    expect(touchedEventTeamMetrics({ total: { value: 10, percentile: 40 } }, { total: { value: 12.34 } }, 18.3456).sigma).toEqual({ value: 18.35 });
+  });
+
+  it("with a live Sigma and a prior entry that has a percentile: the publisher's entry is carried unchanged", () => {
+    const result = touchedEventTeamMetrics({ sigma: { value: 27.8, percentile: 83.2 } }, { total: { value: 12.34 } }, 18.3456);
+    expect(result.sigma).toEqual({ value: 27.8, percentile: 83.2 });
+  });
+
+  it("with a live Sigma and a prior entry that has NO percentile (one a tick wrote): the entry is refreshed to the live value", () => {
+    const result = touchedEventTeamMetrics({ sigma: { value: 17.1 } }, { total: { value: 12.34 } }, 18.3456);
+    expect(result.sigma).toEqual({ value: 18.35 });
+  });
+
+  it("with a prior percentile-less entry and NO live Sigma: the entry is carried as it was, never stripped", () => {
+    expect(touchedEventTeamMetrics({ sigma: { value: 17.1 } }, { total: { value: 12.34 } }).sigma).toEqual({ value: 17.1 });
+  });
+
+  it("a fresh record that already holds a Sigma entry wins over both the prior and the live value", () => {
+    expect(touchedEventTeamMetrics({ sigma: { value: 27.8, percentile: 83.2 } }, { sigma: { value: 30 } }, 18.3456)).toEqual({ sigma: { value: 30 } });
+  });
+
   it("runTick: a touched team's seeded event and team-season Sigma entries survive one tick, on both artifacts", async () => {
     const window: WindowFixture = { eventKey: "2026casj", season: SEASON, startMs: NOW_MS - 3_600_000, endMs: NOW_MS + 3_600_000 };
     const manifests = makeManifests([window]);

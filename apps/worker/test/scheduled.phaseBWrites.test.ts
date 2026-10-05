@@ -347,6 +347,9 @@ let matchPoll: "200" | "304" = "200";
  */
 let rosterPoll: { teams: readonly unknown[] | null; etag: string } | null = null;
 
+/** Replaces `MATCHES` in the TBA stub when set (the live Sigma block needs a demo team in a match). */
+let matchesOverride: readonly MatchFixture[] | undefined;
+
 function makeTbaFetchStub(eventType = 0): ReturnType<typeof vi.fn> {
   return vi.fn(async (url: unknown) => {
     const u = String(url);
@@ -358,7 +361,7 @@ function makeTbaFetchStub(eventType = 0): ReturnType<typeof vi.fn> {
     }
     if (/\/event\/[^/]+\/matches$/.test(u)) {
       if (matchPoll === "304") return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
-      const body = MATCHES.map((f, i) => tbaMatch(f, i < revealed));
+      const body = (matchesOverride ?? MATCHES).map((f, i) => tbaMatch(f, i < revealed));
       return { status: 200, ok: true, headers: { get: (name: string) => (name === "etag" ? `etag-${revealed}` : null) }, json: async () => body };
     }
     if (/\/event\/[^/]+$/.test(u)) {
@@ -424,6 +427,7 @@ afterEach(() => {
   revealed = 0;
   matchPoll = "200";
   rosterPoll = null;
+  matchesOverride = undefined;
 });
 
 // ---------------------------------------------------------------------------
@@ -878,5 +882,92 @@ describe("the roster pass", () => {
     for (const row of written.upcoming) {
       expect(typeof row.pRedWin, row.matchKey).toBe("number");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// LIVE SIGMA ON THE EVENT ROW (quick task 261004-uyc plan 03). An event no publish
+// has written has no Sigma entry on any team row, so the Total and Sigma pill showed
+// no Sigma at all. The tick now writes one, from the accumulator it already holds.
+// ---------------------------------------------------------------------------
+
+describe("the live Sigma on the event row", () => {
+  type EventRow = { teamKey: string; metrics: Record<string, { value: number; percentile?: number }> };
+
+  function readEventRows(r2: FakeR2Bucket, algorithmId: "opr" | "spr"): Map<string, EventRow> {
+    const body = r2.peek(eventKeyFor(algorithmId));
+    expect(body, `no event artifact for ${algorithmId}`).toBeDefined();
+    return new Map((JSON.parse(body!) as { teams: EventRow[] }).teams.map((row) => [row.teamKey, row]));
+  }
+
+  function bothAlgorithmsEnv(r2: FakeR2Bucket): Env {
+    return makeEnv(makeManifests(["opr", "spr"]), new FakeD1Database(), r2, { LIVE_ALGORITHM_IDS: "opr,spr" });
+  }
+
+  it("spr: after one fold every team that played carries a Sigma value and no percentile, and the next fold moves them", async () => {
+    const r2 = new FakeR2Bucket();
+    const env = bothAlgorithmsEnv(r2);
+    vi.stubGlobal("fetch", makeTbaFetchStub());
+
+    await driveTicks(env, 1);
+    const afterOne = readEventRows(r2, "spr");
+    for (const teamKey of ALL_TEAMS) {
+      const sigma = afterOne.get(teamKey)?.metrics[SIGMA_METRIC_KEY];
+      expect(sigma, `${teamKey} has no Sigma after its first match`).toBeDefined();
+      expect(Number.isFinite(sigma!.value), teamKey).toBe(true);
+      expect(sigma!.percentile, `${teamKey}: a tick can never tier a Sigma`).toBeUndefined();
+      // The Total beside it is still there, so the pill has both halves.
+      expect(afterOne.get(teamKey)!.metrics[TOTAL_METRIC_KEY], teamKey).toBeDefined();
+    }
+    const valuesAfterOne = new Map(ALL_TEAMS.map((teamKey) => [teamKey, afterOne.get(teamKey)!.metrics[SIGMA_METRIC_KEY]!.value]));
+
+    revealed = 2;
+    expect((await runTick(env, { nowMs: NOW_MS + 60_000 })).eventsFailed).toBe(0);
+    const afterTwo = readEventRows(r2, "spr");
+    const moved = ALL_TEAMS.filter((teamKey) => afterTwo.get(teamKey)!.metrics[SIGMA_METRIC_KEY]!.value !== valuesAfterOne.get(teamKey));
+    expect(moved.length, "the second fold left every Sigma exactly where the first put it: the value is not live").toBeGreaterThan(0);
+    for (const teamKey of ALL_TEAMS) expect(afterTwo.get(teamKey)!.metrics[SIGMA_METRIC_KEY]!.percentile, teamKey).toBeUndefined();
+  });
+
+  it("spr: a published Sigma entry with a percentile is carried unchanged through a fold, while the rest refresh", async () => {
+    const r2 = new FakeR2Bucket();
+    const env = bothAlgorithmsEnv(r2);
+    vi.stubGlobal("fetch", makeTbaFetchStub());
+    await driveTicks(env, 1);
+
+    // Make frc1's entry the publisher's: a value the tick would never compute, with a percentile.
+    const key = eventKeyFor("spr");
+    const artifact = JSON.parse(r2.peek(key)!) as { teams: EventRow[] };
+    artifact.teams.find((row) => row.teamKey === "frc1")!.metrics[SIGMA_METRIC_KEY] = { value: 99.5, percentile: 77.7 };
+    r2.seed(key, JSON.stringify(artifact));
+
+    revealed = 2;
+    expect((await runTick(env, { nowMs: NOW_MS + 60_000 })).eventsFailed).toBe(0);
+    const rows = readEventRows(r2, "spr");
+    expect(rows.get("frc1")!.metrics[SIGMA_METRIC_KEY]).toEqual({ value: 99.5, percentile: 77.7 });
+    expect(rows.get("frc2")!.metrics[SIGMA_METRIC_KEY]!.percentile).toBeUndefined();
+    expect(rows.get("frc2")!.metrics[SIGMA_METRIC_KEY]!.value).not.toBe(99.5);
+  });
+
+  it("opr: no team row gains a sigma key", async () => {
+    const r2 = new FakeR2Bucket();
+    const env = bothAlgorithmsEnv(r2);
+    vi.stubGlobal("fetch", makeTbaFetchStub());
+    await driveTicks(env, 2);
+    const rows = readEventRows(r2, "opr");
+    expect(rows.size, "non-vacuity: opr published team rows").toBeGreaterThan(0);
+    for (const row of rows.values()) expect(SIGMA_METRIC_KEY in row.metrics, row.teamKey).toBe(false);
+  });
+
+  it("spr: a demo team key never gains a sigma key", async () => {
+    const r2 = new FakeR2Bucket();
+    const env = bothAlgorithmsEnv(r2);
+    matchesOverride = [{ matchNumber: 1, redTeams: ["frc1", "frc2", "frc9985"], blueTeams: ["frc4", "frc5", "frc6"], redScore: 120, blueScore: 95 }];
+    vi.stubGlobal("fetch", makeTbaFetchStub());
+    await driveTicks(env, 1);
+    const rows = readEventRows(r2, "spr");
+    expect(rows.get("frc1")!.metrics[SIGMA_METRIC_KEY], "non-vacuity: the real teams still get one").toBeDefined();
+    const demo = rows.get("frc9985");
+    if (demo !== undefined) expect(SIGMA_METRIC_KEY in demo.metrics).toBe(false);
   });
 });

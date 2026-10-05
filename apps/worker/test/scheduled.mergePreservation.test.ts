@@ -629,3 +629,92 @@ describe("mergeEventArtifact — rosterRows appends registered teams and disturb
     expect(appended.record).toEqual({ wins: 0, losses: 0, ties: 0 });
   });
 });
+
+describe("mergeEventArtifact — liveSigma writes a Sigma onto rows that have none, and disturbs nothing else", () => {
+  function mergeWithSigma(params: {
+    existing: EventArtifact | undefined;
+    touchedTeams?: readonly string[];
+    rosterRows?: readonly { teamKey: string; teamNumber: number; nickname: string }[];
+    liveSigma?: ReadonlyMap<string, number>;
+  }): EventArtifact {
+    const merged = mergeEventArtifact({
+      existing: params.existing,
+      eventKey: EVENT_KEY,
+      season: SEASON,
+      algorithmId: spr.id,
+      algorithmVersion: spr.version,
+      eventType: undefined,
+      newlyFolded: [],
+      newPredictions: new Map(),
+      upcoming: params.existing?.upcoming ?? [],
+      touchedTeams: params.touchedTeams ?? [],
+      touchedMetrics: {},
+      newBands: new Map(),
+      playedRowFacts: new Map(),
+      ...(params.rosterRows !== undefined ? { rosterRows: params.rosterRows } : {}),
+      ...(params.liveSigma !== undefined ? { liveSigma: params.liveSigma } : {}),
+      stamp: LIVE_STAMP,
+    });
+    return json(EventArtifactSchema.parse(merged));
+  }
+
+  /** The offline artifact with every Sigma entry removed: an event no publish has tiered. */
+  function existingWithoutSigma(): EventArtifact {
+    const artifact = offlineEventArtifact() as { teams: { metrics: Record<string, unknown> }[] };
+    for (const row of artifact.teams) delete row.metrics.sigma;
+    return EventArtifactSchema.parse(artifact);
+  }
+
+  it("a touched team with no published row is appended with its live Sigma and no percentile", () => {
+    const written = mergeWithSigma({ existing: existingEvent(), touchedTeams: ["frc40"], liveSigma: new Map([["frc40", 21.0004]]) });
+    expect(written.teams.find((row) => row.teamKey === "frc40")!.metrics.sigma).toEqual({ value: 21 });
+  });
+
+  it("a roster row appended this tick gets its live Sigma", () => {
+    const written = mergeWithSigma({
+      existing: existingEvent(),
+      rosterRows: [{ teamKey: "frc41", teamNumber: 41, nickname: "Forty One" }],
+      liveSigma: new Map([["frc41", 19.5]]),
+    });
+    expect(written.teams.find((row) => row.teamKey === "frc41")!.metrics.sigma).toEqual({ value: 19.5 });
+  });
+
+  it("an existing row the tick did not touch and that has no Sigma gains one; one that has a Sigma is returned unchanged", () => {
+    const withoutSigma = existingWithoutSigma();
+    const gained = mergeWithSigma({ existing: withoutSigma, liveSigma: new Map([["frc2", 22.25]]) });
+    expect(gained.teams.find((row) => row.teamKey === "frc2")!.metrics.sigma).toEqual({ value: 22.25 });
+    // No live value for frc3: still none.
+    expect(gained.teams.find((row) => row.teamKey === "frc3")!.metrics.sigma).toBeUndefined();
+
+    const published = existingEvent();
+    const kept = mergeWithSigma({ existing: published, liveSigma: new Map(TEAMS.map((teamKey) => [teamKey, 99]) as [string, number][]) });
+    for (const row of published.teams) {
+      expect(kept.teams.find((r) => r.teamKey === row.teamKey)!.metrics.sigma, row.teamKey).toEqual(row.metrics.sigma);
+    }
+  });
+
+  it("a touched team whose published Sigma has a percentile keeps it; one whose Sigma has none is refreshed", () => {
+    const existing = existingEvent();
+    const stripped = json(existing) as { teams: { teamKey: string; metrics: Record<string, { value: number; percentile?: number }> }[] };
+    stripped.teams.find((row) => row.teamKey === "frc2")!.metrics.sigma = { value: 15 };
+    const written = mergeWithSigma({
+      existing: EventArtifactSchema.parse(stripped),
+      touchedTeams: ["frc1", "frc2"],
+      liveSigma: new Map([
+        ["frc1", 50],
+        ["frc2", 50],
+      ]),
+    });
+    expect(written.teams.find((row) => row.teamKey === "frc1")!.metrics.sigma).toEqual(existing.teams.find((row) => row.teamKey === "frc1")!.metrics.sigma);
+    expect(written.teams.find((row) => row.teamKey === "frc2")!.metrics.sigma).toEqual({ value: 50 });
+  });
+
+  it("with liveSigma omitted the output is exactly what it was: nothing gains a Sigma", () => {
+    const withoutSigma = existingWithoutSigma();
+    const written = mergeWithSigma({ existing: withoutSigma, touchedTeams: ["frc1"] });
+    for (const row of written.teams) expect(row.metrics.sigma, row.teamKey).toBeUndefined();
+    expect(json(mergeWithSigma({ existing: existingEvent(), touchedTeams: ["frc1"] }))).toEqual(
+      json(mergeWithSigma({ existing: existingEvent(), touchedTeams: ["frc1"], liveSigma: new Map() }))
+    );
+  });
+});

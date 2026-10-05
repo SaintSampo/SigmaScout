@@ -378,6 +378,17 @@ describe("InsightsTab — Total ± Sigma pill", () => {
     expect(totalCell.textContent).toBe("10.00±92.00");
   });
 
+  it("a live Sigma (a value with no percentile, as a tick writes it) renders the pill with that Sigma and no tier class on the Sigma half", async () => {
+    renderInsights(sprArtifactWithSigma({ value: 18.35 }), "spr", 2024);
+
+    const totalCell = await screen.findByTestId("insights-cell-total");
+    expect(totalCell.querySelector("[data-testid='total-sigma-pill']")).not.toBeNull();
+    expect(totalCell.textContent).toBe("10.00±18.35");
+    const sigmaHalf = totalCell.querySelector(".metric-pill__sigma")!;
+    expect(sigmaHalf.className).not.toMatch(/metric-tier--/);
+    expect(sigmaHalf.className).not.toMatch(/metric-pill__sigma--neutral/);
+  });
+
   it("the same fixture with sigma stripped renders exactly one metric-tier box per Total cell and no pill", async () => {
     renderInsights(sprArtifactWithSigma(undefined), "spr", 2024);
 

@@ -661,6 +661,15 @@ interface PerAlgorithmFold {
    */
   readonly touchedSigma: ReadonlyMap<string, number>;
   /**
+   * Sigma at end of tick for every non demo team this tick touched or the remaining
+   * schedule names, and that holds a Sigma belief (`scoreFor`, so a team the
+   * accumulator has never seen is absent). Read at the same instant as
+   * `touchedSigma`. Phase B passes it to the event merge as `liveSigma`, which
+   * writes it onto a row with no published Sigma. Empty when `usesSigmaScore` is
+   * false.
+   */
+  readonly eventSigma: ReadonlyMap<string, number>;
+  /**
    * The per-side `bonusFlags` this algorithm's Phase A RP fold ALREADY parsed
    * out of each newly-folded match's breakdown, by match key; a side whose
    * parse threw is `undefined`. A pure pass-through of a value the fold
@@ -1097,6 +1106,7 @@ async function runScheduleOnlyPricing(
       touchedTeams: scheduledTeams,
       touchedMetrics,
       playedRowFacts: new Map<string, PlayedRowFacts>(),
+      liveSigma: sigma?.scoreFor(realScheduledTeams),
       stamp,
     };
     const mergedEvent = mergeEventArtifact(eventMergeParams);
@@ -1256,7 +1266,7 @@ async function runRosterPass(
         // etag write below is then the whole cost of having asked.
         if (missingTeams.length === 0) continue;
 
-        const { state } = await resumeAlgorithmState({
+        const { state, sigma } = await resumeAlgorithmState({
           db: env.DB,
           counter,
           algorithmId,
@@ -1286,6 +1296,9 @@ async function runRosterPass(
           touchedMetrics,
           playedRowFacts: new Map<string, PlayedRowFacts>(),
           rosterRows,
+          // A registered team with a Sigma belief in the state this pass read gets it on
+          // its appended row, like a team a match touched.
+          liveSigma: sigma?.scoreFor(missingTeams.filter((teamKey) => !isDemoTeamKey(teamKey))),
           stamp,
         };
         const mergedEvent = mergeEventArtifact(eventMergeParams);
@@ -1664,6 +1677,12 @@ async function processEvent(
         if (sigma !== undefined) {
           for (const teamKey of realTouchedTeams) touchedSigma.set(teamKey, sigma.sigmaFor(teamKey));
         }
+        // The event row's live Sigma: `scoreFor`, never `sigmaFor`, so a scheduled
+        // team the accumulator has never seen gets no Sigma rather than the prior's.
+        const eventSigma: ReadonlyMap<string, number> =
+          sigma !== undefined
+            ? sigma.scoreFor([...new Set([...touchedTeams, ...scheduledTeams])].filter((teamKey) => !isDemoTeamKey(teamKey)))
+            : new Map<string, number>();
 
         // What Phase B prices the remaining schedule from (quick task
         // 260923-3w6), captured at end of fold so an upcoming match is priced
@@ -1707,7 +1726,7 @@ async function processEvent(
         counter.spend(1);
         await writeScopedState(env.DB, changedRows); // may throw -- caught below, reverts the claim and aborts the WHOLE event (zero artifact puts)
 
-        perAlgorithm.set(algorithmId, { algorithm, newPredictions, touchedMetrics, newBands, touchedSigma, observedBonusSides, upcomingModel });
+        perAlgorithm.set(algorithmId, { algorithm, newPredictions, touchedMetrics, newBands, touchedSigma, eventSigma, observedBonusSides, upcomingModel });
       }
 
       live.ingest.matchesFolded(eventKey, matchArrivalFacts(rawMatchesUnknown, new Set(newlyFolded.map((m) => m.matchKey))));
@@ -1851,6 +1870,7 @@ async function runPhaseBAndReport(
         touchedTeams,
         touchedMetrics: info.touchedMetrics,
         playedRowFacts,
+        liveSigma: info.eventSigma,
         stamp,
       };
       const mergedEvent = mergeEventArtifact(eventMergeParams);
