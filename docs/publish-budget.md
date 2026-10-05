@@ -71,6 +71,38 @@ baked result for one event.
   types. `--write-budget` records the run's sidecar count and median/p95/max sizes in the block's
   `run` string.
 
+## The as-of objects (quick task 261005-5g0)
+
+The state a rewound view rebuilds the model from, captured at every SPR fold and published for
+every season.
+
+| Family | Key shape | One per | `AS_OF_BUDGET_MAX_BYTES` |
+|---|---|---|---:|
+| `asof` (INDEX) | `v1/asof/{eventKey}/{algorithm}@{version}.json` | event with a played match | 300,000 |
+| `asof-log` (LOG) | `v1/asof-log/{eventKey}/{algorithm}@{version}.json` | event with a played match | 1,900,000 |
+| `asof-season` | `v1/asof-season/{season}/{algorithm}@{version}.json` | season | 300,000 |
+
+- **Not `PageKind`s.** Like the presim sidecar they have their own key functions (`asOfIndexKey`,
+  `asOfLogKey`, `asOfSeasonKey` in `pageArtifacts.ts`), so the Worker's `PageKind`-keyed artifact
+  writer cannot address them, and the `pages` block is unchanged.
+- **Ceilings are enforced.** `publishSeasons` asserts every as-of object against
+  `AS_OF_BUDGET_MAX_BYTES` (`packages/harness/publishBudget.ts`) before it is recorded or queued,
+  exactly as it does a page, and `--write-budget` writes an `asOf` section beside `pages` in the
+  block below. `payloadBudget.test.ts` holds that section to the constant once it exists.
+- **Measured, then given headroom.** Each ceiling is the largest object of its family over all ten
+  published seasons, times 1.4, rounded up to the next 100,000. The measurement is
+  `scripts/verifyAsOfOracle.ts`'s `sizes` lines, which capture through the publisher's own
+  `AsOfSeasonCapture` and serialize exactly as the publisher does (measured 2026-10-05):
+
+  | Family | Count | Median | p95 | Max | Largest |
+  |---|---:|---:|---:|---:|---|
+  | `asof` | 2,379 | 32,020 | 69,213 | 179,328 | `2016micmp` |
+  | `asof-log` | 2,379 | 214,253 | 478,949 | 1,309,513 | `2016micmp` |
+  | `asof-season` | 10 | 139,256 | 156,807 | 156,807 | 2019 |
+
+  4,768 objects, 651.9 MB raw in total. 2025 is the largest season (649 objects, 132.0 MB).
+- **SPR only, full precision.** The objects describe SPR's state; OPR and EPA get none.
+
 ## The district artifact and its pre-simulation sidecar (phase 10, plan 10-03)
 
 | Object | Key shape | Ceiling |

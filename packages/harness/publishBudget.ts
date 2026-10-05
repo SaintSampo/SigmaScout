@@ -55,9 +55,12 @@ export type AsOfFamily = (typeof AS_OF_FAMILIES)[number];
  * `docs/publish-budget.md`.
  */
 export const AS_OF_BUDGET_MAX_BYTES: Readonly<Record<AsOfFamily, number>> = Object.freeze({
-  asof: 400_000,
-  "asof-log": 2_000_000,
-  "asof-season": 400_000,
+  // 179,328 B (`2016micmp`) x 1.4.
+  asof: 300_000,
+  // 1,309,513 B (`2016micmp`) x 1.4.
+  "asof-log": 1_900_000,
+  // 156,807 B (2019) x 1.4.
+  "asof-season": 300_000,
 });
 
 /** Throws `AsOfBudgetExceededError` when `bytes` is above the family's ceiling; exactly at the ceiling passes. */
