@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-05T03:51:37.954Z"
+last_updated: "2026-10-05T04:01:06.580Z"
 last_activity: 2026-10-05
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -713,6 +713,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 277 | Locks picker prints DCMP for a district championship (fast task) | 2026-10-05 | baeee619 | — |
 | 278 | District Locks headline cutoff is the median of the simulated line; large district rewinds simulate again; sponsored event names shorten (branch locks-fixes) | 2026-10-05 | c1626f2a | [261004-uw4-district-locks-headline-cutoff-becomes-t](./quick/261004-uw4-district-locks-headline-cutoff-becomes-t/) |
 | 279 | Presim schedule generation 4.8x faster with 418 of 418 sidecars byte-identical; structure memo cap 128 to 512; fewer-schedules floor measured, keep 1000 | 2026-10-05 | f62462e3 | [261004-v3h-presim-schedule-generation-speedup-and-f](./quick/261004-v3h-presim-schedule-generation-speedup-and-f/) |
+| 280 | Live ingestion rethink after SVS (2026vari): D1 ingest log and pnpm live:report, event phase model, TBA rankings and alliances polled by the tick, counted standings double count fixed, offseason events get ranking points and simulation, live Sigma on the event row, spr 10.0.0. Migration 0003, Worker deploy and rebaseline HELD for Jacob | 2026-10-05 | 3515159f | [261004-uyc-live-ingestion-rethink-phase-aware-event](./quick/261004-uyc-live-ingestion-rethink-phase-aware-event/) |
 
 ### Roadmap Evolution
 
