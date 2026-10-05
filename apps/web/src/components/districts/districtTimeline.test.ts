@@ -451,6 +451,46 @@ describe("buildDistrictTimeline: playoffs and awards sit at the last played play
     expect(districtStageAtPosition(timeline, atB2, NOW_STAGES).get("eva")?.elim).toBe(false);
   });
 
+  it("a bracket in progress: a stop after A's latest played playoff row (B's later qualification match) still reads A's playoffs and awards as OPEN, as now does (C3)", () => {
+    // A has played two playoff matches (t+60, t+90) and its bracket is not done; B plays a qualification match at t+95.
+    const minute = 60_000;
+    const timeline = buildDistrictTimeline({
+      events: [
+        { eventKey: "eva", eventName: "Event A", week: 0, playoffsDone: false },
+        { eventKey: "evb", eventName: "Event B", week: 0 },
+      ],
+      eventArtifacts: new Map([
+        ["eva", playedEventArtifact("eva", [BASE_MS, BASE_MS + 10 * minute], [BASE_MS + 60 * minute, BASE_MS + 90 * minute])],
+        ["evb", playedEventArtifact("evb", [BASE_MS + 20 * minute, BASE_MS + 95 * minute], [])],
+      ]),
+    });
+    const now = new Map<string, DistrictStageFinality>([
+      ["eva", { qual: true, alliance: true, elim: false, award: false }],
+      ["evb", { qual: false, alliance: false, elim: false, award: false }],
+    ]);
+    const ids = timeline.positions.map((position) => position.id);
+    for (const id of ["evb:m:evb_qm2", "evb:qualsDone", "eva:awards"]) {
+      const stage = districtStageAtPosition(timeline, ids.indexOf(id), now).get("eva");
+      expect(stage, id).toEqual({ qual: true, alliance: true, elim: false, award: false });
+    }
+    // A category open now that IS reached by a step stays open; B's own quals done step cannot close B's quals while now has them open.
+    expect(districtStageAtPosition(timeline, ids.indexOf("evb:qualsDone"), now).get("evb")?.qual).toBe(false);
+  });
+
+  it("awards not yet posted: after A's finals every later stop reads A's awards as OPEN while its playoff points are final (C3)", () => {
+    const timeline = concurrentTimeline({ aPlayoffsDone: true });
+    const now = new Map<string, DistrictStageFinality>([
+      ["eva", { qual: true, alliance: true, elim: true, award: false }],
+      ["evb", { qual: true, alliance: true, elim: true, award: true }],
+    ]);
+    const ids = timeline.positions.map((position) => position.id);
+    const atAwards = districtStageAtPosition(timeline, ids.indexOf("eva:awards"), now);
+    expect(atAwards.get("eva")).toEqual({ qual: true, alliance: true, elim: true, award: false });
+    expect(atAwards.get("evb")).toEqual({ qual: true, alliance: true, elim: true, award: true });
+    // The live view itself is untouched.
+    expect(districtStageAtPosition(timeline, timeline.nowIndex, now)).toEqual(now);
+  });
+
   it("falls back to the last qualification instant for an event with no played playoff row whose playoffs are done", () => {
     const timeline = concurrentTimeline({ aPlayoffs: [], aPlayoffsDone: true });
     const ids = timeline.positions.map((position) => position.id);

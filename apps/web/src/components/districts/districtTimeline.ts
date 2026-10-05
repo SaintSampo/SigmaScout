@@ -385,8 +385,19 @@ export function districtStageAtPosition(
     }
     record[category] = true;
   }
+  // A CATEGORY OPEN AT "NOW" IS NEVER FINAL AT AN EARLIER STOP. The steps
+  // above place an event's Playoffs and Awards at its last PLAYED playoff row,
+  // which for a bracket still in progress (or finished, with awards not yet
+  // posted) is not where the category closes: every stop after that row would
+  // read the event's partial playoff points or zero award points as final,
+  // more settled than the live view. Intersecting with the live answer keeps
+  // a rewound stop at most as settled as now.
   const out = new Map<string, DistrictStageFinality>();
-  for (const [eventKey, record] of final) out.set(eventKey, { ...record });
+  for (const [eventKey, record] of final) {
+    const now = nowStageByEvent.get(eventKey);
+    if (now !== undefined) for (const category of DISTRICT_CATEGORIES) record[category] = record[category] && now[category];
+    out.set(eventKey, { ...record });
+  }
   return out;
 }
 

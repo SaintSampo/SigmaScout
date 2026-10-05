@@ -141,7 +141,12 @@ function districtOf(eventArtifacts: ReadonlyMap<string, EventArtifact>): Distric
     const quals = fixture.matches.filter((match) => match.eventKey === eventKey && match.compLevel === "qm").length;
     const played = artifact?.matches.filter((match) => match.compLevel === "qm").length ?? 0;
     const done = artifact !== undefined && artifact.upcoming.length === 0 && artifact.matches.length > 0;
-    return { qualMatchesPlayed: played, qualMatchesTotal: quals, alliancesPicked: done, playoffsDone: done, awardsPosted: done };
+    // Alliances count as picked once every qualification match is played: the
+    // timeline's own placement of the Alliance selection step (the last
+    // qualification instant). A rewound stop is never more settled than "now"
+    // (`districtStageAtPosition`), so the truncated world's state facts must
+    // agree with the stop's placement for its stage to match the full world's.
+    return { qualMatchesPlayed: played, qualMatchesTotal: quals, alliancesPicked: quals > 0 && played === quals, playoffsDone: done, awardsPosted: done };
   };
   return DistrictArtifactSchema.parse({
     schemaVersion: 1,
