@@ -21,6 +21,32 @@ measured on the current code.
 
 Nothing from this work is pushed, published or deployed. Coverage is still 2026 only.
 
+## 2026-10-05: steps 1 to 3 done
+
+- **Step 1 done.** The all-seasons dry run ran on current code (commit 5e047e98). Command:
+  `npx tsx --env-file=.env packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 2016 --dry-run --skip-state`.
+  Started 01:12, finished 03:56 on 2026-10-05. Log: `reports/presim-allyears/dryrun-20261005.out.log`
+  (local, gitignored).
+- **Measured figures.**
+  - Total wall clock 9,822.6 s (2 h 44 min).
+  - EPA sidecars 3,982 s and SPR sidecars 5,046 s, each summed over seasons.
+  - 2026 alone: EPA sidecars 518.4 s and SPR sidecars 534.1 s.
+  - 3,336 presim sidecars, median 7,792 bytes, p95 19,125, max 42,582.
+  - The whole publish: 108,661 objects and 4,192,395,808 bytes.
+- **Comparison.** The earlier all-seasons dry run at bd040e70 (before both speed fixes) took 7.85 h.
+  A 2026-only full publish took about 31 minutes (1,871 s on 2026-09-19). The dry run uploads
+  nothing, so the real publish's wall clock also includes R2 upload time this run did not measure.
+- **The offseason worry in "Read this first" did not happen.** Offseason events get no sidecar (the
+  explicit gate added by quick 261004-uyc), so the sidecar count did not grow by half again.
+- **Step 2 done.** Jacob approved turning it on on 2026-10-05, after this measurement.
+- **Step 3 done in quick task 261005-kzs.** `package.json`'s `publish:seasons` now passes
+  `--presim-from-season 2016`. `DEFAULT_PRESCHEDULE_FROM_SEASON` was left at 2026 because
+  `publish.test.ts` does not assert it (the drift tripwire only checks the script's flag). The
+  comment above that constant, the `preSchedule.ts` header, `docs/simulation-architecture.md`
+  section 3, and the `docs/publish-budget.md` bullet were corrected.
+- **Still open.** The live site serves 2026-only sidecars until step 4's publish runs (main session,
+  Jacob's go-ahead in the moment). Step 5 is unchanged.
+
 ## Read this first: the timings below are stale
 
 On 2026-10-04 another session (quick 261004-uyc, commits 558adb9f and 3515159f) made offseason events
