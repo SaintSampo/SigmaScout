@@ -32,3 +32,11 @@ Make the champ rows, the award scan, the reservation and the rail multi-DCMP awa
 dcmp event keys per artifact, a DCMP row per team sourced from the championship that team
 attends, the award gate on that event's own stage, and the reservation summed over every
 championship still open. Re-run `pnpm measure:champ-tenets`; it must exit 0.
+
+## Resolved 2026-10-06, quick task 261006-lwo (commit 46c44a8a)
+
+Every gate walks `dcmpEventKeysFor` now. The award scan accepts any dcmp-tier key with the team's
+own championship's stage as the gate; the started flag is per team; the reservation is summed per
+CHAMPIONSHIP through `perChampionship`, which folds division keys (FIM's micmp1..4, TX, NE, ONT)
+into their finals event so a divisioned championship reserves once. The publisher pass uses the
+same fold. `pnpm measure:champ-tenets`: 6 tenet-A violations to 0, exit 0.
