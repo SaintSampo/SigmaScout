@@ -91,6 +91,36 @@ import {
   locksPickerStopLabel,
   locksPickerUpCaption,
 } from "./districtLedgerCopy.js";
+import {
+  CHAMP_LEDGER_VERDICT_SOURCE_WORDS,
+  CHAMP_LEDGER_VERDICT_SUBTOTAL_TITLES,
+  DISTRICT_LEDGER_VERDICT_CELL_TITLES,
+  DISTRICT_LEDGER_VERDICT_CHIP_LABELS,
+  DISTRICT_LEDGER_VERDICT_CUTOFF_TILE_WORDS,
+  DISTRICT_LEDGER_VERDICT_LEGEND,
+  DISTRICT_LEDGER_VERDICT_NOTE,
+  DISTRICT_LEDGER_VERDICT_POINT_NOUNS,
+  DISTRICT_LEDGER_VERDICT_TILE_LABELS,
+  champLedgerVerdictFieldSuffix,
+  districtLedgerOutcomePointsLabel,
+  districtLedgerVerdictCapHeadline,
+  districtLedgerVerdictCapLabel,
+  districtLedgerVerdictChanceOfPoints,
+  districtLedgerVerdictCutoffLabel,
+  districtLedgerVerdictEarnedAt,
+  districtLedgerVerdictEventCellTitle,
+  districtLedgerVerdictEventTotalHeadline,
+  districtLedgerVerdictEyebrow,
+  districtLedgerVerdictFieldHeadline,
+  districtLedgerVerdictGrandHeadline,
+  districtLedgerVerdictLikelyHeadline,
+  districtLedgerVerdictLikelyRange,
+  districtLedgerVerdictMedian,
+  districtLedgerVerdictOutcomeHeadline,
+  districtLedgerVerdictPredictedAt,
+  districtLedgerVerdictRuns,
+  type LedgerGrandVerdict,
+} from "./districtLedgerCopy.js";
 
 describe("the UI-SPEC copy contract", () => {
   it("pins the five status definitions character for character", () => {
@@ -667,6 +697,187 @@ describe("the predicted cutoff copy", () => {
     expect(DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION).toContain("cutoff");
     for (const caption of [DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION, DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION, DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION]) {
       expect(caption.toLowerCase()).not.toContain("today");
+    }
+  });
+});
+
+describe("the verdict drawer copy (sketch 025 variant A, quick task 261006-lxp)", () => {
+  const EN_DASH = String.fromCharCode(0x2013);
+  /** Any hyphen, en dash or em dash. */
+  const ANY_DASH = /[-–—]/;
+  /** An en dash between two digits, the one dash a numeric range may carry. */
+  const RANGE_DASH = /(\d)–(\d)/g;
+
+  it("pins the note, the tile labels and the legend keys character for character", () => {
+    expect(DISTRICT_LEDGER_VERDICT_NOTE).toBe("likely = 8 of 10 runs");
+    expect(DISTRICT_LEDGER_VERDICT_TILE_LABELS).toEqual({
+      median: "median",
+      likely: "likely",
+      cutoff: "cutoff",
+      mostLikely: "most likely",
+      chanceOfPoints: "chance of points",
+    });
+    expect(DISTRICT_LEDGER_VERDICT_LEGEND).toEqual({
+      bars: "how often each total came up",
+      band: "likely range",
+      tick: "median",
+      cutoff: "cutoff",
+      zone: "where the cutoff lands in 8 of 10 runs",
+    });
+    expect(DISTRICT_LEDGER_VERDICT_CUTOFF_TILE_WORDS).toEqual({ capacityUnknown: "not published", absent: "none" });
+  });
+
+  it("pins every cell title equal to its own column label, and the two champ subtotal titles", () => {
+    expect(DISTRICT_LEDGER_VERDICT_CELL_TITLES.grandTotal).toBe(DISTRICT_LEDGER_COLUMN_LABELS[2]);
+    expect(DISTRICT_LEDGER_VERDICT_CELL_TITLES.eventTotal).toBe(DISTRICT_LEDGER_COLUMN_LABELS[4]);
+    expect(DISTRICT_LEDGER_VERDICT_CELL_TITLES.qual).toBe(DISTRICT_LEDGER_COLUMN_LABELS[5]);
+    expect(DISTRICT_LEDGER_VERDICT_CELL_TITLES.alliance).toBe(DISTRICT_LEDGER_COLUMN_LABELS[6]);
+    expect(DISTRICT_LEDGER_VERDICT_CELL_TITLES.elim).toBe(DISTRICT_LEDGER_COLUMN_LABELS[7]);
+    expect(DISTRICT_LEDGER_VERDICT_CELL_TITLES.award).toBe(DISTRICT_LEDGER_COLUMN_LABELS[8]);
+    expect(DISTRICT_LEDGER_VERDICT_CELL_TITLES).toEqual({
+      grandTotal: "Grand total",
+      eventTotal: "Event total",
+      qual: "Qualification",
+      alliance: "Alliance selection",
+      elim: "Playoffs",
+      award: "Awards",
+    });
+    expect(CHAMP_LEDGER_VERDICT_SUBTOTAL_TITLES).toEqual({ district: "District subtotal", dcmp: "DCMP subtotal" });
+  });
+
+  it("pins the point nouns, the chip labels and the champ source words", () => {
+    expect(DISTRICT_LEDGER_VERDICT_POINT_NOUNS).toEqual({
+      grandTotal: "grand total",
+      qual: "qualification",
+      alliance: "alliance selection",
+      elim: "playoff",
+      award: "award",
+      district: "district",
+      dcmp: "DCMP",
+    });
+    expect(DISTRICT_LEDGER_VERDICT_CHIP_LABELS).toEqual({ qual: "Quals", alliance: "Alliance", elim: "Playoffs", award: "Awards" });
+    expect(CHAMP_LEDGER_VERDICT_SOURCE_WORDS).toEqual({
+      districtEarned: "earned at district events",
+      districtPredicted: "predicted at district events",
+      dcmpEarned: "earned at the DCMP",
+      dcmpPredicted: "predicted at the DCMP",
+      districtOnly: "district points only",
+    });
+  });
+
+  it("clamps the runs count at the same floor and ceiling the Status cell's chance line uses", () => {
+    expect(districtLedgerVerdictRuns(0.049)).toBe("fewer than 5");
+    expect(districtLedgerVerdictRuns(0.05)).toBe("5");
+    expect(districtLedgerVerdictRuns(0.57)).toBe("57");
+    expect(districtLedgerVerdictRuns(0.994)).toBe("99");
+    expect(districtLedgerVerdictRuns(0.996)).toBe("99");
+    expect(districtLedgerVerdictRuns(1)).toBe("99");
+    // The two printings agree on every edge.
+    for (const chance of [0.049, 0.05, 0.57, 0.994, 0.996, 1]) {
+      const line = districtLedgerChanceLine(chance);
+      const runs = districtLedgerVerdictRuns(chance);
+      expect(line === DISTRICT_LEDGER_CHANCE_BELOW_FLOOR ? "fewer than 5" : line.replace("% chance", "")).toBe(runs);
+    }
+  });
+
+  it("writes the grand total headline for a chance, every fixed state and the open arm", () => {
+    expect(districtLedgerVerdictGrandHeadline({ kind: "chance", chance: 0.57 }, 0, 0)).toBe("Qualifies in 57 of 100 runs.");
+    expect(districtLedgerVerdictGrandHeadline({ kind: "chance", chance: 0.996 }, 0, 0)).toBe("Qualifies in 99 of 100 runs.");
+    expect(districtLedgerVerdictGrandHeadline({ kind: "chance", chance: 0.049 }, 0, 0)).toBe("Qualifies in fewer than 5 of 100 runs.");
+    const fixed: ReadonlyArray<readonly [LedgerGrandVerdict["kind"], string]> = [
+      ["qualified", "Already qualified."],
+      ["lockedOut", "Cannot qualify on points."],
+      ["declined", "Earned a place and is not in the field."],
+      ["pending", "Chance still being simulated."],
+      ["noCall", "No call at this position."],
+    ];
+    for (const [kind, sentence] of fixed) {
+      expect(districtLedgerVerdictGrandHeadline({ kind } as LedgerGrandVerdict, 0, 0)).toBe(sentence);
+    }
+    expect(districtLedgerVerdictGrandHeadline({ kind: "open" }, 330.2, 371.6)).toBe(`Likely 330${EN_DASH}372 grand total points.`);
+  });
+
+  it("prints every drawer figure as an integer and clamps the low end at zero", () => {
+    expect(districtLedgerVerdictLikelyRange(-0.5, 3.4)).toBe(`0${EN_DASH}3`);
+    expect(districtLedgerVerdictMedian(-0.4)).toBe("~0");
+    expect(districtLedgerVerdictMedian(129.6)).toBe("~130");
+    expect(districtLedgerVerdictLikelyHeadline(10.2, 19.7, "qualification")).toBe(`Likely 10${EN_DASH}20 qualification points.`);
+  });
+
+  it("writes the field, cap, event total and outcome headlines", () => {
+    expect(districtLedgerVerdictFieldHeadline(0.71, 129.6)).toBe("In the field in 71 of 100 runs, and ~130 points if there.");
+    expect(districtLedgerVerdictFieldHeadline(0.02, 129.6)).toBe("In the field in fewer than 5 of 100 runs, and ~130 points if there.");
+    expect(districtLedgerVerdictCapHeadline(22, 0.58)).toBe("Finishes quals at the 22 point cap in 58 of 100 runs.");
+    expect(districtLedgerVerdictEventTotalHeadline(40.4, 61.5, "PNW District Oregon State Fair Event")).toBe(
+      `Likely 40${EN_DASH}62 points at Oregon State Fair.`
+    );
+    expect(districtLedgerVerdictOutcomeHeadline("Wins the event", 0.92)).toBe("Wins the event in 92 of 100 runs.");
+    expect(districtLedgerVerdictOutcomeHeadline("Impact", 0.004)).toBe("Impact in 0 of 100 runs.");
+    expect(districtLedgerVerdictChanceOfPoints(0.48)).toBe("48%");
+  });
+
+  it("writes the eyebrow, the cell titles, the chart labels and the source chip texts", () => {
+    expect(districtLedgerVerdictEyebrow("Grand total", 4915, "Spartronics")).toBe("Grand total · 4915 Spartronics");
+    expect(districtLedgerVerdictEventCellTitle("Qualification", "PNW District Oregon State Fair Event")).toBe("Qualification at Oregon State Fair");
+    expect(districtLedgerVerdictCutoffLabel("~213")).toBe("cutoff ~213");
+    expect(districtLedgerVerdictCutoffLabel("213")).toBe("cutoff 213");
+    expect(districtLedgerVerdictCapLabel(22)).toBe("22 cap");
+    expect(districtLedgerVerdictEarnedAt(["PNW District Glacier Peak Event", "Done Event"])).toBe("earned at Glacier Peak, Done Event");
+    expect(districtLedgerVerdictPredictedAt("PNW District Sammamish Event")).toBe("predicted at Sammamish");
+  });
+
+  it("clamps the champ field suffix by the same two limits", () => {
+    expect(champLedgerVerdictFieldSuffix(0.71)).toBe(", in the field 71% of runs");
+    expect(champLedgerVerdictFieldSuffix(0.049)).toBe(", in the field <5% of runs");
+    expect(champLedgerVerdictFieldSuffix(0.996)).toBe(", in the field 99% of runs");
+  });
+
+  it("prints an outcome row's points with the unit, as one value or a range", () => {
+    expect(districtLedgerOutcomePointsLabel(30)).toBe("30 pts");
+    expect(districtLedgerOutcomePointsLabel(27, 48)).toBe("27 to 48 pts");
+    expect(districtLedgerOutcomePointsLabel(0, 0)).toBe("0 pts");
+  });
+
+  it("carries no dash character in any verdict string, except the en dash inside a numeric range", () => {
+    const strings: string[] = [
+      DISTRICT_LEDGER_VERDICT_NOTE,
+      ...Object.values(DISTRICT_LEDGER_VERDICT_TILE_LABELS),
+      ...Object.values(DISTRICT_LEDGER_VERDICT_LEGEND),
+      ...Object.values(DISTRICT_LEDGER_VERDICT_CUTOFF_TILE_WORDS),
+      ...Object.values(DISTRICT_LEDGER_VERDICT_CELL_TITLES),
+      ...Object.values(CHAMP_LEDGER_VERDICT_SUBTOTAL_TITLES),
+      ...Object.values(DISTRICT_LEDGER_VERDICT_POINT_NOUNS),
+      ...Object.values(DISTRICT_LEDGER_VERDICT_CHIP_LABELS),
+      ...Object.values(CHAMP_LEDGER_VERDICT_SOURCE_WORDS),
+      districtLedgerVerdictRuns(0.03),
+      districtLedgerVerdictMedian(12),
+      districtLedgerVerdictLikelyRange(3, 9),
+      districtLedgerVerdictLikelyHeadline(3, 9, "award"),
+      ...(["chance", "qualified", "lockedOut", "declined", "pending", "noCall", "open"] as const).map((kind) =>
+        districtLedgerVerdictGrandHeadline(kind === "chance" ? { kind, chance: 0.4 } : { kind }, 3, 9)
+      ),
+      districtLedgerVerdictEventTotalHeadline(3, 9, "Live Event"),
+      districtLedgerVerdictFieldHeadline(0.4, 12),
+      districtLedgerVerdictCapHeadline(22, 0.5),
+      districtLedgerVerdictOutcomeHeadline("Finalist", 0.2),
+      districtLedgerVerdictChanceOfPoints(0.2),
+      districtLedgerVerdictEyebrow("Grand total", 1, "Team"),
+      districtLedgerVerdictEventCellTitle("Playoffs", "Live Event"),
+      districtLedgerVerdictCutoffLabel("~12"),
+      districtLedgerVerdictCapLabel(22),
+      districtLedgerVerdictEarnedAt(["Done Event"]),
+      districtLedgerVerdictPredictedAt("Live Event"),
+      champLedgerVerdictFieldSuffix(0.4),
+      champLedgerVerdictFieldSuffix(0.01),
+      districtLedgerOutcomePointsLabel(27, 48),
+      ...Object.values(DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS),
+      ...Object.values(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS),
+      ...Object.values(DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS),
+    ];
+    for (const text of strings) {
+      expect(text.replace(RANGE_DASH, "$1$2"), text).not.toMatch(ANY_DASH);
+      expect(text).not.toContain(String.fromCharCode(0x00b1));
+      expect(text.toLowerCase()).not.toContain("today");
     }
   });
 });

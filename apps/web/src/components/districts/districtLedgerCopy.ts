@@ -953,3 +953,217 @@ export function champLedgerDrawerNoCallCaption(reason: keyof typeof CHAMP_LEDGER
  * field chance line is.
  */
 export const CHAMP_LEDGER_ESTIMATED_DCMP_LINE = "estimated from past District Championships";
+
+// ---------------------------------------------------------------------------
+// The verdict drawer (sketch 025 variant A, quick task 261006-lxp)
+//
+// What a blue cell opens on either Locks tab: an eyebrow, one headline
+// sentence that answers what the click asked, two or three figure tiles, the
+// note line, one chart and, for a total, one source line. No captions and no
+// computation disclosure: the sketch dropped both on 2026-10-06.
+//
+// Flat third person. No dash character of any kind, except the en dash inside
+// a printed numeric range.
+// ---------------------------------------------------------------------------
+
+/** The note under the tiles: what "likely" means, in the sketch's own words. */
+export const DISTRICT_LEDGER_VERDICT_NOTE = "likely = 8 of 10 runs";
+
+/** The figure tiles' labels. */
+export const DISTRICT_LEDGER_VERDICT_TILE_LABELS = {
+  median: "median",
+  likely: "likely",
+  cutoff: "cutoff",
+  mostLikely: "most likely",
+  chanceOfPoints: "chance of points",
+} as const;
+
+/** The histogram legend's five keys. The cutoff and zone keys print only where their mark is drawn. */
+export const DISTRICT_LEDGER_VERDICT_LEGEND = {
+  bars: "how often each total came up",
+  band: "likely range",
+  tick: "median",
+  cutoff: "cutoff",
+  zone: "where the cutoff lands in 8 of 10 runs",
+} as const;
+
+/**
+ * The cutoff tile's value where no cutoff is drawn and no figure exists. With
+ * the pending figure and the unavailable word, these are the only place the
+ * retired absence captions survive: as one word on the tile.
+ */
+export const DISTRICT_LEDGER_VERDICT_CUTOFF_TILE_WORDS = {
+  capacityUnknown: "not published",
+  absent: "none",
+} as const;
+
+/** The eyebrow's cell titles, each equal to its column label. */
+export const DISTRICT_LEDGER_VERDICT_CELL_TITLES = {
+  grandTotal: "Grand total",
+  eventTotal: "Event total",
+  qual: "Qualification",
+  alliance: "Alliance selection",
+  elim: "Playoffs",
+  award: "Awards",
+} as const;
+
+/** The Champ tab's two subtotal titles: both can be open at once, so the eyebrow names which. */
+export const CHAMP_LEDGER_VERDICT_SUBTOTAL_TITLES = {
+  district: "District subtotal",
+  dcmp: "DCMP subtotal",
+} as const;
+
+/** The noun a likely headline names its points by. */
+export const DISTRICT_LEDGER_VERDICT_POINT_NOUNS = {
+  grandTotal: "grand total",
+  qual: "qualification",
+  alliance: "alliance selection",
+  elim: "playoff",
+  award: "award",
+  district: "district",
+  dcmp: "DCMP",
+} as const;
+
+/** A subtotal's source line names each category by the sketch's own short chip word. */
+export const DISTRICT_LEDGER_VERDICT_CHIP_LABELS = {
+  qual: "Quals",
+  alliance: "Alliance",
+  elim: "Playoffs",
+  award: "Awards",
+} as const;
+
+/** The Champ grand total's source line words. */
+export const CHAMP_LEDGER_VERDICT_SOURCE_WORDS = {
+  districtEarned: "earned at district events",
+  districtPredicted: "predicted at district events",
+  dcmpEarned: "earned at the DCMP",
+  dcmpPredicted: "predicted at the DCMP",
+  districtOnly: "district points only",
+} as const;
+
+/**
+ * What a grand total drawer's headline answers "am I in" with: a printed
+ * chance, one of the five settled or withheld states, or `open` where the tab
+ * prints neither a chance nor a guarantee.
+ */
+export type LedgerGrandVerdict =
+  | { readonly kind: "chance"; readonly chance: number }
+  | { readonly kind: "qualified" | "lockedOut" | "declined" | "pending" | "noCall" | "open" };
+
+/**
+ * A chance as a count of runs out of a hundred, clamped by the SAME two
+ * limits the Status cell's chance line uses, so the headline and the cell can
+ * never print different numbers. The floor is tested before rounding, exactly
+ * as `districtLedgerChanceLine` tests it.
+ */
+export function districtLedgerVerdictRuns(chance: number): string {
+  if (chance * 100 < DISTRICT_LEDGER_CHANCE_FLOOR_PERCENT) return `fewer than ${String(DISTRICT_LEDGER_CHANCE_FLOOR_PERCENT)}`;
+  return String(Math.min(Math.round(chance * 100), DISTRICT_LEDGER_CHANCE_CEILING_PERCENT));
+}
+
+/** The median tile: a tilde and a whole number, never below zero. */
+export function districtLedgerVerdictMedian(p50: number): string {
+  return `~${String(Math.round(Math.max(0, p50)))}`;
+}
+
+/** The likely tile: whole numbers with an en dash, never below zero. */
+export function districtLedgerVerdictLikelyRange(p10: number, p90: number): string {
+  return `${String(Math.round(Math.max(0, p10)))}–${String(Math.round(Math.max(0, p90)))}`;
+}
+
+/** A likely headline over one noun's points. */
+export function districtLedgerVerdictLikelyHeadline(p10: number, p90: number, noun: string): string {
+  return `Likely ${districtLedgerVerdictLikelyRange(p10, p90)} ${noun} points.`;
+}
+
+/**
+ * The grand total's headline. `open` is this plan's own arm for a team with no
+ * printed chance and no guarantee (capacity unpublished, or the chance run not
+ * landed): the sketch never drew it, and the likely range is the honest answer
+ * left.
+ */
+export function districtLedgerVerdictGrandHeadline(verdict: LedgerGrandVerdict, p10: number, p90: number): string {
+  switch (verdict.kind) {
+    case "chance":
+      return `Qualifies in ${districtLedgerVerdictRuns(verdict.chance)} of 100 runs.`;
+    case "qualified":
+      return "Already qualified.";
+    case "lockedOut":
+      return "Cannot qualify on points.";
+    case "declined":
+      return "Earned a place and is not in the field.";
+    case "pending":
+      return "Chance still being simulated.";
+    case "noCall":
+      return "No call at this position.";
+    case "open":
+      return districtLedgerVerdictLikelyHeadline(p10, p90, DISTRICT_LEDGER_VERDICT_POINT_NOUNS.grandTotal);
+  }
+}
+
+/** The District tab's event total headline, naming the event by its short name. */
+export function districtLedgerVerdictEventTotalHeadline(p10: number, p90: number, eventName: string): string {
+  return `Likely ${districtLedgerVerdictLikelyRange(p10, p90)} points at ${districtLedgerShortEventName(eventName)}.`;
+}
+
+/** The DCMP subtotal's headline while a team's place in the field is still open. */
+export function districtLedgerVerdictFieldHeadline(fieldChance: number, p50: number): string {
+  return `In the field in ${districtLedgerVerdictRuns(fieldChance)} of 100 runs, and ~${String(Math.round(Math.max(0, p50)))} points if there.`;
+}
+
+/** The Qualification headline where the median sits at the cap. */
+export function districtLedgerVerdictCapHeadline(ceiling: number, massAtCeiling: number): string {
+  return `Finishes quals at the ${String(ceiling)} point cap in ${String(Math.round(100 * massAtCeiling))} of 100 runs.`;
+}
+
+/** An outcome cell's headline: the likeliest outcome, unclamped, because the rows are counts. */
+export function districtLedgerVerdictOutcomeHeadline(label: string, chance: number): string {
+  return `${label} in ${String(Math.round(100 * chance))} of 100 runs.`;
+}
+
+/** The chance of points tile. */
+export function districtLedgerVerdictChanceOfPoints(chance: number): string {
+  return `${String(Math.round(100 * chance))}%`;
+}
+
+/** The eyebrow: the cell's title, then the team. */
+export function districtLedgerVerdictEyebrow(cellTitle: string, teamNumber: number, nickname: string): string {
+  return `${cellTitle} · ${String(teamNumber)} ${nickname}`;
+}
+
+/** A District tab per event cell's title: one team can have two open event rows. */
+export function districtLedgerVerdictEventCellTitle(title: string, eventName: string): string {
+  return `${title} at ${districtLedgerShortEventName(eventName)}`;
+}
+
+/** The label beside the chart's dashed cutoff line. */
+export function districtLedgerVerdictCutoffLabel(figure: string): string {
+  return `cutoff ${figure}`;
+}
+
+/** The label at the top right of a Qualification chart. */
+export function districtLedgerVerdictCapLabel(ceiling: number): string {
+  return `${String(ceiling)} cap`;
+}
+
+/** The District grand total's earned chip text: every settled event, in row order. */
+export function districtLedgerVerdictEarnedAt(eventNames: readonly string[]): string {
+  return `earned at ${eventNames.map(districtLedgerShortEventName).join(", ")}`;
+}
+
+/** The District grand total's predicted chip text for one open event. */
+export function districtLedgerVerdictPredictedAt(eventName: string): string {
+  return `predicted at ${districtLedgerShortEventName(eventName)}`;
+}
+
+/** The suffix the Champ DCMP chip carries while the field is still open, clamped by the same two limits. */
+export function champLedgerVerdictFieldSuffix(chance: number): string {
+  if (chance * 100 < DISTRICT_LEDGER_CHANCE_FLOOR_PERCENT) return `, in the field <${String(DISTRICT_LEDGER_CHANCE_FLOOR_PERCENT)}% of runs`;
+  const percent = Math.min(Math.round(chance * 100), DISTRICT_LEDGER_CHANCE_CEILING_PERCENT);
+  return `, in the field ${String(percent)}% of runs`;
+}
+
+/** One outcome row's points, with the unit: "30 pts", "27 to 48 pts". */
+export function districtLedgerOutcomePointsLabel(points: number, pointsHigh?: number): string {
+  return `${districtLedgerOutcomePointsRange(points, pointsHigh ?? points)} pts`;
+}
