@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-06T05:56:25.053Z"
+last_updated: "2026-10-06T05:59:37.338Z"
 last_activity: 2026-10-06
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -723,6 +723,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 287 | R2 prune recent-write guard shortened from six hours to one (fast task; Jacob does not want to be asked about it again) | 2026-10-06 | 234153bc | — |
 | 288 | Locks picker: a resolved Schedule stop sorts after the step at its position, so Next no longer steps back onto the previous event's Awards at a week boundary (seen on 2026fnc and 2026fim) | 2026-10-06 | fea55d99 | — |
 | 289 | In range and Out of range chips dropped from the District tab once the championship field is shown, instead of printing 0 and 0 on every finished season (fast task) | 2026-10-06 | 4dcd21a4 | — |
+| 290 | Count playoff-only demo robots in simulation rosters (13 events, 26 sidecars) and propose the qualification-roster rule | 2026-10-06 | 40319afd | [261006-2mg-simulation-sidecars-include-demo-robots-](./quick/261006-2mg-simulation-sidecars-include-demo-robots-/) |
 
 ### Roadmap Evolution
 
