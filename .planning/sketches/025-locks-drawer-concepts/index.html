@@ -387,7 +387,7 @@ function drawerA(t,key){ const c=t.cells[key]; const ttl=`${CELL_TITLES[key]} ·
     tiles=`<div class="tile pred"><span class="l">most likely</span><b>${top[0]}</b></div><div class="tile"><span class="l">chance of points</span><b>${Math.round(any*100)}%</b></div>`;
     chart=`<div class="obars">${rows.map(r=>`<span class="nm ${r[1]<=0?'zero':''}">${r[0]}</span><span class="tr"><span class="br" style="width:${r[1]*100}%"></span></span><span class="pc ${r[1]<=0?'zero':''}">${pc(r[1])}</span><span class="pt">${r[2]} pts</span>`).join('')}</div>`;
   }
-  return `<div class="A"><div><div class="eyebrow">${ttl}</div><h3>${headline(t,key)}</h3><div class="tiles">${tiles}</div><p class="how">likely = 8 of 10 runs · ~ = this site's prediction, not a number TBA published</p></div><div class="chart">${chart}${legend}${src}</div></div>`;
+  return `<div class="A"><div><div class="eyebrow">${ttl}</div><h3>${headline(t,key)}</h3><div class="tiles">${tiles}</div><p class="how">likely = 8 of 10 runs</p></div><div class="chart">${chart}${legend}${src}</div></div>`;
 }
 
 /* ---------- Concept B ---------- */
