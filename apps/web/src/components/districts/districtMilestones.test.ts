@@ -274,9 +274,10 @@ describe("the walk", () => {
     expect(ids).toHaveLength(2 + 16);
     const positions = ids.slice(1, -1).map((id) => resolveDistrictTimelinePosition(timeline, id));
     for (let i = 1; i < positions.length; i++) expect(positions[i]!).toBeGreaterThanOrEqual(positions[i - 1]!);
-    // The two events interleave rather than running one after the other.
+    // The two events interleave rather than running one after the other. B's
+    // Schedule resolves to A's first match step, so it follows A's Quals ¼.
     const owners = model.walk.slice(1, -1).map((item) => (item.kind === "milestone" ? item.milestone.eventKey : ""));
-    expect(owners.slice(0, 4)).toEqual(["eva", "evb", "eva", "evb"]);
+    expect(owners.slice(0, 6)).toEqual(["eva", "eva", "evb", "evb", "eva", "evb"]);
   });
 
   it("never walks onto a stop that has not happened", () => {
@@ -297,6 +298,27 @@ describe("the walk", () => {
     const fromStart = milestoneWalkNeighbours(model, { kind: "start" }).next!;
     expect(walkItemAtId(fromStart)).toBe("eva:schedule");
     expect(milestoneWalkNeighbours(model, { kind: "live" }).prev).toBe(model.walk[model.walk.length - 2]);
+  });
+
+  it("steps from one event's Awards onto the next event's Schedule, never back (2026-10-06)", () => {
+    // B's first match follows A's last by a day, so B's Schedule stop resolves to A's Awards step.
+    const pair = [input("eva", state({ qualMatchesPlayed: 4, qualMatchesTotal: 4 })), input("evb", state({ qualMatchesPlayed: 4, qualMatchesTotal: 4 }))];
+    const pairTimeline = timelineOf(pair, [
+      ["eva", eventArtifact("eva", 4, BASE_MS)],
+      ["evb", eventArtifact("evb", 4, BASE_MS + 24 * 60 * MINUTE)],
+    ]);
+    const pairModel = modelOf(pairTimeline, pair);
+    expect(resolveDistrictTimelinePosition(pairTimeline, "evb:schedule")).toBe(resolveDistrictTimelinePosition(pairTimeline, "eva:awards"));
+    const ids = pairModel.walk.map(walkItemAtId);
+    expect(ids.indexOf("evb:schedule")).toBe(ids.indexOf("eva:awards") + 1);
+    const fromSchedule = milestoneWalkNeighbours(pairModel, select(pairModel, pairTimeline, "evb:schedule"));
+    expect(walkItemAtId(fromSchedule.prev!)).toBe("eva:awards");
+    expect(walkItemAtId(fromSchedule.next!)).toBe("evb:m:evb_qm1");
+    const fromAwards = milestoneWalkNeighbours(pairModel, select(pairModel, pairTimeline, "eva:awards"));
+    expect(walkItemAtId(fromAwards.next!)).toBe("evb:schedule");
+    // At B's Schedule, A's Awards stop reads done; at A's Awards, B's Schedule does not.
+    expect(milestoneStopStates(pairModel, "eva", select(pairModel, pairTimeline, "evb:schedule")).done[7]).toBe(true);
+    expect(milestoneStopStates(pairModel, "evb", select(pairModel, pairTimeline, "eva:awards")).done[0]).toBe(false);
   });
 
   it("walks from a milestone to its neighbours", () => {

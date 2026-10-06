@@ -92,6 +92,25 @@ export function districtMilestoneEventStatus(state: DistrictEventStateFacts | un
 /** A comparison key: a position index, then a tie-break. Two keys compare lexicographically. */
 export type DistrictMilestoneOrder = readonly [number, number];
 
+/**
+ * THE TIE-BREAKS ABOVE THE EIGHT STOP INDEXES (0 to 7), in walk order at one
+ * position: a RESOLVED Schedule stop, then a bare position selection, then
+ * Live.
+ *
+ * A resolved Schedule stop's position is the step just before its event's
+ * first match, which is some OTHER event's step (or season start), and being
+ * at a position means that step is done. With its own stop index (0) the
+ * Schedule stop sorted BEFORE that step's stop, so on every week boundary the
+ * arrows ran Playoffs, next event's Schedule, previous event's Awards, next
+ * event's Quals ¼: the Next arrow stepped backwards onto the event the reader
+ * had just left (seen on 2026fnc and 2026fim, 2026-10-06). An UNRESOLVED
+ * Schedule stop keeps index 0, since it sorts against its own event's stops
+ * at the quals-done fallback, not against another event's.
+ */
+const ORDER_TIE_SCHEDULE_RESOLVED = 8;
+const ORDER_TIE_POSITION = 9;
+const ORDER_TIE_LIVE = 10;
+
 export interface DistrictMilestone {
   readonly eventKey: string;
   readonly eventName: string;
@@ -103,7 +122,7 @@ export interface DistrictMilestone {
   /** The stop's position in the current timeline, or `null` when its step is not in it (its event's artifact is not loaded). */
   readonly positionIndex: number | null;
   readonly happened: boolean;
-  /** `[positionIndex, index]` when resolved, else `[the event's quals done position, index]`, so an unresolved stop sorts just before its own Quals Done. */
+  /** `[positionIndex, index]` when resolved (a resolved Schedule takes `ORDER_TIE_SCHEDULE_RESOLVED`, after every stop at that position), else `[the event's quals done position, index]`, so an unresolved stop sorts just before its own Quals Done. */
   readonly order: DistrictMilestoneOrder;
 }
 
@@ -201,7 +220,7 @@ export function buildDistrictMilestones(timeline: DistrictTimeline, inputs: read
         atId,
         positionIndex,
         happened: milestoneHappened(key, input.state),
-        order: [positionIndex ?? qualsDoneIndex, index],
+        order: positionIndex === null ? [qualsDoneIndex, index] : [positionIndex, key === "schedule" ? ORDER_TIE_SCHEDULE_RESOLVED : index],
       };
     });
     events.push({ input, status: districtMilestoneEventStatus(input.state), milestones, firstIndex: firstStep === -1 ? nowIndex : firstStep });
@@ -255,9 +274,9 @@ export function selectionEventKey(selection: DistrictMilestoneSelection): string
 
 function selectionKey(model: DistrictMilestoneModel, selection: DistrictMilestoneSelection): DistrictMilestoneOrder {
   if (selection.kind === "start") return [0, -1];
-  if (selection.kind === "live") return [model.nowIndex, 9];
+  if (selection.kind === "live") return [model.nowIndex, ORDER_TIE_LIVE];
   if (selection.kind === "milestone") return selection.milestone.order;
-  return [selection.positionIndex, 8];
+  return [selection.positionIndex, ORDER_TIE_POSITION];
 }
 
 function walkKey(model: DistrictMilestoneModel, item: DistrictMilestoneWalkItem): DistrictMilestoneOrder {
