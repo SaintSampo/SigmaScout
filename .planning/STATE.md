@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-06T05:54:26.781Z"
+last_updated: "2026-10-06T05:56:25.053Z"
 last_activity: 2026-10-06
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -722,6 +722,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 286 | Rewound Locks views are true as-of forecasts: per match state captured at fold (offline and live Worker), rebuilt and priced in the browser; generated schedules before a Schedule stop; Simulation tab SPR rewind too. Built and verified on branch locks-rewind-asof, NOT yet merged, published or deployed | 2026-10-05 | b63021d4 | [261005-5g0-make-every-rewound-locks-view-a-true-for](./quick/261005-5g0-make-every-rewound-locks-view-a-true-for/) |
 | 287 | R2 prune recent-write guard shortened from six hours to one (fast task; Jacob does not want to be asked about it again) | 2026-10-06 | 234153bc | — |
 | 288 | Locks picker: a resolved Schedule stop sorts after the step at its position, so Next no longer steps back onto the previous event's Awards at a week boundary (seen on 2026fnc and 2026fim) | 2026-10-06 | fea55d99 | — |
+| 289 | In range and Out of range chips dropped from the District tab once the championship field is shown, instead of printing 0 and 0 on every finished season (fast task) | 2026-10-06 | 4dcd21a4 | — |
 
 ### Roadmap Evolution
 
