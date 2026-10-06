@@ -355,7 +355,8 @@ function howText(t,key){ const c=t.cells[key];
 /* ---------- Concept A ---------- */
 function histSVG(c,opts){ const W=560,top=opts.cutoff?20:6,H=84,ax=16,max=c.max,p=pct(c.counts); const sw=W/(max+1); const x=v=>(v+0.5)*sw;
   // A 426-slot axis at 560px is 1.3px per bar, which reads as dust. Bin to a width the eye can
-  // resolve (about 6px) and draw each bin as one bar with a 1px surface gap; the band, the tick and
+  // resolve (about 6px) and draw each bin as one bar with the SAME 1px surface gap on every axis, crisp so
+  // the gap never anti-aliases to two widths; the band, the tick and
   // the percentiles still come from the unbinned counts, so nothing printed moves.
   const bin=Math.max(1,Math.ceil((max+1)/95)); const bins=[]; for(let v=0;v<=max;v+=bin){ let n=0; for(let k=v;k<Math.min(v+bin,max+1);k++) n+=c.counts[k]||0; bins.push({v,n}); }
   let modal=0; bins.forEach(b=>{if(b.n>modal)modal=b.n;});
@@ -364,7 +365,7 @@ function histSVG(c,opts){ const W=560,top=opts.cutoff?20:6,H=84,ax=16,max=c.max,
   if(opts.cutoff){ const z=opts.cutoff; s+=`<defs><pattern id="hz" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(135)"><rect width="1" height="4" fill="rgba(15,23,42,.18)"/></pattern></defs>`;
     s+=`<rect x="${x(z.p10-0.5)}" y="${top}" width="${x(z.p90+0.5)-x(z.p10-0.5)}" height="${H}" fill="url(#hz)"/>`; }
   s+=`<rect x="${bl}" y="${top}" width="${Math.max(3,br-bl)}" height="${H}" fill="var(--pred-soft)"/>`;
-  bins.forEach(b=>{ if(b.n<=0) return; const h=Math.max(1,(b.n/modal)*(H-2)); const bw=Math.min(bin,max+1-b.v)*sw; s+=`<rect x="${b.v*sw}" y="${top+H-h}" width="${Math.max(bw-(bin>1?1:0),1)}" height="${h}" fill="var(--hist)"/>`; });
+  bins.forEach(b=>{ if(b.n<=0) return; const h=Math.max(1,(b.n/modal)*(H-2)); const bw=Math.min(bin,max+1-b.v)*sw; s+=`<rect x="${b.v*sw}" y="${top+H-h}" width="${Math.max(bw-1,1)}" height="${h}" fill="var(--hist)" shape-rendering="crispEdges"/>`; });
   s+=`<rect x="${x(p.p50)-1}" y="${top}" width="2" height="${H}" fill="var(--median)"/>`;
   const step=max>300?100:max>100?50:max>40?20:10;
   for(let v=0;v<=max;v+=step){ s+=`<text x="${x(v)}" y="${top+H+13}" font-size="10" text-anchor="${v===0?'start':'middle'}" fill="var(--faint)">${v}</text>`; }
