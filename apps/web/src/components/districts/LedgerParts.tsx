@@ -91,7 +91,7 @@ import type { LedgerCutoffView } from "./predictedCutoff.js";
  * is sky, and the tier palette's own note makes sky load-bearing against the
  * epic purple under deuteranopia. On THIS tab the rare pair carries no tier
  * meaning (an award-locked team wears the locked GREEN pair), so it is free to
- * mean "still open, click for the histogram".
+ * mean "still open, click to see".
  *
  * Written as PLAIN STRINGS, never passed through `cn()`: tailwind-merge drops a
  * `text-role-*` class sitting beside a `text-[var(...)]` one, and only a

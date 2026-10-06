@@ -141,7 +141,7 @@ export function districtLedgerPlacementLine(placement: number): string {
 
 /** The two legend keys, verbatim from the UI-SPEC. */
 export const DISTRICT_LEDGER_LEGEND_EARNED = "earned, final";
-export const DISTRICT_LEDGER_LEGEND_OPEN = "still open · click for the histogram";
+export const DISTRICT_LEDGER_LEGEND_OPEN = "still open · click to see";
 
 /** The likely/tilde explainer, verbatim from the UI-SPEC. */
 export const DISTRICT_LEDGER_LEGEND_EXPLAINER = "likely = 8 of 10 runs land here · ~ = this site's prediction, not a number TBA published";
