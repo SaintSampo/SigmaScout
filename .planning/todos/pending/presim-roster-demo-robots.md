@@ -35,6 +35,14 @@ on every season, so any event whose playoffs carried demo or fill-in robots is a
   roster rule that follows TBA's convention and changes exactly these 13 events.
 - Full write-up and the proposed changes: `.planning/quick/261006-2mg-simulation-sidecars-include-demo-robots-/261006-2mg-SUMMARY.md`.
 
+## Web half shipped (quick task 261006-2t0, commit aa041e76, 2026-10-06)
+
+Jacob's call: web now, sidecar later. `simulatedTeams` in `apps/web/src/lib/simulationInputs.ts`
+restricts every browser simulation roster (Simulation tab, rewound view, Locks ledger input) to
+teams on a qualification row, and `fieldSize` follows. **What remains is the publisher half**:
+`buildPreScheduleSidecarForEvent`'s roster, SPR and EPA version bumps, and a full republish, to
+ride the next republish something else already needs.
+
 ## What a fix involves
 
 Restrict the sidecar roster to teams that play (or are scheduled for) a qualification match. That
