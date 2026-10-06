@@ -49,7 +49,7 @@ import {
 } from "./districtLedgerChances.js";
 import { awardProfileOrZero, deriveStageFromState, tierEvents, type DistrictStageFinality } from "./districtLedgerRows.js";
 import type { DistrictLedgerStatusModel } from "./districtLedgerStatus.js";
-import { dcmpEventKeyFor, type ChampDcmpEstimate, type ChampLedgerTeam } from "./champLedgerRows.js";
+import { dcmpEventKeysFor, type ChampDcmpEstimate, type ChampLedgerTeam } from "./champLedgerRows.js";
 import type { ChampLedgerStatusModel } from "./champLedgerStatus.js";
 import {
   ledgerCutoffView,
@@ -433,8 +433,12 @@ export function buildChampAwardDraws(options: BuildChampAwardDrawsOptions): Adva
   }
   const awardFinal = (eventKey: string): boolean => stageByEvent?.get(eventKey)?.award ?? nowAwardFinal.get(eventKey) ?? false;
 
-  const dcmpEventKey = dcmpEventKeyFor(artifact);
-  if (dcmpEventKey !== undefined && awardFinal(dcmpEventKey)) return [];
+  // NONE once EVERY championship's awards are final (quick task 261006-lwo). A
+  // district with two championships still gets one set of draws — the count
+  // model is per district, and a second set is a cutoff-model question, not a
+  // guarantee one; the verdicts beside this run already count both.
+  const dcmpEventKeys = dcmpEventKeysFor(artifact);
+  if (dcmpEventKeys.length > 0 && dcmpEventKeys.every(awardFinal)) return [];
 
   const countWeights = dcmpAwardCountDistribution(season, artifact.districtKey, artifact.cmpSlots ?? 0, setting.countMode);
   const pendingKeys = [...districtEventKeys].filter((eventKey) => !awardFinal(eventKey)).sort();

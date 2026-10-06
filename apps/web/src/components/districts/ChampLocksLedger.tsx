@@ -126,7 +126,8 @@ import {
   champContributions,
   champFieldMembership,
   champTierEvents,
-  dcmpEventKeyFor,
+  dcmpEventKeysFor,
+  dcmpStartedForTeam,
   type ChampDcmpEstimate,
   type ChampContribution,
   type ChampLedgerCell,
@@ -377,7 +378,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   const [hiddenStatuses, setHiddenStatuses] = useState<ReadonlySet<DistrictLedgerShownStatusKey>>(() => new Set());
 
   const events = useMemo(() => champTierEvents(artifact), [artifact]);
-  const dcmpEventKey = useMemo(() => dcmpEventKeyFor(artifact), [artifact]);
+  const dcmpEventKeys = useMemo(() => dcmpEventKeysFor(artifact), [artifact]);
   const tierByEvent = useMemo(() => new Map(events.map((event) => [event.eventKey, event.tier] as const)), [events]);
   const allowedEventKeys = useMemo(() => events.map((event) => event.eventKey).sort(), [events]);
 
@@ -422,10 +423,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   }, [artifact]);
 
   /** Whether the District Championship has started at the LIVE position, from its own `state` block. */
-  const dcmpStartedNow = useMemo(() => {
-    if (dcmpEventKey === undefined) return false;
-    return startedKeys.includes(dcmpEventKey);
-  }, [dcmpEventKey, startedKeys]);
+  const startedDcmpKeysNow = useMemo(() => new Set(dcmpEventKeys.filter((key) => startedKeys.includes(key))), [dcmpEventKeys, startedKeys]);
 
   /**
    * The artifact's own rookie flag per team, for the Awards drawer's outcome
@@ -478,10 +476,11 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
    * artifact's own `state` block; rewound it is the rail, because a finished
    * event's state block would report "started" at every position behind it.
    */
-  const dcmpStarted = useMemo(() => {
-    if (dcmpEventKey === undefined) return false;
-    return atNow ? dcmpStartedNow : eventStartedAtPosition(timeline, positionIndex, dcmpEventKey);
-  }, [dcmpEventKey, atNow, dcmpStartedNow, timeline, positionIndex]);
+  /** The championships that have started AT THE POSITION — one for almost every district, two for 2026 California (quick task 261006-lwo). */
+  const startedDcmpEventKeys = useMemo(
+    () => (atNow ? startedDcmpKeysNow : new Set(dcmpEventKeys.filter((key) => eventStartedAtPosition(timeline, positionIndex, key)))),
+    [dcmpEventKeys, atNow, startedDcmpKeysNow, timeline, positionIndex]
+  );
 
   function handleCellToggle(teamNumber: number, cellId: string): void {
     void navigate({
@@ -506,10 +505,11 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
    * where the field is a fact), so its run would cost Worker time and print
    * nothing. It is left out of the run there.
    */
-  const skipEventKeys = useMemo(
-    () => (!atNow && !dcmpStarted && dcmpEventKey !== undefined ? new Set([dcmpEventKey]) : undefined),
-    [atNow, dcmpStarted, dcmpEventKey]
-  );
+  const skipEventKeys = useMemo(() => {
+    if (atNow) return undefined;
+    const notStarted = dcmpEventKeys.filter((key) => !startedDcmpEventKeys.has(key));
+    return notStarted.length === 0 ? undefined : new Set(notStarted);
+  }, [atNow, startedDcmpEventKeys, dcmpEventKeys]);
 
   const data = useDistrictLedgerData({
     artifact,
@@ -592,12 +592,12 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
       fieldChanceFor: (teamKey) => {
         const team = sourceByKey.get(teamKey);
         if (team === undefined) return undefined;
-        const membership = champFieldMembership(team, dcmpStarted, atNow);
+        const membership = champFieldMembership(team, dcmpStartedForTeam(team, startedDcmpEventKeys, dcmpEventKeys), atNow);
         return membership === "in" ? 1 : membership === "out" ? 0 : fieldChanceByTeam.get(teamKey);
       },
       spreadScale: champCutoffTuning(artifact.year).setting.spreadScale,
     });
-  }, [artifact, districtRows.teams, dcmpStarted, atNow, fieldChanceByTeam]);
+  }, [artifact, districtRows.teams, startedDcmpEventKeys, dcmpEventKeys, atNow, fieldChanceByTeam]);
 
   /**
    * ALWAYS a map, empty until the estimate is ready: with one supplied the
@@ -610,11 +610,11 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
       buildChampLedgerRows({
         ...passOptions,
         fieldChanceByTeam,
-        dcmpStarted,
+        startedDcmpEventKeys,
         atLivePosition: atNow,
         dcmpEstimateByTeam: estimates.kind === "ready" ? estimates.byTeam : NO_ESTIMATES,
       }),
-    [passOptions, fieldChanceByTeam, dcmpStarted, atNow, estimates]
+    [passOptions, fieldChanceByTeam, startedDcmpEventKeys, atNow, estimates]
   );
 
   const statuses = useMemo(
@@ -659,7 +659,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
    * yet.
    */
   const rangeState = useMemo(() => {
-    const dcmpAwardsFinal = dcmpEventKey === undefined ? false : (stageByEvent.get(dcmpEventKey)?.award ?? false);
+    const dcmpAwardsFinal = dcmpEventKeys.length > 0 && dcmpEventKeys.every((key) => stageByEvent.get(key)?.award ?? false);
     return champRangeState({
       dcmpAwardsFinal,
       cmpSlots: artifact.cmpSlots,
@@ -687,7 +687,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
       },
     });
   }, [
-    dcmpEventKey,
+    dcmpEventKeys,
     stageByEvent,
     artifact.cmpSlots,
     runSignature,

@@ -58,9 +58,10 @@
  *
  * AWARD-QUALIFIED AT THIS TIER means the DCMP winning alliance once the
  * playoffs are done, and Impact, Engineering Inspiration or Rookie All Star at
- * the DCMP once awards are posted. A district-event Impact win qualifies a team
- * for the DCMP, not the Championship, so it locks nobody here — which is
- * exactly what restricting the scan to the dcmp event key enforces.
+ * the DCMP once awards are posted — at any of the district's championships
+ * (two for 2026 California, quick task 261006-lwo). A district-event Impact
+ * win qualifies a team for the DCMP, not the Championship, so it locks nobody
+ * here — which is exactly what restricting the scan to dcmp-tier keys enforces.
  */
 import {
   computeLocksWithQualifiers,
@@ -74,11 +75,11 @@ import {
 import { AWARD_TYPE_WINNER, consumingAwardTypesForTier } from "../../../../../packages/core/districts/qualification.js";
 import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
 import { dcmpAwardCountCeilings } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
-import { dcmpNeverHappening, reservedChampSlots } from "../../../../../packages/core/districts/champReservedSlots.js";
+import { dcmpNeverHappening, perChampionship, reservedChampSlots } from "../../../../../packages/core/districts/champReservedSlots.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { DISTRICT_CATEGORIES, tierEvents, type DistrictCategory, type DistrictStageFinality } from "./districtLedgerRows.js";
 import { DISTRICT_LEDGER_STATUS_KEYS, type DistrictLedgerStatusKey, type DistrictLedgerStatusState } from "./districtLedgerStatus.js";
-import { dcmpEventKeyFor, type ChampLedgerRow, type ChampLedgerTeam } from "./champLedgerRows.js";
+import { dcmpEventKeysFor, type ChampLedgerRow, type ChampLedgerTeam } from "./champLedgerRows.js";
 import type { ChampNoCallReason, ChampRangeState } from "./champLedgerChances.js";
 import { applyLedgerRangeState, type LedgerRangeCall } from "./ledgerRangeState.js";
 
@@ -220,7 +221,7 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
   const dcmpMaxTotal = dcmpCeiling.qual + dcmpCeiling.alliance + dcmpCeiling.elim + dcmpCeiling.award;
 
   const sourceByKey = new Map(artifact.teams.map((team) => [team.teamKey, team] as const));
-  const dcmpEventKey = dcmpEventKeyFor(artifact);
+  const dcmpEventKeys = new Set(dcmpEventKeysFor(artifact));
   const consuming = consumingAwardTypesForTier("dcmp");
 
   const lockInputs: LockTeamInput[] = [];
@@ -284,8 +285,11 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
 
     for (const award of source.qualifyingAwards) {
       // A DISTRICT-event Impact win qualifies a team for the DCMP, not the
-      // Championship, so only awards at the DCMP itself are read here.
-      if (dcmpEventKey === undefined || award.eventKey !== dcmpEventKey) continue;
+      // Championship, so only awards at a DCMP are read here — at ANY of the
+      // district's championships (quick task 261006-lwo; 2026 California ran
+      // two). The stage gate below is this team's own championship's, which is
+      // where its award was won.
+      if (!dcmpEventKeys.has(award.eventKey)) continue;
       if (!consuming.has(award.awardType)) continue;
       // AN AWARD THE SLIDER HAS REOPENED HAS NOT BEEN GIVEN OUT at this
       // position. The winning alliance is decided by the PLAYOFFS and the
@@ -304,21 +308,30 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
 
   const qualifiers: QualifierSets = { awardQualified, prequalified };
 
-  // THE CHAMP-TIER RESERVATION — decision 2 in this module's header. The DCMP's
-  // stage at this position is read off the rows, the one place the rewind rail
-  // writes it; with no dcmp row anywhere every category is open, which is the
+  // THE CHAMP-TIER RESERVATION — decision 2 in this module's header. Each
+  // dcmp-tier event's stage at this position is read off the rows, the one
+  // place the rewind rail writes it (the first row sourcing each key), then
+  // folded to one stage per CHAMPIONSHIP: FIM's four divisions and their
+  // finals are one championship at the finals' stage, California's two keys
+  // are two (`perChampionship`). One reservation per championship, summed.
+  // With no dcmp row anywhere one whole championship is open, which is the
   // conservative answer. No pooled argument is passed.
-  const dcmpStageAtPosition = teams.map((team) => team.dcmpRow.sources[0]?.stage.final).find((stage) => stage !== undefined) ?? ALL_OPEN_STAGE;
-  const reservedSlots = reservedChampSlots({
-    elimFinal: dcmpStageAtPosition.elim,
-    awardFinal: dcmpStageAtPosition.award,
-    awardCeilings: dcmpAwardCountCeilings(artifact.year, artifact.districtKey, artifact.cmpSlots ?? 0).counts,
-    neverHappening: dcmpNeverHappening({
-      dcmpStates: artifact.teams.flatMap((team) => tierEvents(team, "dcmp").map((entry) => entry.state)),
-      artifactYear: artifact.year,
-      nowYear: options.nowYear ?? new Date().getUTCFullYear(),
-    }),
+  const dcmpStageByEvent = new Map<string, DistrictStageFinality>();
+  for (const team of teams) {
+    const source = team.dcmpRow.sources[0];
+    if (source !== undefined && !dcmpStageByEvent.has(source.eventKey)) dcmpStageByEvent.set(source.eventKey, source.stage.final);
+  }
+  const awardCeilings = dcmpAwardCountCeilings(artifact.year, artifact.districtKey, artifact.cmpSlots ?? 0).counts;
+  const neverHappening = dcmpNeverHappening({
+    dcmpStates: artifact.teams.flatMap((team) => tierEvents(team, "dcmp").map((entry) => entry.state)),
+    artifactYear: artifact.year,
+    nowYear: options.nowYear ?? new Date().getUTCFullYear(),
   });
+  let reservedSlots = 0;
+  const stageByChampionship = perChampionship(dcmpStageByEvent, ALL_OPEN_STAGE);
+  for (const stage of stageByChampionship.size === 0 ? [ALL_OPEN_STAGE] : stageByChampionship.values()) {
+    reservedSlots += reservedChampSlots({ elimFinal: stage.elim, awardFinal: stage.award, awardCeilings, neverHappening });
+  }
   const verdicts = computeLocksWithQualifiers(lockInputs, artifact.cmpSlots, qualifiers, reservedSlots);
   const floorCutLine = cutLinePointsWithQualifiers(lockInputs, artifact.cmpSlots, qualifiers);
 

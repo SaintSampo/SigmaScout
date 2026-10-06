@@ -3,7 +3,7 @@
  * reads no artifact and no history, the ceilings arrive as an argument.
  */
 import { describe, expect, it } from "vitest";
-import { MAX_WINNING_ALLIANCE_SIZE, dcmpNeverHappening, pendingAwardSlots, reservedChampSlots } from "./champReservedSlots.js";
+import { MAX_WINNING_ALLIANCE_SIZE, championshipStemOf, dcmpNeverHappening, pendingAwardSlots, perChampionship, reservedChampSlots } from "./champReservedSlots.js";
 import type { DistrictEventStateFacts } from "./reservedSlots.js";
 
 const FNC: Readonly<Record<0 | 9 | 10, number>> = { 0: 1, 9: 2, 10: 2 };
@@ -37,6 +37,34 @@ describe("reservedChampSlots", () => {
     expect(pendingAwardSlots({ 0: 1, 9: 1, 10: 0 })).toBe(2);
     expect(pendingAwardSlots({ 0: 5, 9: 2, 10: 2 })).toBe(9);
     expect(pendingAwardSlots({ 0: 1, 9: -3, 10: 1 })).toBe(2);
+  });
+});
+
+describe("perChampionship — divisions fold into their parent, separate championships stay separate", () => {
+  it("strips trailing division digits and nothing else", () => {
+    expect(championshipStemOf("2026micmp1")).toBe("2026micmp");
+    expect(championshipStemOf("2026micmp")).toBe("2026micmp");
+    expect(championshipStemOf("2026cascmp")).toBe("2026cascmp");
+  });
+
+  it("reads FIM's five dcmp-tier keys as ONE championship, at the parent's value", () => {
+    const byEvent = new Map([["2026micmp1", "d1"], ["2026micmp2", "d2"], ["2026micmp3", "d3"], ["2026micmp4", "d4"], ["2026micmp", "parent"]]);
+    expect([...perChampionship(byEvent, "open")]).toEqual([["2026micmp", "parent"]]);
+  });
+
+  it("reads 2026 California's two keys as TWO championships", () => {
+    const byEvent = new Map([["2026cascmp", "south"], ["2026cancmp", "north"]]);
+    expect(new Map(perChampionship(byEvent, "open"))).toEqual(new Map([["2026cascmp", "south"], ["2026cancmp", "north"]]));
+  });
+
+  it("reads divisions whose parent is not on the artifact yet as one championship with nothing final", () => {
+    const byEvent = new Map([["2026txcmp1", "d1"], ["2026txcmp2", "d2"]]);
+    expect([...perChampionship(byEvent, "open")]).toEqual([["2026txcmp", "open"]]);
+  });
+
+  it("reads a lone single-event championship at its own value", () => {
+    expect([...perChampionship(new Map([["2026pncmp", "x"]]), "open")]).toEqual([["2026pncmp", "x"]]);
+    expect(perChampionship(new Map(), "open").size).toBe(0);
   });
 });
 

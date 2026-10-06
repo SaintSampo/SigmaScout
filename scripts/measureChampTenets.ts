@@ -46,7 +46,7 @@ import {
 } from "../apps/web/src/components/districts/districtLedgerRows.js";
 import { buildDistrictTimeline, districtStageAtPosition, eventStartedAtPosition } from "../apps/web/src/components/districts/districtTimeline.js";
 import { computeDistrictLedgerStatuses } from "../apps/web/src/components/districts/districtLedgerStatus.js";
-import { buildChampLedgerRows, champTierEvents, dcmpEventKeyFor } from "../apps/web/src/components/districts/champLedgerRows.js";
+import { buildChampLedgerRows, champTierEvents, dcmpEventKeysFor } from "../apps/web/src/components/districts/champLedgerRows.js";
 import { computeChampLedgerStatuses } from "../apps/web/src/components/districts/champLedgerStatus.js";
 import { outcomeForLockedOutShown, outcomeForLockedShown, type LedgerTenet, type LedgerTenetOutcome } from "./measureLedgerTenets.js";
 
@@ -118,7 +118,7 @@ export function publishedChampVerdicts(artifact: DistrictArtifact): ReadonlyMap<
 
 export function sweepChamp(artifact: DistrictArtifact, finalVerdicts: ReadonlyMap<string, LockStatus> = publishedChampVerdicts(artifact)): ChampTenetSweep {
   const events = champTierEvents(artifact);
-  const dcmpEventKey = dcmpEventKeyFor(artifact);
+  const dcmpEventKeys = dcmpEventKeysFor(artifact);
 
   // The tab's own three memos: the now stage per event, the started set, and the DCMP's started flag at now.
   const nowStageByEvent = new Map<string, DistrictStageFinality>();
@@ -132,7 +132,7 @@ export function sweepChamp(artifact: DistrictArtifact, finalVerdicts: ReadonlyMa
       }
     }
   }
-  const dcmpStartedNow = dcmpEventKey !== undefined && startedKeys.has(dcmpEventKey);
+  const startedDcmpKeysNow = new Set(dcmpEventKeys.filter((key) => startedKeys.has(key)));
 
   const timeline = buildDistrictTimeline({ events, eventArtifacts: NO_EVENT_ARTIFACTS });
 
@@ -163,8 +163,8 @@ export function sweepChamp(artifact: DistrictArtifact, finalVerdicts: ReadonlyMa
     const districtLockedOut = new Set<string>();
     for (const [teamKey, result] of districtStatuses.byTeam) if (result.status === "lockedOut") districtLockedOut.add(teamKey);
 
-    const dcmpStarted = dcmpEventKey === undefined ? false : atNow ? dcmpStartedNow : eventStartedAtPosition(timeline, index, dcmpEventKey);
-    const rows = buildChampLedgerRows({ ...passOptions, dcmpStarted, atLivePosition: atNow });
+    const startedDcmpEventKeys = atNow ? startedDcmpKeysNow : new Set(dcmpEventKeys.filter((key) => eventStartedAtPosition(timeline, index, key)));
+    const rows = buildChampLedgerRows({ ...passOptions, startedDcmpEventKeys, atLivePosition: atNow });
     const statuses = computeChampLedgerStatuses({ artifact, teams: rows.teams, districtLockedOut });
     reservedSlotsTotal += statuses.reservedSlots;
     if (statuses.reservedSlots > 0) positionsWithReservedSlots += 1;

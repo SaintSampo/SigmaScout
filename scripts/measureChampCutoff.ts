@@ -82,7 +82,7 @@ import {
   buildChampLedgerRows,
   champFieldMembership,
   champTierEvents,
-  dcmpEventKeyFor,
+  dcmpEventKeysFor,
 } from "../apps/web/src/components/districts/champLedgerRows.js";
 import { computeChampLedgerStatuses } from "../apps/web/src/components/districts/champLedgerStatus.js";
 import {
@@ -336,11 +336,11 @@ function nowStageByEventOf(artifact: DistrictArtifact): Map<string, DistrictStag
   return map;
 }
 
-/** The LAST rail index before `timeline.nowIndex` at which the District Championship has not started. */
-export function endOfDistrictSeasonIndex(timeline: DistrictTimeline, dcmpEventKey: string): number {
+/** The LAST rail index before `timeline.nowIndex` at which NO District Championship has started. */
+export function endOfDistrictSeasonIndex(timeline: DistrictTimeline, dcmpEventKeys: readonly string[]): number {
   let index = -1;
   for (let i = 0; i < timeline.nowIndex; i++) {
-    if (!eventStartedAtPosition(timeline, i, dcmpEventKey)) index = i;
+    if (!dcmpEventKeys.some((key) => eventStartedAtPosition(timeline, i, key))) index = i;
   }
   return index;
 }
@@ -368,12 +368,12 @@ function runAtPosition(
   const cmpSlots = artifact.cmpSlots;
   const published = artifact.insights.cmpCutLinePoints;
   if (cmpSlots === null || published === null) return fail("no cmpSlots or no published cut line");
-  const dcmpEventKey = dcmpEventKeyFor(artifact);
-  if (dcmpEventKey === undefined) return fail("no dcmp event key");
+  const dcmpEventKeys = dcmpEventKeysFor(artifact);
+  if (dcmpEventKeys.length === 0) return fail("no dcmp event key");
 
   const positionId = timeline.positions[positionIndex]!.id;
   const stageByEvent = districtStageAtPosition(timeline, positionIndex, nowStageByEvent);
-  const dcmpStarted = eventStartedAtPosition(timeline, positionIndex, dcmpEventKey);
+  const dcmpStarted = dcmpEventKeys.some((key) => eventStartedAtPosition(timeline, positionIndex, key));
   if (dcmpStarted) return fail("the DCMP has started at the position");
 
   // The district pass, its verdicts and its chance run.
@@ -424,7 +424,7 @@ function runAtPosition(
   const unpricedInTeams = rows.teams.filter((team) => team.membership === "in" && team.grandTotalIsDistrictOnly).length;
 
   const state = champRangeState({
-    dcmpAwardsFinal: stageByEvent.get(dcmpEventKey)?.award ?? false,
+    dcmpAwardsFinal: dcmpEventKeys.every((key) => stageByEvent.get(key)?.award ?? false),
     cmpSlots,
     perEventRunSignature: "",
     districtRun: { built: districtRun !== undefined, status: districtRun === undefined ? "idle" : "complete", current: true },
@@ -524,11 +524,11 @@ export function backtestDistrict(artifact: DistrictArtifact, setting: ChampCutof
   const seed = options.seed ?? DEFAULT_SIMULATION_SEED;
   const fail = (reason: string): DistrictBacktestOutcome => ({ ok: false, districtKey: artifact.districtKey, year: artifact.year, reason });
   if (!isBacktestable(artifact)) return fail("not backtestable");
-  const dcmpEventKey = dcmpEventKeyFor(artifact)!;
+  const dcmpEventKeys = dcmpEventKeysFor(artifact);
 
   const timeline = buildDistrictTimeline({ events: champTierEvents(artifact), eventArtifacts: NO_EVENT_ARTIFACTS });
   const nowStageByEvent = nowStageByEventOf(artifact);
-  const index = endOfDistrictSeasonIndex(timeline, dcmpEventKey);
+  const index = endOfDistrictSeasonIndex(timeline, dcmpEventKeys);
   if (index < 0) return fail("no position before the DCMP");
 
   // Every district tier event must be final there, or the empty
@@ -860,12 +860,12 @@ export function earlierPositionsPnw2026(artifact: DistrictArtifact, setting: Cha
   const events = champTierEvents(artifact);
   const timeline = buildDistrictTimeline({ events, eventArtifacts });
   const nowStageByEvent = nowStageByEventOf(artifact);
-  const dcmpEventKey = dcmpEventKeyFor(artifact)!;
+  const dcmpEventKeys = dcmpEventKeysFor(artifact);
   const tierByEvent = new Map(events.map((event) => [event.eventKey, event.tier] as const));
   const positions = [
     { index: 0, label: "Season start" },
     ...weekEndPositions(timeline),
-  ].filter(({ index }) => !eventStartedAtPosition(timeline, index, dcmpEventKey));
+  ].filter(({ index }) => !dcmpEventKeys.some((key) => eventStartedAtPosition(timeline, index, key)));
 
   return positions.map(({ index, label }) => {
     const stageByEvent = districtStageAtPosition(timeline, index, nowStageByEvent);

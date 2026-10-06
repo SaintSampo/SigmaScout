@@ -32,7 +32,7 @@ import { computeLocksWithQualifiers, cutLinePointsWithQualifiers, type LockResul
 import { maxEventPoints, type DistrictTier } from "../core/districts/pointModel.js";
 import { prequalifiedTeams } from "../core/districts/prequalified.js";
 import { districtEventCategoryFinality, reservedImpactSlots, type ReservedSlotEvent } from "../core/districts/reservedSlots.js";
-import { dcmpNeverHappening, reservedChampSlots } from "../core/districts/champReservedSlots.js";
+import { dcmpNeverHappening, perChampionship, reservedChampSlots } from "../core/districts/champReservedSlots.js";
 import { dcmpAwardCountCeilings } from "../core/districts/hypotheticalDcmp.js";
 import { pooledLockInputs, type PooledTeamEntry } from "../core/districts/pooledLockInputs.js";
 import { consumingAwardTypesForTier, specialAllocationNote, type AwardTier } from "../core/districts/qualification.js";
@@ -303,11 +303,14 @@ function lockVerdict(result: LockResult, cutLinePoints: number | null, allocatio
  * open. `packages/core/districts/champReservedSlots.ts` owns the rule; this
  * function owns only the walk over the artifact's dcmp-tier rows.
  *
- * ONE RESERVATION PER DCMP EVENT, summed: a district with two championships
- * (2026ca) holds slots back for each one still open. A district with no dcmp
- * row at all holds back one whole open championship, unless the rule's
- * past-season clause says it is never happening. A row carrying state wins
- * over one that carries none, matching `reservedDistrictSlots` above.
+ * ONE RESERVATION PER CHAMPIONSHIP, summed: a district with two championships
+ * (2026ca) holds slots back for each one still open, and a district whose
+ * championship is published as divisions plus a finals event (FIM, TX, NE,
+ * ONT) holds back ONE, at the finals event's state (`perChampionship`). A
+ * district with no dcmp row at all holds back one whole open championship,
+ * unless the rule's past-season clause says it is never happening. A row
+ * carrying state wins over one that carries none, matching
+ * `reservedDistrictSlots` above.
  */
 function reservedChampSlotsAtNow(teams: readonly DistrictTeam[], season: number, districtKey: string, cmpSlots: number, nowYear: number): number {
   type RowState = DistrictTeam["eventPoints"][number]["state"];
@@ -322,7 +325,8 @@ function reservedChampSlotsAtNow(teams: readonly DistrictTeam[], season: number,
   }
   const neverHappening = dcmpNeverHappening({ dcmpStates, artifactYear: season, nowYear });
   const awardCeilings = dcmpAwardCountCeilings(season, districtKey, cmpSlots).counts;
-  const stages: RowState[] = stateByEvent.size === 0 ? [undefined] : [...stateByEvent.values()];
+  const stateByChampionship = perChampionship<RowState>(stateByEvent, undefined);
+  const stages: RowState[] = stateByChampionship.size === 0 ? [undefined] : [...stateByChampionship.values()];
   let reserved = 0;
   for (const state of stages) {
     reserved += reservedChampSlots({ elimFinal: state?.playoffsDone === true, awardFinal: state?.awardsPosted === true, awardCeilings, neverHappening });

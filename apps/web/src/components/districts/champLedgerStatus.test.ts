@@ -237,6 +237,84 @@ describe("computeChampLedgerStatuses — the champ-tier reservation (quick task 
   });
 });
 
+describe("computeChampLedgerStatuses — a district with two championships (quick task 261006-lwo)", () => {
+  const DCMP_KEY = "2026pncmp";
+  const SECOND_KEY = "2026pnncmp";
+  const AWARD_SLOTS = pendingAwardSlots(dcmpAwardCountCeilings(FIXTURE.year, FIXTURE.districtKey, FIXTURE.cmpSlots!).counts);
+
+  /** Every other team's championship rows AND its DCMP awards relabelled to a second key: the same facts, split across two events, as 2026 California publishes them. */
+  const TWO_DCMP: DistrictArtifact = DistrictArtifactSchema.parse({
+    ...FIXTURE,
+    teams: FIXTURE.teams.map((team, index) => {
+      if (index % 2 === 0) return team;
+      const relabel = <T extends { eventKey: string }>(row: T): T => (row.eventKey === DCMP_KEY ? { ...row, eventKey: SECOND_KEY } : row);
+      return {
+        ...team,
+        eventPoints: team.eventPoints.map(relabel),
+        remainingEvents: team.remainingEvents.map(relabel),
+        qualifyingAwards: team.qualifyingAwards.map(relabel),
+      };
+    }),
+  });
+
+  function modelWithStages(first: DistrictStageFinality, second: DistrictStageFinality) {
+    const stageByEvent = new Map(eventKeysOf(TWO_DCMP).map((key) => [key, key === DCMP_KEY ? first : key === SECOND_KEY ? second : ALL_FINAL] as const));
+    const rows = buildChampLedgerRows({ artifact: TWO_DCMP, distributions: new Map(), stageByEvent, dcmpStarted: true });
+    return { rows, status: computeChampLedgerStatuses({ artifact: TWO_DCMP, teams: rows.teams, nowYear: 2026 }) };
+  }
+
+  it("carries both keys, and builds every team's row from its own championship", () => {
+    const { rows } = modelWithStages(ALL_FINAL, ALL_FINAL);
+    expect(rows.dcmpEventKeys).toEqual([DCMP_KEY, SECOND_KEY]);
+    expect(rows.dcmpEventKey).toBe(DCMP_KEY);
+    const atSecond = rows.teams.filter((team) => team.dcmpRow.sources[0]?.eventKey === SECOND_KEY);
+    expect(atSecond.length).toBeGreaterThan(0);
+    expect(atSecond.every((team) => team.membership === "in")).toBe(true);
+  });
+
+  it("reproduces the single-championship census exactly: the second championship's winners and award winners leave the pool too", () => {
+    const { status } = modelWithStages(ALL_FINAL, ALL_FINAL);
+    expect(status.counts).toEqual(FINISHED.status.counts);
+    expect(status.verdictCensus).toEqual(FINISHED.status.verdictCensus);
+    expect(status.awardQualified).toEqual(FINISHED.status.awardQualified);
+    expect(status.pointsSlots).toBe(FINISHED.status.pointsSlots);
+    expect(status.floorCutLine).toBe(FINISHED.status.floorCutLine);
+    expect([...status.byTeam.values()].map((r) => [r.teamKey, r.status, r.byAward])).toEqual(
+      [...FINISHED.status.byTeam.values()].map((r) => [r.teamKey, r.status, r.byAward])
+    );
+  });
+
+  it("reserves one championship's slots per championship still open", () => {
+    expect(modelWithStages(ALL_FINAL, ALL_FINAL).status.reservedSlots).toBe(0);
+    expect(modelWithStages(ALL_FINAL, { qual: true, alliance: true, elim: true, award: false }).status.reservedSlots).toBe(AWARD_SLOTS);
+    expect(modelWithStages({ qual: true, alliance: true, elim: false, award: false }, ALL_OPEN).status.reservedSlots).toBe(2 * (AWARD_SLOTS + MAX_WINNING_ALLIANCE_SIZE));
+  });
+
+  it("folds a DIVISION into its parent: relabelled as 2026pncmp1 the second key is the same championship, so the parent's stage alone decides the reservation", () => {
+    const DIVISION_KEY = "2026pncmp1";
+    const withDivision: DistrictArtifact = DistrictArtifactSchema.parse({
+      ...TWO_DCMP,
+      teams: TWO_DCMP.teams.map((team) => {
+        const relabel = <T extends { eventKey: string }>(row: T): T => (row.eventKey === SECOND_KEY ? { ...row, eventKey: DIVISION_KEY } : row);
+        return { ...team, eventPoints: team.eventPoints.map(relabel), remainingEvents: team.remainingEvents.map(relabel), qualifyingAwards: team.qualifyingAwards.map(relabel) };
+      }),
+    });
+    const at = (parent: DistrictStageFinality, division: DistrictStageFinality): number => {
+      const stageByEvent = new Map(eventKeysOf(withDivision).map((key) => [key, key === DCMP_KEY ? parent : key === DIVISION_KEY ? division : ALL_FINAL] as const));
+      const rows = buildChampLedgerRows({ artifact: withDivision, distributions: new Map(), stageByEvent, dcmpStarted: true });
+      return computeChampLedgerStatuses({ artifact: withDivision, teams: rows.teams, nowYear: 2026 }).reservedSlots;
+    };
+    expect(at(ALL_FINAL, ALL_OPEN)).toBe(0);
+    expect(at(ALL_OPEN, ALL_FINAL)).toBe(AWARD_SLOTS + MAX_WINNING_ALLIANCE_SIZE);
+    expect(at({ qual: true, alliance: true, elim: true, award: false }, ALL_FINAL)).toBe(AWARD_SLOTS);
+  });
+
+  it("locks fewer teams on points while only the second championship's awards are open than with both final", () => {
+    const lockedOnPoints = (model: ReturnType<typeof modelWithStages>): number => [...model.status.byTeam.values()].filter((r) => r.status === "locked" && !r.byAward).length;
+    expect(lockedOnPoints(modelWithStages(ALL_FINAL, { qual: true, alliance: true, elim: true, award: false }))).toBeLessThan(lockedOnPoints(modelWithStages(ALL_FINAL, ALL_FINAL)));
+  });
+});
+
 describe("computeChampLedgerStatuses — the pre-registration window", () => {
   const dcmpCeilings = maxEventPoints(FIXTURE.year, "dcmp");
   const DCMP_MAX = dcmpCeilings.qual + dcmpCeilings.alliance + dcmpCeilings.elim + dcmpCeilings.award;

@@ -97,6 +97,41 @@ export function reservedChampSlots(input: ChampReservationInput): number {
   return winners + pendingAwardSlots(input.awardCeilings);
 }
 
+/**
+ * A dcmp-tier event key's CHAMPIONSHIP STEM: the key with any trailing
+ * division digits removed. `2026micmp1` and `2026micmp` are one championship
+ * (FIM plays four divisions into one finals event, and TBA publishes all five
+ * as dcmp-tier events); `2026cascmp` and `2026cancmp` are two (2026 California
+ * ran two championships the same week). Quick task 261006-lwo.
+ */
+export function championshipStemOf(eventKey: string): string {
+  return eventKey.replace(/\d+$/, "");
+}
+
+/**
+ * One value per CHAMPIONSHIP from a value per dcmp-tier event: the parent
+ * event's (the key equal to the stem) where the artifact carries it, the lone
+ * member's for a championship published as a single event, and `fallback`
+ * for a championship whose divisions are on the artifact but whose parent is
+ * not yet — the finals have not been reached, so nothing about them is final.
+ */
+export function perChampionship<T>(byEvent: ReadonlyMap<string, T>, fallback: T): Map<string, T> {
+  const members = new Map<string, string[]>();
+  for (const key of byEvent.keys()) {
+    const stem = championshipStemOf(key);
+    const list = members.get(stem) ?? [];
+    list.push(key);
+    members.set(stem, list);
+  }
+  const out = new Map<string, T>();
+  for (const [stem, keys] of members) {
+    if (byEvent.has(stem)) out.set(stem, byEvent.get(stem)!);
+    else if (keys.length === 1) out.set(stem, byEvent.get(keys[0]!)!);
+    else out.set(stem, fallback);
+  }
+  return out;
+}
+
 export interface DcmpNeverHappeningInput {
   /** Every (team, event) state block observed for the DCMP at "now", `undefined` entries included. */
   readonly dcmpStates: readonly (DistrictEventStateFacts | undefined)[];

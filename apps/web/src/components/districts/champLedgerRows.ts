@@ -270,27 +270,50 @@ export interface ChampLedgerGaps extends DistrictLedgerGaps {
 export interface ChampLedgerRowsResult {
   readonly teams: readonly ChampLedgerTeam[];
   readonly gaps: ChampLedgerGaps;
-  /** The single dcmp-tier event key this fold read, or `undefined` where the district publishes none. */
+  /** The FIRST dcmp-tier event key in sort order, or `undefined` where the district publishes none — kept for the chance run's signature; every other reader wants `dcmpEventKeys`. */
   readonly dcmpEventKey: string | undefined;
+  /** Every dcmp-tier event key the artifact carries, sorted. One for almost every district; two for 2026 California. */
+  readonly dcmpEventKeys: readonly string[];
 }
 
 /**
- * The district's single dcmp-tier event key, unioned over every team's
- * `eventPoints` and `remainingEvents`.
+ * Every dcmp-tier event key the district publishes, unioned over every team's
+ * `eventPoints` and `remainingEvents`, sorted.
  *
- * `undefined` when the district publishes none — a district whose championship
- * is not on the wire yet. The DCMP row's cells then render `unavailable` rather
+ * Empty when the district publishes none — a district whose championship is
+ * not on the wire yet. The DCMP row's cells then render `unavailable` rather
  * than blank, and the grand total with them; see this module's header for why
  * that is the honest answer rather than a district-only fallback.
  *
- * A district publishes ONE district championship. Where an artifact somehow
- * carries more than one dcmp-tier key the lexicographically first is taken, so
- * the answer is at least stable across renders.
+ * MOST DISTRICTS PUBLISH ONE championship; 2026 California published two
+ * (`2026cancmp`, `2026cascmp`, the same week, each with its own winners and
+ * judged awards). Until quick task 261006-lwo this module read only the first
+ * key, so the second championship's award winners never left the points pool
+ * and three published-eliminated teams read Locked at Now. Every reader that
+ * gates on "the DCMP" now walks this list; each team's own row is built from
+ * its own championship by the dcmp pass, as it always was.
  */
-export function dcmpEventKeyFor(artifact: DistrictArtifact): string | undefined {
+export function dcmpEventKeysFor(artifact: DistrictArtifact): string[] {
   const keys = new Set<string>();
   for (const team of artifact.teams) for (const entry of tierEvents(team, "dcmp")) keys.add(entry.eventKey);
-  return [...keys].sort()[0];
+  return [...keys].sort();
+}
+
+/** The first of `dcmpEventKeysFor`, for the chance run's signature and the tests that pin it. Not a gate: see `dcmpEventKeysFor`. */
+export function dcmpEventKeyFor(artifact: DistrictArtifact): string | undefined {
+  return dcmpEventKeysFor(artifact)[0];
+}
+
+/**
+ * Whether THIS team's championship has started at the position: its own dcmp
+ * row's event where it has one, or EVERY championship for a team with no row
+ * yet — the conservative reading, since a team with no row is only "out" of
+ * the field once no championship can still list it.
+ */
+export function dcmpStartedForTeam(team: DistrictTeam, startedDcmpEventKeys: ReadonlySet<string>, dcmpEventKeys: readonly string[]): boolean {
+  const own = tierEvents(team, "dcmp")[0]?.eventKey;
+  if (own !== undefined) return startedDcmpEventKeys.has(own);
+  return dcmpEventKeys.length > 0 && dcmpEventKeys.every((key) => startedDcmpEventKeys.has(key));
 }
 
 /**
@@ -358,12 +381,19 @@ export interface BuildChampLedgerRowsOptions {
    */
   readonly fieldChanceByTeam?: ReadonlyMap<string, number>;
   /**
-   * Whether the District Championship has STARTED at this position. Defaults to
-   * the dcmp event's own `state` block at "now"; the tab supplies the
-   * position-aware answer so a rewind back past the DCMP's first match reopens
-   * the field question in the same step.
+   * Whether the District Championship has STARTED at this position — every
+   * championship at once. Superseded by `startedDcmpEventKeys` where that is
+   * supplied; kept for callers and tests with one championship. Defaults to
+   * each dcmp event's own `state` block at "now".
    */
   readonly dcmpStarted?: boolean;
+  /**
+   * The dcmp-tier event keys that have STARTED at this position (quick task
+   * 261006-lwo). The tab supplies the position-aware set so a rewind back past
+   * a championship's first match reopens the field question in the same step;
+   * `dcmpStartedForTeam` reads it per team.
+   */
+  readonly startedDcmpEventKeys?: ReadonlySet<string>;
   /**
    * Whether the reader is at the LIVE position rather than rewound. Defaults to
    * false, which is the conservative reading: a rewound position treats a
@@ -399,8 +429,11 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
     districtCeilings.qual + districtCeilings.alliance + districtCeilings.elim + districtCeilings.award;
   const dcmpEventTotalCeiling = dcmpCeilings.qual + dcmpCeilings.alliance + dcmpCeilings.elim + dcmpCeilings.award;
 
-  const dcmpEventKey = dcmpEventKeyFor(artifact);
-  const dcmpStarted = options.dcmpStarted ?? dcmpStartedAtNow(artifact, dcmpEventKey);
+  const dcmpEventKeys = dcmpEventKeysFor(artifact);
+  const dcmpEventKey = dcmpEventKeys[0];
+  const startedDcmpEventKeys: ReadonlySet<string> =
+    options.startedDcmpEventKeys ??
+    (options.dcmpStarted === undefined ? startedDcmpEventKeysAtNow(artifact) : options.dcmpStarted ? new Set(dcmpEventKeys) : new Set<string>());
 
   const passOptions = { artifact, distributions, ...(stageByEvent === undefined ? {} : { stageByEvent }), unavailableEvents, ...(options.gaps === undefined ? {} : { gaps: options.gaps }) };
   const districtPass = buildDistrictLedgerRows({ ...passOptions, tier: "district" });
@@ -424,6 +457,7 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
     const dcmpEntry = dcmpByTeam.get(team.teamKey);
     if (districtEntry === undefined || dcmpEntry === undefined) continue;
 
+    const dcmpStarted = dcmpStartedForTeam(team, startedDcmpEventKeys, dcmpEventKeys);
     const membership = champFieldMembership(team, dcmpStarted, options.atLivePosition ?? false);
     const suppliedChance = fieldChanceByTeam?.get(team.teamKey);
     if (membership === "open" && suppliedChance === undefined) teamsWithoutFieldChance.add(team.teamKey);
@@ -440,7 +474,6 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
     const { row: dcmpRow, winChance } = buildDcmpRow(
       dcmpEntry,
       membership,
-      dcmpEventKey,
       dcmpEventTotalCeiling,
       fieldIsFact,
       options.dcmpEstimateByTeam?.get(team.teamKey),
@@ -554,6 +587,7 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
   return {
     teams,
     dcmpEventKey,
+    dcmpEventKeys,
     gaps: {
       ...unionGaps(districtPass.gaps, dcmpPass.gaps),
       teamsWithUnavailableGrandTotal: [...teamsWithUnavailableGrandTotal].sort(),
@@ -723,7 +757,6 @@ function foldCells(
 function buildDcmpRow(
   entry: DistrictLedgerTeam,
   membership: ChampFieldMembership,
-  dcmpEventKey: string | undefined,
   eventTotalCeiling: number,
   fieldIsFact: boolean,
   estimate: ChampDcmpEstimate | undefined,
@@ -746,7 +779,8 @@ function buildDcmpRow(
 
   if (membership === "out") return wholeRow("notInField");
 
-  if (fieldIsFact && row !== undefined && dcmpEventKey !== undefined) {
+  // The row is the team's OWN championship, whichever of the district's it attends.
+  if (fieldIsFact && row !== undefined) {
     const subtotal = reId(row.eventTotal, champCellId("dcmp", "eventTotal"), "eventTotal", eventTotalCeiling);
     // NO SUBTOTAL MEANS NOTHING WAS PRICED. The championship is on the
     // artifact but the tab read neither a baked sidecar nor an event artifact
@@ -811,16 +845,15 @@ function earnedOf(cell: ChampLedgerCell): number {
   return cell.kind === "final" ? cell.earned : 0;
 }
 
-/** Whether the District Championship has started at "now", read from its own `state` block and nothing else. */
-function dcmpStartedAtNow(artifact: DistrictArtifact, dcmpEventKey: string | undefined): boolean {
-  if (dcmpEventKey === undefined) return false;
+/** The dcmp-tier event keys that have started at "now", read from their own `state` blocks and nothing else. */
+function startedDcmpEventKeysAtNow(artifact: DistrictArtifact): Set<string> {
+  const started = new Set<string>();
   for (const team of artifact.teams) {
     for (const entry of tierEvents(team, "dcmp")) {
-      if (entry.eventKey !== dcmpEventKey) continue;
-      if (deriveStageFromState(entry.state).started) return true;
+      if (deriveStageFromState(entry.state).started) started.add(entry.eventKey);
     }
   }
-  return false;
+  return started;
 }
 
 function unionGaps(left: DistrictLedgerGaps, right: DistrictLedgerGaps): DistrictLedgerGaps {
