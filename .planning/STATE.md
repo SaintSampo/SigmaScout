@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-06T06:08:25.203Z"
+last_updated: "2026-10-06T06:09:59.195Z"
 last_activity: 2026-10-06
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -725,6 +725,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 289 | In range and Out of range chips dropped from the District tab once the championship field is shown, instead of printing 0 and 0 on every finished season (fast task) | 2026-10-06 | 4dcd21a4 | — |
 | 290 | Count playoff-only demo robots in simulation rosters (13 events, 26 sidecars) and propose the qualification-roster rule | 2026-10-06 | 40319afd | [261006-2mg-simulation-sidecars-include-demo-robots-](./quick/261006-2mg-simulation-sidecars-include-demo-robots-/) |
 | 291 | Simulate only teams on a qualification row: playoff-only demo robots leave the Simulation tab, the rewound view and the Locks field size (web half of presim-roster-demo-robots) | 2026-10-06 | aa041e76 | [261006-2t0-simulation-rewind-baselines-from-qualifi](./quick/261006-2t0-simulation-rewind-baselines-from-qualifi/) |
+| 292 | District Locks predicted cutoff backtested (measureDistrictCutoff.ts): line MAE 1.17 vs midpoint 1.81, range 165 of 187 at 88.2 percent over 45 district seasons 2023 to 2026; Methodology quotes the figures instead of not measured (fast task) | 2026-10-06 | 26e05394 | — |
 
 ### Roadmap Evolution
 
