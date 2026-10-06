@@ -65,6 +65,33 @@ export function buildQualRows(artifact: EventArtifact): EventMatchRow[] {
   return mergeEventMatches(artifact.matches, artifact.upcoming, isQualCompLevel);
 }
 
+/**
+ * The `teams[]` rows a qualification rank simulation ranks: the rows whose
+ * team is on at least one qualification row, played or upcoming.
+ *
+ * `teams[]` is the event's match-derived list across EVERY comp level, so at
+ * an event whose playoffs carried a forfeit or bye bucket of demo robots
+ * (`frc9991` to `frc9999` at 2026txmca, thirteen events in all, quick task
+ * 261006-2mg) it holds rows for robots that never took part in the
+ * qualification ranking. Ranking them would also inflate every field size
+ * read from the roster. The event page keeps showing those rows (the carve-out
+ * in `teamKey.ts`); only the simulation's roster excludes them.
+ *
+ * An artifact with no qualification row at all keeps its whole `teams[]`:
+ * before the schedule posts that list IS the registered roster, the same
+ * fallback the publisher's sidecar uses.
+ */
+export function simulatedTeams(artifact: EventArtifact): EventArtifact["teams"] {
+  const rows = buildQualRows(artifact);
+  if (rows.length === 0) return artifact.teams;
+  const onQualRows = new Set<string>();
+  for (const row of rows) {
+    for (const teamKey of row.redTeams) onQualRows.add(teamKey);
+    for (const teamKey of row.blueTeams) onQualRows.add(teamKey);
+  }
+  return artifact.teams.filter((team) => onQualRows.has(team.teamKey));
+}
+
 /** The index of the row whose `matchKey` matches `startMatchKey`, or -1 when absent. */
 export function findStartIndex(rows: readonly EventMatchRow[], startMatchKey: string): number {
   return rows.findIndex((row) => row.matchKey === startMatchKey);
@@ -257,10 +284,10 @@ export function buildSimulationInputs(artifact: EventArtifact, startMatchKey: st
     accumulateAlliance(row.blueTeams, raw.actualBlueRp);
   }
 
-  // Every team referenced by a simulated match, plus every rostered team,
-  // gets a baseline — makes `simulateRanks`' UnknownTeamKeyError unreachable
-  // in front of a visitor.
-  const teamsByKey = new Map(artifact.teams.map((team) => [team.teamKey, team]));
+  // Every team referenced by a simulated match, plus every rostered team on a
+  // qualification row (`simulatedTeams`), gets a baseline — makes
+  // `simulateRanks`' UnknownTeamKeyError unreachable in front of a visitor.
+  const teamsByKey = new Map(simulatedTeams(artifact).map((team) => [team.teamKey, team]));
   const allTeamKeys = new Set<string>(teamsByKey.keys());
   for (const match of remainingMatches) {
     for (const teamKey of match.redTeamKeys) allTeamKeys.add(teamKey);

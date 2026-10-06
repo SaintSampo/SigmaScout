@@ -70,7 +70,7 @@ import type {
 } from "../../../../../packages/harness/pageArtifacts.js";
 import { districtEventStateFinished, districtEventStateStarted } from "../../lib/liveEvent.js";
 import { ALL_CATEGORIES_OPEN, districtEventCategoryFinality } from "../../../../../packages/core/districts/reservedSlots.js";
-import { buildQualRows, buildSimulationInputs } from "../../lib/simulationInputs.js";
+import { buildQualRows, buildSimulationInputs, simulatedTeams } from "../../lib/simulationInputs.js";
 import { teamNumberFromKey } from "../../lib/teamKey.js";
 
 type DistrictTeam = DistrictArtifact["teams"][number];
@@ -554,7 +554,10 @@ export function awardProfileOrZero(team: DistrictTeam | undefined): DistrictAwar
  * REMAINING MATCHES and never as a fifth flag (10-04 rejects a flag outright).
  */
 function finishedQualBaselines(artifact: EventArtifact): SimTeamBaseline[] {
-  return artifact.teams.map((team) => {
+  // Over `simulatedTeams`, never the whole `teams[]`: a playoff-only demo robot
+  // was no part of the qualification ranking and must not widen `fieldSize`
+  // (quick task 261006-2t0). `asOfRewind.ts`'s restatement reads the same set.
+  return simulatedTeams(artifact).map((team) => {
     if (team.rp === undefined) return { teamKey: team.teamKey, earnedRpSum: 0, matchesPlayed: 0 };
     const denominator = team.record === undefined ? 0 : team.record.wins + team.record.losses + team.record.ties;
     if (denominator <= 0) return { teamKey: team.teamKey, earnedRpSum: 0, matchesPlayed: 0 };

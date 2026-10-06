@@ -63,7 +63,7 @@ import type { UpcomingMatch } from "../../../../../packages/core/algorithms/type
 import type { SimTeamBaseline } from "../../../../../packages/core/algorithms/simulation/rankSimulation.js";
 import type { DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
 import type { DistrictArtifact, EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import { buildQualRows } from "../../lib/simulationInputs.js";
+import { buildQualRows, simulatedTeams } from "../../lib/simulationInputs.js";
 import { cutAtPosition, districtScheduleMilestoneId, type DistrictTimeline } from "./districtTimeline.js";
 import { DISTRICT_CATEGORIES, tierEvents, type DistrictStageFinality } from "./districtLedgerRows.js";
 
@@ -187,10 +187,11 @@ type RawQualRow = EventArtifact["matches"][number] | EventArtifact["upcoming"][n
  * qualification row is at or before: `districtLedgerRows.ts`'s
  * `finishedQualBaselines` arithmetic, which the live view printed at that
  * moment too. Restated, not imported, because that function is module private
- * there and stays byte for byte as it is.
+ * there; the two stay byte for byte alike, over `simulatedTeams` (quick task
+ * 261006-2t0: a playoff-only demo robot is no part of the ranking).
  */
 function finalRankingBaselines(artifact: EventArtifact): SimTeamBaseline[] {
-  return artifact.teams.map((team) => {
+  return simulatedTeams(artifact).map((team) => {
     if (team.rp === undefined) return { teamKey: team.teamKey, earnedRpSum: 0, matchesPlayed: 0 };
     const denominator = team.record === undefined ? 0 : team.record.wins + team.record.losses + team.record.ties;
     if (denominator <= 0) return { teamKey: team.teamKey, earnedRpSum: 0, matchesPlayed: 0 };
@@ -277,7 +278,7 @@ export function asOfQualSplit(params: {
     accumulate(row.blueTeams, played.actualBlueRp);
   }
 
-  const teamKeys = new Set<string>(eventArtifact.teams.map((team) => team.teamKey));
+  const teamKeys = new Set<string>(simulatedTeams(eventArtifact).map((team) => team.teamKey));
   for (const match of upcoming) for (const teamKey of [...match.redTeams, ...match.blueTeams]) teamKeys.add(teamKey);
   const baselines: SimTeamBaseline[] = [...teamKeys].map((teamKey) =>
     (appearances.get(teamKey) ?? 0) === 0

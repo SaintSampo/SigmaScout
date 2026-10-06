@@ -910,6 +910,24 @@ describe("the per-event simulation input at three positions", () => {
     expect(built.fieldSizeFellBack).toBe(true);
     expect(built.input.fieldSize).toBe(built.input.baselines.length);
   });
+
+  it("a teams[] row on no qualification row (a playoff-only demo robot) is outside the field, finished and mid-event (quick task 261006-2t0)", () => {
+    const demo = { teamKey: "frc9999", teamNumber: 9999, nickname: "Off-Season Demo Team 9999", metrics: {} };
+    const withDemo = { ...eventArtifact, teams: [...eventArtifact.teams, demo] };
+    for (const startMatchKey of [null, "2026wadone_qm3"]) {
+      const built = buildDistrictEventSimulationInput({
+        eventKey: "2026wadone",
+        season: SEASON,
+        eventArtifact: withDemo,
+        districtArtifact,
+        stage: { qual: false, alliance: false, elim: false, award: false },
+        startMatchKey,
+      });
+      if (!built.ok) throw new Error("expected an input");
+      expect(built.input.baselines.some((baseline) => baseline.teamKey === "frc9999"), String(startMatchKey)).toBe(false);
+      expect(built.input.fieldSize, String(startMatchKey)).toBe(roster.length);
+    }
+  });
 });
 
 describe("a published alliance list is used only when it is FINAL (WR-07)", () => {
@@ -953,8 +971,10 @@ describe("a published alliance list is used only when it is FINAL (WR-07)", () =
         setNumber: 1,
         matchNumber: i + 1,
         sortTime: 1_760_000_000 + i * 600,
-        redTeams: roster.slice(0, 3),
-        blueTeams: roster.slice(3, 6),
+        // Four rows that between them seat all 24 roster teams: a team on no
+        // qualification row is outside the simulated field (quick task 261006-2t0).
+        redTeams: roster.slice(i * 6, i * 6 + 3),
+        blueTeams: roster.slice(i * 6 + 3, i * 6 + 6),
         predictedWinner: "red",
         pRedWin: 0.5,
         predictedRedScore: 50,

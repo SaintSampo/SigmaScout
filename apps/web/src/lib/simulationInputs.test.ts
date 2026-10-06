@@ -6,6 +6,7 @@ import {
   defaultStartMatchKey,
   findStartIndex,
   isRewindStart,
+  simulatedTeams,
 } from "./simulationInputs.js";
 import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.js";
 import type { EventMatchRow } from "../components/event/eventMatchAxis.js";
@@ -281,7 +282,8 @@ describe("the null contract — never coerced to zero, never averaged as 8/3", (
 describe("baseline rule 3 — zero played qualification matches before the start", () => {
   it("a team with no prefix appearance gets baseline 0/0, both when rp is present and when neither rp nor record is present", () => {
     const matches = [playedRow("2024test_qm1", 1, { redTeams: ["frcOther1"], blueTeams: ["frcOther2"] })];
-    const upcoming = [upcomingRow("2024test_qm2", 2, { redTeams: ["frcOther1"], blueTeams: ["frcOther2"] })];
+    // Both teams sit on the start row (so they are in the simulated field) and on no played row before it.
+    const upcoming = [upcomingRow("2024test_qm2", 2, { redTeams: ["frcWithRp", "frcOther1"], blueTeams: ["frcNoRp", "frcOther2"] })];
     const a = artifact({
       matches,
       upcoming,
@@ -294,6 +296,34 @@ describe("baseline rule 3 — zero played qualification matches before the start
       expect(baseline.matchesPlayed).toBe(0);
       expect(result.baselineSources.get(key)).toBe("no-played-matches");
     }
+  });
+});
+
+describe("the simulated roster — teams[] rows on no qualification row are not ranked (quick task 261006-2t0)", () => {
+  // 2026txmca's shape: nine demo robots in the playoff rows and in teams[], on no qm row.
+  const withPlayoffOnlyDemo = artifact({
+    matches: [
+      playedRow("2024test_qm1", 1, { redTeams: ["frcR"], blueTeams: ["frcB"] }),
+      playedRow("2024test_sf1m1", 1, { compLevel: "sf", redTeams: ["frcR"], blueTeams: ["frc9999"] }),
+    ],
+    upcoming: [upcomingRow("2024test_qm2", 2, { redTeams: ["frcR"], blueTeams: ["frcB"] })],
+    teams: [team("frcR", { rp: 3, record: { wins: 1, losses: 0, ties: 0 } }), team("frcB"), team("frc9999", { nickname: "Off-Season Demo Team 9999" })],
+  });
+
+  it("simulatedTeams keeps the rows on a qualification row and drops the playoff-only one", () => {
+    expect(simulatedTeams(withPlayoffOnlyDemo).map((row) => row.teamKey)).toEqual(["frcR", "frcB"]);
+  });
+
+  it("buildSimulationInputs gives the playoff-only robot no baseline, so the field size is the qualification field", () => {
+    const inputs = buildSimulationInputs(withPlayoffOnlyDemo, "2024test_qm2");
+    if (inputs === null) throw new Error("expected inputs");
+    expect(inputs.baselines.map((baseline) => baseline.teamKey).sort()).toEqual(["frcB", "frcR"]);
+    expect(inputs.baselineSources.has("frc9999")).toBe(false);
+  });
+
+  it("an artifact with no qualification row at all keeps its whole teams[] (the registered roster before the schedule posts)", () => {
+    const registeredOnly = artifact({ teams: [team("frcR"), team("frcB"), team("frcC")] });
+    expect(simulatedTeams(registeredOnly)).toBe(registeredOnly.teams);
   });
 });
 
@@ -311,10 +341,13 @@ describe("assumption A2 — a team in a simulated match but absent from teams[]"
     expect(ghost.matchesPlayed).toBe(0);
   });
 
-  it("a rostered team in no simulated match still gets a baseline, so it is ranked rather than dropped", () => {
-    const upcoming = [upcomingRow("2024test_qm1", 1, { redTeams: ["frcA"], blueTeams: ["frcB"] })];
-    const a = artifact({ upcoming, teams: [team("frcA"), team("frcB"), team("frcBench")] });
-    const result = buildSimulationInputs(a, "2024test_qm1")!;
+  it("a rostered team on a played qualification row but in no simulated match still gets a baseline, so it is ranked rather than dropped", () => {
+    // frcBench played qm1 and sits on nothing at or after the start (qm2): in the qualification field, in no remaining match.
+    const matches = [playedRow("2024test_qm1", 1, { redTeams: ["frcBench"], blueTeams: ["frcB"] })];
+    const upcoming = [upcomingRow("2024test_qm2", 2, { redTeams: ["frcA"], blueTeams: ["frcB"] })];
+    const a = artifact({ matches, upcoming, teams: [team("frcA"), team("frcB"), team("frcBench")] });
+    const result = buildSimulationInputs(a, "2024test_qm2")!;
+    expect(result.remainingMatches.flatMap((m) => [...m.redTeamKeys, ...m.blueTeamKeys])).not.toContain("frcBench");
     expect(result.baselines.some((b) => b.teamKey === "frcBench")).toBe(true);
   });
 });

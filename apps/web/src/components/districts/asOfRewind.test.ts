@@ -132,6 +132,29 @@ describe("asOfQualSplit: the ONE order", () => {
     expect(split.rows).toEqual([]);
     expect(split.baselines[0]).toEqual({ teamKey: "frc100", earnedRpSum: 12, matchesPlayed: 6 });
   });
+
+  it("a teams[] row on no qualification row (a playoff-only demo robot) gets no baseline, mid-event and at the final ranking (quick task 261006-2t0)", () => {
+    const demo = { teamKey: "frc9999", teamNumber: 9999, nickname: "Off-Season Demo Team 9999", metrics: {} };
+    const midEvent = asOfQualSplit({
+      eventKey: "2026wabbb",
+      tier: "district",
+      eventArtifact: { ...BBB, teams: [...BBB.teams, demo] },
+      index: OBJECTS.indexes.get("2026wabbb")!,
+      cut: { eventKey: "2026wabbb", t: T0 + 7 * 86_400 + 600, i: 1 },
+      week: 1,
+    });
+    expect(midEvent.baselines.some((baseline) => baseline.teamKey === "frc9999")).toBe(false);
+    expect(midEvent.baselines.some((baseline) => baseline.teamKey === "frc100")).toBe(true);
+    const finished = asOfQualSplit({
+      eventKey: "2026waaa",
+      tier: "district",
+      eventArtifact: { ...AAA, teams: [...AAA.teams, demo] },
+      index: OBJECTS.indexes.get("2026waaa")!,
+      cut: { eventKey: "2026waaa", t: T0 + 3_000, i: 5 },
+      week: 0,
+    });
+    expect(finished.baselines.map((baseline) => baseline.teamKey)).toEqual(AAA.teams.map((team) => team.teamKey));
+  });
 });
 
 describe("planAsOfEvent: modes", () => {
