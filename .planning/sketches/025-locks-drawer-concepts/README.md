@@ -87,5 +87,5 @@ same counts (chart craft: derive coupled values from one source). The cutoff is 
 ## Decisions on A after the pick (2026-10-06)
 
 - The "How this is computed" disclosure is gone, and the note line reads only "likely = 8 of 10 runs".
-- Every histogram axis draws the same 1px crisp bar gap, and a bin under half a pixel is not drawn.
+- Histogram bars touch, no gap between them, on every axis; a bin under half a pixel is not drawn.
 - The team column is not sticky. The shipped ledger pins it with `TEAM_CELL_CLASS`; Jacob wants it unpinned.
