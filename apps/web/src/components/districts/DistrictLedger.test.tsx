@@ -1287,8 +1287,8 @@ describe("DistrictLedger — the drawer", () => {
     fireEvent.click(cellButton("grand"));
     const drawer = await screen.findByTestId("district-ledger-drawer");
     expect(within(drawer).getByTestId("district-hist-marked-line")).toBeDefined();
-    // The dashed rule's own label is the stat line's label, word for word.
-    expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_CUTOFF_LABELS.predicted);
+    // The dashed rule's own label carries the stat line's figure, character for character.
+    expect(within(drawer).getByTestId("district-hist-cutoff-label").textContent).toBe(`cutoff ~${String(printed)}`);
     expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION);
     expect(drawer.textContent ?? "").not.toContain(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION);
     expect(printed).toBeGreaterThan(0);
@@ -1414,12 +1414,12 @@ describe("DistrictLedger — the drawer", () => {
     fireEvent.click(cellButton("2026walive:elim"));
     const list = await screen.findByTestId("district-ledger-drawer-outcomes");
     const pointsOf = (outcome: string): string =>
-      list.querySelector(`[data-outcome="${outcome}"] .district-ledger-outcomes__points`)?.textContent ?? "";
-    expect(pointsOf("winner")).toBe("30");
-    expect(pointsOf("finalist")).toBe("20");
-    expect(pointsOf("third")).toBe("13");
-    expect(pointsOf("fourth")).toBe("7");
-    expect(pointsOf("none")).toBe("0");
+      list.querySelector(`[data-outcome="${outcome}"] .district-ledger-verdict-outcomes__points`)?.textContent ?? "";
+    expect(pointsOf("winner")).toBe("30 pts");
+    expect(pointsOf("finalist")).toBe("20 pts");
+    expect(pointsOf("third")).toBe("13 pts");
+    expect(pointsOf("fourth")).toBe("7 pts");
+    expect(pointsOf("none")).toBe("0 pts");
   });
 
   it("renders an OUTCOME LIST for the Awards cell, and omits Rookie All Star for a veteran", async () => {
@@ -1452,15 +1452,16 @@ describe("DistrictLedger — the drawer", () => {
       "judged",
       "none",
     ]);
-    expect(list.querySelector('[data-outcome="rookieAllStar"] .district-ledger-outcomes__points')?.textContent).toBe("8");
+    expect(list.querySelector('[data-outcome="rookieAllStar"] .district-ledger-verdict-outcomes__points')?.textContent).toBe("8 pts");
   });
 
   it("never lists an award outcome above Impact, so a stacked award cannot reach a screen", async () => {
     await renderWithOpenCells();
     fireEvent.click(cellButton("2026walive:award"));
     const list = await screen.findByTestId("district-ledger-drawer-outcomes");
-    // `td` only: the column heading carries the same class and reads "points".
-    const values = [...list.querySelectorAll("td.district-ledger-outcomes__points")].map((cell) => Number(cell.textContent));
+    const values = [...list.querySelectorAll(".district-ledger-verdict-outcomes__points")].map((cell) => parseInt(cell.textContent ?? "", 10));
+    expect(values.length).toBeGreaterThan(0);
+    expect(values.every((value) => Number.isFinite(value))).toBe(true);
     expect(Math.max(...values)).toBe(10);
     for (const value of values) expect(value).toBeLessThanOrEqual(10);
   });
@@ -2406,11 +2407,11 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
     // No histogram beside it: the routes ARE the axis.
     expect(screen.queryByTestId("district-ledger-drawer-cell-plot")).toBeNull();
     // The captain row's points read as a range, and a captain's range is 9 to 16.
-    const captainPoints = list.querySelector('[data-outcome="captain"] td.district-ledger-outcomes__points')?.textContent ?? "";
-    expect(captainPoints).toMatch(/^\d+( to \d+)?$/);
+    const captainPoints = list.querySelector('[data-outcome="captain"] .district-ledger-verdict-outcomes__points')?.textContent ?? "";
+    expect(captainPoints).toMatch(/^\d+( to \d+)? pts$/);
     expect(captainPoints).not.toContain("±");
     // Every chance in the list, and they account for the whole hundred.
-    const chances = [...list.querySelectorAll("td.district-ledger-outcomes__chance .district-ledger-outcomes__figure")].map(
+    const chances = [...list.querySelectorAll(".district-ledger-verdict-outcomes__chance")].map(
       (cell) => cell.textContent ?? ""
     );
     expect(chances).toHaveLength(4);
@@ -2443,8 +2444,8 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
     const rows = within(list).getAllByTestId("district-ledger-outcome-row");
     expect(rows.map((row) => row.getAttribute("data-outcome"))).toEqual(["captain"]);
     // A point mass: one value, no range.
-    expect(list.querySelector('[data-outcome="captain"] td.district-ledger-outcomes__points')?.textContent).toMatch(/^\d+$/);
-    expect(list.querySelector('[data-outcome="captain"] .district-ledger-outcomes__figure')?.textContent).toBe("~100%");
+    expect(list.querySelector('[data-outcome="captain"] .district-ledger-verdict-outcomes__points')?.textContent).toMatch(/^\d+ pts$/);
+    expect(list.querySelector('[data-outcome="captain"] .district-ledger-verdict-outcomes__chance')?.textContent).toBe("~100%");
   });
 
   it("leaves a settled second pick with NO captain row, which is the omission Jacob asked for", async () => {

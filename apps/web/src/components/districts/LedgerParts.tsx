@@ -71,7 +71,6 @@ import {
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_AWARD_OUTCOME_LABELS,
-  DISTRICT_LEDGER_OUTCOME_CAPTIONS,
   DISTRICT_LEDGER_OUTCOME_LIST_LABELS,
   DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS,
   DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS,
@@ -91,6 +90,7 @@ import {
   districtLedgerNoPointsCaption,
   districtLedgerPlacementLine,
   districtLedgerSelectionSettledLine,
+  districtLedgerVerdictCutoffLabel,
 } from "./districtLedgerCopy.js";
 import {
   districtAwardOutcomes,
@@ -729,7 +729,6 @@ export function DrawerCellPane({
         testId="district-ledger-drawer-outcomes"
         rows={selectionRows}
         label={DISTRICT_LEDGER_OUTCOME_LIST_LABELS.alliance}
-        caption={DISTRICT_LEDGER_OUTCOME_CAPTIONS.alliance}
       />
     );
   }
@@ -753,7 +752,6 @@ export function DrawerCellPane({
         testId="district-ledger-drawer-outcomes"
         rows={rows}
         label={DISTRICT_LEDGER_OUTCOME_LIST_LABELS[cell.cell]}
-        caption={DISTRICT_LEDGER_OUTCOME_CAPTIONS[cell.cell]}
       />
     );
   }
@@ -808,7 +806,15 @@ export function GrandTotalPlot({
         p10={percentiles.p10}
         p50={percentiles.p50}
         p90={percentiles.p90}
-        {...(display.markedPosition === undefined ? {} : { markedPosition: display.markedPosition, markedLabel: display.label })}
+        {...(display.markedPosition === undefined
+          ? {}
+          : {
+              cutoff: {
+                position: display.markedPosition,
+                label: districtLedgerVerdictCutoffLabel(display.figure),
+                ...(display.likelyText === undefined || cutoff.likely === undefined ? {} : { zone: cutoff.likely }),
+              },
+            })}
         label={DISTRICT_LEDGER_DRAWER_GRAND_PLOT_LABEL}
       />
       <span className="district-ledger-pane-caption">{display.caption}</span>
