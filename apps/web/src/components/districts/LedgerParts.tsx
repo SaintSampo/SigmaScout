@@ -1,7 +1,7 @@
 /**
  * The ledger's SHARED presentational parts: the class constants, the two cell
- * renderers, the Team and Status cells, the chips and the cell key, the drawer
- * panes, and the controls card.
+ * renderers, the Team and Status cells, the chips and the cell key, the cutoff
+ * display, and the controls card.
  *
  * A MECHANICAL EXTRACTION from `DistrictLedger.tsx` with no behaviour change
  * (quick task 260925-xab). The Champ Locks tab is the same ledger with two rows
@@ -10,17 +10,18 @@
  * UNTOUCHED, which is the proof the District Locks tab's rendered
  * output did not move.
  *
- * TWO PARAMETERIZATIONS, both with the district default:
+ * `StatusCell` takes an `awardLabel`, so the champ tier can print
+ * `Locked · winner` for the DCMP winning alliance. Absent keeps the shipped
+ * `Locked · award`.
  *
- * - `StatusCell` takes an `awardLabel`, so the champ tier can print
- *   `Locked · winner` for the DCMP winning alliance. Absent keeps the shipped
- *   `Locked · award`.
- * - `DrawerCellPane` takes a `tier`, so the DCMP's outcome lists are priced at
- *   the 3x weight by `districtPlayoffOutcomes`/`districtAwardOutcomes`
- *   themselves rather than by a second table of point values here.
+ * THE DRAWER IS ONE VERDICT PANE (sketch 025 variant A, quick task 261006-lxp),
+ * built in `ledgerVerdict.ts` and rendered by `LedgerVerdictDrawer.tsx`. Its
+ * tier follows the row the clicked cell came from, so the DCMP's outcome lists
+ * are priced at the 3x weight by the outcome builders themselves rather than by
+ * a second table of point values.
  *
- * ONE CUTOFF FEEDS TWO SURFACES (quick task 260926-37q). `ControlsCard` and
- * `GrandTotalPlot` both take the SAME `LedgerCutoffView`, and both read it
+ * ONE CUTOFF FEEDS TWO SURFACES (quick task 260926-37q). `ControlsCard` and the
+ * verdict drawer both take the SAME `LedgerCutoffView`, and both read it
  * through the one `ledgerCutoffDisplay` below, so the stat line's figure and
  * the grand total's dashed rule are one value rendered twice. They previously
  * printed two different quantities and neither of them sat between the teams
@@ -39,25 +40,11 @@ import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { TableCell } from "@/components/ui/table";
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
-import { pointPercentiles } from "../../../../../packages/core/districts/pointSummary.js";
-import type { DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
-import { RANK_BAND_LABEL_PREFIX } from "../event/rankRows.js";
-import { DistrictPointHistogram } from "./DistrictPointHistogram.js";
-import { DistrictOutcomeList } from "./DistrictOutcomeList.js";
 import {
   districtLedgerRookieBonusLine,
-  districtLedgerRookieBonusCaption,
   DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED,
   DISTRICT_LEDGER_CHANCE_WORDS,
-  DISTRICT_LEDGER_DRAWER_CELL_CAPTION,
-  DISTRICT_LEDGER_DRAWER_CELL_PLOT_LABEL,
-  DISTRICT_LEDGER_DRAWER_GRAND_PLOT_LABEL,
-  DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION,
   DISTRICT_LEDGER_CUTOFF_LABELS,
-  DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
-  DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION,
-  DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
-  DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
@@ -70,36 +57,20 @@ import {
   DISTRICT_LEDGER_STAGE_WORDS,
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
-  DISTRICT_LEDGER_AWARD_OUTCOME_LABELS,
-  DISTRICT_LEDGER_OUTCOME_LIST_LABELS,
   DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS,
-  DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS,
-  DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS,
   DISTRICT_LEDGER_SELECTION_ROUTE_WORDS,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
   CHAMP_LEDGER_CUTOFF_PENDING_FIGURE,
-  CHAMP_LEDGER_DRAWER_PENDING_CAPTION,
-  CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
   CHAMP_LEDGER_NO_CALL_REASONS,
   CHAMP_LEDGER_RANGE_CALL_LABELS,
   CHAMP_LEDGER_RANGE_PENDING_DESCRIPTION,
-  champLedgerDrawerNoCallCaption,
   champLedgerNoCallDescription,
   districtLedgerCutoffFigure,
   districtLedgerCutoffLikelyText,
-  districtLedgerNoPointsCaption,
   districtLedgerPlacementLine,
   districtLedgerSelectionSettledLine,
-  districtLedgerVerdictCutoffLabel,
 } from "./districtLedgerCopy.js";
-import {
-  districtAwardOutcomes,
-  districtCellRendersOutcomeList,
-  districtPlayoffOutcomes,
-  districtSelectionHeadline,
-  districtSelectionOutcomes,
-  districtSelectionSettledRoute,
-} from "./districtLedgerOutcomes.js";
+import { districtSelectionHeadline, districtSelectionSettledRoute } from "./districtLedgerOutcomes.js";
 import type { DistrictLedgerStatusKey } from "./districtLedgerStatus.js";
 import {
   DISTRICT_LEDGER_SHOWN_STATUS_KEYS,
@@ -133,8 +104,12 @@ export const OPEN_CELL_BOLD_CLASS = "district-ledger-cell__figure whitespace-now
 export const OPEN_CELL_SMALL_CLASS = "district-ledger-cell__small";
 export const UNAVAILABLE_CELL_CLASS = "district-ledger-cell--unavailable";
 
-/** The sticky first column — the shipped table wrapper scrolls horizontally inside its card, so the Team cell holds position. */
-export const TEAM_CELL_CLASS = "sticky left-0 z-10 bg-[var(--color-bg-surface)] align-middle";
+/**
+ * The first column. NOT PINNED since sketch 025 (Jacob, 2026-10-06): the Team
+ * cell scrolls with the table's own horizontal scroller like every other cell.
+ * It keeps the surface background and the vertical alignment.
+ */
+export const TEAM_CELL_CLASS = "bg-[var(--color-bg-surface)] align-middle";
 
 /**
  * The chip modifier per status, in the shipped `statusChipClass` shape: a
@@ -416,8 +391,6 @@ export interface LedgerCutoffDisplay {
   readonly likelyText: string | undefined;
   /** Where the dashed rule is drawn, or `undefined` where none is drawn at all. */
   readonly markedPosition: number | undefined;
-  /** The grand total plot's caption for this arm. */
-  readonly caption: string;
   /** The stat line's small text naming why no cutoff can be drawn, for the `unavailable` arm alone. */
   readonly reason: string | undefined;
 }
@@ -438,7 +411,6 @@ export function ledgerCutoffDisplay(view: LedgerCutoffView): LedgerCutoffDisplay
       figure: "—",
       likelyText: undefined,
       markedPosition: undefined,
-      caption: DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
       reason: undefined,
     };
   }
@@ -448,7 +420,6 @@ export function ledgerCutoffDisplay(view: LedgerCutoffView): LedgerCutoffDisplay
       figure: "—",
       likelyText: undefined,
       markedPosition: undefined,
-      caption: DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION,
       reason: undefined,
     };
   }
@@ -462,7 +433,6 @@ export function ledgerCutoffDisplay(view: LedgerCutoffView): LedgerCutoffDisplay
       figure: CHAMP_LEDGER_CUTOFF_PENDING_FIGURE,
       likelyText: undefined,
       markedPosition: undefined,
-      caption: CHAMP_LEDGER_DRAWER_PENDING_CAPTION,
       reason: undefined,
     };
   }
@@ -472,16 +442,10 @@ export function ledgerCutoffDisplay(view: LedgerCutoffView): LedgerCutoffDisplay
       figure: DISTRICT_LEDGER_UNAVAILABLE_CELL,
       likelyText: undefined,
       markedPosition: undefined,
-      caption: champLedgerDrawerNoCallCaption(cutoff.reason),
       reason: CHAMP_LEDGER_NO_CALL_REASONS[cutoff.reason],
     };
   }
   const isFinal = cutoff.kind === "final";
-  const simulated = cutoff.kind === "predicted" && cutoff.source === "simulated";
-  // WHICH SIMULATED CAPTION is the one thing `view.tier` decides: the District
-  // Locks tab's plain per run line, or (absent) the champ wording, whose runs
-  // hand slots to the DCMP winners and award winners first.
-  const simulatedCaption = view.tier === "district" ? DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION : CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION;
   return {
     label: isFinal ? DISTRICT_LEDGER_CUTOFF_LABELS.settled : predictedLabel,
     figure: districtLedgerCutoffFigure(cutoff.points, isFinal),
@@ -489,7 +453,6 @@ export function ledgerCutoffDisplay(view: LedgerCutoffView): LedgerCutoffDisplay
     // nothing left to vary, and a range there would be stale by construction.
     likelyText: isFinal || likely === undefined ? undefined : districtLedgerCutoffLikelyText(likely.p10, likely.p90),
     markedPosition: cutoff.points,
-    caption: simulated ? simulatedCaption : DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
     reason: undefined,
   };
 }
@@ -647,10 +610,8 @@ export interface LedgerTeamCellTeam {
 export function TeamCell({ team, season, algorithm }: { team: LedgerTeamCellTeam; season: number; algorithm: PublishedAlgorithmId }) {
   return (
     <TableCell rowSpan={Math.max(team.rowCount, 1)} data-testid="district-ledger-team-cell" className={TEAM_CELL_CLASS}>
-      {/* Capped so the sticky cell always fits inside the table's scrollport:
-          a sticky box wider than its scrollport is aligned by its far edge
-          instead of holding at left 0 (measured live at 390px, 2026-09-25: a
-          360px cell in a 340px wrapper slid 21px). The nickname truncates. */}
+      {/* Capped so the Team column stays narrow and the nine columns keep
+          their room. The nickname truncates. */}
       <div className="flex min-w-0 max-w-[min(56vw,176px)] flex-col">
         <span className="district-ledger-team-number whitespace-nowrap">
           <Link to="/team/$teamNumber" params={{ teamNumber: String(team.teamNumber) }} search={{ year: season, algorithm, tab: "overview" }}>
@@ -669,166 +630,6 @@ export function TeamCell({ team, season, algorithm }: { team: LedgerTeamCellTeam
         )}
       </div>
     </TableCell>
-  );
-}
-
-/** The explicit percentile label, built from the SHIPPED prefix and the same one-decimal en-dash discipline — never the plus-minus codepoint. */
-export function bandLabel(p10: number, p90: number): string {
-  return `${RANK_BAND_LABEL_PREFIX}${Math.max(0, p10).toFixed(1)}–${Math.max(0, p90).toFixed(1)}`;
-}
-
-/**
- * The clicked cell's own pane: an OUTCOME LIST for the two lumpy, named
- * categories and the shipped histogram for everything else.
- *
- * The split is `districtCellRendersOutcomeList`'s, which names the two cells
- * rather than testing for a shape, so the Qualification, Alliance selection and
- * event total panes are byte for byte what they were.
- *
- * `tier` DEFAULTS TO `"district"`. The champ tab supplies `"dcmp"` for the
- * District Championship row, which prices the playoff and award outcome lists
- * at the 3x weight through the phase's single weight source rather than through
- * a second table of point values here.
- */
-export function DrawerCellPane({
-  cell,
-  season,
-  isRookie,
-  tier = "district",
-  namedOutcomes = true,
-}: {
-  cell: Extract<DistrictLedgerCell, { kind: "open" }>;
-  season: number;
-  isRookie: boolean;
-  tier?: DistrictTier;
-  /**
-   * Whether this cell's support can be described by NAMED OUTCOMES at all.
-   * Defaults to true, which is every per-event cell either tab renders.
-   *
-   * The Champ Locks tab's District points row passes false: its cells are sums
-   * over several events, and no placement or award names an outcome of two
-   * events added together. The histogram is the honest pane there, so
-   * `districtCellRendersOutcomeList` is not consulted for those cells at all
-   * (quick task 260925-xab).
-   */
-  namedOutcomes?: boolean;
-}) {
-  // THE ALLIANCE SELECTION LIST is chosen by DATA, not by category: a run that
-  // reported its routes can name them, and a baked event's pmf cannot, so that
-  // one keeps the histogram.
-  if (namedOutcomes && cell.cell === "alliance" && cell.selection !== undefined) {
-    const selectionRows = districtSelectionOutcomes(cell.selection).map((row) => ({
-      key: row.id,
-      label: DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS[row.id],
-      points: row.minPoints,
-      pointsHigh: row.maxPoints,
-      chance: row.chance,
-    }));
-    return (
-      <DistrictOutcomeList
-        testId="district-ledger-drawer-outcomes"
-        rows={selectionRows}
-        label={DISTRICT_LEDGER_OUTCOME_LIST_LABELS.alliance}
-      />
-    );
-  }
-  if (namedOutcomes && districtCellRendersOutcomeList(cell.cell)) {
-    const rows =
-      cell.cell === "elim"
-        ? districtPlayoffOutcomes(season, tier, cell.distribution, cell.playoffMilestone).map((row) => ({
-            key: row.id,
-            label: DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS[row.id],
-            points: row.points,
-            chance: row.chance,
-          }))
-        : districtAwardOutcomes(season, tier, cell.distribution, isRookie).map((row) => ({
-            key: row.id,
-            label: DISTRICT_LEDGER_AWARD_OUTCOME_LABELS[row.id],
-            points: row.points,
-            chance: row.chance,
-          }));
-    return (
-      <DistrictOutcomeList
-        testId="district-ledger-drawer-outcomes"
-        rows={rows}
-        label={DISTRICT_LEDGER_OUTCOME_LIST_LABELS[cell.cell]}
-      />
-    );
-  }
-  const cellPercentiles = pointPercentiles(cell.distribution.counts, cell.distribution.denominator);
-  const noPointsChance = Math.round(((cell.distribution.counts[0] ?? 0) / cell.distribution.denominator) * 100);
-  return (
-    <div className="flex flex-col gap-[var(--spacing-xs)]">
-      <DistrictPointHistogram
-        testId="district-ledger-drawer-cell-plot"
-        counts={cell.distribution.counts}
-        denominator={cell.distribution.denominator}
-        maxPoints={cell.ceiling}
-        p10={cellPercentiles.p10}
-        p50={cellPercentiles.p50}
-        p90={cellPercentiles.p90}
-        label={DISTRICT_LEDGER_DRAWER_CELL_PLOT_LABEL}
-      />
-      <span data-testid="district-ledger-drawer-band-label">{bandLabel(cellPercentiles.p10, cellPercentiles.p90)}</span>
-      <span className="district-ledger-pane-caption">{DISTRICT_LEDGER_DRAWER_CELL_CAPTION}</span>
-      {noPointsChance > 0 && <span className="district-ledger-pane-caption">{districtLedgerNoPointsCaption(noPointsChance)}</span>}
-    </div>
-  );
-}
-
-/**
- * The grand total histogram, with the PREDICTED CUTOFF drawn on it.
- *
- * Takes the SAME `LedgerCutoffView` the stat line above it takes, so the
- * dashed rule and the printed figure are one value rendered twice rather than
- * two quantities that happen to look alike (quick task 260926-37q).
- */
-export function GrandTotalPlot({
-  cell,
-  cutoff,
-  rookieBonus,
-  chanceLine,
-}: {
-  cell: Extract<DistrictLedgerCell, { kind: "open" }>;
-  cutoff: LedgerCutoffView;
-  rookieBonus: number;
-  chanceLine: string | undefined;
-}) {
-  const display = ledgerCutoffDisplay(cutoff);
-  const percentiles = pointPercentiles(cell.distribution.counts, cell.distribution.denominator);
-  return (
-    <div className="flex flex-col gap-[var(--spacing-xs)]">
-      <DistrictPointHistogram
-        testId="district-ledger-drawer-grand-plot"
-        counts={cell.distribution.counts}
-        denominator={cell.distribution.denominator}
-        maxPoints={cell.ceiling}
-        p10={percentiles.p10}
-        p50={percentiles.p50}
-        p90={percentiles.p90}
-        {...(display.markedPosition === undefined
-          ? {}
-          : {
-              cutoff: {
-                position: display.markedPosition,
-                label: districtLedgerVerdictCutoffLabel(display.figure),
-                ...(display.likelyText === undefined || cutoff.likely === undefined ? {} : { zone: cutoff.likely }),
-              },
-            })}
-        label={DISTRICT_LEDGER_DRAWER_GRAND_PLOT_LABEL}
-      />
-      <span className="district-ledger-pane-caption">{display.caption}</span>
-      {chanceLine !== undefined && (
-        <span className="district-ledger-pane-caption" data-testid="district-ledger-drawer-chance-caption">
-          {DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION}
-        </span>
-      )}
-      {rookieBonus > 0 && (
-        <span className="district-ledger-pane-caption" data-testid="district-ledger-drawer-rookie-bonus">
-          {districtLedgerRookieBonusCaption(Math.round(rookieBonus))}
-        </span>
-      )}
-    </div>
   );
 }
 

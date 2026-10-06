@@ -61,15 +61,12 @@ import type { PublishedAlgorithmId } from "../../../../../packages/harness/publi
 // a second copy of them (quick task 260925-xab).
 import {
   ControlsCard,
-  DrawerCellPane,
   GrandTotalContent,
-  GrandTotalPlot,
   LedgerCell,
   StatusCell,
   StatusChips,
   TeamCell,
   ledgerRangeCallChip,
-  likelyRangeText,
   stageWord,
   type CellInteraction,
   type DistrictLedgerNavigate,
@@ -83,19 +80,23 @@ import {
   DISTRICT_LEDGER_SIMULATED_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_TAB_LABEL,
-  DISTRICT_LEDGER_CONTRIBUTION_CAPTION,
-  DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS,
-  DISTRICT_LEDGER_CONTRIBUTION_LIST_LABEL,
-  DISTRICT_LEDGER_CONTRIBUTION_SETTLED,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
+  DISTRICT_LEDGER_VERDICT_CELL_TITLES,
   districtLedgerChanceLine,
-  districtLedgerContributionEarned,
   districtLedgerShortEventName,
+  districtLedgerVerdictEventCellTitle,
 } from "./districtLedgerCopy.js";
+import { buildVerdictModel, districtGrandSourceChips, ledgerGrandVerdict, verdictCategoryChips } from "./ledgerVerdict.js";
+import { VerdictDrawer } from "./LedgerVerdictDrawer.js";
 import { buildAdvancementChanceRun, reconcileAdvancementChances } from "./districtLedgerChances.js";
 import { useDistrictAdvancementChance } from "./useDistrictAdvancementChance.js";
 import { computeDistrictLedgerStatuses } from "./districtLedgerStatus.js";
-import { DISTRICT_LEDGER_SHOWN_STATUS_KEYS, applyChampionshipFieldOverlay, type DistrictLedgerShownStatusKey } from "./districtFieldOverlay.js";
+import {
+  DISTRICT_LEDGER_SHOWN_STATUS_KEYS,
+  applyChampionshipFieldOverlay,
+  type DistrictLedgerShownState,
+  type DistrictLedgerShownStatusKey,
+} from "./districtFieldOverlay.js";
 import {
   DISTRICT_TIMELINE_NOW_ID,
   buildDistrictTimeline,
@@ -111,15 +112,15 @@ import {
   districtTierEvents,
   filterDistrictLedgerTeams,
   inProgressDistrictEventKeys,
-  type DistrictEventContribution,
   type DistrictLedgerCell,
   type DistrictLedgerEventRow,
+  type DistrictLedgerTeam,
   type DistrictStageFinality,
 } from "./districtLedgerRows.js";
 import { useDistrictEventArtifacts, useDistrictLedgerData } from "./useDistrictLedgerData.js";
 import { LocksMilestonePicker } from "./LocksMilestonePicker.js";
 import { districtMilestoneEvents } from "./districtMilestones.js";
-import { applyLedgerRangeState, districtRangeState, ledgerCutoffView } from "./ledgerRangeState.js";
+import { applyLedgerRangeState, districtRangeState, ledgerCutoffView, type LedgerRangeCall } from "./ledgerRangeState.js";
 import { predictedCutoff, type LedgerCutoffView } from "./predictedCutoff.js";
 
 /** The first three columns are words; every column after them is a number, and a number column is centred under a centred header. */
@@ -144,105 +145,67 @@ function EventCell({ row }: { row: DistrictLedgerEventRow }) {
 
 /**
  * ONE drawer row at a time across the whole table, spanning every column,
- * carrying the clicked cell's histogram beside the grand total's.
+ * carrying the ONE verdict pane for the clicked cell (sketch 025 variant A,
+ * quick task 261006-lxp): its headline, tiles, one chart and, for a total, its
+ * source line.
+ *
+ * `row` is the event row the clicked cell belongs to, and `undefined` for the
+ * grand total. A team can have two open event rows, one live and one baked, so
+ * a per event cell's eyebrow names its event.
  */
 function DrawerRow({
+  team,
+  row,
   cell,
-  grandTotal,
   cutoff,
   columnCount,
-  rookieBonus,
-  chanceLine,
+  chance,
+  status,
   season,
   isRookie,
-  contributions,
 }: {
+  team: DistrictLedgerTeam;
+  row: DistrictLedgerEventRow | undefined;
   cell: Extract<DistrictLedgerCell, { kind: "open" }>;
-  grandTotal: DistrictLedgerCell;
   cutoff: LedgerCutoffView;
   columnCount: number;
-  rookieBonus: number;
-  /** This team's printed chance line, or `undefined` where no chance is printed — the caption follows the line rather than announcing one that is not there. */
-  chanceLine: string | undefined;
+  /** The raw chance the Status cell prints, or `undefined` where it prints none. */
+  chance: number | undefined;
+  /** The DISPLAYED status, with the range call that withholds it. */
+  status: { readonly status: DistrictLedgerShownState; readonly rangeCall?: LedgerRangeCall } | undefined;
   season: number;
   /** The artifact's own `awardProfile.rookie`. A veteran's Rookie All Star row is omitted rather than printed at zero. */
   isRookie: boolean;
-  /** One row per district-tier event, for the GRAND TOTAL drawer's contribution list. */
-  contributions: readonly DistrictEventContribution[];
 }) {
-  // THE GRAND TOTAL IS DRAWN ONCE. When the clicked cell IS the grand total its
-  // own plot is the left pane, and the right pane is the per-event contribution
-  // list rather than a second copy of the same histogram (Jacob, 2026-09-25).
-  const isGrandTotal = cell.cell === "grandTotal";
+  const isGrandTotal = cell.cell === "grandTotal" || row === undefined;
+  const cellTitle = isGrandTotal
+    ? DISTRICT_LEDGER_VERDICT_CELL_TITLES.grandTotal
+    : districtLedgerVerdictEventCellTitle(DISTRICT_LEDGER_VERDICT_CELL_TITLES[cell.cell], row.eventName);
+  const model = buildVerdictModel({
+    cell,
+    cellTitle,
+    teamNumber: team.teamNumber,
+    nickname: team.nickname,
+    season,
+    isRookie,
+    tier: "district",
+    namedOutcomes: true,
+    ...(isGrandTotal
+      ? {
+          grand: { verdict: ledgerGrandVerdict({ statusKey: status?.status, rangeCall: status?.rangeCall, chance }), cutoff },
+          sourceChips: districtGrandSourceChips(districtEventContributions(team), team.rookieBonus),
+        }
+      : {}),
+    ...(!isGrandTotal && cell.cell === "eventTotal"
+      ? { total: { kind: "event" as const, eventName: row.eventName }, sourceChips: verdictCategoryChips(row.cells) }
+      : {}),
+  });
   return (
     <TableRow data-testid="district-ledger-drawer" data-drawer-cell={cell.id} className="district-ledger-row--drawer">
       <TableCell colSpan={columnCount}>
-        <div className="flex flex-wrap gap-[var(--spacing-lg)]">
-          {isGrandTotal ? (
-            <>
-              <GrandTotalPlot cell={cell} cutoff={cutoff} rookieBonus={rookieBonus} chanceLine={chanceLine} />
-              <DistrictContributionList contributions={contributions} />
-            </>
-          ) : (
-            <>
-              <DrawerCellPane cell={cell} season={season} isRookie={isRookie} />
-              {grandTotal.kind === "open" && (
-                <GrandTotalPlot cell={grandTotal} cutoff={cutoff} rookieBonus={rookieBonus} chanceLine={chanceLine} />
-              )}
-            </>
-          )}
-        </div>
+        <VerdictDrawer model={model} />
       </TableCell>
     </TableRow>
-  );
-}
-
-/**
- * The grand total drawer's right pane: one row per district-tier event, so a
- * reader can see WHICH event the spread comes from.
- *
- * REPLACES A SECOND COPY OF THE SAME HISTOGRAM. Clicking the grand total used to
- * draw its plot as the clicked cell AND again as the grand total beside it —
- * identical bars, identical band, identical tick, twice (Jacob, 2026-09-25:
- * "do not draw the same histogram twice").
- */
-function DistrictContributionList({ contributions }: { contributions: readonly DistrictEventContribution[] }) {
-  return (
-    <div className="flex flex-col gap-[var(--spacing-xs)]" data-testid="district-ledger-drawer-contributions">
-      <table className="district-ledger-contributions">
-        <caption className="sr-only">{DISTRICT_LEDGER_CONTRIBUTION_LIST_LABEL}</caption>
-        <thead>
-          <tr>
-            <th scope="col">{DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS.event}</th>
-            <th scope="col">{DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS.earned}</th>
-            <th scope="col">{DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS.open}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {contributions.map((entry) => (
-            <tr key={entry.eventKey} data-testid="district-ledger-contribution-row" data-event={entry.eventKey}>
-              <th scope="row" className="district-ledger-contributions__event">
-                {districtLedgerShortEventName(entry.eventName)}
-              </th>
-              <td className="district-ledger-contributions__earned">{districtLedgerContributionEarned(entry.earned)}</td>
-              <td className="district-ledger-contributions__open">
-                {entry.open === undefined ? (
-                  DISTRICT_LEDGER_CONTRIBUTION_SETTLED
-                ) : (
-                  <>
-                    {`~${String(Math.round(entry.open.p50))}`}{" "}
-                    <span className="district-ledger-contributions__range">
-                      {likelyRangeText(Math.max(0, entry.open.p10), Math.max(0, entry.open.p90))}
-                    </span>
-                  </>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <span className="district-ledger-pane-caption">{DISTRICT_LEDGER_CONTRIBUTION_CAPTION}</span>
-    </div>
   );
 }
 
@@ -602,13 +565,15 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
     if (search.drawerTeam === undefined || search.drawerCell === undefined) return undefined;
     const team = rows.teams.find((entry) => entry.teamNumber === search.drawerTeam);
     if (team === undefined) return undefined;
-    const candidates: DistrictLedgerCell[] = [
-      ...team.rows.flatMap((row) => [...row.cells, row.eventTotal]),
-      team.grandTotal,
+    // The event row the cell belongs to travels with it, so the drawer can name
+    // the event; the grand total belongs to no row.
+    const candidates: { cell: DistrictLedgerCell; row: DistrictLedgerEventRow | undefined }[] = [
+      ...team.rows.flatMap((row) => [...row.cells, row.eventTotal].map((cell) => ({ cell, row }))),
+      { cell: team.grandTotal, row: undefined },
     ];
-    const cell = candidates.find((entry) => entry.id === search.drawerCell);
-    if (cell === undefined || cell.kind !== "open") return undefined;
-    return { team, cell };
+    const found = candidates.find((entry) => entry.cell.id === search.drawerCell);
+    if (found === undefined || found.cell.kind !== "open") return undefined;
+    return { team, cell: found.cell, row: found.row };
   }, [rows.teams, search.drawerTeam, search.drawerCell]);
 
   function toggleStatus(status: DistrictLedgerShownStatusKey): void {
@@ -729,15 +694,15 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
                 ...dataRows,
                 <DrawerRow
                   key={`${team.teamKey}-drawer`}
+                  team={team}
+                  row={openDrawer.row}
                   cell={openDrawer.cell}
-                  grandTotal={team.grandTotal}
                   cutoff={cutoff}
                   columnCount={DISTRICT_LEDGER_COLUMN_LABELS.length}
-                  rookieBonus={team.rookieBonus}
-                  chanceLine={chanceLineFor(team.teamKey)}
+                  chance={chances?.byTeam.get(team.teamKey)}
+                  status={status}
                   season={season}
                   isRookie={isRookieByTeam.get(team.teamKey) === true}
-                  contributions={districtEventContributions(team)}
                 />,
               ];
             })}

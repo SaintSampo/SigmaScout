@@ -441,66 +441,6 @@ export const CHAMP_LEDGER_STATUS_DEFINITIONS: Readonly<Record<keyof typeof DISTR
   outOfRange: "this team's median predicted points sit below the predicted cutoff",
 };
 
-/**
- * The drawer's captions. Flat third person, no dash characters other than the
- * en dash inside a printed percentile range.
- *
- * WRITTEN FRESH rather than copied from the sketch: the sketch's own caption
- * describes a sketch simulation, and these say where the numbers actually come
- * from.
- */
-export const DISTRICT_LEDGER_DRAWER_CELL_CAPTION = "The bar heights are the shape of the simulated points. The shaded band spans the 10th to the 90th percentile and the tick marks the median.";
-
-/** The lumpy-category addendum: the chance of no points at all. */
-export function districtLedgerNoPointsCaption(chancePercent: number): string {
-  return `${String(chancePercent)}% of runs earn no points at all here.`;
-}
-
-/**
- * The grand total plot's caption for the MIDPOINT RULE: what the dashed rule
- * is, then what the likely range is. Two sentences, flat third person, and no
- * dash character of any kind (the en dash belongs to the numeric range alone).
- *
- * Since quick task 261004-uw4 the District Locks tab prints it only where the
- * midpoint rule still draws the line, which at an open position is the
- * excluded team fallback alone (and there no likely range is printed beside
- * the figure). An open position otherwise reads
- * `DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION`. The Champ Locks tab keeps
- * it for its own settled view.
- */
-export const DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION =
-  "The dashed line is the predicted cutoff, the midpoint of the last team in range and the first team out of range. The likely range spans the 10th to the 90th percentile of where that line lands across the runs.";
-
-/**
- * The grand total plot's caption for the District Locks tab's SIMULATED line
- * (quick task 261004-uw4): what the number is, then what its likely range
- * spans. The caption above stays for the midpoint rule, which still prints at
- * an open position where a run left a team out. No dash character.
- */
-export const DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION =
-  "The dashed line is the predicted cutoff, the median across the runs of the points the last team inside the qualifying slots finishes with. The likely range spans the 10th to the 90th percentile of that same line.";
-
-/** What the grand total plot says INSTEAD of drawing a line at zero when capacity is unpublished. */
-export const DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION = "TBA has published no capacity for this district, so there is no cutoff to draw.";
-
-/** What the grand total plot says where every team still racing for points is inside the slots, so no first team sits outside them. */
-export const DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION =
-  "Every team still racing for points is inside the slots at this position, so there is no first team outside them for a cutoff to sit above.";
-
-/**
- * The grand total plot's chance caption, printed only where a chance is
- * actually printed beside the team's status.
- *
- * REPLACES the shipped `DISTRICT_LEDGER_DRAWER_NO_CHANCE_CAPTION`, which said a
- * chance of finishing above the line would need the line's own distribution and
- * that this page did not compute it. Quick task 260925-rpj computes it, from
- * this very distribution and every other team's own, so the old sentence had to
- * go in the same commit: a page still stating a limit it no longer has is worse
- * than one that never stated it.
- */
-export const DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION =
-  "The chance beside this team's status is the share of runs where a draw from this distribution lands inside the qualifying slots, against a draw from every other team's own.";
-
 /** The drawer's two plot labels, used as their accessible names. */
 export const DISTRICT_LEDGER_DRAWER_CELL_PLOT_LABEL = "Points for this category";
 export const DISTRICT_LEDGER_DRAWER_GRAND_PLOT_LABEL = "Grand total district points";
@@ -537,9 +477,6 @@ export const DISTRICT_LEDGER_OUTCOME_LIST_LABELS = {
   alliance: "Alliance selection outcomes",
 } as const;
 
-/** The outcome list's two column headings. */
-export const DISTRICT_LEDGER_OUTCOME_COLUMN_LABELS = { chance: "chance", points: "points" } as const;
-
 /**
  * One outcome row's chance, as one string.
  *
@@ -568,63 +505,9 @@ export function districtLedgerOutcomePoints(points: number): string {
   return String(Math.round(points));
 }
 
-/**
- * The two outcome lists' captions, in flat third person.
- *
- * ONE PER LIST, not one shared. A single caption mentioning the bracket was
- * printed under the AWARD list too, where there is no bracket to have ruled
- * anything out; and the award list has its own fact to state, which is that a
- * team is never predicted to win two awards at one event.
- */
-export const DISTRICT_LEDGER_OUTCOME_CAPTIONS = {
-  elim: "Each row is one placement the playoffs can pay, with the share of runs that produced it. The rows the bracket has already ruled out are not listed.",
-  award: "Each row is one award outcome, with the share of runs that produced it. A team is never predicted to win two awards at one event, so the rows never overlap.",
-  alliance:
-    "Each row is one route onto a playoff alliance, with the share of runs that produced it and the points that route paid in those runs. The rows the ranking has already ruled out are not listed.",
-} as const;
-
-/**
- * The grand total drawer's PER-EVENT contribution list.
- *
- * It replaced a second copy of the grand total histogram, which the drawer drew
- * twice whenever the clicked cell was the grand total itself (Jacob, 2026-09-25).
- * A reader who clicked the grand total was shown the same bars in both panes; the
- * question that pane can actually answer is which event the spread comes from.
- */
-export const DISTRICT_LEDGER_CONTRIBUTION_LIST_LABEL = "Points by event";
-/** "earned so far" rather than "earned": on an event still running, the published total is only what TBA has posted up to now. */
-export const DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS = { event: "event", earned: "earned so far", open: "predicted total" } as const;
-
-/** What the open column prints for an event that is already settled: nothing is open, so there is nothing to predict. */
-export const DISTRICT_LEDGER_CONTRIBUTION_SETTLED = "settled";
-
-/** What the earned column prints where TBA has published no points for that event yet. */
-export const DISTRICT_LEDGER_CONTRIBUTION_NONE_EARNED = "none yet";
-
-/** One event's earned total, or the honest absence. */
-export function districtLedgerContributionEarned(earned: number | undefined): string {
-  return earned === undefined ? DISTRICT_LEDGER_CONTRIBUTION_NONE_EARNED : String(Math.round(earned));
-}
-
-/**
- * The contribution list's caption, in flat third person.
- *
- * It has to say WHICH of the two numbers on an open row is the contribution, or
- * a reader adds them. A settled event contributes the number in the earned
- * column; an open one contributes the predicted total, which already includes
- * whatever it has earned so far.
- */
-export const DISTRICT_LEDGER_CONTRIBUTION_CAPTION =
-  "A settled event contributes its earned points exactly. An open one contributes the predicted total beside it, which already counts what it has earned so far. The grand total is those contributions added together, plus any rookie bonus.";
-
 /** The Team cell's rookie bonus line, printed only when the bonus is non zero: 10 points in a team's first season, 5 in its second, added once per season. */
 export function districtLedgerRookieBonusLine(points: number): string {
   return `+${String(points)} rookie bonus`;
-}
-
-/** The grand total plot's rookie bonus caption, printed only when the bonus is non zero. */
-export function districtLedgerRookieBonusCaption(points: number): string {
-  return `Includes the ${String(points)} point rookie bonus, added once per season and never to an event total.`;
 }
 
 /**
@@ -851,44 +734,12 @@ export function champLedgerDcmpStageLine(entry: { readonly week: number | null; 
   return entry.week === null ? word : `Wk ${String(entry.week + 1)} · ${word}`;
 }
 
-/**
- * The grand total drawer's two-row contribution list.
- *
- * THE SAME OBJECT the table's own row labels come from, deliberately: the list
- * describes the very two rows above it, and two tables of the same two words
- * are two places for them to drift.
- */
-export const CHAMP_LEDGER_CONTRIBUTION_ROW_LABELS = CHAMP_LEDGER_ROW_LABELS;
-
-/** The champ contribution list's own label and its first column heading — the other two headings are the district tier's, unchanged. */
-export const CHAMP_LEDGER_CONTRIBUTION_LIST_LABEL = "Points by source";
-export const CHAMP_LEDGER_CONTRIBUTION_COLUMN_SOURCE = "source";
-
-/**
- * The note under the DCMP row of the contribution list: the field chance the
- * row is weighted by, named so a reader can see why the two subtotals do not
- * add to the grand total.
- */
-export function champLedgerContributionChanceNote(chance: number): string {
-  return `weighted by ${champLedgerFieldChanceLine(chance)}`;
-}
-
-/**
- * The champ contribution list's caption, in flat third person.
- *
- * It states the ONE thing the district tier's caption cannot: the DCMP row is
- * weighted by the chance of being in the field, so the grand total is less than
- * the two subtotals added together whenever that chance is under one.
- */
-export const CHAMP_LEDGER_CONTRIBUTION_CAPTION =
-  "A settled row contributes its earned points exactly. An open one contributes the predicted total beside it. While a team's place in the District Championship field is still open, the championship row is weighted by the chance of being there, so the grand total sits below the two rows added together.";
-
 // ---------------------------------------------------------------------------
 // The simulated champ cutoff (quick task 260927-6bf)
 //
 // THE DISTRICT LOCKS TAB READS THESE TOO since quick task 261004-uw4: the two
-// range call labels, the pending description, the pending figure, the pending
-// caption and the no call reasons below. They keep the `CHAMP_LEDGER_` prefix
+// range call labels, the pending description, the pending figure and the no
+// call reasons below. They keep the `CHAMP_LEDGER_` prefix
 // and their text, because the champ suites pin both and the words are true of
 // either tab's simulated line.
 // ---------------------------------------------------------------------------
@@ -930,21 +781,6 @@ export function champLedgerNoCallDescription(reason: keyof typeof CHAMP_LEDGER_N
 
 /** The stat line's figure while the simulated line is still being computed: a word, never a number. */
 export const CHAMP_LEDGER_CUTOFF_PENDING_FIGURE = "pending";
-
-/**
- * The grand total plot's caption for the SIMULATED line: what the number is,
- * then what its likely range spans (shown since Jacob, 2026-09-27).
- */
-export const CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION =
-  "The dashed line is the predicted cutoff, the median of a simulated line. In each run the District Championship winning alliance and its Impact, Engineering Inspiration and Rookie All Star winners take their slots first, and the line is read from the teams left. The likely range spans the 10th to the 90th percentile of where that line lands across the runs.";
-
-/** What the grand total plot says while the line is still being simulated. */
-export const CHAMP_LEDGER_DRAWER_PENDING_CAPTION = "The predicted cutoff is still being simulated, so no line is drawn yet.";
-
-/** What the grand total plot says where no line can be drawn, with the reason. */
-export function champLedgerDrawerNoCallCaption(reason: keyof typeof CHAMP_LEDGER_NO_CALL_REASONS): string {
-  return champLedgerNoCallDescription(reason);
-}
 
 /**
  * The DCMP row's small line for an ESTIMATED row: before the District

@@ -10,8 +10,6 @@ import { describe, expect, it } from "vitest";
 import {
   CHAMP_LEDGER_STATUS_DEFINITIONS,
   CHAMP_LEDGER_CUTOFF_PENDING_FIGURE,
-  CHAMP_LEDGER_DRAWER_PENDING_CAPTION,
-  CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
   CHAMP_LEDGER_ESTIMATED_DCMP_LINE,
   CHAMP_LEDGER_NO_CALL_REASONS,
   CHAMP_LEDGER_RANGE_CALL_LABELS,
@@ -21,26 +19,17 @@ import {
   districtLedgerCutoffFigure,
   districtLedgerCutoffLikelyText,
   districtLedgerRookieBonusLine,
-  districtLedgerRookieBonusCaption,
   DISTRICT_LEDGER_AWARD_OUTCOME_LABELS,
   DISTRICT_LEDGER_CHANCE_BELOW_FLOOR,
   DISTRICT_LEDGER_CHANCE_WORDS,
-  DISTRICT_LEDGER_CONTRIBUTION_CAPTION,
-  DISTRICT_LEDGER_CONTRIBUTION_SETTLED,
   DISTRICT_LEDGER_COLUMN_LABELS,
   DISTRICT_LEDGER_CUTOFF_LABELS,
   DISTRICT_LEDGER_DECLINED_LABEL,
   DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS,
-  DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION,
-  DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
-  DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION,
-  DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
-  DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
   DISTRICT_LEDGER_LOCKED_AWARD_LABEL,
-  DISTRICT_LEDGER_OUTCOME_CAPTIONS,
   DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS,
   DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS,
   DISTRICT_LEDGER_OUTCOME_LIST_LABELS,
@@ -50,7 +39,6 @@ import {
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_TAB_LABEL,
-  districtLedgerContributionEarned,
   districtLedgerOutcomeChance,
   districtLedgerOutcomePoints,
   districtLedgerOutcomePointsRange,
@@ -58,10 +46,6 @@ import {
   districtLedgerSelectionSettledLine,
   districtLedgerShortEventName,
   CHAMP_LEDGER_COLUMN_LABELS,
-  CHAMP_LEDGER_CONTRIBUTION_CAPTION,
-  CHAMP_LEDGER_CONTRIBUTION_COLUMN_SOURCE,
-  CHAMP_LEDGER_CONTRIBUTION_LIST_LABEL,
-  CHAMP_LEDGER_CONTRIBUTION_ROW_LABELS,
   CHAMP_LEDGER_DISTRICT_ONLY_LINE,
   CHAMP_LEDGER_LOCKED_WINNER_LABEL,
   CHAMP_LEDGER_NOT_IN_FIELD_CELL,
@@ -69,7 +53,6 @@ import {
   CHAMP_LEDGER_NOT_YET_PRICED_CELL,
   CHAMP_LEDGER_ROW_LABELS,
   CHAMP_LEDGER_TAB_LABEL,
-  champLedgerContributionChanceNote,
   champLedgerDcmpStageLine,
   champLedgerDistrictSourceLine,
   champLedgerFieldChanceLine,
@@ -161,7 +144,6 @@ describe("the UI-SPEC copy contract", () => {
     expect(DISTRICT_LEDGER_LEGEND_OPEN).toBe("still open · click for the histogram");
     expect(districtLedgerRookieBonusLine(10)).toBe("+10 rookie bonus");
     expect(districtLedgerRookieBonusLine(5)).toBe("+5 rookie bonus");
-    expect(districtLedgerRookieBonusCaption(10)).toBe("Includes the 10 point rookie bonus, added once per season and never to an event total.");
     expect(DISTRICT_LEDGER_LEGEND_EXPLAINER).toBe("likely = 8 of 10 runs land here · ~ = this site's prediction, not a number TBA published");
   });
 
@@ -314,13 +296,6 @@ describe("the UI-SPEC copy contract", () => {
     expect(DISTRICT_LEDGER_CHANCE_BELOW_FLOOR).toBe("<5% chance");
   });
 
-  it("says where the drawer's chance comes from, and no longer says the page does not compute one", () => {
-    expect(DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION).toBe(
-      "The chance beside this team's status is the share of runs where a draw from this distribution lands inside the qualifying slots, against a draw from every other team's own."
-    );
-    expect(DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION).not.toContain("does not compute");
-  });
-
   it("prints neither of the two superseded status words anywhere in this tab's vocabulary", () => {
     const everyString = [
       ...Object.values(DISTRICT_LEDGER_STATUS_LABELS),
@@ -409,28 +384,34 @@ describe("the playoff milestone words", () => {
     }
   });
 
-  it("gives each outcome list its OWN caption, so the award list never mentions a bracket", () => {
-    expect(DISTRICT_LEDGER_OUTCOME_CAPTIONS.elim).toContain("bracket");
-    expect(DISTRICT_LEDGER_OUTCOME_CAPTIONS.award).not.toContain("bracket");
-    expect(DISTRICT_LEDGER_OUTCOME_CAPTIONS.award).toContain("never predicted to win two awards");
-  });
-
-  it("prints a contribution row's earned total, or the honest absence", () => {
-    expect(districtLedgerContributionEarned(24)).toBe("24");
-    expect(districtLedgerContributionEarned(0)).toBe("0");
-    expect(districtLedgerContributionEarned(undefined)).toBe("none yet");
-  });
-
-  it("carries no dash character in the two new lists' own copy", () => {
+  it("carries no dash character in the outcome labels or in any verdict string outside a numeric range", () => {
     const everyString = [
       ...Object.values(DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS),
       ...Object.values(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS),
-      ...Object.values(DISTRICT_LEDGER_OUTCOME_CAPTIONS),
-      DISTRICT_LEDGER_CONTRIBUTION_CAPTION,
-      DISTRICT_LEDGER_CONTRIBUTION_SETTLED,
-      districtLedgerContributionEarned(undefined),
+      DISTRICT_LEDGER_VERDICT_NOTE,
+      ...Object.values(DISTRICT_LEDGER_VERDICT_TILE_LABELS),
+      ...Object.values(DISTRICT_LEDGER_VERDICT_LEGEND),
+      ...Object.values(DISTRICT_LEDGER_VERDICT_CUTOFF_TILE_WORDS),
+      ...Object.values(DISTRICT_LEDGER_VERDICT_CELL_TITLES),
+      ...Object.values(CHAMP_LEDGER_VERDICT_SUBTOTAL_TITLES),
+      ...Object.values(DISTRICT_LEDGER_VERDICT_POINT_NOUNS),
+      ...Object.values(DISTRICT_LEDGER_VERDICT_CHIP_LABELS),
+      ...Object.values(CHAMP_LEDGER_VERDICT_SOURCE_WORDS),
+      districtLedgerVerdictGrandHeadline({ kind: "chance", chance: 0.4 }, 0, 0),
+      districtLedgerVerdictFieldHeadline(0.4, 12),
+      districtLedgerVerdictCapHeadline(22, 0.5),
+      districtLedgerVerdictOutcomeHeadline("Finalist", 0.2),
+      districtLedgerVerdictEyebrow("Grand total", 1, "Team"),
+      districtLedgerVerdictEventCellTitle("Playoffs", "Live Event"),
+      districtLedgerVerdictEarnedAt(["Done Event"]),
+      districtLedgerVerdictPredictedAt("Live Event"),
+      champLedgerVerdictFieldSuffix(0.4),
+      districtLedgerOutcomePointsLabel(27, 48),
     ].join(" ");
     for (const dash of ["—", "–", "-"]) expect(everyString).not.toContain(dash);
+    // A range carries its en dash between two digits and no other dash.
+    const ranged = [districtLedgerVerdictLikelyHeadline(3, 9, "award"), districtLedgerVerdictEventTotalHeadline(3, 9, "Live Event")].join(" ");
+    for (const dash of ["—", "–", "-"]) expect(ranged.replace(/(\d)–(\d)/g, "$1$2")).not.toContain(dash);
   });
 
   it("carries no dash character in any milestone word, matching the tab's own rule", () => {
@@ -493,9 +474,7 @@ describe("the alliance selection route copy (quick task 260925-w4y)", () => {
     expect(districtLedgerOutcomePointsRange(9, 16)).not.toContain("~");
   });
 
-  it("gives the selection list its own caption, about the RANKING rather than a bracket", () => {
-    expect(DISTRICT_LEDGER_OUTCOME_CAPTIONS.alliance).toContain("ranking");
-    expect(DISTRICT_LEDGER_OUTCOME_CAPTIONS.alliance).not.toContain("bracket");
+  it("names the selection list by its own label", () => {
     expect(DISTRICT_LEDGER_OUTCOME_LIST_LABELS.alliance).toBe("Alliance selection outcomes");
   });
 
@@ -503,7 +482,6 @@ describe("the alliance selection route copy (quick task 260925-w4y)", () => {
     const everyString = [
       ...Object.values(DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS),
       ...Object.values(DISTRICT_LEDGER_SELECTION_ROUTE_WORDS).flatMap((entry) => [entry.bold, entry.conditional]),
-      DISTRICT_LEDGER_OUTCOME_CAPTIONS.alliance,
       DISTRICT_LEDGER_OUTCOME_LIST_LABELS.alliance,
       districtLedgerSelectionSettledLine("captain", 5),
       districtLedgerOutcomePointsRange(9, 16),
@@ -588,19 +566,6 @@ describe("the Champ Locks copy contract", () => {
     expect(champLedgerDcmpStageLine({ week: null, stage: "unstarted" })).toBe("not started");
     expect(champLedgerDcmpStageLine({ week: 5, stage: "done" })).not.toContain("District Championship");
   });
-
-  it("names the contribution list's two rows from the SAME table the ledger's rows come from", () => {
-    expect(CHAMP_LEDGER_CONTRIBUTION_ROW_LABELS).toBe(CHAMP_LEDGER_ROW_LABELS);
-    expect(CHAMP_LEDGER_CONTRIBUTION_LIST_LABEL).toBe("Points by source");
-    expect(CHAMP_LEDGER_CONTRIBUTION_COLUMN_SOURCE).toBe("source");
-    expect(champLedgerContributionChanceNote(0.62)).toBe("weighted by ~62% to be there");
-  });
-
-  it("says in the caption WHY the two subtotals do not add to the grand total", () => {
-    expect(CHAMP_LEDGER_CONTRIBUTION_CAPTION).toContain("weighted by the chance of being there");
-    for (const dash of ["—", "–", "-"]) expect(CHAMP_LEDGER_CONTRIBUTION_CAPTION).not.toContain(dash);
-    expect(CHAMP_LEDGER_CONTRIBUTION_CAPTION).not.toContain("±");
-  });
 });
 
 /**
@@ -642,29 +607,19 @@ describe("the predicted cutoff copy", () => {
     expect(districtLedgerCutoffLikelyText(59.4, 60.4)).toBe("likely 59–60");
   });
 
-  it("says in two sentences what the dashed rule is and what the likely range is", () => {
-    expect(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION).toContain("midpoint");
-    expect(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION).toContain("10th to the 90th percentile");
-    expect(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION.split(". ")).toHaveLength(2);
-  });
-
   it("carries no dash character in any of the cutoff copy", () => {
     const everyString = [
       ...Object.values(DISTRICT_LEDGER_CUTOFF_LABELS),
-      DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
-      DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
-      DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION,
-      DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
+      districtLedgerCutoffFigure(59, false),
+      districtLedgerCutoffFigure(59, true),
+      ...Object.values(DISTRICT_LEDGER_VERDICT_CUTOFF_TILE_WORDS),
     ].join(" ");
     for (const dash of ["—", "–", "-"]) expect(everyString).not.toContain(dash);
     expect(everyString).not.toContain("±");
-  });
-
-  it("describes the district tab's simulated line as a median with its own range, never as a midpoint (261004-uw4)", () => {
-    expect(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION).toContain("median");
-    expect(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION).toContain("10th to the 90th percentile");
-    expect(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION).not.toContain("midpoint");
-    expect(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION.split(". ")).toHaveLength(2);
+    // The likely text carries its en dash between two digits and no other dash.
+    const likely = districtLedgerCutoffLikelyText(55.4, 63.6) ?? "";
+    for (const dash of ["—", "–", "-"]) expect(likely.replace(/(\d)–(\d)/g, "$1$2")).not.toContain(dash);
+    expect(likely).not.toContain("±");
   });
 
   it("carries no dash character in any of the simulated champ cutoff copy (quick task 260927-6bf)", () => {
@@ -674,30 +629,30 @@ describe("the predicted cutoff copy", () => {
       ...Object.values(CHAMP_LEDGER_NO_CALL_REASONS),
       ...Object.keys(CHAMP_LEDGER_NO_CALL_REASONS).map((reason) => champLedgerNoCallDescription(reason as keyof typeof CHAMP_LEDGER_NO_CALL_REASONS)),
       CHAMP_LEDGER_CUTOFF_PENDING_FIGURE,
-      CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
-      CHAMP_LEDGER_DRAWER_PENDING_CAPTION,
       CHAMP_LEDGER_ESTIMATED_DCMP_LINE,
     ].join(" ");
     for (const dash of ["—", "–", "-"]) expect(everyString).not.toContain(dash);
     expect(everyString).not.toContain("±");
   });
 
-  it("never says In range or Out of range on a withheld chip, and describes the simulated line's likely range", () => {
+  it("never says In range or Out of range on a withheld chip", () => {
     for (const label of Object.values(CHAMP_LEDGER_RANGE_CALL_LABELS)) {
       expect(label).not.toMatch(/in range|out of range/i);
     }
-    // Jacob, 2026-09-27: the simulated line's range is shown.
-    expect(CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION).toContain("10th to the 90th percentile");
-    expect(CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION).toContain("winning alliance");
-    for (const award of ["Impact", "Engineering Inspiration", "Rookie All Star"]) expect(CHAMP_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION).toContain(award);
   });
 
-  it("says cutoff, never the retired wording, in the two absence captions", () => {
-    expect(DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION).toContain("cutoff");
-    expect(DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION).toContain("cutoff");
-    for (const caption of [DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION, DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION, DISTRICT_LEDGER_DRAWER_NO_CUTOFF_CAPTION]) {
-      expect(caption.toLowerCase()).not.toContain("today");
-    }
+  it("never prints the retired wording in any verdict string", () => {
+    const everyString = [
+      DISTRICT_LEDGER_VERDICT_NOTE,
+      ...Object.values(DISTRICT_LEDGER_VERDICT_LEGEND),
+      ...Object.values(DISTRICT_LEDGER_VERDICT_CUTOFF_TILE_WORDS),
+      ...Object.values(CHAMP_LEDGER_VERDICT_SOURCE_WORDS),
+      ...(["chance", "qualified", "lockedOut", "declined", "pending", "noCall", "open"] as const).map((kind) =>
+        districtLedgerVerdictGrandHeadline(kind === "chance" ? { kind, chance: 0.4 } : { kind }, 3, 9)
+      ),
+      districtLedgerVerdictCutoffLabel("~59"),
+    ].join(" ");
+    expect(everyString.toLowerCase()).not.toContain("today");
   });
 });
 

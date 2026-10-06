@@ -63,16 +63,13 @@ import type { DistrictArtifact } from "../../../../../packages/harness/pageArtif
 import type { PublishedAlgorithmId } from "../../../../../packages/harness/publishedAlgorithms.js";
 import {
   ControlsCard,
-  DrawerCellPane,
   GrandTotalContent,
-  GrandTotalPlot,
   LedgerCell,
   StatusCell,
   StatusChips,
   TeamCell,
   UNAVAILABLE_CELL_CLASS,
   ledgerRangeCallChip,
-  likelyRangeText,
   stageWordKey,
   type CellInteraction,
   type DistrictLedgerNavigate,
@@ -82,10 +79,6 @@ import { predictedCutoff, simulatedCutoffRange, type LedgerCutoffView } from "./
 import { champCutoffTuning } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
 import {
   CHAMP_LEDGER_COLUMN_LABELS,
-  CHAMP_LEDGER_CONTRIBUTION_CAPTION,
-  CHAMP_LEDGER_CONTRIBUTION_COLUMN_SOURCE,
-  CHAMP_LEDGER_CONTRIBUTION_LIST_LABEL,
-  CHAMP_LEDGER_CONTRIBUTION_ROW_LABELS,
   CHAMP_LEDGER_DISTRICT_ONLY_LINE,
   CHAMP_LEDGER_ESTIMATED_DCMP_LINE,
   CHAMP_LEDGER_LOCKED_WINNER_LABEL,
@@ -95,18 +88,19 @@ import {
   CHAMP_LEDGER_ROW_LABELS,
   CHAMP_LEDGER_STATUS_DEFINITIONS,
   CHAMP_LEDGER_TAB_LABEL,
+  CHAMP_LEDGER_VERDICT_SUBTOTAL_TITLES,
   DISTRICT_LEDGER_CAVEAT,
-  DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS,
-  DISTRICT_LEDGER_CONTRIBUTION_SETTLED,
   DISTRICT_LEDGER_NO_MATCHES,
   DISTRICT_LEDGER_PROVENANCE,
-  champLedgerContributionChanceNote,
+  DISTRICT_LEDGER_VERDICT_CELL_TITLES,
   champLedgerDcmpStageLine,
   champLedgerDistrictSourceLine,
   champLedgerFieldChanceLine,
   districtLedgerChanceLine,
-  districtLedgerContributionEarned,
 } from "./districtLedgerCopy.js";
+import { buildVerdictModel, champGrandSourceChips, ledgerGrandVerdict, verdictCategoryChips } from "./ledgerVerdict.js";
+import { VerdictDrawer } from "./LedgerVerdictDrawer.js";
+import type { LedgerRangeCall } from "./ledgerRangeState.js";
 import { buildAdvancementChanceRun } from "./districtLedgerChances.js";
 import {
   buildChampAdvancementChanceRun,
@@ -119,7 +113,7 @@ import {
 } from "./champLedgerChances.js";
 import { useDistrictAdvancementChance } from "./useDistrictAdvancementChance.js";
 import { DISTRICT_LEDGER_STATUS_KEYS, computeDistrictLedgerStatuses } from "./districtLedgerStatus.js";
-import type { DistrictLedgerShownStatusKey } from "./districtFieldOverlay.js";
+import type { DistrictLedgerShownState, DistrictLedgerShownStatusKey } from "./districtFieldOverlay.js";
 import { applyChampRangeState, computeChampLedgerStatuses, type ChampDisplayStatusModel } from "./champLedgerStatus.js";
 import {
   buildChampLedgerRows,
@@ -129,7 +123,6 @@ import {
   dcmpEventKeysFor,
   dcmpStartedForTeam,
   type ChampDcmpEstimate,
-  type ChampContribution,
   type ChampLedgerCell,
   type ChampLedgerRow,
   type ChampLedgerRowKind,
@@ -234,121 +227,76 @@ function SourceCell({ row, team }: { row: ChampLedgerRow; team: ChampLedgerTeam 
 }
 
 /**
- * The grand total drawer's right pane: ONE row per source, so a reader can see
- * which half of the champ total the spread comes from.
- *
- * `DistrictContributionList`'s shape and classes, with the one thing the
- * district tier has no equivalent of: the DCMP row prints the FIELD CHANCE it
- * is weighted by, which is why the two subtotals do not add to the grand total
- * while that chance is under one.
- */
-function ChampContributionList({ contributions }: { contributions: readonly ChampContribution[] }) {
-  return (
-    <div className="flex flex-col gap-[var(--spacing-xs)]" data-testid="champ-ledger-drawer-contributions">
-      <table className="district-ledger-contributions">
-        <caption className="sr-only">{CHAMP_LEDGER_CONTRIBUTION_LIST_LABEL}</caption>
-        <thead>
-          <tr>
-            <th scope="col">{CHAMP_LEDGER_CONTRIBUTION_COLUMN_SOURCE}</th>
-            <th scope="col">{DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS.earned}</th>
-            <th scope="col">{DISTRICT_LEDGER_CONTRIBUTION_COLUMN_LABELS.open}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {contributions.map((entry) => (
-            <tr key={entry.row} data-testid="champ-ledger-contribution-row" data-row={entry.row}>
-              <th scope="row" className="district-ledger-contributions__event">
-                {CHAMP_LEDGER_CONTRIBUTION_ROW_LABELS[entry.row]}
-                {entry.fieldChance !== undefined && (
-                  <span className="district-ledger-event-stage" data-testid="champ-ledger-contribution-chance">
-                    {champLedgerContributionChanceNote(entry.fieldChance)}
-                  </span>
-                )}
-              </th>
-              <td className="district-ledger-contributions__earned">
-                {entry.notYetPriced ? CHAMP_LEDGER_NOT_YET_PRICED_CELL : districtLedgerContributionEarned(entry.earned)}
-              </td>
-              <td className="district-ledger-contributions__open">
-                {entry.notYetPriced ? (
-                  // NOT "settled": nothing here is finished, it was never
-                  // priced, and the two absences mean different things.
-                  CHAMP_LEDGER_NOT_YET_PRICED_CELL
-                ) : entry.open === undefined ? (
-                  DISTRICT_LEDGER_CONTRIBUTION_SETTLED
-                ) : (
-                  <>
-                    {`~${String(Math.round(entry.open.p50))}`}{" "}
-                    <span className="district-ledger-contributions__range">
-                      {likelyRangeText(Math.max(0, entry.open.p10), Math.max(0, entry.open.p90))}
-                    </span>
-                  </>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <span className="district-ledger-pane-caption">{CHAMP_LEDGER_CONTRIBUTION_CAPTION}</span>
-    </div>
-  );
-}
-
-/**
- * ONE drawer row at a time across the whole table, spanning every column.
+ * ONE drawer row at a time across the whole table, spanning every column,
+ * carrying the ONE verdict pane for the clicked cell (sketch 025 variant A,
+ * quick task 261006-lxp).
  *
  * THE TIER FOLLOWS THE ROW THE CELL CAME FROM. A DCMP cell's outcome lists are
  * priced at the 3x weight by `districtPlayoffOutcomes`/`districtAwardOutcomes`
  * themselves; a District points cell is a SUM over several events, so no named
- * outcome covers its support and it asks for the histogram instead.
+ * outcome covers its support and it draws the histogram instead. Both
+ * subtotals can be open at once, so a subtotal's eyebrow names which.
  */
 function ChampDrawerRow({
-  cell,
-  row,
   team,
+  row,
+  cell,
   cutoff,
   columnCount,
-  chanceLine,
+  chance,
+  status,
   season,
   isRookie,
 }: {
-  cell: Extract<DistrictLedgerCell, { kind: "open" }>;
+  team: ChampLedgerTeam;
   /** Which of the team's two rows the clicked cell belongs to; `undefined` for the grand total, which belongs to neither. */
   row: ChampLedgerRowKind | undefined;
-  team: ChampLedgerTeam;
+  cell: Extract<DistrictLedgerCell, { kind: "open" }>;
   cutoff: LedgerCutoffView;
   columnCount: number;
-  chanceLine: string | undefined;
+  /** The raw chance the Status cell prints, or `undefined` where it prints none. */
+  chance: number | undefined;
+  /** The DISPLAYED status, with the range call that withholds it. */
+  status: { readonly status: DistrictLedgerShownState; readonly rangeCall?: LedgerRangeCall } | undefined;
   season: number;
   isRookie: boolean;
 }) {
-  // THE GRAND TOTAL IS DRAWN ONCE. When the clicked cell IS the grand total its
-  // own plot is the left pane and the contribution list is the right one,
-  // rather than a second copy of the same histogram (Jacob, 2026-09-25).
-  const isGrandTotal = cell.cell === "grandTotal";
+  const isGrandTotal = cell.cell === "grandTotal" || row === undefined;
+  const cellTitle = isGrandTotal
+    ? DISTRICT_LEDGER_VERDICT_CELL_TITLES.grandTotal
+    : cell.cell === "eventTotal"
+      ? CHAMP_LEDGER_VERDICT_SUBTOTAL_TITLES[row]
+      : DISTRICT_LEDGER_VERDICT_CELL_TITLES[cell.cell];
+  const model = buildVerdictModel({
+    cell,
+    cellTitle,
+    teamNumber: team.teamNumber,
+    nickname: team.nickname,
+    season,
+    isRookie,
+    tier: row === "dcmp" ? "dcmp" : "district",
+    namedOutcomes: row === "dcmp",
+    ...(isGrandTotal
+      ? {
+          grand: { verdict: ledgerGrandVerdict({ statusKey: status?.status, rangeCall: status?.rangeCall, chance }), cutoff },
+          sourceChips: champGrandSourceChips(champContributions(team), {
+            membership: team.membership,
+            grandTotalIsDistrictOnly: team.grandTotalIsDistrictOnly,
+            rookieBonus: team.rookieBonus,
+          }),
+        }
+      : {}),
+    ...(!isGrandTotal && cell.cell === "eventTotal"
+      ? {
+          total: row === "dcmp" ? { kind: "dcmp" as const, fieldChance: team.fieldChance } : { kind: "district" as const },
+          sourceChips: verdictCategoryChips((row === "dcmp" ? team.dcmpRow : team.districtRow).cells),
+        }
+      : {}),
+  });
   return (
     <TableRow data-testid="champ-ledger-drawer" data-drawer-cell={cell.id} className="district-ledger-row--drawer">
       <TableCell colSpan={columnCount}>
-        <div className="flex flex-wrap gap-[var(--spacing-lg)]">
-          {isGrandTotal ? (
-            <>
-              <GrandTotalPlot cell={cell} cutoff={cutoff} rookieBonus={team.rookieBonus} chanceLine={chanceLine} />
-              <ChampContributionList contributions={champContributions(team)} />
-            </>
-          ) : (
-            <>
-              <DrawerCellPane
-                cell={cell}
-                season={season}
-                isRookie={isRookie}
-                tier={row === "dcmp" ? "dcmp" : "district"}
-                namedOutcomes={row === "dcmp"}
-              />
-              {team.grandTotal.kind === "open" && (
-                <GrandTotalPlot cell={team.grandTotal} cutoff={cutoff} rookieBonus={team.rookieBonus} chanceLine={chanceLine} />
-              )}
-            </>
-          )}
-        </div>
+        <VerdictDrawer model={model} />
       </TableCell>
     </TableRow>
   );
@@ -906,7 +854,8 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
                   team={team}
                   cutoff={cutoff}
                   columnCount={CHAMP_LEDGER_COLUMN_LABELS.length}
-                  chanceLine={chanceLineFor(team.teamKey)}
+                  chance={chances?.byTeam.get(team.teamKey)}
+                  status={status}
                   season={season}
                   isRookie={isRookieByTeam.get(team.teamKey) === true}
                 />,

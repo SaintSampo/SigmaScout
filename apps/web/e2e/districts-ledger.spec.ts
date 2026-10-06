@@ -114,7 +114,7 @@ const TEST_IDS = {
   statusChip: "district-ledger-status-chip",
   /** `DistrictLedger.tsx:715` — one table row; carries `data-team`. */
   row: "district-ledger-row",
-  /** `DistrictLedger.tsx:302` — the sticky Team cell. */
+  /** `LedgerParts.tsx`'s `TeamCell` — the Team cell, NOT pinned since sketch 025: it scrolls with the table. */
   teamCell: "district-ledger-team-cell",
   /** `DistrictLedger.tsx:151` — the Status cell. */
   statusCell: "district-ledger-status-cell",
@@ -454,7 +454,7 @@ test.describe("District Locks, 1440x900", () => {
 });
 
 test.describe("District Locks, 390px", () => {
-  test("the table's own region is the only horizontal scroller and the sticky Team column holds", async ({ page }, testInfo) => {
+  test("the table's own region is the only horizontal scroller and the Team column scrolls with it", async ({ page }, testInfo) => {
     test.setTimeout(120_000);
     // Set explicitly rather than inherited from the project. Both deployed
     // projects collect this whole file, so a test that relied on the project's
@@ -481,7 +481,8 @@ test.describe("District Locks, 390px", () => {
     // eslint-disable-next-line no-console -- printed for the SUMMARY's measured-figure obligation.
     console.log(`[districts-ledger] 390px region scrollWidth ${measured.scrollWidth} vs clientWidth ${measured.clientWidth}`);
 
-    // The first column stays at the same viewport x after the region scrolls.
+    // The first column MOVES with the region: it is not pinned since sketch 025
+    // (Jacob, 2026-10-06), so it scrolls left like every other cell.
     const teamCell = page.getByTestId(TEST_IDS.teamCell).first();
     const before = await teamCell.boundingBox();
     if (before === null) throw new Error("the first Team cell has no bounding box");
@@ -492,8 +493,8 @@ test.describe("District Locks, 390px", () => {
     const after = await teamCell.boundingBox();
     if (after === null) throw new Error("the first Team cell has no bounding box after the scroll");
     // eslint-disable-next-line no-console -- printed for the SUMMARY's measured-figure obligation.
-    console.log(`[districts-ledger] sticky Team cell x before ${before.x}, after ${after.x}`);
-    expect(after.x, "the sticky Team column must hold its viewport x while the region scrolls").toBeCloseTo(before.x, 0);
+    console.log(`[districts-ledger] Team cell x before ${before.x}, after ${after.x} (not pinned, so it moves)`);
+    expect(after.x, "the Team column is not pinned since sketch 025, so it must scroll left with the region").toBeLessThan(before.x - 1);
 
     const shotPath = testInfo.outputPath("districts-ledger-390.png");
     await page.screenshot({ path: shotPath, fullPage: true });

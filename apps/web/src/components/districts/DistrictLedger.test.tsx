@@ -35,28 +35,22 @@ import {
   type DistrictEventState,
   type EventArtifact,
 } from "../../../../../packages/harness/pageArtifacts.js";
-import { RANK_BAND_LABEL_PREFIX } from "../event/rankRows.js";
 import { installMockWorker, type MockWorkerHandle, type MockWorkerScript } from "../../test/mockWorker.js";
 import { runDistrictWorkerJob } from "../../workers/districtSimulationProtocol.js";
 import { runAsOfEvent } from "../../workers/districtAsOfJob.js";
 import { DistrictLedger } from "./DistrictLedger.js";
+import { TEAM_CELL_CLASS } from "./LedgerParts.js";
 import { DISTRICT_MILESTONE_KEYS } from "./districtMilestones.js";
 import { asOfBodyFor, buildAsOfTestObjects } from "./asOfTestFixtures.js";
 import {
-  CHAMP_LEDGER_DRAWER_PENDING_CAPTION,
   CHAMP_LEDGER_NO_CALL_REASONS,
   DISTRICT_LEDGER_AWARD_OUTCOME_LABELS,
   DISTRICT_LEDGER_CAPACITY_NOT_PUBLISHED,
   DISTRICT_LEDGER_CAVEAT,
   DISTRICT_LEDGER_COLUMN_LABELS,
-  DISTRICT_LEDGER_CONTRIBUTION_SETTLED,
-  DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION,
   DISTRICT_LEDGER_CUTOFF_LABELS,
   DISTRICT_LEDGER_DECLINED_LABEL,
   DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS,
-  DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION,
-  DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION,
-  DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION,
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
@@ -1231,6 +1225,32 @@ describe("DistrictLedger — the milestone picker", () => {
 // The drawer
 // ---------------------------------------------------------------------------
 
+/**
+ * The verdict pane's readers (sketch 025 variant A, quick task 261006-lxp).
+ * The grand total headline is one of these sentences, and nothing else.
+ */
+const GRAND_HEADLINE =
+  /^(Qualifies in (\d+|fewer than 5) of 100 runs\.|Already qualified\.|Cannot qualify on points\.|Chance still being simulated\.|No call at this position\.|Likely \d+–\d+ grand total points\.)$/;
+
+function verdictHeadline(drawer: HTMLElement): string {
+  return within(drawer).getByTestId("district-ledger-verdict-headline").textContent ?? "";
+}
+
+function verdictTiles(drawer: HTMLElement): { key: string | null; value: string }[] {
+  return within(drawer)
+    .queryAllByTestId("district-ledger-verdict-tile")
+    .map((tile) => ({ key: tile.getAttribute("data-tile"), value: tile.querySelector(".district-ledger-verdict__tile-value")?.textContent ?? "" }));
+}
+
+function verdictTile(drawer: HTMLElement, key: string): string | undefined {
+  return verdictTiles(drawer).find((tile) => tile.key === key)?.value;
+}
+
+/** The stat line's own figure: the bold value beside its label. */
+function statLineFigure(): string {
+  return screen.getByTestId("district-ledger-stat-line").querySelector("b")?.textContent ?? "";
+}
+
 describe("DistrictLedger — the drawer", () => {
   const originalFetch = global.fetch;
   const originalMatchMedia = window.matchMedia;
@@ -1261,6 +1281,22 @@ describe("DistrictLedger — the drawer", () => {
     return cell.tagName === "BUTTON" ? (cell as HTMLElement) : within(cell as HTMLElement).getByRole("button");
   }
 
+  /** The clicked button's team: its key, and the number and nickname its Team cell prints. */
+  function teamOfButton(button: HTMLElement): { teamKey: string; number: string; nickname: string } {
+    const teamKey = button.closest("tr")!.getAttribute("data-team")!;
+    const firstRow = document.querySelector(`[data-testid="district-ledger-row"][data-team="${teamKey}"]`)!;
+    return {
+      teamKey,
+      number: firstRow.querySelector(".district-ledger-team-number")?.textContent ?? "",
+      nickname: firstRow.querySelector(".district-ledger-team-name")?.textContent ?? "",
+    };
+  }
+
+  /** One team's grand total button. */
+  function grandButtonOf(teamKey: string): HTMLElement {
+    return document.querySelector(`[data-testid="district-ledger-row"][data-team="${teamKey}"] button[data-cell-id="grand"]`) as HTMLElement;
+  }
+
   it("prints a PREDICTED cutoff with a tilde where something is still open, and the same number on the dashed rule", async () => {
     await renderWithOpenCells();
     const statLine = await screen.findByTestId("district-ledger-stat-line");
@@ -1287,10 +1323,11 @@ describe("DistrictLedger — the drawer", () => {
     fireEvent.click(cellButton("grand"));
     const drawer = await screen.findByTestId("district-ledger-drawer");
     expect(within(drawer).getByTestId("district-hist-marked-line")).toBeDefined();
-    // The dashed rule's own label carries the stat line's figure, character for character.
+    // The dashed rule's own label and the cutoff tile carry the stat line's
+    // figure, character for character, and no caption explains them.
     expect(within(drawer).getByTestId("district-hist-cutoff-label").textContent).toBe(`cutoff ~${String(printed)}`);
-    expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION);
-    expect(drawer.textContent ?? "").not.toContain(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION);
+    expect(verdictTile(drawer, "cutoff")).toBe(`~${String(printed)}`);
+    expect(drawer.textContent ?? "").not.toContain("The dashed line");
     expect(printed).toBeGreaterThan(0);
   });
 
@@ -1321,41 +1358,55 @@ describe("DistrictLedger — the drawer", () => {
     expect(cellButton("2026walive:elim").getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("draws both histograms, with the predicted cutoff on the grand total plot and its caption beneath it", async () => {
+  it("draws ONE chart for a qualification cell, headed by its likely range or its cap, with the median and likely tiles", async () => {
     await renderWithOpenCells();
-    fireEvent.click(cellButton("2026walive:qual"));
-    await waitFor(() => expect(screen.getByTestId("district-ledger-drawer-cell-plot")).toBeDefined());
-    expect(screen.getByTestId("district-ledger-drawer-grand-plot")).toBeDefined();
-    // The dashed rule is drawn at the simulated line, so it arrives with the chance run.
-    await waitFor(() => expect(screen.getByTestId("district-hist-marked-line")).toBeDefined(), { timeout: 15_000 });
-    expect(screen.getByTestId("district-ledger-drawer").textContent).toContain(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION);
-    await waitFor(() =>
-      expect(screen.getByTestId("district-ledger-drawer").textContent).toContain(DISTRICT_LEDGER_DRAWER_CHANCE_CAPTION)
-    );
+    const button = cellButton("2026walive:qual");
+    const team = teamOfButton(button);
+    fireEvent.click(button);
+    const drawer = await screen.findByTestId("district-ledger-drawer");
+    expect(within(drawer).getAllByTestId("district-ledger-drawer-cell-plot")).toHaveLength(1);
+    expect(within(drawer).queryByTestId("district-ledger-drawer-grand-plot")).toBeNull();
+    expect(verdictHeadline(drawer)).toMatch(/^(Likely \d+–\d+ qualification points\.|Finishes quals at the \d+ point cap in \d+ of 100 runs\.)$/);
+    expect(verdictTiles(drawer).map((tile) => tile.key)).toEqual(["median", "likely"]);
+    expect(verdictTile(drawer, "median")).toMatch(/^~\d+$/);
+    expect(verdictTile(drawer, "likely")).toMatch(/^\d+–\d+$/);
+    expect(verdictTile(drawer, "cutoff")).toBeUndefined();
+    expect(within(drawer).getByTestId("district-ledger-verdict-eyebrow").textContent).toBe(`Qualification at Live Event · ${team.number} ${team.nickname}`);
+    expect(within(drawer).getByTestId("district-hist-cap").textContent).toMatch(/^\d+ cap$/);
+    expect(within(drawer).queryByTestId("district-ledger-verdict-source")).toBeNull();
+    // The table cell itself still prints its one decimal likely line.
+    expect(cellButton("2026walive:qual").textContent ?? "").toMatch(/likely \d+\.\d–\d+\.\d/);
   });
 
-  it("draws NO cutoff and says so instead when the capacity is unpublished", async () => {
+  it("draws NO cutoff on the grand total and says so on its tile when the capacity is unpublished", async () => {
     installFetch({ eventArtifact: liveEventArtifact() });
     handle = installMockWorker({ script: realRunScript });
     renderLedger(artifactOf(ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey))), { dcmpSlots: null }));
     await waitFor(() => {
       expect(document.querySelector('[data-cell-id="2026walive:qual"]')?.getAttribute("data-cell")).toBe("open");
     });
-    fireEvent.click(cellButton("2026walive:qual"));
-    await waitFor(() => expect(screen.getByTestId("district-ledger-drawer")).toBeDefined());
-    expect(screen.queryByTestId("district-hist-marked-line")).toBeNull();
-    expect(screen.getByTestId("district-ledger-drawer").textContent).toContain(DISTRICT_LEDGER_DRAWER_NO_LINE_CAPTION);
+    fireEvent.click(cellButton("grand"));
+    const drawer = await screen.findByTestId("district-ledger-drawer");
+    expect(within(drawer).getByTestId("district-ledger-drawer-grand-plot")).toBeDefined();
+    expect(within(drawer).queryByTestId("district-hist-marked-line")).toBeNull();
+    expect(verdictTile(drawer, "cutoff")).toBe("not published");
+    expect(verdictHeadline(drawer)).toMatch(/^Likely \d+–\d+ grand total points\.$/);
   });
 
-  it("pins the band-edge label to the hand-computable percentiles of the drawn distribution", async () => {
+  it("pins the likely and median tiles to whole numbers that round the cell's own one decimal line", async () => {
     await renderWithOpenCells();
+    const small = cellButton("2026walive:qual").textContent ?? "";
+    const ends = /likely (\d+\.\d)–(\d+\.\d)/.exec(small);
+    expect(ends, `the qualification cell reads "${small}"`).not.toBeNull();
     fireEvent.click(cellButton("2026walive:qual"));
-    const label = await screen.findByTestId("district-ledger-drawer-band-label");
-    const text = label.textContent ?? "";
-    expect(text.startsWith(RANK_BAND_LABEL_PREFIX)).toBe(true);
-    // One decimal, an EN dash, and never the plus-minus codepoint.
-    expect(text).toMatch(/^10th–90th: \d+\.\d–\d+\.\d$/);
-    expect(screen.getByTestId("district-ledger-drawer").textContent ?? "").not.toContain(PLUS_MINUS);
+    const drawer = await screen.findByTestId("district-ledger-drawer");
+    const likely = /^(\d+)–(\d+)$/.exec(verdictTile(drawer, "likely") ?? "");
+    expect(likely, "an en dash between two whole numbers").not.toBeNull();
+    // The same percentiles at two precisions: within rounding of each other.
+    expect(Math.abs(Number(likely![1]) - Number(ends![1]))).toBeLessThanOrEqual(0.55);
+    expect(Math.abs(Number(likely![2]) - Number(ends![2]))).toBeLessThanOrEqual(0.55);
+    expect(verdictTile(drawer, "median")).toMatch(/^~\d+$/);
+    expect(drawer.textContent ?? "").not.toContain(PLUS_MINUS);
   });
 
   it("uses ONE maximum per column, shared down the column, for two different teams' plots", async () => {
@@ -1482,41 +1533,93 @@ describe("DistrictLedger — the drawer", () => {
     }
   });
 
-  it("draws the grand total histogram ONCE when the grand total is the clicked cell, beside a per-event list", async () => {
+  it("draws the grand total ONCE in one verdict pane, headed by the Status cell's own chance, with one source line", async () => {
     await renderWithOpenCells();
-    fireEvent.click(cellButton("grand"));
-    const drawer = await screen.findByTestId("district-ledger-drawer");
-    expect(drawer.getAttribute("data-drawer-cell")).toBe("grand");
-    // ONE plot, not two identical ones.
-    expect(within(drawer).getAllByTestId("district-ledger-drawer-grand-plot")).toHaveLength(1);
-    expect(within(drawer).queryByTestId("district-ledger-drawer-cell-plot")).toBeNull();
-    // And the contribution list, one row per district-tier event.
-    const list = within(drawer).getByTestId("district-ledger-drawer-contributions");
-    const rows = within(list).getAllByTestId("district-ledger-contribution-row");
-    expect(rows.map((row) => row.getAttribute("data-event"))).toEqual(["2026wadone", "2026walive"]);
-    // The finished event contributes its earned total exactly; the live one is
-    // still open and carries a median with a likely range.
-    expect(rows[0]!.textContent ?? "").toContain("24");
-    expect(rows[0]!.textContent ?? "").toContain(DISTRICT_LEDGER_CONTRIBUTION_SETTLED);
-    expect(rows[1]!.textContent ?? "").toMatch(/~\d+/);
-    expect(rows[1]!.textContent ?? "").toContain(DISTRICT_LEDGER_LIKELY_PREFIX);
+    const statLine = screen.getByTestId("district-ledger-stat-line");
+    await waitFor(() => expect(statLine.textContent).toMatch(/~\d+/), { timeout: 15_000 });
+    await waitFor(() => expect(screen.getAllByTestId("district-ledger-chance").length).toBeGreaterThan(0), { timeout: 15_000 });
+
+    // A team whose Status cell prints a number, and one printing the floor where there is one.
+    const lines = screen.getAllByTestId("district-ledger-chance");
+    const picks = [lines.find((line) => /^\d+% chance$/.test(line.textContent ?? "")), lines.find((line) => line.textContent === "<5% chance")].filter(
+      (line): line is HTMLElement => line !== undefined
+    );
+    expect(picks.length).toBeGreaterThan(0);
+    for (const line of picks) {
+      const teamKey = line.closest("tr")!.getAttribute("data-team")!;
+      const printed = line.textContent ?? "";
+      const button = grandButtonOf(teamKey);
+      const team = teamOfButton(button);
+      fireEvent.click(button);
+      const drawer = await screen.findByTestId("district-ledger-drawer");
+      expect(drawer.getAttribute("data-drawer-cell")).toBe("grand");
+      // ONE plot, no cell plot, no outcome list.
+      expect(within(drawer).getAllByTestId("district-ledger-drawer-grand-plot")).toHaveLength(1);
+      expect(within(drawer).queryByTestId("district-ledger-drawer-cell-plot")).toBeNull();
+      expect(within(drawer).queryByTestId("district-ledger-drawer-outcomes")).toBeNull();
+      expect(within(drawer).getByTestId("district-ledger-verdict-eyebrow").textContent).toBe(`Grand total · ${team.number} ${team.nickname}`);
+
+      // The SAME N the Status cell prints.
+      const headline = verdictHeadline(drawer);
+      expect(headline).toMatch(GRAND_HEADLINE);
+      const runs = printed === "<5% chance" ? "fewer than 5" : printed.replace("% chance", "");
+      expect(headline).toBe(`Qualifies in ${runs} of 100 runs.`);
+
+      // The cutoff tile is the stat line's own figure, and the chart labels the same one.
+      const figure = statLineFigure();
+      expect(verdictTile(drawer, "cutoff")).toBe(figure);
+      expect(within(drawer).getByTestId("district-hist-cutoff-label").textContent).toBe(`cutoff ${figure}`);
+      // The hatched zone is drawn exactly when the stat line prints a likely range.
+      const statPrintsLikely = within(statLine).queryByTestId("district-ledger-cutoff-likely") !== null;
+      expect(within(drawer).queryByTestId("district-hist-cutoff-zone") !== null).toBe(statPrintsLikely);
+
+      // One source line: the settled event's earned points, the live one's prediction.
+      const source = within(drawer).getByTestId("district-ledger-verdict-source").textContent ?? "";
+      expect(source).toContain("24 earned at Done Event");
+      expect(source).toMatch(/~\d+ predicted at Live Event/);
+
+      fireEvent.click(grandButtonOf(teamKey));
+      await waitFor(() => expect(screen.queryAllByTestId("district-ledger-drawer")).toHaveLength(0));
+    }
   });
 
-  it("keeps the cutoff and its caption on the grand total drawer", async () => {
+  it("keeps the cutoff on the grand total drawer, as the chart's label and the cutoff tile", async () => {
     await renderWithOpenCells();
     fireEvent.click(cellButton("grand"));
     const drawer = await screen.findByTestId("district-ledger-drawer");
     // The dashed rule is drawn at the simulated line, so it arrives with the chance run.
     await waitFor(() => expect(within(drawer).getByTestId("district-hist-marked-line")).toBeDefined(), { timeout: 15_000 });
-    expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION);
+    const tile = verdictTile(drawer, "cutoff") ?? "";
+    expect(tile).toMatch(/^~\d+$/);
+    expect(within(drawer).getByTestId("district-hist-cutoff-label").textContent).toBe(`cutoff ${tile}`);
   });
 
-  it("still draws the grand total plot BESIDE a category cell's own pane", async () => {
+  it("draws NO grand total plot beside a category cell: the playoffs pane is its outcome list, headed by the likeliest outcome", async () => {
     await renderWithOpenCells();
     fireEvent.click(cellButton("2026walive:elim"));
     const drawer = await screen.findByTestId("district-ledger-drawer");
-    expect(within(drawer).getByTestId("district-ledger-drawer-outcomes")).toBeDefined();
-    expect(within(drawer).getByTestId("district-ledger-drawer-grand-plot")).toBeDefined();
+    const list = within(drawer).getByTestId("district-ledger-drawer-outcomes");
+    expect(within(drawer).queryByTestId("district-ledger-drawer-grand-plot")).toBeNull();
+    expect(within(drawer).queryByTestId("district-ledger-drawer-cell-plot")).toBeNull();
+
+    // The likeliest PRINTED chance names the headline.
+    const rows = within(list)
+      .getAllByTestId("district-ledger-outcome-row")
+      .map((row) => {
+        const chance = row.querySelector(".district-ledger-verdict-outcomes__chance")?.textContent ?? "";
+        return { label: row.querySelector(".district-ledger-verdict-outcomes__label")?.textContent ?? "", printed: /^~(\d+)%$/.exec(chance)?.[1] };
+      });
+    const top = Math.max(...rows.map((row) => Number(row.printed ?? 0)));
+    const match = /^(.+) in (\d+) of 100 runs\.$/.exec(verdictHeadline(drawer));
+    expect(match, verdictHeadline(drawer)).not.toBeNull();
+    expect(Number(match![2])).toBe(top);
+    expect(rows.filter((row) => Number(row.printed ?? 0) === top).map((row) => row.label)).toContain(match![1]);
+
+    expect(verdictTiles(drawer).map((tile) => tile.key)).toEqual(["mostLikely", "chanceOfPoints"]);
+    expect(verdictTile(drawer, "mostLikely")).toBe(match![1]);
+    expect(verdictTile(drawer, "chanceOfPoints")).toMatch(/^\d+%$/);
+    // A category cell carries no source line.
+    expect(within(drawer).queryByTestId("district-ledger-verdict-source")).toBeNull();
   });
 
   it("prints no plus-minus codepoint anywhere in either outcome list", async () => {
@@ -1536,6 +1639,10 @@ describe("DistrictLedger — the drawer", () => {
     renderLedgerAt(liveDistrict(), "/districts?algorithm=spr&drawerTeam=100&drawerCell=2026walive%3Aqual");
     await waitFor(() => expect(screen.getAllByTestId("district-ledger-drawer")).toHaveLength(1));
     expect(screen.getByTestId("district-ledger-drawer").getAttribute("data-drawer-cell")).toBe("2026walive:qual");
+  });
+
+  it("does not pin the Team column: it keeps the surface and the alignment and scrolls with the table (sketch 025)", () => {
+    expect(TEAM_CELL_CLASS).toBe("bg-[var(--color-bg-surface)] align-middle");
   });
 });
 
@@ -2008,13 +2115,14 @@ describe("DistrictLedger — the advancement chance", () => {
       expect(definitions).toContain(DISTRICT_LEDGER_STATUS_DEFINITIONS.inRange);
       expect(definitions).toContain(DISTRICT_LEDGER_STATUS_DEFINITIONS.outOfRange);
 
-      // The dashed rule is the midpoint rule's, under the midpoint caption.
+      // The dashed rule is the midpoint rule's: drawn, carrying the stat line's
+      // figure on its tile, and with no hatched zone, because no likely range is printed.
       const grand = document.querySelector('[data-cell-id="grand"][data-cell="open"]')!;
       fireEvent.click(grand.tagName === "BUTTON" ? grand : within(grand as HTMLElement).getByRole("button"));
       const drawer = await screen.findByTestId("district-ledger-drawer");
       expect(within(drawer).getByTestId("district-hist-marked-line")).toBeDefined();
-      expect(drawer.textContent ?? "").toContain(DISTRICT_LEDGER_DRAWER_CUTOFF_CAPTION);
-      expect(drawer.textContent ?? "").not.toContain(DISTRICT_LEDGER_DRAWER_SIMULATED_CUTOFF_CAPTION);
+      expect(verdictTile(drawer, "cutoff")).toBe(statLineFigure());
+      expect(within(drawer).queryByTestId("district-hist-cutoff-zone")).toBeNull();
     });
   }
 });
@@ -2116,7 +2224,7 @@ describe("DistrictLedger — the simulated cutoff's chip timing", () => {
     fireEvent.click(grand.tagName === "BUTTON" ? grand : within(grand as HTMLElement).getByRole("button"));
     const drawer = await screen.findByTestId("district-ledger-drawer");
     expect(within(drawer).queryByTestId("district-hist-marked-line")).toBeNull();
-    expect(drawer.textContent ?? "").toContain(CHAMP_LEDGER_DRAWER_PENDING_CAPTION);
+    expect(verdictTile(drawer, "cutoff")).toBe("pending");
 
     // Release the LATEST held run (an earlier one may be stale by now).
     const latest = held[held.length - 1]!;
@@ -2129,7 +2237,9 @@ describe("DistrictLedger — the simulated cutoff's chip timing", () => {
     expect(settled).not.toContain("pending");
     expect(settled.some((status) => status === "inRange" || status === "outOfRange")).toBe(true);
     // The dashed rule arrives with the figure, in the drawer that was already open.
-    expect(within(screen.getByTestId("district-ledger-drawer")).getByTestId("district-hist-marked-line")).toBeDefined();
+    const openDrawer = screen.getByTestId("district-ledger-drawer");
+    expect(within(openDrawer).getByTestId("district-hist-marked-line")).toBeDefined();
+    expect(verdictTile(openDrawer, "cutoff")).toMatch(/^~\d+$/);
     observer.disconnect();
 
     // SETTLES ONCE: every stat line the page ever showed is either the

@@ -825,15 +825,19 @@ describe("ChampLocksLedger — the drawer", () => {
     expect(within(drawer).queryByTestId("district-ledger-drawer-outcomes")).toBeNull();
   });
 
-  it("draws the grand total ONCE beside a two row contribution list", async () => {
+  it("draws the grand total ONCE in one verdict pane, with one source line naming both sources", async () => {
     renderUnderWay();
     await clickCell("grand");
     const drawer = screen.getByTestId("champ-ledger-drawer");
     expect(within(drawer).getAllByTestId("district-ledger-drawer-grand-plot")).toHaveLength(1);
-    const rows = within(drawer).getAllByTestId("champ-ledger-contribution-row");
-    expect(rows.map((row) => row.getAttribute("data-row"))).toEqual(["district", "dcmp"]);
-    expect(rows[0]!.textContent).toContain("District points");
-    expect(rows[1]!.textContent).toContain("DCMP points");
+    expect(within(drawer).queryByTestId("district-ledger-drawer-cell-plot")).toBeNull();
+    expect(within(drawer).getByTestId("district-ledger-verdict-eyebrow").textContent ?? "").toMatch(/^Grand total · \d+ /);
+    expect(within(drawer).getByTestId("district-ledger-verdict-headline").textContent ?? "").toMatch(
+      /^(Qualifies in (\d+|fewer than 5) of 100 runs\.|Already qualified\.|Cannot qualify on points\.|Chance still being simulated\.|No call at this position\.|Likely \d+–\d+ grand total points\.)$/
+    );
+    const source = within(drawer).getByTestId("district-ledger-verdict-source").textContent ?? "";
+    expect(source).toContain("district events");
+    expect(/predicted at the DCMP|earned at the DCMP|district points only/.test(source), source).toBe(true);
   });
 
   /**
@@ -843,24 +847,43 @@ describe("ChampLocksLedger — the drawer", () => {
    * the ESTIMATE by field rank, never the real roster's prediction, and the
    * grand total weighs it by the chance of being there.
    */
-  it("prints the field chance the DCMP row is weighted by, in the contribution list, at a rewound position", async () => {
+  it("prints the field chance on the grand total's DCMP chip and heads an open DCMP subtotal with it, at a rewound position", async () => {
     renderUnderWay("/districts?algorithm=spr&tab=champ-locks&at=season-start");
     // TWO Worker jobs stand between the first paint and this line: the
     // per-event run over both open events, and the district advancement chance
     // over its results. The default one-second wait is not enough for both.
+    let teamKey = "";
     await waitFor(
       () => {
-        const dcmpSources = screen.getAllByTestId("champ-ledger-source-cell").filter((cell) => cell.getAttribute("data-row") === "dcmp");
-        expect(dcmpSources.some((cell) => /to be there/.test(cell.textContent ?? ""))).toBe(true);
+        // A team whose place in the field is still OPEN, under one.
+        const open = screen
+          .getAllByTestId("champ-ledger-source-cell")
+          .filter((cell) => cell.getAttribute("data-row") === "dcmp")
+          .find((cell) => {
+            const match = /(<5|~(\d+))% to be there/.exec(cell.textContent ?? "");
+            return match !== null && (match[1] === "<5" || Number(match[2]) < 99);
+          });
+        expect(open).toBeDefined();
+        teamKey = open!.closest("tr")!.getAttribute("data-team")!;
+        const grand = document.querySelector(`[data-testid="champ-ledger-row"][data-team="${teamKey}"] [data-cell-id="grand"]`);
+        expect(grand?.getAttribute("data-cell")).toBe("open");
       },
       { timeout: 20000 }
     );
-    await clickCell("grand");
-    const dcmpRow = within(screen.getByTestId("champ-ledger-drawer"))
-      .getAllByTestId("champ-ledger-contribution-row")
-      .find((row) => row.getAttribute("data-row") === "dcmp")!;
-    expect(within(dcmpRow).getByTestId("champ-ledger-contribution-chance").textContent).toMatch(
-      /^weighted by (~\d+% to be there|<5% to be there)$/
+    fireEvent.click(document.querySelector(`[data-testid="champ-ledger-row"][data-team="${teamKey}"] button[data-cell-id="grand"]`) as HTMLElement);
+    const grandDrawer = await screen.findByTestId("champ-ledger-drawer");
+    expect(within(grandDrawer).getByTestId("district-ledger-verdict-source").textContent ?? "").toMatch(
+      /predicted at the DCMP, in the field (\d+|<5)% of runs/
+    );
+
+    const subtotal = document.querySelector(`[data-testid="champ-ledger-row"][data-team="${teamKey}"] [data-cell-id="dcmp-row:eventTotal"]`) as HTMLElement;
+    expect(subtotal.getAttribute("data-cell")).toBe("open");
+    fireEvent.click(within(subtotal).getByRole("button"));
+    await waitFor(() => expect(screen.getByTestId("champ-ledger-drawer").getAttribute("data-drawer-cell")).toBe("dcmp-row:eventTotal"));
+    const drawer = screen.getByTestId("champ-ledger-drawer");
+    expect(within(drawer).getByTestId("district-ledger-verdict-eyebrow").textContent ?? "").toMatch(/^DCMP subtotal · /);
+    expect(within(drawer).getByTestId("district-ledger-verdict-headline").textContent ?? "").toMatch(
+      /^In the field in (\d+|fewer than 5) of 100 runs, and ~\d+ points if there\.$/
     );
   }, 30000);
 

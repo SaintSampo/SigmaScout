@@ -167,8 +167,8 @@ export function districtAwardOutcomes(
  * Awards cells list their outcomes at the 3x weight exactly as a district
  * event's do; its District points row is a SUM over several events, whose
  * support no named placement covers — "Finalist" is not an outcome of two
- * events added together — so that row asks `DrawerCellPane` for the histogram
- * and this function is never reached for it (quick task 260925-xab).
+ * events added together — so that row asks the drawer for the histogram and
+ * this function is never reached for it (quick task 260925-xab).
  */
 export function districtCellRendersOutcomeList(cell: string): cell is "elim" | "award" {
   return cell === "elim" || cell === "award";
