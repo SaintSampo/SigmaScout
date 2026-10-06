@@ -139,31 +139,33 @@ export const MEASURED_WARMUP_FROM = 2026;
 /** The exact command that produced every recorded constant below. */
 export const MEASURED_COMMAND = "npx tsx scripts/measureAllianceWinProbability.ts --seasons 2026 --warmup-from 2026";
 /** The date that command was run. */
-export const MEASURED_DATE = "2026-09-29";
+export const MEASURED_DATE = "2026-10-05";
+// Re-recorded 2026-10-05: the 2026-10-05 ingest (generation 8ee290cd) added 335 played 2026 rows, which moved
+// the p90 gap by 1.4e-4 and tripped the 1e-4 guard. Same command, same window; every figure below is from that run.
 
 /** Rows scored by every arm over `MEASURED_WINDOW`. */
-export const MEASURED_SCORED_ROWS = 20048;
+export const MEASURED_SCORED_ROWS = 20371;
 /** Mean |browser-formula − published| over the scored rows. */
-export const MEASURED_MEAN_ABSOLUTE_GAP = 0.05553814212691844;
+export const MEASURED_MEAN_ABSOLUTE_GAP = 0.055514268280278736;
 /** Median |browser-formula − published|. */
-export const MEASURED_MEDIAN_ABSOLUTE_GAP = 0.04195753820221465;
+export const MEASURED_MEDIAN_ABSOLUTE_GAP = 0.04196346609501789;
 /** 90th-percentile |browser-formula − published|. */
-export const MEASURED_P90_ABSOLUTE_GAP = 0.122663440491389;
+export const MEASURED_P90_ABSOLUTE_GAP = 0.12252025950990741;
 /** Share of scored rows where the two arms fall on OPPOSITE sides of 0.5. */
-export const MEASURED_WINNER_DISAGREEMENT_RATE = 0.04494213886671987;
+export const MEASURED_WINNER_DISAGREEMENT_RATE = 0.045260419223405825;
 /** Brier of the new browser formula. */
-export const MEASURED_BROWSER_FORMULA_BRIER = 0.14637739681167344;
+export const MEASURED_BROWSER_FORMULA_BRIER = 0.14692350962676032;
 /** Brier of the site's own published `pRedWin`, over the identical rows. */
-export const MEASURED_PUBLISHED_BRIER = 0.1444704516450561;
+export const MEASURED_PUBLISHED_BRIER = 0.14499070806902112;
 /** Winner accuracy of the new browser formula. */
-export const MEASURED_BROWSER_FORMULA_ACCURACY = 0.7877;
+export const MEASURED_BROWSER_FORMULA_ACCURACY = 0.7868;
 /** Winner accuracy of the site's own published `pRedWin`, over the identical rows. */
-export const MEASURED_PUBLISHED_ACCURACY = 0.7921;
+export const MEASURED_PUBLISHED_ACCURACY = 0.7911;
 
 /** Rows the replay emitted for `MEASURED_WINDOW`, before any gate. */
-export const MEASURED_TOTAL_ROWS = 21170;
+export const MEASURED_TOTAL_ROWS = 21505;
 /** Rows excluded because the whole match was a demo alliance. */
-export const MEASURED_FULLY_DEMO_MATCH = 125;
+export const MEASURED_FULLY_DEMO_MATCH = 137;
 /** Rows excluded because one side was a fully-DQ'd zero-score alliance. */
 export const MEASURED_FULLY_DQ_ZERO_SCORE_SIDE = 43;
 /** Rows excluded because `pRedWin` was forced to exactly 0.5 on a cold-start match. */
@@ -171,9 +173,9 @@ export const MEASURED_COLD_START = 0;
 /** Rows the BROWSER could not price either: some team had no before-match `total`/`sigma`. */
 export const MEASURED_UNPRICEABLE = 954;
 /** Brier of the coin floor, over the identical rows. */
-export const MEASURED_COIN_BRIER = 0.24940143655227454;
+export const MEASURED_COIN_BRIER = 0.24941092729861078;
 /** Brier of the sign-only arm, over the identical rows. */
-export const MEASURED_SIGN_ONLY_BRIER = 0.21141717438244195;
+export const MEASURED_SIGN_ONLY_BRIER = 0.21228664964996857;
 
 // ───────────────────────────── pure helpers ─────────────────────────────
 // Everything in this section is pure and unit-tested in
