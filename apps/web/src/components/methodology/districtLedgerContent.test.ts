@@ -156,6 +156,16 @@ const REQUIRED_FIGURES = [
   "40.4",
   "68 district seasons",
   "48 of 69 seasons, 70%",
+
+  // --- `pnpm measure:district-cutoff` -------------------------------------
+  // `npx tsx scripts/measureDistrictCutoff.ts`, run 2026-10-06 (fast task
+  // 261006). Its All positions line: simulated MAE 1.17 and midpoint rule MAE
+  // 1.81 against the settled cutoff, n = 187 positions over 45 district
+  // seasons; gate line 2 reads 165 of 187 (88.2%).
+  "45 district seasons",
+  "1.2 points on average over 187 positions",
+  "1.8 for the midpoint rule",
+  "165 of those 187 positions, 88%",
 ];
 
 /**

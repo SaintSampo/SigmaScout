@@ -30,3 +30,16 @@ On 2026-10-04 (quick task 261004-uw4) the District Locks headline "Predicted cut
 ## What follows a result
 
 Replace the "has not been measured" sentence in `apps/web/src/components/methodology/districtLedgerContent.ts` with the measured figures, add the script as a numbered source in that file's header, and pin the figures in `districtLedgerContent.test.ts`'s `REQUIRED_FIGURES`. If the range misses its bar, decide then whether to show it with the coverage quoted (the champ ruling of 2026-09-27) or withhold it.
+
+## Result (fast task 261006, 2026-10-06)
+
+`scripts/measureDistrictCutoff.ts` (`pnpm measure:district-cutoff`), modelled on the champ script and calling the tab's own code in its order. Event artifacts come from `--fetch` into `data/local-publish/district-events/` (SPR 10.0.0, 871 fetched, 71 not published).
+
+- 187 scored positions over 45 district seasons, 2023 to 2026. Seasons before 2023 refuse at every position (`noCall teamsExcluded`): `simulateDistrictEvent` declares no playoff bracket before 2023, as the tab itself does.
+- Simulated line MAE against the settled cutoff 1.17, midpoint rule 1.81 at the same positions (bar 1 PASS). Bias +0.53.
+- Likely range held the settled cutoff at 165 of 187, 88.2%, one position above the pre-registered 72% to 88% band (bar 2 FAIL, on the wide side). Shown with the coverage quoted, the champ ruling.
+- Against TBA's published DCMP cut line the MAE is 17.2, reported beside and not scored: a different total.
+- Not scored: 89 settled positions, 6 excluded team fallbacks, 201 no calls (all pre 2023), 20 district seasons skipped (unfinished district event or absent settled cutoff).
+- Leak checks 187 of 187. Known, bounded: alliance and playoff cells read publish time ratings (the retired stored odds path, as the champ script's earlier positions do).
+
+Methodology sentence replaced, source 9 added to the content header, figures pinned in `districtLedgerContent.test.ts`.
