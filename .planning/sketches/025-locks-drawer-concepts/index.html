@@ -1,0 +1,452 @@
+<title>Locks Drawer Concepts</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+/* Sketch 025. Single look on purpose: the shipped site is light only (pine ribbon, white surfaces).
+   Tokens mirror sketch 022 and the shipped theme.css. Layout: the shipped Champ Locks ledger,
+   two teams, every blue cell clickable; each variant draws what the click opens its own way. */
+:root{
+  color-scheme:light;
+  --page:#f8fafc; --surface:#ffffff; --inset:#f1f5f9; --border:#e2e8f0; --edge:#cbd5e1;
+  --ink:#0f172a; --muted:#475569; --faint:#64748b;
+  --accent:#2e7d32; --ribbon:#14532d; --ribbon-accent:#81c784;
+  --fin-bg:#f1f5f9; --fin-fg:#475569;
+  --open-bg:#e0f2fe; --open-bg-hover:#c7e9fc; --open-fg:#0369a1; --open-edge:rgba(14,165,233,.4); --open-bar:#0ea5e9;
+  --pred:#0ea5e9; --pred-soft:rgba(14,165,233,.22); --pred-deep:#075985;
+  --hist:rgba(71,85,105,.55); --median:#0f172a;
+  --locked-bg:#dcfce7; --locked-fg:#166534;
+  --out-bg:#fee2e2; --out-fg:#991b1b;
+  --sketch:#1e293b;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:16px}
+.vp{margin:0 auto;transition:max-width .2s}
+.vp[data-w="phone"]{max-width:375px}.vp[data-w="tablet"]{max-width:768px}
+
+/* sketch chrome (not part of the design) */
+.sk{background:var(--sketch);color:#e2e8f0;position:sticky;top:env(safe-area-inset-top,0px);z-index:20}
+.sk .wrap{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding-block:8px}
+.sk b{font-weight:600;color:#fff;margin-right:4px}
+.sk-tabs{display:flex;flex-wrap:wrap;gap:6px}
+.sk-tabs button{background:transparent;border:1px solid #475569;color:#e2e8f0;border-radius:6px;padding:4px 10px;cursor:pointer;min-height:32px}
+.sk-tabs button[aria-selected="true"]{background:#fff;color:var(--sketch);border-color:#fff;font-weight:600}
+.sk-why{background:#fff;border-bottom:1px solid var(--border)}
+.sk-why .wrap{padding-block:10px;color:var(--muted);font-size:13px}
+.sk-why p{margin:0;max-width:100ch}
+.sk-why strong{color:var(--ink)}
+#sketch-tools{position:fixed;bottom:calc(12px + env(safe-area-inset-bottom,0px));right:12px;z-index:30;font-size:12px;background:rgba(0,0,0,.72);color:#fff;padding:6px 10px;border-radius:8px;opacity:.45;transition:opacity .2s;display:flex;gap:6px;align-items:center}
+#sketch-tools:hover,#sketch-tools:focus-within{opacity:1}
+#sketch-tools button{background:transparent;border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:4px;padding:2px 8px;cursor:pointer;min-height:26px}
+#sketch-tools button[aria-pressed="true"]{background:#fff;color:#000}
+
+/* site chrome mock */
+.ribbon{background:var(--ribbon);color:#fff}
+.ribbon .wrap{display:flex;align-items:center;gap:24px;height:48px}
+.ribbon .logo{font-weight:700;display:flex;align-items:center;gap:8px}
+.ribbon .logo i{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:6px;background:var(--ribbon-accent);color:var(--ribbon);font-style:normal;font-weight:800}
+.ribbon nav{display:flex;gap:16px;color:rgba(255,255,255,.72);min-width:0;overflow-x:auto;white-space:nowrap}
+.ribbon nav .on{color:#fff;border-bottom:2px solid var(--ribbon-accent)}
+.head{padding-block:20px 0}
+.head h1{font-size:22px;line-height:1.2;margin:0;font-weight:700;text-wrap:balance}
+.head .sub{color:var(--muted);margin-top:2px}
+.ptabs{display:flex;gap:4px;margin-top:14px;background:var(--inset);padding:3px;border-radius:8px;width:max-content;max-width:100%;overflow-x:auto}
+.ptabs span{padding:4px 12px;border-radius:6px;color:var(--muted);white-space:nowrap}
+.ptabs .on{background:#fff;color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(15,23,42,.08)}
+main{padding-block:16px 64px;display:flex;flex-direction:column;gap:16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px}
+.ctl{padding:12px 16px;display:flex;flex-wrap:wrap;gap:8px 24px;align-items:center;font-size:13px;color:var(--muted)}
+.ctl b{color:var(--ink);font-weight:600}
+.ctl .key{display:inline-flex;align-items:center;gap:6px;font-size:12px}
+.ctl .key i{display:inline-block;width:26px;height:14px;border-radius:3px}
+.ctl .key i.f{background:var(--fin-bg)}
+.ctl .key i.o{background:var(--open-bg);box-shadow:inset 0 0 0 1px var(--open-edge)}
+.chip{display:inline-block;border-radius:5px;padding:1px 8px;font-size:12px;font-weight:600;line-height:1.5;white-space:nowrap}
+.chip.inrange{background:transparent;color:var(--ink);box-shadow:inset 0 0 0 1px var(--border)}
+
+/* ledger table (shipped look) */
+.tablewrap{overflow-x:auto;overscroll-behavior-x:contain;border-radius:10px}
+table.ledger{border-collapse:separate;border-spacing:0;width:100%;min-width:900px;font-size:13px}
+.ledger th{position:sticky;top:0;background:var(--surface);z-index:2;text-align:left;font-weight:600;color:var(--muted);font-size:12px;padding:8px 8px;border-bottom:1px solid var(--edge);white-space:nowrap;vertical-align:bottom;letter-spacing:.02em;text-transform:uppercase}
+.ledger th.num,.ledger td.num{text-align:center;padding-inline:4px}
+.ledger td{padding:4px 8px;vertical-align:middle}
+.ledger tr.first td{border-top:1px solid var(--border)}
+.ledger tr.second td,.ledger tr.drawer td{border-top:1px dashed var(--border)}
+.ledger td.team{white-space:nowrap}
+.ledger td.team .no{font-weight:600;font-size:15px}
+.ledger td.team .nm{color:var(--muted);font-size:12px;display:block;line-height:1.3}
+.ledger td.status{white-space:nowrap}
+.ledger td.status .ch{display:block;font-size:12px;color:var(--muted);margin-top:4px}
+.ledger td.src{white-space:nowrap}
+.ledger td.src .nm{color:var(--ink);font-weight:500}
+.ledger td.src .st{font-size:11px;color:var(--faint);display:block;line-height:1.3}
+.ledger td.src .st.chance{color:var(--open-fg)}
+.ledger .sticky1{position:sticky;left:0;background:var(--surface);z-index:1}
+.ledger th.sticky1{z-index:3}
+.cell{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;width:100%;min-height:32px;border-radius:6px;padding:2px 6px;font-size:13px;font-weight:600;line-height:1.2;text-align:center}
+.cell.fin{background:var(--fin-bg);color:var(--fin-fg)}
+.cell.open{background:var(--open-bg);color:var(--open-fg);border:0;cursor:pointer;box-shadow:inset 0 0 0 1px var(--open-edge);transition:background .15s}
+.cell.open:hover{background:var(--open-bg-hover)}
+.cell.open[aria-expanded="true"]{box-shadow:inset 0 0 0 2px var(--open-bar)}
+.cell .rg{white-space:nowrap}
+.cell .lb{font-size:11px;font-weight:400;line-height:1.2;white-space:nowrap}
+.ledger td.num{min-width:96px}
+.cell.tot{font-size:14px}
+.cell.grand{font-size:15px;min-height:70px}
+.cell.open.grand .rg{font-size:14px}
+.ledger tr.drawer td{background:#f8fbfd;padding:14px 16px 16px}
+.muted{color:var(--muted)}
+.faint{color:var(--faint)}
+.sr{position:absolute;left:-9999px}
+/* no entrance animation: the drawer is complete at rest, so a thumbnail or an instant capture never catches it blank */
+
+
+/* ===== Concept A: verdict first ===== */
+.A{display:grid;grid-template-columns:minmax(240px,300px) minmax(280px,1fr);gap:12px 32px;align-items:start}
+@media (max-width:760px){.A{grid-template-columns:1fr}}
+.A .eyebrow{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--faint);font-weight:600}
+.A h3{margin:2px 0 10px;font-size:18px;line-height:1.25;font-weight:600;text-wrap:balance}
+.A .tiles{display:flex;flex-wrap:wrap;gap:8px}
+.A .tile{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 10px;min-width:78px}
+.A .tile .l{display:block;font-size:11px;color:var(--faint)}
+.A .tile b{font-size:16px;font-weight:600;line-height:1.2}
+.A .tile.pred b{color:var(--open-fg)}
+.A .how{margin:10px 0 0;font-size:12px;color:var(--faint)}
+.A details{margin-top:8px;font-size:12px;color:var(--muted);max-width:46ch}
+.A summary{cursor:pointer;color:var(--open-fg);font-weight:500;list-style:none;display:inline-flex;align-items:center;gap:4px;min-height:28px}
+.A summary::before{content:"";width:0;height:0;border:4px solid transparent;border-left:5px solid currentColor;transition:transform .15s}
+.A details[open] summary::before{transform:rotate(90deg)}
+.A details p{margin:4px 0 0;line-height:1.45}
+.A .chart svg{display:block;width:100%;max-width:560px;height:auto}
+.A .legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:11px;color:var(--faint);margin-top:4px}
+.A .legend i{display:inline-block;vertical-align:-2px;margin-right:4px;width:12px;height:10px}
+.A .legend i.bars{background:var(--hist)}
+.A .legend i.band{background:var(--pred-soft)}
+.A .legend i.tick{width:2px;background:var(--median)}
+.A .legend i.cut{width:0;border-left:1px dashed var(--ink)}
+.A .legend i.zone{background:repeating-linear-gradient(135deg,rgba(15,23,42,.18) 0 1px,transparent 1px 4px)}
+.A .obars{display:grid;grid-template-columns:max-content 1fr max-content max-content;gap:6px 12px;align-items:center;font-size:13px;max-width:560px}
+.A .obars .nm{white-space:nowrap}
+.A .obars .tr{height:10px;background:var(--inset);border-radius:3px;overflow:hidden;min-width:120px}
+.A .obars .br{height:100%;background:var(--pred);border-radius:3px}
+.A .obars .pc{text-align:right;font-weight:600;min-width:38px}
+.A .obars .pt{text-align:right;color:var(--muted);min-width:48px}
+.A .obars .zero{color:var(--faint)}
+.A .srcline{margin-top:8px;font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 10px}
+.A .srcline b{color:var(--ink);font-weight:600}
+.A .srcline .p{color:var(--open-fg);font-weight:600}
+
+/* ===== Concept B: build-up bar ===== */
+.B{display:flex;flex-direction:column;gap:10px;max-width:880px}
+.B .ttl{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 16px;align-items:baseline}
+.B .ttl b{font-size:14px;font-weight:600}
+.B .ttl span{font-size:12px;color:var(--muted)}
+.bb{position:relative;padding-top:22px;padding-bottom:54px}
+.bb .scale{position:absolute;left:0;right:0;bottom:0;height:16px;font-size:11px;color:var(--faint)}
+.bb .scale span{position:absolute;transform:translateX(-50%)}
+.bb .scale span:first-child{transform:none}
+.bb .scale span.end{transform:translateX(-100%)}
+.bb .track{position:relative;height:28px;background:var(--inset);border-radius:5px}
+.bb .seg{position:absolute;top:0;height:100%;display:flex;align-items:center;padding-inline:8px;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden}
+.bb .seg.earned{background:#cbd5e1;color:var(--ink);border-radius:5px 0 0 5px}
+.bb .seg.pred{background:var(--pred);color:#fff;border-left:2px solid var(--surface);border-radius:0 5px 5px 0}
+.bb .seg.pred.cond{background:repeating-linear-gradient(135deg,var(--pred) 0 6px,#0284c7 6px 12px)}
+.bb .seg.only{border-radius:5px}
+.bb .whisk{position:absolute;top:34px;height:0;border-top:2px solid var(--pred-deep)}
+.bb .whisk::before,.bb .whisk::after{content:"";position:absolute;top:-4px;width:2px;height:8px;background:var(--pred-deep)}
+.bb .whisk::before{left:0}.bb .whisk::after{right:0}
+/* ONE label row under the track: the median figure and its likely range together, centred on the
+   median and clamped at either end so it never leaves the track. The scale sits a row below it. */
+.bb .whisk-lb{position:absolute;top:40px;font-size:12px;color:var(--pred-deep);white-space:nowrap;transform:translateX(-50%)}
+.bb .whisk-lb b{font-weight:600}
+.bb .whisk-lb.l{transform:none}.bb .whisk-lb.r{transform:translateX(-100%)}
+.bb .cut{position:absolute;top:-6px;bottom:-6px;border-left:2px dashed var(--ink);z-index:2}
+.bb .cutzone{position:absolute;top:0;height:100%;background:repeating-linear-gradient(135deg,rgba(15,23,42,.16) 0 1px,transparent 1px 4px);z-index:1;pointer-events:none}
+.bb .cutlb{position:absolute;top:-22px;transform:translateX(-50%);font-size:11px;font-weight:600;color:var(--ink);white-space:nowrap;background:var(--surface);padding:0 4px;border-radius:3px;z-index:3}
+.bb .mtick{position:absolute;top:-4px;height:36px;width:2px;background:var(--median);z-index:2}
+.bb .band{position:absolute;top:0;height:100%;background:var(--pred-soft)}
+.bb .range{position:absolute;top:0;height:100%;background:var(--pred);opacity:.85;border-radius:5px}
+.bb .cap{position:absolute;top:-2px;transform:translateX(-100%);font-size:11px;color:var(--faint);white-space:nowrap}
+.B .margin{font-size:14px;font-weight:600}
+.B .margin.neg{color:var(--out-fg)}
+.B .margin small{font-weight:400;color:var(--muted);font-size:12px}
+.B .srcs{display:grid;grid-template-columns:max-content max-content 1fr;gap:3px 14px;font-size:12px;align-items:baseline}
+.B .srcs .n{font-weight:500}
+.B .srcs .e{color:var(--muted)}
+.B .srcs .p{color:var(--open-fg);font-weight:600}
+.B .chips{display:flex;flex-wrap:wrap;gap:6px}
+.B .chips span{font-size:12px;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:2px 10px;white-space:nowrap}
+.B .chips span b{color:var(--open-fg);font-weight:600}
+.B .chips span i{font-style:normal;color:var(--faint)}
+.pb{display:flex;height:28px;border-radius:5px;overflow:hidden;gap:2px;background:var(--surface)}
+.pb div{display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;min-width:0}
+.pb div.z{display:none}
+.pb div.none{background:#cbd5e1;color:var(--ink)}
+.pb .t1,.plist .t1{background:var(--pred-deep)}.pb .t2,.plist .t2{background:#0284c7}.pb .t3,.plist .t3{background:var(--pred)}.pb .t4,.plist .t4{background:#7dd3fc;color:var(--ink)}.pb .t5,.plist .t5{background:#bae6fd;color:var(--ink)}.plist .none{background:#cbd5e1}
+.B .plist{display:grid;grid-template-columns:12px max-content max-content 1fr;gap:3px 10px;font-size:12px;align-items:center}
+.B .plist i{display:inline-block;width:12px;height:12px;border-radius:3px}
+.B .plist .pc{font-weight:600;text-align:right}
+.B .plist .pt{color:var(--muted)}
+.B .plist .z{color:var(--faint)}
+
+/* ===== Concept C: popover ===== */
+#pop{position:fixed;z-index:25;background:var(--surface);border:1px solid var(--edge);border-radius:10px;box-shadow:0 8px 24px rgba(15,23,42,.14);padding:12px 14px 12px;width:320px;max-width:calc(100vw - 32px);font-size:13px}
+#pop[hidden]{display:none}
+#pop .hd{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px}
+#pop .hd b{font-weight:600}
+#pop .hd span{display:block;font-size:11px;color:var(--faint)}
+#pop .x{background:none;border:0;cursor:pointer;color:var(--faint);font-size:18px;line-height:1;padding:0 2px;min-width:28px;min-height:28px;border-radius:6px}
+#pop .x:hover{background:var(--inset);color:var(--ink)}
+#pop .fig{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+#pop .fig b{font-size:26px;font-weight:600;color:var(--open-fg);line-height:1.1}
+#pop .fig span{color:var(--muted);font-size:12px}
+#pop .strip{position:relative;height:12px;background:var(--inset);border-radius:3px;margin:10px 0 4px}
+#pop .strip .band{position:absolute;top:0;height:100%;background:var(--pred-soft)}
+#pop .strip .mass{position:absolute;top:2px;height:8px;background:var(--pred);border-radius:2px;opacity:.9}
+#pop .strip .tick{position:absolute;top:-3px;height:18px;width:2px;background:var(--median)}
+#pop .strip .cut{position:absolute;top:-5px;height:22px;border-left:2px dashed var(--ink)}
+#pop .ends{display:flex;justify-content:space-between;font-size:10px;color:var(--faint)}
+#pop .ends span:nth-child(2){color:var(--ink);font-weight:600}
+#pop .line{margin-top:8px;font-size:12px;color:var(--muted)}
+#pop .line b{color:var(--ink);font-weight:600}
+#pop .line .p{color:var(--open-fg);font-weight:600}
+#pop .rows{display:grid;grid-template-columns:1fr max-content max-content max-content;gap:5px 10px;align-items:center;margin-top:8px;font-size:12px}
+#pop .rows .d{display:flex;gap:2px}
+#pop .rows .d i{width:6px;height:6px;border-radius:50%;background:var(--inset)}
+#pop .rows .d i.on{background:var(--pred)}
+#pop .rows .pc{font-weight:600;text-align:right;min-width:34px}
+#pop .rows .pt{color:var(--muted);text-align:right;min-width:36px}
+#pop .rows .z{color:var(--faint)}
+#pop .more{margin-top:10px;font-size:12px}
+#pop .more a{color:var(--open-fg);text-decoration:none;font-weight:500}
+#pop .more a:hover{text-decoration:underline}
+</style>
+
+<div class="sk"><div class="wrap">
+  <b>Sketch 025 · what a blue cell opens</b>
+  <div class="sk-tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-v="a" onclick="showVariant('a')">A: Verdict first</button>
+    <button role="tab" aria-selected="false" data-v="b" onclick="showVariant('b')">B: Build-up bar</button>
+    <button role="tab" aria-selected="false" data-v="c" onclick="showVariant('c')">C: Popover</button>
+  </div>
+</div></div>
+<div class="sk-why"><div class="wrap">
+  <p id="why-a"><strong>A, verdict first.</strong> The drawer stays, but it opens with one sentence that answers what the click asked, three figures that back it, and one chart that shows it. Every paragraph of explanation moves behind a single “How this is computed” disclosure. Click a blue cell; the bubble team 4915 is the interesting one.</p>
+  <p id="why-b" hidden><strong>B, build-up bar.</strong> No histogram. The total is drawn as what is earned plus what is predicted, on one scale, with the cutoff on it, so the margin is visible as distance. Outcome cells become one proportion bar. Click a blue cell.</p>
+  <p id="why-c" hidden><strong>C, popover.</strong> Nothing opens under the table. A small card anchors to the clicked cell with the figure, a strip, and at most five rows. The table never reflows. Click a blue cell; click elsewhere or press Esc to close.</p>
+</div></div>
+
+<div class="vp" id="vp" data-w="desktop">
+<div class="ribbon"><div class="wrap"><div class="logo"><i>Σ</i> SigmaScout</div><nav><span>Teams</span><span>Events</span><span class="on">Districts</span><span>Methodology</span></nav></div></div>
+<div class="wrap">
+  <div class="head">
+    <h1>Pacific Northwest · 2026</h1>
+    <div class="sub">Who is going to the FIRST Championship, and how sure.</div>
+    <div class="ptabs"><span>District Locks</span><span class="on">Champ Locks</span><span>Standings</span></div>
+  </div>
+  <main>
+    <div class="card ctl">
+      <span>Predicted cutoff <b>~213</b> · likely 199–228</span>
+      <span class="key"><i class="f"></i> earned, final</span>
+      <span class="key"><i class="o"></i> still open · click to see</span>
+      <span>likely = 8 of 10 runs land here · ~ = this site's prediction</span>
+    </div>
+    <div id="variant-a" class="variant card"><div class="tablewrap" id="tw-a"></div></div>
+    <div id="variant-b" class="variant card" hidden><div class="tablewrap" id="tw-b"></div></div>
+    <div id="variant-c" class="variant card" hidden><div class="tablewrap" id="tw-c"></div></div>
+  </main>
+</div>
+</div>
+
+<div id="pop" hidden role="dialog" aria-label="Cell detail"></div>
+
+<div id="sketch-tools">
+  <span>view</span>
+  <button aria-pressed="true" onclick="setVp('desktop',this)">desktop</button>
+  <button aria-pressed="false" onclick="setVp('tablet',this)">768</button>
+  <button aria-pressed="false" onclick="setVp('phone',this)">375</button>
+</div>
+
+<script>
+/* ---------- data: two teams, every open cell with a distribution or named outcomes ---------- */
+function gauss(mean, sd, max, weight){ const c=new Array(max+1).fill(0); let s=0; for(let v=0;v<=max;v++){c[v]=Math.exp(-0.5*((v-mean)/sd)**2); s+=c[v];} return c.map(x=>x/s*(weight==null?1:weight)); }
+function spike(at, max, weight){ const c=new Array(max+1).fill(0); c[at]=weight; return c; }
+function add(a,b){ return a.map((x,i)=>x+(b[i]||0)); }
+function cum(counts){ const out=[]; let s=0; for(const c of counts){s+=c; out.push(s);} return out.map(x=>x/s); }
+function quantile(counts,q){ const cs=cum(counts); let prev=0; for(let v=0;v<cs.length;v++){ if(cs[v]>=q){ const frac=(q-prev)/((cs[v]-prev)||1); return v-0.5+frac; } prev=cs[v]; } return counts.length-1; }
+function pct(counts){ return {p10:quantile(counts,.1),p50:quantile(counts,.5),p90:quantile(counts,.9)}; }
+function above(counts,x){ let s=0,t=0; counts.forEach((c,v)=>{t+=c; if(v>=x) s+=c;}); return s/t; }
+function capped(max, pairs){ const c=new Array(max+1).fill(0); for(const [v,w] of pairs) c[v]=w; return c; }
+
+const CUTOFF={v:213,p10:199,p90:228};
+const TEAMS=[
+ { no:9032, name:'RoboWhales', rank:1, chance:null, earned:148,
+   district:{events:'Wake County #2 Wk 3 · final · UNC Pembroke Wk 4 · final', sub:148, qual:43, alliance:32, elim:60, award:13},
+   stage:'Wk 6 · quals', fieldChance:1,
+   cells:{
+     grand:{kind:'dist', max:425, counts:add(gauss(363,4.5,425,.9),gauss(352,7,425,.1)), cutoff:CUTOFF},
+     sub:{kind:'dist', max:249, counts:gauss(214,5,249), chips:['Quals <b>~66</b>','Alliance <b>~48</b>','Playoffs <b>~90</b>','Awards <b>58%</b> <i>~15 if won</i>']},
+     qual:{kind:'dist', max:66, counts:capped(66,[[66,.58],[65,.15],[64,.1],[63,.07],[62,.05],[61,.03],[60,.02]]), cap:true},
+     alliance:{kind:'outcomes', title:'Alliance selection', rows:[['Captain',.96,'27 to 48'],['First pick',.03,'27 to 48'],['Second pick',.01,'3 to 24'],['Not selected',0,'0']], cellBold:'~48', cellSmall:'likely 47.6–48.4'},
+     elim:{kind:'outcomes', title:'Playoffs', rows:[['Wins the event',.92,'90'],['Finalist',.06,'60'],['Third place',.015,'39'],['Fourth place',.005,'21'],['Out before the top four',0,'0']], cellBold:'~90', cellSmall:'likely 89.6–90.4'},
+     award:{kind:'outcomes', title:'Awards', rows:[['Impact',.06,'30'],['One judged award',.52,'15'],['No award',.42,'0']], cellBold:'~58% award', cellSmall:'~15 if won'}
+   }},
+ { no:4915, name:'Spartronics', rank:38, chance:null, earned:112,
+   district:{events:'Glacier Peak Wk 1 · final · Sammamish Wk 4 · final', sub:112, qual:34, alliance:16, elim:47, award:15},
+   stage:'~71% to be there', fieldChance:.71,
+   cells:{
+     grand:{kind:'dist', max:425, counts:add(spike(112,425,.29),gauss(242,35,425,.71)), cutoff:CUTOFF},
+     sub:{kind:'dist', max:249, counts:gauss(130,35,249), cond:true, chips:['Quals <b>~39</b>','Alliance <b>44%</b> <i>~27 if in</i>','Playoffs <b>31%</b> <i>~39 if top 4</i>','Awards <b>22%</b> <i>~15 if won</i>']},
+     qual:{kind:'dist', max:66, counts:gauss(39,11,66)},
+     alliance:{kind:'outcomes', title:'Alliance selection', rows:[['Captain',.12,'27 to 48'],['First pick',.14,'27 to 48'],['Second pick',.18,'3 to 24'],['Backup robot',.04,'0'],['Not selected',.52,'0']], cellBold:'picked ~44%', cellSmall:'~27 if in'},
+     elim:{kind:'outcomes', title:'Playoffs', rows:[['Wins the event',.05,'90'],['Finalist',.08,'60'],['Third place',.08,'39'],['Fourth place',.10,'21'],['Out before the top four',.69,'0']], cellBold:'top 4 ~31%', cellSmall:'~39 if top 4'},
+     award:{kind:'outcomes', title:'Awards', rows:[['Impact',.03,'30'],['One judged award',.19,'15'],['No award',.78,'0']], cellBold:'~22% award', cellSmall:'~15 if won'}
+   }}
+];
+for(const t of TEAMS){ const g=t.cells.grand; t.chance=Math.min(99,Math.max(5,Math.round(above(g.counts,CUTOFF.v)*100))); }
+
+const CELL_TITLES={grand:'Grand total',sub:'DCMP subtotal',qual:'Qualification',alliance:'Alliance selection',elim:'Playoffs',award:'Awards'};
+const r0=x=>String(Math.round(x));
+const r1=x=>x.toFixed(1);
+const likely1=(p)=>`likely ${r1(Math.max(0,p.p10))}–${r1(p.p90)}`;
+const likely0=(p)=>`${r0(Math.max(0,p.p10))}–${r0(p.p90)}`;
+const pc=c=>c<=0?'0%':c<.005?'<1%':`~${Math.round(c*100)}%`;
+
+/* ---------- the shared ledger ---------- */
+const state={a:'4915:grand',b:'4915:grand',c:'4915:grand'};
+function cellBtn(v,t,key,extra){ const c=t.cells[key]; const id=`${t.no}:${key}`; const open=state[v]===id;
+  let bold,small;
+  if(c.kind==='dist'){ const p=pct(c.counts); bold=`~${r0(p.p50)}`; small=likely1(p); } else { bold=c.cellBold; small=c.cellSmall; }
+  return `<button type="button" class="cell open ${extra||''}" data-key="${id}" aria-expanded="${open}" onclick="toggle('${v}','${id}',this)"><span class="rg">${bold}</span><span class="lb">${small}</span></button>`; }
+function fin(n,extra){ return `<span class="cell fin ${extra||''}">${n}</span>`; }
+function renderTable(v){
+  let h=`<table class="ledger"><thead><tr><th class="sticky1">Team</th><th>Status</th><th class="num">Grand total</th><th>Source</th><th class="num">Subtotal</th><th class="num">Qualification</th><th class="num">Alliance selection</th><th class="num">Playoffs</th><th class="num">Awards</th></tr></thead><tbody>`;
+  for(const t of TEAMS){ const d=t.district; const gp=pct(t.cells.grand.counts);
+    h+=`<tr class="first"><td class="team sticky1" rowspan="2"><span class="no">${t.no}</span><span class="nm">${t.name}</span><span class="nm">#${t.rank} · ${t.earned} earned · median ${r0(gp.p50)}</span></td>
+      <td class="status" rowspan="2"><span class="chip inrange">In range</span><span class="ch">${t.chance}% chance</span></td>
+      <td class="num" rowspan="2">${cellBtn(v,t,'grand','grand')}</td>
+      <td class="src"><span class="nm">District points</span><span class="st">${d.events}</span></td>
+      <td class="num">${fin(d.sub,'tot')}</td><td class="num">${fin(d.qual)}</td><td class="num">${fin(d.alliance)}</td><td class="num">${fin(d.elim)}</td><td class="num">${fin(d.award)}</td></tr>`;
+    h+=`<tr class="second"><td class="src"><span class="nm">DCMP points</span><span class="st ${t.fieldChance<1?'chance':''}">${t.stage}</span></td>
+      <td class="num">${cellBtn(v,t,'sub','tot')}</td><td class="num">${cellBtn(v,t,'qual')}</td><td class="num">${cellBtn(v,t,'alliance')}</td><td class="num">${cellBtn(v,t,'elim')}</td><td class="num">${cellBtn(v,t,'award')}</td></tr>`;
+    if(v!=='c' && state[v] && state[v].startsWith(t.no+':')){ const key=state[v].split(':')[1]; h+=`<tr class="drawer"><td colspan="9"><div class="dr">${v==='a'?drawerA(t,key):drawerB(t,key)}</div></td></tr>`; }
+  }
+  h+='</tbody></table>';
+  const tw=document.getElementById('tw-'+v); const sl=tw.scrollLeft; tw.innerHTML=h; tw.scrollLeft=sl;
+}
+function toggle(v,id,btn){ state[v]=state[v]===id?null:id; if(v==='c'){ renderTable('c'); renderPop(); } else renderTable(v); }
+
+/* ---------- headline sentences (shared by A and C) ---------- */
+function headline(t,key){ const c=t.cells[key];
+  if(key==='grand') return `Qualifies in ${t.chance} of 100 runs.`;
+  if(c.kind==='dist'){ const p=pct(c.counts);
+    if(key==='sub' && c.cond) return `In the field in ${Math.round(t.fieldChance*100)} of 100 runs, and ~${r0(p.p50)} points if there.`;
+    if(c.cap && p.p50>=c.max-0.5) return `Finishes quals at the ${c.max} point cap in ${Math.round(c.counts[c.max]*100)} of 100 runs.`;
+    return `Likely ${likely0(p)} ${key==='sub'?'DCMP':'qualification'} points.`; }
+  const top=[...c.rows].sort((a,b)=>b[1]-a[1])[0]; return `${top[0]} in ${Math.round(top[1]*100)} of 100 runs.`;
+}
+function howText(t,key){ const c=t.cells[key];
+  if(key==='grand') return `<p>The bars are how often each total came up across the runs. The band is the likely range, the 10th to the 90th percentile; the tick is the median. The dashed line is the predicted cutoff, the median of a simulated line that takes the winning alliance and award winners' slots first; the hatched zone is where that line lands in 8 of 10 runs.</p><p>The chance is the share of runs where this team's draw lands inside the qualifying slots against every other team's own.</p>`;
+  if(c.kind==='dist') return `<p>The bars are how often each value came up across the runs. The band spans the 10th to the 90th percentile and the tick marks the median.${c.cond?' Every value here assumes the team is in the field.':''}</p>`;
+  return `<p>Each row is one outcome, with the share of runs that produced it. Rows the event has already ruled out are not listed.${key==='award'?' A team is never predicted to win two awards at one event.':''}</p>`;
+}
+
+/* ---------- Concept A ---------- */
+function histSVG(c,opts){ const W=560,top=opts.cutoff?20:6,H=84,ax=16,max=c.max,p=pct(c.counts); const sw=W/(max+1); const x=v=>(v+0.5)*sw;
+  // A 426-slot axis at 560px is 1.3px per bar, which reads as dust. Bin to a width the eye can
+  // resolve (about 6px) and draw each bin as one bar with a 1px surface gap; the band, the tick and
+  // the percentiles still come from the unbinned counts, so nothing printed moves.
+  const bin=Math.max(1,Math.ceil((max+1)/95)); const bins=[]; for(let v=0;v<=max;v+=bin){ let n=0; for(let k=v;k<Math.min(v+bin,max+1);k++) n+=c.counts[k]||0; bins.push({v,n}); }
+  let modal=0; bins.forEach(b=>{if(b.n>modal)modal=b.n;});
+  let s=`<svg viewBox="0 0 ${W} ${top+H+ax+4}" role="img" aria-label="${opts.label||''}">`;
+  const bl=x(p.p10-0.5),br=x(p.p90+0.5);
+  if(opts.cutoff){ const z=opts.cutoff; s+=`<defs><pattern id="hz" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(135)"><rect width="1" height="4" fill="rgba(15,23,42,.18)"/></pattern></defs>`;
+    s+=`<rect x="${x(z.p10-0.5)}" y="${top}" width="${x(z.p90+0.5)-x(z.p10-0.5)}" height="${H}" fill="url(#hz)"/>`; }
+  s+=`<rect x="${bl}" y="${top}" width="${Math.max(3,br-bl)}" height="${H}" fill="var(--pred-soft)"/>`;
+  bins.forEach(b=>{ if(b.n<=0) return; const h=Math.max(1,(b.n/modal)*(H-2)); const bw=Math.min(bin,max+1-b.v)*sw; s+=`<rect x="${b.v*sw}" y="${top+H-h}" width="${Math.max(bw-(bin>1?1:0),1)}" height="${h}" fill="var(--hist)"/>`; });
+  s+=`<rect x="${x(p.p50)-1}" y="${top}" width="2" height="${H}" fill="var(--median)"/>`;
+  const step=max>300?100:max>100?50:max>40?20:10;
+  for(let v=0;v<=max;v+=step){ s+=`<text x="${x(v)}" y="${top+H+13}" font-size="10" text-anchor="${v===0?'start':'middle'}" fill="var(--faint)">${v}</text>`; }
+  s+=`<line x1="0" x2="${W}" y1="${top+H+.5}" y2="${top+H+.5}" stroke="var(--border)"/>`;
+  if(opts.cutoff){ const cx=x(opts.cutoff.v); s+=`<line x1="${cx}" x2="${cx}" y1="${top-2}" y2="${top+H}" stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+    const anchor=cx>W-80?'end':'start'; s+=`<text x="${cx+(anchor==='end'?-5:5)}" y="${top-7}" font-size="11" font-weight="600" text-anchor="${anchor}" fill="var(--ink)">cutoff ~${opts.cutoff.v}</text>`; }
+  if(c.cap){ s+=`<text x="${x(max)}" y="${top-7}" font-size="11" text-anchor="end" fill="var(--faint)">${max} cap</text>`; }
+  return s+'</svg>';
+}
+function drawerA(t,key){ const c=t.cells[key]; const ttl=`${CELL_TITLES[key]} · ${t.no} ${t.name}`;
+  let tiles='',chart='',legend='',src='';
+  if(c.kind==='dist'){ const p=pct(c.counts);
+    tiles=`<div class="tile pred"><span class="l">median</span><b>~${r0(p.p50)}</b></div><div class="tile"><span class="l">likely</span><b>${likely0(p)}</b></div>`;
+    if(key==='grand'){ tiles+=`<div class="tile"><span class="l">cutoff</span><b>~${c.cutoff.v}</b></div>`;
+      src=`<div class="srcline"><span><b>${t.earned}</b> earned at district events</span><span>·</span><span><span class="p">~${r0(pct(t.cells.sub.counts).p50)}</span> predicted at the DCMP${t.fieldChance<1?`, in the field ${Math.round(t.fieldChance*100)}% of runs`:''}</span></div>`; }
+    if(key==='sub'){ src=`<div class="srcline">${c.chips.map(x=>`<span>${x}</span>`).join('<span>·</span>')}</div>`; }
+    chart=histSVG(c,{cutoff:c.cutoff,label:ttl});
+    legend=`<div class="legend"><span><i class="bars"></i>how often each total came up</span><span><i class="band"></i>likely range</span><span><i class="tick"></i>median</span>${c.cutoff?'<span><i class="cut"></i>cutoff</span><span><i class="zone"></i>where the cutoff lands in 8 of 10 runs</span>':''}</div>`;
+  } else { const rows=c.rows; const top=[...rows].sort((a,b)=>b[1]-a[1])[0]; const any=rows.filter(r=>r[2]!=='0').reduce((s,r)=>s+r[1],0);
+    tiles=`<div class="tile pred"><span class="l">most likely</span><b>${top[0]}</b></div><div class="tile"><span class="l">chance of points</span><b>${Math.round(any*100)}%</b></div>`;
+    chart=`<div class="obars">${rows.map(r=>`<span class="nm ${r[1]<=0?'zero':''}">${r[0]}</span><span class="tr"><span class="br" style="width:${r[1]*100}%"></span></span><span class="pc ${r[1]<=0?'zero':''}">${pc(r[1])}</span><span class="pt">${r[2]} pts</span>`).join('')}</div>`;
+  }
+  return `<div class="A"><div><div class="eyebrow">${ttl}</div><h3>${headline(t,key)}</h3><div class="tiles">${tiles}</div><p class="how">likely = 8 of 10 runs · ~ = this site's prediction, not a number TBA published</p><details><summary>How this is computed</summary>${howText(t,key)}</details></div><div class="chart">${chart}${legend}${src}</div></div>`;
+}
+
+/* ---------- Concept B ---------- */
+function underLabel(leftPct,html){ const cls=leftPct<14?'l':leftPct>86?'r':''; return `<div class="whisk-lb ${cls}" style="left:${leftPct}%">${html}</div>`; }
+function scaleHTML(max){ const step=max>300?100:max>100?50:max>40?20:10; let s='<div class="scale">'; for(let v=0;v<=max;v+=step){ s+=`<span style="left:${v/max*100}%" class="${v+step>max&&v>0?'end':''}">${v}</span>`; } return s+'</div>'; }
+function drawerB(t,key){ const c=t.cells[key]; const ttl=`<div class="ttl"><b>${CELL_TITLES[key]} · ${t.no} ${t.name}</b><span>likely = 8 of 10 runs · ~ = predicted</span></div>`;
+  if(key==='grand'){ const p=pct(c.counts),max=c.max,z=c.cutoff; const L=v=>v/max*100; const med=p.p50; const margin=med-z.v;
+    const bar=`<div class="bb"><div class="track">
+      <div class="cutzone" style="left:${L(z.p10)}%;width:${L(z.p90)-L(z.p10)}%"></div>
+      <div class="seg earned" style="left:0;width:${L(t.earned)}%">${t.earned} earned</div>
+      <div class="seg pred ${t.fieldChance<1?'cond':''}" style="left:${L(t.earned)}%;width:${L(med)-L(t.earned)}%">+~${r0(med-t.earned)} predicted</div>
+      <div class="cut" style="left:${L(z.v)}%"></div><div class="cutlb" style="left:${L(z.v)}%">cutoff ~${z.v}</div>
+      <div class="whisk" style="left:${L(Math.max(0,p.p10))}%;width:${L(p.p90)-L(Math.max(0,p.p10))}%"></div>
+      ${underLabel(L(med),`<b>~${r0(med)}</b> · likely ${likely0(p)}`)}
+    </div>${scaleHTML(max)}</div>`;
+    const m=`<div class="margin ${margin<0?'neg':''}">${margin>=0?`~${r0(margin)} points above the line`:`~${r0(-margin)} points below the line`} in the median run <small>· qualifies in ${t.chance} of 100 runs</small></div>`;
+    const srcs=`<div class="srcs"><span class="n">District points</span><span class="e">${t.earned} earned</span><span class="e">settled</span><span class="n">DCMP points</span><span class="e">none yet</span><span><span class="p">~${r0(pct(t.cells.sub.counts).p50)}</span> ${t.fieldChance<1?`if there · <b>${Math.round(t.fieldChance*100)}%</b> to be there`:'predicted'}</span></div>`;
+    return `<div class="B">${ttl}${bar}${m}${srcs}</div>`; }
+  if(c.kind==='dist'){ const p=pct(c.counts),max=c.max; const L=v=>v/max*100;
+    const bar=`<div class="bb"><div class="track"><div class="band" style="left:${L(Math.max(0,p.p10))}%;width:${L(p.p90)-L(Math.max(0,p.p10))}%"></div><div class="mtick" style="left:${L(p.p50)}%"></div>${underLabel(L(p.p50),`<b>~${r0(p.p50)}${c.cond?' if there':''}</b> · likely ${likely0(p)}`)}${c.cap?`<div class="cap" style="left:100%">${max} cap</div>`:''}</div>${scaleHTML(max)}</div>`;
+    const chips=c.chips?`<div class="chips">${c.chips.map(x=>`<span>${x}</span>`).join('')}</div>`:'';
+    const cond=c.cond?`<div class="margin"><small>In the field in <b>${Math.round(t.fieldChance*100)}</b> of 100 runs. Everything above assumes it is.</small></div>`:'';
+    return `<div class="B">${ttl}${bar}${chips}${cond}</div>`; }
+  const rows=c.rows; const tiers=['t1','t2','t3','t4','t5']; let ti=0;
+  const segs=rows.map(r=>{ const none=r[2]==='0'; const cls=none?'none':tiers[Math.min(ti++,4)]; const w=r[1]*100; return {r,cls,w,label:w>=12?`${r[0].replace('Out before the top four','Out early')} ${Math.round(w)}%`:(w>=6?`${Math.round(w)}%`:'')}; });
+  const pb=`<div class="pb">${segs.map(s=>`<div class="${s.cls} ${s.w<=0?'z':''}" style="flex:${s.w} 0 0" title="${s.r[0]} ${pc(s.r[1])}">${s.label}</div>`).join('')}</div>`;
+  const list=`<div class="plist">${segs.map(s=>`<i class="${s.cls}"></i><span class="${s.w<=0?'z':''}">${s.r[0]}</span><span class="pc ${s.w<=0?'z':''}">${pc(s.r[1])}</span><span class="pt">${s.r[2]} pts</span>`).join('')}</div>`;
+  const top=[...rows].sort((a,b)=>b[1]-a[1])[0];
+  return `<div class="B">${ttl}${pb}<div class="margin">Most likely: ${top[0]} <small>· ${pc(top[1])} · ${top[2]} pts</small></div>${list}</div>`;
+}
+
+/* ---------- Concept C ---------- */
+function renderPop(){ const pop=document.getElementById('pop'); if(!state.c){ pop.hidden=true; return; }
+  const [no,key]=state.c.split(':'); const t=TEAMS.find(x=>String(x.no)===no); const c=t.cells[key];
+  let body='';
+  if(c.kind==='dist'){ const p=pct(c.counts),max=c.max; const L=v=>v/max*100; const modal=Math.max(...c.counts);
+    // the strip: the likely band, a denser bar where most mass sits, the median tick, the cutoff
+    let mass=''; let lo=null; c.counts.forEach((n,v)=>{ const on=n>=modal*.35; if(on&&lo===null) lo=v; if(!on&&lo!==null){ mass+=`<div class="mass" style="left:${L(lo)}%;width:${Math.max(.6,L(v)-L(lo))}%"></div>`; lo=null; } }); if(lo!==null) mass+=`<div class="mass" style="left:${L(lo)}%;width:${Math.max(.6,100-L(lo))}%"></div>`;
+    body=`<div class="fig"><b>~${r0(p.p50)}</b><span>likely ${likely0(p)}${c.cond?' · if there':''}</span></div>
+      <div class="strip"><div class="band" style="left:${L(Math.max(0,p.p10))}%;width:${L(p.p90)-L(Math.max(0,p.p10))}%"></div>${mass}<div class="tick" style="left:${L(p.p50)}%"></div>${c.cutoff?`<div class="cut" style="left:${L(c.cutoff.v)}%"></div>`:''}</div>
+      <div class="ends"><span>0</span><span>${c.cutoff?`cutoff ~${c.cutoff.v}`:''}</span><span>${max}${c.cap?' cap':''}</span></div>`;
+    if(key==='grand') body+=`<div class="line"><b>${t.chance}% chance</b> to qualify · <b>${t.earned}</b> earned + <span class="p">~${r0(pct(t.cells.sub.counts).p50)}</span> at the DCMP${t.fieldChance<1?` <span class="faint">(${Math.round(t.fieldChance*100)}% to be there)</span>`:''}</div>`;
+    if(key==='sub') body+=`<div class="line">${c.chips.join(' · ')}${c.cond?`<br><span class="faint">${Math.round(t.fieldChance*100)}% to be in the field</span>`:''}</div>`;
+  } else { const rows=c.rows; const top=[...rows].sort((a,b)=>b[1]-a[1])[0];
+    body=`<div class="fig"><b>${pc(top[1])}</b><span>${top[0]}</span></div><div class="rows">${rows.map(r=>{ const n=Math.round(r[1]*10); return `<span class="${r[1]<=0?'z':''}">${r[0]}</span><span class="d">${Array.from({length:10},(_,i)=>`<i class="${i<n?'on':''}"></i>`).join('')}</span><span class="pc ${r[1]<=0?'z':''}">${pc(r[1])}</span><span class="pt">${r[2]}</span>`; }).join('')}</div>`; }
+  pop.innerHTML=`<div class="hd"><div><b>${CELL_TITLES[key]}</b><span>${t.no} ${t.name} · ${key==='grand'?'district + DCMP':'DCMP · '+t.stage}</span></div><button class="x" aria-label="Close" onclick="state.c=null;renderTable('c');renderPop()">×</button></div>${body}<div class="more"><a href="#" onclick="event.preventDefault()">How this is computed</a></div>`;
+  pop.hidden=false; placePop();
+}
+function placePop(){ const pop=document.getElementById('pop'); if(pop.hidden||!state.c) return; const btn=document.querySelector(`#variant-c [data-key="${state.c}"]`); if(!btn){pop.hidden=true;return;}
+  const r=btn.getBoundingClientRect(); const w=Math.min(320,window.innerWidth-32); pop.style.width=w+'px';
+  let left=r.left+r.width/2-w/2; left=Math.max(16,Math.min(left,window.innerWidth-16-w));
+  let top=r.bottom+8; const ph=pop.offsetHeight; if(top+ph>window.innerHeight-8 && r.top-ph-8>8) top=r.top-ph-8;
+  pop.style.left=left+'px'; pop.style.top=top+'px'; }
+window.addEventListener('scroll',placePop,true); window.addEventListener('resize',placePop);
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&state.c){ state.c=null; renderTable('c'); renderPop(); } });
+document.addEventListener('click',e=>{ if(document.getElementById('variant-c').hidden||!state.c) return; if(e.target.closest('#pop')||e.target.closest('.cell.open')||e.target.closest('.sk')||e.target.closest('#sketch-tools')) return; state.c=null; renderTable('c'); renderPop(); });
+
+/* ---------- sketch chrome ---------- */
+function showVariant(v){ for(const k of ['a','b','c']){ document.getElementById('variant-'+k).hidden=k!==v; document.getElementById('why-'+k).hidden=k!==v; } document.querySelectorAll('.sk-tabs button').forEach(b=>b.setAttribute('aria-selected',b.dataset.v===v)); if(v==='c'){ renderTable('c'); renderPop(); } else { document.getElementById('pop').hidden=true; renderTable(v); } }
+function setVp(w,btn){ document.getElementById('vp').dataset.w=w; document.querySelectorAll('#sketch-tools button').forEach(b=>b.setAttribute('aria-pressed',b===btn)); placePop(); }
+renderTable('a'); renderTable('b'); renderTable('c');
+</script>
