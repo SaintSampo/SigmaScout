@@ -38,8 +38,8 @@ any blue cell. 4915 is the case every concept has to survive.
   one sentence answers the question ("Qualifies in 57 of 100 runs." / "Out before the top four in 69 of
   100 runs."), two or three figure tiles back it (median, likely, cutoff; or most likely outcome and
   chance of points), and one chart shows it: the histogram with the cutoff labelled on it and the
-  cutoff's own likely zone hatched, or the outcome list as labelled bars. All the explanatory copy
-  moves behind one "How this is computed" disclosure. The grand total adds a single line of where the
+  cutoff's own likely zone hatched, or the outcome list as labelled bars. No explanatory copy at
+  all: Jacob dropped the disclosure on 2026-10-06. The grand total adds a single line of where the
   points come from. The 426-bin axis is drawn in 5-point bins so the bars have width.
 - **B: Build-up bar** — no histogram. The grand total is one bar on the 0 to 425 scale: a grey segment
   for points earned, a blue one for points predicted, the likely range as a whisker beneath, and the

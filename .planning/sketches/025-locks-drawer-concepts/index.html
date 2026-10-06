@@ -232,7 +232,7 @@ table.ledger{border-collapse:separate;border-spacing:0;width:100%;min-width:900p
   </div>
 </div></div>
 <div class="sk-why"><div class="wrap">
-  <p id="why-a"><strong>A, verdict first.</strong> The drawer stays, but it opens with one sentence that answers what the click asked, three figures that back it, and one chart that shows it. Every paragraph of explanation moves behind a single “How this is computed” disclosure. Click a blue cell; the bubble team 4915 is the interesting one.</p>
+  <p id="why-a"><strong>A, verdict first.</strong> The drawer stays, but it opens with one sentence that answers what the click asked, three figures that back it, and one chart that shows it. No explanatory copy at all (the disclosure was dropped 2026-10-06). Click a blue cell; the bubble team 4915 is the interesting one.</p>
   <p id="why-b" hidden><strong>B, build-up bar.</strong> No histogram. The total is drawn as what is earned plus what is predicted, on one scale, with the cutoff on it, so the margin is visible as distance. Outcome cells become one proportion bar. Click a blue cell.</p>
   <p id="why-c" hidden><strong>C, popover.</strong> Nothing opens under the table. A small card anchors to the clicked cell with the figure, a strip, and at most five rows. The table never reflows. Click a blue cell; click elsewhere or press Esc to close.</p>
 </div></div>
@@ -387,7 +387,7 @@ function drawerA(t,key){ const c=t.cells[key]; const ttl=`${CELL_TITLES[key]} ·
     tiles=`<div class="tile pred"><span class="l">most likely</span><b>${top[0]}</b></div><div class="tile"><span class="l">chance of points</span><b>${Math.round(any*100)}%</b></div>`;
     chart=`<div class="obars">${rows.map(r=>`<span class="nm ${r[1]<=0?'zero':''}">${r[0]}</span><span class="tr"><span class="br" style="width:${r[1]*100}%"></span></span><span class="pc ${r[1]<=0?'zero':''}">${pc(r[1])}</span><span class="pt">${r[2]} pts</span>`).join('')}</div>`;
   }
-  return `<div class="A"><div><div class="eyebrow">${ttl}</div><h3>${headline(t,key)}</h3><div class="tiles">${tiles}</div><p class="how">likely = 8 of 10 runs · ~ = this site's prediction, not a number TBA published</p><details><summary>How this is computed</summary>${howText(t,key)}</details></div><div class="chart">${chart}${legend}${src}</div></div>`;
+  return `<div class="A"><div><div class="eyebrow">${ttl}</div><h3>${headline(t,key)}</h3><div class="tiles">${tiles}</div><p class="how">likely = 8 of 10 runs · ~ = this site's prediction, not a number TBA published</p></div><div class="chart">${chart}${legend}${src}</div></div>`;
 }
 
 /* ---------- Concept B ---------- */
