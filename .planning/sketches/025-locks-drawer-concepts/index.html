@@ -82,8 +82,9 @@ table.ledger{border-collapse:separate;border-spacing:0;width:100%;min-width:900p
 .ledger td.src .nm{color:var(--ink);font-weight:500}
 .ledger td.src .st{font-size:11px;color:var(--faint);display:block;line-height:1.3}
 .ledger td.src .st.chance{color:var(--open-fg)}
-.ledger .sticky1{position:sticky;left:0;background:var(--surface);z-index:1}
-.ledger th.sticky1{z-index:3}
+/* The team column is NOT sticky (Jacob, 2026-10-06). The shipped ledger pins it; this sketch does not. */
+.ledger .sticky1{background:var(--surface)}
+
 .cell{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;width:100%;min-height:32px;border-radius:6px;padding:2px 6px;font-size:13px;font-weight:600;line-height:1.2;text-align:center}
 .cell.fin{background:var(--fin-bg);color:var(--fin-fg)}
 .cell.open{background:var(--open-bg);color:var(--open-fg);border:0;cursor:pointer;box-shadow:inset 0 0 0 1px var(--open-edge);transition:background .15s}
