@@ -276,13 +276,7 @@ export function dcmpAwardCounts(
     for (const [otherCode, entry] of Object.entries(history[year]!.districts)) pool.push({ year, code: otherCode, entry });
   }
   if (pool.length === 0) return { counts: { 0: 0, 9: 0, 10: 0 }, source: "none" };
-  pool.sort((a, b) => {
-    const distance = Math.abs(cmpSlots - a.entry.cmpSlots) - Math.abs(cmpSlots - b.entry.cmpSlots);
-    if (distance !== 0) return distance;
-    if (a.year !== b.year) return b.year - a.year;
-    return a.code < b.code ? -1 : a.code > b.code ? 1 : 0;
-  });
-  const nearest = pool.slice(0, SIZE_BAND_NEIGHBOURS);
+  const nearest = nearestBySlots(pool, cmpSlots).slice(0, SIZE_BAND_NEIGHBOURS);
   const counts = {} as Record<DcmpDrawnAwardType, number>;
   for (const type of DCMP_DRAWN_AWARD_TYPES) counts[type] = medianRoundedHalfUp(nearest.map(({ entry }) => entry[COUNT_FIELD[type]]));
   return { counts, source: "sizeBand" };
@@ -290,6 +284,69 @@ export function dcmpAwardCounts(
 
 function countsOf(entry: DcmpDistrictAwardCounts): Record<DcmpDrawnAwardType, number> {
   return { 0: entry.impact, 9: entry.engineeringInspiration, 10: entry.rookieAllStar };
+}
+
+/**
+ * Per type, the MOST a DCMP has been seen to give out — the count the champ
+ * tier's slot RESERVATION reads (quick task 261006-3gg). `dcmpAwardCounts`
+ * above is an anchor for a prediction; this is a ceiling for a guarantee, and
+ * the two are deliberately different numbers.
+ *
+ * Over every earlier season of the history: the district's OWN entries, and
+ * the five nearest entries by `|cmpSlots - entry.cmpSlots|` (the same band
+ * `dcmpAwardCounts` falls back to, taken as a maximum rather than a median).
+ * Both sets always contribute, so a district that grew an award between
+ * seasons (FNC's Rookie All Star went 1 to 2 for 2023) is covered by the band
+ * where its own past is not. Never the season shown.
+ */
+export interface DcmpAwardCountCeiling {
+  readonly counts: Readonly<Record<DcmpDrawnAwardType, number>>;
+  /** The earlier seasons the district's own entries were read from, most recent first. Empty for a district with no history. */
+  readonly ownSeasons: readonly number[];
+  /** How many size band entries contributed, at most five. Zero when the history holds no earlier season at all. */
+  readonly sizeBandEntries: number;
+}
+
+export function dcmpAwardCountCeilings(
+  season: number,
+  districtKey: string,
+  cmpSlots: number,
+  history: DcmpHistory = DCMP_HISTORY
+): DcmpAwardCountCeiling {
+  const code = districtCode(districtKey);
+  const earlier = Object.keys(history)
+    .map(Number)
+    .filter((year) => year < season)
+    .sort((a, b) => b - a);
+  const counts: Record<DcmpDrawnAwardType, number> = { 0: 0, 9: 0, 10: 0 };
+  const fold = (entry: DcmpDistrictAwardCounts): void => {
+    const observed = countsOf(entry);
+    for (const type of DCMP_DRAWN_AWARD_TYPES) counts[type] = Math.max(counts[type], observed[type]);
+  };
+  const ownSeasons: number[] = [];
+  const pool: { year: number; code: string; entry: DcmpDistrictAwardCounts }[] = [];
+  for (const year of earlier) {
+    for (const [otherCode, entry] of Object.entries(history[year]!.districts)) {
+      pool.push({ year, code: otherCode, entry });
+      if (otherCode === code) {
+        ownSeasons.push(year);
+        fold(entry);
+      }
+    }
+  }
+  const nearest = nearestBySlots(pool, cmpSlots).slice(0, SIZE_BAND_NEIGHBOURS);
+  for (const { entry } of nearest) fold(entry);
+  return { counts, ownSeasons, sizeBandEntries: nearest.length };
+}
+
+/** `dcmpAwardCounts`' own size band order: distance by `cmpSlots`, ties to the more recent season, then by code. */
+function nearestBySlots<T extends { year: number; code: string; entry: DcmpDistrictAwardCounts }>(pool: readonly T[], cmpSlots: number): T[] {
+  return [...pool].sort((a, b) => {
+    const distance = Math.abs(cmpSlots - a.entry.cmpSlots) - Math.abs(cmpSlots - b.entry.cmpSlots);
+    if (distance !== 0) return distance;
+    if (a.year !== b.year) return b.year - a.year;
+    return a.code < b.code ? -1 : a.code > b.code ? 1 : 0;
+  });
 }
 
 /** K2: a count fixed at the anchor, or the anchor plus a season over season change drawn from history. */

@@ -15,6 +15,7 @@ import {
   HYPOTHETICAL_DCMP_MIN_BUCKET_OBSERVATIONS,
   champCutoffTuning,
   dcmpAwardCountDistribution,
+  dcmpAwardCountCeilings,
   dcmpAwardCounts,
   hypotheticalDcmpBucketIndex,
   hypotheticalDcmpPart,
@@ -157,6 +158,42 @@ describe("dcmpAwardCounts — anchored on the district's previous season", () =>
     // Four entries: the median of {1, 2, 3, 2} is 2 (half up of 2); of {0,1,1,2} is 1.
     const four: DcmpHistory = { 2025: flatSeason(1, 30, 1, { a: counts(10, 1, 1, 0), b: counts(10, 2, 2, 1), c: counts(10, 3, 1, 1), d: counts(10, 2, 2, 2) }) };
     expect(dcmpAwardCounts(2026, "2026new", 10, four).counts).toEqual({ 0: 2, 9: 2, 10: 1 });
+  });
+});
+
+describe("dcmpAwardCountCeilings — the most ever seen, for the champ-tier reservation", () => {
+  it("reads 2026 FNC as at least its own past: Impact 1, EI 2, RAS 2", () => {
+    const ceiling = dcmpAwardCountCeilings(2026, "2026fnc", 15);
+    expect(ceiling.ownSeasons[0]).toBe(2025);
+    expect(ceiling.counts[0]).toBeGreaterThanOrEqual(1);
+    expect(ceiling.counts[9]).toBeGreaterThanOrEqual(2);
+    expect(ceiling.counts[10]).toBeGreaterThanOrEqual(2);
+    expect(ceiling.sizeBandEntries).toBe(5);
+  });
+
+  it("is a maximum over the district's own seasons, never the anchor's most recent one", () => {
+    const history: DcmpHistory = {
+      2023: flatSeason(1, 30, 1, { abc: counts(10, 1, 2, 2) }),
+      2024: flatSeason(1, 30, 1, { abc: counts(10, 1, 1, 1) }),
+    };
+    expect(dcmpAwardCounts(2025, "2025abc", 10, history).counts).toEqual({ 0: 1, 9: 1, 10: 1 });
+    expect(dcmpAwardCountCeilings(2025, "2025abc", 10, history).counts).toEqual({ 0: 1, 9: 2, 10: 2 });
+  });
+
+  it("folds the size band's maximum in beside the district's own, and never reads the season shown", () => {
+    const history: DcmpHistory = {
+      2024: flatSeason(1, 30, 1, { abc: counts(10, 1, 1, 1), far: counts(40, 9, 9, 9), near: counts(11, 1, 2, 1) }),
+      2025: flatSeason(1, 30, 1, { abc: counts(10, 7, 7, 7) }),
+    };
+    // Own: abc 2024 only. Band of five nearest to 10 among the 2024 entries: abc, near, far (three in all).
+    const ceiling = dcmpAwardCountCeilings(2025, "2025abc", 10, history);
+    expect(ceiling.ownSeasons).toEqual([2024]);
+    expect(ceiling.sizeBandEntries).toBe(3);
+    expect(ceiling.counts).toEqual({ 0: 9, 9: 9, 10: 9 });
+  });
+
+  it("is all zero with no earlier season at all", () => {
+    expect(dcmpAwardCountCeilings(2016, "2016fim", 90)).toEqual({ counts: { 0: 0, 9: 0, 10: 0 }, ownSeasons: [], sizeBandEntries: 0 });
   });
 });
 

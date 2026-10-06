@@ -50,6 +50,7 @@
     "measure:selection-agreement": "tsx scripts/measureSelectionAgreement.ts",
     "publish:live-windows": "tsx --env-file=.env scripts/publishLiveWindows.ts",
     "measure:ledger-tenets": "tsx scripts/measureLedgerTenets.ts",
+    "measure:champ-tenets": "tsx scripts/measureChampTenets.ts",
     "measure:champ-cutoff": "tsx scripts/measureChampCutoff.ts",
     "measure:district-cutoff": "tsx scripts/measureDistrictCutoff.ts"
   },
