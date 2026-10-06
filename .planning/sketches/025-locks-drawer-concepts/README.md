@@ -2,7 +2,7 @@
 sketch: 025
 name: locks-drawer-concepts
 question: "Clicking a blue cell on either Locks tab opens a drawer of captions, tables and histograms that is hard to read. What should the click open, if it shows only what the reader actually needs?"
-winner: null
+winner: "A"
 tags: [districts, locks, champ-locks, drawer, histograms, outcome-list, popover, copy]
 ---
 
