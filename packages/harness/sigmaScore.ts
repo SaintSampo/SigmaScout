@@ -385,6 +385,12 @@ export class SigmaScoreAccumulator {
     return new Map([...this.#beliefs].map(([teamKey, belief]) => [teamKey, { ...belief }]));
   }
 
+  /** One team's RAW running state as a copy, or `undefined` when it has none. Read-only: never creates a belief (see `#readBelief`). */
+  beliefFor(teamKey: string): SigmaBelief | undefined {
+    const belief = this.#beliefs.get(teamKey);
+    return belief === undefined ? undefined : { ...belief };
+  }
+
   /** The talent prior's population statistics, for persistence. Three numbers that do not scale with team count, so they live in the league row. */
   population(): SigmaPopulation {
     return {

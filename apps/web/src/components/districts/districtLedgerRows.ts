@@ -730,6 +730,16 @@ export interface BuildDistrictEventInputOptions {
    * ceilings (quick task 260925-xab).
    */
   readonly tier?: DistrictTier;
+  /**
+   * A REWOUND STOP'S AS-OF BASELINES (quick task 261005-5g0). When present the
+   * qualification split is the caller's (`asOfRewind.ts`, in the as-of order)
+   * and `startMatchKey` is not read: `baselines` are these, `remainingMatches`
+   * is empty and `ratings` is empty, because the Web Worker prices the
+   * remaining rows and the draft ratings from the as-of state and fills both
+   * in (`districtSimulationProtocol.ts`). Nothing here then reads a stored
+   * per row prediction or `teams[].metrics`. Absent is the shipped path.
+   */
+  readonly asOfBaselines?: readonly SimTeamBaseline[];
 }
 
 /**
@@ -751,7 +761,11 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
   let remainingMatches: DistrictLedgerEventInput["remainingMatches"];
   let excludedMatchCount = 0;
 
-  if (startMatchKey === null) {
+  if (options.asOfBaselines !== undefined) {
+    if (options.asOfBaselines.length === 0) return { ok: false, reason: "no-qual-rows" };
+    baselines = options.asOfBaselines;
+    remainingMatches = [];
+  } else if (startMatchKey === null) {
     if (qualRows.length === 0 && eventArtifact.teams.length === 0) return { ok: false, reason: "no-qual-rows" };
     baselines = finishedQualBaselines(eventArtifact);
     remainingMatches = [];
@@ -767,7 +781,9 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
   const metricsByTeam: Record<string, EventArtifact["teams"][number]["metrics"] | undefined> = {};
   for (const team of eventArtifact.teams) metricsByTeam[team.teamKey] = team.metrics;
   const ratings = new Map<string, AllianceMemberRating>(
-    allianceRatingsFromMetrics(rosterKeys, metricsByTeam).map((rating) => [rating.teamKey, rating] as const)
+    options.asOfBaselines !== undefined
+      ? []
+      : allianceRatingsFromMetrics(rosterKeys, metricsByTeam).map((rating) => [rating.teamKey, rating] as const)
   );
 
   const awardProfiles = new Map<string, DistrictAwardProfile>();
@@ -937,8 +953,17 @@ export function distributionsFromResult(result: DistrictLedgerResult): DistrictE
   };
 }
 
-/** One baked sidecar's roster-indexed rows, decoded into the same per-team cell record. */
-export function distributionsFromPreSim(artifact: DistrictPreSimArtifact): DistrictEventDistributions {
+/**
+ * One baked sidecar's roster-indexed rows, decoded into the same per-team cell
+ * record. Typed on the three fields it reads, so a GENERATED event baked in
+ * the Web Worker at a rewound stop (`bakeDistrictEvent`'s own outcome) decodes
+ * through this same path (quick task 261005-5g0).
+ */
+export function distributionsFromPreSim(artifact: {
+  readonly eventKey: string;
+  readonly roster: readonly string[];
+  readonly rows: readonly DistrictPreSimArtifact["rows"][number][];
+}): DistrictEventDistributions {
   const byTeam = new Map<string, Record<DistrictCellKind, DistrictPointDistribution | undefined>>();
   for (const row of artifact.rows) {
     const teamKey = artifact.roster[row.t];

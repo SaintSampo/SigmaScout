@@ -109,6 +109,16 @@
  * are gone, and an artifact still carrying either block has it dropped on the
  * next write.
  *
+ * AS-OF STATE (quick task 261005-5g0, Part 2): for SPR only, the fold loop
+ * reads every folded team's tuple before and after each match and the league
+ * tuple after it (`asOfCapture.ts`), and Phase B folds those rows into the
+ * event's `v1/asof/` INDEX, `v1/asof-log/` LOG and the season's
+ * `v1/asof-season/` object: three R2 reads and three writes per event per
+ * tick that folds a match. Best effort and AFTER the artifact writes, in its
+ * own catch, so a failure logs one `asof-write-failed` line and the event
+ * still reports "advanced". Nothing about the fold, the D1 rows or the
+ * existing artifacts changes.
+ *
  * DEMO TEAMS: the algorithms already exclude demo teams in
  * `update()`/`predict()`. `realTouchedTeams` strips demo keys before Phase A
  * scope keys and Phase B team artifacts, so a demo key gets no D1 row and no
@@ -188,6 +198,7 @@ import {
   type Stamp,
 } from "./artifactMerge.js";
 import { checkLiveEventArtifactShape, checkTeamSeasonArtifactShape } from "./artifactShapeCheck.js";
+import { AsOfTickCapture, asOfVarsOf, capturesAsOf, writeAsOfFolds, type AsOfModelView } from "./asOfCapture.js";
 import { ArtifactSecretLeakError, readArtifactObject, writeArtifactObject } from "./artifactWriter.js";
 import { readEventCursor, readEventCursors, readScopedStateChunked, scopedStateReadStatements, selectChangedRows, writeEventCursor, writeEventRosterEtag, writeScopedState, type EventCursor, type ScopeSelection } from "./stateStore.js";
 import { splitEventMatches } from "./matchSplit.js";
@@ -680,6 +691,12 @@ interface PerAlgorithmFold {
    * falls back to parsing.
    */
   readonly observedBonusSides: ReadonlyMap<string, ParsedBonusSides>;
+  /**
+   * The as-of rows Phase A captured for this algorithm, in fold order (quick
+   * task 261005-5g0). Present for SPR only (`capturesAsOf`); Phase B folds them
+   * into the event's as-of objects after the artifact writes.
+   */
+  readonly asOf?: AsOfTickCapture;
 }
 
 /**
@@ -1482,6 +1499,8 @@ async function processEvent(
       const { eventType, fetchedEventType, week } = await fetchEventTypeAndWeek(tbaCtx, counter, eventKey);
 
       const newlyFoldedResults = newlyFolded.map((m) => toMatchResult(m, eventType, week));
+      // Each match's own sort_time as the tick normalized it: the `t` of its as-of row.
+      const sortTimeByMatchKey = new Map(newlyFolded.map((m) => [m.matchKey, m.sortTime]));
 
       // Phase A: every algorithm reads, folds and writes state; all must
       // succeed before any artifact write.
@@ -1634,7 +1653,11 @@ async function processEvent(
 
         const newBands = new Map<string, { red?: number; blue?: number }>();
         const newPredictions = new Map<string, Prediction>();
+        // The as-of capture (quick task 261005-5g0): reads only, around each match's fold steps below.
+        const asOf = capturesAsOf(algorithm) ? new AsOfTickCapture(asOfVarsOf(rpRuleModule)) : undefined;
+        const asOfView = (): AsOfModelView => ({ state, sigma, rp, meanShift: rpMeanShift });
         for (const result of newlyFoldedResults) {
+          const asOfBefore = asOf?.before(result, asOfView());
           const prediction = algorithm.predict(state, toLeakProofUpcoming(result));
           // Predict-before-update: read the win odds before folding this match,
           // whose own result is not an admissible input to its band.
@@ -1668,6 +1691,7 @@ async function processEvent(
               if (total !== undefined) sigma.observeTalent(teamKey, total);
             }
           }
+          asOf?.after(result, sortTimeByMatchKey.get(result.matchKey), asOfBefore, asOfView());
         }
 
         const touchedMetrics = algorithm.teamMetrics(state, touchedTeams);
@@ -1726,7 +1750,7 @@ async function processEvent(
         counter.spend(1);
         await writeScopedState(env.DB, changedRows); // may throw -- caught below, reverts the claim and aborts the WHOLE event (zero artifact puts)
 
-        perAlgorithm.set(algorithmId, { algorithm, newPredictions, touchedMetrics, newBands, touchedSigma, eventSigma, observedBonusSides, upcomingModel });
+        perAlgorithm.set(algorithmId, { algorithm, newPredictions, touchedMetrics, newBands, touchedSigma, eventSigma, observedBonusSides, upcomingModel, ...(asOf !== undefined ? { asOf } : {}) });
       }
 
       live.ingest.matchesFolded(eventKey, matchArrivalFacts(rawMatchesUnknown, new Set(newlyFolded.map((m) => m.matchKey))));
@@ -1943,6 +1967,26 @@ async function runPhaseBAndReport(
     // key and a truncated message only.
     console.warn(JSON.stringify({ msg: "phase-b-failed", eventKey, error: (phaseBError instanceof Error ? phaseBError.message : String(phaseBError)).slice(0, WRITE_RETRY_ERROR_MESSAGE_MAX) }));
     live.ingest.failure(eventKey, "phase-b", phaseBError);
+  }
+
+  // THE AS-OF WRITE (quick task 261005-5g0), outside the artifact catch above so a
+  // failed artifact write never costs the as-of rows: unlike an artifact, which the
+  // team's next match rewrites, a match whose rows are not written here is never
+  // captured again. Its own catch, one line, and the event stays "advanced".
+  for (const [algorithmId, info] of perAlgorithm) {
+    if (info.asOf === undefined) continue;
+    try {
+      if (info.asOf.error !== undefined) throw info.asOf.error;
+      await writeAsOfFolds(env, counter, {
+        eventKey,
+        season: window.season,
+        vars: info.asOf.vars,
+        folds: info.asOf.folds,
+        stamp: { ...stamp, algorithmId, algorithmVersion: info.algorithm.version },
+      });
+    } catch (asOfError) {
+      console.warn(JSON.stringify({ msg: "asof-write-failed", eventKey, algorithmId, error: (asOfError instanceof Error ? asOfError.message : String(asOfError)).slice(0, WRITE_RETRY_ERROR_MESSAGE_MAX) }));
+    }
   }
 
   return { status: "advanced" };

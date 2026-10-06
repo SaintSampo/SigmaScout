@@ -841,8 +841,14 @@ export interface EarlierPositionObservation {
  * 2026 PNW at season start and after each district week, from the eight
  * committed event artifacts: every event still open at the position is
  * simulated through `buildDistrictEventSimulationInput` and
- * `simulateDistrictEvent`, exactly the pure calls the tab's own data hook
- * makes when rewound. n = 1 season, not gated.
+ * `simulateDistrictEvent` from the first row after the position
+ * (`startMatchKeyAtPosition`). That is the RETIRED stored odds rewind, the
+ * calls the tab's data hook made when rewound before quick task 261005-5g0:
+ * each row after the position carries the prediction stored when it was
+ * played, made after every result before it. The tab no longer rewinds this
+ * way (a rewound stop prices from the as-of state, `asOfRewind.ts`), so these
+ * numbers measure the retired path, not what a rewound tab shows. n = 1
+ * season, not gated.
  */
 export function earlierPositionsPnw2026(artifact: DistrictArtifact, setting: ChampCutoffSetting, fixtureDir: string = PHASE10_FIXTURE_DIR): EarlierPositionObservation[] {
   const eventArtifacts = new Map<string, EventArtifact>();

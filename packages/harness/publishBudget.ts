@@ -32,6 +32,59 @@ export const PAGE_BUDGET_MAX_BYTES: Readonly<Record<PageKind, number>> = Object.
 });
 
 // ---------------------------------------------------------------------------
+// The as-of families (quick task 261005-5g0)
+// ---------------------------------------------------------------------------
+
+/**
+ * The four as-of object families (`asOfIndexKey`, `asOfLogKey`,
+ * `asOfSeasonKey`, `asOfStartKey` in `pageArtifacts.ts`), in the block's
+ * committed order. Not
+ * `PageKind`s, so the page block above is unchanged; the block carries them in
+ * its own optional `asOf` section.
+ */
+export const AS_OF_FAMILIES = ["asof", "asof-log", "asof-season", "asof-start"] as const;
+export type AsOfFamily = (typeof AS_OF_FAMILIES)[number];
+
+/**
+ * The per-object ceiling for each as-of family, asserted by the publisher
+ * before an object is recorded or queued, like the page ceilings.
+ *
+ * DERIVED FROM A MEASUREMENT: the largest object of each family over all ten
+ * published seasons, read from `scripts/verifyAsOfOracle.ts`'s size line
+ * (which captures through the publisher's own `AsOfSeasonCapture`), times
+ * 1.4, rounded up to the next 100,000. The figures are in
+ * `docs/publish-budget.md`.
+ */
+export const AS_OF_BUDGET_MAX_BYTES: Readonly<Record<AsOfFamily, number>> = Object.freeze({
+  // 179,328 B (`2016micmp`) x 1.4.
+  asof: 300_000,
+  // 1,309,513 B (`2016micmp`) x 1.4.
+  "asof-log": 1_900_000,
+  // 156,807 B (2019) x 1.4.
+  "asof-season": 300_000,
+  // 745,881 B (2026) x 1.4. Grows each season: the carried state keeps every team it has seen.
+  "asof-start": 1_100_000,
+});
+
+/** Throws `AsOfBudgetExceededError` when `bytes` is above the family's ceiling; exactly at the ceiling passes. */
+export function assertWithinAsOfBudget(family: AsOfFamily, key: string, bytes: number, ceilings: Readonly<Record<AsOfFamily, number>> = AS_OF_BUDGET_MAX_BYTES): void {
+  const ceiling = ceilings[family];
+  if (bytes > ceiling) throw new AsOfBudgetExceededError(family, key, bytes, ceiling);
+}
+
+export class AsOfBudgetExceededError extends Error {
+  constructor(
+    readonly family: AsOfFamily,
+    readonly key: string,
+    readonly bytes: number,
+    readonly ceiling: number
+  ) {
+    super(`publish budget exceeded: ${family} object ${key} is ${bytes} bytes, above its ${ceiling}-byte ceiling (AS_OF_BUDGET_MAX_BYTES) — shrink the object; never widen the ceiling to make a run pass`);
+    this.name = "AsOfBudgetExceededError";
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Size statistics
 // ---------------------------------------------------------------------------
 
@@ -60,14 +113,16 @@ export function percentileOf(sortedAscending: readonly number[], p: number): num
  * count/median/p95/max/largestKey stats `docs/publish-budget.md`'s
  * machine-readable block records.
  */
-export function computeSizeStats(records: readonly PublishedObjectRecord[]): Partial<Record<PageKind, PageKindSizeStats>> {
-  const byKind = new Map<PageKind, PublishedObjectRecord[]>();
+export function computeSizeStats<K extends string = PageKind>(
+  records: readonly { readonly pageKind: K; readonly key: string; readonly bytes: number }[]
+): Partial<Record<K, PageKindSizeStats>> {
+  const byKind = new Map<K, { readonly pageKind: K; readonly key: string; readonly bytes: number }[]>();
   for (const record of records) {
     const list = byKind.get(record.pageKind) ?? [];
     list.push(record);
     byKind.set(record.pageKind, list);
   }
-  const result: Partial<Record<PageKind, PageKindSizeStats>> = {};
+  const result: Partial<Record<K, PageKindSizeStats>> = {};
   for (const [kind, list] of byKind) {
     const sorted = [...list].sort((a, b) => a.bytes - b.bytes);
     const bytesSorted = sorted.map((r) => r.bytes);
@@ -224,6 +279,8 @@ export interface PublishBudget {
   measuredAt: string;
   run: string;
   pages: Record<string, PublishBudgetPageEntry>;
+  /** The as-of families' stats, present once a run has published them (quick task 261005-5g0). */
+  asOf?: Record<string, PublishBudgetPageEntry>;
 }
 
 /** Parses the fenced `json budget` block; a missing or non-JSON block is a named `PublishBudgetParseError`, never a silent skip. */
@@ -245,6 +302,19 @@ export interface RenderPublishBudgetParams {
   readonly measuredAt: string;
   readonly run: string;
   readonly pages: Partial<Record<PageKind, PageKindSizeStats>>;
+  /** The as-of families' stats. Absent (or empty) when the run published none, which writes no `asOf` section. */
+  readonly asOf?: Partial<Record<AsOfFamily, PageKindSizeStats>>;
+}
+
+function budgetEntry(stats: PageKindSizeStats, budgetMaxBytes: number): PublishBudgetPageEntry {
+  return {
+    count: stats.count,
+    medianBytes: stats.medianBytes,
+    p95Bytes: stats.p95Bytes,
+    maxBytes: stats.maxBytes,
+    budgetMaxBytes,
+    largestKey: stats.largestKey,
+  };
 }
 
 /**
@@ -253,6 +323,14 @@ export interface RenderPublishBudgetParams {
  * kind's count, medianBytes, p95Bytes, maxBytes, budgetMaxBytes, largestKey),
  * ceilings taken from `PAGE_BUDGET_MAX_BYTES`. Throws when any kind is
  * missing — a partial run must not overwrite the full-run record.
+ *
+ * Then, when the run published as-of objects, an `asOf` section in the same
+ * entry shape, families in `AS_OF_FAMILIES` order, ceilings from
+ * `AS_OF_BUDGET_MAX_BYTES`, holding the families the run published. A family
+ * can be legitimately absent: a run whose seasons have no played match yet (a
+ * pre-kickoff publish) writes the season and season start objects and no
+ * INDEX or LOG, so its section records those two only. The block's own `run`
+ * string names the run, and the doc test checks every family present.
  */
 export function renderPublishBudgetBlock(params: RenderPublishBudgetParams): string {
   const pages: Record<string, PublishBudgetPageEntry> = {};
@@ -261,16 +339,18 @@ export function renderPublishBudgetBlock(params: RenderPublishBudgetParams): str
     if (stats === undefined) {
       throw new Error(`renderPublishBudgetBlock: the run measured no "${kind}" objects — a budget block needs all of ${BUDGET_PAGE_KINDS.join(", ")}`);
     }
-    pages[kind] = {
-      count: stats.count,
-      medianBytes: stats.medianBytes,
-      p95Bytes: stats.p95Bytes,
-      maxBytes: stats.maxBytes,
-      budgetMaxBytes: PAGE_BUDGET_MAX_BYTES[kind],
-      largestKey: stats.largestKey,
-    };
+    pages[kind] = budgetEntry(stats, PAGE_BUDGET_MAX_BYTES[kind]);
   }
   const block: PublishBudget = { measuredAt: params.measuredAt, run: params.run, pages };
+  const asOfStats = params.asOf ?? {};
+  if (Object.keys(asOfStats).length > 0) {
+    const asOf: Record<string, PublishBudgetPageEntry> = {};
+    for (const family of AS_OF_FAMILIES) {
+      const stats = asOfStats[family];
+      if (stats !== undefined) asOf[family] = budgetEntry(stats, AS_OF_BUDGET_MAX_BYTES[family]);
+    }
+    block.asOf = asOf;
+  }
   return "```json budget\n" + JSON.stringify(block, null, 2) + "\n```";
 }
 

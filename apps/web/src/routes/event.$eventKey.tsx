@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DEFAULT_EVENT_TAB, EventSearchSchema, type EventTab } from "../lib/searchParams.js";
 import { isValidEventKey, seasonFromEventKey } from "../lib/eventKey.js";
@@ -16,6 +16,7 @@ import { QualsTab, QualsTabSkeleton } from "../components/event/QualsTab.js";
 import { AlliancesTab, AlliancesTabSkeleton, hasAllianceData } from "../components/event/AlliancesTab.js";
 import { ElimsTab, ElimsTabSkeleton } from "../components/event/ElimsTab.js";
 import { SimulationTab, SimulationTabSkeleton } from "../components/event/SimulationTab.js";
+import { simulationAsOfFetchers } from "../components/event/simulationAsOfFetchers.js";
 import { publishesRankingPoints } from "../../../../packages/harness/sigmaScore.js";
 import type { EventArtifact } from "../../../../packages/harness/pageArtifacts.js";
 
@@ -141,6 +142,7 @@ function EventPage() {
   // fetch ever fires against a nonsense key.
   const version = useAlgorithmVersion(algorithm);
 
+  const queryClient = useQueryClient();
   const { data, isPending, error, refetch, isPlaceholderData } = useQuery({
     ...eventQueryOptions({ eventKey, algorithmId: algorithm, version: version ?? "" }),
     enabled: isValidKey && version !== undefined,
@@ -328,6 +330,9 @@ function EventPage() {
           // those two distinguishable where it matters.
           preSchedule={preSchedule ?? null}
           preScheduleIsPending={preScheduleIsPending}
+          // An SPR rewind's as-of objects, fetched through the cache only when
+          // Run is pressed (`simulationAsOf.ts`), never on a page load.
+          asOfFetchers={simulationAsOfFetchers(queryClient, artifact)}
         />
       ),
     });

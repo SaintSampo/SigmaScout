@@ -35,3 +35,14 @@ page's rewind. ACROSS WEEKS, which is the case the Locks tabs are in, the gap is
    `data/local-publish/districts-asof0307` and `data/local-publish/districts-asof0404`.
 
 The first tells us whether the second is worth its storage and publish cost.
+
+## Closed (2026-10-05)
+
+Shipped by quick task 261005-5g0. A rewound Locks view is now a true as-of forecast: the state is
+captured per match at fold (offline publisher and live Worker) and rebuilt in the browser at the
+stop, so every match still ahead is priced from the ratings and odds as they stood then. The rewind
+note and the Methodology sentences saying a rewound view knows more are gone.
+
+The stored weekly snapshots option (way forward 2) was rejected: Jacob wants no script that runs
+weekly or on any other period. How well a rewound stop predicts across weeks (way forward 1) is
+still unmeasured.

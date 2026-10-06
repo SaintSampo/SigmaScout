@@ -251,6 +251,38 @@ describe("stateSnapshot.ts is Worker-safe", () => {
 });
 
 /**
+ * The as-of reducer (quick task 261005-5g0). Both the offline publisher and the
+ * live tick call `applyAsOfFold`, and the tick bundles it, so the same forbidden
+ * set binds it: one reducer, two writers, never a Node-only edge.
+ */
+describe("asOfState.ts is Worker-safe", () => {
+  const scan = scanImportGraph(resolve(HERE, "asOfState.ts"));
+
+  it("reaches no Node built-in and no better-sqlite3", () => {
+    expect(nodeOrSqliteImports(scan)).toEqual([]);
+  });
+
+  it("reaches no rules.ts, season RP file, publish.ts, seedSql.ts, replay.ts, corpus db or sigmaScoutLayer.ts", () => {
+    const forbidden = [
+      resolve(RANKING_POINTS, "rules.ts"),
+      resolve(HERE, "publish.ts"),
+      resolve(HERE, "seedSql.ts"),
+      resolve(HERE, "replay.ts"),
+      resolve(PACKAGES, "corpus", "db.ts"),
+      resolve(HERE, "sigmaScoutLayer.ts"),
+    ];
+    expect(forbidden.filter((file) => scan.visited.has(file))).toEqual([]);
+    expect([...scan.visited].filter((file) => SEASON_FILE_RE.test(file))).toEqual([]);
+  });
+
+  it("non-vacuity: visits the demo key helpers and the page artifact preamble it stamps with", () => {
+    for (const file of [resolve(PACKAGES, "core", "algorithms", "demoTeams.ts"), resolve(HERE, "pageArtifacts.ts")]) {
+      expect(scan.visited.has(file), file).toBe(true);
+    }
+  });
+});
+
+/**
  * `rulesLoader.ts` has no production caller since the browser pricer was deleted
  * (quick task 260923-3w7) — the tick indexes `RP_RULE_MODULES` directly. It is
  * kept, and kept under this guard, because `upcomingPricing.test.ts` still uses

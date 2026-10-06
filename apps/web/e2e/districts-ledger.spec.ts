@@ -130,8 +130,6 @@ const TEST_IDS = {
   champRow: "champ-ledger-row",
   /** `LedgerParts.tsx`'s `ControlsCard` stat line, shared by BOTH tabs. */
   statLine: "district-ledger-stat-line",
-  /** `LocksMilestonePicker.tsx` — the rewind note below the arrows row, present whenever the selection is not Live (quick task 261005-04t). */
-  pickerRewindNote: "locks-picker-rewind-note",
 } as const;
 
 /**
@@ -302,10 +300,9 @@ test.describe("District Locks, 1440x900", () => {
     await expect(stops).toHaveCount(8);
     const pressedStops = picker.locator('[data-milestone][aria-pressed="true"]');
 
-    // At the district URL the page is live, and Live carries no rewind note.
+    // At the district URL the page is live.
     await expect(page.getByTestId(TEST_IDS.pickerLive)).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId(TEST_IDS.pickerNextText)).toHaveText("This is live");
-    await expect(page.getByTestId(TEST_IDS.pickerRewindNote)).toHaveCount(0);
 
     // One step back from Live lands on the district's latest milestone.
     await page.getByTestId(TEST_IDS.pickerPrev).click();
@@ -316,8 +313,6 @@ test.describe("District Locks, 1440x900", () => {
       .not.toBeNull();
     await expect(pressedStops).toHaveCount(1);
     await expect(page.getByTestId(TEST_IDS.pickerLive)).toHaveAttribute("aria-pressed", "false");
-    // A rewound view says its predictions use later knowledge (quick task 261005-04t).
-    await expect(page.getByTestId(TEST_IDS.pickerRewindNote)).toBeVisible();
 
     // And one more.
     const firstAt = new URL(page.url()).searchParams.get(REWIND_PARAM);
@@ -344,7 +339,6 @@ test.describe("District Locks, 1440x900", () => {
       )
       .toBe(`${String(pressedKey)} of ${eventKey}`);
     await expect(page.getByTestId(TEST_IDS.pickerLive)).toHaveAttribute("aria-pressed", "false");
-    await expect(page.getByTestId(TEST_IDS.pickerRewindNote)).toBeVisible();
 
     // THE HEADLINE NEVER SITS OUTSIDE ITS OWN RANGE (quick task 261004-uw4).
     // At this rewound position a race is open again, so the cutoff is the

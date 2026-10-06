@@ -88,9 +88,10 @@
  * `district-cutoff-line-backtest`.
  *
  * THE REWOUND VIEW AND THE CHAMPIONSHIP FIELD PARAGRAPHS CARRY NO MEASURED
- * FIGURE (quick task 261005-04t), because the only rewind measurement is the
- * event page's, inside one event (docs/models/rewind-overconfidence-gap.md),
- * and the gap across weeks is unmeasured (todo locks-rewind-as-of-forecasts).
+ * FIGURE. Since quick task 261005-5g0 a rewound view is an as-of forecast, so
+ * the closing open categories paragraph states that rule and no longer says
+ * its predictions know more; how well a rewound stop predicts has not been
+ * measured.
  *
  * A figure that appears in none of those sources is not written here.
  *
@@ -200,7 +201,7 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
       "Teams at or above that line are In range and teams below it are Out of range. Until the runs finish those two chips read Pending, and where no line can be drawn they read No call. Once the District Championship awards are posted nothing is drawn any more, and the midpoint rule applies.",
       "On the Champ Locks tab, at the end of each district season and predicted only from the seasons before it, the simulated line missed the published line by 18.2 points on average over 68 district seasons, against 40.4 for the midpoint rule. Its likely range, the 10th to the 90th percentile of that line across the runs, held the published line in 48 of 69 seasons, 70%, where a range this wide should hold about 80%.",
       "On the Champ Locks tab a run also counts a team as qualified when it lands on the winning alliance or draws one of those awards.",
-      "Both Locks tabs can be rewound to an earlier point in the season. A rewound view predicts later events with the odds this site published just before each of their matches and with each team's rating from the end of that event, so its predictions know more than a forecast made at that point could.",
+      "A rewound view predicts every match still ahead from the ratings and odds as they stood at that stop. An event whose schedule was not yet posted then is predicted over generated schedules, as an event that has not started is.",
     ],
     table: {
       caption: "What decides each open category",

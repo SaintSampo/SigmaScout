@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createSimulationWorker } from "../../workers/createSimulationWorker.js";
+import { createSimulationAsOfWorker, createSimulationWorker } from "../../workers/createSimulationWorker.js";
 import { DEFAULT_SIMULATION_SEED, SIMULATION_DRAWS } from "../../workers/simulationProtocol.js";
 import type { SimulationOutboundMessage, SimulationRequest } from "../../workers/simulationProtocol.js";
+import type { SimulationAsOfBlock, SimulationAsOfRequest } from "../../workers/simulationAsOfJob.js";
 import type { SimMatchInput, SimResult, SimTeamBaseline } from "../../../../../packages/core/algorithms/simulation/rankSimulation.js";
 
 /**
@@ -49,6 +50,16 @@ export interface SimulationRunCompleteState {
   readonly signature: string;
   readonly teamCount: number;
   readonly remainingMatches: number;
+  /**
+   * Which rows the run drew from: `asOf`, the remaining rows priced from the
+   * model as it stood just before the start match (an SPR rewind,
+   * `simulationAsOf.ts`); `stored`, the artifact's own per row predictions.
+   */
+  readonly source: "asOf" | "stored";
+  /** An `asOf` run only: the remaining rows that priced to no ranking point distribution and were not simulated. */
+  readonly excludedMatchKeys?: readonly string[];
+  /** An `asOf` run only: teams whose baseline counts a played row with no recorded RP, at the as-of cut. */
+  readonly incompleteBaselineTeamKeys?: readonly string[];
 }
 
 export interface SimulationRunErrorState {
@@ -71,6 +82,21 @@ export interface SimulationRunRequest {
   readonly matches: readonly SimMatchInput[];
   readonly baselines: readonly SimTeamBaseline[];
   readonly signature: string;
+  /**
+   * An SPR rewind only: resolves the as-of state the run prices from, BEFORE
+   * any Worker is built (the fetch counts as part of the run, so the progress
+   * state covers it). `null` means the as-of objects cannot price this start,
+   * and the run uses `matches` and `baselines`, today's stored rows. A rejected
+   * promise is the run's error state.
+   */
+  readonly loadAsOf?: () => Promise<SimulationAsOfRun | null>;
+}
+
+/** What an as-of run sends in place of `matches` and `baselines`. */
+export interface SimulationAsOfRun {
+  readonly block: SimulationAsOfBlock;
+  readonly baselines: readonly SimTeamBaseline[];
+  readonly incompleteBaselineTeamKeys: readonly string[];
 }
 
 const IDLE_STATE: SimulationRunState = { status: "idle" };
@@ -135,19 +161,6 @@ export function useSimulationRun(): {
         );
       }, SIMULATION_TICK_INTERVAL_MS);
 
-      // The construction call happens HERE, inside the handler — never at
-      // module scope, never in an effect, never on mount. An unsupported
-      // browser throws synchronously from `new Worker(...)`.
-      let worker: Worker;
-      try {
-        worker = createSimulationWorker();
-      } catch {
-        stopTicking();
-        setState(ERROR_STATE);
-        return;
-      }
-      workerRef.current = worker;
-
       const enterErrorState = (): void => {
         if (runIdRef.current !== runId) return;
         stopTicking();
@@ -155,50 +168,96 @@ export function useSimulationRun(): {
         setState(ERROR_STATE);
       };
 
-      worker.onmessage = (event: MessageEvent): void => {
-        if (runIdRef.current !== runId) return;
-        const message = event.data as SimulationOutboundMessage;
-        if (message.type === "progress") {
-          setState({
-            status: "running",
-            completedDraws: message.completedDraws,
-            totalDraws: message.totalDraws,
-            elapsedMs: nowMs() - startTimestampRef.current,
-          });
-          return;
-        }
-        if (message.type === "result") {
-          const elapsedMs = nowMs() - startTimestampRef.current;
+      const launch = (asOf: SimulationAsOfRun | null): void => {
+        // The construction call happens HERE, inside the handler (or the
+        // as-of fetch it awaited) — never at module scope, never in an effect,
+        // never on mount. An unsupported browser throws synchronously from
+        // `new Worker(...)`.
+        let worker: Worker;
+        try {
+          worker = asOf === null ? createSimulationWorker() : createSimulationAsOfWorker();
+        } catch {
           stopTicking();
-          terminateWorker();
-          setState({
-            status: "complete",
-            result: { rankHistograms: message.rankHistograms, draws: message.draws },
-            elapsedMs,
-            computeMs: message.computeMs,
-            signature: request.signature,
-            teamCount: request.baselines.length,
-            remainingMatches: request.matches.length,
-          });
+          setState(ERROR_STATE);
           return;
         }
-        // message.type === "error"
-        enterErrorState();
+        workerRef.current = worker;
+        const baselines = asOf === null ? request.baselines : asOf.baselines;
+
+        worker.onmessage = (event: MessageEvent): void => {
+          if (runIdRef.current !== runId) return;
+          const message = event.data as SimulationOutboundMessage;
+          if (message.type === "progress") {
+            setState({
+              status: "running",
+              completedDraws: message.completedDraws,
+              totalDraws: message.totalDraws,
+              elapsedMs: nowMs() - startTimestampRef.current,
+            });
+            return;
+          }
+          if (message.type === "result") {
+            const elapsedMs = nowMs() - startTimestampRef.current;
+            stopTicking();
+            terminateWorker();
+            setState({
+              status: "complete",
+              result: { rankHistograms: message.rankHistograms, draws: message.draws },
+              elapsedMs,
+              computeMs: message.computeMs,
+              signature: request.signature,
+              teamCount: baselines.length,
+              remainingMatches: asOf === null ? request.matches.length : (message.simulatedMatches ?? 0),
+              source: asOf === null ? "stored" : "asOf",
+              ...(asOf === null ? {} : { excludedMatchKeys: message.excludedMatchKeys ?? [], incompleteBaselineTeamKeys: asOf.incompleteBaselineTeamKeys }),
+            });
+            return;
+          }
+          // message.type === "error"
+          enterErrorState();
+        };
+
+        // The mid-run error path: the Worker SCRIPT itself throwing (not a
+        // throw the job already caught and translated into an `error`
+        // message above).
+        worker.onerror = (): void => enterErrorState();
+
+        if (asOf === null) {
+          const outboundRequest: SimulationRequest = {
+            type: "run",
+            matches: request.matches,
+            baselines: request.baselines,
+            draws: SIMULATION_DRAWS,
+            seed: DEFAULT_SIMULATION_SEED,
+          };
+          worker.postMessage(outboundRequest);
+        } else {
+          const outboundRequest: SimulationAsOfRequest = {
+            type: "runAsOf",
+            asOf: asOf.block,
+            baselines: asOf.baselines,
+            draws: SIMULATION_DRAWS,
+            seed: DEFAULT_SIMULATION_SEED,
+          };
+          worker.postMessage(outboundRequest);
+        }
       };
 
-      // The mid-run error path: the Worker SCRIPT itself throwing (not a
-      // throw `runSimulationJob` already caught and translated into an
-      // `error` message above).
-      worker.onerror = (): void => enterErrorState();
-
-      const outboundRequest: SimulationRequest = {
-        type: "run",
-        matches: request.matches,
-        baselines: request.baselines,
-        draws: SIMULATION_DRAWS,
-        seed: DEFAULT_SIMULATION_SEED,
-      };
-      worker.postMessage(outboundRequest);
+      const loadAsOf = request.loadAsOf;
+      if (loadAsOf === undefined) {
+        launch(null);
+        return;
+      }
+      // An SPR rewind: the as-of objects load first. A run superseded or
+      // unmounted while they load is dropped by the run id, and builds no
+      // Worker at all.
+      loadAsOf().then(
+        (asOf) => {
+          if (runIdRef.current !== runId) return;
+          launch(asOf);
+        },
+        () => enterErrorState()
+      );
     },
     [stopTicking, terminateWorker]
   );

@@ -1,0 +1,156 @@
+/**
+ * `useAsOfRewind` (quick task 261005-5g0): Live fetches nothing, a rewound stop
+ * fetches through the query cache until resolved, and a refused fetch reads as
+ * failed rather than as an unpublished object.
+ */
+import type { ReactNode } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ARTIFACTS, CANDIDATES, EVENTS, FIXTURE_VERSION, NOW_STAGES, OBJECTS, T0, asOfBodyFor, districtArtifact } from "./asOfTestFixtures.js";
+import { EVENT_POLL_INTERVAL_MS } from "../../lib/liveEvent.js";
+import type { AsOfRewindResult } from "./asOfRewind.js";
+import { buildDistrictTimeline, districtStageAtPosition } from "./districtTimeline.js";
+import { asOfRewindRefetchInterval, useAsOfRewind, type UseAsOfRewindOptions } from "./useAsOfRewind.js";
+
+function manifestBody() {
+  return {
+    schemaVersion: 1,
+    generation: "gen-1",
+    computedAt: "2026-09-25T00:00:00.000Z",
+    algorithms: [{ id: "spr", version: FIXTURE_VERSION, codeVersion: "9.0.0", paramSetName: "rolling" }],
+  };
+}
+
+function installFetch(status: (url: string) => number = () => 200) {
+  const calls: string[] = [];
+  global.fetch = vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.includes("/v1/manifest/algorithms.json")) return Promise.resolve(new Response(JSON.stringify(manifestBody()), { status: 200 }));
+    const code = status(url);
+    if (code !== 200) return Promise.resolve(new Response("", { status: code }));
+    const body = asOfBodyFor(OBJECTS, url);
+    return Promise.resolve(body === undefined ? new Response("", { status: 404 }) : new Response(body, { status: 200 }));
+  }) as unknown as typeof fetch;
+  return calls;
+}
+
+function wrapper({ children }: { children: ReactNode }) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
+function options(positionId: string, enabled = true): UseAsOfRewindOptions {
+  const timeline = buildDistrictTimeline({ events: EVENTS, eventArtifacts: ARTIFACTS });
+  const positionIndex = timeline.positions.findIndex((position) => position.id === positionId);
+  return {
+    enabled,
+    artifactsLoading: false,
+    unloadedEventKeys: [],
+    districtArtifact: districtArtifact(),
+    timeline,
+    positionIndex,
+    eventArtifacts: ARTIFACTS,
+    stageByEvent: districtStageAtPosition(timeline, positionIndex, NOW_STAGES),
+    at: positionId,
+    candidates: CANDIDATES,
+  };
+}
+
+describe("useAsOfRewind", () => {
+  const originalFetch = global.fetch;
+  afterEach(() => {
+    global.fetch = originalFetch;
+    cleanup();
+  });
+
+  it("returns undefined and fetches no as-of object at Live", async () => {
+    const calls = installFetch();
+    const { result } = renderHook(() => useAsOfRewind(options("2026wabbb:m:2026wabbb_qm2", false)), { wrapper });
+    await waitFor(() => expect(calls.some((url) => url.includes("manifest"))).toBe(true));
+    expect(result.current).toBeUndefined();
+    expect(calls.some((url) => url.includes("/v1/asof"))).toBe(false);
+  });
+
+  it("is loading, then ready, after fetching the season object, every fetched event's INDEX and the cut event's LOG", async () => {
+    const calls = installFetch();
+    const { result } = renderHook(() => useAsOfRewind(options("2026wabbb:m:2026wabbb_qm2")), { wrapper });
+    expect(result.current?.status).toBe("loading");
+    await waitFor(() => expect(result.current?.status).toBe("ready"));
+    const asOf = calls.filter((url) => url.includes("/v1/asof"));
+    expect(asOf.some((url) => url.includes("/v1/asof-season/2026/"))).toBe(true);
+    expect(asOf.some((url) => url.includes("/v1/asof/2026waaa/"))).toBe(true);
+    expect(asOf.some((url) => url.includes("/v1/asof/2026wabbb/"))).toBe(true);
+    expect(asOf.some((url) => url.includes("/v1/asof-log/2026wabbb/"))).toBe(true);
+    expect(asOf.some((url) => url.includes("/v1/asof-start/"))).toBe(false);
+    const ready = result.current;
+    expect(ready?.status === "ready" && ready.result.status).toBe("ready");
+  });
+
+  it("keeps the same stop's plan while a refreshed artifact re-plans it, and never lends a plan to another stop", async () => {
+    installFetch();
+    const first = options("2026wabbb:m:2026wabbb_qm2");
+    const { result, rerender } = renderHook((props: UseAsOfRewindOptions) => useAsOfRewind(props), { wrapper, initialProps: first });
+    await waitFor(() => expect(result.current?.status).toBe("ready"));
+    // A live event's artifact refetched: same stop, new fingerprint.
+    const refreshed = new Map([...first.eventArtifacts].map(([eventKey, artifact]) => [eventKey, { ...artifact, computedAt: "2026-09-25T00:01:00.000Z" }] as const));
+    rerender({ ...first, eventArtifacts: refreshed });
+    expect(result.current?.status).toBe("ready");
+    // Another stop starts from loading.
+    rerender(options("2026wabbb:m:2026wabbb_qm3"));
+    expect(result.current?.status).toBe("loading");
+    await waitFor(() => expect(result.current?.status).toBe("ready"));
+  });
+
+  it("keeps the same stop's plan when a refreshed artifact also reorders the timeline and moves the stop's index (R5)", async () => {
+    const calls = installFetch();
+    const first = options("2026wabbb:m:2026wabbb_qm2");
+    const { result, rerender } = renderHook((props: UseAsOfRewindOptions) => useAsOfRewind(props), { wrapper, initialProps: first });
+    await waitFor(() => expect(result.current?.status).toBe("ready"));
+    const plan = result.current?.status === "ready" ? result.current.result : undefined;
+    // A live refetch moved a row from its predicted time to its actual one: one more position now sits before
+    // the stop, so the same stop id lives one index later, and the artifacts' fingerprint moved too.
+    const shifted = {
+      ...first.timeline,
+      positions: [first.timeline.positions[0]!, { id: "evx:m:evx_qm1", label: "moved", week: 0, step: undefined }, ...first.timeline.positions.slice(1)],
+      nowIndex: first.timeline.nowIndex + 1,
+    };
+    const refreshed = new Map([...first.eventArtifacts].map(([eventKey, artifact]) => [eventKey, { ...artifact, computedAt: "2026-09-25T00:01:00.000Z" }] as const));
+    const before = calls.length;
+    rerender({ ...first, timeline: shifted, positionIndex: first.positionIndex + 1, eventArtifacts: refreshed });
+    expect(shifted.positions[first.positionIndex + 1]!.id).toBe("2026wabbb:m:2026wabbb_qm2");
+    // No drop to loading: the placeholder is the same stop's plan, so the run is not torn down.
+    expect(result.current?.status).toBe("ready");
+    expect(result.current?.status === "ready" && result.current.result).toEqual(plan);
+    await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(before));
+    expect(result.current?.status).toBe("ready");
+  });
+
+  it("reads a failed fetch (not a 404) as failed, never as an unpublished object", async () => {
+    installFetch((url) => (url.includes("/v1/asof-season/") ? 503 : 200));
+    const { result } = renderHook(() => useAsOfRewind(options("2026wabbb:m:2026wabbb_qm2")), { wrapper });
+    await waitFor(() => expect(result.current?.status).toBe("failed"));
+  });
+});
+
+describe("asOfRewindRefetchInterval (R1): an unavailable plan does not stick while an event is live", () => {
+  // 2026wabbb has four of eight rows left; its schedule is current an hour after its last played row.
+  const liveNow = (T0 + 7 * 86_400 + 3_600) * 1000;
+  const finishedLater = Date.parse("2026-10-05T00:00:00.000Z");
+  const ready: AsOfRewindResult = { status: "ready", cutId: "start", events: new Map() };
+  const oneUnavailable: AsOfRewindResult = { status: "ready", cutId: "start", events: new Map([["2026wabbb", { status: "unavailable", reason: "out of step" }]]) };
+  const stopUnavailable: AsOfRewindResult = { status: "unavailable", reason: "the stop's INDEX did not load" };
+
+  it("asks again on the live cadence while any fetched event is live, for an unavailable stop or event", () => {
+    expect(asOfRewindRefetchInterval(oneUnavailable, ARTIFACTS, liveNow)).toBe(EVENT_POLL_INTERVAL_MS);
+    expect(asOfRewindRefetchInterval(stopUnavailable, ARTIFACTS, liveNow)).toBe(EVENT_POLL_INTERVAL_MS);
+  });
+
+  it("never re-asks a plan with nothing unavailable, nor any plan once no event is live (a finished district)", () => {
+    expect(asOfRewindRefetchInterval(ready, ARTIFACTS, liveNow)).toBe(false);
+    expect(asOfRewindRefetchInterval(undefined, ARTIFACTS, liveNow)).toBe(false);
+    expect(asOfRewindRefetchInterval(oneUnavailable, ARTIFACTS, finishedLater)).toBe(false);
+    expect(asOfRewindRefetchInterval(oneUnavailable, new Map([["2026waaa", ARTIFACTS.get("2026waaa")!]]), liveNow)).toBe(false);
+  });
+});

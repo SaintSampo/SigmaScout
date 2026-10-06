@@ -140,8 +140,9 @@ import {
   districtStageAtPosition,
   eventStartedAtPosition,
   resolveDistrictTimelinePosition,
-  startMatchKeyAtPosition,
+  timelineEventsOf,
 } from "./districtTimeline.js";
+import { useAsOfRewind } from "./useAsOfRewind.js";
 import {
   buildDistrictLedgerRows,
   deriveStageFromState,
@@ -444,21 +445,33 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   const activeEventKeys = rewinding ? startedKeys : inProgressKeys;
   const artifacts = useDistrictEventArtifacts(activeEventKeys);
 
-  const timeline = useMemo(() => buildDistrictTimeline({ events, eventArtifacts: artifacts.eventArtifacts }), [events, artifacts.eventArtifacts]);
+  const milestoneEvents = useMemo(() => districtMilestoneEvents(artifact, ["district", "dcmp"]), [artifact]);
+  const timeline = useMemo(
+    () => buildDistrictTimeline({ events: timelineEventsOf(events, milestoneEvents), eventArtifacts: artifacts.eventArtifacts }),
+    [events, milestoneEvents, artifacts.eventArtifacts]
+  );
   const positionIndex = resolveDistrictTimelinePosition(timeline, search.at);
   const atNow = positionIndex >= timeline.nowIndex;
-  const milestoneEvents = useMemo(() => districtMilestoneEvents(artifact, ["district", "dcmp"]), [artifact]);
 
   const stageByEvent = useMemo(
     () => districtStageAtPosition(timeline, positionIndex, nowStageByEvent),
     [timeline, positionIndex, nowStageByEvent]
   );
-  const startMatchKeyByEvent = useMemo(() => {
-    if (atNow) return undefined;
-    const map = new Map<string, string | null>();
-    for (const event of events) map.set(event.eventKey, startMatchKeyAtPosition(timeline, positionIndex, event.eventKey));
-    return map;
-  }, [atNow, events, timeline, positionIndex]);
+
+  /** The as-of state at a rewound stop, on the District Locks tab's own terms (quick task 261005-5g0). */
+  const candidates = useMemo(() => events.map((event) => ({ eventKey: event.eventKey, tier: event.tier, week: event.week })), [events]);
+  const asOf = useAsOfRewind({
+    enabled: rewinding && (artifacts.isLoading || !atNow),
+    artifactsLoading: artifacts.isLoading,
+    unloadedEventKeys: artifacts.missingEventArtifacts,
+    districtArtifact: artifact,
+    timeline,
+    positionIndex,
+    eventArtifacts: artifacts.eventArtifacts,
+    stageByEvent,
+    at: search.at,
+    candidates,
+  });
 
   /**
    * Whether the DCMP has started AT THE POSITION. At "now" that is the
@@ -487,14 +500,26 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     void navigate({ search: (prev) => ({ ...prev, at: id === DISTRICT_TIMELINE_NOW_ID ? undefined : id }), replace: true, resetScroll: false });
   }
 
+  /**
+   * At a rewound stop before the District Championship has started, its four
+   * cells read the estimate (`buildChampLedgerRows` prices the real DCMP only
+   * where the field is a fact), so its run would cost Worker time and print
+   * nothing. It is left out of the run there.
+   */
+  const skipEventKeys = useMemo(
+    () => (!atNow && !dcmpStarted && dcmpEventKey !== undefined ? new Set([dcmpEventKey]) : undefined),
+    [atNow, dcmpStarted, dcmpEventKey]
+  );
+
   const data = useDistrictLedgerData({
     artifact,
     activeEventKeys,
     eventArtifacts: artifacts.eventArtifacts,
     stageByEvent,
-    startMatchKeyByEvent,
     allowedEventKeys,
     tierByEvent,
+    asOf,
+    skipEventKeys,
   });
 
   const passOptions = useMemo(
@@ -525,7 +550,10 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   }, [districtStatuses]);
 
   const positionId = timeline.positions[positionIndex]?.id ?? DISTRICT_TIMELINE_NOW_ID;
-  const runSignature = data.runState.status === "complete" ? data.runState.signature : data.runState.status === "idle" ? "" : null;
+  // While a rewound stop's as-of objects load nothing is assembled yet, so the
+  // idle run is in flight rather than "nothing to simulate".
+  const runSignature =
+    asOf?.status === "loading" ? null : data.runState.status === "complete" ? data.runState.signature : data.runState.status === "idle" ? "" : null;
 
   const districtChanceRun = useMemo(
     () => buildAdvancementChanceRun({ artifact, teams: districtRows.teams, statuses: districtStatuses, runSignature, positionId }),

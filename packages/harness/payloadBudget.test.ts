@@ -22,6 +22,8 @@ import { openCorpusReadOnly, selectMatchesChronological } from "../corpus/db.js"
 import { opr } from "../core/algorithms/opr.js";
 import { buildEventArtifact, buildTeamSeasonArtifact } from "./publish.js";
 import {
+  AS_OF_BUDGET_MAX_BYTES,
+  AS_OF_FAMILIES,
   PAGE_BUDGET_MAX_BYTES,
   parsePublishBudget,
   PUBLISH_BUDGET_DOC_PATH,
@@ -138,6 +140,23 @@ describe("published payload budget", () => {
         budget.pages[kind]?.budgetMaxBytes,
         `${kind}: docs/publish-budget.md's budgetMaxBytes must equal PAGE_BUDGET_MAX_BYTES.${kind} (${PAGE_BUDGET_MAX_BYTES[kind]}) — edit the constant, then let \`pnpm publish:seasons\` (--write-budget) rewrite the block, or update the block by hand to match`
       ).toBe(PAGE_BUDGET_MAX_BYTES[kind]);
+    }
+  });
+
+  it("an asOf section, once a run has written one, carries every family it holds consistently and mirrors AS_OF_BUDGET_MAX_BYTES (quick task 261005-5g0)", () => {
+    // Absent until the first publish after the as-of capture landed. A run whose seasons have no played match
+    // writes no INDEX or LOG, so a family may be absent; every family present must be consistent.
+    if (budget.asOf === undefined) return;
+    expect(Object.keys(budget.asOf).length, "an asOf section is never empty").toBeGreaterThan(0);
+    for (const family of AS_OF_FAMILIES) {
+      const entry = budget.asOf[family];
+      if (entry === undefined) continue;
+      expect(entry!.count, `${family}.count`).toBeGreaterThan(0);
+      expect(entry!.medianBytes).toBeLessThanOrEqual(entry!.p95Bytes);
+      expect(entry!.p95Bytes).toBeLessThanOrEqual(entry!.maxBytes);
+      expect(entry!.maxBytes).toBeLessThanOrEqual(entry!.budgetMaxBytes);
+      expect(entry!.budgetMaxBytes, `${family}: the block's budgetMaxBytes must equal AS_OF_BUDGET_MAX_BYTES["${family}"]`).toBe(AS_OF_BUDGET_MAX_BYTES[family]);
+      expect(entry!.largestKey.startsWith(`v1/${family}/`)).toBe(true);
     }
   });
 

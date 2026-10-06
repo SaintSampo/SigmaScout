@@ -38,8 +38,10 @@ import {
 import { RANK_BAND_LABEL_PREFIX } from "../event/rankRows.js";
 import { installMockWorker, type MockWorkerHandle, type MockWorkerScript } from "../../test/mockWorker.js";
 import { runDistrictWorkerJob } from "../../workers/districtSimulationProtocol.js";
+import { runAsOfEvent } from "../../workers/districtAsOfJob.js";
 import { DistrictLedger } from "./DistrictLedger.js";
 import { DISTRICT_MILESTONE_KEYS } from "./districtMilestones.js";
+import { asOfBodyFor, buildAsOfTestObjects } from "./asOfTestFixtures.js";
 import {
   CHAMP_LEDGER_DRAWER_PENDING_CAPTION,
   CHAMP_LEDGER_NO_CALL_REASONS,
@@ -409,12 +411,29 @@ interface FetchOptions {
   readonly preSim?: unknown;
   /** Event keys whose event artifact 404s even when `eventArtifact` is set: an artifact not published yet. */
   readonly missingEventKeys?: readonly string[];
+  /** The events the served artifact stands in for, whose as-of objects are published. Defaults to the artifact's own key. */
+  readonly asOfEventKeys?: readonly string[];
 }
 
 function installFetch(options: FetchOptions = {}) {
+  // The as-of objects a rewound stop reads (quick task 261005-5g0), folded from
+  // the served event artifact, so a rewound test sees what production publishes.
+  const asOf =
+    options.eventArtifact === undefined
+      ? undefined
+      : buildAsOfTestObjects({
+          season: SEASON,
+          version: ALGORITHM_VERSION,
+          eventArtifacts: (options.asOfEventKeys ?? [options.eventArtifact.eventKey]).map((eventKey) => ({ ...options.eventArtifact!, eventKey })),
+          extraTeams: ROSTER,
+        });
   global.fetch = vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
     if (url.includes("/v1/manifest/algorithms.json")) return Promise.resolve(new Response(JSON.stringify(manifestBody()), { status: 200 }));
+    if (url.includes("/v1/asof")) {
+      const body = asOfBodyFor(asOf, url);
+      return Promise.resolve(body === undefined ? new Response("", { status: 404 }) : new Response(body, { status: 200 }));
+    }
     if (url.includes("/v1/district-presim/")) {
       if (options.preSim === undefined) return Promise.resolve(new Response("", { status: 404 }));
       return Promise.resolve(new Response(JSON.stringify(options.preSim), { status: 200 }));
@@ -436,7 +455,7 @@ function installFetch(options: FetchOptions = {}) {
  * the same `structuredClone` boundary a browser would enforce.
  */
 const realRunScript: MockWorkerScript = (message, ctx) => {
-  runDistrictWorkerJob(message, (outbound) => ctx.post(outbound));
+  runDistrictWorkerJob(message, (outbound) => ctx.post(outbound), runAsOfEvent);
 };
 
 /** Every mock Worker instance that was handed a request of one kind. */
@@ -1803,7 +1822,8 @@ describe("DistrictLedger — the advancement chance", () => {
   });
 
   it("recomputes the chance at a REWOUND position, against the race the slider reopened", async () => {
-    installFetch({ eventArtifact: liveEventArtifact() });
+    // The served artifact stands in for both events, so both carry as-of objects.
+    installFetch({ eventArtifact: liveEventArtifact(), asOfEventKeys: ["2026wadone", "2026walive"] });
     handle = installMockWorker({ script: realRunScript });
     // The plain live district here rather than `mixedDistrict()`: at
     // season start every started event is reopened, so every team needs a
@@ -2036,7 +2056,7 @@ describe("DistrictLedger — the simulated cutoff's chip timing", () => {
           else held.push({ message, post: (outbound) => ctx.post(outbound) });
           return;
         }
-        runDistrictWorkerJob(message, (outbound) => ctx.post(outbound));
+        runDistrictWorkerJob(message, (outbound) => ctx.post(outbound), runAsOfEvent);
       },
     });
     renderLedger(mixedDistrict());

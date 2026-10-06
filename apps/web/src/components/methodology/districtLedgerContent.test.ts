@@ -284,11 +284,14 @@ describe("districtLedgerContent: the rewound view and the championship field (26
     ]);
   });
 
-  it("closes the open categories section with what a rewound view's predictions know", () => {
+  it("closes the open categories section with the as-of rule, and nothing says a rewound view knows more (261005-5g0)", () => {
     const paragraphs = paragraphsOf("how-open-categories-are-predicted");
     expect(paragraphs[paragraphs.length - 1]).toBe(
-      "Both Locks tabs can be rewound to an earlier point in the season. A rewound view predicts later events with the odds this site published just before each of their matches and with each team's rating from the end of that event, so its predictions know more than a forecast made at that point could."
+      "A rewound view predicts every match still ahead from the ratings and odds as they stood at that stop. An event whose schedule was not yet posted then is predicted over generated schedules, as an event that has not started is."
     );
+    for (const section of DISTRICT_LEDGER_SECTIONS) {
+      for (const text of section.paragraphs) expect(text).not.toMatch(/know more|knows more/);
+    }
   });
 });
 

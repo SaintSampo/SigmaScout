@@ -247,6 +247,16 @@ export class SigmaScoutLayer {
     return this.#sigma?.beliefsByTeam() ?? new Map();
   }
 
+  /** One team's RAW running Sigma state as a copy (`SigmaScoreAccumulator.beliefFor`), or `undefined` when it has none or the layer carries no Sigma. Read-only. */
+  sigmaBeliefFor(teamKey: string): SigmaBelief | undefined {
+    return this.#sigma?.beliefFor(teamKey);
+  }
+
+  /** One team's RAW running RP state as a deep copy (`RpMomentsAccumulator.beliefsFor`), or `undefined` when it has none or the layer prices no ranking points. Read-only. */
+  rpBeliefsFor(teamKey: string): RpTeamBeliefs | undefined {
+    return this.#rp?.beliefsFor(teamKey);
+  }
+
   /**
    * The Sigma talent prior's population statistics for the LEAGUE row (a resumed
    * accumulator without them falls back to the flat prior). `undefined`, not a

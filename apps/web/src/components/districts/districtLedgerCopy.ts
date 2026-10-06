@@ -244,16 +244,6 @@ export function locksPickerLiveCaption(eventName: string): string {
   return `${eventName} is live. Milestones past the red line have not happened yet; use Live for the current state.`;
 }
 
-/**
- * THE REWIND NOTE (quick task 261005-04t, D-03), printed below the arrows row
- * on both Locks tabs whenever the selection is not Live; Season start counts
- * as rewound. It quotes no number on purpose: the only rewind measurement is
- * the event page's, inside one event, and the gap across weeks is unmeasured
- * (todo `locks-rewind-as-of-forecasts`).
- */
-export const LOCKS_PICKER_REWIND_NOTE =
-  "This is a rewound view. Later events are predicted with the odds this site published just before each of their matches and with each team's rating from the end of that event, so these predictions know more than a forecast made at this point could.";
-
 /** The team-number search box's label and placeholder. */
 export const DISTRICT_LEDGER_SEARCH_LABEL = "Team number";
 export const DISTRICT_LEDGER_SEARCH_PLACEHOLDER = "Search a team number";

@@ -85,6 +85,13 @@ export interface SimulationResultMessage {
    * versus compute. It must never become a second user-facing number.
    */
   readonly computeMs: number;
+  /**
+   * An as-of run only (`simulationAsOfJob.ts`): the remaining rows that priced
+   * to no ranking point distribution and were not simulated, and how many were.
+   * Absent on every run of this module's own job, which reads stored rows.
+   */
+  readonly excludedMatchKeys?: readonly string[];
+  readonly simulatedMatches?: number;
 }
 
 /** The terminal failure message. Carries only `name`/`message` — never a stack, never a serialized object. */

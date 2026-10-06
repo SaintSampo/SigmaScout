@@ -17,7 +17,6 @@ import type { DistrictEventStateFacts } from "../../../../../packages/core/distr
 import { DISTRICT_TIMELINE_NOW_ID, DISTRICT_TIMELINE_SEASON_START_ID, buildDistrictTimeline, resolveDistrictTimelinePosition } from "./districtTimeline.js";
 import type { DistrictMilestoneEventInput } from "./districtMilestones.js";
 import { LocksMilestonePicker } from "./LocksMilestonePicker.js";
-import { LOCKS_PICKER_REWIND_NOTE } from "./districtLedgerCopy.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const THEME_CSS_PATH = resolve(HERE, "..", "..", "styles", "theme.css");
@@ -230,37 +229,16 @@ describe("LocksMilestonePicker — the eight column stepper", () => {
   });
 });
 
-describe("LocksMilestonePicker — the rewind note (261005-04t, D-03)", () => {
-  const note = () => screen.queryByTestId("locks-picker-rewind-note");
-
-  function expectNoteLast(): void {
-    const element = note();
-    expect(element).not.toBeNull();
-    expect(element!.textContent).toBe(LOCKS_PICKER_REWIND_NOTE);
-    expect(element!.className).toBe("locks-picker-caption");
-    expect(screen.getByTestId("district-ledger-rewind").lastElementChild).toBe(element);
+describe("LocksMilestonePicker — no rewind note (261005-5g0)", () => {
+  // A rewound view is an as-of forecast since quick task 261005-5g0, so the
+  // note that said its predictions knew later results is gone at every stop.
+  for (const at of ["a:awards", DISTRICT_TIMELINE_SEASON_START_ID, undefined]) {
+    it(`prints no rewind note at ${at ?? "Live"}, and the arrows row stays last`, () => {
+      renderPicker(at === undefined ? {} : { at });
+      expect(screen.queryByTestId("locks-picker-rewind-note")).toBeNull();
+      expect(screen.getByTestId("district-ledger-rewind").lastElementChild?.classList.contains("locks-picker-row--nav")).toBe(true);
+    });
   }
-
-  it("prints the note at a milestone, below the arrows row", () => {
-    renderPicker({ at: "a:awards" });
-    expectNoteLast();
-  });
-
-  it("prints the note at Season start: a rewound view too", () => {
-    renderPicker({ at: DISTRICT_TIMELINE_SEASON_START_ID });
-    expectNoteLast();
-  });
-
-  it("prints the note at a bare position", () => {
-    renderPicker({ at: "a:m:a_qm7", artifacts: [["a", eventArtifact("a", 12)]] });
-    expectNoteLast();
-  });
-
-  it("prints nothing there at Live, not an empty paragraph", () => {
-    renderPicker();
-    expect(note()).toBeNull();
-    expect(screen.getByTestId("district-ledger-rewind").lastElementChild?.classList.contains("locks-picker-row--nav")).toBe(true);
-  });
 });
 
 describe("the picker's CSS contract (sketch 024 Q, eight columns)", () => {

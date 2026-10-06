@@ -31,6 +31,7 @@ const completeState: SimulationRunState = {
   signature: "sig-1",
   teamCount: 6,
   remainingMatches: 3,
+  source: "stored",
 };
 const errorState: SimulationRunState = { status: "error" };
 

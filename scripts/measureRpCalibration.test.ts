@@ -330,14 +330,16 @@ describe("data/baselines/rp-attribution-2026-09.json — the committed record ou
 
 describe("docs/models/rp-attribution.md cannot drift off the record it describes", () => {
   it("its machine-readable block deep-equals the digest of the committed record", () => {
-    const doc = readFileSync(new URL("../docs/models/rp-attribution.md", import.meta.url), "utf8");
+    // A CRLF checkout (core.autocrlf) must not break the `\n` anchored fence match.
+    const doc = readFileSync(new URL("../docs/models/rp-attribution.md", import.meta.url), "utf8").replace(/\r\n/g, "\n");
     const match = doc.match(/```json\n([\s\S]*?)\n```/);
     expect(match, "docs/models/rp-attribution.md must carry one ```json fenced block").not.toBeNull();
     expect(JSON.parse(match![1]!) as unknown).toEqual(buildRpAttributionDigest(RpAttributionRecordSchema.parse(ATTRIBUTION_RAW)));
   });
 
   it("keeps the selection and reporting slices under separate headings, with no season under the wrong one", () => {
-    const doc = readFileSync(new URL("../docs/models/rp-attribution.md", import.meta.url), "utf8");
+    // A CRLF checkout (core.autocrlf) must not break the `\n` anchored fence match.
+    const doc = readFileSync(new URL("../docs/models/rp-attribution.md", import.meta.url), "utf8").replace(/\r\n/g, "\n");
     const record = RpAttributionRecordSchema.parse(ATTRIBUTION_RAW);
     const section = (heading: string): string => {
       const start = doc.indexOf(heading);

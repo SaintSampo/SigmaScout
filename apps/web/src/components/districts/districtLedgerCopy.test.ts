@@ -81,7 +81,6 @@ import {
   LOCKS_PICKER_NEXT_LABEL,
   LOCKS_PICKER_NOW_MARK,
   LOCKS_PICKER_PREV_LABEL,
-  LOCKS_PICKER_REWIND_NOTE,
   LOCKS_PICKER_SEASON_START,
   LOCKS_PICKER_THIS_IS_LIVE,
   locksPickerGroupLabel,
@@ -231,14 +230,6 @@ describe("the UI-SPEC copy contract", () => {
     for (const text of [DISTRICT_LEDGER_DECLINED_LABEL, ...Object.values(DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS)]) {
       expect(text).not.toMatch(/[-‐-―−]/);
     }
-  });
-
-  it("pins the rewind note, with no dash character and no digit (261005-04t)", () => {
-    expect(LOCKS_PICKER_REWIND_NOTE).toBe(
-      "This is a rewound view. Later events are predicted with the odds this site published just before each of their matches and with each team's rating from the end of that event, so these predictions know more than a forecast made at this point could."
-    );
-    expect(LOCKS_PICKER_REWIND_NOTE).not.toMatch(/[-‐-―−]/);
-    expect(LOCKS_PICKER_REWIND_NOTE).not.toMatch(/\d/);
   });
 
   it("shortens ONLY a name that matches TBA's whole district template, and prints every other name verbatim", () => {
