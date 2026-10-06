@@ -638,6 +638,7 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
           active={activeStatuses}
           onToggle={toggleStatus}
           withheld={displayStatuses.withheld !== undefined}
+          fieldOverlay={displayStatuses.fieldOverlay}
           // The definitions follow the rule the chips are cut by: the field
           // overlay prints the field's own sentences; otherwise `settled` (a
           // finished position, and the excluded team fallback) keeps the

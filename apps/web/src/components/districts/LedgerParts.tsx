@@ -276,7 +276,10 @@ export function StatusCell({
  * The five chips above the table, doubling as filters, and a sixth, Declined,
  * between Locked and In range ONLY where some team reads Declined (quick task
  * 261005-04t, D-06), so no season shows Declined 0. Its definition line follows
- * the same rule.
+ * the same rule. While the Live view shows the District Championship field
+ * (`fieldOverlay`), the In range and Out of range chips are dropped too: the
+ * overlay reads every team as Locked, Declined or Locked out, so both would
+ * print 0 on every finished season. Their definition lines go with them.
  *
  * A CHIP'S COUNT DESCRIBES THE DISTRICT, NOT THE FILTERED VIEW. Recomputing a
  * count over the visible rows is the obvious-looking bug, and it would make
@@ -287,6 +290,7 @@ export function StatusChips({
   active,
   onToggle,
   withheld = false,
+  fieldOverlay = false,
   definitions = DISTRICT_LEDGER_STATUS_DEFINITIONS,
 }: {
   counts: DistrictLedgerShownCounts;
@@ -299,6 +303,8 @@ export function StatusChips({
    * Both tabs pass it.
    */
   withheld?: boolean;
+  /** True while the Live view shows the District Championship field: the In range and Out of range chips are not drawn. Only the district tab passes it. */
+  fieldOverlay?: boolean;
   /**
    * The line under each chip. The champ tab passes
    * `CHAMP_LEDGER_STATUS_DEFINITIONS`, whose In range cuts at the predicted
@@ -309,7 +315,9 @@ export function StatusChips({
    */
   definitions?: Readonly<Record<DistrictLedgerStatusKey, string>> & { readonly declined?: string };
 }) {
-  const shownKeys = DISTRICT_LEDGER_SHOWN_STATUS_KEYS.filter((status) => status !== "declined" || (counts.declined ?? 0) > 0);
+  const shownKeys = DISTRICT_LEDGER_SHOWN_STATUS_KEYS.filter(
+    (status) => (status !== "declined" || (counts.declined ?? 0) > 0) && !(fieldOverlay && WITHHELD_STATUS_KEYS.has(status))
+  );
   const definitionOf = (status: DistrictLedgerShownStatusKey): string =>
     status === "declined" ? (definitions.declined ?? DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.declined) : definitions[status];
   const countOf = (status: DistrictLedgerShownStatusKey): number => (status === "declined" ? (counts.declined ?? 0) : counts[status]);

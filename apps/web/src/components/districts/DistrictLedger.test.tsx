@@ -932,13 +932,17 @@ describe("DistrictLedger — the championship field on the Live view (261005-04t
   const statusCellOf = (teamKey: string) =>
     document.querySelector(`[data-testid="district-ledger-row"][data-team="${teamKey}"] [data-testid="district-ledger-status-cell"]`);
 
-  it("C1: at Live, six chips with Declined between Locked and In range, the field's definitions, and a Declined team that prints no chance", async () => {
+  it("C1: at Live, four chips with Declined between Locked and Locked out and no range chips, the field's definitions, and a Declined team that prints no chance", async () => {
     installFetch();
     handle = installMockWorker({ script: realRunScript });
     renderLedger(fieldDistrict(false));
 
-    await waitFor(() => expect(chips()).toHaveLength(6));
-    expect(chips().map((element) => element.getAttribute("data-status"))).toEqual(["prequalified", "locked", "declined", "inRange", "outOfRange", "lockedOut"]);
+    await waitFor(() => expect(chips()).toHaveLength(4));
+    expect(chips().map((element) => element.getAttribute("data-status"))).toEqual(["prequalified", "locked", "declined", "lockedOut"]);
+    // The field reads every team as Locked, Declined or Locked out, so In range
+    // and Out of range would both print 0: neither chip nor its line is drawn.
+    expect(chip("inRange")).toBeUndefined();
+    expect(chip("outOfRange")).toBeUndefined();
     expect(chip("declined")!.textContent).toBe(`${DISTRICT_LEDGER_DECLINED_LABEL} 1`);
     expect(chip("locked")!.textContent).toBe(`${DISTRICT_LEDGER_STATUS_LABELS.locked} 2`);
     expect(chip("lockedOut")!.textContent).toBe(`${DISTRICT_LEDGER_STATUS_LABELS.lockedOut} 2`);
@@ -950,6 +954,8 @@ describe("DistrictLedger — the championship field on the Live view (261005-04t
     expect(definitions).toContain(`${DISTRICT_LEDGER_STATUS_LABELS.lockedOut} ${DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.lockedOut}`);
     expect(definitions).not.toContain(DISTRICT_LEDGER_STATUS_DEFINITIONS.locked);
     expect(definitions).not.toContain(DISTRICT_LEDGER_STATUS_DEFINITIONS.lockedOut);
+    expect(definitions).not.toContain(DISTRICT_LEDGER_STATUS_LABELS.inRange);
+    expect(definitions).not.toContain(DISTRICT_LEDGER_STATUS_LABELS.outOfRange);
     // The Declined chip is described by its own definition line.
     const describedBy = chip("declined")!.getAttribute("aria-describedby");
     expect(document.getElementById(describedBy!)?.textContent).toBe(`${DISTRICT_LEDGER_DECLINED_LABEL} ${DISTRICT_LEDGER_FIELD_STATUS_DEFINITIONS.declined}`);
@@ -962,7 +968,7 @@ describe("DistrictLedger — the championship field on the Live view (261005-04t
     // The late entry from below the line is in the field, so it reads Locked.
     expect(statusCellOf("frc102")?.getAttribute("data-status")).toBe("locked");
 
-    // The Declined chip filters like the other five.
+    // The Declined chip filters like the other three.
     expect(screen.getAllByTestId("district-ledger-row")).toHaveLength(5);
     fireEvent.click(chip("declined")!);
     await waitFor(() => expect(screen.getAllByTestId("district-ledger-row")).toHaveLength(4));
@@ -994,12 +1000,13 @@ describe("DistrictLedger — the championship field on the Live view (261005-04t
     expect(document.querySelectorAll('[data-testid="district-ledger-status-cell"][data-status="declined"]')).toHaveLength(0);
   });
 
-  it("C3: a started championship where every team that earned a place plays it: five chips, no Declined, the field's Locked and Locked out", async () => {
+  it("C3: a started championship where every team that earned a place plays it: three chips, no Declined and no range chips, the field's Locked and Locked out", async () => {
     installFetch();
     handle = installMockWorker({ script: realRunScript });
     renderLedger(fieldDistrict(true));
 
-    await waitFor(() => expect(chips()).toHaveLength(5));
+    await waitFor(() => expect(chips()).toHaveLength(3));
+    expect(chips().map((element) => element.getAttribute("data-status"))).toEqual(["prequalified", "locked", "lockedOut"]);
     expect(chip("declined")).toBeUndefined();
     expect(chip("locked")!.textContent).toBe(`${DISTRICT_LEDGER_STATUS_LABELS.locked} 3`);
     expect(chip("lockedOut")!.textContent).toBe(`${DISTRICT_LEDGER_STATUS_LABELS.lockedOut} 2`);

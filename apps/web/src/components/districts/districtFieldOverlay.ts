@@ -160,7 +160,8 @@ export function isPlayingChampionship(team: DistrictTeam, earnedPlace: boolean):
  *   is not playing and an award only attendee.
  *
  * So under the overlay no team reads In range or Out of range, and both counts
- * are zero. A team key the artifact does not carry is not playing.
+ * are zero; the chips drop those two keys rather than print 0 and 0. A team
+ * key the artifact does not carry is not playing.
  */
 export function applyChampionshipFieldOverlay(
   statuses: DistrictLedgerStatusModel,
