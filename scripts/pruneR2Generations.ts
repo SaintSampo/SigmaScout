@@ -44,7 +44,7 @@
  *     yields at most one page, and a census that cannot see the live data
  *     cannot be trusted to call anything else orphaned.
  *   - RECENT_WRITE — a requested generation was written within
- *     `recentWriteRefusalHours`. A fresh generation the manifest does not name
+ *     `recentWriteRefusalHours` (one hour). A fresh generation the manifest does not name
  *     is the signature of another session's in-flight publish, and this
  *     checkout is shared. There is no bypass flag.
  *   - UNKNOWN_KEY_SHAPE / SELECTION_MISMATCH — re-asserted on every selected
@@ -341,7 +341,13 @@ export async function fetchLiveGenerations(
 // ---------------------------------------------------------------------------
 
 export const DEFAULT_MIN_LIVE_GENERATION_OBJECTS = 10_000;
-export const DEFAULT_RECENT_WRITE_REFUSAL_HOURS = 6;
+/**
+ * ONE HOUR (was six; Jacob, 2026-10-06: "shorten it"). The automated chain only ever asks to prune
+ * the versions that were live BEFORE its own publish, which were written days earlier, so the
+ * window never bites there. It exists for a hand-typed prune: a version being written right now
+ * by another session is still refused, and one hour is enough to tell "being written" from "done".
+ */
+export const DEFAULT_RECENT_WRITE_REFUSAL_HOURS = 1;
 export const DEFAULT_MAX_DELETE_FAILURES = 25;
 
 export interface SelectionGuardOptions {

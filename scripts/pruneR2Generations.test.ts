@@ -369,6 +369,22 @@ describe("selection guards (each refuses before the first DELETE)", () => {
     await refuses([ORPHAN_A], "RECENT_WRITE", bucket);
   });
 
+  it("the default window is ONE hour: a write 30 minutes ago is refused, a write two hours ago is not", async () => {
+    // `options()` passes recentWriteRefusalHours: 6 explicitly, so these two go through the default by omitting it.
+    const recent = [...baseBucket(), { key: `v1/event/2024cur/${ORPHAN_A}.json`, size: 1, lastModified: "2026-09-12T11:30:00.000Z" }];
+    const h1 = harness(recent);
+    const o1 = options({ generations: [ORPHAN_A], execute: true, outPath: "report.json" });
+    delete (o1 as { recentWriteRefusalHours?: number }).recentWriteRefusalHours;
+    await expectRefusal(runPrune(o1, h1.deps), "RECENT_WRITE");
+    expect(h1.bucket.deleteObject).not.toHaveBeenCalled();
+    const settled = [...baseBucket(), { key: `v1/event/2024cur/${ORPHAN_A}.json`, size: 1, lastModified: "2026-09-12T10:00:00.000Z" }];
+    const h2 = harness(settled);
+    const o2 = options({ generations: [ORPHAN_A], execute: true, outPath: "report.json" });
+    delete (o2 as { recentWriteRefusalHours?: number }).recentWriteRefusalHours;
+    await expect(runPrune(o2, h2.deps)).resolves.toEqual({ ok: true });
+    expect(h2.bucket.deleteObject).toHaveBeenCalled();
+  });
+
   it("UNKNOWN_KEY_SHAPE when a selected key has kind other", async () => {
     const bucket = [...baseBucket(), { key: `v1/weird/${ORPHAN_A}.json`, size: 1, lastModified: OLD }];
     await refuses([ORPHAN_A], "UNKNOWN_KEY_SHAPE", bucket);

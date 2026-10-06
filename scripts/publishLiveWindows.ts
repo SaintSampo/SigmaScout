@@ -6,7 +6,7 @@
  * the full `publishSeasons` run — about 109,000 R2 Class A writes over roughly
  * an hour and three quarters, an algorithm generation bump, a mandatory
  * four-file D1 seed (miss it and every tick refuses to fold with a
- * state-generation mismatch), and a prune owed for six hours afterwards. That
+ * state-generation mismatch), and a prune owed for an hour afterwards. That
  * price is the whole reason 10-03's `districtKey` would otherwise sit in the
  * repository unreachable: a new entry field on this manifest had no path to
  * production a sane person would take. This script is the small path.
