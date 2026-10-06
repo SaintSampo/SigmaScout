@@ -365,7 +365,7 @@ function histSVG(c,opts){ const W=560,top=opts.cutoff?20:6,H=84,ax=16,max=c.max,
   if(opts.cutoff){ const z=opts.cutoff; s+=`<defs><pattern id="hz" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(135)"><rect width="1" height="4" fill="rgba(15,23,42,.18)"/></pattern></defs>`;
     s+=`<rect x="${x(z.p10-0.5)}" y="${top}" width="${x(z.p90+0.5)-x(z.p10-0.5)}" height="${H}" fill="url(#hz)"/>`; }
   s+=`<rect x="${bl}" y="${top}" width="${Math.max(3,br-bl)}" height="${H}" fill="var(--pred-soft)"/>`;
-  bins.forEach(b=>{ if(b.n<=0) return; const h=Math.max(1,(b.n/modal)*(H-2)); const bw=Math.min(bin,max+1-b.v)*sw; s+=`<rect x="${b.v*sw}" y="${top+H-h}" width="${Math.max(bw-1,1)}" height="${h}" fill="var(--hist)" shape-rendering="crispEdges"/>`; });
+  bins.forEach(b=>{ const h=(b.n/modal)*(H-2); if(h<0.5) return; const bw=Math.min(bin,max+1-b.v)*sw; s+=`<rect x="${b.v*sw}" y="${top+H-h}" width="${Math.max(bw-1,1)}" height="${h}" fill="var(--hist)" shape-rendering="crispEdges"/>`; });
   s+=`<rect x="${x(p.p50)-1}" y="${top}" width="2" height="${H}" fill="var(--median)"/>`;
   const step=max>300?100:max>100?50:max>40?20:10;
   for(let v=0;v<=max;v+=step){ s+=`<text x="${x(v)}" y="${top+H+13}" font-size="10" text-anchor="${v===0?'start':'middle'}" fill="var(--faint)">${v}</text>`; }
