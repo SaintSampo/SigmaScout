@@ -367,6 +367,54 @@ describe("recomputeDistrictVerdicts — one points slot held back per award stil
   });
 });
 
+describe("recomputeDistrictVerdicts — the champ tier holds back the DCMP's own qualifications (261006-3gg)", () => {
+  const champLocked = (artifact: DistrictArtifact): number => artifact.teams.filter((t) => t.champLock.status === "locked").length;
+
+  it("reserves a whole open championship for a current season with no DCMP row yet, so nobody locks on points into its single slot", () => {
+    // `frc2` has 30 points and nothing left to play; `frc1` has 40 and one
+    // event ahead. With cmpSlots 1 and no reservation one of them could lock.
+    expect(champLocked(recomputeDistrictVerdicts(twoTeamFixture(), { nowYear: 2026 }))).toBe(0);
+  });
+
+  it("reserves nothing for a past season whose championship never happened, so the ordinary points math stands", () => {
+    // Neither team can lock into one slot while the other's ceiling reaches
+    // its floor, so the STATUSES agree either way; `pointsToLock` is what
+    // tells the two slot counts apart. With every slot held back no number of
+    // points can lock (`null`); with the reservation gone `frc1` locks once it
+    // clears `frc2`'s 30 + 249 ceiling: 240 more points.
+    const current = recomputeDistrictVerdicts(twoTeamFixture(), { nowYear: 2026 });
+    const past = recomputeDistrictVerdicts(twoTeamFixture(), { nowYear: 2027 });
+    expect(current.teams.map((t) => t.champLock.pointsToLock)).toEqual([null, null]);
+    expect(past.teams.find((t) => t.teamKey === "frc1")!.champLock.pointsToLock).toBe(240);
+    expect(past.teams.map((t) => t.champLock.status)).toEqual(current.teams.map((t) => t.champLock.status));
+  });
+
+  it("reserves nothing once the DCMP has posted its awards, playoffs flag or not, and leaves the champ cut line on the unreserved count either way", () => {
+    const base = twoTeamFixture();
+    const withDcmp = (state: { playoffsDone: boolean; awardsPosted: boolean }): DistrictArtifact =>
+      DistrictArtifactSchema.parse({
+        ...base,
+        teams: base.teams.map((team) => ({
+          ...team,
+          remainingEvents: [
+            ...team.remainingEvents,
+            { eventKey: "2026nccmp", eventName: "FNC District Championship", week: 6, tier: "dcmp", maxPoints: DCMP_EVENT_MAX, state: { qualMatchesPlayed: 0, qualMatchesTotal: null, alliancesPicked: false, ...state } },
+          ],
+        })),
+      });
+    const open = recomputeDistrictVerdicts(withDcmp({ playoffsDone: false, awardsPosted: false }), { nowYear: 2026 });
+    const playoffsDone = recomputeDistrictVerdicts(withDcmp({ playoffsDone: true, awardsPosted: false }), { nowYear: 2026 });
+    const posted = recomputeDistrictVerdicts(withDcmp({ playoffsDone: false, awardsPosted: true }), { nowYear: 2026 });
+    const pointsToLock = (artifact: DistrictArtifact): (number | null)[] => artifact.teams.map((t) => t.champLock.pointsToLock);
+    expect(champLocked(open)).toBe(0);
+    expect(champLocked(playoffsDone)).toBe(0);
+    expect(pointsToLock(open)).toEqual([null, null]);
+    expect(pointsToLock(playoffsDone)).toEqual([null, null]);
+    expect(pointsToLock(posted)).toEqual([240, null]);
+    expect(open.insights.cmpCutLinePoints).toEqual(posted.insights.cmpCutLinePoints);
+  });
+});
+
 describe("recomputeDistrictVerdicts", () => {
   it("reports every champLock as unknown with the note for a district carrying the 2025fsc special allocation", () => {
     const base = twoTeamFixture();

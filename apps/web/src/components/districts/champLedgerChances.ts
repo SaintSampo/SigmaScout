@@ -241,9 +241,14 @@ export function buildChampAdvancementChanceRun(
     slots: artifact.cmpSlots!,
     awardQualified: statuses.awardQualified,
     prequalified: statuses.prequalified,
-    // ALWAYS ZERO at this tier — `champLedgerStatus.ts`'s decision 2. The run
-    // must count the slots exactly as the verdicts beside it did.
-    reservedSlots: statuses.reservedSlots,
+    // ZERO HERE EVEN THOUGH THE VERDICTS RESERVE (quick task 261006-3gg). The
+    // run draws the DCMP's consuming awards itself, one winner per run through
+    // `awardDraws` and the winning alliance through each team's win chance, so
+    // the slots the verdicts hold back as a worst case are consumed inside the
+    // run as a realised case. Subtracting both would count every pending
+    // qualification twice. A Locked team never prints a chance in any case: the
+    // verdict wins and a disagreement is counted in `gaps`, never shown.
+    reservedSlots: 0,
     ...(awardDraws === undefined ? {} : { awardDraws }),
   };
   return {

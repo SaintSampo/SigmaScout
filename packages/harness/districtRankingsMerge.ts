@@ -32,6 +32,8 @@ import { computeLocksWithQualifiers, cutLinePointsWithQualifiers, type LockResul
 import { maxEventPoints, type DistrictTier } from "../core/districts/pointModel.js";
 import { prequalifiedTeams } from "../core/districts/prequalified.js";
 import { districtEventCategoryFinality, reservedImpactSlots, type ReservedSlotEvent } from "../core/districts/reservedSlots.js";
+import { dcmpNeverHappening, reservedChampSlots } from "../core/districts/champReservedSlots.js";
+import { dcmpAwardCountCeilings } from "../core/districts/hypotheticalDcmp.js";
 import { pooledLockInputs, type PooledTeamEntry } from "../core/districts/pooledLockInputs.js";
 import { consumingAwardTypesForTier, specialAllocationNote, type AwardTier } from "../core/districts/qualification.js";
 import { DistrictArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type DistrictArtifact, type DistrictEventState } from "./pageArtifacts.js";
@@ -294,6 +296,41 @@ function lockVerdict(result: LockResult, cutLinePoints: number | null, allocatio
 }
 
 /**
+ * How many FIRST Championship slots are held back at "now" for the District
+ * Championship's own consuming qualifications still to come (quick task
+ * 261006-3gg): the winning alliance while a DCMP's playoffs are open, and
+ * every judged consuming award at its historical ceiling while its awards are
+ * open. `packages/core/districts/champReservedSlots.ts` owns the rule; this
+ * function owns only the walk over the artifact's dcmp-tier rows.
+ *
+ * ONE RESERVATION PER DCMP EVENT, summed: a district with two championships
+ * (2026ca) holds slots back for each one still open. A district with no dcmp
+ * row at all holds back one whole open championship, unless the rule's
+ * past-season clause says it is never happening. A row carrying state wins
+ * over one that carries none, matching `reservedDistrictSlots` above.
+ */
+function reservedChampSlotsAtNow(teams: readonly DistrictTeam[], season: number, districtKey: string, cmpSlots: number, nowYear: number): number {
+  type RowState = DistrictTeam["eventPoints"][number]["state"];
+  const stateByEvent = new Map<string, RowState>();
+  const dcmpStates: RowState[] = [];
+  for (const team of teams) {
+    for (const row of [...team.eventPoints, ...team.remainingEvents]) {
+      if (row.tier !== "dcmp") continue;
+      dcmpStates.push(row.state);
+      if (!stateByEvent.has(row.eventKey) || (stateByEvent.get(row.eventKey) === undefined && row.state !== undefined)) stateByEvent.set(row.eventKey, row.state);
+    }
+  }
+  const neverHappening = dcmpNeverHappening({ dcmpStates, artifactYear: season, nowYear });
+  const awardCeilings = dcmpAwardCountCeilings(season, districtKey, cmpSlots).counts;
+  const stages: RowState[] = stateByEvent.size === 0 ? [undefined] : [...stateByEvent.values()];
+  let reserved = 0;
+  for (const state of stages) {
+    reserved += reservedChampSlots({ elimFinal: state?.playoffsDone === true, awardFinal: state?.awardsPosted === true, awardCeilings, neverHappening });
+  }
+  return reserved;
+}
+
+/**
  * The shared verdict pass: both lock verdicts, both cut lines,
  * `maxRemainingChamp`, the `2025fsc` champ override and `insights`' four
  * counts, all recomputed from the artifact's own merged totals.
@@ -324,10 +361,12 @@ function lockVerdict(result: LockResult, cutLinePoints: number | null, allocatio
  * is still to come (`reservedDistrictSlots` above), which tightens the
  * `"locked"` test alone — `locks.ts` leaves `"eliminated"` and the published
  * `dcmpCutLinePoints` on the unreserved count, so neither moves. The champ
- * pass reserves nothing at all, because its consuming awards sit at a single
- * DCMP event against a different slot pool. For a finished season every event
- * has posted its awards and the reservation is zero, so no published number
- * moves there either.
+ * pass holds back its own slots the same way (quick task 261006-3gg,
+ * `reservedChampSlotsAtNow` above): the DCMP's winning alliance and judged
+ * consuming awards take Championship slots whatever the winners' points, so
+ * until they are posted the champ `"locked"` test runs against a pool with
+ * those slots removed. For a finished season every DCMP has posted its awards
+ * and both reservations are zero, so no published number moves there either.
  *
  * The season is the artifact's own `year` — `maxEventPoints` throws
  * `UnknownDistrictSeasonError` for a season with no declared ceiling rather
@@ -350,6 +389,8 @@ export interface RecomputeDistrictVerdictsOptions {
    * qualification — safe, but wrong where the fact is actually available.
    */
   readonly tierByEvent?: ReadonlyMap<string, DistrictTier>;
+  /** The calendar year at the time of the call, for the champ reservation's past-season clause. Defaults to the clock; tests pass it. */
+  readonly nowYear?: number;
 }
 
 export function recomputeDistrictVerdicts(artifact: DistrictArtifact, options: RecomputeDistrictVerdictsOptions = {}): DistrictArtifact {
@@ -394,7 +435,9 @@ export function recomputeDistrictVerdicts(artifact: DistrictArtifact, options: R
 
   const champLockInputs: LockTeamInput[] = teams.map((team) => ({ teamKey: team.teamKey, pointTotal: team.pointTotal, maxRemaining: maxRemainingChampByTeam.get(team.teamKey)! }));
   const champQualifiers: QualifierSets = { awardQualified: awardQualified.dcmp, prequalified: prequalifiedTeams(season) };
-  let champLocks = computeLocksWithQualifiers(champLockInputs, artifact.cmpSlots, champQualifiers);
+  const champReservedSlots =
+    artifact.cmpSlots === null ? 0 : reservedChampSlotsAtNow(teams, season, artifact.districtKey, artifact.cmpSlots, options.nowYear ?? new Date().getUTCFullYear());
+  let champLocks = computeLocksWithQualifiers(champLockInputs, artifact.cmpSlots, champQualifiers, champReservedSlots);
 
   // `2025fsc` issued five explicit named invitations instead of a slot-count
   // cutline, so the ordinary math is WRONG for that one district-year. Publish

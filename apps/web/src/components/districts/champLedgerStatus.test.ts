@@ -18,6 +18,8 @@ import { describe, expect, it } from "vitest";
 import { DistrictArtifactSchema, type DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { LockStatus } from "../../../../../packages/core/districts/locks.js";
 import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
+import { dcmpAwardCountCeilings } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
+import { MAX_WINNING_ALLIANCE_SIZE, pendingAwardSlots } from "../../../../../packages/core/districts/champReservedSlots.js";
 import { buildChampLedgerRows } from "./champLedgerRows.js";
 import { applyChampRangeState, computeChampLedgerStatuses } from "./champLedgerStatus.js";
 import { champCutoffView, type ChampRangeState } from "./champLedgerChances.js";
@@ -193,6 +195,48 @@ describe("computeChampLedgerStatuses — the floor and the ceiling", () => {
  * still reach the field. Without that ceiling most of the district would read
  * Locked out in week one.
  */
+describe("computeChampLedgerStatuses — the champ-tier reservation (quick task 261006-3gg)", () => {
+  const DCMP_KEY = "2026pncmp";
+  const AWARD_SLOTS = pendingAwardSlots(dcmpAwardCountCeilings(FIXTURE.year, FIXTURE.districtKey, FIXTURE.cmpSlots!).counts);
+
+  /** Every district-tier event final, the DCMP at `dcmpStage`; `nowYear` pinned so the fixture (no `state` blocks) reads the same in every calendar year. */
+  function modelWithDcmpAt(dcmpStage: DistrictStageFinality) {
+    const stageByEvent = new Map(eventKeysOf(FIXTURE).map((key) => [key, key === DCMP_KEY ? dcmpStage : ALL_FINAL] as const));
+    const rows = buildChampLedgerRows({ artifact: FIXTURE, distributions: new Map(), stageByEvent, dcmpStarted: true });
+    return computeChampLedgerStatuses({ artifact: FIXTURE, teams: rows.teams, nowYear: 2026 });
+  }
+  const lockedOnPoints = (model: ReturnType<typeof modelWithDcmpAt>): number => [...model.byTeam.values()].filter((r) => r.status === "locked" && !r.byAward).length;
+
+  it("holds back every judged consuming award at its ceiling while the DCMP awards are open, and the winning alliance too while its playoffs are", () => {
+    expect(AWARD_SLOTS).toBeGreaterThanOrEqual(3);
+    expect(modelWithDcmpAt({ qual: true, alliance: true, elim: true, award: false }).reservedSlots).toBe(AWARD_SLOTS);
+    expect(modelWithDcmpAt({ qual: true, alliance: true, elim: false, award: false }).reservedSlots).toBe(AWARD_SLOTS + MAX_WINNING_ALLIANCE_SIZE);
+    expect(modelWithDcmpAt(ALL_OPEN).reservedSlots).toBe(AWARD_SLOTS + MAX_WINNING_ALLIANCE_SIZE);
+  });
+
+  it("reserves nothing once the awards are final, which is what keeps the finished fixture's census exactly as published", () => {
+    expect(modelWithDcmpAt(ALL_FINAL).reservedSlots).toBe(0);
+    expect(FINISHED.status.reservedSlots).toBe(0);
+  });
+
+  it("tightens the Locked test alone: fewer teams lock while the awards are open, and the unreserved pointsSlots the In range rank rule reads does not move", () => {
+    const awardsOpen = modelWithDcmpAt({ qual: true, alliance: true, elim: true, award: false });
+    const final = modelWithDcmpAt(ALL_FINAL);
+    expect(lockedOnPoints(awardsOpen)).toBeLessThan(lockedOnPoints(final));
+    // Posted DCMP judged awards leave the qualified set when the stage reopens,
+    // so the unreserved count can only GROW there; it never shrinks by the reservation.
+    expect(awardsOpen.pointsSlots).toBeGreaterThanOrEqual(final.pointsSlots);
+    expect(awardsOpen.counts.lockedOut).toBeLessThanOrEqual(final.counts.lockedOut);
+  });
+
+  it("reads a past season with no DCMP state anywhere as a championship that never happened, and the current season as one still to come", () => {
+    const stageByEvent = new Map(eventKeysOf(FIXTURE).map((key) => [key, key === DCMP_KEY ? ALL_OPEN : ALL_FINAL] as const));
+    const rows = buildChampLedgerRows({ artifact: FIXTURE, distributions: new Map(), stageByEvent, dcmpStarted: false });
+    expect(computeChampLedgerStatuses({ artifact: FIXTURE, teams: rows.teams, nowYear: 2027 }).reservedSlots).toBe(0);
+    expect(computeChampLedgerStatuses({ artifact: FIXTURE, teams: rows.teams, nowYear: 2026 }).reservedSlots).toBe(AWARD_SLOTS + MAX_WINNING_ALLIANCE_SIZE);
+  });
+});
+
 describe("computeChampLedgerStatuses — the pre-registration window", () => {
   const dcmpCeilings = maxEventPoints(FIXTURE.year, "dcmp");
   const DCMP_MAX = dcmpCeilings.qual + dcmpCeilings.alliance + dcmpCeilings.elim + dcmpCeilings.award;

@@ -156,7 +156,9 @@ function isNeverHappening(event: ReservedSlotEvent, all: readonly ReservedSlotEv
 /**
  * The number of points slots held back, one per district-tier event whose
  * Impact award is still to come. Pass ONLY district-tier events: the DCMP's
- * own consuming awards are a different tier with a different slot pool.
+ * own consuming awards are a different tier with a different slot pool, and
+ * `champReservedSlots.ts` beside this file holds THAT pool's slots back
+ * (quick task 261006-3gg).
  *
  * A MISSING `state` BLOCK COUNTS AS PENDING. An artifact published before the
  * state blocks existed carries none, and the honest answer to "have this

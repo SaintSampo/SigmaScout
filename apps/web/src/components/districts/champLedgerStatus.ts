@@ -20,18 +20,30 @@
  *    the PREDICTED CUTOFF the tab prints: that is derived from this ordering
  *    by `predictedCutoff.ts` and moves no chip.
  *
- * 2. THE CHAMP TIER RESERVES NOTHING AND PASSES NO POOLED ARGUMENT.
- *    `reservedSlots.ts`'s own doc comment scopes the reservation to
- *    district-tier events ("Pass ONLY district-tier events: the DCMP's own
- *    consuming awards are a different tier with a different slot pool"), and
- *    `pooledLockInputs` models district event point pools. Inventing a
- *    champ-tier reservation would be a new guarantee rule sketch 022 does not
- *    ask for and `measureLedgerTenets.ts` does not measure. Both omissions are
- *    what reproduce `data/fixtures/phase10/district-2026pnw.json` exactly —
- *    `{locked: 12, lockedAward: 8, contending: 2, eliminated: 104}` with zero
- *    per-team disagreements and a cut line of 182, the artifact's own
- *    `insights.cmpCutLinePoints`. If a champ-tier reservation is ever wanted it
- *    is a separate MEASURED task, not a guess here.
+ * 2. THE CHAMP TIER RESERVES ITS OWN SLOTS AND PASSES NO POOLED ARGUMENT.
+ *    Until quick task 261006-3gg this tier reserved nothing, on the reading
+ *    that the DCMP's consuming qualifications were "a different tier with a
+ *    different slot pool". They are — and that pool is exactly the one this
+ *    module's `"locked"` test is about. A DCMP winning alliance member or a
+ *    judged consuming award winner takes a Championship slot whatever its
+ *    points, so a rival whose ceiling sits below a team's floor, never a
+ *    threat to the ceiling test, can still take a slot out from under it.
+ *    FNC 2026 at the "playoffs done, awards open" stop showed frc7890 Locked
+ *    with 10 threats against 11 slots; four of the five judged consuming
+ *    awards then went to teams below 7890's floor. The sweep in
+ *    `scripts/measureChampTenets.ts` found nine such displays across the
+ *    published seasons. `packages/core/districts/champReservedSlots.ts` owns
+ *    the rule (the winning alliance while the playoffs are open, every judged
+ *    consuming award at its historical ceiling while the awards are open,
+ *    nothing once the awards are final); this module owns only the DCMP's
+ *    stage at the position, read off the rows, and the subtraction. The
+ *    reservation feeds `lockSlots` alone, exactly as the district tier's does:
+ *    `"eliminated"`, `floorCutLine` and the In range rank rule stay on the
+ *    unreserved count. `pooledLockInputs` still models district event point
+ *    pools only, so no pooled argument is passed. At an all-final position the
+ *    reservation is zero and `data/fixtures/phase10/district-2026pnw.json`
+ *    reproduces exactly as before — `{locked: 12, lockedAward: 8, contending:
+ *    2, eliminated: 104}`, cut line 182.
  *
  * 3. IN RANGE / OUT OF RANGE, AS SHOWN, CUT AT THE SIMULATED LINE (quick task
  *    260927-6bf, decision L2). Decision 1's rank rule above is the VERDICT the
@@ -61,8 +73,10 @@ import {
 } from "../../../../../packages/core/districts/locks.js";
 import { AWARD_TYPE_WINNER, consumingAwardTypesForTier } from "../../../../../packages/core/districts/qualification.js";
 import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
+import { dcmpAwardCountCeilings } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
+import { dcmpNeverHappening, reservedChampSlots } from "../../../../../packages/core/districts/champReservedSlots.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import { DISTRICT_CATEGORIES, type DistrictCategory, type DistrictStageFinality } from "./districtLedgerRows.js";
+import { DISTRICT_CATEGORIES, tierEvents, type DistrictCategory, type DistrictStageFinality } from "./districtLedgerRows.js";
 import { DISTRICT_LEDGER_STATUS_KEYS, type DistrictLedgerStatusKey, type DistrictLedgerStatusState } from "./districtLedgerStatus.js";
 import { dcmpEventKeyFor, type ChampLedgerRow, type ChampLedgerTeam } from "./champLedgerRows.js";
 import type { ChampNoCallReason, ChampRangeState } from "./champLedgerChances.js";
@@ -110,7 +124,12 @@ export interface ChampLedgerStatusModel {
   readonly floorCutLine: number | null;
   readonly awardQualified: readonly string[];
   readonly prequalified: readonly string[];
-  /** ALWAYS ZERO at this tier — see decision 2 in this module's header. Exposed so a consumer never has to assume the rule holds. */
+  /**
+   * How many Championship slots were HELD BACK at this position for the DCMP's
+   * own consuming qualifications still to come — decision 2 in this module's
+   * header, `champReservedSlots.ts` for the rule. Zero once the DCMP's awards
+   * are final, which is every finished season.
+   */
   readonly reservedSlots: number;
   /** `locks.ts`'s own narrowing: `cmpSlots` minus the ranked award qualifiers. The In range rank boundary. */
   readonly pointsSlots: number;
@@ -137,6 +156,12 @@ export interface ComputeChampLedgerStatusesOptions {
    * publish a guarantee that is not true.
    */
   readonly districtLockedOut?: ReadonlySet<string>;
+  /**
+   * The calendar year at the time of the call, for `dcmpNeverHappening`'s
+   * past-season clause. Defaults to the clock; a test passes it so a fixture
+   * without `state` blocks reads the same in every year.
+   */
+  readonly nowYear?: number;
 }
 
 const EMPTY_CENSUS: Record<LockStatus, number> = {
@@ -148,9 +173,11 @@ const EMPTY_CENSUS: Record<LockStatus, number> = {
   unknown: 0,
 };
 
+const ALL_OPEN_STAGE: DistrictStageFinality = { qual: false, alliance: false, elim: false, award: false };
+
 /** The stage of a row's single source event at this position, or every category OPEN where the row has no source. */
 function rowStage(row: ChampLedgerRow): DistrictStageFinality {
-  return row.sources[0]?.stage.final ?? { qual: false, alliance: false, elim: false, award: false };
+  return row.sources[0]?.stage.final ?? ALL_OPEN_STAGE;
 }
 
 /**
@@ -277,10 +304,21 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
 
   const qualifiers: QualifierSets = { awardQualified, prequalified };
 
-  // THREE ARGUMENTS. No reservation and no pooled argument — see decision 2 in
-  // this module's header. Passing either would be a champ-tier guarantee rule
-  // nothing has measured.
-  const reservedSlots = 0;
+  // THE CHAMP-TIER RESERVATION — decision 2 in this module's header. The DCMP's
+  // stage at this position is read off the rows, the one place the rewind rail
+  // writes it; with no dcmp row anywhere every category is open, which is the
+  // conservative answer. No pooled argument is passed.
+  const dcmpStageAtPosition = teams.map((team) => team.dcmpRow.sources[0]?.stage.final).find((stage) => stage !== undefined) ?? ALL_OPEN_STAGE;
+  const reservedSlots = reservedChampSlots({
+    elimFinal: dcmpStageAtPosition.elim,
+    awardFinal: dcmpStageAtPosition.award,
+    awardCeilings: dcmpAwardCountCeilings(artifact.year, artifact.districtKey, artifact.cmpSlots ?? 0).counts,
+    neverHappening: dcmpNeverHappening({
+      dcmpStates: artifact.teams.flatMap((team) => tierEvents(team, "dcmp").map((entry) => entry.state)),
+      artifactYear: artifact.year,
+      nowYear: options.nowYear ?? new Date().getUTCFullYear(),
+    }),
+  });
   const verdicts = computeLocksWithQualifiers(lockInputs, artifact.cmpSlots, qualifiers, reservedSlots);
   const floorCutLine = cutLinePointsWithQualifiers(lockInputs, artifact.cmpSlots, qualifiers);
 
