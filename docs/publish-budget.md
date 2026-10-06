@@ -589,8 +589,8 @@ block. `pnpm publish:seasons` rewrites it (`--write-budget`); its `budgetMaxByte
 
 ```json budget
 {
-  "measuredAt": "2026-10-05T22:39:53.715Z",
-  "run": "tsx packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 2016 --write-budget -- generation 8ee290cd-ba94-424e-8dca-ffc8bf08a283, 108703 objects, 4199364570 bytes total, 3336 presim sidecars (median 7792 B, p95 19125 B, max 42582 B), 2026-10-05T19:23:29.833Z to 2026-10-05T22:39:53.715Z (3h16m24s)",
+  "measuredAt": "2026-10-06T04:19:26.314Z",
+  "run": "tsx packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 2016 --write-budget -- generation 34707bf8-a300-4d37-b71d-00105a7b4edd, 108703 objects, 4199364570 bytes total, 3336 presim sidecars (median 7792 B, p95 19125 B, max 42582 B), 4778 as-of objects, 2026-10-06T01:44:45.770Z to 2026-10-06T04:19:26.314Z (2h34m41s)",
   "pages": {
     "teams": {
       "count": 30,
@@ -631,6 +631,40 @@ block. `pnpm publish:seasons` rewrites it (`--write-budget`); its `budgetMaxByte
       "maxBytes": 15392,
       "budgetMaxBytes": 20000,
       "largestKey": "v1/compare/2026.json"
+    }
+  },
+  "asOf": {
+    "asof": {
+      "count": 2379,
+      "medianBytes": 32288,
+      "p95Bytes": 69587,
+      "maxBytes": 179979,
+      "budgetMaxBytes": 300000,
+      "largestKey": "v1/asof/2016micmp/spr@10.0.0+baseline.json"
+    },
+    "asof-log": {
+      "count": 2379,
+      "medianBytes": 214271,
+      "p95Bytes": 478967,
+      "maxBytes": 1309531,
+      "budgetMaxBytes": 1900000,
+      "largestKey": "v1/asof-log/2016micmp/spr@10.0.0+baseline.json"
+    },
+    "asof-season": {
+      "count": 10,
+      "medianBytes": 139274,
+      "p95Bytes": 156825,
+      "maxBytes": 156825,
+      "budgetMaxBytes": 300000,
+      "largestKey": "v1/asof-season/2019/spr@10.0.0+baseline.json"
+    },
+    "asof-start": {
+      "count": 10,
+      "medianBytes": 568026,
+      "p95Bytes": 745825,
+      "maxBytes": 745825,
+      "budgetMaxBytes": 1100000,
+      "largestKey": "v1/asof-start/2026/spr@10.0.0+baseline.json"
     }
   }
 }
