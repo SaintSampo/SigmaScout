@@ -248,6 +248,14 @@ export function locksPickerLiveCaption(eventName: string): string {
 export const DISTRICT_LEDGER_SEARCH_LABEL = "Team number";
 export const DISTRICT_LEDGER_SEARCH_PLACEHOLDER = "Search a team number";
 
+/** The Locks run progress bar's accessible name (quick task 261007-481). */
+export const DISTRICT_LEDGER_RUN_PROGRESS_LABEL = "Simulation progress";
+
+/** The bar's spoken value; singular "event" when the run holds one, since a Live tab usually runs exactly one and "0 of 1 events" misreads (quick task 261007-481). */
+export function districtLedgerRunProgressText(completed: number, total: number): string {
+  return `${String(completed)} of ${String(total)} ${total === 1 ? "event" : "events"} simulated`;
+}
+
 /**
  * THE CUTOFF'S FOUR LABELS, shared by the stat line and every grand total
  * dashed rule so the two can never print different words (quick task

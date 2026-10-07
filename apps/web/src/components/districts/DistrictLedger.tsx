@@ -121,6 +121,7 @@ import { useDistrictEventArtifacts, useDistrictLedgerData } from "./useDistrictL
 import { LocksMilestonePicker } from "./LocksMilestonePicker.js";
 import { districtMilestoneEvents } from "./districtMilestones.js";
 import { applyLedgerRangeState, districtRangeState, ledgerCutoffView, type LedgerRangeCall } from "./ledgerRangeState.js";
+import { ledgerRunProgress } from "./ledgerRunProgress.js";
 import { predictedCutoff, type LedgerCutoffView } from "./predictedCutoff.js";
 
 /** The first three columns are words; every column after them is a number, and a number column is centred under a centred header. */
@@ -366,6 +367,10 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
     asOf,
   });
 
+  // The controls card's progress bar (quick task 261007-481): the tab is
+  // waiting exactly while the event artifacts load or the run is pending.
+  const runProgress = ledgerRunProgress({ artifactsLoading: artifacts.isLoading, runPending: data.runPending, runState: data.runState });
+
   const rows = useMemo(
     () =>
       buildDistrictLedgerRows({
@@ -595,7 +600,7 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
 
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]" data-testid="district-ledger-tab">
-      <ControlsCard query={query} onQueryChange={setQuery} cutoff={cutoff}>
+      <ControlsCard query={query} onQueryChange={setQuery} cutoff={cutoff} progress={runProgress}>
         <LocksMilestonePicker timeline={timeline} events={milestoneEvents} at={search.at} positionIndex={positionIndex} onAtChange={handleAtChange} />
         <StatusChips
           counts={displayStatuses.counts}

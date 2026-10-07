@@ -2583,3 +2583,64 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
     expect(screen.queryByTestId("district-ledger-drawer-outcomes")).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+
+describe("DistrictLedger — the run progress bar (quick task 261007-481)", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("shows a determinate bar as the controls card's last row while the run is held, and drops it once the run lands", async () => {
+    // Hold the per event run so the tab stays mid run long enough to read the
+    // bar; every other request (the advancement chance) runs for real.
+    const held: { message: unknown; post: (outbound: unknown) => void }[] = [];
+    let holding = true;
+    handle = installMockWorker({
+      script: (message, ctx) => {
+        if (holding && (message as { type?: string }).type === "run") {
+          held.push({ message, post: (outbound) => ctx.post(outbound) });
+          return;
+        }
+        realRunScript(message, ctx);
+      },
+    });
+    installFetch({ eventArtifact: liveEventArtifact() });
+    renderLedger(artifactOf(ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey)))));
+
+    await waitFor(() => expect(held.length).toBeGreaterThan(0));
+    // An early indeterminate frame while the event artifact loads is expected;
+    // wait for the in flight run's determinate state.
+    await waitFor(() => expect(screen.getByTestId("district-ledger-run-progress").getAttribute("data-progress")).toBe("determinate"));
+    const latest = held[held.length - 1]!;
+    const totalEvents = (latest.message as { events: unknown[] }).events.length;
+    const bar = screen.getByTestId("district-ledger-run-progress");
+    expect(bar.getAttribute("aria-valuenow")).toBe("0");
+    expect(bar.getAttribute("aria-valuemax")).toBe(String(totalEvents));
+    expect(screen.getByTestId("district-ledger-controls").lastElementChild).toBe(bar);
+
+    latest.post({ type: "progress", completedEvents: 1, totalEvents: 1 });
+    await waitFor(() => expect(screen.getByTestId("district-ledger-run-progress").getAttribute("aria-valuenow")).toBe("1"));
+    const fill = screen.getByTestId("district-ledger-run-progress").firstElementChild as HTMLElement;
+    expect(fill.style.width).toBe("100%");
+
+    holding = false;
+    runDistrictWorkerJob(latest.message, latest.post, runAsOfEvent);
+    await waitFor(() => expect(screen.queryByTestId("district-ledger-run-progress")).toBeNull());
+  });
+
+  it("renders no bar when there is nothing to run", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf([districtTeam("frc100")]));
+    await waitFor(() => expect(screen.getAllByRole("columnheader").length).toBeGreaterThan(0));
+    expect(screen.queryByTestId("district-ledger-run-progress")).toBeNull();
+  });
+});

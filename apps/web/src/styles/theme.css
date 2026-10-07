@@ -1505,6 +1505,16 @@ body {
     box-shadow: 0 0 0 0 transparent;
   }
 }
+/* The run progress bar's indeterminate sweep (quick task 261007-481): a 30
+ * percent wide fill travelling from off the left edge to fully off the right. */
+@keyframes locks-progress-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(333.333%);
+  }
+}
 /* ports .ibtn. The padding and `appearance: auto` are the browser's own button
  * defaults, which the sketch relied on and preflight overrides. */
 .locks-picker-ibtn {
@@ -1707,12 +1717,47 @@ body {
     font-size: 11px;
   }
 }
-/* ports @media (prefers-reduced-motion: reduce), scoped to the picker */
+/* The Locks run progress bar, the controls card's last row while the tab waits
+ * on its per event simulation (quick task 261007-481, Jacob 2026-10-07: "add a
+ * minimal progress bar for when the simulation is running"). The colours are
+ * RunControl's track and fill, held as tokens so the TSX writes no colour. It
+ * sits inside this block so the block's literal colour ban covers it, and
+ * before the reduced motion block so those overrides win on source order. */
+:root {
+  --locks-progress-track: var(--color-border);
+  --locks-progress-fill: var(--color-accent);
+}
+.locks-progress {
+  position: relative;
+  width: 100%;
+  height: 4px;
+  border-radius: 9999px;
+  overflow: hidden;
+  background: var(--locks-progress-track);
+}
+.locks-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--locks-progress-fill);
+  transition: width 200ms ease-out;
+}
+.locks-progress--indeterminate .locks-progress-fill {
+  width: 30%;
+  animation: locks-progress-sweep 1.2s ease-in-out infinite;
+}
+/* ports @media (prefers-reduced-motion: reduce), scoped to the picker; it also
+ * stills the run progress bar, whose sweep becomes a static soft bar */
 @media (prefers-reduced-motion: reduce) {
   .locks-picker *,
-  .locks-picker *::after {
+  .locks-picker *::after,
+  .locks-progress * {
     transition: none !important;
     animation: none !important;
+  }
+  .locks-progress--indeterminate .locks-progress-fill {
+    width: 100%;
+    transform: none;
+    background: var(--locks-picker-accent-soft);
   }
 }
 /* end of the Locks milestone picker block */
