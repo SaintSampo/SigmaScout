@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-07T07:25:50.358Z"
+last_updated: "2026-10-07T08:07:13.062Z"
 last_activity: 2026-10-07
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -735,6 +735,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 299 | Locks picker: Round 1 to Round 5 and Finals replace the single Playoffs stop; a rewound round stop conditions the bracket on the sets played by then | 2026-10-07 | f8a2bc82 | [261007-3g2-locks-page-rewind-per-round-playoff-stop](./quick/261007-3g2-locks-page-rewind-per-round-playoff-stop/) |
 | 300 | Locks: minimal 4px run progress bar in the controls card on both tabs; N of M events while the Worker runs, indeterminate sweep for every other wait, static under reduced motion | 2026-10-07 | be8d4fb2 | [261007-481-minimal-progress-bar-while-the-locks-sim](./quick/261007-481-minimal-progress-bar-while-the-locks-sim/) |
 | 301 | fast: Methodology district ledger limits table says Eight limits, matching its eight rows | 2026-10-07 | 9f9378d2 | — |
+| 302 | Locks ledger prices district events under 24 real teams (whole demo filler alliances) and loading cells read pending, not not available; todo locks-loading-cells closed | 2026-10-07 | 92589763 | [261007-4qr-locks-ledger-price-district-events-under](./quick/261007-4qr-locks-ledger-price-district-events-under/) |
 
 ### Roadmap Evolution
 
