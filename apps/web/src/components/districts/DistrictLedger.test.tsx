@@ -555,9 +555,15 @@ describe("DistrictLedger — the tracer slice", () => {
     renderLedger(artifactOf(ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey)))));
 
     await waitFor(() => expect(document.querySelectorAll('[data-cell="final"]').length).toBeGreaterThan(0));
+    // While the event artifact loads and the run is pending the cell reads
+    // "pending" (todo locks-loading-cells-read-not-available, quick task
+    // 261007-4qr); once the Worker construction fails the run is not pending
+    // and the cell settles on the unavailable copy, which is what this case is
+    // about. So wait for the settled cell, not merely for the cell to exist.
     const qual = await waitFor(() => {
       const found = document.querySelector('[data-cell-id="2026walive:qual"]');
       expect(found).not.toBeNull();
+      expect(found!.getAttribute("data-cell")).toBe("unavailable");
       return found!;
     });
     expect(qual.getAttribute("data-cell")).toBe("unavailable");

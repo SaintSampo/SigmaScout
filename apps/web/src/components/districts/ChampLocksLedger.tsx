@@ -475,6 +475,13 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   // waiting exactly while the event artifacts load or the run is pending.
   const runProgress = ledgerRunProgress({ artifactsLoading: artifacts.isLoading, runPending: data.runPending, runState: data.runState });
 
+  // THE ONE PENDING CONDITION (quick task 261007-4qr): event artifacts or a
+  // baked sidecar still loading, or the run not landed for the current inputs.
+  // Both tier passes and the champ fold print "pending" under it, and the range
+  // state holds the Status column at Pending under it, so the two cannot
+  // disagree.
+  const distributionsPending = artifacts.isLoading || data.isLoading || data.runPending;
+
   const passOptions = useMemo(
     () => ({
       artifact,
@@ -482,8 +489,9 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
       stageByEvent: atNow ? undefined : stageByEvent,
       unavailableEvents: data.unavailableEvents,
       gaps: { ...data.gaps, missingEventArtifacts: artifacts.missingEventArtifacts },
+      distributionsPending,
     }),
-    [artifact, data.distributions, atNow, stageByEvent, data.unavailableEvents, data.gaps, artifacts.missingEventArtifacts]
+    [artifact, data.distributions, atNow, stageByEvent, data.unavailableEvents, data.gaps, artifacts.missingEventArtifacts, distributionsPending]
   );
 
   /**
@@ -621,7 +629,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
       // sidecars may still be loading, and each of those reads as "nothing to
       // run" there. Treating them as in flight is what keeps a transient
       // refusal from flashing No call before the line arrives.
-      perEventRunSignature: artifacts.isLoading || data.isLoading || data.runPending ? null : (runSignature ?? ""),
+      perEventRunSignature: distributionsPending ? null : (runSignature ?? ""),
       perEventRunFailed: data.runState.status === "error",
       districtRun: {
         built: districtChanceRun !== undefined,
@@ -644,9 +652,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     stageByEvent,
     artifact.cmpSlots,
     runSignature,
-    artifacts.isLoading,
-    data.isLoading,
-    data.runPending,
+    distributionsPending,
     data.runState.status,
     districtChanceRun,
     districtChanceState.status,

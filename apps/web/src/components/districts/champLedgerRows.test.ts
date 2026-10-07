@@ -895,3 +895,95 @@ describe("buildChampLedgerRows — a registered DCMP no show is priced from awar
     expect(noShow.grandTotal.kind).not.toBe("unavailable");
   });
 });
+
+// ---------------------------------------------------------------------------
+// LOADING CELLS READ PENDING (todo locks-loading-cells-read-not-available,
+// quick task 261007-4qr): the champ fold and grand total carry the district
+// passes' pending flag through, and only through pending parts.
+// ---------------------------------------------------------------------------
+
+describe("buildChampLedgerRows — distributionsPending (261007-4qr)", () => {
+  const openState = state({ qualMatchesPlayed: 10, qualMatchesTotal: 60, alliancesPicked: false, playoffsDone: false, awardsPosted: false });
+  const isPending = (cell: ChampLedgerCell): boolean => cell.kind === "unavailable" && "pending" in cell && cell.pending === true;
+  const isPlain = (cell: ChampLedgerCell): boolean => cell.kind === "unavailable" && !("pending" in cell);
+
+  function openTeam(eventKeys: readonly string[], overrides: Partial<DistrictTeam> = {}) {
+    return team({ teamKey: "frc1", pointTotal: 0, eventPoints: eventKeys.map((eventKey) => eventPoints({ eventKey, state: openState })), ...overrides });
+  }
+
+  it("folds a district subtotal from pending parts only into a pending subtotal, and the grand total it lacks is pending", () => {
+    const built = buildChampLedgerRows({
+      artifact: artifactOf([openTeam(["2026walive", "2026wapend"])]),
+      distributions: new Map(),
+      distributionsPending: true,
+    });
+    const entry = built.teams[0]!;
+    expect(entry.districtRow.cells.every(isPending)).toBe(true);
+    expect(isPending(entry.districtRow.subtotal)).toBe(true);
+    expect(isPending(entry.grandTotal)).toBe(true);
+  });
+
+  it("makes the fold and the grand total plain unavailable when one part was refused", () => {
+    const built = buildChampLedgerRows({
+      artifact: artifactOf([openTeam(["2026walive", "2026warefused"])]),
+      distributions: new Map(),
+      distributionsPending: true,
+      unavailableEvents: [{ eventKey: "2026warefused", name: "UnratedTeamError" }],
+    });
+    const entry = built.teams[0]!;
+    expect(entry.districtRow.cells.every(isPlain)).toBe(true);
+    expect(isPlain(entry.districtRow.subtotal)).toBe(true);
+    expect(isPlain(entry.grandTotal)).toBe(true);
+  });
+
+  it("leaves an all-final fold and an open fold unchanged while pending", () => {
+    const artifact = artifactOf([
+      team({
+        teamKey: "frc1",
+        pointTotal: 46,
+        eventPoints: [
+          eventPoints({ eventKey: "2026wabon", week: 0, qual: 10, alliance: 6, elim: 7, award: 0, total: 23 }),
+          eventPoints({ eventKey: "2026wasam", week: 2, qual: 12, alliance: 4, elim: 0, award: 5, total: 21 }),
+        ],
+      }),
+    ]);
+    const finalStages = new Map([
+      ["2026wabon", ALL_FINAL],
+      ["2026wasam", ALL_FINAL],
+    ]);
+    const allFinal = { artifact, distributions: new Map(), stageByEvent: finalStages };
+    expect(buildChampLedgerRows({ ...allFinal, distributionsPending: true })).toEqual(buildChampLedgerRows(allFinal));
+
+    const oneOpen = {
+      artifact,
+      // Nothing is missing at this position (the event total is in hand too), so the flag has nothing to mark.
+      distributions: new Map([["2026wasam", distributionsFor("2026wasam", { frc1: { qual: uniform(4), eventTotal: uniform(30) } })]]),
+      stageByEvent: new Map([
+        ["2026wabon", ALL_FINAL],
+        ["2026wasam", { qual: false, alliance: true, elim: true, award: true }],
+      ]),
+    };
+    const pendingOpen = buildChampLedgerRows({ ...oneOpen, distributionsPending: true });
+    expect(cellOf(pendingOpen.teams[0]!.districtRow.cells, "qual").kind).toBe("open");
+    expect(pendingOpen).toEqual(buildChampLedgerRows(oneOpen));
+  });
+
+  it("keeps the catch path plain unavailable while pending", () => {
+    const built = buildChampLedgerRows({
+      artifact: artifactOf([team({ teamKey: "frc1", pointTotal: 20, adjustments: -5, eventPoints: [eventPoints({ eventKey: "2026wabon", total: 20 })] })]),
+      distributions: new Map(),
+      stageByEvent: new Map([["2026wabon", ALL_FINAL]]),
+      distributionsPending: true,
+    });
+    expect(isPlain(built.teams[0]!.grandTotal)).toBe(true);
+    expect(built.gaps.teamsWithUnavailableGrandTotal).toEqual(["frc1"]);
+  });
+
+  it("with the flag absent, deep equals the flag set to false on the district-2026pnw fixture", () => {
+    for (const stageByEvent of [allFinalStages(FIXTURE), new Map(allFixtureEventKeys(FIXTURE).map((key) => [key, key === "2026pncmp" ? ALL_OPEN : ALL_FINAL] as const))]) {
+      const today = buildChampLedgerRows({ artifact: FIXTURE, distributions: new Map(), stageByEvent });
+      expect(buildChampLedgerRows({ artifact: FIXTURE, distributions: new Map(), stageByEvent, distributionsPending: false })).toEqual(today);
+      expect(JSON.stringify(today.teams)).not.toContain('"pending"');
+    }
+  });
+});

@@ -408,6 +408,14 @@ export interface BuildChampLedgerRowsOptions {
    * reading "not yet priced"; see `buildDcmpRow`'s four cases.
    */
   readonly dcmpEstimateByTeam?: ReadonlyMap<string, ChampDcmpEstimate>;
+  /**
+   * THE TAB'S OWN PENDING CONDITION (quick task 261007-4qr), passed to both
+   * tier passes: see `BuildDistrictLedgerRowsOptions.distributionsPending`. A
+   * subtotal folded from pending parts only is pending, and so is the grand
+   * total when every part it lacks is. Absent reads as false, the shipped
+   * behaviour.
+   */
+  readonly distributionsPending?: boolean;
 }
 
 /**
@@ -435,7 +443,15 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
     options.startedDcmpEventKeys ??
     (options.dcmpStarted === undefined ? startedDcmpEventKeysAtNow(artifact) : options.dcmpStarted ? new Set(dcmpEventKeys) : new Set<string>());
 
-  const passOptions = { artifact, distributions, ...(stageByEvent === undefined ? {} : { stageByEvent }), unavailableEvents, ...(options.gaps === undefined ? {} : { gaps: options.gaps }) };
+  const passOptions = {
+    artifact,
+    distributions,
+    ...(stageByEvent === undefined ? {} : { stageByEvent }),
+    unavailableEvents,
+    ...(options.gaps === undefined ? {} : { gaps: options.gaps }),
+    // Both tier passes read the tab's one pending condition (quick task 261007-4qr).
+    ...(options.distributionsPending === undefined ? {} : { distributionsPending: options.distributionsPending }),
+  };
   const districtPass = buildDistrictLedgerRows({ ...passOptions, tier: "district" });
   const dcmpPass = buildDistrictLedgerRows({ ...passOptions, tier: "dcmp" });
 
@@ -523,7 +539,15 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
       dcmpPart === undefined || membership === "out" ? undefined : { distribution: dcmpPart, fieldChance: chance, winChance };
 
     if (districtPart === undefined || (!districtOnly && dcmpPart === undefined)) {
-      grandTotal = { id: GRAND_TOTAL_CELL_ID, cell: "grandTotal", kind: "unavailable" };
+      // PENDING only when EVERY missing part's subtotal is still arriving
+      // (quick task 261007-4qr); a refused or unpriced part keeps it plain.
+      const missingSubtotals: ChampLedgerCell[] = [];
+      if (districtPart === undefined) missingSubtotals.push(districtRow.subtotal);
+      if (!districtOnly && dcmpPart === undefined) missingSubtotals.push(dcmpRow.subtotal);
+      const pending = missingSubtotals.every((cell) => cell.kind === "unavailable" && cell.pending === true);
+      grandTotal = pending
+        ? { id: GRAND_TOTAL_CELL_ID, cell: "grandTotal", kind: "unavailable", pending: true }
+        : { id: GRAND_TOTAL_CELL_ID, cell: "grandTotal", kind: "unavailable" };
       projection = earnedAtPosition;
       teamsWithUnavailableGrandTotal.add(team.teamKey);
     } else {
@@ -704,6 +728,17 @@ function foldCells(
   parts: readonly (DistrictLedgerCell | undefined)[],
   ceiling: number
 ): ChampLedgerCell {
+  // PENDING PROPAGATES ONLY THROUGH PENDING PARTS (quick task 261007-4qr): one
+  // missing or plainly unavailable part makes the fold plain unavailable, as
+  // before; otherwise any part still arriving makes the fold pending. Final
+  // and open parts alone fold exactly as they always did.
+  let anyPending = false;
+  for (const part of parts) {
+    if (part === undefined || (part.kind === "unavailable" && part.pending !== true)) return { id, cell, kind: "unavailable" };
+    if (part.kind === "unavailable") anyPending = true;
+  }
+  if (anyPending) return { id, cell, kind: "unavailable", pending: true };
+
   const distributions: DistrictPointDistribution[] = [];
   let earned = 0;
   let everyPartFinal = true;

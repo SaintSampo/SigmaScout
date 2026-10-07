@@ -371,6 +371,12 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
   // waiting exactly while the event artifacts load or the run is pending.
   const runProgress = ledgerRunProgress({ artifactsLoading: artifacts.isLoading, runPending: data.runPending, runState: data.runState });
 
+  // THE ONE PENDING CONDITION (quick task 261007-4qr): event artifacts or a
+  // baked sidecar still loading, or the run not landed for the current inputs.
+  // The cells print "pending" under it and the range state holds the Status
+  // column at Pending under it, so the two cannot disagree.
+  const distributionsPending = artifacts.isLoading || data.isLoading || data.runPending;
+
   const rows = useMemo(
     () =>
       buildDistrictLedgerRows({
@@ -379,8 +385,9 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
         stageByEvent: atNow ? undefined : stageByEvent,
         unavailableEvents: data.unavailableEvents,
         gaps: { ...data.gaps, missingEventArtifacts: artifacts.missingEventArtifacts },
+        distributionsPending,
       }),
-    [artifact, data.distributions, atNow, stageByEvent, data.unavailableEvents, data.gaps, artifacts.missingEventArtifacts]
+    [artifact, data.distributions, atNow, stageByEvent, data.unavailableEvents, data.gaps, artifacts.missingEventArtifacts, distributionsPending]
   );
 
   const statuses = useMemo(() => computeDistrictLedgerStatuses({ artifact, teams: rows.teams }), [artifact, rows.teams]);
@@ -477,7 +484,7 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
         // those reads as "nothing to run" there. Treating them as in flight
         // keeps a transient refusal from flashing No call before the line
         // arrives.
-        perEventRunSignature: artifacts.isLoading || data.isLoading || data.runPending ? null : (runSignature ?? ""),
+        perEventRunSignature: distributionsPending ? null : (runSignature ?? ""),
         perEventRunFailed: data.runState.status === "error",
         run: {
           built: chanceRun !== undefined,
@@ -488,7 +495,7 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
           ...(chanceState.status === "complete" ? { draws: chanceState.draws } : {}),
         },
       }),
-    [boundaryCutoff.kind, artifacts.isLoading, data.isLoading, data.runPending, data.runState.status, runSignature, chanceRun, chanceState, chanceRunCurrent]
+    [boundaryCutoff.kind, distributionsPending, data.runState.status, runSignature, chanceRun, chanceState, chanceRunCurrent]
   );
 
   /**
