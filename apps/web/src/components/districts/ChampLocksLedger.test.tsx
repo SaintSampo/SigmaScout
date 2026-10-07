@@ -914,3 +914,56 @@ describe("ChampLocksLedger — the drawer", () => {
     expect(screen.queryByTestId("champ-ledger-drawer")).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+
+describe("ChampLocksLedger — the run progress bar (quick task 261007-481)", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("shows a determinate bar as the controls card's last row while the run is held, and drops it once the run lands", async () => {
+    // Hold the per event run (renderHeld above holds the CHANCE request
+    // instead); every other request runs for real.
+    const held: { message: unknown; post: (outbound: unknown) => void }[] = [];
+    let holding = true;
+    installFetch([liveEventArtifact()]);
+    handle = installMockWorker({
+      script: (message, ctx) => {
+        if (holding && (message as { type?: string }).type === "run") {
+          held.push({ message, post: (outbound) => ctx.post(outbound) });
+          return;
+        }
+        realRunScript(message, ctx);
+      },
+    });
+    renderLedger(artifactOf(ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey)))));
+
+    await waitFor(() => expect(held.length).toBeGreaterThan(0), { timeout: 20000 });
+    await waitFor(() => expect(screen.getByTestId("district-ledger-run-progress").getAttribute("data-progress")).toBe("determinate"), { timeout: 20000 });
+    // Release the LATEST held run: an earlier one may be stale, its Worker terminated.
+    const latest = held[held.length - 1]!;
+    const bar = screen.getByTestId("district-ledger-run-progress");
+    expect(screen.getByTestId("district-ledger-controls").lastElementChild).toBe(bar);
+    expect(bar.getAttribute("aria-valuemax")).toBe(String((latest.message as { events: unknown[] }).events.length));
+
+    holding = false;
+    runDistrictWorkerJob(latest.message, latest.post, runAsOfEvent);
+    await waitFor(() => expect(screen.queryByTestId("district-ledger-run-progress")).toBeNull(), { timeout: 20000 });
+  }, 40000);
+
+  it("renders no bar on the finished district, where there is nothing to run", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(finishedArtifact());
+    await waitFor(() => expect(screen.getAllByTestId("champ-ledger-row").length).toBeGreaterThan(0));
+    expect(screen.queryByTestId("district-ledger-run-progress")).toBeNull();
+  });
+});

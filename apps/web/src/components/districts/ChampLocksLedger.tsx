@@ -76,6 +76,7 @@ import {
   type StatusPlaceholder,
 } from "./LedgerParts.js";
 import { predictedCutoff, simulatedCutoffRange, type LedgerCutoffView } from "./predictedCutoff.js";
+import { ledgerRunProgress } from "./ledgerRunProgress.js";
 import { champCutoffTuning } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
 import {
   CHAMP_LEDGER_COLUMN_LABELS,
@@ -470,6 +471,10 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     skipEventKeys,
   });
 
+  // The controls card's progress bar (quick task 261007-481): the tab is
+  // waiting exactly while the event artifacts load or the run is pending.
+  const runProgress = ledgerRunProgress({ artifactsLoading: artifacts.isLoading, runPending: data.runPending, runState: data.runState });
+
   const passOptions = useMemo(
     () => ({
       artifact,
@@ -765,7 +770,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
 
   return (
     <div className="flex flex-col gap-[var(--spacing-md)]" data-testid="champ-ledger-tab">
-      <ControlsCard query={query} onQueryChange={setQuery} cutoff={cutoff}>
+      <ControlsCard query={query} onQueryChange={setQuery} cutoff={cutoff} progress={runProgress}>
         <LocksMilestonePicker timeline={timeline} events={milestoneEvents} at={search.at} positionIndex={positionIndex} onAtChange={handleAtChange} />
         <StatusChips counts={displayStatuses.counts} active={activeStatuses} onToggle={toggleStatus} withheld={displayStatuses.withheld !== undefined} definitions={CHAMP_LEDGER_STATUS_DEFINITIONS} />
       </ControlsCard>

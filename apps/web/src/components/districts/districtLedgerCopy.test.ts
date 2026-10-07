@@ -72,6 +72,8 @@ import {
   locksPickerOptionLabel,
   locksPickerStopLabel,
   locksPickerUpCaption,
+  DISTRICT_LEDGER_RUN_PROGRESS_LABEL,
+  districtLedgerRunProgressText,
 } from "./districtLedgerCopy.js";
 import {
   CHAMP_LEDGER_VERDICT_SOURCE_WORDS,
@@ -836,5 +838,18 @@ describe("locksPickerEventName", () => {
     expect(locksPickerEventName("Pacific Northwest FIRST District Championship", true)).toBe("DCMP");
     expect(locksPickerEventName("FIRST in Michigan State Championship - Aptiv Division", true)).toBe("DCMP Aptiv");
     expect(locksPickerEventName("PNW District Oregon State Fair Event", false)).toBe("Oregon State Fair");
+  });
+});
+
+describe("the run progress bar copy (quick task 261007-481)", () => {
+  it("pins the label and the spoken value, singular for one event", () => {
+    expect(DISTRICT_LEDGER_RUN_PROGRESS_LABEL).toBe("Simulation progress");
+    expect(districtLedgerRunProgressText(3, 9)).toBe("3 of 9 events simulated");
+    expect(districtLedgerRunProgressText(0, 1)).toBe("0 of 1 event simulated");
+  });
+
+  it("carries no dash character, matching the tab's own rule", () => {
+    const everyString = [DISTRICT_LEDGER_RUN_PROGRESS_LABEL, districtLedgerRunProgressText(3, 9), districtLedgerRunProgressText(0, 1)].join(" ");
+    for (const dash of ["—", "–", "-"]) expect(everyString).not.toContain(dash);
   });
 });
