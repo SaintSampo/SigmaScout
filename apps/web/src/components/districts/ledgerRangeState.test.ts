@@ -211,7 +211,6 @@ describe("applyLedgerRangeState and ledgerCutoffView on a district status model"
       displayStatus: (teamKey) => display.byTeam.get(teamKey)?.status,
       settledView,
       showLikelyRange: true,
-      tier: "district",
     });
 
   /** D-04: every non contending team's result VERBATIM, and every model level field untouched. */
@@ -242,7 +241,6 @@ describe("applyLedgerRangeState and ledgerCutoffView on a district status model"
     const view = viewFor({ kind: "settled" }, display);
     expect(view.cutoff).toEqual(settledView().cutoff);
     expect(view.likely).toBeUndefined();
-    expect(view.tier).toBe("district");
   });
 
   it("pending: every contending call is withheld, no verdict moves, and the view has no figure", () => {
@@ -301,7 +299,6 @@ describe("applyLedgerRangeState and ledgerCutoffView on a district status model"
       expect(display.counts.inRange + display.counts.outOfRange).toBe(contendingKeys.length);
 
       const view = viewFor(state, display);
-      expect(view.tier).toBe("district");
       expect(view.likely).toEqual(LIKELY);
       expect(view.cutoff.kind).toBe("predicted");
       if (view.cutoff.kind !== "predicted") return;
@@ -312,7 +309,7 @@ describe("applyLedgerRangeState and ledgerCutoffView on a district status model"
     }
   });
 
-  it("omits the tier entirely when none is supplied, and the range when the caller withholds it", () => {
+  it("omits the range when the caller withholds it", () => {
     const state: LedgerRangeState = { kind: "simulated", points: 50, likely: LIKELY };
     const display = applyLedgerRangeState(STATUS, rows.teams, state);
     const view = ledgerCutoffView({
@@ -322,7 +319,6 @@ describe("applyLedgerRangeState and ledgerCutoffView on a district status model"
       settledView,
       showLikelyRange: false,
     });
-    expect("tier" in view).toBe(false);
     expect(view.likely).toBeUndefined();
   });
 });

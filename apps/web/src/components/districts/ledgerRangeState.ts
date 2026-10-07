@@ -263,8 +263,6 @@ export interface LedgerCutoffViewOptions {
   readonly settledView: () => LedgerCutoffView;
   /** Whether the `simulated` arm carries its likely range. */
   readonly showLikelyRange: boolean;
-  /** Stamped on the returned view in every arm when supplied, and omitted entirely when not. */
-  readonly tier?: "district";
 }
 
 /**
@@ -282,10 +280,9 @@ export interface LedgerCutoffViewOptions {
  */
 export function ledgerCutoffView(options: LedgerCutoffViewOptions): LedgerCutoffView {
   const { state } = options;
-  const tier = options.tier === undefined ? {} : { tier: options.tier };
-  if (state.kind === "settled") return options.tier === undefined ? options.settledView() : { ...options.settledView(), ...tier };
-  if (state.kind === "pending") return { cutoff: { kind: "pending" }, likely: undefined, districtOnly: false, ...tier };
-  if (state.kind === "noCall") return { cutoff: { kind: "unavailable", reason: state.reason }, likely: undefined, districtOnly: false, ...tier };
+  if (state.kind === "settled") return options.settledView();
+  if (state.kind === "pending") return { cutoff: { kind: "pending" }, likely: undefined, districtOnly: false };
+  if (state.kind === "noCall") return { cutoff: { kind: "unavailable", reason: state.reason }, likely: undefined, districtOnly: false };
   let lowestIn = Number.POSITIVE_INFINITY;
   let highestOut = Number.NEGATIVE_INFINITY;
   for (const team of options.teams) {
@@ -301,6 +298,5 @@ export function ledgerCutoffView(options: LedgerCutoffViewOptions): LedgerCutoff
     cutoff: { kind: "predicted", points: state.points, boundary, source: "simulated" },
     likely: options.showLikelyRange ? state.likely : undefined,
     districtOnly: false,
-    ...tier,
   };
 }

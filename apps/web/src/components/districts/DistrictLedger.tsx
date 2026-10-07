@@ -538,7 +538,6 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
         displayStatus: (teamKey) => displayStatuses.byTeam.get(teamKey)?.status,
         settledView: () => ({ cutoff: boundaryCutoff, likely: undefined, districtOnly: false }),
         showLikelyRange: true,
-        tier: "district",
       }),
     [rangeState, rows.teams, displayStatuses, boundaryCutoff]
   );

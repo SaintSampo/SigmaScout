@@ -338,11 +338,4 @@ export interface LedgerCutoffView {
    * Jacob ruled out.
    */
   readonly districtOnly: boolean;
-  /**
-   * WHICH TAB THE VIEW BELONGS TO, read for exactly one thing: which caption
-   * the surface prints under a SIMULATED line. `"district"` is the District
-   * Locks tab's plain per run line; absent is the champ wording that shipped
-   * with quick task 260927-6bf.
-   */
-  readonly tier?: "district";
 }
