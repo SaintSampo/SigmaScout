@@ -1,6 +1,6 @@
 /**
  * `LocksMilestonePicker` standalone: no router, only props and a spy for
- * `onAtChange`. The picker keeps no selection of its own, so every assertion
+ * `onAtChange`. The picker keeps no state of its own, so every assertion
  * either reads what a given `at` renders or reads what a control asks for.
  *
  * The last block is the CSS CONTRACT: it slices the picker's block out of
@@ -75,16 +75,15 @@ function renderPicker(options: { events?: readonly DistrictMilestoneEventInput[]
     eventArtifacts: new Map(options.artifacts ?? []),
   });
   const onAtChange = vi.fn<(id: string) => void>();
-  render(
-    <LocksMilestonePicker
-      timeline={timeline}
-      events={events}
-      at={options.at}
-      positionIndex={resolveDistrictTimelinePosition(timeline, options.at)}
-      onAtChange={onAtChange}
-    />
+  // One builder for render and rerender, so the two cannot drift apart.
+  const element = (at: string | undefined) => (
+    <LocksMilestonePicker timeline={timeline} events={events} at={at} positionIndex={resolveDistrictTimelinePosition(timeline, at)} onAtChange={onAtChange} />
   );
-  return { onAtChange, timeline };
+  const { rerender } = render(element(options.at));
+  // Re-renders the SAME mounted picker at a new `at`, which is how the page
+  // drives it; a fresh mount would hide any state that survives a re-render.
+  const rerenderAt = (at: string | undefined) => rerender(element(at));
+  return { onAtChange, timeline, rerenderAt };
 }
 
 const stops = () => [...screen.getByTestId("district-ledger-rewind").querySelectorAll<HTMLButtonElement>("[data-milestone]")];
@@ -162,6 +161,8 @@ describe("LocksMilestonePicker — the arrows, the pills and the keys", () => {
     expect(screen.getByTestId("locks-picker-season-start").getAttribute("aria-pressed")).toBe("true");
     expect((screen.getByTestId("locks-picker-prev") as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("locks-picker-next-text").textContent).toBe("Next: Alpha · Schedule released");
+    // Alpha, week 0, is the first event in the walk, so the menu names it too.
+    expect(select().value).toBe("a");
   });
 
   it("the pills ask for season start and now", () => {
@@ -203,6 +204,19 @@ describe("LocksMilestonePicker — the event menu", () => {
     // Bravo has played 6 of 12, so its quals three quarters stop has not happened.
     fireEvent.change(select(), { target: { value: "b" } });
     expect(onAtChange).toHaveBeenLastCalledWith("b:m:b_qm6");
+  });
+
+  it("follows the selection on one mounted picker: a stop, Season start, Live, then the stop again (261007-3ik)", () => {
+    const { rerenderAt } = renderPicker({ at: "c:awards" });
+    expect(select().value).toBe("c");
+    rerenderAt(DISTRICT_TIMELINE_SEASON_START_ID);
+    expect(select().value).toBe("a");
+    expect(screen.getByTestId("locks-picker-season-start").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("locks-picker-next-text").textContent).toBe("Next: Alpha · Schedule released");
+    rerenderAt(undefined);
+    expect(select().value).toBe("b");
+    rerenderAt("c:awards");
+    expect(select().value).toBe("c");
   });
 
   it("keeps a position's event in the menu with no stop pressed", () => {

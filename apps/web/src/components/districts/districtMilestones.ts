@@ -265,8 +265,8 @@ export function districtMilestoneSelection(
   return { kind: "live" };
 }
 
-/** The event key a selection carries, or `null` for Live and Start (which never move the event menu). */
-export function selectionEventKey(selection: DistrictMilestoneSelection): string | null {
+/** The event a milestone or position selection carries, or `null` for Live and Start. */
+function selectionEventKey(selection: DistrictMilestoneSelection): string | null {
   if (selection.kind === "milestone") return selection.milestone.eventKey;
   if (selection.kind === "position") return selection.eventKey;
   return null;
@@ -279,13 +279,9 @@ function selectionKey(model: DistrictMilestoneModel, selection: DistrictMileston
   return [selection.positionIndex, ORDER_TIE_POSITION];
 }
 
-function walkKey(model: DistrictMilestoneModel, item: DistrictMilestoneWalkItem): DistrictMilestoneOrder {
-  return selectionKey(model, item);
-}
-
 /**
- * The event the menu opens on: the first live event in model order; failing
- * that, the started event that sorts last; failing that, the first event.
+ * The event the menu shows at Live: the first live event in model order;
+ * failing that, the started event that sorts last; failing that, the first event.
  */
 export function defaultMilestoneFocus(model: DistrictMilestoneModel): string | undefined {
   const live = model.events.find((event) => event.status === "live");
@@ -296,10 +292,36 @@ export function defaultMilestoneFocus(model: DistrictMilestoneModel): string | u
 }
 
 /**
+ * The event the menu shows at a selection, computed on every render (quick task
+ * 261007-3ik). Three cases: a milestone or position selection shows its own
+ * event when the model knows it; Season start shows the event of the first
+ * milestone in the walk, the one its Next text names; Live, a position with no
+ * known event, and a Season start with nothing happened yet show
+ * `defaultMilestoneFocus`.
+ *
+ * Sketch 024 left the menu where it was on Season start and Live. On a finished
+ * district that left the menu on the last event while every dot hollowed and
+ * the Next text named the first one, which Jacob reported on 2026-10-07 as "the
+ * event does not update". Deriving the menu from the selection is what makes
+ * Season start and Live move it.
+ */
+export function milestoneFocusKey(model: DistrictMilestoneModel, selection: DistrictMilestoneSelection): string | undefined {
+  const own = selectionEventKey(selection);
+  if (own !== null && model.byEvent.has(own)) return own;
+  if (selection.kind === "start") {
+    const first = model.walk.find((item) => item.kind === "milestone");
+    if (first?.kind === "milestone") return first.milestone.eventKey;
+  }
+  return defaultMilestoneFocus(model);
+}
+
+/**
  * Where choosing an event in the menu navigates, as sketch Q's `focusEvent`:
  * the same stop in the chosen event when the selection is a milestone and that
  * stop has happened there; otherwise the chosen event's latest happened stop;
- * otherwise `null`, which moves the focus only.
+ * otherwise `null`. The menu is derived from the selection (`milestoneFocusKey`),
+ * so a null target means the picker does nothing and the menu stays where the
+ * selection puts it.
  */
 export function milestoneFocusTarget(model: DistrictMilestoneModel, eventKey: string, selection: DistrictMilestoneSelection): string | null {
   const event = model.byEvent.get(eventKey);
@@ -335,7 +357,7 @@ export function milestoneWalkNeighbours(
   let prev: DistrictMilestoneWalkItem | undefined;
   let next: DistrictMilestoneWalkItem | undefined;
   for (const item of walk) {
-    const delta = compareOrder(walkKey(model, item), key);
+    const delta = compareOrder(selectionKey(model, item), key);
     if (delta < 0) prev = item;
     else if (delta > 0 && next === undefined) next = item;
   }

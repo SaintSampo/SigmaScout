@@ -22,6 +22,7 @@ import {
   buildDistrictMilestones,
   defaultMilestoneFocus,
   districtMilestoneSelection,
+  milestoneFocusKey,
   milestoneFocusTarget,
   milestoneStopStates,
   milestoneWalkNeighbours,
@@ -354,6 +355,25 @@ describe("the event menu's focus", () => {
     expect(defaultMilestoneFocus(modelOf(timelineOf(noLive), noLive))).toBe("b");
     const preseason = [input("x", UNSTARTED, 0, "Xray"), input("y", undefined, 1, "Yankee")];
     expect(defaultMilestoneFocus(modelOf(timelineOf(preseason), preseason))).toBe("x");
+  });
+
+  it("shows a selection's own event, the first event at Start and the default at Live (261007-3ik)", () => {
+    expect(milestoneFocusKey(model, select(model, timeline, "b:awards"))).toBe("b");
+    expect(milestoneFocusKey(model, { kind: "start" })).toBe("a");
+    expect(milestoneFocusKey(model, { kind: "live" })).toBe("c");
+    expect(milestoneFocusKey(model, { kind: "live" })).toBe(defaultMilestoneFocus(model));
+    expect(milestoneFocusKey(model, { kind: "position", eventKey: "b", positionIndex: 1 })).toBe("b");
+    expect(milestoneFocusKey(model, { kind: "position", eventKey: null, positionIndex: 1 })).toBe("c");
+    expect(milestoneFocusKey(model, { kind: "position", eventKey: "zz", positionIndex: 1 })).toBe("c");
+    // The finished district Jacob hit on 2026pnw: Live sits on the last event,
+    // and Season start must move the menu to the first one.
+    const noLive = events.filter((event) => event.eventKey !== "c");
+    const finished = modelOf(timelineOf(noLive), noLive);
+    expect(milestoneFocusKey(finished, { kind: "start" })).toBe("a");
+    expect(milestoneFocusKey(finished, { kind: "live" })).toBe("b");
+    // Nothing has happened, so Start has no first milestone and falls back.
+    const preseason = [input("x", UNSTARTED, 0, "Xray"), input("y", undefined, 1, "Yankee")];
+    expect(milestoneFocusKey(modelOf(timelineOf(preseason), preseason), { kind: "start" })).toBe("x");
   });
 
   it("orders the events by their first step in the timeline", () => {

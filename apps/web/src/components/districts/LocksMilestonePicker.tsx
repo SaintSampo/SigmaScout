@@ -3,10 +3,15 @@
  * its eight milestones, instead of dragging through every match of the season.
  * Both the District Locks and the Champ Locks tab render this one component.
  *
- * THE URL IS THE ONLY SELECTION. The pressed stop, the pills, the arrows and
- * the Next text are all derived from `at` on every render; nothing here keeps a
- * selection of its own. The only local state is which event the menu shows,
- * because Season start and Live never move the menu (the sketch's behaviour).
+ * THE URL IS THE ONLY SELECTION. The picker keeps no local state at all. The
+ * pressed stop, the pills, the arrows, the Next text AND the event the menu
+ * shows are all derived from `at` on every render. Through `milestoneFocusKey`
+ * the menu shows a stop's own event, the season's first event at Season start,
+ * and the live event (else the latest started one) at Live. This departs from
+ * sketch 024 on purpose: the sketch left the menu alone on Season start and
+ * Live, so on a finished district the menu kept naming the last event while the
+ * Next text named the first, which Jacob reported on 2026-10-07 as "the event
+ * does not update" (quick task 261007-3ik).
  *
  * A CLICK COMMITS AT ONCE. Every control here is discrete, so the delayed
  * commit a dragged control needs has no job to do and is gone on purpose.
@@ -18,7 +23,7 @@
  * Every class below is a plain string bound to the `.locks-picker*` rules in
  * `theme.css`, never passed through `cn()`, and this file writes no colour.
  */
-import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
+import { useId, useMemo, type KeyboardEvent } from "react";
 import {
   DISTRICT_LEDGER_MILESTONE_GROUPS,
   DISTRICT_LEDGER_MILESTONE_SUB_WORDS,
@@ -39,12 +44,11 @@ import {
 } from "./districtLedgerCopy.js";
 import {
   buildDistrictMilestones,
-  defaultMilestoneFocus,
   districtMilestoneSelection,
+  milestoneFocusKey,
   milestoneFocusTarget,
   milestoneStopStates,
   milestoneWalkNeighbours,
-  selectionEventKey,
   walkItemAtId,
   type DistrictMilestoneEvent,
   type DistrictMilestoneEventInput,
@@ -109,20 +113,7 @@ export function LocksMilestonePicker({ timeline, events, at, positionIndex, onAt
   const selectId = useId();
   const model = useMemo(() => buildDistrictMilestones(timeline, events), [timeline, events]);
   const selection = districtMilestoneSelection(model, timeline, at, positionIndex);
-  const selectedEventKey = selectionEventKey(selection);
-
-  // Which event the menu shows. A selection that carries an event moves it;
-  // Season start and Live leave it where it was.
-  const [focusState, setFocusState] = useState<string | undefined>(() => selectedEventKey ?? defaultMilestoneFocus(model));
-  useEffect(() => {
-    if (selectedEventKey !== null) setFocusState(selectedEventKey);
-  }, [selectedEventKey]);
-  const focusKey =
-    selectedEventKey !== null && model.byEvent.has(selectedEventKey)
-      ? selectedEventKey
-      : focusState !== undefined && model.byEvent.has(focusState)
-        ? focusState
-        : defaultMilestoneFocus(model);
+  const focusKey = milestoneFocusKey(model, selection);
   const focused = focusKey === undefined ? undefined : model.byEvent.get(focusKey);
   const focusedName = focused === undefined ? "" : displayName(focused.input);
 
@@ -130,8 +121,10 @@ export function LocksMilestonePicker({ timeline, events, at, positionIndex, onAt
   const { prev, next } = milestoneWalkNeighbours(model, selection);
   const groups = useMemo(() => menuGroups(model.events), [model]);
 
+  // Every enabled option is a started event, whose Schedule stop has happened,
+  // so its target is never null. A null target is a deliberate no op: the
+  // controlled select snaps back to the event the selection derives.
   function handleEventChange(eventKey: string): void {
-    setFocusState(eventKey);
     const target = milestoneFocusTarget(model, eventKey, selection);
     if (target !== null) onAtChange(target);
   }
