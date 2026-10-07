@@ -47,6 +47,7 @@ import {
   parseSeasonsRange,
   buildProbeStubArtifact,
   publishSeasons,
+  qualificationRosterKeys,
   resolvePublishAlgorithms,
   RP_CALIBRATION_MEASUREMENT_PATH,
   seasonStatsMetricsForTeam,
@@ -64,6 +65,7 @@ import {
   type RpCalibrationMeasurement,
 } from "./publish.js";
 import { buildLiveWindowsManifest } from "./manifests.js";
+import { matchesPerTeamFor } from "./generatedSchedules.js";
 import {
   artifactKey,
   decodeTeamsRowMetrics,
@@ -4463,6 +4465,64 @@ describe("publishSeasons — pre-event walk-forward state, scheduleless events, 
     const keys = vi.mocked(putObject).mock.calls.map(([, key]) => key as string);
     expect(keys.some((key) => key.startsWith(`v1/presim/2026lat/${epa.id}@`))).toBe(true);
   });
+
+  it("the sidecar roster is the qualification field: a playoff only demo robot is not ranked, and matchesPerTeam follows the real field (261007-il9)", async () => {
+    const { lateEventKey, teamKeys } = seedTwoEventSeason(db);
+    upsertMatch(
+      db,
+      seasonMatch({
+        matchKey: `${lateEventKey}_sf1m1`,
+        eventKey: lateEventKey,
+        compLevel: "sf",
+        matchNumber: 1,
+        setNumber: 1,
+        sortTime: 12_000,
+        redTeams: ["frc9990", "frc9991", "frc9992"],
+        blueTeams: ["frc1", "frc2", "frc3"],
+        redScore: 90,
+        blueScore: 120,
+        winner: "blue",
+        redRpEarned: 0,
+        blueRpEarned: 0,
+      })
+    );
+
+    await publishSeasons(db, {
+      seasons: [2026],
+      algorithms: [fakeRpAlgorithm],
+      bucket: "test-bucket",
+      dryRun: false,
+      skipState: true,
+    });
+
+    const call = findPresimCall(lateEventKey, spr.id);
+    expect(call, "the event with a playoff only demo robot still gets its sidecar").toBeDefined();
+    const artifact = PublishedPreScheduleArtifactSchema.parse(JSON.parse(call![2] as string));
+    expect(artifact.roster).toEqual(teamKeys);
+    expect(artifact.matchesPerTeam).toBe(matchesPerTeamFor(teamKeys.length, 2));
+  });
+});
+
+describe("qualificationRosterKeys — the presim sidecar roster rule (261007-il9)", () => {
+  const row = (redTeams: string[], blueTeams: string[]) => ({ redTeams, blueTeams });
+
+  it("keeps only keys on a qualification row, in input order", () => {
+    const rows = [row(["frc2", "frc1", "frc3"], ["frc4", "frc5", "frc6"])];
+    expect(qualificationRosterKeys(["frc1", "frc2", "frc9990"], rows)).toEqual(["frc1", "frc2"]);
+  });
+
+  it("returns a copy of the input unchanged when there is no qualification row", () => {
+    const input = ["frc3", "frc1", "frc9990"];
+    const out = qualificationRosterKeys(input, []);
+    expect(out).toEqual(input);
+    expect(out).not.toBe(input);
+  });
+
+  it("counts a scheduled (unplayed) qualification row like a played one", () => {
+    const played = row(["frc1", "frc2", "frc3"], ["frc4", "frc5", "frc6"]);
+    const scheduled = row(["frc7", "frc1", "frc2"], ["frc3", "frc4", "frc5"]);
+    expect(qualificationRosterKeys(["frc1", "frc7", "frc9990"], [played, scheduled])).toEqual(["frc1", "frc7"]);
+  });
 });
 
 describe("buildCompareArtifact", () => {
@@ -5362,7 +5422,7 @@ describe("publishSeasons — the pre-schedule sidecar is built for SPR and EPA, 
       .filter((key) => key.startsWith(`v1/presim/${lateEventKey}/`));
     expect(presimKeys.some((key) => key.startsWith(`v1/presim/${lateEventKey}/${spr.id}@`)), "non-vacuous: SPR's sidecar is built").toBe(true);
     expect(presimKeys.some((key) => key.startsWith(`v1/presim/${lateEventKey}/${opr.id}@`))).toBe(false);
-    expect(epa.version).toBe("14.0.0+baseline");
+    expect(epa.version).toBe("15.0.0+baseline");
     expect(presimKeys.some((key) => key.startsWith(`v1/presim/${lateEventKey}/${epa.id}@${epa.version}`)), "EPA's own sidecar is built").toBe(true);
   });
 

@@ -1387,7 +1387,18 @@ export const epa = {
   // bump. Jacob's decision, on `260923-1tu-FINDINGS.md` item C6: the free
   // plan's 50-subrequest cap and then its 10 ms CPU cap were what held the
   // tier at one algorithm, and Workers Paid (2026-09-22) retired both.
-  version: "14.0.0+baseline",
+  //
+  // 15.0.0 (quick task 261007-il9, 2026-10-07): nothing in this file changed.
+  // EPA's pre schedule sidecars at the 13 events the todo
+  // presim-roster-demo-robots names take the qualification roster
+  // (`qualificationRosterKeys` in packages/harness/publish.ts), so a demo robot
+  // that played only playoffs is no longer ranked and matches per team follow
+  // the real field. The short roster bake rule from the same task does not
+  // reach EPA, because the district bake prices with SPR alone. `predict`,
+  // `update`, `teamMetrics` and `carrySeason` are untouched, so the epa
+  // `predictionStreamSha256` in `data/baselines/level1-digest-2026-09.json` is
+  // byte-unchanged across this bump. MAJOR because published numbers move.
+  version: "15.0.0+baseline",
   initState,
   predict,
   update,

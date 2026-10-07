@@ -114,7 +114,10 @@ describe("softCredit", () => {
     // carry become the production model. softCredit is untouched by it.
     // 10.0.0 (quick task 261004-uyc): offseason is a base tier RP event.
     // softCredit is untouched by it.
-    expect(SPR_VERSION).toBe("10.0.0+baseline");
+    // 11.0.0 (quick task 261007-il9): the presim sidecar roster is the
+    // qualification field and the district bake prices short rosters.
+    // softCredit is untouched by it.
+    expect(SPR_VERSION).toBe("11.0.0+baseline");
   });
 
   it("shipped research params enable it too, so the two modules match", async () => {

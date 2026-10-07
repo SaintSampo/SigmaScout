@@ -343,8 +343,28 @@ export const SPR_PARAMS: SprParams = {
  * beliefs. `predict()` is untouched, so the level-1 digest reproduces bitwise.
  * No ranking point state crosses a season boundary, so no other season moves.
  * The RP calibration was re-measured as data/baselines/rp-calibration-2026-10a.json.
+ *
+ * Bumped 10.0.0 to 11.0.0+baseline (quick task 261007-il9). Changelog entry,
+ * in the methodology voice:
+ *
+ *   The Before schedule release view ranks only teams that play or are
+ *   scheduled for a qualification match, the field The Blue Alliance ranks. A
+ *   demo robot that played only in the playoffs is no longer ranked, and
+ *   matches per team follow the real field. A district event registered with
+ *   fewer than 24 teams is priced before it starts, with whole alliances
+ *   seated from the top seed down and the rest forfeiting. Ratings, win
+ *   probabilities and scores are unchanged.
+ *
+ * MAJOR because published numbers move: the SPR sidecars at the 13 events the
+ * todo presim-roster-demo-robots names (261006-2mg) change roster and matches
+ * per team (`qualificationRosterKeys` in packages/harness/publish.ts). The
+ * bake's short roster rule (`insufficientRosterReason`, the same task) moves no
+ * published bake today, because no district event is unstarted at the
+ * republish; it reaches 2027 events and rewound Locks stops. `predict()` is
+ * untouched, so the level-1 digest reproduces bitwise and only its version
+ * string moved.
  */
-export const SPR_VERSION = "10.0.0+baseline";
+export const SPR_VERSION = "11.0.0+baseline";
 
 /**
  * The two-timescale state, described by what the FROZEN PARAMETERS actually do

@@ -1352,6 +1352,31 @@ class BoundedUploader {
 // Pre-schedule sidecar generation
 // ---------------------------------------------------------------------------
 
+/**
+ * The presim sidecar's roster: `eventTeamKeys` kept to the keys on any
+ * qualification row (played or scheduled), in input order, or a copy of
+ * `eventTeamKeys` when the event has no qualification row at all. That
+ * fallback is the web's `simulatedTeams` rule
+ * (apps/web/src/lib/simulationInputs.ts).
+ *
+ * TBA's qualification rankings list a demo robot that played quals and never
+ * one that played only playoffs (261006-2mg: 13 events, 26 live sidecars). The
+ * browser half shipped in 261006-2t0 (`simulatedTeams`); this is the
+ * publisher half (quick task 261007-il9, spr 11.0.0, epa 15.0.0).
+ */
+export function qualificationRosterKeys(
+  eventTeamKeys: readonly string[],
+  qualificationRows: readonly { readonly redTeams: readonly string[]; readonly blueTeams: readonly string[] }[]
+): string[] {
+  if (qualificationRows.length === 0) return [...eventTeamKeys];
+  const onQualRows = new Set<string>();
+  for (const row of qualificationRows) {
+    for (const teamKey of row.redTeams) onQualRows.add(teamKey);
+    for (const teamKey of row.blueTeams) onQualRows.add(teamKey);
+  }
+  return eventTeamKeys.filter((teamKey) => onQualRows.has(teamKey));
+}
+
 /** Everything `buildPreScheduleSidecarForEvent` needs to decide, price and serialize one (event, algorithm) pair's sidecar. */
 interface PreScheduleSidecarArgs {
   readonly eventKey: string;
@@ -1361,7 +1386,11 @@ interface PreScheduleSidecarArgs {
   /** The real event's TBA week (0-indexed) or `null`, passed through to every synthetic `UpcomingMatch`. */
   readonly week: number | null;
   readonly algorithm: AlgorithmModule<any>;
-  /** The published roster: match-derived when matches exist, registered (`event_teams`) otherwise. */
+  /**
+   * The teams on a qualification row, played or scheduled, when any exist, else the published roster
+   * (match-derived when matches exist, registered `event_teams` otherwise). See
+   * `qualificationRosterKeys` (quick task 261007-il9).
+   */
   readonly roster: readonly string[];
   /** Qualification matches (played + scheduled) in the corpus: the freeze predicate and `matchesPerTeamFor`'s input. */
   readonly qualMatchCount: number;
@@ -2576,6 +2605,13 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
         // The registered roster is used only when the match-derived one is empty, so never-played teams
         // are not added to standings. Sorted for determinism; match-derived rosters keep chronological order.
         const eventTeamKeys = matchDerivedTeamKeys.length > 0 ? matchDerivedTeamKeys : [...(registeredTeamKeys ?? [])].sort();
+        // The presim sidecar ranks the qualification field only (quick task 261007-il9): a demo robot
+        // that played only playoffs is no team there. `eventTeamKeys` itself, and everything that feeds
+        // `buildEventArtifact`, is untouched.
+        const presimRosterKeys = qualificationRosterKeys(eventTeamKeys, [
+          ...predictions.filter((p) => p.match.compLevel === "qm").map((p) => p.match),
+          ...scheduledForEvent.filter((m) => m.compLevel === "qm"),
+        ]);
         // The corpus was consulted, so a missing entry means `[]` ("zero rows"); hoisted so both the
         // builder's `alliances` argument and the `allianceTeams` computation below read one value.
         const eventAlliances = alliancesForSeason.get(e.event_key) ?? [];
@@ -2642,7 +2678,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
               eventType: e.event_type,
               week: e.week,
               algorithm,
-              roster: eventTeamKeys,
+              roster: presimRosterKeys,
               qualMatchCount: qualMatchCountByEvent.get(e.event_key) ?? 0,
               hasPreEventState: preEventStateForAlgo.has(e.event_key),
               preEventState: preEventStateForAlgo.get(e.event_key),
@@ -2660,7 +2696,7 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
                   // price is read at; otherwise the season-final Sigma Scores.
                   const sigmaByTeam =
                     sigmaCarryOn && state !== undefined
-                      ? candidateSigmaMap(rookieRuleRatings(layerForAlgo, eventTeamKeys, { algorithm, state }))
+                      ? candidateSigmaMap(rookieRuleRatings(layerForAlgo, presimRosterKeys, { algorithm, state }))
                       : sigmaByTeamForAlgo;
                   inputs = { accumulator: layerForAlgo.rpAccumulator, sigmaByTeam, meanShiftState: layerForAlgo.rpMeanShiftState() };
                 } else {
@@ -2673,13 +2709,13 @@ async function publishSeasonsWith(db: Corpus, options: PublishSeasonsOptions, up
                   }
                   inputs = preEventInputs;
                 }
-                const filler = rankingPointFillerFrom(inputs, rpRuleModule, eventTeamKeys);
+                const filler = rankingPointFillerFrom(inputs, rpRuleModule, presimRosterKeys);
                 // A refused roster produces no sidecar, and nothing downstream says why: name it here, once
                 // per event, with the teams that refused it.
-                const missing = teamsWithoutSigmaScore(inputs.sigmaByTeam, eventTeamKeys);
+                const missing = teamsWithoutSigmaScore(inputs.sigmaByTeam, presimRosterKeys);
                 if (filler === undefined && missing.length > 0) {
                   console.log(
-                    `publish: presim skip ${e.event_key} [${algorithm.id}]: the all-or-nothing ranking-point filler refused this roster; ${missing.length} of ${eventTeamKeys.length} team(s) have no ${pricedFrom === "current-state" ? "current" : "pre-event"} Sigma Score: ${missing.join(", ")}`
+                    `publish: presim skip ${e.event_key} [${algorithm.id}]: the all-or-nothing ranking-point filler refused this roster; ${missing.length} of ${presimRosterKeys.length} team(s) have no ${pricedFrom === "current-state" ? "current" : "pre-event"} Sigma Score: ${missing.join(", ")}`
                   );
                 }
                 return filler;

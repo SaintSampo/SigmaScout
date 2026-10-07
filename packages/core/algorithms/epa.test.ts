@@ -1849,7 +1849,7 @@ describe("epa — the optional component-map seam is inert at its default and li
   // and proven so by the replay assertions above. Pinning by equality is
   // what forces a version bump to be deliberate rather than a silent drift.
   it("carries exactly one version string, pinned by equality so any bump is deliberate", () => {
-    expect(epa.version).toBe("14.0.0+baseline");
+    expect(epa.version).toBe("15.0.0+baseline");
   });
 });
 

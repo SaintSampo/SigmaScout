@@ -151,7 +151,7 @@ other ~76 ms is Worker construction plus request/result transfer.
 
 | Input | Source |
 |---|---|
-| `roster` | match-derived when matches exist, `event_teams` otherwise; sorted — the sort **is** the published index space |
+| `roster` | since spr 11.0.0 (quick task 261007-il9, `qualificationRosterKeys`), the teams on a qualification row, played or scheduled, when any exist, so a demo robot that played only playoffs is not ranked; else the published roster (match-derived when matches exist, `event_teams` otherwise); sorted — the sort **is** the published index space |
 | `matchesPerTeam` | the real schedule's own when it exists, else Statbotics' 12 (10 for Champs divisions) |
 | pairing structure | `packages/harness/generatedSchedules.ts` — generates a fresh balanced structure per schedule, seeded from `eventKey`, `algorithmVersion`, a `generate` salt and `k`; needs no files |
 | `predict` closure | bound to the walk-forward **pre-event** state when the schedule has landed, **season-final** state when it hasn't and nothing has been played (`pricedFrom`). A played event with no qualification rows (a divisioned championship's finals-only parent, Einstein) gets **no sidecar** (spr 8.0.0) |

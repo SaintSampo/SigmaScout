@@ -622,7 +622,7 @@ describe("buildPreScheduleArtifact under EPA's own predict (quick task 260929-ma
     });
     const artifact = buildPreScheduleArtifact(params);
     expect(artifact).not.toBeNull();
-    expect(artifact!.algorithmVersion).toBe("14.0.0+baseline");
+    expect(artifact!.algorithmVersion).toBe("15.0.0+baseline");
     const priced = buildPricedSyntheticSchedules(params)!;
     const inputs = priced.simInputsBySchedule.flat();
     expect(inputs.length).toBeGreaterThan(0);
