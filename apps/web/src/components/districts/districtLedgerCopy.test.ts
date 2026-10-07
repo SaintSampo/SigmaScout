@@ -57,6 +57,7 @@ import {
   champLedgerFieldChanceLine,
   DISTRICT_LEDGER_MILESTONE_GROUPS,
   DISTRICT_LEDGER_MILESTONE_LONG_WORDS,
+  DISTRICT_LEDGER_MILESTONE_NARROW_SUB_WORDS,
   DISTRICT_LEDGER_MILESTONE_SUB_WORDS,
   LOCKS_PICKER_EVENT_LABEL,
   LOCKS_PICKER_LIVE,
@@ -151,7 +152,7 @@ describe("the UI-SPEC copy contract", () => {
     expect(DISTRICT_LEDGER_LOCKED_AWARD_LABEL).toBe("Locked · award");
   });
 
-  it("pins the Locks milestone picker's words, sketch 024 Q's own, with eight stops", () => {
+  it("pins the Locks milestone picker's words with thirteen stops: sketch 024 Q's own, FIRST's five rounds and the Finals (261007-3g2)", () => {
     expect(LOCKS_PICKER_EVENT_LABEL).toBe("Event");
     expect(LOCKS_PICKER_SEASON_START).toBe("Season start");
     expect(LOCKS_PICKER_LIVE).toBe("Live");
@@ -163,8 +164,8 @@ describe("the UI-SPEC copy contract", () => {
       "Schedule 1/2",
       "Qualification 2/6",
       "Alliances 6/7",
-      "Playoffs 7/8",
-      "Awards 8/9",
+      "Playoffs 7/13",
+      "Awards 13/14",
     ]);
     expect(Object.entries(DISTRICT_LEDGER_MILESTONE_SUB_WORDS)).toEqual([
       ["schedule", "Out"],
@@ -173,9 +174,15 @@ describe("the UI-SPEC copy contract", () => {
       ["q3", "¾"],
       ["qualsDone", "Done"],
       ["alliance", "Done"],
-      ["playoffs", "Done"],
+      ["round1", "R1"],
+      ["round2", "R2"],
+      ["round3", "R3"],
+      ["round4", "R4"],
+      ["round5", "R5"],
+      ["playoffs", "Finals"],
       ["awards", "Done"],
     ]);
+    expect(DISTRICT_LEDGER_MILESTONE_NARROW_SUB_WORDS).toEqual({ qualsDone: "Q", alliance: "A", playoffs: "F" });
     expect(Object.values(DISTRICT_LEDGER_MILESTONE_LONG_WORDS)).toEqual([
       "schedule released",
       "quals ¼ done",
@@ -183,9 +190,17 @@ describe("the UI-SPEC copy contract", () => {
       "quals ¾ done",
       "quals done",
       "alliance selection done",
-      "playoffs done",
+      "round 1 done",
+      "round 2 done",
+      "round 3 done",
+      "round 4 done",
+      "round 5 done",
+      "finals done",
       "awards done",
     ]);
+    expect(locksPickerMilestoneTitle("Belleville", "round1")).toBe("Belleville · Round 1 done");
+    expect(locksPickerMilestoneTitle("Belleville", "playoffs")).toBe("Belleville · Finals done");
+    expect(locksPickerStopLabel("Belleville", "playoffs", false)).toBe("Belleville finals done, not played yet");
     expect(locksPickerMilestoneTitle("Belleville", "q1")).toBe("Belleville · Quals ¼ done");
     expect(locksPickerMilestoneTitle("Belleville", "alliance")).toBe("Belleville · Alliance selection done");
     expect(locksPickerStopLabel("Belleville", "q1", true)).toBe("Belleville quals ¼ done");
@@ -214,7 +229,9 @@ describe("the UI-SPEC copy contract", () => {
       LOCKS_PICKER_THIS_IS_LIVE,
       ...DISTRICT_LEDGER_MILESTONE_GROUPS.map((group) => group.label),
       ...Object.values(DISTRICT_LEDGER_MILESTONE_SUB_WORDS),
+      ...Object.values(DISTRICT_LEDGER_MILESTONE_NARROW_SUB_WORDS),
       ...Object.values(DISTRICT_LEDGER_MILESTONE_LONG_WORDS),
+      locksPickerMilestoneTitle("Belleville", "round4"),
       locksPickerMilestoneTitle("Belleville", "q3"),
       locksPickerStopLabel("Belleville", "playoffs", false),
       locksPickerNextText("Belleville · Awards done"),

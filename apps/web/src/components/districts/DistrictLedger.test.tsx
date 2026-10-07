@@ -1064,6 +1064,32 @@ function doneEventArtifact(): EventArtifact {
   });
 }
 
+/**
+ * The finished event's artifact with its bracket: the eight alliances of
+ * `playoffEventArtifact` and its seven played sf rows (Round 1 and three of
+ * Round 2), after the last qualification row. For the round stops (261007-3g2).
+ */
+function doneBracketEventArtifact(): EventArtifact {
+  const done = doneEventArtifact();
+  const sf = PLAYOFF_ELIM_WINNERS.map((row) => ({
+    matchKey: `2026wadone_sf${String(row.setNumber)}m1`,
+    compLevel: "sf" as const,
+    setNumber: row.setNumber,
+    matchNumber: 1,
+    sortTime: 1_770_000_000 + row.setNumber * 600,
+    redTeams: allianceRoster(row.red),
+    blueTeams: allianceRoster(row.blue),
+    predictedWinner: "red" as const,
+    pRedWin: 0.5,
+    predictedRedScore: 100,
+    predictedBlueScore: 100,
+    actualWinner: row.winner === row.red ? ("red" as const) : ("blue" as const),
+    actualRedScore: row.winner === row.red ? 110 : 90,
+    actualBlueScore: row.winner === row.red ? 90 : 110,
+  }));
+  return EventArtifactSchema.parse({ ...done, matches: [...done.matches, ...sf], alliances: PLAYOFF_ALLIANCES });
+}
+
 function renderLedgerAt(artifact: DistrictArtifact, initialEntry: string) {
   render(
     <TestHarness initialEntry={initialEntry}>
@@ -1086,17 +1112,18 @@ describe("DistrictLedger — the milestone picker", () => {
 
   const finishedDistrict = () => artifactOf(ROSTER.map((teamKey) => districtTeam(teamKey)));
 
-  /** The picker's eight stops, in render order. */
+  /** The picker's thirteen stops, in render order. */
   const stops = () => [...within(screen.getByTestId("district-ledger-rewind")).getAllByRole("button")].filter((button) => button.hasAttribute("data-milestone"));
   const stop = (key: string) => screen.getByTestId("district-ledger-rewind").querySelector(`[data-milestone="${key}"]`)!;
 
-  it("renders the milestone picker at now: eight stops in order, Live pressed, and nothing after it", async () => {
+  it("renders the milestone picker at now: thirteen stops in order, Live pressed, and nothing after it", async () => {
     installFetch();
     handle = installMockWorker({ script: realRunScript });
     renderLedger(finishedDistrict());
 
     await waitFor(() => expect(screen.getByTestId("district-ledger-rewind")).toBeDefined());
     expect(stops().map((button) => button.getAttribute("data-milestone"))).toEqual([...DISTRICT_MILESTONE_KEYS]);
+    expect(stops()).toHaveLength(13);
     // A finished event: every stop has happened, so every stop is solid and clickable.
     for (const button of stops()) expect((button as HTMLButtonElement).disabled).toBe(false);
     expect(screen.getByTestId("locks-picker-live").getAttribute("aria-pressed")).toBe("true");
@@ -1190,6 +1217,24 @@ describe("DistrictLedger — the milestone picker", () => {
     await waitFor(() => expect(screen.getByTestId("locks-picker-live").getAttribute("aria-pressed")).toBe("true"));
     expect(stops().some((button) => button.getAttribute("aria-pressed") === "true")).toBe(false);
     expect(screen.getByTestId("district-ledger-tab")).toBeDefined();
+  });
+
+  it("presses Round 1 at ?at=<event>:round:1 once the artifact loads, leaves the event's Playoffs cell open, and conditions the run on Round 1's sets (261007-3g2)", async () => {
+    installFetch({ eventArtifact: doneBracketEventArtifact() });
+    handle = installMockWorker({ script: realRunScript });
+
+    renderLedgerAt(finishedDistrict(), "/districts?algorithm=spr&at=2026wadone%3Around%3A1");
+    await waitFor(() => expect(stop("round1").getAttribute("aria-pressed")).toBe("true"));
+    expect(stops().filter((button) => button.getAttribute("aria-pressed") === "true")).toHaveLength(1);
+    await waitFor(() => {
+      expect(document.querySelector('[data-cell-id="2026wadone:elim"]')?.getAttribute("data-cell")).toBe("open");
+    });
+    await waitFor(() => expect(instancesReceiving(handle!, "run").length).toBeGreaterThan(0));
+    const runs = instancesReceiving(handle, "run");
+    type RunRequest = { type: string; events: { eventKey: string; input: { playedElimMatches?: { setNumber: number }[] } }[] };
+    const request = runs[runs.length - 1]!.received.find((message) => (message as { type?: string }).type === "run") as RunRequest;
+    expect(request.events.map((event) => event.eventKey)).toEqual(["2026wadone"]);
+    expect(request.events[0]!.input.playedElimMatches?.map((match) => match.setNumber)).toEqual([1, 2, 3, 4]);
   });
 
   it("round trips a Schedule link through its alias: Schedule pressed, and the event's qualification reopens once its artifact loads", async () => {

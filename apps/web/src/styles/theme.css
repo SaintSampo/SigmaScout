@@ -1395,9 +1395,12 @@ body {
  * - four derived tokens below stand in for the sketch's accent-soft, track,
  *   chrome and live colours, each built from a shipped token, so this block
  *   adds no palette entry and writes no literal colour;
- * - the stepper has EIGHT columns, not nine, because the Playoffs half stop is
- *   not modelled yet: `repeat(8, ...)`, a line inset of `100% / 16`, a fill of
- *   `/ 7` and a now marker at `/ 8` (the last two are inline in the component);
+ * - the stepper has one column per stop, thirteen since quick task 261007-3g2
+ *   (FIRST's five playoff rounds and the Finals replace the sketch's Playoffs
+ *   half stop). The count is the `--locks-picker-stops` custom property the
+ *   component sets from `DISTRICT_MILESTONE_KEYS`: the grid repeats it, the
+ *   line insets half a column, and the fill (`/ (count - 1)`) and the now
+ *   marker (`/ count`) are inline in the component;
  * - the sketch's page-wide rules (the body font, `:focus-visible`, the 520px
  *   rule and reduced motion) are scoped to the picker;
  * - Tailwind's preflight zeroes borders, margins and padding and makes button
@@ -1563,11 +1566,12 @@ body {
 .locks-picker-stepper {
   margin-top: 6px;
 }
-/* ports .stp-g, .stp-t (eight columns) */
+/* ports .stp-g, .stp-t: one column per stop. The count comes from the TSX
+   (LocksMilestonePicker.tsx sets --locks-picker-stops from DISTRICT_MILESTONE_KEYS). */
 .locks-picker-groups,
 .locks-picker-track {
   display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--locks-picker-stops), minmax(0, 1fr));
 }
 /* ports .stp-g span */
 .locks-picker-groups > span {
@@ -1586,11 +1590,11 @@ body {
   position: relative;
   margin-top: 4px;
 }
-/* ports .stp-line (eight columns: centre of the first stop to centre of the last) */
+/* ports .stp-line (centre of the first stop to centre of the last: half a column in from each side, the count from the TSX) */
 .locks-picker-line {
   position: absolute;
-  left: calc(100% / 16);
-  right: calc(100% / 16);
+  left: calc(100% / (2 * var(--locks-picker-stops)));
+  right: calc(100% / (2 * var(--locks-picker-stops)));
   top: 17px;
   height: 3px;
   background: var(--locks-picker-track);
@@ -1704,6 +1708,15 @@ body {
 /* ports @media (max-width:520px) { .stp-b .t { font-size: 11px } } */
 @media (max-width: 520px) {
   .locks-picker-stop-label {
+    font-size: 11px;
+  }
+  /* A stop with a narrow word (data-short) prints it instead of its sub word at
+     phone width; the pressed colour and weight inherit. */
+  .locks-picker-stop-label[data-short] {
+    font-size: 0;
+  }
+  .locks-picker-stop-label[data-short]::after {
+    content: attr(data-short);
     font-size: 11px;
   }
 }

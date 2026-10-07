@@ -1,7 +1,16 @@
 /**
- * The Locks milestone picker (sketch 024 variant Q): pick an event, then one of
- * its eight milestones, instead of dragging through every match of the season.
- * Both the District Locks and the Champ Locks tab render this one component.
+ * The Locks milestone picker (sketch 024 variant Q): pick an event, then
+ * one of its thirteen milestones, instead of dragging through every match of
+ * the season. Both the District Locks and the Champ Locks tab render this one
+ * component.
+ *
+ * THE GEOMETRY FOLLOWS THE STOP COUNT (quick task 261007-3g2). The stepper sets
+ * `--locks-picker-stops` from `DISTRICT_MILESTONE_KEYS.length`; `theme.css`
+ * reads it for the grid columns and the line inset, and the fill and the now
+ * mark below divide by the same count, so a new stop never needs a literal
+ * changed in two files. At phone width a stop with a narrow word
+ * (`DISTRICT_LEDGER_MILESTONE_NARROW_SUB_WORDS`) prints it through
+ * `data-short`; its accessible name keeps the long words.
  *
  * THE URL IS THE ONLY SELECTION. The picker keeps no local state at all. The
  * pressed stop, the pills, the arrows, the Next text AND the event the menu
@@ -23,9 +32,10 @@
  * Every class below is a plain string bound to the `.locks-picker*` rules in
  * `theme.css`, never passed through `cn()`, and this file writes no colour.
  */
-import { useId, useMemo, type KeyboardEvent } from "react";
+import { useId, useMemo, type CSSProperties, type KeyboardEvent } from "react";
 import {
   DISTRICT_LEDGER_MILESTONE_GROUPS,
+  DISTRICT_LEDGER_MILESTONE_NARROW_SUB_WORDS,
   DISTRICT_LEDGER_MILESTONE_SUB_WORDS,
   LOCKS_PICKER_EVENT_LABEL,
   LOCKS_PICKER_LIVE,
@@ -43,6 +53,7 @@ import {
   locksPickerUpCaption,
 } from "./districtLedgerCopy.js";
 import {
+  DISTRICT_MILESTONE_KEYS,
   buildDistrictMilestones,
   districtMilestoneSelection,
   milestoneFocusKey,
@@ -56,6 +67,12 @@ import {
   type DistrictMilestoneWalkItem,
 } from "./districtMilestones.js";
 import { DISTRICT_TIMELINE_NOW_ID, DISTRICT_TIMELINE_SEASON_START_ID, type DistrictTimeline } from "./districtTimeline.js";
+
+/** How many stops every event carries; the stepper's columns, line and marks all derive from it. */
+const STOP_COUNT = DISTRICT_MILESTONE_KEYS.length;
+
+/** The stepper's inline style: the stop count as the custom property `theme.css` reads. */
+const STEPPER_STYLE = { "--locks-picker-stops": String(STOP_COUNT) } as CSSProperties;
 
 export interface LocksMilestonePickerProps {
   readonly timeline: DistrictTimeline;
@@ -194,7 +211,7 @@ export function LocksMilestonePicker({ timeline, events, at, positionIndex, onAt
           {LOCKS_PICKER_LIVE}
         </button>
       </div>
-      <div className="locks-picker-stepper">
+      <div className="locks-picker-stepper" style={STEPPER_STYLE}>
         <div className="locks-picker-groups">
           {DISTRICT_LEDGER_MILESTONE_GROUPS.map((group) => (
             <span key={group.label} style={{ gridColumn: `${String(group.from)} / ${String(group.to)}` }}>
@@ -204,7 +221,7 @@ export function LocksMilestonePicker({ timeline, events, at, positionIndex, onAt
         </div>
         <div className="locks-picker-track">
           <div className="locks-picker-line">
-            <span className="locks-picker-line-fill" style={{ width: `${String(stops.fillStop >= 0 ? (stops.fillStop / 7) * 100 : 0)}%` }} />
+            <span className="locks-picker-line-fill" style={{ width: `${String(stops.fillStop >= 0 ? (stops.fillStop / (STOP_COUNT - 1)) * 100 : 0)}%` }} />
           </div>
           {(focused?.milestones ?? []).map((milestone, index) => (
             <button
@@ -218,14 +235,16 @@ export function LocksMilestonePicker({ timeline, events, at, positionIndex, onAt
               onClick={() => onAtChange(milestone.atId)}
             >
               <span className="locks-picker-dot" />
-              <span className="locks-picker-stop-label">{DISTRICT_LEDGER_MILESTONE_SUB_WORDS[milestone.key]}</span>
+              <span className="locks-picker-stop-label" data-short={DISTRICT_LEDGER_MILESTONE_NARROW_SUB_WORDS[milestone.key]}>
+                {DISTRICT_LEDGER_MILESTONE_SUB_WORDS[milestone.key]}
+              </span>
             </button>
           ))}
           <span
             className="locks-picker-now"
             data-testid="locks-picker-now"
             hidden={stops.nowBoundary === null}
-            style={stops.nowBoundary === null ? undefined : { left: `calc(${String(stops.nowBoundary)} * 100% / 8)` }}
+            style={stops.nowBoundary === null ? undefined : { left: `calc(${String(stops.nowBoundary)} * 100% / ${String(STOP_COUNT)})` }}
           >
             {LOCKS_PICKER_NOW_MARK}
           </span>

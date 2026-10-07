@@ -40,7 +40,7 @@
  * never gets one, so no bracket is ever fabricated. Playoff rows never become
  * `match` steps: every remaining-rows helper below counts qualification rows.
  */
-import { BRACKET_ROUNDS, bracketRoundOfSet, bracketSetIdFor } from "../../../../../packages/core/districts/bracket.js";
+import { BRACKET_REGISTERED_SEASONS, BRACKET_ROUNDS, bracketRoundOfSet, bracketSetIdFor } from "../../../../../packages/core/districts/bracket.js";
 import { sortTimeToEpochMs } from "../../lib/liveEvent.js";
 import { buildQualRows } from "../../lib/simulationInputs.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
@@ -312,8 +312,9 @@ export function buildDistrictTimeline(options: BuildDistrictTimelineOptions): Di
       // ROUND STEPS, ONLY FOR THE EIGHT-ALLIANCE BRACKET (quick task
       // 261007-3g2). A divisioned DCMP parent publishes 2 or 4 alliances and
       // runs no `BRACKET_SETS` bracket, so reading its sf rows as rounds would
-      // fabricate one. A round with no played, timed row gets no step at all.
-      if (artifact.alliances?.length === 8) {
+      // fabricate one, and so would a season before 2023, whose sf rows were a
+      // different bracket. A round with no played, timed row gets no step at all.
+      if (artifact.alliances?.length === 8 && BRACKET_REGISTERED_SEASONS.includes(artifact.season)) {
         const lastByRound = new Map<number, { sortMs: number; matchKey: string }>();
         const decidedSets = new Set<string>();
         for (const match of artifact.matches) {

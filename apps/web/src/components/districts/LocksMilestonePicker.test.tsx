@@ -101,13 +101,13 @@ describe("LocksMilestonePicker — the focused event's state", () => {
     expect(select().value).toBe("b");
     const now = screen.getByTestId("locks-picker-now");
     expect(now.hidden).toBe(false);
-    // Written as `calc(3 * 100% / 8)`; jsdom folds the constant arithmetic into one percentage.
-    expect(["calc(3 * 100% / 8)", "calc(37.5%)"]).toContain(now.style.left);
+    // Written as `calc(3 * 100% / 13)`; jsdom may fold the constant arithmetic into one percentage.
+    expect(["calc(3 * 100% / 13)", "calc(23.0769%)"]).toContain(now.style.left);
     expect(now.textContent).toBe("now");
     expect(screen.getByTestId("locks-picker-caption").textContent).toBe(
       "Bravo is live. Milestones past the red line have not happened yet; use Live for the current state."
     );
-    expect(stops().map((button) => button.disabled)).toEqual([false, false, false, true, true, true, true, true]);
+    expect(stops().map((button) => button.disabled)).toEqual([false, false, false, true, true, true, true, true, true, true, true, true, true]);
     for (const button of stops().slice(3)) expect(button.getAttribute("aria-label") ?? "").toMatch(/, not played yet$/);
     expect(stop("q1").getAttribute("aria-label")).toBe("Bravo quals ¼ done");
   });
@@ -116,7 +116,7 @@ describe("LocksMilestonePicker — the focused event's state", () => {
     renderPicker({ events: [input("x", "Xray", 0, UNSTARTED), input("y", "Yankee", 1, undefined)] });
     expect(select().value).toBe("x");
     expect(screen.getByTestId("locks-picker-caption").textContent).toBe("Xray has not started. Its milestones open as they happen.");
-    expect(stops()).toHaveLength(8);
+    expect(stops()).toHaveLength(13);
     for (const button of stops()) expect(button.disabled).toBe(true);
     for (const option of select().querySelectorAll("option")) expect(option.disabled).toBe(true);
     expect(screen.getByTestId("locks-picker-now").hidden).toBe(true);
@@ -223,23 +223,78 @@ describe("LocksMilestonePicker — the event menu", () => {
     renderPicker({ at: "a:m:a_qm7", artifacts: [["a", eventArtifact("a", 12)]] });
     expect(select().value).toBe("a");
     expect(stops().some((button) => button.getAttribute("aria-pressed") === "true")).toBe(false);
-    expect(stops().map((button) => button.classList.contains("locks-picker-stop--done"))).toEqual([true, true, true, false, false, false, false, false]);
+    expect(stops().map((button) => button.classList.contains("locks-picker-stop--done"))).toEqual([
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+    ]);
   });
 });
 
-describe("LocksMilestonePicker — the eight column stepper", () => {
-  it("labels five groups over eight stops, with no half playoffs stop", () => {
+describe("LocksMilestonePicker — the thirteen column stepper (261007-3g2)", () => {
+  it("labels five groups over thirteen stops, the Playoffs group spanning Round 1 to Round 5 and the Finals", () => {
     renderPicker();
     const groups = [...screen.getByTestId("district-ledger-rewind").querySelectorAll<HTMLElement>(".locks-picker-groups > span")];
     expect(groups.map((group) => [group.textContent, group.style.gridColumn])).toEqual([
       ["Schedule", "1 / 2"],
       ["Qualification", "2 / 6"],
       ["Alliances", "6 / 7"],
-      ["Playoffs", "7 / 8"],
-      ["Awards", "8 / 9"],
+      ["Playoffs", "7 / 13"],
+      ["Awards", "13 / 14"],
     ]);
-    expect(stops().map((button) => button.getAttribute("data-milestone"))).toEqual(["schedule", "q1", "q2", "q3", "qualsDone", "alliance", "playoffs", "awards"]);
-    expect(stops().map((button) => button.textContent)).toEqual(["Out", "¼", "½", "¾", "Done", "Done", "Done", "Done"]);
+    expect(stops()).toHaveLength(13);
+    expect(stops().map((button) => button.getAttribute("data-milestone"))).toEqual([
+      "schedule",
+      "q1",
+      "q2",
+      "q3",
+      "qualsDone",
+      "alliance",
+      "round1",
+      "round2",
+      "round3",
+      "round4",
+      "round5",
+      "playoffs",
+      "awards",
+    ]);
+    expect(stops().map((button) => button.textContent)).toEqual(["Out", "¼", "½", "¾", "Done", "Done", "R1", "R2", "R3", "R4", "R5", "Finals", "Done"]);
+    // Quals done, Alliances done and Finals carry a narrow word for phone width
+    // (measured at 375px); the accessible name keeps the long one.
+    const shorts = stops().map((button) => button.querySelector(".locks-picker-stop-label")!.getAttribute("data-short"));
+    expect(shorts).toEqual([null, null, null, null, "Q", "A", null, null, null, null, null, "F", null]);
+    expect(stop("playoffs").getAttribute("aria-label")).toBe("Bravo finals done, not played yet");
+  });
+
+  it("sets the stop count as --locks-picker-stops and divides the fill by the count less one", () => {
+    renderPicker({ at: "a:alliance" });
+    const stepper = screen.getByTestId("district-ledger-rewind").querySelector<HTMLElement>(".locks-picker-stepper")!;
+    expect(stepper.style.getPropertyValue("--locks-picker-stops")).toBe("13");
+    const fill = screen.getByTestId("district-ledger-rewind").querySelector<HTMLElement>(".locks-picker-line-fill")!;
+    expect(fill.style.width).toBe(`${String((5 / 12) * 100)}%`);
+    cleanup();
+    renderPicker({ at: "a:awards" });
+    expect(screen.getByTestId("district-ledger-rewind").querySelector<HTMLElement>(".locks-picker-line-fill")!.style.width).toBe("100%");
+  });
+
+  it("presses Round 2 at ?at=a:round:2 and reads ?at=a:round:6 as Live", () => {
+    const { rerenderAt } = renderPicker({ at: "a:round:2" });
+    expect(select().value).toBe("a");
+    expect(stop("round2").getAttribute("aria-pressed")).toBe("true");
+    expect(stop("round2").getAttribute("aria-label")).toBe("Alpha round 2 done");
+    expect(screen.getByTestId("locks-picker-next-text").textContent).toBe("Next: Alpha · Round 3 done");
+    rerenderAt("a:round:6");
+    expect(screen.getByTestId("locks-picker-live").getAttribute("aria-pressed")).toBe("true");
   });
 });
 
@@ -255,7 +310,7 @@ describe("LocksMilestonePicker — no rewind note (261005-5g0)", () => {
   }
 });
 
-describe("the picker's CSS contract (sketch 024 Q, eight columns)", () => {
+describe("the picker's CSS contract (sketch 024 Q, columns from the stop count)", () => {
   // `core.autocrlf` is true on this machine, so a checkout can carry CRLF.
   const css = readFileSync(THEME_CSS_PATH, "utf8").replace(/\r\n/g, "\n");
   // From the header comment's own opening, so stripping comments below removes it whole.
@@ -268,9 +323,12 @@ describe("the picker's CSS contract (sketch 024 Q, eight columns)", () => {
     expect(end).toBeGreaterThan(start);
   });
 
-  it("carries the eight column geometry and the sketch's own sizes", () => {
-    expect(block).toContain("repeat(8, minmax(0, 1fr))");
-    expect(block).toContain("calc(100% / 16)");
+  it("carries the stop count geometry and the sketch's own sizes", () => {
+    expect(block).toContain("repeat(var(--locks-picker-stops), minmax(0, 1fr))");
+    expect(block).toContain("calc(100% / (2 * var(--locks-picker-stops)))");
+    expect(block).not.toContain("repeat(8,");
+    expect(block).toMatch(/\.locks-picker-stop-label\[data-short\] \{[^}]*font-size: 0;/);
+    expect(block).toMatch(/\.locks-picker-stop-label\[data-short\]::after \{[^}]*content: attr\(data-short\);[^}]*font-size: 11px;/);
     expect(block).toContain("border: 5px solid");
     expect(block).toContain("0 0 0 4px var(--locks-picker-accent-soft)");
     expect(block).toMatch(/\[aria-pressed="true"\] \.locks-picker-dot \{[^}]*width: 20px;[^}]*height: 20px;/);
