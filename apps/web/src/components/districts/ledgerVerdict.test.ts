@@ -267,7 +267,24 @@ describe("buildVerdictModel on an outcome cell", () => {
     expect(model.chart.kind).toBe("outcomes");
     if (model.chart.kind !== "outcomes") return;
     expect(model.chart.label).toBe("Playoff outcomes");
-    expect(model.chart.rows.map((row) => row.key)).toEqual(["winner", "finalist", "third", "fourth", "none"]);
+    // The implicit row is gone from the list (261007-3ik) while the headline
+    // and tiles above still count it.
+    expect(model.chart.rows.map((row) => row.key)).toEqual(["winner", "finalist", "third", "fourth"]);
+  });
+
+  it("heads an alliance placed sixth with the implicit outcome and lists no rows (261007-3ik)", () => {
+    const counts = sparse(CEILINGS.elim, [[0, 100]]);
+    const model = buildVerdictModel(
+      baseInput(openCell("elim", counts, CEILINGS.elim, { playoffMilestone: { kind: "placed", placement: 6, points: 0 } }), { cellTitle: "Playoffs" })
+    );
+    expect(model.headline).toBe("Out before the top four in 100 of 100 runs.");
+    expect(model.tiles).toEqual([
+      { key: "mostLikely", label: "most likely", value: "Out before the top four" },
+      { key: "chanceOfPoints", label: "chance of points", value: "0%" },
+    ]);
+    expect(model.chart.kind).toBe("outcomes");
+    if (model.chart.kind !== "outcomes") return;
+    expect(model.chart.rows).toEqual([]);
   });
 
   it("breaks an exact tie toward the row that pays more", () => {
@@ -289,6 +306,7 @@ describe("buildVerdictModel on an outcome cell", () => {
     const award = buildVerdictModel(baseInput(openCell("award", counts, CEILINGS.award)));
     expect(award.headline).toBe("No award in 78 of 100 runs.");
     expect(award.tiles[1]!.value).toBe("22%");
+    expect(award.chart.kind === "outcomes" ? award.chart.rows.map((row) => row.key) : []).toEqual(["impact", "judged"]);
 
     const elimCounts = sparse(CEILINGS.elim * 2, [
       [0, 50],
@@ -331,6 +349,8 @@ describe("buildVerdictModel on an outcome cell", () => {
     const model = buildVerdictModel(baseInput(routed));
     expect(model.headline).toBe("Not selected in 56 of 100 runs.");
     expect(model.tiles[1]!.value).toBe("44%");
+    // The Alliance list keeps its Not selected row; only Playoffs and Awards drop theirs.
+    expect(model.chart.kind === "outcomes" ? model.chart.rows.at(-1)?.key : undefined).toBe("notSelected");
 
     const baked = openCell("alliance", counts, CEILINGS.alliance);
     expect(verdictOutcomeRows(baked, SEASON, "district", false, true)).toBeUndefined();

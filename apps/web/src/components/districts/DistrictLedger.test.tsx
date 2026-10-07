@@ -1453,11 +1453,12 @@ describe("DistrictLedger — the drawer", () => {
     fireEvent.click(cellButton("2026walive:elim"));
     const list = await screen.findByTestId("district-ledger-drawer-outcomes");
     expect(screen.queryByTestId("district-ledger-drawer-cell-plot")).toBeNull();
-    // Every named playoff outcome, ordered by points descending.
+    // Every playoff outcome that pays points, ordered by points descending; the
+    // implicit "Out before the top four" row is not listed (261007-3ik).
     const rows = within(list).getAllByTestId("district-ledger-outcome-row");
-    expect(rows.map((row) => row.getAttribute("data-outcome"))).toEqual(["winner", "finalist", "third", "fourth", "none"]);
+    expect(rows.map((row) => row.getAttribute("data-outcome"))).toEqual(["winner", "finalist", "third", "fourth"]);
     expect(list.textContent ?? "").toContain(DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.winner);
-    expect(list.textContent ?? "").toContain(DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.none);
+    expect(list.textContent ?? "").not.toContain(DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.none);
   });
 
   it("prints each playoff outcome's own point value, from the placement table and not from the axis", async () => {
@@ -1470,7 +1471,7 @@ describe("DistrictLedger — the drawer", () => {
     expect(pointsOf("finalist")).toBe("20 pts");
     expect(pointsOf("third")).toBe("13 pts");
     expect(pointsOf("fourth")).toBe("7 pts");
-    expect(pointsOf("none")).toBe("0 pts");
+    expect(list.querySelector('[data-outcome="none"]')).toBeNull();
   });
 
   it("renders an OUTCOME LIST for the Awards cell, and omits Rookie All Star for a veteran", async () => {
@@ -1479,9 +1480,11 @@ describe("DistrictLedger — the drawer", () => {
     const list = await screen.findByTestId("district-ledger-drawer-outcomes");
     expect(screen.queryByTestId("district-ledger-drawer-cell-plot")).toBeNull();
     const rows = within(list).getAllByTestId("district-ledger-outcome-row");
-    // The fixture's teams are veterans, so Rookie All Star is not an outcome.
-    expect(rows.map((row) => row.getAttribute("data-outcome"))).toEqual(["impact", "judged", "none"]);
+    // The fixture's teams are veterans, so Rookie All Star is not an outcome,
+    // and the implicit "No award" row is not listed (261007-3ik).
+    expect(rows.map((row) => row.getAttribute("data-outcome"))).toEqual(["impact", "judged"]);
     expect(list.textContent ?? "").not.toContain(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS.rookieAllStar);
+    expect(list.textContent ?? "").not.toContain(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS.none);
   });
 
   it("lists Rookie All Star for a ROOKIE, at its own point value", async () => {
@@ -1501,7 +1504,6 @@ describe("DistrictLedger — the drawer", () => {
       "impact",
       "rookieAllStar",
       "judged",
-      "none",
     ]);
     expect(list.querySelector('[data-outcome="rookieAllStar"] .district-ledger-verdict-outcomes__points')?.textContent).toBe("8 pts");
   });

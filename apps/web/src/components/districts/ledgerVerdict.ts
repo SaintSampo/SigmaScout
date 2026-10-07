@@ -133,8 +133,11 @@ export class MissingTotalContextError extends Error {
 }
 
 /**
- * The named outcome rows a cell lists instead of drawing a histogram, or
- * `undefined` where it draws one (an empty row list included).
+ * The named outcome rows a cell prices instead of drawing a histogram, or
+ * `undefined` where it draws one (an empty row list included). Every row comes
+ * back, the implicit zero point row too, because the headline and the tiles
+ * read it; `buildVerdictModel` drops that row from the rendered Playoffs and
+ * Awards lists (261007-3ik).
  *
  * THE ALLIANCE SELECTION LIST is chosen by DATA, not by category: a run that
  * reported its routes can name them, and a baked event's pmf cannot. Playoffs
@@ -242,11 +245,19 @@ export function buildVerdictModel(input: BuildVerdictModelInput): VerdictModel {
     let top = outcomes.rows[0]!;
     for (const row of outcomes.rows) if (row.chance > top.chance) top = row;
     const chanceOfPoints = outcomes.rows.reduce((sum, row) => ((row.pointsHigh ?? row.points) > 0 ? sum + row.chance : sum), 0);
+    // The "Out before the top four" and "No award" rows are implicit, and Jacob
+    // asked for them gone from the drawer list (quick task 261007-3ik,
+    // 2026-10-07). The headline and both tiles still read them, which is why
+    // this filter runs after `top` and `chanceOfPoints`. It tests the cell kind,
+    // so the Alliance selection list keeps its Not selected row by construction.
+    // An alliance already placed fifth to eighth lists only the implicit row and
+    // so renders zero rows; `DistrictOutcomeList` draws nothing for that.
+    const shownRows = cell.cell === "elim" || cell.cell === "award" ? outcomes.rows.filter((row) => row.key !== "none") : outcomes.rows;
     return {
       eyebrow,
       headline: districtLedgerVerdictOutcomeHeadline(top.label, top.chance),
       tiles: [tile("mostLikely", top.label), tile("chanceOfPoints", districtLedgerVerdictChanceOfPoints(chanceOfPoints))],
-      chart: { kind: "outcomes", label: outcomes.label, rows: outcomes.rows },
+      chart: { kind: "outcomes", label: outcomes.label, rows: shownRows },
       sourceChips,
     };
   }
