@@ -44,6 +44,7 @@ import { BRACKET_REGISTERED_SEASONS, BRACKET_ROUNDS, bracketRoundOfSet, bracketS
 import { sortTimeToEpochMs } from "../../lib/liveEvent.js";
 import { buildQualRows } from "../../lib/simulationInputs.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
+import type { DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
 import { DISTRICT_CATEGORIES, type DistrictCategory, type DistrictStageFinality } from "./districtLedgerRows.js";
 
 /** The kinds of step, in the order they occur within one event. The ordinal doubles as the within-instant tie-break. */
@@ -74,6 +75,8 @@ export interface DistrictTimelineStep {
   readonly eventName: string;
   readonly week: number | null;
   readonly matchKey: string | undefined;
+  /** The event's tier where the caller supplied one (the champ tab's rail spans both tiers). Read only by the same week tie break in `compareSteps`. */
+  readonly tier?: DistrictTier;
   /** A round step's FIRST round number, 1 to 5 (`BRACKET_ROUNDS`). Absent on every other kind. */
   readonly round?: number;
   /** The step's published instant in epoch MILLISECONDS, through `sortTimeToEpochMs`. `null` when no row in this event carries one. */
@@ -149,6 +152,16 @@ export interface BuildDistrictTimelineOptions {
     readonly eventName: string;
     readonly week: number | null;
     readonly playoffsDone?: boolean;
+    /**
+     * The event's tier, where the caller's rail spans both (the champ tab and
+     * the champ backtest). Within ONE week with no instant to compare, a
+     * district event's steps sort ahead of a championship's: a District
+     * Championship closes its district's season, so it never precedes a
+     * district event sharing its TBA week. 2022isde4 (22 March) and 2022iscmp
+     * (27 March) both carry week 3, and by event key alone the championship
+     * sorted first. A caller that passes one tier only is unaffected.
+     */
+    readonly tier?: DistrictTier;
   }[];
   readonly eventArtifacts: ReadonlyMap<string, EventArtifact>;
 }
@@ -233,7 +246,22 @@ function compareWeeks(a: number | null, b: number | null): number {
  *
  * Two timed steps are still compared by instant alone, so nothing about the
  * interleaving of two loaded events changes.
+ *
+ * WITHIN ONE WEEK, TIER BEFORE KEY (fast task, 2026-10-07). When at least one
+ * of the two steps has no instant and both carry a tier, a district event's
+ * steps sort ahead of a championship's: a District Championship closes its
+ * district's season, so it never precedes a district event that shares its
+ * TBA week. By event key alone 2022iscmp (27 March) sorted ahead of 2022isde4
+ * (22 March), which put the end of the 2022 Israel district season before its
+ * last district event and made the champ cutoff backtest skip the season.
+ * Steps without a tier (every single tier caller) fall through unchanged.
  */
+/** District before dcmp when both tiers are known and differ; zero otherwise, so a single tier caller never sees this rule. */
+function compareTiers(a: DistrictTier | undefined, b: DistrictTier | undefined): number {
+  if (a === undefined || b === undefined || a === b) return 0;
+  return a === "district" ? -1 : 1;
+}
+
 function compareSteps(a: DistrictTimelineStep, b: DistrictTimelineStep): number {
   const aTimed = a.sortMs !== null;
   const bTimed = b.sortMs !== null;
@@ -243,6 +271,8 @@ function compareSteps(a: DistrictTimelineStep, b: DistrictTimelineStep): number 
   } else {
     const weekDelta = compareWeeks(a.week, b.week);
     if (weekDelta !== 0) return weekDelta;
+    const tierDelta = compareTiers(a.tier, b.tier);
+    if (tierDelta !== 0) return tierDelta;
     if (aTimed !== bTimed) return aTimed ? -1 : 1;
   }
 
@@ -296,6 +326,7 @@ export function buildDistrictTimeline(options: BuildDistrictTimelineOptions): Di
           matchKey: row.matchKey,
           sortMs,
           anchor: { matchKey: row.matchKey, played: row.played },
+          ...(event.tier === undefined ? {} : { tier: event.tier }),
         });
       }
       if (sawUntimed) eventsWithUntimedRows.push(event.eventKey);
@@ -340,6 +371,7 @@ export function buildDistrictTimeline(options: BuildDistrictTimelineOptions): Di
             round,
             sortMs: last.sortMs,
             anchor: { matchKey: last.matchKey, played: true },
+            ...(event.tier === undefined ? {} : { tier: event.tier }),
           });
         }
         let decidedRounds = 0;
@@ -381,6 +413,7 @@ export function buildDistrictTimeline(options: BuildDistrictTimelineOptions): Di
         matchKey: undefined,
         sortMs: placement.sortMs,
         anchor: placement.anchor,
+        ...(event.tier === undefined ? {} : { tier: event.tier }),
       });
     }
   }

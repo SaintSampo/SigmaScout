@@ -241,6 +241,33 @@ describe("buildDistrictTimeline", () => {
     ]);
   });
 
+  it("within ONE week with no instants, a district event's steps sort ahead of a championship's even when the championship's key sorts first", () => {
+    // The 2022 Israel shape: 2022iscmp (27 March) and 2022isde4 (22 March) both carry week 3,
+    // and "2022iscmp" < "2022isde4" by key alone.
+    const timeline = buildDistrictTimeline({
+      events: [
+        { eventKey: "2022iscmp", eventName: "ISR Championship", week: 3, tier: "dcmp" },
+        { eventKey: "2022isde4", eventName: "ISR District 4", week: 3, tier: "district" },
+      ],
+      eventArtifacts: new Map(),
+    });
+    const ids = timeline.positions.flatMap((position) => (position.step === undefined ? [] : [position.id]));
+    expect(ids.slice(0, 4)).toEqual(["2022isde4:qualsDone", "2022isde4:alliance", "2022isde4:playoffs", "2022isde4:awards"]);
+    expect(ids.slice(4)).toEqual(["2022iscmp:qualsDone", "2022iscmp:alliance", "2022iscmp:playoffs", "2022iscmp:awards"]);
+  });
+
+  it("without a tier on either event, the same week tie still breaks by event key", () => {
+    const timeline = buildDistrictTimeline({
+      events: [
+        { eventKey: "2022iscmp", eventName: "ISR Championship", week: 3 },
+        { eventKey: "2022isde4", eventName: "ISR District 4", week: 3 },
+      ],
+      eventArtifacts: new Map(),
+    });
+    const ids = timeline.positions.flatMap((position) => (position.step === undefined ? [] : [position.id]));
+    expect(ids[0]).toBe("2022iscmp:qualsDone");
+  });
+
   it("a null-week unloaded event still sorts last, which is the only place a week cannot place it", () => {
     const timeline = buildDistrictTimeline({
       events: [

@@ -155,7 +155,9 @@ export type ChampNoCallReason =
  * tuning regenerated: MAE 18.2 against 40.4, coverage 48 of 69, 69.6%, the
  * same four line conditions passing. The 2026-10-07 re-run after quick task
  * 261007-jvz's finality cascade reproduced 18.2 against 40.4 and 48 of 69,
- * 69.6%. The range runs a little narrow and is shown with that
+ * 69.6%; the same day's rail tie break (district before dcmp within one week)
+ * let 2022isr score, reading 17.8 against 40.5 and 49 of 69, 71.0%, over all
+ * 69 seasons. The range runs a little narrow and is shown with that
  * coverage quoted on the Methodology page (`districtLedgerContent.ts`); a
  * later calibration round that changes the coverage must update that sentence.
  * The District Locks tab's likely range comes from the same estimator

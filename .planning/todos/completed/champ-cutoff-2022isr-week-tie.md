@@ -26,3 +26,9 @@ Either of two rules:
 - A start date on the district artifact's event rows (or a per artifact event list with dates), published by scripts/publishDistricts.ts and the Worker alike, then a week tie broken by start date before event key. It changes the artifact shape, so it needs a republish.
 
 Either would make the published 68 read 69, and the Champ cutoff sentence and its pins would need the re-measured figures.
+
+## Closed (fast task, 2026-10-07)
+
+Fixed by the first rule: within one week with no instant to compare, a district tier event sorts ahead of a dcmp tier event in `compareSteps` (apps/web/src/components/districts/districtTimeline.ts); steps carry the caller supplied tier and single tier callers are unaffected. measureChampCutoff now scores 69 of 69 seasons: 17.8 against 40.5, range holding 49 of 69 (71.0 percent). The walk-forward selection moved 2026 to uniform/drawn/1.30 and Jacob honored the pre-registered rule (2026-10-07); the tuning file, the methodology sentence and its pins follow. Both tenet sweeps read zero violations and the district cutoff backtest is unchanged (203 positions, 181 held).
+
+Release: web only; rides the next push.

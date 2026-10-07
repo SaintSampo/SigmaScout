@@ -148,16 +148,16 @@ const REQUIRED_FIGURES = [
   "38.1%", // Rookie All Star, rookie position 1
 
   // --- `pnpm measure:champ-cutoff` ----------------------------------------
-  // `npx tsx scripts/measureChampCutoff.ts`, re-run 2026-10-07 (quick task
-  // 261007-jvz, after its finality cascade; first on the district tier lock
-  // floor 2026-10-05, quick tasks 260927-6bf and 261005-04t). Its WALK-FORWARD
-  // TUNED LINES block: simulated MAE 18.19 and same position naive MAE 40.38,
-  // n = 68 with 2022isr skipped, both printed to one decimal; gate line 5
-  // reads 48 of 69 (69.6%).
-  "18.2 points",
-  "40.4",
-  "68 district seasons",
-  "48 of 69 seasons, 70%",
+  // `npx tsx scripts/measureChampCutoff.ts`, re-run 2026-10-07 after the
+  // rail's same week tie break let 2022isr score (fast task following quick
+  // task 261007-jvz; first on the district tier lock floor 2026-10-05, quick
+  // tasks 260927-6bf and 261005-04t). Its WALK-FORWARD TUNED LINES block:
+  // simulated MAE 17.8 and same position naive MAE 40.5, n = 69 with no
+  // season skipped; printed range coverage reads 49 of 69 (71.0%).
+  "17.8 points",
+  "40.5",
+  "69 district seasons",
+  "49 of 69 seasons, 71%",
 
   // --- `pnpm measure:district-cutoff` -------------------------------------
   // `npx tsx scripts/measureDistrictCutoff.ts`, run 2026-10-07 (quick task
