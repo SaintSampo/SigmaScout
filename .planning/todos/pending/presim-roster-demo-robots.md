@@ -51,3 +51,24 @@ rule, 2026-09-14) and needs a full republish, 3 h 16 min at today's speed.
 
 Count the affected events first. If the list is short, weigh the republish against the size of the
 problem with Jacob.
+
+## Found by quick task 261007-4qr (2026-10-07)
+
+That task taught `simulateDistrictEvent` the short-roster rule: under 24 real teams an
+eight-alliance event seats `draftedAllianceCount(N, 8)` = floor((N - 1) / 3) whole real alliances,
+the remaining seeds are filler alliances that forfeit, and a demo key on a published alliance is
+filler. The browser Locks ledger now prices 2023gaalb, 2024vapor, 2025ncash, 2026mefal and
+2026txmca. Two roster paths still sit outside that fix:
+
+1. **The as-of GENERATED plan still counts demo robots.** `planAsOfEvent` in
+   `apps/web/src/components/districts/asOfRewind.ts` takes its GENERATED roster from
+   `eventArtifact.teams` (sorted), not from `simulatedTeams`. A rewound stop before a small event's
+   schedule therefore prices the demo robots as teams. The PLAYED split above it already reads
+   `simulatedTeams`.
+2. **The publisher bake still refuses short rosters.** `packages/harness/districtBake.ts` keeps its
+   own `roster-too-small-for-alliances` skip (`sortedRoster.length < allianceCount * 3`). Once
+   either roster is restricted to real teams, and for any 2027 district event registered with fewer
+   than 24 teams at Live before it starts (the tab reads the publisher's baked pmf there), the bake
+   refuses that event. The core's `draftedAllianceCount` and filler alliance rule are now available
+   to both the bake and the as-of plan. Relaxing that skip changes no finished season's output, but
+   it is publisher code, so it belongs with the publisher half of this todo.

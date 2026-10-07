@@ -32,3 +32,16 @@ branch serves a genuinely unpublished event, so the row builder cannot tell load
 tab's union in `champLedgerRows.ts`, and tests on both tabs. The row builder would also need to
 know the run is pending (`useDistrictLedgerData`'s `runPending`, or `asOf.status === "loading"`),
 which it does not receive today.
+
+## Closed
+
+Closed 2026-10-07 by quick task 261007-4qr, commit 2607ee7c (the row builder and renderer half in
+d0f98653).
+
+The unavailable cell variant gained an optional `pending: true` rather than a fourth kind, and
+`buildDistrictLedgerRows` and `buildChampLedgerRows` take a `distributionsPending` option that sets
+it on an open cell, event total, subtotal or grand total with no distribution yet. Each tab computes
+that option from `artifacts.isLoading || data.isLoading || data.runPending`, the same expression that
+holds the Status column at Pending, and `LedgerCell` and `GrandTotalContent` print "pending" with
+`data-cell="pending"` for it. An event the run refused, or one with no published data, still prints
+"not available".
