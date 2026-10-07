@@ -34,18 +34,23 @@
  * elimination format), so every open event of an earlier season is refused,
  * no team's grand total can be built, and every 2016 to 2022 position reads
  * `noCall teamsExcluded`, exactly as the tab would. The report counts them
- * rather than hiding them. Measured 2026-10-06: 187 scored positions over 45
- * district seasons, simulated MAE 1.17 against the midpoint rule's 1.81, the
- * range holding the settled cutoff at 165 of 187 (88.2%), one position above
- * the band's ceiling; both bars are kept as registered.
+ * rather than hiding them. Measured 2026-10-07 (after quick task 261007-4qr's
+ * short roster rule): 193 scored positions over 45 district seasons, simulated
+ * MAE 1.17 against the midpoint rule's 1.80, the range holding the settled
+ * cutoff at 171 of 193 (88.6%), two positions above the band's ceiling; both
+ * bars are kept as registered.
  *
  * THE TARGET. The tab's own settled cutoff at season end: the midpoint of the
  * last team inside the slots and the first team outside them over the final
  * rows, which is what the District Locks tab prints once every team has
  * finished (`predictedCutoff`, kind `final`). The published DCMP cut line
- * (`insights.dcmpCutLinePoints`) is reported beside it, not scored: TBA's line
- * ranks a different total (all tiers, declines and ties included), so the two
- * are not the same quantity.
+ * (`insights.dcmpCutLinePoints`) is reported beside it, not scored: it is the
+ * total at the last qualifying slot (the slots-th highest) on the publisher's
+ * verdict pass
+ * (`recomputeDistrictVerdicts`), not a midpoint of a boundary pair, so the two
+ * are not the same quantity. Until quick task 261007-il9 that pass also ranked
+ * the all tier total, and artifacts published before then carry the all tier
+ * line.
  *
  * PREDICT BEFORE UPDATE. Open events are priced from the first qualification
  * row after the position (`startMatchKeyAtPosition`), each row carrying the

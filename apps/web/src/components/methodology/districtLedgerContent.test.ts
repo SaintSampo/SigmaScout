@@ -158,29 +158,32 @@ const REQUIRED_FIGURES = [
   "48 of 69 seasons, 70%",
 
   // --- `pnpm measure:district-cutoff` -------------------------------------
-  // `npx tsx scripts/measureDistrictCutoff.ts`, run 2026-10-06 (fast task
+  // `npx tsx scripts/measureDistrictCutoff.ts`, run 2026-10-07 (quick task
+  // 261007-il9, after 261007-4qr's short roster rule; first run fast task
   // 261006). Its All positions line: simulated MAE 1.17 and midpoint rule MAE
-  // 1.81 against the settled cutoff, n = 187 positions over 45 district
-  // seasons; gate line 2 reads 165 of 187 (88.2%).
+  // 1.80 against the settled cutoff, n = 193 positions over 45 district
+  // seasons; gate line 2 reads 171 of 193 (88.6%).
   "45 district seasons",
-  "1.2 points on average over 187 positions",
+  "1.2 points on average over 193 positions",
   "1.8 for the midpoint rule",
-  "165 of those 187 positions, 88%",
+  "171 of those 193 positions, 89%",
 ];
 
 /**
- * The eight recorded limitations, by their own row labels, hand typed. A later
- * edit cannot drop one without turning this red. Sources: 10-04 records the
- * first three in `ledgerSimulation.ts`, 10-06 the next three in
- * `districtBake.ts` and `publishDistricts.ts`, and 10-05 the last in
- * `districtRefresh.ts`'s module header. Quick task 260928-p8i (SPR 9.0.0)
- * added the fifth, the rookie rule's rating of a team with no result yet
- * (`packages/harness/sigmaCarry.ts`).
+ * The nine recorded limitations, by their own row labels, hand typed. A later
+ * edit cannot drop one without turning this red. Sources: 10-04 and quick task
+ * 261007-4qr record the first four in `ledgerSimulation.ts` (the fourth is
+ * the short roster rule, `draftedAllianceCount`); 10-06 the next three in
+ * `districtBake.ts` and `publishDistricts.ts`, with quick task 260928-p8i
+ * (SPR 9.0.0) adding the rookie rule's rating of a team with no result yet
+ * (`packages/harness/sigmaCarry.ts`) among them; and 10-05 the rest in
+ * `districtRefresh.ts`'s module header.
  */
 const EXPECTED_LIMITS = [
   "Declines are not modelled",
   "The award draw does not depend on how a team did on the field",
   "The district level award table is applied at the district championship too",
+  "Under 24 teams, the simulation seats whole alliances from the top seed down and the rest forfeit",
   "An event nobody has played is priced from each team's current rating over generated schedules",
   "A team with no result yet this season is rated as SPR rates a team it has not seen",
   "Every baked number's resolution is set by its draw count",
@@ -274,10 +277,21 @@ describe("districtLedgerContent structure", () => {
     expect(DISTRICT_LEDGER_PAGE_TITLE).not.toMatch(/[.*+?^${}()|[\]\\]/);
   });
 
-  it("states exactly the eight recorded limitations, by equality against a hand typed literal", () => {
+  it("states exactly the recorded limitations, by equality against a hand typed literal", () => {
     const limits = DISTRICT_LEDGER_SECTIONS.find((section) => section.id === "what-this-does-not-model");
     expect(limits, "the limits section is gone from the page").toBeDefined();
     expect(limits?.table?.rows.map((row) => row[0])).toEqual(EXPECTED_LIMITS);
+  });
+
+  it("states no count in the limits paragraph or the limits caption, so the count cannot drift from the table (todo methodology-limits-table-count)", () => {
+    const limits = DISTRICT_LEDGER_SECTIONS.find((section) => section.id === "what-this-does-not-model");
+    expect(limits, "the limits section is gone from the page").toBeDefined();
+    const texts = [...(limits?.paragraphs ?? []), limits?.table?.caption ?? ""];
+    const countWord = /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/i;
+    for (const text of texts) {
+      expect(text, `"${text}" states a count in digits`).not.toMatch(/\d/);
+      expect(text, `"${text}" states a count in words`).not.toMatch(countWord);
+    }
   });
 });
 
