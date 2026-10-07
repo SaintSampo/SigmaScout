@@ -22,7 +22,7 @@
  * straight into `simAxis` is the bug this module exists to prevent, and
  * `DistrictPointHistogram.tsx` names `simAxis` nowhere at all.
  */
-import { PLOT_W, SIM_GEOMETRY, histBarExtent, medianTickLeft, rankAxisTicks, rankBandExtent, rankSlotWidth, x, type RankMarkExtent } from "../../lib/simAxis.js";
+import { PLOT_W, SIM_GEOMETRY, medianTickLeft, rankBandExtent, rankSlotWidth, x, type RankMarkExtent } from "../../lib/simAxis.js";
 
 /**
  * Re-exported, never restated: no pixel value in the district drawer is typed
@@ -64,15 +64,6 @@ export function pointMedianTickLeft(median: number, maxPoints: number, plotW: nu
   return medianTickLeft(median + 1, pointSlots(maxPoints), plotW);
 }
 
-/** One histogram bar's pixel extent on a points axis. */
-export function pointBarExtent(value: number, maxPoints: number, plotW: number = PLOT_W): RankMarkExtent {
-  return histBarExtent(value + 1, pointSlots(maxPoints), plotW);
-}
-
-/** The points axis's own tick VALUES, chosen by the shipped rank-tick ladder and mapped back off the slot axis. */
-export function pointAxisTicks(maxPoints: number, plotW: number = PLOT_W): number[] {
-  return rankAxisTicks(pointSlots(maxPoints), plotW).map((rank) => rank - 1);
-}
 
 // ---------------------------------------------------------------------------
 // The verdict drawer's chart (sketch 025 variant A, quick task 261006-lxp)
@@ -119,7 +110,7 @@ export function pointBinSize(maxPoints: number): number {
 
 /**
  * ONE touching bar spanning point values `from` to `to`: from `from`'s slot
- * left edge to `to`'s slot right edge, with NO gap, unlike `pointBarExtent`.
+ * left edge to `to`'s slot right edge, with NO gap, unlike a one-slot rank bar.
  * Adjacent bins therefore tile the axis edge to edge.
  */
 export function pointBinExtent(from: number, to: number, maxPoints: number, plotW: number = PLOT_W): RankMarkExtent {

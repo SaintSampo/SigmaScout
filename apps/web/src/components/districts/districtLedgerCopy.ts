@@ -500,11 +500,6 @@ export function districtLedgerOutcomeChance(chance: number): string {
   return `~${String(Math.round(chance * 100))}%`;
 }
 
-/** One outcome row's point value. A whole number of points, never a tilde: the placement's value is a rule, not a prediction. */
-export function districtLedgerOutcomePoints(points: number): string {
-  return String(Math.round(points));
-}
-
 /** The Team cell's rookie bonus line, printed only when the bonus is non zero: 10 points in a team's first season, 5 in its second, added once per season. */
 export function districtLedgerRookieBonusLine(points: number): string {
   return `+${String(points)} rookie bonus`;

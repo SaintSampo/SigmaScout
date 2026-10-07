@@ -160,7 +160,9 @@ const RETIRED_CUTOFF_WORDING = ["Today", String.fromCharCode(0x27), "s line"].jo
  * The five `data-status` values the chips carry, in render order.
  * `districtLedgerStatus.ts:47`'s `DISTRICT_LEDGER_STATUS_KEYS`.
  */
-const STATUS_KEYS = ["prequalified", "locked", "inRange", "outOfRange", "lockedOut"] as const;
+/** The chips the Live FIELD view shows; In range and Out of range are withheld there (`LedgerParts.tsx` `WITHHELD_STATUS_KEYS`). */
+const FIELD_CHIP_KEYS = ["prequalified", "locked", "lockedOut"] as const;
+const WITHHELD_CHIP_KEYS = ["inRange", "outOfRange"] as const;
 
 /**
  * The sixth chip's `data-status` (quick task 261005-04t). It renders only on
@@ -224,23 +226,28 @@ test.describe("District Locks, 1440x900", () => {
     await expect(page.getByTestId(TEST_IDS.statusCell)).toHaveCount(ROSTER_SIZE);
     await expect(page.getByTestId(TEST_IDS.grandTotal)).toHaveCount(ROSTER_SIZE);
 
-    // The five chips, each with a count, and a sixth, Declined, only where
-    // some team reads Declined (quick task 261005-04t).
+    // On the Live view of a finished district the page shows the District
+    // Championship FIELD, so the two range chips are withheld (the field
+    // overlay, 2026-10-06): three chips, each with a count, and a fourth,
+    // Declined, only where some team reads Declined (quick task 261005-04t).
     await expect(page.getByTestId(TEST_IDS.statusChips)).toBeVisible();
     const chipTotal = await page.getByTestId(TEST_IDS.statusChip).count();
-    expect([STATUS_KEYS.length, STATUS_KEYS.length + 1], "the chip row holds five chips, or six with Declined").toContain(chipTotal);
+    expect([FIELD_CHIP_KEYS.length, FIELD_CHIP_KEYS.length + 1], "the chip row holds three chips on the field view, or four with Declined").toContain(chipTotal);
+    for (const status of WITHHELD_CHIP_KEYS) {
+      await expect(page.locator(`[data-testid="${TEST_IDS.statusChip}"][data-status="${status}"]`), `${status} chip is withheld on the field view`).toHaveCount(0);
+    }
     const counts: Record<string, number> = {};
-    for (const status of STATUS_KEYS) counts[status] = await chipCount(page, status);
+    for (const status of FIELD_CHIP_KEYS) counts[status] = await chipCount(page, status);
     const declinedChip = page.locator(`[data-testid="${TEST_IDS.statusChip}"][data-status="${DECLINED_STATUS}"]`);
     const declinedPresent = (await declinedChip.count()) > 0;
     if (declinedPresent) counts[DECLINED_STATUS] = await chipCount(page, DECLINED_STATUS);
-    expect(declinedPresent, "a sixth chip must be the Declined chip").toBe(chipTotal === STATUS_KEYS.length + 1);
+    expect(declinedPresent, "a fourth chip must be the Declined chip").toBe(chipTotal === FIELD_CHIP_KEYS.length + 1);
     // eslint-disable-next-line no-console -- printed for the SUMMARY's measured-figure obligation.
     console.log(`[districts-ledger] chip counts: ${JSON.stringify(counts)}`);
 
     // A FAILURE ON ANY PIN BELOW MEANS THE PUBLISHED VERDICTS MOVED. That is a
     // finding to triage against the artifact, never a number to soften here.
-    const total = [...STATUS_KEYS, DECLINED_STATUS].reduce((sum, status) => sum + (counts[status] ?? 0), 0);
+    const total = [...FIELD_CHIP_KEYS, DECLINED_STATUS].reduce((sum, status) => sum + (counts[status] ?? 0), 0);
     expect(total, "the chip counts must account for the whole district roster").toBe(ROSTER_SIZE);
     if (declinedPresent) expect(counts[DECLINED_STATUS], "a Declined chip renders only where some team reads Declined").toBeGreaterThanOrEqual(1);
     expect(counts["prequalified"], "prequalified count").toBe(PREQUALIFIED_COUNT);
@@ -252,10 +259,6 @@ test.describe("District Locks, 1440x900", () => {
       (counts["prequalified"] ?? 0) + (counts["locked"] ?? 0),
       "prequalified plus locked must equal the district championship slot count",
     ).toBe(DCMP_SLOTS);
-    // A finished district has no open category, so nothing is decided by a
-    // median projection.
-    expect(counts["inRange"], "in range count on a finished district").toBe(0);
-    expect(counts["outOfRange"], "out of range count on a finished district").toBe(0);
 
     /**
      * THE PREDICTED CUTOFF, on the stat line (quick task 260926-37q).

@@ -3,7 +3,7 @@ import { DISTRICT_LEDGER_LEAD, DISTRICT_LEDGER_SECTIONS, type DistrictLedgerTabl
 
 /**
  * Plain string rather than a `cn()` call: `tailwind-merge` eats a text role
- * class that sits beside a `text-[var(...)]` colour, and only a screenshot
+ * class that sits beside an arbitrary `var()` colour class, and only a screenshot
  * catches it (project memory `project_cn_drops_text_role_classes`).
  */
 const PARAGRAPH_CLASS = "max-w-[72ch] text-role-body text-[var(--color-text-primary)]";

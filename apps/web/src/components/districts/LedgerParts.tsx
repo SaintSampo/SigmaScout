@@ -94,7 +94,7 @@ import type { LedgerCutoffView } from "./predictedCutoff.js";
  * mean "still open, click to see".
  *
  * Written as PLAIN STRINGS, never passed through `cn()`: tailwind-merge drops a
- * `text-role-*` class sitting beside a `text-[var(...)]` one, and only a
+ * `text-role-*` class sitting beside an arbitrary `var()` colour class, and only a
  * screenshot catches it (project memory `project_cn_drops_text_role_classes`).
  */
 export const FINAL_CELL_CLASS = "district-ledger-cell district-ledger-cell--final";

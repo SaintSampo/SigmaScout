@@ -14,9 +14,7 @@ import { pointPercentiles } from "../../../../../packages/core/districts/pointSu
 import {
   VERDICT_GEOMETRY,
   VERDICT_PLOT_W,
-  pointAxisTicks,
   pointBandExtent,
-  pointBarExtent,
   pointBinExtent,
   pointBinSize,
   pointMedianTickLeft,
@@ -37,16 +35,9 @@ describe("the one index shift", () => {
     }
   });
 
-  it("maps the median tick and a bar extent through the same substitution", () => {
+  it("maps the median tick and the band through the same substitution", () => {
     expect(pointMedianTickLeft(7.5, MAX)).toBe(medianTickLeft(8.5, SLOTS));
-    expect(pointBarExtent(3, MAX)).toEqual(histBarExtent(4, SLOTS));
     expect(pointBandExtent(2, 9, MAX)).toEqual(rankBandExtent(3, 10, SLOTS));
-  });
-
-  it("maps the axis ticks back off the slot axis, so the first tick is point value 0", () => {
-    const ticks = pointAxisTicks(MAX);
-    expect(ticks[0]).toBe(0);
-    expect(ticks[ticks.length - 1]).toBe(MAX);
   });
 });
 
@@ -74,20 +65,6 @@ describe("the band stays inside the plot box and never vanishes", () => {
     const counts = [0, 0, 0, 0, 0, 100];
     const { p10, p90 } = pointPercentiles(counts, 100);
     expect(pointBandExtent(p10, p90, MAX).width).toBeGreaterThanOrEqual(SIM_GEOMETRY.BAND_MIN_W);
-  });
-});
-
-describe("the bars tile the axis", () => {
-  it("never overlaps two adjacent point values, and keeps both end bars flush inside the plot box", () => {
-    for (let value = 0; value < MAX; value++) {
-      const left = pointBarExtent(value, MAX);
-      const right = pointBarExtent(value + 1, MAX);
-      expect(left.left + left.width).toBeLessThanOrEqual(right.left + 1e-9);
-    }
-    const first = pointBarExtent(0, MAX);
-    const last = pointBarExtent(MAX, MAX);
-    expect(first.left).toBeGreaterThanOrEqual(0);
-    expect(last.left + last.width).toBeLessThanOrEqual(PLOT_W + 1e-9);
   });
 });
 

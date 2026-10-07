@@ -40,7 +40,6 @@ import {
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_TAB_LABEL,
   districtLedgerOutcomeChance,
-  districtLedgerOutcomePoints,
   districtLedgerOutcomePointsRange,
   districtLedgerPlacementLine,
   districtLedgerSelectionSettledLine,
@@ -355,12 +354,6 @@ describe("the playoff milestone words", () => {
     expect(districtLedgerOutcomeChance(0)).not.toContain("~");
     // And nothing here carries the plus-minus codepoint.
     for (const chance of [0, 0.004, 0.4, 1]) expect(districtLedgerOutcomeChance(chance)).not.toContain("±");
-  });
-
-  it("prints an outcome's point value as a whole number with no tilde, because a placement's value is a rule", () => {
-    expect(districtLedgerOutcomePoints(30)).toBe("30");
-    expect(districtLedgerOutcomePoints(0)).toBe("0");
-    expect(districtLedgerOutcomePoints(30)).not.toContain("~");
   });
 
   it("names every playoff and award outcome, and nothing above Impact", () => {
