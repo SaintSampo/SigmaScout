@@ -589,16 +589,16 @@ block. `pnpm publish:seasons` rewrites it (`--write-budget`); its `budgetMaxByte
 
 ```json budget
 {
-  "measuredAt": "2026-10-06T04:19:26.314Z",
-  "run": "tsx packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 2016 --write-budget -- generation 34707bf8-a300-4d37-b71d-00105a7b4edd, 108703 objects, 4199364570 bytes total, 3336 presim sidecars (median 7792 B, p95 19125 B, max 42582 B), 4778 as-of objects, 2026-10-06T01:44:45.770Z to 2026-10-06T04:19:26.314Z (2h34m41s)",
+  "measuredAt": "2026-10-07T22:31:08.651Z",
+  "run": "tsx packages/harness/publish.ts --seasons 2016-2020,2022-2026 --include-offseason --presim-from-season 2016 --write-budget -- generation bcbab12f-c0be-45c1-80de-d2aa43a61e28, 108706 objects, 4199583443 bytes total, 3336 presim sidecars (median 7787 B, p95 19113 B, max 42563 B), 4778 as-of objects, 2026-10-07T19:38:46.074Z to 2026-10-07T22:31:08.651Z (2h52m23s)",
   "pages": {
     "teams": {
       "count": 30,
       "medianBytes": 913372,
       "p95Bytes": 1372049,
-      "maxBytes": 1500231,
+      "maxBytes": 1500232,
       "budgetMaxBytes": 3500000,
-      "largestKey": "v1/teams/2026/epa@14.0.0+baseline.json"
+      "largestKey": "v1/teams/2026/epa@15.0.0+baseline.json"
     },
     "team": {
       "count": 101340,
@@ -606,23 +606,23 @@ block. `pnpm publish:seasons` rewrites it (`--write-budget`); its `budgetMaxByte
       "p95Bytes": 88509,
       "maxBytes": 292311,
       "budgetMaxBytes": 500000,
-      "largestKey": "v1/team/frc3538/2025/spr@10.0.0+baseline.json"
+      "largestKey": "v1/team/frc3538/2025/spr@11.0.0+baseline.json"
     },
     "events": {
       "count": 30,
       "medianBytes": 60327,
-      "p95Bytes": 80428,
-      "maxBytes": 80428,
+      "p95Bytes": 80659,
+      "maxBytes": 80659,
       "budgetMaxBytes": 108000,
-      "largestKey": "v1/events/2026/spr@10.0.0+baseline.json"
+      "largestKey": "v1/events/2026/spr@11.0.0+baseline.json"
     },
     "event": {
-      "count": 7293,
-      "medianBytes": 65130,
+      "count": 7296,
+      "medianBytes": 65105,
       "p95Bytes": 117585,
       "maxBytes": 257500,
       "budgetMaxBytes": 350000,
-      "largestKey": "v1/event/2016micmp/epa@14.0.0+baseline.json"
+      "largestKey": "v1/event/2016micmp/epa@15.0.0+baseline.json"
     },
     "compare": {
       "count": 10,
@@ -640,7 +640,7 @@ block. `pnpm publish:seasons` rewrites it (`--write-budget`); its `budgetMaxByte
       "p95Bytes": 69587,
       "maxBytes": 179979,
       "budgetMaxBytes": 300000,
-      "largestKey": "v1/asof/2016micmp/spr@10.0.0+baseline.json"
+      "largestKey": "v1/asof/2016micmp/spr@11.0.0+baseline.json"
     },
     "asof-log": {
       "count": 2379,
@@ -648,7 +648,7 @@ block. `pnpm publish:seasons` rewrites it (`--write-budget`); its `budgetMaxByte
       "p95Bytes": 478967,
       "maxBytes": 1309531,
       "budgetMaxBytes": 1900000,
-      "largestKey": "v1/asof-log/2016micmp/spr@10.0.0+baseline.json"
+      "largestKey": "v1/asof-log/2016micmp/spr@11.0.0+baseline.json"
     },
     "asof-season": {
       "count": 10,
@@ -656,7 +656,7 @@ block. `pnpm publish:seasons` rewrites it (`--write-budget`); its `budgetMaxByte
       "p95Bytes": 156825,
       "maxBytes": 156825,
       "budgetMaxBytes": 300000,
-      "largestKey": "v1/asof-season/2019/spr@10.0.0+baseline.json"
+      "largestKey": "v1/asof-season/2019/spr@11.0.0+baseline.json"
     },
     "asof-start": {
       "count": 10,
@@ -664,7 +664,7 @@ block. `pnpm publish:seasons` rewrites it (`--write-budget`); its `budgetMaxByte
       "p95Bytes": 745825,
       "maxBytes": 745825,
       "budgetMaxBytes": 1100000,
-      "largestKey": "v1/asof-start/2026/spr@10.0.0+baseline.json"
+      "largestKey": "v1/asof-start/2026/spr@11.0.0+baseline.json"
     }
   }
 }

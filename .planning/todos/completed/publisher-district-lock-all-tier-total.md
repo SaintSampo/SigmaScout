@@ -69,4 +69,4 @@ recomputeDistrictVerdicts, the one pass the publisher and the Worker share, now 
 Rebuilt offline over the 109 local district seasons, the tenet sweep against publishedFinalVerdicts went from 562 tenet A and 454 tenet B rows to 4 and 0, with zero champ side and zero pointTotal movement.
 The four residual rows (2019fma frc5113 and frc6943) are an award rule difference, recorded in todo locks-tab-award-at-uncounted-event.
 
-Release: pending republish by the orchestrator (2026-10-07)
+Release: live 2026-10-07, generation bcbab12f (spr 11.0.0, epa 15.0.0, opr 6.0.0), Worker version 9f6466ca, D1 seeded; web changes ride the same day push

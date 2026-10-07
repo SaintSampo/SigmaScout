@@ -33,4 +33,4 @@ Cause: c4bc0b62 (261005-5g0) made a category open at now never final at an earli
 The cascade (a later stage's fact closes every earlier category) restores n = 68, 18.2 against 40.4, and 48 of 69 (69.6%): the published figures exactly. The tuning file is again the 2026-10-05 one apart from its Generated date, with every selected setting unchanged.
 2022isr is the one remaining skip, with a different cause: a same week rail tie between 2022isde4 and 2022iscmp (todo champ-cutoff-2022isr-week-tie).
 
-Release: pending republish by the orchestrator (2026-10-07)
+Release: live 2026-10-07, generation bcbab12f (spr 11.0.0, epa 15.0.0, opr 6.0.0), Worker version 9f6466ca, D1 seeded; web changes ride the same day push

@@ -31,4 +31,4 @@ A stop that resolved to either of those would claim a position the ledger cannot
 Closed 2026-10-07 by quick task 261007-il9 (no code in this task).
 Superseded by 261007-3g2's thirteen stop picker (0270534a): its Round 1 to Round 5 and Finals stops resolve finer than a half done playoffs stop would.
 
-Release: pending republish by the orchestrator (2026-10-07)
+Release: live 2026-10-07, generation bcbab12f (spr 11.0.0, epa 15.0.0, opr 6.0.0), Worker version 9f6466ca, D1 seeded; web changes ride the same day push

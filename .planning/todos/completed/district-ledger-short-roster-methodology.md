@@ -74,4 +74,4 @@ The District cutoff sentence on the District Points methodology page now reads 1
 The limits table gained the short roster row as its fourth row.
 champCutoffTuning.generated.ts was regenerated with --write-tuning: every selected setting is unchanged, only fitCount, fitCoverage and fitMae moved, and --check-history prints no drift for both files.
 
-Release: pending republish by the orchestrator (2026-10-07)
+Release: live 2026-10-07, generation bcbab12f (spr 11.0.0, epa 15.0.0, opr 6.0.0), Worker version 9f6466ca, D1 seeded; web changes ride the same day push

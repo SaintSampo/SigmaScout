@@ -22,4 +22,4 @@ Closed 2026-10-07 by quick task 261007-il9, commit 117960cd.
 The other session's 9f9378d2 moved the count from seven to eight; 117960cd then dropped the count entirely.
 The limits paragraph reads "Each limit below is recorded in the code that produced the numbers above." and the caption reads "Limits", pinned by a test that forbids any digit or count word in either.
 
-Release: pending republish by the orchestrator (2026-10-07)
+Release: live 2026-10-07, generation bcbab12f (spr 11.0.0, epa 15.0.0, opr 6.0.0), Worker version 9f6466ca, D1 seeded; web changes ride the same day push

@@ -31,4 +31,4 @@ The tab now resolves an award's tier from one artifact derived map shared with t
 Against the publisher's verdicts (publishedFinalVerdicts, artifacts rebuilt offline) tenet A went 4 to 0 and tenet B stayed 0; the publisher and the tab's district tier final standing now agree on every team (37 to 0). The default yardstick is still 0 and 0, and the champ tenets are 0 and 0.
 An award at an event no team carries any row for stays uncounted, the conservative fallback the Worker shares.
 
-Release: pending republish by the orchestrator (2026-10-07)
+Release: live 2026-10-07, generation bcbab12f (spr 11.0.0, epa 15.0.0, opr 6.0.0), Worker version 9f6466ca, D1 seeded; web changes ride the same day push

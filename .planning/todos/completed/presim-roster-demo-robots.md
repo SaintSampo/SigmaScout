@@ -81,4 +81,4 @@ The as-of GENERATED roster (simulatedTeams) and the bake's short roster rule (in
 The publisher half (qualificationRosterKeys, spr 11.0.0+baseline, epa 15.0.0+baseline) shipped in ac24f171.
 The orchestrator runs the republish, which settles the final count against this todo's 13 events.
 
-Release: pending republish by the orchestrator (2026-10-07)
+Release: live 2026-10-07, generation bcbab12f (spr 11.0.0, epa 15.0.0, opr 6.0.0), Worker version 9f6466ca, D1 seeded; web changes ride the same day push
