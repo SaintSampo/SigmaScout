@@ -177,6 +177,21 @@ describe("parseGenerationKey / pageKindOfKey", () => {
     });
   });
 
+  it("files all four as-of state families as kind asof, so a post-5g0 generation can be pruned", () => {
+    // The key the first post-5g0 prune refused on (2026-10-07).
+    expect(parseGenerationKey("v1/asof-log/2016abca/spr@10.0.0+baseline.json")).toEqual({
+      generation: "spr@10.0.0+baseline",
+      algorithmId: "spr",
+      version: "10.0.0+baseline",
+      kind: "asof",
+    });
+    expect(parseGenerationKey("v1/asof/2026wasno/epa@14.0.0+baseline.json")?.kind).toBe("asof");
+    expect(parseGenerationKey("v1/asof-season/2026/spr@10.0.0+baseline.json")?.kind).toBe("asof");
+    expect(parseGenerationKey("v1/asof-start/2026/epa@14.0.0+baseline.json")?.kind).toBe("asof");
+    // A look-alike prefix is still unknown.
+    expect(pageKindOfKey("v1/asofx/2026/spr@10.0.0+baseline.json")).toBe("other");
+  });
+
   it("files a generation-shaped final segment under an unknown prefix as kind other", () => {
     expect(parseGenerationKey("v1/weird/zzz@1.0.0.json")?.kind).toBe("other");
     expect(pageKindOfKey("v1/teams/24/x.json")).toBe("other");

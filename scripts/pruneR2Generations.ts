@@ -101,7 +101,7 @@ export class PruneRefusalError extends Error {
 // Key parsing
 // ---------------------------------------------------------------------------
 
-export type KeyKind = "teams" | "team" | "events" | "event" | "presim" | "other";
+export type KeyKind = "teams" | "team" | "events" | "event" | "presim" | "asof" | "other";
 
 export interface ParsedGenerationKey {
   readonly generation: string;
@@ -134,6 +134,12 @@ const KIND_PREFIXES: ReadonlyArray<readonly [KeyKind, RegExp]> = [
   ["events", /^v1\/events\/\d{4}\//],
   ["event", /^v1\/event\/[^/]+\//],
   ["presim", /^v1\/presim\/[^/]+\//],
+  // The four as-of state families of quick task 261005-5g0 (`asOfIndexKey`,
+  // `asOfLogKey`, `asOfSeasonKey`, `asOfStartKey` in pageArtifacts.ts): two
+  // keyed by event, two by season, every one `{algorithmId}@{version}.json`.
+  // Added 2026-10-07 after the first prune of a post-5g0 generation refused
+  // UNKNOWN_KEY_SHAPE on `v1/asof-log/2016abca/spr@10.0.0+baseline.json`.
+  ["asof", /^v1\/asof(-log|-season|-start)?\/[^/]+\//],
 ];
 
 /** The page kind a key's prefix names, or `other` when it matches none of the published shapes. */
