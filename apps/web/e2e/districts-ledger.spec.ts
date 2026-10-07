@@ -298,9 +298,9 @@ test.describe("District Locks, 1440x900", () => {
     await expect(picker).toBeVisible();
     // The old range input is gone for good.
     await expect(picker.locator("input[type=range]")).toHaveCount(0);
-    // The stops carry `data-milestone`; exactly eight per event (sketch 024 Q, less its Playoffs half stop).
+    // The stops carry `data-milestone`; exactly thirteen per event: Schedule, three quartiles, Quals done, Alliances, Round 1 to Round 5, Finals, Awards.
     const stops = picker.locator("[data-milestone]");
-    await expect(stops).toHaveCount(8);
+    await expect(stops).toHaveCount(13);
     const pressedStops = picker.locator('[data-milestone][aria-pressed="true"]');
 
     // At the district URL the page is live.

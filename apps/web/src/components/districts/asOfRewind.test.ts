@@ -28,6 +28,7 @@ import {
 import {
   asOfCutId,
   asOfDefaultMatchesPerTeam,
+  asOfPlayedPlayoffMatchKeys,
   AS_OF_PRICEABLE_SEASONS,
   asOfQualSplit,
   asOfStopAnchorId,
@@ -154,6 +155,55 @@ describe("asOfQualSplit: the ONE order", () => {
       week: 0,
     });
     expect(finished.baselines.map((baseline) => baseline.teamKey)).toEqual(AAA.teams.map((team) => team.teamKey));
+  });
+});
+
+describe("asOfPlayedPlayoffMatchKeys: played playoff rows at or before the cut (261007-3g2)", () => {
+  const index = OBJECTS.indexes.get("2026waaa")!;
+  const keys = (cut: Parameters<typeof asOfPlayedPlayoffMatchKeys>[0]["cut"], eventArtifact = AAA, idx: AsOfIndex | null = index) =>
+    asOfPlayedPlayoffMatchKeys({ eventKey: "2026waaa", eventArtifact, index: idx, cut });
+
+  it("returns none at season start and at a cut on the last qualification row", () => {
+    expect(keys(AS_OF_SEASON_START_CUT)).toEqual([]);
+    expect(keys({ eventKey: "2026waaa", t: T0 + 3_000, i: 5 })).toEqual([]);
+  });
+
+  it("returns the playoff row at a cut on it", () => {
+    expect(index.m[6]).toEqual(["2026waaa_f1m1", T0 + 7_200]);
+    expect(keys({ eventKey: "2026waaa", t: T0 + 7_200, i: 6 })).toEqual(["2026waaa_f1m1"]);
+  });
+
+  it("returns none for a null INDEX, and never a playoff row absent from the INDEX", () => {
+    expect(keys({ eventKey: "2026waaa", t: T0 + 7_200, i: 6 }, AAA, null)).toEqual([]);
+    const unfolded = { ...AAA.matches[AAA.matches.length - 1]!, matchKey: "2026waaa_f1m2", matchNumber: 2, sortTime: T0 + 7_500 };
+    const withUnfolded = { ...AAA, matches: [...AAA.matches, unfolded] };
+    // A later event's cut puts every folded AAA row before it; the unfolded row still never counts.
+    expect(keys({ eventKey: "2026wabbb", t: T0 + 7 * 86_400, i: 0 }, withUnfolded)).toEqual(["2026waaa_f1m1"]);
+  });
+
+  it("is what planAsOfEvent's REAL plan carries", () => {
+    const result = planAsOfEvent({
+      eventKey: "2026waaa",
+      tier: "district",
+      week: 0,
+      districtArtifact: districtArtifact(),
+      eventArtifact: AAA,
+      index,
+      cut: { eventKey: "2026waaa", t: T0 + 7_200, i: 6 },
+      scheduleStopEventKey: undefined,
+    });
+    expect(result.ok && result.plan.mode === "real" && result.plan.playedPlayoffMatchKeys).toEqual(["2026waaa_f1m1"]);
+    const before = planAsOfEvent({
+      eventKey: "2026waaa",
+      tier: "district",
+      week: 0,
+      districtArtifact: districtArtifact(),
+      eventArtifact: AAA,
+      index,
+      cut: { eventKey: "2026waaa", t: T0 + 3_000, i: 5 },
+      scheduleStopEventKey: undefined,
+    });
+    expect(before.ok && before.plan.mode === "real" && before.plan.playedPlayoffMatchKeys).toEqual([]);
   });
 });
 

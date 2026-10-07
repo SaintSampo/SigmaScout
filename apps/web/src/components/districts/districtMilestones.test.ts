@@ -102,15 +102,25 @@ describe("the milestone mapping", () => {
     const model = modelOf(timeline, events);
     const stops = model.byEvent.get("ev")!.milestones;
     expect(stops.map((stop) => stop.key)).toEqual([...DISTRICT_MILESTONE_KEYS]);
+    expect(stops).toHaveLength(13);
     expect(stops.every((stop) => stop.happened)).toBe(true);
     expect(stops.slice(1, 4).map((stop) => stop.atId)).toEqual(["ev:m:ev_qm3", "ev:m:ev_qm6", "ev:m:ev_qm9"]);
     for (const stop of stops.slice(0, 4)) expect(stop.positionIndex).toBeNull();
     expect(stops[0]!.atId).toBe("ev:schedule");
-    for (const [i, key] of (["qualsDone", "alliance", "playoffs", "awards"] as const).entries()) {
-      expect(stops[4 + i]!.atId).toBe(`ev:${key}`);
-      expect(stops[4 + i]!.positionIndex).toBe(resolveDistrictTimelinePosition(timeline, `ev:${key}`));
+    for (const [stopIndex, key] of [
+      [4, "qualsDone"],
+      [5, "alliance"],
+      [11, "playoffs"],
+      [12, "awards"],
+    ] as const) {
+      expect(stops[stopIndex]!.atId).toBe(`ev:${key}`);
+      expect(stops[stopIndex]!.positionIndex).toBe(resolveDistrictTimelinePosition(timeline, `ev:${key}`));
     }
-    // The unresolved stops sort just before their own Quals Done, in stop order.
+    // The five round stops build their ids with no artifact and stay unresolved.
+    expect(stops.slice(6, 11).map((stop) => stop.atId)).toEqual(["ev:round:1", "ev:round:2", "ev:round:3", "ev:round:4", "ev:round:5"]);
+    for (const stop of stops.slice(6, 11)) expect(stop.positionIndex).toBeNull();
+    // The unresolved stops sort just before their own Quals Done, in stop order;
+    // the unresolved rounds sort after Alliances done and before Finals.
     const orders = stops.map((stop) => stop.order);
     for (let i = 1; i < orders.length; i++) {
       const [a, b] = [orders[i - 1]!, orders[i]!];
@@ -164,7 +174,7 @@ describe("happened reads the state blocks", () => {
     const timeline = timelineOf(events);
     const model = modelOf(timeline, events);
     const event = model.byEvent.get("ev")!;
-    expect(event.milestones.map((stop) => stop.happened)).toEqual([true, true, true, false, false, false, false, false]);
+    expect(event.milestones.map((stop) => stop.happened)).toEqual([true, true, true, false, false, false, false, false, false, false, false, false, false]);
     expect(event.status).toBe("live");
     expect(milestoneStopStates(model, "ev", { kind: "live" }).nowBoundary).toBe(3);
   });
@@ -234,7 +244,7 @@ describe("done and fill", () => {
     const model = modelOf(loaded, events);
     const live = milestoneStopStates(model, "ev", { kind: "live" });
     expect(live.done).toEqual(live.happened);
-    expect(live.fillStop).toBe(7);
+    expect(live.fillStop).toBe(12);
     const start = milestoneStopStates(model, "ev", { kind: "start" });
     expect(start.done.some(Boolean)).toBe(false);
     expect(start.fillStop).toBe(-1);
@@ -244,8 +254,8 @@ describe("done and fill", () => {
     for (const timeline of [loaded, timelineOf(events)]) {
       const model = modelOf(timeline, events);
       const states = milestoneStopStates(model, "ev", select(model, timeline, "ev:m:ev_qm6"));
-      expect(states.done).toEqual([true, true, true, false, false, false, false, false]);
-      expect(states.pressed).toEqual([false, false, true, false, false, false, false, false]);
+      expect(states.done).toEqual([true, true, true, false, false, false, false, false, false, false, false, false, false]);
+      expect(states.pressed).toEqual([false, false, true, false, false, false, false, false, false, false, false, false, false]);
       expect(states.fillStop).toBe(2);
     }
   });
@@ -253,7 +263,7 @@ describe("done and fill", () => {
   it("at a non milestone position stops 0 to 2 are done and none is pressed", () => {
     const model = modelOf(loaded, events);
     const states = milestoneStopStates(model, "ev", select(model, loaded, "ev:m:ev_qm7"));
-    expect(states.done).toEqual([true, true, true, false, false, false, false, false]);
+    expect(states.done).toEqual([true, true, true, false, false, false, false, false, false, false, false, false, false]);
     expect(states.pressed.some(Boolean)).toBe(false);
     expect(states.fillStop).toBe(2);
   });
@@ -272,8 +282,13 @@ describe("the walk", () => {
     const ids = model.walk.map(walkItemAtId);
     expect(ids[0]).toBe(DISTRICT_TIMELINE_SEASON_START_ID);
     expect(ids[ids.length - 1]).toBe(DISTRICT_TIMELINE_NOW_ID);
-    expect(ids).toHaveLength(2 + 16);
-    const positions = ids.slice(1, -1).map((id) => resolveDistrictTimelinePosition(timeline, id));
+    expect(ids).toHaveLength(2 + 26);
+    // These artifacts carry no playoff row, so the round stops are happened
+    // (the state says the bracket is done) but have no step to resolve to;
+    // every RESOLVED stop runs in position order.
+    const resolved = model.walk.flatMap((item) => (item.kind === "milestone" && item.milestone.positionIndex !== null ? [item.milestone.atId] : []));
+    expect(resolved).toHaveLength(16);
+    const positions = resolved.map((id) => resolveDistrictTimelinePosition(timeline, id));
     for (let i = 1; i < positions.length; i++) expect(positions[i]!).toBeGreaterThanOrEqual(positions[i - 1]!);
     // The two events interleave rather than running one after the other. B's
     // Schedule resolves to A's first match step, so it follows A's Quals ¼.
@@ -318,7 +333,7 @@ describe("the walk", () => {
     const fromAwards = milestoneWalkNeighbours(pairModel, select(pairModel, pairTimeline, "eva:awards"));
     expect(walkItemAtId(fromAwards.next!)).toBe("evb:schedule");
     // At B's Schedule, A's Awards stop reads done; at A's Awards, B's Schedule does not.
-    expect(milestoneStopStates(pairModel, "eva", select(pairModel, pairTimeline, "evb:schedule")).done[7]).toBe(true);
+    expect(milestoneStopStates(pairModel, "eva", select(pairModel, pairTimeline, "evb:schedule")).done[12]).toBe(true);
     expect(milestoneStopStates(pairModel, "evb", select(pairModel, pairTimeline, "eva:awards")).done[0]).toBe(false);
   });
 
@@ -378,5 +393,140 @@ describe("the event menu's focus", () => {
 
   it("orders the events by their first step in the timeline", () => {
     expect(model.events.map((event) => event.input.eventKey)).toEqual(["a", "b", "c", "d"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The round stops (quick task 261007-3g2)
+// ---------------------------------------------------------------------------
+
+/**
+ * An eight alliance event artifact whose bracket has the given sf set numbers
+ * played (each a red win at `startMs + (8 + n) x stepMs`) and `finals` final
+ * games after them. Qualification rows sit in `upcoming`, as in `eventArtifact`.
+ */
+function bracketArtifact(eventKey: string, startMs: number, playedSets: readonly number[], finals = 0, stepMs = MINUTE, season = 2026): EventArtifact {
+  const row = (matchKey: string, compLevel: "sf" | "f", setNumber: number, matchNumber: number, sortTime: number) => ({
+    matchKey,
+    compLevel,
+    setNumber,
+    matchNumber,
+    sortTime,
+    redTeams: ["frc1", "frc2", "frc3"],
+    blueTeams: ["frc4", "frc5", "frc6"],
+    predictedWinner: "red",
+    pRedWin: 0.5,
+    predictedRedScore: 50,
+    predictedBlueScore: 50,
+    actualWinner: "red",
+    actualRedScore: 60,
+    actualBlueScore: 40,
+  });
+  const base = eventArtifact(eventKey, 4, startMs, stepMs);
+  return EventArtifactSchema.parse({
+    ...base,
+    season,
+    matches: [
+      ...playedSets.map((n) => row(`${eventKey}_sf${String(n)}m1`, "sf", n, 1, startMs + (8 + n) * stepMs)),
+      ...Array.from({ length: finals }, (_unused, k) => row(`${eventKey}_f1m${String(k + 1)}`, "f", 1, k + 1, startMs + (30 + k) * stepMs)),
+    ],
+    alliances: Array.from({ length: 8 }, (_unused, k) => ({ allianceNumber: k + 1, picks: [`frc${String(k + 1)}1`, `frc${String(k + 1)}2`, `frc${String(k + 1)}3`] })),
+  });
+}
+
+const ALL_SETS = Array.from({ length: 13 }, (_unused, k) => k + 1);
+const BRACKET_LIVE = state({ qualMatchesPlayed: 4, qualMatchesTotal: 4, playoffsDone: false, awardsPosted: false });
+const ROUND_KEYS = ["round1", "round2", "round3", "round4", "round5"] as const;
+
+describe("the round stops (261007-3g2)", () => {
+  it("pins the thirteen keys literally", () => {
+    expect(DISTRICT_MILESTONE_KEYS).toEqual(["schedule", "q1", "q2", "q3", "qualsDone", "alliance", "round1", "round2", "round3", "round4", "round5", "playoffs", "awards"]);
+    expect(DISTRICT_MILESTONE_KEYS).toHaveLength(13);
+  });
+
+  it("a finished event with no artifact: every round has happened, with ids ev:round:1 to ev:round:5 between Alliances and Finals", () => {
+    const events = [input("ev", state())];
+    const timeline = timelineOf(events);
+    const model = modelOf(timeline, events);
+    const rounds = ROUND_KEYS.map((key) => milestone(model, "ev", key));
+    expect(rounds.map((stop) => stop.happened)).toEqual([true, true, true, true, true]);
+    expect(rounds.map((stop) => stop.atId)).toEqual(["ev:round:1", "ev:round:2", "ev:round:3", "ev:round:4", "ev:round:5"]);
+    const walkKeys = model.walk.flatMap((item) => (item.kind === "milestone" ? [item.milestone.key] : []));
+    expect(walkKeys).toEqual([...DISTRICT_MILESTONE_KEYS]);
+  });
+
+  it("a playoff only divisioned DCMP parent never gets a round stop; its Finals and Awards still happen", () => {
+    const parent = state({ qualMatchesPlayed: 0, qualMatchesTotal: null, alliancesPicked: true, playoffsDone: true, awardsPosted: true });
+    const events = [input("dcmp", parent)];
+    const model = modelOf(timelineOf(events), events);
+    for (const key of ROUND_KEYS) expect(milestone(model, "dcmp", key).happened).toBe(false);
+    expect(milestone(model, "dcmp", "playoffs").happened).toBe(true);
+    expect(milestone(model, "dcmp", "awards").happened).toBe(true);
+  });
+
+  it("a season before 2023 never gets a round stop, from the state or from its sf rows", () => {
+    const events: DistrictMilestoneEventInput[] = [{ ...input("ev", state()), playoffRounds: false }];
+    const timeline = timelineOf(events, [["ev", bracketArtifact("ev", BASE_MS, [1, 2], 2, MINUTE, 2022)]]);
+    const model = modelOf(timeline, events);
+    for (const key of ROUND_KEYS) expect(milestone(model, "ev", key).happened).toBe(false);
+    expect(timeline.positions.some((position) => position.step?.kind === "round")).toBe(false);
+    expect(timeline.playoffRoundsDecided.has("ev")).toBe(false);
+    expect(milestone(model, "ev", "playoffs").happened).toBe(true);
+  });
+
+  it("a live event whose loaded artifact decides Rounds 1 and 2: those two have happened, Round 3 has not, and the now line sits after eight stops", () => {
+    const events = [input("ev", BRACKET_LIVE)];
+    const timeline = timelineOf(events, [["ev", bracketArtifact("ev", BASE_MS, [1, 2, 3, 4, 5, 6, 7, 8])]]);
+    const model = modelOf(timeline, events);
+    expect(ROUND_KEYS.map((key) => milestone(model, "ev", key).happened)).toEqual([true, true, false, false, false]);
+    expect(milestoneStopStates(model, "ev", { kind: "live" }).nowBoundary).toBe(8);
+  });
+
+  it("with artifacts loaded the walk runs Alliances, Round 1 to Round 5, Finals and Awards for one event", () => {
+    const events = [input("ev", state({ qualMatchesPlayed: 4, qualMatchesTotal: 4 }))];
+    const timeline = timelineOf(events, [["ev", bracketArtifact("ev", BASE_MS, ALL_SETS, 2)]]);
+    const model = modelOf(timeline, events);
+    const tail = model.walk.flatMap((item) => (item.kind === "milestone" ? [item.milestone.key] : [])).slice(5);
+    expect(tail).toEqual(["alliance", "round1", "round2", "round3", "round4", "round5", "playoffs", "awards"]);
+    for (const key of ROUND_KEYS) expect(milestone(model, "ev", key).positionIndex).not.toBeNull();
+  });
+
+  it("interleaves two concurrent events' rounds by time", () => {
+    const events = [input("eva", state({ qualMatchesPlayed: 4, qualMatchesTotal: 4 })), input("evb", state({ qualMatchesPlayed: 4, qualMatchesTotal: 4 }))];
+    const timeline = timelineOf(events, [
+      ["eva", bracketArtifact("eva", BASE_MS, ALL_SETS, 2, 2 * MINUTE)],
+      ["evb", bracketArtifact("evb", BASE_MS + MINUTE, ALL_SETS, 2, 2 * MINUTE)],
+    ]);
+    const model = modelOf(timeline, events);
+    const rounds = model.walk.flatMap((item) => (item.kind === "milestone" && item.milestone.key.startsWith("round") ? [item.milestone.atId] : []));
+    expect(rounds).toEqual(["eva:round:1", "evb:round:1", "eva:round:2", "evb:round:2", "eva:round:3", "evb:round:3", "eva:round:4", "evb:round:4", "eva:round:5", "evb:round:5"]);
+  });
+
+  it("?at=ev:round:2 presses Round 2, ?at=ev:round:6 reads Live, and the event menu keeps Round 2 across events", () => {
+    const events = [input("eva", state()), input("evb", state())];
+    const timeline = timelineOf(events);
+    const model = modelOf(timeline, events);
+    const roundTwo = select(model, timeline, "eva:round:2");
+    expect(roundTwo.kind === "milestone" && roundTwo.milestone.key).toBe("round2");
+    expect(milestoneStopStates(model, "eva", roundTwo).pressed.indexOf(true)).toBe(7);
+    expect(select(model, timeline, "eva:round:6")).toEqual({ kind: "live" });
+    expect(milestoneFocusTarget(model, "evb", roundTwo)).toBe("evb:round:2");
+  });
+
+  it("a position selection on a round step never compares equal to a stop index", () => {
+    // Round 5's step is resolved at stop index 10. A bare position selection at
+    // the same position must sort after it (the old tie literal 9 sorted before).
+    const events = [input("ev", state({ qualMatchesPlayed: 4, qualMatchesTotal: 4 }))];
+    const timeline = timelineOf(events, [["ev", bracketArtifact("ev", BASE_MS, ALL_SETS, 2)]]);
+    const model = modelOf(timeline, events);
+    const roundFive = milestone(model, "ev", "round5");
+    const selection = { kind: "position" as const, eventKey: "ev", positionIndex: roundFive.positionIndex! };
+    const states = milestoneStopStates(model, "ev", selection);
+    expect(states.done.slice(0, 11).every(Boolean)).toBe(true);
+    expect(states.done.slice(11)).toEqual([false, false]);
+    expect(states.pressed.some(Boolean)).toBe(false);
+    const { prev, next } = milestoneWalkNeighbours(model, selection);
+    expect(walkItemAtId(prev!)).toBe("ev:round:5");
+    expect(walkItemAtId(next!)).toBe("ev:playoffs");
   });
 });

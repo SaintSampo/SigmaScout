@@ -146,6 +146,50 @@ export const BRACKET_SETS: readonly BracketSet[] = [
 ];
 
 /**
+ * FIRST's own five playoff rounds over the `sf` sets of `BRACKET_SETS`, in
+ * play order. The final (`f`) is not a round here: it is the Finals stop, the
+ * old Playoffs stop renamed, and keeps that stop's own fact.
+ *
+ * DECLARED, NOT DERIVED from the feeds' depth. sf11 (the upper final) is fed by
+ * two Round 2 winners, so a depth count would put it in Round 3, yet FIRST
+ * plays it in Round 4 alongside sf12. The round names are FIRST's schedule, not
+ * a property of the topology, so they are written down here and
+ * `bracket.test.ts` proves every set's feeds come from strictly earlier rounds.
+ *
+ * What each round locks, read off the 30/20/13/7/0 placement table:
+ *
+ *   Round 1 (sf1 to sf4)    moves no lock; it only reprices the bracket.
+ *   Round 2 (sf5 to sf8)    the sf5 and sf6 losers lock at 0; the sf7 and sf8
+ *                           winners floor at 13.
+ *   Round 3 (sf9, sf10)     the sf9 and sf10 losers lock at 0; their winners
+ *                           floor at 7.
+ *   Round 4 (sf11, sf12)    the sf12 loser locks at 7; the sf11 winner floors
+ *                           at 20 and the sf12 winner at 13.
+ *   Round 5 (sf13)          the sf13 loser locks at 13; its winner floors at 20.
+ *   Finals (f)              30 and 20 lock.
+ */
+export const BRACKET_ROUNDS: readonly (readonly string[])[] = [
+  ["sf1", "sf2", "sf3", "sf4"],
+  ["sf5", "sf6", "sf7", "sf8"],
+  ["sf9", "sf10"],
+  ["sf11", "sf12"],
+  ["sf13"],
+];
+
+const ROUND_BY_SET_ID: ReadonlyMap<string, number> = new Map(
+  BRACKET_ROUNDS.flatMap((setIds, index) => setIds.map((setId) => [setId, index + 1] as const))
+);
+
+/**
+ * The 1-based FIRST round a set id is played in, or `undefined` for the final
+ * (`f`, which is the Finals stop rather than a round) and for any id this
+ * topology does not carry.
+ */
+export function bracketRoundOfSet(setId: string): number | undefined {
+  return ROUND_BY_SET_ID.get(setId);
+}
+
+/**
  * Which set's loser takes each placement from third downward. First and
  * second come from the final itself. Derived from the routing rather than
  * declared alongside it, so a topology change cannot leave a stale

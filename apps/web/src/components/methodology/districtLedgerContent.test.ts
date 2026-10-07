@@ -294,10 +294,10 @@ describe("districtLedgerContent: the rewound view and the championship field (26
     ]);
   });
 
-  it("closes the open categories section with the as-of rule, and nothing says a rewound view knows more (261005-5g0)", () => {
+  it("closes the open categories section with the as-of rule and the playoff stops, and nothing says a rewound view knows more (261005-5g0, 261007-3g2)", () => {
     const paragraphs = paragraphsOf("how-open-categories-are-predicted");
     expect(paragraphs[paragraphs.length - 1]).toBe(
-      "A rewound view predicts every match still ahead from the ratings and odds as they stood at that stop. An event whose schedule was not yet posted then is predicted over generated schedules, as an event that has not started is."
+      "A rewound view predicts every match still ahead from the ratings and odds as they stood at that stop. An event whose schedule was not yet posted then is predicted over generated schedules, as an event that has not started is. A playoff stop, Round 1 to Round 5 or Finals, keeps the real result of every set played by then and predicts the rest."
     );
     for (const section of DISTRICT_LEDGER_SECTIONS) {
       for (const text of section.paragraphs) expect(text).not.toMatch(/know more|knows more/);

@@ -38,6 +38,7 @@ import { installMockWorker, type MockWorkerHandle, type MockWorkerScript } from 
 import { runDistrictWorkerJob } from "../../workers/districtSimulationProtocol.js";
 import { runAsOfEvent } from "../../workers/districtAsOfJob.js";
 import { ChampLocksLedger } from "./ChampLocksLedger.js";
+import { DISTRICT_MILESTONE_KEYS } from "./districtMilestones.js";
 import { asOfBodyFor, buildAsOfTestObjects } from "./asOfTestFixtures.js";
 import {
   CHAMP_LEDGER_COLUMN_LABELS,
@@ -397,6 +398,10 @@ describe("ChampLocksLedger — the finished district and championship", () => {
     const groups = [...screen.getByTestId("locks-picker-event").querySelectorAll("optgroup")].map((group) => group.getAttribute("label") ?? "");
     expect(groups.some((label) => label.startsWith("DCMP ·"))).toBe(true);
     expect(screen.getByTestId("champ-ledger-tab").querySelector('input[type="range"]')).toBeNull();
+    // Thirteen stops per event, Round 1 to Round 5 and the Finals included (261007-3g2).
+    const stops = [...screen.getByTestId("district-ledger-rewind").querySelectorAll("[data-milestone]")];
+    expect(stops.map((button) => button.getAttribute("data-milestone"))).toEqual([...DISTRICT_MILESTONE_KEYS]);
+    expect(stops).toHaveLength(13);
   });
 
   it("renders every column label, in order, from the exported tuple", async () => {

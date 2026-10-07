@@ -163,19 +163,20 @@ export const LOCKS_PICKER_NEXT_LABEL = "Next milestone";
 export const LOCKS_PICKER_THIS_IS_LIVE = "This is live";
 
 /**
- * The stepper's group row: each label and its grid column span over the eight
- * stops. Sketch 024 Q has nine stops; the Playoffs half stop is not modelled
- * yet, so Playoffs spans one column and Awards moves to the eighth.
+ * The stepper's group row: each label and its grid column span over the
+ * thirteen stops (quick task 261007-3g2). The Playoffs group spans FIRST's five
+ * rounds and the Finals, six columns; sketch 024 Q's Playoffs half stop is
+ * superseded by them.
  */
 export const DISTRICT_LEDGER_MILESTONE_GROUPS: readonly { readonly label: string; readonly from: number; readonly to: number }[] = [
   { label: "Schedule", from: 1, to: 2 },
   { label: "Qualification", from: 2, to: 6 },
   { label: "Alliances", from: 6, to: 7 },
-  { label: "Playoffs", from: 7, to: 8 },
-  { label: "Awards", from: 8, to: 9 },
+  { label: "Playoffs", from: 7, to: 13 },
+  { label: "Awards", from: 13, to: 14 },
 ];
 
-/** The short word under each stop, keyed by milestone. */
+/** The short word under each stop, keyed by milestone, in stop order. `playoffs` is the Finals stop. */
 export const DISTRICT_LEDGER_MILESTONE_SUB_WORDS = {
   schedule: "Out",
   q1: "¼",
@@ -183,11 +184,32 @@ export const DISTRICT_LEDGER_MILESTONE_SUB_WORDS = {
   q3: "¾",
   qualsDone: "Done",
   alliance: "Done",
-  playoffs: "Done",
+  round1: "R1",
+  round2: "R2",
+  round3: "R3",
+  round4: "R4",
+  round5: "R5",
+  playoffs: "Finals",
   awards: "Done",
 } as const;
 
-/** The long form of each stop, used in its title and its accessible name. */
+/**
+ * The shorter sub word printed at phone width, where thirteen columns leave a
+ * stop too narrow for the full one. Only the label changes: the stop's
+ * accessible name and title keep the long words ("finals done").
+ *
+ * Measured at 375px (quick task 261007-3g2): a column is about 24px wide and
+ * "Done" at 11px is 26px, so the Quals done and Alliances done labels, side by
+ * side, overlapped. They print Q and A there, in the same letter shorthand as
+ * R1 to R5 and F; the Awards "Done" sits beside F and fits.
+ */
+export const DISTRICT_LEDGER_MILESTONE_NARROW_SUB_WORDS: Partial<Record<keyof typeof DISTRICT_LEDGER_MILESTONE_SUB_WORDS, string>> = {
+  qualsDone: "Q",
+  alliance: "A",
+  playoffs: "F",
+};
+
+/** The long form of each stop, used in its title and its accessible name, in stop order. */
 export const DISTRICT_LEDGER_MILESTONE_LONG_WORDS = {
   schedule: "schedule released",
   q1: "quals ¼ done",
@@ -195,7 +217,12 @@ export const DISTRICT_LEDGER_MILESTONE_LONG_WORDS = {
   q3: "quals ¾ done",
   qualsDone: "quals done",
   alliance: "alliance selection done",
-  playoffs: "playoffs done",
+  round1: "round 1 done",
+  round2: "round 2 done",
+  round3: "round 3 done",
+  round4: "round 4 done",
+  round5: "round 5 done",
+  playoffs: "finals done",
   awards: "awards done",
 } as const;
 

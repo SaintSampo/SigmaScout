@@ -1300,15 +1300,21 @@ describe("playedBracketMatchesFor — colour onto alliance number", () => {
       elimRow({ compLevel: "sf", setNumber: 1, matchNumber: 1, red: rosterOf(1), blue: rosterOf(8), actualWinner: "red" }),
     ];
 
-    function buildAt(options: { conditionOnPlayedElims?: boolean; stage?: DistrictStageFinality }) {
+    function buildAt(options: {
+      conditionOnPlayedElims?: boolean;
+      stage?: DistrictStageFinality;
+      rows?: readonly Record<string, unknown>[];
+      asOfPlayedElimMatchKeys?: readonly string[];
+    }) {
       const built = buildDistrictEventSimulationInput({
         eventKey: "2026waplay",
         season: SEASON,
-        eventArtifact: playoffArtifact(played),
+        eventArtifact: playoffArtifact(options.rows ?? played),
         districtArtifact,
         stage: options.stage ?? { qual: true, alliance: true, elim: false, award: false },
         startMatchKey: null,
         ...(options.conditionOnPlayedElims === undefined ? {} : { conditionOnPlayedElims: options.conditionOnPlayedElims }),
+        ...(options.asOfPlayedElimMatchKeys === undefined ? {} : { asOfPlayedElimMatchKeys: options.asOfPlayedElimMatchKeys }),
       });
       if (!built.ok) throw new Error("expected an input");
       return built;
@@ -1320,10 +1326,41 @@ describe("playedBracketMatchesFor — colour onto alliance number", () => {
       ]);
     });
 
-    it("passes NONE at a rewound position, where the playoff step is all-or-nothing", () => {
+    it("passes NONE at a rewound position that names no as-of playoff rows", () => {
       expect(buildAt({ conditionOnPlayedElims: false }).input.playedElimMatches).toBeUndefined();
       // And an absent flag reads as false rather than as the live position.
       expect(buildAt({}).input.playedElimMatches).toBeUndefined();
+    });
+
+    describe("a rewound round stop's as-of rows (261007-3g2)", () => {
+      const roundOne = [
+        elimRow({ compLevel: "sf", setNumber: 1, matchNumber: 1, red: rosterOf(1), blue: rosterOf(8), actualWinner: "red" }),
+        elimRow({ compLevel: "sf", setNumber: 2, matchNumber: 1, red: rosterOf(4), blue: rosterOf(5), actualWinner: "blue" }),
+      ];
+
+      it("passes only the listed keys' played rows", () => {
+        expect(buildAt({ rows: roundOne, asOfPlayedElimMatchKeys: ["2026waplay_sf1m1"] }).input.playedElimMatches).toEqual([
+          { compLevel: "sf", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 },
+        ]);
+        expect(buildAt({ rows: roundOne, asOfPlayedElimMatchKeys: [] }).input.playedElimMatches).toBeUndefined();
+      });
+
+      it("still passes none while the alliances are open or once the playoffs are final", () => {
+        const keys = ["2026waplay_sf1m1", "2026waplay_sf2m1"];
+        expect(buildAt({ rows: roundOne, asOfPlayedElimMatchKeys: keys, stage: { qual: true, alliance: false, elim: false, award: false } }).input.playedElimMatches).toBeUndefined();
+        expect(buildAt({ rows: roundOne, asOfPlayedElimMatchKeys: keys, stage: { qual: true, alliance: true, elim: true, award: false } }).input.playedElimMatches).toBeUndefined();
+      });
+
+      it("leaves the live flag reading every played row", () => {
+        expect(buildAt({ rows: roundOne, conditionOnPlayedElims: true, asOfPlayedElimMatchKeys: ["2026waplay_sf1m1"] }).input.playedElimMatches).toHaveLength(2);
+      });
+
+      it("discloses a LISTED row it cannot resolve to one alliance, and ignores an unlisted one", () => {
+        const spanning = elimRow({ compLevel: "sf", setNumber: 3, matchNumber: 1, red: [rosterOf(2)[0]!, rosterOf(3)[0]!, rosterOf(4)[0]!], blue: rosterOf(7), actualWinner: "red" });
+        const rows = [...roundOne, spanning];
+        expect(buildAt({ rows, asOfPlayedElimMatchKeys: ["2026waplay_sf1m1", "2026waplay_sf3m1"] }).unresolvedElimMatchKeys).toEqual(["2026waplay_sf3m1"]);
+        expect(buildAt({ rows, asOfPlayedElimMatchKeys: ["2026waplay_sf1m1"] }).unresolvedElimMatchKeys).toEqual([]);
+      });
     });
 
     it("passes NONE once the playoff stage is final, which has its own known-points input", () => {
