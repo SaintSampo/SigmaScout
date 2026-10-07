@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-07T01:44:40.592Z"
+last_updated: "2026-10-07T06:57:16.848Z"
 last_activity: 2026-10-07
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -731,6 +731,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 295 | Locks drawer is sketch 025 variant A: one verdict pane per blue cell (headline sentence, figure tiles, binned SVG histogram with the cutoff labelled, outcome bars), all captions deleted, team column unpinned | 2026-10-06 | e70de256 | [261006-lxp-implement-sketch-025-variant-a-verdict-f](./quick/261006-lxp-implement-sketch-025-variant-a-verdict-f/) |
 | 296 | Fast: e2e chip assertion follows the Live field view (3 chips, 4 with Declined); pointBarExtent, pointAxisTicks and districtLedgerOutcomePoints deleted with their tests; two comments reworded so Tailwind stops emitting a CSS warning. LedgerCutoffView.tier kept, it reaches ledgerRangeState and three test files | 2026-10-07 | fffaf070 | — |
 | 297 | Fast: LedgerCutoffView.tier removed from predictedCutoff, ledgerRangeState and the District tab's cutoff view; its only reader was the cutoff caption the verdict drawer deleted | 2026-10-07 | 16aef3c7 | — |
+| 298 | Locks: the event menu follows Season start and Live (no picker state); Playoffs and Awards drawers drop the implicit zero-point rows; empty outcome list renders nothing | 2026-10-07 | 7bfe59d3 | [261007-3ik-locks-page-season-start-stop-does-not-up](./quick/261007-3ik-locks-page-season-start-stop-does-not-up/) |
 
 ### Roadmap Evolution
 
