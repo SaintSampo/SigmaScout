@@ -96,10 +96,11 @@ export interface DistrictLedgerStatusResult {
   readonly byAward: boolean;
   /**
    * The raw `locks.ts` verdict this status was mapped from: the GUARANTEE, on
-   * the district tier floor (`districtLockBounds`). It equals the artifact's
-   * own `districtLock.status` only while no team has District Championship
-   * points, because the publisher ranks the all tier total (todo
-   * `publisher-district-lock-all-tier-total`).
+   * the district tier floor (`districtLockBounds`). Since quick task
+   * 261007-il9 the artifact's own `districtLock.status` ranks the same
+   * district tier total, so the two differ only where the award rule does (an
+   * award won at an event the team has no district tier row for; todo
+   * `locks-tab-award-at-uncounted-event`).
    */
   readonly verdict: LockStatus;
   /**
@@ -124,10 +125,10 @@ export interface DistrictLedgerStatusModel {
   readonly counts: Readonly<Record<DistrictLedgerStatusKey, number>>;
   /**
    * The raw six-status `locks.ts` census on the district tier floor. It is the
-   * same COUNT `insights.districtLockedCount`/`districtEliminatedCount` take,
-   * and the same NUMBER only while no team has District Championship points:
-   * the publisher's census ranks the all tier total (todo
-   * `publisher-district-lock-all-tier-total`).
+   * same COUNT `insights.districtLockedCount`/`districtEliminatedCount` take.
+   * Since quick task 261007-il9 the publisher's census ranks the same district
+   * tier total, so the two differ only where the award rule does (todo
+   * `locks-tab-award-at-uncounted-event`).
    */
   readonly verdictCensus: Readonly<Record<LockStatus, number>>;
   /** The slot-th highest MEDIAN PROJECTION in the narrowed pool — the In range boundary. `null` for an unpublished capacity. */
@@ -287,13 +288,17 @@ export function districtLockBounds(
  * team's DISTRICT TIER total: `pointTotal` minus every point it earned at the
  * District Championship.
  *
- * THAT REPRODUCES THE ARTIFACT'S OWN COUNTS ONLY WHILE NO TEAM HAS
- * CHAMPIONSHIP POINTS. The publisher's (and the Worker's) `districtLock`
- * verdicts and `insights.districtLockedCount` rank the all tier `pointTotal`,
- * so once a championship has been played the two disagree over declined
- * places, teams that played from below the line and ties. Nothing on the site
- * displays the published verdicts; todo `publisher-district-lock-all-tier-total`
- * tracks bringing them onto this floor.
+ * THE PUBLISHED VERDICTS RANK THE SAME TOTAL. Since quick task 261007-il9 the
+ * publisher's (and the Worker's) `districtLock` verdicts and
+ * `insights.districtLockedCount` rank the district tier total too
+ * (`districtTierPointTotal` in packages/harness/districtRankingsMerge.ts).
+ * Before it they ranked the all tier `pointTotal` and disagreed with this
+ * floor over declined places, teams that played from below the line and ties.
+ * They still differ where the award rule does: this tab counts an award only
+ * at an event on the team's own district tier rows, while the publisher
+ * resolves an award's tier from any row or the corpus (todo
+ * `locks-tab-award-at-uncounted-event`). Nothing on the site displays the
+ * published verdicts.
  */
 export function computeDistrictLedgerStatuses(options: ComputeDistrictLedgerStatusesOptions): DistrictLedgerStatusModel {
   const { artifact, teams } = options;

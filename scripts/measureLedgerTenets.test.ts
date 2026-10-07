@@ -41,7 +41,7 @@
  * CHAMPIONSHIP POINTS. The displays come from a district tier floor and the
  * default yardstick is `districtTierFinalVerdicts`, the standing with every
  * district tier category final, never the artifact's own `districtLock.status`
- * (which ranks the all tier total). So the three synthetic tests that set
+ * (which ranked the all tier total until quick task 261007-il9). So the three synthetic tests that set
  * verdicts ON THE ARTIFACT now pass `publishedFinalVerdicts` explicitly, which
  * keeps the checker proven able to fail, and the corpus pins below were
  * re-measured: fewer promises, both tenets still zero.

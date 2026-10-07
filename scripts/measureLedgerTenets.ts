@@ -68,12 +68,19 @@
  * is exactly the case the ceiling test cannot reach.
  *
  * AGAINST THE PUBLISHER'S VERDICT (`publishedFinalVerdicts`, passed as the
- * second argument) the same sweep reports 571 tenet A and 477 tenet B rows.
- * None of them is a broken promise on this tab. They are two yardsticks
- * disagreeing: over places a team earned and gave up, over teams that played
- * the championship from below the line, and over ties the all tier total
- * happens to break. Bringing the publisher onto the district tier floor is
- * todo `publisher-district-lock-all-tier-total`.
+ * second argument) the same sweep reported 571 tenet A and 477 tenet B rows on
+ * the older local publish set. None of them was a broken promise on this tab.
+ * They were two yardsticks disagreeing: over places a team earned and gave up,
+ * over teams that played the championship from below the line, and over ties
+ * the all tier total happened to break. Quick task 261007-il9 brought the
+ * publisher onto the district tier total. On artifacts rebuilt offline
+ * 2026-10-07 the sweep read 562 and 454 before that change and 4 and 0 after
+ * it. The four residual tenet A rows are 2019fma frc5113 and frc6943, at
+ * 2019paben:awards and at now. Their cause is the award rule, not the total:
+ * frc1391 won Chairman's at 2019paben, an event it has no district tier row
+ * for. The publisher resolves that award's tier and consumes the slot, this
+ * tab counts an award only at an event on the team's own district tier rows,
+ * and the 55 point tie shifts. Todo `locks-tab-award-at-uncounted-event`.
  *
  * THIS SWEEP READS THE RAW VERDICT MODEL ONLY. It calls
  * `computeDistrictLedgerStatuses` and does not import `districtFieldOverlay`:
@@ -88,7 +95,8 @@
  * tier points alone. It is the site's own answer to "who earned a place at the
  * District Championship", recomputed through the same modules the displays
  * came from, so a violation is a promise the tab broke to itself. It is NOT
- * `team.districtLock.status`, which ranks the all tier total (see above), and
+ * `team.districtLock.status`, which ranked the all tier total until quick
+ * task 261007-il9 and differs from it now only on the award rule (see above), and
  * it is NOT the verdict at the `now` position, which leaves an event open
  * wherever its recorded state does not read finished (see
  * `districtTierFinalVerdicts`). The outcome names below still say "at now" for
@@ -118,7 +126,8 @@
  *                       the finish and NEITHER is reported as having qualified.
  *                       Fifty of these 109 seasons end that way on district
  *                       tier points (fifteen on the publisher's all tier
- *                       total, which championship points happen to untie).
+ *                       total before quick task 261007-il9, which
+ *                       championship points happened to untie).
  *   - `unknown`      -> capacity not published. Cannot arise: every artifact
  *                       with a null `dcmpSlots` is skipped and counted by name.
  *
@@ -377,11 +386,15 @@ const ALL_CATEGORIES_FINAL: DistrictStageFinality = { qual: true, alliance: true
  * THE PUBLISHER'S OWN FINAL VERDICTS: each team's `districtLock.status`, read
  * straight off the artifact.
  *
- * NOT THE DEFAULT YARDSTICK since quick task 261005-04t. The publisher ranks
- * the ALL TIER `pointTotal`, so once a championship has been played these
- * verdicts know who played it. Exported so a caller can still score against
- * them on purpose, which is how the corrupted fixture test proves the checker
- * can fail and how the 571 and 477 in this file's header were measured.
+ * NOT THE DEFAULT YARDSTICK since quick task 261005-04t. Until quick task
+ * 261007-il9 the publisher ranked the ALL TIER `pointTotal`, so once a
+ * championship had been played these verdicts knew who played it; it now ranks
+ * the district tier total and differs from the yardstick only on the award
+ * rule (todo `locks-tab-award-at-uncounted-event`). Exported so a caller can
+ * still score against them on purpose, which is how the corrupted fixture test
+ * proves the checker can fail and how the 571 and 477 (older local set) and
+ * the 562 and 454 to 4 and 0 (rebuilt 2026-10-07) in this file's header were
+ * measured.
  */
 export function publishedFinalVerdicts(artifact: DistrictArtifact): ReadonlyMap<string, LockStatus> {
   return new Map(artifact.teams.map((team) => [team.teamKey, team.districtLock.status] as const));

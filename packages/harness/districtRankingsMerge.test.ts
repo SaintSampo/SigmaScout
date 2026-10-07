@@ -805,3 +805,126 @@ describe("recomputeDistrictVerdicts — the pooled remaining-points lock (260925
     expect(ahead.insights.dcmpCutLinePoints).toBe(17);
   });
 });
+
+describe("recomputeDistrictVerdicts — the district pass ranks the district tier total (261007-il9)", () => {
+  const DONE = { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: true, awardsPosted: true } as const;
+  const districtRow = (qual: number, alliance: number, elim: number, award: number) => ({
+    eventKey: "2026ncwak",
+    eventName: "Wake County Event",
+    week: 1,
+    tier: "district" as const,
+    qual,
+    alliance,
+    elim,
+    award,
+    total: qual + alliance + elim + award,
+    state: { ...DONE },
+  });
+  const dcmpRow = (qual: number) => ({
+    eventKey: "2026nccmp",
+    eventName: "FIRST North Carolina State Championship",
+    week: 5,
+    tier: "dcmp" as const,
+    qual,
+    alliance: 0,
+    elim: 0,
+    award: 0,
+    total: qual,
+    state: { ...DONE },
+  });
+  type Row = ReturnType<typeof districtRow> | ReturnType<typeof dcmpRow>;
+  const team = (teamKey: string, rank: number, rows: Row[]) => ({
+    teamKey,
+    teamNumber: Number(teamKey.slice(3)),
+    nickname: teamKey,
+    rank,
+    pointTotal: rows.reduce((sum, row) => sum + row.total, 0),
+    rookieBonus: 0,
+    adjustments: 0,
+    eventPoints: rows,
+    remainingEvents: [],
+    maxRemainingDistrict: 0,
+    maxRemainingChamp: 0,
+    qualifyingAwards: [],
+    districtLock: lockVerdict("contending"),
+    champLock: lockVerdict("contending"),
+  });
+
+  /**
+   * A finished district, two DCMP slots and one Championship slot, no awards.
+   * A: district 60, no DCMP row (the decliner). B: district 50 plus DCMP 40,
+   * 90 in all. C: district 55 plus DCMP 10, 65 in all. D: district 40.
+   */
+  function finishedFixture(): DistrictArtifact {
+    return DistrictArtifactSchema.parse({
+      schemaVersion: 1,
+      generation: "gen-published",
+      computedAt: "2026-04-20T00:00:00.000Z",
+      districtKey: "2026fnc",
+      year: 2026,
+      abbreviation: "fnc",
+      displayName: "FIRST North Carolina",
+      dcmpSlots: 2,
+      cmpSlots: 1,
+      teams: [
+        team("frc4", 1, [districtRow(20, 10, 15, 5), dcmpRow(40)]),
+        team("frc3", 2, [districtRow(20, 15, 15, 5), dcmpRow(10)]),
+        team("frc1", 3, [districtRow(20, 15, 20, 5)]),
+        team("frc2", 4, [districtRow(20, 10, 5, 5)]),
+      ],
+      insights: {
+        teamCount: 4,
+        eventCount: 2,
+        dcmpCutLinePoints: null,
+        cmpCutLinePoints: null,
+        districtLockedCount: 0,
+        districtEliminatedCount: 0,
+        champLockedCount: 0,
+        champEliminatedCount: 0,
+      },
+    });
+  }
+  // frc1 is A, frc4 is B, frc3 is C, frc2 is D.
+  const statusOf = (artifact: DistrictArtifact, which: "districtLock" | "champLock") =>
+    Object.fromEntries(artifact.teams.map((t) => [t.teamKey, t[which].status]));
+
+  it("locks the two best district tier totals, so the decliner is Locked and a team ahead only on DCMP points is Locked out", () => {
+    const out = recomputeDistrictVerdicts(finishedFixture(), { nowYear: 2026 });
+    expect(statusOf(out, "districtLock")).toEqual({ frc1: "locked", frc3: "locked", frc4: "eliminated", frc2: "eliminated" });
+    expect(out.insights.districtLockedCount).toBe(2);
+    expect(out.insights.districtEliminatedCount).toBe(2);
+  });
+
+  it("puts the published DCMP cut line on the district tier totals: 55 here", () => {
+    const out = recomputeDistrictVerdicts(finishedFixture(), { nowYear: 2026 });
+    expect(out.insights.dcmpCutLinePoints).toBe(55);
+    for (const t of out.teams) expect(t.districtLock.cutLinePoints).toBe(55);
+  });
+
+  it("keeps the champ pass on the all tier total: the 90 point team is the champ lock, and the champ cut line follows the all tier totals", () => {
+    const out = recomputeDistrictVerdicts(finishedFixture(), { nowYear: 2026 });
+    expect(statusOf(out, "champLock").frc4).toBe("locked");
+    expect(out.insights.champLockedCount).toBe(1);
+    expect(out.insights.cmpCutLinePoints).toBe(90);
+  });
+
+  it("leaves every pointTotal on the wire unchanged", () => {
+    const input = finishedFixture();
+    const out = recomputeDistrictVerdicts(input, { nowYear: 2026 });
+    expect(out.teams.map((t) => [t.teamKey, t.pointTotal])).toEqual(input.teams.map((t) => [t.teamKey, t.pointTotal]));
+  });
+
+  it("reaches the Worker's entry point: applyDistrictRankings over the same rows yields the same four district statuses", () => {
+    const input = finishedFixture();
+    const payload = input.teams.map((t) => ({
+      team_key: t.teamKey,
+      rank: t.rank,
+      point_total: t.pointTotal,
+      rookie_bonus: 0,
+      adjustments: 0,
+      event_points: t.eventPoints.map((row) => eventPointsEntry(row.eventKey, row.total, row.tier === "dcmp")),
+    }));
+    const merged = merge(input, payload);
+    expect(statusOf(merged, "districtLock")).toEqual({ frc1: "locked", frc3: "locked", frc4: "eliminated", frc2: "eliminated" });
+  });
+});

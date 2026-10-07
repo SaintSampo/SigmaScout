@@ -335,6 +335,20 @@ function reservedChampSlotsAtNow(teams: readonly DistrictTeam[], season: number,
 }
 
 /**
+ * A team's season total counting district tier events only: `pointTotal`
+ * minus the `total` of every `eventPoints` entry whose tier is not
+ * `"district"`. The publisher twin of the first loop of `districtLockBounds`
+ * (apps/web/src/components/districts/districtLedgerStatus.ts), derived by
+ * subtraction and never by re-summing, because `pointTotal` carries the rookie
+ * bonus, the adjustments and TBA's own arithmetic (quick task 261007-il9).
+ */
+function districtTierPointTotal(team: DistrictTeam): number {
+  let total = team.pointTotal;
+  for (const row of team.eventPoints) if (row.tier !== "district") total -= row.total;
+  return total;
+}
+
+/**
  * The shared verdict pass: both lock verdicts, both cut lines,
  * `maxRemainingChamp`, the `2025fsc` champ override and `insights`' four
  * counts, all recomputed from the artifact's own merged totals.
@@ -372,6 +386,22 @@ function reservedChampSlotsAtNow(teams: readonly DistrictTeam[], season: number,
  * those slots removed. For a finished season every DCMP has posted its awards
  * and both reservations are zero, so no published number moves there either.
  *
+ * THE DISTRICT PASS RANKS THE DISTRICT TIER TOTAL (quick task 261007-il9).
+ * Before this, the pass answered "who earned a place at the District
+ * Championship" with points earned at it: `districtLock`,
+ * `dcmpCutLinePoints`, `districtLockedCount` and `districtEliminatedCount`
+ * ranked the all tier `pointTotal`. They now rank `districtTierPointTotal`,
+ * the total the District Locks tab's own floor counts. The champ pass keeps
+ * the all tier total, the race the Championship slots are decided on. The
+ * pass 2 gate still reads pass one's status, but no team can have a DCMP row
+ * while a DCMP is still ahead, except in a multi championship district.
+ * `pointTotal` is unchanged on the wire. Measured 2026-10-07 by rebuilding
+ * the 109 local district seasons offline (`publishDistricts.ts --dry-run
+ * --no-bake --local-out`): the tenet sweep against the publisher's verdicts
+ * fell from 562 tenet A and 454 tenet B rows to 4 and 0, with zero champ side
+ * and zero `pointTotal` movement. The four residual rows are 2019fma's award
+ * at an uncounted event (todo locks-tab-award-at-uncounted-event).
+ *
  * The season is the artifact's own `year` — `maxEventPoints` throws
  * `UnknownDistrictSeasonError` for a season with no declared ceiling rather
  * than guessing one.
@@ -407,7 +437,10 @@ export function recomputeDistrictVerdicts(artifact: DistrictArtifact, options: R
 
   // Pass 1: districtLock, against maxRemainingDistrict (regular-tier events
   // only). No prequalification concept exists at the district/DCMP tier.
-  const districtLockInputs: LockTeamInput[] = teams.map((team) => ({ teamKey: team.teamKey, pointTotal: team.pointTotal, maxRemaining: team.maxRemainingDistrict }));
+  // Ranked on the district tier total (quick task 261007-il9): a DCMP's
+  // points never earn a place at that DCMP. `dcmpCutLine` below reads these
+  // same inputs, so it follows.
+  const districtLockInputs: LockTeamInput[] = teams.map((team) => ({ teamKey: team.teamKey, pointTotal: districtTierPointTotal(team), maxRemaining: team.maxRemainingDistrict }));
   const districtQualifiers: QualifierSets = { awardQualified: awardQualified.district, prequalified: new Set() };
   // One slot held back per district-tier Impact award still to come, so a
   // published `"locked"` is never revoked by an award posted the next day

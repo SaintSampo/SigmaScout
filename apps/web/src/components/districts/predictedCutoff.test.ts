@@ -134,7 +134,7 @@ describe("predictedCutoff — the district tab, all nine events final", () => {
     expect(cutoff.points).toBe(59);
   });
 
-  it("is deliberately NOT insights.dcmpCutLinePoints, because the published insight ranks the all tier pointTotal while this tab's grand total is district tier only, so the two describe different races", () => {
+  it("is deliberately NOT insights.dcmpCutLinePoints: the fixture's 82 was published while the insight ranked the all tier pointTotal, before quick task 261007-il9, while this tab's grand total is district tier only", () => {
     if (cutoff.kind !== "final") throw new Error("expected a final cutoff");
     expect(FIXTURE.insights.dcmpCutLinePoints).toBe(82);
     expect(cutoff.points).not.toBe(FIXTURE.insights.dcmpCutLinePoints);
