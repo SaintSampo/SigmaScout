@@ -232,6 +232,81 @@ describe("the award-qualified set is filtered three ways", () => {
   });
 });
 
+/**
+ * The real case: frc1391 won Chairman's at 2019paben, its third and uncounted
+ * district event, and attended 2019mrcmp from below the line. The publisher
+ * already consumed that slot; the tab did not, because it read an award's tier
+ * from the team's OWN district tier rows only. FIRST's district rules qualify
+ * a district event Impact winner for the DCMP whichever of its events it won
+ * at. Since quick task 261007-jvz the tab resolves the tier from one artifact
+ * derived map shared with the publisher (`eventTierByKey`) and reads the
+ * award's finality from the same district wide map the reservation reads.
+ * Engineering Inspiration and Rookie All Star stay award only invites here.
+ */
+describe("an award at an event the team has no district tier row for (261007-jvz)", () => {
+  function fmaShape(awardEventKey: string, extraTeams: DistrictTeam[] = []) {
+    return artifactOf(
+      [
+        team("frc1", { pointTotal: 100, eventPoints: [played("a", 60), played("c", 40)] }),
+        team("frc2", { pointTotal: 80, eventPoints: [played("a", 50), played("c", 30)] }),
+        team("frc3", { pointTotal: 70, eventPoints: [played("b", 70)] }),
+        team("frc9", {
+          pointTotal: 20,
+          eventPoints: [played("a", 10), played("b", 10)],
+          qualifyingAwards: [{ eventKey: awardEventKey, awardType: AWARD_TYPE_IMPACT, label: "Impact", awardOnly: false }],
+        }),
+        ...extraTeams,
+      ],
+      { dcmpSlots: 2 }
+    );
+  }
+
+  it("counts an Impact award at an event another team carries a district tier row for, consuming the slot (the 2019fma shape)", () => {
+    const { model } = statusesFor(fmaShape("c"));
+    const frc9 = model.byTeam.get("frc9")!;
+    expect(frc9.byAward).toBe(true);
+    expect(frc9.verdict).toBe("lockedAward");
+    expect(model.awardQualified).toEqual(["frc9"]);
+    expect(model.reservedSlots).toBe(0);
+    // The old own rows rule read frc2 locked: the slot frc9's award consumes
+    // is the one frc2 was holding.
+    const frc2 = model.byTeam.get("frc2")!;
+    expect(frc2.status).toBe("lockedOut");
+    expect(frc2.verdict).toBe("eliminated");
+  });
+
+  it("reserves rather than consumes when the slider has reopened that award, never both", () => {
+    const final = { qual: true, alliance: true, elim: true, award: true };
+    const stage = new Map<string, DistrictStageFinality>([
+      ["a", final],
+      ["b", final],
+      ["c", { ...final, award: false }],
+    ]);
+    const { model } = statusesFor(fmaShape("c"), stage);
+    expect(model.byTeam.get("frc9")!.byAward).toBe(false);
+    expect(model.awardQualified).toEqual([]);
+    expect(model.reservedSlots).toBe(1);
+    const frc2 = model.byTeam.get("frc2")!;
+    expect(frc2.status).not.toBe("locked");
+    expect(frc2.status).not.toBe("lockedOut");
+  });
+
+  it("leaves an award at an event no team carries any row for uncounted, the conservative fallback the Worker shares", () => {
+    const { model } = statusesFor(fmaShape("nowhere"));
+    expect(model.byTeam.get("frc9")!.byAward).toBe(false);
+    expect(model.awardQualified).toEqual([]);
+    expect(model.byTeam.get("frc2")!.status).toBe("locked");
+  });
+
+  it("keeps an award at an event another team's rows resolve to the dcmp tier excluded at this tier", () => {
+    const dcmpRow = { eventKey: "cmp", eventName: "DCMP", week: 5, tier: "dcmp" as const, qual: 0, alliance: 0, elim: 0, award: 0, total: 0, state: FINISHED };
+    const artifact = fmaShape("cmp", [team("frc4", { pointTotal: 5, eventPoints: [played("a", 5), dcmpRow] })]);
+    const { model } = statusesFor(artifact);
+    expect(model.byTeam.get("frc9")!.byAward).toBe(false);
+    expect(model.awardQualified).toEqual([]);
+  });
+});
+
 describe("In range versus Out of range", () => {
   /** Four contending teams whose open event leaves everybody reachable, so the points verdict is `contending` for all of them. */
   function contendingArtifact(totals: readonly number[]) {

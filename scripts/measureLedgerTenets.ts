@@ -78,9 +78,13 @@
  * it. The four residual tenet A rows are 2019fma frc5113 and frc6943, at
  * 2019paben:awards and at now. Their cause is the award rule, not the total:
  * frc1391 won Chairman's at 2019paben, an event it has no district tier row
- * for. The publisher resolves that award's tier and consumes the slot, this
- * tab counts an award only at an event on the team's own district tier rows,
- * and the 55 point tie shifts. Todo `locks-tab-award-at-uncounted-event`.
+ * for. The publisher resolved that award's tier and consumed the slot, the
+ * tab counted an award only at an event on the team's own district tier rows,
+ * and the 55 point tie shifted. Quick task 261007-jvz then moved the tab onto
+ * the district wide award rule, reading one artifact derived tier map with the
+ * publisher (`eventTierByKey`). Against the publisher's verdicts the sweep
+ * reads 0 and 0, and the publisher and the tab's district tier final standing
+ * agree on every team (37 differing before it, 0 after).
  *
  * THIS SWEEP READS THE RAW VERDICT MODEL ONLY. It calls
  * `computeDistrictLedgerStatuses` and does not import `districtFieldOverlay`:
@@ -389,12 +393,13 @@ const ALL_CATEGORIES_FINAL: DistrictStageFinality = { qual: true, alliance: true
  * NOT THE DEFAULT YARDSTICK since quick task 261005-04t. Until quick task
  * 261007-il9 the publisher ranked the ALL TIER `pointTotal`, so once a
  * championship had been played these verdicts knew who played it; it now ranks
- * the district tier total and differs from the yardstick only on the award
- * rule (todo `locks-tab-award-at-uncounted-event`). Exported so a caller can
- * still score against them on purpose, which is how the corrupted fixture test
- * proves the checker can fail and how the 571 and 477 (older local set) and
- * the 562 and 454 to 4 and 0 (rebuilt 2026-10-07) in this file's header were
- * measured.
+ * the district tier total. It differed from the yardstick only on the award
+ * rule until quick task 261007-jvz moved the tab onto the publisher's district
+ * wide rule; on artifacts rebuilt offline 2026-10-07 the two agree on every
+ * team. Exported so a caller can still score against them on purpose, which is
+ * how the corrupted fixture test proves the checker can fail and how the 571
+ * and 477 (older local set), the 562 and 454 to 4 and 0 (261007-il9) and the 4
+ * to 0 (261007-jvz, rebuilt 2026-10-07) in this file's header were measured.
  */
 export function publishedFinalVerdicts(artifact: DistrictArtifact): ReadonlyMap<string, LockStatus> {
   return new Map(artifact.teams.map((team) => [team.teamKey, team.districtLock.status] as const));

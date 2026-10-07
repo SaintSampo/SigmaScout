@@ -35,7 +35,7 @@ import { districtEventCategoryFinality, reservedImpactSlots, type ReservedSlotEv
 import { dcmpNeverHappening, perChampionship, reservedChampSlots } from "../core/districts/champReservedSlots.js";
 import { dcmpAwardCountCeilings } from "../core/districts/hypotheticalDcmp.js";
 import { pooledLockInputs, type PooledTeamEntry } from "../core/districts/pooledLockInputs.js";
-import { consumingAwardTypesForTier, specialAllocationNote, type AwardTier } from "../core/districts/qualification.js";
+import { consumingAwardTypesForTier, eventTierByKey, specialAllocationNote, type AwardTier } from "../core/districts/qualification.js";
 import { DistrictArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type DistrictArtifact, type DistrictEventState } from "./pageArtifacts.js";
 
 type DistrictTeam = DistrictArtifact["teams"][number];
@@ -143,21 +143,6 @@ function dcmpStillAhead(teams: readonly DistrictTeam[], dcmpEventMaxTotal: numbe
 }
 
 /**
- * `eventKey -> tier`, built from every team's own `eventPoints` and
- * `remainingEvents` rows. The artifact is the only tier source available to
- * a corpus-free caller, and it is authoritative: each `eventPoints` row's
- * tier came from that entry's own `district_cmp` boolean.
- */
-function tierByEventKey(teams: readonly DistrictTeam[]): Map<string, DistrictTier> {
-  const tiers = new Map<string, DistrictTier>();
-  for (const team of teams) {
-    for (const row of team.eventPoints) tiers.set(row.eventKey, row.tier);
-    for (const row of team.remainingEvents) if (!tiers.has(row.eventKey)) tiers.set(row.eventKey, row.tier);
-  }
-  return tiers;
-}
-
-/**
  * The two award-qualified (CONSUMING) team-key sets `computeLocksWithQualifiers`
  * needs, derived from the artifact's own `qualifyingAwards` lists.
  *
@@ -172,7 +157,10 @@ function awardQualifiedSets(
   teams: readonly DistrictTeam[],
   suppliedTiers: ReadonlyMap<string, DistrictTier> | undefined
 ): { district: Set<string>; dcmp: Set<string> } {
-  const tiers = tierByEventKey(teams);
+  // The artifact derived map is shared with the District Locks tab
+  // (`eventTierByKey`, quick task 261007-jvz), so the two resolve an award's
+  // tier the same way wherever no corpus tier is supplied.
+  const tiers = eventTierByKey(teams);
   const district = new Set<string>();
   const dcmp = new Set<string>();
   for (const team of teams) {
@@ -399,8 +387,9 @@ function districtTierPointTotal(team: DistrictTeam): number {
  * the 109 local district seasons offline (`publishDistricts.ts --dry-run
  * --no-bake --local-out`): the tenet sweep against the publisher's verdicts
  * fell from 562 tenet A and 454 tenet B rows to 4 and 0, with zero champ side
- * and zero `pointTotal` movement. The four residual rows are 2019fma's award
- * at an uncounted event (todo locks-tab-award-at-uncounted-event).
+ * and zero `pointTotal` movement. The four residual rows were 2019fma's award
+ * at an uncounted event; quick task 261007-jvz moved the tab onto this pass's
+ * district wide award rule (`eventTierByKey`), and the sweep reads 0 and 0.
  *
  * The season is the artifact's own `year` — `maxEventPoints` throws
  * `UnknownDistrictSeasonError` for a season with no declared ceiling rather

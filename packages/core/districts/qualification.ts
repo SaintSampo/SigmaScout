@@ -72,6 +72,37 @@ export function isQualificationRelevantAward(awardType: number, tier: AwardTier)
   return DISTRICT_TIER_CONSUMING_AWARD_TYPES.has(awardType) || DISTRICT_TIER_AWARD_ONLY_TYPES.has(awardType);
 }
 
+/** One event row as `eventTierByKey` reads it: the artifact's `eventPoints` and `remainingEvents` rows, narrowed structurally so this module stays import free. */
+export interface EventTierRow {
+  readonly eventKey: string;
+  readonly tier: AwardTier;
+}
+
+/**
+ * `eventKey -> tier`, built from EVERY team's own `eventPoints` and
+ * `remainingEvents` rows. The artifact is the only tier source available to a
+ * corpus-free caller, and it is authoritative: each `eventPoints` row's tier
+ * came from that entry's own `district_cmp` boolean. An `eventPoints` row wins
+ * over a `remainingEvents` row for the same key.
+ *
+ * ONE MAP, TWO CONSUMERS (quick task 261007-jvz). The publisher's verdict pass
+ * (`packages/harness/districtRankingsMerge.ts`, publisher and Worker alike)
+ * and the District Locks tab (`districtLedgerStatus.ts`) both resolve an
+ * award's tier here, so an Impact award at an event the winning team has no
+ * row for (frc1391's Chairman's at 2019paben, its third and uncounted event)
+ * resolves the same way on both sides.
+ */
+export function eventTierByKey(
+  teams: readonly { readonly eventPoints: readonly EventTierRow[]; readonly remainingEvents: readonly EventTierRow[] }[]
+): Map<string, AwardTier> {
+  const tiers = new Map<string, AwardTier>();
+  for (const team of teams) {
+    for (const row of team.eventPoints) tiers.set(row.eventKey, row.tier);
+    for (const row of team.remainingEvents) if (!tiers.has(row.eventKey)) tiers.set(row.eventKey, row.tier);
+  }
+  return tiers;
+}
+
 /** True when `awardType` at `tier` is an "award-only invite" — qualifies to compete for the award, grants no play slot. Only possible at the district-event tier: every DCMP-tier consuming award type is a full qualifier. */
 export function isAwardOnly(awardType: number, tier: AwardTier): boolean {
   return tier === "district" && DISTRICT_TIER_AWARD_ONLY_TYPES.has(awardType);

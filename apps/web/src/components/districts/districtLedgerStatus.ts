@@ -74,7 +74,7 @@ import {
   type LockTeamInput,
   type QualifierSets,
 } from "../../../../../packages/core/districts/locks.js";
-import { consumingAwardTypesForTier } from "../../../../../packages/core/districts/qualification.js";
+import { consumingAwardTypesForTier, eventTierByKey } from "../../../../../packages/core/districts/qualification.js";
 import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
 import { reservedImpactSlots, type ReservedSlotEvent } from "../../../../../packages/core/districts/reservedSlots.js";
 import { pooledLockInputs, type PooledTeamEntry } from "../../../../../packages/core/districts/pooledLockInputs.js";
@@ -98,9 +98,11 @@ export interface DistrictLedgerStatusResult {
    * The raw `locks.ts` verdict this status was mapped from: the GUARANTEE, on
    * the district tier floor (`districtLockBounds`). Since quick task
    * 261007-il9 the artifact's own `districtLock.status` ranks the same
-   * district tier total, so the two differ only where the award rule does (an
-   * award won at an event the team has no district tier row for; todo
-   * `locks-tab-award-at-uncounted-event`).
+   * district tier total, and since quick task 261007-jvz both resolve an
+   * award's tier from the same artifact derived map (`eventTierByKey`). The
+   * two differ only where the publisher's corpus tier names an event no team
+   * carries a row for; measured 2026-10-07 over the 109 local seasons, no such
+   * team exists.
    */
   readonly verdict: LockStatus;
   /**
@@ -127,8 +129,10 @@ export interface DistrictLedgerStatusModel {
    * The raw six-status `locks.ts` census on the district tier floor. It is the
    * same COUNT `insights.districtLockedCount`/`districtEliminatedCount` take.
    * Since quick task 261007-il9 the publisher's census ranks the same district
-   * tier total, so the two differ only where the award rule does (todo
-   * `locks-tab-award-at-uncounted-event`).
+   * tier total, and since quick task 261007-jvz both read one award rule. The
+   * two differ only where the publisher's corpus tier names an event no team
+   * carries a row for; measured 2026-10-07 over the 109 local seasons, no such
+   * team exists.
    */
   readonly verdictCensus: Readonly<Record<LockStatus, number>>;
   /** The slot-th highest MEDIAN PROJECTION in the narrowed pool — the In range boundary. `null` for an unpublished capacity. */
@@ -195,15 +199,12 @@ const EMPTY_CENSUS: Record<LockStatus, number> = {
  * is the one to reproduce.
  *
  * `packages/core/districts/reservedSlots.ts` owns the rule, including the
- * cancelled-event carve out; this function owns only the two lookups.
+ * cancelled-event carve out; this function owns only the two lookups, and the
+ * award finality lookup is `awardFinalByEventAtPosition` below, which the
+ * consuming award set reads too.
  */
 export function reservedSlotsAtPosition(artifact: DistrictArtifact, teams: readonly DistrictLedgerTeam[]): number {
-  const awardFinalByEvent = new Map<string, boolean>();
-  for (const team of teams) {
-    for (const row of team.rows) {
-      if (!awardFinalByEvent.has(row.eventKey)) awardFinalByEvent.set(row.eventKey, row.stage.final.award);
-    }
-  }
+  const awardFinalByEvent = awardFinalByEventAtPosition(artifact, teams);
 
   const events: ReservedSlotEvent[] = [];
   const seen = new Set<string>();
@@ -223,6 +224,34 @@ export function reservedSlotsAtPosition(artifact: DistrictArtifact, teams: reado
   }
 
   return reservedImpactSlots(events);
+}
+
+/**
+ * Whether each district-tier event's AWARD category is final at this position,
+ * DISTRICT WIDE: one map both the slot reservation above and the consuming
+ * award set in `computeDistrictLedgerStatuses` read, so an event either
+ * consumes a slot (its award final, the winner award qualified) or reserves one
+ * (its award open), never both (quick task 261007-jvz).
+ *
+ * The two lookups are the ones `reservedSlotsAtPosition` has always made. FIRST
+ * ROW SEEN WINS across every team's built rows, which carry the stage at the
+ * position (the rewind slider reopening an event's awards reaches here). An
+ * event no built row names answers from the first artifact entry's own
+ * `state.awardsPosted`, which is what every position outside the rewind reads.
+ */
+export function awardFinalByEventAtPosition(artifact: DistrictArtifact, teams: readonly DistrictLedgerTeam[]): Map<string, boolean> {
+  const awardFinalByEvent = new Map<string, boolean>();
+  for (const team of teams) {
+    for (const row of team.rows) {
+      if (!awardFinalByEvent.has(row.eventKey)) awardFinalByEvent.set(row.eventKey, row.stage.final.award);
+    }
+  }
+  for (const team of artifact.teams) {
+    for (const entry of districtTierEvents(team)) {
+      if (!awardFinalByEvent.has(entry.eventKey)) awardFinalByEvent.set(entry.eventKey, entry.state?.awardsPosted === true);
+    }
+  }
+  return awardFinalByEvent;
 }
 
 /** One district-tier category's ceiling per event, as `maxEventPoints(season, "district")` publishes it. */
@@ -294,11 +323,12 @@ export function districtLockBounds(
  * (`districtTierPointTotal` in packages/harness/districtRankingsMerge.ts).
  * Before it they ranked the all tier `pointTotal` and disagreed with this
  * floor over declined places, teams that played from below the line and ties.
- * They still differ where the award rule does: this tab counts an award only
- * at an event on the team's own district tier rows, while the publisher
- * resolves an award's tier from any row or the corpus (todo
- * `locks-tab-award-at-uncounted-event`). Nothing on the site displays the
- * published verdicts.
+ * Since quick task 261007-jvz this tab counts a consuming award at ANY event
+ * some team's rows resolve to the district tier, as the publisher does, from
+ * the same artifact derived map (`eventTierByKey`). The two differ only where
+ * the publisher's corpus tier names an event no team carries a row for;
+ * measured 2026-10-07 over the 109 local seasons, no such team exists. Nothing
+ * on the site displays the published verdicts.
  */
 export function computeDistrictLedgerStatuses(options: ComputeDistrictLedgerStatusesOptions): DistrictLedgerStatusModel {
   const { artifact, teams } = options;
@@ -312,6 +342,11 @@ export function computeDistrictLedgerStatuses(options: ComputeDistrictLedgerStat
 
   const sourceByKey = new Map(artifact.teams.map((team) => [team.teamKey, team] as const));
   const consuming = consumingAwardTypesForTier("district");
+  // DISTRICT WIDE, built once (quick task 261007-jvz): the tier from every
+  // team's rows, as the publisher's artifact derived map reads it, and the
+  // award finality from the same map the slot reservation reads.
+  const tierByEvent = eventTierByKey(artifact.teams);
+  const awardFinalByEvent = awardFinalByEventAtPosition(artifact, teams);
 
   const lockInputs: LockTeamInput[] = [];
   const projectionInputs: LockTeamInput[] = [];
@@ -323,13 +358,6 @@ export function computeDistrictLedgerStatuses(options: ComputeDistrictLedgerStat
     if (source === undefined) continue;
 
     const { floor, openCeiling } = districtLockBounds(source, team.rows, categoryCeiling);
-    const districtTierEventKeys = new Set<string>();
-    const awardFinalByEvent = new Map<string, boolean>();
-
-    for (const row of team.rows) {
-      districtTierEventKeys.add(row.eventKey);
-      awardFinalByEvent.set(row.eventKey, row.stage.final.award);
-    }
 
     lockInputs.push({ teamKey: team.teamKey, pointTotal: floor, maxRemaining: openCeiling });
     // `maxRemaining: 0` asks the cut-line function for the slot-th highest
@@ -347,13 +375,19 @@ export function computeDistrictLedgerStatuses(options: ComputeDistrictLedgerStat
     });
 
     for (const award of source.qualifyingAwards) {
-      // An award's tier comes from the team's own event rows, exactly as
-      // `DistrictQualifyingAwardSchema`'s doc comment requires — that schema
-      // deliberately carries no `tier` field of its own.
-      if (!districtTierEventKeys.has(award.eventKey)) continue;
+      // An award's tier comes from EVERY team's event rows, district wide, as
+      // the publisher's artifact derived map reads it
+      // (`DistrictQualifyingAwardSchema` deliberately carries no `tier` field
+      // of its own). FIRST's district rules qualify a district event Impact
+      // winner for the DCMP whichever of its events it won at, so an award at
+      // the team's third, uncounted event still consumes (frc1391 at
+      // 2019paben). An award at an event no row names stays uncounted.
+      if (tierByEvent.get(award.eventKey) !== "district") continue;
       if (!consuming.has(award.awardType)) continue;
       // An award the slider has REOPENED has not been given out at this
-      // position, so it cannot consume a slot here.
+      // position, so it cannot consume a slot here. The finality comes from
+      // the map the reservation reads, so the event consumes or reserves and
+      // never both.
       if (awardFinalByEvent.get(award.eventKey) !== true) continue;
       awardQualified.add(team.teamKey);
     }

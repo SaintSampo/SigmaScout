@@ -17,6 +17,7 @@ import {
   DCMP_TIER_CONSUMING_AWARD_TYPES,
   DISTRICT_TIER_AWARD_ONLY_TYPES,
   DISTRICT_TIER_CONSUMING_AWARD_TYPES,
+  eventTierByKey,
   isAwardOnly,
   isQualificationRelevantAward,
   specialAllocationNote,
@@ -122,5 +123,32 @@ describe("specialAllocationNote", () => {
   it("returns null for every ordinary district-year", () => {
     expect(specialAllocationNote("2026fnc")).toBeNull();
     expect(specialAllocationNote("2019fim")).toBeNull();
+  });
+});
+
+describe("eventTierByKey (quick task 261007-jvz)", () => {
+  type Row = { eventKey: string; tier: "district" | "dcmp" };
+  function teamOf(eventPoints: Row[], remainingEvents: Row[] = []) {
+    return { eventPoints, remainingEvents };
+  }
+
+  it("lets an eventPoints row's tier win over a remainingEvents row for the same key", () => {
+    const tiers = eventTierByKey([teamOf([], [{ eventKey: "x", tier: "district" }]), teamOf([{ eventKey: "x", tier: "dcmp" }])]);
+    expect(tiers.get("x")).toBe("dcmp");
+  });
+
+  it("resolves a key that appears only on remainingEvents from that row", () => {
+    expect(eventTierByKey([teamOf([], [{ eventKey: "later", tier: "district" }])]).get("later")).toBe("district");
+  });
+
+  it("resolves a key carried on team B's rows for any caller, district wide", () => {
+    const tiers = eventTierByKey([teamOf([{ eventKey: "a", tier: "district" }]), teamOf([{ eventKey: "c", tier: "district" }])]);
+    expect(tiers.get("c")).toBe("district");
+    expect(tiers.get("a")).toBe("district");
+    expect(tiers.get("nowhere")).toBeUndefined();
+  });
+
+  it("returns an empty map for no teams", () => {
+    expect(eventTierByKey([]).size).toBe(0);
   });
 });

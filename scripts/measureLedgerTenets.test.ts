@@ -79,6 +79,13 @@ export const MEASURED_TEAM_POSITIONS = 921_658;
 // a mid-season position and fewer teams read Locked there: Locked shown 77,115 -> 76,390, Locked out
 // 167,333 -> 166,590, pooled-only locks 6,552 -> 6,296 over 1,029 positions. Both tenets still hold
 // at every position (0 and 0); seasons, positions and team-positions are unchanged.
+// Re-pinned 2026-10-07 after quick task 261007-jvz. Its finality cascade (a later stage's fact closes
+// every earlier category, so curtailed events, the 2020 cancellations and 2022gacar read final) made
+// more categories final: Locked 76,390 -> 77,202, Locked out 166,590 -> 167,428, pooled-only locks
+// 6,296 -> 6,552 at 1,074 positions. The district wide award rule (an Impact award at any event some
+// team's rows resolve to the district tier consumes a slot) then moved Locked displays onto the award
+// chip: Locked 77,202 -> 76,964, chip 24,192 -> 24,466, Locked out 167,429, pooled-only 6,512 at 1,073.
+// Both tenets stayed 0 and 0; the reservation pins are unchanged.
 /**
  * THE HISTORY OF THIS NUMBER. 138,702 before 260925-ms7 held a slot back; 8,197
  * of those displays moved off `Locked`, leaving 130,505. Quick task 260925-pl6's
@@ -89,16 +96,16 @@ export const MEASURED_TEAM_POSITIONS = 921_658;
  * displays existed only because of points earned at a championship that had
  * not been played at the position they were shown at.
  */
-export const MEASURED_LOCKED_SHOWN = 76_390;
+export const MEASURED_LOCKED_SHOWN = 76_964;
 /**
  * 190,854 on the floor that held championship points, 167,333 on the district
  * tier floor (261005-04t): a rival's championship points no longer push a team
  * out of reach of the line. Unchanged by the reservation in either reading,
  * which is the point: the reservation reaches the `Locked` test alone.
  */
-export const MEASURED_LOCKED_OUT_SHOWN = 166_590;
-/** Unchanged by 261005-04t: an award locks a team whatever its points are. */
-export const MEASURED_LOCKED_AWARD_CHIP_SHOWN = 24_192;
+export const MEASURED_LOCKED_OUT_SHOWN = 167_429;
+/** Unchanged by 261005-04t (an award locks a team whatever its points are) at 24,192; 24,466 since 261007-jvz counted an Impact award at any district tier event, not only at one on the team's own rows. */
+export const MEASURED_LOCKED_AWARD_CHIP_SHOWN = 24_466;
 /** A `Locked out` display that ends `contending` in the yardstick. Zero against the district tier final standing. */
 export const MEASURED_LOCKED_OUT_UNRESOLVED_TIES = 0;
 export const MEASURED_TENET_A_VIOLATIONS = 0;
@@ -123,8 +130,8 @@ export const MEASURED_POSITIONS_WITH_RESERVED_SLOTS = 3_804;
  * can still hand out, which is the case the ceiling test cannot reach. The two
  * numbers moved for different reasons and neither is a difference of the other.
  */
-export const MEASURED_LOCKED_BY_POOLED_ONLY = 6_296;
-export const MEASURED_POSITIONS_WITH_POOLED_ONLY_LOCK = 1_029;
+export const MEASURED_LOCKED_BY_POOLED_ONLY = 6_512;
+export const MEASURED_POSITIONS_WITH_POOLED_ONLY_LOCK = 1_073;
 
 /**
  * The thirteen tenet-A violations 260925-ma5 measured, kept as the RECORD of
