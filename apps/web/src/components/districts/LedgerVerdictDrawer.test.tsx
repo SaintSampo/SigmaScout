@@ -247,6 +247,12 @@ describe("DistrictOutcomeList as labelled chance bars", () => {
     expect(nonZero.querySelector(".district-ledger-verdict-outcomes__label")!.className).not.toContain("__zero");
     expect(document.querySelector('[data-outcome="captain"] .district-ledger-verdict-outcomes__points')!.textContent).toBe("27 to 48 pts");
   });
+
+  it("renders nothing for an empty row list, so no empty labelled list reaches a screen reader (261007-3ik)", () => {
+    render(<DistrictOutcomeList rows={[]} label="Playoff outcomes" testId="district-ledger-drawer-outcomes" />);
+    expect(screen.queryByTestId("district-ledger-drawer-outcomes")).toBeNull();
+    expect(screen.queryByRole("list")).toBeNull();
+  });
 });
 
 describe("VerdictDrawer", () => {
@@ -338,6 +344,24 @@ describe("VerdictDrawer", () => {
     expect(source.textContent).toBe("Quals ~39·Alliance picked ~44% ~27 if in·Awards 15");
     expect(source.querySelector("i")!.textContent).toBe("~27 if in");
     expect([...source.querySelectorAll("b")].map((b) => b.textContent)).toEqual(["~39", "picked ~44%"]);
+  });
+
+  it("reads as the headline and tiles alone for an alliance already placed fifth to eighth (261007-3ik)", () => {
+    const model: VerdictModel = {
+      eyebrow: "Playoffs · 4915 Spartronics",
+      headline: "Out before the top four in 100 of 100 runs.",
+      tiles: [
+        { key: "mostLikely", label: "most likely", value: "Out before the top four" },
+        { key: "chanceOfPoints", label: "chance of points", value: "0%" },
+      ],
+      chart: { kind: "outcomes", label: "Playoff outcomes", rows: [] },
+      sourceChips: [],
+    };
+    render(<VerdictDrawer model={model} />);
+    const drawer = screen.getByTestId("district-ledger-verdict");
+    expect(within(drawer).getByTestId("district-ledger-verdict-headline").textContent).toBe("Out before the top four in 100 of 100 runs.");
+    expect(within(drawer).getAllByTestId("district-ledger-verdict-tile").map((tile) => tile.getAttribute("data-tile"))).toEqual(["mostLikely", "chanceOfPoints"]);
+    expect(within(drawer).queryByTestId("district-ledger-drawer-outcomes")).toBeNull();
   });
 });
 

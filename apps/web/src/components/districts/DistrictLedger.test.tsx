@@ -1498,11 +1498,12 @@ describe("DistrictLedger — the drawer", () => {
     fireEvent.click(cellButton("2026walive:elim"));
     const list = await screen.findByTestId("district-ledger-drawer-outcomes");
     expect(screen.queryByTestId("district-ledger-drawer-cell-plot")).toBeNull();
-    // Every named playoff outcome, ordered by points descending.
+    // Every playoff outcome that pays points, ordered by points descending; the
+    // implicit "Out before the top four" row is not listed (261007-3ik).
     const rows = within(list).getAllByTestId("district-ledger-outcome-row");
-    expect(rows.map((row) => row.getAttribute("data-outcome"))).toEqual(["winner", "finalist", "third", "fourth", "none"]);
+    expect(rows.map((row) => row.getAttribute("data-outcome"))).toEqual(["winner", "finalist", "third", "fourth"]);
     expect(list.textContent ?? "").toContain(DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.winner);
-    expect(list.textContent ?? "").toContain(DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.none);
+    expect(list.textContent ?? "").not.toContain(DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.none);
   });
 
   it("prints each playoff outcome's own point value, from the placement table and not from the axis", async () => {
@@ -1515,7 +1516,7 @@ describe("DistrictLedger — the drawer", () => {
     expect(pointsOf("finalist")).toBe("20 pts");
     expect(pointsOf("third")).toBe("13 pts");
     expect(pointsOf("fourth")).toBe("7 pts");
-    expect(pointsOf("none")).toBe("0 pts");
+    expect(list.querySelector('[data-outcome="none"]')).toBeNull();
   });
 
   it("renders an OUTCOME LIST for the Awards cell, and omits Rookie All Star for a veteran", async () => {
@@ -1524,9 +1525,11 @@ describe("DistrictLedger — the drawer", () => {
     const list = await screen.findByTestId("district-ledger-drawer-outcomes");
     expect(screen.queryByTestId("district-ledger-drawer-cell-plot")).toBeNull();
     const rows = within(list).getAllByTestId("district-ledger-outcome-row");
-    // The fixture's teams are veterans, so Rookie All Star is not an outcome.
-    expect(rows.map((row) => row.getAttribute("data-outcome"))).toEqual(["impact", "judged", "none"]);
+    // The fixture's teams are veterans, so Rookie All Star is not an outcome,
+    // and the implicit "No award" row is not listed (261007-3ik).
+    expect(rows.map((row) => row.getAttribute("data-outcome"))).toEqual(["impact", "judged"]);
     expect(list.textContent ?? "").not.toContain(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS.rookieAllStar);
+    expect(list.textContent ?? "").not.toContain(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS.none);
   });
 
   it("lists Rookie All Star for a ROOKIE, at its own point value", async () => {
@@ -1546,7 +1549,6 @@ describe("DistrictLedger — the drawer", () => {
       "impact",
       "rookieAllStar",
       "judged",
-      "none",
     ]);
     expect(list.querySelector('[data-outcome="rookieAllStar"] .district-ledger-verdict-outcomes__points')?.textContent).toBe("8 pts");
   });
@@ -2624,5 +2626,66 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
     fireEvent.click(within(cell as HTMLElement).getByRole("button"));
     expect(await screen.findByTestId("district-ledger-drawer-cell-plot")).toBeDefined();
     expect(screen.queryByTestId("district-ledger-drawer-outcomes")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("DistrictLedger — the run progress bar (quick task 261007-481)", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it("shows a determinate bar as the controls card's last row while the run is held, and drops it once the run lands", async () => {
+    // Hold the per event run so the tab stays mid run long enough to read the
+    // bar; every other request (the advancement chance) runs for real.
+    const held: { message: unknown; post: (outbound: unknown) => void }[] = [];
+    let holding = true;
+    handle = installMockWorker({
+      script: (message, ctx) => {
+        if (holding && (message as { type?: string }).type === "run") {
+          held.push({ message, post: (outbound) => ctx.post(outbound) });
+          return;
+        }
+        realRunScript(message, ctx);
+      },
+    });
+    installFetch({ eventArtifact: liveEventArtifact() });
+    renderLedger(artifactOf(ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey)))));
+
+    await waitFor(() => expect(held.length).toBeGreaterThan(0));
+    // An early indeterminate frame while the event artifact loads is expected;
+    // wait for the in flight run's determinate state.
+    await waitFor(() => expect(screen.getByTestId("district-ledger-run-progress").getAttribute("data-progress")).toBe("determinate"));
+    const latest = held[held.length - 1]!;
+    const totalEvents = (latest.message as { events: unknown[] }).events.length;
+    const bar = screen.getByTestId("district-ledger-run-progress");
+    expect(bar.getAttribute("aria-valuenow")).toBe("0");
+    expect(bar.getAttribute("aria-valuemax")).toBe(String(totalEvents));
+    expect(screen.getByTestId("district-ledger-controls").lastElementChild).toBe(bar);
+
+    latest.post({ type: "progress", completedEvents: 1, totalEvents: 1 });
+    await waitFor(() => expect(screen.getByTestId("district-ledger-run-progress").getAttribute("aria-valuenow")).toBe("1"));
+    const fill = screen.getByTestId("district-ledger-run-progress").firstElementChild as HTMLElement;
+    expect(fill.style.width).toBe("100%");
+
+    holding = false;
+    runDistrictWorkerJob(latest.message, latest.post, runAsOfEvent);
+    await waitFor(() => expect(screen.queryByTestId("district-ledger-run-progress")).toBeNull());
+  });
+
+  it("renders no bar when there is nothing to run", async () => {
+    installFetch();
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf([districtTeam("frc100")]));
+    await waitFor(() => expect(screen.getAllByRole("columnheader").length).toBeGreaterThan(0));
+    expect(screen.queryByTestId("district-ledger-run-progress")).toBeNull();
   });
 });

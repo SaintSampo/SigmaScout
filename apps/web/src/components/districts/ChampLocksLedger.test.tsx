@@ -804,6 +804,8 @@ describe("ChampLocksLedger — the drawer", () => {
     // 2026's dcmp-tier placement values: three times the district tier's.
     const text = list.textContent ?? "";
     for (const points of ["90", "60", "39", "21"]) expect(text).toContain(points);
+    // The implicit "Out before the top four" row is not listed (261007-3ik).
+    expect(within(list).queryByText(DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.none)).toBeNull();
     expect(within(drawer).queryByTestId("district-ledger-drawer-cell-plot")).toBeNull();
   });
 
@@ -813,7 +815,8 @@ describe("ChampLocksLedger — the drawer", () => {
     const list = within(screen.getByTestId("champ-ledger-drawer")).getByTestId("district-ledger-drawer-outcomes");
     expect(within(list).getByText(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS.impact)).toBeDefined();
     expect(within(list).getByText(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS.judged)).toBeDefined();
-    expect(within(list).getByText(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS.none)).toBeDefined();
+    // The implicit "No award" row is not listed (261007-3ik).
+    expect(within(list).queryByText(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS.none)).toBeNull();
     // Every fixture team is a veteran (`awardProfile.rookie` is false), and a
     // veteran cannot win Rookie All Star, so the row is omitted rather than
     // printed at zero.

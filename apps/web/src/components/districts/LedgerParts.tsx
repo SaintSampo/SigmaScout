@@ -49,6 +49,7 @@ import {
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
   DISTRICT_LEDGER_LIKELY_PREFIX,
+  DISTRICT_LEDGER_RUN_PROGRESS_LABEL,
   DISTRICT_LEDGER_SEARCH_LABEL,
   DISTRICT_LEDGER_SEARCH_PLACEHOLDER,
   DISTRICT_LEDGER_DECLINED_LABEL,
@@ -68,8 +69,10 @@ import {
   districtLedgerCutoffFigure,
   districtLedgerCutoffLikelyText,
   districtLedgerPlacementLine,
+  districtLedgerRunProgressText,
   districtLedgerSelectionSettledLine,
 } from "./districtLedgerCopy.js";
+import type { LedgerRunProgress } from "./ledgerRunProgress.js";
 import { districtSelectionHeadline, districtSelectionSettledRoute } from "./districtLedgerOutcomes.js";
 import type { DistrictLedgerStatusKey } from "./districtLedgerStatus.js";
 import {
@@ -642,19 +645,63 @@ export type DistrictLedgerNavigate = (opts: {
 }) => Promise<void>;
 
 /**
+ * The Locks run progress bar (quick task 261007-481): determinate while the
+ * per event run is in flight, an indeterminate sweep while the tab waits in any
+ * other way. Every className is a plain string, never through `cn()` and never
+ * beside a Tailwind colour utility: all colour lives in theme.css's
+ * `.locks-progress*` rules, and the inline style carries geometry only.
+ */
+export function LedgerRunProgressBar({ progress }: { progress: LedgerRunProgress }) {
+  if (progress.kind === "determinate") {
+    return (
+      <div
+        role="progressbar"
+        aria-label={DISTRICT_LEDGER_RUN_PROGRESS_LABEL}
+        aria-valuemin={0}
+        aria-valuemax={progress.total}
+        aria-valuenow={progress.completed}
+        aria-valuetext={districtLedgerRunProgressText(progress.completed, progress.total)}
+        data-testid="district-ledger-run-progress"
+        data-progress={progress.kind}
+        className="locks-progress"
+      >
+        <div className="locks-progress-fill" style={{ width: `${String((progress.completed / progress.total) * 100)}%` }} />
+      </div>
+    );
+  }
+  return (
+    <div
+      role="progressbar"
+      aria-label={DISTRICT_LEDGER_RUN_PROGRESS_LABEL}
+      aria-busy="true"
+      data-testid="district-ledger-run-progress"
+      data-progress={progress.kind}
+      className="locks-progress locks-progress--indeterminate"
+    >
+      <div className="locks-progress-fill" />
+    </div>
+  );
+}
+
+/**
  * The ONE controls card: the team-number search, the stat line and the legend.
  * The Locks milestone picker joins this same card, as its first child, rather
- * than getting a second layout of its own.
+ * than getting a second layout of its own. While the tab waits on its per
+ * event simulation, the run progress bar is the card's last row (quick task
+ * 261007-481).
  */
 export function ControlsCard({
   query,
   onQueryChange,
   cutoff,
+  progress,
   children,
 }: {
   query: string;
   onQueryChange: (value: string) => void;
   cutoff: LedgerCutoffView;
+  /** The run progress to draw as the card's last row; undefined renders nothing and reserves no space. */
+  progress?: LedgerRunProgress;
   children?: ReactNode;
 }) {
   const display = ledgerCutoffDisplay(cutoff);
@@ -691,6 +738,7 @@ export function ControlsCard({
           </span>
         </div>
       </div>
+      {progress !== undefined && <LedgerRunProgressBar progress={progress} />}
     </div>
   );
 }
