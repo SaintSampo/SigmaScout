@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-06T20:45:31.675Z"
-last_activity: 2026-10-06
+last_updated: "2026-10-07T01:37:52.130Z"
+last_activity: 2026-10-07
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
   total_phases: 13
@@ -729,6 +729,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 293 | Champ Locks reserve slots for pending DCMP consuming awards (winning alliance + judged awards at ceiling; champ tenet sweep 9 to 6 tenet-A, remaining six are the 2026ca two-DCMP todo) | 2026-10-06 | 02e2eb9e | [261006-3gg-champ-locks-reserve-slots-for-pending-dc](./quick/261006-3gg-champ-locks-reserve-slots-for-pending-dc/) |
 | 294 | Champ Locks multi-DCMP districts: every championship a district publishes counts, divisions fold into their finals event (champ tenet sweep 6 to 0 violations, exit 0) | 2026-10-06 | 46c44a8a | [261006-lwo-champ-locks-multi-dcmp-districts](./quick/261006-lwo-champ-locks-multi-dcmp-districts/) |
 | 295 | Locks drawer is sketch 025 variant A: one verdict pane per blue cell (headline sentence, figure tiles, binned SVG histogram with the cutoff labelled, outcome bars), all captions deleted, team column unpinned | 2026-10-06 | e70de256 | [261006-lxp-implement-sketch-025-variant-a-verdict-f](./quick/261006-lxp-implement-sketch-025-variant-a-verdict-f/) |
+| 296 | Fast: e2e chip assertion follows the Live field view (3 chips, 4 with Declined); pointBarExtent, pointAxisTicks and districtLedgerOutcomePoints deleted with their tests; two comments reworded so Tailwind stops emitting a CSS warning. LedgerCutoffView.tier kept, it reaches ledgerRangeState and three test files | 2026-10-07 | fffaf070 | — |
 
 ### Roadmap Evolution
 
