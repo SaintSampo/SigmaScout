@@ -61,3 +61,12 @@ the 109 local seasons (reproduced by the executor, 2026-10-05). Those are the tw
 disagreeing over declined places, teams that played from below the line, and ties. When the
 publisher is on the district tier floor, that second reading should fall to zero too, which makes
 it the acceptance check for this todo.
+
+## Closed
+
+Closed 2026-10-07 by quick task 261007-il9, commit 75db163a.
+recomputeDistrictVerdicts, the one pass the publisher and the Worker share, now ranks the district tier total for districtLock, dcmpCutLinePoints and the two district counts; the champ pass and pointTotal are unchanged.
+Rebuilt offline over the 109 local district seasons, the tenet sweep against publishedFinalVerdicts went from 562 tenet A and 454 tenet B rows to 4 and 0, with zero champ side and zero pointTotal movement.
+The four residual rows (2019fma frc5113 and frc6943) are an award rule difference, recorded in todo locks-tab-award-at-uncounted-event.
+
+Release: pending republish by the orchestrator (2026-10-07)

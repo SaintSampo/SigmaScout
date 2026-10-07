@@ -66,3 +66,12 @@ A new row for the methodology limits table, flat third person, no hyphen or dash
   22412703, with identical fresh regenerations, so the drift predates 261007-4qr. The selected
   setting is unchanged (uniform, fixed, 1.75 for every season); only the fit counts, coverages and
   MAEs moved. It was not regenerated. Regenerating it belongs with whichever change caused it.
+
+## Closed
+
+Closed 2026-10-07 by quick task 261007-il9, commit 117960cd.
+The District cutoff sentence on the District Points methodology page now reads 1.2 points over 193 positions and 171 of those 193 positions, 89%; header source 9, the test pins, the measureDistrictCutoff.ts header and the predictedCutoff.ts comment carry 193, 171 of 193 (88.6%) and 1.17 against 1.80.
+The limits table gained the short roster row as its fourth row.
+champCutoffTuning.generated.ts was regenerated with --write-tuning: every selected setting is unchanged, only fitCount, fitCoverage and fitMae moved, and --check-history prints no drift for both files.
+
+Release: pending republish by the orchestrator (2026-10-07)

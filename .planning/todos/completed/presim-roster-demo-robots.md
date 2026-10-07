@@ -72,3 +72,13 @@ filler. The browser Locks ledger now prices 2023gaalb, 2024vapor, 2025ncash, 202
    refuses that event. The core's `draftedAllianceCount` and filler alliance rule are now available
    to both the bake and the as-of plan. Relaxing that skip changes no finished season's output, but
    it is publisher code, so it belongs with the publisher half of this todo.
+
+## Closed
+
+Closed 2026-10-07 by quick task 261007-il9, commits 69b4951f and ac24f171.
+The browser half shipped in 261006-2t0 (aa041e76).
+The as-of GENERATED roster (simulatedTeams) and the bake's short roster rule (insufficientRosterReason) shipped in 69b4951f.
+The publisher half (qualificationRosterKeys, spr 11.0.0+baseline, epa 15.0.0+baseline) shipped in ac24f171.
+The orchestrator runs the republish, which settles the final count against this todo's 13 events.
+
+Release: pending republish by the orchestrator (2026-10-07)

@@ -25,3 +25,10 @@ A stop that resolved to either of those would claim a position the ledger cannot
    - The stepper goes back to nine columns in `theme.css`: `repeat(9, minmax(0, 1fr))`, a line inset of `calc(100% / 18)`, a fill of `/ 8`, and a now marker at `/ 9`.
    - The group spans go back to the sketch's own: Schedule 1/2, Qualification 2/6, Alliances 6/7, Playoffs 7/9, Awards 9/10.
    - Update the CSS contract and copy tests that pin eight columns.
+
+## Closed
+
+Closed 2026-10-07 by quick task 261007-il9 (no code in this task).
+Superseded by 261007-3g2's thirteen stop picker (0270534a): its Round 1 to Round 5 and Finals stops resolve finer than a half done playoffs stop would.
+
+Release: pending republish by the orchestrator (2026-10-07)
