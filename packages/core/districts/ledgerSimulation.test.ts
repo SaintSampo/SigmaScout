@@ -34,6 +34,7 @@ import {
   BRACKET_SETS,
   divisionedDcmpPlayoffPmf,
   InvalidBracketDecisionError,
+  PLAYOFF_PLACEMENT_POINTS,
   UnsupportedAllianceCountError,
   UnsupportedBracketSeasonError,
   type PlayedBracketMatch,
@@ -42,6 +43,7 @@ import {
   AlliancePricingError,
   convolveDistrictGrandTotal,
   decideBracketMatch,
+  draftedAllianceCount,
   EmptyHistogramError,
   encodeDistrictPointPmf,
   InsufficientRosterError,
@@ -598,8 +600,17 @@ describe("simulateDistrictEvent — validation before any draw, naming EVERY off
     expect(() => simulateDistrictEvent(inputFor(24, { fieldSize: 24.5 }), 10, 1)).toThrow(InvalidFieldSizeError);
   });
 
-  it("InsufficientRosterError when the roster cannot fill the alliances", () => {
-    const input = inputFor(23, { remainingMatches: [] });
+  // Rewritten by quick task 261007-4qr: a 23-team roster now prices under the
+  // short-roster rule (whole filler alliances at the bottom seeds), so the two
+  // refusals that remain are fewer teams than alliances, and a short roster at
+  // an alliance count the eight-alliance bracket does not route.
+  it("InsufficientRosterError when the roster holds fewer teams than alliances", () => {
+    const input = inputFor(7, { remainingMatches: [] });
+    expect(() => simulateDistrictEvent(input, 10, 1)).toThrow(InsufficientRosterError);
+  });
+
+  it("InsufficientRosterError when a non-eight alliance count cannot be filled with three-team alliances", () => {
+    const input = inputFor(11, { allianceCount: 4, remainingMatches: [] });
     expect(() => simulateDistrictEvent(input, 10, 1)).toThrow(InsufficientRosterError);
   });
 
@@ -807,12 +818,15 @@ describe("simulateDistrictEvent — alliances announced", () => {
       ["5"],
     ],
     [
+      // A NON-DEMO absent key (quick task 261007-4qr): this case used frc9999,
+      // which is a demo key and is now filler by design, not an error. The
+      // demo-key case is pinned in the short-roster block below.
       "a pick naming a team absent from the roster",
       (a: SuppliedAlliance[]): SuppliedAlliance[] =>
         a.map((alliance, i) =>
-          i === 3 ? { ...alliance, picks: [alliance.picks[0]!, "frc9999", alliance.picks[2]!] } : alliance
+          i === 3 ? { ...alliance, picks: [alliance.picks[0]!, "frc5999", alliance.picks[2]!] } : alliance
         ),
-      ["frc9999", "4"],
+      ["frc5999", "4"],
     ],
   ])("rejects %s with a typed error naming the offending alliance and team", (_label, mutate, expectedFragments) => {
     const input = inputFor(30, { knownAlliances: mutate(suppliedAlliances()) });
@@ -2043,5 +2057,162 @@ describe("simulateDistrictEvent — award only teams", () => {
     expect(() => simulateDistrictEvent(inputFor(30, { awardProfiles, awardOnlyTeams: [AWARD_ONLY] }), 10, 1)).toThrow(
       new RegExp(`${teamKey(2)}.*${AWARD_ONLY}`)
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SHORT ROSTERS (quick task 261007-4qr): an eight-alliance event under 24 real
+// teams seats WHOLE real alliances at the top seeds and leaves the bottom seeds
+// as filler alliances that forfeit, the convention every such 2023-plus
+// district event in the corpus follows.
+// ---------------------------------------------------------------------------
+
+describe("simulateDistrictEvent — short rosters (quick task 261007-4qr)", () => {
+  const OUTPUT_MAPS = ["qualPoints", "selectionPoints", "elimPoints", "awardPoints", "eventTotal", "selectionRoutes"] as const;
+  /** The four paying placements, each to a three-team alliance, read from the exported table. */
+  const fourPayingPlacementsElimSum =
+    3 * PLAYOFF_PLACEMENT_POINTS.slice(0, 4).reduce((sum, value) => sum + value, 0) * districtTierWeight(SEASON, TIER);
+  const isFillerKey = (key: string): boolean => /^frc99[7-9]\d$/.test(key);
+
+  it("draftedAllianceCount follows floor((N - 1) / 3) under 24 teams and keeps all eight at 24 or more", () => {
+    expect(draftedAllianceCount(24, 8)).toBe(8);
+    expect(draftedAllianceCount(30, 8)).toBe(8);
+    expect(draftedAllianceCount(23, 8)).toBe(7);
+    expect(draftedAllianceCount(22, 8)).toBe(7);
+    expect(draftedAllianceCount(21, 8)).toBe(6);
+    expect(draftedAllianceCount(20, 8)).toBe(6);
+    expect(draftedAllianceCount(18, 8)).toBe(5);
+    expect(draftedAllianceCount(8, 8)).toBe(2);
+  });
+
+  for (const teamCount of [18, 23]) {
+    const drafted = teamCount === 18 ? 5 : 7;
+
+    it(`${String(teamCount)} teams: alliances 1 to ${String(drafted)} draft three real teams each, the rest are empty filler, and filler never earns`, () => {
+      const input = inputFor(teamCount);
+      const draws = 400;
+      let expectedSelectionSum = 0;
+      for (let allianceNumber = 1; allianceNumber <= drafted; allianceNumber++) {
+        for (let slot = 0; slot < 3; slot++) expectedSelectionSum += districtSelectionPoints(SEASON, TIER, slot, allianceNumber);
+      }
+      let violations = 0;
+      let observed = 0;
+      const result = simulateDistrictEvent(input, draws, 20261007, (observation) => {
+        observed++;
+        observation.alliances.forEach((roster, index) => {
+          const expectedSize = index < drafted ? 3 : 0;
+          if (roster.length !== expectedSize) violations++;
+        });
+        const zeroSelection = observation.selection.filter((value) => value === 0).length;
+        if (zeroSelection !== teamCount - 3 * drafted) violations++;
+        const selectionSum = observation.selection.reduce((sum, value) => sum + value, 0);
+        if (selectionSum !== expectedSelectionSum) violations++;
+        const elimSum = observation.elim.reduce((sum, value) => sum + value, 0);
+        if (elimSum !== fourPayingPlacementsElimSum) violations++;
+      });
+      expect(observed).toBe(draws);
+      expect(violations).toBe(0);
+
+      const rosterKeys = input.baselines.map((baseline) => baseline.teamKey).sort();
+      for (const name of OUTPUT_MAPS) {
+        expect([...result[name].keys()].sort(), name).toEqual(rosterKeys);
+      }
+      expect(input.fieldSize).toBe(teamCount);
+    });
+
+    it(`${String(teamCount)} teams: the qualification marginal still equals a bare simulateRanks run`, () => {
+      const input = inputFor(teamCount);
+      const draws = 300;
+      const seed = 4321;
+      const joint = simulateDistrictEvent(input, draws, seed);
+      const bare = simulateRanks(input.remainingMatches, input.baselines, draws, mulberry32(seed));
+      const qualLength = maxEventPoints(SEASON, TIER).qual + 1;
+      for (const baseline of input.baselines) {
+        const expected = new Int32Array(qualLength);
+        const rankHistogram = bare.rankHistograms.get(baseline.teamKey)!;
+        for (let rankIndex = 0; rankIndex < rankHistogram.length; rankIndex++) {
+          const count = rankHistogram[rankIndex]!;
+          if (count === 0) continue;
+          expected[districtQualPoints(SEASON, TIER, rankIndex + 1, input.fieldSize)]! += count;
+        }
+        expect(Array.from(joint.qualPoints.get(baseline.teamKey)!)).toEqual(Array.from(expected));
+      }
+    });
+  }
+
+  it("rank-aligned ratings at 18 teams still pay all four placements to real alliances", () => {
+    const input = inputFor(18, { ratings: rankAlignedRatings(18) });
+    let violations = 0;
+    simulateDistrictEvent(input, 200, 9, (observation) => {
+      if (observation.elim.reduce((sum, value) => sum + value, 0) !== fourPayingPlacementsElimSum) violations++;
+    });
+    expect(violations).toBe(0);
+  });
+
+  it("the captain slot's possible range follows the drafted count when the draft is simulated", () => {
+    const result = simulateDistrictEvent(inputFor(18), 50, 3);
+    const captain = result.selectionRoutes.get(teamKey(1))!.bySlot[0]!;
+    expect(captain.possibleMinPoints).toBe(districtSelectionPoints(SEASON, TIER, 0, 5));
+    expect(captain.possibleMaxPoints).toBe(districtSelectionPoints(SEASON, TIER, 0, 1));
+    expect(captain.possibleMinPoints).not.toBe(districtSelectionPoints(SEASON, TIER, 0, 8));
+  });
+
+  /** Twenty real teams: alliances 1 to 6 hold teams 1 to 18, alliances 7 and 8 hold six demo keys. */
+  function shortSupplied(): SuppliedAlliance[] {
+    const out: SuppliedAlliance[] = [];
+    for (let n = 1; n <= 6; n++) {
+      out.push({ allianceNumber: n, picks: [teamKey(n * 3 - 2), teamKey(n * 3 - 1), teamKey(n * 3)] });
+    }
+    out.push({ allianceNumber: 7, picks: ["frc9990", "frc9991", "frc9992"] });
+    out.push({ allianceNumber: 8, picks: ["frc9993", "frc9994", "frc9995"] });
+    return out;
+  }
+
+  it("supplied alliances at 20 teams: whole demo alliances are filler, no demo key reaches an output, and real members keep their TBA slots", () => {
+    const input = inputFor(20, { knownAlliances: shortSupplied(), remainingMatches: [] });
+    const draws = 300;
+    let violations = 0;
+    const result = simulateDistrictEvent(input, draws, 77, (observation) => {
+      if (observation.alliances[6]!.length !== 0 || observation.alliances[7]!.length !== 0) violations++;
+      if (observation.elim.reduce((sum, value) => sum + value, 0) !== fourPayingPlacementsElimSum) violations++;
+    });
+    expect(violations).toBe(0);
+    for (const name of OUTPUT_MAPS) {
+      expect([...result[name].keys()].some(isFillerKey), name).toBe(false);
+      expect(result[name].size, name).toBe(20);
+    }
+    for (const alliance of shortSupplied().slice(0, 6)) {
+      alliance.picks.forEach((key, slot) => {
+        const expected = districtSelectionPoints(SEASON, TIER, slot, alliance.allianceNumber);
+        expect(isPointMass(result.selectionPoints.get(key)!, draws), key).toBe(true);
+        expect(result.selectionPoints.get(key)![expected], key).toBe(draws);
+        expect(result.selectionRoutes.get(key)!.bySlot[slot]!.draws, key).toBe(draws);
+      });
+    }
+    // The two real teams no alliance took earn no selection points.
+    expect(result.selectionRoutes.get(teamKey(19))!.notSelectedDraws).toBe(draws);
+    expect(result.selectionRoutes.get(teamKey(20))!.notSelectedDraws).toBe(draws);
+  });
+
+  it("a demo key between two real members leaves the second real member on its own TBA slot", () => {
+    const alliances = shortSupplied();
+    alliances[0] = { allianceNumber: 1, picks: [teamKey(1), "frc9996", teamKey(2)] };
+    // Team 3 is now unpicked; the roster still holds twenty real teams.
+    const input = inputFor(20, { knownAlliances: alliances, remainingMatches: [] });
+    const draws = 100;
+    const result = simulateDistrictEvent(input, draws, 5);
+    const secondPick = districtSelectionPoints(SEASON, TIER, 2, 1);
+    expect(result.selectionPoints.get(teamKey(2))![secondPick]).toBe(draws);
+    expect(result.selectionRoutes.get(teamKey(2))!.bySlot[2]!.draws).toBe(draws);
+    expect(result.selectionRoutes.get(teamKey(2))!.bySlot[1]!.draws).toBe(0);
+    expect([...result.eventTotal.keys()].some(isFillerKey)).toBe(false);
+  });
+
+  it("a supplied pick absent from the roster that is NOT a demo key still raises InvalidAllianceSetError, naming it", () => {
+    const alliances = shortSupplied();
+    alliances[6] = { allianceNumber: 7, picks: ["frc9990", "frc5000", "frc9992"] };
+    const input = inputFor(20, { knownAlliances: alliances, remainingMatches: [] });
+    expect(() => simulateDistrictEvent(input, 10, 1)).toThrow(InvalidAllianceSetError);
+    expect(() => simulateDistrictEvent(input, 10, 1)).toThrow(/frc5000/);
   });
 });

@@ -87,6 +87,42 @@
  * A straight 1-through-N round two would run the gradient the other way.
  *
  * ---------------------------------------------------------------------------
+ * SHORT ROSTERS: WHOLE FILLER ALLIANCES, MEASURED
+ * ---------------------------------------------------------------------------
+ *
+ * An eight-alliance district event can have fewer than 24 real teams on its
+ * qualification rows. The sport's own convention there is measured, not
+ * assumed (quick task 261007-4qr, `data/corpus.sqlite`, 2026-10-07): every
+ * 2023-plus district event under 24 real teams seats WHOLE real alliances at
+ * the top seeds and WHOLE demo alliances at the bottom seeds. Five events
+ * (2026txmca 18, 2026mefal 20, 2023gaalb 21, 2025ncash 22, 2024vapor 23) seat
+ * `floor((N - 1) / 3)` real alliances, 5 of 5; no such event ever put a demo
+ * robot beside a real one; and fully demo alliances played 19 playoff sets
+ * against real alliances and won none, mostly scoring zero (forfeits).
+ *
+ * So a SIMULATED draft runs the progressive captain rule and the serpentine
+ * order over alliances 1 to k (`draftedAllianceCount`), and the seeds after k
+ * are FILLER alliances with no members. Real teams left over earn no selection
+ * points, which is what the two or three unpicked real teams at those events
+ * actually earned. A SUPPLIED pick that is off the roster and is a demo key is
+ * filler too, and every real member keeps its own TBA slot.
+ *
+ * In the bracket a filler alliance FORFEITS: against a real alliance it loses
+ * with no randomness consumed, and filler against filler goes to the lower
+ * alliance number, also with none. That fabricates no rating and no number: a
+ * forfeit is the measured outcome, and the filler-against-filler choice cannot
+ * reach a real team's points, because a real alliance beats whichever filler
+ * reaches it. Filler appears in no output map, no baseline and no award draw;
+ * `fieldSize` and the qualification points use the real roster.
+ *
+ * LIMITATION: a MIXED alliance (real robots beside a demo key) is priced from
+ * its real members only. It has never occurred at a district event.
+ *
+ * At 24 teams or more none of this applies: k is every alliance, the forfeit
+ * branch is unreachable and every seeded output is unchanged, which the
+ * pre-existing seeded pins in `ledgerSimulation.test.ts` prove unedited.
+ *
+ * ---------------------------------------------------------------------------
  * EVERY STAGE IS AN INPUT, NOT A BRANCH THAT GUESSES
  * ---------------------------------------------------------------------------
  *
@@ -209,6 +245,7 @@ import {
   type AllianceBracketMilestone,
   type PlayedBracketMatch,
 } from "./bracket.js";
+import { isDemoTeamKey } from "../algorithms/demoTeams.js";
 import { maxEventPoints, type DistrictTier } from "./pointModel.js";
 import { districtQualPoints, districtTierWeight } from "./qualPoints.js";
 import { districtSelectionPoints } from "./selectionPoints.js";
@@ -694,6 +731,11 @@ export interface DistrictSelectionRouteObservation {
    * Reported for every slot whether or not a draw took it, so a caller
    * rendering a route that none of the runs produced still has an honest point
    * range to print instead of a fabricated zero.
+   *
+   * When the draft is SIMULATED the range spans the drafted alliances only
+   * (`draftedAllianceCount`), because a filler seed pays no real team; with
+   * supplied alliances it spans every alliance. At 24 teams or more the two
+   * are the same (quick task 261007-4qr).
    */
   readonly possibleMinPoints: number;
   readonly possibleMaxPoints: number;
@@ -712,7 +754,10 @@ export interface DistrictSelectionRouteObservation {
  * INDEXED when `awardOnlyTeams` is supplied: an award only team has no entry in
  * `award` or `total` here, though `ledgerDraws` does count the stream its award
  * draw consumed (quick task 260927-vmb). `alliances`'s entry
- * at index `n - 1` is alliance `n`'s roster in pick-slot order.
+ * at index `n - 1` is alliance `n`'s roster in pick-slot order. A FILLER
+ * alliance (a short roster's undrafted seed, or a whole demo alliance) has an
+ * EMPTY entry, and a filler pick never appears in any entry (quick task
+ * 261007-4qr).
  */
 export interface DistrictDrawObservation {
   readonly draw: number;
@@ -795,7 +840,15 @@ export class InvalidFieldSizeError extends Error {
   }
 }
 
-/** Raised when the roster cannot fill `allianceCount` three-team alliances. */
+/**
+ * Raised before any draw for the two rosters this module cannot seat: one with
+ * FEWER TEAMS THAN ALLIANCES, and, at a non-eight alliance count (the
+ * divisioned DCMP parents), one that cannot fill `allianceCount` three-team
+ * alliances. An eight-alliance roster under 24 teams is NOT refused: it prices
+ * under the short-roster rule, whole real alliances at the top seeds and
+ * filler alliances that forfeit below them (quick task 261007-4qr, see
+ * `draftedAllianceCount` and this file's header).
+ */
 export class InsufficientRosterError extends Error {
   constructor(message: string) {
     super(`simulateDistrictEvent: ${message}`);
@@ -807,7 +860,9 @@ export class InsufficientRosterError extends Error {
  * Raised when a SUPPLIED alliance set is malformed: a team on two alliances,
  * an alliance number outside the range, a duplicate or missing alliance
  * number, an empty pick list, a pick list longer than TBA's own maximum of
- * four, or a pick naming a team absent from the roster.
+ * four, or a pick naming a team absent from the roster. A demo key absent
+ * from the roster is NOT an error: it is filler (quick task 261007-4qr, see
+ * this file's header).
  *
  * A malformed set that reached the draw loop would produce a complete,
  * plausible-looking, WRONG selection distribution — the same failure
@@ -937,6 +992,39 @@ const MAX_PICK_SLOTS = 4;
 const BRACKET_ALLIANCE_COUNT = 8;
 
 /**
+ * How many alliances a SIMULATED draft seats with real teams (quick task
+ * 261007-4qr). At `allianceCount * 3` teams or more it is every alliance, so
+ * every event that simulated before this function existed simulates
+ * identically. Below that it is `floor((teamCount - 1) / 3)`: whole real
+ * alliances at the top seeds, and the remaining seeds left as FILLER alliances
+ * with no members, which forfeit. For eight alliances: 24 or more gives 8, 23
+ * and 22 give 7, 21 and 20 give 6, 18 gives 5, 8 gives 2.
+ *
+ * MEASURED, NOT CHOSEN. Every 2023-plus district event (event_type 1) in
+ * `data/corpus.sqlite` under 24 real teams on a qualification row, re-checked
+ * 2026-10-07:
+ *
+ *   event       real teams   real alliances   demo alliances
+ *   2026txmca   18           1 to 5           6, 7, 8
+ *   2026mefal   20           1 to 6           7, 8
+ *   2023gaalb   21           1 to 6           7, 8
+ *   2025ncash   22           1 to 7           8
+ *   2024vapor   23           1 to 7           8
+ *
+ * `floor((N - 1) / 3)` matches 5 of 5. `floor(N / 3)` matches 3 of 5, and both
+ * of its misses are the N divisible by three. No such event ever seated a demo
+ * robot beside a real one on an alliance.
+ *
+ * AT EXACTLY 24 the corpus splits (2026isde2 seated eight real alliances,
+ * 2026txfor seven plus one demo alliance), and 24 or more stays OUTSIDE this
+ * rule: the eight-real-alliance draft is kept unchanged there.
+ */
+export function draftedAllianceCount(teamCount: number, allianceCount: number): number {
+  if (teamCount >= allianceCount * DRAFTED_ALLIANCE_SIZE) return allianceCount;
+  return Math.floor((teamCount - 1) / DRAFTED_ALLIANCE_SIZE);
+}
+
+/**
  * Validates one known-stage map against the category ceiling its histogram is
  * sized to, naming EVERY offender rather than the first — the same discipline
  * the unrated-team and alliance-set passes follow, so one run tells a caller
@@ -1014,7 +1102,17 @@ export function simulateDistrictEvent(
       divisionedDcmpPlayoffPmf(allianceCount, allianceNumber);
     }
   }
-  if (teamCount < allianceCount * DRAFTED_ALLIANCE_SIZE) {
+  // THE TWO REFUSALS LEFT (quick task 261007-4qr). An eight-alliance roster
+  // under 24 teams now prices under the short-roster rule (see
+  // `draftedAllianceCount`); fewer teams than alliances cannot seat a captain on
+  // every alliance the bracket needs, and a non-eight alliance count (the
+  // divisioned DCMP parents) has no measured short-roster convention at all.
+  if (teamCount < allianceCount) {
+    throw new InsufficientRosterError(
+      `event ${eventKey}: a ${teamCount}-team roster is smaller than its ${allianceCount} alliances`
+    );
+  }
+  if (!usesEightAllianceBracket && teamCount < allianceCount * DRAFTED_ALLIANCE_SIZE) {
     throw new InsufficientRosterError(
       `event ${eventKey}: a ${teamCount}-team roster cannot fill ${allianceCount} ${DRAFTED_ALLIANCE_SIZE}-team alliances`
     );
@@ -1231,13 +1329,22 @@ export function simulateDistrictEvent(
     selectionPointsBySlotAndAlliance.push(row);
   }
 
+  // HOW MANY ALLIANCES A SIMULATED DRAFT SEATS (quick task 261007-4qr): every
+  // one at 24 teams or more, whole real alliances 1 to k below that, and the
+  // seeds after k left as filler. Computed once. A supplied alliance set is
+  // read as published and never consults it.
+  const draftedCount = draftedAllianceCount(teamCount, allianceCount);
+
   // The range each slot CAN pay at this event's alliance count and tier, read
   // off the table just built rather than restated: no slot's point range is a
-  // literal anywhere in this module.
+  // literal anywhere in this module. When the draft is SIMULATED it spans the
+  // drafted alliances only, because a filler seed pays no real team; with
+  // supplied alliances it spans them all. At 24 teams or more the two agree.
+  const possibleAllianceCount = suppliedAlliances === undefined ? draftedCount : allianceCount;
   const possiblePointsBySlot = selectionPointsBySlotAndAlliance.map((row) => {
     let low = row[1]!;
     let high = row[1]!;
-    for (let allianceNumber = 1; allianceNumber <= allianceCount; allianceNumber++) {
+    for (let allianceNumber = 1; allianceNumber <= possibleAllianceCount; allianceNumber++) {
       const value = row[allianceNumber]!;
       if (value < low) low = value;
       if (value > high) high = value;
@@ -1295,10 +1402,17 @@ export function simulateDistrictEvent(
 
   const allied = new Uint8Array(teamCount);
   const allianceMemberIndices: number[][] = [];
+  // Parallel to `allianceMemberIndices`: each member's PICK SLOT, which the
+  // pricing roster reads to leave a backup robot out. Carried rather than read
+  // off the array position, because a supplied alliance with a filler pick
+  // skipped has real members whose array position is not their slot (quick
+  // task 261007-4qr).
+  const allianceMemberSlots: number[][] = [];
   const allianceRosters: AllianceMemberRating[][] = [];
   const allianceTeamKeys: string[][] = [];
   for (let n = 0; n < allianceCount; n++) {
     allianceMemberIndices.push([]);
+    allianceMemberSlots.push([]);
     allianceRosters.push([]);
     allianceTeamKeys.push([]);
   }
@@ -1422,6 +1536,7 @@ export function simulateDistrictEvent(
     //    measured size of that omission is one captain slot in 3,880.
     for (let n = 0; n < allianceCount; n++) {
       allianceMemberIndices[n]!.length = 0;
+      allianceMemberSlots[n]!.length = 0;
       allianceRosters[n]!.length = 0;
       allianceTeamKeys[n]!.length = 0;
     }
@@ -1438,9 +1553,13 @@ export function simulateDistrictEvent(
       // supplied rosters rather than from a simulated draft.
       for (const alliance of suppliedAlliances) {
         const n = alliance.allianceNumber - 1;
-        alliance.memberIndices.forEach((teamI, slot) => {
+        alliance.memberIndices.forEach((teamI, member) => {
+          // TBA's OWN slot, never the member's position in the filtered list:
+          // a filler pick skipped before it must not move it up a slot.
+          const slot = alliance.memberSlots[member]!;
           allied[teamI] = 1;
           allianceMemberIndices[n]!.push(teamI);
+          allianceMemberSlots[n]!.push(slot);
           selection[teamI] = selectionPointsBySlotAndAlliance[slot]![alliance.allianceNumber]!;
           selectionSlot[teamI] = slot;
           selectionAlliance[teamI] = alliance.allianceNumber;
@@ -1456,26 +1575,32 @@ export function simulateDistrictEvent(
       captainCursor = 0;
       pickCursor = 0;
 
-      // Round one: alliance 1 through N, captain then first pick.
-      for (let allianceNumber = 1; allianceNumber <= allianceCount; allianceNumber++) {
+      // Both rounds run over the DRAFTED alliances only, 1 to k, where k is
+      // every alliance at 24 teams or more. The seeds after k stay empty
+      // filler alliances (quick task 261007-4qr; see `draftedAllianceCount`).
+      // Round one: alliance 1 through k, captain then first pick.
+      for (let allianceNumber = 1; allianceNumber <= draftedCount; allianceNumber++) {
         const n = allianceNumber - 1;
         const captain = claimNextByRank();
         allianceMemberIndices[n]!.push(captain);
+        allianceMemberSlots[n]!.push(0);
         selection[captain] = selectionPointsBySlotAndAlliance[0]![allianceNumber]!;
         selectionSlot[captain] = 0;
         selectionAlliance[captain] = allianceNumber;
         const firstPick = claimNextByTotal();
         allianceMemberIndices[n]!.push(firstPick);
+        allianceMemberSlots[n]!.push(1);
         selection[firstPick] = selectionPointsBySlotAndAlliance[1]![allianceNumber]!;
         selectionSlot[firstPick] = 1;
         selectionAlliance[firstPick] = allianceNumber;
       }
-      // Round two: alliance N back down to 1. SERPENTINE, measured — see this
+      // Round two: alliance k back down to 1. SERPENTINE, measured — see this
       // file's header for the second-pick rank gradient that proves it.
-      for (let allianceNumber = allianceCount; allianceNumber >= 1; allianceNumber--) {
+      for (let allianceNumber = draftedCount; allianceNumber >= 1; allianceNumber--) {
         const n = allianceNumber - 1;
         const secondPick = claimNextByTotal();
         allianceMemberIndices[n]!.push(secondPick);
+        allianceMemberSlots[n]!.push(2);
         selection[secondPick] = selectionPointsBySlotAndAlliance[2]![allianceNumber]!;
         selectionSlot[secondPick] = 2;
         selectionAlliance[secondPick] = allianceNumber;
@@ -1484,13 +1609,16 @@ export function simulateDistrictEvent(
 
     for (let n = 0; n < allianceCount; n++) {
       const members = allianceMemberIndices[n]!;
+      const slotsN = allianceMemberSlots[n]!;
       const rosterN = allianceRosters[n]!;
       const keysN = allianceTeamKeys[n]!;
-      members.forEach((teamI, slot) => {
+      members.forEach((teamI, member) => {
         // A backup robot REPLACES a robot rather than adding one, so only the
         // first three picks enter the roster the pricer sees. Including a
-        // fourth would inflate the alliance mean by a whole robot.
-        if (slot < DRAFTED_ALLIANCE_SIZE) rosterN.push(roster[teamI]!);
+        // fourth would inflate the alliance mean by a whole robot. The test
+        // reads the member's PICK SLOT, not its array position, so a filler
+        // pick skipped ahead of it cannot pull a backup into the roster.
+        if (slotsN[member]! < DRAFTED_ALLIANCE_SIZE) rosterN.push(roster[teamI]!);
         keysN.push(baselines[teamI]!.teamKey);
       });
     }
@@ -1512,6 +1640,19 @@ export function simulateDistrictEvent(
         // mis-mapped decision cannot slip through here either.
         const played = playedDecisions?.get(bracketDecisionKey(setId, matchNumber));
         if (played !== undefined) return played;
+        // A FILLER ALLIANCE FORFEITS (quick task 261007-4qr). An alliance with
+        // an empty pricing roster is filler, a short event's bottom seed or a
+        // whole demo alliance. Against a real alliance it loses, which is the
+        // measured outcome (real against whole demo alliances: 19 sets, 0 demo
+        // wins); filler against filler goes to the lower alliance number, which
+        // no real team's points can depend on, because a real alliance beats
+        // whichever filler reaches it. Neither branch consumes randomness and
+        // neither gives filler a rating.
+        const fillerA = allianceRosters[allianceA - 1]!.length === 0;
+        const fillerB = allianceRosters[allianceB - 1]!.length === 0;
+        if (fillerA && fillerB) return allianceA < allianceB ? allianceA : allianceB;
+        if (fillerA) return allianceB;
+        if (fillerB) return allianceA;
         // The measured pricer is called with the ROSTER ARRAYS rather than a
         // cached mean-and-variance pair. The redundant additions are a few dozen
         // per draw, and reusing the ONE measured pricer is worth more than the
@@ -1654,7 +1795,16 @@ export function simulateDistrictEvent(
 
 interface ResolvedSuppliedAlliance {
   readonly allianceNumber: number;
+  /** The REAL members' roster indices, in pick order. A filler pick is skipped, so this can be shorter than TBA's `picks`. */
   readonly memberIndices: readonly number[];
+  /**
+   * Parallel to `memberIndices`: each real member's index in TBA's `picks`
+   * array, which is its pick slot (0 captain, 1 first, 2 second, 3 backup).
+   * Carried rather than re-derived from the array position, so a demo key
+   * skipped as filler never shifts a later real member onto the wrong slot
+   * (quick task 261007-4qr).
+   */
+  readonly memberSlots: readonly number[];
 }
 
 /**
@@ -1695,9 +1845,17 @@ function validateSuppliedAlliances(
       continue;
     }
     const memberIndices: number[] = [];
-    for (const key of alliance.picks) {
+    const memberSlots: number[] = [];
+    for (let slot = 0; slot < alliance.picks.length; slot++) {
+      const key = alliance.picks[slot]!;
       const index = teamIndex.get(key);
       if (index === undefined) {
+        // A DEMO ROBOT OFF THE ROSTER IS FILLER (quick task 261007-4qr): a short
+        // event seats whole demo alliances at its bottom seeds, and those robots
+        // played no qualification match. It is skipped as a member, earns
+        // nothing and reaches no output. Any OTHER absent key is still a named
+        // problem, so a mis-keyed real team is never silently absorbed.
+        if (isDemoTeamKey(key)) continue;
         problems.push(`alliance ${n} names team ${key}, which is absent from the roster`);
         continue;
       }
@@ -1708,8 +1866,9 @@ function validateSuppliedAlliances(
       }
       allianceOfTeam.set(key, n);
       memberIndices.push(index);
+      memberSlots.push(slot);
     }
-    resolved.push({ allianceNumber: n, memberIndices });
+    resolved.push({ allianceNumber: n, memberIndices, memberSlots });
   }
 
   for (let n = 1; n <= allianceCount; n++) {
