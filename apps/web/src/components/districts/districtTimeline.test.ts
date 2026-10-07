@@ -546,3 +546,99 @@ describe("timelineEventsOf (261005-5g0)", () => {
     ]);
   });
 });
+
+describe("buildDistrictTimeline: round steps (261007-3g2)", () => {
+  const minute = 60_000;
+
+  interface SfRow {
+    readonly set: number;
+    readonly match?: number;
+    readonly ms: number;
+    readonly winner?: "red" | "blue" | "tie";
+  }
+
+  /** Two played qualification rows, then the given sf rows, with `allianceCount` alliances published. */
+  function bracketArtifact(eventKey: string, sf: readonly SfRow[], allianceCount = 8): EventArtifact {
+    const base = playedEventArtifact(eventKey, [BASE_MS, BASE_MS + 10 * minute], []);
+    const row = base.matches[0]!;
+    return EventArtifactSchema.parse({
+      ...base,
+      matches: [
+        ...base.matches,
+        ...sf.map((entry) => ({
+          ...row,
+          matchKey: `${eventKey}_sf${String(entry.set)}m${String(entry.match ?? 1)}`,
+          compLevel: "sf",
+          setNumber: entry.set,
+          matchNumber: entry.match ?? 1,
+          sortTime: Math.floor(entry.ms / 1000),
+          actualWinner: entry.winner ?? "red",
+        })),
+      ],
+      alliances: Array.from({ length: allianceCount }, (_unused, k) => ({ allianceNumber: k + 1, picks: [`frc${String(k + 1)}1`] })),
+    });
+  }
+
+  /** Rounds 1 and 2 played (sf1 to sf8 at t+60 + n minutes), and one row of Round 3 (sf9 at t+80). */
+  const ROUNDS_ONE_TWO_AND_SF9: readonly SfRow[] = [
+    ...Array.from({ length: 8 }, (_unused, k) => ({ set: k + 1, ms: BASE_MS + (60 + k + 1) * minute })),
+    { set: 9, ms: BASE_MS + 80 * minute },
+  ];
+
+  const timelineOf = (artifact: EventArtifact | undefined) =>
+    buildDistrictTimeline({
+      events: [{ eventKey: "eva", eventName: "Event A", week: 0, playoffsDone: false }],
+      eventArtifacts: new Map(artifact === undefined ? [] : [["eva", artifact]]),
+    });
+
+  it("gives a round a step once it has a played row, anchored on its last one, and counts the decided leading rounds", () => {
+    const timeline = timelineOf(bracketArtifact("eva", ROUNDS_ONE_TWO_AND_SF9));
+    const rounds = timeline.positions.flatMap((position) => (position.step?.kind === "round" ? [position] : []));
+    expect(rounds.map((position) => [position.id, position.step?.round, position.step?.anchor?.matchKey])).toEqual([
+      ["eva:round:1", 1, "eva_sf4m1"],
+      ["eva:round:2", 2, "eva_sf8m1"],
+      ["eva:round:3", 3, "eva_sf9m1"],
+    ]);
+    expect(rounds.every((position) => position.step?.matchKey === undefined && position.step?.anchor?.played === true)).toBe(true);
+    expect(rounds.map((position) => position.label)).toEqual(["Event A round 1", "Event A round 2", "Event A round 3"]);
+    expect(timeline.playoffRoundsDecided.get("eva")).toBe(2);
+    const stageIds = timeline.positions.flatMap((position) => (position.step !== undefined && position.step.kind !== "match" ? [position.id] : []));
+    expect(stageIds).toEqual(["eva:qualsDone", "eva:alliance", "eva:round:1", "eva:round:2", "eva:round:3", "eva:playoffs", "eva:awards"]);
+  });
+
+  it("a tied sf row decides nothing, and its replay does", () => {
+    const roundOne = (rows: readonly SfRow[]) => timelineOf(bracketArtifact("eva", rows)).playoffRoundsDecided.get("eva");
+    const others = [2, 3, 4].map((set) => ({ set, ms: BASE_MS + (60 + set) * minute }));
+    expect(roundOne([{ set: 1, ms: BASE_MS + 60 * minute, winner: "tie" }, ...others])).toBe(0);
+    expect(roundOne([{ set: 1, ms: BASE_MS + 60 * minute, winner: "tie" }, { set: 1, match: 2, ms: BASE_MS + 65 * minute, winner: "blue" }, ...others])).toBe(1);
+  });
+
+  it("gives a four alliance artifact (a divisioned DCMP parent) no round step and no decided entry", () => {
+    const timeline = timelineOf(bracketArtifact("eva", ROUNDS_ONE_TWO_AND_SF9, 4));
+    expect(timeline.positions.some((position) => position.step?.kind === "round")).toBe(false);
+    expect(timeline.playoffRoundsDecided.has("eva")).toBe(false);
+  });
+
+  it("gives an event with no artifact no round step", () => {
+    const timeline = timelineOf(undefined);
+    expect(timeline.positions.some((position) => position.step?.kind === "round")).toBe(false);
+    expect(timeline.playoffRoundsDecided.size).toBe(0);
+  });
+
+  it("at a round position the alliances are final and the playoffs open, and no qualification or playoff row remains", () => {
+    const timeline = timelineOf(bracketArtifact("eva", ROUNDS_ONE_TWO_AND_SF9));
+    const atRoundTwo = resolveDistrictTimelinePosition(timeline, "eva:round:2");
+    expect(timeline.positions[atRoundTwo]?.step?.kind).toBe("round");
+    const now = new Map([["eva", { qual: true, alliance: true, elim: false, award: false }]]);
+    expect(districtStageAtPosition(timeline, atRoundTwo, now).get("eva")).toEqual({ qual: true, alliance: true, elim: false, award: false });
+    // Even with Live reading the bracket final, the stop keeps the playoffs open.
+    const allFinal = new Map([["eva", { qual: true, alliance: true, elim: true, award: true }]]);
+    expect(districtStageAtPosition(timeline, atRoundTwo, allFinal).get("eva")?.elim).toBe(false);
+    const remaining = remainingQualRowsAtPosition(timeline, atRoundTwo, "eva");
+    expect(remaining).toEqual([]);
+    // From the alliance step, too, no playoff key is ever counted as a remaining qualification row.
+    const atAlliance = resolveDistrictTimelinePosition(timeline, "eva:alliance");
+    expect(remainingQualRowsAtPosition(timeline, atAlliance, "eva").some((key) => key.includes("_sf"))).toBe(false);
+    expect(cutAtPosition(timeline, atRoundTwo)).toEqual({ kind: "row", eventKey: "eva", matchKey: "eva_sf8m1", played: true, stage: true });
+  });
+});

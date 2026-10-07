@@ -17,6 +17,7 @@ import type { DistrictSimulationEventRequest } from "../../workers/districtSimul
 import { loadAsOfRewind, type AsOfFetchers, type AsOfRewindResult } from "./asOfRewind.js";
 import {
   ARTIFACTS,
+  BBB,
   CANDIDATES,
   EVENTS,
   FIXTURE_VERSION,
@@ -265,5 +266,31 @@ describe("a rewound stop's requests", () => {
     expect(generated?.status === "ready" && generated.state.plan.mode).toBe("generated");
     // Unstarted events are untouched.
     expect(told.status === "ready" && told.events.get("2026wazzz")?.status).toBe("ready");
+  });
+
+  it("discloses a REAL event whose as-of playoff row cannot be resolved to one alliance (261007-3g2)", async () => {
+    const { result } = await rewoundAt("2026wabbb:m:2026wabbb_qm2");
+    if (result.status !== "ready") throw new Error("expected a ready plan");
+    const bbb = result.events.get("2026wabbb")!;
+    if (bbb.status !== "ready" || bbb.state.plan.mode !== "real") throw new Error("expected a REAL 2026wabbb");
+    // Eight published alliances, and a played sf row whose red side spans three of them.
+    const alliances = Array.from({ length: 8 }, (_unused, n) => ({ allianceNumber: n + 1, picks: [1, 2, 3].map((k) => `frc9${String(n + 1)}${String(k)}`) }));
+    const spanning = { ...BBB.matches[0]!, matchKey: "2026wabbb_sf1m1", compLevel: "sf" as const, redTeams: ["frc911", "frc921", "frc931"], blueTeams: alliances[7]!.picks };
+    const bracketed = { ...BBB, matches: [...BBB.matches, spanning], alliances };
+    const withKey: AsOfRewindResult = {
+      ...result,
+      events: new Map(result.events).set("2026wabbb", { status: "ready", state: { ...bbb.state, plan: { ...bbb.state.plan, playedPlayoffMatchKeys: ["2026wabbb_sf1m1"] } } }),
+    };
+    const stageByEvent = new Map<string, DistrictStageFinality>([["2026wabbb", { qual: true, alliance: true, elim: false, award: false }]]);
+    const assembled = assembleAsOfDistrictEvents({
+      artifact: districtArtifact(),
+      result: withKey,
+      algorithmVersion: FIXTURE_VERSION,
+      eventArtifacts: new Map([["2026wabbb", bracketed]]),
+      stageByEvent,
+      candidateKeys: ["2026wabbb"],
+    });
+    expect(assembled.eventsWithUnresolvedElimMatches).toEqual(["2026wabbb"]);
+    expect(assembled.events.find((event) => event.eventKey === "2026wabbb")?.input.playedElimMatches).toBeUndefined();
   });
 });

@@ -17,8 +17,10 @@ import {
   assertBracketSeason,
   bracketDecisionKey,
   bracketDecisionsFromPlayedMatches,
+  bracketRoundOfSet,
   bracketSetIdFor,
   BRACKET_REGISTERED_SEASONS,
+  BRACKET_ROUNDS,
   BRACKET_SETS,
   DIVISIONED_DCMP_PLAYOFF_OBSERVATIONS,
   DIVISIONED_DCMP_PLAYOFF_PMF,
@@ -573,5 +575,62 @@ describe("allianceBracketMilestones", () => {
         if (milestone.kind === "decided") expect(worst.get(allianceNumber), label).toBe(milestone.placement);
       }
     }
+  });
+});
+
+describe("BRACKET_ROUNDS, FIRST's five playoff rounds (261007-3g2)", () => {
+  it("pins the five rounds literally", () => {
+    expect(BRACKET_ROUNDS).toEqual([["sf1", "sf2", "sf3", "sf4"], ["sf5", "sf6", "sf7", "sf8"], ["sf9", "sf10"], ["sf11", "sf12"], ["sf13"]]);
+  });
+
+  it("covers every sf set exactly once, in BRACKET_SETS' declared order, and leaves the final out", () => {
+    expect(BRACKET_ROUNDS.flat()).toEqual(BRACKET_SETS.map((set) => set.id).filter((id) => id !== "f"));
+  });
+
+  it("feeds every set from seeds or from strictly earlier rounds, and the final only from Rounds 4 and 5", () => {
+    for (const set of BRACKET_SETS) {
+      const round = set.id === "f" ? BRACKET_ROUNDS.length + 1 : bracketRoundOfSet(set.id)!;
+      for (const feed of [set.feedA, set.feedB]) {
+        if (feed.kind === "seed") {
+          expect(round, set.id).toBe(1);
+          continue;
+        }
+        expect(bracketRoundOfSet(feed.setId)!, `${set.id} <- ${feed.setId}`).toBeLessThan(round);
+        if (set.id === "f") expect([4, 5]).toContain(bracketRoundOfSet(feed.setId));
+      }
+    }
+  });
+
+  it("names the round of a set, and no round for the final or an unknown id", () => {
+    expect(bracketRoundOfSet("sf1")).toBe(1);
+    expect(bracketRoundOfSet("sf8")).toBe(2);
+    expect(bracketRoundOfSet("sf10")).toBe(3);
+    expect(bracketRoundOfSet("sf11")).toBe(4);
+    expect(bracketRoundOfSet("sf13")).toBe(5);
+    expect(bracketRoundOfSet("f")).toBeUndefined();
+    expect(bracketRoundOfSet("sf14")).toBeUndefined();
+  });
+
+  it("fixes the placements the lock table says, one round at a time, under feedA always wins", () => {
+    const decisions = new Map<string, number>();
+    const decide = (setIds: readonly string[], matches = 1): ReadonlySet<number> => {
+      const routing = routePlayedBracket(decisions);
+      for (const setId of setIds) {
+        const [allianceA] = routing.participantsBySet.get(setId)!;
+        for (let matchNumber = 1; matchNumber <= matches; matchNumber++) decisions.set(bracketDecisionKey(setId, matchNumber), allianceA);
+      }
+      return new Set(routePlayedBracket(decisions).placementByAlliance.values());
+    };
+    const placed: number[][] = [];
+    for (const round of BRACKET_ROUNDS) placed.push([...decide(round)].sort((x, y) => x - y));
+    placed.push([...decide(["f"], 2)].sort((x, y) => x - y));
+    expect(placed).toEqual([
+      [],
+      [7, 8],
+      [5, 6, 7, 8],
+      [4, 5, 6, 7, 8],
+      [3, 4, 5, 6, 7, 8],
+      [1, 2, 3, 4, 5, 6, 7, 8],
+    ]);
   });
 });
