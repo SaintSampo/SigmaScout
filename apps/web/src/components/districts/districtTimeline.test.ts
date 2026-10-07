@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { EventArtifactSchema, type EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import type { DistrictStageFinality } from "./districtLedgerRows.js";
 import {
+  DISTRICT_STEP_KINDS,
   DISTRICT_TIMELINE_NOW_ID,
   DISTRICT_TIMELINE_SEASON_START_ID,
   buildDistrictTimeline,
@@ -80,6 +81,12 @@ const NOW_STAGES: ReadonlyMap<string, DistrictStageFinality> = new Map([
   ["eva", { qual: true, alliance: true, elim: true, award: true }],
   ["evb", { qual: true, alliance: true, elim: true, award: true }],
 ]);
+
+describe("DISTRICT_STEP_KINDS", () => {
+  it("is pinned literally, so a new kind fails loudly here (iteration list trap)", () => {
+    expect(DISTRICT_STEP_KINDS).toEqual(["match", "qualsDone", "alliance", "round", "playoffs", "awards"]);
+  });
+});
 
 describe("buildDistrictTimeline", () => {
   it("interleaves two events by sortTime and puts each event's four stage steps after its own last qualification row", () => {

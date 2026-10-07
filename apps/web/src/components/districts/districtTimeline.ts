@@ -1,7 +1,8 @@
 /**
  * The district's INTERLEAVED timeline: every district-tier event's
  * qualification rows in one `sortTime` order, with four stage steps per event,
- * plus the per-event stage at any position.
+ * up to five playoff ROUND steps per event, plus the per-event stage at any
+ * position.
  * The Locks milestone picker (`districtMilestones.ts`) exposes a handful of
  * these positions per event; the ledger itself still steps by match.
  *
@@ -28,18 +29,32 @@
  * reason that module's own header gives for typing `sort` that way. An
  * unrecognised id resolves to the "now" position rather than to a neighbouring
  * step.
+ *
+ * ROUND STEPS (quick task 261007-3g2). FIRST's five playoff rounds
+ * (`BRACKET_ROUNDS`) each get one step, anchored on the round's LAST PLAYED
+ * row, so the Locks picker can stop between Alliances done and Finals. A round
+ * step exists only for an event whose LOADED artifact publishes the
+ * eight-alliance bracket and only once the round has a played row: an event
+ * with no artifact, or an unstarted bracket, adds exactly the steps it did
+ * before, and a divisioned DCMP parent (2 or 4 alliances, never this topology)
+ * never gets one, so no bracket is ever fabricated. Playoff rows never become
+ * `match` steps: every remaining-rows helper below counts qualification rows.
  */
+import { BRACKET_ROUNDS, bracketRoundOfSet, bracketSetIdFor } from "../../../../../packages/core/districts/bracket.js";
 import { sortTimeToEpochMs } from "../../lib/liveEvent.js";
 import { buildQualRows } from "../../lib/simulationInputs.js";
 import type { EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { DISTRICT_CATEGORIES, type DistrictCategory, type DistrictStageFinality } from "./districtLedgerRows.js";
 
 /** The kinds of step, in the order they occur within one event. The ordinal doubles as the within-instant tie-break. */
-export const DISTRICT_STEP_KINDS = ["match", "qualsDone", "alliance", "playoffs", "awards"] as const;
+export const DISTRICT_STEP_KINDS = ["match", "qualsDone", "alliance", "round", "playoffs", "awards"] as const;
 
 export type DistrictStepKind = (typeof DISTRICT_STEP_KINDS)[number];
 
-/** Which CATEGORY each stage step decides. A match step decides nothing on its own — qualification is decided by the quals-done step. */
+/**
+ * Which CATEGORY each stage step decides. A match step decides nothing on its own — qualification is decided by the quals-done step.
+ * A round step decides nothing either: the playoff category closes at the Playoffs (Finals) step.
+ */
 const CATEGORY_BY_STEP_KIND: Partial<Record<DistrictStepKind, DistrictCategory>> = {
   qualsDone: "qual",
   alliance: "alliance",
@@ -59,12 +74,16 @@ export interface DistrictTimelineStep {
   readonly eventName: string;
   readonly week: number | null;
   readonly matchKey: string | undefined;
+  /** A round step's FIRST round number, 1 to 5 (`BRACKET_ROUNDS`). Absent on every other kind. */
+  readonly round?: number;
   /** The step's published instant in epoch MILLISECONDS, through `sortTimeToEpochMs`. `null` when no row in this event carries one. */
   readonly sortMs: number | null;
   /**
    * THE ROW THIS STEP'S INSTANT IS TAKEN FROM (quick task 261005-5g0): a match
    * step's own row, a Quals done or Alliance selection step's last
-   * qualification row, a Playoffs or Awards step's last played playoff row (or
+   * qualification row, a round step's last played row among that round's sets
+   * (quick task 261007-3g2; a round step exists only once it has one), a
+   * Playoffs or Awards step's last played playoff row (or
    * the last qualification row where it fell back to that instant). A rewound
    * view cuts the as-of state at this row (`cutAtPosition`). `undefined` for
    * an event with no loaded artifact, or for a stage step placed after every
@@ -104,6 +123,15 @@ export interface DistrictTimeline {
   readonly positions: readonly DistrictTimelinePosition[];
   readonly nowIndex: number;
   readonly gaps: DistrictTimelineGaps;
+  /**
+   * Per event with a LOADED eight-alliance artifact: how many LEADING rounds
+   * (Round 1, then Round 2, ...) have every set decided by a played row whose
+   * winner is red or blue. A tie decides nothing; its replay does. The
+   * milestone picker reads this for a live event's round stops, since only
+   * a finished event's state block can say a round is over without an
+   * artifact. An event without such an artifact has no entry.
+   */
+  readonly playoffRoundsDecided: ReadonlyMap<string, number>;
 }
 
 export interface BuildDistrictTimelineOptions {
@@ -153,14 +181,28 @@ function stepOrdinal(kind: DistrictStepKind): number {
   return DISTRICT_STEP_KINDS.indexOf(kind);
 }
 
+/**
+ * The id of one event's round step and of its Locks milestone:
+ * `<eventKey>:round:<n>`. The ONE spelling; `districtMilestones.ts` builds the
+ * milestone's `atId` through it so the two can never disagree. An id naming a
+ * round the timeline holds no step for (round 6, or a round not played yet)
+ * resolves to now like any unknown id.
+ */
+export function districtRoundMilestoneId(eventKey: string, round: number): string {
+  return `${eventKey}:round:${String(round)}`;
+}
+
 function stepId(step: DistrictTimelineStep): string {
-  return step.kind === "match" ? `${step.eventKey}:m:${step.matchKey ?? ""}` : `${step.eventKey}:${step.kind}`;
+  if (step.kind === "match") return `${step.eventKey}:m:${step.matchKey ?? ""}`;
+  if (step.kind === "round") return districtRoundMilestoneId(step.eventKey, step.round ?? 0);
+  return `${step.eventKey}:${step.kind}`;
 }
 
 function stepLabel(step: DistrictTimelineStep): string {
   if (step.kind === "match") return `${step.eventName} ${step.matchKey ?? ""}`;
   if (step.kind === "qualsDone") return `${step.eventName} quals done`;
   if (step.kind === "alliance") return `${step.eventName} alliance selection`;
+  if (step.kind === "round") return `${step.eventName} round ${String(step.round ?? 0)}`;
   if (step.kind === "playoffs") return `${step.eventName} playoffs`;
   return `${step.eventName} awards`;
 }
@@ -209,6 +251,9 @@ function compareSteps(a: DistrictTimelineStep, b: DistrictTimelineStep): number 
   if (a.eventKey !== b.eventKey) return a.eventKey < b.eventKey ? -1 : 1;
   const ordinalDelta = stepOrdinal(a.kind) - stepOrdinal(b.kind);
   if (ordinalDelta !== 0) return ordinalDelta;
+  // Two rounds at one instant keep round order.
+  const roundDelta = (a.round ?? 0) - (b.round ?? 0);
+  if (roundDelta !== 0) return roundDelta;
   const aMatch = a.matchKey ?? "";
   const bMatch = b.matchKey ?? "";
   return aMatch < bMatch ? -1 : aMatch > bMatch ? 1 : 0;
@@ -219,6 +264,7 @@ export function buildDistrictTimeline(options: BuildDistrictTimelineOptions): Di
   const steps: DistrictTimelineStep[] = [];
   const eventsWithoutArtifact: string[] = [];
   const eventsWithUntimedRows: string[] = [];
+  const playoffRoundsDecided = new Map<string, number>();
 
   for (const event of events) {
     const artifact = eventArtifacts.get(event.eventKey);
@@ -262,6 +308,45 @@ export function buildDistrictTimeline(options: BuildDistrictTimelineOptions): Di
           playoffMs = sortMs;
           playoffAnchor = { matchKey: match.matchKey, played: true };
         }
+      }
+      // ROUND STEPS, ONLY FOR THE EIGHT-ALLIANCE BRACKET (quick task
+      // 261007-3g2). A divisioned DCMP parent publishes 2 or 4 alliances and
+      // runs no `BRACKET_SETS` bracket, so reading its sf rows as rounds would
+      // fabricate one. A round with no played, timed row gets no step at all.
+      if (artifact.alliances?.length === 8) {
+        const lastByRound = new Map<number, { sortMs: number; matchKey: string }>();
+        const decidedSets = new Set<string>();
+        for (const match of artifact.matches) {
+          const setId = bracketSetIdFor(match.compLevel, match.setNumber);
+          if (setId === undefined) continue;
+          const round = bracketRoundOfSet(setId);
+          if (round === undefined) continue;
+          // A tie decides nothing; its replay, a later row of the same set, does.
+          if (match.actualWinner === "red" || match.actualWinner === "blue") decidedSets.add(setId);
+          if (match.sortTime === undefined) continue;
+          const sortMs = sortTimeToEpochMs(match.sortTime);
+          const prior = lastByRound.get(round);
+          // `>=`: the same tie rule as the Playoffs anchor above.
+          if (prior === undefined || sortMs >= prior.sortMs) lastByRound.set(round, { sortMs, matchKey: match.matchKey });
+        }
+        for (const [round, last] of lastByRound) {
+          steps.push({
+            kind: "round",
+            eventKey: event.eventKey,
+            eventName: event.eventName,
+            week: event.week,
+            matchKey: undefined,
+            round,
+            sortMs: last.sortMs,
+            anchor: { matchKey: last.matchKey, played: true },
+          });
+        }
+        let decidedRounds = 0;
+        for (const setIds of BRACKET_ROUNDS) {
+          if (!setIds.every((setId) => decidedSets.has(setId))) break;
+          decidedRounds++;
+        }
+        playoffRoundsDecided.set(event.eventKey, decidedRounds);
       }
     }
     // WHERE THE STAGE STEPS SIT (quick task 261005-5g0). Quals done and
@@ -312,6 +397,7 @@ export function buildDistrictTimeline(options: BuildDistrictTimelineOptions): Di
     positions,
     nowIndex,
     gaps: { eventsWithoutArtifact: [...eventsWithoutArtifact].sort(), eventsWithUntimedRows: [...eventsWithUntimedRows].sort() },
+    playoffRoundsDecided,
   };
 }
 

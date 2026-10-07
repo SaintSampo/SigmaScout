@@ -242,6 +242,7 @@ export function assembleAsOfDistrictEvents(params: AssembleAsOfDistrictEventsPar
   const generated: DistrictSimulationEventRequest[] = [];
   const eventsWithFallbackFieldSize: string[] = [];
   const eventsWithPartialAllianceList: string[] = [];
+  const eventsWithUnresolvedElimMatches: string[] = [];
   const asOfUnavailable: { eventKey: string; name: string }[] = [];
   const districtTeamByKey = new Map(artifact.teams.map((team) => [team.teamKey, team] as const));
 
@@ -283,6 +284,10 @@ export function assembleAsOfDistrictEvents(params: AssembleAsOfDistrictEventsPar
           stage,
           startMatchKey: null,
           conditionOnPlayedElims: false,
+          // The played playoff rows at or before the cut (quick task
+          // 261007-3g2): a round stop routes these as real results and
+          // simulates the rest of the bracket.
+          asOfPlayedElimMatchKeys: plan.playedPlayoffMatchKeys,
           tier,
           asOfBaselines: plan.baselines,
         });
@@ -292,6 +297,7 @@ export function assembleAsOfDistrictEvents(params: AssembleAsOfDistrictEventsPar
         }
         if (built.fieldSizeFellBack) eventsWithFallbackFieldSize.push(eventKey);
         if (built.allianceListIsPartial) eventsWithPartialAllianceList.push(eventKey);
+        if (built.unresolvedElimMatchKeys.length > 0) eventsWithUnresolvedElimMatches.push(eventKey);
         real.push({ eventKey, input: built.input, asOf: { ...common, mode: "real", rows: plan.rows } });
         continue;
       }
@@ -326,7 +332,7 @@ export function assembleAsOfDistrictEvents(params: AssembleAsOfDistrictEventsPar
     eventsWithExcludedMatches: [],
     eventsWithFallbackFieldSize,
     eventsWithPartialAllianceList,
-    eventsWithUnresolvedElimMatches: [],
+    eventsWithUnresolvedElimMatches,
     asOfUnavailable,
   };
 }

@@ -598,8 +598,12 @@ export interface PlayedBracketMatchesResult {
  *
  * A row with no `actualWinner` is not played and is skipped without comment; a
  * tie has no winner in an elimination bracket and TBA publishes none.
+ *
+ * `onlyMatchKeys`, when given, is a rewound stop's played playoff rows at or
+ * before its cut (quick task 261007-3g2): a row whose key is not in it is
+ * skipped BEFORE resolution, so it is neither played nor unresolved there.
  */
-export function playedBracketMatchesFor(artifact: EventArtifact): PlayedBracketMatchesResult {
+export function playedBracketMatchesFor(artifact: EventArtifact, onlyMatchKeys?: ReadonlySet<string>): PlayedBracketMatchesResult {
   const alliances = artifact.alliances;
   if (alliances === undefined || alliances.length === 0) return { matches: [], unresolvedMatchKeys: [] };
 
@@ -620,6 +624,7 @@ export function playedBracketMatchesFor(artifact: EventArtifact): PlayedBracketM
   const unresolvedMatchKeys: string[] = [];
   for (const match of artifact.matches) {
     if (match.compLevel === "qm") continue;
+    if (onlyMatchKeys !== undefined && !onlyMatchKeys.has(match.matchKey)) continue;
     const red = allianceOfSide(match.redTeams);
     const blue = allianceOfSide(match.blueTeams);
     if (red === undefined || blue === undefined || red === blue) {
@@ -710,22 +715,30 @@ export interface BuildDistrictEventInputOptions {
    */
   readonly startMatchKey: string | null;
   /**
-   * Whether this position may condition the bracket on the elimination matches
-   * ALREADY PLAYED. True only at the LIVE position.
+   * Whether this position conditions the bracket on EVERY elimination match
+   * already played in the loaded artifact. True only at the LIVE position.
    *
-   * WHY IT IS THE CALLER'S CALL AND NOT A DERIVATION. The rewind rail's playoff
-   * step is all-or-nothing by construction: a position at an event's `alliance`
-   * step is before its bracket started, and a position at its `playoffs` step is
-   * after the bracket finished, so a rewound position never sits part-way
-   * through one. Only "now" does, and only the caller knows whether it is at
-   * "now" — `stage` alone cannot say, because the stage at an `alliance` step and
-   * the stage of a live event mid-bracket are the same four booleans.
+   * WHY IT IS THE CALLER'S CALL AND NOT A DERIVATION. Only the caller knows
+   * whether it is at "now": `stage` alone cannot say, because the stage at an
+   * `alliance` step, at a round step and of a live event mid-bracket are the
+   * same four booleans. A rewound position CAN sit part way through a bracket
+   * since the round stops (quick task 261007-3g2), but it must read only the
+   * rows at or before its own cut, which `asOfPlayedElimMatchKeys` carries;
+   * reading every played row there would leak later results into the stop.
    *
    * Absent reads as false: a caller that has not thought about it gets the
-   * shipped behaviour rather than a bracket conditioned on a position that
-   * cannot honestly carry one.
+   * shipped behaviour rather than a bracket conditioned on rows its position
+   * may not have seen.
    */
   readonly conditionOnPlayedElims?: boolean;
+  /**
+   * A REWOUND STOP'S PLAYED PLAYOFF ROWS (quick task 261007-3g2): the match
+   * keys at or before its cut, from `asOfRewind.ts` in the as-of order. When
+   * present and `conditionOnPlayedElims` is not true, the bracket is
+   * conditioned on exactly these rows' results and the rest is simulated.
+   * Absent passes none, the shipped rewound behaviour.
+   */
+  readonly asOfPlayedElimMatchKeys?: readonly string[];
   /**
    * The point tier this event is priced at. Defaults to `"district"`, which is
    * byte for byte the shipped behaviour; the Champ Locks tab supplies `"dcmp"`
@@ -843,15 +856,20 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
   const knownAwardPoints = stage.award ? earnedPointsMap(districtArtifact, eventKey, "award") : undefined;
 
   // THE PARTIALLY-PLAYED BRACKET. Only where the playoffs are genuinely under
-  // way: the position must be the live one, the alliances must be final (a
-  // partial list was already dropped above, and a bracket cannot be read against
-  // rosters that are still being picked) and the playoff stage must still be
-  // open. Anything else passes no played rows at all, which is exactly the
-  // shipped behaviour.
-  const playedElims =
-    options.conditionOnPlayedElims === true && stage.alliance && !stage.elim && alliances !== undefined
+  // way: the alliances must be final (a partial list was already dropped above,
+  // and a bracket cannot be read against rosters that are still being picked)
+  // and the playoff stage must still be open. Then the live position reads
+  // every played row, a rewound stop reads only the rows at or before its cut
+  // (quick task 261007-3g2), and anything else reads none, which is exactly
+  // the shipped behaviour.
+  const bracketUnderWay = stage.alliance && !stage.elim && alliances !== undefined;
+  const playedElims: PlayedBracketMatchesResult = !bracketUnderWay
+    ? { matches: [], unresolvedMatchKeys: [] }
+    : options.conditionOnPlayedElims === true
       ? playedBracketMatchesFor(eventArtifact)
-      : { matches: [], unresolvedMatchKeys: [] };
+      : options.asOfPlayedElimMatchKeys !== undefined
+        ? playedBracketMatchesFor(eventArtifact, new Set(options.asOfPlayedElimMatchKeys))
+        : { matches: [], unresolvedMatchKeys: [] };
 
   const input: DistrictLedgerEventInput = {
     eventKey,

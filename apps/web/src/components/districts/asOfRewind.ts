@@ -148,6 +148,13 @@ export interface AsOfRealPlan extends AsOfEventPlanBase {
   /** The rows strictly after the cut, in `(t, eventKey, i)` order: folded rows by `i`, then rows not folded yet in row order. */
   readonly rows: readonly UpcomingMatch[];
   readonly baselines: readonly SimTeamBaseline[];
+  /**
+   * The match keys of the event's PLAYED playoff rows at or before the cut, in
+   * INDEX order (`asOfPlayedPlayoffMatchKeys`). The rewound simulation routes
+   * these as real results and prices the rest of the bracket (quick task
+   * 261007-3g2).
+   */
+  readonly playedPlayoffMatchKeys: readonly string[];
 }
 
 export interface AsOfGeneratedPlan extends AsOfEventPlanBase {
@@ -288,6 +295,35 @@ export function asOfQualSplit(params: {
   return { rows: upcoming, baselines };
 }
 
+/**
+ * The match keys of one event's PLAYED playoff rows (every `matches[]` row
+ * whose `compLevel` is not `qm`) that sit at or before the cut, in INDEX order
+ * (quick task 261007-3g2).
+ *
+ * BY THE INDEX, NOT BY `sortTime <= anchor`. This module's ONE ORDER rule: the
+ * cut is a row of the INDEX and `asOfAtOrBefore` is the only comparison. A
+ * `sortTime` comparison cannot place a concurrent event's rows at the same
+ * instant, nor a row the Worker folded late, the way the cut does, so it could
+ * admit a row the rebuilt state has not seen. A row absent from the INDEX was
+ * never folded and is at or before no cut.
+ */
+export function asOfPlayedPlayoffMatchKeys(params: {
+  readonly eventKey: string;
+  readonly eventArtifact: EventArtifact;
+  readonly index: AsOfIndex | null;
+  readonly cut: AsOfCut;
+}): string[] {
+  const { eventKey, eventArtifact, index, cut } = params;
+  if (index === null) return [];
+  const playoffKeys = new Set<string>();
+  for (const match of eventArtifact.matches) if (match.compLevel !== "qm") playoffKeys.add(match.matchKey);
+  const out: string[] = [];
+  index.m.forEach(([matchKey, t], i) => {
+    if (playoffKeys.has(matchKey) && asOfAtOrBefore(eventKey, [t, i], cut)) out.push(matchKey);
+  });
+  return out;
+}
+
 export interface PlanAsOfEventParams {
   readonly eventKey: string;
   readonly tier: DistrictTier;
@@ -324,7 +360,24 @@ export function planAsOfEvent(params: PlanAsOfEventParams): AsOfEventPlanResult 
 
   if (eventArtifact !== undefined && (foldedByCut || atScheduleStop)) {
     const split = asOfQualSplit({ eventKey, tier, eventArtifact, index: index ?? null, cut, week: params.week });
-    return { ok: true, plan: { mode: "real", eventKey, tier, roster: split.baselines.map((baseline) => baseline.teamKey), rows: split.rows, baselines: split.baselines } };
+    // EVERY real event at a rewound stop, not only the stop's own event: a
+    // concurrent event that was part way through its bracket at another
+    // event's stop is conditioned on its played sets too. That is the same
+    // as-of rule as its qualification rows, played matches at the stop are
+    // facts.
+    const playedPlayoffMatchKeys = asOfPlayedPlayoffMatchKeys({ eventKey, eventArtifact, index: index ?? null, cut });
+    return {
+      ok: true,
+      plan: {
+        mode: "real",
+        eventKey,
+        tier,
+        roster: split.baselines.map((baseline) => baseline.teamKey),
+        rows: split.rows,
+        baselines: split.baselines,
+        playedPlayoffMatchKeys,
+      },
+    };
   }
 
   // GENERATED: the roster is the event artifact's own team list for an event
