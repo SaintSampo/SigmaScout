@@ -259,12 +259,16 @@ function milestoneHappened(
     case "q2":
     case "q3":
       return state.qualMatchesTotal !== null && state.qualMatchesPlayed >= quartileMatchNumber(state.qualMatchesTotal, DISTRICT_MILESTONE_QUAL_FRACTIONS[key]);
+    // Quals done, Alliances done and Finals read the same cascading finality
+    // (quick task 261007-jvz), so a done event never shows a half state: the
+    // 2020 cancellations posted awards with no match played, and 2022gacar
+    // posted awards with one quarterfinal row never played.
     case "qualsDone":
       return districtEventCategoryFinality(state).qual;
     case "alliance":
-      return state.alliancesPicked;
+      return districtEventCategoryFinality(state).alliance;
     case "playoffs":
-      return state.playoffsDone;
+      return districtEventCategoryFinality(state).elim;
     case "awards":
       return state.awardsPosted;
   }

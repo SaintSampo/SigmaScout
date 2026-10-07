@@ -128,9 +128,12 @@ interface DistrictArtifactPollShape {
  *
  * THE HONEST LIMITATION, stated here because it is a real one: the district
  * artifact carries week numbers but NO MATCH TIMES, so `eventScheduleIsCurrent`'s
- * seven-day currency rule cannot be asked of it. A member event that starts and
- * never finishes would therefore keep an OPEN district page polling at the
- * floor forever. The bound is the reader's own attention plus TanStack's focus
+ * seven-day currency rule cannot be asked of it. Since quick task 261007-jvz's
+ * finality cascade a curtailed event (2023nhgrs played 52 of 78 qualification
+ * matches) finishes once its alliances are picked and its later stages close,
+ * so it stops polling. The limitation remains for a member event that starts
+ * and is abandoned BEFORE alliance selection: it never finishes, and it would
+ * keep an OPEN district page polling at the floor forever. The bound is the reader's own attention plus TanStack's focus
  * gating (`refetchIntervalInBackground` stays unset, so a hidden tab stops).
  * The EXPENSIVE per-event artifact fetches keep the full currency rule, because
  * they go through `eventQueryOptions`. A second, date-free approximation of

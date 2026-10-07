@@ -121,10 +121,15 @@ const ALL_OPEN: DistrictStageFinality = ALL_CATEGORIES_OPEN;
  * The stage at the "now" position, read from 10-03's `state` block and nothing
  * else.
  *
- * A NULL `qualMatchesTotal` LEAVES QUALIFICATION OPEN rather than guessing it
- * finished: null is the honest answer for an event whose schedule TBA has not
- * published yet, and reading it as "finished" would print a grey number the
- * event has not earned.
+ * Finality CASCADES from later stages (quick task 261007-jvz): picked alliances
+ * close qualification, finished playoffs close alliance selection, and posted
+ * awards close the playoffs, so a curtailed event (2023nhgrs played 52 of 78
+ * qualification matches) reads final once its later stages close.
+ *
+ * A NULL `qualMatchesTotal` WITH NO LATER FACT TRUE LEAVES QUALIFICATION OPEN
+ * rather than guessing it finished: null is then the honest answer for an
+ * event whose schedule TBA has not published yet, and reading it as "finished"
+ * would print a grey number the event has not earned.
  */
 export function deriveStageFromState(state: DistrictEventState | undefined): DistrictEventStage {
   if (state === undefined) {

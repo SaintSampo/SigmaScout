@@ -54,7 +54,10 @@
  *   3. EVERY OTHER district-tier event of the district is FINISHED at `now`.
  *      While any other event is still running the season is live, and a live
  *      season never calls anything cancelled. This is the clause that keeps
- *      the reservation conservative exactly when it matters.
+ *      the reservation conservative exactly when it matters. Since quick task
+ *      261007-jvz's finality cascade, a cancelled but awarded event (the 2020
+ *      shape) counts as finished here; clause 1 is unchanged, so that event
+ *      itself is still never called cancelled.
  *
  * The three facts are read at `now` and never at the rewound position: whether
  * an event will ever happen is a property of the world, not of the slider.
@@ -104,30 +107,63 @@ export const ALL_CATEGORIES_OPEN: DistrictCategoryFinality = { qual: false, alli
 /**
  * The four category finalities implied by one event's state facts.
  *
+ * ---------------------------------------------------------------------------
+ * FINALITY CASCADES FROM LATER STAGES (quick task 261007-jvz)
+ * ---------------------------------------------------------------------------
+ *
+ * An event's stages happen in a fixed physical order. Alliance selection
+ * cannot start before qualification ends, playoffs cannot finish before
+ * alliances are picked, and awards are posted at the closing ceremony after
+ * the playoffs. The Worker requests `/event/{key}/awards` only once
+ * `playoffsDone` is true (`apps/worker/src/districtRefresh.ts`). So a later
+ * stage's fact closes every earlier category:
+ *
+ *   award    = awardsPosted
+ *   elim     = playoffsDone OR award
+ *   alliance = alliancesPicked OR elim
+ *   qual     = (qualMatchesTotal not null AND every match played) OR alliance
+ *
+ * The cases the per fact rule read wrong:
+ *
+ *   - 2023nhgrs played 52 of its 78 scheduled qualification matches, then
+ *     picked alliances, played its playoffs and posted its awards. A curtailed
+ *     event: qualification never read final, so the event never read finished.
+ *   - 2022gacar posted its awards, but one quarterfinal row was never played,
+ *     so `playoffsDone` never turned true.
+ *   - A divisioned DCMP parent has no qualification schedule of its own (a
+ *     null total) and carries every later fact.
+ *   - The 2020 cancellations played no match at all and posted their awards.
+ *     They now read finished.
+ *
+ * THE GUARANTEE. Every category the cascade closes has already handed out all
+ * of its points: no qualification point is earned once alliances are picked,
+ * and no alliance or playoff point once the awards are posted. The remaining
+ * points pool shrinks only by points nobody can still earn.
+ *
  * AN ABSENT `state` REPORTS EVERY CATEGORY OPEN rather than guessing any of
  * them finished — the same honest-unknown rule `reservedImpactSlots` applies to
  * a missing state block, and on both sides of this module's use the open answer
  * is the conservative one (a bigger remaining-points pool, a held-back slot).
  *
- * A NULL `qualMatchesTotal` likewise leaves qualification open: null is the
- * honest answer for an event whose schedule TBA has not published yet, and
- * reading it as finished would treat points that have not been handed out as
- * though they had been.
+ * A NULL `qualMatchesTotal` WITH NO LATER FACT TRUE likewise leaves
+ * qualification open: null is the honest answer for an event whose schedule
+ * TBA has not published yet, and reading it as finished would treat points
+ * that have not been handed out as though they had been.
  */
 export function districtEventCategoryFinality(state: DistrictEventStateFacts | undefined): DistrictCategoryFinality {
   if (state === undefined) return ALL_CATEGORIES_OPEN;
-  return {
-    qual: state.qualMatchesTotal !== null && state.qualMatchesPlayed === state.qualMatchesTotal,
-    alliance: state.alliancesPicked,
-    elim: state.playoffsDone,
-    award: state.awardsPosted,
-  };
+  const award = state.awardsPosted;
+  const elim = state.playoffsDone || award;
+  const alliance = state.alliancesPicked || elim;
+  const qual = (state.qualMatchesTotal !== null && state.qualMatchesPlayed === state.qualMatchesTotal) || alliance;
+  return { qual, alliance, elim, award };
 }
 
 /**
- * True once all four categories are decided. A NULL `qualMatchesTotal` leaves
- * qualification open rather than guessing it finished: null is the honest
- * answer for an event whose schedule TBA has not published yet.
+ * True once all four categories are decided, under the cascade above. A NULL
+ * `qualMatchesTotal` leaves qualification open only while no later fact is
+ * true: null is then the honest answer for an event whose schedule TBA has not
+ * published yet.
  */
 export function districtEventStateFinished(state: DistrictEventStateFacts): boolean {
   // Derived from `districtEventCategoryFinality` rather than restating its four

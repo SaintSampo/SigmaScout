@@ -167,11 +167,20 @@ describe("districtTierEvents", () => {
 
 describe("deriveStageFromState", () => {
   it("reads all four facts from the state block and nothing else", () => {
+    // Each single fact override sets its LATER facts false too, so the
+    // assertion still isolates that fact under quick task 261007-jvz's
+    // cascade (a later fact closes every earlier category).
     expect(deriveStageFromState(state({ qualMatchesPlayed: 60, qualMatchesTotal: 60 })).final.qual).toBe(true);
-    expect(deriveStageFromState(state({ qualMatchesPlayed: 30, qualMatchesTotal: 60 })).final.qual).toBe(false);
-    expect(deriveStageFromState(state({ alliancesPicked: false })).final.alliance).toBe(false);
-    expect(deriveStageFromState(state({ playoffsDone: false })).final.elim).toBe(false);
+    expect(deriveStageFromState(state({ qualMatchesPlayed: 30, qualMatchesTotal: 60, alliancesPicked: false, playoffsDone: false, awardsPosted: false })).final.qual).toBe(false);
+    expect(deriveStageFromState(state({ alliancesPicked: false, playoffsDone: false, awardsPosted: false })).final.alliance).toBe(false);
+    expect(deriveStageFromState(state({ playoffsDone: false, awardsPosted: false })).final.elim).toBe(false);
     expect(deriveStageFromState(state({ awardsPosted: false })).final.award).toBe(false);
+  });
+
+  it("cascades: a curtailed schedule reads qualification final once a later stage closes (2023nhgrs, 52 of 78)", () => {
+    const derived = deriveStageFromState(state({ qualMatchesPlayed: 52, qualMatchesTotal: 78 }));
+    expect(derived.final).toEqual({ qual: true, alliance: true, elim: true, award: true });
+    expect(derived.finished).toBe(true);
   });
 
   it("leaves qualification OPEN for a null qualMatchesTotal rather than guessing it finished", () => {

@@ -190,6 +190,33 @@ describe("happened reads the state blocks", () => {
     }
   });
 
+  it("a 2020 cancellation (awards posted, no match played) is done, with no half state among its stage stops (261007-jvz)", () => {
+    const events = [input("c2020", { qualMatchesPlayed: 0, qualMatchesTotal: null, alliancesPicked: false, playoffsDone: false, awardsPosted: true })];
+    const model = modelOf(timelineOf(events), events);
+    const event = model.byEvent.get("c2020")!;
+    expect(event.status).toBe("done");
+    // Schedule, the three quartiles, Quals done, Alliances done, five rounds, Finals, Awards.
+    expect(event.milestones.map((stop) => stop.happened)).toEqual([true, false, false, false, true, true, false, false, false, false, false, true, true]);
+  });
+
+  it("a curtailed event (2023nhgrs, 52 of 78) is done, and its Quals three quarters stop (match 59) has not happened", () => {
+    const events = [input("ev", state({ qualMatchesPlayed: 52, qualMatchesTotal: 78 }))];
+    const model = modelOf(timelineOf(events), events);
+    expect(model.byEvent.get("ev")!.status).toBe("done");
+    const q3 = milestone(model, "ev", "q3");
+    expect(q3.atId).toBe("ev:m:ev_qm59");
+    expect(q3.happened).toBe(false);
+    expect(milestone(model, "ev", "q2").happened).toBe(true);
+    expect(milestone(model, "ev", "qualsDone").happened).toBe(true);
+  });
+
+  it("2022gacar's Finals stop has happened: awards posted, one quarterfinal row never played", () => {
+    const events = [input("ev", state({ qualMatchesPlayed: 76, qualMatchesTotal: 76, playoffsDone: false }))];
+    const model = modelOf(timelineOf(events), events);
+    expect(model.byEvent.get("ev")!.status).toBe("done");
+    expect(milestone(model, "ev", "playoffs").happened).toBe(true);
+  });
+
   it("a future event's stage steps sort before now but are NOT happened", () => {
     const events = [input("past", state(), 0), input("soon", UNSTARTED, 3)];
     const timeline = timelineOf(events);

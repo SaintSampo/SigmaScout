@@ -409,12 +409,17 @@ export function publishedFinalVerdicts(artifact: DistrictArtifact): ReadonlyMap<
  * builder with that map and no distributions, and
  * `computeDistrictLedgerStatuses`. A team with no result reads `unknown`.
  *
- * DELIBERATELY NOT THE VERDICT AT `now`. 19 of the 109 local seasons carry an
- * event whose own state blocks do not read finished, and against `now` 186
- * `Locked` and 307 `Locked out` displays end `contending`, all of them inside
- * those 19 seasons (55 and 127 under the floor shipped before 261005-04t).
- * That is a quirk of the recorded state, not a broken promise: the points
- * those events handed out are in the artifact.
+ * DELIBERATELY NOT THE VERDICT AT `now`. Before quick task 261007-jvz, 19 of
+ * the 109 local seasons carried an event whose own state blocks did not read
+ * finished (curtailed events, the 2020 cancellations and 2022gacar), and
+ * against `now` 186 `Locked` and 307 `Locked out` displays ended `contending`,
+ * all of them inside those 19 seasons (55 and 127 under the floor shipped
+ * before 261005-04t). That was a quirk of the recorded state, not a broken
+ * promise: the points those events handed out are in the artifact. The
+ * finality cascade reads all of them finished, and the census line "seasons
+ * with an unfinished district-tier event at now" reads 0. The forced final
+ * standing stays the yardstick, because it also covers an artifact whose rows
+ * carry no state block.
  */
 export function districtTierFinalVerdicts(artifact: DistrictArtifact): ReadonlyMap<string, LockStatus> {
   const stageByEvent = new Map<string, DistrictStageFinality>();

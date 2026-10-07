@@ -132,9 +132,17 @@ describe("the district artifact's own poll gate (phase 10)", () => {
     expect(districtEventStateStarted({ ...unstarted, awardsPosted: true })).toBe(true);
   });
 
-  it("never calls an event finished while its schedule length is unpublished", () => {
+  it("never calls an event finished while its schedule length is unpublished and no later fact is true", () => {
     expect(districtEventStateFinished(finished)).toBe(true);
-    expect(districtEventStateFinished({ ...noSchedule, alliancesPicked: true, playoffsDone: true, awardsPosted: true })).toBe(false);
+    expect(districtEventStateFinished(noSchedule)).toBe(false);
+    // The divisioned DCMP parent shape: no schedule of its own, every later
+    // fact true. Quick task 261007-jvz's cascade reads it finished.
+    expect(districtEventStateFinished({ ...noSchedule, alliancesPicked: true, playoffsDone: true, awardsPosted: true })).toBe(true);
+  });
+
+  it("stops polling for a curtailed event once its later stages close (2023nhgrs, 52 of 78, 261007-jvz)", () => {
+    const curtailed = { qualMatchesPlayed: 52, qualMatchesTotal: 78, alliancesPicked: true, playoffsDone: true, awardsPosted: true };
+    expect(shouldPollDistrictArtifact(district([{ tier: "district", state: curtailed }]))).toBe(false);
   });
 
   it("polls only while a member DISTRICT-tier event is started and not finished", () => {
