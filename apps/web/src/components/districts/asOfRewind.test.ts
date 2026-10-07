@@ -39,6 +39,7 @@ import {
   type AsOfFetchers,
 } from "./asOfRewind.js";
 import { buildDistrictTimeline, districtStageAtPosition, type DistrictTimeline } from "./districtTimeline.js";
+import { EventArtifactSchema } from "../../../../../packages/harness/pageArtifacts.js";
 
 
 function timeline(): DistrictTimeline {
@@ -244,6 +245,57 @@ describe("planAsOfEvent: modes", () => {
   it("is GENERATED earlier than that, on the event artifact's own roster, with the publisher's no schedule matches per team", () => {
     const result = plan("2026wabbb", "2026waaa:m:2026waaa_qm2");
     expect(result.ok && result.plan).toMatchObject({ mode: "generated", roster: [...TEAMS].sort(), bake: { districtKey: "2026pnw", eventType: 1, matchesPerTeam: 12 } });
+  });
+
+  it("is GENERATED on the qualification field only: a playoff only demo robot is no team (261007-il9)", () => {
+    const DEMO = ["frc9990", "frc9991", "frc9992"];
+    const demoPlayoff = {
+      ...BBB.matches[0]!,
+      matchKey: "2026wabbb_sf1m1",
+      compLevel: "sf",
+      sortTime: T0 + 8 * 86_400,
+      redTeams: DEMO,
+    };
+    const withDemo = EventArtifactSchema.parse({
+      ...BBB,
+      matches: [...BBB.matches, demoPlayoff],
+      teams: [
+        ...BBB.teams,
+        ...DEMO.map((teamKey, i) => ({ teamKey, teamNumber: 9990 + i, nickname: teamKey, rank: BBB.teams.length + i + 1, record: { wins: 0, losses: 0, ties: 0 }, rp: 0, metrics: {} })),
+      ],
+    });
+    const tl = timeline();
+    const positionIndex = tl.positions.findIndex((position) => position.id === "2026waaa:m:2026waaa_qm2");
+    const stop = resolveStopCut(tl, positionIndex, INDEXES);
+    if (stop.status !== "ok") throw new Error("no cut at 2026waaa:m:2026waaa_qm2");
+    const result = planAsOfEvent({
+      eventKey: "2026wabbb",
+      tier: "district",
+      week: 1,
+      districtArtifact: districtArtifact(),
+      eventArtifact: withDemo,
+      index: INDEXES.get("2026wabbb"),
+      cut: stop.cut,
+      scheduleStopEventKey: undefined,
+    });
+    expect(result.ok && result.plan.mode).toBe("generated");
+    expect(result.ok && result.plan.roster).toEqual([...TEAMS].sort());
+  });
+
+  it("is GENERATED on the artifact's whole team list when it has no qualification row (the simulatedTeams fallback)", () => {
+    const noQuals = EventArtifactSchema.parse({ ...BBB, matches: [], upcoming: [] });
+    const result = planAsOfEvent({
+      eventKey: "2026wabbb",
+      tier: "district",
+      week: 1,
+      districtArtifact: districtArtifact(),
+      eventArtifact: noQuals,
+      index: null,
+      cut: { eventKey: "2026waaa", t: T0 + 3_000, i: 5 },
+      scheduleStopEventKey: undefined,
+    });
+    expect(result.ok && result.plan.mode).toBe("generated");
+    expect(result.ok && result.plan.roster).toEqual(BBB.teams.map((team) => team.teamKey).sort());
   });
 
   it("is GENERATED for an event unstarted even today, on the district artifact's registrations", () => {

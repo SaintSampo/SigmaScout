@@ -380,9 +380,12 @@ export function planAsOfEvent(params: PlanAsOfEventParams): AsOfEventPlanResult 
     };
   }
 
-  // GENERATED: the roster is the event artifact's own team list for an event
-  // started today, else the district artifact's registrations.
-  const fromArtifact = eventArtifact?.teams.map((team) => team.teamKey) ?? [];
+  // GENERATED: the roster is the teams on a qualification row (quick task
+  // 261007-il9, the rule the REAL split above already reads; a playoff only
+  // demo robot is no team), for an event started today, else the district
+  // artifact's registrations. `simulatedTeams` falls back to the artifact's
+  // whole team list when it has no qualification row.
+  const fromArtifact = eventArtifact === undefined ? [] : simulatedTeams(eventArtifact).map((team) => team.teamKey);
   const roster = fromArtifact.length > 0 ? [...fromArtifact].sort() : districtRegistrations(params.districtArtifact, eventKey, tier);
   const eventType = eventArtifact?.eventType ?? fallbackEventType(tier);
   return {

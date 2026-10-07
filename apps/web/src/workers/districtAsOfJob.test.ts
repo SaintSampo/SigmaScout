@@ -147,15 +147,24 @@ describe("the as-of runner", () => {
     expect(entry.draws).toBe(4000);
   }, 30_000);
 
-  it("GENERATED: a bake the event cannot have (a roster too small for eight alliances) is a named unavailable entry, isolated by the job", () => {
-    const small = { ...input(), fieldSize: 20, baselines: input().baselines.slice(0, 20) };
+  it("GENERATED: a bake the event cannot have (a roster smaller than its eight alliances) is a named unavailable entry, isolated by the job", () => {
+    const small = { ...input(), fieldSize: 7, baselines: input().baselines.slice(0, 7) };
     const messages: DistrictSimulationOutboundMessage[] = [];
-    runDistrictSimulationJob(request([{ eventKey: "2026wax", input: small, asOf: block("generated", 20) }]), (m) => messages.push(m), runAsOfEvent);
+    runDistrictSimulationJob(request([{ eventKey: "2026wax", input: small, asOf: block("generated", 7) }]), (m) => messages.push(m), runAsOfEvent);
     const result = messages.at(-1);
     expect(result?.type).toBe("result");
     if (result?.type !== "result") return;
     expect(result.events[0]).toMatchObject({ status: "unavailable", name: AS_OF_BAKE_SKIPPED_ERROR_NAME });
   });
+
+  it("GENERATED: a 20 team roster bakes under the short roster rule (261007-il9)", () => {
+    const short = { ...input(), fieldSize: 20, baselines: input().baselines.slice(0, 20) };
+    const entry = runAsOfEvent({ eventKey: "2026wax", input: short, asOf: block("generated", 20) }, 40, 7);
+    expect(entry.status).toBe("baked");
+    if (entry.status !== "baked") return;
+    expect(entry.rows).toHaveLength(20);
+    expect(entry.draws).toBe(4000);
+  }, 30_000);
 });
 
 describe("the job's as-of path", () => {

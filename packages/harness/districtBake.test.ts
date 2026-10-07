@@ -20,7 +20,15 @@ import {
 import { buildPricedSyntheticSchedules } from "./preSchedule.js";
 import { DistrictPointPmfSchema, type DistrictPointPmf } from "./pageArtifacts.js";
 import { maxEventPoints } from "../core/districts/pointModel.js";
-import { ZERO_AWARD_PROFILE, type DistrictAwardProfile } from "../core/districts/ledgerSimulation.js";
+import {
+  draftedAllianceCount,
+  insufficientRosterReason,
+  ZERO_AWARD_PROFILE,
+  type DistrictAwardProfile,
+} from "../core/districts/ledgerSimulation.js";
+import { PLAYOFF_PLACEMENT_POINTS } from "../core/districts/bracket.js";
+import { districtTierWeight } from "../core/districts/qualPoints.js";
+import { districtSelectionPoints } from "../core/districts/selectionPoints.js";
 import type { AllianceMemberRating } from "../core/algorithms/simulation/allianceWinProbability.js";
 import type { Prediction, UpcomingMatch } from "../core/algorithms/types.js";
 
@@ -264,15 +272,29 @@ describe("bakeDistrictEvent — the all-or-nothing roster decision, one reason a
     expect(outcome.reason).toBe("roster-out-of-generator-range");
   });
 
-  it("a roster too small to fill the alliance count is refused with its own reason", () => {
-    const small = ROSTER.slice(0, 20);
+  // Quick task 261007-il9 retired the old 20 team refusal: an eight alliance
+  // roster under 24 teams now bakes under the core's short roster rule, and
+  // the bake refuses only what `insufficientRosterReason` refuses.
+  it("a roster smaller than its eight alliances is refused with the simulation's own reason", () => {
+    const tiny = ROSTER.slice(0, 7);
     const outcome = bakeDistrictEvent(
-      params({ roster: small, fieldSize: small.length, ratings: ratingsFor(small), awardProfiles: profilesFor(small) })
+      params({ roster: tiny, fieldSize: tiny.length, ratings: ratingsFor(tiny), awardProfiles: profilesFor(tiny) })
     );
     expect(outcome.status).toBe("skipped");
     if (outcome.status !== "skipped") return;
     expect(outcome.reason).toBe("roster-too-small-for-alliances");
-    expect(outcome.detail).toContain("cannot fill 8");
+    expect(outcome.detail).toContain("smaller than its 8 alliances");
+  });
+
+  it("a non eight alliance count short of three teams per alliance is refused with the simulation's own reason", () => {
+    const small = ROSTER.slice(0, 11);
+    const outcome = bakeDistrictEvent(
+      params({ roster: small, fieldSize: small.length, allianceCount: 4, ratings: ratingsFor(small), awardProfiles: profilesFor(small) })
+    );
+    expect(outcome.status).toBe("skipped");
+    if (outcome.status !== "skipped") return;
+    expect(outcome.reason).toBe("roster-too-small-for-alliances");
+    expect(outcome.detail).toContain("cannot fill 4");
   });
 
   it("an RP-less algorithm is a skip with its own reason, never a partial bake", () => {
@@ -283,6 +305,51 @@ describe("bakeDistrictEvent — the all-or-nothing roster decision, one reason a
     if (outcome.status !== "skipped") return;
     expect(outcome.reason).toBe("rp-less-algorithm");
   });
+});
+
+describe("insufficientRosterReason — the one refusal predicate the simulation and the bake share (261007-il9)", () => {
+  it("names the two refusals and refuses no eight alliance roster of at least eight teams", () => {
+    expect(insufficientRosterReason(7, 8)).toContain("smaller than its 8 alliances");
+    expect(insufficientRosterReason(11, 4)).toContain("cannot fill 4 3-team alliances");
+    expect(insufficientRosterReason(18, 8)).toBeNull();
+    expect(insufficientRosterReason(23, 8)).toBeNull();
+    expect(insufficientRosterReason(24, 8)).toBeNull();
+  });
+});
+
+describe("bakeDistrictEvent — short rosters bake under the core's short roster rule (261007-il9)", () => {
+  /** The summed mean is exact up to the five decimal rounding of each published entry. */
+  const roundingTolerance = (pmfs: readonly DistrictPointPmf[]): number =>
+    pmfs.reduce((sum, pmf) => sum + supportMax(pmf) * pmf.p.length * 1e-5, 0);
+  const elimPayout =
+    3 * PLAYOFF_PLACEMENT_POINTS.slice(0, 4).reduce((sum, value) => sum + value, 0) * districtTierWeight(SEASON, "district");
+
+  for (const teamCount of [18, 23]) {
+    it(`bakes a ${String(teamCount)} team eight alliance roster, and filler earns no alliance or elimination points`, () => {
+      const roster = ROSTER.slice(0, teamCount);
+      const outcome = bakeDistrictEvent(
+        params({ roster, fieldSize: roster.length, ratings: ratingsFor(roster), awardProfiles: profilesFor(roster) })
+      );
+      expect(outcome.status).toBe("baked");
+      if (outcome.status !== "baked") return;
+      expect(outcome.rows).toHaveLength(teamCount);
+      for (const row of outcome.rows) {
+        for (const key of ["qual", "alliance", "elim", "award", "total"] as const) {
+          expect(() => DistrictPointPmfSchema.parse(row[key])).not.toThrow();
+        }
+      }
+
+      let allianceSlots = 0;
+      for (let allianceNumber = 1; allianceNumber <= draftedAllianceCount(teamCount, 8); allianceNumber++) {
+        for (const slot of [0, 1, 2]) allianceSlots += districtSelectionPoints(SEASON, "district", slot, allianceNumber);
+      }
+      const allianceMeans = outcome.rows.reduce((sum, row) => sum + pmfMean(row.alliance), 0);
+      expect(Math.abs(allianceMeans - allianceSlots)).toBeLessThanOrEqual(roundingTolerance(outcome.rows.map((row) => row.alliance)));
+
+      const elimMeans = outcome.rows.reduce((sum, row) => sum + pmfMean(row.elim), 0);
+      expect(Math.abs(elimMeans - elimPayout)).toBeLessThanOrEqual(roundingTolerance(outcome.rows.map((row) => row.elim)));
+    });
+  }
 });
 
 describe("bakeDistrictEvent — a simulation error is corruption, not a skip", () => {

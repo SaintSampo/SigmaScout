@@ -1025,6 +1025,30 @@ export function draftedAllianceCount(teamCount: number, allianceCount: number): 
 }
 
 /**
+ * Why a `teamCount` roster cannot be simulated with `allianceCount` alliances,
+ * or `null` when it can. THE ONE REFUSAL PREDICATE: `simulateDistrictEvent`
+ * throws exactly this reason (prefixed with its event key) and
+ * `packages/harness/districtBake.ts` skips on it up front, so the two can
+ * never disagree about which roster is priceable (quick task 261007-il9).
+ *
+ * Checked in the simulation's own order: fewer teams than alliances first
+ * (no captain for every alliance the bracket needs), then a non eight alliance
+ * count under three teams per alliance (the divisioned DCMP parents have no
+ * measured short roster convention). An eight alliance roster of at least
+ * eight teams is never refused, because the short roster rule applies
+ * (`draftedAllianceCount`).
+ */
+export function insufficientRosterReason(teamCount: number, allianceCount: number): string | null {
+  if (teamCount < allianceCount) {
+    return `a ${teamCount}-team roster is smaller than its ${allianceCount} alliances`;
+  }
+  if (allianceCount !== BRACKET_ALLIANCE_COUNT && teamCount < allianceCount * DRAFTED_ALLIANCE_SIZE) {
+    return `a ${teamCount}-team roster cannot fill ${allianceCount} ${DRAFTED_ALLIANCE_SIZE}-team alliances`;
+  }
+  return null;
+}
+
+/**
  * Validates one known-stage map against the category ceiling its histogram is
  * sized to, naming EVERY offender rather than the first — the same discipline
  * the unrated-team and alliance-set passes follow, so one run tells a caller
@@ -1107,15 +1131,11 @@ export function simulateDistrictEvent(
   // `draftedAllianceCount`); fewer teams than alliances cannot seat a captain on
   // every alliance the bracket needs, and a non-eight alliance count (the
   // divisioned DCMP parents) has no measured short-roster convention at all.
-  if (teamCount < allianceCount) {
-    throw new InsufficientRosterError(
-      `event ${eventKey}: a ${teamCount}-team roster is smaller than its ${allianceCount} alliances`
-    );
-  }
-  if (!usesEightAllianceBracket && teamCount < allianceCount * DRAFTED_ALLIANCE_SIZE) {
-    throw new InsufficientRosterError(
-      `event ${eventKey}: a ${teamCount}-team roster cannot fill ${allianceCount} ${DRAFTED_ALLIANCE_SIZE}-team alliances`
-    );
+  // Both live in `insufficientRosterReason`, the predicate the bake also reads
+  // (quick task 261007-il9).
+  const rosterRefusal = insufficientRosterReason(teamCount, allianceCount);
+  if (rosterRefusal !== null) {
+    throw new InsufficientRosterError(`event ${eventKey}: ${rosterRefusal}`);
   }
 
   // A KNOWN STAGE'S VALUES ARE HISTOGRAM INDICES, so they are validated here

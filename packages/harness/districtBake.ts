@@ -17,6 +17,13 @@
  *   2. the encode-round-trim order at the publish boundary, and
  *   3. the all-or-nothing roster decision.
  *
+ * SHORT ROSTERS BAKE (quick task 261007-il9). An eight alliance event under 24
+ * teams bakes under the core's short roster rule (`draftedAllianceCount`:
+ * whole real alliances from the top seed down, the rest filler that forfeits).
+ * The up front alliance refusal is the simulation's own predicate,
+ * `insufficientRosterReason`, so a roster this module accepts is a roster
+ * `simulateDistrictEvent` accepts.
+ *
  * Everything else is somebody else's: 10-01 owns the formulas, 10-02 the
  * alliance pricer and the award base rates, 10-03 the schemas, 10-04 the
  * simulation and the event-level encoder, and `preSchedule.ts` the one
@@ -32,6 +39,7 @@
 import {
   simulateDistrictEvent,
   encodeDistrictPointPmf,
+  insufficientRosterReason,
   type DistrictAwardProfile,
   type DistrictLedgerEventInput,
   type DistrictLedgerResult,
@@ -46,9 +54,6 @@ import { MAX_SCHEDULE_TEAMS, MIN_SCHEDULE_TEAMS } from "./generatedSchedules.js"
 import { buildPricedSyntheticSchedules } from "./preSchedule.js";
 import { DistrictPointPmfSchema, type DistrictPointPmf } from "./pageArtifacts.js";
 import { roundPmf } from "./rounding.js";
-
-/** The number of robots a drafted alliance carries — the roster floor `allianceCount` implies. */
-const DRAFTED_ALLIANCE_SIZE = 3;
 
 /**
  * How many distinct synthetic qualification schedules one district event is
@@ -219,7 +224,11 @@ function accumulate(into: Float64Array, source: ArrayLike<number>, eventKey: str
  * caught and downgraded into a `skipped` outcome: the up-front validation makes
  * the simulation's own refusals unreachable through this entry point, so one
  * arriving anyway is corruption, and a caught-and-downgraded simulation error
- * is how a publish silently loses a whole district's predictions.
+ * is how a publish silently loses a whole district's predictions. Since quick
+ * task 261007-il9 the roster refusal holds that by construction: the skip below
+ * reads `insufficientRosterReason`, the predicate the simulation throws on, so
+ * an eight alliance event under 24 teams bakes under the short roster rule
+ * (`draftedAllianceCount`) instead of being refused.
  */
 export function bakeDistrictEvent(params: DistrictBakeParams): DistrictBakeOutcome {
   const { eventKey, season, tier, allianceCount } = params;
@@ -248,12 +257,13 @@ export function bakeDistrictEvent(params: DistrictBakeParams): DistrictBakeOutco
       offenders: [],
     };
   }
-  if (sortedRoster.length < allianceCount * DRAFTED_ALLIANCE_SIZE) {
+  const rosterRefusal = insufficientRosterReason(sortedRoster.length, allianceCount);
+  if (rosterRefusal !== null) {
     return {
       status: "skipped",
       eventKey,
       reason: "roster-too-small-for-alliances",
-      detail: `a ${sortedRoster.length}-team roster cannot fill ${allianceCount} ${DRAFTED_ALLIANCE_SIZE}-team alliances`,
+      detail: rosterRefusal,
       offenders: [],
     };
   }
