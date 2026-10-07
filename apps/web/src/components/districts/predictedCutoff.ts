@@ -153,17 +153,19 @@ export type ChampNoCallReason =
  * of 69 both times. Re-run 2026-10-05 after the district lock floor stopped
  * holding championship points (quick task 261005-04t), with the walk-forward
  * tuning regenerated: MAE 18.2 against 40.4, coverage 48 of 69, 69.6%, the
- * same four line conditions passing. The range runs a little narrow and is shown with that
+ * same four line conditions passing. The 2026-10-07 re-run after quick task
+ * 261007-jvz's finality cascade reproduced 18.2 against 40.4 and 48 of 69,
+ * 69.6%. The range runs a little narrow and is shown with that
  * coverage quoted on the Methodology page (`districtLedgerContent.ts`); a
  * later calibration round that changes the coverage must update that sentence.
  * The District Locks tab's likely range comes from the same estimator
  * (`simulatedLine`), is always shown, and does not read this flag. Its own
  * backtest (`scripts/measureDistrictCutoff.ts`, fast task 261006, run
- * 2026-10-07 after quick task 261007-4qr's short roster rule) measured the
- * range holding the tab's settled cutoff at 171 of 193 season start and week
- * end positions over 45 district seasons, 2023 to 2026, 88.6%, TWO positions
- * ABOVE the same 72% to 88% band, with the line's MAE 1.17 against the
- * midpoint rule's 1.80. It runs a little wide where the
+ * 2026-10-07 after quick task 261007-jvz's finality cascade) measured the
+ * range holding the tab's settled cutoff at 181 of 203 season start and week
+ * end positions over 47 district seasons, 2023 to 2026, 89.2%, THREE positions
+ * ABOVE the same 72% to 88% band, with the line's MAE 1.15 against the
+ * midpoint rule's 1.77. It runs a little wide where the
  * champ range runs a little narrow; both are quoted on the Methodology page.
  */
 export const SHOW_SIMULATED_CHAMP_LIKELY_RANGE = true;

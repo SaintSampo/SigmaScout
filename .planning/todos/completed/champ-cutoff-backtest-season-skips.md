@@ -24,3 +24,13 @@ The script counts a skipped season as not covered, so the skip may be a measurem
 ## Decision owed
 
 The Champ cutoff sentence and its test pins are unchanged pending Jacob's call. The walk forward tuning regenerated in quick task 261007-il9 kept every selected setting (2017 uniform/fixed/1.00, every later season uniform/fixed/1.75), so the published range does not depend on this.
+
+## Closed
+
+Closed 2026-10-07 by quick task 261007-jvz, commit ea6fa51a (the finality cascade), with the methodology comments updated in the commit that moved this file.
+
+Cause: c4bc0b62 (261005-5g0) made a category open at now never final at an earlier rewound stop. Under the old per fact rule six curtailed events (2019vahay, 2022va319, 2022gadal, 2023nhgrs, 2024mdsev and 2024gagwi) never read qualification final at now, so their seasons were refused.
+The cascade (a later stage's fact closes every earlier category) restores n = 68, 18.2 against 40.4, and 48 of 69 (69.6%): the published figures exactly. The tuning file is again the 2026-10-05 one apart from its Generated date, with every selected setting unchanged.
+2022isr is the one remaining skip, with a different cause: a same week rail tie between 2022isde4 and 2022iscmp (todo champ-cutoff-2022isr-week-tie).
+
+Release: pending republish by the orchestrator (2026-10-07)

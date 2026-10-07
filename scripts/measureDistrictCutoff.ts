@@ -34,11 +34,13 @@
  * elimination format), so every open event of an earlier season is refused,
  * no team's grand total can be built, and every 2016 to 2022 position reads
  * `noCall teamsExcluded`, exactly as the tab would. The report counts them
- * rather than hiding them. Measured 2026-10-07 (after quick task 261007-4qr's
- * short roster rule): 193 scored positions over 45 district seasons, simulated
- * MAE 1.17 against the midpoint rule's 1.80, the range holding the settled
- * cutoff at 171 of 193 (88.6%), two positions above the band's ceiling; both
- * bars are kept as registered.
+ * rather than hiding them. Measured 2026-10-07 (after quick task 261007-jvz's
+ * finality cascade): 203 scored positions over 47 district seasons, simulated
+ * MAE 1.15 against the midpoint rule's 1.77, the range holding the settled
+ * cutoff at 181 of 203 (89.2%), three positions above the band's ceiling; both
+ * bars are kept as registered. Before the cascade (after quick task
+ * 261007-4qr's short roster rule) it read 193 positions over 45 seasons, 1.17
+ * against 1.80 and 171 of 193 (88.6%).
  *
  * THE TARGET. The tab's own settled cutoff at season end: the midpoint of the
  * last team inside the slots and the first team outside them over the final

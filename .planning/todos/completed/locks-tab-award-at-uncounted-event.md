@@ -22,3 +22,13 @@ Across the 109 seasons, 37 teams differ between the publisher and the tab's dist
 ## What a fix needs
 
 A fix moves a guarantee display, so it needs the tenet sweep (scripts/measureLedgerTenets.ts) rerun against both yardsticks before it ships. Which side is right is a rule question for Jacob: whether an award won at an event outside the team's own district tier rows takes a district slot.
+
+## Closed
+
+Closed 2026-10-07 by quick task 261007-jvz, commit 0935cabc.
+
+The tab now resolves an award's tier from one artifact derived map shared with the publisher (eventTierByKey in packages/core/districts/qualification.ts), and reads its finality from the district wide map the slot reservation reads (awardFinalByEventAtPosition), so an event consumes or reserves and never both.
+Against the publisher's verdicts (publishedFinalVerdicts, artifacts rebuilt offline) tenet A went 4 to 0 and tenet B stayed 0; the publisher and the tab's district tier final standing now agree on every team (37 to 0). The default yardstick is still 0 and 0, and the champ tenets are 0 and 0.
+An award at an event no team carries any row for stays uncounted, the conservative fallback the Worker shares.
+
+Release: pending republish by the orchestrator (2026-10-07)
