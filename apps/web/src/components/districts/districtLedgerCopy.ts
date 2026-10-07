@@ -85,6 +85,15 @@ export const DISTRICT_LEDGER_STAGE_WORDS = {
 /** What a cell prints when the tab holds no distribution for it — an honest absence, never a fabricated zero. */
 export const DISTRICT_LEDGER_UNAVAILABLE_CELL = "not available";
 
+/**
+ * What a cell prints while its event's artifacts, or the run that prices it,
+ * are still arriving (quick task 261007-4qr). The same word as
+ * `CHAMP_LEDGER_CUTOFF_PENDING_FIGURE`, so the cells and the predicted cutoff
+ * say one thing at one moment. Written as a literal because that constant is
+ * declared later in this file; `LedgerParts.test.tsx` pins the two equal.
+ */
+export const DISTRICT_LEDGER_PENDING_CELL = "pending";
+
 /** The prefix a median-form cell's second line carries. "likely" means 8 of 10 runs land there — the 10th to 90th percentile in plain words. */
 export const DISTRICT_LEDGER_LIKELY_PREFIX = "likely";
 

@@ -60,6 +60,7 @@ import {
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS,
   DISTRICT_LEDGER_SELECTION_ROUTE_WORDS,
+  DISTRICT_LEDGER_PENDING_CELL,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
   CHAMP_LEDGER_CUTOFF_PENDING_FIGURE,
   CHAMP_LEDGER_NO_CALL_REASONS,
@@ -560,9 +561,13 @@ export function LedgerCell({ cell, interaction, variant }: { cell: DistrictLedge
     );
   }
   if (cell.kind === "unavailable") {
+    // STILL ARRIVING vs ABSENT (quick task 261007-4qr): a pending cell prints
+    // the pending word in the same muted treatment, because the word carries
+    // the meaning. Neither is a button; there is nothing to open yet.
+    const pending = cell.pending === true;
     return (
-      <TableCell data-cell="unavailable" data-cell-id={cell.id} className="numeric-cell">
-        <span className={UNAVAILABLE_CELL_CLASS}>{DISTRICT_LEDGER_UNAVAILABLE_CELL}</span>
+      <TableCell data-cell={pending ? "pending" : "unavailable"} data-cell-id={cell.id} className="numeric-cell">
+        <span className={UNAVAILABLE_CELL_CLASS}>{pending ? DISTRICT_LEDGER_PENDING_CELL : DISTRICT_LEDGER_UNAVAILABLE_CELL}</span>
       </TableCell>
     );
   }
@@ -753,9 +758,10 @@ export function GrandTotalContent({ cell, interaction }: { cell: DistrictLedgerC
     );
   }
   if (cell.kind === "unavailable") {
+    const pending = cell.pending === true;
     return (
-      <span data-cell="unavailable" data-cell-id={cell.id} className={UNAVAILABLE_CELL_CLASS}>
-        {DISTRICT_LEDGER_UNAVAILABLE_CELL}
+      <span data-cell={pending ? "pending" : "unavailable"} data-cell-id={cell.id} className={UNAVAILABLE_CELL_CLASS}>
+        {pending ? DISTRICT_LEDGER_PENDING_CELL : DISTRICT_LEDGER_UNAVAILABLE_CELL}
       </span>
     );
   }

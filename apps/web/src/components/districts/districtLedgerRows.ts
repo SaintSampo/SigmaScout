@@ -237,7 +237,27 @@ export type DistrictLedgerCell =
       /** Present only on an Alliance selection cell whose run reported its routes — see `DistrictSelectionRouteView`. */
       readonly selection?: DistrictSelectionRouteView;
     }
-  | { readonly id: string; readonly cell: DistrictCellKind; readonly kind: "unavailable" };
+  | {
+      readonly id: string;
+      readonly cell: DistrictCellKind;
+      readonly kind: "unavailable";
+      /**
+       * PRESENT AND TRUE only while the tab is still loading this event's
+       * artifacts or a baked sidecar, or its run has not landed for the current
+       * inputs (todo locks-loading-cells-read-not-available, quick task
+       * 261007-4qr). The cell prints the pending word rather than "not
+       * available", the word for an event with no published data.
+       *
+       * DELIBERATELY NOT A NEW KIND. A pending cell IS "no distribution in hand"
+       * at that instant, so every computation keyed on `kind === "unavailable"`
+       * (statuses, chance runs, the champ fold, excluded teams) keeps its
+       * meaning unedited, and every one of them is already held at Pending
+       * while this can be set. Only the printed word and `data-cell` differ.
+       * Never written as `false`: a cell that is not pending carries no key, so
+       * it deep equals the shipped cell.
+       */
+      readonly pending?: true;
+    };
 
 /** One district-tier event row for one team. */
 export interface DistrictLedgerEventRow {
@@ -1096,6 +1116,19 @@ export interface BuildDistrictLedgerRowsOptions {
    * 260925-xab).
    */
   readonly tier?: DistrictTier;
+  /**
+   * THE TAB'S OWN PENDING CONDITION (quick task 261007-4qr): true while its
+   * event artifacts or a baked sidecar are still loading, or its run has not
+   * landed for the current inputs. Each tab passes the SAME expression that
+   * holds its Status column at Pending, so the cells and the column cannot
+   * disagree. While true, an open cell, event total or grand total with no
+   * distribution yet carries `pending: true`, unless its event is in
+   * `unavailableEvents` (refused, which is not loading).
+   *
+   * Absent reads as false, the shipped behaviour: the output is then exactly
+   * what it was before this option existed.
+   */
+  readonly distributionsPending?: boolean;
 }
 
 export interface DistrictLedgerRowsResult {
@@ -1126,6 +1159,10 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
   };
   const eventTotalCeiling = ceilings.qual + ceilings.alliance + ceilings.elim + ceilings.award;
   const unavailableByKey = new Map(unavailableEvents.map((entry) => [entry.eventKey, entry.name] as const));
+  // WHETHER AN EVENT'S MISSING DISTRIBUTION IS STILL ARRIVING rather than
+  // absent (quick task 261007-4qr). A refused event is never pending: its
+  // absence is the answer, not a wait.
+  const pendingEvent = (eventKey: string): boolean => options.distributionsPending === true && !unavailableByKey.has(eventKey);
 
   const teamsWithoutAwardProfile = new Set(options.gaps?.teamsWithoutAwardProfile ?? []);
   const teamsWithUnavailableGrandTotal = new Set(options.gaps?.teamsWithUnavailableGrandTotal ?? []);
@@ -1160,6 +1197,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
     const rows: DistrictLedgerEventRow[] = [];
     const eventTotalDistributions: DistrictPointDistribution[] = [];
     let everyEventTotalKnown = true;
+    let everyMissingEventTotalPending = true;
     let hasOpenCategory = false;
     let earnedDistrictTotal = 0;
     let earnedAtPosition = 0;
@@ -1178,6 +1216,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
       // A REGISTERED TEAM ON NO POSTED QUALIFICATION ROW (quick task
       // 260927-vmb). Its event's own run priced it from awards alone.
       const awardOnly = distributions.get(entry.eventKey)?.awardOnlyTeams?.has(team.teamKey) === true;
+      const eventPending = pendingEvent(entry.eventKey);
       if (entry.earned !== undefined) earnedDistrictTotal += entry.earned.total;
       earnedAtPosition += earnedAtStage(entry.earned, final, stageByEvent !== undefined);
 
@@ -1203,7 +1242,9 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
         }
         hasOpenCategory = true;
         const distribution = record?.[category];
-        if (distribution === undefined) return { id, cell: category, kind: "unavailable" };
+        if (distribution === undefined) {
+          return eventPending ? { id, cell: category, kind: "unavailable", pending: true } : { id, cell: category, kind: "unavailable" };
+        }
         const cell = openCell(id, category, distribution, categoryCeiling[category]);
         if (category === "alliance" && cell.kind === "open") {
           // THE ROUTES, or the honest absence. A baked event has pmfs and no
@@ -1248,13 +1289,20 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
         const distribution = record?.eventTotal;
         eventTotal =
           distribution === undefined
-            ? { id: totalId, cell: "eventTotal", kind: "unavailable" }
+            ? eventPending
+              ? { id: totalId, cell: "eventTotal", kind: "unavailable", pending: true }
+              : { id: totalId, cell: "eventTotal", kind: "unavailable" }
             : openCell(totalId, "eventTotal", distribution, eventTotalCeiling);
       }
 
       if (eventTotal.kind === "final") eventTotalDistributions.push(pointMassDistribution(eventTotal.earned));
       else if (eventTotal.kind === "open") eventTotalDistributions.push(eventTotal.distribution);
-      else everyEventTotalKnown = false;
+      else {
+        everyEventTotalKnown = false;
+        // The grand total reads pending only when EVERY missing event total is
+        // still arriving; one refused or unpublished total makes it plain.
+        if (eventTotal.pending !== true) everyMissingEventTotalPending = false;
+      }
 
       rows.push({
         eventKey: entry.eventKey,
@@ -1272,7 +1320,9 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
     let grandTotal: DistrictLedgerCell;
     let projection: number;
     if (!everyEventTotalKnown) {
-      grandTotal = { id: GRAND_TOTAL_CELL_ID, cell: "grandTotal", kind: "unavailable" };
+      grandTotal = everyMissingEventTotalPending
+        ? { id: GRAND_TOTAL_CELL_ID, cell: "grandTotal", kind: "unavailable", pending: true }
+        : { id: GRAND_TOTAL_CELL_ID, cell: "grandTotal", kind: "unavailable" };
       projection = earnedAtPosition + team.rookieBonus + team.adjustments;
     } else {
       // `NegativeDistrictShiftError` is allowed to propagate rather than

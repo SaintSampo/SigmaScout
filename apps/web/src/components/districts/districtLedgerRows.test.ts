@@ -1927,3 +1927,101 @@ describe("a registered team missing from a started event's schedule is priced fr
     if (everyoneScheduled.ok) expect("awardOnlyTeams" in everyoneScheduled.input).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// LOADING CELLS READ PENDING (todo locks-loading-cells-read-not-available,
+// quick task 261007-4qr): while the tab is still loading or its run has not
+// landed, an open cell with no distribution yet is the unavailable variant
+// with `pending: true`, never a new kind.
+// ---------------------------------------------------------------------------
+
+describe("buildDistrictLedgerRows — distributionsPending (261007-4qr)", () => {
+  const openState = state({ qualMatchesPlayed: 10, qualMatchesTotal: 60, alliancesPicked: false, playoffsDone: false, awardsPosted: false });
+  const pendingCell = (cell: { readonly kind: string }): boolean => cell.kind === "unavailable" && "pending" in cell && cell.pending === true;
+  const plainCell = (cell: { readonly kind: string }): boolean => cell.kind === "unavailable" && !("pending" in cell);
+
+  function liveArtifact(eventKeys: readonly string[]) {
+    return artifactOf([team({ teamKey: "frc1", eventPoints: eventKeys.map((eventKey) => eventPoints({ eventKey, state: openState })) })]);
+  }
+
+  it("marks a pending event's open cells, its event total and the grand total as pending", () => {
+    const built = buildDistrictLedgerRows({ artifact: liveArtifact(["2026walive"]), distributions: NO_DISTRIBUTIONS, distributionsPending: true });
+    const subject = built.teams[0]!;
+    expect(subject.rows[0]!.cells.every(pendingCell)).toBe(true);
+    expect(pendingCell(subject.rows[0]!.eventTotal)).toBe(true);
+    expect(pendingCell(subject.grandTotal)).toBe(true);
+  });
+
+  it("keeps an event the run refused plain unavailable while pending, with no pending key at all", () => {
+    const built = buildDistrictLedgerRows({
+      artifact: liveArtifact(["2026walive"]),
+      distributions: NO_DISTRIBUTIONS,
+      distributionsPending: true,
+      unavailableEvents: [{ eventKey: "2026walive", name: "UnratedTeamError" }],
+    });
+    const subject = built.teams[0]!;
+    expect(subject.rows[0]!.cells.every(plainCell)).toBe(true);
+    expect(plainCell(subject.rows[0]!.eventTotal)).toBe(true);
+    expect(plainCell(subject.grandTotal)).toBe(true);
+  });
+
+  it("returns exactly today's output when the flag is absent or false", () => {
+    const artifact = liveArtifact(["2026walive"]);
+    const today = buildDistrictLedgerRows({ artifact, distributions: NO_DISTRIBUTIONS });
+    expect(buildDistrictLedgerRows({ artifact, distributions: NO_DISTRIBUTIONS, distributionsPending: false })).toEqual(today);
+    expect(today.teams[0]!.rows[0]!.cells.every(plainCell)).toBe(true);
+    // An existing fixture with an open distribution in hand: unchanged with the flag set, because nothing is missing.
+    const counts = new Int32Array(maxEventPoints(SEASON, "district").qual + 1);
+    counts[5] = 100;
+    const byTeam = new Map([["frc1", { qual: { counts, denominator: 100 }, alliance: undefined, elim: undefined, award: undefined, eventTotal: undefined, grandTotal: undefined }]]);
+    const distributions = new Map([["2026walive", { eventKey: "2026walive", byTeam }]]);
+    const withDistribution = buildDistrictLedgerRows({ artifact, distributions });
+    expect(buildDistrictLedgerRows({ artifact, distributions, distributionsPending: false })).toEqual(withDistribution);
+  });
+
+  it("leaves a FINAL category with no earned row plain unavailable while pending", () => {
+    const artifact = artifactOf([
+      team({ teamKey: "frc1", pointTotal: 0, remainingEvents: [remainingEvent({ eventKey: "2026walive", week: 1 })], maxRemainingDistrict: 83 }),
+    ]);
+    const built = buildDistrictLedgerRows({
+      artifact,
+      distributions: NO_DISTRIBUTIONS,
+      distributionsPending: true,
+      stageByEvent: new Map([["2026walive", { qual: true, alliance: false, elim: false, award: false }]]),
+    });
+    const cells = built.teams[0]!.rows[0]!.cells;
+    expect(plainCell(cells[0]!)).toBe(true);
+    expect(cells.slice(1).every(pendingCell)).toBe(true);
+  });
+
+  it("gives the grand total the plain form when one missing event total is pending and another was refused", () => {
+    const built = buildDistrictLedgerRows({
+      artifact: liveArtifact(["2026walive", "2026warefused"]),
+      distributions: NO_DISTRIBUTIONS,
+      distributionsPending: true,
+      unavailableEvents: [{ eventKey: "2026warefused", name: "UnratedTeamError" }],
+    });
+    const subject = built.teams[0]!;
+    const byKey = new Map(subject.rows.map((row) => [row.eventKey, row] as const));
+    expect(pendingCell(byKey.get("2026walive")!.eventTotal)).toBe(true);
+    expect(plainCell(byKey.get("2026warefused")!.eventTotal)).toBe(true);
+    expect(plainCell(subject.grandTotal)).toBe(true);
+  });
+
+  it("keeps a per-team refusal (the degraded team) plain unavailable while pending", () => {
+    // A negative rookie bonus plus adjustments makes the grand-total
+    // convolution refuse (WR-09's own trigger), which degrades the team to
+    // plain cells. The flag is set; the degraded team must not read it.
+    const artifact = artifactOf([
+      team({ teamKey: "frc1", pointTotal: 20, adjustments: -5, eventPoints: [eventPoints({ eventKey: "2026wabon", total: 20 })] }),
+    ]);
+    const built = buildDistrictLedgerRows({ artifact, distributions: NO_DISTRIBUTIONS, distributionsPending: true });
+    const subject = built.teams[0]!;
+    expect(built.gaps.teamsWithUnavailableGrandTotal).toEqual(["frc1"]);
+    for (const row of subject.rows) {
+      expect(row.cells.every(plainCell)).toBe(true);
+      expect(plainCell(row.eventTotal)).toBe(true);
+    }
+    expect(plainCell(subject.grandTotal)).toBe(true);
+  });
+});
