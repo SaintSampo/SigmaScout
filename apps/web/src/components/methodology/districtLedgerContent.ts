@@ -286,9 +286,9 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
   {
     id: "what-this-does-not-model",
     heading: "What this does not model",
-    paragraphs: ["Seven limits, each one recorded in the code that produced the numbers above."],
+    paragraphs: ["Eight limits, each one recorded in the code that produced the numbers above."],
     table: {
-      caption: "Seven limits",
+      caption: "Eight limits",
       head: ["Limit", "What is known about it"],
       rows: [
         ["Declines are not modelled", "One captain slot in 3,880 went to a lower ranked team, at 2026milac."],
