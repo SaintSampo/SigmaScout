@@ -43,6 +43,13 @@
  * prediction was attempted and refused), and the tab prints "district only"
  * under the figure. A reader is never shown a number without being told which
  * number it is. The team is still named in the disclosed gaps.
+ *
+ * A team OUTSIDE THE SIMULATED FIELD gets the same labelled district only
+ * total (quick task 261007-mxf): at a rewound stop before the championship
+ * starts, the DCMP is simulated over the Locked plus In range teams, and a
+ * Locked out or Out of range team is priced at zero championship points. That
+ * is a priced figure, not a missing one, so it is never named in
+ * `teamsWithDistrictOnlyGrandTotal` and never suppresses the champ run.
  */
 import { convolveDistrictGrandTotal } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import { pointPercentiles, pointQuantile, type PointPercentiles } from "../../../../../packages/core/districts/pointSummary.js";

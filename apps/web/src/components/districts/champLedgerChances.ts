@@ -17,7 +17,10 @@
  * `packages/core/districts/advancementChance.ts`'s existing per-run loop), and
  * it is deliberately not built: the DCMP's predictions come from the shipped
  * per-event machinery on the DCMP event artifact's REAL roster, so no run needs
- * a field of its own.
+ * a field of its own. At a rewound stop before the championship starts they
+ * come from the simulated Locked plus In range field instead
+ * (`dcmpSimulatedField`, quick task 261007-mxf): one bake over one field the
+ * stop already knows, still no per-run membership.
  *
  * THE CHIP STILL WINS. `reconcileChampAdvancementChances` is the shipped
  * narrowing at the champ tier: a chance prints under In range and Out of range

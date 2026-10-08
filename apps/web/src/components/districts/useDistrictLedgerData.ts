@@ -150,7 +150,13 @@ export interface UseDistrictLedgerDataOptions {
    * The DCMP is therefore priced at the 3x ceilings by the SAME code path as
    * any district event, in the same Worker, in the same run, under one
    * signature. A second run for one event would be a second place for the
-   * position, the algorithm version and the refusals to drift.
+   * position, the algorithm version and the refusals to drift. The one
+   * deliberate exception is the Champ Locks DCMP bake at a rewound stop
+   * (`useSimulatedDcmpBake`, quick task 261007-mxf): its roster is a function
+   * of THIS run's output (the district line cuts In range), so folding it in
+   * would move this run's signature once the roster landed and re-run every
+   * district event. It reads the same as-of load and the same bake
+   * parameters, so the drift this rule guards against has no room.
    */
   readonly tierByEvent?: ReadonlyMap<string, DistrictTier>;
   /**

@@ -17,21 +17,32 @@
  *   lists it as registered. Until then the four DCMP cells print what the team
  *   would earn IF THERE, and the chance of being there is folded in exactly
  *   ONCE, into the grand total (sketch 022 variant A). The chance is printed
- *   once too, on the row label.
- * - BEFORE THE CHAMPIONSHIP STARTS, ITS POINTS ARE AN ESTIMATE (quick task
- *   260927-6bf). `remainingEvents` is built from TBA registrations, so for most
- *   of the district season nothing names the DCMP, and on a rewind the real
- *   roster is future knowledge. Either way the DCMP row's Subtotal is priced
- *   from how teams at the same place in past championship fields scored,
- *   seasons before the one shown only (`hypotheticalDcmp.ts`), and its four
- *   category cells read "not yet priced". Once the field is a fact (the DCMP
- *   has started, or a team is registered at the live position) the event's own
- *   prediction takes over. "District only" survives for a season with no
- *   earlier history to estimate from (2016) and nowhere else.
- * - TWO CHANCE RUNS, in a fixed order. The district run's marginal becomes the
- *   "to be there" chance, that chance weights the grand total, and only then
- *   does the champ run rank those grand totals against `cmpSlots`. The memos
- *   below are ordered so each reads only what is already resolved.
+ *   once too, on the row label. Once the District Championship is the
+ *   selected event (a championship has started at the position, the reader is
+ *   at a DCMP's own Schedule stop, or Now after one started) a team with no
+ *   dcmp-tier row leaves the TABLE (`champTeamHiddenAtDcmp`, quick task
+ *   261007-mxf); it stays in the rows, so the champ run, the cutoff, the gaps
+ *   and the status counts still see it.
+ * - BEFORE THE CHAMPIONSHIP STARTS, NOW ESTIMATES IT AND A REWOUND STOP BAKES
+ *   IT. `remainingEvents` is built from TBA registrations, so for most of the
+ *   district season nothing names the DCMP, and on a rewind the real roster
+ *   is future knowledge. At Now the DCMP row's Subtotal is priced from how
+ *   teams at the same place in past championship fields scored, seasons
+ *   before the one shown only (`hypotheticalDcmp.ts`, quick task 260927-6bf),
+ *   and its four category cells read "not yet priced". At a rewound stop the
+ *   championship is baked in the Web Worker over the teams the district tier
+ *   shows as Locked, Prequalified or In range there, at the stop's as-of state
+ *   (`useSimulatedDcmpBake`, quick task 261007-mxf): four real cells inside
+ *   that field, "out of range" outside it, with a labelled district only
+ *   grand total. Once the field is a fact (the DCMP has started, or a team is
+ *   registered at the live position) the event's own prediction takes over.
+ * - TWO CHANCE RUNS, in a fixed order, with the DCMP bake between them on a
+ *   rewound stop: the per event run, the district chance run, the district
+ *   line (which cuts In range), the DCMP bake, then the champ run. The
+ *   district run's marginal becomes the "to be there" chance, that chance
+ *   weights the grand total, and only then does the champ run rank those
+ *   grand totals against `cmpSlots`. The memos below are ordered so each
+ *   reads only what is already resolved.
  *
  * THE PREDICTED CUTOFF is the one number the controls card and every grand
  * total dashed rule share. Until the DCMP awards post it is the SIMULATED

@@ -714,6 +714,12 @@ export const CHAMP_LEDGER_NOT_IN_FIELD_CELL = String.fromCharCode(0x2014);
  * available", which is what a cell says when a prediction was attempted and
  * refused. This is a third thing: the championship has not been priced yet
  * because the field it would be priced over does not exist yet.
+ *
+ * Since quick task 261007-mxf the window is the LIVE view's alone. A rewound
+ * stop before the championship simulates it over the Locked plus In range
+ * field, so a team there reads four real cells, or "out of range" when it is
+ * outside that simulated field, and "not yet priced" survives only for the
+ * instant before the stop's position resolves.
  */
 export const CHAMP_LEDGER_NOT_YET_PRICED_CELL = "not yet priced";
 
@@ -731,7 +737,9 @@ export const CHAMP_LEDGER_NOT_YET_PRICED_CELL = "not yet priced";
 export const CHAMP_LEDGER_OUT_OF_RANGE_CELL = "out of range";
 
 /**
- * The grand total's small line while the DCMP is not yet priced.
+ * The grand total's small line while the DCMP is not yet priced, and for a
+ * team outside the simulated Locked plus In range field at a rewound stop
+ * (quick task 261007-mxf), whose championship points are zero there.
  *
  * The figure above it is the DISTRICT grand total, which is a real number and a
  * true one; it is simply not the whole of what the column is named after. The
