@@ -1133,6 +1133,82 @@ describe("a published alliance list is used only when it is FINAL (WR-07)", () =
     });
     expect(rows.gaps.eventsWithPartialAllianceList).toEqual(["2026wapartial"]);
   });
+
+  it("a DECIDED alliance's playoff distribution is already a point mass at its placement's points, so the grey cell agrees with it (261008-26o)", () => {
+    // Through Round 4 with the better seed winning every set: alliance 4 loses
+    // sf12 and is out at fourth (7 points), alliance 8 loses sf5 and is out at
+    // seventh (0); alliance 1 is in the final and alliances 2 and 3 meet in sf13.
+    const throughRoundFour = [
+      [1, 1],
+      [2, 4],
+      [3, 2],
+      [4, 3],
+      [5, 5],
+      [6, 6],
+      [7, 1],
+      [8, 2],
+      [9, 4],
+      [10, 3],
+      [11, 1],
+      [12, 3],
+    ].map(([setNumber, winningAllianceNumber]) => ({ compLevel: "sf", setNumber: setNumber!, matchNumber: 1, winningAllianceNumber: winningAllianceNumber! }));
+    const built = buildWith(finalAlliances());
+    const draws = 300;
+    const result = simulateDistrictEvent({ ...built.input, playedElimMatches: throughRoundFour }, draws, 11);
+    const membersOf = (allianceNumber: number) => finalAlliances()[allianceNumber - 1]!.picks;
+
+    for (const [allianceNumber, placement, points] of [
+      [4, 4, 7],
+      [8, 7, 0],
+    ] as const) {
+      for (const teamKey of membersOf(allianceNumber)) {
+        expect(result.playoffMilestones.get(teamKey), teamKey).toEqual({ kind: "decided", placement });
+        const histogram = result.elimPoints.get(teamKey)!;
+        // Every draw lands on the one value: a point mass.
+        expect(histogram[points], teamKey).toBe(draws);
+      }
+    }
+    // An alliance still in the bracket is NOT a point mass.
+    const finalist = result.elimPoints.get(membersOf(1)[0]!)!;
+    expect(finalist[30]! + finalist[20]!).toBe(draws);
+    expect(finalist[30]).toBeLessThan(draws);
+
+    // At Now, mid playoffs: the decided teams' Playoffs cells are grey at the
+    // same value, and the finalist's stays open.
+    const live = artifactOf(
+      roster.map((teamKey) =>
+        team({
+          teamKey,
+          pointTotal: 18,
+          eventPoints: [
+            eventPoints({
+              eventKey: "2026wapartial",
+              qual: 12,
+              alliance: 6,
+              elim: 0,
+              award: 0,
+              total: 18,
+              state: state({ playoffsDone: false, awardsPosted: false }),
+            }),
+          ],
+          awardProfile: { bucket: "none", rookie: false },
+        })
+      )
+    );
+    const rows = buildDistrictLedgerRows({ artifact: live, distributions: new Map([["2026wapartial", distributionsFromResult(result)]]) });
+    const elimOf = (teamKey: string) => {
+      const row = rows.teams.find((entry) => entry.teamKey === teamKey)!.rows[0]!;
+      return { cell: row.cells.find((entry) => entry.cell === "elim")!, settledElim: row.settledElim };
+    };
+    for (const teamKey of membersOf(4)) {
+      const { cell, settledElim } = elimOf(teamKey);
+      expect(cell).toMatchObject({ kind: "final", earned: 7 });
+      expect(settledElim).toBe(7);
+    }
+    for (const teamKey of membersOf(8)) expect(elimOf(teamKey).settledElim).toBe(0);
+    expect(elimOf(membersOf(1)[0]!).cell.kind).toBe("open");
+    expect(elimOf(membersOf(1)[0]!).settledElim).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
