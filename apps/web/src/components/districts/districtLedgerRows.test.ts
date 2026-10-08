@@ -38,6 +38,7 @@ import {
   inProgressDistrictEventKeys,
   playedBracketMatchesFor,
   pointMassDistribution,
+  settledElimBounds,
   settledPlayoffPoints,
   type DistrictEventDistributions,
   type DistrictPointDistribution,
@@ -1203,9 +1204,9 @@ describe("a published alliance list is used only when it is FINAL (WR-07)", () =
     for (const teamKey of membersOf(4)) {
       const { cell, settledElim } = elimOf(teamKey);
       expect(cell).toMatchObject({ kind: "final", earned: 7 });
-      expect(settledElim).toBe(7);
+      expect(settledElim).toEqual({ points: 7, exact: false });
     }
-    for (const teamKey of membersOf(8)) expect(elimOf(teamKey).settledElim).toBe(0);
+    for (const teamKey of membersOf(8)) expect(elimOf(teamKey).settledElim).toEqual({ points: 0, exact: false });
     expect(elimOf(membersOf(1)[0]!).cell.kind).toBe("open");
     expect(elimOf(membersOf(1)[0]!).settledElim).toBeUndefined();
   });
@@ -1544,28 +1545,40 @@ describe("settledPlayoffPoints (quick task 261008-26o)", () => {
   const base = { season: SEASON, tier: "district" as const, final: OPEN_PLAYOFFS, elimFinalAtNow: false, earned: undefined };
 
   it("settles a DECIDED placement at that placement's district tier points while the playoffs are open at Now", () => {
-    expect(settledPlayoffPoints({ ...base, milestone: { kind: "decided", placement: 4 } })).toBe(7);
-    expect(settledPlayoffPoints({ ...base, milestone: { kind: "decided", placement: 1 } })).toBe(30);
-    expect(settledPlayoffPoints({ ...base, milestone: { kind: "decided", placement: 6 } })).toBe(0);
+    // Off the placement table, so an upper bound: TBA prorates a team that sat
+    // out part of the playoffs.
+    expect(settledPlayoffPoints({ ...base, milestone: { kind: "decided", placement: 4 } })).toEqual({ points: 7, exact: false });
+    expect(settledPlayoffPoints({ ...base, milestone: { kind: "decided", placement: 1 } })).toEqual({ points: 30, exact: false });
+    expect(settledPlayoffPoints({ ...base, milestone: { kind: "decided", placement: 6 } })).toEqual({ points: 0, exact: false });
   });
 
   it("applies the dcmp tier's own weight", () => {
-    expect(settledPlayoffPoints({ ...base, tier: "dcmp", milestone: { kind: "decided", placement: 3 } })).toBe(39);
+    expect(settledPlayoffPoints({ ...base, tier: "dcmp", milestone: { kind: "decided", placement: 3 } })).toEqual({ points: 39, exact: false });
   });
 
   it("reads the artifact's own elim where the playoffs are final at Now and TBA has a row", () => {
-    expect(settledPlayoffPoints({ ...base, elimFinalAtNow: true, earned: { elim: 11 }, milestone: { kind: "decided", placement: 4 } })).toBe(11);
+    expect(settledPlayoffPoints({ ...base, elimFinalAtNow: true, earned: { elim: 11 }, milestone: { kind: "decided", placement: 4 } })).toEqual({
+      points: 11,
+      exact: true,
+    });
     // Final at Now with NO row falls back to the placement's points.
-    expect(settledPlayoffPoints({ ...base, elimFinalAtNow: true, milestone: { kind: "decided", placement: 4 } })).toBe(7);
+    expect(settledPlayoffPoints({ ...base, elimFinalAtNow: true, milestone: { kind: "decided", placement: 4 } })).toEqual({ points: 7, exact: false });
     // A row while the playoffs are still open at Now is TBA's partial number,
     // not the settled one.
-    expect(settledPlayoffPoints({ ...base, earned: { elim: 0 }, milestone: { kind: "decided", placement: 4 } })).toBe(7);
+    expect(settledPlayoffPoints({ ...base, earned: { elim: 0 }, milestone: { kind: "decided", placement: 4 } })).toEqual({ points: 7, exact: false });
   });
 
   it("settles nothing for an alliance still in the bracket, or with no bracket progress", () => {
     for (const milestone of [{ kind: "finals" }, { kind: "topFour" }, { kind: "alive" }, undefined] as const) {
       expect(settledPlayoffPoints({ ...base, milestone }), String(milestone?.kind)).toBeUndefined();
     }
+  });
+
+  it("puts an EXACT value in the floor and a placement table value in the ceiling only (settledElimBounds)", () => {
+    expect(settledElimBounds({ points: 13, exact: true })).toEqual({ floor: 13, ceiling: 0 });
+    // 2026pncmp: frc3663 sat on the fourth place alliance, worth 21, and was
+    // paid 12. A placement table value is the most a team can be paid.
+    expect(settledElimBounds({ points: 21, exact: false })).toEqual({ floor: 0, ceiling: 21 });
   });
 
   it("settles nothing once the position's playoffs are final, where the shipped final cell already prints TBA's number", () => {
@@ -1696,7 +1709,7 @@ describe("the Playoffs cell's milestone", () => {
       const row = settledRowFor({ kind: "decided", placement }, { live: true });
       const cell = row.cells.find((entry) => entry.cell === "elim")!;
       expect(cell, `placement ${String(placement)}`).toEqual({ id: districtCellId(eventKey, "elim"), cell: "elim", kind: "final", earned: points });
-      expect(row.settledElim, `placement ${String(placement)}`).toBe(points);
+      expect(row.settledElim, `placement ${String(placement)}`).toEqual({ points, exact: false });
       // The event's OWN stage is untouched: its playoffs are still open.
       expect(row.stage.final.elim).toBe(false);
       expect(row.stage.final.award).toBe(false);
@@ -1711,7 +1724,7 @@ describe("the Playoffs cell's milestone", () => {
     const row = settledRowFor({ kind: "decided", placement: 3 }, { live: false, artifactElim: 11 });
     const cell = row.cells.find((entry) => entry.cell === "elim")!;
     expect(cell).toEqual({ id: districtCellId(eventKey, "elim"), cell: "elim", kind: "final", earned: 11 });
-    expect(row.settledElim).toBe(11);
+    expect(row.settledElim).toEqual({ points: 11, exact: true });
     expect(row.stage.final.elim).toBe(false);
   });
 

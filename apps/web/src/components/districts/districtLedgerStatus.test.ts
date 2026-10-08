@@ -822,18 +822,19 @@ describe("a decided playoff placement settles that team's playoff points (261008
     return districtLockBounds(artifact.teams[0]!, rows.teams[0]!.rows, CEILINGS);
   }
 
-  it("live with no TBA row yet: the floor gains the settled points and the playoffs add no ceiling", () => {
+  it("live with no TBA row yet: the placement's points REPLACE the whole Playoffs ceiling, and the floor gains nothing", () => {
     const artifact = artifactOf([
       team("frc1", { pointTotal: 50, eventPoints: [played("x", 50)], remainingEvents: [ahead("a", 3, LIVE)], maxRemainingDistrict: EVENT_MAX }),
     ]);
-    // Fourth place pays 7 at the district tier.
-    expect(boundsFor(artifact, decided("a", { frc1: 4 }))).toEqual({ floor: 57, openCeiling: CEILINGS.award });
+    // Fourth place pays at most 7 at the district tier: TBA prorates a team
+    // that sat out part of the playoffs, so 7 is a ceiling, never a floor.
+    expect(boundsFor(artifact, decided("a", { frc1: 4 }))).toEqual({ floor: 50, openCeiling: CEILINGS.award + 7 });
   });
 
-  it("live with TBA's partial elim already inside pointTotal: that elim leaves the floor and the settled value replaces it", () => {
+  it("live with TBA's partial elim already inside pointTotal: that elim leaves the floor and the placement's points cap the ceiling", () => {
     const artifact = artifactOf([team("frc1", { pointTotal: 37, eventPoints: [eventRow("a", { qual: 20, alliance: 10, elim: 7, award: 0 }, LIVE)] })]);
-    // Third place pays 13: 37 - 7 + 13.
-    expect(boundsFor(artifact, decided("a", { frc1: 3 }))).toEqual({ floor: 43, openCeiling: CEILINGS.award });
+    // Third place pays at most 13: floor 37 - 7, ceiling award plus 13.
+    expect(boundsFor(artifact, decided("a", { frc1: 3 }))).toEqual({ floor: 30, openCeiling: CEILINGS.award + 13 });
   });
 
   it("rewound over a finished event: the settled value IS TBA's elim, so the floor nets to pointTotal and no elim ceiling is added", () => {
@@ -856,7 +857,8 @@ describe("a decided playoff placement settles that team's playoff points (261008
    * 30 point playoff ceiling, reaches the leader's floor, and the leader cannot
    * be Locked. Once both rivals' alliances are knocked out at fifth and sixth,
    * neither can earn another playoff point, only the 15 award points remain,
-   * and neither can reach 40.
+   * and neither can reach 40. The leader's own floor never moves: the lock
+   * comes from the rivals' ceilings alone.
    */
   function knockedOutArtifact(): DistrictArtifact {
     return artifactOf(

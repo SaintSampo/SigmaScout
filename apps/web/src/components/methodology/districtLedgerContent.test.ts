@@ -307,7 +307,7 @@ describe("districtLedgerContent: the rewound view and the championship field (26
     // The settled playoffs paragraph (quick task 261008-26o) sits between the
     // pooled Locked paragraph and these two.
     expect(paragraphs[anchor + 1]).toBe(
-      "A team knocked out of the playoffs has its playoff points settled as soon as its alliance's place in the bracket is decided. From then on Locked counts those points as earned, and the team has no playoff points left to gain at that event."
+      "A team knocked out of the playoffs has its playoff points settled as soon as its alliance's place in the bracket is decided. From then on Locked allows it no more playoff points than that place pays, and counts them as earned once The Blue Alliance posts them."
     );
     expect(paragraphs.slice(anchor + 2, anchor + 4)).toEqual([
       "On the District Locks tab, Locked and Locked out at a rewound point count only the district event points a team had earned by then, never District Championship points.",

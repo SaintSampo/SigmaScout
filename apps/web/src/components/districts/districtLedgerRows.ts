@@ -284,12 +284,25 @@ export interface DistrictLedgerEventRow {
   /**
    * THE PLAYOFF POINTS THIS TEAM'S PLAYOFFS ARE SETTLED AT while the event's
    * own Playoffs stage is still open (quick task 261008-26o): its alliance's
-   * bracket placement is decided, so the Playoffs cell is grey at this value
-   * (`settledPlayoffPoints`). Both status modules read it, putting the value in
-   * the floor and adding no Playoffs ceiling. Absent everywhere else, so a row
-   * without it deep equals the shipped row.
+   * bracket placement is decided, so the Playoffs cell is grey at
+   * `points` (`settledPlayoffPoints`). Both status modules read it through
+   * `settledElimBounds`. Absent everywhere else, so a row without it deep
+   * equals the shipped row.
    */
-  readonly settledElim?: number;
+  readonly settledElim?: SettledPlayoffs;
+}
+
+/** A knocked out team's settled Playoffs category: the points, and whether they are TBA's own final number. */
+export interface SettledPlayoffs {
+  readonly points: number;
+  /**
+   * TRUE where `points` is the artifact's own `elim` with the event's playoffs
+   * final at Now: exact. FALSE where it is the decided placement's value off
+   * the placement table, which is an UPPER BOUND only, because TBA prorates a
+   * team that sat out part of its alliance's playoffs (2026pncmp: frc3663 on
+   * the fourth place alliance, worth 21, was paid 12).
+   */
+  readonly exact: boolean;
 }
 
 /** One team's whole ledger entry: its district-tier rows, its grand total, and the projection the sort and the status both read. */
@@ -1135,15 +1148,34 @@ export interface SettledPlayoffPointsOptions {
  * the playoffs are final.
  *
  * THE VALUE is the artifact's own `elim` where the event's playoffs are final
- * at Now and TBA has a row (every rewound stop over a finished event);
- * otherwise the decided placement's points at this tier, from `playoffPoints`.
+ * at Now and TBA has a row (every rewound stop over a finished event), and
+ * `exact`; otherwise the decided placement's points at this tier, from
+ * `playoffPoints`, which TBA can prorate DOWN for a team that sat out part of
+ * the playoffs, so it is not `exact`.
  */
-export function settledPlayoffPoints(options: SettledPlayoffPointsOptions): number | undefined {
+export function settledPlayoffPoints(options: SettledPlayoffPointsOptions): SettledPlayoffs | undefined {
   const { season, tier, final, elimFinalAtNow, earned, milestone } = options;
   if (final.elim) return undefined;
   if (milestone?.kind !== "decided") return undefined;
-  if (elimFinalAtNow && earned !== undefined) return earned.elim;
-  return playoffPoints(season, tier, milestone.placement);
+  if (elimFinalAtNow && earned !== undefined) return { points: earned.elim, exact: true };
+  return { points: playoffPoints(season, tier, milestone.placement), exact: false };
+}
+
+/**
+ * HOW A SETTLED PLAYOFFS CATEGORY ENTERS THE LOCK BOUNDS, the one rule both
+ * status modules apply in place of the open category's ceiling. The caller
+ * has already taken the earned `elim` out of the floor, as for any open
+ * category.
+ *
+ * An EXACT value joins the floor and adds no ceiling: rewound over a finished
+ * event it is TBA's own `elim`, so the floor is unchanged. A value off the
+ * placement table joins only the CEILING, as the most the team can still be
+ * paid: TBA prorates a team that sat out part of the playoffs, so the value is
+ * an upper bound and never a guarantee. A knocked out rival's ceiling falls
+ * from the whole Playoffs ceiling to its placement's points either way.
+ */
+export function settledElimBounds(settled: SettledPlayoffs): { readonly floor: number; readonly ceiling: number } {
+  return settled.exact ? { floor: settled.points, ceiling: 0 } : { floor: 0, ceiling: settled.points };
 }
 
 // ---------------------------------------------------------------------------
@@ -1302,7 +1334,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
           // SETTLED BY THE BRACKET (quick task 261008-26o). Grey, never an open
           // category, and `row.stage` stays the event's, exactly as the award
           // only branch above. The status modules read `row.settledElim`.
-          return { id, cell: category, kind: "final", earned: settledElim };
+          return { id, cell: category, kind: "final", earned: settledElim.points };
         }
         if (final[category]) {
           // THE GREY NUMBER IS ALWAYS THE ARTIFACT'S OWN `eventPoints[category]`,

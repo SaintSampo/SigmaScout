@@ -63,8 +63,9 @@
  * A TEAM KNOCKED OUT OF THE PLAYOFFS HAS ITS PLAYOFF POINTS SETTLED AT ONCE
  * (quick task 261008-26o). The settled set comes from the row builder
  * (`row.settledElim`, from `settledPlayoffPoints`), never from a second reading
- * of the bracket here; `districtLockBounds` puts it in the floor and adds no
- * Playoffs ceiling. The award ceiling and the Impact reservation are
+ * of the bracket here; `districtLockBounds` puts TBA's exact number in the
+ * floor and a placement table value in the ceiling only, in place of the
+ * whole Playoffs ceiling. The award ceiling and the Impact reservation are
  * unchanged. `pooledLockInputs` still reads event finality, so it keeps
  * counting a settled alliance's share of the playoff pool, which only delays a
  * pooled lock: the conservative side.
@@ -88,7 +89,13 @@ import { maxEventPoints } from "../../../../../packages/core/districts/pointMode
 import { reservedImpactSlots, type ReservedSlotEvent } from "../../../../../packages/core/districts/reservedSlots.js";
 import { pooledLockInputs, type PooledTeamEntry } from "../../../../../packages/core/districts/pooledLockInputs.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import { DISTRICT_CATEGORIES, districtTierEvents, type DistrictLedgerEventRow, type DistrictLedgerTeam } from "./districtLedgerRows.js";
+import {
+  DISTRICT_CATEGORIES,
+  districtTierEvents,
+  settledElimBounds,
+  type DistrictLedgerEventRow,
+  type DistrictLedgerTeam,
+} from "./districtLedgerRows.js";
 
 /** The five chip keys, plus the honest capacity-not-published state that renders as plain text with NO chip. */
 export const DISTRICT_LEDGER_STATUS_KEYS = ["prequalified", "locked", "inRange", "outOfRange", "lockedOut"] as const;
@@ -297,10 +304,13 @@ export interface DistrictLockBounds {
  * ONE EXCEPTION, A SETTLED PLAYOFFS CATEGORY (quick task 261008-26o). A row
  * carrying `settledElim` has its Playoffs category open in its stage but its
  * alliance's placement decided. Its earned `elim` (0 where TBA has no row)
- * still leaves the floor, the settled value joins it, and NO Playoffs ceiling
- * is added. Live mid playoffs that adds points `pointTotal` may not carry yet;
- * rewound over a finished event the settled value IS TBA's `elim`, so the two
- * cancel and the floor is unchanged.
+ * still leaves the floor, and `settledElimBounds` replaces the whole Playoffs
+ * ceiling. Rewound over a finished event the settled value IS TBA's `elim`, so
+ * it rejoins the floor, the two cancel, and no ceiling is added. Live mid
+ * playoffs it is the decided placement's value, which TBA can prorate down
+ * for a team that sat out part of the playoffs, so it is added to the CEILING
+ * only: the team's floor gains nothing, and its ceiling falls from the whole
+ * Playoffs ceiling to the most it can still be paid.
  */
 export function districtLockBounds(
   source: DistrictArtifact["teams"][number],
@@ -320,9 +330,10 @@ export function districtLockBounds(
       // floor and its ceiling joins the ceiling.
       if (row.earned !== undefined) floor -= row.earned[category];
       if (category === "elim" && row.settledElim !== undefined) {
-        // Knocked out of the playoffs: the settled points join the floor and
-        // no Playoffs ceiling is added.
-        floor += row.settledElim;
+        // Knocked out of the playoffs: settled, by the one rule.
+        const settled = settledElimBounds(row.settledElim);
+        floor += settled.floor;
+        openCeiling += settled.ceiling;
         continue;
       }
       openCeiling += ceilings[category];
