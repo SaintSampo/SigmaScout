@@ -40,6 +40,7 @@ import {
   pointMassDistribution,
   settledElimBounds,
   settledPlayoffPoints,
+  teamNotPickedAtPosition,
   type DistrictEventDistributions,
   type DistrictPointDistribution,
   type DistrictStageFinality,
@@ -1803,7 +1804,8 @@ describe("the alliance selection cell's route view", () => {
   function builtWith(
     routes: DistrictSelectionRoutes | undefined,
     rankingFixed: boolean | undefined,
-    distribution: DistrictPointDistribution = lumpy(300, 16)
+    distribution: DistrictPointDistribution = lumpy(300, 16),
+    options: { readonly elim?: DistrictPointDistribution; readonly stage?: DistrictStageFinality } = {}
   ) {
     const artifact = artifactOf([
       team({
@@ -1824,7 +1826,7 @@ describe("the alliance selection cell's route view", () => {
               {
                 qual: undefined,
                 alliance: distribution,
-                elim: undefined,
+                elim: options.elim,
                 award: undefined,
                 eventTotal: undefined,
                 grandTotal: undefined,
@@ -1836,7 +1838,11 @@ describe("the alliance selection cell's route view", () => {
         },
       ],
     ]);
-    return buildDistrictLedgerRows({ artifact, distributions });
+    return buildDistrictLedgerRows({
+      artifact,
+      distributions,
+      ...(options.stage === undefined ? {} : { stageByEvent: new Map([["2026walive", options.stage]]) }),
+    });
   }
 
   it("carries the routes onto the open Alliance selection cell, with the DISTRIBUTION's own denominator", () => {
@@ -1876,6 +1882,48 @@ describe("the alliance selection cell's route view", () => {
     if (cell.kind !== "open") throw new Error("unreachable");
     expect(cell.selection).toBeUndefined();
     expect(built.gaps.eventsWithUnknownSelectionRoutes).toEqual(["2026walive"]);
+  });
+
+  describe("not picked (261008-3il)", () => {
+    const NOBODY_TOOK_IT = (): DistrictSelectionRoutes => ({ bySlot: [slot(), slot(), slot(), slot()], notSelectedDraws: 1000 });
+    const SELECTION_FINAL: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
+    const SELECTION_OPEN: DistrictStageFinality = { qual: true, alliance: false, elim: false, award: false };
+    const ELIM = lumpy(970, 30);
+
+    it("holds only with selection final, a fixed ranking, reported routes and no draw in any slot", () => {
+      expect(teamNotPickedAtPosition(NOBODY_TOOK_IT(), true, true)).toBe(true);
+      // Selection not final at the position, or the ranking not fixed.
+      expect(teamNotPickedAtPosition(NOBODY_TOOK_IT(), true, false)).toBe(false);
+      expect(teamNotPickedAtPosition(NOBODY_TOOK_IT(), false, true)).toBe(false);
+      expect(teamNotPickedAtPosition(NOBODY_TOOK_IT(), undefined, true)).toBe(false);
+      // A baked event reports no routes.
+      expect(teamNotPickedAtPosition(undefined, true, true)).toBe(false);
+      // A backup slot draw is a team on an alliance.
+      expect(teamNotPickedAtPosition({ bySlot: [slot(), slot(), slot(), slot({ draws: 1000 })], notSelectedDraws: 0 }, true, true)).toBe(false);
+      expect(teamNotPickedAtPosition({ bySlot: [slot(), slot(), slot(), slot({ draws: 1 })], notSelectedDraws: 999 }, true, true)).toBe(false);
+      // Any pick slot draw at all.
+      expect(teamNotPickedAtPosition(routesFor(0, 1, 999), true, true)).toBe(false);
+    });
+
+    it("flags the open Playoffs cell of a team on no alliance once selection is final, and keeps it open", () => {
+      const built = builtWith(NOBODY_TOOK_IT(), true, lumpy(1000, 16), { elim: ELIM, stage: SELECTION_FINAL });
+      const elim = built.teams[0]!.rows[0]!.cells[2]!;
+      expect(elim.cell).toBe("elim");
+      expect(elim.kind).toBe("open");
+      if (elim.kind !== "open") throw new Error("unreachable");
+      expect(elim.notPicked).toBe(true);
+    });
+
+    it("carries no notPicked key while selection is open, or where the run reported no routes", () => {
+      for (const built of [
+        builtWith(NOBODY_TOOK_IT(), true, lumpy(1000, 16), { elim: ELIM, stage: SELECTION_OPEN }),
+        builtWith(undefined, undefined, lumpy(1000, 16), { elim: ELIM, stage: SELECTION_FINAL }),
+      ]) {
+        const elim = built.teams[0]!.rows[0]!.cells[2]!;
+        expect(elim.kind).toBe("open");
+        expect("notPicked" in elim).toBe(false);
+      }
+    });
   });
 
   it("puts NO route view on any other category's cell", () => {

@@ -465,4 +465,43 @@ describe("the cell's pays line agrees with the drawer's outcome rows (261008-3il
       expect(paysNumbers(openCellLines(topFour, pricing).small)).toEqual([playoffPoints(SEASON, tier, 4), playoffPoints(SEASON, tier, 1)]);
     });
   }
+
+  const award = openCell("award", sparse(CEILINGS.award, [[0, 44], [5, 46], [10, 10]]), CEILINGS.award);
+  for (const [tier, isRookie] of [["district", false], ["district", true], ["dcmp", false], ["dcmp", true]] as const) {
+    it(`prints only drawer row points on the Awards cell at the ${tier} tier, ${isRookie ? "rookie" : "veteran"}`, () => {
+      const drawer = verdictOutcomeRows(award, SEASON, tier, isRookie, true)!.rows.map((row) => row.points);
+      const printed = paysNumbers(openCellLines(award, { season: SEASON, tier, isRookie }).small);
+      for (const value of printed) expect(drawer).toContain(value);
+      // The span reaches from the smallest award to the largest.
+      expect(printed[0]).toBe(Math.min(...drawer.filter((points) => points > 0)));
+      expect(printed[printed.length - 1]).toBe(Math.max(...drawer));
+    });
+  }
+
+  it("prints a selection route's span as the min and max of the drawer's own route rows", () => {
+    const obs = (draws: number, min: number | undefined, max: number | undefined, possible: readonly [number, number]): DistrictSelectionRouteObservation => ({
+      draws,
+      minPoints: min,
+      maxPoints: max,
+      allianceNumber: undefined,
+      possibleMinPoints: possible[0],
+      possibleMaxPoints: possible[1],
+    });
+    const fixtures: readonly DistrictSelectionRouteView[] = [
+      // Captain likelier.
+      { routes: { bySlot: [obs(60, 9, 16, [9, 16]), obs(10, 9, 14, [9, 16]), obs(25, 3, 8, [1, 8]), obs(0, undefined, undefined, [0, 0])], notSelectedDraws: 5 }, denominator: 100, rankingFixed: false },
+      // Only ever second picked, first pick untaken.
+      { routes: { bySlot: [obs(30, 9, 11, [9, 16]), obs(0, undefined, undefined, [9, 16]), obs(60, 1, 8, [1, 8]), obs(0, undefined, undefined, [0, 0])], notSelectedDraws: 10 }, denominator: 100, rankingFixed: false },
+      // Both pick routes taken.
+      { routes: { bySlot: [obs(12, 9, 16, [9, 16]), obs(14, 11, 16, [9, 16]), obs(18, 2, 7, [1, 8]), obs(0, undefined, undefined, [0, 0])], notSelectedDraws: 56 }, denominator: 100, rankingFixed: false },
+    ];
+    const pricing: DistrictCellPricing = { season: SEASON, tier: "district", isRookie: false };
+    for (const selection of fixtures) {
+      const cell = openCell("alliance", sparse(CEILINGS.alliance, [[0, 50], [8, 50]]), CEILINGS.alliance, { selection });
+      const rows = verdictOutcomeRows(cell, SEASON, "district", false, true)!.rows;
+      const [low, high = low] = paysNumbers(openCellLines(cell, pricing).small);
+      expect(rows.map((row) => row.points)).toContain(low);
+      expect(rows.map((row) => row.pointsHigh)).toContain(high);
+    }
+  });
 });

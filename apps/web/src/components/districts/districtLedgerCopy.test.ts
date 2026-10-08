@@ -40,6 +40,8 @@ import {
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_TAB_LABEL,
   districtLedgerCellChance,
+  districtLedgerCellLikelyText,
+  DISTRICT_LEDGER_NOT_PICKED_WORDS,
   districtLedgerOutcomeChance,
   districtLedgerOutcomePointsRange,
   districtLedgerPaysLine,
@@ -335,18 +337,36 @@ describe("the UI-SPEC copy contract", () => {
 
 describe("the playoff milestone words", () => {
   it("names the top four rather than playing, because fifth through eighth pay nothing", () => {
-    expect(DISTRICT_LEDGER_CHANCE_WORDS.elim).toEqual({ bold: "top 4", conditional: "if top 4" });
+    expect(DISTRICT_LEDGER_CHANCE_WORDS.elim).toEqual({ bold: "top 4" });
     // The superseded wording claimed a chance of PLAYING a playoff match, which
     // is not what the number ever was.
     expect(DISTRICT_LEDGER_CHANCE_WORDS.elim.bold).not.toBe("play");
-    expect(DISTRICT_LEDGER_CHANCE_WORDS.elim.conditional).not.toBe("if in");
   });
 
-  it("carries the two milestones past the top four, and nothing else", () => {
+  it("carries the two milestones past the top four, bold words only (261008-3il)", () => {
     expect(DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS).toEqual({
-      finalist: { bold: "final", conditional: "if finalist" },
-      winner: { bold: "win", conditional: "if winner" },
+      finalist: { bold: "final" },
+      winner: { bold: "win" },
     });
+  });
+
+  it("keeps only the bold outcome word in every chance word table (261008-3il)", () => {
+    expect(DISTRICT_LEDGER_CHANCE_WORDS).toEqual({ alliance: { bold: "picked" }, elim: { bold: "top 4" }, award: { bold: "award" } });
+  });
+
+  it("gives a team on no alliance the not picked words (261008-3il)", () => {
+    expect(DISTRICT_LEDGER_NOT_PICKED_WORDS).toEqual({ bold: "not picked", small: "backup call only" });
+  });
+
+  it("prints a median cell's likely range as whole numbers with to, rounded as the drawer's tile rounds (261008-3il)", () => {
+    expect(districtLedgerCellLikelyText(15.2, 22.4)).toBe("likely 15 to 22");
+    expect(districtLedgerCellLikelyText(14.6, 15.4)).toBe("likely 15");
+    expect(districtLedgerCellLikelyText(-0.4, 3.6)).toBe("likely 0 to 4");
+    // The cell and the tile print the same two numbers.
+    for (const [p10, p90] of [[15.2, 22.4], [3.5, 8.49], [0, 0.6]] as const) {
+      expect(districtLedgerCellLikelyText(p10, p90).match(/\d+/g)).toEqual([...new Set(districtLedgerVerdictLikelyRange(p10, p90).match(/\d+/g))]);
+    }
+    for (const dash of ["—", "–", "-"]) expect(districtLedgerCellLikelyText(15.2, 22.4)).not.toContain(dash);
   });
 
   it("prints a placement in plain words, with the English ordinals and no tilde", () => {
@@ -432,9 +452,10 @@ describe("the playoff milestone words", () => {
 
   it("carries no dash character in any milestone word, matching the tab's own rule", () => {
     const everyString = [
-      ...Object.values(DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS).flatMap((entry) => [entry.bold, entry.conditional]),
+      ...Object.values(DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS).map((entry) => entry.bold),
       DISTRICT_LEDGER_CHANCE_WORDS.elim.bold,
-      DISTRICT_LEDGER_CHANCE_WORDS.elim.conditional,
+      DISTRICT_LEDGER_NOT_PICKED_WORDS.bold,
+      DISTRICT_LEDGER_NOT_PICKED_WORDS.small,
       ...[1, 4, 8].map(districtLedgerPlacementLine),
     ].join(" ");
     for (const dash of ["—", "–", "-"]) expect(everyString).not.toContain(dash);
@@ -472,21 +493,17 @@ describe("the open cell's pays line and chance (quick task 261008-3il)", () => {
 });
 
 describe("the alliance selection route copy (quick task 260925-w4y)", () => {
-  it("names the two headline routes, each with the SAME conditional clause", () => {
+  it("names the two headline routes, bold words only (261008-3il)", () => {
     expect(DISTRICT_LEDGER_SELECTION_ROUTE_WORDS).toEqual({
-      captain: { bold: "captain", conditional: "if in" },
-      picked: { bold: "picked", conditional: "if in" },
+      captain: { bold: "captain" },
+      picked: { bold: "picked" },
     });
-    // "if in" covers both routes, which is exactly why it replaced "if picked"
-    // on a cell whose bold line now names ONE of them.
-    expect(DISTRICT_LEDGER_SELECTION_ROUTE_WORDS.captain.conditional).toBe(DISTRICT_LEDGER_SELECTION_ROUTE_WORDS.picked.conditional);
   });
 
-  it("leaves the shipped alliance chance words alone, because the route-less cell still prints them", () => {
+  it("keeps the route-less alliance word, because a baked cell still prints it", () => {
     // A baked event has no route counts, so its cell prints the chance of ANY
-    // selection points under the shipped wording. Changing this pair would change
-    // what that cell says without changing what its number means.
-    expect(DISTRICT_LEDGER_CHANCE_WORDS.alliance).toEqual({ bold: "picked", conditional: "if picked" });
+    // selection points under the word picked.
+    expect(DISTRICT_LEDGER_CHANCE_WORDS.alliance).toEqual({ bold: "picked" });
   });
 
   it("prints the settled route and its alliance, with no tilde", () => {
@@ -527,7 +544,7 @@ describe("the alliance selection route copy (quick task 260925-w4y)", () => {
   it("carries no dash character in any of the route copy", () => {
     const everyString = [
       ...Object.values(DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS),
-      ...Object.values(DISTRICT_LEDGER_SELECTION_ROUTE_WORDS).flatMap((entry) => [entry.bold, entry.conditional]),
+      ...Object.values(DISTRICT_LEDGER_SELECTION_ROUTE_WORDS).map((entry) => entry.bold),
       DISTRICT_LEDGER_OUTCOME_LIST_LABELS.alliance,
       districtLedgerSelectionSettledLine("captain", 5),
       districtLedgerOutcomePointsRange(9, 16),

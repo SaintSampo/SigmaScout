@@ -20,6 +20,7 @@ import {
 } from "./districtLedgerCopy.js";
 import { openDistrictLedgerCell, type DistrictCellKind, type DistrictLedgerCell } from "./districtLedgerRows.js";
 import type { DistrictCellPricing } from "./districtLedgerOutcomes.js";
+import type { DistrictSelectionRouteObservation } from "../../../../../packages/core/districts/ledgerSimulation.js";
 
 afterEach(() => cleanup());
 
@@ -112,6 +113,50 @@ const FINALIST = { ...TOP_FOUR, playoffMilestone: { kind: "finalist", chance: 0.
 const WINNER = { ...TOP_FOUR, playoffMilestone: { kind: "winner", chance: 0.59, conditionalMedian: 30 } } as const satisfies OpenCell;
 const WINNER_SURE = { ...TOP_FOUR, playoffMilestone: { kind: "winner", chance: 0.999, conditionalMedian: 30 } } as const satisfies OpenCell;
 
+/** 56 of 100 runs win an award: 46 a judged award, 10 Impact. */
+const AWARD = openFrom("2026walive:award", "award", { 0: 44, 5: 46, 10: 10 }, 10);
+
+/** One route observation, defaulting to a route no draw took that can pay `possible`. */
+function slot(draws: number, observed?: readonly [number, number], possible: readonly [number, number] = [1, 16], allianceNumber?: number): DistrictSelectionRouteObservation {
+  return {
+    draws,
+    minPoints: observed?.[0],
+    maxPoints: observed?.[1],
+    allianceNumber,
+    possibleMinPoints: possible[0],
+    possibleMaxPoints: possible[1],
+  };
+}
+
+/** An Alliance selection cell with routes, on a lumpy distribution whose any points chance is `1 - notSelected / 100`. */
+function allianceWith(bySlot: readonly DistrictSelectionRouteObservation[], notSelectedDraws: number, rankingFixed: boolean, mass: Readonly<Record<number, number>>): OpenCell {
+  return { ...openFrom("2026walive:alliance", "alliance", mass, 16), selection: { routes: { bySlot, notSelectedDraws }, denominator: 100, rankingFixed } };
+}
+
+const CAPTAIN_LIKELIER = allianceWith(
+  [slot(60, [9, 16]), slot(10, [9, 14]), slot(25, [3, 8]), slot(0, undefined, [0, 0])],
+  5,
+  false,
+  { 0: 5, 4: 25, 12: 70 }
+);
+const SECOND_PICK_LIKELIER = allianceWith(
+  [slot(30, [9, 11]), slot(0, undefined, [9, 16]), slot(60, [1, 8]), slot(0, undefined, [0, 0])],
+  10,
+  false,
+  { 0: 10, 4: 60, 10: 30 }
+);
+const NEVER_SELECTED = allianceWith([slot(0), slot(0), slot(0), slot(0, undefined, [0, 0])], 100, true, { 0: 100 });
+/** A baked event: no routes, 45 of 100 runs paid somewhere from 3 to 16. */
+const BAKED_ALLIANCE = openFrom("2026walive:alliance", "alliance", { 0: 55, 3: 15, 9: 20, 16: 10 }, 16);
+/** Ranking fixed and every draw a first pick on alliance 5, at 12 points. */
+const SETTLED_FIRST_PICK = allianceWith([slot(0), slot(100, [12, 12], [9, 16], 5), slot(0), slot(0, undefined, [0, 0])], 0, true, { 12: 100 });
+
+/** A median form Qualification cell carrying the given percentiles. */
+function medianCell(p10: number, p50: number, p90: number): OpenCell {
+  const base = openFrom("2026walive:qual", "qual", { 10: 50, 20: 50 }, 22);
+  return { ...base, summary: { form: "median", percentiles: { p10, p50, p90 } } } as OpenCell;
+}
+
 const DISTRICT_2026: DistrictCellPricing = { season: 2026, tier: "district", isRookie: false };
 const DCMP_2026: DistrictCellPricing = { season: 2026, tier: "dcmp", isRookie: false };
 
@@ -148,6 +193,41 @@ describe("openCellLines: one grammar for every open cell (261008-3il)", () => {
 
   it("falls back to the support for a season with no bracket, and never throws", () => {
     expect(lines(TOP_FOUR, { season: 2019, tier: "district", isRookie: false })).toEqual({ bold: "66% top 4", small: "pays 7 to 30" });
+  });
+
+  it("prints not picked over backup call only for a team on no alliance, before any other branch", () => {
+    expect(lines({ ...TOP_FOUR, notPicked: true }, DISTRICT_2026)).toEqual({ bold: "not picked", small: "backup call only" });
+    // Even a cell that somehow carried a milestone reads not picked first.
+    expect(lines({ ...FINALIST, notPicked: true }, DISTRICT_2026)).toEqual({ bold: "not picked", small: "backup call only" });
+  });
+
+  it("prints the Awards cell as its chance, the word award, then what an award pays", () => {
+    expect(lines(AWARD, DISTRICT_2026)).toEqual({ bold: "56% award", small: "pays 5 or 10" });
+    expect(lines(AWARD, { season: 2026, tier: "district", isRookie: true })).toEqual({ bold: "56% award", small: "pays 5 to 10" });
+    expect(lines(AWARD, DCMP_2026)).toEqual({ bold: "56% award", small: "pays 15 or 30" });
+  });
+
+  it("names the likelier selection route after its chance, over what that route paid", () => {
+    expect(lines(CAPTAIN_LIKELIER, DISTRICT_2026)).toEqual({ bold: "60% captain", small: "pays 9 to 16" });
+    // Only ever second picked: the untaken first pick row does not widen the span.
+    expect(lines(SECOND_PICK_LIKELIER, DISTRICT_2026)).toEqual({ bold: "60% picked", small: "pays 1 to 8" });
+  });
+
+  it("prints 0% picked with no small line where the ranking is fixed and no slot took the team", () => {
+    expect(lines(NEVER_SELECTED, DISTRICT_2026)).toEqual({ bold: "0% picked", small: undefined });
+  });
+
+  it("prints a baked Alliance selection cell's own support as its pays line", () => {
+    expect(lines(BAKED_ALLIANCE, DISTRICT_2026)).toEqual({ bold: "45% picked", small: "pays 3 to 16" });
+  });
+
+  it("keeps the settled selection line, with the tilde on the point figure", () => {
+    expect(lines(SETTLED_FIRST_PICK, DISTRICT_2026)).toEqual({ bold: "~12", small: "first pick, alliance 5" });
+  });
+
+  it("prints a median form cell's likely range as whole numbers with to", () => {
+    expect(lines(medianCell(15.2, 21.8, 22.4))).toEqual({ bold: "~22", small: "likely 15 to 22" });
+    expect(lines(medianCell(14.6, 15, 15.4))).toEqual({ bold: "~15", small: "likely 15" });
   });
 
   it("prints no tilde before a percentage and no 100% on any fixture", () => {

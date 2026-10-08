@@ -241,6 +241,18 @@ export type DistrictLedgerCell =
       readonly playoffMilestone?: DistrictPlayoffMilestone;
       /** Present only on an Alliance selection cell whose run reported its routes — see `DistrictSelectionRouteView`. */
       readonly selection?: DistrictSelectionRouteView;
+      /**
+       * PRESENT AND TRUE only on a Playoffs cell whose team is on no alliance
+       * once alliance selection is final at the position (quick task
+       * 261008-3il, `teamNotPickedAtPosition`). The cell prints the not picked
+       * words, because only a backup call can still pay it playoff points.
+       *
+       * DELIBERATELY STILL AN OPEN CELL: the whole Playoffs ceiling stays on
+       * it, and every lock computation reads it as the open cell it is. Never
+       * written as `false`, on the `pending` precedent: a cell that is not
+       * flagged carries no key, so it deep equals the shipped cell.
+       */
+      readonly notPicked?: true;
     }
   | {
       readonly id: string;
@@ -1162,6 +1174,28 @@ export function settledPlayoffPoints(options: SettledPlayoffPointsOptions): Sett
 }
 
 /**
+ * WHETHER A TEAM IS ON NO ALLIANCE at the position (quick task 261008-3il):
+ * the run reported routes, the qualification ranking is fixed, alliance
+ * selection is final at the position, and no pick slot (the backup slot
+ * included) took the team in any draw. Every draw takes exactly one route, so
+ * that is `notSelectedDraws` being every draw.
+ *
+ * Read from the run's routes and never from the artifact's own alliance
+ * points, which TBA does not post mid event. A baked event reports no routes
+ * and is never not picked. The Playoffs cell stays open either way: a backup
+ * robot is called from this pool and paid its alliance's placement points.
+ */
+export function teamNotPickedAtPosition(
+  routes: DistrictSelectionRoutes | undefined,
+  rankingFixed: boolean | undefined,
+  selectionFinal: boolean
+): boolean {
+  if (!selectionFinal || rankingFixed !== true || routes === undefined) return false;
+  if (routes.notSelectedDraws <= 0) return false;
+  return routes.bySlot.every((observation) => observation.draws === 0);
+}
+
+/**
  * HOW A SETTLED PLAYOFFS CATEGORY ENTERS THE LOCK BOUNDS, the one rule both
  * status modules apply in place of the open category's ceiling. The caller
  * has already taken the earned `elim` out of the floor, as for any open
@@ -1371,6 +1405,12 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
           return { ...cell, selection };
         }
         if (category !== "elim" || cell.kind !== "open") return cell;
+        // A TEAM ON NO ALLIANCE once selection is final (quick task
+        // 261008-3il): still open, flagged so the cell reads not picked.
+        const eventRuns = distributions.get(entry.eventKey);
+        if (teamNotPickedAtPosition(eventRuns?.selectionRoutesByTeam?.get(team.teamKey), eventRuns?.rankingFixed, final.alliance)) {
+          return { ...cell, notPicked: true };
+        }
         const milestone = playoffMilestoneFor(
           season,
           tier,

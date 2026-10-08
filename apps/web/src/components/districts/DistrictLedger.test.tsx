@@ -505,7 +505,7 @@ describe("DistrictLedger — the tracer slice", () => {
     });
     const qual = document.querySelector('[data-cell-id="2026walive:qual"]')!;
     expect(within(qual as HTMLElement).getByRole("button")).toBeDefined();
-    expect(qual.textContent ?? "").toMatch(/^~\d+likely \d+\.\d+–\d+\.\d+$/);
+    expect(qual.textContent ?? "").toMatch(/^~\d+likely \d+( to \d+)?$/);
   });
 
   it("renders no plus-minus codepoint anywhere in the tree", async () => {
@@ -596,7 +596,7 @@ describe("DistrictLedger — the tracer slice", () => {
     // rather than by exception, and is asserted on its own below.
     expect(instancesReceiving(handle, "run")).toHaveLength(0);
     const qual = document.querySelector('[data-cell-id="2026wasoon:qual"]')!;
-    expect(qual.textContent ?? "").toMatch(/^~\d+likely \d+\.\d+–\d+\.\d+$/);
+    expect(qual.textContent ?? "").toMatch(/^~\d+likely \d+( to \d+)?$/);
   });
 });
 
@@ -652,7 +652,7 @@ describe("DistrictLedger — the full table", () => {
     expect(screen.getAllByTestId("district-ledger-row")).toHaveLength(5);
   });
 
-  it("renders BOTH blue text forms on one fixture: a median plus a likely range, and a chance plus a tilde-prefixed conditional amount", async () => {
+  it("renders BOTH blue text forms on one fixture: a median plus a likely range, and a chance plus what the outcome pays", async () => {
     installFetch({ eventArtifact: liveEventArtifact() });
     handle = installMockWorker({ script: realRunScript });
     renderLedger(artifactOf(ROSTER.map((teamKey) => withLiveEvent(districtTeam(teamKey)))));
@@ -661,11 +661,12 @@ describe("DistrictLedger — the full table", () => {
       expect(document.querySelector('[data-cell-id="2026walive:qual"]')?.getAttribute("data-cell")).toBe("open");
     });
     // The median form, on qualification.
-    expect(document.querySelector('[data-cell-id="2026walive:qual"]')!.textContent ?? "").toMatch(/^~\d+likely \d+\.\d+–\d+\.\d+$/);
-    // The chance form, on awards: a percentage and a tilde-prefixed conditional amount.
+    expect(document.querySelector('[data-cell-id="2026walive:qual"]')!.textContent ?? "").toMatch(/^~\d+likely \d+( to \d+)?$/);
+    // The chance form, on awards: the chance, the word award, then what an
+    // award pays (261008-3il).
     const award = document.querySelector('[data-cell-id="2026walive:award"]')!;
     expect(award.getAttribute("data-cell")).toBe("open");
-    expect(award.textContent ?? "").toMatch(/^~\d+% award(~\d+ if won)?$/);
+    expect(award.textContent ?? "").toMatch(/^\d+% award(pays 5 (or|to) 10)?$/);
     // And on playoffs: the chance of finishing top four (fifth through eighth
     // pay nothing), then what the top four pays, from the 2026 placement table
     // (261008-3il).
@@ -1423,8 +1424,8 @@ describe("DistrictLedger — the drawer", () => {
     expect(within(drawer).getByTestId("district-ledger-verdict-eyebrow").textContent).toBe(`Qualification at Live Event · ${team.number} ${team.nickname}`);
     expect(within(drawer).getByTestId("district-hist-cap").textContent).toMatch(/^\d+ cap$/);
     expect(within(drawer).queryByTestId("district-ledger-verdict-source")).toBeNull();
-    // The table cell itself still prints its one decimal likely line.
-    expect(cellButton("2026walive:qual").textContent ?? "").toMatch(/likely \d+\.\d–\d+\.\d/);
+    // The table cell itself prints its likely line in whole numbers (261008-3il).
+    expect(cellButton("2026walive:qual").textContent ?? "").toMatch(/likely \d+( to \d+)?$/);
   });
 
   it("draws NO cutoff on the grand total and says so on its tile when the capacity is unpublished", async () => {
@@ -1442,18 +1443,18 @@ describe("DistrictLedger — the drawer", () => {
     expect(verdictHeadline(drawer)).toMatch(/^Likely \d+–\d+ grand total points\.$/);
   });
 
-  it("pins the likely and median tiles to whole numbers that round the cell's own one decimal line", async () => {
+  it("prints the same two whole numbers on the cell's likely line and the drawer's likely tile (261008-3il)", async () => {
     await renderWithOpenCells();
     const small = cellButton("2026walive:qual").textContent ?? "";
-    const ends = /likely (\d+\.\d)–(\d+\.\d)/.exec(small);
+    const ends = /likely (\d+)(?: to (\d+))?$/.exec(small);
     expect(ends, `the qualification cell reads "${small}"`).not.toBeNull();
     fireEvent.click(cellButton("2026walive:qual"));
     const drawer = await screen.findByTestId("district-ledger-drawer");
     const likely = /^(\d+)–(\d+)$/.exec(verdictTile(drawer, "likely") ?? "");
     expect(likely, "an en dash between two whole numbers").not.toBeNull();
-    // The same percentiles at two precisions: within rounding of each other.
-    expect(Math.abs(Number(likely![1]) - Number(ends![1]))).toBeLessThanOrEqual(0.55);
-    expect(Math.abs(Number(likely![2]) - Number(ends![2]))).toBeLessThanOrEqual(0.55);
+    // One rounding rule, so one pair of numbers: equal ends print once on the cell.
+    expect(Number(ends![1])).toBe(Number(likely![1]));
+    expect(Number(ends![2] ?? ends![1])).toBe(Number(likely![2]));
     expect(verdictTile(drawer, "median")).toMatch(/^~\d+$/);
     expect(drawer.textContent ?? "").not.toContain(PLUS_MINUS);
   });
@@ -2419,7 +2420,7 @@ describe("DistrictLedger — the playoff milestone advances with the bracket", (
     expect(text).not.toContain("100%");
   });
 
-  it("leaves the other three categories' wording exactly as it was", async () => {
+  it("prints the Awards cell beside it in the same grammar (261008-3il)", async () => {
     await renderPlayoffs();
     // The award cell on the SAME live event, found across that team's rows the
     // same way the playoff cell is.
@@ -2427,7 +2428,7 @@ describe("DistrictLedger — the playoff milestone advances with the bracket", (
     for (const row of document.querySelectorAll(`[data-team="${allianceRoster(1)[0]!}"]`)) {
       award = row.querySelector('[data-cell-id="2026waplay:award"]') ?? award;
     }
-    expect(award?.textContent ?? "").toMatch(/^~\d+% award(~\d+ if won)?$/);
+    expect(award?.textContent ?? "").toMatch(/^\d+% award(pays 5 (or|to) 10)?$/);
   });
 });
 
@@ -2542,16 +2543,18 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
     throw new Error(`no alliance cell matching ${String(pattern)}`);
   }
 
-  it("prints the LIKELIER route first, with `if in` beneath it, while the ranking is still open", async () => {
+  it("names the LIKELIER route after its chance, with what that route pays beneath it, while the ranking is still open", async () => {
     await renderWide(6, WIDE_QUALS_OPEN);
     const texts = selectionTexts();
-    const captainCells = texts.filter((text) => /^captain ~\d+%(~\d+ if in)?$/.test(text));
-    const pickedCells = texts.filter((text) => /^picked ~\d+%(~\d+ if in)?$/.test(text));
+    const captainCells = texts.filter((text) => /^\d+% captain(pays \d+( (to|or) \d+)?)?$/.test(text));
+    const pickedCells = texts.filter((text) => /^\d+% picked(pays \d+( (to|or) \d+)?)?$/.test(text));
     expect(captainCells.length, `captain cells among ${JSON.stringify(texts)}`).toBeGreaterThan(0);
     expect(pickedCells.length, `picked cells among ${JSON.stringify(texts)}`).toBeGreaterThan(0);
-    // The shipped clause is gone wherever a route is named: the bold line covers
-    // ONE route now, so "if picked" beside it would describe the wrong event.
-    for (const text of [...captainCells, ...pickedCells]) expect(text).not.toContain("if picked");
+    // No percentage carries a tilde, and none prints 100 (261008-3il).
+    for (const text of [...captainCells, ...pickedCells]) {
+      expect(text).not.toMatch(/~\d+%/);
+      expect(text).not.toContain("100%");
+    }
   });
 
   it("never prints the chance of ANY selection points under the word `picked`", async () => {
@@ -2559,14 +2562,14 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
     // The defect: a team that captains an alliance in most runs read as "picked"
     // at the sum of all three routes. A captain-heavy cell now says captain.
     for (const text of selectionTexts()) {
-      if (!/^captain ~/.test(text)) continue;
+      if (!/^\d+% captain/.test(text)) continue;
       expect(text).not.toContain("picked");
     }
   });
 
   it("lists the four routes in the drawer, with the points each one paid", async () => {
     await renderWide(6, WIDE_QUALS_OPEN);
-    clickSelectionCellMatching(/^(captain|picked) ~/);
+    clickSelectionCellMatching(/^\d+% (captain|picked)/);
     const list = await screen.findByTestId("district-ledger-drawer-outcomes");
     const rows = within(list).getAllByTestId("district-ledger-outcome-row");
     expect(rows.map((row) => row.getAttribute("data-outcome"))).toEqual(["captain", "firstPick", "secondPick", "notSelected"]);
@@ -2598,7 +2601,7 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
       secondPicks: 8,
     });
     // "the rest print their pick chance" — and a team no run selected prints zero.
-    expect(texts.filter((text) => /^picked ~0%$/.test(text))).toHaveLength(6);
+    expect(texts.filter((text) => /^0% picked$/.test(text))).toHaveLength(6);
     // No percentile range whose two ends are the same number survives anywhere.
     for (const text of texts) expect(text).not.toContain(DISTRICT_LEDGER_LIKELY_PREFIX);
   });
@@ -2623,7 +2626,29 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
     ]);
   });
 
-  it("keeps the shipped wording and the histogram for an UNSTARTED event, whose sidecar carries no routes", async () => {
+  it("prints not picked over backup call only, in an OPEN Playoffs cell, for a team on no alliance once selection is over (261008-3il)", async () => {
+    const selectionOver = state({ qualMatchesPlayed: 12, qualMatchesTotal: 12, alliancesPicked: true, playoffsDone: false, awardsPosted: false });
+    installFetch({ eventArtifact: wideEventArtifact(12) });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifactOf(WIDE_ROSTER.map((teamKey) => wideTeam(teamKey, selectionOver))));
+    const elimCells = (): Element[] => [...document.querySelectorAll('[data-cell-id="2026wawide:elim"]')];
+    await waitFor(() => {
+      expect(elimCells().length).toBe(WIDE_ROSTER.length);
+      expect(elimCells().every((cell) => cell.getAttribute("data-cell") === "open")).toBe(true);
+    });
+    const notPicked = elimCells().filter((cell) => (cell.textContent ?? "") === "not pickedbackup call only");
+    // Eight alliances of three from thirty teams leaves six on no alliance, and
+    // each of their cells stays blue: a backup call can still pay it.
+    expect(notPicked).toHaveLength(6);
+    for (const cell of notPicked) expect(within(cell as HTMLElement).getByRole("button")).toBeDefined();
+    // Every other team still reads the top four form.
+    for (const cell of elimCells()) {
+      if (notPicked.includes(cell)) continue;
+      expect(cell.textContent ?? "").toMatch(/^\d+% top 4pays 7 to 30$/);
+    }
+  });
+
+  it("prints the any points chance under picked and keeps the histogram for an UNSTARTED event, whose sidecar carries no routes", async () => {
     installFetch({ preSim: preSimBody() });
     handle = installMockWorker({ script: realRunScript });
     renderLedger(artifactOf(ROSTER.map((teamKey) => withUnstartedEvent(districtTeam(teamKey))), { bakedEvents: ["2026wasoon"] }));
@@ -2631,7 +2656,7 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
       expect(document.querySelector('[data-cell-id="2026wasoon:alliance"]')?.getAttribute("data-cell")).toBe("open");
     });
     const cell = document.querySelector('[data-cell-id="2026wasoon:alliance"]')!;
-    expect(cell.textContent ?? "").toMatch(/^~\d+% picked(~\d+ if picked)?$/);
+    expect(cell.textContent ?? "").toMatch(/^\d+% picked(pays \d+( (to|or) \d+)?)?$/);
     fireEvent.click(within(cell as HTMLElement).getByRole("button"));
     expect(await screen.findByTestId("district-ledger-drawer-cell-plot")).toBeDefined();
     expect(screen.queryByTestId("district-ledger-drawer-outcomes")).toBeNull();

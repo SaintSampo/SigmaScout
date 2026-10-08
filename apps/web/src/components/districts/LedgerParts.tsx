@@ -48,7 +48,6 @@ import {
   DISTRICT_LEDGER_LEGEND_EARNED,
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
-  DISTRICT_LEDGER_LIKELY_PREFIX,
   DISTRICT_LEDGER_RUN_PROGRESS_LABEL,
   DISTRICT_LEDGER_SEARCH_LABEL,
   DISTRICT_LEDGER_SEARCH_PLACEHOLDER,
@@ -58,6 +57,7 @@ import {
   DISTRICT_LEDGER_STAGE_WORDS,
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
+  DISTRICT_LEDGER_NOT_PICKED_WORDS,
   DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS,
   DISTRICT_LEDGER_SELECTION_ROUTE_WORDS,
   DISTRICT_LEDGER_PENDING_CELL,
@@ -68,6 +68,7 @@ import {
   CHAMP_LEDGER_RANGE_PENDING_DESCRIPTION,
   champLedgerNoCallDescription,
   districtLedgerCellChance,
+  districtLedgerCellLikelyText,
   districtLedgerCutoffFigure,
   districtLedgerCutoffLikelyText,
   districtLedgerPaysLine,
@@ -388,11 +389,6 @@ export function stageWord(stage: DistrictEventStage): string {
   return DISTRICT_LEDGER_STAGE_WORDS[stageWordKey(stage)];
 }
 
-/** A percentile range written out with an EN DASH and one decimal — never the plus-minus codepoint, which is reserved for exactly one standard deviation of full predictive variance. */
-export function likelyRangeText(p10: number, p90: number): string {
-  return `${DISTRICT_LEDGER_LIKELY_PREFIX} ${p10.toFixed(1)}–${p90.toFixed(1)}`;
-}
-
 /** What one `LedgerCutoffView` puts on a screen: the same four strings on the stat line and on the grand total plot, derived ONCE. */
 export interface LedgerCutoffDisplay {
   readonly label: string;
@@ -468,10 +464,11 @@ export function ledgerCutoffDisplay(view: LedgerCutoffView): LedgerCutoffDisplay
   };
 }
 
-export function chanceWordsFor(cell: DistrictCellKind): { bold: string; conditional: string } {
-  if (cell === "alliance") return DISTRICT_LEDGER_CHANCE_WORDS.alliance;
-  if (cell === "elim") return DISTRICT_LEDGER_CHANCE_WORDS.elim;
-  return DISTRICT_LEDGER_CHANCE_WORDS.award;
+/** The outcome word a chance form cell prints after its chance. */
+export function chanceWordsFor(cell: DistrictCellKind): string {
+  if (cell === "alliance") return DISTRICT_LEDGER_CHANCE_WORDS.alliance.bold;
+  if (cell === "elim") return DISTRICT_LEDGER_CHANCE_WORDS.elim.bold;
+  return DISTRICT_LEDGER_CHANCE_WORDS.award.bold;
 }
 
 /**
@@ -484,10 +481,11 @@ export function chanceWordsFor(cell: DistrictCellKind): { bold: string; conditio
  * the row's season, tier and rookie flag; absent, the pays line is the cell's
  * own support.
  *
- * THE PLAYOFFS CELL TAKES ITS MILESTONE FIRST, where the bracket has already
- * moved past the top four: `districtLedgerRows.ts` puts the milestone on the
- * cell, and the top four form is what an alliance still short of a top-four
- * finish prints. See `DistrictPlayoffMilestone`.
+ * THE ORDER: a team on no alliance once selection is final reads not picked;
+ * then the Playoffs milestone, where the bracket has already moved past the
+ * top four (see `DistrictPlayoffMilestone`); then the median form; then the
+ * Alliance selection route, where the run reported routes; then the chance
+ * form every other open cell prints.
  */
 export function openCellLines(
   cell: Extract<DistrictLedgerCell, { kind: "open" }>,
@@ -497,6 +495,11 @@ export function openCellLines(
     const pay = districtCellPay(cell, pricing);
     return pay === undefined ? undefined : districtLedgerPaysLine(pay);
   };
+  // ON NO ALLIANCE once selection is final: no chance to print, because the
+  // only open question is a backup call, and the cell stays open for it.
+  if (cell.cell === "elim" && cell.notPicked === true) {
+    return { bold: DISTRICT_LEDGER_NOT_PICKED_WORDS.bold, small: DISTRICT_LEDGER_NOT_PICKED_WORDS.small };
+  }
   const milestone = cell.playoffMilestone;
   if (milestone !== undefined) {
     if (milestone.kind === "placed") {
@@ -520,39 +523,16 @@ export function openCellLines(
     if (settled !== undefined) {
       return { bold, small: districtLedgerSelectionSettledLine(settled.id, settled.allianceNumber) };
     }
-    return { bold, small: likelyRangeText(Math.max(0, p10), Math.max(0, p90)) };
+    return { bold, small: districtLedgerCellLikelyText(p10, p90) };
   }
   if (selection !== undefined) {
-    // THE LIKELIER ROUTE, named and put first, exactly as the playoff milestone
-    // is. The small line is the typical amount given ANY selection points, which
-    // is the same conditional median the shipped cell printed — only its clause
-    // changes, because the bold line no longer covers both routes.
+    // THE LIKELIER ROUTE, named after its chance, over what that route pays.
     const headline = districtSelectionHeadline(selection);
-    const routeWords = DISTRICT_LEDGER_SELECTION_ROUTE_WORDS[headline.id];
-    return {
-      bold: `${routeWords.bold} ~${String(Math.round(headline.chance * 100))}%`,
-      small:
-        cell.summary.conditionalMedian === undefined
-          ? undefined
-          : `~${String(Math.round(cell.summary.conditionalMedian))} ${routeWords.conditional}`,
-    };
+    return { bold: `${districtLedgerCellChance(headline.chance)} ${DISTRICT_LEDGER_SELECTION_ROUTE_WORDS[headline.id].bold}`, small: paysLine() };
   }
-  const words = chanceWordsFor(cell.cell);
-  if (cell.cell === "elim") {
-    // The top four form: the chance, then the outcome, then what it pays.
-    return { bold: `${districtLedgerCellChance(cell.summary.chance)} ${words.bold}`, small: paysLine() };
-  }
-  // Every blue figure carries the tilde (Jacob, 2026-09-25): it is this site's
-  // prediction, never a number TBA published.
-  const bold = `~${String(Math.round(cell.summary.chance * 100))}% ${words.bold}`;
-  // NO FABRICATED ZERO: 10-04 returns `undefined` when all the mass sits at
-  // zero, and a printed "~0" would assert a typical amount the draws never
-  // produced.
-  const small =
-    cell.summary.conditionalMedian === undefined
-      ? undefined
-      : `~${String(Math.round(cell.summary.conditionalMedian))} ${words.conditional}`;
-  return { bold, small };
+  // The chance form: the chance, then the outcome, then what it pays. The
+  // tilde stays on point figures only; a percentage never carries one.
+  return { bold: `${districtLedgerCellChance(cell.summary.chance)} ${chanceWordsFor(cell.cell)}`, small: paysLine() };
 }
 
 export interface CellInteraction {

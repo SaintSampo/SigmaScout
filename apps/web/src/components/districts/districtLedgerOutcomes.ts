@@ -270,9 +270,9 @@ function assertRouteDenominator(where: string, view: DistrictSelectionRouteView)
  *
  * A ROUTE NAME NEEDS A CHANCE THAT PRINTS (quick task 260929-cz0). The cell
  * prints the chance rounded to a whole percent, so a team that captained in 3
- * runs of a thousand and was never picked would read "captain ~0%": a route
+ * runs of a thousand and was never picked would read "0% captain": a route
  * named beside a zero. When BOTH routes round to 0% the headline reads as
- * picked, the shipped word, so the cell says "picked ~0%" exactly as it does for
+ * picked, the shipped word, so the cell says "0% picked" exactly as it does for
  * a team no run selected. The rounding is the cell's own `Math.round(p * 100)`,
  * so the rule and the printed digits cannot disagree.
  */
@@ -434,13 +434,48 @@ function supportPay(distribution: DistrictPointDistribution): DistrictCellPay | 
 }
 
 /**
+ * The selection rows a route headline covers: the captain row for `captain`,
+ * and the first pick and second pick rows for `picked`, the two routes
+ * `districtSelectionHeadline` sums under that word.
+ */
+const SELECTION_HEADLINE_ROUTES: Readonly<Record<DistrictSelectionHeadline["id"], ReadonlySet<DistrictSelectionOutcomeId>>> = {
+  captain: new Set<DistrictSelectionOutcomeId>(["captain"]),
+  picked: new Set<DistrictSelectionOutcomeId>(["firstPick", "secondPick"]),
+};
+
+/**
+ * WHAT A ROUTE HEADLINE PAYS: the span of its member rows that at least one run
+ * took, or of all its member rows where no run took any. A team only ever
+ * second picked therefore reads the second pick's span, and an untaken first
+ * pick row does not widen it.
+ */
+function selectionPay(view: DistrictSelectionRouteView): DistrictCellPay | undefined {
+  const headline = districtSelectionHeadline(view);
+  const covered = SELECTION_HEADLINE_ROUTES[headline.id];
+  const members = districtSelectionOutcomes(view).filter((row) => covered.has(row.id));
+  const taken = members.filter((row) => row.chance > 0);
+  const priced = taken.length > 0 ? taken : members;
+  if (priced.length === 0) return undefined;
+  return {
+    kind: "range",
+    low: Math.min(...priced.map((row) => row.minPoints)),
+    high: Math.max(...priced.map((row) => row.maxPoints)),
+  };
+}
+
+/**
  * WHAT AN OPEN CELL'S HEADLINE OUTCOME PAYS, read from the drawer's own
  * outcome rows, so the cell and the drawer cannot disagree.
  *
  * The Playoffs cell keeps the rows its headline covers and returns their
  * nonzero points. The season guard exists because `playoffPoints` throws
  * outside the registered bracket seasons, and a throw here would blank the
- * whole table rather than one line. No point value is a literal here.
+ * whole table rather than one line. The Awards cell returns every award row's
+ * points (Rookie All Star only for a rookie). The Alliance selection cell
+ * returns its headline route's span from the route rows, which already carry
+ * the points at this event's alliance count and tier, so it needs no pricing;
+ * a baked event reports no routes and reads its own support. The median form
+ * categories pay no named outcome. No point value is a literal here.
  */
 export function districtCellPay(cell: OpenLedgerCell, pricing: DistrictCellPricing | undefined): DistrictCellPay | undefined {
   if (cell.cell === "elim") {
@@ -451,6 +486,14 @@ export function districtCellPay(cell: OpenLedgerCell, pricing: DistrictCellPrici
     if (milestone?.kind === "placed") return distinctNonzeroValues(rows.map((row) => row.points));
     const covered = PLAYOFF_HEADLINE_OUTCOMES[milestone === undefined ? "topFour" : milestone.kind];
     return distinctNonzeroValues(rows.filter((row) => covered.has(row.id)).map((row) => row.points));
+  }
+  if (cell.cell === "award") {
+    if (pricing === undefined) return supportPay(cell.distribution);
+    const rows = districtAwardOutcomes(pricing.season, pricing.tier, cell.distribution, pricing.isRookie);
+    return distinctNonzeroValues(rows.filter((row) => row.id !== "none").map((row) => row.points));
+  }
+  if (cell.cell === "alliance") {
+    return cell.selection === undefined ? supportPay(cell.distribution) : selectionPay(cell.selection);
   }
   return undefined;
 }

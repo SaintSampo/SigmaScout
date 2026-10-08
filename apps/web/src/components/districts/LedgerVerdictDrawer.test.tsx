@@ -333,7 +333,7 @@ describe("VerdictDrawer", () => {
       chart: { kind: "outcomes", label: "Playoff outcomes", rows: PLAYOFF_ROWS },
       sourceChips: [
         { kind: "category", label: "Quals", figure: "~39", small: undefined, open: true },
-        { kind: "category", label: "Alliance", figure: "picked ~44%", small: "~27 if in", open: true },
+        { kind: "category", label: "Alliance", figure: "44% picked", small: "pays 1 to 16", open: true },
         { kind: "category", label: "Awards", figure: "15", small: undefined, open: false },
       ],
     };
@@ -341,9 +341,9 @@ describe("VerdictDrawer", () => {
     expect(screen.getByTestId("district-ledger-drawer-outcomes")).toBeDefined();
     expect(screen.queryByTestId("district-hist-legend")).toBeNull();
     const source = screen.getByTestId("district-ledger-verdict-source");
-    expect(source.textContent).toBe("Quals ~39·Alliance picked ~44% ~27 if in·Awards 15");
-    expect(source.querySelector("i")!.textContent).toBe("~27 if in");
-    expect([...source.querySelectorAll("b")].map((b) => b.textContent)).toEqual(["~39", "picked ~44%"]);
+    expect(source.textContent).toBe("Quals ~39·Alliance 44% picked pays 1 to 16·Awards 15");
+    expect(source.querySelector("i")!.textContent).toBe("pays 1 to 16");
+    expect([...source.querySelectorAll("b")].map((b) => b.textContent)).toEqual(["~39", "44% picked"]);
   });
 
   it("reads as the headline and tiles alone for an alliance already placed fifth to eighth (261007-3ik)", () => {

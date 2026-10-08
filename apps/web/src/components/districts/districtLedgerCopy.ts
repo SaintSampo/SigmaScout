@@ -111,10 +111,19 @@ export const DISTRICT_LEDGER_LIKELY_PREFIX = "likely";
  * `DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS` carries the two milestones past it.
  */
 export const DISTRICT_LEDGER_CHANCE_WORDS = {
-  alliance: { bold: "picked", conditional: "if picked" },
-  elim: { bold: "top 4", conditional: "if top 4" },
-  award: { bold: "award", conditional: "if won" },
+  alliance: { bold: "picked" },
+  elim: { bold: "top 4" },
+  award: { bold: "award" },
 } as const;
+
+/**
+ * The Playoffs cell of a team on NO ALLIANCE once alliance selection is final
+ * (quick task 261008-3il). No percentage, because the open question is only
+ * whether an alliance calls it up as a backup robot, which 2 to 5 percent of
+ * unpicked teams were across 2016 to 2026. The cell stays blue, because that
+ * call can still pay it playoff points.
+ */
+export const DISTRICT_LEDGER_NOT_PICKED_WORDS = { bold: "not picked", small: "backup call only" } as const;
 
 /**
  * The Playoffs cell's milestone words, for the two positions past a secured
@@ -127,8 +136,8 @@ export const DISTRICT_LEDGER_CHANCE_WORDS = {
  * `DISTRICT_LEDGER_CHANCE_WORDS.elim` beside the other two categories'.
  */
 export const DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS = {
-  finalist: { bold: "final", conditional: "if finalist" },
-  winner: { bold: "win", conditional: "if winner" },
+  finalist: { bold: "final" },
+  winner: { bold: "win" },
 } as const;
 
 /** The ordinal suffixes for placements one through eight, indexed `placement - 1`. A table, not arithmetic: eight values, and every English exception is inside them. */
@@ -571,20 +580,18 @@ export const DISTRICT_LEDGER_PROVENANCE =
 /**
  * THE ALLIANCE SELECTION CELL'S ROUTE WORDS (quick task 260925-w4y).
  *
- * The bold line names the LIKELIER ROUTE and puts it first, exactly as the
- * Playoffs cell's milestone does: `captain ~70%` or `picked ~44%`. The small line
- * says `if in`, not `if picked`, because it is the typical amount given ANY
- * selection points and the bold line no longer covers both routes.
+ * The bold line names the LIKELIER ROUTE after its chance, in the one grammar
+ * every open cell shares (quick task 261008-3il): `60% captain` over
+ * `pays 9 to 16`, or `60% picked` over `pays 1 to 8`. The small line is what
+ * that route pays, from the route rows the drawer lists.
  *
- * `DISTRICT_LEDGER_CHANCE_WORDS.alliance` is untouched and still ships: it is
- * what a cell with NO route counts prints, which is every baked event. The two
- * wordings are different because the two numbers are different, and printing the
- * route wording over the any-points chance would be the same conflation this task
- * exists to remove.
+ * `DISTRICT_LEDGER_CHANCE_WORDS.alliance` still ships: it is what a cell with
+ * NO route counts prints, which is every baked event, and its chance is the
+ * chance of any selection points rather than of one route.
  */
 export const DISTRICT_LEDGER_SELECTION_ROUTE_WORDS = {
-  captain: { bold: "captain", conditional: "if in" },
-  picked: { bold: "picked", conditional: "if in" },
+  captain: { bold: "captain" },
+  picked: { bold: "picked" },
 } as const;
 
 /** The route names the settled line uses. A table, so "first pick" is never assembled from a slot number at a call site. */
@@ -635,6 +642,17 @@ export function districtLedgerOutcomePointsRange(minPoints: number, maxPoints: n
   const low = Math.round(minPoints);
   const high = Math.round(maxPoints);
   return low === high ? String(low) : `${String(low)} to ${String(high)}`;
+}
+
+/**
+ * A median form cell's small line: the likely prefix, then the 10th to the
+ * 90th percentile as whole numbers joined by "to" (quick task 261008-3il).
+ * Each end is rounded exactly as `districtLedgerVerdictLikelyRange` rounds it,
+ * so the cell and the drawer's likely tile print one pair of numbers; where
+ * the two ends meet it prints one.
+ */
+export function districtLedgerCellLikelyText(p10: number, p90: number): string {
+  return `${DISTRICT_LEDGER_LIKELY_PREFIX} ${districtLedgerOutcomePointsRange(Math.round(Math.max(0, p10)), Math.round(Math.max(0, p90)))}`;
 }
 
 /** The word an open cell's small line starts with: what its headline outcome pays. */
