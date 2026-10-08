@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-08T06:15:30.628Z"
+last_updated: "2026-10-08T18:41:21.399Z"
 last_activity: 2026-10-08
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -742,6 +742,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 306 | Fast: prune tool knows the four as-of key families; pruned spr@10.0.0 and epa@14.0.0 (80,576 objects, 3.94 GB) after the bcbab12f republish; main pushed (33 commits) | 2026-10-07 | 7b7281b4 | [261007-jvz-district-event-finality-cascades-from-la](./quick/261007-jvz-district-event-finality-cascades-from-la/) |
 | 307 | Champ Locks: hide non-field teams at the DCMP position unless award eligible; simulate the DCMP from the Locked plus In range field and read out of range instead of not yet priced | 2026-10-08 | b5792441 | [261007-mxf-champ-locks-hide-non-field-teams-at-the-](./quick/261007-mxf-champ-locks-hide-non-field-teams-at-the-/) |
 | 308 | Locks: a team knocked out of the playoffs reads its Playoffs cell as final grey once its placement is decided, and the lock floor and ceiling settle its playoff points at both tiers | 2026-10-08 | 84b664ef | [261008-26o-locks-a-team-knocked-out-of-the-playoffs](./quick/261008-26o-locks-a-team-knocked-out-of-the-playoffs/) |
+| 309 | Lock boxes: not picked Playoffs cell, one chance-then-pays grammar for every open cell, no tilde on percentages, 99 percent cap | 2026-10-08 | 89bc6d19 | [261008-3il-lock-boxes-grey-eliminated-playoff-allia](./quick/261008-3il-lock-boxes-grey-eliminated-playoff-allia/) |
 
 ### Roadmap Evolution
 
