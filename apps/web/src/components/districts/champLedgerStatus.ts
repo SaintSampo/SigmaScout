@@ -6,7 +6,7 @@
  * `packages/core/districts/locks.ts`, the award vocabulary from
  * `qualification.ts` and the ceilings from `pointModel.ts`.
  *
- * TWO DECISIONS THIS MODULE TAKES, both stated here because a reader will
+ * THE DECISIONS THIS MODULE TAKES, all stated here because a reader will
  * otherwise wonder why it differs from the district tier's module:
  *
  * 1. IN RANGE / OUT OF RANGE IS DECIDED BY RANK, not by `>=` a cut line. The
@@ -56,6 +56,20 @@
  *    call, never the rank rule. Once the awards post, nothing is drawn any
  *    more and the rank rule stands.
  *
+ * 4. A TEAM KNOCKED OUT OF THE PLAYOFFS HAS ITS PLAYOFF POINTS SETTLED AT ONCE
+ *    (quick task 261008-26o). FNC 2026 at the DCMP Round 5 stop had six teams
+ *    at 99% and none Locked, because every team, an alliance already out
+ *    included, kept the whole 3x Playoffs ceiling (90 in 2026) until the
+ *    Finals posted. A source whose alliance's bracket placement is decided
+ *    now carries `settledElim` from the row builder's one derivation
+ *    (`settledPlayoffPoints`), and it replaces the whole Playoffs ceiling:
+ *    TBA's exact number joins the floor, a placement table value joins only
+ *    the ceiling, because TBA prorates a team that sat out part of the
+ *    playoffs (frc3663 at 2026pncmp, fourth place alliance worth 21, was paid
+ *    12). A team left off every alliance is not settled: a backup robot is
+ *    called from that pool and paid for its share. The award ceiling and
+ *    decision 2's reservation are unchanged.
+ *
  * AWARD-QUALIFIED AT THIS TIER means the DCMP winning alliance once the
  * playoffs are done, and Impact, Engineering Inspiration or Rookie All Star at
  * the DCMP once awards are posted — at any of the district's championships
@@ -77,7 +91,7 @@ import { maxEventPoints } from "../../../../../packages/core/districts/pointMode
 import { dcmpAwardCountCeilings } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
 import { dcmpNeverHappening, perChampionship, reservedChampSlots } from "../../../../../packages/core/districts/champReservedSlots.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import { DISTRICT_CATEGORIES, tierEvents, type DistrictCategory, type DistrictStageFinality } from "./districtLedgerRows.js";
+import { DISTRICT_CATEGORIES, settledElimBounds, tierEvents, type DistrictCategory, type DistrictStageFinality } from "./districtLedgerRows.js";
 import { DISTRICT_LEDGER_STATUS_KEYS, type DistrictLedgerStatusKey, type DistrictLedgerStatusState } from "./districtLedgerStatus.js";
 import { dcmpEventKeysFor, type ChampLedgerRow, type ChampLedgerTeam } from "./champLedgerRows.js";
 import type { ChampNoCallReason, ChampRangeState } from "./champLedgerChances.js";
@@ -206,6 +220,15 @@ function rowStage(row: ChampLedgerRow): DistrictStageFinality {
  * of the district season NO team has a dcmp row. Reading that as "no ceiling"
  * would Lock out most of a district in week one, which is the one direction the
  * lock math must never err in.
+ *
+ * A SETTLED PLAYOFFS CATEGORY (quick task 261008-26o, decision 4) is the one
+ * exception to "open means earned out, ceiling in", on the District points
+ * row and the DCMP row alike: a source carrying `settledElim` has its earned
+ * `elim` (0 where TBA has no row) leave the floor, and `settledElimBounds`
+ * replaces the whole Playoffs ceiling. Rewound over a finished event the
+ * settled value IS TBA's `elim`, so it rejoins the floor and the two cancel.
+ * Live mid playoffs it is the placement table's value, an upper bound TBA can
+ * prorate down, so it joins the ceiling only.
  */
 export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOptions): ChampLedgerStatusModel {
   const { artifact, teams, districtLockedOut } = options;
@@ -246,6 +269,13 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
       for (const category of DISTRICT_CATEGORIES) {
         if (entry.stage.final[category]) continue;
         if (earned !== undefined) floor -= earned[category];
+        if (category === "elim" && entry.settledElim !== undefined) {
+          // Knocked out of this event's playoffs: settled, by the one rule.
+          const settled = settledElimBounds(entry.settledElim);
+          floor += settled.floor;
+          openCeiling += settled.ceiling;
+          continue;
+        }
         openCeiling += districtCeiling[category];
       }
     }
@@ -259,6 +289,14 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
       for (const category of DISTRICT_CATEGORIES) {
         if (dcmpStage[category]) continue;
         if (earned !== undefined) floor -= earned[category];
+        if (category === "elim" && dcmpEntry.settledElim !== undefined) {
+          // Knocked out of the DCMP playoffs: settled in place of the whole 3x
+          // ceiling (decision 4 in this module's header).
+          const settled = settledElimBounds(dcmpEntry.settledElim);
+          floor += settled.floor;
+          openCeiling += settled.ceiling;
+          continue;
+        }
         openCeiling += dcmpCeiling[category];
       }
     } else if (team.membership !== "out" && dcmpEntry === undefined) {

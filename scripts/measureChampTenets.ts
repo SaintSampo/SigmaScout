@@ -14,7 +14,11 @@
  * tab's own rows and statuses at every position exactly as `ChampLocksLedger`
  * does — `champTierEvents`, `buildDistrictTimeline`, the district pass for the
  * locked-out set, `buildChampLedgerRows`, `computeChampLedgerStatuses` — with
- * no distributions and no estimate, which the statuses never read.
+ * no distributions and no estimate. Since quick task 261008-26o the statuses
+ * do read one thing from distributions, the settled playoffs set (a decided
+ * bracket placement's points, `settledElim`); this sweep has no event
+ * artifacts and passes none, so it measures the blunt Playoffs ceiling at
+ * every stop, which is the more conservative side.
  *
  * THE YARDSTICK is the artifact's own published `champLock.status` at now: the
  * all tier standing with every event final, which is the right standing at

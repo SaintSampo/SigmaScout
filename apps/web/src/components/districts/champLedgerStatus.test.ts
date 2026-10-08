@@ -24,7 +24,14 @@ import { buildChampLedgerRows } from "./champLedgerRows.js";
 import { applyChampRangeState, computeChampLedgerStatuses } from "./champLedgerStatus.js";
 import { champCutoffView, type ChampRangeState } from "./champLedgerChances.js";
 import { SHOW_SIMULATED_CHAMP_LIKELY_RANGE, predictedCutoff, type LedgerCutoffView } from "./predictedCutoff.js";
-import type { DistrictStageFinality } from "./districtLedgerRows.js";
+import { playoffPoints, type AllianceBracketMilestone } from "../../../../../packages/core/districts/bracket.js";
+import {
+  pointMassDistribution,
+  type DistrictCellKind,
+  type DistrictEventDistributions,
+  type DistrictPointDistribution,
+  type DistrictStageFinality,
+} from "./districtLedgerRows.js";
 
 function repoFile(relative: string): string {
   let dir = resolve(process.cwd());
@@ -523,5 +530,150 @@ describe("applyChampRangeState and champCutoffView", () => {
       if (status === "inRange") expect(projectionOf.get(teamKey)!).toBeGreaterThanOrEqual(view.cutoff.points);
       else expect(projectionOf.get(teamKey)!).toBeLessThanOrEqual(view.cutoff.points);
     }
+  });
+});
+
+/**
+ * Quick task 261008-26o: Jacob, 2026-10-08, FNC 2026 at the DCMP Round 5 stop,
+ * six teams at 99% and none Locked, because every team kept the whole 3x
+ * Playoffs ceiling until the Finals posted.
+ *
+ * THE FNC LIKE STOP on the PNW fixture: every district event final, the DCMP's
+ * qualification and alliance selection final, its playoffs and awards open,
+ * and every alliance but the two finalists DECIDED. The bracket facts are
+ * read off the fixture's own finished dcmp rows (90 or 60 is a finalist, 39
+ * third, 21 fourth, 0 on an alliance fifth). A team on no alliance carries no
+ * milestone and is NOT settled: a backup robot is called from that pool and
+ * paid for its share, so its 90 point ceiling stands. The two rows at 12 (a
+ * prorated pick and a backup) carry no milestone either, which is the
+ * conservative side.
+ *
+ * JACOB'S CASE IS A REWOUND STOP OVER A FINISHED DCMP, so the fixture's dcmp
+ * rows are given a finished state block here and the settled values are TBA's
+ * own, exact. At Now mid playoffs (the fixture as committed, no state blocks)
+ * the values come off the placement table, which TBA can prorate down, so
+ * they cap ceilings and never raise a floor.
+ */
+describe("computeChampLedgerStatuses — a team knocked out of the DCMP playoffs is settled at once (261008-26o)", () => {
+  const DCMP_KEY = "2026pncmp";
+  const FNC_LIKE_STOP = new Map(
+    eventKeysOf(FIXTURE).map((key) => [key, key === DCMP_KEY ? { qual: true, alliance: true, elim: false, award: false } : ALL_FINAL] as const)
+  );
+  /** The fixture with its DCMP finished at Now: the season Jacob rewound. */
+  const DCMP_FINISHED: DistrictArtifact = DistrictArtifactSchema.parse({
+    ...FIXTURE,
+    teams: FIXTURE.teams.map((team) => ({
+      ...team,
+      eventPoints: team.eventPoints.map((row) =>
+        row.eventKey === DCMP_KEY
+          ? { ...row, state: { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: true, awardsPosted: true } }
+          : row
+      ),
+    })),
+  });
+  const dcmpRowOf = (teamKey: string) =>
+    FIXTURE.teams.find((entry) => entry.teamKey === teamKey)!.eventPoints.find((entry) => entry.eventKey === DCMP_KEY);
+
+  function milestoneFor(row: { readonly alliance: number; readonly elim: number }): AllianceBracketMilestone | undefined {
+    if (row.elim === 90 || row.elim === 60) return { kind: "finals" };
+    if (row.elim === 39) return { kind: "decided", placement: 3 };
+    if (row.elim === 21) return { kind: "decided", placement: 4 };
+    if (row.elim === 0 && row.alliance > 0) return { kind: "decided", placement: 5 };
+    return undefined;
+  }
+
+  /**
+   * The run's reading of the stop: a priced record per DCMP team (so the DCMP
+   * row takes the championship's own cells, case 2) and the bracket facts.
+   * The statuses read no histogram, only the settled set.
+   */
+  function settledDistributions(): ReadonlyMap<string, DistrictEventDistributions> {
+    const byTeam = new Map<string, Record<DistrictCellKind, DistrictPointDistribution | undefined>>();
+    const playoffMilestoneByTeam = new Map<string, AllianceBracketMilestone>();
+    for (const team of FIXTURE.teams) {
+      const row = team.eventPoints.find((entry) => entry.eventKey === DCMP_KEY);
+      if (row === undefined) continue;
+      byTeam.set(team.teamKey, {
+        qual: undefined,
+        alliance: undefined,
+        elim: pointMassDistribution(row.elim),
+        award: pointMassDistribution(row.award),
+        eventTotal: pointMassDistribution(row.total),
+        grandTotal: undefined,
+      });
+      const milestone = milestoneFor(row);
+      if (milestone !== undefined) playoffMilestoneByTeam.set(team.teamKey, milestone);
+    }
+    return new Map([[DCMP_KEY, { eventKey: DCMP_KEY, byTeam, playoffMilestoneByTeam }]]);
+  }
+
+  function modelWith(artifact: DistrictArtifact, distributions: ReadonlyMap<string, DistrictEventDistributions>) {
+    const rows = buildChampLedgerRows({ artifact, distributions, stageByEvent: FNC_LIKE_STOP, dcmpStarted: true });
+    return { rows, status: computeChampLedgerStatuses({ artifact, teams: rows.teams, nowYear: 2026 }) };
+  }
+
+  const BLUNT = modelWith(DCMP_FINISHED, new Map());
+  const SETTLED = modelWith(DCMP_FINISHED, settledDistributions());
+  const LIVE_SETTLED = modelWith(FIXTURE, settledDistributions());
+  const lockedOnPointsKeys = (model: typeof BLUNT): string[] =>
+    [...model.status.byTeam.values()].filter((result) => result.status === "locked" && !result.byAward).map((result) => result.teamKey).sort();
+
+  it("prints a decided team's DCMP Playoffs cell grey at TBA's own elim, exact, and keeps a finalist's open", () => {
+    let decided = 0;
+    for (const team of SETTLED.rows.teams) {
+      const row = dcmpRowOf(team.teamKey);
+      if (row === undefined) continue;
+      const milestone = milestoneFor(row);
+      const cell = team.dcmpRow.cells.find((entry) => entry.cell === "elim")!;
+      if (milestone?.kind === "decided") {
+        decided += 1;
+        // Every mapped team's own value IS its placement's 3x points.
+        expect(row.elim, team.teamKey).toBe(playoffPoints(2026, "dcmp", milestone.placement));
+        expect(cell, team.teamKey).toMatchObject({ kind: "final", earned: row.elim });
+        expect(team.dcmpRow.sources[0]!.settledElim, team.teamKey).toEqual({ points: row.elim, exact: true });
+      } else {
+        expect(cell.kind, team.teamKey).not.toBe("final");
+        expect(team.dcmpRow.sources[0]!.settledElim, team.teamKey).toBeUndefined();
+      }
+    }
+    // 3 third place, 2 fourth place, 12 fifth place.
+    expect(decided).toBe(17);
+  });
+
+  it("locks STRICTLY more teams on points than the blunt rule at the same stop (recorded counts)", () => {
+    // Measured 2026-10-08: nobody under the blunt rule, frc5468 once the
+    // knocked out alliances' 3x Playoffs ceilings are gone.
+    expect(lockedOnPointsKeys(BLUNT)).toEqual([]);
+    expect(lockedOnPointsKeys(SETTLED)).toEqual(["frc5468"]);
+    expect(lockedOnPointsKeys(SETTLED).length).toBeGreaterThan(lockedOnPointsKeys(BLUNT).length);
+    expect(BLUNT.status.byTeam.get("frc5468")!.verdict).toBe("contending");
+    expect(SETTLED.status.byTeam.get("frc5468")!.verdict).toBe("locked");
+  });
+
+  it("locks no team on points that did not qualify in the finished standing", () => {
+    for (const teamKey of [...lockedOnPointsKeys(SETTLED), ...lockedOnPointsKeys(LIVE_SETTLED)]) {
+      expect(["locked", "lockedAward", "prequalified"], teamKey).toContain(FINISHED.status.byTeam.get(teamKey)!.verdict);
+    }
+  });
+
+  it("leaves both reservations and the unreserved points slots exactly as the blunt rule has them", () => {
+    expect(SETTLED.status.reservedSlots).toBe(BLUNT.status.reservedSlots);
+    expect(SETTLED.status.pointsSlots).toBe(BLUNT.status.pointsSlots);
+    expect(LIVE_SETTLED.status.reservedSlots).toBe(BLUNT.status.reservedSlots);
+  });
+
+  it("at Now mid playoffs, a placement table value caps the ceiling and never raises the team's own floor (recorded)", () => {
+    let capped = 0;
+    for (const team of LIVE_SETTLED.rows.teams) {
+      const settled = team.dcmpRow.sources[0]?.settledElim;
+      if (settled === undefined) continue;
+      capped += 1;
+      expect(settled.exact, team.teamKey).toBe(false);
+    }
+    expect(capped).toBe(17);
+    // frc5468's own 39 is what locked it above. Off the placement table it is
+    // only the most frc5468 can be paid, so it is not Locked here.
+    expect(LIVE_SETTLED.status.byTeam.get("frc5468")!.verdict).toBe("contending");
+    expect(lockedOnPointsKeys(LIVE_SETTLED)).toEqual([]);
   });
 });

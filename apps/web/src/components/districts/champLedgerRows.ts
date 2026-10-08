@@ -68,10 +68,12 @@ import {
   type DistrictEventDistributions,
   type DistrictEventStage,
   type DistrictLedgerCell,
+  type DistrictLedgerEventRow,
   type DistrictLedgerGaps,
   type DistrictLedgerTeam,
   type DistrictPointDistribution,
   type DistrictStageFinality,
+  type SettledPlayoffs,
 } from "./districtLedgerRows.js";
 
 type DistrictTeam = DistrictArtifact["teams"][number];
@@ -177,12 +179,30 @@ function simulatedDcmpReading(pricing: SimulatedDcmpPricing, teamKey: string): S
   return record === undefined ? { kind: "unavailable" } : { kind: "baked", record };
 }
 
-/** One source event behind a row, for the row's small line ("{short name} Wk {week + 1} · {stage word}"). */
+/**
+ * One source event behind a row, for the row's small line ("{short name} Wk
+ * {week + 1} · {stage word}"), and the per event facts the status module's
+ * floor and ceiling read: the stage, and since quick task 261008-26o the
+ * playoff points a knocked out team's Playoffs are settled at.
+ */
 export interface ChampLedgerSource {
   readonly eventKey: string;
   readonly eventName: string;
   readonly week: number | null;
   readonly stage: DistrictEventStage;
+  /** The pass row's own `settledElim` (`DistrictLedgerEventRow`), present only where that row carries one. */
+  readonly settledElim?: SettledPlayoffs;
+}
+
+/** One pass row as a source, copying `settledElim` only where it is defined so a source without it deep equals the shipped one. */
+function sourceOf(row: DistrictLedgerEventRow): ChampLedgerSource {
+  return {
+    eventKey: row.eventKey,
+    eventName: row.eventName,
+    week: row.week,
+    stage: row.stage,
+    ...(row.settledElim === undefined ? {} : { settledElim: row.settledElim }),
+  };
 }
 
 /** One of a team's two rows: its four category cells, its subtotal and the events behind it. */
@@ -822,7 +842,7 @@ function foldDistrictRow(
     kind: "district",
     cells,
     subtotal,
-    sources: entry.rows.map((row) => ({ eventKey: row.eventKey, eventName: row.eventName, week: row.week, stage: row.stage })),
+    sources: entry.rows.map(sourceOf),
     estimated: false,
   };
 }
@@ -925,7 +945,7 @@ function buildDcmpRow(
 ): { readonly row: ChampLedgerRow; readonly winChance: number; readonly outsideSimulatedField: boolean } {
   const row = entry.rows[0];
   const sources: ChampLedgerSource[] =
-    row === undefined ? [] : [{ eventKey: row.eventKey, eventName: row.eventName, week: row.week, stage: row.stage }];
+    row === undefined ? [] : [sourceOf(row)];
 
   const wholeRow = (
     kind: "notInField" | "notYetPriced" | "outOfRange",
