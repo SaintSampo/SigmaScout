@@ -281,6 +281,15 @@ export interface DistrictLedgerEventRow {
   readonly earned: DistrictEventPoints | undefined;
   /** This event's per-tier ceiling for a wholly unstarted row, as `remainingEvents.maxPoints` published it. `undefined` for an event the team has already played. */
   readonly remainingMaxPoints: number | undefined;
+  /**
+   * THE PLAYOFF POINTS THIS TEAM'S PLAYOFFS ARE SETTLED AT while the event's
+   * own Playoffs stage is still open (quick task 261008-26o): its alliance's
+   * bracket placement is decided, so the Playoffs cell is grey at this value
+   * (`settledPlayoffPoints`). Both status modules read it, putting the value in
+   * the floor and adding no Playoffs ceiling. Absent everywhere else, so a row
+   * without it deep equals the shipped row.
+   */
+  readonly settledElim?: number;
 }
 
 /** One team's whole ledger entry: its district-tier rows, its grand total, and the projection the sort and the status both read. */
@@ -1082,6 +1091,8 @@ function playoffMilestoneFor(
   distribution: DistrictPointDistribution
 ): DistrictPlayoffMilestone | undefined {
   if (milestone === undefined || milestone.kind === "alive") return undefined;
+  // Unreachable from `buildDistrictLedgerRows` since quick task 261008-26o,
+  // which settles a decided placement as a grey cell before this is reached.
   if (milestone.kind === "decided") {
     return { kind: "placed", placement: milestone.placement, points: playoffPoints(season, tier, milestone.placement) };
   }
@@ -1093,6 +1104,46 @@ function playoffMilestoneFor(
   return milestone.kind === "finals"
     ? { kind: "winner", chance: summary.chance, conditionalMedian: summary.conditionalMedian }
     : { kind: "finalist", chance: summary.chance, conditionalMedian: summary.conditionalMedian };
+}
+
+export interface SettledPlayoffPointsOptions {
+  readonly season: number;
+  readonly tier: DistrictTier;
+  /** The event's stage at the POSITION. */
+  readonly final: DistrictStageFinality;
+  /** Whether the event's playoffs are final at NOW, from its own state block. */
+  readonly elimFinalAtNow: boolean;
+  /** The artifact's own per-component row for this (team, event), when TBA has published one. */
+  readonly earned: Pick<DistrictEventPoints, "elim"> | undefined;
+  /** How far this team's alliance has got in the event's bracket at the position, as the run reported it. */
+  readonly milestone: AllianceBracketMilestone | undefined;
+}
+
+/**
+ * THE PLAYOFF POINTS A TEAM KNOCKED OUT OF THE PLAYOFFS IS SETTLED AT, or
+ * `undefined` where nothing is settled (quick task 261008-26o).
+ *
+ * Settled ONLY where the team's alliance's bracket placement is DECIDED at the
+ * position: the played sets fix it, and the alliance cannot earn another
+ * playoff point. Finalists, alliances still alive and a position whose
+ * playoffs are already final return `undefined`; the last because the shipped
+ * final cell already prints TBA's number.
+ *
+ * A team left off every alliance is NOT settled at zero, even once selection
+ * is final: a backup robot is called from that pool during the playoffs and is
+ * paid the alliance's placement points, so its playoff points stay open until
+ * the playoffs are final.
+ *
+ * THE VALUE is the artifact's own `elim` where the event's playoffs are final
+ * at Now and TBA has a row (every rewound stop over a finished event);
+ * otherwise the decided placement's points at this tier, from `playoffPoints`.
+ */
+export function settledPlayoffPoints(options: SettledPlayoffPointsOptions): number | undefined {
+  const { season, tier, final, elimFinalAtNow, earned, milestone } = options;
+  if (final.elim) return undefined;
+  if (milestone?.kind !== "decided") return undefined;
+  if (elimFinalAtNow && earned !== undefined) return earned.elim;
+  return playoffPoints(season, tier, milestone.placement);
 }
 
 // ---------------------------------------------------------------------------
@@ -1221,6 +1272,17 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
       // A REGISTERED TEAM ON NO POSTED QUALIFICATION ROW (quick task
       // 260927-vmb). Its event's own run priced it from awards alone.
       const awardOnly = distributions.get(entry.eventKey)?.awardOnlyTeams?.has(team.teamKey) === true;
+      // A TEAM KNOCKED OUT OF THE PLAYOFFS (quick task 261008-26o): its
+      // alliance's placement is decided, so its Playoffs cell is settled while
+      // the event's own Playoffs stage stays open.
+      const settledElim = settledPlayoffPoints({
+        season,
+        tier,
+        final,
+        elimFinalAtNow: derived.final.elim,
+        earned: entry.earned,
+        milestone: distributions.get(entry.eventKey)?.playoffMilestoneByTeam?.get(team.teamKey),
+      });
       const eventPending = pendingEvent(entry.eventKey);
       if (entry.earned !== undefined) earnedDistrictTotal += entry.earned.total;
       earnedAtPosition += earnedAtStage(entry.earned, final, stageByEvent !== undefined);
@@ -1236,12 +1298,20 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
           // pooled lock read the same event facts they always did.
           return { id, cell: category, kind: "final", earned: entry.earned === undefined ? 0 : entry.earned[category] };
         }
+        if (category === "elim" && settledElim !== undefined) {
+          // SETTLED BY THE BRACKET (quick task 261008-26o). Grey, never an open
+          // category, and `row.stage` stays the event's, exactly as the award
+          // only branch above. The status modules read `row.settledElim`.
+          return { id, cell: category, kind: "final", earned: settledElim };
+        }
         if (final[category]) {
           // THE GREY NUMBER IS ALWAYS THE ARTIFACT'S OWN `eventPoints[category]`,
           // never a value derived from the simulation: 10-04's ranking
           // comparator's team-key tiebreak is not TBA's official tiebreak, so a
           // derived qualification-points value can honestly disagree with the
-          // earned one for tied teams.
+          // earned one for tied teams. The settled Playoffs value above is the
+          // one exception, because a decided placement is a bracket fact the
+          // played sets fix, unlike a derived qualification rank.
           if (entry.earned === undefined) return { id, cell: category, kind: "unavailable" };
           return { id, cell: category, kind: "final", earned: entry.earned[category] };
         }
@@ -1318,6 +1388,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
         eventTotal,
         earned: entry.earned,
         remainingMaxPoints: entry.remainingMaxPoints,
+        ...(settledElim === undefined ? {} : { settledElim }),
       });
     }
 

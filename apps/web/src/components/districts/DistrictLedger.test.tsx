@@ -2395,15 +2395,20 @@ describe("DistrictLedger — the playoff milestone advances with the bracket", (
     }
   });
 
-  it("prints the PLACEMENT for an alliance the bracket has already decided, with no chance beside it", async () => {
+  it("settles the Playoffs cell GREY for an alliance the bracket has already decided, with no chance beside it (261008-26o)", async () => {
     await renderPlayoffs();
-    // Alliance 5 lost sf2 and then sf5: out at seventh, which pays nothing.
-    for (const teamKey of allianceRoster(5)) {
-      expect(elimTextFor(teamKey), teamKey).toBe("~07th place");
-    }
-    // Alliance 6 lost sf4 and then sf6: out at eighth.
-    for (const teamKey of allianceRoster(6)) {
-      expect(elimTextFor(teamKey), teamKey).toBe("~08th place");
+    const kindFor = (teamKey: string): string | null => {
+      for (const row of document.querySelectorAll(`[data-team="${teamKey}"]`)) {
+        const cell = row.querySelector('[data-cell-id="2026waplay:elim"]');
+        if (cell !== null) return cell.getAttribute("data-cell");
+      }
+      return null;
+    };
+    // Alliance 5 lost sf2 and then sf5: out at seventh, and alliance 6 lost
+    // sf4 and then sf6: out at eighth. Both pay nothing, settled at once.
+    for (const teamKey of [...allianceRoster(5), ...allianceRoster(6)]) {
+      expect(kindFor(teamKey), teamKey).toBe("final");
+      expect(elimTextFor(teamKey), teamKey).toBe("0");
     }
   });
 

@@ -60,6 +60,15 @@
  * but left a team out. Prequalified, Locked and Locked out are never touched
  * by any of that.
  *
+ * A TEAM KNOCKED OUT OF THE PLAYOFFS HAS ITS PLAYOFF POINTS SETTLED AT ONCE
+ * (quick task 261008-26o). The settled set comes from the row builder
+ * (`row.settledElim`, from `settledPlayoffPoints`), never from a second reading
+ * of the bracket here; `districtLockBounds` puts it in the floor and adds no
+ * Playoffs ceiling. The award ceiling and the Impact reservation are
+ * unchanged. `pooledLockInputs` still reads event finality, so it keeps
+ * counting a settled alliance's share of the playoff pool, which only delays a
+ * pooled lock: the conservative side.
+ *
  * THE DATA WORD `eliminated` IS NEVER PRINTED (the sketch's language rules),
  * and neither is the champ tab's sixth verdict word for `contending`. Note
  * carefully that the shipped champ tab's own label for `eliminated` reads as
@@ -284,6 +293,14 @@ export interface DistrictLockBounds {
  * A wholly unstarted event contributes all four ceilings, which equals its own
  * `remainingEvents.maxPoints`. With no rows the floor is the team's whole
  * district tier total and the ceiling is zero.
+ *
+ * ONE EXCEPTION, A SETTLED PLAYOFFS CATEGORY (quick task 261008-26o). A row
+ * carrying `settledElim` has its Playoffs category open in its stage but its
+ * alliance's placement decided. Its earned `elim` (0 where TBA has no row)
+ * still leaves the floor, the settled value joins it, and NO Playoffs ceiling
+ * is added. Live mid playoffs that adds points `pointTotal` may not carry yet;
+ * rewound over a finished event the settled value IS TBA's `elim`, so the two
+ * cancel and the floor is unchanged.
  */
 export function districtLockBounds(
   source: DistrictArtifact["teams"][number],
@@ -302,6 +319,12 @@ export function districtLockBounds(
       // Reopened (or never earned): this category's earned points leave the
       // floor and its ceiling joins the ceiling.
       if (row.earned !== undefined) floor -= row.earned[category];
+      if (category === "elim" && row.settledElim !== undefined) {
+        // Knocked out of the playoffs: the settled points join the floor and
+        // no Playoffs ceiling is added.
+        floor += row.settledElim;
+        continue;
+      }
       openCeiling += ceilings[category];
     }
   }

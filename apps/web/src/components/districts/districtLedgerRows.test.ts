@@ -38,6 +38,7 @@ import {
   inProgressDistrictEventKeys,
   playedBracketMatchesFor,
   pointMassDistribution,
+  settledPlayoffPoints,
   type DistrictEventDistributions,
   type DistrictPointDistribution,
   type DistrictStageFinality,
@@ -1462,6 +1463,42 @@ describe("districtEventContributions", () => {
   });
 });
 
+describe("settledPlayoffPoints (quick task 261008-26o)", () => {
+  const OPEN_PLAYOFFS: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
+  const base = { season: SEASON, tier: "district" as const, final: OPEN_PLAYOFFS, elimFinalAtNow: false, earned: undefined };
+
+  it("settles a DECIDED placement at that placement's district tier points while the playoffs are open at Now", () => {
+    expect(settledPlayoffPoints({ ...base, milestone: { kind: "decided", placement: 4 } })).toBe(7);
+    expect(settledPlayoffPoints({ ...base, milestone: { kind: "decided", placement: 1 } })).toBe(30);
+    expect(settledPlayoffPoints({ ...base, milestone: { kind: "decided", placement: 6 } })).toBe(0);
+  });
+
+  it("applies the dcmp tier's own weight", () => {
+    expect(settledPlayoffPoints({ ...base, tier: "dcmp", milestone: { kind: "decided", placement: 3 } })).toBe(39);
+  });
+
+  it("reads the artifact's own elim where the playoffs are final at Now and TBA has a row", () => {
+    expect(settledPlayoffPoints({ ...base, elimFinalAtNow: true, earned: { elim: 11 }, milestone: { kind: "decided", placement: 4 } })).toBe(11);
+    // Final at Now with NO row falls back to the placement's points.
+    expect(settledPlayoffPoints({ ...base, elimFinalAtNow: true, milestone: { kind: "decided", placement: 4 } })).toBe(7);
+    // A row while the playoffs are still open at Now is TBA's partial number,
+    // not the settled one.
+    expect(settledPlayoffPoints({ ...base, earned: { elim: 0 }, milestone: { kind: "decided", placement: 4 } })).toBe(7);
+  });
+
+  it("settles nothing for an alliance still in the bracket, or with no bracket progress", () => {
+    for (const milestone of [{ kind: "finals" }, { kind: "topFour" }, { kind: "alive" }, undefined] as const) {
+      expect(settledPlayoffPoints({ ...base, milestone }), String(milestone?.kind)).toBeUndefined();
+    }
+  });
+
+  it("settles nothing once the position's playoffs are final, where the shipped final cell already prints TBA's number", () => {
+    expect(
+      settledPlayoffPoints({ ...base, final: { ...OPEN_PLAYOFFS, elim: true }, milestone: { kind: "decided", placement: 4 } })
+    ).toBeUndefined();
+  });
+});
+
 describe("the Playoffs cell's milestone", () => {
   const eventKey = "2026wamile";
   const districtArtifact = artifactOf([
@@ -1536,11 +1573,76 @@ describe("the Playoffs cell's milestone", () => {
     expect(milestone.conditionalMedian).toBeCloseTo(30, 10);
   });
 
-  it("carries the PLACEMENT and its own point value once the bracket has decided, with no chance left to print", () => {
-    const milestone = cellFor({ kind: "decided", placement: 4 }).playoffMilestone!;
-    expect(milestone).toEqual({ kind: "placed", placement: 4, points: 7 });
-    expect(cellFor({ kind: "decided", placement: 1 }).playoffMilestone).toEqual({ kind: "placed", placement: 1, points: 30 });
-    expect(cellFor({ kind: "decided", placement: 6 }).playoffMilestone).toEqual({ kind: "placed", placement: 6, points: 0 });
+  /**
+   * One team's row once its alliance's bracket placement is DECIDED (quick
+   * task 261008-26o). `live` puts the event at Now with its playoffs and
+   * awards still open, so the settled value is derived from the placement;
+   * otherwise the artifact's state block is finished and the position is a
+   * rewound stop that reopens the playoffs, so the value is TBA's own `elim`.
+   */
+  function settledRowFor(milestone: AllianceBracketMilestone, options: { readonly live: boolean; readonly artifactElim?: number }) {
+    const elim = options.artifactElim ?? 0;
+    const artifact = artifactOf([
+      team({
+        teamKey: "frc1",
+        pointTotal: elim,
+        eventPoints: [
+          eventPoints({
+            eventKey,
+            qual: 0,
+            alliance: 0,
+            elim,
+            award: 0,
+            total: elim,
+            state: options.live ? state({ playoffsDone: false, awardsPosted: false }) : state(),
+          }),
+        ],
+        awardProfile: { bucket: "none", rookie: false },
+      }),
+    ]);
+    const record = { qual: undefined, alliance: undefined, elim: elimDistribution(), award: undefined, eventTotal: undefined, grandTotal: undefined };
+    const rows = buildDistrictLedgerRows({
+      artifact,
+      distributions: new Map<string, DistrictEventDistributions>([
+        [eventKey, { eventKey, byTeam: new Map([["frc1", record]]), playoffMilestoneByTeam: new Map([["frc1", milestone]]) }],
+      ]),
+      ...(options.live ? {} : { stageByEvent: new Map([[eventKey, { qual: true, alliance: true, elim: false, award: false }]]) }),
+    });
+    return rows.teams[0]!.rows[0]!;
+  }
+
+  it("settles a DECIDED placement as a grey Playoffs cell at that placement's own points while the event's playoffs are open at Now", () => {
+    for (const [placement, points] of [
+      [4, 7],
+      [1, 30],
+      [6, 0],
+    ] as const) {
+      const row = settledRowFor({ kind: "decided", placement }, { live: true });
+      const cell = row.cells.find((entry) => entry.cell === "elim")!;
+      expect(cell, `placement ${String(placement)}`).toEqual({ id: districtCellId(eventKey, "elim"), cell: "elim", kind: "final", earned: points });
+      expect(row.settledElim, `placement ${String(placement)}`).toBe(points);
+      // The event's OWN stage is untouched: its playoffs are still open.
+      expect(row.stage.final.elim).toBe(false);
+      expect(row.stage.final.award).toBe(false);
+      // The event total stays open, because the awards are.
+      expect(row.eventTotal.kind).not.toBe("final");
+    }
+  });
+
+  it("prints TBA's own elim at a rewound stop over an event whose playoffs are final at Now", () => {
+    // 11 is not on the placement table: the grey number is the artifact's,
+    // never a value derived beside it, wherever TBA has published one.
+    const row = settledRowFor({ kind: "decided", placement: 3 }, { live: false, artifactElim: 11 });
+    const cell = row.cells.find((entry) => entry.cell === "elim")!;
+    expect(cell).toEqual({ id: districtCellId(eventKey, "elim"), cell: "elim", kind: "final", earned: 11 });
+    expect(row.settledElim).toBe(11);
+    expect(row.stage.final.elim).toBe(false);
+  });
+
+  it("leaves a row with no decided placement WITHOUT a settledElim key, so it deep equals the shipped row", () => {
+    const row = settledRowFor({ kind: "finals" }, { live: true });
+    expect("settledElim" in row).toBe(false);
+    expect(row.cells.find((entry) => entry.cell === "elim")!.kind).toBe("open");
   });
 
   it("puts a milestone on the PLAYOFFS cell only — the other three categories are untouched", () => {

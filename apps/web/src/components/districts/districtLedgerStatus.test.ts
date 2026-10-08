@@ -783,3 +783,113 @@ describe("the committed 2026 PNW fixture, district tier floor at four positions 
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Quick task 261008-26o: a team knocked out of the playoffs has its playoff
+// points settled at once.
+// ---------------------------------------------------------------------------
+
+describe("a decided playoff placement settles that team's playoff points (261008-26o)", () => {
+  /** Qualification and alliance selection done, playoffs and awards open: the event at Now, mid playoffs. */
+  const LIVE: DistrictEventState = { qualMatchesPlayed: 12, qualMatchesTotal: 12, alliancesPicked: true, playoffsDone: false, awardsPosted: false };
+  const OPEN_PLAYOFFS: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
+
+  function eventRow(eventKey: string, points: { qual: number; alliance: number; elim: number; award: number }, state: DistrictEventState) {
+    const total = points.qual + points.alliance + points.elim + points.award;
+    return { eventKey, eventName: `Event ${eventKey}`, week: 2, tier: "district" as const, ...points, total, state };
+  }
+
+  /** The distributions entry a run hands the row builder: no histograms needed, only the bracket facts. */
+  function decided(eventKey: string, placements: Readonly<Record<string, number>>): ReadonlyMap<string, DistrictEventDistributions> {
+    return new Map([
+      [
+        eventKey,
+        {
+          eventKey,
+          byTeam: new Map(),
+          playoffMilestoneByTeam: new Map(Object.entries(placements).map(([teamKey, placement]) => [teamKey, { kind: "decided" as const, placement }])),
+        },
+      ],
+    ]);
+  }
+
+  function boundsFor(
+    artifact: DistrictArtifact,
+    distributions: ReadonlyMap<string, DistrictEventDistributions>,
+    stageByEvent?: ReadonlyMap<string, DistrictStageFinality>
+  ) {
+    const rows = buildDistrictLedgerRows({ artifact, distributions, stageByEvent });
+    return districtLockBounds(artifact.teams[0]!, rows.teams[0]!.rows, CEILINGS);
+  }
+
+  it("live with no TBA row yet: the floor gains the settled points and the playoffs add no ceiling", () => {
+    const artifact = artifactOf([
+      team("frc1", { pointTotal: 50, eventPoints: [played("x", 50)], remainingEvents: [ahead("a", 3, LIVE)], maxRemainingDistrict: EVENT_MAX }),
+    ]);
+    // Fourth place pays 7 at the district tier.
+    expect(boundsFor(artifact, decided("a", { frc1: 4 }))).toEqual({ floor: 57, openCeiling: CEILINGS.award });
+  });
+
+  it("live with TBA's partial elim already inside pointTotal: that elim leaves the floor and the settled value replaces it", () => {
+    const artifact = artifactOf([team("frc1", { pointTotal: 37, eventPoints: [eventRow("a", { qual: 20, alliance: 10, elim: 7, award: 0 }, LIVE)] })]);
+    // Third place pays 13: 37 - 7 + 13.
+    expect(boundsFor(artifact, decided("a", { frc1: 3 }))).toEqual({ floor: 43, openCeiling: CEILINGS.award });
+  });
+
+  it("rewound over a finished event: the settled value IS TBA's elim, so the floor nets to pointTotal and no elim ceiling is added", () => {
+    const artifact = artifactOf([team("frc1", { pointTotal: 43, eventPoints: [eventRow("a", { qual: 20, alliance: 10, elim: 13, award: 0 }, FINISHED)] })]);
+    expect(boundsFor(artifact, decided("a", { frc1: 3 }), new Map([["a", OPEN_PLAYOFFS]]))).toEqual({ floor: 43, openCeiling: CEILINGS.award });
+  });
+
+  it("an UNSETTLED reopened Playoffs category still subtracts its earned elim and adds the elim ceiling", () => {
+    const artifact = artifactOf([team("frc1", { pointTotal: 43, eventPoints: [eventRow("a", { qual: 20, alliance: 10, elim: 13, award: 0 }, FINISHED)] })]);
+    expect(boundsFor(artifact, NO_DISTRIBUTIONS, new Map([["a", OPEN_PLAYOFFS]]))).toEqual({
+      floor: 30,
+      openCeiling: CEILINGS.elim + CEILINGS.award,
+    });
+  });
+
+  /**
+   * Three teams at one event mid playoffs, two DCMP slots, one held back for
+   * the event's Impact award still to come, so one slot is in the points race.
+   * The leader sits 20 clear. Under the blunt rule each rival keeps the whole
+   * 30 point playoff ceiling, reaches the leader's floor, and the leader cannot
+   * be Locked. Once both rivals' alliances are knocked out at fifth and sixth,
+   * neither can earn another playoff point, only the 15 award points remain,
+   * and neither can reach 40.
+   */
+  function knockedOutArtifact(): DistrictArtifact {
+    return artifactOf(
+      [
+        team("frc1", { pointTotal: 40, eventPoints: [eventRow("a", { qual: 30, alliance: 10, elim: 0, award: 0 }, LIVE)] }),
+        team("frc2", { pointTotal: 20, eventPoints: [eventRow("a", { qual: 15, alliance: 5, elim: 0, award: 0 }, LIVE)] }),
+        team("frc3", { pointTotal: 20, eventPoints: [eventRow("a", { qual: 15, alliance: 5, elim: 0, award: 0 }, LIVE)] }),
+      ],
+      { dcmpSlots: 2 }
+    );
+  }
+
+  function modelWith(distributions: ReadonlyMap<string, DistrictEventDistributions>) {
+    const artifact = knockedOutArtifact();
+    const rows = buildDistrictLedgerRows({ artifact, distributions });
+    return computeDistrictLedgerStatuses({ artifact, teams: rows.teams });
+  }
+
+  it("reads the leader contending under the blunt rule, and the pooled argument does not already lock it", () => {
+    const blunt = modelWith(NO_DISTRIBUTIONS);
+    expect(blunt.reservedSlots).toBe(1);
+    expect(blunt.byTeam.get("frc1")!.verdict).toBe("contending");
+    expect(blunt.byTeam.get("frc1")!.lockedBy).toBeNull();
+    // Each rival's blunt ceiling reaches the leader's floor.
+    expect(20 + CEILINGS.elim + CEILINGS.award).toBeGreaterThanOrEqual(40);
+  });
+
+  it("locks the leader once both rivals' placements are decided at fifth and sixth", () => {
+    const settled = modelWith(decided("a", { frc2: 5, frc3: 6 }));
+    expect(settled.reservedSlots).toBe(1);
+    expect(settled.byTeam.get("frc1")!.verdict).toBe("locked");
+    expect(settled.byTeam.get("frc1")!.status).toBe("locked");
+    // The rivals' ceilings are their floors plus the award ceiling alone.
+    expect(20 + CEILINGS.award).toBeLessThan(40);
+  });
+});
