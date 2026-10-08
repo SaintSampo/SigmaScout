@@ -147,12 +147,12 @@ describe("the UI-SPEC copy contract", () => {
     for (const definition of Object.values(CHAMP_LEDGER_STATUS_DEFINITIONS)) expect(definition).not.toMatch(/[\u002d\u2010-\u2015\u2212]/);
   });
 
-  it("pins the two legend keys and the likely/tilde explainer character for character", () => {
+  it("pins the two legend keys and the likely, tilde and percent explainer character for character", () => {
     expect(DISTRICT_LEDGER_LEGEND_EARNED).toBe("earned, final");
     expect(DISTRICT_LEDGER_LEGEND_OPEN).toBe("still open · click to see");
     expect(districtLedgerRookieBonusLine(10)).toBe("+10 rookie bonus");
     expect(districtLedgerRookieBonusLine(5)).toBe("+5 rookie bonus");
-    expect(DISTRICT_LEDGER_LEGEND_EXPLAINER).toBe("likely = 8 of 10 runs land here · ~ = this site's prediction, not a number TBA published");
+    expect(DISTRICT_LEDGER_LEGEND_EXPLAINER).toBe("likely = 8 of 10 runs land here · ~ = this site's predicted points · % = share of 1,000 runs");
   });
 
   it("pins the five status labels and the award variant", () => {
@@ -385,16 +385,19 @@ describe("the playoff milestone words", () => {
     expect(districtLedgerPlacementLine(0)).toBe("place 0");
   });
 
-  it("prints an outcome chance in the three cases that mean three different things", () => {
-    // A tilde for a prediction.
-    expect(districtLedgerOutcomeChance(0.4)).toBe("~40%");
-    expect(districtLedgerOutcomeChance(0.005)).toBe("~1%");
-    // Unlikely, not impossible: never `~0%`.
+  it("prints an outcome chance in the three cases that mean three different things, with no tilde and never 100 (261008-3il)", () => {
+    // A whole percent for a prediction.
+    expect(districtLedgerOutcomeChance(0.4)).toBe("40%");
+    expect(districtLedgerOutcomeChance(0.005)).toBe("1%");
+    // Unlikely, not impossible: never `0%`.
     expect(districtLedgerOutcomeChance(0.004)).toBe("<1%");
     expect(districtLedgerOutcomeChance(0.0001)).toBe("<1%");
-    // No run produced it at all — a count, so no tilde.
+    // No run produced it at all, a count.
     expect(districtLedgerOutcomeChance(0)).toBe("0%");
-    expect(districtLedgerOutcomeChance(0)).not.toContain("~");
+    // A team is never given a 100 percent verdict.
+    expect(districtLedgerOutcomeChance(0.996)).toBe("99%");
+    expect(districtLedgerOutcomeChance(1)).toBe("99%");
+    for (const chance of [0, 0.004, 0.005, 0.4, 0.996, 1]) expect(districtLedgerOutcomeChance(chance)).not.toContain("~");
     // And nothing here carries the plus-minus codepoint.
     for (const chance of [0, 0.004, 0.4, 1]) expect(districtLedgerOutcomeChance(chance)).not.toContain("±");
   });
@@ -607,13 +610,18 @@ describe("the Champ Locks copy contract", () => {
     for (const text of [CHAMP_LEDGER_OUT_OF_RANGE_CELL, CHAMP_LEDGER_OUT_OF_RANGE_LINE]) expect(text).not.toMatch(/[-\u2013\u2014]/);
   });
 
-  it("prints the field chance with a mandatory tilde, inside the same 5 to 99 band the status line uses", () => {
-    expect(champLedgerFieldChanceLine(0.62)).toBe("~62% to be there");
-    expect(champLedgerFieldChanceLine(1)).toBe("~99% to be there");
-    expect(champLedgerFieldChanceLine(0.995)).toBe("~99% to be there");
+  it("prints the field chance with no tilde, inside the same 5 to 99 band the status line uses (261008-3il)", () => {
+    expect(champLedgerFieldChanceLine(0.62)).toBe("62% to be there");
+    expect(champLedgerFieldChanceLine(1)).toBe("99% to be there");
+    expect(champLedgerFieldChanceLine(0.995)).toBe("99% to be there");
     expect(champLedgerFieldChanceLine(0.049)).toBe("<5% to be there");
     expect(champLedgerFieldChanceLine(0)).toBe("<5% to be there");
-    expect(champLedgerFieldChanceLine(0.05)).toBe("~5% to be there");
+    expect(champLedgerFieldChanceLine(0.05)).toBe("5% to be there");
+  });
+
+  it("caps the drawer's chance of points tile at 99 with no tilde (261008-3il)", () => {
+    expect(districtLedgerVerdictChanceOfPoints(1)).toBe("99%");
+    expect(districtLedgerVerdictChanceOfPoints(0.62)).toBe("62%");
   });
 
   it("writes the District points row's small line as short name, one based week, stage word", () => {

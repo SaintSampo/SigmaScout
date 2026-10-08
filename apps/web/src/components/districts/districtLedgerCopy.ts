@@ -163,8 +163,12 @@ export function districtLedgerPlacementLine(placement: number): string {
 export const DISTRICT_LEDGER_LEGEND_EARNED = "earned, final";
 export const DISTRICT_LEDGER_LEGEND_OPEN = "still open · click to see";
 
-/** The likely/tilde explainer, verbatim from the UI-SPEC. */
-export const DISTRICT_LEDGER_LEGEND_EXPLAINER = "likely = 8 of 10 runs land here · ~ = this site's prediction, not a number TBA published";
+/**
+ * The likely, tilde and percent explainer (quick task 261008-3il): the tilde
+ * marks this site's predicted POINTS, and a percentage, which never carries a
+ * tilde, is a share of the 1,000 runs.
+ */
+export const DISTRICT_LEDGER_LEGEND_EXPLAINER = "likely = 8 of 10 runs land here · ~ = this site's predicted points · % = share of 1,000 runs";
 
 // ---------------------------------------------------------------------------
 // The Locks milestone picker (sketch 024 variant Q)
@@ -533,16 +537,18 @@ export const DISTRICT_LEDGER_OUTCOME_LIST_LABELS = {
 } as const;
 
 /**
- * One outcome row's chance, as one string.
+ * One outcome row's chance, as one string. No percentage on either Locks tab
+ * carries a tilde (quick task 261008-3il).
  *
  * THREE CASES, and the difference between them is what the reader is being told:
  *
- *   exactly zero  -> `0%`, with NO tilde. No run produced this outcome, which is
- *                    a count rather than an estimate, and a tilde would suggest
- *                    a number that could round the other way.
- *   under a half   -> `<1%`, because `~0%` beside a non-zero chance reads as
+ *   exactly zero  -> `0%`. No run produced this outcome, which is a count
+ *                    rather than an estimate.
+ *   under a half   -> `<1%`, because `0%` beside a non-zero chance reads as
  *                    impossible when it is merely unlikely.
- *   anything else  -> `~NN%`, the tab's own tilde convention for a prediction.
+ *   anything else  -> the whole percent, capped at
+ *                    `DISTRICT_LEDGER_CHANCE_CEILING_PERCENT`, because a team is
+ *                    never given a 100 percent verdict.
  *
  * Deliberately NOT `districtLedgerChanceLine`'s 5-to-99 band: that band is about
  * a chance printed as a VERDICT beside a team's status, where a 2% reads as a
@@ -552,7 +558,7 @@ export const DISTRICT_LEDGER_OUTCOME_LIST_LABELS = {
 export function districtLedgerOutcomeChance(chance: number): string {
   if (chance <= 0) return "0%";
   if (chance < 0.005) return "<1%";
-  return `~${String(Math.round(chance * 100))}%`;
+  return districtLedgerCellChance(chance);
 }
 
 /** The Team cell's rookie bonus line, printed only when the bonus is non zero: 10 points in a team's first season, 5 in its second, added once per season. */
@@ -806,12 +812,13 @@ export const CHAMP_LEDGER_DISTRICT_ONLY_LINE = "district only";
  *
  * Clamped by the SAME pair `districtLedgerChanceLine` uses, for the same two
  * reasons, so the two lines can never disagree about what a printable chance
- * is. The tilde is mandatory: every blue figure on this site carries one.
+ * is. No tilde: a percentage on either Locks tab never carries one, and the
+ * tilde marks predicted points alone (quick task 261008-3il).
  */
 export function champLedgerFieldChanceLine(chance: number): string {
   if (chance * 100 < DISTRICT_LEDGER_CHANCE_FLOOR_PERCENT) return `<${String(DISTRICT_LEDGER_CHANCE_FLOOR_PERCENT)}% to be there`;
   const percent = Math.min(Math.round(chance * 100), DISTRICT_LEDGER_CHANCE_CEILING_PERCENT);
-  return `~${String(percent)}% to be there`;
+  return `${String(percent)}% to be there`;
 }
 
 /** One source event on the District points row's small line. The stage is a KEY into `DISTRICT_LEDGER_STAGE_WORDS`, so the word is looked up here rather than assembled at a call site. */
@@ -1077,9 +1084,9 @@ export function districtLedgerVerdictOutcomeHeadline(label: string, chance: numb
   return `${label} in ${String(Math.round(100 * chance))} of 100 runs.`;
 }
 
-/** The chance of points tile. */
+/** The chance of points tile: the cell's own chance, capped at 99 with no tilde (quick task 261008-3il). */
 export function districtLedgerVerdictChanceOfPoints(chance: number): string {
-  return `${String(Math.round(100 * chance))}%`;
+  return districtLedgerCellChance(chance);
 }
 
 /** The eyebrow: the cell's title, then the team. */

@@ -324,6 +324,16 @@ describe("districtLedgerContent: the rewound view and the championship field (26
       for (const text of section.paragraphs) expect(text).not.toMatch(/know more|knows more/);
     }
   });
+
+  it("describes the open cell grammar and the Playoffs cell's milestones and not picked case (261008-3il)", () => {
+    const paragraphs = paragraphsOf("how-open-categories-are-predicted");
+    expect(paragraphs.find((text) => text.startsWith("An open cell shows"))).toBe(
+      "An open cell shows either a median with a likely range, or a chance followed by the outcome it measures, with the points that outcome pays on the line beneath. Likely means the 10th to the 90th percentile, and no chance is ever printed as 100 percent."
+    );
+    expect(paragraphs.find((text) => text.startsWith("The Playoffs cell asks"))).toBe(
+      "The Playoffs cell asks about the milestone the bracket has actually reached: the top four before the playoffs, the final once an alliance can no longer finish worse than fourth, and the win once it is in the final. An alliance whose placement is already settled shows the points that placement pays. A team on no alliance once alliance selection is over reads not picked, and only a backup call can still earn it playoff points."
+    );
+  });
 });
 
 describe("districtLedgerContent voice", () => {

@@ -1659,12 +1659,13 @@ describe("DistrictLedger — the drawer", () => {
       .getAllByTestId("district-ledger-outcome-row")
       .map((row) => {
         const chance = row.querySelector(".district-ledger-verdict-outcomes__chance")?.textContent ?? "";
-        return { label: row.querySelector(".district-ledger-verdict-outcomes__label")?.textContent ?? "", printed: /^~(\d+)%$/.exec(chance)?.[1] };
+        return { label: row.querySelector(".district-ledger-verdict-outcomes__label")?.textContent ?? "", printed: /^(\d+)%$/.exec(chance)?.[1] };
       });
     const top = Math.max(...rows.map((row) => Number(row.printed ?? 0)));
     const match = /^(.+) in (\d+) of 100 runs\.$/.exec(verdictHeadline(drawer));
     expect(match, verdictHeadline(drawer)).not.toBeNull();
-    expect(Number(match![2])).toBe(top);
+    // The headline is a run count and may read 100; a printed chance stops at 99 (261008-3il).
+    expect(Math.min(Number(match![2]), 99)).toBe(top);
     expect(rows.filter((row) => Number(row.printed ?? 0) === top).map((row) => row.label)).toContain(match![1]);
 
     expect(verdictTiles(drawer).map((tile) => tile.key)).toEqual(["mostLikely", "chanceOfPoints"]);
@@ -2584,7 +2585,7 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
       (cell) => cell.textContent ?? ""
     );
     expect(chances).toHaveLength(4);
-    expect(chances.every((text) => /^(0%|<1%|~\d+%)$/.test(text))).toBe(true);
+    expect(chances.every((text) => /^(0%|<1%|\d+%)$/.test(text))).toBe(true);
   });
 
   it("prints the settled route and its alliance once quals are DONE, in place of a range whose ends are equal", async () => {
@@ -2614,7 +2615,8 @@ describe("DistrictLedger — the alliance selection cell names the likelier rout
     expect(rows.map((row) => row.getAttribute("data-outcome"))).toEqual(["captain"]);
     // A point mass: one value, no range.
     expect(list.querySelector('[data-outcome="captain"] .district-ledger-verdict-outcomes__points')?.textContent).toMatch(/^\d+ pts$/);
-    expect(list.querySelector('[data-outcome="captain"] .district-ledger-verdict-outcomes__chance')?.textContent).toBe("~100%");
+    // NEVER 100 (261008-3il): every run agreed, and the row still prints 99%.
+    expect(list.querySelector('[data-outcome="captain"] .district-ledger-verdict-outcomes__chance')?.textContent).toBe("99%");
   });
 
   it("leaves a settled second pick with NO captain row, which is the omission Jacob asked for", async () => {

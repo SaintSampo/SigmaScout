@@ -629,7 +629,8 @@ describe("ChampLocksLedger — the district season, before registrations open", 
     for (const cell of dcmpSources) {
       const text = cell.textContent ?? "";
       if (!text.includes("to be there")) continue;
-      expect(text).toMatch(/(~\d+% to be there|<5% to be there)/);
+      expect(text).toMatch(/(\d+% to be there|<5% to be there)/);
+      expect(text).not.toMatch(/~\d+%/);
     }
     for (const line of screen.queryAllByTestId("district-ledger-chance")) {
       const status = line.closest('[data-testid="district-ledger-status-cell"]')?.getAttribute("data-status");
@@ -917,7 +918,7 @@ describe("ChampLocksLedger — the drawer", () => {
           .getAllByTestId("champ-ledger-source-cell")
           .filter((cell) => cell.getAttribute("data-row") === "dcmp")
           .find((cell) => {
-            const match = /(<5|~(\d+))% to be there/.exec(cell.textContent ?? "");
+            const match = /(<5|(\d+))% to be there/.exec(cell.textContent ?? "");
             return match !== null && (match[1] === "<5" || Number(match[2]) < 99);
           });
         expect(open).toBeDefined();

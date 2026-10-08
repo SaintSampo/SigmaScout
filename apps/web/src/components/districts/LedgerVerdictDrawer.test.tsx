@@ -226,7 +226,7 @@ describe("DistrictOutcomeList as labelled chance bars", () => {
     expect(first.querySelector(".district-ledger-verdict-outcomes__track")!.getAttribute("aria-hidden")).toBe("true");
     expect(within(first).getByTestId("district-ledger-outcome-bar").style.width).toBe("5%");
     expect(within(rows[4]!).getByTestId("district-ledger-outcome-bar").style.width).toBe("79%");
-    expect(first.querySelector(".district-ledger-verdict-outcomes__chance")!.textContent).toBe("~5%");
+    expect(first.querySelector(".district-ledger-verdict-outcomes__chance")!.textContent).toBe("5%");
     expect(first.querySelector(".district-ledger-verdict-outcomes__points")!.textContent).toBe("30 pts");
     // No caption anywhere: the list is the whole pane.
     expect(list.textContent).not.toContain("Each row");
