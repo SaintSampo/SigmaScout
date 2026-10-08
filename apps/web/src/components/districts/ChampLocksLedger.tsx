@@ -124,6 +124,7 @@ import {
   buildChampLedgerRows,
   champContributions,
   champFieldMembership,
+  champTeamHiddenAtDcmp,
   champTierEvents,
   dcmpEventKeysFor,
   dcmpStartedForTeam,
@@ -142,6 +143,7 @@ import {
   resolveDistrictTimelinePosition,
   timelineEventsOf,
 } from "./districtTimeline.js";
+import { asOfScheduleStopEventKey } from "./asOfRewind.js";
 import { useAsOfRewind } from "./useAsOfRewind.js";
 import { useSimulatedDcmpBake } from "./useSimulatedDcmpBake.js";
 import {
@@ -454,14 +456,27 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   });
 
   /**
-   * Whether the DCMP has started AT THE POSITION. At "now" that is the
-   * artifact's own `state` block; rewound it is the rail, because a finished
-   * event's state block would report "started" at every position behind it.
+   * The championships whose field is a FACT at the position: one for almost
+   * every district, two for 2026 California (quick task 261006-lwo). At "now"
+   * that is each one's own `state` block; rewound it is the rail, because a
+   * finished event's state block would report "started" at every position
+   * behind it.
+   *
+   * A CHAMPIONSHIP'S OWN SCHEDULE STOP COUNTS (quick task 261007-mxf). Its
+   * schedule is posted there, so its field is a fact: `planAsOfEvent` already
+   * prices that event REAL at its Schedule stop, and the hide rule needs
+   * membership to read out there. This one set carries that through
+   * `skipEventKeys` (the championship joins the main run as REAL), the field
+   * membership, the estimate's field chance and the simulated DCMP (inactive
+   * there).
    */
-  /** The championships that have started AT THE POSITION — one for almost every district, two for 2026 California (quick task 261006-lwo). */
+  const scheduleStopEventKey = asOfScheduleStopEventKey(search.at);
   const startedDcmpEventKeys = useMemo(
-    () => (atNow ? startedDcmpKeysNow : new Set(dcmpEventKeys.filter((key) => eventStartedAtPosition(timeline, positionIndex, key)))),
-    [dcmpEventKeys, atNow, startedDcmpKeysNow, timeline, positionIndex]
+    () =>
+      atNow
+        ? startedDcmpKeysNow
+        : new Set(dcmpEventKeys.filter((key) => eventStartedAtPosition(timeline, positionIndex, key) || key === scheduleStopEventKey)),
+    [dcmpEventKeys, atNow, startedDcmpKeysNow, timeline, positionIndex, scheduleStopEventKey]
   );
 
   function handleCellToggle(teamNumber: number, cellId: string): void {
@@ -837,16 +852,26 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     () => new Set(DISTRICT_LEDGER_STATUS_KEYS.filter((status) => !hiddenStatuses.has(status))),
     [hiddenStatuses]
   );
+  /**
+   * THE HIDE RULE (quick task 261007-mxf): once the District Championship is
+   * the selected event (a championship has started at the position, the reader
+   * is at a DCMP's own Schedule stop, or Now after one started) a team with no
+   * dcmp-tier row leaves the TABLE. Only the table: it stays in `rows.teams`,
+   * so the champ run, the predicted cutoff, the disclosed gaps and the status
+   * counts still see it. The search and the status filter compose with it.
+   */
+  const dcmpSelected = startedDcmpEventKeys.size > 0;
   const visibleTeams = useMemo(() => {
     const trimmed = query.trim();
-    const searched = trimmed.length === 0 ? rows.teams : rows.teams.filter((team) => String(team.teamNumber).startsWith(trimmed));
+    const shown = rows.teams.filter((team) => !champTeamHiddenAtDcmp(team, dcmpSelected));
+    const searched = trimmed.length === 0 ? shown : shown.filter((team) => String(team.teamNumber).startsWith(trimmed));
     if (hiddenStatuses.size === 0) return searched;
     return searched.filter((team) => {
       const status = displayStatuses.byTeam.get(team.teamKey)?.status;
       if (status === undefined || status === "capacityUnknown") return true;
       return !hiddenStatuses.has(status);
     });
-  }, [rows.teams, query, hiddenStatuses, displayStatuses]);
+  }, [rows.teams, query, hiddenStatuses, displayStatuses, dcmpSelected]);
 
   /**
    * At most ONE drawer is open across the whole table, driven by the two typed

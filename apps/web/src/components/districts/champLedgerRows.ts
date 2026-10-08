@@ -385,6 +385,26 @@ export function dcmpStartedForTeam(team: DistrictTeam, startedDcmpEventKeys: Rea
 }
 
 /**
+ * Whether the Champ Locks TABLE omits a team once the District Championship is
+ * the selected event (quick task 261007-mxf): the team has no dcmp-tier row on
+ * the artifact, so it is neither in the championship's field nor eligible for
+ * an award there.
+ *
+ * A judging only registrant already carries a dcmp-tier row and is never
+ * hidden; the hidden teams are exactly the membership `out` teams wherever one
+ * championship is played. The predicate reads the row itself (the DCMP row's
+ * empty `sources`), so it also hides a rowless team while a divisioned (FIM)
+ * or two championship (2026 California) district has started one of them: a
+ * team registered at no championship cannot attend any.
+ *
+ * The table only. The team stays in `rows.teams`, so the champ run, the
+ * predicted cutoff, the disclosed gaps and the status counts still see it.
+ */
+export function champTeamHiddenAtDcmp(team: Pick<ChampLedgerTeam, "dcmpRow">, dcmpSelected: boolean): boolean {
+  return dcmpSelected && team.dcmpRow.sources.length === 0;
+}
+
+/**
  * Whether a team is in the District Championship field, at a POSITION.
  *
  * THREE CASES, and the middle one is the correction this function took on

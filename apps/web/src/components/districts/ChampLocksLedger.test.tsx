@@ -421,7 +421,8 @@ describe("ChampLocksLedger — the finished district and championship", () => {
 
   it("gives every team exactly two rows, labelled District points and DCMP points in that order", async () => {
     renderFinished();
-    await waitFor(() => expect(screen.getAllByTestId("champ-ledger-row").length).toBe(ROSTER.length * 2));
+    // Only the DCMP field renders once the championship has started: the hide rule (261007-mxf).
+    await waitFor(() => expect(screen.getAllByTestId("champ-ledger-row").length).toBe(DCMP_FIELD.size * 2));
     const rows = rowsFor(ROSTER[0]!);
     expect(rows).toHaveLength(2);
     expect(rows.map((row) => row.getAttribute("data-row"))).toEqual(["district", "dcmp"]);
@@ -462,21 +463,60 @@ describe("ChampLocksLedger — the finished district and championship", () => {
     expect(judged.getAttribute("data-status")).toBe("locked");
   });
 
-  it("prints the em dash in all four DCMP cells for a team outside the field, with not in the field under the row label", async () => {
+  /**
+   * THE HIDE RULE (quick task 261007-mxf). Once the championship has started
+   * a team with no dcmp-tier row leaves the table, and only the table: the
+   * status chips still count it. The em dash reading itself is pinned by the
+   * pure row tests (a simulated Locked out team, and the started DCMP's out
+   * team in `champLedgerRows.test.ts`).
+   */
+  it("omits a team outside the field once the DCMP has started, and still counts it", async () => {
     renderFinished();
     await waitFor(() => expect(screen.getAllByTestId("champ-ledger-row").length).toBeGreaterThan(0));
     // The thirteenth team never went to the championship.
     const outsideKey = ROSTER[12]!;
     expect(DCMP_FIELD.has(outsideKey)).toBe(false);
-    const dcmpRow = rowsFor(outsideKey)[1]!;
-    const notInField = [...dcmpRow.querySelectorAll('[data-cell="not-in-field"]')];
-    // The four categories AND the Subtotal.
-    expect(notInField).toHaveLength(5);
-    for (const cell of notInField) expect(cell.textContent).toBe(EM_DASH);
-    expect(within(dcmpRow).getByTestId("champ-ledger-source-cell").textContent).toContain("not in the field");
-    // A team INSIDE the field carries none of them.
+    expect(rowsFor(outsideKey)).toHaveLength(0);
+    expect(rowsFor(ROSTER[0]!)).toHaveLength(2);
     expect(rowsFor(ROSTER[0]!)[1]!.querySelectorAll('[data-cell="not-in-field"]')).toHaveLength(0);
+    // No em dash survives in the table: the only team that would read one is gone.
+    for (const row of screen.getAllByTestId("champ-ledger-row")) expect(row.querySelector('[data-cell="not-in-field"]')?.textContent).not.toBe(EM_DASH);
+    const counted = screen
+      .getAllByTestId("district-ledger-status-chip")
+      .map((chip) => Number(/(\d+)\s*$/.exec(chip.textContent ?? "")?.[1] ?? Number.NaN));
+    expect(counted.reduce((sum, count) => sum + count, 0)).toBe(ROSTER.length);
   });
+
+  it("hides nobody at a district event position, before the DCMP is the selected event", async () => {
+    installFetch([liveEventArtifact(DISTRICT_EVENT), liveEventArtifact(DCMP_EVENT)]);
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(finishedArtifact(), "/districts?algorithm=spr&tab=champ-locks&at=season-start");
+    await waitFor(() => expect(screen.getAllByTestId("champ-ledger-row").length).toBe(ROSTER.length * 2));
+    expect(rowsFor(ROSTER[12]!)).toHaveLength(2);
+  });
+
+  it("treats the DCMP's own Schedule stop as the selected event: a team with no dcmp row is omitted and the field is a fact", async () => {
+    installFetch([liveEventArtifact(DISTRICT_EVENT), liveEventArtifact(DCMP_EVENT)]);
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(finishedArtifact(), `/districts?algorithm=spr&tab=champ-locks&at=${DCMP_EVENT}:schedule`);
+    // A non final DCMP cell proves the stop resolved off Now. Wait for the
+    // SETTLED row: the championship's own Qualification cell open, which is
+    // the REAL plan priced as a fact. In the instant before the stop's run
+    // lands the row can still read the estimate (the 261007-4qr pending
+    // window), which is not what this test pins.
+    await waitFor(
+      () => {
+        const cells = [...rowsFor(ROSTER[0]!)[1]!.querySelectorAll("[data-cell]")].map((cell) => cell.getAttribute("data-cell"));
+        expect(cells.some((cell) => cell === "open" || cell === "pending")).toBe(true);
+        expect(rowsFor(ROSTER[0]!)[1]!.querySelector('[data-cell-id="dcmp-row:qual"]')?.getAttribute("data-cell")).toBe("open");
+      },
+      { timeout: 20000 }
+    );
+    expect(rowsFor(ROSTER[12]!)).toHaveLength(0);
+    const dcmpRow = rowsFor(ROSTER[0]!)[1]!;
+    expect(dcmpRow.querySelectorAll('[data-cell="out-of-range"]')).toHaveLength(0);
+    expect(dcmpRow.querySelectorAll('[data-cell="not-yet-priced"]')).toHaveLength(0);
+  }, 30000);
 
   it("prints a grand total that is TBA's own, with no district-only label, once both tiers are final", async () => {
     renderFinished();

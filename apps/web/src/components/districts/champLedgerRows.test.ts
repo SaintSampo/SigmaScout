@@ -40,6 +40,7 @@ import {
   champCellId,
   champContributions,
   champFieldMembership,
+  champTeamHiddenAtDcmp,
   dcmpEventKeyFor,
   mixFieldMembership,
   type ChampLedgerCell,
@@ -420,6 +421,52 @@ describe("buildChampLedgerRows — the fixture at an all-final position", () => 
     const source = sourceByKey.get(entry.teamKey)!;
     const summed = contributions.reduce((acc, c) => acc + (c.earned ?? 0), 0);
     expect(summed + source.rookieBonus + source.adjustments).toBe(source.pointTotal);
+  });
+});
+
+describe("champTeamHiddenAtDcmp — the table omits a team with no dcmp-tier row once the DCMP is selected (261007-mxf)", () => {
+  const built = buildChampLedgerRows({
+    artifact: FIXTURE,
+    distributions: new Map(),
+    stageByEvent: allFinalStages(FIXTURE),
+    dcmpStarted: true,
+  });
+
+  it("hides exactly the membership out teams on the all-final fixture, and nobody while the DCMP is not selected", () => {
+    const hidden = built.teams.filter((entry) => champTeamHiddenAtDcmp(entry, true)).map((entry) => entry.teamKey);
+    const out = built.teams.filter((entry) => entry.membership === "out").map((entry) => entry.teamKey);
+    expect(hidden).toEqual(out);
+    expect(hidden).toHaveLength(75);
+    expect(built.teams.filter((entry) => champTeamHiddenAtDcmp(entry, false))).toHaveLength(0);
+  });
+
+  it("is true only when the DCMP is selected AND the team's DCMP row has no source", () => {
+    const withSource = built.teams.find((entry) => entry.membership === "in")!;
+    const withoutSource = built.teams.find((entry) => entry.membership === "out")!;
+    expect(withSource.dcmpRow.sources.length).toBeGreaterThan(0);
+    expect(withoutSource.dcmpRow.sources).toHaveLength(0);
+    expect(champTeamHiddenAtDcmp(withSource, true)).toBe(false);
+    expect(champTeamHiddenAtDcmp(withSource, false)).toBe(false);
+    expect(champTeamHiddenAtDcmp(withoutSource, true)).toBe(true);
+    expect(champTeamHiddenAtDcmp(withoutSource, false)).toBe(false);
+  });
+
+  it("never hides a judging only registrant: a dcmp-tier row with no qualification schedule reads in", () => {
+    const judgingOnly = artifactOf([
+      team({
+        teamKey: "frc7",
+        pointTotal: 23,
+        eventPoints: [eventPoints({ eventKey: "2026wabon", week: 0 })],
+        remainingEvents: [{ eventKey: "2026pncmp", eventName: "PNW DCMP", week: 5, tier: "dcmp", maxPoints: 249, state: state({ qualMatchesPlayed: 0, qualMatchesTotal: 0, alliancesPicked: false, playoffsDone: false, awardsPosted: false }) }],
+      }),
+      team({ teamKey: "frc8", pointTotal: 23, eventPoints: [eventPoints({ eventKey: "2026wabon", week: 0 })] }),
+    ]);
+    const rows = buildChampLedgerRows({ artifact: judgingOnly, distributions: new Map(), dcmpStarted: true });
+    const byKey = new Map(rows.teams.map((entry) => [entry.teamKey, entry] as const));
+    expect(byKey.get("frc7")!.membership).toBe("in");
+    expect(champTeamHiddenAtDcmp(byKey.get("frc7")!, true)).toBe(false);
+    expect(byKey.get("frc8")!.membership).toBe("out");
+    expect(champTeamHiddenAtDcmp(byKey.get("frc8")!, true)).toBe(true);
   });
 });
 
