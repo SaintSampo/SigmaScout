@@ -198,7 +198,10 @@ function DrawerRow({
         }
       : {}),
     ...(!isGrandTotal && cell.cell === "eventTotal"
-      ? { total: { kind: "event" as const, eventName: row.eventName }, sourceChips: verdictCategoryChips(row.cells) }
+      ? {
+          total: { kind: "event" as const, eventName: row.eventName },
+          sourceChips: verdictCategoryChips(row.cells, { season, tier: "district", isRookie }),
+        }
       : {}),
   });
   return (
@@ -696,7 +699,12 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
                         <EventCell row={row} />
                         <LedgerCell cell={row.eventTotal} interaction={interaction} variant="total" />
                         {row.cells.map((cell) => (
-                          <LedgerCell key={cell.id} cell={cell} interaction={interaction} />
+                          <LedgerCell
+                            key={cell.id}
+                            cell={cell}
+                            interaction={interaction}
+                            pricing={{ season, tier: "district", isRookie: isRookieByTeam.get(team.teamKey) === true }}
+                          />
                         ))}
                       </TableRow>
                     ));

@@ -25,6 +25,7 @@ import {
 } from "./ledgerVerdict.js";
 import { openCellLines } from "./LedgerParts.js";
 import type { DistrictCellKind, DistrictLedgerCell, DistrictSelectionRouteView } from "./districtLedgerRows.js";
+import type { DistrictCellPricing } from "./districtLedgerOutcomes.js";
 import type { ChampContribution, ChampLedgerCell } from "./champLedgerRows.js";
 import type { LedgerCutoffView, PredictedCutoff } from "./predictedCutoff.js";
 
@@ -415,21 +416,53 @@ describe("the source chips", () => {
 
   it("builds one category chip per category cell, settled as its figure and open as the table cell prints it", () => {
     const qual = openCell("qual", sparse(CEILINGS.qual, [[18, 50], [20, 50]]), CEILINGS.qual);
+    const elim = openCell("elim", sparse(CEILINGS.elim, [[0, 34], [7, 16], [13, 20], [20, 15], [30, 15]]), CEILINGS.elim);
     const award = openCell("award", sparse(CEILINGS.award, [[0, 78], [5, 22]]), CEILINGS.award);
     const cells: ChampLedgerCell[] = [
       qual,
       { id: "x:alliance", cell: "alliance", kind: "final", earned: 16 },
-      { id: "x:elim", cell: "elim", kind: "unavailable" },
+      elim,
       award,
       { id: "x:eventTotal", cell: "eventTotal", kind: "final", earned: 99 } satisfies DistrictLedgerCell,
       { id: "x:grandTotal", cell: "grandTotal", kind: "notYetPriced" },
     ];
-    const qualLines = openCellLines(qual);
-    const awardLines = openCellLines(award);
-    expect(verdictCategoryChips(cells)).toEqual([
+    // THE SAME PRICING THE TABLE CELL RECEIVES (261008-3il), so a chip prints
+    // exactly what the table prints, pays line included.
+    const pricing: DistrictCellPricing = { season: SEASON, tier: "district", isRookie: false };
+    const qualLines = openCellLines(qual, pricing);
+    const elimLines = openCellLines(elim, pricing);
+    const awardLines = openCellLines(award, pricing);
+    expect(elimLines).toEqual({ bold: "66% top 4", small: "pays 7 to 30" });
+    expect(verdictCategoryChips(cells, pricing)).toEqual([
       { kind: "category", label: "Quals", figure: qualLines.bold, small: qualLines.small, open: true },
       { kind: "category", label: "Alliance", figure: "16", small: undefined, open: false },
+      { kind: "category", label: "Playoffs", figure: elimLines.bold, small: elimLines.small, open: true },
       { kind: "category", label: "Awards", figure: awardLines.bold, small: awardLines.small, open: true },
     ]);
   });
+});
+
+/** Every number a pays line prints, in order. */
+function paysNumbers(small: string | undefined): number[] {
+  expect(small).toMatch(/^pays /);
+  return (small ?? "").match(/\d+/g)!.map(Number);
+}
+
+describe("the cell's pays line agrees with the drawer's outcome rows (261008-3il)", () => {
+  const elimCounts = sparse(CEILINGS.elim, [[0, 34], [7, 16], [13, 20], [20, 15], [30, 15]]);
+  const topFour = openCell("elim", elimCounts, CEILINGS.elim);
+  const finalist = openCell("elim", elimCounts, CEILINGS.elim, { playoffMilestone: { kind: "finalist", chance: 0.3, conditionalMedian: 30 } });
+  const winner = openCell("elim", elimCounts, CEILINGS.elim, { playoffMilestone: { kind: "winner", chance: 0.15, conditionalMedian: 30 } });
+
+  for (const tier of ["district", "dcmp"] as const) {
+    it(`prints only drawer row points on every Playoffs fixture at the ${tier} tier`, () => {
+      const pricing: DistrictCellPricing = { season: SEASON, tier, isRookie: false };
+      for (const cell of [topFour, finalist, winner]) {
+        const drawer = verdictOutcomeRows(cell, SEASON, tier, false, true)!.rows.map((row) => row.points);
+        for (const value of paysNumbers(openCellLines(cell, pricing).small)) expect(drawer).toContain(value);
+      }
+      // The top four pays line spans the fourth place value to the winner's.
+      expect(paysNumbers(openCellLines(topFour, pricing).small)).toEqual([playoffPoints(SEASON, tier, 4), playoffPoints(SEASON, tier, 1)]);
+    });
+  }
 });

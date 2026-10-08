@@ -666,12 +666,10 @@ describe("DistrictLedger — the full table", () => {
     const award = document.querySelector('[data-cell-id="2026walive:award"]')!;
     expect(award.getAttribute("data-cell")).toBe("open");
     expect(award.textContent ?? "").toMatch(/^~\d+% award(~\d+ if won)?$/);
-    // And on playoffs, whose MILESTONE leads the line: the number was never the
-    // chance of playing a playoff match, it is the chance of finishing top four
-    // (fifth through eighth pay nothing), so the words say that and sit first.
-    expect(document.querySelector('[data-cell-id="2026walive:elim"]')!.textContent ?? "").toMatch(
-      /^top 4 ~\d+%(~\d+ if top 4)?$/
-    );
+    // And on playoffs: the chance of finishing top four (fifth through eighth
+    // pay nothing), then what the top four pays, from the 2026 placement table
+    // (261008-3il).
+    expect(document.querySelector('[data-cell-id="2026walive:elim"]')!.textContent ?? "").toMatch(/^\d+% top 4pays 7 to 30$/);
   });
 
   it("prints the event name, its week and its stage word in the Event cell", async () => {
@@ -2382,7 +2380,7 @@ describe("DistrictLedger — the playoff milestone advances with the bracket", (
   it("asks about the FINALIST for an alliance that has secured a top-four finish", async () => {
     await renderPlayoffs();
     for (const teamKey of allianceRoster(1)) {
-      expect(elimTextFor(teamKey), teamKey).toMatch(/^finalist ~\d+%(~\d+ if finalist)?$/);
+      expect(elimTextFor(teamKey), teamKey).toMatch(/^\d+% finalpays 20 or 30$/);
     }
   });
 
@@ -2391,7 +2389,7 @@ describe("DistrictLedger — the playoff milestone advances with the bracket", (
     // Alliance 4 lost sf7 and drops to sf9, whose loser is fifth and pays
     // nothing, so nothing is secured.
     for (const teamKey of allianceRoster(4)) {
-      expect(elimTextFor(teamKey), teamKey).toMatch(/^top 4 ~\d+%(~\d+ if top 4)?$/);
+      expect(elimTextFor(teamKey), teamKey).toMatch(/^\d+% top 4pays 7 to 30$/);
     }
   });
 
@@ -2418,7 +2416,7 @@ describe("DistrictLedger — the playoff milestone advances with the bracket", (
     // exactly why the cell has stopped asking about it.
     const text = elimTextFor(allianceRoster(1)[0]!);
     expect(text).not.toContain("top 4");
-    expect(text).not.toContain("~100%");
+    expect(text).not.toContain("100%");
   });
 
   it("leaves the other three categories' wording exactly as it was", async () => {

@@ -67,14 +67,21 @@ import {
   CHAMP_LEDGER_RANGE_CALL_LABELS,
   CHAMP_LEDGER_RANGE_PENDING_DESCRIPTION,
   champLedgerNoCallDescription,
+  districtLedgerCellChance,
   districtLedgerCutoffFigure,
   districtLedgerCutoffLikelyText,
+  districtLedgerPaysLine,
   districtLedgerPlacementLine,
   districtLedgerRunProgressText,
   districtLedgerSelectionSettledLine,
 } from "./districtLedgerCopy.js";
 import type { LedgerRunProgress } from "./ledgerRunProgress.js";
-import { districtSelectionHeadline, districtSelectionSettledRoute } from "./districtLedgerOutcomes.js";
+import {
+  districtCellPay,
+  districtSelectionHeadline,
+  districtSelectionSettledRoute,
+  type DistrictCellPricing,
+} from "./districtLedgerOutcomes.js";
 import type { DistrictLedgerStatusKey } from "./districtLedgerStatus.js";
 import {
   DISTRICT_LEDGER_SHOWN_STATUS_KEYS,
@@ -471,13 +478,25 @@ export function chanceWordsFor(cell: DistrictCellKind): { bold: string; conditio
  * The two lines a blue cell prints, chosen by 10-04's form selector — this
  * component renders the words, that module decides the form and the numbers.
  *
+ * ONE GRAMMAR (quick task 261008-3il): the chance first, then the outcome in
+ * one or two words, and on the small line the points that outcome pays, from
+ * `districtCellPay`, which reads the drawer's own outcome rows. `pricing` is
+ * the row's season, tier and rookie flag; absent, the pays line is the cell's
+ * own support.
+ *
  * THE PLAYOFFS CELL TAKES ITS MILESTONE FIRST, where the bracket has already
- * moved past the top four: `districtLedgerRows.ts` puts the milestone and its
- * two threshold-conditioned numbers on the cell, and the shipped chance form is
- * what an alliance still short of a top-four finish prints. See
- * `DistrictPlayoffMilestone`.
+ * moved past the top four: `districtLedgerRows.ts` puts the milestone on the
+ * cell, and the top four form is what an alliance still short of a top-four
+ * finish prints. See `DistrictPlayoffMilestone`.
  */
-export function openCellLines(cell: Extract<DistrictLedgerCell, { kind: "open" }>): { bold: string; small: string | undefined } {
+export function openCellLines(
+  cell: Extract<DistrictLedgerCell, { kind: "open" }>,
+  pricing?: DistrictCellPricing
+): { bold: string; small: string | undefined } {
+  const paysLine = (): string | undefined => {
+    const pay = districtCellPay(cell, pricing);
+    return pay === undefined ? undefined : districtLedgerPaysLine(pay);
+  };
   const milestone = cell.playoffMilestone;
   if (milestone !== undefined) {
     if (milestone.kind === "placed") {
@@ -486,14 +505,7 @@ export function openCellLines(cell: Extract<DistrictLedgerCell, { kind: "open" }
       return { bold: `~${String(Math.round(milestone.points))}`, small: districtLedgerPlacementLine(milestone.placement) };
     }
     const words = DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS[milestone.kind];
-    return {
-      bold: `${words.bold} ~${String(Math.round(milestone.chance * 100))}%`,
-      // NO FABRICATED ZERO, on the same terms as the chance form below.
-      small:
-        milestone.conditionalMedian === undefined
-          ? undefined
-          : `~${String(Math.round(milestone.conditionalMedian))} ${words.conditional}`,
-    };
+    return { bold: `${districtLedgerCellChance(milestone.chance)} ${words.bold}`, small: paysLine() };
   }
   // THE ALLIANCE SELECTION CELL'S ROUTES, where the run reported them. A baked
   // event reports none and falls through to the shipped chance form below.
@@ -526,16 +538,13 @@ export function openCellLines(cell: Extract<DistrictLedgerCell, { kind: "open" }
     };
   }
   const words = chanceWordsFor(cell.cell);
+  if (cell.cell === "elim") {
+    // The top four form: the chance, then the outcome, then what it pays.
+    return { bold: `${districtLedgerCellChance(cell.summary.chance)} ${words.bold}`, small: paysLine() };
+  }
   // Every blue figure carries the tilde (Jacob, 2026-09-25): it is this site's
   // prediction, never a number TBA published.
-  //
-  // THE PLAYOFFS CELL PUTS THE MILESTONE FIRST — `top 4 ~66%` rather than
-  // `~66% top 4` — so the three milestone headlines read the same way round as
-  // each other. The other two categories keep the shipped order.
-  const bold =
-    cell.cell === "elim"
-      ? `${words.bold} ~${String(Math.round(cell.summary.chance * 100))}%`
-      : `~${String(Math.round(cell.summary.chance * 100))}% ${words.bold}`;
+  const bold = `~${String(Math.round(cell.summary.chance * 100))}% ${words.bold}`;
   // NO FABRICATED ZERO: 10-04 returns `undefined` when all the mass sits at
   // zero, and a printed "~0" would assert a typical amount the draws never
   // produced.
@@ -551,7 +560,18 @@ export interface CellInteraction {
   readonly onToggle: (cellId: string) => void;
 }
 
-export function LedgerCell({ cell, interaction, variant }: { cell: DistrictLedgerCell; interaction: CellInteraction; variant?: "total" }) {
+export function LedgerCell({
+  cell,
+  interaction,
+  variant,
+  pricing,
+}: {
+  cell: DistrictLedgerCell;
+  interaction: CellInteraction;
+  variant?: "total";
+  /** The row's season, tier and rookie flag, so a category cell's pays line reads the drawer's own outcome rows. Totals pass none. */
+  pricing?: DistrictCellPricing;
+}) {
   const box = variant === "total" ? ` district-ledger-cell--${variant}` : "";
   if (cell.kind === "final") {
     return (
@@ -571,7 +591,7 @@ export function LedgerCell({ cell, interaction, variant }: { cell: DistrictLedge
       </TableCell>
     );
   }
-  const lines = openCellLines(cell);
+  const lines = openCellLines(cell, pricing);
   return (
     <TableCell data-cell="open" data-cell-id={cell.id} className="numeric-cell">
       {/* A blue cell is a real <button>: focusable, two lines, never hue alone. */}

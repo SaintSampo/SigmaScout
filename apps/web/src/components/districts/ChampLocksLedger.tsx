@@ -86,6 +86,7 @@ import {
   type DistrictLedgerNavigate,
   type StatusPlaceholder,
 } from "./LedgerParts.js";
+import type { DistrictCellPricing } from "./districtLedgerOutcomes.js";
 import { predictedCutoff, simulatedCutoffRange, type LedgerCutoffView } from "./predictedCutoff.js";
 import { ledgerRunProgress } from "./ledgerRunProgress.js";
 import { champCutoffTuning } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
@@ -191,7 +192,18 @@ export interface ChampLocksLedgerProps {
  * dash and the words both say which one it is, and `data-cell` carries the same
  * distinction for a test.
  */
-function ChampCell({ cell, interaction, variant }: { cell: ChampLedgerCell; interaction: CellInteraction; variant?: "total" }) {
+function ChampCell({
+  cell,
+  interaction,
+  variant,
+  pricing,
+}: {
+  cell: ChampLedgerCell;
+  interaction: CellInteraction;
+  variant?: "total";
+  /** The DCMP row prices its cells at the dcmp tier; the District points row, a sum over events, passes none. */
+  pricing?: DistrictCellPricing;
+}) {
   if (cell.kind === "notInField" || cell.kind === "notYetPriced" || cell.kind === "outOfRange") {
     const dataCell = cell.kind === "notInField" ? "not-in-field" : cell.kind === "notYetPriced" ? "not-yet-priced" : "out-of-range";
     const text =
@@ -206,7 +218,7 @@ function ChampCell({ cell, interaction, variant }: { cell: ChampLedgerCell; inte
       </TableCell>
     );
   }
-  return <LedgerCell cell={cell} interaction={interaction} variant={variant} />;
+  return <LedgerCell cell={cell} interaction={interaction} variant={variant} pricing={pricing} />;
 }
 
 /**
@@ -318,7 +330,10 @@ function ChampDrawerRow({
     ...(!isGrandTotal && cell.cell === "eventTotal"
       ? {
           total: row === "dcmp" ? { kind: "dcmp" as const, fieldChance: team.fieldChance } : { kind: "district" as const },
-          sourceChips: verdictCategoryChips((row === "dcmp" ? team.dcmpRow : team.districtRow).cells),
+          sourceChips: verdictCategoryChips(
+            (row === "dcmp" ? team.dcmpRow : team.districtRow).cells,
+            row === "dcmp" ? { season, tier: "dcmp", isRookie } : undefined
+          ),
         }
       : {}),
   });
@@ -1003,7 +1018,12 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
                   <SourceCell row={row} team={team} />
                   <ChampCell cell={row.subtotal} interaction={interaction} variant="total" />
                   {row.cells.map((cell) => (
-                    <ChampCell key={cell.id} cell={cell} interaction={interaction} />
+                    <ChampCell
+                      key={cell.id}
+                      cell={cell}
+                      interaction={interaction}
+                      pricing={row.kind === "dcmp" ? { season, tier: "dcmp", isRookie: isRookieByTeam.get(team.teamKey) === true } : undefined}
+                    />
                   ))}
                 </TableRow>
               ));

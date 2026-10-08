@@ -12,6 +12,7 @@
  * from `10-UI-SPEC.md`'s `## Copy` section. They are a contract and a test pins
  * them.
  */
+import type { DistrictCellPay } from "./districtLedgerOutcomes.js";
 
 /** The tab's own label and its URL id — the id is `searchParams.ts`'s `DISTRICT_TABS` member, restated here only as the panel's test id root. */
 export const DISTRICT_LEDGER_TAB_LABEL = "District Locks";
@@ -98,14 +99,15 @@ export const DISTRICT_LEDGER_PENDING_CELL = "pending";
 export const DISTRICT_LEDGER_LIKELY_PREFIX = "likely";
 
 /**
- * The lumpy-category words: the bold line's verb, and the conditional line's
- * clause.
+ * The lumpy-category words: the outcome the bold line's chance measures.
  *
- * THE PLAYOFF ENTRY IS A CORRECTION. It read `play` / `if in`, which printed
- * "~66% play" on a cell whose points are zero for every alliance out in the
- * first two rounds — so the number was never the chance of PLAYING a playoff
- * match, it was the chance of finishing in the top four. Jacob, 2026-09-25:
- * "top four > finalist > winner". The word now says what the number is, and
+ * ONE GRAMMAR FOR EVERY OPEN CELL (quick task 261008-3il): the chance first,
+ * then the outcome in one or two words, and on the small line the points that
+ * outcome pays, read from the pay tables. `66% top 4` over `pays 7 to 30`.
+ *
+ * THE PLAYOFF WORD IS `top 4` because placements five through eight pay
+ * nothing, so the chance of any playoff points IS the chance of a top four
+ * finish. Jacob, 2026-09-25: "top four > finalist > winner".
  * `DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS` carries the two milestones past it.
  */
 export const DISTRICT_LEDGER_CHANCE_WORDS = {
@@ -118,15 +120,15 @@ export const DISTRICT_LEDGER_CHANCE_WORDS = {
  * The Playoffs cell's milestone words, for the two positions past a secured
  * top-four finish.
  *
- * The bold line reads `finalist ~40%` and the small line `~20 if finalist`: the
- * milestone first, then the tilde figure, which is the order Jacob wrote them
- * in. `top 4` is not here because it is not a milestone the bracket has reached
- * — it is the DEFAULT question, and its words live in
+ * The bold line reads `85% final` and the small line `pays 20 or 30`: the
+ * chance, then the milestone, then what reaching it pays (quick task
+ * 261008-3il). `top 4` is not here because it is not a milestone the bracket
+ * has reached; it is the DEFAULT question, and its word lives in
  * `DISTRICT_LEDGER_CHANCE_WORDS.elim` beside the other two categories'.
  */
 export const DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS = {
-  finalist: { bold: "finalist", conditional: "if finalist" },
-  winner: { bold: "winner", conditional: "if winner" },
+  finalist: { bold: "final", conditional: "if finalist" },
+  winner: { bold: "win", conditional: "if winner" },
 } as const;
 
 /** The ordinal suffixes for placements one through eight, indexed `placement - 1`. A table, not arithmetic: eight values, and every English exception is inside them. */
@@ -633,6 +635,38 @@ export function districtLedgerOutcomePointsRange(minPoints: number, maxPoints: n
   const low = Math.round(minPoints);
   const high = Math.round(maxPoints);
   return low === high ? String(low) : `${String(low)} to ${String(high)}`;
+}
+
+/** The word an open cell's small line starts with: what its headline outcome pays. */
+export const DISTRICT_LEDGER_PAYS_PREFIX = "pays";
+
+/**
+ * AN OPEN CELL'S SMALL LINE: the points its headline outcome pays, read from the
+ * pay tables (quick task 261008-3il). No tilde, because a pay table value is not
+ * a prediction.
+ *
+ * One value prints alone, two print with "or", and three or more, like every
+ * range, print low "to" high through `districtLedgerOutcomePointsRange`, the
+ * drawer's own range rule, so the line never carries a dash.
+ */
+export function districtLedgerPaysLine(pay: DistrictCellPay): string {
+  if (pay.kind === "range") return `${DISTRICT_LEDGER_PAYS_PREFIX} ${districtLedgerOutcomePointsRange(pay.low, pay.high)}`;
+  const { values } = pay;
+  const low = values[0] ?? 0;
+  const high = values[values.length - 1] ?? low;
+  if (values.length === 2) return `${DISTRICT_LEDGER_PAYS_PREFIX} ${String(Math.round(low))} or ${String(Math.round(high))}`;
+  return `${DISTRICT_LEDGER_PAYS_PREFIX} ${districtLedgerOutcomePointsRange(low, high)}`;
+}
+
+/**
+ * AN OPEN CELL'S CHANCE: the rounded whole percent, capped at
+ * `DISTRICT_LEDGER_CHANCE_CEILING_PERCENT`, with no tilde (quick task
+ * 261008-3il). A team is never given a 100 percent verdict. There is no floor:
+ * a chance that rounds to zero prints `0%`.
+ */
+export function districtLedgerCellChance(chance: number): string {
+  const percent = Math.min(Math.round(chance * 100), DISTRICT_LEDGER_CHANCE_CEILING_PERCENT);
+  return `${String(Math.max(0, percent))}%`;
 }
 
 // ---------------------------------------------------------------------------

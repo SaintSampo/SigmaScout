@@ -33,7 +33,7 @@
  * A pure module: no React, no JSX, and no formatting — `districtLedgerCopy.ts`
  * owns every string and `DistrictOutcomeList.tsx` owns every mark.
  */
-import { PLAYOFF_PLACEMENT_POINTS, playoffPoints } from "../../../../../packages/core/districts/bracket.js";
+import { BRACKET_REGISTERED_SEASONS, PLAYOFF_PLACEMENT_POINTS, playoffPoints } from "../../../../../packages/core/districts/bracket.js";
 import { AWARD_POINT_SUPPORT } from "../../../../../packages/core/districts/awardBaseRates.js";
 import {
   IMPACT_AWARD_POINTS,
@@ -41,7 +41,12 @@ import {
 } from "../../../../../packages/core/districts/awardOrderingTables.js";
 import { districtTierWeight } from "../../../../../packages/core/districts/qualPoints.js";
 import type { DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
-import type { DistrictPlayoffMilestone, DistrictPointDistribution, DistrictSelectionRouteView } from "./districtLedgerRows.js";
+import type {
+  DistrictLedgerCell,
+  DistrictPlayoffMilestone,
+  DistrictPointDistribution,
+  DistrictSelectionRouteView,
+} from "./districtLedgerRows.js";
 
 /** The outcome identifiers, so a caller names an outcome rather than matching its label. */
 export type DistrictPlayoffOutcomeId = "winner" | "finalist" | "third" | "fourth" | "none";
@@ -374,4 +379,78 @@ export function districtSelectionUnaccountedMass(view: DistrictSelectionRouteVie
   assertRouteDenominator("districtSelectionUnaccountedMass", view);
   const accounted = rows.reduce((sum, row) => sum + row.chance, 0);
   return 1 - accounted;
+}
+
+// ---------------------------------------------------------------------------
+// WHAT AN OPEN CELL'S OUTCOME PAYS (quick task 261008-3il)
+// ---------------------------------------------------------------------------
+
+/**
+ * What a cell's pay is priced at: the season, the row's own tier and the
+ * team's rookie flag. The SAME three values the drawer's outcome list is
+ * built from, so the cell's pays line and the drawer's rows read one table.
+ *
+ * Absent on the Champ tab's District points row, a sum over several events
+ * that no named outcome covers: that row's pays line is its own support.
+ */
+export interface DistrictCellPricing {
+  readonly season: number;
+  readonly tier: DistrictTier;
+  readonly isRookie: boolean;
+}
+
+/**
+ * What a cell's headline outcome pays. `values` is a set of distinct point
+ * values, ascending; `range` is a span the runs produced or the route can pay.
+ */
+export type DistrictCellPay =
+  | { readonly kind: "values"; readonly values: readonly number[] }
+  | { readonly kind: "range"; readonly low: number; readonly high: number };
+
+type OpenLedgerCell = Extract<DistrictLedgerCell, { kind: "open" }>;
+
+/** The playoff outcome rows each headline covers: the top four with no milestone, the final once top four is secured, the win once in the final. */
+const PLAYOFF_HEADLINE_OUTCOMES: Readonly<Record<"topFour" | "finalist" | "winner", ReadonlySet<DistrictPlayoffOutcomeId>>> = {
+  topFour: new Set<DistrictPlayoffOutcomeId>(["winner", "finalist", "third", "fourth"]),
+  finalist: new Set<DistrictPlayoffOutcomeId>(["winner", "finalist"]),
+  winner: new Set<DistrictPlayoffOutcomeId>(["winner"]),
+};
+
+/** The distinct nonzero point values among some outcome rows, ascending, or `undefined` where there are none. */
+function distinctNonzeroValues(points: readonly number[]): DistrictCellPay | undefined {
+  const values = [...new Set(points.filter((value) => value > 0))].sort((a, b) => a - b);
+  return values.length === 0 ? undefined : { kind: "values", values };
+}
+
+/**
+ * THE SUPPORT FALLBACK: the point values the cell's own distribution puts any
+ * mass on, from one up. Used where no named outcome prices the cell (the Champ
+ * tab's District points row) and where the season has no bracket.
+ */
+function supportPay(distribution: DistrictPointDistribution): DistrictCellPay | undefined {
+  const points: number[] = [];
+  for (let i = 1; i < distribution.counts.length; i++) if ((distribution.counts[i] ?? 0) > 0) points.push(i);
+  return distinctNonzeroValues(points);
+}
+
+/**
+ * WHAT AN OPEN CELL'S HEADLINE OUTCOME PAYS, read from the drawer's own
+ * outcome rows, so the cell and the drawer cannot disagree.
+ *
+ * The Playoffs cell keeps the rows its headline covers and returns their
+ * nonzero points. The season guard exists because `playoffPoints` throws
+ * outside the registered bracket seasons, and a throw here would blank the
+ * whole table rather than one line. No point value is a literal here.
+ */
+export function districtCellPay(cell: OpenLedgerCell, pricing: DistrictCellPricing | undefined): DistrictCellPay | undefined {
+  if (cell.cell === "elim") {
+    if (pricing === undefined || !BRACKET_REGISTERED_SEASONS.includes(pricing.season)) return supportPay(cell.distribution);
+    const milestone = cell.playoffMilestone;
+    const rows = districtPlayoffOutcomes(pricing.season, pricing.tier, cell.distribution, milestone);
+    // A decided placement leaves one row, which is the whole of what it pays.
+    if (milestone?.kind === "placed") return distinctNonzeroValues(rows.map((row) => row.points));
+    const covered = PLAYOFF_HEADLINE_OUTCOMES[milestone === undefined ? "topFour" : milestone.kind];
+    return distinctNonzeroValues(rows.filter((row) => covered.has(row.id)).map((row) => row.points));
+  }
+  return undefined;
 }

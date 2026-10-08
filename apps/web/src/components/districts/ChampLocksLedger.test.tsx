@@ -38,6 +38,7 @@ import { installMockWorker, type MockWorkerHandle, type MockWorkerScript } from 
 import { runDistrictWorkerJob } from "../../workers/districtSimulationProtocol.js";
 import { runAsOfEvent } from "../../workers/districtAsOfJob.js";
 import { ChampLocksLedger } from "./ChampLocksLedger.js";
+import { playoffPoints } from "../../../../../packages/core/districts/bracket.js";
 import { DISTRICT_MILESTONE_KEYS } from "./districtMilestones.js";
 import { asOfBodyFor, buildAsOfTestObjects } from "./asOfTestFixtures.js";
 import {
@@ -516,6 +517,14 @@ describe("ChampLocksLedger — the finished district and championship", () => {
     const dcmpRow = rowsFor(ROSTER[0]!)[1]!;
     expect(dcmpRow.querySelectorAll('[data-cell="out-of-range"]')).toHaveLength(0);
     expect(dcmpRow.querySelectorAll('[data-cell="not-yet-priced"]')).toHaveLength(0);
+    // THE DCMP ROW IS PRICED AT ITS OWN TIER (261008-3il): an open Playoffs cell
+    // prints a pays line whose every number is a DCMP placement value.
+    const elim = dcmpRow.querySelector('[data-cell-id="dcmp-row:elim"]')!;
+    expect(elim.getAttribute("data-cell")).toBe("open");
+    const small = elim.querySelector(".district-ledger-cell__small")?.textContent ?? "";
+    expect(small).toMatch(/^pays /);
+    const dcmpValues = [1, 2, 3, 4].map((placement) => playoffPoints(2026, "dcmp", placement));
+    for (const value of small.match(/\d+/g)!.map(Number)) expect(dcmpValues).toContain(value);
   }, 30000);
 
   it("prints a grand total that is TBA's own, with no district-only label, once both tiers are final", async () => {

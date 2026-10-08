@@ -49,6 +49,7 @@ import {
   districtCellRendersOutcomeList,
   districtPlayoffOutcomes,
   districtSelectionOutcomes,
+  type DistrictCellPricing,
 } from "./districtLedgerOutcomes.js";
 import { ledgerCutoffDisplay, openCellLines } from "./LedgerParts.js";
 import type { DistrictLedgerShownState } from "./districtFieldOverlay.js";
@@ -410,8 +411,11 @@ const CATEGORY_CHIP_CELLS = ["qual", "alliance", "elim", "award"] as const;
  * A total's source line: one chip per category, settled ones as their earned
  * figure and open ones as exactly what the table cell prints. Any other cell
  * kind (unavailable, not in the field, not yet priced) is skipped.
+ *
+ * `pricing` is the SAME value the table cell receives, so a chip prints the
+ * same pays line the cell does (quick task 261008-3il).
  */
-export function verdictCategoryChips(cells: readonly ChampLedgerCell[]): VerdictSourceChip[] {
+export function verdictCategoryChips(cells: readonly ChampLedgerCell[], pricing?: DistrictCellPricing): VerdictSourceChip[] {
   const chips: VerdictSourceChip[] = [];
   for (const cell of cells) {
     const category = CATEGORY_CHIP_CELLS.find((kind) => kind === cell.cell);
@@ -420,7 +424,7 @@ export function verdictCategoryChips(cells: readonly ChampLedgerCell[]): Verdict
     if (cell.kind === "final") {
       chips.push({ kind: "category", label, figure: String(Math.round(cell.earned)), small: undefined, open: false });
     } else if (cell.kind === "open") {
-      const lines = openCellLines(cell);
+      const lines = openCellLines(cell, pricing);
       chips.push({ kind: "category", label, figure: lines.bold, small: lines.small, open: true });
     }
   }

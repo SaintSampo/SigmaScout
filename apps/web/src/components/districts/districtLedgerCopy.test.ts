@@ -39,8 +39,10 @@ import {
   DISTRICT_LEDGER_STATUS_DEFINITIONS,
   DISTRICT_LEDGER_STATUS_LABELS,
   DISTRICT_LEDGER_TAB_LABEL,
+  districtLedgerCellChance,
   districtLedgerOutcomeChance,
   districtLedgerOutcomePointsRange,
+  districtLedgerPaysLine,
   districtLedgerPlacementLine,
   districtLedgerSelectionSettledLine,
   districtLedgerShortEventName,
@@ -342,8 +344,8 @@ describe("the playoff milestone words", () => {
 
   it("carries the two milestones past the top four, and nothing else", () => {
     expect(DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS).toEqual({
-      finalist: { bold: "finalist", conditional: "if finalist" },
-      winner: { bold: "winner", conditional: "if winner" },
+      finalist: { bold: "final", conditional: "if finalist" },
+      winner: { bold: "win", conditional: "if winner" },
     });
   });
 
@@ -436,6 +438,36 @@ describe("the playoff milestone words", () => {
       ...[1, 4, 8].map(districtLedgerPlacementLine),
     ].join(" ");
     for (const dash of ["—", "–", "-"]) expect(everyString).not.toContain(dash);
+  });
+});
+
+describe("the open cell's pays line and chance (quick task 261008-3il)", () => {
+  it("prints one value alone, two with or, and three or more as a range with to", () => {
+    expect(districtLedgerPaysLine({ kind: "values", values: [30] })).toBe("pays 30");
+    expect(districtLedgerPaysLine({ kind: "values", values: [20, 30] })).toBe("pays 20 or 30");
+    expect(districtLedgerPaysLine({ kind: "values", values: [7, 13, 20, 30] })).toBe("pays 7 to 30");
+  });
+
+  it("prints a range with to, and a single number where its two ends meet", () => {
+    expect(districtLedgerPaysLine({ kind: "range", low: 9, high: 16 })).toBe("pays 9 to 16");
+    expect(districtLedgerPaysLine({ kind: "range", low: 12, high: 12 })).toBe("pays 12");
+  });
+
+  it("carries no tilde and no dash character", () => {
+    const every = [
+      districtLedgerPaysLine({ kind: "values", values: [7, 13, 20, 30] }),
+      districtLedgerPaysLine({ kind: "values", values: [5, 10] }),
+      districtLedgerPaysLine({ kind: "range", low: 1, high: 8 }),
+    ].join(" ");
+    for (const mark of ["~", "—", "–", "-", "±"]) expect(every).not.toContain(mark);
+  });
+
+  it("prints the cell chance as a whole percent with no tilde, capped at 99 and with no floor", () => {
+    expect(districtLedgerCellChance(0.66)).toBe("66%");
+    expect(districtLedgerCellChance(0.996)).toBe("99%");
+    expect(districtLedgerCellChance(1)).toBe("99%");
+    expect(districtLedgerCellChance(0.004)).toBe("0%");
+    expect(districtLedgerCellChance(0)).toBe("0%");
   });
 });
 
