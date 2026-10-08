@@ -86,6 +86,8 @@ import {
   CHAMP_LEDGER_NOT_IN_FIELD_CELL,
   CHAMP_LEDGER_NOT_IN_FIELD_LINE,
   CHAMP_LEDGER_NOT_YET_PRICED_CELL,
+  CHAMP_LEDGER_OUT_OF_RANGE_CELL,
+  CHAMP_LEDGER_OUT_OF_RANGE_LINE,
   CHAMP_LEDGER_ROW_LABELS,
   CHAMP_LEDGER_STATUS_DEFINITIONS,
   CHAMP_LEDGER_TAB_LABEL,
@@ -101,7 +103,7 @@ import {
 } from "./districtLedgerCopy.js";
 import { buildVerdictModel, champGrandSourceChips, ledgerGrandVerdict, verdictCategoryChips } from "./ledgerVerdict.js";
 import { VerdictDrawer } from "./LedgerVerdictDrawer.js";
-import type { LedgerRangeCall } from "./ledgerRangeState.js";
+import { applyLedgerRangeState, districtRangeState, type LedgerRangeCall } from "./ledgerRangeState.js";
 import { buildAdvancementChanceRun } from "./districtLedgerChances.js";
 import {
   buildChampAdvancementChanceRun,
@@ -109,8 +111,10 @@ import {
   champCutoffView,
   champFieldChances,
   champRangeState,
+  dcmpSimulatedField,
   hypotheticalDcmpEstimates,
   reconcileChampAdvancementChances,
+  simulatedDcmpState,
 } from "./champLedgerChances.js";
 import { useDistrictAdvancementChance } from "./useDistrictAdvancementChance.js";
 import { DISTRICT_LEDGER_STATUS_KEYS, computeDistrictLedgerStatuses } from "./districtLedgerStatus.js";
@@ -128,6 +132,7 @@ import {
   type ChampLedgerRow,
   type ChampLedgerRowKind,
   type ChampLedgerTeam,
+  type SimulatedDcmpPricing,
 } from "./champLedgerRows.js";
 import {
   DISTRICT_TIMELINE_NOW_ID,
@@ -138,6 +143,7 @@ import {
   timelineEventsOf,
 } from "./districtTimeline.js";
 import { useAsOfRewind } from "./useAsOfRewind.js";
+import { useSimulatedDcmpBake } from "./useSimulatedDcmpBake.js";
 import {
   buildDistrictLedgerRows,
   deriveStageFromState,
@@ -167,17 +173,23 @@ export interface ChampLocksLedgerProps {
 /**
  * A champ cell, rendered.
  *
- * The three shipped kinds go straight to `LedgerCell`. The two this tier adds
- * are rendered here, and COLOUR IS NEVER THE ONLY ENCODING for either: the em
+ * The three shipped kinds go straight to `LedgerCell`. The three this tier adds
+ * (the em dash, "not yet priced" and "out of range") are rendered here, and COLOUR IS NEVER THE ONLY ENCODING for either: the em
  * dash and the words both say which one it is, and `data-cell` carries the same
  * distinction for a test.
  */
 function ChampCell({ cell, interaction, variant }: { cell: ChampLedgerCell; interaction: CellInteraction; variant?: "total" }) {
-  if (cell.kind === "notInField" || cell.kind === "notYetPriced") {
-    const isNotInField = cell.kind === "notInField";
+  if (cell.kind === "notInField" || cell.kind === "notYetPriced" || cell.kind === "outOfRange") {
+    const dataCell = cell.kind === "notInField" ? "not-in-field" : cell.kind === "notYetPriced" ? "not-yet-priced" : "out-of-range";
+    const text =
+      cell.kind === "notInField"
+        ? CHAMP_LEDGER_NOT_IN_FIELD_CELL
+        : cell.kind === "notYetPriced"
+          ? CHAMP_LEDGER_NOT_YET_PRICED_CELL
+          : CHAMP_LEDGER_OUT_OF_RANGE_CELL;
     return (
-      <TableCell data-cell={isNotInField ? "not-in-field" : "not-yet-priced"} data-cell-id={cell.id} className="numeric-cell">
-        <span className={UNAVAILABLE_CELL_CLASS}>{isNotInField ? CHAMP_LEDGER_NOT_IN_FIELD_CELL : CHAMP_LEDGER_NOT_YET_PRICED_CELL}</span>
+      <TableCell data-cell={dataCell} data-cell-id={cell.id} className="numeric-cell">
+        <span className={UNAVAILABLE_CELL_CLASS}>{text}</span>
       </TableCell>
     );
   }
@@ -189,8 +201,9 @@ function ChampCell({ cell, interaction, variant }: { cell: ChampLedgerCell; inte
  *
  * THE SMALL LINE ANSWERS ONE QUESTION PER ROW. The District points row names
  * its events with their week and stage. The DCMP row says, in priority order,
- * that the team is not in the field, or the chance it will be there, or the
- * championship's own stage.
+ * that the team is not in the field, or that it is outside the simulated field
+ * (a rewound stop before the championship, quick task 261007-mxf), or the
+ * chance it will be there, or the championship's own stage.
  */
 function SourceCell({ row, team }: { row: ChampLedgerRow; team: ChampLedgerTeam }) {
   const sources = row.sources.map((source) => ({ eventName: source.eventName, week: source.week, stage: stageWordKey(source.stage) }));
@@ -198,15 +211,17 @@ function SourceCell({ row, team }: { row: ChampLedgerRow; team: ChampLedgerTeam 
   const small =
     row.kind === "district"
       ? champLedgerDistrictSourceLine(sources)
-      : team.membership === "out"
+      : team.membership === "out" || row.subtotal.kind === "notInField"
         ? CHAMP_LEDGER_NOT_IN_FIELD_LINE
-        : team.fieldChance !== undefined
-          ? champLedgerFieldChanceLine(team.fieldChance)
-          : row.estimated
-            ? CHAMP_LEDGER_ESTIMATED_DCMP_LINE
-            : dcmp === undefined
-              ? ""
-              : champLedgerDcmpStageLine(dcmp);
+        : row.subtotal.kind === "outOfRange"
+          ? CHAMP_LEDGER_OUT_OF_RANGE_LINE
+          : team.fieldChance !== undefined
+            ? champLedgerFieldChanceLine(team.fieldChance)
+            : row.estimated
+              ? CHAMP_LEDGER_ESTIMATED_DCMP_LINE
+              : dcmp === undefined
+                ? ""
+                : champLedgerDcmpStageLine(dcmp);
   return (
     // `whitespace-normal` overrides the shared `TableCell`'s own
     // `whitespace-nowrap`: without it the small line does not wrap at the cap
@@ -405,8 +420,26 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     [timeline, positionIndex, nowStageByEvent]
   );
 
-  /** The as-of state at a rewound stop, on the District Locks tab's own terms (quick task 261005-5g0). */
-  const candidates = useMemo(() => events.map((event) => ({ eventKey: event.eventKey, tier: event.tier, week: event.week })), [events]);
+  /** Every district team, sorted: the roster the first championship is planned over at a rewound stop. */
+  const allDistrictTeamKeys = useMemo(() => artifact.teams.map((team) => team.teamKey).sort(), [artifact]);
+
+  /**
+   * The as-of state at a rewound stop, on the District Locks tab's own terms
+   * (quick task 261005-5g0). The first championship carries every district
+   * team as its roster (quick task 261007-mxf), so the one load resolves each
+   * at the cut and the Locked plus In range bake assembles from it. Only a
+   * GENERATED plan reads the override; the main run never posts that plan.
+   */
+  const candidates = useMemo(
+    () =>
+      events.map((event) => ({
+        eventKey: event.eventKey,
+        tier: event.tier,
+        week: event.week,
+        ...(event.eventKey === dcmpEventKeys[0] ? { roster: allDistrictTeamKeys } : {}),
+      })),
+    [events, dcmpEventKeys, allDistrictTeamKeys]
+  );
   const asOf = useAsOfRewind({
     enabled: rewinding && (artifacts.isLoading || !atNow),
     artifactsLoading: artifacts.isLoading,
@@ -449,10 +482,11 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   }
 
   /**
-   * At a rewound stop before the District Championship has started, its four
-   * cells read the estimate (`buildChampLedgerRows` prices the real DCMP only
-   * where the field is a fact), so its run would cost Worker time and print
-   * nothing. It is left out of the run there.
+   * At a rewound stop, an unstarted District Championship stays out of the
+   * MAIN run: it is baked separately over the simulated Locked plus In range
+   * field (`useSimulatedDcmpBake`, quick task 261007-mxf), which is what
+   * replaces the old exclusion. Folding it into this run would move the run's
+   * signature once the field landed and re-run every district event.
    */
   const skipEventKeys = useMemo(() => {
     if (atNow) return undefined;
@@ -473,7 +507,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
 
   // The controls card's progress bar (quick task 261007-481): the tab is
   // waiting exactly while the event artifacts load or the run is pending.
-  const runProgress = ledgerRunProgress({ artifactsLoading: artifacts.isLoading, runPending: data.runPending, runState: data.runState });
+  const mainRunProgress = ledgerRunProgress({ artifactsLoading: artifacts.isLoading, runPending: data.runPending, runState: data.runState });
 
   // THE ONE PENDING CONDITION (quick task 261007-4qr): event artifacts or a
   // baked sidecar still loading, or the run not landed for the current inputs.
@@ -541,6 +575,76 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   );
 
   /**
+   * THE DISTRICT TIER AS THE DISTRICT LOCKS TAB SHOWS IT (quick task
+   * 261007-mxf): that tab's own recipe, so In range here is the chip that tab
+   * shows at the same stop. The boundary rule's kind over the district rows,
+   * the capacity and the verdicts' qualifier sets and reservation; the range
+   * state from the district chance run this tab already runs, with the same
+   * per event condition the champ range state reads; then the chips.
+   */
+  const districtBoundaryKind = useMemo(
+    () =>
+      predictedCutoff({
+        teams: districtRows.teams,
+        capacity: artifact.dcmpSlots,
+        qualifiers: { awardQualified: new Set(districtStatuses.awardQualified), prequalified: new Set(districtStatuses.prequalified) },
+        reservedSlots: districtStatuses.reservedSlots,
+      }).kind,
+    [districtRows.teams, artifact.dcmpSlots, districtStatuses]
+  );
+  const districtShownRange = useMemo(
+    () =>
+      districtRangeState({
+        boundaryKind: districtBoundaryKind,
+        perEventRunSignature: distributionsPending ? null : (runSignature ?? ""),
+        perEventRunFailed: data.runState.status === "error",
+        run: {
+          built: districtChanceRun !== undefined,
+          status: districtChanceState.status,
+          current: districtRunCurrent,
+          excludedTeams: districtChanceRun?.excludedTeams ?? [],
+          ...(districtChanceState.status === "complete" && districtChanceState.cutoffByRun !== undefined
+            ? { cutoffByRun: districtChanceState.cutoffByRun }
+            : {}),
+          ...(districtChanceState.status === "complete" ? { draws: districtChanceState.draws } : {}),
+        },
+      }),
+    [districtBoundaryKind, distributionsPending, runSignature, data.runState.status, districtChanceRun, districtChanceState, districtRunCurrent]
+  );
+  const districtShown = useMemo(
+    () => applyLedgerRangeState(districtStatuses, districtRows.teams, districtShownRange),
+    [districtStatuses, districtRows.teams, districtShownRange]
+  );
+
+  /**
+   * THE SIMULATED DCMP (quick task 261007-mxf): at a rewound stop before any
+   * championship has started, in a district that publishes one, the DCMP is
+   * baked over the Locked plus In range field in a second Worker request.
+   * Everywhere else (Now, a started championship) the shipped pricing stands
+   * and `simulatedDcmp` is undefined.
+   */
+  const simulatedDcmpActive = asOf !== undefined && !atNow && dcmpEventKeys.length > 0 && startedDcmpEventKeys.size === 0;
+  const simulatedField = useMemo(
+    () => (simulatedDcmpActive ? dcmpSimulatedField(districtShown, districtShownRange) : undefined),
+    [simulatedDcmpActive, districtShown, districtShownRange]
+  );
+  const simulatedBake = useSimulatedDcmpBake({
+    active: simulatedDcmpActive,
+    asOf,
+    artifact,
+    eventKey: dcmpEventKeys[0],
+    field: simulatedField,
+  });
+  const simulatedDcmp = useMemo(
+    (): SimulatedDcmpPricing | undefined => (simulatedField === undefined ? undefined : { field: simulatedField, bake: simulatedBake.bake }),
+    [simulatedField, simulatedBake.bake]
+  );
+  const simulatedDcmpStatus = simulatedDcmp === undefined ? undefined : simulatedDcmpState(simulatedDcmp);
+
+  // The controls card's bar also covers the DCMP bake's wait, indeterminate.
+  const runProgress = mainRunProgress ?? (simulatedDcmpStatus === "pending" ? ({ kind: "indeterminate" } as const) : undefined);
+
+  /**
    * THE DCMP ESTIMATE BY FIELD RANK, walk-forward, for every district team
    * (quick task 260927-6bf). Its field rank weighs each rival by the same
    * chance the grand totals are mixed at.
@@ -574,8 +678,9 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
         startedDcmpEventKeys,
         atLivePosition: atNow,
         dcmpEstimateByTeam: estimates.kind === "ready" ? estimates.byTeam : NO_ESTIMATES,
+        ...(simulatedDcmp === undefined ? {} : { simulatedDcmp }),
       }),
-    [passOptions, fieldChanceByTeam, startedDcmpEventKeys, atNow, estimates]
+    [passOptions, fieldChanceByTeam, startedDcmpEventKeys, atNow, estimates, simulatedDcmp]
   );
 
   const statuses = useMemo(
@@ -597,19 +702,28 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
    * or a team in the field whose DCMP could not be priced. Each of those is a
    * `pending` or `noCall` arm below, never a silent zero.
    */
+  // With the simulated DCMP, the champ run waits for the bake (null until it
+  // is ready) and its signature carries the bake's, so a re-bake re-runs it
+  // even when every grand total's length is unchanged (quick task 261007-mxf).
+  const champRunSignature =
+    simulatedDcmpStatus === undefined
+      ? runSignature
+      : simulatedDcmpStatus === "ready" && runSignature !== null
+        ? `${runSignature}#${simulatedBake.signature}`
+        : null;
   const champChanceRun = useMemo(() => {
     if (rows.gaps.teamsWithDistrictOnlyGrandTotal.length > 0) return undefined;
     return buildChampAdvancementChanceRun({
       artifact,
       teams: rows.teams,
       statuses,
-      runSignature,
+      runSignature: champRunSignature,
       positionId,
       dcmpEventKey: rows.dcmpEventKey,
       fieldChanceByTeam,
       awardDraws,
     });
-  }, [artifact, rows, statuses, runSignature, positionId, fieldChanceByTeam, awardDraws]);
+  }, [artifact, rows, statuses, champRunSignature, positionId, fieldChanceByTeam, awardDraws]);
 
   const champChanceState = useDistrictAdvancementChance(champChanceRun);
   const champRunCurrent = champChanceState.status === "complete" && champChanceState.signature === champChanceRun?.signature;
@@ -637,6 +751,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
         current: districtRunCurrent,
       },
       estimates: estimates.kind,
+      ...(simulatedDcmpStatus === undefined ? {} : { simulatedDcmp: simulatedDcmpStatus }),
       unpricedInTeams: rows.teams.filter((team) => team.membership === "in" && team.grandTotalIsDistrictOnly).length,
       champRun: {
         built: champChanceRun !== undefined,
@@ -658,6 +773,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     districtChanceState.status,
     districtRunCurrent,
     estimates.kind,
+    simulatedDcmpStatus,
     rows.teams,
     champChanceRun,
     champChanceState,

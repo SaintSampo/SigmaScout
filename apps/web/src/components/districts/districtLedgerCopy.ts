@@ -684,6 +684,14 @@ export const CHAMP_LEDGER_LOCKED_WINNER_LABEL = "Locked · winner";
 export const CHAMP_LEDGER_NOT_IN_FIELD_LINE = "not in the field";
 
 /**
+ * The DCMP row's small line for a team outside the SIMULATED field at a
+ * rewound stop before the championship starts (quick task 261007-mxf): the
+ * championship is simulated over the Locked plus In range teams there, and
+ * this team is not one of them.
+ */
+export const CHAMP_LEDGER_OUT_OF_RANGE_LINE = "outside the simulated field";
+
+/**
  * What a DCMP cell prints for a team outside the field: an EM DASH, built from
  * its codepoint so this file never types the glyph.
  *
@@ -708,6 +716,19 @@ export const CHAMP_LEDGER_NOT_IN_FIELD_CELL = String.fromCharCode(0x2014);
  * because the field it would be priced over does not exist yet.
  */
 export const CHAMP_LEDGER_NOT_YET_PRICED_CELL = "not yet priced";
+
+/**
+ * What a DCMP cell prints for a team outside the SIMULATED field (quick task
+ * 261007-mxf). At a rewound stop before the championship starts, the DCMP is
+ * simulated as if its field were the teams Locked or In range there; an Out of
+ * range team is outside that field.
+ *
+ * The FOURTH empty reading, and each says something different: the em dash is
+ * "not in the field", "not available" is a prediction attempted and refused,
+ * "not yet priced" is no field to price over yet, and "out of range" is
+ * outside the simulated Locked plus In range field.
+ */
+export const CHAMP_LEDGER_OUT_OF_RANGE_CELL = "out of range";
 
 /**
  * The grand total's small line while the DCMP is not yet priced.

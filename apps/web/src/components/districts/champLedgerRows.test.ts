@@ -724,6 +724,171 @@ describe("buildChampLedgerRows — a rewound position before the DCMP, with esti
   });
 });
 
+describe("buildChampLedgerRows — a rewound position before the DCMP, with the simulated DCMP (261007-mxf)", () => {
+  // Three teams REGISTERED for the DCMP, with a priced DCMP event and an
+  // estimate both supplied: neither may reach a row while the simulated DCMP is.
+  const dcmpRemaining = { eventKey: "2026pncmp", eventName: "PNW DCMP", week: 5, tier: "dcmp" as const, maxPoints: 249, state: state({ qualMatchesPlayed: 0, alliancesPicked: false, playoffsDone: false, awardsPosted: false }) };
+  const artifact = artifactOf([
+    team({ teamKey: "frc1", pointTotal: 60, eventPoints: [eventPoints({ eventKey: "2026wabon", week: 0, total: 60, qual: 30, alliance: 10, elim: 20, award: 0 })], remainingEvents: [dcmpRemaining] }),
+    team({ teamKey: "frc2", pointTotal: 40, eventPoints: [eventPoints({ eventKey: "2026wabon", week: 0, total: 40, qual: 20, alliance: 10, elim: 10, award: 0 })], remainingEvents: [dcmpRemaining] }),
+    team({ teamKey: "frc3", pointTotal: 10, eventPoints: [eventPoints({ eventKey: "2026wabon", week: 0, total: 10, qual: 5, alliance: 0, elim: 5, award: 0 })], remainingEvents: [dcmpRemaining] }),
+  ]);
+  const stageByEvent = new Map<string, DistrictStageFinality>([
+    ["2026wabon", ALL_FINAL],
+    ["2026pncmp", ALL_OPEN],
+  ]);
+  const realRoster = new Map([
+    ["2026pncmp", distributionsFor("2026pncmp", { frc1: { qual: uniform(60), alliance: uniform(40), elim: uniform(90), award: uniform(30), eventTotal: uniform(200) } })],
+  ]);
+  const estimate = { distribution: { counts: Float64Array.from([0, 0, 0, 0, 0, 1, 1]), denominator: 2 }, winChance: 0.25 };
+  const dcmpEstimateByTeam = new Map(["frc1", "frc2", "frc3"].map((teamKey) => [teamKey, estimate] as const));
+  // The BAKE: its own record for frc1, distinct objects from the real roster's.
+  const baked = distributionsFor("2026pncmp", { frc1: { qual: uniform(30), alliance: uniform(20), elim: uniform(90), award: uniform(15), eventTotal: uniform(150) } });
+  const lockedOut = new Set(["frc3"]);
+  const readyField = { status: "ready" as const, roster: ["frc1"], outOfRange: new Set(["frc2"]), lockedOut };
+  const readyBake = { status: "ready" as const, distributions: baked };
+  const dcmpCeilings = maxEventPoints(SEASON, "dcmp");
+  const dcmpEventTotalCeiling = dcmpCeilings.qual + dcmpCeilings.alliance + dcmpCeilings.elim + dcmpCeilings.award;
+
+  const build = (simulatedDcmp: Parameters<typeof buildChampLedgerRows>[0]["simulatedDcmp"]) => {
+    const rows = buildChampLedgerRows({
+      artifact,
+      distributions: realRoster,
+      stageByEvent,
+      fieldChanceByTeam: new Map([
+        ["frc1", 0.75],
+        ["frc2", 0.2],
+        ["frc3", 0],
+      ]),
+      dcmpStarted: false,
+      atLivePosition: false,
+      dcmpEstimateByTeam,
+      ...(simulatedDcmp === undefined ? {} : { simulatedDcmp }),
+    });
+    return { rows, byKey: new Map(rows.teams.map((entry) => [entry.teamKey, entry] as const)) };
+  };
+
+  const { rows, byKey } = build({ field: readyField, bake: readyBake });
+
+  it("gives a team in the simulated field four open cells and an open Subtotal from the bake, never the estimate or the real roster", () => {
+    const top = byKey.get("frc1")!;
+    const record = baked.byTeam.get("frc1")!;
+    expect(top.dcmpRow.estimated).toBe(false);
+    DISTRICT_CATEGORIES.forEach((category, index) => {
+      const cell = top.dcmpRow.cells[index]!;
+      expect(cell.id).toBe(champCellId("dcmp", category));
+      expect(cell.kind).toBe("open");
+      if (cell.kind !== "open") return;
+      expect(cell.distribution).toBe(record[category]);
+      expect(cell.ceiling).toBe(dcmpCeilings[category]);
+    });
+    const subtotal = top.dcmpRow.subtotal;
+    expect(subtotal.kind).toBe("open");
+    if (subtotal.kind === "open") {
+      expect(subtotal.distribution).toBe(record.eventTotal);
+      expect(subtotal.ceiling).toBe(dcmpEventTotalCeiling);
+    }
+    expect(top.dcmpRow.sources.map((source) => source.eventKey)).toEqual(["2026pncmp"]);
+    expect(top.grandTotalIsDistrictOnly).toBe(false);
+    expect(top.grandTotal.kind).toBe("open");
+  });
+
+  it("carries the team's supplied field chance and the Playoffs mass at the winner value into the DCMP part", () => {
+    const top = byKey.get("frc1")!;
+    expect(top.dcmpPart).toEqual({ distribution: baked.byTeam.get("frc1")!.eventTotal, fieldChance: 0.75, winChance: probabilityAt(uniform(90), dcmpCeilings.elim) });
+    expect(top.dcmpPart!.winChance).toBeCloseTo(1 / 91, 12);
+  });
+
+  it("reads an Out of range team out of range in all five cells, with a labelled district only total that never joins the gap", () => {
+    const outside = byKey.get("frc2")!;
+    for (const cell of [...outside.dcmpRow.cells, outside.dcmpRow.subtotal]) expect(cell.kind).toBe("outOfRange");
+    expect(outside.dcmpRow.estimated).toBe(false);
+    expect(outside.dcmpPart).toBeUndefined();
+    expect(outside.grandTotalIsDistrictOnly).toBe(true);
+    expect(outside.grandTotal).toMatchObject({ kind: "final", earned: 40 });
+    expect(probabilityAt(outside.districtPart!, 40)).toBe(1);
+    expect(outside.hasOpenCategory).toBe(false);
+  });
+
+  it("reads a Locked out team as the em dash in all five cells, with the same labelled district only total", () => {
+    const out = byKey.get("frc3")!;
+    for (const cell of [...out.dcmpRow.cells, out.dcmpRow.subtotal]) expect(cell.kind).toBe("notInField");
+    expect(out.dcmpPart).toBeUndefined();
+    expect(out.grandTotalIsDistrictOnly).toBe(true);
+    expect(out.grandTotal).toMatchObject({ kind: "final", earned: 10 });
+  });
+
+  it("names nobody in the district only gap, so the champ run still runs", () => {
+    expect(rows.gaps.teamsWithDistrictOnlyGrandTotal).toEqual([]);
+  });
+
+  it("reads pending cells and a pending grand total while the field or the bake is pending, the Locked out em dash at once", () => {
+    for (const pricing of [
+      { field: { status: "pending" as const, lockedOut }, bake: { status: "pending" as const } },
+      { field: readyField, bake: { status: "pending" as const } },
+    ]) {
+      const { byKey: pending } = build(pricing);
+      for (const teamKey of pricing.field.status === "pending" ? ["frc1", "frc2"] : ["frc1"]) {
+        const entry = pending.get(teamKey)!;
+        for (const cell of [...entry.dcmpRow.cells, entry.dcmpRow.subtotal]) expect(cell).toMatchObject({ kind: "unavailable", pending: true });
+        expect(entry.grandTotal).toMatchObject({ kind: "unavailable", pending: true });
+        expect(entry.dcmpRow.estimated).toBe(false);
+      }
+      for (const cell of [...pending.get("frc3")!.dcmpRow.cells, pending.get("frc3")!.dcmpRow.subtotal]) expect(cell.kind).toBe("notInField");
+    }
+  });
+
+  it("reads plain not available for a refused field, a failed bake and a roster team the bake has no record for", () => {
+    const missingRecord = { field: { ...readyField, roster: ["frc1", "frc2"], outOfRange: new Set<string>() }, bake: readyBake };
+    const cases = [
+      { pricing: { field: { status: "refused" as const, lockedOut }, bake: readyBake }, teams: ["frc1", "frc2"] },
+      { pricing: { field: readyField, bake: { status: "unavailable" as const } }, teams: ["frc1"] },
+      { pricing: missingRecord, teams: ["frc2"] },
+    ];
+    for (const { pricing, teams } of cases) {
+      const { byKey: refused } = build(pricing);
+      for (const teamKey of teams) {
+        const entry = refused.get(teamKey)!;
+        for (const cell of [...entry.dcmpRow.cells, entry.dcmpRow.subtotal]) {
+          expect(cell.kind).toBe("unavailable");
+          expect(cell.kind === "unavailable" && cell.pending).toBeFalsy();
+        }
+        expect(entry.grandTotal.kind).toBe("unavailable");
+        expect(entry.grandTotal.kind === "unavailable" && entry.grandTotal.pending).toBeFalsy();
+        expect(entry.dcmpRow.estimated).toBe(false);
+      }
+    }
+  });
+
+  it("reads a record missing a distribution as not available rather than a partial row", () => {
+    const partial = distributionsFor("2026pncmp", { frc1: { qual: uniform(30), alliance: uniform(20), elim: uniform(90), eventTotal: uniform(150) } });
+    const { byKey: built } = build({ field: readyField, bake: { status: "ready", distributions: partial } });
+    for (const cell of [...built.get("frc1")!.dcmpRow.cells, built.get("frc1")!.dcmpRow.subtotal]) expect(cell.kind).toBe("unavailable");
+  });
+
+  it("never reads the estimate for a team whose field is not a fact while the simulated DCMP is supplied", () => {
+    for (const entry of rows.teams) expect(entry.dcmpRow.estimated).toBe(false);
+  });
+
+  it("without the option keeps the shipped estimate reading byte for byte", () => {
+    const shipped = buildChampLedgerRows({
+      artifact,
+      distributions: realRoster,
+      stageByEvent,
+      fieldChanceByTeam: new Map([
+        ["frc1", 0.75],
+        ["frc2", 0.2],
+        ["frc3", 0],
+      ]),
+      dcmpStarted: false,
+      atLivePosition: false,
+      dcmpEstimateByTeam,
+    });
+    expect(build(undefined).rows).toEqual(shipped);
+    for (const entry of shipped.teams) expect(entry.dcmpRow.estimated).toBe(true);
+  });
+});
+
 describe("ChampLedgerTeam.earnedAtPosition — the rewound header (finding 4)", () => {
   // One team that played a district event (qual 20, alliance 10, elim 10,
   // award 5) and then the DCMP (qual 30, alliance 15, elim 0, award 0), with a

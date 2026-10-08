@@ -17,8 +17,11 @@ import {
   districtFieldMembershipChances,
   hypotheticalDcmpEstimates,
   reconcileChampAdvancementChances,
+  dcmpSimulatedField,
+  simulatedDcmpState,
   type ChampRangeStateInputs,
 } from "./champLedgerChances.js";
+import type { LedgerRangeState } from "./ledgerRangeState.js";
 import { CHAMP_CUTOFF_TUNING_GRID } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
 import type { DistrictLedgerStatusModel, DistrictLedgerStatusState } from "./districtLedgerStatus.js";
 import type { DistrictEventDistributions, DistrictPointDistribution, DistrictStageFinality } from "./districtLedgerRows.js";
@@ -644,5 +647,118 @@ describe("buildChampAdvancementChanceRun — champ mode", () => {
       awardDraws: [{ ...awardDraws[0]!, countWeights: [0.5, 0.5] }],
     })!;
     expect(other.signature).not.toBe(champ.signature);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The simulated DCMP field (quick task 261007-mxf)
+// ---------------------------------------------------------------------------
+
+describe("dcmpSimulatedField — the Locked plus In range field from the district tier's shown chips", () => {
+  const shown = (entries: readonly (readonly [string, string, ("pending" | "noCall")?])[]) => ({
+    byTeam: new Map(entries.map(([teamKey, status, rangeCall]) => [teamKey, rangeCall === undefined ? { status } : { status, rangeCall }] as const)),
+  });
+  const SIMULATED: LedgerRangeState = { kind: "simulated", points: 40, likely: { p10: 38, p90: 42 } };
+  const SETTLED: LedgerRangeState = { kind: "settled" };
+  const MODEL = shown([
+    ["frc104", "inRange"],
+    ["frc101", "locked"],
+    ["frc105", "outOfRange"],
+    ["frc102", "prequalified"],
+    ["frc103", "lockedOut"],
+  ]);
+
+  it("is ready under a simulated or settled line, with the sorted roster, the Out of range set and the Locked out set", () => {
+    for (const state of [SIMULATED, SETTLED]) {
+      const field = dcmpSimulatedField(MODEL, state);
+      expect(field.status).toBe("ready");
+      if (field.status !== "ready") continue;
+      expect(field.roster).toEqual(["frc101", "frc102", "frc104"]);
+      expect([...field.outOfRange]).toEqual(["frc105"]);
+      expect([...field.lockedOut]).toEqual(["frc103"]);
+    }
+  });
+
+  it("is pending while the district line is pending, and refused under No call, each carrying the Locked out set", () => {
+    const withheld = shown([
+      ["frc101", "locked"],
+      ["frc103", "lockedOut"],
+      ["frc104", "capacityUnknown", "pending"],
+    ]);
+    const pending = dcmpSimulatedField(withheld, { kind: "pending" });
+    expect(pending.status).toBe("pending");
+    expect([...pending.lockedOut]).toEqual(["frc103"]);
+    const refused = dcmpSimulatedField(withheld, { kind: "noCall", reason: "workerError" });
+    expect(refused.status).toBe("refused");
+    expect([...refused.lockedOut]).toEqual(["frc103"]);
+  });
+
+  it("is refused when any team's capacity is unknown under a settled or simulated line", () => {
+    const unknown = shown([
+      ["frc101", "locked"],
+      ["frc103", "lockedOut"],
+      ["frc106", "capacityUnknown"],
+    ]);
+    for (const state of [SIMULATED, SETTLED]) {
+      const field = dcmpSimulatedField(unknown, state);
+      expect(field.status).toBe("refused");
+      expect([...field.lockedOut]).toEqual(["frc103"]);
+    }
+  });
+});
+
+describe("simulatedDcmpState", () => {
+  const lockedOut = new Set<string>();
+  const readyField = { status: "ready" as const, roster: ["frc101"], outOfRange: new Set<string>(), lockedOut };
+  const readyBake = { status: "ready" as const, distributions: { eventKey: "2026pncmp", byTeam: new Map() } };
+
+  it("maps a pending field to pending and a refused one to unavailable, whatever the bake", () => {
+    expect(simulatedDcmpState({ field: { status: "pending", lockedOut }, bake: readyBake })).toBe("pending");
+    expect(simulatedDcmpState({ field: { status: "refused", lockedOut }, bake: readyBake })).toBe("unavailable");
+  });
+
+  it("maps a ready field to its bake's status", () => {
+    expect(simulatedDcmpState({ field: readyField, bake: { status: "pending" } })).toBe("pending");
+    expect(simulatedDcmpState({ field: readyField, bake: { status: "unavailable" } })).toBe("unavailable");
+    expect(simulatedDcmpState({ field: readyField, bake: readyBake })).toBe("ready");
+  });
+});
+
+describe("champRangeState — the simulated DCMP in place of the estimate", () => {
+  const COMPLETE_LINE = Float64Array.from({ length: 10 }, (_unused, i) => 150 + i);
+  function inputs(overrides: Partial<ChampRangeStateInputs> = {}): ChampRangeStateInputs {
+    return {
+      dcmpAwardsFinal: false,
+      cmpSlots: 21,
+      perEventRunSignature: "sig",
+      districtRun: { built: true, status: "complete", current: true },
+      estimates: "ready",
+      unpricedInTeams: 0,
+      champRun: { built: true, status: "complete", current: true, excludedTeams: [], cutoffByRun: COMPLETE_LINE, draws: 10 },
+      ...overrides,
+    };
+  }
+
+  it("reads pending while the bake is pending, even where the estimate has no table", () => {
+    expect(champRangeState(inputs({ simulatedDcmp: "pending", estimates: "noTable" })).kind).toBe("pending");
+    expect(champRangeState(inputs({ simulatedDcmp: "pending" })).kind).toBe("pending");
+  });
+
+  it("reads No call with unpricedDcmp when the field is refused or the bake failed", () => {
+    expect(champRangeState(inputs({ simulatedDcmp: "unavailable" }))).toEqual({ kind: "noCall", reason: "unpricedDcmp" });
+    expect(champRangeState(inputs({ simulatedDcmp: "unavailable", estimates: "noTable" }))).toEqual({ kind: "noCall", reason: "unpricedDcmp" });
+  });
+
+  it("ignores the estimate once the bake is ready, and reads the champ run", () => {
+    for (const estimates of ["noTable", "awaitingFieldChances", "ready"] as const) {
+      expect(champRangeState(inputs({ simulatedDcmp: "ready", estimates })).kind).toBe("simulated");
+      expect(champRangeState(inputs({ simulatedDcmp: "ready", estimates, champRun: { built: true, status: "running" } })).kind).toBe("pending");
+    }
+  });
+
+  it("still lets the upstream runs and the settled position win", () => {
+    expect(champRangeState(inputs({ simulatedDcmp: "ready", perEventRunSignature: null })).kind).toBe("pending");
+    expect(champRangeState(inputs({ simulatedDcmp: "pending", districtRun: { built: true, status: "error" } }))).toEqual({ kind: "noCall", reason: "workerError" });
+    expect(champRangeState(inputs({ simulatedDcmp: "unavailable", dcmpAwardsFinal: true })).kind).toBe("settled");
   });
 });

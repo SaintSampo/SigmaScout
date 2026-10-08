@@ -50,6 +50,8 @@ import {
   CHAMP_LEDGER_NOT_IN_FIELD_CELL,
   CHAMP_LEDGER_NOT_IN_FIELD_LINE,
   CHAMP_LEDGER_NOT_YET_PRICED_CELL,
+  CHAMP_LEDGER_OUT_OF_RANGE_CELL,
+  CHAMP_LEDGER_OUT_OF_RANGE_LINE,
   CHAMP_LEDGER_ROW_LABELS,
   CHAMP_LEDGER_TAB_LABEL,
   champLedgerDcmpStageLine,
@@ -535,19 +537,25 @@ describe("the Champ Locks copy contract", () => {
   });
 
   /**
-   * THREE ABSENCES, THREE DIFFERENT WORDS. The em dash means the field has
+   * FOUR ABSENCES, FOUR DIFFERENT WORDS. The em dash means the field has
    * settled and left this team out; "not yet priced" means nothing was
    * predicted at all; "not available" (the district tier's) means a prediction
-   * was attempted and refused. Asserting they are pairwise different is what
-   * stops a later edit collapsing two of them into one.
+   * was attempted and refused; "out of range" (quick task 261007-mxf) means
+   * the team is outside the simulated Locked plus In range field. Asserting
+   * they are pairwise different is what stops a later edit collapsing two of
+   * them into one.
    */
-  it("keeps the three DCMP absences distinct, and builds the em dash from its codepoint", () => {
+  it("keeps the four DCMP absences distinct, and builds the em dash from its codepoint", () => {
     expect(CHAMP_LEDGER_NOT_IN_FIELD_CELL).toBe(String.fromCharCode(0x2014));
     expect(CHAMP_LEDGER_NOT_IN_FIELD_LINE).toBe("not in the field");
     expect(CHAMP_LEDGER_NOT_YET_PRICED_CELL).toBe("not yet priced");
+    expect(CHAMP_LEDGER_OUT_OF_RANGE_CELL).toBe("out of range");
+    expect(CHAMP_LEDGER_OUT_OF_RANGE_LINE).toBe("outside the simulated field");
     expect(CHAMP_LEDGER_DISTRICT_ONLY_LINE).toBe("district only");
-    const three = [CHAMP_LEDGER_NOT_IN_FIELD_CELL, CHAMP_LEDGER_NOT_YET_PRICED_CELL, "not available"];
-    expect(new Set(three).size).toBe(3);
+    const four = [CHAMP_LEDGER_NOT_IN_FIELD_CELL, CHAMP_LEDGER_NOT_YET_PRICED_CELL, "not available", CHAMP_LEDGER_OUT_OF_RANGE_CELL];
+    expect(new Set(four).size).toBe(4);
+    // Neither new string carries a hyphen, an en dash or an em dash.
+    for (const text of [CHAMP_LEDGER_OUT_OF_RANGE_CELL, CHAMP_LEDGER_OUT_OF_RANGE_LINE]) expect(text).not.toMatch(/[-\u2013\u2014]/);
   });
 
   it("prints the field chance with a mandatory tilde, inside the same 5 to 99 band the status line uses", () => {

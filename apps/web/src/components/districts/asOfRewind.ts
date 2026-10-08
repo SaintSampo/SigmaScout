@@ -342,6 +342,14 @@ export interface PlanAsOfEventParams {
    * timed step), so it would let a later result move a number at the stop.
    */
   readonly scheduleStopEventKey: string | undefined;
+  /**
+   * A GENERATED plan's roster when the caller supplies one (quick task
+   * 261007-mxf): the Champ Locks tab passes every district team under its
+   * unstarted championship so the one as-of load resolves them all at the cut,
+   * and the Locked plus In range bake assembles from that load. Ignored by a
+   * REAL plan, whose roster is the event's own.
+   */
+  readonly rosterOverride?: readonly string[];
 }
 
 export type AsOfEventPlanResult = { readonly ok: true; readonly plan: AsOfEventPlan } | { readonly ok: false; readonly reason: string };
@@ -384,9 +392,19 @@ export function planAsOfEvent(params: PlanAsOfEventParams): AsOfEventPlanResult 
   // 261007-il9, the rule the REAL split above already reads; a playoff only
   // demo robot is no team), for an event started today, else the district
   // artifact's registrations. `simulatedTeams` falls back to the artifact's
-  // whole team list when it has no qualification row.
+  // whole team list when it has no qualification row. A caller supplied
+  // `rosterOverride` (sorted, de-duplicated) comes ahead of both: the Champ
+  // Locks tab's unstarted championship is planned over every district team so
+  // the load resolves each one at the cut (quick task 261007-mxf). The main
+  // run never posts that plan; the tab bakes the championship separately over
+  // the Locked plus In range field.
   const fromArtifact = eventArtifact === undefined ? [] : simulatedTeams(eventArtifact).map((team) => team.teamKey);
-  const roster = fromArtifact.length > 0 ? [...fromArtifact].sort() : districtRegistrations(params.districtArtifact, eventKey, tier);
+  const roster =
+    params.rosterOverride !== undefined
+      ? [...new Set(params.rosterOverride)].sort()
+      : fromArtifact.length > 0
+        ? [...fromArtifact].sort()
+        : districtRegistrations(params.districtArtifact, eventKey, tier);
   const eventType = eventArtifact?.eventType ?? fallbackEventType(tier);
   return {
     ok: true,
@@ -512,7 +530,19 @@ export interface AsOfRewindInput {
   /** The stage at the stop, per event. */
   readonly stageByEvent: ReadonlyMap<string, DistrictStageFinality>;
   /** The events this tab may simulate, with their tier and week. Only those with an open category at the stop are planned. */
-  readonly candidates: readonly { readonly eventKey: string; readonly tier: DistrictTier; readonly week: number | null }[];
+  readonly candidates: readonly {
+    readonly eventKey: string;
+    readonly tier: DistrictTier;
+    readonly week: number | null;
+    /**
+     * A GENERATED plan's roster when the caller supplies one, passed to
+     * `planAsOfEvent` as `rosterOverride`. The Champ Locks tab (quick task
+     * 261007-mxf) attaches every district team to its unstarted championship
+     * so the Locked plus In range bake assembles from this same load; the
+     * main run never posts that plan.
+     */
+    readonly roster?: readonly string[];
+  }[];
   /** See `PlanAsOfEventParams.scheduleStopEventKey`; `asOfScheduleStopEventKey` reads it off `?at=`. */
   readonly scheduleStopEventKey: string | undefined;
   /**
@@ -616,6 +646,7 @@ export async function loadAsOfRewind(input: AsOfRewindInput, fetchers: AsOfFetch
       index: indexes.get(candidate.eventKey),
       cut,
       scheduleStopEventKey: input.scheduleStopEventKey,
+      ...(candidate.roster !== undefined ? { rosterOverride: candidate.roster } : {}),
     });
     if (!planned.ok) outcomes.set(candidate.eventKey, { status: "unavailable", reason: planned.reason });
     else pending.set(candidate.eventKey, planned.plan);

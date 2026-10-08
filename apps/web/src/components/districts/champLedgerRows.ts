@@ -92,22 +92,83 @@ export type ChampFieldMembership = "in" | "out" | "open";
 /**
  * One rendered champ cell.
  *
- * TWO VARIANTS PAST THE SHIPPED THREE, and they say different things:
+ * THREE VARIANTS PAST THE SHIPPED THREE, and with `unavailable` they are the
+ * four readings an empty DCMP cell can give, each saying something different:
  *
- * - `notInField` — the DCMP has started and this team is not in it. The field
- *   is a settled fact and the cell prints an em dash.
+ * - `notInField` — the team is not in the field: the DCMP has started without
+ *   it, or the district tier has Locked it out. The cell prints an em dash.
  * - `notYetPriced` — the tab holds no DCMP distribution at all, because the
  *   artifact does not name the championship yet (the pre-registration window)
  *   or because no sidecar and no event artifact could be read for it. Nothing
  *   was predicted, so the cell says so in words.
+ * - `outOfRange` — at a rewound stop before the championship starts, the DCMP
+ *   is simulated over the Locked plus In range field (quick task 261007-mxf),
+ *   and this team is outside that simulated field: "out of range".
  *
- * Neither is `unavailable`, which stays what it always was: a prediction was
+ * None is `unavailable`, which stays what it always was: a prediction was
  * attempted for this cell and refused.
  */
 export type ChampLedgerCell =
   | DistrictLedgerCell
   | { readonly id: string; readonly cell: DistrictCellKind; readonly kind: "notInField" }
-  | { readonly id: string; readonly cell: DistrictCellKind; readonly kind: "notYetPriced" };
+  | { readonly id: string; readonly cell: DistrictCellKind; readonly kind: "notYetPriced" }
+  | { readonly id: string; readonly cell: DistrictCellKind; readonly kind: "outOfRange" };
+
+/**
+ * THE SIMULATED DCMP FIELD at a rewound stop before any championship has
+ * started (quick task 261007-mxf), from the district tier's SHOWN statuses
+ * (`champLedgerChances.ts` `dcmpSimulatedField`):
+ *
+ * - `pending` while the district line is still settling;
+ * - `refused` where the roster cannot be decided (No call, or a team whose
+ *   capacity is unknown);
+ * - `ready` with the sorted roster (Prequalified, Locked and In range), the Out
+ *   of range teams and nothing else.
+ *
+ * The Locked out set rides every arm, so an em dash renders at once.
+ */
+export type SimulatedDcmpField =
+  | { readonly status: "pending"; readonly lockedOut: ReadonlySet<string> }
+  | { readonly status: "refused"; readonly lockedOut: ReadonlySet<string> }
+  | {
+      readonly status: "ready";
+      readonly roster: readonly string[];
+      readonly outOfRange: ReadonlySet<string>;
+      readonly lockedOut: ReadonlySet<string>;
+    };
+
+/** The Web Worker bake of the one generated championship over the simulated field (`useSimulatedDcmpBake.ts`). */
+export type SimulatedDcmpBake =
+  | { readonly status: "pending" }
+  | { readonly status: "unavailable" }
+  | { readonly status: "ready"; readonly distributions: DistrictEventDistributions };
+
+/** The field and its bake, as `buildChampLedgerRows` reads them. */
+export interface SimulatedDcmpPricing {
+  readonly field: SimulatedDcmpField;
+  readonly bake: SimulatedDcmpBake;
+}
+
+/** One team's reading under the simulated field: the readings table in quick task 261007-mxf's plan. */
+type SimulatedDcmpReading =
+  | { readonly kind: "lockedOut" }
+  | { readonly kind: "outOfRange" }
+  | { readonly kind: "pending" }
+  | { readonly kind: "unavailable" }
+  | { readonly kind: "baked"; readonly record: Readonly<Record<DistrictCellKind, DistrictPointDistribution | undefined>> };
+
+function simulatedDcmpReading(pricing: SimulatedDcmpPricing, teamKey: string): SimulatedDcmpReading {
+  const { field, bake } = pricing;
+  if (field.lockedOut.has(teamKey)) return { kind: "lockedOut" };
+  if (field.status === "pending") return { kind: "pending" };
+  if (field.status === "refused") return { kind: "unavailable" };
+  if (field.outOfRange.has(teamKey)) return { kind: "outOfRange" };
+  if (!field.roster.includes(teamKey)) return { kind: "unavailable" };
+  if (bake.status === "pending") return { kind: "pending" };
+  if (bake.status === "unavailable") return { kind: "unavailable" };
+  const record = bake.distributions.byTeam.get(teamKey);
+  return record === undefined ? { kind: "unavailable" } : { kind: "baked", record };
+}
 
 /** One source event behind a row, for the row's small line ("{short name} Wk {week + 1} · {stage word}"). */
 export interface ChampLedgerSource {
@@ -196,10 +257,12 @@ export interface ChampLedgerTeam {
    */
   readonly grandTotal: DistrictLedgerCell;
   /**
-   * True when the grand total above is the DISTRICT-ONLY total, because the tab
-   * holds no DCMP distribution for this team. The tab prints "district only"
-   * under the figure; see this module's header for why the number is printed
-   * and labelled rather than withheld.
+   * True when the grand total above is the DISTRICT-ONLY total: the tab holds
+   * no DCMP distribution for this team, or (quick task 261007-mxf) the team is
+   * outside the simulated Locked plus In range field at a rewound stop, where
+   * its championship points are zero. The tab prints "district only" under the
+   * figure; see this module's header for why the number is printed and
+   * labelled rather than withheld.
    */
   readonly grandTotalIsDistrictOnly: boolean;
   /** The continuous median of the predicted grand total, or the earned all-tier total for a team with no open category. */
@@ -263,6 +326,11 @@ export interface ChampLedgerGaps extends DistrictLedgerGaps {
    * the champ ADVANCEMENT CHANCE is suppressed while this list is non-empty,
    * because ranking district-only totals against `cmpSlots` would rank a
    * different quantity than the column prints.
+   *
+   * A team outside the simulated field at a rewound stop (quick task
+   * 261007-mxf) also carries a labelled district only total but is NEVER
+   * named here: it is priced, at zero championship points, so its total is the
+   * quantity the column prints and the champ run still runs.
    */
   readonly teamsWithDistrictOnlyGrandTotal: readonly string[];
 }
@@ -405,9 +473,17 @@ export interface BuildChampLedgerRowsOptions {
    * `teamKey -> the walk-forward DCMP estimate by field rank` (quick task
    * 260927-6bf). A team whose field is not yet a fact at this position, or
    * whose championship the tab could not price, is priced from this instead of
-   * reading "not yet priced"; see `buildDcmpRow`'s four cases.
+   * reading "not yet priced"; see `buildDcmpRow`'s five cases.
    */
   readonly dcmpEstimateByTeam?: ReadonlyMap<string, ChampDcmpEstimate>;
+  /**
+   * THE SIMULATED DCMP (quick task 261007-mxf): supplied only at a rewound
+   * stop before any championship has started, where the championship is baked
+   * over the Locked plus In range field. A team whose field is not a fact is
+   * read from it (`buildDcmpRow`'s case 3) and the estimate is never consulted.
+   * Absent everywhere else, which is the shipped behaviour byte for byte.
+   */
+  readonly simulatedDcmp?: SimulatedDcmpPricing;
   /**
    * THE TAB'S OWN PENDING CONDITION (quick task 261007-4qr), passed to both
    * tier passes: see `BuildDistrictLedgerRowsOptions.distributionsPending`. A
@@ -481,27 +557,37 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
     const fieldChance = membership === "open" ? suppliedChance : undefined;
 
     const districtRow = foldDistrictRow(districtEntry, districtCeilings, districtEventTotalCeiling);
-    // WITHOUT AN ESTIMATE MAP the shipped rule stands unchanged: any priced
-    // championship row is read, which is what the tab renders until it
-    // supplies estimates. WITH one, the championship's own row is read only
-    // where the field is a fact for this team (`buildDcmpRow`'s case 2).
+    // WITHOUT AN ESTIMATE MAP OR A SIMULATED DCMP the shipped rule stands
+    // unchanged: any priced championship row is read, which is what the tab
+    // renders until it supplies either. WITH one, the championship's own row is
+    // read only where the field is a fact for this team (`buildDcmpRow`'s case 2).
     const fieldIsFact =
-      options.dcmpEstimateByTeam === undefined || dcmpStarted || ((options.atLivePosition ?? false) && membership === "in");
-    const { row: dcmpRow, winChance } = buildDcmpRow(
+      (options.dcmpEstimateByTeam === undefined && options.simulatedDcmp === undefined) ||
+      dcmpStarted ||
+      ((options.atLivePosition ?? false) && membership === "in");
+    const simulated =
+      !fieldIsFact && options.simulatedDcmp !== undefined ? simulatedDcmpReading(options.simulatedDcmp, team.teamKey) : undefined;
+    const { row: dcmpRow, winChance, outsideSimulatedField } = buildDcmpRow(
       dcmpEntry,
       membership,
       dcmpEventTotalCeiling,
       fieldIsFact,
       options.dcmpEstimateByTeam?.get(team.teamKey),
-      dcmpCeilings.elim
+      dcmpCeilings,
+      simulated
     );
 
     // THE DCMP WAS NEVER PRICED — no championship on the artifact, or no
     // sidecar and no event artifact for the one it names. The grand total falls
     // back to the district-only convolution and says so; see this module's
-    // header.
-    const districtOnly = dcmpRow.subtotal.kind === "notYetPriced";
-    if (districtOnly) teamsWithDistrictOnlyGrandTotal.add(team.teamKey);
+    // header. Only this case joins `teamsWithDistrictOnlyGrandTotal`.
+    const unpriced = dcmpRow.subtotal.kind === "notYetPriced";
+    if (unpriced) teamsWithDistrictOnlyGrandTotal.add(team.teamKey);
+    // OUTSIDE THE SIMULATED FIELD (quick task 261007-mxf): a Locked out or Out
+    // of range team at a rewound stop is priced, at zero championship points,
+    // so its grand total is the same labelled district only figure without
+    // suppressing the champ run.
+    const districtOnly = unpriced || outsideSimulatedField;
 
     const districtOpen = rowHasOpenCell(districtRow);
     // AN OPEN DCMP SUBTOTAL COUNTS (quick task 260927-6bf): an estimated row
@@ -764,7 +850,8 @@ function foldCells(
 /**
  * The DCMP points row, and the chance the team is on the DCMP winning alliance.
  *
- * FOUR CASES, in priority order (quick task 260927-6bf):
+ * FIVE CASES, in priority order (quick task 260927-6bf; case 3 quick task
+ * 261007-mxf):
  *
  * 1. A team OUTSIDE the field gets `notInField` in every cell (the em dash).
  * 2. The field is a FACT for this team (the DCMP has started, or the reader is
@@ -778,13 +865,24 @@ function foldCells(
  *    row is priced from awards alone (`districtLedgerRows.ts`
  *    `awardOnlyTeams`, quick task 260927-vmb): the Subtotal is open and the
  *    Playoffs cell is a grey zero, so its win chance is 0.
- * 3. Otherwise, when a walk-forward ESTIMATE is supplied for the team: the
+ * 3. Otherwise, at a rewound stop before any championship has started, where
+ *    the tab supplies the SIMULATED DCMP (the Locked plus In range field baked
+ *    in the Web Worker): the team's reading. Locked out gives the em dash and
+ *    Out of range the "out of range" cell, both in every cell and both
+ *    `outsideSimulatedField`; a field or bake still in flight gives pending
+ *    cells; a refused field, a failed bake or a team the bake has no record
+ *    for gives plain unavailable cells. A baked team gets four open cells and
+ *    an open Subtotal built from its record, exactly the cells a baked sidecar
+ *    gives, with case 2's win chance. A record missing any distribution reads
+ *    unavailable. The estimate below is never consulted while this case is
+ *    supplied.
+ * 4. Otherwise, when a walk-forward ESTIMATE is supplied for the team: the
  *    four category cells read "not yet priced", the Subtotal is open over the
  *    estimate, and `estimated` is true. `sources` stays the dcmp pass's own,
- *    so the status floors and ceilings are untouched. On a rewound position
- *    before the DCMP starts, case 2 cannot fire, so every team lands here and
- *    the real roster prices nothing: that is the no leak guarantee.
- * 4. Otherwise `notYetPriced` in every cell: the district only fallback.
+ *    so the status floors and ceilings are untouched. At the live position
+ *    before the DCMP field is a fact, case 2 cannot fire for an unregistered
+ *    team, so it lands here; a rewound stop takes case 3 instead.
+ * 5. Otherwise `notYetPriced` in every cell: the district only fallback.
  *
  * Anything narrower in case 2 (one category the run refused while the others
  * priced) keeps the shipped `unavailable` on that cell alone.
@@ -795,13 +893,17 @@ function buildDcmpRow(
   eventTotalCeiling: number,
   fieldIsFact: boolean,
   estimate: ChampDcmpEstimate | undefined,
-  winnerElimPoints: number
-): { readonly row: ChampLedgerRow; readonly winChance: number } {
+  ceilings: ReturnType<typeof maxEventPoints>,
+  simulated: SimulatedDcmpReading | undefined
+): { readonly row: ChampLedgerRow; readonly winChance: number; readonly outsideSimulatedField: boolean } {
   const row = entry.rows[0];
   const sources: ChampLedgerSource[] =
     row === undefined ? [] : [{ eventKey: row.eventKey, eventName: row.eventName, week: row.week, stage: row.stage }];
 
-  const wholeRow = (kind: "notInField" | "notYetPriced"): { row: ChampLedgerRow; winChance: number } => ({
+  const wholeRow = (
+    kind: "notInField" | "notYetPriced" | "outOfRange",
+    outsideSimulatedField = false
+  ): { row: ChampLedgerRow; winChance: number; outsideSimulatedField: boolean } => ({
     row: {
       kind: "dcmp",
       cells: DISTRICT_CATEGORIES.map((category) => ({ id: champCellId("dcmp", category), cell: category, kind })),
@@ -810,7 +912,24 @@ function buildDcmpRow(
       estimated: false,
     },
     winChance: 0,
+    outsideSimulatedField,
   });
+
+  const unavailableRow = (pending: boolean): { row: ChampLedgerRow; winChance: number; outsideSimulatedField: boolean } => {
+    const cell = (id: string, kind: DistrictCellKind): ChampLedgerCell =>
+      pending ? { id, cell: kind, kind: "unavailable", pending: true } : { id, cell: kind, kind: "unavailable" };
+    return {
+      row: {
+        kind: "dcmp",
+        cells: DISTRICT_CATEGORIES.map((category) => cell(champCellId("dcmp", category), category)),
+        subtotal: cell(champCellId("dcmp", "eventTotal"), "eventTotal"),
+        sources,
+        estimated: false,
+      },
+      winChance: 0,
+      outsideSimulatedField: false,
+    };
+  };
 
   if (membership === "out") return wholeRow("notInField");
 
@@ -822,9 +941,6 @@ function buildDcmpRow(
     // for it; the estimate below stands in where it is supplied.
     if (subtotal.kind !== "unavailable") {
       const elimIndex = DISTRICT_CATEGORIES.indexOf("elim");
-      const elim = row.cells[elimIndex];
-      const winChance =
-        elim?.kind === "open" ? Math.min(Math.max((elim.distribution.counts[winnerElimPoints] ?? 0) / elim.distribution.denominator, 0), 1) : 0;
       return {
         row: {
           kind: "dcmp",
@@ -833,8 +949,41 @@ function buildDcmpRow(
           sources,
           estimated: false,
         },
-        winChance,
+        winChance: winChanceOf(row.cells[elimIndex], ceilings.elim),
+        outsideSimulatedField: false,
       };
+    }
+  }
+
+  if (simulated !== undefined) {
+    switch (simulated.kind) {
+      case "lockedOut":
+        return wholeRow("notInField", true);
+      case "outOfRange":
+        return wholeRow("outOfRange", true);
+      case "pending":
+        return unavailableRow(true);
+      case "unavailable":
+        return unavailableRow(false);
+      case "baked": {
+        const { record } = simulated;
+        const total = record.eventTotal;
+        if (total === undefined || DISTRICT_CATEGORIES.some((category) => record[category] === undefined)) return unavailableRow(false);
+        const cells = DISTRICT_CATEGORIES.map((category) =>
+          openDistrictLedgerCell(champCellId("dcmp", category), category, record[category]!, ceilings[category])
+        );
+        return {
+          row: {
+            kind: "dcmp",
+            cells,
+            subtotal: openDistrictLedgerCell(champCellId("dcmp", "eventTotal"), "eventTotal", total, eventTotalCeiling),
+            sources,
+            estimated: false,
+          },
+          winChance: winChanceOf(cells[DISTRICT_CATEGORIES.indexOf("elim")], ceilings.elim),
+          outsideSimulatedField: false,
+        };
+      }
     }
   }
 
@@ -848,10 +997,17 @@ function buildDcmpRow(
         estimated: true,
       },
       winChance: estimate.winChance,
+      outsideSimulatedField: false,
     };
   }
 
   return wholeRow("notYetPriced");
+}
+
+/** The chance of being on the winning alliance: a Playoffs cell's mass at the winner value, 0 for any cell that is not open. */
+function winChanceOf(elim: ChampLedgerCell | undefined, winnerElimPoints: number): number {
+  if (elim?.kind !== "open") return 0;
+  return Math.min(Math.max((elim.distribution.counts[winnerElimPoints] ?? 0) / elim.distribution.denominator, 0), 1);
 }
 
 /** The dcmp pass's cell under the champ tab's own drawer id — the cell's content is untouched. */

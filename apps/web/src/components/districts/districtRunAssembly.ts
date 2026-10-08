@@ -3,16 +3,33 @@
  * `useDistrictLedgerData.ts` unchanged): the Live assembly, a rewound stop's
  * as-of assembly and the run signature both key on. Pure, no React, so the web
  * truncation test (`scripts/asOfRewindWeb.test.ts`) runs it in node.
+ *
+ * THE CHAMP LOCKS DCMP BAKE IS A SECOND REQUEST (quick task 261007-mxf).
+ * `assembleSimulatedDcmpBake` builds ONE generated championship over the
+ * Locked plus In range field at a rewound stop, posted through its own
+ * `useDistrictSimulationRun` instance. Its roster is a function of the main
+ * run's OUTPUT (per event run, district chance run, district line), so folding
+ * it into the main request would move that request's signature the moment the
+ * roster landed and re-run every district event, and would make the district
+ * run's own pending state wait on its downstream. The main run keeps skipping
+ * the unstarted championship; only a roster or stop change re-bakes.
  */
 import { buildQualRows } from "../../lib/simulationInputs.js";
 import {
   DISTRICT_CATEGORIES,
   awardProfileOrZero,
   buildDistrictEventSimulationInput,
+  distributionsFromPreSim,
   type DistrictStageFinality,
 } from "./districtLedgerRows.js";
-import type { DistrictAsOfBlock, DistrictSimulationEventRequest } from "../../workers/districtSimulationProtocol.js";
-import type { AsOfRewindResult } from "./asOfRewind.js";
+import {
+  MAX_DISTRICT_SIMULATION_ROSTER,
+  type DistrictAsOfBlock,
+  type DistrictSimulationEventEntry,
+  type DistrictSimulationEventRequest,
+} from "../../workers/districtSimulationProtocol.js";
+import type { AsOfBakeParams, AsOfRewindResult } from "./asOfRewind.js";
+import type { SimulatedDcmpBake } from "./champLedgerRows.js";
 import type { DistrictLedgerEventInput } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import type { DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
 import type { DistrictArtifact, EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
@@ -218,6 +235,52 @@ export const AS_OF_UNAVAILABLE_NAME = "AsOfStateUnavailable";
 /** The bracket a GENERATED event is baked at: `scripts/publishDistricts.ts` passes eight for every bake. */
 const AS_OF_BAKE_ALLIANCE_COUNT = 8;
 
+/** The as-of block members every event at one stop shares: the cut and the state the pricer is built from. */
+type AsOfCommon = Pick<DistrictAsOfBlock, "cutId" | "season" | "vars" | "league" | "teams">;
+
+/**
+ * ONE GENERATED request: the publisher's bake shape (zero RP baselines, the
+ * roster's size as the field, eight alliances) with the stop's as-of block.
+ * Shared by `assembleAsOfDistrictEvents` and `assembleSimulatedDcmpBake`, so
+ * the Champ Locks DCMP bake is built exactly as any unstarted event is.
+ *
+ * `undefined` for an empty roster, and for one longer than
+ * `MAX_DISTRICT_SIMULATION_ROSTER`: the Worker refuses a request carrying such
+ * an event as MALFORMED, which would cost every event in the request, not just
+ * this one (quick task 261007-mxf). The caller reads it unavailable instead.
+ */
+function generatedRequest(params: {
+  readonly artifact: DistrictArtifact;
+  readonly districtTeamByKey: ReadonlyMap<string, DistrictArtifact["teams"][number]>;
+  readonly eventKey: string;
+  readonly tier: DistrictTier;
+  readonly roster: readonly string[];
+  readonly common: AsOfCommon;
+  readonly bake: AsOfBakeParams;
+  readonly algorithmVersion: string;
+}): DistrictSimulationEventRequest | undefined {
+  const { artifact, districtTeamByKey, eventKey, tier, roster } = params;
+  if (roster.length === 0 || roster.length > MAX_DISTRICT_SIMULATION_ROSTER) return undefined;
+  const awardProfiles = new Map(roster.map((teamKey) => [teamKey, awardProfileOrZero(districtTeamByKey.get(teamKey))] as const));
+  const input: DistrictLedgerEventInput = {
+    eventKey,
+    season: artifact.year,
+    tier,
+    // The REGISTERED roster size, as the publisher's bake passes it.
+    fieldSize: roster.length,
+    allianceCount: AS_OF_BAKE_ALLIANCE_COUNT,
+    remainingMatches: [],
+    baselines: roster.map((teamKey) => ({ teamKey, earnedRpSum: 0, matchesPlayed: 0 })),
+    ratings: new Map(),
+    awardProfiles,
+  };
+  return {
+    eventKey,
+    input,
+    asOf: { ...params.common, mode: "generated", bake: { ...params.bake, algorithmId: DISTRICT_LEDGER_ALGORITHM_ID, algorithmVersion: params.algorithmVersion } },
+  };
+}
+
 export interface AssembleAsOfDistrictEventsParams {
   readonly artifact: DistrictArtifact;
   readonly result: AsOfRewindResult;
@@ -301,28 +364,21 @@ export function assembleAsOfDistrictEvents(params: AssembleAsOfDistrictEventsPar
         real.push({ eventKey, input: built.input, asOf: { ...common, mode: "real", rows: plan.rows } });
         continue;
       }
-      if (plan.roster.length === 0) {
+      const built = generatedRequest({
+        artifact,
+        districtTeamByKey,
+        eventKey,
+        tier,
+        roster: plan.roster,
+        common,
+        bake: plan.bake,
+        algorithmVersion: params.algorithmVersion,
+      });
+      if (built === undefined) {
         asOfUnavailable.push({ eventKey, name: AS_OF_UNAVAILABLE_NAME });
         continue;
       }
-      const awardProfiles = new Map(plan.roster.map((teamKey) => [teamKey, awardProfileOrZero(districtTeamByKey.get(teamKey))] as const));
-      const input: DistrictLedgerEventInput = {
-        eventKey,
-        season: artifact.year,
-        tier,
-        // The REGISTERED roster size, as the publisher's bake passes it.
-        fieldSize: plan.roster.length,
-        allianceCount: AS_OF_BAKE_ALLIANCE_COUNT,
-        remainingMatches: [],
-        baselines: plan.roster.map((teamKey) => ({ teamKey, earnedRpSum: 0, matchesPlayed: 0 })),
-        ratings: new Map(),
-        awardProfiles,
-      };
-      generated.push({
-        eventKey,
-        input,
-        asOf: { ...common, mode: "generated", bake: { ...plan.bake, algorithmId: DISTRICT_LEDGER_ALGORITHM_ID, algorithmVersion: params.algorithmVersion } },
-      });
+      generated.push(built);
     }
   }
   const events = [...real, ...generated];
@@ -337,3 +393,94 @@ export function assembleAsOfDistrictEvents(params: AssembleAsOfDistrictEventsPar
   };
 }
 
+
+export interface AssembleSimulatedDcmpBakeParams {
+  readonly artifact: DistrictArtifact;
+  readonly result: AsOfRewindResult;
+  readonly algorithmVersion: string;
+  /** The unstarted championship, planned GENERATED over every district team (the candidate's roster override). */
+  readonly eventKey: string;
+  /** The simulated field: the Locked, Prequalified and In range teams at the stop, sorted. */
+  readonly roster: readonly string[];
+}
+
+export type AssembledSimulatedDcmpBake =
+  | { readonly status: "ready"; readonly request: DistrictSimulationEventRequest; readonly signature: string }
+  | { readonly status: "unavailable"; readonly reason: string };
+
+/**
+ * THE CHAMP LOCKS DCMP BAKE'S ONE REQUEST (quick task 261007-mxf): the
+ * championship's GENERATED plan from the stop's own as-of load, rebaked over
+ * the simulated field. The as-of block's teams are the plan's tuples filtered
+ * to the roster, so every team in the field must have been resolved at the
+ * cut; one that was not reads the whole bake unavailable rather than a team
+ * priced from nothing. The signature folds the roster (the baselines) and the
+ * cut, so only a field or stop change re-bakes.
+ */
+export function assembleSimulatedDcmpBake(params: AssembleSimulatedDcmpBakeParams): AssembledSimulatedDcmpBake {
+  const { artifact, result, eventKey, roster } = params;
+  if (result.status === "unavailable") return { status: "unavailable", reason: result.reason };
+  const outcome = result.events.get(eventKey);
+  if (outcome === undefined) return { status: "unavailable", reason: `${eventKey} was not planned at this stop` };
+  if (outcome.status === "unavailable") return { status: "unavailable", reason: outcome.reason };
+  const { plan } = outcome.state;
+  if (plan.mode !== "generated") return { status: "unavailable", reason: `${eventKey} is not a generated plan at this stop` };
+  if (roster.length === 0) return { status: "unavailable", reason: "the simulated field is empty" };
+  if (roster.length > MAX_DISTRICT_SIMULATION_ROSTER) return { status: "unavailable", reason: `the simulated field holds ${String(roster.length)} teams, above the Worker's bound` };
+  const tupleByTeam = new Map(outcome.state.teams);
+  const missing = roster.find((teamKey) => !tupleByTeam.has(teamKey));
+  if (missing !== undefined) return { status: "unavailable", reason: `${missing} has no as-of state at this stop` };
+  const fieldKeys = new Set(roster);
+  const request = generatedRequest({
+    artifact,
+    districtTeamByKey: new Map(artifact.teams.map((team) => [team.teamKey, team] as const)),
+    eventKey,
+    tier: plan.tier,
+    roster,
+    common: {
+      cutId: result.cutId,
+      season: outcome.state.season,
+      vars: outcome.state.vars,
+      league: outcome.state.league,
+      teams: outcome.state.teams.filter(([teamKey]) => fieldKeys.has(teamKey)),
+    },
+    bake: plan.bake,
+    algorithmVersion: params.algorithmVersion,
+  });
+  if (request === undefined) return { status: "unavailable", reason: "the simulated field cannot be baked" };
+  return { status: "ready", request, signature: districtRunSignature([request]) };
+}
+
+/**
+ * `useAsOfRewind`'s view and `useDistrictSimulationRun`'s state, STRUCTURALLY
+ * and only as far as the view reads them: importing either hook module's
+ * types would pull React and the DOM `Worker` into the node typecheck that
+ * `scripts/asOfRewindWeb.test.ts` runs this module under.
+ */
+export interface SimulatedDcmpBakeViewParams {
+  readonly asOf: { readonly status: "loading" | "ready" | "failed" } | undefined;
+  /** `undefined` while the field is not settled or the load is not ready. */
+  readonly assembled: AssembledSimulatedDcmpBake | undefined;
+  readonly runState:
+    | { readonly status: "idle" | "running" | "error" }
+    | { readonly status: "complete"; readonly signature: string; readonly events: readonly DistrictSimulationEventEntry[] };
+}
+
+/**
+ * The DCMP bake as the rows read it: pending until the load, the assembly and
+ * a run of THIS signature are all in hand; unavailable for a failed load, an
+ * unavailable assembly, a run error or an unavailable entry; ready with the
+ * baked event decoded exactly as a published sidecar is.
+ */
+export function simulatedDcmpBakeView(params: SimulatedDcmpBakeViewParams): SimulatedDcmpBake {
+  const { asOf, assembled, runState } = params;
+  if (asOf === undefined || asOf.status === "loading") return { status: "pending" };
+  if (asOf.status === "failed") return { status: "unavailable" };
+  if (assembled === undefined) return { status: "pending" };
+  if (assembled.status === "unavailable") return { status: "unavailable" };
+  if (runState.status === "error") return { status: "unavailable" };
+  if (runState.status !== "complete" || runState.signature !== assembled.signature) return { status: "pending" };
+  const entry = runState.events.find((event) => event.eventKey === assembled.request.eventKey);
+  if (entry === undefined || entry.status !== "baked") return { status: "unavailable" };
+  return { status: "ready", distributions: distributionsFromPreSim(entry) };
+}

@@ -13,7 +13,9 @@ import type { DistrictTier } from "../../../../../packages/core/districts/pointM
 import type { AsOfIndex, AsOfLog, AsOfSeason, AsOfStart } from "../../../../../packages/harness/asOfState.js";
 import type { DistrictArtifact, EventArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import { buildQualRows } from "../../lib/simulationInputs.js";
-import type { DistrictSimulationEventRequest } from "../../workers/districtSimulationProtocol.js";
+import { MAX_DISTRICT_SIMULATION_ROSTER, type DistrictSimulationEventEntry, type DistrictSimulationEventRequest } from "../../workers/districtSimulationProtocol.js";
+import { runAsOfEvent } from "../../workers/districtAsOfJob.js";
+import { assembleSimulatedDcmpBake, simulatedDcmpBakeView } from "./districtRunAssembly.js";
 import { loadAsOfRewind, type AsOfFetchers, type AsOfRewindResult } from "./asOfRewind.js";
 import {
   ARTIFACTS,
@@ -292,5 +294,122 @@ describe("a rewound stop's requests", () => {
     });
     expect(assembled.eventsWithUnresolvedElimMatches).toEqual(["2026wabbb"]);
     expect(assembled.events.find((event) => event.eventKey === "2026wabbb")?.input.playedElimMatches).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The Champ Locks DCMP bake (quick task 261007-mxf)
+// ---------------------------------------------------------------------------
+
+/** The stop with 2026wazzz planned over EVERY fixture district team, as the Champ Locks tab plans its unstarted championship. */
+async function rewoundWithRoster(positionId: string): Promise<AsOfRewindResult> {
+  const timeline = buildDistrictTimeline({ events: EVENTS, eventArtifacts: ARTIFACTS });
+  const positionIndex = timeline.positions.findIndex((position) => position.id === positionId);
+  const stageByEvent = districtStageAtPosition(timeline, positionIndex, NOW_STAGES);
+  const allTeams = districtArtifact().teams.map((team) => team.teamKey).sort();
+  const candidates = CANDIDATES.map((candidate) => (candidate.eventKey === "2026wazzz" ? { ...candidate, roster: allTeams } : candidate));
+  return loadAsOfRewind({ districtArtifact: districtArtifact(), timeline, positionIndex, eventArtifacts: ARTIFACTS, stageByEvent, candidates, scheduleStopEventKey: undefined }, fetchers());
+}
+
+const BAKE_STOP = "2026wabbb:m:2026wabbb_qm2";
+/** A verdict roster: ten of the twelve district teams, more than the event's eight registrations. */
+const FIELD = districtArtifact()
+  .teams.map((team) => team.teamKey)
+  .sort()
+  .slice(1, 11);
+
+describe("the Champ Locks DCMP bake's one request", () => {
+  it("is ONE generated request over exactly the roster, with the plan's tier and bake and the roster's tuples in key order", async () => {
+    const result = await rewoundWithRoster(BAKE_STOP);
+    const assembled = assembleSimulatedDcmpBake({ artifact: districtArtifact(), result, algorithmVersion: FIXTURE_VERSION, eventKey: "2026wazzz", roster: FIELD });
+    expect(assembled.status).toBe("ready");
+    if (assembled.status !== "ready" || result.status !== "ready") return;
+    const outcome = result.events.get("2026wazzz")!;
+    if (outcome.status !== "ready" || outcome.state.plan.mode !== "generated") throw new Error("expected a generated 2026wazzz");
+    const { request } = assembled;
+    expect(request.eventKey).toBe("2026wazzz");
+    expect(request.input.baselines).toEqual(FIELD.map((teamKey) => ({ teamKey, earnedRpSum: 0, matchesPlayed: 0 })));
+    expect(request.input).toMatchObject({ fieldSize: FIELD.length, allianceCount: 8, remainingMatches: [], tier: outcome.state.plan.tier });
+    expect(request.asOf?.mode).toBe("generated");
+    expect(request.asOf?.bake).toEqual({ ...outcome.state.plan.bake, algorithmId: "spr", algorithmVersion: FIXTURE_VERSION });
+    expect(request.asOf?.teams.map(([teamKey]) => teamKey)).toEqual(FIELD);
+    expect(request.asOf?.cutId).toBe(result.cutId);
+    expect(assembled.signature).toBe(districtRunSignature([request]));
+  });
+
+  it("re-bakes only for a different roster: the signature moves with the roster and is stable for the same one", async () => {
+    const result = await rewoundWithRoster(BAKE_STOP);
+    const sign = (roster: readonly string[]) => {
+      const assembled = assembleSimulatedDcmpBake({ artifact: districtArtifact(), result, algorithmVersion: FIXTURE_VERSION, eventKey: "2026wazzz", roster });
+      if (assembled.status !== "ready") throw new Error("expected a ready bake");
+      return assembled.signature;
+    };
+    expect(sign(FIELD)).toBe(sign([...FIELD]));
+    expect(sign(FIELD)).not.toBe(sign(FIELD.slice(1)));
+  });
+
+  it("is unavailable for an unavailable stop, a missing or unavailable outcome, a team with no tuple, an empty roster and a roster over the Worker's bound", async () => {
+    const result = await rewoundWithRoster(BAKE_STOP);
+    if (result.status !== "ready") throw new Error("expected a ready plan");
+    const base = { artifact: districtArtifact(), result, algorithmVersion: FIXTURE_VERSION, eventKey: "2026wazzz", roster: FIELD };
+    expect(assembleSimulatedDcmpBake({ ...base, result: { status: "unavailable", reason: "test" } }).status).toBe("unavailable");
+    expect(assembleSimulatedDcmpBake({ ...base, eventKey: "2026wanope" }).status).toBe("unavailable");
+    const failed: AsOfRewindResult = { ...result, events: new Map(result.events).set("2026wazzz", { status: "unavailable", reason: "test" }) };
+    expect(assembleSimulatedDcmpBake({ ...base, result: failed }).status).toBe("unavailable");
+    expect(assembleSimulatedDcmpBake({ ...base, roster: [...FIELD, "frc999"] }).status).toBe("unavailable");
+    expect(assembleSimulatedDcmpBake({ ...base, roster: [] }).status).toBe("unavailable");
+    const tooMany = Array.from({ length: MAX_DISTRICT_SIMULATION_ROSTER + 1 }, (_unused, i) => `frc${String(1000 + i)}`);
+    expect(assembleSimulatedDcmpBake({ ...base, roster: tooMany }).status).toBe("unavailable");
+  });
+
+  it("assembleAsOfDistrictEvents reads a GENERATED plan over the Worker's bound unavailable rather than posting it", async () => {
+    const { result, stageByEvent } = await rewoundAt(BAKE_STOP);
+    if (result.status !== "ready") throw new Error("expected a ready plan");
+    const zzz = result.events.get("2026wazzz")!;
+    if (zzz.status !== "ready") throw new Error("expected a ready 2026wazzz");
+    const tooMany = Array.from({ length: MAX_DISTRICT_SIMULATION_ROSTER + 1 }, (_unused, i) => `frc${String(1000 + i)}`);
+    const oversized: AsOfRewindResult = { ...result, events: new Map(result.events).set("2026wazzz", { status: "ready", state: { ...zzz.state, plan: { ...zzz.state.plan, roster: tooMany } } }) };
+    const assembled = assembleAsOfDistrictEvents({ artifact: districtArtifact(), result: oversized, algorithmVersion: FIXTURE_VERSION, eventArtifacts: ARTIFACTS, stageByEvent, candidateKeys: ["2026wabbb", "2026wazzz"] });
+    expect(assembled.events.map((event) => event.eventKey)).toEqual(["2026wabbb"]);
+    expect(assembled.asOfUnavailable).toEqual([{ eventKey: "2026wazzz", name: AS_OF_UNAVAILABLE_NAME }]);
+  });
+
+  it("bakes end to end in the as-of Worker job, and the view reads it ready by team", async () => {
+    const result = await rewoundWithRoster(BAKE_STOP);
+    const assembled = assembleSimulatedDcmpBake({ artifact: districtArtifact(), result, algorithmVersion: FIXTURE_VERSION, eventKey: "2026wazzz", roster: FIELD });
+    if (assembled.status !== "ready" || assembled.request.asOf === undefined) throw new Error("expected a ready bake");
+    const entry = runAsOfEvent({ ...assembled.request, asOf: assembled.request.asOf }, 1000, 1);
+    expect(entry.status).toBe("baked");
+    if (entry.status !== "baked") return;
+    expect([...entry.roster].sort()).toEqual(FIELD);
+    const view = simulatedDcmpBakeView({
+      asOf: { status: "ready" },
+      assembled,
+      runState: { status: "complete", signature: assembled.signature, events: [entry] },
+    });
+    expect(view.status).toBe("ready");
+    if (view.status !== "ready") return;
+    expect([...view.distributions.byTeam.keys()].sort()).toEqual(FIELD);
+  }, 60000);
+
+  it("the view is pending until the load, the assembly and a run of THIS signature are in hand, and unavailable for every refusal", async () => {
+    const result = await rewoundWithRoster(BAKE_STOP);
+    const assembled = assembleSimulatedDcmpBake({ artifact: districtArtifact(), result, algorithmVersion: FIXTURE_VERSION, eventKey: "2026wazzz", roster: FIELD });
+    if (assembled.status !== "ready") throw new Error("expected a ready bake");
+    const ready = { status: "ready" } as const;
+    const complete = (signature: string, events: DistrictSimulationEventEntry[]) => ({ status: "complete" as const, signature, events });
+    const unavailableEntry: DistrictSimulationEventEntry = { status: "unavailable", eventKey: "2026wazzz", name: "Error", message: "test" };
+
+    expect(simulatedDcmpBakeView({ asOf: undefined, assembled, runState: { status: "idle" } }).status).toBe("pending");
+    expect(simulatedDcmpBakeView({ asOf: { status: "loading" }, assembled, runState: { status: "idle" } }).status).toBe("pending");
+    expect(simulatedDcmpBakeView({ asOf: ready, assembled: undefined, runState: { status: "idle" } }).status).toBe("pending");
+    expect(simulatedDcmpBakeView({ asOf: ready, assembled, runState: { status: "idle" } }).status).toBe("pending");
+    expect(simulatedDcmpBakeView({ asOf: ready, assembled, runState: { status: "running" } }).status).toBe("pending");
+    expect(simulatedDcmpBakeView({ asOf: ready, assembled, runState: complete("another", []) }).status).toBe("pending");
+
+    expect(simulatedDcmpBakeView({ asOf: { status: "failed" }, assembled, runState: { status: "idle" } }).status).toBe("unavailable");
+    expect(simulatedDcmpBakeView({ asOf: ready, assembled: { status: "unavailable", reason: "test" }, runState: { status: "idle" } }).status).toBe("unavailable");
+    expect(simulatedDcmpBakeView({ asOf: ready, assembled, runState: { status: "error" } }).status).toBe("unavailable");
+    expect(simulatedDcmpBakeView({ asOf: ready, assembled, runState: complete(assembled.signature, [unavailableEntry]) }).status).toBe("unavailable");
   });
 });

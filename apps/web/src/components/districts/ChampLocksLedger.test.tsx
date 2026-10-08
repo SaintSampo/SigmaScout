@@ -896,21 +896,43 @@ describe("ChampLocksLedger — the drawer", () => {
   }, 30000);
 
   /**
-   * FINDING 3 (quick task 260927-6bf): a rewound position before the DCMP
-   * starts used to read "district only" and suppress the champ run. It now
-   * prices every team from the estimate, draws the simulated line, and reads
-   * nothing off the real DCMP roster: the DCMP category cells stay "not yet
-   * priced" even though the championship's own artifact is on hand.
+   * THE SIMULATED DCMP (quick task 261007-mxf, superseding 260927-6bf's
+   * finding 3 test). At a rewound position before the championship starts it
+   * is baked in the Web Worker over the teams the district tier shows as
+   * Locked, Prequalified or In range, and nothing is read off the real DCMP
+   * roster. A team inside that field gets four real DCMP category cells; a
+   * team outside reads out of range (or the em dash, Locked out) with a
+   * labelled district only grand total, and the champ run still draws the
+   * simulated line.
    */
-  it("prices every team from the estimate at a rewound position before the DCMP, with no district only and the champ run not suppressed", async () => {
+  it("bakes the DCMP over the Locked and In range field at a rewound position before it starts, and reads out of range outside it", async () => {
     renderUnderWay("/districts?algorithm=spr&tab=champ-locks&at=season-start");
     const statLine = await waitForSimulatedLine();
-    expect(statLine.textContent).not.toContain("district only");
     expect(within(statLine).queryByTestId("district-ledger-cutoff-likely")).not.toBeNull();
-    expect(screen.queryAllByTestId("champ-ledger-district-only")).toHaveLength(0);
-    const dcmpRow = rowsFor(ROSTER[0]!)[1]!;
-    expect(dcmpRow.querySelectorAll('[data-cell="not-yet-priced"]')).toHaveLength(4);
-    expect(dcmpRow.querySelector('[data-cell-id="dcmp-row:eventTotal"]')?.getAttribute("data-cell")).toBe("open");
+    expect(document.querySelectorAll('[data-cell="not-yet-priced"]')).toHaveLength(0);
+
+    const dcmpRows = screen.getAllByTestId("champ-ledger-row").filter((row) => row.getAttribute("data-row") === "dcmp");
+    const cellOf = (row: HTMLElement, id: string): string | null | undefined => row.querySelector(`[data-cell-id="${id}"]`)?.getAttribute("data-cell");
+    const categoryIds = ["dcmp-row:qual", "dcmp-row:alliance", "dcmp-row:elim", "dcmp-row:award"];
+
+    const baked = dcmpRows.filter((row) => categoryIds.every((id) => cellOf(row, id) === "open") && cellOf(row, "dcmp-row:eventTotal") === "open");
+    expect(baked.length).toBeGreaterThan(0);
+    for (const row of baked) {
+      const first = rowsFor(row.getAttribute("data-team")!)[0]!;
+      expect(within(first).queryByTestId("champ-ledger-district-only")).toBeNull();
+    }
+
+    const outside = dcmpRows.filter((row) => row.querySelectorAll('[data-cell="out-of-range"]').length === 5);
+    expect(outside.length).toBeGreaterThan(0);
+    for (const row of outside) {
+      for (const cell of row.querySelectorAll('[data-cell="out-of-range"]')) expect(cell.textContent).toBe("out of range");
+      expect(within(row).getByTestId("champ-ledger-source-cell").textContent).toContain("outside the simulated field");
+      const first = rowsFor(row.getAttribute("data-team")!)[0]!;
+      expect(within(first).getByTestId("champ-ledger-district-only")).toBeDefined();
+    }
+
+    const lockedOut = dcmpRows.filter((row) => row.querySelectorAll('[data-cell="not-in-field"]').length === 5);
+    expect(screen.queryAllByTestId("champ-ledger-district-only")).toHaveLength(outside.length + lockedOut.length);
   }, 30000);
 
   it("resolves an unknown cell id to CLOSED rather than to a neighbouring cell", async () => {

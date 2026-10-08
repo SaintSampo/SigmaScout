@@ -49,10 +49,17 @@ import {
 } from "./districtLedgerChances.js";
 import { awardProfileOrZero, deriveStageFromState, tierEvents, type DistrictStageFinality } from "./districtLedgerRows.js";
 import type { DistrictLedgerStatusModel } from "./districtLedgerStatus.js";
-import { dcmpEventKeysFor, type ChampDcmpEstimate, type ChampLedgerTeam } from "./champLedgerRows.js";
+import {
+  dcmpEventKeysFor,
+  type ChampDcmpEstimate,
+  type ChampLedgerTeam,
+  type SimulatedDcmpField,
+  type SimulatedDcmpPricing,
+} from "./champLedgerRows.js";
 import type { ChampLedgerStatusModel } from "./champLedgerStatus.js";
 import {
   ledgerCutoffView,
+  type LedgerRangeCall,
   rangeStateFromRun,
   type LedgerRangeLineRunInput,
   type LedgerRangeRunInput,
@@ -313,6 +320,54 @@ export function champFieldChances(
   return byTeam;
 }
 
+/** The minimum `dcmpSimulatedField` reads per team: the SHOWN district status, structural so the displayed model satisfies it as is. */
+export interface SimulatedFieldStatusModel {
+  readonly byTeam: ReadonlyMap<string, { readonly status: string; readonly rangeCall?: LedgerRangeCall }>;
+}
+
+/**
+ * THE SIMULATED DCMP FIELD at a rewound stop before any championship has
+ * started (quick task 261007-mxf): the teams the District Locks tab SHOWS as
+ * Prequalified, Locked or In range at the stop, after its simulated line has
+ * settled. That chip, and not a provisional verdict level one, is the field
+ * Jacob asked to simulate.
+ *
+ * - `pending` while the district line is still settling: the roster is not
+ *   known yet, and baking a provisional one would bake twice.
+ * - `refused` where the roster cannot be decided: the line is No call, or a
+ *   team's capacity is unknown under a settled or simulated line.
+ * - `ready` with the sorted roster, the Out of range teams and nothing else.
+ *
+ * Locked out teams (and a Declined one, which is not attending) ride every
+ * arm, so their em dash renders at once.
+ */
+export function dcmpSimulatedField(districtShown: SimulatedFieldStatusModel, state: LedgerRangeState): SimulatedDcmpField {
+  const lockedOut = new Set<string>();
+  for (const [teamKey, result] of districtShown.byTeam) {
+    if (result.status === "lockedOut" || result.status === "declined") lockedOut.add(teamKey);
+  }
+  if (state.kind === "pending") return { status: "pending", lockedOut };
+  if (state.kind === "noCall") return { status: "refused", lockedOut };
+  const roster: string[] = [];
+  const outOfRange = new Set<string>();
+  for (const [teamKey, result] of districtShown.byTeam) {
+    if (result.status === "capacityUnknown") return { status: "refused", lockedOut };
+    if (result.status === "prequalified" || result.status === "locked" || result.status === "inRange") roster.push(teamKey);
+    else if (result.status === "outOfRange") outOfRange.add(teamKey);
+  }
+  return { status: "ready", roster: roster.sort(), outOfRange, lockedOut };
+}
+
+/** The simulated DCMP as `champRangeState` reads it. */
+export type SimulatedDcmpState = "pending" | "ready" | "unavailable";
+
+/** A pending field is pending, a refused one unavailable, and a ready one whatever its bake is. */
+export function simulatedDcmpState(pricing: SimulatedDcmpPricing): SimulatedDcmpState {
+  if (pricing.field.status === "pending") return "pending";
+  if (pricing.field.status === "refused") return "unavailable";
+  return pricing.bake.status;
+}
+
 /** One district team as the estimate reads it: its district projection. */
 export interface HypotheticalDcmpEstimateTeam {
   readonly teamKey: string;
@@ -496,6 +551,13 @@ export interface ChampRangeStateInputs {
   readonly perEventRunFailed?: boolean;
   readonly districtRun: ChampRangeRunInput;
   readonly estimates: HypotheticalDcmpEstimates["kind"];
+  /**
+   * THE SIMULATED DCMP's state (`simulatedDcmpState`), supplied only at a
+   * rewound stop before any championship has started (quick task 261007-mxf).
+   * When supplied it is read IN PLACE OF `estimates`: the estimate prices
+   * nothing there. Absent keeps the shipped order.
+   */
+  readonly simulatedDcmp?: SimulatedDcmpState;
   /** Teams whose membership is `in` but whose DCMP row could not be priced. */
   readonly unpricedInTeams: number;
   readonly champRun: LedgerRangeLineRunInput;
@@ -513,11 +575,18 @@ export function champRangeState(inputs: ChampRangeStateInputs): ChampRangeState 
     if (district.status !== "complete" || district.current === false) return { kind: "pending" };
   }
 
-  if (inputs.estimates === "noTable") return { kind: "noCall", reason: "noHistoryTable" };
-  // Awaiting a field chance is transient only while the per event run or the
-  // district run is on its way, and both of those returned `pending` above;
-  // with neither coming, the missing chance is final.
-  if (inputs.estimates === "awaitingFieldChances") return { kind: "noCall", reason: "noFieldChance" };
+  if (inputs.simulatedDcmp !== undefined) {
+    // The bake in flight is still pending; a refused field or a failed bake is
+    // an unpriced DCMP, terminal. A landed bake falls through to the champ run.
+    if (inputs.simulatedDcmp === "pending") return { kind: "pending" };
+    if (inputs.simulatedDcmp === "unavailable") return { kind: "noCall", reason: "unpricedDcmp" };
+  } else {
+    if (inputs.estimates === "noTable") return { kind: "noCall", reason: "noHistoryTable" };
+    // Awaiting a field chance is transient only while the per event run or the
+    // district run is on its way, and both of those returned `pending` above;
+    // with neither coming, the missing chance is final.
+    if (inputs.estimates === "awaitingFieldChances") return { kind: "noCall", reason: "noFieldChance" };
+  }
   if (inputs.unpricedInTeams > 0) return { kind: "noCall", reason: "unpricedDcmp" };
 
   // The champ run's own reading: refused, failed, pending, a team left out,

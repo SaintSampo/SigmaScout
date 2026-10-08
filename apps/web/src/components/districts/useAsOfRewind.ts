@@ -49,8 +49,12 @@ export interface UseAsOfRewindOptions {
   readonly stageByEvent: ReadonlyMap<string, DistrictStageFinality>;
   /** The raw `?at=` value: a Schedule milestone (`<eventKey>:schedule`) prices that event on its real schedule. */
   readonly at: string | undefined;
-  /** Every event this tab may simulate, with its tier and week. */
-  readonly candidates: readonly { readonly eventKey: string; readonly tier: DistrictTier; readonly week: number | null }[];
+  /**
+   * Every event this tab may simulate, with its tier and week. An optional
+   * `roster` overrides a GENERATED plan's roster (`AsOfRewindInput.candidates`):
+   * the Champ Locks tab's unstarted championship, quick task 261007-mxf.
+   */
+  readonly candidates: readonly { readonly eventKey: string; readonly tier: DistrictTier; readonly week: number | null; readonly roster?: readonly string[] }[];
 }
 
 /** Whether a plan reads anything unavailable: the whole stop, or one event in it. */
@@ -101,9 +105,16 @@ export function useAsOfRewind(options: UseAsOfRewindOptions): AsOfRewindView | u
   const fingerprint = useMemo(() => artifactsFingerprint(eventArtifacts), [eventArtifacts]);
   const openKeys = open.map((candidate) => candidate.eventKey).join(",");
   const unloadedKeys = [...options.unloadedEventKeys].sort().join(",");
+  // A roster override's size, per open candidate that carries one, so a
+  // district artifact that gains a team re-plans the stop. The LAST key
+  // segment, so FINGERPRINT_KEY_INDEX does not move.
+  const rosterKeys = open
+    .filter((candidate) => candidate.roster !== undefined)
+    .map((candidate) => `${candidate.eventKey}:${String(candidate.roster!.length)}`)
+    .join(",");
   const active = enabled && !artifactsLoading && version !== undefined;
 
-  const queryKey = ["asOfRewind", districtArtifact.districtKey, version ?? "", stopId, anchorId, fingerprint, openKeys, scheduleStopEventKey ?? "", unloadedKeys] as const;
+  const queryKey = ["asOfRewind", districtArtifact.districtKey, version ?? "", stopId, anchorId, fingerprint, openKeys, scheduleStopEventKey ?? "", unloadedKeys, rosterKeys] as const;
   const query = useQuery({
     queryKey,
     queryFn: async (): Promise<AsOfRewindResult> => {

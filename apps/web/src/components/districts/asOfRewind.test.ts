@@ -464,3 +464,75 @@ describe("loadAsOfRewind: the fetch loop", () => {
     expect(result).toEqual(await loadAsOfRewind(input("2026wabbb:m:2026wabbb_qm2"), countingFetchers().fetchers));
   });
 });
+
+describe("the Champ Locks roster override (quick task 261007-mxf)", () => {
+  const planWith = (eventKey: string, positionId: string, rosterOverride: readonly string[] | undefined, scheduleStop?: string) => {
+    const tl = timeline();
+    const positionIndex = tl.positions.findIndex((position) => position.id === positionId);
+    const stop = resolveStopCut(tl, positionIndex, INDEXES);
+    if (stop.status !== "ok") throw new Error(`no cut at ${positionId}`);
+    return planAsOfEvent({
+      eventKey,
+      tier: "district",
+      week: 1,
+      districtArtifact: districtArtifact(),
+      eventArtifact: ARTIFACTS.get(eventKey),
+      index: INDEXES.get(eventKey),
+      cut: stop.cut,
+      scheduleStopEventKey: scheduleStop,
+      ...(rosterOverride === undefined ? {} : { rosterOverride }),
+    });
+  };
+
+  it("plans a GENERATED event on exactly the sorted, de-duplicated override, ahead of the artifact's roster", () => {
+    const result = planWith("2026wabbb", "2026waaa:m:2026waaa_qm2", ["frc105", "frc101", "frc105", "frc999"]);
+    expect(result.ok && result.plan.mode).toBe("generated");
+    expect(result.ok && result.plan.roster).toEqual(["frc101", "frc105", "frc999"]);
+  });
+
+  it("plans a GENERATED event on the override ahead of the district artifact's registrations", () => {
+    const result = planWith("2026wazzz", "2026wabbb:m:2026wabbb_qm2", [...TEAMS].reverse());
+    expect(districtRegistrations(districtArtifact(), "2026wazzz", "district")).toEqual(TEAMS.slice(0, 8));
+    expect(result.ok && result.plan.mode).toBe("generated");
+    expect(result.ok && result.plan.roster).toEqual([...TEAMS].sort());
+  });
+
+  it("is ignored by a REAL plan: one folded by the cut, and one at its own Schedule stop", () => {
+    const folded = planWith("2026wabbb", "2026wabbb:m:2026wabbb_qm2", ["frc101"]);
+    expect(folded.ok && folded.plan.mode).toBe("real");
+    expect(folded).toEqual(planWith("2026wabbb", "2026wabbb:m:2026wabbb_qm2", undefined));
+
+    const tl = timeline();
+    const first = tl.positions.findIndex((position) => position.id === "2026wabbb:m:2026wabbb_qm1");
+    const scheduleStop = planWith("2026wabbb", tl.positions[first - 1]!.id, ["frc101"], "2026wabbb");
+    expect(scheduleStop.ok && scheduleStop.plan.mode).toBe("real");
+    expect(scheduleStop).toEqual(planWith("2026wabbb", tl.positions[first - 1]!.id, undefined, "2026wabbb"));
+  });
+
+  it("loadAsOfRewind resolves every team of a candidate's roster at the cut", async () => {
+    const tl = timeline();
+    const positionIndex = tl.positions.findIndex((position) => position.id === "2026wabbb:m:2026wabbb_qm2");
+    const candidates = CANDIDATES.map((candidate) => (candidate.eventKey === "2026wazzz" ? { ...candidate, roster: TEAMS } : candidate));
+    const result = await loadAsOfRewind(
+      {
+        districtArtifact: districtArtifact(),
+        timeline: tl,
+        positionIndex,
+        eventArtifacts: ARTIFACTS,
+        stageByEvent: districtStageAtPosition(tl, positionIndex, NOW_STAGES),
+        candidates,
+        scheduleStopEventKey: undefined,
+      },
+      countingFetchers().fetchers
+    );
+    expect(result.status).toBe("ready");
+    if (result.status !== "ready") return;
+    const zzz = result.events.get("2026wazzz");
+    expect(zzz?.status).toBe("ready");
+    if (zzz?.status !== "ready") return;
+    expect(zzz.state.plan.mode).toBe("generated");
+    expect(zzz.state.plan.roster).toEqual([...TEAMS].sort());
+    const resolved = new Set(zzz.state.teams.map(([teamKey]) => teamKey));
+    for (const teamKey of TEAMS) expect(resolved.has(teamKey), teamKey).toBe(true);
+  });
+});
