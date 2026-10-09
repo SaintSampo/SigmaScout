@@ -725,8 +725,8 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   );
 
   const statuses = useMemo(
-    () => computeChampLedgerStatuses({ artifact, teams: rows.teams, districtLockedOut }),
-    [artifact, rows.teams, districtLockedOut]
+    () => computeChampLedgerStatuses({ artifact, teams: rows.teams, districtLockedOut, distributions: data.distributions }),
+    [artifact, rows.teams, districtLockedOut, data.distributions]
   );
 
   /** The DCMP award draws AT THE POSITION: the rail's stages when rewound, each event's own `state` block at now. */

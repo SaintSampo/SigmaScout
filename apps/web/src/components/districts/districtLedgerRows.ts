@@ -57,7 +57,17 @@ import {
   type PointCellSummary,
   type PointPercentiles,
 } from "../../../../../packages/core/districts/pointSummary.js";
-import { playoffPoints, type AllianceBracketMilestone, type PlayedBracketMatch } from "../../../../../packages/core/districts/bracket.js";
+import {
+  allianceBracketMilestones,
+  bracketDecisionsFromPlayedMatches,
+  BRACKET_REGISTERED_SEASONS,
+  InvalidBracketDecisionError,
+  maxPlayoffPointsByPlacement,
+  playoffPoints,
+  routePlayedBracket,
+  type AllianceBracketMilestone,
+  type PlayedBracketMatch,
+} from "../../../../../packages/core/districts/bracket.js";
 import { maxEventPoints, type DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
 import { allianceRatingsFromMetrics, type AllianceMemberRating } from "../../../../../packages/core/algorithms/simulation/allianceWinProbability.js";
 import type { SimTeamBaseline } from "../../../../../packages/core/algorithms/simulation/rankSimulation.js";
@@ -298,23 +308,35 @@ export interface DistrictLedgerEventRow {
    * own Playoffs stage is still open (quick task 261008-26o): its alliance's
    * bracket placement is decided, so the Playoffs cell is grey at
    * `points` (`settledPlayoffPoints`). Both status modules read it through
-   * `settledElimBounds`. Absent everywhere else, so a row without it deep
+   * `settledElimBounds`, which reads `ceiling` for a value that is not exact
+   * (quick task 261009-2tr). Absent everywhere else, so a row without it deep
    * equals the shipped row.
    */
   readonly settledElim?: SettledPlayoffs;
 }
 
-/** A knocked out team's settled Playoffs category: the points, and whether they are TBA's own final number. */
+/** A knocked out team's settled Playoffs category: the printed points, whether they are TBA's own final number, and the most the placement can still pay. */
 export interface SettledPlayoffs {
+  /** What the Playoffs cell PRINTS: TBA's own `elim` where exact, the placement table's `playoffPoints` otherwise. */
   readonly points: number;
   /**
    * TRUE where `points` is the artifact's own `elim` with the event's playoffs
    * final at Now: exact. FALSE where it is the decided placement's value off
-   * the placement table, which is an UPPER BOUND only, because TBA prorates a
-   * team that sat out part of its alliance's playoffs (2026pncmp: frc3663 on
-   * the fourth place alliance, worth 21, was paid 12).
+   * the placement table, which is not TBA's number: TBA prorates a team that
+   * sat out part of its alliance's playoffs DOWN (2026pncmp: frc3663 on the
+   * fourth place alliance, worth 21, was paid 12), and pays a losing finalist
+   * that won one Finals match MORE than the table's second place.
    */
   readonly exact: boolean;
+  /**
+   * The most the decided placement can still pay, which both status modules'
+   * lock math reads (quick task 261009-2tr, CONTEXT D7): for a value that is
+   * not exact, `maxPlayoffPointsByPlacement` (the 2026 manual, section 11.1.3:
+   * a losing finalist that won one Finals match is paid 25 times the tier
+   * weight, 75 at a DCMP, where the cell prints 60); 0 for an exact value,
+   * which joins the floor instead.
+   */
+  readonly ceiling: number;
 }
 
 /** One team's whole ledger entry: its district-tier rows, its grand total, and the projection the sort and the status both read. */
@@ -631,6 +653,26 @@ function suppliedAlliances(artifact: EventArtifact): readonly SuppliedAlliance[]
   return alliances.map((alliance) => ({ allianceNumber: alliance.allianceNumber, picks: [...alliance.picks] }));
 }
 
+/**
+ * The two things `playedBracketMatchesFor` reads off an event, STRUCTURALLY
+ * (quick task 261009-2tr): its published alliances and its match rows. An
+ * `EventArtifact` satisfies it, so the tab's callers pass the artifact
+ * unchanged, and the corpus sweep (`scripts/measureChampJointLocks.ts`) builds
+ * one from `data/corpus.sqlite` without an artifact.
+ */
+export interface BracketSourceEvent {
+  readonly alliances?: readonly { readonly allianceNumber: number; readonly picks: readonly string[] }[];
+  readonly matches: readonly {
+    readonly matchKey: string;
+    readonly compLevel: string;
+    readonly setNumber: number;
+    readonly matchNumber: number;
+    readonly redTeams: readonly string[];
+    readonly blueTeams: readonly string[];
+    readonly actualWinner?: "red" | "blue" | "tie";
+  }[];
+}
+
 /** What `playedBracketMatchesFor` resolved, and what it could not — a disclosed gap rather than a silent drop. */
 export interface PlayedBracketMatchesResult {
   readonly matches: readonly PlayedBracketMatch[];
@@ -662,7 +704,7 @@ export interface PlayedBracketMatchesResult {
  * before its cut (quick task 261007-3g2): a row whose key is not in it is
  * skipped BEFORE resolution, so it is neither played nor unresolved there.
  */
-export function playedBracketMatchesFor(artifact: EventArtifact, onlyMatchKeys?: ReadonlySet<string>): PlayedBracketMatchesResult {
+export function playedBracketMatchesFor(artifact: BracketSourceEvent, onlyMatchKeys?: ReadonlySet<string>): PlayedBracketMatchesResult {
   const alliances = artifact.alliances;
   if (alliances === undefined || alliances.length === 0) return { matches: [], unresolvedMatchKeys: [] };
 
@@ -990,6 +1032,14 @@ export interface DistrictEventDistributions {
   /** Whether the run's qualification ranking was the same in every draw. Absent for a baked event, which is priced before a match is played. */
   readonly rankingFixed?: boolean;
   /**
+   * THE DCMP'S BRACKET FACTS for the Champ Locks joint lock proof (quick task
+   * 261009-2tr): the published alliances and the played playoff rows at the
+   * position, built from the run's OWN INPUT (`dcmpBracketFactsFor`), never
+   * from the Monte Carlo result. Present only on the District Championship,
+   * and only where the facts are complete (`dcmpBracketFactsFor`'s gates).
+   */
+  readonly dcmpBracket?: DcmpBracketFacts;
+  /**
    * The registered teams this run priced from AWARDS ALONE, because they are on
    * no posted qualification row (quick task 260927-vmb). Their Qualification,
    * Alliance selection and Playoffs cells read a grey zero, and their event
@@ -999,6 +1049,79 @@ export interface DistrictEventDistributions {
    * behaviour.
    */
   readonly awardOnlyTeams?: ReadonlySet<string>;
+}
+
+/** A District Championship's bracket facts at a position: the eight published alliances and the played playoff rows, as alliance numbered decisions. */
+export interface DcmpBracketFacts {
+  readonly eventKey: string;
+  readonly alliances: readonly SuppliedAlliance[];
+  readonly playedMatches: readonly PlayedBracketMatch[];
+}
+
+/** The eight alliance bracket's alliance count: the joint proof reads a complete list of exactly these. */
+const DCMP_BRACKET_ALLIANCE_COUNT = 8;
+
+export interface DcmpBracketFactsOptions {
+  readonly eventKey: string;
+  readonly season: number;
+  readonly tier: DistrictTier;
+  /** The event's stage at the position, or `undefined` where the tab has none. */
+  readonly stage: DistrictStageFinality | undefined;
+  /** The published alliances the run was handed (`input.knownAlliances`). */
+  readonly alliances: readonly SuppliedAlliance[] | undefined;
+  /** The played playoff rows the run was handed (`input.playedElimMatches`). */
+  readonly playedMatches: readonly PlayedBracketMatch[];
+  /** Played rows that could not be resolved to one alliance per side. Any at all refuses the facts. */
+  readonly unresolvedMatchCount: number;
+}
+
+/**
+ * The DCMP bracket facts the joint proof may read, or `undefined` (quick task
+ * 261009-2tr, CONTEXT D1). Only for a dcmp tier event of a season this
+ * bracket describes, at a position whose Qualification and Alliance selection
+ * are final and whose Awards are open, with a FINISHED list of exactly the
+ * alliances 1 to 8 (`alliancesAreFinal`) and every played row resolved.
+ * Anything less returns `undefined` and the tab keeps its shipped statuses.
+ */
+export function dcmpBracketFactsFor(options: DcmpBracketFactsOptions): DcmpBracketFacts | undefined {
+  const { eventKey, season, tier, stage, alliances, playedMatches, unresolvedMatchCount } = options;
+  if (tier !== "dcmp") return undefined;
+  if (!BRACKET_REGISTERED_SEASONS.includes(season)) return undefined;
+  if (stage === undefined || !stage.qual || !stage.alliance || stage.award) return undefined;
+  if (alliances === undefined || !alliancesAreFinal(alliances, DCMP_BRACKET_ALLIANCE_COUNT)) return undefined;
+  const numbers = alliances.map((alliance) => alliance.allianceNumber).sort((a, b) => a - b);
+  if (numbers.some((allianceNumber, index) => allianceNumber !== index + 1)) return undefined;
+  if (unresolvedMatchCount !== 0) return undefined;
+  return {
+    eventKey,
+    alliances: alliances.map((alliance) => ({ allianceNumber: alliance.allianceNumber, picks: [...alliance.picks] })),
+    playedMatches: [...playedMatches],
+  };
+}
+
+/**
+ * Every listed pick's bracket milestone from the published alliances and the
+ * played rows, exactly as `ledgerSimulation.ts` maps supplied alliances: each
+ * pick gets its alliance's milestone. An unroutable list returns an empty map.
+ */
+export function dcmpBracketMilestonesByTeam(
+  alliances: readonly SuppliedAlliance[],
+  playedMatches: readonly PlayedBracketMatch[]
+): ReadonlyMap<string, AllianceBracketMilestone> {
+  const out = new Map<string, AllianceBracketMilestone>();
+  let milestones: ReadonlyMap<number, AllianceBracketMilestone>;
+  try {
+    milestones = allianceBracketMilestones(routePlayedBracket(bracketDecisionsFromPlayedMatches(playedMatches)));
+  } catch (error) {
+    if (error instanceof InvalidBracketDecisionError) return out;
+    throw error;
+  }
+  for (const alliance of alliances) {
+    const milestone = milestones.get(alliance.allianceNumber);
+    if (milestone === undefined) continue;
+    for (const pick of alliance.picks) out.set(pick, milestone);
+  }
+  return out;
 }
 
 function emptyCellRecord(): Record<DistrictCellKind, DistrictPointDistribution | undefined> {
@@ -1161,16 +1284,23 @@ export interface SettledPlayoffPointsOptions {
  *
  * THE VALUE is the artifact's own `elim` where the event's playoffs are final
  * at Now and TBA has a row (every rewound stop over a finished event), and
- * `exact`; otherwise the decided placement's points at this tier, from
- * `playoffPoints`, which TBA can prorate DOWN for a team that sat out part of
- * the playoffs, so it is not `exact`.
+ * `exact`, with no ceiling; otherwise the PRINTED points are the decided
+ * placement's points at this tier, from `playoffPoints`, which is not TBA's
+ * number, so it is not `exact`, and the CEILING the lock math reads is the
+ * most that placement can pay, from `maxPlayoffPointsByPlacement` (quick task
+ * 261009-2tr, CONTEXT D7): 75 for second place at a 2026 DCMP, where the cell
+ * prints 60.
  */
 export function settledPlayoffPoints(options: SettledPlayoffPointsOptions): SettledPlayoffs | undefined {
   const { season, tier, final, elimFinalAtNow, earned, milestone } = options;
   if (final.elim) return undefined;
   if (milestone?.kind !== "decided") return undefined;
-  if (elimFinalAtNow && earned !== undefined) return { points: earned.elim, exact: true };
-  return { points: playoffPoints(season, tier, milestone.placement), exact: false };
+  if (elimFinalAtNow && earned !== undefined) return { points: earned.elim, exact: true, ceiling: 0 };
+  return {
+    points: playoffPoints(season, tier, milestone.placement),
+    exact: false,
+    ceiling: maxPlayoffPointsByPlacement(season, tier, milestone.placement),
+  };
 }
 
 /**
@@ -1202,14 +1332,16 @@ export function teamNotPickedAtPosition(
  * category.
  *
  * An EXACT value joins the floor and adds no ceiling: rewound over a finished
- * event it is TBA's own `elim`, so the floor is unchanged. A value off the
- * placement table joins only the CEILING, as the most the team can still be
- * paid: TBA prorates a team that sat out part of the playoffs, so the value is
- * an upper bound and never a guarantee. A knocked out rival's ceiling falls
- * from the whole Playoffs ceiling to its placement's points either way.
+ * event it is TBA's own `elim`, so the floor is unchanged. A value that is not
+ * exact joins only the CEILING, at the most the placement can still pay
+ * (`settled.ceiling`, quick task 261009-2tr, CONTEXT D7), never at the printed
+ * `points`: TBA prorates a team that sat out part of the playoffs down, and
+ * pays a losing finalist that won one Finals match above the table, so the
+ * printed value is neither a guarantee nor a bound. A knocked out rival's
+ * ceiling falls from the whole Playoffs ceiling to its placement's maximum.
  */
 export function settledElimBounds(settled: SettledPlayoffs): { readonly floor: number; readonly ceiling: number } {
-  return settled.exact ? { floor: settled.points, ceiling: 0 } : { floor: 0, ceiling: settled.points };
+  return settled.exact ? { floor: settled.points, ceiling: 0 } : { floor: 0, ceiling: settled.ceiling };
 }
 
 // ---------------------------------------------------------------------------

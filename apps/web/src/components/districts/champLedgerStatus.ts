@@ -68,7 +68,33 @@
  *    playoffs (frc3663 at 2026pncmp, fourth place alliance worth 21, was paid
  *    12). A team left off every alliance is not settled: a backup robot is
  *    called from that pool and paid for its share. The award ceiling and
- *    decision 2's reservation are unchanged.
+ *    decision 2's reservation are unchanged. A placement table value enters
+ *    the ceiling at the placement's MAXIMUM, `SettledPlayoffs.ceiling` (quick
+ *    task 261009-2tr, CONTEXT D7): a losing finalist that won one Finals match
+ *    is paid 75 at a 2026 DCMP while its cell prints 60.
+ *
+ * 5. THE JOINT WORST CASE PROOF (quick task 261009-2tr). A second proof of
+ *    `"locked"`, OR-ed with the ceiling test and superseding nothing, exactly
+ *    as `locks.ts` ORs its pooled test. Decision 2's reservation and the
+ *    ceiling test give every rival the whole award ceiling independently and
+ *    hold back a flat number of slots; the joint proof instead counts, for each
+ *    team, the most rivals that can take a slot from it in any way the bracket,
+ *    the backup robots and the award budget can still fall, counting each
+ *    rival once, and locks the team when that count is below the points slots.
+ *    It runs only at a SINGLE championship (exactly one dcmp tier key, so the
+ *    divisioned FIM, NE, ON and TX and 2026 California's two championships keep
+ *    the shipped path), once the DCMP's Qualification and Alliance selection
+ *    are final and while its Awards are open, with the complete eight alliance
+ *    list and every played playoff row resolved (`DcmpBracketFacts`, carried on
+ *    `distributions`). With the Playoffs final it runs only once the winner
+ *    award is posted, or the routed final names the winner. Anywhere else
+ *    `jointProof` names why it did not run and the statuses are exactly the
+ *    shipped ones. In the proof a placement pays its MAXIMUM
+ *    (`maxPlayoffPointsByPlacement`, 75, 39 and 21 at 2026), never
+ *    `playoffPoints`, and a decided placement that is not exact already sits in
+ *    the ceiling at its maximum through decision 4. `champJointLock.ts` owns the
+ *    argument, the one point paying award per rival cap included; this module
+ *    owns only reading the facts off the rows.
  *
  * AWARD-QUALIFIED AT THIS TIER means the DCMP winning alliance once the
  * playoffs are done, and Impact, Engineering Inspiration or Rookie All Star at
@@ -88,10 +114,26 @@ import {
 } from "../../../../../packages/core/districts/locks.js";
 import { AWARD_TYPE_WINNER, consumingAwardTypesForTier } from "../../../../../packages/core/districts/qualification.js";
 import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
-import { dcmpAwardCountCeilings } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
-import { dcmpNeverHappening, perChampionship, reservedChampSlots } from "../../../../../packages/core/districts/champReservedSlots.js";
+import { dcmpAwardCountCeilings, dcmpJudgedAwardCeiling, dcmpJudgedAwardPoints } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
+import {
+  dcmpNeverHappening,
+  MAX_WINNING_ALLIANCE_SIZE,
+  pendingAwardSlots,
+  perChampionship,
+  reservedChampSlots,
+} from "../../../../../packages/core/districts/champReservedSlots.js";
+import { maxPlayoffPointsByPlacement } from "../../../../../packages/core/districts/bracket.js";
+import { dcmpBracketState, jointLockedTeams, type JointLockAlliance, type JointLockInput } from "../../../../../packages/core/districts/champJointLock.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import { DISTRICT_CATEGORIES, settledElimBounds, tierEvents, type DistrictCategory, type DistrictStageFinality } from "./districtLedgerRows.js";
+import {
+  DISTRICT_CATEGORIES,
+  settledElimBounds,
+  tierEvents,
+  type DistrictCategory,
+  type DistrictEventDistributions,
+  type DistrictStageFinality,
+  type SettledPlayoffs,
+} from "./districtLedgerRows.js";
 import { DISTRICT_LEDGER_STATUS_KEYS, type DistrictLedgerStatusKey, type DistrictLedgerStatusState } from "./districtLedgerStatus.js";
 import { dcmpEventKeysFor, type ChampLedgerRow, type ChampLedgerTeam } from "./champLedgerRows.js";
 import type { ChampNoCallReason, ChampRangeState } from "./champLedgerChances.js";
@@ -148,6 +190,45 @@ export interface ChampLedgerStatusModel {
   readonly reservedSlots: number;
   /** `locks.ts`'s own narrowing: `cmpSlots` minus the ranked award qualifiers. The In range rank boundary. */
   readonly pointsSlots: number;
+  /**
+   * Whether the joint worst case proof ran at this position (decision 5), with
+   * its input and the teams it locked, or why it did not. Always set by
+   * `computeChampLedgerStatuses`; optional only so a hand built model needs no
+   * edit.
+   */
+  readonly jointProof?: ChampJointProof;
+}
+
+/** Why the joint proof did not run at a position, in the order the preconditions are checked. */
+export type JointProofSkipReason =
+  | "noDistributions"
+  | "notSingleChampionship"
+  | "noBracketFacts"
+  | "stageNotEligible"
+  | "noCapacity"
+  | "neverHappening"
+  | "winnerNotPosted"
+  | "bracketUnroutable"
+  | "noCandidateWinner";
+
+/** The joint proof at one position: its input and the teams it locked, or the first precondition it failed. */
+export type ChampJointProof =
+  | { readonly applied: true; readonly input: JointLockInput; readonly locked: ReadonlySet<string> }
+  | { readonly applied: false; readonly reason: JointProofSkipReason };
+
+/**
+ * What a decided placement that is NOT exact adds to a team's `extra` in the
+ * joint proof, beyond the `settled.ceiling` `settledElimBounds` already put
+ * there (261009-2tr planner reading 12, reduced by CONTEXT D7). Zero for no
+ * settled value, an exact one, or a team the proof's own routing places (the
+ * placement's maximum already sits in the ceiling). A team with a settled value
+ * that is not exact and NO routed placement gets the rest of the whole DCMP
+ * Playoffs ceiling, so its total is that ceiling.
+ */
+export function jointDecidedPlacementTopUp(settled: SettledPlayoffs | undefined, placement: number | undefined, season: number): number {
+  if (settled === undefined || settled.exact) return 0;
+  if (placement !== undefined) return 0;
+  return Math.max(0, maxEventPoints(season, "dcmp").elim - settled.ceiling);
 }
 
 export interface ComputeChampLedgerStatusesOptions {
@@ -177,6 +258,13 @@ export interface ComputeChampLedgerStatusesOptions {
    * without `state` blocks reads the same in every year.
    */
   readonly nowYear?: number;
+  /**
+   * The tab's distributions, read for exactly one thing: the District
+   * Championship's `dcmpBracket` facts, which the joint proof (decision 5)
+   * needs. Absent means the proof never runs, which is the shipped behaviour
+   * byte for byte.
+   */
+  readonly distributions?: ReadonlyMap<string, DistrictEventDistributions>;
 }
 
 const EMPTY_CENSUS: Record<LockStatus, number> = {
@@ -252,6 +340,12 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
   const awardQualified = new Set<string>();
   const prequalified = new Set<string>();
   const awardKindByTeam = new Map<string, ChampAwardKind>();
+  // THE JOINT PROOF'S READINGS (decision 5): per team, the open ceiling minus
+  // the two DCMP pieces the proof models itself, and the DCMP source's settled
+  // Playoffs value for a team in the field.
+  const jointExtraByTeam = new Map<string, number>();
+  const dcmpSettledByTeam = new Map<string, SettledPlayoffs | undefined>();
+  let winnerPosted = false;
 
   for (const team of teams) {
     const source = sourceByKey.get(team.teamKey);
@@ -284,7 +378,9 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
     // field or may still be.
     const dcmpStage = rowStage(team.dcmpRow);
     const dcmpEntry = team.dcmpRow.sources[0];
+    let jointModeled = 0;
     if (team.membership !== "out" && dcmpEntry !== undefined) {
+      dcmpSettledByTeam.set(team.teamKey, dcmpEntry.settledElim);
       const earned = earnedByEvent.get(dcmpEntry.eventKey);
       for (const category of DISTRICT_CATEGORIES) {
         if (dcmpStage[category]) continue;
@@ -298,6 +394,9 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
           continue;
         }
         openCeiling += dcmpCeiling[category];
+        // The joint proof models the open DCMP Awards and an unsettled open
+        // DCMP Playoffs category itself (261009-2tr planner reading 5).
+        if (category === "award" || category === "elim") jointModeled += dcmpCeiling[category];
       }
     } else if (team.membership !== "out" && dcmpEntry === undefined) {
       // THE PRE-REGISTRATION WINDOW. The artifact names no championship for
@@ -315,6 +414,7 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
     }
 
     lockInputs.push({ teamKey: team.teamKey, pointTotal: floor, maxRemaining: openCeiling });
+    jointExtraByTeam.set(team.teamKey, openCeiling - jointModeled);
 
     // PREQUALIFIED is the artifact's own curated Championship pre-qualification
     // (Hall of Fame, prior-year Championship results) — a fact about the team
@@ -335,6 +435,7 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
       // category.
       const gate = award.awardType === AWARD_TYPE_WINNER ? dcmpStage.elim : dcmpStage.award;
       if (!gate) continue;
+      if (award.awardType === AWARD_TYPE_WINNER) winnerPosted = true;
       awardQualified.add(team.teamKey);
       // `winner` wins the label where a team holds both: it is the rarer and
       // more specific claim, and it is the one the DCMP tier adds over the
@@ -370,15 +471,32 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
   for (const stage of stageByChampionship.size === 0 ? [ALL_OPEN_STAGE] : stageByChampionship.values()) {
     reservedSlots += reservedChampSlots({ elimFinal: stage.elim, awardFinal: stage.award, awardCeilings, neverHappening });
   }
-  const verdicts = computeLocksWithQualifiers(lockInputs, artifact.cmpSlots, qualifiers, reservedSlots);
-  const floorCutLine = cutLinePointsWithQualifiers(lockInputs, artifact.cmpSlots, qualifiers);
-
   // THE POOL ORDER IS THE CHAMP LEDGER'S OWN SORTED ORDER, filtered to the
   // pool by `locks.ts`'s own exported narrowing — never a hand-rolled
   // subtraction, which is the class of bug `qualifierPool`'s doc comment
-  // already names.
+  // already names. It reads nothing from the verdicts, so the joint proof can
+  // read it before they are computed.
   const narrowing = pointsRaceSlots(orderedKeys, artifact.cmpSlots ?? 0, qualifiers, reservedSlots);
   const pointsSlots = artifact.cmpSlots === null ? 0 : narrowing.pointsSlots;
+
+  // THE JOINT WORST CASE PROOF — decision 5 in this module's header.
+  const jointProof = jointProofAt({
+    artifact,
+    distributions: options.distributions,
+    dcmpStageByEvent,
+    neverHappening,
+    winnerPosted,
+    narrowing,
+    floorByTeam: new Map(lockInputs.map((input) => [input.teamKey, input.pointTotal] as const)),
+    jointExtraByTeam,
+    dcmpSettledByTeam,
+    qualifiers,
+    awardCeilings,
+  });
+  const jointLocked = jointProof.applied ? jointProof.locked : undefined;
+
+  const verdicts = computeLocksWithQualifiers(lockInputs, artifact.cmpSlots, qualifiers, reservedSlots, undefined, jointLocked);
+  const floorCutLine = cutLinePointsWithQualifiers(lockInputs, artifact.cmpSlots, qualifiers);
   const poolRankByTeam = new Map(narrowing.poolKeys.map((teamKey, index) => [teamKey, index + 1] as const));
 
   const byTeam = new Map<string, ChampLedgerStatusResult>();
@@ -425,7 +543,107 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
     prequalified: [...prequalified].sort(),
     reservedSlots,
     pointsSlots,
+    jointProof,
   };
+}
+
+interface JointProofAtInput {
+  readonly artifact: DistrictArtifact;
+  readonly distributions: ReadonlyMap<string, DistrictEventDistributions> | undefined;
+  readonly dcmpStageByEvent: ReadonlyMap<string, DistrictStageFinality>;
+  readonly neverHappening: boolean;
+  readonly winnerPosted: boolean;
+  readonly narrowing: ReturnType<typeof pointsRaceSlots>;
+  readonly floorByTeam: ReadonlyMap<string, number>;
+  readonly jointExtraByTeam: ReadonlyMap<string, number>;
+  readonly dcmpSettledByTeam: ReadonlyMap<string, SettledPlayoffs | undefined>;
+  readonly qualifiers: QualifierSets;
+  readonly awardCeilings: Parameters<typeof pendingAwardSlots>[0];
+}
+
+/** The eight alliance numbers of the DCMP bracket. */
+const DCMP_ALLIANCE_NUMBERS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8];
+
+/**
+ * Decision 5's preconditions, in order, and the proof's input read off the
+ * rows. The first failed precondition is the reason; otherwise the proof runs.
+ */
+function jointProofAt(input: JointProofAtInput): ChampJointProof {
+  const { artifact, distributions, narrowing } = input;
+  if (distributions === undefined) return { applied: false, reason: "noDistributions" };
+  const dcmpKeys = dcmpEventKeysFor(artifact);
+  if (dcmpKeys.length !== 1) return { applied: false, reason: "notSingleChampionship" };
+  const dcmpKey = dcmpKeys[0]!;
+  const facts = distributions.get(dcmpKey)?.dcmpBracket;
+  if (facts === undefined) return { applied: false, reason: "noBracketFacts" };
+  const stage = input.dcmpStageByEvent.get(dcmpKey);
+  if (stage === undefined || !stage.qual || !stage.alliance || stage.award) return { applied: false, reason: "stageNotEligible" };
+  if (artifact.cmpSlots === null) return { applied: false, reason: "noCapacity" };
+  if (input.neverHappening) return { applied: false, reason: "neverHappening" };
+
+  const routing = dcmpBracketState(facts.playedMatches, DCMP_ALLIANCE_NUMBERS);
+  let candidateWinners: (number | null)[];
+  let aliveAlliances: number[];
+  if (stage.elim) {
+    // Playoffs final (planner reading 8): the posted winner has left the pool,
+    // or the routed final names the winner; otherwise nothing is known.
+    aliveAlliances = [];
+    if (input.winnerPosted) candidateWinners = [null];
+    else if (routing?.decidedWinner !== undefined) candidateWinners = [routing.decidedWinner];
+    else return { applied: false, reason: "winnerNotPosted" };
+  } else {
+    if (routing === undefined) return { applied: false, reason: "bracketUnroutable" };
+    // Alive for the proof (planner reading 6): unplaced by the routing, or any
+    // listed pick in the field without a settled Playoffs value, whose
+    // playoff points could otherwise fall between its floor and the proof.
+    const alive = new Set(routing.alive);
+    for (const alliance of facts.alliances) {
+      const unsettled = alliance.picks.some((pick) => input.dcmpSettledByTeam.has(pick) && input.dcmpSettledByTeam.get(pick) === undefined);
+      if (unsettled) alive.add(alliance.allianceNumber);
+    }
+    aliveAlliances = [...alive].sort((a, b) => a - b);
+    candidateWinners = routing.decidedWinner !== undefined ? [routing.decidedWinner] : aliveAlliances;
+  }
+  if (candidateWinners.length === 0) return { applied: false, reason: "noCandidateWinner" };
+
+  // Members (CONTEXT D2): the picks whose DCMP alliance selection points are
+  // above 0. A listed pick at 0 is a backup robot that joined in the playoffs.
+  const allianceSelectionPoints = new Map<string, number>();
+  for (const team of artifact.teams) {
+    const row = team.eventPoints.find((entry) => entry.eventKey === dcmpKey);
+    if (row !== undefined) allianceSelectionPoints.set(team.teamKey, row.alliance);
+  }
+  const alliances: JointLockAlliance[] = facts.alliances.map((alliance) => ({
+    allianceNumber: alliance.allianceNumber,
+    members: alliance.picks.filter((pick) => (allianceSelectionPoints.get(pick) ?? 0) > 0),
+  }));
+  const placementOfTeam = new Map<string, number>();
+  for (const alliance of facts.alliances) {
+    const placement = routing?.placementByAlliance.get(alliance.allianceNumber);
+    if (placement === undefined) continue;
+    for (const pick of alliance.picks) if (!placementOfTeam.has(pick)) placementOfTeam.set(pick, placement);
+  }
+
+  const proofInput: JointLockInput = {
+    pool: narrowing.poolKeys.map((teamKey) => ({
+      teamKey,
+      floor: input.floorByTeam.get(teamKey)!,
+      extra:
+        (input.jointExtraByTeam.get(teamKey) ?? 0) +
+        jointDecidedPlacementTopUp(input.dcmpSettledByTeam.get(teamKey), placementOfTeam.get(teamKey), artifact.year),
+    })),
+    slotOnlyRivals: [...input.qualifiers.prequalified].filter((teamKey) => !input.qualifiers.awardQualified.has(teamKey)).sort(),
+    pointsSlots: narrowing.pointsSlots,
+    alliances,
+    aliveAlliances,
+    candidateWinners,
+    placementPoints: [2, 3, 4].map((placement) => maxPlayoffPointsByPlacement(artifact.year, "dcmp", placement)),
+    consumingAwards: pendingAwardSlots(input.awardCeilings),
+    judgedAwards: dcmpJudgedAwardCeiling(),
+    judgedAwardPoints: dcmpJudgedAwardPoints(artifact.year),
+    maxAllianceSize: MAX_WINNING_ALLIANCE_SIZE,
+  };
+  return { applied: true, input: proofInput, locked: jointLockedTeams(proofInput) };
 }
 
 /** What a contending team's chip SHOWS while the simulated line is not in hand: a neutral placeholder, never the rank rule. An alias of the shared type. */

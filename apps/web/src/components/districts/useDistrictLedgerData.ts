@@ -7,6 +7,7 @@ import {
   DISTRICT_CATEGORIES,
   allDistrictTierEventKeys,
   distributionsFromPreSim,
+  dcmpBracketFactsFor,
   distributionsFromResult,
   type DistrictEventDistributions,
   type DistrictLedgerGaps,
@@ -261,12 +262,33 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
       if (data === undefined || data === null) return;
       map.set(eventKey, distributionsFromPreSim(data));
     });
+    // THE DCMP'S BRACKET FACTS (quick task 261009-2tr), for the Champ Locks
+    // joint lock proof: read off the run's OWN request (the published alliances
+    // and the played playoff rows it was handed), never off the Monte Carlo
+    // result, and attached only where `dcmpBracketFactsFor`'s gates all pass.
+    const requestByKey = new Map(assembled.events.map((request) => [request.eventKey, request] as const));
+    const unresolved = new Set(assembled.eventsWithUnresolvedElimMatches);
     for (const entry of entries) {
-      if (entry.status === "ok") map.set(entry.eventKey, distributionsFromResult(entry.result));
-      else if (entry.status === "baked") map.set(entry.eventKey, distributionsFromPreSim(entry));
+      if (entry.status === "ok") {
+        const distributions = distributionsFromResult(entry.result);
+        const request = requestByKey.get(entry.eventKey);
+        const dcmpBracket =
+          request === undefined || request.input.tier !== "dcmp"
+            ? undefined
+            : dcmpBracketFactsFor({
+                eventKey: entry.eventKey,
+                season: artifact.year,
+                tier: request.input.tier,
+                stage: stageByEvent.get(entry.eventKey),
+                alliances: request.input.knownAlliances,
+                playedMatches: request.input.playedElimMatches ?? [],
+                unresolvedMatchCount: unresolved.has(entry.eventKey) ? 1 : 0,
+              });
+        map.set(entry.eventKey, dcmpBracket === undefined ? distributions : { ...distributions, dcmpBracket });
+      } else if (entry.status === "baked") map.set(entry.eventKey, distributionsFromPreSim(entry));
     }
     return map;
-  }, [bakedKeys, preSimQueries, entries]);
+  }, [bakedKeys, preSimQueries, entries, assembled, stageByEvent, artifact]);
 
   const unavailableEvents = useMemo(() => {
     const fromRun = runState.status !== "complete" ? [] : runState.events.flatMap((entry) => (entry.status === "unavailable" ? [{ eventKey: entry.eventKey, name: entry.name }] : []));
