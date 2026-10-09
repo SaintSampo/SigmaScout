@@ -70,6 +70,20 @@
  * `packages/core/districts/pointPool.ts` owns how big the pool is and
  * `pooledLockInputs.ts` owns turning a district into these two facts; this file
  * owns nothing but the comparison.
+ *
+ * THE JOINT ARGUMENT (quick task 261009-2tr). A third proof of `"locked"`, at
+ * the Championship tier only: once the District Championship alliances are
+ * picked, `champJointLock.ts` bounds the rivals that can take a slot from a
+ * team jointly over the bracket, the backup robots and the award budget,
+ * counting each rival once, and hands the teams whose bound is below the
+ * points slots to `computeLocksWithQualifiers` as `jointLocked`. That module
+ * owns the argument; this file only ORs the set in, exactly as the pooled test
+ * is OR-ed, never substituted. `"eliminated"`, `threatCount`, the cut line and
+ * `pointsToLock`'s definition are untouched. A joint lock cannot coexist with
+ * `"eliminated"`: every rival whose floor is above the team's ceiling is
+ * covered by the proof's points pass, so the elimination count is at most the
+ * bound, which is below the points slots, the elimination test's slot count.
+ * With no `jointLocked` argument every result is exactly what it was before.
  */
 
 export interface LockTeamInput {
@@ -102,18 +116,24 @@ export interface LockResult {
   /** The number of OTHER teams whose ceiling meets or exceeds this team's floor -- exposed for the UI's cut-line/threat display. */
   readonly threatCount: number;
   /**
-   * Which of the two points arguments proved `"locked"`, or `null` for every
-   * other status — including `"lockedAward"` and `"prequalified"`, which the
-   * points math never reaches at all.
+   * Which of the points arguments proved `"locked"`, or `null` for every other
+   * status — including `"lockedAward"` and `"prequalified"`, which the points
+   * math never reaches at all.
    *
    * `"pooled"` means the pooled remaining-points argument held where the
    * ceiling test did not, which is exactly the population quick task
-   * 260925-pl6 exists to create. `null` whenever no `pooled` argument was
-   * supplied and the ceiling test did not hold, so a caller can never read this
-   * field as evidence the pooled test was even asked.
+   * 260925-pl6 exists to create. `"both"` keeps meaning the ceiling test AND
+   * the pooled test. A value containing `joint` means the Championship tier's
+   * joint worst case proof (quick task 261009-2tr, `champJointLock.ts`) held,
+   * alone (`"joint"`) or together with the arguments it names. `null` whenever
+   * no argument held, so a caller can never read this field as evidence an
+   * optional test was even asked.
    */
-  readonly lockedBy: "ceiling" | "pooled" | "both" | null;
+  readonly lockedBy: LockedBy | null;
 }
+
+/** Which points arguments proved a `"locked"` verdict. `"both"` is the ceiling test plus the pooled test. */
+export type LockedBy = "ceiling" | "pooled" | "both" | "joint" | "ceiling+joint" | "pooled+joint" | "ceiling+pooled+joint";
 
 /**
  * The two pooled facts, for one district at one position. Produced by
@@ -274,7 +294,8 @@ function computeLocksSplit(
   teams: readonly LockTeamInput[],
   lockSlots: number,
   eliminationSlots: number,
-  pooled?: PooledRemainingPoints
+  pooled?: PooledRemainingPoints,
+  jointLocked?: ReadonlySet<string>
 ): LockResult[] {
   const n = teams.length;
   const ceilings = teams.map((t) => t.pointTotal + t.maxRemaining);
@@ -296,17 +317,30 @@ function computeLocksSplit(
     // exactly as they were before the pooled test existed.
     const lockedByCeiling = threatCount < lockSlots;
     const lockedByPooled = isPooledLocked !== undefined && isPooledLocked(floorT);
+    // The joint proof is OR-ed exactly as the pooled test is (quick task
+    // 261009-2tr). It never touches the elimination branch: a joint lock
+    // implies the elimination count is below `eliminationSlots`.
+    const lockedByJoint = jointLocked !== undefined && jointLocked.has(team.teamKey);
 
     let status: LockStatus;
-    if (lockedByCeiling || lockedByPooled) status = "locked";
+    if (lockedByCeiling || lockedByPooled || lockedByJoint) status = "locked";
     else if (eliminationCount >= eliminationSlots) status = "eliminated";
     else status = "contending";
 
     const pointsToLock = status === "locked" ? 0 : findPointsToLock(sortedCeilings, n, floorT, team.maxRemaining, lockSlots);
-    const lockedBy = status !== "locked" ? null : lockedByCeiling && lockedByPooled ? "both" : lockedByCeiling ? "ceiling" : "pooled";
+    const lockedBy = status !== "locked" ? null : lockedByOf(lockedByCeiling, lockedByPooled, lockedByJoint);
 
     return { teamKey: team.teamKey, status, pointsToLock, threatCount, lockedBy };
   });
+}
+
+/** The `lockedBy` value for a locked team, from which arguments held. Without a joint lock it is exactly the three shipped values. */
+function lockedByOf(ceiling: boolean, pooled: boolean, joint: boolean): LockedBy {
+  if (!joint) return ceiling && pooled ? "both" : ceiling ? "ceiling" : "pooled";
+  if (ceiling && pooled) return "ceiling+pooled+joint";
+  if (ceiling) return "ceiling+joint";
+  if (pooled) return "pooled+joint";
+  return "joint";
 }
 
 /**
@@ -342,6 +376,11 @@ export interface QualifierSets {
  * `pooled` DEFAULTS TO UNDEFINED, which disables the pooled remaining-points
  * argument entirely and makes every returned field identical to what it was
  * before that argument existed — pinned by a test, for the same reason.
+ *
+ * `jointLocked` DEFAULTS TO UNDEFINED likewise (quick task 261009-2tr): the
+ * teams the Championship tier's joint worst case proof locked, OR-ed into the
+ * points-competing pool's `"locked"` test. A team in it that is award
+ * qualified or prequalified keeps that status.
  *
  * PROPERTY (locks.test.ts): adding an award qualifier to a district never
  * improves a non-qualified rival's status.
@@ -433,7 +472,8 @@ export function computeLocksWithQualifiers(
   slots: number | null,
   qualifiers: QualifierSets,
   reservedSlots = 0,
-  pooled?: PooledRemainingPoints
+  pooled?: PooledRemainingPoints,
+  jointLocked?: ReadonlySet<string>
 ): LockResult[] {
   const qualifiedResult = (teamKey: string, status: "lockedAward" | "prequalified"): LockResult => ({
     teamKey,
@@ -452,7 +492,7 @@ export function computeLocksWithQualifiers(
   }
 
   const { pool, pointsSlots, lockSlots } = qualifierPool(teams, slots, qualifiers, reservedSlots);
-  const poolByTeam = new Map(computeLocksSplit(pool, lockSlots, pointsSlots, pooled).map((r) => [r.teamKey, r] as const));
+  const poolByTeam = new Map(computeLocksSplit(pool, lockSlots, pointsSlots, pooled, jointLocked).map((r) => [r.teamKey, r] as const));
 
   return teams.map((t) => {
     if (qualifiers.prequalified.has(t.teamKey)) return qualifiedResult(t.teamKey, "prequalified");

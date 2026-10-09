@@ -652,3 +652,70 @@ describe("pointsRaceSlots", () => {
     expect(narrowed.lockSlots).toBe(1);
   });
 });
+
+describe("the joint argument, OR-ed into the lock verdict (quick task 261009-2tr)", () => {
+  const noQualifiers: QualifierSets = { awardQualified: new Set(), prequalified: new Set() };
+  // Three contenders close together and one team far behind: with two slots
+  // nobody is ceiling locked, and D is eliminated.
+  const close = [team("A", 50, 30), team("B", 49, 30), team("C", 48, 30), team("D", 10, 0)];
+
+  it("with no joint argument, or an empty one, every result is exactly the shipped one", () => {
+    for (const [teams, slots] of [
+      [close, 2],
+      [close, 1],
+      [[team("leader", 100, 0), team("rival1", 50, 20), team("rival2", 40, 10)], 1],
+    ] as const) {
+      const shipped = computeLocksWithQualifiers(teams, slots, noQualifiers);
+      expect(computeLocksWithQualifiers(teams, slots, noQualifiers, 0, undefined, undefined)).toEqual(shipped);
+      expect(computeLocksWithQualifiers(teams, slots, noQualifiers, 0, undefined, new Set())).toEqual(shipped);
+      expect(computeLocksWithQualifiers(teams, slots, noQualifiers, 1, undefined, new Set())).toEqual(
+        computeLocksWithQualifiers(teams, slots, noQualifiers, 1)
+      );
+    }
+  });
+
+  it("a contending team in the joint set reads locked by joint with its threat count unchanged, and nobody else moves", () => {
+    const shipped = computeLocksWithQualifiers(close, 2, noQualifiers);
+    const joint = computeLocksWithQualifiers(close, 2, noQualifiers, 0, undefined, new Set(["A"]));
+    expect(resultFor(shipped, "A").status).toBe("contending");
+    expect(resultFor(joint, "A")).toEqual({ teamKey: "A", status: "locked", pointsToLock: 0, threatCount: resultFor(shipped, "A").threatCount, lockedBy: "joint" });
+    for (const key of ["B", "C", "D"]) expect(resultFor(joint, key)).toEqual(resultFor(shipped, key));
+    expect(resultFor(joint, "D").status).toBe("eliminated");
+    expect(cutLinePointsWithQualifiers(close, 2, noQualifiers)).toBe(49);
+  });
+
+  it("names every combination: ceiling+joint, pooled+joint, ceiling+pooled+joint, and both keeps meaning ceiling plus pooled", () => {
+    const withLeader = [team("L", 200, 0), ...close];
+    const ceilingJoint = computeLocksWithQualifiers(withLeader, 3, noQualifiers, 0, undefined, new Set(["L", "A"]));
+    expect(resultFor(ceilingJoint, "L").lockedBy).toBe("ceiling+joint");
+    expect(resultFor(ceilingJoint, "A").lockedBy).toBe("joint");
+    expect(resultFor(computeLocksWithQualifiers(withLeader, 3, noQualifiers), "L").lockedBy).toBe("ceiling");
+
+    // The paper's worked example plus one runaway leader: the leader is locked
+    // by both shipped tests, A by the pooled test alone.
+    const teams: LockTeamInput[] = [team("top", 1000, 0)];
+    for (let i = 0; i < 57; i++) teams.push(team(`ahead${i}`, 100, 83));
+    teams.push(team("A", 70, 83), team("r68", 68, 83), team("r64", 64, 0), team("r62", 62, 83), team("r61", 61, 83), team("r55", 55, 83), team("r50", 50, 83));
+    const pooled = { remainingPoints: 18, hasRemainingEvent: new Set(teams.filter((t) => t.maxRemaining > 0).map((t) => t.teamKey)) };
+    const shipped = computeLocksWithQualifiers(teams, 61, noQualifiers, 0, pooled);
+    expect(resultFor(shipped, "top").lockedBy).toBe("both");
+    expect(resultFor(shipped, "A").lockedBy).toBe("pooled");
+    const joint = computeLocksWithQualifiers(teams, 61, noQualifiers, 0, pooled, new Set(["top", "A"]));
+    expect(resultFor(joint, "top").lockedBy).toBe("ceiling+pooled+joint");
+    expect(resultFor(joint, "A").lockedBy).toBe("pooled+joint");
+    for (const result of joint) {
+      if (result.teamKey === "top" || result.teamKey === "A") continue;
+      expect(result).toEqual(resultFor(shipped, result.teamKey));
+    }
+  });
+
+  it("an award qualified or prequalified team in the joint set keeps its qualified status", () => {
+    const qualifiers: QualifierSets = { awardQualified: new Set(["A"]), prequalified: new Set(["B"]) };
+    const joint = computeLocksWithQualifiers(close, 2, qualifiers, 0, undefined, new Set(["A", "B"]));
+    expect(resultFor(joint, "A").status).toBe("lockedAward");
+    expect(resultFor(joint, "A").lockedBy).toBeNull();
+    expect(resultFor(joint, "B").status).toBe("prequalified");
+    expect(resultFor(joint, "B").lockedBy).toBeNull();
+    expect(resultFor(joint, "C")).toEqual(resultFor(computeLocksWithQualifiers(close, 2, qualifiers), "C"));
+  });
+});

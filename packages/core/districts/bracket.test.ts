@@ -27,6 +27,8 @@ import {
   divisionedDcmpPlayoffPmf,
   InvalidBracketDecisionError,
   InvalidPlacementError,
+  maxPlayoffPointsByPlacement,
+  PLAYOFF_PLACEMENT_MAX_POINTS,
   PLAYOFF_PLACEMENT_POINTS,
   playoffPoints,
   routeBracket,
@@ -178,6 +180,40 @@ describe("routeBracket", () => {
   });
 });
 
+describe("maxPlayoffPointsByPlacement (quick task 261009-2tr)", () => {
+  it("pays 90, 75, 39, 21 and then zero at a 2026 DCMP, the manual's maxima times the tier weight", () => {
+    expect(PLAYOFF_PLACEMENT_MAX_POINTS).toEqual([30, 25, 13, 7, 0, 0, 0, 0]);
+    expect([1, 2, 3, 4, 5, 6, 7, 8].map((placement) => maxPlayoffPointsByPlacement(2026, "dcmp", placement))).toEqual([
+      90, 75, 39, 21, 0, 0, 0, 0,
+    ]);
+    expect(maxPlayoffPointsByPlacement(2026, "district", 2)).toBe(25);
+  });
+
+  it("leaves playoffPoints unchanged: second place at a 2026 DCMP still prints 60", () => {
+    expect(playoffPoints(2026, "dcmp", 2)).toBe(60);
+  });
+
+  it("is at least playoffPoints and at most the declared elim ceiling for every season, tier and placement", () => {
+    for (const season of BRACKET_REGISTERED_SEASONS) {
+      for (const tier of ["district", "dcmp"] as const) {
+        const ceiling = maxEventPoints(season, tier).elim;
+        for (let placement = 1; placement <= 8; placement++) {
+          const max = maxPlayoffPointsByPlacement(season, tier, placement);
+          expect(max, `season ${season} ${tier} placement ${placement}`).toBeGreaterThanOrEqual(playoffPoints(season, tier, placement));
+          expect(max, `season ${season} ${tier} placement ${placement}`).toBeLessThanOrEqual(ceiling);
+        }
+      }
+    }
+  });
+
+  it("throws the typed errors playoffPoints throws", () => {
+    for (const placement of [0, 9, 2.5]) {
+      expect(() => maxPlayoffPointsByPlacement(2026, "dcmp", placement), `placement ${placement}`).toThrow(InvalidPlacementError);
+    }
+    expect(() => maxPlayoffPointsByPlacement(2022, "dcmp", 1)).toThrow(UnsupportedBracketSeasonError);
+  });
+});
+
 describe("playoffPoints", () => {
   it("maps placement to 30, 20, 13, 7 and then zero for fifth through eighth", () => {
     expect(PLAYOFF_PLACEMENT_POINTS).toEqual([30, 20, 13, 7, 0, 0, 0, 0]);
@@ -223,6 +259,7 @@ describe("playoffPoints", () => {
 
   it("throws a typed error for a season before 2023 rather than routing the 2023-plus topology over it", () => {
     for (const season of [2016, 2019, 2020, 2022, 2027]) {
+      expect(() => maxPlayoffPointsByPlacement(season, "dcmp", 1), `season ${season}`).toThrow(UnsupportedBracketSeasonError);
       expect(() => playoffPoints(season, "district", 1), `season ${season}`).toThrow(UnsupportedBracketSeasonError);
       expect(() => assertBracketSeason(season), `season ${season}`).toThrow(UnsupportedBracketSeasonError);
     }

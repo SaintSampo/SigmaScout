@@ -330,6 +330,41 @@ export function playoffPoints(season: number, tier: DistrictTier, placement: num
   return value;
 }
 
+/**
+ * The MOST a final placement can pay (base, regular district event,
+ * unweighted), indexed `placement - 1`. Quick task 261009-2tr.
+ *
+ * The 2026 game manual, section 11.1.3, pays base points by placement (first
+ * 20, second 20, third 13, fourth 7) PLUS 5 for each Finals match won in which
+ * the team played, up to 10. So the winner reaches 30 and a losing finalist
+ * that won one Finals match reaches 25, above `PLAYOFF_PLACEMENT_POINTS`' 20.
+ * TBA's district tier rows since 2023 show 25 thirteen times (4, 1, 4 and 4 by
+ * season) and no row above these maxima; every other value off the table is a
+ * proration below one.
+ */
+export const PLAYOFF_PLACEMENT_MAX_POINTS: readonly number[] = [30, 25, 13, 7, 0, 0, 0, 0];
+
+/**
+ * The most an alliance that finished `placement` at a `tier` event in `season`
+ * can be paid: `PLAYOFF_PLACEMENT_MAX_POINTS` times the tier weight, behind
+ * exactly `playoffPoints`' guards. This is the bound a guarantee needs (the
+ * Champ Locks joint proof, and a decided placement's settled ceiling).
+ * `playoffPoints` stays the measured placement multiset, which is what the
+ * simulation draws and what a settled Playoffs cell prints.
+ */
+export function maxPlayoffPointsByPlacement(season: number, tier: DistrictTier, placement: number): number {
+  assertBracketSeason(season);
+  if (!Number.isInteger(placement) || placement < 1 || placement > PLAYOFF_PLACEMENT_MAX_POINTS.length) {
+    throw new InvalidPlacementError(placement);
+  }
+  const value = PLAYOFF_PLACEMENT_MAX_POINTS[placement - 1]! * districtTierWeight(season, tier);
+  const ceiling = maxEventPoints(season, tier).elim;
+  if (value > ceiling) {
+    throw new InvalidPlacementError(placement);
+  }
+  return value;
+}
+
 // ---------------------------------------------------------------------------
 // The non-eight-alliance fallback: divisioned district championship parents
 // ---------------------------------------------------------------------------
