@@ -308,7 +308,7 @@ describe("districtLedgerContent: the rewound view and the championship field (26
     // Locked paragraph directly, then the settled playoffs paragraph (quick
     // task 261008-26o), then these two.
     expect(paragraphs[anchor + 1]).toBe(
-      "Once the District Championship alliances are picked, Locked on the Champ Locks tab also counts, for each team, the most rivals that can pass it or take a slot from it in any way the bracket and the awards can still fall, counting each rival once, and locks the team when that count is below the open slots."
+      "Once the District Championship alliances are picked, Locked on the Champ Locks tab also counts, for each team, the most rivals that can pass it or take a slot from it in any way the bracket and the awards can still fall, counting each rival once, and locks the team when that count is below the open slots. A championship played in divisions counts every division's bracket and the finals between the division winners. A district with two championships counts both of them."
     );
     expect(paragraphs[anchor + 2]).toBe(
       "A team knocked out of the playoffs has its playoff points settled as soon as its alliance's place in the bracket is decided. From then on Locked allows it no more playoff points than that place pays, and counts them as earned once The Blue Alliance posts them."

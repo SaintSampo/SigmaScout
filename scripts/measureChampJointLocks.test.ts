@@ -19,7 +19,8 @@ import { describe, expect, it } from "vitest";
 import { DistrictArtifactSchema, type DistrictArtifact } from "../packages/harness/pageArtifacts.js";
 import { jointLockBound } from "../packages/core/districts/champJointLock.js";
 import type { BracketSourceEvent } from "../apps/web/src/components/districts/districtLedgerRows.js";
-import { dcmpStops, statusesAtStop } from "./measureChampJointLocks.js";
+import { openCorpusReadOnly } from "../packages/corpus/db.js";
+import { bracketsFromCorpus, championshipStops, CORPUS_PATH, dcmpStops, statusesAtChampionshipStop, statusesAtStop } from "./measureChampJointLocks.js";
 
 const FNC_PATH = "data/local-publish/districts/v1__district__2026fnc.json";
 const FNC_AVAILABLE = existsSync(FNC_PATH);
@@ -166,5 +167,125 @@ describe("measureChampJointLocks: the FNC 2026 pins (D5)", () => {
         expect(["locked", "lockedAward"], `${stop.label} ${result.teamKey}`).toContain(finalStatus.get(result.teamKey));
       }
     }
+  });
+});
+
+/**
+ * Quick task 261009-kt3: the divisioned and two championship pins, as the
+ * implementation executes them (never fitted). Gated on the local district
+ * artifacts AND `data/corpus.sqlite`, which carries the division and finals
+ * brackets; skips with a message when either is absent.
+ *
+ * Against the planner's prototype: FIM 2026 at Divisions final locks 50, not
+ * 60 (the finals seats open to any rival cost 6, and 4 teams with no
+ * championship row keep the tab's hypothetical DCMP ceiling while the finals
+ * have not started); NE 2026 at Divisions final locks 12, not 17 (the same
+ * hypothetical ceiling on eight teams with no row); every other set equals the
+ * prototype's.
+ */
+const KT3_PATHS = ["fim", "ne", "ca"].map((district) => `data/local-publish/districts/v1__district__2026${district}.json`);
+const KT3_AVAILABLE = KT3_PATHS.every((path) => existsSync(path)) && existsSync(CORPUS_PATH);
+
+describe("measureChampJointLocks: the FIM, NE and CA 2026 pins (261009-kt3, D7)", () => {
+  if (!KT3_AVAILABLE) {
+    it.skip(`skipped: the 2026 fim, ne or ca district artifact or ${CORPUS_PATH} is absent (gitignored local data)`, () => {});
+    return;
+  }
+  const db = openCorpusReadOnly(CORPUS_PATH);
+  const loaded = new Map<string, { artifact: DistrictArtifact; brackets: ReadonlyMap<string, BracketSourceEvent> }>();
+  try {
+    for (const district of ["fim", "ne", "ca"]) {
+      const artifact = DistrictArtifactSchema.parse(JSON.parse(readFileSync(`data/local-publish/districts/v1__district__2026${district}.json`, "utf8")));
+      const found = bracketsFromCorpus(db, new Map(), artifact);
+      if ("missing" in found) throw new Error(`no corpus bracket for ${found.missing}`);
+      loaded.set(district, { artifact, brackets: found.brackets });
+    }
+  } finally {
+    db.close();
+  }
+
+  const pins: readonly { district: string; stop: string; slots: number; shape: string; locked: string; nearMisses: string }[] = [
+    {
+      district: "fim",
+      stop: "Divisions final, finals not started",
+      slots: 83,
+      shape: "divisioned",
+      locked:
+        "frc10633 frc1189 frc1701 frc1918 frc2054 frc2075 frc2137 frc2337 frc2586 frc2611 frc27 frc2767 frc2851 frc2960 frc33 frc3414 frc3538 frc3539 frc3620 frc3641 frc3668 frc4237 frc4362 frc4391 frc469 frc4967 frc5066 frc5086 frc5114 frc5166 frc5193 frc5216 frc5460 frc548 frc5534 frc5660 frc5712 frc5907 frc6002 frc6090 frc67 frc68 frc7160 frc7166 frc7197 frc7220 frc7769 frc8280 frc8517 frc8608",
+      nearMisses: "frc9771 frc6152 frc201 frc1188 frc494 frc5675",
+    },
+    {
+      district: "fim",
+      stop: "Finals decided, awards open",
+      slots: 80,
+      shape: "divisioned",
+      locked:
+        "frc1023 frc10633 frc1188 frc1189 frc1498 frc1701 frc1918 frc201 frc2054 frc2075 frc2137 frc2337 frc2586 frc2611 frc2619 frc2767 frc2851 frc2960 frc33 frc3414 frc3536 frc3538 frc3539 frc3620 frc3641 frc3656 frc4237 frc4362 frc4391 frc4398 frc469 frc494 frc4967 frc5066 frc5086 frc5114 frc5166 frc5193 frc5216 frc5460 frc548 frc5534 frc5660 frc5675 frc5712 frc5907 frc6002 frc6090 frc6121 frc6152 frc6615 frc67 frc68 frc7160 frc7166 frc7197 frc7220 frc8280 frc8517 frc8608 frc9245 frc9757 frc9771",
+      nearMisses: "frc3707 frc5462 frc70",
+    },
+    {
+      district: "ne",
+      stop: "Divisions final, finals not started",
+      slots: 32,
+      shape: "divisioned",
+      locked: "frc125 frc176 frc1768 frc190 frc195 frc2877 frc3467 frc5000 frc5687 frc6328 frc6329 frc88",
+      nearMisses: "frc2067 frc4909 frc2713",
+    },
+    {
+      district: "ne",
+      stop: "Finals decided, awards open",
+      slots: 28,
+      shape: "divisioned",
+      locked: "frc125 frc133 frc176 frc190 frc1922 frc195 frc238 frc2877 frc3467 frc5000 frc5813 frc6328 frc6329 frc7407 frc88",
+      nearMisses: "frc2067 frc4909 frc2713",
+    },
+    {
+      district: "ca",
+      stop: "Round 5",
+      slots: 46,
+      shape: "multiple",
+      locked: "frc1323 frc1538 frc1678 frc254 frc294 frc3256 frc3476 frc4414 frc581 frc5940 frc6036 frc9408 frc9470 frc972 frc973",
+      nearMisses: "frc7415 frc6995 frc3128 frc971 frc599 frc687 frc8 frc604",
+    },
+    {
+      district: "ca",
+      stop: "Playoffs final, awards open",
+      slots: 39,
+      shape: "multiple",
+      locked: "frc1538 frc1678 frc294 frc3128 frc3256 frc581 frc5940 frc599 frc6036 frc604 frc687 frc6995 frc7415 frc8 frc9408 frc9470 frc971 frc972 frc973",
+      nearMisses: "frc2102 frc4698",
+    },
+  ];
+
+  for (const pin of pins) {
+    it(`${pin.district} 2026 at ${pin.stop}: S' ${String(pin.slots)}, ${pin.shape}, the joint proof locks exactly the pinned set, every one qualified at Now`, () => {
+      const { artifact, brackets } = loaded.get(pin.district)!;
+      const stop = championshipStops(artifact, brackets).find((entry) => entry.label === pin.stop);
+      if (stop === undefined) throw new Error(`no ${pin.stop} stop`);
+      const model = statusesAtChampionshipStop(artifact, stop, brackets, true);
+      expect(model.pointsSlots).toBe(pin.slots);
+      if (model.jointProof?.applied !== true) throw new Error(`not applied: ${JSON.stringify(model.jointProof)}`);
+      expect(model.jointProof.shape).toBe(pin.shape);
+      const locked = [...model.jointProof.locked].sort();
+      expect(locked).toEqual(pin.locked.split(" ").sort());
+      const finalStatus = new Map(artifact.teams.map((team) => [team.teamKey, team.champLock.status] as const));
+      for (const teamKey of locked) expect(["locked", "lockedAward"], teamKey).toContain(finalStatus.get(teamKey));
+      for (const teamKey of pin.nearMisses.split(" ")) expect(locked, teamKey).not.toContain(teamKey);
+    });
+  }
+
+  it("D3: at FIM 2026 Divisions final, every team with a finals row has its finals points out of its floor (frc27 at 445 minus 90)", () => {
+    const { artifact, brackets } = loaded.get("fim")!;
+    const stop = championshipStops(artifact, brackets).find((entry) => entry.label === "Divisions final, finals not started")!;
+    const model = statusesAtChampionshipStop(artifact, stop, brackets, false);
+    let finalsTeams = 0;
+    for (const team of artifact.teams) {
+      const row = team.eventPoints.find((entry) => entry.eventKey === "2026micmp");
+      if (row === undefined) continue;
+      finalsTeams += 1;
+      expect(model.floorByTeam!.get(team.teamKey)!, team.teamKey).toBeLessThanOrEqual(team.pointTotal - row.total);
+    }
+    expect(finalsTeams).toBe(16);
+    expect(model.floorByTeam!.get("frc27")).toBe(355);
   });
 });
