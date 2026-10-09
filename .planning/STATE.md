@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-09T18:34:13.539Z"
+last_updated: "2026-10-09T21:37:55.451Z"
 last_activity: 2026-10-09
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -744,6 +744,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 308 | Locks: a team knocked out of the playoffs reads its Playoffs cell as final grey once its placement is decided, and the lock floor and ceiling settle its playoff points at both tiers | 2026-10-08 | 84b664ef | [261008-26o-locks-a-team-knocked-out-of-the-playoffs](./quick/261008-26o-locks-a-team-knocked-out-of-the-playoffs/) |
 | 309 | Lock boxes: not picked Playoffs cell, one chance-then-pays grammar for every open cell, no tilde on percentages, 99 percent cap | 2026-10-08 | 89bc6d19 | [261008-3il-lock-boxes-grey-eliminated-playoff-allia](./quick/261008-3il-lock-boxes-grey-eliminated-playoff-allia/) |
 | 310 | Champ Locks: joint worst case lock proof over the DCMP bracket and awards, one award per rival, placement maxima, corpus sweep gate (0 violations, 167 earlier locks) | 2026-10-09 | 5aa7b489 | [261009-2tr-champ-locks-joint-worst-case-lock-proof-](./quick/261009-2tr-champ-locks-joint-worst-case-lock-proof-/) |
+| 311 | Champ Locks joint proof for divisioned championships (FIM, NE, ON, TX) and 2026 California, every DCMP row folded into the floor; 48 championships swept, 0 violations, 486 earlier locks | 2026-10-09 | d38455c4 | [261009-kt3-champ-locks-joint-proof-for-divisioned-c](./quick/261009-kt3-champ-locks-joint-proof-for-divisioned-c/) |
 
 ### Roadmap Evolution
 
