@@ -963,6 +963,15 @@ function divisionedJointProof(
   }
   const finalsStage = input.dcmpStageByEvent.get(finalsKey) ?? ALL_OPEN_STAGE;
   if (finalsStage.award) return refuse("stageNotEligible");
+  // THE JUDGED BUDGET COUNTS ONLY THE DIVISIONS WHOSE AWARDS ARE OPEN (quick
+  // task 261009-pgq, D3). Posted judged points are already in every floor, a
+  // division whose Awards are final gives no further award, and the finals
+  // event gives no judged award (261009-kt3 RESEARCH section 3). So K is 14
+  // for each division still to post and 0 once every division has; until then
+  // it was 14 times the division count at every stop. The single and the two
+  // championship shapes keep 14 per championship: their Awards are open
+  // whenever the proof runs.
+  const openAwardDivisions = divisionKeys.filter((key) => !stageByKey.get(key)!.award).length;
   if (artifact.cmpSlots === null) return refuse("noCapacity");
   if (input.neverHappening) return refuse("neverHappening");
 
@@ -1066,7 +1075,7 @@ function divisionedJointProof(
     candidateWinners: frames.candidateWinners,
     placementPoints: [2, 3, 4].map((placement) => maxPlayoffPointsByPlacement(artifact.year, "dcmp", placement)),
     consumingAwards: pendingAwardSlots(input.awardCeilings),
-    judgedAwards: dcmpJudgedAwardCeiling() * divisionCount,
+    judgedAwards: dcmpJudgedAwardCeiling() * openAwardDivisions,
     judgedAwardPoints: dcmpJudgedAwardPoints(artifact.year),
     maxAllianceSize: MAX_WINNING_ALLIANCE_SIZE,
     frames: frames.frames,

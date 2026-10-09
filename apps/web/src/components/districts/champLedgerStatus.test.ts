@@ -25,7 +25,7 @@ import { applyChampRangeState, champFinalsCeilingWithoutRow, computeChampLedgerS
 import { champCutoffView, type ChampRangeState } from "./champLedgerChances.js";
 import { SHOW_SIMULATED_CHAMP_LIKELY_RANGE, predictedCutoff, type LedgerCutoffView } from "./predictedCutoff.js";
 import { playoffPoints, routeBracket, type AllianceBracketMilestone, type PlayedBracketMatch } from "../../../../../packages/core/districts/bracket.js";
-import { jointLockedTeamsMultiple } from "../../../../../packages/core/districts/champJointLock.js";
+import { jointLockBound, jointLockedTeamsMultiple, type JointLockInput } from "../../../../../packages/core/districts/champJointLock.js";
 import {
   dcmpBracketFactsFor,
   dcmpBracketMilestonesByTeam,
@@ -1239,9 +1239,23 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
   function entry(eventKey: string, dcmpBracket: DcmpBracketFacts | undefined, milestones: ReadonlyMap<string, AllianceBracketMilestone> = new Map()): [string, DistrictEventDistributions] {
     return [eventKey, { eventKey, byTeam: new Map(), playoffMilestoneByTeam: milestones, ...(dcmpBracket === undefined ? {} : { dcmpBracket }) }];
   }
-  function modelAt(artifact: DistrictArtifact, stages: ReadonlyMap<string, DistrictStageFinality>, distributions: ReadonlyMap<string, DistrictEventDistributions>) {
+  /** The rows at the stages. `startedDcmpEventKeys` is the position's started set (quick task 261009-pgq); absent, every championship key has started. */
+  function rowsAt(
+    artifact: DistrictArtifact,
+    stages: ReadonlyMap<string, DistrictStageFinality>,
+    distributions: ReadonlyMap<string, DistrictEventDistributions>,
+    startedDcmpEventKeys?: ReadonlySet<string>
+  ) {
     const stageByEvent = new Map(eventKeysOf(artifact).map((key) => [key, stages.get(key) ?? ALL_FINAL] as const));
-    const rows = buildChampLedgerRows({ artifact, distributions, stageByEvent, dcmpStarted: true });
+    return buildChampLedgerRows({ artifact, distributions, stageByEvent, ...(startedDcmpEventKeys === undefined ? { dcmpStarted: true } : { startedDcmpEventKeys }) });
+  }
+  function modelAt(
+    artifact: DistrictArtifact,
+    stages: ReadonlyMap<string, DistrictStageFinality>,
+    distributions: ReadonlyMap<string, DistrictEventDistributions>,
+    startedDcmpEventKeys?: ReadonlySet<string>
+  ) {
+    const rows = rowsAt(artifact, stages, distributions, startedDcmpEventKeys);
     return computeChampLedgerStatuses({ artifact, teams: rows.teams, nowYear: 2026, distributions });
   }
   const C = pendingAwardSlots(dcmpAwardCountCeilings(2026, FIXTURE.districtKey, FIXTURE.cmpSlots!).counts);
@@ -1314,6 +1328,107 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
     expect(modelAt(DIVISIONED, stages, distributions(undefined, false)).jointProof).toEqual({ applied: false, reason: "noBracketFacts" });
   });
 
+  /** Every DIVISIONED team the artifact names at no championship key: no division row, no finals row, no registration. */
+  const ROWLESS = new Set(
+    DIVISIONED.teams.filter((team) => team.eventPoints.every((row) => row.tier !== "dcmp") && team.remainingEvents.every((row) => row.tier !== "dcmp")).map((team) => team.teamKey)
+  );
+  /** One whole hypothetical DCMP: the four category maxima (249 in 2026). */
+  const HYPOTHETICAL_DCMP = (() => {
+    const ceiling = maxEventPoints(2026, "dcmp");
+    return ceiling.qual + ceiling.alliance + ceiling.elim + ceiling.award;
+  })();
+
+  it("261009-pgq D1: a team with no championship row drops its whole hypothetical DCMP once both divisions have started, the finals not", () => {
+    expect(HYPOTHETICAL_DCMP).toBe(249);
+    const oneStarted = modelAt(DIVISIONED, ROUND_FIVE_STAGES, roundFiveDistributions(), new Set([DIV1]));
+    const bothStarted = modelAt(DIVISIONED, ROUND_FIVE_STAGES, roundFiveDistributions(), new Set([DIV1, DIV2]));
+    if (oneStarted.jointProof?.applied !== true || oneStarted.jointProof.shape === "multiple") throw new Error(`not applied: ${JSON.stringify(oneStarted.jointProof)}`);
+    // R is taken from the applied proof's own pool: a rival the proof reads, with no championship row.
+    const rival = oneStarted.jointProof.input.pool.find((entry) => ROWLESS.has(entry.teamKey))!;
+    expect(rival).toBeDefined();
+    // One division still to start: the field is not fixed, so R keeps one whole hypothetical DCMP.
+    expect(rival.extra).toBe(HYPOTHETICAL_DCMP);
+    // Both divisions started, the finals key not: the field is fixed and the hypothetical DCMP is gone.
+    expect(oneStarted.ceilingByTeam!.get(rival.teamKey)! - bothStarted.ceilingByTeam!.get(rival.teamKey)!).toBe(HYPOTHETICAL_DCMP);
+    expect(bothStarted.ceilingByTeam!.get(rival.teamKey)).toBe(bothStarted.floorByTeam!.get(rival.teamKey));
+  });
+
+  it("261009-pgq guard (D2 withdrawn): a rowless team read as out stays a pool rival at extra 0, and one consuming award covers it", () => {
+    const started = new Set([DIV1, DIV2]);
+    const rows = rowsAt(DIVISIONED, ROUND_FIVE_STAGES, roundFiveDistributions(), started);
+    const model = modelAt(DIVISIONED, ROUND_FIVE_STAGES, roundFiveDistributions(), started);
+    if (model.jointProof?.applied !== true || model.jointProof.shape === "multiple") throw new Error(`not applied: ${JSON.stringify(model.jointProof)}`);
+    const { input } = model.jointProof;
+    const membershipOf = new Map(rows.teams.map((team) => [team.teamKey, team.membership] as const));
+    // Every rowless team reads out, and every one of them is a rival in the proof's pool at extra 0 unless a qualification already took it out of the points race.
+    const qualified = new Set([...model.awardQualified, ...model.prequalified]);
+    const poolByKey = new Map(input.pool.map((entry) => [entry.teamKey, entry] as const));
+    expect(ROWLESS.size).toBeGreaterThan(0);
+    for (const teamKey of ROWLESS) {
+      expect(membershipOf.get(teamKey)).toBe("out");
+      if (qualified.has(teamKey)) continue;
+      expect(poolByKey.get(teamKey)?.extra).toBe(0);
+    }
+    const rival = input.pool.find((entry) => ROWLESS.has(entry.teamKey))!;
+    expect(rival).toBeDefined();
+    expect(membershipOf.get(rival.teamKey)).toBe("out");
+    expect(rival.extra).toBe(0);
+    // A consuming award covers it: T is the pool's highest floor, R sits below it on points, and one consuming award lifts R past T.
+    const top = input.pool.reduce((best, entry) => (entry.floor > best.floor ? entry : best));
+    expect(rival.floor).toBeLessThan(top.floor);
+    const reduced = (consumingAwards: number): JointLockInput => ({
+      pool: [top, rival],
+      slotOnlyRivals: [],
+      pointsSlots: input.pointsSlots,
+      alliances: [],
+      aliveAlliances: [],
+      candidateWinners: [null],
+      placementPoints: input.placementPoints,
+      consumingAwards,
+      judgedAwards: 0,
+      judgedAwardPoints: input.judgedAwardPoints,
+      maxAllianceSize: input.maxAllianceSize,
+    });
+    expect(jointLockBound(reduced(1), top.teamKey)).toBe(1);
+    expect(jointLockBound(reduced(0), top.teamKey)).toBe(0);
+  });
+
+  it("261009-pgq D3: the judged budget counts only the divisions whose Awards are open: 28, 14, 0", () => {
+    const finals = facts(
+      PARENT,
+      OPEN_PLAYOFFS,
+      [
+        { allianceNumber: 1, picks: DIV1_ALLIANCES[0]!.picks },
+        { allianceNumber: 2, picks: DIV2_ALLIANCES[0]!.picks },
+      ],
+      [],
+      "finals",
+      2
+    );
+    const judgedAt = (div1: DistrictStageFinality, div2: DistrictStageFinality): number => {
+      const stages = new Map([
+        [DIV1, div1],
+        [DIV2, div2],
+        [PARENT, OPEN_PLAYOFFS],
+      ]);
+      const distributions = new Map([
+        entry(DIV1, facts(DIV1, div1, DIV1_ALLIANCES, [...ROUND_FIVE, ...FINAL_ONE_WINS], "division")),
+        entry(DIV2, facts(DIV2, div2, DIV2_ALLIANCES, higherSeedRows(), "division")),
+        entry(PARENT, finals),
+      ]);
+      const model = modelAt(DIVISIONED, stages, distributions);
+      if (model.jointProof?.applied !== true || model.jointProof.shape === "multiple") throw new Error(`not applied: ${JSON.stringify(model.jointProof)}`);
+      expect(model.jointProof.shape).toBe("divisioned");
+      expect(model.jointProof.input.candidateWinners).toEqual([11, 21]);
+      return model.jointProof.input.judgedAwards;
+    };
+    // Playoffs final in both divisions; the Awards stage is the only thing varied.
+    expect(judgedAt(PLAYOFFS_FINAL, PLAYOFFS_FINAL)).toBe(28);
+    expect(judgedAt(ALL_FINAL, PLAYOFFS_FINAL)).toBe(14);
+    expect(judgedAt(PLAYOFFS_FINAL, ALL_FINAL)).toBe(14);
+    expect(judgedAt(ALL_FINAL, ALL_FINAL)).toBe(0);
+  });
+
   it("refuses unsupportedShape for three divisions", () => {
     const third = new Set(others.slice(0, 9));
     const three: DistrictArtifact = DistrictArtifactSchema.parse({
@@ -1354,6 +1469,9 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
     if (model.jointProof?.applied !== true || model.jointProof.shape !== "multiple") throw new Error(`not multiple: ${JSON.stringify(model.jointProof)}`);
     const [first, second] = model.jointProof.championships;
     expect(model.jointProof.championships).toHaveLength(2);
+    // 261009-pgq D3 leaves this shape alone: each championship keeps its own judged budget of 14.
+    expect(first!.judgedAwards).toBe(14);
+    expect(second!.judgedAwards).toBe(14);
     const poolTeamWithNoRow = noRow.find((key) => key !== prequalified && first!.pool.some((rival) => rival.teamKey === key))!;
     expect(poolTeamWithNoRow).toBeDefined();
     expect(second!.pool.some((rival) => rival.teamKey === poolTeamWithNoRow)).toBe(true);

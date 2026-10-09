@@ -400,15 +400,59 @@ export function dcmpEventKeyFor(artifact: DistrictArtifact): string | undefined 
 }
 
 /**
- * Whether THIS team's championship has started at the position: its own dcmp
- * row's event where it has one, or EVERY championship for a team with no row
- * yet — the conservative reading, since a team with no row is only "out" of
- * the field once no championship can still list it.
+ * The dcmp keys whose start FIXES THE FIELD (quick task 261009-pgq, D1): every
+ * key except a divisioned championship's finals key.
+ *
+ * A key K is a finals key when another dcmp key is K plus one digit
+ * (`2026micmp` beside `2026micmp1` to `2026micmp4`, `2026necmp` beside
+ * `2026necmp1` and `2026necmp2`). The finals are played among the division
+ * winners and admit nobody new, so they say nothing about who is in the field.
+ * A single championship keeps its one key and 2026 California keeps both
+ * (`2026cancmp`, `2026cascmp`: neither is the other plus a digit). Division
+ * keys published without their parent are kept as they are.
+ *
+ * A rule on the keys alone, not a call to `championshipShape`, so a shape the
+ * joint proof refuses still gets the same field rule.
+ */
+export function fieldFixingDcmpKeys(dcmpEventKeys: readonly string[]): string[] {
+  return dcmpEventKeys.filter((key) => !dcmpEventKeys.some((other) => other.length === key.length + 1 && other.startsWith(key) && /\d$/.test(other)));
+}
+
+/**
+ * Whether THIS team's championship field question is settled at the position.
+ *
+ * A TEAM WITH ITS OWN dcmp ROW reads its own first key, as it always did.
+ *
+ * A TEAM WITH NO ROW is out of the field once every FIELD FIXING key has
+ * started (`fieldFixingDcmpKeys`): the one championship of a single district,
+ * both of 2026 California's, and every DIVISION of a divisioned championship.
+ * Until quick task 261009-pgq (D1) the rule waited for every dcmp key, the
+ * finals key included. The finals start days after the divisions and list only
+ * division winners, so at "Divisions final, finals not started" a rowless team
+ * still carried one whole hypothetical DCMP (249 points in 2026) that nothing
+ * could pay it. A single championship and two championships read exactly as
+ * before, since every one of their keys is field fixing.
+ *
+ * WHAT THE RULE CANNOT SEE, MEASURED. A team REGISTERED at a division or a
+ * single DCMP that earned no points there (judging only, or a no show) carries
+ * no row at Now, so the artifact cannot tell it from an unregistered team.
+ * Corpus 2023 to 2026, every single and division DCMP event: 18 such teams.
+ * Every one is `eliminated` at Now, and every one finished at least 113 points
+ * below its district's cut line (gaps 113 to 217, totals 0 to 56). A 45 point
+ * award could not have carried one past a locked team.
+ *
+ * The one way left to such a team is a CONSUMING award, which takes a slot at
+ * any point total. The joint proof already counts it: a rowless team read as
+ * `out` stays in `rows.teams`, so `champLedgerStatus.ts` keeps it as a rival
+ * in the proof's pool at extra 0, where one consuming award covers it.
+ * `champLedgerStatus.test.ts` asserts that (the 261009-pgq guard). A district
+ * whose rowless registrant sat near the line is the case to re-examine.
  */
 export function dcmpStartedForTeam(team: DistrictTeam, startedDcmpEventKeys: ReadonlySet<string>, dcmpEventKeys: readonly string[]): boolean {
   const own = tierEvents(team, "dcmp")[0]?.eventKey;
   if (own !== undefined) return startedDcmpEventKeys.has(own);
-  return dcmpEventKeys.length > 0 && dcmpEventKeys.every((key) => startedDcmpEventKeys.has(key));
+  const fieldFixing = fieldFixingDcmpKeys(dcmpEventKeys);
+  return fieldFixing.length > 0 && fieldFixing.every((key) => startedDcmpEventKeys.has(key));
 }
 
 /**

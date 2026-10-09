@@ -168,8 +168,11 @@
  * the finals awards are consuming awards (24 and 30 points 2023 to 2026); no
  * team has award points at both its division and the finals, and one judged
  * award per team per event; the judged awards of every division share one
- * budget K times the division count (a rival can win only its own division's,
- * so sharing is a relaxation). The real champion is some candidate W; in W's
+ * budget, K times the number of divisions whose Awards are still open (the
+ * caller counts only those, quick task 261009-pgq: a division whose Awards are
+ * final gives no further award and its posted points are already in the
+ * floors; a rival can win only its own division's, so sharing is a
+ * relaxation). The real champion is some candidate W; in W's
  * division the real placements are dominated by an enumerated assignment; in
  * every other division no alliance is paid more than its fixed value; decided
  * values are maxima; awards, seats, fill ins and the one slot per rival as in
@@ -317,7 +320,7 @@ export interface JointLockInput {
   readonly placementPoints: readonly number[];
   /** C: the consuming awards still to be given out. */
   readonly consumingAwards: number;
-  /** K: the judged award ceiling (`dcmpJudgedAwardCeiling()`, times the division count at a divisioned championship). */
+  /** K: the judged award ceiling (`dcmpJudgedAwardCeiling()`; at a divisioned championship the caller multiplies it by the number of divisions whose Awards are open, never by a division whose Awards are final). */
   readonly judgedAwards: number;
   /** What one judged award pays at the DCMP (15 at 2026). */
   readonly judgedAwardPoints: number;

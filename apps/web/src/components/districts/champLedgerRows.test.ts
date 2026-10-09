@@ -42,6 +42,8 @@ import {
   champFieldMembership,
   champTeamHiddenAtDcmp,
   dcmpEventKeyFor,
+  dcmpStartedForTeam,
+  fieldFixingDcmpKeys,
   mixFieldMembership,
   type ChampLedgerCell,
   type ChampLedgerTeam,
@@ -1228,5 +1230,63 @@ describe("buildChampLedgerRows — every dcmp pass row is a DCMP source (261009-
     const baseTeam = baseline.teams.find((entry) => entry.teamKey === TEAM)!;
     expect(team.dcmpRow.cells).toEqual(baseTeam.dcmpRow.cells);
     expect(team.dcmpRow.sources[0]).toEqual(baseTeam.dcmpRow.sources[0]);
+  });
+
+  describe("a team with no championship row leaves the field once every division has started (261009-pgq, D1)", () => {
+    const rowless = withFinalsRow.teams.find((team) => team.eventPoints.every((row) => row.tier !== "dcmp") && team.remainingEvents.every((row) => row.tier !== "dcmp"))!;
+    const inDivision = withFinalsRow.teams.find((team) => team.teamKey !== TEAM && team.eventPoints.some((row) => row.eventKey === DIVISION))!;
+    const membershipAt = (teamKey: string, startedDcmpEventKeys: ReadonlySet<string>) =>
+      buildChampLedgerRows({ artifact: withFinalsRow, distributions: new Map(), stageByEvent: allFinal(withFinalsRow), startedDcmpEventKeys }).teams.find((entry) => entry.teamKey === teamKey)!.membership;
+
+    it("reads out with the division started and the finals key not, and open with nothing started", () => {
+      expect(fieldFixingDcmpKeys([PARENT, DIVISION])).toEqual([DIVISION]);
+      expect(membershipAt(rowless.teamKey, new Set([DIVISION]))).toBe("out");
+      expect(membershipAt(rowless.teamKey, new Set())).toBe("open");
+    });
+
+    it("leaves a team with its own division row reading its own key", () => {
+      expect(membershipAt(inDivision.teamKey, new Set([DIVISION]))).toBe("in");
+      expect(membershipAt(inDivision.teamKey, new Set([PARENT]))).toBe("open");
+    });
+  });
+});
+
+describe("fieldFixingDcmpKeys and dcmpStartedForTeam — the field is fixed once every division has started (261009-pgq, D1)", () => {
+  const FIM = ["2026micmp", "2026micmp1", "2026micmp2", "2026micmp3", "2026micmp4"];
+  const NE = ["2026necmp", "2026necmp1", "2026necmp2"];
+  const CA = ["2026cancmp", "2026cascmp"];
+  const rowless = team({ teamKey: "frc1" });
+
+  it("drops a divisioned championship's finals key and keeps every other key", () => {
+    expect(fieldFixingDcmpKeys(FIM)).toEqual(["2026micmp1", "2026micmp2", "2026micmp3", "2026micmp4"]);
+    expect(fieldFixingDcmpKeys(NE)).toEqual(["2026necmp1", "2026necmp2"]);
+    expect(fieldFixingDcmpKeys(["2026nccmp"])).toEqual(["2026nccmp"]);
+    expect(fieldFixingDcmpKeys(CA)).toEqual(CA);
+    expect(fieldFixingDcmpKeys(["2026necmp1", "2026necmp2"])).toEqual(["2026necmp1", "2026necmp2"]);
+    expect(fieldFixingDcmpKeys([])).toEqual([]);
+  });
+
+  it("a team with no dcmp source is settled once every division has started, whether the finals have or not", () => {
+    expect(dcmpStartedForTeam(rowless, new Set(["2026necmp1", "2026necmp2"]), NE)).toBe(true);
+    expect(dcmpStartedForTeam(rowless, new Set(["2026necmp", "2026necmp1", "2026necmp2"]), NE)).toBe(true);
+    expect(dcmpStartedForTeam(rowless, new Set(["2026necmp1"]), NE)).toBe(false);
+    expect(dcmpStartedForTeam(rowless, new Set(["2026necmp"]), NE)).toBe(false);
+    expect(dcmpStartedForTeam(rowless, new Set(), NE)).toBe(false);
+    expect(dcmpStartedForTeam(rowless, new Set(FIM.slice(1)), FIM)).toBe(true);
+    expect(dcmpStartedForTeam(rowless, new Set(FIM.slice(1, 4)), FIM)).toBe(false);
+  });
+
+  it("a single championship and the two California championships are unchanged", () => {
+    expect(dcmpStartedForTeam(rowless, new Set(["2026nccmp"]), ["2026nccmp"])).toBe(true);
+    expect(dcmpStartedForTeam(rowless, new Set(), ["2026nccmp"])).toBe(false);
+    expect(dcmpStartedForTeam(rowless, new Set(["2026cancmp"]), CA)).toBe(false);
+    expect(dcmpStartedForTeam(rowless, new Set(CA), CA)).toBe(true);
+    expect(dcmpStartedForTeam(rowless, new Set(["2026nccmp"]), [])).toBe(false);
+  });
+
+  it("a team with its own dcmp source still reads its own first key only", () => {
+    const own = team({ teamKey: "frc2", eventPoints: [eventPoints({ eventKey: "2026necmp1", tier: "dcmp" })] });
+    expect(dcmpStartedForTeam(own, new Set(["2026necmp1"]), NE)).toBe(true);
+    expect(dcmpStartedForTeam(own, new Set(["2026necmp", "2026necmp2"]), NE)).toBe(false);
   });
 });
