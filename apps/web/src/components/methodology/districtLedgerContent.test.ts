@@ -304,12 +304,16 @@ describe("districtLedgerContent: the rewound view and the championship field (26
     const paragraphs = paragraphsOf("how-district-points-work");
     const anchor = paragraphs.findIndex((text) => text.startsWith("A team is also Locked when"));
     expect(anchor).toBeGreaterThan(-1);
-    // The settled playoffs paragraph (quick task 261008-26o) sits between the
-    // pooled Locked paragraph and these two.
+    // The joint proof paragraph (quick task 261009-2tr) follows the pooled
+    // Locked paragraph directly, then the settled playoffs paragraph (quick
+    // task 261008-26o), then these two.
     expect(paragraphs[anchor + 1]).toBe(
+      "Once the District Championship alliances are picked, Locked on the Champ Locks tab also counts, for each team, the most rivals that can pass it or take a slot from it in any way the bracket and the awards can still fall, counting each rival once, and locks the team when that count is below the open slots."
+    );
+    expect(paragraphs[anchor + 2]).toBe(
       "A team knocked out of the playoffs has its playoff points settled as soon as its alliance's place in the bracket is decided. From then on Locked allows it no more playoff points than that place pays, and counts them as earned once The Blue Alliance posts them."
     );
-    expect(paragraphs.slice(anchor + 2, anchor + 4)).toEqual([
+    expect(paragraphs.slice(anchor + 3, anchor + 5)).toEqual([
       "On the District Locks tab, Locked and Locked out at a rewound point count only the district event points a team had earned by then, never District Championship points.",
       "Once the District Championship has started, the live District Locks view shows who is in its field. A team in the field reads Locked, a team that earned a place and is not in the field reads Declined, and every other team reads Locked out.",
     ]);
