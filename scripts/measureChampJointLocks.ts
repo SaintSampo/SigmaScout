@@ -40,7 +40,6 @@ import { DistrictArtifactSchema, type DistrictArtifact, type EventArtifact } fro
 import type { LockStatus } from "../packages/core/districts/locks.js";
 import { bracketRoundOfSet, bracketSetIdFor } from "../packages/core/districts/bracket.js";
 import { championshipStemOf } from "../packages/core/districts/champReservedSlots.js";
-import { jointLockBound } from "../packages/core/districts/champJointLock.js";
 import { openCorpusReadOnly, selectEventAlliancesForSeason, selectMatchesChronological, type Corpus } from "../packages/corpus/db.js";
 import {
   buildDistrictLedgerRows,
@@ -61,7 +60,7 @@ import {
 } from "../apps/web/src/components/districts/districtTimeline.js";
 import { computeDistrictLedgerStatuses } from "../apps/web/src/components/districts/districtLedgerStatus.js";
 import { buildChampLedgerRows, champTierEvents, dcmpEventKeysFor } from "../apps/web/src/components/districts/champLedgerRows.js";
-import { computeChampLedgerStatuses, type ChampLedgerStatusModel } from "../apps/web/src/components/districts/champLedgerStatus.js";
+import { computeChampLedgerStatuses, jointProofBound, type ChampLedgerStatusModel } from "../apps/web/src/components/districts/champLedgerStatus.js";
 
 export const LOCAL_DISTRICT_DIR = "data/local-publish/districts";
 export const CORPUS_PATH = "data/corpus.sqlite";
@@ -265,7 +264,7 @@ export function sweepJoint(artifact: DistrictArtifact, bracket: BracketSourceEve
         stop: stop.label,
         teamKey,
         pointsSlots: combined.pointsSlots,
-        bound: combined.jointProof?.applied === true ? jointLockBound(combined.jointProof.input, teamKey) : null,
+        bound: combined.jointProof === undefined ? null : jointProofBound(combined.jointProof, teamKey),
         finalStatus: status,
       });
     }

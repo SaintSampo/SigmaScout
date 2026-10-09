@@ -165,7 +165,7 @@ import {
   type DistrictLedgerCell,
   type DistrictStageFinality,
 } from "./districtLedgerRows.js";
-import { useDistrictEventArtifacts, useDistrictLedgerData } from "./useDistrictLedgerData.js";
+import { champLiveFetchKeys, useDistrictEventArtifacts, useDistrictLedgerData } from "./useDistrictLedgerData.js";
 import { LocksMilestonePicker } from "./LocksMilestonePicker.js";
 import { districtMilestoneEvents } from "./districtMilestones.js";
 
@@ -432,7 +432,10 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   }, [artifact]);
 
   const rewinding = search.at !== undefined && search.at !== DISTRICT_TIMELINE_NOW_ID;
-  const activeEventKeys = rewinding ? startedKeys : inProgressKeys;
+  // At Live a divisioned championship's finished divisions stay fetched while
+  // any of its events is in progress, for the joint proof (261009-kt3).
+  const liveFetchKeys = useMemo(() => champLiveFetchKeys(inProgressKeys, startedKeys, dcmpEventKeys), [inProgressKeys, startedKeys, dcmpEventKeys]);
+  const activeEventKeys = rewinding ? startedKeys : liveFetchKeys;
   const artifacts = useDistrictEventArtifacts(activeEventKeys);
 
   const milestoneEvents = useMemo(() => districtMilestoneEvents(artifact, ["district", "dcmp"]), [artifact]);

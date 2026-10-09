@@ -13,7 +13,9 @@
  * that leaves the row count alone, the alliance count moving.
  */
 import { describe, expect, it } from "vitest";
-import { districtRunSignature } from "./useDistrictLedgerData.js";
+import { champLiveFetchKeys, districtRunSignature, divisionedDcmpBracketFacts } from "./useDistrictLedgerData.js";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { buildDistrictEventSimulationInput } from "./districtLedgerRows.js";
 import type { DistrictSimulationEventRequest } from "../../workers/districtSimulationProtocol.js";
 import type { AllianceMemberRating } from "../../../../../packages/core/algorithms/simulation/allianceWinProbability.js";
@@ -289,5 +291,61 @@ describe("districtRunSignature — the award only list (quick task 260927-vmb)",
     const after = districtRunSignature(requestFor({ awardOnlyTeams: ["frc9", "frc10"] }));
     expect(after).not.toBe(before);
     expect(before).not.toBe(districtRunSignature(requestFor()));
+  });
+});
+
+describe("the divisioned championship's facts and Live fetch set (quick task 261009-kt3)", () => {
+  function repoFile(relative: string): string {
+    let dir = resolve(process.cwd());
+    for (;;) {
+      const candidate = join(dir, relative);
+      if (existsSync(candidate)) return candidate;
+      const parent = dirname(dir);
+      if (parent === dir) throw new Error(`could not find ${relative}`);
+      dir = parent;
+    }
+  }
+  const FIXTURE: DistrictArtifact = DistrictArtifactSchema.parse(JSON.parse(readFileSync(repoFile("data/fixtures/phase10/district-2026pnw.json"), "utf8")));
+  const PARENT = "2026pncmp";
+  /** Even teams in division 1, odd in division 2, and the first DCMP team keeps a finals row at the parent. */
+  const firstDcmpTeam = FIXTURE.teams.find((team) => team.eventPoints.some((row) => row.eventKey === PARENT))!.teamKey;
+  const DIVISIONED: DistrictArtifact = DistrictArtifactSchema.parse({
+    ...FIXTURE,
+    teams: FIXTURE.teams.map((team, index) => {
+      const division = index % 2 === 0 ? "2026pncmp1" : "2026pncmp2";
+      const relabel = <T extends { eventKey: string }>(row: T): T => (row.eventKey === PARENT ? { ...row, eventKey: division } : row);
+      const eventPoints = team.eventPoints.map(relabel);
+      const finals = team.teamKey === firstDcmpTeam ? [{ ...eventPoints.find((row) => row.eventKey === division)!, eventKey: PARENT, qual: 0, alliance: 0, elim: 0, award: 0, total: 0 }] : [];
+      return { ...team, eventPoints: [...eventPoints, ...finals], remainingEvents: team.remainingEvents.map(relabel) };
+    }),
+  });
+  const eight = Array.from({ length: 8 }, (_, index) => ({ allianceNumber: index + 1, picks: [`d${index}x`, `d${index}y`, `d${index}z`] }));
+  const eventArtifact = (alliances: typeof eight) => ({ alliances, matches: [] }) as unknown as EventArtifact;
+  const open = { qual: true, alliance: true, elim: false, award: false };
+
+  it("builds division and finals facts at a divisioned championship, and nothing at a single one", () => {
+    const eventArtifacts = new Map<string, EventArtifact>([
+      ["2026pncmp1", eventArtifact(eight)],
+      ["2026pncmp2", eventArtifact(eight)],
+      [PARENT, eventArtifact(eight.slice(0, 2))],
+    ]);
+    const stageByEvent = new Map([
+      ["2026pncmp1", { ...open, award: true }],
+      ["2026pncmp2", open],
+      [PARENT, open],
+    ]);
+    const facts = divisionedDcmpBracketFacts({ artifact: DIVISIONED, eventArtifacts, stageByEvent, requestByKey: new Map() });
+    expect([...facts.keys()].sort()).toEqual([PARENT, "2026pncmp1", "2026pncmp2"]);
+    expect(facts.get(PARENT)!.alliances).toHaveLength(2);
+    expect(divisionedDcmpBracketFacts({ artifact: FIXTURE, eventArtifacts: new Map([[PARENT, eventArtifact(eight)]]), stageByEvent: new Map([[PARENT, open]]), requestByKey: new Map() }).size).toBe(0);
+  });
+
+  it("keeps a divisioned championship's started keys fetched at Live while any of them is in progress, and changes nothing otherwise", () => {
+    const keys = ["2026micmp", "2026micmp1", "2026micmp2", "2026micmp3", "2026micmp4"];
+    expect(champLiveFetchKeys(["2026micmp", "2026wabon"], [...keys, "2026wabon"], keys)).toEqual([...keys, "2026wabon"].sort());
+    expect(champLiveFetchKeys(["2026wabon"], [...keys, "2026wabon"], keys)).toEqual(["2026wabon"]);
+    expect(champLiveFetchKeys(["2026micmp1"], ["2026micmp1", "2026micmp2"], keys)).toEqual(["2026micmp1", "2026micmp2"]);
+    expect(champLiveFetchKeys(["2026cancmp"], ["2026cancmp", "2026cascmp"], ["2026cancmp", "2026cascmp"])).toEqual(["2026cancmp"]);
+    expect(champLiveFetchKeys(["2026pncmp"], ["2026pncmp"], ["2026pncmp"])).toEqual(["2026pncmp"]);
   });
 });

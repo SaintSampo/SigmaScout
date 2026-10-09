@@ -24,7 +24,8 @@ import { buildChampLedgerRows } from "./champLedgerRows.js";
 import { applyChampRangeState, champFinalsCeilingWithoutRow, computeChampLedgerStatuses, jointDecidedPlacementTopUp } from "./champLedgerStatus.js";
 import { champCutoffView, type ChampRangeState } from "./champLedgerChances.js";
 import { SHOW_SIMULATED_CHAMP_LIKELY_RANGE, predictedCutoff, type LedgerCutoffView } from "./predictedCutoff.js";
-import { playoffPoints, type AllianceBracketMilestone, type PlayedBracketMatch } from "../../../../../packages/core/districts/bracket.js";
+import { playoffPoints, routeBracket, type AllianceBracketMilestone, type PlayedBracketMatch } from "../../../../../packages/core/districts/bracket.js";
+import { jointLockedTeamsMultiple } from "../../../../../packages/core/districts/champJointLock.js";
 import {
   dcmpBracketFactsFor,
   dcmpBracketMilestonesByTeam,
@@ -825,7 +826,7 @@ describe("computeChampLedgerStatuses — the joint worst case proof (261009-2tr)
       }),
     });
     const divisionStop = new Map(eventKeysOf(divisioned).map((key) => [key, key === DCMP_KEY || key === DIVISION_KEY ? FNC_LIKE_STOP.get(DCMP_KEY)! : ALL_FINAL] as const));
-    expectRefusal(divisioned, divisionStop, distributionsWith(milestones, facts), "notSingleChampionship");
+    expectRefusal(divisioned, divisionStop, distributionsWith(milestones, facts), "unsupportedShape");
 
     // Alliance selection open, and Awards final.
     const allianceOpen = new Map(eventKeysOf(FIXTURE).map((key) => [key, key === DCMP_KEY ? { qual: true, alliance: false, elim: false, award: false } : ALL_FINAL] as const));
@@ -863,7 +864,7 @@ describe("computeChampLedgerStatuses — the joint worst case proof (261009-2tr)
     const facts = factsAt(PLAYOFFS_FINAL_STOP.get(DCMP_KEY)!, [])!;
     const model = modelAtStop(FIXTURE, PLAYOFFS_FINAL_STOP, distributionsWith(dcmpBracketMilestonesByTeam(ALLIANCES, []), facts));
     expect(model.jointProof?.applied).toBe(true);
-    if (model.jointProof?.applied !== true) return;
+    if (model.jointProof?.applied !== true || model.jointProof.shape === "multiple") return;
     expect(model.jointProof.input.placementPoints).toEqual([75, 39, 21]);
     expect(model.jointProof.input.candidateWinners).toEqual([null]);
     expect(Object.keys(model.jointProof.input).sort()).toEqual(
@@ -885,7 +886,7 @@ describe("computeChampLedgerStatuses — the joint worst case proof (261009-2tr)
     const model = modelAtStop(FIXTURE, FNC_LIKE_STOP, distributions);
     const shipped = modelAtStop(FIXTURE, FNC_LIKE_STOP, distributions, false);
     expect(model.jointProof?.applied).toBe(true);
-    if (model.jointProof?.applied !== true) return;
+    if (model.jointProof?.applied !== true || model.jointProof.shape === "multiple") return;
     expect(model.jointProof.input.placementPoints).toEqual([75, 39, 21]);
     expect(model.jointProof.input.aliveAlliances).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
     for (const teamKey of jointKeys(model)) {
@@ -941,7 +942,7 @@ describe("computeChampLedgerStatuses — the joint worst case proof (261009-2tr)
     const model = modelAtStop(FIXTURE, FNC_LIKE_STOP, distributions);
     const shipped = modelAtStop(FIXTURE, FNC_LIKE_STOP, distributions, false);
     expect(model.jointProof?.applied).toBe(true);
-    if (model.jointProof?.applied !== true) return;
+    if (model.jointProof?.applied !== true || model.jointProof.shape === "multiple") return;
     expect(model.jointProof.input.aliveAlliances).toEqual([1, 5]);
     expect(model.jointProof.input.candidateWinners).toEqual([1, 5]);
     expect(model.jointProof.input.placementPoints).toEqual([75, 39, 21]);
@@ -968,7 +969,7 @@ describe("computeChampLedgerStatuses — the joint worst case proof (261009-2tr)
     const complete = modelAtStop(FIXTURE, FNC_LIKE_STOP, distributionsWith(full, facts));
     expect(withGap.jointProof?.applied).toBe(true);
     expect(complete.jointProof?.applied).toBe(true);
-    if (withGap.jointProof?.applied !== true || complete.jointProof?.applied !== true) return;
+    if (withGap.jointProof?.applied !== true || complete.jointProof?.applied !== true || withGap.jointProof.shape === "multiple" || complete.jointProof.shape === "multiple") return;
     expect(withGap.jointProof.input.aliveAlliances).toContain(8);
     expect(complete.jointProof.input.aliveAlliances).not.toContain(8);
     expect(complete.jointProof.input.aliveAlliances).toEqual([1, 2, 3, 4, 5, 6]);
@@ -1146,5 +1147,237 @@ describe("computeChampLedgerStatuses — every championship row is folded (26100
     expect(finalsTeamSource.qualifyingAwards.some((award) => award.awardType === 1 && award.eventKey === PARENT)).toBe(true);
     expect(divisionedAt(ALL_FINAL, FINALS_ELIM_OPEN).status.awardQualified).not.toContain(FINALS_TEAM);
     expect(divisionedAt(ALL_FINAL, FINALS_AWARDS_OPEN).status.awardQualified).toContain(FINALS_TEAM);
+  });
+});
+
+/**
+ * Quick task 261009-kt3: the joint proof at a divisioned championship and at a
+ * district with two championships, on the PNW fixture. Division 1
+ * (`2026pncmp1`) holds the 24 teams of the fixture's eight DCMP alliances,
+ * rebuilt from their alliance selection points; division 2 (`2026pncmp2`) the
+ * other 27 DCMP teams, eight alliances of three in key order; the parent
+ * `2026pncmp` is the finals, where alliance 1's picks carry a finals row and
+ * every DCMP award stays.
+ */
+describe("computeChampLedgerStatuses — divisioned and two championship joint proof (261009-kt3)", () => {
+  const PARENT = "2026pncmp";
+  const DIV1 = "2026pncmp1";
+  const DIV2 = "2026pncmp2";
+  const OPEN_PLAYOFFS: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
+  const PLAYOFFS_FINAL: DistrictStageFinality = { qual: true, alliance: true, elim: true, award: false };
+
+  function rebuilt(artifact: DistrictArtifact, key: string): { allianceNumber: number; picks: string[] }[] {
+    const picks = new Map<number, string[]>();
+    for (const team of artifact.teams) {
+      const row = team.eventPoints.find((entry) => entry.eventKey === key);
+      if (row === undefined || row.alliance <= 0) continue;
+      const base = row.alliance / 3;
+      const allianceNumber = base >= 9 ? 17 - base : base;
+      const list = picks.get(allianceNumber) ?? [];
+      if (base >= 9) list.unshift(team.teamKey);
+      else list.push(team.teamKey);
+      picks.set(allianceNumber, list);
+    }
+    return [...picks.entries()].sort((a, b) => a[0] - b[0]).map(([allianceNumber, list]) => ({ allianceNumber, picks: list }));
+  }
+  const DIV1_ALLIANCES = rebuilt(FIXTURE, PARENT);
+  const div1Teams = new Set(DIV1_ALLIANCES.flatMap((alliance) => alliance.picks));
+  const others = FIXTURE.teams
+    .filter((team) => team.eventPoints.some((row) => row.eventKey === PARENT) && !div1Teams.has(team.teamKey))
+    .map((team) => team.teamKey)
+    .sort();
+  const DIV2_ALLIANCES = Array.from({ length: 8 }, (_, index) => ({ allianceNumber: index + 1, picks: others.slice(index * 3, index * 3 + 3) }));
+
+  const DIVISIONED: DistrictArtifact = DistrictArtifactSchema.parse({
+    ...FIXTURE,
+    teams: FIXTURE.teams.map((team) => {
+      const division = div1Teams.has(team.teamKey) ? DIV1 : DIV2;
+      const relabel = <T extends { eventKey: string }>(row: T): T => (row.eventKey === PARENT ? { ...row, eventKey: division } : row);
+      const eventPoints = team.eventPoints.map(relabel);
+      const finals = DIV1_ALLIANCES[0]!.picks.includes(team.teamKey)
+        ? [{ ...eventPoints.find((row) => row.eventKey === division)!, eventKey: PARENT, qual: 0, alliance: 0, elim: 0, award: 0, total: 0 }]
+        : [];
+      return { ...team, eventPoints: [...eventPoints, ...finals], remainingEvents: team.remainingEvents.map(relabel) };
+    }),
+  });
+
+  /** Round 5 in TBA's coordinates: alliance 1 won, 5 the finalist, 3 third, 2 fourth; alive 1 and 5. */
+  const ROUND_FIVE: PlayedBracketMatch[] = (
+    [
+      [1, 1],
+      [2, 5],
+      [3, 2],
+      [4, 3],
+      [5, 4],
+      [6, 6],
+      [7, 1],
+      [8, 3],
+      [9, 5],
+      [10, 2],
+      [11, 1],
+      [12, 5],
+      [13, 5],
+    ] as const
+  ).map(([setNumber, winningAllianceNumber]) => ({ compLevel: "sf", setNumber, matchNumber: 1, winningAllianceNumber }));
+  const FINAL_ONE_WINS: PlayedBracketMatch[] = [1, 2].map((matchNumber) => ({ compLevel: "f", setNumber: 1, matchNumber, winningAllianceNumber: 1 }));
+  /** A whole bracket where the better seed wins every match: alliance 1 is champion. */
+  function higherSeedRows(): PlayedBracketMatch[] {
+    const rows: PlayedBracketMatch[] = [];
+    routeBracket((a, b, setId, matchNumber) => {
+      const winner = Math.min(a, b);
+      rows.push(setId === "f" ? { compLevel: "f", setNumber: 1, matchNumber, winningAllianceNumber: winner } : { compLevel: "sf", setNumber: Number(setId.slice(2)), matchNumber: 1, winningAllianceNumber: winner });
+      return winner;
+    });
+    return rows;
+  }
+
+  function facts(eventKey: string, stage: DistrictStageFinality, alliances: readonly { allianceNumber: number; picks: string[] }[], playedMatches: readonly PlayedBracketMatch[], role: "division" | "finals" | "championship", expectedAllianceCount?: number): DcmpBracketFacts {
+    const built = dcmpBracketFactsFor({ eventKey, season: 2026, tier: "dcmp", stage, alliances, playedMatches, unresolvedMatchCount: 0, role, ...(expectedAllianceCount === undefined ? {} : { expectedAllianceCount }) });
+    if (built === undefined) throw new Error(`no facts for ${eventKey}`);
+    return built;
+  }
+  function entry(eventKey: string, dcmpBracket: DcmpBracketFacts | undefined, milestones: ReadonlyMap<string, AllianceBracketMilestone> = new Map()): [string, DistrictEventDistributions] {
+    return [eventKey, { eventKey, byTeam: new Map(), playoffMilestoneByTeam: milestones, ...(dcmpBracket === undefined ? {} : { dcmpBracket }) }];
+  }
+  function modelAt(artifact: DistrictArtifact, stages: ReadonlyMap<string, DistrictStageFinality>, distributions: ReadonlyMap<string, DistrictEventDistributions>) {
+    const stageByEvent = new Map(eventKeysOf(artifact).map((key) => [key, stages.get(key) ?? ALL_FINAL] as const));
+    const rows = buildChampLedgerRows({ artifact, distributions, stageByEvent, dcmpStarted: true });
+    return computeChampLedgerStatuses({ artifact, teams: rows.teams, nowYear: 2026, distributions });
+  }
+  const C = pendingAwardSlots(dcmpAwardCountCeilings(2026, FIXTURE.districtKey, FIXTURE.cmpSlots!).counts);
+
+  /** Round 5 in division 1, no row in division 2, finals open; alliance 3 lists a fourth pick at 0 points and division 2's alliance 1 lists four. */
+  function roundFiveDistributions(div2Facts = true): ReadonlyMap<string, DistrictEventDistributions> {
+    const div1 = DIV1_ALLIANCES.map((alliance) => (alliance.allianceNumber === 3 ? { ...alliance, picks: [...alliance.picks, others[25]!] } : alliance));
+    const div2 = DIV2_ALLIANCES.map((alliance) => (alliance.allianceNumber === 1 ? { ...alliance, picks: [...alliance.picks, others[26]!] } : alliance));
+    return new Map([
+      entry(DIV1, facts(DIV1, OPEN_PLAYOFFS, div1, ROUND_FIVE, "division"), dcmpBracketMilestonesByTeam(DIV1_ALLIANCES, ROUND_FIVE)),
+      entry(DIV2, div2Facts ? facts(DIV2, OPEN_PLAYOFFS, div2, [], "division") : undefined),
+    ]);
+  }
+  const ROUND_FIVE_STAGES = new Map([
+    [DIV1, OPEN_PLAYOFFS],
+    [DIV2, OPEN_PLAYOFFS],
+    [PARENT, ALL_OPEN],
+  ]);
+
+  it("classifies the fixture as divisioned and applies at a Round 5 like stop: K 28, the district's C, candidates from both divisions", () => {
+    const model = modelAt(DIVISIONED, ROUND_FIVE_STAGES, roundFiveDistributions());
+    expect(model.jointProof?.applied).toBe(true);
+    if (model.jointProof?.applied !== true || model.jointProof.shape === "multiple") throw new Error("not applied");
+    expect(model.jointProof.shape).toBe("divisioned");
+    const { input } = model.jointProof;
+    expect(input.judgedAwards).toBe(28);
+    expect(input.consumingAwards).toBe(C);
+    expect(input.placementPoints).toEqual([75, 39, 21]);
+    expect(input.candidateWinners).toEqual([11, 15, 21, 22, 23, 24, 25, 26, 27, 28]);
+    expect(input.frames?.length).toBe(10);
+    // R8 G2 and D10: decided alliance 3 of division 1 keeps its three confirmed picks, its listed fourth is unpicked, one seat.
+    const placed = input.alliances.find((alliance) => alliance.allianceNumber === 13)!;
+    expect(placed.members).toEqual(DIV1_ALLIANCES[2]!.picks);
+    expect(placed.spareSeats).toBe(1);
+    expect(input.alliances.some((alliance) => alliance.members.includes(others[25]!))).toBe(false);
+    // R8 G1: division 2's alive alliance 1 lists four with no point posted: all four members, four seats.
+    const alive = input.alliances.find((alliance) => alliance.allianceNumber === 21)!;
+    expect(alive.members).toHaveLength(4);
+    expect(alive.spareSeats).toBe(4);
+  });
+
+  it("with both divisions final and finals facts mapping each finals alliance to a division winner, the two winners are the candidates", () => {
+    const stages = new Map([
+      [DIV1, PLAYOFFS_FINAL],
+      [DIV2, PLAYOFFS_FINAL],
+      [PARENT, OPEN_PLAYOFFS],
+    ]);
+    const finalsFacts = (second: string[]) =>
+      facts(PARENT, OPEN_PLAYOFFS, [
+        { allianceNumber: 1, picks: DIV1_ALLIANCES[0]!.picks },
+        { allianceNumber: 2, picks: second },
+      ], [], "finals", 2);
+    const distributions = (finals: DcmpBracketFacts | undefined, div2 = true) =>
+      new Map([
+        entry(DIV1, facts(DIV1, PLAYOFFS_FINAL, DIV1_ALLIANCES, [...ROUND_FIVE, ...FINAL_ONE_WINS], "division")),
+        entry(DIV2, div2 ? facts(DIV2, PLAYOFFS_FINAL, DIV2_ALLIANCES, higherSeedRows(), "division") : undefined),
+        entry(PARENT, finals),
+      ]);
+    const model = modelAt(DIVISIONED, stages, distributions(finalsFacts(DIV2_ALLIANCES[0]!.picks)));
+    if (model.jointProof?.applied !== true || model.jointProof.shape === "multiple") throw new Error(`not applied: ${JSON.stringify(model.jointProof)}`);
+    expect(model.jointProof.input.candidateWinners).toEqual([11, 21]);
+    expect(model.jointProof.input.aliveAlliances).toEqual([]);
+
+    // A finals alliance meeting no division winner refuses.
+    expect(modelAt(DIVISIONED, stages, distributions(finalsFacts(DIV2_ALLIANCES[3]!.picks))).jointProof).toEqual({ applied: false, reason: "bracketUnroutable" });
+    // The finals' Awards final refuse.
+    const awardsFinal = new Map([...stages, [PARENT, ALL_FINAL]]);
+    expect(modelAt(DIVISIONED, awardsFinal, distributions(finalsFacts(DIV2_ALLIANCES[0]!.picks))).jointProof).toEqual({ applied: false, reason: "stageNotEligible" });
+    // A division without facts refuses.
+    expect(modelAt(DIVISIONED, stages, distributions(undefined, false)).jointProof).toEqual({ applied: false, reason: "noBracketFacts" });
+  });
+
+  it("refuses unsupportedShape for three divisions", () => {
+    const third = new Set(others.slice(0, 9));
+    const three: DistrictArtifact = DistrictArtifactSchema.parse({
+      ...DIVISIONED,
+      teams: DIVISIONED.teams.map((team) => {
+        if (!third.has(team.teamKey)) return team;
+        const relabel = <T extends { eventKey: string }>(row: T): T => (row.eventKey === DIV2 ? { ...row, eventKey: "2026pncmp3" } : row);
+        return { ...team, eventPoints: team.eventPoints.map(relabel), remainingEvents: team.remainingEvents.map(relabel) };
+      }),
+    });
+    expect(modelAt(three, ROUND_FIVE_STAGES, roundFiveDistributions()).jointProof).toEqual({ applied: false, reason: "unsupportedShape" });
+  });
+
+  it("two championships: one input per championship, a no row pool team and a no row slot only rival in BOTH, locked by the summed bound", () => {
+    const SECOND = "2026pnncmp";
+    const noRow = FIXTURE.teams.filter((team) => team.eventPoints.every((row) => row.tier !== "dcmp") && team.remainingEvents.every((row) => row.tier !== "dcmp")).map((team) => team.teamKey);
+    const prequalified = noRow[0]!;
+    const TWO: DistrictArtifact = DistrictArtifactSchema.parse({
+      ...FIXTURE,
+      teams: FIXTURE.teams.map((team, index) => {
+        const base = team.teamKey === prequalified ? { ...team, champLock: { ...team.champLock, status: "prequalified" as const } } : team;
+        if (index % 2 === 0) return base;
+        const relabel = <T extends { eventKey: string }>(row: T): T => (row.eventKey === PARENT ? { ...row, eventKey: SECOND } : row);
+        return { ...base, eventPoints: base.eventPoints.map(relabel), remainingEvents: base.remainingEvents.map(relabel), qualifyingAwards: base.qualifyingAwards.map(relabel) };
+      }),
+    });
+    const stages = new Map([
+      [PARENT, OPEN_PLAYOFFS],
+      [SECOND, OPEN_PLAYOFFS],
+    ]);
+    const milestones = dcmpBracketMilestonesByTeam(DIV1_ALLIANCES, ROUND_FIVE);
+    const distributions = (both: boolean) =>
+      new Map([
+        entry(PARENT, facts(PARENT, OPEN_PLAYOFFS, DIV1_ALLIANCES, ROUND_FIVE, "championship"), milestones),
+        entry(SECOND, both ? facts(SECOND, OPEN_PLAYOFFS, DIV1_ALLIANCES, ROUND_FIVE, "championship") : undefined, milestones),
+      ]);
+    const model = modelAt(TWO, stages, distributions(true));
+    if (model.jointProof?.applied !== true || model.jointProof.shape !== "multiple") throw new Error(`not multiple: ${JSON.stringify(model.jointProof)}`);
+    const [first, second] = model.jointProof.championships;
+    expect(model.jointProof.championships).toHaveLength(2);
+    const poolTeamWithNoRow = noRow.find((key) => key !== prequalified && first!.pool.some((rival) => rival.teamKey === key))!;
+    expect(poolTeamWithNoRow).toBeDefined();
+    expect(second!.pool.some((rival) => rival.teamKey === poolTeamWithNoRow)).toBe(true);
+    expect(first!.slotOnlyRivals).toContain(prequalified);
+    expect(second!.slotOnlyRivals).toContain(prequalified);
+    // A team whose championship is the second is in the second input only.
+    const atSecond = TWO.teams.find((team) => team.eventPoints.some((row) => row.eventKey === SECOND) && second!.pool.some((rival) => rival.teamKey === team.teamKey))!.teamKey;
+    expect(first!.pool.some((rival) => rival.teamKey === atSecond)).toBe(false);
+    // Confirmed pick membership on each championship (orchestrator decision): a pick with no points at the key is no member there.
+    for (const input of [first!, second!]) for (const alliance of input.alliances) expect(alliance.spareSeats).toBe(MAX_WINNING_ALLIANCE_SIZE - alliance.members.length);
+    expect([...model.jointProof.locked].sort()).toEqual([...jointLockedTeamsMultiple(model.jointProof.championships, model.pointsSlots)].sort());
+    expect(modelAt(TWO, stages, distributions(false)).jointProof).toEqual({ applied: false, reason: "noBracketFacts" });
+  });
+
+  it("the single path keeps confirmed pick membership: with every DCMP alliance point removed no pick is a member and every alliance has four seats", () => {
+    const noPoints: DistrictArtifact = DistrictArtifactSchema.parse({
+      ...FIXTURE,
+      teams: FIXTURE.teams.map((team) => ({ ...team, eventPoints: team.eventPoints.map((row) => (row.eventKey === PARENT ? { ...row, alliance: 0 } : row)) })),
+    });
+    const model = modelAt(noPoints, new Map([[PARENT, OPEN_PLAYOFFS]]), new Map([entry(PARENT, facts(PARENT, OPEN_PLAYOFFS, DIV1_ALLIANCES, [], "championship"))]));
+    if (model.jointProof?.applied !== true || model.jointProof.shape !== "single") throw new Error("not single");
+    for (const alliance of model.jointProof.input.alliances) {
+      expect(alliance.members).toEqual([]);
+      expect(alliance.spareSeats).toBe(4);
+    }
   });
 });

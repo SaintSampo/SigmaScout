@@ -94,10 +94,9 @@
  *    team, the most rivals that can take a slot from it in any way the bracket,
  *    the backup robots and the award budget can still fall, counting each
  *    rival once, and locks the team when that count is below the points slots.
- *    It runs only at a SINGLE championship (exactly one dcmp tier key, so the
- *    divisioned FIM, NE, ON and TX and 2026 California's two championships keep
- *    the shipped path), once the DCMP's Qualification and Alliance selection
- *    are final and while its Awards are open, with the complete eight alliance
+ *    At a SINGLE championship (one dcmp tier key) it runs once the DCMP's
+ *    Qualification and Alliance selection are final and while its Awards are
+ *    open, with the complete eight alliance
  *    list and every played playoff row resolved (`DcmpBracketFacts`, carried on
  *    `distributions`). With the Playoffs final it runs only once the winner
  *    award is posted, or the routed final names the winner. Anywhere else
@@ -108,6 +107,24 @@
  *    the ceiling at its maximum through decision 4. `champJointLock.ts` owns the
  *    argument, the one point paying award per rival cap included; this module
  *    owns only reading the facts off the rows.
+ *
+ *    THE TWO OTHER SHAPES (quick task 261009-kt3, `championshipShape`). A
+ *    DIVISIONED championship (FIM, NE, ON, TX) runs once every division's
+ *    Qualification and Alliance selection are final and while the FINALS'
+ *    Awards are open, with every division's eight alliance facts; each
+ *    division is routed on its own rows, the finals facts are read only once
+ *    every division has a decided winner, each finals alliance mapped by roster
+ *    to one division winner, and members are the LISTED picks except on a
+ *    placed alliance, which keeps its confirmed picks. TWO CHAMPIONSHIPS (2026
+ *    California) run one eight alliance input per championship, a team with no
+ *    championship row in every input, and lock on the summed bound. The single
+ *    and the two championship inputs keep CONFIRMED pick membership (listed
+ *    pick membership was measured less conservative there). Every shape counts
+ *    seats and fill ins as the maximum alliance size minus the confirmed picks.
+ *    Any other grouping of the dcmp keys refuses `unsupportedShape`; a division
+ *    without facts `noBracketFacts`; a finals alliance matching no division
+ *    winner, or finals rows before every division is decided,
+ *    `bracketUnroutable`.
  *
  * AWARD-QUALIFIED AT THIS TIER means the DCMP winning alliance once the
  * playoffs are done, and Impact, Engineering Inspiration or Rookie All Star at
@@ -136,13 +153,28 @@ import {
   perChampionship,
   reservedChampSlots,
 } from "../../../../../packages/core/districts/champReservedSlots.js";
-import { BRACKET_REGISTERED_SEASONS, maxFinalsPointsByPlacement, maxPlayoffPointsByPlacement } from "../../../../../packages/core/districts/bracket.js";
-import { dcmpBracketState, jointLockedTeams, type JointLockAlliance, type JointLockInput } from "../../../../../packages/core/districts/champJointLock.js";
+import { BRACKET_REGISTERED_SEASONS, InvalidBracketDecisionError, maxFinalsPointsByPlacement, maxPlayoffPointsByPlacement } from "../../../../../packages/core/districts/bracket.js";
+import {
+  dcmpBracketState,
+  divisionAllianceId,
+  divisionedJointFrames,
+  jointLockBound,
+  jointLockBoundMultiple,
+  jointLockedTeams,
+  jointLockedTeamsMultiple,
+  type DcmpBracketState,
+  type DivisionJointState,
+  type JointLockAlliance,
+  type JointLockInput,
+  type JointLockRival,
+} from "../../../../../packages/core/districts/champJointLock.js";
+import { championshipShape, finalsDecisionsFromPlayedMatches, routeFinals } from "../../../../../packages/core/districts/finalsBracket.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import {
   DISTRICT_CATEGORIES,
   settledElimBounds,
   tierEvents,
+  type DcmpBracketFacts,
   type DistrictCategory,
   type DistrictEventDistributions,
   type DistrictStageFinality,
@@ -225,7 +257,7 @@ export interface ChampLedgerStatusModel {
 /** Why the joint proof did not run at a position, in the order the preconditions are checked. */
 export type JointProofSkipReason =
   | "noDistributions"
-  | "notSingleChampionship"
+  | "unsupportedShape"
   | "noBracketFacts"
   | "stageNotEligible"
   | "noCapacity"
@@ -236,7 +268,8 @@ export type JointProofSkipReason =
 
 /** The joint proof at one position: its input and the teams it locked, or the first precondition it failed. */
 export type ChampJointProof =
-  | { readonly applied: true; readonly input: JointLockInput; readonly locked: ReadonlySet<string> }
+  | { readonly applied: true; readonly shape: "single" | "divisioned"; readonly input: JointLockInput; readonly locked: ReadonlySet<string> }
+  | { readonly applied: true; readonly shape: "multiple"; readonly championships: readonly JointLockInput[]; readonly locked: ReadonlySet<string> }
   | { readonly applied: false; readonly reason: JointProofSkipReason };
 
 /**
@@ -613,6 +646,9 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
     floorByTeam,
     jointExtraByTeam,
     dcmpSettledByEvent,
+    firstDcmpKeyByTeam: new Map(
+      teams.flatMap((team) => (team.dcmpRow.sources[0] === undefined ? [] : [[team.teamKey, team.dcmpRow.sources[0].eventKey] as const]))
+    ),
     qualifiers,
     awardCeilings,
   });
@@ -684,6 +720,8 @@ interface JointProofAtInput {
   readonly jointExtraByTeam: ReadonlyMap<string, number>;
   /** Per dcmp tier key, each team with a source there and its settled Playoffs value (undefined when unsettled). */
   readonly dcmpSettledByEvent: ReadonlyMap<string, ReadonlyMap<string, SettledPlayoffs | undefined>>;
+  /** Each team's FIRST dcmp source key, for the two championship partition (reading R9). */
+  readonly firstDcmpKeyByTeam: ReadonlyMap<string, string>;
   readonly qualifiers: QualifierSets;
   readonly awardCeilings: Parameters<typeof pendingAwardSlots>[0];
 }
@@ -691,87 +729,363 @@ interface JointProofAtInput {
 /** The eight alliance numbers of the DCMP bracket. */
 const DCMP_ALLIANCE_NUMBERS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8];
 
+type JointRefusal = { readonly applied: false; readonly reason: JointProofSkipReason };
+const refuse = (reason: JointProofSkipReason): JointRefusal => ({ applied: false, reason });
+
+/**
+ * A pick is CONFIRMED at a dcmp key when its alliance selection points there
+ * are posted and above 0 (CONTEXT D10); a point not posted reads as 0, which
+ * only widens the seats.
+ */
+function allianceSelectionPointsAt(artifact: DistrictArtifact, eventKey: string): Map<string, number> {
+  const points = new Map<string, number>();
+  for (const team of artifact.teams) {
+    const row = team.eventPoints.find((entry) => entry.eventKey === eventKey);
+    if (row !== undefined) points.set(team.teamKey, row.alliance);
+  }
+  return points;
+}
+
+/** One eight alliance championship's routing at the position: its candidates and alive alliances, or the refusal. */
+interface ChampionshipRouting {
+  readonly routing: DcmpBracketState | undefined;
+  readonly aliveAlliances: number[];
+  readonly candidateWinners: (number | null)[];
+}
+
+/**
+ * Decision 5's routing of one eight alliance championship (single, or one of
+ * several), exactly the shipped 261009-2tr reading: Playoffs final runs only on
+ * a posted or routed winner (reading 8); otherwise the alive alliances are the
+ * unplaced ones plus any with a listed pick in the field holding no settled
+ * Playoffs value (reading 6).
+ */
+function championshipRouting(
+  facts: DcmpBracketFacts,
+  stage: DistrictStageFinality,
+  winnerPosted: boolean,
+  settledByTeam: ReadonlyMap<string, SettledPlayoffs | undefined>
+): ChampionshipRouting | JointRefusal {
+  const routing = dcmpBracketState(facts.playedMatches, DCMP_ALLIANCE_NUMBERS);
+  if (stage.elim) {
+    if (winnerPosted) return { routing, aliveAlliances: [], candidateWinners: [null] };
+    if (routing?.decidedWinner !== undefined) return { routing, aliveAlliances: [], candidateWinners: [routing.decidedWinner] };
+    return refuse("winnerNotPosted");
+  }
+  if (routing === undefined) return refuse("bracketUnroutable");
+  const alive = new Set(routing.alive);
+  for (const alliance of facts.alliances) {
+    const unsettled = alliance.picks.some((pick) => settledByTeam.has(pick) && settledByTeam.get(pick) === undefined);
+    if (unsettled) alive.add(alliance.allianceNumber);
+  }
+  const aliveAlliances = [...alive].sort((a, b) => a - b);
+  const candidateWinners = routing.decidedWinner !== undefined ? [routing.decidedWinner] : aliveAlliances;
+  if (candidateWinners.length === 0) return refuse("noCandidateWinner");
+  return { routing, aliveAlliances, candidateWinners };
+}
+
 /**
  * Decision 5's preconditions, in order, and the proof's input read off the
- * rows. The first failed precondition is the reason; otherwise the proof runs.
+ * rows, per championship shape (`championshipShape`). The first failed
+ * precondition is the reason; otherwise the proof runs.
  */
 function jointProofAt(input: JointProofAtInput): ChampJointProof {
-  const { artifact, distributions, narrowing } = input;
-  if (distributions === undefined) return { applied: false, reason: "noDistributions" };
-  const dcmpKeys = dcmpEventKeysFor(artifact);
-  if (dcmpKeys.length !== 1) return { applied: false, reason: "notSingleChampionship" };
-  const dcmpKey = dcmpKeys[0]!;
-  const facts = distributions.get(dcmpKey)?.dcmpBracket;
-  if (facts === undefined) return { applied: false, reason: "noBracketFacts" };
-  const stage = input.dcmpStageByEvent.get(dcmpKey);
-  if (stage === undefined || !stage.qual || !stage.alliance || stage.award) return { applied: false, reason: "stageNotEligible" };
-  if (artifact.cmpSlots === null) return { applied: false, reason: "noCapacity" };
-  if (input.neverHappening) return { applied: false, reason: "neverHappening" };
-
-  const dcmpSettledByTeam = input.dcmpSettledByEvent.get(dcmpKey) ?? new Map<string, SettledPlayoffs | undefined>();
-  const routing = dcmpBracketState(facts.playedMatches, DCMP_ALLIANCE_NUMBERS);
-  let candidateWinners: (number | null)[];
-  let aliveAlliances: number[];
-  if (stage.elim) {
-    // Playoffs final (planner reading 8): the posted winner has left the pool,
-    // or the routed final names the winner; otherwise nothing is known.
-    aliveAlliances = [];
-    if (input.winnerPostedAt.has(dcmpKey)) candidateWinners = [null];
-    else if (routing?.decidedWinner !== undefined) candidateWinners = [routing.decidedWinner];
-    else return { applied: false, reason: "winnerNotPosted" };
-  } else {
-    if (routing === undefined) return { applied: false, reason: "bracketUnroutable" };
-    // Alive for the proof (planner reading 6): unplaced by the routing, or any
-    // listed pick in the field without a settled Playoffs value, whose
-    // playoff points could otherwise fall between its floor and the proof.
-    const alive = new Set(routing.alive);
-    for (const alliance of facts.alliances) {
-      const unsettled = alliance.picks.some((pick) => dcmpSettledByTeam.has(pick) && dcmpSettledByTeam.get(pick) === undefined);
-      if (unsettled) alive.add(alliance.allianceNumber);
-    }
-    aliveAlliances = [...alive].sort((a, b) => a - b);
-    candidateWinners = routing.decidedWinner !== undefined ? [routing.decidedWinner] : aliveAlliances;
+  const { artifact, distributions } = input;
+  if (distributions === undefined) return refuse("noDistributions");
+  const shape = championshipShape(dcmpEventKeysFor(artifact));
+  switch (shape.kind) {
+    case "single":
+      return singleJointProof(input, distributions, shape.key);
+    case "multiple":
+      return multipleJointProof(input, distributions, shape.keys);
+    case "divisioned":
+      return divisionedJointProof(input, distributions, shape.finalsKey, shape.divisionKeys);
+    default:
+      return refuse("unsupportedShape");
   }
-  if (candidateWinners.length === 0) return { applied: false, reason: "noCandidateWinner" };
+}
 
-  // Members (CONTEXT D2): the picks whose DCMP alliance selection points are
-  // above 0. A listed pick at 0 is a backup robot that joined in the playoffs.
-  const allianceSelectionPoints = new Map<string, number>();
-  for (const team of artifact.teams) {
-    const row = team.eventPoints.find((entry) => entry.eventKey === dcmpKey);
-    if (row !== undefined) allianceSelectionPoints.set(team.teamKey, row.alliance);
-  }
-  const alliances: JointLockAlliance[] = facts.alliances.map((alliance) => ({
-    allianceNumber: alliance.allianceNumber,
-    members: alliance.picks.filter((pick) => (allianceSelectionPoints.get(pick) ?? 0) > 0),
+/** The pool rival list for one championship input: floor, and extra plus the decided placement top up at `eventKey`. */
+function poolRivals(
+  input: JointProofAtInput,
+  teamKeys: readonly string[],
+  settledByTeam: (teamKey: string) => SettledPlayoffs | undefined,
+  placementOfTeam: ReadonlyMap<string, number>
+): JointLockRival[] {
+  return teamKeys.map((teamKey) => ({
+    teamKey,
+    floor: input.floorByTeam.get(teamKey)!,
+    extra: (input.jointExtraByTeam.get(teamKey) ?? 0) + jointDecidedPlacementTopUp(settledByTeam(teamKey), placementOfTeam.get(teamKey), input.artifact.year),
   }));
-  const placementOfTeam = new Map<string, number>();
+}
+
+/** Each listed pick's routed placement, first alliance listing it wins. */
+function placementByPick(facts: DcmpBracketFacts, routing: DcmpBracketState | undefined): Map<string, number> {
+  const out = new Map<string, number>();
   for (const alliance of facts.alliances) {
     const placement = routing?.placementByAlliance.get(alliance.allianceNumber);
     if (placement === undefined) continue;
-    for (const pick of alliance.picks) if (!placementOfTeam.has(pick)) placementOfTeam.set(pick, placement);
+    for (const pick of alliance.picks) if (!out.has(pick)) out.set(pick, placement);
   }
+  return out;
+}
 
-  const proofInput: JointLockInput = {
-    pool: narrowing.poolKeys.map((teamKey) => ({
-      teamKey,
-      floor: input.floorByTeam.get(teamKey)!,
-      extra:
-        (input.jointExtraByTeam.get(teamKey) ?? 0) +
-        jointDecidedPlacementTopUp(dcmpSettledByTeam.get(teamKey), placementOfTeam.get(teamKey), artifact.year),
-    })),
-    slotOnlyRivals: [...input.qualifiers.prequalified].filter((teamKey) => !input.qualifiers.awardQualified.has(teamKey)).sort(),
-    pointsSlots: narrowing.pointsSlots,
+/**
+ * One eight alliance championship's input: members are the CONFIRMED picks
+ * (alliance selection points posted and above 0 at that key, the shipped
+ * 261009-2tr rule), seats and fill ins the maximum alliance size minus those
+ * confirmed picks (CONTEXT D10). Shared by the single and the two championship
+ * shapes. Listed pick membership (reading R8) was measured LESS conservative
+ * here (it gained 5 locks over the single sweep, a listed backup no longer free
+ * to take another alliance's seat or the winner's fill in), so it applies only
+ * on the divisioned path, under guards G1 to G3 (quick task 261009-kt3,
+ * orchestrator decision).
+ */
+function eightAllianceInput(
+  input: JointProofAtInput,
+  eventKey: string,
+  facts: DcmpBracketFacts,
+  routed: ChampionshipRouting,
+  poolKeys: readonly string[],
+  slotOnlyRivals: readonly string[]
+): JointLockInput {
+  const { artifact } = input;
+  const settled = input.dcmpSettledByEvent.get(eventKey) ?? new Map<string, SettledPlayoffs | undefined>();
+  const points = allianceSelectionPointsAt(artifact, eventKey);
+  const alliances: JointLockAlliance[] = facts.alliances.map((alliance) => {
+    const confirmed = alliance.picks.filter((pick) => (points.get(pick) ?? 0) > 0);
+    return { allianceNumber: alliance.allianceNumber, members: confirmed, spareSeats: Math.max(0, MAX_WINNING_ALLIANCE_SIZE - confirmed.length) };
+  });
+  return {
+    pool: poolRivals(input, poolKeys, (teamKey) => settled.get(teamKey), placementByPick(facts, routed.routing)),
+    slotOnlyRivals,
+    pointsSlots: input.narrowing.pointsSlots,
     alliances,
-    aliveAlliances,
-    candidateWinners,
+    aliveAlliances: routed.aliveAlliances,
+    candidateWinners: routed.candidateWinners,
     placementPoints: [2, 3, 4].map((placement) => maxPlayoffPointsByPlacement(artifact.year, "dcmp", placement)),
     consumingAwards: pendingAwardSlots(input.awardCeilings),
     judgedAwards: dcmpJudgedAwardCeiling(),
     judgedAwardPoints: dcmpJudgedAwardPoints(artifact.year),
     maxAllianceSize: MAX_WINNING_ALLIANCE_SIZE,
   };
-  return { applied: true, input: proofInput, locked: jointLockedTeams(proofInput) };
+}
+
+/** Prequalified teams not yet award qualified (reading 3). */
+function slotOnlyRivalsOf(qualifiers: QualifierSets): string[] {
+  return [...qualifiers.prequalified].filter((teamKey) => !qualifiers.awardQualified.has(teamKey)).sort();
+}
+
+function singleJointProof(input: JointProofAtInput, distributions: ReadonlyMap<string, DistrictEventDistributions>, dcmpKey: string): ChampJointProof {
+  const facts = distributions.get(dcmpKey)?.dcmpBracket;
+  if (facts === undefined) return refuse("noBracketFacts");
+  const stage = input.dcmpStageByEvent.get(dcmpKey);
+  if (stage === undefined || !stage.qual || !stage.alliance || stage.award) return refuse("stageNotEligible");
+  if (input.artifact.cmpSlots === null) return refuse("noCapacity");
+  if (input.neverHappening) return refuse("neverHappening");
+  const routed = championshipRouting(facts, stage, input.winnerPostedAt.has(dcmpKey), input.dcmpSettledByEvent.get(dcmpKey) ?? new Map());
+  if ("applied" in routed) return routed;
+  const proofInput = eightAllianceInput(input, dcmpKey, facts, routed, input.narrowing.poolKeys, slotOnlyRivalsOf(input.qualifiers));
+  return { applied: true, shape: "single", input: proofInput, locked: jointLockedTeams(proofInput) };
+}
+
+/**
+ * TWO CHAMPIONSHIPS (2026 California, CONTEXT D5 and reading R9): every
+ * championship must be eligible; each gets its own eight alliance input over
+ * the pool teams and slot only rivals whose first dcmp source is that key,
+ * plus every one with NO dcmp source, which is entered in EVERY input.
+ */
+function multipleJointProof(input: JointProofAtInput, distributions: ReadonlyMap<string, DistrictEventDistributions>, keys: readonly string[]): ChampJointProof {
+  const factsByKey = new Map<string, DcmpBracketFacts>();
+  for (const key of keys) {
+    const facts = distributions.get(key)?.dcmpBracket;
+    if (facts === undefined) return refuse("noBracketFacts");
+    factsByKey.set(key, facts);
+  }
+  const stageByKey = new Map<string, DistrictStageFinality>();
+  for (const key of keys) {
+    const stage = input.dcmpStageByEvent.get(key);
+    if (stage === undefined || !stage.qual || !stage.alliance || stage.award) return refuse("stageNotEligible");
+    stageByKey.set(key, stage);
+  }
+  if (input.artifact.cmpSlots === null) return refuse("noCapacity");
+  if (input.neverHappening) return refuse("neverHappening");
+  const slotOnly = slotOnlyRivalsOf(input.qualifiers);
+  const belongs = (teamKey: string, key: string): boolean => {
+    const own = input.firstDcmpKeyByTeam.get(teamKey);
+    return own === undefined || own === key;
+  };
+  const championships: JointLockInput[] = [];
+  for (const key of keys) {
+    const routed = championshipRouting(factsByKey.get(key)!, stageByKey.get(key)!, input.winnerPostedAt.has(key), input.dcmpSettledByEvent.get(key) ?? new Map());
+    if ("applied" in routed) return routed;
+    championships.push(
+      eightAllianceInput(
+        input,
+        key,
+        factsByKey.get(key)!,
+        routed,
+        input.narrowing.poolKeys.filter((teamKey) => belongs(teamKey, key)),
+        slotOnly.filter((teamKey) => belongs(teamKey, key))
+      )
+    );
+  }
+  return { applied: true, shape: "multiple", championships, locked: jointLockedTeamsMultiple(championships, input.narrowing.pointsSlots) };
+}
+
+/**
+ * A DIVISIONED championship (CONTEXT D4, readings R5 to R8 and R13): every
+ * division needs its eight alliance facts with Qualification and Alliance
+ * selection final, the finals' Awards must be open; each division is routed
+ * on its own rows, and the finals facts are read only once every division has
+ * a decided winner (R6), each finals alliance mapped to the one division winner
+ * whose listed picks meet its own.
+ */
+function divisionedJointProof(
+  input: JointProofAtInput,
+  distributions: ReadonlyMap<string, DistrictEventDistributions>,
+  finalsKey: string,
+  divisionKeys: readonly string[]
+): ChampJointProof {
+  const { artifact } = input;
+  const divisionCount = divisionKeys.length;
+  const factsByKey = new Map<string, DcmpBracketFacts>();
+  for (const key of divisionKeys) {
+    const facts = distributions.get(key)?.dcmpBracket;
+    if (facts === undefined) return refuse("noBracketFacts");
+    factsByKey.set(key, facts);
+  }
+  const stageByKey = new Map<string, DistrictStageFinality>();
+  for (const key of divisionKeys) {
+    const stage = input.dcmpStageByEvent.get(key);
+    if (stage === undefined || !stage.qual || !stage.alliance) return refuse("stageNotEligible");
+    stageByKey.set(key, stage);
+  }
+  const finalsStage = input.dcmpStageByEvent.get(finalsKey) ?? ALL_OPEN_STAGE;
+  if (finalsStage.award) return refuse("stageNotEligible");
+  if (artifact.cmpSlots === null) return refuse("noCapacity");
+  if (input.neverHappening) return refuse("neverHappening");
+
+  const membersByAlliance = new Map<number, readonly string[]>();
+  const finalsSpareByAlliance = new Map<number, number>();
+  const alliances: JointLockAlliance[] = [];
+  const divisions: DivisionJointState[] = [];
+  const placementOfTeam = new Map<string, number>();
+  const divisionKeyOfTeam = new Map<string, string>();
+
+  for (const [index, key] of divisionKeys.entries()) {
+    const divisionIndex = index + 1;
+    const facts = factsByKey.get(key)!;
+    const stage = stageByKey.get(key)!;
+    const settled = input.dcmpSettledByEvent.get(key) ?? new Map<string, SettledPlayoffs | undefined>();
+    for (const teamKey of settled.keys()) divisionKeyOfTeam.set(teamKey, key);
+    const routing = dcmpBracketState(facts.playedMatches, DCMP_ALLIANCE_NUMBERS);
+    if (routing === undefined) return refuse("bracketUnroutable");
+    let alive: number[] = [];
+    if (stage.elim) {
+      // A division whose Playoffs are final needs a routed winner (R13).
+      if (routing.decidedWinner === undefined) return refuse("bracketUnroutable");
+    } else {
+      const aliveSet = new Set(routing.alive);
+      for (const alliance of facts.alliances) {
+        if (alliance.picks.some((pick) => settled.has(pick) && settled.get(pick) === undefined)) aliveSet.add(alliance.allianceNumber);
+      }
+      alive = [...aliveSet].sort((a, b) => a - b);
+    }
+    const points = allianceSelectionPointsAt(artifact, key);
+    for (const alliance of facts.alliances) {
+      const id = divisionAllianceId(divisionIndex, alliance.allianceNumber);
+      const confirmed = alliance.picks.filter((pick) => (points.get(pick) ?? 0) > 0);
+      // R8 G2: a DECIDED alliance keeps its confirmed picks; every other listed pick is an unpicked rival.
+      const placed = routing.placementByAlliance.has(alliance.allianceNumber);
+      const members = placed ? confirmed : [...alliance.picks];
+      const spare = Math.max(0, MAX_WINNING_ALLIANCE_SIZE - confirmed.length);
+      membersByAlliance.set(id, members);
+      finalsSpareByAlliance.set(id, spare);
+      alliances.push({ allianceNumber: id, members, spareSeats: spare });
+      const placement = routing.placementByAlliance.get(alliance.allianceNumber);
+      if (placement !== undefined) for (const pick of alliance.picks) if (!placementOfTeam.has(pick)) placementOfTeam.set(pick, placement);
+    }
+    divisions.push({
+      alliances: DCMP_ALLIANCE_NUMBERS.map((n) => divisionAllianceId(divisionIndex, n)),
+      alive: alive.map((n) => divisionAllianceId(divisionIndex, n)),
+      decidedWinner: routing.decidedWinner === undefined ? undefined : divisionAllianceId(divisionIndex, routing.decidedWinner),
+    });
+  }
+
+  // THE FINALS (reading R6): read only once every division has a decided winner.
+  const finalsPlacementByAlliance = new Map<number, number>();
+  const finalsFacts = distributions.get(finalsKey)?.dcmpBracket;
+  const everyDivisionDecided = divisions.every((division) => division.decidedWinner !== undefined);
+  if (finalsFacts !== undefined && !everyDivisionDecided && finalsFacts.playedMatches.length > 0) return refuse("bracketUnroutable");
+  if (finalsFacts !== undefined && everyDivisionDecided) {
+    if (finalsFacts.alliances.length !== divisionCount) return refuse("unsupportedShape");
+    const winnerByFinalsAlliance = new Map<number, number>();
+    for (const finalsAlliance of finalsFacts.alliances) {
+      const matched = divisions.filter((division) => {
+        const listed = alliancesListedPicks(factsByKey, divisionKeys, division.decidedWinner!);
+        return finalsAlliance.picks.some((pick) => listed.includes(pick));
+      });
+      if (matched.length !== 1) return refuse("bracketUnroutable");
+      winnerByFinalsAlliance.set(finalsAlliance.allianceNumber, matched[0]!.decidedWinner!);
+    }
+    if (new Set(winnerByFinalsAlliance.values()).size !== divisionCount) return refuse("bracketUnroutable");
+    let routing: ReturnType<typeof routeFinals>;
+    try {
+      routing = routeFinals(finalsDecisionsFromPlayedMatches(finalsFacts.playedMatches, divisionCount), divisionCount);
+    } catch (error) {
+      if (error instanceof InvalidBracketDecisionError) return refuse("bracketUnroutable");
+      throw error;
+    }
+    for (const [finalsAlliance, placement] of routing.placementByAlliance) finalsPlacementByAlliance.set(winnerByFinalsAlliance.get(finalsAlliance)!, placement);
+  }
+
+  const frames = divisionedJointFrames({
+    divisions,
+    finalsPlacementByAlliance,
+    finalsElimFinal: finalsStage.elim,
+    winnerPosted: input.winnerPostedAt.has(finalsKey),
+    divisionChampionMax: maxPlayoffPointsByPlacement(artifact.year, "dcmp", 1),
+    finalsMaxByPlacement: Array.from({ length: divisionCount }, (_, index) => maxFinalsPointsByPlacement(artifact.year, divisionCount, index + 1)),
+    membersByAlliance,
+    finalsSpareByAlliance,
+    maxAllianceSize: MAX_WINNING_ALLIANCE_SIZE,
+  });
+  if ("refused" in frames) return refuse(frames.refused);
+
+  const settledOf = (teamKey: string): SettledPlayoffs | undefined => {
+    const key = divisionKeyOfTeam.get(teamKey);
+    return key === undefined ? undefined : input.dcmpSettledByEvent.get(key)?.get(teamKey);
+  };
+  const proofInput: JointLockInput = {
+    pool: poolRivals(input, input.narrowing.poolKeys, settledOf, placementOfTeam),
+    slotOnlyRivals: slotOnlyRivalsOf(input.qualifiers),
+    pointsSlots: input.narrowing.pointsSlots,
+    alliances,
+    aliveAlliances: frames.aliveAlliances,
+    candidateWinners: frames.candidateWinners,
+    placementPoints: [2, 3, 4].map((placement) => maxPlayoffPointsByPlacement(artifact.year, "dcmp", placement)),
+    consumingAwards: pendingAwardSlots(input.awardCeilings),
+    judgedAwards: dcmpJudgedAwardCeiling() * divisionCount,
+    judgedAwardPoints: dcmpJudgedAwardPoints(artifact.year),
+    maxAllianceSize: MAX_WINNING_ALLIANCE_SIZE,
+    frames: frames.frames,
+  };
+  return { applied: true, shape: "divisioned", input: proofInput, locked: jointLockedTeams(proofInput) };
+}
+
+/** The LISTED picks of a division alliance id, from its division's facts. */
+function alliancesListedPicks(factsByKey: ReadonlyMap<string, DcmpBracketFacts>, divisionKeys: readonly string[], id: number): readonly string[] {
+  const divisionIndex = Math.floor(id / 10);
+  const allianceNumber = id % 10;
+  const facts = factsByKey.get(divisionKeys[divisionIndex - 1]!);
+  return facts?.alliances.find((alliance) => alliance.allianceNumber === allianceNumber)?.picks ?? [];
+}
+
+/** The bound the applied joint proof gives a team (the sweep's violation report), or `null` when the proof did not run. */
+export function jointProofBound(proof: ChampJointProof, teamKey: string): number | null {
+  if (!proof.applied) return null;
+  return proof.shape === "multiple" ? jointLockBoundMultiple(proof.championships, teamKey) : jointLockBound(proof.input, teamKey);
 }
 
 /** What a contending team's chip SHOWS while the simulated line is not in hand: a neutral placeholder, never the rank rule. An alias of the shared type. */

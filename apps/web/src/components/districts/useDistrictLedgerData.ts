@@ -7,12 +7,16 @@ import {
   DISTRICT_CATEGORIES,
   allDistrictTierEventKeys,
   distributionsFromPreSim,
+  dcmpBracketFactsAtPosition,
   dcmpBracketFactsFor,
   distributionsFromResult,
+  type DcmpBracketFacts,
   type DistrictEventDistributions,
   type DistrictLedgerGaps,
   type DistrictStageFinality,
 } from "./districtLedgerRows.js";
+import { dcmpEventKeysFor } from "./champLedgerRows.js";
+import { championshipShape } from "../../../../../packages/core/districts/finalsBracket.js";
 import { useDistrictSimulationRun, type DistrictSimulationRunState } from "./useDistrictSimulationRun.js";
 import type { DistrictSimulationEventEntry } from "../../workers/districtSimulationProtocol.js";
 import type { AsOfRewindView } from "./useAsOfRewind.js";
@@ -190,6 +194,71 @@ export interface DistrictLedgerData {
   readonly runPending: boolean;
 }
 
+/** What `divisionedDcmpBracketFacts` reads for one run request: its alliances and played rows. */
+export interface DcmpFactsRequest {
+  readonly knownAlliances?: DistrictSimulationEventEntryInput["knownAlliances"];
+  readonly playedElimMatches?: DistrictSimulationEventEntryInput["playedElimMatches"];
+  readonly unresolvedMatchCount: number;
+}
+type DistrictSimulationEventEntryInput = AssembledDistrictEvents["events"][number]["input"];
+
+/**
+ * THE BRACKET FACTS OF A DIVISIONED CHAMPIONSHIP (quick task 261009-kt3,
+ * reading R12): one entry per DIVISION key and the FINALS key with a loaded
+ * event artifact, run request or not, through `dcmpBracketFactsAtPosition`
+ * (role `division`, or `finals` with as many alliances as divisions). Empty for
+ * every other shape: a single championship and two championships keep the
+ * run request path byte for byte.
+ */
+export function divisionedDcmpBracketFacts(params: {
+  readonly artifact: DistrictArtifact;
+  readonly eventArtifacts: ReadonlyMap<string, EventArtifact>;
+  readonly stageByEvent: ReadonlyMap<string, DistrictStageFinality>;
+  readonly requestByKey: ReadonlyMap<string, DcmpFactsRequest>;
+}): Map<string, DcmpBracketFacts> {
+  const out = new Map<string, DcmpBracketFacts>();
+  const shape = championshipShape(dcmpEventKeysFor(params.artifact));
+  if (shape.kind !== "divisioned") return out;
+  const roles: readonly [string, "division" | "finals"][] = [
+    ...shape.divisionKeys.map((key) => [key, "division"] as [string, "division"]),
+    [shape.finalsKey, "finals"],
+  ];
+  for (const [eventKey, role] of roles) {
+    const eventArtifact = params.eventArtifacts.get(eventKey);
+    if (eventArtifact === undefined) continue;
+    const request = params.requestByKey.get(eventKey);
+    const facts = dcmpBracketFactsAtPosition({
+      eventKey,
+      season: params.artifact.year,
+      role,
+      ...(role === "finals" ? { expectedAllianceCount: shape.divisionKeys.length } : {}),
+      stage: params.stageByEvent.get(eventKey),
+      eventArtifact,
+      ...(request === undefined ? {} : { request }),
+    });
+    if (facts !== undefined) out.set(eventKey, facts);
+  }
+  return out;
+}
+
+/**
+ * The Champ Locks tab's fetch set at the LIVE position (quick task 261009-kt3):
+ * the in progress events, plus every STARTED dcmp tier key of a divisioned
+ * championship while any of its keys is in progress, so the finished divisions'
+ * brackets are on hand for the joint proof during the finals. Any other shape
+ * returns the in progress keys unchanged. An event with no open category costs
+ * no simulation however it got into the fetch set.
+ */
+export function champLiveFetchKeys(inProgressKeys: readonly string[], startedKeys: readonly string[], dcmpEventKeys: readonly string[]): string[] {
+  const keys = new Set(inProgressKeys);
+  const shape = championshipShape(dcmpEventKeys);
+  if (shape.kind === "divisioned") {
+    const championshipKeys = [...shape.divisionKeys, shape.finalsKey];
+    if (championshipKeys.some((key) => keys.has(key))) for (const key of championshipKeys) if (startedKeys.includes(key)) keys.add(key);
+  }
+  return [...keys].sort();
+}
+
 /** Every event entry the run has produced so far: the terminal set, or an as-of run's partial set for the current signature. */
 function landedEntries(runState: DistrictSimulationRunState, signature: string): readonly DistrictSimulationEventEntry[] {
   if (runState.status === "complete") return runState.events;
@@ -287,8 +356,30 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
         map.set(entry.eventKey, dcmpBracket === undefined ? distributions : { ...distributions, dcmpBracket });
       } else if (entry.status === "baked") map.set(entry.eventKey, distributionsFromPreSim(entry));
     }
+    // A DIVISIONED CHAMPIONSHIP'S FACTS (quick task 261009-kt3): every division
+    // and the finals, attached to the key's entry, or to a minimal entry with
+    // no team record (which reads exactly as no entry for every cell).
+    const divisioned = divisionedDcmpBracketFacts({
+      artifact,
+      eventArtifacts,
+      stageByEvent,
+      requestByKey: new Map(
+        assembled.events.map((request) => [
+          request.eventKey,
+          {
+            ...(request.input.knownAlliances === undefined ? {} : { knownAlliances: request.input.knownAlliances }),
+            ...(request.input.playedElimMatches === undefined ? {} : { playedElimMatches: request.input.playedElimMatches }),
+            unresolvedMatchCount: unresolved.has(request.eventKey) ? 1 : 0,
+          },
+        ] as const)
+      ),
+    });
+    for (const [eventKey, dcmpBracket] of divisioned) {
+      const existing = map.get(eventKey);
+      map.set(eventKey, existing === undefined ? { eventKey, byTeam: new Map(), dcmpBracket } : { ...existing, dcmpBracket });
+    }
     return map;
-  }, [bakedKeys, preSimQueries, entries, assembled, stageByEvent, artifact]);
+  }, [bakedKeys, preSimQueries, entries, assembled, stageByEvent, artifact, eventArtifacts]);
 
   const unavailableEvents = useMemo(() => {
     const fromRun = runState.status !== "complete" ? [] : runState.events.flatMap((entry) => (entry.status === "unavailable" ? [{ eventKey: entry.eventKey, name: entry.name }] : []));

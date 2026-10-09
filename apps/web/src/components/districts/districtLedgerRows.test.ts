@@ -27,6 +27,8 @@ import {
   allDistrictTierEventKeys,
   buildDistrictEventSimulationInput,
   buildDistrictLedgerRows,
+  dcmpBracketFactsAtPosition,
+  dcmpBracketFactsFor,
   decodeDistrictPointPmf,
   deriveStageFromState,
   districtCellId,
@@ -2295,5 +2297,51 @@ describe("buildDistrictLedgerRows — distributionsPending (261007-4qr)", () => 
       expect(plainCell(row.eventTotal)).toBe(true);
     }
     expect(plainCell(subject.grandTotal)).toBe(true);
+  });
+});
+
+describe("dcmpBracketFactsFor roles and dcmpBracketFactsAtPosition (quick task 261009-kt3, reading R12)", () => {
+  const eight = Array.from({ length: 8 }, (_, index) => ({ allianceNumber: index + 1, picks: [`a${index}x`, `a${index}y`, `a${index}z`] }));
+  const four = eight.slice(0, 4);
+  const DIVISION_STAGE: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: true };
+  const base = { eventKey: "2026micmp1", season: 2026, tier: "dcmp" as const, alliances: eight, playedMatches: [], unresolvedMatchCount: 0 };
+
+  it("the championship role (or none) keeps today's gates; the division role accepts Awards final", () => {
+    expect(dcmpBracketFactsFor({ ...base, stage: DIVISION_STAGE })).toBeUndefined();
+    expect(dcmpBracketFactsFor({ ...base, stage: DIVISION_STAGE, role: "championship" })).toBeUndefined();
+    expect(dcmpBracketFactsFor({ ...base, stage: DIVISION_STAGE, role: "division" })).toBeDefined();
+    expect(dcmpBracketFactsFor({ ...base, stage: { ...DIVISION_STAGE, qual: false }, role: "division" })).toBeUndefined();
+  });
+
+  it("the finals role needs Alliance selection final and exactly the expected 2 or 4 alliances, numbered 1 to n, no qualification", () => {
+    const finalsStage: DistrictStageFinality = { qual: false, alliance: true, elim: false, award: false };
+    const finals = { ...base, eventKey: "2026micmp", stage: finalsStage, role: "finals" as const };
+    expect(dcmpBracketFactsFor({ ...finals, alliances: four, expectedAllianceCount: 4 })).toBeDefined();
+    expect(dcmpBracketFactsFor({ ...finals, alliances: four.slice(0, 2), expectedAllianceCount: 2 })).toBeDefined();
+    expect(dcmpBracketFactsFor({ ...finals, alliances: eight, expectedAllianceCount: 4 })).toBeUndefined();
+    expect(dcmpBracketFactsFor({ ...finals, alliances: eight, expectedAllianceCount: 8 })).toBeUndefined();
+    expect(dcmpBracketFactsFor({ ...finals, alliances: four.slice(0, 3), expectedAllianceCount: 4 })).toBeUndefined();
+    expect(dcmpBracketFactsFor({ ...finals, alliances: four, expectedAllianceCount: 4, unresolvedMatchCount: 1 })).toBeUndefined();
+    expect(dcmpBracketFactsFor({ ...finals, alliances: four, stage: { ...finalsStage, alliance: false }, expectedAllianceCount: 4 })).toBeUndefined();
+  });
+
+  it("reads the request's rows while the Playoffs are open, every played row once they are final, and none without a request", () => {
+    const artifact = {
+      alliances: eight,
+      matches: [
+        { matchKey: "2026micmp1_sf1m1", compLevel: "sf", setNumber: 1, matchNumber: 1, redTeams: ["a0x", "a0y", "a0z"], blueTeams: ["a7x", "a7y", "a7z"], actualWinner: "red" as const },
+        { matchKey: "2026micmp1_sf2m1", compLevel: "sf", setNumber: 2, matchNumber: 1, redTeams: ["a3x", "a3y", "a3z"], blueTeams: ["a4x", "a4y", "a4z"], actualWinner: "blue" as const },
+      ],
+    };
+    const requestRows = [{ compLevel: "sf", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 }];
+    const open: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
+    const at = (stage: DistrictStageFinality, request?: { playedElimMatches: typeof requestRows; unresolvedMatchCount: number }) =>
+      dcmpBracketFactsAtPosition({ eventKey: "2026micmp1", season: 2026, role: "division", stage, eventArtifact: artifact, ...(request === undefined ? {} : { request }) });
+    expect(at(open, { playedElimMatches: requestRows, unresolvedMatchCount: 0 })?.playedMatches).toEqual(requestRows);
+    expect(at({ ...open, elim: true }, { playedElimMatches: requestRows, unresolvedMatchCount: 0 })?.playedMatches).toHaveLength(2);
+    expect(at(open)?.playedMatches).toEqual([]);
+    expect(at(open)?.alliances).toHaveLength(8);
+    expect(at(open, { playedElimMatches: requestRows, unresolvedMatchCount: 1 })).toBeUndefined();
+    expect(at({ ...open, alliance: false })).toBeUndefined();
   });
 });

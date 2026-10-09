@@ -1073,7 +1073,20 @@ export interface DcmpBracketFactsOptions {
   readonly playedMatches: readonly PlayedBracketMatch[];
   /** Played rows that could not be resolved to one alliance per side. Any at all refuses the facts. */
   readonly unresolvedMatchCount: number;
+  /**
+   * Which dcmp tier event this is (quick task 261009-kt3, reading R12): a
+   * single championship (absent, today's gates byte for byte), a DIVISION of a
+   * divisioned championship (its Awards may be final while the finals' are
+   * open), or the FINALS among the division winners (no qualification, exactly
+   * `expectedAllianceCount` alliances).
+   */
+  readonly role?: DcmpBracketRole;
+  /** The finals' alliance count (2 or 4) for the `finals` role. */
+  readonly expectedAllianceCount?: number;
 }
+
+/** A dcmp tier event's role in its championship (quick task 261009-kt3). */
+export type DcmpBracketRole = "championship" | "division" | "finals";
 
 /**
  * The DCMP bracket facts the joint proof may read, or `undefined` (quick task
@@ -1085,10 +1098,15 @@ export interface DcmpBracketFactsOptions {
  */
 export function dcmpBracketFactsFor(options: DcmpBracketFactsOptions): DcmpBracketFacts | undefined {
   const { eventKey, season, tier, stage, alliances, playedMatches, unresolvedMatchCount } = options;
+  const role = options.role ?? "championship";
   if (tier !== "dcmp") return undefined;
   if (!BRACKET_REGISTERED_SEASONS.includes(season)) return undefined;
-  if (stage === undefined || !stage.qual || !stage.alliance || stage.award) return undefined;
-  if (alliances === undefined || !alliancesAreFinal(alliances, DCMP_BRACKET_ALLIANCE_COUNT)) return undefined;
+  if (stage === undefined || !stage.alliance) return undefined;
+  if (role !== "finals" && !stage.qual) return undefined;
+  if (role === "championship" && stage.award) return undefined;
+  const expected = role === "finals" ? options.expectedAllianceCount : DCMP_BRACKET_ALLIANCE_COUNT;
+  if (expected === undefined || (role === "finals" && expected !== 2 && expected !== 4)) return undefined;
+  if (alliances === undefined || !alliancesAreFinal(alliances, expected)) return undefined;
   const numbers = alliances.map((alliance) => alliance.allianceNumber).sort((a, b) => a - b);
   if (numbers.some((allianceNumber, index) => allianceNumber !== index + 1)) return undefined;
   if (unresolvedMatchCount !== 0) return undefined;
@@ -1097,6 +1115,63 @@ export function dcmpBracketFactsFor(options: DcmpBracketFactsOptions): DcmpBrack
     alliances: alliances.map((alliance) => ({ allianceNumber: alliance.allianceNumber, picks: [...alliance.picks] })),
     playedMatches: [...playedMatches],
   };
+}
+
+export interface DcmpBracketFactsAtPositionOptions {
+  readonly eventKey: string;
+  readonly season: number;
+  readonly role: DcmpBracketRole;
+  readonly expectedAllianceCount?: number;
+  /** The event's stage at the position. */
+  readonly stage: DistrictStageFinality | undefined;
+  /** The event artifact, for its published alliances and its played rows. */
+  readonly eventArtifact: BracketSourceEvent;
+  /** The run's request for this event at the position, when it has one. */
+  readonly request?: {
+    readonly knownAlliances?: readonly SuppliedAlliance[];
+    readonly playedElimMatches?: readonly PlayedBracketMatch[];
+    readonly unresolvedMatchCount: number;
+  };
+}
+
+/**
+ * The bracket facts of a dcmp tier event at a position, from the run's request
+ * or the event artifact (quick task 261009-kt3, reading R12). The played rows:
+ * the request's while the event's Playoffs are open; EVERY played row of the
+ * artifact once its Playoffs are final at the position (every playoff row is
+ * at or before such a position); none otherwise. The alliances: the request's
+ * `knownAlliances`, else the artifact's own list once Alliance selection is
+ * final. The rows used are always a subset of the rows played at the position.
+ * Any unresolved row refuses the facts. The gates are `dcmpBracketFactsFor`'s.
+ */
+export function dcmpBracketFactsAtPosition(options: DcmpBracketFactsAtPositionOptions): DcmpBracketFacts | undefined {
+  const { stage, eventArtifact, request } = options;
+  if (stage === undefined) return undefined;
+  let playedMatches: readonly PlayedBracketMatch[] = [];
+  let unresolvedMatchCount = 0;
+  if (stage.elim) {
+    const played = playedBracketMatchesFor(eventArtifact);
+    playedMatches = played.matches;
+    unresolvedMatchCount = played.unresolvedMatchKeys.length;
+  } else if (request !== undefined) {
+    playedMatches = request.playedElimMatches ?? [];
+    unresolvedMatchCount = request.unresolvedMatchCount;
+  }
+  const fromArtifact =
+    stage.alliance && eventArtifact.alliances !== undefined && eventArtifact.alliances.length > 0
+      ? eventArtifact.alliances.map((alliance) => ({ allianceNumber: alliance.allianceNumber, picks: [...alliance.picks] }))
+      : undefined;
+  return dcmpBracketFactsFor({
+    eventKey: options.eventKey,
+    season: options.season,
+    tier: "dcmp",
+    stage,
+    alliances: request?.knownAlliances ?? fromArtifact,
+    playedMatches,
+    unresolvedMatchCount,
+    role: options.role,
+    ...(options.expectedAllianceCount === undefined ? {} : { expectedAllianceCount: options.expectedAllianceCount }),
+  });
 }
 
 /**

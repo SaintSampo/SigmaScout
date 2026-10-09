@@ -106,7 +106,7 @@ describe("measureChampJointLocks: the FNC 2026 pins (D5)", () => {
     const model = statusesAtStop(artifact, stopNamed("Round 5"), bracket, true);
     expect(model.pointsSlots).toBe(15);
     expect(model.jointProof?.applied).toBe(true);
-    if (model.jointProof?.applied !== true) return;
+    if (model.jointProof?.applied !== true || model.jointProof.shape === "multiple") return;
     const input = model.jointProof.input;
     expect(input.placementPoints).toEqual([75, 39, 21]);
     expect(input.consumingAwards).toBe(6);
@@ -136,7 +136,7 @@ describe("measureChampJointLocks: the FNC 2026 pins (D5)", () => {
     const model = statusesAtStop(artifact, stopNamed("Playoffs final, awards open"), bracket, true);
     expect(model.pointsSlots).toBe(11);
     expect(model.jointProof?.applied).toBe(true);
-    if (model.jointProof?.applied !== true) return;
+    if (model.jointProof?.applied !== true || model.jointProof.shape === "multiple") return;
     const input = model.jointProof.input;
     expect([...model.jointProof.locked].sort()).toEqual(["frc2724", "frc3506", "frc9032", "frc9496"]);
     for (const teamKey of ["frc9496", "frc9032", "frc2724", "frc3506"]) {
