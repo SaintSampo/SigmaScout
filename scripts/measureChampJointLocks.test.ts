@@ -186,14 +186,16 @@ describe("measureChampJointLocks: the FNC 2026 pins (D5)", () => {
  * QUICK TASK 261009-pgq replaced the four FIM and NE sets with the sets as
  * executed after its two changes, never fitted: a team with no championship
  * row leaves the field once every division has started (D1), and the judged
- * budget counts only the divisions whose Awards are open (D3, K 0 at both
- * pinned stops, where every division's Awards have posted). FIM Divisions
- * final 50 to 69, FIM Finals decided 63 to 72, NE Divisions final 12 to 22, NE
- * Finals decided 15 to 20. No team left a set, S' did not move, and every
- * member is `locked` or `lockedAward` at Now. The two CA pins did not move.
- * The four FIM and NE near miss lists are empty because every team on them is
- * now in its set and qualified; the loop below instead asserts that no team
- * that missed qualification is in ANY pinned set.
+ * budget is what each division can still give (D3 as revised: the whole 14
+ * while a division's Awards are open, 14 minus the teams already carrying
+ * award points there once they read final). Every 2026 FIM and NE division
+ * posted 12, so K is 8 at both FIM pinned stops and 4 at both NE ones (it was
+ * 56 and 28). FIM Divisions final 50 to 63, FIM Finals decided 63 to 64, NE
+ * Divisions final 12 to 18, NE Finals decided 15 to 16. No team left a set, S'
+ * did not move, and every member is `locked` or `lockedAward` at Now. The two
+ * CA pins did not move. A near miss list keeps only the teams its set still
+ * does not hold; the loop below also asserts that no team that missed
+ * qualification is in ANY pinned set.
  */
 const KT3_PATHS = ["fim", "ne", "ca"].map((district) => `data/local-publish/districts/v1__district__2026${district}.json`);
 const KT3_AVAILABLE = KT3_PATHS.every((path) => existsSync(path)) && existsSync(CORPUS_PATH);
@@ -223,8 +225,8 @@ describe("measureChampJointLocks: the FIM, NE and CA 2026 pins (261009-kt3, D7)"
       slots: 83,
       shape: "divisioned",
       locked:
-        "frc1023 frc10633 frc1188 frc1189 frc1498 frc1701 frc1918 frc201 frc2054 frc2075 frc2137 frc2337 frc2586 frc2611 frc2619 frc27 frc2767 frc2851 frc2960 frc33 frc3414 frc3536 frc3538 frc3539 frc3620 frc3641 frc3656 frc3668 frc3707 frc4237 frc4362 frc4391 frc4398 frc469 frc494 frc4967 frc5066 frc5086 frc5114 frc5166 frc5193 frc5216 frc5460 frc5462 frc548 frc5534 frc5660 frc5675 frc5712 frc5907 frc6002 frc6090 frc6121 frc6152 frc6615 frc67 frc68 frc70 frc7160 frc7166 frc7197 frc7220 frc7769 frc8280 frc8517 frc8608 frc9245 frc9757 frc9771",
-      nearMisses: "",
+        "frc1023 frc10633 frc1189 frc1498 frc1701 frc1918 frc201 frc2054 frc2075 frc2137 frc2337 frc2586 frc2611 frc2619 frc27 frc2767 frc2851 frc2960 frc33 frc3414 frc3536 frc3538 frc3539 frc3620 frc3641 frc3656 frc3668 frc4237 frc4362 frc4391 frc4398 frc469 frc4967 frc5066 frc5086 frc5114 frc5166 frc5193 frc5216 frc5460 frc548 frc5534 frc5660 frc5712 frc5907 frc6002 frc6090 frc6121 frc6152 frc6615 frc67 frc68 frc7160 frc7166 frc7197 frc7220 frc7769 frc8280 frc8517 frc8608 frc9245 frc9757 frc9771",
+      nearMisses: "frc1188 frc494 frc5675",
     },
     {
       district: "fim",
@@ -232,24 +234,24 @@ describe("measureChampJointLocks: the FIM, NE and CA 2026 pins (261009-kt3, D7)"
       slots: 80,
       shape: "divisioned",
       locked:
-        "frc1023 frc10633 frc1188 frc1189 frc1498 frc1701 frc1918 frc201 frc2054 frc2075 frc2137 frc2337 frc2586 frc2611 frc2619 frc2767 frc2851 frc2960 frc33 frc3414 frc3536 frc3538 frc3539 frc3572 frc3603 frc3604 frc3620 frc3641 frc3656 frc3707 frc4237 frc4362 frc4391 frc4398 frc469 frc494 frc4967 frc5066 frc5086 frc5114 frc5166 frc5193 frc5216 frc5460 frc5462 frc548 frc5534 frc5660 frc5675 frc5712 frc5843 frc5907 frc6002 frc6090 frc6121 frc6152 frc6615 frc67 frc68 frc70 frc7160 frc7166 frc7197 frc7220 frc8280 frc8517 frc8608 frc8612 frc9245 frc9572 frc9757 frc9771",
-      nearMisses: "",
+        "frc1023 frc10633 frc1188 frc1189 frc1498 frc1701 frc1918 frc201 frc2054 frc2075 frc2137 frc2337 frc2586 frc2611 frc2619 frc2767 frc2851 frc2960 frc33 frc3414 frc3536 frc3538 frc3539 frc3620 frc3641 frc3656 frc3707 frc4237 frc4362 frc4391 frc4398 frc469 frc494 frc4967 frc5066 frc5086 frc5114 frc5166 frc5193 frc5216 frc5460 frc548 frc5534 frc5660 frc5675 frc5712 frc5907 frc6002 frc6090 frc6121 frc6152 frc6615 frc67 frc68 frc7160 frc7166 frc7197 frc7220 frc8280 frc8517 frc8608 frc9245 frc9757 frc9771",
+      nearMisses: "frc5462 frc70",
     },
     {
       district: "ne",
       stop: "Divisions final, finals not started",
       slots: 32,
       shape: "divisioned",
-      locked: "frc1073 frc125 frc133 frc1699 frc176 frc1768 frc190 frc1922 frc195 frc2067 frc238 frc2713 frc2877 frc3467 frc4909 frc5000 frc5687 frc5813 frc6328 frc6329 frc7407 frc88",
-      nearMisses: "",
+      locked: "frc125 frc133 frc176 frc1768 frc190 frc1922 frc195 frc2067 frc238 frc2877 frc3467 frc5000 frc5687 frc5813 frc6328 frc6329 frc7407 frc88",
+      nearMisses: "frc4909 frc2713",
     },
     {
       district: "ne",
       stop: "Finals decided, awards open",
       slots: 28,
       shape: "divisioned",
-      locked: "frc1073 frc125 frc133 frc1699 frc176 frc190 frc1922 frc195 frc2067 frc238 frc2713 frc2877 frc3467 frc4909 frc5000 frc5813 frc6328 frc6329 frc7407 frc88",
-      nearMisses: "",
+      locked: "frc125 frc133 frc176 frc190 frc1922 frc195 frc2067 frc238 frc2877 frc3467 frc5000 frc5813 frc6328 frc6329 frc7407 frc88",
+      nearMisses: "frc4909 frc2713",
     },
     {
       district: "ca",

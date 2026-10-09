@@ -1393,7 +1393,30 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
     expect(jointLockBound(reduced(0), top.teamKey)).toBe(0);
   });
 
-  it("261009-pgq D3: the judged budget counts only the divisions whose Awards are open: 28, 14, 0", () => {
+  /**
+   * DIVISIONED with exactly `counts.get(key)` teams carrying award points on
+   * their row at each division key (the first in artifact order, 15 points
+   * each, one judged award); every other row at that key reads 0.
+   */
+  function withAwardedTeams(counts: ReadonlyMap<string, number>): DistrictArtifact {
+    const seen = new Map<string, number>();
+    return DistrictArtifactSchema.parse({
+      ...DIVISIONED,
+      teams: DIVISIONED.teams.map((team) => ({
+        ...team,
+        eventPoints: team.eventPoints.map((row) => {
+          const count = counts.get(row.eventKey);
+          if (count === undefined) return row;
+          const index = seen.get(row.eventKey) ?? 0;
+          seen.set(row.eventKey, index + 1);
+          const award = index < count ? 15 : 0;
+          return { ...row, award, total: row.total - row.award + award };
+        }),
+      })),
+    });
+  }
+
+  it("261009-pgq D3: the judged budget is the ceiling minus the teams already carrying award points, per division whose Awards read final", () => {
     const finals = facts(
       PARENT,
       OPEN_PLAYOFFS,
@@ -1405,7 +1428,20 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
       "finals",
       2
     );
-    const judgedAt = (div1: DistrictStageFinality, div2: DistrictStageFinality): number => {
+    /** K with `awarded1` and `awarded2` teams carrying award points at the two divisions, at the two Awards stages. */
+    const judgedAt = (div1: DistrictStageFinality, awarded1: number, div2: DistrictStageFinality, awarded2: number): number => {
+      const artifact = withAwardedTeams(
+        new Map([
+          [DIV1, awarded1],
+          [DIV2, awarded2],
+        ])
+      );
+      for (const [key, count] of [
+        [DIV1, awarded1],
+        [DIV2, awarded2],
+      ] as const) {
+        expect(artifact.teams.filter((team) => team.eventPoints.some((row) => row.eventKey === key && row.award > 0))).toHaveLength(count);
+      }
       const stages = new Map([
         [DIV1, div1],
         [DIV2, div2],
@@ -1416,17 +1452,26 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
         entry(DIV2, facts(DIV2, div2, DIV2_ALLIANCES, higherSeedRows(), "division")),
         entry(PARENT, finals),
       ]);
-      const model = modelAt(DIVISIONED, stages, distributions);
+      const model = modelAt(artifact, stages, distributions);
       if (model.jointProof?.applied !== true || model.jointProof.shape === "multiple") throw new Error(`not applied: ${JSON.stringify(model.jointProof)}`);
       expect(model.jointProof.shape).toBe("divisioned");
       expect(model.jointProof.input.candidateWinners).toEqual([11, 21]);
       return model.jointProof.input.judgedAwards;
     };
-    // Playoffs final in both divisions; the Awards stage is the only thing varied.
-    expect(judgedAt(PLAYOFFS_FINAL, PLAYOFFS_FINAL)).toBe(28);
-    expect(judgedAt(ALL_FINAL, PLAYOFFS_FINAL)).toBe(14);
-    expect(judgedAt(PLAYOFFS_FINAL, ALL_FINAL)).toBe(14);
-    expect(judgedAt(ALL_FINAL, ALL_FINAL)).toBe(0);
+    // Playoffs final in both divisions throughout; only the Awards stage and the award points on the rows vary.
+    // Both divisions' Awards open: the whole ceiling for each, whatever the rows carry.
+    expect(judgedAt(PLAYOFFS_FINAL, 12, PLAYOFFS_FINAL, 12)).toBe(28);
+    // One final with 12 teams carrying award points: 14 for the open division and 14 minus 12 for the final one.
+    expect(judgedAt(ALL_FINAL, 12, PLAYOFFS_FINAL, 12)).toBe(16);
+    // Both final with 12 each: 2 and 2.
+    expect(judgedAt(ALL_FINAL, 12, ALL_FINAL, 12)).toBe(4);
+    // THE PREMATURE FLAG: Awards read final and no team carries award points yet, so the division keeps its whole 14.
+    expect(judgedAt(ALL_FINAL, 0, PLAYOFFS_FINAL, 12)).toBe(28);
+    // A partial posting: 3 teams carry award points, 11 awards may still come.
+    expect(judgedAt(ALL_FINAL, 3, PLAYOFFS_FINAL, 12)).toBe(25);
+    // More awarded teams than the ceiling: 0 for that division, never negative.
+    expect(judgedAt(ALL_FINAL, 16, PLAYOFFS_FINAL, 12)).toBe(14);
+    expect(judgedAt(ALL_FINAL, 16, ALL_FINAL, 12)).toBe(2);
   });
 
   it("refuses unsupportedShape for three divisions", () => {

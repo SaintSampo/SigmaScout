@@ -746,6 +746,21 @@ function allianceSelectionPointsAt(artifact: DistrictArtifact, eventKey: string)
   return points;
 }
 
+/**
+ * How many teams carry award points above 0 on their row at a dcmp key: a
+ * lower bound on the point paying awards that event has posted, since each
+ * such team holds at least one (quick task 261009-pgq, D3 as revised). A team
+ * with no row there, or a row whose award points are not posted, is not
+ * counted, which only keeps the remaining judged budget larger.
+ */
+function awardedTeamCountAt(artifact: DistrictArtifact, eventKey: string): number {
+  let count = 0;
+  for (const team of artifact.teams) {
+    if (team.eventPoints.some((entry) => entry.eventKey === eventKey && entry.award > 0)) count += 1;
+  }
+  return count;
+}
+
 /** One eight alliance championship's routing at the position: its candidates and alive alliances, or the refusal. */
 interface ChampionshipRouting {
   readonly routing: DcmpBracketState | undefined;
@@ -963,15 +978,36 @@ function divisionedJointProof(
   }
   const finalsStage = input.dcmpStageByEvent.get(finalsKey) ?? ALL_OPEN_STAGE;
   if (finalsStage.award) return refuse("stageNotEligible");
-  // THE JUDGED BUDGET COUNTS ONLY THE DIVISIONS WHOSE AWARDS ARE OPEN (quick
-  // task 261009-pgq, D3). Posted judged points are already in every floor, a
-  // division whose Awards are final gives no further award, and the finals
-  // event gives no judged award (261009-kt3 RESEARCH section 3). So K is 14
-  // for each division still to post and 0 once every division has; until then
-  // it was 14 times the division count at every stop. The single and the two
-  // championship shapes keep 14 per championship: their Awards are open
-  // whenever the proof runs.
-  const openAwardDivisions = divisionKeys.filter((key) => !stageByKey.get(key)!.award).length;
+  // THE JUDGED BUDGET IS WHAT EACH DIVISION CAN STILL GIVE (quick task
+  // 261009-pgq, D3 as revised). Until then K was 14 times the division count
+  // at every stop. Per division:
+  //
+  //   Awards OPEN at the position: the whole ceiling, 14. None of its award
+  //   points is in any floor.
+  //   Awards FINAL at the position: 14 minus the TEAMS whose row at that key
+  //   carries award points above 0, never below 0. Each such team holds at
+  //   least one posted award whose points are already in its floor, so the
+  //   count is a lower bound on the awards posted and the remainder an upper
+  //   bound on the awards still to come. A count of teams, never points
+  //   divided by one award's value.
+  //
+  // THE FLAG ALONE IS NOT TRUSTED, which is why a final division is not simply
+  // 0. The Worker sets `awardsPosted` on the first award of ANY kind TBA lists
+  // for the event (`apps/worker/src/districtRefresh.ts`, `awards.length > 0`)
+  // and never asks again, so a division's Winner and Finalist awards can flip
+  // it while its judged awards are still due. With the flag true and no award
+  // points posted the division keeps its whole 14; with 12 posted it keeps 2.
+  // Measured over the 40 division events of 2023 to 2026: every awarded row is
+  // exactly one judged award (15 points) and a division gives 11 or 12.
+  //
+  // The finals event gives no judged award (261009-kt3 RESEARCH section 3).
+  // The single and the two championship shapes keep 14 per championship: their
+  // Awards are open whenever the proof runs.
+  const judgedCeiling = dcmpJudgedAwardCeiling();
+  let judgedBudget = 0;
+  for (const key of divisionKeys) {
+    judgedBudget += stageByKey.get(key)!.award ? Math.max(0, judgedCeiling - awardedTeamCountAt(artifact, key)) : judgedCeiling;
+  }
   if (artifact.cmpSlots === null) return refuse("noCapacity");
   if (input.neverHappening) return refuse("neverHappening");
 
@@ -1075,7 +1111,7 @@ function divisionedJointProof(
     candidateWinners: frames.candidateWinners,
     placementPoints: [2, 3, 4].map((placement) => maxPlayoffPointsByPlacement(artifact.year, "dcmp", placement)),
     consumingAwards: pendingAwardSlots(input.awardCeilings),
-    judgedAwards: dcmpJudgedAwardCeiling() * openAwardDivisions,
+    judgedAwards: judgedBudget,
     judgedAwardPoints: dcmpJudgedAwardPoints(artifact.year),
     maxAllianceSize: MAX_WINNING_ALLIANCE_SIZE,
     frames: frames.frames,
