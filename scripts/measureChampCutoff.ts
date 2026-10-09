@@ -53,6 +53,7 @@ import {
   CHAMP_CUTOFF_TUNING_GRID,
   HYPOTHETICAL_DCMP_BUCKETS,
   hypotheticalDcmpBucketIndex,
+  dcmpJudgedAwardCount,
   districtCode,
   normalizedFieldRanks,
   type ChampCutoffSetting,
@@ -198,11 +199,33 @@ export function buildDcmpHistory(artifacts: readonly DistrictArtifact[]): DcmpHi
 
     const recipients = (awardType: number): number =>
       artifact.teams.filter((team) => team.qualifyingAwards.some((award) => award.awardType === awardType && dcmpKeys.has(award.eventKey))).length;
+    // THE JUDGED AWARD COUNT PER DCMP TIER EVENT (quick task 261009-2tr): the
+    // event's award points less its consuming awards, over one judged award's
+    // value, and the most over the district's dcmp tier events. Per event, so
+    // a divisioned championship's divisions are read one at a time.
+    let judgedAwards = 0;
+    for (const eventKey of dcmpKeys) {
+      const recipientsAt = (awardType: number): number =>
+        artifact.teams.filter((team) => team.qualifyingAwards.some((award) => award.awardType === awardType && award.eventKey === eventKey)).length;
+      let awardPointsTotal = 0;
+      for (const team of artifact.teams) for (const row of team.eventPoints) if (row.eventKey === eventKey) awardPointsTotal += row.award;
+      judgedAwards = Math.max(
+        judgedAwards,
+        dcmpJudgedAwardCount({
+          season: artifact.year,
+          awardPointsTotal,
+          impact: recipientsAt(0),
+          engineeringInspiration: recipientsAt(9),
+          rookieAllStar: recipientsAt(10),
+        })
+      );
+    }
     season.districts[districtCode(artifact.districtKey)] = {
       cmpSlots: artifact.cmpSlots,
       impact: recipients(0),
       engineeringInspiration: recipients(9),
       rookieAllStar: recipients(10),
+      judgedAwards,
     };
   }
 
@@ -247,7 +270,7 @@ export function renderHistoryModule(history: DcmpHistory): string {
     lines.push("    districts: {");
     for (const [code, entry] of Object.entries(season.districts)) {
       lines.push(
-        `      ${code}: { cmpSlots: ${String(entry.cmpSlots)}, impact: ${String(entry.impact)}, engineeringInspiration: ${String(entry.engineeringInspiration)}, rookieAllStar: ${String(entry.rookieAllStar)} },`
+        `      ${code}: { cmpSlots: ${String(entry.cmpSlots)}, impact: ${String(entry.impact)}, engineeringInspiration: ${String(entry.engineeringInspiration)}, rookieAllStar: ${String(entry.rookieAllStar)}, judgedAwards: ${String(entry.judgedAwards)} },`
       );
     }
     lines.push("    },");

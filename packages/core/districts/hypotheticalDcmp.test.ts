@@ -17,6 +17,10 @@ import {
   dcmpAwardCountDistribution,
   dcmpAwardCountCeilings,
   dcmpAwardCounts,
+  dcmpJudgedAwardCeiling,
+  dcmpJudgedAwardCount,
+  dcmpJudgedAwardPoints,
+  JUDGED_AWARD_CEILING_MARGIN,
   hypotheticalDcmpBucketIndex,
   hypotheticalDcmpPart,
   hypotheticalDcmpTable,
@@ -38,8 +42,8 @@ function flatSeason(value: number, per = HYPOTHETICAL_DCMP_MIN_BUCKET_OBSERVATIO
   };
 }
 
-function counts(cmpSlots: number, impact: number, engineeringInspiration: number, rookieAllStar: number): DcmpDistrictAwardCounts {
-  return { cmpSlots, impact, engineeringInspiration, rookieAllStar };
+function counts(cmpSlots: number, impact: number, engineeringInspiration: number, rookieAllStar: number, judgedAwards = 12): DcmpDistrictAwardCounts {
+  return { cmpSlots, impact, engineeringInspiration, rookieAllStar, judgedAwards };
 }
 
 describe("normalizedFieldRanks", () => {
@@ -261,5 +265,39 @@ describe("the tuning grid and the walk-forward tuning", () => {
   it("ships a history with no 2020 (no DCMP was played) and ten buckets per season", () => {
     expect(Object.keys(DCMP_HISTORY)).not.toContain("2020");
     for (const season of Object.values(DCMP_HISTORY)) expect(season.buckets).toHaveLength(HYPOTHETICAL_DCMP_BUCKETS);
+  });
+});
+
+describe("the judged award ceiling (quick task 261009-2tr, CONTEXT D3)", () => {
+  it("counts FNC 2026's twelve judged awards from its 306 award points", () => {
+    expect(dcmpJudgedAwardPoints(2026)).toBe(15);
+    expect(dcmpJudgedAwardCount({ season: 2026, awardPointsTotal: 306, impact: 1, engineeringInspiration: 2, rookieAllStar: 2 })).toBe(12);
+  });
+
+  it("refuses a remainder that is not a whole number of judged awards, or is negative", () => {
+    expect(() => dcmpJudgedAwardCount({ season: 2026, awardPointsTotal: 307, impact: 1, engineeringInspiration: 2, rookieAllStar: 2 })).toThrow(RangeError);
+    expect(() => dcmpJudgedAwardCount({ season: 2026, awardPointsTotal: 60, impact: 1, engineeringInspiration: 2, rookieAllStar: 2 })).toThrow(RangeError);
+  });
+
+  it("is the all time maximum plus the margin: 14 over the committed history, 13 over a history whose largest count is 12", () => {
+    expect(JUDGED_AWARD_CEILING_MARGIN).toBe(1);
+    expect(dcmpJudgedAwardCeiling()).toBe(14);
+    const synthetic: DcmpHistory = {
+      2025: flatSeason(100, HYPOTHETICAL_DCMP_MIN_BUCKET_OBSERVATIONS, 1, { aaa: counts(20, 1, 1, 1, 11), bbb: counts(10, 1, 1, 1, 12) }),
+    };
+    expect(dcmpJudgedAwardCeiling(synthetic)).toBe(13);
+  });
+
+  it("carries judgedAwards on every history entry: 2019's maximum is 13 and no 2023 to 2026 entry is above 12", () => {
+    let max2019 = 0;
+    for (const [year, season] of Object.entries(DCMP_HISTORY)) {
+      for (const [code, entry] of Object.entries(season.districts)) {
+        expect(entry.judgedAwards, `${year} ${code}`).toBeGreaterThanOrEqual(0);
+        expect(entry.judgedAwards, `${year} ${code}`).toBeLessThanOrEqual(13);
+        if (Number(year) >= 2023) expect(entry.judgedAwards, `${year} ${code}`).toBeLessThanOrEqual(12);
+        if (Number(year) === 2019) max2019 = Math.max(max2019, entry.judgedAwards);
+      }
+    }
+    expect(max2019).toBe(13);
   });
 });

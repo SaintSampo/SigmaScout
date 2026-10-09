@@ -19,6 +19,8 @@
  * `scripts/measureChampCutoff.ts`; nothing here reads a file.
  */
 import { maxEventPoints } from "./pointModel.js";
+import { districtTierWeight } from "./qualPoints.js";
+import { IMPACT_AWARD_POINTS, ROOKIE_ALL_STAR_AWARD_POINTS } from "./awardOrderingTables.js";
 import { DCMP_HISTORY } from "./dcmpHistory.generated.js";
 import { CHAMP_CUTOFF_TUNING } from "./champCutoffTuning.generated.js";
 
@@ -47,6 +49,14 @@ export interface DcmpDistrictAwardCounts {
   readonly engineeringInspiration: number;
   /** Award type 10. */
   readonly rookieAllStar: number;
+  /**
+   * The most judged awards worth `JUDGED_AWARD_BASE_POINTS` times the DCMP
+   * weight that ONE of this district's dcmp tier events gave out that season
+   * (quick task 261009-2tr). Per EVENT, so a divisioned championship's
+   * divisions are read one at a time, which is what keeps the measured 12
+   * rather than a summed 48. `dcmpJudgedAwardCeiling` reads it.
+   */
+  readonly judgedAwards: number;
 }
 
 export interface DcmpHistorySeason {
@@ -337,6 +347,80 @@ export function dcmpAwardCountCeilings(
   const nearest = nearestBySlots(pool, cmpSlots).slice(0, SIZE_BAND_NEIGHBOURS);
   for (const { entry } of nearest) fold(entry);
   return { counts, ownSeasons, sizeBandEntries: nearest.length };
+}
+
+// ---------------------------------------------------------------------------
+// The judged award ceiling (quick task 261009-2tr, CONTEXT D3)
+// ---------------------------------------------------------------------------
+
+/** District points for one judged award at a district event: every award other than Impact, Engineering Inspiration and Rookie All Star that pays at all. */
+export const JUDGED_AWARD_BASE_POINTS = 5;
+/** District points for the Engineering Inspiration award at a district event. */
+export const ENGINEERING_INSPIRATION_AWARD_POINTS = 8;
+
+/** What one judged award pays at a District Championship in `season`: 15 at the 3x weight. */
+export function dcmpJudgedAwardPoints(season: number): number {
+  return JUDGED_AWARD_BASE_POINTS * districtTierWeight(season, "dcmp");
+}
+
+export interface DcmpJudgedAwardCountInput {
+  readonly season: number;
+  /** Every team's award points at one dcmp tier event, summed. */
+  readonly awardPointsTotal: number;
+  readonly impact: number;
+  readonly engineeringInspiration: number;
+  readonly rookieAllStar: number;
+}
+
+/**
+ * How many judged awards one dcmp tier event gave out: its award points total
+ * minus the consuming awards at their weighted values, over one judged award's
+ * value. THROWS on a negative or non whole remainder rather than rounding: a
+ * remainder that does not divide means an award value this module does not
+ * know, and refusing to guess is the only safe answer for a guarantee's input.
+ */
+export function dcmpJudgedAwardCount(input: DcmpJudgedAwardCountInput): number {
+  const weight = districtTierWeight(input.season, "dcmp");
+  const consuming =
+    weight *
+    (IMPACT_AWARD_POINTS * input.impact +
+      ENGINEERING_INSPIRATION_AWARD_POINTS * input.engineeringInspiration +
+      ROOKIE_ALL_STAR_AWARD_POINTS * input.rookieAllStar);
+  const remainder = input.awardPointsTotal - consuming;
+  const judged = remainder / dcmpJudgedAwardPoints(input.season);
+  if (remainder < 0 || !Number.isInteger(judged)) {
+    throw new RangeError(
+      `dcmpJudgedAwardCount: ${String(input.awardPointsTotal)} award points in ${String(input.season)} leave ${String(remainder)} after the consuming awards, which is not a whole number of ${String(dcmpJudgedAwardPoints(input.season))} point judged awards`
+    );
+  }
+  return judged;
+}
+
+/**
+ * The margin over the most judged awards ever seen at one dcmp tier event.
+ * Measured over `data/local-publish/districts`: 2023 to 2026 gave 11 or 12 at
+ * every single event championship; divisions give 12 each; 2019 gave 13 at
+ * chs, fma, fnc, in, isr, ne, pch and pnw, and at one dcmp tier event of fim,
+ * ont and tx, so every 2019 entry of the history reads 13. The margin covers
+ * one more than ever seen.
+ */
+export const JUDGED_AWARD_CEILING_MARGIN = 1;
+
+/**
+ * K for the Champ Locks joint proof (`champJointLock.ts`): the most judged
+ * awards any one dcmp tier event has given out, over EVERY season and district
+ * entry of the history, plus `JUDGED_AWARD_CEILING_MARGIN`. Not banded by
+ * district, because FIRST's DCMP award slate is uniform, and not walk forward,
+ * because it is a ceiling for a guarantee rather than a prediction. This is 14,
+ * not the 13 CONTEXT D3 expected: the history runs back to 2016 and the 2019
+ * championships reached 13 (261009-2tr planner reading 10).
+ */
+export function dcmpJudgedAwardCeiling(history: DcmpHistory = DCMP_HISTORY): number {
+  let most = 0;
+  for (const season of Object.values(history)) {
+    for (const entry of Object.values(season.districts)) most = Math.max(most, entry.judgedAwards);
+  }
+  return most + JUDGED_AWARD_CEILING_MARGIN;
 }
 
 /** `dcmpAwardCounts`' own size band order: distance by `cmpSlots`, ties to the more recent season, then by code. */
