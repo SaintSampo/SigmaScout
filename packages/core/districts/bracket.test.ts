@@ -26,7 +26,9 @@ import {
   DIVISIONED_DCMP_PLAYOFF_PMF,
   divisionedDcmpPlayoffPmf,
   InvalidBracketDecisionError,
+  FINALS_PLACEMENT_MAX_POINTS,
   InvalidPlacementError,
+  maxFinalsPointsByPlacement,
   maxPlayoffPointsByPlacement,
   PLAYOFF_PLACEMENT_MAX_POINTS,
   PLAYOFF_PLACEMENT_POINTS,
@@ -211,6 +213,21 @@ describe("maxPlayoffPointsByPlacement (quick task 261009-2tr)", () => {
       expect(() => maxPlayoffPointsByPlacement(2026, "dcmp", placement), `placement ${placement}`).toThrow(InvalidPlacementError);
     }
     expect(() => maxPlayoffPointsByPlacement(2022, "dcmp", 1)).toThrow(UnsupportedBracketSeasonError);
+  });
+});
+
+describe("maxFinalsPointsByPlacement (quick task 261009-kt3)", () => {
+  it("pays 60, 30, 0, 0 at a four division finals and 30, 0 at a two division finals in 2026, manual 11.1.3 times 3", () => {
+    expect(FINALS_PLACEMENT_MAX_POINTS).toEqual({ 2: [10, 0], 4: [20, 10, 0, 0] });
+    expect([1, 2, 3, 4].map((placement) => maxFinalsPointsByPlacement(2026, 4, placement))).toEqual([60, 30, 0, 0]);
+    expect([1, 2].map((placement) => maxFinalsPointsByPlacement(2026, 2, placement))).toEqual([30, 0]);
+  });
+
+  it("throws for a division count other than 2 or 4, a placement outside the finals, and an unregistered season", () => {
+    for (const divisions of [3, 8]) expect(() => maxFinalsPointsByPlacement(2026, divisions, 1), `divisions ${divisions}`).toThrow(UnsupportedAllianceCountError);
+    for (const placement of [0, 5]) expect(() => maxFinalsPointsByPlacement(2026, 4, placement), `placement ${placement}`).toThrow(InvalidPlacementError);
+    expect(() => maxFinalsPointsByPlacement(2026, 2, 3)).toThrow(InvalidPlacementError);
+    expect(() => maxFinalsPointsByPlacement(2022, 4, 1)).toThrow(UnsupportedBracketSeasonError);
   });
 });
 

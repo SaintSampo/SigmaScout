@@ -365,6 +365,50 @@ export function maxPlayoffPointsByPlacement(season: number, tier: DistrictTier, 
   return value;
 }
 
+/**
+ * The MOST a finals placement of a DIVISIONED District Championship can pay
+ * (base, unweighted), by division count, indexed `placement - 1`. Quick task
+ * 261009-kt3.
+ *
+ * The 2026 game manual, section 11.1.3: "Each team on a Champion Alliance of a
+ * 2-Division District Championship Playoff tournament earns 10 points", and
+ * "For a 4-Division District Championship Playoff tournament, each team on a
+ * Champion Alliance earns 20 points and each team on a Finalist Alliance
+ * receives 10 points". Points earned at a District Championship are multiplied
+ * by 3, and a backup robot is prorated, which only lowers a value. Measured
+ * 2023 to 2026 (`data/local-publish/districts`): the finals rows pay exactly 60
+ * and 30 at FIM and exactly 30 at NE, ON and TX, a semifinal loser and a two
+ * division finalist 0, and a 2026 NE finalist that won a Finals match was paid
+ * 0, so the finals pay by placement only, with no per match bonus.
+ */
+export const FINALS_PLACEMENT_MAX_POINTS: Readonly<Record<2 | 4, readonly number[]>> = {
+  2: [10, 0],
+  4: [20, 10, 0, 0],
+};
+
+/**
+ * The most a team on the alliance that finished `placement` in the finals of a
+ * `divisions` division District Championship in `season` can be paid:
+ * `FINALS_PLACEMENT_MAX_POINTS` times the DCMP tier weight, behind
+ * `assertBracketSeason`, a typed error for a division count other than 2 or 4
+ * or a placement outside 1 to `divisions`, and the DCMP Playoffs ceiling.
+ */
+export function maxFinalsPointsByPlacement(season: number, divisions: number, placement: number): number {
+  assertBracketSeason(season);
+  if (divisions !== 2 && divisions !== 4) {
+    throw new UnsupportedAllianceCountError(`a divisioned District Championship's finals has 2 or 4 alliances, got ${String(divisions)}`);
+  }
+  const table = FINALS_PLACEMENT_MAX_POINTS[divisions];
+  if (!Number.isInteger(placement) || placement < 1 || placement > table.length) {
+    throw new InvalidPlacementError(placement);
+  }
+  const value = table[placement - 1]! * districtTierWeight(season, "dcmp");
+  if (value > maxEventPoints(season, "dcmp").elim) {
+    throw new InvalidPlacementError(placement);
+  }
+  return value;
+}
+
 // ---------------------------------------------------------------------------
 // The non-eight-alliance fallback: divisioned district championship parents
 // ---------------------------------------------------------------------------
