@@ -1199,3 +1199,34 @@ describe("buildChampLedgerRows — distributionsPending (261007-4qr)", () => {
     }
   });
 });
+
+describe("buildChampLedgerRows — every dcmp pass row is a DCMP source (261009-kt3, D3)", () => {
+  const PARENT = "2026pncmp";
+  const DIVISION = "2026pncmp1";
+  const TEAM = "frc2046";
+  const withFinalsRow: DistrictArtifact = DistrictArtifactSchema.parse({
+    ...FIXTURE,
+    teams: FIXTURE.teams.map((team) => {
+      const relabel = <T extends { eventKey: string }>(row: T): T => (row.eventKey === PARENT ? { ...row, eventKey: DIVISION } : row);
+      const eventPoints = team.eventPoints.map(relabel);
+      if (team.teamKey !== TEAM) return { ...team, eventPoints, remainingEvents: team.remainingEvents.map(relabel) };
+      const divisionRow = eventPoints.find((row) => row.eventKey === DIVISION)!;
+      return { ...team, eventPoints: [...eventPoints, { ...divisionRow, eventKey: PARENT, qual: 0, alliance: 0, elim: 30, award: 30, total: 60 }] };
+    }),
+  });
+  const withoutFinalsRow: DistrictArtifact = DistrictArtifactSchema.parse({
+    ...withFinalsRow,
+    teams: withFinalsRow.teams.map((team) => (team.teamKey === TEAM ? { ...team, eventPoints: team.eventPoints.filter((row) => row.eventKey !== PARENT) } : team)),
+  });
+  const allFinal = (artifact: DistrictArtifact) => new Map(allFixtureEventKeys(artifact).map((key) => [key, ALL_FINAL] as const));
+
+  it("lists the division row then the finals row, in artifact order, and leaves the DCMP row's cells reading the first", () => {
+    const rows = buildChampLedgerRows({ artifact: withFinalsRow, distributions: new Map(), stageByEvent: allFinal(withFinalsRow), dcmpStarted: true });
+    const team = rows.teams.find((entry) => entry.teamKey === TEAM)!;
+    expect(team.dcmpRow.sources.map((source) => source.eventKey)).toEqual([DIVISION, PARENT]);
+    const baseline = buildChampLedgerRows({ artifact: withoutFinalsRow, distributions: new Map(), stageByEvent: allFinal(withoutFinalsRow), dcmpStarted: true });
+    const baseTeam = baseline.teams.find((entry) => entry.teamKey === TEAM)!;
+    expect(team.dcmpRow.cells).toEqual(baseTeam.dcmpRow.cells);
+    expect(team.dcmpRow.sources[0]).toEqual(baseTeam.dcmpRow.sources[0]);
+  });
+});

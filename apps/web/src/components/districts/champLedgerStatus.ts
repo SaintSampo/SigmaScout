@@ -73,6 +73,19 @@
  *    task 261009-2tr, CONTEXT D7): a losing finalist that won one Finals match
  *    is paid 75 at a 2026 DCMP while its cell prints 60.
  *
+ *    EVERY DCMP SOURCE IS FOLDED (quick task 261009-kt3, CONTEXT D3). A team
+ *    at a divisioned championship carries its division row and, once TBA pays
+ *    it there, a finals row (2026 frc27: micmp1 66, 48, 90, 0 and micmp 0, 0,
+ *    60, 30). Each source's open categories leave the floor at its own stage.
+ *    A finals source's Qualification and Alliance selection ceilings are 0, its
+ *    Playoffs ceiling is the finals champion maximum (60 at four divisions, 30
+ *    at two) and is never settled from a bracket, and its Awards ceiling is the
+ *    3x DCMP one. A division team with no finals row carries the finals
+ *    champion maximum while the finals' Playoffs are open
+ *    (`champFinalsCeilingWithoutRow`), since TBA writes a finals row only once
+ *    it pays one. Each DCMP award is gated on its OWN event's stage: the winner
+ *    and consuming awards of a divisioned championship are given at its finals.
+ *
  * 5. THE JOINT WORST CASE PROOF (quick task 261009-2tr). A second proof of
  *    `"locked"`, OR-ed with the ceiling test and superseding nothing, exactly
  *    as `locks.ts` ORs its pooled test. Decision 2's reservation and the
@@ -116,13 +129,14 @@ import { AWARD_TYPE_WINNER, consumingAwardTypesForTier } from "../../../../../pa
 import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
 import { dcmpAwardCountCeilings, dcmpJudgedAwardCeiling, dcmpJudgedAwardPoints } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
 import {
+  championshipStemOf,
   dcmpNeverHappening,
   MAX_WINNING_ALLIANCE_SIZE,
   pendingAwardSlots,
   perChampionship,
   reservedChampSlots,
 } from "../../../../../packages/core/districts/champReservedSlots.js";
-import { maxPlayoffPointsByPlacement } from "../../../../../packages/core/districts/bracket.js";
+import { BRACKET_REGISTERED_SEASONS, maxFinalsPointsByPlacement, maxPlayoffPointsByPlacement } from "../../../../../packages/core/districts/bracket.js";
 import { dcmpBracketState, jointLockedTeams, type JointLockAlliance, type JointLockInput } from "../../../../../packages/core/districts/champJointLock.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import {
@@ -135,7 +149,7 @@ import {
   type SettledPlayoffs,
 } from "./districtLedgerRows.js";
 import { DISTRICT_LEDGER_STATUS_KEYS, type DistrictLedgerStatusKey, type DistrictLedgerStatusState } from "./districtLedgerStatus.js";
-import { dcmpEventKeysFor, type ChampLedgerRow, type ChampLedgerTeam } from "./champLedgerRows.js";
+import { dcmpEventKeysFor, type ChampLedgerTeam } from "./champLedgerRows.js";
 import type { ChampNoCallReason, ChampRangeState } from "./champLedgerChances.js";
 import { applyLedgerRangeState, type LedgerRangeCall } from "./ledgerRangeState.js";
 
@@ -197,6 +211,15 @@ export interface ChampLedgerStatusModel {
    * edit.
    */
   readonly jointProof?: ChampJointProof;
+  /**
+   * Every team's FLOOR at the position (the lock input's `pointTotal`): the
+   * corpus sweep's D3 assertion reads it (quick task 261009-kt3). Always set by
+   * `computeChampLedgerStatuses`; optional only so a hand built model needs no
+   * edit.
+   */
+  readonly floorByTeam?: ReadonlyMap<string, number>;
+  /** Every team's CEILING at the position (floor plus the open ceiling). Set alongside `floorByTeam`. */
+  readonly ceilingByTeam?: ReadonlyMap<string, number>;
 }
 
 /** Why the joint proof did not run at a position, in the order the preconditions are checked. */
@@ -278,9 +301,73 @@ const EMPTY_CENSUS: Record<LockStatus, number> = {
 
 const ALL_OPEN_STAGE: DistrictStageFinality = { qual: false, alliance: false, elim: false, award: false };
 
-/** The stage of a row's single source event at this position, or every category OPEN where the row has no source. */
-function rowStage(row: ChampLedgerRow): DistrictStageFinality {
-  return row.sources[0]?.stage.final ?? ALL_OPEN_STAGE;
+/** How many DIVISION keys (a trailing digit, the same stem, not the stem itself) a championship stem holds among the dcmp tier keys. */
+function divisionCountOf(stem: string, dcmpEventKeys: readonly string[]): number {
+  return dcmpEventKeys.filter((key) => key !== stem && championshipStemOf(key) === stem).length;
+}
+
+/**
+ * The finals champion maximum of a championship with `divisions` divisions:
+ * `maxFinalsPointsByPlacement` for a registered bracket season at 2 or 4
+ * divisions, otherwise the whole 3x DCMP Playoffs ceiling (the conservative
+ * side, for an earlier season or another division count).
+ */
+function finalsChampionMaximum(season: number, divisions: number): number {
+  if (BRACKET_REGISTERED_SEASONS.includes(season) && (divisions === 2 || divisions === 4)) return maxFinalsPointsByPlacement(season, divisions, 1);
+  return maxEventPoints(season, "dcmp").elim;
+}
+
+/**
+ * The open category ceilings of a FINALS source of a divisioned championship
+ * (quick task 261009-kt3, planner reading R1), or `undefined` for any other
+ * dcmp key. A finals row carries no Qualification or Alliance selection points;
+ * its Playoffs pay at most the finals champion maximum
+ * (`maxFinalsPointsByPlacement`, 60 at four divisions, 30 at two) and its
+ * Awards at most the 3x DCMP Awards ceiling. A division count other than 2 or 4
+ * keeps the whole 3x Playoffs ceiling.
+ */
+function finalsSourceCeiling(
+  eventKey: string,
+  dcmpEventKeys: readonly string[],
+  season: number,
+  dcmpCeiling: Readonly<Record<DistrictCategory, number>>
+): Readonly<Record<DistrictCategory, number>> | undefined {
+  if (championshipStemOf(eventKey) !== eventKey) return undefined;
+  const divisions = divisionCountOf(eventKey, dcmpEventKeys);
+  if (divisions < 2) return undefined;
+  return { qual: 0, alliance: 0, elim: finalsChampionMaximum(season, divisions), award: dcmpCeiling.award };
+}
+
+/**
+ * THE FINALS PLAYOFFS CEILING OF A DIVISION TEAM WITH NO FINALS ROW (quick task
+ * 261009-kt3, planner reading R2). A finals row exists only for a team TBA paid
+ * there, so a live artifact may carry none before the finals pay, while a four
+ * division finalist is paid 30. A team with a source at a division of a stem
+ * that holds 2 or more division keys, and no source at that stem's parent,
+ * therefore carries the finals champion maximum (90 when the division count is
+ * not 2 or 4) while the parent's Playoffs are not final (all open where no row
+ * carries the parent). Zero in every other case, so it can never fire on a
+ * single championship (one key) or on two championships (each one key).
+ */
+export function champFinalsCeilingWithoutRow(
+  sourceKeys: readonly string[],
+  dcmpEventKeys: readonly string[],
+  season: number,
+  stageByEvent: ReadonlyMap<string, DistrictStageFinality>
+): number {
+  let total = 0;
+  const seen = new Set<string>();
+  for (const key of sourceKeys) {
+    const stem = championshipStemOf(key);
+    if (stem === key || seen.has(stem)) continue;
+    seen.add(stem);
+    const divisions = divisionCountOf(stem, dcmpEventKeys);
+    if (divisions < 2) continue;
+    if (sourceKeys.includes(stem)) continue;
+    if ((stageByEvent.get(stem) ?? ALL_OPEN_STAGE).elim) continue;
+    total += finalsChampionMaximum(season, divisions);
+  }
+  return total;
 }
 
 /**
@@ -332,8 +419,20 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
   const dcmpMaxTotal = dcmpCeiling.qual + dcmpCeiling.alliance + dcmpCeiling.elim + dcmpCeiling.award;
 
   const sourceByKey = new Map(artifact.teams.map((team) => [team.teamKey, team] as const));
-  const dcmpEventKeys = new Set(dcmpEventKeysFor(artifact));
+  const dcmpEventKeyList = dcmpEventKeysFor(artifact);
+  const dcmpEventKeys = new Set(dcmpEventKeyList);
   const consuming = consumingAwardTypesForTier("dcmp");
+
+  // EVERY dcmp tier event's stage at this position, read off the rows (the one
+  // place the rewind rail writes it), over EVERY source of every team, first
+  // seen per key (quick task 261009-kt3, reading R3). A key no row carries
+  // reads all open. The reservation, the award gate and the joint proof read it.
+  const dcmpStageByEvent = new Map<string, DistrictStageFinality>();
+  for (const team of teams) {
+    for (const source of team.dcmpRow.sources) {
+      if (!dcmpStageByEvent.has(source.eventKey)) dcmpStageByEvent.set(source.eventKey, source.stage.final);
+    }
+  }
 
   const lockInputs: LockTeamInput[] = [];
   const orderedKeys: string[] = [];
@@ -344,8 +443,8 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
   // the two DCMP pieces the proof models itself, and the DCMP source's settled
   // Playoffs value for a team in the field.
   const jointExtraByTeam = new Map<string, number>();
-  const dcmpSettledByTeam = new Map<string, SettledPlayoffs | undefined>();
-  let winnerPosted = false;
+  const dcmpSettledByEvent = new Map<string, Map<string, SettledPlayoffs | undefined>>();
+  const winnerPostedAt = new Set<string>();
 
   for (const team of teams) {
     const source = sourceByKey.get(team.teamKey);
@@ -375,30 +474,56 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
     }
 
     // The DCMP row, at the 3x ceilings, and only for a team that is in the
-    // field or may still be.
-    const dcmpStage = rowStage(team.dcmpRow);
-    const dcmpEntry = team.dcmpRow.sources[0];
+    // field or may still be. EVERY source is folded (quick task 261009-kt3,
+    // CONTEXT D3): a team at a divisioned championship carries its division
+    // row and, once paid there, its finals row, and the finals' open points
+    // must leave the floor at a rewound stop exactly as the division's do.
+    const dcmpSources = team.dcmpRow.sources;
     let jointModeled = 0;
-    if (team.membership !== "out" && dcmpEntry !== undefined) {
-      dcmpSettledByTeam.set(team.teamKey, dcmpEntry.settledElim);
-      const earned = earnedByEvent.get(dcmpEntry.eventKey);
-      for (const category of DISTRICT_CATEGORIES) {
-        if (dcmpStage[category]) continue;
-        if (earned !== undefined) floor -= earned[category];
-        if (category === "elim" && dcmpEntry.settledElim !== undefined) {
-          // Knocked out of the DCMP playoffs: settled in place of the whole 3x
-          // ceiling (decision 4 in this module's header).
-          const settled = settledElimBounds(dcmpEntry.settledElim);
-          floor += settled.floor;
-          openCeiling += settled.ceiling;
-          continue;
+    if (team.membership !== "out" && dcmpSources.length > 0) {
+      for (const dcmpEntry of dcmpSources) {
+        const dcmpStage = dcmpEntry.stage.final;
+        const finalsCeiling = finalsSourceCeiling(dcmpEntry.eventKey, dcmpEventKeyList, artifact.year, dcmpCeiling);
+        // The finals Playoffs are never settled from a bracket (reading R1):
+        // open until the finals' Playoffs stage is final.
+        const settledElim = finalsCeiling === undefined ? dcmpEntry.settledElim : undefined;
+        let settledAtKey = dcmpSettledByEvent.get(dcmpEntry.eventKey);
+        if (settledAtKey === undefined) {
+          settledAtKey = new Map();
+          dcmpSettledByEvent.set(dcmpEntry.eventKey, settledAtKey);
         }
-        openCeiling += dcmpCeiling[category];
-        // The joint proof models the open DCMP Awards and an unsettled open
-        // DCMP Playoffs category itself (261009-2tr planner reading 5).
-        if (category === "award" || category === "elim") jointModeled += dcmpCeiling[category];
+        settledAtKey.set(team.teamKey, settledElim);
+        const ceiling = finalsCeiling ?? dcmpCeiling;
+        const earned = earnedByEvent.get(dcmpEntry.eventKey);
+        for (const category of DISTRICT_CATEGORIES) {
+          if (dcmpStage[category]) continue;
+          if (earned !== undefined) floor -= earned[category];
+          if (category === "elim" && settledElim !== undefined) {
+            // Knocked out of the DCMP playoffs: settled in place of the whole 3x
+            // ceiling (decision 4 in this module's header).
+            const settled = settledElimBounds(settledElim);
+            floor += settled.floor;
+            openCeiling += settled.ceiling;
+            continue;
+          }
+          openCeiling += ceiling[category];
+          // The joint proof models the open DCMP Awards and an unsettled open
+          // DCMP Playoffs category itself (261009-2tr planner reading 5), the
+          // finals' two included (261009-kt3 reading R1).
+          if (category === "award" || category === "elim") jointModeled += ceiling[category];
+        }
       }
-    } else if (team.membership !== "out" && dcmpEntry === undefined) {
+      // A division team with no finals row may still be paid in the finals
+      // (reading R2); zero at a single championship and at two championships.
+      const finalsWithoutRow = champFinalsCeilingWithoutRow(
+        dcmpSources.map((entry) => entry.eventKey),
+        dcmpEventKeyList,
+        artifact.year,
+        dcmpStageByEvent
+      );
+      openCeiling += finalsWithoutRow;
+      jointModeled += finalsWithoutRow;
+    } else if (team.membership !== "out" && dcmpSources.length === 0) {
       // THE PRE-REGISTRATION WINDOW. The artifact names no championship for
       // this team, so there is no row to read a stage off — but the season
       // plainly still allows one, and a status that pretended otherwise would
@@ -425,17 +550,20 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
       // A DISTRICT-event Impact win qualifies a team for the DCMP, not the
       // Championship, so only awards at a DCMP are read here — at ANY of the
       // district's championships (quick task 261006-lwo; 2026 California ran
-      // two). The stage gate below is this team's own championship's, which is
-      // where its award was won.
+      // two). The stage gate below is the award's OWN event's (quick task
+      // 261009-kt3, reading R3): a divisioned championship's winner and
+      // consuming awards are given at its finals event, whose stage is not the
+      // team's division's.
       if (!dcmpEventKeys.has(award.eventKey)) continue;
       if (!consuming.has(award.awardType)) continue;
       // AN AWARD THE SLIDER HAS REOPENED HAS NOT BEEN GIVEN OUT at this
       // position. The winning alliance is decided by the PLAYOFFS and the
       // judged awards by the AWARDS stage, so each is gated on its own
       // category.
-      const gate = award.awardType === AWARD_TYPE_WINNER ? dcmpStage.elim : dcmpStage.award;
+      const awardStage = dcmpStageByEvent.get(award.eventKey) ?? ALL_OPEN_STAGE;
+      const gate = award.awardType === AWARD_TYPE_WINNER ? awardStage.elim : awardStage.award;
       if (!gate) continue;
-      if (award.awardType === AWARD_TYPE_WINNER) winnerPosted = true;
+      if (award.awardType === AWARD_TYPE_WINNER) winnerPostedAt.add(award.eventKey);
       awardQualified.add(team.teamKey);
       // `winner` wins the label where a team holds both: it is the rarer and
       // more specific claim, and it is the one the DCMP tier adds over the
@@ -448,18 +576,12 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
   const qualifiers: QualifierSets = { awardQualified, prequalified };
 
   // THE CHAMP-TIER RESERVATION — decision 2 in this module's header. Each
-  // dcmp-tier event's stage at this position is read off the rows, the one
-  // place the rewind rail writes it (the first row sourcing each key), then
-  // folded to one stage per CHAMPIONSHIP: FIM's four divisions and their
-  // finals are one championship at the finals' stage, California's two keys
-  // are two (`perChampionship`). One reservation per championship, summed.
-  // With no dcmp row anywhere one whole championship is open, which is the
-  // conservative answer. No pooled argument is passed.
-  const dcmpStageByEvent = new Map<string, DistrictStageFinality>();
-  for (const team of teams) {
-    const source = team.dcmpRow.sources[0];
-    if (source !== undefined && !dcmpStageByEvent.has(source.eventKey)) dcmpStageByEvent.set(source.eventKey, source.stage.final);
-  }
+  // dcmp-tier event's stage at this position (`dcmpStageByEvent`, over every
+  // source) is folded to one stage per CHAMPIONSHIP: FIM's four divisions and
+  // their finals are one championship at the finals' stage, California's two
+  // keys are two (`perChampionship`). One reservation per championship,
+  // summed. With no dcmp row anywhere one whole championship is open, which is
+  // the conservative answer. No pooled argument is passed.
   const awardCeilings = dcmpAwardCountCeilings(artifact.year, artifact.districtKey, artifact.cmpSlots ?? 0).counts;
   const neverHappening = dcmpNeverHappening({
     dcmpStates: artifact.teams.flatMap((team) => tierEvents(team, "dcmp").map((entry) => entry.state)),
@@ -480,16 +602,17 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
   const pointsSlots = artifact.cmpSlots === null ? 0 : narrowing.pointsSlots;
 
   // THE JOINT WORST CASE PROOF — decision 5 in this module's header.
+  const floorByTeam = new Map(lockInputs.map((input) => [input.teamKey, input.pointTotal] as const));
   const jointProof = jointProofAt({
     artifact,
     distributions: options.distributions,
     dcmpStageByEvent,
     neverHappening,
-    winnerPosted,
+    winnerPostedAt,
     narrowing,
-    floorByTeam: new Map(lockInputs.map((input) => [input.teamKey, input.pointTotal] as const)),
+    floorByTeam,
     jointExtraByTeam,
-    dcmpSettledByTeam,
+    dcmpSettledByEvent,
     qualifiers,
     awardCeilings,
   });
@@ -544,6 +667,8 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
     reservedSlots,
     pointsSlots,
     jointProof,
+    floorByTeam,
+    ceilingByTeam: new Map(lockInputs.map((input) => [input.teamKey, input.pointTotal + input.maxRemaining] as const)),
   };
 }
 
@@ -552,11 +677,13 @@ interface JointProofAtInput {
   readonly distributions: ReadonlyMap<string, DistrictEventDistributions> | undefined;
   readonly dcmpStageByEvent: ReadonlyMap<string, DistrictStageFinality>;
   readonly neverHappening: boolean;
-  readonly winnerPosted: boolean;
+  /** The dcmp tier keys whose winner award is posted at the position. */
+  readonly winnerPostedAt: ReadonlySet<string>;
   readonly narrowing: ReturnType<typeof pointsRaceSlots>;
   readonly floorByTeam: ReadonlyMap<string, number>;
   readonly jointExtraByTeam: ReadonlyMap<string, number>;
-  readonly dcmpSettledByTeam: ReadonlyMap<string, SettledPlayoffs | undefined>;
+  /** Per dcmp tier key, each team with a source there and its settled Playoffs value (undefined when unsettled). */
+  readonly dcmpSettledByEvent: ReadonlyMap<string, ReadonlyMap<string, SettledPlayoffs | undefined>>;
   readonly qualifiers: QualifierSets;
   readonly awardCeilings: Parameters<typeof pendingAwardSlots>[0];
 }
@@ -581,6 +708,7 @@ function jointProofAt(input: JointProofAtInput): ChampJointProof {
   if (artifact.cmpSlots === null) return { applied: false, reason: "noCapacity" };
   if (input.neverHappening) return { applied: false, reason: "neverHappening" };
 
+  const dcmpSettledByTeam = input.dcmpSettledByEvent.get(dcmpKey) ?? new Map<string, SettledPlayoffs | undefined>();
   const routing = dcmpBracketState(facts.playedMatches, DCMP_ALLIANCE_NUMBERS);
   let candidateWinners: (number | null)[];
   let aliveAlliances: number[];
@@ -588,7 +716,7 @@ function jointProofAt(input: JointProofAtInput): ChampJointProof {
     // Playoffs final (planner reading 8): the posted winner has left the pool,
     // or the routed final names the winner; otherwise nothing is known.
     aliveAlliances = [];
-    if (input.winnerPosted) candidateWinners = [null];
+    if (input.winnerPostedAt.has(dcmpKey)) candidateWinners = [null];
     else if (routing?.decidedWinner !== undefined) candidateWinners = [routing.decidedWinner];
     else return { applied: false, reason: "winnerNotPosted" };
   } else {
@@ -598,7 +726,7 @@ function jointProofAt(input: JointProofAtInput): ChampJointProof {
     // playoff points could otherwise fall between its floor and the proof.
     const alive = new Set(routing.alive);
     for (const alliance of facts.alliances) {
-      const unsettled = alliance.picks.some((pick) => input.dcmpSettledByTeam.has(pick) && input.dcmpSettledByTeam.get(pick) === undefined);
+      const unsettled = alliance.picks.some((pick) => dcmpSettledByTeam.has(pick) && dcmpSettledByTeam.get(pick) === undefined);
       if (unsettled) alive.add(alliance.allianceNumber);
     }
     aliveAlliances = [...alive].sort((a, b) => a - b);
@@ -630,7 +758,7 @@ function jointProofAt(input: JointProofAtInput): ChampJointProof {
       floor: input.floorByTeam.get(teamKey)!,
       extra:
         (input.jointExtraByTeam.get(teamKey) ?? 0) +
-        jointDecidedPlacementTopUp(input.dcmpSettledByTeam.get(teamKey), placementOfTeam.get(teamKey), artifact.year),
+        jointDecidedPlacementTopUp(dcmpSettledByTeam.get(teamKey), placementOfTeam.get(teamKey), artifact.year),
     })),
     slotOnlyRivals: [...input.qualifiers.prequalified].filter((teamKey) => !input.qualifiers.awardQualified.has(teamKey)).sort(),
     pointsSlots: narrowing.pointsSlots,

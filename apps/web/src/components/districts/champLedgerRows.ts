@@ -944,8 +944,11 @@ function buildDcmpRow(
   simulated: SimulatedDcmpReading | undefined
 ): { readonly row: ChampLedgerRow; readonly winChance: number; readonly outsideSimulatedField: boolean } {
   const row = entry.rows[0];
-  const sources: ChampLedgerSource[] =
-    row === undefined ? [] : [sourceOf(row)];
+  // EVERY dcmp pass row is a source (quick task 261009-kt3, CONTEXT D3): a team
+  // at a divisioned championship carries its division row and, once paid there,
+  // its finals row, and the status module folds both into the floor and the
+  // ceiling. The cells and the small line keep reading the first row.
+  const sources: ChampLedgerSource[] = entry.rows.map(sourceOf);
 
   const wholeRow = (
     kind: "notInField" | "notYetPriced" | "outOfRange",

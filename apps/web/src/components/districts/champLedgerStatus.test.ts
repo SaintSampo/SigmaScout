@@ -21,7 +21,7 @@ import { maxEventPoints } from "../../../../../packages/core/districts/pointMode
 import { dcmpAwardCountCeilings } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
 import { MAX_WINNING_ALLIANCE_SIZE, pendingAwardSlots } from "../../../../../packages/core/districts/champReservedSlots.js";
 import { buildChampLedgerRows } from "./champLedgerRows.js";
-import { applyChampRangeState, computeChampLedgerStatuses, jointDecidedPlacementTopUp } from "./champLedgerStatus.js";
+import { applyChampRangeState, champFinalsCeilingWithoutRow, computeChampLedgerStatuses, jointDecidedPlacementTopUp } from "./champLedgerStatus.js";
 import { champCutoffView, type ChampRangeState } from "./champLedgerChances.js";
 import { SHOW_SIMULATED_CHAMP_LIKELY_RANGE, predictedCutoff, type LedgerCutoffView } from "./predictedCutoff.js";
 import { playoffPoints, type AllianceBracketMilestone, type PlayedBracketMatch } from "../../../../../packages/core/districts/bracket.js";
@@ -1041,5 +1041,110 @@ describe("computeChampLedgerStatuses — the joint worst case proof (261009-2tr)
     const control = run(atEdge - 15);
     expect(control.byTeam.get("frc9001")!.verdict).toBe("locked");
     expect(control.byTeam.get("frc9001")!.lockedBy).toBe("ceiling");
+  });
+});
+
+/**
+ * Quick task 261009-kt3, CONTEXT D3 and planner readings R1 to R3, on the PNW
+ * fixture split into two divisions (`2026pncmp1` for even indices, `2026pncmp2`
+ * for odd) with the parent `2026pncmp` as the finals: every DCMP award stays at
+ * the parent, where a divisioned championship gives it, and frc2046 carries an
+ * extra finals row (qual 0, alliance 0, elim 30, award 30) with its pointTotal
+ * raised by 60.
+ */
+describe("computeChampLedgerStatuses — every championship row is folded (261009-kt3, D3 and R1 to R3)", () => {
+  const PARENT = "2026pncmp";
+  const DIVISIONS = ["2026pncmp1", "2026pncmp2"] as const;
+  const FINALS_TEAM = "frc2046";
+  const FINALS_ELIM_OPEN: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
+  const FINALS_AWARDS_OPEN: DistrictStageFinality = { qual: true, alliance: true, elim: true, award: false };
+
+  const DIVISIONED: DistrictArtifact = DistrictArtifactSchema.parse({
+    ...FIXTURE,
+    teams: FIXTURE.teams.map((team, index) => {
+      const division = DIVISIONS[index % 2]!;
+      const relabel = <T extends { eventKey: string }>(row: T): T => (row.eventKey === PARENT ? { ...row, eventKey: division } : row);
+      const eventPoints = team.eventPoints.map(relabel);
+      const relabelled = { ...team, eventPoints, remainingEvents: team.remainingEvents.map(relabel) };
+      if (team.teamKey !== FINALS_TEAM) return relabelled;
+      const divisionRow = eventPoints.find((row) => row.eventKey === division)!;
+      return {
+        ...relabelled,
+        pointTotal: team.pointTotal + 60,
+        eventPoints: [...eventPoints, { ...divisionRow, eventKey: PARENT, qual: 0, alliance: 0, elim: 30, award: 30, total: 60 }],
+      };
+    }),
+  });
+  const finalsTeamSource = DIVISIONED.teams.find((team) => team.teamKey === FINALS_TEAM)!;
+  /** A division team with no finals row, in the field. */
+  const DIVISION_ONLY_TEAM = DIVISIONED.teams.find(
+    (team) => team.teamKey !== FINALS_TEAM && team.eventPoints.some((row) => row.eventKey === DIVISIONS[0]) && team.eventPoints.every((row) => row.eventKey !== PARENT)
+  )!.teamKey;
+
+  function divisionedAt(division: DistrictStageFinality, finals: DistrictStageFinality) {
+    const stageByEvent = new Map(
+      eventKeysOf(DIVISIONED).map((key) => [key, key === PARENT ? finals : (DIVISIONS as readonly string[]).includes(key) ? division : ALL_FINAL] as const)
+    );
+    const rows = buildChampLedgerRows({ artifact: DIVISIONED, distributions: new Map(), stageByEvent, dcmpStarted: true });
+    return { rows, status: computeChampLedgerStatuses({ artifact: DIVISIONED, teams: rows.teams, nowYear: 2026 }), stageByEvent };
+  }
+
+  it("lists both of the finals team's rows as DCMP sources, division first", () => {
+    const { rows } = divisionedAt(ALL_FINAL, ALL_OPEN);
+    const team = rows.teams.find((entry) => entry.teamKey === FINALS_TEAM)!;
+    expect(team.dcmpRow.sources.map((source) => source.eventKey)).toEqual([DIVISIONS[FIXTURE.teams.findIndex((t) => t.teamKey === FINALS_TEAM) % 2], PARENT]);
+  });
+
+  it("D3: with both divisions final and the finals all open, the finals row's 60 leaves the floor and its 30 plus 45 enter the ceiling; at Now the floor is pointTotal", () => {
+    const open = divisionedAt(ALL_FINAL, ALL_OPEN).status;
+    expect(open.floorByTeam!.get(FINALS_TEAM)).toBe(finalsTeamSource.pointTotal - 60);
+    expect(open.ceilingByTeam!.get(FINALS_TEAM)! - open.floorByTeam!.get(FINALS_TEAM)!).toBe(30 + maxEventPoints(2026, "dcmp").award);
+    const now = divisionedAt(ALL_FINAL, ALL_FINAL).status;
+    expect(now.floorByTeam!.get(FINALS_TEAM)).toBe(finalsTeamSource.pointTotal);
+    expect(now.ceilingByTeam!.get(FINALS_TEAM)).toBe(finalsTeamSource.pointTotal);
+  });
+
+  it("R2: a division team with no finals row carries the two division finals champion maximum while the finals' Playoffs are open, and not once they are final", () => {
+    const open = divisionedAt(ALL_FINAL, FINALS_ELIM_OPEN).status;
+    expect(open.ceilingByTeam!.get(DIVISION_ONLY_TEAM)! - open.floorByTeam!.get(DIVISION_ONLY_TEAM)!).toBe(30);
+    const closed = divisionedAt(ALL_FINAL, FINALS_AWARDS_OPEN).status;
+    expect(closed.ceilingByTeam!.get(DIVISION_ONLY_TEAM)).toBe(closed.floorByTeam!.get(DIVISION_ONLY_TEAM));
+  });
+
+  it("R2 never applies at a single championship or at two championships: the helper is 0 for every team of PNW, the two championship fixture and (when present) FNC 2026", () => {
+    const SECOND_KEY = "2026pnncmp";
+    const TWO: DistrictArtifact = DistrictArtifactSchema.parse({
+      ...FIXTURE,
+      teams: FIXTURE.teams.map((team, index) => {
+        if (index % 2 === 0) return team;
+        const relabel = <T extends { eventKey: string }>(row: T): T => (row.eventKey === PARENT ? { ...row, eventKey: SECOND_KEY } : row);
+        return { ...team, eventPoints: team.eventPoints.map(relabel), remainingEvents: team.remainingEvents.map(relabel), qualifyingAwards: team.qualifyingAwards.map(relabel) };
+      }),
+    });
+    const fncPath = (() => {
+      try {
+        return repoFile("data/local-publish/districts/v1__district__2026fnc.json");
+      } catch {
+        return undefined;
+      }
+    })();
+    const artifacts = [FIXTURE, TWO, ...(fncPath === undefined ? [] : [DistrictArtifactSchema.parse(JSON.parse(readFileSync(fncPath, "utf8")))])];
+    for (const artifact of artifacts) {
+      const dcmpKeys = [...new Set(artifact.teams.flatMap((team) => [...team.eventPoints, ...team.remainingEvents].filter((row) => row.tier === "dcmp").map((row) => row.eventKey)))].sort();
+      for (const stage of [ALL_OPEN, FINALS_ELIM_OPEN, FINALS_AWARDS_OPEN, ALL_FINAL]) {
+        const stageByEvent = new Map(eventKeysOf(artifact).map((key) => [key, stage] as const));
+        for (const team of artifact.teams) {
+          const sourceKeys = [...team.eventPoints, ...team.remainingEvents].filter((row) => row.tier === "dcmp").map((row) => row.eventKey);
+          expect(champFinalsCeilingWithoutRow(sourceKeys, dcmpKeys, artifact.year, stageByEvent), `${artifact.districtKey} ${team.teamKey}`).toBe(0);
+        }
+      }
+    }
+    expect(champFinalsCeilingWithoutRow([DIVISIONS[0]], [PARENT, ...DIVISIONS], 2026, new Map())).toBe(30);
+  });
+
+  it("R3: the winner award at the finals key does not qualify a team while the finals' Playoffs are open, though its division's are final, and does once they are final", () => {
+    expect(finalsTeamSource.qualifyingAwards.some((award) => award.awardType === 1 && award.eventKey === PARENT)).toBe(true);
+    expect(divisionedAt(ALL_FINAL, FINALS_ELIM_OPEN).status.awardQualified).not.toContain(FINALS_TEAM);
+    expect(divisionedAt(ALL_FINAL, FINALS_AWARDS_OPEN).status.awardQualified).toContain(FINALS_TEAM);
   });
 });
