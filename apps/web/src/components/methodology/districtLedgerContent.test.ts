@@ -320,6 +320,13 @@ describe("districtLedgerContent: the rewound view and the championship field (26
     ]);
   });
 
+  it("says a championship played in divisions adds the finals points to the District Championship row once they are earned (261009-tx8)", () => {
+    const paragraphs = paragraphsOf("how-district-points-work");
+    expect(paragraphs.find((text) => text.startsWith("The Champ Locks tab predicts each team's finish"))).toBe(
+      "The Champ Locks tab predicts each team's finish in the race for the district's FIRST Championship slots, adding the District Championship's own four categories to the district season total. Only the grand total folds in the chance of being there. A championship played in divisions adds the finals points to the District Championship row once they are earned."
+    );
+  });
+
   it("closes the open categories section with the as-of rule and the playoff stops, and nothing says a rewound view knows more (261005-5g0, 261007-3g2)", () => {
     const paragraphs = paragraphsOf("how-open-categories-are-predicted");
     expect(paragraphs[paragraphs.length - 1]).toBe(

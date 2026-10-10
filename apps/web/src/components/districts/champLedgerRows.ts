@@ -606,6 +606,10 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
 
   const dcmpEventKeys = dcmpEventKeysFor(artifact);
   const dcmpEventKey = dcmpEventKeys[0];
+  // Which dcmp keys are a team's OWN championship (a division, a single DCMP)
+  // rather than a divisioned championship's finals: computed once, and handed
+  // to `buildDcmpRow` to pick each team's primary row (quick task 261009-tx8).
+  const fieldFixingKeys: ReadonlySet<string> = new Set(fieldFixingDcmpKeys(dcmpEventKeys));
   const startedDcmpEventKeys: ReadonlySet<string> =
     options.startedDcmpEventKeys ??
     (options.dcmpStarted === undefined ? startedDcmpEventKeysAtNow(artifact) : options.dcmpStarted ? new Set(dcmpEventKeys) : new Set<string>());
@@ -658,14 +662,15 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
       ((options.atLivePosition ?? false) && membership === "in");
     const simulated =
       !fieldIsFact && options.simulatedDcmp !== undefined ? simulatedDcmpReading(options.simulatedDcmp, team.teamKey) : undefined;
-    const { row: dcmpRow, winChance, outsideSimulatedField } = buildDcmpRow(
+    const { row: dcmpRow, winChance, outsideSimulatedField, finalsOpen } = buildDcmpRow(
       dcmpEntry,
       membership,
       dcmpEventTotalCeiling,
       fieldIsFact,
       options.dcmpEstimateByTeam?.get(team.teamKey),
       dcmpCeilings,
-      simulated
+      simulated,
+      fieldFixingKeys
     );
 
     // THE DCMP WAS NEVER PRICED — no championship on the artifact, or no
@@ -684,7 +689,11 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
     // AN OPEN DCMP SUBTOTAL COUNTS (quick task 260927-6bf): an estimated row
     // has no open category cell, and without this a chance 1 team whose
     // district is final would fold as final.
-    const dcmpOpen = rowHasOpenCell(dcmpRow) || dcmpRow.subtotal.kind === "open";
+    // A FINALS CATEGORY STILL OPEN COUNTS TOO (quick task 261009-tx8, B2): the
+    // DCMP row shows the division alone until the finals points are earned, so
+    // without this a division that is all final would settle the grand total
+    // and the predicted cutoff while the finals can still pay.
+    const dcmpOpen = rowHasOpenCell(dcmpRow) || dcmpRow.subtotal.kind === "open" || finalsOpen;
     const hasOpenCategory = districtOpen || dcmpOpen || (!districtOnly && membership === "open" && chance < 1);
 
     const shift = Math.max(0, Math.round(team.rookieBonus)) + Math.max(0, Math.round(team.adjustments));
@@ -956,6 +965,28 @@ function foldCells(
  *    row is priced from awards alone (`districtLedgerRows.ts`
  *    `awardOnlyTeams`, quick task 260927-vmb): the Subtotal is open and the
  *    Playoffs cell is a grey zero, so its win chance is 0.
+ *
+ *    WHICH ROW, AT A DIVISIONED CHAMPIONSHIP (quick task 261009-tx8, B2). A
+ *    team that reached the finals, or won an award there, carries TWO dcmp
+ *    rows: its division's and the finals'. The row read here is the PRIMARY
+ *    row, the first pass row whose key is field fixing
+ *    (`fieldFixingDcmpKeys`: a division, a single DCMP), else the first row,
+ *    so a team whose only dcmp row is the finals reads that row as before.
+ *    The pass sorts same week rows by name, which at FIM puts the finals row
+ *    first; reading the first row printed frc27's finals 0, 0, 60, 30 at 2026
+ *    FIM and hid its division's 66, 48, 90, 0.
+ *
+ *    THE FINALS ARE ADDED ONCE EARNED. For each category, every finals row
+ *    cell that is FINAL at the position adds its earned value: a final primary
+ *    cell becomes the sum, and an open primary cell moved up by a value above
+ *    0 becomes a plain open cell over the shifted distribution, flagged
+ *    `shiftedByFinals` (no milestone, no routes: no named outcome covers the
+ *    shifted support). A value of 0 leaves the primary cell untouched. A
+ *    finals category that is NOT final at the position adds nothing: the
+ *    finals are not priced, and nothing is fabricated. The Subtotal gains the
+ *    sum of the added values, so the cells always add up to it. The win
+ *    chance stays the PRIMARY row's own Playoffs cell, read before any
+ *    addition. `finalsOpen` reports a finals row with anything still open.
  * 3. Otherwise, at a rewound stop before any championship has started, where
  *    the tab supplies the SIMULATED DCMP (the Locked plus In range field baked
  *    in the Web Worker): the team's reading. Locked out gives the em dash and
@@ -985,19 +1016,25 @@ function buildDcmpRow(
   fieldIsFact: boolean,
   estimate: ChampDcmpEstimate | undefined,
   ceilings: ReturnType<typeof maxEventPoints>,
-  simulated: SimulatedDcmpReading | undefined
-): { readonly row: ChampLedgerRow; readonly winChance: number; readonly outsideSimulatedField: boolean } {
-  const row = entry.rows[0];
-  // EVERY dcmp pass row is a source (quick task 261009-kt3, CONTEXT D3): a team
-  // at a divisioned championship carries its division row and, once paid there,
-  // its finals row, and the status module folds both into the floor and the
-  // ceiling. The cells and the small line keep reading the first row.
+  simulated: SimulatedDcmpReading | undefined,
+  fieldFixingKeys: ReadonlySet<string>
+): DcmpRowResult {
+  // THE PRIMARY ROW (quick task 261009-tx8, B2): the team's own championship,
+  // which at a divisioned one is its division and not the finals. See case 2.
+  const row = entry.rows.find((candidate) => fieldFixingKeys.has(candidate.eventKey)) ?? entry.rows[0];
+  const finalsRows = row === undefined ? [] : entry.rows.filter((candidate) => candidate !== row && !fieldFixingKeys.has(candidate.eventKey));
+  // EVERY dcmp pass row is a source, in pass order (quick task 261009-kt3,
+  // CONTEXT D3): a team at a divisioned championship carries its division row
+  // and, once paid there, its finals row, and the status module folds both into
+  // the floor and the ceiling. The order is NOT changed here: the status module
+  // reads the first element. The cells read the primary row plus the finals
+  // once earned, and the small stage line asks `champDcmpStageSource`.
   const sources: ChampLedgerSource[] = entry.rows.map(sourceOf);
 
   const wholeRow = (
     kind: "notInField" | "notYetPriced" | "outOfRange",
     outsideSimulatedField = false
-  ): { row: ChampLedgerRow; winChance: number; outsideSimulatedField: boolean } => ({
+  ): DcmpRowResult => ({
     row: {
       kind: "dcmp",
       cells: DISTRICT_CATEGORIES.map((category) => ({ id: champCellId("dcmp", category), cell: category, kind })),
@@ -1007,9 +1044,10 @@ function buildDcmpRow(
     },
     winChance: 0,
     outsideSimulatedField,
+    finalsOpen: false,
   });
 
-  const unavailableRow = (pending: boolean): { row: ChampLedgerRow; winChance: number; outsideSimulatedField: boolean } => {
+  const unavailableRow = (pending: boolean): DcmpRowResult => {
     const cell = (id: string, kind: DistrictCellKind): ChampLedgerCell =>
       pending ? { id, cell: kind, kind: "unavailable", pending: true } : { id, cell: kind, kind: "unavailable" };
     return {
@@ -1022,6 +1060,7 @@ function buildDcmpRow(
       },
       winChance: 0,
       outsideSimulatedField: false,
+      finalsOpen: false,
     };
   };
 
@@ -1029,22 +1068,37 @@ function buildDcmpRow(
 
   // The row is the team's OWN championship, whichever of the district's it attends.
   if (fieldIsFact && row !== undefined) {
-    const subtotal = reId(row.eventTotal, champCellId("dcmp", "eventTotal"), "eventTotal", eventTotalCeiling);
+    const ownSubtotal = reId(row.eventTotal, champCellId("dcmp", "eventTotal"), "eventTotal", eventTotalCeiling);
     // NO SUBTOTAL MEANS NOTHING WAS PRICED. The championship is on the
     // artifact but the tab read neither a baked sidecar nor an event artifact
-    // for it; the estimate below stands in where it is supplied.
-    if (subtotal.kind !== "unavailable") {
+    // for it; the estimate below stands in where it is supplied. The gate reads
+    // the PRIMARY row's Subtotal, before any finals value is added.
+    if (ownSubtotal.kind !== "unavailable") {
       const elimIndex = DISTRICT_CATEGORIES.indexOf("elim");
+      // The finals points already earned, per category; `undefined` where no
+      // finals row has that category final at the position.
+      let addedTotal = 0;
+      let anyAdded = false;
+      const cells = DISTRICT_CATEGORIES.map((category, index) => {
+        const own = reId(row.cells[index], champCellId("dcmp", category), category);
+        const added = finalsEarned(finalsRows.map((finals) => finals.cells[index]));
+        if (added === undefined) return own;
+        anyAdded = true;
+        addedTotal += added;
+        return withFinalsAdded(own, added, ceilings[category] + added);
+      });
       return {
         row: {
           kind: "dcmp",
-          cells: DISTRICT_CATEGORIES.map((category, index) => reId(row.cells[index], champCellId("dcmp", category), category)),
-          subtotal,
+          cells,
+          subtotal: anyAdded ? withFinalsAdded(ownSubtotal, addedTotal, eventTotalCeiling + addedTotal) : ownSubtotal,
           sources,
           estimated: false,
         },
+        // The PRIMARY row's own Playoffs cell, read before any addition.
         winChance: winChanceOf(row.cells[elimIndex], ceilings.elim),
         outsideSimulatedField: false,
+        finalsOpen: finalsRows.some((finals) => finals.eventTotal.kind !== "final" || finals.cells.some((cell) => cell.kind !== "final")),
       };
     }
   }
@@ -1076,6 +1130,7 @@ function buildDcmpRow(
           },
           winChance: winChanceOf(cells[DISTRICT_CATEGORIES.indexOf("elim")], ceilings.elim),
           outsideSimulatedField: false,
+          finalsOpen: false,
         };
       }
     }
@@ -1092,10 +1147,83 @@ function buildDcmpRow(
       },
       winChance: estimate.winChance,
       outsideSimulatedField: false,
+      finalsOpen: false,
     };
   }
 
   return wholeRow("notYetPriced");
+}
+
+/** What `buildDcmpRow` returns. `finalsOpen` is true only in case 2, where a finals row beside the primary row has a category or an event total not final at the position. */
+interface DcmpRowResult {
+  readonly row: ChampLedgerRow;
+  readonly winChance: number;
+  readonly outsideSimulatedField: boolean;
+  readonly finalsOpen: boolean;
+}
+
+/** The sum of `earned` over the cells that are FINAL, or `undefined` where none is: an unearned finals category adds nothing rather than a zero. */
+function finalsEarned(cells: readonly (DistrictLedgerCell | undefined)[]): number | undefined {
+  let added: number | undefined;
+  for (const cell of cells) {
+    if (cell?.kind === "final") added = (added ?? 0) + cell.earned;
+  }
+  return added;
+}
+
+/**
+ * One DCMP row cell with finals points already earned added to it (quick task
+ * 261009-tx8, B2).
+ *
+ * A final cell becomes the sum. An open cell moved up by a value above 0 goes
+ * through this module's own `foldCells` with a final part at that value, which
+ * builds a PLAIN open cell (no milestone, no routes, no not picked flag) over
+ * the shifted distribution, and is flagged `shiftedByFinals`. An open cell with
+ * 0 added, and every other kind, is returned untouched.
+ */
+function withFinalsAdded(cell: ChampLedgerCell, added: number, ceiling: number): ChampLedgerCell {
+  if (cell.kind === "final") return { ...cell, earned: cell.earned + added };
+  if (cell.kind !== "open" || added <= 0) return cell;
+  const shifted = foldCells(cell.id, cell.cell, [cell, { id: cell.id, cell: cell.cell, kind: "final", earned: added }], ceiling);
+  return shifted.kind === "open" ? { ...shifted, shiftedByFinals: true } : shifted;
+}
+
+/**
+ * Whether a Champ Locks cell's drawer lists NAMED outcomes (quick task
+ * 261009-tx8, B2): true on the DCMP row, whose cells are one event's, unless
+ * the cell is an open cell flagged `shiftedByFinals`, whose support no named
+ * playoff or award outcome covers. False on the District points row (a sum over
+ * several events) and for the grand total, which belongs to neither row.
+ */
+export function champCellNamesOutcomes(row: ChampLedgerRowKind | undefined, cell: ChampLedgerCell): boolean {
+  if (row !== "dcmp") return false;
+  return !(cell.kind === "open" && cell.shiftedByFinals === true);
+}
+
+/**
+ * The source the DCMP row's small STAGE LINE reads (quick task 261009-tx8,
+ * reading R10): the row's sources division first, then finals, each group in
+ * pass order, and the first of them that still has an open category at the
+ * position. With none open it is the first in that order, whose stage word is
+ * then the final word; an empty list gives `undefined`.
+ *
+ * So the line reads the division's stage while the division is being played,
+ * the finals' stage once the division is done and the finals are not, and the
+ * final word once both are done.
+ *
+ * THE ROW'S OWN KEYS ARE ENOUGH for the ordering. A division source is one
+ * whose key `fieldFixingDcmpKeys` keeps when given just these keys: with both
+ * rows present the finals key is the one another key extends by a digit, and
+ * with one row there is nothing to order. `sources` itself is NOT reordered:
+ * the status module reads its first element.
+ */
+export function champDcmpStageSource(sources: readonly ChampLedgerSource[]): ChampLedgerSource | undefined {
+  const divisionKeys = new Set(fieldFixingDcmpKeys(sources.map((source) => source.eventKey)));
+  const ordered = [
+    ...sources.filter((source) => divisionKeys.has(source.eventKey)),
+    ...sources.filter((source) => !divisionKeys.has(source.eventKey)),
+  ];
+  return ordered.find((source) => DISTRICT_CATEGORIES.some((category) => !source.stage.final[category])) ?? ordered[0];
 }
 
 /** The chance of being on the winning alliance: a Playoffs cell's mass at the winner value, 0 for any cell that is not open. */

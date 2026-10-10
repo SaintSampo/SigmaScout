@@ -265,6 +265,19 @@ export type DistrictLedgerCell =
        * flagged carries no key, so it deep equals the shipped cell.
        */
       readonly notPicked?: true;
+      /**
+       * PRESENT AND TRUE only on a Champ Locks DCMP row cell whose open
+       * DIVISION cell was moved up by finals points already earned (quick task
+       * 261009-tx8, B2, `champLedgerRows.ts` `buildDcmpRow`). Its support is
+       * the division's shifted by that value, which no named playoff or award
+       * outcome covers, so its drawer draws the histogram instead of an outcome
+       * list (`champCellNamesOutcomes`).
+       *
+       * On the `notPicked` precedent: present and true only, never written as
+       * `false`, so a cell that is not flagged carries no key and deep equals
+       * the shipped cell. The District Locks tab never sets it.
+       */
+      readonly shiftedByFinals?: true;
     }
   | {
       readonly id: string;

@@ -12,6 +12,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   DistrictArtifactSchema,
@@ -30,6 +31,7 @@ import {
   pointMassDistribution,
   type DistrictCellKind,
   type DistrictEventDistributions,
+  type DistrictEventStage,
   type DistrictPointDistribution,
   type DistrictStageFinality,
 } from "./districtLedgerRows.js";
@@ -38,7 +40,9 @@ import {
   buildChampLedgerRows,
   earnedAtPositionOf,
   champCellId,
+  champCellNamesOutcomes,
   champContributions,
+  champDcmpStageSource,
   champFieldMembership,
   champTeamHiddenAtDcmp,
   dcmpEventKeyFor,
@@ -46,6 +50,7 @@ import {
   fieldFixingDcmpKeys,
   mixFieldMembership,
   type ChampLedgerCell,
+  type ChampLedgerSource,
   type ChampLedgerTeam,
 } from "./champLedgerRows.js";
 
@@ -1222,13 +1227,22 @@ describe("buildChampLedgerRows — every dcmp pass row is a DCMP source (261009-
   });
   const allFinal = (artifact: DistrictArtifact) => new Map(allFixtureEventKeys(artifact).map((key) => [key, ALL_FINAL] as const));
 
-  it("lists the division row then the finals row, in artifact order, and leaves the DCMP row's cells reading the first", () => {
+  it("lists the division row then the finals row, in artifact order, and the DCMP row's cells are the division plus the finals (261009-tx8, B2)", () => {
     const rows = buildChampLedgerRows({ artifact: withFinalsRow, distributions: new Map(), stageByEvent: allFinal(withFinalsRow), dcmpStarted: true });
     const team = rows.teams.find((entry) => entry.teamKey === TEAM)!;
     expect(team.dcmpRow.sources.map((source) => source.eventKey)).toEqual([DIVISION, PARENT]);
     const baseline = buildChampLedgerRows({ artifact: withoutFinalsRow, distributions: new Map(), stageByEvent: allFinal(withoutFinalsRow), dcmpStarted: true });
     const baseTeam = baseline.teams.find((entry) => entry.teamKey === TEAM)!;
-    expect(team.dcmpRow.cells).toEqual(baseTeam.dcmpRow.cells);
+    // The fixture's finals row is 0, 0, 30, 30: Playoffs and Awards gain 30,
+    // Qualification and Alliance selection are the division's own.
+    const earnedOfCell = (cell: ChampLedgerCell): number => {
+      if (cell.kind !== "final") throw new Error(`expected a final cell, got ${cell.kind}`);
+      return cell.earned;
+    };
+    expect(cellOf(team.dcmpRow.cells, "qual")).toEqual(cellOf(baseTeam.dcmpRow.cells, "qual"));
+    expect(cellOf(team.dcmpRow.cells, "alliance")).toEqual(cellOf(baseTeam.dcmpRow.cells, "alliance"));
+    expect(earnedOfCell(cellOf(team.dcmpRow.cells, "elim"))).toBe(earnedOfCell(cellOf(baseTeam.dcmpRow.cells, "elim")) + 30);
+    expect(earnedOfCell(cellOf(team.dcmpRow.cells, "award"))).toBe(earnedOfCell(cellOf(baseTeam.dcmpRow.cells, "award")) + 30);
     expect(team.dcmpRow.sources[0]).toEqual(baseTeam.dcmpRow.sources[0]);
   });
 
@@ -1247,6 +1261,244 @@ describe("buildChampLedgerRows — every dcmp pass row is a DCMP source (261009-
     it("leaves a team with its own division row reading its own key", () => {
       expect(membershipAt(inDivision.teamKey, new Set([DIVISION]))).toBe("in");
       expect(membershipAt(inDivision.teamKey, new Set([PARENT]))).toBe("open");
+    });
+  });
+});
+
+describe("buildChampLedgerRows — a divisioned championship's DCMP row is the division plus the finals once earned (261009-tx8, B2)", () => {
+  const PARENT = "2026pncmp";
+  const DIVISION = "2026pncmp1";
+  const TEAM = "frc2046";
+  const DIVISION_ONLY_TEAM = FIXTURE.teams.find((team) => team.teamKey !== TEAM && team.eventPoints.some((row) => row.eventKey === PARENT))!.teamKey;
+  type RowValues = { qual: number; alliance: number; elim: number; award: number; total: number };
+  /** frc27 at 2026 FIM: its division row and its finals row, as the artifact publishes them. */
+  const DIVISION_VALUES: RowValues = { qual: 66, alliance: 48, elim: 90, award: 0, total: 204 };
+  const FINALS_VALUES: RowValues = { qual: 0, alliance: 0, elim: 60, award: 30, total: 90 };
+  const FINALS_FIRST = "AAA Finals";
+  const FINALS_LAST = "ZZZ Finals";
+
+  /**
+   * The pnw fixture with its championship relabelled as a division, and TEAM
+   * given the frc27 values. `finalsName` decides which of TEAM's two dcmp rows
+   * the pass sorts first (same week, so the event name breaks the tie), which
+   * is the FIM order when it sorts before the division's name.
+   */
+  function divisioned(options: { finalsName?: string; finals?: RowValues | null; division?: boolean } = {}): DistrictArtifact {
+    const { finalsName = FINALS_LAST, finals = FINALS_VALUES, division = true } = options;
+    return DistrictArtifactSchema.parse({
+      ...FIXTURE,
+      teams: FIXTURE.teams.map((team) => {
+        const relabel = <T extends { eventKey: string }>(row: T): T => (row.eventKey === PARENT ? { ...row, eventKey: DIVISION } : row);
+        const eventPoints = team.eventPoints.map(relabel);
+        if (team.teamKey !== TEAM) return { ...team, eventPoints, remainingEvents: team.remainingEvents.map(relabel) };
+        const divisionRow = eventPoints.find((row) => row.eventKey === DIVISION)!;
+        const others = eventPoints.filter((row) => row.eventKey !== DIVISION);
+        return {
+          ...team,
+          eventPoints: [
+            ...others,
+            ...(division ? [{ ...divisionRow, ...DIVISION_VALUES }] : []),
+            ...(finals === null ? [] : [{ ...divisionRow, eventKey: PARENT, eventName: finalsName, ...finals }]),
+          ],
+        };
+      }),
+    });
+  }
+  const stagesOf = (artifact: DistrictArtifact, overrides: Record<string, DistrictStageFinality> = {}) =>
+    new Map(allFixtureEventKeys(artifact).map((key) => [key, overrides[key] ?? ALL_FINAL] as const));
+  const teamIn = (artifact: DistrictArtifact, options: { stages?: Record<string, DistrictStageFinality>; distributions?: ReadonlyMap<string, DistrictEventDistributions> } = {}) =>
+    buildChampLedgerRows({
+      artifact,
+      distributions: options.distributions ?? new Map(),
+      stageByEvent: stagesOf(artifact, options.stages),
+      dcmpStarted: true,
+    }).teams.find((entry) => entry.teamKey === TEAM)!;
+  const finalAt = (cell: ChampLedgerCell): number => {
+    if (cell.kind !== "final") throw new Error(`expected a final cell, got ${cell.kind}`);
+    return cell.earned;
+  };
+  const dcmpValues = (entry: ChampLedgerTeam): number[] => [...entry.dcmpRow.cells.map(finalAt), finalAt(entry.dcmpRow.subtotal)];
+
+  it.each([
+    ["before the division's (the FIM order)", FINALS_FIRST, [PARENT, DIVISION]],
+    ["after the division's", FINALS_LAST, [DIVISION, PARENT]],
+  ] as const)("reads 66, 48, 150, 30 and 294 with the finals row's name sorting %s", (_label, finalsName, sourceOrder) => {
+    const entry = teamIn(divisioned({ finalsName }));
+    // `sources` is every dcmp pass row in pass order, as it was (261009-kt3 D3).
+    expect(entry.dcmpRow.sources.map((source) => source.eventKey)).toEqual(sourceOrder);
+    expect(dcmpValues(entry)).toEqual([66, 48, 150, 30, 294]);
+    const shift = Math.max(0, Math.round(FIXTURE.teams.find((team) => team.teamKey === TEAM)!.rookieBonus));
+    expect(entry.grandTotal).toEqual({ id: "grand", cell: "grandTotal", kind: "final", earned: finalAt(entry.districtRow.subtotal) + 294 + shift });
+    expect(entry.hasOpenCategory).toBe(false);
+    // The Playoffs cell is final, so a posted winner is a fact and not a chance.
+    expect(entry.dcmpPart?.winChance).toBe(0);
+    expect(JSON.stringify(entry)).not.toContain("shiftedByFinals");
+  });
+
+  it("reads a team whose only dcmp row is the finals exactly as that one row", () => {
+    const entry = teamIn(divisioned({ division: false }));
+    expect(entry.dcmpRow.sources.map((source) => source.eventKey)).toEqual([PARENT]);
+    expect(dcmpValues(entry)).toEqual([0, 0, 60, 30, 90]);
+  });
+
+  it("reads a team with only a division row exactly as that one row", () => {
+    const entry = teamIn(divisioned({ finals: null }));
+    expect(entry.dcmpRow.sources.map((source) => source.eventKey)).toEqual([DIVISION]);
+    expect(dcmpValues(entry)).toEqual([66, 48, 90, 0, 204]);
+    // And a team the fixture gave no finals row is untouched by TEAM's.
+    const withFinals = buildChampLedgerRows({ artifact: divisioned(), distributions: new Map(), stageByEvent: stagesOf(divisioned()), dcmpStarted: true });
+    const without = buildChampLedgerRows({ artifact: divisioned({ finals: null }), distributions: new Map(), stageByEvent: stagesOf(divisioned({ finals: null })), dcmpStarted: true });
+    const pick = (rows: typeof withFinals) => rows.teams.find((entry) => entry.teamKey === DIVISION_ONLY_TEAM)!.dcmpRow;
+    expect(pick(withFinals)).toEqual(pick(without));
+  });
+
+  it.each([
+    ["first", FINALS_FIRST],
+    ["last", FINALS_LAST],
+  ] as const)("adds nothing for a finals category that is not final at the position (finals row sorted %s)", (_label, finalsName) => {
+    const artifact = divisioned({ finalsName });
+    const entry = teamIn(artifact, { stages: { [PARENT]: { qual: true, alliance: true, elim: true, award: false } } });
+    // Awards is the division's own; Playoffs is the sum; the Subtotal is the
+    // division total plus the one finals value that is earned.
+    expect(entry.dcmpRow.cells.map(finalAt)).toEqual([66, 48, 150, 0]);
+    expect(finalAt(entry.dcmpRow.subtotal)).toBe(204 + 60);
+    // The finals can still pay, so nothing downstream settles early.
+    expect(entry.hasOpenCategory).toBe(true);
+    expect(entry.grandTotal.kind).toBe("open");
+  });
+
+  describe("an open division cell and a finals value already earned", () => {
+    const divisionDistributions = {
+      qual: uniform(10),
+      alliance: uniform(8),
+      elim: uniform(90),
+      award: uniform(5),
+      eventTotal: uniform(100),
+    };
+    const distributions = new Map([[DIVISION, distributionsFor(DIVISION, { [TEAM]: divisionDistributions })]]);
+    const stages = { [DIVISION]: ALL_OPEN };
+    const shifted = teamIn(divisioned({ finalsName: FINALS_FIRST }), { stages, distributions });
+    const divisionOnly = teamIn(divisioned({ finals: null }), { stages, distributions });
+
+    /** `after` is `before` moved up by `by` points, each read as a share of its own denominator. */
+    function expectMovedUp(after: DistrictPointDistribution, before: DistrictPointDistribution, by: number): void {
+      const length = Math.max(after.counts.length, before.counts.length + by);
+      for (let points = 0; points < length; points++) {
+        const expected = points < by ? 0 : probabilityAt(before, points - by);
+        expect(probabilityAt(after, points), `at ${String(points)} points`).toBeCloseTo(expected, 12);
+      }
+    }
+
+    it.each([
+      ["elim", 60],
+      ["award", 30],
+    ] as const)("shifts the open %s cell up by the finals value into a plain open cell flagged shiftedByFinals", (category, by) => {
+      const cell = cellOf(shifted.dcmpRow.cells, category);
+      const own = cellOf(divisionOnly.dcmpRow.cells, category);
+      if (cell.kind !== "open" || own.kind !== "open") throw new Error("expected two open cells");
+      expect(cell.shiftedByFinals).toBe(true);
+      expect(cell.id).toBe(champCellId("dcmp", category));
+      expectMovedUp(cell.distribution, own.distribution, by);
+      // No mass is left at zero, so the form rule gives the median form.
+      expect(cell.summary.form).toBe("median");
+      expect(cell.ceiling).toBe(maxEventPoints(SEASON, "dcmp")[category] + by);
+      expect("playoffMilestone" in cell).toBe(false);
+      expect("selection" in cell).toBe(false);
+      expect("notPicked" in cell).toBe(false);
+    });
+
+    it("carries a division cell the finals add 0 to untouched, flags included", () => {
+      for (const category of ["qual", "alliance"] as const) {
+        expect(cellOf(shifted.dcmpRow.cells, category)).toEqual(cellOf(divisionOnly.dcmpRow.cells, category));
+        expect(JSON.stringify(cellOf(shifted.dcmpRow.cells, category))).not.toContain("shiftedByFinals");
+      }
+    });
+
+    it("moves the open Subtotal up by the sum of the added values, so the cells add up to it", () => {
+      const subtotal = shifted.dcmpRow.subtotal;
+      const own = divisionOnly.dcmpRow.subtotal;
+      if (subtotal.kind !== "open" || own.kind !== "open") throw new Error("expected two open subtotals");
+      expectMovedUp(subtotal.distribution, own.distribution, 90);
+      expect(shifted.hasOpenCategory).toBe(true);
+    });
+
+    it("reads the win chance off the DIVISION row's own Playoffs cell, before any addition", () => {
+      const winner = maxEventPoints(SEASON, "dcmp").elim;
+      expect(shifted.dcmpPart?.winChance).toBeCloseTo(probabilityAt(divisionDistributions.elim, winner), 12);
+      expect(shifted.dcmpPart?.winChance).toBe(divisionOnly.dcmpPart?.winChance);
+      expect(shifted.dcmpPart!.winChance).toBeGreaterThan(0);
+    });
+
+    it("names outcomes for a plain DCMP cell, and for neither a shifted cell nor the District points row", () => {
+      const plain = cellOf(shifted.dcmpRow.cells, "qual");
+      const flagged = cellOf(shifted.dcmpRow.cells, "elim");
+      expect(champCellNamesOutcomes("dcmp", plain)).toBe(true);
+      expect(champCellNamesOutcomes("dcmp", cellOf(divisionOnly.dcmpRow.cells, "elim"))).toBe(true);
+      expect(champCellNamesOutcomes("dcmp", flagged)).toBe(false);
+      expect(champCellNamesOutcomes("district", plain)).toBe(false);
+      expect(champCellNamesOutcomes(undefined, plain)).toBe(false);
+    });
+  });
+
+  describe("champDcmpStageSource: the small stage line follows the event still being played (R10)", () => {
+    const stage = (finished: boolean): DistrictEventStage => ({
+      final: finished ? ALL_FINAL : { qual: true, alliance: true, elim: false, award: false },
+      stateKnown: true,
+      started: true,
+      finished,
+    });
+    const source = (eventKey: string, finished: boolean): ChampLedgerSource => ({ eventKey, eventName: eventKey, week: 6, stage: stage(finished) });
+    const FINALS_KEY = "2026micmp";
+    const DIVISION_KEY = "2026micmp3";
+
+    it.each([
+      ["division then finals", false],
+      ["finals then division (the FIM order)", true],
+    ] as const)("answers the same five cases with the sources listed %s", (_label, finalsFirst) => {
+      const list = (divisionDone: boolean, finalsDone: boolean): ChampLedgerSource[] => {
+        const pair = [source(DIVISION_KEY, divisionDone), source(FINALS_KEY, finalsDone)];
+        return finalsFirst ? pair.reverse() : pair;
+      };
+      // The division is still open: the division, whatever the finals read.
+      expect(champDcmpStageSource(list(false, false))?.eventKey).toBe(DIVISION_KEY);
+      expect(champDcmpStageSource(list(false, true))?.eventKey).toBe(DIVISION_KEY);
+      // The division is done and the finals are not: the finals.
+      expect(champDcmpStageSource(list(true, false))?.eventKey).toBe(FINALS_KEY);
+      // Both done: the division, whose stage word is then the final word.
+      expect(champDcmpStageSource(list(true, true))?.eventKey).toBe(DIVISION_KEY);
+      // One source: that source, open or done. None: nothing.
+      for (const done of [false, true]) {
+        expect(champDcmpStageSource([source(DIVISION_KEY, done)])?.eventKey).toBe(DIVISION_KEY);
+        expect(champDcmpStageSource([source(FINALS_KEY, done)])?.eventKey).toBe(FINALS_KEY);
+      }
+      expect(champDcmpStageSource([])).toBeUndefined();
+    });
+
+    it("does not reorder the list it was given", () => {
+      const sources = [source(FINALS_KEY, false), source(DIVISION_KEY, false)];
+      champDcmpStageSource(sources);
+      expect(sources.map((entry) => entry.eventKey)).toEqual([FINALS_KEY, DIVISION_KEY]);
+    });
+  });
+
+  // LOCAL ARTIFACT GATED. `data/local-publish` is gitignored, so this runs only
+  // on a machine that has published locally; the path is resolved from this
+  // test file, never from the working directory.
+  const FIM_PATH = (() => {
+    try {
+      return resolve(dirname(fileURLToPath(import.meta.url)), "../../../../../data/local-publish/districts/v1__district__2026fim.json");
+    } catch {
+      return undefined;
+    }
+  })();
+  describe.skipIf(FIM_PATH === undefined || !existsSync(FIM_PATH))("the published 2026 FIM artifact at Now", () => {
+    it("gives frc27 66, 48, 150, 30 and 294, and the finals only team frc11387 0, 0, 0, 24 and 24", () => {
+      const artifact = DistrictArtifactSchema.parse(JSON.parse(readFileSync(FIM_PATH!, "utf8")));
+      const rows = buildChampLedgerRows({ artifact, distributions: new Map() });
+      const valuesOf = (teamKey: string): number[] => dcmpValues(rows.teams.find((entry) => entry.teamKey === teamKey)!);
+      expect(valuesOf("frc27")).toEqual([66, 48, 150, 30, 294]);
+      expect(valuesOf("frc11387")).toEqual([0, 0, 0, 24, 24]);
+      console.log(`[261009-tx8 2026fim] frc27 ${valuesOf("frc27").join(", ")}; frc11387 ${valuesOf("frc11387").join(", ")}`);
     });
   });
 });

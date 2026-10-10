@@ -134,7 +134,9 @@ import type { DistrictLedgerShownState, DistrictLedgerShownStatusKey } from "./d
 import { applyChampRangeState, computeChampLedgerStatuses, type ChampDisplayStatusModel } from "./champLedgerStatus.js";
 import {
   buildChampLedgerRows,
+  champCellNamesOutcomes,
   champContributions,
+  champDcmpStageSource,
   champFieldMembership,
   champTeamHiddenAtDcmp,
   champTierEvents,
@@ -232,7 +234,12 @@ function ChampCell({
  */
 function SourceCell({ row, team }: { row: ChampLedgerRow; team: ChampLedgerTeam }) {
   const sources = row.sources.map((source) => ({ eventName: source.eventName, week: source.week, stage: stageWordKey(source.stage) }));
-  const dcmp = sources[0];
+  // THE DCMP ROW'S STAGE LINE follows the event still being played (quick task
+  // 261009-tx8, R10): the division while it has an open category, then the
+  // finals, then the final word. A district with one championship has one
+  // source and prints what it printed.
+  const dcmpSource = row.kind === "dcmp" ? champDcmpStageSource(row.sources) : undefined;
+  const dcmp = dcmpSource === undefined ? undefined : { week: dcmpSource.week, stage: stageWordKey(dcmpSource.stage) };
   const small =
     row.kind === "district"
       ? champLedgerDistrictSourceLine(sources)
@@ -316,7 +323,7 @@ function ChampDrawerRow({
     season,
     isRookie,
     tier: row === "dcmp" ? "dcmp" : "district",
-    namedOutcomes: row === "dcmp",
+    namedOutcomes: champCellNamesOutcomes(row, cell),
     ...(isGrandTotal
       ? {
           grand: { verdict: ledgerGrandVerdict({ statusKey: status?.status, rangeCall: status?.rangeCall, chance }), cutoff },
