@@ -72,7 +72,6 @@ import {
   districtLedgerCutoffFigure,
   districtLedgerCutoffLikelyText,
   districtLedgerPaysLine,
-  districtLedgerPlacementLine,
   districtLedgerRunProgressText,
   districtLedgerSelectionSettledLine,
 } from "./districtLedgerCopy.js";
@@ -502,11 +501,6 @@ export function openCellLines(
   }
   const milestone = cell.playoffMilestone;
   if (milestone !== undefined) {
-    if (milestone.kind === "placed") {
-      // The placement is settled, so there is no chance left to print: the
-      // points follow from it, and the small line names the placement.
-      return { bold: `~${String(Math.round(milestone.points))}`, small: districtLedgerPlacementLine(milestone.placement) };
-    }
     const words = DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS[milestone.kind];
     return { bold: `${districtLedgerCellChance(milestone.chance)} ${words.bold}`, small: paysLine() };
   }

@@ -251,8 +251,10 @@ export function buildVerdictModel(input: BuildVerdictModelInput): VerdictModel {
     // 2026-10-07). The headline and both tiles still read them, which is why
     // this filter runs after `top` and `chanceOfPoints`. It tests the cell kind,
     // so the Alliance selection list keeps its Not selected row by construction.
-    // An alliance already placed fifth to eighth lists only the implicit row and
-    // so renders zero rows; `DistrictOutcomeList` draws nothing for that.
+    // A list holding only the implicit row would render zero rows, and
+    // `DistrictOutcomeList` draws nothing for that. No cell reaches here in that
+    // state today: an alliance placed fifth to eighth is a settled grey cell
+    // (quick task 261008-26o), not an open one with a drawer.
     const shownRows = cell.cell === "elim" || cell.cell === "award" ? outcomes.rows.filter((row) => row.key !== "none") : outcomes.rows;
     return {
       eyebrow,

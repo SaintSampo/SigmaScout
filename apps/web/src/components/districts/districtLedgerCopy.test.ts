@@ -45,7 +45,6 @@ import {
   districtLedgerOutcomeChance,
   districtLedgerOutcomePointsRange,
   districtLedgerPaysLine,
-  districtLedgerPlacementLine,
   districtLedgerSelectionSettledLine,
   districtLedgerShortEventName,
   CHAMP_LEDGER_COLUMN_LABELS,
@@ -369,22 +368,6 @@ describe("the playoff milestone words", () => {
     for (const dash of ["—", "–", "-"]) expect(districtLedgerCellLikelyText(15.2, 22.4)).not.toContain(dash);
   });
 
-  it("prints a placement in plain words, with the English ordinals and no tilde", () => {
-    expect(districtLedgerPlacementLine(1)).toBe("1st place");
-    expect(districtLedgerPlacementLine(2)).toBe("2nd place");
-    expect(districtLedgerPlacementLine(3)).toBe("3rd place");
-    expect(districtLedgerPlacementLine(4)).toBe("4th place");
-    expect(districtLedgerPlacementLine(8)).toBe("8th place");
-    for (let placement = 1; placement <= 8; placement++) {
-      expect(districtLedgerPlacementLine(placement)).not.toContain("~");
-    }
-  });
-
-  it("prints a bare number rather than inventing a suffix for a placement outside the bracket", () => {
-    expect(districtLedgerPlacementLine(9)).toBe("place 9");
-    expect(districtLedgerPlacementLine(0)).toBe("place 0");
-  });
-
   it("prints an outcome chance in the three cases that mean three different things, with no tilde and never 100 (261008-3il)", () => {
     // A whole percent for a prediction.
     expect(districtLedgerOutcomeChance(0.4)).toBe("40%");
@@ -459,7 +442,6 @@ describe("the playoff milestone words", () => {
       DISTRICT_LEDGER_CHANCE_WORDS.elim.bold,
       DISTRICT_LEDGER_NOT_PICKED_WORDS.bold,
       DISTRICT_LEDGER_NOT_PICKED_WORDS.small,
-      ...[1, 4, 8].map(districtLedgerPlacementLine),
     ].join(" ");
     for (const dash of ["—", "–", "-"]) expect(everyString).not.toContain(dash);
   });

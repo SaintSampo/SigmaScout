@@ -32,13 +32,14 @@ function clamp01(value: number): number {
 
 export function DistrictOutcomeList({ rows, label, testId }: DistrictOutcomeListProps) {
   // Since quick task 261007-3ik the verdict model drops the implicit "Out before
-  // the top four" row from the rendered list, and an alliance already placed
-  // fifth to eighth while the bracket runs lists only that row, so its Playoffs
-  // pane is the headline and tiles alone. An empty labelled list would announce
-  // a list with nothing in it to a screen reader and leave an empty grid box on
-  // screen. The guard lives here rather than in the drawer because this
-  // component owns what an outcome list looks like; the drawer passes
-  // `chart.rows` straight through.
+  // the top four" row from the rendered list, so a list that held only that row
+  // arrives here empty. No cell produces one today: an alliance placed fifth to
+  // eighth is a settled grey cell (quick task 261008-26o) and opens no pane. The
+  // guard is kept all the same, because an empty labelled list would announce a
+  // list with nothing in it to a screen reader and leave an empty grid box on
+  // screen. It lives here rather than in the drawer because this component owns
+  // what an outcome list looks like; the drawer passes `chart.rows` straight
+  // through.
   if (rows.length === 0) return null;
   return (
     <div role="list" aria-label={label} className="district-ledger-verdict-outcomes" data-testid={testId}>

@@ -140,25 +140,6 @@ export const DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS = {
   winner: { bold: "win" },
 } as const;
 
-/** The ordinal suffixes for placements one through eight, indexed `placement - 1`. A table, not arithmetic: eight values, and every English exception is inside them. */
-const PLACEMENT_ORDINALS: readonly string[] = ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th"];
-
-/**
- * The small line a Playoffs cell prints once the bracket has DECIDED its
- * alliance's placement: the placement, in plain words.
- *
- * No tilde, because a decided placement is not a prediction — it is what
- * happened. The bold line beside it still carries one, because the POINTS are
- * this site's own reading of that placement until TBA posts them.
- */
-export function districtLedgerPlacementLine(placement: number): string {
-  const ordinal = PLACEMENT_ORDINALS[placement - 1];
-  // A placement outside the eight-alliance bracket cannot arise from
-  // `routePlayedBracket`, which only ever produces 1 through 8. Printing the
-  // bare number is the honest fallback rather than inventing a suffix.
-  return ordinal === undefined ? `place ${String(placement)}` : `${ordinal} place`;
-}
-
 /** The two legend keys, verbatim from the UI-SPEC. */
 export const DISTRICT_LEDGER_LEGEND_EARNED = "earned, final";
 export const DISTRICT_LEDGER_LEGEND_OPEN = "still open · click to see";

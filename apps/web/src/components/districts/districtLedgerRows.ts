@@ -186,8 +186,11 @@ export function pointMassDistribution(points: number): DistrictPointDistribution
  * short of a top-four finish, the cell's chance IS the chance of reaching the
  * top four — placements five through eight pay nothing, so "any points at all"
  * and "top four" are the same event and the cell needs no extra field. This type
- * covers the three positions past that, where the shipped chance would be a
- * settled question printed as a prediction.
+ * covers the two positions past that (a top four finish secured, and a place in
+ * the final), where the shipped chance would be a settled question printed as a
+ * prediction. A DECIDED placement is not one of them: the row builder settles it
+ * as a grey cell (quick task 261008-26o), so an open cell never carries one and
+ * the arm that described it was removed in quick task 261009-tx8.
  *
  * `chance` and `conditionalMedian` are `pointThresholdSummary`'s own two numbers,
  * taken on the SAME distribution the cell's histogram is drawn from, so the
@@ -233,8 +236,7 @@ export interface DistrictSelectionRouteView {
 
 export type DistrictPlayoffMilestone =
   | { readonly kind: "finalist"; readonly chance: number; readonly conditionalMedian: number | undefined }
-  | { readonly kind: "winner"; readonly chance: number; readonly conditionalMedian: number | undefined }
-  | { readonly kind: "placed"; readonly placement: number; readonly points: number };
+  | { readonly kind: "winner"; readonly chance: number; readonly conditionalMedian: number | undefined };
 
 /** One rendered cell: a grey final integer, a blue open distribution, or an honest unavailable. */
 export type DistrictLedgerCell =
@@ -1308,6 +1310,10 @@ const openCell = openDistrictLedgerCell;
  * which for a playoff bracket IS the chance of reaching the top four: placements
  * five through eight pay nothing, so "any points" and "top four" are one event.
  *
+ * `undefined` for a DECIDED placement too. `buildDistrictLedgerRows` settles a
+ * decided placement as a grey cell before this function is reached (quick task
+ * 261008-26o), so the guard only keeps the function total.
+ *
  * Every threshold comes from `playoffPoints`, so the dcmp weight is applied by
  * the phase's single weight source and no point value is a literal here.
  */
@@ -1317,12 +1323,7 @@ function playoffMilestoneFor(
   milestone: AllianceBracketMilestone | undefined,
   distribution: DistrictPointDistribution
 ): DistrictPlayoffMilestone | undefined {
-  if (milestone === undefined || milestone.kind === "alive") return undefined;
-  // Unreachable from `buildDistrictLedgerRows` since quick task 261008-26o,
-  // which settles a decided placement as a grey cell before this is reached.
-  if (milestone.kind === "decided") {
-    return { kind: "placed", placement: milestone.placement, points: playoffPoints(season, tier, milestone.placement) };
-  }
+  if (milestone === undefined || milestone.kind === "alive" || milestone.kind === "decided") return undefined;
   // A top-four finish is secured, so the next thing worth asking is whether the
   // alliance reaches the FINAL — second place or better.
   const placement = milestone.kind === "finals" ? 1 : 2;

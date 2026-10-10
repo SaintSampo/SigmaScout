@@ -273,21 +273,6 @@ describe("buildVerdictModel on an outcome cell", () => {
     expect(model.chart.rows.map((row) => row.key)).toEqual(["winner", "finalist", "third", "fourth"]);
   });
 
-  it("heads an alliance placed sixth with the implicit outcome and lists no rows (261007-3ik)", () => {
-    const counts = sparse(CEILINGS.elim, [[0, 100]]);
-    const model = buildVerdictModel(
-      baseInput(openCell("elim", counts, CEILINGS.elim, { playoffMilestone: { kind: "placed", placement: 6, points: 0 } }), { cellTitle: "Playoffs" })
-    );
-    expect(model.headline).toBe("Out before the top four in 100 of 100 runs.");
-    expect(model.tiles).toEqual([
-      { key: "mostLikely", label: "most likely", value: "Out before the top four" },
-      { key: "chanceOfPoints", label: "chance of points", value: "0%" },
-    ]);
-    expect(model.chart.kind).toBe("outcomes");
-    if (model.chart.kind !== "outcomes") return;
-    expect(model.chart.rows).toEqual([]);
-  });
-
   it("breaks an exact tie toward the row that pays more", () => {
     const counts = sparse(CEILINGS.elim, [
       [points[0]!, 40],

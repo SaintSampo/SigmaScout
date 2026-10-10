@@ -90,8 +90,8 @@ const PLAYOFF_OUTCOME_PLACEMENTS: readonly { readonly id: DistrictPlayoffOutcome
  *
  * The omission is driven by the cell's own milestone and by nothing else, so the
  * list and the headline are ruled out by one fact: a secured top-four finish
- * removes "did not reach the top four", a place in the final removes third and
- * fourth as well, and a decided placement leaves exactly one row.
+ * removes "did not reach the top four", and a place in the final removes third
+ * and fourth as well.
  *
  * ZERO-CHANCE ROWS THAT ARE NOT RULED OUT STAY. "The winner, in none of the
  * runs" is a real reading of a long shot, and dropping it would make a list
@@ -108,13 +108,6 @@ export function districtPlayoffOutcomes(
     return { id: entry.id, points, chance: chanceAt(distribution, points) };
   });
   if (milestone === undefined) return rows;
-  if (milestone.kind === "placed") {
-    // One row, and which one follows from the placement: fifth through eighth
-    // are the same outcome to a reader.
-    const id: DistrictPlayoffOutcomeId =
-      milestone.placement === 1 ? "winner" : milestone.placement === 2 ? "finalist" : milestone.placement === 3 ? "third" : milestone.placement === 4 ? "fourth" : "none";
-    return rows.filter((row) => row.id === id);
-  }
   // A secured top-four finish rules out the nothing row; a place in the final
   // rules out third and fourth as well.
   const ruledOut: ReadonlySet<DistrictPlayoffOutcomeId> =
@@ -482,8 +475,6 @@ export function districtCellPay(cell: OpenLedgerCell, pricing: DistrictCellPrici
     if (pricing === undefined || !BRACKET_REGISTERED_SEASONS.includes(pricing.season)) return supportPay(cell.distribution);
     const milestone = cell.playoffMilestone;
     const rows = districtPlayoffOutcomes(pricing.season, pricing.tier, cell.distribution, milestone);
-    // A decided placement leaves one row, which is the whole of what it pays.
-    if (milestone?.kind === "placed") return distinctNonzeroValues(rows.map((row) => row.points));
     const covered = PLAYOFF_HEADLINE_OUTCOMES[milestone === undefined ? "topFour" : milestone.kind];
     return distinctNonzeroValues(rows.filter((row) => covered.has(row.id)).map((row) => row.points));
   }

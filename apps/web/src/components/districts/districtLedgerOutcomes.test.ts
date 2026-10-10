@@ -130,24 +130,6 @@ describe("districtPlayoffOutcomes", () => {
     expect(rows.map((row) => row.id)).toEqual(["winner", "finalist"]);
   });
 
-  it("leaves exactly one row once the bracket has decided the placement", () => {
-    for (const [placement, id] of [
-      [1, "winner"],
-      [2, "finalist"],
-      [3, "third"],
-      [4, "fourth"],
-      [5, "none"],
-      [8, "none"],
-    ] as const) {
-      const rows = districtPlayoffOutcomes(SEASON, TIER, playoffDistribution(), {
-        kind: "placed",
-        placement,
-        points: playoffPoints(SEASON, TIER, placement),
-      });
-      expect(rows.map((row) => row.id), `placement ${String(placement)}`).toEqual([id]);
-    }
-  });
-
   it("keeps a zero-chance row that the bracket has NOT ruled out, so the list's length does not move with the draws", () => {
     // No run reached the final at all, which is a long shot rather than a ruling.
     const distribution = distributionOf(
