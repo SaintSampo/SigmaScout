@@ -47,13 +47,48 @@
  * whose list has stood for 12 hours (`longSettledAwardEvents`). This module
  * knows the event's tier, whether it is a division and which award types the
  * list holds, and asks the one rule.
+ *
+ * A CHAMPIONSHIP WHOSE ROWS ARRIVE ONE EVENT AT A TIME (quick task
+ * 261010-66y). The rows learn a District Championship key only when TBA posts
+ * it, so for some ticks the artifact can hold one division, or one of two
+ * championships, and nothing of the others. Three readings of the verdict
+ * pass follow from that, each documented where it lives:
+ *
+ *   - a championship's FIRST rows land with no state block, and on the two
+ *     live entry points such a row reads wholly open while the championship
+ *     is still ahead (`openAtPlayedRows`, the option
+ *     `statelessChampionshipRowsOpen`);
+ *   - every team with a live division row carries the finals Playoffs maximum
+ *     until the finals' Playoffs are final, and the finals' Awards add no
+ *     ceiling for anyone (`openAtPlayedRows`, THE FINALS);
+ *   - while the field is not proven after a start
+ *     (`packages/core/districts/dcmpFieldProof.ts`, the one rule both Locks
+ *     tabs read too) the champ reservation holds the championships that may
+ *     be unseen (`reservedChampSlotsAtNow`), and a team with no championship
+ *     row carries a finals on its hypothetical championship (pass 2).
+ *
+ * THE LIMITS, stated: the Worker still writes those first rows with no state
+ * block; a team the district tier reads eliminated carries no hypothetical
+ * championship even where it attends (1 to 9 teams per 2026 district), so
+ * its ceiling appears when its row lands; and the field proof's own limits
+ * are in its header. `scripts/champFieldStagedWalk.test.ts` walks all of it
+ * through both entry points.
  */
 import { z } from "zod";
 import { computeLocksWithQualifiers, cutLinePointsWithQualifiers, type LockResult, type LockTeamInput, type QualifierSets } from "../core/districts/locks.js";
 import { maxEventPoints, type DistrictTier } from "../core/districts/pointModel.js";
 import { prequalifiedTeams } from "../core/districts/prequalified.js";
 import { ALL_CATEGORIES_OPEN, reservedImpactSlots, type DistrictCategoryFinality, type ReservedSlotEvent } from "../core/districts/reservedSlots.js";
-import { NO_POINTS_PRESENT, categoryPointsPresenceByEvent, corroboratedCategoryFinality, type CategoryPointsPresence } from "../core/districts/categoryCorroboration.js";
+import {
+  NO_POINTS_PRESENT,
+  categoryPointsPresenceByEvent,
+  corroboratedCategoryFinality,
+  divisionCountOf,
+  finalsChampionMaximum,
+  type CategoryPointsPresence,
+} from "../core/districts/categoryCorroboration.js";
+import { dcmpFieldProof, hypotheticalFinalsCeiling, statelessChampionshipRowReadsOpen, unseenChampionshipsHeld, type DcmpFieldProof } from "../core/districts/dcmpFieldProof.js";
+import { districtEventStateStarted } from "../core/districts/reservedSlots.js";
 import { championshipStemOf, dcmpNeverHappening, perChampionship, reservedChampSlots } from "../core/districts/champReservedSlots.js";
 import {
   awardPointsPresentAt,
@@ -244,34 +279,162 @@ interface OpenCategorySums {
  * A ROW WHOSE EVENT CARRIES NO STATE BLOCK CONTRIBUTES TO NEITHER. That is a
  * hindsight row (the offline publisher's first pass, an artifact from before
  * the state blocks existed), and it reads as it always has: its points are
- * in the floor and nothing more is expected of it.
+ * in the floor and nothing more is expected of it. EXCEPT, on the two live
+ * paths only (`live.statelessChampionshipRowsOpen`, quick task 261010-66y), a
+ * dcmp tier row while the championship is still ahead
+ * (`statelessChampionshipRowReadsOpen`). That is not hindsight: it is a row
+ * the Worker wrote before it had anywhere to put the state, on the tick a
+ * championship's first rows arrive. It is walked with every category open:
+ * the tier's four ceilings join the ceiling and the row's four values leave
+ * the floor, which is exactly what the team carried a tick earlier as its
+ * hypothetical championship.
  *
  * A ceiling is counted once per event, however many rows a team carries for
  * it. TBA sends one row per event, so a second row is a malformed input, and
  * one event can pay each category once.
+ *
+ * THE FINALS OF A CHAMPIONSHIP PLAYED IN DIVISIONS (quick task 261010-66y).
+ * TBA writes a finals row only for a team it pays there, so before the finals
+ * are played no row names them, and this pass used to give no team a finals
+ * ceiling. When the finals rows posted, the finals teams' ceilings rose.
+ * Walked with every attending team registered first: 2 published locks taken
+ * back at 2026 TX when the finals' state was written, and 7 to 15 teams per
+ * district whose `maxRemainingChamp` rose from 45 to 90 there. So:
+ *
+ *   - A LIVE DIVISION ROW is a dcmp tier row whose key is not its own
+ *     championship stem and whose event carries a state block, or carries
+ *     none while the exception above applies.
+ *   - EVERY TEAM WITH A LIVE DIVISION ROW CARRIES THE FINALS PLAYOFFS MAXIMUM,
+ *     finals row or no finals row, while the finals' Playoffs are not final
+ *     (an absent finals state reads every category open). The maximum is
+ *     `finalsChampionMaximum` for the number of division keys the rows hold
+ *     once the field is proven, and the whole dcmp Playoffs ceiling while it
+ *     is not, since the number of divisions is then not known. The Playoffs
+ *     points of the team's own finals row, if it has one, leave the floor.
+ *   - THE FINALS' AWARDS ADD NO CEILING FOR ANYONE. A points paying award at a
+ *     finals event is a consuming award (Impact, Engineering Inspiration,
+ *     Rookie All Star), which takes a Championship slot whatever its
+ *     winner's points, and the champ reservation already holds a place for
+ *     each. The joint worst case proof on the Champ Locks tab rests on the
+ *     same fact, and `scripts/champFieldStagedWalk.test.ts` holds it over
+ *     every local season. The award points of a finals row leave the floor
+ *     while the finals' Awards are not final.
+ *   - A ROW AT A FINALS KEY OF A TEAM WITH NO LIVE DIVISION ROW THERE adds no
+ *     ceiling at all: such a team played in no division and cannot be on a
+ *     division winning alliance. Its points in the categories not final
+ *     leave the floor.
+ *   - The team's finals row is read once, by the rule above, and not walked
+ *     a second time as an ordinary row.
+ *
+ * A finals key is a dcmp key equal to its stem with at least one division
+ * key beside it. In the offline publisher's first pass no row carries a
+ * state and the exception does not apply, so no division row is live and
+ * nothing moves there. The Champ Locks tab reads the finals' Awards this way
+ * from the same quick task's last step on.
  */
 function openAtPlayedRows(
   team: DistrictTeam,
   teams: readonly DistrictTeam[],
   season: number,
-  stateByEvent: ReadonlyMap<string, DistrictEventState | undefined>
+  stateByEvent: ReadonlyMap<string, DistrictEventState | undefined>,
+  live: LiveChampionshipReading = NOT_LIVE
 ): Record<DistrictTier, OpenCategorySums> {
   const sums: Record<DistrictTier, OpenCategorySums> = { district: { ceiling: 0, earned: 0 }, dcmp: { ceiling: 0, earned: 0 } };
+  const statelessOpen = (tier: DistrictTier): boolean => live.statelessChampionshipRowsOpen && statelessChampionshipRowReadsOpen(tier, live.championshipStillAhead);
+
+  // THE FINALS, read once per championship stem of this team's live division rows.
+  const dcmpKeys = dcmpKeysOf(teams);
+  const dcmpMaxima = maxEventPoints(season, "dcmp");
+  const liveDivisionStems = new Set<string>();
+  for (const row of team.eventPoints) {
+    if (row.tier !== "dcmp") continue;
+    const stem = championshipStemOf(row.eventKey);
+    if (stem === row.eventKey) continue;
+    if (stateByEvent.get(row.eventKey) !== undefined || statelessOpen(row.tier)) liveDivisionStems.add(stem);
+  }
+  for (const stem of liveDivisionStems) {
+    const finalsState = stateByEvent.get(stem);
+    const finalsFinal = finalsState === undefined ? ALL_CATEGORIES_OPEN : publishedCategoryFinality(teams, stem, finalsState, season);
+    const finalsRow = team.eventPoints.find((row) => row.eventKey === stem);
+    if (!finalsFinal.elim) sums.dcmp.ceiling += live.fieldProven ? finalsChampionMaximum(season, divisionCountOf(stem, dcmpKeys)) : dcmpMaxima.elim;
+    if (finalsRow !== undefined) {
+      for (const category of POINT_CATEGORIES) if (!finalsFinal[category]) sums.dcmp.earned += finalsRow[category];
+    }
+  }
+
   const counted = new Set<string>();
   for (const row of team.eventPoints) {
+    // The finals row of a team with a live division row at that stem was read above.
+    if (row.tier === "dcmp" && liveDivisionStems.has(row.eventKey)) continue;
     const state = stateByEvent.get(row.eventKey);
-    if (state === undefined) continue;
-    const final = publishedCategoryFinality(teams, row.eventKey, state, season);
+    if (state === undefined && !statelessOpen(row.tier)) continue;
+    const final = state === undefined ? ALL_CATEGORIES_OPEN : publishedCategoryFinality(teams, row.eventKey, state, season);
     const maxima = maxEventPoints(season, row.tier);
     const firstRow = !counted.has(row.eventKey);
     counted.add(row.eventKey);
+    // A row at a finals key of a team with no live division row there: no ceiling at all.
+    const finalsOnlyRow = row.tier === "dcmp" && championshipStemOf(row.eventKey) === row.eventKey && divisionCountOf(row.eventKey, dcmpKeys) >= 1;
     for (const category of POINT_CATEGORIES) {
       if (final[category]) continue;
-      if (firstRow) sums[row.tier].ceiling += maxima[category];
+      if (firstRow && !finalsOnlyRow) sums[row.tier].ceiling += maxima[category];
       sums[row.tier].earned += row[category];
     }
   }
   return sums;
+}
+
+/**
+ * How the open category walk reads a championship on the live paths (quick
+ * task 261010-66y). `NOT_LIVE` is every reading before that task, and what
+ * `dcmpStillAhead` and `unexplainedDistrictCeilings` hand in.
+ */
+interface LiveChampionshipReading {
+  /** The option only the two merge entry points pass: a stateless dcmp tier row may read open. */
+  readonly statelessChampionshipRowsOpen: boolean;
+  /** The pass's own still ahead answer, computed before the walk. */
+  readonly championshipStillAhead: boolean;
+  /** The field proof's `proven`: picks the finals Playoffs maximum a division team carries. */
+  readonly fieldProven: boolean;
+}
+
+const NOT_LIVE: LiveChampionshipReading = { statelessChampionshipRowsOpen: false, championshipStillAhead: false, fieldProven: true };
+
+/** Every dcmp tier event key on any row of a `teams` array, built once per array like `presenceByTeams`. */
+const dcmpKeysByTeams = new WeakMap<readonly DistrictTeam[], string[]>();
+
+function dcmpKeysOf(teams: readonly DistrictTeam[]): string[] {
+  let keys = dcmpKeysByTeams.get(teams);
+  if (keys === undefined) {
+    const found = new Set<string>();
+    for (const team of teams) for (const row of [...team.eventPoints, ...team.remainingEvents]) if (row.tier === "dcmp") found.add(row.eventKey);
+    keys = [...found].sort();
+    dcmpKeysByTeams.set(teams, keys);
+  }
+  return keys;
+}
+
+/**
+ * THE FIELD PROOF AS THE PUBLISHED PASS READS IT (quick task 261010-66y): the
+ * one core rule (`dcmpFieldProof`), with the started keys from the event
+ * level state map (`districtEventStateStarted`, the same reading the tabs
+ * take) and the awards final keys from `publishedCategoryFinality`. A key
+ * whose rows carry no state has not started and reads no award final.
+ */
+function publishedFieldProof(
+  teams: readonly DistrictTeam[],
+  season: number,
+  nowYear: number,
+  dcmpSlots: number | null,
+  stateByEvent: ReadonlyMap<string, DistrictEventState | undefined>
+): DcmpFieldProof {
+  const startedKeys = new Set<string>();
+  const awardsFinalKeys = new Set<string>();
+  for (const [eventKey, state] of stateByEvent) {
+    if (state === undefined) continue;
+    if (districtEventStateStarted(state)) startedKeys.add(eventKey);
+    if (publishedCategoryFinality(teams, eventKey, state, season).award) awardsFinalKeys.add(eventKey);
+  }
+  return dcmpFieldProof({ teams, dcmpSlots, season, nowYear, startedKeys, awardsFinalKeys });
 }
 
 /** The sum of a team's district tier `remainingEvents` ceilings: the part of `maxRemainingDistrict` its calendar explains. */
@@ -326,6 +489,12 @@ function districtRemainingEventsSum(team: DistrictTeam): number {
  * This errs toward "still ahead", which OVERSTATES ceilings. That is the only
  * safe direction: an overstated rival ceiling delays a `"locked"` verdict,
  * while an understated one would publish a guarantee that is not true.
+ *
+ * IT CALLS THE OPEN CATEGORY WALK WITHOUT THE LIVE READING, ON PURPOSE (quick
+ * task 261010-66y). The verdict pass may have read a stateless championship
+ * row open, and a division team's finals at the whole Playoffs ceiling; this
+ * subtracts the smaller plain reading, so what is left of the stored ceiling
+ * is larger and the answer errs toward "still ahead".
  */
 function dcmpStillAhead(artifact: DistrictArtifact): boolean {
   const dcmpBase = maxEventPoints(artifact.year, "dcmp");
@@ -577,8 +746,22 @@ function lockVerdict(result: LockResult, cutLinePoints: number | null, allocatio
  * never neither. A Winner recorded at ANOTHER championship of the same
  * district releases nothing here. Once the awards are posted
  * `reservedChampSlots` reserves nothing whatever this says.
+ *
+ * WHILE THE FIELD IS NOT PROVEN AFTER A START (quick task 261010-66y) the
+ * championships the rows may not have shown yet are held back whole, beside
+ * the known ones, exactly as the Champ Locks tab holds them
+ * (`unseenChampionshipsHeld` in `packages/core/districts/dcmpFieldProof.ts`,
+ * the one rule both read). The rows learn a championship key only when TBA
+ * posts it, so a second championship, or the divisions of one, can be
+ * invisible while the first has started, and each still hands out its own
+ * winning alliance and judged awards. The proof is built from the same dcmp
+ * state map this function already reads. It bit nowhere in the measured
+ * walks, and it is here so the published reservation and the tab's cannot
+ * disagree.
+ *
+ * Exported for the test that pins the count.
  */
-function reservedChampSlotsAtNow(teams: readonly DistrictTeam[], season: number, districtKey: string, cmpSlots: number, nowYear: number): number {
+export function reservedChampSlotsAtNow(teams: readonly DistrictTeam[], season: number, districtKey: string, cmpSlots: number, nowYear: number, dcmpSlots: number | null): number {
   type RowState = DistrictTeam["eventPoints"][number]["state"];
   const stateByEvent = new Map<string, RowState>();
   const dcmpStates: RowState[] = [];
@@ -608,6 +791,10 @@ function reservedChampSlotsAtNow(teams: readonly DistrictTeam[], season: number,
   let reserved = 0;
   for (const final of stages) {
     reserved += reservedChampSlots({ elimFinal: final.elim, awardFinal: final.award, awardCeilings, neverHappening });
+  }
+  // The championships that may be unseen, while the field is not proven after a start.
+  if (publishedFieldProof(teams, season, nowYear, dcmpSlots, stateByEvent).unprovenAfterStart) {
+    reserved += unseenChampionshipsHeld(teams, dcmpSlots) * reservedChampSlots({ elimFinal: false, awardFinal: false, awardCeilings, neverHappening });
   }
   return reserved;
 }
@@ -786,6 +973,17 @@ export interface RecomputeDistrictVerdictsOptions {
    * payload with one district event's maximum. Absent, nothing is added.
    */
   readonly unexplainedDistrictCeiling?: ReadonlyMap<string, number>;
+  /**
+   * Whether a dcmp tier row whose event carries no state block may read
+   * wholly open while the championship is still ahead (quick task
+   * 261010-66y). ONLY THE TWO MERGE ENTRY POINTS PASS IT, as true, on the
+   * `unexplainedDistrictCeiling` precedent: there a stateless championship
+   * row is the row the live Worker wrote on the tick a championship's first
+   * rows arrived, before it had a state to write. Absent reads false, so a
+   * direct caller (the offline publisher's first pass over state free rows)
+   * reads a stateless row as it always has: a hindsight row.
+   */
+  readonly statelessChampionshipRowsOpen?: boolean;
 }
 
 export function recomputeDistrictVerdicts(artifact: DistrictArtifact, options: RecomputeDistrictVerdictsOptions = {}): DistrictArtifact {
@@ -797,10 +995,30 @@ export function recomputeDistrictVerdicts(artifact: DistrictArtifact, options: R
   const stateByEvent = eventStateByKey(teams);
   const awardQualified = awardQualifiedSets(teams, options.tierByEvent, stateByEvent, season);
 
+  // WHETHER THE CHAMPIONSHIP IS STILL AHEAD, computed BEFORE the open
+  // category walk (quick task 261010-66y): the walk reads a stateless
+  // championship row open only while it is. It is the caller's answer when
+  // it has one. The two merge entry points read it off the artifact they
+  // were handed, before they merged anything into it (see `dcmpStillAhead`).
+  // A direct caller passes none and the pass reads it off its own input.
+  // Pass 2 below reuses this one value.
+  const stillAhead = options.dcmpStillAhead ?? dcmpStillAhead(artifact);
+  // The field proof, built once: it picks the finals Playoffs maximum a
+  // division team carries, and gives a team with no championship row its
+  // finals on top of the hypothetical championship while the field is not
+  // proven after a start.
+  const nowYear = options.nowYear ?? new Date().getUTCFullYear();
+  const fieldProof = publishedFieldProof(teams, season, nowYear, artifact.dcmpSlots, stateByEvent);
+  const live: LiveChampionshipReading = {
+    statelessChampionshipRowsOpen: options.statelessChampionshipRowsOpen === true,
+    championshipStillAhead: stillAhead,
+    fieldProven: fieldProof.proven,
+  };
+
   // What is still open at the events each team already has a row for, per
   // tier (quick task 261009-tx6). Built once, and read by both ceilings and
   // both floors below.
-  const openByTeam = new Map(teams.map((team) => [team.teamKey, openAtPlayedRows(team, teams, season, stateByEvent)] as const));
+  const openByTeam = new Map(teams.map((team) => [team.teamKey, openAtPlayedRows(team, teams, season, stateByEvent, live)] as const));
 
   // `maxRemainingDistrict` is BUILT from the rows on every call and never
   // added to a stored value, so the pass is idempotent: the remaining district
@@ -851,11 +1069,16 @@ export function recomputeDistrictVerdicts(artifact: DistrictArtifact, options: R
   // happened. Same three gates as `buildDistrictArtifact`. A team has a
   // championship row or a hypothetical championship, never both.
   //
-  // "Not already happened" is the caller's answer when it has one. The two
-  // merge entry points read it off the artifact they were handed, before they
-  // merged anything into it (see `dcmpStillAhead`). A direct caller passes
-  // none and the pass reads it off its own input.
-  const stillAhead = options.dcmpStillAhead ?? dcmpStillAhead(artifact);
+  // "Not already happened" is `stillAhead`, computed above, before the open
+  // category walk.
+  //
+  // WHILE THE FIELD IS NOT PROVEN AFTER A START the hypothetical championship
+  // carries a finals as well (`hypotheticalFinalsCeiling`, quick task
+  // 261010-66y): the whole dcmp Playoffs ceiling, which is what the team will
+  // carry the moment its division's rows land (the finals rule of
+  // `openAtPlayedRows`). Without it a team's ceiling rose when its rows
+  // landed. The Champ Locks tab grants the same.
+  const hypotheticalChampionship = dcmpEventMaxTotal + hypotheticalFinalsCeiling(!fieldProof.unprovenAfterStart, dcmpBase.elim);
   const maxRemainingChampByTeam = new Map<string, number>();
   for (const team of teams) {
     const districtLock = districtLockByTeam.get(team.teamKey)!;
@@ -863,7 +1086,7 @@ export function recomputeDistrictVerdicts(artifact: DistrictArtifact, options: R
     const mightAttendDcmp = stillAhead && !hasPlayedDcmp && districtLock.status !== "eliminated";
     maxRemainingChampByTeam.set(
       team.teamKey,
-      maxRemainingDistrictByTeam.get(team.teamKey)! + openByTeam.get(team.teamKey)!.dcmp.ceiling + (mightAttendDcmp ? dcmpEventMaxTotal : 0)
+      maxRemainingDistrictByTeam.get(team.teamKey)! + openByTeam.get(team.teamKey)!.dcmp.ceiling + (mightAttendDcmp ? hypotheticalChampionship : 0)
     );
   }
 
@@ -875,8 +1098,7 @@ export function recomputeDistrictVerdicts(artifact: DistrictArtifact, options: R
     return { teamKey: team.teamKey, pointTotal: team.pointTotal - open.district.earned - open.dcmp.earned, maxRemaining: maxRemainingChampByTeam.get(team.teamKey)! };
   });
   const champQualifiers: QualifierSets = { awardQualified: awardQualified.dcmp, prequalified: prequalifiedTeams(season) };
-  const champReservedSlots =
-    artifact.cmpSlots === null ? 0 : reservedChampSlotsAtNow(teams, season, artifact.districtKey, artifact.cmpSlots, options.nowYear ?? new Date().getUTCFullYear());
+  const champReservedSlots = artifact.cmpSlots === null ? 0 : reservedChampSlotsAtNow(teams, season, artifact.districtKey, artifact.cmpSlots, nowYear, artifact.dcmpSlots);
   let champLocks = computeLocksWithQualifiers(champLockInputs, artifact.cmpSlots, champQualifiers, champReservedSlots);
 
   // `2025fsc` issued five explicit named invitations instead of a slot-count
@@ -1310,7 +1532,12 @@ export function applyDistrictRankings(options: ApplyDistrictRankingsOptions): Di
     ...(bakedEvents === undefined ? {} : { bakedEvents }),
   };
 
-  return recomputeDistrictVerdicts(eventAwards === undefined ? merged : applyDistrictEventAwards(merged, eventAwards, settledAwardEvents, longSettledAwardEvents), { dcmpStillAhead: stillAhead, unexplainedDistrictCeiling });
+  return recomputeDistrictVerdicts(eventAwards === undefined ? merged : applyDistrictEventAwards(merged, eventAwards, settledAwardEvents, longSettledAwardEvents), {
+    dcmpStillAhead: stillAhead,
+    unexplainedDistrictCeiling,
+    // A live path: a championship's first rows arrive with no state block.
+    statelessChampionshipRowsOpen: true,
+  });
 }
 
 export interface ApplyDistrictEventStateOptions {
@@ -1410,5 +1637,7 @@ export function applyDistrictEventState(options: ApplyDistrictEventStateOptions)
     ...(tierByEvent === undefined ? {} : { tierByEvent }),
     dcmpStillAhead: stillAhead,
     unexplainedDistrictCeiling,
+    // A live path: a championship's first rows arrive with no state block.
+    statelessChampionshipRowsOpen: true,
   });
 }

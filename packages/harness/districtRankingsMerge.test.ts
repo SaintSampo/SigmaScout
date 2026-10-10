@@ -11,6 +11,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { districtEventCategoryFinality } from "../core/districts/reservedSlots.js";
+import { reservedChampSlots } from "../core/districts/champReservedSlots.js";
+import { dcmpAwardCountCeilings } from "../core/districts/hypotheticalDcmp.js";
 import { DistrictArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type DistrictArtifact } from "./pageArtifacts.js";
 import {
   applyDistrictEventAwards,
@@ -22,6 +24,7 @@ import {
   DistrictRankingsRowSchema,
   publishedCategoryFinality,
   recomputeDistrictVerdicts,
+  reservedChampSlotsAtNow,
   type DistrictEventAwardInput,
 } from "./districtRankingsMerge.js";
 
@@ -419,21 +422,42 @@ describe("recomputeDistrictVerdicts — the champ tier holds back the DCMP's own
 
   it("reserves nothing once the DCMP has posted its awards, playoffs flag or not, and leaves the champ cut line on the unreserved count either way", () => {
     const base = twoTeamFixture();
-    const withDcmp = (state: { playoffsDone: boolean; awardsPosted: boolean }): DistrictArtifact =>
-      DistrictArtifactSchema.parse({
-        ...base,
-        teams: base.teams.map((team) => ({
-          ...team,
-          remainingEvents: [
-            ...team.remainingEvents,
-            { eventKey: "2026nccmp", eventName: "FNC District Championship", week: 6, tier: "dcmp", maxPoints: DCMP_EVENT_MAX, state: { qualMatchesPlayed: 0, qualMatchesTotal: null, alliancesPicked: false, ...state } },
-          ],
-        })),
+    // FIXTURE GIVEN A PROVEN FIELD by quick task 261010-66y (reading R10), the
+    // pin kept. The two teams are only REGISTERED at the championship, and a
+    // started championship with no posted row does not prove its field, which
+    // now holds one more championship back. This test is about the awards
+    // flag, not about an unposted field, so two further teams carry posted
+    // championship rows: two posted against the district's two places. They
+    // sit below both teams and change neither one's number.
+    const withDcmp = (state: { playoffsDone: boolean; awardsPosted: boolean }): DistrictArtifact => {
+      const dcmpState = { qualMatchesPlayed: 0, qualMatchesTotal: null, alliancesPicked: false, ...state };
+      const postedTeam = (teamKey: string, teamNumber: number) => ({
+        ...base.teams[1]!,
+        teamKey,
+        teamNumber,
+        nickname: `Posted ${String(teamNumber)}`,
+        rank: teamNumber,
+        pointTotal: 1,
+        eventPoints: [{ eventKey: "2026nccmp", eventName: "FNC District Championship", week: 6, tier: "dcmp" as const, qual: 1, alliance: 0, elim: 0, award: 0, total: 1, state: dcmpState }],
+        maxRemainingChamp: 0,
       });
+      return DistrictArtifactSchema.parse({
+        ...base,
+        teams: [
+          ...base.teams.map((team) => ({
+            ...team,
+            remainingEvents: [...team.remainingEvents, { eventKey: "2026nccmp", eventName: "FNC District Championship", week: 6, tier: "dcmp", maxPoints: DCMP_EVENT_MAX, state: dcmpState }],
+          })),
+          postedTeam("frc8", 8),
+          postedTeam("frc9", 9),
+        ],
+      });
+    };
     const open = recomputeDistrictVerdicts(withDcmp({ playoffsDone: false, awardsPosted: false }), { nowYear: 2026 });
     const playoffsDone = recomputeDistrictVerdicts(withDcmp({ playoffsDone: true, awardsPosted: false }), { nowYear: 2026 });
     const posted = recomputeDistrictVerdicts(withDcmp({ playoffsDone: false, awardsPosted: true }), { nowYear: 2026 });
-    const pointsToLock = (artifact: DistrictArtifact): (number | null)[] => artifact.teams.map((t) => t.champLock.pointsToLock);
+    /** The two teams the pin has always read. */
+    const pointsToLock = (artifact: DistrictArtifact): (number | null)[] => artifact.teams.slice(0, 2).map((t) => t.champLock.pointsToLock);
     expect(champLocked(open)).toBe(0);
     expect(champLocked(playoffsDone)).toBe(0);
     expect(pointsToLock(open)).toEqual([null, null]);
@@ -2207,3 +2231,365 @@ describe("recomputeDistrictVerdicts: the ceilings and floors count what is still
     });
   });
 });
+
+/**
+ * Quick task 261010-66y, D5: the published verdicts while a championship's
+ * rows arrive. Three things, each pinned through the entry points the live
+ * Worker calls:
+ *
+ *   - a championship's FIRST rows arrive with no state block (the Worker
+ *     drops the state of an event the artifact it read carried no row for),
+ *     and on the two live paths such a row reads wholly open while the
+ *     championship is still ahead;
+ *   - every team with a live division row carries the finals Playoffs maximum
+ *     until the finals' Playoffs are final, and the finals' Awards add no
+ *     ceiling for anyone;
+ *   - the champ reservation holds the championships that may be unseen while
+ *     the field is not proven.
+ */
+describe("the published verdicts while a championship's rows arrive (quick task 261010-66y, D5)", () => {
+  type Team = DistrictArtifact["teams"][number];
+  type PointsRow = Team["eventPoints"][number];
+  type State = NonNullable<PointsRow["state"]>;
+  interface Points {
+    readonly qual?: number;
+    readonly alliance?: number;
+    readonly elim?: number;
+    readonly award?: number;
+  }
+
+  const FINAL: State = { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: true, awardsPosted: true };
+  const QUAL_RUNNING: State = { qualMatchesPlayed: 10, qualMatchesTotal: 60, alliancesPicked: false, playoffsDone: false, awardsPosted: false };
+  /** A finals event has no qualification schedule: its playoffs are done, its awards flag not yet true. */
+  const FINALS_PLAYED: State = { qualMatchesPlayed: 0, qualMatchesTotal: 0, alliancesPicked: true, playoffsDone: true, awardsPosted: false };
+  const DCMP_ELIM_MAX = 90;
+  const E0 = "2026ncwak";
+  const DCMP = "2026nccmp";
+  const D1 = "2026nccmp1";
+  const D2 = "2026nccmp2";
+
+  function row(eventKey: string, points: Points, state: State | undefined, tier: "district" | "dcmp" = "dcmp"): PointsRow {
+    const qual = points.qual ?? 0;
+    const alliance = points.alliance ?? 0;
+    const elim = points.elim ?? 0;
+    const award = points.award ?? 0;
+    return { eventKey, eventName: `${eventKey} event`, week: tier === "dcmp" ? 6 : 1, tier, qual, alliance, elim, award, total: qual + alliance + elim + award, ...(state === undefined ? {} : { state: { ...state } }) };
+  }
+  function team(teamKey: string, rows: readonly PointsRow[], awards: Team["qualifyingAwards"] = []): Team {
+    return {
+      teamKey,
+      teamNumber: Number(teamKey.replace(/\D/g, "")),
+      nickname: `Team ${teamKey}`,
+      rank: 1,
+      pointTotal: rows.reduce((sum, entry) => sum + entry.total, 0),
+      rookieBonus: 0,
+      adjustments: 0,
+      eventPoints: [...rows],
+      remainingEvents: [],
+      maxRemainingDistrict: 0,
+      maxRemainingChamp: 0,
+      qualifyingAwards: [...awards],
+      districtLock: lockVerdict("contending"),
+      champLock: lockVerdict("contending"),
+    };
+  }
+  function district(teams: readonly Team[], slots: { dcmpSlots: number; cmpSlots: number }): DistrictArtifact {
+    return DistrictArtifactSchema.parse({
+      schemaVersion: 1,
+      generation: "gen-published",
+      computedAt: "2026-03-01T00:00:00.000Z",
+      districtKey: "2026fnc",
+      year: 2026,
+      abbreviation: "fnc",
+      displayName: "FIRST North Carolina",
+      ...slots,
+      teams,
+      insights: { teamCount: teams.length, eventCount: 3, dcmpCutLinePoints: null, cmpCutLinePoints: null, districtLockedCount: 0, districtEliminatedCount: 0, champLockedCount: 0, champEliminatedCount: 0 },
+    });
+  }
+  /** A TBA shaped rankings payload from rows per team. */
+  function payload(rowsByTeam: Readonly<Record<string, readonly PointsRow[]>>) {
+    return Object.entries(rowsByTeam).map(([teamKey, rows], index) => ({
+      team_key: teamKey,
+      rank: index + 1,
+      point_total: rows.reduce((sum, entry) => sum + entry.total, 0),
+      rookie_bonus: 0,
+      adjustments: 0,
+      event_points: rows.map((entry) => ({ event_key: entry.eventKey, district_cmp: entry.tier === "dcmp", qual_points: entry.qual, alliance_points: entry.alliance, elim_points: entry.elim, award_points: entry.award, total: entry.total })),
+    }));
+  }
+  const viaRankings = (artifact: DistrictArtifact, rankings: unknown): DistrictArtifact => applyDistrictRankings({ artifact, rankings, generation: GENERATION, computedAt: COMPUTED_AT });
+  const viaState = (artifact: DistrictArtifact, eventState: ReadonlyMap<string, State> = new Map()): DistrictArtifact => applyDistrictEventState({ artifact, eventState, generation: GENERATION, computedAt: COMPUTED_AT });
+  const champCeilings = (artifact: DistrictArtifact): Record<string, number> => Object.fromEntries(artifact.teams.map((entry) => [entry.teamKey, entry.maxRemainingChamp]));
+  const champLocks = (artifact: DistrictArtifact) => artifact.teams.map((entry) => [entry.teamKey, entry.champLock] as const);
+  const champHeld = (artifact: DistrictArtifact): string[] => artifact.teams.filter((entry) => ["locked", "lockedAward", "prequalified"].includes(entry.champLock.status)).map((entry) => entry.teamKey);
+  /** No team's champ ceiling in `after` is above its ceiling in `before`. */
+  const ceilingRises = (before: DistrictArtifact, after: DistrictArtifact): string[] => {
+    const was = champCeilings(before);
+    return after.teams.filter((entry) => entry.maxRemainingChamp > (was[entry.teamKey] ?? 0)).map((entry) => `${entry.teamKey} ${String(was[entry.teamKey])} to ${String(entry.maxRemainingChamp)}`);
+  };
+
+  // -------------------------------------------------------------------------
+  // R11. A championship's first rows
+  // -------------------------------------------------------------------------
+
+  describe("a championship's first rows arrive with no state block", () => {
+    const DISTRICT_POINTS: Readonly<Record<string, number>> = { frc1: 100, frc2: 90, frc3: 80, frc4: 70, frc5: 20, frc6: 10 };
+    const FIELD = ["frc1", "frc2", "frc3", "frc4"] as const;
+    const districtRows = (teamKey: string): PointsRow[] => [row(E0, { qual: DISTRICT_POINTS[teamKey]! }, FINAL, "district")];
+    /** Six teams, four championship places, no championship row yet, and a championship still ahead. */
+    const before = recomputeDistrictVerdicts(district(Object.keys(DISTRICT_POINTS).map((teamKey) => team(teamKey, districtRows(teamKey))), { dcmpSlots: 4, cmpSlots: 2 }), { nowYear: 2026, dcmpStillAhead: true });
+    /** The four teams of the field gain a championship row carrying the given qualification points, with no state. */
+    const firstRows = (qualByTeam: Readonly<Record<string, number>>) =>
+      payload(Object.fromEntries(Object.keys(DISTRICT_POINTS).map((teamKey) => [teamKey, [...districtRows(teamKey), ...(teamKey in qualByTeam ? [row(DCMP, { qual: qualByTeam[teamKey]! }, undefined)] : [])]])));
+    const landed = viaRankings(before, firstRows({ frc1: 30, frc2: 20, frc3: 10, frc4: 5 }));
+
+    it("premise: the four teams that earned a place hold one hypothetical championship, and the rows land with no state", () => {
+      expect(champCeilings(before)).toEqual({ frc1: DCMP_EVENT_MAX, frc2: DCMP_EVENT_MAX, frc3: DCMP_EVENT_MAX, frc4: DCMP_EVENT_MAX, frc5: 0, frc6: 0 });
+      for (const teamKey of FIELD) {
+        const dcmpRow = landed.teams.find((entry) => entry.teamKey === teamKey)!.eventPoints.find((entry) => entry.eventKey === DCMP)!;
+        expect(dcmpRow.state).toBeUndefined();
+        expect(dcmpRow.tier).toBe("dcmp");
+      }
+    });
+
+    it("every team at the event keeps a championship ceiling of one whole dcmp event: no ceiling drops", () => {
+      expect(champCeilings(landed)).toEqual(champCeilings(before));
+      for (const teamKey of FIELD) expect(champCeilings(landed)[teamKey]).toBe(DCMP_EVENT_MAX);
+    });
+
+    it("the rows' points are out of the champ floor: two payloads that differ only in those points give every team the same champLock", () => {
+      const other = viaRankings(before, firstRows({ frc1: 5, frc2: 60, frc3: 0, frc4: 44 }));
+      expect(champLocks(other)).toEqual(champLocks(landed));
+      expect(other.insights.cmpCutLinePoints).toBe(landed.insights.cmpCutLinePoints);
+      // The totals on the wire are the landed ones.
+      expect(landed.teams.find((entry) => entry.teamKey === "frc1")!.pointTotal).toBe(130);
+      expect(other.teams.find((entry) => entry.teamKey === "frc1")!.pointTotal).toBe(105);
+    });
+
+    it("no team reads locked on that tick that did not before", () => {
+      const heldBefore = new Set(champHeld(before));
+      expect(champHeld(landed).filter((teamKey) => !heldBefore.has(teamKey))).toEqual([]);
+    });
+
+    it("the same rows through a DIRECT recomputeDistrictVerdicts call read as they always have: nothing open", () => {
+      const direct = recomputeDistrictVerdicts(landed, { nowYear: 2026, dcmpStillAhead: true });
+      // A team with a championship row holds no hypothetical one, and a
+      // stateless row on a direct call is a hindsight row.
+      expect(champCeilings(direct)).toEqual({ frc1: 0, frc2: 0, frc3: 0, frc4: 0, frc5: 0, frc6: 0 });
+    });
+
+    it("once the championship is no longer ahead a stateless championship row reads as a hindsight row on the live paths too", () => {
+      // The same rows merged into an artifact whose stored ceilings say no championship is ahead.
+      const notAhead = recomputeDistrictVerdicts(district(Object.keys(DISTRICT_POINTS).map((teamKey) => team(teamKey, districtRows(teamKey))), { dcmpSlots: 4, cmpSlots: 2 }), { nowYear: 2026, dcmpStillAhead: false });
+      expect(champCeilings(viaRankings(notAhead, firstRows({ frc1: 30, frc2: 20, frc3: 10, frc4: 5 })))).toEqual({ frc1: 0, frc2: 0, frc3: 0, frc4: 0, frc5: 0, frc6: 0 });
+    });
+
+    it("a DISTRICT tier row with no state block reads as it always has, on every path", () => {
+      const withNewDistrictRow = payload(
+        Object.fromEntries(Object.keys(DISTRICT_POINTS).map((teamKey) => [teamKey, [...districtRows(teamKey), ...(teamKey === "frc5" ? [row("2026ncnew", { qual: 15 }, undefined, "district")] : [])]]))
+      );
+      const merged = viaRankings(before, withNewDistrictRow);
+      expect(merged.teams.find((entry) => entry.teamKey === "frc5")!.eventPoints.find((entry) => entry.eventKey === "2026ncnew")!.state).toBeUndefined();
+      expect(merged.teams.map((entry) => entry.maxRemainingDistrict)).toEqual(before.teams.map((entry) => entry.maxRemainingDistrict));
+      expect(viaState(merged).teams.map((entry) => entry.maxRemainingDistrict)).toEqual(before.teams.map((entry) => entry.maxRemainingDistrict));
+      expect(recomputeDistrictVerdicts(merged, { nowYear: 2026 }).teams.map((entry) => entry.maxRemainingDistrict)).toEqual(before.teams.map((entry) => entry.maxRemainingDistrict));
+    });
+
+    it("is a fixed point on both live paths with the stateless championship rows present", () => {
+      expect(viaState(landed)).toEqual(landed);
+      expect(viaRankings(landed, firstRows({ frc1: 30, frc2: 20, frc3: 10, frc4: 5 }))).toEqual(landed);
+      // And the two paths agree for one incoming artifact.
+      const state = viaState(before);
+      const rankings = viaRankings(before, firstRows({}));
+      expect(champCeilings(rankings)).toEqual(champCeilings(state));
+      expect(champLocks(rankings)).toEqual(champLocks(state));
+    });
+
+    it("when the state lands the next tick, started and mid qualification, no ceiling moves and no held place is lost", () => {
+      const started = viaState(landed, new Map([[DCMP, QUAL_RUNNING]]));
+      expect(champCeilings(started)).toEqual(champCeilings(landed));
+      expect(champHeld(landed).filter((teamKey) => !champHeld(started).includes(teamKey))).toEqual([]);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // R20. The finals of a championship played in divisions
+  // -------------------------------------------------------------------------
+
+  describe("every division team carries the finals Playoffs maximum, and the finals' Awards add no ceiling", () => {
+    const DISTRICT_POINTS: Readonly<Record<string, number>> = { frc1: 100, frc2: 95, frc3: 90, frc4: 85, frc5: 80, frc6: 75, frc7: 70, frc8: 65, frc9: 5 };
+    const DIVISION: Readonly<Record<string, string>> = { frc1: D1, frc2: D1, frc3: D1, frc4: D1, frc5: D2, frc6: D2, frc7: D2, frc8: D2 };
+    const DIVISION_TEAMS = Object.keys(DIVISION);
+    /** Division one's winners, who go on to the finals. */
+    const FINALISTS = ["frc1", "frc2", "frc3"] as const;
+    /** The finals champion value at two divisions in 2026. */
+    const FINALS_CHAMPION = 30;
+
+    /** Each division wholly final: its winning alliance at the winner's 90, everything in. */
+    const divisionRow = (teamKey: string, state: State = FINAL): PointsRow =>
+      row(DIVISION[teamKey]!, { qual: 30, alliance: ["frc1", "frc2", "frc3", "frc5", "frc6", "frc7"].includes(teamKey) ? 16 : 0, elim: ["frc1", "frc2", "frc3", "frc5", "frc6", "frc7"].includes(teamKey) ? DCMP_ELIM_MAX : 0 }, state);
+    const baseRows = (teamKey: string, divisionState: State = FINAL): PointsRow[] => [row(E0, { qual: DISTRICT_POINTS[teamKey]! }, FINAL, "district"), ...(teamKey in DIVISION ? [divisionRow(teamKey, divisionState)] : [])];
+    const divisioned = (dcmpSlots: number, divisionState: State = FINAL): DistrictArtifact =>
+      recomputeDistrictVerdicts(district(Object.keys(DISTRICT_POINTS).map((teamKey) => team(teamKey, baseRows(teamKey, divisionState))), { dcmpSlots, cmpSlots: 3 }), { nowYear: 2026, dcmpStillAhead: false });
+
+    /** The rankings payload once finals rows exist: the finalists' Playoffs points, and optionally award points. */
+    const withFinalsRows = (finals: Readonly<Record<string, Points>>) =>
+      payload(Object.fromEntries(Object.keys(DISTRICT_POINTS).map((teamKey) => [teamKey, [...baseRows(teamKey), ...(teamKey in finals ? [row(DCMP, finals[teamKey]!, undefined)] : [])]])));
+    const finalistsAt = (elim: number, extra: Readonly<Record<string, Points>> = {}): Readonly<Record<string, Points>> => ({ ...Object.fromEntries(FINALISTS.map((teamKey) => [teamKey, { elim }])), ...extra });
+
+    const proven = divisioned(8);
+
+    it("premise: eight teams in two divisions of four against eight places, every division row final, no finals row", () => {
+      expect(proven.teams.flatMap((entry) => entry.eventPoints).some((entry) => entry.eventKey === DCMP)).toBe(false);
+      expect(proven.teams.filter((entry) => entry.eventPoints.some((dcmpRow) => dcmpRow.tier === "dcmp"))).toHaveLength(8);
+    });
+
+    it("with the field proven every division team carries the two division finals champion maximum, and nothing for the finals' Awards", () => {
+      // Nothing is open at the divisions themselves, so the ceiling is the finals alone: 30, not 30 plus 45.
+      for (const teamKey of DIVISION_TEAMS) expect({ teamKey, ceiling: champCeilings(proven)[teamKey] }).toEqual({ teamKey, ceiling: FINALS_CHAMPION });
+      expect(champCeilings(proven).frc9).toBe(0);
+    });
+
+    it("beside what is open at its division: with the division's playoffs and awards open the ceiling is those two and the finals maximum", () => {
+      const PLAYOFFS_OPEN: State = { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: false, awardsPosted: false };
+      const open = divisioned(8, PLAYOFFS_OPEN);
+      // frc1 carries alliance points, so its division's Qualification and Alliance selection are final.
+      expect(champCeilings(open).frc1).toBe(DCMP_ELIM_MAX + 45 + FINALS_CHAMPION);
+    });
+
+    it("while the field is not proven the finals Playoffs maximum is the whole dcmp Playoffs ceiling", () => {
+      // The same eight teams against forty places: the rows do not prove the field.
+      const unproven = divisioned(40);
+      for (const teamKey of DIVISION_TEAMS) expect({ teamKey, ceiling: champCeilings(unproven)[teamKey] }).toEqual({ teamKey, ceiling: DCMP_ELIM_MAX });
+    });
+
+    it("when the finals rows post with no state, no ceiling rises, and their Playoffs points are out of the floor", () => {
+      const posted = viaRankings(proven, withFinalsRows(finalistsAt(FINALS_CHAMPION)));
+      expect(ceilingRises(proven, posted)).toEqual([]);
+      for (const teamKey of DIVISION_TEAMS) expect({ teamKey, ceiling: champCeilings(posted)[teamKey] }).toEqual({ teamKey, ceiling: FINALS_CHAMPION });
+      // Out of the floor: the same rows at other Playoffs values change no verdict and no cut line.
+      const other = viaRankings(proven, withFinalsRows(finalistsAt(0)));
+      expect(champLocks(other)).toEqual(champLocks(posted));
+      expect(other.insights.cmpCutLinePoints).toBe(posted.insights.cmpCutLinePoints);
+      // Before the rows existed the teams carried the same ceiling and the same floor.
+      expect(champLocks(posted)).toEqual(champLocks(viaState(proven)));
+    });
+
+    it("when the finals state lands with its Playoffs final, the finals maximum is gone for every team and no ceiling rises", () => {
+      const posted = viaRankings(proven, withFinalsRows(finalistsAt(FINALS_CHAMPION)));
+      const played = viaState(posted, new Map([[DCMP, FINALS_PLAYED]]));
+      expect(publishedCategoryFinality(played.teams, DCMP, FINALS_PLAYED, 2026)).toMatchObject({ elim: true, award: false });
+      expect(ceilingRises(posted, played)).toEqual([]);
+      // Nothing for the finals' Awards, which are still open: every ceiling is 0.
+      expect(champCeilings(played)).toEqual(Object.fromEntries(Object.keys(DISTRICT_POINTS).map((teamKey) => [teamKey, 0])));
+      // The finalists' Playoffs points now count: their floors are the landed totals, so the cut line moved up.
+      expect(played.insights.cmpCutLinePoints).toBeGreaterThan(posted.insights.cmpCutLinePoints!);
+    });
+
+    it("when award points land on finals rows while the flag is not yet true, no ceiling rises and they are out of the floor", () => {
+      const played = viaState(viaRankings(proven, withFinalsRows(finalistsAt(FINALS_CHAMPION))), new Map([[DCMP, FINALS_PLAYED]]));
+      const awards = (frc1: number, frc9: number) => viaRankings(played, withFinalsRows(finalistsAt(FINALS_CHAMPION, { frc1: { elim: FINALS_CHAMPION, award: frc1 }, frc9: { award: frc9 } })));
+      const landed = awards(30, 24);
+      expect(ceilingRises(played, landed)).toEqual([]);
+      // The same rows at other award values change no verdict and no cut line while the finals' Awards are open.
+      const other = awards(0, 0);
+      expect(champLocks(other)).toEqual(champLocks(landed));
+      expect(other.insights.cmpCutLinePoints).toBe(landed.insights.cmpCutLinePoints);
+      // A team whose only championship row is the finals row gains no ceiling from it.
+      expect(champCeilings(landed).frc9).toBe(0);
+      expect(landed.teams.find((entry) => entry.teamKey === "frc9")!.pointTotal).toBe(5 + 24);
+    });
+
+    it("a finals row of a team with no division row adds no ceiling even while the finals are wholly open", () => {
+      // The finals in progress: a state whose playoffs are not done.
+      const FINALS_RUNNING: State = { qualMatchesPlayed: 0, qualMatchesTotal: 0, alliancesPicked: true, playoffsDone: false, awardsPosted: false };
+      const running = viaState(viaRankings(proven, withFinalsRows(finalistsAt(0, { frc9: { award: 24 } }))), new Map([[DCMP, FINALS_RUNNING]]));
+      expect(champCeilings(running).frc9).toBe(0);
+      for (const teamKey of DIVISION_TEAMS) expect(champCeilings(running)[teamKey]).toBe(FINALS_CHAMPION);
+    });
+
+    it("is a fixed point on both live paths at every step, and the two paths agree", () => {
+      const posted = viaRankings(proven, withFinalsRows(finalistsAt(FINALS_CHAMPION)));
+      const played = viaState(posted, new Map([[DCMP, FINALS_PLAYED]]));
+      for (const step of [viaState(proven), posted, played]) {
+        expect(viaState(step)).toEqual(step);
+        expect(recomputeDistrictVerdicts(step, { nowYear: 2026, dcmpStillAhead: false })).toEqual(step);
+      }
+      expect(viaRankings(posted, withFinalsRows(finalistsAt(FINALS_CHAMPION)))).toEqual(posted);
+      expect(viaRankings(played, withFinalsRows(finalistsAt(FINALS_CHAMPION)))).toEqual(played);
+    });
+
+    it("the offline publisher's first pass, over state free rows, moves nothing: no division row is live there", () => {
+      const stateFree = district(Object.keys(DISTRICT_POINTS).map((teamKey) => team(teamKey, baseRows(teamKey).map(({ state: _state, ...rest }) => rest))), { dcmpSlots: 8, cmpSlots: 3 });
+      expect(champCeilings(recomputeDistrictVerdicts(stateFree, { nowYear: 2026, dcmpStillAhead: false }))).toEqual(Object.fromEntries(Object.keys(DISTRICT_POINTS).map((teamKey) => [teamKey, 0])));
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // R12 and the hypothetical championship's finals
+  // -------------------------------------------------------------------------
+
+  describe("while the field is not proven after a start", () => {
+    const CMP_SLOTS = 3;
+    const WHOLE_CHAMPIONSHIP = reservedChampSlots({ elimFinal: false, awardFinal: false, awardCeilings: dcmpAwardCountCeilings(2026, "2026fnc", CMP_SLOTS).counts, neverHappening: false });
+    const NORTH = "2026nccmp";
+    const SOUTH = "2026ncscmp";
+    const EAST = "2026ncecmp";
+    /** Four teams with a posted row at one championship. `state: null` leaves the rows with NO state block, as a championship's first rows arrive. */
+    const championshipTeams = (eventKey: string, from: number, state: State | null = QUAL_RUNNING): Team[] =>
+      [0, 1, 2, 3].map((offset) => team(`frc${String(from + offset)}`, [row(E0, { qual: 60 - from - offset }, FINAL, "district"), row(eventKey, { qual: 10 }, state ?? undefined)]));
+    const others = (from: number, count: number): Team[] => Array.from({ length: count }, (_unused, offset) => team(`frc${String(from + offset)}`, [row(E0, { qual: 40 - offset }, FINAL, "district")]));
+    const reservedOf = (teams: readonly Team[], dcmpSlots: number | null): number => reservedChampSlotsAtNow(teams, 2026, "2026fnc", CMP_SLOTS, 2026, dcmpSlots);
+
+    it("premise: one whole open championship holds the winning alliance and every judged consuming award", () => {
+      expect(WHOLE_CHAMPIONSHIP).toBeGreaterThan(4);
+    });
+
+    it("with one of two championships posted and started, the reservation is the known championship's plus one whole", () => {
+      const teams = [...championshipTeams(NORTH, 1), ...others(20, 4)];
+      // Four posted of eight places: the rows do not prove the field.
+      expect(reservedOf(teams, 8)).toBe(2 * WHOLE_CHAMPIONSHIP);
+      // Four posted of four places: proven, and it is the known championship's alone, as before.
+      expect(reservedOf(teams, 4)).toBe(WHOLE_CHAMPIONSHIP);
+    });
+
+    it("D11: three championships of equal size with one posted holds two more, three in all", () => {
+      expect(reservedOf([...championshipTeams(NORTH, 1), ...others(20, 8)], 12)).toBe(3 * WHOLE_CHAMPIONSHIP);
+      // The second one posted and started: two known and one more.
+      expect(reservedOf([...championshipTeams(NORTH, 1), ...championshipTeams(SOUTH, 5), ...others(20, 4)], 12)).toBe(3 * WHOLE_CHAMPIONSHIP);
+      // The third one's rows landing with no state yet: the posted teams meet the capacity line, three known, none beyond.
+      expect(reservedOf([...championshipTeams(NORTH, 1), ...championshipTeams(SOUTH, 5), ...championshipTeams(EAST, 9, null)], 12)).toBe(3 * WHOLE_CHAMPIONSHIP);
+    });
+
+    it("holds nothing more before any championship key has started, and nothing more where the district publishes no capacity and nothing has started", () => {
+      const notStarted: State = { qualMatchesPlayed: 0, qualMatchesTotal: 60, alliancesPicked: false, playoffsDone: false, awardsPosted: false };
+      expect(reservedOf([...championshipTeams(NORTH, 1, notStarted), ...others(20, 4)], 8)).toBe(WHOLE_CHAMPIONSHIP);
+      expect(reservedOf([...championshipTeams(NORTH, 1, null), ...others(20, 4)], 8)).toBe(WHOLE_CHAMPIONSHIP);
+      // Started with no capacity published: never proven by capacity, one more is held.
+      expect(reservedOf([...championshipTeams(NORTH, 1), ...others(20, 4)], null)).toBe(2 * WHOLE_CHAMPIONSHIP);
+    });
+
+    it("a team with no championship row carries a finals on its hypothetical championship, so its ceiling does not rise when its division's rows land", () => {
+      // Division one posted and started; division two's four teams on no row; eight places.
+      const districtRowOf = (teamKey: string, points: number): PointsRow => row(E0, { qual: points }, FINAL, "district");
+      const POINTS: Readonly<Record<string, number>> = { frc1: 100, frc2: 95, frc3: 90, frc4: 85, frc5: 80, frc6: 75, frc7: 70, frc8: 65, frc9: 5 };
+      const start = recomputeDistrictVerdicts(
+        district(Object.keys(POINTS).map((teamKey) => team(teamKey, [districtRowOf(teamKey, POINTS[teamKey]!), ...(["frc1", "frc2", "frc3", "frc4"].includes(teamKey) ? [row(D1, { qual: 20 }, QUAL_RUNNING)] : [])])), { dcmpSlots: 8, cmpSlots: CMP_SLOTS }),
+        { nowYear: 2026, dcmpStillAhead: true }
+      );
+      // A team of the unposted division: one whole championship and the whole Playoffs ceiling for a finals.
+      for (const teamKey of ["frc5", "frc6", "frc7", "frc8"]) expect({ teamKey, ceiling: champCeilings(start)[teamKey] }).toEqual({ teamKey, ceiling: DCMP_EVENT_MAX + DCMP_ELIM_MAX });
+      // A team the district tier has eliminated holds none.
+      expect(champCeilings(start).frc9).toBe(0);
+      // Its division's rows land, with no state: the ceiling is what it was.
+      const landed = viaRankings(
+        start,
+        payload(Object.fromEntries(Object.keys(POINTS).map((teamKey) => [teamKey, [districtRowOf(teamKey, POINTS[teamKey]!), ...(teamKey === "frc9" ? [] : [row(["frc1", "frc2", "frc3", "frc4"].includes(teamKey) ? D1 : D2, { qual: 20 }, undefined)])]])))
+      );
+      expect(ceilingRises(start, landed)).toEqual([]);
+      for (const teamKey of ["frc5", "frc6", "frc7", "frc8"]) expect({ teamKey, ceiling: champCeilings(landed)[teamKey] }).toEqual({ teamKey, ceiling: DCMP_EVENT_MAX + DCMP_ELIM_MAX });
+    });
+  });
+});
+

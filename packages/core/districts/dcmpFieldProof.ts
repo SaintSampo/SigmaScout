@@ -267,6 +267,30 @@ export function dcmpFieldProof(input: DcmpFieldProofInput): DcmpFieldProof {
 }
 
 /**
+ * WHETHER A ROW WHOSE EVENT CARRIES NO STATE BLOCK READS WHOLLY OPEN in the
+ * published verdict pass, on its two live paths: true exactly for a dcmp tier
+ * row while the championship is still ahead.
+ *
+ * The live Worker writes a championship's FIRST rows with no state block: the
+ * artifact it read carried no row for that event, so it drops the event's
+ * state on that tick. The verdict pass reads a stateless row as a hindsight
+ * row, its points earned and nothing more expected of it. So for one tick
+ * every team at that event lost its whole championship ceiling, and a team
+ * read Locked that the next tick took back: walked on 2026 PNW with no
+ * championship row first, 10 published `champLock` taken back, and the
+ * ceilings of 50 to 161 teams per district dropping and then rising. A
+ * stateless championship row while the championship is still ahead is not
+ * hindsight: it is a row written before there was anywhere to put the state.
+ *
+ * A one line rule in the core module so a test can switch it off through a
+ * module mock. A district tier row, and any row once the championship is no
+ * longer ahead, reads as it always has.
+ */
+export function statelessChampionshipRowReadsOpen(tier: DistrictTier, championshipStillAhead: boolean): boolean {
+  return tier === "dcmp" && championshipStillAhead;
+}
+
+/**
  * WHAT A TEAM WITH NO CHAMPIONSHIP ROW CARRIES FOR A FINALS, on top of its
  * one whole hypothetical championship, while the field is not proven: the
  * whole dcmp Playoffs ceiling (90 in 2026). Zero once the field is proven,

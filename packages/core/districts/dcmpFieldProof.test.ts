@@ -6,7 +6,15 @@
  * is not proven. Every year is passed in.
  */
 import { describe, expect, it } from "vitest";
-import { dcmpFieldProof, fieldFixingDcmpKeys, hypotheticalFinalsCeiling, unseenChampionshipsHeld, type DcmpFieldProofInput, type DcmpFieldProofTeam } from "./dcmpFieldProof.js";
+import {
+  dcmpFieldProof,
+  fieldFixingDcmpKeys,
+  hypotheticalFinalsCeiling,
+  statelessChampionshipRowReadsOpen,
+  unseenChampionshipsHeld,
+  type DcmpFieldProofInput,
+  type DcmpFieldProofTeam,
+} from "./dcmpFieldProof.js";
 
 const NONE: ReadonlySet<string> = new Set();
 
@@ -234,6 +242,18 @@ describe("dcmpFieldProof, the count asked for never rises while rows are only ad
     expect(walks).toBe(400);
     // The walk is not vacuous: most fields do reach proven.
     expect(provenWalks).toBeGreaterThan(200);
+  });
+});
+
+describe("statelessChampionshipRowReadsOpen: a championship's first rows, written before there was a state to write", () => {
+  it("is true for the dcmp tier while the championship is still ahead", () => {
+    expect(statelessChampionshipRowReadsOpen("dcmp", true)).toBe(true);
+  });
+
+  it("is false for the district tier, and for any tier once the championship is no longer ahead", () => {
+    expect(statelessChampionshipRowReadsOpen("district", true)).toBe(false);
+    expect(statelessChampionshipRowReadsOpen("dcmp", false)).toBe(false);
+    expect(statelessChampionshipRowReadsOpen("district", false)).toBe(false);
   });
 });
 

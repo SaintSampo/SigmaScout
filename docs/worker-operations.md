@@ -923,7 +923,7 @@ closed.
 
 ---
 
-## The district refresh pass (phase 10, plan 10-05, added 2026-09-25; rewritten by quick task 261009-tx6, 2026-10-09; the finality rule, the awards flag and the winner hold by quick task 261009-vp9, 2026-10-10)
+## The district refresh pass (phase 10, plan 10-05, added 2026-09-25; rewritten by quick task 261009-tx6, 2026-10-09; the finality rule, the awards flag and the winner hold by quick task 261009-vp9, 2026-10-10; a championship whose rows arrive one event at a time by quick task 261010-66y, 2026-10-10)
 
 **Quick task 261009-vp9 changes the verdict pass and the awards flag, both inside the Worker
 bundle. The Worker must be deployed for them to take effect.** No district republish is owed:
@@ -1342,6 +1342,74 @@ npx tsx --env-file=.env scripts/publishDistricts.ts --years 2016-2020,2022-2026 
 
 What remains: the Worker can still write between the second read and that district's own upload, a
 window of seconds, and closing it fully needs a conditional put.
+
+### A championship whose rows arrive one event at a time (quick task 261010-66y, 2026-10-10)
+
+The district artifact carries no event list. It learns a District Championship key only when a team
+row names it: a points row once TBA posts points there, or a registration the offline publisher
+wrote. So at a live championship played in divisions (FIM, NE, ONT, TX), or in a district with two
+championships (2026 California), the pass can hold one event's rows and nothing of the others for
+some ticks. Four things changed in the shared verdict pass
+(`packages/harness/districtRankingsMerge.ts`). The Worker's own code under `apps/worker/src` is
+unchanged.
+
+**A championship's first rows read open.** The pass still drops the state of an event the artifact
+it read carried no row for (step 5, `districtRefresh.ts`), so a championship's first rows land
+with no state block and the state follows one tick later. A row with no state block used to read as
+a hindsight row everywhere: its points earned, nothing more expected. For that one tick every team
+at the event lost its whole championship ceiling. Walked on the 2026 artifacts with no championship
+row first: 10 published `champLock` taken back at PNW, and 50 to 161 teams per district whose
+`maxRemainingChamp` dropped and came back. On the two live entry points
+(`applyDistrictRankings`, `applyDistrictEventState`) a dcmp tier row with no state block now reads
+wholly open while the championship is still ahead: its four ceilings on the ceiling, its points out
+of the floor. A district tier row, and the offline publisher's first pass, read as before.
+
+**Every division team carries the finals.** TBA writes a finals row only for a team it pays there,
+so before the finals are played no row names them. Every team with a live division row now carries
+the finals Playoffs maximum (60 at four divisions, 30 at two, and the whole 90 while the field is
+not proven) until the finals' Playoffs are final, finals row or no finals row. The finals' Awards
+add no ceiling for anyone: a points paying award at a finals event is Impact, Engineering
+Inspiration or Rookie All Star, which the champ reservation already holds a place for. A team whose
+only championship row is the finals row gains no ceiling from it.
+
+**The field proof.** One rule, `packages/core/districts/dcmpFieldProof.ts`, says whether the
+championship field is proven: every field fixing key (every dcmp key but a finals key) has started,
+every one carries a posted row, and the field is complete by capacity (the posted teams number at
+least `dcmpSlots` minus half the largest posted key), by a posted finals row, or, in a season that
+is over, by Awards final. While some field fixing key has started and the field is not proven:
+
+- the champ reservation holds back the championships that may not have been seen yet, whole, beside
+  the known ones (the capacity divided by the largest posted key, less the keys known);
+- a team with no championship row that could still attend carries the whole Playoffs ceiling for a
+  finals on top of its one hypothetical championship, which is what it carries the moment its
+  division's rows land.
+
+Both Locks tabs read the same rule, so the tabs and the published verdicts agree.
+
+**What is asserted.** `scripts/champFieldStagedWalk.test.ts` walks a championship's rows arriving
+one event at a time through the two entry points, on two synthetic championships and on the real
+2026 FIM, NE, ONT, TX, CA and PNW artifacts, from two starts (no dcmp row first, and every attending
+team registered first), through the finals, and again with each event's points arriving only as it
+ends. No published `champLock` is taken back and no `maxRemainingChamp` drops and then rises on any
+of them. Run it with `REQUIRE_LOCAL_DATA=1` so a missing local artifact fails instead of skipping.
+
+**The limits that remain here.**
+
+- The pass still writes a championship's first rows with no state block. The reading above makes
+  that harmless in the verdict pass.
+- A team the district tier reads eliminated carries no hypothetical championship, registered at the
+  championship or not, and a few attend all the same (8 in 2026 NE, 9 in ONT, 4 in TX, 4 in CA, 1 in
+  PNW). Its ceiling appears when its row lands. No lock was taken back by one on any walk.
+- A current season whose championship never fills two thirds of its published capacity, or
+  publishes none, reads not proven until the year ends. That delays a Locked and revokes none.
+- That TBA posts one event's points rows for all of its ranked teams together is assumed, not
+  verified.
+
+**A Worker deploy is owed**, because the shared merge changed and the Worker bundles it. Deploy it
+while NO District Championship is live. On the first tick after the deploy a championship row with
+no state block changes from a hindsight row to an open one, which is right from then on but would
+take published locks back once at a championship already under way. No district republish is owed:
+every finished season recomputes to the same artifact.
 
 ---
 

@@ -61,15 +61,35 @@
  *   5. the same five with the points arriving only as each event ends: the
  *      states with part of the field wholly final and the rest on no row,
  *      and the walk on from each of them.
- * Groups 2 to 5 read gitignored local data.
+ *   6. the PUBLISHED verdicts (`champLock` and `maxRemainingChamp` on the
+ *      artifact itself) walked through the finals: two synthetic
+ *      championships, always on, and 2026 FIM, NE, ONT, TX, CA and PNW from
+ *      both starts (no dcmp row first, and every attending team registered
+ *      first).
+ *   7. the convention the finals reading rests on: a points paying award at a
+ *      finals event is a consuming award, and a team whose only championship
+ *      row is the finals row earned nothing else there.
+ * Groups 2 to 5, the real walks of group 6 and group 7 read gitignored local
+ * data.
+ *
+ * THE FINALS TICKS (group 6). After the playoff points land the finals rows
+ * post with their Playoffs points and no state, then the finals' state is
+ * written with its playoffs done, then the finals' award points land while
+ * the awards flag is not yet true. The Champ Locks tab's own series is
+ * recorded at those ticks and NOT asserted there yet: its ceiling test reads
+ * the finals differently for a team with a finals row and a team without
+ * one, which the last step of this quick task closes.
  *
  * IT PROVES SOMETHING. The same walk runs with the rule switched off inside
  * this file (the core proof answering as the code read the field before this
  * task, through a module mock, everything else left on) and must then take a
  * Locked back. The second walk also runs with the finals part of a rowless
  * team's hypothetical championship switched off
- * (`hypotheticalFinalsCeiling`). The switched off totals are PINNED AS THE
- * RUN SHOWS: they are a measurement of the old reading, not a requirement.
+ * (`hypotheticalFinalsCeiling`), and the published walks with a
+ * championship's stateless first rows read as hindsight again
+ * (`statelessChampionshipRowReadsOpen`). The switched off totals are PINNED
+ * AS THE RUN SHOWS: they are a measurement of the old reading, not a
+ * requirement.
  *
  * A GROUP THAT READS GITIGNORED LOCAL DATA skips, with a message naming what
  * is absent, where the data is not there. With `REQUIRE_LOCAL_DATA=1` in the
@@ -82,7 +102,9 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { applyDistrictEventState, applyDistrictRankings, recomputeDistrictVerdicts } from "../packages/harness/districtRankingsMerge.js";
 import { DistrictArtifactSchema, type DistrictArtifact, type DistrictEventState } from "../packages/harness/pageArtifacts.js";
+import { maxEventPoints } from "../packages/core/districts/pointModel.js";
 import { fieldFixingDcmpKeys } from "../packages/core/districts/dcmpFieldProof.js";
+import { finalsChampionMaximum } from "../packages/core/districts/categoryCorroboration.js";
 import { championshipShape } from "../packages/core/districts/finalsBracket.js";
 import { buildDistrictLedgerRows, deriveStageFromState, tierEvents, type DistrictEventDistributions } from "../apps/web/src/components/districts/districtLedgerRows.js";
 import { computeDistrictLedgerStatuses } from "../apps/web/src/components/districts/districtLedgerStatus.js";
@@ -102,8 +124,12 @@ import { LOCAL_DISTRICT_DIR } from "./measureChampJointLocks.js";
  * While `finalsAllowanceOff` is set a team with no championship row carries
  * one whole hypothetical championship and no finals on top, while the field
  * is not proven.
+ *
+ * While `statelessRowsOff` is set the published verdict pass reads a
+ * championship row with no state block as a hindsight row on every path, as
+ * it did before this task.
  */
-const ruleSwitch = vi.hoisted(() => ({ fieldRuleOff: false, finalsAllowanceOff: false }));
+const ruleSwitch = vi.hoisted(() => ({ fieldRuleOff: false, finalsAllowanceOff: false, statelessRowsOff: false }));
 
 vi.mock("../packages/core/districts/dcmpFieldProof.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../packages/core/districts/dcmpFieldProof.js")>();
@@ -115,13 +141,25 @@ vi.mock("../packages/core/districts/dcmpFieldProof.js", async (importOriginal) =
       return { ...real, proven: real.started, completeBy: real.started ? ("capacity" as const) : null, unprovenAfterStart: false };
     },
     hypotheticalFinalsCeiling: (...args: Parameters<typeof original.hypotheticalFinalsCeiling>) => (ruleSwitch.finalsAllowanceOff ? 0 : original.hypotheticalFinalsCeiling(...args)),
+    statelessChampionshipRowReadsOpen: (...args: Parameters<typeof original.statelessChampionshipRowReadsOpen>) => (ruleSwitch.statelessRowsOff ? false : original.statelessChampionshipRowReadsOpen(...args)),
   };
 });
 
 afterEach(() => {
   ruleSwitch.fieldRuleOff = false;
   ruleSwitch.finalsAllowanceOff = false;
+  ruleSwitch.statelessRowsOff = false;
 });
+
+/** Runs `body` with a championship's stateless first rows read as hindsight again, and switches the rule back on whatever happens. */
+function withStatelessRowsOff<T>(body: () => T): T {
+  ruleSwitch.statelessRowsOff = true;
+  try {
+    return body();
+  } finally {
+    ruleSwitch.statelessRowsOff = false;
+  }
+}
 
 /** Runs `body` with the field rule switched off, and switches it back on whatever happens. */
 function withFieldRuleOff<T>(body: () => T): T {
@@ -203,6 +241,12 @@ interface WalkStep {
   readonly districtTab: ReadonlyMap<string, string>;
   /** Whether the District Locks tab's Live field overlay applied at this tick. */
   readonly overlayActive: boolean;
+  /** The PUBLISHED `champLock.status` of every team, on the artifact itself. */
+  readonly published: ReadonlyMap<string, string>;
+  /** The PUBLISHED `maxRemainingChamp` of every team. */
+  readonly publishedCeiling: ReadonlyMap<string, number>;
+  /** The teams the PUBLISHED district verdict reads eliminated: below the district cut line. */
+  readonly publishedDistrictEliminated: ReadonlySet<string>;
 }
 
 interface Walk {
@@ -244,6 +288,9 @@ function snapshot(label: string, artifact: DistrictArtifact): WalkStep {
     dcmpKeys: dcmpEventKeysFor(artifact).length,
     districtTab: new Map([...districtShown.byTeam].map(([teamKey, result]) => [teamKey, result.status] as const)),
     overlayActive: districtShown.fieldOverlay,
+    published: new Map(artifact.teams.map((team) => [team.teamKey, team.champLock.status] as const)),
+    publishedCeiling: new Map(artifact.teams.map((team) => [team.teamKey, team.maxRemainingChamp] as const)),
+    publishedDistrictEliminated: new Set(artifact.teams.filter((team) => team.districtLock.status === "eliminated").map((team) => team.teamKey)),
   };
 }
 
@@ -338,6 +385,74 @@ function declinedWhileUnproven(steps: readonly WalkStep[]): string[] {
   return steps.filter((step) => !step.proven && [...step.districtTab.values()].includes("declined")).map((step) => step.label);
 }
 
+/** A published champ verdict that holds a place. */
+const publishedHeld = (status: string): boolean => status === "locked" || status === "lockedAward" || status === "prequalified";
+
+/**
+ * Every team whose published `maxRemainingChamp` DROPS at one tick and RISES
+ * at a later one, with the rise named. A ceiling that only ever falls is the
+ * season being played; one that falls and comes back is a ceiling the pass
+ * took away too early.
+ */
+function publishedCeilingDropsThenRises(steps: readonly WalkStep[]): string[] {
+  const found: string[] = [];
+  for (const teamKey of steps[0]!.publishedCeiling.keys()) {
+    let dropped = false;
+    let previous = steps[0]!.publishedCeiling.get(teamKey)!;
+    for (let index = 1; index < steps.length; index++) {
+      const value = steps[index]!.publishedCeiling.get(teamKey) ?? previous;
+      if (value < previous) dropped = true;
+      else if (dropped && value > previous) {
+        found.push(`${teamKey} ${String(previous)} to ${String(value)} at "${steps[index]!.label}"`);
+        break;
+      }
+      previous = value;
+    }
+  }
+  return found;
+}
+
+/** One published ceiling that rose at the tick after one at which the field read unproven after a start. */
+interface UnprovenCeilingRise {
+  readonly teamKey: string;
+  readonly line: string;
+  /** Whether the published district verdict read the team eliminated (below the district cut line) at the tick before. */
+  readonly belowTheDistrictLine: boolean;
+}
+
+/**
+ * Every team whose published `maxRemainingChamp` RISES at the tick after one
+ * at which the field read unproven after a start. While the field is
+ * unproven a team with no row carries what it will carry the moment its
+ * rows land, so nothing should rise out of such a tick: not when a division's
+ * rows land, not when its state does, not when the field proves.
+ *
+ * ONE STATED LIMIT REMAINS, and each rise says whether it is that one. A
+ * team the district tier reads eliminated carries no hypothetical
+ * championship, here and on the Champ Locks tab alike, and a few such teams
+ * attend all the same (a place given up and handed down). Their ceiling goes
+ * from nothing to a whole championship when their row lands.
+ */
+function publishedCeilingRisesWhileUnproven(steps: readonly WalkStep[]): UnprovenCeilingRise[] {
+  const rises: UnprovenCeilingRise[] = [];
+  for (let index = 1; index < steps.length; index++) {
+    const before = steps[index - 1]!;
+    if (before.fieldProven) continue;
+    for (const [teamKey, value] of steps[index]!.publishedCeiling) {
+      const previous = before.publishedCeiling.get(teamKey) ?? value;
+      if (value > previous) {
+        rises.push({ teamKey, line: `${teamKey} ${String(previous)} to ${String(value)} at "${steps[index]!.label}"`, belowTheDistrictLine: before.publishedDistrictEliminated.has(teamKey) });
+      }
+    }
+  }
+  return rises;
+}
+
+/** The rises that are NOT the stated limit: a team that could still attend, whose ceiling rose all the same. */
+const unexplainedCeilingRises = (steps: readonly WalkStep[]): string[] => publishedCeilingRisesWhileUnproven(steps).filter((rise) => !rise.belowTheDistrictLine).map((rise) => rise.line);
+/** How many teams below the district line attended all the same and gained their ceiling only when their row landed. */
+const belowTheLineAttendees = (steps: readonly WalkStep[]): number => new Set(publishedCeilingRisesWhileUnproven(steps).filter((rise) => rise.belowTheDistrictLine).map((rise) => rise.teamKey)).size;
+
 /** The labels of the ticks at which the Champ Locks reservation is above the tick before it. */
 function reservationRises(steps: readonly WalkStep[]): string[] {
   const rises: string[] = [];
@@ -362,18 +477,35 @@ function provenTakenBack(steps: readonly WalkStep[]): string[] {
 // The walker: one source artifact rewound to before its championship
 // ---------------------------------------------------------------------------
 
-type PointsStage = "qual" | "alliance" | "elim";
+type PointsStage = "qual" | "alliance" | "elim" | "all";
 type StatePhase = "started" | "qualDone" | "picked" | "done";
+
+interface FieldWalkOptions {
+  /**
+   * The other start: every attending team carries a registration (a
+   * `remainingEvents` row with no state) at its own field fixing key before
+   * anything is played, as after an offline district publish that ran once
+   * registrations were open. An event's state can then be written before its
+   * rows post, and it is: one "started on the field" tick per key.
+   */
+  readonly registeredFirst?: boolean;
+  /** Walk on through the finals: their rows with no state, their state, their award points. */
+  readonly finalsTicks?: boolean;
+}
 
 const shortKey = (eventKey: string): string => eventKey.slice(4);
 
 /**
- * Walks `source` from "no dcmp row" to the source artifact itself, one field
- * fixing key at a time, through the two merge entry points.
+ * Walks `source` from "no dcmp row" (or from every attending team
+ * registered) to the source artifact itself, one field fixing key at a time,
+ * through the two merge entry points.
  */
-function walkChampionshipField(source: DistrictArtifact): Walk {
+function walkChampionshipField(source: DistrictArtifact, options: FieldWalkOptions = {}): Walk {
   const dcmpKeys = dcmpEventKeysFor(source);
   const fieldFixingKeys = fieldFixingDcmpKeys(dcmpKeys);
+  const finalsKeys = dcmpKeys.filter((key) => !fieldFixingKeys.includes(key));
+  const dcmpMaxima = maxEventPoints(source.year, "dcmp");
+  const dcmpEventMaxTotal = dcmpMaxima.qual + dcmpMaxima.alliance + dcmpMaxima.elim + dcmpMaxima.award;
   const finalRow = new Map<string, Map<string, Row>>(dcmpKeys.map((key) => [key, new Map<string, Row>()] as const));
   for (const team of source.teams) for (const row of team.eventPoints) if (row.tier === "dcmp") finalRow.get(row.eventKey)!.set(team.teamKey, row);
   const fieldTeams = new Set<string>();
@@ -387,13 +519,20 @@ function walkChampionshipField(source: DistrictArtifact): Walk {
   let artifact: DistrictArtifact = recomputeDistrictVerdicts(
     DistrictArtifactSchema.parse({
       ...source,
-      teams: source.teams.map((team) => ({
-        ...team,
-        pointTotal: team.pointTotal - dcmpTotal(team),
-        eventPoints: team.eventPoints.filter((row) => row.tier !== "dcmp"),
-        remainingEvents: team.remainingEvents.filter((row) => row.tier !== "dcmp"),
-        qualifyingAwards: team.qualifyingAwards.filter((award) => !dcmpKeys.includes(award.eventKey)),
-      })),
+      teams: source.teams.map((team) => {
+        const own = team.eventPoints.find((row) => fieldFixingKeys.includes(row.eventKey));
+        const stripped = team.remainingEvents.filter((row) => row.tier !== "dcmp");
+        return {
+          ...team,
+          pointTotal: team.pointTotal - dcmpTotal(team),
+          eventPoints: team.eventPoints.filter((row) => row.tier !== "dcmp"),
+          remainingEvents:
+            options.registeredFirst === true && own !== undefined
+              ? [...stripped, { eventKey: own.eventKey, eventName: own.eventName, week: own.week, tier: "dcmp" as const, maxPoints: dcmpEventMaxTotal }]
+              : stripped,
+          qualifyingAwards: team.qualifyingAwards.filter((award) => !dcmpKeys.includes(award.eventKey)),
+        };
+      }),
     }),
     { nowYear: NOW_YEAR, dcmpStillAhead: true }
   );
@@ -401,7 +540,12 @@ function walkChampionshipField(source: DistrictArtifact): Walk {
   // What TBA has posted so far, per key, and the state the match feed shows.
   const posted = new Map<string, PointsStage>();
   const states = new Map<string, DistrictEventState>();
-  const pointsAt = (row: Row, stage: PointsStage) => ({ qual: row.qual, alliance: stage === "qual" ? 0 : row.alliance, elim: stage === "elim" ? row.elim : 0, award: 0 });
+  const pointsAt = (row: Row, stage: PointsStage) => ({
+    qual: row.qual,
+    alliance: stage === "qual" ? 0 : row.alliance,
+    elim: stage === "elim" || stage === "all" ? row.elim : 0,
+    award: stage === "all" ? row.award : 0,
+  });
 
   /** A TBA shaped rankings payload: every district tier row as published, and the championship rows posted so far at the points they carry so far. */
   const payload = () =>
@@ -416,6 +560,9 @@ function walkChampionshipField(source: DistrictArtifact): Walk {
         if (row === undefined) continue;
         const points = pointsAt(row, stage);
         const sum = points.qual + points.alliance + points.elim + points.award;
+        // TBA writes a finals row only for a team it pays there, so a finals
+        // row with nothing to show yet has not been posted yet.
+        if (sum === 0 && finalsKeys.includes(key)) continue;
         total += sum;
         championship.push({ event_key: key, district_cmp: true, qual_points: points.qual, alliance_points: points.alliance, elim_points: points.elim, award_points: points.award, total: sum });
       }
@@ -450,9 +597,11 @@ function walkChampionshipField(source: DistrictArtifact): Walk {
     record(label);
   };
 
-  record("no dcmp row");
+  record(options.registeredFirst === true ? "every attending team registered" : "no dcmp row");
   for (const key of fieldFixingKeys) {
     states.set(key, stateFor(key, "started"));
+    // With a registration on the artifact the Worker has a row to write the state on before any points post.
+    if (options.registeredFirst === true) stateTick(`${shortKey(key)} started on the field, state only`);
     posted.set(key, "qual");
     rowsTick(`${shortKey(key)} rows posted`);
     stateTick(`${shortKey(key)} state written`);
@@ -467,6 +616,17 @@ function walkChampionshipField(source: DistrictArtifact): Walk {
   stateTick("playoffs done, no playoff points");
   for (const key of fieldFixingKeys) posted.set(key, "elim");
   rowsTick("playoff points land");
+  if (options.finalsTicks === true && finalsKeys.length > 0) {
+    // The finals rows post with their Playoffs points: first with no state
+    // block (the Worker has nowhere to put it), then the state, then the
+    // finals' award points while the awards flag is not yet true.
+    for (const key of finalsKeys) posted.set(key, "elim");
+    rowsTick("finals rows posted, no state");
+    for (const key of finalsKeys) states.set(key, { qualMatchesPlayed: 0, qualMatchesTotal: null, alliancesPicked: true, playoffsDone: true, awardsPosted: false });
+    stateTick("finals state written");
+    for (const key of finalsKeys) posted.set(key, "all");
+    rowsTick("finals award points land");
+  }
   artifact = source;
   record("the source artifact");
 
@@ -548,6 +708,8 @@ function tickTable(walk: Walk): string[] {
 // ---------------------------------------------------------------------------
 
 const SYNTHETIC_STEM = "2026pncmp";
+/** The award points of a consuming judged award at a 2026 championship. */
+const SYNTHETIC_FINALS_AWARD = 30;
 
 interface SyntheticDivisioned {
   /** How many divisions the championship is played in. */
@@ -557,6 +719,14 @@ interface SyntheticDivisioned {
   /** How many teams the district has in all: the field first, the rest on no championship row. */
   readonly teamCount: number;
   readonly cmpSlots: number;
+  /**
+   * Whether the championship has a finals event (the parent key). Division
+   * one's winning alliance is the champion and is paid the finals champion
+   * value there, division two's the finalist value, and the first team
+   * outside the field is given a consuming award at the finals without
+   * having played in a division.
+   */
+  readonly withFinals?: boolean;
 }
 
 /**
@@ -573,24 +743,44 @@ function syntheticDivisioned(shape: SyntheticDivisioned): DistrictArtifact {
   const districtRow = baseline.teams.flatMap((team) => team.eventPoints).find((row) => row.tier === "district")!;
   const dcmpRow = baseline.teams.flatMap((team) => team.eventPoints).find((row) => row.tier === "dcmp")!;
   const fieldSize = shape.divisions * shape.divisionSize;
+  const finalsChampion = finalsChampionMaximum(NOW_YEAR, shape.divisions);
+  const finalsFinalist = Math.floor(finalsChampion / 2);
   const teams = baseline.teams.slice(0, shape.teamCount).map((team, index) => {
     const inField = index < fieldSize;
     const district = inField ? 150 - 8 * index : 20 - (index - fieldSize);
     const base = { ...team, rank: index + 1, rookieBonus: 0, adjustments: 0, remainingEvents: [], qualifyingAwards: [] };
     const districtPoints = { ...districtRow, qual: district, alliance: 0, elim: 0, award: 0, total: district, state: { ...FINISHED_STATE } };
-    if (!inField) return { ...base, pointTotal: district, eventPoints: [districtPoints] };
+    const finalsRow = (elim: number, award: number) => ({ ...dcmpRow, eventKey: SYNTHETIC_STEM, eventName: `${dcmpRow.eventName} Finals`, qual: 0, alliance: 0, elim, award, total: elim + award, state: { ...FINISHED_STATE } });
+    if (!inField) {
+      // The first team outside the field: a consuming award at the finals, and nothing else there.
+      if (shape.withFinals === true && index === fieldSize) {
+        return {
+          ...base,
+          pointTotal: district + SYNTHETIC_FINALS_AWARD,
+          eventPoints: [districtPoints, finalsRow(0, SYNTHETIC_FINALS_AWARD)],
+          qualifyingAwards: [{ eventKey: SYNTHETIC_STEM, awardType: 9, label: "Engineering Inspiration", awardOnly: false }],
+        };
+      }
+      return { ...base, pointTotal: district, eventPoints: [districtPoints] };
+    }
     const division = index % shape.divisions;
     const place = Math.floor(index / shape.divisions);
     const qual = 60 - 6 * place;
     const alliance = place < 3 ? 48 - 8 * place : 0;
     const elim = place < 3 ? 90 : 0;
     const total = qual + alliance + elim;
+    const divisionPoints = { ...dcmpRow, eventKey: `${SYNTHETIC_STEM}${String(division + 1)}`, eventName: `${dcmpRow.eventName} Division ${String(division + 1)}`, qual, alliance, elim, award: 0, total, state: { ...FINISHED_STATE } };
+    // The finals: division one's winners are the champions, division two's the finalists.
+    const finalsElim = shape.withFinals === true && place < 3 ? (division === 0 ? finalsChampion : division === 1 ? finalsFinalist : 0) : 0;
+    // The Impact award goes to the strongest team, at the finals.
+    const finalsAward = shape.withFinals === true && index === 0 ? SYNTHETIC_FINALS_AWARD : 0;
     return {
       ...base,
-      pointTotal: district + total,
-      eventPoints: [
-        districtPoints,
-        { ...dcmpRow, eventKey: `${SYNTHETIC_STEM}${String(division + 1)}`, eventName: `${dcmpRow.eventName} Division ${String(division + 1)}`, qual, alliance, elim, award: 0, total, state: { ...FINISHED_STATE } },
+      pointTotal: district + total + finalsElim + finalsAward,
+      eventPoints: finalsElim + finalsAward > 0 ? [districtPoints, divisionPoints, finalsRow(finalsElim, finalsAward)] : [districtPoints, divisionPoints],
+      qualifyingAwards: [
+        ...(finalsElim === finalsChampion && finalsChampion > 0 ? [{ eventKey: SYNTHETIC_STEM, awardType: 1, label: "Winner", awardOnly: false }] : []),
+        ...(finalsAward > 0 ? [{ eventKey: SYNTHETIC_STEM, awardType: 0, label: "Impact", awardOnly: false }] : []),
       ],
     };
   });
@@ -1138,5 +1328,346 @@ describe("the points arriving only as each event ends: the real 2026 FIM, NE, ON
     },
     WALK_TIMEOUT_MS
   );
+});
+
+// ---------------------------------------------------------------------------
+// GROUP 6. The published verdicts, through the finals
+// ---------------------------------------------------------------------------
+
+/** The four division synthetic of group 1 with a finals event: the same sizes, 16 teams in four divisions of four, 30 in the district, 21 Championship slots. */
+const S4_FINALS = syntheticDivisioned({ ...FOUR_DIVISIONS, withFinals: true });
+
+/**
+ * A single championship over the fixture's first thirty teams, every one of
+ * them in its field: 30 championship places, 21 Championship slots. Index 0
+ * to 2 win it, 3 to 5 are the finalists, and Impact, Engineering Inspiration
+ * and Rookie All Star go to index 6, 20 and 25. Only the numbers are
+ * synthetic.
+ */
+function syntheticSingle(): DistrictArtifact {
+  const districtRow = baseline.teams.flatMap((team) => team.eventPoints).find((row) => row.tier === "district")!;
+  const dcmpRow = baseline.teams.flatMap((team) => team.eventPoints).find((row) => row.tier === "dcmp")!;
+  const awardTypeOf = (index: number): number | undefined => (index === 6 ? 0 : index === 20 ? 9 : index === 25 ? 10 : undefined);
+  const teams = baseline.teams.slice(0, 30).map((team, index) => {
+    const district = 150 - 4 * index;
+    const qual = 60 - index;
+    const alliance = index < 24 ? 48 - 2 * index : 0;
+    const elim = index < 3 ? 90 : index < 6 ? 60 : 0;
+    const awardType = awardTypeOf(index);
+    const award = awardType === undefined ? 0 : SYNTHETIC_FINALS_AWARD;
+    const total = qual + alliance + elim + award;
+    return {
+      ...team,
+      rank: index + 1,
+      pointTotal: district + total,
+      rookieBonus: 0,
+      adjustments: 0,
+      eventPoints: [
+        { ...districtRow, qual: district, alliance: 0, elim: 0, award: 0, total: district, state: { ...FINISHED_STATE } },
+        { ...dcmpRow, eventKey: SYNTHETIC_STEM, qual, alliance, elim, award, total, state: { ...FINISHED_STATE } },
+      ],
+      remainingEvents: [],
+      qualifyingAwards: [
+        ...(elim === 90 ? [{ eventKey: SYNTHETIC_STEM, awardType: 1, label: "Winner", awardOnly: false }] : []),
+        ...(awardType === undefined ? [] : [{ eventKey: SYNTHETIC_STEM, awardType, label: "a judged consuming award", awardOnly: false }]),
+      ],
+    };
+  });
+  return recomputeDistrictVerdicts(DistrictArtifactSchema.parse({ ...baseline, dcmpSlots: 30, cmpSlots: 21, teams }), { nowYear: NOW_YEAR });
+}
+const S1_SINGLE = syntheticSingle();
+
+const publishedTakenBack = (walk: Walk): string[] => takeBacks(walk.steps, (step) => step.published, publishedHeld);
+/** One line per tick of a walk's published series. */
+function publishedTable(walk: Walk): string[] {
+  return walk.steps.map((step) => {
+    const ceilings = [...step.publishedCeiling.values()];
+    return `  ${step.label.padEnd(44)} published held=${String([...step.published.values()].filter(publishedHeld).length).padStart(3)} teams with a champ ceiling=${String(ceilings.filter((value) => value > 0).length).padStart(3)} largest=${String(Math.max(0, ...ceilings)).padStart(3)} | tab held=${String([...step.champTab.values()].filter(champTabHeld).length)}`;
+  });
+}
+
+describe("the published verdicts walked through the finals: two synthetic championships (quick task 261010-66y, D5)", () => {
+  const SYNTHETICS = [
+    { name: "single", source: S1_SINGLE },
+    { name: "four divisions and a finals", source: S4_FINALS },
+  ] as const;
+  const STARTS = [false, true] as const;
+
+  it("premise: one championship of thirty teams at one key, and one in four divisions with a finals row for eight of its teams and one team given an award at the finals alone", () => {
+    expect(dcmpEventKeysFor(S1_SINGLE)).toEqual([SYNTHETIC_STEM]);
+    expect(S1_SINGLE.teams.filter((team) => team.eventPoints.some((row) => row.tier === "dcmp"))).toHaveLength(30);
+    expect({ dcmpSlots: S1_SINGLE.dcmpSlots, cmpSlots: S1_SINGLE.cmpSlots }).toEqual({ dcmpSlots: 30, cmpSlots: 21 });
+    expect(dcmpEventKeysFor(S4_FINALS)).toEqual([SYNTHETIC_STEM, ...S4_KEYS]);
+    expect(championshipShape(dcmpEventKeysFor(S4_FINALS)).kind).toBe("divisioned");
+    const finalsRows = S4_FINALS.teams.flatMap((team) => team.eventPoints.filter((row) => row.eventKey === SYNTHETIC_STEM).map((row) => ({ teamKey: team.teamKey, row })));
+    // Three champions and three finalists, the champion among them holding Impact, and one team at the finals alone.
+    expect(finalsRows).toHaveLength(7);
+    expect(finalsRows.filter(({ row }) => row.elim === 60)).toHaveLength(3);
+    expect(finalsRows.filter(({ row }) => row.elim === 30)).toHaveLength(3);
+    expect(finalsOnlyTeams(S4_FINALS)).toHaveLength(1);
+    expect({ dcmpSlots: S4_FINALS.dcmpSlots, cmpSlots: S4_FINALS.cmpSlots, teams: S4_FINALS.teams.length }).toEqual({ dcmpSlots: 16, cmpSlots: 21, teams: 30 });
+  });
+
+  it("rules on, both starts: no published champLock is taken back, and no team's maxRemainingChamp drops and then rises", () => {
+    const table: string[] = [];
+    for (const { name, source } of SYNTHETICS) {
+      for (const registeredFirst of STARTS) {
+        const walk = walkChampionshipField(source, { registeredFirst, finalsTicks: true });
+        const start = registeredFirst ? "every attending team registered first" : "no dcmp row first";
+        expect({ name, start, lost: publishedTakenBack(walk) }).toEqual({ name, start, lost: [] });
+        expect({ name, start, ceilings: publishedCeilingDropsThenRises(walk.steps) }).toEqual({ name, start, ceilings: [] });
+        table.push(`  ${name}, ${start}`, ...publishedTable(walk));
+      }
+    }
+    console.log(["[261010-66y group 6] rules on, the published series, synthetic:", ...table].join("\n"));
+    // The walk is not vacuous: places are held in the published verdicts before the end.
+    const single = walkChampionshipField(S1_SINGLE, { finalsTicks: true });
+    expect([...single.steps.at(-2)!.published.values()].filter(publishedHeld).length).toBeGreaterThan(0);
+  });
+
+  it("the first rows rule off: a championship's first rows read as hindsight, pinned as the run shows", () => {
+    const measured: Record<string, { publishedTakenBack: number; ceilingsDropThenRise: number }> = {};
+    for (const { name, source } of SYNTHETICS) {
+      for (const registeredFirst of STARTS) {
+        const walk = withStatelessRowsOff(() => walkChampionshipField(source, { registeredFirst, finalsTicks: true }));
+        measured[`${name}, ${registeredFirst ? "registered first" : "no dcmp row first"}`] = { publishedTakenBack: publishedTakenBack(walk).length, ceilingsDropThenRise: publishedCeilingDropsThenRises(walk.steps).length };
+      }
+    }
+    console.log(`[261010-66y group 6] the first rows rule off, synthetic: ${JSON.stringify(measured)}`);
+    // PINNED AS THE RUN SHOWS. With no dcmp row first, the single
+    // championship's thirty teams all lose their championship ceiling on the
+    // tick their rows arrive and get it back on the next, and ten of them
+    // read locked in between. The four division one drops and restores the
+    // ceilings of its sixteen and takes no lock back, said plainly: nobody
+    // is locked that early there. With every attending team registered first
+    // the state is written on the registration before the rows post, so no
+    // row is ever stateless and the rule has nothing to do.
+    expect(measured).toEqual({
+      "single, no dcmp row first": { publishedTakenBack: 10, ceilingsDropThenRise: 30 },
+      "single, registered first": { publishedTakenBack: 0, ceilingsDropThenRise: 0 },
+      "four divisions and a finals, no dcmp row first": { publishedTakenBack: 0, ceilingsDropThenRise: 16 },
+      "four divisions and a finals, registered first": { publishedTakenBack: 0, ceilingsDropThenRise: 0 },
+    });
+  });
+});
+
+/** The five of group 4 and the single championship of 2026 PNW. */
+const PUBLISHED_WALKED = [...WALKED_DISTRICTS, "2026pnw"] as const;
+const MISSING_PUBLISHED_WALKED = PUBLISHED_WALKED.filter((districtKey) => !LOCAL_DISTRICT_FILES.includes(`v1__district__${districtKey}.json`));
+
+describe("the published verdicts walked through the finals: the real 2026 FIM, NE, ONT, TX, CA and PNW championships, both starts (quick task 261010-66y, D5)", () => {
+  if (MISSING_PUBLISHED_WALKED.length > 0) {
+    localDataAbsent(`${MISSING_PUBLISHED_WALKED.join(", ")} absent under ${LOCAL_DISTRICT_DIR} (gitignored local data)`);
+    return;
+  }
+  const sourceOf = (districtKey: string): DistrictArtifact => recomputeDistrictVerdicts(localArtifact(`v1__district__${districtKey}.json`), { nowYear: NOW_YEAR });
+  const STARTS = [false, true] as const;
+  const startName = (registeredFirst: boolean): string => (registeredFirst ? "registered first" : "no dcmp row first");
+
+  it(
+    "rules on: on all twelve walks no published champLock is taken back and no team's maxRemainingChamp drops and then rises",
+    () => {
+      const table: string[] = [];
+      const belowTheLine: Record<string, number> = {};
+      const tabRecorded: Record<string, Record<string, number>> = {};
+      let walks = 0;
+      for (const districtKey of PUBLISHED_WALKED) {
+        for (const registeredFirst of STARTS) {
+          const walk = walkChampionshipField(sourceOf(districtKey), { registeredFirst, finalsTicks: true });
+          walks += 1;
+          expect({ districtKey, start: startName(registeredFirst), lost: publishedTakenBack(walk) }).toEqual({ districtKey, start: startName(registeredFirst), lost: [] });
+          expect({ districtKey, start: startName(registeredFirst), ceilings: publishedCeilingDropsThenRises(walk.steps) }).toEqual({ districtKey, start: startName(registeredFirst), ceilings: [] });
+          // The proof never goes back on these walks either.
+          expect({ districtKey, start: startName(registeredFirst), proofLost: provenTakenBack(walk.steps) }).toEqual({ districtKey, start: startName(registeredFirst), proofLost: [] });
+          expect({ districtKey, start: startName(registeredFirst), rises: unexplainedCeilingRises(walk.steps) }).toEqual({ districtKey, start: startName(registeredFirst), rises: [] });
+          belowTheLine[`${districtKey}, ${startName(registeredFirst)}`] = belowTheLineAttendees(walk.steps);
+          // Per tick at which a Locked was lost: how many.
+          const lostAt: Record<string, number> = {};
+          for (const line of lockedTakenBack(walk)) {
+            const label = /at "([^"]*)"$/.exec(line)![1]!;
+            lostAt[label] = (lostAt[label] ?? 0) + 1;
+          }
+          tabRecorded[`${districtKey}, ${startName(registeredFirst)}`] = lostAt;
+          table.push(`  ${districtKey}, ${startName(registeredFirst)}`, ...publishedTable(walk));
+        }
+      }
+      expect(walks).toBe(12);
+      console.log(["[261010-66y group 6] rules on, the published series, the real walks:", ...table].join("\n"));
+      console.log(`[261010-66y group 6] the stated limit, teams below the district line whose ceiling rose when their row landed while the field was unproven: ${JSON.stringify(belowTheLine)}`);
+      // RECORDED, NOT ASSERTED YET: the Champ Locks tab's own series through
+      // the finals ticks, with no bracket facts handed. Its ceiling test
+      // reads the finals differently for a team with a finals row and a team
+      // without one, which the last step of this quick task closes and
+      // asserts.
+      console.log(`[261010-66y group 6] recorded, not asserted yet: Champ Locks tab Locked taken back through the finals ticks, no bracket facts: ${JSON.stringify(tabRecorded)}`);
+      // THE STATED LIMIT, MEASURED and pinned as the run shows: a team below
+      // the district cut line carries no hypothetical championship in the
+      // published verdicts, registered at the championship or not, and a
+      // few attend all the same. The registered first start counts every
+      // one of them (8, 9, 4, 4 and 1), because the field reads unproven
+      // from the first event's state on; with no dcmp row first the teams of
+      // the first event to post land before anything has started. No lock is
+      // taken back by them on any of the twelve walks, asserted above.
+      expect(belowTheLine).toEqual({
+        "2026fim, no dcmp row first": 0,
+        "2026fim, registered first": 0,
+        "2026ne, no dcmp row first": 4,
+        "2026ne, registered first": 8,
+        "2026ont, no dcmp row first": 4,
+        "2026ont, registered first": 9,
+        "2026fit, no dcmp row first": 3,
+        "2026fit, registered first": 4,
+        "2026ca, no dcmp row first": 3,
+        "2026ca, registered first": 4,
+        "2026pnw, no dcmp row first": 0,
+        "2026pnw, registered first": 1,
+      });
+    },
+    WALK_TIMEOUT_MS
+  );
+
+  it(
+    "the first rows rule off: published locks taken back and ceilings that drop and then rise, pinned as the run shows",
+    () => {
+      const measured: Record<string, { publishedTakenBack: number; ceilingsDropThenRise: number }> = {};
+      for (const districtKey of PUBLISHED_WALKED) {
+        for (const registeredFirst of STARTS) {
+          const walk = withStatelessRowsOff(() => walkChampionshipField(sourceOf(districtKey), { registeredFirst, finalsTicks: true }));
+          measured[`${districtKey}, ${startName(registeredFirst)}`] = { publishedTakenBack: publishedTakenBack(walk).length, ceilingsDropThenRise: publishedCeilingDropsThenRises(walk.steps).length };
+        }
+      }
+      console.log(`[261010-66y group 6] the first rows rule off, the real walks: ${JSON.stringify(measured)}`);
+      // PINNED AS THE RUN SHOWS. With no dcmp row first every team of the
+      // field loses its championship ceiling for the tick its rows arrive
+      // (161, 92, 90, 86, 117 and 50 teams), and at 2026 PNW ten published
+      // locks are taken back. With every attending team registered first no
+      // row is ever stateless.
+      expect(measured).toEqual({
+        "2026fim, no dcmp row first": { publishedTakenBack: 0, ceilingsDropThenRise: 161 },
+        "2026fim, registered first": { publishedTakenBack: 0, ceilingsDropThenRise: 0 },
+        "2026ne, no dcmp row first": { publishedTakenBack: 0, ceilingsDropThenRise: 92 },
+        "2026ne, registered first": { publishedTakenBack: 0, ceilingsDropThenRise: 0 },
+        "2026ont, no dcmp row first": { publishedTakenBack: 0, ceilingsDropThenRise: 90 },
+        "2026ont, registered first": { publishedTakenBack: 0, ceilingsDropThenRise: 0 },
+        "2026fit, no dcmp row first": { publishedTakenBack: 0, ceilingsDropThenRise: 86 },
+        "2026fit, registered first": { publishedTakenBack: 0, ceilingsDropThenRise: 0 },
+        "2026ca, no dcmp row first": { publishedTakenBack: 0, ceilingsDropThenRise: 117 },
+        "2026ca, registered first": { publishedTakenBack: 0, ceilingsDropThenRise: 0 },
+        "2026pnw, no dcmp row first": { publishedTakenBack: 10, ceilingsDropThenRise: 50 },
+        "2026pnw, registered first": { publishedTakenBack: 0, ceilingsDropThenRise: 0 },
+      });
+    },
+    WALK_TIMEOUT_MS
+  );
+
+  it(
+    "the points arriving only as each event ends, rules on: from every start no published champLock is taken back and no ceiling rises when a division's rows land",
+    () => {
+      const table: string[] = [];
+      for (const districtKey of WALKED_DISTRICTS) {
+        const fieldFixing = fieldFixingDcmpKeys(dcmpEventKeysFor(walkedSource(districtKey)));
+        for (let finalAtStart = 0; finalAtStart < fieldFixing.length; finalAtStart++) {
+          const walk = realEventEndWalk(districtKey, finalAtStart, "on");
+          expect({ districtKey, finalAtStart, lost: publishedTakenBack(walk) }).toEqual({ districtKey, finalAtStart, lost: [] });
+          expect({ districtKey, finalAtStart, ceilings: publishedCeilingDropsThenRises(walk.steps) }).toEqual({ districtKey, finalAtStart, ceilings: [] });
+          expect({ districtKey, finalAtStart, rises: unexplainedCeilingRises(walk.steps) }).toEqual({ districtKey, finalAtStart, rises: [] });
+          table.push(`  ${districtKey}, start: ${String(finalAtStart)} of ${String(fieldFixing.length)} field fixing keys final`, ...publishedTable(walk));
+        }
+      }
+      console.log(["[261010-66y group 6] rules on, the published series, the points arriving only as each event ends:", ...table].join("\n"));
+    },
+    WALK_TIMEOUT_MS
+  );
+
+  it(
+    "the points arriving only as each event ends, the finals part of the hypothetical championship off: published ceilings that rise when a division's rows land, pinned as the run shows",
+    () => {
+      const measured: Record<string, { publishedTakenBack: number[]; ceilingRisesWhileUnproven: number[] }> = {};
+      for (const districtKey of WALKED_DISTRICTS) {
+        const fieldFixing = fieldFixingDcmpKeys(dcmpEventKeysFor(walkedSource(districtKey)));
+        const walks = fieldFixing.map((_, finalAtStart) => realEventEndWalk(districtKey, finalAtStart, "finalsAllowanceOff"));
+        measured[districtKey] = { publishedTakenBack: walks.map((walk) => publishedTakenBack(walk).length), ceilingRisesWhileUnproven: walks.map((walk) => unexplainedCeilingRises(walk.steps).length) };
+      }
+      console.log(`[261010-66y group 6] the finals part of the hypothetical championship off, the published series, per start (0, 1, 2, ... keys final): ${JSON.stringify(measured)}`);
+      // PINNED AS THE RUN SHOWS. Without the finals part every team of a
+      // division still to post carried one whole championship, and gained
+      // the whole Playoffs ceiling on top when its rows landed: 121, 121,
+      // 81 and 40 published ceilings rose at 2026 FIM, and the published
+      // champLock was taken back 3, 3 and 2 times. California's
+      // championships have no finals, so nothing rose there.
+      expect(measured).toEqual({
+        "2026fim": { publishedTakenBack: [3, 3, 2, 0], ceilingRisesWhileUnproven: [121, 121, 81, 40] },
+        "2026ne": { publishedTakenBack: [0, 0], ceilingRisesWhileUnproven: [46, 46] },
+        "2026ont": { publishedTakenBack: [0, 0], ceilingRisesWhileUnproven: [45, 45] },
+        "2026fit": { publishedTakenBack: [0, 0], ceilingRisesWhileUnproven: [42, 42] },
+        "2026ca": { publishedTakenBack: [0, 0], ceilingRisesWhileUnproven: [0, 0] },
+      });
+    },
+    WALK_TIMEOUT_MS
+  );
+});
+
+// ---------------------------------------------------------------------------
+// GROUP 7. The convention the finals reading rests on
+// ---------------------------------------------------------------------------
+
+/** Impact, Engineering Inspiration and Rookie All Star: the judged awards that take a Championship slot at a District Championship. */
+const CONSUMING_JUDGED_AWARD_TYPES: ReadonlySet<number> = new Set([0, 9, 10]);
+
+describe("the convention the finals reading rests on, over every local district artifact (quick task 261010-66y)", () => {
+  if (LOCAL_DISTRICT_FILES.length === 0) {
+    localDataAbsent(NO_LOCAL_DISTRICTS);
+    return;
+  }
+
+  it("every row at a finals key that carries award points belongs to a team with a consuming award recorded there, and a team whose only championship row is the finals row earned nothing else there", () => {
+    let finalsRows = 0;
+    let withAwardPoints = 0;
+    let finalsOnlyRows = 0;
+    const withoutConsumingAward: string[] = [];
+    const finalsOnlyWithOtherPoints: string[] = [];
+    const finalsOnlyTeamKeys = new Set<string>();
+    for (const fileName of LOCAL_DISTRICT_FILES) {
+      const artifact = localArtifact(fileName);
+      const dcmpKeys = dcmpEventKeysFor(artifact);
+      const fieldFixing = new Set(fieldFixingDcmpKeys(dcmpKeys));
+      // A finals key is a dcmp key another dcmp key of the artifact extends by one digit.
+      const finalsKeys = new Set(dcmpKeys.filter((key) => !fieldFixing.has(key)));
+      for (const team of artifact.teams) {
+        const hasDivisionRow = team.eventPoints.some((row) => fieldFixing.has(row.eventKey));
+        for (const row of team.eventPoints) {
+          if (!finalsKeys.has(row.eventKey)) continue;
+          finalsRows += 1;
+          if (row.award > 0) {
+            withAwardPoints += 1;
+            const consuming = team.qualifyingAwards.some((award) => award.eventKey === row.eventKey && CONSUMING_JUDGED_AWARD_TYPES.has(award.awardType));
+            if (!consuming) withoutConsumingAward.push(`${artifact.districtKey} ${team.teamKey} ${row.eventKey} award ${String(row.award)}`);
+          }
+          if (!hasDivisionRow) {
+            finalsOnlyRows += 1;
+            finalsOnlyTeamKeys.add(`${artifact.districtKey} ${team.teamKey}`);
+            if (row.qual + row.alliance + row.elim !== 0) finalsOnlyWithOtherPoints.push(`${artifact.districtKey} ${team.teamKey} ${row.eventKey} ${String(row.qual)}, ${String(row.alliance)}, ${String(row.elim)}`);
+          }
+        }
+      }
+    }
+    console.log(
+      `[261010-66y group 7] rows at a finals key ${String(finalsRows)} | with award points ${String(withAwardPoints)} | of them with no consuming award recorded there ${String(withoutConsumingAward.length)} | finals rows of a team with no division row ${String(finalsOnlyRows)} (${String(finalsOnlyTeamKeys.size)} teams) | of them with qualification, alliance selection or playoff points ${String(finalsOnlyWithOtherPoints.length)}`
+    );
+    // WHAT BREAKS IF THIS FAILS: the finals' Awards add no points ceiling for
+    // anyone in the published verdicts (`openAtPlayedRows`) and, from this
+    // quick task's last step, on the Champ Locks tab; a row at a finals key of
+    // a team with no division row adds no ceiling at all; and the joint worst
+    // case proof gives the finals no judged award budget. All of it rests on a
+    // points paying award at a finals event being a consuming award, which
+    // takes a Championship slot whatever its winner's points and which the
+    // reservation holds a place for. A season that shows an ordinary judged
+    // award with points at a finals event, or a team paid Playoffs points at
+    // the finals without a division row, needs those readings looked at again.
+    expect(withoutConsumingAward).toEqual([]);
+    expect(finalsOnlyWithOtherPoints).toEqual([]);
+    // The counts, as the run shows.
+    expect({ finalsRows, withAwardPoints, finalsOnlyRows, finalsOnlyTeams: finalsOnlyTeamKeys.size }).toEqual({ finalsRows: 265, withAwardPoints: 153, finalsOnlyRows: 20, finalsOnlyTeams: 20 });
+  });
 });
 
