@@ -26,13 +26,23 @@
  * the artifact rather than rebuilt, and an empty or duplicated rankings
  * response must refuse rather than blank a published district. Those are the
  * rules that are easy to get subtly wrong twice.
+ *
+ * ONE FIELD IS CARRIED FORWARD AND EXTENDED (quick task 261009-r9x).
+ * `qualifyingAwards` is never rebuilt and never shortened, but when the caller
+ * supplies this tick's awards lists (`eventAwards`), `applyDistrictEventAwards`
+ * appends the record of every qualifying award a district team won. The same
+ * step raises `state.awardsPosted` through the one shared rule
+ * (`packages/core/districts/eventAwards.ts`), and it runs before the verdict
+ * pass, so the flag, the winner records and both lock verdicts come out of one
+ * build.
  */
 import { z } from "zod";
 import { computeLocksWithQualifiers, cutLinePointsWithQualifiers, type LockResult, type LockTeamInput, type QualifierSets } from "../core/districts/locks.js";
 import { maxEventPoints, type DistrictTier } from "../core/districts/pointModel.js";
 import { prequalifiedTeams } from "../core/districts/prequalified.js";
 import { districtEventCategoryFinality, reservedImpactSlots, type ReservedSlotEvent } from "../core/districts/reservedSlots.js";
-import { dcmpNeverHappening, perChampionship, reservedChampSlots } from "../core/districts/champReservedSlots.js";
+import { championshipStemOf, dcmpNeverHappening, perChampionship, reservedChampSlots } from "../core/districts/champReservedSlots.js";
+import { awardPointsPresentAt, awardsPostedRule, judgedAwardListed, qualifyingAwardRecord } from "../core/districts/eventAwards.js";
 import { dcmpAwardCountCeilings } from "../core/districts/hypotheticalDcmp.js";
 import { pooledLockInputs, type PooledTeamEntry } from "../core/districts/pooledLockInputs.js";
 import { consumingAwardTypesForTier, eventTierByKey, specialAllocationNote, type AwardTier } from "../core/districts/qualification.js";
@@ -523,6 +533,127 @@ function withState<T extends { eventKey: string; state?: DistrictEventState }>(r
 /** The verdict a brand-new team's row carries before `recomputeDistrictVerdicts` replaces it. Never published: every return path runs the verdict pass. */
 const PLACEHOLDER_VERDICT: DistrictTeam["districtLock"] = { status: "unknown", pointsToLock: null, threatCount: 0, cutLinePoints: null, allocationNote: null };
 
+// ---------------------------------------------------------------------------
+// The awards step (quick task 261009-r9x)
+// ---------------------------------------------------------------------------
+
+/**
+ * One award of a TBA `/event/{key}/awards` response, narrowed to the two
+ * fields the merge reads. The caller parses the response at its own boundary
+ * (the Worker through `tbaEventAwardsResponseSchema`); this module carries no
+ * second schema for it.
+ */
+export interface DistrictEventAwardInput {
+  readonly award_type: number;
+  readonly recipient_list: readonly { readonly team_key: string | null }[];
+}
+
+/** This tick's awards lists, keyed by event key. An event with no entry has no awards news. */
+export type DistrictEventAwardsByEvent = ReadonlyMap<string, readonly DistrictEventAwardInput[]>;
+
+/**
+ * Applies this tick's awards lists to an artifact's rows: raises
+ * `state.awardsPosted` where the live rule now holds, and records who won
+ * each qualifying award.
+ *
+ * ROWS ONLY. No verdict pass, no generation and no timestamp: both entry
+ * points below run this on their merged rows immediately before
+ * `recomputeDistrictVerdicts`, so the verdict pass reads the new flag and the
+ * new records in the same build.
+ *
+ * THE FLAG, for each event in the map. `awardsPostedRule` at the live vantage
+ * is asked with two facts: whether the list holds a judged award (anything
+ * other than Winner and Finalist), and whether some team's row at the event
+ * carries award points above zero ON THE ARTIFACT HANDED IN, which is the
+ * artifact after this tick's rankings were merged. When it holds, every
+ * `eventPoints` and `remainingEvents` row for that event that already carries
+ * a state block gets `awardsPosted: true`. The step only ever RAISES the
+ * flag: a flag already true stays true whatever the list holds, because
+ * awards do not un post. A row with no state block is left without one. The
+ * schema needs all five facts, and no state reads as pending, which is the
+ * side that keeps reservations held.
+ *
+ * THE RECORDS, for each event in the map. The event's tier comes from the
+ * artifact's own rows (`eventTierByKey`). An event on no row records nothing.
+ * A DCMP DIVISION records nothing either: on a dcmp tier row a key whose
+ * championship stem differs from the key is a division (`2026micmp1`), and a
+ * division Winner must never reach the list, exactly as in the publisher,
+ * which skips divisions by event type. The division's FLAG still follows the
+ * rule like any event's. Otherwise each recipient that is a team of this
+ * artifact gets the record `qualifyingAwardRecord` returns, the same builder
+ * `scripts/publishDistricts.ts` calls, appended after the team's existing
+ * entries. A recipient outside the district and a recipient with no team key
+ * are ignored.
+ *
+ * IDEMPOTENT, AND NOTHING IS EVER REMOVED. An entry with the same event key
+ * and award type already on the team is not added twice, and an entry the
+ * list no longer holds stays. A second identical call returns an equal
+ * artifact.
+ *
+ * RECORDED EVERY TIME, WHATEVER THE FLAG SAYS. A DCMP Winner listed before
+ * the judged awards is recorded at once, and an Impact winner is recorded
+ * while the flag still waits on its points. In that second window the
+ * PUBLISHED verdict holds that event's slot twice: the recorded winner
+ * consumes one through `awardQualifiedSets`, and the event still reserves
+ * one because its flag is false. That is the conservative side. Only the
+ * Locked test reads the reservation, so only Locked is delayed, and it ends
+ * on the tick the points arrive. The browser never does this: it gates each
+ * award on its own event's stage.
+ */
+export function applyDistrictEventAwards(artifact: DistrictArtifact, eventAwards: DistrictEventAwardsByEvent): DistrictArtifact {
+  if (eventAwards.size === 0) return artifact;
+
+  const tiers = eventTierByKey(artifact.teams);
+  const teamByKey = new Map(artifact.teams.map((team) => [team.teamKey, team] as const));
+  const eventsToRaise = new Set<string>();
+  const appendedByTeam = new Map<string, DistrictTeam["qualifyingAwards"]>();
+
+  for (const [eventKey, awards] of eventAwards) {
+    const posted = awardsPostedRule(
+      { judgedAwardListed: judgedAwardListed(awards.map((award) => award.award_type)), awardPointsPresent: awardPointsPresentAt(artifact.teams, eventKey) },
+      "live"
+    );
+    if (posted) eventsToRaise.add(eventKey);
+
+    const tier = tiers.get(eventKey);
+    if (tier === undefined) continue;
+    if (tier === "dcmp" && championshipStemOf(eventKey) !== eventKey) continue;
+
+    for (const award of awards) {
+      for (const recipient of award.recipient_list) {
+        if (recipient.team_key === null) continue;
+        const team = teamByKey.get(recipient.team_key);
+        if (team === undefined) continue;
+        const record = qualifyingAwardRecord({ eventKey, awardType: award.award_type, tier, season: artifact.year });
+        if (record === null) continue;
+        const appended = appendedByTeam.get(team.teamKey) ?? [];
+        const sameAward = (entry: { eventKey: string; awardType: number }) => entry.eventKey === record.eventKey && entry.awardType === record.awardType;
+        if (team.qualifyingAwards.some(sameAward) || appended.some(sameAward)) continue;
+        appended.push(record);
+        appendedByTeam.set(team.teamKey, appended);
+      }
+    }
+  }
+
+  if (eventsToRaise.size === 0 && appendedByTeam.size === 0) return artifact;
+
+  const raise = <T extends { eventKey: string; state?: DistrictEventState }>(row: T): T =>
+    row.state === undefined || row.state.awardsPosted || !eventsToRaise.has(row.eventKey) ? row : { ...row, state: { ...row.state, awardsPosted: true } };
+
+  return {
+    ...artifact,
+    teams: artifact.teams.map((team) => {
+      const appended = appendedByTeam.get(team.teamKey);
+      return {
+        ...team,
+        eventPoints: team.eventPoints.map(raise),
+        remainingEvents: team.remainingEvents.map(raise),
+        qualifyingAwards: appended === undefined ? team.qualifyingAwards : [...team.qualifyingAwards, ...appended],
+      };
+    }),
+  };
+}
+
 export interface ApplyDistrictRankingsOptions {
   /** The district artifact as read back from R2 — already `DistrictArtifactSchema`-parsed. */
   readonly artifact: DistrictArtifact;
@@ -534,6 +665,13 @@ export interface ApplyDistrictRankingsOptions {
   readonly computedAt: string;
   /** Optional per-event state observations, keyed by event key — written onto every matching row across every team. */
   readonly eventState?: ReadonlyMap<string, DistrictEventState>;
+  /**
+   * Optional awards lists fetched this tick, keyed by event key (quick task
+   * 261009-r9x). When supplied, `applyDistrictEventAwards` runs on the merged
+   * rows immediately before the verdict pass. Absent, the merge behaves
+   * exactly as it did before that task.
+   */
+  readonly eventAwards?: DistrictEventAwardsByEvent;
 }
 
 /**
@@ -554,18 +692,25 @@ export interface ApplyDistrictRankingsOptions {
  * `remainingEvents` is trimmed of every event that now has an `eventPoints`
  * entry (`10-RESEARCH.md` Pitfall 3).
  *
- * Carried forward untouched: `teamNumber`, `nickname`, `qualifyingAwards`,
- * every other key the artifact's team row carries, and every district-level
- * field. A team present in the artifact but absent from the payload keeps its
- * whole row and still competes in the lock math — dropping it would silently
- * remove a threat and manufacture a `"locked"` verdict.
+ * Carried forward untouched: `teamNumber`, `nickname`, every other key the
+ * artifact's team row carries, and every district-level field.
+ * `qualifyingAwards` is carried forward too, and EXTENDED by the awards step
+ * when the caller supplies `eventAwards` (quick task 261009-r9x): entries are
+ * appended, never rebuilt and never shortened. A team present in the artifact
+ * but absent from the payload keeps its whole row and still competes in the
+ * lock math — dropping it would silently remove a threat and manufacture a
+ * `"locked"` verdict.
+ *
+ * THE AWARDS STEP RUNS AFTER THE ROWS ARE MERGED AND BEFORE THE VERDICT PASS.
+ * Its flag rule reads award points off the merged rows, so points that arrive
+ * in this same payload count on this same call.
  *
  * TEAM ORDER: payload order first (TBA sends rankings ascending by rank),
  * then any artifact-only team in the artifact's own order. Deterministic, so
  * two runs over the same inputs serialize byte-identically.
  */
 export function applyDistrictRankings(options: ApplyDistrictRankingsOptions): DistrictArtifact {
-  const { artifact, generation, computedAt, eventState } = options;
+  const { artifact, generation, computedAt, eventState, eventAwards } = options;
   const rankings = DistrictRankingsPayloadSchema.parse(options.rankings);
 
   if (rankings.length === 0) {
@@ -690,7 +835,7 @@ export function applyDistrictRankings(options: ApplyDistrictRankingsOptions): Di
     ...(bakedEvents === undefined ? {} : { bakedEvents }),
   };
 
-  return recomputeDistrictVerdicts(merged);
+  return recomputeDistrictVerdicts(eventAwards === undefined ? merged : applyDistrictEventAwards(merged, eventAwards));
 }
 
 export interface ApplyDistrictEventStateOptions {
@@ -706,6 +851,13 @@ export interface ApplyDistrictEventStateOptions {
    * `applyDistrictRankings`.
    */
   readonly tierByEvent?: ReadonlyMap<string, DistrictTier>;
+  /**
+   * Optional awards lists fetched this tick, keyed by event key (quick task
+   * 261009-r9x). Applied after the state is written and before the verdict
+   * pass. Unlike `eventState`, a key no row carries is NOT refused here: it
+   * contributes nothing.
+   */
+  readonly eventAwards?: DistrictEventAwardsByEvent;
 }
 
 /**
@@ -737,7 +889,7 @@ export interface ApplyDistrictEventStateOptions {
  * would leave the Worker believing it had written a fact it had not.
  */
 export function applyDistrictEventState(options: ApplyDistrictEventStateOptions): DistrictArtifact {
-  const { artifact, eventState, generation, computedAt, tierByEvent } = options;
+  const { artifact, eventState, generation, computedAt, tierByEvent, eventAwards } = options;
 
   const known = new Set<string>();
   for (const team of artifact.teams) {
@@ -768,5 +920,5 @@ export function applyDistrictEventState(options: ApplyDistrictEventStateOptions)
       remainingEvents: team.remainingEvents.map((row) => withState(row, eventState)),
     })),
   });
-  return recomputeDistrictVerdicts(withEventState, tierByEvent === undefined ? {} : { tierByEvent });
+  return recomputeDistrictVerdicts(eventAwards === undefined ? withEventState : applyDistrictEventAwards(withEventState, eventAwards), tierByEvent === undefined ? {} : { tierByEvent });
 }

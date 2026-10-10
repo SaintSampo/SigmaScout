@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 import { DistrictArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type DistrictArtifact } from "./pageArtifacts.js";
 import {
+  applyDistrictEventAwards,
   applyDistrictEventState,
   applyDistrictRankings,
   DistrictMergeError,
@@ -16,6 +17,7 @@ import {
   DistrictRankingsPayloadSchema,
   DistrictRankingsRowSchema,
   recomputeDistrictVerdicts,
+  type DistrictEventAwardInput,
 } from "./districtRankingsMerge.js";
 
 const GENERATION = "gen-merge-test";
@@ -926,5 +928,324 @@ describe("recomputeDistrictVerdicts — the district pass ranks the district tie
     }));
     const merged = merge(input, payload);
     expect(statusOf(merged, "districtLock")).toEqual({ frc1: "locked", frc3: "locked", frc4: "eliminated", frc2: "eliminated" });
+  });
+});
+
+describe("applyDistrictEventAwards: the awards flag waits for a judged award and its points, and the merge records who won (quick task 261009-r9x)", () => {
+  const E1 = "2026ncwak";
+  const E2 = "2026ncpem";
+  const DCMP = "2026nccmp";
+  const DIVISION = "2026nccmp1";
+  const IMPACT_2026 = "FIRST Impact Award";
+
+  const FINISHED = { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: true, awardsPosted: true } as const;
+  const PLAYOFFS_DONE = { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: true, awardsPosted: false } as const;
+
+  type Team = DistrictArtifact["teams"][number];
+  type PointsRow = Team["eventPoints"][number];
+  type RemainingRow = Team["remainingEvents"][number];
+
+  function pointsRow(eventKey: string, total: number, award: number, state: PointsRow["state"], tier: "district" | "dcmp" = "district"): PointsRow {
+    return { eventKey, eventName: `${eventKey} event`, week: 1, tier, qual: total - award, alliance: 0, elim: 0, award, total, ...(state === undefined ? {} : { state: { ...state } }) };
+  }
+
+  interface FixtureOptions {
+    /** `2026ncpem`'s published flag on every row. Default false. */
+    readonly e2Posted?: boolean;
+    /** Award points on a team's `2026ncpem` row, by team key. Default none. */
+    readonly e2Award?: Readonly<Record<string, number>>;
+    /** Extra `eventPoints` rows, by team key. */
+    readonly extraPoints?: Readonly<Record<string, readonly PointsRow[]>>;
+    /** Extra `remainingEvents` rows, by team key. */
+    readonly extraRemaining?: Readonly<Record<string, readonly RemainingRow[]>>;
+    /** Entries already on a team's `qualifyingAwards`, by team key. */
+    readonly awards?: Readonly<Record<string, Team["qualifyingAwards"]>>;
+  }
+
+  /**
+   * Three teams, A (40 points), B (30) and C (10), two DCMP slots, nothing
+   * left to play. Every team has a row at `2026ncwak` (over, awards posted)
+   * and at `2026ncpem` (playoffs done, awards as the option says).
+   */
+  function fixture(options: FixtureOptions = {}): DistrictArtifact {
+    const e2State = { ...PLAYOFFS_DONE, awardsPosted: options.e2Posted === true };
+    const team = (teamKey: string, teamNumber: number, rank: number, half: number): Team => {
+      const extraPoints = options.extraPoints?.[teamKey] ?? [];
+      return {
+        teamKey,
+        teamNumber,
+        nickname: `Team ${teamNumber}`,
+        rank,
+        pointTotal: half * 2 + extraPoints.reduce((sum, row) => sum + row.total, 0),
+        rookieBonus: 0,
+        adjustments: 0,
+        eventPoints: [pointsRow(E1, half, 0, FINISHED), pointsRow(E2, half, options.e2Award?.[teamKey] ?? 0, e2State), ...extraPoints],
+        remainingEvents: [...(options.extraRemaining?.[teamKey] ?? [])],
+        maxRemainingDistrict: 0,
+        maxRemainingChamp: 0,
+        qualifyingAwards: [...(options.awards?.[teamKey] ?? [])],
+        districtLock: lockVerdict("contending"),
+        champLock: lockVerdict("contending"),
+      };
+    };
+    return DistrictArtifactSchema.parse({
+      schemaVersion: 1,
+      generation: "gen-published",
+      computedAt: "2026-03-01T00:00:00.000Z",
+      districtKey: "2026fnc",
+      year: 2026,
+      abbreviation: "fnc",
+      displayName: "FIRST North Carolina",
+      dcmpSlots: 2,
+      cmpSlots: 1,
+      teams: [team("frcA", 101, 1, 20), team("frcB", 102, 2, 15), team("frcC", 103, 3, 5)],
+      insights: { teamCount: 3, eventCount: 2, dcmpCutLinePoints: null, cmpCutLinePoints: null, districtLockedCount: 0, districtEliminatedCount: 0, champLockedCount: 0, champEliminatedCount: 0 },
+    });
+  }
+
+  function award(awardType: number, ...teamKeys: (string | null)[]): DistrictEventAwardInput {
+    return { award_type: awardType, recipient_list: teamKeys.map((teamKey) => ({ team_key: teamKey })) };
+  }
+
+  function lists(...entries: [string, DistrictEventAwardInput[]][]): Map<string, DistrictEventAwardInput[]> {
+    return new Map(entries);
+  }
+
+  function teamOf(artifact: DistrictArtifact, teamKey: string): Team {
+    return artifact.teams.find((team) => team.teamKey === teamKey)!;
+  }
+
+  function flagsAt(artifact: DistrictArtifact, eventKey: string): (boolean | undefined)[] {
+    return artifact.teams.flatMap((team) => [...team.eventPoints, ...team.remainingEvents].filter((row) => row.eventKey === eventKey).map((row) => row.state?.awardsPosted));
+  }
+
+  function districtStatuses(artifact: DistrictArtifact): Record<string, string> {
+    return Object.fromEntries(artifact.teams.map((team) => [team.teamKey, team.districtLock.status]));
+  }
+
+  function withAwards(artifact: DistrictArtifact, eventAwards: Map<string, DistrictEventAwardInput[]>): DistrictArtifact {
+    return applyDistrictEventState({ artifact, eventState: new Map(), eventAwards, generation: GENERATION, computedAt: COMPUTED_AT });
+  }
+
+  describe("the flag", () => {
+    it("is not raised by a Winner and Finalist only list at a district tier event, and nothing is recorded", () => {
+      const out = applyDistrictEventAwards(fixture({ e2Award: { frcC: 5 } }), lists([E2, [award(1, "frcA", "frcB"), award(2, "frcC")]]));
+      expect(flagsAt(out, E2)).toEqual([false, false, false]);
+      expect(out.teams.map((team) => team.qualifyingAwards)).toEqual([[], [], []]);
+    });
+
+    it("is not raised by a judged award with no award points at the event, and the Impact recipient IS recorded", () => {
+      const out = applyDistrictEventAwards(fixture(), lists([E2, [award(1, "frcA"), award(2, "frcB"), award(0, "frcC")]]));
+      expect(flagsAt(out, E2)).toEqual([false, false, false]);
+      expect(teamOf(out, "frcC").qualifyingAwards).toEqual([{ eventKey: E2, awardType: 0, label: IMPACT_2026, awardOnly: false }]);
+    });
+
+    it("turns true on every row for the event that carries a state block, in eventPoints and remainingEvents alike, and leaves a row with no state block without one", () => {
+      const base = fixture({
+        e2Award: { frcC: 5 },
+        // frcA also lists the event as still ahead (with a state block), and
+        // frcB carries a second row for it with no state block at all.
+        extraRemaining: { frcA: [{ eventKey: E2, eventName: `${E2} event`, week: 1, tier: "district", maxPoints: DISTRICT_EVENT_MAX, state: { ...PLAYOFFS_DONE } }] },
+        extraPoints: { frcB: [pointsRow(E2, 0, 0, undefined)] },
+      });
+      const out = applyDistrictEventAwards(base, lists([E2, [award(0, "frcC")]]));
+      expect(teamOf(out, "frcA").eventPoints.find((row) => row.eventKey === E2)!.state!.awardsPosted).toBe(true);
+      expect(teamOf(out, "frcA").remainingEvents[0]!.state!.awardsPosted).toBe(true);
+      expect(teamOf(out, "frcC").eventPoints.find((row) => row.eventKey === E2)!.state!.awardsPosted).toBe(true);
+      const frcBRows = teamOf(out, "frcB").eventPoints.filter((row) => row.eventKey === E2);
+      expect(frcBRows.map((row) => row.state?.awardsPosted)).toEqual([true, undefined]);
+      expect("state" in frcBRows[1]!).toBe(false);
+      // The other event is untouched.
+      expect(flagsAt(out, E1)).toEqual([true, true, true]);
+    });
+
+    it("stays true once true, under an empty list and under a Winner only list", () => {
+      const posted = fixture({ e2Posted: true });
+      expect(flagsAt(applyDistrictEventAwards(posted, lists([E2, []])), E2)).toEqual([true, true, true]);
+      expect(flagsAt(applyDistrictEventAwards(posted, lists([E2, [award(1, "frcA")]])), E2)).toEqual([true, true, true]);
+    });
+  });
+
+  describe("the records", () => {
+    it("gives the Impact recipient exactly the publisher's record, and marks Engineering Inspiration and Rookie All Star at a district event as award only", () => {
+      const out = applyDistrictEventAwards(fixture(), lists([E2, [award(0, "frcA"), award(9, "frcB"), award(10, "frcC")]]));
+      expect(teamOf(out, "frcA").qualifyingAwards).toEqual([{ eventKey: E2, awardType: 0, label: IMPACT_2026, awardOnly: false }]);
+      expect(teamOf(out, "frcB").qualifyingAwards).toEqual([{ eventKey: E2, awardType: 9, label: "Engineering Inspiration", awardOnly: true }]);
+      expect(teamOf(out, "frcC").qualifyingAwards).toEqual([{ eventKey: E2, awardType: 10, label: "Rookie All Star", awardOnly: true }]);
+    });
+
+    it("records a DCMP Winner on every recipient that is a district team while the flag stays false", () => {
+      const dcmpRow = (total: number) => pointsRow(DCMP, total, 0, PLAYOFFS_DONE, "dcmp");
+      const base = fixture({ extraPoints: { frcA: [dcmpRow(30)], frcB: [dcmpRow(20)] } });
+      const out = applyDistrictEventAwards(base, lists([DCMP, [award(1, "frcA", "frcB", "frc9999")]]));
+      const winner = { eventKey: DCMP, awardType: 1, label: "Winner", awardOnly: false };
+      expect(teamOf(out, "frcA").qualifyingAwards).toEqual([winner]);
+      expect(teamOf(out, "frcB").qualifyingAwards).toEqual([winner]);
+      expect(teamOf(out, "frcC").qualifyingAwards).toEqual([]);
+      expect(flagsAt(out, DCMP)).toEqual([false, false]);
+    });
+
+    it("records nothing for a DCMP division key, whose flag still follows the rule", () => {
+      const divisionRow = (awardPoints: number) => pointsRow(DIVISION, 20 + awardPoints, awardPoints, PLAYOFFS_DONE, "dcmp");
+      const noPoints = fixture({ extraPoints: { frcA: [divisionRow(0)], frcB: [divisionRow(0)] } });
+      const list = [award(0, "frcA"), award(1, "frcA", "frcB"), award(9, "frcB"), award(10, "frcA")];
+      const waiting = applyDistrictEventAwards(noPoints, lists([DIVISION, list]));
+      expect(waiting.teams.map((team) => team.qualifyingAwards)).toEqual([[], [], []]);
+      expect(flagsAt(waiting, DIVISION)).toEqual([false, false]);
+
+      const withPoints = fixture({ extraPoints: { frcA: [divisionRow(10)], frcB: [divisionRow(0)] } });
+      const posted = applyDistrictEventAwards(withPoints, lists([DIVISION, list]));
+      expect(posted.teams.map((team) => team.qualifyingAwards)).toEqual([[], [], []]);
+      expect(flagsAt(posted, DIVISION)).toEqual([true, true]);
+    });
+
+    it("ignores a recipient that is not a team of the artifact and a recipient with a null team_key", () => {
+      const out = applyDistrictEventAwards(fixture(), lists([E2, [award(0, "frc9999"), award(9, null), award(10, null, "frcB")]]));
+      expect(teamOf(out, "frcA").qualifyingAwards).toEqual([]);
+      expect(teamOf(out, "frcB").qualifyingAwards).toEqual([{ eventKey: E2, awardType: 10, label: "Rookie All Star", awardOnly: true }]);
+      expect(out.teams.map((team) => team.teamKey)).toEqual(["frcA", "frcB", "frcC"]);
+    });
+
+    it("records nothing, flags nothing and does not throw for an event on no row", () => {
+      const base = fixture();
+      const out = applyDistrictEventAwards(base, lists(["2026zzzzz", [award(0, "frcA"), award(5, "frcB")]]));
+      expect(out).toEqual(base);
+    });
+
+    it("is idempotent, appends an award listed later after the earlier entries, and never removes an entry the list no longer holds", () => {
+      const existing = { eventKey: E1, awardType: 9, label: "Engineering Inspiration", awardOnly: true };
+      const base = fixture({ awards: { frcA: [existing] } });
+      const first = applyDistrictEventAwards(base, lists([E2, [award(0, "frcA")]]));
+      const impact = { eventKey: E2, awardType: 0, label: IMPACT_2026, awardOnly: false };
+      expect(teamOf(first, "frcA").qualifyingAwards).toEqual([existing, impact]);
+
+      const second = applyDistrictEventAwards(first, lists([E2, [award(0, "frcA")]]));
+      expect(second).toEqual(first);
+
+      // A later list adds Engineering Inspiration and no longer holds Impact.
+      const later = applyDistrictEventAwards(second, lists([E2, [award(9, "frcA")]]));
+      expect(teamOf(later, "frcA").qualifyingAwards).toEqual([existing, impact, { eventKey: E2, awardType: 9, label: "Engineering Inspiration", awardOnly: true }]);
+
+      // One list naming the same team twice for the same award adds it once.
+      const doubled = applyDistrictEventAwards(base, lists([E2, [award(0, "frcA", "frcA"), award(0, "frcA")]]));
+      expect(teamOf(doubled, "frcA").qualifyingAwards).toEqual([existing, impact]);
+    });
+
+    it("touches rows only: no verdict, no stamp and no team order changes", () => {
+      const base = fixture({ e2Award: { frcC: 5 } });
+      const out = applyDistrictEventAwards(base, lists([E2, [award(0, "frcC")]]));
+      expect(out.generation).toBe(base.generation);
+      expect(out.computedAt).toBe(base.computedAt);
+      expect(out.insights).toEqual(base.insights);
+      expect(out.teams.map((team) => [team.teamKey, team.districtLock, team.champLock])).toEqual(base.teams.map((team) => [team.teamKey, team.districtLock, team.champLock]));
+    });
+  });
+
+  describe("through the two entry points", () => {
+    function payload(artifact: DistrictArtifact, e2AwardPoints: Readonly<Record<string, number>>) {
+      return artifact.teams.map((team) => ({
+        team_key: team.teamKey,
+        rank: team.rank,
+        point_total: team.pointTotal + (e2AwardPoints[team.teamKey] ?? 0),
+        rookie_bonus: 0,
+        adjustments: 0,
+        event_points: team.eventPoints.map((row) => {
+          const awardPoints = row.eventKey === E2 ? (e2AwardPoints[team.teamKey] ?? 0) : row.award;
+          return { event_key: row.eventKey, district_cmp: row.tier === "dcmp", qual_points: row.qual, alliance_points: 0, elim_points: 0, award_points: awardPoints, total: row.qual + awardPoints };
+        }),
+      }));
+    }
+
+    it("applyDistrictRankings reads the rule on the rows AFTER the rankings merge: award points arriving in the same call turn the flag true", () => {
+      const base = fixture();
+      expect(flagsAt(base, E2)).toEqual([false, false, false]);
+      const eventAwards = lists([E2, [award(0, "frcC")]]);
+
+      const stillWaiting = applyDistrictRankings({ artifact: base, rankings: payload(base, {}), generation: GENERATION, computedAt: COMPUTED_AT, eventAwards });
+      expect(flagsAt(stillWaiting, E2)).toEqual([false, false, false]);
+
+      const out = applyDistrictRankings({ artifact: base, rankings: payload(base, { frcC: 10 }), generation: GENERATION, computedAt: COMPUTED_AT, eventAwards });
+      expect(flagsAt(out, E2)).toEqual([true, true, true]);
+      expect(teamOf(out, "frcC").qualifyingAwards).toEqual([{ eventKey: E2, awardType: 0, label: IMPACT_2026, awardOnly: false }]);
+      expect(teamOf(out, "frcC").districtLock.status).toBe("lockedAward");
+      expect(() => DistrictArtifactSchema.parse(out)).not.toThrow();
+    });
+
+    it("applyDistrictEventState returns the Impact winner as lockedAward in the same artifact as the flag", () => {
+      const out = withAwards(fixture({ e2Award: { frcC: 5 } }), lists([E2, [award(0, "frcC")]]));
+      expect(flagsAt(out, E2)).toEqual([true, true, true]);
+      expect(teamOf(out, "frcC").districtLock.status).toBe("lockedAward");
+      expect(out.generation).toBe(GENERATION);
+    });
+
+    it("applyDistrictEventState does not refuse an awards list for an event on no row: it contributes nothing", () => {
+      const base = fixture();
+      const out = withAwards(base, lists(["2026zzzzz", [award(0, "frcA")]]));
+      expect(out).toEqual(withAwards(base, new Map()));
+    });
+
+    it("with eventAwards omitted both entry points return exactly what the verdict pass alone returns", () => {
+      const base = fixture({ e2Award: { frcC: 5 } });
+      const stamped: DistrictArtifact = { ...base, generation: GENERATION, computedAt: COMPUTED_AT };
+
+      const stateOnly = applyDistrictEventState({ artifact: base, eventState: new Map(), generation: GENERATION, computedAt: COMPUTED_AT });
+      expect(stateOnly).toEqual(recomputeDistrictVerdicts(stamped));
+      expect(withAwards(base, new Map())).toEqual(stateOnly);
+
+      const rankings = payload(base, { frcC: 5 });
+      const merged = applyDistrictRankings({ artifact: base, rankings, generation: GENERATION, computedAt: COMPUTED_AT });
+      expect(merged).toEqual(applyDistrictRankings({ artifact: base, rankings, generation: GENERATION, computedAt: COMPUTED_AT, eventAwards: new Map() }));
+      // No list supplied: the flag is whatever the rows already said, and no
+      // record is invented.
+      expect(flagsAt(merged, E2)).toEqual([false, false, false]);
+      expect(merged.teams.map((team) => team.qualifyingAwards)).toEqual([[], [], []]);
+    });
+  });
+
+  describe("the district tier lock regression: a team is never shown Locked on a slot an Impact winner then takes", () => {
+    it("the hazard: with the flag true and no winner recorded, the knife edge team reads locked", () => {
+      // This is the state the old Worker published when TBA listed Winner and
+      // Finalist first: the flag turned true on the first award of any kind,
+      // the reservation for 2026ncpem's Impact fell to zero, and nobody was
+      // recorded as having won it. B holds the second of two slots on points,
+      // and an Impact award to C would take that slot away from it.
+      const old = recomputeDistrictVerdicts(fixture({ e2Posted: true }));
+      expect(districtStatuses(old)).toEqual({ frcA: "locked", frcB: "locked", frcC: "eliminated" });
+    });
+
+    it("the first list, Winner and Finalist: the flag stays false and the knife edge team is not locked", () => {
+      const out = withAwards(fixture(), lists([E2, [award(1, "frcA", "frcB"), award(2, "frcC")]]));
+      expect(flagsAt(out, E2)).toEqual([false, false, false]);
+      expect(out.teams.map((team) => team.qualifyingAwards)).toEqual([[], [], []]);
+      expect(districtStatuses(out).frcB).not.toBe("locked");
+      expect(districtStatuses(out)).toEqual({ frcA: "locked", frcB: "contending", frcC: "eliminated" });
+    });
+
+    it("the second list, Impact to C with its points: the flag is true, C is locked by the award, and B is not locked", () => {
+      const out = withAwards(fixture({ e2Award: { frcC: 5 } }), lists([E2, [award(1, "frcA", "frcB"), award(2, "frcC"), award(0, "frcC")]]));
+      expect(flagsAt(out, E2)).toEqual([true, true, true]);
+      expect(districtStatuses(out).frcC).toBe("lockedAward");
+      expect(districtStatuses(out).frcB).not.toBe("locked");
+      // C's award takes one of the two slots and A's points take the other, so
+      // B is out: the slot the old flag had promised it was never B's.
+      expect(districtStatuses(out)).toEqual({ frcA: "locked", frcB: "eliminated", frcC: "lockedAward" });
+    });
+
+    it("the other branch, Impact to A: A is locked by the award and B takes the points slot", () => {
+      const out = withAwards(fixture({ e2Award: { frcA: 5 } }), lists([E2, [award(0, "frcA")]]));
+      expect(flagsAt(out, E2)).toEqual([true, true, true]);
+      expect(districtStatuses(out)).toEqual({ frcA: "lockedAward", frcB: "locked", frcC: "eliminated" });
+    });
+
+    it("the winner recorded while the flag still waits on points holds the slot twice, the conservative side", () => {
+      // Impact is listed for C but the rankings carry no award points yet. C
+      // already reads lockedAward, and the event still reserves one slot, so
+      // nobody else is locked on points until the points arrive.
+      const out = withAwards(fixture(), lists([E2, [award(0, "frcC")]]));
+      expect(flagsAt(out, E2)).toEqual([false, false, false]);
+      expect(districtStatuses(out).frcC).toBe("lockedAward");
+      expect(districtStatuses(out).frcA).not.toBe("locked");
+      expect(districtStatuses(out).frcB).not.toBe("locked");
+    });
   });
 });
