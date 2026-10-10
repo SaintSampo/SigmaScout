@@ -18,6 +18,7 @@ import {
   loadLiveEventsAt,
   loadLiveWindowsManifest,
   loadManifests,
+  loadTickWindowsAt,
   LIVE_WINDOWS_MANIFEST_KEY,
   ManifestReadError,
   ManifestValidationError,
@@ -311,5 +312,90 @@ describe("loadLiveEventsAt", () => {
     // The old whole-manifest path refuses this same input outright — a direct
     // demonstration of how much more of the object it was forced to touch.
     await expect(loadLiveWindowsManifest(env)).rejects.toBeInstanceOf(ManifestValidationError);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `loadTickWindowsAt` (quick task 261009-tx6): the same single read, returning
+// the live windows AND the district windows that ended recently. The district
+// pass watches an event for a day after its window, and `loadLiveEventsAt`
+// drops every window that is not live.
+// ---------------------------------------------------------------------------
+
+describe("loadTickWindowsAt", () => {
+  const HORIZON = 1_000;
+  const NOW = 10_000;
+
+  const MIXED_WINDOWS = [
+    { eventKey: "2022closed", season: 2022, startMs: 0, endMs: 1_000, inferred: false },
+    { eventKey: "2026zzzz", season: 2026, startMs: 4_000, endMs: 10_000, inferred: false },
+    { eventKey: "2026aaaa", season: 2026, startMs: 0, endMs: 10_000, inferred: true },
+    { eventKey: "2027future", season: 2027, startMs: 20_000, endMs: 30_000, inferred: false },
+  ];
+
+  function envWith(windows: unknown[]): ReturnType<typeof makeEnv> {
+    return makeEnv(new Map([[LIVE_WINDOWS_MANIFEST_KEY, JSON.stringify(validLiveWindowsManifest(windows))]]));
+  }
+
+  function ended(eventKey: string, endMs: number, extra: Record<string, unknown> = { districtKey: "2026pnw" }): Record<string, unknown> {
+    return { eventKey, season: 2026, startMs: endMs - 5_000, endMs, inferred: false, ...extra };
+  }
+
+  it("returns a live list equal to loadLiveEventsAt at every instant, and costs one R2 read", async () => {
+    for (const epochMs of [-1, 0, 999, 1_000, 3_999, 4_000, 5_000, 9_999, 10_000, 20_000, 25_000, 30_000]) {
+      const { env, r2 } = envWith(MIXED_WINDOWS);
+      const both = await loadTickWindowsAt(env, epochMs, HORIZON);
+      expect(r2.getCallCount).toBe(1);
+      expect(both.live).toEqual(await loadLiveEventsAt(env, epochMs));
+    }
+  });
+
+  it("returns the district windows that ended inside the horizon, in event key order, fully parsed", async () => {
+    const { env } = envWith([
+      ended("2026wayak", NOW - 1), // ended one millisecond ago
+      ended("2026wabon", NOW - HORIZON + 1), // one millisecond inside the horizon
+      ended("2026orore", NOW), // ends exactly now: no longer live, so it is recently ended
+    ]);
+    const both = await loadTickWindowsAt(env, NOW, HORIZON);
+    expect(both.live).toEqual([]);
+    expect(both.recentlyEnded.map((w) => w.eventKey)).toEqual(["2026orore", "2026wabon", "2026wayak"]);
+    expect(both.recentlyEnded[0]).toEqual({ eventKey: "2026orore", season: 2026, startMs: NOW - 5_000, endMs: NOW, inferred: false, districtKey: "2026pnw" });
+  });
+
+  it("leaves out a window that ended at or beyond the horizon, a future one, a live one, and an ended one with a null or absent districtKey", async () => {
+    const { env } = envWith([
+      ended("2026atlimit", NOW - HORIZON), // exactly the horizon ago: out
+      ended("2026longago", NOW - 50 * HORIZON),
+      { eventKey: "2026future", season: 2026, startMs: NOW + 1, endMs: NOW + 5_000, inferred: false, districtKey: "2026pnw" },
+      { eventKey: "2026live", season: 2026, startMs: NOW - 5, endMs: NOW + 5, inferred: false, districtKey: "2026pnw" },
+      ended("2026nulldistrict", NOW - 1, { districtKey: null }),
+      ended("2026nodistrict", NOW - 1, {}),
+      ended("2026emptydistrict", NOW - 1, { districtKey: "" }),
+      ended("2026wabon", NOW - 1),
+    ]);
+    const both = await loadTickWindowsAt(env, NOW, HORIZON);
+    expect(both.live.map((w) => w.eventKey)).toEqual(["2026live"]);
+    expect(both.recentlyEnded.map((w) => w.eventKey)).toEqual(["2026wabon"]);
+  });
+
+  it("skips an ended district window with a broken non interval field and does not throw: the watch can never fail a tick", async () => {
+    const { env } = envWith([
+      { eventKey: 12345, season: "not-a-number", startMs: NOW - 5_000, endMs: NOW - 1, inferred: "maybe", districtKey: "2026pnw" },
+      ended("2026wabon", NOW - 1),
+    ]);
+    const both = await loadTickWindowsAt(env, NOW, HORIZON);
+    expect(both.recentlyEnded.map((w) => w.eventKey)).toEqual(["2026wabon"]);
+  });
+
+  it("still throws LiveWindowShapeError for a non finite startMs or endMs on any entry, and still rejects a broken LIVE entry", async () => {
+    await expect(loadTickWindowsAt(envWith([ended("2026wabon", NOW - 1), { eventKey: "2026bad", season: 2026, startMs: 0, endMs: null, inferred: false }]).env, NOW, HORIZON)).rejects.toBeInstanceOf(LiveWindowShapeError);
+    await expect(loadTickWindowsAt(envWith(["not-an-object"]).env, NOW, HORIZON)).rejects.toBeInstanceOf(LiveWindowShapeError);
+    await expect(loadTickWindowsAt(envWith([{ eventKey: "", season: 2026, startMs: 0, endMs: NOW + 5, inferred: false }]).env, NOW, HORIZON)).rejects.toBeInstanceOf(ManifestValidationError);
+    await expect(loadTickWindowsAt(makeEnv(new Map()).env, NOW, HORIZON)).rejects.toBeInstanceOf(ManifestReadError);
+  });
+
+  it("a horizon of zero returns no recently ended window at all", async () => {
+    const { env } = envWith([ended("2026wabon", NOW - 1), ended("2026wayak", NOW)]);
+    expect((await loadTickWindowsAt(env, NOW, 0)).recentlyEnded).toEqual([]);
   });
 });

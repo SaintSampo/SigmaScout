@@ -26,6 +26,7 @@ import type { Corpus } from "../corpus/db.js";
 import {
   AlgorithmManifestEntrySchema,
   AlgorithmsManifestSchema,
+  DISTRICT_AWARDS_WATCH_MS,
   isLiveAt,
   LIVE_WINDOW_PAD_MS,
   LiveWindowEntrySchema,
@@ -43,6 +44,7 @@ import {
 export {
   AlgorithmManifestEntrySchema,
   AlgorithmsManifestSchema,
+  DISTRICT_AWARDS_WATCH_MS,
   isLiveAt,
   LIVE_WINDOW_PAD_MS,
   LiveWindowEntrySchema,
@@ -157,15 +159,35 @@ export interface BuildLiveWindowsManifestOptions {
  * `startMs`/`endMs` (`LiveWindowShapeError`), so one bad row must not be
  * allowed to take every other window down with it.
  *
- * RULE 2 (unchanged): NO WINDOW THAT CAN NEVER BE LIVE AGAIN, measured or
- * probe. A window is dropped when `endMs <= nowMs` — already closed when the
- * manifest was built, so it cannot be live at any instant at which this
- * manifest could be read. The Worker reads this object on EVERY cron tick
- * inside a CPU budget (10ms on the free plan when this was learned; 30s on
- * Workers Paid since 2026-09-22); shipping years of dead seasons made the
- * do-nothing tick cost several ms before it did anything at all.
- * `liveWindows.ts` ALSO defends itself at read time — keep both: this one
- * shrinks the artifact, that one bounds the cost of whatever it contains.
+ * RULE 2: NO WINDOW THAT NOTHING CAN READ ANY MORE, measured or probe. A
+ * window is shipped while it can still be LIVE or, for a district event,
+ * still be WATCHED (quick task 261009-tx6).
+ *
+ *   - Every window is dropped once `endMs <= nowMs`, already closed when the
+ *     manifest was built, so it cannot be live at any instant at which this
+ *     manifest could be read. That is the whole rule for a non district
+ *     event.
+ *   - A DISTRICT event's window (a non null joined `district_key`) is kept
+ *     until `endMs + DISTRICT_AWARDS_WATCH_MS <= nowMs`, 24 hours longer. The
+ *     Worker's district pass watches a district event for that long after its
+ *     window, because awards and award points land after the last match, and
+ *     this manifest is the only way the Worker learns the event exists. A
+ *     manifest rebuilt inside those 24 hours would otherwise end the watch.
+ *     Both sides read the one constant and the same half open bound.
+ *
+ * Retention only: no interval is changed, so a kept closed window is NEVER
+ * LIVE (`isLiveAt` is unchanged). That is also why a kept closed CALENDAR
+ * window needs no stub artifact, where a live one does (`publish.ts`,
+ * `scripts/publishProbeStubs.ts`): a window that is not live is never
+ * probed and never promoted, so no page is ever asked to render it.
+ *
+ * The Worker reads this object on EVERY cron tick inside a CPU budget (10ms
+ * on the free plan when this was learned; 30s on Workers Paid since
+ * 2026-09-22); shipping years of dead seasons made the do-nothing tick cost
+ * several ms before it did anything at all. One day of closed district
+ * windows is a handful of entries. `liveWindows.ts` ALSO defends itself at
+ * read time — keep both: this one shrinks the artifact, that one bounds the
+ * cost of whatever it contains.
  */
 export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsManifestOptions): LiveWindowsManifest {
   const { seasons, generation, computedAt } = options;
@@ -208,6 +230,13 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
       .all(...seasons) as EventWindowRow[];
 
     for (const row of rows) {
+      // RULE 2's clock for this event. A district event's window is kept
+      // `DISTRICT_AWARDS_WATCH_MS` past its close, so its retention is asked
+      // against a clock moved back by that much; every other event keeps the
+      // build clock. Asking "is `endMs <= retentionNowMs`" is the same test
+      // as "is `endMs + DISTRICT_AWARDS_WATCH_MS <= nowMs`".
+      const retentionNowMs = row.district_key !== null ? nowMs - DISTRICT_AWARDS_WATCH_MS : nowMs;
+
       // (1) An event with no matches in the corpus gets a PROBE window, not
       // no window — see this function's header (RULE 1, CORRECTED) for why a
       // blind guess is safe now when it was not before.
@@ -215,8 +244,11 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
         // `probeWindowFor` drops an unparseable start_date (never a NaN
         // interval — see the header for why that would be worse than a
         // missing window) and applies (2) to a probe entry exactly as to a
-        // measured one. `publish.ts` asks it the same question.
-        const probe = probeWindowFor(row.start_date, nowMs);
+        // measured one. It returns the SAME window whatever clock it is
+        // asked with, so the moved clock changes only whether the window is
+        // kept. `publish.ts` asks it with the build clock, which is why a
+        // kept closed window gets no stub: it is never live.
+        const probe = probeWindowFor(row.start_date, retentionNowMs);
         if (probe === undefined) continue;
 
         windows.push({
@@ -232,8 +264,9 @@ export function buildLiveWindowsManifest(db: Corpus, options: BuildLiveWindowsMa
 
       const endMs = row.max_sort_time + padMs;
       // (2) A window that had already closed when this manifest was built can
-      // never be live for any reader of this manifest. Don't ship it.
-      if (endMs <= nowMs) continue;
+      // never be live for any reader of this manifest, and a district window
+      // closed for a whole day is no longer watched either. Don't ship it.
+      if (endMs <= retentionNowMs) continue;
 
       windows.push({
         eventKey: row.event_key,

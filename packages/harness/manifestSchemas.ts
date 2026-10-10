@@ -33,6 +33,26 @@ export const MANIFEST_SCHEMA_VERSION = 1;
 /** One hour of pad on each side of an event's own observed match timestamps. */
 export const LIVE_WINDOW_PAD_MS = 60 * 60 * 1000;
 
+/**
+ * How long a DISTRICT event stays of interest after its window closes: 24
+ * hours (quick task 261009-tx6). An event's awards, and the award points that
+ * go with them, reach TBA after its last match, often after the one hour pad
+ * has run out.
+ *
+ * ONE CONSTANT, TWO READERS, AND THAT IS THE CONTRACT. The offline builder
+ * (`./manifests.ts`'s `buildLiveWindowsManifest`) KEEPS a closed district
+ * window in the manifest this long, and the Worker's district pass
+ * (`apps/worker/src/districtRefresh.ts`) WATCHES it this long. Both sides
+ * read this value and both use the same half open bound: a window is kept,
+ * and watched, while `now < endMs + DISTRICT_AWARDS_WATCH_MS`. If the two
+ * ever differed, a manifest rebuilt inside the watch would end it early, or
+ * the manifest would carry windows nothing reads.
+ *
+ * A kept closed window is never LIVE (`isLiveAt` is unchanged), so nothing
+ * folds, probes or promotes on it. Only the district pass reads it.
+ */
+export const DISTRICT_AWARDS_WATCH_MS = 24 * 60 * 60 * 1000;
+
 export const LiveWindowEntrySchema = z.object({
   eventKey: z.string().min(1),
   season: z.number().int(),

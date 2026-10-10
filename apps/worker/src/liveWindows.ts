@@ -23,6 +23,16 @@
  * binding call. `loadManifests` is kept for callers (and tests) that want
  * both unconditionally, implemented in terms of the two granular functions
  * so there is exactly one place each manifest's read logic lives.
+ *
+ * TWO LISTS FROM ONE READ (quick task 261009-tx6). "What is live right now"
+ * is no longer the only thing the tick asks of the live windows manifest. The
+ * district pass watches a district event for a day after its window closes,
+ * so the tick also needs the district windows that ended recently, and
+ * `loadLiveEventsAt` drops every window that is not live. `loadTickWindowsAt`
+ * returns both lists from the same single R2 read and the same scan. The
+ * second list is validated to the depth it is used, like the first, with one
+ * deliberate difference: a broken recently ended entry is skipped, where a
+ * broken live entry fails the read. See that function.
  */
 // Imports from `manifestSchemas.js` directly — never from `manifests.js`.
 // `manifests.js` imports `node:fs`/`node:path` and `./cli.js` (which pulls in
@@ -146,6 +156,48 @@ export class LiveWindowShapeError extends ManifestValidationError {
  * is still the right call for any caller that genuinely needs the whole manifest.
  */
 export async function loadLiveEventsAt(env: Env, epochMs: number): Promise<LiveWindowEntry[]> {
+  return (await scanLiveWindows(env, epochMs, 0)).live;
+}
+
+/** What one tick needs from the manifest: the windows that are live, and the district windows that ended recently. */
+export interface TickWindows {
+  /** Exactly what `loadLiveEventsAt` returns for the same instant. */
+  readonly live: LiveWindowEntry[];
+  /** District windows with `endMs <= epochMs < endMs + endedWithinMs`, in event key order. Never live. */
+  readonly recentlyEnded: LiveWindowEntry[];
+}
+
+/**
+ * The tick's ONE manifest read, returning both lists (quick task 261009-tx6).
+ *
+ * WHY THE SECOND LIST EXISTS. The district pass watches a district event for
+ * a day after its window closes (awards and award points land after the last
+ * match), and `loadLiveEventsAt` drops every window that is not live. Reading
+ * the manifest a second time for the ended ones would double the cost of the
+ * one read every tick makes, so both lists come out of the SAME scan of the
+ * SAME single R2 read. `live` is selected and validated exactly as
+ * `loadLiveEventsAt` does it, by the same code.
+ *
+ * AN ENTRY IS RECENTLY ENDED when `endMs <= epochMs` and
+ * `epochMs < endMs + endedWithinMs` and its raw `districtKey` is a non empty
+ * string. The district test comes BEFORE the entry schema: a closed window of
+ * a non district event is of no interest to anyone and is not parsed at all.
+ *
+ * VALIDATED TO THE DEPTH IT IS USED, as the header above says of the live
+ * list, with one difference in what a bad entry costs. A non finite
+ * `startMs` or `endMs` on ANY entry is still a hard failure
+ * (`LiveWindowShapeError`): its liveness cannot be decided. A LIVE entry that
+ * fails the entry schema still fails the read, as it always has. But a
+ * recently ended entry that fails the schema is SKIPPED, never thrown: the
+ * watch is a courtesy to a finished event, and it must never be the reason a
+ * tick with real live events fails.
+ */
+export async function loadTickWindowsAt(env: Env, epochMs: number, endedWithinMs: number): Promise<TickWindows> {
+  return scanLiveWindows(env, epochMs, endedWithinMs);
+}
+
+/** The one scan behind `loadLiveEventsAt` and `loadTickWindowsAt`. A horizon of zero selects no recently ended window. */
+async function scanLiveWindows(env: Env, epochMs: number, endedWithinMs: number): Promise<TickWindows> {
   const text = await readManifestText(env, "live-windows", LIVE_WINDOWS_MANIFEST_KEY);
 
   let raw: unknown;
@@ -163,6 +215,7 @@ export async function loadLiveEventsAt(env: Env, epochMs: number): Promise<LiveW
   }
 
   const live: LiveWindowEntry[] = [];
+  const recentlyEnded: LiveWindowEntry[] = [];
   for (let index = 0; index < envelope.windows.length; index++) {
     const candidate = envelope.windows[index];
     if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
@@ -174,13 +227,25 @@ export async function loadLiveEventsAt(env: Env, epochMs: number): Promise<LiveW
     }
     // `isLiveAt` — D-18's ONE definition of live, shared with the offline
     // builder and never re-implemented here (same rule as `liveEventsAt`).
-    if (!isLiveAt({ startMs, endMs }, epochMs)) continue;
-    try {
-      live.push(LiveWindowEntrySchema.parse(candidate));
-    } catch (err) {
-      throw new ManifestValidationError("live-windows", err);
+    if (isLiveAt({ startMs, endMs }, epochMs)) {
+      try {
+        live.push(LiveWindowEntrySchema.parse(candidate));
+      } catch (err) {
+        throw new ManifestValidationError("live-windows", err);
+      }
+      continue;
     }
+    // Not live. A district window that ended inside the horizon is the only
+    // other entry anything reads. The same half open bound the offline
+    // builder keeps a window by: `now < endMs + horizon`.
+    if (endMs > epochMs || epochMs >= endMs + endedWithinMs) continue;
+    const districtKey = (candidate as { districtKey?: unknown }).districtKey;
+    if (typeof districtKey !== "string" || districtKey.length === 0) continue;
+    const parsed = LiveWindowEntrySchema.safeParse(candidate);
+    // Skipped, never thrown: see `loadTickWindowsAt`.
+    if (parsed.success) recentlyEnded.push(parsed.data);
   }
 
-  return live.sort((a, b) => (a.eventKey < b.eventKey ? -1 : a.eventKey > b.eventKey ? 1 : 0));
+  const byEventKey = (a: LiveWindowEntry, b: LiveWindowEntry): number => (a.eventKey < b.eventKey ? -1 : a.eventKey > b.eventKey ? 1 : 0);
+  return { live: live.sort(byEventKey), recentlyEnded: recentlyEnded.sort(byEventKey) };
 }

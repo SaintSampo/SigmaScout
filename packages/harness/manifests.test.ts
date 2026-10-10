@@ -19,6 +19,7 @@ import { spr } from "../core/algorithms/spr.js";
 import { LiveWindowsManifestEnvelopeSchema } from "./manifestSchemas.js";
 import {
   AlgorithmsManifestSchema,
+  DISTRICT_AWARDS_WATCH_MS,
   LIVE_WINDOW_PAD_MS,
   LiveWindowEntrySchema,
   LiveWindowsManifestSchema,
@@ -393,6 +394,100 @@ describe("buildLiveWindowsManifest — retention: windows that can never be live
         computedAt: "not-a-timestamp",
       })
     ).toThrow(/retention filter has no clock/);
+  });
+});
+
+describe("buildLiveWindowsManifest — a district window is kept for a day after it closes (quick task 261009-tx6)", () => {
+  // The Worker's district pass watches a district event for
+  // DISTRICT_AWARDS_WATCH_MS after its window closes, because awards and award
+  // points land after the last match. The manifest is the only way the Worker
+  // learns the event exists, so a manifest rebuilt inside those 24 hours must
+  // still name it. Every existing retention case above uses `2026azfg`, whose
+  // `districtKey` is null, so those cases are the non district half.
+
+  const PAD_MS = 5_000;
+  const END_MS = Date.parse("2026-03-07T02:00:00.000Z");
+
+  function pnw(): void {
+    upsertDistrict(db, { districtKey: "2026pnw", year: 2026, abbreviation: "pnw", displayName: "Pacific Northwest", dcmpSlots: 60, cmpSlots: 20, fetchedAt: "2026-03-01T00:00:00.000Z" });
+  }
+
+  function build(nowMs: number) {
+    return buildLiveWindowsManifest(db, { seasons: [2026], padMs: PAD_MS, generation: "test-gen-watch", computedAt: "2026-08-22T00:00:00.000Z", nowMs });
+  }
+
+  /** A measured window for `eventKey` that closes at `END_MS`. */
+  function measured(eventKey: string, districtKey: string | null): void {
+    upsertEvent(db, event({ eventKey, districtKey }));
+    upsertMatch(db, match({ matchKey: `${eventKey}_qm1`, eventKey, sortTime: END_MS - PAD_MS }));
+  }
+
+  it("is 24 hours", () => {
+    expect(DISTRICT_AWARDS_WATCH_MS).toBe(24 * 60 * 60 * 1000);
+  });
+
+  it("keeps a district event's measured window that closed one millisecond less than 24 hours ago, with its own bounds, and that window is not live", () => {
+    pnw();
+    measured("2026wabon", "pnw");
+    const nowMs = END_MS + DISTRICT_AWARDS_WATCH_MS - 1;
+
+    const manifest = build(nowMs);
+
+    expect(manifest.windows).toEqual([{ eventKey: "2026wabon", season: 2026, startMs: END_MS - 2 * PAD_MS, endMs: END_MS, inferred: false, districtKey: "2026pnw" }]);
+    expect(isLiveAt(manifest.windows[0]!, nowMs)).toBe(false);
+  });
+
+  it("drops that window once it closed exactly 24 hours ago", () => {
+    pnw();
+    measured("2026wabon", "pnw");
+
+    expect(build(END_MS + DISTRICT_AWARDS_WATCH_MS).windows).toEqual([]);
+  });
+
+  it("still drops a NON district event's measured window one millisecond after it closed", () => {
+    pnw();
+    measured("2026azfg", null);
+
+    expect(build(END_MS).windows).toEqual([]);
+    expect(build(END_MS + 1).windows).toEqual([]);
+    expect(build(END_MS - 1).windows).toHaveLength(1);
+  });
+
+  it("keeps a district event's CALENDAR window, for an event with no match, until 24 hours after it closed, with the bounds probeWindowFor gives", () => {
+    pnw();
+    upsertEvent(db, event({ eventKey: "2026wabon", districtKey: "pnw", startDate: "2026-03-05" })); // zero matches
+    const midnightUtc = Date.parse("2026-03-05T00:00:00.000Z");
+    const probe = probeWindowFor("2026-03-05", midnightUtc)!;
+    expect(probe.endMs).toBe(midnightUtc + PROBE_WINDOW_SPAN_MS);
+
+    const kept = build(probe.endMs + DISTRICT_AWARDS_WATCH_MS - 1);
+    expect(kept.windows).toEqual([{ eventKey: "2026wabon", season: 2026, startMs: probe.startMs, endMs: probe.endMs, inferred: true, districtKey: "2026pnw" }]);
+    expect(isLiveAt(kept.windows[0]!, probe.endMs + DISTRICT_AWARDS_WATCH_MS - 1)).toBe(false);
+
+    expect(build(probe.endMs + DISTRICT_AWARDS_WATCH_MS).windows).toEqual([]);
+  });
+
+  it("still drops a NON district event's calendar window the moment it closes", () => {
+    upsertEvent(db, event({ eventKey: "2026azpx", districtKey: null, startDate: "2026-03-05" })); // zero matches
+    const endMs = Date.parse("2026-03-05T00:00:00.000Z") + PROBE_WINDOW_SPAN_MS;
+
+    expect(build(endMs).windows).toEqual([]);
+    expect(build(endMs - 1).windows).toHaveLength(1);
+  });
+
+  it("an event whose district abbreviation has no row for that year is not a district event here: its closed window is dropped", () => {
+    // The join yields a null key, so the Worker could never group it under a
+    // district and there is nothing to watch.
+    measured("2026wabon", "pnw"); // no `districts` row
+
+    expect(build(END_MS + 1).windows).toEqual([]);
+  });
+
+  it("still gives no entry to a district event with an unparseable start_date and no match", () => {
+    pnw();
+    upsertEvent(db, event({ eventKey: "2026wabon", districtKey: "pnw", startDate: "not-a-date" }));
+
+    expect(build(0).windows).toEqual([]);
   });
 });
 
