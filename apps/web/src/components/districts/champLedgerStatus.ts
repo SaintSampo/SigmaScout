@@ -117,12 +117,14 @@
  *    anyone. A finals source's award points still leave the floor while the
  *    finals' Awards are open at the position. It rests on a fact the joint
  *    proof already rests on, in `champJointLock.ts`'s own words: "the finals
- *    awards are consuming awards (24 and 30 points 2023 to 2026); no team has
- *    award points at both its division and the finals". A consuming award
- *    takes a Championship slot whatever its winner's points, and decision
- *    2's reservation holds a slot for each until the finals' Awards are
- *    final, so the points such an award pays can never be what lifts a
- *    rival past a Locked team. `scripts/champFieldStagedWalk.test.ts` holds
+ *    awards are consuming awards (24 and 30 points 2023 to 2026)". (That
+ *    header went on to say no team has award points at both its division and
+ *    the finals, which is false before 2023 and which neither the proof nor
+ *    this reading needs; quick task 261010-d7r corrected it there.) A
+ *    consuming award takes a Championship slot whatever its winner's points,
+ *    and decision 2's reservation holds a slot for each until the finals'
+ *    Awards are final, so the points such an award pays can never be what
+ *    lifts a rival past a Locked team. `scripts/champFieldStagedWalk.test.ts` holds
  *    the fact over every local season (265 rows at a finals key, 153 with
  *    award points, every one beside a consuming award recorded there) and
  *    says what breaks if a season shows otherwise.
@@ -186,32 +188,46 @@
  *    winner, or finals rows before every division is decided,
  *    `bracketUnroutable`.
  *
- *    A STATED LIMIT: A DIVISION'S AWARDS TURNING FINAL CAN RAISE A BOUND
- *    (measured 2026-10-10, quick task 261010-66y; not closed). While a
- *    division's Awards are open none of its award points is in any floor,
- *    and the proof gives each rival at most one judged award out of the
- *    division's whole ceiling of 14. Once they read final the posted award
- *    points are in the floors, the proof still holds the rest of the ceiling
- *    (14 minus the teams awarded: 2 or 3 per division in every measured
- *    season) for awards that may yet be listed, and it may hand one of those
- *    to a rival that already holds a posted award. That rival's maximum is
- *    then one judged award higher than it was a tick before, so a team's
- *    bound can RISE and a Locked the proof gave can be taken back. Measured
- *    on rewound readings with every division's Playoffs final and the finals
- *    not started, the divisions' Awards open against final: 11 teams over
- *    the 16 divisioned championships of 2023 to 2026 are Locked by the proof
- *    with the Awards open and not with them final (bound up by 1 to 3;
- *    `scripts/champFieldStagedWalk.test.ts` pins them). No stop of the sweep
- *    sits between those two readings, so no measured history shows it. Live,
- *    it needs the proof applied before the divisions' Awards read final,
- *    which needs the finals key on the rows that early (a registration at
- *    the finals key, or finals rows posted before a division's awards flag
- *    turns true). It is why this proof is NOT run before the finals key is on
- *    the artifact (`packages/core/districts/finalsBracket.ts`, D3 refused):
- *    with it running through the division playoffs the real 2026 walks took
- *    1 Locked back at FIM, 2 at NE and 2 at TX on that tick. Closing it
- *    needs the proof to know which rivals already hold a posted award at a
- *    division whose Awards are final, which is a change to its input.
+ *    A RIVAL THAT HOLDS A POSTED AWARD TAKES NO FURTHER JUDGED AWARD (quick
+ *    task 261010-d7r, D1; `champJointLock.ts` owns the rule and its
+ *    argument). A team whose row at a division key carries award points
+ *    above 0, where that division's Awards read final at the position, is
+ *    AWARDED: it holds its one judged award, in its floor. This module names
+ *    those teams to the proof (`awardedTeamsAt`, handed on as
+ *    `JointLockInput.awardedRivals`). The budget of a final division stays
+ *    14 minus its awarded teams, never below 0, for awards that may yet be
+ *    listed, and it now goes only to rivals with no posted award. An awarded
+ *    rival still counts through a consuming award and as the winner's
+ *    backup. Award points on a row whose key's Awards are open leave the
+ *    floor as before and make nobody awarded.
+ *
+ *    WHAT IT CLOSED (measured 2026-10-10). Until that task the rest of a
+ *    final division's budget could go to a rival that already held a posted
+ *    award. That rival's maximum was then one judged award higher than a
+ *    tick before, so a team's bound could RISE when a division's Awards
+ *    turned final, and a Locked the proof gave could be taken back. Reading
+ *    A is every division's Playoffs final and its Awards open, the finals
+ *    not started; reading B is the sweep's "Divisions final, finals not
+ *    started". Over the 16 divisioned championships of 2023 to 2026, before
+ *    the rule: 406 shown Locked at A and 436 at B, eleven teams Locked at A
+ *    and not at B, and 312 pool teams' bounds higher at B, the largest by 7.
+ *    Two terms of the proof spent the award: a picked rival still short of T
+ *    after its alliance's value, and a rival on no alliance, alone or on a
+ *    seat. Closing the first alone lost none of the eleven and left 62
+ *    rises; closing the second alone lost all eleven. With the rule: 406 at
+ *    A, 451 at B and none lost (`scripts/champFieldStagedWalk.test.ts`
+ *    group 9), and no Locked lost and no margin dropped over any flag edge
+ *    of `scripts/champJointMonotone.test.ts`. On the joint sweep ten
+ *    divisioned stop rows moved, all upward (16 more teams shown Locked),
+ *    and no single or two championship row moved. No stop of the sweep sits
+ *    between A and B, which is why no measured history had shown it.
+ *
+ *    The refusal to run this proof before the finals key is on the artifact
+ *    (`packages/core/districts/finalsBracket.ts`, D3 of quick task
+ *    261010-66y refused) was taken because of that defect: with the proof
+ *    running through the division playoffs the real 2026 walks took 1 Locked
+ *    back at FIM, 2 at NE and 2 at TX on the tick the divisions' Awards
+ *    turned final.
  *
  *    THE BRACKETS STAY IN HAND UNTIL THE FINALS HAVE FINISHED (quick task
  *    261010-66y, reading R15, `champLiveFetchKeys`). The proof holds locks
@@ -995,18 +1011,21 @@ function allianceSelectionPointsAt(artifact: DistrictArtifact, eventKey: string)
 }
 
 /**
- * How many teams carry award points above 0 on their row at a dcmp key: a
- * lower bound on the point paying awards that event has posted, since each
- * such team holds at least one (quick task 261009-pgq, D3 as revised). A team
- * with no row there, or a row whose award points are not posted, is not
- * counted, which only keeps the remaining judged budget larger.
+ * The teams that carry award points above 0 on their row at a dcmp key, in
+ * artifact order. Their count is a lower bound on the point paying awards
+ * that event has posted, since each such team holds at least one (quick task
+ * 261009-pgq, D3 as revised). A team with no row there, or a row whose award
+ * points are not posted, is not named, which only keeps the remaining judged
+ * budget larger. Where that key's Awards read final at the position these
+ * are the AWARDED teams of quick task 261010-d7r (planner reading R1): each
+ * has used its one judged award, and the proof gives it no other.
  */
-function awardedTeamCountAt(artifact: DistrictArtifact, eventKey: string): number {
-  let count = 0;
+function awardedTeamsAt(artifact: DistrictArtifact, eventKey: string): string[] {
+  const teamKeys: string[] = [];
   for (const team of artifact.teams) {
-    if (team.eventPoints.some((entry) => entry.eventKey === eventKey && entry.award > 0)) count += 1;
+    if (team.eventPoints.some((entry) => entry.eventKey === eventKey && entry.award > 0)) teamKeys.push(team.teamKey);
   }
-  return count;
+  return teamKeys;
 }
 
 /** One eight alliance championship's routing at the position: its candidates and alive alliances, or the refusal. */
@@ -1270,13 +1289,31 @@ function divisionedJointProof(
   // Measured over the 40 division events of 2023 to 2026: every awarded row is
   // exactly one judged award (15 points) and a division gives 11 or 12.
   //
+  // WHO MAY STILL TAKE ONE (quick task 261010-d7r, D1). The teams counted out
+  // of a final division's budget are handed to the proof as `awardedRivals`:
+  // each holds its one judged award, in its floor, and takes no other. What
+  // is left of the budget goes only to rivals with no posted award. Until
+  // that task the remainder could go to a rival that already held one, which
+  // then carried two; that is what let a bound rise when a division's Awards
+  // turned final (decision 5 in this module's header). Award points on a row
+  // whose key's Awards are OPEN at the position leave the floor as before and
+  // make nobody awarded. With no division's Awards final the input carries no
+  // `awardedRivals` key at all, so it is the input of before that task.
+  //
   // The finals event gives no judged award (261009-kt3 RESEARCH section 3).
   // The single and the two championship shapes keep 14 per championship: their
   // Awards are open whenever the proof runs.
   const judgedCeiling = dcmpJudgedAwardCeiling();
   let judgedBudget = 0;
+  const awardedRivals = new Set<string>();
   for (const key of divisionKeys) {
-    judgedBudget += stageByKey.get(key)!.award ? Math.max(0, judgedCeiling - awardedTeamCountAt(artifact, key)) : judgedCeiling;
+    if (!stageByKey.get(key)!.award) {
+      judgedBudget += judgedCeiling;
+      continue;
+    }
+    const awardedHere = awardedTeamsAt(artifact, key);
+    judgedBudget += Math.max(0, judgedCeiling - awardedHere.length);
+    for (const teamKey of awardedHere) awardedRivals.add(teamKey);
   }
   if (artifact.cmpSlots === null) return refuse("noCapacity");
   if (input.neverHappening) return refuse("neverHappening");
@@ -1404,6 +1441,7 @@ function divisionedJointProof(
     maxAllianceSize: MAX_WINNING_ALLIANCE_SIZE,
     frames: frames.frames,
     seatGroups,
+    ...(awardedRivals.size === 0 ? {} : { awardedRivals: [...awardedRivals].sort() }),
   };
   return { applied: true, shape: "divisioned", input: proofInput, locked: jointLockedTeams(proofInput) };
 }

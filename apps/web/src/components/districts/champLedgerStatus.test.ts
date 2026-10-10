@@ -1824,6 +1824,80 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
     expect(judgedAt(ALL_FINAL, 16, ALL_FINAL, 12)).toBe(2);
   });
 
+  it("261010-d7r D1: the teams carrying award points at a division whose Awards read final are handed to the proof as awardedRivals, sorted; with every division's Awards open the input carries no such key", () => {
+    const finals = facts(
+      PARENT,
+      OPEN_PLAYOFFS,
+      [
+        { allianceNumber: 1, picks: DIV1_ALLIANCES[0]!.picks },
+        { allianceNumber: 2, picks: DIV2_ALLIANCES[0]!.picks },
+      ],
+      [],
+      "finals",
+      2
+    );
+    /** The proof's input and the teams carrying award points at each division, at the two Awards stages. */
+    const readAt = (div1: DistrictStageFinality, awarded1: number, div2: DistrictStageFinality, awarded2: number) => {
+      const artifact = withAwardedTeams(
+        new Map([
+          [DIV1, awarded1],
+          [DIV2, awarded2],
+        ])
+      );
+      const awardedAt = (key: string): string[] =>
+        artifact.teams
+          .filter((team) => team.eventPoints.some((row) => row.eventKey === key && row.award > 0))
+          .map((team) => team.teamKey)
+          .sort();
+      const stages = new Map([
+        [DIV1, div1],
+        [DIV2, div2],
+        [PARENT, OPEN_PLAYOFFS],
+      ]);
+      const distributions = new Map([
+        entry(DIV1, facts(DIV1, div1, DIV1_ALLIANCES, [...ROUND_FIVE, ...FINAL_ONE_WINS], "division")),
+        entry(DIV2, facts(DIV2, div2, DIV2_ALLIANCES, higherSeedRows(), "division")),
+        entry(PARENT, finals),
+      ]);
+      const model = modelAt(artifact, stages, distributions);
+      if (model.jointProof?.applied !== true || model.jointProof.shape === "multiple") throw new Error(`not applied: ${JSON.stringify(model.jointProof)}`);
+      return { input: model.jointProof.input, locked: model.jointProof.locked, awardedOne: awardedAt(DIV1), awardedTwo: awardedAt(DIV2) };
+    };
+
+    // Every division's Awards open: no team is awarded whatever the rows carry, and the input has no `awardedRivals` key,
+    // so it is the input of before the rule (the digest test above holds the same thing on the unedited fixture).
+    const open = readAt(PLAYOFFS_FINAL, 12, PLAYOFFS_FINAL, 12);
+    expect(open.awardedOne).toHaveLength(12);
+    expect("awardedRivals" in open.input).toBe(false);
+    expect(open.input.judgedAwards).toBe(28);
+
+    // Division 1's Awards final with 3 teams awarded: exactly those 3, and 11 awards may still come there. Division 2's
+    // 12 rows with award points make nobody awarded while its Awards are open (planner reading R1).
+    const one = readAt(ALL_FINAL, 3, PLAYOFFS_FINAL, 12);
+    expect(one.awardedOne).toHaveLength(3);
+    expect(one.input.awardedRivals).toEqual(one.awardedOne);
+    expect(one.input.judgedAwards).toBe(25);
+    for (const teamKey of one.awardedTwo) expect(one.input.awardedRivals).not.toContain(teamKey);
+
+    // Both final, 3 and 2 awarded: the union, sorted, and 11 plus 12 awards left.
+    const both = readAt(ALL_FINAL, 3, ALL_FINAL, 2);
+    expect(both.input.awardedRivals).toEqual([...both.awardedOne, ...both.awardedTwo].sort());
+    expect(both.input.awardedRivals).toHaveLength(5);
+    expect(both.input.judgedAwards).toBe(23);
+
+    // THE PREMATURE FLAG: Awards read final and no team carries award points yet. Nobody is awarded and the key is absent.
+    const premature = readAt(ALL_FINAL, 0, PLAYOFFS_FINAL, 12);
+    expect("awardedRivals" in premature.input).toBe(false);
+    expect(premature.input.judgedAwards).toBe(28);
+
+    // The locked set the status hands the tab is the bound over the input WITH the awarded teams named, and naming
+    // them never unlocks a team: every team locked without them is locked with them.
+    expect([...both.locked].sort()).toEqual([...jointLockedTeams(both.input)].sort());
+    const withoutNames: JointLockInput = Object.fromEntries(Object.entries(both.input).filter(([key]) => key !== "awardedRivals")) as unknown as JointLockInput;
+    expect("awardedRivals" in withoutNames).toBe(false);
+    for (const teamKey of jointLockedTeams(withoutNames)) expect(both.locked.has(teamKey), teamKey).toBe(true);
+  });
+
   it("261009-tx9 (the backup robot rule): one seat group per division in key order, eligible by division row and confirmed picks, a team with no division row named by no group", () => {
     const model = modelAt(DIVISIONED, ROUND_FIVE_STAGES, roundFiveDistributions());
     if (model.jointProof?.applied !== true || model.jointProof.shape === "multiple") throw new Error("not applied");

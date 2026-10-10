@@ -2429,3 +2429,406 @@ describe("champJointLock: the divisioned samplers obey the backup robot rule (26
     expect(ruleViolations({ ...built([], []), judged: new Set(["r"]) }, field)).toEqual(["r: a judged award to a team with no division row"]);
   });
 });
+
+// ===========================================================================
+// Quick task 261010-d7r, D1: a rival that already holds a posted award takes
+// no further judged award
+// ===========================================================================
+
+describe("champJointLock: a rival that holds a posted award takes no further judged award (261010-d7r, D1)", () => {
+  it("a picked rival one judged award short of T, with budget left, is counted without awardedRivals and NOT counted with it", () => {
+    // n is a confirmed pick of the placed alliance 8, 10 short of T. One judged award (15) is left in the budget.
+    const base = minimalInput({
+      pool: [
+        { teamKey: "T", floor: 100, extra: 0 },
+        { teamKey: "n", floor: 90, extra: 0 },
+      ],
+      alliances: [
+        { allianceNumber: 1, members: ["x1", "x2", "x3", "x4"] },
+        { allianceNumber: 8, members: ["n", "y1", "y2"] },
+      ],
+      aliveAlliances: [1],
+      candidateWinners: [1],
+      judgedAwards: 1,
+    });
+    expect(jointLockBound(base, "T")).toBe(1);
+    expect(jointLockBound({ ...base, awardedRivals: ["n"] }, "T")).toBe(0);
+    // Naming a team that is not a rival, or T itself, changes nothing.
+    expect(jointLockBound({ ...base, awardedRivals: ["T", "nobody"] }, "T")).toBe(1);
+    expect(jointLockBound({ ...base, awardedRivals: [] }, "T")).toBe(1);
+  });
+
+  it("an awarded rival on no alliance is counted through a seat whose value alone reaches T, and not through a seat plus an award or an award alone", () => {
+    // Alliance 1 wins with four members (no fill in). Alliance 2 is paid 75 and has one seat. One judged award is left.
+    const inputFor = (floor: number, awarded: boolean): JointLockInput =>
+      minimalInput({
+        pool: [
+          { teamKey: "T", floor: 200, extra: 0 },
+          { teamKey: "u", floor, extra: 0 },
+        ],
+        alliances: [
+          { allianceNumber: 1, members: ["x1", "x2", "x3", "x4"] },
+          { allianceNumber: 2, members: ["y1", "y2", "y3"] },
+        ],
+        aliveAlliances: [1, 2],
+        candidateWinners: [1],
+        judgedAwards: 1,
+        frames: [{ winner: 1, enumerated: [], fixed: new Map([[2, 75]]), fillIns: 0 }],
+        ...(awarded ? { awardedRivals: ["u"] } : {}),
+      });
+    // 70 short: the 75 seat alone reaches T, awarded or not.
+    expect(jointLockBound(inputFor(130, false), "T")).toBe(1);
+    expect(jointLockBound(inputFor(130, true), "T")).toBe(1);
+    // 85 short: the seat (75) and one award (15) reach T; the seat alone does not.
+    expect(jointLockBound(inputFor(115, false), "T")).toBe(1);
+    expect(jointLockBound(inputFor(115, true), "T")).toBe(0);
+    // 10 short with no seat taken: one award alone reaches T, which an awarded rival does not get. The seat still covers it.
+    expect(jointLockBound({ ...inputFor(190, true), frames: [{ winner: 1, enumerated: [], fixed: new Map(), fillIns: 0 }] }, "T")).toBe(0);
+    expect(jointLockBound({ ...inputFor(190, false), frames: [{ winner: 1, enumerated: [], fixed: new Map(), fillIns: 0 }] }, "T")).toBe(1);
+    expect(jointLockBound(inputFor(190, true), "T")).toBe(1);
+  });
+
+  it("premise P1: an awarded rival still short of T is counted through a consuming award, and can still be the winner's backup", () => {
+    // Six teams of 2017 and 2018 FIM held a division judged award and then won Impact or Rookie All Star at the finals,
+    // so the rule must NOT deny an awarded rival a consuming award's place. No other rival, the winner posted.
+    const posted = (consumingAwards: number): JointLockInput =>
+      minimalInput({
+        pool: [
+          { teamKey: "T", floor: 100, extra: 0 },
+          { teamKey: "u", floor: 50, extra: 0 },
+        ],
+        candidateWinners: [null],
+        consumingAwards,
+        judgedAwards: 3,
+        awardedRivals: ["u"],
+      });
+    expect(jointLockBound(posted(1), "T")).toBe(1);
+    expect(jointLockBound(posted(0), "T")).toBe(0);
+    // The winner has one seat left and u, on no alliance, may be called onto it: a backup on the winner takes a slot whatever its points.
+    const fillIn = minimalInput({
+      pool: [
+        { teamKey: "T", floor: 100, extra: 0 },
+        { teamKey: "u", floor: 50, extra: 0 },
+      ],
+      alliances: [OUTSIDE_WINNER],
+      aliveAlliances: [1],
+      candidateWinners: [1],
+      awardedRivals: ["u"],
+    });
+    expect(jointLockBound(fillIn, "T")).toBe(1);
+    expect(jointLockBound({ ...fillIn, alliances: [{ allianceNumber: 1, members: ["x1", "x2", "x3", "x4"] }] }, "T")).toBe(0);
+  });
+
+  it("naming awarded rivals never raises a bound: 500 seeded random single championship instances, every team", () => {
+    const random = mulberry32(26101001);
+    const integer = (lo: number, hi: number): number => lo + Math.floor(random() * (hi - lo + 1));
+    let lower = 0;
+    for (let instance = 0; instance < 500; instance++) {
+      const keys = Array.from({ length: integer(8, 16) }, (_, index) => `t${index}`);
+      const shuffled = [...keys].sort(() => random() - 0.5);
+      const alliances: JointLockAlliance[] = [];
+      let cursor = 0;
+      for (let allianceNumber = 1; allianceNumber <= 4 && cursor < shuffled.length - 2; allianceNumber++) {
+        const size = integer(1, 3);
+        alliances.push({ allianceNumber, members: shuffled.slice(cursor, cursor + size) });
+        cursor += size;
+      }
+      const pool = keys.map((teamKey) => ({ teamKey, floor: integer(50, 150), extra: random() < 0.2 ? integer(1, 30) : 0 }));
+      const alive = alliances.map((a) => a.allianceNumber).filter(() => random() < 0.8);
+      const input: JointLockInput = {
+        pool,
+        slotOnlyRivals: [],
+        pointsSlots: 4,
+        alliances,
+        aliveAlliances: alive,
+        candidateWinners: alive.length > 0 ? alive : [null],
+        placementPoints: [75, 39, 21],
+        consumingAwards: integer(0, 2),
+        judgedAwards: integer(0, 3),
+        judgedAwardPoints: JUDGED,
+        maxAllianceSize: 4,
+      };
+      const awardedRivals = keys.filter(() => random() < 0.3);
+      for (const rival of pool) {
+        const without = jointLockBound(input, rival.teamKey);
+        const withRule = jointLockBound({ ...input, awardedRivals }, rival.teamKey);
+        expect(withRule, `instance ${instance} ${rival.teamKey}`).toBeLessThanOrEqual(without);
+        if (withRule < without) lower += 1;
+      }
+    }
+    // The rule is not vacuous on these instances: it lowers some bounds.
+    expect(lower).toBeGreaterThan(0);
+  }, 60_000);
+
+  it("R10 with awarded rivals (planner reading R4): the cover upper bound is never below the exact program on 20,000 seeded flagged instances, and a flag never raises the exact cover", () => {
+    const random = mulberry32(26101002);
+    const integer = (lo: number, hi: number): number => lo + Math.floor(random() * (hi - lo + 1));
+    const valuePalette = [120, 90, 75, 60, 45, 39, 30, 21];
+    let flagged = 0;
+    let lowered = 0;
+    for (let instance = 0; instance < 20_000; instance++) {
+      const deficits = Array.from({ length: integer(1, 9) }, () => integer(1, 140));
+      const awarded = deficits.map(() => random() < 0.35);
+      const types = [...valuePalette].sort(() => random() - 0.5).slice(0, integer(0, 3)).sort((a, b) => b - a);
+      const counts = types.map(() => integer(1, 3));
+      const budget = integer(0, 5);
+      const exact = unpickedCover(deficits, types, counts, budget, JUDGED, { awarded });
+      const upper = coverUpperBound(deficits, types, counts, budget, JUDGED, { awarded });
+      const unflagged = unpickedCover(deficits, types, counts, budget, JUDGED);
+      if (awarded.some((flag) => flag)) flagged += 1;
+      for (let j = 0; j <= budget; j++) {
+        const where = `instance ${instance} j ${j}: ${JSON.stringify({ deficits, awarded, types, counts, budget })}`;
+        expect(upper[j]!, where).toBeGreaterThanOrEqual(exact[j]!);
+        expect(exact[j]!, where).toBeLessThanOrEqual(unflagged[j]!);
+        if (exact[j]! < unflagged[j]!) lowered += 1;
+      }
+      // No flag set is the function of before quick task 261010-d7r, cell for cell.
+      expect(unpickedCover(deficits, types, counts, budget, JUDGED, { awarded: deficits.map(() => false) })).toEqual(unflagged);
+      expect(coverUpperBound(deficits, types, counts, budget, JUDGED, { awarded: deficits.map(() => false) })).toEqual(coverUpperBound(deficits, types, counts, budget, JUDGED));
+    }
+    expect(flagged).toBeGreaterThan(15_000);
+    expect(lowered).toBeGreaterThan(0);
+  }, 120_000);
+});
+
+/**
+ * As `e3MostTakers`, over the same rule legal futures, at a state where the
+ * teams of `awarded` already hold their one judged award (its points are in
+ * their floors). THE LEGAL AWARD FUTURES THERE: a judged award goes only to a
+ * liftable non taker with a division row that is NOT awarded; a consuming
+ * award goes to ANY non taker, an awarded one included (2017 and 2018 FIM: six
+ * teams held a division judged award and then won Impact or Rookie All Star at
+ * the finals).
+ */
+function e3MostTakersAwarded(setup: E3Setup, input: JointLockInput, awarded: ReadonlySet<string>, teamKey: string, counters: { futures: number }): number {
+  const { field } = setup;
+  const poolByKey = new Map(input.pool.map((rival) => [rival.teamKey, rival] as const));
+  const everyone = [...input.pool.map((rival) => rival.teamKey), ...input.slotOnlyRivals];
+  const m = poolByKey.get(teamKey)!.floor;
+  let most = 0;
+  forEachE3Future(setup, teamKey, (future) => {
+    counters.futures += 1;
+    const baseTakers = divisionedTakers(input, teamKey, m, future);
+    const nonTakers: string[] = [];
+    const liftable: string[] = [];
+    for (const key of everyone) {
+      if (key === teamKey || future.championRoster.has(key)) continue;
+      const rival = poolByKey.get(key);
+      const points = rival === undefined ? -Infinity : rival.floor + rival.extra + (future.paid.get(key) ?? 0);
+      if (points >= m) continue;
+      nonTakers.push(key);
+      if (rival !== undefined && field.divisionOfTeam.has(key) && !awarded.has(key) && points + JUDGED >= m) liftable.push(key);
+    }
+    const takers = baseTakers + Math.min(nonTakers.length, input.consumingAwards + Math.min(input.judgedAwards, liftable.length));
+    if (takers > most) most = takers;
+  });
+  return most;
+}
+
+describe("champJointLock: divisioned exhaustive soundness E3 with AWARDED rivals (261010-d7r, D4)", () => {
+  /**
+   * The state where some divisions' Awards read final: each awarded team's
+   * judged award (15) is in its floor and it is named in `awardedRivals`. The
+   * fields, the futures and the closed form of the awards are E3's; only who
+   * may still take a judged award differs. Three things are held:
+   *
+   *   - no rule legal future's real takers exceed the bound WITH the rule
+   *     (soundness, the one that must never fail);
+   *   - the bound is reached, so the rule's terms are not slack;
+   *   - the bound with the rule is never ABOVE the bound without it, and is
+   *     below it for some teams, so the rule only removes futures.
+   */
+  it("8 seeded fields with awarded rivals: no rule legal future's real takers exceed the bound, the bound is reached, and it is never above the bound without the rule", () => {
+    const counters = { futures: 0 };
+    let teams = 0;
+    let onTheBound = 0;
+    let withoutBelowWith = 0;
+    let ruleTighter = 0;
+    let awardedTotal = 0;
+    for (let seed = 2000; seed < 2008; seed++) {
+      const random = mulberry32(seed);
+      const spread = [40, 120, 260][Math.floor(random() * 3)]!;
+      const variant: E3Variant = {
+        label: `awarded seed ${String(seed)}, spread ${String(spread)}`,
+        finalsMax: random() < 0.5 ? [30, 0] : [60, 30],
+        consuming: random() < 0.6 ? 1 : 0,
+        judged: Math.floor(random() * 3),
+        divisionOneDecided: random() < 0.4,
+        randomFloors: { seed: seed + 7919, spread },
+      };
+      const setup = e3Setup(variant);
+      // The awarded teams: pool teams with a division row, each with its judged award already in its floor.
+      const awardedKeys = setup.input.pool.map((rival) => rival.teamKey).filter((key) => setup.field.divisionOfTeam.has(key) && random() < 0.3);
+      const awarded = new Set(awardedKeys);
+      awardedTotal += awarded.size;
+      const pool = setup.input.pool.map((rival) => (awarded.has(rival.teamKey) ? { ...rival, floor: rival.floor + JUDGED } : rival));
+      const withRule: JointLockInput = { ...setup.input, pool, awardedRivals: awardedKeys };
+      const withoutRule: JointLockInput = { ...setup.input, pool };
+      for (const teamKey of pool.map((rival) => rival.teamKey)) {
+        teams += 1;
+        const most = e3MostTakersAwarded(setup, withRule, awarded, teamKey, counters);
+        const bound = jointLockBound(withRule, teamKey);
+        expect(most, `${variant.label} ${teamKey}: real takers ${most} above the bound ${bound}`).toBeLessThanOrEqual(bound);
+        if (most === bound) onTheBound += 1;
+        const boundWithout = jointLockBound(withoutRule, teamKey);
+        if (boundWithout < bound) withoutBelowWith += 1;
+        if (bound < boundWithout) ruleTighter += 1;
+      }
+    }
+    console.log(
+      `[261010-d7r E3 awarded] fields 8 | teams ${String(teams)} | awarded rivals ${String(awardedTotal)} | futures ${String(counters.futures)} | teams on their bound ${String(onTheBound)} | bound with the rule below the bound without it ${String(ruleTighter)} | above it ${String(withoutBelowWith)}`
+    );
+    expect(withoutBelowWith).toBe(0);
+    // Pinned as the run shows (the planner's prototype read the same): the fields, the awarded rivals and the futures.
+    expect({ teams, awardedTotal, futures: counters.futures }).toEqual({ teams: 256, awardedTotal: 69, futures: 3_821_696 });
+    expect({ onTheBound, ruleTighter }).toEqual({ onTheBound: 52, ruleTighter: 17 });
+  }, 600_000);
+});
+
+describe("champJointLock: brute force soundness on small instances with awarded rivals (261010-d7r, D4)", () => {
+  /**
+   * AN INDEPENDENT BRUTE FORCE of the bound on small single group instances.
+   * Every legal future is enumerated; the real slot takers against T must
+   * never exceed the bound, and the bound should be reached often.
+   *
+   * THE LEGAL FUTURES HERE. One frame: the winner W is alliance 1, the one
+   * candidate; alliances 2 and 3 are paid fixed values. Every member of W
+   * takes a slot. A rival on no alliance takes at most one seat (on 2 or 3,
+   * where that alliance has a spare seat and a value above 0) or is W's
+   * backup (where W has a spare seat), or neither. At most K judged awards,
+   * one per rival, never to an awarded rival, each lifting a rival that is
+   * within one award of T. At most C consuming awards, to anyone not already
+   * a taker, AN AWARDED RIVAL INCLUDED: a consuming award takes a slot
+   * whatever its winner's points, and six teams of 2017 and 2018 FIM won one
+   * at the finals while holding a division judged award (premise P1 of the
+   * quick task). On top of each seating the awards are added in closed form:
+   * `min(non takers, C + min(K, liftable non takers that are not awarded))`.
+   */
+  it("20,000 seeded instances: the bound is never below a legal future, and it is reached at most of them", () => {
+    const INSTANCES = 20_000;
+    const m = 200;
+    type Kind = "memberW" | "member2" | "member3" | "free";
+    interface Rival {
+      readonly key: string;
+      readonly floor: number;
+      readonly extra: number;
+      readonly kind: Kind;
+      readonly awarded: boolean;
+    }
+    type Choice = "none" | "seat2" | "seat3" | "fill";
+    let onBound = 0;
+    let withAwarded = 0;
+    let slackTotal = 0;
+    const failures: string[] = [];
+    for (let seed = 1; seed <= INSTANCES; seed++) {
+      const random = mulberry32(seed);
+      const pick = (n: number): number => Math.floor(random() * n);
+      // What alliances 2 and 3 are paid, and the spare seats of W, 2 and 3.
+      const values = [[75, 39, 21][pick(3)]!, [75, 39, 21, 120][pick(4)]!] as const;
+      const spare = [pick(2), pick(2), pick(2)] as const;
+      const K = pick(3);
+      const C = pick(2);
+      const rivals: Rival[] = [];
+      const add = (kind: Kind, count: number): void => {
+        for (let i = 0; i < count; i++) {
+          const awarded = random() < 0.3;
+          rivals.push({ key: `${kind}${String(i)}`, floor: 80 + pick(150), extra: pick(2) === 0 ? 0 : pick(30), kind, awarded });
+        }
+      };
+      add("memberW", pick(2));
+      add("member2", pick(3));
+      add("member3", pick(2));
+      add("free", 1 + pick(3));
+      if (rivals.some((rival) => rival.awarded)) withAwarded += 1;
+      const membersOf = (kind: Kind): string[] => rivals.filter((rival) => rival.kind === kind).map((rival) => rival.key);
+      const input: JointLockInput = {
+        pool: [{ teamKey: "T", floor: m, extra: 0 }, ...rivals.map((rival) => ({ teamKey: rival.key, floor: rival.floor, extra: rival.extra }))],
+        slotOnlyRivals: [],
+        pointsSlots: 99,
+        alliances: [
+          { allianceNumber: 1, members: membersOf("memberW"), spareSeats: spare[0] },
+          { allianceNumber: 2, members: membersOf("member2"), spareSeats: spare[1] },
+          { allianceNumber: 3, members: membersOf("member3"), spareSeats: spare[2] },
+        ],
+        aliveAlliances: [2, 3],
+        candidateWinners: [1],
+        placementPoints: [75, 39, 21],
+        consumingAwards: C,
+        judgedAwards: K,
+        judgedAwardPoints: JUDGED,
+        maxAllianceSize: 4,
+        frames: [
+          {
+            winner: 1,
+            enumerated: [],
+            fixed: new Map([
+              [2, values[0]],
+              [3, values[1]],
+            ]),
+            fillIns: spare[0],
+          },
+        ],
+        awardedRivals: rivals.filter((rival) => rival.awarded).map((rival) => rival.key),
+      };
+      const bound = jointLockBound(input, "T");
+
+      const movable = rivals.filter((rival) => rival.kind === "free");
+      const choice = new Map<string, Choice>();
+      const used = { seat2: 0, seat3: 0, fill: 0 };
+      let most = 0;
+      const settle = (): void => {
+        const takers = new Set<string>();
+        const points = new Map<string, number>();
+        for (const rival of rivals) {
+          if (rival.kind === "memberW" || choice.get(rival.key) === "fill") {
+            takers.add(rival.key);
+            continue;
+          }
+          let total = rival.floor + rival.extra;
+          if (rival.kind === "member2" || choice.get(rival.key) === "seat2") total += values[0];
+          if (rival.kind === "member3" || choice.get(rival.key) === "seat3") total += values[1];
+          points.set(rival.key, total);
+          if (total >= m) takers.add(rival.key);
+        }
+        const nonTakers = rivals.filter((rival) => !takers.has(rival.key));
+        const liftable = nonTakers.filter((rival) => !rival.awarded && points.get(rival.key)! + JUDGED >= m).length;
+        const total = takers.size + Math.min(nonTakers.length, C + Math.min(K, liftable));
+        if (total > most) most = total;
+      };
+      const visit = (at: number): void => {
+        if (at === movable.length) {
+          settle();
+          return;
+        }
+        const rival = movable[at]!;
+        const options: Choice[] = ["none"];
+        if (used.seat2 < spare[1]) options.push("seat2");
+        if (used.seat3 < spare[2]) options.push("seat3");
+        if (used.fill < spare[0]) options.push("fill");
+        for (const option of options) {
+          choice.set(rival.key, option);
+          if (option !== "none") used[option] += 1;
+          visit(at + 1);
+          if (option !== "none") used[option] -= 1;
+        }
+        choice.delete(rival.key);
+      };
+      visit(0);
+
+      slackTotal += bound - most;
+      if (most === bound) onBound += 1;
+      if (most > bound && failures.length < 6) {
+        failures.push(
+          `seed ${String(seed)}: real ${String(most)} above bound ${String(bound)} | K ${String(K)} C ${String(C)} spare ${spare.join(",")} values ${values.join(",")} | ${rivals.map((rival) => `${rival.key}:${String(rival.floor)}+${String(rival.extra)}${rival.awarded ? "*" : ""}`).join(" ")}`
+        );
+      }
+      expect(most, failures.at(-1) ?? `seed ${String(seed)}`).toBeLessThanOrEqual(bound);
+    }
+    console.log(
+      `[261010-d7r brute force] instances ${String(INSTANCES)} | with an awarded rival ${String(withAwarded)} | the bound is reached at ${String(onBound)} | the bound is below a legal future at ${String(failures.length)} | mean slack ${(slackTotal / INSTANCES).toFixed(3)}`
+    );
+    expect(failures).toEqual([]);
+    // The instances are not vacuous, and the bound is tight on most of them. Pinned as the run shows.
+    expect({ withAwarded, onBound }).toEqual({ withAwarded: 14_577, onBound: 19_445 });
+  }, 120_000);
+});

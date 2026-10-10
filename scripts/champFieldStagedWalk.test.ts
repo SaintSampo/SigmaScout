@@ -72,13 +72,17 @@
  *   8. a backup robot seen on the field joins its alliance in the joint
  *      proof's facts: the real 2026pncmp bracket with a listed backup
  *      stripped from its alliance's picks.
- *   9. a MEASURED LIMIT, not closed: over the 16 divisioned championships of
- *      2023 to 2026, the Locked the joint proof gives while the divisions'
- *      Awards are open and does not hold once they read final. It is why the
- *      proof is not run before the finals key is on the artifact.
+ *   9. CLOSED by quick task 261010-d7r: over the 16 divisioned championships
+ *      of 2023 to 2026, every Locked the joint proof gives while the
+ *      divisions' Awards are open is held once they read final. Quick task
+ *      261010-66y measured eleven teams lost there and refused to run the
+ *      proof before the finals key is on the artifact because of it; the
+ *      eleven are read again and each is Locked at both readings. The edges
+ *      in between are held in `scripts/champJointMonotone.test.ts`.
  *  10. the live walks of 2026 FIM, NE, ONT and TX with the field's bracket
  *      facts handed at every tick from "alliances picked" on, the finals key
- *      on no row until the finals rows post.
+ *      on no row until the finals rows post. (The proof still reads
+ *      `unsupportedShape` until then.)
  *  11. the finals read the same way with and without a finals row: over the
  *      16 divisioned championships and nine stops each, every team's floor
  *      and ceiling, the teams shown Locked and `lockedBy`, with the finals
@@ -1988,7 +1992,7 @@ describe("a backup seen on the field joins its alliance: the real 2026pncmp brac
 });
 
 // ---------------------------------------------------------------------------
-// GROUP 9. A measured limit: a division's Awards turning final can raise a bound
+// GROUP 9. A division's Awards turning final no longer raises a bound (closed by quick task 261010-d7r)
 // ---------------------------------------------------------------------------
 
 interface DivisionedChampionship {
@@ -2025,7 +2029,28 @@ function divisionedChampionships(): DivisionedChampionship[] {
 const DIVISION_PLAYOFFS_FINAL_AWARDS_OPEN: DistrictStageFinality = { qual: true, alliance: true, elim: true, award: false };
 const DIVISIONS_FINAL_STOP = "Divisions final, finals not started";
 
-describe("a measured limit, NOT closed: the Locked the joint proof gives while the divisions' Awards are open and does not hold once they read final (quick task 261010-66y, why D3 is refused)", () => {
+/**
+ * THE ELEVEN of quick task 261010-66y: the teams the joint proof Locked with
+ * the divisions' Awards open and did not hold once they read final, with the
+ * bounds measured then (2026-10-10, before quick task 261010-d7r) against the
+ * points slots. Kept as the record of the defect; the test below reads each
+ * of them again and holds every one Locked at both readings.
+ */
+const THE_ELEVEN_BEFORE_D7R: readonly { districtKey: string; teamKey: string; open: number; final: number; slots: number }[] = [
+  { districtKey: "2023fit", teamKey: "frc9105", open: 29, final: 30, slots: 30 },
+  { districtKey: "2023ont", teamKey: "frc4069", open: 22, final: 25, slots: 23 },
+  { districtKey: "2024ont", teamKey: "frc5406", open: 21, final: 23, slots: 23 },
+  { districtKey: "2024ont", teamKey: "frc7712", open: 22, final: 24, slots: 23 },
+  { districtKey: "2025fit", teamKey: "frc418", open: 27, final: 28, slots: 28 },
+  { districtKey: "2025ont", teamKey: "frc4039", open: 21, final: 24, slots: 22 },
+  { districtKey: "2026fim", teamKey: "frc5675", open: 81, final: 83, slots: 83 },
+  { districtKey: "2026fit", teamKey: "frc624", open: 27, final: 28, slots: 28 },
+  { districtKey: "2026fit", teamKey: "frc9140", open: 27, final: 29, slots: 28 },
+  { districtKey: "2026ne", teamKey: "frc2713", open: 31, final: 33, slots: 32 },
+  { districtKey: "2026ne", teamKey: "frc4909", open: 31, final: 33, slots: 32 },
+];
+
+describe("CLOSED by quick task 261010-d7r: every Locked the joint proof gives while the divisions' Awards are open is held once they read final (the measured limit of quick task 261010-66y, eleven teams, is none)", () => {
   if (!existsSync(CORPUS_ABSOLUTE)) {
     localDataAbsent(`${CORPUS_PATH} absent (gitignored local data)`);
     return;
@@ -2036,28 +2061,30 @@ describe("a measured limit, NOT closed: the Locked the joint proof gives while t
   }
 
   it(
-    "over the 16 divisioned championships, every division's Playoffs final and the finals not started: teams Locked with the divisions' Awards open that are not with them final, pinned as the run shows",
+    "over the 16 divisioned championships, every division's Playoffs final and the finals not started: no team Locked with the divisions' Awards open is not Locked with them final, and the eleven teams of before are Locked at both",
     () => {
-      // WHAT THIS MEASURES. Two readings of the same championship, both with the finals key on the rows:
+      // WHAT THIS READS. Two readings of the same championship, both with the finals key on the rows:
       //   A. every division's Playoffs final and its Awards OPEN, the finals not started. Not a stop of the sweep.
       //   B. the sweep's own "Divisions final, finals not started": the divisions' Awards final too.
       // B knows strictly more than A, so a team Locked at A and not at B is a Locked taken back.
       //
-      // WHY IT HAPPENS. At A no division award point is in any floor and the proof gives each rival at most one
-      // judged award out of the division's whole ceiling of 14. At B the posted award points are in the floors and
-      // the proof still holds the rest of that ceiling for awards that may yet be listed, which it may hand to a
-      // rival that already holds a posted one. That rival's maximum is one judged award higher than it was at A.
+      // WHAT IT WAS. At A no division award point is in any floor and the proof gives each rival at most one judged
+      // award out of the division's whole ceiling of 14. At B the posted award points are in the floors and the proof
+      // holds the rest of that ceiling for awards that may yet be listed. Until quick task 261010-d7r it could hand
+      // one of those to a rival that already held a posted one, whose maximum was then one judged award higher than
+      // at A. Measured then: 406 shown Locked at A, 436 at B, and the eleven teams of `THE_ELEVEN_BEFORE_D7R` Locked
+      // at A and not at B. Quick task 261010-66y refused its reading D3 (the proof running during the division
+      // playoffs at a live championship) because of it.
       //
-      // WHY IT IS HERE. Reading D3 of this quick task would run the proof during the division playoffs at a live
-      // championship, where the tick from A to B then happens with Locked teams on the table. Walked on the real
-      // 2026 artifacts with that reading on, it took 1 Locked back at FIM, 2 at NE and 2 at TX. So D3 is refused,
-      // and this test holds the figure until the proof's judged award budget is closed. It is a measurement of a
-      // known limit, not a requirement: a change that brings `lost` to none is the fix.
+      // WHAT IT IS. The teams carrying award points at a division whose Awards read final are named to the proof
+      // (`awardedRivals`) and take no further judged award. So `lost` is none, and this is a requirement now: a
+      // team in `lost` is a Locked taken back.
       const championships = divisionedChampionships();
       const lost: string[] = [];
       let lockedWithAwardsOpen = 0;
       let lockedWithAwardsFinal = 0;
       const judgedBudgets = new Set<string>();
+      const theEleven: string[] = [];
       for (const { artifact, divisionKeys, brackets } of championships) {
         const final = championshipStops(artifact, brackets).find((stop) => stop.label === DIVISIONS_FINAL_STOP);
         if (final === undefined) throw new Error(`${artifact.districtKey} has no "${DIVISIONS_FINAL_STOP}" stop`);
@@ -2072,6 +2099,12 @@ describe("a measured limit, NOT closed: the Locked the joint proof gives while t
         // The budget with the Awards open is the whole ceiling, 14 a division; with them final it is what is left of it.
         expect(atOpen.jointProof.input.judgedAwards).toBe(14 * divisionKeys.length);
         expect(atFinal.jointProof.input.judgedAwards).toBeLessThan(atOpen.jointProof.input.judgedAwards);
+        // THE RULE'S INPUT: nobody is awarded while the Awards are open; once they read final the awarded teams are
+        // exactly the teams carrying award points at a division key, and the budget is the ceiling minus them.
+        const awarded = artifact.teams.filter((team) => team.eventPoints.some((row) => divisionKeys.includes(row.eventKey) && row.award > 0)).map((team) => team.teamKey).sort();
+        expect("awardedRivals" in atOpen.jointProof.input).toBe(false);
+        expect(atFinal.jointProof.input.awardedRivals).toEqual(awarded);
+        expect(atFinal.jointProof.input.judgedAwards).toBe(14 * divisionKeys.length - awarded.length);
         const shownLocked = (model: typeof atOpen): Set<string> => new Set([...model.byTeam.values()].filter((result) => result.status === "locked").map((result) => result.teamKey));
         const lockedOpen = shownLocked(atOpen);
         const lockedFinal = shownLocked(atFinal);
@@ -2083,26 +2116,34 @@ describe("a measured limit, NOT closed: the Locked the joint proof gives while t
             `${artifact.districtKey} ${teamKey}: ${String(atOpen.byTeam.get(teamKey)?.lockedBy)} with the Awards open, ${String(atFinal.byTeam.get(teamKey)?.status)} with them final, bound ${String(jointProofBound(atOpen.jointProof, teamKey))} then ${String(jointProofBound(atFinal.jointProof, teamKey))} against ${String(atOpen.pointsSlots)} points slots`
           );
         }
+        for (const entry of THE_ELEVEN_BEFORE_D7R.filter((candidate) => candidate.districtKey === artifact.districtKey)) {
+          theEleven.push(
+            `${entry.districtKey} ${entry.teamKey}: ${String(atOpen.byTeam.get(entry.teamKey)?.status)} by ${String(atOpen.byTeam.get(entry.teamKey)?.lockedBy)} with the Awards open, ${String(atFinal.byTeam.get(entry.teamKey)?.status)} by ${String(atFinal.byTeam.get(entry.teamKey)?.lockedBy)} with them final, bound ${String(jointProofBound(atOpen.jointProof, entry.teamKey))} then ${String(jointProofBound(atFinal.jointProof, entry.teamKey))} against ${String(atOpen.pointsSlots)} then ${String(atFinal.pointsSlots)} points slots (before: ${String(entry.open)} then ${String(entry.final)} against ${String(entry.slots)})`
+          );
+        }
       }
       console.log(
-        `[261010-66y group 9] divisioned championships ${String(championships.length)} | shown Locked with the divisions' Awards open ${String(lockedWithAwardsOpen)}, with them final ${String(lockedWithAwardsFinal)} | Locked with them open and not with them final ${String(lost.length)}\n${lost.map((line) => `  ${line}`).join("\n")}`
+        `[261010-d7r group 9] divisioned championships ${String(championships.length)} | shown Locked with the divisions' Awards open ${String(lockedWithAwardsOpen)}, with them final ${String(lockedWithAwardsFinal)} | Locked with them open and not with them final ${String(lost.length)}\n${lost.map((line) => `  ${line}`).join("\n")}\nthe eleven of before:\n${theEleven.map((line) => `  ${line}`).join("\n")}`
       );
       expect([...judgedBudgets].sort()).toEqual(["2 divisions: 28 open", "4 divisions: 56 open"]);
-      // Pinned as the run shows.
-      expect({ championships: championships.length, lockedWithAwardsOpen, lockedWithAwardsFinal }).toEqual({ championships: 16, lockedWithAwardsOpen: 406, lockedWithAwardsFinal: 436 });
-      // THE ELEVEN, measured 2026-10-10. Not a requirement: none is the fix.
-      expect(lost).toEqual([
-        "2023fit frc9105: joint with the Awards open, inRange with them final, bound 29 then 30 against 30 points slots",
-        "2023ont frc4069: joint with the Awards open, inRange with them final, bound 22 then 25 against 23 points slots",
-        "2024ont frc5406: joint with the Awards open, inRange with them final, bound 21 then 23 against 23 points slots",
-        "2024ont frc7712: joint with the Awards open, inRange with them final, bound 22 then 24 against 23 points slots",
-        "2025fit frc418: joint with the Awards open, inRange with them final, bound 27 then 28 against 28 points slots",
-        "2025ont frc4039: joint with the Awards open, inRange with them final, bound 21 then 24 against 22 points slots",
-        "2026fim frc5675: joint with the Awards open, inRange with them final, bound 81 then 83 against 83 points slots",
-        "2026fit frc624: joint with the Awards open, inRange with them final, bound 27 then 28 against 28 points slots",
-        "2026fit frc9140: joint with the Awards open, inRange with them final, bound 27 then 29 against 28 points slots",
-        "2026ne frc2713: joint with the Awards open, inRange with them final, bound 31 then 33 against 32 points slots",
-        "2026ne frc4909: joint with the Awards open, inRange with them final, bound 31 then 33 against 32 points slots",
+      // THE REQUIREMENT: none.
+      expect(lost).toEqual([]);
+      // Pinned as the run shows. With the Awards open the count is what it was (406: the rule changes nothing while
+      // nobody is awarded); with them final it was 436.
+      expect({ championships: championships.length, lockedWithAwardsOpen, lockedWithAwardsFinal }).toEqual({ championships: 16, lockedWithAwardsOpen: 406, lockedWithAwardsFinal: 451 });
+      // The eleven, read again: each Locked by the joint proof at both readings. Pinned as the run shows.
+      expect(theEleven).toEqual([
+        "2023fit frc9105: locked by joint with the Awards open, locked by joint with them final, bound 29 then 29 against 30 then 30 points slots (before: 29 then 30 against 30)",
+        "2023ont frc4069: locked by joint with the Awards open, locked by joint with them final, bound 22 then 22 against 23 then 23 points slots (before: 22 then 25 against 23)",
+        "2024ont frc5406: locked by joint with the Awards open, locked by joint with them final, bound 21 then 21 against 23 then 23 points slots (before: 21 then 23 against 23)",
+        "2024ont frc7712: locked by joint with the Awards open, locked by joint with them final, bound 22 then 22 against 23 then 23 points slots (before: 22 then 24 against 23)",
+        "2025fit frc418: locked by joint with the Awards open, locked by joint with them final, bound 27 then 27 against 28 then 28 points slots (before: 27 then 28 against 28)",
+        "2025ont frc4039: locked by joint with the Awards open, locked by joint with them final, bound 21 then 21 against 22 then 22 points slots (before: 21 then 24 against 22)",
+        "2026fim frc5675: locked by joint with the Awards open, locked by joint with them final, bound 81 then 81 against 83 then 83 points slots (before: 81 then 83 against 83)",
+        "2026fit frc624: locked by joint with the Awards open, locked by joint with them final, bound 27 then 27 against 28 then 28 points slots (before: 27 then 28 against 28)",
+        "2026fit frc9140: locked by joint with the Awards open, locked by joint with them final, bound 27 then 27 against 28 then 28 points slots (before: 27 then 29 against 28)",
+        "2026ne frc2713: locked by joint with the Awards open, locked by joint with them final, bound 31 then 31 against 32 then 32 points slots (before: 31 then 33 against 32)",
+        "2026ne frc4909: locked by joint with the Awards open, locked by joint with them final, bound 31 then 31 against 32 then 32 points slots (before: 31 then 33 against 32)",
       ]);
     },
     WALK_TIMEOUT_MS
@@ -2196,14 +2237,21 @@ describe("the live walks with the field's bracket facts: 2026 FIM, NE, ONT and T
       // THE LAST TWO TICKS MOVED with the last step of this quick task (the finals' Awards add no points ceiling
       // for anyone), upward only: at "finals state written" NE read 19 and reads 21; at "finals award points land"
       // FIM read 69 and reads 71, NE 19 and 21, TX 16 and 17. Every earlier tick, and ONT, is what it was.
+      //
+      // THE TICK THE FINALS ROWS POST MOVED with quick task 261010-d7r (its rule D1), upward only: FIM read 65 and
+      // reads 66, NE 18 and 20, TX 15 and 17. At that tick every division's Awards read final and the proof runs
+      // for the first time, so the teams carrying a posted division award are named to it and take no second
+      // judged award. The counts gained are those of the joint sweep's "Divisions final, finals not started" stop,
+      // where the teams gained are of the eleven of group 9 (frc5675 at FIM, frc2713 and frc4909 at NE, frc624 and
+      // frc9140 at TX). Every other tick, and ONT, is what it was.
       expect(shown).toEqual({
-        "2026fim": [0, 0, 0, 0, 0, 0, 0, 0, 13, 13, 29, 65, 71, 71],
+        "2026fim": [0, 0, 0, 0, 0, 0, 0, 0, 13, 13, 29, 66, 71, 71],
         "2026fim end": [83],
-        "2026ne": [0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 12, 18, 21, 21],
+        "2026ne": [0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 12, 20, 21, 21],
         "2026ne end": [32],
         "2026ont": [0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 10, 11, 12, 12],
         "2026ont end": [21],
-        "2026fit": [0, 0, 0, 0, 0, 0, 0, 0, 6, 6, 11, 15, 17, 17],
+        "2026fit": [0, 0, 0, 0, 0, 0, 0, 0, 6, 6, 11, 17, 17, 17],
         "2026fit end": [28],
       });
     },
@@ -2239,12 +2287,13 @@ describe("the live walks with the field's bracket facts: 2026 FIM, NE, ONT and T
         expect(ofTheChampionship(walk.steps[finalsStateAt]!)).toEqual([dcmpEventKeysFor(walkedSource(districtKey)).find((key) => !walk.fieldFixingKeys.includes(key))!]);
         held[districtKey] = { jointLocked: finalsRows.jointLocked, shownLocked: shownLockedCount(finalsRows) };
       }
-      // What the proof holds at the tick the finals rows post. Pinned as the run shows.
+      // What the proof holds at the tick the finals rows post. Pinned as the run shows. Quick task 261010-d7r (its
+      // rule D1) moved three of the four, upward: FIM 65 to 66, NE 18 to 20, TX 15 to 17. ONT did not move.
       expect(held).toEqual({
-        "2026fim": { jointLocked: 65, shownLocked: 65 },
-        "2026ne": { jointLocked: 18, shownLocked: 18 },
+        "2026fim": { jointLocked: 66, shownLocked: 66 },
+        "2026ne": { jointLocked: 20, shownLocked: 20 },
         "2026ont": { jointLocked: 11, shownLocked: 11 },
-        "2026fit": { jointLocked: 15, shownLocked: 15 },
+        "2026fit": { jointLocked: 17, shownLocked: 17 },
       });
     },
     WALK_TIMEOUT_MS

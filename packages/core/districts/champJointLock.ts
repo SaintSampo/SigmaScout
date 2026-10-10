@@ -227,24 +227,37 @@
  *
  * The facts this rests on beyond the single case: no finals row pays above 60
  * at four divisions or 30 at two (manual 11.1.3, `maxFinalsPointsByPlacement`);
- * the finals awards are consuming awards (24 and 30 points 2023 to 2026); no
- * team has award points at both its division and the finals, and one judged
- * award per team per event; the judged awards of every division share one
- * budget, the sum over the divisions of what each can still give (the caller
- * builds it, quick task 261009-pgq: the whole ceiling K for a division whose
- * Awards are open, and K minus the teams already carrying award points there,
- * never below 0, for a division whose Awards read final, because that flag
- * turns true at the first judged award whose points are in the rankings
+ * the finals awards are consuming awards (24 and 30 points 2023 to 2026); one
+ * judged award per team per event; the judged awards of every division share
+ * one budget, the sum over the divisions of what each can still give (the
+ * caller builds it, quick task 261009-pgq: the whole ceiling K for a division
+ * whose Awards are open, and K minus the teams already carrying award points
+ * there, never below 0, for a division whose Awards read final, because that
+ * flag turns true at the first judged award whose points are in the rankings
  * (quick task 261009-r9x), so later judged awards can still follow, and the
- * posted points are already in the floors; a rival can win only its own
- * division's, so sharing is a relaxation). The real champion is some
- * candidate W; in W's
- * division the real placements are dominated by an enumerated assignment; in
- * every other division no alliance is paid more than its fixed value; decided
- * values are maxima; an alliance takes at most one backup, from its own
- * division's unselected teams (the backup robot rule above); awards, seats,
- * fill ins and the one slot per rival as in the single case. So the real
- * takers are at most the frame's count.
+ * posted points are already in the floors; what is left goes only to rivals
+ * that hold no posted award, the next section; a rival can win only its own
+ * division's, so sharing is a relaxation).
+ *
+ * The real champion is some candidate W; in W's division the real placements
+ * are dominated by an enumerated assignment; in every other division no
+ * alliance is paid more than its fixed value; decided values are maxima; an
+ * alliance takes at most one backup, from its own division's unselected teams
+ * (the backup robot rule above); awards, seats, fill ins and the one slot per
+ * rival as in the single case. So the real takers are at most the frame's
+ * count.
+ *
+ * NOT A FACT THE PROOF RESTS ON: "no team has award points at both its
+ * division and the finals". This header said so until quick task 261010-d7r.
+ * It is true since 2023 (0 of the 478 division rows carrying award points)
+ * and false before: six teams held a division judged award and then won a
+ * consuming award at the finals of the same championship (2017 FIM frc2834,
+ * frc245 and frc1718 with Impact, frc6344 and frc6637 with Rookie All Star;
+ * 2018 FIM frc2834 with Impact). The bound never needed it: a consuming award
+ * takes a slot whatever its winner's points, and every rival still short of
+ * T, a division award in its floor or not, is counted through the consuming
+ * awards. That is why an awarded rival keeps a consuming award's place and
+ * the winner's fill in (the section on awarded rivals below).
  *
  * SEATS COUNT FROM CONFIRMED PICKS on every shape (CONTEXT D10): an alliance's
  * backup seats are the maximum alliance size minus its picks whose alliance
@@ -260,6 +273,60 @@
  * entered in EVERY championship's input (reading R9): it takes at most one
  * slot, so counting it in each is an over count, and counting it in one only
  * could miss the slot it takes in the other.
+ *
+ * ---------------------------------------------------------------------------
+ * A RIVAL THAT HOLDS A POSTED AWARD TAKES NO FURTHER JUDGED AWARD (quick task
+ * 261010-d7r, D1)
+ * ---------------------------------------------------------------------------
+ *
+ * THE RULE. `JointLockInput.awardedRivals` names the teams that hold a posted
+ * point paying award at a dcmp key whose Awards read final at the position
+ * (the caller reads them off the rows: award points above 0 at a division
+ * whose Awards are final). The award's points are in the team's floor. The
+ * bound gives such a rival no judged award from any remaining budget, in the
+ * two places a judged award is spent:
+ *
+ *   - a rival on an alliance, still short of T after its alliance's assigned
+ *     value, is not lifted by a judged award;
+ *   - a rival in a seat group is covered only where a seat's value alone
+ *     reaches T: never by an award alone, never by a seat and an award.
+ *
+ * WHY IT IS SOUND. It is the one judged award per team per event fact above
+ * (`MAX_POINT_PAYING_AWARDS_PER_TEAM`), applied to an award already posted: a
+ * team with award points at a division has had that division's one judged
+ * award, a rival can win only its own division's, and the finals give no
+ * judged award.
+ *
+ * WHAT IT LEAVES ALONE, ON PURPOSE. An awarded rival still short of T is
+ * still counted through a consuming award and is still in the winner's fill
+ * in pool. Both take a slot whatever the rival's points, and a consuming
+ * award has gone to a team holding a division award (the six teams above).
+ * Denying it the consuming award was measured unsound by the planner of that
+ * task: on 20,000 small instances with every legal future enumerated, the
+ * bound then sat below a legal future at 406.
+ *
+ * WHY IT IS MONOTONE. While a division's Awards are open none of its award
+ * points is in a floor, and every rival takes at most one award out of the
+ * division's ceiling of 14. Once they read final the awarded rivals hold
+ * their one, in their floors, and the others take at most one out of what is
+ * left. So every reading after the flag is one of the readings before it, and
+ * no bound rises over that tick.
+ *
+ * WHAT IT CLOSED. The remaining budget rule of quick task 261009-pgq (14
+ * minus the teams awarded, kept because the flag does not say every judged
+ * award is in) handed that remainder to ANY rival, one that already held a
+ * posted award included. That rival then carried two judged awards, which no
+ * earlier reading allowed, so a bound rose when a division's Awards turned
+ * final. Measured at the code before this rule over the 16 divisioned
+ * championships of 2023 to 2026, every division's Playoffs final and the
+ * finals not started, the divisions' Awards open against final: 312 pool
+ * teams' bounds rose, the largest by 7, and eleven teams Locked with the
+ * Awards open were not Locked with them final. With the rule: none
+ * (`scripts/champFieldStagedWalk.test.ts` group 9, and every flag edge of
+ * `scripts/champJointMonotone.test.ts`).
+ *
+ * T ITSELF. The proof gives T no award in any reading. T's posted award is in
+ * its floor like any team's, and `awardedRivals` may name T.
  *
  * ---------------------------------------------------------------------------
  * THE COVER UPPER BOUND (reading R10)
@@ -400,7 +467,7 @@ export interface JointLockInput {
   readonly placementPoints: readonly number[];
   /** C: the consuming awards still to be given out. */
   readonly consumingAwards: number;
-  /** K: the judged awards still to be given out. `dcmpJudgedAwardCeiling()` at a single championship; at a divisioned one the caller sums it over the divisions, the whole ceiling for a division whose Awards are open and the ceiling minus the teams already carrying award points there (never below 0) for one whose Awards read final. */
+  /** K: the judged awards still to be given out. `dcmpJudgedAwardCeiling()` at a single championship; at a divisioned one the caller sums it over the divisions, the whole ceiling for a division whose Awards are open and the ceiling minus the teams already carrying award points there (never below 0) for one whose Awards read final, and what is left there goes only to rivals `awardedRivals` does not name. */
   readonly judgedAwards: number;
   /** What one judged award pays at the DCMP (15 at 2026). */
   readonly judgedAwardPoints: number;
@@ -423,6 +490,16 @@ export interface JointLockInput {
    * rival on no alliance, which is the shipped loop.
    */
   readonly seatGroups?: readonly JointLockSeatGroup[];
+  /**
+   * The teams that hold a posted point paying award at a dcmp key whose Awards
+   * read final at the position (quick task 261010-d7r, D1; this module's
+   * header). Each has used its one judged award and its points are in its
+   * floor, so the bound gives it no judged award from the remaining budget.
+   * It still counts through a consuming award and as the winner's backup. T
+   * may be named: the proof gives T no award either way. Absent: none, which
+   * is every single championship input.
+   */
+  readonly awardedRivals?: readonly string[];
 }
 
 /** What the played playoff rows alone say about the DCMP bracket. */
@@ -490,14 +567,31 @@ function judgedCost(deficit: number, judgedAwardPoints: number): number {
   return cost <= MAX_POINT_PAYING_AWARDS_PER_TEAM ? cost : Infinity;
 }
 
+/** What the cover programs know about each rival beyond its deficit, aligned with `deficits`. */
+export interface CoverOptions {
+  /**
+   * True for a rival that already holds a posted award (quick task 261010-d7r,
+   * D1): it takes no judged award, so it is covered only where it needs
+   * nothing or where a seat's value alone reaches T. Absent: no rival is.
+   */
+  readonly awarded?: readonly boolean[];
+}
+
 /**
  * For the unpicked uncovered pool rivals (their deficits are fixed for one T),
  * the most of them the seats can cover together with at most `j` judged awards,
  * for every `j` from 0 to `budget`. An exact dynamic program over (seats used
- * per seat value, judged awards spent). Exported for the cover upper bound's
- * dominance test.
+ * per seat value, judged awards spent). A rival flagged in `options.awarded`
+ * spends no judged award. Exported for the cover upper bound's dominance test.
  */
-export function unpickedCover(deficits: readonly number[], seatValues: readonly number[], seatCounts: readonly number[], budget: number, judgedAwardPoints: number): number[] {
+export function unpickedCover(
+  deficits: readonly number[],
+  seatValues: readonly number[],
+  seatCounts: readonly number[],
+  budget: number,
+  judgedAwardPoints: number,
+  options?: CoverOptions
+): number[] {
   const radix: number[] = [];
   let stateCount = 1;
   for (const count of seatCounts) {
@@ -509,10 +603,14 @@ export function unpickedCover(deficits: readonly number[], seatValues: readonly 
   dp[0] = 0;
   const usage = (state: number, type: number): number => Math.floor(state / radix[type]!) % (seatCounts[type]! + 1);
 
-  for (const deficit of deficits) {
+  for (let index = 0; index < deficits.length; index++) {
+    const deficit = deficits[index]!;
     const next = dp.slice();
-    const alone = judgedCost(deficit, judgedAwardPoints);
-    const withSeat = seatValues.map((value) => judgedCost(deficit - value, judgedAwardPoints));
+    // D1: an awarded rival has used its one judged award, so what is left of its deficit must be 0 or below.
+    const awarded = options?.awarded?.[index] === true;
+    const costOf = (need: number): number => (awarded ? (need <= 0 ? 0 : Infinity) : judgedCost(need, judgedAwardPoints));
+    const alone = costOf(deficit);
+    const withSeat = seatValues.map((value) => costOf(deficit - value));
     for (let state = 0; state < stateCount; state++) {
       for (let j = 0; j <= budget; j++) {
         const value = dp[state * width + j]!;
@@ -571,8 +669,37 @@ function greedySeatMatching(deficits: readonly number[], threshold: (deficit: nu
  * The cover UPPER BOUND of reading R10, for every `j` from 0 to `budget`: never
  * below `unpickedCover`'s exact value (this module's header for the proof and
  * its three binding conditions).
+ *
+ * WITH AWARDED RIVALS (quick task 261010-d7r, D1, planner reading R4) it is
+ * the sum of two upper bounds: this bound over the rivals that are not
+ * awarded, with every seat, plus the most awarded rivals a seat alone can
+ * cover, with every seat again (the same greedy matching, a maximum on these
+ * nested eligibility sets). In any real cover the rivals that are not awarded
+ * form a cover of their own and the awarded ones a seat matching of their
+ * own, so the sum is never below the exact program.
  */
-export function coverUpperBound(deficits: readonly number[], seatValues: readonly number[], seatCounts: readonly number[], budget: number, judgedAwardPoints: number): number[] {
+export function coverUpperBound(
+  deficits: readonly number[],
+  seatValues: readonly number[],
+  seatCounts: readonly number[],
+  budget: number,
+  judgedAwardPoints: number,
+  options?: CoverOptions
+): number[] {
+  const flags = options?.awarded;
+  if (flags !== undefined && flags.some((flag) => flag)) {
+    const free = deficits.filter((_, index) => flags[index] !== true);
+    const awarded = deficits.filter((_, index) => flags[index] === true);
+    const seatOnly =
+      awarded.filter((deficit) => deficit <= 0).length +
+      greedySeatMatching(
+        awarded.filter((deficit) => deficit > 0),
+        (deficit) => deficit,
+        seatValues,
+        seatCounts
+      );
+    return coverUpperBound(free, seatValues, seatCounts, budget, judgedAwardPoints).map((value) => value + seatOnly);
+  }
   const sorted = [...deficits].sort((a, b) => a - b);
   const award = judgedAwardPoints > 0 ? judgedAwardPoints * MAX_POINT_PAYING_AWARDS_PER_TEAM : 0;
   const width = budget + 1;
@@ -592,11 +719,18 @@ export function coverUpperBound(deficits: readonly number[], seatValues: readonl
 }
 
 /** The cover for one seat configuration: the exact program within `EXACT_COVER_STATE_CAP`, the upper bound above it. */
-function seatAndJudgedCover(deficits: readonly number[], seatValues: readonly number[], seatCounts: readonly number[], budget: number, judgedAwardPoints: number): number[] {
+function seatAndJudgedCover(
+  deficits: readonly number[],
+  seatValues: readonly number[],
+  seatCounts: readonly number[],
+  budget: number,
+  judgedAwardPoints: number,
+  options?: CoverOptions
+): number[] {
   let cells = (budget + 1) * Math.max(1, deficits.length);
   for (const count of seatCounts) cells *= count + 1;
-  if (cells <= EXACT_COVER_STATE_CAP) return unpickedCover(deficits, seatValues, seatCounts, budget, judgedAwardPoints);
-  return coverUpperBound(deficits, seatValues, seatCounts, budget, judgedAwardPoints);
+  if (cells <= EXACT_COVER_STATE_CAP) return unpickedCover(deficits, seatValues, seatCounts, budget, judgedAwardPoints, options);
+  return coverUpperBound(deficits, seatValues, seatCounts, budget, judgedAwardPoints, options);
 }
 
 /** The backup seats an alliance still has (CONTEXT D10): `spareSeats`, else the maximum size minus its members. */
@@ -648,6 +782,11 @@ export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: 
   const rivalKeys = new Set(rivals.map((rival) => rival.teamKey));
   const slotOnly = [...new Set(input.slotOnlyRivals)].filter((key) => key !== teamKey && !rivalKeys.has(key));
   const slotOnlySet = new Set(slotOnly);
+  // D1 (quick task 261010-d7r, this module's header): the rivals that already
+  // hold a posted point paying award. Each takes no judged award below, in the
+  // two places one is spent: a picked rival's lift, and the seat and judged
+  // award cover. The consuming awards and the fill ins still count it.
+  const awardedSet = new Set(input.awardedRivals ?? []);
 
   // SEAT GROUPS (the backup robot rule, this module's header). A backup seat or a
   // fill in of an alliance is taken only by a team eligible in the alliance's own
@@ -690,12 +829,13 @@ export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: 
   // slot only rivals. Fixed for this T: a seat pays its own value and never the
   // value of the alliance that lists the rival. A rival eligible in several
   // groups is entered in each, which only raises the bound.
-  const seatRivals: { teamKey: string; deficit: number }[][] = Array.from({ length: groupCount }, () => []);
+  const seatRivals: { teamKey: string; deficit: number; awarded: boolean }[][] = Array.from({ length: groupCount }, () => []);
   const slotOnlyByGroup: string[][] = Array.from({ length: groupCount }, () => []);
   for (const rival of rivals) {
     const deficit = m - (rival.floor + rival.extra);
     if (deficit <= 0) continue;
-    for (const group of groupsOf(rival.teamKey)) seatRivals[group]!.push({ teamKey: rival.teamKey, deficit });
+    const awarded = awardedSet.has(rival.teamKey);
+    for (const group of groupsOf(rival.teamKey)) seatRivals[group]!.push({ teamKey: rival.teamKey, deficit, awarded });
   }
   for (const key of slotOnly) for (const group of groupsOf(key)) slotOnlyByGroup[group]!.push(key);
 
@@ -704,7 +844,12 @@ export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: 
   for (const frame of usable) for (const value of frame.fixed.values()) maxSeatValue = Math.max(maxSeatValue, value);
   const reachable = (deficit: number): boolean =>
     judgedCost(deficit, input.judgedAwardPoints) !== Infinity || judgedCost(deficit - maxSeatValue, input.judgedAwardPoints) !== Infinity;
-  const seatReachable = seatRivals.map((list) => list.map((entry) => entry.deficit).filter(reachable));
+  // D1: an awarded rival is reachable only where a seat's value alone covers its deficit.
+  const seatReachableEntries = seatRivals.map((list) => list.filter((entry) => (entry.awarded ? entry.deficit <= maxSeatValue : reachable(entry.deficit))));
+  const seatReachable = seatReachableEntries.map((list) => list.map((entry) => entry.deficit));
+  const seatCoverOptions = seatReachableEntries.map((list): CoverOptions | undefined =>
+    list.some((entry) => entry.awarded) ? { awarded: list.map((entry) => entry.awarded) } : undefined
+  );
   const reachableCount = seatReachable.reduce((sum, list) => sum + list.length, 0);
 
   const placementValues = [...input.placementPoints].sort((a, b) => b - a);
@@ -762,6 +907,8 @@ export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: 
         }
         uncovered += 1;
         if (allianceNumber === undefined) continue; // on no alliance: the cached covers below
+        // D1: an awarded rival has used its one judged award, and its alliance's value alone did not reach T.
+        if (awardedSet.has(rival.teamKey)) continue;
         const cost = judgedCost(m - points, input.judgedAwardPoints);
         if (cost !== Infinity) pickedCosts.push(cost);
       }
@@ -806,7 +953,7 @@ export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: 
         for (let group = 0; group < groupCount; group++) {
           let cover = coverCache.get(groupKeys[group]!);
           if (cover === undefined) {
-            cover = seatAndJudgedCover(seatReachable[group]!, groupSeatValues[group]!, groupSeatCounts[group]!, budget, input.judgedAwardPoints);
+            cover = seatAndJudgedCover(seatReachable[group]!, groupSeatValues[group]!, groupSeatCounts[group]!, budget, input.judgedAwardPoints, seatCoverOptions[group]);
             coverCache.set(groupKeys[group]!, cover);
           }
           combined = combined === undefined ? cover : bestSplit(combined, cover);
