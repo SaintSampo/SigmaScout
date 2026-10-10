@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-09T23:26:07.467Z"
-last_activity: 2026-10-09
+last_updated: "2026-10-10T01:14:00.309Z"
+last_activity: 2026-10-10
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
   total_phases: 13
@@ -746,6 +746,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 310 | Champ Locks: joint worst case lock proof over the DCMP bracket and awards, one award per rival, placement maxima, corpus sweep gate (0 violations, 167 earlier locks) | 2026-10-09 | 5aa7b489 | [261009-2tr-champ-locks-joint-worst-case-lock-proof-](./quick/261009-2tr-champ-locks-joint-worst-case-lock-proof-/) |
 | 311 | Champ Locks joint proof for divisioned championships (FIM, NE, ON, TX) and 2026 California, every DCMP row folded into the floor; 48 championships swept, 0 violations, 486 earlier locks | 2026-10-09 | d38455c4 | [261009-kt3-champ-locks-joint-proof-for-divisioned-c](./quick/261009-kt3-champ-locks-joint-proof-for-divisioned-c/) |
 | 312 | Champ Locks earliness at divisioned championships: a rowless team leaves the field once every division has started, and the judged budget is the ceiling minus awards already posted; 318 more lock stops, 0 violations | 2026-10-09 | 27a1434e | [261009-pgq-champ-locks-earliness-a-rowless-team-lea](./quick/261009-pgq-champ-locks-earliness-a-rowless-team-lea/) |
+| 313 | Awards posted flag waits for a judged award and its points, and the live Worker records who won in the same write and watches the awards list while the event is live; zero historical flips | 2026-10-10 | 2ee9b85c | [261009-r9x-awards-posted-flag-waits-for-a-judged-aw](./quick/261009-r9x-awards-posted-flag-waits-for-a-judged-aw/) |
 
 ### Roadmap Evolution
 
