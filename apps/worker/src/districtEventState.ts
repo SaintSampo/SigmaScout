@@ -30,9 +30,13 @@
  * (`packages/harness/pageArtifacts.ts`) also carries `awardsPosted`, and that
  * fact cannot be derived from a match list at all — `10-RESEARCH.md` Pitfall 4
  * records that rankings carry no award-recipient detail either. A module that
- * returned a placeholder for it would be guessing, so `awardsPosted` is
- * resolved by `districtRefresh.ts` from a conditional `/event/{key}/awards`
- * request instead, and this module never mentions it.
+ * returned a placeholder for it would be guessing, so this module never
+ * mentions it. Since quick task 261009-r9x `awardsPosted` is resolved by the
+ * shared merge (`packages/harness/districtRankingsMerge.ts`) from the awards
+ * list and the merged rankings together. `districtRefresh.ts` supplies the
+ * list: an event that has an awards cursor row is asked conditionally on
+ * every tick, and an event whose flag still waits is asked with no ETag on a
+ * tick that reads the artifact.
  *
  * `scripts/publishDistricts.ts` (10-06) derives the same five fields from the
  * corpus rather than from a match list. The rules above are the statement the

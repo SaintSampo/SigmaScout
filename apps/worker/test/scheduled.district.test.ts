@@ -82,6 +82,8 @@ class FakeD1Database {
   eventCursors = new Map<string, FakeEventCursorRow>();
   /** The ingest log table (quick task 261004-uyc). */
   readonly ingestLog = new IngestLogFakeStore();
+  /** Cursor rows whose whole row UPSERT must reject, modelling a D1 write failure (quick task 261009-r9x). */
+  rejectCursorWritesForKeyPrefix: string | null = null;
 
   constructor() {
     seedStateBaselineMarkers(this.eventCursors, PUBLISHED_ALGORITHM_IDS, "gen-1");
@@ -157,6 +159,9 @@ class FakeD1Database {
     }
     if (sql.includes("INSERT INTO event_cursor")) {
       const [eventKey, tbaEtag, lastFoldedMatchKey, lastPolledAt, lastAdvancedAt] = args as (string | null)[];
+      if (this.rejectCursorWritesForKeyPrefix !== null && eventKey!.startsWith(this.rejectCursorWritesForKeyPrefix)) {
+        throw new Error(`fake D1 cursor write rejected for ${eventKey}`);
+      }
       this.eventCursors.set(eventKey!, { event_key: eventKey!, tba_etag: tbaEtag ?? null, last_folded_match_key: lastFoldedMatchKey ?? null, last_polled_at: lastPolledAt ?? null, last_advanced_at: lastAdvancedAt ?? null });
       return 1;
     }
@@ -299,6 +304,8 @@ interface TbaEventRecord {
   /** `/event/{key}/awards` payload. `undefined` means "the stub answers 404" — no test should reach it. */
   awards?: unknown;
   awardsEtag?: string;
+  /** Forces `/event/{key}/awards` to answer this status with no body, modelling a TBA failure (quick task 261009-r9x). */
+  awardsStatus?: number;
 }
 
 interface TbaDistrictRecord {
@@ -335,6 +342,7 @@ function makeTbaFetchStub(events: Map<string, TbaEventRecord>, districts: Map<st
     if (awardsMatch) {
       const eventKey = awardsMatch[1]!;
       const record = events.get(eventKey);
+      if (record?.awardsStatus !== undefined) return { status: record.awardsStatus, ok: false, headers: new Map(), json: async () => ({}) };
       if (!record || record.awards === undefined) return { status: 404, ok: false, headers: new Map(), json: async () => ({}) };
       const etag = record.awardsEtag ?? `${record.etag}-awards`;
       if (ifNoneMatch && ifNoneMatch === etag) return { status: 304, ok: false, headers: new Map(), json: async () => ({}) };
@@ -661,8 +669,6 @@ function finishedEventRecord(eventKey: string, etag: string, extra: Partial<TbaE
   };
 }
 
-const ONE_AWARD = [{ name: "Regional Winner", award_type: 1, event_key: LIVE_EVENT, recipient_list: [{ team_key: "frc1", awardee: null }], year: SEASON }];
-
 /** The `state` block the written artifact carries for the live event, wherever that event's row now lives. */
 function writtenLiveEventState(r2: FakeR2Bucket): StateBlock | undefined {
   const puts = districtPuts(r2);
@@ -782,72 +788,590 @@ describe("runTick — the four state facts", () => {
     const r2 = new FakeR2Bucket();
     r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactFixture()));
     const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
-    vi.stubGlobal("fetch", makeTbaFetchStub(new Map([[LIVE_EVENT, alliancesPostedEventRecord(LIVE_EVENT, "etag-1")]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]])));
+    const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, alliancesPostedEventRecord(LIVE_EVENT, "etag-1")]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]));
+    vi.stubGlobal("fetch", fetchMock);
 
     const result = await runTick(env, { nowMs: NOW_MS });
 
     expect(r2.gets.filter((key) => key.startsWith("v1/district/"))).toEqual([]);
     expect(districtPuts(r2)).toHaveLength(0);
     expect(result.districtsUnchanged).toBe(1);
+    // No awards cursor row for the event, so no awards request before the gate
+    // either (quick task 261009-r9x): this district cost one TBA request.
+    expect(awardsRequests(fetchMock)).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The awards flag and the winner records (quick task 261009-r9x).
+//
+// The flag turns true only once the awards list holds a judged award (anything
+// other than Winner and Finalist) AND some team's row at the event carries
+// award points in the merged rankings. Every list that reaches the merge is
+// merged, so who won is written in the same put as the flag and the verdicts.
+// The awards cursor row holds the ETag of the last list the pass merged.
+// ---------------------------------------------------------------------------
+
+const AWARDS_CURSOR_KEY = `__event_awards__:${LIVE_EVENT}`;
+
+function tbaAward(awardType: number, name: string, teamKeys: readonly string[], eventKey: string = LIVE_EVENT): unknown {
+  return { name, award_type: awardType, event_key: eventKey, recipient_list: teamKeys.map((teamKey) => ({ team_key: teamKey, awardee: null })), year: SEASON };
+}
+
+/** What TBA lists first at many events: the field results, and no judged award yet. */
+const WINNER_ONLY = [tbaAward(1, "District Event Winner", ["frc1"])];
+const WINNER_AND_FINALIST = [tbaAward(1, "District Event Winner", ["frc1"]), tbaAward(2, "District Event Finalist", ["frc2"])];
+const IMPACT_TO_FRC3 = tbaAward(0, "FIRST Impact Award", ["frc3"]);
+const EI_TO_FRC2 = tbaAward(9, "Engineering Inspiration Award", ["frc2"]);
+const JUDGED_LIST = [...WINNER_AND_FINALIST, IMPACT_TO_FRC3];
+
+const IMPACT_RECORD = { eventKey: LIVE_EVENT, awardType: 0, label: "FIRST Impact Award", awardOnly: false };
+
+/** `movedRankings()` plus `frc3`'s Impact award points at the live event: the rankings TBA serves once the award points are in. */
+function rankingsWithAwardPoints(): unknown {
+  const rows = movedRankings() as { team_key: string; point_total: number; event_points: unknown[] }[];
+  const frc3 = rows.find((row) => row.team_key === "frc3")!;
+  frc3.point_total = 20;
+  frc3.event_points.push({ event_key: LIVE_EVENT, district_cmp: false, qual_points: 0, alliance_points: 0, elim_points: 0, award_points: 10, total: 10 });
+  return rows;
+}
+
+interface AwardsCall {
+  /** The `If-None-Match` header the request carried, `undefined` for an unconditional ask. */
+  readonly ifNoneMatch: string | undefined;
+  /** True when no `v1/district/` object had been read yet this tick: the ask was made before the gate. */
+  readonly beforeArtifactRead: boolean;
+}
+
+interface TickReport {
+  readonly result: Awaited<ReturnType<typeof runTick>>;
+  readonly awardsCalls: AwardsCall[];
+  /** `If-None-Match` of every rankings request this tick. */
+  readonly rankingsCalls: (string | undefined)[];
+  /** `v1/district/` R2 reads this tick. */
+  readonly districtReads: number;
+  /** `v1/district/` puts this tick, parsed. */
+  readonly written: ReturnType<typeof DistrictArtifactSchema.parse>[];
+}
+
+interface Harness {
+  readonly d1: FakeD1Database;
+  readonly r2: FakeR2Bucket;
+  readonly events: Map<string, TbaEventRecord>;
+  readonly districts: Map<string, TbaDistrictRecord>;
+  readonly warnSpy: WarnSpy;
+  tick(): Promise<TickReport>;
+}
+
+/**
+ * One district, one live window, one R2 seeded artifact, and a TBA stub whose
+ * event and district records the test mutates between ticks. Each `tick()`
+ * runs the REAL `runTick` one minute after the last and reports only what
+ * that tick did.
+ */
+function makeHarness(options: { artifact?: unknown; eventKey?: string } = {}): Harness {
+  const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  const d1 = new FakeD1Database();
+  const r2 = new FakeR2Bucket();
+  r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(options.artifact ?? districtArtifactFixture()));
+  const env = makeEnv(makeManifests([liveWindow(options.eventKey === undefined ? {} : { eventKey: options.eventKey })]), d1, r2);
+  const events = new Map<string, TbaEventRecord>();
+  const districts = new Map<string, TbaDistrictRecord>();
+  // Narrowed to a callable: `ReturnType<typeof vi.fn>` is not one under the Worker tsconfig.
+  const inner = makeTbaFetchStub(events, districts) as unknown as (url: unknown, init?: { headers?: Record<string, string> }) => Promise<unknown>;
+
+  const districtReadCount = (): number => r2.gets.filter((key) => key.startsWith("v1/district/")).length;
+  let readsAtTickStart = 0;
+  let awardsCalls: AwardsCall[] = [];
+  let rankingsCalls: (string | undefined)[] = [];
+  const fetchMock = vi.fn(async (url: unknown, init?: { headers?: Record<string, string> }) => {
+    const u = String(url);
+    const ifNoneMatch = init?.headers?.["If-None-Match"];
+    if (u.endsWith("/awards")) awardsCalls.push({ ifNoneMatch, beforeArtifactRead: districtReadCount() === readsAtTickStart });
+    if (u.endsWith("/rankings") && u.includes("/district/")) rankingsCalls.push(ifNoneMatch);
+    return inner(url, init);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  let tickIndex = 0;
+  return {
+    d1,
+    r2,
+    events,
+    districts,
+    warnSpy,
+    async tick(): Promise<TickReport> {
+      awardsCalls = [];
+      rankingsCalls = [];
+      readsAtTickStart = districtReadCount();
+      const putsAtTickStart = districtPuts(r2).length;
+      const result = await runTick(env, { nowMs: NOW_MS + 60_000 * tickIndex++ });
+      return {
+        result,
+        awardsCalls,
+        rankingsCalls,
+        districtReads: districtReadCount() - readsAtTickStart,
+        written: districtPuts(r2)
+          .slice(putsAtTickStart)
+          .map((put) => DistrictArtifactSchema.parse(JSON.parse(put.body))),
+      };
+    },
+  };
+}
+
+type WrittenArtifact = TickReport["written"][number];
+
+function teamIn(artifact: WrittenArtifact, teamKey: string): WrittenArtifact["teams"][number] {
+  return artifact.teams.find((team) => team.teamKey === teamKey)!;
+}
+
+/** The `awardsPosted` flag of every row for `eventKey` that carries a state block, across every team. */
+function flagsFor(artifact: WrittenArtifact, eventKey: string = LIVE_EVENT): boolean[] {
+  return artifact.teams.flatMap((team) => [...team.eventPoints, ...team.remainingEvents].filter((row) => row.eventKey === eventKey && row.state !== undefined).map((row) => row.state!.awardsPosted));
+}
+
+function awardsCursorEtag(d1: FakeD1Database, eventKey: string = LIVE_EVENT): string | null | undefined {
+  const row = d1.eventCursors.get(`__event_awards__:${eventKey}`);
+  return row === undefined ? undefined : row.tba_etag;
+}
+
+function awardsWarns(warnSpy: WarnSpy): Record<string, unknown>[] {
+  return warnLines(warnSpy)
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((entry) => entry["msg"] === "district-awards-poll-failed");
+}
+
+function expectNoSecretInWarns(warnSpy: WarnSpy): void {
+  for (const line of warnLines(warnSpy)) {
+    expect(line).not.toContain("test-key");
+    expect(line).not.toContain("X-TBA-Auth-Key");
+    expect(line).not.toContain("If-None-Match");
+  }
+}
+
+describe("runTick — the awards flag waits for a judged award and its points, tick by tick (261009-r9x)", () => {
+  it("five ticks: Winner and Finalist first, then Impact, then its points, then a late award, then nothing", async () => {
+    const h = makeHarness();
+    h.events.set(LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: WINNER_AND_FINALIST, awardsEtag: "awards-etag-1" }));
+    h.districts.set(DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" });
+
+    // TICK 1. Winner and Finalist are listed. No cursor row exists yet, so the
+    // one ask is the one inside the loop, with no ETag.
+    const t1 = await h.tick();
+    expect(t1.awardsCalls).toEqual([{ ifNoneMatch: undefined, beforeArtifactRead: false }]);
+    expect(t1.written).toHaveLength(1);
+    expect(flagsFor(t1.written[0]!)).toEqual([false]);
+    expect(teamIn(t1.written[0]!, "frc1").eventPoints.find((row) => row.eventKey === LIVE_EVENT)!.state).toEqual({ qualMatchesPlayed: 2, qualMatchesTotal: 2, alliancesPicked: true, playoffsDone: true, awardsPosted: false });
+    expect(t1.written[0]!.teams.map((team) => team.qualifyingAwards)).toEqual([[], [], []]);
+    expect(awardsCursorEtag(h.d1)).toBe("awards-etag-1");
+    // The match list never changes again, so ticks 2 to 5 get a match 304 and
+    // contribute no observation.
+    expect(h.d1.eventCursors.get(LIVE_EVENT)?.tba_etag).toBe("etag-1");
+
+    // TICK 2. Impact is now listed, under a new ETag. The rankings are a 304
+    // and nothing is observed, so only the changed list passes the gate.
+    h.events.get(LIVE_EVENT)!.awards = JUDGED_LIST;
+    h.events.get(LIVE_EVENT)!.awardsEtag = "awards-etag-2";
+    const t2 = await h.tick();
+    expect(t2.rankingsCalls).toEqual(["rank-etag-1"]);
+    expect(t2.awardsCalls).toEqual([{ ifNoneMatch: "awards-etag-1", beforeArtifactRead: true }]);
+    expect(t2.districtReads).toBe(1);
+    expect(t2.written).toHaveLength(1);
+    // No award points in the rankings yet: the flag still waits.
+    expect(flagsFor(t2.written[0]!)).toEqual([false]);
+    expect(teamIn(t2.written[0]!, "frc3").qualifyingAwards).toEqual([IMPACT_RECORD]);
+    expect(awardsCursorEtag(h.d1)).toBe("awards-etag-2");
+
+    // TICK 3. The rankings now carry frc3's award points. The list itself is
+    // unchanged, so the ask before the gate is a 304 and the pass asks once
+    // more, with no ETag, so the rule has the list.
+    h.districts.set(DISTRICT_KEY, { rankings: rankingsWithAwardPoints(), etag: "rank-etag-2" });
+    const t3 = await h.tick();
+    expect(t3.awardsCalls).toEqual([
+      { ifNoneMatch: "awards-etag-2", beforeArtifactRead: true },
+      { ifNoneMatch: undefined, beforeArtifactRead: false },
+    ]);
+    expect(t3.written).toHaveLength(1);
+    // ONE put carries the flag, the winner record and the verdict together.
+    expect(flagsFor(t3.written[0]!)).toEqual([true, true]);
+    expect(teamIn(t3.written[0]!, "frc3").qualifyingAwards).toEqual([IMPACT_RECORD]);
+    expect(teamIn(t3.written[0]!, "frc3").districtLock.status).toBe("lockedAward");
+    expect(awardsCursorEtag(h.d1)).toBe("awards-etag-2");
+
+    // TICK 4 (case d). A late Engineering Inspiration is listed. Rankings 304,
+    // match 304: the changed list alone passes the gate and is merged.
+    h.events.get(LIVE_EVENT)!.awards = [...JUDGED_LIST, EI_TO_FRC2];
+    h.events.get(LIVE_EVENT)!.awardsEtag = "awards-etag-3";
+    const t4 = await h.tick();
+    expect(t4.rankingsCalls).toEqual(["rank-etag-2"]);
+    expect(t4.awardsCalls).toEqual([{ ifNoneMatch: "awards-etag-2", beforeArtifactRead: true }]);
+    expect(t4.written).toHaveLength(1);
+    expect(teamIn(t4.written[0]!, "frc2").qualifyingAwards).toEqual([{ eventKey: LIVE_EVENT, awardType: 9, label: "Engineering Inspiration", awardOnly: true }]);
+    expect(teamIn(t4.written[0]!, "frc3").qualifyingAwards).toEqual([IMPACT_RECORD]);
+    expect(flagsFor(t4.written[0]!)).toEqual([true, true]);
+    expect(awardsCursorEtag(h.d1)).toBe("awards-etag-3");
+
+    // TICK 5 (case e). Nothing changed: one rankings request and one awards
+    // request, both 304, and the artifact is neither read nor written.
+    const t5 = await h.tick();
+    expect(t5.rankingsCalls).toEqual(["rank-etag-2"]);
+    expect(t5.awardsCalls).toEqual([{ ifNoneMatch: "awards-etag-3", beforeArtifactRead: true }]);
+    expect(t5.districtReads).toBe(0);
+    expect(t5.written).toHaveLength(0);
+    expect(t5.result.districtsUnchanged).toBe(1);
+    expect(t5.result.districtsRefreshed).toBe(0);
+
+    for (const report of [t1, t2, t3, t4, t5]) expect(report.result.districtsFailed).toBe(0);
+    expect(awardsWarns(h.warnSpy)).toEqual([]);
+  });
+
+  it("(a) the points arrive one tick before the judged list: the changed list alone passes the gate and turns the flag true", async () => {
+    const h = makeHarness();
+    h.events.set(LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: WINNER_AND_FINALIST, awardsEtag: "awards-etag-1" }));
+    h.districts.set(DISTRICT_KEY, { rankings: rankingsWithAwardPoints(), etag: "rank-etag-1" });
+
+    // Tick k: the award points are in, the list holds Winner and Finalist only.
+    const first = await h.tick();
+    expect(first.written).toHaveLength(1);
+    expect(flagsFor(first.written[0]!)).toEqual([false, false]);
+    expect(first.written[0]!.teams.map((team) => team.qualifyingAwards)).toEqual([[], [], []]);
+    expect(awardsCursorEtag(h.d1)).toBe("awards-etag-1");
+
+    // Tick k+1: rankings 304, nothing observed, the list now holds Impact.
+    h.events.get(LIVE_EVENT)!.awards = JUDGED_LIST;
+    h.events.get(LIVE_EVENT)!.awardsEtag = "awards-etag-2";
+    const second = await h.tick();
+    expect(second.rankingsCalls).toEqual(["rank-etag-1"]);
+    expect(second.awardsCalls).toEqual([{ ifNoneMatch: "awards-etag-1", beforeArtifactRead: true }]);
+    expect(second.written).toHaveLength(1);
+    expect(flagsFor(second.written[0]!)).toEqual([true, true]);
+    expect(teamIn(second.written[0]!, "frc3").qualifyingAwards).toEqual([IMPACT_RECORD]);
+    expect(teamIn(second.written[0]!, "frc3").districtLock.status).toBe("lockedAward");
+    expect(awardsCursorEtag(h.d1)).toBe("awards-etag-2");
+  });
+
+  it("(b) the points arrive late: a quiet tick in between reads nothing, and the tick that brings them asks for the list with no ETag", async () => {
+    const h = makeHarness();
+    h.events.set(LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: JUDGED_LIST, awardsEtag: "awards-etag-1" }));
+    h.districts.set(DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" });
+
+    // Tick k: a judged list and no points. Impact is recorded, the flag waits.
+    const first = await h.tick();
+    expect(flagsFor(first.written[0]!)).toEqual([false]);
+    expect(teamIn(first.written[0]!, "frc3").qualifyingAwards).toEqual([IMPACT_RECORD]);
+    expect(awardsCursorEtag(h.d1)).toBe("awards-etag-1");
+
+    // Tick k+1: every poll a 304. One conditional awards request, no R2 read.
+    const quiet = await h.tick();
+    expect(quiet.awardsCalls).toEqual([{ ifNoneMatch: "awards-etag-1", beforeArtifactRead: true }]);
+    expect(quiet.districtReads).toBe(0);
+    expect(quiet.written).toHaveLength(0);
+
+    // Tick k+2: the rankings bring the points, the list is unchanged.
+    h.districts.set(DISTRICT_KEY, { rankings: rankingsWithAwardPoints(), etag: "rank-etag-2" });
+    const third = await h.tick();
+    expect(third.awardsCalls).toEqual([
+      { ifNoneMatch: "awards-etag-1", beforeArtifactRead: true },
+      { ifNoneMatch: undefined, beforeArtifactRead: false },
+    ]);
+    expect(third.written).toHaveLength(1);
+    expect(flagsFor(third.written[0]!)).toEqual([true, true]);
+    expect(teamIn(third.written[0]!, "frc3").qualifyingAwards).toEqual([IMPACT_RECORD]);
+  });
+
+  it("(c) a District Championship Winner listed on a quiet tick is recorded on that tick, and the flag stays false", async () => {
+    const DCMP_EVENT = "2026pncmp";
+    const dcmpState = { qualMatchesPlayed: 2, qualMatchesTotal: 2, alliancesPicked: true, playoffsDone: true, awardsPosted: false };
+    const artifact = districtArtifactFixture() as { teams: { teamKey: string; pointTotal: number; eventPoints: unknown[]; remainingEvents: unknown[]; maxRemainingDistrict: number; maxRemainingChamp: number }[] };
+    for (const team of artifact.teams) {
+      team.remainingEvents = [];
+      team.maxRemainingDistrict = 0;
+      team.maxRemainingChamp = 0;
+      if (team.teamKey === "frc3") continue;
+      team.eventPoints.push({ eventKey: DCMP_EVENT, eventName: "PNW Championship", week: 6, tier: "dcmp", qual: 30, alliance: 0, elim: 0, award: 0, total: 30, state: { ...dcmpState } });
+      team.pointTotal += 30;
+    }
+    const h = makeHarness({ artifact, eventKey: DCMP_EVENT });
+    // Everything is quiet: the rankings and the match list both answer 304.
+    seedCursor(h.d1, districtRankingsCursorKey(DISTRICT_KEY), "rank-etag-1", null);
+    seedCursor(h.d1, DCMP_EVENT, "etag-1", `${DCMP_EVENT}_f1m1`);
+    seedCursor(h.d1, `__event_awards__:${DCMP_EVENT}`, "awards-etag-0", null);
+    h.districts.set(DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" });
+    // The winning alliance: two district teams and one team from outside it.
+    h.events.set(DCMP_EVENT, finishedEventRecord(DCMP_EVENT, "etag-1", { awards: [tbaAward(1, "District Championship Winner", ["frc1", "frc2", "frc9999"], DCMP_EVENT)], awardsEtag: "awards-etag-1" }));
+
+    const report = await h.tick();
+
+    expect(report.rankingsCalls).toEqual(["rank-etag-1"]);
+    expect(report.awardsCalls).toEqual([{ ifNoneMatch: "awards-etag-0", beforeArtifactRead: true }]);
+    expect(report.districtReads).toBe(1);
+    expect(report.written).toHaveLength(1);
+    const winner = { eventKey: DCMP_EVENT, awardType: 1, label: "Winner", awardOnly: false };
+    expect(teamIn(report.written[0]!, "frc1").qualifyingAwards).toEqual([winner]);
+    expect(teamIn(report.written[0]!, "frc2").qualifyingAwards).toEqual([winner]);
+    expect(teamIn(report.written[0]!, "frc3").qualifyingAwards).toEqual([]);
+    expect(report.written[0]!.teams.map((team) => team.teamKey)).toEqual(["frc1", "frc2", "frc3"]);
+    expect(flagsFor(report.written[0]!, DCMP_EVENT)).toEqual([false, false]);
+    expect(awardsCursorEtag(h.d1, DCMP_EVENT)).toBe("awards-etag-1");
+    expect(report.result.districtsFailed).toBe(0);
+  });
+});
+
+describe("runTick — an awards request that fails is not fatal to the district (261009-r9x, R-B and D8)", () => {
+  it("(f) a failed ask before the gate: the new points are written, the flag is unchanged, one warn names the event, and the row is left as a retry marker", async () => {
+    const h = makeHarness();
+    seedCursor(h.d1, AWARDS_CURSOR_KEY, "awards-etag-0", null);
+    h.events.set(LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: JUDGED_LIST, awardsStatus: 500 }));
+    h.districts.set(DISTRICT_KEY, { rankings: rankingsWithAwardPoints(), etag: "rank-etag-1" });
+
+    const report = await h.tick();
+
+    // The district carried on: its rankings merge was written.
+    expect(report.result.districtsFailed).toBe(0);
+    expect(report.result.districtsRefreshed).toBe(1);
+    expect(report.written).toHaveLength(1);
+    expect(teamIn(report.written[0]!, "frc1").pointTotal).toBe(90);
+    expect(teamIn(report.written[0]!, "frc3").pointTotal).toBe(20);
+    // No awards news: the flag stays false and nobody is recorded.
+    expect(flagsFor(report.written[0]!)).toEqual([false, false]);
+    expect(report.written[0]!.teams.map((team) => team.qualifyingAwards)).toEqual([[], [], []]);
+    // Asked once, before the gate, and not a second time inside the loop.
+    expect(report.awardsCalls).toEqual([{ ifNoneMatch: "awards-etag-0", beforeArtifactRead: true }]);
+    // Exactly one warn, naming the district, the event and a reason.
+    const warns = awardsWarns(h.warnSpy);
+    expect(warns).toHaveLength(1);
+    expect(Object.keys(warns[0]!).sort()).toEqual(["districtKey", "eventKey", "msg", "reason"]);
+    expect(warns[0]!["districtKey"]).toBe(DISTRICT_KEY);
+    expect(warns[0]!["eventKey"]).toBe(LIVE_EVENT);
+    expectNoSecretInWarns(h.warnSpy);
+    // D8: the flag is not yet true, so the row becomes a retry marker (a null
+    // ETag), never an ETag from the failed response. The next ask is
+    // unconditional.
+    expect(awardsCursorEtag(h.d1)).toBeNull();
+    // The rankings cursor was still written.
+    expect(h.d1.eventCursors.get(districtRankingsCursorKey(DISTRICT_KEY))?.tba_etag).toBe("rank-etag-1");
+  });
+
+  it("(f) a failed ask inside the loop, on a body that fails the schema: same outcome, and a retry marker row is created", async () => {
+    const h = makeHarness();
+    // No awards cursor row, playoffs done: the one ask is the unconditional one.
+    h.events.set(LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: { notAList: true }, awardsEtag: "awards-etag-bad" }));
+    h.districts.set(DISTRICT_KEY, { rankings: rankingsWithAwardPoints(), etag: "rank-etag-1" });
+
+    const report = await h.tick();
+
+    expect(report.result.districtsFailed).toBe(0);
+    expect(report.written).toHaveLength(1);
+    expect(teamIn(report.written[0]!, "frc1").pointTotal).toBe(90);
+    expect(flagsFor(report.written[0]!)).toEqual([false, false]);
+    expect(report.written[0]!.teams.map((team) => team.qualifyingAwards)).toEqual([[], [], []]);
+    expect(report.awardsCalls).toEqual([{ ifNoneMatch: undefined, beforeArtifactRead: false }]);
+    const warns = awardsWarns(h.warnSpy);
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!["eventKey"]).toBe(LIVE_EVENT);
+    expect(warns[0]!["reason"]).toBe("the awards response failed the schema");
+    // The payload itself never reaches the log.
+    expect(JSON.stringify(warns[0])).not.toContain("notAList");
+    expectNoSecretInWarns(h.warnSpy);
+    // D8: a row is created with a null ETag, never the failed response's ETag.
+    expect(h.d1.eventCursors.has(AWARDS_CURSOR_KEY)).toBe(true);
+    expect(awardsCursorEtag(h.d1)).toBeNull();
+  });
+
+  it("(f) a failed ask inside the loop on a non 2xx answer: the district carries on and a retry marker row is created", async () => {
+    const h = makeHarness();
+    h.events.set(LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: JUDGED_LIST, awardsStatus: 503 }));
+    h.districts.set(DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" });
+
+    const report = await h.tick();
+
+    expect(report.result.districtsFailed).toBe(0);
+    expect(report.written).toHaveLength(1);
+    expect(teamIn(report.written[0]!, "frc1").pointTotal).toBe(90);
+    expect(flagsFor(report.written[0]!)).toEqual([false]);
+    expect(report.awardsCalls).toEqual([{ ifNoneMatch: undefined, beforeArtifactRead: false }]);
+    expect(awardsWarns(h.warnSpy)).toHaveLength(1);
+    expectNoSecretInWarns(h.warnSpy);
+    expect(awardsCursorEtag(h.d1)).toBeNull();
+  });
+
+  it("a failed ask for an event whose flag is already true leaves its row untouched: the next conditional ask is the retry", async () => {
+    const h = makeHarness({ artifact: districtArtifactWithState(stateBlock({ playoffsDone: true, awardsPosted: true })) });
+    seedCursor(h.d1, AWARDS_CURSOR_KEY, "awards-etag-0", null);
+    h.events.set(LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: JUDGED_LIST, awardsStatus: 500 }));
+    h.districts.set(DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" });
+
+    const report = await h.tick();
+
+    expect(report.result.districtsFailed).toBe(0);
+    expect(report.written).toHaveLength(1);
+    expect(flagsFor(report.written[0]!)).toEqual([true]);
+    expect(report.awardsCalls).toEqual([{ ifNoneMatch: "awards-etag-0", beforeArtifactRead: true }]);
+    expect(awardsWarns(h.warnSpy)).toHaveLength(1);
+    expect(awardsCursorEtag(h.d1)).toBe("awards-etag-0");
+  });
+
+  it("D8 (i): a failed ask inside the loop leaves a null ETag row, and the next quiet tick asks with no ETag, passes the gate and merges the list", async () => {
+    const h = makeHarness();
+    // The rankings are a 304 from the start; the gate passes on the match
+    // observation alone.
+    seedCursor(h.d1, districtRankingsCursorKey(DISTRICT_KEY), "rank-etag-1", null);
+    h.events.set(LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: JUDGED_LIST, awardsEtag: "awards-etag-1", awardsStatus: 500 }));
+    h.districts.set(DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" });
+
+    const first = await h.tick();
+    expect(first.rankingsCalls).toEqual(["rank-etag-1"]);
+    expect(first.districtReads).toBe(1);
+    expect(first.awardsCalls).toEqual([{ ifNoneMatch: undefined, beforeArtifactRead: false }]);
+    expect(first.result.districtsFailed).toBe(0);
+    expect(h.d1.eventCursors.has(AWARDS_CURSOR_KEY)).toBe(true);
+    expect(awardsCursorEtag(h.d1)).toBeNull();
+    expect(h.d1.eventCursors.get(LIVE_EVENT)?.tba_etag).toBe("etag-1");
+
+    // TBA answers again. Rankings 304, match 304: nothing else would pass the
+    // gate. The null ETag row is asked with no ETag, and its 200 does.
+    delete h.events.get(LIVE_EVENT)!.awardsStatus;
+    const second = await h.tick();
+    expect(second.rankingsCalls).toEqual(["rank-etag-1"]);
+    expect(second.awardsCalls).toEqual([{ ifNoneMatch: undefined, beforeArtifactRead: true }]);
+    expect(second.districtReads).toBe(1);
+    expect(second.written).toHaveLength(1);
+    expect(teamIn(second.written[0]!, "frc3").qualifyingAwards).toEqual([IMPACT_RECORD]);
+    expect(awardsCursorEtag(h.d1)).toBe("awards-etag-1");
+  });
+
+  it("D8 (ii): the points arrive on the tick the conditional ask fails, and the next tick's unconditional ask turns the flag true", async () => {
+    const h = makeHarness();
+    // The row the last merged list left behind. The list has not changed since.
+    seedCursor(h.d1, AWARDS_CURSOR_KEY, "awards-etag-1", null);
+    h.events.set(LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: JUDGED_LIST, awardsEtag: "awards-etag-1", awardsStatus: 500 }));
+    h.districts.set(DISTRICT_KEY, { rankings: rankingsWithAwardPoints(), etag: "rank-etag-1" });
+
+    const first = await h.tick();
+    expect(first.written).toHaveLength(1);
+    expect(teamIn(first.written[0]!, "frc3").pointTotal).toBe(20);
+    expect(flagsFor(first.written[0]!)).toEqual([false, false]);
+    expect(awardsCursorEtag(h.d1)).toBeNull();
+
+    // Without the marker this tick would be a conditional 304 on an unchanged
+    // list, the gate would stay shut, and the flag would never turn true.
+    delete h.events.get(LIVE_EVENT)!.awardsStatus;
+    const second = await h.tick();
+    expect(second.rankingsCalls).toEqual(["rank-etag-1"]);
+    expect(second.awardsCalls).toEqual([{ ifNoneMatch: undefined, beforeArtifactRead: true }]);
+    expect(second.written).toHaveLength(1);
+    expect(flagsFor(second.written[0]!)).toEqual([true, true]);
+    expect(teamIn(second.written[0]!, "frc3").qualifyingAwards).toEqual([IMPACT_RECORD]);
+    expect(teamIn(second.written[0]!, "frc3").districtLock.status).toBe("lockedAward");
+    expect(awardsCursorEtag(h.d1)).toBe("awards-etag-1");
+  });
+
+  it("D8 (iii): an awards cursor write that throws leaves the rankings cursor unwritten, so the next tick's rankings pass the gate again", async () => {
+    const h = makeHarness();
+    h.events.set(LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: WINNER_AND_FINALIST, awardsEtag: "awards-etag-1" }));
+    h.districts.set(DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" });
+    h.d1.rejectCursorWritesForKeyPrefix = "__event_awards__:";
+
+    const first = await h.tick();
+    // The awards cursors are written first. The throw lands before the
+    // rankings cursor, so neither row exists.
+    expect(h.d1.eventCursors.has(AWARDS_CURSOR_KEY)).toBe(false);
+    expect(h.d1.eventCursors.has(districtRankingsCursorKey(DISTRICT_KEY))).toBe(false);
+    expect(first.result.districtsFailed).toBe(1);
+    // `runTick` resolved, and the rotation offset survived.
+    expect(h.d1.eventCursors.get("__scheduler_meta__")).toBeDefined();
+
+    h.d1.rejectCursorWritesForKeyPrefix = null;
+    const second = await h.tick();
+    // No rankings ETag was cached, so the request is unconditional and its 200
+    // passes the gate again.
+    expect(second.rankingsCalls).toEqual([undefined]);
+    expect(second.districtReads).toBe(1);
+    expect(second.result.districtsFailed).toBe(0);
+    expect(awardsCursorEtag(h.d1)).toBe("awards-etag-1");
+    expect(h.d1.eventCursors.get(districtRankingsCursorKey(DISTRICT_KEY))?.tba_etag).toBe("rank-etag-1");
   });
 });
 
 describe("runTick — the awards fetch", () => {
-  it("requests /awards exactly once, only after playoffsDone, and a non-empty response sets awardsPosted true", async () => {
-    const d1 = new FakeD1Database();
-    const r2 = new FakeR2Bucket();
-    r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactFixture()));
-    const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
-    const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: ONE_AWARD })]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]));
-    vi.stubGlobal("fetch", fetchMock);
+  it("asks once after playoffsDone, and a Winner only list leaves awardsPosted false with its ETag stored", async () => {
+    const h = makeHarness();
+    h.events.set(LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: WINNER_ONLY, awardsEtag: "awards-etag-1" }));
+    h.districts.set(DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" });
 
-    await runTick(env, { nowMs: NOW_MS });
+    const report = await h.tick();
 
-    expect(awardsRequests(fetchMock)).toHaveLength(1);
-    expect(writtenLiveEventState(r2)).toEqual({ qualMatchesPlayed: 2, qualMatchesTotal: 2, alliancesPicked: true, playoffsDone: true, awardsPosted: true });
+    expect(report.awardsCalls).toHaveLength(1);
+    expect(writtenLiveEventState(h.r2)).toEqual({ qualMatchesPlayed: 2, qualMatchesTotal: 2, alliancesPicked: true, playoffsDone: true, awardsPosted: false });
+    expect(report.written[0]!.teams.map((team) => team.qualifyingAwards)).toEqual([[], [], []]);
+    expect(awardsCursorEtag(h.d1)).toBe("awards-etag-1");
+  });
+
+  it("turns awardsPosted true on an Impact list whose points are in the rankings, records the winner, and writes once", async () => {
+    const h = makeHarness();
+    h.events.set(LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: JUDGED_LIST, awardsEtag: "awards-etag-1" }));
+    h.districts.set(DISTRICT_KEY, { rankings: rankingsWithAwardPoints(), etag: "rank-etag-1" });
+
+    const report = await h.tick();
+
+    expect(report.awardsCalls).toHaveLength(1);
+    expect(report.written).toHaveLength(1);
+    expect(writtenLiveEventState(h.r2)).toEqual({ qualMatchesPlayed: 2, qualMatchesTotal: 2, alliancesPicked: true, playoffsDone: true, awardsPosted: true });
+    expect(teamIn(report.written[0]!, "frc3").qualifyingAwards).toEqual([IMPACT_RECORD]);
+    expect(awardsCursorEtag(h.d1)).toBe("awards-etag-1");
   });
 
   it("makes NO awards request at all while the playoffs are not done", async () => {
-    const d1 = new FakeD1Database();
-    const r2 = new FakeR2Bucket();
-    r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactFixture()));
-    const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
-    const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, alliancesPostedEventRecord(LIVE_EVENT, "etag-1", { awards: ONE_AWARD })]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]));
-    vi.stubGlobal("fetch", fetchMock);
+    const h = makeHarness();
+    h.events.set(LIVE_EVENT, alliancesPostedEventRecord(LIVE_EVENT, "etag-1", { awards: JUDGED_LIST }));
+    h.districts.set(DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" });
 
-    await runTick(env, { nowMs: NOW_MS });
+    const report = await h.tick();
 
-    expect(awardsRequests(fetchMock)).toHaveLength(0);
-    expect(writtenLiveEventState(r2)?.awardsPosted).toBe(false);
+    expect(report.awardsCalls).toHaveLength(0);
+    expect(writtenLiveEventState(h.r2)?.awardsPosted).toBe(false);
+    expect(h.d1.eventCursors.has(AWARDS_CURSOR_KEY)).toBe(false);
   });
 
-  it("leaves awardsPosted false on an EMPTY awards array", async () => {
-    const d1 = new FakeD1Database();
-    const r2 = new FakeR2Bucket();
-    r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactFixture()));
-    const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
-    const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: [] })]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]));
-    vi.stubGlobal("fetch", fetchMock);
+  for (const [name, body] of [
+    ["an EMPTY awards array", []],
+    ["a null awards body", null],
+  ] as const) {
+    it(`leaves awardsPosted false on ${name}, does not throw, and stores the ETag`, async () => {
+      const h = makeHarness();
+      h.events.set(LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: body, awardsEtag: "awards-etag-1" }));
+      h.districts.set(DISTRICT_KEY, { rankings: rankingsWithAwardPoints(), etag: "rank-etag-1" });
 
-    await runTick(env, { nowMs: NOW_MS });
+      const report = await h.tick();
 
-    expect(awardsRequests(fetchMock)).toHaveLength(1);
-    expect(writtenLiveEventState(r2)?.awardsPosted).toBe(false);
-  });
+      expect(report.result.districtsFailed).toBe(0);
+      expect(report.awardsCalls).toHaveLength(1);
+      expect(writtenLiveEventState(h.r2)?.awardsPosted).toBe(false);
+      expect(awardsWarns(h.warnSpy)).toEqual([]);
+      expect(awardsCursorEtag(h.d1)).toBe("awards-etag-1");
+    });
+  }
 
-  it("leaves awardsPosted false on a 304 awards response — unchanged since the last time it was seen empty", async () => {
-    const d1 = new FakeD1Database();
-    seedCursor(d1, `__event_awards__:${LIVE_EVENT}`, "awards-etag-1", null);
-    const r2 = new FakeR2Bucket();
-    r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactFixture()));
-    const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
-    const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: ONE_AWARD, awardsEtag: "awards-etag-1" })]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]));
-    vi.stubGlobal("fetch", fetchMock);
+  it("asks twice for the row the old code left behind (a stored ETag, a flag not yet true, an unchanged list): a conditional 304, then no ETag, and the flag follows the rule", async () => {
+    async function flagAfter(awards: unknown, rankings: unknown): Promise<{ calls: AwardsCall[]; posted: boolean | undefined }> {
+      const h = makeHarness();
+      seedCursor(h.d1, AWARDS_CURSOR_KEY, "awards-etag-1", null);
+      h.events.set(LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards, awardsEtag: "awards-etag-1" }));
+      h.districts.set(DISTRICT_KEY, { rankings, etag: "rank-etag-1" });
+      const report = await h.tick();
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+      return { calls: report.awardsCalls, posted: writtenLiveEventState(h.r2)?.awardsPosted };
+    }
+    const twoAsks = [
+      { ifNoneMatch: "awards-etag-1", beforeArtifactRead: true },
+      { ifNoneMatch: undefined, beforeArtifactRead: false },
+    ];
 
-    await runTick(env, { nowMs: NOW_MS });
-
-    expect(awardsRequests(fetchMock)).toHaveLength(1);
-    expect(writtenLiveEventState(r2)?.awardsPosted).toBe(false);
+    // The old rule read this 304 as "still empty". The list may hold anything.
+    expect(await flagAfter(WINNER_ONLY, rankingsWithAwardPoints())).toEqual({ calls: twoAsks, posted: false });
+    expect(await flagAfter(JUDGED_LIST, movedRankings())).toEqual({ calls: twoAsks, posted: false });
+    expect(await flagAfter(JUDGED_LIST, rankingsWithAwardPoints())).toEqual({ calls: twoAsks, posted: true });
   });
 
   it("publishes ONE MORE points slot once the live event's Impact award is posted — the 260925-ms7 reservation, end to end through the Worker", async () => {
@@ -876,33 +1400,50 @@ describe("runTick — the awards fetch", () => {
     expect(await statuses(true)).toEqual(["locked", "locked", "eliminated"]);
   });
 
-  it("issues NO awards request for an event whose published state already says awardsPosted true — awards do not un-post", async () => {
-    const d1 = new FakeD1Database();
-    const r2 = new FakeR2Bucket();
-    r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactWithState(stateBlock({ playoffsDone: true, awardsPosted: true }))));
-    const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
-    const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: ONE_AWARD })]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]));
-    vi.stubGlobal("fetch", fetchMock);
+  it("asks once, with no ETag, for an event whose published flag is already true and that has no awards cursor row, and the next tick's ask is conditional", async () => {
+    // The offline publisher set this flag, so the Worker has never asked. One
+    // unconditional ask gives the event a row, and from then on a changed
+    // list passes the gate. Awards do not un post: the flag stays true even
+    // though this list holds only a Winner.
+    const h = makeHarness({ artifact: districtArtifactWithState(stateBlock({ playoffsDone: true, awardsPosted: true })) });
+    h.events.set(LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: WINNER_ONLY, awardsEtag: "awards-etag-1" }));
+    h.districts.set(DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" });
 
-    await runTick(env, { nowMs: NOW_MS });
+    const first = await h.tick();
+    expect(first.awardsCalls).toEqual([{ ifNoneMatch: undefined, beforeArtifactRead: false }]);
+    expect(writtenLiveEventState(h.r2)?.awardsPosted).toBe(true);
+    expect(awardsCursorEtag(h.d1)).toBe("awards-etag-1");
 
-    expect(awardsRequests(fetchMock)).toHaveLength(0);
-    expect(writtenLiveEventState(r2)?.awardsPosted).toBe(true);
+    const second = await h.tick();
+    expect(second.awardsCalls).toEqual([{ ifNoneMatch: "awards-etag-1", beforeArtifactRead: true }]);
+    expect(second.districtReads).toBe(0);
   });
 
-  it("still issues the awards request when THIS tick's match poll was a 304 but the PUBLISHED state says playoffs done and awards not posted", async () => {
-    const d1 = new FakeD1Database();
-    seedCursor(d1, LIVE_EVENT, "etag-1", `${LIVE_EVENT}_f1m1`);
-    const r2 = new FakeR2Bucket();
-    r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(districtArtifactWithState(stateBlock({ playoffsDone: true, awardsPosted: false }))));
-    const env = makeEnv(makeManifests([liveWindow()]), d1, r2);
-    const fetchMock = makeTbaFetchStub(new Map([[LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: ONE_AWARD })]]), new Map([[DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" }]]));
-    vi.stubGlobal("fetch", fetchMock);
+  it("asks nothing more for an event whose flag is already true and whose conditional ask answered 304", async () => {
+    const h = makeHarness({ artifact: districtArtifactWithState(stateBlock({ playoffsDone: true, awardsPosted: true })) });
+    seedCursor(h.d1, AWARDS_CURSOR_KEY, "awards-etag-1", null);
+    h.events.set(LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: JUDGED_LIST, awardsEtag: "awards-etag-1" }));
+    h.districts.set(DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" });
 
-    await runTick(env, { nowMs: NOW_MS });
+    const report = await h.tick();
 
-    expect(awardsRequests(fetchMock)).toHaveLength(1);
-    expect(writtenLiveEventState(r2)?.awardsPosted).toBe(true);
+    expect(report.awardsCalls).toEqual([{ ifNoneMatch: "awards-etag-1", beforeArtifactRead: true }]);
+    expect(writtenLiveEventState(h.r2)?.awardsPosted).toBe(true);
+    // The 304 carried no list, so nothing is recorded from it.
+    expect(report.written[0]!.teams.map((team) => team.qualifyingAwards)).toEqual([[], [], []]);
+  });
+
+  it("still asks when THIS tick's match poll was a 304 but the PUBLISHED state says playoffs done and awards not posted, and an Impact list with its points turns the flag true", async () => {
+    const h = makeHarness({ artifact: districtArtifactWithState(stateBlock({ playoffsDone: true, awardsPosted: false })) });
+    seedCursor(h.d1, LIVE_EVENT, "etag-1", `${LIVE_EVENT}_f1m1`);
+    h.events.set(LIVE_EVENT, finishedEventRecord(LIVE_EVENT, "etag-1", { awards: JUDGED_LIST, awardsEtag: "awards-etag-1" }));
+    h.districts.set(DISTRICT_KEY, { rankings: rankingsWithAwardPoints(), etag: "rank-etag-1" });
+
+    const report = await h.tick();
+
+    expect(report.awardsCalls).toEqual([{ ifNoneMatch: undefined, beforeArtifactRead: false }]);
+    expect(writtenLiveEventState(h.r2)?.awardsPosted).toBe(true);
+    expect(teamIn(report.written[0]!, "frc3").qualifyingAwards).toEqual([IMPACT_RECORD]);
   });
 });
 

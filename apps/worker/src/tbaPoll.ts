@@ -122,9 +122,13 @@ export async function pollDistrictRankings(ctx: TbaClientContext, districtKey: s
 
 /**
  * `GET /event/{key}/awards`, conditional on `cachedEtag`. The ONE genuinely
- * new request this phase adds, made only when an event's playoffs are done and
- * its published state does not already say the awards are posted — see
- * `districtRefresh.ts` for that gate.
+ * new request this phase adds. Since quick task 261009-r9x the flag is not
+ * decided from this response alone: the shared merge
+ * (`packages/harness/districtRankingsMerge.ts`) resolves `awardsPosted` from
+ * the awards list and the rankings merged the same tick. An event that has an
+ * awards cursor row is asked conditionally on every tick, and an event whose
+ * flag still waits is asked with no ETag on a tick that reads the artifact —
+ * see `districtRefresh.ts` for the order and the reasons.
  */
 export async function pollEventAwards(ctx: TbaClientContext, eventKey: string, cachedEtag: string | undefined): Promise<TbaConditionalBody> {
   let result: TbaFetchResult;
