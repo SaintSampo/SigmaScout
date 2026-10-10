@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-10T19:07:35.117Z"
+last_updated: "2026-10-10T20:00:00.712Z"
 last_activity: 2026-10-10
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -756,6 +756,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 320 | The offline district publisher reads what is live before it uploads and refuses to lose a live fact (a stage flag, a played count, a points row, a recorded award winner); --allow-regress overrides, --check-live reports on a dry run; first production read compared 109 districts and would lose nothing | 2026-10-10 | 14bb1b07 | [261009-ul3-district-publisher-refuses-to-overwrite-](./quick/261009-ul3-district-publisher-refuses-to-overwrite-/) |
 | 321 | At the live position a team with no championship row reads out only once the field is proven (posted rows against capacity, or a posted finals row); the District Locks overlay and the published champ verdicts wait the same way; the ceiling test reads the finals alike with and without a finals row; a backup seen on the field joins its alliance; a settled value that is not exact prints up to N. Live replays of five 2026 championships: 41 locks taken back before, 0 after; 17 lock stops gained, none lost | 2026-10-10 | 38e29a12 | [261010-66y-at-the-live-position-a-team-with-no-cham](./quick/261010-66y-at-the-live-position-a-team-with-no-cham/) |
 | 322 | The joint lock proof is monotone: an awarded rival takes no second judged award, the proof runs until every championship key's awards are final, a finished championship of two needs no bracket facts, a listed fourth is paid its alliance's value or takes a seat and never both; the divisioned proof runs before the finals key exists. Micro step walks over 58 championships lose 0 locks (957, 306 and 91 with a rule off); 16 lock stops gained, none lost; no Worker file changed | 2026-10-10 | 72cc0830 | [261010-d7r-the-joint-lock-proof-never-raises-a-boun](./quick/261010-d7r-the-joint-lock-proof-never-raises-a-boun/) |
+| 323 | The offline district publisher skips a district while one of its events is live (the Worker owns its file then) and publishes the others: a clock rule on the Worker's own window plus 24 hours, an evidence rule for the rest of the watch (a flag it would raise, a point value it would lower), the index row carried, --allow-live to override; silent today, 109 districts compared against production with nothing lost | 2026-10-10 | 697563e5 | [261010-jyn-the-district-publisher-refuses-to-publis](./quick/261010-jyn-the-district-publisher-refuses-to-publis/) |
 
 ### Roadmap Evolution
 
