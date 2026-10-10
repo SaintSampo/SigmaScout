@@ -459,8 +459,9 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   }, [artifact]);
 
   const rewinding = search.at !== undefined && search.at !== DISTRICT_TIMELINE_NOW_ID;
-  // At Live a divisioned championship's finished divisions stay fetched while
-  // any of its events is in progress, for the joint proof (261009-kt3).
+  // At Live a divisioned championship's started keys stay fetched until its
+  // finals event has finished, for the joint proof (261009-kt3, widened by
+  // 261010-66y: the window between the divisions and the finals).
   const liveFetchKeys = useMemo(() => champLiveFetchKeys(inProgressKeys, startedKeys, dcmpEventKeys), [inProgressKeys, startedKeys, dcmpEventKeys]);
   const activeEventKeys = rewinding ? startedKeys : liveFetchKeys;
   const artifacts = useDistrictEventArtifacts(activeEventKeys);

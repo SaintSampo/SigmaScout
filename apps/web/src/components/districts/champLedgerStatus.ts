@@ -133,6 +133,39 @@
  *    winner, or finals rows before every division is decided,
  *    `bracketUnroutable`.
  *
+ *    A STATED LIMIT: A DIVISION'S AWARDS TURNING FINAL CAN RAISE A BOUND
+ *    (measured 2026-10-10, quick task 261010-66y; not closed). While a
+ *    division's Awards are open none of its award points is in any floor,
+ *    and the proof gives each rival at most one judged award out of the
+ *    division's whole ceiling of 14. Once they read final the posted award
+ *    points are in the floors, the proof still holds the rest of the ceiling
+ *    (14 minus the teams awarded: 2 or 3 per division in every measured
+ *    season) for awards that may yet be listed, and it may hand one of those
+ *    to a rival that already holds a posted award. That rival's maximum is
+ *    then one judged award higher than it was a tick before, so a team's
+ *    bound can RISE and a Locked the proof gave can be taken back. Measured
+ *    on rewound readings with every division's Playoffs final and the finals
+ *    not started, the divisions' Awards open against final: 11 teams over
+ *    the 16 divisioned championships of 2023 to 2026 are Locked by the proof
+ *    with the Awards open and not with them final (bound up by 1 to 3;
+ *    `scripts/champFieldStagedWalk.test.ts` pins them). No stop of the sweep
+ *    sits between those two readings, so no measured history shows it. Live,
+ *    it needs the proof applied before the divisions' Awards read final,
+ *    which needs the finals key on the rows that early (a registration at
+ *    the finals key, or finals rows posted before a division's awards flag
+ *    turns true). It is why this proof is NOT run before the finals key is on
+ *    the artifact (`packages/core/districts/finalsBracket.ts`, D3 refused):
+ *    with it running through the division playoffs the real 2026 walks took
+ *    1 Locked back at FIM, 2 at NE and 2 at TX on that tick. Closing it
+ *    needs the proof to know which rivals already hold a posted award at a
+ *    division whose Awards are final, which is a change to its input.
+ *
+ *    THE BRACKETS STAY IN HAND UNTIL THE FINALS HAVE FINISHED (quick task
+ *    261010-66y, reading R15, `champLiveFetchKeys`). The proof holds locks
+ *    in the window between the divisions and the finals, where no event of
+ *    the championship reads in progress, and the tab used to drop the
+ *    brackets there and with them every lock the proof alone held.
+ *
  *    A BACKUP ROBOT SEEN ON THE FIELD (quick task 261010-66y, CONTEXT D4).
  *    A team on a side of a played playoff row that no pick list names is, in
  *    the facts this proof is handed, a listed pick of that side's alliance

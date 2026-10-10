@@ -257,19 +257,43 @@ export function divisionedDcmpBracketFacts(params: {
 }
 
 /**
- * The Champ Locks tab's fetch set at the LIVE position (quick task 261009-kt3):
- * the in progress events, plus every STARTED dcmp tier key of a divisioned
- * championship while any of its keys is in progress, so the finished divisions'
- * brackets are on hand for the joint proof during the finals. Any other shape
- * returns the in progress keys unchanged. An event with no open category costs
- * no simulation however it got into the fetch set.
+ * The Champ Locks tab's fetch set at the LIVE position (quick task 261009-kt3,
+ * widened by 261010-66y, reading R15): the in progress events, plus every
+ * STARTED dcmp tier key of a divisioned championship UNTIL ITS FINALS EVENT
+ * HAS FINISHED. Any other shape returns the in progress keys unchanged. An
+ * event with no open category costs no simulation however it got into the
+ * fetch set.
+ *
+ * WHY UNTIL THE FINALS HAVE FINISHED, and not only while one of the
+ * championship's events is in progress. The joint proof reads every
+ * division's bracket, and it holds locks the ceiling test alone would drop
+ * in two places where no event of the championship reads in progress:
+ *
+ *   - THE WINDOW between the divisions and the finals: every division reads
+ *     finished and the finals have not started. The proof alone holds 196
+ *     team stops over the 16 divisioned championships of 2023 to 2026 at the
+ *     "Divisions final, finals not started" stop (2026 FIM: 36 of 65). With
+ *     the old rule the brackets were dropped there and so were those locks,
+ *     to come back once the finals started.
+ *   - THE TICK THE FINALS ROWS FIRST POST, before the finals' own state is
+ *     written: the finals key is on the rows and has not started.
+ *
+ * So, for a divisioned shape: while the finals key has not finished (it is
+ * not started, or it is in progress), every started key of the championship
+ * is in the fetch set. The finals key HAS FINISHED when it is started and
+ * not in progress; then the finals' Awards are final, the proof no longer
+ * runs, and only the in progress keys are returned.
+ *
+ * The shape is read off the keys on the rows. Division keys whose finals key
+ * is on no row yet are not a divisioned shape (`championshipShape`), so this
+ * rule starts once the finals key is on a row.
  */
 export function champLiveFetchKeys(inProgressKeys: readonly string[], startedKeys: readonly string[], dcmpEventKeys: readonly string[]): string[] {
   const keys = new Set(inProgressKeys);
   const shape = championshipShape(dcmpEventKeys);
   if (shape.kind === "divisioned") {
-    const championshipKeys = [...shape.divisionKeys, shape.finalsKey];
-    if (championshipKeys.some((key) => keys.has(key))) for (const key of championshipKeys) if (startedKeys.includes(key)) keys.add(key);
+    const finalsFinished = startedKeys.includes(shape.finalsKey) && !keys.has(shape.finalsKey);
+    if (!finalsFinished) for (const key of [...shape.divisionKeys, shape.finalsKey]) if (startedKeys.includes(key)) keys.add(key);
   }
   return [...keys].sort();
 }

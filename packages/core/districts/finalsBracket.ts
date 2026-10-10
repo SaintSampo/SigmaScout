@@ -35,6 +35,34 @@
  * rows. `championshipShape` calls such a key set unsupported, so the single
  * event proof never runs on one division as if it were the whole
  * championship.
+ *
+ * DIVISIONS WITHOUT THEIR FINALS EVENT STAY UNSUPPORTED: A STATED LIMIT
+ * (quick task 261010-66y, D3, built, measured and REFUSED). TBA writes a
+ * finals row only for a team it pays there, so at a live divisioned
+ * championship the finals key can be on no row for the whole of the division
+ * playoffs. The keys on the rows are then "divisions without their finals
+ * event", and the joint proof does not run until the finals rows post. The
+ * ceiling test and the reservation stand meanwhile, which only delays a
+ * Locked.
+ *
+ * Reading 2 or 4 division keys with no parent as a divisioned championship
+ * whose finals have not started, once the field is proven by capacity, was
+ * built and is NOT shipped. What held: over the 16 divisioned championships
+ * of 2023 to 2026 and the 112 stops before the finals have a played row, the
+ * proof with the finals key's rows removed from the artifact equalled the
+ * proof with them present (the same applied flag, input, locked set,
+ * reservation, floors and teams shown Locked; `lockedBy` read
+ * `ceiling+joint` for `joint` at nine team stops). What failed is the live
+ * walk of the real 2026 artifacts with that reading on: the proof, now
+ * running during the division playoffs, took its own Locked back at the tick
+ * the divisions' Awards read final. 2026 FIM 1 team (frc5675), NE 2 (frc4909,
+ * frc2713), ONT 0, TX 2 (frc624, frc9140), each Locked again once the
+ * finals' state was written. The cause is in the proof's judged award
+ * budget, not in the shape: decision 5 of
+ * `apps/web/src/components/districts/champLedgerStatus.ts` states it, and
+ * `scripts/champFieldStagedWalk.test.ts` pins it on rewound readings (11
+ * teams over the 16 championships). Running the proof earlier would show a
+ * Locked and take it back, so the refusal stands until that is closed.
  */
 import {
   bracketDecisionKey,

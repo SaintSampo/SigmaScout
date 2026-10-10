@@ -609,6 +609,29 @@ describe("the divisioned championship's facts and Live fetch set (quick task 261
     expect([...refused.keys()]).toEqual(["2026pncmp2"]);
   });
 
+  it("keeps every started key of a divisioned championship fetched until its finals event has finished (quick task 261010-66y, R15)", () => {
+    const keys = ["2026micmp", "2026micmp1", "2026micmp2", "2026micmp3", "2026micmp4"];
+    const divisions = keys.slice(1);
+    // THE WINDOW: every division started and finished, none in progress, the finals key on the rows and not started.
+    expect(champLiveFetchKeys([], divisions, keys)).toEqual(divisions);
+    expect(champLiveFetchKeys(["2026wabon"], [...divisions, "2026wabon"], keys)).toEqual([...divisions, "2026wabon"].sort());
+    // Part of the way there: two divisions finished, two still to start.
+    expect(champLiveFetchKeys([], divisions.slice(0, 2), keys)).toEqual(divisions.slice(0, 2));
+    // The finals in progress: every started key, as before.
+    expect(champLiveFetchKeys(["2026micmp"], keys, keys)).toEqual(keys);
+    // The finals event finished (started and not in progress): only the other in progress keys.
+    expect(champLiveFetchKeys([], keys, keys)).toEqual([]);
+    expect(champLiveFetchKeys(["2026wabon"], [...keys, "2026wabon"], keys)).toEqual(["2026wabon"]);
+    // Before the championship: nothing started, nothing added.
+    expect(champLiveFetchKeys(["2026wabon"], ["2026wabon"], keys)).toEqual(["2026wabon"]);
+    // Division keys whose finals key is on no row are not a divisioned shape: the in progress keys alone.
+    expect(champLiveFetchKeys([], divisions, divisions)).toEqual([]);
+    expect(champLiveFetchKeys(["2026micmp1"], divisions, divisions)).toEqual(["2026micmp1"]);
+    // Two championships and a single one are untouched, finished or not.
+    expect(champLiveFetchKeys([], ["2026cancmp", "2026cascmp"], ["2026cancmp", "2026cascmp"])).toEqual([]);
+    expect(champLiveFetchKeys([], ["2026pncmp"], ["2026pncmp"])).toEqual([]);
+  });
+
   it("keeps a divisioned championship's started keys fetched at Live while any of them is in progress, and changes nothing otherwise", () => {
     const keys = ["2026micmp", "2026micmp1", "2026micmp2", "2026micmp3", "2026micmp4"];
     expect(champLiveFetchKeys(["2026micmp", "2026wabon"], [...keys, "2026wabon"], keys)).toEqual([...keys, "2026wabon"].sort());
