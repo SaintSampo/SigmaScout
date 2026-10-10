@@ -89,6 +89,35 @@
  * `--dry-run` read R2 and print the list (the first pass only). That run still
  * uploads nothing and never fails.
  *
+ * THE LIVE DISTRICTS GUARD (quick task 261010-jyn): the Worker owns a
+ * district's file while it is watching one of that district's events, so a run
+ * that uploads SKIPS that district: it uploads neither its detail file nor its
+ * sidecars, writes no local file for it, and the live facts guard above neither
+ * reads nor compares it. Every other district of the run publishes, and the run
+ * ends with exit 0. `scripts/districtLiveGuard.ts` holds the two rules.
+ * THE CLOCK RULE: a district is live while one of its events is inside its
+ * window or in the 24 hours after it. The window is the live windows builder's
+ * own (`buildLiveWindowsManifest`), asked on this corpus at the wall clock. It
+ * makes two passes: right after every season is composed and before the first
+ * R2 read, and again after the bake, because a window can open while the replay
+ * runs. THE EVIDENCE RULE covers the rest of the Worker's watch, for an event
+ * outside its match window and still inside its calendar window plus 24 hours:
+ * the district is also skipped when this run would write awards posted true
+ * where the published file does not hold it true, or a lower point value than
+ * the published file holds. It reads nothing new: it rides on the bodies the
+ * live facts guard's second pass has just read. THE INDEX: a skipped district's
+ * row in `v1/districts/{year}.json` is taken from the index that is published
+ * now (one read per season with a skipped and a published district, after the
+ * evidence check and before the first upload), and a season whose districts are
+ * all skipped uploads nothing. `--allow-live` prints the same lines, says it
+ * was overridden and publishes the listed districts too, with the live facts
+ * guard still on them. A `--dry-run` prints the clock rule's lines as a notice,
+ * and the evidence rule's lines only with `--check-live`, since a plain dry run
+ * reads nothing. Two refusals remain, both before any upload: a clock check
+ * that cannot run (not overridable), and a published index that cannot be
+ * carried (`--allow-live` is the way through). The clock is the wall clock and
+ * never `--as-of`.
+ *
  * Write ordering: every `v1/district/{key}.json` is written before
  * `v1/districts/{year}.json` is overwritten, so the index never points at
  * a detail object that is not there yet.
@@ -158,7 +187,7 @@ import { getObjectIfExists, putObject } from "../packages/harness/r2Client.js";
 import { roundPmf } from "../packages/harness/rounding.js";
 import { parseSeasonSpec } from "../packages/harness/seasonSpec.js";
 import { guardLivePublish, type PublishedReader } from "./districtPublishGuard.js";
-import { carryPublishedIndex, checkLiveDistricts, seasonUploadPlan, type RunDistrict } from "./districtLiveGuard.js";
+import { carryPublishedIndex, checkLiveDistricts, checkLiveEvidence, seasonUploadPlan, type RunDistrict } from "./districtLiveGuard.js";
 import {
   buildDistrictPricingState,
   finishedEventKeysAsOf,
@@ -1879,12 +1908,15 @@ export async function run(options: CliOptions): Promise<void> {
     // A run that uploads ENFORCES: a live district is skipped, unless
     // --allow-live publishes it too. A dry run uploads nothing, so it prints a
     // NOTICE and skips nothing: its dumps and the as of analysis are unchanged.
-    const clockPass = (stage: string, mode: "enforce" | "notice"): void => {
+    // It hands back its clock reading: the evidence check that follows a pass
+    // uses that reading and never reads the clock itself.
+    const clockPass = (stage: string, mode: "enforce" | "notice"): number => {
+      const nowMs = readClock();
       const outcome = checkLiveDistricts({
         stage,
         db,
         districts: runDistricts,
-        nowMs: readClock(),
+        nowMs,
         log: (line) => console.log(line),
         alreadyListed: clockListed,
         mode,
@@ -1896,12 +1928,13 @@ export async function run(options: CliOptions): Promise<void> {
         // Skipped only on a run that uploads, and only without the override.
         if (mode === "enforce" && !outcome.overridden) skippedDistricts.add(districtKey);
       }
+      return nowMs;
     };
 
     // FIRST CLOCK PASS, on every run, after compose (the districts and their
     // events are known here) and before the first R2 read: a district it skips
     // is neither read nor compared below. It reads nothing from R2 itself.
-    clockPass("before the bake", options.dryRun ? "notice" : "enforce");
+    const firstClockMs = clockPass("before the bake", options.dryRun ? "notice" : "enforce");
 
     // The guard reads the COMPOSED artifact of every district of the run, before
     // the baked-event list is attached: that list is not a fact the Worker
@@ -1913,31 +1946,77 @@ export async function run(options: CliOptions): Promise<void> {
     // --allow-regress) and on a read failure (always). A dry run reads nothing,
     // unless --check-live asks it to REPORT: it prints the list and never fails.
     const guardMode: "enforce" | "report" | undefined = !options.dryRun ? "enforce" : options.checkLive === true ? "report" : undefined;
-    const checkLiveFacts = async (stage: string, mode: "enforce" | "report"): Promise<void> => {
+    /** What one pass of the live facts guard was handed and what it read, for the evidence check that follows it. */
+    interface LiveFactsRead {
+      readonly details: ReadonlyArray<{ readonly key: string; readonly districtKey: string; readonly artifact: DistrictArtifact }>;
+      readonly publishedBodies: ReadonlyMap<string, string | null>;
+    }
+    const checkLiveFacts = async (stage: string, mode: "enforce" | "report"): Promise<LiveFactsRead | undefined> => {
       // Only the districts that are not skipped at this moment, in their
       // existing order (quick task 261010-jyn): the Worker owns a skipped
       // district's file, and this run writes nothing over it.
       const details = composedSeasons.flatMap(({ year }) =>
         year.detailArtifacts
           .filter((composed) => !skippedDistricts.has(composed.district.districtKey))
-          .map((composed) => ({ key: composed.key, artifact: composed.artifact }))
+          .map((composed) => ({ key: composed.key, districtKey: composed.district.districtKey, artifact: composed.artifact }))
       );
       // Districts were skipped and none is left: there is nothing to read.
-      if (details.length === 0 && skippedDistricts.size > 0) return;
+      if (details.length === 0 && skippedDistricts.size > 0) return undefined;
+      // THE RECORDING READER (quick task 261010-jyn). The guard does not hand
+      // back what it read, and the evidence check must read nothing new. So the
+      // guard is handed a reader that calls the run's reader with the same
+      // arguments, returns exactly what it returned, and keeps each returned
+      // body by key, in a map made fresh for this pass. A throw passes through
+      // and records nothing.
+      const readPublished = options.readPublished ?? getObjectIfExists;
+      const publishedBodies = new Map<string, string | null>();
+      const recordingRead: PublishedReader = async (bucket, key) => {
+        const body = await readPublished(bucket, key);
+        publishedBodies.set(key, body);
+        return body;
+      };
       await guardLivePublish({
         stage,
         bucket: options.bucket,
         details,
-        read: options.readPublished ?? getObjectIfExists,
+        read: recordingRead,
         log: (line) => console.log(line),
         mode,
         allowRegress: options.allowRegress === true,
       });
+      return { details, publishedBodies };
+    };
+    // THE EVIDENCE CHECK (quick task 261010-jyn), on the bodies a pass of the
+    // live facts guard has just read, at the clock reading of the clock pass
+    // before it. That guard has already run on the same districts, exactly as
+    // before, so a lost fact has refused the run by the time this is reached.
+    const evidencePass = (stage: string, nowMs: number, read: LiveFactsRead, mode: "enforce" | "notice"): void => {
+      const outcome = checkLiveEvidence({
+        stage,
+        districts: runDistricts,
+        nowMs,
+        alreadyListed: clockListed,
+        details: read.details,
+        publishedBodies: read.publishedBodies,
+        mode,
+        allowLive: options.allowLive === true,
+        log: (line) => console.log(line),
+      });
+      // Skipped only on a run that uploads, and only without the override.
+      if (mode === "enforce" && !outcome.overridden) {
+        for (const districtKey of outcome.evidenceDistrictKeys) skippedDistricts.add(districtKey);
+      }
     };
 
     // FIRST PASS, before any bake: a stale corpus is refused in seconds, not
     // after a replay that takes minutes. A plain dry run never gets here.
-    if (guardMode !== undefined) await checkLiveFacts("before the bake", guardMode);
+    if (guardMode !== undefined) {
+      const firstRead = await checkLiveFacts("before the bake", guardMode);
+      // A dry run with --check-live makes this pass only, so its evidence check
+      // sits here and prints a NOTICE. A run that uploads checks the evidence
+      // once, on its second read below, which is the one its uploads follow.
+      if (guardMode === "report" && firstRead !== undefined) evidencePass("before the bake", firstClockMs, firstRead, "notice");
+    }
 
     const prepared: Array<{ readonly season: number; readonly year: PublishedYear; readonly bakeResult: BakeSeasonResult | undefined }> = [];
     for (const { season, year } of composedSeasons) {
@@ -1951,13 +2030,20 @@ export async function run(options: CliOptions): Promise<void> {
     // SECOND CLOCK PASS (quick task 261010-jyn), after the bake, because an
     // event's window can open while the replay runs. A district found live here
     // is skipped before any of its uploads, and before the second read below.
-    if (!options.dryRun) clockPass("before the first upload", "enforce");
+    const secondClockMs = options.dryRun ? undefined : clockPass("before the first upload", "enforce");
 
     // SECOND PASS, immediately before the first byte gate and the first upload:
     // the Worker writes every minute and the first read is minutes old by now,
     // so a fact it recorded during the bake is still seen. A dry run uploads
     // nothing, so with --check-live it makes the first pass only.
-    if (guardMode === "enforce") await checkLiveFacts("before the first upload", guardMode);
+    if (guardMode === "enforce" && secondClockMs !== undefined) {
+      const secondRead = await checkLiveFacts("before the first upload", guardMode);
+      // THE EVIDENCE CHECK of a run that uploads (quick task 261010-jyn), right
+      // after the second read and before the index carry, so a district it
+      // skips keeps its published index row like any other skipped district.
+      // It is not reached when every district was already skipped by the clock.
+      if (secondRead !== undefined) evidencePass("before the first upload", secondClockMs, secondRead, "enforce");
+    }
 
     // THE INDEX OF A SEASON WITH A SKIPPED DISTRICT (quick task 261010-jyn). The
     // skip set is final here. A season with both a skipped and a published

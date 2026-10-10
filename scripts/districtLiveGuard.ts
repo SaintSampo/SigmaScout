@@ -65,6 +65,55 @@
  * second time with retention switched off: an event absent there too has no
  * window, and an event present there is merely past its watch and is not live.
  *
+ * THE EVIDENCE RULE, AND WHY THE CLOCK RULE IS NOT ENOUGH. The Worker does
+ * not rebuild the windows. It reads the manifest object that was published
+ * earlier, built from the corpus as it was then. When that manifest was built
+ * before an event's schedule existed, it holds the event's CALENDAR window,
+ * and the corpus now holds its matches, so the clock rule reads the shorter
+ * window from the match times. Measured 2026-10-10 on the 148 district events
+ * of 2026 that have matches, the calendar window stays open a median 25 hours
+ * after the match window closes (74 at most). In that time the Worker can still be
+ * watching a district the clock rule no longer lists. By then the live rule
+ * has normally turned the awards flag true and the points are normally final,
+ * but that is TBA's timing and nothing in the code guarantees it. So for an
+ * event still inside its calendar window plus 24 hours, the publisher compares
+ * what it is about to upload with the published file it has just read for the
+ * 261009-ul3 guard, and skips the district on either of two differences.
+ *
+ * WHICH WINDOW, AND WHY THE TWO RULES TOGETHER ARE THE UNION. The Worker's
+ * manifest can hold either of the builder's two windows for an event,
+ * depending on whether the corpus held its matches when that manifest was
+ * built. The clock rule is the match window half (and the calendar window of
+ * an event with no match). The evidence rule is the calendar half for an
+ * event that has matches: `calendarWatchEventsAt` asks the builder's own
+ * `probeWindowFor` with the clock moved back by the watch, exactly as the
+ * builder asks it for a district event, and writes no bound of its own. A
+ * district the clock rule listed is not looked at again.
+ *
+ * THE TWO DIFFERENCES. (i) This run would write `awardsPosted` true for the
+ * event where the published file does not hold it true. Not true is three
+ * cases, each of them "the Worker has not confirmed it": false, no state on
+ * any row of the event, and no row for the event at all. (ii) This run would
+ * write a lower value than the published one in `qual`, `alliance`, `elim`,
+ * `award` or `total` of an `eventPoints` row both files hold: a snapshot
+ * older than what the Worker has merged. A higher value, a row only one side
+ * holds, and anything at an event outside that window are not evidence.
+ * Outside the window nothing changes: an older event's flag is still raised
+ * at the hindsight vantage, and a lower value there is still not a regression.
+ *
+ * THE FOLD IS THE 261009-ul3 MODULE'S OWN RULE, STATED AGAIN, because that
+ * module's event fold is not exported and that file is not edited here. A
+ * flag is true for an event when any `eventPoints` or `remainingEvents` row
+ * of it carries a state with it true, and a team's first `eventPoints` row at
+ * the event is its row.
+ *
+ * WHAT THE EVIDENCE RULE DOES NOT COMPARE. A district the clock rule listed.
+ * A district with no event in a calendar window plus 24 hours. A published
+ * body that is `null` (a first publish), was not read, is not JSON or is not
+ * a district artifact (a shape change). It reads nothing, it never throws,
+ * and it never changes what the 261009-ul3 guard refuses: that guard runs
+ * first, on the same districts, exactly as before.
+ *
  * THE OVERRIDE, THE NOTICE AND THE CHECK THAT CANNOT RUN. `--allow-live`
  * prints the same event lines and one override line, and the run publishes
  * the listed districts too. A `--dry-run` uploads nothing, so it prints the
@@ -78,8 +127,8 @@
  * without a network.
  */
 import type { Corpus } from "../packages/corpus/db.js";
-import { buildLiveWindowsManifest, DISTRICT_AWARDS_WATCH_MS } from "../packages/harness/manifests.js";
-import { DistrictsIndexArtifactSchema, type DistrictsIndexArtifact } from "../packages/harness/pageArtifacts.js";
+import { buildLiveWindowsManifest, DISTRICT_AWARDS_WATCH_MS, probeWindowFor } from "../packages/harness/manifests.js";
+import { DistrictArtifactSchema, DistrictsIndexArtifactSchema, type DistrictArtifact, type DistrictsIndexArtifact } from "../packages/harness/pageArtifacts.js";
 import { DistrictPublishRefusedError, type PublishedReader } from "./districtPublishGuard.js";
 
 /** Every line this module logs, and every message it throws, contains this text. */
@@ -395,4 +444,275 @@ export async function carryPublishedIndex(args: {
     args.log(`publishDistricts: ${LIVE_DISTRICT_MARKER} ${districtKey} has no row in the published "${args.indexKey}", so the index this run uploads leaves it out.`);
   }
   return DistrictsIndexArtifactSchema.parse({ ...args.composed, districts });
+}
+
+// ---------------------------------------------------------------------------
+// The evidence rule
+// ---------------------------------------------------------------------------
+
+export interface CalendarWatchEvent {
+  readonly eventKey: string;
+  /** `probeWindowFor`'s own bounds. */
+  readonly startMs: number;
+  readonly endMs: number;
+  /** `endMs + DISTRICT_AWARDS_WATCH_MS`. */
+  readonly watchedUntilMs: number;
+}
+
+/**
+ * Per district, the events whose CALENDAR window plus 24 hours is open at the
+ * clock. No corpus read: start dates only. The map holds only the districts
+ * with at least one such event, in the order they were handed in, and each
+ * district's events are sorted by key.
+ *
+ * The window is `probeWindowFor`'s, asked with the clock moved back by
+ * `DISTRICT_AWARDS_WATCH_MS`, which is exactly how the builder asks it for a
+ * district event. The one comparison added is the same as the clock rule's:
+ * the window has opened. An event whose start date is `null` or does not
+ * parse has no calendar window and is never returned.
+ */
+export function calendarWatchEventsAt(args: {
+  readonly districts: readonly RunDistrict[];
+  readonly nowMs: number;
+  /** District keys the clock rule already listed. */
+  readonly exclude?: ReadonlySet<string>;
+}): Map<string, CalendarWatchEvent[]> {
+  const watched = new Map<string, CalendarWatchEvent[]>();
+  for (const district of args.districts) {
+    if (args.exclude?.has(district.districtKey) === true) continue;
+    const events: CalendarWatchEvent[] = [];
+    for (const event of district.events) {
+      if (event.startDate === null) continue;
+      const probe = probeWindowFor(event.startDate, args.nowMs - DISTRICT_AWARDS_WATCH_MS);
+      if (probe === undefined) continue;
+      if (!(probe.startMs <= args.nowMs)) continue;
+      events.push({ eventKey: event.eventKey, startMs: probe.startMs, endMs: probe.endMs, watchedUntilMs: probe.endMs + DISTRICT_AWARDS_WATCH_MS });
+    }
+    if (events.length > 0) watched.set(district.districtKey, events.sort((a, b) => byText(a.eventKey, b.eventKey)));
+  }
+  return watched;
+}
+
+/** The five numbers of an `eventPoints` row, in the order a lowered value is reported. */
+export const EVIDENCE_POINT_CATEGORIES = ["qual", "alliance", "elim", "award", "total"] as const;
+
+export interface LiveEvidence {
+  readonly districtKey: string;
+  readonly eventKey: string;
+  readonly kind: "awardsPostedRaised" | "pointsLowered";
+  /** `pointsLowered` only. */
+  readonly teamKey?: string;
+  /** `pointsLowered` only. */
+  readonly category?: (typeof EVIDENCE_POINT_CATEGORIES)[number];
+  /** The published value, rendered. */
+  readonly published: string;
+  /** This run's value, rendered. */
+  readonly next: string;
+}
+
+type EvidencePointsRow = DistrictArtifact["teams"][number]["eventPoints"][number];
+
+/** What one artifact says about one event, for the evidence rule only. */
+interface EvidenceEventFacts {
+  /** True when any row of the event carries a state block. */
+  stateSeen: boolean;
+  /** The fold of `awardsPosted`: true when any row of the event has it true. */
+  awardsPosted: boolean;
+  /** Each team's first `eventPoints` row at the event. Insertion order is the artifact's team order. */
+  readonly rows: Map<string, EvidencePointsRow>;
+}
+
+/**
+ * The facts of the events handed in, gathered in one walk. THE FOLD IS THE
+ * 261009-ul3 MODULE'S OWN RULE, STATED AGAIN: that module's event fold is not
+ * exported and that file is not edited by this task. A flag is true for an
+ * event when any `eventPoints` or `remainingEvents` row of the event carries a
+ * state with it true, and the first `eventPoints` row a team holds at the
+ * event is its row. A test pins the two folds against each other.
+ */
+function evidenceFacts(artifact: DistrictArtifact, eventKeys: ReadonlySet<string>): Map<string, EvidenceEventFacts> {
+  const byEvent = new Map<string, EvidenceEventFacts>();
+  const factsFor = (eventKey: string): EvidenceEventFacts => {
+    let facts = byEvent.get(eventKey);
+    if (facts === undefined) {
+      facts = { stateSeen: false, awardsPosted: false, rows: new Map() };
+      byEvent.set(eventKey, facts);
+    }
+    return facts;
+  };
+  const fold = (facts: EvidenceEventFacts, state: EvidencePointsRow["state"]): void => {
+    if (state === undefined) return;
+    facts.stateSeen = true;
+    if (state.awardsPosted) facts.awardsPosted = true;
+  };
+  for (const team of artifact.teams) {
+    for (const row of team.eventPoints) {
+      if (!eventKeys.has(row.eventKey)) continue;
+      const facts = factsFor(row.eventKey);
+      fold(facts, row.state);
+      if (!facts.rows.has(team.teamKey)) facts.rows.set(team.teamKey, row);
+    }
+    for (const row of team.remainingEvents) {
+      if (!eventKeys.has(row.eventKey)) continue;
+      fold(factsFor(row.eventKey), row.state);
+    }
+  }
+  return byEvent;
+}
+
+/**
+ * What this run (`next`) would write over the published artifact, for the
+ * events handed in only. Pure. Events come in ascending key order. Within an
+ * event the flag comes first, then the lowered values in this run's team
+ * order and the order of `EVIDENCE_POINT_CATEGORIES`.
+ *
+ * | kind                 | reported when                                                                                   |
+ * |----------------------|-------------------------------------------------------------------------------------------------|
+ * | `awardsPostedRaised` | this run's fold of `awardsPosted` for the event is true and the published fold is not true      |
+ * | `pointsLowered`      | both artifacts hold an `eventPoints` row for the team at the event and this run's number is lower |
+ *
+ * NOT TRUE IS THREE CASES, each of them "the Worker has not confirmed it":
+ * false, no state on any row of the event (`no state`), and no row for the
+ * event at all (`no row`). A higher number, an equal number, a row only this
+ * run holds and a row only the published artifact holds are not evidence: the
+ * last is already a refusal of the 261009-ul3 guard.
+ */
+export function compareForLiveEvidence(published: DistrictArtifact, next: DistrictArtifact, eventKeys: ReadonlySet<string>): LiveEvidence[] {
+  const publishedFacts = evidenceFacts(published, eventKeys);
+  const nextFacts = evidenceFacts(next, eventKeys);
+  const districtKey = next.districtKey;
+  const evidence: LiveEvidence[] = [];
+
+  for (const eventKey of [...eventKeys].sort(byText)) {
+    const now = nextFacts.get(eventKey);
+    // This run names no row of the event: it writes nothing there to compare.
+    if (now === undefined) continue;
+    const was = publishedFacts.get(eventKey);
+
+    // (i) The flag. This run would write it true where the published file
+    // does not hold it true.
+    if (now.awardsPosted && was?.awardsPosted !== true) {
+      evidence.push({ districtKey, eventKey, kind: "awardsPostedRaised", published: was === undefined ? "no row" : was.stateSeen ? "false" : "no state", next: "true" });
+    }
+
+    // (ii) The points of a row both files hold, lower in this run.
+    if (was === undefined) continue;
+    for (const [teamKey, row] of now.rows) {
+      const publishedRow = was.rows.get(teamKey);
+      if (publishedRow === undefined) continue;
+      for (const category of EVIDENCE_POINT_CATEGORIES) {
+        if (row[category] < publishedRow[category]) {
+          evidence.push({ districtKey, eventKey, kind: "pointsLowered", teamKey, category, published: String(publishedRow[category]), next: String(row[category]) });
+        }
+      }
+    }
+  }
+  return evidence;
+}
+
+export interface LiveEvidenceCheck {
+  readonly evidence: readonly LiveEvidence[];
+  /** Distinct, sorted. */
+  readonly evidenceDistrictKeys: readonly string[];
+  /** `true` only in `enforce` mode with `allowLive` and evidence found. */
+  readonly overridden: boolean;
+}
+
+/**
+ * The evidence check: prints what it finds and returns it. It reads nothing
+ * and never throws. A district is looked at when it is not in
+ * `alreadyListed`, `calendarWatchEventsAt` gives it at least one event, and
+ * `publishedBodies` holds a body for its key that parses as a district
+ * artifact. A body that is `null` (a first publish), missing from the map (it
+ * could not be read), not JSON or not a district artifact (a shape change) is
+ * not compared, and nothing is printed for it: the 261009-ul3 pass has
+ * already said what it had to say about it.
+ *
+ * | mode    | allowLive | evidence found                                                  |
+ * |---------|-----------|-----------------------------------------------------------------|
+ * | enforce | false     | evidence lines, one skip line per district, with its reason     |
+ * | enforce | true      | evidence lines, one override line, `overridden: true`           |
+ * | notice  | ignored   | evidence lines, one notice line                                 |
+ *
+ * The evidence of a district is one line for the flag per event and one line
+ * for the lowered values per event, holding their count and the first of
+ * them. With no evidence nothing is printed in any mode.
+ */
+export function checkLiveEvidence(args: {
+  readonly stage: string;
+  readonly districts: readonly RunDistrict[];
+  /** The clock reading of the clock pass this check follows. */
+  readonly nowMs: number;
+  /** Districts the clock rule listed: not looked at. */
+  readonly alreadyListed: ReadonlySet<string>;
+  /** This run's artifacts, as handed to the 261009-ul3 pass. */
+  readonly details: ReadonlyArray<{ readonly key: string; readonly districtKey: string; readonly artifact: DistrictArtifact }>;
+  /** What that pass read, by key. */
+  readonly publishedBodies: ReadonlyMap<string, string | null>;
+  readonly mode: "enforce" | "notice";
+  readonly allowLive: boolean;
+  readonly log: (line: string) => void;
+}): LiveEvidenceCheck {
+  const watched = calendarWatchEventsAt({ districts: args.districts, nowMs: args.nowMs, exclude: args.alreadyListed });
+  const evidence: LiveEvidence[] = [];
+  const lines: string[] = [];
+
+  const details = [...args.details].sort((a, b) => byText(a.districtKey, b.districtKey));
+  for (const detail of details) {
+    const events = watched.get(detail.districtKey);
+    if (events === undefined) continue;
+    const body = args.publishedBodies.get(detail.key);
+    if (body === undefined || body === null) continue;
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(body);
+    } catch {
+      continue;
+    }
+    const parsed = DistrictArtifactSchema.safeParse(parsedJson);
+    if (!parsed.success) continue;
+
+    const found = compareForLiveEvidence(parsed.data, detail.artifact, new Set(events.map((event) => event.eventKey)));
+    if (found.length === 0) continue;
+    evidence.push(...found);
+    // `events` is sorted by key, which is the order the evidence came in.
+    for (const event of events) {
+      const where =
+        `publishDistricts: ${LIVE_DISTRICT_MARKER} ${detail.districtKey}: event ${event.eventKey} is outside the window from its match times and the 24 hours after it, and still inside its calendar window plus 24 hours, ` +
+        `until ${instant(event.watchedUntilMs)}, so the Worker may still be watching it.`;
+      const atEvent = found.filter((entry) => entry.eventKey === event.eventKey);
+      if (atEvent.some((entry) => entry.kind === "awardsPostedRaised")) {
+        lines.push(`${where} This run would write awards posted true, and the published file does not hold it true.`);
+      }
+      const lowered = atEvent.filter((entry) => entry.kind === "pointsLowered");
+      const first = lowered[0];
+      if (first !== undefined) {
+        lines.push(
+          `${where} This run would write ${lowered.length} point value(s) lower than the published file holds. ` +
+            `The first: team ${first.teamKey ?? "unknown"}, ${first.category ?? "unknown"}, published ${first.published}, this run ${first.next}.`
+        );
+      }
+    }
+  }
+
+  const evidenceDistrictKeys = [...new Set(evidence.map((entry) => entry.districtKey))].sort(byText);
+  if (evidence.length === 0) return { evidence, evidenceDistrictKeys, overridden: false };
+
+  for (const line of lines) args.log(line);
+  if (args.mode === "notice") {
+    args.log(
+      `publishDistricts: --dry-run uploads nothing, so this is a notice. A run that uploads would skip the ${evidenceDistrictKeys.length} ${LIVE_DISTRICT_MARKER}(s) listed above on evidence, unless --allow-live is given.`
+    );
+    return { evidence, evidenceDistrictKeys, overridden: false };
+  }
+  if (args.allowLive) {
+    args.log(`publishDistricts: --allow-live was given, so this run publishes the ${evidenceDistrictKeys.length} ${LIVE_DISTRICT_MARKER}(s) listed above too.`);
+    return { evidence, evidenceDistrictKeys, overridden: true };
+  }
+  for (const districtKey of evidenceDistrictKeys) {
+    args.log(
+      `publishDistricts: ${LIVE_DISTRICT_MARKER} ${districtKey} is skipped ${args.stage} on evidence: this run uploads nothing of it, and its published file stays as the Worker has it.`
+    );
+  }
+  return { evidence, evidenceDistrictKeys, overridden: false };
 }

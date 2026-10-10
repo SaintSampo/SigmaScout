@@ -1343,6 +1343,80 @@ npx tsx --env-file=.env scripts/publishDistricts.ts --years 2016-2020,2022-2026 
 What remains: the Worker can still write between the second read and that district's own upload, a
 window of seconds, and closing it fully needs a conditional put.
 
+### The offline district publish skips a district while one of its events is live (quick task 261010-jyn)
+
+The Worker owns a district's file while it is watching one of that district's events. So
+`pnpm publish:districts` skips that district: it uploads neither its `v1/district/{districtKey}.json`
+nor its sidecars, writes no local file for it, and publishes every other district of the run. The
+run ends with exit 0. Two rules decide which districts are skipped.
+
+**The clock rule covers an event and the day after its last match.** The same builder that builds
+the live windows manifest is asked on the corpus at the wall clock, never at `--as-of`. An event's
+window comes from its match times with an hour either side. When the corpus holds no match for the
+event, it runs from 12 hours before its start date to 4 days after it. A district is skipped while
+one of its events is inside that window or in the 24 hours after it. District events, District
+Championships and their divisions are covered alike. The rule is checked twice: before anything is
+read from R2, and again just before the first upload, because a window can open during the bake. A
+district it lists is neither read nor compared by the check of the subsection above.
+
+**The evidence rule covers the rest of the Worker's watch.** The Worker can be reading an older
+manifest that holds an event's calendar window, and that window stays open about a day longer than
+the window from its matches. For an event still inside its calendar window plus 24 hours, the
+publisher compares what it is about to upload with the published file it has just read, and skips
+the district on either of two differences. One: this run would write awards posted true where the
+published file does not hold it true. Two: this run would write a lower value than the published
+one in the qualification, alliance, playoff, award or total points of a row both files hold. It
+reads nothing extra. Past that window nothing changes: the flag is raised at the hindsight vantage
+and a lower value is not a regression, as before.
+
+**What is printed.** One line per live event (district, event, window, watched until). One line per
+piece of evidence. One line per skipped district, with its reason. A last line with how many
+districts were skipped and how many were published, and what to do: run the publish again later, or
+pass `--allow-live`.
+
+**The index keeps the published row.** The row of a skipped district in `v1/districts/{year}.json`
+is taken from the index that is published now. The Worker changes the detail file's team count and
+keeps its slot counts as last published, so a row composed from the corpus could disagree with the
+file the Worker owns. The Worker never writes the index. When the published index is missing or
+cannot be read, the run is refused before any upload. When every district of a season is skipped,
+nothing of that season is uploaded.
+
+**`--allow-live`** prints the same lines and one more saying it was overridden, and publishes the
+listed districts too. The check of the subsection above still runs on them.
+
+**Why it is dangerous.** Two facts. First, the publisher sets the awards flag at its hindsight
+vantage: a judged award listed or award points, either one. The Worker's live rule needs a judged
+award and award points and playoff points and a settled list (60 minutes when every expected award
+is listed, 12 hours when one is not). So a publish during the Worker's watch can raise a flag the
+Worker would still hold false, and a lock the page showed can be withdrawn. Second, the corpus's
+points can be older than what the Worker has merged. A floor can then drop, or a finished category
+can read open again, until the Worker's next forced look, up to 15 minutes.
+
+**When it is right.** A listed event was cancelled or never played: an event with no match in the
+corpus reads live from 12 hours before its start date for its whole calendar window. The season has
+never been published. Or the Worker did not follow the event and the corpus is known to be the
+newer side.
+
+**Dry runs, and the check that cannot run.** A `--dry-run` prints the clock rule's lines as a
+notice, skips nothing and never fails. It shows the evidence rule's lines only with `--check-live`,
+because a plain dry run reads nothing from R2. A run with nothing to skip prints nothing new. A
+clock check that cannot run refuses a run that uploads, also with `--allow-live`.
+
+**What is still not covered.**
+
+- Past an event's calendar window plus 24 hours nobody watches it, and a publish raises its flag at
+  the hindsight vantage as before. Awards or points that land later than that can still take a lock
+  back. This is the limit "The limits that remain" already states.
+- An older snapshot in which a value is higher than the Worker's, because TBA lowered it in
+  between, cannot be told from a newer one and is published.
+- A manifest in R2 built from an older corpus can hold a window that neither of today's two
+  windows contains, for an event whose date or schedule moved.
+- The evidence rule compares only a published file that parses, so a first publish and a shape
+  change are not compared.
+- The Worker can write, and an event's window can open, in the time between the second read and a
+  district's own upload. That time now includes the index read.
+- A plain dry run shows the clock rule only.
+
 ### A championship whose rows arrive one event at a time (quick task 261010-66y, 2026-10-10)
 
 The district artifact carries no event list. It learns a District Championship key only when a team

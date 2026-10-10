@@ -16,14 +16,19 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openCorpus, upsertDistrict, upsertEvent, upsertMatch, type Corpus } from "../packages/corpus/db.js";
 import type { CorpusEvent, CorpusMatch } from "../packages/ingest/normalize.js";
 import { DISTRICT_AWARDS_WATCH_MS, LIVE_WINDOW_PAD_MS, probeWindowFor } from "../packages/harness/manifests.js";
-import { DistrictsIndexArtifactSchema, type DistrictsIndexArtifact } from "../packages/harness/pageArtifacts.js";
-import { DistrictPublishRefusedError, type PublishedReader } from "./districtPublishGuard.js";
+import { DistrictArtifactSchema, DistrictsIndexArtifactSchema, type DistrictArtifact, type DistrictsIndexArtifact } from "../packages/harness/pageArtifacts.js";
+import { compareDistrictArtifacts, DistrictPublishRefusedError, type PublishedReader } from "./districtPublishGuard.js";
 import {
+  calendarWatchEventsAt,
   carryPublishedIndex,
   checkLiveDistricts,
+  checkLiveEvidence,
+  compareForLiveEvidence,
+  EVIDENCE_POINT_CATEGORIES,
   LIVE_DISTRICT_MARKER,
   liveDistrictEventsAt,
   seasonUploadPlan,
+  type LiveEvidence,
   type RunDistrict,
 } from "./districtLiveGuard.js";
 
@@ -677,6 +682,484 @@ describe("checkLiveDistricts: the override, the notice and the check that cannot
     for (const line of unchecked.lines) {
       expect(line.startsWith("publishDistricts:")).toBe(true);
       expect(line).toContain(LIVE_DISTRICT_MARKER);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The evidence rule
+// ---------------------------------------------------------------------------
+
+describe("calendarWatchEventsAt: the events whose calendar window plus 24 hours is open at the clock (261010-jyn R18, R19)", () => {
+  const PROBE = probeWindowFor("2026-03-05", 0)!;
+  const CALENDAR_UNTIL = PROBE.endMs + WATCH;
+  const watchKeys = (districts: readonly RunDistrict[], nowMs: number, exclude?: ReadonlySet<string>): Array<[string, string[]]> =>
+    [...calendarWatchEventsAt({ districts, nowMs, ...(exclude === undefined ? {} : { exclude }) })].map(([districtKey, events]): [string, string[]] => [districtKey, events.map((entry) => entry.eventKey)]);
+
+  it("an event is returned from the opening of its calendar window until 24 hours after it closes, with probeWindowFor's own bounds", () => {
+    expect(calendarWatchEventsAt({ districts: [PNW_ONE_EVENT], nowMs: PROBE.startMs })).toEqual(
+      new Map([["2026pnw", [{ eventKey: "2026wabon", startMs: PROBE.startMs, endMs: PROBE.endMs, watchedUntilMs: CALENDAR_UNTIL }]]])
+    );
+    expect(watchKeys([PNW_ONE_EVENT], PROBE.startMs - 1)).toEqual([]);
+    expect(watchKeys([PNW_ONE_EVENT], PROBE.endMs)).toEqual([["2026pnw", ["2026wabon"]]]);
+    expect(watchKeys([PNW_ONE_EVENT], CALENDAR_UNTIL - 1)).toEqual([["2026pnw", ["2026wabon"]]]);
+    expect(watchKeys([PNW_ONE_EVENT], CALENDAR_UNTIL)).toEqual([]);
+  });
+
+  it("an event with no start date, or one that does not parse, has no calendar window and is never returned", () => {
+    const districts = [runDistrict("2026pnw", [["2026wabon", null], ["2026wasno", "not-a-date"]])];
+
+    for (const nowMs of [PROBE.startMs, PROBE.endMs, 0, Date.parse("2026-12-31T00:00:00.000Z")]) expect(watchKeys(districts, nowMs)).toEqual([]);
+  });
+
+  it("an excluded district is not in the map, and neither is a district with no event in a window", () => {
+    const districts = [
+      runDistrict("2026pnw", [["2026wabon", "2026-03-05"]]),
+      runDistrict("2026fim", [["2026miket", "2026-03-05"]]),
+      runDistrict("2026ne", [["2026nhgrs", "2026-04-20"]]),
+    ];
+
+    expect(watchKeys(districts, PROBE.startMs)).toEqual([
+      ["2026pnw", ["2026wabon"]],
+      ["2026fim", ["2026miket"]],
+    ]);
+    expect(watchKeys(districts, PROBE.startMs, new Set(["2026pnw"]))).toEqual([["2026fim", ["2026miket"]]]);
+  });
+
+  it("two events of one district come back sorted by key", () => {
+    const districts = [runDistrict("2026pnw", [["2026wasno", "2026-03-05"], ["2026wabon", "2026-03-06"], ["2026waahs", "2026-05-01"]])];
+
+    expect(watchKeys(districts, Date.parse("2026-03-07T00:00:00.000Z"))).toEqual([["2026pnw", ["2026wabon", "2026wasno"]]]);
+  });
+
+  it("agrees with the builder at the six edge instants, for a district event with no match", () => {
+    districtRow("pnw");
+    unplayed("2026wabon", "2026-03-05");
+
+    for (const nowMs of [PROBE.startMs - 1, PROBE.startMs, PROBE.endMs - 1, PROBE.endMs, CALENDAR_UNTIL - 1, CALENDAR_UNTIL]) {
+      const builderSays = liveKeys([PNW_ONE_EVENT], nowMs).includes("2026wabon");
+      const calendarSays = calendarWatchEventsAt({ districts: [PNW_ONE_EVENT], nowMs }).has("2026pnw");
+      expect(calendarSays, iso(nowMs)).toBe(builderSays);
+    }
+  });
+});
+
+type Team = DistrictArtifact["teams"][number];
+type EventState = NonNullable<Team["eventPoints"][number]["state"]>;
+type Points = Readonly<Record<(typeof EVIDENCE_POINT_CATEGORIES)[number], number>>;
+
+const EVENT = "2026wabon";
+const OTHER_EVENT = "2026wasno";
+const DISTRICT_KEY = "2026pnw";
+const DETAIL_KEY = "v1/district/2026pnw.json";
+
+/** Awards posted, the full schedule played. */
+const POSTED: EventState = { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: true, awardsPosted: true };
+/** Everything but the awards. */
+const NOT_POSTED: EventState = { ...POSTED, awardsPosted: false };
+const BASE_POINTS: Points = { qual: 20, alliance: 10, elim: 10, award: 5, total: 45 };
+
+function lockVerdict() {
+  return { status: "contending" as const, pointsToLock: null, threatCount: 0, cutLinePoints: null, allocationNote: null };
+}
+
+interface TeamSpec {
+  readonly teamKey: string;
+  /** `[eventKey, state or undefined, the five numbers]`: one `eventPoints` row each. */
+  readonly points?: ReadonlyArray<readonly [string, EventState | undefined, Points?]>;
+  /** `[eventKey, state or undefined]`: one `remainingEvents` row each. */
+  readonly remaining?: ReadonlyArray<readonly [string, EventState | undefined]>;
+}
+
+/** A schema valid district artifact, so a broken fixture fails here and never passes as "not a district artifact". */
+function artifact(teams: readonly TeamSpec[]): DistrictArtifact {
+  return DistrictArtifactSchema.parse({
+    schemaVersion: 1,
+    generation: "gen-live-guard-test",
+    computedAt: "2026-03-08T12:00:00.000Z",
+    districtKey: DISTRICT_KEY,
+    year: 2026,
+    abbreviation: "pnw",
+    displayName: "Pacific Northwest",
+    dcmpSlots: 2,
+    cmpSlots: 1,
+    teams: teams.map((spec, index) => ({
+      teamKey: spec.teamKey,
+      rank: index + 1,
+      pointTotal: 0,
+      rookieBonus: 0,
+      adjustments: 0,
+      eventPoints: (spec.points ?? []).map(([eventKey, state, points]) => ({
+        eventKey,
+        eventName: eventKey,
+        week: 1,
+        tier: "district",
+        ...(points ?? BASE_POINTS),
+        ...(state === undefined ? {} : { state: { ...state } }),
+      })),
+      remainingEvents: (spec.remaining ?? []).map(([eventKey, state]) => ({
+        eventKey,
+        eventName: eventKey,
+        week: 2,
+        tier: "district",
+        maxPoints: 83,
+        ...(state === undefined ? {} : { state: { ...state } }),
+      })),
+      maxRemainingDistrict: 0,
+      maxRemainingChamp: 0,
+      qualifyingAwards: [],
+      districtLock: lockVerdict(),
+      champLock: lockVerdict(),
+    })),
+    insights: {
+      teamCount: teams.length,
+      eventCount: 2,
+      dcmpCutLinePoints: null,
+      cmpCutLinePoints: null,
+      districtLockedCount: 0,
+      districtEliminatedCount: 0,
+      champLockedCount: 0,
+      champEliminatedCount: 0,
+    },
+  });
+}
+
+/** Three teams with a row at EVENT, each row carrying `state` and its own five numbers (BASE_POINTS unless given). */
+function threeTeams(state: EventState | undefined, points: Partial<Record<"frc1" | "frc2" | "frc3", Points>> = {}): DistrictArtifact {
+  return artifact((["frc1", "frc2", "frc3"] as const).map((teamKey) => ({ teamKey, points: [[EVENT, state, points[teamKey] ?? BASE_POINTS]] })));
+}
+
+const ONLY_EVENT = new Set([EVENT]);
+const kindsOf = (evidence: readonly LiveEvidence[]): string[] => evidence.map((entry) => entry.kind);
+
+describe("compareForLiveEvidence, rule (i): this run would raise an awards flag the published file does not hold true (261010-jyn R20)", () => {
+  it("published false on every row and this run true is one awardsPostedRaised", () => {
+    expect(compareForLiveEvidence(threeTeams(NOT_POSTED), threeTeams(POSTED), ONLY_EVENT)).toEqual([
+      { districtKey: DISTRICT_KEY, eventKey: EVENT, kind: "awardsPostedRaised", published: "false", next: "true" },
+    ]);
+  });
+
+  it("a published artifact with no state on any row of the event is not confirmed either", () => {
+    const evidence = compareForLiveEvidence(threeTeams(undefined), threeTeams(POSTED), ONLY_EVENT);
+
+    expect(kindsOf(evidence)).toEqual(["awardsPostedRaised"]);
+    expect(evidence[0]!.published).toBe("no state");
+  });
+
+  it("a published artifact with no row for the event at all is not confirmed either", () => {
+    const published = artifact([{ teamKey: "frc1", points: [[OTHER_EVENT, POSTED]] }]);
+
+    const evidence = compareForLiveEvidence(published, threeTeams(POSTED), ONLY_EVENT);
+
+    expect(kindsOf(evidence)).toEqual(["awardsPostedRaised"]);
+    expect(evidence[0]!.published).toBe("no row");
+  });
+
+  it("the flag on a remainingEvents row counts on both sides", () => {
+    const remainingOnly = (state: EventState): DistrictArtifact => artifact([{ teamKey: "frc1", remaining: [[EVENT, state]] }]);
+
+    expect(kindsOf(compareForLiveEvidence(remainingOnly(NOT_POSTED), remainingOnly(POSTED), ONLY_EVENT))).toEqual(["awardsPostedRaised"]);
+    expect(compareForLiveEvidence(remainingOnly(POSTED), remainingOnly(POSTED), ONLY_EVENT)).toEqual([]);
+  });
+
+  it("published true gives none", () => {
+    expect(compareForLiveEvidence(threeTeams(POSTED), threeTeams(POSTED), ONLY_EVENT)).toEqual([]);
+  });
+
+  it("this run false, and this run with no state, give none", () => {
+    expect(compareForLiveEvidence(threeTeams(NOT_POSTED), threeTeams(NOT_POSTED), ONLY_EVENT)).toEqual([]);
+    expect(compareForLiveEvidence(threeTeams(NOT_POSTED), threeTeams(undefined), ONLY_EVENT)).toEqual([]);
+    expect(compareForLiveEvidence(threeTeams(POSTED), threeTeams(NOT_POSTED), ONLY_EVENT)).toEqual([]);
+  });
+
+  it("one published row true among several false gives none: the fold is true when any row has it true", () => {
+    const published = artifact([
+      { teamKey: "frc1", points: [[EVENT, NOT_POSTED]] },
+      { teamKey: "frc2", points: [[EVENT, POSTED]] },
+      { teamKey: "frc3", points: [[EVENT, NOT_POSTED]] },
+    ]);
+
+    expect(compareForLiveEvidence(published, threeTeams(POSTED), ONLY_EVENT)).toEqual([]);
+  });
+
+  it("is the 261009-ul3 module's own fold, read from the other side: what that module calls a lost flag, this one calls a raised one", () => {
+    // A: one row of several carries the flag true. B: no row does.
+    const a = artifact([
+      { teamKey: "frc1", points: [[EVENT, NOT_POSTED]] },
+      { teamKey: "frc2", points: [[EVENT, POSTED]] },
+      { teamKey: "frc3", points: [[EVENT, NOT_POSTED]] },
+    ]);
+    const b = threeTeams(NOT_POSTED);
+
+    expect(compareDistrictArtifacts(a, b).map((regression) => regression.kind)).toEqual(["awardsPosted"]);
+    expect(kindsOf(compareForLiveEvidence(b, a, ONLY_EVENT))).toEqual(["awardsPostedRaised"]);
+    // And neither sees anything the other way round.
+    expect(compareDistrictArtifacts(b, a)).toEqual([]);
+    expect(compareForLiveEvidence(a, b, ONLY_EVENT)).toEqual([]);
+  });
+});
+
+describe("compareForLiveEvidence, rule (ii): this run would write a lower point value than the published file holds (261010-jyn R21)", () => {
+  for (const category of EVIDENCE_POINT_CATEGORIES) {
+    it(`${category} lower by itself is one pointsLowered naming the team, the category and both values`, () => {
+      const published = threeTeams(POSTED, { frc2: { ...BASE_POINTS, [category]: BASE_POINTS[category] + 3 } });
+
+      expect(compareForLiveEvidence(published, threeTeams(POSTED), ONLY_EVENT)).toEqual([
+        { districtKey: DISTRICT_KEY, eventKey: EVENT, kind: "pointsLowered", teamKey: "frc2", category, published: String(BASE_POINTS[category] + 3), next: String(BASE_POINTS[category]) },
+      ]);
+    });
+  }
+
+  it("two categories lower on one row are two, in the order of EVIDENCE_POINT_CATEGORIES", () => {
+    const published = threeTeams(POSTED, { frc1: { ...BASE_POINTS, total: 50, qual: 25 } });
+
+    const evidence = compareForLiveEvidence(published, threeTeams(POSTED), ONLY_EVENT);
+
+    expect(evidence.map((entry) => [entry.teamKey, entry.category])).toEqual([
+      ["frc1", "qual"],
+      ["frc1", "total"],
+    ]);
+    expect(EVIDENCE_POINT_CATEGORIES).toEqual(["qual", "alliance", "elim", "award", "total"]);
+  });
+
+  it("equal numbers and higher numbers give none", () => {
+    const higher = threeTeams(POSTED, { frc1: { qual: 30, alliance: 16, elim: 20, award: 10, total: 76 } });
+
+    expect(compareForLiveEvidence(threeTeams(POSTED), threeTeams(POSTED), ONLY_EVENT)).toEqual([]);
+    expect(compareForLiveEvidence(threeTeams(POSTED), higher, ONLY_EVENT)).toEqual([]);
+  });
+
+  it("a row only this run holds, and a row only the published artifact holds, give none", () => {
+    const two = artifact([
+      { teamKey: "frc1", points: [[EVENT, POSTED]] },
+      { teamKey: "frc2", points: [[EVENT, POSTED]] },
+    ]);
+
+    expect(compareForLiveEvidence(two, threeTeams(POSTED), ONLY_EVENT)).toEqual([]);
+    expect(compareForLiveEvidence(threeTeams(POSTED), two, ONLY_EVENT)).toEqual([]);
+  });
+
+  it("a team's first row at the event is its row", () => {
+    const twice = (first: Points, second: Points): DistrictArtifact => artifact([{ teamKey: "frc1", points: [[EVENT, POSTED, first], [EVENT, POSTED, second]] }]);
+    const low: Points = { ...BASE_POINTS, qual: 1 };
+
+    // Only the second row is lower: not evidence.
+    expect(compareForLiveEvidence(twice(BASE_POINTS, BASE_POINTS), twice(BASE_POINTS, low), ONLY_EVENT)).toEqual([]);
+    // The first row is lower: evidence.
+    expect(kindsOf(compareForLiveEvidence(twice(BASE_POINTS, BASE_POINTS), twice(low, BASE_POINTS), ONLY_EVENT))).toEqual(["pointsLowered"]);
+  });
+});
+
+describe("compareForLiveEvidence: only the events handed in, in a fixed order (261010-jyn)", () => {
+  /** Both differences at both events: this run raises the flag and lowers frc2's qual and frc1's award. */
+  function bothEvents(): { published: DistrictArtifact; next: DistrictArtifact } {
+    const rows = (state: EventState, frc1: Points, frc2: Points): TeamSpec[] => [
+      { teamKey: "frc2", points: [[OTHER_EVENT, state, frc2], [EVENT, state, frc2]] },
+      { teamKey: "frc1", points: [[EVENT, state, frc1], [OTHER_EVENT, state, frc1]] },
+    ];
+    return {
+      published: artifact(rows(NOT_POSTED, { ...BASE_POINTS, award: 9 }, { ...BASE_POINTS, qual: 22 })),
+      next: artifact(rows(POSTED, BASE_POINTS, BASE_POINTS)),
+    };
+  }
+
+  it("both differences on an event that is not in the set handed in give nothing", () => {
+    const { published, next } = bothEvents();
+
+    expect(compareForLiveEvidence(published, next, new Set())).toEqual([]);
+    expect(compareForLiveEvidence(published, next, new Set(["2026other"]))).toEqual([]);
+    expect(new Set(compareForLiveEvidence(published, next, ONLY_EVENT).map((entry) => entry.eventKey))).toEqual(ONLY_EVENT);
+  });
+
+  it("events in ascending key order, the flag before the points, the points in this run's team order", () => {
+    const { published, next } = bothEvents();
+
+    expect(compareForLiveEvidence(published, next, new Set([OTHER_EVENT, EVENT])).map((entry) => [entry.eventKey, entry.kind, entry.teamKey, entry.category])).toEqual([
+      [EVENT, "awardsPostedRaised", undefined, undefined],
+      [EVENT, "pointsLowered", "frc2", "qual"],
+      [EVENT, "pointsLowered", "frc1", "award"],
+      [OTHER_EVENT, "awardsPostedRaised", undefined, undefined],
+      [OTHER_EVENT, "pointsLowered", "frc2", "qual"],
+      [OTHER_EVENT, "pointsLowered", "frc1", "award"],
+    ]);
+  });
+});
+
+describe("checkLiveEvidence: a district is also skipped on evidence while an event's calendar window is open (261010-jyn R18 to R27)", () => {
+  /** EVENT's start date puts every clock from PROBE.startMs to CALENDAR_UNTIL minus 1 inside its calendar window plus 24 hours. */
+  const PROBE = probeWindowFor("2026-03-05", 0)!;
+  const CALENDAR_UNTIL = PROBE.endMs + WATCH;
+  const INSIDE = PROBE.endMs + 60_000;
+  const DISTRICTS = [runDistrict(DISTRICT_KEY, [[EVENT, "2026-03-05"]])];
+
+  function evidenceCheck(args: {
+    readonly published: DistrictArtifact | string | null | undefined;
+    readonly next?: DistrictArtifact;
+    readonly nowMs?: number;
+    readonly mode?: "enforce" | "notice";
+    readonly allowLive?: boolean;
+    readonly alreadyListed?: ReadonlySet<string>;
+    readonly stage?: string;
+  }) {
+    const lines: string[] = [];
+    const publishedBodies = new Map<string, string | null>();
+    if (args.published !== undefined) publishedBodies.set(DETAIL_KEY, args.published === null || typeof args.published === "string" ? args.published : JSON.stringify(args.published));
+    const outcome = checkLiveEvidence({
+      stage: args.stage ?? "before the first upload",
+      districts: DISTRICTS,
+      nowMs: args.nowMs ?? INSIDE,
+      alreadyListed: args.alreadyListed ?? new Set(),
+      details: [{ key: DETAIL_KEY, districtKey: DISTRICT_KEY, artifact: args.next ?? threeTeams(POSTED) }],
+      publishedBodies,
+      mode: args.mode ?? "enforce",
+      allowLive: args.allowLive ?? false,
+      log: (line) => lines.push(line),
+    });
+    return { lines, outcome };
+  }
+
+  /** Three lowered values at EVENT: frc2's qual and total, frc3's award. */
+  const THREE_LOWERED = threeTeams(POSTED, { frc2: { ...BASE_POINTS, qual: 24, total: 49 }, frc3: { ...BASE_POINTS, award: 15 } });
+
+  it("enforce, the flag: one evidence line and one skip line with its reason, and the district key comes back", () => {
+    const { lines, outcome } = evidenceCheck({ published: threeTeams(NOT_POSTED) });
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain(LIVE_DISTRICT_MARKER);
+    expect(lines[0]).toContain(DISTRICT_KEY);
+    expect(lines[0]).toContain(EVENT);
+    expect(lines[0]).toContain("awards posted");
+    expect(lines[0]).toContain(iso(CALENDAR_UNTIL));
+    expect(lines[1]).toContain(LIVE_DISTRICT_MARKER);
+    expect(lines[1]).toContain(DISTRICT_KEY);
+    expect(lines[1]).toContain("skipped");
+    expect(lines[1]).toContain("on evidence");
+    expect(lines[1]).toContain("before the first upload");
+    expect(kindsOf(outcome.evidence)).toEqual(["awardsPostedRaised"]);
+    expect(outcome.evidenceDistrictKeys).toEqual([DISTRICT_KEY]);
+    expect(outcome.overridden).toBe(false);
+  });
+
+  it("enforce, three lowered values at one event: one evidence line with the count and the first of them, and one skip line", () => {
+    const { lines, outcome } = evidenceCheck({ published: THREE_LOWERED });
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("3 point value(s)");
+    expect(lines[0]).toContain("team frc2");
+    expect(lines[0]).toContain("qual");
+    expect(lines[0]).toContain("published 24");
+    expect(lines[0]).toContain("this run 20");
+    expect(lines[0]).toContain(iso(CALENDAR_UNTIL));
+    expect(lines[1]).toContain("on evidence");
+    expect(outcome.evidence).toHaveLength(3);
+    expect(outcome.evidenceDistrictKeys).toEqual([DISTRICT_KEY]);
+  });
+
+  it("both kinds at one event: the flag line, then the points line, then one skip line", () => {
+    const published = threeTeams(NOT_POSTED, { frc1: { ...BASE_POINTS, elim: 30 } });
+
+    const { lines } = evidenceCheck({ published });
+
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toContain("awards posted");
+    expect(lines[1]).toContain("1 point value(s)");
+    expect(lines[1]).toContain("elim");
+    expect(lines[2]).toContain("on evidence");
+  });
+
+  it("enforce with the override: the evidence lines and one override line, no skip line, overridden true", () => {
+    const { lines, outcome } = evidenceCheck({ published: threeTeams(NOT_POSTED), allowLive: true });
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("awards posted");
+    expect(lines[1]).toContain("--allow-live");
+    expect(lines.some((line) => line.includes("skipped"))).toBe(false);
+    expect(outcome.evidenceDistrictKeys).toEqual([DISTRICT_KEY]);
+    expect(outcome.overridden).toBe(true);
+  });
+
+  for (const allowLive of [false, true]) {
+    it(`notice (allowLive ${String(allowLive)}): the evidence lines and one notice line that says on evidence, no skip line`, () => {
+      const { lines, outcome } = evidenceCheck({ published: threeTeams(NOT_POSTED), mode: "notice", allowLive });
+
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toContain("awards posted");
+      expect(lines[1]).toContain("--dry-run");
+      expect(lines[1]).toContain("on evidence");
+      expect(lines.some((line) => line.includes("skipped"))).toBe(false);
+      expect(outcome.evidenceDistrictKeys).toEqual([DISTRICT_KEY]);
+      expect(outcome.overridden).toBe(false);
+    });
+  }
+
+  it("both differences at the instant the calendar watch ends: nothing. One millisecond earlier they are reported", () => {
+    const published = threeTeams(NOT_POSTED, { frc1: { ...BASE_POINTS, elim: 30 } });
+
+    const at = evidenceCheck({ published, nowMs: CALENDAR_UNTIL });
+    expect(at.lines).toEqual([]);
+    expect(at.outcome).toEqual({ evidence: [], evidenceDistrictKeys: [], overridden: false });
+
+    const before = evidenceCheck({ published, nowMs: CALENDAR_UNTIL - 1 });
+    expect(kindsOf(before.outcome.evidence)).toEqual(["awardsPostedRaised", "pointsLowered"]);
+    expect(before.outcome.evidenceDistrictKeys).toEqual([DISTRICT_KEY]);
+
+    // And before the calendar window opens, nothing either.
+    expect(evidenceCheck({ published, nowMs: PROBE.startMs - 1 }).lines).toEqual([]);
+  });
+
+  const notCompared: ReadonlyArray<readonly [string, Parameters<typeof evidenceCheck>[0]]> = [
+    ["the district is one the clock rule listed", { published: threeTeams(NOT_POSTED), alreadyListed: new Set([DISTRICT_KEY]) }],
+    ["its published body is null (a first publish)", { published: null }],
+    ["its key is missing from the map (it could not be read)", { published: undefined }],
+    ["its published body is not JSON", { published: "not json" }],
+    ["its published body is not a district artifact", { published: "{}" }],
+    ["no difference", { published: threeTeams(POSTED) }],
+  ];
+  for (const [name, args] of notCompared) {
+    it(`prints nothing and returns empty lists when ${name}`, () => {
+      for (const mode of ["enforce", "notice"] as const) {
+        const { lines, outcome } = evidenceCheck({ ...args, mode });
+        expect(lines).toEqual([]);
+        expect(outcome).toEqual({ evidence: [], evidenceDistrictKeys: [], overridden: false });
+      }
+    });
+  }
+
+  it("a detail of a district with no event in a calendar window is not compared, whatever its published body says", () => {
+    const lines: string[] = [];
+    const outcome = checkLiveEvidence({
+      stage: "before the first upload",
+      districts: [runDistrict(DISTRICT_KEY, [[EVENT, "2026-05-01"]])],
+      nowMs: INSIDE,
+      alreadyListed: new Set(),
+      details: [{ key: DETAIL_KEY, districtKey: DISTRICT_KEY, artifact: threeTeams(POSTED) }],
+      publishedBodies: new Map([[DETAIL_KEY, JSON.stringify(threeTeams(NOT_POSTED))]]),
+      mode: "enforce",
+      allowLive: false,
+      log: (line) => lines.push(line),
+    });
+
+    expect(lines).toEqual([]);
+    expect(outcome.evidenceDistrictKeys).toEqual([]);
+  });
+
+  it("never throws, a clock that is not finite included, and every line starts with the publisher's prefix and holds the marker", () => {
+    const published = threeTeams(NOT_POSTED, { frc1: { ...BASE_POINTS, elim: 30 } });
+
+    expect(() => evidenceCheck({ published, nowMs: Number.NaN })).not.toThrow();
+    expect(evidenceCheck({ published, nowMs: Number.NaN }).lines).toEqual([]);
+    const modes: ReadonlyArray<readonly ["enforce" | "notice", boolean]> = [
+      ["enforce", false],
+      ["enforce", true],
+      ["notice", false],
+    ];
+    for (const [mode, allowLive] of modes) {
+      const { lines } = evidenceCheck({ published, mode, allowLive });
+      expect(lines.length).toBeGreaterThan(0);
+      for (const line of lines) {
+        expect(line.startsWith("publishDistricts:"), line).toBe(true);
+        expect(line, line).toContain(LIVE_DISTRICT_MARKER);
+      }
     }
   });
 });

@@ -56,7 +56,7 @@ import { finishedEventKeysAsOf, underwayEventKeysAsOf } from "./districtPricingS
 import { DistrictArtifactSchema } from "../packages/harness/pageArtifacts.js";
 import { DistrictPublishRefusedError } from "./districtPublishGuard.js";
 import type { CliOptions } from "./publishDistricts.js";
-import { DISTRICT_AWARDS_WATCH_MS, LIVE_WINDOW_PAD_MS } from "../packages/harness/manifests.js";
+import { DISTRICT_AWARDS_WATCH_MS, LIVE_WINDOW_PAD_MS, probeWindowFor } from "../packages/harness/manifests.js";
 import { DistrictsIndexArtifactSchema, type DistrictsIndexArtifact } from "../packages/harness/pageArtifacts.js";
 import { LIVE_DISTRICT_MARKER } from "./districtLiveGuard.js";
 
@@ -2857,6 +2857,293 @@ describe("run() skips a district while one of its events is live and publishes t
       const { lines, error } = await runCaptured({ dryRun: true });
 
       expect(error).toBeUndefined();
+      expect(markerLines(lines)).toEqual([]);
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  // ---- Task 3: the evidence skip, after the 261009-ul3 second read ----
+
+  type JynArtifact = JynFixture["liveArtifact"];
+
+  /** PAST: the end of the fixture event's calendar window plus the watch, from its start date through the builder's own function. */
+  const past = (f: JynFixture): number => probeWindowFor(f.startDate, 0)!.endMs + DISTRICT_AWARDS_WATCH_MS;
+  /** The fold of `awardsPosted` over every row of the fixture event: true when any row holds it true. */
+  const awardsPostedAt = (artifact: JynArtifact, eventKey: string): boolean =>
+    artifact.teams.some(
+      (team) =>
+        team.eventPoints.some((row) => row.eventKey === eventKey && row.state?.awardsPosted === true) ||
+        team.remainingEvents.some((row) => row.eventKey === eventKey && row.state?.awardsPosted === true)
+    );
+
+  /** FLAGFALSE: the fixture district's own artifact with `awardsPosted` false in the state of every row of the fixture event. */
+  function flagFalseBody(f: JynFixture): string {
+    const lower = <Row extends { eventKey: string; state?: { awardsPosted: boolean } }>(row: Row): Row =>
+      row.eventKey === f.eventKey && row.state !== undefined ? { ...row, state: { ...row.state, awardsPosted: false } } : row;
+    const variant = DistrictArtifactSchema.parse({
+      ...f.liveArtifact,
+      teams: f.liveArtifact.teams.map((team) => ({ ...team, eventPoints: team.eventPoints.map(lower), remainingEvents: team.remainingEvents.map(lower) })),
+    });
+    if (awardsPostedAt(variant, f.eventKey)) throw new Error("261010-jyn fixture: FLAGFALSE still holds awards posted true");
+    return JSON.stringify(variant);
+  }
+
+  /** The first team, in this run's order, with an `eventPoints` row at the fixture event. */
+  function firstTeamAtEvent(f: JynFixture): string {
+    const team = f.liveArtifact.teams.find((candidate) => candidate.eventPoints.some((row) => row.eventKey === f.eventKey));
+    if (team === undefined) throw new Error("261010-jyn fixture: no team holds a row at the fixture event");
+    return team.teamKey;
+  }
+
+  /** HIGHERPOINTS: the fixture district's own artifact with `qual` and `total` raised by 3 on the first team's row at the fixture event. */
+  function higherPointsBody(f: JynFixture): string {
+    const teamKey = firstTeamAtEvent(f);
+    let raised = false;
+    const variant = DistrictArtifactSchema.parse({
+      ...f.liveArtifact,
+      teams: f.liveArtifact.teams.map((team) =>
+        team.teamKey !== teamKey
+          ? team
+          : {
+              ...team,
+              eventPoints: team.eventPoints.map((row) => {
+                if (row.eventKey !== f.eventKey || raised) return row;
+                raised = true;
+                return { ...row, qual: row.qual + 3, total: row.total + 3 };
+              }),
+            }
+      ),
+    });
+    return JSON.stringify(variant);
+  }
+
+  /** The reader of these tests: `liveBody` for LIVEKEY, the published index fixture for the index key, no object elsewhere. */
+  const publishedVariant =
+    (f: JynFixture, liveBody: string): JynAnswer =>
+    (key) =>
+      key === f.liveKey ? liveBody : key === JYN_INDEX_KEY ? f.publishedIndexBody : null;
+
+  it("the evidence fixture: this run holds awards posted true at the fixture event, the window ends where the planner measured, and the gap is inside it", () => {
+    const f = fixture();
+    expect(awardsPostedAt(f.liveArtifact, f.eventKey)).toBe(true);
+    expect(new Date(past(f)).toISOString()).toBe("2026-07-11T00:00:00.000Z");
+    expect(f.ends).toBeLessThan(past(f));
+    expect(firstTeamAtEvent(f)).toMatch(/^frc\d+/);
+  });
+
+  it(
+    "rule (i): this run would raise the awards flag over the published file, so the district is skipped on evidence and its index row carried",
+    async () => {
+      const f = fixture();
+      const { calls, written, read, write } = seams(publishedVariant(f, flagFalseBody(f)));
+      const seam = clock(f.ends);
+
+      await withOutDir(async (outDir) => {
+        const { lines, error } = await runCaptured({ now: seam.now, readPublished: read, writeObject: write, localOut: outDir });
+
+        expect(error).toBeUndefined();
+        expect(writes(calls)).toHaveLength(f.n);
+        expect(calls).not.toContain(`write ${f.liveKey}`);
+        // 2N plus 1 reads: N details in each 261009-ul3 pass, the live key in both, then the index last.
+        const read_ = reads(calls);
+        expect(read_).toHaveLength(2 * f.n + 1);
+        expect(read_.filter((call) => call === `read ${f.liveKey}`)).toHaveLength(2);
+        expect(read_.slice(0, 2 * f.n)).not.toContain(`read ${JYN_INDEX_KEY}`);
+        expect(read_.at(-1)).toBe(`read ${JYN_INDEX_KEY}`);
+        const firstWrite = calls.findIndex((call) => call.startsWith("write "));
+        expect(firstWrite).toBe(2 * f.n + 1);
+        expect(calls.slice(firstWrite).some((call) => call.startsWith("read "))).toBe(false);
+
+        const index = uploadedIndex(written);
+        expect(index.districts.find((row) => row.districtKey === f.districtKey)).toEqual(f.publishedIndex.districts.find((row) => row.districtKey === f.districtKey));
+
+        const marked = markerLines(lines);
+        expect(marked.some((line) => line.includes(f.districtKey) && line.includes(f.eventKey) && line.includes("awards posted"))).toBe(true);
+        expect(marked.some((line) => line.includes(f.districtKey) && line.includes("skipped") && line.includes("on evidence"))).toBe(true);
+        const last = marked.at(-1)!;
+        expect(last).toContain("1 live district(s) skipped");
+        expect(last).toContain(`${f.n - 1} district(s) published`);
+        expect(lines.at(-1)).toBe(last);
+
+        const files = readdirSync(outDir);
+        expect(files).toHaveLength(f.n);
+        expect(files).not.toContain(localOutFileName(f.liveKey));
+        // The clock is still read once per clock pass, and the evidence check reads none.
+        expect(seam.calls()).toBe(2);
+      });
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "rule (ii): this run would write a lower point value than the published file holds, so the district is skipped on evidence",
+    async () => {
+      const f = fixture();
+      const { calls, read, write } = seams(publishedVariant(f, higherPointsBody(f)));
+
+      const { lines, error } = await runCaptured({ now: () => f.ends, readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(writes(calls)).toHaveLength(f.n);
+      expect(calls).not.toContain(`write ${f.liveKey}`);
+      expect(reads(calls)).toHaveLength(2 * f.n + 1);
+      const marked = markerLines(lines);
+      expect(marked.some((line) => line.includes(f.districtKey) && line.includes(f.eventKey) && line.includes(`team ${firstTeamAtEvent(f)},`) && line.includes("qual"))).toBe(true);
+      expect(marked.some((line) => line.includes("2 point value(s)"))).toBe(true);
+      expect(marked.some((line) => line.includes(f.districtKey) && line.includes("skipped") && line.includes("on evidence"))).toBe(true);
+      expect(marked.some((line) => line.includes("awards posted"))).toBe(false);
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "the evidence check reads the bodies of the second read: a flag the published file lost its confirmation of during the bake still skips",
+    async () => {
+      const f = fixture();
+      const flagFalse = flagFalseBody(f);
+      const own = new Map(f.details.map((detail) => [detail.key, detail.body] as const));
+      // The whole first pass answers this run's own artifacts. From the second pass on the live key answers FLAGFALSE.
+      const { calls, read, write } = seams((key, readsSoFar) => (key === JYN_INDEX_KEY ? f.publishedIndexBody : readsSoFar >= f.n && key === f.liveKey ? flagFalse : own.get(key) ?? null));
+
+      const { lines, error } = await runCaptured({ now: () => f.ends, readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(calls).not.toContain(`write ${f.liveKey}`);
+      expect(markerLines(lines).some((line) => line.includes("on evidence") && line.includes("before the first upload"))).toBe(true);
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "one millisecond before the calendar window plus 24 hours ends the district is still skipped on evidence",
+    async () => {
+      const f = fixture();
+      const { calls, read, write } = seams(publishedVariant(f, flagFalseBody(f)));
+
+      const { error } = await runCaptured({ now: () => past(f) - 1, readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(calls).not.toContain(`write ${f.liveKey}`);
+      expect(writes(calls)).toHaveLength(f.n);
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  for (const variant of ["FLAGFALSE", "HIGHERPOINTS"] as const) {
+    it(
+      `past that window nothing changes (${variant}): the district is published, the index is this run's and no line is printed`,
+      async () => {
+        const f = fixture();
+        const { calls, written, read, write } = seams(publishedVariant(f, variant === "FLAGFALSE" ? flagFalseBody(f) : higherPointsBody(f)));
+
+        const { lines, error } = await runCaptured({ now: () => past(f), readPublished: read, writeObject: write });
+
+        expect(error).toBeUndefined();
+        expect(writes(calls)).toHaveLength(f.n + 1);
+        expect(calls).toContain(`write ${f.liveKey}`);
+        expect(calls).not.toContain(`read ${JYN_INDEX_KEY}`);
+        expect(markerLines(lines)).toEqual([]);
+        // The flag is still raised at the hindsight vantage, and a lower value is still not a regression.
+        const uploaded = DistrictArtifactSchema.parse(JSON.parse(written.get(f.liveKey)!));
+        expect(awardsPostedAt(uploaded, f.eventKey)).toBe(true);
+        expect(uploaded.teams).toEqual(f.liveArtifact.teams);
+      },
+      JYN_TIMEOUT_MS
+    );
+  }
+
+  it(
+    "--allow-live publishes a district the evidence rule lists, and says so",
+    async () => {
+      const f = fixture();
+      const { calls, read, write } = seams(publishedVariant(f, flagFalseBody(f)));
+
+      const { lines, error } = await runCaptured({ allowLive: true, now: () => f.ends, readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(writes(calls)).toHaveLength(f.n + 1);
+      expect(calls).toContain(`write ${f.liveKey}`);
+      expect(calls).not.toContain(`read ${JYN_INDEX_KEY}`);
+      const marked = markerLines(lines);
+      expect(marked.some((line) => line.includes("awards posted"))).toBe(true);
+      expect(marked.some((line) => line.includes("--allow-live"))).toBe(true);
+      expect(lines.some((line) => line.includes("skipped"))).toBe(false);
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "no difference, nothing changes: with this run's own artifact published at every key the run uploads exactly what it composed",
+    async () => {
+      const f = fixture();
+      const own = new Map(f.details.map((detail) => [detail.key, detail.body] as const));
+      const { calls, written, read, write } = seams((key) => own.get(key) ?? null);
+
+      const { lines, error } = await runCaptured({ now: () => f.ends, readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(writes(calls)).toHaveLength(f.n + 1);
+      expect(calls).not.toContain(`read ${JYN_INDEX_KEY}`);
+      expect(markerLines(lines)).toEqual([]);
+      const withoutGeneration = (body: string): unknown => {
+        const { generation: _generation, ...rest } = JSON.parse(body) as Record<string, unknown>;
+        return rest;
+      };
+      for (const detail of f.details) expect(withoutGeneration(written.get(detail.key)!), detail.key).toEqual(withoutGeneration(detail.body));
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "the 261009-ul3 guard is not changed by it: a live fact the upload would lose still refuses, inside the evidence window too",
+    async () => {
+      const f = fixture();
+      const { calls, read, write } = seams(publishedVariant(f, staleBody(f)));
+
+      const { error } = await runCaptured({ now: () => f.ends, readPublished: read, writeObject: write });
+
+      expect(error).toBeInstanceOf(DistrictPublishRefusedError);
+      expect((error as Error).message).toContain("older than what is live");
+      expect(writes(calls)).toEqual([]);
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "a dry run with --check-live prints the evidence as a notice, on its one read, and writes every composed object locally",
+    async () => {
+      const f = fixture();
+      const { calls, read, write } = seams(publishedVariant(f, flagFalseBody(f)));
+
+      await withOutDir(async (outDir) => {
+        const { lines, error } = await runCaptured({ dryRun: true, checkLive: true, now: () => f.ends, readPublished: read, writeObject: write, localOut: outDir });
+
+        expect(error).toBeUndefined();
+        const marked = markerLines(lines);
+        expect(marked.some((line) => line.includes(f.districtKey) && line.includes(f.eventKey) && line.includes("awards posted"))).toBe(true);
+        expect(marked.some((line) => line.includes("--dry-run") && line.includes("on evidence"))).toBe(true);
+        expect(lines.some((line) => line.includes("skipped"))).toBe(false);
+        expect(writes(calls)).toEqual([]);
+        expect(reads(calls)).toHaveLength(f.n);
+        expect(calls).not.toContain(`read ${JYN_INDEX_KEY}`);
+        const files = readdirSync(outDir);
+        expect(files).toHaveLength(f.n + 1);
+        expect(files).toContain(localOutFileName(f.liveKey));
+      });
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "a plain dry run cannot run the evidence check: it reads nothing and prints no line of this guard",
+    async () => {
+      const f = fixture();
+      const { calls, read, write } = seams(publishedVariant(f, flagFalseBody(f)));
+
+      const { lines, error } = await runCaptured({ dryRun: true, now: () => f.ends, readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(calls).toEqual([]);
       expect(markerLines(lines)).toEqual([]);
     },
     JYN_TIMEOUT_MS
