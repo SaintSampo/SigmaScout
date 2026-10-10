@@ -38,6 +38,11 @@ import { installMockWorker, type MockWorkerHandle, type MockWorkerScript } from 
 import { runDistrictWorkerJob } from "../../workers/districtSimulationProtocol.js";
 import { runAsOfEvent } from "../../workers/districtAsOfJob.js";
 import { ChampLocksLedger } from "./ChampLocksLedger.js";
+import { buildChampLedgerRows } from "./champLedgerRows.js";
+import { computeChampLedgerStatuses } from "./champLedgerStatus.js";
+import { dcmpBracketFactsFor, type DistrictEventDistributions, type DistrictPointDistribution } from "./districtLedgerRows.js";
+import { pendingAwardSlots, MAX_WINNING_ALLIANCE_SIZE } from "../../../../../packages/core/districts/champReservedSlots.js";
+import { dcmpAwardCountCeilings } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
 import { playoffPoints } from "../../../../../packages/core/districts/bracket.js";
 import { DISTRICT_MILESTONE_KEYS } from "./districtMilestones.js";
 import { asOfBodyFor, buildAsOfTestObjects } from "./asOfTestFixtures.js";
@@ -1043,4 +1048,231 @@ describe("ChampLocksLedger — the run progress bar (quick task 261007-481)", ()
     await waitFor(() => expect(screen.getAllByTestId("champ-ledger-row").length).toBeGreaterThan(0));
     expect(screen.queryByTestId("district-ledger-run-progress")).toBeNull();
   });
+});
+
+// ---------------------------------------------------------------------------
+// Quick task 261009-vp9: the two readings, never mixed, at a championship.
+//
+// The field (the event's state) keeps driving the run and the bracket facts.
+// Whether a number is final (the state AND the points that prove it) drives
+// the grey cells and everything the lock math reads, the joint proof's
+// eligibility included.
+// ---------------------------------------------------------------------------
+
+describe("ChampLocksLedger — the two readings while a live championship's points lag (quick task 261009-vp9)", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  /** Alliances picked and the bracket under way at the championship. */
+  const DCMP_MID_PLAYOFFS = state({ playoffsDone: false, awardsPosted: false });
+  const DCMP_ALLIANCES = Array.from({ length: 8 }, (_unused, n) => ({ allianceNumber: n + 1, picks: ROSTER.slice(n * 3, n * 3 + 3) }));
+  const allianceRoster = (allianceNumber: number): string[] => DCMP_ALLIANCES[allianceNumber - 1]!.picks;
+  const allianceOf = (teamKey: string): number => Math.floor(ROSTER.indexOf(teamKey) / 3) + 1;
+  /** Seven played sets: alliance 1 has secured a top four finish, alliance 4 is alive short of one, alliances 5 and 6 are out. */
+  const DCMP_ELIM_WINNERS: readonly { setNumber: number; red: number; blue: number; winner: number }[] = [
+    { setNumber: 1, red: 1, blue: 8, winner: 1 },
+    { setNumber: 2, red: 4, blue: 5, winner: 4 },
+    { setNumber: 3, red: 2, blue: 7, winner: 2 },
+    { setNumber: 4, red: 3, blue: 6, winner: 3 },
+    { setNumber: 5, red: 8, blue: 5, winner: 8 },
+    { setNumber: 6, red: 7, blue: 6, winner: 7 },
+    { setNumber: 7, red: 1, blue: 4, winner: 1 },
+  ];
+  const PLAYED_ROWS = DCMP_ELIM_WINNERS.map((row) => ({ compLevel: "sf", setNumber: row.setNumber, matchNumber: 1, winningAllianceNumber: row.winner }));
+
+  /** The championship's own artifact: twelve played qualification rows, eight alliances, seven played sets. */
+  function championshipBracketEventArtifact(): EventArtifact {
+    const base = liveEventArtifact(DCMP_EVENT);
+    const quals = [...base.matches, ...base.upcoming].map((match) => ({
+      ...match,
+      predictedWinner: "red" as const,
+      actualWinner: "red" as const,
+      actualRedScore: 95,
+      actualBlueScore: 80,
+      actualRedRp: 3,
+      actualBlueRp: 1,
+    }));
+    const sets = DCMP_ELIM_WINNERS.map((row) => ({
+      matchKey: `${DCMP_EVENT}_sf${String(row.setNumber)}m1`,
+      compLevel: "sf" as const,
+      setNumber: row.setNumber,
+      matchNumber: 1,
+      sortTime: 1_770_000_000 + row.setNumber * 600,
+      redTeams: allianceRoster(row.red),
+      blueTeams: allianceRoster(row.blue),
+      predictedWinner: "red" as const,
+      pRedWin: 0.5,
+      predictedRedScore: 100,
+      predictedBlueScore: 100,
+      actualWinner: row.winner === row.red ? ("red" as const) : ("blue" as const),
+      actualRedScore: row.winner === row.red ? 110 : 90,
+      actualBlueScore: row.winner === row.red ? 90 : 110,
+      actualRedRp: 0,
+      actualBlueRp: 0,
+    }));
+    return EventArtifactSchema.parse({ ...base, matches: [...quals, ...sets], upcoming: [], alliances: DCMP_ALLIANCES });
+  }
+
+  /** What TBA pays a team for alliance selection at this championship in the fixture. Always above zero. */
+  const alliancePointsOf = (teamKey: string): number => 3 * (17 - allianceOf(teamKey));
+
+  /**
+   * Every team finished its district event and is at the championship, whose
+   * alliances are picked and whose bracket is under way. `landed` false: the
+   * championship is still a remaining event for every team, so NO row carries
+   * an alliance point. `landed` true: every team has its championship row,
+   * with its alliance points.
+   */
+  function championshipMidPlayoffs(landed: boolean): DistrictArtifact {
+    return artifactOf(
+      ROSTER.map((teamKey) => {
+        const base = districtTeam(teamKey);
+        if (!landed) {
+          return {
+            ...base,
+            remainingEvents: [{ eventKey: DCMP_EVENT, eventName: "PNW District Championship", week: 6, tier: "dcmp" as const, maxPoints: 249, state: DCMP_MID_PLAYOFFS }],
+            maxRemainingChamp: 249,
+          };
+        }
+        const alliance = alliancePointsOf(teamKey);
+        return {
+          ...base,
+          pointTotal: base.pointTotal + 30 + alliance,
+          eventPoints: [
+            ...base.eventPoints,
+            { eventKey: DCMP_EVENT, eventName: "PNW District Championship", week: 6, tier: "dcmp" as const, qual: 30, alliance, elim: 0, award: 0, total: 30 + alliance, state: DCMP_MID_PLAYOFFS },
+          ],
+          maxRemainingChamp: 135,
+        };
+      })
+    );
+  }
+
+  type Category = "qual" | "alliance" | "elim" | "award";
+  function dcmpCell(teamKey: string, category: Category): Element | null {
+    for (const row of rowsFor(teamKey)) {
+      const cell = row.querySelector(`[data-cell-id="dcmp-row:${category}"]`);
+      if (cell !== null) return cell;
+    }
+    return null;
+  }
+  const kindOf = (teamKey: string, category: Category): string | null => dcmpCell(teamKey, category)?.getAttribute("data-cell") ?? null;
+  const textOf = (teamKey: string, category: Category): string => dcmpCell(teamKey, category)?.textContent ?? "";
+
+  interface RunInput {
+    readonly tier: string;
+    readonly knownAlliances?: readonly { allianceNumber: number; picks: string[] }[];
+    readonly knownElimPoints?: ReadonlyMap<string, number>;
+    readonly playedElimMatches?: readonly { compLevel: string; setNumber: number; matchNumber: number; winningAllianceNumber: number }[];
+  }
+  function lastRunInput(): RunInput {
+    let found: RunInput | undefined;
+    for (const instance of handle!.instances) {
+      for (const message of instance.received) {
+        if ((message as { type?: string }).type !== "run") continue;
+        for (const event of (message as { events?: { eventKey: string; input: RunInput }[] }).events ?? []) if (event.eventKey === DCMP_EVENT) found = event.input;
+      }
+    }
+    if (found === undefined) throw new Error("no run request for the championship");
+    return found;
+  }
+
+  async function renderChampionship(artifact: DistrictArtifact, ready: () => boolean) {
+    installFetch([championshipBracketEventArtifact()]);
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifact);
+    await waitFor(() => expect(ready()).toBe(true), { timeout: 20000 });
+  }
+
+  it("with no alliance points on any row: the run conditions on the published alliances and the played bracket, the cells show the route and the milestone, and no category is grey without its points", async () => {
+    await renderChampionship(championshipMidPlayoffs(false), () => textOf(allianceRoster(1)[0]!, "elim") !== "" && kindOf(allianceRoster(1)[0]!, "alliance") === "open");
+
+    const input = lastRunInput();
+    expect(input.tier).toBe("dcmp");
+    expect(input.knownAlliances?.map((alliance) => alliance.picks)).toEqual(DCMP_ALLIANCES.map((alliance) => alliance.picks));
+    expect(input.playedElimMatches).toEqual(PLAYED_ROWS);
+    expect(input.knownElimPoints).toBeUndefined();
+
+    for (const teamKey of ROSTER) {
+      expect(kindOf(teamKey, "qual"), teamKey).toBe("open");
+      expect(kindOf(teamKey, "alliance"), teamKey).toBe("open");
+      expect(kindOf(teamKey, "award"), teamKey).toBe("open");
+    }
+    // The settled route, from a run that knows the real alliances.
+    expect(textOf(allianceRoster(1)[0]!, "alliance")).toMatch(/^~\d+captain, alliance 1$/);
+    expect(textOf(allianceRoster(3)[1]!, "alliance")).toMatch(/^~\d+first pick, alliance 3$/);
+    // The milestone at the 3x weight for an alliance in the upper final, and
+    // a decided alliance settled grey.
+    for (const teamKey of allianceRoster(1)) expect(textOf(teamKey, "elim"), teamKey).toMatch(/^\d+% finalpays 60 or 90$/);
+    for (const teamKey of [...allianceRoster(5), ...allianceRoster(6)]) {
+      expect(kindOf(teamKey, "elim"), teamKey).toBe("final");
+      expect(textOf(teamKey, "elim"), teamKey).toBe("0");
+    }
+  }, 40000);
+
+  /** A flat histogram over 0 to `points`, enough for the champ rows to price a cell. */
+  function flat(points: number): DistrictPointDistribution {
+    const counts = new Float64Array(points + 1).fill(100 / (points + 1));
+    return { counts, denominator: 100 };
+  }
+
+  /** The rows and statuses the tab computes at Now for one artifact, handed the field's bracket facts as the data hook hands them. */
+  function statusesAtNow(artifact: DistrictArtifact) {
+    // The facts are built with the FIELD's stage: selection is over on the field.
+    const dcmpBracket = dcmpBracketFactsFor({
+      eventKey: DCMP_EVENT,
+      season: SEASON,
+      tier: "dcmp",
+      stage: { qual: true, alliance: true, elim: false, award: false },
+      alliances: DCMP_ALLIANCES,
+      playedMatches: PLAYED_ROWS,
+      unresolvedMatchCount: 0,
+    });
+    if (dcmpBracket === undefined) throw new Error("the field's bracket facts did not build");
+    const record = { qual: flat(66), alliance: flat(48), elim: flat(90), award: flat(45), eventTotal: flat(249), grandTotal: undefined };
+    const distributions = new Map<string, DistrictEventDistributions>([[DCMP_EVENT, { eventKey: DCMP_EVENT, byTeam: new Map(ROSTER.map((teamKey) => [teamKey, record] as const)), dcmpBracket }]]);
+    const rows = buildChampLedgerRows({ artifact, distributions, atLivePosition: true });
+    return { rows, model: computeChampLedgerStatuses({ artifact, teams: rows.teams, distributions, nowYear: SEASON }) };
+  }
+
+  it("the lock math reads Alliance selection and Playoffs open, and the joint proof refuses as not eligible while the flat reservation stands. With the alliance points in, the joint proof is eligible again", () => {
+    const flatReservation = MAX_WINNING_ALLIANCE_SIZE + pendingAwardSlots(dcmpAwardCountCeilings(SEASON, "2026pnw", 4).counts);
+
+    const lagging = statusesAtNow(championshipMidPlayoffs(false));
+    for (const team of lagging.rows.teams) {
+      const source = team.dcmpRow.sources.find((entry) => entry.eventKey === DCMP_EVENT)!;
+      expect(source.stage.final, team.teamKey).toEqual({ qual: false, alliance: false, elim: false, award: false });
+    }
+    expect(lagging.model.jointProof).toEqual({ applied: false, reason: "stageNotEligible" });
+    expect(lagging.model.reservedSlots).toBe(flatReservation);
+
+    const landed = statusesAtNow(championshipMidPlayoffs(true));
+    for (const team of landed.rows.teams) {
+      const source = team.dcmpRow.sources.find((entry) => entry.eventKey === DCMP_EVENT)!;
+      expect(source.stage.final, team.teamKey).toEqual({ qual: true, alliance: true, elim: false, award: false });
+    }
+    expect(landed.model.jointProof?.applied === false ? landed.model.jointProof.reason : "applied").toBe("applied");
+  });
+
+  it("with the alliance points in: Qualification and Alliance selection print the artifact's numbers grey, and the run request is the same one", async () => {
+    await renderChampionship(championshipMidPlayoffs(true), () => textOf(allianceRoster(1)[0]!, "elim") !== "" && kindOf(allianceRoster(1)[0]!, "elim") === "open");
+    for (const teamKey of ROSTER) {
+      expect(kindOf(teamKey, "qual"), teamKey).toBe("final");
+      expect(textOf(teamKey, "qual"), teamKey).toBe("30");
+      expect(kindOf(teamKey, "alliance"), teamKey).toBe("final");
+      expect(textOf(teamKey, "alliance"), teamKey).toBe(String(alliancePointsOf(teamKey)));
+    }
+    for (const teamKey of allianceRoster(1)) expect(textOf(teamKey, "elim"), teamKey).toMatch(/^\d+% finalpays 60 or 90$/);
+    const input = lastRunInput();
+    expect(input.knownAlliances).toHaveLength(8);
+    expect(input.playedElimMatches).toEqual(PLAYED_ROWS);
+  }, 40000);
 });

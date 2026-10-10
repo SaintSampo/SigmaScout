@@ -39,6 +39,9 @@ import { installMockWorker, type MockWorkerHandle, type MockWorkerScript } from 
 import { runDistrictWorkerJob } from "../../workers/districtSimulationProtocol.js";
 import { runAsOfEvent } from "../../workers/districtAsOfJob.js";
 import { DistrictLedger } from "./DistrictLedger.js";
+import { buildDistrictLedgerRows, type DistrictEventDistributions } from "./districtLedgerRows.js";
+import { districtLockBounds } from "./districtLedgerStatus.js";
+import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
 import { TEAM_CELL_CLASS } from "./LedgerParts.js";
 import { DISTRICT_MILESTONE_KEYS } from "./districtMilestones.js";
 import { asOfBodyFor, buildAsOfTestObjects } from "./asOfTestFixtures.js";
@@ -2723,5 +2726,293 @@ describe("DistrictLedger — the run progress bar (quick task 261007-481)", () =
     renderLedger(artifactOf([districtTeam("frc100")]));
     await waitFor(() => expect(screen.getAllByRole("columnheader").length).toBeGreaterThan(0));
     expect(screen.queryByTestId("district-ledger-run-progress")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Quick task 261009-vp9: the two readings, never mixed.
+//
+// WHAT HAS HAPPENED ON THE FIELD (the event's state) keeps driving the run:
+// the published alliances and the played bracket it conditions on. WHETHER A
+// CATEGORY'S NUMBER IS FINAL (the state AND the points that prove it) drives
+// which cells are grey and what the lock math reads. Nothing live goes dark
+// while TBA's points lag. Only finality waits.
+// ---------------------------------------------------------------------------
+
+describe("DistrictLedger — the two readings while a live event's points lag (quick task 261009-vp9)", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  const EVENT = "2026waplay";
+  type Category = "qual" | "alliance" | "elim" | "award";
+
+  /** One category's cell at the live event for one team, found across that team's rows. */
+  function cellFor(teamKey: string, category: Category): Element | null {
+    for (const row of document.querySelectorAll(`[data-team="${teamKey}"]`)) {
+      const cell = row.querySelector(`[data-cell-id="${EVENT}:${category}"]`);
+      if (cell !== null) return cell;
+    }
+    return null;
+  }
+  const kindOf = (teamKey: string, category: Category): string | null => cellFor(teamKey, category)?.getAttribute("data-cell") ?? null;
+  const textOf = (teamKey: string, category: Category): string => cellFor(teamKey, category)?.textContent ?? "";
+
+  interface RunInput {
+    readonly knownAlliances?: readonly { allianceNumber: number; picks: string[] }[];
+    readonly knownElimPoints?: ReadonlyMap<string, number>;
+    readonly playedElimMatches?: readonly { compLevel: string; setNumber: number; matchNumber: number; winningAllianceNumber: number }[];
+  }
+
+  /** The LAST per event run request the tab posted for the live event. */
+  function lastRunInput(): RunInput {
+    let found: RunInput | undefined;
+    for (const instance of instancesReceiving(handle!, "run")) {
+      for (const message of instance.received) {
+        const events = (message as { events?: { eventKey: string; input: RunInput }[] }).events ?? [];
+        for (const event of events) if (event.eventKey === EVENT) found = event.input;
+      }
+    }
+    if (found === undefined) throw new Error("no run request for the live event");
+    return found;
+  }
+
+  /**
+   * The rest of the bracket after `PLAYOFF_ELIM_WINNERS`' seven sets, played
+   * out: alliance 1 wins, alliance 2 is the finalist, alliance 3 is third and
+   * alliance 4 fourth. The other four alliances are out and paid nothing.
+   */
+  const REST_OF_BRACKET: readonly { compLevel: "sf" | "f"; setNumber: number; matchNumber: number; red: number; blue: number; winner: number }[] = [
+    { compLevel: "sf", setNumber: 8, matchNumber: 1, red: 2, blue: 3, winner: 2 },
+    { compLevel: "sf", setNumber: 9, matchNumber: 1, red: 4, blue: 7, winner: 4 },
+    { compLevel: "sf", setNumber: 10, matchNumber: 1, red: 3, blue: 8, winner: 3 },
+    { compLevel: "sf", setNumber: 11, matchNumber: 1, red: 1, blue: 2, winner: 1 },
+    { compLevel: "sf", setNumber: 12, matchNumber: 1, red: 4, blue: 3, winner: 3 },
+    { compLevel: "sf", setNumber: 13, matchNumber: 1, red: 2, blue: 3, winner: 2 },
+    { compLevel: "f", setNumber: 1, matchNumber: 1, red: 1, blue: 2, winner: 1 },
+    { compLevel: "f", setNumber: 1, matchNumber: 2, red: 1, blue: 2, winner: 1 },
+  ];
+  /** What each alliance's placement pays at a 2026 district event, by alliance number. */
+  const PLACEMENT_POINTS: Readonly<Record<number, number>> = { 1: 30, 2: 20, 3: 13, 4: 7, 5: 0, 6: 0, 7: 0, 8: 0 };
+
+  /** `playoffEventArtifact` with its whole bracket played: fifteen elimination rows. */
+  function finishedBracketEventArtifact(): EventArtifact {
+    const base = playoffEventArtifact();
+    const rest = REST_OF_BRACKET.map((row, index) => ({
+      matchKey: `${EVENT}_${row.compLevel}${String(row.setNumber)}m${String(row.matchNumber)}`,
+      compLevel: row.compLevel,
+      setNumber: row.setNumber,
+      matchNumber: row.matchNumber,
+      sortTime: 1_770_010_000 + index * 600,
+      redTeams: allianceRoster(row.red),
+      blueTeams: allianceRoster(row.blue),
+      predictedWinner: "red" as const,
+      pRedWin: 0.5,
+      predictedRedScore: 100,
+      predictedBlueScore: 100,
+      actualWinner: row.winner === row.red ? ("red" as const) : ("blue" as const),
+      actualRedScore: row.winner === row.red ? 110 : 90,
+      actualBlueScore: row.winner === row.red ? 90 : 110,
+      actualRedRp: 0,
+      actualBlueRp: 0,
+    }));
+    return EventArtifactSchema.parse({ ...base, matches: [...base.matches, ...rest] });
+  }
+
+  const allianceOf = (teamKey: string): number => Math.floor(ROSTER.indexOf(teamKey) / 3) + 1;
+  /** What TBA pays a team for alliance selection in this fixture: more for a lower alliance number. Always above zero. */
+  const alliancePointsOf = (teamKey: string): number => 17 - allianceOf(teamKey);
+
+  /** The state of the event once its bracket is played out and its awards are still to come. */
+  const PLAYOFFS_DONE = state({ playoffsDone: true, awardsPosted: false });
+
+  /** A team with a POINTS ROW at the live event, carrying the given points and state. */
+  function withEventRow(team: DistrictTeam, eventState: DistrictEventState, points: { qual: number; alliance: number; elim: number }): DistrictTeam {
+    const total = points.qual + points.alliance + points.elim;
+    return {
+      ...team,
+      pointTotal: team.pointTotal + total,
+      eventPoints: [...team.eventPoints, { eventKey: EVENT, eventName: "Playoff Event", week: 2, tier: "district", ...points, award: 0, total, state: eventState }],
+    };
+  }
+
+  async function renderEvent(artifact: DistrictArtifact, eventArtifact: EventArtifact, ready: () => boolean) {
+    installFetch({ eventArtifact });
+    handle = installMockWorker({ script: realRunScript });
+    renderLedger(artifact);
+    await waitFor(() => {
+      expect(instancesReceiving(handle!, "run").length).toBeGreaterThan(0);
+      expect(ready()).toBe(true);
+    });
+  }
+
+  describe("alliances picked and the bracket under way, with NO alliance points on any row", () => {
+    // The fixture of the playoff milestone describe above, untouched: the
+    // event is a remaining event for every team, so no row carries a point.
+    const lagging = () => artifactOf(ROSTER.map((teamKey) => withPlayoffEvent(districtTeam(teamKey))));
+    const render = () => renderEvent(lagging(), playoffEventArtifact(), () => textOf(allianceRoster(1)[0]!, "elim") !== "" && kindOf(allianceRoster(1)[0]!, "alliance") === "open");
+
+    it("the run request carries the published alliances and the played bracket rows", async () => {
+      await render();
+      const input = lastRunInput();
+      expect(input.knownAlliances?.map((alliance) => alliance.picks)).toEqual(PLAYOFF_ALLIANCES.map((alliance) => alliance.picks));
+      expect(input.playedElimMatches).toHaveLength(PLAYOFF_ELIM_WINNERS.length);
+      expect(input.playedElimMatches?.map((row) => [row.setNumber, row.winningAllianceNumber])).toEqual(PLAYOFF_ELIM_WINNERS.map((row) => [row.setNumber, row.winner]));
+      expect(input.knownElimPoints).toBeUndefined();
+    });
+
+    it("the Alliance selection cell of a picked team is an OPEN cell that prints its settled route, and Qualification is open too: no category is grey without its points", async () => {
+      await render();
+      for (const teamKey of ROSTER) {
+        expect(kindOf(teamKey, "qual"), teamKey).toBe("open");
+        expect(kindOf(teamKey, "alliance"), teamKey).toBe("open");
+        expect(kindOf(teamKey, "award"), teamKey).toBe("open");
+      }
+      // The run knows the real alliances, so every team's route is settled.
+      expect(textOf(allianceRoster(1)[0]!, "alliance")).toMatch(/^~\d+captain, alliance 1$/);
+      expect(textOf(allianceRoster(1)[1]!, "alliance")).toMatch(/^~\d+first pick, alliance 1$/);
+      expect(textOf(allianceRoster(5)[2]!, "alliance")).toMatch(/^~\d+second pick, alliance 5$/);
+    });
+
+    it("an alliance the bracket has decided shows its Playoffs cell settled grey, and an alliance still alive keeps its milestone", async () => {
+      await render();
+      for (const teamKey of [...allianceRoster(5), ...allianceRoster(6)]) {
+        expect(kindOf(teamKey, "elim"), teamKey).toBe("final");
+        expect(textOf(teamKey, "elim"), teamKey).toBe("0");
+      }
+      for (const teamKey of allianceRoster(1)) {
+        expect(kindOf(teamKey, "elim"), teamKey).toBe("open");
+        expect(textOf(teamKey, "elim"), teamKey).toMatch(/^\d+% finalpays 20 or 30$/);
+      }
+      for (const teamKey of allianceRoster(4)) expect(textOf(teamKey, "elim"), teamKey).toMatch(/^\d+% top 4pays 7 to 30$/);
+    });
+
+    it("the lock math reads Qualification, Alliance selection and Playoffs open for that event's rows", () => {
+      // The rows the tab builds at Now for this artifact, with the bracket
+      // milestone the run reports for an alliance that is out at seventh.
+      const artifact = lagging();
+      const decidedTeam = allianceRoster(5)[0]!;
+      const distributions = new Map<string, DistrictEventDistributions>([
+        [EVENT, { eventKey: EVENT, byTeam: new Map(), playoffMilestoneByTeam: new Map([[decidedTeam, { kind: "decided" as const, placement: 7 }]]) }],
+      ]);
+      const built = buildDistrictLedgerRows({ artifact, distributions });
+      const ceilings = maxEventPoints(SEASON, "district");
+      const boundsOf = (teamKey: string) =>
+        districtLockBounds(artifact.teams.find((team) => team.teamKey === teamKey)!, built.teams.find((team) => team.teamKey === teamKey)!.rows, ceilings);
+      for (const team of built.teams) {
+        const row = team.rows.find((entry) => entry.eventKey === EVENT)!;
+        expect(row.stage.final, team.teamKey).toEqual({ qual: false, alliance: false, elim: false, award: false });
+      }
+      // A decided team: the Qualification and Alliance selection ceilings,
+      // its placement's ceiling (seventh pays nothing) and the Awards ceiling.
+      expect(boundsOf(decidedTeam)).toEqual({ floor: 24, openCeiling: ceilings.qual + ceilings.alliance + 0 + ceilings.award });
+      // A team still alive keeps the whole Playoffs ceiling as well.
+      expect(boundsOf(allianceRoster(1)[0]!)).toEqual({ floor: 24, openCeiling: ceilings.qual + ceilings.alliance + ceilings.elim + ceilings.award });
+    });
+
+    it("give the artifact its alliance points and the same two cells print the artifact's numbers grey, while the bracket cells are unchanged", async () => {
+      const landed = artifactOf(ROSTER.map((teamKey) => withEventRow(districtTeam(teamKey), MID_PLAYOFFS, { qual: 9, alliance: alliancePointsOf(teamKey), elim: 0 })));
+      await renderEvent(landed, playoffEventArtifact(), () => textOf(allianceRoster(1)[0]!, "elim") !== "" && kindOf(allianceRoster(1)[0]!, "elim") === "open");
+      for (const teamKey of ROSTER) {
+        expect(kindOf(teamKey, "qual"), teamKey).toBe("final");
+        expect(textOf(teamKey, "qual"), teamKey).toBe("9");
+        expect(kindOf(teamKey, "alliance"), teamKey).toBe("final");
+        expect(textOf(teamKey, "alliance"), teamKey).toBe(String(alliancePointsOf(teamKey)));
+      }
+      for (const teamKey of allianceRoster(1)) expect(textOf(teamKey, "elim"), teamKey).toMatch(/^\d+% finalpays 20 or 30$/);
+      for (const teamKey of allianceRoster(5)) expect(kindOf(teamKey, "elim"), teamKey).toBe("final");
+      // The request is the same one: the alliances and the played rows never
+      // depended on whether TBA's alliance points had arrived.
+      const input = lastRunInput();
+      expect(input.knownAlliances).toHaveLength(8);
+      expect(input.playedElimMatches).toHaveLength(PLAYOFF_ELIM_WINNERS.length);
+    });
+  });
+
+  describe("playoffs done on the field, with a STALE playoff number on every row", () => {
+    /** Every row still carries one stale playoff point: the rankings have not caught up with the bracket. */
+    const STALE_ELIM = 1;
+    const stale = () => artifactOf(ROSTER.map((teamKey) => withEventRow(districtTeam(teamKey), PLAYOFFS_DONE, { qual: 9, alliance: alliancePointsOf(teamKey), elim: STALE_ELIM })));
+    const everyElimSettled = (): boolean => ROSTER.every((teamKey) => kindOf(teamKey, "elim") === "final");
+
+    it("the request carries no knownElimPoints and every played row, and every alliance's Playoffs cell is settled at its placement, never at the row's stale number", async () => {
+      await renderEvent(stale(), finishedBracketEventArtifact(), everyElimSettled);
+      const input = lastRunInput();
+      expect(input.knownElimPoints).toBeUndefined();
+      expect(input.playedElimMatches).toHaveLength(PLAYOFF_ELIM_WINNERS.length + REST_OF_BRACKET.length);
+      expect(input.knownAlliances).toHaveLength(8);
+      for (const teamKey of ROSTER) {
+        expect(kindOf(teamKey, "elim"), teamKey).toBe("final");
+        expect(textOf(teamKey, "elim"), teamKey).toBe(String(PLACEMENT_POINTS[allianceOf(teamKey)]));
+        expect(textOf(teamKey, "elim"), teamKey).not.toBe(String(STALE_ELIM));
+        // Qualification and Alliance selection are proven by the alliance points.
+        expect(kindOf(teamKey, "qual"), teamKey).toBe("final");
+        expect(kindOf(teamKey, "alliance"), teamKey).toBe("final");
+        expect(kindOf(teamKey, "award"), teamKey).toBe("open");
+      }
+    });
+
+    it("the settled values are NOT exact: the lock math reads each placement's ceiling and keeps the stale number out of the floor", () => {
+      const artifact = stale();
+      const placements = new Map(ROSTER.map((teamKey) => [teamKey, { kind: "decided" as const, placement: allianceOf(teamKey) }] as const));
+      const built = buildDistrictLedgerRows({ artifact, distributions: new Map([[EVENT, { eventKey: EVENT, byTeam: new Map(), playoffMilestoneByTeam: placements }]]) });
+      const ceilings = maxEventPoints(SEASON, "district");
+      const finalist = allianceRoster(2)[0]!;
+      const row = built.teams.find((team) => team.teamKey === finalist)!.rows.find((entry) => entry.eventKey === EVENT)!;
+      expect(row.stage.final).toEqual({ qual: true, alliance: true, elim: false, award: false });
+      expect(row.settledElim).toEqual({ points: 20, exact: false, ceiling: 25 });
+      // 24 at the finished event, 9 and 15 at this one. The stale point is out of the floor.
+      expect(districtLockBounds(artifact.teams.find((team) => team.teamKey === finalist)!, built.teams.find((team) => team.teamKey === finalist)!.rows, ceilings)).toEqual({
+        floor: 24 + 9 + alliancePointsOf(finalist),
+        openCeiling: 25 + ceilings.award,
+      });
+    });
+
+    it("give the artifact its playoff points and the same cells print the artifact's numbers grey, from a run that takes them as known", async () => {
+      const landed = artifactOf(
+        ROSTER.map((teamKey) => withEventRow(districtTeam(teamKey), PLAYOFFS_DONE, { qual: 9, alliance: alliancePointsOf(teamKey), elim: PLACEMENT_POINTS[allianceOf(teamKey)]! }))
+      );
+      await renderEvent(landed, finishedBracketEventArtifact(), () => everyElimSettled() && kindOf(ROSTER[0]!, "award") === "open");
+      for (const teamKey of ROSTER) {
+        expect(kindOf(teamKey, "elim"), teamKey).toBe("final");
+        expect(textOf(teamKey, "elim"), teamKey).toBe(String(PLACEMENT_POINTS[allianceOf(teamKey)]));
+      }
+      const input = lastRunInput();
+      expect(input.knownElimPoints?.get(allianceRoster(1)[0]!)).toBe(30);
+      expect(input.playedElimMatches).toBeUndefined();
+    });
+  });
+
+  describe("a rewound stop of that live event", () => {
+    it("reads an uncorroborated category open in its cells, while the as of run still conditions on the alliances and the bracket rows at the stop", async () => {
+      // Rewound to Round 1 of the live event. Every team has a row there
+      // with its qualification points and NO alliance points: the field at
+      // that stop says qualification and selection are over, the number says
+      // neither is final, so neither cell may print the row's number grey.
+      const artifact = artifactOf(ROSTER.map((teamKey) => withEventRow(districtTeam(teamKey), MID_PLAYOFFS, { qual: 9, alliance: 0, elim: 0 })));
+      installFetch({ eventArtifact: playoffEventArtifact(), asOfEventKeys: [EVENT, "2026wadone"] });
+      handle = installMockWorker({ script: realRunScript });
+      renderLedgerAt(artifact, `/districts?algorithm=spr&at=${EVENT}:round:1`);
+      await waitFor(() => {
+        expect(instancesReceiving(handle!, "run").length).toBeGreaterThan(0);
+        expect(kindOf(allianceRoster(1)[0]!, "elim")).toBe("open");
+      });
+      for (const teamKey of ROSTER) {
+        expect(kindOf(teamKey, "qual"), teamKey).toBe("open");
+        expect(kindOf(teamKey, "alliance"), teamKey).toBe("open");
+        expect(textOf(teamKey, "qual"), teamKey).not.toBe("9");
+      }
+      const input = lastRunInput();
+      expect(input.knownAlliances).toHaveLength(8);
+      // Round 1 is sets 1 to 4.
+      expect(input.playedElimMatches?.map((row) => row.setNumber).sort((a, b) => a - b)).toEqual([1, 2, 3, 4]);
+    });
   });
 });

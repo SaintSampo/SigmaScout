@@ -163,6 +163,7 @@ import { useSimulatedDcmpBake } from "./useSimulatedDcmpBake.js";
 import {
   buildDistrictLedgerRows,
   deriveStageFromState,
+  liveStageByEvent,
   tierEvents,
   type DistrictLedgerCell,
   type DistrictStageFinality,
@@ -458,6 +459,22 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     [timeline, positionIndex, nowStageByEvent]
   );
 
+  /**
+   * THE NUMBER READING, beside the field reading above and never in place of
+   * it (quick task 261009-vp9). `nowStageByEvent` and `stageByEvent` say what
+   * has happened on the field (the state alone): they keep feeding the as-of
+   * rewind, the run assembly and its bracket facts, the award draws and the awards final flag. These two say
+   * which categories' NUMBERS are final (the state AND the points that prove
+   * it): they feed the rows at a rewound stop, and so the grey cells and
+   * everything the lock math reads, and they tell the run which of TBA's own
+   * playoff and award points it may take as known (`pointsFinalByEvent`).
+   */
+  const nowFinalByEvent = useMemo(() => liveStageByEvent(artifact, ["district", "dcmp"]), [artifact]);
+  const finalByEvent = useMemo(
+    () => districtStageAtPosition(timeline, positionIndex, nowFinalByEvent),
+    [timeline, positionIndex, nowFinalByEvent]
+  );
+
   /** Every district team, sorted: the roster the first championship is planned over at a rewound stop. */
   const allDistrictTeamKeys = useMemo(() => artifact.teams.map((team) => team.teamKey).sort(), [artifact]);
 
@@ -550,6 +567,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     activeEventKeys,
     eventArtifacts: artifacts.eventArtifacts,
     stageByEvent,
+    pointsFinalByEvent: finalByEvent,
     allowedEventKeys,
     tierByEvent,
     asOf,
@@ -571,12 +589,16 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     () => ({
       artifact,
       distributions: data.distributions,
-      stageByEvent: atNow ? undefined : stageByEvent,
+      // Both tier passes read the NUMBER at a rewound stop, and the field
+      // for the not picked note. At Now both are absent and the builder
+      // derives each from the artifact itself.
+      stageByEvent: atNow ? undefined : finalByEvent,
+      fieldStageByEvent: atNow ? undefined : stageByEvent,
       unavailableEvents: data.unavailableEvents,
       gaps: { ...data.gaps, missingEventArtifacts: artifacts.missingEventArtifacts },
       distributionsPending,
     }),
-    [artifact, data.distributions, atNow, stageByEvent, data.unavailableEvents, data.gaps, artifacts.missingEventArtifacts, distributionsPending]
+    [artifact, data.distributions, atNow, stageByEvent, finalByEvent, data.unavailableEvents, data.gaps, artifacts.missingEventArtifacts, distributionsPending]
   );
 
   /**

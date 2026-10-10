@@ -902,7 +902,27 @@ export interface BuildDistrictEventInputOptions {
   readonly season: number;
   readonly eventArtifact: EventArtifact;
   readonly districtArtifact: DistrictArtifact;
+  /**
+   * WHAT HAS HAPPENED ON THE FIELD at this position (the state's own
+   * reading). It decides everything the run conditions on that is a fact of
+   * the event itself: the published alliances, the alliance count, the
+   * partial list check, and whether a bracket is there to be read.
+   */
   readonly stage: DistrictStageFinality;
+  /**
+   * WHICH OF TBA'S NUMBERS ARE FINAL at this position (quick task 261009-vp9,
+   * the number reading). It gates only the two inputs that are TBA's own
+   * numbers off the district artifact: the playoff points are taken as known
+   * only where `pointsFinal.elim`, and the award points only where
+   * `pointsFinal.award`. While the playoff number is not final the bracket is
+   * conditioned on its played rows instead, even where `stage.elim` says the
+   * playoffs are done on the field, so a stale playoff number is never read
+   * as the result.
+   *
+   * Absent reads `stage` for all three, which is byte for byte the shipped
+   * behaviour.
+   */
+  readonly pointsFinal?: DistrictStageFinality;
   /**
    * The first qualification row still to be played at this position, or `null`
    * when qualification is finished at this position. Task 4's slider supplies
@@ -1047,8 +1067,11 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
   const alliances = allianceListIsPartial ? undefined : published;
   const allianceCount = stage.alliance && alliances !== undefined ? alliances.length : DEFAULT_DISTRICT_ALLIANCE_COUNT;
 
-  const knownElimPoints = stage.elim ? earnedPointsMap(districtArtifact, eventKey, "elim") : undefined;
-  const knownAwardPoints = stage.award ? earnedPointsMap(districtArtifact, eventKey, "award") : undefined;
+  // THE TWO INPUTS THAT ARE TBA'S NUMBERS follow the number reading (quick
+  // task 261009-vp9). Everything above read `stage`, the field.
+  const points = options.pointsFinal ?? stage;
+  const knownElimPoints = points.elim ? earnedPointsMap(districtArtifact, eventKey, "elim") : undefined;
+  const knownAwardPoints = points.award ? earnedPointsMap(districtArtifact, eventKey, "award") : undefined;
 
   // THE PARTIALLY-PLAYED BRACKET. Only where the playoffs are genuinely under
   // way: the alliances must be final (a partial list was already dropped above,
@@ -1057,7 +1080,11 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
   // every played row, a rewound stop reads only the rows at or before its cut
   // (quick task 261007-3g2), and anything else reads none, which is exactly
   // the shipped behaviour.
-  const bracketUnderWay = stage.alliance && !stage.elim && alliances !== undefined;
+  //
+  // "Still open" is the NUMBER's reading (quick task 261009-vp9): until the
+  // playoff points are final the played rows are the only honest source, so
+  // a bracket the field has finished is read in full from its own rows.
+  const bracketUnderWay = stage.alliance && !points.elim && alliances !== undefined;
   const playedElims: PlayedBracketMatchesResult = !bracketUnderWay
     ? { matches: [], unresolvedMatchKeys: [] }
     : options.conditionOnPlayedElims === true
@@ -1543,6 +1570,14 @@ export interface BuildDistrictLedgerRowsOptions {
    * is the "now" answer (quick task 261009-vp9).
    */
   readonly stageByEvent?: ReadonlyMap<string, DistrictStageFinality>;
+  /**
+   * `eventKey -> what has happened on the FIELD at the current position`
+   * (quick task 261009-vp9). Read for ONE decision only: whether selection is
+   * over, for the not picked note. A tab supplies it at a rewound stop beside
+   * `stageByEvent`. Absent, the note reads `stageByEvent` where one is
+   * supplied, as it always has, and the row's own state at Now.
+   */
+  readonly fieldStageByEvent?: ReadonlyMap<string, DistrictStageFinality>;
   /** Events the Worker refused to price, with the error class that refused — their open cells render unavailable rather than blank. */
   readonly unavailableEvents?: readonly { readonly eventKey: string; readonly name: string }[];
   readonly gaps?: Partial<DistrictLedgerGaps>;
@@ -1736,12 +1771,17 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
         // 261008-3il): still open, flagged so the cell reads not picked.
         //
         // THE ONE DECISION HERE THAT READS THE FIELD (quick task 261009-vp9):
-        // whether selection is over. A rewound stop reads the supplied stage,
-        // as it always has. At Now it is the row's own state, never the
-        // number reading above: the alliances are picked on the field before
-        // their points reach the rows, and the run already knows them.
+        // whether selection is over. A rewound stop reads the field map where
+        // the tab supplies one, and otherwise the supplied stage, as it
+        // always has. At Now it is the row's own state, never the number
+        // reading above: the alliances are picked on the field before their
+        // points reach the rows, and the run already knows them.
         const eventRuns = distributions.get(entry.eventKey);
-        const selectionOverOnTheField = (stageByEvent?.get(entry.eventKey) ?? deriveStageFromState(entry.state).final).alliance;
+        const selectionOverOnTheField = (
+          options.fieldStageByEvent?.get(entry.eventKey) ??
+          stageByEvent?.get(entry.eventKey) ??
+          deriveStageFromState(entry.state).final
+        ).alliance;
         if (teamNotPickedAtPosition(eventRuns?.selectionRoutesByTeam?.get(team.teamKey), eventRuns?.rankingFixed, selectionOverOnTheField)) {
           return { ...cell, notPicked: true };
         }

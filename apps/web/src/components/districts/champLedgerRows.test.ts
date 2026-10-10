@@ -13,7 +13,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   DistrictArtifactSchema,
   EventArtifactSchema,
@@ -26,6 +26,7 @@ import { pointQuantile } from "../../../../../packages/core/districts/pointSumma
 import {
   DISTRICT_CATEGORIES,
   buildDistrictEventSimulationInput,
+  buildDistrictLedgerRows,
   districtCellId,
   distributionsFromResult,
   pointMassDistribution,
@@ -53,6 +54,16 @@ import {
   type ChampLedgerSource,
   type ChampLedgerTeam,
 } from "./champLedgerRows.js";
+
+/**
+ * A PASS THROUGH SPY on the one function `buildChampLedgerRows` calls once per
+ * tier (quick task 261009-vp9). It runs the real builder and changes no
+ * result: it only lets one test read what each tier pass was handed.
+ */
+vi.mock("./districtLedgerRows.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./districtLedgerRows.js")>();
+  return { ...original, buildDistrictLedgerRows: vi.fn(original.buildDistrictLedgerRows) };
+});
 
 type DistrictTeam = DistrictArtifact["teams"][number];
 type EventPoints = DistrictTeam["eventPoints"][number];
@@ -1540,5 +1551,71 @@ describe("fieldFixingDcmpKeys and dcmpStartedForTeam — the field is fixed once
     const own = team({ teamKey: "frc2", eventPoints: [eventPoints({ eventKey: "2026necmp1", tier: "dcmp" })] });
     expect(dcmpStartedForTeam(own, new Set(["2026necmp1"]), NE)).toBe(true);
     expect(dcmpStartedForTeam(own, new Set(["2026necmp", "2026necmp2"]), NE)).toBe(false);
+  });
+});
+
+describe("buildChampLedgerRows forwards the field's stage to both tier passes (quick task 261009-vp9)", () => {
+  const DCMP = "2026pncmp";
+  /** The NUMBER at the stop: qualification in, Alliance selection not final. */
+  const NUMBER: DistrictStageFinality = { qual: true, alliance: false, elim: false, award: false };
+  /** The FIELD at the stop: selection is over. */
+  const FIELD: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
+  const started = state({ alliancesPicked: true, playoffsDone: false, awardsPosted: false });
+
+  const artifact = artifactOf([
+    team({
+      teamKey: "frc1",
+      eventPoints: [eventPoints({ eventKey: "2026wabon" })],
+      remainingEvents: [{ eventKey: DCMP, eventName: "PNW DCMP", week: 6, tier: "dcmp", maxPoints: 249, state: started }],
+    }),
+  ]);
+  const numberByEvent = new Map<string, DistrictStageFinality>([
+    ["2026wabon", ALL_FINAL],
+    [DCMP, NUMBER],
+  ]);
+  const fieldByEvent = new Map<string, DistrictStageFinality>([
+    ["2026wabon", ALL_FINAL],
+    [DCMP, FIELD],
+  ]);
+
+  it("hands fieldStageByEvent to the district pass and to the dcmp pass, beside stageByEvent, and hands neither pass the key where none is supplied", () => {
+    const spy = vi.mocked(buildDistrictLedgerRows);
+    spy.mockClear();
+    buildChampLedgerRows({ artifact, distributions: new Map(), stageByEvent: numberByEvent, fieldStageByEvent: fieldByEvent });
+    expect(spy.mock.calls.map(([options]) => options.tier)).toEqual(["district", "dcmp"]);
+    for (const [options] of spy.mock.calls) {
+      expect(options.fieldStageByEvent).toBe(fieldByEvent);
+      expect(options.stageByEvent).toBe(numberByEvent);
+    }
+
+    spy.mockClear();
+    buildChampLedgerRows({ artifact, distributions: new Map(), stageByEvent: numberByEvent });
+    expect(spy.mock.calls).toHaveLength(2);
+    for (const [options] of spy.mock.calls) expect("fieldStageByEvent" in options).toBe(false);
+  });
+
+  it("the DCMP row's Playoffs cell carries the not picked note from the FIELD, while its Alliance selection cell stays open on the number", () => {
+    const slot = { draws: 0, minPoints: undefined, maxPoints: undefined, allianceNumber: undefined, possibleMinPoints: 0, possibleMaxPoints: 48 };
+    const distributions = new Map<string, DistrictEventDistributions>([
+      [
+        DCMP,
+        {
+          ...distributionsFor(DCMP, { frc1: { alliance: uniform(48, 1000), elim: uniform(90, 1000), award: uniform(45, 1000), eventTotal: uniform(249, 1000) } }),
+          selectionRoutesByTeam: new Map([["frc1", { bySlot: [slot, slot, slot, slot], notSelectedDraws: 1000 }]]),
+          rankingFixed: true,
+        },
+      ],
+    ]);
+    const built = (fieldStageByEvent?: ReadonlyMap<string, DistrictStageFinality>) =>
+      buildChampLedgerRows({ artifact, distributions, stageByEvent: numberByEvent, atLivePosition: true, ...(fieldStageByEvent === undefined ? {} : { fieldStageByEvent }) }).teams[0]!;
+
+    const withField = built(fieldByEvent);
+    expect(cellOf(withField.dcmpRow.cells, "alliance").kind).toBe("open");
+    const elim = cellOf(withField.dcmpRow.cells, "elim");
+    expect(elim.kind).toBe("open");
+    expect("notPicked" in elim && elim.notPicked).toBe(true);
+
+    // With no field map the note follows the stage map, as before: selection is not final there.
+    expect("notPicked" in cellOf(built().dcmpRow.cells, "elim")).toBe(false);
   });
 });

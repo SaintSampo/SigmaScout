@@ -531,6 +531,13 @@ export interface BuildChampLedgerRowsOptions {
   readonly distributions: ReadonlyMap<string, DistrictEventDistributions>;
   /** `eventKey -> the stage at the current position`, across both tiers. Absent falls back to each row's own `state` block, which is the "now" answer. */
   readonly stageByEvent?: ReadonlyMap<string, DistrictStageFinality>;
+  /**
+   * `eventKey -> what has happened on the FIELD at the current position`,
+   * across both tiers (quick task 261009-vp9). Forwarded to both tier passes,
+   * where it answers one question only: whether selection is over, for the
+   * not picked note. See `BuildDistrictLedgerRowsOptions.fieldStageByEvent`.
+   */
+  readonly fieldStageByEvent?: ReadonlyMap<string, DistrictStageFinality>;
   readonly unavailableEvents?: readonly { readonly eventKey: string; readonly name: string }[];
   readonly gaps?: Partial<DistrictLedgerGaps>;
   /**
@@ -618,6 +625,7 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
     artifact,
     distributions,
     ...(stageByEvent === undefined ? {} : { stageByEvent }),
+    ...(options.fieldStageByEvent === undefined ? {} : { fieldStageByEvent: options.fieldStageByEvent }),
     unavailableEvents,
     ...(options.gaps === undefined ? {} : { gaps: options.gaps }),
     // Both tier passes read the tab's one pending condition (quick task 261007-4qr).

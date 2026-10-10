@@ -163,11 +163,24 @@ export interface AssembledDistrictEvents {
   readonly asOfUnavailable: { readonly eventKey: string; readonly name: string }[];
 }
 
+/** The builder's `pointsFinal` for one event, or nothing where the caller supplied none for it. */
+function pointsFinalFor(pointsFinalByEvent: ReadonlyMap<string, DistrictStageFinality> | undefined, eventKey: string): { pointsFinal?: DistrictStageFinality } {
+  const pointsFinal = pointsFinalByEvent?.get(eventKey);
+  return pointsFinal === undefined ? {} : { pointsFinal };
+}
+
 export interface AssembleLiveDistrictEventsParams {
   readonly artifact: DistrictArtifact;
   readonly activeKeys: readonly string[];
   readonly eventArtifacts: ReadonlyMap<string, EventArtifact>;
+  /** What has happened on the FIELD at the position, per event (the state's own reading). */
   readonly stageByEvent: ReadonlyMap<string, DistrictStageFinality>;
+  /**
+   * Which of TBA's NUMBERS are final at the position, per event (quick task
+   * 261009-vp9). Handed to the input builder as `pointsFinal`. Absent, or
+   * absent for one event, the builder reads the field's stage, as shipped.
+   */
+  readonly pointsFinalByEvent?: ReadonlyMap<string, DistrictStageFinality>;
   readonly startMatchKeyByEvent?: ReadonlyMap<string, string | null>;
   readonly tierByEvent?: ReadonlyMap<string, DistrictTier>;
 }
@@ -178,7 +191,7 @@ export interface AssembleLiveDistrictEventsParams {
  * from (quick task 261005-5g0): Live must stay byte for byte what it was.
  */
 export function assembleLiveDistrictEvents(params: AssembleLiveDistrictEventsParams): AssembledDistrictEvents {
-  const { artifact, activeKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent, tierByEvent } = params;
+  const { artifact, activeKeys, eventArtifacts, stageByEvent, pointsFinalByEvent, startMatchKeyByEvent, tierByEvent } = params;
   const events: DistrictSimulationEventRequest[] = [];
   const eventsWithExcludedMatches: string[] = [];
   const eventsWithFallbackFieldSize: string[] = [];
@@ -210,6 +223,9 @@ export function assembleLiveDistrictEvents(params: AssembleLiveDistrictEventsPar
       // odds rewind, whose playoff step is all-or-nothing by construction.
       conditionOnPlayedElims: startMatchKeyByEvent === undefined,
       tier: tierByEvent?.get(eventKey) ?? "district",
+      // The number reading, beside the field's `stage` (quick task
+      // 261009-vp9). Absent keeps this the frozen copy's own call.
+      ...pointsFinalFor(pointsFinalByEvent, eventKey),
     });
     if (!built.ok) continue;
     if (built.excludedMatchCount > 0) eventsWithExcludedMatches.push(eventKey);
@@ -286,7 +302,10 @@ export interface AssembleAsOfDistrictEventsParams {
   readonly result: AsOfRewindResult;
   readonly algorithmVersion: string;
   readonly eventArtifacts: ReadonlyMap<string, EventArtifact>;
+  /** What has happened on the FIELD at the stop, per event. */
   readonly stageByEvent: ReadonlyMap<string, DistrictStageFinality>;
+  /** Which of TBA's NUMBERS are final at the stop, per event (quick task 261009-vp9). See `AssembleLiveDistrictEventsParams`. */
+  readonly pointsFinalByEvent?: ReadonlyMap<string, DistrictStageFinality>;
   readonly tierByEvent?: ReadonlyMap<string, DistrictTier>;
   /** Events the caller has no use for at this stop (the Champ Locks tab's DCMP before its field is a fact). */
   readonly skipEventKeys?: ReadonlySet<string>;
@@ -353,6 +372,7 @@ export function assembleAsOfDistrictEvents(params: AssembleAsOfDistrictEventsPar
           asOfPlayedElimMatchKeys: plan.playedPlayoffMatchKeys,
           tier,
           asOfBaselines: plan.baselines,
+          ...pointsFinalFor(params.pointsFinalByEvent, eventKey),
         });
         if (!built.ok) {
           asOfUnavailable.push({ eventKey, name: AS_OF_UNAVAILABLE_NAME });

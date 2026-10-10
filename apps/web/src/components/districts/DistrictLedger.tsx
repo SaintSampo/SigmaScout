@@ -112,6 +112,7 @@ import {
   districtTierEvents,
   filterDistrictLedgerTeams,
   inProgressDistrictEventKeys,
+  liveStageByEvent,
   type DistrictLedgerCell,
   type DistrictLedgerEventRow,
   type DistrictLedgerTeam,
@@ -319,6 +320,22 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
   );
 
   /**
+   * THE NUMBER READING, beside the field reading above and never in place of
+   * it (quick task 261009-vp9). `nowStageByEvent` and `stageByEvent` say what
+   * has happened on the field (the state alone): they keep feeding the as-of
+   * rewind, the run assembly and its bracket facts. These two say
+   * which categories' NUMBERS are final (the state AND the points that prove
+   * it): they feed the rows at a rewound stop, and so the grey cells and
+   * everything the lock math reads, and they tell the run which of TBA's own
+   * playoff and award points it may take as known (`pointsFinalByEvent`).
+   */
+  const nowFinalByEvent = useMemo(() => liveStageByEvent(artifact, ["district"]), [artifact]);
+  const finalByEvent = useMemo(
+    () => districtStageAtPosition(timeline, positionIndex, nowFinalByEvent),
+    [timeline, positionIndex, nowFinalByEvent]
+  );
+
+  /**
    * THE AS-OF STATE AT A REWOUND STOP (quick task 261005-5g0): every event with
    * an open category is simulated from the model as it stood at the stop, never
    * from a stored prediction. Enabled from the raw `?at=` while the fetch set
@@ -367,6 +384,7 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
     activeEventKeys,
     eventArtifacts: artifacts.eventArtifacts,
     stageByEvent,
+    pointsFinalByEvent: finalByEvent,
     asOf,
   });
 
@@ -385,12 +403,16 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
       buildDistrictLedgerRows({
         artifact,
         distributions: data.distributions,
-        stageByEvent: atNow ? undefined : stageByEvent,
+        // The rows read the NUMBER at a rewound stop, and the field for the
+        // not picked note. At Now both are absent and the builder derives
+        // each from the artifact itself.
+        stageByEvent: atNow ? undefined : finalByEvent,
+        fieldStageByEvent: atNow ? undefined : stageByEvent,
         unavailableEvents: data.unavailableEvents,
         gaps: { ...data.gaps, missingEventArtifacts: artifacts.missingEventArtifacts },
         distributionsPending,
       }),
-    [artifact, data.distributions, atNow, stageByEvent, data.unavailableEvents, data.gaps, artifacts.missingEventArtifacts, distributionsPending]
+    [artifact, data.distributions, atNow, stageByEvent, finalByEvent, data.unavailableEvents, data.gaps, artifacts.missingEventArtifacts, distributionsPending]
   );
 
   const statuses = useMemo(() => computeDistrictLedgerStatuses({ artifact, teams: rows.teams }), [artifact, rows.teams]);

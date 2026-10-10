@@ -1425,6 +1425,7 @@ describe("playedBracketMatchesFor — colour onto alliance number", () => {
       stage?: DistrictStageFinality;
       rows?: readonly Record<string, unknown>[];
       asOfPlayedElimMatchKeys?: readonly string[];
+      pointsFinal?: DistrictStageFinality;
     }) {
       const built = buildDistrictEventSimulationInput({
         eventKey: "2026waplay",
@@ -1435,10 +1436,68 @@ describe("playedBracketMatchesFor — colour onto alliance number", () => {
         startMatchKey: null,
         ...(options.conditionOnPlayedElims === undefined ? {} : { conditionOnPlayedElims: options.conditionOnPlayedElims }),
         ...(options.asOfPlayedElimMatchKeys === undefined ? {} : { asOfPlayedElimMatchKeys: options.asOfPlayedElimMatchKeys }),
+        ...(options.pointsFinal === undefined ? {} : { pointsFinal: options.pointsFinal }),
       });
       if (!built.ok) throw new Error("expected an input");
       return built;
     }
+
+    describe("pointsFinal: the run reads the field, and takes TBA's numbers only once they are final (quick task 261009-vp9)", () => {
+      const NOTHING: DistrictStageFinality = { qual: false, alliance: false, elim: false, award: false };
+      const QUALS: DistrictStageFinality = { qual: true, alliance: false, elim: false, award: false };
+      const UNDER_WAY: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
+      const DONE: DistrictStageFinality = { qual: true, alliance: true, elim: true, award: false };
+      const POSTED: DistrictStageFinality = { qual: true, alliance: true, elim: true, award: true };
+      const SF1 = { compLevel: "sf", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 };
+
+      it("without pointsFinal the input is the one built with pointsFinal equal to the stage, for every stage, live and rewound", () => {
+        for (const stage of [NOTHING, QUALS, UNDER_WAY, DONE, POSTED]) {
+          for (const conditionOnPlayedElims of [true, false]) {
+            expect(buildAt({ stage, conditionOnPlayedElims }), JSON.stringify(stage)).toEqual(buildAt({ stage, conditionOnPlayedElims, pointsFinal: stage }));
+          }
+          expect(buildAt({ stage, asOfPlayedElimMatchKeys: ["2026waplay_sf1m1"] })).toEqual(buildAt({ stage, asOfPlayedElimMatchKeys: ["2026waplay_sf1m1"], pointsFinal: stage }));
+        }
+      });
+
+      it("the field says the playoffs are done and the playoff number is not final: the known alliances, NO knownElimPoints, and every played bracket row", () => {
+        const built = buildAt({ stage: DONE, conditionOnPlayedElims: true, pointsFinal: UNDER_WAY });
+        expect(built.input.knownAlliances).toHaveLength(8);
+        expect(built.input.knownElimPoints).toBeUndefined();
+        expect(built.input.playedElimMatches).toEqual([SF1]);
+      });
+
+      it("once the playoff number is final: knownElimPoints and no played rows, as before", () => {
+        const built = buildAt({ stage: DONE, conditionOnPlayedElims: true, pointsFinal: DONE });
+        expect(built.input.knownAlliances).toHaveLength(8);
+        expect(built.input.knownElimPoints).toBeDefined();
+        expect(built.input.playedElimMatches).toBeUndefined();
+      });
+
+      it("the field says the playoffs are under way and NO number is final (no alliance points on any row): the known alliances and the played rows are both in the input, and the alliance points arriving change neither", () => {
+        const lagging = buildAt({ stage: UNDER_WAY, conditionOnPlayedElims: true, pointsFinal: NOTHING });
+        expect(lagging.input.knownAlliances).toHaveLength(8);
+        expect(lagging.input.allianceCount).toBe(8);
+        expect(lagging.input.playedElimMatches).toEqual([SF1]);
+        expect(lagging.input.knownElimPoints).toBeUndefined();
+        expect(lagging.allianceListIsPartial).toBe(false);
+        expect(lagging).toEqual(buildAt({ stage: UNDER_WAY, conditionOnPlayedElims: true, pointsFinal: UNDER_WAY }));
+      });
+
+      it("a rewound stop reads its own as-of rows the same way while the playoff number is not final", () => {
+        const built = buildAt({ stage: DONE, asOfPlayedElimMatchKeys: ["2026waplay_sf1m1"], pointsFinal: UNDER_WAY });
+        expect(built.input.knownElimPoints).toBeUndefined();
+        expect(built.input.playedElimMatches).toEqual([SF1]);
+      });
+
+      it("the award points are known only where pointsFinal.award", () => {
+        expect(buildAt({ stage: POSTED, pointsFinal: DONE }).input.knownAwardPoints).toBeUndefined();
+        expect(buildAt({ stage: POSTED, pointsFinal: POSTED }).input.knownAwardPoints).toBeDefined();
+        // And never from pointsFinal alone where the field has not got there:
+        // pointsFinal is the stricter reading, so this cannot happen in the
+        // app, and the builder follows pointsFinal for TBA's numbers.
+        expect(buildAt({ stage: POSTED }).input.knownAwardPoints).toBeDefined();
+      });
+    });
 
     it("passes the played rows at the live position", () => {
       expect(buildAt({ conditionOnPlayedElims: true }).input.playedElimMatches).toEqual([
@@ -1861,7 +1920,7 @@ describe("the alliance selection cell's route view", () => {
     routes: DistrictSelectionRoutes | undefined,
     rankingFixed: boolean | undefined,
     distribution: DistrictPointDistribution = lumpy(300, 16),
-    options: { readonly elim?: DistrictPointDistribution; readonly stage?: DistrictStageFinality } = {}
+    options: { readonly elim?: DistrictPointDistribution; readonly stage?: DistrictStageFinality; readonly fieldStage?: DistrictStageFinality } = {}
   ) {
     const artifact = artifactOf([
       team({
@@ -1898,6 +1957,7 @@ describe("the alliance selection cell's route view", () => {
       artifact,
       distributions,
       ...(options.stage === undefined ? {} : { stageByEvent: new Map([["2026walive", options.stage]]) }),
+      ...(options.fieldStage === undefined ? {} : { fieldStageByEvent: new Map([["2026walive", options.fieldStage]]) }),
     });
   }
 
@@ -1968,6 +2028,23 @@ describe("the alliance selection cell's route view", () => {
       expect(elim.kind).toBe("open");
       if (elim.kind !== "open") throw new Error("unreachable");
       expect(elim.notPicked).toBe(true);
+    });
+
+    it("at a rewound stop the note reads the FIELD where one is supplied: the number open, the field final (quick task 261009-vp9)", () => {
+      // The stop's Alliance selection NUMBER is not final (its points are not
+      // in), and the field says selection is over there.
+      const built = builtWith(NOBODY_TOOK_IT(), true, lumpy(1000, 16), { elim: ELIM, stage: SELECTION_OPEN, fieldStage: SELECTION_FINAL });
+      const row = built.teams[0]!.rows[0]!;
+      expect(row.stage.final.alliance).toBe(false);
+      expect(row.cells[1]!.kind).toBe("open");
+      const elim = row.cells[2]!;
+      expect(elim.kind).toBe("open");
+      if (elim.kind !== "open") throw new Error("unreachable");
+      expect(elim.notPicked).toBe(true);
+
+      // The field map wins over the number map in the other direction too.
+      const fieldOpen = builtWith(NOBODY_TOOK_IT(), true, lumpy(1000, 16), { elim: ELIM, stage: SELECTION_FINAL, fieldStage: SELECTION_OPEN });
+      expect("notPicked" in fieldOpen.teams[0]!.rows[0]!.cells[2]!).toBe(false);
     });
 
     it("carries no notPicked key while selection is open, or where the run reported no routes", () => {

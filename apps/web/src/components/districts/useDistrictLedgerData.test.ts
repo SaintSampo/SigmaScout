@@ -14,6 +14,9 @@
  */
 import { describe, expect, it } from "vitest";
 import { champLiveFetchKeys, districtRunSignature, divisionedDcmpBracketFacts } from "./useDistrictLedgerData.js";
+import { assembleAsOfDistrictEvents, assembleLiveDistrictEvents } from "./districtRunAssembly.js";
+import type { AsOfRewindResult } from "./asOfRewind.js";
+import type { DistrictStageFinality } from "./districtLedgerRows.js";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { buildDistrictEventSimulationInput } from "./districtLedgerRows.js";
@@ -278,6 +281,204 @@ describe("the tier option on the assembled per-event input", () => {
     const district = inputAt("district");
     const dcmp = inputAt("dcmp");
     expect({ ...dcmp, tier: "district" }).toEqual(district);
+  });
+});
+
+describe("pointsFinalByEvent: both assemblies hand the run which of TBA's numbers are final (quick task 261009-vp9)", () => {
+  const EVENT = "2026waplay";
+  const roster = Array.from({ length: 24 }, (_unused, i) => `frc${String(400 + i)}`);
+  const pmf = [0.25, 0.25, 0.25, 0.25];
+  const alliances = Array.from({ length: 8 }, (_unused, n) => ({ allianceNumber: n + 1, picks: roster.slice(n * 3, n * 3 + 3) }));
+  const picksOf = (allianceNumber: number): string[] => alliances[allianceNumber - 1]!.picks;
+
+  const eventArtifact: EventArtifact = EventArtifactSchema.parse({
+    schemaVersion: 1,
+    generation: "gen-1",
+    computedAt: "2026-09-25T00:00:00.000Z",
+    algorithmId: "spr",
+    algorithmVersion: "7.0.0+rolling",
+    eventKey: EVENT,
+    season: 2026,
+    matches: [
+      ...Array.from({ length: 4 }, (_unused, i) => ({
+        matchKey: `${EVENT}_qm${String(i + 1)}`,
+        compLevel: "qm",
+        setNumber: 1,
+        matchNumber: i + 1,
+        sortTime: 1_760_000_000 + i * 600,
+        redTeams: roster.slice(i * 6, i * 6 + 3),
+        blueTeams: roster.slice(i * 6 + 3, i * 6 + 6),
+        predictedWinner: "red",
+        pRedWin: 0.5,
+        predictedRedScore: 50,
+        predictedBlueScore: 50,
+        actualWinner: "red",
+        actualRedScore: 60,
+        actualBlueScore: 50,
+        actualRedRp: 3,
+        actualBlueRp: 1,
+        redRpPmf: pmf,
+        blueRpPmf: pmf,
+      })),
+      // Two played semifinal sets: alliance 1 beat 8, and alliance 5 beat 4.
+      ...[
+        { setNumber: 1, red: 1, blue: 8, winner: "red" },
+        { setNumber: 2, red: 4, blue: 5, winner: "blue" },
+      ].map((row) => ({
+        matchKey: `${EVENT}_sf${String(row.setNumber)}m1`,
+        compLevel: "sf",
+        setNumber: row.setNumber,
+        matchNumber: 1,
+        sortTime: 1_770_000_000 + row.setNumber * 600,
+        redTeams: picksOf(row.red),
+        blueTeams: picksOf(row.blue),
+        predictedWinner: "red",
+        pRedWin: 0.5,
+        predictedRedScore: 100,
+        predictedBlueScore: 100,
+        actualWinner: row.winner,
+        actualRedScore: row.winner === "red" ? 110 : 90,
+        actualBlueScore: row.winner === "red" ? 90 : 110,
+        actualRedRp: 0,
+        actualBlueRp: 0,
+      })),
+    ],
+    upcoming: [],
+    teams: roster.map((teamKey, i) => ({
+      teamKey,
+      teamNumber: 400 + i,
+      rank: i + 1,
+      record: { wins: 2, losses: 2, ties: 0 },
+      rp: 2,
+      metrics: { total: { value: 90 - i }, sigma: { value: 8 } },
+    })),
+    alliances,
+  });
+
+  /** Every team has a row at the event whose playoff points are a STALE 3: the rankings have not caught up. */
+  const districtArtifact: DistrictArtifact = DistrictArtifactSchema.parse({
+    schemaVersion: 1,
+    generation: "gen-1",
+    computedAt: "2026-09-25T00:00:00.000Z",
+    districtKey: "2026pnw",
+    year: 2026,
+    abbreviation: "pnw",
+    displayName: "Pacific Northwest",
+    dcmpSlots: 12,
+    cmpSlots: 4,
+    teams: roster.map((teamKey, i) => ({
+      teamKey,
+      teamNumber: 400 + i,
+      nickname: `Nickname ${teamKey}`,
+      rank: i + 1,
+      pointTotal: 21,
+      rookieBonus: 0,
+      adjustments: 0,
+      eventPoints: [{ eventKey: EVENT, eventName: "Playoff Event", week: 2, tier: "district", qual: 12, alliance: 6, elim: 3, award: 0, total: 21 }],
+      remainingEvents: [],
+      maxRemainingDistrict: 0,
+      maxRemainingChamp: 0,
+      qualifyingAwards: [],
+      districtLock: { status: "contending", pointsToLock: 5, threatCount: 1, cutLinePoints: 20, allocationNote: null },
+      champLock: { status: "contending", pointsToLock: 5, threatCount: 1, cutLinePoints: 40, allocationNote: null },
+      awardProfile: { bucket: "none", rookie: false },
+    })),
+    insights: { teamCount: roster.length, eventCount: 1, dcmpCutLinePoints: 40, cmpCutLinePoints: 80, districtLockedCount: 0, districtEliminatedCount: 0, champLockedCount: 0, champEliminatedCount: 0 },
+  });
+
+  /** The field: the playoffs are done. */
+  const FIELD_DONE: DistrictStageFinality = { qual: true, alliance: true, elim: true, award: false };
+  /** The number: the playoff points are not in. */
+  const NUMBER_OPEN: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
+  const eventArtifacts = new Map<string, EventArtifact>([[EVENT, eventArtifact]]);
+  const stageByEvent = new Map<string, DistrictStageFinality>([[EVENT, FIELD_DONE]]);
+  const TWO_SETS = [
+    { compLevel: "sf", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 },
+    { compLevel: "sf", setNumber: 2, matchNumber: 1, winningAllianceNumber: 5 },
+  ];
+
+  describe("assembleLiveDistrictEvents", () => {
+    const live = (pointsFinalByEvent?: ReadonlyMap<string, DistrictStageFinality>) =>
+      assembleLiveDistrictEvents({ artifact: districtArtifact, activeKeys: [EVENT], eventArtifacts, stageByEvent, ...(pointsFinalByEvent === undefined ? {} : { pointsFinalByEvent }) });
+
+    it("with no pointsFinalByEvent builds the request it built before: the field's stage decides everything", () => {
+      const assembled = live();
+      expect(assembled.events).toHaveLength(1);
+      const input = assembled.events[0]!.input;
+      expect(input.knownElimPoints?.get(roster[0]!)).toBe(3);
+      expect(input.playedElimMatches).toBeUndefined();
+      // An entry equal to the field's stage is the same request, and a map with no entry for the event is too.
+      expect(live(new Map([[EVENT, FIELD_DONE]]))).toEqual(assembled);
+      expect(live(new Map())).toEqual(assembled);
+    });
+
+    it("with the playoff number open for an event the field calls done: no knownElimPoints, its played rows, the known alliances, and a different run signature", () => {
+      const assembled = live(new Map([[EVENT, NUMBER_OPEN]]));
+      expect(assembled.events).toHaveLength(1);
+      const input = assembled.events[0]!.input;
+      expect(input.knownElimPoints).toBeUndefined();
+      expect(input.playedElimMatches).toEqual(TWO_SETS);
+      expect(input.knownAlliances).toHaveLength(8);
+      expect(assembled.signature).not.toBe(live().signature);
+    });
+  });
+
+  describe("assembleAsOfDistrictEvents", () => {
+    /** A rewound stop that readied the one event as REAL, with both played sets at or before its cut. */
+    const result = {
+      status: "ready",
+      cutId: "cut-1",
+      events: new Map([
+        [
+          EVENT,
+          {
+            status: "ready",
+            state: {
+              plan: {
+                mode: "real",
+                eventKey: EVENT,
+                tier: "district",
+                roster,
+                rows: [],
+                baselines: roster.map((teamKey) => ({ teamKey, earnedRpSum: 8, matchesPlayed: 4 })),
+                playedPlayoffMatchKeys: [`${EVENT}_sf1m1`, `${EVENT}_sf2m1`],
+              },
+              season: 2026,
+              vars: [],
+              league: [],
+              teams: [],
+            },
+          },
+        ],
+      ]),
+    } as unknown as AsOfRewindResult;
+    const asOf = (pointsFinalByEvent?: ReadonlyMap<string, DistrictStageFinality>) =>
+      assembleAsOfDistrictEvents({
+        artifact: districtArtifact,
+        result,
+        algorithmVersion: "7.0.0+rolling",
+        eventArtifacts,
+        stageByEvent,
+        candidateKeys: [EVENT],
+        ...(pointsFinalByEvent === undefined ? {} : { pointsFinalByEvent }),
+      });
+
+    it("with no pointsFinalByEvent builds the request it built before", () => {
+      const assembled = asOf();
+      expect(assembled.asOfUnavailable).toEqual([]);
+      expect(assembled.events).toHaveLength(1);
+      expect(assembled.events[0]!.input.knownElimPoints?.get(roster[0]!)).toBe(3);
+      expect(assembled.events[0]!.input.playedElimMatches).toBeUndefined();
+      expect(asOf(new Map([[EVENT, FIELD_DONE]]))).toEqual(assembled);
+    });
+
+    it("with the playoff number open: no knownElimPoints, the stop's own played rows, and a different run signature", () => {
+      const assembled = asOf(new Map([[EVENT, NUMBER_OPEN]]));
+      expect(assembled.events).toHaveLength(1);
+      expect(assembled.events[0]!.input.knownElimPoints).toBeUndefined();
+      expect(assembled.events[0]!.input.playedElimMatches).toEqual(TWO_SETS);
+      expect(assembled.signature).not.toBe(asOf().signature);
+    });
   });
 });
 

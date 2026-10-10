@@ -125,8 +125,20 @@ export interface UseDistrictLedgerDataOptions {
   /** The district-tier events whose artifacts were fetched — the same list `useDistrictEventArtifacts` was given. */
   readonly activeEventKeys: readonly string[];
   readonly eventArtifacts: ReadonlyMap<string, EventArtifact>;
-  /** Per-event category finality at the current position. */
+  /**
+   * Per-event category finality at the current position: WHAT HAS HAPPENED ON
+   * THE FIELD (the state's own reading). It selects the open events, and the
+   * run assembly and the bracket facts are built from it.
+   */
   readonly stageByEvent: ReadonlyMap<string, DistrictStageFinality>;
+  /**
+   * Per event, WHICH OF TBA'S NUMBERS ARE FINAL at the current position
+   * (quick task 261009-vp9, the number reading). Passed through both
+   * assemblies to the input builder, where it gates only the playoff and
+   * award points the run takes as known. Absent, the run reads
+   * `stageByEvent` for those too, which is the shipped behaviour.
+   */
+  readonly pointsFinalByEvent?: ReadonlyMap<string, DistrictStageFinality>;
   /**
    * Per-event override for the first qualification row still to be played at
    * this position — `null` means qualification is FINISHED there, expressed as
@@ -267,7 +279,7 @@ function landedEntries(runState: DistrictSimulationRunState, signature: string):
 }
 
 export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): DistrictLedgerData {
-  const { artifact, activeEventKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent, allowedEventKeys, tierByEvent, asOf } = options;
+  const { artifact, activeEventKeys, eventArtifacts, stageByEvent, pointsFinalByEvent, startMatchKeyByEvent, allowedEventKeys, tierByEvent, asOf } = options;
   const activeKeys = useMemo(() => [...activeEventKeys].sort(), [activeEventKeys]);
   const rewound = asOf !== undefined;
 
@@ -288,7 +300,7 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
 
   const skipEventKeys = options.skipEventKeys;
   const assembled = useMemo((): AssembledDistrictEvents => {
-    if (asOf === undefined) return assembleLiveDistrictEvents({ artifact, activeKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent, tierByEvent });
+    if (asOf === undefined) return assembleLiveDistrictEvents({ artifact, activeKeys, eventArtifacts, stageByEvent, pointsFinalByEvent, startMatchKeyByEvent, tierByEvent });
     if (asOf.status === "ready") {
       return assembleAsOfDistrictEvents({
         artifact,
@@ -296,6 +308,7 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
         algorithmVersion: asOf.algorithmVersion,
         eventArtifacts,
         stageByEvent,
+        pointsFinalByEvent,
         tierByEvent,
         skipEventKeys,
         candidateKeys: openEventKeys(allowedEventKeys ?? allDistrictTierEventKeys(artifact), stageByEvent),
@@ -316,7 +329,7 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
       eventsWithUnresolvedElimMatches: [],
       asOfUnavailable,
     };
-  }, [asOf, activeKeys, eventArtifacts, stageByEvent, startMatchKeyByEvent, artifact, tierByEvent, skipEventKeys, allowedEventKeys]);
+  }, [asOf, activeKeys, eventArtifacts, stageByEvent, pointsFinalByEvent, startMatchKeyByEvent, artifact, tierByEvent, skipEventKeys, allowedEventKeys]);
 
   const runState = useDistrictSimulationRun(
     useMemo(() => ({ events: assembled.events, signature: assembled.signature }), [assembled])
