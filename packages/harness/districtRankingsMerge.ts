@@ -35,6 +35,11 @@
  * (`packages/core/districts/eventAwards.ts`), and it runs before the verdict
  * pass, so the flag, the winner records and both lock verdicts come out of one
  * build.
+ *
+ * THE CALLER SAYS WHICH LISTS HAVE SETTLED (quick task 261009-tx6). The live
+ * rule's third fact is that a list has stood unchanged for an hour. This
+ * module has no clock and gains none: the caller passes the event keys whose
+ * list is settled (`settledAwardEvents`), and an absent set settles nothing.
  */
 import { z } from "zod";
 import { computeLocksWithQualifiers, cutLinePointsWithQualifiers, type LockResult, type LockTeamInput, type QualifierSets } from "../core/districts/locks.js";
@@ -856,10 +861,13 @@ export type DistrictEventAwardsByEvent = ReadonlyMap<string, readonly DistrictEv
  * new records in the same build.
  *
  * THE FLAG, for each event in the map. `awardsPostedRule` at the live vantage
- * is asked with two facts: whether the list holds a judged award (anything
- * other than Winner and Finalist), and whether some team's row at the event
+ * is asked with three facts: whether the list holds a judged award (anything
+ * other than Winner and Finalist), whether some team's row at the event
  * carries award points above zero ON THE ARTIFACT HANDED IN, which is the
- * artifact after this tick's rankings were merged. When it holds, every
+ * artifact after this tick's rankings were merged, and whether the caller
+ * names the event in `settledAwardEvents` (quick task 261009-tx6: its list
+ * has stood unchanged for an hour). An event the set does not name, and every
+ * event when no set is passed, reads as not settled. When all three hold, every
  * `eventPoints` and `remainingEvents` row for that event that already carries
  * a state block gets `awardsPosted: true`. The step only ever RAISES the
  * flag: a flag already true stays true whatever the list holds, because
@@ -896,7 +904,7 @@ export type DistrictEventAwardsByEvent = ReadonlyMap<string, readonly DistrictEv
  * tabs have always read it this way: they gate each award on its own
  * event's stage.
  */
-export function applyDistrictEventAwards(artifact: DistrictArtifact, eventAwards: DistrictEventAwardsByEvent): DistrictArtifact {
+export function applyDistrictEventAwards(artifact: DistrictArtifact, eventAwards: DistrictEventAwardsByEvent, settledAwardEvents?: ReadonlySet<string>): DistrictArtifact {
   if (eventAwards.size === 0) return artifact;
 
   const tiers = eventTierByKey(artifact.teams);
@@ -906,7 +914,11 @@ export function applyDistrictEventAwards(artifact: DistrictArtifact, eventAwards
 
   for (const [eventKey, awards] of eventAwards) {
     const posted = awardsPostedRule(
-      { judgedAwardListed: judgedAwardListed(awards.map((award) => award.award_type)), awardPointsPresent: awardPointsPresentAt(artifact.teams, eventKey) },
+      {
+        judgedAwardListed: judgedAwardListed(awards.map((award) => award.award_type)),
+        awardPointsPresent: awardPointsPresentAt(artifact.teams, eventKey),
+        listSettled: settledAwardEvents?.has(eventKey) === true,
+      },
       "live"
     );
     if (posted) eventsToRaise.add(eventKey);
@@ -968,6 +980,12 @@ export interface ApplyDistrictRankingsOptions {
    * exactly as it did before that task.
    */
   readonly eventAwards?: DistrictEventAwardsByEvent;
+  /**
+   * The event keys of `eventAwards` whose list has stood unchanged for an
+   * hour, as the caller measured it (quick task 261009-tx6). Only such an
+   * event's flag can rise. Absent, no list is settled and no flag rises.
+   */
+  readonly settledAwardEvents?: ReadonlySet<string>;
 }
 
 /**
@@ -1006,7 +1024,7 @@ export interface ApplyDistrictRankingsOptions {
  * two runs over the same inputs serialize byte-identically.
  */
 export function applyDistrictRankings(options: ApplyDistrictRankingsOptions): DistrictArtifact {
-  const { artifact, generation, computedAt, eventState, eventAwards } = options;
+  const { artifact, generation, computedAt, eventState, eventAwards, settledAwardEvents } = options;
   const rankings = DistrictRankingsPayloadSchema.parse(options.rankings);
 
   if (rankings.length === 0) {
@@ -1146,7 +1164,7 @@ export function applyDistrictRankings(options: ApplyDistrictRankingsOptions): Di
     ...(bakedEvents === undefined ? {} : { bakedEvents }),
   };
 
-  return recomputeDistrictVerdicts(eventAwards === undefined ? merged : applyDistrictEventAwards(merged, eventAwards), { dcmpStillAhead: stillAhead, unexplainedDistrictCeiling });
+  return recomputeDistrictVerdicts(eventAwards === undefined ? merged : applyDistrictEventAwards(merged, eventAwards, settledAwardEvents), { dcmpStillAhead: stillAhead, unexplainedDistrictCeiling });
 }
 
 export interface ApplyDistrictEventStateOptions {
@@ -1169,6 +1187,8 @@ export interface ApplyDistrictEventStateOptions {
    * contributes nothing.
    */
   readonly eventAwards?: DistrictEventAwardsByEvent;
+  /** The event keys of `eventAwards` whose list has stood unchanged for an hour (quick task 261009-tx6). Absent, no flag rises. */
+  readonly settledAwardEvents?: ReadonlySet<string>;
 }
 
 /**
@@ -1200,7 +1220,7 @@ export interface ApplyDistrictEventStateOptions {
  * would leave the Worker believing it had written a fact it had not.
  */
 export function applyDistrictEventState(options: ApplyDistrictEventStateOptions): DistrictArtifact {
-  const { artifact, eventState, generation, computedAt, tierByEvent, eventAwards } = options;
+  const { artifact, eventState, generation, computedAt, tierByEvent, eventAwards, settledAwardEvents } = options;
 
   const known = new Set<string>();
   for (const team of artifact.teams) {
@@ -1238,7 +1258,7 @@ export function applyDistrictEventState(options: ApplyDistrictEventStateOptions)
       remainingEvents: team.remainingEvents.map((row) => withState(row, eventState)),
     })),
   });
-  return recomputeDistrictVerdicts(eventAwards === undefined ? withEventState : applyDistrictEventAwards(withEventState, eventAwards), {
+  return recomputeDistrictVerdicts(eventAwards === undefined ? withEventState : applyDistrictEventAwards(withEventState, eventAwards, settledAwardEvents), {
     ...(tierByEvent === undefined ? {} : { tierByEvent }),
     dcmpStillAhead: stillAhead,
     unexplainedDistrictCeiling,

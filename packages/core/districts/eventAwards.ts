@@ -13,20 +13,37 @@
  * and Finalist read as "awards final" while Impact was still due, and a team
  * could be shown Locked on a slot an Impact winner then took.
  *
- * ONE RULE, TWO VANTAGES. The rule reads two facts about one event:
+ * ONE RULE, TWO VANTAGES. The rule reads three facts about one event:
  *   - `judgedAwardListed`: the awards list holds an award that is neither
  *     Winner (1) nor Finalist (2). Read from the award type alone, never from
  *     the name.
  *   - `awardPointsPresent`: some team's row at that event carries award points
  *     above zero in the district rankings.
+ *   - `listSettled` (quick task 261009-tx6): the awards list has not changed
+ *     for `AWARDS_SETTLE_MS`, 60 minutes. Optional, and read at the live
+ *     vantage only.
  * Who is asking decides how they combine:
- *   - `"live"` (the Worker, during the event) needs BOTH. A judged award with
- *     no points yet means TBA is still filling the event in, and Winner and
- *     Finalist alone say nothing about the judged awards. Waiting keeps the
- *     reservations held, which is the side that can never revoke a Locked.
- *   - `"hindsight"` (the offline publisher, after the fact) needs EITHER. The
- *     corpus is ingested once an event is over, so either fact is proof the
- *     ceremony happened.
+ *   - `"live"` (the Worker, during the event) needs ALL THREE. A judged award
+ *     with no points yet means TBA is still filling the event in, and Winner
+ *     and Finalist alone say nothing about the judged awards. Waiting keeps
+ *     the reservations held, which is the side that can never revoke a
+ *     Locked. An absent `listSettled` reads as not settled.
+ *   - `"hindsight"` (the offline publisher, after the fact) needs EITHER of
+ *     the first two and does not read the third. The corpus is ingested once
+ *     an event is over, so either fact is proof the ceremony happened.
+ *
+ * WHY THE LIST HAS TO SETTLE. TBA can list an event's awards in batches. With
+ * the first two facts alone the flag turned true at the first judged award
+ * whose points were in the rankings, which releases the slot held for that
+ * event's Impact award. An Impact award listed in a later batch was then
+ * recorded after the held slot had already gone back to the points race, and
+ * a team shown Locked on it could lose it. So the flag also waits until the
+ * list has stood unchanged for an hour.
+ *
+ * THE RULE'S LIMIT, stated and not hidden: an award listed MORE than an hour
+ * after the list last changed lands after the flag is true. It is still
+ * recorded on the tick its list changes, but the held slot was released an
+ * hour after the batch before it.
  *
  * WHAT THE CORPUS SAYS (measured 2026-10-09 over 953 district events, 110
  * District Championships and 64 divisions). No district event lists Winner and
@@ -72,23 +89,57 @@ export function awardPointsPresentAt(
   return false;
 }
 
-/** The two facts the rule reads about one event. See the module header. */
+/** How long an awards list must stand unchanged before the live rule reads it as settled: 60 minutes (quick task 261009-tx6). */
+export const AWARDS_SETTLE_MS = 60 * 60 * 1000;
+
+/**
+ * Whether the awards list in hand has stood unchanged for `AWARDS_SETTLE_MS`
+ * (quick task 261009-tx6). Pure: it parses the stored time and reads no clock.
+ *
+ * `storedEtag` is the ETag of the last list the caller merged for the event
+ * and `lastChangedAt` the ISO time that ETag last changed, both from the
+ * caller's own record. `listEtag` is the ETag of the list in hand.
+ *
+ * TRUE ONLY when the list in hand IS the stored list (equal, non null ETags)
+ * and the stored change time parses and is at least `AWARDS_SETTLE_MS` before
+ * `nowMs`. EVERY UNKNOWN READS AS NOT SETTLED: no stored ETag, a list whose
+ * response carried no ETag, a differing ETag, and a change time that is
+ * absent, unparseable or in the future. Not settled keeps the flag false,
+ * which keeps the reservations held.
+ */
+export function awardsListSettled(storedEtag: string | null | undefined, lastChangedAt: string | null | undefined, listEtag: string | null, nowMs: number): boolean {
+  if (listEtag === null || storedEtag === null || storedEtag === undefined || storedEtag !== listEtag) return false;
+  if (lastChangedAt === null || lastChangedAt === undefined) return false;
+  const changedAtMs = Date.parse(lastChangedAt);
+  if (!Number.isFinite(changedAtMs)) return false;
+  return nowMs - changedAtMs >= AWARDS_SETTLE_MS;
+}
+
+/** The facts the rule reads about one event. See the module header. */
 export interface AwardsPostedFacts {
   readonly judgedAwardListed: boolean;
   readonly awardPointsPresent: boolean;
+  /**
+   * The awards list has stood unchanged for `AWARDS_SETTLE_MS` (quick task
+   * 261009-tx6). OPTIONAL: the live vantage reads an absent value as not
+   * settled, and the hindsight vantage does not read it at all.
+   */
+  readonly listSettled?: boolean;
 }
 
 /** Who is asking: the Worker during the event, or the publisher after it. */
 export type AwardsPostedVantage = "live" | "hindsight";
 
 /**
- * Whether an event's awards read as posted. Live: both facts. Hindsight:
- * either fact. This function only answers for the facts it is handed. A flag
- * that is already published true stays true, and that is the caller's rule:
- * awards do not un post.
+ * Whether an event's awards read as posted. Live: all three facts, with
+ * `listSettled` read as true only when it is exactly `true`. Hindsight:
+ * either of the first two. This function only answers for the facts it is
+ * handed. A flag that is already published true stays true, and that is the
+ * caller's rule: awards do not un post.
  */
 export function awardsPostedRule(facts: AwardsPostedFacts, vantage: AwardsPostedVantage): boolean {
-  return vantage === "live" ? facts.judgedAwardListed && facts.awardPointsPresent : facts.judgedAwardListed || facts.awardPointsPresent;
+  if (vantage === "hindsight") return facts.judgedAwardListed || facts.awardPointsPresent;
+  return facts.judgedAwardListed && facts.awardPointsPresent && facts.listSettled === true;
 }
 
 /** One `qualifyingAwards` entry of a district artifact team row, field for field. */

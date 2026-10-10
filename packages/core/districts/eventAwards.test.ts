@@ -6,7 +6,9 @@
 import { describe, expect, it } from "vitest";
 import {
   AWARD_TYPE_FINALIST,
+  AWARDS_SETTLE_MS,
   awardPointsPresentAt,
+  awardsListSettled,
   awardsPostedRule,
   isJudgedAwardType,
   judgedAwardListed,
@@ -47,12 +49,59 @@ describe("awardsPostedRule", () => {
     { judgedAwardListed: true, awardPointsPresent: true },
   ] as const;
 
-  it("live: only a judged award listed AND award points present reads true", () => {
-    expect(cells.map((facts) => awardsPostedRule(facts, "live"))).toEqual([false, false, false, true]);
+  it("live: only all three facts read true (quick task 261009-tx6)", () => {
+    expect(cells.map((facts) => awardsPostedRule({ ...facts, listSettled: true }, "live"))).toEqual([false, false, false, true]);
+    expect(cells.map((facts) => awardsPostedRule({ ...facts, listSettled: false }, "live"))).toEqual([false, false, false, false]);
   });
 
-  it("hindsight: only neither fact reads false", () => {
-    expect(cells.map((facts) => awardsPostedRule(facts, "hindsight"))).toEqual([false, true, true, true]);
+  it("live: an absent settle fact reads as not settled", () => {
+    expect(cells.map((facts) => awardsPostedRule(facts, "live"))).toEqual([false, false, false, false]);
+  });
+
+  it("hindsight: only neither of the first two facts reads false, whatever the settle fact says", () => {
+    for (const listSettled of [true, false, undefined]) {
+      expect(cells.map((facts) => awardsPostedRule(listSettled === undefined ? facts : { ...facts, listSettled }, "hindsight"))).toEqual([false, true, true, true]);
+    }
+  });
+});
+
+describe("awardsListSettled (quick task 261009-tx6)", () => {
+  const NOW = Date.parse("2026-03-14T20:00:00.000Z");
+  const ago = (ms: number): string => new Date(NOW - ms).toISOString();
+
+  it("is 60 minutes", () => {
+    expect(AWARDS_SETTLE_MS).toBe(60 * 60 * 1000);
+  });
+
+  it("is true for equal ETags and a change time exactly 60 minutes old, and false one second short of it", () => {
+    expect(awardsListSettled("etag-1", ago(AWARDS_SETTLE_MS), "etag-1", NOW)).toBe(true);
+    expect(awardsListSettled("etag-1", ago(AWARDS_SETTLE_MS + 1), "etag-1", NOW)).toBe(true);
+    expect(awardsListSettled("etag-1", ago(AWARDS_SETTLE_MS - 1000), "etag-1", NOW)).toBe(false);
+  });
+
+  it("is false for a differing ETag, however old the change time", () => {
+    expect(awardsListSettled("etag-1", ago(10 * AWARDS_SETTLE_MS), "etag-2", NOW)).toBe(false);
+  });
+
+  it("is false for a list whose response carried no ETag", () => {
+    expect(awardsListSettled("etag-1", ago(10 * AWARDS_SETTLE_MS), null, NOW)).toBe(false);
+    expect(awardsListSettled(null, ago(10 * AWARDS_SETTLE_MS), null, NOW)).toBe(false);
+  });
+
+  it("is false for a null or absent stored ETag", () => {
+    expect(awardsListSettled(null, ago(10 * AWARDS_SETTLE_MS), "etag-1", NOW)).toBe(false);
+    expect(awardsListSettled(undefined, ago(10 * AWARDS_SETTLE_MS), "etag-1", NOW)).toBe(false);
+  });
+
+  it("is false for a null, absent or unparseable change time", () => {
+    expect(awardsListSettled("etag-1", null, "etag-1", NOW)).toBe(false);
+    expect(awardsListSettled("etag-1", undefined, "etag-1", NOW)).toBe(false);
+    expect(awardsListSettled("etag-1", "not a time", "etag-1", NOW)).toBe(false);
+    expect(awardsListSettled("etag-1", "", "etag-1", NOW)).toBe(false);
+  });
+
+  it("is false for a change time in the future", () => {
+    expect(awardsListSettled("etag-1", new Date(NOW + 1000).toISOString(), "etag-1", NOW)).toBe(false);
   });
 });
 

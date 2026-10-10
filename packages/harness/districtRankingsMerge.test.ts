@@ -1043,19 +1043,25 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
     return Object.fromEntries(artifact.teams.map((team) => [team.teamKey, team.districtLock.status]));
   }
 
-  function withAwards(artifact: DistrictArtifact, eventAwards: Map<string, DistrictEventAwardInput[]>): DistrictArtifact {
-    return applyDistrictEventState({ artifact, eventState: new Map(), eventAwards, generation: GENERATION, computedAt: COMPUTED_AT });
+  /**
+   * The state entry point with this tick's lists. EVERY LISTED EVENT IS PASSED
+   * AS SETTLED unless the caller says otherwise (quick task 261009-tx6), so a
+   * case here turns on the first two facts of the live rule, as it did before
+   * the third existed. The settle fact has its own describe below.
+   */
+  function withAwards(artifact: DistrictArtifact, eventAwards: Map<string, DistrictEventAwardInput[]>, settledAwardEvents: ReadonlySet<string> = new Set(eventAwards.keys())): DistrictArtifact {
+    return applyDistrictEventState({ artifact, eventState: new Map(), eventAwards, settledAwardEvents, generation: GENERATION, computedAt: COMPUTED_AT });
   }
 
   describe("the flag", () => {
     it("is not raised by a Winner and Finalist only list at a district tier event, and nothing is recorded", () => {
-      const out = applyDistrictEventAwards(fixture({ e2Award: { frcC: 5 } }), lists([E2, [award(1, "frcA", "frcB"), award(2, "frcC")]]));
+      const out = applyDistrictEventAwards(fixture({ e2Award: { frcC: 5 } }), lists([E2, [award(1, "frcA", "frcB"), award(2, "frcC")]]), new Set([E2]));
       expect(flagsAt(out, E2)).toEqual([false, false, false]);
       expect(out.teams.map((team) => team.qualifyingAwards)).toEqual([[], [], []]);
     });
 
     it("is not raised by a judged award with no award points at the event, and the Impact recipient IS recorded", () => {
-      const out = applyDistrictEventAwards(fixture(), lists([E2, [award(1, "frcA"), award(2, "frcB"), award(0, "frcC")]]));
+      const out = applyDistrictEventAwards(fixture(), lists([E2, [award(1, "frcA"), award(2, "frcB"), award(0, "frcC")]]), new Set([E2]));
       expect(flagsAt(out, E2)).toEqual([false, false, false]);
       expect(teamOf(out, "frcC").qualifyingAwards).toEqual([{ eventKey: E2, awardType: 0, label: IMPACT_2026, awardOnly: false }]);
     });
@@ -1068,7 +1074,7 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
         extraRemaining: { frcA: [{ eventKey: E2, eventName: `${E2} event`, week: 1, tier: "district", maxPoints: DISTRICT_EVENT_MAX, state: { ...PLAYOFFS_DONE } }] },
         extraPoints: { frcB: [pointsRow(E2, 0, 0, undefined)] },
       });
-      const out = applyDistrictEventAwards(base, lists([E2, [award(0, "frcC")]]));
+      const out = applyDistrictEventAwards(base, lists([E2, [award(0, "frcC")]]), new Set([E2]));
       expect(teamOf(out, "frcA").eventPoints.find((row) => row.eventKey === E2)!.state!.awardsPosted).toBe(true);
       expect(teamOf(out, "frcA").remainingEvents[0]!.state!.awardsPosted).toBe(true);
       expect(teamOf(out, "frcC").eventPoints.find((row) => row.eventKey === E2)!.state!.awardsPosted).toBe(true);
@@ -1114,7 +1120,7 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
       expect(flagsAt(waiting, DIVISION)).toEqual([false, false]);
 
       const withPoints = fixture({ extraPoints: { frcA: [divisionRow(10)], frcB: [divisionRow(0)] } });
-      const posted = applyDistrictEventAwards(withPoints, lists([DIVISION, list]));
+      const posted = applyDistrictEventAwards(withPoints, lists([DIVISION, list]), new Set([DIVISION]));
       expect(posted.teams.map((team) => team.qualifyingAwards)).toEqual([[], [], []]);
       expect(flagsAt(posted, DIVISION)).toEqual([true, true]);
     });
@@ -1153,7 +1159,8 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
 
     it("touches rows only: no verdict, no stamp and no team order changes", () => {
       const base = fixture({ e2Award: { frcC: 5 } });
-      const out = applyDistrictEventAwards(base, lists([E2, [award(0, "frcC")]]));
+      const out = applyDistrictEventAwards(base, lists([E2, [award(0, "frcC")]]), new Set([E2]));
+      expect(flagsAt(out, E2)).toEqual([true, true, true]);
       expect(out.generation).toBe(base.generation);
       expect(out.computedAt).toBe(base.computedAt);
       expect(out.insights).toEqual(base.insights);
@@ -1181,10 +1188,11 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
       expect(flagsAt(base, E2)).toEqual([false, false, false]);
       const eventAwards = lists([E2, [award(0, "frcC")]]);
 
-      const stillWaiting = applyDistrictRankings({ artifact: base, rankings: payload(base, {}), generation: GENERATION, computedAt: COMPUTED_AT, eventAwards });
+      const settledAwardEvents = new Set([E2]);
+      const stillWaiting = applyDistrictRankings({ artifact: base, rankings: payload(base, {}), generation: GENERATION, computedAt: COMPUTED_AT, eventAwards, settledAwardEvents });
       expect(flagsAt(stillWaiting, E2)).toEqual([false, false, false]);
 
-      const out = applyDistrictRankings({ artifact: base, rankings: payload(base, { frcC: 10 }), generation: GENERATION, computedAt: COMPUTED_AT, eventAwards });
+      const out = applyDistrictRankings({ artifact: base, rankings: payload(base, { frcC: 10 }), generation: GENERATION, computedAt: COMPUTED_AT, eventAwards, settledAwardEvents });
       expect(flagsAt(out, E2)).toEqual([true, true, true]);
       expect(teamOf(out, "frcC").qualifyingAwards).toEqual([{ eventKey: E2, awardType: 0, label: IMPACT_2026, awardOnly: false }]);
       expect(teamOf(out, "frcC").districtLock.status).toBe("lockedAward");
@@ -1196,6 +1204,40 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
       expect(flagsAt(out, E2)).toEqual([true, true, true]);
       expect(teamOf(out, "frcC").districtLock.status).toBe("lockedAward");
       expect(out.generation).toBe(GENERATION);
+    });
+
+    it("the settle fact: a judged list with its points raises the flag only for an event in the settled set, and every record is appended either way (quick task 261009-tx6)", () => {
+      const base = fixture({ e2Award: { frcC: 5 } });
+      const eventAwards = lists([E2, [award(1, "frcA", "frcB"), award(0, "frcC"), award(9, "frcB")]]);
+      const records = (artifact: DistrictArtifact) => artifact.teams.map((team) => team.qualifyingAwards.map((entry) => entry.awardType));
+
+      const settled = applyDistrictEventAwards(base, eventAwards, new Set([E2]));
+      expect(flagsAt(settled, E2)).toEqual([true, true, true]);
+      expect(records(settled)).toEqual([[], [9], [0]]);
+
+      // The event is not in the set, the set is empty, or no set is passed at
+      // all: the list has not settled, so the flag waits and nothing else
+      // changes.
+      for (const notSettled of [applyDistrictEventAwards(base, eventAwards, new Set([E1])), applyDistrictEventAwards(base, eventAwards, new Set()), applyDistrictEventAwards(base, eventAwards)]) {
+        expect(flagsAt(notSettled, E2)).toEqual([false, false, false]);
+        expect(records(notSettled)).toEqual([[], [9], [0]]);
+      }
+
+      // The same through both entry points, where an absent set settles nothing.
+      const rankings = payload(base, { frcC: 5 });
+      const viaRankings = (settledAwardEvents?: ReadonlySet<string>) =>
+        applyDistrictRankings({ artifact: base, rankings, generation: GENERATION, computedAt: COMPUTED_AT, eventAwards, ...(settledAwardEvents === undefined ? {} : { settledAwardEvents }) });
+      const viaState = (settledAwardEvents?: ReadonlySet<string>) =>
+        applyDistrictEventState({ artifact: base, eventState: new Map(), generation: GENERATION, computedAt: COMPUTED_AT, eventAwards, ...(settledAwardEvents === undefined ? {} : { settledAwardEvents }) });
+      for (const entryPoint of [viaRankings, viaState]) {
+        expect(flagsAt(entryPoint(new Set([E2])), E2)).toEqual([true, true, true]);
+        expect(teamOf(entryPoint(new Set([E2])), "frcC").districtLock.status).toBe("lockedAward");
+        expect(flagsAt(entryPoint(), E2)).toEqual([false, false, false]);
+        expect(records(entryPoint())).toEqual([[], [9], [0]]);
+        // Recorded, and not read yet: the winner is not locked by an award
+        // whose event has not said it is given.
+        expect(teamOf(entryPoint(), "frcC").districtLock.status).not.toBe("lockedAward");
+      }
     });
 
     it("applyDistrictEventState does not refuse an awards list for an event on no row: it contributes nothing", () => {

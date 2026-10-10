@@ -35,22 +35,46 @@
  * nothing under `packages/core/algorithms/simulation/` — asserted statically by
  * `apps/worker/test/scheduled.district.test.ts`.
  *
- * THE AWARDS FLAG AND THE WINNER RECORDS (quick task 261009-r9x). The Locks
- * guarantee holds slots back until an event's awards are done, and
- * `state.awardsPosted` is what ends that reservation, so this pass must never
- * turn it true early. It no longer decides the flag at all. It hands the
- * shared merge two things: the state map, where `awardsPosted` is only what is
- * ALREADY published (a published true stays true, anything else is false), and
- * the awards lists fetched this tick. The merge raises the flag through the
- * one shared rule (`packages/core/districts/eventAwards.ts`): a judged award
- * listed AND award points at the event in the rankings as merged this tick.
- * The same step records who won each qualifying award, so the flag, the
- * winner records and both lock verdicts land in ONE R2 put.
+ * THE AWARDS FLAG AND THE WINNER RECORDS (quick tasks 261009-r9x and
+ * 261009-tx6). The Locks guarantee holds slots back until an event's awards
+ * are done, and `state.awardsPosted` is what ends that reservation, so this
+ * pass must never turn it true early. It does not decide the flag. It hands
+ * the shared merge three things: the state map, where `awardsPosted` is only
+ * what is ALREADY published (a published true stays true, anything else is
+ * false), the awards lists fetched this tick, and the set of events whose
+ * list has SETTLED. The merge raises the flag through the one shared rule
+ * (`packages/core/districts/eventAwards.ts`), which needs THREE facts: a
+ * judged award listed, AND award points at the event in the rankings as
+ * merged this tick, AND the list unchanged for `AWARDS_SETTLE_MS` (60
+ * minutes). The third is there because TBA can list awards in batches: a flag
+ * raised at the first judged award with points would release the slot held
+ * for an Impact award that a later batch still brings. The same step records
+ * who won each qualifying award on EVERY list in hand, whatever the flag
+ * says, so a winner is written on the tick TBA lists it and the flag, the
+ * records and both lock verdicts land in ONE R2 put.
  *
- * WHAT THE AWARDS CURSOR ROW HOLDS. `__event_awards__:{eventKey}` stores the
- * ETag of the last awards list this pass MERGED, whatever the flag says. It
- * says nothing about the flag: the flag on the artifact does. A row with a
- * NULL ETag is a retry marker (see below) and is asked with no ETag.
+ * WHAT THE AWARDS CURSOR ROW HOLDS. `__event_awards__:{eventKey}` stores, in
+ * `tbaEtag`, the ETag of the last awards list this pass MERGED, whatever the
+ * flag says, and in `lastAdvancedAt` THE TIME THAT ETAG LAST CHANGED (an
+ * existing column this row did not use before, so no migration). It says
+ * nothing about the flag: the flag on the artifact does. A row with a NULL
+ * ETag is a retry marker (see below) and is asked with no ETag.
+ *
+ * THE SETTLE CLOCK. A list in hand is settled when its ETag equals the row's
+ * and the row's `lastAdvancedAt` is at least 60 minutes before this tick
+ * (`awardsListSettled`, read from the row as it stood BEFORE this tick's
+ * write). The list reads as CHANGED NOW, and the row is written with
+ * `lastAdvancedAt` set to this tick's time, in three cases: no row exists,
+ * the stored ETag differs from the list's, or the list has an ETag and the
+ * row has no usable `lastAdvancedAt` (the row Worker 33d0ded7 wrote). In no
+ * other case is the row written, so the stored time stands. A list whose
+ * response carried no ETag never reads as settled. Every unknown is the side
+ * that keeps the flag false.
+ *
+ * A FAILED ASK RESTARTS THE CLOCK ONLY ON A TICK THAT PASSES THE GATE. That
+ * is the only tick that writes the retry marker, and the next list after a
+ * marker has a differing ETag, so it reads as changed now. A failed ask on a
+ * tick that does not pass the gate writes nothing and leaves the clock alone.
  *
  * THE ORDER FOR ONE DISTRICT, and the reason for it:
  *   1. The rankings request, conditional.
@@ -127,6 +151,7 @@
  */
 import { districtDetailKey, DistrictArtifactSchema, DistrictEventStateSchema, type DistrictArtifact, type DistrictEventState } from "../../../packages/harness/pageArtifacts.js";
 import { applyDistrictEventState, applyDistrictRankings, type DistrictEventAwardInput } from "../../../packages/harness/districtRankingsMerge.js";
+import { awardsListSettled } from "../../../packages/core/districts/eventAwards.js";
 import { DISTRICT_KEY_PATTERN, EVENT_KEY_PATTERN } from "../../../packages/core/districts/keys.js";
 import { districtRankingsCursorKey, eventAwardsCursorKey } from "../../../packages/harness/stateBaseline.js";
 import type { LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
@@ -237,12 +262,31 @@ interface AwardsListInHand {
   readonly etag: string | null;
 }
 
+/** True when a stored `lastAdvancedAt` is a time the settle clock can read. */
+function hasUsableChangeTime(lastAdvancedAt: string | null): boolean {
+  return lastAdvancedAt !== null && Number.isFinite(Date.parse(lastAdvancedAt));
+}
+
+/**
+ * Whether a list in hand reads as CHANGED NOW against the awards cursor row
+ * as it stood before this tick (quick task 261009-tx6): no row, a differing
+ * ETag, or a list with an ETag beside a row with no usable change time. These
+ * are exactly the cases in which the row is written, stamped with this tick's
+ * time. See THE SETTLE CLOCK in this module's header.
+ */
+function awardsListChangedNow(stored: EventCursor | undefined, listEtag: string | null): boolean {
+  if (stored === undefined) return true;
+  if (stored.tbaEtag !== listEtag) return true;
+  return listEtag !== null && !hasUsableChangeTime(stored.lastAdvancedAt);
+}
+
 /**
  * One tick's district pass. See this module's header for the never-throws
  * contract, the two refusals, the order of the steps and the reason for it.
  */
 export async function runDistrictRefresh(env: Env, counter: SubrequestCounter, tbaCtx: TbaClientContext, options: RunDistrictRefreshOptions): Promise<DistrictRefreshResult> {
   const { windows, matchDerivedState, stamp, nowIso } = options;
+  const nowMs = Date.parse(nowIso);
   const districts = liveDistrictsOf(windows);
 
   let districtsRefreshed = 0;
@@ -359,6 +403,9 @@ export async function runDistrictRefresh(env: Env, counter: SubrequestCounter, t
       // the merge will read.
       const eventState = new Map<string, DistrictEventState>();
       const eventAwards = new Map<string, readonly DistrictEventAwardInput[]>();
+      // The events of `eventAwards` whose list has stood unchanged for an
+      // hour, read from each cursor row as it stood before this tick.
+      const settledAwardEvents = new Set<string>();
       // Events whose awards ask failed this tick while their flag still waits:
       // each gets a null ETag retry marker at the end.
       const retryMarkerEvents: string[] = [];
@@ -415,7 +462,11 @@ export async function runDistrictRefresh(env: Env, counter: SubrequestCounter, t
         // EVERY list in hand is merged, whether or not the flag turns true
         // this tick: a winner is recorded as soon as TBA lists it.
         const inHand = awardsInHand.get(eventKey);
-        if (inHand !== undefined) eventAwards.set(eventKey, inHand.awards);
+        if (inHand !== undefined) {
+          eventAwards.set(eventKey, inHand.awards);
+          const storedAwards = cursors.get(eventAwardsCursorKey(eventKey));
+          if (awardsListSettled(storedAwards?.tbaEtag, storedAwards?.lastAdvancedAt, inHand.etag, nowMs)) settledAwardEvents.add(eventKey);
+        }
         if (awardsFailed.has(eventKey) && !carriedFlag) retryMarkerEvents.push(eventKey);
       }
 
@@ -425,20 +476,22 @@ export async function runDistrictRefresh(env: Env, counter: SubrequestCounter, t
       // out of this one build.
       const candidate =
         poll.status === "ok"
-          ? applyDistrictRankings({ artifact: existing, rankings: poll.body, generation: existing.generation, computedAt: existing.computedAt, eventState, eventAwards })
-          : applyDistrictEventState({ artifact: existing, eventState, eventAwards, generation: existing.generation, computedAt: existing.computedAt });
+          ? applyDistrictRankings({ artifact: existing, rankings: poll.body, generation: existing.generation, computedAt: existing.computedAt, eventState, eventAwards, settledAwardEvents })
+          : applyDistrictEventState({ artifact: existing, eventState, eventAwards, settledAwardEvents, generation: existing.generation, computedAt: existing.computedAt });
 
       // STEP 7. The awards cursor rows this tick earned, decided now and
-      // written last. A row is written only when it would change, so a quiet
-      // waiting event costs no D1 write.
+      // written last. A row is written only when its list reads as changed
+      // now, so a quiet waiting event costs no D1 write and its settle clock
+      // keeps running.
       const awardsCursorWrites: EventCursor[] = [];
       for (const eventKey of eventAwards.keys()) {
         // The ETag of the list the merge just read, whatever the flag says and
-        // whatever the list holds. A response with no ETag stores a null.
+        // whatever the list holds, and this tick's time as the moment that
+        // ETag last changed. A response with no ETag stores a null.
         const awardsKey = eventAwardsCursorKey(eventKey);
         const stored = cursors.get(awardsKey);
         const etag = awardsInHand.get(eventKey)!.etag;
-        if (stored === undefined || stored.tbaEtag !== etag) awardsCursorWrites.push({ ...(stored ?? emptyCursor(awardsKey)), tbaEtag: etag, lastPolledAt: nowIso });
+        if (awardsListChangedNow(stored, etag)) awardsCursorWrites.push({ ...(stored ?? emptyCursor(awardsKey)), tbaEtag: etag, lastPolledAt: nowIso, lastAdvancedAt: nowIso });
       }
       for (const eventKey of retryMarkerEvents) {
         // THE RETRY MARKER: a null ETag, never an ETag from the failed
