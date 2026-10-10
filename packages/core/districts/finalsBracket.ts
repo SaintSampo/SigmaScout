@@ -99,7 +99,13 @@
  * readings; it was 596 before this reading, which holds more and holds it
  * earlier. No walked path does it: the field proof's count never rises while
  * rows are only added (`dcmpFieldProof.ts`). The same was already true of a
- * championship whose finals key is on the rows.
+ * championship whose finals key is on the rows. That forced reading is also
+ * the one way this option switches off while the finals key is on no row:
+ * with no finals row nothing but the capacity proves a live field.
+ *
+ * This reading only makes the proof run EARLIER. What keeps the proof from
+ * taking a Locked back once it runs is the four rules of the same task,
+ * listed with their limits in `champJointLock.ts` ("SOUND AND MONOTONE").
  */
 import {
   bracketDecisionKey,

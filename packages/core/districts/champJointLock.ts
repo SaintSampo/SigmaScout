@@ -2,8 +2,9 @@
  * THE JOINT WORST CASE LOCK PROOF at the Championship tier (quick task
  * 261009-2tr), generalized to divisioned and multiple championships by quick
  * task 261009-kt3, its divisioned frames brought in line with the verified
- * backup robot rule by quick task 261009-tx9. Pure, no I/O, no zod, no React;
- * its only import is the `./bracket.js` sibling.
+ * backup robot rule by quick task 261009-tx9, and made monotone over the
+ * order a championship's facts arrive in by quick task 261010-d7r. Pure, no
+ * I/O, no zod, no React; its only import is the `./bracket.js` sibling.
  *
  * ---------------------------------------------------------------------------
  * THE CLAIM
@@ -48,9 +49,25 @@
  *     assigned placement value (or the value of the one seat it takes as a
  *     backup), plus the points of the one award it can receive.
  *   - At most `consumingAwards` consuming awards and `judgedAwards` judged
- *     awards are given out, and each rival receives at most
- *     `MAX_POINT_PAYING_AWARDS_PER_TEAM` point paying award: one consuming
- *     award or one judged award, never both and never two.
+ *     awards are given out, and the bound adds the POINTS of at most
+ *     `MAX_POINT_PAYING_AWARDS_PER_TEAM` award to a rival: one judged award,
+ *     the one its own event can give it (FIRST's judging rule is one judged
+ *     award per team per event, and the finals of a divisioned championship
+ *     give none). A consuming award is counted as a SLOT, whatever its
+ *     winner's points. So nothing here rests on a team never holding both.
+ *     At one event no team does. Across a division and its finals a team
+ *     has held both six times, in 2017 and 2018 ("NOT A FACT THE PROOF RESTS
+ *     ON" below), and such a team takes one slot, through the consuming
+ *     awards.
+ *   - A rival that already holds a posted award, in its floor, at a key
+ *     whose Awards read final, has had that event's one judged award and
+ *     takes no other (`awardedRivals`; quick task 261010-d7r, the section "A
+ *     RIVAL THAT HOLDS A POSTED AWARD TAKES NO FURTHER JUDGED AWARD" below).
+ *   - A listed pick that is not confirmed, on an alliance the routing has
+ *     placed, either was on that alliance or never was: it is paid that
+ *     alliance's settled value, or it takes another alliance's seat, never
+ *     both (`listedOnly`; the same task, the section "A LISTED PICK THAT IS
+ *     NOT CONFIRMED" below).
  *   - A winning alliance has at most `maxAllianceSize` members, and every
  *     member beyond the picked ones is a backup robot from the unpicked teams.
  *   - Each rival takes at most one slot.
@@ -198,7 +215,11 @@
  *      pick of any alliance, eliminated or not, and a team with a row in
  *      another division are never counted through a seat or a fill in.
  *
- * READING P3, A LISTED PICK THAT IS NOT CONFIRMED IS A HINDSIGHT FACT. On an
+ * READING P3, A LISTED PICK THAT IS NOT CONFIRMED IS A HINDSIGHT FACT. (This
+ * reading is about an alliance its division has NOT placed. Once the alliance
+ * is placed the same team is read by the rule of the section "A LISTED PICK
+ * THAT IS NOT CONFIRMED IS PAID ITS DECIDED ALLIANCE'S VALUE OR TAKES ANOTHER
+ * SEAT, NEVER BOTH" below.) On an
  * alliance its division has not placed, the caller lists such a team among
  * the members (its reading R8), and a seat group names it too. The bound then
  * counts it on BOTH sides: as a member paid its alliance's scenario value (it
@@ -236,8 +257,9 @@
  * flag turns true at the first judged award whose points are in the rankings
  * (quick task 261009-r9x), so later judged awards can still follow, and the
  * posted points are already in the floors; what is left goes only to rivals
- * that hold no posted award, the next section; a rival can win only its own
- * division's, so sharing is a relaxation).
+ * that hold no posted award (rule D1 of quick task 261010-d7r, the section "A
+ * RIVAL THAT HOLDS A POSTED AWARD TAKES NO FURTHER JUDGED AWARD" below); a
+ * rival can win only its own division's, so sharing is a relaxation).
  *
  * The real champion is some candidate W; in W's division the real placements
  * are dominated by an enumerated assignment; in every other division no
@@ -250,8 +272,8 @@
  * NOT A FACT THE PROOF RESTS ON: "no team has award points at both its
  * division and the finals". This header said so until quick task 261010-d7r.
  * It is true since 2023 (0 of the 478 division rows carrying award points)
- * and false before: six teams held a division judged award and then won a
- * consuming award at the finals of the same championship (2017 FIM frc2834,
+ * and false before: six times a team held a division judged award and then won
+ * a consuming award at the finals of the same championship (2017 FIM frc2834,
  * frc245 and frc1718 with Impact, frc6344 and frc6637 with Rookie All Star;
  * 2018 FIM frc2834 with Impact). The bound never needed it: a consuming award
  * takes a slot whatever its winner's points, and every rival still short of
@@ -275,6 +297,73 @@
  * could miss the slot it takes in the other.
  *
  * ---------------------------------------------------------------------------
+ * SOUND AND MONOTONE: THE FOUR RULES OF QUICK TASK 261010-d7r, AND THEIR LIMITS
+ * ---------------------------------------------------------------------------
+ *
+ * THE CLAIM above is SOUNDNESS: at one reading the bound is never below a
+ * legal future. The site reads again a minute later with one more fact in,
+ * and a team shown Locked must stay Locked. That is MONOTONICITY: over one
+ * more fact no team's margin (the points slots minus its bound) drops.
+ * Soundness does not give it. A bound may be loose at one reading and looser
+ * at the next, and a team locked between the two loses its lock though
+ * nothing was ever unsound. Four rules of that task close the four places it
+ * was measured to fail, each held by a test that fails with the rule
+ * switched off (`scripts/champJointMonotone.test.ts`):
+ *
+ *   1. A rival that holds a posted award takes no further judged award (D1,
+ *      the next section). Switched off, Locked teams are lost when a
+ *      division's awards flag turns true: 957 over the awards order lattice
+ *      of the 16 divisioned championships of 2023 to 2026.
+ *   2. A divisioned championship's proof stops only once EVERY key's Awards
+ *      are final (finding F-B, `jointProofStillRuns` below). Switched off,
+ *      306 are lost where the finals' flag turns true before a division's.
+ *   3. Two championships' proof stops only once BOTH are final, and the
+ *      finished one's input needs no bracket (finding F-C, the same
+ *      function; the input is the caller's, decision 5 of
+ *      `apps/web/src/components/districts/champLedgerStatus.ts`). Switched
+ *      off, 91 are lost on 2026 California.
+ *   4. A listed pick that is not confirmed is paid its decided alliance's
+ *      value or takes another seat, never both (finding F-D, the section
+ *      after next). Switched off, no Locked team is lost on any walk and 25
+ *      team margins drop.
+ *
+ * A fifth change of that task is an EARLINESS rule and is not in this
+ * module: the divisioned proof runs before the finals key is on the artifact
+ * (`finalsBracket.ts`, "THE FINALS EVENT NOT YET ON THE WIRE"). It has no
+ * switch in that test file; an equivalence gate and the live walks hold it.
+ *
+ * THEIR LIMITS, STATED:
+ *
+ *   - Rule 2's caller hands the proof NO consuming award once the finals'
+ *     Awards read final. That rests on the awards flag meaning every
+ *     consuming award is listed, the limit decision 2's reservation already
+ *     has (`eventAwards.ts`, "the rule's limits": a consuming award listed
+ *     after the list has settled). Stated, not closed.
+ *   - Monotone over the facts WALKED: every played playoff row, every
+ *     category's points, every awards flag in every order, the finals facts
+ *     before, between and after the flags, a Winner listed before the
+ *     playoff points, a division's award points before its playoff points,
+ *     the last key's rows arriving mid playoffs. NOT walked: the published
+ *     capacities changing during a championship, an alliance list changing
+ *     after a pick, a row or a point withdrawn, a key's playoff points
+ *     landing in part, a further recipient of an award type already listed,
+ *     and the FIM seasons before 2026 one fact at a time (their rewound
+ *     lattices are read).
+ *   - Two edges are FORCED in that file and pinned as not required, because
+ *     a rule elsewhere excludes each: a division's awards flag true before
+ *     its playoff points (the merge's flag rule waits for a playoff point at
+ *     its live vantage, the Worker's; the offline publisher's hindsight
+ *     vantage does not wait, so a district publish run from a corpus taken
+ *     DURING a live championship could raise the flag that way: that
+ *     publisher is run after events are over), and a proven field read
+ *     unproven again (the field proof's count never rises while rows are
+ *     only added). Each loses Locked teams when forced.
+ *   - The sweeps over finished seasons check none of rules 2 to 4. They
+ *     moved at ten rows for rule 1 and at no row after it, which shows only
+ *     that no rewound stop changed. The lattices and the live walks of that
+ *     file are what hold rules 2 to 4.
+ *
+ * ---------------------------------------------------------------------------
  * A RIVAL THAT HOLDS A POSTED AWARD TAKES NO FURTHER JUDGED AWARD (quick task
  * 261010-d7r, D1)
  * ---------------------------------------------------------------------------
@@ -295,7 +384,8 @@
  * (`MAX_POINT_PAYING_AWARDS_PER_TEAM`), applied to an award already posted: a
  * team with award points at a division has had that division's one judged
  * award, a rival can win only its own division's, and the finals give no
- * judged award.
+ * judged award. It is a fact about ONE event. It says nothing about a
+ * consuming award at the finals, which the next paragraph leaves alone.
  *
  * WHAT IT LEAVES ALONE, ON PURPOSE. An awarded rival still short of T is
  * still counted through a consuming award and is still in the winner's fill
@@ -455,12 +545,23 @@
 import { bracketDecisionsFromPlayedMatches, InvalidBracketDecisionError, routePlayedBracket, type PlayedBracketMatch } from "./bracket.js";
 
 /**
- * At most ONE point paying award per rival in any future: a consuming award or
- * one judged award, never both and never two (Jacob, 2026-10-09). FIRST's
- * judging rule is one judged award per team per event, and TBA's district
- * point rows agree: since 2023 none of about 8,800 team event rows carries two
- * awards' points (69 did in 2016 to 2020, 1 in 2022). A rule change is what the
- * corpus sweep (`scripts/measureChampJointLocks.ts`) would catch.
+ * The bound adds the points of at most ONE award to a rival in any future.
+ *
+ * PER EVENT a team receives a consuming award or one judged award, never both
+ * and never two (Jacob, 2026-10-09). FIRST's judging rule is one judged award
+ * per team per event, and TBA's district point rows agree: since 2023 none of
+ * about 8,800 team event rows carries two awards' points (69 did in 2016 to
+ * 2020, 1 in 2022). A rule change is what the corpus sweep
+ * (`scripts/measureChampJointLocks.ts`) would catch.
+ *
+ * ACROSS A DIVISION AND ITS FINALS "never both" is false, and the constant
+ * does not rest on it (premise P1 of quick task 261010-d7r): six times, at
+ * 2017 and 2018 FIM, a team won a division judged award and then a consuming
+ * award at the finals of the same championship. What the constant counts is award
+ * POINTS added to a rival, and only a judged award's are ever added: a
+ * consuming award takes a slot whatever its winner's points and is counted as
+ * a slot. A rival can be given a judged award by one event alone, its own
+ * (the finals give none), so one award's points is still the most.
  */
 export const MAX_POINT_PAYING_AWARDS_PER_TEAM = 1;
 

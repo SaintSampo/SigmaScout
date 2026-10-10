@@ -185,10 +185,25 @@
  *    and the two championship inputs keep CONFIRMED pick membership (listed
  *    pick membership was measured less conservative there). Every shape counts
  *    seats and fill ins as the maximum alliance size minus the confirmed picks.
- *    Any other grouping of the dcmp keys refuses `unsupportedShape`; a division
- *    without facts `noBracketFacts`; a finals alliance matching no division
- *    winner, or finals rows before every division is decided,
- *    `bracketUnroutable`.
+ *    Any other grouping of the dcmp keys refuses `unsupportedShape`, division
+ *    keys with no finals key among them included unless the caller hands
+ *    `finalsMayBeAbsent` ("the proof runs during the division playoffs"
+ *    below); a division without facts `noBracketFacts`; a finals alliance
+ *    matching no division winner, or finals rows before every division is
+ *    decided, `bracketUnroutable`.
+ *
+ *    FOUR RULES KEEP THE PROOF MONOTONE, and one reading runs it earlier
+ *    (quick task 261010-d7r). A proof that is sound at each reading can
+ *    still show a team Locked and a minute later not, when one more fact
+ *    makes its bound looser. The paragraphs below close the four places
+ *    that was measured: a posted award ("A RIVAL THAT HOLDS A POSTED
+ *    AWARD"), when each shape's proof stops (two rules, the divisioned
+ *    shape's and the two championships'), and a listed pick that is not
+ *    confirmed. The earlier start is "THE PROOF RUNS DURING THE DIVISION
+ *    PLAYOFFS". `champJointLock.ts` lists the four rules side by side, with
+ *    what each costs when switched off and with their stated limits
+ *    ("SOUND AND MONOTONE"); `finalsBracket.ts` states what the earlier
+ *    start rests on.
  *
  *    A RIVAL THAT HOLDS A POSTED AWARD TAKES NO FURTHER JUDGED AWARD (quick
  *    task 261010-d7r, D1; `champJointLock.ts` owns the rule and its
@@ -327,7 +342,10 @@
  *    there and with them every lock the proof alone held. It now also runs
  *    past the finals' Awards while a division's flag is still to come, and
  *    reads every division's bracket there, so the brackets are kept until
- *    the last event of the championship has finished.
+ *    the last event of the championship has finished. With
+ *    `finalsMayBeAbsent` the same rule covers the division playoffs and the
+ *    window while the finals key is on no row: the division keys alone are
+ *    then a divisioned shape, and a finals key on no row has not finished.
  *
  *    A BACKUP ROBOT SEEN ON THE FIELD (quick task 261010-66y, CONTEXT D4).
  *    A team on a side of a played playoff row that no pick list names is, in
