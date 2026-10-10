@@ -40,7 +40,7 @@ import { z } from "zod";
 import { computeLocksWithQualifiers, cutLinePointsWithQualifiers, type LockResult, type LockTeamInput, type QualifierSets } from "../core/districts/locks.js";
 import { maxEventPoints, type DistrictTier } from "../core/districts/pointModel.js";
 import { prequalifiedTeams } from "../core/districts/prequalified.js";
-import { districtEventCategoryFinality, reservedImpactSlots, type ReservedSlotEvent } from "../core/districts/reservedSlots.js";
+import { districtEventCategoryFinality, reservedImpactSlots, type DistrictCategoryFinality, type ReservedSlotEvent } from "../core/districts/reservedSlots.js";
 import { championshipStemOf, dcmpNeverHappening, perChampionship, reservedChampSlots } from "../core/districts/champReservedSlots.js";
 import { awardPointsPresentAt, awardsPostedRule, judgedAwardListed, qualifyingAwardRecord } from "../core/districts/eventAwards.js";
 import { dcmpAwardCountCeilings } from "../core/districts/hypotheticalDcmp.js";
@@ -129,30 +129,6 @@ export type DistrictRankingsPayload = z.infer<typeof DistrictRankingsPayloadSche
 // ---------------------------------------------------------------------------
 
 /**
- * Whether the district's DCMP could still yield points to anyone, derived
- * WITHOUT a corpus or a calendar.
- *
- * `buildDistrictArtifact` answers this from the event list's own start dates.
- * The Worker has neither, so the answer is read back off the artifact the
- * publisher (which did have the calendar) produced: a team still carrying a
- * dcmp-tier remaining event, or any team whose published champ ceiling
- * exceeds its district ceiling by at least one whole dcmp event, means the
- * hypothetical DCMP was still ahead when that artifact was written.
- *
- * The `>=` comparison rather than `===` is deliberate: after a merge trims a
- * team's district-tier remaining events, that team's carried-forward champ
- * ceiling sits MORE than one dcmp event above its freshly shrunk district
- * ceiling, and an equality test would read that as "no DCMP granted".
- *
- * This errs toward "still ahead", which OVERSTATES ceilings. That is the only
- * safe direction: an overstated rival ceiling delays a `"locked"` verdict,
- * while an understated one would publish a guarantee that is not true.
- */
-function dcmpStillAhead(teams: readonly DistrictTeam[], dcmpEventMaxTotal: number): boolean {
-  return teams.some((team) => team.remainingEvents.some((event) => event.tier === "dcmp") || team.maxRemainingChamp - team.maxRemainingDistrict >= dcmpEventMaxTotal);
-}
-
-/**
  * The state block for each event key, read across EVERY `eventPoints` and
  * `remainingEvents` row of every team, any tier, District Championship
  * divisions included (quick task 261009-tx6). A row that CARRIES a state
@@ -175,6 +151,166 @@ function eventStateByKey(teams: readonly DistrictTeam[]): Map<string, DistrictEv
     }
   }
   return stateByEvent;
+}
+
+/**
+ * THE ONE PLACE THE PUBLISHED VERDICTS READ WHICH CATEGORIES OF AN EVENT ARE
+ * FINAL (quick task 261009-tx6). The ceilings, the floors and the pooled pool
+ * all ask this function, so the three can never disagree about what is open
+ * at an event.
+ *
+ * TODAY it answers from the event's state block alone, through
+ * `districtEventCategoryFinality`, and an absent state reports every category
+ * open exactly as that function does. `teams` and `eventKey` are NOT READ
+ * YET. They are part of the signature so that quick task 261009-vp9 ("a
+ * category counts as finished only when its points are in") can read the
+ * event's own rows here, in this one body, without touching a caller.
+ *
+ * Exported for that task and for the test that holds the rule to one place.
+ */
+export function publishedCategoryFinality(teams: readonly DistrictTeam[], eventKey: string, state: DistrictEventState | undefined): DistrictCategoryFinality {
+  return districtEventCategoryFinality(state);
+}
+
+/** The four point categories of an event row, in the order a row carries them. */
+const POINT_CATEGORIES = ["qual", "alliance", "elim", "award"] as const;
+
+/** One tier's two sums for one team: what its open categories could still pay, and what they have paid so far. */
+interface OpenCategorySums {
+  /** The sum of the category ceilings still open at the team's played rows of this tier. */
+  ceiling: number;
+  /** The points the team's rows already carry in those open categories. */
+  earned: number;
+}
+
+/**
+ * What is still open at the events a team ALREADY HAS A POINTS ROW FOR, per
+ * tier (quick task 261009-tx6). For every `eventPoints` row whose event
+ * carries a state block, each category `publishedCategoryFinality` reports as
+ * not final contributes that category's ceiling at the row's tier
+ * (`maxEventPoints`) to `ceiling` and the row's own points in it to `earned`.
+ *
+ * A ROW WHOSE EVENT CARRIES NO STATE BLOCK CONTRIBUTES TO NEITHER. That is a
+ * hindsight row (the offline publisher's first pass, an artifact from before
+ * the state blocks existed), and it reads as it always has: its points are
+ * in the floor and nothing more is expected of it.
+ *
+ * A ceiling is counted once per event, however many rows a team carries for
+ * it. TBA sends one row per event, so a second row is a malformed input, and
+ * one event can pay each category once.
+ */
+function openAtPlayedRows(
+  team: DistrictTeam,
+  teams: readonly DistrictTeam[],
+  season: number,
+  stateByEvent: ReadonlyMap<string, DistrictEventState | undefined>
+): Record<DistrictTier, OpenCategorySums> {
+  const sums: Record<DistrictTier, OpenCategorySums> = { district: { ceiling: 0, earned: 0 }, dcmp: { ceiling: 0, earned: 0 } };
+  const counted = new Set<string>();
+  for (const row of team.eventPoints) {
+    const state = stateByEvent.get(row.eventKey);
+    if (state === undefined) continue;
+    const final = publishedCategoryFinality(teams, row.eventKey, state);
+    const maxima = maxEventPoints(season, row.tier);
+    const firstRow = !counted.has(row.eventKey);
+    counted.add(row.eventKey);
+    for (const category of POINT_CATEGORIES) {
+      if (final[category]) continue;
+      if (firstRow) sums[row.tier].ceiling += maxima[category];
+      sums[row.tier].earned += row[category];
+    }
+  }
+  return sums;
+}
+
+/** The sum of a team's district tier `remainingEvents` ceilings: the part of `maxRemainingDistrict` its calendar explains. */
+function districtRemainingEventsSum(team: DistrictTeam): number {
+  let sum = 0;
+  for (const event of team.remainingEvents) if (event.tier === "district") sum += event.maxPoints;
+  return sum;
+}
+
+/**
+ * Whether the district's DCMP could still yield points to anyone, derived
+ * WITHOUT a corpus or a calendar, as a function of ONE self consistent
+ * artifact.
+ *
+ * `buildDistrictArtifact` answers this from the event list's own start dates.
+ * The Worker has neither, so the answer is read back off the artifact the
+ * publisher (which did have the calendar) produced: a team still carrying a
+ * dcmp-tier remaining event, or any team whose published champ ceiling
+ * exceeds its district ceiling, less what is open at its own championship
+ * row, by at least one whole dcmp event, means the hypothetical DCMP was
+ * still ahead when that artifact was written.
+ *
+ * WHY THE OPEN CHAMPIONSHIP CEILING IS SUBTRACTED (quick task 261009-tx6).
+ * The verdict pass now puts the open categories of a team's own championship
+ * row on its champ ceiling. A row that is wholly open is worth one whole dcmp
+ * event, the same size as the hypothetical one, so without the subtraction a
+ * team PLAYING its championship would read as a team GRANTED a hypothetical
+ * one, and the next call would hand a hypothetical championship to every
+ * other team. A team holds a hypothetical championship or a championship
+ * row, never both (`hasPlayedDcmp` in pass 2), so the subtraction can never
+ * hide a granted one.
+ *
+ * WHY IT IS READ OFF THE INCOMING ARTIFACT. The stored ceilings, the rows and
+ * the states of one artifact were written together by one verdict pass, so
+ * the difference means what it meant when it was written. Both merge entry
+ * points therefore evaluate this BEFORE they merge a row or a state and hand
+ * the answer to the pass, which gives the same answer on a rankings 200 tick
+ * and a 304 tick. Mixing stored ceilings with freshly merged rows is how the
+ * two paths could disagree.
+ *
+ * WHY NOT FROM THE ROWS ALONE. A district that lists no dcmp event on any row
+ * says nothing about its championship in its rows. The offline publisher's
+ * calendar answer reaches the Worker ONLY as that stored difference
+ * (`scripts/publishDistricts.ts` seeds `maxRemainingChamp` with one
+ * championship when its calendar says one is still ahead).
+ *
+ * The `>=` comparison rather than `===` is deliberate: a carried-forward
+ * champ ceiling can sit MORE than one dcmp event above a district ceiling
+ * that has since shrunk, and an equality test would read that as "no DCMP
+ * granted".
+ *
+ * This errs toward "still ahead", which OVERSTATES ceilings. That is the only
+ * safe direction: an overstated rival ceiling delays a `"locked"` verdict,
+ * while an understated one would publish a guarantee that is not true.
+ */
+function dcmpStillAhead(artifact: DistrictArtifact): boolean {
+  const dcmpBase = maxEventPoints(artifact.year, "dcmp");
+  const dcmpEventMaxTotal = dcmpBase.qual + dcmpBase.alliance + dcmpBase.elim + dcmpBase.award;
+  const stateByEvent = eventStateByKey(artifact.teams);
+  return artifact.teams.some(
+    (team) =>
+      team.remainingEvents.some((event) => event.tier === "dcmp") ||
+      team.maxRemainingChamp - team.maxRemainingDistrict - openAtPlayedRows(team, artifact.teams, artifact.year, stateByEvent).dcmp.ceiling >= dcmpEventMaxTotal
+  );
+}
+
+/**
+ * The part of each team's STORED `maxRemainingDistrict` that its own rows do
+ * not explain (quick task 261009-tx6): the larger of zero and the stored
+ * value minus its district tier remaining events minus what is open at its
+ * district tier played rows, all three read off the ONE artifact handed in.
+ *
+ * The one thing it carries today is A NEWCOMER'S SEED: a team that arrived in
+ * a rankings payload with no calendar was given one district event's maximum
+ * (`applyDistrictRankings`), and no row of the artifact says so. The verdict
+ * pass rebuilds `maxRemainingDistrict` from the rows on every call, so
+ * without this map the seed would vanish on the very next tick.
+ *
+ * FLOORED AT ZERO, so a value stored before the pass counted open categories
+ * (smaller than its rows now explain) carries nothing and can never LOWER a
+ * ceiling.
+ */
+function unexplainedDistrictCeilings(artifact: DistrictArtifact): Map<string, number> {
+  const stateByEvent = eventStateByKey(artifact.teams);
+  const unexplained = new Map<string, number>();
+  for (const team of artifact.teams) {
+    const explained = districtRemainingEventsSum(team) + openAtPlayedRows(team, artifact.teams, artifact.year, stateByEvent).district.ceiling;
+    unexplained.set(team.teamKey, Math.max(0, team.maxRemainingDistrict - explained));
+  }
+  return unexplained;
 }
 
 /**
@@ -291,24 +427,6 @@ function reservedDistrictSlots(teams: readonly DistrictTeam[]): number {
 }
 
 /**
- * The district-tier state block for each event, preferring a row that CARRIES
- * one over a row that does not — the same rule `reservedDistrictSlots` applies,
- * because the artifact's own rows can disagree about whether a state block is
- * present and "no state" is the weaker observation of the two.
- */
-function districtTierStateByEvent(teams: readonly DistrictTeam[]): Map<string, DistrictEventState | undefined> {
-  const stateByEvent = new Map<string, DistrictEventState | undefined>();
-  for (const team of teams) {
-    for (const row of [...team.eventPoints, ...team.remainingEvents]) {
-      if (row.tier !== "district") continue;
-      if (!stateByEvent.has(row.eventKey)) stateByEvent.set(row.eventKey, row.state);
-      else if (stateByEvent.get(row.eventKey) === undefined && row.state !== undefined) stateByEvent.set(row.eventKey, row.state);
-    }
-  }
-  return stateByEvent;
-}
-
-/**
  * The pooled remaining-points facts at "now": how many district points the
  * district still has to hand out, and which teams can still collect any of them
  * (quick task 260925-pl6). `packages/core/districts/pooledLockInputs.ts` owns
@@ -327,9 +445,14 @@ function districtTierStateByEvent(teams: readonly DistrictTeam[]): Map<string, D
  * FOR A FINISHED SEASON THIS RETURNS ZERO AND AN EMPTY SET, and the pooled test
  * then locks exactly the teams the ceiling test already locked — which is why
  * adding it moved no published number for any of the 109 published artifacts.
+ *
+ * FINALITY COMES FROM `publishedCategoryFinality` (quick task 261009-tx6),
+ * the same function and the same event level state map the ceilings and the
+ * floors read, so the pool and the floors describe one position. For a
+ * district tier event the map holds exactly the block the district tier only
+ * walk used to find, so no pool moved.
  */
-function pooledDistrictPoints(teams: readonly DistrictTeam[]): ReturnType<typeof pooledLockInputs> {
-  const stateByEvent = districtTierStateByEvent(teams);
+function pooledDistrictPoints(teams: readonly DistrictTeam[], stateByEvent: ReadonlyMap<string, DistrictEventState | undefined>): ReturnType<typeof pooledLockInputs> {
   const entries: PooledTeamEntry[] = teams.map((team) => {
     const eventKeys = new Set<string>();
     for (const row of [...team.eventPoints, ...team.remainingEvents]) {
@@ -338,7 +461,7 @@ function pooledDistrictPoints(teams: readonly DistrictTeam[]): ReturnType<typeof
     return {
       teamKey: team.teamKey,
       rookie: team.awardProfile?.rookie ?? true,
-      events: [...eventKeys].map((eventKey) => ({ eventKey, final: districtEventCategoryFinality(stateByEvent.get(eventKey)) })),
+      events: [...eventKeys].map((eventKey) => ({ eventKey, final: publishedCategoryFinality(teams, eventKey, stateByEvent.get(eventKey)) })),
     };
   });
   return pooledLockInputs(entries);
@@ -462,6 +585,56 @@ function districtTierPointTotal(team: DistrictTeam): number {
  * at an uncounted event; quick task 261007-jvz moved the tab onto this pass's
  * district wide award rule (`eventTierByKey`), and the sweep reads 0 and 0.
  *
+ * THE CEILINGS COUNT WHAT IS STILL OPEN AT A PLAYED EVENT (quick task
+ * 261009-tx6). Before this, `maxRemainingDistrict` was the sum of a team's
+ * `remainingEvents` and nothing else, so the moment a team had a points row
+ * at an event that event was worth nothing more to it, while its award
+ * points, and during the event its playoff and selection points, were still
+ * to come. A rival's award points then landed on a ceiling that said they
+ * could not, and the published verdict took a Locked back: replayed over the
+ * eight 2026 PNW district events, six times (`frc9430`, `frc5920`).
+ *
+ * The rule is the District Locks tab's own (`districtLockBounds` in
+ * apps/web/src/components/districts/districtLedgerStatus.ts), applied to
+ * every `eventPoints` row whose event carries a state block. For each
+ * category `publishedCategoryFinality` reports as not final:
+ *
+ *   - the category's ceiling at the row's tier joins the team's ceiling
+ *     (district tier rows into `maxRemainingDistrict`, and both tiers into
+ *     `maxRemainingChamp`), and
+ *   - the points the row already carries in that category LEAVE the floor
+ *     the lock test and the cut line read.
+ *
+ * Both halves are needed. Adding the ceiling alone is worse than adding
+ * nothing: the points that land while the category still reads open would
+ * then sit in the floor and in the ceiling at once, and the same replay
+ * shows eight take backs. With both halves a point landing in an open
+ * category moves no input at all, and the replay shows none.
+ *
+ * A ROW WHOSE EVENT CARRIES NO STATE BLOCK ADDS NOTHING AND REMOVES NOTHING,
+ * so a hindsight artifact (every category of every row final, or no state
+ * at all) recomputes to exactly what it did. Measured over the 109 local
+ * district seasons: zero artifacts differ.
+ *
+ * BOTH CEILINGS ARE BUILT FROM THE ROWS on every call, never added to a
+ * stored value, so the pass applied to its own output changes nothing.
+ * `maxRemainingDistrict` is rewritten on the returned teams as
+ * `maxRemainingChamp` always was. `pointTotal`, `rank` and every row are
+ * untouched on the wire.
+ *
+ * TWO LIMITS, STATED PLAINLY.
+ *   1. This is the tab's rule WITHOUT its settled playoffs refinement. The
+ *      pass has no bracket facts, so an alliance already knocked out keeps
+ *      the whole playoff ceiling until the category is final. A published
+ *      status in the middle of the playoffs can therefore be WEAKER than the
+ *      tab's (a Locked shown later), never stronger.
+ *   2. The rule is only as good as the finality it is handed, and finality
+ *      is read from the event's state alone today. For the minutes between
+ *      a category finishing on the field and its points reaching the
+ *      district rankings, a ceiling can close before the points are in.
+ *      Quick task 261009-vp9 closes that, in `publishedCategoryFinality`
+ *      and nowhere else.
+ *
  * The season is the artifact's own `year` — `maxEventPoints` throws
  * `UnknownDistrictSeasonError` for a season with no declared ceiling rather
  * than guessing one.
@@ -485,6 +658,23 @@ export interface RecomputeDistrictVerdictsOptions {
   readonly tierByEvent?: ReadonlyMap<string, DistrictTier>;
   /** The calendar year at the time of the call, for the champ reservation's past-season clause. Defaults to the clock; tests pass it. */
   readonly nowYear?: number;
+  /**
+   * Whether the district's championship is still ahead, when the caller has
+   * already read it (quick task 261009-tx6). The two merge entry points read
+   * it off the artifact they were handed, BEFORE merging a row or a state,
+   * and pass it here. Absent, the pass reads it off its own input through the
+   * same function, which is what a direct caller (the offline publisher,
+   * whose input is one self consistent artifact) wants.
+   */
+  readonly dcmpStillAhead?: boolean;
+  /**
+   * `teamKey -> the part of a stored `maxRemainingDistrict` no row explains`
+   * (quick task 261009-tx6), added to the ceiling the pass rebuilds from the
+   * rows. Only the two merge entry points pass one: they compute it for every
+   * team of the artifact they were handed, and seed a team new in a rankings
+   * payload with one district event's maximum. Absent, nothing is added.
+   */
+  readonly unexplainedDistrictCeiling?: ReadonlyMap<string, number>;
 }
 
 export function recomputeDistrictVerdicts(artifact: DistrictArtifact, options: RecomputeDistrictVerdictsOptions = {}): DistrictArtifact {
@@ -496,12 +686,37 @@ export function recomputeDistrictVerdicts(artifact: DistrictArtifact, options: R
   const stateByEvent = eventStateByKey(teams);
   const awardQualified = awardQualifiedSets(teams, options.tierByEvent, stateByEvent);
 
+  // What is still open at the events each team already has a row for, per
+  // tier (quick task 261009-tx6). Built once, and read by both ceilings and
+  // both floors below.
+  const openByTeam = new Map(teams.map((team) => [team.teamKey, openAtPlayedRows(team, teams, season, stateByEvent)] as const));
+
+  // `maxRemainingDistrict` is BUILT from the rows on every call and never
+  // added to a stored value, so the pass is idempotent: the remaining district
+  // tier events, plus what is open at the played ones, plus the part of a
+  // stored ceiling the rows cannot express (a newcomer's seed), which only the
+  // two merge entry points know.
+  const maxRemainingDistrictByTeam = new Map<string, number>();
+  for (const team of teams) {
+    maxRemainingDistrictByTeam.set(
+      team.teamKey,
+      districtRemainingEventsSum(team) + openByTeam.get(team.teamKey)!.district.ceiling + (options.unexplainedDistrictCeiling?.get(team.teamKey) ?? 0)
+    );
+  }
+
   // Pass 1: districtLock, against maxRemainingDistrict (regular-tier events
   // only). No prequalification concept exists at the district/DCMP tier.
   // Ranked on the district tier total (quick task 261007-il9): a DCMP's
-  // points never earn a place at that DCMP. `dcmpCutLine` below reads these
-  // same inputs, so it follows.
-  const districtLockInputs: LockTeamInput[] = teams.map((team) => ({ teamKey: team.teamKey, pointTotal: districtTierPointTotal(team), maxRemaining: team.maxRemainingDistrict }));
+  // points never earn a place at that DCMP. The points a team's rows carry in
+  // a category that is still open are NOT in the floor: the category's whole
+  // ceiling is in `maxRemaining` instead, so counting them here too would
+  // count them twice. `dcmpCutLine` below reads these same inputs, so it
+  // follows.
+  const districtLockInputs: LockTeamInput[] = teams.map((team) => ({
+    teamKey: team.teamKey,
+    pointTotal: districtTierPointTotal(team) - openByTeam.get(team.teamKey)!.district.earned,
+    maxRemaining: maxRemainingDistrictByTeam.get(team.teamKey)!,
+  }));
   const districtQualifiers: QualifierSets = { awardQualified: awardQualified.district, prequalified: new Set() };
   // One slot held back per district-tier Impact award still to come, so a
   // published `"locked"` is never revoked by an award posted the next day
@@ -514,24 +729,40 @@ export function recomputeDistrictVerdicts(artifact: DistrictArtifact, options: R
   // when no achievable distribution of what is left can lift enough rivals past
   // it. Zero for a finished season, where it locks exactly whom the ceiling test
   // already did.
-  const pooled = pooledDistrictPoints(teams);
+  const pooled = pooledDistrictPoints(teams, stateByEvent);
   const districtLocks = computeLocksWithQualifiers(districtLockInputs, artifact.dcmpSlots, districtQualifiers, reservedSlots, pooled);
   const districtLockByTeam = new Map(districtLocks.map((result) => [result.teamKey, result] as const));
 
-  // Pass 2: maxRemainingChamp = maxRemainingDistrict + one hypothetical
-  // dcmp-tier event's maximum, only for a team that has not already attended
-  // a DCMP, is not already eliminated per pass 1, and whose district's DCMP
-  // has not already happened. Same three gates as `buildDistrictArtifact`.
-  const stillAhead = dcmpStillAhead(teams, dcmpEventMaxTotal);
+  // Pass 2: maxRemainingChamp = maxRemainingDistrict + what is open at the
+  // team's own championship rows + one hypothetical dcmp-tier event's maximum,
+  // the last only for a team that has not already attended a DCMP, is not
+  // already eliminated per pass 1, and whose district's DCMP has not already
+  // happened. Same three gates as `buildDistrictArtifact`. A team has a
+  // championship row or a hypothetical championship, never both.
+  //
+  // "Not already happened" is the caller's answer when it has one. The two
+  // merge entry points read it off the artifact they were handed, before they
+  // merged anything into it (see `dcmpStillAhead`). A direct caller passes
+  // none and the pass reads it off its own input.
+  const stillAhead = options.dcmpStillAhead ?? dcmpStillAhead(artifact);
   const maxRemainingChampByTeam = new Map<string, number>();
   for (const team of teams) {
     const districtLock = districtLockByTeam.get(team.teamKey)!;
     const hasPlayedDcmp = team.eventPoints.some((row) => row.tier === "dcmp");
     const mightAttendDcmp = stillAhead && !hasPlayedDcmp && districtLock.status !== "eliminated";
-    maxRemainingChampByTeam.set(team.teamKey, team.maxRemainingDistrict + (mightAttendDcmp ? dcmpEventMaxTotal : 0));
+    maxRemainingChampByTeam.set(
+      team.teamKey,
+      maxRemainingDistrictByTeam.get(team.teamKey)! + openByTeam.get(team.teamKey)!.dcmp.ceiling + (mightAttendDcmp ? dcmpEventMaxTotal : 0)
+    );
   }
 
-  const champLockInputs: LockTeamInput[] = teams.map((team) => ({ teamKey: team.teamKey, pointTotal: team.pointTotal, maxRemaining: maxRemainingChampByTeam.get(team.teamKey)! }));
+  // The champ floor is the all tier total, less the points the team's rows
+  // carry in a category still open at EITHER tier: both tiers' open ceilings
+  // are inside `maxRemainingChamp`.
+  const champLockInputs: LockTeamInput[] = teams.map((team) => {
+    const open = openByTeam.get(team.teamKey)!;
+    return { teamKey: team.teamKey, pointTotal: team.pointTotal - open.district.earned - open.dcmp.earned, maxRemaining: maxRemainingChampByTeam.get(team.teamKey)! };
+  });
   const champQualifiers: QualifierSets = { awardQualified: awardQualified.dcmp, prequalified: prequalifiedTeams(season) };
   const champReservedSlots =
     artifact.cmpSlots === null ? 0 : reservedChampSlotsAtNow(teams, season, artifact.districtKey, artifact.cmpSlots, options.nowYear ?? new Date().getUTCFullYear());
@@ -551,6 +782,7 @@ export function recomputeDistrictVerdicts(artifact: DistrictArtifact, options: R
 
   const recomputedTeams = teams.map((team) => ({
     ...team,
+    maxRemainingDistrict: maxRemainingDistrictByTeam.get(team.teamKey)!,
     maxRemainingChamp: maxRemainingChampByTeam.get(team.teamKey)!,
     districtLock: lockVerdict(districtLockByTeam.get(team.teamKey)!, dcmpCutLine, null),
     champLock: lockVerdict(champLockByTeam.get(team.teamKey)!, cmpCutLine, champAllocationNote),
@@ -800,6 +1032,14 @@ export function applyDistrictRankings(options: ApplyDistrictRankingsOptions): Di
   const meta = eventMetaByKey(artifact.teams);
   const existingByTeam = new Map(artifact.teams.map((team) => [team.teamKey, team] as const));
 
+  // Read off the INCOMING artifact, before a row or a state is merged into
+  // it (quick task 261009-tx6): whether a championship is still ahead, and
+  // the part of every team's stored district ceiling its rows do not explain.
+  // `applyDistrictEventState` reads the same two facts the same way, so a
+  // rankings 200 tick and a 304 tick hand the verdict pass the same answers.
+  const stillAhead = dcmpStillAhead(artifact);
+  const unexplainedDistrictCeiling = unexplainedDistrictCeilings(artifact);
+
   const mergedFromPayload: DistrictTeam[] = rankings.map((row) => {
     const existing = existingByTeam.get(row.team_key);
     const existingStateByEvent = new Map<string, DistrictEventState>();
@@ -829,34 +1069,40 @@ export function applyDistrictRankings(options: ApplyDistrictRankingsOptions): Di
       .filter((remaining) => !playedEventKeys.has(remaining.eventKey))
       .map((remaining) => withState({ ...remaining, maxPoints: remaining.tier === "dcmp" ? dcmpEventMaxTotal : districtEventMaxTotal }, eventState));
 
-    const carriedMaxRemainingDistrict = remainingEvents
-      .filter((remaining) => remaining.tier === "district")
-      .reduce((sum, remaining) => sum + remaining.maxPoints, 0);
-
     // A PAYLOAD-ONLY TEAM HAS NO CALENDAR HERE, AND ZERO IS THE ONE ANSWER
     // THAT CANNOT BE USED. A team present in TBA's rankings payload but absent
-    // from the published artifact has no `remainingEvents` to sum, so the
-    // reduce above returns 0 — a ceiling equal to that team's current point
+    // from the published artifact has no `remainingEvents` to sum, so its
+    // ceiling would be 0 — a ceiling equal to that team's current point
     // total. That removes it as a threat to everyone above it and can mark the
     // team itself `eliminated`, which is exactly the outcome this function's
     // own header says dropping a team would produce: "silently remove a threat
     // and manufacture a `locked` verdict". Arriving at it by a different route
     // does not make it a different bug.
     //
-    // `dcmpStillAhead` just above states the rule this follows: err toward
-    // "still ahead", because an OVERSTATED rival ceiling only delays a
-    // `"locked"` verdict while an understated one publishes a guarantee that is
-    // not true. So an unknown team is seeded with one district event's own
-    // maximum total.
+    // `dcmpStillAhead` states the rule this follows: err toward "still
+    // ahead", because an OVERSTATED rival ceiling only delays a `"locked"`
+    // verdict while an understated one publishes a guarantee that is not true.
+    // So an unknown team is seeded with one district event's own maximum
+    // total.
     //
     // THE BOUND IS HONEST ABOUT WHAT IT IS. A team plays 0 to 4 district
     // events, and this substitution assumes exactly one is still ahead. It is
     // not a measurement and it is not tight — it is the smallest value that
     // errs in the safe direction, chosen over a larger guess because the
     // publisher's own calendar, not this function, is where the real answer
-    // lives. The next offline republish gives the team a real row and this path
-    // stops applying to it.
-    const maxRemainingDistrict = existing === undefined ? districtEventMaxTotal : carriedMaxRemainingDistrict;
+    // lives.
+    //
+    // THE SEED LASTS UNTIL AN OFFLINE REPUBLISH GIVES THE TEAM REAL ROWS, ON
+    // BOTH PATHS (quick task 261009-tx6). The verdict pass rebuilds
+    // `maxRemainingDistrict` from the rows, and no row says "seeded", so the
+    // seed is handed to the pass as this team's unexplained ceiling. On every
+    // later tick the team is in the artifact, its stored ceiling still holds
+    // the seed, and `unexplainedDistrictCeilings` finds it again as the part
+    // of that stored value no row explains, on a rankings 200 and on a 304
+    // alike. Before that task the seed was written into the field once and
+    // lost on the very next rankings 200, when the carried sum of a team with
+    // no remaining events read zero.
+    if (existing === undefined) unexplainedDistrictCeiling.set(row.team_key, districtEventMaxTotal);
 
     return {
       // Spread first so every field the artifact's team row carries — today's
@@ -870,11 +1116,12 @@ export function applyDistrictRankings(options: ApplyDistrictRankingsOptions): Di
       adjustments: row.adjustments,
       eventPoints,
       remainingEvents,
-      maxRemainingDistrict,
-      // Provisional: `recomputeDistrictVerdicts` owns the two-pass rule and
-      // overwrites this below. Seeded from the artifact's own published value
-      // so `dcmpStillAhead` can still read the publisher's calendar answer.
-      maxRemainingChamp: existing?.maxRemainingChamp ?? maxRemainingDistrict,
+      // Both provisional: `recomputeDistrictVerdicts` builds the two ceilings
+      // from the rows and overwrites them below. The publisher's calendar
+      // answer was already read off the incoming artifact (`stillAhead`
+      // above), so nothing downstream reads these two values.
+      maxRemainingDistrict: existing?.maxRemainingDistrict ?? districtEventMaxTotal,
+      maxRemainingChamp: existing?.maxRemainingChamp ?? districtEventMaxTotal,
     } satisfies DistrictTeam;
   });
 
@@ -899,7 +1146,7 @@ export function applyDistrictRankings(options: ApplyDistrictRankingsOptions): Di
     ...(bakedEvents === undefined ? {} : { bakedEvents }),
   };
 
-  return recomputeDistrictVerdicts(eventAwards === undefined ? merged : applyDistrictEventAwards(merged, eventAwards));
+  return recomputeDistrictVerdicts(eventAwards === undefined ? merged : applyDistrictEventAwards(merged, eventAwards), { dcmpStillAhead: stillAhead, unexplainedDistrictCeiling });
 }
 
 export interface ApplyDistrictEventStateOptions {
@@ -966,6 +1213,13 @@ export function applyDistrictEventState(options: ApplyDistrictEventStateOptions)
     }
   }
 
+  // Read off the INCOMING artifact, before the state is written (quick task
+  // 261009-tx6), exactly as `applyDistrictRankings` reads them: whether a
+  // championship is still ahead, and the part of every team's stored district
+  // ceiling its rows do not explain.
+  const stillAhead = dcmpStillAhead(artifact);
+  const unexplainedDistrictCeiling = unexplainedDistrictCeilings(artifact);
+
   const withEventState = DistrictArtifactSchema.parse({
     ...artifact,
     // STAMPED HERE TOO, exactly as `applyDistrictRankings` stamps it.
@@ -984,5 +1238,9 @@ export function applyDistrictEventState(options: ApplyDistrictEventStateOptions)
       remainingEvents: team.remainingEvents.map((row) => withState(row, eventState)),
     })),
   });
-  return recomputeDistrictVerdicts(eventAwards === undefined ? withEventState : applyDistrictEventAwards(withEventState, eventAwards), tierByEvent === undefined ? {} : { tierByEvent });
+  return recomputeDistrictVerdicts(eventAwards === undefined ? withEventState : applyDistrictEventAwards(withEventState, eventAwards), {
+    ...(tierByEvent === undefined ? {} : { tierByEvent }),
+    dcmpStillAhead: stillAhead,
+    unexplainedDistrictCeiling,
+  });
 }

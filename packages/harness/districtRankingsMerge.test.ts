@@ -6,7 +6,11 @@
  * with recomputed verdicts. Everything after it is a refusal, a
  * carry-forward, or a never-invent-metadata pin.
  */
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { districtEventCategoryFinality } from "../core/districts/reservedSlots.js";
 import { DistrictArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type DistrictArtifact } from "./pageArtifacts.js";
 import {
   applyDistrictEventAwards,
@@ -16,9 +20,12 @@ import {
   DistrictRankingsEventPointsEntrySchema,
   DistrictRankingsPayloadSchema,
   DistrictRankingsRowSchema,
+  publishedCategoryFinality,
   recomputeDistrictVerdicts,
   type DistrictEventAwardInput,
 } from "./districtRankingsMerge.js";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 const GENERATION = "gen-merge-test";
 const COMPUTED_AT = "2026-03-14T12:00:00.000Z";
@@ -27,6 +34,9 @@ const COMPUTED_AT = "2026-03-14T12:00:00.000Z";
 const DISTRICT_EVENT_MAX = 83;
 /** 2026 dcmp-tier event maximum: three times the district tier. */
 const DCMP_EVENT_MAX = 249;
+/** 2026 district-tier category ceilings for the playoffs and the awards. */
+const DISTRICT_ELIM_MAX = 30;
+const DISTRICT_AWARD_MAX = 15;
 
 function lockVerdict(status: DistrictArtifact["teams"][number]["districtLock"]["status"]) {
   return { status, pointsToLock: null as number | null, threatCount: 0, cutLinePoints: null as number | null, allocationNote: null as string | null };
@@ -165,9 +175,12 @@ describe("applyDistrictRankings — the tracer: a TBA rankings payload becomes a
     expect(teamA.eventPoints.map((e) => e.eventKey)).toEqual(["2026ncwak", "2026ncpem"]);
     // 4. That event is gone from its remainingEvents.
     expect(teamA.remainingEvents).toEqual([]);
-    // 5. maxRemainingDistrict dropped by that event's ceiling.
-    expect(artifact.teams[0]!.maxRemainingDistrict - teamA.maxRemainingDistrict).toBe(DISTRICT_EVENT_MAX);
-    expect(teamA.maxRemainingDistrict).toBe(0);
+    // 5. maxRemainingDistrict dropped by that event's ceiling, less the one
+    //    category still open there. `2026ncpem`'s state says its playoffs are
+    //    done and its awards are not posted, so its award ceiling (15) is
+    //    still ahead of frc1 (quick task 261009-tx6).
+    expect(artifact.teams[0]!.maxRemainingDistrict - teamA.maxRemainingDistrict).toBe(DISTRICT_EVENT_MAX - DISTRICT_AWARD_MAX);
+    expect(teamA.maxRemainingDistrict).toBe(DISTRICT_AWARD_MAX);
     // 6. districtLock.status was RECOMPUTED, not carried over.
     expect(artifact.teams[0]!.districtLock.status).toBe("contending");
     expect(teamA.districtLock.status).toBe("locked");
@@ -469,17 +482,22 @@ describe("applyDistrictEventState — the write path for a category that finishe
     expect(updated.teams[0]!.remainingEvents[0]!.state).toEqual(observed);
   });
 
-  it("leaves pointTotal, rank and the ceilings untouched, and leaves the verdicts at the recompute's fixed point — which CAN differ from before, since an observed state shrinks the remaining pool", () => {
+  it("leaves pointTotal and rank untouched, raises both ceilings by the two categories the observation reopened, and leaves the verdicts at the recompute's fixed point", () => {
     // The fixture's verdicts are hand-written stubs; a published artifact is
     // already at the recompute's fixed point, so that is the reference here.
     const artifact = recomputeDistrictVerdicts(twoTeamFixture());
     const updated = applyState("2026ncwak", artifact);
+    // The observation says 2026ncwak's playoffs and awards are still open, and
+    // both teams have a points row there, so each ceiling gains those two
+    // category ceilings (quick task 261009-tx6). Before that task a played
+    // row added nothing and both ceilings were untouched here.
+    const reopened = DISTRICT_ELIM_MAX + DISTRICT_AWARD_MAX;
     for (const [index, team] of updated.teams.entries()) {
       const before = artifact.teams[index]!;
       expect(team.pointTotal).toBe(before.pointTotal);
       expect(team.rank).toBe(before.rank);
-      expect(team.maxRemainingDistrict).toBe(before.maxRemainingDistrict);
-      expect(team.maxRemainingChamp).toBe(before.maxRemainingChamp);
+      expect(team.maxRemainingDistrict).toBe(before.maxRemainingDistrict + reopened);
+      expect(team.maxRemainingChamp).toBe(before.maxRemainingChamp + reopened);
     }
     // Idempotent: running the pass again over the state-carrying rows changes nothing.
     const again = recomputeDistrictVerdicts(updated);
@@ -626,10 +644,12 @@ describe("applyDistrictRankings — a payload-only team's ceiling errs toward st
   it("a team the artifact DOES carry still sums its own published remaining events, unchanged", () => {
     // The substitution applies only where there is no calendar to read. `frc1`
     // has one remaining event in the fixture and the tracer payload plays it,
-    // so its carried sum drops to zero — and that zero is a real answer, not a
-    // guess, so it is left alone.
+    // so its carried sum drops to zero, and nothing is seeded on top. What is
+    // left is read from its rows: 2026ncpem's awards are not posted, so that
+    // one category's ceiling is still ahead of it (quick task 261009-tx6).
+    // `frc2` has no row there and reads zero, a real answer and not a guess.
     const merged = merge(twoTeamFixture(), tracerPayload());
-    expect(merged.teams.find((t) => t.teamKey === "frc1")!.maxRemainingDistrict).toBe(0);
+    expect(merged.teams.find((t) => t.teamKey === "frc1")!.maxRemainingDistrict).toBe(DISTRICT_AWARD_MAX);
     expect(merged.teams.find((t) => t.teamKey === "frc2")!.maxRemainingDistrict).toBe(0);
   });
 });
@@ -1300,7 +1320,10 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
       expect(flagsAt(out, E2)).toEqual([false, false, false]);
       expect(out.teams.map((team) => team.qualifyingAwards)).toEqual([[], [], []]);
       expect(districtStatuses(out).frcB).not.toBe("locked");
-      expect(districtStatuses(out)).toEqual({ frcA: "locked", frcB: "contending", frcC: "eliminated" });
+      // A read locked here before quick task 261009-tx6. 2026ncpem's awards
+      // are open and every team has a row there, so B (30) can still be given
+      // the 15 award points and reach A's 40: A waits for the awards too.
+      expect(districtStatuses(out)).toEqual({ frcA: "contending", frcB: "contending", frcC: "eliminated" });
     });
 
     it("the second list, Impact to C with its points: the flag is true, C is locked by the award, and B is not locked", () => {
@@ -1338,10 +1361,14 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
       // The record alone moves nothing.
       expect(impactRecorded.teams.map((team) => team.districtLock)).toEqual(winnerListed.teams.map((team) => team.districtLock));
 
+      // PINNED AS THE RUN SHOWS. A is not locked while the awards are open: B
+      // (30) could still be given the 15 award points and reach A's 40, which
+      // the ceilings count since quick task 261009-tx6. Nobody holds a place
+      // in the first two states, so nothing can be taken back.
       const walk = [winnerListed, impactRecorded, flagTrue].map(districtStatuses);
       expect(walk).toEqual([
-        { frcA: "locked", frcB: "contending", frcC: "eliminated" },
-        { frcA: "locked", frcB: "contending", frcC: "eliminated" },
+        { frcA: "contending", frcB: "contending", frcC: "eliminated" },
+        { frcA: "contending", frcB: "contending", frcC: "eliminated" },
         { frcA: "locked", frcB: "eliminated", frcC: "lockedAward" },
       ]);
 
@@ -1356,6 +1383,382 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
           for (let later = earlier + 1; later < walk.length; later++) expect({ teamKey, later, held: held(walk[later]![teamKey]) }).toEqual({ teamKey, later, held: true });
         }
       }
+    });
+  });
+});
+
+describe("recomputeDistrictVerdicts: the ceilings and floors count what is still open at a played event (quick task 261009-tx6, D8)", () => {
+  /** 2026 district tier category ceilings: 22 + 16 + 30 + 15 = 83. */
+  const AWARD_MAX = 15;
+  /** 2026 dcmp tier category ceilings are three times the district tier's: 66 + 48 + 90 + 45 = 249. */
+  const DCMP_ELIM_MAX = 90;
+  const DCMP_AWARD_MAX = 45;
+
+  const FINAL = { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: true, awardsPosted: true } as const;
+  const AWARDS_OPEN = { ...FINAL, awardsPosted: false } as const;
+  const PLAYOFFS_OPEN = { ...FINAL, playoffsDone: false, awardsPosted: false } as const;
+  const QUAL_RUNNING = { qualMatchesPlayed: 10, qualMatchesTotal: 60, alliancesPicked: false, playoffsDone: false, awardsPosted: false } as const;
+  const NOT_STARTED = { qualMatchesPlayed: 0, qualMatchesTotal: 60, alliancesPicked: false, playoffsDone: false, awardsPosted: false } as const;
+
+  const E0 = "2026ncwak";
+  const E1 = "2026ncpem";
+  const E2 = "2026ncash";
+  const DCMP = "2026nccmp";
+
+  type Team = DistrictArtifact["teams"][number];
+  type PointsRow = Team["eventPoints"][number];
+  type RemainingRow = Team["remainingEvents"][number];
+  type State = NonNullable<PointsRow["state"]>;
+  type Tier = "district" | "dcmp";
+
+  function played(eventKey: string, points: { qual?: number; alliance?: number; elim?: number; award?: number }, state: State | undefined, tier: Tier = "district"): PointsRow {
+    const qual = points.qual ?? 0;
+    const alliance = points.alliance ?? 0;
+    const elim = points.elim ?? 0;
+    const award = points.award ?? 0;
+    return { eventKey, eventName: `${eventKey} event`, week: 1, tier, qual, alliance, elim, award, total: qual + alliance + elim + award, ...(state === undefined ? {} : { state: { ...state } }) };
+  }
+
+  function ahead(eventKey: string, state: State | undefined = NOT_STARTED, tier: Tier = "district"): RemainingRow {
+    return { eventKey, eventName: `${eventKey} event`, week: 5, tier, maxPoints: tier === "dcmp" ? DCMP_EVENT_MAX : DISTRICT_EVENT_MAX, ...(state === undefined ? {} : { state: { ...state } }) };
+  }
+
+  interface TeamOptions {
+    readonly remaining?: readonly RemainingRow[];
+    /** The stored ceiling. Default: the sum of the district tier remaining events. */
+    readonly maxRemainingDistrict?: number;
+    /** The stored champ ceiling. Default: the stored district ceiling (no championship ahead). */
+    readonly maxRemainingChamp?: number;
+    readonly awards?: Team["qualifyingAwards"];
+  }
+
+  function team(teamKey: string, rows: readonly PointsRow[], options: TeamOptions = {}): Team {
+    const remaining = options.remaining ?? [];
+    const maxRemainingDistrict = options.maxRemainingDistrict ?? remaining.filter((row) => row.tier === "district").reduce((sum, row) => sum + row.maxPoints, 0);
+    return {
+      teamKey,
+      teamNumber: Number(teamKey.replace(/\D/g, "")),
+      nickname: `Team ${teamKey}`,
+      rank: 1,
+      pointTotal: rows.reduce((sum, row) => sum + row.total, 0),
+      rookieBonus: 0,
+      adjustments: 0,
+      eventPoints: [...rows],
+      remainingEvents: [...remaining],
+      maxRemainingDistrict,
+      maxRemainingChamp: options.maxRemainingChamp ?? maxRemainingDistrict,
+      qualifyingAwards: [...(options.awards ?? [])],
+      districtLock: lockVerdict("contending"),
+      champLock: lockVerdict("contending"),
+    };
+  }
+
+  function district(teams: readonly Team[], slots: { dcmpSlots?: number; cmpSlots?: number } = {}): DistrictArtifact {
+    return DistrictArtifactSchema.parse({
+      schemaVersion: 1,
+      generation: "gen-published",
+      computedAt: "2026-03-01T00:00:00.000Z",
+      districtKey: "2026fnc",
+      year: 2026,
+      abbreviation: "fnc",
+      displayName: "FIRST North Carolina",
+      dcmpSlots: slots.dcmpSlots ?? 2,
+      cmpSlots: slots.cmpSlots ?? 1,
+      teams,
+      insights: { teamCount: teams.length, eventCount: 3, dcmpCutLinePoints: null, cmpCutLinePoints: null, districtLockedCount: 0, districtEliminatedCount: 0, champLockedCount: 0, champEliminatedCount: 0 },
+    });
+  }
+
+  const verdicts = (artifact: DistrictArtifact): DistrictArtifact => recomputeDistrictVerdicts(artifact, { nowYear: 2026 });
+  const teamOf = (artifact: DistrictArtifact, teamKey: string): Team => artifact.teams.find((entry) => entry.teamKey === teamKey)!;
+  const ceilings = (artifact: DistrictArtifact) => artifact.teams.map((entry) => [entry.teamKey, entry.maxRemainingDistrict, entry.maxRemainingChamp] as const);
+  const locks = (artifact: DistrictArtifact) => artifact.teams.map((entry) => [entry.teamKey, entry.districtLock, entry.champLock] as const);
+  const districtStatuses = (artifact: DistrictArtifact): Record<string, string> => Object.fromEntries(artifact.teams.map((entry) => [entry.teamKey, entry.districtLock.status]));
+  const held = (status: string | undefined) => status === "locked" || status === "lockedAward";
+
+  /** A TBA shaped rankings payload that says exactly what the artifact's rows say. */
+  function payloadOf(artifact: DistrictArtifact) {
+    return artifact.teams.map((entry) => ({
+      team_key: entry.teamKey,
+      rank: entry.rank,
+      point_total: entry.pointTotal,
+      rookie_bonus: entry.rookieBonus,
+      adjustments: entry.adjustments,
+      event_points: entry.eventPoints.map((row) => ({
+        event_key: row.eventKey,
+        district_cmp: row.tier === "dcmp",
+        qual_points: row.qual,
+        alliance_points: row.alliance,
+        elim_points: row.elim,
+        award_points: row.award,
+        total: row.total,
+      })),
+    }));
+  }
+
+  const viaRankings = (artifact: DistrictArtifact): DistrictArtifact => applyDistrictRankings({ artifact, rankings: payloadOf(artifact), generation: GENERATION, computedAt: COMPUTED_AT });
+  const viaState = (artifact: DistrictArtifact): DistrictArtifact => applyDistrictEventState({ artifact, eventState: new Map(), generation: GENERATION, computedAt: COMPUTED_AT });
+
+  /** Three teams with an open award category at `2026ncpem`, one event still ahead for two of them, and a championship still ahead. */
+  function openAwardDistrict(e1Award: Readonly<Record<string, number>> = {}): DistrictArtifact {
+    const seeded = (ahead: number) => ({ maxRemainingDistrict: ahead, maxRemainingChamp: ahead + DCMP_EVENT_MAX });
+    return district(
+      [
+        team("frc1", [played(E0, { qual: 40 }, FINAL), played(E1, { qual: 30, award: e1Award.frc1 ?? 0 }, AWARDS_OPEN)], { remaining: [ahead(E2)], ...seeded(DISTRICT_EVENT_MAX) }),
+        team("frc2", [played(E1, { qual: 20, award: e1Award.frc2 ?? 0 }, AWARDS_OPEN)], seeded(0)),
+        team("frc3", [played(E0, { qual: 25 }, FINAL)], { remaining: [ahead(E2)], ...seeded(DISTRICT_EVENT_MAX) }),
+      ],
+      { dcmpSlots: 3 }
+    );
+  }
+
+  it("moves nothing where nothing is open: every state block final, or no state block at all", () => {
+    for (const state of [FINAL, undefined]) {
+      const input = district([
+        team("frc1", [played(E0, { qual: 40, award: 5 }, state)], { remaining: [ahead(E2, state === undefined ? undefined : NOT_STARTED)] }),
+        team("frc2", [played(E0, { qual: 30 }, state)]),
+      ]);
+      const out = verdicts(input);
+      expect(ceilings(out)).toEqual([
+        ["frc1", DISTRICT_EVENT_MAX, DISTRICT_EVENT_MAX],
+        ["frc2", 0, 0],
+      ]);
+      expect(out.teams.map((entry) => entry.pointTotal)).toEqual([45, 30]);
+      expect(verdicts(out)).toEqual(out);
+    }
+  });
+
+  it("adds the award ceiling for every team with a row at an event whose awards are still open, and nothing for a team with no row there", () => {
+    const out = verdicts(openAwardDistrict());
+    // frc1 and frc2 have a row at 2026ncpem, frc3 does not. Each keeps the
+    // championship the publisher's calendar seeded, on top of its new ceiling.
+    expect(ceilings(out)).toEqual([
+      ["frc1", DISTRICT_EVENT_MAX + AWARD_MAX, DISTRICT_EVENT_MAX + AWARD_MAX + DCMP_EVENT_MAX],
+      ["frc2", AWARD_MAX, AWARD_MAX + DCMP_EVENT_MAX],
+      ["frc3", DISTRICT_EVENT_MAX, DISTRICT_EVENT_MAX + DCMP_EVENT_MAX],
+    ]);
+  });
+
+  it("a row at an event still in qualification adds all four ceilings, which is what the event was worth while it was still ahead", () => {
+    const rival = team("frc2", [played(E0, { qual: 30 }, FINAL)]);
+    const stillAhead = verdicts(district([team("frc1", [played(E0, { qual: 40 }, FINAL)], { remaining: [ahead(E1, QUAL_RUNNING)] }), rival]));
+    const rowAppeared = verdicts(district([team("frc1", [played(E0, { qual: 40 }, FINAL), played(E1, { qual: 6 }, QUAL_RUNNING)], { maxRemainingDistrict: 0 }), rival]));
+    expect(teamOf(stillAhead, "frc1").maxRemainingDistrict).toBe(DISTRICT_EVENT_MAX);
+    expect(teamOf(rowAppeared, "frc1").maxRemainingDistrict).toBe(DISTRICT_EVENT_MAX);
+    // The six points earned so far are in an open category, so they are not
+    // in the floor yet and no verdict moves when the row appears.
+    expect(locks(rowAppeared)).toEqual(locks(stillAhead));
+    expect(teamOf(rowAppeared, "frc1").pointTotal).toBe(46);
+  });
+
+  it("a District Championship row with playoffs and awards open raises the champ ceiling by those two dcmp tier ceilings and leaves the district ceiling alone", () => {
+    const out = verdicts(
+      district([team("frc1", [played(E0, { qual: 50 }, FINAL), played(DCMP, { qual: 30, alliance: 20 }, PLAYOFFS_OPEN, "dcmp")]), team("frc2", [played(E0, { qual: 40 }, FINAL)])])
+    );
+    expect(ceilings(out)).toEqual([
+      ["frc1", 0, DCMP_ELIM_MAX + DCMP_AWARD_MAX],
+      ["frc2", 0, 0],
+    ]);
+  });
+
+  it("floors: award points landing in an open category move no verdict and no cut line, at either tier, and pointTotal on the wire is the landed total", () => {
+    const before = verdicts(openAwardDistrict());
+    const after = verdicts(openAwardDistrict({ frc1: 5, frc2: 10 }));
+    expect(locks(after)).toEqual(locks(before));
+    expect(ceilings(after)).toEqual(ceilings(before));
+    expect(after.insights).toEqual(before.insights);
+    expect(after.teams.map((entry) => entry.pointTotal)).toEqual([75, 30, 25]);
+    expect(before.teams.map((entry) => entry.pointTotal)).toEqual([70, 20, 25]);
+
+    // The same at the dcmp tier, where only the champ pass reads the row.
+    const champDistrict = (dcmpAward: number) =>
+      verdicts(
+        district(
+          [
+            team("frc1", [played(E0, { qual: 50 }, FINAL), played(DCMP, { qual: 30, award: dcmpAward }, AWARDS_OPEN, "dcmp")]),
+            team("frc2", [played(E0, { qual: 45 }, FINAL), played(DCMP, { qual: 40 }, AWARDS_OPEN, "dcmp")]),
+          ],
+          { cmpSlots: 1 }
+        )
+      );
+    expect(locks(champDistrict(30))).toEqual(locks(champDistrict(0)));
+    expect(champDistrict(30).insights).toEqual(champDistrict(0).insights);
+    expect(teamOf(champDistrict(30), "frc1").pointTotal).toBe(110);
+  });
+
+  it("no take back at the award stage: a team Locked while a rival's award points are still to land holds it when they land and when the category closes", () => {
+    // Three DCMP slots. 2026ncpem's awards are open, so one slot is held back
+    // and two are left for points.
+    //
+    // TODAY'S TAKE BACK, before this task, is frcY's: it sat on 60 with only
+    // frcX above it, so it read Locked. Then frcR's ten award points landed
+    // (55 to 65), frcR passed it, two rivals stood at or above it against two
+    // slots, and the published verdict read contending. Under this rule
+    // frcR's ceiling counts the fifteen award points it could still be given
+    // from the start, so frcY is never shown Locked and nothing is taken
+    // back. frcX is far enough ahead that no open award can reach it, so it
+    // is Locked at every step.
+    const stage = (landed: boolean, posted: boolean) => {
+      const state = posted ? FINAL : AWARDS_OPEN;
+      const award = (points: number) => (landed ? points : 0);
+      return verdicts(
+        district(
+          [
+            team("frcX", [played(E0, { qual: 60 }, FINAL), played(E1, { qual: 20 }, state)]),
+            team("frcY", [played(E0, { qual: 40 }, FINAL), played(E1, { qual: 20 }, state)]),
+            team("frcR", [played(E0, { qual: 35 }, FINAL), played(E1, { qual: 20, award: award(10) }, state)]),
+            team("frcW", [played(E0, { qual: 10 }, FINAL), played(E1, { qual: 5, award: award(10) }, state)], { awards: [{ eventKey: E1, awardType: 0, label: "FIRST Impact Award", awardOnly: false }] }),
+          ],
+          { dcmpSlots: 3 }
+        )
+      );
+    };
+    const walk = [stage(false, false), stage(true, false), stage(true, true)].map(districtStatuses);
+    expect(walk.map((statuses) => statuses.frcX)).toEqual(["locked", "locked", "locked"]);
+    expect(walk.map((statuses) => held(statuses.frcY))).toEqual([false, false, false]);
+    expect(walk[1]).toEqual(walk[0]);
+    expect(walk[2]!.frcW).toBe("lockedAward");
+    for (const teamKey of ["frcX", "frcY", "frcR", "frcW"]) {
+      for (let earlier = 0; earlier < walk.length; earlier++) {
+        if (!held(walk[earlier]![teamKey])) continue;
+        for (let later = earlier + 1; later < walk.length; later++) expect({ teamKey, later, held: held(walk[later]![teamKey]) }).toEqual({ teamKey, later, held: true });
+      }
+    }
+  });
+
+  it("is idempotent with open categories present, and applyDistrictEventState with an unchanged state map is a fixed point", () => {
+    const once = verdicts(openAwardDistrict({ frc2: 10 }));
+    expect(verdicts(once)).toEqual(once);
+
+    const stateOnce = viaState(openAwardDistrict({ frc2: 10 }));
+    expect(viaState(stateOnce)).toEqual(stateOnce);
+    const rankingsOnce = viaRankings(openAwardDistrict({ frc2: 10 }));
+    expect(viaRankings(rankingsOnce)).toEqual(rankingsOnce);
+  });
+
+  it("an open championship row is never read as a granted hypothetical championship, on either path, however often the merge runs", () => {
+    // No championship is ahead of anyone: no dcmp tier remaining event and no
+    // stored champ ceiling above a district ceiling. frc1's own championship
+    // row is wholly open, which puts 249 on its champ ceiling and must not
+    // read as "a championship is still ahead" on the next call.
+    const input = district(
+      [team("frc1", [played(E0, { qual: 50 }, FINAL), played(DCMP, { qual: 10 }, QUAL_RUNNING, "dcmp")]), team("frc2", [played(E0, { qual: 40 }, FINAL)]), team("frc3", [played(E0, { qual: 30 }, FINAL)])],
+      { dcmpSlots: 3 }
+    );
+    for (const path of [viaState, viaRankings]) {
+      const once = path(input);
+      const twice = path(once);
+      expect(twice).toEqual(once);
+      for (const out of [once, twice]) {
+        expect(ceilings(out)).toEqual([
+          ["frc1", 0, DCMP_EVENT_MAX],
+          ["frc2", 0, 0],
+          ["frc3", 0, 0],
+        ]);
+      }
+    }
+  });
+
+  it("gives the same ceilings and verdicts on the rankings path and the state path for one incoming artifact", () => {
+    const input = openAwardDistrict({ frc1: 5 });
+    const rankings = viaRankings(input);
+    const state = viaState(input);
+    expect(ceilings(rankings)).toEqual(ceilings(state));
+    expect(locks(rankings)).toEqual(locks(state));
+    expect(rankings.insights).toEqual(state.insights);
+  });
+
+  it("keeps the calendar's answer: a district with no dcmp event on any row still reads its seeded championship as ahead, on both paths", () => {
+    const input = district(
+      [team("frc1", [played(E0, { qual: 50 }, FINAL)], { maxRemainingDistrict: 0, maxRemainingChamp: DCMP_EVENT_MAX }), team("frc2", [played(E0, { qual: 40 }, FINAL)], { maxRemainingDistrict: 0, maxRemainingChamp: DCMP_EVENT_MAX })],
+      { dcmpSlots: 2 }
+    );
+    for (const path of [viaState, viaRankings]) {
+      const once = path(input);
+      const twice = path(once);
+      for (const out of [once, twice]) {
+        expect(ceilings(out)).toEqual([
+          ["frc1", 0, DCMP_EVENT_MAX],
+          ["frc2", 0, DCMP_EVENT_MAX],
+        ]);
+      }
+    }
+  });
+
+  it("a newcomer's seed survives the next rankings tick and the unchanged tick after it", () => {
+    const payload = tracerPayload();
+    payload.push({ team_key: "frc9999", rank: 3, point_total: 5, rookie_bonus: 0, adjustments: 0, event_points: [eventPointsEntry("2026ncwak", 5)] });
+    const seedOf = (artifact: DistrictArtifact) => artifact.teams.find((entry) => entry.teamKey === "frc9999")!.maxRemainingDistrict;
+
+    const first = merge(twoTeamFixture(), payload);
+    expect(seedOf(first)).toBe(DISTRICT_EVENT_MAX);
+    // The rankings 200 tick: the newcomer is in the artifact now and still has
+    // no calendar. Before this task its ceiling fell to zero here.
+    const second = merge(first, payload);
+    expect(seedOf(second)).toBe(DISTRICT_EVENT_MAX);
+    // The 304 tick.
+    const third = applyDistrictEventState({ artifact: second, eventState: new Map(), generation: GENERATION, computedAt: COMPUTED_AT });
+    expect(seedOf(third)).toBe(DISTRICT_EVENT_MAX);
+  });
+
+  it("a stored ceiling written before this task never lowers a ceiling: the open category is added on top of the remaining event on both paths", () => {
+    // Stored: the one remaining event and nothing else, which is what every
+    // artifact written before this task carries.
+    const input = district([
+      team("frc1", [played(E1, { qual: 30 }, AWARDS_OPEN)], { remaining: [ahead(E2)], maxRemainingDistrict: DISTRICT_EVENT_MAX }),
+      team("frc2", [played(E1, { qual: 20 }, AWARDS_OPEN)]),
+    ]);
+    expect(teamOf(viaState(input), "frc1").maxRemainingDistrict).toBe(DISTRICT_EVENT_MAX + AWARD_MAX);
+    expect(teamOf(viaRankings(input), "frc1").maxRemainingDistrict).toBe(DISTRICT_EVENT_MAX + AWARD_MAX);
+    expect(teamOf(verdicts(input), "frc1").maxRemainingDistrict).toBe(DISTRICT_EVENT_MAX + AWARD_MAX);
+  });
+
+  describe("category finality is read in one place", () => {
+    it("publishedCategoryFinality returns what districtEventCategoryFinality returns for the same state", () => {
+      for (const state of [FINAL, AWARDS_OPEN, PLAYOFFS_OPEN, QUAL_RUNNING, NOT_STARTED, { ...NOT_STARTED, qualMatchesTotal: null }, { ...NOT_STARTED, awardsPosted: true }, undefined]) {
+        expect(publishedCategoryFinality([], E1, state)).toEqual(districtEventCategoryFinality(state));
+      }
+    });
+
+    it("the ceilings, the floors and the pooled pool of one artifact agree that only the award category is open", () => {
+      // Fifteen teams, twelve DCMP slots, every team with a row at one event
+      // whose playoffs are done and whose awards are open. One slot is held
+      // back, so eleven are left. The leader sits ten points above fourteen
+      // rivals, and every rival's ceiling (90 + 15) reaches it, so the
+      // ceiling test sees fourteen threats.
+      //
+      // The pooled test locks the leader ONLY if the pool is the award pool:
+      // eleven rivals each need ten points, 110 in all, and the award pool of
+      // a fifteen team event is 91. A pool that also counted the playoffs
+      // would be far larger and the leader would read contending.
+      const build = (rivalAward: number) =>
+        verdicts(
+          district(
+            [team("frc1", [played(E1, { qual: 100 }, AWARDS_OPEN)]), ...Array.from({ length: 14 }, (_, index) => team(`frc${String(index + 2)}`, [played(E1, { qual: 90, award: index === 0 ? rivalAward : 0 }, AWARDS_OPEN)]))],
+            { dcmpSlots: 12 }
+          )
+        );
+      const out = build(0);
+      // The ceilings: the award ceiling and nothing else.
+      expect(new Set(out.teams.map((entry) => entry.maxRemainingDistrict))).toEqual(new Set([AWARD_MAX]));
+      // The pool: the award pool alone.
+      expect(teamOf(out, "frc1").districtLock.status).toBe("locked");
+      // The floors: award points landing on a rival change nothing.
+      expect(locks(build(12))).toEqual(locks(out));
+    });
+
+    it("districtRankingsMerge.ts calls districtEventCategoryFinality in exactly one place, inside publishedCategoryFinality", () => {
+      // Checkouts on this machine are CRLF, so the source is normalised first.
+      const source = readFileSync(resolve(HERE, "districtRankingsMerge.ts"), "utf8").replace(/\r\n/g, "\n");
+      const code = source
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .split("\n")
+        .filter((line) => !line.trim().startsWith("//"))
+        .join("\n");
+      expect(code.split("districtEventCategoryFinality(").length - 1).toBe(1);
+      const helper = /export function publishedCategoryFinality\([^)]*\)[^{]*\{([\s\S]*?)\n\}/.exec(code);
+      expect(helper).not.toBeNull();
+      expect(helper![1]).toContain("districtEventCategoryFinality(");
     });
   });
 });
