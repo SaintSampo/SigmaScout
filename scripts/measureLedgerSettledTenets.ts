@@ -74,6 +74,11 @@
  * 261009-uhb fixes that; nothing here does. Every other total lives in this
  * task's SUMMARY.
  *
+ * ACCEPTANCE RUN, 2026-10-09 at 27344328, after quick task 261009-uhb: 418
+ * events, 2,926 stops, Locked on points 36,982 blunt and 37,484 settled (502
+ * gained, none lost), and zero violations of tenets A, B, C and D, with no
+ * take back under the blunt rule: `VIOLATIONS: none`, exit 0.
+ *
  * SOURCES: `data/local-publish/districts` for the district artifacts, and
  * `data/corpus.sqlite`, opened READ ONLY, for each event's alliances
  * (`event_alliances.picks`) and played playoff rows (`matches`, sf and f). No

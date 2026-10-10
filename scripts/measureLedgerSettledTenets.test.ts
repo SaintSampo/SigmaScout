@@ -20,20 +20,23 @@
  * every round stop, played keys by round, the one event distributions map)
  * and never change a rule to meet a pin.
  *
- * NOT HERE YET: a test that calls `main` on the real data. The four season run
- * exits 1 until quick task 261009-uhb lands; this plan's Task 2 adds that test.
+ * The last group calls `main` on the real data (the four season run) and
+ * expects exit code 0: zero tenet A, B, C and D violations. It was added by
+ * this plan's Task 2 once quick task 261009-uhb had landed, and is gated on the
+ * corpus and the local district directory.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DistrictArtifactSchema, type DistrictArtifact } from "../packages/harness/pageArtifacts.js";
 import type { LockStatus } from "../packages/core/districts/locks.js";
 import { openCorpusReadOnly } from "../packages/corpus/db.js";
 import type { BracketSourceEvent } from "../apps/web/src/components/districts/districtLedgerRows.js";
 import { buildDistrictTimeline } from "../apps/web/src/components/districts/districtTimeline.js";
 import { bracketFromCorpus, CORPUS_PATH } from "./measureChampJointLocks.js";
-import { districtTierFinalVerdicts } from "./measureLedgerTenets.js";
+import { districtTierFinalVerdicts, LOCAL_DISTRICT_DIR } from "./measureLedgerTenets.js";
 import {
   bracketSkipReason,
+  main,
   settledDistrictContext,
   settledStops,
   statusesAtSettledStop,
@@ -342,4 +345,32 @@ describe("measureLedgerSettledTenets: the checker can fail (D2)", () => {
     expect(atRoundThree.filter((violation) => violation.run === "settled")).toHaveLength(1);
     expect(atRoundThree.filter((violation) => violation.run === "blunt")).toHaveLength(0);
   });
+});
+
+describe("measureLedgerSettledTenets: the four season acceptance (D2, D3)", () => {
+  const DISTRICTS_AVAILABLE = existsSync(LOCAL_DISTRICT_DIR);
+  if (!CORPUS_AVAILABLE || !DISTRICTS_AVAILABLE) {
+    it.skip(
+      `skipped: ${[CORPUS_AVAILABLE ? undefined : CORPUS_PATH, DISTRICTS_AVAILABLE ? undefined : LOCAL_DISTRICT_DIR].filter((path) => path !== undefined).join(" and ")} absent (gitignored local data)`,
+      () => {},
+    );
+    return;
+  }
+  const originalExitCode = process.exitCode;
+
+  beforeEach(() => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    process.exitCode = undefined;
+  });
+
+  afterEach(() => {
+    process.exitCode = originalExitCode;
+    vi.restoreAllMocks();
+  });
+
+  it("main on 2023 to 2026 finds no tenet A, B, C or D violation and leaves the exit code unset", async () => {
+    await main([]);
+    expect(process.exitCode).toBeUndefined();
+  }, 60_000);
 });
