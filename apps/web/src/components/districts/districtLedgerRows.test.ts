@@ -29,6 +29,7 @@ import {
   buildDistrictLedgerRows,
   dcmpBracketFactsAtPosition,
   dcmpBracketFactsFor,
+  dcmpBracketMilestonesByTeam,
   decodeDistrictPointPmf,
   deriveStageFromState,
   districtCellId,
@@ -1344,6 +1345,31 @@ describe("playedBracketMatchesFor — colour onto alliance number", () => {
     const result = playedBracketMatchesFor(artifact);
     expect(result.matches).toEqual([]);
     expect(result.unresolvedMatchKeys).toEqual([]);
+  });
+
+  it("hands over a tied set's REPLAY row, and that row decides the set (quick task 261009-tx8, B4)", () => {
+    // sf5 is the loser of sf1 (alliance 8) against the loser of sf2 (alliance
+    // 4), and its loser is placed SEVENTH. Match 1 of it was a tie; the replay,
+    // match 2, went to alliance 8.
+    const artifact = playoffArtifact([
+      elimRow({ compLevel: "sf", setNumber: 1, matchNumber: 1, red: rosterOf(1), blue: rosterOf(8), actualWinner: "red" }),
+      elimRow({ compLevel: "sf", setNumber: 2, matchNumber: 1, red: rosterOf(4), blue: rosterOf(5), actualWinner: "blue" }),
+      elimRow({ compLevel: "sf", setNumber: 5, matchNumber: 1, red: rosterOf(8), blue: rosterOf(4), actualWinner: "tie" }),
+      elimRow({ compLevel: "sf", setNumber: 5, matchNumber: 2, red: rosterOf(8), blue: rosterOf(4), actualWinner: "red" }),
+    ]);
+    const result = playedBracketMatchesFor(artifact);
+    expect(result.unresolvedMatchKeys).toEqual([]);
+    expect(result.matches).toEqual([
+      { compLevel: "sf", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 },
+      { compLevel: "sf", setNumber: 2, matchNumber: 1, winningAllianceNumber: 5 },
+      { compLevel: "sf", setNumber: 5, matchNumber: 2, winningAllianceNumber: 8 },
+    ]);
+    const milestones = dcmpBracketMilestonesByTeam(eightAlliances, result.matches);
+    for (const pick of rosterOf(4)) expect(milestones.get(pick), pick).toEqual({ kind: "decided", placement: 7 });
+    // The set's winner plays on, and the tie alone decided nothing.
+    for (const pick of rosterOf(8)) expect(milestones.get(pick), pick).toEqual({ kind: "alive" });
+    const tieOnly = dcmpBracketMilestonesByTeam(eightAlliances, result.matches.slice(0, 2));
+    for (const pick of rosterOf(4)) expect(tieOnly.get(pick), pick).toEqual({ kind: "alive" });
   });
 
   it("never reads a SCHEDULED elimination row, which lives in upcoming rather than matches", () => {

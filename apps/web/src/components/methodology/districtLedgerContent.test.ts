@@ -64,9 +64,10 @@ const REQUIRED_FIGURES = [
   "29,796",
   // Alliance selection block: 20,209 checked, 0 mismatches.
   "20,209",
-  // Playoff block: 478 brackets routed, 10,278 values checked, 0 mismatches.
-  "478",
-  "10,278",
+  // Playoff block: 491 brackets routed, 10,547 values checked, 0 mismatches
+  // (re-measured 2026-10-09, quick task 261009-tx8: no bracket left unresolved).
+  "491",
+  "10,547",
   "0 mismatches",
   // selectionPoints.ts, exhaustive over all 32 slot by alliance combinations.
   "17 minus the alliance number",

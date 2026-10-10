@@ -698,7 +698,11 @@ export interface PlayedBracketMatchesResult {
  * `routePlayedBracket` refuses one outright.
  *
  * A row with no `actualWinner` is not played and is skipped without comment; a
- * tie has no winner in an elimination bracket and TBA publishes none.
+ * tie has no winner in an elimination bracket and TBA publishes none. A tie is
+ * replayed under the next match number, and that replay's row decides the set
+ * once it is played: `bracketDecisionsFromPlayedMatches` numbers a set's
+ * decided rows in match number order, so the missing tie leaves no gap (quick
+ * task 261009-tx8, B4).
  *
  * `onlyMatchKeys`, when given, is a rewound stop's played playoff rows at or
  * before its cut (quick task 261007-3g2): a row whose key is not in it is

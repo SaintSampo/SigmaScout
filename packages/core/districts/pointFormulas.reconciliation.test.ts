@@ -32,11 +32,14 @@ import { existsSync } from "node:fs";
 import { afterAll, describe, expect, it } from "vitest";
 import { openCorpusReadOnly } from "../../corpus/db.js";
 import {
+  bracketDecisionKey,
+  bracketDecisionsFromPlayedMatches,
   BRACKET_REGISTERED_SEASONS,
   DIVISIONED_DCMP_PLAYOFF_OBSERVATIONS,
   playoffPoints,
   routeBracket,
   type DivisionedDcmpObservation,
+  type PlayedBracketMatch,
 } from "./bracket.js";
 import { DISTRICT_REGISTERED_SEASONS } from "./pointModel.js";
 import { districtTierWeight, qualPoints } from "./qualPoints.js";
@@ -192,21 +195,30 @@ const MAX_SELECTION_ABSENT_TEAM_TOTAL = 4014;
 const MAX_SELECTION_EXCLUDED_NON_EIGHT_TOTAL = 174;
 
 /**
- * The playoff block's populations, measured during execution of 10-01
- * (2026-09-25) over 2023 through 2026. Fact 1 gave the event-level shape
+ * The playoff block's populations over 2023 through 2026, re-measured on
+ * 2026-10-09 (quick task 261009-tx8, B4). Fact 1 gave the event-level shape
  * (418 district-tier eight-alliance events, 408 showing the exact
  * {30, 20, 13, 7, 0, 0, 0, 0} multiset); these are the row-level figures
- * that go with it: 478 complete brackets routed from real match rows
- * (105 / 112 / 118 / 143 by season) against 13 whose real matches could not
- * resolve a routing, 10,278 team-level `elim_points` values checked, zero
- * mismatches.
+ * that go with it: 491 complete brackets routed from real match rows
+ * (111 / 115 / 121 / 144 by season), NONE left unresolved, 10,547 team-level
+ * `elim_points` values checked, zero mismatches, 343 four robot alliances
+ * and 1 prorated three pick alliance set aside, 205 absent pick slots.
  *
- * Checked is a floor; every exclusion is a ceiling.
+ * The 10-01 measurement (2026-09-25) read 478 brackets (105 / 112 / 118 / 143),
+ * 13 unresolved, 10,278 values, 330, 1 and 201. All 13 unresolved brackets
+ * held a tied match (12 finals and the `2023ncash` semifinal sf12). They route
+ * now because the decider reads its results through
+ * `bracketDecisionsFromPlayedMatches`, the map the browser reads, which
+ * numbers a set's decided rows in order so a tie's replay decides the set.
+ *
+ * Checked is a floor; every exclusion is a ceiling, and the unresolved count's
+ * ceiling is zero.
  */
-const EXPECTED_PLAYOFF_CHECKED = 10_278;
-const MAX_PLAYOFF_EXCLUDED_FOUR_ROBOT = 330;
+const EXPECTED_PLAYOFF_CHECKED = 10_547;
+const MAX_PLAYOFF_UNRECONCILABLE_EVENTS = 0;
+const MAX_PLAYOFF_EXCLUDED_FOUR_ROBOT = 343;
 const MAX_PLAYOFF_PRORATED_THREE_PICK = 1;
-const MAX_PLAYOFF_ABSENT_TEAM = 201;
+const MAX_PLAYOFF_ABSENT_TEAM = 205;
 
 function loadDistrictRankings(db: ReturnType<typeof openCorpusReadOnly>, year: number): DistrictRankingRow[] {
   return db
@@ -441,8 +453,10 @@ interface PlayoffBlockResult {
   mismatches: string[];
   /** Events with a complete eight-alliance bracket that reconciled end to end. */
   reconciledEvents: number;
-  /** Events with a complete bracket whose real matches could not resolve a routing (a tie, an unplayed set, an unmappable alliance). */
+  /** Events with a complete bracket whose real matches could not resolve a routing (an unplayed set, an unmappable alliance). A tie alone no longer strands one: its replay row decides the set. */
   unreconcilableEvents: number;
+  /** The event keys behind `unreconcilableEvents`, so a failure can name them. */
+  unreconcilableEventKeys: string[];
   /** Alliances excluded because their `picks` array is not exactly three teams — Fact 3's backup-robot proration. */
   excludedFourRobot: number;
   /**
@@ -466,6 +480,20 @@ interface PlayoffBlockResult {
  * 10-04 the decider will draw from a win-probability function. Same
  * `BRACKET_SETS`, same `routeBracket` — which is the point: this block
  * proves the exact routing code the browser will run.
+ *
+ * WHERE THE DECIDER READS A RESULT (quick task 261009-tx8, B4). Every sf and
+ * f row with a decisive winner becomes a `PlayedBracketMatch` and the rows go
+ * through `bracketDecisionsFromPlayedMatches`, the same decision map the
+ * browser's `routePlayedBracket` and the simulation's draw loop read. So this
+ * block also proves the map's row numbering, and a tied match, which is
+ * replayed under the next match number, no longer strands a bracket.
+ *
+ * TWO THINGS STAY THIS FILE'S OWN, on purpose. The colour to alliance mapping
+ * is the majority vote of `allianceOfColour`, because it tolerates a backup
+ * robot TBA never listed in `picks` (`2024onwat`); the browser's stricter
+ * mapping in `playedBracketMatchesFor` refuses that row and has its own
+ * tests. And the routing is `routeBracket`, because proving that routing
+ * against TBA's points is what this file is for.
  *
  * Two exclusions are counted rather than silently dropped. Fact 3: an
  * alliance that used a backup robot splits one slot's points across two
@@ -521,6 +549,7 @@ function reconcilePlayoffPoints(year: number): PlayoffBlockResult {
     mismatches: [],
     reconciledEvents: 0,
     unreconcilableEvents: 0,
+    unreconcilableEventKeys: [],
     excludedFourRobot: 0,
     proratedThreePick: 0,
     absentTeam: 0,
@@ -540,9 +569,6 @@ function reconcilePlayoffPoints(year: number): PlayoffBlockResult {
     for (const row of eventAlliances) {
       for (const teamKey of JSON.parse(row.picks) as string[]) allianceByTeam.set(teamKey, row.alliance_number);
     }
-
-    const matchIndex = new Map<string, PlayoffMatchRow>();
-    for (const m of eventMatches) matchIndex.set(`${m.comp_level}|${m.set_number}|${m.match_number}`, m);
 
     /** The alliance number the majority of a colour's teams belong to, or null when none of them do. */
     function allianceOfColour(teamsJson: string): number | null {
@@ -565,15 +591,31 @@ function reconcilePlayoffPoints(year: number): PlayoffBlockResult {
 
     let routed;
     try {
-      routed = routeBracket((allianceA, allianceB, setId, matchNumber) => {
-        const compLevel = setId === "f" ? "f" : "sf";
-        const setNumber = setId === "f" ? 1 : Number(setId.slice(2));
-        const rowMatchNumber = setId === "f" ? matchNumber : 1;
-        const row = matchIndex.get(`${compLevel}|${setNumber}|${rowMatchNumber}`);
-        if (row === undefined || (row.winner !== "red" && row.winner !== "blue")) {
-          throw new UnreconcilableEventError(`${eventKey} ${setId} match ${rowMatchNumber} has no decisive result`);
+      // Every DECISIVE sf and f row as an alliance numbered result. A tie
+      // carries no row, exactly as the browser hands its rows over.
+      const playedRows: PlayedBracketMatch[] = [];
+      for (const row of eventMatches) {
+        if (row.winner !== "red" && row.winner !== "blue") continue;
+        const winningAllianceNumber = allianceOfColour(row.winner === "red" ? row.red_teams : row.blue_teams);
+        if (winningAllianceNumber === null) {
+          throw new UnreconcilableEventError(
+            `${eventKey} ${row.comp_level}${row.set_number} match ${row.match_number}: the winning colour maps to no alliance`
+          );
         }
-        const winningAlliance = allianceOfColour(row.winner === "red" ? row.red_teams : row.blue_teams);
+        playedRows.push({
+          compLevel: row.comp_level,
+          setNumber: row.set_number,
+          matchNumber: row.match_number,
+          winningAllianceNumber,
+        });
+      }
+      const decisions = bracketDecisionsFromPlayedMatches(playedRows);
+
+      routed = routeBracket((allianceA, allianceB, setId, matchNumber) => {
+        const winningAlliance = decisions.get(bracketDecisionKey(setId, matchNumber));
+        if (winningAlliance === undefined) {
+          throw new UnreconcilableEventError(`${eventKey} ${setId} match ${matchNumber} has no decisive result`);
+        }
         if (winningAlliance !== allianceA && winningAlliance !== allianceB) {
           throw new UnreconcilableEventError(
             `${eventKey} ${setId}: winning colour maps to alliance ${winningAlliance}, not ${allianceA} or ${allianceB}`
@@ -584,6 +626,7 @@ function reconcilePlayoffPoints(year: number): PlayoffBlockResult {
     } catch (error) {
       if (error instanceof UnreconcilableEventError) {
         result.unreconcilableEvents++;
+        result.unreconcilableEventKeys.push(eventKey);
         continue;
       }
       throw error;
@@ -833,6 +876,7 @@ describe("playoff bracket populations and the divisioned-dcmp fallback, across 2
     let checked = 0;
     let reconciledEvents = 0;
     let unreconcilableEvents = 0;
+    const unreconcilableEventKeys: string[] = [];
     let excludedFourRobot = 0;
     let proratedThreePick = 0;
     let absentTeam = 0;
@@ -841,6 +885,7 @@ describe("playoff bracket populations and the divisioned-dcmp fallback, across 2
       checked += result.checked;
       reconciledEvents += result.reconciledEvents;
       unreconcilableEvents += result.unreconcilableEvents;
+      unreconcilableEventKeys.push(...result.unreconcilableEventKeys);
       excludedFourRobot += result.excludedFourRobot;
       proratedThreePick += result.proratedThreePick;
       absentTeam += result.absentTeam;
@@ -853,6 +898,10 @@ describe("playoff bracket populations and the divisioned-dcmp fallback, across 2
       reconciledEvents,
       `only ${reconciledEvents} complete eight-alliance district brackets reconciled across 2023 through 2026, below the 400 floor`
     ).toBeGreaterThanOrEqual(400);
+    expect(
+      unreconcilableEvents,
+      `${unreconcilableEvents} complete bracket(s) could not be routed from their real matches, above the ceiling of ${MAX_PLAYOFF_UNRECONCILABLE_EVENTS}: ${unreconcilableEventKeys.join(", ")}`
+    ).toBeLessThanOrEqual(MAX_PLAYOFF_UNRECONCILABLE_EVENTS);
     expect(
       excludedFourRobot,
       `${excludedFourRobot} alliances were excluded for carrying a backup robot, above the ${MAX_PLAYOFF_EXCLUDED_FOUR_ROBOT} measured during execution`

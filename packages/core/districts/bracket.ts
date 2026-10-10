@@ -41,10 +41,11 @@
  * PROVEN, not asserted: routing every complete 2023-plus eight-alliance
  * district bracket in the corpus from its REAL match results and mapping
  * placement to points reproduces TBA's own reported `elim_points` exactly —
- * 478 events (105 / 112 / 118 / 143 by season), 10,278 team-level values,
- * zero mismatches, measured 2026-09-25. Thirteen further events carry a
- * complete bracket whose real matches cannot resolve a routing (a tie or an
- * unplayed set) and are counted rather than silently dropped.
+ * 491 events (111 / 115 / 121 / 144 by season), 10,547 team-level values,
+ * zero mismatches, measured 2026-10-09 (quick task 261009-tx8). No complete
+ * bracket is left unresolved: the thirteen that a tied match used to strand
+ * route through `bracketDecisionsFromPlayedMatches`, which numbers a set's
+ * decided rows in order so a tie's replay decides the set.
  *
  * ONE TOPOLOGY, TWO CALLERS. `routeBracket` takes a decider callback, so
  * `pointFormulas.reconciliation.test.ts` can route real `matches` rows
@@ -597,17 +598,55 @@ export function bracketDecisionKey(setId: string, matchNumber: number): string {
 }
 
 /**
- * The played rows as the decision map `routePlayedBracket` and the draw-loop
- * decider both read. A row this topology does not carry is DROPPED rather than
- * guessed at; a later row for the same key wins, because TBA republishes a
- * corrected match under its own key.
+ * The played rows as the decision map `routePlayedBracket`, the draw-loop
+ * decider and the corpus reconciliation all read.
+ *
+ * THREE STEPS, in this order:
+ *
+ * 1. A row this topology does not carry is DROPPED rather than guessed at.
+ * 2. A later row for the same ORIGINAL pair of set id and match number wins,
+ *    because TBA republishes a corrected match under its own key.
+ * 3. PER SET, the surviving rows are ordered by their original match number
+ *    and stored under `bracketDecisionKey(setId, n)` with n running 1 upward
+ *    (quick task 261009-tx8, B4). So the map's match number is the ORDINAL
+ *    AMONG THE SET'S DECIDED ROWS, which is exactly what `routeBracket` passes
+ *    its decider and what `routePlayedBracket` asks for, and the map never has
+ *    a gap inside a set.
+ *
+ * WHY STEP 3. A tied playoff match is replayed under the NEXT match number, and
+ * the caller hands over no row for a tie (a tie has no winning alliance). Keyed
+ * by the original number, the tie left a gap and the set was never decided.
+ * Measured over `data/corpus.sqlite`, eight alliance district points events of
+ * 2023 to 2026: 12 finals and one semifinal (`2023ncash` sf12, tie then
+ * alliance 2) carry a tie, and a final runs to as many as four matches
+ * (`2023mabri`: tie, then 3, 2, 3).
+ *
+ * WHY IT IS SOUND. A row is a real result. In a best of three a side with two
+ * real wins has won the set whatever was tied in between, and in a single match
+ * set the first real result is the result. A set with too few decided rows
+ * stays open exactly as before: one decided row and a later tie is one
+ * decision, not two.
  */
 export function bracketDecisionsFromPlayedMatches(matches: readonly PlayedBracketMatch[]): ReadonlyMap<string, number> {
-  const decisions = new Map<string, number>();
+  // Set id -> original match number -> winner. The inner `set` is the "later
+  // row wins" rule, applied BEFORE any numbering.
+  const decidedBySet = new Map<string, Map<number, number>>();
   for (const match of matches) {
     const setId = bracketSetIdFor(match.compLevel, match.setNumber);
     if (setId === undefined) continue;
-    decisions.set(bracketDecisionKey(setId, match.matchNumber), match.winningAllianceNumber);
+    let decided = decidedBySet.get(setId);
+    if (decided === undefined) {
+      decided = new Map<number, number>();
+      decidedBySet.set(setId, decided);
+    }
+    decided.set(match.matchNumber, match.winningAllianceNumber);
+  }
+  const decisions = new Map<string, number>();
+  for (const [setId, decided] of decidedBySet) {
+    const originalNumbers = [...decided.keys()].sort((x, y) => x - y);
+    originalNumbers.forEach((originalNumber, index) => {
+      decisions.set(bracketDecisionKey(setId, index + 1), decided.get(originalNumber)!);
+    });
   }
   return decisions;
 }
@@ -666,7 +705,11 @@ export function routePlayedBracket(decisions: ReadonlyMap<string, number>): Part
       const winner = decisions.get(bracketDecisionKey(set.id, matchNumber));
       // A GAP ENDS THE SET rather than being skipped past: match 3 of a final
       // cannot be read while match 2 is missing, because whether match 3 was
-      // played at all depends on match 2's result.
+      // played at all depends on match 2's result. A map built from played
+      // rows by `bracketDecisionsFromPlayedMatches` carries no gap (it numbers
+      // a set's decided rows 1 to n), so this rule now guards a hand built map
+      // only; in a built map the first missing number is simply the end of
+      // what was played.
       if (winner === undefined) break;
       if (winner !== allianceA && winner !== allianceB) {
         throw new InvalidBracketDecisionError(

@@ -523,15 +523,17 @@ describe("routePlayedBracket — a real event's real matches", () => {
     expect([...routing.participantsBySet.keys()].sort()).toEqual(["sf1", "sf2", "sf3", "sf4"]);
   });
 
-  it("ends a set at a gap rather than reading past it — match 3 of a final is unreadable while match 2 is missing", () => {
-    const decisions = bracketDecisionsFromPlayedMatches([
-      ...ORWIL_PLAYED_ELIMS.slice(0, 13),
-      { compLevel: "f", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 },
-      { compLevel: "f", setNumber: 1, matchNumber: 3, winningAllianceNumber: 2 },
-    ]);
+  it("ends a set at a gap in a HAND BUILT map rather than reading past it — match 3 of a final is unreadable while match 2 is missing", () => {
+    // Played rows can no longer produce a gap (quick task 261009-tx8, B4:
+    // `bracketDecisionsFromPlayedMatches` numbers a set's decided rows 1 to n),
+    // so the routing's own gap rule is pinned over a map built by hand.
+    const decisions = new Map(bracketDecisionsFromPlayedMatches(ORWIL_PLAYED_ELIMS.slice(0, 13)));
+    decisions.set(bracketDecisionKey("f", 1), 1);
+    decisions.set(bracketDecisionKey("f", 3), 1);
     const routing = routePlayedBracket(decisions);
     expect(routing.winnerBySet.get("f")).toBeUndefined();
     expect(routing.placementByAlliance.get(1)).toBeUndefined();
+    expect(routing.placementByAlliance.get(2)).toBeUndefined();
   });
 
   it("refuses a mis-mapped match rather than routing it", () => {
@@ -539,6 +541,176 @@ describe("routePlayedBracket — a real event's real matches", () => {
     expect(() =>
       routePlayedBracket(bracketDecisionsFromPlayedMatches([{ compLevel: "sf", setNumber: 1, matchNumber: 1, winningAllianceNumber: 4 }]))
     ).toThrow(InvalidBracketDecisionError);
+  });
+});
+
+/**
+ * `2023ncash` (FNC District Asheville Event), the one eight alliance district
+ * points event of 2023 to 2026 whose SEMIFINAL was tied: sf12 match 1 was a
+ * tie and its replay, match 2, went to alliance 2. Read from
+ * `data/corpus.sqlite` on 2026-10-09 (quick task 261009-tx8, B4) and committed
+ * as a literal, as `ORWIL_PLAYED_ELIMS` is. A tie carries no row here, exactly
+ * as the browser's `playedBracketMatchesFor` hands the rows over.
+ */
+const NCASH_PLAYED_ELIMS: readonly PlayedBracketMatch[] = [
+  { compLevel: "sf", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 },
+  { compLevel: "sf", setNumber: 2, matchNumber: 1, winningAllianceNumber: 4 },
+  { compLevel: "sf", setNumber: 3, matchNumber: 1, winningAllianceNumber: 2 },
+  { compLevel: "sf", setNumber: 4, matchNumber: 1, winningAllianceNumber: 6 },
+  { compLevel: "sf", setNumber: 5, matchNumber: 1, winningAllianceNumber: 8 },
+  { compLevel: "sf", setNumber: 6, matchNumber: 1, winningAllianceNumber: 3 },
+  { compLevel: "sf", setNumber: 7, matchNumber: 1, winningAllianceNumber: 1 },
+  { compLevel: "sf", setNumber: 8, matchNumber: 1, winningAllianceNumber: 6 },
+  { compLevel: "sf", setNumber: 9, matchNumber: 1, winningAllianceNumber: 3 },
+  { compLevel: "sf", setNumber: 10, matchNumber: 1, winningAllianceNumber: 2 },
+  { compLevel: "sf", setNumber: 11, matchNumber: 1, winningAllianceNumber: 1 },
+  // Match 1 of sf12 was the tie; the replay is the row.
+  { compLevel: "sf", setNumber: 12, matchNumber: 2, winningAllianceNumber: 2 },
+  { compLevel: "sf", setNumber: 13, matchNumber: 1, winningAllianceNumber: 6 },
+  { compLevel: "f", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 },
+  { compLevel: "f", setNumber: 1, matchNumber: 2, winningAllianceNumber: 1 },
+];
+
+/** `2026orwil`'s thirteen sf rows followed by the given final rows: the final there is alliance 1 against alliance 2. */
+function orwilWithFinal(finalRows: readonly (readonly [matchNumber: number, winner: number])[]): PlayedBracketMatch[] {
+  return [
+    ...ORWIL_PLAYED_ELIMS.slice(0, 13),
+    ...finalRows.map(([matchNumber, winningAllianceNumber]) => ({ compLevel: "f", setNumber: 1, matchNumber, winningAllianceNumber })),
+  ];
+}
+
+/** The final's entries of a decision map, as `[within set number, winner]` pairs in number order. */
+function finalDecisions(decisions: ReadonlyMap<string, number>): [number, number][] {
+  const out: [number, number][] = [];
+  for (let matchNumber = 1; matchNumber <= 6; matchNumber++) {
+    const winner = decisions.get(bracketDecisionKey("f", matchNumber));
+    if (winner !== undefined) out.push([matchNumber, winner]);
+  }
+  return out;
+}
+
+describe("a tied playoff match is replayed under the next match number (quick task 261009-tx8, B4)", () => {
+  it("routes 2023ncash, whose sf12 was tied and replayed, to the placements TBA paid", () => {
+    const routing = routePlayedBracket(bracketDecisionsFromPlayedMatches(NCASH_PLAYED_ELIMS));
+    expect(routing.winnerBySet.get("sf12")).toBe(2);
+    expectPlacementPermutation(routing.placementByAlliance, "2023ncash");
+    expect(routing.placementByAlliance.get(1)).toBe(1);
+    expect(routing.placementByAlliance.get(6)).toBe(2);
+    expect(routing.placementByAlliance.get(2)).toBe(3);
+    expect(routing.placementByAlliance.get(3)).toBe(4);
+    // TBA's own `elim_points` for the four paying alliances at 2023ncash.
+    const paid: Readonly<Record<number, number>> = { 1: 30, 2: 13, 3: 7, 6: 20 };
+    for (const [allianceNumber, points] of Object.entries(paid)) {
+      const placement = routing.placementByAlliance.get(Number(allianceNumber))!;
+      expect(playoffPoints(2023, "district", placement), `alliance ${allianceNumber}`).toBe(points);
+    }
+  });
+
+  it("routes a four match final whose first match was tied (the 2023mabri shape: tie, A, B, A) to the side with two real wins", () => {
+    const decisions = bracketDecisionsFromPlayedMatches(
+      orwilWithFinal([
+        [2, 2],
+        [3, 1],
+        [4, 2],
+      ])
+    );
+    // The final is held under the within set numbers 1, 2 and 3 only.
+    expect(finalDecisions(decisions)).toEqual([
+      [1, 2],
+      [2, 1],
+      [3, 2],
+    ]);
+    const routing = routePlayedBracket(decisions);
+    expect(routing.winnerBySet.get("f")).toBe(2);
+    expect(routing.loserBySet.get("f")).toBe(1);
+    expect(routing.placementByAlliance.get(2)).toBe(1);
+    expect(routing.placementByAlliance.get(1)).toBe(2);
+    expectPlacementPermutation(routing.placementByAlliance, "four match final");
+  });
+
+  it("routes a final with a tie in the middle (the 2023mibel shape: A, tie, A)", () => {
+    const routing = routePlayedBracket(
+      bracketDecisionsFromPlayedMatches(
+        orwilWithFinal([
+          [1, 1],
+          [3, 1],
+        ])
+      )
+    );
+    expect(routing.winnerBySet.get("f")).toBe(1);
+    expect(routing.placementByAlliance.get(2)).toBe(2);
+  });
+
+  it("leaves a set with one decided row and a later tied one open, and both finalists in the finals", () => {
+    const routing = routePlayedBracket(bracketDecisionsFromPlayedMatches(orwilWithFinal([[1, 1]])));
+    expect(routing.winnerBySet.get("f")).toBeUndefined();
+    expect(routing.placementByAlliance.get(1)).toBeUndefined();
+    expect(routing.placementByAlliance.get(2)).toBeUndefined();
+    const milestones = allianceBracketMilestones(routing);
+    expect(milestones.get(1)).toEqual({ kind: "finals" });
+    expect(milestones.get(2)).toEqual({ kind: "finals" });
+  });
+
+  it("leaves a split final open while the decider is still to come (A, B, tie)", () => {
+    const routing = routePlayedBracket(
+      bracketDecisionsFromPlayedMatches(
+        orwilWithFinal([
+          [1, 1],
+          [2, 2],
+        ])
+      )
+    );
+    expect(routing.winnerBySet.get("f")).toBeUndefined();
+    expect(routing.placementByAlliance.get(1)).toBeUndefined();
+    expect(routing.placementByAlliance.get(2)).toBeUndefined();
+  });
+
+  it("lets a later row for the same original key replace the earlier one BEFORE numbering", () => {
+    const decisions = bracketDecisionsFromPlayedMatches([
+      { compLevel: "f", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 },
+      { compLevel: "f", setNumber: 1, matchNumber: 1, winningAllianceNumber: 2 },
+    ]);
+    expect(finalDecisions(decisions)).toEqual([[1, 2]]);
+    expect(decisions.size).toBe(1);
+  });
+
+  it("numbers rows by match number, not by the order they were handed over in", () => {
+    const decisions = bracketDecisionsFromPlayedMatches([
+      { compLevel: "f", setNumber: 1, matchNumber: 4, winningAllianceNumber: 2 },
+      { compLevel: "sf", setNumber: 12, matchNumber: 2, winningAllianceNumber: 5 },
+      { compLevel: "f", setNumber: 1, matchNumber: 2, winningAllianceNumber: 2 },
+      { compLevel: "f", setNumber: 1, matchNumber: 3, winningAllianceNumber: 1 },
+    ]);
+    expect(finalDecisions(decisions)).toEqual([
+      [1, 2],
+      [2, 1],
+      [3, 2],
+    ]);
+    // The numbering is per set: sf12's replay is that set's first decided row.
+    expect(decisions.get(bracketDecisionKey("sf12", 1))).toBe(5);
+    expect(decisions.get(bracketDecisionKey("sf12", 2))).toBeUndefined();
+  });
+
+  it("agrees with routeBracket reading the same renumbered map, so the four match final has one routing and not two", () => {
+    const decisions = bracketDecisionsFromPlayedMatches(
+      orwilWithFinal([
+        [2, 2],
+        [3, 1],
+        [4, 2],
+      ])
+    );
+    const partial = routePlayedBracket(decisions);
+    const full = routeBracket((a, _b, setId, matchNumber) => {
+      const winner = decisions.get(bracketDecisionKey(setId, matchNumber));
+      // Every match this complete bracket needs is in the map, so the fallback
+      // is never taken; it exists only to satisfy the decider's contract.
+      return winner ?? a;
+    });
+    expect([...partial.placementByAlliance.entries()].sort()).toEqual([...full.placementByAlliance.entries()].sort());
+    expect(full.winnerBySet.get("f")).toBe(2);
+    for (const set of BRACKET_SETS) {
+      expect(partial.winnerBySet.get(set.id), set.id).toBe(full.winnerBySet.get(set.id));
+    }
   });
 });
 

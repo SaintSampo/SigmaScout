@@ -183,7 +183,7 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
         [
           "Playoffs",
           "Final placement only: 30 for first, 20 for second, 13 for third, 7 for fourth, and nothing for fifth through eighth.",
-          "478 brackets and 10,278 rows, 0 mismatches",
+          "491 brackets and 10,547 rows, 0 mismatches",
         ],
         [
           "Awards",

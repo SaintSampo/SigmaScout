@@ -35,6 +35,7 @@ import {
   divisionedDcmpPlayoffPmf,
   InvalidBracketDecisionError,
   PLAYOFF_PLACEMENT_POINTS,
+  playoffPoints,
   UnsupportedAllianceCountError,
   UnsupportedBracketSeasonError,
   type PlayedBracketMatch,
@@ -1729,6 +1730,33 @@ describe("simulateDistrictEvent — the playoffs already under way", () => {
       expect([...withEmpty.elimPoints.get(baseline.teamKey)!]).toEqual([...without.elimPoints.get(baseline.teamKey)!]);
     }
     for (const key of rosterOf(1)) expect(withEmpty.playoffMilestones.get(key)).toEqual({ kind: "alive" });
+  });
+
+  it("reads a final whose first match was tied through the replay rows, so both finalists are a point mass (quick task 261009-tx8, B4)", () => {
+    // The whole bracket by the higher seed, so the final is alliance 1 against
+    // alliance 2: sf11 to alliance 1, and alliance 2 back through sf13.
+    const sfWinners: readonly number[] = [1, 4, 2, 3, 5, 6, 1, 2, 4, 3, 1, 3, 2];
+    const playedElimMatches: PlayedBracketMatch[] = sfWinners.map((winningAllianceNumber, i) => ({
+      compLevel: "sf",
+      setNumber: i + 1,
+      matchNumber: 1,
+      winningAllianceNumber,
+    }));
+    // Final match 1 was a tie and carries no row; the two replays went to
+    // alliance 2. Keyed by the original numbers these rows left a gap at 1.
+    playedElimMatches.push({ compLevel: "f", setNumber: 1, matchNumber: 2, winningAllianceNumber: 2 });
+    playedElimMatches.push({ compLevel: "f", setNumber: 1, matchNumber: 3, winningAllianceNumber: 2 });
+    const input = inputFor(30, { knownAlliances: suppliedAlliances(), remainingMatches: [], playedElimMatches });
+    const draws = 200;
+    const result = simulateDistrictEvent(input, draws, 4242);
+    for (const key of rosterOf(2)) {
+      expect(result.elimPoints.get(key)![playoffPoints(SEASON, TIER, 1)], `${key} wins in every draw`).toBe(draws);
+      expect(result.playoffMilestones.get(key)).toEqual({ kind: "decided", placement: 1 });
+    }
+    for (const key of rosterOf(1)) {
+      expect(result.elimPoints.get(key)![playoffPoints(SEASON, TIER, 2)], `${key} is second in every draw`).toBe(draws);
+      expect(result.playoffMilestones.get(key)).toEqual({ kind: "decided", placement: 2 });
+    }
   });
 
   it("ignores a played set for a divisioned parent, which draws from the measured fallback and has no bracket", () => {
