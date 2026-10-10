@@ -2276,9 +2276,10 @@ describe("the live walks with the field's bracket facts: 2026 FIM, NE, ONT and T
         expect({ districtKey, inProgress: ofTheChampionship(walk.steps[windowAt]!) }).toEqual({ districtKey, inProgress: [] });
         // THE FINALS ROWS POST WITH NO STATE: the finals key is on a row now and has not started, and still nothing
         // of the championship is in progress. The fetch set of before this task held none of its keys here, so the
-        // tab had no bracket to hand the proof. `champLiveFetchKeys` now keeps every started key until the finals
-        // event has finished; that rule is pinned on exactly this state in `useDistrictLedgerData.test.ts` (the
-        // hook module cannot be imported outside the web project). With the brackets in hand the proof runs:
+        // tab had no bracket to hand the proof. `champLiveFetchKeys` now keeps every started key until every event
+        // of the championship has finished (quick task 261010-d7r; until the finals event had, before it); that
+        // rule is pinned on exactly this state in `useDistrictLedgerData.test.ts` (the hook module cannot be
+        // imported outside the web project). With the brackets in hand the proof runs:
         const finalsRows = walk.steps[finalsRowsAt]!;
         expect({ districtKey, inProgress: ofTheChampionship(finalsRows) }).toEqual({ districtKey, inProgress: [] });
         expect(finalsRows.dcmpKeys).toBe(walk.fieldFixingKeys.length + 1);

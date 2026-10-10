@@ -24,6 +24,7 @@ import {
   jointLockBoundMultiple,
   jointLockedTeams,
   jointLockedTeamsMultiple,
+  jointProofStillRuns,
   MAX_POINT_PAYING_AWARDS_PER_TEAM,
   singleChampionshipFrames,
   unpickedCover,
@@ -2831,4 +2832,17 @@ describe("champJointLock: brute force soundness on small instances with awarded 
     // The instances are not vacuous, and the bound is tight on most of them. Pinned as the run shows.
     expect({ withAwarded, onBound }).toEqual({ withAwarded: 14_577, onBound: 19_445 });
   }, 120_000);
+});
+
+describe("champJointLock: when the proof stops (261010-d7r, findings F-B and F-C)", () => {
+  it("jointProofStillRuns: true while the championship's own Awards are open, true while another key's are, false only once every key's Awards are final", () => {
+    // Its own Awards open: it runs whatever the other keys read.
+    expect(jointProofStillRuns(false, false)).toBe(true);
+    expect(jointProofStillRuns(false, true)).toBe(true);
+    // Its own Awards final while another key's are open: it still runs (a division's flag after the finals', or
+    // one championship of two finished before the other).
+    expect(jointProofStillRuns(true, true)).toBe(true);
+    // Every key's Awards final: it stops.
+    expect(jointProofStillRuns(true, false)).toBe(false);
+  });
 });

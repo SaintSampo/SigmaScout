@@ -258,31 +258,40 @@ export function divisionedDcmpBracketFacts(params: {
 
 /**
  * The Champ Locks tab's fetch set at the LIVE position (quick task 261009-kt3,
- * widened by 261010-66y, reading R15): the in progress events, plus every
- * STARTED dcmp tier key of a divisioned championship UNTIL ITS FINALS EVENT
- * HAS FINISHED. Any other shape returns the in progress keys unchanged. An
+ * widened by 261010-66y, reading R15, and again by 261010-d7r): the in
+ * progress events, plus every STARTED dcmp tier key of a divisioned
+ * championship UNTIL EVERY ONE OF ITS EVENTS HAS FINISHED, each division and
+ * the finals. Any other shape returns the in progress keys unchanged. An
  * event with no open category costs no simulation however it got into the
  * fetch set.
  *
- * WHY UNTIL THE FINALS HAVE FINISHED, and not only while one of the
+ * WHY UNTIL EVERY EVENT HAS FINISHED, and not only while one of the
  * championship's events is in progress. The joint proof reads every
  * division's bracket, and it holds locks the ceiling test alone would drop
- * in two places where no event of the championship reads in progress:
+ * in three places where the brackets used to be let go:
  *
  *   - THE WINDOW between the divisions and the finals: every division reads
  *     finished and the finals have not started. The proof alone holds 196
  *     team stops over the 16 divisioned championships of 2023 to 2026 at the
  *     "Divisions final, finals not started" stop (2026 FIM: 36 of 65). With
- *     the old rule the brackets were dropped there and so were those locks,
+ *     the first rule the brackets were dropped there and so were those locks,
  *     to come back once the finals started.
  *   - THE TICK THE FINALS ROWS FIRST POST, before the finals' own state is
  *     written: the finals key is on the rows and has not started.
+ *   - THE FINALS FINISHED WHILE A DIVISION HAS NOT (quick task 261010-d7r,
+ *     finding F-B). An event reads in progress until its awards flag turns
+ *     true, and the flags turn true one event at a time in no fixed order.
+ *     Since that task the proof keeps running past the finals' Awards while
+ *     a division's flag is still to come, and it reads every division's
+ *     bracket there. The rule of quick task 261010-66y let every bracket go
+ *     the moment the finals event finished, which would have refused the
+ *     proof (`noBracketFacts`) exactly where it now has to hold.
  *
- * So, for a divisioned shape: while the finals key has not finished (it is
- * not started, or it is in progress), every started key of the championship
- * is in the fetch set. The finals key HAS FINISHED when it is started and
- * not in progress; then the finals' Awards are final, the proof no longer
- * runs, and only the in progress keys are returned.
+ * So, for a divisioned shape: while any key of the championship has not
+ * finished (it is not started, or it is in progress), every started key of
+ * the championship is in the fetch set. A key HAS FINISHED when it is started
+ * and not in progress. Once every key has, every key's Awards are final, the
+ * proof no longer runs, and only the in progress keys are returned.
  *
  * The shape is read off the keys on the rows. Division keys whose finals key
  * is on no row yet are not a divisioned shape (`championshipShape`), so this
@@ -292,8 +301,9 @@ export function champLiveFetchKeys(inProgressKeys: readonly string[], startedKey
   const keys = new Set(inProgressKeys);
   const shape = championshipShape(dcmpEventKeys);
   if (shape.kind === "divisioned") {
-    const finalsFinished = startedKeys.includes(shape.finalsKey) && !keys.has(shape.finalsKey);
-    if (!finalsFinished) for (const key of [...shape.divisionKeys, shape.finalsKey]) if (startedKeys.includes(key)) keys.add(key);
+    const championshipKeys = [...shape.divisionKeys, shape.finalsKey];
+    const everyKeyFinished = championshipKeys.every((key) => startedKeys.includes(key) && !keys.has(key));
+    if (!everyKeyFinished) for (const key of championshipKeys) if (startedKeys.includes(key)) keys.add(key);
   }
   return [...keys].sort();
 }

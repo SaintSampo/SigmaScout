@@ -172,8 +172,10 @@
  *
  *    THE TWO OTHER SHAPES (quick task 261009-kt3, `championshipShape`). A
  *    DIVISIONED championship (FIM, NE, ON, TX) runs once every division's
- *    Qualification and Alliance selection are final and while the FINALS'
- *    Awards are open, with every division's eight alliance facts; each
+ *    Qualification and Alliance selection are final and while ANY of its
+ *    keys' Awards are open (the finals' alone until quick task 261010-d7r;
+ *    "when each shape's proof stops" below), with every division's eight
+ *    alliance facts; each
  *    division is routed on its own rows, the finals facts are read only once
  *    every division has a decided winner, each finals alliance mapped by roster
  *    to one division winner, and members are the LISTED picks except on a
@@ -229,11 +231,40 @@
  *    back at FIM, 2 at NE and 2 at TX on the tick the divisions' Awards
  *    turned final.
  *
- *    THE BRACKETS STAY IN HAND UNTIL THE FINALS HAVE FINISHED (quick task
- *    261010-66y, reading R15, `champLiveFetchKeys`). The proof holds locks
- *    in the window between the divisions and the finals, where no event of
- *    the championship reads in progress, and the tab used to drop the
- *    brackets there and with them every lock the proof alone held.
+ *    WHEN EACH SHAPE'S PROOF STOPS (quick task 261010-d7r, findings F-B and
+ *    F-C; the one rule is `jointProofStillRuns` in `champJointLock.ts`). A
+ *    SINGLE championship's proof stops when its Awards read final, as it
+ *    always has. A DIVISIONED championship's stops only once EVERY key's
+ *    Awards are final, each division's and the finals'. Until that task it
+ *    stopped at the finals' Awards alone. Awards flags turn true one event
+ *    at a time and in no fixed order, and where the finals' flag turned true
+ *    before a division's the ceiling test could not hold what the proof had
+ *    held (F-B): with the rule switched off the awards order lattice of
+ *    `scripts/champJointMonotone.test.ts` loses 306 Locked over the 16
+ *    divisioned championships of 2023 to 2026, every one at the edge into
+ *    the finals' Awards reading final. Past the finals' Awards the proof is
+ *    handed NO consuming award, since they are given at the finals event.
+ *    That rests on the same awards flag limit as decision 2's reservation,
+ *    which holds nothing once `awardFinal`: a consuming award listed after
+ *    the list has settled (`packages/core/districts/eventAwards.ts`, "the
+ *    rule's limits"). The limit is stated, not closed. TWO CHAMPIONSHIPS:
+ *    the proof stops only once every championship's Awards are final. While
+ *    one is finished and the other is not (F-C: rewound on 2026 California
+ *    the proof refused there at all 14 edges and 91 Locked were lost), the
+ *    finished championship needs no bracket facts and must have its Winner
+ *    counted, and its input holds no alliance, no consuming award, its
+ *    awarded teams and what is left of its judged budget
+ *    (`mixedMultipleJointProof`).
+ *
+ *    THE BRACKETS STAY IN HAND UNTIL EVERY EVENT OF THE CHAMPIONSHIP HAS
+ *    FINISHED (quick task 261010-66y, reading R15, widened by quick task
+ *    261010-d7r; `champLiveFetchKeys`). The proof holds locks in the window
+ *    between the divisions and the finals, where no event of the
+ *    championship reads in progress, and the tab used to drop the brackets
+ *    there and with them every lock the proof alone held. It now also runs
+ *    past the finals' Awards while a division's flag is still to come, and
+ *    reads every division's bracket there, so the brackets are kept until
+ *    the last event of the championship has finished.
  *
  *    A BACKUP ROBOT SEEN ON THE FIELD (quick task 261010-66y, CONTEXT D4).
  *    A team on a side of a played playoff row that no pick list names is, in
@@ -341,6 +372,7 @@ import {
   jointLockBoundMultiple,
   jointLockedTeams,
   jointLockedTeamsMultiple,
+  jointProofStillRuns,
   type DcmpBracketState,
   type DivisionJointState,
   type JointLockAlliance,
@@ -1028,6 +1060,25 @@ function awardedTeamsAt(artifact: DistrictArtifact, eventKey: string): string[] 
   return teamKeys;
 }
 
+/**
+ * How many teams carry EXACTLY one judged award's points on their row at a
+ * dcmp key (15 in 2026): a lower bound on the JUDGED awards that event has
+ * posted. For a WHOLE championship's remaining judged budget (a finished
+ * championship of two, `mixedMultipleJointProof`), where the rows also carry
+ * the consuming awards' points (24 and 30 in 2026) and the judged ceiling
+ * counts judged awards alone. A row at any other value is not counted, which
+ * only keeps the remaining budget larger. A division gives judged awards
+ * only, so its budget reads `awardedTeamsAt` as it always has.
+ */
+function judgedAwardedTeamCountAt(artifact: DistrictArtifact, eventKey: string): number {
+  const oneJudgedAward = dcmpJudgedAwardPoints(artifact.year);
+  let count = 0;
+  for (const team of artifact.teams) {
+    if (team.eventPoints.some((entry) => entry.eventKey === eventKey && entry.award === oneJudgedAward)) count += 1;
+  }
+  return count;
+}
+
 /** One eight alliance championship's routing at the position: its candidates and alive alliances, or the refusal. */
 interface ChampionshipRouting {
   readonly routing: DcmpBracketState | undefined;
@@ -1189,8 +1240,21 @@ function singleJointProof(input: JointProofAtInput, distributions: ReadonlyMap<s
  * championship must be eligible; each gets its own eight alliance input over
  * the pool teams and slot only rivals whose first dcmp source is that key,
  * plus every one with NO dcmp source, which is entered in EVERY input.
+ *
+ * ONE CHAMPIONSHIP FINISHED, THE OTHER NOT (quick task 261010-d7r, finding
+ * F-C) is `mixedMultipleJointProof`. It is taken exactly where the one rule
+ * `jointProofStillRuns` says every championship's proof still runs AND some
+ * championship's Awards are final. With every championship's Awards open, and
+ * with every one's final, the code below runs as it always has.
  */
 function multipleJointProof(input: JointProofAtInput, distributions: ReadonlyMap<string, DistrictEventDistributions>, keys: readonly string[]): ChampJointProof {
+  const awardsFinalAt = (key: string): boolean => input.dcmpStageByEvent.get(key)?.award === true;
+  const stillRuns = (key: string): boolean =>
+    jointProofStillRuns(
+      awardsFinalAt(key),
+      keys.some((other) => other !== key && !awardsFinalAt(other))
+    );
+  if (keys.some(awardsFinalAt) && keys.every(stillRuns)) return mixedMultipleJointProof(input, distributions, keys);
   const factsByKey = new Map<string, DcmpBracketFacts>();
   for (const key of keys) {
     const facts = distributions.get(key)?.dcmpBracket;
@@ -1229,12 +1293,111 @@ function multipleJointProof(input: JointProofAtInput, distributions: ReadonlyMap
 }
 
 /**
+ * TWO CHAMPIONSHIPS, SOME FINISHED AND SOME NOT (quick task 261010-d7r,
+ * finding F-C, planner reading R6). Until that task the two championship
+ * proof needed every championship's Awards open, so the moment one
+ * championship's Awards read final the proof refused (`noBracketFacts`: the
+ * facts of a championship whose Awards are final are not built) and every
+ * Locked it alone held was taken back while the other championship was still
+ * playing. Rewound on 2026 California with one championship wholly final and
+ * the other at each of the sweep's seven stops: applied then `noBracketFacts`
+ * at all 14 edges, 91 Locked lost. Both of its championships are in week 5.
+ *
+ * AN OPEN CHAMPIONSHIP (its Awards open) is read exactly as before: it needs
+ * its facts with Qualification and Alliance selection final, and gets
+ * `championshipRouting` and `eightAllianceInput`.
+ *
+ * A FINISHED CHAMPIONSHIP (its Awards final) needs no bracket facts: nothing
+ * of its bracket is still to be played. It needs its WINNER COUNTED at the
+ * position (`winnerPostedAt`), else the proof refuses `winnerNotPosted`: with
+ * no Winner counted the winning alliance's places are neither taken nor
+ * modelled. Its input holds no alliance, one null candidate winner (the
+ * posted winner case), NO consuming award (decision 2's own reading,
+ * `reservedChampSlots` holding nothing once `awardFinal`, and resting on the
+ * same awards flag limit: a consuming award listed after the list has
+ * settled), and what is still open of its judged awards:
+ *
+ *   - `awardedRivals` are the teams carrying award points at its key (rule D1
+ *     of that task, `awardedTeamsAt`): each holds its one point paying award
+ *     of that event, in its floor, and takes no judged award.
+ *   - the judged budget is the ceiling of 14 minus the teams whose award
+ *     points there are EXACTLY one judged award's (`judgedAwardedTeamCountAt`),
+ *     never below 0. NOT minus every team carrying award points, as a
+ *     division's budget is: a whole championship also gives the consuming
+ *     awards, whose points are on the same rows (2026 California: 12 teams at
+ *     15, two at 24 and two at 30 at each championship), and the ceiling of
+ *     14 counts judged awards alone. Counting the consuming winners out of it
+ *     would read 0 awards left where 2 may still be listed.
+ *
+ * The refusals keep the order of `multipleJointProof`: facts and stages of
+ * the open championships, capacity, a championship that is never happening,
+ * then each championship in key order.
+ */
+function mixedMultipleJointProof(input: JointProofAtInput, distributions: ReadonlyMap<string, DistrictEventDistributions>, keys: readonly string[]): ChampJointProof {
+  const { artifact } = input;
+  const openKeys = keys.filter((key) => input.dcmpStageByEvent.get(key)?.award !== true);
+  const factsByKey = new Map<string, DcmpBracketFacts>();
+  for (const key of openKeys) {
+    const facts = distributions.get(key)?.dcmpBracket;
+    if (facts === undefined) return refuse("noBracketFacts");
+    factsByKey.set(key, facts);
+  }
+  const stageByKey = new Map<string, DistrictStageFinality>();
+  for (const key of openKeys) {
+    const stage = input.dcmpStageByEvent.get(key);
+    if (stage === undefined || !stage.qual || !stage.alliance) return refuse("stageNotEligible");
+    stageByKey.set(key, stage);
+  }
+  if (artifact.cmpSlots === null) return refuse("noCapacity");
+  if (input.neverHappening) return refuse("neverHappening");
+  const slotOnly = slotOnlyRivalsOf(input.qualifiers);
+  const belongs = (teamKey: string, key: string): boolean => {
+    const own = input.firstDcmpKeyByTeam.get(teamKey);
+    return own === undefined || own === key;
+  };
+  const championships: JointLockInput[] = [];
+  for (const key of keys) {
+    const poolKeys = input.narrowing.poolKeys.filter((teamKey) => belongs(teamKey, key));
+    const slotOnlyHere = slotOnly.filter((teamKey) => belongs(teamKey, key));
+    const facts = factsByKey.get(key);
+    const stage = stageByKey.get(key);
+    if (facts !== undefined && stage !== undefined) {
+      const routed = championshipRouting(facts, stage, input.winnerPostedAt.has(key), input.dcmpSettledByEvent.get(key) ?? new Map());
+      if ("applied" in routed) return routed;
+      championships.push(eightAllianceInput(input, key, facts, routed, poolKeys, slotOnlyHere));
+      continue;
+    }
+    // A FINISHED championship: its Winner must be counted, and nothing of it is
+    // open but the judged awards its flag may not have listed yet.
+    if (!input.winnerPostedAt.has(key)) return refuse("winnerNotPosted");
+    const awarded = awardedTeamsAt(artifact, key).sort();
+    championships.push({
+      pool: poolRivals(input, poolKeys, () => undefined, new Map()),
+      slotOnlyRivals: slotOnlyHere,
+      pointsSlots: input.narrowing.pointsSlots,
+      alliances: [],
+      aliveAlliances: [],
+      candidateWinners: [null],
+      placementPoints: [2, 3, 4].map((placement) => maxPlayoffPointsByPlacement(artifact.year, "dcmp", placement)),
+      consumingAwards: 0,
+      judgedAwards: Math.max(0, dcmpJudgedAwardCeiling() - judgedAwardedTeamCountAt(artifact, key)),
+      judgedAwardPoints: dcmpJudgedAwardPoints(artifact.year),
+      maxAllianceSize: MAX_WINNING_ALLIANCE_SIZE,
+      ...(awarded.length === 0 ? {} : { awardedRivals: awarded }),
+    });
+  }
+  return { applied: true, shape: "multiple", championships, locked: jointLockedTeamsMultiple(championships, input.narrowing.pointsSlots) };
+}
+
+/**
  * A DIVISIONED championship (CONTEXT D4, readings R6 to R8 and R13): every
  * division needs its eight alliance facts with Qualification and Alliance
- * selection final, the finals' Awards must be open; each division is routed
- * on its own rows, and the finals facts are read only once every division has
- * a decided winner (R6), each finals alliance mapped to the one division winner
- * whose listed picks meet its own.
+ * selection final, and SOME key's Awards must be open, the finals' or a
+ * division's (`jointProofStillRuns`, quick task 261010-d7r; until then the
+ * finals' Awards had to be open); each division is routed on its own rows,
+ * and the finals facts are read only once every division has a decided winner
+ * (R6), each finals alliance mapped to the one division winner whose listed
+ * picks meet its own.
  *
  * THE BACKUP ROBOT RULE (quick task 261009-tx9, which removed reading R5 and
  * guard G3; guards G1 and G2 stay): an alliance has one backup for the whole
@@ -1264,7 +1427,12 @@ function divisionedJointProof(
     stageByKey.set(key, stage);
   }
   const finalsStage = input.dcmpStageByEvent.get(finalsKey) ?? ALL_OPEN_STAGE;
-  if (finalsStage.award) return refuse("stageNotEligible");
+  // WHEN THIS PROOF STOPS (quick task 261010-d7r, finding F-B; decision 5 in
+  // this module's header): only once EVERY key's Awards are final. Until that
+  // task it stopped at the finals' Awards alone, and a division's awards flag
+  // that turned true after the finals' took back every Locked the proof held.
+  const someDivisionAwardsOpen = divisionKeys.some((key) => !stageByKey.get(key)!.award);
+  if (!jointProofStillRuns(finalsStage.award, someDivisionAwardsOpen)) return refuse("stageNotEligible");
   // THE JUDGED BUDGET IS WHAT EACH DIVISION CAN STILL GIVE (quick task
   // 261009-pgq, D3 as revised). Until then K was 14 times the division count
   // at every stop. Per division:
@@ -1435,7 +1603,12 @@ function divisionedJointProof(
     aliveAlliances: frames.aliveAlliances,
     candidateWinners: frames.candidateWinners,
     placementPoints: [2, 3, 4].map((placement) => maxPlayoffPointsByPlacement(artifact.year, "dcmp", placement)),
-    consumingAwards: pendingAwardSlots(input.awardCeilings),
+    // The consuming awards are given at the finals event. Once ITS Awards read
+    // final none is left to give (planner reading R5 of quick task
+    // 261010-d7r): decision 2's own reading, `reservedChampSlots` holding
+    // nothing once `awardFinal`, and resting on the same awards flag limit (a
+    // consuming award listed after the list has settled).
+    consumingAwards: finalsStage.award ? 0 : pendingAwardSlots(input.awardCeilings),
     judgedAwards: judgedBudget,
     judgedAwardPoints: dcmpJudgedAwardPoints(artifact.year),
     maxAllianceSize: MAX_WINNING_ALLIANCE_SIZE,

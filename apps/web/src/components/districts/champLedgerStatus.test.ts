@@ -1637,9 +1637,55 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
 
     // A finals alliance meeting no division winner refuses.
     expect(modelAt(DIVISIONED, stages, distributions(finalsFacts(DIV2_ALLIANCES[3]!.picks))).jointProof).toEqual({ applied: false, reason: "bracketUnroutable" });
-    // The finals' Awards final refuse.
+    // The finals' Awards final refuse ONLY ONCE EVERY DIVISION'S AWARDS ARE FINAL TOO (quick task 261010-d7r, finding
+    // F-B; until then the finals' Awards alone refused, whatever the divisions' read).
+    const everyAwardsFinal = new Map([
+      [DIV1, ALL_FINAL],
+      [DIV2, ALL_FINAL],
+      [PARENT, ALL_FINAL],
+    ]);
+    const finalDistributions = (div1: DistrictStageFinality, div2: DistrictStageFinality) =>
+      new Map([
+        entry(DIV1, facts(DIV1, div1, DIV1_ALLIANCES, [...ROUND_FIVE, ...FINAL_ONE_WINS], "division")),
+        entry(DIV2, facts(DIV2, div2, DIV2_ALLIANCES, higherSeedRows(), "division")),
+        entry(PARENT, finalsFacts(DIV2_ALLIANCES[0]!.picks)),
+      ]);
+    expect(modelAt(DIVISIONED, everyAwardsFinal, finalDistributions(ALL_FINAL, ALL_FINAL)).jointProof).toEqual({ applied: false, reason: "stageNotEligible" });
+    // With the divisions' Awards still open the proof keeps running past the finals' Awards: the state that refused
+    // before. The Winner is counted at the finals key, so the one candidate is the posted winner, and no consuming
+    // award is left to give (planner reading R5).
     const awardsFinal = new Map([...stages, [PARENT, ALL_FINAL]]);
-    expect(modelAt(DIVISIONED, awardsFinal, distributions(finalsFacts(DIV2_ALLIANCES[0]!.picks))).jointProof).toEqual({ applied: false, reason: "stageNotEligible" });
+    const pastTheFinals = modelAt(DIVISIONED, awardsFinal, distributions(finalsFacts(DIV2_ALLIANCES[0]!.picks)));
+    if (pastTheFinals.jointProof?.applied !== true || pastTheFinals.jointProof.shape === "multiple") throw new Error(`not applied: ${JSON.stringify(pastTheFinals.jointProof)}`);
+    expect(pastTheFinals.jointProof.shape).toBe("divisioned");
+    expect(pastTheFinals.jointProof.input.candidateWinners).toEqual([null]);
+    expect(pastTheFinals.jointProof.input.consumingAwards).toBe(0);
+    expect(pastTheFinals.jointProof.input.judgedAwards).toBe(28);
+    expect("awardedRivals" in pastTheFinals.jointProof.input).toBe(false);
+    // While the finals' Awards are open the same state hands the district's consuming awards on.
+    expect(C).toBeGreaterThan(0);
+    expect(model.jointProof.input.consumingAwards).toBe(C);
+    // One division's Awards final, the other's open, the finals' final: still applied, with that division's awarded
+    // teams named and its budget reduced by them.
+    const oneDivisionOpen = new Map([
+      [DIV1, ALL_FINAL],
+      [DIV2, PLAYOFFS_FINAL],
+      [PARENT, ALL_FINAL],
+    ]);
+    const mixed = modelAt(DIVISIONED, oneDivisionOpen, finalDistributions(ALL_FINAL, PLAYOFFS_FINAL));
+    if (mixed.jointProof?.applied !== true || mixed.jointProof.shape === "multiple") throw new Error(`not applied: ${JSON.stringify(mixed.jointProof)}`);
+    const awardedAtDivisionOne = DIVISIONED.teams.filter((team) => team.eventPoints.some((row) => row.eventKey === DIV1 && row.award > 0)).map((team) => team.teamKey).sort();
+    expect(awardedAtDivisionOne.length).toBeGreaterThan(0);
+    expect(mixed.jointProof.input.candidateWinners).toEqual([null]);
+    expect(mixed.jointProof.input.consumingAwards).toBe(0);
+    expect(mixed.jointProof.input.awardedRivals).toEqual(awardedAtDivisionOne);
+    expect(mixed.jointProof.input.judgedAwards).toBe(14 + Math.max(0, 14 - awardedAtDivisionOne.length));
+    // The finals' Playoffs and Awards final with NO Winner counted: refused, as the frames always have (reading 8).
+    const noWinner: DistrictArtifact = DistrictArtifactSchema.parse({
+      ...DIVISIONED,
+      teams: DIVISIONED.teams.map((team) => ({ ...team, qualifyingAwards: team.qualifyingAwards.filter((award) => award.awardType !== 1) })),
+    });
+    expect(modelAt(noWinner, awardsFinal, distributions(finalsFacts(DIV2_ALLIANCES[0]!.picks))).jointProof).toEqual({ applied: false, reason: "winnerNotPosted" });
     // A division without facts refuses.
     expect(modelAt(DIVISIONED, stages, distributions(undefined, false)).jointProof).toEqual({ applied: false, reason: "noBracketFacts" });
   });
@@ -1992,6 +2038,87 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
     expect(second!.seatGroups).toBeUndefined();
     expect([...model.jointProof.locked].sort()).toEqual([...jointLockedTeamsMultiple(model.jointProof.championships, model.pointsSlots)].sort());
     expect(modelAt(TWO, stages, distributions(false)).jointProof).toEqual({ applied: false, reason: "noBracketFacts" });
+  });
+
+  it("261010-d7r F-C: with one championship finished (its Awards final, its Winner counted) and the other still playing the proof runs; the finished one's input holds no alliance, no consuming award, its awarded teams and its remaining judged budget", () => {
+    const SECOND = "2026pnncmp";
+    // The fixture's championship split in two by artifact order. Its three winners all land at the first key, so the
+    // second championship is given a Winner of its own: its first team in artifact order with a row there.
+    const secondWinner = FIXTURE.teams.find((team, index) => index % 2 === 1 && team.eventPoints.some((row) => row.eventKey === PARENT))!.teamKey;
+    const TWO: DistrictArtifact = DistrictArtifactSchema.parse({
+      ...FIXTURE,
+      teams: FIXTURE.teams.map((team, index) => {
+        if (index % 2 === 0) return team;
+        const relabel = <T extends { eventKey: string }>(row: T): T => (row.eventKey === PARENT ? { ...row, eventKey: SECOND } : row);
+        const qualifyingAwards = team.qualifyingAwards.map(relabel);
+        return {
+          ...team,
+          eventPoints: team.eventPoints.map(relabel),
+          remainingEvents: team.remainingEvents.map(relabel),
+          qualifyingAwards: team.teamKey === secondWinner ? [...qualifyingAwards, { eventKey: SECOND, awardType: 1, label: "Winner", awardOnly: false }] : qualifyingAwards,
+        };
+      }),
+    });
+    const keys = [PARENT, SECOND].sort();
+    const winnerCountedAt = (artifact: DistrictArtifact, key: string): boolean => artifact.teams.some((team) => team.qualifyingAwards.some((award) => award.awardType === 1 && award.eventKey === key));
+    // Premise: each championship has a Winner to count.
+    expect(keys.map((key) => winnerCountedAt(TWO, key))).toEqual([true, true]);
+    const milestones = dcmpBracketMilestonesByTeam(DIV1_ALLIANCES, ROUND_FIVE);
+    for (const finished of keys) {
+      const open = keys.find((key) => key !== finished)!;
+      const stages = new Map([
+        [finished, ALL_FINAL],
+        [open, OPEN_PLAYOFFS],
+      ]);
+      // The facts of a championship whose Awards are final are never built (`dcmpBracketFactsFor`), so the finished
+      // one is handed none: before quick task 261010-d7r that alone refused the proof as `noBracketFacts`.
+      expect(dcmpBracketFactsFor({ eventKey: finished, season: 2026, tier: "dcmp", stage: ALL_FINAL, alliances: DIV1_ALLIANCES, playedMatches: [], unresolvedMatchCount: 0, role: "championship" })).toBeUndefined();
+      const distributions = new Map([entry(finished, undefined), entry(open, facts(open, OPEN_PLAYOFFS, DIV1_ALLIANCES, ROUND_FIVE, "championship"), milestones)]);
+      const model = modelAt(TWO, stages, distributions);
+      if (model.jointProof?.applied !== true || model.jointProof.shape !== "multiple") throw new Error(`${finished} finished: not multiple: ${JSON.stringify(model.jointProof)}`);
+      expect(model.jointProof.championships).toHaveLength(2);
+      // One input per championship, in key order.
+      const finishedInput = model.jointProof.championships[keys.indexOf(finished)]!;
+      const openInput = model.jointProof.championships[keys.indexOf(open)]!;
+      // THE FINISHED CHAMPIONSHIP (planner reading R6): no alliance, the posted winner as the one candidate, no
+      // consuming award, its awarded teams named, and what is left of its judged budget.
+      expect(finishedInput.alliances).toEqual([]);
+      expect(finishedInput.aliveAlliances).toEqual([]);
+      expect(finishedInput.candidateWinners).toEqual([null]);
+      expect(finishedInput.consumingAwards).toBe(0);
+      const awardPointsAt = TWO.teams.flatMap((team) => team.eventPoints.filter((row) => row.eventKey === finished && row.award > 0).map((row) => ({ teamKey: team.teamKey, award: row.award })));
+      expect(finishedInput.awardedRivals).toEqual(awardPointsAt.map((row) => row.teamKey).sort());
+      // The budget is the ceiling minus the teams at EXACTLY one judged award's points (15 in 2026), never minus the
+      // consuming awards' winners, whose 24 and 30 sit on the same rows.
+      const judgedAwarded = awardPointsAt.filter((row) => row.award === 15).length;
+      expect(awardPointsAt.length).toBeGreaterThan(judgedAwarded);
+      expect(judgedAwarded).toBeGreaterThan(0);
+      expect(finishedInput.judgedAwards).toBe(14 - judgedAwarded);
+      // THE OPEN CHAMPIONSHIP is read as it always was: its eight alliances, its own candidates, its whole budget.
+      expect(openInput.alliances).toHaveLength(8);
+      expect(openInput.candidateWinners).toEqual([1, 5]);
+      expect(openInput.consumingAwards).toBe(C);
+      expect(openInput.judgedAwards).toBe(14);
+      expect("awardedRivals" in openInput).toBe(false);
+      expect([...model.jointProof.locked].sort()).toEqual([...jointLockedTeamsMultiple(model.jointProof.championships, model.pointsSlots)].sort());
+
+      // The finished championship's Winner NOT counted: refused. Its winning alliance's places are neither taken nor modelled.
+      const noWinner: DistrictArtifact = DistrictArtifactSchema.parse({
+        ...TWO,
+        teams: TWO.teams.map((team) => ({ ...team, qualifyingAwards: team.qualifyingAwards.filter((award) => !(award.awardType === 1 && award.eventKey === finished)) })),
+      });
+      expect(modelAt(noWinner, stages, distributions).jointProof).toEqual({ applied: false, reason: "winnerNotPosted" });
+      // The open championship's refusals come first and are the ones of before: no facts, then a stage not eligible.
+      expect(modelAt(TWO, stages, new Map([entry(finished, undefined), entry(open, undefined)])).jointProof).toEqual({ applied: false, reason: "noBracketFacts" });
+      const allianceOpen = new Map([
+        [finished, ALL_FINAL],
+        [open, { qual: true, alliance: false, elim: false, award: false }],
+      ]);
+      expect(modelAt(TWO, allianceOpen, distributions).jointProof).toEqual({ applied: false, reason: "stageNotEligible" });
+    }
+    // BOTH finished: the refusal of before, unchanged. No facts are built for either, so it reads `noBracketFacts`.
+    const bothFinal = new Map(keys.map((key) => [key, ALL_FINAL] as const));
+    expect(modelAt(TWO, bothFinal, new Map(keys.map((key) => entry(key, undefined)))).jointProof).toEqual({ applied: false, reason: "noBracketFacts" });
   });
 
   it("the single path keeps confirmed pick membership: with every DCMP alliance point removed no pick is a member and every alliance has four seats", () => {

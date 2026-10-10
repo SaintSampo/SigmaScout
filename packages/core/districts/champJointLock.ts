@@ -1001,6 +1001,48 @@ export function jointLockedTeams(input: JointLockInput): ReadonlySet<string> {
 }
 
 // ---------------------------------------------------------------------------
+// When the proof stops (quick task 261010-d7r, findings F-B and F-C)
+// ---------------------------------------------------------------------------
+
+/**
+ * WHETHER THE PROOF STILL RUNS for a championship whose own Awards may read
+ * final: true unless the championship's own Awards are final AND no other
+ * dcmp key's Awards are still open. So the proof stops only once EVERY key's
+ * Awards are final. The caller asks it per championship: for a divisioned
+ * championship the "own" Awards are its finals event's and the other keys are
+ * its divisions; for two championships each is asked against the other.
+ *
+ * WHY. Until quick task 261010-d7r the proof stopped at the FIRST key whose
+ * Awards read final: a divisioned championship's at its finals' Awards, two
+ * championships' at either one's. But awards flags turn true one event at a
+ * time and in no fixed order, and while another key's Awards are open the
+ * ceiling test alone still gives every rival of that key its whole award
+ * ceiling. It cannot hold what the proof held, so a Locked the proof gave a
+ * tick before was taken back. Two findings of that task's planner, both in
+ * the code of before it:
+ *
+ *   - F-B, a divisioned championship: the finals' awards flag turns true
+ *     while a division's is not yet true. With this rule switched off, the
+ *     awards order lattice of `scripts/champJointMonotone.test.ts` loses 306
+ *     Locked over the 16 divisioned championships of 2023 to 2026, every one
+ *     at that edge (63 over the 12 two division championships; the four FIM
+ *     seasons 24, 80, 49 and 90). The planner's micro step walks read the
+ *     same 306.
+ *   - F-C, two championships (2026 California): one championship is wholly
+ *     final while the other stands at a sweep stop. With this rule switched
+ *     off the proof goes from applied to `noBracketFacts` at all 14 such
+ *     edges and 91 Locked are lost.
+ *
+ * WHAT THE CALLER HANDS THE PROOF PAST A FINAL FLAG is its own business
+ * (`champLedgerStatus.ts`, decision 5): no consuming award for a championship
+ * whose own Awards are final, and for a finished championship of two an input
+ * with no alliance and its Winner counted.
+ */
+export function jointProofStillRuns(championshipAwardsFinal: boolean, anotherKeysAwardsOpen: boolean): boolean {
+  return !championshipAwardsFinal || anotherKeysAwardsOpen;
+}
+
+// ---------------------------------------------------------------------------
 // Divisioned championships (261009-kt3 CONTEXT D4 and readings R6 to R8, under
 // the backup robot rule of quick task 261009-tx9)
 // ---------------------------------------------------------------------------

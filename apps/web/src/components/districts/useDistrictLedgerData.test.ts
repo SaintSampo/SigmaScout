@@ -609,7 +609,7 @@ describe("the divisioned championship's facts and Live fetch set (quick task 261
     expect([...refused.keys()]).toEqual(["2026pncmp2"]);
   });
 
-  it("keeps every started key of a divisioned championship fetched until its finals event has finished (quick task 261010-66y, R15)", () => {
+  it("keeps every started key of a divisioned championship fetched through the window and the finals (quick task 261010-66y, R15; the pins are unchanged by quick task 261010-d7r, which keeps them until EVERY event has finished)", () => {
     const keys = ["2026micmp", "2026micmp1", "2026micmp2", "2026micmp3", "2026micmp4"];
     const divisions = keys.slice(1);
     // THE WINDOW: every division started and finished, none in progress, the finals key on the rows and not started.
@@ -619,7 +619,7 @@ describe("the divisioned championship's facts and Live fetch set (quick task 261
     expect(champLiveFetchKeys([], divisions.slice(0, 2), keys)).toEqual(divisions.slice(0, 2));
     // The finals in progress: every started key, as before.
     expect(champLiveFetchKeys(["2026micmp"], keys, keys)).toEqual(keys);
-    // The finals event finished (started and not in progress): only the other in progress keys.
+    // Every event of the championship finished (each started and none in progress): only the other in progress keys.
     expect(champLiveFetchKeys([], keys, keys)).toEqual([]);
     expect(champLiveFetchKeys(["2026wabon"], [...keys, "2026wabon"], keys)).toEqual(["2026wabon"]);
     // Before the championship: nothing started, nothing added.
@@ -639,5 +639,25 @@ describe("the divisioned championship's facts and Live fetch set (quick task 261
     expect(champLiveFetchKeys(["2026micmp1"], ["2026micmp1", "2026micmp2"], keys)).toEqual(["2026micmp1", "2026micmp2"]);
     expect(champLiveFetchKeys(["2026cancmp"], ["2026cancmp", "2026cascmp"], ["2026cancmp", "2026cascmp"])).toEqual(["2026cancmp"]);
     expect(champLiveFetchKeys(["2026pncmp"], ["2026pncmp"], ["2026pncmp"])).toEqual(["2026pncmp"]);
+  });
+
+  it("keeps every started key of a divisioned championship fetched until EVERY one of its events has finished, the finals finished before a division included (quick task 261010-d7r, finding F-B)", () => {
+    const keys = ["2026micmp", "2026micmp1", "2026micmp2", "2026micmp3", "2026micmp4"];
+    // THE FINALS FINISHED WHILE A DIVISION HAS NOT: the finals' awards flag turned true before division 3's, so the
+    // finals read finished (started, not in progress) and division 3 reads in progress. The joint proof still runs
+    // there and reads EVERY division's bracket, so every started key stays fetched. The rule of quick task
+    // 261010-66y returned division 3 alone here.
+    expect(champLiveFetchKeys(["2026micmp3"], keys, keys)).toEqual(keys);
+    expect(champLiveFetchKeys(["2026micmp1", "2026micmp3"], keys, keys)).toEqual(keys);
+    expect(champLiveFetchKeys(["2026micmp3", "2026wabon"], [...keys, "2026wabon"], keys)).toEqual([...keys, "2026wabon"].sort());
+    // Every event of the championship finished: only the other in progress keys. The proof no longer runs.
+    expect(champLiveFetchKeys([], keys, keys)).toEqual([]);
+    expect(champLiveFetchKeys(["2026wabon"], [...keys, "2026wabon"], keys)).toEqual(["2026wabon"]);
+    // A two division championship, the same: the finals finished, division 2 not.
+    const two = ["2026necmp", "2026necmp1", "2026necmp2"];
+    expect(champLiveFetchKeys(["2026necmp2"], two, two)).toEqual(two);
+    expect(champLiveFetchKeys([], two, two)).toEqual([]);
+    // Two championships and a single one are untouched: one finished and the other in progress returns the one in progress.
+    expect(champLiveFetchKeys(["2026cascmp"], ["2026cancmp", "2026cascmp"], ["2026cancmp", "2026cascmp"])).toEqual(["2026cascmp"]);
   });
 });

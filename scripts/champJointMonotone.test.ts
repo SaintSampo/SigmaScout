@@ -20,7 +20,8 @@
  * a lattice: which facts are in. An EDGE is two readings that differ by
  * exactly one fact, with everything else fixed:
  *
- *   - a FLAG EDGE: one more division's Awards read final;
+ *   - a FLAG EDGE: one more key's Awards read final (a division's, or one
+ *     championship's of two);
  *   - a STOP EDGE: the same flags, one stop of the sweep further on.
  *
  * Every order in which the facts can arrive is a path of edges, so checking
@@ -45,7 +46,10 @@
  *   A. THE AWARDS ORDER TEST. Every divisioned championship of 2023 to 2026,
  *      every stop of the joint sweep but Now, every subset of its divisions
  *      read with Awards final (the season's real posted award points) and the
- *      others with Awards open. Every flag edge and every stop edge.
+ *      others with Awards open. Every flag edge and every stop edge. One more
+ *      reading follows the sweep's last stop: the FINALS' Awards final too,
+ *      every division's flag still free, which is where the finals' awards
+ *      flag turns true before a division's.
  *   B. DIVISIONS OUT OF STEP. Some divisions (the set AHEAD) have finished
  *      their playoffs, every one of their rows played, while the others stand
  *      at a sweep stop before "Divisions final". Every subset of the ahead
@@ -54,18 +58,31 @@
  *      division ahead at a time, each of the four in turn (every ahead set
  *      there costs about 280 seconds a season; the planner of this task ran
  *      it once and read no Locked lost and no margin drop).
+ *   C. TWO CHAMPIONSHIPS, ONE FINISHING FIRST (2026 California). One
+ *      championship has finished its playoffs, every row played, while the
+ *      other stands at each stop of the sweep in turn; the finished one's
+ *      Awards read open and then final. And at the sweep's "Playoffs final,
+ *      awards open" stop, every subset of the two championships read with
+ *      Awards final.
  *
  * IT PROVES SOMETHING. Each group also runs with its rule switched off inside
- * this file and must then LOSE Locked teams. The switch is one module mock of
- * the core proof (`packages/core/districts/champJointLock.ts`), the module the
- * status code itself imports: while `awardedRuleOff` is set every input is
- * handed to the proof without its `awardedRivals`, which is the proof of
- * before quick task 261010-d7r (a rival that already holds a posted award may
- * be given a second judged award). The Locked teams lost in those runs are
- * read off the status code's own verdicts, so they show the mock reaches the
- * import the tab uses. The switched off totals are PINNED AS THE RUN SHOWS:
- * they are a measurement of the old reading, not a requirement, except that
- * they must be above 0.
+ * this file and must then LOSE Locked teams. The switches are one module mock
+ * of the core proof (`packages/core/districts/champJointLock.ts`), the module
+ * the status code itself imports:
+ *
+ *   - while `awardedRuleOff` is set every input is handed to the proof
+ *     without its `awardedRivals`, which is the proof of before quick task
+ *     261010-d7r (a rival that already holds a posted award may be given a
+ *     second judged award);
+ *   - while `stopRuleOff` is set `jointProofStillRuns` answers as the code
+ *     read before that task: the proof stops at the first key whose Awards
+ *     read final (a divisioned championship's at its finals' Awards, two
+ *     championships' at either one's).
+ *
+ * The Locked teams lost in those runs are read off the status code's own
+ * verdicts, so they show the mock reaches the import the tab uses. The
+ * switched off totals are PINNED AS THE RUN SHOWS: they are a measurement of
+ * the old reading, not a requirement, except that they must be above 0.
  *
  * A RULES ON FAILURE IS A FINDING, never a pin to move: a Locked lost or a
  * margin dropped with the rules on means the proof took a guarantee back.
@@ -96,8 +113,12 @@ import { CORPUS_PATH, LOCAL_DISTRICT_DIR, bracketsFromCorpus, championshipStops,
  *
  * While `awardedRuleOff` is set the proof never learns which rivals already
  * hold a posted award: every input reaches it without `awardedRivals`.
+ *
+ * While `stopRuleOff` is set the one rule for when a proof stops answers "not
+ * once the championship's own Awards are final", whatever the other keys
+ * read: the reading before quick task 261010-d7r.
  */
-const ruleSwitch = vi.hoisted(() => ({ awardedRuleOff: false }));
+const ruleSwitch = vi.hoisted(() => ({ awardedRuleOff: false, stopRuleOff: false }));
 
 vi.mock("../packages/core/districts/champJointLock.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../packages/core/districts/champJointLock.js")>();
@@ -114,23 +135,28 @@ vi.mock("../packages/core/districts/champJointLock.js", async (importOriginal) =
     jointLockBoundAt: (input: Input, teamKey: string, floor: number, stopAt?: number) => original.jointLockBoundAt(handed(input), teamKey, floor, stopAt),
     jointLockedTeamsMultiple: (championships: readonly Input[], pointsSlots: number) => original.jointLockedTeamsMultiple(championships.map(handed), pointsSlots),
     jointLockBoundMultiple: (championships: readonly Input[], teamKey: string, stopAt?: number) => original.jointLockBoundMultiple(championships.map(handed), teamKey, stopAt),
+    jointProofStillRuns: (championshipAwardsFinal: boolean, anotherKeysAwardsOpen: boolean) =>
+      ruleSwitch.stopRuleOff ? !championshipAwardsFinal : original.jointProofStillRuns(championshipAwardsFinal, anotherKeysAwardsOpen),
   };
 });
 
 afterEach(() => {
   ruleSwitch.awardedRuleOff = false;
+  ruleSwitch.stopRuleOff = false;
 });
 
-/** Which rules a run has on. `"on"` is the shipped proof. */
-type RuleMode = "on" | "awardedRuleOff";
+/** Which rules a run has on. `"on"` is the shipped proof; each other mode switches exactly one rule off. */
+type RuleMode = "on" | "awardedRuleOff" | "stopRuleOff";
 
 /** Runs `body` under a rule mode, and switches every rule back on whatever happens. */
 function underRules<T>(mode: RuleMode, body: () => T): T {
   ruleSwitch.awardedRuleOff = mode === "awardedRuleOff";
+  ruleSwitch.stopRuleOff = mode === "stopRuleOff";
   try {
     return body();
   } finally {
     ruleSwitch.awardedRuleOff = false;
+    ruleSwitch.stopRuleOff = false;
   }
 }
 
@@ -372,6 +398,11 @@ interface LatticeResult {
 
 const latticeCache = new Map<string, LatticeResult>();
 
+const ALL_FINAL_STAGE: DistrictStageFinality = { qual: true, alliance: true, elim: true, award: true };
+/** The sweep's last stop before Now, and the one reading this file adds after it. */
+const FINALS_DECIDED_STOP = "Finals decided, awards open";
+const FINALS_AWARDS_FINAL_READING = "Finals awards final";
+
 /**
  * THE AWARDS ORDER LATTICE of one divisioned championship: at every stop of
  * the joint sweep but Now, every subset of its divisions is read with Awards
@@ -383,16 +414,34 @@ const latticeCache = new Map<string, LatticeResult>();
  * division's Awards final, so the subsets below it are readings the sweep
  * never takes: the divisions' playoffs done, the finals under way, and one or
  * more divisions' awards flags not yet true.
+ *
+ * ONE MORE READING follows the sweep's last stop ("Finals decided, awards
+ * open"): the FINALS' Awards final too, every division's flag still free.
+ * It is the finals' awards flag turning true before a division's (finding F-B
+ * of quick task 261010-d7r). There the proof still runs while some division's
+ * Awards are open, and is refused only at the one reading where every flag is
+ * true, which is the artifact's own finished state.
+ *
+ * `scope` "intoTheFinalsAwards" reads the sweep's last stop and that one
+ * reading alone: the only readings the stop rule changes.
  */
-function awardsOrderLattice(districtKey: string, mode: RuleMode): LatticeResult {
-  const cacheKey = `${districtKey}|${mode}`;
+function awardsOrderLattice(districtKey: string, mode: RuleMode, scope: "whole" | "intoTheFinalsAwards" = "whole"): LatticeResult {
+  const cacheKey = `${districtKey}|${mode}|${scope}`;
   const cached = latticeCache.get(cacheKey);
   if (cached !== undefined) return cached;
   const result = underRules(mode, (): LatticeResult => {
-    const { artifact, divisionKeys, brackets } = divisionedChampionship(districtKey);
+    const { artifact, finalsKey, divisionKeys, brackets } = divisionedChampionship(districtKey);
     const divisionCount = divisionKeys.length;
     const masks = Array.from({ length: 1 << divisionCount }, (_, mask) => mask);
-    const stops: ChampionshipStop[] = championshipStops(artifact, brackets).filter((stop) => !stop.atNow);
+    const sweepStops: ChampionshipStop[] = championshipStops(artifact, brackets).filter((stop) => !stop.atNow);
+    const lastStop = sweepStops.at(-1);
+    if (lastStop === undefined || lastStop.label !== FINALS_DECIDED_STOP) throw new Error(`${districtKey}: the sweep's last stop is not "${FINALS_DECIDED_STOP}"`);
+    const finalsAwardsFinal: ChampionshipStop = {
+      ...lastStop,
+      label: FINALS_AWARDS_FINAL_READING,
+      stageByKey: new Map([...lastStop.stageByKey].map(([key, stage]) => [key, key === finalsKey ? ALL_FINAL_STAGE : stage] as const)),
+    };
+    const stops = scope === "whole" ? [...sweepStops, finalsAwardsFinal] : [lastStop, finalsAwardsFinal];
     const tally = newTally();
     const read = (stop: ChampionshipStop, mask: number): Reading => {
       const stageByKey = new Map(stop.stageByKey);
@@ -424,12 +473,12 @@ function awardsOrderLattice(districtKey: string, mode: RuleMode): LatticeResult 
   return result;
 }
 
-function latticeTotals(mode: RuleMode): { stops: number; tally: EdgeTally; lostByDistrict: Record<string, number> } {
+function latticeTotals(mode: RuleMode, scope: "whole" | "intoTheFinalsAwards" = "whole"): { stops: number; tally: EdgeTally; lostByDistrict: Record<string, number> } {
   const tally = newTally();
   const lostByDistrict: Record<string, number> = {};
   let stops = 0;
   for (const districtKey of DIVISIONED) {
-    const result = awardsOrderLattice(districtKey, mode);
+    const result = awardsOrderLattice(districtKey, mode, scope);
     stops += result.stops;
     addTally(tally, result.tally);
     for (const teamKey of result.tally.lostTeams) tally.lostTeams.add(`${districtKey} ${teamKey}`);
@@ -438,7 +487,7 @@ function latticeTotals(mode: RuleMode): { stops: number; tally: EdgeTally; lostB
   return { stops, tally, lostByDistrict };
 }
 
-describe("GROUP A, the awards order test: the 16 divisioned championships of 2023 to 2026, every sweep stop, every subset of divisions read with Awards final (quick task 261010-d7r, D3)", () => {
+describe("GROUP A, the awards order test: the 16 divisioned championships of 2023 to 2026, every sweep stop and the finals' Awards final, every subset of divisions read with Awards final (quick task 261010-d7r, D3)", () => {
   if (!existsSync(CORPUS_ABSOLUTE)) {
     localDataAbsent(`${CORPUS_PATH} absent (gitignored local data)`);
     return;
@@ -460,8 +509,9 @@ describe("GROUP A, the awards order test: the 16 divisioned championships of 202
       () => {
         const { tally } = awardsOrderLattice(districtKey, "on");
         expectMonotone(districtKey, tally);
-        // Every reading has the proof applied: each of these stops is one the sweep runs it at.
-        expect(tally.joint).toEqual({ applied: tally.readings });
+        // The proof is applied at every reading but one: the finals' Awards final with every division's Awards final
+        // too, where every key's Awards are final and the proof stops.
+        expect(tally.joint).toEqual({ applied: tally.readings - 1, stageNotEligible: 1 });
       },
       TEST_TIMEOUT_MS
     );
@@ -472,16 +522,20 @@ describe("GROUP A, the awards order test: the 16 divisioned championships of 202
     () => {
       const { stops, tally } = latticeTotals("on");
       console.log(
-        `[261010-d7r group A, rules on] championships ${String(DIVISIONED.length)} | stops ${String(stops)} | readings ${String(tally.readings)} (${JSON.stringify(tally.joint)}) | flag edges ${String(tally.edges.flag)} | stop edges ${String(tally.edges.stop)} | Locked lost ${String(tally.lost.flag + tally.lost.stop)} | margin drops ${String(tally.marginDrops)}`
+        `[261010-d7r group A, rules on] championships ${String(DIVISIONED.length)} | stops ${String(stops)} | readings ${String(tally.readings)} (${JSON.stringify(tally.joint)}) | flag edges ${String(tally.edges.flag)} | stop edges ${String(tally.edges.stop)} | Locked lost ${String(tally.lost.flag + tally.lost.stop)} | margin drops ${String(tally.marginDrops)} | applied then refused ${String(tally.appliedThenRefused)}`
       );
       expectMonotone("every divisioned championship", tally);
-      expect({ championships: DIVISIONED.length, stops, readings: tally.readings, flagEdges: tally.edges.flag, stopEdges: tally.edges.stop, appliedThenRefused: tally.appliedThenRefused }).toEqual({
+      // `stops` counts the reading added after the sweep's last stop. The proof goes from applied to refused only
+      // over the edges into the one reading where every key's Awards are final: one flag edge per division and one
+      // stop edge, per championship.
+      expect({ championships: DIVISIONED.length, stops, readings: tally.readings, joint: tally.joint, flagEdges: tally.edges.flag, stopEdges: tally.edges.stop, appliedThenRefused: tally.appliedThenRefused }).toEqual({
         championships: 16,
-        stops: 140,
-        readings: 1088,
-        flagEdges: 1792,
-        stopEdges: 976,
-        appliedThenRefused: 0,
+        stops: 156,
+        readings: 1200,
+        joint: { applied: 1184, stageNotEligible: 16 },
+        flagEdges: 1968,
+        stopEdges: 1088,
+        appliedThenRefused: 56,
       });
     },
     TEST_TIMEOUT_MS
@@ -512,32 +566,77 @@ describe("GROUP A, the awards order test: the 16 divisioned championships of 202
         teamMarginsDropped: tally.marginDrops,
         largestDrop: tally.largestDrop,
       }).toEqual({
-        readings: 1088,
-        lostOverFlagEdges: 924,
+        readings: 1200,
+        lostOverFlagEdges: 957,
         lostOverStopEdges: 0,
-        distinctPairsLost: 148,
-        flagEdgesWithADrop: 1640,
+        distinctPairsLost: 163,
+        flagEdgesWithADrop: 1776,
         stopEdgesWithADrop: 0,
-        teamMarginsDropped: 29_359,
+        teamMarginsDropped: 33_355,
         largestDrop: 4,
       });
       expect(lostByDistrict).toEqual({
         "2023fim": 118,
         "2023fit": 4,
-        "2023ne": 2,
+        "2023ne": 6,
         "2023ont": 10,
-        "2024fim": 223,
-        "2024fit": 4,
-        "2024ne": 6,
-        "2024ont": 9,
-        "2025fim": 213,
+        "2024fim": 239,
+        "2024fit": 7,
+        "2024ne": 9,
+        "2024ont": 10,
+        "2025fim": 215,
         "2025fit": 9,
         "2025ne": 0,
         "2025ont": 15,
-        "2026fim": 285,
+        "2026fim": 287,
         "2026fit": 13,
         "2026ne": 10,
-        "2026ont": 3,
+        "2026ont": 5,
+      });
+    },
+    TEST_TIMEOUT_MS
+  );
+
+  it(
+    "THE TEST BITES: with the stop rule switched off (the proof stops at the finals' Awards whatever the divisions read) Locked teams are lost, every one over the stop edge into the finals' Awards final, pinned as the run shows",
+    () => {
+      // The stop rule changes a reading only where the finals' Awards are final, so the sweep's last stop and the
+      // one reading after it are all that is read here. Every other reading is the rules on reading above.
+      const on = latticeTotals("on", "intoTheFinalsAwards");
+      const { tally, lostByDistrict } = latticeTotals("stopRuleOff", "intoTheFinalsAwards");
+      console.log(
+        `[261010-d7r group A, stop rule OFF] readings ${String(tally.readings)} (${JSON.stringify(tally.joint)}) | Locked lost over flag edges ${String(tally.lost.flag)}, over stop edges ${String(tally.lost.stop)} | distinct district and team pairs lost ${String(tally.lostTeams.size)} | by district ${JSON.stringify(lostByDistrict)}\n${tally.lostLines.slice(0, 8).map((line) => `  ${line}`).join("\n")}`
+      );
+      // With the rules on these two stops lose nothing.
+      expectMonotone("every divisioned championship, into the finals' Awards final", on.tally);
+      // THE REQUIREMENT: the mutation is caught, through the status code's own verdicts.
+      expect(tally.lost.stop).toBeGreaterThan(0);
+      // The measurement of the reading before quick task 261010-d7r (finding F-B). Pinned as the run shows.
+      expect({ readings: tally.readings, joint: tally.joint, lostOverFlagEdges: tally.lost.flag, lostOverStopEdges: tally.lost.stop, distinctPairsLost: tally.lostTeams.size }).toEqual({
+        readings: 224,
+        joint: { applied: 112, stageNotEligible: 112 },
+        lostOverFlagEdges: 0,
+        lostOverStopEdges: 306,
+        distinctPairsLost: 129,
+      });
+      // 63 over the 12 two division championships; the four FIM seasons 24, 80, 49 and 90.
+      expect(lostByDistrict).toEqual({
+        "2023fim": 24,
+        "2023fit": 8,
+        "2023ne": 4,
+        "2023ont": 6,
+        "2024fim": 80,
+        "2024fit": 2,
+        "2024ne": 8,
+        "2024ont": 4,
+        "2025fim": 49,
+        "2025fit": 7,
+        "2025ne": 4,
+        "2025ont": 1,
+        "2026fim": 90,
+        "2026fit": 1,
+        "2026ne": 16,
+        "2026ont": 2,
       });
     },
     TEST_TIMEOUT_MS
@@ -711,6 +810,242 @@ describe("GROUP B, divisions out of step: some divisions finished, their awards 
         marginDrops: 772,
         largestDrop: 3,
       });
+    },
+    TEST_TIMEOUT_MS
+  );
+});
+
+// ---------------------------------------------------------------------------
+// GROUP C. Two championships, one finishing first (2026 California)
+// ---------------------------------------------------------------------------
+
+const TWO_CHAMPIONSHIP_DISTRICT = "2026ca";
+const TWO_CHAMPIONSHIP_FILE = `v1__district__${TWO_CHAMPIONSHIP_DISTRICT}.json`;
+const PLAYOFFS_FINAL_AWARDS_OPEN_STOP = "Playoffs final, awards open";
+/** A championship whose playoffs are done and whose Awards are open. */
+const PLAYOFFS_FINAL_AWARDS_OPEN: DistrictStageFinality = { qual: true, alliance: true, elim: true, award: false };
+
+interface TwoChampionships {
+  readonly artifact: DistrictArtifact;
+  readonly keys: readonly string[];
+  readonly brackets: Map<string, BracketSourceEvent>;
+}
+
+let twoChampionshipsCache: TwoChampionships | undefined;
+/** The one district with two championships, with its corpus bracket at each key. */
+function twoChampionships(): TwoChampionships {
+  if (twoChampionshipsCache !== undefined) return twoChampionshipsCache;
+  const artifact = localArtifact(TWO_CHAMPIONSHIP_FILE);
+  const shape = championshipShape(dcmpEventKeysFor(artifact));
+  if (shape.kind !== "multiple") throw new Error(`${TWO_CHAMPIONSHIP_DISTRICT} is not a two championship district (${shape.kind})`);
+  const db = openCorpusReadOnly(CORPUS_ABSOLUTE);
+  try {
+    const found = bracketsFromCorpus(db, new Map(), artifact);
+    if ("missing" in found) throw new Error(`the corpus carries no bracket for ${found.missing}`);
+    twoChampionshipsCache = { artifact, keys: [...shape.keys], brackets: found.brackets };
+  } finally {
+    db.close();
+  }
+  return twoChampionshipsCache;
+}
+
+interface TwoChampionshipResult {
+  readonly stops: number;
+  readonly tally: EdgeTally;
+  /** One line per flag edge: what the proof said on each side and what was held. */
+  readonly lines: string[];
+}
+
+const twoChampionshipCache = new Map<string, TwoChampionshipResult>();
+
+/**
+ * ONE CHAMPIONSHIP FINISHING FIRST. For each championship A in turn, A has
+ * finished its playoffs with every one of its rows played, while the other, B,
+ * stands at each stop of the sweep but Now. A is read with its Awards OPEN
+ * and then FINAL (its real posted award points then sit in the floors). A flag
+ * edge is A's awards flag at the same stop of B; a stop edge is B one stop on
+ * with A's flag unchanged.
+ */
+function oneFinishingFirst(mode: RuleMode): TwoChampionshipResult {
+  const cacheKey = `finishing|${mode}`;
+  const cached = twoChampionshipCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+  const result = underRules(mode, (): TwoChampionshipResult => {
+    const { artifact, keys, brackets } = twoChampionships();
+    const stops = championshipStops(artifact, brackets).filter((stop) => !stop.atNow);
+    const lastStop = stops.at(-1);
+    if (lastStop === undefined || lastStop.label !== PLAYOFFS_FINAL_AWARDS_OPEN_STOP) throw new Error(`the sweep's last stop is not "${PLAYOFFS_FINAL_AWARDS_OPEN_STOP}"`);
+    const tally = newTally();
+    const lines: string[] = [];
+    for (const finished of keys) {
+      const other = keys.find((key) => key !== finished);
+      if (other === undefined) throw new Error("a two championship district with one key");
+      const everyRow = lastStop.playedKeysByKey.get(finished);
+      if (everyRow === undefined) throw new Error(`no played rows for ${finished}`);
+      let previous: { open: Reading; final: Reading } | undefined;
+      for (const stop of stops) {
+        const stageOfOther = stop.stageByKey.get(other);
+        const rowsOfOther = stop.playedKeysByKey.get(other);
+        if (stageOfOther === undefined || rowsOfOther === undefined) throw new Error(`"${stop.label}" carries nothing for ${other}`);
+        const read = (stageOfFinished: DistrictStageFinality): Reading =>
+          countReading(
+            tally,
+            readingOf(
+              statusesAtChampionshipStop(
+                artifact,
+                {
+                  ...stop,
+                  stageByKey: new Map([
+                    [finished, stageOfFinished],
+                    [other, stageOfOther],
+                  ]),
+                  playedKeysByKey: new Map([
+                    [finished, everyRow],
+                    [other, rowsOfOther],
+                  ]),
+                },
+                brackets,
+                true
+              )
+            )
+          );
+        const open = read(PLAYOFFS_FINAL_AWARDS_OPEN);
+        const final = read(ALL_FINAL_STAGE);
+        const where = `${shortKey(finished)} finished while ${shortKey(other)} is at "${stop.label}"`;
+        checkEdge(tally, "flag", `${where}, its Awards open then final`, open, final);
+        lines.push(`${where}: joint ${open.joint} then ${final.joint} | held ${String(open.held.size)} then ${String(final.held.size)}`);
+        if (previous !== undefined) {
+          checkEdge(tally, "stop", `${where}, its Awards open`, previous.open, open);
+          checkEdge(tally, "stop", `${where}, its Awards final`, previous.final, final);
+        }
+        previous = { open, final };
+      }
+    }
+    return { stops: stops.length, tally, lines };
+  });
+  twoChampionshipCache.set(cacheKey, result);
+  return result;
+}
+
+/**
+ * THE AWARDS LATTICE OF THE TWO CHAMPIONSHIPS at the sweep's "Playoffs final,
+ * awards open" stop: every subset of the two read with Awards final. A flag
+ * edge is one more championship's flag. With both final every key's Awards
+ * are final and the proof stops, which is the artifact's own finished state.
+ */
+function twoChampionshipLattice(mode: RuleMode): TwoChampionshipResult {
+  const cacheKey = `lattice|${mode}`;
+  const cached = twoChampionshipCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+  const result = underRules(mode, (): TwoChampionshipResult => {
+    const { artifact, keys, brackets } = twoChampionships();
+    const stop = championshipStops(artifact, brackets).find((entry) => entry.label === PLAYOFFS_FINAL_AWARDS_OPEN_STOP);
+    if (stop === undefined) throw new Error(`no "${PLAYOFFS_FINAL_AWARDS_OPEN_STOP}" stop`);
+    const tally = newTally();
+    const lines: string[] = [];
+    const masks = Array.from({ length: 1 << keys.length }, (_, mask) => mask);
+    const flagsOf = (mask: number): string => `{${keys.filter((_, index) => (mask & (1 << index)) !== 0).map(shortKey).join(",")}}`;
+    const byMask = new Map(
+      masks.map((mask) => {
+        const stageByKey = new Map(stop.stageByKey);
+        keys.forEach((key, index) => {
+          const base = stop.stageByKey.get(key);
+          if (base === undefined) throw new Error(`"${stop.label}" carries no stage for ${key}`);
+          stageByKey.set(key, { ...base, award: (mask & (1 << index)) !== 0 });
+        });
+        return [mask, countReading(tally, readingOf(statusesAtChampionshipStop(artifact, { ...stop, stageByKey }, brackets, true)))] as const;
+      })
+    );
+    for (const mask of masks) {
+      for (let index = 0; index < keys.length; index++) {
+        if ((mask & (1 << index)) !== 0) continue;
+        const before = byMask.get(mask)!;
+        const after = byMask.get(mask | (1 << index))!;
+        checkEdge(tally, "flag", `"${stop.label}" awards final at ${flagsOf(mask)} then ${shortKey(keys[index]!)}`, before, after);
+        lines.push(`awards final at ${flagsOf(mask)} then ${shortKey(keys[index]!)}: joint ${before.joint} then ${after.joint} | held ${String(before.held.size)} then ${String(after.held.size)}`);
+      }
+    }
+    return { stops: 1, tally, lines };
+  });
+  twoChampionshipCache.set(cacheKey, result);
+  return result;
+}
+
+describe("GROUP C, two championships with one finishing first: 2026 California, one championship's Awards final while the other is still playing (quick task 261010-d7r, finding F-C)", () => {
+  if (!existsSync(CORPUS_ABSOLUTE)) {
+    localDataAbsent(`${CORPUS_PATH} absent (gitignored local data)`);
+    return;
+  }
+  if (!LOCAL_DISTRICT_FILES.includes(TWO_CHAMPIONSHIP_FILE)) {
+    localDataAbsent(`${TWO_CHAMPIONSHIP_FILE} absent under ${LOCAL_DISTRICT_DIR} (gitignored local data)`);
+    return;
+  }
+
+  it("2026 California is the one two championship district of 2023 on that the local artifacts carry", () => {
+    const multiple: string[] = [];
+    for (const fileName of LOCAL_DISTRICT_FILES) {
+      const year = Number(DISTRICT_DETAIL_FILE.exec(fileName)?.[1]);
+      if (!(year >= 2023)) continue;
+      const artifact = localArtifact(fileName);
+      if (artifact.cmpSlots !== null && championshipShape(dcmpEventKeysFor(artifact)).kind === "multiple") multiple.push(artifact.districtKey);
+    }
+    expect(multiple).toEqual([TWO_CHAMPIONSHIP_DISTRICT]);
+    expect(twoChampionships().keys).toHaveLength(2);
+  });
+
+  it(
+    "one championship finished while the other stands at each sweep stop: the proof is applied on both sides of every edge, no held team is lost and no margin drops",
+    () => {
+      const { stops, tally, lines } = oneFinishingFirst("on");
+      console.log(`[261010-d7r group C, rules on] one championship finishing first\n${lines.map((line) => `  ${line}`).join("\n")}\n  flag edges ${String(tally.edges.flag)} | stop edges ${String(tally.edges.stop)} | Locked lost ${String(tally.lost.flag + tally.lost.stop)} | margin drops ${String(tally.marginDrops)}`);
+      expectMonotone("2026 California, one championship finishing first", tally);
+      // Applied at every reading: the finished championship needs no bracket facts once its Awards are final.
+      expect(tally.joint).toEqual({ applied: tally.readings });
+      // Pinned as the run shows: seven stops, each championship finished in turn.
+      expect({ stops, readings: tally.readings, flagEdges: tally.edges.flag, stopEdges: tally.edges.stop, appliedThenRefused: tally.appliedThenRefused }).toEqual({
+        stops: 7,
+        readings: 28,
+        flagEdges: 14,
+        stopEdges: 24,
+        appliedThenRefused: 0,
+      });
+    },
+    TEST_TIMEOUT_MS
+  );
+
+  it(
+    "the awards lattice at \"Playoffs final, awards open\": every subset of the two championships read with Awards final, no held team is lost and no margin drops",
+    () => {
+      const { tally, lines } = twoChampionshipLattice("on");
+      console.log(`[261010-d7r group C, rules on] the awards lattice of the two championships\n${lines.map((line) => `  ${line}`).join("\n")}`);
+      expectMonotone("2026 California, the awards lattice", tally);
+      // Applied with neither or one championship's Awards final; with both final the proof stops, and it refuses as
+      // it always has there (no facts are built for a championship whose Awards are final).
+      expect(tally.joint).toEqual({ applied: 3, noBracketFacts: 1 });
+      expect({ readings: tally.readings, flagEdges: tally.edges.flag, appliedThenRefused: tally.appliedThenRefused }).toEqual({ readings: 4, flagEdges: 4, appliedThenRefused: 2 });
+    },
+    TEST_TIMEOUT_MS
+  );
+
+  it(
+    "THE TEST BITES: with the stop rule switched off the proof refuses the moment one championship's Awards read final, and Locked teams are lost, pinned as the run shows",
+    () => {
+      const finishing = oneFinishingFirst("stopRuleOff");
+      const lattice = twoChampionshipLattice("stopRuleOff");
+      console.log(
+        `[261010-d7r group C, stop rule OFF] one finishing first: readings ${String(finishing.tally.readings)} (${JSON.stringify(finishing.tally.joint)}) | Locked lost over flag edges ${String(finishing.tally.lost.flag)}, over stop edges ${String(finishing.tally.lost.stop)} | applied then refused ${String(finishing.tally.appliedThenRefused)}\n${finishing.lines.map((line) => `  ${line}`).join("\n")}\n  the lattice: ${JSON.stringify(lattice.tally.joint)} | Locked lost ${String(lattice.tally.lost.flag)}\n${finishing.tally.lostLines.slice(0, 8).map((line) => `  ${line}`).join("\n")}`
+      );
+      // THE REQUIREMENT: the mutation is caught, through the status code's own verdicts.
+      expect(finishing.tally.lost.flag).toBeGreaterThan(0);
+      // The measurement of the reading before quick task 261010-d7r (finding F-C). Pinned as the run shows.
+      expect({
+        joint: finishing.tally.joint,
+        lostOverFlagEdges: finishing.tally.lost.flag,
+        lostOverStopEdges: finishing.tally.lost.stop,
+        appliedThenRefused: finishing.tally.appliedThenRefused,
+        latticeJoint: lattice.tally.joint,
+        latticeLost: lattice.tally.lost.flag,
+      }).toEqual({ joint: { applied: 14, noBracketFacts: 14 }, lostOverFlagEdges: 91, lostOverStopEdges: 0, appliedThenRefused: 14, latticeJoint: { applied: 1, noBracketFacts: 3 }, latticeLost: 1 });
     },
     TEST_TIMEOUT_MS
   );
