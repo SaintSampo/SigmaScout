@@ -2211,3 +2211,221 @@ describe("divisionedJointFrames: specific real futures the frames must cover (26
     expect(jointLockBound(input, "T")).toBeGreaterThanOrEqual(real);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The samplers themselves are rule legal (quick task 261009-tx9, CONTEXT D4)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE LEGALITY CHECK: one message per breach of the backup robot rule in a
+ * recorded future. It KNOWS THE HINDSIGHT ROSTER, which alliance lists which
+ * fourth that is not confirmed. The breaches: two backups on one alliance over
+ * the whole championship, division and finals together; a listed fourth that
+ * stays on its alliance while another backup joins it; one team a backup on
+ * two alliances; a backup that is a confirmed pick of any alliance; a backup
+ * with no row in its alliance's division; a backup paid more than its
+ * alliance's own value; the champion's backup missing from the champion
+ * roster, or a team on that roster that is not on the champion; a team paid
+ * without being on an alliance, a listed fourth paid as its listed alliance's
+ * member without being recorded as its backup among them; a team holding two
+ * point paying awards; a judged award to a team with no division row.
+ */
+function ruleViolations(future: RecordedFuture, field: DivisionedField): string[] {
+  const messages: string[] = [];
+  const confirmedOn = new Map<string, number>();
+  for (const [id, members] of field.confirmed) for (const member of members) confirmedOn.set(member, id);
+  const listedOn = new Map<string, number>();
+  for (const [id, key] of field.listedFourths) listedOn.set(key, id);
+  const byAlliance = new Map<number, BackupRecord[]>();
+  const byTeam = new Map<string, BackupRecord[]>();
+  for (const backup of future.backups) {
+    byAlliance.set(backup.alliance, [...(byAlliance.get(backup.alliance) ?? []), backup]);
+    byTeam.set(backup.team, [...(byTeam.get(backup.team) ?? []), backup]);
+  }
+
+  for (const [id, list] of byAlliance) {
+    if (list.length < 2) continue;
+    const fourth = field.listedFourths.get(id);
+    if (fourth !== undefined && list.some((backup) => backup.team === fourth)) messages.push(`alliance ${String(id)}: its listed fourth ${fourth} stays while another backup joins it`);
+    else messages.push(`alliance ${String(id)}: ${String(list.length)} backups over the whole championship`);
+  }
+  for (const [team, list] of byTeam) {
+    const alliances = new Set(list.map((backup) => backup.alliance));
+    if (alliances.size > 1) messages.push(`${team}: a backup on ${String(alliances.size)} alliances`);
+  }
+  for (const backup of future.backups) {
+    const eligibleHere = field.eligible[Math.floor(backup.alliance / 10) - 1] ?? [];
+    const confirmedAlliance = confirmedOn.get(backup.team);
+    if (confirmedAlliance !== undefined) messages.push(`${backup.team}: a confirmed pick of alliance ${String(confirmedAlliance)} is a backup on alliance ${String(backup.alliance)}`);
+    else if (!eligibleHere.includes(backup.team)) messages.push(`${backup.team}: a backup on alliance ${String(backup.alliance)} with no row in its division`);
+    const value = future.allianceValue.get(backup.alliance) ?? 0;
+    const paid = future.paid.get(backup.team) ?? 0;
+    if (paid > value) messages.push(`${backup.team}: a backup paid ${String(paid)}, above the ${String(value)} of its alliance ${String(backup.alliance)}`);
+    if (backup.alliance === future.champion && !future.championRoster.has(backup.team)) messages.push(`${backup.team}: the champion's backup is missing from the champion roster`);
+  }
+  for (const key of future.championRoster) {
+    if (confirmedOn.get(key) === future.champion) continue;
+    if ((byTeam.get(key) ?? []).some((backup) => backup.alliance === future.champion)) continue;
+    messages.push(`${key}: on the champion roster without being on the champion alliance`);
+  }
+  for (const [key, paid] of future.paid) {
+    if (paid <= 0 || byTeam.has(key)) continue;
+    const confirmedAlliance = confirmedOn.get(key);
+    if (confirmedAlliance !== undefined) {
+      const value = future.allianceValue.get(confirmedAlliance) ?? 0;
+      if (paid > value) messages.push(`${key}: a member paid ${String(paid)}, above the ${String(value)} of its alliance ${String(confirmedAlliance)}`);
+      continue;
+    }
+    const listedAlliance = listedOn.get(key);
+    if (listedAlliance !== undefined) messages.push(`${key}: a listed fourth paid as a member of alliance ${String(listedAlliance)} without being recorded as its backup`);
+    else messages.push(`${key}: paid without being on an alliance`);
+  }
+  for (const key of future.consuming) if (future.judged.has(key)) messages.push(`${key}: two point paying awards`);
+  for (const key of future.judged) if (!field.divisionOfTeam.has(key)) messages.push(`${key}: a judged award to a team with no division row`);
+  return messages;
+}
+
+describe("champJointLock: the divisioned samplers obey the backup robot rule (261009-tx9, D4)", () => {
+  it("every future the E3 enumerator yields for one pool team of each of the six variants, and 20,000 S2 futures at each of the three stops, break no rule, and the samplers are not vacuous", () => {
+    const seen = { futures: 0, championBackup: 0, losingFinalsBackup: 0, finalsOnlyBackup: 0, winnerWithoutBackup: 0, listedFourthStays: 0, listedFourthElsewhere: 0 };
+    const check = (future: RecordedFuture, field: DivisionedField, label: string): void => {
+      seen.futures += 1;
+      const messages = ruleViolations(future, field);
+      if (messages.length > 0) throw new Error(`${label}: an illegal future: ${messages.join("; ")}`);
+      const backed = new Set<number>();
+      for (const backup of future.backups) {
+        backed.add(backup.alliance);
+        if (backup.alliance === future.champion) seen.championBackup += 1;
+        else if (future.divisionWinners.includes(backup.alliance)) seen.losingFinalsBackup += 1;
+        if (backup.finalsOnly) seen.finalsOnlyBackup += 1;
+        for (const [id, fourth] of field.listedFourths) {
+          if (fourth !== backup.team) continue;
+          if (id === backup.alliance) seen.listedFourthStays += 1;
+          else seen.listedFourthElsewhere += 1;
+        }
+      }
+      if (future.divisionWinners.some((id) => !backed.has(id))) seen.winnerWithoutBackup += 1;
+    };
+
+    let enumerated = 0;
+    for (const variant of E3_VARIANTS) {
+      const setup = e3Setup(variant);
+      // A member of a placed alliance: no champion is skipped for it and every team with a row is placed.
+      const teamKey = variant.decisive?.team ?? "d2a4m1";
+      expect(setup.input.pool.some((rival) => rival.teamKey === teamKey)).toBe(true);
+      forEachE3Future(setup, teamKey, (future) => {
+        enumerated += 1;
+        check(future, setup.field, `E3 ${variant.label}`);
+      });
+    }
+    expect(enumerated).toBeGreaterThan(50_000);
+
+    let sampled = 0;
+    for (const sampledCase of S2_CASES) {
+      const setup = s2Setup(sampledCase.stop);
+      for (let draw = 0; draw < 20_000; draw++) {
+        sampled += 1;
+        check(sampleS2Future(setup), setup.field, `S2 ${sampledCase.label}`);
+      }
+    }
+    expect(sampled).toBe(60_000);
+
+    // Not vacuous: each kind of backup the rule allows is drawn, and so is its absence.
+    expect(seen.futures).toBe(enumerated + sampled);
+    expect(seen.championBackup).toBeGreaterThan(0);
+    expect(seen.losingFinalsBackup).toBeGreaterThan(0);
+    expect(seen.finalsOnlyBackup).toBeGreaterThan(0);
+    expect(seen.winnerWithoutBackup).toBeGreaterThan(0);
+    expect(seen.listedFourthStays).toBeGreaterThan(0);
+    expect(seen.listedFourthElsewhere).toBeGreaterThan(0);
+  }, 120_000);
+
+  it("five hand built illegal futures are each reported with their own message", () => {
+    const { field } = e3Setup(E3_VARIANTS[1]!);
+    const members = (id: number): readonly string[] => field.confirmed.get(id)!;
+    // The legal base: 11 wins division 1 (90) and the finals (60); 21 wins division 2 (90) and is the finalist (30);
+    // 12 and 22 are second in their divisions (75) and 13 and 23 third (39). No backup anywhere.
+    const allianceValue = new Map([
+      [11, 150],
+      [12, 75],
+      [13, 39],
+      [21, 120],
+      [22, 75],
+      [23, 39],
+    ]);
+    const basePaid = new Map<string, number>();
+    for (const [id, value] of allianceValue) for (const member of members(id)) basePaid.set(member, value);
+    const built = (backups: readonly BackupRecord[], paid: readonly (readonly [string, number])[], onRoster: readonly string[] = []): RecordedFuture => ({
+      championRoster: new Set([...members(11), ...onRoster]),
+      paid: new Map([...basePaid, ...paid]),
+      consuming: new Set(),
+      judged: new Set(),
+      champion: 11,
+      divisionWinners: [11, 21],
+      backups,
+      allianceValue,
+    });
+    expect(ruleViolations(built([], []), field)).toEqual([]);
+    // A legal backup of each kind, so the five below fail for their own reason and no other.
+    expect(ruleViolations(built([{ team: "u1", alliance: 11, finalsOnly: false }], [["u1", 150]], ["u1"]), field)).toEqual([]);
+    expect(ruleViolations(built([{ team: "L1", alliance: 12, finalsOnly: false }], [["L1", 75]]), field)).toEqual([]);
+    expect(ruleViolations(built([{ team: "L2", alliance: 21, finalsOnly: true }], [["L2", 30]]), field)).toEqual([]);
+
+    const illegal: readonly { readonly label: string; readonly future: RecordedFuture; readonly message: RegExp }[] = [
+      {
+        // The 261009-kt3 reading R5 future: u1 on 11's division roster and q2 on its finals roster.
+        label: "a second backup on one alliance",
+        future: built(
+          [
+            { team: "u1", alliance: 11, finalsOnly: false },
+            { team: "q2", alliance: 11, finalsOnly: true },
+          ],
+          [
+            ["u1", 90],
+            ["q2", 60],
+          ],
+          ["u1", "q2"]
+        ),
+        message: /^alliance 11: 2 backups over the whole championship$/,
+      },
+      {
+        label: "a backup from another division",
+        future: built([{ team: "L2", alliance: 12, finalsOnly: false }], [["L2", 75]]),
+        message: /^L2: a backup on alliance 12 with no row in its division$/,
+      },
+      {
+        // The 261009-kt3 seat open to any rival: a pick of eliminated alliance 25 on the losing finals alliance.
+        label: "a confirmed pick of an eliminated alliance as a backup",
+        future: built([{ team: "d2a5m1", alliance: 21, finalsOnly: true }], [["d2a5m1", 30]]),
+        message: /^d2a5m1: a confirmed pick of alliance 25 is a backup on alliance 21$/,
+      },
+      {
+        label: "a backup paid above its alliance",
+        future: built([{ team: "u1", alliance: 12, finalsOnly: false }], [["u1", 90]]),
+        message: /^u1: a backup paid 90, above the 75 of its alliance 12$/,
+      },
+      {
+        label: "a listed fourth that stays while another backup joins its alliance",
+        future: built(
+          [
+            { team: "L1", alliance: 12, finalsOnly: false },
+            { team: "u1", alliance: 12, finalsOnly: false },
+          ],
+          [
+            ["L1", 75],
+            ["u1", 75],
+          ]
+        ),
+        message: /^alliance 12: its listed fourth L1 stays while another backup joins it$/,
+      },
+    ];
+    for (const entry of illegal) {
+      const messages = ruleViolations(entry.future, field);
+      expect(messages, entry.label).toHaveLength(1);
+      expect(messages[0], entry.label).toMatch(entry.message);
+    }
+    // Two more breaches the samplers never draw: a listed fourth paid as a member with no backup record, and a judged award with no row.
+    expect(ruleViolations(built([], [["L1", 75]]), field)).toEqual(["L1: a listed fourth paid as a member of alliance 12 without being recorded as its backup"]);
+    expect(ruleViolations({ ...built([], []), judged: new Set(["r"]) }, field)).toEqual(["r: a judged award to a team with no division row"]);
+  });
+});
