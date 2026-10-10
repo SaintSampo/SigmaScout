@@ -1,9 +1,9 @@
 /**
- * THE DISTRICT PASS: one conditional TBA rankings request per live district
- * per tick, merged into the already-published `v1/district/{key}.json` through
- * the ONE shared producer (`packages/harness/districtRankingsMerge.ts`) and
- * written back. This is the live half of SC-1 — the only thing in phase 10
- * that makes a published district's numbers move between offline republishes.
+ * THE DISTRICT PASS: TBA's district rankings and awards, merged into the
+ * already-published `v1/district/{key}.json` through the ONE shared producer
+ * (`packages/harness/districtRankingsMerge.ts`) and written back. This is the
+ * live half of SC-1 — the only thing in phase 10 that makes a published
+ * district's numbers move between offline republishes.
  *
  * Extracted into its own module for the same reason `artifactMerge.ts` states
  * for itself: the edge runs ONE WAY ONLY. `scheduled.ts` imports this pass;
@@ -11,13 +11,16 @@
  *
  * `runDistrictRefresh` NEVER THROWS. Every district's work sits inside its own
  * try/catch, every awards request sits inside its own try within that (see
- * AN AWARDS REQUEST THAT FAILS below), and the only pass-level work —
- * `liveDistrictsOf` (pure) and one `readEventCursors` call — precedes the
- * loop. That contract is load-bearing, not defensive style: the call site
- * sits upstream of `writeTickMeta`, so an escaping throw would cost the tick
- * its rotation offset and permanently starve the tail of the live-event list
+ * AN AWARDS REQUEST THAT FAILS below), and the pass-level work that precedes
+ * the loop is pure (`liveDistrictsOf`, the cadence) or sits inside a try of
+ * its own (the cursor read, the suspension check). That contract is
+ * load-bearing, not defensive style: the main call site sits upstream of
+ * `writeTickMeta`, so an escaping throw would cost the tick its rotation
+ * offset and permanently starve the tail of the live-event list
  * (`subrequestCounter.ts`'s `rotate` header states why that is an omission,
- * not a delay).
+ * not a delay), and since quick task 261009-tx6 the pass is also reached from
+ * the tick's two idle returns, where a throw would fail a tick that had
+ * nothing else to do.
  *
  * THE WORKER HAS NO CORPUS (`10-RESEARCH.md` Pitfall 3). It can only read back
  * what the offline publisher wrote, merge in what `/district/{key}/rankings`
@@ -34,6 +37,52 @@
  * imports no `packages/corpus/`, no `better-sqlite3`, no `node:` built-in and
  * nothing under `packages/core/algorithms/simulation/` — asserted statically by
  * `apps/worker/test/scheduled.district.test.ts`.
+ *
+ * WHICH DISTRICTS THE PASS LOOKS AT: THE WATCH SET (quick task 261009-tx6).
+ * An event's awards, and the award points that go with them, reach TBA after
+ * its last match, often after its live window (padded one hour past the last
+ * match) has closed. So the pass is handed two lists:
+ *   - `windows`: the windows the tick ACTUALLY PROCESSED this tick (foldable,
+ *     or promoted this tick). Their events are LIVE members.
+ *   - `watchWindows`: every district window of the manifest that is live or
+ *     ended within the last `DISTRICT_AWARDS_WATCH_MS` (24 hours). An entry
+ *     the tick did not process is a WATCHED member.
+ * The offline manifest builder keeps a closed district window for those same
+ * 24 hours (`packages/harness/manifests.ts`), by the same constant and the
+ * same half open bound, so a manifest rebuilt inside the watch does not end
+ * it.
+ *
+ * A CALENDAR WINDOW NEEDS PROOF. A watched member whose window is `inferred`
+ * (a calendar guess for an event the corpus held no match for) is kept only
+ * when the event's own match cursor row shows a folded match
+ * (`lastFoldedMatchKey` not null). Without that proof it is dropped, and a
+ * district left with no member is not processed at all. Such a district has
+ * cost its share of the pass's ONE cursor read and no district request: the
+ * same rule that keeps a never promoted probe window from spending a TBA
+ * request on an event that has not proven it has a single match.
+ *
+ * THE TWO CADENCES, read off the UTC minute of the tick. Nothing is stored,
+ * on purpose: there is no marker to lose, and a cron tick that is skipped
+ * only delays that look to the next mark.
+ *   - A district with a LIVE member is processed every tick.
+ *   - Any other watched district is processed only on a minute that is a
+ *     multiple of `DISTRICT_QUIET_CADENCE_MINUTES` (5), out of consideration
+ *     for TBA. On every other tick it costs nothing: no D1 read, no request.
+ *   - THE FORCED LOOK: on a minute that is a multiple of
+ *     `DISTRICT_FORCED_LOOK_MINUTES` (15), every processed district's
+ *     rankings are asked with NO ETag and the gate is passed unconditionally.
+ *     This applies to live districts too. It is the one mechanism that reads
+ *     the settle clock without any waiting marker, merges again after an
+ *     offline republish replaced the artifact, gives an awards cursor row to
+ *     an event that has none, and repairs a failed cursor write. Nothing
+ *     stays stuck for more than 15 minutes while its district is watched.
+ *
+ * SUSPENSION. The main call site sits below the tick's state generation
+ * mismatch return, so a mismatch never reaches it. The two idle call sites
+ * pass `isSuspended`, which answers the same question lazily. It is called at
+ * most once, only after a district is due and proven, and before any TBA
+ * request. True, or a throw, means the pass does nothing this tick and logs
+ * one `district-pass-suspended` warn.
  *
  * THE AWARDS FLAG AND THE WINNER RECORDS (quick tasks 261009-r9x and
  * 261009-tx6). The Locks guarantee holds slots back until an event's awards
@@ -55,10 +104,12 @@
  *
  * WHAT THE AWARDS CURSOR ROW HOLDS. `__event_awards__:{eventKey}` stores, in
  * `tbaEtag`, the ETag of the last awards list this pass MERGED, whatever the
- * flag says, and in `lastAdvancedAt` THE TIME THAT ETAG LAST CHANGED (an
- * existing column this row did not use before, so no migration). It says
- * nothing about the flag: the flag on the artifact does. A row with a NULL
- * ETag is a retry marker (see below) and is asked with no ETag.
+ * flag says; in `lastAdvancedAt` THE TIME THAT ETAG LAST CHANGED (an existing
+ * column this row did not use before, so no migration); and in `lastPolledAt`
+ * the time the row was last written, which for a catch up event is the time
+ * it was last asked. It says nothing about the flag: the flag on the artifact
+ * does. A row with a NULL ETag is a retry marker (see below) and is asked
+ * with no ETag.
  *
  * THE SETTLE CLOCK. A list in hand is settled when its ETag equals the row's
  * and the row's `lastAdvancedAt` is at least 60 minutes before this tick
@@ -66,10 +117,10 @@
  * write). The list reads as CHANGED NOW, and the row is written with
  * `lastAdvancedAt` set to this tick's time, in three cases: no row exists,
  * the stored ETag differs from the list's, or the list has an ETag and the
- * row has no usable `lastAdvancedAt` (the row Worker 33d0ded7 wrote). In no
- * other case is the row written, so the stored time stands. A list whose
- * response carried no ETag never reads as settled. Every unknown is the side
- * that keeps the flag false.
+ * row has no usable `lastAdvancedAt` (the row Worker 33d0ded7 wrote). For a
+ * member event the row is written in no other case, so the stored time
+ * stands. A list whose response carried no ETag never reads as settled. Every
+ * unknown is the side that keeps the flag false.
  *
  * A FAILED ASK RESTARTS THE CLOCK ONLY ON A TICK THAT PASSES THE GATE. That
  * is the only tick that writes the retry marker, and the next list after a
@@ -77,34 +128,57 @@
  * tick that does not pass the gate writes nothing and leaves the clock alone.
  *
  * THE ORDER FOR ONE DISTRICT, and the reason for it:
- *   1. The rankings request, conditional.
- *   2. One awards request per member event that has an awards cursor row,
- *      conditional on its stored ETag. A 200 means the list changed.
+ *   1. The rankings request. Conditional on the stored ETag, except on a
+ *      forced look, where no ETag is sent.
+ *   2. One awards request per member event, live or watched, that has an
+ *      awards cursor row, conditional on its stored ETag. A 200 means the
+ *      list changed.
  *   3. THE GATE. The district goes on when the rankings changed, OR a member
- *      event has a match observation this tick, OR an awards list changed.
- *      Otherwise it is unchanged and NOTHING is read from R2. A quiet district
- *      therefore costs one conditional rankings request plus one conditional
- *      awards request per event with a cursor row, and no R2 read.
+ *      event has a match observation this tick, OR an awards list changed, OR
+ *      this is a forced look. Otherwise it is unchanged and NOTHING is read
+ *      from R2. A quiet district therefore costs one conditional rankings
+ *      request plus one conditional awards request per event with a cursor
+ *      row, and no R2 read.
  *   4. The artifact read.
- *   5. Per member event: when no list is in hand, ONE awards request with no
- *      ETag, in exactly two cases. First, the flag still waits, the playoffs
- *      are done, and the event either answered 304 in step 2 or has no cursor
+ *   5. THE CATCH UP, on a forced look only. The artifact's own rows name
+ *      older events whose state says the playoffs are done and the awards are
+ *      not posted, and that are not members this tick: events whose awards or
+ *      points landed after their watch ended. Their awards cursor rows are
+ *      read in one counted D1 read (90 keys per statement), and at most
+ *      `DISTRICT_AWARDS_CATCH_UP_MAX` (8) are chosen: an event never asked
+ *      first, then the one asked longest ago, ties by week (a null week
+ *      last), then by event key. Each chosen event is asked ONCE with no
+ *      ETag, and its row is ALWAYS written afterwards with `lastPolledAt` set
+ *      to this tick, whatever the answer, so the order rotates and events
+ *      that can never post cannot starve a newer one. An event key read off
+ *      the artifact is checked against `EVENT_KEY_PATTERN` before it becomes
+ *      a URL segment or a cursor key.
+ *   6. Per member event: when no list is in hand, ONE awards request with no
+ *      ETag, in three cases. First, the flag still waits, the playoffs are
+ *      done, and the event either answered 304 in step 2 or has no cursor
  *      row: a 304 carries no list, and the rule needs the list to be read
- *      against the rankings merged this tick. Second, the flag is already true
- *      and the event has no cursor row (the offline publisher set the flag, so
- *      the Worker has never asked): one ask gives it a row, and from then on a
- *      changed list passes the gate. This is the only unconditional ask, and
- *      it happens only on a tick that already read the artifact.
- *   6. One candidate build, with both maps. One put when it differs.
- *   7. Cursor writes LAST: every list handed to the merge stores the ETag of
- *      its response, so the next quiet tick is a cheap 304. That holds for an
- *      empty list and for a Winner and Finalist only list too.
+ *      against the rankings merged this tick. Second, ON A FORCED LOOK, the
+ *      flag still waits and the event's window has ENDED, whatever its
+ *      published state says about the playoffs: an event whose playoffs ran
+ *      past its measured window would otherwise never be asked, and a judged
+ *      award with its points and sixty settled minutes is itself proof the
+ *      event is over. Third, the flag is already true and the event has no
+ *      cursor row (the offline publisher set the flag, so the Worker has
+ *      never asked): one ask gives it a row, and from then on a changed list
+ *      passes the gate. These are the only unconditional asks, and they
+ *      happen only on a tick that already read the artifact.
+ *   7. One candidate build, with the state map, the lists and the settled
+ *      set. One put when it differs.
+ *   8. Cursor writes LAST: every list handed to the merge that reads as
+ *      changed now stores the ETag of its response and this tick's time, so
+ *      the next quiet tick is a cheap 304. That holds for an empty list and
+ *      for a Winner and Finalist only list too.
  *
  * A CHANGED LIST PASSES THE GATE. A finished event stops producing match
  * observations once its match list goes 304, and its rankings go 304 too, so
  * without step 2 a late award (or a District Championship Winner listed on an
- * otherwise quiet tick) would never be seen. With it, the award is recorded
- * on the tick its list changes.
+ * otherwise quiet tick) would not be seen until the next forced look. With
+ * it, the award is recorded on the tick its list changes.
  *
  * AN AWARDS REQUEST THAT FAILS IS NOT FATAL TO THE DISTRICT. A request that
  * throws, answers a status other than 200 or 304, or returns a body that
@@ -116,45 +190,56 @@
  * the event's flag is not yet true, its cursor row is written with a NULL
  * ETag at the end of the tick (created if absent), never with an ETag from
  * the failed response. Step 2 asks a null ETag row with no ETag, so the next
- * tick's 200 passes the gate and the rule is read again. Without the marker a
- * tick that merged the award points while its awards ask failed would be
- * followed by conditional 304s on an unchanged list for ever, and the flag
- * would never turn true. An event whose flag is already true keeps its row as
- * it was: its next conditional ask is the retry.
+ * tick's 200 passes the gate and the rule is read again. An event whose flag
+ * is already true keeps its row as it was: its next conditional ask is the
+ * retry.
  *
  * THE AWARDS CURSORS ARE WRITTEN BEFORE THE RANKINGS CURSOR. If an awards
  * cursor write throws, the rankings cursor is not written that tick, so the
  * next tick's rankings request is a 200 again and passes the gate again.
  *
- * KNOWN FRESHNESS LIMIT, recorded rather than fixed: a district's awards, and
- * the award points that go with them, that post after every member event's
- * live window has CLOSED are not picked up until the next offline republish.
- * A window is padded one hour past the last observed match
- * (`LIVE_WINDOW_PAD_MS`, `packages/harness/manifestSchemas.ts`); an award
- * ceremony later that night falls outside it. In that case the flag stays
- * false, so the reservations stay held. This is a consequence of the window
- * definition, not a defect in this pass, and it is carried into
- * `docs/worker-operations.md` by 10-08.
+ * THE WORST CASE PER TICK, in subrequests. Every request and every D1 read or
+ * write below is counted with `counter.spend`. With M member events and C
+ * catch up events (C at most 8) in one district:
+ *   - A forced look: at most 3M + 2C + 5. One rankings request, one artifact
+ *     read, one put, one rankings cursor write, one catch up cursor read (one
+ *     more for each further 90 candidates), two awards requests and one
+ *     cursor write per member, one awards request and one cursor write per
+ *     catch up event.
+ *   - A tick that is not a forced look: at most 3M + 4 for a district that
+ *     passes the gate, and M + 1 for one that does not.
+ *   - The pass as a whole adds one cursor read statement per 90 keys, and on
+ *     an idle call site two more for the suspension check (the algorithms
+ *     manifest and the tick state, which a busy tick has paid for already).
+ * A forced look sends one unconditional rankings request per processed
+ * district, which is the one full rankings body the pass downloads every 15
+ * minutes while a district is watched.
  *
- * A SECOND LIMIT, recorded beside it: an event with no awards cursor row
- * whose district is quiet may not be asked again while it stays quiet,
- * because step 2 asks only events that have a row and step 5 runs only once
- * the gate has passed. For an event whose flag still waits and whose playoffs
- * are done, every path through this pass leaves a row (a merged list, or a
- * retry marker), so the one way left to get there is a D1 cursor write
- * failing on the same tick an awards ask failed (or, the same failure one
- * step earlier, on the tick its first list was merged) while the rankings
- * answered 304. The flag stays false in that case, so the reservations stay
- * held. An event whose flag the offline publisher set true has no row until
- * the first tick that passes the gate, so an award listed for it before then
- * is not recorded until then.
+ * WHAT IS TRUE NOW, AND THE LIMITS THAT REMAIN.
+ *   - An event is watched for 24 hours after its window closes, and the
+ *     manifest keeps that window for the same 24 hours. Awards and award
+ *     points that land inside that day are picked up within 15 minutes.
+ *   - Awards or points that land AFTER the watch has ended wait for the catch
+ *     up, which runs the next time the district is watched (when any of its
+ *     events is live or inside its own 24 hours), eight events per forced
+ *     look. Until then the flag stays false, so the reservations stay held.
+ *     The next offline republish resolves them too.
+ *   - An event whose window is still open and whose published state says its
+ *     playoffs are open is not asked for awards at all.
+ *   - The settle time has a limit: an award listed MORE than an hour after
+ *     the list last changed lands after the flag is true. It is recorded on
+ *     the tick its list changes, but the slot held for it was released when
+ *     the hour ran out.
+ *   - The first real district event to exercise this pass is the first one
+ *     of 2027. Until then the replay over the eight 2026 PNW district events
+ *     in `apps/worker/test/scheduled.district.test.ts` stands in for it.
  */
 import { districtDetailKey, DistrictArtifactSchema, DistrictEventStateSchema, type DistrictArtifact, type DistrictEventState } from "../../../packages/harness/pageArtifacts.js";
 import { applyDistrictEventState, applyDistrictRankings, type DistrictEventAwardInput } from "../../../packages/harness/districtRankingsMerge.js";
 import { awardsListSettled } from "../../../packages/core/districts/eventAwards.js";
 import { DISTRICT_KEY_PATTERN, EVENT_KEY_PATTERN } from "../../../packages/core/districts/keys.js";
 import { districtRankingsCursorKey, eventAwardsCursorKey } from "../../../packages/harness/stateBaseline.js";
-import type { LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
+import { DISTRICT_AWARDS_WATCH_MS, type LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
 import { tbaEventAwardsResponseSchema } from "../../../packages/ingest/schemas.js";
 import type { MatchDerivedEventState } from "./districtEventState.js";
 import type { Stamp } from "./artifactMerge.js";
@@ -188,8 +273,20 @@ import type { Env } from "./env.js";
  */
 export { DISTRICT_KEY_PATTERN, EVENT_KEY_PATTERN };
 
+/** A watched district with nothing live is processed only on a tick whose UTC minute is a multiple of this (quick task 261009-tx6). */
+export const DISTRICT_QUIET_CADENCE_MINUTES = 5;
+
+/** On a tick whose UTC minute is a multiple of this, every processed district's rankings are asked with no ETag and the gate is passed unconditionally (quick task 261009-tx6). */
+export const DISTRICT_FORCED_LOOK_MINUTES = 15;
+
+/** The most older waiting events one district asks for their awards on one forced look (quick task 261009-tx6). */
+export const DISTRICT_AWARDS_CATCH_UP_MAX = 8;
+
+/** D1 allows 100 bound parameters per statement; 90 keys per read leaves headroom. The value `liveEventPass.ts` reads its cursors by, for the same reason. */
+const CURSOR_READ_KEYS_PER_STATEMENT = 90;
+
 /**
- * The live windows of this tick, grouped by the district each belongs to.
+ * The windows handed in, grouped by the district each belongs to.
  * THIS IS THE WHOLE DISCOVERY MECHANISM: an entry's `districtKey` (10-03's
  * addition to `LiveWindowEntrySchema`) is the only way the Worker learns a
  * district exists at all — it cannot read `events.district_key`, it has no
@@ -200,8 +297,8 @@ export { DISTRICT_KEY_PATTERN, EVENT_KEY_PATTERN };
  * 10) or `null` (a non-district event) contributes nothing, which is what
  * makes the whole pass a no-op against a pre-republish manifest.
  *
- * Districts are iterated in sorted key order so two ticks over the same live
- * set do the same work in the same order.
+ * Districts are iterated in sorted key order so two ticks over the same set
+ * do the same work in the same order.
  */
 export function liveDistrictsOf(windows: readonly LiveWindowEntry[]): Map<string, LiveWindowEntry[]> {
   const byDistrict = new Map<string, LiveWindowEntry[]>();
@@ -217,16 +314,34 @@ export function liveDistrictsOf(windows: readonly LiveWindowEntry[]): Map<string
 
 /** The four counts `TickResult` carries as required fields, so every return site in `runTick` must state them and a silently-failing district is impossible to miss in the tick log (threat T-10-05-07). */
 export interface DistrictRefreshResult {
+  /** The districts the pass PROCESSED this tick: due on this tick's cadence, and left with at least one member once unproven calendar windows were dropped. Zero on a tick where no district is due. */
   readonly districtsConsidered: number;
   readonly districtsRefreshed: number;
   readonly districtsUnchanged: number;
   readonly districtsFailed: number;
 }
 
+const NO_DISTRICT_WORK: DistrictRefreshResult = { districtsConsidered: 0, districtsRefreshed: 0, districtsUnchanged: 0, districtsFailed: 0 };
+
 export interface RunDistrictRefreshOptions {
-  /** The live windows the tick ACTUALLY processed — foldable plus promoted. See `scheduled.ts`'s call site for why a never-promoted probe window is deliberately excluded. */
+  /** The windows the tick ACTUALLY processed — foldable plus promoted. Their events are the LIVE members, and a district with one runs every tick. Empty on the tick's two idle call sites. */
   readonly windows: readonly LiveWindowEntry[];
-  /** This tick's own per-event observations, filled by `processEvent` above the `newlyFolded.length === 0` return. An event absent from this map contributed no observation this tick (its match poll was a 304, or it failed). */
+  /**
+   * Every district window of the manifest that is live or ended within the
+   * last `DISTRICT_AWARDS_WATCH_MS` (quick task 261009-tx6). An entry whose
+   * event is not in `windows` is a WATCHED member: its district runs on the 5
+   * minute cadence, and an `inferred` one needs proof of a played match.
+   * Absent, the pass looks at `windows` alone, as it did before that task.
+   */
+  readonly watchWindows?: readonly LiveWindowEntry[];
+  /**
+   * Whether every live write is suspended this tick (a state generation
+   * mismatch). Passed by the tick's idle call sites only. Called at most
+   * once, after a district is due and proven and before any TBA request. True
+   * or a throw: the pass does nothing and warns once.
+   */
+  readonly isSuspended?: () => Promise<boolean>;
+  /** This tick's own per-event observations, filled by `processEvent` above the `newlyFolded.length === 0` return. An event absent from this map contributed no observation this tick (its match poll was a 304, it failed, or it is a watched member the tick did not process). */
   readonly matchDerivedState: ReadonlyMap<string, MatchDerivedEventState>;
   readonly stamp: Stamp;
   readonly nowIso: string;
@@ -281,36 +396,176 @@ function awardsListChangedNow(stored: EventCursor | undefined, listEtag: string 
 }
 
 /**
+ * Named cursor rows, read `CURSOR_READ_KEYS_PER_STATEMENT` keys at a time and
+ * counted one subrequest per statement. No key, no call and no spend.
+ */
+async function readCursorRows(db: Env["DB"], counter: SubrequestCounter, keys: readonly string[]): Promise<Map<string, EventCursor>> {
+  const merged = new Map<string, EventCursor>();
+  for (let start = 0; start < keys.length; start += CURSOR_READ_KEYS_PER_STATEMENT) {
+    counter.spend(1);
+    const chunk = await readEventCursors(db, keys.slice(start, start + CURSOR_READ_KEYS_PER_STATEMENT));
+    for (const [key, cursor] of chunk) merged.set(key, cursor);
+  }
+  return merged;
+}
+
+/** One older event the catch up could ask about, with the week its rows carry. */
+interface CatchUpCandidate {
+  readonly eventKey: string;
+  readonly week: number | null;
+}
+
+/**
+ * The events the artifact's own rows say are still waiting for their awards
+ * and that are not members this tick: any tier, District Championship
+ * divisions included, a state block with `playoffsDone` true and
+ * `awardsPosted` not true. A key that does not pass `EVENT_KEY_PATTERN` is
+ * left out HERE, before it can become a D1 cursor key or a URL segment
+ * (threat T-tx6-01): the artifact is read back from R2, and its event keys
+ * are input like any other.
+ *
+ * A row that carries a state block wins over one that carries none, and the
+ * week is the first row's, matching every other per event walk of a district
+ * artifact.
+ */
+function catchUpCandidates(artifact: DistrictArtifact, memberEventKeys: ReadonlySet<string>): CatchUpCandidate[] {
+  const byEvent = new Map<string, { state: DistrictEventState | undefined; week: number | null }>();
+  for (const team of artifact.teams) {
+    for (const row of [...team.eventPoints, ...team.remainingEvents]) {
+      const known = byEvent.get(row.eventKey);
+      if (known === undefined) byEvent.set(row.eventKey, { state: row.state, week: row.week });
+      else if (known.state === undefined && row.state !== undefined) known.state = row.state;
+    }
+  }
+  const candidates: CatchUpCandidate[] = [];
+  for (const [eventKey, { state, week }] of byEvent) {
+    if (state === undefined || !state.playoffsDone || state.awardsPosted) continue;
+    if (memberEventKeys.has(eventKey) || !EVENT_KEY_PATTERN.test(eventKey)) continue;
+    candidates.push({ eventKey, week });
+  }
+  return candidates;
+}
+
+/**
+ * The catch up's order: an event never asked first (no row, or a row with no
+ * usable `lastPolledAt`), then the one asked longest ago, ties by week
+ * ascending with a null week last, then by event key. Every ask stamps
+ * `lastPolledAt`, so the order rotates and an event that can never post
+ * cannot keep a newer one from being asked (threat T-tx6-12).
+ */
+function orderCatchUp(candidates: readonly CatchUpCandidate[], cursors: ReadonlyMap<string, EventCursor>): CatchUpCandidate[] {
+  const lastAskedMs = (eventKey: string): number => {
+    const lastPolledAt = cursors.get(eventAwardsCursorKey(eventKey))?.lastPolledAt ?? null;
+    const parsed = lastPolledAt === null ? Number.NaN : Date.parse(lastPolledAt);
+    return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+  };
+  const weekRank = (week: number | null): number => (week === null ? Number.POSITIVE_INFINITY : week);
+  return [...candidates].sort((a, b) => {
+    const askedA = lastAskedMs(a.eventKey);
+    const askedB = lastAskedMs(b.eventKey);
+    if (askedA !== askedB) return askedA < askedB ? -1 : 1;
+    const weekA = weekRank(a.week);
+    const weekB = weekRank(b.week);
+    if (weekA !== weekB) return weekA < weekB ? -1 : 1;
+    return a.eventKey < b.eventKey ? -1 : a.eventKey > b.eventKey ? 1 : 0;
+  });
+}
+
+/**
  * One tick's district pass. See this module's header for the never-throws
- * contract, the two refusals, the order of the steps and the reason for it.
+ * contract, the watch set, the two cadences, the two refusals, the order of
+ * the steps and the reason for it.
  */
 export async function runDistrictRefresh(env: Env, counter: SubrequestCounter, tbaCtx: TbaClientContext, options: RunDistrictRefreshOptions): Promise<DistrictRefreshResult> {
   const { windows, matchDerivedState, stamp, nowIso } = options;
   const nowMs = Date.parse(nowIso);
-  const districts = liveDistrictsOf(windows);
+
+  // THE MEMBERS. The processed windows are live members. A watch window whose
+  // event the tick did not process is a watched member, while it is inside
+  // the watch: opened, and not yet `DISTRICT_AWARDS_WATCH_MS` past its close.
+  // The tick's loader already selects by that bound; the pass applies it too,
+  // by the same constant and the same half open comparison the offline
+  // builder keeps a window by, so the rule holds whoever calls it.
+  const liveEventKeys = new Set(windows.map((window) => window.eventKey));
+  const memberEventKeys = new Set(liveEventKeys);
+  const watchedOnly: LiveWindowEntry[] = [];
+  for (const window of options.watchWindows ?? []) {
+    if (memberEventKeys.has(window.eventKey)) continue;
+    if (!(window.startMs <= nowMs && nowMs < window.endMs + DISTRICT_AWARDS_WATCH_MS)) continue;
+    memberEventKeys.add(window.eventKey);
+    watchedOnly.push(window);
+  }
+  const districts = liveDistrictsOf([...windows, ...watchedOnly]);
+  if (districts.size === 0) return NO_DISTRICT_WORK;
+
+  // THE CADENCE, off the UTC minute of the tick. An unparseable clock is no
+  // mark at all, which leaves only the districts with a live member.
+  const minute = Number.isFinite(nowMs) ? new Date(nowMs).getUTCMinutes() : Number.NaN;
+  const forcedLook = minute % DISTRICT_FORCED_LOOK_MINUTES === 0;
+  const quietMark = minute % DISTRICT_QUIET_CADENCE_MINUTES === 0;
+  const due = new Map<string, LiveWindowEntry[]>();
+  for (const [districtKey, members] of districts) {
+    if (quietMark || members.some((member) => liveEventKeys.has(member.eventKey))) due.set(districtKey, members);
+  }
+  // No district is due: NOTHING is spent. No D1 read, no request.
+  if (due.size === 0) return NO_DISTRICT_WORK;
+
+  // A watched member on a calendar window has to prove a played match.
+  const needsProof = (member: LiveWindowEntry): boolean => member.inferred && !liveEventKeys.has(member.eventKey);
+
+  // THE ONE CURSOR READ, for due districts only: every district's rankings
+  // key, every member's awards key, and the plain match cursor key of every
+  // member that needs proof. One subrequest per statement of 90 keys, so
+  // knowing which events have an awards cursor row, and what each holds,
+  // never costs a round trip per event. Inside a try: this is the first I/O
+  // of the pass, and the pass never throws.
+  const cursorKeys: string[] = [];
+  for (const [districtKey, members] of due) {
+    cursorKeys.push(districtRankingsCursorKey(districtKey));
+    for (const member of members) {
+      cursorKeys.push(eventAwardsCursorKey(member.eventKey));
+      if (needsProof(member)) cursorKeys.push(member.eventKey);
+    }
+  }
+  let cursors: Map<string, EventCursor>;
+  try {
+    cursors = await readCursorRows(env.DB, counter, cursorKeys);
+  } catch (err) {
+    console.warn(JSON.stringify({ msg: "district-cursor-read-failed", districts: due.size, error: err instanceof Error ? err.message : String(err) }));
+    return { districtsConsidered: due.size, districtsRefreshed: 0, districtsUnchanged: 0, districtsFailed: due.size };
+  }
+
+  // THE PROOF. An unproven calendar window is dropped, and a district left
+  // with no member is not processed: it has cost its share of the one read
+  // above and no district request.
+  const proven = new Map<string, LiveWindowEntry[]>();
+  for (const [districtKey, members] of due) {
+    const kept = members.filter((member) => !needsProof(member) || (cursors.get(member.eventKey)?.lastFoldedMatchKey ?? null) !== null);
+    if (kept.length > 0) proven.set(districtKey, kept);
+  }
+  if (proven.size === 0) return NO_DISTRICT_WORK;
+
+  // THE SUSPENSION CHECK, once, before any TBA request. Only the idle call
+  // sites pass one: the main call site sits below the mismatch return.
+  if (options.isSuspended !== undefined) {
+    let suspended = true;
+    let reason: string | undefined;
+    try {
+      suspended = await options.isSuspended();
+    } catch (err) {
+      reason = err instanceof Error ? err.message : String(err);
+    }
+    if (suspended) {
+      console.warn(JSON.stringify({ msg: "district-pass-suspended", districts: proven.size, ...(reason === undefined ? {} : { error: reason }) }));
+      return NO_DISTRICT_WORK;
+    }
+  }
 
   let districtsRefreshed = 0;
   let districtsUnchanged = 0;
   let districtsFailed = 0;
 
-  if (districts.size === 0) {
-    return { districtsConsidered: 0, districtsRefreshed: 0, districtsUnchanged: 0, districtsFailed: 0 };
-  }
-
-  // ONE subrequest regardless of key count — the same property `readTickState`
-  // exploits for the tick-meta sentinel plus every baseline marker. Every
-  // district's rankings key AND every live member event's awards key ride in
-  // this one read, so knowing which events have an awards cursor row, and
-  // what ETag each holds, never costs a second round trip. The awards
-  // REQUESTS those rows lead to are counted where they are made.
-  counter.spend(1);
-  const cursorKeys = [
-    ...[...districts.keys()].map((districtKey) => districtRankingsCursorKey(districtKey)),
-    ...[...districts.values()].flatMap((entries) => entries.map((entry) => eventAwardsCursorKey(entry.eventKey))),
-  ];
-  const cursors = await readEventCursors(env.DB, cursorKeys);
-
-  for (const [districtKey, memberWindows] of districts) {
+  for (const [districtKey, memberWindows] of proven) {
     try {
       if (!DISTRICT_KEY_PATTERN.test(districtKey)) {
         districtsFailed++;
@@ -321,9 +576,11 @@ export async function runDistrictRefresh(env: Env, counter: SubrequestCounter, t
       const cursorKey = districtRankingsCursorKey(districtKey);
       const cursor = cursors.get(cursorKey) ?? emptyCursor(cursorKey);
 
-      // STEP 1. The rankings request comes FIRST, before any R2 read.
+      // STEP 1. The rankings request comes FIRST, before any R2 read. On a
+      // forced look it carries no ETag, so TBA answers with the whole body
+      // and the merge below runs against whatever R2 holds now.
       counter.spend(1);
-      const poll = await pollDistrictRankings(tbaCtx, districtKey, cursor.tbaEtag ?? undefined);
+      const poll = await pollDistrictRankings(tbaCtx, districtKey, forcedLook ? undefined : (cursor.tbaEtag ?? undefined));
 
       // This district's awards news for this tick. An event is in at most one
       // of the three: a list in hand (a 200), a 304, or a failed ask.
@@ -362,9 +619,10 @@ export async function runDistrictRefresh(env: Env, counter: SubrequestCounter, t
         awardsInHand.set(eventKey, { awards: parsed.data ?? [], etag: awardsPoll.etag ?? null });
       };
 
-      // STEP 2. Every member event that HAS an awards cursor row is asked
-      // conditionally, before any R2 read. A row with a null ETag (a retry
-      // marker, or a response that carried no ETag) is asked with none.
+      // STEP 2. Every member event, live or watched, that HAS an awards
+      // cursor row is asked conditionally, before any R2 read. A row with a
+      // null ETag (a retry marker, or a response that carried no ETag) is
+      // asked with none.
       //
       // AN EVENT KEY, CHECKED WITH THE EVENT PATTERN (WR-03). It becomes a TBA
       // URL path segment (`/event/{key}/awards`) and a D1 cursor row key, so
@@ -381,9 +639,10 @@ export async function runDistrictRefresh(env: Env, counter: SubrequestCounter, t
       // STEP 3, THE GATE, and the reason the requests above come first:
       // nothing moved, nothing was observed and no awards list changed, so
       // this district costs its conditional requests and NO R2 read at all.
+      // A FORCED LOOK PASSES IT UNCONDITIONALLY.
       const observedAny = memberWindows.some((entry) => matchDerivedState.has(entry.eventKey));
       const awardsListChanged = awardsInHand.size > 0;
-      if (poll.status === "not-modified" && !observedAny && !awardsListChanged) {
+      if (!forcedLook && poll.status === "not-modified" && !observedAny && !awardsListChanged) {
         districtsUnchanged++;
         continue;
       }
@@ -398,7 +657,28 @@ export async function runDistrictRefresh(env: Env, counter: SubrequestCounter, t
       }
       const existing: DistrictArtifact = DistrictArtifactSchema.parse(JSON.parse(existingText));
 
-      // STEP 5. The five-field state map, one entry per live member event this
+      // STEP 5, THE CATCH UP, on a forced look only: the older waiting events
+      // the artifact names, their rows read in one counted D1 read, and at
+      // most eight of them chosen. Their rows join the pass's own map, keyed
+      // by their awards cursor key, so the settle clock and the cursor writes
+      // below read them exactly as they read a member's.
+      const catchUpEventKeys: string[] = [];
+      if (forcedLook) {
+        const districtMemberKeys = new Set(memberWindows.map((entry) => entry.eventKey));
+        const candidates = catchUpCandidates(existing, districtMemberKeys);
+        if (candidates.length > 0) {
+          const rows = await readCursorRows(
+            env.DB,
+            counter,
+            candidates.map((candidate) => eventAwardsCursorKey(candidate.eventKey))
+          );
+          for (const [key, row] of rows) cursors.set(key, row);
+          for (const candidate of orderCatchUp(candidates, cursors).slice(0, DISTRICT_AWARDS_CATCH_UP_MAX)) catchUpEventKeys.push(candidate.eventKey);
+        }
+      }
+      const catchUpSet = new Set(catchUpEventKeys);
+
+      // STEP 6. The five-field state map, one entry per member event this
       // pass can say something honest about, and beside it the awards lists
       // the merge will read.
       const eventState = new Map<string, DistrictEventState>();
@@ -409,6 +689,15 @@ export async function runDistrictRefresh(env: Env, counter: SubrequestCounter, t
       // Events whose awards ask failed this tick while their flag still waits:
       // each gets a null ETag retry marker at the end.
       const retryMarkerEvents: string[] = [];
+
+      /** Hands a list in hand to the merge, and names the event settled when its cursor row says so. */
+      const handToMerge = (eventKey: string): void => {
+        const inHand = awardsInHand.get(eventKey);
+        if (inHand === undefined) return;
+        eventAwards.set(eventKey, inHand.awards);
+        const storedAwards = cursors.get(eventAwardsCursorKey(eventKey));
+        if (awardsListSettled(storedAwards?.tbaEtag, storedAwards?.lastAdvancedAt, inHand.etag, nowMs)) settledAwardEvents.add(eventKey);
+      };
 
       for (const entry of memberWindows) {
         const eventKey = entry.eventKey;
@@ -441,36 +730,50 @@ export async function runDistrictRefresh(env: Env, counter: SubrequestCounter, t
         const hasAwardsRow = cursors.has(eventAwardsCursorKey(eventKey));
 
         if (!awardsInHand.has(eventKey) && !awardsFailed.has(eventKey) && EVENT_KEY_PATTERN.test(eventKey)) {
-          // THE ONE UNCONDITIONAL ASK, in exactly two cases.
+          // THE UNCONDITIONAL ASK, in three cases.
           //
-          // The flag still waits and the playoffs are done: a 304 in step 2
-          // carried no list, and an event with no row has never been asked.
-          // Either way the rule needs the list in hand to be read against the
-          // rankings merged this tick. While the playoffs are not done no
-          // request is made at all: an award cannot post before they finish.
-          const flagWaits = !carriedFlag && matchDerived.playoffsDone && (awardsNotModified.has(eventKey) || !hasAwardsRow);
-          // The flag is already true and the event has no row: the offline
-          // publisher set it, so the Worker has never asked. One ask gives the
-          // event a row, and from then on a changed list passes the gate. A
-          // flag already true with a 304 in step 2 needs nothing.
+          // The flag still waits, and either a 304 in step 2 carried no list
+          // or the event has no row and has never been asked. Either way the
+          // rule needs the list in hand to be read against the rankings
+          // merged this tick. That much is common to the first two cases.
+          const waitingWithNoList = !carriedFlag && (awardsNotModified.has(eventKey) || !hasAwardsRow);
+          // First: the playoffs are done. While they are not, an award cannot
+          // have been given out, so an event still in play is not asked.
+          const playoffsDone = matchDerived.playoffsDone;
+          // Second, ON A FORCED LOOK ONLY: the event's window has ENDED,
+          // whatever its published state says about the playoffs. Playoffs
+          // that ran past the measured window leave `playoffsDone` false with
+          // nothing left to observe it, and that event would otherwise never
+          // be asked. A member whose window is still open is never asked on
+          // this ground.
+          const endedOnForcedLook = forcedLook && entry.endMs <= nowMs;
+          // Third: the flag is already true and the event has no row. The
+          // offline publisher set it, so the Worker has never asked. One ask
+          // gives the event a row, and from then on a changed list passes the
+          // gate. A flag already true with a 304 in step 2 needs nothing.
           const neverAsked = carriedFlag && !hasAwardsRow;
-          if (flagWaits || neverAsked) await askAwards(eventKey, undefined);
+          if ((waitingWithNoList && (playoffsDone || endedOnForcedLook)) || neverAsked) await askAwards(eventKey, undefined);
         }
 
         eventState.set(eventKey, DistrictEventStateSchema.parse({ ...matchDerived, awardsPosted: carriedFlag }));
 
         // EVERY list in hand is merged, whether or not the flag turns true
         // this tick: a winner is recorded as soon as TBA lists it.
-        const inHand = awardsInHand.get(eventKey);
-        if (inHand !== undefined) {
-          eventAwards.set(eventKey, inHand.awards);
-          const storedAwards = cursors.get(eventAwardsCursorKey(eventKey));
-          if (awardsListSettled(storedAwards?.tbaEtag, storedAwards?.lastAdvancedAt, inHand.etag, nowMs)) settledAwardEvents.add(eventKey);
-        }
+        handToMerge(eventKey);
         if (awardsFailed.has(eventKey) && !carriedFlag) retryMarkerEvents.push(eventKey);
       }
 
-      // STEP 6. Build the candidate ONCE, with the EXISTING artifact's own
+      // The catch up events: each asked ONCE, with no ETag. Nothing is said
+      // about their state (nothing was observed), so they are not in the
+      // state map: the merge raises a flag on the rows the artifact already
+      // carries, from the list and the settled set alone.
+      for (const eventKey of catchUpEventKeys) {
+        await askAwards(eventKey, undefined);
+        handToMerge(eventKey);
+        if (awardsFailed.has(eventKey)) retryMarkerEvents.push(eventKey);
+      }
+
+      // STEP 7. Build the candidate ONCE, with the EXISTING artifact's own
       // stamp held constant, so the comparison below measures CONTENT and not
       // the clock. The flag, the winner records and both lock verdicts come
       // out of this one build.
@@ -479,11 +782,13 @@ export async function runDistrictRefresh(env: Env, counter: SubrequestCounter, t
           ? applyDistrictRankings({ artifact: existing, rankings: poll.body, generation: existing.generation, computedAt: existing.computedAt, eventState, eventAwards, settledAwardEvents })
           : applyDistrictEventState({ artifact: existing, eventState, eventAwards, settledAwardEvents, generation: existing.generation, computedAt: existing.computedAt });
 
-      // STEP 7. The awards cursor rows this tick earned, decided now and
-      // written last. A row is written only when its list reads as changed
-      // now, so a quiet waiting event costs no D1 write and its settle clock
-      // keeps running.
+      // STEP 8. The awards cursor rows this tick earned, decided now and
+      // written last. A member's row is written only when its list reads as
+      // changed now, so a quiet waiting event costs no D1 write and its
+      // settle clock keeps running. A CATCH UP event's row is ALWAYS written,
+      // with `lastPolledAt` set to this tick, so the catch up's order rotates.
       const awardsCursorWrites: EventCursor[] = [];
+      const written = new Set<string>();
       for (const eventKey of eventAwards.keys()) {
         // The ETag of the list the merge just read, whatever the flag says and
         // whatever the list holds, and this tick's time as the moment that
@@ -491,21 +796,35 @@ export async function runDistrictRefresh(env: Env, counter: SubrequestCounter, t
         const awardsKey = eventAwardsCursorKey(eventKey);
         const stored = cursors.get(awardsKey);
         const etag = awardsInHand.get(eventKey)!.etag;
-        if (awardsListChangedNow(stored, etag)) awardsCursorWrites.push({ ...(stored ?? emptyCursor(awardsKey)), tbaEtag: etag, lastPolledAt: nowIso, lastAdvancedAt: nowIso });
+        if (awardsListChangedNow(stored, etag)) {
+          awardsCursorWrites.push({ ...(stored ?? emptyCursor(awardsKey)), tbaEtag: etag, lastPolledAt: nowIso, lastAdvancedAt: nowIso });
+          written.add(eventKey);
+        }
       }
       for (const eventKey of retryMarkerEvents) {
         // THE RETRY MARKER: a null ETag, never an ETag from the failed
-        // response, created if the row is absent. The next tick asks it with
-        // no ETag before the gate, and that 200 passes the gate.
+        // response, created if the row is absent. The next ask carries no
+        // ETag, and the list it brings reads as changed now.
         const awardsKey = eventAwardsCursorKey(eventKey);
         const stored = cursors.get(awardsKey);
-        if (stored === undefined || stored.tbaEtag !== null) awardsCursorWrites.push({ ...(stored ?? emptyCursor(awardsKey)), tbaEtag: null, lastPolledAt: nowIso });
+        if (stored === undefined || stored.tbaEtag !== null || catchUpSet.has(eventKey)) {
+          awardsCursorWrites.push({ ...(stored ?? emptyCursor(awardsKey)), tbaEtag: null, lastPolledAt: nowIso });
+          written.add(eventKey);
+        }
+      }
+      for (const eventKey of catchUpEventKeys) {
+        // Asked, and its list is the one already stored: the ETag and the
+        // change time stand, and only the time it was asked moves.
+        if (written.has(eventKey)) continue;
+        const awardsKey = eventAwardsCursorKey(eventKey);
+        awardsCursorWrites.push({ ...(cursors.get(awardsKey) ?? emptyCursor(awardsKey)), lastPolledAt: nowIso });
       }
 
       // ETag cursors are written LAST, and only once nothing further can fail
       // for this district. Caching an ETag before a put that then rejects would
-      // hand the next tick a 304 and leave the stale artifact in place forever
-      // — the write is what earns the right to stop asking.
+      // hand the next tick a 304 and leave the stale artifact in place until
+      // the next forced look — the write is what earns the right to stop
+      // asking.
       //
       // THE AWARDS CURSORS GO FIRST, THE RANKINGS CURSOR AFTER THEM. If an
       // awards cursor write throws, the rankings cursor is left unwritten, so
@@ -543,5 +862,5 @@ export async function runDistrictRefresh(env: Env, counter: SubrequestCounter, t
     }
   }
 
-  return { districtsConsidered: districts.size, districtsRefreshed, districtsUnchanged, districtsFailed };
+  return { districtsConsidered: proven.size, districtsRefreshed, districtsUnchanged, districtsFailed };
 }

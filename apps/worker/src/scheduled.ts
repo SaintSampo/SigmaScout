@@ -178,8 +178,8 @@ import {
 } from "../../../packages/harness/pageArtifacts.js";
 import { priceUpcomingRows, type PriceUpcomingResult, type ScheduledMatchInput, type UpcomingPricingModel } from "../../../packages/harness/upcomingPricing.js";
 import { roundMetric, roundPmf, roundProbability, roundTo, ROUNDING_RULE } from "../../../packages/harness/rounding.js";
-import { PUBLISHED_ALGORITHM_IDS, type AlgorithmsManifest, type LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
-import { loadAlgorithmsManifest, loadLiveEventsAt } from "./liveWindows.js";
+import { DISTRICT_AWARDS_WATCH_MS, PUBLISHED_ALGORITHM_IDS, type AlgorithmsManifest, type LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
+import { loadAlgorithmsManifest, loadTickWindowsAt } from "./liveWindows.js";
 // Phase B's merge path, in its own module (see `artifactMerge.ts`'s header for
 // why it was extracted and why it stays). The edge runs one way only: the tick
 // imports the merge, never the reverse.
@@ -2132,13 +2132,20 @@ export interface TickResult {
   readonly globalRebuildRan: boolean;
   /** The offline seed for this generation has not been applied to D1 yet; folding is suspended, not broken. See `detectStateGenerationMismatch`. */
   readonly stateGenerationMismatch: boolean;
-  /** Districts with at least one live member event this tick (`districtRefresh.ts`'s `liveDistrictsOf`). Zero against a manifest carrying no `districtKey` — which is every manifest published before phase 10. */
+  /**
+   * Districts the district pass PROCESSED this tick (quick task 261009-tx6):
+   * a district with a member event the tick processed, on every tick, and a
+   * district that only has an event in its 24 hour watch, on a tick whose UTC
+   * minute is a multiple of 5. Zero on a tick where no district is due, and
+   * zero against a manifest carrying no `districtKey`, which is every
+   * manifest published before phase 10.
+   */
   readonly districtsConsidered: number;
   /** Districts whose artifact this tick republished. */
   readonly districtsRefreshed: number;
-  /** Districts whose rankings and observed state both came back unchanged — one conditional TBA request and no write. */
+  /** Processed districts with nothing to write: either nothing passed the gate (conditional requests only, no R2 read), or the artifact was read and the merge changed nothing, which is the usual outcome of a forced look. */
   readonly districtsUnchanged: number;
-  /** Districts whose refresh threw, was refused, or found no published artifact. Confined to that district: the pass still refreshed the others and the tick still wrote its rotation offset. */
+  /** Districts whose refresh threw, was refused, or found no published artifact, and every due district when the pass's own cursor read failed. Confined to the district pass: the tick still did everything else, and still wrote its rotation offset when it had one to write. */
   readonly districtsFailed: number;
   /** Rows the tick's ingest log flush wrote to D1 (quick task 261004-uyc). Zero on a tick that saw no change, and zero when the flush failed: the log never changes the fold's outcome. */
   readonly ingestRowsWritten: number;
@@ -2151,7 +2158,13 @@ export interface TickResult {
 /** What `runTickCore` returns: every `TickResult` field the wrapper does not own. */
 type CoreTickResult = Omit<TickResult, "ingestRowsWritten">;
 
-/** The four district counts every `TickResult` return site carries, as zeros — the early returns, which the district pass is deliberately unreachable from. */
+/**
+ * The four district counts every `TickResult` return site carries, as zeros.
+ * Two returns use it: the idle return when no district window is live or
+ * inside its 24 hour watch (nothing to hand the pass), and the state
+ * generation mismatch return, which suspends every live write. The other
+ * returns carry the pass's own counts (quick task 261009-tx6).
+ */
 const NO_DISTRICT_REFRESH: DistrictRefreshResult = { districtsConsidered: 0, districtsRefreshed: 0, districtsUnchanged: 0, districtsFailed: 0 };
 
 /**
@@ -2188,29 +2201,20 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
   // surfaces within a minute.
   const liveAlgorithmIds = parseLiveAlgorithmIds(env.LIVE_ALGORITHM_IDS);
 
-  // The one read that answers "is anything live"; an idle tick (the common
-  // case) exits here with zero TBA requests. Keep `loadLiveEventsAt`; see
-  // its header in `liveWindows.ts`.
+  // The one read that answers "is anything live", and since quick task
+  // 261009-tx6 also "which district windows ended in the last 24 hours". Both
+  // lists come out of the SAME single R2 read. `liveEvents` is exactly what
+  // `loadLiveEventsAt` returned here before, by the same scan (see its header
+  // in `liveWindows.ts`), so folding, probing, the roster pass and the live
+  // event pass read what they always read. An idle tick with no district in
+  // its watch (the common case) still exits just below with zero TBA
+  // requests and nothing spent but this read.
   subrequests.spend(1);
-  const liveEvents = await loadLiveEventsAt(env, nowMs);
-
-  if (liveEvents.length === 0) {
-    return { eventsConsidered: 0, eventsAdvanced: 0, eventsFailed: 0, eventsProbed: 0, eventsPromoted: 0, eventsPriced: 0, ...NO_ROSTER_PASS, tbaRequests: tbaCounter.total, subrequestsUsed: subrequests.used, globalRebuildRan: false, stateGenerationMismatch: false, ...NO_DISTRICT_REFRESH, ...NO_OFFICIAL_DATA };
-  }
-
-  // Split into foldable (`inferred: false`, a real measured window) and
-  // probe (`inferred: true`, liveness unproven) entries. THE PROBE PASS RUNS
-  // HERE, BEFORE the algorithms-manifest read, `buildAlgorithmModules` and the
-  // tick-meta read — deliberately. Moving it below any of those three would
-  // restore exactly the condition
-  // `.planning/debug/resolved/worker-tick-exceeds-cpu-budget.md` cause B
-  // describes: a tick that pays the full expensive prefix for a window that
-  // was never proven live. `loadLiveEventsAt`'s prefilter and the
-  // `liveEvents.length === 0` early exit above are unchanged.
-  const foldableWindows = liveEvents.filter((w) => !w.inferred);
-  const probeWindows = liveEvents.filter((w) => w.inferred);
-
-  const probeResult: ProbePassResult = probeWindows.length > 0 ? await runProbes(env, subrequests, tbaCtx, probeWindows, nowIso) : { promoted: new Map(), eventsProbed: 0, eventsFailed: 0 };
+  const tickWindows = await loadTickWindowsAt(env, nowMs, DISTRICT_AWARDS_WATCH_MS);
+  const liveEvents = tickWindows.live;
+  // THE DISTRICT PASS'S WATCH SET: every district window that is live or
+  // ended within the watch. Only the district pass reads it.
+  const districtWatchWindows = [...liveEvents.filter((w) => typeof w.districtKey === "string" && w.districtKey.length > 0), ...tickWindows.recentlyEnded];
 
   // THE ALGORITHMS MANIFEST, THE MODULES AND THE TICK STATE, AT MOST ONCE PER
   // TICK (quick task 260925-uy5). The roster pass below and the fold loop further
@@ -2224,6 +2228,10 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
   // spends: the algorithms-manifest read, `buildModules`, `readTickState` (the
   // tick-meta sentinel plus every live algorithm's state-baseline marker, in the
   // one subrequest that used to buy the sentinel alone), then the mismatch check.
+  //
+  // DECLARED ABOVE THE FIRST EARLY RETURN since quick task 261009-tx6, with its
+  // body unchanged: the idle return now hands the district pass a suspension
+  // check that resolves this same memoized context.
   let tickAlgorithmContext: TickAlgorithmContext | undefined;
   const algorithmContext = async (): Promise<TickAlgorithmContext> => {
     if (tickAlgorithmContext !== undefined) return tickAlgorithmContext;
@@ -2240,6 +2248,47 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
     tickAlgorithmContext = { manifest, modules, meta, baselineGenerationByAlgorithm, mismatch };
     return tickAlgorithmContext;
   };
+
+  // What the two idle call sites hand the district pass in place of the
+  // mismatch return the main call site sits below: the same question, asked
+  // lazily. The pass calls it at most once, only after a district is due and
+  // proven and before any TBA request, so a tick with no due district never
+  // loads the algorithm context at all.
+  const districtPassSuspended = async (): Promise<boolean> => (await algorithmContext()).mismatch !== undefined;
+
+  if (liveEvents.length === 0) {
+    const idle = { eventsConsidered: 0, eventsAdvanced: 0, eventsFailed: 0, eventsProbed: 0, eventsPromoted: 0, eventsPriced: 0, ...NO_ROSTER_PASS, globalRebuildRan: false, stateGenerationMismatch: false, ...NO_OFFICIAL_DATA };
+    // Nothing is live and no district window ended in the last 24 hours: the
+    // tick has cost its one manifest read and ends here, as it always has.
+    if (districtWatchWindows.length === 0) {
+      return { ...idle, tbaRequests: tbaCounter.total, subrequestsUsed: subrequests.used, ...NO_DISTRICT_REFRESH };
+    }
+    // THE DISTRICT PASS, FROM AN IDLE TICK (quick task 261009-tx6). Nothing is
+    // live, but a district event ended inside its watch: its awards and award
+    // points are still to land. No window was processed, so the district runs
+    // on the 5 minute cadence only, and on any other minute the pass returns
+    // at once having spent nothing. It never throws.
+    const districtRefresh = await runDistrictRefresh(env, subrequests, tbaCtx, { windows: [], watchWindows: districtWatchWindows, matchDerivedState: new Map(), isSuspended: districtPassSuspended, stamp, nowIso });
+    // The two counters are read AFTER the pass.
+    return { ...idle, tbaRequests: tbaCounter.total, subrequestsUsed: subrequests.used, ...districtRefresh };
+  }
+
+  // Split into foldable (`inferred: false`, a real measured window) and
+  // probe (`inferred: true`, liveness unproven) entries. THE PROBE PASS RUNS
+  // HERE, BEFORE the algorithms-manifest read, `buildAlgorithmModules` and the
+  // tick-meta read — deliberately. Moving it below any of those three would
+  // restore exactly the condition
+  // `.planning/debug/resolved/worker-tick-exceeds-cpu-budget.md` cause B
+  // describes: a tick that pays the full expensive prefix for a window that
+  // was never proven live. `loadLiveEventsAt`'s prefilter and the
+  // `liveEvents.length === 0` early exit above are unchanged.
+  const foldableWindows = liveEvents.filter((w) => !w.inferred);
+  const probeWindows = liveEvents.filter((w) => w.inferred);
+
+  const probeResult: ProbePassResult = probeWindows.length > 0 ? await runProbes(env, subrequests, tbaCtx, probeWindows, nowIso) : { promoted: new Map(), eventsProbed: 0, eventsFailed: 0 };
+
+  // (The lazy `algorithmContext` accessor the roster pass and the fold loop
+  // share is declared above the first early return.)
 
   // THE ROSTER PASS, over EVERY open window — foldable and probe alike — and
   // placed HERE deliberately: after the probes (so a probe's cheap-idle ordering
@@ -2263,6 +2312,16 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
     // its rankings and alliances from the phase it was last stored in. A window
     // whose stored phase wants neither costs nothing here: no request, no
     // algorithm context, no write, which keeps every cheap-idle pin above true.
+    //
+    // THE DISTRICT PASS, FROM A PROBE ONLY TICK (quick task 261009-tx6), placed
+    // before the live event pass. No window was processed, so every district
+    // in the watch runs on the 5 minute cadence only. A probe window that did
+    // not promote is watched only when its own match cursor shows a folded
+    // match: until then its district costs the pass one D1 read and no
+    // request, which is the cheap-idle rule `runProbes` states, kept. A tick
+    // with no district window in its watch hands the pass nothing, and the
+    // pass returns at once having spent nothing. It never throws.
+    const districtRefresh = await runDistrictRefresh(env, subrequests, tbaCtx, { windows: [], watchWindows: districtWatchWindows, matchDerivedState: new Map(), isSuspended: districtPassSuspended, stamp, nowIso });
     const officialData = await runLiveEventPass(env, subrequests, { windows: liveEvents, cursors: openCursors, live, nowIso, tbaCtx, algorithmContext, stamp });
     return {
       eventsConsidered: 0,
@@ -2276,11 +2335,7 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
       subrequestsUsed: subrequests.used,
       globalRebuildRan: false,
       stateGenerationMismatch: false,
-      // The district pass is deliberately NOT reached from here. A district's
-      // points cannot move while no member event has played a single match,
-      // which is CONTEXT's own rationale for deriving district liveness from
-      // member-event liveness in the first place.
-      ...NO_DISTRICT_REFRESH,
+      ...districtRefresh,
       ...officialData,
     };
   }
@@ -2382,14 +2437,19 @@ async function runTickCore(env: Env, deps: RunTickDeps, live: LiveTickContext): 
   //  (b) BEFORE `writeTickMeta`, and `runDistrictRefresh` never throws, so a
   //      failing district can cost neither an event's fold nor this tick's
   //      rotation offset;
-  //  (c) unreachable from both early returns above — see the comments there.
-  // THE DELIBERATE NARROWING: CONTEXT says a district is live when "any member
-  // event has a live window", and this pass is handed the windows the tick
-  // ACTUALLY processed (foldable plus promoted). A probe window that never
-  // promoted is excluded on purpose: `runProbes`'s header calls the cheap-idle
-  // ordering load-bearing, and spending a district's TBA request on an event
-  // that has not proven it has a single match would spend against exactly that.
-  const districtRefresh = await runDistrictRefresh(env, subrequests, tbaCtx, { windows: [...foldableWindows, ...promotedWindows], matchDerivedState, stamp, nowIso });
+  //  (c) below the state generation mismatch return, so no `isSuspended` is
+  //      passed here: a mismatch has already been excluded. The two idle
+  //      returns above carry the pass's other two call sites, and they do
+  //      pass one.
+  // TWO LISTS (quick task 261009-tx6). `windows` is what the tick ACTUALLY
+  // processed (foldable plus promoted): a district with one of those is live
+  // and runs every tick. `watchWindows` is every district window that is live
+  // or ended within the last 24 hours: a district that only has one of those
+  // runs on the 5 minute cadence. A probe window that never promoted is still
+  // not treated as live: `runProbes`'s header calls the cheap-idle ordering
+  // load-bearing, and the pass asks a district on its account only once the
+  // event's own cursor shows a folded match.
+  const districtRefresh = await runDistrictRefresh(env, subrequests, tbaCtx, { windows: [...foldableWindows, ...promotedWindows], watchWindows: districtWatchWindows, matchDerivedState, stamp, nowIso });
 
   // THE LIVE EVENT PASS (quick task 261004-uyc): each open event's phase, TBA's
   // own rankings and alliances polled by that phase and written onto every live

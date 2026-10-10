@@ -18,6 +18,7 @@ import { liveDistrictsOf } from "../src/districtRefresh.js";
 import { LIVE_WINDOWS_MANIFEST_KEY, ALGORITHMS_MANIFEST_KEY } from "../src/liveWindows.js";
 import { districtDetailKey, DistrictArtifactSchema } from "../../../packages/harness/pageArtifacts.js";
 import { recomputeDistrictVerdicts } from "../../../packages/harness/districtRankingsMerge.js";
+import { districtEventStateFinished } from "../../../packages/core/districts/reservedSlots.js";
 import { districtRankingsCursorKey } from "../../../packages/harness/stateBaseline.js";
 import { PUBLISHED_ALGORITHM_IDS } from "../../../packages/harness/publishedAlgorithms.js";
 import { seedStateBaselineMarkers } from "./support/stateBaseline.js";
@@ -64,13 +65,16 @@ class FakePreparedStatement {
     return bound;
   }
   async all<T = unknown>(): Promise<{ results: T[] }> {
+    this.db.callCount++;
     return { results: this.db.executeSelect(this.sql, this.boundArgs) as T[] };
   }
   async first<T = unknown>(): Promise<T | null> {
+    this.db.callCount++;
     const results = this.db.executeSelect(this.sql, this.boundArgs) as T[];
     return results.length > 0 ? results[0]! : null;
   }
   async run(): Promise<{ success: true; meta: { changes: number } }> {
+    this.db.callCount++;
     const changes = this.db.executeWrite(this.sql, this.boundArgs);
     return { success: true, meta: { changes } };
   }
@@ -84,6 +88,12 @@ class FakeD1Database {
   readonly ingestLog = new IngestLogFakeStore();
   /** Cursor rows whose whole row UPSERT must reject, modelling a D1 write failure (quick task 261009-r9x). */
   rejectCursorWritesForKeyPrefix: string | null = null;
+  /** Every D1 call the Worker made: one per statement run and one per batch (quick task 261009-tx6). What a subrequest count is checked against. */
+  callCount = 0;
+  /** The keys of every `event_cursor` SELECT, in order (quick task 261009-tx6). */
+  cursorSelects: string[][] = [];
+  /** An `event_cursor` SELECT naming a key with this prefix rejects, modelling a D1 read failure (quick task 261009-tx6). */
+  rejectCursorReadsForKeyPrefix: string | null = null;
 
   constructor() {
     seedStateBaselineMarkers(this.eventCursors, PUBLISHED_ALGORITHM_IDS, "gen-1");
@@ -95,6 +105,7 @@ class FakeD1Database {
 
   async batch(statements: readonly FakePreparedStatement[]): Promise<{ success: true }[]> {
     this.batchCallCount++;
+    this.callCount++;
     for (const stmt of statements) this.executeWrite(stmt.sql, stmt.boundArgs);
     return statements.map(() => ({ success: true as const }));
   }
@@ -123,6 +134,9 @@ class FakeD1Database {
     }
     if (sql.includes("FROM event_cursor")) {
       const eventKeys = args as string[];
+      this.cursorSelects.push([...eventKeys]);
+      const rejectPrefix = this.rejectCursorReadsForKeyPrefix;
+      if (rejectPrefix !== null && eventKeys.some((key) => key.startsWith(rejectPrefix))) throw new Error("fake D1 cursor read rejected");
       return eventKeys.map((key) => this.eventCursors.get(key)).filter((row): row is FakeEventCursorRow => row !== undefined);
     }
     throw new Error(`FakeD1Database.executeSelect: unrecognized SQL: ${sql}`);
@@ -867,6 +881,8 @@ interface TickReport {
   readonly districtReads: number;
   /** `v1/district/` puts this tick, parsed. */
   readonly written: ReturnType<typeof DistrictArtifactSchema.parse>[];
+  /** Every awards request this tick with the event it asked about, in order (quick task 261009-tx6). */
+  readonly awardsAsked: { readonly eventKey: string; readonly ifNoneMatch: string | undefined }[];
 }
 
 interface Harness {
@@ -891,6 +907,8 @@ interface HarnessOptions {
   readonly eventKey?: string;
   /** The manifest's windows. Default: one live window for `eventKey` (or the live event), one hour either side of `NOW_MS`. */
   readonly windows?: readonly WindowFixture[];
+  /** R2 holds no algorithms manifest, so the tick's algorithm context cannot be built. */
+  readonly withoutAlgorithmsManifest?: boolean;
 }
 
 /**
@@ -905,7 +923,9 @@ function makeHarness(options: HarnessOptions = {}): Harness {
   const d1 = new FakeD1Database();
   const r2 = new FakeR2Bucket();
   r2.seed(districtDetailKey(DISTRICT_KEY), JSON.stringify(options.artifact ?? districtArtifactFixture()));
-  const env = makeEnv(makeManifests(options.windows ?? [liveWindow(options.eventKey === undefined ? {} : { eventKey: options.eventKey })]), d1, r2);
+  const manifests = makeManifests(options.windows ?? [liveWindow(options.eventKey === undefined ? {} : { eventKey: options.eventKey })]);
+  if (options.withoutAlgorithmsManifest === true) manifests.delete(ALGORITHMS_MANIFEST_KEY);
+  const env = makeEnv(manifests, d1, r2);
   const events = new Map<string, TbaEventRecord>();
   const districts = new Map<string, TbaDistrictRecord>();
   // Narrowed to a callable: `ReturnType<typeof vi.fn>` is not one under the Worker tsconfig.
@@ -914,11 +934,15 @@ function makeHarness(options: HarnessOptions = {}): Harness {
   const districtReadCount = (): number => r2.gets.filter((key) => key.startsWith("v1/district/")).length;
   let readsAtTickStart = 0;
   let awardsCalls: AwardsCall[] = [];
+  let awardsAsked: { eventKey: string; ifNoneMatch: string | undefined }[] = [];
   let rankingsCalls: (string | undefined)[] = [];
   const fetchMock = vi.fn(async (url: unknown, init?: { headers?: Record<string, string> }) => {
     const u = String(url);
     const ifNoneMatch = init?.headers?.["If-None-Match"];
-    if (u.endsWith("/awards")) awardsCalls.push({ ifNoneMatch, beforeArtifactRead: districtReadCount() === readsAtTickStart });
+    if (u.endsWith("/awards")) {
+      awardsCalls.push({ ifNoneMatch, beforeArtifactRead: districtReadCount() === readsAtTickStart });
+      awardsAsked.push({ eventKey: /\/event\/([^/]+)\/awards$/.exec(u)?.[1] ?? "", ifNoneMatch });
+    }
     if (u.endsWith("/rankings") && u.includes("/district/")) rankingsCalls.push(ifNoneMatch);
     return inner(url, init);
   });
@@ -926,6 +950,7 @@ function makeHarness(options: HarnessOptions = {}): Harness {
 
   const tickAt = async (nowMs: number): Promise<TickReport> => {
     awardsCalls = [];
+    awardsAsked = [];
     rankingsCalls = [];
     readsAtTickStart = districtReadCount();
     const putsAtTickStart = districtPuts(r2).length;
@@ -938,6 +963,7 @@ function makeHarness(options: HarnessOptions = {}): Harness {
       written: districtPuts(r2)
         .slice(putsAtTickStart)
         .map((put) => DistrictArtifactSchema.parse(JSON.parse(put.body))),
+      awardsAsked,
     };
   };
 
@@ -1763,6 +1789,645 @@ describe("runTick — the awards fetch", () => {
     ]);
     expect(writtenLiveEventState(h.r2)?.awardsPosted).toBe(true);
     expect(teamIn(report.written[0]!, "frc3").qualifyingAwards).toEqual([IMPACT_RECORD]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The day long watch (quick task 261009-tx6, D2).
+//
+// The district pass is handed a WATCH SET: every district window of the
+// manifest that is live or ended within the last 24 hours, beside the windows
+// the tick processed. A district with a member the tick processed runs every
+// tick. Any other watched district runs only when the tick's UTC minute is a
+// multiple of 5. On a multiple of 15, the FORCED LOOK, every watched
+// district's rankings are asked with no ETag and the gate is passed
+// unconditionally.
+//
+// EVERY TEST HERE STATES ITS UTC MINUTE. `NOW_MS` is 12:01, which is neither.
+// ---------------------------------------------------------------------------
+
+/** An epoch for a wall clock time on the fixture day, 2026-08-22 UTC. */
+function clockAt(hour: number, minute: number): number {
+  return Date.parse(`2026-08-22T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00.000Z`);
+}
+
+/** A measured district window that closed `minutesBefore` minutes before `clockMs`: never live at or after that clock, and inside the watch while that is under 24 hours. */
+function endedWindow(eventKey: string, minutesBefore: number, clockMs: number, overrides: Partial<WindowFixture> = {}): WindowFixture {
+  const endMs = clockMs - minutesBefore * MINUTE_MS;
+  return { eventKey, season: SEASON, startMs: endMs - 3 * 24 * 60 * MINUTE_MS, endMs, districtKey: DISTRICT_KEY, ...overrides };
+}
+
+/** Playoffs done, awards not posted: the state of an event whose flag still waits. */
+const WAITING_STATE: StateBlock = { qualMatchesPlayed: 2, qualMatchesTotal: 2, alliancesPicked: true, playoffsDone: true, awardsPosted: false };
+
+interface WatchEvent {
+  readonly eventKey: string;
+  /** Default 2. */
+  readonly week?: number | null;
+  /** Default `WAITING_STATE`. */
+  readonly state?: StateBlock;
+  /** frc3's award points at the event. Default 0. */
+  readonly frc3Award?: number;
+}
+
+/**
+ * Three teams and nothing left to play. Every team has a finished row at
+ * `2026wabon`. frc1 (10 qualification points) and frc3 (2, plus its award
+ * points) also have a row at every listed event, carrying that event's state.
+ */
+function watchArtifact(events: readonly WatchEvent[]): unknown {
+  const rowsFor = (qual: number, awardAt: (event: WatchEvent) => number) =>
+    events.map((event) => ({
+      eventKey: event.eventKey,
+      eventName: event.eventKey,
+      week: event.week === undefined ? 2 : event.week,
+      tier: "district",
+      qual,
+      alliance: 0,
+      elim: 0,
+      award: awardAt(event),
+      total: qual + awardAt(event),
+      state: { ...(event.state ?? WAITING_STATE) },
+    }));
+  const team = (teamKey: string, teamNumber: number, rank: number, base: number, rows: ReturnType<typeof rowsFor>) => ({
+    teamKey,
+    teamNumber,
+    nickname: `Team ${String(teamNumber)}`,
+    rank,
+    pointTotal: base + rows.reduce((sum, row) => sum + row.total, 0),
+    rookieBonus: 0,
+    adjustments: 0,
+    eventPoints: [{ eventKey: PLAYED_EVENT, eventName: "Bonney Lake", week: 1, tier: "district", qual: base, alliance: 0, elim: 0, award: 0, total: base, state: { ...PLAYED_EVENT_STATE } }, ...rows],
+    remainingEvents: [],
+    maxRemainingDistrict: 0,
+    maxRemainingChamp: 0,
+    qualifyingAwards: [],
+    districtLock: lockVerdict("contending"),
+    champLock: lockVerdict("contending"),
+  });
+  return {
+    ...(districtArtifactFixture() as Record<string, unknown>),
+    teams: [team("frc1", 1, 1, 40, rowsFor(10, () => 0)), team("frc2", 2, 2, 30, []), team("frc3", 3, 3, 10, rowsFor(2, (event) => event.frc3Award ?? 0))],
+  };
+}
+
+/** The TBA rankings payload that says exactly what an artifact's rows say. */
+function rankingsOf(artifact: unknown): unknown {
+  const parsed = DistrictArtifactSchema.parse(artifact);
+  return parsed.teams.map((team) => ({
+    team_key: team.teamKey,
+    rank: team.rank,
+    point_total: team.pointTotal,
+    rookie_bonus: team.rookieBonus,
+    adjustments: team.adjustments,
+    event_points: team.eventPoints.map((row) => ({ event_key: row.eventKey, district_cmp: row.tier === "dcmp", qual_points: row.qual, alliance_points: row.alliance, elim_points: row.elim, award_points: row.award, total: row.total })),
+  }));
+}
+
+/** An event TBA has nothing new to say about except its awards list. */
+function awardsOnlyRecord(awards: unknown, awardsEtag: string, extra: Partial<TbaEventRecord> = {}): TbaEventRecord {
+  return { matches: [], etag: "etag-1", eventType: 1, season: SEASON, awards, awardsEtag, ...extra };
+}
+
+interface WatchHarnessOptions {
+  readonly events: readonly WatchEvent[];
+  readonly windows: readonly WindowFixture[];
+  /** What TBA's rankings say. Default: exactly what the seeded artifact's rows say. */
+  readonly rankingsEvents?: readonly WatchEvent[];
+  readonly withoutAlgorithmsManifest?: boolean;
+}
+
+/**
+ * The seeded artifact is `watchArtifact(events)` at the verdict pass's fixed
+ * point, as a published artifact is, and TBA's rankings say what its rows say
+ * (or what `rankingsEvents` says), under the ETag `rank-etag-1`.
+ */
+function watchHarness(options: WatchHarnessOptions): Harness {
+  const h = makeHarness({
+    artifact: recomputeDistrictVerdicts(DistrictArtifactSchema.parse(watchArtifact(options.events))),
+    windows: options.windows,
+    ...(options.withoutAlgorithmsManifest === true ? { withoutAlgorithmsManifest: true } : {}),
+  });
+  h.districts.set(DISTRICT_KEY, { rankings: rankingsOf(watchArtifact(options.rankingsEvents ?? options.events)), etag: "rank-etag-1" });
+  return h;
+}
+
+/** The warn lines carrying one `msg`, parsed. */
+function warnsNamed(warnSpy: WarnSpy, msg: string): Record<string, unknown>[] {
+  return warnLines(warnSpy)
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .filter((entry) => entry["msg"] === msg);
+}
+
+/** The `event_cursor` reads that named the district's rankings key: the district pass's own reads, and nobody else's. */
+function passCursorReads(d1: FakeD1Database): string[][] {
+  return d1.cursorSelects.filter((keys) => keys.includes(districtRankingsCursorKey(DISTRICT_KEY)));
+}
+
+const NO_DISTRICT_WORK = { districtsConsidered: 0, districtsRefreshed: 0, districtsUnchanged: 0, districtsFailed: 0 };
+
+describe("runTick — the district pass watches an event for a day after its window (261009-tx6)", () => {
+  describe("what a tick with nothing to watch costs", () => {
+    // Minute 12:15, a forced look, so nothing here is cheap by accident.
+    const AT = clockAt(12, 15);
+    const cases: [string, WindowFixture[]][] = [
+      ["no window at all", []],
+      ["an ended window of a non district event", [endedWindow(LIVE_EVENT, 10, AT, { districtKey: null })]],
+      ["an ended window with no districtKey field", [endedWindow(LIVE_EVENT, 10, AT, { districtKey: undefined })]],
+      ["a district window that ended exactly 24 hours ago", [endedWindow(LIVE_EVENT, 24 * 60, AT)]],
+      ["a district window that has not opened yet", [{ eventKey: LIVE_EVENT, season: SEASON, startMs: AT + MINUTE_MS, endMs: AT + 60 * MINUTE_MS, districtKey: DISTRICT_KEY }]],
+    ];
+    for (const [name, windows] of cases) {
+      it(`${name}: nothing beyond the one manifest read`, async () => {
+        const h = watchHarness({ events: [{ eventKey: LIVE_EVENT }], windows });
+
+        const report = await h.tickAt(AT);
+
+        expect(h.fetchMock.mock.calls).toHaveLength(0);
+        expect(report.result.subrequestsUsed).toBe(1);
+        expect(h.r2.getCallCount).toBe(1);
+        expect(h.r2.putCallCount).toBe(0);
+        expect(h.d1.callCount).toBe(0);
+        expect(report.result).toMatchObject(NO_DISTRICT_WORK);
+      });
+    }
+  });
+
+  describe("the two cadences, with nothing live and one district window that ended ten minutes ago", () => {
+    function quietDistrict(clockMs: number): Harness {
+      const h = watchHarness({ events: [{ eventKey: LIVE_EVENT }], windows: [endedWindow(LIVE_EVENT, 10, clockMs)] });
+      h.events.set(LIVE_EVENT, awardsOnlyRecord(WINNER_AND_FINALIST, "awards-etag-1"));
+      return h;
+    }
+
+    it("minute 12:01: no district is due, so the tick costs its one manifest read and nothing else", async () => {
+      const h = quietDistrict(clockAt(12, 1));
+
+      const report = await h.tickAt(clockAt(12, 1));
+
+      expect(h.fetchMock.mock.calls).toHaveLength(0);
+      expect(report.result.subrequestsUsed).toBe(1);
+      expect(h.d1.callCount).toBe(0);
+      expect(report.result).toMatchObject(NO_DISTRICT_WORK);
+    });
+
+    it("minute 12:05 with nothing changed: one rankings request, conditional on the stored ETag, and no artifact read", async () => {
+      const h = quietDistrict(clockAt(12, 5));
+      seedCursor(h.d1, districtRankingsCursorKey(DISTRICT_KEY), "rank-etag-1", null);
+
+      const report = await h.tickAt(clockAt(12, 5));
+
+      expect(report.rankingsCalls).toEqual(["rank-etag-1"]);
+      expect(report.awardsCalls).toEqual([]);
+      expect(h.fetchMock.mock.calls).toHaveLength(1);
+      expect(report.districtReads).toBe(0);
+      expect(report.written).toHaveLength(0);
+      expect(report.result).toMatchObject({ districtsConsidered: 1, districtsRefreshed: 0, districtsUnchanged: 1, districtsFailed: 0 });
+    });
+
+    it("minute 12:15, the forced look: the rankings are asked with NO If-None-Match although an ETag is stored, the artifact is read, nothing is put when nothing differs, and the rankings cursor is not rewritten", async () => {
+      const h = quietDistrict(clockAt(12, 10));
+      // 12:10, a quiet cadence tick with no rankings cursor yet: the 200
+      // passes the gate, the awards list is merged and both cursors are stored.
+      const first = await h.tickAt(clockAt(12, 10));
+      expect(first.rankingsCalls).toEqual([undefined]);
+      expect(first.written).toHaveLength(0);
+      const rankingsRow = { ...h.d1.eventCursors.get(districtRankingsCursorKey(DISTRICT_KEY))! };
+      expect(rankingsRow).toMatchObject({ tba_etag: "rank-etag-1", last_polled_at: isoAt(clockAt(12, 10)) });
+
+      const forced = await h.tickAt(clockAt(12, 15));
+
+      expect(forced.rankingsCalls).toEqual([undefined]);
+      // The waiting event is asked: its conditional 304 before the gate, then
+      // once more with no ETag so the rule has the list.
+      expect(forced.awardsCalls).toEqual([
+        { ifNoneMatch: "awards-etag-1", beforeArtifactRead: true },
+        { ifNoneMatch: undefined, beforeArtifactRead: false },
+      ]);
+      expect(forced.districtReads).toBe(1);
+      expect(forced.written).toHaveLength(0);
+      expect(forced.result).toMatchObject({ districtsConsidered: 1, districtsRefreshed: 0, districtsUnchanged: 1, districtsFailed: 0 });
+      expect(h.d1.eventCursors.get(districtRankingsCursorKey(DISTRICT_KEY))).toEqual(rankingsRow);
+    });
+
+    it("a live district is asked every minute as before (12:02, 12:03), and at 12:15 its rankings request carries no If-None-Match", async () => {
+      const h = makeHarness({ windows: [longLiveWindow()] });
+      h.events.set(LIVE_EVENT, alliancesPostedEventRecord(LIVE_EVENT, "etag-1"));
+      h.districts.set(DISTRICT_KEY, { rankings: movedRankings(), etag: "rank-etag-1" });
+
+      expect((await h.tickAt(clockAt(12, 2))).rankingsCalls).toEqual([undefined]);
+      expect((await h.tickAt(clockAt(12, 3))).rankingsCalls).toEqual(["rank-etag-1"]);
+      const forced = await h.tickAt(clockAt(12, 15));
+      expect(forced.rankingsCalls).toEqual([undefined]);
+      expect(h.d1.eventCursors.get(districtRankingsCursorKey(DISTRICT_KEY))?.tba_etag).toBe("rank-etag-1");
+      // The playoffs are open and the window is open: no awards request, forced look or not.
+      expect(forced.awardsCalls).toEqual([]);
+    });
+  });
+
+  describe("the forced look", () => {
+    it("the settle time fires by itself: a list merged at 12:10 reads false at 12:15, 12:30, 12:45 and 13:00 and true at 13:15, with the winner locked by its award in that one put", async () => {
+      const events = [{ eventKey: LIVE_EVENT, frc3Award: 10 }];
+      const h = watchHarness({ events, windows: [endedWindow(LIVE_EVENT, 10, clockAt(12, 10))] });
+      h.events.set(LIVE_EVENT, awardsOnlyRecord(JUDGED_LIST, "awards-etag-1"));
+
+      // 12:10: the judged list is merged with its points already in the rows.
+      const merged = await h.tickAt(clockAt(12, 10));
+      expect(merged.written).toHaveLength(1);
+      expect(flagsFor(merged.written[0]!)).toEqual([false, false]);
+      expect(teamIn(merged.written[0]!, "frc3").qualifyingAwards).toEqual([IMPACT_RECORD]);
+      expect(awardsCursorRow(h.d1)).toMatchObject({ tba_etag: "awards-etag-1", last_advanced_at: isoAt(clockAt(12, 10)) });
+
+      // Nothing changes at TBA from here on.
+      for (const [hour, minute] of [[12, 15], [12, 30], [12, 45], [13, 0]] as const) {
+        const waiting = await h.tickAt(clockAt(hour, minute));
+        expect({ hour, minute, puts: waiting.written.length, flags: flagsFor(h.current()) }).toEqual({ hour, minute, puts: 0, flags: [false, false] });
+        expect(teamIn(h.current(), "frc3").districtLock.status).not.toBe("lockedAward");
+      }
+
+      // 13:10: sixty minutes have passed, on a quiet cadence tick. Every poll
+      // is a 304, the gate stays shut, and nothing is read.
+      const quiet = await h.tickAt(clockAt(13, 10));
+      expect(quiet.districtReads).toBe(0);
+      expect(flagsFor(h.current())).toEqual([false, false]);
+
+      // 13:15: the forced look reads the rule again, and all three facts hold.
+      const settled = await h.tickAt(clockAt(13, 15));
+      expect(settled.written).toHaveLength(1);
+      expect(flagsFor(settled.written[0]!)).toEqual([true, true]);
+      expect(teamIn(settled.written[0]!, "frc3").districtLock.status).toBe("lockedAward");
+      expect(awardsWarns(h.warnSpy)).toEqual([]);
+    });
+
+    it("heals after an offline republish replaced the artifact: a quiet tick reads nothing, and the next forced look writes the points, the winner and the flag in one put", async () => {
+      // R2 holds what a republish from an older corpus wrote: the flag false,
+      // no winner record, no award points. The cursors are untouched: they
+      // still say the rankings and the awards list are the ones last seen.
+      const h = watchHarness({ events: [{ eventKey: LIVE_EVENT }], rankingsEvents: [{ eventKey: LIVE_EVENT, frc3Award: 10 }], windows: [endedWindow(LIVE_EVENT, 120, clockAt(12, 20))] });
+      h.events.set(LIVE_EVENT, awardsOnlyRecord(JUDGED_LIST, "awards-etag-1"));
+      seedCursor(h.d1, districtRankingsCursorKey(DISTRICT_KEY), "rank-etag-1", null);
+      seedAwardsRow(h.d1, LIVE_EVENT, "awards-etag-1", 90, clockAt(12, 20));
+
+      // 12:20, a quiet cadence tick.
+      const quiet = await h.tickAt(clockAt(12, 20));
+      expect(quiet.rankingsCalls).toEqual(["rank-etag-1"]);
+      expect(quiet.districtReads).toBe(0);
+      expect(quiet.written).toHaveLength(0);
+
+      // 12:30, the forced look.
+      const forced = await h.tickAt(clockAt(12, 30));
+      expect(forced.rankingsCalls).toEqual([undefined]);
+      expect(forced.written).toHaveLength(1);
+      const frc3 = teamIn(forced.written[0]!, "frc3");
+      expect(frc3.eventPoints.find((row) => row.eventKey === LIVE_EVENT)!.award).toBe(10);
+      expect(frc3.qualifyingAwards).toEqual([IMPACT_RECORD]);
+      expect(flagsFor(forced.written[0]!)).toEqual([true, true]);
+      expect(frc3.districtLock.status).toBe("lockedAward");
+    });
+
+    it("an event with no awards cursor row in a quiet district is asked, with no ETag, on the next forced look, and gets its row", async () => {
+      const h = watchHarness({ events: [{ eventKey: LIVE_EVENT }], windows: [endedWindow(LIVE_EVENT, 10, clockAt(12, 5))] });
+      h.events.set(LIVE_EVENT, awardsOnlyRecord(WINNER_AND_FINALIST, "awards-etag-1"));
+      seedCursor(h.d1, districtRankingsCursorKey(DISTRICT_KEY), "rank-etag-1", null);
+
+      // 12:05: the district is quiet and the event has no row, so nothing asks it.
+      const quiet = await h.tickAt(clockAt(12, 5));
+      expect(quiet.awardsCalls).toEqual([]);
+      expect(quiet.districtReads).toBe(0);
+      expect(awardsCursorRow(h.d1)).toBeUndefined();
+
+      // 12:15.
+      const forced = await h.tickAt(clockAt(12, 15));
+      expect(forced.awardsCalls).toEqual([{ ifNoneMatch: undefined, beforeArtifactRead: false }]);
+      expect(awardsCursorRow(h.d1)).toMatchObject({ tba_etag: "awards-etag-1", last_advanced_at: isoAt(clockAt(12, 15)) });
+    });
+
+    it("a failed awards cursor write is repaired by the forced look after it", async () => {
+      const h = watchHarness({ events: [{ eventKey: LIVE_EVENT }], windows: [endedWindow(LIVE_EVENT, 10, clockAt(12, 15))] });
+      h.events.set(LIVE_EVENT, awardsOnlyRecord(WINNER_AND_FINALIST, "awards-etag-1"));
+      seedCursor(h.d1, districtRankingsCursorKey(DISTRICT_KEY), "rank-etag-1", null);
+      h.d1.rejectCursorWritesForKeyPrefix = "__event_awards__:";
+
+      // 12:15: asked, and the row's write fails.
+      const failed = await h.tickAt(clockAt(12, 15));
+      expect(failed.awardsCalls).toHaveLength(1);
+      expect(failed.result.districtsFailed).toBe(1);
+      expect(awardsCursorRow(h.d1)).toBeUndefined();
+
+      // 12:20: quiet again, and still no row, so still nothing asks it.
+      h.d1.rejectCursorWritesForKeyPrefix = null;
+      expect((await h.tickAt(clockAt(12, 20))).awardsCalls).toEqual([]);
+
+      // 12:30.
+      const repaired = await h.tickAt(clockAt(12, 30));
+      expect(repaired.awardsCalls).toEqual([{ ifNoneMatch: undefined, beforeArtifactRead: false }]);
+      expect(repaired.result.districtsFailed).toBe(0);
+      expect(awardsCursorRow(h.d1)).toMatchObject({ tba_etag: "awards-etag-1", last_advanced_at: isoAt(clockAt(12, 30)) });
+    });
+
+    it("playoffs that ran past the measured window: an ended event whose published state says its playoffs are open is asked on a forced look only, and reaches flag true with every category final", async () => {
+      const playoffsOpen: StateBlock = { ...WAITING_STATE, playoffsDone: false };
+      const h = watchHarness({ events: [{ eventKey: LIVE_EVENT, state: playoffsOpen, frc3Award: 10 }], windows: [endedWindow(LIVE_EVENT, 10, clockAt(12, 5))] });
+      h.events.set(LIVE_EVENT, awardsOnlyRecord(JUDGED_LIST, "awards-etag-1"));
+
+      // 12:05: the rankings are a 200 (no cursor yet), so the gate passes and
+      // the event is looked at. Its playoffs read open and this is not a
+      // forced look: it is not asked.
+      const quiet = await h.tickAt(clockAt(12, 5));
+      expect(quiet.districtReads).toBe(1);
+      expect(quiet.awardsCalls).toEqual([]);
+
+      // 12:15: asked with no ETag. The list is new to the pass, so the flag waits.
+      const forced = await h.tickAt(clockAt(12, 15));
+      expect(forced.awardsCalls).toEqual([{ ifNoneMatch: undefined, beforeArtifactRead: false }]);
+      expect(flagsFor(forced.written[0]!)).toEqual([false, false]);
+      expect(teamIn(forced.written[0]!, "frc3").qualifyingAwards).toEqual([IMPACT_RECORD]);
+
+      // 13:15: a judged award, its points, and sixty settled minutes.
+      const settled = await h.tickAt(clockAt(13, 15));
+      expect(settled.written).toHaveLength(1);
+      expect(flagsFor(settled.written[0]!)).toEqual([true, true]);
+      const state = teamIn(settled.written[0]!, "frc3").eventPoints.find((row) => row.eventKey === LIVE_EVENT)!.state!;
+      expect(state).toEqual({ ...playoffsOpen, awardsPosted: true });
+      // The posted awards close every earlier category through the cascade.
+      expect(districtEventStateFinished(state)).toBe(true);
+      expect(teamIn(settled.written[0]!, "frc3").districtLock.status).toBe("lockedAward");
+    });
+  });
+
+  describe("the catch up", () => {
+    const olderKey = (index: number): string => `2026old${String(index).padStart(2, "0")}`;
+    const awardsKey = (eventKey: string): string => `__event_awards__:${eventKey}`;
+    const oldAsked = (report: TickReport): string[] => report.awardsAsked.filter((call) => call.eventKey.startsWith("2026old")).map((call) => call.eventKey);
+
+    it("a forced look asks at most eight older waiting events, none conditionally, reads their rows in one extra D1 read, stamps every one it asked, and a settled one turns true", async () => {
+      const AT = clockAt(12, 15);
+      // Ten older events (weeks 1 and 2) that the watch no longer covers, and
+      // one whose key is not an event key at all.
+      const older: WatchEvent[] = Array.from({ length: 10 }, (_, index) => ({ eventKey: olderKey(index), week: index < 5 ? 1 : 2, ...(index === 0 ? { frc3Award: 10 } : {}) }));
+      const h = watchHarness({ events: [{ eventKey: LIVE_EVENT }, ...older, { eventKey: "2026OLD_not-a-key", week: 1 }], windows: [endedWindow(LIVE_EVENT, 10, AT)] });
+      h.events.set(LIVE_EVENT, awardsOnlyRecord(WINNER_AND_FINALIST, "live-awards-1"));
+      // 2026old00: a judged list with its points, unchanged for more than an hour.
+      h.events.set(olderKey(0), awardsOnlyRecord([tbaAward(0, "FIRST Impact Award", ["frc3"], olderKey(0))], "old00-a"));
+      seedAwardsRow(h.d1, olderKey(0), "old00-a", 61, AT);
+      // 2026old01: its list did not change since it was stored thirty minutes ago.
+      h.events.set(olderKey(1), awardsOnlyRecord(WINNER_AND_FINALIST, "old01-a"));
+      seedAwardsRow(h.d1, olderKey(1), "old01-a", 30, AT);
+      const old01Seeded = { ...h.d1.eventCursors.get(awardsKey(olderKey(1)))! };
+      // 2026old02: TBA fails.
+      h.events.set(olderKey(2), awardsOnlyRecord(WINNER_AND_FINALIST, "old02-a", { awardsStatus: 500 }));
+      // The rest have never been asked.
+      for (let index = 3; index < 10; index++) h.events.set(olderKey(index), awardsOnlyRecord(WINNER_AND_FINALIST, `old${String(index)}-a`));
+
+      const forced = await h.tickAt(AT);
+
+      // Never asked first, ties by week then key: the first eight.
+      expect(oldAsked(forced)).toEqual([0, 1, 2, 3, 4, 5, 6, 7].map(olderKey));
+      expect(forced.awardsAsked.filter((call) => call.eventKey.startsWith("2026old")).map((call) => call.ifNoneMatch)).toEqual(Array.from({ length: 8 }, () => undefined));
+      expect(forced.awardsAsked.some((call) => call.eventKey === "2026OLD_not-a-key")).toBe(false);
+
+      // ONE extra read, after the artifact read, naming all ten candidates and
+      // not the key that is not an event key.
+      const catchUpReads = h.d1.cursorSelects.filter((keys) => keys.some((key) => key.startsWith("__event_awards__:2026old") || key.startsWith("__event_awards__:2026OLD")));
+      expect(catchUpReads).toHaveLength(1);
+      expect([...catchUpReads[0]!].sort()).toEqual(Array.from({ length: 10 }, (_, index) => awardsKey(olderKey(index))));
+
+      // Every event it asked is stamped with this tick's time, whatever it answered.
+      for (let index = 0; index < 8; index++) expect({ index, polled: h.d1.eventCursors.get(awardsKey(olderKey(index)))?.last_polled_at }).toEqual({ index, polled: isoAt(AT) });
+      expect(h.d1.eventCursors.has(awardsKey(olderKey(8)))).toBe(false);
+      expect(h.d1.eventCursors.has(awardsKey(olderKey(9)))).toBe(false);
+      // Unchanged: the ETag and the change time stand.
+      expect(h.d1.eventCursors.get(awardsKey(olderKey(1)))).toEqual({ ...old01Seeded, last_polled_at: isoAt(AT) });
+      // Failed: the marker, and one warn that names the event.
+      expect(h.d1.eventCursors.get(awardsKey(olderKey(2)))).toMatchObject({ tba_etag: null, last_polled_at: isoAt(AT) });
+      expect(awardsWarns(h.warnSpy).map((entry) => entry["eventKey"])).toEqual([olderKey(2)]);
+      // New to the pass: stored, and changed now.
+      expect(h.d1.eventCursors.get(awardsKey(olderKey(3)))).toMatchObject({ tba_etag: "old3-a", last_advanced_at: isoAt(AT), last_polled_at: isoAt(AT) });
+
+      // The settled one turned true, with its winner.
+      expect(forced.written).toHaveLength(1);
+      expect(flagsFor(forced.written[0]!, olderKey(0))).toEqual([true, true]);
+      expect(teamIn(forced.written[0]!, "frc3").qualifyingAwards).toEqual([{ eventKey: olderKey(0), awardType: 0, label: "FIRST Impact Award", awardOnly: false }]);
+      expect(flagsFor(forced.written[0]!, olderKey(1))).toEqual([false, false]);
+      expectNoSecretInWarns(h.warnSpy);
+
+      // 12:20, a quiet cadence tick that passes the gate (new rankings ETag):
+      // no older event is asked.
+      h.districts.set(DISTRICT_KEY, { rankings: h.districts.get(DISTRICT_KEY)!.rankings, etag: "rank-etag-2" });
+      const quiet = await h.tickAt(clockAt(12, 20));
+      expect(quiet.districtReads).toBe(1);
+      expect(oldAsked(quiet)).toEqual([]);
+    });
+
+    it("no starvation: ten events that can never post do not keep an eleventh from being asked, and it turns true once its list has settled", async () => {
+      const stuckKey = (index: number): string => `2026oldstk${String(index).padStart(2, "0")}`;
+      const POSTER = "2026oldzzpost";
+      // The ten stuck events sort ahead of the one that can post: weeks 1 and
+      // 2 against a null week, which goes last.
+      const stuck: WatchEvent[] = Array.from({ length: 10 }, (_, index) => ({ eventKey: stuckKey(index), week: index < 5 ? 1 : 2 }));
+      const h = watchHarness({ events: [{ eventKey: LIVE_EVENT }, ...stuck, { eventKey: POSTER, week: null, frc3Award: 10 }], windows: [endedWindow(LIVE_EVENT, 10, clockAt(12, 15))] });
+      h.events.set(LIVE_EVENT, awardsOnlyRecord(WINNER_AND_FINALIST, "live-awards-1"));
+      for (let index = 0; index < 10; index++) h.events.set(stuckKey(index), awardsOnlyRecord(WINNER_AND_FINALIST, `stuck-${String(index)}`));
+      h.events.set(POSTER, awardsOnlyRecord([tbaAward(0, "FIRST Impact Award", ["frc3"], POSTER)], "poster-a"));
+
+      // Nine forced looks, 12:15 to 14:15.
+      const looks: string[][] = [];
+      const posterFlags: boolean[][] = [];
+      for (let look = 0; look < 9; look++) {
+        const report = await h.tickAt(clockAt(12, 15) + look * 15 * MINUTE_MS);
+        looks.push(oldAsked(report));
+        posterFlags.push(flagsFor(h.current(), POSTER));
+        expect(report.result.districtsFailed).toBe(0);
+      }
+
+      // Look 1: all eleven have never been asked, so week then key decides.
+      expect(looks[0]).toEqual([0, 1, 2, 3, 4, 5, 6, 7].map(stuckKey));
+      // Look 2: the three never asked first (week 2, week 2, null week), then
+      // the least recently asked, which all tie on 12:15: week then key again.
+      expect(looks[1]).toEqual([stuckKey(8), stuckKey(9), POSTER, ...[0, 1, 2, 3, 4].map(stuckKey)]);
+      // Every look asks exactly eight, and every event still waiting is asked
+      // within any two consecutive looks. The one that can post stops being a
+      // candidate once its flag is true, so from then on the pair covers the
+      // ten that cannot.
+      const stuckKeys = stuck.map((event) => event.eventKey).sort();
+      const posted = (look: number): boolean => look >= 0 && posterFlags[look]!.every((flag) => flag);
+      for (let look = 0; look < looks.length; look++) {
+        expect(looks[look]).toHaveLength(8);
+        if (look === 0) continue;
+        const pair = [...new Set([...looks[look - 1]!, ...looks[look]!])].sort();
+        // Still waiting when the earlier look of the pair began?
+        const posterStillWaiting = !posted(look - 2);
+        expect({ look, pair }).toEqual({ look, pair: posterStillWaiting ? [...stuckKeys, POSTER].sort() : stuckKeys });
+      }
+
+      // The one that can post was first asked at 12:30 (look 2), was asked
+      // again every second look, and turned true at 13:30 (look 6), the first
+      // of its looks an hour after its list was stored. Not before.
+      expect(looks.map((asked) => asked.includes(POSTER))).toEqual([false, true, false, true, false, true, false, false, false]);
+      expect(posterFlags.map((flags) => flags.every((flag) => flag))).toEqual([false, false, false, false, false, true, true, true, true]);
+      expect(posterFlags[1]).toEqual([false, false]);
+      expect(posterFlags[posterFlags.length - 1]).toEqual([true, true]);
+      expect(teamIn(h.current(), "frc3").qualifyingAwards).toEqual([{ eventKey: POSTER, awardType: 0, label: "FIRST Impact Award", awardOnly: false }]);
+      // The ten that cannot post are still false.
+      for (let index = 0; index < 10; index++) expect(flagsFor(h.current(), stuckKey(index))).toEqual([false, false]);
+    });
+  });
+
+  describe("a calendar (inferred) window needs proof of a played match before its district is asked", () => {
+    it("a LIVE inferred window the tick did not promote costs the pass one D1 read and no district request at 12:05 and 12:15, with no match cursor row and with one whose folded key is null", async () => {
+      for (const seedRow of [false, true]) {
+        const h = watchHarness({ events: [{ eventKey: LIVE_EVENT }], windows: [liveWindow({ inferred: true })] });
+        // The probe's own poll answers 304 or an empty list: not promoted.
+        h.events.set(LIVE_EVENT, awardsOnlyRecord(JUDGED_LIST, "awards-etag-1"));
+        if (seedRow) seedCursor(h.d1, LIVE_EVENT, "etag-1", null);
+
+        for (const [hour, minute] of [[12, 5], [12, 15]] as const) {
+          h.d1.cursorSelects.length = 0;
+          h.fetchMock.mockClear();
+          const report = await h.tickAt(clockAt(hour, minute));
+          expect(report.result.eventsPromoted).toBe(0);
+          expect(passCursorReads(h.d1)).toHaveLength(1);
+          expect(tbaUrls(h.fetchMock).filter((u) => u.includes("/district/") || u.endsWith("/awards"))).toEqual([]);
+          expect(report.districtReads).toBe(0);
+          expect(report.result).toMatchObject(NO_DISTRICT_WORK);
+        }
+
+        // 12:06: not due, so not even the one read.
+        h.d1.cursorSelects.length = 0;
+        await h.tickAt(clockAt(12, 6));
+        expect(passCursorReads(h.d1)).toHaveLength(0);
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("with a folded match on its cursor row the same window's district is asked at 12:05 and forced at 12:15", async () => {
+      const h = watchHarness({ events: [{ eventKey: LIVE_EVENT }], windows: [liveWindow({ inferred: true })] });
+      h.events.set(LIVE_EVENT, awardsOnlyRecord(WINNER_AND_FINALIST, "awards-etag-1"));
+      seedCursor(h.d1, LIVE_EVENT, "etag-1", `${LIVE_EVENT}_qm2`);
+
+      const quiet = await h.tickAt(clockAt(12, 5));
+      expect(quiet.result.eventsPromoted).toBe(0);
+      expect(quiet.rankingsCalls).toEqual([undefined]);
+      expect(quiet.result.districtsConsidered).toBe(1);
+      expect(h.d1.eventCursors.get(districtRankingsCursorKey(DISTRICT_KEY))?.tba_etag).toBe("rank-etag-1");
+
+      expect((await h.tickAt(clockAt(12, 6))).rankingsCalls).toEqual([]);
+
+      const forced = await h.tickAt(clockAt(12, 15));
+      expect(forced.rankingsCalls).toEqual([undefined]);
+      expect(forced.districtReads).toBe(1);
+    });
+
+    it("an inferred window that ENDED an hour ago: unproven it costs exactly one D1 read and no request, proven its district is asked at 12:05 and forced at 12:15", async () => {
+      for (const seedRow of [false, true]) {
+        const h = watchHarness({ events: [{ eventKey: LIVE_EVENT }], windows: [endedWindow(LIVE_EVENT, 60, clockAt(12, 5), { inferred: true })] });
+        h.events.set(LIVE_EVENT, awardsOnlyRecord(WINNER_AND_FINALIST, "awards-etag-1"));
+        if (seedRow) seedCursor(h.d1, LIVE_EVENT, "etag-1", null);
+        for (const [hour, minute] of [[12, 5], [12, 15]] as const) {
+          const callsBefore = h.d1.callCount;
+          const report = await h.tickAt(clockAt(hour, minute));
+          expect(h.fetchMock.mock.calls).toHaveLength(0);
+          expect(h.d1.callCount - callsBefore).toBe(1);
+          // The manifest read and the pass's one cursor read.
+          expect(report.result.subrequestsUsed).toBe(2);
+          expect(report.result).toMatchObject(NO_DISTRICT_WORK);
+        }
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+      }
+
+      const proven = watchHarness({ events: [{ eventKey: LIVE_EVENT }], windows: [endedWindow(LIVE_EVENT, 60, clockAt(12, 5), { inferred: true })] });
+      proven.events.set(LIVE_EVENT, awardsOnlyRecord(WINNER_AND_FINALIST, "awards-etag-1"));
+      seedCursor(proven.d1, LIVE_EVENT, "etag-1", `${LIVE_EVENT}_qm2`);
+      const quiet = await proven.tickAt(clockAt(12, 5));
+      expect(quiet.rankingsCalls).toEqual([undefined]);
+      expect(quiet.result.districtsConsidered).toBe(1);
+      const forced = await proven.tickAt(clockAt(12, 15));
+      expect(forced.rankingsCalls).toEqual([undefined]);
+      expect(proven.d1.eventCursors.get(districtRankingsCursorKey(DISTRICT_KEY))?.tba_etag).toBe("rank-etag-1");
+    });
+  });
+
+  describe("reach, suspension and never throwing, from a tick with nothing live", () => {
+    function idleWatch(options: Partial<WatchHarnessOptions> = {}): Harness {
+      const h = watchHarness({ events: [{ eventKey: LIVE_EVENT }], windows: [endedWindow(LIVE_EVENT, 10, clockAt(12, 5))], ...options });
+      h.events.set(LIVE_EVENT, awardsOnlyRecord(WINNER_AND_FINALIST, "awards-etag-1"));
+      return h;
+    }
+
+    it("suspended at 12:15 while the state baseline markers disagree with the manifest generation: no TBA request, no put, one warn", async () => {
+      const h = idleWatch();
+      seedStateBaselineMarkers(h.d1.eventCursors, PUBLISHED_ALGORITHM_IDS, "gen-not-seeded-yet");
+
+      const report = await h.tickAt(clockAt(12, 15));
+
+      expect(h.fetchMock.mock.calls).toHaveLength(0);
+      expect(h.r2.putCallCount).toBe(0);
+      expect(report.districtReads).toBe(0);
+      expect(warnsNamed(h.warnSpy, "district-pass-suspended")).toHaveLength(1);
+      expect(report.result).toMatchObject(NO_DISTRICT_WORK);
+      expectNoSecretInWarns(h.warnSpy);
+    });
+
+    it("the algorithms manifest missing from R2 on that tick: runTick resolves, makes no TBA request and warns once", async () => {
+      const h = idleWatch({ withoutAlgorithmsManifest: true });
+
+      const report = await h.tickAt(clockAt(12, 15));
+
+      expect(h.fetchMock.mock.calls).toHaveLength(0);
+      expect(h.r2.putCallCount).toBe(0);
+      expect(warnsNamed(h.warnSpy, "district-pass-suspended")).toHaveLength(1);
+      expect(report.result).toMatchObject(NO_DISTRICT_WORK);
+      expectNoSecretInWarns(h.warnSpy);
+    });
+
+    it("the pass's cursor read rejecting: runTick resolves, makes no TBA request, and the due district is counted failed", async () => {
+      const h = idleWatch();
+      h.d1.rejectCursorReadsForKeyPrefix = "__district_rankings__:";
+
+      const report = await h.tickAt(clockAt(12, 5));
+
+      expect(h.fetchMock.mock.calls).toHaveLength(0);
+      expect(warnsNamed(h.warnSpy, "district-cursor-read-failed")).toHaveLength(1);
+      expect(report.result).toMatchObject({ districtsConsidered: 1, districtsRefreshed: 0, districtsUnchanged: 0, districtsFailed: 1 });
+      expectNoSecretInWarns(h.warnSpy);
+    });
+
+    it("counting: on a forced look with one waiting event, subrequestsUsed equals the R2 calls, D1 calls and TBA requests the fakes recorded", async () => {
+      const h = idleWatch();
+
+      const report = await h.tickAt(clockAt(12, 15));
+
+      expect(report.awardsCalls).toHaveLength(1);
+      const recorded = h.r2.getCallCount + h.r2.putCallCount + h.d1.callCount + h.fetchMock.mock.calls.length;
+      expect(report.result.subrequestsUsed).toBe(recorded);
+      expect(report.result.tbaRequests).toBe(h.fetchMock.mock.calls.length);
+    });
+
+    it("the bound: one district with ten watched events that all wait and ten catch up candidates spends at most 3 x 10 + 2 x 8 + 5 on a forced look, 55 with the tick's own four", async () => {
+      const AT = clockAt(12, 15);
+      const watchedKey = (index: number): string => `2026wev${String(index).padStart(2, "0")}`;
+      const olderKey = (index: number): string => `2026old${String(index).padStart(2, "0")}`;
+      const watched: WatchEvent[] = Array.from({ length: 10 }, (_, index) => ({ eventKey: watchedKey(index) }));
+      const older: WatchEvent[] = Array.from({ length: 10 }, (_, index) => ({ eventKey: olderKey(index), week: 1 }));
+      const h = watchHarness({ events: [...watched, ...older], windows: watched.map((event) => endedWindow(event.eventKey, 10, AT)) });
+      for (const event of [...watched, ...older]) h.events.set(event.eventKey, awardsOnlyRecord(WINNER_AND_FINALIST, `${event.eventKey}-awards`));
+      // The costliest row a watched event can have: its ETag matches (a
+      // conditional 304, then the ask with no ETag) and it has no change time
+      // (so the row is written).
+      for (const event of watched) seedAwardsRow(h.d1, event.eventKey, `${event.eventKey}-awards`, null);
+
+      const report = await h.tickAt(AT);
+
+      expect(report.result.districtsFailed).toBe(0);
+      expect(report.awardsAsked.filter((call) => call.eventKey.startsWith("2026wev"))).toHaveLength(20);
+      expect(report.awardsAsked.filter((call) => call.eventKey.startsWith("2026old"))).toHaveLength(8);
+      // 1 manifest read, 1 cursor read, 2 for the suspension check, and the district.
+      expect(report.result.subrequestsUsed).toBeLessThanOrEqual(1 + 1 + 2 + (3 * 10 + 2 * 8 + 5));
+      expect(report.result.subrequestsUsed).toBe(h.r2.getCallCount + h.r2.putCallCount + h.d1.callCount + h.fetchMock.mock.calls.length);
+      expect(awardsWarns(h.warnSpy)).toEqual([]);
+    });
   });
 });
 
