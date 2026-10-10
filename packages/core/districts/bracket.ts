@@ -337,11 +337,25 @@ export function playoffPoints(season: number, tier: DistrictTier, placement: num
  *
  * The 2026 game manual, section 11.1.3, pays base points by placement (first
  * 20, second 20, third 13, fourth 7) PLUS 5 for each Finals match won in which
- * the team played, up to 10. So the winner reaches 30 and a losing finalist
- * that won one Finals match reaches 25, above `PLAYOFF_PLACEMENT_POINTS`' 20.
- * TBA's district tier rows since 2023 show 25 thirteen times (4, 1, 4 and 4 by
- * season) and no row above these maxima; every other value off the table is a
- * proration below one.
+ * the team played, up to 10. So the winner reaches 30, and the manual's wording
+ * would allow a losing finalist that won one Finals match 25, above
+ * `PLAYOFF_PLACEMENT_POINTS`' 20.
+ *
+ * TBA DOES NOT PAY A LOSING FINALIST THAT 25. Measured 2026-10-09 in quick task
+ * 261009-tx8 over the 491 routed eight alliance brackets of 2023 to 2026, and
+ * held by `pointFormulas.reconciliation.test.ts`: every one of the 329 first
+ * three picks of a losing finalist that won one Finals match is paid exactly
+ * the base second place value (261 district tier rows at 20, 68 DCMP tier rows
+ * at 60), and none is paid above it. TBA's district tier rows do show 25
+ * thirteen times (4, 1, 4 and 4 by season), and all 13 are members of the
+ * WINNING alliance that played in only one of its two Finals wins. No row sits
+ * above these maxima; every other value off the table is a proration below
+ * one.
+ *
+ * THE 25 (75 at a District Championship) IS KEPT, as a ceiling for the lock
+ * math only. It is the safe side of the manual's wording: a ceiling that is
+ * too high only delays a lock, and a ceiling that is too low could grant one
+ * that fails.
  */
 export const PLAYOFF_PLACEMENT_MAX_POINTS: readonly number[] = [30, 25, 13, 7, 0, 0, 0, 0];
 
@@ -352,6 +366,14 @@ export const PLAYOFF_PLACEMENT_MAX_POINTS: readonly number[] = [30, 25, 13, 7, 0
  * Champ Locks joint proof, and a decided placement's settled ceiling).
  * `playoffPoints` stays the measured placement multiset, which is what the
  * simulation draws and what a settled Playoffs cell prints.
+ *
+ * For second place the bound is 25 times the tier weight (75 at a District
+ * Championship). That is what the manual's wording would allow a losing
+ * finalist that won one Finals match, and not what TBA pays one: all 329
+ * measured rows sit at the base value and the 13 rows at base 25 are on the
+ * winning alliance (see `PLAYOFF_PLACEMENT_MAX_POINTS`, quick task
+ * 261009-tx8). The bound is kept on the safe side, since a ceiling that is too
+ * high only delays a lock.
  */
 export function maxPlayoffPointsByPlacement(season: number, tier: DistrictTier, placement: number): number {
   assertBracketSeason(season);

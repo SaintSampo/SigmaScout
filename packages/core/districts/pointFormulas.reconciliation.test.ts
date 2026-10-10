@@ -38,6 +38,7 @@ import {
   DIVISIONED_DCMP_PLAYOFF_OBSERVATIONS,
   playoffPoints,
   routeBracket,
+  type BracketResult,
   type DivisionedDcmpObservation,
   type PlayedBracketMatch,
 } from "./bracket.js";
@@ -471,6 +472,18 @@ interface PlayoffBlockResult {
   absentTeam: number;
 }
 
+/** One routed bracket, as `reconcilePlayoffPoints` hands it to a visitor: the event's own rows and the routing this block proved. */
+interface RoutedBracketVisit {
+  year: number;
+  eventKey: string;
+  eventAlliances: readonly EventAllianceRow[];
+  /** Every decisive sf and f row as an alliance numbered result, in corpus order; a tie carries no row. */
+  playedRows: readonly PlayedBracketMatch[];
+  routed: BracketResult;
+  /** The team's `event_points_raw` entry for this event, or `undefined` for a team with none (a non-district team). */
+  entryFor: (teamKey: string) => EventPointsEntry | undefined;
+}
+
 /**
  * Routes every complete 2023-plus eight-alliance district bracket in the
  * corpus from its REAL match results and checks the resulting placement
@@ -504,7 +517,7 @@ interface PlayoffBlockResult {
  * alliance whose every pick is a non-district team absent from
  * `district_rankings`.
  */
-function reconcilePlayoffPoints(year: number): PlayoffBlockResult {
+function reconcilePlayoffPoints(year: number, onRouted?: (visit: RoutedBracketVisit) => void): PlayoffBlockResult {
   const db = openCorpusReadOnly(CORPUS_PATH);
   let alliances: EventAllianceRow[];
   let matches: PlayoffMatchRow[];
@@ -590,10 +603,10 @@ function reconcilePlayoffPoints(year: number): PlayoffBlockResult {
     }
 
     let routed;
+    const playedRows: PlayedBracketMatch[] = [];
     try {
       // Every DECISIVE sf and f row as an alliance numbered result. A tie
       // carries no row, exactly as the browser hands its rows over.
-      const playedRows: PlayedBracketMatch[] = [];
       for (const row of eventMatches) {
         if (row.winner !== "red" && row.winner !== "blue") continue;
         const winningAllianceNumber = allianceOfColour(row.winner === "red" ? row.red_teams : row.blue_teams);
@@ -633,6 +646,14 @@ function reconcilePlayoffPoints(year: number): PlayoffBlockResult {
     }
 
     result.reconciledEvents++;
+    onRouted?.({
+      year,
+      eventKey,
+      eventAlliances,
+      playedRows,
+      routed,
+      entryFor: (teamKey) => entriesByTeam.get(teamKey)?.get(eventKey),
+    });
 
     for (const row of eventAlliances) {
       const picks = JSON.parse(row.picks) as string[];
@@ -915,6 +936,89 @@ describe("playoff bracket populations and the divisioned-dcmp fallback, across 2
       `${absentTeam} pick slots have no event_points entry, above the ${MAX_PLAYOFF_ABSENT_TEAM} measured during execution`
     ).toBeLessThanOrEqual(MAX_PLAYOFF_ABSENT_TEAM);
     expect(checked).toBeGreaterThanOrEqual(EXPECTED_PLAYOFF_CHECKED);
+  });
+
+  it("pays a losing finalist the base second place value, never more, and every row at base 25 sits on the winning alliance (quick task 261009-tx8)", () => {
+    // WHAT THIS HOLDS. The 2026 manual, section 11.1.3, pays 5 points for each
+    // Finals match won in which the team played, and its wording would allow a
+    // losing finalist that won one Finals match 25 (75 at a District
+    // Championship). TBA does not pay that: measured 2026-10-09 over the 491
+    // routed brackets, every first three pick of a losing finalist sits at or
+    // below the base second place value, and the 13 rows at base 25 are
+    // members of the WINNING alliance that played in one of its two Finals
+    // wins. `PLAYOFF_PLACEMENT_MAX_POINTS` keeps 25 for second place as a
+    // ceiling for the lock math, where too high is the safe side; this case is
+    // what says the simulation, the settled cell and the Finalist outcome are
+    // right to print the base value.
+    const tierOf = (entry: EventPointsEntry): "district" | "dcmp" => (entry.district_cmp ? "dcmp" : "district");
+    let brackets = 0;
+    let twoToOneFinals = 0;
+    const atBaseAfterTwoToOne = { district: 0, dcmp: 0 };
+    let aboveAfterTwoToOne = 0;
+    let belowAfterTwoToOne = 0;
+    let atBaseAfterSweep = 0;
+    let aboveAfterSweep = 0;
+    const atBase25 = { winner: 0, loser: 0, other: 0 };
+    const above: string[] = [];
+
+    for (const year of BRACKET_REGISTERED_SEASONS) {
+      reconcilePlayoffPoints(year, ({ eventKey, eventAlliances, playedRows, routed, entryFor }) => {
+        brackets++;
+        const winner = routed.winnerBySet.get("f")!;
+        const loser = routed.loserBySet.get("f")!;
+        // The decided Finals rows, one per original match number.
+        const finalWinnerByMatch = new Map<number, number>();
+        for (const row of playedRows) {
+          if (row.compLevel === "f" && row.setNumber === 1) finalWinnerByMatch.set(row.matchNumber, row.winningAllianceNumber);
+        }
+        let loserWins = 0;
+        for (const allianceNumber of finalWinnerByMatch.values()) if (allianceNumber === loser) loserWins++;
+        if (loserWins === 1) twoToOneFinals++;
+
+        for (const alliance of eventAlliances) {
+          (JSON.parse(alliance.picks) as string[]).forEach((teamKey, slot) => {
+            const entry = entryFor(teamKey);
+            if (entry === undefined) return;
+            const tier = tierOf(entry);
+            const baseSecond = playoffPoints(year, tier, 2);
+            // Second place is 20 before the tier weight, so this is the weight.
+            const weight = baseSecond / 20;
+            if (entry.elim_points / weight === 25) {
+              if (alliance.alliance_number === winner) atBase25.winner++;
+              else if (alliance.alliance_number === loser) atBase25.loser++;
+              else atBase25.other++;
+            }
+            // The losing finalist's first three picks only: a fourth robot is prorated.
+            if (alliance.alliance_number !== loser || slot >= 3) return;
+            if (entry.elim_points > baseSecond) above.push(`${eventKey} ${teamKey} paid ${entry.elim_points}, base ${baseSecond}, Finals wins ${loserWins}`);
+            if (loserWins === 1) {
+              if (entry.elim_points === baseSecond) atBaseAfterTwoToOne[tier]++;
+              else if (entry.elim_points > baseSecond) aboveAfterTwoToOne++;
+              else belowAfterTwoToOne++;
+            } else if (entry.elim_points === baseSecond) atBaseAfterSweep++;
+            else if (entry.elim_points > baseSecond) aboveAfterSweep++;
+          });
+        }
+      });
+    }
+
+    const atBaseTotal = atBaseAfterTwoToOne.district + atBaseAfterTwoToOne.dcmp;
+    console.log(
+      `[playoff finalist] brackets=${brackets} twoToOneFinals=${twoToOneFinals} losingFinalistAtBaseAfterTwoToOne=${atBaseTotal} (district=${atBaseAfterTwoToOne.district} dcmp=${atBaseAfterTwoToOne.dcmp}) aboveAfterTwoToOne=${aboveAfterTwoToOne} belowAfterTwoToOne=${belowAfterTwoToOne} atBaseAfterSweep=${atBaseAfterSweep} aboveAfterSweep=${aboveAfterSweep} rowsAtBase25: winner=${atBase25.winner} loser=${atBase25.loser} other=${atBase25.other}`
+    );
+
+    expect(above, `${above.length} losing finalist row(s) paid above the base second place value:\n${above.slice(0, 20).join("\n")}`).toEqual([]);
+    expect(aboveAfterTwoToOne).toBe(0);
+    expect(aboveAfterSweep).toBe(0);
+    expect(
+      atBaseTotal,
+      `only ${atBaseTotal} losing finalist rows at exactly the base value after a 2 to 1 final, below the 329 measured on 2026-10-09`
+    ).toBeGreaterThanOrEqual(329);
+    expect(atBase25.loser, "a row at base 25 sits on a losing finalist, which the measurement of 2026-10-09 did not find").toBe(0);
+    expect(atBase25.winner, `only ${atBase25.winner} rows at base 25 on a winning alliance, below the 13 measured on 2026-10-09`).toBeGreaterThanOrEqual(13);
+    // Non-vacuity: the population is the 491 routed brackets, and some finals went 2 to 1.
+    expect(brackets).toBeGreaterThanOrEqual(400);
+    expect(twoToOneFinals).toBeGreaterThan(0);
   });
 
   it("reproduces DIVISIONED_DCMP_PLAYOFF_OBSERVATIONS exactly from the corpus, cell for cell", () => {

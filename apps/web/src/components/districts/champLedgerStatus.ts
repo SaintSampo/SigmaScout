@@ -70,8 +70,15 @@
  *    called from that pool and paid for its share. The award ceiling and
  *    decision 2's reservation are unchanged. A placement table value enters
  *    the ceiling at the placement's MAXIMUM, `SettledPlayoffs.ceiling` (quick
- *    task 261009-2tr, CONTEXT D7): a losing finalist that won one Finals match
- *    is paid 75 at a 2026 DCMP while its cell prints 60.
+ *    task 261009-2tr, CONTEXT D7): the manual's wording (section 11.1.3, 5
+ *    points for each Finals match won) would allow a losing finalist that won
+ *    one Finals match 75 at a 2026 DCMP, where its cell prints 60. TBA has
+ *    paid every one of the 329 measured losing finalists with a Finals win
+ *    the base value (261 district tier and 68 DCMP tier, 2023 to 2026,
+ *    measured 2026-10-09 in quick task 261009-tx8) and none above it; the 13
+ *    rows at base 25 are members of the winning alliance that played in one
+ *    of its two Finals wins. The 25 (75) maximum is kept as the safe side: a
+ *    ceiling that is too high only delays a lock.
  *
  *    EVERY DCMP SOURCE IS FOLDED (quick task 261009-kt3, CONTEXT D3). A team
  *    at a divisioned championship carries its division row and, once TBA pays

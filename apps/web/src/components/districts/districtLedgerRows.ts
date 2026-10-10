@@ -339,17 +339,28 @@ export interface SettledPlayoffs {
    * final at Now: exact. FALSE where it is the decided placement's value off
    * the placement table, which is not TBA's number: TBA prorates a team that
    * sat out part of its alliance's playoffs DOWN (2026pncmp: frc3663 on the
-   * fourth place alliance, worth 21, was paid 12), and pays a losing finalist
-   * that won one Finals match MORE than the table's second place.
+   * fourth place alliance, worth 21, was paid 12). TBA does NOT pay a losing
+   * finalist above the table's second place: all 329 measured losing
+   * finalists with a Finals win were paid the base value (quick task
+   * 261009-tx8; see `ceiling`).
    */
   readonly exact: boolean;
   /**
    * The most the decided placement can still pay, which both status modules'
    * lock math reads (quick task 261009-2tr, CONTEXT D7): for a value that is
-   * not exact, `maxPlayoffPointsByPlacement` (the 2026 manual, section 11.1.3:
-   * a losing finalist that won one Finals match is paid 25 times the tier
-   * weight, 75 at a DCMP, where the cell prints 60); 0 for an exact value,
-   * which joins the floor instead.
+   * not exact, `maxPlayoffPointsByPlacement`; 0 for an exact value, which
+   * joins the floor instead.
+   *
+   * FOR SECOND PLACE THAT MAXIMUM IS THE MANUAL'S WORDING, NOT A VALUE TBA HAS
+   * PAID. The 2026 manual, section 11.1.3 (5 points for each Finals match
+   * won), would allow a losing finalist that won one Finals match 25 times
+   * the tier weight, 75 at a DCMP, where the cell prints 60. TBA has paid
+   * every one of the 329 measured losing finalists with a Finals win the base
+   * value (261 district tier and 68 DCMP tier, 2023 to 2026, measured
+   * 2026-10-09 in quick task 261009-tx8), and none above it. The 13 rows at
+   * base 25 are members of the winning alliance that played in one of its two
+   * Finals wins. The 25 (75) maximum is kept as the safe side, since a ceiling
+   * that is too high only delays a lock.
    */
   readonly ceiling: number;
 }
@@ -1382,7 +1393,11 @@ export interface SettledPlayoffPointsOptions {
  * number, so it is not `exact`, and the CEILING the lock math reads is the
  * most that placement can pay, from `maxPlayoffPointsByPlacement` (quick task
  * 261009-2tr, CONTEXT D7): 75 for second place at a 2026 DCMP, where the cell
- * prints 60.
+ * prints 60. That 75 is what the manual's wording would allow a losing
+ * finalist that won one Finals match, not what TBA has paid one: 329 of 329
+ * measured rows sit at the base value, and the 13 rows at base 25 are on the
+ * winning alliance (quick task 261009-tx8, see `SettledPlayoffs.ceiling`). It
+ * is kept because a ceiling that is too high only delays a lock.
  */
 export function settledPlayoffPoints(options: SettledPlayoffPointsOptions): SettledPlayoffs | undefined {
   const { season, tier, final, elimFinalAtNow, earned, milestone } = options;
@@ -1428,10 +1443,15 @@ export function teamNotPickedAtPosition(
  * event it is TBA's own `elim`, so the floor is unchanged. A value that is not
  * exact joins only the CEILING, at the most the placement can still pay
  * (`settled.ceiling`, quick task 261009-2tr, CONTEXT D7), never at the printed
- * `points`: TBA prorates a team that sat out part of the playoffs down, and
- * pays a losing finalist that won one Finals match above the table, so the
- * printed value is neither a guarantee nor a bound. A knocked out rival's
- * ceiling falls from the whole Playoffs ceiling to its placement's maximum.
+ * `points`: TBA prorates a team that sat out part of the playoffs down, so the
+ * printed value is not a guarantee, and the manual's wording (section 11.1.3,
+ * 5 points for each Finals match won) would allow a losing finalist more than
+ * the table's second place, so the bound is the placement's maximum. TBA has
+ * not paid a losing finalist above the table: all 329 measured rows sit at
+ * the base value and the 13 rows at base 25 are on the winning alliance
+ * (quick task 261009-tx8). The 25 (75) maximum is kept as the safe side. A
+ * knocked out rival's ceiling falls from the whole Playoffs ceiling to its
+ * placement's maximum.
  */
 export function settledElimBounds(settled: SettledPlayoffs): { readonly floor: number; readonly ceiling: number } {
   return settled.exact ? { floor: settled.points, ceiling: 0 } : { floor: 0, ceiling: settled.ceiling };

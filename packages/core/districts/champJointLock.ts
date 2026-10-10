@@ -34,7 +34,15 @@
  *     5 per Finals match won, up to 10). `placementPoints` carries those maxima
  *     (`maxPlayoffPointsByPlacement`), and so does a decided placement whose
  *     settled value is not exact, through the caller's `extra`. Since 2023 no
- *     TBA row sits above them; proration only lowers a value.
+ *     TBA row sits above them; proration only lowers a value. The second place
+ *     maximum of 25 is the manual's wording and not a value TBA has paid: the
+ *     wording would allow a losing finalist that won one Finals match 25, and
+ *     TBA has paid every one of the 329 measured losing finalists with a
+ *     Finals win the base value (261 district tier and 68 DCMP tier, 2023 to
+ *     2026, measured 2026-10-09 in quick task 261009-tx8), none above it. The
+ *     13 rows at base 25 are members of the winning alliance that played in
+ *     one of its two Finals wins. The 25 (75 at a DCMP) maximum is kept as the
+ *     safe side, since a ceiling that is too high only delays a lock.
  *   - A rival's real points are at most `floor + extra`, plus its alliance's
  *     assigned placement value (or the value of the one seat it takes as a
  *     backup), plus the points of the one award it can receive.
