@@ -96,7 +96,7 @@ export function canonicalQueryString(params: readonly QueryParam[]): string {
 
 /**
  * The one place the whole credential surface (and the whole SigV4 signing
- * algorithm) lives — `putObject`/`getObject`/`deleteObject`/`listObjects`
+ * algorithm) lives — `putObject`/`getObject`/`getObjectIfExists`/`deleteObject`/`listObjects`
  * below are thin callers. `key === undefined` signs the bucket-level path
  * `/{bucket}` (listing). `query` is empty for every object-level call, which
  * keeps those URLs and signatures exactly as they were.
@@ -317,6 +317,42 @@ export async function getObject(bucket: string, key: string): Promise<string> {
 
   if (!response.ok) {
     throw new Error(`r2Client.getObject: GET "${key}" failed with status ${response.status} ${response.statusText}`);
+  }
+  return response.text();
+}
+
+/**
+ * GETs `{bucket}/{key}` and answers `null` when no object exists there
+ * (quick task 261009-ul3). It sits beside `getObject` and does not replace it,
+ * for two reasons a guard needs and a plain read does not.
+ *
+ * A caller that must tell "no object yet" from "the read failed" needs the 404
+ * as a VALUE. `getObject` throws one plain `Error` for every status that is not
+ * 2xx, so its only 404 signal is the text of a message.
+ *
+ * A guard that refuses on a read failure needs the transient failures retried
+ * first, or one passing R2 5xx refuses a whole publish. This goes through the
+ * shared retry loop (`sendWithRetry`): 5xx, 429, 408 and network rejections are
+ * retried with a fresh signature per attempt, a 2xx or a 404 ends the loop, and
+ * any other status throws at once with the key and the status in the message
+ * and never the URL, a header or a credential.
+ */
+export async function getObjectIfExists(bucket: string, key: string): Promise<string | null> {
+  const credentials = credentialsFromEnv();
+  const response = await sendWithRetry(
+    "getObjectIfExists",
+    `GET "${key}"`,
+    credentials,
+    () => {
+      const signed = signRequest("GET", credentials, bucket, key, undefined, {});
+      return fetch(signed.url, { method: "GET", headers: signed.headers });
+    },
+    (status) => (status >= 200 && status < 300) || status === 404
+  );
+  if (response.status === 404) {
+    // The error body of a 404 is never read: release it so the connection is free.
+    await response.body?.cancel();
+    return null;
   }
   return response.text();
 }

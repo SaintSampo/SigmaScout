@@ -12,7 +12,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openCorpusReadOnly, selectCorpusSeasons, type Corpus, type CorpusDistrict, type CorpusDistrictRanking, type CorpusEventAward } from "../packages/corpus/db.js";
 import { loadAwardInstances, priorJudgedAwardCount } from "./measureDistrictAwardBaseRates.js";
 import { priorImpactWinCount } from "./measureAwardOrderingTables.js";
@@ -53,6 +53,9 @@ import {
   type DistrictEventMeta,
 } from "./publishDistricts.js";
 import { finishedEventKeysAsOf, underwayEventKeysAsOf } from "./districtPricingState.js";
+import { DistrictArtifactSchema } from "../packages/harness/pageArtifacts.js";
+import { DistrictPublishRefusedError } from "./districtPublishGuard.js";
+import type { CliOptions } from "./publishDistricts.js";
 
 /** The corpus this file's corpus-guarded describes read, guarded exactly as `reconciliation.test.ts` guards its own. */
 const CORPUS_PATH = "data/corpus.sqlite";
@@ -1957,4 +1960,263 @@ describe("buildDistrictArtifact — the award lists come from the shared record 
     for (const removed of ["awardDisplayName", "isAwardOnly", "isQualificationRelevantAward"]) expect(importBlock![1]).not.toContain(removed);
     expect(importBlock![1]).toContain("AwardTier");
   });
+});
+
+// ---------------------------------------------------------------------------
+// 261009-ul3: the publisher reads what is live before it uploads
+// ---------------------------------------------------------------------------
+
+describe("run() reads what is live before the first upload, over the real corpus (261009-ul3)", () => {
+  if (!existsSync(CORPUS_PATH)) {
+    it.skip(`skipped: ${CORPUS_PATH} not found — run the ingest pipeline (pnpm ingest:districts) first`, () => {});
+    return;
+  }
+
+  /** Never the real bucket: the reader and the writer are both fakes, and `fetch` throws if anything reaches it. */
+  const UL3_BUCKET = "ul3-test-bucket-not-real";
+  /** An award type no producer writes, so the extra entry can only be the fixture's own. */
+  const UL3_AWARD_TYPE = 9999;
+  const UL3_TIMEOUT_MS = 60_000;
+
+  type Ul3Reader = NonNullable<CliOptions["readPublished"]>;
+  type Ul3Writer = NonNullable<CliOptions["writeObject"]>;
+
+  interface Ul3Fixture {
+    /** Every district detail of the 2026 season, in the order `run` composes them. */
+    readonly details: ReadonlyArray<{ readonly key: string; readonly body: string }>;
+    readonly indexKey: string;
+    /** The one district whose "live" copy carries an award this run does not. */
+    readonly targetKey: string;
+    readonly targetDistrictKey: string;
+    readonly targetEventKey: string;
+    readonly targetTeamKey: string;
+    readonly extraAwardBody: string;
+  }
+
+  let cached: Ul3Fixture | undefined;
+  function fixture(): Ul3Fixture {
+    if (cached !== undefined) return cached;
+    const original = console.log;
+    console.log = () => {};
+    const db = openCorpusReadOnly(CORPUS_PATH);
+    let year: ReturnType<typeof composeYear>;
+    try {
+      year = composeYear(db, 2026, GENERATION, COMPUTED_AT);
+    } finally {
+      db.close();
+      console.log = original;
+    }
+    const target = year.detailArtifacts.find((detail) => detail.artifact.teams.some((team) => team.eventPoints.length > 0));
+    if (target === undefined) throw new Error("261009-ul3 fixture: no 2026 district has a team with an eventPoints row");
+    const teamIndex = target.artifact.teams.findIndex((team) => team.eventPoints.length > 0);
+    const team = target.artifact.teams[teamIndex]!;
+    const eventKey = team.eventPoints[0]!.eventKey;
+    // Through the schema, so a broken fixture fails here and not as a silent "shape change".
+    const live = DistrictArtifactSchema.parse({
+      ...target.artifact,
+      teams: target.artifact.teams.map((row, index) =>
+        index === teamIndex
+          ? { ...row, qualifyingAwards: [...row.qualifyingAwards, { eventKey, awardType: UL3_AWARD_TYPE, label: "Fixture Only Award", awardOnly: false }] }
+          : row
+      ),
+    });
+    cached = {
+      details: year.detailArtifacts.map((detail) => ({ key: detail.key, body: JSON.stringify(detail.artifact) })),
+      indexKey: year.indexKey,
+      targetKey: target.key,
+      targetDistrictKey: target.artifact.districtKey,
+      targetEventKey: eventKey,
+      targetTeamKey: team.teamKey,
+      extraAwardBody: JSON.stringify(live),
+    };
+    return cached;
+  }
+
+  /** The fake reader and the fake writer push to ONE list, so the order of reads and writes is a fact a test can read. */
+  function seams(answer: (key: string, readsSoFar: number) => string | null | Error): {
+    readonly calls: string[];
+    readonly read: Ul3Reader;
+    readonly write: Ul3Writer;
+  } {
+    const calls: string[] = [];
+    let readCount = 0;
+    const read: Ul3Reader = async (bucket, key) => {
+      expect(bucket).toBe(UL3_BUCKET);
+      const readsSoFar = readCount;
+      readCount += 1;
+      calls.push(`read ${key}`);
+      const answered = answer(key, readsSoFar);
+      if (answered instanceof Error) throw answered;
+      return answered;
+    };
+    const write: Ul3Writer = async (bucket, key) => {
+      expect(bucket).toBe(UL3_BUCKET);
+      calls.push(`write ${key}`);
+    };
+    return { calls, read, write };
+  }
+
+  /** Runs the publisher with the console captured, and hands back the lines and whatever it threw. */
+  async function runCaptured(options: Partial<CliOptions>): Promise<{ lines: string[]; error: unknown }> {
+    const lines: string[] = [];
+    const original = console.log;
+    console.log = (...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    };
+    let error: unknown;
+    try {
+      await run({ years: [2026], bucket: UL3_BUCKET, dryRun: false, asOf: COMPUTED_AT, bake: false, ...options });
+    } catch (caught) {
+      error = caught;
+    } finally {
+      console.log = original;
+    }
+    return { lines, error };
+  }
+
+  const ownBody = (f: Ul3Fixture, key: string): string | null => f.details.find((detail) => detail.key === key)?.body ?? null;
+  const reads = (calls: readonly string[]): string[] => calls.filter((call) => call.startsWith("read "));
+  const writes = (calls: readonly string[]): string[] => calls.filter((call) => call.startsWith("write "));
+  /** A line the live check printed about `key`: not the composed line and not the upload line, which name every key. */
+  const guardLineNaming = (lines: readonly string[], key: string): boolean =>
+    lines.some((line) => line.includes(key) && !line.includes(`composed "${key}"`) && !line.includes(`published "${key}" to bucket`));
+
+  let fetchSpy: { mockRestore: () => void } | undefined;
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      throw new Error("261009-ul3: a test reached the network");
+    });
+  });
+  afterEach(() => {
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy?.mockRestore();
+  });
+
+  it(
+    "refuses before any write when the upload would lose a recorded award winner, and prints the fact",
+    async () => {
+      const f = fixture();
+      const { calls, read, write } = seams((key) => (key === f.targetKey ? f.extraAwardBody : ownBody(f, key)));
+      const outDir = mkdtempSync(join(tmpdir(), "publish-districts-ul3-refused-"));
+      try {
+        const { lines, error } = await runCaptured({ readPublished: read, writeObject: write, localOut: outDir });
+
+        expect(error).toBeInstanceOf(DistrictPublishRefusedError);
+        expect((error as Error).message).toContain("older than what is live");
+        expect((error as Error).message).toContain("ingest");
+        expect(writes(calls)).toEqual([]);
+        // No local file either: the refusal comes before the first byte gate.
+        expect(readdirSync(outDir)).toEqual([]);
+        expect(
+          lines.some(
+            (line) =>
+              line.includes(f.targetDistrictKey) && line.includes(f.targetEventKey) && line.includes(f.targetTeamKey) && line.includes(String(UL3_AWARD_TYPE))
+          )
+        ).toBe(true);
+      } finally {
+        rmSync(outDir, { recursive: true, force: true });
+      }
+    },
+    UL3_TIMEOUT_MS
+  );
+
+  it(
+    "a first publish (no object at any key) uploads everything, after reading every district twice and before the first write",
+    async () => {
+      const f = fixture();
+      const n = f.details.length;
+      const { calls, read, write } = seams(() => null);
+
+      const { error } = await runCaptured({ readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(writes(calls).sort()).toEqual([...f.details.map((detail) => `write ${detail.key}`), `write ${f.indexKey}`].sort());
+      expect(writes(calls)).toHaveLength(n + 1);
+      expect(reads(calls)).toHaveLength(2 * n);
+      const firstWrite = calls.findIndex((call) => call.startsWith("write "));
+      expect(firstWrite).toBe(2 * n);
+      expect(calls.slice(0, firstWrite).every((call) => call.startsWith("read "))).toBe(true);
+      expect(calls.slice(firstWrite).some((call) => call.startsWith("read "))).toBe(false);
+    },
+    UL3_TIMEOUT_MS
+  );
+
+  it(
+    "an identical published artifact at every key is clean and uploads everything",
+    async () => {
+      const f = fixture();
+      const { calls, read, write } = seams((key) => ownBody(f, key));
+
+      const { error } = await runCaptured({ readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(writes(calls)).toHaveLength(f.details.length + 1);
+    },
+    UL3_TIMEOUT_MS
+  );
+
+  it(
+    "a fact the Worker wrote during the bake is still seen: the second pass refuses with zero writes",
+    async () => {
+      const f = fixture();
+      const n = f.details.length;
+      // Identical for the whole first pass, then the one district gains an award.
+      const { calls, read, write } = seams((key, readsSoFar) => (readsSoFar >= n && key === f.targetKey ? f.extraAwardBody : ownBody(f, key)));
+
+      const { error } = await runCaptured({ readPublished: read, writeObject: write });
+
+      expect(error).toBeInstanceOf(DistrictPublishRefusedError);
+      expect(writes(calls)).toEqual([]);
+      expect(reads(calls)).toHaveLength(2 * n);
+    },
+    UL3_TIMEOUT_MS
+  );
+
+  it(
+    "a read failure refuses the run, naming the key and the reader's own message",
+    async () => {
+      const f = fixture();
+      const failingKey = f.details[f.details.length - 1]!.key;
+      const { calls, read, write } = seams((key) => (key === failingKey ? new Error("fixture read failure 7f3a") : ownBody(f, key)));
+
+      const { error } = await runCaptured({ readPublished: read, writeObject: write });
+
+      expect(error).toBeInstanceOf(DistrictPublishRefusedError);
+      expect((error as Error).message).toContain(failingKey);
+      expect((error as Error).message).toContain("fixture read failure 7f3a");
+      expect(writes(calls)).toEqual([]);
+    },
+    UL3_TIMEOUT_MS
+  );
+
+  it(
+    "a published body that no longer parses is a shape change, named in the output and never a regression",
+    async () => {
+      const f = fixture();
+      const notJsonKey = f.details[0]!.key;
+      const wrongShapeKey = f.details[1]!.key;
+      const { calls, read, write } = seams((key) => (key === notJsonKey ? "not json" : key === wrongShapeKey ? "{}" : ownBody(f, key)));
+
+      const { lines, error } = await runCaptured({ readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(writes(calls)).toHaveLength(f.details.length + 1);
+      expect(guardLineNaming(lines, notJsonKey)).toBe(true);
+      expect(guardLineNaming(lines, wrongShapeKey)).toBe(true);
+    },
+    UL3_TIMEOUT_MS
+  );
+
+  it(
+    "a dry run reads nothing and writes nothing, even with both seams passed",
+    async () => {
+      const { calls, read, write } = seams(() => new Error("a dry run must not read"));
+
+      const { error } = await runCaptured({ dryRun: true, readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(calls).toEqual([]);
+    },
+    UL3_TIMEOUT_MS
+  );
 });

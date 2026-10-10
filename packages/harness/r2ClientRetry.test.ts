@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteObject, putObject } from "./r2Client.js";
+import { getObjectIfExists } from "./r2Client.js";
 
 /**
  * Retry behaviour for R2 writes (plan 05-02 deviation, 2026-08-24).
@@ -191,5 +192,94 @@ describe("deleteObject retry policy", () => {
     await settleDelete(deleteObject("bucket", "k.json"));
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * getObjectIfExists (quick task 261009-ul3). The district publisher reads what is
+ * published before it uploads, and it has to tell "no object yet" (a first
+ * publish) from "the read failed" (refuse the run). So a 404 is a value here,
+ * never a throw, and the transient classes are retried before anything is
+ * called a failure. `getObject` above it in the client is unchanged.
+ */
+describe("getObjectIfExists", () => {
+  beforeEach(() => {
+    process.env["CLOUDFLARE_ACCOUNT_ID"] = "test-account";
+    process.env["R2_ACCESS_KEY_ID"] = "test-access-key";
+    process.env["R2_SECRET_ACCESS_KEY"] = "test-secret-key";
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  async function settleRead(promise: Promise<string | null>): Promise<string | null> {
+    const raced = promise.then(
+      (v) => ({ ok: true as const, v }),
+      (e: unknown) => ({ ok: false as const, e })
+    );
+    await vi.runAllTimersAsync();
+    const outcome = await raced;
+    if (outcome.ok) return outcome.v;
+    throw outcome.e;
+  }
+
+  it("returns the body text of a 200 after one signed GET with no query string", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response('{"a":1}', { status: 200 }));
+
+    const body = await settleRead(getObjectIfExists("bucket", "v1/district/2026fnc.json"));
+
+    expect(body).toBe('{"a":1}');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect((init as RequestInit).method).toBe("GET");
+    expect(String(url)).not.toContain("?");
+  });
+
+  it("answers null for a 404 after exactly one request: not retried, not thrown", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(response(404));
+
+    const body = await settleRead(getObjectIfExists("bucket", "k.json"));
+
+    expect(body).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries 500 twice and then returns the body of the 200", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(response(500))
+      .mockResolvedValueOnce(response(500))
+      .mockResolvedValueOnce(new Response("body", { status: 200 }));
+
+    const body = await settleRead(getObjectIfExists("bucket", "k.json"));
+
+    expect(body).toBe("body");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("throws on a permanent 403 at the first request, naming the key and the status and never the account", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(response(403));
+
+    const failure = await settleRead(getObjectIfExists("bucket", "k.json")).then(
+      () => null,
+      (e: unknown) => e
+    );
+
+    expect(failure).toBeInstanceOf(Error);
+    const message = (failure as Error).message;
+    expect(message).toMatch(/"k\.json".*403/);
+    expect(message).not.toContain("test-account");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives up on a persistent 503 after 5 attempts and names the count", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(response(503));
+
+    await expect(settleRead(getObjectIfExists("bucket", "k.json"))).rejects.toThrow(/"k\.json" failed with status 503 .*after 5 attempts/);
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 });

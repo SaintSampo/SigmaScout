@@ -2,9 +2,10 @@
  * The offline Districts-page publish tool, shaped exactly like
  * `scripts/publishAlgorithmsManifest.ts`: `parseArgs` from `node:util`,
  * deep relative imports with explicit `.js` extensions, a `main()` guarded
- * on being the process entry point, non-zero exit on failure. District
- * artifacts are refreshed only by an offline `pnpm ingest:districts` +
- * `pnpm publish:districts`; the live Worker cron does not touch them.
+ * on being the process entry point, non-zero exit on failure. The live Worker
+ * refreshes district artifacts during live district events (phase 10). This
+ * tool rebuilds them from the corpus, through an offline
+ * `pnpm ingest:districts` and `pnpm publish:districts`.
  *
  * ONE VERDICT PASS, TWO CALLERS. This file no longer computes a lock verdict
  * itself: it composes every team's rows and hands them to
@@ -70,7 +71,20 @@
  * from `process.env`, exactly as every other publish tool in this repo does;
  * this file never touches `process.env` directly. `--dry-run` composes,
  * validates (through `DistrictsIndexArtifactSchema`/`DistrictArtifactSchema`)
- * and prints per-object byte sizes without ever calling `putObject`.
+ * and prints per-object byte sizes without ever calling `putObject`. A dry run
+ * also reads nothing from R2.
+ *
+ * THE LIVE FACTS GUARD (quick task 261009-ul3): a run that uploads first reads
+ * the published `v1/district/{key}.json` of every district of the run, and
+ * refuses when the upload would take back a fact the live Worker recorded.
+ * `scripts/districtPublishGuard.ts` holds the comparison and its rules. The
+ * guard makes two passes, both before the first upload. The first comes right
+ * after every season is composed, so a stale corpus is refused in seconds and
+ * not after the replay. The second comes after every season is baked, because
+ * the Worker writes every minute and the first read is minutes old by then. To
+ * make the second pass mean something, every season is composed and baked
+ * before any season uploads. What is compared is the composed artifact, before
+ * the baked-event list is attached.
  *
  * Write ordering: every `v1/district/{key}.json` is written before
  * `v1/districts/{year}.json` is overwritten, so the index never points at
@@ -137,9 +151,10 @@ import {
   DISTRICT_PRESIM_MAX_BYTES,
   DISTRICTS_INDEX_MAX_BYTES,
 } from "../packages/harness/publishBudget.js";
-import { putObject } from "../packages/harness/r2Client.js";
+import { getObjectIfExists, putObject } from "../packages/harness/r2Client.js";
 import { roundPmf } from "../packages/harness/rounding.js";
 import { parseSeasonSpec } from "../packages/harness/seasonSpec.js";
+import { guardLivePublish, type PublishedReader } from "./districtPublishGuard.js";
 import {
   buildDistrictPricingState,
   finishedEventKeysAsOf,
@@ -1649,6 +1664,10 @@ export interface CliOptions {
    * never reach R2. Absent: the production path, prior on.
    */
   readonly rpColdPrior?: boolean;
+  /** Reads a published object for the live facts guard. A TEST SEAM only: production always reads through `getObjectIfExists` (`packages/harness/r2Client.js`), and a `--dry-run` never reads at all. */
+  readonly readPublished?: PublishedReader;
+  /** Uploads one object. A TEST SEAM only: production always writes through the R2 client's put function. Every upload of a run goes through this one binding. */
+  readonly writeObject?: typeof putObject;
 }
 
 export function parseOptions(argv: readonly string[]): CliOptions {
@@ -1778,6 +1797,9 @@ export async function run(options: CliOptions): Promise<void> {
   // results.
   const computedAt = options.asOf;
   const ceilings = options.ceilings ?? COMMITTED_DISTRICT_CEILINGS;
+  // Every upload of this run goes through this ONE binding, so a test can hand
+  // in a fake and prove that nothing was written.
+  const writeObject = options.writeObject ?? putObject;
 
   try {
     if (!options.bake) {
@@ -1785,14 +1807,45 @@ export async function run(options: CliOptions): Promise<void> {
         "publishDistricts: --no-bake — NO walk-forward replay and NO baked pmfs. Every artifact this run composes will carry no baked-event list, so the ledger paints an unstarted event as unavailable until the next full publish."
       );
     }
-    for (const season of options.years) {
-      const year = composeYear(db, season, generation, computedAt);
+    // EVERY SEASON IS COMPOSED, CHECKED AND BAKED BEFORE ANY SEASON UPLOADS
+    // (quick task 261009-ul3). The live facts guard has to see every district
+    // of the run before the first upload, so a refusal leaves R2 untouched.
+    const composedSeasons = options.years.map((season) => ({ season, year: composeYear(db, season, generation, computedAt) }));
 
+    // The guard reads the COMPOSED artifact of every district of the run, before
+    // the baked-event list is attached: that list is not a fact the Worker
+    // records. The reader is resolved here, on the path that reads, and never at
+    // module top level, so a test file that mocks the R2 client module without
+    // the read export still imports this file.
+    const checkLiveFacts = async (stage: string): Promise<void> => {
+      await guardLivePublish({
+        stage,
+        bucket: options.bucket,
+        details: composedSeasons.flatMap(({ year }) => year.detailArtifacts.map((composed) => ({ key: composed.key, artifact: composed.artifact }))),
+        read: options.readPublished ?? getObjectIfExists,
+        log: (line) => console.log(line),
+      });
+    };
+
+    // FIRST PASS, before any bake: a stale corpus is refused in seconds, not
+    // after a replay that takes minutes. Only a run that uploads reads R2.
+    if (!options.dryRun) await checkLiveFacts("before the bake");
+
+    const prepared: Array<{ readonly season: number; readonly year: PublishedYear; readonly bakeResult: BakeSeasonResult | undefined }> = [];
+    for (const { season, year } of composedSeasons) {
       const bakeResult = options.bake
         ? bakeSeason(db, season, year, computedAt, generation, options, options.bakeLimit ?? Number.POSITIVE_INFINITY)
         : undefined;
       if (bakeResult !== undefined) reportCensus(season, bakeResult.census);
+      prepared.push({ season, year, bakeResult });
+    }
 
+    // SECOND PASS, immediately before the first byte gate and the first upload:
+    // the Worker writes every minute and the first read is minutes old by now,
+    // so a fact it recorded during the bake is still seen.
+    if (!options.dryRun) await checkLiveFacts("before the first upload");
+
+    for (const { season, year, bakeResult } of prepared) {
       let totalBytes = 0;
       for (const composed of year.detailArtifacts) {
         const bakedEvents = bakeResult?.bakedEventsByDistrict.get(composed.district.districtKey);
@@ -1813,7 +1866,7 @@ export async function run(options: CliOptions): Promise<void> {
         const perTeam = artifact.teams.length > 0 ? Math.ceil(bytes / artifact.teams.length) : 0;
         console.log(`publishDistricts: composed "${composed.key}" (${bytes} bytes, ${perTeam} per team across ${artifact.teams.length} teams)`);
         if (!options.dryRun) {
-          await putObject(options.bucket, composed.key, body, { contentType: "application/json", cacheControl: "public, max-age=60" });
+          await writeObject(options.bucket, composed.key, body, { contentType: "application/json", cacheControl: "public, max-age=60" });
           console.log(`publishDistricts: published "${composed.key}" to bucket "${options.bucket}"`);
         }
       }
@@ -1833,7 +1886,7 @@ export async function run(options: CliOptions): Promise<void> {
         if (bytes > largestSidecar.bytes) largestSidecar = { key: sidecar.key, bytes };
         console.log(`publishDistricts: composed "${sidecar.key}" (${bytes} bytes)`);
         if (!options.dryRun) {
-          await putObject(options.bucket, sidecar.key, body, { contentType: "application/json", cacheControl: "public, max-age=60" });
+          await writeObject(options.bucket, sidecar.key, body, { contentType: "application/json", cacheControl: "public, max-age=60" });
           console.log(`publishDistricts: published "${sidecar.key}" to bucket "${options.bucket}"`);
         }
       }
@@ -1858,7 +1911,7 @@ export async function run(options: CliOptions): Promise<void> {
       totalBytes += indexBytes;
       console.log(`publishDistricts: composed "${year.indexKey}" (${indexBytes} bytes)`);
       if (!options.dryRun) {
-        await putObject(options.bucket, year.indexKey, indexBody, { contentType: "application/json", cacheControl: "public, max-age=60" });
+        await writeObject(options.bucket, year.indexKey, indexBody, { contentType: "application/json", cacheControl: "public, max-age=60" });
         console.log(`publishDistricts: published "${year.indexKey}" to bucket "${options.bucket}"`);
       }
 
