@@ -317,7 +317,7 @@ describe("districtLedgerContent: the rewound view and the championship field (26
     );
     expect(paragraphs.slice(anchor + 3, anchor + 5)).toEqual([
       "On the District Locks tab, Locked and Locked out at a rewound point count only the district event points a team had earned by then, never District Championship points.",
-      "Once the District Championship has started, the live District Locks view shows who is in its field. A team in the field reads Locked, a team that earned a place and is not in the field reads Declined, and every other team reads Locked out.",
+      "Once the District Championship has started and its points are posted for its whole field, the live District Locks view shows who is in its field. A team in the field reads Locked, a team that earned a place and is not in the field reads Declined, and every other team reads Locked out.",
     ]);
   });
 

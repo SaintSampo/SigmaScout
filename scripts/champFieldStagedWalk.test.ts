@@ -36,7 +36,9 @@
  * state of an event is handed only once the artifact already carries a row
  * for it. After each tick the Champ Locks tab is read at Now with
  * `buildChampLedgerRows` and `computeChampLedgerStatuses`, the rows' own
- * `fieldProven` handed on as the tab hands it.
+ * `fieldProven` handed on as the tab hands it, and the District Locks tab
+ * with `computeDistrictLedgerStatuses` and its Live field overlay
+ * (`applyChampionshipFieldOverlay`).
  *
  * THE SECOND WALK: THE POINTS ARRIVE ONLY AS EACH EVENT ENDS. When TBA posts
  * district points during an event is not verified, so the other case is
@@ -84,6 +86,7 @@ import { fieldFixingDcmpKeys } from "../packages/core/districts/dcmpFieldProof.j
 import { championshipShape } from "../packages/core/districts/finalsBracket.js";
 import { buildDistrictLedgerRows, deriveStageFromState, tierEvents, type DistrictEventDistributions } from "../apps/web/src/components/districts/districtLedgerRows.js";
 import { computeDistrictLedgerStatuses } from "../apps/web/src/components/districts/districtLedgerStatus.js";
+import { applyChampionshipFieldOverlay } from "../apps/web/src/components/districts/districtFieldOverlay.js";
 import { buildChampLedgerRows, champFieldProofAtNow, dcmpEventKeysFor } from "../apps/web/src/components/districts/champLedgerRows.js";
 import { computeChampLedgerStatuses } from "../apps/web/src/components/districts/champLedgerStatus.js";
 import { LOCAL_DISTRICT_DIR } from "./measureChampJointLocks.js";
@@ -196,6 +199,10 @@ interface WalkStep {
   readonly champReserved: number;
   /** How many dcmp keys the artifact knows at this tick. */
   readonly dcmpKeys: number;
+  /** What the District Locks tab SHOWS for every team at Live: the raw status, or the field overlay's where it applies. */
+  readonly districtTab: ReadonlyMap<string, string>;
+  /** Whether the District Locks tab's Live field overlay applied at this tick. */
+  readonly overlayActive: boolean;
 }
 
 interface Walk {
@@ -219,6 +226,9 @@ function snapshot(label: string, artifact: DistrictArtifact): WalkStep {
   const districtLockedOut = new Set<string>();
   for (const [teamKey, result] of districtStatuses.byTeam) if (result.status === "lockedOut") districtLockedOut.add(teamKey);
 
+  // The District Locks tab at Live: the raw statuses under the field overlay.
+  const districtShown = applyChampionshipFieldOverlay(districtStatuses, artifact, { atLive: true, nowYear: NOW_YEAR });
+
   const started = startedDcmpKeys(artifact);
   const champRows = buildChampLedgerRows({ artifact, distributions: NO_DISTRIBUTIONS, startedDcmpEventKeys: started, atLivePosition: true, nowYear: NOW_YEAR });
   const champStatuses = computeChampLedgerStatuses({ artifact, teams: champRows.teams, districtLockedOut, nowYear: NOW_YEAR, fieldProven: champRows.fieldProven });
@@ -232,6 +242,8 @@ function snapshot(label: string, artifact: DistrictArtifact): WalkStep {
     proven: champFieldProofAtNow(artifact, started, NOW_YEAR).proven,
     champReserved: champStatuses.reservedSlots,
     dcmpKeys: dcmpEventKeysFor(artifact).length,
+    districtTab: new Map([...districtShown.byTeam].map(([teamKey, result]) => [teamKey, result.status] as const)),
+    overlayActive: districtShown.fieldOverlay,
   };
 }
 
@@ -278,6 +290,52 @@ function outThenIn(walk: Walk): string[] {
     }
   }
   return found.sort();
+}
+
+/**
+ * THE DISTRICT LOCKS TAB: every team of the field that the tab shows Locked at
+ * one tick and Declined or Locked out at a later one, with both ticks named.
+ * A team of the field earned or was given its place and is playing, so
+ * either reading after Locked is a Locked taken back.
+ */
+function districtLockedThenLost(walk: Walk): string[] {
+  const lost: string[] = [];
+  for (const teamKey of [...walk.fieldTeams].sort()) {
+    let lockedAt = -1;
+    for (let index = 0; index < walk.steps.length; index++) {
+      const status = walk.steps[index]!.districtTab.get(teamKey) ?? "absent";
+      if (status === "locked") {
+        if (lockedAt === -1) lockedAt = index;
+      } else if (lockedAt !== -1 && (status === "declined" || status === "lockedOut")) {
+        lost.push(`${teamKey} locked at "${walk.steps[lockedAt]!.label}", ${status} at "${walk.steps[index]!.label}"`);
+        break;
+      }
+    }
+  }
+  return lost;
+}
+
+/** How many teams of the field the District Locks tab shows Locked, then Declined, then Locked again. */
+function districtLockedDeclinedLocked(walk: Walk): number {
+  let count = 0;
+  for (const teamKey of walk.fieldTeams) {
+    let phase = 0;
+    for (const step of walk.steps) {
+      const status = step.districtTab.get(teamKey);
+      if (phase === 0 && status === "locked") phase = 1;
+      else if (phase === 1 && status === "declined") phase = 2;
+      else if (phase === 2 && status === "locked") {
+        count += 1;
+        break;
+      }
+    }
+  }
+  return count;
+}
+
+/** The labels of the ticks at which any team reads Declined while the core proof does not read proven. */
+function declinedWhileUnproven(steps: readonly WalkStep[]): string[] {
+  return steps.filter((step) => !step.proven && [...step.districtTab.values()].includes("declined")).map((step) => step.label);
 }
 
 /** The labels of the ticks at which the Champ Locks reservation is above the tick before it. */
@@ -580,6 +638,10 @@ describe("the staged live walk: a synthetic championship in four divisions, one 
     expect(takeBacks(walk.steps, (step) => step.champTab, champTabHeld)).toEqual([]);
     expect(fieldTeamsReadOut(walk)).toEqual([]);
     expect(outThenIn(walk)).toEqual([]);
+    // The District Locks tab: its overlay applies exactly while the field is proven, and no team of the field loses a Locked.
+    expect(districtLockedThenLost(walk)).toEqual([]);
+    expect(declinedWhileUnproven(walk.steps)).toEqual([]);
+    expect(walk.steps.map((step) => step.overlayActive)).toEqual(walk.steps.map((step) => step.proven));
 
     // The one flag: true while nothing has started, false from the first
     // division's state until the last division's, true from then on.
@@ -622,6 +684,10 @@ describe("the staged live walk: a synthetic championship in four divisions, one 
     // all read out of the field at that first state.
     expect({ lockedTakenBack: lost.length, fieldTeamsReadOut: readOut.length }).toEqual({ lockedTakenBack: 9, fieldTeamsReadOut: 12 });
     expect(new Set(lost.map((line) => /at "([^"]*)"$/.exec(line)![1]))).toEqual(new Set(["pncmp2 rows posted"]));
+    // The District Locks tab with the rule off, pinned as the run shows:
+    // teams of the field shown Locked and then Declined, and of them the
+    // ones shown Locked again later.
+    expect({ districtLockedThenLost: districtLockedThenLost(walk).length, lockedDeclinedLocked: districtLockedDeclinedLocked(walk) }).toEqual({ districtLockedThenLost: 12, lockedDeclinedLocked: 12 });
   });
 
   /** The second walk from every start: no division final, then the first one, two and three. */
@@ -870,6 +936,9 @@ describe("the staged live walk: the real 2026 FIM, NE, ONT, TX and CA championsh
         const lastState = walk.steps.findIndex((step) => step.label === `${shortKey(walk.fieldFixingKeys.at(-1)!)} state written`);
         expect({ districtKey, fieldProven: walk.steps.map((step) => step.fieldProven) }).toEqual({ districtKey, fieldProven: walk.steps.map((_, index) => index < firstState || index >= lastState) });
         expect({ districtKey, rises: reservationRises(walk.steps.slice(firstState)) }).toEqual({ districtKey, rises: [] });
+        // The District Locks tab: no team of the field reads Declined or Locked out after reading Locked.
+        expect({ districtKey, districtLost: districtLockedThenLost(walk) }).toEqual({ districtKey, districtLost: [] });
+        expect({ districtKey, declinedWhileUnproven: declinedWhileUnproven(walk.steps) }).toEqual({ districtKey, declinedWhileUnproven: [] });
         table.push(`  ${districtKey}: ${String(walk.fieldTeams.size)} teams in the field at ${String(walk.fieldFixingKeys.length)} field fixing keys`, ...tickTable(walk));
       }
       console.log(["[261010-66y group 4] rules on, the real walks:", ...table].join("\n"));
@@ -895,6 +964,54 @@ describe("the staged live walk: the real 2026 FIM, NE, ONT, TX and CA championsh
       console.log(`[261010-66y group 4] teams whose only championship row is at a finals key: ${JSON.stringify(counts)}`);
       // The counts, as the run shows.
       expect(counts).toEqual({ "2026fim": 1, "2026ne": 2, "2026ont": 0, "2026fit": 0, "2026ca": 0 });
+    },
+    WALK_TIMEOUT_MS
+  );
+
+  it(
+    "rules on, the District Locks tab: the teams that end Declined read Declined at exactly the ticks the field is proven, and at no other",
+    () => {
+      const counts: Record<string, number> = {};
+      for (const districtKey of WALKED_DISTRICTS) {
+        const walk = realWalk(districtKey, "on");
+        const end = walk.steps.at(-1)!;
+        expect({ districtKey, overlayAtTheEnd: end.overlayActive }).toEqual({ districtKey, overlayAtTheEnd: true });
+        // DERIVED from the end state: the teams that earned a place and are not in the field.
+        const endDeclined = [...end.districtTab].filter(([, status]) => status === "declined").map(([teamKey]) => teamKey).sort();
+        for (const step of walk.steps) {
+          const declined = [...step.districtTab].filter(([, status]) => status === "declined").map(([teamKey]) => teamKey).sort();
+          expect({ districtKey, label: step.label, overlay: step.overlayActive, declined }).toEqual({ districtKey, label: step.label, overlay: step.proven, declined: step.proven ? endDeclined : [] });
+        }
+        counts[districtKey] = endDeclined.length;
+      }
+      console.log(`[261010-66y group 4] the District Locks tab, teams that end Declined: ${JSON.stringify(counts)}`);
+      // The counts, as the run shows.
+      expect(counts).toEqual({ "2026fim": 0, "2026ne": 8, "2026ont": 9, "2026fit": 5, "2026ca": 4 });
+    },
+    WALK_TIMEOUT_MS
+  );
+
+  it(
+    "field rule off, the District Locks tab: teams of the field shown Locked and then Declined or Locked out, pinned as the run shows",
+    () => {
+      const measured: Record<string, { lockedThenLost: number; lockedDeclinedLocked: number }> = {};
+      for (const districtKey of WALKED_DISTRICTS) {
+        const walk = realWalk(districtKey, "fieldRuleOff");
+        measured[districtKey] = { lockedThenLost: districtLockedThenLost(walk).length, lockedDeclinedLocked: districtLockedDeclinedLocked(walk) };
+      }
+      console.log(`[261010-66y group 4] field rule off, the District Locks tab: ${JSON.stringify(measured)}`);
+      // PINNED AS THE RUN SHOWS. With the rule off the overlay applied as
+      // soon as every key the artifact knew had started, and every team of
+      // an event TBA had not posted yet, having earned its place, read
+      // Declined (or Locked out, for a team that got in from below the
+      // line after reading Locked on a tie) until its rows landed.
+      expect(measured).toEqual({
+        "2026fim": { lockedThenLost: 119, lockedDeclinedLocked: 119 },
+        "2026ne": { lockedThenLost: 50, lockedDeclinedLocked: 46 },
+        "2026ont": { lockedThenLost: 49, lockedDeclinedLocked: 44 },
+        "2026fit": { lockedThenLost: 41, lockedDeclinedLocked: 40 },
+        "2026ca": { lockedThenLost: 55, lockedDeclinedLocked: 55 },
+      });
     },
     WALK_TIMEOUT_MS
   );
@@ -964,6 +1081,8 @@ describe("the points arriving only as each event ends: the real 2026 FIM, NE, ON
           expect({ districtKey, finalAtStart, lost: lockedTakenBack(walk) }).toEqual({ districtKey, finalAtStart, lost: [] });
           expect({ districtKey, finalAtStart, out: fieldTeamsReadOut(walk) }).toEqual({ districtKey, finalAtStart, out: [] });
           expect({ districtKey, finalAtStart, proofLost: provenTakenBack(walk.steps) }).toEqual({ districtKey, finalAtStart, proofLost: [] });
+          expect({ districtKey, finalAtStart, districtLost: districtLockedThenLost(walk) }).toEqual({ districtKey, finalAtStart, districtLost: [] });
+          expect({ districtKey, finalAtStart, declinedWhileUnproven: declinedWhileUnproven(walk.steps) }).toEqual({ districtKey, finalAtStart, declinedWhileUnproven: [] });
           // From the first tick at which the field reads unproven, the places held back never rise.
           const firstUnproven = walk.steps.findIndex((step) => !step.fieldProven);
           expect({ districtKey, finalAtStart, rises: reservationRises(firstUnproven < 0 ? [] : walk.steps.slice(firstUnproven)) }).toEqual({ districtKey, finalAtStart, rises: [] });

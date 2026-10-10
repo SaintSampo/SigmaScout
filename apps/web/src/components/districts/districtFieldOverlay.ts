@@ -8,10 +8,27 @@
  *   district event points only. That is the raw verdict model
  *   `computeDistrictLedgerStatuses` returns, and this module hands it back
  *   untouched.
- * - Once the championship has started, on the Live view only, who is in its
- *   field decides what the tab SHOWS: a team in the field reads Locked, a team
- *   that earned a place and is not in the field reads Declined, and every other
- *   team reads Locked out.
+ * - Once the championship has started AND ITS FIELD IS PROVEN, on the Live
+ *   view only, who is in its field decides what the tab SHOWS: a team in the
+ *   field reads Locked, a team that earned a place and is not in the field
+ *   reads Declined, and every other team reads Locked out.
+ *
+ * WHY IT WAITS FOR THE PROVEN FIELD (quick task 261010-66y). The artifact
+ * carries no event list: it learns a championship key only from team rows.
+ * When TBA posts one division, or one of two championships, before the
+ * others, the one the artifact knows has started while most of the field is
+ * on no row. Applied there, the overlay showed every team of the unposted
+ * events, all of whom had earned their place, as Declined for the minutes
+ * until their rows landed, and then Locked again. Walked on the real 2026
+ * artifacts through the two merge entry points: 119 FIM teams shown Locked,
+ * then Declined, then Locked, 46 in NE and 55 in California. That is a Locked
+ * taken back. So the overlay applies only once the field is proven by the one
+ * core rule (`packages/core/districts/dcmpFieldProof.ts`: every field fixing
+ * key started, every one carrying a posted row, and the field complete by
+ * capacity, by a posted finals row or, in a season that is over, by Awards
+ * final). Until then the raw verdicts stand. That also holds with every team
+ * registered and no row posted yet: the raw verdicts stand until TBA posts
+ * the championship's rows.
  *
  * WHY THIS IS A LAYER OVER THE VERDICTS AND NOT PART OF THEM. Locked, Locked
  * out and Prequalified in the raw model are GUARANTEES: statements `locks.ts`
@@ -32,8 +49,9 @@
  *
  * Pure: no React, no Worker type, and no status rule of `locks.ts`'s restated.
  */
+import { dcmpFieldProof } from "../../../../../packages/core/districts/dcmpFieldProof.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import { deriveStageFromState, districtTierEvents, liveStageByEvent, tierEvents } from "./districtLedgerRows.js";
+import { deriveStageFromState, districtTierEvents, liveStageByEvent, tierEvents, type DistrictStageFinality } from "./districtLedgerRows.js";
 import type { DistrictLedgerStatusKey, DistrictLedgerStatusModel, DistrictLedgerStatusResult } from "./districtLedgerStatus.js";
 
 type DistrictTeam = DistrictArtifact["teams"][number];
@@ -70,6 +88,12 @@ export interface DistrictLedgerShownModel extends Omit<DistrictLedgerStatusModel
 export interface ChampionshipFieldOverlayOptions {
   /** Whether the tab is at its Live position. Absent reads as false: no caller gets the overlay without asking for it. */
   readonly atLive?: boolean;
+  /**
+   * The calendar year at the time of the call, for the field proof's season
+   * over line (quick task 261010-66y). Defaults to the clock; a test passes
+   * it.
+   */
+  readonly nowYear?: number;
 }
 
 /**
@@ -159,12 +183,31 @@ export function isPlayingChampionship(team: DistrictTeam, earnedPlace: boolean, 
 }
 
 /**
+ * Whether the championship field is PROVEN at Now, by the one core rule
+ * (`dcmpFieldProof`, quick task 261010-66y): the started keys from each
+ * championship entry's own state, the awards final keys from the number
+ * reading the overlay already builds.
+ */
+function championshipFieldProven(artifact: DistrictArtifact, liveStage: ReadonlyMap<string, DistrictStageFinality>, nowYear: number): boolean {
+  const startedKeys = new Set<string>();
+  for (const team of artifact.teams) {
+    for (const entry of tierEvents(team, "dcmp")) if (deriveStageFromState(entry.state).started) startedKeys.add(entry.eventKey);
+  }
+  const awardsFinalKeys = new Set<string>();
+  for (const [eventKey, final] of liveStage) if (final.award) awardsFinalKeys.add(eventKey);
+  return dcmpFieldProof({ teams: artifact.teams, dcmpSlots: artifact.dcmpSlots, season: artifact.year, nowYear, startedKeys, awardsFinalKeys }).proven;
+}
+
+/**
  * THE OVERLAY. A separate pure function over the raw model.
  *
- * IT APPLIES ONLY WHEN ALL THREE HOLD: the caller passes `atLive: true`, the
- * artifact publishes `dcmpSlots`, and the championship has started. Otherwise
- * it returns the raw model's OWN `byTeam` map and `counts` object with
- * `fieldOverlay` false, so an inactive overlay is provably a no op.
+ * IT APPLIES ONLY WHEN ALL FOUR HOLD: the caller passes `atLive: true`, the
+ * artifact publishes `dcmpSlots`, the championship has started, and its field
+ * is proven (`championshipFieldProven`, quick task 261010-66y). The fourth is
+ * what keeps a team that earned its place from reading Declined for the
+ * minutes before its division's, or its championship's, rows are posted.
+ * Otherwise it returns the raw model's OWN `byTeam` map and `counts` object
+ * with `fieldOverlay` false, so an inactive overlay is provably a no op.
  *
  * ACTIVE, per team:
  * - a prequalified result passes through as the same object;
@@ -184,13 +227,17 @@ export function applyChampionshipFieldOverlay(
   artifact: DistrictArtifact,
   options: ChampionshipFieldOverlayOptions = {}
 ): DistrictLedgerShownModel {
-  const active = options.atLive === true && artifact.dcmpSlots !== null && championshipHasStarted(artifact);
-  if (!active) return { ...statuses, fieldOverlay: false };
+  const started = options.atLive === true && artifact.dcmpSlots !== null && championshipHasStarted(artifact);
+  if (!started) return { ...statuses, fieldOverlay: false };
+
+  // The NUMBER reading of every championship event, built once and only
+  // once the three cheap conditions hold (quick task 261009-vp9, rule 3
+  // above). The field proof reads its awards, and the per team rule below its
+  // qualification.
+  const liveStage = liveStageByEvent(artifact, ["dcmp"]);
+  if (!championshipFieldProven(artifact, liveStage, options.nowYear ?? new Date().getUTCFullYear())) return { ...statuses, fieldOverlay: false };
 
   const sourceByKey = new Map(artifact.teams.map((team) => [team.teamKey, team] as const));
-  // The NUMBER reading of every championship event, built once and only
-  // where the overlay is active (quick task 261009-vp9, rule 3 above).
-  const liveStage = liveStageByEvent(artifact, ["dcmp"]);
   const byTeam = new Map<string, DistrictLedgerShownResult>();
   const counts = { prequalified: 0, locked: 0, declined: 0, inRange: 0, outOfRange: 0, lockedOut: 0 };
 

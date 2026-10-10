@@ -359,29 +359,81 @@ describe("O3: one team per cell, at Live, with the championship finished", () =>
   });
 });
 
-describe("O4: points not yet reported for a team (no dcmp tier eventPoints entry, a started dcmp tier remainingEvents entry)", () => {
+/**
+ * The six teams of O4: four registered at the championship with no points
+ * reported for them, one entered nowhere, one whose award only award is not
+ * from one of its own district tier events.
+ */
+function registeredTeams(): DistrictTeam[] {
+  return [
+    team("frc1", { pointTotal: 100, eventPoints: [played("a", 100)], remainingEvents: [championshipAhead()] }),
+    team("frc2", { pointTotal: 90, eventPoints: [played("a", 90)], remainingEvents: [championshipAhead()], qualifyingAwards: [AWARD_ONLY("a")] }),
+    team("frc3", { pointTotal: 10, eventPoints: [played("a", 10)], remainingEvents: [championshipAhead()] }),
+    team("frc4", { pointTotal: 5, eventPoints: [played("a", 5)], remainingEvents: [championshipAhead()], qualifyingAwards: [AWARD_ONLY("a")] }),
+    // Entered nowhere at the championship.
+    team("frc5", { pointTotal: 1, eventPoints: [played("a", 1)] }),
+    // An award only entry at an event that is NOT one of this team's district tier events does not make it an invitee.
+    team("frc6", { pointTotal: 0, eventPoints: [played("a", 0)], remainingEvents: [championshipAhead()], qualifyingAwards: [AWARD_ONLY(CMP)] }),
+  ];
+}
+const REGISTERED_KEYS = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"] as const;
+
+/**
+ * PINS MOVED by quick task 261010-66y (reading R10), for one reason: this
+ * fixture is a championship that has started with NO posted row at all, every
+ * entry a registration. That does not prove the field, so the overlay no
+ * longer applies to it and the raw verdicts stand. Before that task the
+ * overlay was active here and three pins read it: the premise
+ * (`fieldOverlay` true), the two raw eliminated registrants reading Locked,
+ * and the counts (4 Locked, 2 Locked out). Rule 4 of
+ * `isPlayingChampionship`, which those pins were about, is pinned unchanged
+ * on a proven field in the next group.
+ */
+describe("O4: a started championship with no posted row does not prove the field, so the raw verdicts stand (quick task 261010-66y)", () => {
+  const artifact = artifactOf(registeredTeams(), { dcmpSlots: 2 });
+  const raw = rawFor(artifact);
+  const shown = applyChampionshipFieldOverlay(raw, artifact, { atLive: true, nowYear: 2026 });
+
+  it("has the premise: started, no posted row, two raw locked, four raw eliminated", () => {
+    expect(championshipHasStarted(artifact)).toBe(true);
+    expect(artifact.teams.some((entry) => entry.eventPoints.some((row) => row.tier === "dcmp"))).toBe(false);
+    expect(REGISTERED_KEYS.map((teamKey) => raw.byTeam.get(teamKey)?.verdict)).toEqual(["locked", "locked", "eliminated", "eliminated", "eliminated", "eliminated"]);
+  });
+
+  it("the overlay is not active: the shown model is the raw model's own objects", () => {
+    expect(shown.fieldOverlay).toBe(false);
+    expect(shown.byTeam).toBe(raw.byTeam);
+    expect(shown.counts).toBe(raw.counts);
+    expect(shown.counts.declined).toBeUndefined();
+  });
+
+  it("so a registrant from below the line reads its raw Locked out until the championship's rows are posted, and nobody reads Declined", () => {
+    expect(REGISTERED_KEYS.map((teamKey) => shown.byTeam.get(teamKey)?.status)).toEqual(["locked", "locked", "lockedOut", "lockedOut", "lockedOut", "lockedOut"]);
+  });
+});
+
+describe("O4: points not yet reported for a team (no dcmp tier eventPoints entry, a started dcmp tier remainingEvents entry), on a field proven by its posted rows", () => {
+  // The same six teams, beside two late entries whose championship rows ARE
+  // posted: two posted teams against two championship places proves the field.
   const artifact = artifactOf(
     [
-      team("frc1", { pointTotal: 100, eventPoints: [played("a", 100)], remainingEvents: [championshipAhead()] }),
-      team("frc2", { pointTotal: 90, eventPoints: [played("a", 90)], remainingEvents: [championshipAhead()], qualifyingAwards: [AWARD_ONLY("a")] }),
-      team("frc3", { pointTotal: 10, eventPoints: [played("a", 10)], remainingEvents: [championshipAhead()] }),
-      team("frc4", { pointTotal: 5, eventPoints: [played("a", 5)], remainingEvents: [championshipAhead()], qualifyingAwards: [AWARD_ONLY("a")] }),
-      // Entered nowhere at the championship.
-      team("frc5", { pointTotal: 1, eventPoints: [played("a", 1)] }),
-      // An award only entry at an event that is NOT one of this team's district tier events does not make it an invitee.
-      team("frc6", { pointTotal: 0, eventPoints: [played("a", 0)], remainingEvents: [championshipAhead()], qualifyingAwards: [AWARD_ONLY(CMP)] }),
+      ...registeredTeams(),
+      team("frc7", { pointTotal: 0 + 6, eventPoints: [played("a", 0), championship({ qual: 6 }, STARTED)] }),
+      team("frc8", { pointTotal: 0 + 4, eventPoints: [played("a", 0), championship({ qual: 4 }, STARTED)] }),
     ],
     { dcmpSlots: 2 }
   );
   const raw = rawFor(artifact);
-  const shown = applyChampionshipFieldOverlay(raw, artifact, { atLive: true });
+  const shown = applyChampionshipFieldOverlay(raw, artifact, { atLive: true, nowYear: 2026 });
 
-  it("has the premise: started, two raw locked, four raw eliminated", () => {
+  it("has the premise: started, proven by two posted rows, two raw locked, six raw eliminated", () => {
     expect(championshipHasStarted(artifact)).toBe(true);
     expect(shown.fieldOverlay).toBe(true);
-    expect(["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"].map((teamKey) => raw.byTeam.get(teamKey)?.verdict)).toEqual([
+    expect([...REGISTERED_KEYS, "frc7", "frc8"].map((teamKey) => raw.byTeam.get(teamKey)?.verdict)).toEqual([
       "locked",
       "locked",
+      "eliminated",
+      "eliminated",
       "eliminated",
       "eliminated",
       "eliminated",
@@ -408,7 +460,8 @@ describe("O4: points not yet reported for a team (no dcmp tier eventPoints entry
 
   it("a team with no championship entry of either kind is not playing", () => {
     expect(shown.byTeam.get("frc5")?.status).toBe("lockedOut");
-    expect(shown.counts).toEqual({ prequalified: 0, locked: 4, declined: 0, inRange: 0, outOfRange: 0, lockedOut: 2 });
+    // The four of the old pin, and the two late entries whose rows are posted.
+    expect(shown.counts).toEqual({ prequalified: 0, locked: 6, declined: 0, inRange: 0, outOfRange: 0, lockedOut: 2 });
   });
 
   it("isPlayingChampionship reads the same rule one team at a time", () => {
@@ -422,6 +475,98 @@ describe("O4: points not yet reported for a team (no dcmp tier eventPoints entry
     const cells = new Map(cellDistrict().teams.map((entry) => [entry.teamKey, entry] as const));
     expect(isPlayingChampionship(cells.get("frc6")!, false)).toBe(true);
     expect(isPlayingChampionship(cells.get("frc3")!, true)).toBe(false);
+  });
+});
+
+/**
+ * Quick task 261010-66y, P5. The artifact learns a championship key only from
+ * team rows. When TBA posts one division before the other, the one division
+ * the artifact knows has started while the other division's teams are on no
+ * row. The overlay used to switch on there and show every one of those teams,
+ * all of whom earned their place, as Declined until their rows landed. It now
+ * waits for the proven field (`packages/core/districts/dcmpFieldProof.ts`).
+ */
+describe("O8: the overlay waits for the proven field (quick task 261010-66y)", () => {
+  const DIVISION_ONE = "cmp1";
+  const DIVISION_TWO = "cmp2";
+  const divisionRow = (eventKey: string, qual: number) => ({ eventKey, eventName: `District Championship ${eventKey}`, week: 5, tier: "dcmp" as const, qual, alliance: 0, elim: 0, award: 0, total: qual, state: STARTED });
+
+  /** Four teams earned the four places: frc1 and frc2 play division one, frc3 and frc4 division two. frc5 and frc6 did not. */
+  function divisions(posted: readonly string[]): DistrictArtifact {
+    const entered = (teamKey: string, district: number, division: string) =>
+      team(teamKey, { pointTotal: district + (posted.includes(division) ? 8 : 0), eventPoints: posted.includes(division) ? [played("a", district), divisionRow(division, 8)] : [played("a", district)] });
+    return artifactOf(
+      [
+        entered("frc1", 100, DIVISION_ONE),
+        entered("frc2", 90, DIVISION_ONE),
+        entered("frc3", 80, DIVISION_TWO),
+        entered("frc4", 70, DIVISION_TWO),
+        team("frc5", { pointTotal: 10, eventPoints: [played("a", 10)] }),
+        team("frc6", { pointTotal: 5, eventPoints: [played("a", 5)] }),
+      ],
+      { dcmpSlots: 4 }
+    );
+  }
+  const KEYS = ["frc1", "frc2", "frc3", "frc4", "frc5", "frc6"] as const;
+
+  it("premise: all four earned their place, and with one division posted the championship has started", () => {
+    for (const posted of [[DIVISION_ONE], [DIVISION_ONE, DIVISION_TWO]]) {
+      const artifact = divisions(posted);
+      expect(championshipHasStarted(artifact)).toBe(true);
+      expect(KEYS.map((teamKey) => rawFor(artifact).byTeam.get(teamKey)?.verdict)).toEqual(["locked", "locked", "locked", "locked", "eliminated", "eliminated"]);
+    }
+  });
+
+  it("with one division posted and started the overlay is NOT active: the model is the raw model's own objects and nobody reads Declined", () => {
+    const artifact = divisions([DIVISION_ONE]);
+    const raw = rawFor(artifact);
+    const shown = applyChampionshipFieldOverlay(raw, artifact, { atLive: true, nowYear: 2026 });
+    expect(shown.fieldOverlay).toBe(false);
+    expect(shown.byTeam).toBe(raw.byTeam);
+    expect(shown.counts).toBe(raw.counts);
+    // The teams of the division TBA has not posted yet keep the Locked they earned.
+    expect(KEYS.map((teamKey) => shown.byTeam.get(teamKey)?.status)).toEqual(["locked", "locked", "locked", "locked", "lockedOut", "lockedOut"]);
+  });
+
+  it("with both divisions posted and the field proven the overlay is active and reads as it always did", () => {
+    const artifact = divisions([DIVISION_ONE, DIVISION_TWO]);
+    const shown = applyChampionshipFieldOverlay(rawFor(artifact), artifact, { atLive: true, nowYear: 2026 });
+    expect(shown.fieldOverlay).toBe(true);
+    expect(KEYS.map((teamKey) => shown.byTeam.get(teamKey)?.status)).toEqual(["locked", "locked", "locked", "locked", "lockedOut", "lockedOut"]);
+    expect(shown.counts).toEqual({ prequalified: 0, locked: 4, declined: 0, inRange: 0, outOfRange: 0, lockedOut: 2 });
+  });
+
+  it("a proven field still shows a team that earned its place and is in neither division as Declined", () => {
+    // Division two posted with a late entry in frc4's place: four posted teams against four places.
+    const artifact = artifactOf(
+      [
+        team("frc1", { pointTotal: 108, eventPoints: [played("a", 100), divisionRow(DIVISION_ONE, 8)] }),
+        team("frc2", { pointTotal: 98, eventPoints: [played("a", 90), divisionRow(DIVISION_ONE, 8)] }),
+        team("frc3", { pointTotal: 88, eventPoints: [played("a", 80), divisionRow(DIVISION_TWO, 8)] }),
+        team("frc4", { pointTotal: 70, eventPoints: [played("a", 70)] }),
+        team("frc5", { pointTotal: 18, eventPoints: [played("a", 10), divisionRow(DIVISION_TWO, 8)] }),
+        team("frc6", { pointTotal: 5, eventPoints: [played("a", 5)] }),
+      ],
+      { dcmpSlots: 4 }
+    );
+    const shown = applyChampionshipFieldOverlay(rawFor(artifact), artifact, { atLive: true, nowYear: 2026 });
+    expect(shown.fieldOverlay).toBe(true);
+    expect(KEYS.map((teamKey) => shown.byTeam.get(teamKey)?.status)).toEqual(["locked", "locked", "locked", "declined", "locked", "lockedOut"]);
+  });
+
+  it("the season over line reads the year it is handed: the 2020 shape is active in 2026 and not in 2020", () => {
+    // Awards given with no match played: one posted row against 64 places.
+    const awardsOnly: DistrictEventState = { qualMatchesPlayed: 0, qualMatchesTotal: null, alliancesPicked: false, playoffsDone: false, awardsPosted: true };
+    const artifact = artifactOf(
+      [
+        team("frc1", { pointTotal: 100 + 30, eventPoints: [played("a", 100), championship({ award: 30 }, awardsOnly)] }),
+        team("frc2", { pointTotal: 90, eventPoints: [played("a", 90)] }),
+      ],
+      { year: 2020, districtKey: "2020pnw", dcmpSlots: 64 }
+    );
+    expect(championshipHasStarted(artifact)).toBe(true);
+    expect(applyChampionshipFieldOverlay(rawFor(artifact), artifact, { atLive: true, nowYear: 2026 }).fieldOverlay).toBe(true);
+    expect(applyChampionshipFieldOverlay(rawFor(artifact), artifact, { atLive: true, nowYear: 2020 }).fieldOverlay).toBe(false);
   });
 });
 
