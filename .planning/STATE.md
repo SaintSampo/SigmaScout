@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-10T03:04:42.230Z"
+last_updated: "2026-10-10T06:12:08.311Z"
 last_activity: 2026-10-10
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -750,6 +750,8 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 314 | Locks display and routing: tied playoff matches route, the placed arm is gone, a divisioned DCMP row shows division plus finals, finalist comments corrected (a losing finalist is paid the base value) | 2026-10-10 | ee445919 | [261009-tx8-locks-display-and-model-finalist-pays-25](./quick/261009-tx8-locks-display-and-model-finalist-pays-25/) |
 | 315 | District Locks: the pooled pool nets out settled playoff points, so a shown lock is never taken back (41 take backs to zero, 76 more locks) | 2026-10-10 | 27344328 | [261009-uhb-district-locks-the-pooled-pool-nets-out-](./quick/261009-uhb-district-locks-the-pooled-pool-nets-out-/) |
 | 316 | District Locks settled playoffs sweep with real bracket facts and a no take back tenet: 418 events, 2926 stops, zero violations | 2026-10-10 | 036f2216 | [261009-txb-district-locks-settled-playoffs-sweep-wi](./quick/261009-txb-district-locks-settled-playoffs-sweep-wi/) |
+| 317 | Worker awards watch closed out: settle time, day long watch with forced looks and a catch up, published verdicts gated on each event's own state and counting what is still open, award stage replay over eight PNW events with no lock taken back | 2026-10-10 | 8fb29c8a | [261009-tx6-worker-awards-watch-settle-time-day-long](./quick/261009-tx6-worker-awards-watch-settle-time-day-long/) |
+| 318 | Divisioned joint proof follows the backup robot rule: one backup per alliance from its own division; 198 more lock stops, zero violations, verified against 45 million legal futures | 2026-10-10 | 61444f38 | [261009-tx9-divisioned-joint-proof-follows-the-backu](./quick/261009-tx9-divisioned-joint-proof-follows-the-backu/) |
 
 ### Roadmap Evolution
 
