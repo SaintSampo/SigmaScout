@@ -829,7 +829,14 @@ describe("a decided playoff placement settles that team's playoff points (261008
     ]);
     // Fourth place pays at most 7 at the district tier: TBA prorates a team
     // that sat out part of the playoffs, so 7 is a ceiling, never a floor.
-    expect(boundsFor(artifact, decided("a", { frc1: 4 }))).toEqual({ floor: 50, openCeiling: CEILINGS.award + 7 });
+    //
+    // PIN MOVED by quick task 261009-vp9, from `award + 7`. The state says
+    // alliances are picked, and no row at the event carries a point at all,
+    // so nothing proves Qualification or Alliance selection are in: both read
+    // open, and their two ceilings stay on top of the settled placement and
+    // the award. The settled placement still replaces the whole Playoffs
+    // ceiling, which is what this test is about.
+    expect(boundsFor(artifact, decided("a", { frc1: 4 }))).toEqual({ floor: 50, openCeiling: CEILINGS.qual + CEILINGS.alliance + CEILINGS.award + 7 });
   });
 
   it("live with TBA's partial elim already inside pointTotal: that elim leaves the floor and the placement's points cap the ceiling", () => {

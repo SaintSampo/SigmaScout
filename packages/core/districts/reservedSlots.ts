@@ -160,6 +160,16 @@ export const ALL_CATEGORIES_OPEN: DistrictCategoryFinality = { qual: false, alli
  * qualification open: null is the honest answer for an event whose schedule
  * TBA has not published yet, and reading it as finished would treat points
  * that have not been handed out as though they had been.
+ *
+ * THIS IS THE STATE'S OWN READING: WHAT HAS HAPPENED ON THE FIELD (quick task
+ * 261009-vp9). It is the reading for history, for started and finished, and
+ * for everything the simulation run conditions on (the published alliances,
+ * the played bracket, the bracket facts, the timeline and the rail). It does
+ * NOT say that a category's number is final at the live position: the state
+ * comes from the match feed and the points from the district rankings, and
+ * the second can lag the first. Whether a number is final there is
+ * `corroboratedCategoryFinality` in `categoryCorroboration.ts`, which reads
+ * this state AND the points that prove it. The two readings are never mixed.
  */
 export function districtEventCategoryFinality(state: DistrictEventStateFacts | undefined): DistrictCategoryFinality {
   if (state === undefined) return ALL_CATEGORIES_OPEN;

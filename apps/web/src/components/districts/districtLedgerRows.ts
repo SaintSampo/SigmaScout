@@ -80,6 +80,12 @@ import type {
 } from "../../../../../packages/harness/pageArtifacts.js";
 import { districtEventStateFinished, districtEventStateStarted } from "../../lib/liveEvent.js";
 import { ALL_CATEGORIES_OPEN, districtEventCategoryFinality } from "../../../../../packages/core/districts/reservedSlots.js";
+import {
+  NO_POINTS_PRESENT,
+  categoryPointsPresenceByEvent,
+  corroboratedCategoryFinality,
+  type CategoryPointsPresence,
+} from "../../../../../packages/core/districts/categoryCorroboration.js";
 import { buildQualRows, buildSimulationInputs, simulatedTeams } from "../../lib/simulationInputs.js";
 import { teamNumberFromKey } from "../../lib/teamKey.js";
 
@@ -128,8 +134,17 @@ export interface DistrictEventStage {
 const ALL_OPEN: DistrictStageFinality = ALL_CATEGORIES_OPEN;
 
 /**
- * The stage at the "now" position, read from 10-03's `state` block and nothing
- * else.
+ * WHAT HAS HAPPENED ON THE FIELD at the "now" position: the state's own
+ * reading, from 10-03's `state` block and nothing else.
+ *
+ * THIS IS ONE OF TWO READINGS, NEVER MIXED (quick task 261009-vp9). It says a
+ * stage is over on the field. It drives the simulation run, the published
+ * alliances and the played bracket the run conditions on, the bracket facts,
+ * the timeline, the milestone rail, and whether selection is over for the not
+ * picked note. It does NOT say a category's NUMBER is final: the points come
+ * from the district rankings, a different feed that can lag the match feed.
+ * That second reading is `deriveLiveStage` below, and it is the one the grey
+ * cells and the lock math read.
  *
  * Finality CASCADES from later stages (quick task 261007-jvz): picked alliances
  * close qualification, finished playoffs close alliance selection, and posted
@@ -152,6 +167,31 @@ export function deriveStageFromState(state: DistrictEventState | undefined): Dis
   // The two primitives live in `liveEvent.ts`, beside the poll gate that is
   // their only other consumer, so this derivation and that gate cannot drift.
   return { final, stateKnown: true, started: districtEventStateStarted(state), finished: districtEventStateFinished(state) };
+}
+
+/**
+ * WHETHER A CATEGORY'S NUMBER IS FINAL at the live position (quick task
+ * 261009-vp9): the state says the stage is over AND the points that prove it
+ * are in the district artifact's rows. The rule is
+ * `corroboratedCategoryFinality` in
+ * `packages/core/districts/categoryCorroboration.ts`, the one the published
+ * verdict pass reads, so the tabs and the published verdicts cannot drift.
+ *
+ * `stateKnown` and `started` are the state's own, exactly as
+ * `deriveStageFromState` reports them: an event has started on the field
+ * whatever its points say. `final` is the rule's, and `finished` is all four
+ * final. An absent `presence` reads as nothing proven.
+ *
+ * On a finished event the awards flag is true and closes all four categories,
+ * so this equals `deriveStageFromState` there. It differs only while a live
+ * event's points lag its matches, and then only by reading a category OPEN.
+ */
+export function deriveLiveStage(state: DistrictEventState | undefined, presence: CategoryPointsPresence | undefined): DistrictEventStage {
+  if (state === undefined) {
+    return { final: ALL_OPEN, stateKnown: false, started: false, finished: false };
+  }
+  const final: DistrictStageFinality = corroboratedCategoryFinality(state, presence ?? NO_POINTS_PRESENT);
+  return { final, stateKnown: true, started: districtEventStateStarted(state), finished: final.qual && final.alliance && final.elim && final.award };
 }
 
 /**
@@ -561,6 +601,30 @@ export function inProgressDistrictEventKeys(artifact: DistrictArtifact): string[
     }
   }
   return [...keys].sort();
+}
+
+/**
+ * THE NUMBER READING AT NOW, PER EVENT (quick task 261009-vp9): for every
+ * event `tierEvents` yields at the given tiers, which of its categories'
+ * numbers are final at the live position (`deriveLiveStage`). The presence
+ * facts are built once from the whole artifact. The first entry seen for an
+ * event wins, exactly as the two tabs' state only Now maps choose.
+ *
+ * Both tabs build this beside their state only map and never in place of it:
+ * the state only map is the field, this one is the number.
+ */
+export function liveStageByEvent(artifact: DistrictArtifact, tiers: readonly DistrictTier[]): Map<string, DistrictStageFinality> {
+  const presence = categoryPointsPresenceByEvent(artifact.teams, artifact.year);
+  const map = new Map<string, DistrictStageFinality>();
+  for (const tier of tiers) {
+    for (const team of artifact.teams) {
+      for (const entry of tierEvents(team, tier)) {
+        if (map.has(entry.eventKey)) continue;
+        map.set(entry.eventKey, deriveLiveStage(entry.state, presence.get(entry.eventKey)).final);
+      }
+    }
+  }
+  return map;
 }
 
 /** Every district-tier event key in the artifact, in a stable order — the superset the timeline and the baked fetch both narrow from. */
@@ -1418,10 +1482,17 @@ export function settledPlayoffPoints(options: SettledPlayoffPointsOptions): Sett
  * included) took the team in any draw. Every draw takes exactly one route, so
  * that is `notSelectedDraws` being every draw.
  *
- * Read from the run's routes and never from the artifact's own alliance
- * points, which TBA does not post mid event. A baked event reports no routes
- * and is never not picked. The Playoffs cell stays open either way: a backup
- * robot is called from this pool and paid its alliance's placement points.
+ * Read from the run's routes and from the FIELD's reading of selection, never
+ * from the artifact's own alliance points. Whether TBA posts alliance points
+ * during an event is NOT VERIFIED (quick task 261009-vp9): no live district
+ * weekend has been observed, so this note asserts neither that they arrive
+ * within minutes nor that they arrive only when the event ends. It does not
+ * need to know: `selectionFinal` is what has happened on the field (the
+ * state's own reading), which is true as soon as the match feed shows the
+ * alliances, while the row's Alliance selection NUMBER can still read open.
+ * A baked event reports no routes and is never not picked. The Playoffs cell
+ * stays open either way: a backup robot is called from this pool and paid its
+ * alliance's placement points.
  */
 export function teamNotPickedAtPosition(
   routes: DistrictSelectionRoutes | undefined,
@@ -1465,7 +1536,12 @@ export interface BuildDistrictLedgerRowsOptions {
   readonly artifact: DistrictArtifact;
   /** `eventKey -> the distributions the tab holds for it`, simulated or baked. Absent means the tab has none, so that event's open cells render unavailable. */
   readonly distributions: ReadonlyMap<string, DistrictEventDistributions>;
-  /** `eventKey -> the stage at the current position`. Absent falls back to the row's own `state` block, which is the "now" answer. */
+  /**
+   * `eventKey -> the stage at the current position`: which categories'
+   * NUMBERS are final there. Absent falls back to the live stage of the row's
+   * own `state` block and the artifact's own rows (`deriveLiveStage`), which
+   * is the "now" answer (quick task 261009-vp9).
+   */
   readonly stageByEvent?: ReadonlyMap<string, DistrictStageFinality>;
   /** Events the Worker refused to price, with the error class that refused — their open cells render unavailable rather than blank. */
   readonly unavailableEvents?: readonly { readonly eventKey: string; readonly name: string }[];
@@ -1517,6 +1593,9 @@ export interface DistrictLedgerRowsResult {
 export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions): DistrictLedgerRowsResult {
   const { artifact, distributions, stageByEvent, unavailableEvents = [], tier = "district" } = options;
   const season = artifact.year;
+  // What the artifact's own rows prove about each event, built once (quick
+  // task 261009-vp9). Every row's stage below is the NUMBER reading.
+  const presenceByEvent = categoryPointsPresenceByEvent(artifact.teams, season);
   const ceilings = maxEventPoints(season, tier);
   const categoryCeiling: Readonly<Record<DistrictCategory, number>> = {
     qual: ceilings.qual,
@@ -1570,7 +1649,10 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
     let earnedAtPosition = 0;
 
     for (const entry of entries) {
-      const derived = deriveStageFromState(entry.state);
+      // THE NUMBER READING (quick task 261009-vp9): a category is final here
+      // only once its points are in. The grey cells, `row.stage` and the two
+      // finalities handed to `settledPlayoffPoints` all follow it.
+      const derived = deriveLiveStage(entry.state, presenceByEvent.get(entry.eventKey));
       const overridden = stageByEvent?.get(entry.eventKey);
       const final: DistrictStageFinality = overridden ?? derived.final;
       const stage: DistrictEventStage = {
@@ -1652,8 +1734,15 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
         if (category !== "elim" || cell.kind !== "open") return cell;
         // A TEAM ON NO ALLIANCE once selection is final (quick task
         // 261008-3il): still open, flagged so the cell reads not picked.
+        //
+        // THE ONE DECISION HERE THAT READS THE FIELD (quick task 261009-vp9):
+        // whether selection is over. A rewound stop reads the supplied stage,
+        // as it always has. At Now it is the row's own state, never the
+        // number reading above: the alliances are picked on the field before
+        // their points reach the rows, and the run already knows them.
         const eventRuns = distributions.get(entry.eventKey);
-        if (teamNotPickedAtPosition(eventRuns?.selectionRoutesByTeam?.get(team.teamKey), eventRuns?.rankingFixed, final.alliance)) {
+        const selectionOverOnTheField = (stageByEvent?.get(entry.eventKey) ?? deriveStageFromState(entry.state).final).alliance;
+        if (teamNotPickedAtPosition(eventRuns?.selectionRoutesByTeam?.get(team.teamKey), eventRuns?.rankingFixed, selectionOverOnTheField)) {
           return { ...cell, notPicked: true };
         }
         const milestone = playoffMilestoneFor(
@@ -1772,7 +1861,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
       // an absorbed refusal becomes a plausible, complete, wrong row, which is
       // the whole reason these functions throw in the first place.
       teamsWithUnavailableGrandTotal.add(team.teamKey);
-      built.push(degradedLedgerTeam(team, tier, stageByEvent));
+      built.push(degradedLedgerTeam(team, tier, stageByEvent, presenceByEvent));
     }
   }
 
@@ -1837,14 +1926,16 @@ function earnedAtStage(earned: DistrictEventPoints | undefined, final: DistrictS
 function degradedLedgerTeam(
   team: DistrictTeam,
   tier: DistrictTier,
-  stageByEvent: ReadonlyMap<string, DistrictStageFinality> | undefined
+  stageByEvent: ReadonlyMap<string, DistrictStageFinality> | undefined,
+  presenceByEvent: ReadonlyMap<string, CategoryPointsPresence>
 ): DistrictLedgerTeam {
   const entries = tierEvents(team, tier);
   let earnedDistrictTotal = 0;
   let earnedAtPosition = 0;
   const rows: DistrictLedgerEventRow[] = entries.map((entry) => {
     if (entry.earned !== undefined) earnedDistrictTotal += entry.earned.total;
-    const derived = deriveStageFromState(entry.state);
+    // The number reading, as in the ordinary path (quick task 261009-vp9).
+    const derived = deriveLiveStage(entry.state, presenceByEvent.get(entry.eventKey));
     earnedAtPosition += earnedAtStage(entry.earned, stageByEvent?.get(entry.eventKey) ?? derived.final, stageByEvent !== undefined);
     return {
       eventKey: entry.eventKey,

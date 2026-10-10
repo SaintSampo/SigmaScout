@@ -45,7 +45,8 @@ import { z } from "zod";
 import { computeLocksWithQualifiers, cutLinePointsWithQualifiers, type LockResult, type LockTeamInput, type QualifierSets } from "../core/districts/locks.js";
 import { maxEventPoints, type DistrictTier } from "../core/districts/pointModel.js";
 import { prequalifiedTeams } from "../core/districts/prequalified.js";
-import { districtEventCategoryFinality, reservedImpactSlots, type DistrictCategoryFinality, type ReservedSlotEvent } from "../core/districts/reservedSlots.js";
+import { ALL_CATEGORIES_OPEN, reservedImpactSlots, type DistrictCategoryFinality, type ReservedSlotEvent } from "../core/districts/reservedSlots.js";
+import { NO_POINTS_PRESENT, categoryPointsPresenceByEvent, corroboratedCategoryFinality, type CategoryPointsPresence } from "../core/districts/categoryCorroboration.js";
 import { championshipStemOf, dcmpNeverHappening, perChampionship, reservedChampSlots } from "../core/districts/champReservedSlots.js";
 import { awardPointsPresentAt, awardsPostedRule, judgedAwardListed, qualifyingAwardRecord } from "../core/districts/eventAwards.js";
 import { dcmpAwardCountCeilings } from "../core/districts/hypotheticalDcmp.js";
@@ -159,22 +160,51 @@ function eventStateByKey(teams: readonly DistrictTeam[]): Map<string, DistrictEv
 }
 
 /**
- * THE ONE PLACE THE PUBLISHED VERDICTS READ WHICH CATEGORIES OF AN EVENT ARE
- * FINAL (quick task 261009-tx6). The ceilings, the floors and the pooled pool
- * all ask this function, so the three can never disagree about what is open
- * at an event.
- *
- * TODAY it answers from the event's state block alone, through
- * `districtEventCategoryFinality`, and an absent state reports every category
- * open exactly as that function does. `teams` and `eventKey` are NOT READ
- * YET. They are part of the signature so that quick task 261009-vp9 ("a
- * category counts as finished only when its points are in") can read the
- * event's own rows here, in this one body, without touching a caller.
- *
- * Exported for that task and for the test that holds the rule to one place.
+ * The presence facts of one `teams` array, built once and kept for as long as
+ * the array lives. THE TEAM ARRAYS ARE TREATED AS IMMUTABLE: the verdict pass
+ * hands the same array to every call and never mutates one, and both merge
+ * entry points build a NEW array for every artifact they return. A caller
+ * that changed a row in place would read stale facts here, so no caller may.
  */
-export function publishedCategoryFinality(teams: readonly DistrictTeam[], eventKey: string, state: DistrictEventState | undefined): DistrictCategoryFinality {
-  return districtEventCategoryFinality(state);
+const presenceByTeams = new WeakMap<readonly DistrictTeam[], Map<string, CategoryPointsPresence>>();
+
+/**
+ * THE ONE PLACE THE PUBLISHED VERDICTS READ WHICH CATEGORIES OF AN EVENT ARE
+ * FINAL (quick task 261009-tx6). The ceilings, the floors, the pooled pool,
+ * the Winner gate of `awardQualifiedSets` and both reservations all ask this
+ * function, so none of them can disagree about what is open at an event.
+ *
+ * IT READS THE ROWS (quick task 261009-vp9, "a category counts as finished
+ * only when its points are in"). The event's state comes from the match feed
+ * and moves within a minute. The points come from the district rankings, a
+ * different feed that can lag. Read from the state alone, a category closed
+ * before its points were in, a rival lost a ceiling it could still fill, and
+ * the published verdict took a Locked back when the points landed. So the
+ * answer is `corroboratedCategoryFinality`
+ * (`packages/core/districts/categoryCorroboration.ts`): the state says the
+ * stage is over AND the artifact's own rows at the event carry the points
+ * that prove it. Playoffs need a row at the winner's value, Alliance
+ * selection a row with alliance points above 0, Qualification follows
+ * Alliance selection, and Awards are the flag. An absent state reports every
+ * category open. An event on no row has nothing proven.
+ *
+ * The rule only ever OPENS a category the state alone would close. On every
+ * finished event its answer is the state's own, so no published artifact
+ * moves: the publisher comparison over the 109 local district seasons is
+ * clean.
+ *
+ * The presence facts are built once per `teams` array (see
+ * `presenceByTeams`).
+ *
+ * Exported for the test that holds the rule to one place.
+ */
+export function publishedCategoryFinality(teams: readonly DistrictTeam[], eventKey: string, state: DistrictEventState | undefined, season: number): DistrictCategoryFinality {
+  let presence = presenceByTeams.get(teams);
+  if (presence === undefined) {
+    presence = categoryPointsPresenceByEvent(teams, season);
+    presenceByTeams.set(teams, presence);
+  }
+  return corroboratedCategoryFinality(state, presence.get(eventKey) ?? NO_POINTS_PRESENT);
 }
 
 /** The four point categories of an event row, in the order a row carries them. */
@@ -215,7 +245,7 @@ function openAtPlayedRows(
   for (const row of team.eventPoints) {
     const state = stateByEvent.get(row.eventKey);
     if (state === undefined) continue;
-    const final = publishedCategoryFinality(teams, row.eventKey, state);
+    const final = publishedCategoryFinality(teams, row.eventKey, state, season);
     const maxima = maxEventPoints(season, row.tier);
     const firstRow = !counted.has(row.eventKey);
     counted.add(row.eventKey);
@@ -339,18 +369,25 @@ function unexplainedDistrictCeilings(artifact: DistrictArtifact): Map<string, nu
  * read off the state block of its own event (`eventStateByKey`, any tier, a
  * District Championship award at the finals key):
  *
- *   - a Winner (type 1) counts once the playoffs are final, which is
- *     `playoffsDone`, or `awardsPosted`, the later fact that closes them;
- *   - every other consuming award counts once `awardsPosted` is true.
+ *   - a Winner (type 1) counts once the event's PLAYOFFS ARE FINAL as
+ *     `publishedCategoryFinality` reads them (quick task 261009-vp9): the
+ *     state says the playoffs are done AND a row at the event carries the
+ *     winner's playoff value, or the awards are posted, the later fact that
+ *     closes them. A Winner listed while the playoff points are still to
+ *     land is recorded and not yet counted, exactly as the reservation still
+ *     holds the winning alliance's places;
+ *   - every other consuming award counts once the event's Awards are final,
+ *     which is `awardsPosted`.
  *
- * Those are the two facts the reservations read, so an award is either
- * reserved for or counted and never both. It is also the rule the Locks tabs
- * apply (`districtLedgerStatus.ts`, `champLedgerStatus.ts`), which gate each
- * award on its own event's stage. The Winner's second clause matters for one
- * shape only: awards posted with the playoffs flag never turned true (a
- * curtailed bracket). `reservedChampSlots` releases the winning alliance's
- * slots there, so a winner left uncounted would be neither reserved for nor
- * counted, which is the one side that can publish a Locked that is not true.
+ * Those are the two readings the reservations take, through the same
+ * function, so an award is either reserved for or counted and never both. It
+ * is also the rule the Locks tabs apply (`districtLedgerStatus.ts`,
+ * `champLedgerStatus.ts`), which gate each award on its own event's stage.
+ * The Winner's second clause matters for one shape only: awards posted with
+ * the playoffs flag never turned true (a curtailed bracket).
+ * `reservedChampSlots` releases the winning alliance's slots there, so a
+ * winner left uncounted would be neither reserved for nor counted, which is
+ * the one side that can publish a Locked that is not true.
  *
  * AN EVENT WHOSE ROWS CARRY NO STATE BLOCK COUNTS ITS AWARDS AS BEFORE. The
  * offline publisher runs this pass on state free rows first, and a tier
@@ -360,7 +397,8 @@ function unexplainedDistrictCeilings(artifact: DistrictArtifact): Map<string, nu
 function awardQualifiedSets(
   teams: readonly DistrictTeam[],
   suppliedTiers: ReadonlyMap<string, DistrictTier> | undefined,
-  stateByEvent: ReadonlyMap<string, DistrictEventState | undefined>
+  stateByEvent: ReadonlyMap<string, DistrictEventState | undefined>,
+  season: number
 ): { district: Set<string>; dcmp: Set<string> } {
   // The artifact derived map is shared with the District Locks tab
   // (`eventTierByKey`, quick task 261007-jvz), so the two resolve an award's
@@ -384,7 +422,8 @@ function awardQualifiedSets(
       // for it means a hindsight row, which counts as it always has.
       const state = stateByEvent.get(award.eventKey);
       if (state !== undefined) {
-        const given = award.awardType === AWARD_TYPE_WINNER ? state.playoffsDone || state.awardsPosted : state.awardsPosted;
+        const final = publishedCategoryFinality(teams, award.eventKey, state, season);
+        const given = award.awardType === AWARD_TYPE_WINNER ? final.elim : final.award;
         if (!given) continue;
       }
       (awardTier === "dcmp" ? dcmp : district).add(team.teamKey);
@@ -407,8 +446,12 @@ function awardQualifiedSets(
  * There is no rewind offline, so an event's award is final at the position
  * exactly when its published state says the awards are posted. FIRST STATE
  * SEEN WINS per event, matching every other per-event derivation in this file.
+ *
+ * The Awards finality is read through `publishedCategoryFinality` (quick task
+ * 261009-vp9), the one reader. For Awards that is the flag itself, so the
+ * count is what it was.
  */
-function reservedDistrictSlots(teams: readonly DistrictTeam[]): number {
+function reservedDistrictSlots(teams: readonly DistrictTeam[], season: number): number {
   const events: ReservedSlotEvent[] = [];
   const seen = new Set<string>();
   for (const team of teams) {
@@ -421,11 +464,11 @@ function reservedDistrictSlots(teams: readonly DistrictTeam[]): number {
         // present, and "no state" is the weaker observation of the two.
         const known = events.find((event) => event.eventKey === row.eventKey);
         if (known === undefined || known.stateAtNow !== undefined || row.state === undefined) continue;
-        events[events.indexOf(known)] = { eventKey: row.eventKey, stateAtNow: row.state, awardFinalAtPosition: row.state.awardsPosted };
+        events[events.indexOf(known)] = { eventKey: row.eventKey, stateAtNow: row.state, awardFinalAtPosition: publishedCategoryFinality(teams, row.eventKey, row.state, season).award };
         continue;
       }
       seen.add(row.eventKey);
-      events.push({ eventKey: row.eventKey, stateAtNow: row.state, awardFinalAtPosition: row.state?.awardsPosted === true });
+      events.push({ eventKey: row.eventKey, stateAtNow: row.state, awardFinalAtPosition: publishedCategoryFinality(teams, row.eventKey, row.state, season).award });
     }
   }
   return reservedImpactSlots(events);
@@ -457,7 +500,7 @@ function reservedDistrictSlots(teams: readonly DistrictTeam[]): number {
  * district tier event the map holds exactly the block the district tier only
  * walk used to find, so no pool moved.
  */
-function pooledDistrictPoints(teams: readonly DistrictTeam[], stateByEvent: ReadonlyMap<string, DistrictEventState | undefined>): ReturnType<typeof pooledLockInputs> {
+function pooledDistrictPoints(teams: readonly DistrictTeam[], stateByEvent: ReadonlyMap<string, DistrictEventState | undefined>, season: number): ReturnType<typeof pooledLockInputs> {
   const entries: PooledTeamEntry[] = teams.map((team) => {
     const eventKeys = new Set<string>();
     for (const row of [...team.eventPoints, ...team.remainingEvents]) {
@@ -466,7 +509,7 @@ function pooledDistrictPoints(teams: readonly DistrictTeam[], stateByEvent: Read
     return {
       teamKey: team.teamKey,
       rookie: team.awardProfile?.rookie ?? true,
-      events: [...eventKeys].map((eventKey) => ({ eventKey, final: publishedCategoryFinality(teams, eventKey, stateByEvent.get(eventKey)) })),
+      events: [...eventKeys].map((eventKey) => ({ eventKey, final: publishedCategoryFinality(teams, eventKey, stateByEvent.get(eventKey), season) })),
     };
   });
   return pooledLockInputs(entries);
@@ -498,6 +541,12 @@ function lockVerdict(result: LockResult, cutLinePoints: number | null, allocatio
  * unless the rule's past-season clause says it is never happening. A row
  * carrying state wins over one that carries none, matching
  * `reservedDistrictSlots` above.
+ *
+ * EACH CHAMPIONSHIP'S PLAYOFFS AND AWARDS ARE READ THROUGH
+ * `publishedCategoryFinality` (quick task 261009-vp9), one finality per dcmp
+ * key, folded per championship with every category open as the fallback. So
+ * the winning alliance's four places stay held until the playoff points are
+ * in the rows, not merely until the match feed says the final was played.
  */
 function reservedChampSlotsAtNow(teams: readonly DistrictTeam[], season: number, districtKey: string, cmpSlots: number, nowYear: number): number {
   type RowState = DistrictTeam["eventPoints"][number]["state"];
@@ -512,11 +561,13 @@ function reservedChampSlotsAtNow(teams: readonly DistrictTeam[], season: number,
   }
   const neverHappening = dcmpNeverHappening({ dcmpStates, artifactYear: season, nowYear });
   const awardCeilings = dcmpAwardCountCeilings(season, districtKey, cmpSlots).counts;
-  const stateByChampionship = perChampionship<RowState>(stateByEvent, undefined);
-  const stages: RowState[] = stateByChampionship.size === 0 ? [undefined] : [...stateByChampionship.values()];
+  const finalByEvent = new Map<string, DistrictCategoryFinality>();
+  for (const [eventKey, state] of stateByEvent) finalByEvent.set(eventKey, publishedCategoryFinality(teams, eventKey, state, season));
+  const finalByChampionship = perChampionship<DistrictCategoryFinality>(finalByEvent, ALL_CATEGORIES_OPEN);
+  const stages: DistrictCategoryFinality[] = finalByChampionship.size === 0 ? [ALL_CATEGORIES_OPEN] : [...finalByChampionship.values()];
   let reserved = 0;
-  for (const state of stages) {
-    reserved += reservedChampSlots({ elimFinal: state?.playoffsDone === true, awardFinal: state?.awardsPosted === true, awardCeilings, neverHappening });
+  for (const final of stages) {
+    reserved += reservedChampSlots({ elimFinal: final.elim, awardFinal: final.award, awardCeilings, neverHappening });
   }
   return reserved;
 }
@@ -633,12 +684,18 @@ function districtTierPointTotal(team: DistrictTeam): number {
  *      the whole playoff ceiling until the category is final. A published
  *      status in the middle of the playoffs can therefore be WEAKER than the
  *      tab's (a Locked shown later), never stronger.
- *   2. The rule is only as good as the finality it is handed, and finality
- *      is read from the event's state alone today. For the minutes between
- *      a category finishing on the field and its points reaching the
- *      district rankings, a ceiling can close before the points are in.
- *      Quick task 261009-vp9 closes that, in `publishedCategoryFinality`
- *      and nowhere else.
+ *   2. CLOSED by quick task 261009-vp9. The rule is only as good as the
+ *      finality it is handed, and finality used to be read from the event's
+ *      state alone, so for the time between a category finishing on the
+ *      field and its points reaching the district rankings a ceiling could
+ *      close before the points were in. `publishedCategoryFinality` now
+ *      reads the rows as well: a category is final only once the points that
+ *      prove it are in. What that leaves: an event whose winning alliance
+ *      carries no row at the winner's value (a team's third district event
+ *      earns no row; three of 418 district events since 2023) keeps its
+ *      Playoffs open from the playoff points landing until its awards flag
+ *      turns true. That is the open side: a Locked shown later, never one
+ *      taken back.
  *
  * The season is the artifact's own `year` — `maxEventPoints` throws
  * `UnknownDistrictSeasonError` for a season with no declared ceiling rather
@@ -689,7 +746,7 @@ export function recomputeDistrictVerdicts(artifact: DistrictArtifact, options: R
 
   const teams = artifact.teams;
   const stateByEvent = eventStateByKey(teams);
-  const awardQualified = awardQualifiedSets(teams, options.tierByEvent, stateByEvent);
+  const awardQualified = awardQualifiedSets(teams, options.tierByEvent, stateByEvent, season);
 
   // What is still open at the events each team already has a row for, per
   // tier (quick task 261009-tx6). Built once, and read by both ceilings and
@@ -727,14 +784,14 @@ export function recomputeDistrictVerdicts(artifact: DistrictArtifact, options: R
   // published `"locked"` is never revoked by an award posted the next day
   // (quick task 260925-ms7). Zero for a district whose events have all posted
   // their awards, which is every finished season in the corpus.
-  const reservedSlots = reservedDistrictSlots(teams);
+  const reservedSlots = reservedDistrictSlots(teams, season);
   // The second, ADDITIVE proof of `"locked"` (quick task 260925-pl6): points
   // are conserved inside an event, so the district's total remaining points are
   // far smaller than the sum of every rival's ceiling, and a team also locks
   // when no achievable distribution of what is left can lift enough rivals past
   // it. Zero for a finished season, where it locks exactly whom the ceiling test
   // already did.
-  const pooled = pooledDistrictPoints(teams, stateByEvent);
+  const pooled = pooledDistrictPoints(teams, stateByEvent, season);
   const districtLocks = computeLocksWithQualifiers(districtLockInputs, artifact.dcmpSlots, districtQualifiers, reservedSlots, pooled);
   const districtLockByTeam = new Map(districtLocks.map((result) => [result.teamKey, result] as const));
 

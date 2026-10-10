@@ -5,6 +5,8 @@
  * one of them matches the published shape. No corpus, no network, so CI runs
  * every test in this file.
  */
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   DistrictArtifactSchema,
@@ -31,6 +33,7 @@ import {
   dcmpBracketFactsFor,
   dcmpBracketMilestonesByTeam,
   decodeDistrictPointPmf,
+  deriveLiveStage,
   deriveStageFromState,
   districtCellId,
   districtEventContributions,
@@ -39,6 +42,7 @@ import {
   distributionsFromResult,
   filterDistrictLedgerTeams,
   inProgressDistrictEventKeys,
+  liveStageByEvent,
   playedBracketMatchesFor,
   pointMassDistribution,
   settledElimBounds,
@@ -2369,5 +2373,185 @@ describe("dcmpBracketFactsFor roles and dcmpBracketFactsAtPosition (quick task 2
     expect(at(open)?.alliances).toHaveLength(8);
     expect(at(open, { playedElimMatches: requestRows, unresolvedMatchCount: 1 })).toBeUndefined();
     expect(at({ ...open, alliance: false })).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Quick task 261009-vp9: a category's NUMBER is final only once its points are
+// in. The rows read the number. One decision reads the field.
+// ---------------------------------------------------------------------------
+
+describe("the live stage: a row's category is final only once its points are in (quick task 261009-vp9)", () => {
+  const EVENT = "2026walag";
+  /** The field says alliances are picked. Nothing later. */
+  const PICKED = state({ alliancesPicked: true, playoffsDone: false, awardsPosted: false });
+  /** The field says the playoffs are done. Awards not posted. */
+  const PLAYED_OUT = state({ alliancesPicked: true, playoffsDone: true, awardsPosted: false });
+
+  function rowAt(points: { qual: number; alliance: number; elim: number }, rowState: DistrictEventState) {
+    return eventPoints({ eventKey: EVENT, ...points, award: 0, total: points.qual + points.alliance + points.elim, state: rowState });
+  }
+
+  /** Two teams at one live event. The second team's row is where the proving points land, or do not. */
+  function twoTeams(rowState: DistrictEventState, other: { alliance: number; elim: number }, own: { alliance: number; elim: number } = { alliance: 0, elim: 0 }): DistrictArtifact {
+    return artifactOf([
+      team({ teamKey: "frc1", pointTotal: 18 + own.alliance + own.elim, eventPoints: [rowAt({ qual: 18, ...own }, rowState)] }),
+      team({ teamKey: "frc2", pointTotal: 14 + other.alliance + other.elim, eventPoints: [rowAt({ qual: 14, ...other }, rowState)] }),
+    ]);
+  }
+
+  const rowOf = (artifact: DistrictArtifact, teamKey: string, distributions: ReadonlyMap<string, DistrictEventDistributions> = NO_DISTRIBUTIONS) =>
+    buildDistrictLedgerRows({ artifact, distributions }).teams.find((entry) => entry.teamKey === teamKey)!.rows[0]!;
+
+  it("deriveLiveStage keeps stateKnown and started from the state, takes final from the rule, and is finished only when all four are final", () => {
+    const nothing = { alliancePoints: false, winnerPlayoffPoints: false, finalsEvent: false };
+    const everything = { alliancePoints: true, winnerPlayoffPoints: true, finalsEvent: false };
+    expect(deriveLiveStage(undefined, everything)).toEqual({ final: { qual: false, alliance: false, elim: false, award: false }, stateKnown: false, started: false, finished: false });
+    expect(deriveLiveStage(PLAYED_OUT, nothing)).toEqual({ final: { qual: false, alliance: false, elim: false, award: false }, stateKnown: true, started: true, finished: false });
+    expect(deriveLiveStage(PLAYED_OUT, everything).final).toEqual({ qual: true, alliance: true, elim: true, award: false });
+    expect(deriveLiveStage(state(), nothing)).toEqual({ final: { qual: true, alliance: true, elim: true, award: true }, stateKnown: true, started: true, finished: true });
+    // An absent presence reads as nothing proven.
+    expect(deriveLiveStage(PICKED, undefined).final).toEqual({ qual: false, alliance: false, elim: false, award: false });
+    // The state's own reading is unchanged: the field says selection is over.
+    expect(deriveStageFromState(PICKED).final).toEqual({ qual: true, alliance: true, elim: false, award: false });
+  });
+
+  it("at Now, alliances picked with no alliance points on any row: Qualification and Alliance selection are open and neither cell is final", () => {
+    const row = rowOf(twoTeams(PICKED, { alliance: 0, elim: 0 }), "frc1");
+    expect(row.stage.final).toEqual({ qual: false, alliance: false, elim: false, award: false });
+    expect(row.stage.finished).toBe(false);
+    expect(row.cells[0]!.kind).not.toBe("final");
+    expect(row.cells[1]!.kind).not.toBe("final");
+  });
+
+  it("at Now, alliance points on ANOTHER team's row at that event close both, and the cells print the artifact's numbers", () => {
+    const row = rowOf(twoTeams(PICKED, { alliance: 9, elim: 0 }), "frc1");
+    expect(row.stage.final).toEqual({ qual: true, alliance: true, elim: false, award: false });
+    expect(row.cells[0]).toMatchObject({ kind: "final", earned: 18 });
+    expect(row.cells[1]).toMatchObject({ kind: "final", earned: 0 });
+  });
+
+  it("at Now, playoffs done with no row at the winner's value: the Playoffs cell is not final; with one on another team's row it prints the artifact's number", () => {
+    const lagging = rowOf(twoTeams(PLAYED_OUT, { alliance: 9, elim: 0 }, { alliance: 5, elim: 7 }), "frc1");
+    expect(lagging.stage.final).toEqual({ qual: true, alliance: true, elim: false, award: false });
+    expect(lagging.cells[2]!.kind).not.toBe("final");
+
+    const landed = rowOf(twoTeams(PLAYED_OUT, { alliance: 9, elim: 30 }, { alliance: 5, elim: 7 }), "frc1");
+    expect(landed.stage.final).toEqual({ qual: true, alliance: true, elim: true, award: false });
+    expect(landed.cells[2]).toMatchObject({ kind: "final", earned: 7 });
+  });
+
+  it("at Now with no alliance points on any row, a team on no alliance still carries the not picked note on its open Playoffs cell: selection is over on the field", () => {
+    const slot = (draws: number): DistrictSelectionRouteObservation => ({ draws, minPoints: undefined, maxPoints: undefined, allianceNumber: undefined, possibleMinPoints: 0, possibleMaxPoints: 16 });
+    const nobodyTookIt: DistrictSelectionRoutes = { bySlot: [slot(0), slot(0), slot(0), slot(0)], notSelectedDraws: 1000 };
+    const histogram = (support: number): DistrictPointDistribution => {
+      const counts = new Int32Array(support + 1);
+      counts[0] = 970;
+      counts[support] = 30;
+      return { counts, denominator: 1000 };
+    };
+    const distributions = new Map<string, DistrictEventDistributions>([
+      [
+        EVENT,
+        {
+          eventKey: EVENT,
+          byTeam: new Map([["frc1", { qual: histogram(22), alliance: histogram(16), elim: histogram(30), award: undefined, eventTotal: undefined, grandTotal: undefined }]]),
+          selectionRoutesByTeam: new Map([["frc1", nobodyTookIt]]),
+          rankingFixed: true,
+        },
+      ],
+    ]);
+    const row = rowOf(twoTeams(PICKED, { alliance: 0, elim: 0 }), "frc1", distributions);
+    // The number reading: Alliance selection is open, and its cell is an open cell.
+    expect(row.stage.final.alliance).toBe(false);
+    expect(row.cells[1]!.kind).toBe("open");
+    // The field reading: selection is over, so the note is carried.
+    const elim = row.cells[2]!;
+    expect(elim.kind).toBe("open");
+    if (elim.kind !== "open") throw new Error("unreachable");
+    expect(elim.notPicked).toBe(true);
+  });
+
+  it("a decided placement where the playoffs are done by state and the playoff points are not in is settled as NOT exact, never at the row's stale number", () => {
+    // frc1's row still carries last tick's 0 playoff points. Its alliance
+    // finished second: 20 printed, 25 the most that place can pay.
+    const artifact = twoTeams(PLAYED_OUT, { alliance: 9, elim: 0 }, { alliance: 5, elim: 0 });
+    const decided = new Map<string, DistrictEventDistributions>([
+      [EVENT, { eventKey: EVENT, byTeam: new Map(), playoffMilestoneByTeam: new Map([["frc1", { kind: "decided" as const, placement: 2 }]]) }],
+    ]);
+    const atNow = rowOf(artifact, "frc1", decided);
+    expect(atNow.settledElim).toEqual({ points: 20, exact: false, ceiling: 25 });
+    expect(atNow.cells[2]).toMatchObject({ kind: "final", earned: 20 });
+
+    // The same at a rewound stop whose playoffs are open: the row's number is
+    // not final at Now, so the stop cannot read it as TBA's settled value.
+    const OPEN_PLAYOFFS: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
+    const rewound = buildDistrictLedgerRows({ artifact, distributions: decided, stageByEvent: new Map([[EVENT, OPEN_PLAYOFFS]]) }).teams.find((entry) => entry.teamKey === "frc1")!.rows[0]!;
+    expect(rewound.settledElim).toEqual({ points: 20, exact: false, ceiling: 25 });
+
+    // Once a row at the winner's value is in, the same rewound stop reads TBA's own number as exact.
+    const landed = twoTeams(PLAYED_OUT, { alliance: 9, elim: 30 }, { alliance: 5, elim: 20 });
+    const exact = buildDistrictLedgerRows({ artifact: landed, distributions: decided, stageByEvent: new Map([[EVENT, OPEN_PLAYOFFS]]) }).teams.find((entry) => entry.teamKey === "frc1")!.rows[0]!;
+    expect(exact.settledElim).toEqual({ points: 20, exact: true, ceiling: 0 });
+  });
+
+  describe("on the committed 2026 PNW fixture with a finished state on every row", () => {
+    /** Walks up from the working directory, because jsdom gives `import.meta.url` an http URL. */
+    function repoFile(relative: string): string {
+      let dir = resolve(process.cwd());
+      for (;;) {
+        const candidate = join(dir, relative);
+        if (existsSync(candidate)) return candidate;
+        const parent = dirname(dir);
+        if (parent === dir) throw new Error(`could not find ${relative} above ${process.cwd()}`);
+        dir = parent;
+      }
+    }
+    const file: DistrictArtifact = DistrictArtifactSchema.parse(JSON.parse(readFileSync(repoFile("data/fixtures/phase10/district-2026pnw.json"), "utf8")));
+    const finished: DistrictArtifact = DistrictArtifactSchema.parse({
+      ...file,
+      teams: file.teams.map((entry) => ({ ...entry, eventPoints: entry.eventPoints.map((row) => ({ ...row, state: state() })) })),
+    });
+
+    it("liveStageByEvent equals the state's own reading for every event", () => {
+      const live = liveStageByEvent(finished, ["district", "dcmp"]);
+      expect(live.size).toBeGreaterThanOrEqual(9);
+      for (const source of finished.teams) {
+        for (const row of source.eventPoints) expect({ eventKey: row.eventKey, final: live.get(row.eventKey) }).toEqual({ eventKey: row.eventKey, final: deriveStageFromState(row.state).final });
+      }
+      // The tier argument selects the events: the district tier alone leaves the championship out.
+      expect(liveStageByEvent(finished, ["district"]).has("2026pncmp")).toBe(false);
+      expect(liveStageByEvent(finished, ["district"]).size).toBe(8);
+    });
+
+    it("a rewound call builds the rows the supplied stage says, whatever the rows' points prove", () => {
+      // Every category final at the stop: exactly the rows built at Now.
+      const nowMap = new Map<string, DistrictStageFinality>();
+      for (const source of finished.teams) for (const entry of districtTierEvents(source)) nowMap.set(entry.eventKey, deriveStageFromState(entry.state).final);
+      const atNow = buildDistrictLedgerRows({ artifact: finished, distributions: NO_DISTRIBUTIONS });
+      const allFinal = buildDistrictLedgerRows({ artifact: finished, distributions: NO_DISTRIBUTIONS, stageByEvent: nowMap });
+      expect(allFinal).toEqual(atNow);
+
+      // One event reopened at the stop: its rows read the supplied stage, and
+      // its final categories still print the artifact's own numbers.
+      const reopened = new Map(nowMap);
+      reopened.set("2026orore", { qual: true, alliance: true, elim: false, award: false });
+      const back = buildDistrictLedgerRows({ artifact: finished, distributions: NO_DISTRIBUTIONS, stageByEvent: reopened });
+      let checked = 0;
+      for (const built of back.teams) {
+        for (const row of built.rows) {
+          if (row.eventKey !== "2026orore") {
+            expect(row.stage.final).toEqual({ qual: true, alliance: true, elim: true, award: true });
+            continue;
+          }
+          checked++;
+          expect(row.stage.final).toEqual({ qual: true, alliance: true, elim: false, award: false });
+          expect(row.cells[0]).toMatchObject({ kind: "final", earned: row.earned!.qual });
+          expect(row.cells[1]).toMatchObject({ kind: "final", earned: row.earned!.alliance });
+          expect(row.cells[2]!.kind).not.toBe("final");
+        }
+      }
+      expect(checked).toBeGreaterThan(0);
+    });
   });
 });

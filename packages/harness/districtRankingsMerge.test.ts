@@ -121,19 +121,32 @@ function twoTeamFixture(): DistrictArtifact {
   });
 }
 
-function eventPointsEntry(eventKey: string, total: number, districtCmp = false) {
+/**
+ * One rankings entry. `proof` moves part of the total out of qualification
+ * and into alliance and playoff points, so the row can PROVE those two
+ * categories are in (quick task 261009-vp9: a category's number is final only
+ * once its points are in). The total is unchanged.
+ */
+function eventPointsEntry(eventKey: string, total: number, districtCmp = false, proof: { alliance: number; elim: number } = { alliance: 0, elim: 0 }) {
   return {
     event_key: eventKey,
     district_cmp: districtCmp,
-    qual_points: total,
-    alliance_points: 0,
-    elim_points: 0,
+    qual_points: total - proof.alliance - proof.elim,
+    alliance_points: proof.alliance,
+    elim_points: proof.elim,
     award_points: 0,
     total,
   };
 }
 
-/** `frc1` played `2026ncpem` for 50 more points; `frc2` is unchanged. */
+/**
+ * `frc1` played `2026ncpem` for 50 more points; `frc2` is unchanged.
+ *
+ * The 50 are 10 qualification, 10 alliance and the winner's 30 playoff
+ * points: `2026ncpem`'s state says its playoffs are done, and this fixture
+ * means "everything but the awards is in", so its row carries the points
+ * that prove it (quick task 261009-vp9).
+ */
 function tracerPayload() {
   return [
     {
@@ -142,7 +155,7 @@ function tracerPayload() {
       point_total: 90,
       rookie_bonus: 0,
       adjustments: 0,
-      event_points: [eventPointsEntry("2026ncwak", 40), eventPointsEntry("2026ncpem", 50)],
+      event_points: [eventPointsEntry("2026ncwak", 40), eventPointsEntry("2026ncpem", 50, false, { alliance: 10, elim: DISTRICT_ELIM_MAX })],
     },
     {
       team_key: "frc2",
@@ -965,9 +978,37 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
   type PointsRow = Team["eventPoints"][number];
   type RemainingRow = Team["remainingEvents"][number];
 
-  function pointsRow(eventKey: string, total: number, award: number, state: PointsRow["state"], tier: "district" | "dcmp" = "district"): PointsRow {
-    return { eventKey, eventName: `${eventKey} event`, week: 1, tier, qual: total - award, alliance: 0, elim: 0, award, total, ...(state === undefined ? {} : { state: { ...state } }) };
+  /**
+   * One points row. `proof` moves part of the total into alliance and playoff
+   * points, so the row can PROVE the event's two earlier categories are in
+   * (quick task 261009-vp9). The total is unchanged.
+   */
+  function pointsRow(
+    eventKey: string,
+    total: number,
+    award: number,
+    state: PointsRow["state"],
+    tier: "district" | "dcmp" = "district",
+    proof: { alliance: number; elim: number } = { alliance: 0, elim: 0 }
+  ): PointsRow {
+    return {
+      eventKey,
+      eventName: `${eventKey} event`,
+      week: 1,
+      tier,
+      qual: total - award - proof.alliance - proof.elim,
+      alliance: proof.alliance,
+      elim: proof.elim,
+      award,
+      total,
+      ...(state === undefined ? {} : { state: { ...state } }),
+    };
   }
+
+  /** The alliance point and the winner's playoff value at a 2026 district tier event: 31 of a row's points. */
+  const E2_PROOF = { alliance: 1, elim: 30 } as const;
+  /** The same at a 2026 District Championship: the winner's value there is 90. */
+  const DCMP_PROOF = { alliance: 5, elim: 90 } as const;
 
   interface FixtureOptions {
     /** `2026ncpem`'s published flag on every row. Default false. */
@@ -986,6 +1027,11 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
    * Three teams, A (40 points), B (30) and C (10), two DCMP slots, nothing
    * left to play. Every team has a row at `2026ncwak` (over, awards posted)
    * and at `2026ncpem` (playoffs done, awards as the option says).
+   *
+   * EVERYTHING BUT THE AWARDS IS IN at `2026ncpem`, and the rows say so
+   * (quick task 261009-vp9): A's row there carries an alliance point and the
+   * winner's 30 playoff points, so 36 of its 40 points sit on that row and 4
+   * on the other. B and C split evenly as before. Every total is unchanged.
    */
   function fixture(options: FixtureOptions = {}): DistrictArtifact {
     const e2State = { ...PLAYOFFS_DONE, awardsPosted: options.e2Posted === true };
@@ -999,7 +1045,10 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
         pointTotal: half * 2 + extraPoints.reduce((sum, row) => sum + row.total, 0),
         rookieBonus: 0,
         adjustments: 0,
-        eventPoints: [pointsRow(E1, half, 0, FINISHED), pointsRow(E2, half, options.e2Award?.[teamKey] ?? 0, e2State), ...extraPoints],
+        eventPoints:
+          teamKey === "frcA"
+            ? [pointsRow(E1, half * 2 - 36, 0, FINISHED), pointsRow(E2, 36, options.e2Award?.[teamKey] ?? 0, e2State, "district", E2_PROOF), ...extraPoints]
+            : [pointsRow(E1, half, 0, FINISHED), pointsRow(E2, half, options.e2Award?.[teamKey] ?? 0, e2State), ...extraPoints],
         remainingEvents: [...(options.extraRemaining?.[teamKey] ?? [])],
         maxRemainingDistrict: 0,
         maxRemainingChamp: 0,
@@ -1287,10 +1336,15 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
       });
     }
 
-    /** A District Championship row for A and C with the given state, and one award of the given type recorded on C. */
+    /**
+     * A District Championship row for A and C with the given state, and one
+     * award of the given type recorded on C. A's row carries alliance points
+     * and the winner's 90 playoff points, so a state that says the playoffs
+     * are done is proven by the rows (quick task 261009-vp9).
+     */
     function dcmpFixture(awardType: number, state: PointsRow["state"]): DistrictArtifact {
-      const dcmpRow = (total: number) => pointsRow(DCMP, total, 0, state, "dcmp");
-      return fixture({ extraPoints: { frcA: [dcmpRow(30)], frcC: [dcmpRow(5)] }, awards: { frcC: [{ eventKey: DCMP, awardType, label: "an award", awardOnly: false }] } });
+      const dcmpRow = (total: number, proof?: { alliance: number; elim: number }) => pointsRow(DCMP, total, 0, state, "dcmp", proof);
+      return fixture({ extraPoints: { frcA: [dcmpRow(100, DCMP_PROOF)], frcC: [dcmpRow(5)] }, awards: { frcC: [{ eventKey: DCMP, awardType, label: "an award", awardOnly: false }] } });
     }
 
     it("leaves a district tier Impact record uncounted while its event's awards are not posted: every verdict equals the one with the record removed", () => {
@@ -1541,13 +1595,20 @@ describe("recomputeDistrictVerdicts: the ceilings and floors count what is still
   const viaRankings = (artifact: DistrictArtifact): DistrictArtifact => applyDistrictRankings({ artifact, rankings: payloadOf(artifact), generation: GENERATION, computedAt: COMPUTED_AT });
   const viaState = (artifact: DistrictArtifact): DistrictArtifact => applyDistrictEventState({ artifact, eventState: new Map(), generation: GENERATION, computedAt: COMPUTED_AT });
 
-  /** Three teams with an open award category at `2026ncpem`, one event still ahead for two of them, and a championship still ahead. */
+  /**
+   * Three teams with an open award category at `2026ncpem`, one event still
+   * ahead for two of them, and a championship still ahead.
+   *
+   * ONLY THE AWARDS ARE OPEN THERE, and the rows prove it (quick task
+   * 261009-vp9): frc1's row carries the winner's 30 playoff points and frc2's
+   * carries alliance points. The totals are what they were (30 and 20).
+   */
   function openAwardDistrict(e1Award: Readonly<Record<string, number>> = {}): DistrictArtifact {
     const seeded = (ahead: number) => ({ maxRemainingDistrict: ahead, maxRemainingChamp: ahead + DCMP_EVENT_MAX });
     return district(
       [
-        team("frc1", [played(E0, { qual: 40 }, FINAL), played(E1, { qual: 30, award: e1Award.frc1 ?? 0 }, AWARDS_OPEN)], { remaining: [ahead(E2)], ...seeded(DISTRICT_EVENT_MAX) }),
-        team("frc2", [played(E1, { qual: 20, award: e1Award.frc2 ?? 0 }, AWARDS_OPEN)], seeded(0)),
+        team("frc1", [played(E0, { qual: 40 }, FINAL), played(E1, { elim: DISTRICT_ELIM_MAX, award: e1Award.frc1 ?? 0 }, AWARDS_OPEN)], { remaining: [ahead(E2)], ...seeded(DISTRICT_EVENT_MAX) }),
+        team("frc2", [played(E1, { qual: 10, alliance: 10, award: e1Award.frc2 ?? 0 }, AWARDS_OPEN)], seeded(0)),
         team("frc3", [played(E0, { qual: 25 }, FINAL)], { remaining: [ahead(E2)], ...seeded(DISTRICT_EVENT_MAX) }),
       ],
       { dcmpSlots: 3 }
@@ -1646,8 +1707,12 @@ describe("recomputeDistrictVerdicts: the ceilings and floors count what is still
       return verdicts(
         district(
           [
-            team("frcX", [played(E0, { qual: 60 }, FINAL), played(E1, { qual: 20 }, state)]),
-            team("frcY", [played(E0, { qual: 40 }, FINAL), played(E1, { qual: 20 }, state)]),
+            // The same totals as ever (80 and 60). frcX's row at 2026ncpem
+            // carries the winner's 30 playoff points and frcY's carries
+            // alliance points, so only the awards are open there (quick
+            // task 261009-vp9).
+            team("frcX", [played(E0, { qual: 50 }, FINAL), played(E1, { elim: DISTRICT_ELIM_MAX }, state)]),
+            team("frcY", [played(E0, { qual: 40 }, FINAL), played(E1, { qual: 10, alliance: 10 }, state)]),
             team("frcR", [played(E0, { qual: 35 }, FINAL), played(E1, { qual: 20, award: award(10) }, state)]),
             team("frcW", [played(E0, { qual: 10 }, FINAL), played(E1, { qual: 5, award: award(10) }, state)], { awards: [{ eventKey: E1, awardType: 0, label: "FIRST Impact Award", awardOnly: false }] }),
           ],
@@ -1745,21 +1810,196 @@ describe("recomputeDistrictVerdicts: the ceilings and floors count what is still
 
   it("a stored ceiling written before this task never lowers a ceiling: the open category is added on top of the remaining event on both paths", () => {
     // Stored: the one remaining event and nothing else, which is what every
-    // artifact written before this task carries.
+    // artifact written before this task carries. The rows prove that only
+    // the awards are open at 2026ncpem (quick task 261009-vp9).
     const input = district([
-      team("frc1", [played(E1, { qual: 30 }, AWARDS_OPEN)], { remaining: [ahead(E2)], maxRemainingDistrict: DISTRICT_EVENT_MAX }),
-      team("frc2", [played(E1, { qual: 20 }, AWARDS_OPEN)]),
+      team("frc1", [played(E1, { elim: DISTRICT_ELIM_MAX }, AWARDS_OPEN)], { remaining: [ahead(E2)], maxRemainingDistrict: DISTRICT_EVENT_MAX }),
+      team("frc2", [played(E1, { qual: 10, alliance: 10 }, AWARDS_OPEN)]),
     ]);
     expect(teamOf(viaState(input), "frc1").maxRemainingDistrict).toBe(DISTRICT_EVENT_MAX + AWARD_MAX);
     expect(teamOf(viaRankings(input), "frc1").maxRemainingDistrict).toBe(DISTRICT_EVENT_MAX + AWARD_MAX);
     expect(teamOf(verdicts(input), "frc1").maxRemainingDistrict).toBe(DISTRICT_EVENT_MAX + AWARD_MAX);
   });
 
-  describe("category finality is read in one place", () => {
-    it("publishedCategoryFinality returns what districtEventCategoryFinality returns for the same state", () => {
+  describe("category finality is read in one place, and it reads the rows (quick task 261009-vp9)", () => {
+    const OPEN = { qual: false, alliance: false, elim: false, award: false };
+    /** Every qualification match played, alliances not picked yet. */
+    const QUAL_PLAYED = { ...FINAL, alliancesPicked: false, playoffsDone: false, awardsPosted: false } as const;
+    /** One row that proves both earlier categories at a district tier event: alliance points, and the winner's playoff value. */
+    const PROVEN = { qual: 10, alliance: 5, elim: DISTRICT_ELIM_MAX };
+
+    it("publishedCategoryFinality equals the state's reading where the rows prove every category, and reads the uncorroborated categories open where no row does", () => {
+      const proven = [team("frc1", [played(E1, PROVEN, FINAL)])];
       for (const state of [FINAL, AWARDS_OPEN, PLAYOFFS_OPEN, QUAL_RUNNING, NOT_STARTED, { ...NOT_STARTED, qualMatchesTotal: null }, { ...NOT_STARTED, awardsPosted: true }, undefined]) {
-        expect(publishedCategoryFinality([], E1, state)).toEqual(districtEventCategoryFinality(state));
+        expect(publishedCategoryFinality(proven, E1, state, 2026)).toEqual(districtEventCategoryFinality(state));
       }
+
+      const unproven = [team("frc1", [played(E1, { qual: 10 }, FINAL)])];
+      expect(publishedCategoryFinality(unproven, E1, AWARDS_OPEN, 2026)).toEqual(OPEN);
+      expect(publishedCategoryFinality(unproven, E1, PLAYOFFS_OPEN, 2026)).toEqual(OPEN);
+      // The awards flag closes all four with no proving row at all.
+      expect(publishedCategoryFinality(unproven, E1, FINAL, 2026)).toEqual({ qual: true, alliance: true, elim: true, award: true });
+      // Alliance points and no row at the winner's value: Playoffs stay open, the two earlier categories close.
+      const allianceOnly = [team("frc1", [played(E1, { qual: 10, alliance: 5 }, FINAL)])];
+      expect(publishedCategoryFinality(allianceOnly, E1, AWARDS_OPEN, 2026)).toEqual({ qual: true, alliance: true, elim: false, award: false });
+
+      // Every qualification match played and alliances not picked: the state
+      // reads Qualification final, and the rule reads it open until the
+      // alliance points land, whatever the rows hold.
+      expect(districtEventCategoryFinality(QUAL_PLAYED).qual).toBe(true);
+      expect(publishedCategoryFinality(proven, E1, QUAL_PLAYED, 2026)).toEqual(OPEN);
+      // An event on no row has nothing proven.
+      expect(publishedCategoryFinality(proven, E2, AWARDS_OPEN, 2026)).toEqual(OPEN);
+    });
+
+    it("the presence facts are kept per teams array: a NEW array with the winner's row added, and one with it removed, are each read afresh", () => {
+      const without = [team("frc1", [played(E1, { qual: 10, alliance: 5 }, AWARDS_OPEN)])];
+      expect(publishedCategoryFinality(without, E1, AWARDS_OPEN, 2026).elim).toBe(false);
+      const withWinner = [...without, team("frc2", [played(E1, { elim: DISTRICT_ELIM_MAX }, AWARDS_OPEN)])];
+      expect(publishedCategoryFinality(withWinner, E1, AWARDS_OPEN, 2026).elim).toBe(true);
+      // The first array still reads as it did, and a third array with the
+      // row removed again reads open.
+      expect(publishedCategoryFinality(without, E1, AWARDS_OPEN, 2026).elim).toBe(false);
+      const removed = withWinner.filter((entry) => entry.teamKey !== "frc2");
+      expect(publishedCategoryFinality(removed, E1, AWARDS_OPEN, 2026).elim).toBe(false);
+      expect(publishedCategoryFinality(withWinner, E1, AWARDS_OPEN, 2026).elim).toBe(true);
+    });
+
+    /**
+     * Fifteen teams, twelve DCMP slots, every team with a row at one event
+     * whose state says the playoffs are done and the awards are open. One
+     * slot is held back, so eleven are left. The leader sits ten points above
+     * fourteen rivals. Its row carries the alliance point, so Alliance
+     * selection and Qualification are proven. `winner` puts the winner's
+     * playoff value on one rival's row. `landed` puts playoff points below
+     * the winner's value on another rival's row.
+     */
+    const playoffsDoneByState = (options: { winner: boolean; landed: number }) =>
+      verdicts(
+        district(
+          [
+            team("frc1", [played(E1, { qual: 99, alliance: 1 }, AWARDS_OPEN)]),
+            team("frc2", [played(E1, { qual: 90, elim: options.landed }, AWARDS_OPEN)]),
+            team("frc3", [played(E1, options.winner ? { qual: 60, elim: DISTRICT_ELIM_MAX } : { qual: 90 }, AWARDS_OPEN)]),
+            ...Array.from({ length: 12 }, (_, index) => team(`frc${String(index + 4)}`, [played(E1, { qual: 90 }, AWARDS_OPEN)])),
+          ],
+          { dcmpSlots: 12 }
+        )
+      );
+
+    it("playoffs done by state with no row at the winner's value: the playoff ceiling stays, the playoff points a row carries are out of the floor, and the pooled pool still counts the playoffs", () => {
+      const out = playoffsDoneByState({ winner: false, landed: 0 });
+      // The ceilings: the Playoffs and the Awards ceilings, for every participant.
+      expect(new Set(out.teams.map((entry) => entry.maxRemainingDistrict))).toEqual(new Set([DISTRICT_ELIM_MAX + AWARD_MAX]));
+      // The floors: playoff points landing on a rival move no districtLock for any team.
+      const landed = playoffsDoneByState({ winner: false, landed: 12 });
+      expect(landed.teams.map((entry) => entry.districtLock)).toEqual(out.teams.map((entry) => entry.districtLock));
+      expect(teamOf(landed, "frc2").pointTotal).toBe(102);
+      // The pool: with the playoffs counted the leader is not locked.
+      expect(teamOf(out, "frc1").districtLock.status).toBe("contending");
+    });
+
+    it("give one row the winner's value and the ceilings, the floors and the pooled pool flip together", () => {
+      const out = playoffsDoneByState({ winner: true, landed: 0 });
+      // The ceilings: the award ceiling and nothing else.
+      expect(new Set(out.teams.map((entry) => entry.maxRemainingDistrict))).toEqual(new Set([AWARD_MAX]));
+      // The pool: the award pool alone (91 for fifteen teams, against the 110
+      // eleven rivals would need), so the leader is locked.
+      expect(teamOf(out, "frc1").districtLock.status).toBe("locked");
+      // The floors: the playoff points on a rival's row are in its floor now.
+      // 102 passes the leader's 100, so a verdict moves.
+      const landed = playoffsDoneByState({ winner: true, landed: 12 });
+      expect(landed.teams.map((entry) => entry.districtLock)).not.toEqual(out.teams.map((entry) => entry.districtLock));
+    });
+
+    it("alliances picked by state with no alliance points on any row: the Alliance selection and Qualification ceilings both stay, and one row with alliance points closes both", () => {
+      const build = (alliance: number, qualLanded: number) =>
+        verdicts(
+          district([
+            team("frc1", [played(E0, { qual: 40 }, FINAL), played(E1, { qual: 20 }, PLAYOFFS_OPEN)]),
+            team("frc2", [played(E0, { qual: 30 }, FINAL), played(E1, { qual: 15 + qualLanded, alliance }, PLAYOFFS_OPEN)]),
+            team("frc3", [played(E0, { qual: 25 }, FINAL)]),
+          ])
+        );
+      const unproven = build(0, 0);
+      expect(ceilings(unproven)).toEqual([
+        ["frc1", DISTRICT_EVENT_MAX, DISTRICT_EVENT_MAX],
+        ["frc2", DISTRICT_EVENT_MAX, DISTRICT_EVENT_MAX],
+        ["frc3", 0, 0],
+      ]);
+      // Qualification points landing while Qualification reads open move no verdict.
+      expect(locks(build(0, 6))).toEqual(locks(unproven));
+
+      const proven = build(4, 0);
+      expect(ceilings(proven)).toEqual([
+        ["frc1", DISTRICT_ELIM_MAX + AWARD_MAX, DISTRICT_ELIM_MAX + AWARD_MAX],
+        ["frc2", DISTRICT_ELIM_MAX + AWARD_MAX, DISTRICT_ELIM_MAX + AWARD_MAX],
+        ["frc3", 0, 0],
+      ]);
+    });
+
+    it("a District Championship Winner recorded while no row carries the winner's value is not counted, and the winning alliance's four places stay held", () => {
+      // Eight Championship slots. The judged awards hold five back while the
+      // championship's awards are open (2026fnc at this size), and the
+      // winning alliance four more while its playoffs are open. frcP is so
+      // far ahead that no rival's ceiling reaches it, so it is locked the
+      // moment a single points slot is free: with the four places released
+      // and the winner counted, 8 - 5 - 1 = 2 are; with them held, none is.
+      const WINNER_RECORD = { eventKey: DCMP, awardType: 1, label: "District Championship Winner", awardOnly: false };
+      const build = (state: State, winnerElim: number) =>
+        verdicts(
+          district(
+            [
+              team("frcP", [played(E0, { qual: 400 }, FINAL), played(DCMP, { qual: 30, alliance: 10 }, state, "dcmp")]),
+              team("frcR", [played(E0, { qual: 40 }, FINAL), played(DCMP, { qual: 20, alliance: 5 }, state, "dcmp")]),
+              team("frcS", [played(E0, { qual: 30 }, FINAL), played(DCMP, { qual: 20 }, state, "dcmp")]),
+              team("frcW", [played(E0, { qual: 5 }, FINAL), played(DCMP, { qual: 10, alliance: 2, elim: winnerElim }, state, "dcmp")], { awards: [WINNER_RECORD] }),
+            ],
+            { cmpSlots: 8 }
+          )
+        );
+      const champLocks = (artifact: DistrictArtifact) => artifact.teams.map((entry) => [entry.teamKey, entry.champLock] as const);
+
+      const playoffsOpen = build(PLAYOFFS_OPEN, 0);
+      const doneNoPoints = build(AWARDS_OPEN, 0);
+      const doneWithPoints = build(AWARDS_OPEN, DCMP_ELIM_MAX);
+
+      // Done by state with no row at 90 reads exactly as playoffs open: the
+      // Winner is not counted and the four places are still held.
+      expect(champLocks(doneNoPoints)).toEqual(champLocks(playoffsOpen));
+      expect(teamOf(doneNoPoints, "frcW").champLock.status).not.toBe("lockedAward");
+      expect(teamOf(doneNoPoints, "frcP").champLock.status).toBe("contending");
+
+      // With a row at the winner's value the reservation follows the state
+      // as before: the four places are released and the winner is counted.
+      expect(teamOf(doneWithPoints, "frcW").champLock.status).toBe("lockedAward");
+      expect(teamOf(doneWithPoints, "frcP").champLock.status).toBe("locked");
+    });
+
+    it("is idempotent and path independent with an uncorroborated category present", () => {
+      // 2026ncpem's state says its playoffs are done. No row there carries
+      // alliance points or the winner's value, so all four categories read open.
+      const seeded = (ahead: number) => ({ maxRemainingDistrict: ahead, maxRemainingChamp: ahead + DCMP_EVENT_MAX });
+      const input = district(
+        [
+          team("frc1", [played(E0, { qual: 40 }, FINAL), played(E1, { qual: 30, elim: 12 }, AWARDS_OPEN)], { remaining: [ahead(E2)], ...seeded(DISTRICT_EVENT_MAX) }),
+          team("frc2", [played(E1, { qual: 20, award: 10 }, AWARDS_OPEN)], seeded(0)),
+          team("frc3", [played(E0, { qual: 25 }, FINAL)], { remaining: [ahead(E2)], ...seeded(DISTRICT_EVENT_MAX) }),
+        ],
+        { dcmpSlots: 3 }
+      );
+      const once = verdicts(input);
+      expect(teamOf(once, "frc2").maxRemainingDistrict).toBe(DISTRICT_EVENT_MAX);
+      expect(teamOf(once, "frc1").maxRemainingDistrict).toBe(2 * DISTRICT_EVENT_MAX);
+      expect(verdicts(once)).toEqual(once);
+
+      const rankings = viaRankings(input);
+      const state = viaState(input);
+      expect(ceilings(rankings)).toEqual(ceilings(state));
+      expect(locks(rankings)).toEqual(locks(state));
+      expect(rankings.insights).toEqual(state.insights);
+      expect(viaState(state)).toEqual(state);
+      expect(viaRankings(rankings)).toEqual(rankings);
     });
 
     it("the ceilings, the floors and the pooled pool of one artifact agree that only the award category is open", () => {
@@ -1767,7 +2007,9 @@ describe("recomputeDistrictVerdicts: the ceilings and floors count what is still
       // whose playoffs are done and whose awards are open. One slot is held
       // back, so eleven are left. The leader sits ten points above fourteen
       // rivals, and every rival's ceiling (90 + 15) reaches it, so the
-      // ceiling test sees fourteen threats.
+      // ceiling test sees fourteen threats. The leader's row carries an
+      // alliance point and one rival's the winner's 30 playoff points, so
+      // the rows prove what the state says (quick task 261009-vp9).
       //
       // The pooled test locks the leader ONLY if the pool is the award pool:
       // eleven rivals each need ten points, 110 in all, and the award pool of
@@ -1776,7 +2018,10 @@ describe("recomputeDistrictVerdicts: the ceilings and floors count what is still
       const build = (rivalAward: number) =>
         verdicts(
           district(
-            [team("frc1", [played(E1, { qual: 100 }, AWARDS_OPEN)]), ...Array.from({ length: 14 }, (_, index) => team(`frc${String(index + 2)}`, [played(E1, { qual: 90, award: index === 0 ? rivalAward : 0 }, AWARDS_OPEN)]))],
+            [
+              team("frc1", [played(E1, { qual: 99, alliance: 1 }, AWARDS_OPEN)]),
+              ...Array.from({ length: 14 }, (_, index) => team(`frc${String(index + 2)}`, [played(E1, index === 0 ? { qual: 60, elim: DISTRICT_ELIM_MAX, award: rivalAward } : { qual: 90 }, AWARDS_OPEN)])),
+            ],
             { dcmpSlots: 12 }
           )
         );
@@ -1789,7 +2034,7 @@ describe("recomputeDistrictVerdicts: the ceilings and floors count what is still
       expect(locks(build(12))).toEqual(locks(out));
     });
 
-    it("districtRankingsMerge.ts calls districtEventCategoryFinality in exactly one place, inside publishedCategoryFinality", () => {
+    it("districtRankingsMerge.ts calls corroboratedCategoryFinality in exactly one place, inside publishedCategoryFinality, never calls districtEventCategoryFinality, and never reads the state's playoffs flag itself", () => {
       // Checkouts on this machine are CRLF, so the source is normalised first.
       const source = readFileSync(resolve(HERE, "districtRankingsMerge.ts"), "utf8").replace(/\r\n/g, "\n");
       const code = source
@@ -1797,10 +2042,13 @@ describe("recomputeDistrictVerdicts: the ceilings and floors count what is still
         .split("\n")
         .filter((line) => !line.trim().startsWith("//"))
         .join("\n");
-      expect(code.split("districtEventCategoryFinality(").length - 1).toBe(1);
+      expect(code.split("corroboratedCategoryFinality(").length - 1).toBe(1);
+      expect(code.split("districtEventCategoryFinality(").length - 1).toBe(0);
       const helper = /export function publishedCategoryFinality\([^)]*\)[^{]*\{([\s\S]*?)\n\}/.exec(code);
       expect(helper).not.toBeNull();
-      expect(helper![1]).toContain("districtEventCategoryFinality(");
+      expect(helper![1]).toContain("corroboratedCategoryFinality(");
+      // The playoffs flag is read by the rule in core and nowhere here.
+      expect(code).not.toContain("playoffsDone");
     });
   });
 });
