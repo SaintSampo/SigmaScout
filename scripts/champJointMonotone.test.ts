@@ -21,8 +21,12 @@
  * exactly one fact, with everything else fixed:
  *
  *   - a FLAG EDGE: one more key's Awards read final (a division's, or one
- *     championship's of two);
- *   - a STOP EDGE: the same flags, one stop of the sweep further on.
+ *     championship's of two); in the live walks of group D, one more level
+ *     of one key's awards (its Winner listed, its award points landed, its
+ *     flag true);
+ *   - a STOP EDGE: the same flags, one stop of the sweep further on;
+ *   - a STEP EDGE (group D only): one more tick of a live walk, which is one
+ *     more real fact through the merge's own two entry points.
  *
  * Every order in which the facts can arrive is a path of edges, so checking
  * every edge covers every order. Over each edge two things must hold:
@@ -64,6 +68,16 @@
  *      Awards read open and then final. And at the sweep's "Playoffs final,
  *      awards open" stop, every subset of the two championships read with
  *      Awards final.
+ *   D. THE MICRO STEP LIVE WALKS. Groups A to C rewind a finished artifact:
+ *      every reading there has the season's final rows under it. Group D
+ *      walks a championship LIVE, from an artifact with no championship row,
+ *      one real fact at a time through the merge's two entry points
+ *      (`applyDistrictRankings`, `applyDistrictEventState`), and reads the
+ *      tab's own row builder and status code at Now after every tick: each
+ *      played playoff row, each category's points landing, each awards flag
+ *      in every order, the finals facts before, between and after the flags.
+ *      Its own header (above the group) lists the edges it walks and the
+ *      ones it does not.
  *
  * IT PROVES SOMETHING. Each group also runs with its rule switched off inside
  * this file and must then LOSE Locked teams. The switches are one module mock
@@ -77,12 +91,24 @@
  *   - while `stopRuleOff` is set `jointProofStillRuns` answers as the code
  *     read before that task: the proof stops at the first key whose Awards
  *     read final (a divisioned championship's at its finals' Awards, two
- *     championships' at either one's).
+ *     championships' at either one's);
+ *   - while `listedRuleOff` is set every input is handed to the proof with
+ *     no `listedOnly` on any pool rival, which is the proof of before that
+ *     task's finding F-D (a listed pick that is not confirmed is read at its
+ *     placed alliance's settled value AND on another alliance's seat).
  *
  * The Locked teams lost in those runs are read off the status code's own
  * verdicts, so they show the mock reaches the import the tab uses. The
  * switched off totals are PINNED AS THE RUN SHOWS: they are a measurement of
  * the old reading, not a requirement, except that they must be above 0.
+ *
+ * WHAT EACH SWITCH COSTS IS NOT THE SAME THING, and the tests say which:
+ * the awarded rule off and the stop rule off LOSE LOCKED TEAMS. The listed
+ * rule off loses NO Locked team on any walk of group D, the only group it
+ * reaches (a rewound reading carries no `listedOnly`): it only drops margins
+ * (a bound rises under a team that stays Locked, or under a team that was
+ * not Locked). A margin that drops is the mechanism of a take back, so the
+ * rule is kept and held by a test, but no measured Locked rests on it.
  *
  * A RULES ON FAILURE IS A FINDING, never a pin to move: a Locked lost or a
  * margin dropped with the rules on means the proof took a guarantee back.
@@ -98,14 +124,28 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DistrictArtifactSchema, type DistrictArtifact } from "../packages/harness/pageArtifacts.js";
+import { DistrictArtifactSchema, type DistrictArtifact, type DistrictEventState } from "../packages/harness/pageArtifacts.js";
+import { applyDistrictEventState, applyDistrictRankings, recomputeDistrictVerdicts, type DistrictEventAwardInput } from "../packages/harness/districtRankingsMerge.js";
 import { championshipShape } from "../packages/core/districts/finalsBracket.js";
 import { jointLockBound, jointLockBoundMultiple } from "../packages/core/districts/champJointLock.js";
-import type { BracketSourceEvent, DistrictStageFinality } from "../apps/web/src/components/districts/districtLedgerRows.js";
+import { fieldFixingDcmpKeys } from "../packages/core/districts/dcmpFieldProof.js";
+import { maxEventPoints } from "../packages/core/districts/pointModel.js";
+import {
+  buildDistrictLedgerRows,
+  dcmpBracketFactsFor,
+  dcmpBracketMilestonesByTeam,
+  deriveStageFromState,
+  playedBracketMatchesFor,
+  tierEvents,
+  type BracketSourceEvent,
+  type DistrictEventDistributions,
+  type DistrictStageFinality,
+} from "../apps/web/src/components/districts/districtLedgerRows.js";
+import { computeDistrictLedgerStatuses } from "../apps/web/src/components/districts/districtLedgerStatus.js";
 import { openCorpusReadOnly } from "../packages/corpus/db.js";
-import { dcmpEventKeysFor } from "../apps/web/src/components/districts/champLedgerRows.js";
-import type { ChampLedgerStatusModel } from "../apps/web/src/components/districts/champLedgerStatus.js";
-import { CORPUS_PATH, LOCAL_DISTRICT_DIR, bracketsFromCorpus, championshipStops, statusesAtChampionshipStop, type ChampionshipStop } from "./measureChampJointLocks.js";
+import { buildChampLedgerRows, champFieldProofAtNow, dcmpEventKeysFor } from "../apps/web/src/components/districts/champLedgerRows.js";
+import { computeChampLedgerStatuses, type ChampLedgerStatusModel } from "../apps/web/src/components/districts/champLedgerStatus.js";
+import { CORPUS_PATH, LOCAL_DISTRICT_DIR, bracketFromCorpus, bracketsFromCorpus, championshipStops, statusesAtChampionshipStop, type ChampionshipStop } from "./measureChampJointLocks.js";
 
 /**
  * THE SWITCHES. The row builders and the status code run as shipped; only the
@@ -117,16 +157,32 @@ import { CORPUS_PATH, LOCAL_DISTRICT_DIR, bracketsFromCorpus, championshipStops,
  * While `stopRuleOff` is set the one rule for when a proof stops answers "not
  * once the championship's own Awards are final", whatever the other keys
  * read: the reading before quick task 261010-d7r.
+ *
+ * While `listedRuleOff` is set the proof never learns which rivals hold a
+ * settled Playoffs value only as a listed pick that is not confirmed: every
+ * pool rival reaches it without `listedOnly`, its `extra` unchanged.
  */
-const ruleSwitch = vi.hoisted(() => ({ awardedRuleOff: false, stopRuleOff: false }));
+const ruleSwitch = vi.hoisted(() => ({ awardedRuleOff: false, stopRuleOff: false, listedRuleOff: false }));
 
 vi.mock("../packages/core/districts/champJointLock.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../packages/core/districts/champJointLock.js")>();
   type Input = Parameters<typeof original.jointLockBoundAt>[0];
-  /** The input the proof is handed: as given, or without the awarded rivals while that rule is switched off. */
+  /** An input with no `listedOnly` on any pool rival, built once per input (the proof is asked once per team). */
+  const withoutListedOnly = new WeakMap<Input, Input>();
+  /** The input the proof is handed: as given, or without what the switched off rule reads. Each switch drops exactly one thing. */
   const handed = (input: Input): Input => {
-    if (!ruleSwitch.awardedRuleOff || input.awardedRivals === undefined) return input;
-    return Object.fromEntries(Object.entries(input).filter(([key]) => key !== "awardedRivals")) as unknown as Input;
+    if (ruleSwitch.awardedRuleOff && input.awardedRivals !== undefined) {
+      return Object.fromEntries(Object.entries(input).filter(([key]) => key !== "awardedRivals")) as unknown as Input;
+    }
+    if (ruleSwitch.listedRuleOff && input.pool.some((rival) => rival.listedOnly !== undefined)) {
+      let stripped = withoutListedOnly.get(input);
+      if (stripped === undefined) {
+        stripped = { ...input, pool: input.pool.map((rival) => ({ teamKey: rival.teamKey, floor: rival.floor, extra: rival.extra })) };
+        withoutListedOnly.set(input, stripped);
+      }
+      return stripped;
+    }
+    return input;
   };
   return {
     ...original,
@@ -143,20 +199,23 @@ vi.mock("../packages/core/districts/champJointLock.js", async (importOriginal) =
 afterEach(() => {
   ruleSwitch.awardedRuleOff = false;
   ruleSwitch.stopRuleOff = false;
+  ruleSwitch.listedRuleOff = false;
 });
 
 /** Which rules a run has on. `"on"` is the shipped proof; each other mode switches exactly one rule off. */
-type RuleMode = "on" | "awardedRuleOff" | "stopRuleOff";
+type RuleMode = "on" | "awardedRuleOff" | "stopRuleOff" | "listedRuleOff";
 
 /** Runs `body` under a rule mode, and switches every rule back on whatever happens. */
 function underRules<T>(mode: RuleMode, body: () => T): T {
   ruleSwitch.awardedRuleOff = mode === "awardedRuleOff";
   ruleSwitch.stopRuleOff = mode === "stopRuleOff";
+  ruleSwitch.listedRuleOff = mode === "listedRuleOff";
   try {
     return body();
   } finally {
     ruleSwitch.awardedRuleOff = false;
     ruleSwitch.stopRuleOff = false;
+    ruleSwitch.listedRuleOff = false;
   }
 }
 
@@ -280,7 +339,8 @@ function readingOf(model: ChampLedgerStatusModel): Reading {
   return { joint: proof?.applied === true ? "applied" : (proof?.reason ?? "no proof"), pointsSlots: model.pointsSlots, held, model, bound };
 }
 
-type EdgeKind = "flag" | "stop";
+type EdgeKind = "flag" | "stop" | "step";
+const EDGE_KINDS: readonly EdgeKind[] = ["flag", "stop", "step"];
 
 /** What a set of edges showed. */
 interface EdgeTally {
@@ -308,9 +368,9 @@ function newTally(): EdgeTally {
   return {
     readings: 0,
     joint: {},
-    edges: { flag: 0, stop: 0 },
-    lost: { flag: 0, stop: 0 },
-    edgesWithADrop: { flag: 0, stop: 0 },
+    edges: { flag: 0, stop: 0, step: 0 },
+    lost: { flag: 0, stop: 0, step: 0 },
+    edgesWithADrop: { flag: 0, stop: 0, step: 0 },
     marginDrops: 0,
     largestDrop: 0,
     appliedThenRefused: 0,
@@ -363,7 +423,7 @@ function checkEdge(tally: EdgeTally, kind: EdgeKind, where: string, before: Read
 function addTally(into: EdgeTally, from: EdgeTally): void {
   into.readings += from.readings;
   for (const [key, count] of Object.entries(from.joint)) into.joint[key] = (into.joint[key] ?? 0) + count;
-  for (const kind of ["flag", "stop"] as const) {
+  for (const kind of EDGE_KINDS) {
     into.edges[kind] += from.edges[kind];
     into.lost[kind] += from.lost[kind];
     into.edgesWithADrop[kind] += from.edgesWithADrop[kind];
@@ -379,9 +439,9 @@ function addTally(into: EdgeTally, from: EdgeTally): void {
 function expectMonotone(label: string, tally: EdgeTally): void {
   const findings = [...tally.lostLines, ...tally.dropLines];
   expect(
-    { label, lostOverFlagEdges: tally.lost.flag, lostOverStopEdges: tally.lost.stop, marginDrops: tally.marginDrops, findings },
+    { label, lostOverFlagEdges: tally.lost.flag, lostOverStopEdges: tally.lost.stop, lostOverStepEdges: tally.lost.step, marginDrops: tally.marginDrops, findings },
     `${label}: a Locked team was lost or a margin dropped with the rules ON. This is a finding, never a pin to move.`
-  ).toEqual({ label, lostOverFlagEdges: 0, lostOverStopEdges: 0, marginDrops: 0, findings: [] });
+  ).toEqual({ label, lostOverFlagEdges: 0, lostOverStopEdges: 0, lostOverStepEdges: 0, marginDrops: 0, findings: [] });
 }
 
 const shortKey = (eventKey: string): string => eventKey.slice(4);
@@ -1046,6 +1106,1116 @@ describe("GROUP C, two championships with one finishing first: 2026 California, 
         latticeJoint: lattice.tally.joint,
         latticeLost: lattice.tally.lost.flag,
       }).toEqual({ joint: { applied: 14, noBracketFacts: 14 }, lostOverFlagEdges: 91, lostOverStopEdges: 0, appliedThenRefused: 14, latticeJoint: { applied: 1, noBracketFacts: 3 }, latticeLost: 1 });
+    },
+    TEST_TIMEOUT_MS
+  );
+});
+
+// ---------------------------------------------------------------------------
+// GROUP D. The micro step live walks
+// ---------------------------------------------------------------------------
+
+/**
+ * THE MICRO STEP LIVE WALK of one championship (quick task 261010-d7r, D3
+ * second half, and the further edges of CONTEXT D7).
+ *
+ * THE WORLD. The season's own artifact (`source`) is rewound to before its
+ * championship: every dcmp row, its points and the awards given there leave
+ * it. What TBA has posted so far is then walked forward one fact at a time:
+ * per key how much of its points the district rankings carry (`posted`), the
+ * state the match feed shows (`states`), how many played playoff rows the tab
+ * holds per key (`rows`, `finalsRows`, from the corpus bracket), and the
+ * awards lists handed so far (`awards`, `settled`). A tick is one call of a
+ * merge entry point, exactly as the Worker makes it: `applyDistrictRankings`
+ * with the rankings payload, or `applyDistrictEventState` with the states of
+ * the events the artifact already carries a row for. A played playoff row is
+ * a fact of the field alone and moves no artifact.
+ *
+ * THE READING after every tick is the tab's own: `buildChampLedgerRows` at
+ * the live position and `computeChampLedgerStatuses` with the rows' own
+ * `fieldProven`, the calendar year set to the artifact's year. (The merges'
+ * published verdict pass reads the real clock; the tab reads none of what it
+ * writes but `prequalified`, which no tick changes.)
+ *
+ * THE MAIN LINE: per key its rows posted and its state written, qualification
+ * done, alliances picked, alliance points per key, every played playoff row
+ * one at a time with the keys interleaved, then per key its playoffs done and
+ * its playoff points.
+ *
+ * THE LATTICE from there. Each key rises through its awards LEVELS: a
+ * division has one (its award points landed and its flag true); a single
+ * championship, and each championship of two, has three (its Winner listed,
+ * its award points landed with every award listed, its flag true). A
+ * divisioned championship also walks the FINALS CHAIN, and every tuple of
+ * key levels is read at every position of the chain. A flag edge is one more
+ * level of one key; a step edge is one more fact of the chain. That covers
+ * every order of the flags and the finals facts before, between and after
+ * them. Two finals variants:
+ *
+ *   - `finalsOnNoRow`: the finals key is on no row until the finals pay. Its
+ *     chain: the finals rows post with their playoff points and NO STATE
+ *     BLOCK, the state is written with the finals facts in hand, the Winner
+ *     is listed, the finals' award points land, the finals' flag turns true.
+ *     Until Task 4 of the quick task lands this variant's proof reads
+ *     `unsupportedShape` up to the finals rows.
+ *   - `finalsRegistered`: every team of the field holds a registration at
+ *     the finals key from the start. Its chain: the finals start on the
+ *     field, every finals row is played one at a time, the finals' playoffs
+ *     are done, their points land, the Winner, the award points, the flag.
+ *
+ * THE CORNER (everything in) is read by the other order of ticks as well and
+ * must read the same, and the last edge is into the source artifact itself.
+ *
+ * THE FURTHER EDGES (CONTEXT D7), each with the rules on and asserted to lose
+ * no Locked team and drop no margin:
+ *
+ *   1. A FINALS ROW POSTING WITH NO STATE BLOCK: the first fact of the
+ *      `finalsOnNoRow` chain, at every tuple of division flags.
+ *   2. A WINNER LISTED BEFORE THE PLAYOFF POINTS: at a single championship
+ *      and at each of two, the Winner is listed between "playoffs done" and
+ *      "playoff points land"; at a divisioned one, at every tuple of
+ *      division flags, between the finals' "playoffs done" and their points
+ *      (`finalsRegistered`), and before the finals rows post at all
+ *      (`finalsOnNoRow`).
+ *   3. A DIVISION'S AWARDS BEFORE ITS PLAYOFF POINTS, through the merge's own
+ *      flag rule: the division's award points are on the rows and its awards
+ *      list has stood unchanged for an hour, and no playoff point is on any
+ *      row there yet. The rule (`packages/core/districts/eventAwards.ts`)
+ *      keeps the flag FALSE until a playoff point lands, and the test holds
+ *      it to that. See "what is forced" below for the flag itself.
+ *   4. THE FIELD PROOF TURNING TRUE MID PLAYOFFS: the last field fixing key's
+ *      rows arrive only once the other keys are half way through their
+ *      playoffs (a second walk from the start, read against the main line's
+ *      end, which must read the same). Asserted to turn the field proof from
+ *      not proven to proven on the tick that key's state is written. For a
+ *      `finalsOnNoRow` championship this is the tick that will switch the
+ *      absent finals reading on once Task 4 lands; until then its proof
+ *      reads `unsupportedShape` on both sides, so RUN C MUST RE READ THIS
+ *      EDGE WITH `finalsMayBeAbsent` HANDED.
+ *   Over every edge of the walk and of these, the field proof never goes
+ *   from proven to not proven: asserted, on the core proof's own `proven`
+ *   (`champFieldProofAtNow`). The row model's flag `fieldProven` is a
+ *   different thing: it reads true before any field fixing key has started
+ *   (nothing is unproven "after a start" yet) and false from the first key's
+ *   state tick until the proof holds, by design.
+ *
+ * WHAT IS FORCED, MEASURED AND NOT REQUIRED (the product's own rules exclude
+ * each; pinned as the run shows, under its own title):
+ *
+ *   - A DIVISION'S AWARDS FLAG TRUE BEFORE ITS PLAYOFF POINTS, by writing the
+ *     flag by hand. A true flag closes every category of the event, so the
+ *     playoff points landing after it are points no reading allowed for.
+ *     `eventAwards.ts` states this limit and waits for a playoff point
+ *     because of it (quick task 261009-vp9). Not a rule of this task.
+ *   - A PROVEN FIELD READING NOT PROVEN AGAIN, by doubling the artifact's
+ *     published championship capacity under the same rows. The joint proof
+ *     then refuses (`fieldNotProven`) and whatever it alone held is lost.
+ *     What excludes it is the field proof's own design
+ *     (`packages/core/districts/dcmpFieldProof.ts`: the count asked for never
+ *     rises while rows are only added), and the assertion above that it
+ *     never happens on a walked path.
+ *
+ * NOT WALKED, stated rather than implied:
+ *
+ *   - the published capacities (`dcmpSlots`, `cmpSlots`) changing during a
+ *     championship (the capacity is doubled above only as the lever that
+ *     forces the field proof);
+ *   - an alliance list changing after a pick is made;
+ *   - a row or a point being withdrawn;
+ *   - a key's playoff points landing IN PART beside its award points (some
+ *     on the rows, the deciding match's not). Every tick here lands a key's
+ *     playoff points whole. The merge's flag rule asks for ANY playoff point
+ *     on a row, and `eventAwards.ts` states its remaining assumption, not
+ *     verified against a live event: TBA computes an event's point
+ *     categories together;
+ *   - a further recipient of an award type already listed, added after the
+ *     list has settled (the first of the flag rule's stated limits);
+ *   - the FIM seasons of 2023 to 2025 (about 40 seconds each per variant;
+ *     the planner of the quick task ran them once and read nothing lost).
+ */
+type MicroTeam = DistrictArtifact["teams"][number];
+type MicroRow = MicroTeam["eventPoints"][number];
+/**
+ * How much of a championship key's points the district rankings carry so far.
+ * `awardsBeforePlayoffs` is the order further edge 3 walks: qualification,
+ * alliance selection and AWARD points on the rows, no playoff point yet.
+ */
+type PointsStage = "qual" | "alliance" | "elim" | "all" | "awardsBeforePlayoffs";
+type StatePhase = "started" | "qualDone" | "picked" | "done";
+type MicroVariant = "oneEvent" | "finalsOnNoRow" | "finalsRegistered";
+
+interface World {
+  readonly artifact: DistrictArtifact;
+  readonly posted: ReadonlyMap<string, PointsStage>;
+  readonly states: ReadonlyMap<string, DistrictEventState>;
+  /** Played playoff rows the tab holds per field fixing key, in the order played. Absent: no bracket facts in hand at all. */
+  readonly rows: ReadonlyMap<string, number> | undefined;
+  /** Played finals rows the tab holds. Absent: no finals facts in hand. */
+  readonly finalsRows: number | undefined;
+  /** The awards lists handed so far, per event key. */
+  readonly awards: ReadonlyMap<string, readonly DistrictEventAwardInput[]>;
+  /** The keys whose awards list has stood unchanged for an hour, as the Worker would measure it. */
+  readonly settled: ReadonlySet<string>;
+}
+
+const MICRO_STAMP = { generation: "champ-joint-monotone-micro", computedAt: "2026-04-18T00:00:00.000Z" } as const;
+const NO_DISTRIBUTIONS: ReadonlyMap<string, DistrictEventDistributions> = new Map();
+/** TBA's award types: the Winner, and the three consuming judged awards of a championship (Impact, Engineering Inspiration, Rookie All Star). */
+const WINNER_ONLY = [1] as const;
+const EVERY_CHAMPIONSHIP_AWARD = [1, 0, 9, 10] as const;
+/** Any judged award type will do for a division's list: the flag rule reads only that it is neither Winner nor Finalist. */
+const A_JUDGED_AWARD_TYPE = 20;
+
+interface MicroChampionship {
+  /** The season's own artifact at the verdict pass's fixed point. */
+  readonly source: DistrictArtifact;
+  readonly keys: readonly string[];
+  readonly fieldFixingKeys: readonly string[];
+  /** The finals key of a divisioned championship. */
+  readonly finalsKey: string | undefined;
+  readonly brackets: ReadonlyMap<string, BracketSourceEvent | undefined>;
+}
+
+const microChampionshipCache = new Map<string, MicroChampionship>();
+function microChampionship(districtKey: string): MicroChampionship {
+  let championship = microChampionshipCache.get(districtKey);
+  if (championship === undefined) {
+    const file = localArtifact(`v1__district__${districtKey}.json`);
+    const source = recomputeDistrictVerdicts(file, { nowYear: file.year });
+    const keys = dcmpEventKeysFor(source);
+    const fieldFixingKeys = fieldFixingDcmpKeys(keys);
+    const finalsKeys = keys.filter((key) => !fieldFixingKeys.includes(key));
+    if (finalsKeys.length > 1) throw new Error(`${districtKey}: more than one finals key`);
+    const brackets = new Map<string, BracketSourceEvent | undefined>();
+    const db = openCorpusReadOnly(CORPUS_ABSOLUTE);
+    try {
+      const alliancesBySeason = new Map();
+      for (const key of keys) brackets.set(key, bracketFromCorpus(db, alliancesBySeason, source.year, key));
+    } finally {
+      db.close();
+    }
+    for (const key of fieldFixingKeys) if (brackets.get(key)?.alliances === undefined) throw new Error(`${districtKey}: the corpus carries no bracket for ${key}`);
+    championship = { source, keys, fieldFixingKeys, finalsKey: finalsKeys[0], brackets };
+    microChampionshipCache.set(districtKey, championship);
+  }
+  return championship;
+}
+
+/** One reading of a tick: what an edge compares, and what the walk's own assertions read. */
+interface MicroReading extends Reading {
+  readonly label: string;
+  /** The core field proof's own `proven` at Now (`champFieldProofAtNow`). */
+  readonly proven: boolean;
+  readonly shownLocked: number;
+  readonly jointLocked: number;
+}
+
+interface MicroResult {
+  readonly districtKey: string;
+  readonly variant: MicroVariant;
+  /** THE WALK: the main line, the lattice, the corner by the other order, and the end. */
+  readonly walk: EdgeTally;
+  /** The step edges of the main line alone. */
+  readonly mainLineEdges: number;
+  /** The corner read the same by both orders of ticks. */
+  readonly cornerPathIndependent: boolean;
+  /** THE FURTHER EDGES of CONTEXT D7 (2 to 4 above; 1 is part of the walk). Empty tallies when the walk ran with a rule off. */
+  readonly winnerFirst: EdgeTally;
+  readonly awardsFirst: EdgeTally;
+  readonly lateRows: EdgeTally;
+  /** A further edge's last reading that did not read the same as the walk's reading of the same facts. Empty is the requirement. */
+  readonly cornerMismatches: string[];
+  /** Edges of the walk and of the further edges over which the field proof went from proven to not proven. Empty is the requirement. */
+  readonly fieldProofTakenBack: string[];
+  /** Further edge 4: the field proof read not proven before the last key's state was written and proven after. `undefined` where there is one field fixing key. */
+  readonly fieldProofTurnedTrueMidPlayoffs: boolean | undefined;
+  /** Further edge 3: the divisions whose flag the merge's rule kept false with no playoff point on a row, and raised on the tick the playoff points landed. */
+  readonly flagHeldWithoutPlayoffPoints: number;
+  readonly flagRaisedWithPlayoffPoints: number;
+  readonly divisionsWalkedAwardsFirst: number;
+  /** FORCED, measured and not required. */
+  readonly forcedFlag: EdgeTally;
+  readonly unprovenAgain: EdgeTally;
+  /** The main line's end: every key's playoff points landed, no award level up. */
+  readonly atMainLineEnd: { readonly joint: string; readonly jointLocked: number; readonly shownLocked: number };
+  readonly endShownLocked: number;
+}
+
+const microCache = new Map<string, MicroResult>();
+
+function microWalk(districtKey: string, variant: MicroVariant, mode: RuleMode): MicroResult {
+  const cacheKey = `${districtKey}|${variant}|${mode}`;
+  const cached = microCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+  const result = underRules(mode, (): MicroResult => {
+    const { source, keys, fieldFixingKeys: ff, finalsKey, brackets } = microChampionship(districtKey);
+    const divisioned = finalsKey !== undefined;
+    if (divisioned === (variant === "oneEvent")) throw new Error(`${districtKey}: the variant ${variant} does not fit a ${divisioned ? "divisioned" : "single or two"} championship`);
+    const registered = variant === "finalsRegistered";
+    const nowYear = source.year;
+    /** The further edges and the forced edges are read with the rules on only; a rule off run is the ported walk alone. */
+    const furtherEdges = mode === "on";
+    const where = `${districtKey} ${variant}`;
+
+    const playedOf = (key: string): BracketSourceEvent["matches"] => (brackets.get(key)?.matches ?? []).filter((match) => match.actualWinner !== undefined);
+    const finalRow = new Map<string, Map<string, MicroRow>>(keys.map((key) => [key, new Map<string, MicroRow>()] as const));
+    for (const team of source.teams) for (const row of team.eventPoints) if (row.tier === "dcmp") finalRow.get(row.eventKey)?.set(team.teamKey, row);
+    const fieldTeams = new Set<string>();
+    for (const key of ff) for (const teamKey of finalRow.get(key)!.keys()) fieldTeams.add(teamKey);
+    const dcmpMaxima = maxEventPoints(source.year, "dcmp");
+    const dcmpEventMaxTotal = dcmpMaxima.qual + dcmpMaxima.alliance + dcmpMaxima.elim + dcmpMaxima.award;
+    const dcmpTotal = (team: MicroTeam): number => team.eventPoints.filter((row) => row.tier === "dcmp").reduce((sum, row) => sum + row.total, 0);
+    const finalsMeta = finalsKey === undefined ? undefined : source.teams.flatMap((team) => team.eventPoints).find((row) => row.eventKey === finalsKey);
+    if (registered && finalsMeta === undefined) throw new Error(`${districtKey}: no row at the finals key to register the field at`);
+
+    // Before the first tick: no dcmp row anywhere, and the verdict pass is told a championship is still ahead.
+    const startArtifact: DistrictArtifact = recomputeDistrictVerdicts(
+      DistrictArtifactSchema.parse({
+        ...source,
+        teams: source.teams.map((team) => ({
+          ...team,
+          pointTotal: team.pointTotal - dcmpTotal(team),
+          eventPoints: team.eventPoints.filter((row) => row.tier !== "dcmp"),
+          remainingEvents: [
+            ...team.remainingEvents.filter((row) => row.tier !== "dcmp"),
+            ...(registered && finalsKey !== undefined && finalsMeta !== undefined && fieldTeams.has(team.teamKey)
+              ? [{ eventKey: finalsKey, eventName: finalsMeta.eventName, week: finalsMeta.week, tier: "dcmp" as const, maxPoints: dcmpEventMaxTotal }]
+              : []),
+          ],
+          qualifyingAwards: team.qualifyingAwards.filter((award) => !keys.includes(award.eventKey)),
+        })),
+      }),
+      { nowYear, dcmpStillAhead: true }
+    );
+
+    /** An awards list from the season's own records: each named type with the teams that hold it at the key. */
+    const awardListAt = (eventKey: string, types: readonly number[]): DistrictEventAwardInput[] =>
+      types
+        .map((type) => ({
+          award_type: type,
+          recipient_list: source.teams.filter((team) => team.qualifyingAwards.some((award) => award.eventKey === eventKey && award.awardType === type)).map((team) => ({ team_key: team.teamKey })),
+        }))
+        .filter((entry) => entry.recipient_list.length > 0);
+    /** A division's judged awards: the artifact records none by type, so one judged entry naming every team that carries award points there. */
+    const judgedListAt = (eventKey: string): DistrictEventAwardInput[] => {
+      const recipients = [...finalRow.get(eventKey)!.entries()].filter(([, row]) => row.award > 0).map(([teamKey]) => ({ team_key: teamKey }));
+      return recipients.length === 0 ? [] : [{ award_type: A_JUDGED_AWARD_TYPE, recipient_list: recipients }];
+    };
+
+    const pointsAt = (row: MicroRow, stage: PointsStage) => ({
+      qual: row.qual,
+      alliance: stage === "qual" ? 0 : row.alliance,
+      elim: stage === "elim" || stage === "all" ? row.elim : 0,
+      award: stage === "all" || stage === "awardsBeforePlayoffs" ? row.award : 0,
+    });
+    /** A TBA shaped rankings payload: every district tier row as published, and the championship rows posted so far at the points they carry so far. */
+    const payload = (world: World) =>
+      source.teams.map((team) => {
+        const others = team.eventPoints
+          .filter((row) => row.tier !== "dcmp")
+          .map((row) => ({ event_key: row.eventKey, district_cmp: false, qual_points: row.qual, alliance_points: row.alliance, elim_points: row.elim, award_points: row.award, total: row.total }));
+        let total = team.pointTotal - dcmpTotal(team);
+        const championship: { event_key: string; district_cmp: boolean; qual_points: number; alliance_points: number; elim_points: number; award_points: number; total: number }[] = [];
+        for (const [key, stage] of world.posted) {
+          const row = finalRow.get(key)?.get(team.teamKey);
+          if (row === undefined) continue;
+          const points = pointsAt(row, stage);
+          const sum = points.qual + points.alliance + points.elim + points.award;
+          // TBA writes a finals row only for a team it pays there.
+          if (sum === 0 && key === finalsKey) continue;
+          total += sum;
+          championship.push({ event_key: key, district_cmp: true, qual_points: points.qual, alliance_points: points.alliance, elim_points: points.elim, award_points: points.award, total: sum });
+        }
+        return { team_key: team.teamKey, rank: team.rank, point_total: total, rookie_bonus: team.rookieBonus, adjustments: team.adjustments, event_points: [...others, ...championship] };
+      });
+    const stateFor = (key: string, phase: StatePhase): DistrictEventState => {
+      const total = [...finalRow.get(key)!.values()][0]?.state?.qualMatchesTotal ?? 60;
+      return {
+        qualMatchesPlayed: phase === "started" ? Math.max(1, total - 10) : total,
+        qualMatchesTotal: total,
+        alliancesPicked: phase === "picked" || phase === "done",
+        playoffsDone: phase === "done",
+        awardsPosted: false,
+      };
+    };
+    const finalsState = (playoffsDone: boolean, awardsPosted = false): DistrictEventState => ({ qualMatchesPlayed: 0, qualMatchesTotal: null, alliancesPicked: true, playoffsDone, awardsPosted });
+
+    const withPosted = (world: World, key: string, stage: PointsStage): World => ({ ...world, posted: new Map(world.posted).set(key, stage) });
+    const withState = (world: World, key: string, state: DistrictEventState): World => ({ ...world, states: new Map(world.states).set(key, state) });
+    const withRows = (world: World, key: string, count: number): World => ({ ...world, rows: new Map(world.rows ?? []).set(key, count) });
+    const withAwards = (world: World, key: string, list: readonly DistrictEventAwardInput[]): World => ({ ...world, awards: new Map(world.awards).set(key, list) });
+    const withSettled = (world: World, key: string): World => ({ ...world, settled: new Set(world.settled).add(key) });
+
+    const carries = (artifact: DistrictArtifact, key: string): boolean =>
+      artifact.teams.some((team) => team.eventPoints.some((row) => row.eventKey === key) || team.remainingEvents.some((row) => row.eventKey === key));
+    /** As the Worker does: the state of an event is handed only once the artifact already carries a row for it. */
+    const statesInHand = (world: World): Map<string, DistrictEventState> => new Map([...world.states].filter(([key]) => carries(world.artifact, key)));
+    const awardsInHand = (world: World) => ({
+      ...(world.awards.size === 0 ? {} : { eventAwards: world.awards }),
+      ...(world.settled.size === 0 ? {} : { settledAwardEvents: world.settled }),
+    });
+    /** A rankings tick: the payload merged, with the states in hand and the awards lists handed so far. */
+    const rowsTick = (world: World): World => ({
+      ...world,
+      artifact: applyDistrictRankings({ artifact: world.artifact, rankings: payload(world), ...MICRO_STAMP, eventState: statesInHand(world), ...awardsInHand(world) }),
+    });
+    /** A state tick: the states in hand written, with the awards lists handed so far. Nothing happens while no state is in hand. */
+    const stateTick = (world: World): World => {
+      const inHand = statesInHand(world);
+      if (inHand.size === 0) return world;
+      return { ...world, artifact: applyDistrictEventState({ artifact: world.artifact, eventState: inHand, ...MICRO_STAMP, ...awardsInHand(world) }) };
+    };
+
+    /** The tab's own reading of a world at Now. */
+    const read = (label: string, world: World, tally: EdgeTally): MicroReading => {
+      const { artifact } = world;
+      const districtRows = buildDistrictLedgerRows({ artifact, distributions: NO_DISTRIBUTIONS, tier: "district" });
+      const districtStatuses = computeDistrictLedgerStatuses({ artifact, teams: districtRows.teams });
+      const districtLockedOut = new Set<string>();
+      for (const [teamKey, status] of districtStatuses.byTeam) if (status.status === "lockedOut") districtLockedOut.add(teamKey);
+      const started = new Set<string>();
+      // The FIELD's reading of each key: the state alone. A key on no row has no stage at all.
+      const fieldStage = new Map<string, DistrictStageFinality | undefined>();
+      for (const team of artifact.teams) {
+        for (const entry of tierEvents(team, "dcmp")) {
+          const stage = deriveStageFromState(entry.state);
+          if (stage.started) started.add(entry.eventKey);
+          if (!fieldStage.has(entry.eventKey) || (fieldStage.get(entry.eventKey) === undefined && entry.state !== undefined)) fieldStage.set(entry.eventKey, entry.state === undefined ? undefined : stage.final);
+        }
+      }
+      const startedKeys = new Set(dcmpEventKeysFor(artifact).filter((key) => started.has(key)));
+      const distributions = new Map<string, DistrictEventDistributions>();
+      if (world.rows !== undefined) {
+        for (const [key, count] of world.rows) {
+          const bracket = brackets.get(key);
+          if (bracket === undefined) throw new Error(`${districtKey}: no bracket for ${key}`);
+          const alliances = (bracket.alliances ?? []).map((alliance) => ({ allianceNumber: alliance.allianceNumber, picks: [...alliance.picks] }));
+          const played = playedBracketMatchesFor(bracket, new Set(playedOf(key).slice(0, count).map((match) => match.matchKey)));
+          const dcmpBracket = dcmpBracketFactsFor({
+            eventKey: key,
+            season: source.year,
+            tier: "dcmp",
+            stage: fieldStage.get(key),
+            alliances,
+            playedMatches: played.matches,
+            unresolvedMatchCount: played.unresolvedMatchKeys.length,
+            fieldBackups: played.fieldBackups,
+            role: divisioned ? "division" : "championship",
+          });
+          distributions.set(key, { eventKey: key, byTeam: new Map(), playoffMilestoneByTeam: dcmpBracketMilestonesByTeam(alliances, played.matches), ...(dcmpBracket === undefined ? {} : { dcmpBracket }) });
+        }
+      }
+      if (finalsKey !== undefined && world.finalsRows !== undefined) {
+        const bracket = brackets.get(finalsKey);
+        if (bracket !== undefined) {
+          const alliances = (bracket.alliances ?? []).map((alliance) => ({ allianceNumber: alliance.allianceNumber, picks: [...alliance.picks] }));
+          const played = playedBracketMatchesFor(bracket, new Set(playedOf(finalsKey).slice(0, world.finalsRows).map((match) => match.matchKey)));
+          const dcmpBracket = dcmpBracketFactsFor({
+            eventKey: finalsKey,
+            season: source.year,
+            tier: "dcmp",
+            stage: fieldStage.get(finalsKey),
+            alliances,
+            playedMatches: played.matches,
+            unresolvedMatchCount: played.unresolvedMatchKeys.length,
+            fieldBackups: played.fieldBackups,
+            role: "finals",
+            expectedAllianceCount: ff.length,
+          });
+          distributions.set(finalsKey, { eventKey: finalsKey, byTeam: new Map(), ...(dcmpBracket === undefined ? {} : { dcmpBracket }) });
+        }
+      }
+      const champRows = buildChampLedgerRows({ artifact, distributions, startedDcmpEventKeys: startedKeys, atLivePosition: true, nowYear });
+      const model = computeChampLedgerStatuses({
+        artifact,
+        teams: champRows.teams,
+        districtLockedOut,
+        nowYear,
+        ...(distributions.size === 0 ? {} : { distributions }),
+        fieldProven: champRows.fieldProven,
+      });
+      let shownLocked = 0;
+      for (const status of model.byTeam.values()) if (status.status === "locked") shownLocked += 1;
+      return {
+        ...countReading(tally, readingOf(model)),
+        label,
+        proven: champFieldProofAtNow(artifact, startedKeys, nowYear).proven,
+        shownLocked,
+        jointLocked: model.jointProof?.applied === true ? model.jointProof.locked.size : 0,
+      };
+    };
+
+    const walk = newTally();
+    const winnerFirst = newTally();
+    const awardsFirst = newTally();
+    const lateRows = newTally();
+    const forcedFlag = newTally();
+    const unprovenAgain = newTally();
+    const fieldProofTakenBack: string[] = [];
+    const cornerMismatches: string[] = [];
+    /** One edge. `required` edges also hold the field proof to never going from proven to not proven. */
+    const edge = (tally: EdgeTally, kind: EdgeKind, before: MicroReading, after: MicroReading, required = true): void => {
+      checkEdge(tally, kind, `${where}: "${before.label}" then "${after.label}"`, before, after);
+      if (required && before.proven && !after.proven) fieldProofTakenBack.push(`${where}: "${before.label}" then "${after.label}"`);
+    };
+    /** Whether two readings of the same facts read the same: every team's status, what the proof said, the points slots. */
+    const readsTheSame = (a: MicroReading, b: MicroReading): boolean => {
+      if (a.joint !== b.joint || a.pointsSlots !== b.pointsSlots || a.model.byTeam.size !== b.model.byTeam.size) return false;
+      for (const [teamKey, status] of a.model.byTeam) {
+        const other = b.model.byTeam.get(teamKey);
+        if (other === undefined || other.status !== status.status || other.byAward !== status.byAward) return false;
+      }
+      return true;
+    };
+    const expectSameCorner = (what: string, further: MicroReading, walked: MicroReading): void => {
+      if (!readsTheSame(further, walked)) cornerMismatches.push(`${where}, ${what}: "${further.label}" does not read as "${walked.label}"`);
+    };
+    /** FORCED: the field read not proven again, by doubling the published championship capacity under the same rows. */
+    const readUnprovenAgain = (from: World, proven: MicroReading): void => {
+      if (!furtherEdges || from.artifact.dcmpSlots === null || !proven.proven) return;
+      const doubled = read(`${proven.label}, the capacity doubled (FORCED)`, { ...from, artifact: { ...from.artifact, dcmpSlots: from.artifact.dcmpSlots * 2 } }, unprovenAgain);
+      if (doubled.proven) throw new Error(`${where}: doubling the capacity left the field proven at "${proven.label}"`);
+      edge(unprovenAgain, "step", proven, doubled, false);
+    };
+
+    const short = (key: string): string => shortKey(key);
+    const playedLabel = (key: string, index: number): string => `${short(key)} played ${playedOf(key)[index]!.matchKey.split("_")[1] ?? ""}`;
+    const emptyWorld: World = { artifact: startArtifact, posted: new Map(), states: new Map(), rows: undefined, finalsRows: undefined, awards: new Map(), settled: new Set() };
+
+    // ---- THE MAIN LINE
+    let world = emptyWorld;
+    let previous = read(registered ? "every field team registered at the finals key" : "no dcmp row", world, walk);
+    const step = (label: string, next: World): void => {
+      const reading = read(label, next, walk);
+      edge(walk, "step", previous, reading);
+      previous = reading;
+      world = next;
+    };
+    for (const key of ff) {
+      step(`${short(key)} rows posted`, rowsTick(withPosted(withState(world, key, stateFor(key, "started")), key, "qual")));
+      step(`${short(key)} state written`, stateTick(world));
+    }
+    step(
+      "qualification done everywhere",
+      stateTick(ff.reduce((next, key) => withState(next, key, stateFor(key, "qualDone")), world))
+    );
+    for (const key of ff) {
+      step(`${short(key)} alliances picked, no alliance points`, stateTick({ ...withState(world, key, stateFor(key, "picked")), rows: new Map(ff.map((other) => [other, 0] as const)) }));
+    }
+    for (const key of ff) step(`${short(key)} alliance points land`, rowsTick(withPosted(world, key, "alliance")));
+    const mostRows = Math.max(...ff.map((key) => playedOf(key).length));
+    for (let index = 0; index < mostRows; index++) {
+      for (const key of ff) {
+        if (index >= playedOf(key).length) continue;
+        step(playedLabel(key, index), withRows(world, key, index + 1));
+      }
+    }
+    /** The readings further edges 2 and 3 end on, to be read against the lattice once it is built. */
+    const againstTheLattice: { what: string; reading: MicroReading; key: string; level: number }[] = [];
+    let flagHeldWithoutPlayoffPoints = 0;
+    let flagRaisedWithPlayoffPoints = 0;
+    let divisionsWalkedAwardsFirst = 0;
+    const flagTrueAt = (artifact: DistrictArtifact, key: string): boolean => artifact.teams.some((team) => team.eventPoints.some((row) => row.eventKey === key && row.state?.awardsPosted === true));
+    for (const key of ff) {
+      step(`${short(key)} playoffs done, no playoff points`, stateTick(withState(world, key, stateFor(key, "done"))));
+      const playoffsDone = world;
+      const playoffsDoneReading = previous;
+      const lastKey = key === ff.at(-1);
+      if (furtherEdges && !divisioned) {
+        // FURTHER EDGE 2: the Winner is listed before the playoff points land.
+        const listed = stateTick(withAwards(playoffsDone, key, awardListAt(key, WINNER_ONLY)));
+        const listedReading = read(`${short(key)} playoffs done, the Winner listed, no playoff points`, listed, winnerFirst);
+        edge(winnerFirst, "step", playoffsDoneReading, listedReading);
+        const paid = read(`${short(key)} playoff points land after the Winner`, rowsTick(withPosted(listed, key, "elim")), winnerFirst);
+        edge(winnerFirst, "step", listedReading, paid);
+        if (lastKey) againstTheLattice.push({ what: "the Winner before the playoff points", reading: paid, key, level: 1 });
+      }
+      if (furtherEdges && divisioned) {
+        const judged = judgedListAt(key);
+        if (judged.length > 0) {
+          divisionsWalkedAwardsFirst += 1;
+          // FURTHER EDGE 3: the division's award points and its settled awards list arrive before its playoff points.
+          const awardsIn = rowsTick(withSettled(withAwards(withPosted(playoffsDone, key, "awardsBeforePlayoffs"), key, judged), key));
+          if (!flagTrueAt(awardsIn.artifact, key)) flagHeldWithoutPlayoffPoints += 1;
+          const awardsInReading = read(`${short(key)} award points and a settled awards list, no playoff points`, awardsIn, awardsFirst);
+          edge(awardsFirst, "step", playoffsDoneReading, awardsInReading);
+          const playoffsIn = rowsTick(withPosted(awardsIn, key, "all"));
+          if (flagTrueAt(playoffsIn.artifact, key)) flagRaisedWithPlayoffPoints += 1;
+          const playoffsInReading = read(`${short(key)} playoff points land after the award points, the flag raised by the merge's rule`, playoffsIn, awardsFirst);
+          edge(awardsFirst, "step", awardsInReading, playoffsInReading);
+          if (lastKey) againstTheLattice.push({ what: "the award points before the playoff points", reading: playoffsInReading, key, level: 1 });
+          // FORCED: the flag written true by hand with no playoff point on any row, then the points landing.
+          const forced = stateTick(withState(playoffsDone, key, { ...stateFor(key, "done"), awardsPosted: true }));
+          const forcedReading = read(`${short(key)} awards flag true, no playoff points (FORCED)`, forced, forcedFlag);
+          edge(forcedFlag, "step", playoffsDoneReading, forcedReading, false);
+          const forcedPaid = read(`${short(key)} playoff and award points land after the flag (FORCED)`, rowsTick(withPosted(forced, key, "all")), forcedFlag);
+          edge(forcedFlag, "step", forcedReading, forcedPaid, false);
+        }
+      }
+      step(`${short(key)} playoff points land`, rowsTick(withPosted(world, key, "elim")));
+    }
+    const mainLineEnd = world;
+    const mainLineEndReading = previous;
+    const mainLineEdges = walk.edges.step;
+    readUnprovenAgain(mainLineEnd, mainLineEndReading);
+
+    // ---- THE LATTICE: every key's award levels times the finals' own chain
+    interface ChainFact {
+      readonly id: "started" | "played" | "done" | "points" | "rowsNoState" | "stateWritten" | "winner" | "awardPoints" | "flag";
+      readonly label: string;
+      readonly apply: (from: World) => World;
+    }
+    const chain: ChainFact[] = [];
+    if (finalsKey !== undefined) {
+      const finalsPlayed = playedOf(finalsKey).length;
+      const finalsAwards = (types: readonly number[]): DistrictEventAwardInput[] => awardListAt(finalsKey, types);
+      if (registered) {
+        chain.push({ id: "started", label: "finals started on the field (state on the registrations), no finals row played", apply: (from) => stateTick({ ...withState(from, finalsKey, finalsState(false)), finalsRows: 0 }) });
+        for (let index = 0; index < finalsPlayed; index++) {
+          chain.push({ id: "played", label: `finals played ${playedOf(finalsKey)[index]!.matchKey.split("_")[1] ?? ""}`, apply: (from) => ({ ...from, finalsRows: index + 1 }) });
+        }
+        chain.push({ id: "done", label: "finals playoffs done, no finals points", apply: (from) => stateTick(withState(from, finalsKey, finalsState(true))) });
+        chain.push({ id: "points", label: "finals playoff points land", apply: (from) => rowsTick(withPosted(from, finalsKey, "elim")) });
+      } else {
+        chain.push({ id: "rowsNoState", label: "finals rows posted with their playoff points, no state", apply: (from) => rowsTick(withPosted(from, finalsKey, "elim")) });
+        chain.push({ id: "stateWritten", label: "finals state written, finals facts in hand", apply: (from) => stateTick({ ...withState(from, finalsKey, finalsState(true)), finalsRows: finalsPlayed }) });
+      }
+      chain.push({ id: "winner", label: "the Winner is listed", apply: (from) => stateTick(withAwards(from, finalsKey, finalsAwards(WINNER_ONLY))) });
+      chain.push({ id: "awardPoints", label: "finals award points land, every finals award listed, flag not yet true", apply: (from) => rowsTick(withAwards(withPosted(from, finalsKey, "all"), finalsKey, finalsAwards(EVERY_CHAMPIONSHIP_AWARD))) });
+      chain.push({ id: "flag", label: "finals awards flag true", apply: (from) => stateTick(withState(from, finalsKey, { ...(from.states.get(finalsKey) ?? finalsState(true)), awardsPosted: true })) });
+    }
+    /** A division's one level: its award points landed and its awards flag true. */
+    const divisionFlag = (from: World, key: string): World => stateTick(withState(rowsTick(withPosted(from, key, "all")), key, { ...stateFor(key, "done"), awardsPosted: true }));
+    // PER KEY LEVELS. A division has one. A championship key that is not divisioned has three: its Winner listed, its
+    // award points landed with every award listed, its awards flag true.
+    const levels = divisioned ? 1 : 3;
+    const levelNames = divisioned ? ["flag"] : ["winner", "award points", "flag"];
+    const levelUp = (from: World, key: string, level: number): World => {
+      if (divisioned) return divisionFlag(from, key);
+      if (level === 1) return stateTick(withAwards(from, key, awardListAt(key, WINNER_ONLY)));
+      if (level === 2) return rowsTick(withAwards(withPosted(from, key, "all"), key, awardListAt(key, EVERY_CHAMPIONSHIP_AWARD)));
+      return stateTick(withState(from, key, { ...stateFor(key, "done"), awardsPosted: true }));
+    };
+    const base = levels + 1;
+    const tuples = base ** ff.length;
+    const levelOf = (index: number, keyIndex: number): number => Math.floor(index / base ** keyIndex) % base;
+    const raised = (from: World, index: number): World => {
+      let next = from;
+      ff.forEach((key, keyIndex) => {
+        for (let level = 1; level <= levelOf(index, keyIndex); level++) next = levelUp(next, key, level);
+      });
+      return next;
+    };
+    const chainWorlds: World[] = [mainLineEnd];
+    for (const fact of chain) chainWorlds.push(fact.apply(chainWorlds.at(-1)!));
+    const positionAfter = (id: ChainFact["id"]): number => chain.findIndex((fact) => fact.id === id) + 1;
+    const positionLabel = (position: number): string => (!divisioned ? "one event" : position === 0 ? (registered ? "finals not started" : "finals on no row") : chain[position - 1]!.label);
+    const flagsLabel = (index: number): string =>
+      `flags {${ff
+        .map((key, keyIndex) => (levelOf(index, keyIndex) === 0 ? "" : `${short(key)}${divisioned ? "" : `:${levelNames[levelOf(index, keyIndex) - 1]!}`}`))
+        .filter((text) => text !== "")
+        .join(",")}}`;
+    const grid: MicroReading[][] = [];
+    /** Further edge 2 at a divisioned championship: per tuple, the reading the Winner first order ends on, to be read against the chain's own. */
+    const winnerFirstCorners: { index: number; reading: MicroReading }[] = [];
+    for (let index = 0; index < tuples; index++) {
+      const row: MicroReading[] = [];
+      for (let position = 0; position < chainWorlds.length; position++) {
+        const cell = raised(chainWorlds[position]!, index);
+        const reading = read(`${flagsLabel(index)} | ${positionLabel(position)}`, cell, walk);
+        row.push(reading);
+        if (!furtherEdges || finalsKey === undefined) continue;
+        const winnerList = awardListAt(finalsKey, WINNER_ONLY);
+        if (registered && position === positionAfter("done")) {
+          // FURTHER EDGE 2: the Winner is listed before the finals' playoff points land.
+          const listed = stateTick(withAwards(cell, finalsKey, winnerList));
+          const listedReading = read(`${flagsLabel(index)} | finals playoffs done, the Winner listed, no finals points`, listed, winnerFirst);
+          edge(winnerFirst, "step", reading, listedReading);
+          const paid = read(`${flagsLabel(index)} | finals playoff points land after the Winner`, rowsTick(withPosted(listed, finalsKey, "elim")), winnerFirst);
+          edge(winnerFirst, "step", listedReading, paid);
+          winnerFirstCorners.push({ index, reading: paid });
+        }
+        if (!registered && position === 0) {
+          // FURTHER EDGE 2: the Winner is listed before the finals rows post at all.
+          const listed = stateTick(withAwards(cell, finalsKey, winnerList));
+          const listedReading = read(`${flagsLabel(index)} | finals on no row, the Winner listed`, listed, winnerFirst);
+          edge(winnerFirst, "step", reading, listedReading);
+          const posted = rowsTick(withPosted(listed, finalsKey, "elim"));
+          const postedReading = read(`${flagsLabel(index)} | finals rows posted with their playoff points after the Winner, no state`, posted, winnerFirst);
+          edge(winnerFirst, "step", listedReading, postedReading);
+          const written = stateTick({ ...withState(posted, finalsKey, finalsState(true)), finalsRows: playedOf(finalsKey).length });
+          const writtenReading = read(`${flagsLabel(index)} | finals state written after the Winner, finals facts in hand`, written, winnerFirst);
+          edge(winnerFirst, "step", postedReading, writtenReading);
+          winnerFirstCorners.push({ index, reading: writtenReading });
+        }
+      }
+      grid.push(row);
+    }
+    for (let index = 0; index < tuples; index++) {
+      for (let position = 0; position < chainWorlds.length; position++) {
+        const here = grid[index]![position]!;
+        if (position + 1 < chainWorlds.length) edge(walk, "step", here, grid[index]![position + 1]!);
+        for (let keyIndex = 0; keyIndex < ff.length; keyIndex++) if (levelOf(index, keyIndex) < levels) edge(walk, "flag", here, grid[index + base ** keyIndex]![position]!);
+      }
+    }
+    for (const corner of winnerFirstCorners) expectSameCorner("the Winner before the finals' playoff points", corner.reading, grid[corner.index]![positionAfter("winner")]!);
+    for (const entry of againstTheLattice) expectSameCorner(entry.what, entry.reading, grid[entry.level * base ** ff.indexOf(entry.key)]![0]!);
+
+    // The end: the source artifact, from the last corner of the grid.
+    const corner = grid[tuples - 1]![chainWorlds.length - 1]!;
+    const end = read("the source artifact", { ...emptyWorld, artifact: source }, walk);
+    edge(walk, "step", corner, end);
+    // Path independence: the corner read by the key levels first and the chain after, against the chain first.
+    let otherOrder = mainLineEnd;
+    for (const key of ff) for (let level = 1; level <= levels; level++) otherOrder = levelUp(otherOrder, key, level);
+    for (const fact of chain) otherOrder = fact.apply(otherOrder);
+    const cornerPathIndependent = readsTheSame(read("key levels first, then the finals chain", otherOrder, walk), corner);
+
+    // ---- FURTHER EDGE 4: the last field fixing key's rows arrive only once the others are half way through their playoffs
+    let fieldProofTurnedTrueMidPlayoffs: boolean | undefined;
+    if (furtherEdges && ff.length >= 2) {
+      const late = ff.at(-1)!;
+      const early = ff.slice(0, -1);
+      const halfOf = (key: string): number => Math.ceil(playedOf(key).length / 2);
+      let lateWorld = emptyWorld;
+      let latePrevious = read(`${registered ? "every field team registered at the finals key" : "no dcmp row"} (the last key's rows arrive late)`, lateWorld, lateRows);
+      const lateStep = (label: string, next: World): void => {
+        const reading = read(label, next, lateRows);
+        edge(lateRows, "step", latePrevious, reading);
+        latePrevious = reading;
+        lateWorld = next;
+      };
+      for (const key of early) {
+        lateStep(`${short(key)} rows posted, ${short(late)} on no row`, rowsTick(withPosted(withState(lateWorld, key, stateFor(key, "started")), key, "qual")));
+        lateStep(`${short(key)} state written, ${short(late)} on no row`, stateTick(lateWorld));
+      }
+      lateStep(
+        `qualification done at every posted key, ${short(late)} on no row`,
+        stateTick(early.reduce((next, key) => withState(next, key, stateFor(key, "qualDone")), lateWorld))
+      );
+      for (const key of early) lateStep(`${short(key)} alliances picked, no alliance points, ${short(late)} on no row`, stateTick({ ...withState(lateWorld, key, stateFor(key, "picked")), rows: new Map(early.map((other) => [other, 0] as const)) }));
+      for (const key of early) lateStep(`${short(key)} alliance points land, ${short(late)} on no row`, rowsTick(withPosted(lateWorld, key, "alliance")));
+      const mostEarly = Math.max(...early.map(halfOf));
+      for (let index = 0; index < mostEarly; index++) {
+        for (const key of early) {
+          if (index >= halfOf(key)) continue;
+          lateStep(`${playedLabel(key, index)}, ${short(late)} on no row`, withRows(lateWorld, key, index + 1));
+        }
+      }
+      // The late key arrives: its rows with qualification and alliance points and no state, then its state.
+      lateStep(`${short(late)} rows posted with qualification and alliance points, no state, the others mid playoffs`, rowsTick(withPosted(lateWorld, late, "alliance")));
+      const beforeState = latePrevious;
+      lateStep(`${short(late)} state written, alliances picked, the others mid playoffs`, stateTick(withRows(withState(lateWorld, late, stateFor(late, "picked")), late, 0)));
+      fieldProofTurnedTrueMidPlayoffs = !beforeState.proven && latePrevious.proven;
+      readUnprovenAgain(lateWorld, latePrevious);
+      // The rest of the playoffs, the keys interleaved, each from where it stands.
+      const remaining = Math.max(...ff.map((key) => playedOf(key).length - (lateWorld.rows?.get(key) ?? 0)));
+      for (let more = 0; more < remaining; more++) {
+        for (const key of ff) {
+          const index = lateWorld.rows?.get(key) ?? 0;
+          if (index >= playedOf(key).length) continue;
+          lateStep(`${playedLabel(key, index)} (late rows)`, withRows(lateWorld, key, index + 1));
+        }
+      }
+      for (const key of ff) {
+        lateStep(`${short(key)} playoffs done, no playoff points (late rows)`, stateTick(withState(lateWorld, key, stateFor(key, "done"))));
+        lateStep(`${short(key)} playoff points land (late rows)`, rowsTick(withPosted(lateWorld, key, "elim")));
+      }
+      expectSameCorner("the last key's rows arriving mid playoffs", latePrevious, mainLineEndReading);
+    }
+
+    return {
+      districtKey,
+      variant,
+      walk,
+      mainLineEdges,
+      cornerPathIndependent,
+      winnerFirst,
+      awardsFirst,
+      lateRows,
+      cornerMismatches,
+      fieldProofTakenBack,
+      fieldProofTurnedTrueMidPlayoffs,
+      flagHeldWithoutPlayoffPoints,
+      flagRaisedWithPlayoffPoints,
+      divisionsWalkedAwardsFirst,
+      forcedFlag,
+      unprovenAgain,
+      atMainLineEnd: { joint: mainLineEndReading.joint, jointLocked: mainLineEndReading.jointLocked, shownLocked: mainLineEndReading.shownLocked },
+      endShownLocked: end.shownLocked,
+    };
+  });
+  microCache.set(cacheKey, result);
+  return result;
+}
+
+/** The single championships of 2023 to 2026 with a published capacity, by district key. The first test of group D holds the list EQUAL to what the local artifacts carry. */
+const SINGLE = [
+  "2023chs",
+  "2023fin",
+  "2023fma",
+  "2023fnc",
+  "2023isr",
+  "2023pch",
+  "2023pnw",
+  "2024chs",
+  "2024fin",
+  "2024fma",
+  "2024fnc",
+  "2024isr",
+  "2024pch",
+  "2024pnw",
+  "2025chs",
+  "2025fin",
+  "2025fma",
+  "2025fnc",
+  "2025fsc",
+  "2025isr",
+  "2025pch",
+  "2025pnw",
+  "2026fch",
+  "2026fin",
+  "2026fma",
+  "2026fnc",
+  "2026fsc",
+  "2026isr",
+  "2026pch",
+  "2026pnw",
+  "2026win",
+] as const;
+const MISSING_SINGLE = SINGLE.filter((districtKey) => !LOCAL_DISTRICT_FILES.includes(`v1__district__${districtKey}.json`));
+/** The FIM season the committed walks cover (planner reading R10: the other three run about 40 seconds each per variant). */
+const MICRO_FIM = "2026fim";
+const FINALS_VARIANTS = ["finalsOnNoRow", "finalsRegistered"] as const;
+
+type MicroWalkId = readonly [districtKey: string, variant: MicroVariant];
+const ONE_EVENT_WALKS: readonly MicroWalkId[] = [...SINGLE, TWO_CHAMPIONSHIP_DISTRICT].map((districtKey) => [districtKey, "oneEvent"] as const);
+const SINGLE_WALKS: readonly MicroWalkId[] = SINGLE.map((districtKey) => [districtKey, "oneEvent"] as const);
+const twoDivisionWalks = (variant: MicroVariant): MicroWalkId[] => TWO_DIVISION.map((districtKey) => [districtKey, variant] as const);
+
+interface MicroTotals {
+  readonly walk: EdgeTally;
+  readonly mainLineEdges: number;
+  readonly winnerFirst: EdgeTally;
+  readonly awardsFirst: EdgeTally;
+  readonly lateRows: EdgeTally;
+  readonly forcedFlag: EdgeTally;
+  readonly unprovenAgain: EdgeTally;
+  readonly notPathIndependent: string[];
+  readonly cornerMismatches: string[];
+  readonly fieldProofTakenBack: string[];
+  /** Further edge 4: the walks where the field proof turned true on the late key's state tick, and those where it did not. */
+  readonly fieldProofTurnedTrue: number;
+  readonly fieldProofDidNotTurnTrue: string[];
+  readonly divisionsWalkedAwardsFirst: number;
+  readonly flagHeldWithoutPlayoffPoints: number;
+  readonly flagRaisedWithPlayoffPoints: number;
+  /** Per district key: Locked lost over the walk's edges, and team margins dropped. Districts at 0 are left out. */
+  readonly lostByDistrict: Record<string, number>;
+  readonly dropsByDistrict: Record<string, number>;
+}
+
+function microTotals(walks: readonly MicroWalkId[], mode: RuleMode): MicroTotals {
+  const totals: MicroTotals = {
+    walk: newTally(),
+    mainLineEdges: 0,
+    winnerFirst: newTally(),
+    awardsFirst: newTally(),
+    lateRows: newTally(),
+    forcedFlag: newTally(),
+    unprovenAgain: newTally(),
+    notPathIndependent: [],
+    cornerMismatches: [],
+    fieldProofTakenBack: [],
+    fieldProofTurnedTrue: 0,
+    fieldProofDidNotTurnTrue: [],
+    divisionsWalkedAwardsFirst: 0,
+    flagHeldWithoutPlayoffPoints: 0,
+    flagRaisedWithPlayoffPoints: 0,
+    lostByDistrict: {},
+    dropsByDistrict: {},
+  };
+  const sums = { mainLineEdges: 0, fieldProofTurnedTrue: 0, divisionsWalkedAwardsFirst: 0, flagHeldWithoutPlayoffPoints: 0, flagRaisedWithPlayoffPoints: 0 };
+  for (const [districtKey, variant] of walks) {
+    const result = microWalk(districtKey, variant, mode);
+    addTally(totals.walk, result.walk);
+    addTally(totals.winnerFirst, result.winnerFirst);
+    addTally(totals.awardsFirst, result.awardsFirst);
+    addTally(totals.lateRows, result.lateRows);
+    addTally(totals.forcedFlag, result.forcedFlag);
+    addTally(totals.unprovenAgain, result.unprovenAgain);
+    for (const teamKey of result.walk.lostTeams) totals.walk.lostTeams.add(`${districtKey} ${teamKey}`);
+    for (const teamKey of result.forcedFlag.lostTeams) totals.forcedFlag.lostTeams.add(`${districtKey} ${teamKey}`);
+    for (const teamKey of result.unprovenAgain.lostTeams) totals.unprovenAgain.lostTeams.add(`${districtKey} ${teamKey}`);
+    sums.mainLineEdges += result.mainLineEdges;
+    if (!result.cornerPathIndependent) totals.notPathIndependent.push(`${districtKey} ${variant}`);
+    totals.cornerMismatches.push(...result.cornerMismatches);
+    totals.fieldProofTakenBack.push(...result.fieldProofTakenBack);
+    if (result.fieldProofTurnedTrueMidPlayoffs === true) sums.fieldProofTurnedTrue += 1;
+    if (result.fieldProofTurnedTrueMidPlayoffs === false) totals.fieldProofDidNotTurnTrue.push(`${districtKey} ${variant}`);
+    sums.divisionsWalkedAwardsFirst += result.divisionsWalkedAwardsFirst;
+    sums.flagHeldWithoutPlayoffPoints += result.flagHeldWithoutPlayoffPoints;
+    sums.flagRaisedWithPlayoffPoints += result.flagRaisedWithPlayoffPoints;
+    const lost = result.walk.lost.flag + result.walk.lost.step;
+    if (lost > 0) totals.lostByDistrict[districtKey] = (totals.lostByDistrict[districtKey] ?? 0) + lost;
+    if (result.walk.marginDrops > 0) totals.dropsByDistrict[districtKey] = (totals.dropsByDistrict[districtKey] ?? 0) + result.walk.marginDrops;
+  }
+  return { ...totals, ...sums };
+}
+
+/** What one rules on walk must show. */
+function expectMicroWalk(result: MicroResult, fieldFixingKeyCount: number): void {
+  const label = `${result.districtKey} ${result.variant}`;
+  expectMonotone(`${label}, the walk`, result.walk);
+  expectMonotone(`${label}, the Winner before the playoff points`, result.winnerFirst);
+  expectMonotone(`${label}, a division's award points before its playoff points`, result.awardsFirst);
+  expectMonotone(`${label}, the last key's rows arriving mid playoffs`, result.lateRows);
+  expect({ label, cornerPathIndependent: result.cornerPathIndependent, cornerMismatches: result.cornerMismatches, fieldProofTakenBack: result.fieldProofTakenBack }).toEqual({
+    label,
+    cornerPathIndependent: true,
+    cornerMismatches: [],
+    fieldProofTakenBack: [],
+  });
+  // Further edge 4 is a real edge only where the field proof turns true on it.
+  expect(result.fieldProofTurnedTrueMidPlayoffs, `${label}: the field proof over the late key's state tick`).toBe(fieldFixingKeyCount >= 2 ? true : undefined);
+  // Further edge 3: at every division the merge's own rule kept the flag false with no playoff point on a row, and raised it once they landed.
+  const divisions = result.variant === "oneEvent" ? 0 : fieldFixingKeyCount;
+  expect({ walked: result.divisionsWalkedAwardsFirst, held: result.flagHeldWithoutPlayoffPoints, raised: result.flagRaisedWithPlayoffPoints }, `${label}: the awards flag rule`).toEqual({ walked: divisions, held: divisions, raised: divisions });
+  // Every further edge was walked.
+  expect(result.winnerFirst.edges.step, `${label}: the Winner first edges`).toBeGreaterThan(0);
+  expect(result.lateRows.edges.step > 0, `${label}: the late rows edges`).toBe(fieldFixingKeyCount >= 2);
+}
+
+const tallyLine = (tally: EdgeTally): string =>
+  `readings ${String(tally.readings)} (${JSON.stringify(tally.joint)}) | step edges ${String(tally.edges.step)}, flag edges ${String(tally.edges.flag)} | Locked lost ${String(tally.lost.step + tally.lost.flag)} | margin drops ${String(tally.marginDrops)} | applied then refused ${String(tally.appliedThenRefused)}`;
+const microPin = (tally: EdgeTally) => ({ readings: tally.readings, edges: tally.edges.step + tally.edges.flag });
+
+describe("GROUP D, the micro step live walks: a championship walked live one fact at a time through the merge's two entry points and the tab's own status code (quick task 261010-d7r, D3 second half, finding F-D, CONTEXT D7)", () => {
+  if (!existsSync(CORPUS_ABSOLUTE)) {
+    localDataAbsent(`${CORPUS_PATH} absent (gitignored local data)`);
+    return;
+  }
+  const missing = [...MISSING_DIVISIONED, ...MISSING_SINGLE, ...(LOCAL_DISTRICT_FILES.includes(TWO_CHAMPIONSHIP_FILE) ? [] : [TWO_CHAMPIONSHIP_DISTRICT])];
+  if (missing.length > 0) {
+    localDataAbsent(`${missing.join(", ")} absent under ${LOCAL_DISTRICT_DIR} (gitignored local data)`);
+    return;
+  }
+
+  it("the single championships named in this file are exactly the single championships of 2023 on that the local artifacts carry", () => {
+    const single: string[] = [];
+    for (const fileName of LOCAL_DISTRICT_FILES) {
+      const year = Number(DISTRICT_DETAIL_FILE.exec(fileName)?.[1]);
+      if (!(year >= 2023)) continue;
+      const artifact = localArtifact(fileName);
+      if (artifact.cmpSlots !== null && championshipShape(dcmpEventKeysFor(artifact)).kind === "single") single.push(artifact.districtKey);
+    }
+    expect(single.sort()).toEqual([...SINGLE]);
+  });
+
+  for (const [districtKey, variant] of ONE_EVENT_WALKS) {
+    it(
+      `${districtKey}: over every tick of the live walk and every level of its awards no held team is lost and no margin drops, the Winner listed before the playoff points included`,
+      () => expectMicroWalk(microWalk(districtKey, variant, "on"), microChampionship(districtKey).fieldFixingKeys.length),
+      TEST_TIMEOUT_MS
+    );
+  }
+
+  for (const variant of FINALS_VARIANTS) {
+    for (const districtKey of [...TWO_DIVISION, MICRO_FIM]) {
+      it(
+        `${districtKey}, ${variant === "finalsOnNoRow" ? "the finals key on no row until the finals pay" : "the finals key registered from the start"}: over every tick, every order of the division flags and every finals fact no held team is lost and no margin drops`,
+        () => expectMicroWalk(microWalk(districtKey, variant, "on"), microChampionship(districtKey).fieldFixingKeys.length),
+        TEST_TIMEOUT_MS
+      );
+    }
+  }
+
+  it(
+    "the walks, rules on: nothing lost and nothing dropped, counts pinned as the run shows",
+    () => {
+      const oneEvent = microTotals(ONE_EVENT_WALKS, "on");
+      const twoNoRow = microTotals(twoDivisionWalks("finalsOnNoRow"), "on");
+      const twoRegistered = microTotals(twoDivisionWalks("finalsRegistered"), "on");
+      const fimNoRow = microTotals([[MICRO_FIM, "finalsOnNoRow"]], "on");
+      const fimRegistered = microTotals([[MICRO_FIM, "finalsRegistered"]], "on");
+      console.log(
+        `[261010-d7r group D, rules on, the walk]\n  the 31 single championships and California: ${tallyLine(oneEvent.walk)}\n  the 12 two division championships, finals on no row: ${tallyLine(twoNoRow.walk)}\n  the 12 two division championships, finals registered: ${tallyLine(twoRegistered.walk)}\n  2026 FIM, finals on no row: ${tallyLine(fimNoRow.walk)}\n  2026 FIM, finals registered: ${tallyLine(fimRegistered.walk)}`
+      );
+      for (const [label, totals] of [
+        ["the single championships and California", oneEvent],
+        ["the two division championships, finals on no row", twoNoRow],
+        ["the two division championships, finals registered", twoRegistered],
+        ["2026 FIM, finals on no row", fimNoRow],
+        ["2026 FIM, finals registered", fimRegistered],
+      ] as const) {
+        expectMonotone(label, totals.walk);
+        expect({ label, notPathIndependent: totals.notPathIndependent, fieldProofTakenBack: totals.fieldProofTakenBack }).toEqual({ label, notPathIndependent: [], fieldProofTakenBack: [] });
+      }
+      // Readings and edges of the walk (the main line, the lattice, the corner by the other order, the end).
+      expect({
+        oneEvent: microPin(oneEvent.walk),
+        twoNoRow: microPin(twoNoRow.walk),
+        twoRegistered: microPin(twoRegistered.walk),
+        fimNoRow: microPin(fimNoRow.walk),
+        fimRegistered: microPin(fimRegistered.walk),
+      }).toEqual({
+        oneEvent: { readings: 970, edges: 883 },
+        twoNoRow: { readings: 848, edges: 1064 },
+        twoRegistered: { readings: 1012, edges: 1392 },
+        fimNoRow: { readings: 184, edges: 358 },
+        fimRegistered: { readings: 312, edges: 742 },
+      });
+      // What the proof said over the walk. Until Task 4 of the quick task lands, a divisioned championship whose
+      // finals key is on no row reads `unsupportedShape` up to the finals rows. The proof goes from applied to
+      // refused only into the corner where every key's Awards are final (one edge per key and, at a divisioned
+      // championship, one finals edge), which loses nobody: the ceiling test holds what the proof held there.
+      expect({
+        oneEvent: { joint: oneEvent.walk.joint, appliedThenRefused: oneEvent.walk.appliedThenRefused },
+        twoNoRow: { joint: twoNoRow.walk.joint, appliedThenRefused: twoNoRow.walk.appliedThenRefused },
+        twoRegistered: { joint: twoRegistered.walk.joint, appliedThenRefused: twoRegistered.walk.appliedThenRefused },
+        fimNoRow: { joint: fimNoRow.walk.joint, appliedThenRefused: fimNoRow.walk.appliedThenRefused },
+        fimRegistered: { joint: fimRegistered.walk.joint, appliedThenRefused: fimRegistered.walk.appliedThenRefused },
+      }).toEqual({
+        oneEvent: { joint: { noDistributions: 162, stageNotEligible: 33, applied: 710, noBracketFacts: 65 }, appliedThenRefused: 33 },
+        twoNoRow: { joint: { noDistributions: 84, unsupportedShape: 512, applied: 228, stageNotEligible: 24 }, appliedThenRefused: 36 },
+        twoRegistered: { joint: { noDistributions: 84, noBracketFacts: 12, stageNotEligible: 48, applied: 868 }, appliedThenRefused: 36 },
+        fimNoRow: { joint: { noDistributions: 11, unsupportedShape: 92, applied: 79, stageNotEligible: 2 }, appliedThenRefused: 5 },
+        fimRegistered: { joint: { noDistributions: 11, noBracketFacts: 3, stageNotEligible: 6, applied: 292 }, appliedThenRefused: 5 },
+      });
+    },
+    TEST_TIMEOUT_MS
+  );
+
+  it(
+    "the further edges of CONTEXT D7, rules on: the Winner before the playoff points, a division's award points before its playoff points through the merge's own flag rule, and the last key's rows arriving mid playoffs lose nothing and drop nothing, counts pinned as the run shows",
+    () => {
+      const all = microTotals([...ONE_EVENT_WALKS, ...twoDivisionWalks("finalsOnNoRow"), ...twoDivisionWalks("finalsRegistered"), [MICRO_FIM, "finalsOnNoRow"], [MICRO_FIM, "finalsRegistered"]], "on");
+      console.log(
+        `[261010-d7r group D, rules on, the further edges]\n  the Winner before the playoff points: ${tallyLine(all.winnerFirst)}\n  a division's award points before its playoff points: ${tallyLine(all.awardsFirst)} | divisions walked ${String(all.divisionsWalkedAwardsFirst)}, flag held false with no playoff point ${String(all.flagHeldWithoutPlayoffPoints)}, flag raised once they landed ${String(all.flagRaisedWithPlayoffPoints)}\n  the last key's rows arriving mid playoffs: ${tallyLine(all.lateRows)} | the field proof turned true at ${String(all.fieldProofTurnedTrue)} walks, did not at ${JSON.stringify(all.fieldProofDidNotTurnTrue)}`
+      );
+      expectMonotone("the Winner before the playoff points", all.winnerFirst);
+      expectMonotone("a division's award points before its playoff points", all.awardsFirst);
+      expectMonotone("the last key's rows arriving mid playoffs", all.lateRows);
+      expect({ cornerMismatches: all.cornerMismatches, fieldProofTakenBack: all.fieldProofTakenBack, fieldProofDidNotTurnTrue: all.fieldProofDidNotTurnTrue }).toEqual({ cornerMismatches: [], fieldProofTakenBack: [], fieldProofDidNotTurnTrue: [] });
+      expect({
+        winnerFirst: microPin(all.winnerFirst),
+        awardsFirst: { ...microPin(all.awardsFirst), divisions: all.divisionsWalkedAwardsFirst, flagHeld: all.flagHeldWithoutPlayoffPoints, flagRaised: all.flagRaisedWithPlayoffPoints },
+        lateRows: { ...microPin(all.lateRows), walksWhereTheFieldProofTurnedTrue: all.fieldProofTurnedTrue, joint: all.lateRows.joint },
+      }).toEqual({
+        winnerFirst: { readings: 386, edges: 386 },
+        // 56 divisions: 12 championships of two and one of four, each in both finals variants.
+        awardsFirst: { readings: 112, edges: 112, divisions: 56, flagHeld: 56, flagRaised: 56 },
+        // 27 walks: California, and the 13 divisioned championships in both finals variants. `fieldNotProven` is the
+        // proof refusing while the last key is on no row or has no state; with the finals key on no row the proof
+        // reads `unsupportedShape` after it too, until Task 4 of the quick task.
+        lateRows: { readings: 1235, edges: 1208, walksWhereTheFieldProofTurnedTrue: 27, joint: { noDistributions: 116, fieldNotProven: 337, applied: 405, unsupportedShape: 377 } },
+      });
+    },
+    TEST_TIMEOUT_MS
+  );
+
+  it(
+    "THE TEST BITES: with the awarded rule switched off the two division championships lose Locked teams over the live walk, pinned as the run shows",
+    () => {
+      const noRow = microTotals(twoDivisionWalks("finalsOnNoRow"), "awardedRuleOff");
+      const registered = microTotals(twoDivisionWalks("finalsRegistered"), "awardedRuleOff");
+      console.log(`[261010-d7r group D, awarded rule OFF] finals on no row: ${tallyLine(noRow.walk)} | by district ${JSON.stringify(noRow.lostByDistrict)}\n  finals registered: ${tallyLine(registered.walk)} | by district ${JSON.stringify(registered.lostByDistrict)}\n${registered.walk.lostLines.slice(0, 8).map((line) => `  ${line}`).join("\n")}`);
+      // THE REQUIREMENT: the mutation is caught, through the status code's own verdicts.
+      expect(registered.walk.lost.step + registered.walk.lost.flag).toBeGreaterThan(0);
+      expect(registered.walk.marginDrops).toBeGreaterThan(0);
+      // The measurement of the reading before quick task 261010-d7r. Pinned as the run shows; not a requirement.
+      // Every one is lost over a FLAG edge (a division's awards flag turning true), none over a step. With the finals
+      // key on no row the proof runs only from the finals rows on, until Task 4 of the quick task, so fewer are lost.
+      const pin = (totals: MicroTotals) => ({ ...microPin(totals.walk), lostOverStepEdges: totals.walk.lost.step, lostOverFlagEdges: totals.walk.lost.flag, marginDrops: totals.walk.marginDrops, largestDrop: totals.walk.largestDrop });
+      expect({ noRow: pin(noRow), registered: pin(registered) }).toEqual({
+        noRow: { readings: 848, edges: 1064, lostOverStepEdges: 0, lostOverFlagEdges: 94, marginDrops: 1666, largestDrop: 4 },
+        registered: { readings: 1012, edges: 1392, lostOverStepEdges: 0, lostOverFlagEdges: 202, marginDrops: 3236, largestDrop: 4 },
+      });
+    },
+    TEST_TIMEOUT_MS
+  );
+
+  it(
+    "THE TEST BITES: with the stop rule switched off the two division championships lose Locked teams over the live walk, at the finals' awards flag turning true before a division's, pinned as the run shows",
+    () => {
+      const noRow = microTotals(twoDivisionWalks("finalsOnNoRow"), "stopRuleOff");
+      const registered = microTotals(twoDivisionWalks("finalsRegistered"), "stopRuleOff");
+      console.log(`[261010-d7r group D, stop rule OFF] finals on no row: ${tallyLine(noRow.walk)} | by district ${JSON.stringify(noRow.lostByDistrict)}\n  finals registered: ${tallyLine(registered.walk)} | by district ${JSON.stringify(registered.lostByDistrict)}\n${registered.walk.lostLines.slice(0, 8).map((line) => `  ${line}`).join("\n")}`);
+      // THE REQUIREMENT: the mutation is caught, through the status code's own verdicts.
+      expect(noRow.walk.lost.step + noRow.walk.lost.flag).toBeGreaterThan(0);
+      expect(registered.walk.lost.step + registered.walk.lost.flag).toBeGreaterThan(0);
+      // The measurement of the reading before quick task 261010-d7r (finding F-B). Pinned as the run shows.
+      // Every one is lost over a STEP edge, the finals' awards flag turning true, and the same 63 in both variants
+      // (the awards order lattice of group A reads the same 63 over these twelve championships).
+      const pin = (totals: MicroTotals) => ({ ...microPin(totals.walk), lostOverStepEdges: totals.walk.lost.step, lostOverFlagEdges: totals.walk.lost.flag, marginDrops: totals.walk.marginDrops, lostByDistrict: totals.lostByDistrict });
+      const lostByDistrict = { "2023fit": 8, "2023ne": 4, "2023ont": 6, "2024fit": 2, "2024ne": 8, "2024ont": 4, "2025fit": 7, "2025ne": 4, "2025ont": 1, "2026fit": 1, "2026ne": 16, "2026ont": 2 };
+      expect({ noRow: pin(noRow), registered: pin(registered) }).toEqual({
+        noRow: { readings: 848, edges: 1064, lostOverStepEdges: 63, lostOverFlagEdges: 0, marginDrops: 0, lostByDistrict },
+        registered: { readings: 1012, edges: 1392, lostOverStepEdges: 63, lostOverFlagEdges: 0, marginDrops: 0, lostByDistrict },
+      });
+    },
+    TEST_TIMEOUT_MS
+  );
+
+  it(
+    "THE LISTED RULE SWITCHED OFF LOSES NO LOCKED TEAM AND ONLY DROPS MARGINS: over the single championships a bound rises at the played row that places an alliance listing four teams, pinned as the run shows",
+    () => {
+      const single = microTotals(SINGLE_WALKS, "listedRuleOff");
+      const california = microTotals([[TWO_CHAMPIONSHIP_DISTRICT, "oneEvent"]], "listedRuleOff");
+      const twoNoRow = microTotals(twoDivisionWalks("finalsOnNoRow"), "listedRuleOff");
+      const twoRegistered = microTotals(twoDivisionWalks("finalsRegistered"), "listedRuleOff");
+      const fim = microTotals([[MICRO_FIM, "finalsOnNoRow"], [MICRO_FIM, "finalsRegistered"]], "listedRuleOff");
+      console.log(
+        `[261010-d7r group D, listed rule OFF] the 31 single championships: ${tallyLine(single.walk)} | margins dropped by district ${JSON.stringify(single.dropsByDistrict)}, the largest by ${String(single.walk.largestDrop)}\n  California: ${tallyLine(california.walk)}\n  two division, finals on no row: ${tallyLine(twoNoRow.walk)}\n  two division, finals registered: ${tallyLine(twoRegistered.walk)}\n  2026 FIM, both finals variants: ${tallyLine(fim.walk)}\n${single.walk.dropLines.slice(0, 30).map((line) => `  ${line}`).join("\n")}`
+      );
+      // THE REQUIREMENT: the mutation is caught. WHAT IT COSTS, IN WORDS: a margin drops, and no Locked team is lost
+      // on any walk of this file. The rule keeps a bound from rising; no measured Locked rests on it.
+      expect(single.walk.marginDrops).toBeGreaterThan(0);
+      // The measurement of the reading before quick task 261010-d7r (finding F-D). Pinned as the run shows.
+      const pin = (totals: MicroTotals) => ({ lost: totals.walk.lost.step + totals.walk.lost.flag, marginDrops: totals.walk.marginDrops, dropsByDistrict: totals.dropsByDistrict });
+      // NO LOCKED TEAM IS LOST with this rule off, over every walk of this group.
+      for (const totals of [single, california, twoNoRow, twoRegistered, fim]) expect(totals.walk.lost.step + totals.walk.lost.flag).toBe(0);
+      // 25 team margins over five of the 31 single championships, each by 1, each at the played row that places an
+      // alliance listing four teams (2023pnw at the second Finals match). None at California, at a two division
+      // championship or at 2026 FIM. The planner of the quick task read the same 25, and one more at 2025 FIM, which
+      // is not walked here.
+      expect({ single: { ...pin(single), largestDrop: single.walk.largestDrop }, california: pin(california), twoNoRow: pin(twoNoRow), twoRegistered: pin(twoRegistered), fim: pin(fim) }).toEqual({
+        single: { lost: 0, marginDrops: 25, dropsByDistrict: { "2023pnw": 17, "2024fnc": 1, "2024pch": 2, "2026fnc": 3, "2026win": 2 }, largestDrop: 1 },
+        california: { lost: 0, marginDrops: 0, dropsByDistrict: {} },
+        twoNoRow: { lost: 0, marginDrops: 0, dropsByDistrict: {} },
+        twoRegistered: { lost: 0, marginDrops: 0, dropsByDistrict: {} },
+        fim: { lost: 0, marginDrops: 0, dropsByDistrict: {} },
+      });
+    },
+    TEST_TIMEOUT_MS
+  );
+
+  it(
+    "FORCED, MEASURED AND NOT REQUIRED: a division's awards flag written true by hand before its playoff points (the merge's flag rule never does this: it waits for a playoff point, and `eventAwards.ts` states why), pinned as the run shows",
+    () => {
+      const all = microTotals([...twoDivisionWalks("finalsOnNoRow"), ...twoDivisionWalks("finalsRegistered"), [MICRO_FIM, "finalsOnNoRow"], [MICRO_FIM, "finalsRegistered"]], "on");
+      console.log(`[261010-d7r group D, FORCED awards flag before the playoff points] ${tallyLine(all.forcedFlag)} | distinct district and team pairs lost ${String(all.forcedFlag.lostTeams.size)}\n${all.forcedFlag.lostLines.slice(0, 12).map((line) => `  ${line}`).join("\n")}`);
+      // What excludes this edge is asserted above: the merge's own rule kept the flag false at every division.
+      expect(all.flagHeldWithoutPlayoffPoints).toBe(all.divisionsWalkedAwardsFirst);
+      // 56 divisions, two forced edges each. The Locked lost here are lost when the playoff points land AFTER a flag
+      // that had closed the division's Playoffs with none on a row: points no reading allowed for. None is lost over
+      // the edge that writes the flag itself (every finding names its edge, and the tally keeps all of them).
+      expect(all.forcedFlag.lostLines).toHaveLength(all.forcedFlag.lost.step);
+      expect(all.forcedFlag.lostLines.filter((line) => !line.includes('(FORCED)" then "'))).toEqual([]);
+      expect({ ...microPin(all.forcedFlag), lost: all.forcedFlag.lost.step, distinctPairsLost: all.forcedFlag.lostTeams.size, marginDrops: all.forcedFlag.marginDrops }).toEqual({ readings: 112, edges: 112, lost: 34, distinctPairsLost: 28, marginDrops: 498 });
+    },
+    TEST_TIMEOUT_MS
+  );
+
+  it(
+    "FORCED, MEASURED AND NOT REQUIRED: a proven field read not proven again, by doubling the published capacity under the same rows (the field proof never goes from proven to not proven on any walked path, asserted above), pinned as the run shows",
+    () => {
+      const all = microTotals([...ONE_EVENT_WALKS, ...twoDivisionWalks("finalsOnNoRow"), ...twoDivisionWalks("finalsRegistered"), [MICRO_FIM, "finalsOnNoRow"], [MICRO_FIM, "finalsRegistered"]], "on");
+      console.log(`[261010-d7r group D, FORCED field proof not proven again] ${tallyLine(all.unprovenAgain)} | distinct district and team pairs lost ${String(all.unprovenAgain.lostTeams.size)}\n${all.unprovenAgain.lostLines.slice(0, 12).map((line) => `  ${line}`).join("\n")}`);
+      expect(all.fieldProofTakenBack).toEqual([]);
+      // 85 forced readings: the main line's end of all 58 walks, and the tick the field proof turned true in the 27
+      // walks whose last key's rows arrive mid playoffs. The proof refuses at every one.
+      expect({ ...microPin(all.unprovenAgain), lost: all.unprovenAgain.lost.step, distinctPairsLost: all.unprovenAgain.lostTeams.size, joint: all.unprovenAgain.joint }).toEqual({ readings: 85, edges: 85, lost: 596, distinctPairsLost: 510, joint: { fieldNotProven: 85 } });
     },
     TEST_TIMEOUT_MS
   );
