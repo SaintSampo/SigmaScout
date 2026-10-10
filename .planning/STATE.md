@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-10T08:37:10.019Z"
+last_updated: "2026-10-10T08:38:28.979Z"
 last_activity: 2026-10-10
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -753,6 +753,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 317 | Worker awards watch closed out: settle time, day long watch with forced looks and a catch up, published verdicts gated on each event's own state and counting what is still open, award stage replay over eight PNW events with no lock taken back | 2026-10-10 | 8fb29c8a | [261009-tx6-worker-awards-watch-settle-time-day-long](./quick/261009-tx6-worker-awards-watch-settle-time-day-long/) |
 | 318 | Divisioned joint proof follows the backup robot rule: one backup per alliance from its own division; 198 more lock stops, zero violations, verified against 45 million legal futures | 2026-10-10 | 61444f38 | [261009-tx9-divisioned-joint-proof-follows-the-backu](./quick/261009-tx9-divisioned-joint-proof-follows-the-backu/) |
 | 319 | A category's number reads final only once its points are in: two readings (field and number) never mixed, the awards flag waits for every consuming award an event gives, the winner's places stay held until a Winner is recorded; staged walks over eight PNW events take back 32 locks without the rule and 0 with it, history unchanged | 2026-10-10 | 0aafac90 | [261009-vp9-a-category-counts-as-finished-only-when-](./quick/261009-vp9-a-category-counts-as-finished-only-when-/) |
+| 320 | The offline district publisher reads what is live before it uploads and refuses to lose a live fact (a stage flag, a played count, a points row, a recorded award winner); --allow-regress overrides, --check-live reports on a dry run; first production read compared 109 districts and would lose nothing | 2026-10-10 | 14bb1b07 | [261009-ul3-district-publisher-refuses-to-overwrite-](./quick/261009-ul3-district-publisher-refuses-to-overwrite-/) |
 
 ### Roadmap Evolution
 
