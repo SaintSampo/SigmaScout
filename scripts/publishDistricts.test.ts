@@ -56,6 +56,9 @@ import { finishedEventKeysAsOf, underwayEventKeysAsOf } from "./districtPricingS
 import { DistrictArtifactSchema } from "../packages/harness/pageArtifacts.js";
 import { DistrictPublishRefusedError } from "./districtPublishGuard.js";
 import type { CliOptions } from "./publishDistricts.js";
+import { DISTRICT_AWARDS_WATCH_MS, LIVE_WINDOW_PAD_MS } from "../packages/harness/manifests.js";
+import { DistrictsIndexArtifactSchema, type DistrictsIndexArtifact } from "../packages/harness/pageArtifacts.js";
+import { LIVE_DISTRICT_MARKER } from "./districtLiveGuard.js";
 
 /** The corpus this file's corpus-guarded describes read, guarded exactly as `reconciliation.test.ts` guards its own. */
 const CORPUS_PATH = "data/corpus.sqlite";
@@ -2292,4 +2295,429 @@ describe("parseOptions — --allow-regress and --check-live (261009-ul3)", () =>
     expect(parseOptions(["--years", "2026", "--check-live"]).checkLive).toBe(true);
     expect(parseOptions(["--years", "2026", "--allow-regress", "--dry-run"]).allowRegress).toBe(true);
   });
+});
+
+// ---------------------------------------------------------------------------
+// 261010-jyn: the publisher skips a district while one of its events is live
+// ---------------------------------------------------------------------------
+
+describe("run() skips a district while one of its events is live and publishes the others, over the real corpus (261010-jyn)", () => {
+  if (!existsSync(CORPUS_PATH)) {
+    it.skip(`skipped: ${CORPUS_PATH} not found — run the ingest pipeline (pnpm ingest:districts) first`, () => {});
+    return;
+  }
+
+  /** Never the real bucket: the reader and the writer are both fakes, and `fetch` throws if anything reaches it. */
+  const JYN_BUCKET = "jyn-test-bucket-not-real";
+  const JYN_TIMEOUT_MS = 60_000;
+  const JYN_INDEX_KEY = "v1/districts/2026.json";
+  /** The one instant of a published season at which every district of that season is live (planner measurement, 2016). */
+  const JYN_ALL_LIVE_2016_MS = Date.parse("2016-03-19T14:06:34.000Z");
+  /** How far the published index fixture's team count sits above this run's, so a carried row can be told from a composed one. */
+  const JYN_TEAM_COUNT_RAISE = 7;
+
+  type JynReader = NonNullable<CliOptions["readPublished"]>;
+  type JynWriter = NonNullable<CliOptions["writeObject"]>;
+  type JynAnswer = (key: string, readsSoFar: number) => string | null | Error;
+
+  interface JynFixture {
+    /** The year prefixed key of the district whose event holds the latest match time of 2026. */
+    readonly districtKey: string;
+    readonly eventKey: string;
+    /** That event's `start_date`, as the corpus holds it. */
+    readonly startDate: string;
+    /** LIVE: the latest match time of that event. */
+    readonly live: number;
+    /** ENDS: the first instant at which the clock rule no longer lists the district. */
+    readonly ends: number;
+    /** N: the number of `districts` rows of 2026. */
+    readonly n: number;
+    /** LIVEKEY: the detail key of the fixture district. */
+    readonly liveKey: string;
+    /** This run's composed artifact of the fixture district. */
+    readonly liveArtifact: ReturnType<typeof composeYear>["detailArtifacts"][number]["artifact"];
+    /** Every district detail of the 2026 season, in the order `run` composes them. */
+    readonly details: ReadonlyArray<{ readonly key: string; readonly districtKey: string; readonly body: string }>;
+    /** The index `composeYear` gives for 2026. */
+    readonly composedIndex: DistrictsIndexArtifact;
+    /** The published index fixture: the composed one with the fixture district's team count raised. */
+    readonly publishedIndex: DistrictsIndexArtifact;
+    readonly publishedIndexBody: string;
+    /** Every year prefixed district key of 2016, sorted. */
+    readonly districtKeys2016: readonly string[];
+  }
+
+  let cached: JynFixture | undefined;
+  function fixture(): JynFixture {
+    if (cached !== undefined) return cached;
+    const original = console.log;
+    console.log = () => {};
+    const db = openCorpusReadOnly(CORPUS_PATH);
+    try {
+      const latest = db
+        .prepare(
+          `SELECT e.event_key AS eventKey, d.district_key AS districtKey, e.start_date AS startDate, MAX(m.sort_time) AS last
+           FROM events e
+           JOIN districts d ON d.abbreviation = e.district_key AND d.year = e.year
+           JOIN matches m ON m.event_key = e.event_key
+           WHERE e.year = 2026
+           GROUP BY e.event_key
+           ORDER BY last DESC, e.event_key ASC
+           LIMIT 1`
+        )
+        .get() as { eventKey: string; districtKey: string; startDate: string; last: number } | undefined;
+      if (latest === undefined) throw new Error("261010-jyn fixture: no 2026 district event has a match");
+      const n = (db.prepare("SELECT COUNT(*) AS n FROM districts WHERE year = 2026").get() as { n: number }).n;
+      const districtKeys2016 = (db.prepare("SELECT district_key AS districtKey FROM districts WHERE year = 2016 ORDER BY district_key ASC").all() as { districtKey: string }[]).map(
+        (row) => row.districtKey
+      );
+      const year = composeYear(db, 2026, GENERATION, COMPUTED_AT);
+      if (year.detailArtifacts.length !== n) throw new Error(`261010-jyn fixture: composeYear gave ${year.detailArtifacts.length} districts for 2026 and the corpus holds ${n}`);
+      const target = year.detailArtifacts.find((detail) => detail.artifact.districtKey === latest.districtKey);
+      if (target === undefined) throw new Error(`261010-jyn fixture: no composed district is ${latest.districtKey}`);
+      // Through the schema, so a broken fixture fails here and not as a refused carry.
+      const publishedIndex = DistrictsIndexArtifactSchema.parse({
+        ...year.indexArtifact,
+        districts: year.indexArtifact.districts.map((row) => (row.districtKey === latest.districtKey ? { ...row, teamCount: row.teamCount + JYN_TEAM_COUNT_RAISE } : row)),
+      });
+      cached = {
+        districtKey: latest.districtKey,
+        eventKey: latest.eventKey,
+        startDate: latest.startDate,
+        live: latest.last,
+        ends: latest.last + LIVE_WINDOW_PAD_MS + DISTRICT_AWARDS_WATCH_MS,
+        n,
+        liveKey: target.key,
+        liveArtifact: target.artifact,
+        details: year.detailArtifacts.map((detail) => ({ key: detail.key, districtKey: detail.artifact.districtKey, body: JSON.stringify(detail.artifact) })),
+        composedIndex: year.indexArtifact,
+        publishedIndex,
+        publishedIndexBody: JSON.stringify(publishedIndex),
+        districtKeys2016,
+      };
+      return cached;
+    } finally {
+      db.close();
+      console.log = original;
+    }
+  }
+
+  /** The fake reader and the fake writer push to ONE list, so the order of reads and writes is a fact a test can read. Every written body is kept by key. */
+  function seams(answer: JynAnswer): {
+    readonly calls: string[];
+    readonly written: Map<string, string>;
+    readonly read: JynReader;
+    readonly write: JynWriter;
+  } {
+    const calls: string[] = [];
+    const written = new Map<string, string>();
+    let readCount = 0;
+    const read: JynReader = async (bucket, key) => {
+      expect(bucket).toBe(JYN_BUCKET);
+      const readsSoFar = readCount;
+      readCount += 1;
+      calls.push(`read ${key}`);
+      const answered = answer(key, readsSoFar);
+      if (answered instanceof Error) throw answered;
+      return answered;
+    };
+    const write: JynWriter = async (bucket, key, body) => {
+      expect(bucket).toBe(JYN_BUCKET);
+      calls.push(`write ${key}`);
+      written.set(key, body);
+    };
+    return { calls, written, read, write };
+  }
+
+  /** Runs the publisher with the console captured, and hands back the lines and whatever it threw. */
+  async function runCaptured(options: Partial<CliOptions>): Promise<{ lines: string[]; error: unknown }> {
+    const lines: string[] = [];
+    const original = console.log;
+    console.log = (...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    };
+    let error: unknown;
+    try {
+      await run({ years: [2026], bucket: JYN_BUCKET, dryRun: false, asOf: COMPUTED_AT, bake: false, ...options });
+    } catch (caught) {
+      error = caught;
+    } finally {
+      console.log = original;
+    }
+    return { lines, error };
+  }
+
+  /** The default reader: the published index fixture for the index key, no object at any other key. */
+  const publishedIndexOnly =
+    (f: JynFixture): JynAnswer =>
+    (key) =>
+      key === JYN_INDEX_KEY ? f.publishedIndexBody : null;
+  const reads = (calls: readonly string[]): string[] => calls.filter((call) => call.startsWith("read "));
+  const writes = (calls: readonly string[]): string[] => calls.filter((call) => call.startsWith("write "));
+  const markerLines = (lines: readonly string[]): string[] => lines.filter((line) => line.includes(LIVE_DISTRICT_MARKER));
+  const everyDetailWrite = (f: JynFixture): string[] => f.details.map((detail) => `write ${detail.key}`);
+  const uploadedIndex = (written: ReadonlyMap<string, string>): DistrictsIndexArtifact => DistrictsIndexArtifactSchema.parse(JSON.parse(written.get(JYN_INDEX_KEY)!));
+  /** A clock seam that answers `first` on its first call and `later` afterwards, and counts its calls. */
+  function clock(first: number, later: number = first): { readonly now: () => number; readonly calls: () => number } {
+    let count = 0;
+    return {
+      now: () => {
+        count += 1;
+        return count === 1 ? first : later;
+      },
+      calls: () => count,
+    };
+  }
+  /** A fresh temp directory for `--local-out`, removed when `body` settles. */
+  async function withOutDir<T>(body: (outDir: string) => Promise<T>): Promise<T> {
+    const outDir = mkdtempSync(join(tmpdir(), "publish-districts-jyn-"));
+    try {
+      return await body(outDir);
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
+  }
+
+  let fetchSpy: { mockRestore: () => void } | undefined;
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      throw new Error("261010-jyn: a test reached the network");
+    });
+  });
+  afterEach(() => {
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy?.mockRestore();
+  });
+
+  it("the fixture is the district and event the planner measured: 2026isr and 2026iscmp, 14 districts in 2026 and 8 in 2016", () => {
+    const f = fixture();
+    expect([f.districtKey, f.eventKey]).toEqual(["2026isr", "2026iscmp"]);
+    expect(f.n).toBe(14);
+    expect(f.districtKeys2016).toHaveLength(8);
+    expect(f.liveKey).toBe(`v1/district/${f.districtKey}.json`);
+    expect(f.publishedIndex.districts.find((row) => row.districtKey === f.districtKey)!.teamCount).toBe(
+      f.composedIndex.districts.find((row) => row.districtKey === f.districtKey)!.teamCount + JYN_TEAM_COUNT_RAISE
+    );
+  });
+
+  it(
+    "one live district is skipped and the others publish: nothing of it is read, written or uploaded, and the index keeps its published row",
+    async () => {
+      const f = fixture();
+      const { calls, written, read, write } = seams(publishedIndexOnly(f));
+
+      await withOutDir(async (outDir) => {
+        const { lines, error } = await runCaptured({ now: () => f.live, readPublished: read, writeObject: write, localOut: outDir });
+
+        expect(error).toBeUndefined();
+        // N keys: N minus 1 details and the index, never the live district's detail.
+        expect(writes(calls).sort()).toEqual([...everyDetailWrite(f).filter((call) => call !== `write ${f.liveKey}`), `write ${JYN_INDEX_KEY}`].sort());
+        expect(writes(calls)).toHaveLength(f.n);
+        // 2N minus 1 reads: N minus 1 details in each 261009-ul3 pass, then the index last.
+        expect(reads(calls)).toHaveLength(2 * f.n - 1);
+        expect(calls).not.toContain(`read ${f.liveKey}`);
+        expect(reads(calls).filter((call) => call === `read ${JYN_INDEX_KEY}`)).toHaveLength(1);
+        expect(reads(calls).at(-1)).toBe(`read ${JYN_INDEX_KEY}`);
+        const firstWrite = calls.findIndex((call) => call.startsWith("write "));
+        expect(firstWrite).toBe(2 * f.n - 1);
+        expect(calls.slice(firstWrite).some((call) => call.startsWith("read "))).toBe(false);
+
+        // The uploaded index: the published row for the skipped district, this run's for every other.
+        const index = uploadedIndex(written);
+        expect(index.districts.map((row) => row.districtKey)).toEqual(f.composedIndex.districts.map((row) => row.districtKey));
+        for (const row of index.districts) {
+          const source = row.districtKey === f.districtKey ? f.publishedIndex : f.composedIndex;
+          expect(row).toEqual(source.districts.find((candidate) => candidate.districtKey === row.districtKey));
+        }
+
+        // N local files, none of them the skipped district's detail.
+        const files = readdirSync(outDir);
+        expect(files).toHaveLength(f.n);
+        expect(files).not.toContain(localOutFileName(f.liveKey));
+        expect(files).toContain(localOutFileName(JYN_INDEX_KEY));
+
+        const marked = markerLines(lines);
+        expect(marked.some((line) => line.includes(f.districtKey) && line.includes(f.eventKey))).toBe(true);
+        expect(marked.some((line) => line.includes(f.districtKey) && line.includes("skipped"))).toBe(true);
+        const last = marked.at(-1)!;
+        expect(last).toContain("--allow-live");
+        expect(last).toContain("1 live district(s) skipped");
+        expect(last).toContain(`${f.n - 1} district(s) published`);
+        expect(lines.at(-1)).toBe(last);
+        expect(lines.some((line) => line.includes(`composed "${f.liveKey}"`))).toBe(false);
+      });
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "one millisecond before the watch ends the district is still skipped",
+    async () => {
+      const f = fixture();
+      const { calls, read, write } = seams(publishedIndexOnly(f));
+
+      const { error } = await runCaptured({ now: () => f.ends - 1, readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(calls).not.toContain(`write ${f.liveKey}`);
+      expect(writes(calls)).toHaveLength(f.n);
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "at the instant the watch ends nothing is skipped, the index is this run's and no line is printed",
+    async () => {
+      const f = fixture();
+      const { calls, written, read, write } = seams(publishedIndexOnly(f));
+
+      const { lines, error } = await runCaptured({ now: () => f.ends, readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(writes(calls)).toHaveLength(f.n + 1);
+      expect(calls).toContain(`write ${f.liveKey}`);
+      expect(reads(calls)).toHaveLength(2 * f.n);
+      expect(calls).not.toContain(`read ${JYN_INDEX_KEY}`);
+      expect(uploadedIndex(written).districts).toEqual(f.composedIndex.districts);
+      expect(markerLines(lines)).toEqual([]);
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "a district that turns live between the passes is skipped before any of its uploads",
+    async () => {
+      const f = fixture();
+      const { calls, read, write } = seams(publishedIndexOnly(f));
+      // Past the watch at the first pass, live at the second.
+      const { now } = clock(f.ends, f.live);
+
+      const { lines, error } = await runCaptured({ now, readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(writes(calls)).toHaveLength(f.n);
+      expect(calls).not.toContain(`write ${f.liveKey}`);
+      // 2N reads: N details in the first 261009-ul3 pass, then N minus 1, then the index last.
+      const read_ = reads(calls);
+      expect(read_).toHaveLength(2 * f.n);
+      expect(read_.slice(0, f.n)).toContain(`read ${f.liveKey}`);
+      expect(read_.slice(f.n, 2 * f.n - 1)).not.toContain(`read ${f.liveKey}`);
+      expect(read_.slice(f.n, 2 * f.n - 1)).not.toContain(`read ${JYN_INDEX_KEY}`);
+      expect(read_.at(-1)).toBe(`read ${JYN_INDEX_KEY}`);
+      expect(markerLines(lines).some((line) => line.includes(f.districtKey) && line.includes("before the first upload"))).toBe(true);
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "a published index that is missing refuses the run before any upload, and writes no local file",
+    async () => {
+      const f = fixture();
+      const { calls, read, write } = seams(() => null);
+
+      await withOutDir(async (outDir) => {
+        const { error } = await runCaptured({ now: () => f.live, readPublished: read, writeObject: write, localOut: outDir });
+
+        expect(error).toBeInstanceOf(DistrictPublishRefusedError);
+        expect((error as Error).message).toContain(JYN_INDEX_KEY);
+        expect((error as Error).message).toContain("--allow-live");
+        expect(writes(calls)).toEqual([]);
+        expect(readdirSync(outDir)).toEqual([]);
+      });
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "every district of a season live: nothing is read, nothing is uploaded, and the run resolves",
+    async () => {
+      const f = fixture();
+      const { calls, read, write } = seams(() => new Error("a season whose districts are all skipped must not read"));
+
+      await withOutDir(async (outDir) => {
+        const { lines, error } = await runCaptured({ years: [2016], now: () => JYN_ALL_LIVE_2016_MS, readPublished: read, writeObject: write, localOut: outDir });
+
+        expect(error).toBeUndefined();
+        expect(calls).toEqual([]);
+        expect(readdirSync(outDir)).toEqual([]);
+        const marked = markerLines(lines);
+        // By name, so a corpus in which one of them is no longer live at that instant fails here.
+        for (const districtKey of f.districtKeys2016) {
+          expect(marked.some((line) => line.includes(`${LIVE_DISTRICT_MARKER} ${districtKey} is skipped`)), districtKey).toBe(true);
+        }
+        expect(marked.some((line) => line.includes("v1/districts/2016.json"))).toBe(true);
+        const last = marked.at(-1)!;
+        expect(last).toContain("8 live district(s) skipped");
+        expect(last).toContain("0 district(s) published");
+      });
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "one season wholly skipped beside one published in full: only the published season's keys are uploaded",
+    async () => {
+      const f = fixture();
+      const { calls, read, write } = seams(publishedIndexOnly(f));
+
+      const { error } = await runCaptured({ years: [2016, 2026], now: () => JYN_ALL_LIVE_2016_MS, readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(writes(calls).sort()).toEqual([...everyDetailWrite(f), `write ${JYN_INDEX_KEY}`].sort());
+      expect(calls.some((call) => call.includes("2016"))).toBe(false);
+      expect(calls).not.toContain("read v1/districts/2016.json");
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "the clock is read once per pass: twice on a run that uploads",
+    async () => {
+      const f = fixture();
+      const { read, write } = seams(publishedIndexOnly(f));
+      const seam = clock(f.ends);
+
+      const { error } = await runCaptured({ now: seam.now, readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(seam.calls()).toBe(2);
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "the as of instant is not the clock: an as of inside the window with a clock past the watch skips nothing",
+    async () => {
+      const f = fixture();
+      const { calls, read, write } = seams(publishedIndexOnly(f));
+
+      const { lines, error } = await runCaptured({ asOf: new Date(f.live).toISOString(), now: () => f.ends, readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(writes(calls)).toHaveLength(f.n + 1);
+      expect(markerLines(lines)).toEqual([]);
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "a dry run is not affected: it reads nothing, uploads nothing and writes every composed object locally, the live district's too",
+    async () => {
+      const f = fixture();
+      const { calls, read, write } = seams(() => new Error("a dry run must not read"));
+
+      await withOutDir(async (outDir) => {
+        const { error } = await runCaptured({ dryRun: true, now: () => f.live, readPublished: read, writeObject: write, localOut: outDir });
+
+        expect(error).toBeUndefined();
+        expect(calls).toEqual([]);
+        const files = readdirSync(outDir);
+        expect(files).toHaveLength(f.n + 1);
+        expect(files).toContain(localOutFileName(f.liveKey));
+      });
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  // (the end of the 261010-jyn run describe: later tasks add their cases above this line)
 });

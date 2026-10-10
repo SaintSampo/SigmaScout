@@ -158,6 +158,7 @@ import { getObjectIfExists, putObject } from "../packages/harness/r2Client.js";
 import { roundPmf } from "../packages/harness/rounding.js";
 import { parseSeasonSpec } from "../packages/harness/seasonSpec.js";
 import { guardLivePublish, type PublishedReader } from "./districtPublishGuard.js";
+import { carryPublishedIndex, checkLiveDistricts, seasonUploadPlan, type RunDistrict } from "./districtLiveGuard.js";
 import {
   buildDistrictPricingState,
   finishedEventKeysAsOf,
@@ -1684,6 +1685,13 @@ export interface CliOptions {
    * included. It has no effect on a run that uploads, which always checks.
    */
   readonly checkLive?: boolean;
+  /**
+   * The clock the live districts guard reads (quick task 261010-jyn), in epoch milliseconds. A TEST
+   * SEAM only: production reads the wall clock, `Date.now()`, once per clock pass. It is never the
+   * `asOf` instant: an as of run of a past date is an analysis tool, and whether the Worker owns a
+   * district's file right now is a fact about right now. No command line flag sets it.
+   */
+  readonly now?: () => number;
 }
 
 export function parseOptions(argv: readonly string[]): CliOptions {
@@ -1835,6 +1843,49 @@ export async function run(options: CliOptions): Promise<void> {
     // of the run before the first upload, so a refusal leaves R2 untouched.
     const composedSeasons = options.years.map((season) => ({ season, year: composeYear(db, season, generation, computedAt) }));
 
+    // THE LIVE DISTRICTS GUARD (quick task 261010-jyn). The Worker owns a
+    // district's file while one of its events is live and for 24 hours after
+    // it, so this run SKIPS that district and publishes the others. The run's
+    // districts, each with every event the publisher lists for it, are known
+    // here, once every season is composed.
+    const runDistricts: RunDistrict[] = composedSeasons.flatMap(({ season, year }) =>
+      year.detailArtifacts.map((composed) => ({
+        districtKey: composed.district.districtKey,
+        season,
+        events: composed.events.map((event) => ({ eventKey: event.eventKey, startDate: event.startDate ?? null })),
+      }))
+    );
+    // Every district this run uploads nothing of. A district that joins it
+    // stays in it for the run, even when its watch ends during the bake: the
+    // operator runs again.
+    const skippedDistricts = new Set<string>();
+    // Every district a clock pass printed, so the second pass prints and
+    // returns only the newly live ones.
+    const clockListed = new Set<string>();
+    // The wall clock, read ONCE per clock pass and nowhere else. Never `asOf`.
+    const readClock = (): number => (options.now ?? Date.now)();
+    const clockPass = (stage: string): void => {
+      const outcome = checkLiveDistricts({
+        stage,
+        db,
+        districts: runDistricts,
+        nowMs: readClock(),
+        log: (line) => console.log(line),
+        alreadyListed: clockListed,
+        mode: "enforce",
+        allowLive: false,
+      });
+      for (const districtKey of outcome.liveDistrictKeys) {
+        clockListed.add(districtKey);
+        skippedDistricts.add(districtKey);
+      }
+    };
+
+    // FIRST CLOCK PASS, after compose (the districts and their events are known
+    // here) and before the first R2 read: a district it lists is neither read
+    // nor compared below.
+    if (!options.dryRun) clockPass("before the bake");
+
     // The guard reads the COMPOSED artifact of every district of the run, before
     // the baked-event list is attached: that list is not a fact the Worker
     // records. The reader is resolved here, on the path that reads, and never at
@@ -1846,10 +1897,20 @@ export async function run(options: CliOptions): Promise<void> {
     // unless --check-live asks it to REPORT: it prints the list and never fails.
     const guardMode: "enforce" | "report" | undefined = !options.dryRun ? "enforce" : options.checkLive === true ? "report" : undefined;
     const checkLiveFacts = async (stage: string, mode: "enforce" | "report"): Promise<void> => {
+      // Only the districts that are not skipped at this moment, in their
+      // existing order (quick task 261010-jyn): the Worker owns a skipped
+      // district's file, and this run writes nothing over it.
+      const details = composedSeasons.flatMap(({ year }) =>
+        year.detailArtifacts
+          .filter((composed) => !skippedDistricts.has(composed.district.districtKey))
+          .map((composed) => ({ key: composed.key, artifact: composed.artifact }))
+      );
+      // Districts were skipped and none is left: there is nothing to read.
+      if (details.length === 0 && skippedDistricts.size > 0) return;
       await guardLivePublish({
         stage,
         bucket: options.bucket,
-        details: composedSeasons.flatMap(({ year }) => year.detailArtifacts.map((composed) => ({ key: composed.key, artifact: composed.artifact }))),
+        details,
         read: options.readPublished ?? getObjectIfExists,
         log: (line) => console.log(line),
         mode,
@@ -1870,15 +1931,61 @@ export async function run(options: CliOptions): Promise<void> {
       prepared.push({ season, year, bakeResult });
     }
 
+    // SECOND CLOCK PASS (quick task 261010-jyn), after the bake, because an
+    // event's window can open while the replay runs. A district found live here
+    // is skipped before any of its uploads, and before the second read below.
+    if (!options.dryRun) clockPass("before the first upload");
+
     // SECOND PASS, immediately before the first byte gate and the first upload:
     // the Worker writes every minute and the first read is minutes old by now,
     // so a fact it recorded during the bake is still seen. A dry run uploads
     // nothing, so with --check-live it makes the first pass only.
     if (guardMode === "enforce") await checkLiveFacts("before the first upload", guardMode);
 
+    // THE INDEX OF A SEASON WITH A SKIPPED DISTRICT (quick task 261010-jyn). The
+    // skip set is final here. A season with both a skipped and a published
+    // district uploads this run's index with each skipped district's row taken
+    // from the index that is published now, read once through the reader the
+    // live facts guard uses. Every season's carry finishes before the first
+    // upload, so an index that cannot be carried refuses the run with R2
+    // untouched.
+    const planned: Array<{
+      readonly season: number;
+      readonly year: PublishedYear;
+      readonly bakeResult: BakeSeasonResult | undefined;
+      readonly plan: ReturnType<typeof seasonUploadPlan>;
+      readonly carriedIndex: DistrictsIndexArtifact | undefined;
+    }> = [];
     for (const { season, year, bakeResult } of prepared) {
+      const plan = seasonUploadPlan({ districtKeys: year.detailArtifacts.map((composed) => composed.district.districtKey), skipped: skippedDistricts });
+      const carriedIndex =
+        plan.index === "carried"
+          ? await carryPublishedIndex({
+              bucket: options.bucket,
+              indexKey: year.indexKey,
+              season,
+              composed: year.indexArtifact,
+              skipped: skippedDistricts,
+              read: options.readPublished ?? getObjectIfExists,
+              log: (line) => console.log(line),
+            })
+          : undefined;
+      planned.push({ season, year, bakeResult, plan, carriedIndex });
+    }
+
+    for (const { season, year, bakeResult, plan, carriedIndex } of planned) {
+      // Every district of this season is skipped: nothing of it is uploaded,
+      // the index included, and its published index was not read.
+      if (plan.index === "none") {
+        console.log(
+          `publishDistricts: every district of season ${season} is a live district this run skips, so nothing of that season is uploaded, "${year.indexKey}" included.`
+        );
+        continue;
+      }
       let totalBytes = 0;
       for (const composed of year.detailArtifacts) {
+        // A skipped district: no byte gate, no local file, no upload, no line.
+        if (skippedDistricts.has(composed.district.districtKey)) continue;
         const bakedEvents = bakeResult?.bakedEventsByDistrict.get(composed.district.districtKey);
         const artifact =
           bakedEvents === undefined || bakedEvents.length === 0
@@ -1905,7 +2012,13 @@ export async function run(options: CliOptions): Promise<void> {
       // Sidecars before the index, for the same artifacts-before-index reason:
       // `bakedEvents` must never name a sidecar that is not there yet.
       let largestSidecar = { key: "", bytes: 0 };
+      let sidecarCount = 0;
       for (const sidecar of bakeResult?.sidecars ?? []) {
+        // A skipped district's sidecars were baked (the bake is not narrowed, so
+        // no baked artifact of a published district can change) and are passed
+        // over here like its detail.
+        if (skippedDistricts.has(sidecar.artifact.districtKey)) continue;
+        sidecarCount += 1;
         const body = JSON.stringify(sidecar.artifact);
         const bytes = gateAndRecord({
           key: sidecar.key,
@@ -1926,7 +2039,10 @@ export async function run(options: CliOptions): Promise<void> {
       // written (or, in --dry-run, composed) before the index below is
       // overwritten, so the index never points at a detail object that is
       // not there yet.
-      const indexBody = JSON.stringify(year.indexArtifact);
+      // With a skipped district in the season this is the carried index: this
+      // run's rows, the skipped district's row as published (quick task
+      // 261010-jyn). It goes through the same gate, local write and upload.
+      const indexBody = JSON.stringify(carriedIndex ?? year.indexArtifact);
       // THROUGH THE SAME GATE AS THE OTHER TWO KINDS. This object used to be
       // measured by a hand-rolled `Buffer.byteLength` and a hand-rolled
       // `--local-out` write, with no `assertWithinDistrictBudget` in front of
@@ -1946,9 +2062,13 @@ export async function run(options: CliOptions): Promise<void> {
         console.log(`publishDistricts: published "${year.indexKey}" to bucket "${options.bucket}"`);
       }
 
-      const sidecarCount = bakeResult?.sidecars.length ?? 0;
+      // With nothing skipped this line is exactly what it was before 261010-jyn.
+      const districtCount =
+        plan.skip.length === 0
+          ? `${year.detailArtifacts.length} district(s)`
+          : `${plan.publish.length} district(s) published, ${plan.skip.length} live district(s) skipped`;
       console.log(
-        `publishDistricts: season ${season} — ${year.detailArtifacts.length} district(s), ${sidecarCount} sidecar(s)` +
+        `publishDistricts: season ${season} — ${districtCount}, ${sidecarCount} sidecar(s)` +
           (sidecarCount > 0 ? ` (largest ${largestSidecar.key} at ${largestSidecar.bytes} bytes)` : "") +
           `, ${totalBytes} total bytes` +
           (bakeResult !== undefined
@@ -1961,7 +2081,20 @@ export async function run(options: CliOptions): Promise<void> {
       console.log("publishDistricts: --dry-run — nothing published.");
     }
     if (options.localOut !== undefined) {
-      console.log(`publishDistricts: --local-out — every composed object written to "${options.localOut}".`);
+      console.log(
+        skippedDistricts.size === 0
+          ? `publishDistricts: --local-out — every composed object written to "${options.localOut}".`
+          : `publishDistricts: --local-out — every object this run uploaded written to "${options.localOut}". Nothing was written for a skipped live district.`
+      );
+    }
+    // THE CLOSING LINE (quick task 261010-jyn), printed last so it is what the
+    // operator reads last: how many districts were skipped and what to do.
+    if (skippedDistricts.size > 0) {
+      console.log(
+        `publishDistricts: ${skippedDistricts.size} live district(s) skipped, ${runDistricts.length - skippedDistricts.size} district(s) published. ` +
+          `Run this again later, or pass --allow-live to publish them now. ` +
+          `See "The offline district publish skips a district while one of its events is live" in docs/worker-operations.md.`
+      );
     }
   } finally {
     db.close();
