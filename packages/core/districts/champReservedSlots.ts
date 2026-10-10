@@ -59,6 +59,18 @@
  *      the current season conservative: between a district's last event and
  *      the DCMP's registration list a current season looks exactly like a
  *      cancelled one, and that window is one the guarantee has to cover.
+ *
+ * WHAT THE TWO CALLERS HAND AS `elimFinal` (quick task 261009-vp9). Not the
+ * playoffs flag alone. Both callers (the published verdict pass in
+ * `packages/harness/districtRankingsMerge.ts` and the Champ Locks tab in
+ * `apps/web/src/components/districts/champLedgerStatus.ts`) hand `elimFinal`
+ * as: the championship's Playoffs are final AND a Winner is recorded there.
+ * TBA can post the playoff points before it lists the Winner. For those
+ * ticks the winning alliance's four places would be neither reserved for
+ * (the Playoffs read final) nor counted (no winner is known), which hands
+ * the points race four slots the winners then take. Holding the places until
+ * a Winner is recorded keeps each place reserved for or counted, never both
+ * and never neither. This function is unchanged: only what it is handed.
  */
 import type { DistrictEventStateFacts } from "./reservedSlots.js";
 import { districtEventStateStarted } from "./reservedSlots.js";

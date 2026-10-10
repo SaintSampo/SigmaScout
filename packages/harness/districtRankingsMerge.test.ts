@@ -1227,7 +1227,15 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
         adjustments: 0,
         event_points: team.eventPoints.map((row) => {
           const awardPoints = row.eventKey === E2 ? (e2AwardPoints[team.teamKey] ?? 0) : row.award;
-          return { event_key: row.eventKey, district_cmp: row.tier === "dcmp", qual_points: row.qual, alliance_points: 0, elim_points: 0, award_points: awardPoints, total: row.qual + awardPoints };
+          return {
+            event_key: row.eventKey,
+            district_cmp: row.tier === "dcmp",
+            qual_points: row.qual,
+            alliance_points: row.alliance,
+            elim_points: row.elim,
+            award_points: awardPoints,
+            total: row.qual + row.alliance + row.elim + awardPoints,
+          };
         }),
       }));
     }
@@ -1310,6 +1318,90 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
       // record is invented.
       expect(flagsAt(merged, E2)).toEqual([false, false, false]);
       expect(merged.teams.map((team) => team.qualifyingAwards)).toEqual([[], [], []]);
+    });
+  });
+
+  describe("the flag waits for every consuming award an event gives (quick task 261009-vp9, D6)", () => {
+    const flagged = (artifact: DistrictArtifact, eventKey: string): boolean => flagsAt(artifact, eventKey).every((flag) => flag === true);
+    const recordTypes = (artifact: DistrictArtifact) => artifact.teams.map((team) => team.qualifyingAwards.map((entry) => entry.awardType));
+
+    it("a district tier list with Impact, its points, in the 60 minute set: the flag rises", () => {
+      const out = applyDistrictEventAwards(fixture({ e2Award: { frcC: 5 } }), lists([E2, [award(1, "frcA", "frcB"), award(0, "frcC")]]), new Set([E2]));
+      expect(flagsAt(out, E2)).toEqual([true, true, true]);
+    });
+
+    it("a district tier list WITHOUT Impact, with its points, in the 60 minute set only: the flag stays false and every record is still appended. In the 12 hour set it rises", () => {
+      const base = fixture({ e2Award: { frcB: 5 } });
+      const eventAwards = lists([E2, [award(1, "frcA", "frcB"), award(2, "frcC"), award(9, "frcB"), award(10, "frcC")]]);
+
+      const short = applyDistrictEventAwards(base, eventAwards, new Set([E2]));
+      expect(flagsAt(short, E2)).toEqual([false, false, false]);
+      expect(recordTypes(short)).toEqual([[], [9], [10]]);
+
+      const long = applyDistrictEventAwards(base, eventAwards, new Set([E2]), new Set([E2]));
+      expect(flagsAt(long, E2)).toEqual([true, true, true]);
+      expect(recordTypes(long)).toEqual([[], [9], [10]]);
+
+      // The long set naming another event settles nothing here.
+      expect(flagsAt(applyDistrictEventAwards(base, eventAwards, new Set([E2]), new Set([E1])), E2)).toEqual([false, false, false]);
+    });
+
+    describe("a championship (a dcmp tier key equal to its stem)", () => {
+      const dcmpRow = (total: number, awardPoints: number) => pointsRow(DCMP, total, awardPoints, PLAYOFFS_DONE, "dcmp");
+      const base = () => fixture({ extraPoints: { frcA: [dcmpRow(40, 10)], frcB: [dcmpRow(20, 0)], frcC: [dcmpRow(5, 0)] } });
+      const ALL_FOUR = [award(0, "frcA"), award(1, "frcA", "frcB"), award(9, "frcB"), award(10, "frcC"), award(2, "frcC"), award(29, null)];
+
+      it("with all four consuming awards listed, in the 60 minute set: the flag rises", () => {
+        expect(flagged(applyDistrictEventAwards(base(), lists([DCMP, ALL_FOUR]), new Set([DCMP])), DCMP)).toBe(true);
+      });
+
+      it.each([
+        [0, "Impact"],
+        [1, "Winner"],
+        [9, "Engineering Inspiration"],
+        [10, "Rookie All Star"],
+      ])("missing award type %i (%s), in the 60 minute set: the flag stays false, and in the 12 hour set it rises", (missing) => {
+        const list = ALL_FOUR.filter((entry) => entry.award_type !== missing);
+        const short = applyDistrictEventAwards(base(), lists([DCMP, list]), new Set([DCMP]));
+        expect(flagsAt(short, DCMP)).toEqual([false, false, false]);
+        // Every award that IS listed is recorded all the same.
+        expect(recordTypes(short).flat().sort((a, b) => a - b)).toEqual([0, 1, 1, 9, 10].filter((type) => type !== missing));
+
+        const long = applyDistrictEventAwards(base(), lists([DCMP, list]), new Set([DCMP]), new Set([DCMP]));
+        expect(flagged(long, DCMP)).toBe(true);
+      });
+    });
+
+    it("a division (a dcmp tier key with a trailing digit): a judged list with its points in the 60 minute set rises, and records nothing", () => {
+      const divisionRow = (awardPoints: number) => pointsRow(DIVISION, 20 + awardPoints, awardPoints, PLAYOFFS_DONE, "dcmp");
+      const base = fixture({ extraPoints: { frcA: [divisionRow(10)], frcB: [divisionRow(0)] } });
+      // No consuming award is listed at all: a division gives none.
+      const out = applyDistrictEventAwards(base, lists([DIVISION, [award(2, "frcB"), award(29, "frcA")]]), new Set([DIVISION]));
+      expect(flagsAt(out, DIVISION)).toEqual([true, true]);
+      expect(out.teams.map((team) => team.qualifyingAwards)).toEqual([[], [], []]);
+    });
+
+    it("no long set passed: nothing rises for an event that lacks an expected award, through both entry points", () => {
+      const base = fixture({ e2Award: { frcB: 5 } });
+      const eventAwards = lists([E2, [award(1, "frcA", "frcB"), award(9, "frcB")]]);
+      const rankings = base.teams.map((team) => ({
+        team_key: team.teamKey,
+        rank: team.rank,
+        point_total: team.pointTotal,
+        rookie_bonus: 0,
+        adjustments: 0,
+        event_points: team.eventPoints.map((row) => ({ event_key: row.eventKey, district_cmp: row.tier === "dcmp", qual_points: row.qual, alliance_points: row.alliance, elim_points: row.elim, award_points: row.award, total: row.total })),
+      }));
+      const viaRankings = (longSettledAwardEvents?: ReadonlySet<string>) =>
+        applyDistrictRankings({ artifact: base, rankings, generation: GENERATION, computedAt: COMPUTED_AT, eventAwards, settledAwardEvents: new Set([E2]), ...(longSettledAwardEvents === undefined ? {} : { longSettledAwardEvents }) });
+      const viaState = (longSettledAwardEvents?: ReadonlySet<string>) =>
+        applyDistrictEventState({ artifact: base, eventState: new Map(), generation: GENERATION, computedAt: COMPUTED_AT, eventAwards, settledAwardEvents: new Set([E2]), ...(longSettledAwardEvents === undefined ? {} : { longSettledAwardEvents }) });
+      for (const entryPoint of [viaRankings, viaState]) {
+        expect(flagsAt(entryPoint(), E2)).toEqual([false, false, false]);
+        expect(flagsAt(entryPoint(new Set()), E2)).toEqual([false, false, false]);
+        expect(recordTypes(entryPoint())).toEqual([[], [9], []]);
+        expect(flagsAt(entryPoint(new Set([E2])), E2)).toEqual([true, true, true]);
+      }
     });
   });
 
@@ -1974,6 +2066,65 @@ describe("recomputeDistrictVerdicts: the ceilings and floors count what is still
       // as before: the four places are released and the winner is counted.
       expect(teamOf(doneWithPoints, "frcW").champLock.status).toBe("lockedAward");
       expect(teamOf(doneWithPoints, "frcP").champLock.status).toBe("locked");
+    });
+
+    describe("the winner hold: the winning alliance's four places are released only once a Winner is recorded (quick task 261009-vp9, D6)", () => {
+      const OTHER_DCMP = "2026ncscmp";
+      const winnerAt = (eventKey: string) => ({ eventKey, awardType: 1, label: "Winner", awardOnly: false });
+      const champHeld = (status: string) => status === "locked" || status === "lockedAward" || status === "prequalified";
+      const champStatus = (artifact: DistrictArtifact): Record<string, string> => Object.fromEntries(artifact.teams.map((entry) => [entry.teamKey, entry.champLock.status]));
+
+      /**
+       * Eight Championship slots, five held for the judged awards while the
+       * championship's awards are open. Its playoffs are final by state AND
+       * by points: frcW's row carries the winner's 90. frcP is so far ahead
+       * that it is locked the moment one points slot is free.
+       */
+      const build = (winnerAwards: Team["qualifyingAwards"], extraTeams: readonly Team[] = []) =>
+        verdicts(
+          district(
+            [
+              team("frcP", [played(E0, { qual: 400 }, FINAL), played(DCMP, { qual: 30, alliance: 10 }, AWARDS_OPEN, "dcmp")]),
+              team("frcR", [played(E0, { qual: 40 }, FINAL), played(DCMP, { qual: 20, alliance: 5 }, AWARDS_OPEN, "dcmp")]),
+              team("frcS", [played(E0, { qual: 30 }, FINAL), played(DCMP, { qual: 20 }, AWARDS_OPEN, "dcmp")]),
+              team("frcW", [played(E0, { qual: 5 }, FINAL), played(DCMP, { qual: 10, alliance: 2, elim: DCMP_ELIM_MAX }, AWARDS_OPEN, "dcmp")], { awards: winnerAwards }),
+              ...extraTeams,
+            ],
+            { cmpSlots: 8 }
+          )
+        );
+
+      it("playoffs final by state and by points with no Winner recorded: the four places are still held", () => {
+        const out = champStatus(build([]));
+        // 8 - 5 - 4 leaves no points slot, so even frcP is not locked.
+        expect(out.frcP).toBe("contending");
+        expect(out.frcW).not.toBe("lockedAward");
+      });
+
+      it("record a Winner there: the four places are released and the winner reads lockedAward in the same call, and no held team loses its place", () => {
+        const before = champStatus(build([]));
+        const after = champStatus(build([winnerAt(DCMP)]));
+        expect(after.frcW).toBe("lockedAward");
+        // 8 - 5 - 1 leaves two points slots.
+        expect(after.frcP).toBe("locked");
+        for (const teamKey of Object.keys(before)) if (champHeld(before[teamKey]!)) expect({ teamKey, held: champHeld(after[teamKey]!) }).toEqual({ teamKey, held: true });
+      });
+
+      it("a Winner recorded at ANOTHER championship of the same district does not release this one's places", () => {
+        // A second championship, over, with its own recorded winner.
+        const otherWinner = team("frcV", [played(E0, { qual: 5 }, FINAL), played(OTHER_DCMP, { qual: 10, alliance: 2, elim: DCMP_ELIM_MAX }, FINAL, "dcmp")], { awards: [winnerAt(OTHER_DCMP)] });
+        const out = champStatus(build([], [otherWinner]));
+        // The other championship's winner is counted there.
+        expect(out.frcV).toBe("lockedAward");
+        // This championship still holds its four: 8 - 1 - 5 - 4 leaves nothing.
+        expect(out.frcP).toBe("contending");
+        expect(out.frcW).not.toBe("lockedAward");
+
+        // Once a Winner is recorded HERE too, the places are released.
+        const both = champStatus(build([winnerAt(DCMP)], [otherWinner]));
+        expect(both.frcW).toBe("lockedAward");
+        expect(both.frcP).toBe("locked");
+      });
     });
 
     it("is idempotent and path independent with an uncorroborated category present", () => {

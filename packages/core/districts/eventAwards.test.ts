@@ -2,14 +2,20 @@
  * `eventAwards.ts`'s behavior contract (quick task 261009-r9x): the one
  * "awards posted" rule at both vantages, the judged award test, the award
  * points test, and the one qualifying award record builder at both tiers.
+ *
+ * Since quick task 261009-vp9 the live rule also waits for every consuming
+ * award the event gives, and for 12 unchanged hours where one is not listed.
  */
 import { describe, expect, it } from "vitest";
 import {
   AWARD_TYPE_FINALIST,
   AWARDS_SETTLE_MS,
+  AWARDS_SETTLE_WITHOUT_IMPACT_MS,
   awardPointsPresentAt,
   awardsListSettled,
   awardsPostedRule,
+  expectedAwardsListed,
+  expectedConsumingAwardTypes,
   isJudgedAwardType,
   judgedAwardListed,
   qualifyingAwardRecord,
@@ -49,19 +55,80 @@ describe("awardsPostedRule", () => {
     { judgedAwardListed: true, awardPointsPresent: true },
   ] as const;
 
-  it("live: only all three facts read true (quick task 261009-tx6)", () => {
-    expect(cells.map((facts) => awardsPostedRule({ ...facts, listSettled: true }, "live"))).toEqual([false, false, false, true]);
-    expect(cells.map((facts) => awardsPostedRule({ ...facts, listSettled: false }, "live"))).toEqual([false, false, false, false]);
+  it("live: only all the facts read true: judged, points, every expected award listed, and the list settled for 60 minutes (quick tasks 261009-tx6 and 261009-vp9)", () => {
+    expect(cells.map((facts) => awardsPostedRule({ ...facts, expectedAwardsListed: true, listSettled: true }, "live"))).toEqual([false, false, false, true]);
+    expect(cells.map((facts) => awardsPostedRule({ ...facts, expectedAwardsListed: true, listSettled: false }, "live"))).toEqual([false, false, false, false]);
   });
 
   it("live: an absent settle fact reads as not settled", () => {
+    expect(cells.map((facts) => awardsPostedRule({ ...facts, expectedAwardsListed: true }, "live"))).toEqual([false, false, false, false]);
     expect(cells.map((facts) => awardsPostedRule(facts, "live"))).toEqual([false, false, false, false]);
   });
 
-  it("hindsight: only neither of the first two facts reads false, whatever the settle fact says", () => {
+  it("live: an expected award not listed is false at 60 settled minutes and true at 12 settled hours (quick task 261009-vp9)", () => {
+    const base = { judgedAwardListed: true, awardPointsPresent: true } as const;
+    // Settled for 60 minutes only: the flag waits for the award.
+    expect(awardsPostedRule({ ...base, expectedAwardsListed: false, listSettled: true }, "live")).toBe(false);
+    expect(awardsPostedRule({ ...base, expectedAwardsListed: false, listSettled: true, listSettledLong: false }, "live")).toBe(false);
+    // Settled for 12 hours: the event gave none, and the flag turns true.
+    expect(awardsPostedRule({ ...base, expectedAwardsListed: false, listSettled: true, listSettledLong: true }, "live")).toBe(true);
+  });
+
+  it("live: an absent expectedAwardsListed reads as not listed, so only the long settle turns the flag true", () => {
+    const base = { judgedAwardListed: true, awardPointsPresent: true } as const;
+    expect(awardsPostedRule({ ...base, listSettled: true }, "live")).toBe(false);
+    expect(awardsPostedRule({ ...base, listSettled: true, listSettledLong: true }, "live")).toBe(true);
+  });
+
+  it("live: no judged award, or no points, is false whatever the rest says", () => {
+    const rest = { expectedAwardsListed: true, listSettled: true, listSettledLong: true } as const;
+    expect(awardsPostedRule({ judgedAwardListed: false, awardPointsPresent: true, ...rest }, "live")).toBe(false);
+    expect(awardsPostedRule({ judgedAwardListed: true, awardPointsPresent: false, ...rest }, "live")).toBe(false);
+    expect(awardsPostedRule({ judgedAwardListed: false, awardPointsPresent: false, ...rest }, "live")).toBe(false);
+  });
+
+  it("hindsight: only neither of the first two facts reads false, whatever the settle facts and the expected awards say", () => {
     for (const listSettled of [true, false, undefined]) {
-      expect(cells.map((facts) => awardsPostedRule(listSettled === undefined ? facts : { ...facts, listSettled }, "hindsight"))).toEqual([false, true, true, true]);
+      for (const listSettledLong of [true, false, undefined]) {
+        for (const expected of [true, false, undefined]) {
+          const extra = {
+            ...(listSettled === undefined ? {} : { listSettled }),
+            ...(listSettledLong === undefined ? {} : { listSettledLong }),
+            ...(expected === undefined ? {} : { expectedAwardsListed: expected }),
+          };
+          expect(cells.map((facts) => awardsPostedRule({ ...facts, ...extra }, "hindsight"))).toEqual([false, true, true, true]);
+        }
+      }
     }
+  });
+});
+
+describe("the awards an event gives (quick task 261009-vp9)", () => {
+  it("is Impact at a district event, Impact, Winner, Engineering Inspiration and Rookie All Star at a championship, and none at a division", () => {
+    expect([...expectedConsumingAwardTypes("district")].sort((a, b) => a - b)).toEqual([0]);
+    expect([...expectedConsumingAwardTypes("championship")].sort((a, b) => a - b)).toEqual([0, 1, 9, 10]);
+    expect([...expectedConsumingAwardTypes("division")]).toEqual([]);
+  });
+
+  it("expectedAwardsListed: a district list with Impact is true and one without is false", () => {
+    expect(expectedAwardsListed("district", [1, 2, 0, 29])).toBe(true);
+    expect(expectedAwardsListed("district", [0])).toBe(true);
+    expect(expectedAwardsListed("district", [1, 2, 9, 10, 29])).toBe(false);
+    expect(expectedAwardsListed("district", [])).toBe(false);
+  });
+
+  it("expectedAwardsListed: a championship list is true only with all four", () => {
+    expect(expectedAwardsListed("championship", [0, 1, 9, 10])).toBe(true);
+    expect(expectedAwardsListed("championship", new Set([1, 2, 0, 9, 10, 29]))).toBe(true);
+    for (const missing of [0, 1, 9, 10]) {
+      expect(expectedAwardsListed("championship", [0, 1, 9, 10, 2, 29].filter((type) => type !== missing))).toBe(false);
+    }
+  });
+
+  it("expectedAwardsListed: a division is true for any list, the empty list included", () => {
+    expect(expectedAwardsListed("division", [])).toBe(true);
+    expect(expectedAwardsListed("division", [1, 2])).toBe(true);
+    expect(expectedAwardsListed("division", [29])).toBe(true);
   });
 });
 
@@ -102,6 +169,38 @@ describe("awardsListSettled (quick task 261009-tx6)", () => {
 
   it("is false for a change time in the future", () => {
     expect(awardsListSettled("etag-1", new Date(NOW + 1000).toISOString(), "etag-1", NOW)).toBe(false);
+  });
+
+  describe("with a threshold (quick task 261009-vp9)", () => {
+    const LONG = AWARDS_SETTLE_WITHOUT_IMPACT_MS;
+
+    it("the long wait is 12 hours", () => {
+      expect(LONG).toBe(12 * 60 * 60 * 1000);
+    });
+
+    it("a change time exactly 12 hours old is true at the 12 hour threshold, and 11 hours 59 minutes is false", () => {
+      expect(awardsListSettled("etag-1", ago(LONG), "etag-1", NOW, LONG)).toBe(true);
+      expect(awardsListSettled("etag-1", ago(LONG - 60 * 1000), "etag-1", NOW, LONG)).toBe(false);
+      // The same 11 hours 59 minutes is long settled at the default threshold.
+      expect(awardsListSettled("etag-1", ago(LONG - 60 * 1000), "etag-1", NOW)).toBe(true);
+    });
+
+    it("with no threshold it is the 60 minute test as before", () => {
+      expect(awardsListSettled("etag-1", ago(AWARDS_SETTLE_MS), "etag-1", NOW)).toBe(awardsListSettled("etag-1", ago(AWARDS_SETTLE_MS), "etag-1", NOW, AWARDS_SETTLE_MS));
+      expect(awardsListSettled("etag-1", ago(AWARDS_SETTLE_MS - 1000), "etag-1", NOW)).toBe(false);
+    });
+
+    it("every unknown still reads false at both thresholds", () => {
+      for (const threshold of [AWARDS_SETTLE_MS, LONG]) {
+        expect(awardsListSettled("etag-1", ago(10 * LONG), "etag-2", NOW, threshold)).toBe(false);
+        expect(awardsListSettled("etag-1", ago(10 * LONG), null, NOW, threshold)).toBe(false);
+        expect(awardsListSettled(null, ago(10 * LONG), "etag-1", NOW, threshold)).toBe(false);
+        expect(awardsListSettled(undefined, ago(10 * LONG), "etag-1", NOW, threshold)).toBe(false);
+        expect(awardsListSettled("etag-1", null, "etag-1", NOW, threshold)).toBe(false);
+        expect(awardsListSettled("etag-1", "not a time", "etag-1", NOW, threshold)).toBe(false);
+        expect(awardsListSettled("etag-1", new Date(NOW + 1000).toISOString(), "etag-1", NOW, threshold)).toBe(false);
+      }
+    });
   });
 });
 

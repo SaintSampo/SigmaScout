@@ -37,9 +37,16 @@
  * build.
  *
  * THE CALLER SAYS WHICH LISTS HAVE SETTLED (quick task 261009-tx6). The live
- * rule's third fact is that a list has stood unchanged for an hour. This
+ * rule needs to know that a list has stood unchanged for an hour. This
  * module has no clock and gains none: the caller passes the event keys whose
  * list is settled (`settledAwardEvents`), and an absent set settles nothing.
+ *
+ * THE CALLER MEASURES, THIS MODULE DECIDES (quick task 261009-vp9). The flag
+ * also waits for every consuming award an event gives, and for 12 unchanged
+ * hours where one is not listed. The caller hands a second set, the events
+ * whose list has stood for 12 hours (`longSettledAwardEvents`). This module
+ * knows the event's tier, whether it is a division and which award types the
+ * list holds, and asks the one rule.
  */
 import { z } from "zod";
 import { computeLocksWithQualifiers, cutLinePointsWithQualifiers, type LockResult, type LockTeamInput, type QualifierSets } from "../core/districts/locks.js";
@@ -48,7 +55,7 @@ import { prequalifiedTeams } from "../core/districts/prequalified.js";
 import { ALL_CATEGORIES_OPEN, reservedImpactSlots, type DistrictCategoryFinality, type ReservedSlotEvent } from "../core/districts/reservedSlots.js";
 import { NO_POINTS_PRESENT, categoryPointsPresenceByEvent, corroboratedCategoryFinality, type CategoryPointsPresence } from "../core/districts/categoryCorroboration.js";
 import { championshipStemOf, dcmpNeverHappening, perChampionship, reservedChampSlots } from "../core/districts/champReservedSlots.js";
-import { awardPointsPresentAt, awardsPostedRule, judgedAwardListed, qualifyingAwardRecord } from "../core/districts/eventAwards.js";
+import { awardPointsPresentAt, awardsPostedRule, expectedAwardsListed, judgedAwardListed, qualifyingAwardRecord, type AwardsEventKind } from "../core/districts/eventAwards.js";
 import { dcmpAwardCountCeilings } from "../core/districts/hypotheticalDcmp.js";
 import { pooledLockInputs, type PooledTeamEntry } from "../core/districts/pooledLockInputs.js";
 import { AWARD_TYPE_WINNER, consumingAwardTypesForTier, eventTierByKey, specialAllocationNote, type AwardTier } from "../core/districts/qualification.js";
@@ -547,6 +554,20 @@ function lockVerdict(result: LockResult, cutLinePoints: number | null, allocatio
  * key, folded per championship with every category open as the fallback. So
  * the winning alliance's four places stay held until the playoff points are
  * in the rows, not merely until the match feed says the final was played.
+ *
+ * THE WINNER HOLD (quick task 261009-vp9). The four places are released only
+ * once the championship's Playoffs are final AND a Winner is recorded there:
+ * some team's `qualifyingAwards` holds a Winner whose event key has the
+ * championship's stem. Playoffs final alone is not enough. TBA can post the
+ * playoff points before it lists the Winner, and for those ticks the four
+ * places would be neither reserved for (the playoffs read final) nor counted
+ * (no winner is recorded), so the points race would be handed four slots the
+ * winners then take. On a synthetic championship whose winners sit far down
+ * the standings that order lost 13 held places in the published verdict.
+ * With the hold a winner's place is reserved for or counted, never both and
+ * never neither. A Winner recorded at ANOTHER championship of the same
+ * district releases nothing here. Once the awards are posted
+ * `reservedChampSlots` reserves nothing whatever this says.
  */
 function reservedChampSlotsAtNow(teams: readonly DistrictTeam[], season: number, districtKey: string, cmpSlots: number, nowYear: number): number {
   type RowState = DistrictTeam["eventPoints"][number]["state"];
@@ -561,8 +582,18 @@ function reservedChampSlotsAtNow(teams: readonly DistrictTeam[], season: number,
   }
   const neverHappening = dcmpNeverHappening({ dcmpStates, artifactYear: season, nowYear });
   const awardCeilings = dcmpAwardCountCeilings(season, districtKey, cmpSlots).counts;
+  // The championships a Winner is recorded at, by stem: the winner hold.
+  const winnerRecordedAt = new Set<string>();
+  for (const team of teams) {
+    for (const award of team.qualifyingAwards) if (award.awardType === AWARD_TYPE_WINNER) winnerRecordedAt.add(championshipStemOf(award.eventKey));
+  }
   const finalByEvent = new Map<string, DistrictCategoryFinality>();
-  for (const [eventKey, state] of stateByEvent) finalByEvent.set(eventKey, publishedCategoryFinality(teams, eventKey, state, season));
+  for (const [eventKey, state] of stateByEvent) {
+    const final = publishedCategoryFinality(teams, eventKey, state, season);
+    // What is handed on as "Playoffs final" for the RESERVATION: the
+    // Playoffs are final AND a Winner is recorded at this championship.
+    finalByEvent.set(eventKey, { ...final, elim: final.elim && winnerRecordedAt.has(championshipStemOf(eventKey)) });
+  }
   const finalByChampionship = perChampionship<DistrictCategoryFinality>(finalByEvent, ALL_CATEGORIES_OPEN);
   const stages: DistrictCategoryFinality[] = finalByChampionship.size === 0 ? [ALL_CATEGORIES_OPEN] : [...finalByChampionship.values()];
   let reserved = 0;
@@ -623,6 +654,15 @@ function districtTierPointTotal(team: DistrictTeam): number {
  * until they are posted the champ `"locked"` test runs against a pool with
  * those slots removed. For a finished season every DCMP has posted its awards
  * and both reservations are zero, so no published number moves there either.
+ *
+ * THE WINNING ALLIANCE'S PLACES ARE RESERVED FOR OR COUNTED, NEVER BOTH AND
+ * NEVER NEITHER (quick task 261009-vp9). A recorded Winner is counted once
+ * its championship's Playoffs are final (`awardQualifiedSets`), and the four
+ * places held for the winning alliance are released only once the Playoffs
+ * are final AND a Winner is recorded there (`reservedChampSlotsAtNow`). So
+ * playoff points that land before the Winner is listed release nothing: on a
+ * synthetic championship whose winners sit far down the standings, that
+ * order used to lose 13 held places in the published verdict.
  *
  * THE DISTRICT PASS RANKS THE DISTRICT TIER TOTAL (quick task 261007-il9).
  * Before this, the pass answered "who earned a place at the District
@@ -917,20 +957,34 @@ export type DistrictEventAwardsByEvent = ReadonlyMap<string, readonly DistrictEv
  * `recomputeDistrictVerdicts`, so the verdict pass reads the new flag and the
  * new records in the same build.
  *
- * THE FLAG, for each event in the map. `awardsPostedRule` at the live vantage
- * is asked with three facts: whether the list holds a judged award (anything
- * other than Winner and Finalist), whether some team's row at the event
- * carries award points above zero ON THE ARTIFACT HANDED IN, which is the
- * artifact after this tick's rankings were merged, and whether the caller
- * names the event in `settledAwardEvents` (quick task 261009-tx6: its list
- * has stood unchanged for an hour). An event the set does not name, and every
- * event when no set is passed, reads as not settled. When all three hold, every
- * `eventPoints` and `remainingEvents` row for that event that already carries
- * a state block gets `awardsPosted: true`. The step only ever RAISES the
- * flag: a flag already true stays true whatever the list holds, because
+ * THE FLAG, for each event in the map that some row carries.
+ * `awardsPostedRule` at the live vantage is asked with five facts:
+ *   - whether the list holds a judged award (anything other than Winner and
+ *     Finalist);
+ *   - whether some team's row at the event carries award points above zero ON
+ *     THE ARTIFACT HANDED IN, which is the artifact after this tick's
+ *     rankings were merged;
+ *   - whether the list holds EVERY consuming award an event of its kind gives
+ *     (quick task 261009-vp9). The kind is read off the artifact's own rows:
+ *     a district tier event (Impact), a dcmp tier key equal to its
+ *     championship stem (a championship: Impact, Winner, Engineering
+ *     Inspiration and Rookie All Star), or a dcmp tier key whose stem differs
+ *     from the key (a division: none);
+ *   - whether the caller names the event in `settledAwardEvents` (quick task
+ *     261009-tx6: its list has stood unchanged for an hour);
+ *   - whether the caller names it in `longSettledAwardEvents` (quick task
+ *     261009-vp9: unchanged for 12 hours).
+ * The rule turns the flag true on a judged award with its points and, where
+ * every expected award is listed, the hour; where one is not listed, the 12
+ * hours. An event a set does not name, and every event when a set is not
+ * passed, reads as not settled at that length. When the rule holds, every
+ * `eventPoints` and `remainingEvents` row for that event that already
+ * carries a state block gets `awardsPosted: true`. The step only ever RAISES
+ * the flag: a flag already true stays true whatever the list holds, because
  * awards do not un post. A row with no state block is left without one. The
- * schema needs all five facts, and no state reads as pending, which is the
- * side that keeps reservations held.
+ * schema needs all five state facts, and no state reads as pending, which is
+ * the side that keeps reservations held. An event on no row has no flag to
+ * raise and is not asked.
  *
  * THE RECORDS, for each event in the map. The event's tier comes from the
  * artifact's own rows (`eventTierByKey`). An event on no row records nothing.
@@ -961,7 +1015,12 @@ export type DistrictEventAwardsByEvent = ReadonlyMap<string, readonly DistrictEv
  * tabs have always read it this way: they gate each award on its own
  * event's stage.
  */
-export function applyDistrictEventAwards(artifact: DistrictArtifact, eventAwards: DistrictEventAwardsByEvent, settledAwardEvents?: ReadonlySet<string>): DistrictArtifact {
+export function applyDistrictEventAwards(
+  artifact: DistrictArtifact,
+  eventAwards: DistrictEventAwardsByEvent,
+  settledAwardEvents?: ReadonlySet<string>,
+  longSettledAwardEvents?: ReadonlySet<string>
+): DistrictArtifact {
   if (eventAwards.size === 0) return artifact;
 
   const tiers = eventTierByKey(artifact.teams);
@@ -970,19 +1029,27 @@ export function applyDistrictEventAwards(artifact: DistrictArtifact, eventAwards
   const appendedByTeam = new Map<string, DistrictTeam["qualifyingAwards"]>();
 
   for (const [eventKey, awards] of eventAwards) {
+    // An event no row carries has no flag to raise and nothing to record.
+    const tier = tiers.get(eventKey);
+    if (tier === undefined) continue;
+    const division = tier === "dcmp" && championshipStemOf(eventKey) !== eventKey;
+    const kind: AwardsEventKind = tier === "district" ? "district" : division ? "division" : "championship";
+    const awardTypes = awards.map((award) => award.award_type);
+
     const posted = awardsPostedRule(
       {
-        judgedAwardListed: judgedAwardListed(awards.map((award) => award.award_type)),
+        judgedAwardListed: judgedAwardListed(awardTypes),
         awardPointsPresent: awardPointsPresentAt(artifact.teams, eventKey),
+        expectedAwardsListed: expectedAwardsListed(kind, awardTypes),
         listSettled: settledAwardEvents?.has(eventKey) === true,
+        listSettledLong: longSettledAwardEvents?.has(eventKey) === true,
       },
       "live"
     );
     if (posted) eventsToRaise.add(eventKey);
 
-    const tier = tiers.get(eventKey);
-    if (tier === undefined) continue;
-    if (tier === "dcmp" && championshipStemOf(eventKey) !== eventKey) continue;
+    // A division records nothing. Its flag still follows the rule above.
+    if (division) continue;
 
     for (const award of awards) {
       for (const recipient of award.recipient_list) {
@@ -1039,10 +1106,18 @@ export interface ApplyDistrictRankingsOptions {
   readonly eventAwards?: DistrictEventAwardsByEvent;
   /**
    * The event keys of `eventAwards` whose list has stood unchanged for an
-   * hour, as the caller measured it (quick task 261009-tx6). Only such an
-   * event's flag can rise. Absent, no list is settled and no flag rises.
+   * hour, as the caller measured it (quick task 261009-tx6). The flag of an
+   * event whose list holds every consuming award it gives can rise only
+   * here. Absent, no list is settled.
    */
   readonly settledAwardEvents?: ReadonlySet<string>;
+  /**
+   * The event keys of `eventAwards` whose list has stood unchanged for 12
+   * hours, as the caller measured it (quick task 261009-vp9). The flag of an
+   * event whose list LACKS a consuming award it gives can rise only here.
+   * Absent, nothing rises for such an event.
+   */
+  readonly longSettledAwardEvents?: ReadonlySet<string>;
 }
 
 /**
@@ -1081,7 +1156,7 @@ export interface ApplyDistrictRankingsOptions {
  * two runs over the same inputs serialize byte-identically.
  */
 export function applyDistrictRankings(options: ApplyDistrictRankingsOptions): DistrictArtifact {
-  const { artifact, generation, computedAt, eventState, eventAwards, settledAwardEvents } = options;
+  const { artifact, generation, computedAt, eventState, eventAwards, settledAwardEvents, longSettledAwardEvents } = options;
   const rankings = DistrictRankingsPayloadSchema.parse(options.rankings);
 
   if (rankings.length === 0) {
@@ -1221,7 +1296,7 @@ export function applyDistrictRankings(options: ApplyDistrictRankingsOptions): Di
     ...(bakedEvents === undefined ? {} : { bakedEvents }),
   };
 
-  return recomputeDistrictVerdicts(eventAwards === undefined ? merged : applyDistrictEventAwards(merged, eventAwards, settledAwardEvents), { dcmpStillAhead: stillAhead, unexplainedDistrictCeiling });
+  return recomputeDistrictVerdicts(eventAwards === undefined ? merged : applyDistrictEventAwards(merged, eventAwards, settledAwardEvents, longSettledAwardEvents), { dcmpStillAhead: stillAhead, unexplainedDistrictCeiling });
 }
 
 export interface ApplyDistrictEventStateOptions {
@@ -1244,8 +1319,10 @@ export interface ApplyDistrictEventStateOptions {
    * contributes nothing.
    */
   readonly eventAwards?: DistrictEventAwardsByEvent;
-  /** The event keys of `eventAwards` whose list has stood unchanged for an hour (quick task 261009-tx6). Absent, no flag rises. */
+  /** The event keys of `eventAwards` whose list has stood unchanged for an hour (quick task 261009-tx6). Absent, no list is settled. */
   readonly settledAwardEvents?: ReadonlySet<string>;
+  /** The event keys of `eventAwards` whose list has stood unchanged for 12 hours (quick task 261009-vp9): the wait for a list that lacks a consuming award its event gives. Absent, nothing rises for such an event. */
+  readonly longSettledAwardEvents?: ReadonlySet<string>;
 }
 
 /**
@@ -1277,7 +1354,7 @@ export interface ApplyDistrictEventStateOptions {
  * would leave the Worker believing it had written a fact it had not.
  */
 export function applyDistrictEventState(options: ApplyDistrictEventStateOptions): DistrictArtifact {
-  const { artifact, eventState, generation, computedAt, tierByEvent, eventAwards, settledAwardEvents } = options;
+  const { artifact, eventState, generation, computedAt, tierByEvent, eventAwards, settledAwardEvents, longSettledAwardEvents } = options;
 
   const known = new Set<string>();
   for (const team of artifact.teams) {
@@ -1315,7 +1392,7 @@ export function applyDistrictEventState(options: ApplyDistrictEventStateOptions)
       remainingEvents: team.remainingEvents.map((row) => withState(row, eventState)),
     })),
   });
-  return recomputeDistrictVerdicts(eventAwards === undefined ? withEventState : applyDistrictEventAwards(withEventState, eventAwards, settledAwardEvents), {
+  return recomputeDistrictVerdicts(eventAwards === undefined ? withEventState : applyDistrictEventAwards(withEventState, eventAwards, settledAwardEvents, longSettledAwardEvents), {
     ...(tierByEvent === undefined ? {} : { tierByEvent }),
     dcmpStillAhead: stillAhead,
     unexplainedDistrictCeiling,

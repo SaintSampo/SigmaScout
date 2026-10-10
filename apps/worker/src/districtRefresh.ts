@@ -84,23 +84,38 @@
  * request. True, or a throw, means the pass does nothing this tick and logs
  * one `district-pass-suspended` warn.
  *
- * THE AWARDS FLAG AND THE WINNER RECORDS (quick tasks 261009-r9x and
- * 261009-tx6). The Locks guarantee holds slots back until an event's awards
- * are done, and `state.awardsPosted` is what ends that reservation, so this
- * pass must never turn it true early. It does not decide the flag. It hands
- * the shared merge three things: the state map, where `awardsPosted` is only
- * what is ALREADY published (a published true stays true, anything else is
- * false), the awards lists fetched this tick, and the set of events whose
- * list has SETTLED. The merge raises the flag through the one shared rule
- * (`packages/core/districts/eventAwards.ts`), which needs THREE facts: a
- * judged award listed, AND award points at the event in the rankings as
- * merged this tick, AND the list unchanged for `AWARDS_SETTLE_MS` (60
- * minutes). The third is there because TBA can list awards in batches: a flag
- * raised at the first judged award with points would release the slot held
- * for an Impact award that a later batch still brings. The same step records
- * who won each qualifying award on EVERY list in hand, whatever the flag
- * says, so a winner is written on the tick TBA lists it and the flag, the
- * records and both lock verdicts land in ONE R2 put.
+ * THE AWARDS FLAG AND THE WINNER RECORDS (quick tasks 261009-r9x,
+ * 261009-tx6 and 261009-vp9). The Locks guarantee holds slots back until an
+ * event's awards are done, and `state.awardsPosted` is what ends that
+ * reservation, so this pass must never turn it true early. IT DOES NOT DECIDE
+ * THE FLAG. IT ONLY MEASURES. It hands the shared merge four things: the
+ * state map, where `awardsPosted` is only what is ALREADY published (a
+ * published true stays true, anything else is false), the awards lists
+ * fetched this tick, the set of events whose list has stood unchanged for
+ * `AWARDS_SETTLE_MS` (60 minutes), and the set of events whose list has stood
+ * unchanged for `AWARDS_SETTLE_WITHOUT_IMPACT_MS` (12 hours).
+ *
+ * The merge decides, through the one shared rule
+ * (`packages/core/districts/eventAwards.ts`). It knows what this pass does
+ * not: the event's tier, whether it is a division, and which award types the
+ * list holds. The rule needs a judged award listed, AND award points at the
+ * event in the rankings as merged this tick, AND:
+ *   - where the list holds EVERY consuming award the event gives (Impact at
+ *     a district tier event; Impact, Winner, Engineering Inspiration and
+ *     Rookie All Star at a District Championship that is not a division;
+ *     none at a division), the list unchanged for 60 minutes;
+ *   - where one of them is not listed, the list unchanged for 12 hours. A
+ *     list that has stood that long without the award is read as an event
+ *     that gave none (12 district events since 2022 list no Impact).
+ * The hour is there because TBA can list awards in batches: a flag raised at
+ * the first judged award with points would release the slot held for an
+ * Impact award that a later batch still brings. Waiting for the awards by
+ * name is there because an hour can pass with the Impact still missing: the
+ * award listed after it then took a held place (`frc5920` at `2026wasam` and
+ * `2026wasno` in the replay). The same step records who won each qualifying
+ * award on EVERY list in hand, whatever the flag says, so a winner is written
+ * on the tick TBA lists it and the flag, the records and both lock verdicts
+ * land in ONE R2 put.
  *
  * WHAT THE AWARDS CURSOR ROW HOLDS. `__event_awards__:{eventKey}` stores, in
  * `tbaEtag`, the ETag of the last awards list this pass MERGED, whatever the
@@ -114,7 +129,13 @@
  * THE SETTLE CLOCK. A list in hand is settled when its ETag equals the row's
  * and the row's `lastAdvancedAt` is at least 60 minutes before this tick
  * (`awardsListSettled`, read from the row as it stood BEFORE this tick's
- * write). The list reads as CHANGED NOW, and the row is written with
+ * write). The SAME row answers the 12 hour question (quick task 261009-vp9):
+ * the same call with `AWARDS_SETTLE_WITHOUT_IMPACT_MS` as its threshold. One
+ * clock, read at two lengths: no second column, no second row, no new D1
+ * read or write and no new request. Which length the flag needs is the
+ * merge's decision, not this pass's.
+ *
+ * The list reads as CHANGED NOW, and the row is written with
  * `lastAdvancedAt` set to this tick's time, in three cases: no row exists,
  * the stored ETag differs from the list's, or the list has an ETag and the
  * row has no usable `lastAdvancedAt` (the row Worker 33d0ded7 wrote). For a
@@ -167,8 +188,8 @@
  *      never asked): one ask gives it a row, and from then on a changed list
  *      passes the gate. These are the only unconditional asks, and they
  *      happen only on a tick that already read the artifact.
- *   7. One candidate build, with the state map, the lists and the settled
- *      set. One put when it differs.
+ *   7. One candidate build, with the state map, the lists and the two
+ *      settled sets (60 minutes and 12 hours). One put when it differs.
  *   8. Cursor writes LAST: every list handed to the merge that reads as
  *      changed now stores the ETag of its response and this tick's time, so
  *      the next quiet tick is a cheap 304. That holds for an empty list and
@@ -226,17 +247,21 @@
  *     The next offline republish resolves them too.
  *   - An event whose window is still open and whose published state says its
  *     playoffs are open is not asked for awards at all.
- *   - The settle time has a limit: an award listed MORE than an hour after
- *     the list last changed lands after the flag is true. It is recorded on
- *     the tick its list changes, but the slot held for it was released when
- *     the hour ran out.
+ *   - The flag's rule has two limits (quick task 261009-vp9). A FURTHER
+ *     recipient of a consuming award type that is already listed (a second
+ *     Impact at a championship, a fourth member of a winning alliance),
+ *     listed more than an hour after the list last changed, lands after the
+ *     flag is true. And an event that lists NONE of an expected award for 12
+ *     unchanged hours and then lists it lands after the flag is true. Either
+ *     is recorded on the tick its list changes, but the slot held for it was
+ *     already released.
  *   - The first real district event to exercise this pass is the first one
  *     of 2027. Until then the replay over the eight 2026 PNW district events
  *     in `apps/worker/test/scheduled.district.test.ts` stands in for it.
  */
 import { districtDetailKey, DistrictArtifactSchema, DistrictEventStateSchema, type DistrictArtifact, type DistrictEventState } from "../../../packages/harness/pageArtifacts.js";
 import { applyDistrictEventState, applyDistrictRankings, type DistrictEventAwardInput } from "../../../packages/harness/districtRankingsMerge.js";
-import { awardsListSettled } from "../../../packages/core/districts/eventAwards.js";
+import { AWARDS_SETTLE_WITHOUT_IMPACT_MS, awardsListSettled } from "../../../packages/core/districts/eventAwards.js";
 import { DISTRICT_KEY_PATTERN, EVENT_KEY_PATTERN } from "../../../packages/core/districts/keys.js";
 import { districtRankingsCursorKey, eventAwardsCursorKey } from "../../../packages/harness/stateBaseline.js";
 import { DISTRICT_AWARDS_WATCH_MS, type LiveWindowEntry } from "../../../packages/harness/manifestSchemas.js";
@@ -686,17 +711,22 @@ export async function runDistrictRefresh(env: Env, counter: SubrequestCounter, t
       // The events of `eventAwards` whose list has stood unchanged for an
       // hour, read from each cursor row as it stood before this tick.
       const settledAwardEvents = new Set<string>();
+      // The same question at 12 hours (quick task 261009-vp9), from the same
+      // row: the wait for a list that lacks an award its event gives. This
+      // pass only measures both lengths. The merge decides which one counts.
+      const longSettledAwardEvents = new Set<string>();
       // Events whose awards ask failed this tick while their flag still waits:
       // each gets a null ETag retry marker at the end.
       const retryMarkerEvents: string[] = [];
 
-      /** Hands a list in hand to the merge, and names the event settled when its cursor row says so. */
+      /** Hands a list in hand to the merge, and names the event settled, at each of the two lengths, when its cursor row says so. */
       const handToMerge = (eventKey: string): void => {
         const inHand = awardsInHand.get(eventKey);
         if (inHand === undefined) return;
         eventAwards.set(eventKey, inHand.awards);
         const storedAwards = cursors.get(eventAwardsCursorKey(eventKey));
         if (awardsListSettled(storedAwards?.tbaEtag, storedAwards?.lastAdvancedAt, inHand.etag, nowMs)) settledAwardEvents.add(eventKey);
+        if (awardsListSettled(storedAwards?.tbaEtag, storedAwards?.lastAdvancedAt, inHand.etag, nowMs, AWARDS_SETTLE_WITHOUT_IMPACT_MS)) longSettledAwardEvents.add(eventKey);
       };
 
       for (const entry of memberWindows) {
@@ -779,8 +809,8 @@ export async function runDistrictRefresh(env: Env, counter: SubrequestCounter, t
       // out of this one build.
       const candidate =
         poll.status === "ok"
-          ? applyDistrictRankings({ artifact: existing, rankings: poll.body, generation: existing.generation, computedAt: existing.computedAt, eventState, eventAwards, settledAwardEvents })
-          : applyDistrictEventState({ artifact: existing, eventState, eventAwards, settledAwardEvents, generation: existing.generation, computedAt: existing.computedAt });
+          ? applyDistrictRankings({ artifact: existing, rankings: poll.body, generation: existing.generation, computedAt: existing.computedAt, eventState, eventAwards, settledAwardEvents, longSettledAwardEvents })
+          : applyDistrictEventState({ artifact: existing, eventState, eventAwards, settledAwardEvents, longSettledAwardEvents, generation: existing.generation, computedAt: existing.computedAt });
 
       // STEP 8. The awards cursor rows this tick earned, decided now and
       // written last. A member's row is written only when its list reads as

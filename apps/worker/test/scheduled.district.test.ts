@@ -2472,6 +2472,101 @@ describe("runTick — the district pass watches an event for a day after its win
 // when its points are in", and is not asserted here.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Quick task 261009-vp9 (D6): the flag waits for every consuming award an
+// event gives. A list that lacks one is read as "the event gave none" only
+// after 12 unchanged hours. The Worker only MEASURES: it hands the merge the
+// events whose list has stood for 60 minutes and for 12 hours.
+// ---------------------------------------------------------------------------
+
+describe("runTick — a list that lacks an award its event gives turns the flag true at 12 unchanged hours and not before (261009-vp9)", () => {
+  const TWELVE_HOURS_IN_MINUTES = 12 * 60;
+
+  /** Winner, Finalist and one judged award that records nothing. No Impact award. */
+  function listWithoutImpact(eventKey: string): unknown[] {
+    return [tbaAward(1, "District Event Winner", ["frc1"], eventKey), tbaAward(2, "District Event Finalist", ["frc2"], eventKey), tbaAward(29, "A judged award this pipeline carries no label for", ["frc1"], eventKey)];
+  }
+
+  // 12:15 UTC, a forced look: the rankings are asked with no ETag, so the
+  // tick passes the gate with nothing new, and a waiting event is asked for
+  // its list.
+  it.each([
+    { minutesOld: TWELVE_HOURS_IN_MINUTES - 1, expected: false, puts: 0, label: "11 hours 59 minutes old: the flag stays false and nothing is put" },
+    { minutesOld: TWELVE_HOURS_IN_MINUTES, expected: true, puts: 1, label: "12 hours old: the flag turns true in one put" },
+  ])("a watched district tier event at 12:15 UTC, a judged list with no Impact and its points, a row $label", async ({ minutesOld, expected, puts }) => {
+    const AT = clockAt(12, 15);
+    const h = watchHarness({ events: [{ eventKey: LIVE_EVENT, frc3Award: 10 }], windows: [endedWindow(LIVE_EVENT, 10, AT)] });
+    h.events.set(LIVE_EVENT, awardsOnlyRecord(listWithoutImpact(LIVE_EVENT), "awards-no-impact"));
+    seedAwardsRow(h.d1, LIVE_EVENT, "awards-no-impact", minutesOld, AT);
+    const seededRow = { ...awardsCursorRow(h.d1)! };
+
+    const report = await h.tickAt(AT);
+
+    expect(report.rankingsCalls).toEqual([undefined]);
+    // The conditional ask answers 304, and the waiting event is then asked with no ETag.
+    expect(report.awardsAsked).toEqual([
+      { eventKey: LIVE_EVENT, ifNoneMatch: "awards-no-impact" },
+      { eventKey: LIVE_EVENT, ifNoneMatch: undefined },
+    ]);
+    expect(report.written).toHaveLength(puts);
+    expect(flagsFor(h.current())).toEqual([expected, expected]);
+    // The list did not change, so the row and its clock stand.
+    expect(awardsCursorRow(h.d1)).toEqual(seededRow);
+    expect(report.result.districtsFailed).toBe(0);
+    expect(awardsWarns(h.warnSpy)).toEqual([]);
+  });
+
+  it("the same list WITH its Impact award keeps the 60 minute rule: a row 60 minutes old turns the flag true at 12:15 UTC", async () => {
+    const AT = clockAt(12, 15);
+    const h = watchHarness({ events: [{ eventKey: LIVE_EVENT, frc3Award: 10 }], windows: [endedWindow(LIVE_EVENT, 10, AT)] });
+    h.events.set(LIVE_EVENT, awardsOnlyRecord([...listWithoutImpact(LIVE_EVENT), tbaAward(0, "FIRST Impact Award", ["frc3"])], "awards-with-impact"));
+    seedAwardsRow(h.d1, LIVE_EVENT, "awards-with-impact", 60, AT);
+
+    const report = await h.tickAt(AT);
+
+    expect(report.written).toHaveLength(1);
+    expect(flagsFor(report.written[0]!)).toEqual([true, true]);
+    expect(teamIn(report.written[0]!, "frc3").districtLock.status).toBe("lockedAward");
+  });
+
+  it("the catch up at 12:15 UTC (a forced look): an older event whose row is 12 hours old turns true, and one whose row is 11 hours 59 minutes old does not", async () => {
+    const AT = clockAt(12, 15);
+    const OLD_LONG = "2026old00";
+    const OLD_SHORT = "2026old01";
+    const awardsKey = (eventKey: string): string => `__event_awards__:${eventKey}`;
+    // Two older events the watch no longer covers, each with its award points
+    // in and a list that never gained its Impact award.
+    const h = watchHarness({
+      events: [{ eventKey: LIVE_EVENT }, { eventKey: OLD_LONG, week: 1, frc3Award: 10 }, { eventKey: OLD_SHORT, week: 1, frc3Award: 10 }],
+      windows: [endedWindow(LIVE_EVENT, 10, AT)],
+    });
+    h.events.set(LIVE_EVENT, awardsOnlyRecord(WINNER_AND_FINALIST, "live-awards-1"));
+    h.events.set(OLD_LONG, awardsOnlyRecord(listWithoutImpact(OLD_LONG), "old-long-a"));
+    h.events.set(OLD_SHORT, awardsOnlyRecord(listWithoutImpact(OLD_SHORT), "old-short-a"));
+    seedAwardsRow(h.d1, OLD_LONG, "old-long-a", TWELVE_HOURS_IN_MINUTES, AT);
+    seedAwardsRow(h.d1, OLD_SHORT, "old-short-a", TWELVE_HOURS_IN_MINUTES - 1, AT);
+    const longSeeded = { ...h.d1.eventCursors.get(awardsKey(OLD_LONG))! };
+    const shortSeeded = { ...h.d1.eventCursors.get(awardsKey(OLD_SHORT))! };
+
+    const forced = await h.tickAt(AT);
+
+    // Each catch up event is asked once, with no ETag.
+    expect(forced.awardsAsked.filter((call) => call.eventKey.startsWith("2026old"))).toEqual([
+      { eventKey: OLD_LONG, ifNoneMatch: undefined },
+      { eventKey: OLD_SHORT, ifNoneMatch: undefined },
+    ]);
+    expect(forced.written).toHaveLength(1);
+    expect(flagsFor(forced.written[0]!, OLD_LONG)).toEqual([true, true]);
+    expect(flagsFor(forced.written[0]!, OLD_SHORT)).toEqual([false, false]);
+    // Both lists are the stored ones: the ETag and the change time stand, and
+    // only the time of the ask moves.
+    expect(h.d1.eventCursors.get(awardsKey(OLD_LONG))).toEqual({ ...longSeeded, last_polled_at: isoAt(AT) });
+    expect(h.d1.eventCursors.get(awardsKey(OLD_SHORT))).toEqual({ ...shortSeeded, last_polled_at: isoAt(AT) });
+    expect(forced.result.districtsFailed).toBe(0);
+    expect(awardsWarns(h.warnSpy)).toEqual([]);
+  });
+});
+
 describe("runTick — the award stage of every 2026 PNW district event, replayed through the watch (261009-tx6)", () => {
   type Artifact = ReturnType<typeof DistrictArtifactSchema.parse>;
   type ArtifactTeam = Artifact["teams"][number];
@@ -2691,6 +2786,210 @@ describe("runTick — the award stage of every 2026 PNW district event, replayed
       }
     });
   }
+
+  // -------------------------------------------------------------------------
+  // Quick task 261009-vp9 (D6): a consuming award listed LATE.
+  //
+  // Before that task the flag turned true an hour after the list last
+  // changed, whatever the list held. A list that sat for an hour WITHOUT its
+  // Impact award therefore released the slot held for it, and the Impact
+  // listed after that took a held place: frc5920 went from held to
+  // eliminated at 2026wasam and 2026wasno, and at 2026pncmp a late Impact,
+  // Engineering Inspiration or Rookie All Star took held places too. The
+  // flag now waits for every consuming award the event gives.
+  // -------------------------------------------------------------------------
+
+  const PNCMP = "2026pncmp";
+
+  /**
+   * The awards TBA lists for an event, ONE ENTRY PER AWARD TYPE: every award
+   * the fixture records there, a Winner where the fixture records none (a
+   * district tier event), a Finalist, and one judged award with no district
+   * recipient. `without` leaves one type out.
+   */
+  function awardsListOf(eventKey: string, without?: number): unknown[] {
+    const typed = (entries: unknown[]) => entries as { award_type: number }[];
+    const recorded = typed(judgedAwards(eventKey));
+    const field = typed(fieldAwards(eventKey)).filter((entry) => !recorded.some((have) => have.award_type === entry.award_type));
+    return [...recorded, ...field, ...typed([tbaAward(29, "a judged award with no district recipient", ["frc99999"], eventKey)])].filter((entry) => entry.award_type !== without);
+  }
+
+  /** The teams the fixture records an award of one type for at one event. */
+  function recipientsOf(eventKey: string, awardType: number): string[] {
+    return baseline.teams
+      .filter((team) => team.qualifyingAwards.some((entry) => entry.eventKey === eventKey && entry.awardType === awardType))
+      .map((team) => team.teamKey)
+      .sort();
+  }
+
+  /** The rankings TBA serves before a late award: the published ones, with the late recipients' award points at the event still zero. */
+  function rankingsBeforeLateAward(eventKey: string, lateRecipients: readonly string[]): unknown {
+    const rows = rankingsOf(baseline) as { team_key: string; point_total: number; event_points: { event_key: string; award_points: number; total: number }[] }[];
+    for (const row of rows) {
+      if (!lateRecipients.includes(row.team_key)) continue;
+      for (const entry of row.event_points) {
+        if (entry.event_key !== eventKey) continue;
+        row.point_total -= entry.award_points;
+        entry.total -= entry.award_points;
+        entry.award_points = 0;
+      }
+    }
+    return rows;
+  }
+
+  const LATE_AWARD_VARIANTS: readonly { readonly eventKey: string; readonly lateType: number; readonly lateName: string }[] = [
+    { eventKey: "2026wasam", lateType: 0, lateName: "Impact" },
+    { eventKey: "2026wasno", lateType: 0, lateName: "Impact" },
+    { eventKey: PNCMP, lateType: 0, lateName: "Impact" },
+    { eventKey: PNCMP, lateType: 9, lateName: "Engineering Inspiration" },
+    { eventKey: PNCMP, lateType: 10, lateName: "Rookie All Star" },
+  ];
+
+  it("premise of the late award variants: every one names an award the fixture records at that event, and the championship is a dcmp tier row", () => {
+    for (const variant of LATE_AWARD_VARIANTS) expect({ ...variant, recipients: recipientsOf(variant.eventKey, variant.lateType).length > 0 }).toEqual({ ...variant, recipients: true });
+    expect(new Set(baseline.teams.flatMap((team) => team.eventPoints.filter((row) => row.eventKey === PNCMP).map((row) => row.tier)))).toEqual(new Set(["dcmp"]));
+    // Every award type appears once in a list.
+    for (const eventKey of ["2026wasam", "2026wasno", PNCMP]) {
+      const types = (awardsListOf(eventKey) as { award_type: number }[]).map((entry) => entry.award_type);
+      expect({ eventKey, unique: new Set(types).size === types.length }).toEqual({ eventKey, unique: true });
+    }
+    expect((awardsListOf(PNCMP) as { award_type: number }[]).map((entry) => entry.award_type).sort((a, b) => a - b)).toEqual([0, 1, 2, 9, 10, 29]);
+  });
+
+  for (const { eventKey, lateType, lateName } of LATE_AWARD_VARIANTS) {
+    it(`${eventKey}, a late ${lateName}: the flag is false until the first passing tick an hour after the late award is listed, its winner is recorded on the tick it is listed, and no held place is lost`, async () => {
+      const lateRecipients = recipientsOf(eventKey, lateType);
+      // One window that closed ten minutes before the first tick. Nothing is
+      // live: the watch path, on the 5 minute cadence, forced on every
+      // multiple of 15.
+      const h = makeHarness({ artifact: rewound(eventKey), windows: [endedWindow(eventKey, 10, clockAt(12, 5))] });
+      // The first list is every award of the fixture at the event but the
+      // late one, and its points land with it.
+      h.districts.set(DISTRICT_KEY, { rankings: rankingsBeforeLateAward(eventKey, lateRecipients), etag: "rank-first-list" });
+      h.events.set(eventKey, awardsOnlyRecord(awardsListOf(eventKey, lateType), "awards-first-list"));
+
+      const walk: { tick: string; district: Map<string, string>; champ: Map<string, string> }[] = [];
+      /** Runs the tick at 12:00 UTC plus `minutes`. */
+      const tick = async (minutes: number): Promise<TickReport> => {
+        const report = await h.tickAt(clockAt(12, 0) + minutes * MINUTE_MS);
+        const now = h.current();
+        const label = `12:00 + ${String(minutes)} min`;
+        walk.push({
+          tick: label,
+          district: new Map(now.teams.map((team) => [team.teamKey, team.districtLock.status] as const)),
+          champ: new Map(now.teams.map((team) => [team.teamKey, team.champLock.status] as const)),
+        });
+        expect({ tick: label, failed: report.result.districtsFailed }).toEqual({ tick: label, failed: 0 });
+        return report;
+      };
+      const flagsNow = (): boolean[] => flagsFor(h.current(), eventKey);
+      const allFalse = (): boolean => flagsNow().length > 0 && flagsNow().every((flag) => !flag);
+      const lateRecordedOn = (): string[] =>
+        h
+          .current()
+          .teams.filter((team) => team.qualifyingAwards.some((entry) => entry.eventKey === eventKey && entry.awardType === lateType))
+          .map((team) => team.teamKey)
+          .sort();
+
+      // 12:05. The first list and its points land in one tick.
+      const first = await tick(5);
+      expect(first.written).toHaveLength(1);
+      expect(allFalse()).toBe(true);
+      expect(lateRecordedOn()).toEqual([]);
+
+      // 12:10 to 14:00, every five minutes: the list sits unchanged for two
+      // hours. It lacks an award the event gives, so the flag is false on
+      // every tick, the forced looks after the sixtieth minute included.
+      for (let minutes = 10; minutes <= 120; minutes += 5) {
+        await tick(minutes);
+        expect({ minutes, allFalse: allFalse() }).toEqual({ minutes, allFalse: true });
+      }
+
+      // 14:05. The late award is listed, with its points. Its winner is
+      // recorded on this tick, and the flag is still false.
+      h.events.set(eventKey, awardsOnlyRecord(awardsListOf(eventKey), "awards-with-the-late-award"));
+      h.districts.set(DISTRICT_KEY, { rankings: rankingsOf(baseline), etag: "rank-with-the-late-award" });
+      const late = await tick(125);
+      expect(late.written).toHaveLength(1);
+      expect(lateRecordedOn()).toEqual(lateRecipients);
+      expect(allFalse()).toBe(true);
+
+      // 14:10 to 15:10. False on every tick: the forced look at 15:00 is 55
+      // minutes after the list changed, and 15:05 and 15:10 are past the
+      // hour but change nothing, so they do not pass the gate.
+      for (let minutes = 130; minutes <= 190; minutes += 5) {
+        const quiet = await tick(minutes);
+        expect({ minutes, puts: quiet.written.length, allFalse: allFalse() }).toEqual({ minutes, puts: 0, allFalse: true });
+      }
+
+      // 15:15, the forced look, seventy minutes after the late award was
+      // listed: the first tick that passes the gate after the hour. True.
+      const settled = await tick(195);
+      expect(settled.written).toHaveLength(1);
+      expect(flagsNow().length).toBeGreaterThan(0);
+      expect(flagsNow().every((flag) => flag)).toBe(true);
+
+      // The end state's locks are the published ones.
+      for (const team of h.current().teams) {
+        const published = baseline.teams.find((entry) => entry.teamKey === team.teamKey)!;
+        expect({ teamKey: team.teamKey, district: team.districtLock.status, champ: team.champLock.status }).toEqual({
+          teamKey: team.teamKey,
+          district: published.districtLock.status,
+          champ: published.champLock.status,
+        });
+      }
+      expect(awardsWarns(h.warnSpy)).toEqual([]);
+
+      // NO HELD PLACE IS LOST at any tick, at either tier.
+      const lost: string[] = [];
+      for (const team of baseline.teams) {
+        let districtSince: string | undefined;
+        let champSince: string | undefined;
+        for (const step of walk) {
+          const district = step.district.get(team.teamKey)!;
+          const champ = step.champ.get(team.teamKey)!;
+          if (districtSince !== undefined && !districtHeld(district)) lost.push(`${team.teamKey} district held at ${districtSince}, ${district} at ${step.tick}`);
+          if (champSince !== undefined && !champHeld(champ)) lost.push(`${team.teamKey} champ held at ${champSince}, ${champ} at ${step.tick}`);
+          if (districtSince === undefined && districtHeld(district)) districtSince = step.tick;
+          if (champSince === undefined && champHeld(champ)) champSince = step.tick;
+        }
+      }
+      expect({ eventKey, lateName, lost }).toEqual({ eventKey, lateName, lost: [] });
+    });
+  }
+
+  // A CHAMPIONSHIP THROUGH THE REAL TICK (CONTEXT D8). 2026pncmp is a dcmp
+  // tier key equal to its championship stem, so the merge reads it as a
+  // championship: it waits for Impact, Winner, Engineering Inspiration and
+  // Rookie All Star. 12:15 UTC is a forced look.
+  it.each([
+    { without: 10, minutesOld: 12 * 60 - 1, expected: false, label: "no Rookie All Star, a row 11 hours 59 minutes old: false" },
+    { without: 10, minutesOld: 12 * 60, expected: true, label: "no Rookie All Star, a row 12 hours old: true" },
+    { without: undefined, minutesOld: 59, expected: false, label: "all four listed, a row 59 minutes old: false" },
+    { without: undefined, minutesOld: 60, expected: true, label: "all four listed, a row 60 minutes old: true" },
+  ])("2026pncmp through the real tick at 12:15 UTC, $label", async ({ without, minutesOld, expected }) => {
+    const AT = clockAt(12, 15);
+    const h = makeHarness({ artifact: rewound(PNCMP), windows: [endedWindow(PNCMP, 10, AT)] });
+    h.districts.set(DISTRICT_KEY, { rankings: rankingsOf(baseline), etag: "rank-with-award-points" });
+    h.events.set(PNCMP, awardsOnlyRecord(awardsListOf(PNCMP, without), "awards-championship"));
+    seedAwardsRow(h.d1, PNCMP, "awards-championship", minutesOld, AT);
+
+    const report = await h.tickAt(AT);
+
+    expect(report.result.districtsFailed).toBe(0);
+    expect(report.written).toHaveLength(1);
+    const flags = flagsFor(report.written[0]!, PNCMP);
+    expect(flags.length).toBeGreaterThan(0);
+    expect({ everyFlag: flags.every((flag) => flag === expected) }).toEqual({ everyFlag: true });
+    // Every award in the list is recorded whatever the flag says.
+    for (const awardType of [0, 1, 9]) {
+      expect({ awardType, recorded: report.written[0]!.teams.filter((team) => team.qualifyingAwards.some((entry) => entry.eventKey === PNCMP && entry.awardType === awardType)).map((team) => team.teamKey).sort() }).toEqual({
+        awardType,
+        recorded: recipientsOf(PNCMP, awardType),
+      });
+    }
+    expect(awardsWarns(h.warnSpy)).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -13,24 +13,34 @@
  * and Finalist read as "awards final" while Impact was still due, and a team
  * could be shown Locked on a slot an Impact winner then took.
  *
- * ONE RULE, TWO VANTAGES. The rule reads three facts about one event:
+ * ONE RULE, TWO VANTAGES. The rule reads these facts about one event:
  *   - `judgedAwardListed`: the awards list holds an award that is neither
  *     Winner (1) nor Finalist (2). Read from the award type alone, never from
  *     the name.
  *   - `awardPointsPresent`: some team's row at that event carries award points
  *     above zero in the district rankings.
+ *   - `expectedAwardsListed` (quick task 261009-vp9): the list holds EVERY
+ *     consuming award an event of this kind gives. Impact at a district tier
+ *     event. Impact, Winner, Engineering Inspiration and Rookie All Star at a
+ *     District Championship that is not a division. None at a division,
+ *     which gives no consuming award. Read at the live vantage only.
  *   - `listSettled` (quick task 261009-tx6): the awards list has not changed
- *     for `AWARDS_SETTLE_MS`, 60 minutes. Optional, and read at the live
- *     vantage only.
+ *     for `AWARDS_SETTLE_MS`, 60 minutes. Read at the live vantage only.
+ *   - `listSettledLong` (quick task 261009-vp9): the same list has not
+ *     changed for `AWARDS_SETTLE_WITHOUT_IMPACT_MS`, 12 hours. Read at the
+ *     live vantage only.
  * Who is asking decides how they combine:
- *   - `"live"` (the Worker, during the event) needs ALL THREE. A judged award
- *     with no points yet means TBA is still filling the event in, and Winner
- *     and Finalist alone say nothing about the judged awards. Waiting keeps
- *     the reservations held, which is the side that can never revoke a
- *     Locked. An absent `listSettled` reads as not settled.
+ *   - `"live"` (the Worker, during the event) needs a judged award AND award
+ *     points AND, where every expected award is listed, the list settled for
+ *     60 minutes. Where one of them is NOT listed it needs the list settled
+ *     for 12 hours instead. A judged award with no points yet means TBA is
+ *     still filling the event in, and Winner and Finalist alone say nothing
+ *     about the judged awards. Waiting keeps the reservations held, which is
+ *     the side that can never revoke a Locked. Every absent fact reads as
+ *     the waiting side: not listed, not settled.
  *   - `"hindsight"` (the offline publisher, after the fact) needs EITHER of
- *     the first two and does not read the third. The corpus is ingested once
- *     an event is over, so either fact is proof the ceremony happened.
+ *     the first two and reads none of the others. The corpus is ingested
+ *     once an event is over, so either fact is proof the ceremony happened.
  *
  * WHY THE LIST HAS TO SETTLE. TBA can list an event's awards in batches. With
  * the first two facts alone the flag turned true at the first judged award
@@ -40,18 +50,46 @@
  * a team shown Locked on it could lose it. So the flag also waits until the
  * list has stood unchanged for an hour.
  *
- * THE RULE'S LIMIT, stated and not hidden: an award listed MORE than an hour
- * after the list last changed lands after the flag is true. It is still
- * recorded on the tick its list changes, but the held slot was released an
- * hour after the batch before it.
+ * WHY IT ALSO WAITS FOR THE AWARDS BY NAME (quick task 261009-vp9). The hour
+ * alone has a hole: a list that sits unchanged for an hour WITHOUT its Impact
+ * award turns the flag true, and the Impact listed after that takes a held
+ * place. Replayed on the 2026 PNW fixture with the award arriving two hours
+ * after the rest of the list, a late Impact took `frc5920` from held to
+ * eliminated at five district events (`2026wasam` and `2026wasno` among
+ * them), and at `2026pncmp` a late Impact took three held places and a late
+ * Engineering Inspiration or Rookie All Star two each. Waiting for Impact
+ * alone at the championship still lost two places to a late Engineering
+ * Inspiration and two to a late Rookie All Star, which is why a championship
+ * waits for EVERY consuming award it gives. With the rule below, all twelve
+ * walks lose nothing.
+ *
+ * WHY IMPACT BY NAME IS USABLE NOW. Measured over the 109 local district
+ * artifacts: 12 of 951 district events record no Impact award at all (eleven
+ * in 2022, and `2026isde2`), ten championships record no Engineering
+ * Inspiration (all 2020) and sixteen no Rookie All Star. Under a rule that
+ * waited for the award forever those events would hold their reservation
+ * forever. The 12 hour wait resolves them: a list that has stood unchanged
+ * for 12 hours without an expected award is read as an event that gave none.
+ * No division records a consuming award, so a division keeps the 60 minute
+ * rule.
+ *
+ * THE RULE'S LIMITS, stated and not hidden. Each is the flag turning true
+ * before an award that then takes a held place:
+ *   1. A FURTHER RECIPIENT of a consuming award type that is ALREADY listed,
+ *      listed more than an hour after the list last changed: a second Impact
+ *      at a championship (72 of 109 give more than one), a fourth member of
+ *      a winning alliance. The list already holds the type, so the flag does
+ *      not wait for the further recipient.
+ *   2. An event that lists NONE of an expected award for 12 unchanged hours
+ *      and then lists it.
+ *   3. The 24 hour watch and the catch up of quick task 261009-tx6 are
+ *      unchanged: awards or points that land after an event's watch has
+ *      ended wait for the catch up, and the flag stays false until then.
+ * In every case the award is still recorded on the tick its list changes.
  *
  * WHAT THE CORPUS SAYS (measured 2026-10-09 over 953 district events, 110
  * District Championships and 64 divisions). No district event lists Winner and
  * Finalist only: every event with any award listed also lists a judged one.
- * Twelve events since 2022 list judged awards and no Impact award at all
- * (eleven in 2022, and `2026isde2`), so "wait until Impact is listed" is not a
- * usable rule: those events would hold their reservation forever. That is why
- * the rule asks for any judged award and not for Impact by name.
  *
  * BOTH PRODUCERS CALL THIS MODULE. `packages/harness/districtRankingsMerge.ts`
  * (the Worker's merge) and `scripts/publishDistricts.ts` (the offline
@@ -59,7 +97,7 @@
  * `qualifyingAwards` entry through `qualifyingAwardRecord`, so the two cannot
  * drift apart.
  */
-import { AWARD_TYPE_WINNER, awardDisplayName, isAwardOnly, isQualificationRelevantAward, type AwardTier } from "./qualification.js";
+import { AWARD_TYPE_WINNER, awardDisplayName, consumingAwardTypesForTier, isAwardOnly, isQualificationRelevantAward, type AwardTier } from "./qualification.js";
 
 /** TBA's enumerated award_type for a Finalist. With Winner (1) it is decided on the field, not by the judges. */
 export const AWARD_TYPE_FINALIST = 2;
@@ -93,26 +131,71 @@ export function awardPointsPresentAt(
 export const AWARDS_SETTLE_MS = 60 * 60 * 1000;
 
 /**
- * Whether the awards list in hand has stood unchanged for `AWARDS_SETTLE_MS`
- * (quick task 261009-tx6). Pure: it parses the stored time and reads no clock.
+ * How long an awards list that LACKS a consuming award its event gives must
+ * stand unchanged before the live rule reads the event as having given none:
+ * 12 hours (quick task 261009-vp9). Named for the Impact award, the one a
+ * district tier event gives. At a District Championship it is the wait for
+ * any of the four.
+ */
+export const AWARDS_SETTLE_WITHOUT_IMPACT_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * What kind of event an awards list belongs to, for the awards it is expected
+ * to hold: a district tier event, a District Championship that is not a
+ * division (a single championship, or a divisioned one's finals event), or a
+ * division.
+ */
+export type AwardsEventKind = "district" | "championship" | "division";
+
+const NO_AWARD_TYPES: ReadonlySet<number> = new Set<number>();
+
+/**
+ * The consuming award types an event of `kind` gives, from the one table
+ * (`consumingAwardTypesForTier`): Impact at a district tier event, Impact,
+ * Winner, Engineering Inspiration and Rookie All Star at a championship, and
+ * none at a division.
+ */
+export function expectedConsumingAwardTypes(kind: AwardsEventKind): ReadonlySet<number> {
+  if (kind === "division") return NO_AWARD_TYPES;
+  return consumingAwardTypesForTier(kind === "championship" ? "dcmp" : "district");
+}
+
+/** True when the list of award types holds EVERY consuming award an event of `kind` gives. Always true for a division. */
+export function expectedAwardsListed(kind: AwardsEventKind, awardTypes: Iterable<number>): boolean {
+  const listed = new Set(awardTypes);
+  for (const expected of expectedConsumingAwardTypes(kind)) if (!listed.has(expected)) return false;
+  return true;
+}
+
+/**
+ * Whether the awards list in hand has stood unchanged for `thresholdMs`, by
+ * default `AWARDS_SETTLE_MS` (quick task 261009-tx6; the threshold since
+ * quick task 261009-vp9, which asks the same question at 12 hours). Pure: it
+ * parses the stored time and reads no clock.
  *
  * `storedEtag` is the ETag of the last list the caller merged for the event
  * and `lastChangedAt` the ISO time that ETag last changed, both from the
  * caller's own record. `listEtag` is the ETag of the list in hand.
  *
  * TRUE ONLY when the list in hand IS the stored list (equal, non null ETags)
- * and the stored change time parses and is at least `AWARDS_SETTLE_MS` before
- * `nowMs`. EVERY UNKNOWN READS AS NOT SETTLED: no stored ETag, a list whose
- * response carried no ETag, a differing ETag, and a change time that is
- * absent, unparseable or in the future. Not settled keeps the flag false,
- * which keeps the reservations held.
+ * and the stored change time parses and is at least `thresholdMs` before
+ * `nowMs`. EVERY UNKNOWN READS AS NOT SETTLED, at every threshold: no stored
+ * ETag, a list whose response carried no ETag, a differing ETag, and a change
+ * time that is absent, unparseable or in the future. Not settled keeps the
+ * flag false, which keeps the reservations held.
  */
-export function awardsListSettled(storedEtag: string | null | undefined, lastChangedAt: string | null | undefined, listEtag: string | null, nowMs: number): boolean {
+export function awardsListSettled(
+  storedEtag: string | null | undefined,
+  lastChangedAt: string | null | undefined,
+  listEtag: string | null,
+  nowMs: number,
+  thresholdMs: number = AWARDS_SETTLE_MS
+): boolean {
   if (listEtag === null || storedEtag === null || storedEtag === undefined || storedEtag !== listEtag) return false;
   if (lastChangedAt === null || lastChangedAt === undefined) return false;
   const changedAtMs = Date.parse(lastChangedAt);
   if (!Number.isFinite(changedAtMs)) return false;
-  return nowMs - changedAtMs >= AWARDS_SETTLE_MS;
+  return nowMs - changedAtMs >= thresholdMs;
 }
 
 /** The facts the rule reads about one event. See the module header. */
@@ -125,21 +208,43 @@ export interface AwardsPostedFacts {
    * settled, and the hindsight vantage does not read it at all.
    */
   readonly listSettled?: boolean;
+  /**
+   * The list holds every consuming award an event of its kind gives (quick
+   * task 261009-vp9, `expectedAwardsListed`). OPTIONAL: the live vantage
+   * reads an absent value as NOT listed, which is the waiting side, and the
+   * hindsight vantage does not read it at all.
+   */
+  readonly expectedAwardsListed?: boolean;
+  /**
+   * The awards list has stood unchanged for `AWARDS_SETTLE_WITHOUT_IMPACT_MS`
+   * (quick task 261009-vp9). OPTIONAL: read at the live vantage only, and
+   * only where an expected award is not listed. Absent reads as not settled.
+   */
+  readonly listSettledLong?: boolean;
 }
 
 /** Who is asking: the Worker during the event, or the publisher after it. */
 export type AwardsPostedVantage = "live" | "hindsight";
 
 /**
- * Whether an event's awards read as posted. Live: all three facts, with
- * `listSettled` read as true only when it is exactly `true`. Hindsight:
- * either of the first two. This function only answers for the facts it is
- * handed. A flag that is already published true stays true, and that is the
- * caller's rule: awards do not un post.
+ * Whether an event's awards read as posted.
+ *
+ * Live: a judged award AND award points AND a settled list. Which settle fact
+ * counts depends on the list: where every expected award is listed
+ * (`expectedAwardsListed` exactly `true`) it is `listSettled`, 60 minutes;
+ * otherwise it is `listSettledLong`, 12 hours. Each is read as true only when
+ * it is exactly `true`.
+ *
+ * Hindsight: either of the first two, and nothing else is read.
+ *
+ * This function only answers for the facts it is handed. A flag that is
+ * already published true stays true, and that is the caller's rule: awards do
+ * not un post.
  */
 export function awardsPostedRule(facts: AwardsPostedFacts, vantage: AwardsPostedVantage): boolean {
   if (vantage === "hindsight") return facts.judgedAwardListed || facts.awardPointsPresent;
-  return facts.judgedAwardListed && facts.awardPointsPresent && facts.listSettled === true;
+  if (!facts.judgedAwardListed || !facts.awardPointsPresent) return false;
+  return facts.expectedAwardsListed === true ? facts.listSettled === true : facts.listSettledLong === true;
 }
 
 /** One `qualifyingAwards` entry of a district artifact team row, field for field. */
