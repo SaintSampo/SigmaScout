@@ -923,7 +923,13 @@ closed.
 
 ---
 
-## The district refresh pass (phase 10, plan 10-05, added 2026-09-25; rewritten by quick task 261009-tx6, 2026-10-09)
+## The district refresh pass (phase 10, plan 10-05, added 2026-09-25; rewritten by quick task 261009-tx6, 2026-10-09; the finality rule, the awards flag and the winner hold by quick task 261009-vp9, 2026-10-10)
+
+**Quick task 261009-vp9 changes the verdict pass and the awards flag, both inside the Worker
+bundle. The Worker must be deployed for them to take effect.** No district republish is owed:
+every finished event reads exactly as it did (the publisher comparison over the 109 local district
+seasons is clean). Deploy while no district or championship event sits between playoffs done and
+awards posted: at such an event the first tick under the new rule can raise rivals' ceilings.
 
 The tick has a fourth job since phase 10: keeping a district's published points current between
 offline republishes. `apps/worker/src/districtRefresh.ts` holds the pass. It is reached from three
@@ -1022,30 +1028,55 @@ one `district-pass-suspended` warn.
    cursor is left unwritten, so the next tick's rankings request is a 200 again and the district
    passes the gate again.
 
-**When an event's awards read as posted: three facts.** `awardsPosted` turns true only once the
-awards list holds an award other than Winner and Finalist, AND some team's row at that event
-carries award points in the rankings as merged that tick, AND the awards list has not changed for
-60 minutes (`AWARDS_SETTLE_MS`). A published true stays true. The rule lives in
-`packages/core/districts/eventAwards.ts`. The offline publisher reads the same function, where
-either of the first two facts alone is enough because the corpus is ingested after the event.
+**When an event's awards read as posted (quick task 261009-vp9).** `awardsPosted` turns true only
+once all of these hold:
 
-The third fact exists because TBA can list an event's awards in batches. With two facts the flag
-turned true at the first judged award whose points were in, which released the slot held for that
-event's Impact award while a later batch could still bring it.
+- the awards list holds an award other than Winner and Finalist;
+- some team's row at that event carries award points in the rankings as merged that tick;
+- the list holds EVERY consuming award the event gives, and has not changed for 60 minutes
+  (`AWARDS_SETTLE_MS`). A district tier event gives Impact. A District Championship that is not a
+  division gives Impact, Winner, Engineering Inspiration and Rookie All Star. A division gives
+  none, so a division keeps the plain 60 minute rule.
 
-**Where the settle time is stored.** The event's awards cursor row holds the ETag of the last list
-the pass merged and, in `lastAdvancedAt`, the time that ETag last changed. A list is settled when
-its ETag equals the row's and that time is at least 60 minutes before the tick. A list reads as
-changed now, and the row is stamped with the tick's time, when no row exists, when the ETag
-differs, or when the row holds an ETag and no usable time (the row a Worker before 261009-tx6
-wrote). A list whose response carried no ETag never reads as settled. A failed awards request
-restarts the clock only on a tick that passes the gate, because that is the only tick that writes
-the retry marker. A failed request on a tick that does not pass the gate writes nothing and leaves
-the clock alone.
+Where one of those awards is NOT listed, the flag waits instead until the list has not changed for
+12 hours (`AWARDS_SETTLE_WITHOUT_IMPACT_MS`). A list that has stood that long without the award is
+read as an event that gave none: 12 district events since 2022 list judged awards and no Impact.
+A published true stays true. The rule lives in `packages/core/districts/eventAwards.ts`. The
+offline publisher reads the same function, where either of the first two facts alone is enough
+because the corpus is ingested after the event.
 
-**The limit of the settle time.** An award listed more than an hour after the list last changed
-lands after the flag is true. It is recorded on the tick its list changes, but the slot held for
-it was released when the hour ran out.
+The hour exists because TBA can list an event's awards in batches. Without it the flag turned true
+at the first judged award whose points were in, which released the slot held for that event's
+Impact award while a later batch could still bring it.
+
+Waiting for the awards by name exists because an hour can pass with the Impact still missing.
+Replayed on the 2026 PNW fixture with the award arriving two hours after the rest of its list, the
+old hour rule lost 24 held places over twelve walks: `frc5920` went from held to eliminated at
+`2026orore`, `2026orsal`, `2026orwil`, `2026wasam` and `2026wasno`, and at `2026pncmp` a late
+Impact took three held places and a late Engineering Inspiration or Rookie All Star two each.
+Waiting for Impact alone at the championship still lost the last two pairs, so a championship
+waits for every consuming award it gives. Under this rule the same twelve walks lose none.
+
+**The Worker measures, the merge decides.** The event's awards cursor row holds the ETag of the
+last list the pass merged and, in `lastAdvancedAt`, the time that ETag last changed. The pass
+reads that one row at two lengths and hands the merge two sets: the events whose list has stood
+for 60 minutes, and the events whose list has stood for 12 hours. It adds no request, no D1 read
+and no D1 write for the second. The merge knows the event's tier, whether it is a division and
+which award types the list holds, and asks the rule. A list reads as changed now, and the row is
+stamped with the tick's time, when no row exists, when the ETag differs, or when the row holds an
+ETag and no usable time (the row a Worker before 261009-tx6 wrote). A list whose response carried
+no ETag never reads as settled at either length. A failed awards request restarts the clock only on
+a tick that passes the gate, because that is the only tick that writes the retry marker. A failed
+request on a tick that does not pass the gate writes nothing and leaves the clock alone.
+
+**The limits of the flag's rule.** Each is the flag turning true before an award that then takes a
+held place. In each the award is still recorded on the tick its list changes.
+
+1. A further recipient of a consuming award type that is already listed, listed more than an hour
+   after the list last changed: a second Impact at a championship, a fourth member of a winning
+   alliance. The list already holds the type, so the flag does not wait for the further recipient.
+2. An event that lists none of an expected award for 12 unchanged hours and then lists it.
+3. The 24 hour watch and the catch up are unchanged: see "The limits that remain".
 
 **The winners are written in the same put.** Every awards list that reaches the merge is merged,
 whether or not the flag turns true that tick: each recipient that is a team of the district gets
@@ -1054,13 +1085,68 @@ the winner records, `districtLock` and `champLock` land in one R2 write. Entries
 never removed. A District Championship division records nothing, as in the publisher.
 
 **A recorded winner is read only once its own event says the award is given.** The record is
-written at once. The verdict pass counts it only when the state block of the award's own event
-says so: every judged award once `awardsPosted` is true, and a District Championship Winner once
-the playoffs are final (`playoffsDone` true, or `awardsPosted` true). Until then the event still
-holds its slot back and the recorded winner takes none, so an event is reserved for or counted and
-never both. An award at an event whose rows carry no state block counts as it always has. Before
-261009-tx6 the published verdict counted the winner and held the slot at once, and a team it had
-locked on points read contending until the points arrived.
+written at once. The verdict pass counts it only when the award's own event says so: every judged
+award once `awardsPosted` is true, and a District Championship Winner once the playoffs are final
+as the rule below reads them (`playoffsDone` true AND the winner's playoff points in the rows, or
+`awardsPosted` true). Until then the event still holds its slot back and the recorded winner takes
+none, so an event is reserved for or counted and never both. An award at an event whose rows carry
+no state block counts as it always has. Before 261009-tx6 the published verdict counted the winner
+and held the slot at once, and a team it had locked on points read contending until the points
+arrived.
+
+**The winner hold (quick task 261009-vp9).** The four places held for a championship's winning
+alliance are released only once its Playoffs are final AND a Winner is recorded there. Playoffs
+final alone is not enough: TBA can post the playoff points before it lists the Winner, and for
+those ticks the four places would be neither reserved for (the Playoffs read final) nor counted
+(no winner is known), which hands the points race four slots the winners then take. On a synthetic
+championship whose winners sit far down the standings that order lost 13 held places in the
+published verdict and 13 on the Champ Locks tab. With the hold it loses none. A Winner recorded at
+another championship of the same district releases nothing. The Champ Locks tab applies the same
+hold, but only while that championship's own flag is not yet true at Now, so a rewound stop of a
+finished season reads as it always has.
+
+**A category counts as finished only when its points are in (quick task 261009-vp9).** An event's
+state block (qualification matches played, alliances picked, playoffs done) comes from the match
+feed and moves within a minute. Each team's points come from TBA's district rankings, a different
+feed that can lag. Read from the state alone, a category closed before its points were in: a rival
+lost a ceiling it could still fill, a team read Locked, and the points arriving took the Locked
+back. The rule, for one event, reading the artifact's own rows at that event:
+
+- **Awards** are final when `awardsPosted` is true.
+- **Playoffs** are final when Awards are, or `playoffsDone` is true AND some row carries the
+  winner's playoff value (30 at a district event, 90 at a championship or a division, in 2026;
+  the finals champion value at a divisioned championship's finals event).
+- **Alliance selection** is final when Playoffs are, or `alliancesPicked` is true AND some row
+  carries alliance points above 0.
+- **Qualification** is final when Alliance selection is. TBA shows provisional qualification
+  points during an event, so their presence proves nothing.
+
+The rule only ever reads a category OPEN where the state alone reads it final. It never closes one
+early, and a rankings row alone closes nothing. It lives in
+`packages/core/districts/categoryCorroboration.ts`. It applies in two places: the verdict pass,
+through `publishedCategoryFinality` (the ceilings, the floors, the pooled pool, the Winner gate and
+both reservations), and on both Locks tabs, where it decides which cells are grey and everything
+the lock math reads.
+
+**The two readings, never mixed.** What has happened on the field is the state alone. It keeps
+driving the tabs' simulation run, the published alliances and the played bracket the run is
+conditioned on, the bracket facts, the timeline and the milestone rail. Whether a category's
+number is final is the rule above. It drives the grey cells and the lock math. The run takes TBA's
+own playoff and award points as known only once they are final, and reads the played bracket
+until then. So nothing live goes dark while points lag. Only finality waits.
+
+**An event whose winners carry no row.** At 3 of 418 district events since 2023 (`2026njtab`,
+`2026mawor`, `2026waahs`) the winning alliance's full playoff value sits on no row, because a
+team's third district event earns no row. There the Playoffs read open at the live position from
+the playoff points landing until the awards flag turns true, which then closes every category at
+once. That is the open side: a Locked shown later, never one taken back.
+
+**When TBA posts points during an event is not verified.** No live district weekend has been
+observed under this rule. Both cases are covered by tests and neither is asserted:
+
+- If the points lag by minutes, finality waits minutes.
+- If they arrive only when an event ends, the tabs show predictions conditioned on the field all
+  event and no category reads final until then.
 
 **The published ceilings count what is still open at an event a team has already played.** Before
 261009-tx6 `maxRemainingDistrict` was the sum of a team's remaining events and nothing else, so an
@@ -1091,15 +1177,28 @@ the 109 local district seasons: zero artifacts differ). Three things to know:
   team playing its championship is therefore never read as a team granted a hypothetical one, and
   a rankings 200 tick and a 304 tick give the same ceilings.
 
-**What "no Locked is taken back" covers.** It is asserted for the AWARD stage: Winner and Finalist
-listed, the judged list, the award points, the hour of quiet, the settle. The replay in
-`apps/worker/test/scheduled.district.test.ts` walks that stage for all eight 2026 PNW district
-events through the real tick, at both tiers. The same gap one category earlier (qualification
-done, alliances picked, playoffs done, each while TBA's district rankings have not caught up with
-the match results) is not covered here. It is the subject of quick task 261009-vp9, "a category
-counts as finished only when its points are in", which changes one function,
-`publishedCategoryFinality`, the one place the published verdicts read which categories of an
-event are final.
+**What "no Locked is taken back" covers.** Four things, each held by a test that fails with its
+rule removed:
+
+- **The three earlier categories.** Qualification done, alliances picked and playoffs done, each
+  while TBA's district rankings have not caught up with the match results.
+  `scripts/districtLocksStagedReplay.test.ts` walks all eight 2026 PNW district events over ten
+  ticks through the shared merge and the District Locks status code. With the rule switched off
+  inside the test the same walk takes 32 published `districtLock`, 9 published `champLock` and 32
+  District Locks Locked back. With the rule: none. The same file walks both cases about when TBA
+  posts points, with the played bracket handed to the tabs at every tick.
+- **The award stage.** Winner and Finalist listed, the judged list, the award points, the hour of
+  quiet, the settle. `apps/worker/test/scheduled.district.test.ts` walks it for all eight events
+  through the real tick, at both tiers.
+- **A late consuming award.** A late Impact at every one of the eight district events, and at
+  `2026pncmp` a late Impact, Engineering Inspiration, Rookie All Star and Winner, through the pure
+  merge in the replay file, and `2026wasam`, `2026wasno` and the three judged `2026pncmp` variants
+  through the real tick in the Worker test file.
+- **A Winner listed after the playoff points.** Two synthetic single championships in both tick
+  orders, in the replay file.
+
+The published side is the tab's rule without its settled playoffs refinement, so in the middle of
+the playoffs a published status can be weaker than the tab's, never stronger.
 
 **A failed awards request is not fatal.** A request that throws, answers a status other than 200
 or 304, or returns a body that fails the schema costs one `district-awards-poll-failed` warn and
@@ -1139,7 +1238,7 @@ minutes, plus at most two awards requests per waiting member and one per catch u
 | Key shape | Holds |
 |---|---|
 | `__district_rankings__:{districtKey}` | the district rankings ETag |
-| `__event_awards__:{eventKey}` | `tba_etag`: the ETag of the last awards list the pass merged, whatever the flag says. A null ETag is a retry marker left by a failed request, and is asked with no ETag. `last_advanced_at`: the time that ETag last changed, which the 60 minute settle time is counted from. `last_polled_at`: the time the row was last written, which for a catch up event is the time it was last asked |
+| `__event_awards__:{eventKey}` | `tba_etag`: the ETag of the last awards list the pass merged, whatever the flag says. A null ETag is a retry marker left by a failed request, and is asked with no ETag. `last_advanced_at`: the time that ETag last changed, which the 60 minute settle time and the 12 hour wait are both counted from. `last_polled_at`: the time the row was last written, which for a catch up event is the time it was last asked |
 
 Both are refused by `emitCursorSeedSql`, so a D1 seed cannot clobber either. Neither is owed before
 a deploy: the tick writes them itself and they are meant to be absent until it runs. A row left by
@@ -1161,8 +1260,16 @@ reservations stay held and no team reads Locked on a slot an award could still t
 offline republish resolves them too. The reader facing statement of this is on
 `/methodology/district-points`, in the limits table.
 
-**An award listed more than an hour after the list last changed lands after the flag.** See "The
-limit of the settle time" above.
+**A further recipient of an award type already listed, more than an hour after the list last
+changed, lands after the flag. So does an expected award first listed after 12 unchanged hours.**
+See "The limits of the flag's rule" above. A first Impact, Winner, Engineering Inspiration or
+Rookie All Star listed late no longer does: the flag waits for it.
+
+**An event whose winning alliance carries no row at the winner's playoff value** keeps its
+Playoffs open at the live position until its awards flag turns true. See "An event whose winners
+carry no row" above.
+
+**When TBA posts points during an event is not verified.** See the paragraph of that name above.
 
 **An event whose window is still open and whose state says its playoffs are open is not asked for
 awards.** An award cannot have been given out there yet.

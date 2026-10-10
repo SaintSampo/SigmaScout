@@ -192,7 +192,7 @@ const EXPECTED_LIMITS = [
   "Every baked number's resolution is set by its draw count",
   "An event whose awards are posted can still read as open",
   "Awards are picked up for a day after an event's last match",
-  "A Locked waits until an event's award list has been unchanged for an hour",
+  "A Locked waits until an event's Impact award is listed and its award list has been unchanged for an hour",
 ];
 
 /** A retired name or a retired piece of vocabulary must never reach a public page. */
@@ -336,6 +336,24 @@ describe("districtLedgerContent: the rewound view and the championship field (26
     for (const section of DISTRICT_LEDGER_SECTIONS) {
       for (const text of section.paragraphs) expect(text).not.toMatch(/know more|knows more/);
     }
+  });
+
+  it("says a category counts as settled once its points are posted, directly after the settled category sentence (261009-vp9)", () => {
+    const paragraphs = paragraphsOf("how-open-categories-are-predicted");
+    expect(paragraphs.find((text) => text.startsWith("A category that is already settled"))).toBe(
+      "A category that is already settled shows the points the team earned, not a prediction. A category counts as settled once its points are posted. An event nobody has played yet is priced by the pipeline before the season, and the browser computes nothing for it."
+    );
+  });
+
+  it("states in the Limits row what a Locked waits for, naming every award (261009-vp9)", () => {
+    const limits = DISTRICT_LEDGER_SECTIONS.find((section) => section.id === "what-this-does-not-model");
+    const row = limits?.table?.rows.find((entry) => entry[0]?.startsWith("A Locked waits"));
+    expect(row).toEqual([
+      "A Locked waits until an event's Impact award is listed and its award list has been unchanged for an hour",
+      "Until then the places that event's awards can take stay held back. At a district championship the wait also covers the Winner, Engineering Inspiration and Rookie All Star awards. An event missing its Impact award, or a district championship missing its Winner, Engineering Inspiration or Rookie All Star award, is read after twelve unchanged hours.",
+    ]);
+    // The awards are named: the cell never says "them".
+    expect(row?.[1]).not.toMatch(/\bthem\b/);
   });
 
   it("describes the open cell grammar and the Playoffs cell's milestones and not picked case (261008-3il)", () => {
