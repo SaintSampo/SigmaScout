@@ -164,7 +164,45 @@ describe("championshipShape (quick task 261009-kt3, D1)", () => {
     expect(championshipShape(["2026micmp"])).toEqual({ kind: "single", key: "2026micmp" });
   });
 
+  describe("the finals event not yet on the wire (quick task 261010-d7r, D2; first built as D3 of quick task 261010-66y and refused there)", () => {
+    const FIM = ["2026micmp1", "2026micmp2", "2026micmp3", "2026micmp4"];
+    const NE = ["2026necmp1", "2026necmp2"];
+
+    it("with the flag, two or four digit suffixed keys on one stem and no parent are divisioned, the stem the finals key", () => {
+      expect(championshipShape(FIM, true)).toEqual({ kind: "divisioned", stem: "2026micmp", finalsKey: "2026micmp", divisionKeys: FIM });
+      expect(championshipShape(["2026necmp2", "2026necmp1"], true)).toEqual({ kind: "divisioned", stem: "2026necmp", finalsKey: "2026necmp", divisionKeys: NE });
+    });
+
+    it("with the flag, one or three divisions without the parent are still unsupported", () => {
+      expect(championshipShape(["2026micmp1"], true).kind).toBe("unsupported");
+      expect(championshipShape(FIM.slice(0, 3), true).kind).toBe("unsupported");
+    });
+
+    it("the flag changes nothing where the parent is on the rows, or at any other shape", () => {
+      const sets: readonly (readonly string[])[] = [
+        [],
+        ["2026nccmp"],
+        ["2026micmp", ...FIM],
+        ["2026necmp", ...NE],
+        ["2026cascmp", "2026cancmp"],
+        ["2026micmp", "2026micmp1", "2026micmp2", "2026micmp3"],
+        ["2026micmp", "2026micmp1"],
+        ["2026cancmp", "2026cascmp", "2026cascmp1", "2026cascmp2"],
+        ["2026cancmp", "2026cascmp1", "2026cascmp2"],
+      ];
+      for (const keys of sets) expect(championshipShape(keys, true), keys.join(",")).toEqual(championshipShape(keys));
+    });
+
+    it("without the flag, and with it false, divisions without their finals event are unsupported, as before", () => {
+      for (const keys of [FIM, NE]) {
+        expect(championshipShape(keys).kind).toBe("unsupported");
+        expect(championshipShape(keys, false)).toEqual(championshipShape(keys));
+      }
+    });
+  });
+
   it("calls every other grouping unsupported", () => {
+    // Division keys with no parent, read WITHOUT `finalsMayBeAbsent`: every rewound stop and every sweep.
     expect(championshipShape(["2026micmp1", "2026micmp2", "2026micmp3", "2026micmp4"]).kind).toBe("unsupported");
     expect(championshipShape(["2026micmp", "2026micmp1", "2026micmp2", "2026micmp3"]).kind).toBe("unsupported");
     expect(championshipShape(["2026micmp", "2026micmp1"]).kind).toBe("unsupported");

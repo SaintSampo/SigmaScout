@@ -81,8 +81,12 @@
  *      in between are held in `scripts/champJointMonotone.test.ts`.
  *  10. the live walks of 2026 FIM, NE, ONT and TX with the field's bracket
  *      facts handed at every tick from "alliances picked" on, the finals key
- *      on no row until the finals rows post. (The proof still reads
- *      `unsupportedShape` until then.)
+ *      on no row until the finals rows post. The joint proof runs from the
+ *      tick the alliance points land (quick task 261010-d7r, D2: the tab
+ *      hands `finalsMayBeAbsent` while the field is proven by capacity), and
+ *      no Locked is taken back at any tick. The same walks with the option
+ *      held off are the reading of before that task, kept as the
+ *      comparison: every team Locked there is Locked with the option on.
  *  11. the finals read the same way with and without a finals row: over the
  *      16 divisioned championships and nine stops each, every team's floor
  *      and ceiling, the teams shown Locked and `lockedBy`, with the finals
@@ -92,8 +96,26 @@
  *      attendees' totals against the totals of the teams on no row that
  *      carry a hypothetical championship, on the tab and in the published
  *      verdicts.
- * Groups 2 to 5, the real walks of group 6 and groups 7 to 12 read gitignored
+ *  13. D2's equivalence gate (quick task 261010-d7r): over the 16 divisioned
+ *      championships and the 112 stops before the finals have a played row,
+ *      the joint proof on the artifact with the finals key's rows removed
+ *      and `finalsMayBeAbsent` handed, against the artifact as published:
+ *      the reason, the proof's input, every pool team's bound, the locked
+ *      set, the reservation, every floor and ceiling, the teams shown
+ *      Locked and `lockedBy`.
+ * Groups 2 to 5, the real walks of group 6 and groups 7 to 13 read gitignored
  * local data.
+ *
+ * GROUPS 10 AND 13 ARE TWO SEPARATE PROOFS of the divisioned joint proof
+ * running before the finals key is on the artifact, and neither stands in for
+ * the other. Group 13 shows the READING is the same one: at a rewound stop
+ * the proof without the finals key equals the proof with it, column for
+ * column. Group 10 shows the reading is HELD LIVE: through the ticks of a
+ * real championship, the window and the finals rows posting included, no
+ * team shown Locked is later not Locked. The orders of facts group 10 does
+ * not walk (each division's awards flag on its own, the finals facts before
+ * and between them, the field proof turning true mid playoffs) are walked
+ * one fact at a time in group D of `scripts/champJointMonotone.test.ts`.
  *
  * THE BRACKET FACTS (group 10). The tab's joint proof reads each division's
  * published alliances and played playoff rows. In the walk they come from
@@ -160,6 +182,7 @@ import { computeDistrictLedgerStatuses } from "../apps/web/src/components/distri
 import { applyChampionshipFieldOverlay } from "../apps/web/src/components/districts/districtFieldOverlay.js";
 import { buildChampLedgerRows, champFieldProofAtNow, dcmpEventKeysFor } from "../apps/web/src/components/districts/champLedgerRows.js";
 import { computeChampLedgerStatuses, jointProofBound } from "../apps/web/src/components/districts/champLedgerStatus.js";
+import { jointLockBound } from "../packages/core/districts/champJointLock.js";
 import { CORPUS_PATH, LOCAL_DISTRICT_DIR, bracketFromCorpus, bracketsFromCorpus, championshipStops, dcmpStops, statusesAtChampionshipStop } from "./measureChampJointLocks.js";
 
 /**
@@ -282,6 +305,8 @@ interface WalkStep {
   readonly fieldProven: boolean;
   /** The core proof's own `proven` at Now. */
   readonly proven: boolean;
+  /** What the core proof says proved the field complete at Now, or `null`. */
+  readonly completeBy: string | null;
   /** The champ tier reservation the Champ Locks status code computed. */
   readonly champReserved: number;
   /** How many dcmp keys the artifact knows at this tick. */
@@ -316,6 +341,12 @@ interface WalkStep {
 interface SnapshotReading {
   /** The field's bracket facts and milestones, per dcmp key. Absent, the joint proof is handed nothing, as in the walks without a bracket. */
   readonly distributions?: ReadonlyMap<string, DistrictEventDistributions>;
+  /**
+   * Never hand the status code `finalsMayBeAbsent`, whatever the field proof
+   * says: the reading of before quick task 261010-d7r's D2, kept for the
+   * comparison in group 10. Absent, the option is handed as the tab hands it.
+   */
+  readonly holdFinalsMayBeAbsentOff?: boolean;
 }
 
 interface Walk {
@@ -343,6 +374,11 @@ function snapshot(label: string, artifact: DistrictArtifact, reading: SnapshotRe
   const districtShown = applyChampionshipFieldOverlay(districtStatuses, artifact, { atLive: true, nowYear: NOW_YEAR });
 
   const started = startedDcmpKeys(artifact);
+  const proof = champFieldProofAtNow(artifact, started, NOW_YEAR);
+  // As the tab passes it (`ChampLocksLedger.tsx`, quick task 261010-d7r, D2): at the live position, and only while
+  // the field is proven by capacity. With it a divisioned championship whose finals key is on no row is read as one
+  // whose finals have not started.
+  const finalsMayBeAbsent = reading.holdFinalsMayBeAbsentOff !== true && proof.completeBy === "capacity";
   const champRows = buildChampLedgerRows({ artifact, distributions: reading.distributions ?? NO_DISTRIBUTIONS, startedDcmpEventKeys: started, atLivePosition: true, nowYear: NOW_YEAR });
   const champStatuses = computeChampLedgerStatuses({
     artifact,
@@ -351,6 +387,7 @@ function snapshot(label: string, artifact: DistrictArtifact, reading: SnapshotRe
     nowYear: NOW_YEAR,
     fieldProven: champRows.fieldProven,
     ...(reading.distributions === undefined ? {} : { distributions: reading.distributions }),
+    ...(finalsMayBeAbsent ? { finalsMayBeAbsent } : {}),
   });
   const jointProof = champStatuses.jointProof;
 
@@ -371,7 +408,8 @@ function snapshot(label: string, artifact: DistrictArtifact, reading: SnapshotRe
     champByAward: new Set([...champStatuses.byTeam].filter(([, result]) => result.byAward).map(([teamKey]) => teamKey)),
     membership: new Map(champRows.teams.map((team) => [team.teamKey, team.membership] as const)),
     fieldProven: champRows.fieldProven,
-    proven: champFieldProofAtNow(artifact, started, NOW_YEAR).proven,
+    proven: proof.proven,
+    completeBy: proof.completeBy,
     champReserved: champStatuses.reservedSlots,
     dcmpKeys: dcmpEventKeysFor(artifact).length,
     districtTab: new Map([...districtShown.byTeam].map(([teamKey, result]) => [teamKey, result.status] as const)),
@@ -676,6 +714,8 @@ interface FieldWalkOptions {
    * division's state reads finished, the finals key still on no row).
    */
   readonly brackets?: ReadonlyMap<string, BracketSourceEvent>;
+  /** With `brackets`: never hand the tab `finalsMayBeAbsent` (`SnapshotReading.holdFinalsMayBeAbsentOff`). */
+  readonly holdFinalsMayBeAbsentOff?: boolean;
 }
 
 const shortKey = (eventKey: string): string => eventKey.slice(4);
@@ -777,7 +817,10 @@ function walkChampionshipField(source: DistrictArtifact, options: FieldWalkOptio
   const brackets = options.brackets;
   const facts = (rounds: number, withFinals = false): FactsAt | undefined => (brackets === undefined ? undefined : { rounds, withFinals });
   const record = (label: string, at?: FactsAt): void => {
-    const reading: SnapshotReading = brackets === undefined || at === undefined ? {} : { distributions: fieldDistributions(artifact, brackets, fieldFixingKeys, finalsKeys, at.rounds, at.withFinals) };
+    const reading: SnapshotReading = {
+      ...(brackets === undefined || at === undefined ? {} : { distributions: fieldDistributions(artifact, brackets, fieldFixingKeys, finalsKeys, at.rounds, at.withFinals) }),
+      ...(options.holdFinalsMayBeAbsentOff === true ? { holdFinalsMayBeAbsentOff: true } : {}),
+    };
     steps.push(snapshot(label, artifact, reading));
   };
   const rowsTick = (label: string, at?: FactsAt): void => {
@@ -2074,7 +2117,8 @@ describe("CLOSED by quick task 261010-d7r: every Locked the joint proof gives wh
       // one of those to a rival that already held a posted one, whose maximum was then one judged award higher than
       // at A. Measured then: 406 shown Locked at A, 436 at B, and the eleven teams of `THE_ELEVEN_BEFORE_D7R` Locked
       // at A and not at B. Quick task 261010-66y refused its reading D3 (the proof running during the division
-      // playoffs at a live championship) because of it.
+      // playoffs at a live championship) because of it; quick task 261010-d7r landed that reading once this was
+      // closed (groups 10 and 13).
       //
       // WHAT IT IS. The teams carrying award points at a division whose Awards read final are named to the proof
       // (`awardedRivals`) and take no further judged award. So `lost` is none, and this is a requirement now: a
@@ -2160,15 +2204,21 @@ type FactsWalked = (typeof FACTS_WALKED)[number];
 const MISSING_FACTS_WALKED = FACTS_WALKED.filter((districtKey) => !LOCAL_DISTRICT_FILES.includes(`v1__district__${districtKey}.json`));
 
 const factsWalkCache = new Map<string, Walk>();
-/** The first walk of a divisioned district with its corpus brackets handed to the tab, through the window and the finals ticks. */
-function factsWalk(districtKey: FactsWalked): Walk {
-  let walk = factsWalkCache.get(districtKey);
+/**
+ * The first walk of a divisioned district with its corpus brackets handed to
+ * the tab, through the window and the finals ticks. With `holdFlagOff` the
+ * tab is never handed `finalsMayBeAbsent`: the reading of before quick task
+ * 261010-d7r's D2.
+ */
+function factsWalk(districtKey: FactsWalked, holdFlagOff = false): Walk {
+  const cacheKey = `${districtKey} ${String(holdFlagOff)}`;
+  let walk = factsWalkCache.get(cacheKey);
   if (walk === undefined) {
     const source = walkedSource(districtKey);
     const championship = divisionedChampionships().find((entry) => entry.artifact.districtKey === source.districtKey);
     if (championship === undefined) throw new Error(`${districtKey} is not among the divisioned championships`);
-    walk = walkChampionshipField(source, { finalsTicks: true, brackets: championship.brackets });
-    factsWalkCache.set(districtKey, walk);
+    walk = walkChampionshipField(source, { finalsTicks: true, brackets: championship.brackets, ...(holdFlagOff ? { holdFinalsMayBeAbsentOff: true } : {}) });
+    factsWalkCache.set(cacheKey, walk);
   }
   return walk;
 }
@@ -2180,12 +2230,13 @@ function factsTable(walk: Walk): string[] {
   );
 }
 const ALLIANCES_PICKED_TICK = "alliances picked, no alliance points";
+const ALLIANCE_POINTS_TICK = "alliance points land";
 const WINDOW_TICK = "every division finished, finals on no row";
 const FINALS_ROWS_TICK = "finals rows posted, no state";
 const FINALS_STATE_TICK = "finals state written";
 const FINALS_AWARDS_TICK = "finals award points land";
 
-describe("the live walks with the field's bracket facts: 2026 FIM, NE, ONT and TX, the finals key on no row until the finals rows post (quick task 261010-66y, reading R15, with D3 refused)", () => {
+describe("the live walks with the field's bracket facts: 2026 FIM, NE, ONT and TX, the finals key on no row until the finals rows post, the joint proof running from the tick the alliance points land (quick task 261010-d7r, D2; reading R15 of quick task 261010-66y)", () => {
   if (!existsSync(CORPUS_ABSOLUTE)) {
     localDataAbsent(`${CORPUS_PATH} absent (gitignored local data)`);
     return;
@@ -2195,63 +2246,64 @@ describe("the live walks with the field's bracket facts: 2026 FIM, NE, ONT and T
     return;
   }
 
+  /** The teams shown Locked at a tick. */
+  const lockedAt = (step: WalkStep): string[] => [...step.champTab].filter(([, status]) => status === "locked").map(([teamKey]) => teamKey).sort();
+
   it(
-    "the proof reads unsupportedShape while the finals key is on no row and is applied from the finals rows on; no Locked is taken back through the finals' state being written",
+    "the proof waits for the alliance points and is applied from the tick they land, through the division playoffs, the window and the finals ticks; no Locked is taken back at any tick",
     () => {
       const table: string[] = [];
       const shown: Record<string, number[]> = {};
-      const atTheFinalsAwards: Record<string, string[]> = {};
       for (const districtKey of FACTS_WALKED) {
         const walk = factsWalk(districtKey);
         table.push(districtKey, ...factsTable(walk));
         const labels = walk.steps.map((step) => step.label);
         const picked = labels.indexOf(ALLIANCES_PICKED_TICK);
+        const alliancePointsAt = labels.indexOf(ALLIANCE_POINTS_TICK);
         const finalsRowsAt = labels.indexOf(FINALS_ROWS_TICK);
         const finalsAwardsAt = labels.indexOf(FINALS_AWARDS_TICK);
         expect(picked).toBeGreaterThan(0);
-        expect(finalsRowsAt).toBeGreaterThan(picked);
+        expect(alliancePointsAt).toBe(picked + 1);
+        expect(finalsRowsAt).toBeGreaterThan(alliancePointsAt);
         expect(finalsAwardsAt).toBe(finalsRowsAt + 2);
         expect({ districtKey, out: fieldTeamsReadOut(walk) }).toEqual({ districtKey, out: [] });
-        // The finals key is on no row until the finals rows post: division keys without their finals event are
-        // not a shape the proof runs on (D3 refused, `finalsBracket.ts`).
+        // THE PREMISE OF D2's OPTION: from the tick the alliances are picked on, the field is proven BY CAPACITY (the
+        // division keys on the rows are every division), and the finals key is on no row until the finals rows post.
         for (const step of walk.steps.slice(picked, finalsRowsAt)) {
-          expect({ districtKey, tick: step.label, dcmpKeys: step.dcmpKeys, joint: step.joint }).toEqual({ districtKey, tick: step.label, dcmpKeys: walk.fieldFixingKeys.length, joint: "unsupportedShape" });
+          expect({ districtKey, tick: step.label, dcmpKeys: step.dcmpKeys, completeBy: step.completeBy }).toEqual({ districtKey, tick: step.label, dcmpKeys: walk.fieldFixingKeys.length, completeBy: "capacity" });
         }
-        // Once it is on a row the proof runs, at the tick the finals rows post with no state included.
-        for (const step of walk.steps.slice(finalsRowsAt, finalsAwardsAt + 1)) expect({ districtKey, tick: step.label, joint: step.joint }).toEqual({ districtKey, tick: step.label, joint: "applied(divisioned)" });
-        // NO LOCKED IS TAKEN BACK at any tick, the tick the finals' award points land included. Before the last
-        // step of this quick task that tick took 2 back at 2026 FIM (frc5843, frc9572) and 1 at TX (frc624): a
-        // team that gained a finals row there gained the championship's whole Awards ceiling with it.
+        // The proof's eligibility reads the rows' stage, which is the NUMBER: until the alliance points are on the
+        // rows it waits, as at a single championship. This is not the shape's refusal any more.
+        expect({ districtKey, joint: walk.steps[picked]!.joint }).toEqual({ districtKey, joint: "stageNotEligible" });
+        // From the tick the alliance points land the proof runs at every tick: the five rounds, the playoffs done,
+        // the playoff points, the divisions' award points, THE WINDOW (every division finished, the finals key on no
+        // row), the finals rows posting with no state, their state, their award points.
+        for (const step of walk.steps.slice(alliancePointsAt, finalsAwardsAt + 1)) expect({ districtKey, tick: step.label, joint: step.joint }).toEqual({ districtKey, tick: step.label, joint: "applied(divisioned)" });
+        // NO LOCKED IS TAKEN BACK at any tick. This is the requirement D2 was refused on in quick task 261010-66y: with
+        // the proof running through the division playoffs the walk then took 1 Locked back at FIM (frc5675), 2 at NE
+        // (frc4909, frc2713) and 2 at TX (frc624, frc9140) at the tick the divisions' Awards read final. The cause was
+        // the judged award budget going to a rival that already held a posted award, closed by that task's rule D1.
         expect({ districtKey, lost: lockedTakenBack(walk) }).toEqual({ districtKey, lost: [] });
-        atTheFinalsAwards[districtKey] = lockedTakenBack(walk);
         shown[districtKey] = walk.steps.slice(picked, finalsAwardsAt + 1).map(shownLockedCount);
         shown[`${districtKey} end`] = [shownLockedCount(walk.steps.at(-1)!)];
       }
-      console.log(`[261010-66y group 10] the live walks with the bracket facts\n${table.join("\n")}`);
-      expect(Object.fromEntries(Object.entries(atTheFinalsAwards).map(([districtKey, lost]) => [districtKey, lost.length]))).toEqual({ "2026fim": 0, "2026ne": 0, "2026ont": 0, "2026fit": 0 });
+      console.log(`[261010-d7r group 10] the live walks with the bracket facts, the finals key allowed absent\n${table.join("\n")}`);
       // Teams shown Locked per tick, from "alliances picked" to "finals award points land", then at the end. Pinned
       // as the run shows. The fourteen ticks: alliances picked, alliance points land, after Rounds 1 to 5, playoffs
       // done, playoff points land, division award points land, every division finished, finals rows posted,
       // finals state written, finals award points land.
       //
-      // THE LAST TWO TICKS MOVED with the last step of this quick task (the finals' Awards add no points ceiling
-      // for anyone), upward only: at "finals state written" NE read 19 and reads 21; at "finals award points land"
-      // FIM read 69 and reads 71, NE 19 and 21, TX 16 and 17. Every earlier tick, and ONT, is what it was.
-      //
-      // THE TICK THE FINALS ROWS POST MOVED with quick task 261010-d7r (its rule D1), upward only: FIM read 65 and
-      // reads 66, NE 18 and 20, TX 15 and 17. At that tick every division's Awards read final and the proof runs
-      // for the first time, so the teams carrying a posted division award are named to it and take no second
-      // judged award. The counts gained are those of the joint sweep's "Divisions final, finals not started" stop,
-      // where the teams gained are of the eleven of group 9 (frc5675 at FIM, frc2713 and frc4909 at NE, frc624 and
-      // frc9140 at TX). Every other tick, and ONT, is what it was.
+      // WHAT D2 MOVED (quick task 261010-d7r): every tick before the finals rows post, upward only. Until then the
+      // proof read `unsupportedShape` there and only the ceiling test could lock (the series of the last test of
+      // this group). From the tick the finals rows post the two series are the same. No series ever steps down.
       expect(shown).toEqual({
-        "2026fim": [0, 0, 0, 0, 0, 0, 0, 0, 13, 13, 29, 66, 71, 71],
+        "2026fim": [0, 1, 1, 5, 25, 35, 41, 46, 60, 60, 66, 66, 71, 71],
         "2026fim end": [83],
-        "2026ne": [0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 12, 20, 21, 21],
+        "2026ne": [0, 0, 0, 1, 8, 9, 9, 12, 20, 20, 20, 20, 21, 21],
         "2026ne end": [32],
-        "2026ont": [0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 10, 11, 12, 12],
+        "2026ont": [0, 0, 0, 0, 0, 6, 7, 8, 10, 10, 11, 11, 12, 12],
         "2026ont end": [21],
-        "2026fit": [0, 0, 0, 0, 0, 0, 0, 0, 6, 6, 11, 17, 17, 17],
+        "2026fit": [0, 0, 0, 2, 7, 7, 7, 8, 15, 15, 17, 17, 17, 17],
         "2026fit end": [28],
       });
     },
@@ -2259,9 +2311,9 @@ describe("the live walks with the field's bracket facts: 2026 FIM, NE, ONT and T
   );
 
   it(
-    "THE WINDOW AND THE FINALS ROWS: nothing of the championship reads in progress there, and with the brackets still in hand the proof runs at the tick the finals rows post",
+    "THE WINDOW AND THE FINALS ROWS: nothing of the championship reads in progress there, and with the brackets still in hand the proof holds through both ticks",
     () => {
-      const held: Record<string, { jointLocked: number; shownLocked: number }> = {};
+      const held: Record<string, { window: { jointLocked: number; shownLocked: number }; finalsRows: { jointLocked: number; shownLocked: number } }> = {};
       for (const districtKey of FACTS_WALKED) {
         const walk = factsWalk(districtKey);
         const ofTheChampionship = (step: WalkStep): string[] => step.inProgressKeys.filter((key) => dcmpEventKeysFor(walkedSource(districtKey)).includes(key));
@@ -2273,28 +2325,93 @@ describe("the live walks with the field's bracket facts: 2026 FIM, NE, ONT and T
         // At the tick before the window the divisions still read in progress.
         expect(ofTheChampionship(walk.steps[windowAt - 1]!)).toEqual([...walk.fieldFixingKeys].sort());
         // THE WINDOW: every division finished, the finals key on no row. Nothing of the championship is in progress.
-        expect({ districtKey, inProgress: ofTheChampionship(walk.steps[windowAt]!) }).toEqual({ districtKey, inProgress: [] });
+        // The fetch set keeps every started division key all the same (`champLiveFetchKeys` with
+        // `finalsMayBeAbsent`: the finals key, on no row, has not finished), so the brackets are in hand and the
+        // proof runs. That rule is pinned on exactly this state in `useDistrictLedgerData.test.ts` (the hook module
+        // cannot be imported outside the web project).
+        const windowStep = walk.steps[windowAt]!;
+        expect({ districtKey, inProgress: ofTheChampionship(windowStep) }).toEqual({ districtKey, inProgress: [] });
+        expect(windowStep.dcmpKeys).toBe(walk.fieldFixingKeys.length);
+        expect(windowStep.joint).toBe("applied(divisioned)");
         // THE FINALS ROWS POST WITH NO STATE: the finals key is on a row now and has not started, and still nothing
-        // of the championship is in progress. The fetch set of before this task held none of its keys here, so the
-        // tab had no bracket to hand the proof. `champLiveFetchKeys` now keeps every started key until every event
-        // of the championship has finished (quick task 261010-d7r; until the finals event had, before it); that
-        // rule is pinned on exactly this state in `useDistrictLedgerData.test.ts` (the hook module cannot be
-        // imported outside the web project). With the brackets in hand the proof runs:
+        // of the championship is in progress. The shape needs no option from here on.
         const finalsRows = walk.steps[finalsRowsAt]!;
         expect({ districtKey, inProgress: ofTheChampionship(finalsRows) }).toEqual({ districtKey, inProgress: [] });
         expect(finalsRows.dcmpKeys).toBe(walk.fieldFixingKeys.length + 1);
         expect(finalsRows.joint).toBe("applied(divisioned)");
+        // Every team shown Locked in the window is shown Locked when the finals rows post: the tick the reading
+        // changes from "the finals key on no row" to "the finals key on a row, not started".
+        expect({ districtKey, lost: lockedAt(windowStep).filter((teamKey) => !champTabHeld(finalsRows.champTab.get(teamKey) ?? "")) }).toEqual({ districtKey, lost: [] });
         // And once the finals' state is written the finals event itself reads in progress.
         expect(ofTheChampionship(walk.steps[finalsStateAt]!)).toEqual([dcmpEventKeysFor(walkedSource(districtKey)).find((key) => !walk.fieldFixingKeys.includes(key))!]);
-        held[districtKey] = { jointLocked: finalsRows.jointLocked, shownLocked: shownLockedCount(finalsRows) };
+        held[districtKey] = {
+          window: { jointLocked: windowStep.jointLocked, shownLocked: shownLockedCount(windowStep) },
+          finalsRows: { jointLocked: finalsRows.jointLocked, shownLocked: shownLockedCount(finalsRows) },
+        };
       }
-      // What the proof holds at the tick the finals rows post. Pinned as the run shows. Quick task 261010-d7r (its
-      // rule D1) moved three of the four, upward: FIM 65 to 66, NE 18 to 20, TX 15 to 17. ONT did not move.
+      // What the proof holds in the window and at the tick the finals rows post. Pinned as the run shows. The finals
+      // rows pins are those of before D2 (FIM 66, NE 20, ONT 11, TX 17, as quick task 261010-d7r's rule D1 left
+      // them): the option changes nothing once the finals key is on a row. The window pins are new with D2: without
+      // the option the proof did not run there and the ceiling test alone showed 29, 12, 10 and 11.
       expect(held).toEqual({
-        "2026fim": { jointLocked: 66, shownLocked: 66 },
-        "2026ne": { jointLocked: 20, shownLocked: 20 },
-        "2026ont": { jointLocked: 11, shownLocked: 11 },
-        "2026fit": { jointLocked: 17, shownLocked: 17 },
+        "2026fim": { window: { jointLocked: 66, shownLocked: 66 }, finalsRows: { jointLocked: 66, shownLocked: 66 } },
+        "2026ne": { window: { jointLocked: 20, shownLocked: 20 }, finalsRows: { jointLocked: 20, shownLocked: 20 } },
+        "2026ont": { window: { jointLocked: 11, shownLocked: 11 }, finalsRows: { jointLocked: 11, shownLocked: 11 } },
+        "2026fit": { window: { jointLocked: 17, shownLocked: 17 }, finalsRows: { jointLocked: 17, shownLocked: 17 } },
+      });
+    },
+    WALK_TIMEOUT_MS
+  );
+
+  it(
+    "THE COMPARISON, the option held off: the proof reads unsupportedShape until the finals rows post, no Locked is taken back there either, and every team Locked without the option is Locked with it at the same tick",
+    () => {
+      const table: string[] = [];
+      const shown: Record<string, number[]> = {};
+      const gained: Record<string, number[]> = {};
+      for (const districtKey of FACTS_WALKED) {
+        const off = factsWalk(districtKey, true);
+        const on = factsWalk(districtKey);
+        table.push(`${districtKey}, the option held off`, ...factsTable(off));
+        expect({ districtKey, lost: lockedTakenBack(off) }).toEqual({ districtKey, lost: [] });
+        const labels = off.steps.map((step) => step.label);
+        expect(on.steps.map((step) => step.label)).toEqual(labels);
+        const picked = labels.indexOf(ALLIANCES_PICKED_TICK);
+        const finalsRowsAt = labels.indexOf(FINALS_ROWS_TICK);
+        const finalsAwardsAt = labels.indexOf(FINALS_AWARDS_TICK);
+        // Division keys without their finals key are not a shape the proof runs on without the option.
+        for (const step of off.steps.slice(picked, finalsRowsAt)) expect({ districtKey, tick: step.label, joint: step.joint }).toEqual({ districtKey, tick: step.label, joint: "unsupportedShape" });
+        // Once the finals key is on a row the shape needs no option.
+        for (const step of off.steps.slice(finalsRowsAt, finalsAwardsAt + 1)) expect({ districtKey, tick: step.label, joint: step.joint }).toEqual({ districtKey, tick: step.label, joint: "applied(divisioned)" });
+        // THE OPTION ONLY ADDS. At every tick, every team shown Locked without it is shown Locked with it; and from
+        // the tick the finals rows post the two walks read every team the same.
+        const notHeldWithTheOption: string[] = [];
+        const differsFromTheFinalsRows: string[] = [];
+        off.steps.forEach((step, index) => {
+          const withOption = on.steps[index]!;
+          for (const teamKey of lockedAt(step)) if (withOption.champTab.get(teamKey) !== "locked") notHeldWithTheOption.push(`${step.label}: ${teamKey}`);
+          if (index >= finalsRowsAt) for (const [teamKey, status] of step.champTab) if (withOption.champTab.get(teamKey) !== status) differsFromTheFinalsRows.push(`${step.label}: ${teamKey}`);
+        });
+        expect({ districtKey, notHeldWithTheOption }).toEqual({ districtKey, notHeldWithTheOption: [] });
+        expect({ districtKey, differsFromTheFinalsRows }).toEqual({ districtKey, differsFromTheFinalsRows: [] });
+        shown[districtKey] = off.steps.slice(picked, finalsAwardsAt + 1).map(shownLockedCount);
+        gained[districtKey] = off.steps.slice(picked, finalsAwardsAt + 1).map((step, offset) => shownLockedCount(on.steps[picked + offset]!) - shownLockedCount(step));
+      }
+      console.log(`[261010-d7r group 10] the same walks with the option held off\n${table.join("\n")}`);
+      // The series of before D2, unchanged from the pins this group held then. Pinned as the run shows.
+      expect(shown).toEqual({
+        "2026fim": [0, 0, 0, 0, 0, 0, 0, 0, 13, 13, 29, 66, 71, 71],
+        "2026ne": [0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 12, 20, 21, 21],
+        "2026ont": [0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 10, 11, 12, 12],
+        "2026fit": [0, 0, 0, 0, 0, 0, 0, 0, 6, 6, 11, 17, 17, 17],
+      });
+      // How many more teams are shown Locked with the option, tick by tick. Pinned as the run shows; never negative
+      // (asserted above team by team), and 0 from the tick the finals rows post.
+      expect(gained).toEqual({
+        "2026fim": [0, 1, 1, 5, 25, 35, 41, 46, 47, 47, 37, 0, 0, 0],
+        "2026ne": [0, 0, 0, 1, 8, 9, 9, 12, 13, 13, 8, 0, 0, 0],
+        "2026ont": [0, 0, 0, 0, 0, 6, 7, 8, 3, 3, 1, 0, 0, 0],
+        "2026fit": [0, 0, 0, 2, 7, 7, 7, 8, 9, 9, 6, 0, 0, 0],
       });
     },
     WALK_TIMEOUT_MS
@@ -2343,10 +2460,10 @@ describe("the finals read the same way with and without a finals row: the 16 div
       // earned it at any of these stops, so the two must read the same: a difference is the tab reading the
       // future off who ends with a finals row.
       //
-      // THE BRACKET FACTS ARE WITHHELD ON BOTH SIDES. Division keys without their finals key are not a shape
-      // the joint proof runs on (D3 of this quick task, refused), so with the rows removed the proof could not
-      // run, and the comparison would then measure the proof and not the ceiling test. Each key's milestones are
-      // handed on both sides, as the sweep's own recipe hands them.
+      // THE BRACKET FACTS ARE WITHHELD ON BOTH SIDES, so this measures the ceiling test alone. Division keys
+      // without their finals key are not a shape the joint proof runs on unless `finalsMayBeAbsent` is handed
+      // (quick task 261010-d7r, D2); group 13 makes the same comparison with the proof running on both sides.
+      // Each key's milestones are handed on both sides, as the sweep's own recipe hands them.
       const championships = divisionedChampionships();
       let stops = 0;
       let ceilingStops = 0;
@@ -2575,3 +2692,107 @@ describe("the teams that attend below the district line are dominated: the real 
   );
 });
 
+
+// ---------------------------------------------------------------------------
+// GROUP 13. D2's equivalence gate: the divisioned proof without its finals key
+// ---------------------------------------------------------------------------
+
+/** A joint proof input with its two order free lists sorted, so two inputs compare by content. */
+function normalisedJointInput(input: { readonly pool: readonly { readonly teamKey: string }[]; readonly slotOnlyRivals: readonly string[] }): unknown {
+  return { ...input, pool: [...input.pool].sort((a, b) => a.teamKey.localeCompare(b.teamKey)), slotOnlyRivals: [...input.slotOnlyRivals].sort() };
+}
+
+/** How far above the points slots a bound is read exactly (the cost limit of `scripts/champJointMonotone.test.ts`, its reading R8): a bound that high locks nobody. */
+const GATE_BOUND_SLACK = 12;
+
+describe("D2's equivalence gate: the divisioned joint proof with the finals key's rows removed and finalsMayBeAbsent handed, against the artifact as published, at every stop before the finals have a played row (quick task 261010-d7r, D2; reading R14 of quick task 261010-66y)", () => {
+  if (!existsSync(CORPUS_ABSOLUTE)) {
+    localDataAbsent(`${CORPUS_PATH} absent (gitignored local data)`);
+    return;
+  }
+  if (LOCAL_DISTRICT_FILES.length === 0) {
+    localDataAbsent(NO_LOCAL_DISTRICTS);
+    return;
+  }
+
+  it(
+    "over the 16 divisioned championships and 112 stops: the same reason, the same input, every pool team's bound, the same locked set, the same reservation, every floor and ceiling, the same teams shown Locked and the same lockedBy",
+    () => {
+      // WHAT THIS IS, AND IS NOT. At a live divisioned championship the finals key is on no row until the finals
+      // pay, and since quick task 261010-d7r the tab reads the division keys alone as a divisioned championship
+      // whose finals have not started (`championshipShape` with `finalsMayBeAbsent`). This gate shows that reading
+      // is the SAME READING as the one with the finals key on the rows: each championship at each sweep stop
+      // before its finals have a played row, the artifact with every row at the finals key removed (and the option
+      // handed) against the artifact as published. It does NOT show the reading is held live from tick to tick:
+      // that is group 10 of this file and group D of `scripts/champJointMonotone.test.ts`, a separate proof.
+      //
+      // ANY DIFFERENCE HERE DROPS D2 (STOP rule 7 of that task's plan): revert the option, keep the refusal, never
+      // fit a pin.
+      const championships = divisionedChampionships();
+      let stops = 0;
+      let applied = 0;
+      let boundsCompared = 0;
+      const differs = { reason: 0, input: 0, bounds: 0, jointLocked: 0, reserved: 0, pointsSlots: 0, floor: 0, ceiling: 0, shownLocked: 0, lockedBy: 0 };
+      const differences: string[] = [];
+      const note = (column: keyof typeof differs, line: string): void => {
+        differs[column] += 1;
+        if (differences.length < 40) differences.push(line);
+      };
+      for (const { artifact, finalsKey, brackets } of championships) {
+        const removed = withoutFinalsKeyRows(artifact, finalsKey);
+        // Premise of the comparison: with the rows removed the keys are the divisions alone, which is not a shape
+        // the proof runs on without the option and is the divisioned shape, the same finals key, with it.
+        expect(dcmpEventKeysFor(removed)).not.toContain(finalsKey);
+        expect(championshipShape(dcmpEventKeysFor(removed)).kind).toBe("unsupported");
+        expect(championshipShape(dcmpEventKeysFor(removed), true)).toEqual(championshipShape(dcmpEventKeysFor(artifact)));
+        for (const stop of championshipStops(artifact, brackets).filter((entry) => beforeTheFinalsHaveARow(entry.label))) {
+          stops += 1;
+          const where = `${artifact.districtKey} "${stop.label}"`;
+          const present = statusesAtChampionshipStop(artifact, stop, brackets, true);
+          const absent = statusesAtChampionshipStop(removed, stop, brackets, true, true);
+          const reasonOf = (model: typeof present): string => (model.jointProof === undefined ? "absent" : model.jointProof.applied ? `applied(${model.jointProof.shape})` : model.jointProof.reason);
+          if (reasonOf(present) === "applied(divisioned)") applied += 1;
+          if (reasonOf(present) !== reasonOf(absent)) note("reason", `${where}: the proof reads ${reasonOf(present)} with the rows and ${reasonOf(absent)} without`);
+          const a = present.jointProof;
+          const b = absent.jointProof;
+          if (a?.applied === true && b?.applied === true && a.shape !== "multiple" && b.shape !== "multiple") {
+            if (JSON.stringify(normalisedJointInput(a.input)) !== JSON.stringify(normalisedJointInput(b.input))) note("input", `${where}: the proof's input differs`);
+            const cap = present.pointsSlots + GATE_BOUND_SLACK;
+            let boundsDifferHere = 0;
+            for (const rival of a.input.pool) {
+              boundsCompared += 1;
+              if (jointLockBound(a.input, rival.teamKey, cap) !== jointLockBound(b.input, rival.teamKey, cap)) boundsDifferHere += 1;
+            }
+            if (boundsDifferHere > 0) note("bounds", `${where}: ${String(boundsDifferHere)} pool teams' bounds differ`);
+            if ([...a.locked].sort().join(",") !== [...b.locked].sort().join(",")) note("jointLocked", `${where}: the proof's locked set differs`);
+          }
+          if (present.reservedSlots !== absent.reservedSlots) note("reserved", `${where}: reserved ${String(present.reservedSlots)} with the rows and ${String(absent.reservedSlots)} without`);
+          if (present.pointsSlots !== absent.pointsSlots) note("pointsSlots", `${where}: points slots ${String(present.pointsSlots)} with the rows and ${String(absent.pointsSlots)} without`);
+          let floorDiffersHere = 0;
+          let ceilingDiffersHere = 0;
+          for (const [teamKey, floor] of present.floorByTeam ?? []) {
+            if (absent.floorByTeam?.get(teamKey) !== floor) floorDiffersHere += 1;
+            if (absent.ceilingByTeam?.get(teamKey) !== present.ceilingByTeam?.get(teamKey)) ceilingDiffersHere += 1;
+          }
+          if ((present.floorByTeam?.size ?? 0) !== (absent.floorByTeam?.size ?? 0)) floorDiffersHere += 1;
+          if (floorDiffersHere > 0) note("floor", `${where}: ${String(floorDiffersHere)} floors differ`);
+          if (ceilingDiffersHere > 0) note("ceiling", `${where}: ${String(ceilingDiffersHere)} ceilings differ`);
+          const shownLocked = (model: typeof present): string[] => [...model.byTeam.values()].filter((result) => result.status === "locked").map((result) => result.teamKey).sort();
+          if (shownLocked(present).join(",") !== shownLocked(absent).join(",")) note("shownLocked", `${where}: the teams shown Locked differ`);
+          let lockedByDiffersHere = 0;
+          for (const teamKey of shownLocked(present)) if (String(present.byTeam.get(teamKey)?.lockedBy) !== String(absent.byTeam.get(teamKey)?.lockedBy)) lockedByDiffersHere += 1;
+          if (lockedByDiffersHere > 0) note("lockedBy", `${where}: ${String(lockedByDiffersHere)} lockedBy readings differ`);
+        }
+      }
+      console.log(
+        `[261010-d7r group 13] divisioned championships ${String(championships.length)} | stops before the finals have a played row ${String(stops)} | proof applied at ${String(applied)} | pool bounds compared ${String(boundsCompared)} | stops that differ by column ${JSON.stringify(differs)}\n${differences.map((line) => `  ${line}`).join("\n")}`
+      );
+      // Not vacuous, and pinned as the run shows.
+      expect({ championships: championships.length, stops, applied, boundsCompared }).toEqual({ championships: 16, stops: 112, applied: 112, boundsCompared: 28_140 });
+      // THE GATE. Every column, at every stop.
+      expect(differs).toEqual({ reason: 0, input: 0, bounds: 0, jointLocked: 0, reserved: 0, pointsSlots: 0, floor: 0, ceiling: 0, shownLocked: 0, lockedBy: 0 });
+      expect(differences).toEqual([]);
+    },
+    WALK_TIMEOUT_MS
+  );
+});

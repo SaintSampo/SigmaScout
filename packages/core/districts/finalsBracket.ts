@@ -36,33 +36,70 @@
  * event proof never runs on one division as if it were the whole
  * championship.
  *
- * DIVISIONS WITHOUT THEIR FINALS EVENT STAY UNSUPPORTED: A STATED LIMIT
- * (quick task 261010-66y, D3, built, measured and REFUSED). TBA writes a
- * finals row only for a team it pays there, so at a live divisioned
- * championship the finals key can be on no row for the whole of the division
- * playoffs. The keys on the rows are then "divisions without their finals
- * event", and the joint proof does not run until the finals rows post. The
- * ceiling test and the reservation stand meanwhile, which only delays a
- * Locked.
+ * THE FINALS EVENT NOT YET ON THE WIRE (quick task 261010-d7r, D2; first
+ * built as D3 of quick task 261010-66y and refused there). TBA writes a
+ * finals row only for a team it pays there, so at a LIVE divisioned
+ * championship the finals key is on no row for the whole of the division
+ * playoffs, and the artifact learns a key only from rows. Read plainly, the
+ * division keys alone are "divisions without their finals event", which is
+ * unsupported, so the joint proof could not run during the division playoffs
+ * at all. `championshipShape` therefore takes a second argument,
+ * `finalsMayBeAbsent`: with it, one stem holding exactly 2 or 4 digit
+ * suffixed keys and no parent is DIVISIONED, the stem its finals key. The
+ * finals then read as not started and wholly open: no row, no stage, no
+ * facts, no Winner, every finals category open.
  *
- * Reading 2 or 4 division keys with no parent as a divisioned championship
- * whose finals have not started, once the field is proven by capacity, was
- * built and is NOT shipped. What held: over the 16 divisioned championships
- * of 2023 to 2026 and the 112 stops before the finals have a played row, the
- * proof with the finals key's rows removed from the artifact equalled the
- * proof with them present (the same applied flag, input, locked set,
- * reservation, floors and teams shown Locked; `lockedBy` read
- * `ceiling+joint` for `joint` at nine team stops). What failed is the live
- * walk of the real 2026 artifacts with that reading on: the proof, now
- * running during the division playoffs, took its own Locked back at the tick
- * the divisions' Awards read final. 2026 FIM 1 team (frc5675), NE 2 (frc4909,
- * frc2713), ONT 0, TX 2 (frc624, frc9140), each Locked again once the
- * finals' state was written. The cause is in the proof's judged award
- * budget, not in the shape: decision 5 of
- * `apps/web/src/components/districts/champLedgerStatus.ts` states it, and
- * `scripts/champFieldStagedWalk.test.ts` pins it on rewound readings (11
- * teams over the 16 championships). Running the proof earlier would show a
- * Locked and take it back, so the refusal stands until that is closed.
+ * WHO MAY PASS IT. Only a caller at the live position whose field is proven
+ * complete BY CAPACITY (`dcmpFieldProof`, `completeBy === "capacity"`).
+ * Without that the keys on the rows say nothing about how many divisions
+ * there are: two of FIM's four divisions on the rows would read as a complete
+ * two division championship, and the other two divisions' winners, alliances
+ * and awards would be unmodelled. With the field at capacity every division
+ * is on the rows. It defaults to false, so every rewound stop and every sweep
+ * over finished seasons, where the parent key is always on the rows, reads
+ * exactly as before.
+ *
+ * WHY THE REFUSAL OF QUICK TASK 261010-66y IS LIFTED. That task built this
+ * reading and did not ship it: on the live walk of the real 2026 artifacts
+ * the proof, running during the division playoffs, took its own Locked back
+ * at the tick the divisions' Awards read final (2026 FIM 1 team, frc5675; NE
+ * 2, frc4909 and frc2713; TX 2, frc624 and frc9140; ONT 0). The cause was
+ * never the shape. It was the proof's judged award budget going to a rival
+ * that already held a posted award, which quick task 261010-d7r closed (its
+ * rule D1, in `champJointLock.ts`: "A RIVAL THAT HOLDS A POSTED AWARD TAKES
+ * NO FURTHER JUDGED AWARD").
+ *
+ * TWO SEPARATE PROOFS HOLD IT (`scripts/champFieldStagedWalk.test.ts`,
+ * measured 2026-10-10), and neither stands in for the other:
+ *
+ *   - THE READING IS THE SAME ONE (group 13). Over the 16 divisioned
+ *     championships of 2023 to 2026 and the 112 stops before the finals have
+ *     a played row, the proof on the artifact with the finals key's rows
+ *     removed equals the proof with them present: the same applied flag, the
+ *     same input, every pool team's bound (28,140 compared), the same locked
+ *     set, the same reservation, every floor and ceiling, the same teams
+ *     shown Locked and the same `lockedBy`. No difference in any column.
+ *   - THE READING IS HELD LIVE (group 10, and group D of
+ *     `scripts/champJointMonotone.test.ts`). On the live walks of 2026 FIM,
+ *     NE, ONT and TX the proof runs from the tick the alliance points land,
+ *     through the window between the divisions and the finals and the tick
+ *     the finals rows post, and no team shown Locked is later not Locked.
+ *     Walked one fact at a time, in every order of the division flags and
+ *     the finals facts (the 12 two division championships of 2023 to 2026
+ *     and 2026 FIM): no Locked lost and no margin dropped, the tick the
+ *     field proof turns true mid playoffs (which switches this reading on)
+ *     included.
+ *
+ * WHAT IT RESTS ON, STATED. The reading is as sound as the capacity proof of
+ * the field. If a field proven by capacity were read unproven again (the
+ * published capacity raised, or rows withdrawn, during a championship) the
+ * proof would refuse and what it alone held would be lost. Forced in
+ * `scripts/champJointMonotone.test.ts` over every walk of its group D, under
+ * a title that says FORCED and NOT REQUIRED, that is 765 Locked lost at 85
+ * readings; it was 596 before this reading, which holds more and holds it
+ * earlier. No walked path does it: the field proof's count never rises while
+ * rows are only added (`dcmpFieldProof.ts`). The same was already true of a
+ * championship whose finals key is on the rows.
  */
 import {
   bracketDecisionKey,
@@ -231,8 +268,14 @@ export type ChampionshipShape =
  * 261010-66y, D2). No published district holds such a key set: over the 109
  * local district artifacts every digit suffixed dcmp key sits beside its
  * parent.
+ *
+ * `finalsMayBeAbsent` (quick task 261010-d7r, D2; this module's header, "THE
+ * FINALS EVENT NOT YET ON THE WIRE"): with it, one stem holding exactly 2 or
+ * 4 digit suffixed keys and NO parent is divisioned with the stem as
+ * `finalsKey`. Where the parent is on the rows, and at every other key set,
+ * it changes nothing. It defaults to false.
  */
-export function championshipShape(dcmpEventKeys: readonly string[]): ChampionshipShape {
+export function championshipShape(dcmpEventKeys: readonly string[], finalsMayBeAbsent = false): ChampionshipShape {
   const keys = [...new Set(dcmpEventKeys)].sort();
   if (keys.length === 0) return { kind: "none" };
   const byStem = new Map<string, string[]>();
@@ -249,7 +292,8 @@ export function championshipShape(dcmpEventKeys: readonly string[]): Championshi
       return { kind: "single", key: members[0]! };
     }
     const divisionKeys = members.filter((key) => key !== stem).sort();
-    if (!members.includes(stem)) return { kind: "unsupported", detail: `divisions without their finals event (${members.join(", ")})` };
+    const finalsNotYetOnTheWire = finalsMayBeAbsent && (divisionKeys.length === 2 || divisionKeys.length === 4);
+    if (!members.includes(stem) && !finalsNotYetOnTheWire) return { kind: "unsupported", detail: `divisions without their finals event (${members.join(", ")})` };
     if (divisionKeys.length !== 2 && divisionKeys.length !== 4) {
       return { kind: "unsupported", detail: `${String(divisionKeys.length)} divisions (${members.join(", ")})` };
     }

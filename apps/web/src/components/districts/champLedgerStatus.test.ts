@@ -22,7 +22,7 @@ import { maxEventPoints } from "../../../../../packages/core/districts/pointMode
 import { dcmpAwardCountCeilings } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
 import { MAX_WINNING_ALLIANCE_SIZE, pendingAwardSlots } from "../../../../../packages/core/districts/champReservedSlots.js";
 import { unseenChampionshipsHeld } from "../../../../../packages/core/districts/dcmpFieldProof.js";
-import { buildChampLedgerRows, champFieldProofAtNow } from "./champLedgerRows.js";
+import { buildChampLedgerRows, champFieldProofAtNow, dcmpEventKeysFor } from "./champLedgerRows.js";
 import { applyChampRangeState, champFinalsCeilingWithoutRow, computeChampLedgerStatuses, jointDecidedPlacementTopUp } from "./champLedgerStatus.js";
 import { champCutoffView, type ChampRangeState } from "./champLedgerChances.js";
 import { SHOW_SIMULATED_CHAMP_LIKELY_RANGE, predictedCutoff, type LedgerCutoffView } from "./predictedCutoff.js";
@@ -1698,6 +1698,63 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
     const alive = input.alliances.find((alliance) => alliance.allianceNumber === 21)!;
     expect(alive.members).toHaveLength(4);
     expect(alive.spareSeats).toBe(4);
+  });
+
+  describe("the finals event not yet on the wire (quick task 261010-d7r, D2; first built as D3 of quick task 261010-66y and refused there)", () => {
+    /** The divisioned fixture as a live artifact holds it during the division playoffs: no row at the finals key at all. */
+    const NO_PARENT: DistrictArtifact = DistrictArtifactSchema.parse({
+      ...DIVISIONED,
+      teams: DIVISIONED.teams.map((team) => ({
+        ...team,
+        pointTotal: team.pointTotal - team.eventPoints.filter((row) => row.eventKey === PARENT).reduce((sum, row) => sum + row.total, 0),
+        eventPoints: team.eventPoints.filter((row) => row.eventKey !== PARENT),
+        remainingEvents: team.remainingEvents.filter((row) => row.eventKey !== PARENT),
+        qualifyingAwards: team.qualifyingAwards.filter((award) => award.eventKey !== PARENT),
+      })),
+    });
+    const modelWith = (artifact: DistrictArtifact, finalsMayBeAbsent: boolean | undefined) => {
+      const distributions = roundFiveDistributions();
+      const rows = rowsAt(artifact, ROUND_FIVE_STAGES, distributions);
+      return computeChampLedgerStatuses({ artifact, teams: rows.teams, nowYear: 2026, distributions, ...(finalsMayBeAbsent === undefined ? {} : { finalsMayBeAbsent }) });
+    };
+    const normalised = (input: { pool: readonly { teamKey: string }[]; slotOnlyRivals: readonly string[] }) => ({
+      ...input,
+      pool: [...input.pool].sort((a, b) => a.teamKey.localeCompare(b.teamKey)),
+      slotOnlyRivals: [...input.slotOnlyRivals].sort(),
+    });
+
+    it("premise: the artifact knows both divisions and nothing at the finals key", () => {
+      expect(dcmpEventKeysFor(NO_PARENT)).toEqual([DIV1, DIV2]);
+      expect(dcmpEventKeysFor(DIVISIONED)).toEqual([PARENT, DIV1, DIV2]);
+    });
+
+    it("refuses unsupportedShape without finalsMayBeAbsent, and with it false", () => {
+      expect(modelWith(NO_PARENT, undefined).jointProof).toEqual({ applied: false, reason: "unsupportedShape" });
+      expect(modelWith(NO_PARENT, false).jointProof).toEqual({ applied: false, reason: "unsupportedShape" });
+    });
+
+    it("is applied with shape divisioned with it: the finals read all open, no finals facts, one whole championship held, and the proof's input is the one built with the finals rows present", () => {
+      const absent = modelWith(NO_PARENT, true);
+      const present = modelWith(DIVISIONED, undefined);
+      expect(absent.jointProof?.applied).toBe(true);
+      expect(present.jointProof?.applied).toBe(true);
+      if (absent.jointProof?.applied !== true || present.jointProof?.applied !== true || absent.jointProof.shape === "multiple" || present.jointProof.shape === "multiple") throw new Error("not applied");
+      expect(absent.jointProof.shape).toBe("divisioned");
+      // One whole open championship: the winning alliance and every consuming award.
+      expect(absent.reservedSlots).toBe(C + MAX_WINNING_ALLIANCE_SIZE);
+      expect(absent.reservedSlots).toBe(present.reservedSlots);
+      expect(absent.pointsSlots).toBe(present.pointsSlots);
+      // The finals facts are absent on both sides (the finals have not started), every division is a candidate.
+      expect(normalised(absent.jointProof.input)).toEqual(normalised(present.jointProof.input));
+      expect([...absent.jointProof.locked].sort()).toEqual([...present.jointProof.locked].sort());
+      expect(absent.floorByTeam).toEqual(present.floorByTeam);
+      const shownLocked = (model: typeof absent) => [...model.byTeam.values()].filter((result) => result.status === "locked").map((result) => result.teamKey).sort();
+      expect(shownLocked(absent)).toEqual(shownLocked(present));
+    });
+
+    it("the flag changes nothing where the finals key is on the rows", () => {
+      expect(modelWith(DIVISIONED, true)).toEqual(modelWith(DIVISIONED, undefined));
+    });
   });
 
   it("with both divisions final and finals facts mapping each finals alliance to a division winner, the two winners are the candidates", () => {

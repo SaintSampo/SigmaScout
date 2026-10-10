@@ -224,12 +224,42 @@
  *    and no single or two championship row moved. No stop of the sweep sits
  *    between A and B, which is why no measured history had shown it.
  *
- *    The refusal to run this proof before the finals key is on the artifact
- *    (`packages/core/districts/finalsBracket.ts`, D3 of quick task
- *    261010-66y refused) was taken because of that defect: with the proof
- *    running through the division playoffs the real 2026 walks took 1 Locked
- *    back at FIM, 2 at NE and 2 at TX on the tick the divisions' Awards
- *    turned final.
+ *    THE PROOF RUNS DURING THE DIVISION PLAYOFFS AT A LIVE DIVISIONED
+ *    CHAMPIONSHIP (quick task 261010-d7r, D2). TBA writes the first finals
+ *    row only when the finals are played or their awards are given, so the
+ *    finals key is on no row while the divisions play, and division keys
+ *    without their parent were `unsupportedShape`. With the
+ *    `finalsMayBeAbsent` option the shape is divisioned all the same
+ *    (`championshipShape`), the finals read as not started and wholly open:
+ *    no stage, no facts, no Winner posted there, one whole championship held
+ *    back. Nothing in the proof itself changed. The tab passes it only at
+ *    the live position and only while the field is proven BY CAPACITY, so
+ *    the division keys on the rows are every division
+ *    (`packages/core/districts/finalsBracket.ts` says why nothing weaker
+ *    will do). Quick task 261010-66y built this reading and refused it
+ *    because of the defect above: with the proof running through the
+ *    division playoffs the real 2026 walks took 1 Locked back at FIM, 2 at
+ *    NE and 2 at TX on the tick the divisions' Awards turned final. With
+ *    that closed it holds, by two separate proofs
+ *    (`scripts/champFieldStagedWalk.test.ts`, measured 2026-10-10). THE
+ *    READING IS THE SAME ONE: over the 16 divisioned championships of 2023
+ *    to 2026 and the 112 stops before the finals have a played row, with the
+ *    finals key's rows removed against present, the reason differs at 0
+ *    stops, the proof's input at 0, a pool team's bound at 0 (28,140
+ *    compared), the joint locked set at 0, the reservation at 0, a floor at
+ *    0, a ceiling at 0, the teams shown Locked at 0 and `lockedBy` at 0. AND
+ *    IT IS HELD LIVE: on the walks of 2026 FIM, NE, ONT and TX the proof is
+ *    applied from the tick the alliance points land and no Locked is taken
+ *    back at any tick. Teams shown Locked, tick by tick from "alliances
+ *    picked" to "finals award points land" (alliances picked, alliance
+ *    points, Rounds 1 to 5, playoffs done, playoff points, division award
+ *    points, every division finished, finals rows posted, finals state,
+ *    finals award points): FIM 0, 1, 1, 5, 25, 35, 41, 46, 60, 60, 66, 66,
+ *    71, 71; NE 0, 0, 0, 1, 8, 9, 9, 12, 20, 20, 20, 20, 21, 21; ONT 0, 0, 0,
+ *    0, 0, 6, 7, 8, 10, 10, 11, 11, 12, 12; TX 0, 0, 0, 2, 7, 7, 7, 8, 15,
+ *    15, 17, 17, 17, 17. Without the option the first eight ticks of each
+ *    read 0, the next three only what the ceiling test held (FIM 13, 13,
+ *    29), and the proof first ran when the finals rows posted.
  *
  *    WHEN EACH SHAPE'S PROOF STOPS (quick task 261010-d7r, findings F-B and
  *    F-C; the one rule is `jointProofStillRuns` in `champJointLock.ts`). A
@@ -574,6 +604,16 @@ export interface ComputeChampLedgerStatusesOptions {
    * TRUE, so a live caller must pass `rows.fieldProven`.
    */
   readonly fieldProven?: boolean;
+  /**
+   * WHETHER A DIVISIONED CHAMPIONSHIP'S FINALS KEY MAY BE ON NO ROW YET
+   * (decision 5, quick task 261010-d7r, D2). Read by the joint proof alone,
+   * for the shape: with it, 2 or 4 division keys with no parent are a
+   * divisioned championship whose finals have not started. A caller passes
+   * true only at the live position and only while the field is proven by
+   * capacity (`dcmpFieldProof`'s `completeBy === "capacity"`). Absent reads
+   * false, which is every rewound position and every sweep.
+   */
+  readonly finalsMayBeAbsent?: boolean;
 }
 
 const EMPTY_CENSUS: Record<LockStatus, number> = {
@@ -965,6 +1005,7 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
   const jointProof = jointProofAt({
     artifact,
     fieldProven: options.fieldProven !== false,
+    finalsMayBeAbsent: options.finalsMayBeAbsent === true,
     distributions: options.distributions,
     dcmpStageByEvent,
     neverHappening,
@@ -1039,6 +1080,8 @@ interface JointProofAtInput {
   readonly artifact: DistrictArtifact;
   /** Decision 7: false only at the live position while the field is not proven. */
   readonly fieldProven: boolean;
+  /** Decision 5: true only at the live position while the field is proven by capacity, for the shape alone. */
+  readonly finalsMayBeAbsent: boolean;
   readonly distributions: ReadonlyMap<string, DistrictEventDistributions> | undefined;
   readonly dcmpStageByEvent: ReadonlyMap<string, DistrictStageFinality>;
   readonly neverHappening: boolean;
@@ -1169,7 +1212,12 @@ function jointProofAt(input: JointProofAtInput): ChampJointProof {
   // Decision 7: the keys on the artifact may not be the whole championship
   // (or every championship) yet, so no shape read off them can be trusted.
   if (!input.fieldProven) return refuse("fieldNotProven");
-  const shape = championshipShape(dcmpEventKeysFor(artifact));
+  // Decision 5: at a live divisioned championship the finals key is on no
+  // row until the finals pay, and the division keys on the rows are every
+  // division once the field is proven by capacity. Nothing below reads the
+  // option: a finals key on no row has no stage (all open), no facts and no
+  // Winner posted, which is the finals not started.
+  const shape = championshipShape(dcmpEventKeysFor(artifact), input.finalsMayBeAbsent);
   switch (shape.kind) {
     case "single":
       return singleJointProof(input, distributions, shape.key);

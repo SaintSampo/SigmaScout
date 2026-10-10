@@ -188,6 +188,13 @@ export interface UseDistrictLedgerDataOptions {
   readonly asOf?: AsOfRewindView;
   /** Rewound only: events the caller will not read at this stop, so they cost no Worker time (`assembleAsOfDistrictEvents`). Ignored at Live. */
   readonly skipEventKeys?: ReadonlySet<string>;
+  /**
+   * Whether a divisioned championship's finals key may be on no row yet
+   * (quick task 261010-d7r, D2): read by `divisionedDcmpBracketFacts` for
+   * the shape alone. The Champ Locks tab passes true only at the live
+   * position while the field is proven by capacity. Absent reads false.
+   */
+  readonly finalsMayBeAbsent?: boolean;
 }
 
 export interface DistrictLedgerData {
@@ -224,15 +231,23 @@ type DistrictSimulationEventEntryInput = AssembledDistrictEvents["events"][numbe
  * (role `division`, or `finals` with as many alliances as divisions). Empty for
  * every other shape: a single championship and two championships keep the
  * run request path byte for byte.
+ *
+ * `finalsMayBeAbsent` (quick task 261010-d7r, D2) is `championshipShape`'s
+ * own flag, passed straight on: with it, a live championship whose 2 or 4
+ * division keys are on the rows and whose finals key is on none still gets
+ * its DIVISION facts, so the joint proof can run during the division
+ * playoffs. No finals entry is built there: no event artifact is fetched for
+ * a key the district artifact does not carry.
  */
 export function divisionedDcmpBracketFacts(params: {
   readonly artifact: DistrictArtifact;
   readonly eventArtifacts: ReadonlyMap<string, EventArtifact>;
   readonly stageByEvent: ReadonlyMap<string, DistrictStageFinality>;
   readonly requestByKey: ReadonlyMap<string, DcmpFactsRequest>;
+  readonly finalsMayBeAbsent?: boolean;
 }): Map<string, DcmpBracketFacts> {
   const out = new Map<string, DcmpBracketFacts>();
-  const shape = championshipShape(dcmpEventKeysFor(params.artifact));
+  const shape = championshipShape(dcmpEventKeysFor(params.artifact), params.finalsMayBeAbsent === true);
   if (shape.kind !== "divisioned") return out;
   const roles: readonly [string, "division" | "finals"][] = [
     ...shape.divisionKeys.map((key) => [key, "division"] as [string, "division"]),
@@ -288,18 +303,25 @@ export function divisionedDcmpBracketFacts(params: {
  *     proof (`noBracketFacts`) exactly where it now has to hold.
  *
  * So, for a divisioned shape: while any key of the championship has not
- * finished (it is not started, or it is in progress), every started key of
- * the championship is in the fetch set. A key HAS FINISHED when it is started
- * and not in progress. Once every key has, every key's Awards are final, the
- * proof no longer runs, and only the in progress keys are returned.
+ * finished (it is not started, or it is in progress, or with
+ * `finalsMayBeAbsent` the finals key is on no row at all), every started key
+ * of the championship is in the fetch set. A key HAS FINISHED when it is
+ * started and not in progress. Once every key has, every key's Awards are
+ * final, the proof no longer runs, and only the in progress keys are
+ * returned.
  *
- * The shape is read off the keys on the rows. Division keys whose finals key
- * is on no row yet are not a divisioned shape (`championshipShape`), so this
- * rule starts once the finals key is on a row.
+ * The shape is read off the keys on the rows. `finalsMayBeAbsent` is
+ * `championshipShape`'s own flag (quick task 261010-d7r, D2), for the live
+ * championship whose finals key is on no row yet: with it the division keys
+ * alone are a divisioned shape, so the brackets are in hand through the
+ * division playoffs and the window, where the joint proof now runs. The tab
+ * passes true only while the field is proven by capacity. Without it
+ * division keys whose finals key is on no row are not a divisioned shape,
+ * and this rule starts once the finals key is on a row.
  */
-export function champLiveFetchKeys(inProgressKeys: readonly string[], startedKeys: readonly string[], dcmpEventKeys: readonly string[]): string[] {
+export function champLiveFetchKeys(inProgressKeys: readonly string[], startedKeys: readonly string[], dcmpEventKeys: readonly string[], finalsMayBeAbsent = false): string[] {
   const keys = new Set(inProgressKeys);
-  const shape = championshipShape(dcmpEventKeys);
+  const shape = championshipShape(dcmpEventKeys, finalsMayBeAbsent);
   if (shape.kind === "divisioned") {
     const championshipKeys = [...shape.divisionKeys, shape.finalsKey];
     const everyKeyFinished = championshipKeys.every((key) => startedKeys.includes(key) && !keys.has(key));
@@ -317,6 +339,7 @@ function landedEntries(runState: DistrictSimulationRunState, signature: string):
 
 export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): DistrictLedgerData {
   const { artifact, activeEventKeys, eventArtifacts, stageByEvent, pointsFinalByEvent, startMatchKeyByEvent, allowedEventKeys, tierByEvent, asOf } = options;
+  const finalsMayBeAbsent = options.finalsMayBeAbsent === true;
   const activeKeys = useMemo(() => [...activeEventKeys].sort(), [activeEventKeys]);
   const rewound = asOf !== undefined;
 
@@ -432,7 +455,7 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
       map.set(eventKey, existing === undefined ? { eventKey, byTeam: new Map(), dcmpBracket } : { ...existing, dcmpBracket });
     }
     return map;
-  }, [bakedKeys, preSimQueries, entries, assembled, stageByEvent, artifact, eventArtifacts]);
+  }, [bakedKeys, preSimQueries, entries, assembled, stageByEvent, artifact, eventArtifacts, finalsMayBeAbsent]);
 
   const unavailableEvents = useMemo(() => {
     const fromRun = runState.status !== "complete" ? [] : runState.events.flatMap((entry) => (entry.status === "unavailable" ? [{ eventKey: entry.eventKey, name: entry.name }] : []));

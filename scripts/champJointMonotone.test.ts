@@ -1133,9 +1133,12 @@ describe("GROUP C, two championships with one finishing first: 2026 California, 
  *
  * THE READING after every tick is the tab's own: `buildChampLedgerRows` at
  * the live position and `computeChampLedgerStatuses` with the rows' own
- * `fieldProven`, the calendar year set to the artifact's year. (The merges'
- * published verdict pass reads the real clock; the tab reads none of what it
- * writes but `prequalified`, which no tick changes.)
+ * `fieldProven`, the calendar year set to the artifact's year, and
+ * `finalsMayBeAbsent` handed exactly as the tab hands it: at every tick where
+ * the field proof is complete BY CAPACITY (`champFieldProofAtNow`,
+ * `completeBy === "capacity"`), in every variant. (The merges' published
+ * verdict pass reads the real clock; the tab reads none of what it writes
+ * but `prequalified`, which no tick changes.)
  *
  * THE MAIN LINE: per key its rows posted and its state written, qualification
  * done, alliances picked, alliance points per key, every played playoff row
@@ -1156,8 +1159,11 @@ describe("GROUP C, two championships with one finishing first: 2026 California, 
  *     chain: the finals rows post with their playoff points and NO STATE
  *     BLOCK, the state is written with the finals facts in hand, the Winner
  *     is listed, the finals' award points land, the finals' flag turns true.
- *     Until Task 4 of the quick task lands this variant's proof reads
- *     `unsupportedShape` up to the finals rows.
+ *     Since Task 4 of the quick task (its D2) this variant's proof runs from
+ *     the tick the last division's alliance points land: the tab reads the
+ *     division keys alone as a divisioned championship whose finals have not
+ *     started, while the field is proven by capacity. Before it the proof
+ *     read `unsupportedShape` up to the finals rows.
  *   - `finalsRegistered`: every team of the field holds a registration at
  *     the finals key from the start. Its chain: the finals start on the
  *     field, every finals row is played one at a time, the finals' playoffs
@@ -1188,10 +1194,11 @@ describe("GROUP C, two championships with one finishing first: 2026 California, 
  *      playoffs (a second walk from the start, read against the main line's
  *      end, which must read the same). Asserted to turn the field proof from
  *      not proven to proven on the tick that key's state is written. For a
- *      `finalsOnNoRow` championship this is the tick that will switch the
- *      absent finals reading on once Task 4 lands; until then its proof
- *      reads `unsupportedShape` on both sides, so RUN C MUST RE READ THIS
- *      EDGE WITH `finalsMayBeAbsent` HANDED.
+ *      `finalsOnNoRow` championship this is THE TICK THAT SWITCHES THE ABSENT
+ *      FINALS READING ON (D2 of the quick task): the proof refuses
+ *      `fieldNotProven` before it and reads the division keys alone as a
+ *      divisioned championship after it. Asserted per walk to switch on at
+ *      exactly that tick, and over that edge a lock may only be added.
  *   Over every edge of the walk and of these, the field proof never goes
  *   from proven to not proven: asserted, on the core proof's own `proven`
  *   (`champFieldProofAtNow`). The row model's flag `fieldProven` is a
@@ -1206,14 +1213,28 @@ describe("GROUP C, two championships with one finishing first: 2026 California, 
  *     flag by hand. A true flag closes every category of the event, so the
  *     playoff points landing after it are points no reading allowed for.
  *     `eventAwards.ts` states this limit and waits for a playoff point
- *     because of it (quick task 261009-vp9). Not a rule of this task.
+ *     because of it (quick task 261009-vp9). Not a rule of this task. That
+ *     wait is the LIVE vantage of the flag rule, the Worker's. The offline
+ *     publisher reads the same rule at its hindsight vantage, which asks for
+ *     a judged award listed or award points and reads no playoff point, so
+ *     a district publish run from a corpus taken DURING a live championship
+ *     could raise a division's flag this way. A stated limit of that
+ *     publisher, which is run after events are over; not walked here.
  *   - A PROVEN FIELD READING NOT PROVEN AGAIN, by doubling the artifact's
  *     published championship capacity under the same rows. The joint proof
  *     then refuses (`fieldNotProven`) and whatever it alone held is lost.
  *     What excludes it is the field proof's own design
  *     (`packages/core/districts/dcmpFieldProof.ts`: the count asked for never
  *     rises while rows are only added), and the assertion above that it
- *     never happens on a walked path.
+ *     never happens on a walked path. THIS IS ALSO THE ONE WAY D2's OPTION
+ *     CAN SWITCH OFF while the finals key is on no row: the option is handed
+ *     while the field is proven by capacity, and with no finals row nothing
+ *     else proves a live field, so "capacity no longer proves it" and "the
+ *     field is not proven" are the same reading there. D2 has no switch in
+ *     this file's rule mock: it is an earliness rule, and what holds it is
+ *     the equivalence gate (group 13 of
+ *     `scripts/champFieldStagedWalk.test.ts`) and these walks, two separate
+ *     proofs.
  *
  * NOT WALKED, stated rather than implied:
  *
@@ -1308,6 +1329,20 @@ interface MicroReading extends Reading {
   readonly proven: boolean;
   readonly shownLocked: number;
   readonly jointLocked: number;
+  /** D2: the tab read the finals as not started with the finals key on no row (`finalsMayBeAbsent` handed, and the key on no row). */
+  readonly finalsReadAbsent: boolean;
+}
+
+/** Further edge 4 at a `finalsOnNoRow` championship: what the late key's state tick did to the absent finals reading. */
+interface AbsentFinalsSwitch {
+  /** The absent finals reading was off before the tick and on after it. */
+  readonly turnedOn: boolean;
+  readonly jointBefore: string;
+  readonly jointAfter: string;
+  readonly shownLockedBefore: number;
+  readonly shownLockedAfter: number;
+  /** Held teams lost over that one edge. The requirement is 0: the switch may only add locks. */
+  readonly lost: number;
 }
 
 interface MicroResult {
@@ -1329,12 +1364,18 @@ interface MicroResult {
   readonly fieldProofTakenBack: string[];
   /** Further edge 4: the field proof read not proven before the last key's state was written and proven after. `undefined` where there is one field fixing key. */
   readonly fieldProofTurnedTrueMidPlayoffs: boolean | undefined;
+  /** Further edge 4, `finalsOnNoRow` only: D2's absent finals reading over the same tick. `undefined` in the other variants and in a rule off run. */
+  readonly absentFinalsSwitch: AbsentFinalsSwitch | undefined;
+  /** Readings of the walk (not of the further or forced edges) where the finals were read absent. */
+  readonly walkReadingsWithFinalsReadAbsent: number;
   /** Further edge 3: the divisions whose flag the merge's rule kept false with no playoff point on a row, and raised on the tick the playoff points landed. */
   readonly flagHeldWithoutPlayoffPoints: number;
   readonly flagRaisedWithPlayoffPoints: number;
   readonly divisionsWalkedAwardsFirst: number;
   /** FORCED, measured and not required. */
   readonly forcedFlag: EdgeTally;
+  /** FORCED: held teams lost over the edge that writes a division's flag by hand, as against the edge where the points land after it. */
+  readonly forcedFlagLostWritingTheFlag: number;
   readonly unprovenAgain: EdgeTally;
   /** The main line's end: every key's playoff points landed, no award level up. */
   readonly atMainLineEnd: { readonly joint: string; readonly jointLocked: number; readonly shownLocked: number };
@@ -1466,6 +1507,9 @@ function microWalk(districtKey: string, variant: MicroVariant, mode: RuleMode): 
       return { ...world, artifact: applyDistrictEventState({ artifact: world.artifact, eventState: inHand, ...MICRO_STAMP, ...awardsInHand(world) }) };
     };
 
+    /** THE WALK's own tally (the main line, the lattice, the corner by the other order, the end). */
+    const walk = newTally();
+    let walkReadingsWithFinalsReadAbsent = 0;
     /** The tab's own reading of a world at Now. */
     const read = (label: string, world: World, tally: EdgeTally): MicroReading => {
       const { artifact } = world;
@@ -1526,6 +1570,11 @@ function microWalk(districtKey: string, variant: MicroVariant, mode: RuleMode): 
         }
       }
       const champRows = buildChampLedgerRows({ artifact, distributions, startedDcmpEventKeys: startedKeys, atLivePosition: true, nowYear });
+      const fieldProof = champFieldProofAtNow(artifact, startedKeys, nowYear);
+      // As the tab passes it (`ChampLocksLedger.tsx`, D2 of the quick task): at the live position, and only while
+      // the field is proven by capacity. Handed in every variant; it changes a reading only where the finals key is
+      // on no row.
+      const finalsMayBeAbsent = fieldProof.completeBy === "capacity";
       const model = computeChampLedgerStatuses({
         artifact,
         teams: champRows.teams,
@@ -1533,19 +1582,22 @@ function microWalk(districtKey: string, variant: MicroVariant, mode: RuleMode): 
         nowYear,
         ...(distributions.size === 0 ? {} : { distributions }),
         fieldProven: champRows.fieldProven,
+        ...(finalsMayBeAbsent ? { finalsMayBeAbsent } : {}),
       });
       let shownLocked = 0;
       for (const status of model.byTeam.values()) if (status.status === "locked") shownLocked += 1;
-      return {
+      const reading: MicroReading = {
         ...countReading(tally, readingOf(model)),
         label,
-        proven: champFieldProofAtNow(artifact, startedKeys, nowYear).proven,
+        proven: fieldProof.proven,
         shownLocked,
         jointLocked: model.jointProof?.applied === true ? model.jointProof.locked.size : 0,
+        finalsReadAbsent: finalsMayBeAbsent && finalsKey !== undefined && !dcmpEventKeysFor(artifact).includes(finalsKey),
       };
+      if (tally === walk && reading.finalsReadAbsent) walkReadingsWithFinalsReadAbsent += 1;
+      return reading;
     };
 
-    const walk = newTally();
     const winnerFirst = newTally();
     const awardsFirst = newTally();
     const lateRows = newTally();
@@ -1553,6 +1605,7 @@ function microWalk(districtKey: string, variant: MicroVariant, mode: RuleMode): 
     const unprovenAgain = newTally();
     const fieldProofTakenBack: string[] = [];
     const cornerMismatches: string[] = [];
+    let absentFinalsSwitch: AbsentFinalsSwitch | undefined;
     /** One edge. `required` edges also hold the field proof to never going from proven to not proven. */
     const edge = (tally: EdgeTally, kind: EdgeKind, before: MicroReading, after: MicroReading, required = true): void => {
       checkEdge(tally, kind, `${where}: "${before.label}" then "${after.label}"`, before, after);
@@ -1615,6 +1668,7 @@ function microWalk(districtKey: string, variant: MicroVariant, mode: RuleMode): 
     let flagHeldWithoutPlayoffPoints = 0;
     let flagRaisedWithPlayoffPoints = 0;
     let divisionsWalkedAwardsFirst = 0;
+    let forcedFlagLostWritingTheFlag = 0;
     const flagTrueAt = (artifact: DistrictArtifact, key: string): boolean => artifact.teams.some((team) => team.eventPoints.some((row) => row.eventKey === key && row.state?.awardsPosted === true));
     for (const key of ff) {
       step(`${short(key)} playoffs done, no playoff points`, stateTick(withState(world, key, stateFor(key, "done"))));
@@ -1648,6 +1702,7 @@ function microWalk(districtKey: string, variant: MicroVariant, mode: RuleMode): 
           const forced = stateTick(withState(playoffsDone, key, { ...stateFor(key, "done"), awardsPosted: true }));
           const forcedReading = read(`${short(key)} awards flag true, no playoff points (FORCED)`, forced, forcedFlag);
           edge(forcedFlag, "step", playoffsDoneReading, forcedReading, false);
+          for (const teamKey of playoffsDoneReading.held) if (!forcedReading.held.has(teamKey)) forcedFlagLostWritingTheFlag += 1;
           const forcedPaid = read(`${short(key)} playoff and award points land after the flag (FORCED)`, rowsTick(withPosted(forced, key, "all")), forcedFlag);
           edge(forcedFlag, "step", forcedReading, forcedPaid, false);
         }
@@ -1807,6 +1862,21 @@ function microWalk(districtKey: string, variant: MicroVariant, mode: RuleMode): 
       const beforeState = latePrevious;
       lateStep(`${short(late)} state written, alliances picked, the others mid playoffs`, stateTick(withRows(withState(lateWorld, late, stateFor(late, "picked")), late, 0)));
       fieldProofTurnedTrueMidPlayoffs = !beforeState.proven && latePrevious.proven;
+      if (variant === "finalsOnNoRow") {
+        // D2's SWITCH TURNING ON: the same tick, read on its own. Before it the proof refuses (the field is not
+        // proven); after it the division keys alone are read as a divisioned championship whose finals have not
+        // started. A lock may only be added over it.
+        let lost = 0;
+        for (const teamKey of beforeState.held) if (!latePrevious.held.has(teamKey)) lost += 1;
+        absentFinalsSwitch = {
+          turnedOn: !beforeState.finalsReadAbsent && latePrevious.finalsReadAbsent,
+          jointBefore: beforeState.joint,
+          jointAfter: latePrevious.joint,
+          shownLockedBefore: beforeState.shownLocked,
+          shownLockedAfter: latePrevious.shownLocked,
+          lost,
+        };
+      }
       readUnprovenAgain(lateWorld, latePrevious);
       // The rest of the playoffs, the keys interleaved, each from where it stands.
       const remaining = Math.max(...ff.map((key) => playedOf(key).length - (lateWorld.rows?.get(key) ?? 0)));
@@ -1836,10 +1906,13 @@ function microWalk(districtKey: string, variant: MicroVariant, mode: RuleMode): 
       cornerMismatches,
       fieldProofTakenBack,
       fieldProofTurnedTrueMidPlayoffs,
+      absentFinalsSwitch,
+      walkReadingsWithFinalsReadAbsent,
       flagHeldWithoutPlayoffPoints,
       flagRaisedWithPlayoffPoints,
       divisionsWalkedAwardsFirst,
       forcedFlag,
+      forcedFlagLostWritingTheFlag,
       unprovenAgain,
       atMainLineEnd: { joint: mainLineEndReading.joint, jointLocked: mainLineEndReading.jointLocked, shownLocked: mainLineEndReading.shownLocked },
       endShownLocked: end.shownLocked,
@@ -1900,6 +1973,7 @@ interface MicroTotals {
   readonly awardsFirst: EdgeTally;
   readonly lateRows: EdgeTally;
   readonly forcedFlag: EdgeTally;
+  readonly forcedFlagLostWritingTheFlag: number;
   readonly unprovenAgain: EdgeTally;
   readonly notPathIndependent: string[];
   readonly cornerMismatches: string[];
@@ -1907,6 +1981,10 @@ interface MicroTotals {
   /** Further edge 4: the walks where the field proof turned true on the late key's state tick, and those where it did not. */
   readonly fieldProofTurnedTrue: number;
   readonly fieldProofDidNotTurnTrue: string[];
+  /** Further edge 4 at the `finalsOnNoRow` walks: D2's absent finals reading over the late key's state tick. */
+  readonly absentFinalsSwitch: { walks: number; turnedOn: number; lost: number; lockedAdded: number; joint: Record<string, number> };
+  /** Readings of the walks where the finals were read absent (the finals key on no row, the option handed). */
+  readonly walkReadingsWithFinalsReadAbsent: number;
   readonly divisionsWalkedAwardsFirst: number;
   readonly flagHeldWithoutPlayoffPoints: number;
   readonly flagRaisedWithPlayoffPoints: number;
@@ -1923,19 +2001,22 @@ function microTotals(walks: readonly MicroWalkId[], mode: RuleMode): MicroTotals
     awardsFirst: newTally(),
     lateRows: newTally(),
     forcedFlag: newTally(),
+    forcedFlagLostWritingTheFlag: 0,
     unprovenAgain: newTally(),
     notPathIndependent: [],
     cornerMismatches: [],
     fieldProofTakenBack: [],
     fieldProofTurnedTrue: 0,
     fieldProofDidNotTurnTrue: [],
+    absentFinalsSwitch: { walks: 0, turnedOn: 0, lost: 0, lockedAdded: 0, joint: {} },
+    walkReadingsWithFinalsReadAbsent: 0,
     divisionsWalkedAwardsFirst: 0,
     flagHeldWithoutPlayoffPoints: 0,
     flagRaisedWithPlayoffPoints: 0,
     lostByDistrict: {},
     dropsByDistrict: {},
   };
-  const sums = { mainLineEdges: 0, fieldProofTurnedTrue: 0, divisionsWalkedAwardsFirst: 0, flagHeldWithoutPlayoffPoints: 0, flagRaisedWithPlayoffPoints: 0 };
+  const sums = { mainLineEdges: 0, fieldProofTurnedTrue: 0, divisionsWalkedAwardsFirst: 0, flagHeldWithoutPlayoffPoints: 0, flagRaisedWithPlayoffPoints: 0, walkReadingsWithFinalsReadAbsent: 0, forcedFlagLostWritingTheFlag: 0 };
   for (const [districtKey, variant] of walks) {
     const result = microWalk(districtKey, variant, mode);
     addTally(totals.walk, result.walk);
@@ -1953,6 +2034,17 @@ function microTotals(walks: readonly MicroWalkId[], mode: RuleMode): MicroTotals
     totals.fieldProofTakenBack.push(...result.fieldProofTakenBack);
     if (result.fieldProofTurnedTrueMidPlayoffs === true) sums.fieldProofTurnedTrue += 1;
     if (result.fieldProofTurnedTrueMidPlayoffs === false) totals.fieldProofDidNotTurnTrue.push(`${districtKey} ${variant}`);
+    if (result.absentFinalsSwitch !== undefined) {
+      const at = result.absentFinalsSwitch;
+      const transition = `${at.jointBefore} then ${at.jointAfter}`;
+      totals.absentFinalsSwitch.walks += 1;
+      if (at.turnedOn) totals.absentFinalsSwitch.turnedOn += 1;
+      totals.absentFinalsSwitch.lost += at.lost;
+      totals.absentFinalsSwitch.lockedAdded += at.shownLockedAfter - at.shownLockedBefore;
+      totals.absentFinalsSwitch.joint[transition] = (totals.absentFinalsSwitch.joint[transition] ?? 0) + 1;
+    }
+    sums.walkReadingsWithFinalsReadAbsent += result.walkReadingsWithFinalsReadAbsent;
+    sums.forcedFlagLostWritingTheFlag += result.forcedFlagLostWritingTheFlag;
     sums.divisionsWalkedAwardsFirst += result.divisionsWalkedAwardsFirst;
     sums.flagHeldWithoutPlayoffPoints += result.flagHeldWithoutPlayoffPoints;
     sums.flagRaisedWithPlayoffPoints += result.flagRaisedWithPlayoffPoints;
@@ -1978,6 +2070,18 @@ function expectMicroWalk(result: MicroResult, fieldFixingKeyCount: number): void
   });
   // Further edge 4 is a real edge only where the field proof turns true on it.
   expect(result.fieldProofTurnedTrueMidPlayoffs, `${label}: the field proof over the late key's state tick`).toBe(fieldFixingKeyCount >= 2 ? true : undefined);
+  // D2's SWITCH (the finals key on no row only): the absent finals reading turns on at exactly that tick, the proof
+  // refuses `fieldNotProven` before it, and no held team is lost over it: a lock may only be added.
+  if (result.variant === "finalsOnNoRow") {
+    expect(
+      { label, turnedOn: result.absentFinalsSwitch?.turnedOn, jointBefore: result.absentFinalsSwitch?.jointBefore, lost: result.absentFinalsSwitch?.lost },
+      `${label}: D2's absent finals reading over the late key's state tick`
+    ).toEqual({ label, turnedOn: true, jointBefore: "fieldNotProven", lost: 0 });
+    // Not vacuous: the walk itself read the finals absent somewhere.
+    expect(result.walkReadingsWithFinalsReadAbsent, `${label}: readings of the walk with the finals read absent`).toBeGreaterThan(0);
+  } else {
+    expect({ label, absentFinalsSwitch: result.absentFinalsSwitch, readAbsent: result.walkReadingsWithFinalsReadAbsent }).toEqual({ label, absentFinalsSwitch: undefined, readAbsent: 0 });
+  }
   // Further edge 3: at every division the merge's own rule kept the flag false with no playoff point on a row, and raised it once they landed.
   const divisions = result.variant === "oneEvent" ? 0 : fieldFixingKeyCount;
   expect({ walked: result.divisionsWalkedAwardsFirst, held: result.flagHeldWithoutPlayoffPoints, raised: result.flagRaisedWithPlayoffPoints }, `${label}: the awards flag rule`).toEqual({ walked: divisions, held: divisions, raised: divisions });
@@ -2065,10 +2169,24 @@ describe("GROUP D, the micro step live walks: a championship walked live one fac
         fimNoRow: { readings: 184, edges: 358 },
         fimRegistered: { readings: 312, edges: 742 },
       });
-      // What the proof said over the walk. Until Task 4 of the quick task lands, a divisioned championship whose
-      // finals key is on no row reads `unsupportedShape` up to the finals rows. The proof goes from applied to
-      // refused only into the corner where every key's Awards are final (one edge per key and, at a divisioned
-      // championship, one finals edge), which loses nobody: the ceiling test holds what the proof held there.
+      // What the proof said over the walk. Since Task 4 of the quick task (its D2) a divisioned championship whose
+      // finals key is on no row is read as one whose finals have not started, once the field is proven by capacity.
+      // `unsupportedShape` is read at NO reading of these walks any more (before that task: 512 readings over the
+      // two division walks and 92 at 2026 FIM, every one up to the finals rows). The two finals variants now refuse
+      // for the same reasons the same number of times; the registered one only has more readings, its finals being
+      // played row by row. The proof goes from applied to refused only into the corner where every key's Awards are
+      // final (one edge per key and, at a divisioned championship, one finals edge), which loses nobody: the
+      // ceiling test holds what the proof held there.
+      //
+      // How many readings of each walk read the finals ABSENT (the option handed and the finals key on no row):
+      // none where the finals key is registered or there is no finals key. Pinned as the run shows.
+      expect({
+        oneEvent: oneEvent.walkReadingsWithFinalsReadAbsent,
+        twoNoRow: twoNoRow.walkReadingsWithFinalsReadAbsent,
+        twoRegistered: twoRegistered.walkReadingsWithFinalsReadAbsent,
+        fimNoRow: fimNoRow.walkReadingsWithFinalsReadAbsent,
+        fimRegistered: fimRegistered.walkReadingsWithFinalsReadAbsent,
+      }).toEqual({ oneEvent: 0, twoNoRow: 536, twoRegistered: 0, fimNoRow: 94, fimRegistered: 0 });
       expect({
         oneEvent: { joint: oneEvent.walk.joint, appliedThenRefused: oneEvent.walk.appliedThenRefused },
         twoNoRow: { joint: twoNoRow.walk.joint, appliedThenRefused: twoNoRow.walk.appliedThenRefused },
@@ -2077,9 +2195,9 @@ describe("GROUP D, the micro step live walks: a championship walked live one fac
         fimRegistered: { joint: fimRegistered.walk.joint, appliedThenRefused: fimRegistered.walk.appliedThenRefused },
       }).toEqual({
         oneEvent: { joint: { noDistributions: 162, stageNotEligible: 33, applied: 710, noBracketFacts: 65 }, appliedThenRefused: 33 },
-        twoNoRow: { joint: { noDistributions: 84, unsupportedShape: 512, applied: 228, stageNotEligible: 24 }, appliedThenRefused: 36 },
+        twoNoRow: { joint: { noDistributions: 84, noBracketFacts: 12, stageNotEligible: 48, applied: 704 }, appliedThenRefused: 36 },
         twoRegistered: { joint: { noDistributions: 84, noBracketFacts: 12, stageNotEligible: 48, applied: 868 }, appliedThenRefused: 36 },
-        fimNoRow: { joint: { noDistributions: 11, unsupportedShape: 92, applied: 79, stageNotEligible: 2 }, appliedThenRefused: 5 },
+        fimNoRow: { joint: { noDistributions: 11, noBracketFacts: 3, stageNotEligible: 6, applied: 164 }, appliedThenRefused: 5 },
         fimRegistered: { joint: { noDistributions: 11, noBracketFacts: 3, stageNotEligible: 6, applied: 292 }, appliedThenRefused: 5 },
       });
     },
@@ -2101,14 +2219,21 @@ describe("GROUP D, the micro step live walks: a championship walked live one fac
         winnerFirst: microPin(all.winnerFirst),
         awardsFirst: { ...microPin(all.awardsFirst), divisions: all.divisionsWalkedAwardsFirst, flagHeld: all.flagHeldWithoutPlayoffPoints, flagRaised: all.flagRaisedWithPlayoffPoints },
         lateRows: { ...microPin(all.lateRows), walksWhereTheFieldProofTurnedTrue: all.fieldProofTurnedTrue, joint: all.lateRows.joint },
+        absentFinalsSwitch: all.absentFinalsSwitch,
       }).toEqual({
         winnerFirst: { readings: 386, edges: 386 },
         // 56 divisions: 12 championships of two and one of four, each in both finals variants.
         awardsFirst: { readings: 112, edges: 112, divisions: 56, flagHeld: 56, flagRaised: 56 },
         // 27 walks: California, and the 13 divisioned championships in both finals variants. `fieldNotProven` is the
-        // proof refusing while the last key is on no row or has no state; with the finals key on no row the proof
-        // reads `unsupportedShape` after it too, until Task 4 of the quick task.
-        lateRows: { readings: 1235, edges: 1208, walksWhereTheFieldProofTurnedTrue: 27, joint: { noDistributions: 116, fieldNotProven: 337, applied: 405, unsupportedShape: 377 } },
+        // proof refusing while the last key is on no row or has no state. With the finals key on no row the proof
+        // read `unsupportedShape` after that tick too (377 readings) until Task 4 of the quick task; it now runs
+        // there, on the division keys alone.
+        lateRows: { readings: 1235, edges: 1208, walksWhereTheFieldProofTurnedTrue: 27, joint: { noDistributions: 116, fieldNotProven: 337, applied: 782 } },
+        // D2's SWITCH TURNING ON, the 13 walks with the finals key on no row (the 12 two division championships and
+        // 2026 FIM): on at exactly the tick the field proof turns true in every one, the proof refusing
+        // `fieldNotProven` before it and applied after it, no held team lost over it, and 4 more teams shown Locked
+        // after it than before over the 13. Pinned as the run shows.
+        absentFinalsSwitch: { walks: 13, turnedOn: 13, lost: 0, lockedAdded: 4, joint: { "fieldNotProven then applied": 13 } },
       });
     },
     TEST_TIMEOUT_MS
@@ -2125,10 +2250,12 @@ describe("GROUP D, the micro step live walks: a championship walked live one fac
       expect(registered.walk.marginDrops).toBeGreaterThan(0);
       // The measurement of the reading before quick task 261010-d7r. Pinned as the run shows; not a requirement.
       // Every one is lost over a FLAG edge (a division's awards flag turning true), none over a step. With the finals
-      // key on no row the proof runs only from the finals rows on, until Task 4 of the quick task, so fewer are lost.
+      // key on no row the proof ran only from the finals rows on until Task 4 of the quick task, and fewer were lost
+      // then (94, and 1666 margins); it now runs from the alliance points on, so more of the flag edges have a proof
+      // on both sides.
       const pin = (totals: MicroTotals) => ({ ...microPin(totals.walk), lostOverStepEdges: totals.walk.lost.step, lostOverFlagEdges: totals.walk.lost.flag, marginDrops: totals.walk.marginDrops, largestDrop: totals.walk.largestDrop });
       expect({ noRow: pin(noRow), registered: pin(registered) }).toEqual({
-        noRow: { readings: 848, edges: 1064, lostOverStepEdges: 0, lostOverFlagEdges: 94, marginDrops: 1666, largestDrop: 4 },
+        noRow: { readings: 848, edges: 1064, lostOverStepEdges: 0, lostOverFlagEdges: 121, marginDrops: 2029, largestDrop: 4 },
         registered: { readings: 1012, edges: 1392, lostOverStepEdges: 0, lostOverFlagEdges: 202, marginDrops: 3236, largestDrop: 4 },
       });
     },
@@ -2193,16 +2320,28 @@ describe("GROUP D, the micro step live walks: a championship walked live one fac
   it(
     "FORCED, MEASURED AND NOT REQUIRED: a division's awards flag written true by hand before its playoff points (the merge's flag rule never does this: it waits for a playoff point, and `eventAwards.ts` states why), pinned as the run shows",
     () => {
-      const all = microTotals([...twoDivisionWalks("finalsOnNoRow"), ...twoDivisionWalks("finalsRegistered"), [MICRO_FIM, "finalsOnNoRow"], [MICRO_FIM, "finalsRegistered"]], "on");
-      console.log(`[261010-d7r group D, FORCED awards flag before the playoff points] ${tallyLine(all.forcedFlag)} | distinct district and team pairs lost ${String(all.forcedFlag.lostTeams.size)}\n${all.forcedFlag.lostLines.slice(0, 12).map((line) => `  ${line}`).join("\n")}`);
+      const noRow = microTotals([...twoDivisionWalks("finalsOnNoRow"), [MICRO_FIM, "finalsOnNoRow"]], "on");
+      const registered = microTotals([...twoDivisionWalks("finalsRegistered"), [MICRO_FIM, "finalsRegistered"]], "on");
+      console.log(
+        `[261010-d7r group D, FORCED awards flag before the playoff points] finals on no row: ${tallyLine(noRow.forcedFlag)} | distinct district and team pairs lost ${String(noRow.forcedFlag.lostTeams.size)}\n  finals registered: ${tallyLine(registered.forcedFlag)} | distinct district and team pairs lost ${String(registered.forcedFlag.lostTeams.size)}\n${registered.forcedFlag.lostLines.slice(0, 12).map((line) => `  ${line}`).join("\n")}`
+      );
       // What excludes this edge is asserted above: the merge's own rule kept the flag false at every division.
-      expect(all.flagHeldWithoutPlayoffPoints).toBe(all.divisionsWalkedAwardsFirst);
-      // 56 divisions, two forced edges each. The Locked lost here are lost when the playoff points land AFTER a flag
-      // that had closed the division's Playoffs with none on a row: points no reading allowed for. None is lost over
-      // the edge that writes the flag itself (every finding names its edge, and the tally keeps all of them).
-      expect(all.forcedFlag.lostLines).toHaveLength(all.forcedFlag.lost.step);
-      expect(all.forcedFlag.lostLines.filter((line) => !line.includes('(FORCED)" then "'))).toEqual([]);
-      expect({ ...microPin(all.forcedFlag), lost: all.forcedFlag.lost.step, distinctPairsLost: all.forcedFlag.lostTeams.size, marginDrops: all.forcedFlag.marginDrops }).toEqual({ readings: 112, edges: 112, lost: 34, distinctPairsLost: 28, marginDrops: 498 });
+      expect(noRow.flagHeldWithoutPlayoffPoints).toBe(noRow.divisionsWalkedAwardsFirst);
+      expect(registered.flagHeldWithoutPlayoffPoints).toBe(registered.divisionsWalkedAwardsFirst);
+      // 28 divisions in each finals variant, two forced edges each. The Locked lost here are lost when the playoff
+      // points land AFTER a flag that had closed the division's Playoffs with none on a row: points no reading
+      // allowed for. None is lost over the edge that writes the flag itself (counted edge by edge in the walk; the
+      // tally's own lines are capped, so the count is not read off them).
+      expect({ noRow: noRow.forcedFlagLostWritingTheFlag, registered: registered.forcedFlagLostWritingTheFlag }).toEqual({ noRow: 0, registered: 0 });
+      for (const totals of [noRow, registered]) expect(totals.forcedFlag.lostLines.filter((line) => !line.includes('(FORCED)" then "'))).toEqual([]);
+      // Pinned as the run shows. Until Task 4 of the quick task (its D2) the two variants together read 34 lost, 28
+      // distinct pairs and 498 margins: with the finals key on no row the proof did not run at these ticks, so only
+      // the ceiling test's locks could be lost there. The proof now runs in both variants and they read the same.
+      const pin = (totals: MicroTotals) => ({ ...microPin(totals.forcedFlag), lost: totals.forcedFlag.lost.step, distinctPairsLost: totals.forcedFlag.lostTeams.size, marginDrops: totals.forcedFlag.marginDrops });
+      expect({ noRow: pin(noRow), registered: pin(registered) }).toEqual({
+        noRow: { readings: 56, edges: 56, lost: 28, distinctPairsLost: 22, marginDrops: 498 },
+        registered: { readings: 56, edges: 56, lost: 28, distinctPairsLost: 22, marginDrops: 498 },
+      });
     },
     TEST_TIMEOUT_MS
   );
@@ -2215,7 +2354,20 @@ describe("GROUP D, the micro step live walks: a championship walked live one fac
       expect(all.fieldProofTakenBack).toEqual([]);
       // 85 forced readings: the main line's end of all 58 walks, and the tick the field proof turned true in the 27
       // walks whose last key's rows arrive mid playoffs. The proof refuses at every one.
-      expect({ ...microPin(all.unprovenAgain), lost: all.unprovenAgain.lost.step, distinctPairsLost: all.unprovenAgain.lostTeams.size, joint: all.unprovenAgain.joint }).toEqual({ readings: 85, edges: 85, lost: 596, distinctPairsLost: 510, joint: { fieldNotProven: 85 } });
+      //
+      // Pinned as the run shows. Until Task 4 of the quick task (its D2) this read 596 lost and the proof went from
+      // applied to refused at 59 of the 85: with the finals key on no row the proof did not run at these ticks. It
+      // now runs there, so it goes from applied to refused at all 85 and what it held is lost with it: 765, the same
+      // 510 distinct pairs. THIS IS ALSO D2's OWN SWITCH TURNING OFF (the group's header): the cost of the earlier
+      // lock is that a proven field read unproven again, which no walked path does, would take more back.
+      expect({ ...microPin(all.unprovenAgain), lost: all.unprovenAgain.lost.step, distinctPairsLost: all.unprovenAgain.lostTeams.size, joint: all.unprovenAgain.joint, appliedThenRefused: all.unprovenAgain.appliedThenRefused }).toEqual({
+        readings: 85,
+        edges: 85,
+        lost: 765,
+        distinctPairsLost: 510,
+        joint: { fieldNotProven: 85 },
+        appliedThenRefused: 85,
+      });
     },
     TEST_TIMEOUT_MS
   );

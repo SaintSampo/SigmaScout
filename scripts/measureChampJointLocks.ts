@@ -330,14 +330,22 @@ export function championshipStops(artifact: DistrictArtifact, brackets: Readonly
  * eight alliance bracket) and, in the combined run only, each key's facts with
  * its role (`division`, `finals` with as many alliances as divisions, or
  * `championship`).
+ *
+ * `finalsMayBeAbsent` (quick task 261010-d7r, D2) is forwarded to
+ * `championshipShape` and to `computeChampLedgerStatuses`. No call this
+ * sweep makes passes it, so its output cannot move. The equivalence gate of
+ * `scripts/champFieldStagedWalk.test.ts` (group 13) passes it to read,
+ * through this same recipe, an artifact whose finals key rows have been
+ * removed.
  */
 export function statusesAtChampionshipStop(
   artifact: DistrictArtifact,
   stop: ChampionshipStop,
   brackets: ReadonlyMap<string, BracketSourceEvent>,
-  withJoint: boolean
+  withJoint: boolean,
+  finalsMayBeAbsent = false
 ): ChampLedgerStatusModel {
-  const shape = championshipShape(dcmpEventKeysFor(artifact));
+  const shape = championshipShape(dcmpEventKeysFor(artifact), finalsMayBeAbsent);
   const now = nowStages(artifact);
   const stageByEvent = new Map(now.stageByEvent);
   if (!stop.atNow) for (const [key, stage] of stop.stageByKey) stageByEvent.set(key, stage);
@@ -382,7 +390,7 @@ export function statusesAtChampionshipStop(
     startedDcmpEventKeys: stop.startedKeys,
     atLivePosition: stop.atNow,
   });
-  return computeChampLedgerStatuses({ artifact, teams: rows.teams, districtLockedOut, distributions });
+  return computeChampLedgerStatuses({ artifact, teams: rows.teams, districtLockedOut, distributions, ...(finalsMayBeAbsent ? { finalsMayBeAbsent } : {}) });
 }
 
 // ---------------------------------------------------------------------------

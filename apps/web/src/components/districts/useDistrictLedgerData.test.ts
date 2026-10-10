@@ -632,6 +632,75 @@ describe("the divisioned championship's facts and Live fetch set (quick task 261
     expect(champLiveFetchKeys([], ["2026pncmp"], ["2026pncmp"])).toEqual([]);
   });
 
+  it("with finalsMayBeAbsent, division keys whose finals key is on no row keep every started key fetched until the finals key is on a row and every event has finished (quick task 261010-d7r, D2)", () => {
+    const keys = ["2026micmp", "2026micmp1", "2026micmp2", "2026micmp3", "2026micmp4"];
+    const divisions = keys.slice(1);
+    // THE WINDOW with the finals key on no row: every division started and finished, none in progress. Only with
+    // the flag is the shape divisioned at all, and the finals key (on no row, so not started) has not finished.
+    expect(champLiveFetchKeys([], divisions, divisions, true)).toEqual(divisions);
+    expect(champLiveFetchKeys([], divisions, divisions)).toEqual([]);
+    expect(champLiveFetchKeys([], divisions, divisions, false)).toEqual([]);
+    // During the division playoffs: two divisions in progress, two finished. Every started key.
+    expect(champLiveFetchKeys(["2026micmp1", "2026micmp3"], divisions, divisions, true)).toEqual(divisions);
+    // Other events in progress ride along, and a division that has not started is not fetched.
+    expect(champLiveFetchKeys(["2026wabon"], [...divisions, "2026wabon"], divisions, true)).toEqual([...divisions, "2026wabon"].sort());
+    expect(champLiveFetchKeys(["2026micmp1"], divisions.slice(0, 2), divisions, true)).toEqual(divisions.slice(0, 2));
+    // Before the championship: nothing started, nothing added.
+    expect(champLiveFetchKeys(["2026wabon"], ["2026wabon"], divisions, true)).toEqual(["2026wabon"]);
+    // A two division championship, the same.
+    const two = ["2026necmp1", "2026necmp2"];
+    expect(champLiveFetchKeys([], two, two, true)).toEqual(two);
+    expect(champLiveFetchKeys([], two, two)).toEqual([]);
+    // One or three division keys without the parent are not a divisioned shape even with the flag.
+    expect(champLiveFetchKeys([], divisions.slice(0, 3), divisions.slice(0, 3), true)).toEqual([]);
+    expect(champLiveFetchKeys([], divisions.slice(0, 1), divisions.slice(0, 1), true)).toEqual([]);
+    // THE FLAG CHANGES NOTHING where the finals key is on the rows, or at another shape: the rule of quick task
+    // 261010-d7r's finding F-B (every event finished) is the one rule on both sides.
+    const cases: readonly (readonly [readonly string[], readonly string[], readonly string[]])[] = [
+      [[], divisions, keys],
+      [[], divisions.slice(0, 2), keys],
+      [["2026micmp"], keys, keys],
+      [["2026micmp3"], keys, keys],
+      [[], keys, keys],
+      [["2026wabon"], [...keys, "2026wabon"], keys],
+      [["2026wabon"], ["2026wabon"], keys],
+      [["2026cancmp"], ["2026cancmp", "2026cascmp"], ["2026cancmp", "2026cascmp"]],
+      [[], ["2026cancmp", "2026cascmp"], ["2026cancmp", "2026cascmp"]],
+      [["2026pncmp"], ["2026pncmp"], ["2026pncmp"]],
+      [[], ["2026pncmp"], ["2026pncmp"]],
+    ];
+    for (const [inProgress, started, dcmpKeys] of cases) {
+      expect(champLiveFetchKeys(inProgress, started, dcmpKeys, true), `${inProgress.join(",")} | ${started.join(",")} | ${dcmpKeys.join(",")}`).toEqual(champLiveFetchKeys(inProgress, started, dcmpKeys));
+    }
+  });
+
+  it("builds the division facts of a divisioned championship whose finals key is on no row only with finalsMayBeAbsent, and no finals entry (quick task 261010-d7r, D2)", () => {
+    const NO_PARENT: DistrictArtifact = DistrictArtifactSchema.parse({
+      ...DIVISIONED,
+      teams: DIVISIONED.teams.map((team) => ({ ...team, eventPoints: team.eventPoints.filter((row) => row.eventKey !== PARENT), remainingEvents: team.remainingEvents.filter((row) => row.eventKey !== PARENT) })),
+    });
+    const eventArtifacts = new Map<string, EventArtifact>([
+      ["2026pncmp1", eventArtifact(eight)],
+      ["2026pncmp2", eventArtifact(eight)],
+    ]);
+    const stageByEvent = new Map([
+      ["2026pncmp1", open],
+      ["2026pncmp2", open],
+    ]);
+    expect(divisionedDcmpBracketFacts({ artifact: NO_PARENT, eventArtifacts, stageByEvent, requestByKey: new Map() }).size).toBe(0);
+    expect(divisionedDcmpBracketFacts({ artifact: NO_PARENT, eventArtifacts, stageByEvent, requestByKey: new Map(), finalsMayBeAbsent: false }).size).toBe(0);
+    const facts = divisionedDcmpBracketFacts({ artifact: NO_PARENT, eventArtifacts, stageByEvent, requestByKey: new Map(), finalsMayBeAbsent: true });
+    expect([...facts.keys()].sort()).toEqual(["2026pncmp1", "2026pncmp2"]);
+    // The facts are the ones built with the parent on the rows: the flag reads the shape and nothing else.
+    const withParent = divisionedDcmpBracketFacts({ artifact: DIVISIONED, eventArtifacts, stageByEvent, requestByKey: new Map() });
+    expect(facts.get("2026pncmp1")).toEqual(withParent.get("2026pncmp1"));
+    expect(facts.get("2026pncmp2")).toEqual(withParent.get("2026pncmp2"));
+    // With the parent on the rows the flag changes nothing.
+    expect(divisionedDcmpBracketFacts({ artifact: DIVISIONED, eventArtifacts, stageByEvent, requestByKey: new Map(), finalsMayBeAbsent: true })).toEqual(withParent);
+    // A single championship builds nothing with it either.
+    expect(divisionedDcmpBracketFacts({ artifact: FIXTURE, eventArtifacts: new Map([[PARENT, eventArtifact(eight)]]), stageByEvent: new Map([[PARENT, open]]), requestByKey: new Map(), finalsMayBeAbsent: true }).size).toBe(0);
+  });
+
   it("keeps a divisioned championship's started keys fetched at Live while any of them is in progress, and changes nothing otherwise", () => {
     const keys = ["2026micmp", "2026micmp1", "2026micmp2", "2026micmp3", "2026micmp4"];
     expect(champLiveFetchKeys(["2026micmp", "2026wabon"], [...keys, "2026wabon"], keys)).toEqual([...keys, "2026wabon"].sort());

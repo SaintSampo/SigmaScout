@@ -459,12 +459,22 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   }, [artifact]);
 
   const rewinding = search.at !== undefined && search.at !== DISTRICT_TIMELINE_NOW_ID;
+  // THE FINALS KEY MAY BE ON NO ROW YET (quick task 261010-d7r, D2): at a
+  // live divisioned championship TBA writes the first finals row only when
+  // the finals pay. Once the field is proven BY CAPACITY the division keys
+  // on the rows are every division, so the shape may be read without the
+  // parent key. Used at the live position only.
+  const finalsMayBeAbsentNow = fieldProofNow.completeBy === "capacity";
   // At Live a divisioned championship's started keys stay fetched until every
   // one of its events has finished, for the joint proof (261009-kt3, widened
   // by 261010-66y: the window between the divisions and the finals; and by
   // 261010-d7r: the finals finished while a division's awards flag is still
-  // to come).
-  const liveFetchKeys = useMemo(() => champLiveFetchKeys(inProgressKeys, startedKeys, dcmpEventKeys), [inProgressKeys, startedKeys, dcmpEventKeys]);
+  // to come, and the division playoffs themselves while the finals key is on
+  // no row).
+  const liveFetchKeys = useMemo(
+    () => champLiveFetchKeys(inProgressKeys, startedKeys, dcmpEventKeys, finalsMayBeAbsentNow),
+    [inProgressKeys, startedKeys, dcmpEventKeys, finalsMayBeAbsentNow]
+  );
   const activeEventKeys = rewinding ? startedKeys : liveFetchKeys;
   const artifacts = useDistrictEventArtifacts(activeEventKeys);
 
@@ -478,6 +488,9 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   // True at every rewound position; at Now false exactly while some field
   // fixing key has started and the field is not proven (quick task 261010-66y).
   const fieldProven = !atNow || !fieldProofNow.unprovenAfterStart;
+  // False at every rewound position: a rewound stop reads the season's final
+  // rows, where the parent key is always present.
+  const finalsMayBeAbsent = atNow && finalsMayBeAbsentNow;
 
   const stageByEvent = useMemo(
     () => districtStageAtPosition(timeline, positionIndex, nowStageByEvent),
@@ -597,6 +610,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     tierByEvent,
     asOf,
     skipEventKeys,
+    finalsMayBeAbsent,
   });
 
   // The controls card's progress bar (quick task 261007-481): the tab is
@@ -783,8 +797,8 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   );
 
   const statuses = useMemo(
-    () => computeChampLedgerStatuses({ artifact, teams: rows.teams, districtLockedOut, distributions: data.distributions, fieldProven }),
-    [artifact, rows.teams, districtLockedOut, data.distributions, fieldProven]
+    () => computeChampLedgerStatuses({ artifact, teams: rows.teams, districtLockedOut, distributions: data.distributions, fieldProven, finalsMayBeAbsent }),
+    [artifact, rows.teams, districtLockedOut, data.distributions, fieldProven, finalsMayBeAbsent]
   );
 
   /** The DCMP award draws AT THE POSITION: the rail's stages when rewound, each event's own `state` block at now. */
