@@ -36,18 +36,16 @@
  * moving an event's awards back to open turns that event from consuming into
  * reserving in the same step.
  *
- * ONE PLACE DOES HOLD A SLOT TWICE, ON PURPOSE (quick task 261009-r9x). The
+ * THE PUBLISHED VERDICT FOLLOWS THE SAME RULE (quick task 261009-tx6). The
  * live Worker records an Impact winner as soon as TBA lists it, while the
- * event's flag still waits for the award points to reach the district
- * rankings, so in that window the PUBLISHED verdict
- * (`packages/harness/districtRankingsMerge.ts`) both consumes the recorded
- * winner's slot and still reserves one for the event. That is the
- * conservative side: it never publishes a Locked that is not true. It can
- * delay a Locked, and it can take back a Locked that the published verdict
- * gave on points a tick earlier, until the points arrive. No page renders
- * the published verdict. The browser computes its own, and it never holds a
- * slot twice, because it gates each award on its own event's stage, so there
- * an event consumes or reserves and never both.
+ * event's flag still waits. Between quick tasks 261009-r9x and 261009-tx6
+ * the PUBLISHED verdict (`packages/harness/districtRankingsMerge.ts`) read
+ * that record at once and still reserved a slot for the event, so it held
+ * the slot twice and could take back a Locked it had given on points a tick
+ * earlier. It now reads a recorded winner only once the winner's own event
+ * says the award is given, which is the fact this reservation reads, so
+ * there too an event consumes or reserves and never both. The browser has
+ * always done this: it gates each award on its own event's stage.
  *
  * ---------------------------------------------------------------------------
  * THE CANCELLED CARVE OUT

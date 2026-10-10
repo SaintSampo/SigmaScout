@@ -45,7 +45,7 @@ import { championshipStemOf, dcmpNeverHappening, perChampionship, reservedChampS
 import { awardPointsPresentAt, awardsPostedRule, judgedAwardListed, qualifyingAwardRecord } from "../core/districts/eventAwards.js";
 import { dcmpAwardCountCeilings } from "../core/districts/hypotheticalDcmp.js";
 import { pooledLockInputs, type PooledTeamEntry } from "../core/districts/pooledLockInputs.js";
-import { consumingAwardTypesForTier, eventTierByKey, specialAllocationNote, type AwardTier } from "../core/districts/qualification.js";
+import { AWARD_TYPE_WINNER, consumingAwardTypesForTier, eventTierByKey, specialAllocationNote, type AwardTier } from "../core/districts/qualification.js";
 import { DistrictArtifactSchema, PAGE_ARTIFACT_SCHEMA_VERSION, type DistrictArtifact, type DistrictEventState } from "./pageArtifacts.js";
 
 type DistrictTeam = DistrictArtifact["teams"][number];
@@ -153,6 +153,31 @@ function dcmpStillAhead(teams: readonly DistrictTeam[], dcmpEventMaxTotal: numbe
 }
 
 /**
+ * The state block for each event key, read across EVERY `eventPoints` and
+ * `remainingEvents` row of every team, any tier, District Championship
+ * divisions included (quick task 261009-tx6). A row that CARRIES a state
+ * block wins over a row that carries none, the same rule
+ * `reservedDistrictSlots` applies, because the artifact's own rows can
+ * disagree about whether a block is present and "no state" is the weaker
+ * observation of the two. An event whose rows all carry none maps to
+ * `undefined`. An event on no row is absent from the map.
+ *
+ * ONE MAP, TWO READERS: the award gate in `awardQualifiedSets` and the open
+ * category walk the ceilings and floors are built from. Both ask "what does
+ * this event's own state say", so they read it in one place.
+ */
+function eventStateByKey(teams: readonly DistrictTeam[]): Map<string, DistrictEventState | undefined> {
+  const stateByEvent = new Map<string, DistrictEventState | undefined>();
+  for (const team of teams) {
+    for (const row of [...team.eventPoints, ...team.remainingEvents]) {
+      if (!stateByEvent.has(row.eventKey)) stateByEvent.set(row.eventKey, row.state);
+      else if (stateByEvent.get(row.eventKey) === undefined && row.state !== undefined) stateByEvent.set(row.eventKey, row.state);
+    }
+  }
+  return stateByEvent;
+}
+
+/**
  * The two award-qualified (CONSUMING) team-key sets `computeLocksWithQualifiers`
  * needs, derived from the artifact's own `qualifyingAwards` lists.
  *
@@ -162,10 +187,39 @@ function dcmpStillAhead(teams: readonly DistrictTeam[], dcmpEventMaxTotal: numbe
  * of both sets rather than assigned a guessed tier: the effect is that the
  * team reports `"contending"` instead of `"lockedAward"`, which understates
  * a qualification but never publishes a guarantee that is not true.
+ *
+ * AN AWARD COUNTS ONLY ONCE ITS OWN EVENT SAYS IT IS GIVEN (quick task
+ * 261009-tx6). The live Worker records a winner the moment TBA lists it,
+ * which can be many ticks before the event's flag turns true. Each
+ * reservation (`reservedDistrictSlots`, `reservedChampSlotsAtNow`) holds a
+ * slot back for an event until that event's state says the award is given,
+ * so a record counted earlier held the slot twice, and the published verdict
+ * took back a Locked it had given on points one tick before. So the record is
+ * read off the state block of its own event (`eventStateByKey`, any tier, a
+ * District Championship award at the finals key):
+ *
+ *   - a Winner (type 1) counts once the playoffs are final, which is
+ *     `playoffsDone`, or `awardsPosted`, the later fact that closes them;
+ *   - every other consuming award counts once `awardsPosted` is true.
+ *
+ * Those are the two facts the reservations read, so an award is either
+ * reserved for or counted and never both. It is also the rule the Locks tabs
+ * apply (`districtLedgerStatus.ts`, `champLedgerStatus.ts`), which gate each
+ * award on its own event's stage. The Winner's second clause matters for one
+ * shape only: awards posted with the playoffs flag never turned true (a
+ * curtailed bracket). `reservedChampSlots` releases the winning alliance's
+ * slots there, so a winner left uncounted would be neither reserved for nor
+ * counted, which is the one side that can publish a Locked that is not true.
+ *
+ * AN EVENT WHOSE ROWS CARRY NO STATE BLOCK COUNTS ITS AWARDS AS BEFORE. The
+ * offline publisher runs this pass on state free rows first, and a tier
+ * supplied from the corpus can name an event no row carries. Both are
+ * hindsight: the award was read from a finished event.
  */
 function awardQualifiedSets(
   teams: readonly DistrictTeam[],
-  suppliedTiers: ReadonlyMap<string, DistrictTier> | undefined
+  suppliedTiers: ReadonlyMap<string, DistrictTier> | undefined,
+  stateByEvent: ReadonlyMap<string, DistrictEventState | undefined>
 ): { district: Set<string>; dcmp: Set<string> } {
   // The artifact derived map is shared with the District Locks tab
   // (`eventTierByKey`, quick task 261007-jvz), so the two resolve an award's
@@ -185,6 +239,13 @@ function awardQualifiedSets(
       if (tier === undefined) continue;
       const awardTier: AwardTier = tier === "dcmp" ? "dcmp" : "district";
       if (!consumingAwardTypesForTier(awardTier).has(award.awardType)) continue;
+      // The gate: read off the award's OWN event. No state block on any row
+      // for it means a hindsight row, which counts as it always has.
+      const state = stateByEvent.get(award.eventKey);
+      if (state !== undefined) {
+        const given = award.awardType === AWARD_TYPE_WINNER ? state.playoffsDone || state.awardsPosted : state.awardsPosted;
+        if (!given) continue;
+      }
       (awardTier === "dcmp" ? dcmp : district).add(team.teamKey);
     }
   }
@@ -432,7 +493,8 @@ export function recomputeDistrictVerdicts(artifact: DistrictArtifact, options: R
   const dcmpEventMaxTotal = dcmpBase.qual + dcmpBase.alliance + dcmpBase.elim + dcmpBase.award;
 
   const teams = artifact.teams;
-  const awardQualified = awardQualifiedSets(teams, options.tierByEvent);
+  const stateByEvent = eventStateByKey(teams);
+  const awardQualified = awardQualifiedSets(teams, options.tierByEvent, stateByEvent);
 
   // Pass 1: districtLock, against maxRemainingDistrict (regular-tier events
   // only). No prequalification concept exists at the district/DCMP tier.
@@ -592,16 +654,15 @@ export type DistrictEventAwardsByEvent = ReadonlyMap<string, readonly DistrictEv
  *
  * RECORDED EVERY TIME, WHATEVER THE FLAG SAYS. A DCMP Winner listed before
  * the judged awards is recorded at once, and an Impact winner is recorded
- * while the flag still waits on its points. In that second window the
- * PUBLISHED verdict holds that event's slot twice: the recorded winner
- * consumes one through `awardQualifiedSets`, and the event still reserves
- * one because its flag is false. That is the conservative side: it never
- * publishes a Locked that is not true. Only the Locked test reads the
- * reservation, so only Locked moves: a Locked can be delayed, and a team the
- * published verdict locked on points a tick earlier can read contending
- * until the points arrive (pinned in `districtRankingsMerge.test.ts`). No
- * page renders the published verdict. The browser computes its own and
- * never does this: it gates each award on its own event's stage.
+ * while the flag still waits. The record is WRITTEN at once and READ later:
+ * the verdict pass counts it only once its own event's state says the award
+ * is given (`awardQualifiedSets`, quick task 261009-tx6). Until then the
+ * event still reserves its slot and the recorded winner consumes none, so
+ * the published verdict no longer holds a slot twice, and a team it locked
+ * on points is not read contending for the ticks between the record and the
+ * flag (the three state walk in `districtRankingsMerge.test.ts`). The Locks
+ * tabs have always read it this way: they gate each award on its own
+ * event's stage.
  */
 export function applyDistrictEventAwards(artifact: DistrictArtifact, eventAwards: DistrictEventAwardsByEvent): DistrictArtifact {
   if (eventAwards.size === 0) return artifact;

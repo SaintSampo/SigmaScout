@@ -1202,6 +1202,88 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
     });
   });
 
+  describe("the published verdicts count an award only once its own event says it is given (quick task 261009-tx6, D3)", () => {
+    const IMPACT_AT_E2 = { eventKey: E2, awardType: 0, label: IMPACT_2026, awardOnly: false };
+    const PLAYOFFS_OPEN = { ...PLAYOFFS_DONE, playoffsDone: false } as const;
+
+    const champStatuses = (artifact: DistrictArtifact): Record<string, string> => Object.fromEntries(artifact.teams.map((team) => [team.teamKey, team.champLock.status]));
+    const districtLocks = (artifact: DistrictArtifact) => artifact.teams.map((team) => [team.teamKey, team.districtLock] as const);
+    const verdicts = (artifact: DistrictArtifact): DistrictArtifact => recomputeDistrictVerdicts(artifact, { nowYear: 2026 });
+
+    /** The artifact with the state block removed from the named teams' rows at one event (every team when none is named). */
+    function withoutState(artifact: DistrictArtifact, eventKey: string, teamKeys?: readonly string[]): DistrictArtifact {
+      const strip = <T extends { eventKey: string; state?: unknown }>(row: T): T => {
+        if (row.eventKey !== eventKey) return row;
+        const { state: _state, ...rest } = row;
+        return rest as T;
+      };
+      return DistrictArtifactSchema.parse({
+        ...artifact,
+        teams: artifact.teams.map((team) =>
+          teamKeys !== undefined && !teamKeys.includes(team.teamKey) ? team : { ...team, eventPoints: team.eventPoints.map(strip), remainingEvents: team.remainingEvents.map(strip) }
+        ),
+      });
+    }
+
+    /** A District Championship row for A and C with the given state, and one award of the given type recorded on C. */
+    function dcmpFixture(awardType: number, state: PointsRow["state"]): DistrictArtifact {
+      const dcmpRow = (total: number) => pointsRow(DCMP, total, 0, state, "dcmp");
+      return fixture({ extraPoints: { frcA: [dcmpRow(30)], frcC: [dcmpRow(5)] }, awards: { frcC: [{ eventKey: DCMP, awardType, label: "an award", awardOnly: false }] } });
+    }
+
+    it("leaves a district tier Impact record uncounted while its event's awards are not posted: every verdict equals the one with the record removed", () => {
+      const withRecord = verdicts(fixture({ awards: { frcC: [IMPACT_AT_E2] } }));
+      const withoutRecord = verdicts(fixture());
+      expect(districtStatuses(withRecord).frcC).not.toBe("lockedAward");
+      expect(districtLocks(withRecord)).toEqual(districtLocks(withoutRecord));
+    });
+
+    it("counts the same record once its event's awards are posted", () => {
+      const out = verdicts(fixture({ e2Posted: true, awards: { frcC: [IMPACT_AT_E2] } }));
+      expect(districtStatuses(out).frcC).toBe("lockedAward");
+    });
+
+    it("counts a District Championship Winner once the playoffs are done, awards posted or not, and not while the playoffs are open", () => {
+      expect(champStatuses(verdicts(dcmpFixture(1, PLAYOFFS_DONE))).frcC).toBe("lockedAward");
+      expect(champStatuses(verdicts(dcmpFixture(1, PLAYOFFS_OPEN))).frcC).not.toBe("lockedAward");
+    });
+
+    it("counts a District Championship Winner at an event whose awards are posted while its playoffs flag never turned true", () => {
+      // The curtailed shape (2022gacar posted its awards with one quarterfinal
+      // row never played). Posted awards end the champ reservation for the
+      // winning alliance too (`reservedChampSlots`), so a winner left
+      // uncounted here would be neither reserved for nor counted.
+      expect(champStatuses(verdicts(dcmpFixture(1, { ...PLAYOFFS_OPEN, awardsPosted: true }))).frcC).toBe("lockedAward");
+    });
+
+    it.each([0, 9, 10])("leaves a District Championship judged award (type %i) uncounted until its awards are posted", (awardType) => {
+      expect(champStatuses(verdicts(dcmpFixture(awardType, PLAYOFFS_DONE))).frcC).not.toBe("lockedAward");
+      expect(champStatuses(verdicts(dcmpFixture(awardType, FINISHED))).frcC).toBe("lockedAward");
+    });
+
+    it("counts a record whose event rows carry no state block exactly as before", () => {
+      expect(districtStatuses(verdicts(withoutState(fixture({ awards: { frcC: [IMPACT_AT_E2] } }), E2))).frcC).toBe("lockedAward");
+      expect(champStatuses(verdicts(dcmpFixture(1, undefined))).frcC).toBe("lockedAward");
+      expect(champStatuses(verdicts(dcmpFixture(0, undefined))).frcC).toBe("lockedAward");
+    });
+
+    it("still leaves out a record whose event is on no row, and still counts one resolved by a supplied tier with no state block", () => {
+      const nowhere = fixture({ awards: { frcC: [{ eventKey: "2026zzzzz", awardType: 0, label: IMPACT_2026, awardOnly: false }] } });
+      expect(districtStatuses(verdicts(nowhere)).frcC).not.toBe("lockedAward");
+      const supplied = recomputeDistrictVerdicts(nowhere, { nowYear: 2026, tierByEvent: new Map([["2026zzzzz", "district"]]) });
+      expect(districtStatuses(supplied).frcC).toBe("lockedAward");
+    });
+
+    it("reads the state block of the row that carries one when another row for the same event carries none", () => {
+      // frcA is the first team walked and its row for the event has no state
+      // block. The other two rows say the awards are not posted, and that is
+      // the answer.
+      const mixed = withoutState(fixture({ awards: { frcC: [IMPACT_AT_E2] } }), E2, ["frcA"]);
+      expect(teamOf(mixed, "frcA").eventPoints.find((row) => row.eventKey === E2)!.state).toBeUndefined();
+      expect(districtStatuses(verdicts(mixed)).frcC).not.toBe("lockedAward");
+    });
+  });
+
   describe("the district tier lock regression: a team is never shown Locked on a slot an Impact winner then takes", () => {
     it("the hazard: with the flag true and no winner recorded, the knife edge team reads locked", () => {
       // This is the state the old Worker published when TBA listed Winner and
@@ -1237,22 +1319,43 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
       expect(districtStatuses(out)).toEqual({ frcA: "lockedAward", frcB: "locked", frcC: "eliminated" });
     });
 
-    it("the winner recorded while the flag still waits on points holds the slot twice, the conservative side", () => {
-      // Impact is listed for C but the rankings carry no award points yet. C
-      // already reads lockedAward, and the event still reserves one slot, so
-      // nobody else is locked on points until the points arrive.
-      const out = withAwards(fixture(), lists([E2, [award(0, "frcC")]]));
-      expect(flagsAt(out, E2)).toEqual([false, false, false]);
-      expect(districtStatuses(out).frcC).toBe("lockedAward");
-      expect(districtStatuses(out).frcA).not.toBe("locked");
-      expect(districtStatuses(out).frcB).not.toBe("locked");
-      // PINNED AS EXECUTED, and worth knowing: A read locked one list earlier
-      // (the Winner and Finalist case above) and reads contending here. The
-      // published verdict takes that Locked back for this window and returns
-      // it when the points arrive. It never claims a Locked that is not true,
-      // and no page renders the published verdict: the Locks tabs compute
-      // their own, gating each award on its own event stage.
-      expect(districtStatuses(out)).toEqual({ frcA: "contending", frcB: "eliminated", frcC: "lockedAward" });
+    it("three states in order: the winner is read only once the flag is true, and no held place is lost on the way (quick task 261009-tx6)", () => {
+      // Before quick task 261009-tx6 the second state read A contending: the
+      // recorded winner consumed a slot while its event still reserved one,
+      // and the published verdict took A's Locked back until the points
+      // arrived. A record is now read only once its event says the award is
+      // given, so the second state equals the first.
+      const fieldAwards = [award(1, "frcA", "frcB"), award(2, "frcC")];
+      const winnerListed = withAwards(fixture(), lists([E2, fieldAwards]));
+      const impactRecorded = withAwards(fixture(), lists([E2, [...fieldAwards, award(0, "frcC")]]));
+      const flagTrue = withAwards(fixture({ e2Award: { frcC: 5 } }), lists([E2, [...fieldAwards, award(0, "frcC")]]));
+
+      expect(flagsAt(winnerListed, E2)).toEqual([false, false, false]);
+      expect(flagsAt(impactRecorded, E2)).toEqual([false, false, false]);
+      expect(flagsAt(flagTrue, E2)).toEqual([true, true, true]);
+      expect(teamOf(impactRecorded, "frcC").qualifyingAwards).toEqual([{ eventKey: E2, awardType: 0, label: IMPACT_2026, awardOnly: false }]);
+
+      // The record alone moves nothing.
+      expect(impactRecorded.teams.map((team) => team.districtLock)).toEqual(winnerListed.teams.map((team) => team.districtLock));
+
+      const walk = [winnerListed, impactRecorded, flagTrue].map(districtStatuses);
+      expect(walk).toEqual([
+        { frcA: "locked", frcB: "contending", frcC: "eliminated" },
+        { frcA: "locked", frcB: "contending", frcC: "eliminated" },
+        { frcA: "locked", frcB: "eliminated", frcC: "lockedAward" },
+      ]);
+
+      // C reads lockedAward in the third state only.
+      expect(walk.map((statuses) => statuses.frcC === "lockedAward")).toEqual([false, false, true]);
+
+      // No team holds a place in one state and loses it in a later one.
+      const held = (status: string | undefined) => status === "locked" || status === "lockedAward";
+      for (const teamKey of ["frcA", "frcB", "frcC"]) {
+        for (let earlier = 0; earlier < walk.length; earlier++) {
+          if (!held(walk[earlier]![teamKey])) continue;
+          for (let later = earlier + 1; later < walk.length; later++) expect({ teamKey, later, held: held(walk[later]![teamKey]) }).toEqual({ teamKey, later, held: true });
+        }
+      }
     });
   });
 });
