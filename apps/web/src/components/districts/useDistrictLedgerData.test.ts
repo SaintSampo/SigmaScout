@@ -423,6 +423,28 @@ describe("pointsFinalByEvent: both assemblies hand the run which of TBA's number
     });
   });
 
+  describe("the field backups travel beside the requests (quick task 261010-66y, R13)", () => {
+    const BACKUP = "frc999";
+    /** The same event with alliance 1's third robot replaced on the field, in its one played set, by a team no pick list names. */
+    const withBackup: EventArtifact = EventArtifactSchema.parse({
+      ...eventArtifact,
+      matches: eventArtifact.matches.map((match) => (match.matchKey === `${EVENT}_sf1m1` ? { ...match, redTeams: [...picksOf(1).slice(0, 2), BACKUP] } : match)),
+    });
+    const number = new Map([[EVENT, NUMBER_OPEN]]);
+
+    it("the Live assembly carries them per event, outside the request and outside the signature", () => {
+      const listed = assembleLiveDistrictEvents({ artifact: districtArtifact, activeKeys: [EVENT], eventArtifacts, stageByEvent, pointsFinalByEvent: number });
+      const seen = assembleLiveDistrictEvents({ artifact: districtArtifact, activeKeys: [EVENT], eventArtifacts: new Map([[EVENT, withBackup]]), stageByEvent, pointsFinalByEvent: number });
+      // With no backup anywhere the assembly carries no map at all: it is the object it always was.
+      expect("fieldBackupsByEvent" in listed).toBe(false);
+      expect([...seen.fieldBackupsByEvent!]).toEqual([[EVENT, [{ teamKey: BACKUP, allianceNumber: 1 }]]]);
+      expect(seen.events).toEqual(listed.events);
+      expect(seen.signature).toBe(listed.signature);
+      // Where the builder reads no played row (the playoff number is final) there is nothing to carry.
+      expect("fieldBackupsByEvent" in assembleLiveDistrictEvents({ artifact: districtArtifact, activeKeys: [EVENT], eventArtifacts: new Map([[EVENT, withBackup]]), stageByEvent })).toBe(false);
+    });
+  });
+
   describe("assembleAsOfDistrictEvents", () => {
     /** A rewound stop that readied the one event as REAL, with both played sets at or before its cut. */
     const result = {
@@ -478,6 +500,29 @@ describe("pointsFinalByEvent: both assemblies hand the run which of TBA's number
       expect(assembled.events[0]!.input.knownElimPoints).toBeUndefined();
       expect(assembled.events[0]!.input.playedElimMatches).toEqual(TWO_SETS);
       expect(assembled.signature).not.toBe(asOf().signature);
+    });
+
+    it("carries the field backups of the stop's own played rows, outside the request and the signature (quick task 261010-66y, R13)", () => {
+      const BACKUP = "frc999";
+      const withBackup: EventArtifact = EventArtifactSchema.parse({
+        ...eventArtifact,
+        matches: eventArtifact.matches.map((match) => (match.matchKey === `${EVENT}_sf2m1` ? { ...match, blueTeams: [...picksOf(5).slice(0, 2), BACKUP] } : match)),
+      });
+      const number = new Map([[EVENT, NUMBER_OPEN]]);
+      const listed = asOf(number);
+      const seen = assembleAsOfDistrictEvents({
+        artifact: districtArtifact,
+        result,
+        algorithmVersion: "7.0.0+rolling",
+        eventArtifacts: new Map([[EVENT, withBackup]]),
+        stageByEvent,
+        candidateKeys: [EVENT],
+        pointsFinalByEvent: number,
+      });
+      expect("fieldBackupsByEvent" in listed).toBe(false);
+      expect([...seen.fieldBackupsByEvent!]).toEqual([[EVENT, [{ teamKey: BACKUP, allianceNumber: 5 }]]]);
+      expect(seen.events).toEqual(listed.events);
+      expect(seen.signature).toBe(listed.signature);
     });
   });
 });
@@ -539,6 +584,29 @@ describe("the divisioned championship's facts and Live fetch set (quick task 261
     expect([...facts.keys()].sort()).toEqual([PARENT, "2026pncmp1", "2026pncmp2"]);
     expect(facts.get(PARENT)!.alliances).toHaveLength(2);
     expect(divisionedDcmpBracketFacts({ artifact: FIXTURE, eventArtifacts: new Map([[PARENT, eventArtifact(eight)]]), stageByEvent: new Map([[PARENT, open]]), requestByKey: new Map() }).size).toBe(0);
+  });
+
+  it("hands a division's request field backups to its facts, where the backup joins its alliance (quick task 261010-66y, R13)", () => {
+    const eventArtifacts = new Map<string, EventArtifact>([
+      ["2026pncmp1", eventArtifact(eight)],
+      ["2026pncmp2", eventArtifact(eight)],
+    ]);
+    const stageByEvent = new Map([
+      ["2026pncmp1", open],
+      ["2026pncmp2", open],
+    ]);
+    const requestByKey = new Map([["2026pncmp1", { knownAlliances: eight, playedElimMatches: [], unresolvedMatchCount: 0, fieldBackups: [{ teamKey: "seen", allianceNumber: 3 }] }]]);
+    const facts = divisionedDcmpBracketFacts({ artifact: DIVISIONED, eventArtifacts, stageByEvent, requestByKey });
+    expect(facts.get("2026pncmp1")!.alliances[2]!.picks).toEqual(["d2x", "d2y", "d2z", "seen"]);
+    expect(facts.get("2026pncmp2")!.alliances[2]!.picks).toEqual(["d2x", "d2y", "d2z"]);
+    // Two backups on one alliance refuse that division's facts and leave the other's alone.
+    const refused = divisionedDcmpBracketFacts({
+      artifact: DIVISIONED,
+      eventArtifacts,
+      stageByEvent,
+      requestByKey: new Map([["2026pncmp1", { knownAlliances: eight, playedElimMatches: [], unresolvedMatchCount: 0, fieldBackups: [{ teamKey: "seen", allianceNumber: 3 }, { teamKey: "seen2", allianceNumber: 3 }] }]]),
+    });
+    expect([...refused.keys()]).toEqual(["2026pncmp2"]);
   });
 
   it("keeps a divisioned championship's started keys fetched at Live while any of them is in progress, and changes nothing otherwise", () => {

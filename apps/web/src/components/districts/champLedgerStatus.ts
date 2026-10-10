@@ -133,6 +133,12 @@
  *    winner, or finals rows before every division is decided,
  *    `bracketUnroutable`.
  *
+ *    A BACKUP ROBOT SEEN ON THE FIELD (quick task 261010-66y, CONTEXT D4).
+ *    A team on a side of a played playoff row that no pick list names is, in
+ *    the facts this proof is handed, a listed pick of that side's alliance
+ *    (`dcmpBracketFactsFor`), so with no settled Playoffs value it keeps its
+ *    alliance alive here exactly as a listed, unconfirmed fourth does.
+ *
  * 6. THE WINNER HOLD (quick task 261009-vp9). Decision 2's reservation
  *    releases the winning alliance's four places once a championship's
  *    Playoffs are final. That alone is not enough at a LIVE championship: TBA

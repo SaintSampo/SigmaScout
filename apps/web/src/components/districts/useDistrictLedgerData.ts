@@ -11,6 +11,7 @@ import {
   dcmpBracketFactsFor,
   distributionsFromResult,
   type DcmpBracketFacts,
+  type FieldBackup,
   type DistrictEventDistributions,
   type DistrictLedgerGaps,
   type DistrictStageFinality,
@@ -211,6 +212,8 @@ export interface DcmpFactsRequest {
   readonly knownAlliances?: DistrictSimulationEventEntryInput["knownAlliances"];
   readonly playedElimMatches?: DistrictSimulationEventEntryInput["playedElimMatches"];
   readonly unresolvedMatchCount: number;
+  /** The backups the request's played rows show on the field that no pick list names (quick task 261010-66y, R13). */
+  readonly fieldBackups?: readonly FieldBackup[] | undefined;
 }
 type DistrictSimulationEventEntryInput = AssembledDistrictEvents["events"][number]["input"];
 
@@ -365,6 +368,8 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
                 alliances: request.input.knownAlliances,
                 playedMatches: request.input.playedElimMatches ?? [],
                 unresolvedMatchCount: unresolved.has(entry.eventKey) ? 1 : 0,
+                // A backup seen on the field and listed nowhere joins its alliance in the facts (quick task 261010-66y, R13).
+                fieldBackups: assembled.fieldBackupsByEvent?.get(entry.eventKey),
               });
         map.set(entry.eventKey, dcmpBracket === undefined ? distributions : { ...distributions, dcmpBracket });
       } else if (entry.status === "baked") map.set(entry.eventKey, distributionsFromPreSim(entry));
@@ -383,6 +388,7 @@ export function useDistrictLedgerData(options: UseDistrictLedgerDataOptions): Di
             ...(request.input.knownAlliances === undefined ? {} : { knownAlliances: request.input.knownAlliances }),
             ...(request.input.playedElimMatches === undefined ? {} : { playedElimMatches: request.input.playedElimMatches }),
             unresolvedMatchCount: unresolved.has(request.eventKey) ? 1 : 0,
+            fieldBackups: assembled.fieldBackupsByEvent?.get(request.eventKey),
           },
         ] as const)
       ),

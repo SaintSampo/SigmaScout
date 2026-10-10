@@ -1405,6 +1405,83 @@ describe("playedBracketMatchesFor — colour onto alliance number", () => {
     expect(playedBracketMatchesFor(artifact)).toEqual({ matches: [], unresolvedMatchKeys: [] });
   });
 
+  describe("a backup seen on the field that no pick list names (quick task 261010-66y, D4 and reading R13)", () => {
+    const BACKUP = "frc999";
+    /** Two listed picks of the alliance and the unlisted backup, as the field shows a side. */
+    const sideWithBackup = (allianceNumber: number, backup = BACKUP): string[] => [...rosterOf(allianceNumber).slice(0, 2), backup];
+
+    it("reports a team on a played side that is in no pick list as a field backup of that side's alliance, and the matches are what they were", () => {
+      const artifact = playoffArtifact([
+        elimRow({ compLevel: "sf", setNumber: 1, matchNumber: 1, red: sideWithBackup(1), blue: rosterOf(8), actualWinner: "red" }),
+      ]);
+      const result = playedBracketMatchesFor(artifact);
+      expect(result.matches).toEqual([{ compLevel: "sf", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 }]);
+      expect(result.unresolvedMatchKeys).toEqual([]);
+      expect(result.fieldBackups).toEqual([{ teamKey: BACKUP, allianceNumber: 1 }]);
+    });
+
+    it("reads the blue side too, and a TIE is a played row: the backup was on the field", () => {
+      const artifact = playoffArtifact([
+        elimRow({ compLevel: "sf", setNumber: 1, matchNumber: 1, red: rosterOf(1), blue: sideWithBackup(8), actualWinner: "tie" }),
+      ]);
+      const result = playedBracketMatchesFor(artifact);
+      expect(result.matches).toEqual([]);
+      expect(result.fieldBackups).toEqual([{ teamKey: BACKUP, allianceNumber: 8 }]);
+    });
+
+    it("reports none from a row with no result, a row outside onlyMatchKeys, or a row it could not resolve", () => {
+      // No result: structural, since the schema refuses such a row in matches[].
+      const unplayed = {
+        alliances: eightAlliances,
+        matches: [{ matchKey: "2026waplay_sf1m1", compLevel: "sf", setNumber: 1, matchNumber: 1, redTeams: sideWithBackup(1), blueTeams: rosterOf(8) }],
+      };
+      expect(playedBracketMatchesFor(unplayed)).toEqual({ matches: [], unresolvedMatchKeys: [] });
+      expect("fieldBackups" in playedBracketMatchesFor(unplayed)).toBe(false);
+
+      const artifact = playoffArtifact([
+        elimRow({ compLevel: "sf", setNumber: 1, matchNumber: 1, red: rosterOf(1), blue: rosterOf(8), actualWinner: "red" }),
+        elimRow({ compLevel: "sf", setNumber: 2, matchNumber: 1, red: sideWithBackup(4), blue: rosterOf(5), actualWinner: "blue" }),
+      ]);
+      const cut = playedBracketMatchesFor(artifact, new Set(["2026waplay_sf1m1"]));
+      expect(cut.matches).toHaveLength(1);
+      expect("fieldBackups" in cut).toBe(false);
+      expect(playedBracketMatchesFor(artifact, new Set(["2026waplay_sf1m1", "2026waplay_sf2m1"])).fieldBackups).toEqual([{ teamKey: BACKUP, allianceNumber: 4 }]);
+
+      // The blue side spans two alliances, so the whole row is disclosed and nothing on it is read.
+      const spanning = playoffArtifact([
+        elimRow({ compLevel: "sf", setNumber: 1, matchNumber: 1, red: sideWithBackup(1), blue: [rosterOf(7)[0]!, rosterOf(8)[0]!, rosterOf(8)[1]!], actualWinner: "red" }),
+      ]);
+      const unresolved = playedBracketMatchesFor(spanning);
+      expect(unresolved.unresolvedMatchKeys).toEqual(["2026waplay_sf1m1"]);
+      expect("fieldBackups" in unresolved).toBe(false);
+    });
+
+    it("reports a team seen in two rows once, and a team seen for two alliances once per alliance", () => {
+      const twice = playoffArtifact([
+        elimRow({ compLevel: "sf", setNumber: 1, matchNumber: 1, red: sideWithBackup(1), blue: rosterOf(8), actualWinner: "red" }),
+        elimRow({ compLevel: "sf", setNumber: 7, matchNumber: 1, red: sideWithBackup(1), blue: rosterOf(4), actualWinner: "red" }),
+      ]);
+      expect(playedBracketMatchesFor(twice).fieldBackups).toEqual([{ teamKey: BACKUP, allianceNumber: 1 }]);
+      const two = playoffArtifact([
+        elimRow({ compLevel: "sf", setNumber: 1, matchNumber: 1, red: sideWithBackup(1), blue: rosterOf(8), actualWinner: "red" }),
+        elimRow({ compLevel: "sf", setNumber: 2, matchNumber: 1, red: sideWithBackup(4), blue: rosterOf(5), actualWinner: "red" }),
+      ]);
+      expect(playedBracketMatchesFor(two).fieldBackups).toEqual([
+        { teamKey: BACKUP, allianceNumber: 1 },
+        { teamKey: BACKUP, allianceNumber: 4 },
+      ]);
+    });
+
+    it("a row with every team listed reports none: the result carries no fieldBackups key at all", () => {
+      const artifact = playoffArtifact([
+        elimRow({ compLevel: "sf", setNumber: 1, matchNumber: 1, red: rosterOf(1), blue: rosterOf(8), actualWinner: "red" }),
+      ]);
+      const result = playedBracketMatchesFor(artifact);
+      expect(result).toEqual({ matches: [{ compLevel: "sf", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 }], unresolvedMatchKeys: [] });
+      expect("fieldBackups" in result).toBe(false);
+    });
+  });
+
   describe("the input it feeds", () => {
     const districtArtifact = artifactOf(
       roster.map((teamKey) =>
@@ -1540,6 +1617,25 @@ describe("playedBracketMatchesFor — colour onto alliance number", () => {
         expect(buildAt({ rows, asOfPlayedElimMatchKeys: ["2026waplay_sf1m1", "2026waplay_sf3m1"] }).unresolvedElimMatchKeys).toEqual(["2026waplay_sf3m1"]);
         expect(buildAt({ rows, asOfPlayedElimMatchKeys: ["2026waplay_sf1m1"] }).unresolvedElimMatchKeys).toEqual([]);
       });
+    });
+
+    it("carries the field backups of the rows it read beside the unresolved keys, and the run's own input never names one (quick task 261010-66y, R13)", () => {
+      const BACKUP = "frc999";
+      const rows = [
+        elimRow({ compLevel: "sf", setNumber: 1, matchNumber: 1, red: [...rosterOf(1).slice(0, 2), BACKUP], blue: rosterOf(8), actualWinner: "red" }),
+      ];
+      const live = buildAt({ rows, conditionOnPlayedElims: true });
+      expect(live.fieldBackups).toEqual([{ teamKey: BACKUP, allianceNumber: 1 }]);
+      // The run's input, its alliances and so its milestones are what they are with the backup listed nowhere.
+      expect(live.input).toEqual(buildAt({ conditionOnPlayedElims: true }).input);
+      expect(JSON.stringify(live.input.knownAlliances)).not.toContain(BACKUP);
+      // A rewound stop reads only the rows at or before its cut.
+      expect(buildAt({ rows, asOfPlayedElimMatchKeys: ["2026waplay_sf1m1"] }).fieldBackups).toEqual([{ teamKey: BACKUP, allianceNumber: 1 }]);
+      expect(buildAt({ rows, asOfPlayedElimMatchKeys: [] }).fieldBackups).toEqual([]);
+      // And where the builder reads no played row at all it reports none.
+      expect(buildAt({ rows }).fieldBackups).toEqual([]);
+      expect(buildAt({ rows, conditionOnPlayedElims: true, stage: { qual: true, alliance: true, elim: true, award: false } }).fieldBackups).toEqual([]);
+      expect(buildAt({ conditionOnPlayedElims: true }).fieldBackups).toEqual([]);
     });
 
     it("passes NONE once the playoff stage is final, which has its own known-points input", () => {
@@ -2450,6 +2546,75 @@ describe("dcmpBracketFactsFor roles and dcmpBracketFactsAtPosition (quick task 2
     expect(at(open)?.alliances).toHaveLength(8);
     expect(at(open, { playedElimMatches: requestRows, unresolvedMatchCount: 1 })).toBeUndefined();
     expect(at({ ...open, alliance: false })).toBeUndefined();
+  });
+});
+
+describe("a field observed backup in the DCMP bracket facts (quick task 261010-66y, D4 and reading R13)", () => {
+  const eight = Array.from({ length: 8 }, (_, index) => ({ allianceNumber: index + 1, picks: [`b${index}x`, `b${index}y`, `b${index}z`] }));
+  const STAGE: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
+  const base = { eventKey: "2026pncmp", season: 2026, tier: "dcmp" as const, stage: STAGE, alliances: eight, playedMatches: [], unresolvedMatchCount: 0 };
+
+  it("appends the backup to the end of its alliance's picks and changes nothing else", () => {
+    const listed = dcmpBracketFactsFor(base)!;
+    const withBackup = dcmpBracketFactsFor({ ...base, fieldBackups: [{ teamKey: "bk", allianceNumber: 3 }] })!;
+    expect(withBackup.alliances[2]!.picks).toEqual(["b2x", "b2y", "b2z", "bk"]);
+    expect({ ...withBackup, alliances: withBackup.alliances.map((alliance) => (alliance.allianceNumber === 3 ? { ...alliance, picks: alliance.picks.slice(0, 3) } : alliance)) }).toEqual(listed);
+    // The caller's own lists are never written to.
+    expect(eight[2]!.picks).toEqual(["b2x", "b2y", "b2z"]);
+  });
+
+  it("with no backup, an empty list or the option absent the facts are today's", () => {
+    const listed = dcmpBracketFactsFor(base)!;
+    expect(dcmpBracketFactsFor({ ...base, fieldBackups: [] })).toEqual(listed);
+    expect(dcmpBracketFactsFor({ ...base, fieldBackups: undefined })).toEqual(listed);
+  });
+
+  it("a backup the alliance already lists is a listed pick: nothing is appended", () => {
+    expect(dcmpBracketFactsFor({ ...base, fieldBackups: [{ teamKey: "b2z", allianceNumber: 3 }] })).toEqual(dcmpBracketFactsFor(base));
+  });
+
+  it("refuses the facts where the field contradicts the pick lists: two backups on one alliance, a fifth pick, a team named for two alliances, an alliance not in the list", () => {
+    // Two on one alliance.
+    expect(dcmpBracketFactsFor({ ...base, fieldBackups: [{ teamKey: "bk", allianceNumber: 3 }, { teamKey: "bk2", allianceNumber: 3 }] })).toBeUndefined();
+    // A fifth pick: the alliance already lists its fourth.
+    const withFourth = eight.map((alliance) => (alliance.allianceNumber === 3 ? { ...alliance, picks: [...alliance.picks, "b2w"] } : alliance));
+    expect(dcmpBracketFactsFor({ ...base, alliances: withFourth })).toBeDefined();
+    expect(dcmpBracketFactsFor({ ...base, alliances: withFourth, fieldBackups: [{ teamKey: "bk", allianceNumber: 3 }] })).toBeUndefined();
+    // One team seen for two alliances.
+    expect(dcmpBracketFactsFor({ ...base, fieldBackups: [{ teamKey: "bk", allianceNumber: 3 }, { teamKey: "bk", allianceNumber: 4 }] })).toBeUndefined();
+    // A team another alliance lists.
+    expect(dcmpBracketFactsFor({ ...base, fieldBackups: [{ teamKey: "b0x", allianceNumber: 3 }] })).toBeUndefined();
+    // An alliance that is not in the list.
+    expect(dcmpBracketFactsFor({ ...base, fieldBackups: [{ teamKey: "bk", allianceNumber: 9 }] })).toBeUndefined();
+    // One backup on each of two alliances is fine.
+    expect(dcmpBracketFactsFor({ ...base, fieldBackups: [{ teamKey: "bk", allianceNumber: 3 }, { teamKey: "bk2", allianceNumber: 4 }] })).toBeDefined();
+  });
+
+  it("dcmpBracketFactsAtPosition reads its own field backups once the Playoffs are final at the position, and the request's while they are open", () => {
+    const artifact = {
+      alliances: eight,
+      matches: [
+        { matchKey: "2026micmp1_sf1m1", compLevel: "sf", setNumber: 1, matchNumber: 1, redTeams: ["b0x", "b0y", "bk"], blueTeams: ["b7x", "b7y", "b7z"], actualWinner: "red" as const },
+      ],
+    };
+    const requestRows = [{ compLevel: "sf", setNumber: 1, matchNumber: 1, winningAllianceNumber: 1 }];
+    const open: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
+    const at = (stage: DistrictStageFinality, request?: { playedElimMatches: typeof requestRows; unresolvedMatchCount: number; fieldBackups?: readonly { teamKey: string; allianceNumber: number }[] }) =>
+      dcmpBracketFactsAtPosition({ eventKey: "2026micmp1", season: 2026, role: "division", stage, eventArtifact: artifact, ...(request === undefined ? {} : { request }) });
+    const picksOf = (facts: ReturnType<typeof at>, allianceNumber: number) => facts!.alliances.find((alliance) => alliance.allianceNumber === allianceNumber)!.picks;
+
+    // Playoffs final at the position: every played row of the artifact, and so its own backups, whatever the request says.
+    const final = at({ ...open, elim: true }, { playedElimMatches: requestRows, unresolvedMatchCount: 0, fieldBackups: [{ teamKey: "other", allianceNumber: 2 }] });
+    expect(picksOf(final, 1)).toEqual(["b0x", "b0y", "b0z", "bk"]);
+    expect(picksOf(final, 2)).toEqual(["b1x", "b1y", "b1z"]);
+    expect(picksOf(at({ ...open, elim: true }), 1)).toEqual(["b0x", "b0y", "b0z", "bk"]);
+
+    // Playoffs open: the request's rows and the request's backups, and nothing read off the artifact's own rows.
+    const fromRequest = at(open, { playedElimMatches: requestRows, unresolvedMatchCount: 0, fieldBackups: [{ teamKey: "other", allianceNumber: 2 }] });
+    expect(picksOf(fromRequest, 1)).toEqual(["b0x", "b0y", "b0z"]);
+    expect(picksOf(fromRequest, 2)).toEqual(["b1x", "b1y", "b1z", "other"]);
+    expect(picksOf(at(open, { playedElimMatches: requestRows, unresolvedMatchCount: 0 }), 1)).toEqual(["b0x", "b0y", "b0z"]);
+    expect(picksOf(at(open), 1)).toEqual(["b0x", "b0y", "b0z"]);
   });
 });
 

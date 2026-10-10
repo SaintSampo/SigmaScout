@@ -69,8 +69,11 @@
  *   7. the convention the finals reading rests on: a points paying award at a
  *      finals event is a consuming award, and a team whose only championship
  *      row is the finals row earned nothing else there.
- * Groups 2 to 5, the real walks of group 6 and group 7 read gitignored local
- * data.
+ *   8. a backup robot seen on the field joins its alliance in the joint
+ *      proof's facts: the real 2026pncmp bracket with a listed backup
+ *      stripped from its alliance's picks.
+ * Groups 2 to 5, the real walks of group 6 and groups 7 and 8 read gitignored
+ * local data.
  *
  * THE FINALS TICKS (group 6). After the playoff points land the finals rows
  * post with their Playoffs points and no state, then the finals' state is
@@ -106,12 +109,22 @@ import { maxEventPoints } from "../packages/core/districts/pointModel.js";
 import { fieldFixingDcmpKeys } from "../packages/core/districts/dcmpFieldProof.js";
 import { finalsChampionMaximum } from "../packages/core/districts/categoryCorroboration.js";
 import { championshipShape } from "../packages/core/districts/finalsBracket.js";
-import { buildDistrictLedgerRows, deriveStageFromState, tierEvents, type DistrictEventDistributions } from "../apps/web/src/components/districts/districtLedgerRows.js";
+import {
+  buildDistrictLedgerRows,
+  dcmpBracketFactsFor,
+  deriveStageFromState,
+  playedBracketMatchesFor,
+  tierEvents,
+  type BracketSourceEvent,
+  type DistrictEventDistributions,
+} from "../apps/web/src/components/districts/districtLedgerRows.js";
+import { districtStageAtPosition } from "../apps/web/src/components/districts/districtTimeline.js";
+import { openCorpusReadOnly } from "../packages/corpus/db.js";
 import { computeDistrictLedgerStatuses } from "../apps/web/src/components/districts/districtLedgerStatus.js";
 import { applyChampionshipFieldOverlay } from "../apps/web/src/components/districts/districtFieldOverlay.js";
 import { buildChampLedgerRows, champFieldProofAtNow, dcmpEventKeysFor } from "../apps/web/src/components/districts/champLedgerRows.js";
 import { computeChampLedgerStatuses } from "../apps/web/src/components/districts/champLedgerStatus.js";
-import { LOCAL_DISTRICT_DIR } from "./measureChampJointLocks.js";
+import { CORPUS_PATH, LOCAL_DISTRICT_DIR, bracketFromCorpus, dcmpStops } from "./measureChampJointLocks.js";
 
 /**
  * THE SWITCHES. The merge, the row builders and the status code all run as
@@ -1668,6 +1681,117 @@ describe("the convention the finals reading rests on, over every local district 
     expect(finalsOnlyWithOtherPoints).toEqual([]);
     // The counts, as the run shows.
     expect({ finalsRows, withAwardPoints, finalsOnlyRows, finalsOnlyTeams: finalsOnlyTeamKeys.size }).toEqual({ finalsRows: 265, withAwardPoints: 153, finalsOnlyRows: 20, finalsOnlyTeams: 20 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GROUP 8. A backup robot seen on the field joins its alliance (CONTEXT D4)
+// ---------------------------------------------------------------------------
+
+const CORPUS_ABSOLUTE = join(REPO_ROOT, CORPUS_PATH);
+const PNCMP = "2026pncmp";
+const PNW_FILE = "v1__district__2026pnw.json";
+/** Alliance 2's listed fourth at the real 2026pncmp: a backup TBA listed after the fact. */
+const STRIPPED_BACKUP = { teamKey: "frc7034", allianceNumber: 2 } as const;
+
+describe("a backup seen on the field joins its alliance: the real 2026pncmp bracket with frc7034 stripped from alliance 2's picks (quick task 261010-66y, D4)", () => {
+  if (!existsSync(CORPUS_ABSOLUTE)) {
+    localDataAbsent(`${CORPUS_PATH} absent (gitignored local data)`);
+    return;
+  }
+  if (!LOCAL_DISTRICT_FILES.includes(PNW_FILE)) {
+    localDataAbsent(`${PNW_FILE} absent under ${LOCAL_DISTRICT_DIR} (gitignored local data)`);
+    return;
+  }
+
+  const listed: BracketSourceEvent = (() => {
+    const db = openCorpusReadOnly(CORPUS_ABSOLUTE);
+    try {
+      const found = bracketFromCorpus(db, new Map(), NOW_YEAR, PNCMP);
+      if (found === undefined) throw new Error(`the corpus carries no alliances for ${PNCMP}`);
+      return found;
+    } finally {
+      db.close();
+    }
+  })();
+  /** The same bracket as TBA would show it before listing the backup: the played rows unchanged, the pick gone. */
+  const stripped: BracketSourceEvent = {
+    alliances: (listed.alliances ?? []).map((alliance) =>
+      alliance.allianceNumber === STRIPPED_BACKUP.allianceNumber ? { ...alliance, picks: alliance.picks.filter((pick) => pick !== STRIPPED_BACKUP.teamKey) } : alliance
+    ),
+    matches: listed.matches,
+  };
+  const artifact = localArtifact(PNW_FILE);
+  const stops = dcmpStops(artifact, listed);
+  const firstPlayedRow = listed.matches.find(
+    (match) => match.actualWinner !== undefined && (match.redTeams.includes(STRIPPED_BACKUP.teamKey) || match.blueTeams.includes(STRIPPED_BACKUP.teamKey))
+  );
+
+  /** The facts at a stop, built as the sweep builds them: the stop's own stage and the played rows at or before it. */
+  function factsAt(bracket: BracketSourceEvent, stop: (typeof stops)[number]) {
+    const { timeline, nowStageByEvent } = stop.context;
+    const atNow = stop.index >= timeline.nowIndex;
+    const stage = atNow ? nowStageByEvent.get(PNCMP) : districtStageAtPosition(timeline, stop.index, nowStageByEvent).get(PNCMP);
+    const played = playedBracketMatchesFor(bracket, stop.playedKeys);
+    const facts = dcmpBracketFactsFor({
+      eventKey: PNCMP,
+      season: artifact.year,
+      tier: "dcmp",
+      stage,
+      alliances: (bracket.alliances ?? []).map((alliance) => ({ allianceNumber: alliance.allianceNumber, picks: [...alliance.picks] })),
+      playedMatches: played.matches,
+      unresolvedMatchCount: played.unresolvedMatchKeys.length,
+      fieldBackups: played.fieldBackups,
+    });
+    return { played, facts };
+  }
+
+  it("premise: frc7034 is alliance 2's listed fourth, it played, and its first played row is derived from the corpus", () => {
+    const alliance = (listed.alliances ?? []).find((entry) => entry.allianceNumber === STRIPPED_BACKUP.allianceNumber)!;
+    expect(alliance.picks).toHaveLength(4);
+    expect(alliance.picks[3]).toBe(STRIPPED_BACKUP.teamKey);
+    expect((stripped.alliances ?? []).find((entry) => entry.allianceNumber === STRIPPED_BACKUP.allianceNumber)!.picks).toEqual(alliance.picks.slice(0, 3));
+    // Measured 2026-10-10 by the planner (fact 10); derived here, pinned as the run shows.
+    expect(firstPlayedRow?.matchKey).toBe("2026pncmp_sf10m1");
+    expect(stops.length).toBeGreaterThan(3);
+    // Every played row is at or before the last stop, and the listed bracket shows no backup at all.
+    expect("fieldBackups" in playedBracketMatchesFor(listed)).toBe(false);
+    expect(playedBracketMatchesFor(stripped).fieldBackups).toEqual([STRIPPED_BACKUP]);
+    expect(playedBracketMatchesFor(stripped).matches).toEqual(playedBracketMatchesFor(listed).matches);
+    expect(playedBracketMatchesFor(stripped).unresolvedMatchKeys).toEqual([]);
+  });
+
+  it("from its first played row on the facts built from the stripped picks and the played rows equal the facts built from the listed picks, and before it they do not carry the backup", () => {
+    const firstKey = firstPlayedRow!.matchKey;
+    const lines: string[] = [];
+    let before = 0;
+    let after = 0;
+    // The last stop, Now, reads Awards final, where a single championship's facts are refused on both sides.
+    for (const stop of stops) {
+      const fromListed = factsAt(listed, stop);
+      const fromStripped = factsAt(stripped, stop);
+      const seen = stop.playedKeys.has(firstKey);
+      const carries = (fromStripped.facts?.alliances ?? []).some((alliance) => alliance.picks.includes(STRIPPED_BACKUP.teamKey));
+      lines.push(`${stop.label.padEnd(30)} played rows ${String(stop.playedKeys.size).padStart(2)} | its first row played ${String(seen).padEnd(5)} | facts ${fromListed.facts === undefined ? "refused" : "built  "} | stripped facts carry it ${String(carries)}`);
+      expect(fromStripped.facts === undefined, stop.label).toBe(fromListed.facts === undefined);
+      if (seen) {
+        if (fromListed.facts !== undefined) after += 1;
+        expect(fromStripped.played.fieldBackups, stop.label).toEqual([STRIPPED_BACKUP]);
+        expect(fromStripped.facts, stop.label).toEqual(fromListed.facts);
+      } else {
+        if (fromListed.facts !== undefined) before += 1;
+        expect("fieldBackups" in fromStripped.played, stop.label).toBe(false);
+        expect(carries, stop.label).toBe(false);
+        if (fromListed.facts !== undefined) {
+          // The listed facts name it and the stripped ones do not: nothing after the stop's cut was read.
+          expect(fromListed.facts.alliances.some((alliance) => alliance.picks.includes(STRIPPED_BACKUP.teamKey)), stop.label).toBe(true);
+          expect(fromStripped.facts!.playedMatches, stop.label).toEqual(fromListed.facts.playedMatches);
+        }
+      }
+    }
+    console.log(`[261010-66y group 8] 2026pncmp, frc7034 stripped from alliance 2's picks\n${lines.join("\n")}`);
+    // The comparison is not vacuous: facts were built on both sides of its first played row. Pinned as the run shows.
+    expect({ stops: stops.length, factsBuiltBeforeItsFirstRow: before, factsBuiltFromItsFirstRowOn: after }).toEqual({ stops: 8, factsBuiltBeforeItsFirstRow: 3, factsBuiltFromItsFirstRowOn: 4 });
   });
 });
 

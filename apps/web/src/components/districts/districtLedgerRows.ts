@@ -80,6 +80,7 @@ import type {
 } from "../../../../../packages/harness/pageArtifacts.js";
 import { districtEventStateFinished, districtEventStateStarted } from "../../lib/liveEvent.js";
 import { ALL_CATEGORIES_OPEN, districtEventCategoryFinality } from "../../../../../packages/core/districts/reservedSlots.js";
+import { MAX_WINNING_ALLIANCE_SIZE } from "../../../../../packages/core/districts/champReservedSlots.js";
 import {
   NO_POINTS_PRESENT,
   categoryPointsPresenceByEvent,
@@ -649,6 +650,14 @@ export type DistrictEventInputResult =
       readonly allianceListIsPartial: boolean;
       /** Played elimination rows whose two sides could not both be resolved to one alliance, so the whole match was left out of the conditioning. */
       readonly unresolvedElimMatchKeys: readonly string[];
+      /**
+       * The teams the played rows this builder read show on an alliance's side
+       * while no pick list names them (`playedBracketMatchesFor`). Empty where
+       * it read no played row. For the Champ Locks joint proof's bracket facts
+       * ONLY (`dcmpBracketFactsFor`): it is not in `input`, so the run, its
+       * signature and its milestones never see it (quick task 261010-66y, R13).
+       */
+      readonly fieldBackups: readonly FieldBackup[];
     }
   | { readonly ok: false; readonly reason: "no-qual-rows" };
 
@@ -763,11 +772,29 @@ export interface BracketSourceEvent {
   }[];
 }
 
+/**
+ * A BACKUP ROBOT SEEN ON THE FIELD (quick task 261010-66y, CONTEXT D4): a team
+ * on a side of a played playoff row that is in NO pick list, with the alliance
+ * that side resolved to. TBA lists a backup as its alliance's fourth pick
+ * after the fact (every one in the corpus is listed), which says nothing
+ * about when it lists one live.
+ */
+export interface FieldBackup {
+  readonly teamKey: string;
+  readonly allianceNumber: number;
+}
+
 /** What `playedBracketMatchesFor` resolved, and what it could not — a disclosed gap rather than a silent drop. */
 export interface PlayedBracketMatchesResult {
   readonly matches: readonly PlayedBracketMatch[];
   /** The match keys whose two sides could not both be resolved to exactly one alliance. */
   readonly unresolvedMatchKeys: readonly string[];
+  /**
+   * The field observed backups of the rows read, in row order, each team once
+   * per alliance. PRESENT ONLY WHERE THERE IS ONE, so a bracket whose every
+   * team is listed returns exactly what it returned before this field existed.
+   */
+  readonly fieldBackups?: readonly FieldBackup[];
 }
 
 /**
@@ -786,6 +813,18 @@ export interface PlayedBracketMatchesResult {
  * and the whole match is DISCLOSED rather than guessed at — a mis-mapped match
  * silently rewrites the placement of every set below it, which is why
  * `routePlayedBracket` refuses one outright.
+ *
+ * THE TOLERATED TEAM IS REPORTED (quick task 261010-66y, CONTEXT D4, reading
+ * R13). A team on a resolved side that is in NO pick list is a backup TBA has
+ * not listed yet, and it is returned in `fieldBackups` with that side's
+ * alliance number. Only a row that carries a result is read for it (a tie
+ * included: the robot was on the field), only a row both of whose sides
+ * resolved, and only a row inside `onlyMatchKeys`, so a rewound stop learns
+ * nothing from a row after its cut. A team is reported once per alliance; a
+ * team reported for two alliances is a contradiction `dcmpBracketFactsFor`
+ * refuses. The `matches` returned are not changed by any of it, and nothing
+ * here reaches the run: the run's alliances, its milestones and so a team's
+ * settled Playoffs value stay on the published pick lists.
  *
  * A row with no `actualWinner` is not played and is skipped without comment; a
  * tie has no winner in an elimination bracket and TBA publishes none. A tie is
@@ -817,6 +856,17 @@ export function playedBracketMatchesFor(artifact: BracketSourceEvent, onlyMatchK
 
   const matches: PlayedBracketMatch[] = [];
   const unresolvedMatchKeys: string[] = [];
+  const fieldBackups: FieldBackup[] = [];
+  const seenBackups = new Set<string>();
+  const noteBackups = (teamKeys: readonly string[], allianceNumber: number): void => {
+    for (const teamKey of teamKeys) {
+      if (allianceByTeam.has(teamKey)) continue;
+      const id = `${teamKey}@${String(allianceNumber)}`;
+      if (seenBackups.has(id)) continue;
+      seenBackups.add(id);
+      fieldBackups.push({ teamKey, allianceNumber });
+    }
+  };
   for (const match of artifact.matches) {
     if (match.compLevel === "qm") continue;
     if (onlyMatchKeys !== undefined && !onlyMatchKeys.has(match.matchKey)) continue;
@@ -825,6 +875,11 @@ export function playedBracketMatchesFor(artifact: BracketSourceEvent, onlyMatchK
     if (red === undefined || blue === undefined || red === blue) {
       unresolvedMatchKeys.push(match.matchKey);
       continue;
+    }
+    // A row with a result was played, a tie included: every robot on it was on the field.
+    if (match.actualWinner !== undefined) {
+      noteBackups(match.redTeams, red);
+      noteBackups(match.blueTeams, blue);
     }
     const winningAllianceNumber = match.actualWinner === "red" ? red : match.actualWinner === "blue" ? blue : undefined;
     if (winningAllianceNumber === undefined) continue;
@@ -835,7 +890,7 @@ export function playedBracketMatchesFor(artifact: BracketSourceEvent, onlyMatchK
       winningAllianceNumber,
     });
   }
-  return { matches, unresolvedMatchKeys };
+  return fieldBackups.length === 0 ? { matches, unresolvedMatchKeys } : { matches, unresolvedMatchKeys, fieldBackups };
 }
 
 /**
@@ -1117,6 +1172,7 @@ export function buildDistrictEventSimulationInput(options: BuildDistrictEventInp
     excludedMatchCount,
     allianceListIsPartial,
     unresolvedElimMatchKeys: playedElims.unresolvedMatchKeys,
+    fieldBackups: playedElims.fieldBackups ?? [],
   };
 }
 
@@ -1204,6 +1260,12 @@ export interface DcmpBracketFactsOptions {
   readonly role?: DcmpBracketRole;
   /** The finals' alliance count (2 or 4) for the `finals` role. */
   readonly expectedAllianceCount?: number;
+  /**
+   * The backups the played rows show on the field that no pick list names
+   * (`playedBracketMatchesFor`'s `fieldBackups` for the SAME rows as
+   * `playedMatches`). Absent or empty, the facts are the listed ones.
+   */
+  readonly fieldBackups?: readonly FieldBackup[] | undefined;
 }
 
 /** A dcmp tier event's role in its championship (quick task 261009-kt3). */
@@ -1216,6 +1278,26 @@ export type DcmpBracketRole = "championship" | "division" | "finals";
  * are final and whose Awards are open, with a FINISHED list of exactly the
  * alliances 1 to 8 (`alliancesAreFinal`) and every played row resolved.
  * Anything less returns `undefined` and the tab keeps its shipped statuses.
+ *
+ * A BACKUP SEEN ON THE FIELD JOINS ITS ALLIANCE (quick task 261010-66y,
+ * CONTEXT D4, reading R13). Each `fieldBackups` entry is appended to the end
+ * of its alliance's picks, so the proof reads it exactly as a listed fourth
+ * that TBA has not confirmed with alliance points. WHY: the proof reads a
+ * backup's playoff points only through a LISTED pick and gives seats only on
+ * ALIVE alliances. A backup that has already played for an alliance now
+ * decided, and that TBA has not listed, would otherwise be an unpicked rival
+ * with no playoff points from that alliance. As a listed pick with no settled
+ * Playoffs value it keeps its alliance alive (`championshipRouting`), which
+ * is the safe side. The facts are REFUSED, so the proof does not run and the
+ * shipped test stands, wherever the field contradicts the pick lists:
+ *   - a team is named for two alliances (seen on two, or listed by another);
+ *   - one alliance gains two backups;
+ *   - an alliance would exceed `MAX_WINNING_ALLIANCE_SIZE`;
+ *   - the alliance named is not in the list.
+ * A backup its own alliance already lists is a listed pick and adds nothing.
+ * Only `alliances` changes here. The run's input, its milestones and a team's
+ * settled Playoffs value never read a field backup, so an unlisted backup
+ * stays unsettled with the whole Playoffs ceiling on both tabs.
  */
 export function dcmpBracketFactsFor(options: DcmpBracketFactsOptions): DcmpBracketFacts | undefined {
   const { eventKey, season, tier, stage, alliances, playedMatches, unresolvedMatchCount } = options;
@@ -1231,11 +1313,49 @@ export function dcmpBracketFactsFor(options: DcmpBracketFactsOptions): DcmpBrack
   const numbers = alliances.map((alliance) => alliance.allianceNumber).sort((a, b) => a - b);
   if (numbers.some((allianceNumber, index) => allianceNumber !== index + 1)) return undefined;
   if (unresolvedMatchCount !== 0) return undefined;
+  const withBackups = alliancesWithFieldBackups(alliances, options.fieldBackups ?? []);
+  if (withBackups === undefined) return undefined;
   return {
     eventKey,
-    alliances: alliances.map((alliance) => ({ allianceNumber: alliance.allianceNumber, picks: [...alliance.picks] })),
+    alliances: withBackups,
     playedMatches: [...playedMatches],
   };
+}
+
+/**
+ * A copy of the alliances with each field observed backup appended to its
+ * alliance's picks, or `undefined` where the field contradicts the pick lists
+ * (the four refusals of `dcmpBracketFactsFor`).
+ */
+function alliancesWithFieldBackups(alliances: readonly SuppliedAlliance[], fieldBackups: readonly FieldBackup[]): SuppliedAlliance[] | undefined {
+  const out = alliances.map((alliance) => ({ allianceNumber: alliance.allianceNumber, picks: [...alliance.picks] }));
+  if (fieldBackups.length === 0) return out;
+  const listedOn = new Map<string, number>();
+  for (const alliance of out) for (const pick of alliance.picks) if (!listedOn.has(pick)) listedOn.set(pick, alliance.allianceNumber);
+  const gained = new Set<number>();
+  const backupOn = new Map<string, number>();
+  for (const backup of fieldBackups) {
+    const alliance = out.find((entry) => entry.allianceNumber === backup.allianceNumber);
+    if (alliance === undefined) return undefined;
+    const listed = listedOn.get(backup.teamKey);
+    if (listed !== undefined) {
+      // Another alliance lists it: the field and the lists disagree.
+      if (listed !== backup.allianceNumber) return undefined;
+      // Its own alliance already lists it: a listed pick, nothing to add.
+      continue;
+    }
+    const earlier = backupOn.get(backup.teamKey);
+    if (earlier !== undefined) {
+      if (earlier !== backup.allianceNumber) return undefined;
+      continue;
+    }
+    if (gained.has(backup.allianceNumber)) return undefined;
+    if (alliance.picks.length + 1 > MAX_WINNING_ALLIANCE_SIZE) return undefined;
+    alliance.picks.push(backup.teamKey);
+    gained.add(backup.allianceNumber);
+    backupOn.set(backup.teamKey, backup.allianceNumber);
+  }
+  return out;
 }
 
 export interface DcmpBracketFactsAtPositionOptions {
@@ -1252,6 +1372,8 @@ export interface DcmpBracketFactsAtPositionOptions {
     readonly knownAlliances?: readonly SuppliedAlliance[];
     readonly playedElimMatches?: readonly PlayedBracketMatch[];
     readonly unresolvedMatchCount: number;
+    /** The field observed backups of the request's own played rows (`DistrictEventInputResult.fieldBackups`). */
+    readonly fieldBackups?: readonly FieldBackup[] | undefined;
   };
 }
 
@@ -1264,19 +1386,25 @@ export interface DcmpBracketFactsAtPositionOptions {
  * `knownAlliances`, else the artifact's own list once Alliance selection is
  * final. The rows used are always a subset of the rows played at the position.
  * Any unresolved row refuses the facts. The gates are `dcmpBracketFactsFor`'s.
+ * The field observed backups (quick task 261010-66y, R13) follow the rows:
+ * this function's own reading where it reads every played row, the request's
+ * where it reads the request's rows, and none where it reads none.
  */
 export function dcmpBracketFactsAtPosition(options: DcmpBracketFactsAtPositionOptions): DcmpBracketFacts | undefined {
   const { stage, eventArtifact, request } = options;
   if (stage === undefined) return undefined;
   let playedMatches: readonly PlayedBracketMatch[] = [];
   let unresolvedMatchCount = 0;
+  let fieldBackups: readonly FieldBackup[] | undefined;
   if (stage.elim) {
     const played = playedBracketMatchesFor(eventArtifact);
     playedMatches = played.matches;
     unresolvedMatchCount = played.unresolvedMatchKeys.length;
+    fieldBackups = played.fieldBackups;
   } else if (request !== undefined) {
     playedMatches = request.playedElimMatches ?? [];
     unresolvedMatchCount = request.unresolvedMatchCount;
+    fieldBackups = request.fieldBackups;
   }
   const fromArtifact =
     stage.alliance && eventArtifact.alliances !== undefined && eventArtifact.alliances.length > 0
@@ -1290,6 +1418,7 @@ export function dcmpBracketFactsAtPosition(options: DcmpBracketFactsAtPositionOp
     alliances: request?.knownAlliances ?? fromArtifact,
     playedMatches,
     unresolvedMatchCount,
+    fieldBackups,
     role: options.role,
     ...(options.expectedAllianceCount === undefined ? {} : { expectedAllianceCount: options.expectedAllianceCount }),
   });

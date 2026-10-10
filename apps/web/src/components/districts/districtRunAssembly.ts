@@ -21,6 +21,7 @@ import {
   buildDistrictEventSimulationInput,
   distributionsFromPreSim,
   type DistrictStageFinality,
+  type FieldBackup,
 } from "./districtLedgerRows.js";
 import {
   MAX_DISTRICT_SIMULATION_ROSTER,
@@ -159,6 +160,19 @@ export interface AssembledDistrictEvents {
   readonly eventsWithFallbackFieldSize: string[];
   readonly eventsWithPartialAllianceList: string[];
   readonly eventsWithUnresolvedElimMatches: string[];
+  /**
+   * Per event, the backups its played playoff rows show on the field that no
+   * pick list names (`DistrictEventInputResult.fieldBackups`), for the Champ
+   * Locks joint proof's bracket facts (quick task 261010-66y, R13). Only events
+   * with at least one are in the map, and the map itself is PRESENT ONLY
+   * WHERE SOME EVENT HAS ONE, so an assembly with none is exactly the object
+   * it was before this field existed (the frozen copy parity test of
+   * `useDistrictLedgerData.asOf.test.ts` compares the whole gap record). It
+   * travels BESIDE the requests exactly as `eventsWithUnresolvedElimMatches`
+   * does: it is not in any request's input and not folded into the
+   * signature, so it never re-fires a run.
+   */
+  readonly fieldBackupsByEvent?: Map<string, readonly FieldBackup[]>;
   /** Events a rewound stop could not rebuild (as-of objects unpublished or unreadable), shown unavailable. Always empty at Live. */
   readonly asOfUnavailable: { readonly eventKey: string; readonly name: string }[];
 }
@@ -197,6 +211,7 @@ export function assembleLiveDistrictEvents(params: AssembleLiveDistrictEventsPar
   const eventsWithFallbackFieldSize: string[] = [];
   const eventsWithPartialAllianceList: string[] = [];
   const eventsWithUnresolvedElimMatches: string[] = [];
+  const fieldBackupsByEvent = new Map<string, readonly FieldBackup[]>();
   for (const eventKey of activeKeys) {
     const eventArtifact = eventArtifacts.get(eventKey);
     if (eventArtifact === undefined) continue;
@@ -232,6 +247,7 @@ export function assembleLiveDistrictEvents(params: AssembleLiveDistrictEventsPar
     if (built.fieldSizeFellBack) eventsWithFallbackFieldSize.push(eventKey);
     if (built.allianceListIsPartial) eventsWithPartialAllianceList.push(eventKey);
     if (built.unresolvedElimMatchKeys.length > 0) eventsWithUnresolvedElimMatches.push(eventKey);
+    if (built.fieldBackups.length > 0) fieldBackupsByEvent.set(eventKey, built.fieldBackups);
     events.push({ eventKey, input: built.input });
   }
   return {
@@ -241,6 +257,7 @@ export function assembleLiveDistrictEvents(params: AssembleLiveDistrictEventsPar
     eventsWithFallbackFieldSize,
     eventsWithPartialAllianceList,
     eventsWithUnresolvedElimMatches,
+    ...(fieldBackupsByEvent.size > 0 ? { fieldBackupsByEvent } : {}),
     asOfUnavailable: [],
   };
 }
@@ -325,6 +342,7 @@ export function assembleAsOfDistrictEvents(params: AssembleAsOfDistrictEventsPar
   const eventsWithFallbackFieldSize: string[] = [];
   const eventsWithPartialAllianceList: string[] = [];
   const eventsWithUnresolvedElimMatches: string[] = [];
+  const fieldBackupsByEvent = new Map<string, readonly FieldBackup[]>();
   const asOfUnavailable: { eventKey: string; name: string }[] = [];
   const districtTeamByKey = new Map(artifact.teams.map((team) => [team.teamKey, team] as const));
 
@@ -381,6 +399,7 @@ export function assembleAsOfDistrictEvents(params: AssembleAsOfDistrictEventsPar
         if (built.fieldSizeFellBack) eventsWithFallbackFieldSize.push(eventKey);
         if (built.allianceListIsPartial) eventsWithPartialAllianceList.push(eventKey);
         if (built.unresolvedElimMatchKeys.length > 0) eventsWithUnresolvedElimMatches.push(eventKey);
+        if (built.fieldBackups.length > 0) fieldBackupsByEvent.set(eventKey, built.fieldBackups);
         real.push({ eventKey, input: built.input, asOf: { ...common, mode: "real", rows: plan.rows } });
         continue;
       }
@@ -409,6 +428,7 @@ export function assembleAsOfDistrictEvents(params: AssembleAsOfDistrictEventsPar
     eventsWithFallbackFieldSize,
     eventsWithPartialAllianceList,
     eventsWithUnresolvedElimMatches,
+    ...(fieldBackupsByEvent.size > 0 ? { fieldBackupsByEvent } : {}),
     asOfUnavailable,
   };
 }

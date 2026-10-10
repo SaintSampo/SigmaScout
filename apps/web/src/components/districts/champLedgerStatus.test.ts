@@ -1135,6 +1135,33 @@ describe("computeChampLedgerStatuses — the joint worst case proof (261009-2tr)
     expect(complete.jointProof.input.placementPoints).toEqual([75, 39, 21]);
   });
 
+  it("a team of the field the facts name as a decided alliance's field observed backup keeps that alliance alive, exactly as a listed, unconfirmed fourth does (quick task 261010-66y, D4)", () => {
+    // A team with a championship row that no alliance picked: no alliance points, and so no milestone and no settled Playoffs value.
+    const picked = new Set(ALLIANCES.flatMap((alliance) => alliance.picks));
+    const backup = FIXTURE.teams.find((team) => !picked.has(team.teamKey) && team.eventPoints.some((row) => row.eventKey === DCMP_KEY && row.alliance === 0))!.teamKey;
+    const stage = FNC_LIKE_STOP.get(DCMP_KEY)!;
+    // The run's own milestones never name the backup: alliance 8 is decided seventh for its three listed picks.
+    const milestones = dcmpBracketMilestonesByTeam(ALLIANCES, ROUND_TWO_ROWS);
+    expect(milestones.has(backup)).toBe(false);
+    const listedOnly = factsAt(stage, ROUND_TWO_ROWS)!;
+    const observed = dcmpBracketFactsFor({ eventKey: DCMP_KEY, season: 2026, tier: "dcmp", stage, alliances: ALLIANCES, playedMatches: ROUND_TWO_ROWS, unresolvedMatchCount: 0, fieldBackups: [{ teamKey: backup, allianceNumber: 8 }] })!;
+    const listedFourth = factsAt(stage, ROUND_TWO_ROWS, ALLIANCES.map((alliance) => (alliance.allianceNumber === 8 ? { ...alliance, picks: [...alliance.picks, backup] } : alliance)))!;
+    expect(observed).toEqual(listedFourth);
+
+    const without = modelAtStop(FIXTURE, FNC_LIKE_STOP, distributionsWith(milestones, listedOnly));
+    const withObserved = modelAtStop(FIXTURE, FNC_LIKE_STOP, distributionsWith(milestones, observed));
+    const withListed = modelAtStop(FIXTURE, FNC_LIKE_STOP, distributionsWith(milestones, listedFourth));
+    expect(without.jointProof?.applied).toBe(true);
+    expect(withObserved.jointProof?.applied).toBe(true);
+    if (without.jointProof?.applied !== true || withObserved.jointProof?.applied !== true || without.jointProof.shape === "multiple" || withObserved.jointProof.shape === "multiple") return;
+    expect(without.jointProof.input.aliveAlliances).not.toContain(8);
+    expect(withObserved.jointProof.input.aliveAlliances).toContain(8);
+    expect(withObserved.jointProof.input.aliveAlliances).toEqual([1, 2, 3, 4, 5, 6, 8]);
+    // The whole model is the listed fourth's, and holding the alliance alive never adds a lock.
+    expect(withObserved).toEqual(withListed);
+    for (const teamKey of jointKeys(withObserved)) expect(jointKeys(without), teamKey).toContain(teamKey);
+  });
+
   it("jointDecidedPlacementTopUp tops up only a settled value that is not exact with no routed placement", () => {
     const secondPlace = { points: 60, exact: false, ceiling: 75 };
     expect(jointDecidedPlacementTopUp(secondPlace, 2, 2026)).toBe(0);

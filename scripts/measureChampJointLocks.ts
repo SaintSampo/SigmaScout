@@ -189,6 +189,7 @@ export function statusesAtStop(artifact: DistrictArtifact, stop: ChampJointStop,
     alliances,
     playedMatches: played.matches,
     unresolvedMatchCount: played.unresolvedMatchKeys.length,
+    fieldBackups: played.fieldBackups,
   });
   const entry: DistrictEventDistributions = {
     eventKey: dcmpKey,
@@ -362,6 +363,7 @@ export function statusesAtChampionshipStop(
       alliances,
       playedMatches: played.matches,
       unresolvedMatchCount: played.unresolvedMatchKeys.length,
+      fieldBackups: played.fieldBackups,
       role,
       ...(isFinals && shape.kind === "divisioned" ? { expectedAllianceCount: shape.divisionKeys.length } : {}),
     });
