@@ -2686,7 +2686,7 @@ describe("champJointLock: divisioned exhaustive soundness E3 with AWARDED rivals
   }, 600_000);
 });
 
-describe("champJointLock: brute force soundness on small instances with awarded rivals (261010-d7r, D4)", () => {
+describe("champJointLock: brute force soundness on small instances with awarded rivals and listed only picks (261010-d7r, D4)", () => {
   /**
    * AN INDEPENDENT BRUTE FORCE of the bound on small single group instances.
    * Every legal future is enumerated; the real slot takers against T must
@@ -2704,21 +2704,35 @@ describe("champJointLock: brute force soundness on small instances with awarded 
    * at the finals while holding a division judged award (premise P1 of the
    * quick task). On top of each seating the awards are added in closed form:
    * `min(non takers, C + min(K, liftable non takers that are not awarded))`.
+   *
+   * LISTED ONLY PICKS (finding F-D of the quick task). A listed pick that is
+   * not confirmed, of a PLACED alliance that would pay it its settled value
+   * (21, 39 or 75), has one more choice than a rival on no alliance: it WAS
+   * on that alliance, is paid the settled value and takes no seat and no
+   * fill in ("own"). Or it never was, is paid nothing by it, and is free
+   * like any rival on no alliance. A listed pick that is not confirmed of the
+   * WINNER (settled 90) is W's backup, where W has a spare seat, or it never
+   * was on W and is free like any rival on no alliance. It is never paid the
+   * 90 as points. The pool hands each such rival its settled value inside
+   * `extra` with `listedOnly`, exactly as the status code does.
    */
   it("20,000 seeded instances: the bound is never below a legal future, and it is reached at most of them", () => {
     const INSTANCES = 20_000;
     const m = 200;
-    type Kind = "memberW" | "member2" | "member3" | "free";
+    type Kind = "memberW" | "member2" | "member3" | "free" | "listedPlaced" | "listedWinner";
     interface Rival {
       readonly key: string;
       readonly floor: number;
       readonly extra: number;
       readonly kind: Kind;
+      /** What the alliance listing the rival would pay it: 0 for a rival that no placed alliance lists. */
+      readonly settled: number;
       readonly awarded: boolean;
     }
-    type Choice = "none" | "seat2" | "seat3" | "fill";
+    type Choice = "none" | "seat2" | "seat3" | "fill" | "own";
     let onBound = 0;
     let withAwarded = 0;
+    let withListedOnly = 0;
     let slackTotal = 0;
     const failures: string[] = [];
     for (let seed = 1; seed <= INSTANCES; seed++) {
@@ -2732,18 +2746,32 @@ describe("champJointLock: brute force soundness on small instances with awarded 
       const rivals: Rival[] = [];
       const add = (kind: Kind, count: number): void => {
         for (let i = 0; i < count; i++) {
+          // Drawn in this order: awarded, floor, extra, then the settled value of a placed alliance's listed pick.
           const awarded = random() < 0.3;
-          rivals.push({ key: `${kind}${String(i)}`, floor: 80 + pick(150), extra: pick(2) === 0 ? 0 : pick(30), kind, awarded });
+          const floor = 80 + pick(150);
+          const extra = pick(2) === 0 ? 0 : pick(30);
+          const settled = kind === "listedPlaced" ? [21, 39, 75][pick(3)]! : kind === "listedWinner" ? 90 : 0;
+          rivals.push({ key: `${kind}${String(i)}`, floor, extra, kind, settled, awarded });
         }
       };
       add("memberW", pick(2));
       add("member2", pick(3));
       add("member3", pick(2));
       add("free", 1 + pick(3));
+      add("listedPlaced", pick(3));
+      add("listedWinner", pick(2));
       if (rivals.some((rival) => rival.awarded)) withAwarded += 1;
+      if (rivals.some((rival) => rival.settled > 0)) withListedOnly += 1;
       const membersOf = (kind: Kind): string[] => rivals.filter((rival) => rival.kind === kind).map((rival) => rival.key);
       const input: JointLockInput = {
-        pool: [{ teamKey: "T", floor: m, extra: 0 }, ...rivals.map((rival) => ({ teamKey: rival.key, floor: rival.floor, extra: rival.extra }))],
+        pool: [
+          { teamKey: "T", floor: m, extra: 0 },
+          ...rivals.map((rival): JointLockRival =>
+            rival.settled > 0
+              ? { teamKey: rival.key, floor: rival.floor, extra: rival.extra + rival.settled, listedOnly: { settled: rival.settled, onWinner: rival.kind === "listedWinner" } }
+              : { teamKey: rival.key, floor: rival.floor, extra: rival.extra }
+          ),
+        ],
         slotOnlyRivals: [],
         pointsSlots: 99,
         alliances: [
@@ -2773,7 +2801,7 @@ describe("champJointLock: brute force soundness on small instances with awarded 
       };
       const bound = jointLockBound(input, "T");
 
-      const movable = rivals.filter((rival) => rival.kind === "free");
+      const movable = rivals.filter((rival) => rival.kind === "free" || rival.kind === "listedPlaced" || rival.kind === "listedWinner");
       const choice = new Map<string, Choice>();
       const used = { seat2: 0, seat3: 0, fill: 0 };
       let most = 0;
@@ -2788,6 +2816,8 @@ describe("champJointLock: brute force soundness on small instances with awarded 
           let total = rival.floor + rival.extra;
           if (rival.kind === "member2" || choice.get(rival.key) === "seat2") total += values[0];
           if (rival.kind === "member3" || choice.get(rival.key) === "seat3") total += values[1];
+          // It was on the placed alliance that lists it: paid the settled value, and on no seat.
+          if (choice.get(rival.key) === "own") total += rival.settled;
           points.set(rival.key, total);
           if (total >= m) takers.add(rival.key);
         }
@@ -2806,11 +2836,12 @@ describe("champJointLock: brute force soundness on small instances with awarded 
         if (used.seat2 < spare[1]) options.push("seat2");
         if (used.seat3 < spare[2]) options.push("seat3");
         if (used.fill < spare[0]) options.push("fill");
+        if (rival.kind === "listedPlaced") options.push("own");
         for (const option of options) {
           choice.set(rival.key, option);
-          if (option !== "none") used[option] += 1;
+          if (option !== "none" && option !== "own") used[option] += 1;
           visit(at + 1);
-          if (option !== "none") used[option] -= 1;
+          if (option !== "none" && option !== "own") used[option] -= 1;
         }
         choice.delete(rival.key);
       };
@@ -2820,17 +2851,241 @@ describe("champJointLock: brute force soundness on small instances with awarded 
       if (most === bound) onBound += 1;
       if (most > bound && failures.length < 6) {
         failures.push(
-          `seed ${String(seed)}: real ${String(most)} above bound ${String(bound)} | K ${String(K)} C ${String(C)} spare ${spare.join(",")} values ${values.join(",")} | ${rivals.map((rival) => `${rival.key}:${String(rival.floor)}+${String(rival.extra)}${rival.awarded ? "*" : ""}`).join(" ")}`
+          `seed ${String(seed)}: real ${String(most)} above bound ${String(bound)} | K ${String(K)} C ${String(C)} spare ${spare.join(",")} values ${values.join(",")} | ${rivals.map((rival) => `${rival.key}:${String(rival.floor)}+${String(rival.extra)}${rival.settled > 0 ? `~${String(rival.settled)}` : ""}${rival.awarded ? "*" : ""}`).join(" ")}`
         );
       }
       expect(most, failures.at(-1) ?? `seed ${String(seed)}`).toBeLessThanOrEqual(bound);
     }
     console.log(
-      `[261010-d7r brute force] instances ${String(INSTANCES)} | with an awarded rival ${String(withAwarded)} | the bound is reached at ${String(onBound)} | the bound is below a legal future at ${String(failures.length)} | mean slack ${(slackTotal / INSTANCES).toFixed(3)}`
+      `[261010-d7r brute force] instances ${String(INSTANCES)} | with a listed only pick ${String(withListedOnly)} | with an awarded rival ${String(withAwarded)} | the bound is reached at ${String(onBound)} | the bound is below a legal future at ${String(failures.length)} | mean slack ${(slackTotal / INSTANCES).toFixed(3)}`
     );
     expect(failures).toEqual([]);
-    // The instances are not vacuous, and the bound is tight on most of them. Pinned as the run shows.
-    expect({ withAwarded, onBound }).toEqual({ withAwarded: 14_577, onBound: 19_445 });
+    // The instances are not vacuous, and the bound is tight on most of them. Pinned as the run shows. Until the
+    // listed only picks joined the draw (two more kinds of rival after the free ones, which moves the seeded stream)
+    // these read 14,577 with an awarded rival and 19,445 on the bound.
+    expect({ withListedOnly, withAwarded, onBound }).toEqual({ withListedOnly: 16_657, withAwarded: 16_641, onBound: 19_693 });
+  }, 120_000);
+});
+
+// ===========================================================================
+// Quick task 261010-d7r, finding F-D: a listed pick that is not confirmed is
+// paid its decided alliance's value or takes another seat, never both
+// ===========================================================================
+
+describe("champJointLock: a listed pick that is not confirmed is read at its placed alliance's settled value OR on another seat, never both (261010-d7r, F-D)", () => {
+  /** Alliance 1 wins with four members (no fill in). Alliance 2 is paid 75 and has one seat. u is on no alliance. */
+  const placedInput = (floor: number, listed: boolean, overrides: Partial<JointLockInput> = {}): JointLockInput =>
+    minimalInput({
+      pool: [
+        { teamKey: "T", floor: 200, extra: 0 },
+        // u's `extra` is the 21 a fourth place alliance that lists it would pay it.
+        { teamKey: "u", floor, extra: 21, ...(listed ? { listedOnly: { settled: 21, onWinner: false } } : {}) },
+      ],
+      alliances: [
+        { allianceNumber: 1, members: ["x1", "x2", "x3", "x4"] },
+        { allianceNumber: 2, members: ["y1", "y2", "y3"] },
+      ],
+      aliveAlliances: [1, 2],
+      candidateWinners: [1],
+      frames: [{ winner: 1, enumerated: [], fixed: new Map([[2, 75]]), fillIns: 0 }],
+      ...overrides,
+    });
+
+  it("a placed alliance's listed pick is counted alone where its floor plus extra reaches T, NOT where it needs both its settled 21 and a 75 seat, and through the seat where the 75 alone reaches T", () => {
+    // 180 + 21 reaches T with no seat: it was on that alliance and is paid its 21.
+    expect(jointLockBound(placedInput(180, true), "T")).toBe(1);
+    expect(jointLockBound(placedInput(180, false), "T")).toBe(1);
+    // 110 + 21 + 75 reaches T, and no future pays both: on that alliance it takes no seat (131), off it the 21 is
+    // gone (185). Until this rule the bound counted it.
+    expect(jointLockBound(placedInput(110, true), "T")).toBe(0);
+    expect(jointLockBound(placedInput(110, false), "T")).toBe(1);
+    // 130 + 75 reaches T without the 21: it never was on that alliance and takes the seat.
+    expect(jointLockBound(placedInput(130, true), "T")).toBe(1);
+    // With no seat on offer the 21 is all it can be paid.
+    const noSeat = { frames: [{ winner: 1, enumerated: [], fixed: new Map<number, number>(), fillIns: 0 }] };
+    expect(jointLockBound(placedInput(130, true, noSeat), "T")).toBe(0);
+    expect(jointLockBound(placedInput(179, true, noSeat), "T")).toBe(1);
+  });
+
+  it("either reading may still add one judged award: the settled value and an award alone, or a seat and an award, never the settled value, a seat and an award", () => {
+    const oneAward = { judgedAwards: 1 };
+    // Alone: 165 + 21 + 15 reaches T.
+    expect(jointLockBound(placedInput(165, true, { ...oneAward, frames: [{ winner: 1, enumerated: [], fixed: new Map<number, number>(), fillIns: 0 }] }), "T")).toBe(1);
+    // On the seat: 115 + 75 + 15 reaches T without the 21.
+    expect(jointLockBound(placedInput(115, true, oneAward), "T")).toBe(1);
+    // 100 + 21 + 75 + 15 reaches T only with all three, which no future pays.
+    expect(jointLockBound(placedInput(100, true, oneAward), "T")).toBe(0);
+    expect(jointLockBound(placedInput(100, false, oneAward), "T")).toBe(1);
+  });
+
+  it("with the awarded rule: an awarded listed pick is covered on a seat only where the seat's value alone reaches T without the settled value", () => {
+    const awarded = { judgedAwards: 1, awardedRivals: ["u"] };
+    // 130 + 75 reaches T on the seat; the award it already holds is in its floor.
+    expect(jointLockBound(placedInput(130, true, awarded), "T")).toBe(1);
+    // 115 + 75 falls short and it takes no further judged award; with the 21 as well it would reach T, which no future pays.
+    expect(jointLockBound(placedInput(115, true, awarded), "T")).toBe(0);
+    expect(jointLockBound(placedInput(115, false, awarded), "T")).toBe(1);
+    // Alone it keeps the 21 and still takes no award: 179 + 21 reaches T, 170 + 21 does not.
+    expect(jointLockBound(placedInput(179, true, awarded), "T")).toBe(1);
+    expect(jointLockBound(placedInput(170, true, { ...awarded, frames: [{ winner: 1, enumerated: [], fixed: new Map<number, number>(), fillIns: 0 }] }), "T")).toBe(0);
+  });
+
+  /** Alliance 1 is the decided winner with `confirmed` members outside the pool. u is its listed pick at 0 points, v is on no alliance. */
+  const winnerInput = (confirmed: number, listed: boolean, overrides: Partial<JointLockInput> = {}): JointLockInput =>
+    minimalInput({
+      pool: [
+        { teamKey: "T", floor: 200, extra: 0 },
+        // u's `extra` is the 90 the winner would pay it.
+        { teamKey: "u", floor: 150, extra: 90, ...(listed ? { listedOnly: { settled: 90, onWinner: true } } : {}) },
+        { teamKey: "v", floor: 100, extra: 0 },
+      ],
+      alliances: [{ allianceNumber: 1, members: ["x1", "x2", "x3", "x4"].slice(0, confirmed), spareSeats: 4 - confirmed }],
+      aliveAlliances: [],
+      candidateWinners: [1],
+      ...overrides,
+    });
+
+  it("the decided winner's listed pick is not counted through its settled value: it is the winner's fill in where a seat is spare, or nothing", () => {
+    // One spare seat on the winner. Without the rule u is covered at 150 + 90 and v takes the fill in: 2. With it u
+    // and v share the one fill in: being on the winner IS that seat.
+    expect(jointLockBound(winnerInput(3, false), "T")).toBe(2);
+    expect(jointLockBound(winnerInput(3, true), "T")).toBe(1);
+    // No spare seat: u was never on the winner and is paid nothing by it.
+    expect(jointLockBound(winnerInput(4, false), "T")).toBe(1);
+    expect(jointLockBound(winnerInput(4, true), "T")).toBe(0);
+    // Two spare seats take both.
+    expect(jointLockBound(winnerInput(2, true), "T")).toBe(2);
+    // A rival that reaches T without the 90 is counted on its own points whatever the seats.
+    const strong = winnerInput(4, true);
+    expect(jointLockBound({ ...strong, pool: strong.pool.map((rival) => (rival.teamKey === "u" ? { ...rival, floor: 200 } : rival)) }, "T")).toBe(1);
+  });
+
+  it("the winner's reading is applied only where every frame names that one winner: with the posted winner frame, or two candidate winners, the rival is read as with no listedOnly", () => {
+    // The posted winner case (a null winner): no fill in is left to count u through, so its 90 stays in every reading.
+    const posted = { alliances: [], candidateWinners: [null] as (number | null)[] };
+    expect(jointLockBound(winnerInput(3, true, posted), "T")).toBe(jointLockBound(winnerInput(3, false, posted), "T"));
+    expect(jointLockBound(winnerInput(3, true, posted), "T")).toBe(1);
+    // Two candidate winners: none is decided, so `onWinner` names no alliance the bound can read.
+    const two = {
+      alliances: [
+        { allianceNumber: 1, members: ["x1", "x2", "x3"], spareSeats: 1 },
+        { allianceNumber: 2, members: ["y1", "y2", "y3"], spareSeats: 1 },
+      ],
+      aliveAlliances: [1, 2],
+      candidateWinners: [1, 2] as (number | null)[],
+    };
+    expect(jointLockBound(winnerInput(3, true, two), "T")).toBe(jointLockBound(winnerInput(3, false, two), "T"));
+  });
+
+  it("500 seeded random single championship instances, every team: the winner's reading IS the rival without its settled value, and a placed alliance's reading never raises a bound and lowers some", () => {
+    // TWO PROPERTIES, one per kind of listed only pick.
+    //
+    // THE WINNER'S (`onWinner`, one decided winner): the bound equals the bound with that rival handed over WITHOUT
+    // the settled value and with no `listedOnly`. That is the rival exactly as it read before the row that decided
+    // the winner, which is what makes that row's edge monotone.
+    //
+    // A PLACED ALLIANCE'S: the bound is never above the bound with the same `extra` and no `listedOnly` (the reading
+    // of before this rule), because the rival reads the same alone and no nearer to T on a seat.
+    //
+    // NOT A PROPERTY: the winner's reading is not always at or below the reading of before this rule. A rival that
+    // drops from "its points reach T" to "short of T, on no alliance" joins the winner's fill in pool, and the bound
+    // counts a fill in beside a seat that may lift the same rival (a relaxation the bound has always had, which only
+    // raises it). `raisedByTheWinnerReading` counts the team bounds where that shows on these instances; it is pinned
+    // as the run shows, as a measurement, and says nothing about soundness.
+    const random = mulberry32(26101003);
+    const integer = (lo: number, hi: number): number => lo + Math.floor(random() * (hi - lo + 1));
+    let lower = 0;
+    let onWinnerInstances = 0;
+    let raisedByTheWinnerReading = 0;
+    for (let instance = 0; instance < 500; instance++) {
+      const keys = Array.from({ length: integer(8, 16) }, (_, index) => `t${index}`);
+      const shuffled = [...keys].sort(() => random() - 0.5);
+      const alliances: JointLockAlliance[] = [];
+      let cursor = 0;
+      for (let allianceNumber = 1; allianceNumber <= 4 && cursor < shuffled.length - 4; allianceNumber++) {
+        const size = integer(1, 3);
+        alliances.push({ allianceNumber, members: shuffled.slice(cursor, cursor + size), spareSeats: 4 - size });
+        cursor += size;
+      }
+      const unpicked = new Set(shuffled.slice(cursor));
+      // One decided winner (alliance 1) in half the instances, else every alliance may still win.
+      const decided = random() < 0.5;
+      if (decided) onWinnerInstances += 1;
+      const numbers = alliances.map((alliance) => alliance.allianceNumber);
+      const plain: JointLockRival[] = keys.map((teamKey) => ({ teamKey, floor: integer(50, 150), extra: random() < 0.2 ? integer(1, 30) : 0 }));
+      // Some rivals on no alliance are listed picks of a placed alliance: their settled value sits in `extra`.
+      const listed: JointLockRival[] = plain.map((rival) => {
+        if (!unpicked.has(rival.teamKey) || random() >= 0.5) return rival;
+        const onWinner = decided && random() < 0.3;
+        const settled = onWinner ? 90 : [21, 39, 75][integer(0, 2)]!;
+        return { ...rival, extra: rival.extra + settled, listedOnly: { settled, onWinner } };
+      });
+      /** The winner's listed picks handed over without the settled value and with no `listedOnly`; every other rival as in `listed`. */
+      const winnerAsBefore = listed.map((rival): JointLockRival => (rival.listedOnly?.onWinner === true ? { teamKey: rival.teamKey, floor: rival.floor, extra: rival.extra - rival.listedOnly.settled } : rival));
+      /** `winnerAsBefore` with no `listedOnly` on anyone: the placed alliances' picks read at `extra` alone and on a seat. */
+      const placedAsBefore = winnerAsBefore.map((rival): JointLockRival => ({ teamKey: rival.teamKey, floor: rival.floor, extra: rival.extra }));
+      /** Nobody carries a `listedOnly` and every settled value stays in `extra`: the reading of before this rule. */
+      const noRule = listed.map((rival): JointLockRival => ({ teamKey: rival.teamKey, floor: rival.floor, extra: rival.extra }));
+      const base: Omit<JointLockInput, "pool"> = {
+        slotOnlyRivals: [],
+        pointsSlots: 4,
+        alliances,
+        aliveAlliances: decided ? numbers.slice(1) : numbers,
+        candidateWinners: decided ? [1] : numbers,
+        placementPoints: [75, 39, 21],
+        consumingAwards: integer(0, 2),
+        judgedAwards: integer(0, 3),
+        judgedAwardPoints: JUDGED,
+        maxAllianceSize: 4,
+      };
+      const awardedRivals = keys.filter(() => random() < 0.2);
+      for (const rival of listed) {
+        const withRule = jointLockBound({ ...base, pool: listed, awardedRivals }, rival.teamKey);
+        expect(withRule, `instance ${instance} ${rival.teamKey}: the winner's reading`).toBe(jointLockBound({ ...base, pool: winnerAsBefore, awardedRivals }, rival.teamKey));
+        const placedBefore = jointLockBound({ ...base, pool: placedAsBefore, awardedRivals }, rival.teamKey);
+        expect(withRule, `instance ${instance} ${rival.teamKey}: a placed alliance's reading`).toBeLessThanOrEqual(placedBefore);
+        if (withRule < placedBefore) lower += 1;
+        if (withRule > jointLockBound({ ...base, pool: noRule, awardedRivals }, rival.teamKey)) raisedByTheWinnerReading += 1;
+      }
+    }
+    expect(onWinnerInstances).toBeGreaterThan(100);
+    // The placed alliance's reading is not vacuous on these instances: it lowers some bounds.
+    expect(lower).toBeGreaterThan(0);
+    // Pinned as the run shows (see "not a property" above).
+    expect(raisedByTheWinnerReading).toBe(10);
+  }, 60_000);
+
+  it("R10 with seat deficits: the cover upper bound, which reads the deficit alone, is never below the exact program on 20,000 seeded instances, and a larger deficit on a seat never raises the exact cover", () => {
+    const random = mulberry32(26101004);
+    const integer = (lo: number, hi: number): number => lo + Math.floor(random() * (hi - lo + 1));
+    const valuePalette = [120, 90, 75, 60, 45, 39, 30, 21];
+    let withSeatDeficits = 0;
+    let lowered = 0;
+    for (let instance = 0; instance < 20_000; instance++) {
+      const deficits = Array.from({ length: integer(1, 9) }, () => integer(1, 140));
+      const awarded = deficits.map(() => random() < 0.25);
+      // A listed only pick is further from T on a seat by its settled value.
+      const seatDeficits = deficits.map((deficit) => (random() < 0.35 ? deficit + [21, 39, 75][integer(0, 2)]! : deficit));
+      const types = [...valuePalette].sort(() => random() - 0.5).slice(0, integer(0, 3)).sort((a, b) => b - a);
+      const counts = types.map(() => integer(1, 3));
+      const budget = integer(0, 5);
+      const exact = unpickedCover(deficits, types, counts, budget, JUDGED, { awarded, seatDeficits });
+      const upper = coverUpperBound(deficits, types, counts, budget, JUDGED, { awarded, seatDeficits });
+      const sameOnASeat = unpickedCover(deficits, types, counts, budget, JUDGED, { awarded });
+      if (seatDeficits.some((deficit, index) => deficit !== deficits[index])) withSeatDeficits += 1;
+      for (let j = 0; j <= budget; j++) {
+        const where = `instance ${instance} j ${j}: ${JSON.stringify({ deficits, seatDeficits, awarded, types, counts, budget })}`;
+        expect(upper[j]!, where).toBeGreaterThanOrEqual(exact[j]!);
+        expect(exact[j]!, where).toBeLessThanOrEqual(sameOnASeat[j]!);
+        if (exact[j]! < sameOnASeat[j]!) lowered += 1;
+      }
+      // The upper bound does not read the seat deficits at all.
+      expect(upper).toEqual(coverUpperBound(deficits, types, counts, budget, JUDGED, { awarded }));
+      // Seat deficits equal to the deficits are the function without them, cell for cell.
+      expect(unpickedCover(deficits, types, counts, budget, JUDGED, { awarded, seatDeficits: [...deficits] })).toEqual(sameOnASeat);
+    }
+    expect(withSeatDeficits).toBeGreaterThan(15_000);
+    expect(lowered).toBeGreaterThan(0);
   }, 120_000);
 });
 

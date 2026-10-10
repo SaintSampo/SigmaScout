@@ -256,6 +256,39 @@
  *    awarded teams and what is left of its judged budget
  *    (`mixedMultipleJointProof`).
  *
+ *    A LISTED PICK THAT IS NOT CONFIRMED, ON A PLACED ALLIANCE (quick task
+ *    261010-d7r, finding F-D; `champJointLock.ts` owns the rule and its
+ *    argument). An alliance may list a team that holds 0 alliance selection
+ *    points at that key. On a placed alliance it is not among the members
+ *    this module hands the proof, and decision 4 still settles its Playoffs
+ *    at the alliance's placement: live, a value that is not exact, in the
+ *    ceiling at the placement's maximum, and so in the rival's `extra`. The
+ *    proof went on offering that rival another alliance's seat or the
+ *    winner's fill in, so it read one alliance's value plus another's, which
+ *    no future pays: the team was on the alliance that lists it, or it never
+ *    was. This module now names those teams to the proof (`listedOnlyPicks`,
+ *    handed on as `JointLockRival.listedOnly` with that maximum and whether
+ *    the alliance placed first), and the proof reads each at its settled
+ *    value OR on another alliance's seat, never both, and the decided
+ *    winner's such pick as the winner's fill in or nothing. The single and
+ *    the two championship inputs name the picks of every placed alliance,
+ *    the first placed included. The divisioned input names those of the
+ *    alliances placed BELOW first in their division: a division winner's
+ *    listed pick keeps its settled value in every reading, since the only
+ *    seat it can take is on that same alliance, for the finals. Three kinds
+ *    of team carry no `listedOnly`: a confirmed pick; a team whose settled
+ *    value is exact, which is every rewound reading (TBA's own number, in
+ *    the floor), so no sweep line moved; and a backup seen on the field
+ *    that no pick list names, which has no settled value (decision 4 reads
+ *    the published pick lists). WHAT IT CLOSED, measured by that task's
+ *    planner on live walks one fact at a time with every other rule on: 26
+ *    team margins dropped at the played row that places an alliance listing
+ *    four teams (2023pnw 17, 2026fnc 3, 2024pch 2, 2026win 2, 2024fnc 1,
+ *    2025fim 1) and no Locked team was lost. With the rule: none
+ *    (`scripts/champJointMonotone.test.ts`, group D, which reads the 25 of
+ *    the five single championships again with the rule switched off; 2025
+ *    FIM is not among its walks).
+ *
  *    THE BRACKETS STAY IN HAND UNTIL EVERY EVENT OF THE CHAMPIONSHIP HAS
  *    FINISHED (quick task 261010-66y, reading R15, widened by quick task
  *    261010-d7r; `champLiveFetchKeys`). The proof holds locks in the window
@@ -1149,18 +1182,72 @@ function jointProofAt(input: JointProofAtInput): ChampJointProof {
   }
 }
 
-/** The pool rival list for one championship input: floor, and extra plus the decided placement top up at `eventKey`. */
+const NO_LISTED_ONLY_PICKS: ReadonlyMap<string, boolean> = new Map();
+
+/**
+ * The pool rival list for one championship input: floor, and extra plus the
+ * decided placement top up at `eventKey`.
+ *
+ * `listedOnly` (quick task 261010-d7r, finding F-D; `listedOnlyPicks`) names
+ * the listed picks that are not confirmed on a placed alliance, each with
+ * whether that alliance placed first. Such a rival carries
+ * `JointLockRival.listedOnly` where its settled Playoffs value is NOT exact
+ * and above 0: `settled` is the ceiling `settledElimBounds` gives, the very
+ * figure decision 4 put in its ceiling and so in `extra`. `extra` itself is
+ * what it always was. An exact settled value (every rewound reading) is in
+ * the floor and sets nothing, so a rewound input is the input of before that
+ * task.
+ */
 function poolRivals(
   input: JointProofAtInput,
   teamKeys: readonly string[],
   settledByTeam: (teamKey: string) => SettledPlayoffs | undefined,
-  placementOfTeam: ReadonlyMap<string, number>
+  placementOfTeam: ReadonlyMap<string, number>,
+  listedOnly: ReadonlyMap<string, boolean> = NO_LISTED_ONLY_PICKS
 ): JointLockRival[] {
-  return teamKeys.map((teamKey) => ({
-    teamKey,
-    floor: input.floorByTeam.get(teamKey)!,
-    extra: (input.jointExtraByTeam.get(teamKey) ?? 0) + jointDecidedPlacementTopUp(settledByTeam(teamKey), placementOfTeam.get(teamKey), input.artifact.year),
-  }));
+  return teamKeys.map((teamKey) => {
+    const settled = settledByTeam(teamKey);
+    const rival: JointLockRival = {
+      teamKey,
+      floor: input.floorByTeam.get(teamKey)!,
+      extra: (input.jointExtraByTeam.get(teamKey) ?? 0) + jointDecidedPlacementTopUp(settled, placementOfTeam.get(teamKey), input.artifact.year),
+    };
+    const onWinner = listedOnly.get(teamKey);
+    if (onWinner === undefined || settled === undefined || settled.exact) return rival;
+    const settledCeiling = settledElimBounds(settled).ceiling;
+    if (settledCeiling <= 0) return rival;
+    return { ...rival, listedOnly: { settled: settledCeiling, onWinner } };
+  });
+}
+
+/**
+ * THE LISTED ONLY PICKS of one eight alliance key (quick task 261010-d7r,
+ * finding F-D; `champJointLock.ts` owns the rule): each team an alliance
+ * LISTS that holds 0 alliance selection points there (a point not posted
+ * reads as 0, as for `allianceSelectionPointsAt`), on an alliance the routing
+ * has PLACED, mapped to whether that alliance placed first. The first
+ * alliance listing a team wins, as in `placementByPick`.
+ *
+ * `firstPlacedCounts` false leaves the alliance placed first out: a DIVISION
+ * winner, whose listed pick keeps its settled value in every reading because
+ * its only seat is on that same alliance, for the finals (planner reading R7
+ * of that task). No routing names nobody.
+ */
+function listedOnlyPicks(
+  facts: DcmpBracketFacts,
+  routing: DcmpBracketState | undefined,
+  points: ReadonlyMap<string, number>,
+  firstPlacedCounts: boolean
+): Map<string, boolean> {
+  const out = new Map<string, boolean>();
+  if (routing === undefined) return out;
+  for (const alliance of facts.alliances) {
+    const placement = routing.placementByAlliance.get(alliance.allianceNumber);
+    if (placement === undefined) continue;
+    if (placement === 1 && !firstPlacedCounts) continue;
+    for (const pick of alliance.picks) if ((points.get(pick) ?? 0) <= 0 && !out.has(pick)) out.set(pick, placement === 1);
+  }
+  return out;
 }
 
 /** Each listed pick's routed placement, first alliance listing it wins. */
@@ -1203,7 +1290,8 @@ function eightAllianceInput(
     return { allianceNumber: alliance.allianceNumber, members: confirmed, spareSeats: Math.max(0, MAX_WINNING_ALLIANCE_SIZE - confirmed.length) };
   });
   return {
-    pool: poolRivals(input, poolKeys, (teamKey) => settled.get(teamKey), placementByPick(facts, routed.routing)),
+    // F-D (quick task 261010-d7r): every placed alliance's listed picks that are not confirmed, the winner's included.
+    pool: poolRivals(input, poolKeys, (teamKey) => settled.get(teamKey), placementByPick(facts, routed.routing), listedOnlyPicks(facts, routed.routing, points, true)),
     slotOnlyRivals,
     pointsSlots: input.narrowing.pointsSlots,
     alliances,
@@ -1493,6 +1581,9 @@ function divisionedJointProof(
   const divisions: DivisionJointState[] = [];
   const placementOfTeam = new Map<string, number>();
   const divisionKeyOfTeam = new Map<string, string>();
+  // F-D (quick task 261010-d7r): the listed picks that are not confirmed on an alliance placed BELOW first in its
+  // division. A division winner's listed pick is left out (planner reading R7): it keeps its settled value.
+  const listedOnly = new Map<string, boolean>();
 
   for (const [index, key] of divisionKeys.entries()) {
     const divisionIndex = index + 1;
@@ -1514,6 +1605,7 @@ function divisionedJointProof(
       alive = [...aliveSet].sort((a, b) => a - b);
     }
     const points = allianceSelectionPointsAt(artifact, key);
+    for (const [teamKey, onWinner] of listedOnlyPicks(facts, routing, points, false)) if (!listedOnly.has(teamKey)) listedOnly.set(teamKey, onWinner);
     const confirmedHere = new Set<string>();
     const listedHere = new Set<string>();
     for (const alliance of facts.alliances) {
@@ -1596,7 +1688,7 @@ function divisionedJointProof(
     return key === undefined ? undefined : input.dcmpSettledByEvent.get(key)?.get(teamKey);
   };
   const proofInput: JointLockInput = {
-    pool: poolRivals(input, input.narrowing.poolKeys, settledOf, placementOfTeam),
+    pool: poolRivals(input, input.narrowing.poolKeys, settledOf, placementOfTeam, listedOnly),
     slotOnlyRivals: slotOnlyRivalsOf(input.qualifiers),
     pointsSlots: input.narrowing.pointsSlots,
     alliances,

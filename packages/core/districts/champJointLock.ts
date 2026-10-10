@@ -329,6 +329,93 @@
  * its floor like any team's, and `awardedRivals` may name T.
  *
  * ---------------------------------------------------------------------------
+ * A LISTED PICK THAT IS NOT CONFIRMED IS PAID ITS DECIDED ALLIANCE'S VALUE OR
+ * TAKES ANOTHER SEAT, NEVER BOTH (quick task 261010-d7r, finding F-D)
+ * ---------------------------------------------------------------------------
+ *
+ * WHO. An alliance may list a team that holds 0 alliance selection points
+ * there: a fourth the field has named and TBA has not paid a pick's points.
+ * It is not a confirmed pick, so on an alliance the routing has PLACED it is
+ * not among the members (guard G2 at a divisioned championship, confirmed
+ * pick membership at the other shapes). The row model still settles its
+ * Playoffs at that alliance's placement, and where the settled value is not
+ * exact (a live reading: the placement's maximum, in the ceiling) the
+ * caller's `extra` holds it. `JointLockRival.listedOnly` says so: `settled`
+ * is that value, `onWinner` whether the alliance is the decided winner.
+ *
+ * THE TWO FUTURES. Such a team either WAS on that alliance or NEVER was:
+ *
+ *   - it was: it is paid up to the settled value, and it takes no other
+ *     alliance's seat, since a team already on an alliance is never a backup
+ *     (the backup robot rule above);
+ *   - it never was: that alliance pays it nothing, and it is free like any
+ *     rival on no alliance, for one seat or for the winner's fill in.
+ *
+ * THE RULE. The bound reads each future on its own and never adds the two.
+ * Wherever the rival is read ALONE (the always covered test, its points in a
+ * scenario, the cover's cost with no seat, its place in the fill in pool) it
+ * is read at `extra`. Where it takes a SEAT it is read at `extra` minus
+ * `settled`. Either reading may still add one judged award, and the
+ * consuming awards and the fill ins count it as they count any rival.
+ *
+ * THE DECIDED WINNER'S LISTED PICK (`onWinner`). Being on the winner is not a
+ * points value: it IS the winner's fill in, which takes a slot whatever the
+ * team's points and is counted against the winner's spare seats. So the
+ * alone reading is `extra` minus `settled` as well, and the team sits in the
+ * fill in pool like any eligible rival still short of T. This reading is
+ * applied only where every frame names one and the same winner. With a frame
+ * whose winner is `null` (the posted winner case) no fill in is left to
+ * count the team through, and with two candidate winners none is decided, so
+ * there the rival is read as if it carried no `listedOnly` at all, which is
+ * the reading of before this rule. The caller never builds such an input: a
+ * settled value exists only while the Playoffs are open, the posted winner
+ * frame only once they are final, and a routed winner is the one candidate.
+ *
+ * THE WINNER'S READING IS THE RIVAL AS IT READ BEFORE THE WINNER WAS DECIDED,
+ * which is what makes that row's edge monotone: until the row the rival had
+ * no settled value, so its `extra` held nothing of the Playoffs. It is NOT
+ * always at or below the reading of before this rule. A rival that drops
+ * from "its points reach T" to "short of T, on no alliance" joins the fill
+ * in pool, and the bound counts a fill in beside a seat that may lift the
+ * same rival, a relaxation it has always had and one that only raises it.
+ * On 500 seeded instances 10 team bounds read higher with `onWinner` than
+ * with no `listedOnly` (`champJointLock.test.ts` pins it). That says nothing
+ * about soundness. A placed alliance's reading, by contrast, is never above
+ * the reading of before this rule: the rival reads the same alone and no
+ * nearer to T on a seat.
+ *
+ * WHY IT IS SOUND. Every real future is one of the two above, and each is
+ * read at no less than it pays: the first by the alone reading (by the fill
+ * in, on the winner), the second by the seat reading, by the fill in, and
+ * with no seat by the alone reading at the larger `extra`.
+ * `champJointLock.test.ts` enumerates every legal future of 20,000 small
+ * instances holding such picks and awarded rivals together, and the bound is
+ * never below one.
+ *
+ * WHAT IT CLOSED. Until that task the rival was read at `extra` on a seat
+ * too, so its points became one alliance's value plus another's, which no
+ * future pays. That only raised a bound, so it was never unsound. It was not
+ * monotone: the played row that places the alliance adds the settled value
+ * to a rival that could already take a seat, and a bound rose over that row.
+ * Measured by that task's planner on the micro step walks with every other
+ * rule on: 26 team margins dropped and no Locked team was lost (2023pnw 17
+ * at the second Finals match, 2026fnc 3, 2024pch 2, 2026win 2, 2024fnc 1,
+ * 2025fim 1), each at the played row that places an alliance listing four
+ * teams. With the rule: none (`scripts/champJointMonotone.test.ts`, group
+ * D). The same walks with this rule switched off read the 25 of the five
+ * single championships again and still lose no Locked team; 2025 FIM is not
+ * among the committed walks. So no measured Locked rests on this rule: it
+ * keeps a bound from rising, which is the mechanism of a take back.
+ *
+ * LIVE ONLY. A rewound settled value is TBA's own number: exact, in the
+ * floor, and the caller sets no `listedOnly`. So no line of a sweep moves.
+ *
+ * A DIVISION WINNER'S LISTED PICK carries no `listedOnly` (planner reading
+ * R7 of that task): the only seat it can take is on that same alliance, for
+ * the finals, so it keeps its settled value in every reading, which only
+ * raises a bound.
+ *
+ * ---------------------------------------------------------------------------
  * THE COVER UPPER BOUND (reading R10)
  * ---------------------------------------------------------------------------
  *
@@ -398,11 +485,34 @@ assertOneAwardPerRival(MAX_POINT_PAYING_AWARDS_PER_TEAM);
  */
 export const EXACT_COVER_STATE_CAP = 250_000;
 
+/**
+ * What a rival holds only as a LISTED pick that is not confirmed, on an
+ * alliance the routing has placed (quick task 261010-d7r, finding F-D; this
+ * module's header).
+ */
+export interface JointLockListedOnly {
+  /** The settled Playoffs value inside `extra` that the alliance listing the team would pay it: the placement's maximum, a settled value that is not exact. */
+  readonly settled: number;
+  /** That alliance is the decided winner, the one candidate of every frame. Being on it is the winner's fill in, not a points value. */
+  readonly onWinner: boolean;
+}
+
 /** One points pool team: its floor at the position and the open ceiling the proof does not model itself. */
 export interface JointLockRival {
   readonly teamKey: string;
   readonly floor: number;
   readonly extra: number;
+  /**
+   * Set where `extra` holds the settled Playoffs value of a placed alliance
+   * that only LISTS the team (it holds 0 alliance selection points there and
+   * is not among that alliance's `members`). The team was on that alliance
+   * or never was, so the bound reads it at `extra` with no seat and at
+   * `extra` minus `settled` on another alliance's seat, never at both
+   * together; with `onWinner` it is read at `extra` minus `settled` and
+   * counted through the winner's fill in. Absent: `extra` in every reading,
+   * which is every rewound reading (an exact settled value is in the floor).
+   */
+  readonly listedOnly?: JointLockListedOnly;
 }
 
 /**
@@ -575,6 +685,15 @@ export interface CoverOptions {
    * nothing or where a seat's value alone reaches T. Absent: no rival is.
    */
   readonly awarded?: readonly boolean[];
+  /**
+   * Each rival's deficit where it takes a SEAT, never below its deficit alone
+   * (quick task 261010-d7r, finding F-D): a listed pick that is not confirmed
+   * gives up its placed alliance's settled value to sit on another alliance.
+   * Absent: every rival's deficit is the same on a seat as alone. Read by the
+   * exact program only; the upper bound reads the smaller deficit alone for
+   * both, which only raises it.
+   */
+  readonly seatDeficits?: readonly number[];
 }
 
 /**
@@ -582,7 +701,9 @@ export interface CoverOptions {
  * the most of them the seats can cover together with at most `j` judged awards,
  * for every `j` from 0 to `budget`. An exact dynamic program over (seats used
  * per seat value, judged awards spent). A rival flagged in `options.awarded`
- * spends no judged award. Exported for the cover upper bound's dominance test.
+ * spends no judged award, and a rival with an entry in `options.seatDeficits`
+ * is that far short of T on a seat. Exported for the cover upper bound's
+ * dominance test.
  */
 export function unpickedCover(
   deficits: readonly number[],
@@ -610,7 +731,9 @@ export function unpickedCover(
     const awarded = options?.awarded?.[index] === true;
     const costOf = (need: number): number => (awarded ? (need <= 0 ? 0 : Infinity) : judgedCost(need, judgedAwardPoints));
     const alone = costOf(deficit);
-    const withSeat = seatValues.map((value) => costOf(deficit - value));
+    // F-D: on a seat a listed only pick is read without its placed alliance's settled value.
+    const onSeat = options?.seatDeficits?.[index] ?? deficit;
+    const withSeat = seatValues.map((value) => costOf(onSeat - value));
     for (let state = 0; state < stateCount; state++) {
       for (let j = 0; j <= budget; j++) {
         const value = dp[state * width + j]!;
@@ -677,6 +800,11 @@ function greedySeatMatching(deficits: readonly number[], threshold: (deficit: nu
  * nested eligibility sets). In any real cover the rivals that are not awarded
  * form a cover of their own and the awarded ones a seat matching of their
  * own, so the sum is never below the exact program.
+ *
+ * `options.seatDeficits` IS NOT READ (quick task 261010-d7r, finding F-D):
+ * every rival is matched to a seat at its deficit alone, which is never above
+ * its deficit on a seat, so the bound is never below the exact program that
+ * reads both.
  */
 export function coverUpperBound(
   deficits: readonly number[],
@@ -787,6 +915,17 @@ export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: 
   // two places one is spent: a picked rival's lift, and the seat and judged
   // award cover. The consuming awards and the fill ins still count it.
   const awardedSet = new Set(input.awardedRivals ?? []);
+  // F-D (quick task 261010-d7r, this module's header): a listed pick that is
+  // not confirmed, on a placed alliance, was on that alliance or never was.
+  // ALONE it is read at `extra`; on another alliance's SEAT at `extra` minus
+  // the settled value. The decided winner's such pick is read without the
+  // settled value in both, and counted through the winner's fill in, but only
+  // where every frame names that one winner; otherwise it is read as a rival
+  // with no `listedOnly`, the reading of before this rule.
+  const oneNamedWinner = frames.every((frame) => frame.winner !== null && frame.winner === frames[0]!.winner);
+  const withoutSettled = (rival: JointLockRival): number => rival.floor + Math.max(0, rival.extra - rival.listedOnly!.settled);
+  const alonePoints = rivals.map((rival) => (rival.listedOnly?.onWinner === true && oneNamedWinner ? withoutSettled(rival) : rival.floor + rival.extra));
+  const seatPoints = rivals.map((rival) => (rival.listedOnly === undefined || (rival.listedOnly.onWinner && !oneNamedWinner) ? rival.floor + rival.extra : withoutSettled(rival)));
 
   // SEAT GROUPS (the backup robot rule, this module's header). A backup seat or a
   // fill in of an alliance is taken only by a team eligible in the alliance's own
@@ -821,35 +960,47 @@ export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: 
 
   // Every scenario covers a rival whose floor plus extra already reaches T.
   let alwaysCovered = 0;
-  for (const rival of rivals) if (rival.floor + rival.extra >= m) alwaysCovered += 1;
+  for (const points of alonePoints) if (points >= m) alwaysCovered += 1;
   if (alwaysCovered >= stopAt) return alwaysCovered;
 
   // Per group, the eligible pool rivals still short of T at floor plus extra,
   // whether or not an alliance also lists them (reading P3), and the eligible
   // slot only rivals. Fixed for this T: a seat pays its own value and never the
   // value of the alliance that lists the rival. A rival eligible in several
-  // groups is entered in each, which only raises the bound.
-  const seatRivals: { teamKey: string; deficit: number; awarded: boolean }[][] = Array.from({ length: groupCount }, () => []);
+  // groups is entered in each, which only raises the bound. `seatDeficit` is
+  // the rival's deficit ON A SEAT, which differs only for a listed only pick
+  // (F-D) and is then the larger of the two.
+  const seatRivals: { teamKey: string; deficit: number; seatDeficit: number; awarded: boolean }[][] = Array.from({ length: groupCount }, () => []);
   const slotOnlyByGroup: string[][] = Array.from({ length: groupCount }, () => []);
-  for (const rival of rivals) {
-    const deficit = m - (rival.floor + rival.extra);
-    if (deficit <= 0) continue;
+  rivals.forEach((rival, index) => {
+    const deficit = m - alonePoints[index]!;
+    if (deficit <= 0) return;
+    const seatDeficit = m - seatPoints[index]!;
     const awarded = awardedSet.has(rival.teamKey);
-    for (const group of groupsOf(rival.teamKey)) seatRivals[group]!.push({ teamKey: rival.teamKey, deficit, awarded });
-  }
+    for (const group of groupsOf(rival.teamKey)) seatRivals[group]!.push({ teamKey: rival.teamKey, deficit, seatDeficit, awarded });
+  });
   for (const key of slotOnly) for (const group of groupsOf(key)) slotOnlyByGroup[group]!.push(key);
 
   // Reading R11: the largest seat value over the placement values and every usable frame's fixed values.
   let maxSeatValue = Math.max(0, ...input.placementPoints);
   for (const frame of usable) for (const value of frame.fixed.values()) maxSeatValue = Math.max(maxSeatValue, value);
-  const reachable = (deficit: number): boolean =>
-    judgedCost(deficit, input.judgedAwardPoints) !== Infinity || judgedCost(deficit - maxSeatValue, input.judgedAwardPoints) !== Infinity;
-  // D1: an awarded rival is reachable only where a seat's value alone covers its deficit.
-  const seatReachableEntries = seatRivals.map((list) => list.filter((entry) => (entry.awarded ? entry.deficit <= maxSeatValue : reachable(entry.deficit))));
+  // Reachable: one award alone covers the deficit, or the largest seat and one award cover the deficit on a seat.
+  const reachable = (deficit: number, seatDeficit: number): boolean =>
+    judgedCost(deficit, input.judgedAwardPoints) !== Infinity || judgedCost(seatDeficit - maxSeatValue, input.judgedAwardPoints) !== Infinity;
+  // D1: an awarded rival is reachable only where a seat's value alone covers its deficit on a seat.
+  const seatReachableEntries = seatRivals.map((list) => list.filter((entry) => (entry.awarded ? entry.seatDeficit <= maxSeatValue : reachable(entry.deficit, entry.seatDeficit))));
   const seatReachable = seatReachableEntries.map((list) => list.map((entry) => entry.deficit));
-  const seatCoverOptions = seatReachableEntries.map((list): CoverOptions | undefined =>
-    list.some((entry) => entry.awarded) ? { awarded: list.map((entry) => entry.awarded) } : undefined
-  );
+  // What the cover is told beyond the deficits, per group: nothing at all where no entry is awarded and none is a
+  // listed only pick, so an input with neither takes the path of before quick task 261010-d7r untouched.
+  const seatCoverOptions = seatReachableEntries.map((list): CoverOptions | undefined => {
+    const anyAwarded = list.some((entry) => entry.awarded);
+    const anyListedOnly = list.some((entry) => entry.seatDeficit !== entry.deficit);
+    if (!anyAwarded && !anyListedOnly) return undefined;
+    return {
+      ...(anyAwarded ? { awarded: list.map((entry) => entry.awarded) } : {}),
+      ...(anyListedOnly ? { seatDeficits: list.map((entry) => entry.seatDeficit) } : {}),
+    };
+  });
   const reachableCount = seatReachable.reduce((sum, list) => sum + list.length, 0);
 
   const placementValues = [...input.placementPoints].sort((a, b) => b - a);
@@ -897,10 +1048,11 @@ export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: 
       let covered = stepOne;
       let uncovered = 0;
       const pickedCosts: number[] = [];
-      for (const rival of rivals) {
+      for (let index = 0; index < rivals.length; index++) {
+        const rival = rivals[index]!;
         if (winnerSet.has(rival.teamKey)) continue;
         const allianceNumber = allianceOfTeam.get(rival.teamKey);
-        const points = rival.floor + rival.extra + (allianceNumber === undefined ? 0 : (assigned.get(allianceNumber) ?? 0));
+        const points = alonePoints[index]! + (allianceNumber === undefined ? 0 : (assigned.get(allianceNumber) ?? 0));
         if (points >= m) {
           covered += 1;
           continue;

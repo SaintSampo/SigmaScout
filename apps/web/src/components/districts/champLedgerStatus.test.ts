@@ -1163,6 +1163,93 @@ describe("computeChampLedgerStatuses — the joint worst case proof (261009-2tr)
     for (const teamKey of jointKeys(withObserved)) expect(jointKeys(without), teamKey).toContain(teamKey);
   });
 
+  it("261010-d7r F-D: on a live reading a placed alliance's listed pick at 0 alliance selection points carries listedOnly with its settled ceiling and whether the alliance placed first; a confirmed pick, an exact settled value, a settled ceiling of 0 and a pick with no settled value carry none", () => {
+    const stage = FNC_LIKE_STOP.get(DCMP_KEY)!;
+    const FINAL_ONE_WINS: PlayedBracketMatch[] = [1, 2].map((matchNumber) => ({ compLevel: "f", setNumber: 1, matchNumber, winningAllianceNumber: 1 }));
+    const inputOf = (artifact: DistrictArtifact, alliances: typeof ALLIANCES, rows: readonly PlayedBracketMatch[], milestoneAlliances = alliances): JointLockInput => {
+      const model = modelAtStop(artifact, FNC_LIKE_STOP, distributionsWith(dcmpBracketMilestonesByTeam(milestoneAlliances, rows), factsAt(stage, rows, alliances)));
+      if (model.jointProof?.applied !== true || model.jointProof.shape !== "single") throw new Error(`not applied: ${JSON.stringify(model.jointProof?.applied === true ? model.jointProof.shape : model.jointProof)}`);
+      return model.jointProof.input;
+    };
+    const rivalOf = (input: JointLockInput, teamKey: string) => input.pool.find((rival) => rival.teamKey === teamKey);
+
+    // THE FOURTH: a pool team with a championship row that no alliance picked, so it holds 0 alliance selection points.
+    const picked = new Set(ALLIANCES.flatMap((alliance) => alliance.picks));
+    const plain = inputOf(FIXTURE, ALLIANCES, ROUND_FIVE_ROWS);
+    const fourth = plain.pool.find((rival) => !picked.has(rival.teamKey) && FIXTURE.teams.some((team) => team.teamKey === rival.teamKey && team.eventPoints.some((row) => row.eventKey === DCMP_KEY && row.alliance === 0)))!.teamKey;
+    const listedOn = (allianceNumber: number) => ALLIANCES.map((alliance) => (alliance.allianceNumber === allianceNumber ? { ...alliance, picks: [...alliance.picks, fourth] } : alliance));
+    // On no list it has no settled value: nothing of the Playoffs is in its `extra`, and no rival carries the field.
+    const unlisted = rivalOf(plain, fourth)!;
+    expect(unlisted.listedOnly).toBeUndefined();
+    expect(plain.pool.every((rival) => rival.listedOnly === undefined)).toBe(true);
+
+    // LIVE (the fixture carries no state, so its Playoffs are not final at Now and a settled value is the placement's
+    // maximum, not exact). At the Round 5 stop alliance 3 is placed third (39) and alliance 2 fourth (21).
+    const onThird = inputOf(FIXTURE, listedOn(3), ROUND_FIVE_ROWS);
+    expect(rivalOf(onThird, fourth)).toEqual({ teamKey: fourth, floor: unlisted.floor, extra: unlisted.extra + 39, listedOnly: { settled: 39, onWinner: false } });
+    expect(rivalOf(inputOf(FIXTURE, listedOn(2), ROUND_FIVE_ROWS), fourth)).toEqual({ teamKey: fourth, floor: unlisted.floor, extra: unlisted.extra + 21, listedOnly: { settled: 21, onWinner: false } });
+    // It is not among the placed alliance's members, which are its three confirmed picks, and its seat is open.
+    const third = onThird.alliances.find((alliance) => alliance.allianceNumber === 3)!;
+    expect(third.members).toEqual(ALLIANCES[2]!.picks);
+    expect(third.spareSeats).toBe(1);
+    // A CONFIRMED pick of the same alliance is settled at the same 39 and carries none.
+    const confirmedInPool = ALLIANCES[2]!.picks.filter((confirmed) => rivalOf(onThird, confirmed) !== undefined);
+    expect(confirmedInPool.length).toBeGreaterThan(0);
+    for (const confirmed of confirmedInPool) {
+      expect(rivalOf(onThird, confirmed)!.listedOnly, confirmed).toBeUndefined();
+      expect(rivalOf(onThird, confirmed)!.extra, confirmed).toBeGreaterThanOrEqual(39);
+    }
+    expect(onThird.pool.filter((rival) => rival.listedOnly !== undefined).map((rival) => rival.teamKey)).toEqual([fourth]);
+    // Nobody else's reading moved.
+    expect(onThird.pool.filter((rival) => rival.teamKey !== fourth)).toEqual(plain.pool.filter((rival) => rival.teamKey !== fourth));
+
+    // THE DECIDED WINNER (the final played, the Playoffs' points not yet in): alliance 1 first (90), alliance 5 second (75).
+    const decided = [...ROUND_FIVE_ROWS, ...FINAL_ONE_WINS];
+    const onWinner = inputOf(FIXTURE, listedOn(1), decided);
+    expect(onWinner.candidateWinners).toEqual([1]);
+    const decidedUnlisted = rivalOf(inputOf(FIXTURE, ALLIANCES, decided), fourth)!;
+    expect(rivalOf(onWinner, fourth)).toEqual({ teamKey: fourth, floor: decidedUnlisted.floor, extra: decidedUnlisted.extra + 90, listedOnly: { settled: 90, onWinner: true } });
+    expect(rivalOf(inputOf(FIXTURE, listedOn(5), decided), fourth)).toEqual({ teamKey: fourth, floor: decidedUnlisted.floor, extra: decidedUnlisted.extra + 75, listedOnly: { settled: 75, onWinner: false } });
+
+    // A SETTLED CEILING OF 0 (alliance 8, placed seventh after Round 2) sets nothing: there is no value to give up.
+    const onSeventh = inputOf(FIXTURE, listedOn(8), ROUND_TWO_ROWS);
+    expect(rivalOf(onSeventh, fourth)!.listedOnly).toBeUndefined();
+
+    // NO SETTLED VALUE (the run's milestones never name the fourth, as for a backup seen on the field): none.
+    const noMilestone = inputOf(FIXTURE, listedOn(3), ROUND_FIVE_ROWS, ALLIANCES);
+    expect(rivalOf(noMilestone, fourth)!.listedOnly).toBeUndefined();
+
+    // AN EXACT SETTLED VALUE (the championship finished at Now, read at the same rewound stop): TBA's own number is
+    // in the floor and nobody carries the field, so a rewound input is the input of before this rule.
+    const finished: DistrictArtifact = DistrictArtifactSchema.parse({
+      ...FIXTURE,
+      teams: FIXTURE.teams.map((team) => ({
+        ...team,
+        eventPoints: team.eventPoints.map((row) => (row.eventKey === DCMP_KEY ? { ...row, state: { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: true, awardsPosted: true } } : row)),
+      })),
+    });
+    for (const allianceNumber of [1, 2, 3, 5]) {
+      const rewound = inputOf(finished, listedOn(allianceNumber), allianceNumber === 1 || allianceNumber === 5 ? decided : ROUND_FIVE_ROWS);
+      expect(rewound.pool.every((rival) => rival.listedOnly === undefined), `alliance ${String(allianceNumber)}`).toBe(true);
+    }
+  });
+
+  it("261010-d7r F-D, through the lock: a listed fourth is not counted on its placed alliance's value AND another alliance's seat, so the bound with listedOnly is never above the bound without it on this fixture", () => {
+    const stage = FNC_LIKE_STOP.get(DCMP_KEY)!;
+    const picked = new Set(ALLIANCES.flatMap((alliance) => alliance.picks));
+    const base = modelAtStop(FIXTURE, FNC_LIKE_STOP, distributionsWith(dcmpBracketMilestonesByTeam(ALLIANCES, ROUND_FIVE_ROWS), factsAt(stage, ROUND_FIVE_ROWS)));
+    if (base.jointProof?.applied !== true || base.jointProof.shape !== "single") throw new Error("not applied");
+    const fourth = base.jointProof.input.pool.find((rival) => !picked.has(rival.teamKey) && FIXTURE.teams.some((team) => team.teamKey === rival.teamKey && team.eventPoints.some((row) => row.eventKey === DCMP_KEY && row.alliance === 0)))!.teamKey;
+    const listed = ALLIANCES.map((alliance) => (alliance.allianceNumber === 3 ? { ...alliance, picks: [...alliance.picks, fourth] } : alliance));
+    const model = modelAtStop(FIXTURE, FNC_LIKE_STOP, distributionsWith(dcmpBracketMilestonesByTeam(listed, ROUND_FIVE_ROWS), factsAt(stage, ROUND_FIVE_ROWS, listed)));
+    if (model.jointProof?.applied !== true || model.jointProof.shape !== "single") throw new Error("not applied");
+    const withRule = model.jointProof.input;
+    const withoutRule: JointLockInput = { ...withRule, pool: withRule.pool.map((rival) => ({ teamKey: rival.teamKey, floor: rival.floor, extra: rival.extra })) };
+    for (const rival of withRule.pool) expect(jointLockBound(withRule, rival.teamKey), rival.teamKey).toBeLessThanOrEqual(jointLockBound(withoutRule, rival.teamKey));
+    // The locked set is the proof's own on this input.
+    expect([...model.jointProof.locked].sort()).toEqual([...jointLockedTeams(withRule)].sort());
+  });
+
   it("jointDecidedPlacementTopUp tops up only a settled value that is not exact with no routed placement", () => {
     const secondPlace = { points: 60, exact: false, ceiling: 75 };
     expect(jointDecidedPlacementTopUp(secondPlace, 2, 2026)).toBe(0);
@@ -1942,6 +2029,47 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
     const withoutNames: JointLockInput = Object.fromEntries(Object.entries(both.input).filter(([key]) => key !== "awardedRivals")) as unknown as JointLockInput;
     expect("awardedRivals" in withoutNames).toBe(false);
     for (const teamKey of jointLockedTeams(withoutNames)) expect(both.locked.has(teamKey), teamKey).toBe(true);
+  });
+
+  it("261010-d7r F-D at a divisioned championship: the listed pick of an alliance placed below first in its division carries listedOnly, and a DIVISION WINNER's listed pick carries none (planner reading R7)", () => {
+    // Division 1 has played its final (alliance 1 first, 5 second, 3 third, 2 fourth) and its Playoffs' points are
+    // not yet in; division 2 has played no row. One confirmed pick of alliance 3 and one of alliance 1 are read at
+    // 0 alliance selection points at their division key: listed, not confirmed.
+    const DECIDED = [...ROUND_FIVE, ...FINAL_ONE_WINS];
+    const onThird = DIV1_ALLIANCES[2]!.picks[2]!;
+    const onDivisionWinner = DIV1_ALLIANCES[0]!.picks[2]!;
+    const unconfirmed = new Set([onThird, onDivisionWinner]);
+    const artifact: DistrictArtifact = DistrictArtifactSchema.parse({
+      ...DIVISIONED,
+      teams: DIVISIONED.teams.map((team) =>
+        unconfirmed.has(team.teamKey)
+          ? { ...team, pointTotal: team.pointTotal - team.eventPoints.find((row) => row.eventKey === DIV1)!.alliance, eventPoints: team.eventPoints.map((row) => (row.eventKey === DIV1 ? { ...row, alliance: 0, total: row.total - row.alliance } : row)) }
+          : team
+      ),
+    });
+    const distributions = new Map([
+      entry(DIV1, facts(DIV1, OPEN_PLAYOFFS, DIV1_ALLIANCES, DECIDED, "division"), dcmpBracketMilestonesByTeam(DIV1_ALLIANCES, DECIDED)),
+      entry(DIV2, facts(DIV2, OPEN_PLAYOFFS, DIV2_ALLIANCES, [], "division")),
+    ]);
+    const model = modelAt(artifact, ROUND_FIVE_STAGES, distributions);
+    if (model.jointProof?.applied !== true || model.jointProof.shape !== "divisioned") throw new Error(`not applied: ${JSON.stringify(model.jointProof?.applied === true ? model.jointProof.shape : model.jointProof)}`);
+    const { input } = model.jointProof;
+    // Both placed alliances keep their confirmed picks only (guard G2), with the seat of the one that is not confirmed open.
+    expect(input.alliances.find((alliance) => alliance.allianceNumber === 13)!.members).toEqual(DIV1_ALLIANCES[2]!.picks.slice(0, 2));
+    expect(input.alliances.find((alliance) => alliance.allianceNumber === 11)!.members).toEqual(DIV1_ALLIANCES[0]!.picks.slice(0, 2));
+    // The third place alliance's listed pick: its settled 39 is in `extra`, and it carries the field, never on the winner.
+    const third = input.pool.find((rival) => rival.teamKey === onThird)!;
+    expect(third.listedOnly).toEqual({ settled: 39, onWinner: false });
+    expect(third.extra).toBeGreaterThanOrEqual(39);
+    // The division winner's listed pick keeps its settled value in every reading: no field.
+    const winner = input.pool.find((rival) => rival.teamKey === onDivisionWinner)!;
+    expect(winner.listedOnly).toBeUndefined();
+    expect(winner.extra).toBeGreaterThanOrEqual(90);
+    expect(input.pool.filter((rival) => rival.listedOnly !== undefined).map((rival) => rival.teamKey)).toEqual([onThird]);
+    // With every pick confirmed (the fixture as it is) no rival carries the field.
+    const confirmed = modelAt(DIVISIONED, ROUND_FIVE_STAGES, distributions);
+    if (confirmed.jointProof?.applied !== true || confirmed.jointProof.shape !== "divisioned") throw new Error("not applied");
+    expect(confirmed.jointProof.input.pool.every((rival) => rival.listedOnly === undefined)).toBe(true);
   });
 
   it("261009-tx9 (the backup robot rule): one seat group per division in key order, eligible by division row and confirmed picks, a team with no division row named by no group", () => {
