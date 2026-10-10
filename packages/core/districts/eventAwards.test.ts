@@ -17,6 +17,7 @@ import {
   expectedAwardsListed,
   expectedConsumingAwardTypes,
   isJudgedAwardType,
+  playoffPointsPresentAt,
   judgedAwardListed,
   qualifyingAwardRecord,
 } from "./eventAwards.js";
@@ -48,12 +49,34 @@ describe("judgedAwardListed", () => {
 });
 
 describe("awardsPostedRule", () => {
+  // Every cell carries the playoff points fact (quick task 261009-vp9): the
+  // cases below turn on the other facts, and the fact has its own cases.
   const cells = [
-    { judgedAwardListed: false, awardPointsPresent: false },
-    { judgedAwardListed: true, awardPointsPresent: false },
-    { judgedAwardListed: false, awardPointsPresent: true },
-    { judgedAwardListed: true, awardPointsPresent: true },
+    { judgedAwardListed: false, awardPointsPresent: false, playoffPointsPresent: true },
+    { judgedAwardListed: true, awardPointsPresent: false, playoffPointsPresent: true },
+    { judgedAwardListed: false, awardPointsPresent: true, playoffPointsPresent: true },
+    { judgedAwardListed: true, awardPointsPresent: true, playoffPointsPresent: true },
   ] as const;
+
+  it("live: with a judged award, award points, every expected award listed and a settled list, the flag is false with no playoff points at the event and true with them (quick task 261009-vp9)", () => {
+    const rest = { judgedAwardListed: true, awardPointsPresent: true, expectedAwardsListed: true, listSettled: true, listSettledLong: true } as const;
+    expect(awardsPostedRule({ ...rest, playoffPointsPresent: false }, "live")).toBe(false);
+    expect(awardsPostedRule({ ...rest, playoffPointsPresent: true }, "live")).toBe(true);
+    // An absent fact reads as not present, which is the waiting side.
+    expect(awardsPostedRule(rest, "live")).toBe(false);
+    // The 12 hour path needs it too.
+    expect(awardsPostedRule({ judgedAwardListed: true, awardPointsPresent: true, expectedAwardsListed: false, listSettledLong: true, playoffPointsPresent: false }, "live")).toBe(false);
+    expect(awardsPostedRule({ judgedAwardListed: true, awardPointsPresent: true, expectedAwardsListed: false, listSettledLong: true, playoffPointsPresent: true }, "live")).toBe(true);
+  });
+
+  it("hindsight does not read the playoff points fact", () => {
+    for (const playoffPointsPresent of [true, false, undefined]) {
+      const extra = playoffPointsPresent === undefined ? {} : { playoffPointsPresent };
+      expect(awardsPostedRule({ judgedAwardListed: true, awardPointsPresent: false, ...extra }, "hindsight")).toBe(true);
+      expect(awardsPostedRule({ judgedAwardListed: false, awardPointsPresent: true, ...extra }, "hindsight")).toBe(true);
+      expect(awardsPostedRule({ judgedAwardListed: false, awardPointsPresent: false, ...extra }, "hindsight")).toBe(false);
+    }
+  });
 
   it("live: only all the facts read true: judged, points, every expected award listed, and the list settled for 60 minutes (quick tasks 261009-tx6 and 261009-vp9)", () => {
     expect(cells.map((facts) => awardsPostedRule({ ...facts, expectedAwardsListed: true, listSettled: true }, "live"))).toEqual([false, false, false, true]);
@@ -66,7 +89,7 @@ describe("awardsPostedRule", () => {
   });
 
   it("live: an expected award not listed is false at 60 settled minutes and true at 12 settled hours (quick task 261009-vp9)", () => {
-    const base = { judgedAwardListed: true, awardPointsPresent: true } as const;
+    const base = { judgedAwardListed: true, awardPointsPresent: true, playoffPointsPresent: true } as const;
     // Settled for 60 minutes only: the flag waits for the award.
     expect(awardsPostedRule({ ...base, expectedAwardsListed: false, listSettled: true }, "live")).toBe(false);
     expect(awardsPostedRule({ ...base, expectedAwardsListed: false, listSettled: true, listSettledLong: false }, "live")).toBe(false);
@@ -75,13 +98,13 @@ describe("awardsPostedRule", () => {
   });
 
   it("live: an absent expectedAwardsListed reads as not listed, so only the long settle turns the flag true", () => {
-    const base = { judgedAwardListed: true, awardPointsPresent: true } as const;
+    const base = { judgedAwardListed: true, awardPointsPresent: true, playoffPointsPresent: true } as const;
     expect(awardsPostedRule({ ...base, listSettled: true }, "live")).toBe(false);
     expect(awardsPostedRule({ ...base, listSettled: true, listSettledLong: true }, "live")).toBe(true);
   });
 
   it("live: no judged award, or no points, is false whatever the rest says", () => {
-    const rest = { expectedAwardsListed: true, listSettled: true, listSettledLong: true } as const;
+    const rest = { expectedAwardsListed: true, listSettled: true, listSettledLong: true, playoffPointsPresent: true } as const;
     expect(awardsPostedRule({ judgedAwardListed: false, awardPointsPresent: true, ...rest }, "live")).toBe(false);
     expect(awardsPostedRule({ judgedAwardListed: true, awardPointsPresent: false, ...rest }, "live")).toBe(false);
     expect(awardsPostedRule({ judgedAwardListed: false, awardPointsPresent: false, ...rest }, "live")).toBe(false);
@@ -201,6 +224,23 @@ describe("awardsListSettled (quick task 261009-tx6)", () => {
         expect(awardsListSettled("etag-1", new Date(NOW + 1000).toISOString(), "etag-1", NOW, threshold)).toBe(false);
       }
     });
+  });
+});
+
+describe("playoffPointsPresentAt (quick task 261009-vp9)", () => {
+  const row = (eventKey: string, elim: number) => ({ eventKey, elim });
+
+  it("is false when every row at the event carries zero playoff points, and for no rows at all", () => {
+    expect(playoffPointsPresentAt([{ eventPoints: [row("2026e1", 0)] }, { eventPoints: [row("2026e1", 0)] }], "2026e1")).toBe(false);
+    expect(playoffPointsPresentAt([], "2026e1")).toBe(false);
+  });
+
+  it("is true when one row at the event carries playoff points above zero", () => {
+    expect(playoffPointsPresentAt([{ eventPoints: [row("2026e1", 0)] }, { eventPoints: [row("2026e0", 0), row("2026e1", 7)] }], "2026e1")).toBe(true);
+  });
+
+  it("is false when the only playoff points are at another event", () => {
+    expect(playoffPointsPresentAt([{ eventPoints: [row("2026e0", 30), row("2026e1", 0)] }], "2026e1")).toBe(false);
   });
 });
 

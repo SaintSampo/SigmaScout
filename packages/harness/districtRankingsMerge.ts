@@ -55,7 +55,15 @@ import { prequalifiedTeams } from "../core/districts/prequalified.js";
 import { ALL_CATEGORIES_OPEN, reservedImpactSlots, type DistrictCategoryFinality, type ReservedSlotEvent } from "../core/districts/reservedSlots.js";
 import { NO_POINTS_PRESENT, categoryPointsPresenceByEvent, corroboratedCategoryFinality, type CategoryPointsPresence } from "../core/districts/categoryCorroboration.js";
 import { championshipStemOf, dcmpNeverHappening, perChampionship, reservedChampSlots } from "../core/districts/champReservedSlots.js";
-import { awardPointsPresentAt, awardsPostedRule, expectedAwardsListed, judgedAwardListed, qualifyingAwardRecord, type AwardsEventKind } from "../core/districts/eventAwards.js";
+import {
+  awardPointsPresentAt,
+  awardsPostedRule,
+  expectedAwardsListed,
+  judgedAwardListed,
+  playoffPointsPresentAt,
+  qualifyingAwardRecord,
+  type AwardsEventKind,
+} from "../core/districts/eventAwards.js";
 import { dcmpAwardCountCeilings } from "../core/districts/hypotheticalDcmp.js";
 import { pooledLockInputs, type PooledTeamEntry } from "../core/districts/pooledLockInputs.js";
 import { AWARD_TYPE_WINNER, consumingAwardTypesForTier, eventTierByKey, specialAllocationNote, type AwardTier } from "../core/districts/qualification.js";
@@ -192,7 +200,8 @@ const presenceByTeams = new WeakMap<readonly DistrictTeam[], Map<string, Categor
  * stage is over AND the artifact's own rows at the event carry the points
  * that prove it. Playoffs need a row at the winner's value, Alliance
  * selection a row with alliance points above 0, Qualification follows
- * Alliance selection, and Awards are the flag. An absent state reports every
+ * Alliance selection, and Awards are the flag. Only the flag closes the
+ * categories below it: Playoffs final does not close Alliance selection. An absent state reports every
  * category open. An event on no row has nothing proven.
  *
  * The rule only ever OPENS a category the state alone would close. On every
@@ -958,12 +967,16 @@ export type DistrictEventAwardsByEvent = ReadonlyMap<string, readonly DistrictEv
  * new records in the same build.
  *
  * THE FLAG, for each event in the map that some row carries.
- * `awardsPostedRule` at the live vantage is asked with five facts:
+ * `awardsPostedRule` at the live vantage is asked with six facts:
  *   - whether the list holds a judged award (anything other than Winner and
  *     Finalist);
  *   - whether some team's row at the event carries award points above zero ON
  *     THE ARTIFACT HANDED IN, which is the artifact after this tick's
  *     rankings were merged;
+ *   - whether some team's row at the event carries PLAYOFF points above zero
+ *     on that same artifact (quick task 261009-vp9). A true flag closes every
+ *     category of the event, so it must not rise while the playoff points
+ *     are still to land;
  *   - whether the list holds EVERY consuming award an event of its kind gives
  *     (quick task 261009-vp9). The kind is read off the artifact's own rows:
  *     a district tier event (Impact), a dcmp tier key equal to its
@@ -974,9 +987,9 @@ export type DistrictEventAwardsByEvent = ReadonlyMap<string, readonly DistrictEv
  *     261009-tx6: its list has stood unchanged for an hour);
  *   - whether the caller names it in `longSettledAwardEvents` (quick task
  *     261009-vp9: unchanged for 12 hours).
- * The rule turns the flag true on a judged award with its points and, where
- * every expected award is listed, the hour; where one is not listed, the 12
- * hours. An event a set does not name, and every event when a set is not
+ * The rule turns the flag true on a judged award with its points, playoff
+ * points at the event and, where every expected award is listed, the hour;
+ * where one is not listed, the 12 hours. An event a set does not name, and every event when a set is not
  * passed, reads as not settled at that length. When the rule holds, every
  * `eventPoints` and `remainingEvents` row for that event that already
  * carries a state block gets `awardsPosted: true`. The step only ever RAISES
@@ -1040,6 +1053,7 @@ export function applyDistrictEventAwards(
       {
         judgedAwardListed: judgedAwardListed(awardTypes),
         awardPointsPresent: awardPointsPresentAt(artifact.teams, eventKey),
+        playoffPointsPresent: playoffPointsPresentAt(artifact.teams, eventKey),
         expectedAwardsListed: expectedAwardsListed(kind, awardTypes),
         listSettled: settledAwardEvents?.has(eventKey) === true,
         listSettledLong: longSettledAwardEvents?.has(eventKey) === true,

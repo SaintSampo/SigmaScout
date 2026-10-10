@@ -19,6 +19,9 @@
  *     the name.
  *   - `awardPointsPresent`: some team's row at that event carries award points
  *     above zero in the district rankings.
+ *   - `playoffPointsPresent` (quick task 261009-vp9): some team's row at
+ *     that event carries playoff points above zero. Read at the live vantage
+ *     only.
  *   - `expectedAwardsListed` (quick task 261009-vp9): the list holds EVERY
  *     consuming award an event of this kind gives. Impact at a district tier
  *     event. Impact, Winner, Engineering Inspiration and Rookie All Star at a
@@ -31,9 +34,9 @@
  *     live vantage only.
  * Who is asking decides how they combine:
  *   - `"live"` (the Worker, during the event) needs a judged award AND award
- *     points AND, where every expected award is listed, the list settled for
- *     60 minutes. Where one of them is NOT listed it needs the list settled
- *     for 12 hours instead. A judged award with no points yet means TBA is
+ *     points AND playoff points AND, where every expected award is listed,
+ *     the list settled for 60 minutes. Where one of them is NOT listed it
+ *     needs the list settled for 12 hours instead. A judged award with no points yet means TBA is
  *     still filling the event in, and Winner and Finalist alone say nothing
  *     about the judged awards. Waiting keeps the reservations held, which is
  *     the side that can never revoke a Locked. Every absent fact reads as
@@ -49,6 +52,23 @@
  * recorded after the held slot had already gone back to the points race, and
  * a team shown Locked on it could lose it. So the flag also waits until the
  * list has stood unchanged for an hour.
+ *
+ * WHY IT WAITS FOR PLAYOFF POINTS (quick task 261009-vp9). A true flag closes
+ * every category of the event at once (`categoryCorroboration.ts`: only the
+ * awards flag cascades down). The district rankings are one feed with four
+ * layers, and nothing proves the award points never land before the playoff
+ * points. Walked on `2026orore` with the award points and a settled list
+ * arriving before the playoff points: the flag turned true, the Playoffs
+ * read final with no playoff point on any row, and the playoff points
+ * arriving took one lock back in the published district verdict, one in the
+ * published champ verdict and one on each tab. With this fact the flag
+ * stays false until some row at the event carries a playoff point.
+ *
+ * THE ASSUMPTION THAT REMAINS, NOT VERIFIED against a live event: TBA
+ * computes an event's point categories together, so playoff points carried
+ * by a payload that also carries award points include the deciding match.
+ * The fact asks for ANY playoff point above zero, not the winner's value,
+ * because at an event whose winners carry no row that value never appears.
  *
  * WHY IT ALSO WAITS FOR THE AWARDS BY NAME (quick task 261009-vp9). The hour
  * alone has a hole: a list that sits unchanged for an hour WITHOUT its Impact
@@ -123,6 +143,21 @@ export function awardPointsPresentAt(
 ): boolean {
   for (const team of teams) {
     for (const row of team.eventPoints) if (row.eventKey === eventKey && row.award > 0) return true;
+  }
+  return false;
+}
+
+/**
+ * True when some team's `eventPoints` row at `eventKey` carries playoff
+ * points above zero (quick task 261009-vp9). Narrowed structurally so this
+ * module needs no artifact type.
+ */
+export function playoffPointsPresentAt(
+  teams: readonly { readonly eventPoints: readonly { readonly eventKey: string; readonly elim: number }[] }[],
+  eventKey: string
+): boolean {
+  for (const team of teams) {
+    for (const row of team.eventPoints) if (row.eventKey === eventKey && row.elim > 0) return true;
   }
   return false;
 }
@@ -203,6 +238,13 @@ export interface AwardsPostedFacts {
   readonly judgedAwardListed: boolean;
   readonly awardPointsPresent: boolean;
   /**
+   * Some row at the event carries playoff points above zero (quick task
+   * 261009-vp9, `playoffPointsPresentAt`). OPTIONAL: the live vantage reads
+   * an absent value as NOT present, which is the waiting side, and the
+   * hindsight vantage does not read it at all.
+   */
+  readonly playoffPointsPresent?: boolean;
+  /**
    * The awards list has stood unchanged for `AWARDS_SETTLE_MS` (quick task
    * 261009-tx6). OPTIONAL: the live vantage reads an absent value as not
    * settled, and the hindsight vantage does not read it at all.
@@ -229,8 +271,8 @@ export type AwardsPostedVantage = "live" | "hindsight";
 /**
  * Whether an event's awards read as posted.
  *
- * Live: a judged award AND award points AND a settled list. Which settle fact
- * counts depends on the list: where every expected award is listed
+ * Live: a judged award AND award points AND playoff points AND a settled
+ * list. Which settle fact counts depends on the list: where every expected award is listed
  * (`expectedAwardsListed` exactly `true`) it is `listSettled`, 60 minutes;
  * otherwise it is `listSettledLong`, 12 hours. Each is read as true only when
  * it is exactly `true`.
@@ -243,7 +285,7 @@ export type AwardsPostedVantage = "live" | "hindsight";
  */
 export function awardsPostedRule(facts: AwardsPostedFacts, vantage: AwardsPostedVantage): boolean {
   if (vantage === "hindsight") return facts.judgedAwardListed || facts.awardPointsPresent;
-  if (!facts.judgedAwardListed || !facts.awardPointsPresent) return false;
+  if (!facts.judgedAwardListed || !facts.awardPointsPresent || facts.playoffPointsPresent !== true) return false;
   return facts.expectedAwardsListed === true ? facts.listSettled === true : facts.listSettledLong === true;
 }
 

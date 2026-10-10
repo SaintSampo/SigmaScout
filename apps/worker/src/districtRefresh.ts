@@ -99,7 +99,9 @@
  * (`packages/core/districts/eventAwards.ts`). It knows what this pass does
  * not: the event's tier, whether it is a division, and which award types the
  * list holds. The rule needs a judged award listed, AND award points at the
- * event in the rankings as merged this tick, AND:
+ * event in the rankings as merged this tick, AND playoff points at the event
+ * in those same rankings (a true flag closes every category of the event, so
+ * it must not rise while the playoff points are still to land), AND:
  *   - where the list holds EVERY consuming award the event gives (Impact at
  *     a district tier event; Impact, Winner, Engineering Inspiration and
  *     Rookie All Star at a District Championship that is not a division;

@@ -522,10 +522,19 @@ function eventPointsEntry(eventKey: string, total: number, districtCmp = false) 
   return { event_key: eventKey, district_cmp: districtCmp, qual_points: total, alliance_points: 0, elim_points: 0, award_points: 0, total };
 }
 
-/** `frc1` has now played `2026wayak` for 50 more points; `frc2` and `frc3` are unchanged. */
+/**
+ * `frc1` has now played `2026wayak` for 50 more points; `frc2` and `frc3` are unchanged.
+ *
+ * Five of the 50 are PLAYOFF points (quick task 261009-vp9): the live awards
+ * flag waits until some row at the event carries a playoff point, and every
+ * award test below means an event whose playoff points are in. The total is
+ * unchanged, and no row at the event carries the winner's 30, so every
+ * category of the event still reads open until its flag turns true.
+ */
 function movedRankings(): unknown {
+  const liveEntry = { ...eventPointsEntry(LIVE_EVENT, 50), qual_points: 45, elim_points: 5 };
   return [
-    { team_key: "frc1", rank: 1, point_total: 90, rookie_bonus: 0, adjustments: 0, event_points: [eventPointsEntry(PLAYED_EVENT, 40), eventPointsEntry(LIVE_EVENT, 50)] },
+    { team_key: "frc1", rank: 1, point_total: 90, rookie_bonus: 0, adjustments: 0, event_points: [eventPointsEntry(PLAYED_EVENT, 40), liveEntry] },
     { team_key: "frc2", rank: 2, point_total: 30, rookie_bonus: 0, adjustments: 0, event_points: [eventPointsEntry(PLAYED_EVENT, 30)] },
     { team_key: "frc3", rank: 3, point_total: 10, rookie_bonus: 0, adjustments: 0, event_points: [eventPointsEntry(PLAYED_EVENT, 10)] },
   ];
@@ -1832,11 +1841,18 @@ interface WatchEvent {
 
 /**
  * Three teams and nothing left to play. Every team has a finished row at
- * `2026wabon`. frc1 (10 qualification points) and frc3 (2, plus its award
- * points) also have a row at every listed event, carrying that event's state.
+ * `2026wabon`. frc1 (10 points: 9 qualification and 1 playoff) and frc3 (2
+ * qualification points, plus its award points) also have a row at every
+ * listed event, carrying that event's state.
+ *
+ * frc1's one PLAYOFF point is there because the live awards flag waits until
+ * some row at the event carries a playoff point (quick task 261009-vp9), and
+ * every watched event here means an event whose playoff points are in. No
+ * row carries the winner's 30, so every category of a waiting event still
+ * reads open until its flag turns true.
  */
 function watchArtifact(events: readonly WatchEvent[]): unknown {
-  const rowsFor = (qual: number, awardAt: (event: WatchEvent) => number) =>
+  const rowsFor = (qual: number, awardAt: (event: WatchEvent) => number, elim = 0) =>
     events.map((event) => ({
       eventKey: event.eventKey,
       eventName: event.eventKey,
@@ -1844,9 +1860,9 @@ function watchArtifact(events: readonly WatchEvent[]): unknown {
       tier: "district",
       qual,
       alliance: 0,
-      elim: 0,
+      elim,
       award: awardAt(event),
-      total: qual + awardAt(event),
+      total: qual + elim + awardAt(event),
       state: { ...(event.state ?? WAITING_STATE) },
     }));
   const team = (teamKey: string, teamNumber: number, rank: number, base: number, rows: ReturnType<typeof rowsFor>) => ({
@@ -1867,7 +1883,7 @@ function watchArtifact(events: readonly WatchEvent[]): unknown {
   });
   return {
     ...(districtArtifactFixture() as Record<string, unknown>),
-    teams: [team("frc1", 1, 1, 40, rowsFor(10, () => 0)), team("frc2", 2, 2, 30, []), team("frc3", 3, 3, 10, rowsFor(2, (event) => event.frc3Award ?? 0))],
+    teams: [team("frc1", 1, 1, 40, rowsFor(9, () => 0, 1)), team("frc2", 2, 2, 30, []), team("frc3", 3, 3, 10, rowsFor(2, (event) => event.frc3Award ?? 0))],
   };
 }
 

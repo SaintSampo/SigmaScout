@@ -53,13 +53,25 @@
  *   award    = awardsPosted
  *   elim     = award OR (playoffsDone AND some row at the event carries the
  *              WINNER's playoff value)
- *   alliance = elim OR (alliancesPicked AND some row at the event carries
+ *   alliance = award OR (alliancesPicked AND some row at the event carries
  *              alliance selection points above 0)
  *   qual     = alliance
  *
+ * ONLY THE AWARDS FLAG CASCADES DOWN. Alliance selection and Playoffs each
+ * need their OWN points. Playoffs final does NOT close Alliance selection:
+ * the district rankings are one feed with four layers, and nothing proves the
+ * layers always land in the order the event is played. When the playoff
+ * points landed before the alliance points, the first version of this rule
+ * read Alliance selection and Qualification final without a single alliance
+ * point in the rows, and the alliance points arriving took a lock back
+ * (walked on `2026orore`: 4 published district, 2 published champ, 4 on the
+ * District Locks tab, 2 on the Champ Locks tab). The awards flag may cascade
+ * because the live flag itself waits for award points AND playoff points at
+ * the event and for a settled list (`eventAwards.ts`).
+ *
  * AWARDS are the strong flag of quick tasks 261009-r9x and 261009-tx6 (a
- * judged award listed, award points present, the list settled) and need no
- * second proof here.
+ * judged award listed, award points present, playoff points present, the
+ * list settled) and need no second proof here.
  *
  * PLAYOFFS. A team shows the winner's value only after TBA has scored the
  * deciding match, so a row at that value proves the playoff points are in.
@@ -78,6 +90,25 @@
  * the last qualification match.
  *
  * AN ABSENT STATE reads every category open, as it always has.
+ *
+ * ---------------------------------------------------------------------------
+ * THE ASSUMPTION THAT REMAINS, STATED PLAINLY
+ * ---------------------------------------------------------------------------
+ *
+ * TBA computes an event's point categories together. Two things follow from
+ * it, and NEITHER IS VERIFIED against a live event:
+ *
+ *   1. The qualification points are final once alliance points appear.
+ *      Qualification has no proof of its own, so alliance points close it. If
+ *      alliance points ever landed BEFORE the corrected qualification points,
+ *      the corrected points arriving afterwards could take a lock back
+ *      (walked on `2026orore`: 2 published district and 2 on the District
+ *      Locks tab).
+ *   2. Playoff points carried by a payload that also carries award points
+ *      include the deciding match. The awards flag asks only that SOME row
+ *      at the event carries playoff points above 0, not the winner's value,
+ *      because an event whose winners carry no row never shows that value
+ *      (see below).
  *
  * ---------------------------------------------------------------------------
  * A DIVISIONED CHAMPIONSHIP'S FINALS EVENT
@@ -163,7 +194,9 @@ export function corroboratedCategoryFinality(state: DistrictEventStateFacts | un
     const field = districtEventCategoryFinality(state);
     return { qual: field.qual, alliance: field.alliance, elim, award };
   }
-  const alliance = elim || (state.alliancesPicked && presence.alliancePoints);
+  // Only the awards flag cascades down: Playoffs final does not close
+  // Alliance selection, which needs its own points.
+  const alliance = award || (state.alliancesPicked && presence.alliancePoints);
   return { qual: alliance, alliance, elim, award };
 }
 

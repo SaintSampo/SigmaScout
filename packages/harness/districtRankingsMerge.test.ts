@@ -1161,7 +1161,9 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
     });
 
     it("records nothing for a DCMP division key, whose flag still follows the rule", () => {
-      const divisionRow = (awardPoints: number) => pointsRow(DIVISION, 20 + awardPoints, awardPoints, PLAYOFFS_DONE, "dcmp");
+      // Each division row carries five playoff points: the flag waits until
+      // some row at the event carries one (quick task 261009-vp9).
+      const divisionRow = (awardPoints: number) => pointsRow(DIVISION, 20 + awardPoints, awardPoints, PLAYOFFS_DONE, "dcmp", { alliance: 0, elim: 5 });
       const noPoints = fixture({ extraPoints: { frcA: [divisionRow(0)], frcB: [divisionRow(0)] } });
       const list = [award(0, "frcA"), award(1, "frcA", "frcB"), award(9, "frcB"), award(10, "frcA")];
       const waiting = applyDistrictEventAwards(noPoints, lists([DIVISION, list]));
@@ -1347,7 +1349,9 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
     });
 
     describe("a championship (a dcmp tier key equal to its stem)", () => {
-      const dcmpRow = (total: number, awardPoints: number) => pointsRow(DCMP, total, awardPoints, PLAYOFFS_DONE, "dcmp");
+      // Each championship row carries five playoff points: the flag waits
+      // until some row at the event carries one.
+      const dcmpRow = (total: number, awardPoints: number) => pointsRow(DCMP, total, awardPoints, PLAYOFFS_DONE, "dcmp", { alliance: 0, elim: 5 });
       const base = () => fixture({ extraPoints: { frcA: [dcmpRow(40, 10)], frcB: [dcmpRow(20, 0)], frcC: [dcmpRow(5, 0)] } });
       const ALL_FOUR = [award(0, "frcA"), award(1, "frcA", "frcB"), award(9, "frcB"), award(10, "frcC"), award(2, "frcC"), award(29, null)];
 
@@ -1373,7 +1377,7 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
     });
 
     it("a division (a dcmp tier key with a trailing digit): a judged list with its points in the 60 minute set rises, and records nothing", () => {
-      const divisionRow = (awardPoints: number) => pointsRow(DIVISION, 20 + awardPoints, awardPoints, PLAYOFFS_DONE, "dcmp");
+      const divisionRow = (awardPoints: number) => pointsRow(DIVISION, 20 + awardPoints, awardPoints, PLAYOFFS_DONE, "dcmp", { alliance: 0, elim: 5 });
       const base = fixture({ extraPoints: { frcA: [divisionRow(10)], frcB: [divisionRow(0)] } });
       // No consuming award is listed at all: a division gives none.
       const out = applyDistrictEventAwards(base, lists([DIVISION, [award(2, "frcB"), award(29, "frcA")]]), new Set([DIVISION]));

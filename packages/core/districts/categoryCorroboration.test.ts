@@ -74,9 +74,23 @@ describe("corroboratedCategoryFinality: Alliance selection", () => {
     expect(corroboratedCategoryFinality(state({ alliancesPicked: true }), presence({ alliancePoints: true })).alliance).toBe(true);
   });
 
-  it("reads final whenever Playoffs are final, with no alliance points on any row", () => {
-    expect(corroboratedCategoryFinality(state({ alliancesPicked: true, playoffsDone: true }), presence({ winnerPlayoffPoints: true })).alliance).toBe(true);
-    expect(corroboratedCategoryFinality(state({ awardsPosted: true }), NO_POINTS_PRESENT).alliance).toBe(true);
+  it("needs its OWN points: Playoffs corroborated with alliance points absent leaves Alliance selection and Qualification open", () => {
+    // The playoff points landed before the alliance points. The winner's
+    // value proves the Playoffs and nothing below them.
+    const final = corroboratedCategoryFinality(state({ alliancesPicked: true, playoffsDone: true }), presence({ winnerPlayoffPoints: true }));
+    expect(final).toEqual({ qual: false, alliance: false, elim: true, award: false });
+    // Once the alliance points are in, both lower categories close.
+    expect(corroboratedCategoryFinality(state({ alliancesPicked: true, playoffsDone: true }), presence({ winnerPlayoffPoints: true, alliancePoints: true }))).toEqual({
+      qual: true,
+      alliance: true,
+      elim: true,
+      award: false,
+    });
+  });
+
+  it("only the awards flag cascades down: it still closes all four, with no proving row at all", () => {
+    expect(corroboratedCategoryFinality(state({ awardsPosted: true }), NO_POINTS_PRESENT)).toEqual({ qual: true, alliance: true, elim: true, award: true });
+    expect(corroboratedCategoryFinality(state({ alliancesPicked: true, playoffsDone: true, awardsPosted: true }), NO_POINTS_PRESENT)).toEqual({ qual: true, alliance: true, elim: true, award: true });
   });
 
   it("reads open with alliance points on a row while alliancesPicked is false", () => {

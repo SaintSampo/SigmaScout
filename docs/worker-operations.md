@@ -1033,6 +1033,9 @@ once all of these hold:
 
 - the awards list holds an award other than Winner and Finalist;
 - some team's row at that event carries award points in the rankings as merged that tick;
+- some team's row at that event carries playoff points above 0 in those same rankings. A true
+  flag closes every category of the event at once, so it must not rise while the playoff points
+  are still to land;
 - the list holds EVERY consuming award the event gives, and has not changed for 60 minutes
   (`AWARDS_SETTLE_MS`). A district tier event gives Impact. A District Championship that is not a
   division gives Impact, Winner, Engineering Inspiration and Rookie All Star. A division gives
@@ -1116,10 +1119,30 @@ back. The rule, for one event, reading the artifact's own rows at that event:
 - **Playoffs** are final when Awards are, or `playoffsDone` is true AND some row carries the
   winner's playoff value (30 at a district event, 90 at a championship or a division, in 2026;
   the finals champion value at a divisioned championship's finals event).
-- **Alliance selection** is final when Playoffs are, or `alliancesPicked` is true AND some row
-  carries alliance points above 0.
+- **Alliance selection** is final when Awards are, or `alliancesPicked` is true AND some row
+  carries alliance points above 0. Playoffs final does NOT close it.
 - **Qualification** is final when Alliance selection is. TBA shows provisional qualification
   points during an event, so their presence proves nothing.
+
+**Only the awards flag cascades down. Alliance selection and Playoffs each need their own
+points.** The district rankings are one feed with four layers, and nothing proves the layers
+always land in the order the event is played. Walked on `2026orore` with every other event
+finished, before this was hardened: playoff points landing before the alliance points took back 4
+published district, 2 published champ, 4 District Locks and 2 Champ Locks, and award points with a
+settled list landing before the playoff points took back 1 of each. Both orders now take back
+none. The flag may cascade because the live flag itself waits for award points and playoff points
+at the event and for a settled list.
+
+**The assumption that remains.** TBA computes an event's point categories together. Two things
+follow from it, and neither is verified against a live event:
+
+1. The qualification points are final once alliance points appear. Qualification has no proof of
+   its own, so alliance points close it. If alliance points ever landed before the corrected
+   qualification points, the corrected points arriving afterwards could take a lock back (walked
+   on `2026orore`: 2 published district and 2 on the District Locks tab).
+2. Playoff points carried by a payload that also carries award points include the deciding match.
+   The flag asks only for some playoff point above 0, not the winner's value, because an event
+   whose winners carry no row never shows that value.
 
 The rule only ever reads a category OPEN where the state alone reads it final. It never closes one
 early, and a rankings row alone closes nothing. It lives in
@@ -1196,6 +1219,10 @@ rule removed:
   through the real tick in the Worker test file.
 - **A Winner listed after the playoff points.** Two synthetic single championships in both tick
   orders, in the replay file.
+- **A later layer of points landing before the layer below it.** Playoff points before alliance
+  points, with and without the final qualification points, and award points with a settled list
+  before playoff points, on `2026orore` in the replay file. Not covered, and stated as the
+  assumption above: alliance points before the final qualification points.
 
 The published side is the tab's rule without its settled playoffs refinement, so in the middle of
 the playoffs a published status can be weaker than the tab's, never stronger.
@@ -1270,6 +1297,9 @@ Playoffs open at the live position until its awards flag turns true. See "An eve
 carry no row" above.
 
 **When TBA posts points during an event is not verified.** See the paragraph of that name above.
+
+**That TBA computes an event's point categories together is assumed, not verified.** See "The
+assumption that remains" above.
 
 **An event whose window is still open and whose state says its playoffs are open is not asked for
 awards.** An award cannot have been given out there yet.

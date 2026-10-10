@@ -46,9 +46,12 @@
  *   4. the field conditioned walks, with the played bracket handed to the
  *      tabs at every tick, in the two cases about when TBA posts points
  *      (minutes late, or only when the event ends);
- *   5. the Now census over every local district artifact.
- * Groups 1 to 3 read the committed fixture only and always run. Groups 4 and
- * 5 read gitignored local data and skip, with a message naming what is
+ *   5. the Now census over every local district artifact;
+ *   6. the reordered walks: a later layer of points landing before the layer
+ *      below it (playoff points before alliance points, award points and a
+ *      settled list before playoff points).
+ * Groups 1 to 3 and 6 read the committed fixture only and always run. Groups
+ * 4 and 5 read gitignored local data and skip, with a message naming what is
  * absent, where it is not there.
  *
  * THE EVENT LIST IS DERIVED from the fixture, never typed in, and its count
@@ -95,24 +98,54 @@ import { bracketFromCorpus, CORPUS_PATH, LOCAL_DISTRICT_DIR } from "./measureCha
 import { settledDistrictContext, settledStops, type SettledStop } from "./measureLedgerSettledTenets.js";
 
 /**
- * THE SWITCH. While `off` is set, the one core rule answers with the state's
- * own reading, which is what it replaced. Nothing else is switched: the merge,
- * the row builders and the status code all run as shipped.
+ * THE TWO SWITCHES. Nothing else is switched: the merge, the row builders and
+ * the status code all run as shipped.
+ *
+ * While `off` is set, the one core rule answers with the state's own
+ * reading, which is what it replaced.
+ *
+ * While `hardeningOff` is set, the two rules read as they did BEFORE the
+ * hardening of group 6: Playoffs final closes Alliance selection and
+ * Qualification without their own points, and the awards flag does not ask
+ * for playoff points at the event.
  */
-const ruleSwitch = vi.hoisted(() => ({ off: false }));
+const ruleSwitch = vi.hoisted(() => ({ off: false, hardeningOff: false }));
 
 vi.mock("../packages/core/districts/categoryCorroboration.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../packages/core/districts/categoryCorroboration.js")>();
   const slots = await vi.importActual<typeof import("../packages/core/districts/reservedSlots.js")>("../packages/core/districts/reservedSlots.js");
+  /** The rule before the hardening: a later category's finality closed every earlier one. */
+  const beforeHardening: typeof original.corroboratedCategoryFinality = (state, presence) => {
+    if (state === undefined) return slots.ALL_CATEGORIES_OPEN;
+    const award = state.awardsPosted;
+    const elim = award || (state.playoffsDone && presence.winnerPlayoffPoints);
+    if (presence.finalsEvent) {
+      const field = slots.districtEventCategoryFinality(state);
+      return { qual: field.qual, alliance: field.alliance, elim, award };
+    }
+    const alliance = elim || (state.alliancesPicked && presence.alliancePoints);
+    return { qual: alliance, alliance, elim, award };
+  };
   return {
     ...original,
     corroboratedCategoryFinality: (...args: Parameters<typeof original.corroboratedCategoryFinality>) =>
-      ruleSwitch.off ? slots.districtEventCategoryFinality(args[0]) : original.corroboratedCategoryFinality(...args),
+      ruleSwitch.off ? slots.districtEventCategoryFinality(args[0]) : ruleSwitch.hardeningOff ? beforeHardening(...args) : original.corroboratedCategoryFinality(...args),
+  };
+});
+
+vi.mock("../packages/core/districts/eventAwards.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../packages/core/districts/eventAwards.js")>();
+  return {
+    ...original,
+    // Before the hardening the live flag did not ask for playoff points.
+    awardsPostedRule: (...args: Parameters<typeof original.awardsPostedRule>) =>
+      original.awardsPostedRule(ruleSwitch.hardeningOff ? { ...args[0], playoffPointsPresent: true } : args[0], args[1]),
   };
 });
 
 afterEach(() => {
   ruleSwitch.off = false;
+  ruleSwitch.hardeningOff = false;
 });
 
 /** Runs `body` with the rule switched off, and switches it back on whatever happens. */
@@ -122,6 +155,16 @@ function withRuleOff<T>(body: () => T): T {
     return body();
   } finally {
     ruleSwitch.off = false;
+  }
+}
+
+/** Runs `body` with the hardening of group 6 switched off, and switches it back on whatever happens. */
+function withHardeningOff<T>(body: () => T): T {
+  ruleSwitch.hardeningOff = true;
+  try {
+    return body();
+  } finally {
+    ruleSwitch.hardeningOff = false;
   }
 }
 
@@ -603,6 +646,164 @@ describe("the staged replay: every district tier event of the fixture, with its 
       // And every walk still ends where the published artifact is.
       for (const team of walk.end.teams) expect({ teamKey: team.teamKey, status: team.districtLock.status }).toEqual({ teamKey: team.teamKey, status: baseline.teams.find((entry) => entry.teamKey === team.teamKey)!.districtLock.status });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GROUP 6. The reordered walks: a later layer of points before the layer below
+//
+// The ten ticks of group 1 follow the physical order: each layer of points
+// lands after the layer it is computed from. TBA's district rankings are one
+// feed with four layers, and nothing proves they always arrive in that order.
+// Found by the verifier of quick task 261009-vp9 on 2026orore: when a later
+// layer landed first, a later category's finality closed the earlier ones
+// WITHOUT their own points, and a lock was taken back when those points
+// arrived.
+//
+// THE HARDENING. Only the awards flag cascades down. Alliance selection and
+// Playoffs each need their OWN points, and the live awards flag waits for
+// playoff points at the event.
+//
+// Each walk is a list of steps:
+//   qs  qualification starts (state)         P0  provisional qualification points
+//   qd  last qualification match (state)     Pq  final qualification points
+//   sp  alliances picked (state)             Pa  alliance points
+//   pd  playoffs done (state)                Pe  playoff points
+//   L   the judged awards are listed         Pw  award points
+//   ST  the list has settled
+//
+// ONE ORDER IS NOT WALKED AS A PASSING ZERO, AND IS THE STATED ASSUMPTION:
+// alliance points landing before the final qualification points
+// (`qs P0 qd sp Pa Pq pd Pe L Pw ST`). Qualification has no proof of its
+// own, so the alliance points close it, and the corrected qualification
+// points arriving afterwards can take a lock back (measured: 2 published
+// district and 2 on the District Locks tab). The rule assumes TBA computes
+// an event's point categories together, so the qualification points are
+// final once alliance points appear. Not verified against a live event.
+// ---------------------------------------------------------------------------
+
+const REORDERED = {
+  /** The physical order, as a check that the step machine reproduces group 1. */
+  physical: "qs P0 qd Pq sp Pa pd Pe L Pw ST",
+  /** Playoff points before alliance points. */
+  N1: "qs P0 qd Pq sp pd Pe Pa L Pw ST",
+  /** Award points and a settled list before playoff points. */
+  N3: "qs P0 qd Pq sp Pa pd L Pw ST Pe",
+  /** Playoff points before the final qualification points and the alliance points. */
+  N4: "qs P0 qd sp pd Pe Pq Pa L Pw ST",
+} as const;
+
+/** One district event walked through a list of steps, each one tick. */
+function reorderedWalk(eventKey: string, order: string): Walk {
+  const w = eventWalker(baseline, eventKey);
+  const field = { played: 0, picked: false, done: false };
+  const landed = { qual: "none" as "none" | "provisional" | "final", alliance: false, elim: false, award: false };
+  const awards = { listed: false, settled: false };
+  const state = () => w.stateOf(field.played, field.picked, field.done);
+  /** The row a participant carries now: each layer either its final value or not in yet. */
+  const points = (teamKey: string): Points => {
+    const all = w.all(teamKey);
+    return { qual: landed.qual === "final" ? all.qual : w.stale(teamKey).qual, alliance: landed.alliance ? all.alliance : 0, elim: landed.elim ? all.elim : 0, award: landed.award ? all.award : 0 };
+  };
+  // Once listed, the list is in hand on every tick, and once settled it stays settled.
+  const extra = () => ({
+    ...(awards.listed ? { eventAwards: new Map([[eventKey, w.awardsList]]) } : {}),
+    ...(awards.settled ? { settledAwardEvents: new Set([eventKey]) } : {}),
+  });
+  const stateStep = (change: () => void) => (): void => {
+    change();
+    w.stateOnly(state(), extra());
+  };
+  const pointsStep = (change: () => void) => (): void => {
+    change();
+    w.rowsChange(state(), points, extra());
+  };
+  const steps: Readonly<Record<string, () => void>> = {
+    qs: stateStep(() => void (field.played = QUAL_PLAYED_IN_PROGRESS)),
+    qd: stateStep(() => void (field.played = QUAL_TOTAL)),
+    sp: stateStep(() => void (field.picked = true)),
+    pd: stateStep(() => void (field.done = true)),
+    L: stateStep(() => void (awards.listed = true)),
+    ST: stateStep(() => void (awards.settled = true)),
+    P0: pointsStep(() => void (landed.qual = "provisional")),
+    Pq: pointsStep(() => void (landed.qual = "final")),
+    Pa: pointsStep(() => void (landed.alliance = true)),
+    Pe: pointsStep(() => void (landed.elim = true)),
+    Pw: pointsStep(() => void (landed.award = true)),
+  };
+  return runTicks(
+    w,
+    order.split(" ").map((name) => {
+      const apply = steps[name];
+      if (apply === undefined) throw new Error(`unknown step "${name}" in "${order}"`);
+      return { label: name, apply };
+    })
+  );
+}
+
+const countsOf = (walk: Walk) => ({
+  district: takeBacks(walk.steps, (step) => step.district, districtHeld).length,
+  champ: takeBacks(walk.steps, (step) => step.champ, champHeld).length,
+  tab: takeBacks(walk.steps, (step) => step.districtTab, districtTabHeld).length,
+  champTab: takeBacks(walk.steps, (step) => step.champTab, champTabHeld).length,
+});
+
+describe("the staged replay: a later layer of points landing before the layer below it, on 2026orore (quick task 261009-vp9, the hardening)", () => {
+  const EVENT = "2026orore";
+
+  it("the physical order through the step machine takes no lock back and ends on the published state, hardening on or off", () => {
+    for (const walk of [reorderedWalk(EVENT, REORDERED.physical), withHardeningOff(() => reorderedWalk(EVENT, REORDERED.physical))]) {
+      expect(countsOf(walk)).toEqual({ district: 0, champ: 0, tab: 0, champTab: 0 });
+      expectEndState(walk, baseline);
+    }
+  });
+
+  for (const name of ["N1", "N3", "N4"] as const) {
+    it(`${name} (${REORDERED[name]}): no published lock and no Locked on either tab is taken back at any tick, and the end state is the published one`, () => {
+      const walk = reorderedWalk(EVENT, REORDERED[name]);
+      expect({ name, lost: takeBacks(walk.steps, (step) => step.district, districtHeld) }).toEqual({ name, lost: [] });
+      expect({ name, lost: takeBacks(walk.steps, (step) => step.champ, champHeld) }).toEqual({ name, lost: [] });
+      expect({ name, lost: takeBacks(walk.steps, (step) => step.districtTab, districtTabHeld) }).toEqual({ name, lost: [] });
+      expect({ name, lost: takeBacks(walk.steps, (step) => step.champTab, champTabHeld) }).toEqual({ name, lost: [] });
+      // No category is grey without its own points, at any tick.
+      for (const step of walk.steps) expect({ name, tick: step.label, greyOpenCells: step.greyOpenCells }).toEqual({ name, tick: step.label, greyOpenCells: [] });
+      expectEndState(walk, baseline);
+    });
+  }
+
+  it("N1 and N4: the playoff points alone close the Playoffs and nothing below them, until the alliance points land", () => {
+    for (const name of ["N1", "N4"] as const) {
+      const walk = reorderedWalk(EVENT, REORDERED[name]);
+      const at = (label: string): WalkStep => walk.steps.find((step) => step.label === label)!;
+      expect({ name, published: at("Pe").publishedFinal, rows: at("Pe").rowFinal }).toEqual({
+        name,
+        published: { qual: false, alliance: false, elim: true, award: false },
+        rows: { qual: false, alliance: false, elim: true, award: false },
+      });
+      expect({ name, published: at("Pa").publishedFinal }).toEqual({ name, published: { qual: true, alliance: true, elim: true, award: false } });
+    }
+  });
+
+  it("N3: a settled list with its award points does not raise the flag while no row carries a playoff point, and the flag rises on the tick the playoff points land", () => {
+    const walk = reorderedWalk(EVENT, REORDERED.N3);
+    const at = (label: string): WalkStep => walk.steps.find((step) => step.label === label)!;
+    expect(at("ST").flag).toBe(false);
+    expect(at("ST").publishedFinal).toEqual({ qual: true, alliance: true, elim: false, award: false });
+    expect(at("Pe").flag).toBe(true);
+    expect(at("Pe").publishedFinal).toEqual(ALL_FINAL);
+  });
+
+  it("with the hardening switched off, each reordered walk takes locks back (pinned as the run shows)", () => {
+    const off = withHardeningOff(() => ({
+      N1: countsOf(reorderedWalk(EVENT, REORDERED.N1)),
+      N3: countsOf(reorderedWalk(EVENT, REORDERED.N3)),
+      N4: countsOf(reorderedWalk(EVENT, REORDERED.N4)),
+    }));
+    expect(off).toEqual({
+      N1: { district: 4, champ: 2, tab: 4, champTab: 2 },
+      N3: { district: 1, champ: 1, tab: 1, champTab: 1 },
+      N4: { district: 4, champ: 2, tab: 4, champTab: 2 },
+    });
   });
 });
 
