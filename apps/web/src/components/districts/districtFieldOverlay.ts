@@ -33,7 +33,7 @@
  * Pure: no React, no Worker type, and no status rule of `locks.ts`'s restated.
  */
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
-import { deriveStageFromState, districtTierEvents, tierEvents } from "./districtLedgerRows.js";
+import { deriveStageFromState, districtTierEvents, liveStageByEvent, tierEvents } from "./districtLedgerRows.js";
 import type { DistrictLedgerStatusKey, DistrictLedgerStatusModel, DistrictLedgerStatusResult } from "./districtLedgerStatus.js";
 
 type DistrictTeam = DistrictArtifact["teams"][number];
@@ -98,14 +98,28 @@ export function championshipHasStarted(artifact: DistrictArtifact): boolean {
  *    those three: NOT playing through that entry. An award only invitee attends
  *    and can win an award there.
  * 3. A dcmp tier `eventPoints` entry whose four categories are ALL ZERO:
- *    - while its own `state` does not show qualification finished (an absent
- *      state counts as not finished) it is POINTS NOT YET REPORTED, and is read
- *      exactly as rule 4 reads a `remainingEvents` entry. A live championship
- *      can publish the row before any points land, and reading that empty row
- *      as "not playing" would show a team that earned its place as Declined,
- *      and a late entry as Locked out, during the championship itself;
- *    - once its state shows qualification finished, zero qualification points
- *      is a result and not a gap: NOT playing through that entry.
+ *    - while the event's qualification NUMBER is not final it is POINTS NOT
+ *      YET REPORTED, and is read exactly as rule 4 reads a `remainingEvents`
+ *      entry. A live championship can publish the row before any points
+ *      land, and reading that empty row as "not playing" would show a team
+ *      that earned its place as Declined, and a late entry as Locked out,
+ *      during the championship itself;
+ *    - once the event's qualification number is final, zero qualification
+ *      points is a result and not a gap: NOT playing through that entry.
+ *
+ *    THIS RULE ASKS WHETHER A NUMBER IS FINAL, so it takes the NUMBER reading
+ *    (quick task 261009-vp9), not the field's. "Is this zero a result or a
+ *    gap" is a question about TBA's points, and the event's state says only
+ *    that qualification is over on the field. The state comes from the match
+ *    feed and can run ahead of the district rankings, and for those minutes
+ *    every row of the championship is still all zero: read from the state
+ *    alone, every team that earned its place would be shown Declined. So
+ *    where `liveStage` is supplied (the overlay always supplies it), a row's
+ *    qualification is finished only when the live stage of its event says so
+ *    (`liveStageByEvent`: the state AND a row with alliance points at the
+ *    event), and an event absent from the map reads as not finished. With no
+ *    `liveStage` the function reads the entry's own `state`, as it always
+ *    has, where an absent state counts as not finished.
  * 4. NO dcmp tier `eventPoints` entry at all (points not yet reported for this
  *    team): PROVISIONALLY playing when it has a dcmp tier `remainingEvents`
  *    entry, UNLESS it did not earn a place (`earnedPlace` false) AND it holds a
@@ -120,14 +134,16 @@ export function championshipHasStarted(artifact: DistrictArtifact): boolean {
  *
  * `earnedPlace` is whether the team's raw verdict is `locked` or `lockedAward`.
  */
-export function isPlayingChampionship(team: DistrictTeam, earnedPlace: boolean): boolean {
+export function isPlayingChampionship(team: DistrictTeam, earnedPlace: boolean, liveStage?: ReadonlyMap<string, { readonly qual: boolean }>): boolean {
   let reported = false;
   let pointsNotYetReported = false;
   for (const entry of team.eventPoints) {
     if (entry.tier !== "dcmp") continue;
     if (entry.qual + entry.alliance + entry.elim > 0) return true;
-    // The same qualification finality the tab's own stage reads.
-    if (entry.award === 0 && !deriveStageFromState(entry.state).final.qual) pointsNotYetReported = true;
+    // Whether the event's qualification NUMBER is final (rule 3): the live
+    // stage where the caller supplies it, the entry's own state otherwise.
+    const qualFinal = liveStage === undefined ? deriveStageFromState(entry.state).final.qual : (liveStage.get(entry.eventKey)?.qual ?? false);
+    if (entry.award === 0 && !qualFinal) pointsNotYetReported = true;
     else reported = true;
   }
 
@@ -172,6 +188,9 @@ export function applyChampionshipFieldOverlay(
   if (!active) return { ...statuses, fieldOverlay: false };
 
   const sourceByKey = new Map(artifact.teams.map((team) => [team.teamKey, team] as const));
+  // The NUMBER reading of every championship event, built once and only
+  // where the overlay is active (quick task 261009-vp9, rule 3 above).
+  const liveStage = liveStageByEvent(artifact, ["dcmp"]);
   const byTeam = new Map<string, DistrictLedgerShownResult>();
   const counts = { prequalified: 0, locked: 0, declined: 0, inRange: 0, outOfRange: 0, lockedOut: 0 };
 
@@ -183,7 +202,7 @@ export function applyChampionshipFieldOverlay(
     }
     const earnedPlace = raw.verdict === "locked" || raw.verdict === "lockedAward";
     const source = sourceByKey.get(teamKey);
-    const playing = source !== undefined && isPlayingChampionship(source, earnedPlace);
+    const playing = source !== undefined && isPlayingChampionship(source, earnedPlace, liveStage);
     if (playing) {
       counts.locked += 1;
       byTeam.set(teamKey, { ...raw, status: "locked", byAward: raw.verdict === "lockedAward" });

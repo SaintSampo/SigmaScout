@@ -520,6 +520,61 @@ describe("O6: a championship row that carries no points yet is not a decline", (
   });
 });
 
+describe("O7: the overlay asks whether the qualification NUMBER is final, not whether qualification is over on the field (quick task 261009-vp9)", () => {
+  /** Qualification over and alliances picked on the field. Nothing later. */
+  const PICKED: DistrictEventState = { qualMatchesPlayed: 12, qualMatchesTotal: 12, alliancesPicked: true, playoffsDone: false, awardsPosted: false };
+
+  /**
+   * A championship under way. frc1 and frc2 earned their places and their
+   * championship rows are published empty. frc3 is a late entry whose row
+   * carries the given points. frc5 is not entered.
+   */
+  function district(frc3: { qual?: number; alliance?: number }): DistrictArtifact {
+    return artifactOf(
+      [
+        team("frc1", { pointTotal: 100, eventPoints: [played("a", 100), championship({}, PICKED)] }),
+        team("frc2", { pointTotal: 90, eventPoints: [played("a", 90), championship({}, PICKED)] }),
+        team("frc3", { pointTotal: 10 + (frc3.qual ?? 0) + (frc3.alliance ?? 0), eventPoints: [played("a", 10), championship(frc3, PICKED)] }),
+        team("frc5", { pointTotal: 1, eventPoints: [played("a", 1)] }),
+      ],
+      { dcmpSlots: 2 }
+    );
+  }
+  const shownFor = (artifact: DistrictArtifact) => {
+    const raw = rawFor(artifact);
+    expect(["frc1", "frc2"].map((teamKey) => raw.byTeam.get(teamKey)?.verdict)).toEqual(["locked", "locked"]);
+    const shown = applyChampionshipFieldOverlay(raw, artifact, { atLive: true });
+    expect(shown.fieldOverlay).toBe(true);
+    return ["frc1", "frc2", "frc3", "frc5"].map((teamKey) => shown.byTeam.get(teamKey)?.status);
+  };
+
+  it("an all zero row where the state says qualification is finished while NO row at the event carries alliance points reads as points not yet reported: a team that earned its place is Locked, not Declined", () => {
+    expect(shownFor(district({}))).toEqual(["locked", "locked", "locked", "lockedOut"]);
+    // Provisional qualification points on another row prove nothing.
+    expect(shownFor(district({ qual: 20 }))).toEqual(["locked", "locked", "locked", "lockedOut"]);
+  });
+
+  it("once some row at the event carries alliance points the same all zero row reads as not playing", () => {
+    expect(shownFor(district({ qual: 20, alliance: 12 }))).toEqual(["declined", "declined", "locked", "lockedOut"]);
+  });
+
+  it("isPlayingChampionship with two arguments reads the state, as before, and with the live stage reads the number", () => {
+    const empty = team("frc1", { pointTotal: 40, eventPoints: [played("a", 40), championship({}, PICKED)] });
+    // Two arguments: the state says qualification is finished, so the zero row is a result.
+    expect(isPlayingChampionship(empty, true)).toBe(false);
+    // The live stage says the qualification number is not final at the event.
+    expect(isPlayingChampionship(empty, true, new Map([[CMP, { qual: false }]]))).toBe(true);
+    expect(isPlayingChampionship(empty, true, new Map([[CMP, { qual: true }]]))).toBe(false);
+    // An event absent from the map reads Qualification open.
+    expect(isPlayingChampionship(empty, true, new Map())).toBe(true);
+    // The rest of the rule is untouched by the third argument.
+    const playing = team("frc1", { pointTotal: 44, eventPoints: [played("a", 40), championship({ qual: 4 }, PICKED)] });
+    expect(isPlayingChampionship(playing, false, new Map())).toBe(true);
+    const awardOnly = team("frc1", { pointTotal: 50, eventPoints: [played("a", 40), championship({ award: 10 }, PICKED)] });
+    expect(isPlayingChampionship(awardOnly, true, new Map())).toBe(false);
+  });
+});
+
 describe("O5: the committed 2026 PNW fixture", () => {
   const FIXTURE: DistrictArtifact = DistrictArtifactSchema.parse(
     JSON.parse(readFileSync(repoFile("data/fixtures/phase10/district-2026pnw.json"), "utf8"))

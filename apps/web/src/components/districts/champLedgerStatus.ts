@@ -133,6 +133,31 @@
  *    winner, or finals rows before every division is decided,
  *    `bracketUnroutable`.
  *
+ * 6. THE WINNER HOLD (quick task 261009-vp9). Decision 2's reservation
+ *    releases the winning alliance's four places once a championship's
+ *    Playoffs are final. That alone is not enough at a LIVE championship: TBA
+ *    can post the playoff points before it lists the Winner, and for those
+ *    ticks the four places would be neither reserved for (the Playoffs read
+ *    final) nor counted (no winner is known), which hands the points race
+ *    four slots the winners then take. So the places are released only once
+ *    the Playoffs are final AND a Winner is counted at that championship at
+ *    this position (`winnerPostedAt`, by championship stem), exactly as the
+ *    published verdict pass does (`reservedChampSlotsAtNow` in
+ *    `packages/harness/districtRankingsMerge.ts`). A Winner at another
+ *    championship of the same district releases nothing here.
+ *
+ *    THE HOLD APPLIES ONLY WHILE THE CHAMPIONSHIP'S OWN FLAG IS NOT TRUE AT
+ *    NOW. Where the artifact's state already says its awards are posted (a
+ *    finished championship, which is every one in a published season), a
+ *    rewound stop reads as it always has: Playoffs final at the stop
+ *    releases the places. Applied at every stop the hold moved history: over
+ *    the ten 2020 seasons, whose championships posted awards with no Winner
+ *    at all, `scripts/measureChampTenets.ts` read Locked on points shown
+ *    6836 as 6792. Applied only while the flag is not yet true at Now it
+ *    moves nothing there. The flag is read per championship
+ *    (`perChampionship`): the finals event's own at a divisioned
+ *    championship, never a division's.
+ *
  * AWARD-QUALIFIED AT THIS TIER means the DCMP winning alliance once the
  * playoffs are done, and Impact, Engineering Inspiration or Rookie All Star at
  * the DCMP once awards are posted — at any of the district's championships
@@ -160,7 +185,8 @@ import {
   perChampionship,
   reservedChampSlots,
 } from "../../../../../packages/core/districts/champReservedSlots.js";
-import { BRACKET_REGISTERED_SEASONS, InvalidBracketDecisionError, maxFinalsPointsByPlacement, maxPlayoffPointsByPlacement } from "../../../../../packages/core/districts/bracket.js";
+import { InvalidBracketDecisionError, maxFinalsPointsByPlacement, maxPlayoffPointsByPlacement } from "../../../../../packages/core/districts/bracket.js";
+import { divisionCountOf, finalsChampionMaximum } from "../../../../../packages/core/districts/categoryCorroboration.js";
 import {
   dcmpBracketState,
   divisionAllianceId,
@@ -342,21 +368,11 @@ const EMPTY_CENSUS: Record<LockStatus, number> = {
 
 const ALL_OPEN_STAGE: DistrictStageFinality = { qual: false, alliance: false, elim: false, award: false };
 
-/** How many DIVISION keys (a trailing digit, the same stem, not the stem itself) a championship stem holds among the dcmp tier keys. */
-function divisionCountOf(stem: string, dcmpEventKeys: readonly string[]): number {
-  return dcmpEventKeys.filter((key) => key !== stem && championshipStemOf(key) === stem).length;
-}
-
-/**
- * The finals champion maximum of a championship with `divisions` divisions:
- * `maxFinalsPointsByPlacement` for a registered bracket season at 2 or 4
- * divisions, otherwise the whole 3x DCMP Playoffs ceiling (the conservative
- * side, for an earlier season or another division count).
- */
-function finalsChampionMaximum(season: number, divisions: number): number {
-  if (BRACKET_REGISTERED_SEASONS.includes(season) && (divisions === 2 || divisions === 4)) return maxFinalsPointsByPlacement(season, divisions, 1);
-  return maxEventPoints(season, "dcmp").elim;
-}
+// `divisionCountOf` and `finalsChampionMaximum` live in
+// `packages/core/districts/categoryCorroboration.ts` since quick task
+// 261009-vp9: the corroborated finality rule needs the same finals champion
+// value to know when a finals event's playoff points are in, and one copy
+// serves both.
 
 /**
  * The open category ceilings of a FINALS source of a divisioned championship
@@ -623,14 +639,42 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
   // keys are two (`perChampionship`). One reservation per championship,
   // summed. With no dcmp row anywhere one whole championship is open, which is
   // the conservative answer. No pooled argument is passed.
+  //
+  // THE WINNER HOLD, decision 6 (quick task 261009-vp9). What is handed on
+  // as "Playoffs final" for the RESERVATION is the stage's Playoffs AND
+  // (the championship's own flag is true at Now OR a Winner is counted
+  // there at this position). The flag clause is what keeps history still:
+  // applied at every stop, the hold moved `measureChampTenets` on the ten
+  // 2020 seasons (Locked on points shown 6836 to 6792). `awardFinal` is
+  // untouched, and it zeroes the reservation whatever this says.
   const awardCeilings = dcmpAwardCountCeilings(artifact.year, artifact.districtKey, artifact.cmpSlots ?? 0).counts;
   const neverHappening = dcmpNeverHappening({
     dcmpStates: artifact.teams.flatMap((team) => tierEvents(team, "dcmp").map((entry) => entry.state)),
     artifactYear: artifact.year,
     nowYear: options.nowYear ?? new Date().getUTCFullYear(),
   });
+  // Each championship's own flag at NOW, from the artifact's state blocks:
+  // one value per dcmp key (a row that carries a state wins over one that
+  // carries none), then one per championship, false where nothing says true.
+  const postedAtNowByEvent = new Map<string, boolean | undefined>();
+  for (const team of artifact.teams) {
+    for (const entry of tierEvents(team, "dcmp")) {
+      if (!postedAtNowByEvent.has(entry.eventKey) || (postedAtNowByEvent.get(entry.eventKey) === undefined && entry.state !== undefined)) {
+        postedAtNowByEvent.set(entry.eventKey, entry.state?.awardsPosted);
+      }
+    }
+  }
+  const postedAtNowByChampionship = perChampionship(new Map([...postedAtNowByEvent].map(([eventKey, posted]) => [eventKey, posted === true] as const)), false);
+  // The championships a Winner is counted at, at this position, by stem.
+  const winnerCountedAt = new Set([...winnerPostedAt].map((eventKey) => championshipStemOf(eventKey)));
+  const releasedStageByEvent = new Map<string, DistrictStageFinality>();
+  for (const [eventKey, stage] of dcmpStageByEvent) {
+    const stem = championshipStemOf(eventKey);
+    const winnerPlacesReleased = stage.elim && (postedAtNowByChampionship.get(stem) === true || winnerCountedAt.has(stem));
+    releasedStageByEvent.set(eventKey, { ...stage, elim: winnerPlacesReleased });
+  }
   let reservedSlots = 0;
-  const stageByChampionship = perChampionship(dcmpStageByEvent, ALL_OPEN_STAGE);
+  const stageByChampionship = perChampionship(releasedStageByEvent, ALL_OPEN_STAGE);
   for (const stage of stageByChampionship.size === 0 ? [ALL_OPEN_STAGE] : stageByChampionship.values()) {
     reservedSlots += reservedChampSlots({ elimFinal: stage.elim, awardFinal: stage.award, awardCeilings, neverHappening });
   }
@@ -811,6 +855,14 @@ function championshipRouting(
  * Decision 5's preconditions, in order, and the proof's input read off the
  * rows, per championship shape (`championshipShape`). The first failed
  * precondition is the reason; otherwise the proof runs.
+ *
+ * THE TWO READINGS HERE (quick task 261009-vp9). The bracket facts the proof
+ * is handed come from the FIELD: the alliances and played rows the run was
+ * conditioned on, which are in hand as soon as the match feed shows them. Its
+ * eligibility gate, its floors and its extras read the rows' stage, which is
+ * the NUMBER. So at a live championship the proof refuses as
+ * `stageNotEligible` until the alliance points are in the rows, and the flat
+ * reservation of decision 2 stands meanwhile.
  */
 function jointProofAt(input: JointProofAtInput): ChampJointProof {
   const { artifact, distributions } = input;

@@ -268,6 +268,9 @@ describe("computeChampLedgerStatuses — a district with two championships (quic
     }),
   });
 
+  /** The championships a Winner is recorded at, after the relabelling above. */
+  const WINNER_KEYS = [...new Set(TWO_DCMP.teams.flatMap((team) => team.qualifyingAwards.filter((award) => award.awardType === 1).map((award) => award.eventKey)))].sort();
+
   function modelWithStages(first: DistrictStageFinality, second: DistrictStageFinality) {
     const stageByEvent = new Map(eventKeysOf(TWO_DCMP).map((key) => [key, key === DCMP_KEY ? first : key === SECOND_KEY ? second : ALL_FINAL] as const));
     const rows = buildChampLedgerRows({ artifact: TWO_DCMP, distributions: new Map(), stageByEvent, dcmpStarted: true });
@@ -296,8 +299,19 @@ describe("computeChampLedgerStatuses — a district with two championships (quic
   });
 
   it("reserves one championship's slots per championship still open", () => {
+    const PLAYOFFS_FINAL: DistrictStageFinality = { qual: true, alliance: true, elim: true, award: false };
     expect(modelWithStages(ALL_FINAL, ALL_FINAL).status.reservedSlots).toBe(0);
-    expect(modelWithStages(ALL_FINAL, { qual: true, alliance: true, elim: true, award: false }).status.reservedSlots).toBe(AWARD_SLOTS);
+    // PIN MOVED by quick task 261009-vp9 (the winner hold), from AWARD_SLOTS.
+    // The fixture's three Winner records all sit on teams at the FIRST
+    // championship, and this fixture carries no state block, so neither
+    // championship's flag is true at Now. The second championship's Playoffs
+    // are final here with NO Winner recorded there, so its winning
+    // alliance's four places stay held on top of its judged awards.
+    expect(WINNER_KEYS).toEqual([DCMP_KEY]);
+    expect(modelWithStages(ALL_FINAL, PLAYOFFS_FINAL).status.reservedSlots).toBe(AWARD_SLOTS + MAX_WINNING_ALLIANCE_SIZE);
+    // The mirror: the first championship does have its Winner recorded, so
+    // its four places are released as before.
+    expect(modelWithStages(PLAYOFFS_FINAL, ALL_FINAL).status.reservedSlots).toBe(AWARD_SLOTS);
     expect(modelWithStages({ qual: true, alliance: true, elim: false, award: false }, ALL_OPEN).status.reservedSlots).toBe(2 * (AWARD_SLOTS + MAX_WINNING_ALLIANCE_SIZE));
   });
 
@@ -323,6 +337,132 @@ describe("computeChampLedgerStatuses — a district with two championships (quic
   it("locks fewer teams on points while only the second championship's awards are open than with both final", () => {
     const lockedOnPoints = (model: ReturnType<typeof modelWithStages>): number => [...model.status.byTeam.values()].filter((r) => r.status === "locked" && !r.byAward).length;
     expect(lockedOnPoints(modelWithStages(ALL_FINAL, { qual: true, alliance: true, elim: true, award: false }))).toBeLessThan(lockedOnPoints(modelWithStages(ALL_FINAL, ALL_FINAL)));
+  });
+});
+
+describe("computeChampLedgerStatuses — the winner hold (quick task 261009-vp9)", () => {
+  const DCMP_KEY = "2026pncmp";
+  const SECOND_KEY = "2026pnncmp";
+  const AWARD_SLOTS = pendingAwardSlots(dcmpAwardCountCeilings(FIXTURE.year, FIXTURE.districtKey, FIXTURE.cmpSlots!).counts);
+  const HELD = AWARD_SLOTS + MAX_WINNING_ALLIANCE_SIZE;
+  const PLAYOFFS_FINAL: DistrictStageFinality = { qual: true, alliance: true, elim: true, award: false };
+  type StateBlock = NonNullable<DistrictArtifact["teams"][number]["eventPoints"][number]["state"]>;
+  /** Played out, awards not posted: a championship that is still live at Now. */
+  const LIVE: StateBlock = { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: true, awardsPosted: false };
+  /** Over, awards posted: the flag is true at Now. */
+  const OVER: StateBlock = { ...LIVE, awardsPosted: true };
+  const WINNER = (eventKey: string) => ({ eventKey, awardType: 1, label: "Winner", awardOnly: false });
+
+  /** `artifact` with a state block on every row (`dcmpStateOf` on a dcmp tier row, over everywhere else) and, unless `winners`, every Winner record removed. */
+  function withStates(artifact: DistrictArtifact, dcmpStateOf: (eventKey: string) => StateBlock, winners: boolean): DistrictArtifact {
+    return DistrictArtifactSchema.parse({
+      ...artifact,
+      teams: artifact.teams.map((team) => ({
+        ...team,
+        eventPoints: team.eventPoints.map((row) => ({ ...row, state: row.tier === "dcmp" ? dcmpStateOf(row.eventKey) : OVER })),
+        qualifyingAwards: winners ? team.qualifyingAwards : team.qualifyingAwards.filter((award) => award.awardType !== 1),
+      })),
+    });
+  }
+
+  /** The reservation at Now (no stage map), or at a rewound stop (the stage map supplied). */
+  function reservedAt(artifact: DistrictArtifact, stageByEvent?: ReadonlyMap<string, DistrictStageFinality>): number {
+    const rows = buildChampLedgerRows({ artifact, distributions: new Map(), ...(stageByEvent === undefined ? { atLivePosition: true } : { stageByEvent }), dcmpStarted: true });
+    return computeChampLedgerStatuses({ artifact, teams: rows.teams, nowYear: 2026 }).reservedSlots;
+  }
+  const stopWith = (artifact: DistrictArtifact, dcmpStage: (eventKey: string) => DistrictStageFinality | undefined) =>
+    new Map(eventKeysOf(artifact).map((key) => [key, dcmpStage(key) ?? ALL_FINAL] as const));
+
+  it("a live championship whose Playoffs are final with no Winner recorded holds the four winner places, and releases them once a Winner is recorded", () => {
+    // At Now. The state says the playoffs are done and the winners' rows
+    // carry the 90, so the Playoffs are final. The flag is not true.
+    expect(reservedAt(withStates(FIXTURE, () => LIVE, false))).toBe(HELD);
+    expect(reservedAt(withStates(FIXTURE, () => LIVE, true))).toBe(AWARD_SLOTS);
+    // The same at a rewound stop of that live championship.
+    const stop = stopWith(FIXTURE, (key) => (key === DCMP_KEY ? PLAYOFFS_FINAL : undefined));
+    expect(reservedAt(withStates(FIXTURE, () => LIVE, false), stop)).toBe(HELD);
+    expect(reservedAt(withStates(FIXTURE, () => LIVE, true), stop)).toBe(AWARD_SLOTS);
+  });
+
+  it("a championship whose flag is true at Now releases them at a rewound stop where its Playoffs are final and its Awards open, Winner recorded or not (the 2020 shape)", () => {
+    const stop = stopWith(FIXTURE, (key) => (key === DCMP_KEY ? PLAYOFFS_FINAL : undefined));
+    expect(reservedAt(withStates(FIXTURE, () => OVER, false), stop)).toBe(AWARD_SLOTS);
+    expect(reservedAt(withStates(FIXTURE, () => OVER, true), stop)).toBe(AWARD_SLOTS);
+    // And while the Playoffs are open at the stop the four places are held, whatever the flag at Now says.
+    const open = stopWith(FIXTURE, (key) => (key === DCMP_KEY ? { qual: true, alliance: true, elim: false, award: false } : undefined));
+    expect(reservedAt(withStates(FIXTURE, () => OVER, true), open)).toBe(HELD);
+  });
+
+  it("at a divisioned championship the flag read is the finals event's own: a division's true flag does not switch the hold off", () => {
+    // Even teams in division 1, odd in division 2, and the first DCMP team
+    // keeps a finals row at the parent key. The divisions are over.
+    const firstDcmpTeam = FIXTURE.teams.find((team) => team.eventPoints.some((row) => row.eventKey === DCMP_KEY))!.teamKey;
+    const divisionOf = (index: number): string => (index % 2 === 0 ? `${DCMP_KEY}1` : `${DCMP_KEY}2`);
+    const divisioned: DistrictArtifact = DistrictArtifactSchema.parse({
+      ...FIXTURE,
+      teams: FIXTURE.teams.map((team, index) => {
+        const eventPoints = team.eventPoints.map((row) => (row.eventKey === DCMP_KEY ? { ...row, eventKey: divisionOf(index) } : row));
+        const finals = team.teamKey === firstDcmpTeam ? [{ ...eventPoints.find((row) => row.eventKey === divisionOf(index))!, eventKey: DCMP_KEY, qual: 0, alliance: 0, elim: 0, award: 0, total: 0 }] : [];
+        return { ...team, eventPoints: [...eventPoints, ...finals] };
+      }),
+    });
+    const stop = stopWith(divisioned, (key) => (key === DCMP_KEY ? PLAYOFFS_FINAL : undefined));
+    // The finals event is still live at Now. Both divisions' flags are true.
+    const finalsLive = withStates(divisioned, (key) => (key === DCMP_KEY ? LIVE : OVER), false);
+    expect(reservedAt(finalsLive, stop)).toBe(HELD);
+    // The finals event's own flag is true at Now: the hold is off, as in history.
+    const finalsOver = withStates(divisioned, () => OVER, false);
+    expect(reservedAt(finalsOver, stop)).toBe(AWARD_SLOTS);
+    // A Winner recorded at the finals key releases the live one.
+    expect(reservedAt(withStates(divisioned, (key) => (key === DCMP_KEY ? LIVE : OVER), true), stop)).toBe(AWARD_SLOTS);
+  });
+
+  it("in a two championship district a Winner at one does not release the other's places", () => {
+    // Every other team's championship rows relabelled to a second key. The
+    // Winner records are stripped and then written where each case names.
+    const secondTeams = new Set(FIXTURE.teams.filter((_team, index) => index % 2 === 1).map((team) => team.teamKey));
+    const two = (winnerAt: readonly string[]): DistrictArtifact => {
+      const relabelled: DistrictArtifact = DistrictArtifactSchema.parse({
+        ...FIXTURE,
+        teams: FIXTURE.teams.map((team) => {
+          const atSecond = secondTeams.has(team.teamKey);
+          const relabel = <T extends { eventKey: string }>(row: T): T => (atSecond && row.eventKey === DCMP_KEY ? { ...row, eventKey: SECOND_KEY } : row);
+          const ownKey = atSecond ? SECOND_KEY : DCMP_KEY;
+          const playsDcmp = team.eventPoints.some((row) => row.eventKey === DCMP_KEY);
+          const awards = team.qualifyingAwards.filter((award) => award.awardType !== 1).map(relabel);
+          // One recorded winner per named championship: its top playoff scorer.
+          const isTopScorer = playsDcmp && team.eventPoints.some((row) => row.eventKey === DCMP_KEY && row.elim === 90);
+          return { ...team, eventPoints: team.eventPoints.map(relabel), qualifyingAwards: isTopScorer && winnerAt.includes(ownKey) ? [...awards, WINNER(ownKey)] : awards };
+        }),
+      });
+      return withStates(relabelled, () => LIVE, true);
+    };
+    const both = (artifact: DistrictArtifact) => stopWith(artifact, (key) => (key === DCMP_KEY || key === SECOND_KEY ? PLAYOFFS_FINAL : undefined));
+    const winnersOf = (artifact: DistrictArtifact) => [...new Set(artifact.teams.flatMap((team) => team.qualifyingAwards.filter((award) => award.awardType === 1).map((award) => award.eventKey)))].sort();
+
+    const none = two([]);
+    expect(winnersOf(none)).toEqual([]);
+    expect(reservedAt(none, both(none))).toBe(2 * HELD);
+
+    // The fixture's three winners (90 playoff points) sit at the first key after the split, or the second, or both.
+    const everywhere = two([DCMP_KEY, SECOND_KEY]);
+    const recordedAt = winnersOf(everywhere);
+    expect(recordedAt.length).toBeGreaterThan(0);
+    for (const key of recordedAt) {
+      const only = two([key]);
+      expect(winnersOf(only)).toEqual([key]);
+      // Released at the championship with a Winner, held at the other.
+      expect({ key, reserved: reservedAt(only, both(only)) }).toEqual({ key, reserved: AWARD_SLOTS + HELD });
+    }
+    expect(reservedAt(everywhere, both(everywhere))).toBe(recordedAt.length === 2 ? 2 * AWARD_SLOTS : AWARD_SLOTS + HELD);
+  });
+
+  it("takes divisionCountOf and finalsChampionMaximum from the core rule module and declares neither itself", () => {
+    const source = readFileSync(repoFile("apps/web/src/components/districts/champLedgerStatus.ts"), "utf8").replace(/\r\n/g, "\n");
+    expect(source).not.toMatch(/function divisionCountOf\(/);
+    expect(source).not.toMatch(/function finalsChampionMaximum\(/);
+    expect(source).toMatch(/import \{[^}]*\bdivisionCountOf\b[^}]*\} from "[^"]*categoryCorroboration\.js"/);
+    expect(source).toMatch(/import \{[^}]*\bfinalsChampionMaximum\b[^}]*\} from "[^"]*categoryCorroboration\.js"/);
   });
 });
 
@@ -847,6 +987,24 @@ describe("computeChampLedgerStatuses — the joint worst case proof (261009-2tr)
       teams: FIXTURE.teams.map((team) => ({ ...team, qualifyingAwards: team.qualifyingAwards.filter((award) => award.awardType !== 1) })),
     });
     expectRefusal(noWinner, PLAYOFFS_FINAL_STOP, distributionsWith(milestones, factsAt(PLAYOFFS_FINAL_STOP.get(DCMP_KEY)!, [])), "winnerNotPosted");
+  });
+
+  it("refuses as not eligible while the championship's rows read Qualification or Alliance selection open, with the flat reservation, and is applied once both are final (quick task 261009-vp9)", () => {
+    // The bracket facts are built from the FIELD: selection is over there.
+    // The rows' stage is the NUMBER: the alliance points are not in.
+    const facts = factsAt(FNC_LIKE_STOP.get(DCMP_KEY)!, [])!;
+    const milestones = dcmpBracketMilestonesByTeam(ALLIANCES, []);
+    const flat = pendingAwardSlots(dcmpAwardCountCeilings(FIXTURE.year, FIXTURE.districtKey, FIXTURE.cmpSlots!).counts) + MAX_WINNING_ALLIANCE_SIZE;
+    const numberAt = (stage: DistrictStageFinality) => new Map(eventKeysOf(FIXTURE).map((key) => [key, key === DCMP_KEY ? stage : ALL_FINAL] as const));
+    for (const stage of [ALL_OPEN, { qual: true, alliance: false, elim: false, award: false }]) {
+      const model = modelAtStop(FIXTURE, numberAt(stage), distributionsWith(milestones, facts));
+      expect(model.jointProof).toEqual({ applied: false, reason: "stageNotEligible" });
+      expect(model.reservedSlots).toBe(flat);
+      expect(shippedView(model)).toEqual(shippedView(modelAtStop(FIXTURE, numberAt(stage), distributionsWith(milestones, facts), false)));
+    }
+    const applied = modelAtStop(FIXTURE, FNC_LIKE_STOP, distributionsWith(milestones, facts));
+    expect(applied.jointProof?.applied).toBe(true);
+    expect(applied.reservedSlots).toBe(flat);
   });
 
   it("dcmpBracketFactsFor refuses a district tier event, 2022, Awards final, a partial list and an unresolved row", () => {
