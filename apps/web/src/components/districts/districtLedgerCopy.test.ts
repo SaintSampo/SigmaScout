@@ -79,6 +79,7 @@ import {
   locksPickerStopLabel,
   locksPickerUpCaption,
   DISTRICT_LEDGER_RUN_PROGRESS_LABEL,
+  districtLedgerFinalFigure,
   districtLedgerRunProgressText,
 } from "./districtLedgerCopy.js";
 import {
@@ -331,6 +332,25 @@ describe("the UI-SPEC copy contract", () => {
     const chances = [0, 0.04, 0.3, 0.99, 1].map(districtLedgerChanceLine).join(" ");
     expect(chances).not.toContain("Contending");
     expect(chances).not.toContain("eliminated");
+  });
+});
+
+describe("a settled Playoffs value that is not exact (quick task 261010-66y, D6)", () => {
+  it("reads up to and the rounded integer, lower case, with no dash character and no tilde", () => {
+    expect(districtLedgerFinalFigure(21, true)).toBe("up to 21");
+    expect(districtLedgerFinalFigure(60, true)).toBe("up to 60");
+    expect(districtLedgerFinalFigure(20.6, true)).toBe("up to 21");
+    for (const points of [7, 13, 20, 21, 30, 39, 60, 90, 150]) {
+      const text = districtLedgerFinalFigure(points, true);
+      expect(text).toBe(`up to ${String(points)}`);
+      expect(text).not.toMatch(/[-‐-―−~]/);
+    }
+  });
+
+  it("prints an exact value as the plain rounded integer, as before", () => {
+    expect(districtLedgerFinalFigure(21, false)).toBe("21");
+    expect(districtLedgerFinalFigure(0, false)).toBe("0");
+    expect(districtLedgerFinalFigure(12.4, false)).toBe("12");
   });
 });
 

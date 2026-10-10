@@ -1211,10 +1211,15 @@ describe("a published alliance list is used only when it is FINAL (WR-07)", () =
     };
     for (const teamKey of membersOf(4)) {
       const { cell, settledElim } = elimOf(teamKey);
-      expect(cell).toMatchObject({ kind: "final", earned: 7 });
+      // Not exact and above zero: the cell reads "up to 7" (quick task 261010-66y, D6).
+      expect(cell).toMatchObject({ kind: "final", earned: 7, upTo: true });
       expect(settledElim).toEqual({ points: 7, exact: false, ceiling: 7 });
     }
-    for (const teamKey of membersOf(8)) expect(elimOf(teamKey).settledElim).toEqual({ points: 0, exact: false, ceiling: 0 });
+    for (const teamKey of membersOf(8)) {
+      expect(elimOf(teamKey).settledElim).toEqual({ points: 0, exact: false, ceiling: 0 });
+      // A decided placement that pays nothing prints a plain 0, never "up to 0".
+      expect("upTo" in elimOf(teamKey).cell).toBe(false);
+    }
     expect(elimOf(membersOf(1)[0]!).cell.kind).toBe("open");
     expect(elimOf(membersOf(1)[0]!).settledElim).toBeUndefined();
   });
@@ -1912,7 +1917,10 @@ describe("the Playoffs cell's milestone", () => {
     ] as const) {
       const row = settledRowFor({ kind: "decided", placement }, { live: true });
       const cell = row.cells.find((entry) => entry.cell === "elim")!;
-      expect(cell, `placement ${String(placement)}`).toEqual({ id: districtCellId(eventKey, "elim"), cell: "elim", kind: "final", earned: points });
+      // R16 (quick task 261010-66y): a value that is not exact and above zero carries `upTo`; at zero the cell
+      // carries no such key and deep equals the cell it always was.
+      expect(cell, `placement ${String(placement)}`).toEqual({ id: districtCellId(eventKey, "elim"), cell: "elim", kind: "final", earned: points, ...(points > 0 ? { upTo: true } : {}) });
+      expect("upTo" in cell, `placement ${String(placement)}`).toBe(points > 0);
       expect(row.settledElim, `placement ${String(placement)}`).toEqual({ points, exact: false, ceiling: points });
       // The event's OWN stage is untouched: its playoffs are still open.
       expect(row.stage.final.elim).toBe(false);
@@ -1928,6 +1936,8 @@ describe("the Playoffs cell's milestone", () => {
     const row = settledRowFor({ kind: "decided", placement: 3 }, { live: false, artifactElim: 11 });
     const cell = row.cells.find((entry) => entry.cell === "elim")!;
     expect(cell).toEqual({ id: districtCellId(eventKey, "elim"), cell: "elim", kind: "final", earned: 11 });
+    // An exact value is TBA's own number: no `upTo` key at all (quick task 261010-66y, R16).
+    expect("upTo" in cell).toBe(false);
     expect(row.settledElim).toEqual({ points: 11, exact: true, ceiling: 0 });
     expect(row.stage.final.elim).toBe(false);
   });
@@ -1935,7 +1945,9 @@ describe("the Playoffs cell's milestone", () => {
   it("D7 (quick task 261009-2tr): a decided second place at a DCMP live at Now prints 60 and carries a ceiling of 75", () => {
     const row = settledRowFor({ kind: "decided", placement: 2 }, { live: true, tier: "dcmp" });
     const cell = row.cells.find((entry) => entry.cell === "elim")!;
-    expect(cell).toEqual({ id: districtCellId(eventKey, "elim"), cell: "elim", kind: "final", earned: 60 });
+    // The cell prints the placement table's 60 behind "up to" (quick task 261010-66y, R16): N is the value the
+    // cell printed before, never the lock math's 75.
+    expect(cell).toEqual({ id: districtCellId(eventKey, "elim"), cell: "elim", kind: "final", earned: 60, upTo: true });
     expect(row.settledElim).toEqual({ points: 60, exact: false, ceiling: 75 });
     expect(settledElimBounds(row.settledElim!)).toEqual({ floor: 0, ceiling: 75 });
   });
@@ -1944,6 +1956,8 @@ describe("the Playoffs cell's milestone", () => {
     const row = settledRowFor({ kind: "finals" }, { live: true });
     expect("settledElim" in row).toBe(false);
     expect(row.cells.find((entry) => entry.cell === "elim")!.kind).toBe("open");
+    // And no cell of a row without a settled value carries `upTo`, its totals included (quick task 261010-66y, R16).
+    expect(JSON.stringify(row)).not.toContain("upTo");
   });
 
   it("puts a milestone on the PLAYOFFS cell only — the other three categories are untouched", () => {
@@ -2723,18 +2737,21 @@ describe("the live stage: a row's category is final only once its points are in 
     ]);
     const atNow = rowOf(artifact, "frc1", decided);
     expect(atNow.settledElim).toEqual({ points: 20, exact: false, ceiling: 25 });
-    expect(atNow.cells[2]).toMatchObject({ kind: "final", earned: 20 });
+    expect(atNow.cells[2]).toMatchObject({ kind: "final", earned: 20, upTo: true });
 
     // The same at a rewound stop whose playoffs are open: the row's number is
     // not final at Now, so the stop cannot read it as TBA's settled value.
     const OPEN_PLAYOFFS: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
     const rewound = buildDistrictLedgerRows({ artifact, distributions: decided, stageByEvent: new Map([[EVENT, OPEN_PLAYOFFS]]) }).teams.find((entry) => entry.teamKey === "frc1")!.rows[0]!;
     expect(rewound.settledElim).toEqual({ points: 20, exact: false, ceiling: 25 });
+    expect(rewound.cells[2]).toMatchObject({ kind: "final", earned: 20, upTo: true });
 
     // Once a row at the winner's value is in, the same rewound stop reads TBA's own number as exact.
     const landed = twoTeams(PLAYED_OUT, { alliance: 9, elim: 30 }, { alliance: 5, elim: 20 });
     const exact = buildDistrictLedgerRows({ artifact: landed, distributions: decided, stageByEvent: new Map([[EVENT, OPEN_PLAYOFFS]]) }).teams.find((entry) => entry.teamKey === "frc1")!.rows[0]!;
     expect(exact.settledElim).toEqual({ points: 20, exact: true, ceiling: 0 });
+    expect(exact.cells[2]).toEqual({ id: districtCellId(EVENT, "elim"), cell: "elim", kind: "final", earned: 20 });
+    expect("upTo" in exact.cells[2]!).toBe(false);
   });
 
   describe("on the committed 2026 PNW fixture with a finished state on every row", () => {

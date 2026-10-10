@@ -68,6 +68,7 @@ import {
   CHAMP_LEDGER_RANGE_PENDING_DESCRIPTION,
   champLedgerNoCallDescription,
   districtLedgerCellChance,
+  districtLedgerFinalFigure,
   districtLedgerCellLikelyText,
   districtLedgerCutoffFigure,
   districtLedgerCutoffLikelyText,
@@ -550,7 +551,7 @@ export function LedgerCell({
   if (cell.kind === "final") {
     return (
       <TableCell data-cell="final" data-cell-id={cell.id} className="numeric-cell">
-        <div className={`${FINAL_CELL_CLASS}${box}`}>{String(Math.round(cell.earned))}</div>
+        <div className={`${FINAL_CELL_CLASS}${box}`}>{districtLedgerFinalFigure(cell.earned, cell.upTo === true)}</div>
       </TableCell>
     );
   }

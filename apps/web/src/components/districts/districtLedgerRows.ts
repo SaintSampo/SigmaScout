@@ -281,7 +281,30 @@ export type DistrictPlayoffMilestone =
 
 /** One rendered cell: a grey final integer, a blue open distribution, or an honest unavailable. */
 export type DistrictLedgerCell =
-  | { readonly id: string; readonly cell: DistrictCellKind; readonly kind: "final"; readonly earned: number }
+  | {
+      readonly id: string;
+      readonly cell: DistrictCellKind;
+      readonly kind: "final";
+      readonly earned: number;
+      /**
+       * PRESENT AND TRUE only on a Playoffs cell that is SETTLED BY THE BRACKET
+       * at a value that is not TBA's own number yet and is above zero (quick
+       * task 261010-66y, CONTEXT D6, `settledPlayoffPoints` with `exact`
+       * false). The cell prints `up to N`, N being `earned`, the placement
+       * table's value it always printed: TBA prorates a robot that sat out
+       * part of its alliance's playoffs (frc3663 at 2026pncmp, on the fourth
+       * place alliance worth 21, was paid 12). A decided placement that pays
+       * nothing prints a plain 0. The Champ Locks fold carries it onto a sum
+       * of final parts (`foldCells`).
+       *
+       * DISPLAY ONLY. `earned` is unchanged, and every total, the lock math
+       * (`row.settledElim`, `settledElimBounds`) and the simulation read what
+       * they read before. On the `notPicked` precedent: present and true
+       * only, never written as `false`, so a cell that is not flagged carries
+       * no key and deep equals the shipped cell.
+       */
+      readonly upTo?: true;
+    }
   | {
       readonly id: string;
       readonly cell: DistrictCellKind;
@@ -1859,7 +1882,12 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
           // SETTLED BY THE BRACKET (quick task 261008-26o). Grey, never an open
           // category, and `row.stage` stays the event's, exactly as the award
           // only branch above. The status modules read `row.settledElim`.
-          return { id, cell: category, kind: "final", earned: settledElim.points };
+          //
+          // A value that is not TBA's own number yet, and is above zero,
+          // prints "up to N" (quick task 261010-66y, D6): TBA can still pay
+          // a robot that sat out less than the placement's value.
+          const upTo = !settledElim.exact && settledElim.points > 0;
+          return upTo ? { id, cell: category, kind: "final", earned: settledElim.points, upTo: true } : { id, cell: category, kind: "final", earned: settledElim.points };
         }
         if (final[category]) {
           // THE GREY NUMBER IS ALWAYS THE ARTIFACT'S OWN `eventPoints[category]`,

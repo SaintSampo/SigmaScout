@@ -31,6 +31,7 @@ import {
   districtLedgerVerdictCapHeadline,
   districtLedgerVerdictCapLabel,
   districtLedgerVerdictChanceOfPoints,
+  districtLedgerFinalFigure,
   districtLedgerVerdictCutoffLabel,
   districtLedgerVerdictEarnedAt,
   districtLedgerVerdictEventTotalHeadline,
@@ -424,7 +425,8 @@ export function verdictCategoryChips(cells: readonly ChampLedgerCell[], pricing?
     if (category === undefined) continue;
     const label = DISTRICT_LEDGER_VERDICT_CHIP_LABELS[category];
     if (cell.kind === "final") {
-      chips.push({ kind: "category", label, figure: String(Math.round(cell.earned)), small: undefined, open: false });
+      // A settled Playoffs value that is not TBA's own number yet reads "up to N" here as in the table (quick task 261010-66y, D6).
+      chips.push({ kind: "category", label, figure: districtLedgerFinalFigure(cell.earned, cell.upTo === true), small: undefined, open: false });
     } else if (cell.kind === "open") {
       const lines = openCellLines(cell, pricing);
       chips.push({ kind: "category", label, figure: lines.bold, small: lines.small, open: true });

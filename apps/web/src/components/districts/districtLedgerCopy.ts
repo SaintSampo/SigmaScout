@@ -664,6 +664,19 @@ export function districtLedgerPaysLine(pay: DistrictCellPay): string {
 }
 
 /**
+ * A GREY FINAL CELL'S FIGURE (quick task 261010-66y, CONTEXT D6): the rounded
+ * integer, behind the words `up to` where the value is a settled Playoffs
+ * value that is not TBA's own number yet (`DistrictLedgerCell.upTo`). Lower
+ * case, no dash character and no tilde: the tilde is for predicted points,
+ * and this is the most a decided placement pays, not a prediction. The table
+ * cell and the total's drawer chip both print through this one function.
+ */
+export function districtLedgerFinalFigure(earned: number, upTo: boolean): string {
+  const figure = String(Math.round(earned));
+  return upTo ? `up to ${figure}` : figure;
+}
+
+/**
  * AN OPEN CELL'S CHANCE: the rounded whole percent, capped at
  * `DISTRICT_LEDGER_CHANCE_CEILING_PERCENT`, with no tilde (quick task
  * 261008-3il). A team is never given a 100 percent verdict. There is no floor:

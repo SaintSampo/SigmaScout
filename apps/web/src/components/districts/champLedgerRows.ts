@@ -1027,17 +1027,23 @@ function foldCells(
   const distributions: DistrictPointDistribution[] = [];
   let earned = 0;
   let everyPartFinal = true;
+  // A SUM OF FINAL PARTS IS "UP TO" WHEN ANY PART IS (quick task 261010-66y,
+  // D6): one event's settled Playoffs value that is not TBA's own number yet
+  // makes the whole sum a most, never an exact figure. A fold with an open
+  // part is an open cell and carries no such flag.
+  let anyUpTo = false;
   for (const part of parts) {
     if (part === undefined || part.kind === "unavailable") return { id, cell, kind: "unavailable" };
     if (part.kind === "final") {
       earned += part.earned;
+      if (part.upTo === true) anyUpTo = true;
       distributions.push(pointMassDistribution(part.earned));
       continue;
     }
     everyPartFinal = false;
     distributions.push(part.distribution);
   }
-  if (everyPartFinal) return { id, cell, kind: "final", earned };
+  if (everyPartFinal) return anyUpTo ? { id, cell, kind: "final", earned, upTo: true } : { id, cell, kind: "final", earned };
   try {
     const counts = convolveDistrictGrandTotal(distributions, 0, 0);
     return openDistrictLedgerCell(id, cell, { counts, denominator: 1 }, ceiling);

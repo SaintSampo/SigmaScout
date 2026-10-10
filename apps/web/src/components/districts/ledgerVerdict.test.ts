@@ -427,6 +427,22 @@ describe("the source chips", () => {
   });
 });
 
+describe("verdictCategoryChips on a settled Playoffs value that is not exact (quick task 261010-66y, D6)", () => {
+  it("prints up to N in the Playoffs chip's figure, and the plain integer for an exact value", () => {
+    const cellsWith = (elim: ChampLedgerCell): ChampLedgerCell[] => [
+      { id: "x:qual", cell: "qual", kind: "final", earned: 30 },
+      { id: "x:alliance", cell: "alliance", kind: "final", earned: 16 },
+      elim,
+      { id: "x:eventTotal", cell: "eventTotal", kind: "notYetPriced" },
+    ];
+    const playoffsChip = (elim: ChampLedgerCell) => verdictCategoryChips(cellsWith(elim)).find((chip) => chip.kind === "category" && chip.label === "Playoffs");
+    expect(playoffsChip({ id: "x:elim", cell: "elim", kind: "final", earned: 21, upTo: true })).toEqual({ kind: "category", label: "Playoffs", figure: "up to 21", small: undefined, open: false });
+    expect(playoffsChip({ id: "x:elim", cell: "elim", kind: "final", earned: 21 })).toEqual({ kind: "category", label: "Playoffs", figure: "21", small: undefined, open: false });
+    // The other chips are untouched.
+    expect(verdictCategoryChips(cellsWith({ id: "x:elim", cell: "elim", kind: "final", earned: 21, upTo: true })).map((chip) => (chip.kind === "category" ? chip.figure : ""))).toEqual(["30", "16", "up to 21"]);
+  });
+});
+
 /** Every number a pays line prints, in order. */
 function paysNumbers(small: string | undefined): number[] {
   expect(small).toMatch(/^pays /);

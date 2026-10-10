@@ -313,7 +313,7 @@ describe("districtLedgerContent: the rewound view and the championship field (26
       "Once the District Championship alliances are picked, Locked on the Champ Locks tab also counts, for each team, the most rivals that can pass it or take a slot from it in any way the bracket and the awards can still fall, counting each rival once, and locks the team when that count is below the open slots. A championship played in divisions counts every division's bracket and the finals between the division winners. A district with two championships counts both of them."
     );
     expect(paragraphs[anchor + 2]).toBe(
-      "A team knocked out of the playoffs has its playoff points settled as soon as its alliance's place in the bracket is decided. From then on Locked allows it no more playoff points than that place pays, and counts them as earned once The Blue Alliance posts them."
+      "A team knocked out of the playoffs has its playoff points settled as soon as its alliance's place in the bracket is decided. From then on Locked allows it no more playoff points than that place pays, and counts them as earned once The Blue Alliance posts them. Until The Blue Alliance posts the number, the grey value reads up to the points that place pays."
     );
     expect(paragraphs.slice(anchor + 3, anchor + 5)).toEqual([
       "On the District Locks tab, Locked and Locked out at a rewound point count only the district event points a team had earned by then, never District Championship points.",
@@ -326,6 +326,18 @@ describe("districtLedgerContent: the rewound view and the championship field (26
     expect(paragraphs.find((text) => text.startsWith("The Champ Locks tab predicts each team's finish"))).toBe(
       "The Champ Locks tab predicts each team's finish in the race for the district's FIRST Championship slots, adding the District Championship's own four categories to the district season total. Only the grand total folds in the chance of being there. A championship played in divisions adds the finals points to the District Championship row once they are earned."
     );
+  });
+
+  it("says, directly after the live view paragraph, that a team not yet listed at a championship can still attend until its whole field is posted (261010-66y)", () => {
+    const paragraphs = paragraphsOf("how-district-points-work");
+    const live = paragraphs.findIndex((text) => text.startsWith("On the live view, until the championship field is set"));
+    expect(live).toBeGreaterThan(-1);
+    expect(paragraphs[live + 1]).toBe("Until a championship's points are posted for its whole field, a team not yet listed there is still treated as able to attend.");
+    expect(paragraphs[live + 1]).not.toMatch(/[-‐-―−~]/);
+    // It is the section's last paragraph, and it is said once.
+    expect(live + 1).toBe(paragraphs.length - 1);
+    const everyParagraph = DISTRICT_LEDGER_SECTIONS.flatMap((section) => section.paragraphs);
+    expect(everyParagraph.filter((text) => text.includes("still treated as able to attend"))).toHaveLength(1);
   });
 
   it("closes the open categories section with the as-of rule and the playoff stops, and nothing says a rewound view knows more (261005-5g0, 261007-3g2)", () => {

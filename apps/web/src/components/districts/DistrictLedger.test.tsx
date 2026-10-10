@@ -2950,7 +2950,9 @@ describe("DistrictLedger — the two readings while a live event's points lag (q
       expect(input.knownAlliances).toHaveLength(8);
       for (const teamKey of ROSTER) {
         expect(kindOf(teamKey, "elim"), teamKey).toBe("final");
-        expect(textOf(teamKey, "elim"), teamKey).toBe(String(PLACEMENT_POINTS[allianceOf(teamKey)]));
+        // The placement's value is not TBA's number yet, so above zero it reads "up to N" (quick task 261010-66y, D6).
+        const placementPoints = PLACEMENT_POINTS[allianceOf(teamKey)]!;
+        expect(textOf(teamKey, "elim"), teamKey).toBe(placementPoints > 0 ? `up to ${String(placementPoints)}` : "0");
         expect(textOf(teamKey, "elim"), teamKey).not.toBe(String(STALE_ELIM));
         // Qualification and Alliance selection are proven by the alliance points.
         expect(kindOf(teamKey, "qual"), teamKey).toBe("final");

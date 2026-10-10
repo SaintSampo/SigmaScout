@@ -1347,6 +1347,53 @@ describe("buildChampLedgerRows — a divisioned championship's DCMP row is the d
     expect(JSON.stringify(entry)).not.toContain("shiftedByFinals");
   });
 
+  describe("a settled Playoffs value that is not exact (quick task 261010-66y, D6 and reading R16)", () => {
+    const OPEN_PLAYOFFS: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
+    /** One event priced for TEAM (its open Awards and its event total), with TEAM's alliance decided at `placement` there. */
+    const decidedAt = (eventKey: string, placement: number): ReadonlyMap<string, DistrictEventDistributions> =>
+      new Map([
+        [
+          eventKey,
+          { ...distributionsFor(eventKey, { [TEAM]: { award: uniform(5), eventTotal: uniform(100) } }), playoffMilestoneByTeam: new Map([[TEAM, { kind: "decided" as const, placement }]]) },
+        ],
+      ]);
+
+    it("the DCMP row's Playoffs cell carries upTo for a decided placement above zero, and keeps it when finals points are added", () => {
+      // The division's Playoffs are open and TEAM's alliance is decided third (39 at a 2026 championship).
+      const divisionOnly = teamIn(divisioned({ finals: null }), { stages: { [DIVISION]: OPEN_PLAYOFFS }, distributions: decidedAt(DIVISION, 3) });
+      expect(cellOf(divisionOnly.dcmpRow.cells, "elim")).toEqual({ id: champCellId("dcmp", "elim"), cell: "elim", kind: "final", earned: 39, upTo: true });
+      // With a finals row whose 60 is earned at the position, the cell is the sum and still reads "up to".
+      const withFinals = teamIn(divisioned({ finalsName: FINALS_FIRST }), { stages: { [DIVISION]: OPEN_PLAYOFFS }, distributions: decidedAt(DIVISION, 3) });
+      expect(cellOf(withFinals.dcmpRow.cells, "elim")).toEqual({ id: champCellId("dcmp", "elim"), cell: "elim", kind: "final", earned: 39 + 60, upTo: true });
+    });
+
+    it("a decided placement that pays nothing, and an exact value, carry no upTo key", () => {
+      const fifth = teamIn(divisioned({ finals: null }), { stages: { [DIVISION]: OPEN_PLAYOFFS }, distributions: decidedAt(DIVISION, 5) });
+      expect(cellOf(fifth.dcmpRow.cells, "elim")).toEqual({ id: champCellId("dcmp", "elim"), cell: "elim", kind: "final", earned: 0 });
+      expect("upTo" in cellOf(fifth.dcmpRow.cells, "elim")).toBe(false);
+      // Everything final: the artifact's own numbers, and no cell anywhere carries the key.
+      expect(JSON.stringify(teamIn(divisioned()))).not.toContain("upTo");
+    });
+
+    it("the District points row's Playoffs cell that sums a final part and a part with upTo is final at the sum with upTo", () => {
+      const source = FIXTURE.teams.find((team) => team.teamKey === TEAM)!;
+      const districtRows = source.eventPoints.filter((row) => row.tier === "district");
+      expect(districtRows.length).toBeGreaterThanOrEqual(2);
+      const reopened = districtRows[0]!;
+      const others = districtRows.slice(1).reduce((sum, row) => sum + row.elim, 0);
+      // One district event's Playoffs are open with TEAM decided fourth there (7 at a 2026 district event); the others are final.
+      const entry = teamIn(divisioned(), { stages: { [reopened.eventKey]: OPEN_PLAYOFFS }, distributions: decidedAt(reopened.eventKey, 4) });
+      expect(cellOf(entry.districtRow.cells, "elim")).toEqual({ id: champCellId("district", "elim"), cell: "elim", kind: "final", earned: others + 7, upTo: true });
+      // Every other category of that row folds final parts alone, and carries no key.
+      for (const category of ["qual", "alliance"] as const) expect("upTo" in cellOf(entry.districtRow.cells, category)).toBe(false);
+      // The Subtotal and the grand total sit above an open Awards category, so neither is a final cell.
+      expect(entry.districtRow.subtotal.kind).not.toBe("final");
+      expect(entry.grandTotal.kind).not.toBe("final");
+      // A fold with no such part carries no key.
+      expect("upTo" in cellOf(teamIn(divisioned()).districtRow.cells, "elim")).toBe(false);
+    });
+  });
+
   it("reads a team whose only dcmp row is the finals exactly as that one row", () => {
     const entry = teamIn(divisioned({ division: false }));
     expect(entry.dcmpRow.sources.map((source) => source.eventKey)).toEqual([PARENT]);

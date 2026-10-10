@@ -66,6 +66,31 @@ describe("LedgerCell on an unavailable cell", () => {
   });
 });
 
+describe("LedgerCell on a final cell (quick task 261010-66y, D6)", () => {
+  const EXACT: DistrictLedgerCell = { id: "2026walive:elim", cell: "elim", kind: "final", earned: 21 };
+  const UP_TO: DistrictLedgerCell = { id: "2026walive:elim", cell: "elim", kind: "final", earned: 21, upTo: true };
+
+  it("prints up to 21 for a settled Playoffs value that is not exact, still a grey final cell and never a button", () => {
+    const { container } = inRow(<LedgerCell cell={UP_TO} interaction={INTERACTION} />);
+    const td = container.querySelector("td")!;
+    expect(td.getAttribute("data-cell")).toBe("final");
+    expect(td.getAttribute("data-cell-id")).toBe("2026walive:elim");
+    expect(td.textContent).toBe("up to 21");
+    expect(td.textContent).not.toMatch(/[-‐-―−~]/);
+    expect(td.querySelector("button")).toBeNull();
+    // The class list is the exact value's own: a plain string, nothing merged away.
+    const exact = inRow(<LedgerCell cell={EXACT} interaction={INTERACTION} />).container.querySelector("td")!;
+    expect(td.querySelector("div")!.className).toBe(exact.querySelector("div")!.className);
+  });
+
+  it("prints 21 for an exact value, as before", () => {
+    const { container } = inRow(<LedgerCell cell={EXACT} interaction={INTERACTION} />);
+    const td = container.querySelector("td")!;
+    expect(td.getAttribute("data-cell")).toBe("final");
+    expect(td.textContent).toBe("21");
+  });
+});
+
 describe("GrandTotalContent on an unavailable cell", () => {
   it("prints the pending word with data-cell pending for a pending grand total", () => {
     const { container } = inRow(
