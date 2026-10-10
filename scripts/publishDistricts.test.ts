@@ -1820,3 +1820,141 @@ describe("the corpus-guarded award derivation (SC-6, on real data)", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Quick task 261009-r9x: the publisher reads the flag through the shared rule
+// at the hindsight vantage, and builds every award record through the shared
+// builder the live merge calls.
+// ---------------------------------------------------------------------------
+
+describe("deriveDistrictEventState — awardsPosted through the shared rule, hindsight vantage (261009-r9x)", () => {
+  const event = [districtEvent({ eventKey: "2026e1", startDate: STARTED })];
+  const played = () => quals("2026e1", 12, 12);
+  const pointsRow = (teamKey: string, awardPoints: number) => ({
+    district_key: "2026fnc",
+    team_key: teamKey,
+    event_points_raw: eventPointsRaw([{ event_key: "2026e1", district_cmp: false, qual_points: 10, alliance_points: 0, elim_points: 0, award_points: awardPoints, total: 10 + awardPoints }]),
+  });
+
+  function postedFor(rows: Parameters<typeof stateFixture>[0]): boolean {
+    const db = stateFixture({ matches: played(), ...rows });
+    try {
+      return deriveDistrictEventState(db, event, DERIVE_AS_OF).get("2026e1")!.awardsPosted;
+    } finally {
+      db.close();
+    }
+  }
+
+  it("a Winner only row, in either award table or in both, with no award points, is NOT posted", () => {
+    const winner = { event_key: "2026e1", award_type: 1, team_key: "frc1" };
+    const winnerAll = { event_key: "2026e1", award_type: 1, award_index: 0, recipient_index: 0 };
+    expect(postedFor({ awards: [winner] })).toBe(false);
+    expect(postedFor({ awardsAll: [winnerAll] })).toBe(false);
+    expect(postedFor({ awards: [winner], awardsAll: [winnerAll] })).toBe(false);
+    // Zero award points beside them change nothing.
+    expect(postedFor({ awards: [winner], awardsAll: [winnerAll], rankings: [pointsRow("frc1", 0), pointsRow("frc2", 0)] })).toBe(false);
+  });
+
+  it("a Finalist only row is NOT posted, alone or beside a Winner", () => {
+    expect(postedFor({ awardsAll: [{ event_key: "2026e1", award_type: 2, award_index: 0, recipient_index: 0 }] })).toBe(false);
+    expect(
+      postedFor({
+        awardsAll: [
+          { event_key: "2026e1", award_type: 1, award_index: 0, recipient_index: 0 },
+          { event_key: "2026e1", award_type: 2, award_index: 0, recipient_index: 0 },
+        ],
+      })
+    ).toBe(false);
+  });
+
+  it("a judged row in either table IS posted, with or without a Winner beside it", () => {
+    expect(postedFor({ awardsAll: [{ event_key: "2026e1", award_type: 5, award_index: 0, recipient_index: 0 }] })).toBe(true);
+    expect(postedFor({ awards: [{ event_key: "2026e1", award_type: 0, team_key: "frc1" }] })).toBe(true);
+    expect(
+      postedFor({
+        awards: [
+          { event_key: "2026e1", award_type: 1, team_key: "frc1" },
+          { event_key: "2026e1", award_type: 9, team_key: "frc2" },
+        ],
+      })
+    ).toBe(true);
+  });
+
+  it("Winner only rows plus one ranking row with award points above zero IS posted: either fact is enough after the fact", () => {
+    expect(
+      postedFor({
+        awards: [{ event_key: "2026e1", award_type: 1, team_key: "frc1" }],
+        awardsAll: [{ event_key: "2026e1", award_type: 1, award_index: 0, recipient_index: 0 }],
+        rankings: [pointsRow("frc1", 0), pointsRow("frc2", 5)],
+      })
+    ).toBe(true);
+  });
+
+  it("a judged row at ANOTHER event does not post this one", () => {
+    expect(postedFor({ awardsAll: [{ event_key: "2026e2", award_type: 5, award_index: 0, recipient_index: 0 }], awards: [{ event_key: "2026e2", award_type: 0, team_key: "frc1" }] })).toBe(false);
+  });
+});
+
+describe("buildDistrictArtifact — the award lists come from the shared record builder, unchanged (261009-r9x)", () => {
+  it("builds each team's qualifyingAwards exactly as before: same entries, same order, at a district event, a DCMP and a division", () => {
+    const rankings = [ranking({ teamKey: "frc1", pointTotal: 100, rank: 1 }), ranking({ teamKey: "frc2", pointTotal: 50, rank: 2 }), ranking({ teamKey: "frc3", pointTotal: 10, rank: 3 })];
+    const events = [
+      districtEvent({ eventKey: "2026e1", eventType: 1 }),
+      districtEvent({ eventKey: "2026cmp", eventType: 2 }),
+      districtEvent({ eventKey: "2026cmp1", eventType: 5 }),
+    ];
+    const rowsAt = (eventKey: string) => [
+      eventAward({ eventKey, awardType: 1, teamKey: "frc1" }),
+      eventAward({ eventKey, awardType: 0, teamKey: "frc1" }),
+      eventAward({ eventKey, awardType: 9, teamKey: "frc2" }),
+      eventAward({ eventKey, awardType: 10, teamKey: "frc1" }),
+      eventAward({ eventKey, awardType: 1, teamKey: "frc2" }),
+    ];
+    const awards = new Map([
+      ["2026e1", rowsAt("2026e1")],
+      ["2026cmp", rowsAt("2026cmp")],
+      ["2026cmp1", rowsAt("2026cmp1")],
+    ]);
+
+    const artifact = buildDistrictArtifact({
+      season: 2026,
+      generation: GENERATION,
+      computedAt: COMPUTED_AT,
+      district: district({ dcmpSlots: 2, cmpSlots: 1 }),
+      rankings,
+      events,
+      registrations: new Map(),
+      awards,
+      teamMeta: new Map(),
+    });
+
+    const awardsOf = (teamKey: string) => artifact.teams.find((team) => team.teamKey === teamKey)!.qualifyingAwards;
+    // The district event: Impact is a full qualifier, Engineering Inspiration
+    // and Rookie All Star are award only, and Winner is not relevant there.
+    // The DCMP: all four, none award only. The division: nothing at all.
+    expect(awardsOf("frc1")).toEqual([
+      { eventKey: "2026e1", awardType: 0, label: "FIRST Impact Award", awardOnly: false },
+      { eventKey: "2026e1", awardType: 10, label: "Rookie All Star", awardOnly: true },
+      { eventKey: "2026cmp", awardType: 1, label: "Winner", awardOnly: false },
+      { eventKey: "2026cmp", awardType: 0, label: "FIRST Impact Award", awardOnly: false },
+      { eventKey: "2026cmp", awardType: 10, label: "Rookie All Star", awardOnly: false },
+    ]);
+    expect(awardsOf("frc2")).toEqual([
+      { eventKey: "2026e1", awardType: 9, label: "Engineering Inspiration", awardOnly: true },
+      { eventKey: "2026cmp", awardType: 9, label: "Engineering Inspiration", awardOnly: false },
+      { eventKey: "2026cmp", awardType: 1, label: "Winner", awardOnly: false },
+    ]);
+    expect(awardsOf("frc3")).toEqual([]);
+  });
+
+  it("names the shared builder and the shared rule in the publisher's own source, and no longer imports the three helpers the loop used", () => {
+    const source = readFileSync("scripts/publishDistricts.ts", "utf8");
+    expect(source).toMatch(/qualifyingAwardRecord\(/);
+    expect(source).toMatch(/awardsPostedRule\(/);
+    expect(source).toContain('"hindsight"');
+    const importBlock = /import \{([^}]*)\} from "\.\.\/packages\/core\/districts\/qualification\.js";/.exec(source);
+    expect(importBlock).not.toBeNull();
+    for (const removed of ["awardDisplayName", "isAwardOnly", "isQualificationRelevantAward"]) expect(importBlock![1]).not.toContain(removed);
+    expect(importBlock![1]).toContain("AwardTier");
+  });
+});

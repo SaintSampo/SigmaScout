@@ -104,12 +104,8 @@ import {
   type CorpusEventAward,
 } from "../packages/corpus/db.js";
 import { DISTRICT_REGISTERED_SEASONS, maxEventPoints, type DistrictTier } from "../packages/core/districts/pointModel.js";
-import {
-  awardDisplayName,
-  isAwardOnly,
-  isQualificationRelevantAward,
-  type AwardTier,
-} from "../packages/core/districts/qualification.js";
+import { type AwardTier } from "../packages/core/districts/qualification.js";
+import { awardsPostedRule, isJudgedAwardType, qualifyingAwardRecord } from "../packages/core/districts/eventAwards.js";
 import { bakeDistrictEvent, DISTRICT_BAKE_DRAWS_PER_SCHEDULE, DISTRICT_BAKE_SCHEDULE_COUNT } from "../packages/harness/districtBake.js";
 import {
   applyDistrictEventState,
@@ -412,20 +408,22 @@ export function buildDistrictArtifact(options: ComposeDistrictArtifactOptions): 
   // than two copies that can drift. An event whose `event_type` has no award
   // tier at all (a DCMP DIVISION, type 5) contributes nothing to the list, so
   // the shared pass never sees a division Winner in the first place.
+  //
+  // ONE RECORD BUILDER, TWO PRODUCERS (quick task 261009-r9x). Each entry is
+  // what `qualifyingAwardRecord` returns, and the live Worker's merge
+  // (`applyDistrictEventAwards`) calls that same function for every award it
+  // records, so an entry written here and one written live cannot differ in
+  // shape, label or `awardOnly`.
   const teamQualifyingAwards = new Map<string, DistrictArtifact["teams"][number]["qualifyingAwards"]>();
   for (const event of events) {
     const tier = awardTierForEventType(event.eventType);
     if (tier === null) continue; // division/other events' awards never qualify anyone
     const eventAwards = options.awards.get(event.eventKey) ?? [];
     for (const awardRow of eventAwards) {
-      if (!isQualificationRelevantAward(awardRow.awardType, tier)) continue;
+      const record = qualifyingAwardRecord({ eventKey: event.eventKey, awardType: awardRow.awardType, tier, season });
+      if (record === null) continue;
       if (!teamQualifyingAwards.has(awardRow.teamKey)) teamQualifyingAwards.set(awardRow.teamKey, []);
-      teamQualifyingAwards.get(awardRow.teamKey)!.push({
-        eventKey: event.eventKey,
-        awardType: awardRow.awardType,
-        label: awardDisplayName(awardRow.awardType, season),
-        awardOnly: isAwardOnly(awardRow.awardType, tier),
-      });
+      teamQualifyingAwards.get(awardRow.teamKey)!.push(record);
     }
   }
 
@@ -845,17 +843,18 @@ export function deriveDistrictEventState(
       (row) => row.event_key
     )
   );
-  const withAwardsAll = new Set(
-    (db.prepare(`SELECT DISTINCT event_key FROM event_awards_all WHERE event_key IN (${placeholders})`).all(...eventKeys) as { event_key: string }[]).map(
-      (row) => row.event_key
-    )
-  );
-  const withAwards = new Set(
-    (db.prepare(`SELECT DISTINCT event_key FROM event_awards WHERE event_key IN (${placeholders})`).all(...eventKeys) as { event_key: string }[]).map(
-      (row) => row.event_key
-    )
-  );
-  // The POSITIVE-ONLY third clause. CONTEXT's correction forbids INFERRING
+  // WHICH EVENTS LIST A JUDGED AWARD (quick task 261009-r9x). Both award
+  // tables are read as distinct (event, award type) pairs and the judged test
+  // is `isJudgedAwardType` from the shared module, in TypeScript, so the SQL
+  // carries no second copy of which types are judged. A Winner (1) or a
+  // Finalist (2) is decided on the field and says nothing about the judged
+  // awards, so a list holding only those is not "awards posted".
+  const withJudgedAward = new Set<string>();
+  for (const table of ["event_awards_all", "event_awards"] as const) {
+    const pairs = db.prepare(`SELECT DISTINCT event_key, award_type FROM ${table} WHERE event_key IN (${placeholders})`).all(...eventKeys) as { event_key: string; award_type: number }[];
+    for (const pair of pairs) if (isJudgedAwardType(pair.award_type)) withJudgedAward.add(pair.event_key);
+  }
+  // The POSITIVE-ONLY second fact. CONTEXT's correction forbids INFERRING
   // posted-ness from `award_points`, because a team at zero award points is
   // indistinguishable from awards not yet posted. This clause can therefore
   // only ever turn false into TRUE — it rescues an event whose award rows are
@@ -901,7 +900,11 @@ export function deriveDistrictEventState(
       // is what tells a finished bracket from an event whose elimination rows
       // were never created at all.
       playoffsDone: (facts?.finals_decided ?? 0) > 0 && (facts?.open_elim ?? 0) === 0,
-      awardsPosted: withAwardsAll.has(event.eventKey) || withAwards.has(event.eventKey) || withNonZeroAwardPoints.has(event.eventKey),
+      // THE ONE SHARED RULE, AT THE HINDSIGHT VANTAGE (quick task 261009-r9x).
+      // The corpus is ingested after the fact, so EITHER fact is proof the
+      // ceremony happened. The live Worker asks the same function at the live
+      // vantage, where it needs BOTH (`packages/core/districts/eventAwards.ts`).
+      awardsPosted: awardsPostedRule({ judgedAwardListed: withJudgedAward.has(event.eventKey), awardPointsPresent: withNonZeroAwardPoints.has(event.eventKey) }, "hindsight"),
     });
   }
   return state;
