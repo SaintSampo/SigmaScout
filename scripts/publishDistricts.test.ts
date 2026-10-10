@@ -2219,4 +2219,77 @@ describe("run() reads what is live before the first upload, over the real corpus
     },
     UL3_TIMEOUT_MS
   );
+
+  it(
+    "--allow-regress prints the same fact, says it was overridden and uploads everything",
+    async () => {
+      const f = fixture();
+      const { calls, read, write } = seams((key) => (key === f.targetKey ? f.extraAwardBody : ownBody(f, key)));
+
+      const { lines, error } = await runCaptured({ readPublished: read, writeObject: write, allowRegress: true });
+
+      expect(error).toBeUndefined();
+      expect(writes(calls)).toHaveLength(f.details.length + 1);
+      expect(lines.some((line) => line.includes(f.targetDistrictKey) && line.includes(f.targetEventKey) && line.includes(f.targetTeamKey) && line.includes(String(UL3_AWARD_TYPE)))).toBe(
+        true
+      );
+      expect(lines.some((line) => line.includes("--allow-regress"))).toBe(true);
+    },
+    UL3_TIMEOUT_MS
+  );
+
+  it(
+    "a dry run with --check-live reads every district once, prints the fact, writes nothing and never fails",
+    async () => {
+      const f = fixture();
+      const { calls, read, write } = seams((key) => (key === f.targetKey ? f.extraAwardBody : ownBody(f, key)));
+
+      const { lines, error } = await runCaptured({ dryRun: true, checkLive: true, readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(reads(calls)).toHaveLength(f.details.length);
+      expect(writes(calls)).toEqual([]);
+      expect(lines.some((line) => line.includes(f.targetDistrictKey) && line.includes(f.targetEventKey) && line.includes(f.targetTeamKey) && line.includes(String(UL3_AWARD_TYPE)))).toBe(
+        true
+      );
+    },
+    UL3_TIMEOUT_MS
+  );
+
+  it(
+    "a dry run with --check-live and a reader that throws still resolves, and names the key",
+    async () => {
+      const f = fixture();
+      const failingKey = f.details[0]!.key;
+      const { calls, read, write } = seams((key) => (key === failingKey ? new Error("fixture read failure 2b6c") : ownBody(f, key)));
+
+      const { lines, error } = await runCaptured({ dryRun: true, checkLive: true, readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(writes(calls)).toEqual([]);
+      expect(lines.some((line) => line.includes(failingKey) && line.includes("fixture read failure 2b6c"))).toBe(true);
+    },
+    UL3_TIMEOUT_MS
+  );
+});
+
+describe("parseOptions — --allow-regress and --check-live (261009-ul3)", () => {
+  it("round-trips both flags", () => {
+    const options = parseOptions(["--years", "2026", "--allow-regress", "--check-live", "--dry-run"]);
+    expect(options.allowRegress).toBe(true);
+    expect(options.checkLive).toBe(true);
+  });
+
+  it("leaves both keys off the result when neither flag is given", () => {
+    for (const argv of [["--years", "2026"], ["--years", "2026", "--dry-run"]]) {
+      const options = parseOptions(argv);
+      expect("allowRegress" in options).toBe(false);
+      expect("checkLive" in options).toBe(false);
+    }
+  });
+
+  it("a flag with nothing to do is accepted: --check-live on a real run and --allow-regress on a dry run", () => {
+    expect(parseOptions(["--years", "2026", "--check-live"]).checkLive).toBe(true);
+    expect(parseOptions(["--years", "2026", "--allow-regress", "--dry-run"]).allowRegress).toBe(true);
+  });
 });

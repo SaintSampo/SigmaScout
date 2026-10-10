@@ -84,7 +84,10 @@
  * the Worker writes every minute and the first read is minutes old by then. To
  * make the second pass mean something, every season is composed and baked
  * before any season uploads. What is compared is the composed artifact, before
- * the baked-event list is attached.
+ * the baked-event list is attached. `--allow-regress` prints the same list and
+ * publishes anyway. It never covers a read failure. `--check-live` makes a
+ * `--dry-run` read R2 and print the list (the first pass only). That run still
+ * uploads nothing and never fails.
  *
  * Write ordering: every `v1/district/{key}.json` is written before
  * `v1/districts/{year}.json` is overwritten, so the index never points at
@@ -1668,6 +1671,19 @@ export interface CliOptions {
   readonly readPublished?: PublishedReader;
   /** Uploads one object. A TEST SEAM only: production always writes through the R2 client's put function. Every upload of a run goes through this one binding. */
   readonly writeObject?: typeof putObject;
+  /**
+   * `true` only under `--allow-regress`: a run that uploads prints every live fact it would lose,
+   * says it was overridden and publishes anyway. Right when TBA itself took a fact back, or for a
+   * deliberate `--as-of` publish. It never covers a read failure, and it has no effect on a
+   * `--dry-run`, which has nothing to override.
+   */
+  readonly allowRegress?: boolean;
+  /**
+   * `true` only under `--check-live`: a `--dry-run` reads the published artifact of every district
+   * once (which needs the R2 credentials), prints the same list and never fails, read failures
+   * included. It has no effect on a run that uploads, which always checks.
+   */
+  readonly checkLive?: boolean;
 }
 
 export function parseOptions(argv: readonly string[]): CliOptions {
@@ -1683,6 +1699,8 @@ export function parseOptions(argv: readonly string[]): CliOptions {
       "warmup-from": { type: "string" },
       "no-sigma-carry": { type: "boolean" },
       "no-rp-cold-prior": { type: "boolean" },
+      "allow-regress": { type: "boolean" },
+      "check-live": { type: "boolean" },
     },
   });
 
@@ -1739,6 +1757,11 @@ export function parseOptions(argv: readonly string[]): CliOptions {
     ...(warmupFrom !== undefined ? { warmupFrom } : {}),
     ...(noSigmaCarry ? { sigmaCarry: false as const } : {}),
     ...(noRpColdPrior ? { rpColdPrior: false as const } : {}),
+    // No refusal for a flag with nothing to do: --check-live on a run that
+    // uploads (it always checks) and --allow-regress on a dry run (nothing to
+    // override) are both accepted.
+    ...(values["allow-regress"] === true ? { allowRegress: true as const } : {}),
+    ...(values["check-live"] === true ? { checkLive: true as const } : {}),
   };
 }
 
@@ -1817,19 +1840,26 @@ export async function run(options: CliOptions): Promise<void> {
     // records. The reader is resolved here, on the path that reads, and never at
     // module top level, so a test file that mocks the R2 client module without
     // the read export still imports this file.
-    const checkLiveFacts = async (stage: string): Promise<void> => {
+    //
+    // A run that uploads ENFORCES: it refuses on a lost fact (unless
+    // --allow-regress) and on a read failure (always). A dry run reads nothing,
+    // unless --check-live asks it to REPORT: it prints the list and never fails.
+    const guardMode: "enforce" | "report" | undefined = !options.dryRun ? "enforce" : options.checkLive === true ? "report" : undefined;
+    const checkLiveFacts = async (stage: string, mode: "enforce" | "report"): Promise<void> => {
       await guardLivePublish({
         stage,
         bucket: options.bucket,
         details: composedSeasons.flatMap(({ year }) => year.detailArtifacts.map((composed) => ({ key: composed.key, artifact: composed.artifact }))),
         read: options.readPublished ?? getObjectIfExists,
         log: (line) => console.log(line),
+        mode,
+        allowRegress: options.allowRegress === true,
       });
     };
 
     // FIRST PASS, before any bake: a stale corpus is refused in seconds, not
-    // after a replay that takes minutes. Only a run that uploads reads R2.
-    if (!options.dryRun) await checkLiveFacts("before the bake");
+    // after a replay that takes minutes. A plain dry run never gets here.
+    if (guardMode !== undefined) await checkLiveFacts("before the bake", guardMode);
 
     const prepared: Array<{ readonly season: number; readonly year: PublishedYear; readonly bakeResult: BakeSeasonResult | undefined }> = [];
     for (const { season, year } of composedSeasons) {
@@ -1842,8 +1872,9 @@ export async function run(options: CliOptions): Promise<void> {
 
     // SECOND PASS, immediately before the first byte gate and the first upload:
     // the Worker writes every minute and the first read is minutes old by now,
-    // so a fact it recorded during the bake is still seen.
-    if (!options.dryRun) await checkLiveFacts("before the first upload");
+    // so a fact it recorded during the bake is still seen. A dry run uploads
+    // nothing, so with --check-live it makes the first pass only.
+    if (guardMode === "enforce") await checkLiveFacts("before the first upload", guardMode);
 
     for (const { season, year, bakeResult } of prepared) {
       let totalBytes = 0;

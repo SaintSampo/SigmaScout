@@ -1313,6 +1313,36 @@ true, and is counted from then. The offline publisher refusing to overwrite newe
 **No real district event has exercised this pass yet.** The first real observation is the first
 2027 district event. Until then the replay test named above stands in for it.
 
+### The offline district publish reads what is live first (quick task 261009-ul3)
+
+Before it uploads anything, `pnpm publish:districts` reads the published
+`v1/district/{districtKey}.json` of every district of the run. It reads twice: once right after the
+artifacts are composed, and once immediately before the first upload, because the Worker writes
+every minute and the bake takes minutes. It refuses the whole run when the upload would take back a
+fact that is live. There are six such facts, each read per event: alliances picked, playoffs done
+or awards posted reading true live and not true in this run, fewer qualification matches played in
+this run, a recorded award winner (team, event, award type) gone, and a team's points row at an
+event gone. Only an event both artifacts name is compared. A missing object is a first publish. A
+published object that no longer parses is a shape change, and it is skipped with a line saying so.
+Any other read failure refuses the run. A refusal uploads nothing, writes no local file, prints one
+line per fact (district, event, team where it applies, the live value, this run's value) and exits
+1. The remedy is to bring the corpus up to date and publish again. Three ingest passes feed the
+district artifact: the matches (`pnpm ingest --years 2026-2026`), the alliances
+(`pnpm ingest:alliances --years 2026-2026`), and the districts pass for rankings, registrations and
+award recipients (`pnpm ingest:districts --years 2026-2026`, one contiguous range per run).
+`pnpm publish:districts` is its own command: `pnpm rebaseline` runs neither it nor the districts
+ingest pass. `--allow-regress` prints the same list, says it was overridden and publishes anyway.
+It is right in two cases: TBA itself took a fact back, or the publish is a deliberate `--as-of`
+one. A read failure is not overridable. A dry run reads nothing from R2 unless `--check-live` is
+added. That run needs the credentials, prints the list and never fails:
+
+```bash
+npx tsx --env-file=.env scripts/publishDistricts.ts --years 2016-2020,2022-2026 --dry-run --no-bake --check-live
+```
+
+What remains: the Worker can still write between the second read and that district's own upload, a
+window of seconds, and closing it fully needs a conditional put.
+
 ---
 
 ## The ingest log (quick task 261004-uyc)
