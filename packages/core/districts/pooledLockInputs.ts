@@ -21,10 +21,51 @@
  * calling; the DCMP slot race this pool feeds is decided by `maxRemainingDistrict`,
  * which is regular-tier points alone.
  *
+ * THE PLAYOFF POINTS ALREADY IN FLOORS COME OFF THE POOL (quick task
+ * 261009-uhb). The optional second input is, per event, the playoff points
+ * that event has ALREADY handed out and that are counted in team floors at
+ * the position.
+ *
+ * The defect it removes. Quick task 261008-26o settles a knocked out
+ * alliance's exact playoff points into its teams' floors while the event's
+ * Playoffs category is still open. Without the netting the same points sat in
+ * rivals' floors and in the pool at once, so the pooled test got harder
+ * exactly when information arrived, and a lock shown at Alliances final was
+ * withdrawn at Round 4 or Round 5: 41 team stops over 21 events of 2023 to
+ * 2026. Every one of those teams did qualify, so no lock was false, but a
+ * shown lock was taken back.
+ *
+ * Why it is sound. `PLAYOFF_POOL` is an upper bound on ALL the playoff points
+ * an event hands out (the measured maximum, `pointPool.ts`). The total is
+ * what has been handed out plus what remains, so what remains is at most the
+ * pool minus what has been handed out. Points handed to teams outside the
+ * district are not known and are not subtracted, which only leaves the pool
+ * larger: the conservative side.
+ *
+ * Why no lock is taken back. In the pooled test each rival's cost falls by at
+ * most the points it banked, and the pool falls by the sum of everything
+ * banked, so any way to unseat a team after the banking is also a way to
+ * unseat it before. A pooled lock that held before the points were banked
+ * still holds after.
+ *
+ * Three bounds, each of which leaves the pool LARGER:
+ *   1. Only the playoff pool is netted. At most `PLAYOFF_POOL` comes off an
+ *      event, so its qualification, selection and award pools are never
+ *      reduced and no event's pool goes below zero.
+ *   2. Only while the event's Playoffs category is open at the position.
+ *      Once it is final the whole playoff pool has already left the
+ *      remaining pool and nothing is netted.
+ *   3. An amount that is absent, not finite or not above zero subtracts
+ *      nothing, and nothing is thrown.
+ *
+ * ONLY THE BROWSER HAS BRACKET FACTS. The offline publisher and the live
+ * Worker pass no second argument and get exactly the results they got before
+ * the input existed.
+ *
  * A browser-safe leaf module: its only runtime imports are the `./pointPool.js`
  * and `./reservedSlots.js` siblings.
  */
-import { eventHasOpenCategory, eventRemainingPool } from "./pointPool.js";
+import { PLAYOFF_POOL, eventHasOpenCategory, eventRemainingPool } from "./pointPool.js";
 import type { PooledRemainingPoints } from "./locks.js";
 import type { DistrictCategoryFinality } from "./reservedSlots.js";
 
@@ -59,7 +100,12 @@ export interface PooledEventContribution {
   /** How many teams the input showed attending. */
   readonly fieldSize: number;
   readonly rookieCount: number;
-  /** `eventRemainingPool` at this event's open categories. Zero for a finished event. */
+  /**
+   * `eventRemainingPool` at this event's open categories, less the playoff
+   * points the event has already handed out and that are counted in team
+   * floors (quick task 261009-uhb; nothing is taken off for a caller that
+   * passes no such points). Zero for a finished event.
+   */
   readonly points: number;
 }
 
@@ -86,8 +132,20 @@ export interface PooledLockInputsResult extends PooledRemainingPoints {
  *
  * A district whose every event is finished returns `remainingPoints: 0` and an
  * empty `hasRemainingEvent`, which is every finished season in the corpus.
+ *
+ * `playoffPointsInFloorsByEvent` (quick task 261009-uhb) maps an event key to
+ * the playoff points that event has already handed out and that are counted
+ * in team floors at this position. Each event's pool is reduced by its
+ * amount under the three bounds of the module header: never more than
+ * `PLAYOFF_POOL`, only while that event's Playoffs category is open, and
+ * nothing for an amount that is absent, not finite or not above zero. With
+ * the argument absent, as for the publisher and the Worker, nothing is
+ * subtracted and every result is what it was before the parameter existed.
  */
-export function pooledLockInputs(teams: readonly PooledTeamEntry[]): PooledLockInputsResult {
+export function pooledLockInputs(
+  teams: readonly PooledTeamEntry[],
+  playoffPointsInFloorsByEvent?: ReadonlyMap<string, number>
+): PooledLockInputsResult {
   const finalByEvent = new Map<string, DistrictCategoryFinality>();
   const attendeesByEvent = new Map<string, Set<string>>();
   const rookiesByEvent = new Map<string, number>();
@@ -118,7 +176,16 @@ export function pooledLockInputs(teams: readonly PooledTeamEntry[]): PooledLockI
     // A field of zero cannot arise (an event is only in the map because a team
     // carried it), but `qualificationPool` refuses a zero field size and this
     // module must never be the reason a verdict pass throws.
-    const points = fieldSize === 0 ? 0 : eventRemainingPool({ fieldSize, rookieCount, final });
+    const wholePool = fieldSize === 0 ? 0 : eventRemainingPool({ fieldSize, rookieCount, final });
+    // Quick task 261009-uhb: the playoff points this event has already handed
+    // out and that sit in team floors come off its playoff pool. Never more
+    // than the playoff pool, only while the Playoffs category is open (so the
+    // playoff pool is inside `wholePool` and the result cannot go below zero),
+    // and a bad amount subtracts nothing rather than throwing.
+    const inFloors = playoffPointsInFloorsByEvent?.get(eventKey);
+    const netted =
+      fieldSize === 0 || final.elim || inFloors === undefined || !Number.isFinite(inFloors) || inFloors <= 0 ? 0 : Math.min(inFloors, PLAYOFF_POOL);
+    const points = wholePool - netted;
     byEvent.push({ eventKey, fieldSize, rookieCount, points });
     remainingPoints += points;
   }

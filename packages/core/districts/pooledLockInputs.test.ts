@@ -120,3 +120,90 @@ describe("pooledLockInputs", () => {
     expect(result.byEvent[0]!.rookieCount).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Quick task 261009-uhb: the pool nets out the playoff points an event has
+// already handed out and that are already counted in team floors.
+// ---------------------------------------------------------------------------
+
+describe("pooledLockInputs nets out the playoff points already in floors (261009-uhb)", () => {
+  /** Qualification and alliance selection final, Playoffs and awards open: a playoff round stop. */
+  const OPEN_PLAYOFFS: DistrictCategoryFinality = { qual: true, alliance: true, elim: false, award: false };
+  /** Only the Playoffs category open. */
+  const ONLY_PLAYOFFS_OPEN: DistrictCategoryFinality = { qual: true, alliance: true, elim: false, award: true };
+  /** Playoffs final, awards open: the stop after the last playoff match. */
+  const PLAYOFFS_FINAL: DistrictCategoryFinality = { qual: true, alliance: true, elim: true, award: false };
+
+  it("takes 60 settled playoff points off an event whose Playoffs category is open", () => {
+    const result = pooledLockInputs(roster(36, [["e1", OPEN_PLAYOFFS]]), new Map([["e1", 60]]));
+    const expected = PLAYOFF_POOL + awardPool(0) - 60;
+    expect(result.remainingPoints).toBe(expected);
+    expect(result.byEvent).toEqual([{ eventKey: "e1", fieldSize: 36, rookieCount: 0, points: expected }]);
+    // Netting moves the size of the pool and nothing else: every team can still collect.
+    expect(result.hasRemainingEvent.size).toBe(36);
+  });
+
+  it("never nets more than the playoff pool, so the award pool stays whole", () => {
+    const teams = roster(36, [["e1", OPEN_PLAYOFFS]]);
+    expect(pooledLockInputs(teams, new Map([["e1", PLAYOFF_POOL]])).remainingPoints).toBe(awardPool(0));
+    expect(pooledLockInputs(teams, new Map([["e1", 500]])).remainingPoints).toBe(awardPool(0));
+  });
+
+  it("never goes below zero where the Playoffs category is the only one open", () => {
+    const result = pooledLockInputs(roster(36, [["e1", ONLY_PLAYOFFS_OPEN]]), new Map([["e1", 500]]));
+    expect(result.remainingPoints).toBe(0);
+    expect(result.byEvent[0]!.points).toBe(0);
+  });
+
+  it("is identical to the one argument call when the input is absent, empty or keyed by an event no team carries", () => {
+    const rosters: PooledTeamEntry[][] = [
+      roster(40, [
+        ["e1", ALL_CATEGORIES_OPEN],
+        ["e2", ALL_CATEGORIES_OPEN],
+      ]),
+      roster(36, [
+        ["e1", OPEN_PLAYOFFS],
+        ["e2", ALL_FINAL],
+      ]),
+      roster(40, [
+        ["e1", ALL_FINAL],
+        ["e2", ALL_FINAL],
+      ]),
+    ];
+    for (const teams of rosters) {
+      const today = pooledLockInputs(teams);
+      expect(pooledLockInputs(teams, undefined)).toEqual(today);
+      expect(pooledLockInputs(teams, new Map())).toEqual(today);
+      expect(pooledLockInputs(teams, new Map([["elsewhere", 60]]))).toEqual(today);
+    }
+  });
+
+  it("nets nothing once the Playoffs category is final at the position", () => {
+    // The whole playoff pool has already left the remaining pool, so there is
+    // nothing of it left to take the settled points off.
+    const result = pooledLockInputs(roster(36, [["e1", PLAYOFFS_FINAL]]), new Map([["e1", 60]]));
+    expect(result.remainingPoints).toBe(awardPool(0));
+  });
+
+  it("subtracts nothing for an amount of 0, a negative amount, NaN or Infinity, and never throws", () => {
+    const teams = roster(36, [["e1", OPEN_PLAYOFFS]]);
+    const whole = PLAYOFF_POOL + awardPool(0);
+    for (const amount of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(pooledLockInputs(teams, new Map([["e1", amount]])).remainingPoints).toBe(whole);
+    }
+  });
+
+  it("nets each event by its own amount and leaves an event with no amount whole", () => {
+    const teams = roster(36, [
+      ["e1", OPEN_PLAYOFFS],
+      ["e2", OPEN_PLAYOFFS],
+    ]);
+    const result = pooledLockInputs(teams, new Map([["e1", 60]]));
+    const whole = PLAYOFF_POOL + awardPool(0);
+    expect(result.byEvent).toEqual([
+      { eventKey: "e1", fieldSize: 36, rookieCount: 0, points: whole - 60 },
+      { eventKey: "e2", fieldSize: 36, rookieCount: 0, points: whole },
+    ]);
+    expect(result.remainingPoints).toBe(result.byEvent.reduce((sum, e) => sum + e.points, 0));
+  });
+});

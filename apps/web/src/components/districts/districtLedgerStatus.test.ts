@@ -14,6 +14,7 @@ import {
   type QualifierSets,
 } from "../../../../../packages/core/districts/locks.js";
 import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
+import { PLAYOFF_POOL, awardPool } from "../../../../../packages/core/districts/pointPool.js";
 import {
   AWARD_TYPE_IMPACT,
   AWARD_TYPE_ENGINEERING_INSPIRATION,
@@ -893,5 +894,89 @@ describe("a decided playoff placement settles that team's playoff points (261008
     expect(settled.byTeam.get("frc1")!.status).toBe("locked");
     // The rivals' ceilings are their floors plus the award ceiling alone.
     expect(20 + CEILINGS.award).toBeLessThan(40);
+  });
+
+  // -------------------------------------------------------------------------
+  // Quick task 261009-uhb: the settled playoff points this module puts in
+  // floors come off that event's playoff pool, so a pooled lock shown at
+  // Alliances final is still shown once an alliance is decided.
+  // -------------------------------------------------------------------------
+
+  describe("the pooled pool nets out the settled playoff points already in floors (261009-uhb)", () => {
+    /**
+     * Twelve teams at one finished event rewound to Playoffs open, nine DCMP
+     * slots, one held back for the event's Impact award, so eight slots are
+     * in the points race and eight rivals must reach the leader to unseat it.
+     * The leader sits 42 clear of eleven rivals. No team carries an
+     * `awardProfile`, so all twelve count as rookies and the award pool is
+     * the widest one.
+     *
+     * Twelve is the smallest district that shows the defect with one decided
+     * alliance: with Playoffs and awards open one event still holds at least
+     * the playoff pool plus the award pool, and a rival the ceiling test
+     * still counts sits at most 45 behind, so a pooled only lock needs many
+     * such rivals.
+     */
+    const SETTLED_THIRD = { frc2: 3, frc3: 3, frc4: 3 } as const;
+
+    function twelveTeamDistrict(): DistrictArtifact {
+      const leader = team("frc1", { pointTotal: 100, eventPoints: [eventRow("a", { qual: 100, alliance: 0, elim: 0, award: 0 }, FINISHED)] });
+      const thirdPlace = ["frc2", "frc3", "frc4"].map((teamKey) =>
+        team(teamKey, { pointTotal: 71, eventPoints: [eventRow("a", { qual: 58, alliance: 0, elim: 13, award: 0 }, FINISHED)] })
+      );
+      const undecided = Array.from({ length: 8 }, (_, index) =>
+        team(`frc${String(index + 5)}`, { pointTotal: 58, eventPoints: [eventRow("a", { qual: 58, alliance: 0, elim: 0, award: 0 }, FINISHED)] })
+      );
+      return artifactOf([leader, ...thirdPlace, ...undecided], { dcmpSlots: 9 });
+    }
+
+    /** The finished event rewound to Playoffs open, with the bracket facts a round stop hands the row builder. */
+    function atPlayoffStop(distributions: ReadonlyMap<string, DistrictEventDistributions>) {
+      const artifact = twelveTeamDistrict();
+      const rows = buildDistrictLedgerRows({ artifact, distributions, stageByEvent: new Map([["a", OPEN_PLAYOFFS]]) });
+      return { rows, model: computeDistrictLedgerStatuses({ artifact, teams: rows.teams }) };
+    }
+
+    it("locks the leader by the pooled argument alone at Alliances final", () => {
+      const { model } = atPlayoffStop(NO_DISTRIBUTIONS);
+      expect(model.reservedSlots).toBe(1);
+      expect(model.byTeam.get("frc1")!.verdict).toBe("locked");
+      expect(model.byTeam.get("frc1")!.lockedBy).toBe("pooled");
+      expect(model.pooledRemainingPoints).toBe(PLAYOFF_POOL + awardPool(2));
+    });
+
+    // BEFORE quick task 261009-uhb this stop read In range: verdict
+    // `contending`, `lockedBy` null, with the pool still 304. Eight rivals
+    // must pass frc1. The eight cheapest cost 3 x 29 + 5 x 42 = 297, which an
+    // unreduced 304 covers, and the eight undecided rivals' ceilings
+    // (58 + 30 + 15 = 103) still reach 100, so the ceiling test did not lock
+    // it either. Netted, the pool is 265 and 297 does not fit.
+    it("keeps that pooled lock once the third place alliance's playoff points are in its teams' floors", () => {
+      const before = atPlayoffStop(NO_DISTRIBUTIONS).model;
+      const { rows, model } = atPlayoffStop(decided("a", SETTLED_THIRD));
+
+      for (const teamKey of Object.keys(SETTLED_THIRD)) {
+        const row = rows.teams.find((entry) => entry.teamKey === teamKey)!.rows[0]!;
+        expect(row.settledElim).toEqual({ points: 13, exact: true, ceiling: 0 });
+      }
+
+      const leader = model.byTeam.get("frc1")!;
+      expect(leader.status).toBe("locked");
+      expect(leader.verdict).toBe("locked");
+      expect(leader.lockedBy).toBe("pooled");
+
+      // The pool falls by exactly what the floors gained, and by nothing else.
+      const inFloors = rows.teams
+        .flatMap((entry) => entry.rows)
+        .reduce((sum, row) => sum + (row.settledElim?.exact === true ? row.settledElim.points : 0), 0);
+      expect(inFloors).toBe(39);
+      expect(model.pooledRemainingPoints).toBe(before.pooledRemainingPoints - 39);
+    });
+
+    it("nets nothing for a settled value that is not exact: it is in no floor", () => {
+      // The live event of `knockedOutArtifact`: a placement table value, a
+      // ceiling only.
+      expect(modelWith(decided("a", { frc2: 5, frc3: 6 })).pooledRemainingPoints).toBe(modelWith(NO_DISTRIBUTIONS).pooledRemainingPoints);
+    });
   });
 });

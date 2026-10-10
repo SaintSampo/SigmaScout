@@ -66,9 +66,12 @@
  * of the bracket here; `districtLockBounds` puts TBA's exact number in the
  * floor and a placement table value in the ceiling only, in place of the
  * whole Playoffs ceiling. The award ceiling and the Impact reservation are
- * unchanged. `pooledLockInputs` still reads event finality, so it keeps
- * counting a settled alliance's share of the playoff pool, which only delays a
- * pooled lock: the conservative side.
+ * unchanged. The exact settled points this module puts in floors are summed
+ * per event and handed to `pooledLockInputs`, which takes them off that
+ * event's playoff pool (quick task 261009-uhb). Counting them in floors and
+ * in the pool at once withdrew pooled locks at later playoff rounds: a team
+ * shown Locked at Alliances final read In range at Round 4 or Round 5. A
+ * settled value that is not exact is in no floor and nets nothing.
  *
  * THE DATA WORD `eliminated` IS NEVER PRINTED (the sketch's language rules),
  * and neither is the champ tab's sixth verdict word for `contending`. Note
@@ -176,7 +179,9 @@ export interface DistrictLedgerStatusModel {
    * How many district points the whole district still has to hand out at this
    * position — the pooled lock's own input. Zero at a position where every
    * district-tier category is final, which is what makes a finished season's
-   * verdicts identical with and without the pooled argument.
+   * verdicts identical with and without the pooled argument. At a playoff
+   * round stop it is already net of the exact settled playoff points counted
+   * in team floors (quick task 261009-uhb).
    */
   readonly pooledRemainingPoints: number;
 }
@@ -385,6 +390,10 @@ export function computeDistrictLedgerStatuses(options: ComputeDistrictLedgerStat
   const lockInputs: LockTeamInput[] = [];
   const projectionInputs: LockTeamInput[] = [];
   const pooledEntries: PooledTeamEntry[] = [];
+  // `eventKey -> the exact settled playoff points counted in team floors at
+  // this position` (quick task 261009-uhb), for `pooledLockInputs` to take off
+  // that event's playoff pool.
+  const playoffPointsInFloors = new Map<string, number>();
   const awardQualified = new Set<string>();
 
   for (const team of teams) {
@@ -392,6 +401,15 @@ export function computeDistrictLedgerStatuses(options: ComputeDistrictLedgerStat
     if (source === undefined) continue;
 
     const { floor, openCeiling } = districtLockBounds(source, team.rows, categoryCeiling);
+    // The playoff points `districtLockBounds` just put in this team's floor:
+    // the same rows, the same open Playoffs category and the very same
+    // `settledElimBounds` call, so the pool can only lose what a floor gained.
+    // A settled value that is not exact returns a floor of 0 and adds no key.
+    for (const row of team.rows) {
+      if (row.stage.final.elim || row.settledElim === undefined) continue;
+      const inFloor = settledElimBounds(row.settledElim).floor;
+      if (inFloor > 0) playoffPointsInFloors.set(row.eventKey, (playoffPointsInFloors.get(row.eventKey) ?? 0) + inFloor);
+    }
 
     lockInputs.push({ teamKey: team.teamKey, pointTotal: floor, maxRemaining: openCeiling });
     // `maxRemaining: 0` asks the cut-line function for the slot-th highest
@@ -444,7 +462,13 @@ export function computeDistrictLedgerStatuses(options: ComputeDistrictLedgerStat
   // rival's ceiling. A team also locks when no achievable distribution of what
   // is left can lift enough rivals past it — see `locks.ts`'s header for the
   // rule and `packages/core/districts/pointPool.ts` for how big the pool is.
-  const pooled = pooledLockInputs(pooledEntries);
+  //
+  // A knocked out alliance's exact playoff points are already in its teams'
+  // floors, so they are no longer the event's to hand out: the second
+  // argument takes them off that event's playoff pool (quick task
+  // 261009-uhb). Without it the same points sat on both sides of the test and
+  // a pooled lock shown at Alliances final was withdrawn at a later round.
+  const pooled = pooledLockInputs(pooledEntries, playoffPointsInFloors);
 
   const verdicts = computeLocksWithQualifiers(lockInputs, artifact.dcmpSlots, qualifiers, reservedSlots, pooled);
   const projectionCutLine = cutLinePointsWithQualifiers(projectionInputs, artifact.dcmpSlots, qualifiers);
