@@ -1733,6 +1733,93 @@ describe("buildChampLedgerRows: a team with no championship row reads out only o
     expect(byKey(buildChampLedgerRows({ artifact: ONE_POSTED, distributions: new Map(), atLivePosition: false, startedDcmpEventKeys: new Set([D1]), nowYear: NOW_YEAR })).get("frc3")!.membership).toBe("out");
   });
 
+  describe("fieldRowOpen: a team with no row at a field fixing key, while the field is still open (quick task 261010-66y, reading R23)", () => {
+    const FINALS = "2026necmp";
+    /** BOTH_POSTED with frc5 given an award at the finals alone: its only championship row is at the finals key. */
+    const WITH_FINALS_ONLY = artifactOf(
+      BOTH_POSTED.teams.map((entry) =>
+        entry.teamKey === "frc5"
+          ? { ...entry, pointTotal: entry.pointTotal + 30, eventPoints: [...entry.eventPoints, eventPoints({ eventKey: FINALS, tier: "dcmp", week: 5, qual: 0, alliance: 0, elim: 0, award: 30, total: 30 })] }
+          : entry
+      ),
+      { dcmpSlots: 4 }
+    );
+    const openAt = (artifact: DistrictArtifact, started: readonly string[], options: { live?: boolean; fieldProven?: boolean } = {}) =>
+      new Map(
+        buildChampLedgerRows({
+          artifact,
+          distributions: new Map(),
+          atLivePosition: options.live === true,
+          startedDcmpEventKeys: new Set(started),
+          nowYear: NOW_YEAR,
+          fieldChanceByTeam: chances,
+          ...(options.fieldProven === undefined ? {} : { fieldProven: options.fieldProven }),
+        }).teams.map((entry) => [entry.teamKey, entry.fieldRowOpen] as const)
+      );
+
+    it("premise: the finals key is not field fixing, and frc5's one championship row is there", () => {
+      expect(fieldFixingDcmpKeys([D1, D2, FINALS])).toEqual([D1, D2]);
+      expect(WITH_FINALS_ONLY.teams.find((entry) => entry.teamKey === "frc5")!.eventPoints.filter((row) => row.tier === "dcmp").map((row) => row.eventKey)).toEqual([FINALS]);
+    });
+
+    it("is false for every team with a row at a field fixing key, whatever has started", () => {
+      for (const artifact of [BOTH_POSTED, WITH_FINALS_ONLY]) {
+        for (const started of [[], [D1], [D1, D2], [D1, D2, FINALS]]) {
+          const open = openAt(artifact, started);
+          for (const teamKey of ["frc1", "frc2", "frc3", "frc4"]) expect({ started, teamKey, open: open.get(teamKey) }).toEqual({ started, teamKey, open: false });
+        }
+      }
+    });
+
+    it("is true for a team with no row at a field fixing key while not every field fixing key has started, and false once they all have", () => {
+      // frc5 has no championship row at all on BOTH_POSTED, and only a finals row on WITH_FINALS_ONLY: the same answer.
+      for (const artifact of [BOTH_POSTED, WITH_FINALS_ONLY]) {
+        expect(openAt(artifact, []).get("frc5")).toBe(true);
+        expect(openAt(artifact, [D1]).get("frc5")).toBe(true);
+        expect(openAt(artifact, [D2]).get("frc5")).toBe(true);
+        expect(openAt(artifact, [D1, D2]).get("frc5")).toBe(false);
+        // The finals' own start is not asked for, and adds nothing.
+        expect(openAt(artifact, [FINALS]).get("frc5")).toBe(true);
+        expect(openAt(artifact, [D1, D2, FINALS]).get("frc5")).toBe(false);
+      }
+      // One division on the rows: the teams of the other division are on no row, and read by the same rule.
+      expect(openAt(ONE_POSTED, []).get("frc3")).toBe(true);
+      expect(openAt(ONE_POSTED, [D1]).get("frc3")).toBe(false);
+    });
+
+    it("at the live position it stays true while the field is not proven, though every key the artifact knows has started", () => {
+      // One division posted and started, the other on no row: the field reads unproven, so a team on no row is still open.
+      expect(openAt(ONE_POSTED, [D1], { live: true }).get("frc3")).toBe(true);
+      expect(openAt(ONE_POSTED, [D1], { live: true }).get("frc5")).toBe(true);
+      expect(openAt(ONE_POSTED, [D1], { live: true }).get("frc1")).toBe(false);
+      // Both posted and started: proven by capacity, so it is false, as at a rewound position.
+      expect(openAt(BOTH_POSTED, [D1, D2], { live: true }).get("frc5")).toBe(false);
+      expect(openAt(WITH_FINALS_ONLY, [D1, D2], { live: true }).get("frc5")).toBe(false);
+      // A supplied flag is used as given.
+      expect(openAt(BOTH_POSTED, [D1, D2], { live: true, fieldProven: false }).get("frc5")).toBe(true);
+      expect(openAt(BOTH_POSTED, [D1], { live: true, fieldProven: true }).get("frc5")).toBe(true);
+    });
+
+    it("for a team with no championship row it is exactly membership not reading out, and membership itself is untouched", () => {
+      for (const artifact of [ONE_POSTED, BOTH_POSTED]) {
+        for (const started of [[], [D1], [D1, D2]]) {
+          for (const live of [false, true]) {
+            const rows = buildChampLedgerRows({ artifact, distributions: new Map(), atLivePosition: live, startedDcmpEventKeys: new Set(started), nowYear: NOW_YEAR, fieldChanceByTeam: chances });
+            for (const entry of rows.teams) {
+              const source = artifact.teams.find((candidate) => candidate.teamKey === entry.teamKey)!;
+              // The membership rule is the one it was: the team's own first championship row, or the field's.
+              expect(entry.membership, `${entry.teamKey} ${JSON.stringify(started)} ${String(live)}`).toBe(champFieldMembership(source, dcmpStartedForTeam(source, new Set(started), [...new Set(artifact.teams.flatMap((candidate) => candidate.eventPoints.filter((row) => row.tier === "dcmp").map((row) => row.eventKey)))].sort(), rows.fieldProven), live));
+              if (source.eventPoints.every((row) => row.tier !== "dcmp")) expect(entry.fieldRowOpen, `${entry.teamKey} ${JSON.stringify(started)} ${String(live)}`).toBe(entry.membership !== "out");
+            }
+          }
+        }
+      }
+      // The finals only team keeps the membership its finals row gives it, whatever fieldRowOpen says.
+      const finalsOnly = buildChampLedgerRows({ artifact: WITH_FINALS_ONLY, distributions: new Map(), atLivePosition: false, startedDcmpEventKeys: new Set([D1, D2, FINALS]), nowYear: NOW_YEAR }).teams.find((entry) => entry.teamKey === "frc5")!;
+      expect({ membership: finalsOnly.membership, fieldRowOpen: finalsOnly.fieldRowOpen, sources: finalsOnly.dcmpRow.sources.map((source) => source.eventKey) }).toEqual({ membership: "in", fieldRowOpen: false, sources: [FINALS] });
+    });
+  });
+
   it("before any field fixing key has started fieldProven is true and the rows are the rows a proven field gives", () => {
     const notStarted = state({ qualMatchesPlayed: 0, alliancesPicked: false, playoffsDone: false, awardsPosted: false });
     const artifact = artifactOf(

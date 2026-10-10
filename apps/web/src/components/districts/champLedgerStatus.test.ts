@@ -12,6 +12,7 @@
  * eliminated: 104}` and its own `insights.cmpCutLinePoints` is 182, and this
  * recompute reproduces both with zero per-team disagreements.
  */
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -1282,13 +1283,142 @@ describe("computeChampLedgerStatuses — every championship row is folded (26100
     expect(team.dcmpRow.sources.map((source) => source.eventKey)).toEqual([DIVISIONS[FIXTURE.teams.findIndex((t) => t.teamKey === FINALS_TEAM) % 2], PARENT]);
   });
 
-  it("D3: with both divisions final and the finals all open, the finals row's 60 leaves the floor and its 30 plus 45 enter the ceiling; at Now the floor is pointTotal", () => {
+  it("D3: with both divisions final and the finals all open, the finals row's 60 leaves the floor and its 30 enters the ceiling; at Now the floor is pointTotal", () => {
+    // Quick task 261010-66y, reading R22: the finals' Awards add no points ceiling for anyone, so only the
+    // two division finals champion maximum (30) enters. Before that task this read 30 plus the 45 Awards ceiling.
     const open = divisionedAt(ALL_FINAL, ALL_OPEN).status;
     expect(open.floorByTeam!.get(FINALS_TEAM)).toBe(finalsTeamSource.pointTotal - 60);
-    expect(open.ceilingByTeam!.get(FINALS_TEAM)! - open.floorByTeam!.get(FINALS_TEAM)!).toBe(30 + maxEventPoints(2026, "dcmp").award);
+    expect(open.ceilingByTeam!.get(FINALS_TEAM)! - open.floorByTeam!.get(FINALS_TEAM)!).toBe(30);
     const now = divisionedAt(ALL_FINAL, ALL_FINAL).status;
     expect(now.floorByTeam!.get(FINALS_TEAM)).toBe(finalsTeamSource.pointTotal);
     expect(now.ceilingByTeam!.get(FINALS_TEAM)).toBe(finalsTeamSource.pointTotal);
+  });
+
+  describe("the finals read the same way with and without a finals row (quick task 261010-66y, P12 reading (A), R22 and R23)", () => {
+    const WHOLE_CHAMPIONSHIP = (() => {
+      const ceiling = maxEventPoints(2026, "dcmp");
+      return ceiling.qual + ceiling.alliance + ceiling.elim + ceiling.award;
+    })();
+    /** A team the artifact names at no championship key at all. */
+    const OUTSIDE_TEAM = DIVISIONED.teams.find((team) => team.eventPoints.every((row) => row.tier !== "dcmp") && team.remainingEvents.every((row) => row.tier !== "dcmp"))!.teamKey;
+    /** The same district with OUTSIDE_TEAM given an award at the finals alone: 30 award points on a finals row, and no division row. */
+    const WITH_FINALS_ONLY: DistrictArtifact = DistrictArtifactSchema.parse({
+      ...DIVISIONED,
+      teams: DIVISIONED.teams.map((team) => {
+        if (team.teamKey !== OUTSIDE_TEAM) return team;
+        const finalsRow = finalsTeamSource.eventPoints.find((row) => row.eventKey === PARENT)!;
+        return { ...team, pointTotal: team.pointTotal + 30, eventPoints: [...team.eventPoints, { ...finalsRow, qual: 0, alliance: 0, elim: 0, award: 30, total: 30 }] };
+      }),
+    });
+    const outsideSource = DIVISIONED.teams.find((team) => team.teamKey === OUTSIDE_TEAM)!;
+
+    /** The statuses at a rewound stop: each division at `division`, the finals at `finals`, and exactly `started` started. */
+    function at(
+      artifact: DistrictArtifact,
+      stop: { division: DistrictStageFinality; finals: DistrictStageFinality; started: readonly string[] },
+      options: { districtLockedOut?: ReadonlySet<string>; stripFieldRowOpen?: boolean } = {}
+    ) {
+      const stageByEvent = new Map(eventKeysOf(artifact).map((key) => [key, key === PARENT ? stop.finals : (DIVISIONS as readonly string[]).includes(key) ? stop.division : ALL_FINAL] as const));
+      const rows = buildChampLedgerRows({ artifact, distributions: new Map(), stageByEvent, startedDcmpEventKeys: new Set(stop.started) });
+      const teams = options.stripFieldRowOpen === true ? rows.teams.map(({ fieldRowOpen: _unused, ...team }) => team) : rows.teams;
+      return { rows, status: computeChampLedgerStatuses({ artifact, teams, nowYear: 2026, ...(options.districtLockedOut === undefined ? {} : { districtLockedOut: options.districtLockedOut }) }) };
+    }
+    const openCeiling = (model: ReturnType<typeof at>, teamKey: string): number => model.status.ceilingByTeam!.get(teamKey)! - model.status.floorByTeam!.get(teamKey)!;
+    const NOTHING_STARTED = { division: ALL_OPEN, finals: ALL_OPEN, started: [] as string[] };
+    const ONE_DIVISION_STARTED = { division: ALL_OPEN, finals: ALL_OPEN, started: [DIVISIONS[0]] as string[] };
+    const EVERY_DIVISION_STARTED = { division: ALL_OPEN, finals: ALL_OPEN, started: [...DIVISIONS] as string[] };
+    const DIVISIONS_FINAL = { division: ALL_FINAL, finals: ALL_OPEN, started: [...DIVISIONS] as string[] };
+    const FINALS_PLAYOFFS_FINAL = { division: ALL_FINAL, finals: FINALS_AWARDS_OPEN, started: [...DIVISIONS, PARENT] as string[] };
+    const EVERYTHING_FINAL = { division: ALL_FINAL, finals: ALL_FINAL, started: [...DIVISIONS, PARENT] as string[] };
+
+    it("R22: a finals source with its Awards open adds no Awards ceiling, and its award points are out of the floor", () => {
+      // The finals' Playoffs final and their Awards open: FINALS_TEAM's 30 finals award points are open.
+      const model = at(DIVISIONED, FINALS_PLAYOFFS_FINAL);
+      expect(model.status.floorByTeam!.get(FINALS_TEAM)).toBe(finalsTeamSource.pointTotal - 30);
+      expect(openCeiling(model, FINALS_TEAM)).toBe(0);
+      // And a division team with no finals row carries nothing for the finals' Awards either, as before.
+      expect(openCeiling(model, DIVISION_ONLY_TEAM)).toBe(0);
+    });
+
+    it("premise: the finals only team has one championship row, at the finals key, with award points alone", () => {
+      const rows = WITH_FINALS_ONLY.teams.find((team) => team.teamKey === OUTSIDE_TEAM)!.eventPoints.filter((row) => row.tier === "dcmp");
+      expect(rows.map((row) => [row.eventKey, row.qual, row.alliance, row.elim, row.award])).toEqual([[PARENT, 0, 0, 0, 30]]);
+      expect(outsideSource.eventPoints.some((row) => row.tier === "dcmp")).toBe(false);
+    });
+
+    it("R23: before every division has started, a team whose only championship row is the finals row carries one hypothetical championship, exactly as the same team with the row removed", () => {
+      for (const stop of [NOTHING_STARTED, ONE_DIVISION_STARTED]) {
+        const withRow = at(WITH_FINALS_ONLY, stop);
+        const withoutRow = at(DIVISIONED, stop);
+        // The finals row adds no Playoffs ceiling and no Awards ceiling: the open ceiling is the hypothetical championship alone.
+        expect(openCeiling(withRow, OUTSIDE_TEAM), JSON.stringify(stop.started)).toBe(WHOLE_CHAMPIONSHIP);
+        expect(openCeiling(withoutRow, OUTSIDE_TEAM), JSON.stringify(stop.started)).toBe(WHOLE_CHAMPIONSHIP);
+        // Its award points there are not earned yet at the stop: the floor is the team's total without them.
+        expect(withRow.status.floorByTeam!.get(OUTSIDE_TEAM)).toBe(outsideSource.pointTotal);
+        expect(withRow.status.floorByTeam!.get(OUTSIDE_TEAM)).toBe(withoutRow.status.floorByTeam!.get(OUTSIDE_TEAM));
+        expect(withRow.status.ceilingByTeam!.get(OUTSIDE_TEAM)).toBe(withoutRow.status.ceilingByTeam!.get(OUTSIDE_TEAM));
+        // And every other team reads the same on both artifacts.
+        for (const [teamKey, ceiling] of withoutRow.status.ceilingByTeam!) expect(withRow.status.ceilingByTeam!.get(teamKey), teamKey).toBe(ceiling);
+        for (const [teamKey, floor] of withoutRow.status.floorByTeam!) expect(withRow.status.floorByTeam!.get(teamKey), teamKey).toBe(floor);
+      }
+    });
+
+    it("R23: the hypothetical championship keeps its two gates: none for a team the district tier has locked out", () => {
+      const lockedOut = new Set([OUTSIDE_TEAM]);
+      expect(openCeiling(at(WITH_FINALS_ONLY, NOTHING_STARTED, { districtLockedOut: lockedOut }), OUTSIDE_TEAM)).toBe(0);
+      expect(openCeiling(at(DIVISIONED, NOTHING_STARTED, { districtLockedOut: lockedOut }), OUTSIDE_TEAM)).toBe(0);
+    });
+
+    it("R23: once every division has started the finals only team carries nothing, and its award points stay out of its floor while the finals' Awards are open", () => {
+      for (const stop of [EVERY_DIVISION_STARTED, DIVISIONS_FINAL, FINALS_PLAYOFFS_FINAL]) {
+        const withRow = at(WITH_FINALS_ONLY, stop);
+        const withoutRow = at(DIVISIONED, stop);
+        expect(openCeiling(withRow, OUTSIDE_TEAM), JSON.stringify(stop)).toBe(0);
+        expect(withRow.status.floorByTeam!.get(OUTSIDE_TEAM), JSON.stringify(stop)).toBe(outsideSource.pointTotal);
+        expect(withRow.status.ceilingByTeam!.get(OUTSIDE_TEAM), JSON.stringify(stop)).toBe(withoutRow.status.ceilingByTeam!.get(OUTSIDE_TEAM));
+      }
+      // Once the finals' Awards are final its 30 points are earned.
+      const final = at(WITH_FINALS_ONLY, EVERYTHING_FINAL);
+      expect(final.status.floorByTeam!.get(OUTSIDE_TEAM)).toBe(outsideSource.pointTotal + 30);
+      expect(openCeiling(final, OUTSIDE_TEAM)).toBe(0);
+    });
+
+    it("R23: a division team's finals source still carries the finals Playoffs maximum, and a team with no row reads as before", () => {
+      // FINALS_TEAM has a division source at the finals key's stem, so its finals row keeps the two division maximum.
+      expect(openCeiling(at(DIVISIONED, DIVISIONS_FINAL), FINALS_TEAM)).toBe(30);
+      // A team with no row at all: one hypothetical championship before every division has started, nothing after.
+      expect(openCeiling(at(DIVISIONED, NOTHING_STARTED), OUTSIDE_TEAM)).toBe(WHOLE_CHAMPIONSHIP);
+      expect(openCeiling(at(DIVISIONED, EVERY_DIVISION_STARTED), OUTSIDE_TEAM)).toBe(0);
+    });
+
+    it("a hand built team with no fieldRowOpen reads by the condition of before this task, and at a single championship, at two championships and at a divisioned one with no finals only team the two readings are the same model", () => {
+      const SECOND_KEY = "2026pnncmp";
+      const TWO: DistrictArtifact = DistrictArtifactSchema.parse({
+        ...FIXTURE,
+        teams: FIXTURE.teams.map((team, index) => {
+          if (index % 2 === 0) return team;
+          const relabel = <T extends { eventKey: string }>(row: T): T => (row.eventKey === PARENT ? { ...row, eventKey: SECOND_KEY } : row);
+          return { ...team, eventPoints: team.eventPoints.map(relabel), remainingEvents: team.remainingEvents.map(relabel), qualifyingAwards: team.qualifyingAwards.map(relabel) };
+        }),
+      });
+      const cases: readonly (readonly [string, DistrictArtifact, readonly string[]])[] = [
+        ["a single championship", FIXTURE, [PARENT]],
+        ["two championships", TWO, [PARENT, SECOND_KEY]],
+        ["a divisioned championship", DIVISIONED, [...DIVISIONS, PARENT]],
+      ];
+      for (const [name, artifact, keys] of cases) {
+        const dcmpKeys = new Set(keys);
+        for (const stage of [ALL_OPEN, FINALS_ELIM_OPEN, FINALS_AWARDS_OPEN, ALL_FINAL]) {
+          for (const started of [[], keys.slice(0, 1), keys.filter((key) => key !== PARENT || artifact !== DIVISIONED), keys]) {
+            const stageByEvent = new Map(eventKeysOf(artifact).map((key) => [key, dcmpKeys.has(key) ? stage : ALL_FINAL] as const));
+            const rows = buildChampLedgerRows({ artifact, distributions: new Map(), stageByEvent, startedDcmpEventKeys: new Set(started) });
+            const built = computeChampLedgerStatuses({ artifact, teams: rows.teams, nowYear: 2026 });
+            const handBuilt = computeChampLedgerStatuses({ artifact, teams: rows.teams.map(({ fieldRowOpen: _unused, ...team }) => team), nowYear: 2026 });
+            expect(handBuilt, `${name}, started ${JSON.stringify(started)}, ${JSON.stringify(stage)}`).toEqual(built);
+          }
+        }
+      }
+    });
   });
 
   it("R2: a division team with no finals row carries the two division finals champion maximum while the finals' Playoffs are open, and not once they are final", () => {
@@ -1512,6 +1642,40 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
     expect(modelAt(DIVISIONED, awardsFinal, distributions(finalsFacts(DIV2_ALLIANCES[0]!.picks))).jointProof).toEqual({ applied: false, reason: "stageNotEligible" });
     // A division without facts refuses.
     expect(modelAt(DIVISIONED, stages, distributions(undefined, false)).jointProof).toEqual({ applied: false, reason: "noBracketFacts" });
+  });
+
+  it("the joint proof's input on the divisioned fixture is the input of before quick task 261010-66y's last step (reading R22: the finals' Awards ceiling was never in a rival's extra)", () => {
+    // The digests were taken on the tree BEFORE the finals' Awards ceiling was removed, with this same test, and
+    // the test holds them after: the proof modelled the finals' Awards and Playoffs itself, so neither was in any
+    // rival's `extra`. A digest that moves means the proof's input moved.
+    const digestOf = (model: ReturnType<typeof modelAt>): string => {
+      if (model.jointProof?.applied !== true || model.jointProof.shape === "multiple") throw new Error(`not applied: ${JSON.stringify(model.jointProof)}`);
+      const input = model.jointProof.input;
+      const normalised = { ...input, pool: [...input.pool].sort((a, b) => a.teamKey.localeCompare(b.teamKey)), slotOnlyRivals: [...input.slotOnlyRivals].sort() };
+      return createHash("sha256").update(JSON.stringify(normalised)).digest("hex");
+    };
+    // Round 5 in division 1, the finals not started.
+    const roundFive = modelAt(DIVISIONED, ROUND_FIVE_STAGES, roundFiveDistributions());
+    // Both divisions' Playoffs final, their Awards open, the finals not started and with no facts: alliance 1 of
+    // division 1 carries finals rows, whose Playoffs and Awards are open at this stop.
+    const divisionsDone = modelAt(
+      DIVISIONED,
+      new Map([
+        [DIV1, PLAYOFFS_FINAL],
+        [DIV2, PLAYOFFS_FINAL],
+        [PARENT, ALL_OPEN],
+      ]),
+      new Map([
+        entry(DIV1, facts(DIV1, PLAYOFFS_FINAL, DIV1_ALLIANCES, [...ROUND_FIVE, ...FINAL_ONE_WINS], "division")),
+        entry(DIV2, facts(DIV2, PLAYOFFS_FINAL, DIV2_ALLIANCES, higherSeedRows(), "division")),
+      ])
+    );
+    // Premise: the fixture's finals rows are open at both stops, so the removed ceiling is in play.
+    expect(DIVISIONED.teams.filter((team) => team.eventPoints.some((row) => row.eventKey === PARENT))).toHaveLength(3);
+    expect({ roundFive: digestOf(roundFive), divisionsDone: digestOf(divisionsDone) }).toEqual({
+      roundFive: "b624337b0232a7ff32b04fdaeb8d5d1a2719591b84b4e789857d540e2854a9cf",
+      divisionsDone: "f9cbb26363900789f3d8e0d5668f95e3cefb63b5a9ff0c9571d857879d6d4a67",
+    });
   });
 
   /** Every DIVISIONED team the artifact names at no championship key: no division row, no finals row, no registration. */

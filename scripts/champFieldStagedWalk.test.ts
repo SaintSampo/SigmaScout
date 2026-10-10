@@ -79,7 +79,16 @@
  *  10. the live walks of 2026 FIM, NE, ONT and TX with the field's bracket
  *      facts handed at every tick from "alliances picked" on, the finals key
  *      on no row until the finals rows post.
- * Groups 2 to 5, the real walks of group 6 and groups 7 to 10 read gitignored
+ *  11. the finals read the same way with and without a finals row: over the
+ *      16 divisioned championships and nine stops each, every team's floor
+ *      and ceiling, the teams shown Locked and `lockedBy`, with the finals
+ *      key's rows removed from the artifact against present.
+ *  12. the teams that attend below the district line are dominated: at every
+ *      tick of the real 2026 walks where the field is unproven, the unseen
+ *      attendees' totals against the totals of the teams on no row that
+ *      carry a hypothetical championship, on the tab and in the published
+ *      verdicts.
+ * Groups 2 to 5, the real walks of group 6 and groups 7 to 12 read gitignored
  * local data.
  *
  * THE BRACKET FACTS (group 10). The tab's joint proof reads each division's
@@ -96,9 +105,12 @@
  * post with their Playoffs points and no state, then the finals' state is
  * written with its playoffs done, then the finals' award points land while
  * the awards flag is not yet true. The Champ Locks tab's own series is
- * recorded at those ticks and NOT asserted there yet: its ceiling test reads
- * the finals differently for a team with a finals row and a team without
- * one, which the last step of this quick task closes.
+ * asserted through those ticks too: no Locked is taken back. Before the last
+ * step of this quick task its ceiling test read the finals differently for a
+ * team with a finals row and a team without one (a finals row carried the
+ * championship's Awards ceiling), and at the tick the finals' award points
+ * land it took 3 Locked back at 2026 FIM and 4 at ONT with no bracket facts
+ * in hand, and 2 at FIM and 1 at TX with them.
  *
  * IT PROVES SOMETHING. The same walk runs with the rule switched off inside
  * this file (the core proof answering as the code read the field before this
@@ -286,6 +298,14 @@ interface WalkStep {
   readonly jointLocked: number;
   /** The events in progress at this tick by the state's own word (started and not finished), both tiers. */
   readonly inProgressKeys: readonly string[];
+  /** Every team's point total on the artifact at this tick. */
+  readonly pointTotal: ReadonlyMap<string, number>;
+  /** Every team's open ceiling on the Champ Locks tab at this tick: its ceiling minus its floor. */
+  readonly tabOpenCeiling: ReadonlyMap<string, number>;
+  /** Per team with a posted championship row at this tick: the dcmp keys of its `eventPoints` rows. */
+  readonly dcmpPointsKeys: ReadonlyMap<string, readonly string[]>;
+  /** Per team with a championship registration at this tick: the dcmp keys of its `remainingEvents` rows. */
+  readonly dcmpRegisteredKeys: ReadonlyMap<string, readonly string[]>;
 }
 
 /** What a tick hands the Champ Locks status code beside the artifact. */
@@ -358,6 +378,20 @@ function snapshot(label: string, artifact: DistrictArtifact, reading: SnapshotRe
     joint: jointProof === undefined ? "absent" : jointProof.applied ? `applied(${jointProof.shape})` : jointProof.reason,
     jointLocked: jointProof?.applied === true ? jointProof.locked.size : 0,
     inProgressKeys: [...inProgress].sort(),
+    pointTotal: new Map(artifact.teams.map((team) => [team.teamKey, team.pointTotal] as const)),
+    tabOpenCeiling: new Map([...(champStatuses.floorByTeam ?? [])].map(([teamKey, floor]) => [teamKey, (champStatuses.ceilingByTeam?.get(teamKey) ?? floor) - floor] as const)),
+    dcmpPointsKeys: new Map(
+      artifact.teams.flatMap((team) => {
+        const keys = team.eventPoints.filter((row) => row.tier === "dcmp").map((row) => row.eventKey);
+        return keys.length === 0 ? [] : [[team.teamKey, keys] as const];
+      })
+    ),
+    dcmpRegisteredKeys: new Map(
+      artifact.teams.flatMap((team) => {
+        const keys = team.remainingEvents.filter((row) => row.tier === "dcmp").map((row) => row.eventKey);
+        return keys.length === 0 ? [] : [[team.teamKey, keys] as const];
+      })
+    ),
   };
 }
 
@@ -1662,12 +1696,15 @@ describe("the published verdicts walked through the finals: the real 2026 FIM, N
       expect(walks).toBe(12);
       console.log(["[261010-66y group 6] rules on, the published series, the real walks:", ...table].join("\n"));
       console.log(`[261010-66y group 6] the stated limit, teams below the district line whose ceiling rose when their row landed while the field was unproven: ${JSON.stringify(belowTheLine)}`);
-      // RECORDED, NOT ASSERTED YET: the Champ Locks tab's own series through
-      // the finals ticks, with no bracket facts handed. Its ceiling test
-      // reads the finals differently for a team with a finals row and a team
-      // without one, which the last step of this quick task closes and
-      // asserts.
-      console.log(`[261010-66y group 6] recorded, not asserted yet: Champ Locks tab Locked taken back through the finals ticks, no bracket facts: ${JSON.stringify(tabRecorded)}`);
+      // THE CHAMP LOCKS TAB'S OWN SERIES THROUGH THE FINALS TICKS, with no
+      // bracket facts handed: no Locked is taken back on any of the twelve
+      // walks. Before the last step of this quick task the ceiling test read
+      // the finals differently for a team with a finals row and a team
+      // without one, and this read {"finals award points land": 3} at 2026
+      // FIM and {"finals rows posted, no state": 1, "finals award points
+      // land": 3} at ONT, from both starts.
+      console.log(`[261010-66y group 6] Champ Locks tab Locked taken back through the finals ticks, no bracket facts: ${JSON.stringify(tabRecorded)}`);
+      for (const [walkName, lostAt] of Object.entries(tabRecorded)) expect({ walkName, lostAt }).toEqual({ walkName, lostAt: {} });
       // THE STATED LIMIT, MEASURED and pinned as the run shows: a team below
       // the district cut line carries no hypothetical championship in the
       // published verdicts, registered at the championship or not, and a
@@ -2141,33 +2178,32 @@ describe("the live walks with the field's bracket facts: 2026 FIM, NE, ONT and T
         }
         // Once it is on a row the proof runs, at the tick the finals rows post with no state included.
         for (const step of walk.steps.slice(finalsRowsAt, finalsAwardsAt + 1)) expect({ districtKey, tick: step.label, joint: step.joint }).toEqual({ districtKey, tick: step.label, joint: "applied(divisioned)" });
-        // NO LOCKED IS TAKEN BACK through "finals state written", and from there to the end.
-        const withoutTheFinalsAwardsTick = walk.steps.filter((step) => step.label !== FINALS_AWARDS_TICK);
-        expect({ districtKey, lost: takeBacks(withoutTheFinalsAwardsTick, (step) => step.champTab, champTabHeld) }).toEqual({ districtKey, lost: [] });
-        // RECORDED, NOT ASSERTED YET: the tick the finals' award points land. The ceiling test reads the finals
-        // differently for a team with a finals row and a team without one, which the last step of this quick task
-        // closes; this line then becomes an assertion of none.
+        // NO LOCKED IS TAKEN BACK at any tick, the tick the finals' award points land included. Before the last
+        // step of this quick task that tick took 2 back at 2026 FIM (frc5843, frc9572) and 1 at TX (frc624): a
+        // team that gained a finals row there gained the championship's whole Awards ceiling with it.
+        expect({ districtKey, lost: lockedTakenBack(walk) }).toEqual({ districtKey, lost: [] });
         atTheFinalsAwards[districtKey] = lockedTakenBack(walk);
         shown[districtKey] = walk.steps.slice(picked, finalsAwardsAt + 1).map(shownLockedCount);
         shown[`${districtKey} end`] = [shownLockedCount(walk.steps.at(-1)!)];
       }
       console.log(`[261010-66y group 10] the live walks with the bracket facts\n${table.join("\n")}`);
-      console.log(`[261010-66y group 10] recorded, not asserted yet: Locked taken back at "${FINALS_AWARDS_TICK}" ${JSON.stringify(atTheFinalsAwards)}`);
-      for (const lost of Object.values(atTheFinalsAwards)) for (const line of lost) expect(line).toContain(`at "${FINALS_AWARDS_TICK}"`);
-      // The recorded counts, as the run shows (2026 FIM frc5843 and frc9572, TX frc624).
-      expect(Object.fromEntries(Object.entries(atTheFinalsAwards).map(([districtKey, lost]) => [districtKey, lost.length]))).toEqual({ "2026fim": 2, "2026ne": 0, "2026ont": 0, "2026fit": 1 });
+      expect(Object.fromEntries(Object.entries(atTheFinalsAwards).map(([districtKey, lost]) => [districtKey, lost.length]))).toEqual({ "2026fim": 0, "2026ne": 0, "2026ont": 0, "2026fit": 0 });
       // Teams shown Locked per tick, from "alliances picked" to "finals award points land", then at the end. Pinned
       // as the run shows. The fourteen ticks: alliances picked, alliance points land, after Rounds 1 to 5, playoffs
       // done, playoff points land, division award points land, every division finished, finals rows posted,
       // finals state written, finals award points land.
+      //
+      // THE LAST TWO TICKS MOVED with the last step of this quick task (the finals' Awards add no points ceiling
+      // for anyone), upward only: at "finals state written" NE read 19 and reads 21; at "finals award points land"
+      // FIM read 69 and reads 71, NE 19 and 21, TX 16 and 17. Every earlier tick, and ONT, is what it was.
       expect(shown).toEqual({
-        "2026fim": [0, 0, 0, 0, 0, 0, 0, 0, 13, 13, 29, 65, 71, 69],
+        "2026fim": [0, 0, 0, 0, 0, 0, 0, 0, 13, 13, 29, 65, 71, 71],
         "2026fim end": [83],
-        "2026ne": [0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 12, 18, 19, 19],
+        "2026ne": [0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 12, 18, 21, 21],
         "2026ne end": [32],
         "2026ont": [0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 10, 11, 12, 12],
         "2026ont end": [21],
-        "2026fit": [0, 0, 0, 0, 0, 0, 0, 0, 6, 6, 11, 15, 17, 16],
+        "2026fit": [0, 0, 0, 0, 0, 0, 0, 0, 6, 6, 11, 15, 17, 17],
         "2026fit end": [28],
       });
     },
@@ -2209,6 +2245,280 @@ describe("the live walks with the field's bracket facts: 2026 FIM, NE, ONT and T
         "2026ne": { jointLocked: 18, shownLocked: 18 },
         "2026ont": { jointLocked: 11, shownLocked: 11 },
         "2026fit": { jointLocked: 15, shownLocked: 15 },
+      });
+    },
+    WALK_TIMEOUT_MS
+  );
+});
+
+// ---------------------------------------------------------------------------
+// GROUP 11. The finals read the same way with and without a finals row
+// ---------------------------------------------------------------------------
+
+/** The artifact with every row at its finals key removed: the rows, the registrations, the awards recorded there, and each removed row's total out of the team's point total. */
+function withoutFinalsKeyRows(artifact: DistrictArtifact, finalsKey: string): DistrictArtifact {
+  return DistrictArtifactSchema.parse({
+    ...artifact,
+    teams: artifact.teams.map((team) => ({
+      ...team,
+      pointTotal: team.pointTotal - team.eventPoints.filter((row) => row.eventKey === finalsKey).reduce((sum, row) => sum + row.total, 0),
+      eventPoints: team.eventPoints.filter((row) => row.eventKey !== finalsKey),
+      remainingEvents: team.remainingEvents.filter((row) => row.eventKey !== finalsKey),
+      qualifyingAwards: team.qualifyingAwards.filter((award) => award.eventKey !== finalsKey),
+    })),
+  });
+}
+
+const EVERY_CATEGORY_OPEN: DistrictStageFinality = { qual: false, alliance: false, elim: false, award: false };
+/** The stops of a divisioned championship before its finals have a played row, as the joint sweep labels them. */
+const beforeTheFinalsHaveARow = (label: string): boolean => label === "Alliances final" || label.startsWith("Round ") || label === DIVISIONS_FINAL_STOP;
+
+describe("the finals read the same way with and without a finals row: the 16 divisioned championships, nine stops each (quick task 261010-66y, P12 reading (A))", () => {
+  if (!existsSync(CORPUS_ABSOLUTE)) {
+    localDataAbsent(`${CORPUS_PATH} absent (gitignored local data)`);
+    return;
+  }
+  if (LOCAL_DISTRICT_FILES.length === 0) {
+    localDataAbsent(NO_LOCAL_DISTRICTS);
+    return;
+  }
+
+  it(
+    "with the finals key's rows removed every team's floor and ceiling, the teams shown Locked and lockedBy are what they are with them present, at all 144 stops",
+    () => {
+      // WHAT IS COMPARED. Each championship at nine stops before its finals have a played row: nothing started;
+      // every division in qualification; then the joint sweep's own stops (Alliances final, Rounds 1 to 5,
+      // Divisions final with the finals not started). At each, the tab's statuses on the artifact as published
+      // against the artifact with every row at the finals key removed. A team that ENDS with a finals row has not
+      // earned it at any of these stops, so the two must read the same: a difference is the tab reading the
+      // future off who ends with a finals row.
+      //
+      // THE BRACKET FACTS ARE WITHHELD ON BOTH SIDES. Division keys without their finals key are not a shape
+      // the joint proof runs on (D3 of this quick task, refused), so with the rows removed the proof could not
+      // run, and the comparison would then measure the proof and not the ceiling test. Each key's milestones are
+      // handed on both sides, as the sweep's own recipe hands them.
+      const championships = divisionedChampionships();
+      let stops = 0;
+      let ceilingStops = 0;
+      let ceilingTeamStops = 0;
+      let ceilingTeamStopsOfTheField = 0;
+      const finalsOnlyDiffering = new Set<string>();
+      const differences: string[] = [];
+      for (const { artifact, finalsKey, divisionKeys, brackets } of championships) {
+        const removed = withoutFinalsKeyRows(artifact, finalsKey);
+        const keys = dcmpEventKeysFor(artifact);
+        const fieldTeams = new Set(artifact.teams.filter((team) => team.eventPoints.some((row) => divisionKeys.includes(row.eventKey))).map((team) => team.teamKey));
+        const early = [
+          { label: "Nothing started", atNow: false, stageByKey: new Map(keys.map((key) => [key, EVERY_CATEGORY_OPEN] as const)), playedKeysByKey: new Map<string, ReadonlySet<string>>(), startedKeys: new Set<string>() },
+          { label: "Divisions in qualification", atNow: false, stageByKey: new Map(keys.map((key) => [key, EVERY_CATEGORY_OPEN] as const)), playedKeysByKey: new Map<string, ReadonlySet<string>>(), startedKeys: new Set<string>(divisionKeys) },
+        ];
+        for (const stop of [...early, ...championshipStops(artifact, brackets).filter((entry) => beforeTheFinalsHaveARow(entry.label))]) {
+          stops += 1;
+          const where = `${artifact.districtKey} "${stop.label}"`;
+          const present = statusesAtChampionshipStop(artifact, stop, brackets, false);
+          const absent = statusesAtChampionshipStop(removed, stop, brackets, false);
+          let ceilingDiffersHere = 0;
+          for (const [teamKey, floor] of present.floorByTeam ?? []) {
+            if (absent.floorByTeam?.get(teamKey) !== floor) differences.push(`${where}: ${teamKey} floor ${String(floor)} with the finals rows, ${String(absent.floorByTeam?.get(teamKey))} without`);
+            const withRows = present.ceilingByTeam?.get(teamKey);
+            const withoutRows = absent.ceilingByTeam?.get(teamKey);
+            if (withRows !== withoutRows) {
+              ceilingDiffersHere += 1;
+              if (fieldTeams.has(teamKey)) ceilingTeamStopsOfTheField += 1;
+              else finalsOnlyDiffering.add(`${artifact.districtKey} ${teamKey}`);
+              if (differences.length < 12) differences.push(`${where}: ${teamKey} ceiling ${String(withRows)} with the finals rows, ${String(withoutRows)} without (${fieldTeams.has(teamKey) ? "a team of the field" : "no division row"})`);
+            }
+          }
+          if (ceilingDiffersHere > 0) ceilingStops += 1;
+          ceilingTeamStops += ceilingDiffersHere;
+          const shown = (model: typeof present): string => [...model.byTeam.values()].filter((result) => result.status === "locked").map((result) => `${result.teamKey}:${String(result.lockedBy)}`).sort().join(",");
+          if (shown(present) !== shown(absent)) differences.push(`${where}: the teams shown Locked, or their lockedBy, differ`);
+        }
+      }
+      console.log(
+        `[261010-66y group 11] divisioned championships ${String(championships.length)} | stops ${String(stops)} | a ceiling differs at ${String(ceilingStops)} stops (${String(ceilingTeamStops)} team stops, ${String(ceilingTeamStopsOfTheField)} of them teams of the field, ${String(finalsOnlyDiffering.size)} teams with no division row) | differences listed ${String(differences.length)}\n${differences.slice(0, 12).map((line) => `  ${line}`).join("\n")}`
+      );
+      // Not vacuous, and pinned as the run shows.
+      expect({ championships: championships.length, stops }).toEqual({ championships: 16, stops: 144 });
+      // THE EQUALITY. Before this step: a ceiling differed at all 144 stops, 1,593 team stops, 1,476 of them teams of the field.
+      expect({ ceilingStops, ceilingTeamStops }).toEqual({ ceilingStops: 0, ceilingTeamStops: 0 });
+      expect(differences).toEqual([]);
+    },
+    WALK_TIMEOUT_MS
+  );
+});
+
+// ---------------------------------------------------------------------------
+// GROUP 12. The teams that attend below the district line are dominated (D12)
+// ---------------------------------------------------------------------------
+
+/** One side's reading of a tick: who is an unseen attendee, and who on no row carries a hypothetical championship. */
+interface DominanceSide {
+  readonly side: "tab" | "published";
+  /** Whether a team is on a row at a field fixing key at the tick, as this side counts a row. */
+  readonly onARow: (step: WalkStep, teamKey: string, fieldFixing: ReadonlySet<string>) => boolean;
+  /** What the team's open ceiling is on this side at the tick. */
+  readonly openCeiling: (step: WalkStep, teamKey: string) => number;
+}
+
+interface DominanceFailure {
+  readonly where: string;
+  readonly unseen: number;
+  readonly carrying: number;
+  /** The most unseen attendees at or above some total that the carrying teams at or above it do not cover. */
+  readonly uncovered: number;
+  /** How many teams the field ends with beyond the published championship capacity. */
+  readonly beyondCapacity: number;
+}
+
+/**
+ * THE DOMINANCE CHECK OF ONE WALK ON ONE SIDE. At every tick where the field
+ * is unproven after a start: U is the teams that END with a field fixing row
+ * and are on no row at the tick; H is the teams on no row that carry at least
+ * one whole hypothetical championship at the tick. U is dominated by H when,
+ * for every total t, at least as many of H are at or above t as of U. That is
+ * the rank by rank comparison of the two sorted lists, and it says the teams
+ * that may still pass a given floor are never undercounted.
+ */
+function dominanceFailures(name: string, walk: Walk, source: DistrictArtifact, reading: DominanceSide): DominanceFailure[] {
+  const maxima = maxEventPoints(source.year, "dcmp");
+  const oneChampionship = maxima.qual + maxima.alliance + maxima.elim + maxima.award;
+  const failures: DominanceFailure[] = [];
+  const fieldFixing: ReadonlySet<string> = new Set(walk.fieldFixingKeys);
+  for (const step of walk.steps) {
+    // The one state the readers act on: some field fixing key has started and the field is not proven.
+    if (step.fieldProven) continue;
+    const unseen: number[] = [];
+    const carrying: number[] = [];
+    for (const [teamKey, total] of step.pointTotal) {
+      if (reading.onARow(step, teamKey, fieldFixing)) continue;
+      if (walk.fieldTeams.has(teamKey)) unseen.push(total);
+      if (reading.openCeiling(step, teamKey) >= oneChampionship) carrying.push(total);
+    }
+    unseen.sort((a, b) => b - a);
+    carrying.sort((a, b) => b - a);
+    let uncovered = 0;
+    for (let rank = 0; rank < unseen.length; rank++) {
+      // How many of each list sit at or above the total of the unseen attendee at this rank.
+      const total = unseen[rank]!;
+      const carryingAtOrAbove = carrying.filter((value) => value >= total).length;
+      uncovered = Math.max(uncovered, rank + 1 - carryingAtOrAbove);
+    }
+    if (uncovered > 0) {
+      failures.push({ where: `${name}, ${reading.side}, "${step.label}"`, unseen: unseen.length, carrying: carrying.length, uncovered, beyondCapacity: Math.max(0, walk.fieldTeams.size - (source.dcmpSlots ?? walk.fieldTeams.size)) });
+    }
+  }
+  return failures;
+}
+
+describe("the teams that attend below the district line are dominated: the real 2026 walks, the tab and the published verdicts (quick task 261010-66y, D12)", () => {
+  if (MISSING_PUBLISHED_WALKED.length > 0) {
+    localDataAbsent(`${MISSING_PUBLISHED_WALKED.join(", ")} absent under ${LOCAL_DISTRICT_DIR} (gitignored local data)`);
+    return;
+  }
+
+  const fieldFixingOf = (walk: Walk): ReadonlySet<string> => new Set(walk.fieldFixingKeys);
+  /** THE TAB counts a registration as a row: a registered team is in the field there. */
+  const TAB: DominanceSide = {
+    side: "tab",
+    onARow: (step, teamKey, fieldFixing) => [...(step.dcmpPointsKeys.get(teamKey) ?? []), ...(step.dcmpRegisteredKeys.get(teamKey) ?? [])].some((key) => fieldFixing.has(key)),
+    openCeiling: (step, teamKey) => step.tabOpenCeiling.get(teamKey) ?? 0,
+  };
+  /** THE PUBLISHED PASS gives the hypothetical championship to a team with no POINTS row at a championship: a registration is not one. */
+  const PUBLISHED: DominanceSide = {
+    side: "published",
+    onARow: (step, teamKey, fieldFixing) => (step.dcmpPointsKeys.get(teamKey) ?? []).some((key) => fieldFixing.has(key)),
+    openCeiling: (step, teamKey) => step.publishedCeiling.get(teamKey) ?? 0,
+  };
+
+  it(
+    "at every tick where the field is unproven the unseen attendees are dominated, rank by rank, by the teams on no row that carry a hypothetical championship; every tick where they are not is listed with its reason",
+    () => {
+      // THE ARGUMENT THIS HOLDS (the core header, limit 2). A team the district tier reads eliminated carries no
+      // hypothetical championship, and a few such teams attend all the same, in a place a team that earned one
+      // did not take up. For each of them there is then a team that earned a place and is NOT attending, which
+      // carries the hypothetical championship at a district total at least as high. So among the teams on no row,
+      // the ones carrying a hypothetical dominate the ones that will turn out to attend, and the count of teams
+      // that can still pass any floor is not understated. It does not cover a field ABOVE its published
+      // capacity: an attendee beyond the capacity took nobody's place, so nobody stands in for it.
+      const failures: DominanceFailure[] = [];
+      let walks = 0;
+      let ticks = 0;
+      const unseenBelowTheLine: Record<string, number> = {};
+      const run = (name: string, walk: Walk, source: DistrictArtifact): void => {
+        walks += 1;
+        expect(fieldFixingOf(walk).size).toBeGreaterThan(0);
+        for (const reading of [TAB, PUBLISHED]) failures.push(...dominanceFailures(name, walk, source, reading));
+        // Not vacuous: count the unproven ticks, and the most unseen attendees carrying nothing in the published pass at one tick.
+        const maxima = maxEventPoints(source.year, "dcmp");
+        const oneChampionship = maxima.qual + maxima.alliance + maxima.elim + maxima.award;
+        let most = 0;
+        for (const step of walk.steps) {
+          if (step.fieldProven) continue;
+          ticks += 1;
+          let here = 0;
+          for (const teamKey of walk.fieldTeams) if (!PUBLISHED.onARow(step, teamKey, fieldFixingOf(walk)) && PUBLISHED.openCeiling(step, teamKey) < oneChampionship) here += 1;
+          most = Math.max(most, here);
+        }
+        unseenBelowTheLine[name] = most;
+      };
+      for (const districtKey of PUBLISHED_WALKED) {
+        const source = recomputeDistrictVerdicts(localArtifact(`v1__district__${districtKey}.json`), { nowYear: NOW_YEAR });
+        for (const registeredFirst of [false, true]) {
+          run(`${districtKey}, ${registeredFirst ? "registered first" : "no dcmp row first"}`, walkChampionshipField(source, { registeredFirst, finalsTicks: true }), source);
+        }
+      }
+      for (const districtKey of WALKED_DISTRICTS) {
+        const source = walkedSource(districtKey);
+        const fieldFixing = fieldFixingDcmpKeys(dcmpEventKeysFor(source));
+        for (let finalAtStart = 0; finalAtStart < fieldFixing.length; finalAtStart++) run(`${districtKey}, the points at each event's end, ${String(finalAtStart)} final at the start`, realEventEndWalk(districtKey, finalAtStart, "on"), source);
+      }
+      const reasonOf = (failure: DominanceFailure): string => (failure.beyondCapacity > 0 && failure.uncovered <= failure.beyondCapacity ? "a field above its published capacity" : "OTHER");
+      console.log(
+        `[261010-66y group 12] walks ${String(walks)} | unproven ticks ${String(ticks)} | ticks where the unseen attendees are not dominated ${String(failures.length)}\n${failures
+          .map((failure) => `  ${failure.where}: unseen attendees ${String(failure.unseen)}, carrying a hypothetical ${String(failure.carrying)}, not covered ${String(failure.uncovered)}, the field ends ${String(failure.beyondCapacity)} above capacity: ${reasonOf(failure)}`)
+          .join("\n")}`
+      );
+      console.log(`[261010-66y group 12] the most unseen attendees carrying no hypothetical championship in the published verdicts at one unproven tick, per walk: ${JSON.stringify(unseenBelowTheLine)}`);
+      // Not vacuous, and pinned as the run shows: 12 walks of the first kind (six districts, both starts, through
+      // the finals ticks) and 12 of the second (five districts, every start), 75 unproven ticks in all.
+      expect({ walks, ticks }).toEqual({ walks: 24, ticks: 75 });
+      // ANY FAILURE FOR A REASON OTHER THAN A FIELD ABOVE ITS PUBLISHED CAPACITY IS A STOP.
+      expect(failures.filter((failure) => reasonOf(failure) === "OTHER")).toEqual([]);
+      // THE MEASURED EXCEPTION, as the run shows: one team at one tick. 2026 PNW fields 51 teams against a
+      // published capacity of 50, so its one attendee below the district line took nobody's place, and no team
+      // that earned a place stands in for it. It shows in the published verdicts alone, on the start with every
+      // attending team registered, at the one tick the championship has started and no row is posted. On the tab
+      // a registered team is in the field, so it is on a row there.
+      expect(failures.map((failure) => `${failure.where}: not covered ${String(failure.uncovered)}`)).toEqual(['2026pnw, registered first, published, "pncmp started on the field, state only": not covered 1']);
+      expect(failures.map((failure) => failure.beyondCapacity)).toEqual([1]);
+      // THE TEAMS THE ARGUMENT IS ABOUT, per walk: the most unseen attendees carrying no hypothetical championship
+      // in the published verdicts at one unproven tick. Pinned as the run shows.
+      expect(unseenBelowTheLine).toEqual({
+        "2026fim, no dcmp row first": 0,
+        "2026fim, registered first": 0,
+        "2026ne, no dcmp row first": 4,
+        "2026ne, registered first": 8,
+        "2026ont, no dcmp row first": 4,
+        "2026ont, registered first": 9,
+        "2026fit, no dcmp row first": 3,
+        "2026fit, registered first": 4,
+        "2026ca, no dcmp row first": 3,
+        "2026ca, registered first": 4,
+        "2026pnw, no dcmp row first": 0,
+        "2026pnw, registered first": 1,
+        "2026fim, the points at each event's end, 0 final at the start": 0,
+        "2026fim, the points at each event's end, 1 final at the start": 0,
+        "2026fim, the points at each event's end, 2 final at the start": 0,
+        "2026fim, the points at each event's end, 3 final at the start": 0,
+        "2026ne, the points at each event's end, 0 final at the start": 4,
+        "2026ne, the points at each event's end, 1 final at the start": 4,
+        "2026ont, the points at each event's end, 0 final at the start": 4,
+        "2026ont, the points at each event's end, 1 final at the start": 4,
+        "2026fit, the points at each event's end, 0 final at the start": 3,
+        "2026fit, the points at each event's end, 1 final at the start": 3,
+        "2026ca, the points at each event's end, 0 final at the start": 3,
+        "2026ca, the points at each event's end, 1 final at the start": 3,
       });
     },
     WALK_TIMEOUT_MS

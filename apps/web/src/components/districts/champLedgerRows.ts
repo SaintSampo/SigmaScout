@@ -338,6 +338,35 @@ export interface ChampLedgerTeam {
   readonly districtPart: DistrictPointDistribution | undefined;
   /** The DCMP PART the champ run draws beside it. `undefined` for a team out of the field and for a district only team. */
   readonly dcmpPart: ChampDcmpPart | undefined;
+  /**
+   * WHETHER THIS TEAM CAN STILL TURN OUT TO BE IN THE FIELD (quick task
+   * 261010-66y, reading R23): true exactly when the team has NO ROW AT A FIELD
+   * FIXING KEY and the field is still open at the position by the rule a
+   * team with no championship row reads (`fieldSettledForRowlessTeam`): not
+   * every field fixing key has started, or at the live position the field is
+   * not proven. False for every team with a row at a field fixing key, a
+   * points row or a registration.
+   *
+   * READ BY THE STATUS MODULE ALONE, FOR THE CEILING ALONE
+   * (`champLedgerStatus.ts`, decision 4): the one hypothetical championship
+   * goes to a team for which this is true. Membership, the DCMP row's cells
+   * and every display are what they were.
+   *
+   * WHY IT IS NOT `membership`. For a team with no championship row at all
+   * the two say the same thing (this is true exactly when membership does
+   * not read `out`). They differ for a team whose ONLY championship row is at
+   * a divisioned championship's finals key: an award given at the finals to
+   * a team that played in no division (20 such teams over the local
+   * seasons). Its membership follows its finals row, which exists only
+   * because the award was posted. At a stop before that it had no row at
+   * all, and the ceiling must read it as the team with no row it then was,
+   * or the ceiling reads the future off who ends with a finals row.
+   *
+   * Always set by `buildChampLedgerRows`. Optional only so a hand built team
+   * needs no edit; absent, the status module reads the condition of before
+   * this field existed (not `out`, and no championship source at all).
+   */
+  readonly fieldRowOpen?: boolean;
 }
 
 /** One row's contribution to the grand total, for the grand total drawer's two-row list. */
@@ -513,6 +542,19 @@ export function champFieldProofAtNow(artifact: DistrictArtifact, startedDcmpEven
 export function dcmpStartedForTeam(team: DistrictTeam, startedDcmpEventKeys: ReadonlySet<string>, dcmpEventKeys: readonly string[], fieldProven = true): boolean {
   const own = tierEvents(team, "dcmp")[0]?.eventKey;
   if (own !== undefined) return startedDcmpEventKeys.has(own);
+  return fieldSettledForRowlessTeam(startedDcmpEventKeys, dcmpEventKeys, fieldProven);
+}
+
+/**
+ * THE RULE A TEAM WITH NO CHAMPIONSHIP ROW READS THE FIELD BY: the field is
+ * settled, and such a team is out of it, once every FIELD FIXING key has
+ * started and the field is proven (`fieldProven` is false only at the live
+ * position while a field fixing key has started and the proof fails; quick
+ * task 261010-66y). The no row branch of `dcmpStartedForTeam`, named so
+ * `ChampLedgerTeam.fieldRowOpen` reads the same started set and the same
+ * flag as membership does (reading R23).
+ */
+export function fieldSettledForRowlessTeam(startedDcmpEventKeys: ReadonlySet<string>, dcmpEventKeys: readonly string[], fieldProven = true): boolean {
   if (!fieldProven) return false;
   const fieldFixing = fieldFixingDcmpKeys(dcmpEventKeys);
   return fieldFixing.length > 0 && fieldFixing.every((key) => startedDcmpEventKeys.has(key));
@@ -736,6 +778,10 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
   ]);
 
   const built: ChampLedgerTeam[] = [];
+  // Whether the field is settled for a team with no row at a field fixing
+  // key: the same started set and the same flag the membership rule reads
+  // (reading R23, `ChampLedgerTeam.fieldRowOpen`). One answer per position.
+  const rowlessFieldSettled = fieldSettledForRowlessTeam(startedDcmpEventKeys, dcmpEventKeys, fieldProven);
 
   for (const team of artifact.teams) {
     const districtEntry = districtByTeam.get(team.teamKey);
@@ -881,6 +927,7 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
       earnedAtPosition,
       districtPart: districtRunPart,
       dcmpPart: dcmpRunPart,
+      fieldRowOpen: !rowlessFieldSettled && !tierEvents(team, "dcmp").some((entry) => fieldFixingKeys.has(entry.eventKey)),
     });
   }
 

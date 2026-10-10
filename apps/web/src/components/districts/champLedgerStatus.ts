@@ -84,14 +84,67 @@
  *    at a divisioned championship carries its division row and, once TBA pays
  *    it there, a finals row (2026 frc27: micmp1 66, 48, 90, 0 and micmp 0, 0,
  *    60, 30). Each source's open categories leave the floor at its own stage.
- *    A finals source's Qualification and Alliance selection ceilings are 0, its
+ *    A finals source's Qualification and Alliance selection ceilings are 0. Its
  *    Playoffs ceiling is the finals champion maximum (60 at four divisions, 30
- *    at two) and is never settled from a bracket, and its Awards ceiling is the
- *    3x DCMP one. A division team with no finals row carries the finals
+ *    at two), for a team with a division source at that championship only,
+ *    and is never settled from a bracket. Its Awards ceiling is 0 (the next
+ *    paragraph). A division team with no finals row carries the finals
  *    champion maximum while the finals' Playoffs are open
  *    (`champFinalsCeilingWithoutRow`), since TBA writes a finals row only once
  *    it pays one. Each DCMP award is gated on its OWN event's stage: the winner
  *    and consuming awards of a divisioned championship are given at its finals.
+ *
+ *    THE FINALS READ THE SAME WAY WITH AND WITHOUT A ROW (quick task
+ *    261010-66y, P12, reading (A)). Until that task a team WITH a finals row
+ *    carried the championship's whole Awards ceiling at the finals (45 in
+ *    2026), and a team without one carried nothing for the finals' Awards.
+ *    The defect had two faces:
+ *
+ *    - LIVE, a Locked taken back by the ceiling test alone at the tick the
+ *      finals rows post, when a team gains a finals row and the 45 with it.
+ *      Walked on the real 2026 artifacts with no bracket facts in hand: 3
+ *      at FIM and 4 at ONT, from both starts. With the facts in hand: 2 at
+ *      FIM and 1 at TX, at the tick the finals' award points land.
+ *    - REWOUND, hindsight. A team that ENDS with a finals row has not earned
+ *      it at a stop before the finals, yet its ceiling there was 45 higher
+ *      than the same team's with the row removed. Over the 16 divisioned
+ *      championships of 2023 to 2026 and nine stops before the finals have a
+ *      played row, a ceiling differed with the finals rows present against
+ *      removed at all 144 stops: 1,593 team stops, 1,476 of them teams of
+ *      the field.
+ *
+ *    THE READING. The finals' Awards category adds no points ceiling for
+ *    anyone. A finals source's award points still leave the floor while the
+ *    finals' Awards are open at the position. It rests on a fact the joint
+ *    proof already rests on, in `champJointLock.ts`'s own words: "the finals
+ *    awards are consuming awards (24 and 30 points 2023 to 2026); no team has
+ *    award points at both its division and the finals". A consuming award
+ *    takes a Championship slot whatever its winner's points, and decision
+ *    2's reservation holds a slot for each until the finals' Awards are
+ *    final, so the points such an award pays can never be what lifts a
+ *    rival past a Locked team. `scripts/champFieldStagedWalk.test.ts` holds
+ *    the fact over every local season (265 rows at a finals key, 153 with
+ *    award points, every one beside a consuming award recorded there) and
+ *    says what breaks if a season shows otherwise.
+ *
+ *    A TEAM WHOSE ONLY CHAMPIONSHIP ROW IS THE FINALS ROW (an award given at
+ *    the finals to a team that played in no division: 20 such teams over the
+ *    local seasons, each with award points alone) reads the field as a team
+ *    with no championship row at all, which is what it was before the award
+ *    was posted. Its finals row adds no Playoffs ceiling: it cannot be on a
+ *    division winning alliance. It carries the one hypothetical championship
+ *    while the field is still open at the position
+ *    (`ChampLedgerTeam.fieldRowOpen`), on the two existing gates, and
+ *    nothing once every division has started. With that, the 144 stops read
+ *    the same with the finals rows present and removed: every floor, every
+ *    ceiling, the teams shown Locked and `lockedBy`.
+ *
+ *    THE CONSEQUENCE, ACCEPTED. A team whose only way in is a consuming award
+ *    at the finals reads Locked out at a rewound stop from the moment every
+ *    division has started until that award is posted, exactly as it does
+ *    live, since no finals row exists yet at that moment. Over the 109 local
+ *    seasons that is 417 team positions against 149 before, every one a team
+ *    that qualifies by an award and none on points.
  *
  * 5. THE JOINT WORST CASE PROOF (quick task 261009-2tr). A second proof of
  *    `"locked"`, OR-ed with the ceiling test and superseding nothing, exactly
@@ -263,7 +316,7 @@ import {
 } from "../../../../../packages/core/districts/champReservedSlots.js";
 import { InvalidBracketDecisionError, maxFinalsPointsByPlacement, maxPlayoffPointsByPlacement } from "../../../../../packages/core/districts/bracket.js";
 import { divisionCountOf, finalsChampionMaximum } from "../../../../../packages/core/districts/categoryCorroboration.js";
-import { hypotheticalFinalsCeiling, unseenChampionshipsHeld } from "../../../../../packages/core/districts/dcmpFieldProof.js";
+import { fieldFixingDcmpKeys, hypotheticalFinalsCeiling, unseenChampionshipsHeld } from "../../../../../packages/core/districts/dcmpFieldProof.js";
 import {
   dcmpBracketState,
   divisionAllianceId,
@@ -462,22 +515,27 @@ const ALL_OPEN_STAGE: DistrictStageFinality = { qual: false, alliance: false, el
 /**
  * The open category ceilings of a FINALS source of a divisioned championship
  * (quick task 261009-kt3, planner reading R1), or `undefined` for any other
- * dcmp key. A finals row carries no Qualification or Alliance selection points;
- * its Playoffs pay at most the finals champion maximum
- * (`maxFinalsPointsByPlacement`, 60 at four divisions, 30 at two) and its
- * Awards at most the 3x DCMP Awards ceiling. A division count other than 2 or 4
- * keeps the whole 3x Playoffs ceiling.
+ * dcmp key. A finals row carries no Qualification or Alliance selection points,
+ * and its Playoffs pay at most the finals champion maximum
+ * (`maxFinalsPointsByPlacement`, 60 at four divisions, 30 at two). A division
+ * count other than 2 or 4 keeps the whole 3x Playoffs ceiling.
+ *
+ * ITS AWARDS CEILING IS 0 (quick task 261010-66y, reading R22; decision 4 in
+ * this module's header). A points paying award at a finals event is a
+ * consuming award, which takes its slot whatever its winner's points and
+ * which the reservation holds a place for. A finals source's award points
+ * still leave the floor while the finals' Awards are open at the position;
+ * the caller does that, not this.
+ *
+ * The Playoffs value here is for a team with a DIVISION source at the same
+ * championship. A finals source with none beside it adds no Playoffs ceiling
+ * (reading R23), which the caller applies.
  */
-function finalsSourceCeiling(
-  eventKey: string,
-  dcmpEventKeys: readonly string[],
-  season: number,
-  dcmpCeiling: Readonly<Record<DistrictCategory, number>>
-): Readonly<Record<DistrictCategory, number>> | undefined {
+function finalsSourceCeiling(eventKey: string, dcmpEventKeys: readonly string[], season: number): Readonly<Record<DistrictCategory, number>> | undefined {
   if (championshipStemOf(eventKey) !== eventKey) return undefined;
   const divisions = divisionCountOf(eventKey, dcmpEventKeys);
   if (divisions < 2) return undefined;
-  return { qual: 0, alliance: 0, elim: finalsChampionMaximum(season, divisions), award: dcmpCeiling.award };
+  return { qual: 0, alliance: 0, elim: finalsChampionMaximum(season, divisions), award: 0 };
 }
 
 /**
@@ -490,6 +548,12 @@ function finalsSourceCeiling(
  * not 2 or 4) while the parent's Playoffs are not final (all open where no row
  * carries the parent). Zero in every other case, so it can never fire on a
  * single championship (one key) or on two championships (each one key).
+ *
+ * THE SAME VALUE A FINALS ROW GIVES (quick task 261010-66y, P12): a division
+ * team carries the finals champion maximum for the finals' Playoffs and
+ * nothing for the finals' Awards, with a finals row (`finalsSourceCeiling`)
+ * or without one (this function). A team with NO division source at the stem
+ * gets nothing here, as it gets no Playoffs ceiling from a finals row.
  *
  * WHILE THE FIELD IS NOT PROVEN (`fieldProven` false, decision 7, quick task
  * 261010-66y) the number of divisions is not known: the artifact may hold one
@@ -572,6 +636,8 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
   const sourceByKey = new Map(artifact.teams.map((team) => [team.teamKey, team] as const));
   const dcmpEventKeyList = dcmpEventKeysFor(artifact);
   const dcmpEventKeys = new Set(dcmpEventKeyList);
+  /** Every dcmp key except a divisioned championship's finals key: the keys a team's own championship is at. */
+  const fieldFixingDcmpKeySet: ReadonlySet<string> = new Set(fieldFixingDcmpKeys(dcmpEventKeyList));
   const consuming = consumingAwardTypesForTier("dcmp");
 
   // EVERY dcmp tier event's stage at this position, read off the rows (the one
@@ -634,7 +700,7 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
     if (team.membership !== "out" && dcmpSources.length > 0) {
       for (const dcmpEntry of dcmpSources) {
         const dcmpStage = dcmpEntry.stage.final;
-        const finalsCeiling = finalsSourceCeiling(dcmpEntry.eventKey, dcmpEventKeyList, artifact.year, dcmpCeiling);
+        const finalsCeiling = finalsSourceCeiling(dcmpEntry.eventKey, dcmpEventKeyList, artifact.year);
         // The finals Playoffs are never settled from a bracket (reading R1):
         // open until the finals' Playoffs stage is final.
         const settledElim = finalsCeiling === undefined ? dcmpEntry.settledElim : undefined;
@@ -644,7 +710,13 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
           dcmpSettledByEvent.set(dcmpEntry.eventKey, settledAtKey);
         }
         settledAtKey.set(team.teamKey, settledElim);
-        const ceiling = finalsCeiling ?? dcmpCeiling;
+        // A FINALS SOURCE OF A TEAM WITH NO DIVISION SOURCE AT THAT STEM adds
+        // no Playoffs ceiling (quick task 261010-66y, reading R23): the finals
+        // are played among the division winners, and this team is on no
+        // division's alliance. Its points there still leave the floor below.
+        const hasDivisionSourceHere =
+          finalsCeiling !== undefined && dcmpSources.some((other) => other.eventKey !== dcmpEntry.eventKey && championshipStemOf(other.eventKey) === dcmpEntry.eventKey);
+        const ceiling = finalsCeiling === undefined ? dcmpCeiling : hasDivisionSourceHere ? finalsCeiling : { ...finalsCeiling, elim: 0 };
         const earned = earnedByEvent.get(dcmpEntry.eventKey);
         for (const category of DISTRICT_CATEGORIES) {
           if (dcmpStage[category]) continue;
@@ -675,7 +747,18 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
       );
       openCeiling += finalsWithoutRow;
       jointModeled += finalsWithoutRow;
-    } else if (team.membership !== "out" && dcmpSources.length === 0) {
+    }
+    // A TEAM WITH NO SOURCE AT A FIELD FIXING KEY reads the field as a team
+    // with no championship row at all (quick task 261010-66y, reading R23).
+    // That is every team with no championship source, and also a team whose
+    // only source is at a divisioned championship's finals key: its finals
+    // row was posted with an award, and before that it had no row. Whether
+    // the field is still open for such a team is the row model's
+    // `fieldRowOpen`; a hand built team without it reads the condition of
+    // before that field existed.
+    const hasFieldSource = dcmpSources.some((entry) => fieldFixingDcmpKeySet.has(entry.eventKey));
+    const fieldRowOpen = team.fieldRowOpen ?? (team.membership !== "out" && dcmpSources.length === 0);
+    if (!hasFieldSource && fieldRowOpen) {
       // THE PRE-REGISTRATION WINDOW. The artifact names no championship for
       // this team, so there is no row to read a stage off — but the season
       // plainly still allows one, and a status that pretended otherwise would
@@ -685,8 +768,10 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
       // own two gates: the team has not already played one, and the district
       // tier has not eliminated it. This is `maxRemainingChamp`'s rule, and it
       // is what keeps the verdicts computable all season rather than only
-      // after registrations open.
-      const hasPlayedDcmp = source.eventPoints.some((row) => row.tier === "dcmp");
+      // after registrations open. "Already played one" counts points rows at
+      // FIELD FIXING keys only: an award at the finals is not a championship
+      // the team played in.
+      const hasPlayedDcmp = source.eventPoints.some((row) => row.tier === "dcmp" && fieldFixingDcmpKeySet.has(row.eventKey));
       // While the field is not proven the hypothetical championship carries
       // a finals too (decision 7): what the team will carry once its
       // division's rows land.

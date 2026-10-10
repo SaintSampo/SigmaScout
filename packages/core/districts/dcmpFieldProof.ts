@@ -122,9 +122,42 @@
  *    the year ends: a team with no row keeps its hypothetical championship
  *    and the extra championships stay held back. That delays a Locked and
  *    never revokes one. Not observed: the lowest fill is 2022 ONT, 67 of 80.
- * 2. A team that attends below the district cut line (1 to 9 per 2026
- *    district) carries no hypothetical championship before its row lands,
- *    as before this rule.
+ * 2. A TEAM THAT ATTENDS BELOW THE DISTRICT LINE. A team the district tier
+ *    reads eliminated carries no hypothetical championship, as before this
+ *    rule, and a few such teams attend all the same (2026: NE 8, ONT 9, TX
+ *    4, CA 4, PNW 1, FIM 0). Its ceiling rises when its row lands. In the
+ *    published verdicts that holds for a team REGISTERED at the championship
+ *    too: a registration is not a points row.
+ *
+ *    WHY THAT IS SAFE WHERE A DECLINED PLACE IS THE CAUSE. Such a team
+ *    attends in a place a team that earned one did not take up. So for each
+ *    of them there is a team that earned a place and is not attending, and
+ *    that team carries the hypothetical championship at a district total at
+ *    least as high. Among the teams on no row, the ones carrying a
+ *    hypothetical championship therefore DOMINATE the ones that will turn
+ *    out to attend: for every total, at least as many of the first are at or
+ *    above it as of the second. The count of teams that can still pass any
+ *    floor is then not understated, which is all a Locked needs.
+ *
+ *    MEASURED (`scripts/champFieldStagedWalk.test.ts`, its last group). Over
+ *    the real 2026 walks, 24 walks and 75 ticks where the field is unproven,
+ *    on the Champ Locks tab and in the published verdicts, the dominance
+ *    holds at every tick but one: 2026 PNW, from the start with every
+ *    attending team registered, in the published verdicts, at the one tick
+ *    the championship has started and no row is posted, where one team is
+ *    not covered.
+ *
+ *    THE LIMIT: A FIELD ABOVE ITS PUBLISHED CAPACITY. That one team is the
+ *    case the argument does not cover. 2026 PNW fielded 51 teams against a
+ *    capacity of 50, so its attendee below the line took nobody's place, and
+ *    nobody stands in for it. A field has ended above its published capacity
+ *    in 35 of the 109 local seasons, by 5 teams at most (2023 ISR, 45 of 40).
+ *    No lock was taken back by such a team on any walk.
+ *
+ *    NOT DONE, AND WHY. Giving every team on no row a hypothetical
+ *    championship while the field is unproven would cover it, and would flip
+ *    hundreds of Locked out teams to open and back in the first minutes of
+ *    every championship played in divisions.
  * 3. An unseen event smaller than half the largest posted one is not
  *    detected by the capacity line: two championships of 70 and 30 teams
  *    against 100 slots would read proven on the 70 alone. No district has
