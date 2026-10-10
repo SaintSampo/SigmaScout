@@ -2719,5 +2719,172 @@ describe("run() skips a district while one of its events is live and publishes t
     JYN_TIMEOUT_MS
   );
 
+  // ---- Task 2: the override, the dry run notice ----
+
+  /** An award type no producer writes, so the extra entry can only be the fixture's own. */
+  const JYN_AWARD_TYPE = 9999;
+
+  /** The fixture district's own artifact with one award this run does not hold: what the 261009-ul3 guard refuses to lose. */
+  function staleBody(f: JynFixture): string {
+    const teamIndex = f.liveArtifact.teams.findIndex((team) => team.eventPoints.length > 0);
+    if (teamIndex === -1) throw new Error("261010-jyn fixture: the fixture district has no team with an eventPoints row");
+    const eventKey = f.liveArtifact.teams[teamIndex]!.eventPoints[0]!.eventKey;
+    // Through the schema, so a broken fixture fails here and not as a silent "shape change".
+    return JSON.stringify(
+      DistrictArtifactSchema.parse({
+        ...f.liveArtifact,
+        teams: f.liveArtifact.teams.map((row, index) =>
+          index === teamIndex
+            ? { ...row, qualifyingAwards: [...row.qualifyingAwards, { eventKey, awardType: JYN_AWARD_TYPE, label: "Fixture Only Award", awardOnly: false }] }
+            : row
+        ),
+      })
+    );
+  }
+
+  it(
+    "--allow-live publishes the live district too, with this run's index, and the 261009-ul3 guard still reads it",
+    async () => {
+      const f = fixture();
+      const { calls, written, read, write } = seams(publishedIndexOnly(f));
+
+      const { lines, error } = await runCaptured({ allowLive: true, now: () => f.live, readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(writes(calls)).toHaveLength(f.n + 1);
+      expect(calls).toContain(`write ${f.liveKey}`);
+      expect(reads(calls)).toHaveLength(2 * f.n);
+      expect(reads(calls).filter((call) => call === `read ${f.liveKey}`)).toHaveLength(2);
+      expect(calls).not.toContain(`read ${JYN_INDEX_KEY}`);
+      // This run's index, not the published fixture.
+      expect(uploadedIndex(written).districts).toEqual(f.composedIndex.districts);
+      const marked = markerLines(lines);
+      expect(marked.some((line) => line.includes("--allow-live"))).toBe(true);
+      expect(marked.some((line) => line.includes(f.districtKey) && line.includes(f.eventKey))).toBe(true);
+      expect(lines.some((line) => line.includes("skipped"))).toBe(false);
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "--allow-live does not switch the 261009-ul3 guard off: a live fact the upload would lose still refuses",
+    async () => {
+      const f = fixture();
+      const stale = staleBody(f);
+      const { calls, read, write } = seams((key) => (key === f.liveKey ? stale : null));
+
+      const { error } = await runCaptured({ allowLive: true, now: () => f.live, readPublished: read, writeObject: write });
+
+      expect(error).toBeInstanceOf(DistrictPublishRefusedError);
+      expect((error as Error).message).toContain("older than what is live");
+      expect(writes(calls)).toEqual([]);
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "the same stale artifact without the override is left alone: the skipped district is neither read nor compared",
+    async () => {
+      const f = fixture();
+      const stale = staleBody(f);
+      const { calls, read, write } = seams((key) => (key === f.liveKey ? stale : key === JYN_INDEX_KEY ? f.publishedIndexBody : null));
+
+      const { error } = await runCaptured({ now: () => f.live, readPublished: read, writeObject: write });
+
+      expect(error).toBeUndefined();
+      expect(calls).not.toContain(`read ${f.liveKey}`);
+      expect(writes(calls)).toHaveLength(f.n);
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "a dry run prints the live district as a notice, skips nothing, reads nothing and reads the clock once",
+    async () => {
+      const f = fixture();
+      const { calls, read, write } = seams(() => new Error("a dry run must not read"));
+      const seam = clock(f.live);
+
+      await withOutDir(async (outDir) => {
+        const { lines, error } = await runCaptured({ dryRun: true, now: seam.now, readPublished: read, writeObject: write, localOut: outDir });
+
+        expect(error).toBeUndefined();
+        const marked = markerLines(lines);
+        expect(marked.some((line) => line.includes(f.districtKey) && line.includes(f.eventKey))).toBe(true);
+        expect(marked.some((line) => line.includes("--dry-run"))).toBe(true);
+        expect(lines.some((line) => line.includes("skipped"))).toBe(false);
+        expect(calls).toEqual([]);
+        expect(seam.calls()).toBe(1);
+        const files = readdirSync(outDir);
+        expect(files).toHaveLength(f.n + 1);
+        expect(files).toContain(localOutFileName(f.liveKey));
+      });
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "the notice changes no composed byte: a dry run with a live district writes the same files as one with none",
+    async () => {
+      const f = fixture();
+      const withoutGeneration = (dir: string, file: string): unknown => {
+        const { generation: _generation, ...rest } = JSON.parse(readFileSync(join(dir, file), "utf8")) as Record<string, unknown>;
+        return rest;
+      };
+
+      await withOutDir(async (liveDir) => {
+        await withOutDir(async (quietDir) => {
+          const live = await runCaptured({ dryRun: true, now: () => f.live, localOut: liveDir });
+          const quiet = await runCaptured({ dryRun: true, now: () => f.ends, localOut: quietDir });
+
+          expect(live.error).toBeUndefined();
+          expect(quiet.error).toBeUndefined();
+          expect(markerLines(live.lines).length).toBeGreaterThan(0);
+          expect(markerLines(quiet.lines)).toEqual([]);
+          const files = readdirSync(liveDir).sort();
+          expect(files).toEqual(readdirSync(quietDir).sort());
+          expect(files).toHaveLength(f.n + 1);
+          for (const file of files) expect(withoutGeneration(liveDir, file), file).toEqual(withoutGeneration(quietDir, file));
+        });
+      });
+    },
+    JYN_TIMEOUT_MS
+  );
+
+  it(
+    "the real clock is silent for a finished season: a dry run with no clock seam prints no line of this guard",
+    async () => {
+      const { lines, error } = await runCaptured({ dryRun: true });
+
+      expect(error).toBeUndefined();
+      expect(markerLines(lines)).toEqual([]);
+    },
+    JYN_TIMEOUT_MS
+  );
+
   // (the end of the 261010-jyn run describe: later tasks add their cases above this line)
+});
+
+describe("parseOptions — --allow-live (261010-jyn)", () => {
+  it("--allow-live sets allowLive to true", () => {
+    expect(parseOptions(["--years", "2026", "--allow-live"]).allowLive).toBe(true);
+  });
+
+  it("leaves the key off the result when the flag is not given", () => {
+    for (const argv of [["--years", "2026"], ["--years", "2026", "--dry-run"], ["--years", "2026", "--allow-regress", "--check-live"]]) {
+      expect("allowLive" in parseOptions(argv)).toBe(false);
+    }
+  });
+
+  it("is accepted with --dry-run, where it has nothing to do", () => {
+    const options = parseOptions(["--years", "2026", "--allow-live", "--dry-run"]);
+    expect(options.allowLive).toBe(true);
+    expect(options.dryRun).toBe(true);
+  });
+
+  it("never sets the clock seam: no command line flag reaches it", () => {
+    for (const argv of [["--years", "2026"], ["--years", "2026", "--allow-live"], ["--years", "2026", "--as-of", "2026-04-04", "--dry-run"]]) {
+      expect("now" in parseOptions(argv)).toBe(false);
+    }
+  });
 });

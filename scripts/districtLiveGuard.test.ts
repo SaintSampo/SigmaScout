@@ -493,3 +493,190 @@ describe("carryPublishedIndex: a skipped district keeps the row that is publishe
     });
   }
 });
+
+describe("liveDistrictEventsAt: an event the builder can give no window (261010-jyn D1, R4)", () => {
+  const NO_WINDOW_EVENT = runDistrict("2026pnw", [["2026wabon", "not-a-date"]]);
+
+  it("no match and a start date that does not parse: live in the clock's UTC year only, with basis no-window and no instants", () => {
+    districtRow("pnw");
+    unplayed("2026wabon", "not-a-date");
+
+    expect(liveDistrictEventsAt(db, { districts: [NO_WINDOW_EVENT], nowMs: T1 })).toEqual([
+      { districtKey: "2026pnw", eventKey: "2026wabon", basis: "no-window", startMs: null, endMs: null, watchedUntilMs: null },
+    ]);
+    expect(liveKeys([NO_WINDOW_EVENT], Date.parse("2026-01-01T00:00:00.000Z"))).toEqual(["2026wabon"]);
+    expect(liveKeys([NO_WINDOW_EVENT], Date.parse("2026-12-31T23:59:59.999Z"))).toEqual(["2026wabon"]);
+    expect(liveKeys([NO_WINDOW_EVENT], Date.parse("2027-01-01T00:00:00.000Z"))).toEqual([]);
+    expect(liveKeys([NO_WINDOW_EVENT], Date.parse("2025-12-31T23:59:59.999Z"))).toEqual([]);
+  });
+
+  it("pruned is not the same as no window: an event past its watch is not reported, whatever its start date", () => {
+    districtRow("pnw");
+    // One match in March 2026, so the builder gives it a window from that match.
+    upsertEvent(db, event({ eventKey: "2026wabon", startDate: "not-a-date" }));
+    upsertMatch(db, match({ matchKey: "2026wabon_qm1", eventKey: "2026wabon", sortTime: T1 }));
+
+    expect(liveKeys([NO_WINDOW_EVENT], Date.parse("2026-10-10T12:00:00.000Z"))).toEqual([]);
+    // Inside the window it is live by its match, not by the in doubt rule.
+    expect(liveDistrictEventsAt(db, { districts: [NO_WINDOW_EVENT], nowMs: T1 }).map((entry) => entry.basis)).toEqual(["matches"]);
+  });
+
+  it("a district of another season than the clock's UTC year never yields a no-window entry", () => {
+    districtRow("pnw", 2025);
+    upsertEvent(db, event({ eventKey: "2025wabon", year: 2025, startDate: "not-a-date" }));
+    const lastYear = runDistrict("2025pnw", [["2025wabon", "not-a-date"]], 2025);
+
+    expect(liveDistrictEventsAt(db, { districts: [lastYear], nowMs: T1 })).toEqual([]);
+    // In its own year it is.
+    expect(liveKeys([lastYear], Date.parse("2025-06-01T00:00:00.000Z"))).toEqual(["2025wabon"]);
+  });
+
+  it("an event with a window, open or not, never reads as no-window", () => {
+    districtRow("pnw");
+    measured("2026wabon");
+    unplayed("2026wasno", "2026-09-01");
+    const districts = [runDistrict("2026pnw", [["2026wabon", "2026-03-05"], ["2026wasno", "2026-09-01"]])];
+
+    // In June the first is past its watch and the second has not opened.
+    expect(liveDistrictEventsAt(db, { districts, nowMs: Date.parse("2026-06-01T00:00:00.000Z") })).toEqual([]);
+  });
+
+  it("an event with no window sorts with the others, by district key and then event key", () => {
+    districtRow("pnw");
+    measured("2026wasno");
+    unplayed("2026wabon", "not-a-date");
+    const districts = [runDistrict("2026pnw", [["2026wasno", "2026-03-05"], ["2026wabon", "not-a-date"]])];
+
+    expect(liveDistrictEventsAt(db, { districts, nowMs: T1 }).map((entry) => [entry.eventKey, entry.basis])).toEqual([
+      ["2026wabon", "no-window"],
+      ["2026wasno", "matches"],
+    ]);
+  });
+});
+
+describe("checkLiveDistricts: the override, the notice and the check that cannot run (261010-jyn D2 as revised, R7 to R9)", () => {
+  /** A corpus handle whose every query throws. */
+  const BROKEN_CORPUS = {
+    prepare: () => {
+      throw new Error("fixture corpus failure 9e2b");
+    },
+  } as unknown as Corpus;
+
+  function oneLiveEvent(): RunDistrict[] {
+    districtRow("pnw");
+    measured("2026wabon");
+    return [PNW_ONE_EVENT];
+  }
+
+  it("an event with no window prints its own event line, and its district is skipped like any other", () => {
+    districtRow("pnw");
+    unplayed("2026wabon", "not-a-date");
+
+    const { lines, outcome } = check({ districts: [runDistrict("2026pnw", [["2026wabon", "not-a-date"]])] });
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain(LIVE_DISTRICT_MARKER);
+    expect(lines[0]).toContain("2026pnw");
+    expect(lines[0]).toContain("2026wabon");
+    expect(lines[0]).toContain("no window can be built");
+    expect(lines[1]).toContain("2026pnw");
+    expect(lines[1]).toContain("skipped");
+    expect(outcome.liveDistrictKeys).toEqual(["2026pnw"]);
+    expect(outcome.live.map((entry) => entry.basis)).toEqual(["no-window"]);
+  });
+
+  it("enforce with the override: the event line and one override line, no skip line, no throw, overridden true", () => {
+    const { lines, outcome } = check({ districts: oneLiveEvent(), mode: "enforce", allowLive: true });
+
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("2026wabon");
+    expect(lines[1]).toContain("--allow-live");
+    expect(lines.some((line) => line.includes("skipped"))).toBe(false);
+    expect(outcome.liveDistrictKeys).toEqual(["2026pnw"]);
+    expect(outcome.overridden).toBe(true);
+    expect(outcome.unchecked).toBe(false);
+  });
+
+  for (const allowLive of [false, true]) {
+    it(`notice (allowLive ${String(allowLive)}): the event line and one notice line, no skip line, no throw, overridden false`, () => {
+      const { lines, outcome } = check({ districts: oneLiveEvent(), mode: "notice", allowLive });
+
+      expect(lines).toHaveLength(2);
+      expect(lines[0]).toContain("2026wabon");
+      expect(lines[1]).toContain("--dry-run");
+      expect(lines[1]).toContain("--allow-live");
+      expect(lines.some((line) => line.includes("skipped"))).toBe(false);
+      expect(outcome.liveDistrictKeys).toEqual(["2026pnw"]);
+      expect(outcome.overridden).toBe(false);
+      expect(outcome.unchecked).toBe(false);
+    });
+  }
+
+  it("a check that cannot run is one line in a notice, with unchecked true and empty lists", () => {
+    const { lines, outcome } = check({ districts: [PNW_ONE_EVENT], mode: "notice", corpus: BROKEN_CORPUS, stage: "before the bake" });
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("fixture corpus failure 9e2b");
+    expect(lines[0]).toContain("before the bake");
+    expect(outcome).toEqual({ live: [], liveDistrictKeys: [], overridden: false, unchecked: true });
+  });
+
+  for (const allowLive of [false, true]) {
+    it(`a check that cannot run refuses a run that uploads (allowLive ${String(allowLive)})`, () => {
+      let error: unknown;
+      const lines: string[] = [];
+      try {
+        checkLiveDistricts({ stage: "before the first upload", db: BROKEN_CORPUS, districts: [PNW_ONE_EVENT], nowMs: T1, log: (line) => lines.push(line), mode: "enforce", allowLive });
+      } catch (caught) {
+        error = caught;
+      }
+
+      expect(error).toBeInstanceOf(DistrictPublishRefusedError);
+      const message = (error as Error).message;
+      expect(message.startsWith("publishDistricts:")).toBe(true);
+      expect(message).toContain(LIVE_DISTRICT_MARKER);
+      expect(message).toContain("fixture corpus failure 9e2b");
+      expect(message).toContain("before the first upload");
+      expect(message).toContain("Nothing was uploaded");
+      expect(message).toContain("--allow-live");
+      expect(lines).toEqual([]);
+    });
+  }
+
+  it("a clock that is not finite is a check that cannot run: a refusal on a run that uploads, one line in a notice", () => {
+    const districts = oneLiveEvent();
+
+    expect(() => check({ districts, nowMs: Number.NaN, mode: "enforce" })).toThrow(DistrictPublishRefusedError);
+    const notice = check({ districts, nowMs: Number.NaN, mode: "notice" });
+    expect(notice.lines).toHaveLength(1);
+    expect(notice.outcome.unchecked).toBe(true);
+  });
+
+  it("in every mode every line starts with the publisher's prefix and holds the marker, and nothing is printed when nothing is live", () => {
+    const districts = oneLiveEvent();
+    const modes: ReadonlyArray<readonly ["enforce" | "notice", boolean]> = [
+      ["enforce", false],
+      ["enforce", true],
+      ["notice", false],
+      ["notice", true],
+    ];
+
+    for (const [mode, allowLive] of modes) {
+      const live = check({ districts, mode, allowLive });
+      expect(live.lines.length).toBeGreaterThan(0);
+      for (const line of live.lines) {
+        expect(line.startsWith("publishDistricts:"), line).toBe(true);
+        expect(line, line).toContain(LIVE_DISTRICT_MARKER);
+      }
+
+      const quiet = check({ districts, mode, allowLive, nowMs: WATCHED_UNTIL });
+      expect(quiet.lines).toEqual([]);
+      expect(quiet.outcome).toEqual({ live: [], liveDistrictKeys: [], overridden: false, unchecked: false });
+    }
+    const unchecked = check({ districts, mode: "notice", corpus: BROKEN_CORPUS });
+    for (const line of unchecked.lines) {
+      expect(line.startsWith("publishDistricts:")).toBe(true);
+      expect(line).toContain(LIVE_DISTRICT_MARKER);
+    }
+  });
+});

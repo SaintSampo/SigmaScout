@@ -1692,6 +1692,15 @@ export interface CliOptions {
    * district's file right now is a fact about right now. No command line flag sets it.
    */
   readonly now?: () => number;
+  /**
+   * `true` only under `--allow-live` (quick task 261010-jyn): a run that uploads prints the live
+   * districts, says it was overridden and publishes them too, with this run's index. The 261009-ul3
+   * guard still reads and compares them, so a live fact the upload would lose still refuses. Right
+   * when a listed event was cancelled or never played, for a first publish of a season, or when the
+   * Worker did not follow the event. It never covers a clock check that could not run, and it has no
+   * effect on a `--dry-run`, which skips nothing.
+   */
+  readonly allowLive?: boolean;
 }
 
 export function parseOptions(argv: readonly string[]): CliOptions {
@@ -1709,6 +1718,7 @@ export function parseOptions(argv: readonly string[]): CliOptions {
       "no-rp-cold-prior": { type: "boolean" },
       "allow-regress": { type: "boolean" },
       "check-live": { type: "boolean" },
+      "allow-live": { type: "boolean" },
     },
   });
 
@@ -1770,6 +1780,8 @@ export function parseOptions(argv: readonly string[]): CliOptions {
     // override) are both accepted.
     ...(values["allow-regress"] === true ? { allowRegress: true as const } : {}),
     ...(values["check-live"] === true ? { checkLive: true as const } : {}),
+    // Accepted on a dry run too, where it has nothing to do: a dry run skips nothing.
+    ...(values["allow-live"] === true ? { allowLive: true as const } : {}),
   };
 }
 
@@ -1864,7 +1876,10 @@ export async function run(options: CliOptions): Promise<void> {
     const clockListed = new Set<string>();
     // The wall clock, read ONCE per clock pass and nowhere else. Never `asOf`.
     const readClock = (): number => (options.now ?? Date.now)();
-    const clockPass = (stage: string): void => {
+    // A run that uploads ENFORCES: a live district is skipped, unless
+    // --allow-live publishes it too. A dry run uploads nothing, so it prints a
+    // NOTICE and skips nothing: its dumps and the as of analysis are unchanged.
+    const clockPass = (stage: string, mode: "enforce" | "notice"): void => {
       const outcome = checkLiveDistricts({
         stage,
         db,
@@ -1872,19 +1887,21 @@ export async function run(options: CliOptions): Promise<void> {
         nowMs: readClock(),
         log: (line) => console.log(line),
         alreadyListed: clockListed,
-        mode: "enforce",
-        allowLive: false,
+        mode,
+        allowLive: options.allowLive === true,
       });
       for (const districtKey of outcome.liveDistrictKeys) {
+        // Listed, overridden or not, so the second pass prints nothing twice.
         clockListed.add(districtKey);
-        skippedDistricts.add(districtKey);
+        // Skipped only on a run that uploads, and only without the override.
+        if (mode === "enforce" && !outcome.overridden) skippedDistricts.add(districtKey);
       }
     };
 
-    // FIRST CLOCK PASS, after compose (the districts and their events are known
-    // here) and before the first R2 read: a district it lists is neither read
-    // nor compared below.
-    if (!options.dryRun) clockPass("before the bake");
+    // FIRST CLOCK PASS, on every run, after compose (the districts and their
+    // events are known here) and before the first R2 read: a district it skips
+    // is neither read nor compared below. It reads nothing from R2 itself.
+    clockPass("before the bake", options.dryRun ? "notice" : "enforce");
 
     // The guard reads the COMPOSED artifact of every district of the run, before
     // the baked-event list is attached: that list is not a fact the Worker
@@ -1934,7 +1951,7 @@ export async function run(options: CliOptions): Promise<void> {
     // SECOND CLOCK PASS (quick task 261010-jyn), after the bake, because an
     // event's window can open while the replay runs. A district found live here
     // is skipped before any of its uploads, and before the second read below.
-    if (!options.dryRun) clockPass("before the first upload");
+    if (!options.dryRun) clockPass("before the first upload", "enforce");
 
     // SECOND PASS, immediately before the first byte gate and the first upload:
     // the Worker writes every minute and the first read is minutes old by now,

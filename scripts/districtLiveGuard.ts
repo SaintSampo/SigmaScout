@@ -51,6 +51,28 @@
  * there is no row to keep, and a composed one is the row this rule exists to
  * hold back.
  *
+ * AN EVENT THE BUILDER CAN GIVE NO WINDOW IS LIVE IN ITS OWN YEAR, IN DOUBT.
+ * The builder gives an event no window only when the corpus holds no match
+ * for it and its start date does not parse. Nothing can then say when it
+ * runs, so it makes its district live for as long as the clock's UTC year is
+ * the district's season, and never in another year. No such event is in the
+ * corpus today (every one of its district events has a start date that
+ * parses), so this rule is unreachable until one appears.
+ *
+ * WHY THE BUILDER IS ASKED TWICE. An event missing from the builder's answer
+ * at the clock is either past its watch, and pruned, or one it can give no
+ * window at all, and the answer does not say which. So the builder is asked a
+ * second time with retention switched off: an event absent there too has no
+ * window, and an event present there is merely past its watch and is not live.
+ *
+ * THE OVERRIDE, THE NOTICE AND THE CHECK THAT CANNOT RUN. `--allow-live`
+ * prints the same event lines and one override line, and the run publishes
+ * the listed districts too. A `--dry-run` uploads nothing, so it prints the
+ * same event lines as a notice, skips nothing and never fails. A check that
+ * cannot run (the windows cannot be built) refuses a run that uploads, with or
+ * without the override, because a run that cannot tell whether a district is
+ * live must not write over it. In a dry run it is one printed line.
+ *
  * This module never reads the wall clock or the environment. The clock, the
  * corpus handle, the reader and the logger are handed in, so every test runs
  * without a network.
@@ -65,6 +87,15 @@ export const LIVE_DISTRICT_MARKER = "live district";
 
 /** The `generation` handed to the builder. A label only: the manifest it stamps is read for its windows and thrown away, never published. */
 const LIVE_GUARD_GENERATION = "district-live-guard-not-published";
+
+/**
+ * The retention clock that switches the builder's retention OFF. The builder
+ * drops a window once `endMs <= nowMs` (24 hours later for a district event),
+ * and its own doc of `nowMs` names this idiom: a caller passes `nowMs: 0` to
+ * keep every window "in the future". Asked with it, the builder lists every
+ * event it can give a window at all.
+ */
+const RETENTION_OFF_NOW_MS = 0;
 
 export interface RunDistrictEvent {
   readonly eventKey: string;
@@ -106,6 +137,10 @@ function byText(a: string, b: string): number {
  *
  * The builder is asked AT the clock, so its own retention decides "past the
  * watch". The one comparison added is `startMs <= nowMs`: see the header.
+ *
+ * It is asked a second time with retention off, to tell an event past its
+ * watch from an event it can give no window. The second kind makes its
+ * district live only when the district's season is the clock's UTC year.
  */
 export function liveDistrictEventsAt(db: Corpus, args: { readonly districts: readonly RunDistrict[]; readonly nowMs: number }): LiveDistrictEvent[] {
   const { districts, nowMs } = args;
@@ -134,6 +169,28 @@ export function liveDistrictEventsAt(db: Corpus, args: { readonly districts: rea
       watchedUntilMs: window.endMs + DISTRICT_AWARDS_WATCH_MS,
     });
   }
+
+  // The event with no window at all. Only a district of the clock's own UTC
+  // year can be made live by one, so the second call is skipped otherwise.
+  const clockYear = new Date(nowMs).getUTCFullYear();
+  const inDoubt = districts.filter((district) => district.season === clockYear);
+  if (inDoubt.length > 0) {
+    const everything = buildLiveWindowsManifest(db, {
+      seasons,
+      generation: LIVE_GUARD_GENERATION,
+      computedAt: new Date(nowMs).toISOString(),
+      nowMs: RETENTION_OFF_NOW_MS,
+    });
+    // By event key alone: an event the builder gives a window is not in doubt,
+    // whatever district key that window carries.
+    const hasWindow = new Set(everything.windows.map((window) => window.eventKey));
+    for (const district of inDoubt) {
+      for (const event of district.events) {
+        if (hasWindow.has(event.eventKey)) continue;
+        live.push({ districtKey: district.districtKey, eventKey: event.eventKey, basis: "no-window", startMs: null, endMs: null, watchedUntilMs: null });
+      }
+    }
+  }
   return live.sort((a, b) => byText(a.districtKey, b.districtKey) || byText(a.eventKey, b.eventKey));
 }
 
@@ -142,6 +199,11 @@ function instant(ms: number | null): string {
 }
 
 function liveEventLine(event: LiveDistrictEvent): string {
+  if (event.basis === "no-window") {
+    return (
+      `publishDistricts: ${LIVE_DISTRICT_MARKER} ${event.districtKey}: event ${event.eventKey} has no match and no usable start date in the corpus, so no window can be built for it. Its season is the current year, so it is read as live.`
+    );
+  }
   const source = event.basis === "matches" ? "from its match times" : "from its start date, the corpus holds no match for it";
   return (
     `publishDistricts: ${LIVE_DISTRICT_MARKER} ${event.districtKey}: event ${event.eventKey} is inside its window or within 24 hours after it. ` +
@@ -162,9 +224,18 @@ export interface LiveDistrictsCheck {
 
 /**
  * The clock check of one pass: prints what it finds and returns it. A live
- * district is never a reason to throw. It prints one line per live event and
- * then one skip line per district, in sorted order, and nothing at all when
- * nothing is live.
+ * district is never a reason to throw: it throws only when the check cannot
+ * run on a run that uploads. The event lines come first, one per live event
+ * in sorted order, and nothing at all is printed when nothing is live.
+ *
+ * | mode    | allowLive | the windows cannot be built            | live events found                                    |
+ * |---------|-----------|----------------------------------------|------------------------------------------------------|
+ * | enforce | false     | throws, naming the error               | event lines, one skip line per district              |
+ * | enforce | true      | the same throw                         | event lines, one override line, `overridden: true`   |
+ * | notice  | ignored   | one line naming the error, `unchecked` | event lines, one notice line                         |
+ *
+ * Every throw is a `DistrictPublishRefusedError`. In every row the district
+ * keys come back: the caller decides what a key means for its run.
  */
 export function checkLiveDistricts(args: {
   /** Printed: "before the bake" or "before the first upload". */
@@ -179,11 +250,36 @@ export function checkLiveDistricts(args: {
   readonly allowLive: boolean;
 }): LiveDistrictsCheck {
   const alreadyListed = args.alreadyListed ?? new Set<string>();
-  const live = liveDistrictEventsAt(args.db, { districts: args.districts, nowMs: args.nowMs }).filter((event) => !alreadyListed.has(event.districtKey));
+  let everyLiveEvent: LiveDistrictEvent[];
+  try {
+    everyLiveEvent = liveDistrictEventsAt(args.db, { districts: args.districts, nowMs: args.nowMs });
+  } catch (cause) {
+    // The message only: never the error object or a stack.
+    const message = cause instanceof Error ? cause.message : String(cause);
+    if (args.mode === "notice") {
+      args.log(`publishDistricts: the ${LIVE_DISTRICT_MARKER} check could not run ${args.stage}: ${message}. A dry run goes on.`);
+      return { live: [], liveDistrictKeys: [], overridden: false, unchecked: true };
+    }
+    throw new DistrictPublishRefusedError(
+      `publishDistricts: refused ${args.stage}. Nothing was uploaded. The ${LIVE_DISTRICT_MARKER} check could not run: ${message}. ` +
+        `A run that cannot tell whether a district is live does not publish, and --allow-live does not change that.`
+    );
+  }
+  const live = everyLiveEvent.filter((event) => !alreadyListed.has(event.districtKey));
   const liveDistrictKeys = [...new Set(live.map((event) => event.districtKey))].sort(byText);
   if (live.length === 0) return { live, liveDistrictKeys, overridden: false, unchecked: false };
 
   for (const event of live) args.log(liveEventLine(event));
+  if (args.mode === "notice") {
+    args.log(
+      `publishDistricts: --dry-run uploads nothing, so this is a notice. A run that uploads would skip the ${liveDistrictKeys.length} ${LIVE_DISTRICT_MARKER}(s) listed above, unless --allow-live is given.`
+    );
+    return { live, liveDistrictKeys, overridden: false, unchecked: false };
+  }
+  if (args.allowLive) {
+    args.log(`publishDistricts: --allow-live was given, so this run publishes the ${liveDistrictKeys.length} ${LIVE_DISTRICT_MARKER}(s) listed above too.`);
+    return { live, liveDistrictKeys, overridden: true, unchecked: false };
+  }
   for (const districtKey of liveDistrictKeys) {
     args.log(
       `publishDistricts: ${LIVE_DISTRICT_MARKER} ${districtKey} is skipped ${args.stage}: this run uploads nothing of it, and its published file stays as the Worker has it.`
