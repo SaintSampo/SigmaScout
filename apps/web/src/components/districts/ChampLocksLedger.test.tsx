@@ -1276,3 +1276,80 @@ describe("ChampLocksLedger — the two readings while a live championship's poin
     expect(input.playedElimMatches).toEqual(PLAYED_ROWS);
   }, 40000);
 });
+
+/**
+ * Quick task 261010-66y: the table while a championship played in divisions
+ * has posted one division's rows and not the other's. The artifact learns a
+ * championship key only from team rows, so the one division it knows has
+ * started while half the field is on no row. Until the field is proven those
+ * teams stay in the table and read as they did before the championship
+ * started; once both divisions are posted the hide rule applies as before.
+ */
+describe("ChampLocksLedger — a championship in two divisions with one division's rows posted (quick task 261010-66y)", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  const DIVISION_ONE = "2026pncmp1";
+  const DIVISION_TWO = "2026pncmp2";
+  /** The championship field is the first twelve teams of the roster: six in each division. */
+  const divisionOf = (teamKey: string): string | undefined => {
+    const index = ROSTER.indexOf(teamKey);
+    return index < 0 || index >= 12 ? undefined : index < 6 ? DIVISION_ONE : DIVISION_TWO;
+  };
+
+  /** Each posted division is mid qualification: started, with provisional qualification points on its rows. */
+  function divisionsArtifact(posted: readonly string[]): DistrictArtifact {
+    return artifactOf(
+      ROSTER.map((teamKey) => {
+        const base = districtTeam(teamKey);
+        const division = divisionOf(teamKey);
+        if (division === undefined || !posted.includes(division)) return base;
+        return {
+          ...base,
+          pointTotal: base.pointTotal + 9,
+          eventPoints: [
+            ...base.eventPoints,
+            { eventKey: division, eventName: `PNW District Championship ${division}`, week: 6, tier: "dcmp" as const, qual: 9, alliance: 0, elim: 0, award: 0, total: 9, state: MID_QUALS },
+          ],
+        };
+      })
+    );
+  }
+
+  it("keeps a team with no championship row in the table while the field is not proven, and prints no not in the field dash for it", async () => {
+    installFetch([liveEventArtifact(DIVISION_ONE)]);
+    handle = installMockWorker({ script: realRunScript });
+    // Six teams posted against twelve championship places: not proven.
+    renderLedger(divisionsArtifact([DIVISION_ONE]));
+    await waitFor(() => expect(screen.getAllByTestId("champ-ledger-row").length).toBe(ROSTER.length * 2), { timeout: 20000 });
+    // A team of the division TBA has not posted yet, and a team that is going to neither.
+    for (const teamKey of [ROSTER[6]!, ROSTER[11]!, ROSTER[12]!]) {
+      const rows = rowsFor(teamKey);
+      expect(rows).toHaveLength(2);
+      expect(rows[1]!.getAttribute("data-row")).toBe("dcmp");
+      expect(rows[1]!.querySelectorAll('[data-cell="not-in-field"]')).toHaveLength(0);
+    }
+    // A team with its own row is there as it always was.
+    expect(rowsFor(ROSTER[0]!)).toHaveLength(2);
+  }, 30000);
+
+  it("hides a team with no championship row once both divisions are posted and the field is proven, as before", async () => {
+    installFetch([liveEventArtifact(DIVISION_ONE), liveEventArtifact(DIVISION_TWO)]);
+    handle = installMockWorker({ script: realRunScript });
+    // Twelve teams posted against twelve championship places: proven by capacity.
+    renderLedger(divisionsArtifact([DIVISION_ONE, DIVISION_TWO]));
+    await waitFor(() => expect(screen.getAllByTestId("champ-ledger-row").length).toBe(DCMP_FIELD.size * 2), { timeout: 20000 });
+    expect(rowsFor(ROSTER[12]!)).toHaveLength(0);
+    expect(rowsFor(ROSTER[6]!)).toHaveLength(2);
+    expect(rowsFor(ROSTER[0]!)).toHaveLength(2);
+  }, 30000);
+});
+

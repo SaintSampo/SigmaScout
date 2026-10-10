@@ -51,6 +51,15 @@
  * THE GROUPS OF THIS FILE:
  *   1. a synthetic championship in four divisions, built from the committed
  *      2026 PNW fixture. Always on.
+ *   2. the Now census: every local district artifact reads at Now what it
+ *      read before this task.
+ *   3. the subset test: with any proper subset of an artifact's field fixing
+ *      keys on its rows, the field reads NOT proven.
+ *   4. the real walks of 2026 FIM, NE, ONT, TX and CA.
+ *   5. the same five with the points arriving only as each event ends: the
+ *      states with part of the field wholly final and the rest on no row,
+ *      and the walk on from each of them.
+ * Groups 2 to 5 read gitignored local data.
  *
  * IT PROVES SOMETHING. The same walk runs with the rule switched off inside
  * this file (the core proof answering as the code read the field before this
@@ -65,7 +74,7 @@
  * environment the same group FAILS instead, so a verify step cannot pass on a
  * machine that silently ran nothing.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -77,6 +86,7 @@ import { buildDistrictLedgerRows, deriveStageFromState, tierEvents, type Distric
 import { computeDistrictLedgerStatuses } from "../apps/web/src/components/districts/districtLedgerStatus.js";
 import { buildChampLedgerRows, champFieldProofAtNow, dcmpEventKeysFor } from "../apps/web/src/components/districts/champLedgerRows.js";
 import { computeChampLedgerStatuses } from "../apps/web/src/components/districts/champLedgerStatus.js";
+import { LOCAL_DISTRICT_DIR } from "./measureChampJointLocks.js";
 
 /**
  * THE SWITCHES. The merge, the row builders and the status code all run as
@@ -130,6 +140,20 @@ function withFinalsAllowanceOff<T>(body: () => T): T {
   }
 }
 
+/**
+ * A local data gated group whose data is absent: one skipped test naming what
+ * is missing, or with `REQUIRE_LOCAL_DATA=1` one FAILING test.
+ */
+function localDataAbsent(what: string): void {
+  if (process.env.REQUIRE_LOCAL_DATA === "1") {
+    it(`REQUIRE_LOCAL_DATA=1 and the local data is absent: ${what}`, () => {
+      throw new Error(`REQUIRE_LOCAL_DATA=1, but this local data gated group cannot run: ${what}`);
+    });
+    return;
+  }
+  it.skip(`skipped: ${what}`, () => {});
+}
+
 type Team = DistrictArtifact["teams"][number];
 type Row = Team["eventPoints"][number];
 
@@ -160,6 +184,8 @@ interface WalkStep {
   readonly label: string;
   /** The Champ Locks status of every team, from the tab's own status code at Now. */
   readonly champTab: ReadonlyMap<string, string>;
+  /** The teams the Champ Locks tab reads Locked by an award (the winning alliance or a judged award). */
+  readonly champByAward: ReadonlySet<string>;
   /** Every team's place in the field as the tab's row model reads it at Now. */
   readonly membership: ReadonlyMap<string, string>;
   /** The one flag the tab hands every reader of the field. */
@@ -200,6 +226,7 @@ function snapshot(label: string, artifact: DistrictArtifact): WalkStep {
   return {
     label,
     champTab: new Map([...champStatuses.byTeam].map(([teamKey, result]) => [teamKey, result.status] as const)),
+    champByAward: new Set([...champStatuses.byTeam].filter(([, result]) => result.byAward).map(([teamKey]) => teamKey)),
     membership: new Map(champRows.teams.map((team) => [team.teamKey, team.membership] as const)),
     fieldProven: champRows.fieldProven,
     proven: champFieldProofAtNow(artifact, started, NOW_YEAR).proven,
@@ -251,6 +278,15 @@ function outThenIn(walk: Walk): string[] {
     }
   }
   return found.sort();
+}
+
+/** The labels of the ticks at which the Champ Locks reservation is above the tick before it. */
+function reservationRises(steps: readonly WalkStep[]): string[] {
+  const rises: string[] = [];
+  for (let index = 1; index < steps.length; index++) {
+    if (steps[index]!.champReserved > steps[index - 1]!.champReserved) rises.push(`${steps[index]!.label}: ${String(steps[index - 1]!.champReserved)} to ${String(steps[index]!.champReserved)}`);
+  }
+  return rises;
 }
 
 /** The labels of the ticks at which the core proof read proven after an earlier tick read it and a tick between did not: the D11 property. */
@@ -612,8 +648,8 @@ describe("the staged live walk: a synthetic championship in four divisions, one 
     // PINNED AS THE RUN SHOWS. With the field rule off every start takes
     // Locked back. With only the finals part of the hypothetical
     // championship off this synthetic takes NONE back, said plainly: while
-    // its field is unproven the championships held back (44, 33 and 22
-    // places) exceed its 21 Championship slots, so nobody reads Locked in
+    // its field is unproven the championships held back (44, 33, 22 and 11
+    // places) leave at most ten of its 21 Championship slots, so nobody reads Locked in
     // that window and there is nothing to take back. The walk that does show
     // it is the real 2026 FIM one in the local data group below, and the
     // ceiling itself is held by a unit test
@@ -622,3 +658,366 @@ describe("the staged live walk: a synthetic championship in four divisions, one 
     expect({ fieldOff, allowanceOff }).toEqual({ fieldOff: [12, 11, 9, 6], allowanceOff: [0, 0, 0, 0] });
   });
 });
+
+// ---------------------------------------------------------------------------
+// The local district artifacts (gitignored)
+// ---------------------------------------------------------------------------
+
+const LOCAL_DISTRICT_ABSOLUTE = join(REPO_ROOT, LOCAL_DISTRICT_DIR);
+/** The district DETAIL files alone: `v1__districts__2026.json` is the per year index and carries no teams. */
+const DISTRICT_DETAIL_FILE = /^v1__district__\d{4}[a-z0-9]+\.json$/;
+const LOCAL_DISTRICT_FILES = existsSync(LOCAL_DISTRICT_ABSOLUTE) ? readdirSync(LOCAL_DISTRICT_ABSOLUTE).filter((name) => DISTRICT_DETAIL_FILE.test(name)).sort() : [];
+const NO_LOCAL_DISTRICTS = `no district artifact under ${LOCAL_DISTRICT_DIR} (gitignored local data)`;
+
+const localArtifactCache = new Map<string, DistrictArtifact>();
+function localArtifact(fileName: string): DistrictArtifact {
+  let artifact = localArtifactCache.get(fileName);
+  if (artifact === undefined) {
+    artifact = DistrictArtifactSchema.parse(JSON.parse(readFileSync(join(LOCAL_DISTRICT_ABSOLUTE, fileName), "utf8")));
+    localArtifactCache.set(fileName, artifact);
+  }
+  return artifact;
+}
+
+/** The real proof at Now, as the tab computes it, at the given calendar year. */
+const proofAtNow = (artifact: DistrictArtifact, nowYear: number) => champFieldProofAtNow(artifact, startedDcmpKeys(artifact), nowYear);
+
+// ---------------------------------------------------------------------------
+// GROUP 2. The Now census
+// ---------------------------------------------------------------------------
+
+describe("the Now census: no finished season reads unproven after a start (quick task 261010-66y, D7 and D8)", () => {
+  if (LOCAL_DISTRICT_FILES.length === 0) {
+    localDataAbsent(NO_LOCAL_DISTRICTS);
+    return;
+  }
+
+  it("every local district artifact reads proven or has no championship key, and none reads unproven after a start, in 2026", () => {
+    const completeBy = { capacity: [] as string[], finals: [] as string[], seasonOver: [] as string[] };
+    const noDcmpKey: string[] = [];
+    const unprovenAfterStart: string[] = [];
+    const notProven: string[] = [];
+    let closestPass = Number.POSITIVE_INFINITY;
+    for (const fileName of LOCAL_DISTRICT_FILES) {
+      const artifact = localArtifact(fileName);
+      const proof = proofAtNow(artifact, NOW_YEAR);
+      if (proof.unprovenAfterStart) unprovenAfterStart.push(artifact.districtKey);
+      if (proof.dcmpEventKeys.length === 0) noDcmpKey.push(artifact.districtKey);
+      else if (!proof.proven) notProven.push(artifact.districtKey);
+      if (proof.completeBy !== null) completeBy[proof.completeBy].push(artifact.districtKey);
+      if (proof.completeBy === "capacity") closestPass = Math.min(closestPass, proof.postedTeams - (artifact.dcmpSlots! - proof.tolerance));
+    }
+    // DERIVED, never typed in: the seasons that need the season over line are
+    // the ones with a championship key whose season is 2020.
+    const seasons2020 = LOCAL_DISTRICT_FILES.map(localArtifact).filter((artifact) => artifact.year === 2020 && dcmpEventKeysFor(artifact).length > 0).map((artifact) => artifact.districtKey);
+    console.log(
+      `[261010-66y group 2] artifacts ${String(LOCAL_DISTRICT_FILES.length)} | proven by capacity ${String(completeBy.capacity.length)}, by a finals row ${String(completeBy.finals.length)}, by the season over line ${String(completeBy.seasonOver.length)} (${completeBy.seasonOver.join(", ")}) | no championship key: ${noDcmpKey.join(", ")} | unproven after a start ${String(unprovenAfterStart.length)} | closest capacity pass: ${String(closestPass)} teams above the count asked for`
+    );
+    expect(unprovenAfterStart).toEqual([]);
+    expect(notProven).toEqual([]);
+    expect(completeBy.seasonOver).toEqual(seasons2020);
+    expect(completeBy.finals).toEqual([]);
+    expect(noDcmpKey).toEqual(["2020isr"]);
+    // The counts, as the run shows.
+    expect({ artifacts: LOCAL_DISTRICT_FILES.length, capacity: completeBy.capacity.length, seasonOver: completeBy.seasonOver.length, noDcmpKey: noDcmpKey.length }).toEqual({ artifacts: 109, capacity: 98, seasonOver: 10, noDcmpKey: 1 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GROUP 3. The subset test
+// ---------------------------------------------------------------------------
+
+/** Every non empty proper subset of `items`. */
+function properSubsets<T>(items: readonly T[]): T[][] {
+  const out: T[][] = [];
+  for (let mask = 1; mask < (1 << items.length) - 1; mask++) out.push(items.filter((_, index) => ((mask >> index) & 1) === 1));
+  return out;
+}
+
+/** The artifact with every row and every award at the given keys removed, as it would be before TBA posted them. */
+function withoutKeys(artifact: DistrictArtifact, drop: ReadonlySet<string>): DistrictArtifact {
+  return {
+    ...artifact,
+    teams: artifact.teams.map((team) => ({
+      ...team,
+      eventPoints: team.eventPoints.filter((row) => !drop.has(row.eventKey)),
+      remainingEvents: team.remainingEvents.filter((row) => !drop.has(row.eventKey)),
+      qualifyingAwards: team.qualifyingAwards.filter((award) => !drop.has(award.eventKey)),
+    })),
+  };
+}
+
+describe("the subset test: part of the field on the rows never reads proven (quick task 261010-66y, D7)", () => {
+  if (LOCAL_DISTRICT_FILES.length === 0) {
+    localDataAbsent(NO_LOCAL_DISTRICTS);
+    return;
+  }
+
+  it("for every artifact with two or more field fixing keys, every proper subset reads NOT proven and every key together reads proven, in the artifact's own year", () => {
+    const several = LOCAL_DISTRICT_FILES.map(localArtifact).filter((artifact) => fieldFixingDcmpKeys(dcmpEventKeysFor(artifact)).length >= 2);
+    let subsets = 0;
+    let provenByTheSeasonOverLineAlone = 0;
+    let closestMiss = Number.POSITIVE_INFINITY;
+    const provenSubsets: string[] = [];
+    const wholeNotProven: string[] = [];
+    for (const artifact of several) {
+      const dcmpKeys = dcmpEventKeysFor(artifact);
+      const fieldFixing = fieldFixingDcmpKeys(dcmpKeys);
+      const finalsKeys = dcmpKeys.filter((key) => !fieldFixing.includes(key));
+      if (!proofAtNow(artifact, artifact.year).proven) wholeNotProven.push(artifact.districtKey);
+      for (const subset of properSubsets(fieldFixing)) {
+        subsets += 1;
+        const staged = withoutKeys(artifact, new Set([...fieldFixing.filter((key) => !subset.includes(key)), ...finalsKeys]));
+        const proof = proofAtNow(staged, artifact.year);
+        if (proof.proven) provenSubsets.push(`${artifact.districtKey} keep ${subset.join(",")} by ${String(proof.completeBy)}`);
+        if (artifact.dcmpSlots !== null) closestMiss = Math.min(closestMiss, artifact.dcmpSlots - proof.tolerance - proof.postedTeams);
+        // The year one above the artifact's: the season over line alone.
+        if (proofAtNow(staged, artifact.year + 1).completeBy === "seasonOver") provenByTheSeasonOverLineAlone += 1;
+      }
+    }
+    console.log(
+      `[261010-66y group 3] artifacts with two or more field fixing keys ${String(several.length)} | proper subsets ${String(subsets)} | read proven ${String(provenSubsets.length)} | closest miss: ${String(closestMiss)} teams below the count asked for | subsets the season over line alone would call proven, one year on: ${String(provenByTheSeasonOverLineAlone)}`
+    );
+    expect(provenSubsets).toEqual([]);
+    expect(wholeNotProven).toEqual([]);
+    // The counts, as the run shows. The last is why the season over line
+    // counts only once the season is over: read in the artifact's own
+    // season it would call every one of these subsets proven.
+    expect({ artifacts: several.length, subsets, provenByTheSeasonOverLineAlone }).toEqual({ artifacts: 25, subsets: 146, provenByTheSeasonOverLineAlone: 146 });
+    expect(closestMiss).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GROUPS 4 and 5. The real 2026 championships
+// ---------------------------------------------------------------------------
+
+/** FIM in four divisions, NE, ONT and TX in two, and the two championships of California. */
+const WALKED_DISTRICTS = ["2026fim", "2026ne", "2026ont", "2026fit", "2026ca"] as const;
+type WalkedDistrict = (typeof WALKED_DISTRICTS)[number];
+const MISSING_WALKED = WALKED_DISTRICTS.filter((districtKey) => !LOCAL_DISTRICT_FILES.includes(`v1__district__${districtKey}.json`));
+const WALK_TIMEOUT_MS = 600_000;
+
+const walkedSourceCache = new Map<string, DistrictArtifact>();
+/** The published artifact at the verdict pass's fixed point, as the walks' source and end. */
+function walkedSource(districtKey: WalkedDistrict): DistrictArtifact {
+  let source = walkedSourceCache.get(districtKey);
+  if (source === undefined) {
+    source = recomputeDistrictVerdicts(localArtifact(`v1__district__${districtKey}.json`), { nowYear: NOW_YEAR });
+    walkedSourceCache.set(districtKey, source);
+  }
+  return source;
+}
+
+/** DERIVED: the teams whose only championship row is at a finals key (an award given at the finals to a team that played in no division). */
+function finalsOnlyTeams(source: DistrictArtifact): string[] {
+  const fieldFixing = new Set(fieldFixingDcmpKeys(dcmpEventKeysFor(source)));
+  return source.teams
+    .filter((team) => {
+      const dcmpRows = team.eventPoints.filter((row) => row.tier === "dcmp");
+      return dcmpRows.length > 0 && dcmpRows.every((row) => !fieldFixing.has(row.eventKey));
+    })
+    .map((team) => team.teamKey)
+    .sort();
+}
+
+type RuleMode = "on" | "fieldRuleOff" | "finalsAllowanceOff";
+function inMode<T>(mode: RuleMode, body: () => T): T {
+  return mode === "on" ? body() : mode === "fieldRuleOff" ? withFieldRuleOff(body) : withFinalsAllowanceOff(body);
+}
+
+const realWalkCache = new Map<string, Walk>();
+/** The first walk of a real district: its points lagging its matches by ticks. */
+function realWalk(districtKey: WalkedDistrict, mode: RuleMode): Walk {
+  const cacheKey = `lag ${districtKey} ${mode}`;
+  let walk = realWalkCache.get(cacheKey);
+  if (walk === undefined) {
+    walk = inMode(mode, () => walkChampionshipField(walkedSource(districtKey)));
+    realWalkCache.set(cacheKey, walk);
+  }
+  return walk;
+}
+/** The second walk of a real district: its points arriving only as each event ends, from a start with `finalAtStart` keys wholly final. */
+function realEventEndWalk(districtKey: WalkedDistrict, finalAtStart: number, mode: RuleMode): Walk {
+  const cacheKey = `end ${districtKey} ${String(finalAtStart)} ${mode}`;
+  let walk = realWalkCache.get(cacheKey);
+  if (walk === undefined) {
+    walk = inMode(mode, () => walkPointsAtEventEnd(walkedSource(districtKey), finalAtStart));
+    realWalkCache.set(cacheKey, walk);
+  }
+  return walk;
+}
+
+const lockedTakenBack = (walk: Walk): string[] => takeBacks(walk.steps, (step) => step.champTab, champTabHeld);
+
+describe("the staged live walk: the real 2026 FIM, NE, ONT, TX and CA championships, one event posted at a time (quick task 261010-66y, D7)", () => {
+  if (MISSING_WALKED.length > 0) {
+    localDataAbsent(`${MISSING_WALKED.join(", ")} absent under ${LOCAL_DISTRICT_DIR} (gitignored local data)`);
+    return;
+  }
+
+  it(
+    "rules on: no Locked is taken back, no team that ends with a field fixing row ever reads out, and the proof never goes back",
+    () => {
+      const table: string[] = [];
+      for (const districtKey of WALKED_DISTRICTS) {
+        const walk = realWalk(districtKey, "on");
+        expect({ districtKey, lost: lockedTakenBack(walk) }).toEqual({ districtKey, lost: [] });
+        expect({ districtKey, out: fieldTeamsReadOut(walk) }).toEqual({ districtKey, out: [] });
+        expect({ districtKey, proofLost: provenTakenBack(walk.steps) }).toEqual({ districtKey, proofLost: [] });
+        // The one flag is false exactly from the first key's state until the last key's.
+        const firstState = walk.steps.findIndex((step) => step.label === `${shortKey(walk.fieldFixingKeys[0]!)} state written`);
+        const lastState = walk.steps.findIndex((step) => step.label === `${shortKey(walk.fieldFixingKeys.at(-1)!)} state written`);
+        expect({ districtKey, fieldProven: walk.steps.map((step) => step.fieldProven) }).toEqual({ districtKey, fieldProven: walk.steps.map((_, index) => index < firstState || index >= lastState) });
+        expect({ districtKey, rises: reservationRises(walk.steps.slice(firstState)) }).toEqual({ districtKey, rises: [] });
+        table.push(`  ${districtKey}: ${String(walk.fieldTeams.size)} teams in the field at ${String(walk.fieldFixingKeys.length)} field fixing keys`, ...tickTable(walk));
+      }
+      console.log(["[261010-66y group 4] rules on, the real walks:", ...table].join("\n"));
+    },
+    WALK_TIMEOUT_MS
+  );
+
+  it(
+    "rules on: the only teams that read out and later in are the teams whose only championship row is at a finals key, and each ends Locked by an award",
+    () => {
+      const counts: Record<string, number> = {};
+      for (const districtKey of WALKED_DISTRICTS) {
+        const source = walkedSource(districtKey);
+        const walk = realWalk(districtKey, "on");
+        const finalsOnly = finalsOnlyTeams(source);
+        expect({ districtKey, outThenIn: outThenIn(walk) }).toEqual({ districtKey, outThenIn: finalsOnly });
+        const end = walk.steps.at(-1)!;
+        for (const teamKey of finalsOnly) {
+          expect({ districtKey, teamKey, status: end.champTab.get(teamKey), byAward: end.champByAward.has(teamKey) }).toEqual({ districtKey, teamKey, status: "locked", byAward: true });
+        }
+        counts[districtKey] = finalsOnly.length;
+      }
+      console.log(`[261010-66y group 4] teams whose only championship row is at a finals key: ${JSON.stringify(counts)}`);
+      // The counts, as the run shows.
+      expect(counts).toEqual({ "2026fim": 1, "2026ne": 2, "2026ont": 0, "2026fit": 0, "2026ca": 0 });
+    },
+    WALK_TIMEOUT_MS
+  );
+
+  it(
+    "field rule off: the same walks, pinned as the run shows",
+    () => {
+      const measured: Record<string, { lockedTakenBack: number; fieldTeamsReadOut: number }> = {};
+      for (const districtKey of WALKED_DISTRICTS) {
+        const walk = realWalk(districtKey, "fieldRuleOff");
+        measured[districtKey] = { lockedTakenBack: lockedTakenBack(walk).length, fieldTeamsReadOut: fieldTeamsReadOut(walk).length };
+      }
+      console.log(`[261010-66y group 4] field rule off, the real walks: ${JSON.stringify(measured)}`);
+      // PINNED AS THE RUN SHOWS, and said plainly: with the field rule off
+      // this walk takes a Locked back at 2026 FIM only. At NE, ONT, TX and CA
+      // the same code reads 50, 49, 45 and 60 teams of the field out of it
+      // and takes no Locked back, because in this walk nobody reads Locked
+      // while the points lag only by ticks. The walk that does take Locked
+      // back at all five is the next group's.
+      expect(measured).toEqual({
+        "2026fim": { lockedTakenBack: 41, fieldTeamsReadOut: 121 },
+        "2026ne": { lockedTakenBack: 0, fieldTeamsReadOut: 50 },
+        "2026ont": { lockedTakenBack: 0, fieldTeamsReadOut: 49 },
+        "2026fit": { lockedTakenBack: 0, fieldTeamsReadOut: 45 },
+        "2026ca": { lockedTakenBack: 0, fieldTeamsReadOut: 60 },
+      });
+    },
+    WALK_TIMEOUT_MS
+  );
+});
+
+describe("the points arriving only as each event ends: the real 2026 FIM, NE, ONT, TX and CA championships (quick task 261010-66y, D7)", () => {
+  if (MISSING_WALKED.length > 0) {
+    localDataAbsent(`${MISSING_WALKED.join(", ")} absent under ${LOCAL_DISTRICT_DIR} (gitignored local data)`);
+    return;
+  }
+
+  /** Every start of the second walk: none of the field fixing keys final, then the first one, two and so on, never all. */
+  const startsOf = (districtKey: WalkedDistrict): number[] => fieldFixingDcmpKeys(dcmpEventKeysFor(walkedSource(districtKey))).map((_, index) => index);
+  /** The teams shown Locked at a walk's first entry that do not hold a place at its last. */
+  const lockedThenNotHeldAtTheEnd = (walk: Walk): string[] => {
+    const end = walk.steps.at(-1)!.champTab;
+    return [...walk.steps[0]!.champTab].filter(([teamKey, status]) => status === "locked" && !champTabHeld(end.get(teamKey) ?? "absent")).map(([teamKey]) => teamKey);
+  };
+  type Measured = Record<string, { lockedAtStart: number[]; notHeldAtTheEnd: number[]; lockedTakenBack: number[] }>;
+  const measure = (mode: RuleMode): Measured => {
+    const measured: Measured = {};
+    for (const districtKey of WALKED_DISTRICTS) {
+      const walks = startsOf(districtKey).map((finalAtStart) => realEventEndWalk(districtKey, finalAtStart, mode));
+      measured[districtKey] = {
+        lockedAtStart: walks.map((walk) => [...walk.steps[0]!.champTab.values()].filter((status) => status === "locked").length),
+        notHeldAtTheEnd: walks.map((walk) => lockedThenNotHeldAtTheEnd(walk).length),
+        lockedTakenBack: walks.map((walk) => lockedTakenBack(walk).length),
+      };
+    }
+    return measured;
+  };
+
+  it(
+    "rules on: from every start no team shown Locked is unheld at the end, no Locked is taken back on the way, no team of the field reads out, and the proof never goes back",
+    () => {
+      const table: string[] = [];
+      for (const districtKey of WALKED_DISTRICTS) {
+        for (const finalAtStart of startsOf(districtKey)) {
+          const walk = realEventEndWalk(districtKey, finalAtStart, "on");
+          expect({ districtKey, finalAtStart, notHeld: lockedThenNotHeldAtTheEnd(walk) }).toEqual({ districtKey, finalAtStart, notHeld: [] });
+          expect({ districtKey, finalAtStart, lost: lockedTakenBack(walk) }).toEqual({ districtKey, finalAtStart, lost: [] });
+          expect({ districtKey, finalAtStart, out: fieldTeamsReadOut(walk) }).toEqual({ districtKey, finalAtStart, out: [] });
+          expect({ districtKey, finalAtStart, proofLost: provenTakenBack(walk.steps) }).toEqual({ districtKey, finalAtStart, proofLost: [] });
+          // From the first tick at which the field reads unproven, the places held back never rise.
+          const firstUnproven = walk.steps.findIndex((step) => !step.fieldProven);
+          expect({ districtKey, finalAtStart, rises: reservationRises(firstUnproven < 0 ? [] : walk.steps.slice(firstUnproven)) }).toEqual({ districtKey, finalAtStart, rises: [] });
+          table.push(`  ${districtKey}, start: ${String(finalAtStart)} of ${String(walk.fieldFixingKeys.length)} field fixing keys final`, ...tickTable(walk));
+        }
+      }
+      console.log(["[261010-66y group 5] rules on, the points arriving only as each event ends:", ...table].join("\n"));
+      console.log(`[261010-66y group 5] rules on, per start (0, 1, 2, ... keys final): ${JSON.stringify(measure("on"))}`);
+    },
+    WALK_TIMEOUT_MS
+  );
+
+  it(
+    "field rule off: teams shown Locked that the end does not hold, and Locked taken back on the way, pinned as the run shows",
+    () => {
+      const measured = measure("fieldRuleOff");
+      console.log(`[261010-66y group 5] field rule off, per start (0, 1, 2, ... keys final): ${JSON.stringify(measured)}`);
+      // PINNED AS THE RUN SHOWS, one number per start (no key final, then
+      // one, two and three). With the field rule off every district shows
+      // teams Locked that the end does not hold, and takes Locked back on
+      // the way from every start.
+      expect(measured).toEqual({
+        "2026fim": { lockedAtStart: [0, 70, 50, 22], notHeldAtTheEnd: [0, 17, 6, 0], lockedTakenBack: [68, 81, 48, 11] },
+        "2026ne": { lockedAtStart: [0, 20], notHeldAtTheEnd: [0, 5], lockedTakenBack: [14, 20] },
+        "2026ont": { lockedAtStart: [0, 11], notHeldAtTheEnd: [0, 2], lockedTakenBack: [6, 11] },
+        "2026fit": { lockedAtStart: [0, 17], notHeldAtTheEnd: [0, 5], lockedTakenBack: [10, 17] },
+        "2026ca": { lockedAtStart: [0, 46], notHeldAtTheEnd: [0, 14], lockedTakenBack: [17, 39] },
+      });
+    },
+    WALK_TIMEOUT_MS
+  );
+
+  it(
+    "the finals part of a rowless team's hypothetical championship off: Locked taken back on the way, pinned as the run shows",
+    () => {
+      const measured = measure("finalsAllowanceOff");
+      console.log(`[261010-66y group 5] the finals part of the hypothetical championship off, per start (0, 1, 2, ... keys final): ${JSON.stringify(measured)}`);
+      // PINNED AS THE RUN SHOWS. Without the finals part a team's ceiling
+      // rose by the whole Playoffs ceiling when its division's rows landed,
+      // and 2026 FIM took Locked back from three of its four starts. No
+      // team shown Locked was unheld at the end: the Locked came back. The
+      // two division districts and California take none back, said
+      // plainly: in the two division districts nobody reads Locked while
+      // the field is unproven, and California's championships have no
+      // finals.
+      expect(measured).toEqual({
+        "2026fim": { lockedAtStart: [0, 2, 4, 6], notHeldAtTheEnd: [0, 0, 0, 0], lockedTakenBack: [3, 3, 2, 0] },
+        "2026ne": { lockedAtStart: [0, 0], notHeldAtTheEnd: [0, 0], lockedTakenBack: [0, 0] },
+        "2026ont": { lockedAtStart: [0, 0], notHeldAtTheEnd: [0, 0], lockedTakenBack: [0, 0] },
+        "2026fit": { lockedAtStart: [0, 0], notHeldAtTheEnd: [0, 0], lockedTakenBack: [0, 0] },
+        "2026ca": { lockedAtStart: [0, 7], notHeldAtTheEnd: [0, 0], lockedTakenBack: [0, 0] },
+      });
+    },
+    WALK_TIMEOUT_MS
+  );
+});
+

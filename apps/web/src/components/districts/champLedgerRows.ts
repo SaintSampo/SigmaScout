@@ -533,6 +533,13 @@ export function dcmpStartedForTeam(team: DistrictTeam, startedDcmpEventKeys: Rea
  *
  * The table only. The team stays in `rows.teams`, so the champ run, the
  * predicted cutoff, the disclosed gaps and the status counts still see it.
+ *
+ * A TEAM IS NOT HIDDEN AS "NOT IN THE FIELD" WHILE THE FIELD IS NOT PROVEN
+ * (quick task 261010-66y). At a live championship the artifact may know one
+ * division, or one of two championships, and a team with no row may be a
+ * team of an event TBA has not posted yet. The caller hands `dcmpSelected`
+ * as: a championship is the selected event AND the field is proven
+ * (`ChampLedgerRowsResult.fieldProven`).
  */
 export function champTeamHiddenAtDcmp(team: Pick<ChampLedgerTeam, "dcmpRow">, dcmpSelected: boolean): boolean {
   return dcmpSelected && team.dcmpRow.sources.length === 0;

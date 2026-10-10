@@ -249,20 +249,45 @@ describe("unseenChampionshipsHeld: the championships held back while the field i
     expect(unseenChampionshipsHeld(postedAt("2026aacmp", 40), 120)).toBe(2);
   });
 
-  it("falls as further championships become known and never goes below one", () => {
+  it("falls as further championships become known, and holds none once the posted teams meet the capacity line", () => {
     const one = postedAt("2026aacmp", 40);
     const two = [...one, ...postedAt("2026bbcmp", 40)];
     const three = [...two, ...postedAt("2026cccmp", 40)];
-    expect([one, two, three].map((teams) => unseenChampionshipsHeld(teams, 120))).toEqual([2, 1, 1]);
+    expect([one, two, three].map((teams) => unseenChampionshipsHeld(teams, 120))).toEqual([2, 1, 0]);
     // A registration makes a key known as well as a posting does.
     expect(unseenChampionshipsHeld([...one, ...registeredAt("2026bbcmp", 5)], 120)).toBe(1);
   });
 
+  it("never holds fewer than one while the posted teams fall short of the capacity line", () => {
+    // Two keys known where the capacity implies two events, and 81 posted
+    // of the 90 asked for: something is still missing.
+    const short = [...postedAt("2026aacmp", 61), ...postedAt("2026bbcmp", 20)];
+    expect(unseenChampionshipsHeld(short, 120)).toBe(1);
+    // The same two keys with the field at the capacity line: nothing is missing.
+    expect(unseenChampionshipsHeld([...postedAt("2026aacmp", 61), ...postedAt("2026bbcmp", 29)], 120)).toBe(0);
+  });
+
+  it("the total held, known and unseen together, never rises when a second championship's rows land (2026 California's sizes)", () => {
+    // One whole championship is held for each known championship (a stem) and one for each unseen one.
+    const total = (teams: readonly DcmpFieldProofTeam[], knownChampionships: number): number => knownChampionships + unseenChampionshipsHeld(teams, 120);
+    const north = postedAt("2026cancmp", 61);
+    const both = [...north, ...postedAt("2026cascmp", 60)];
+    expect(total(north, 1)).toBe(2);
+    // With a floor of one here the total would read three for the one tick
+    // the second championship's rows carry no state, and then two again.
+    expect(total(both, 2)).toBe(2);
+  });
+
   it("over holds for the unseen divisions of one known championship: 2026 FIM with one division posted holds three", () => {
     expect(unseenChampionshipsHeld(postedAt("2026micmp1", 40), 160)).toBe(3);
-    // The finals key is not a field fixing key and is not counted as known.
-    const four = [...postedAt("2026micmp1", 40), ...postedAt("2026micmp2", 40), ...postedAt("2026micmp3", 40), ...postedAt("2026micmp4", 40), ...postedAt("2026micmp", 4)];
-    expect(unseenChampionshipsHeld(four, 160)).toBe(1);
+    const two = [...postedAt("2026micmp1", 40), ...postedAt("2026micmp2", 40)];
+    const three = [...two, ...postedAt("2026micmp3", 40)];
+    expect([two, three].map((teams) => unseenChampionshipsHeld(teams, 160))).toEqual([2, 1]);
+    // All four posted meets the capacity line: none is held beyond the one
+    // championship the four divisions are. The finals key is not a field
+    // fixing key and is not counted as known.
+    const four = [...three, ...postedAt("2026micmp4", 40), ...postedAt("2026micmp", 4)];
+    expect(unseenChampionshipsHeld(four, 160)).toBe(0);
   });
 
   it("rounds a part event up", () => {

@@ -22,7 +22,13 @@
  *   at a DCMP's own Schedule stop, or Now after one started) a team with no
  *   dcmp-tier row leaves the TABLE (`champTeamHiddenAtDcmp`, quick task
  *   261007-mxf); it stays in the rows, so the champ run, the cutoff, the gaps
- *   and the status counts still see it.
+ *   and the status counts still see it. At the live position that waits for
+ *   the PROVEN field (quick task 261010-66y): the artifact learns a
+ *   championship key only from team rows, so while TBA has posted one
+ *   division or one of two championships a team with no row may simply not
+ *   be posted yet. It stays in the table and reads as it did before the
+ *   championship started, the championship's awards do not read final for
+ *   the range state, and the award draws are still drawn.
  * - BEFORE THE CHAMPIONSHIP STARTS, NOW ESTIMATES IT AND A REWOUND STOP BAKES
  *   IT. `remainingEvents` is built from TBA registrations, so for most of the
  *   district season nothing names the DCMP, and on a rewind the real roster
@@ -121,6 +127,7 @@ import {
   buildChampAdvancementChanceRun,
   buildChampAwardDraws,
   champCutoffView,
+  champDcmpAwardsFinal,
   champFieldChances,
   champRangeState,
   dcmpSimulatedField,
@@ -779,8 +786,8 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
 
   /** The DCMP award draws AT THE POSITION: the rail's stages when rewound, each event's own `state` block at now. */
   const awardDraws = useMemo(
-    () => buildChampAwardDraws({ artifact, ...(atNow ? {} : { stageByEvent }) }),
-    [artifact, atNow, stageByEvent]
+    () => buildChampAwardDraws({ artifact, ...(atNow ? {} : { stageByEvent }), fieldProven }),
+    [artifact, atNow, stageByEvent, fieldProven]
   );
 
   /**
@@ -823,7 +830,8 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
    * yet.
    */
   const rangeState = useMemo(() => {
-    const dcmpAwardsFinal = dcmpEventKeys.length > 0 && dcmpEventKeys.every((key) => stageByEvent.get(key)?.award ?? false);
+    // Never final while the field is not proven (quick task 261010-66y).
+    const dcmpAwardsFinal = champDcmpAwardsFinal(dcmpEventKeys, stageByEvent, fieldProven);
     return champRangeState({
       dcmpAwardsFinal,
       cmpSlots: artifact.cmpSlots,
@@ -854,6 +862,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   }, [
     dcmpEventKeys,
     stageByEvent,
+    fieldProven,
     artifact.cmpSlots,
     runSignature,
     distributionsPending,
@@ -933,8 +942,12 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
    * dcmp-tier row leaves the TABLE. Only the table: it stays in `rows.teams`,
    * so the champ run, the predicted cutoff, the disclosed gaps and the status
    * counts still see it. The search and the status filter compose with it.
+   *
+   * NOT WHILE THE FIELD IS NOT PROVEN (quick task 261010-66y): a team with no
+   * row may be a team of a division or a championship TBA has not posted
+   * yet, so nobody is hidden as "not in the field" until the field is proven.
    */
-  const dcmpSelected = startedDcmpEventKeys.size > 0;
+  const dcmpSelected = startedDcmpEventKeys.size > 0 && fieldProven;
   const visibleTeams = useMemo(() => {
     const trimmed = query.trim();
     const shown = rows.teams.filter((team) => !champTeamHiddenAtDcmp(team, dcmpSelected));

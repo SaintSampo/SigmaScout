@@ -428,6 +428,24 @@ export interface BuildChampAwardDrawsOptions {
   readonly stageByEvent?: ReadonlyMap<string, DistrictStageFinality>;
   /** Overrides the season's walk-forward setting; the backtest passes each grid setting explicitly. */
   readonly setting?: ChampCutoffSetting;
+  /**
+   * Whether the championship field is proven (quick task 261010-66y), the
+   * tab's one flag. While it is false the "awards are final" empty list is
+   * not returned. Absent reads true, the shipped behaviour.
+   */
+  readonly fieldProven?: boolean;
+}
+
+/**
+ * WHETHER THE DISTRICT'S CHAMPIONSHIP AWARDS ARE FINAL AT THE POSITION, as the
+ * range state reads it: the district names a championship, every dcmp key's
+ * Awards stage is final there, AND the field is proven (quick task
+ * 261010-66y). While the field is not proven the artifact may know one
+ * division, or one of two championships, and the awards of the events it has
+ * not seen are still to be given, so nothing settles.
+ */
+export function champDcmpAwardsFinal(dcmpEventKeys: readonly string[], stageByEvent: ReadonlyMap<string, DistrictStageFinality>, fieldProven: boolean): boolean {
+  return fieldProven && dcmpEventKeys.length > 0 && dcmpEventKeys.every((key) => stageByEvent.get(key)?.award ?? false);
 }
 
 /** Impact weights by the 10 point award cell, Engineering Inspiration and Rookie All Star by the 8 point one. */
@@ -460,7 +478,10 @@ function awardWeight(team: DistrictArtifact["teams"][number], awardType: DcmpDra
  * Engineering Inspiration, Rookie All Star, in that order).
  *
  * - NONE once the DCMP awards stage is final at the position: posted awards
- *   are facts already in `statuses.awardQualified`.
+ *   are facts already in `statuses.awardQualified`. Not while the field is
+ *   not proven (`fieldProven` false, quick task 261010-66y): the keys the
+ *   artifact knows may be one division or one of two championships, and the
+ *   others' awards are still to be drawn.
  * - Candidates are the teams holding that award at a DISTRICT tier event
  *   whose award stage is final at the position: the DCMP winner of a judged
  *   award had won the same award at a district event that season in 148 of
@@ -496,7 +517,7 @@ export function buildChampAwardDraws(options: BuildChampAwardDrawsOptions): Adva
   // model is per district, and a second set is a cutoff-model question, not a
   // guarantee one; the verdicts beside this run already count both.
   const dcmpEventKeys = dcmpEventKeysFor(artifact);
-  if (dcmpEventKeys.length > 0 && dcmpEventKeys.every(awardFinal)) return [];
+  if (options.fieldProven !== false && dcmpEventKeys.length > 0 && dcmpEventKeys.every(awardFinal)) return [];
 
   const countWeights = dcmpAwardCountDistribution(season, artifact.districtKey, artifact.cmpSlots ?? 0, setting.countMode);
   const pendingKeys = [...districtEventKeys].filter((eventKey) => !awardFinal(eventKey)).sort();

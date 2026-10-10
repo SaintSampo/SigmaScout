@@ -1906,7 +1906,8 @@ describe("computeChampLedgerStatuses — while the field is not proven (quick ta
     // carries the moment its division row lands wholly open: one whole
     // championship and the whole Playoffs ceiling for a finals. Before the
     // finals part was added the row landing raised the ceiling by 90, and on
-    // 2026 FIM that took 6 Locked back.
+    // 2026 FIM that took Locked back (3, 3 and 2 from starts with no, one
+    // and two divisions final: `scripts/champFieldStagedWalk.test.ts`).
     const rowless = UNPOSTED[1]!;
     expect(relabelled.teams.find((team) => team.teamKey === rowless)!.eventPoints.every((row) => row.tier !== "dcmp")).toBe(true);
     expect(openOf(at(false), rowless)).toBe(open(at(false)));

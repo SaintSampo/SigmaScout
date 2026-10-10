@@ -280,9 +280,10 @@ export function dcmpFieldProof(input: DcmpFieldProofInput): DcmpFieldProof {
  * championship and no finals, its ceiling ROSE when its rows landed, and a
  * team that had read Locked against the lower ceiling lost it. Walked on the
  * real 2026 FIM artifact with each division's points arriving only as it
- * ends (one division wholly final, the next one's rows then posting): 6
- * Locked taken back on the Champ Locks tab starting from one final division
- * and 4 starting from two. With this: none.
+ * ends (some divisions wholly final, the next one's rows then posting): 3
+ * Locked taken back on the Champ Locks tab starting from no final division,
+ * 3 starting from one and 2 starting from two. With this: none.
+ * (`scripts/champFieldStagedWalk.test.ts` pins both.)
  *
  * It over states the ceiling of a team whose championship has no finals (an
  * unseen second championship of a district like 2026 California). That only
@@ -306,12 +307,32 @@ export function hypotheticalFinalsCeiling(fieldProven: boolean, dcmpPlayoffsCeil
  * own winning alliance and its own judged awards. So the count is the events
  * that may be unseen: the capacity divided by the largest posted field
  * fixing key's team count, rounded up, minus the field fixing keys already
- * known (posted or registered), and never fewer than one. Where no capacity
- * is published or no key is posted yet there is nothing to divide, and one
- * is held.
+ * known (posted or registered). Where no capacity is published or no key is
+ * posted yet there is nothing to divide, and one is held.
  *
  * One was not enough for a district with three championships and one of them
  * posted: three of equal size with one posted holds two.
+ *
+ * NEVER FEWER THAN ONE WHILE THE CAPACITY LINE FAILS, AND NONE BEYOND THE
+ * COUNT ONCE IT HOLDS. While the posted teams fall short of the capacity
+ * line something is still missing, so at least one is held whatever the
+ * division says. Once the posted teams meet the capacity line (the field is
+ * unproven only because a key has not started yet, the one tick a
+ * championship's first rows carry no state) every event the capacity
+ * implies is known and holds its own reservation, and holding one more
+ * would make the total RISE on that tick: a second championship's rows
+ * landing took the total from two championships to three and back to two.
+ * Walked on the real 2026 California artifact with the finals part of the
+ * hypothetical championship switched off, that rise took 2 Locked back. So
+ * the total held, known and unseen together, never rises while rows are
+ * only added, for one championship in divisions and for two championships
+ * with a published capacity.
+ *
+ * WHERE THE TOTAL CAN STILL RISE, stated: a district that publishes no
+ * capacity and plays more than one championship (none does), and a key that
+ * has started with no row posted anywhere yet, when its first rows land.
+ * In both every team still carries a whole open championship, so nobody is
+ * Locked on points to lose it.
  *
  * THIS OVER HOLDS for unseen divisions of ONE known championship (2026 FIM
  * with one division of 40 posted against 160 slots holds three, where the
@@ -321,5 +342,7 @@ export function hypotheticalFinalsCeiling(fieldProven: boolean, dcmpPlayoffsCeil
 export function unseenChampionshipsHeld(teams: readonly DcmpFieldProofTeam[], dcmpSlots: number | null): number {
   const census = fieldRowCensus(teams);
   if (dcmpSlots === null || census.largestPostedKeyTeams <= 0) return 1;
-  return Math.max(1, Math.ceil(dcmpSlots / census.largestPostedKeyTeams) - census.fieldFixingKeys.length);
+  const unseen = Math.ceil(dcmpSlots / census.largestPostedKeyTeams) - census.fieldFixingKeys.length;
+  const capacityMet = census.postedTeams >= dcmpSlots - Math.floor(census.largestPostedKeyTeams / 2);
+  return Math.max(capacityMet ? 0 : 1, unseen);
 }

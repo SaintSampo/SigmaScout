@@ -12,6 +12,7 @@ import { computeChampLedgerStatuses, type ChampLedgerStatusModel } from "./champ
 import {
   buildChampAdvancementChanceRun,
   buildChampAwardDraws,
+  champDcmpAwardsFinal,
   champFieldChances,
   champRangeState,
   districtFieldMembershipChances,
@@ -429,6 +430,29 @@ describe("hypotheticalDcmpEstimates", () => {
   });
 });
 
+describe("champDcmpAwardsFinal: the awards final flag the range state reads (quick task 261010-66y)", () => {
+  const AWARDS_FINAL: DistrictStageFinality = ALL_FINAL;
+  const AWARDS_OPEN: DistrictStageFinality = { ...ALL_FINAL, award: false };
+
+  it("is true when every championship key reads Awards final at the position and the field is proven", () => {
+    expect(champDcmpAwardsFinal(["2026pncmp"], new Map([["2026pncmp", AWARDS_FINAL]]), true)).toBe(true);
+    expect(champDcmpAwardsFinal(["2026cancmp", "2026cascmp"], new Map([["2026cancmp", AWARDS_FINAL], ["2026cascmp", AWARDS_FINAL]]), true)).toBe(true);
+  });
+
+  it("is false while any key's awards are open, where a key has no stage, and where the district names no championship", () => {
+    expect(champDcmpAwardsFinal(["2026cancmp", "2026cascmp"], new Map([["2026cancmp", AWARDS_FINAL], ["2026cascmp", AWARDS_OPEN]]), true)).toBe(false);
+    expect(champDcmpAwardsFinal(["2026cancmp", "2026cascmp"], new Map([["2026cancmp", AWARDS_FINAL]]), true)).toBe(false);
+    expect(champDcmpAwardsFinal([], new Map(), true)).toBe(false);
+  });
+
+  it("is false while the field is not proven, whatever the known keys read", () => {
+    // One division of four wholly final and the others on no row: the
+    // finals' awards are still to be given.
+    expect(champDcmpAwardsFinal(["2026micmp1"], new Map([["2026micmp1", AWARDS_FINAL]]), false)).toBe(false);
+    expect(champDcmpAwardsFinal(["2026cancmp"], new Map([["2026cancmp", AWARDS_FINAL]]), false)).toBe(false);
+  });
+});
+
 describe("buildChampAwardDraws", () => {
   const rookie = { bucket: "none" as const, rookie: true };
   const veteran = { bucket: "threeOrMore" as const, rookie: false };
@@ -492,6 +516,16 @@ describe("buildChampAwardDraws", () => {
 
   it("returns [] once the DCMP awards stage is final at the position", () => {
     expect(buildChampAwardDraws({ artifact: awardArtifact(true), setting: CHAMP_CUTOFF_TUNING_GRID[0]! })).toEqual([]);
+  });
+
+  it("still draws while the field is not proven, though every championship key the artifact knows reads Awards final (quick task 261010-66y)", () => {
+    // The artifact may know one division, or one of two championships: the
+    // awards of the ones it has not seen are still to be given.
+    const unproven = buildChampAwardDraws({ artifact: awardArtifact(true), setting: CHAMP_CUTOFF_TUNING_GRID[0]!, fieldProven: false });
+    expect(unproven.map((draw) => draw.awardType)).toEqual([0, 9, 10]);
+    expect(unproven).toEqual(buildChampAwardDraws({ artifact: awardArtifact(false), setting: CHAMP_CUTOFF_TUNING_GRID[0]! }));
+    // Proven, or not said, it returns none as it always did.
+    expect(buildChampAwardDraws({ artifact: awardArtifact(true), setting: CHAMP_CUTOFF_TUNING_GRID[0]!, fieldProven: true })).toEqual([]);
   });
 
   it("reads a team with NO award profile as the zero profile: a veteran with no decorations (Jacob, 2026-09-27)", () => {

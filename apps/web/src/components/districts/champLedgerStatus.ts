@@ -173,17 +173,20 @@
  *      dcmp Playoffs ceiling (`hypotheticalFinalsCeiling`). It is what the
  *      team will carry the moment its division's rows land, by the last
  *      bullet below, so its ceiling cannot rise when they do. Without it, on
- *      2026 FIM with each division's points arriving only as it ends, 6
- *      Locked were taken back from one final division and 4 from two;
+ *      2026 FIM with each division's points arriving only as it ends, 3
+ *      Locked were taken back from a start with no division final, 3 from
+ *      one and 2 from two;
  *    - the joint proof refuses `fieldNotProven`, checked second, after
  *      `noDistributions`: a single shape proof would otherwise run on one of
  *      two championships, with the other's winners and awards unmodelled;
  *    - decision 2's reservation holds more WHOLE championships beside the
  *      known ones (`unseenChampionshipsHeld`): the events that may be unseen,
- *      never fewer than one. The artifact cannot tell unseen divisions of a
- *      known championship from an unseen second championship, so this over
- *      holds for the former (2026 FIM with one division posted holds three
- *      more) and it lasts only while the field is unproven;
+ *      never fewer than one while the posted teams fall short of the capacity
+ *      line. The artifact cannot tell unseen divisions of a known
+ *      championship from an unseen second championship, so this over holds
+ *      for the former (2026 FIM with one division posted holds three more)
+ *      and it lasts only while the field is unproven. The total held never
+ *      rises while rows are only added;
  *    - a division team with no finals row carries the whole dcmp Playoffs
  *      ceiling for the finals, whatever number of division keys the artifact
  *      knows, a lone division included (`champFinalsCeilingWithoutRow`).
