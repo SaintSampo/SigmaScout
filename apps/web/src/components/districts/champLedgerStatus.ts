@@ -174,6 +174,7 @@ import {
   type JointLockAlliance,
   type JointLockInput,
   type JointLockRival,
+  type JointLockSeatGroup,
 } from "../../../../../packages/core/districts/champJointLock.js";
 import { championshipShape, finalsDecisionsFromPlayedMatches, routeFinals } from "../../../../../packages/core/districts/finalsBracket.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
@@ -860,8 +861,10 @@ function placementByPick(facts: DcmpBracketFacts, routing: DcmpBracketState | un
  * shapes. Listed pick membership (reading R8) was measured LESS conservative
  * here (it gained 5 locks over the single sweep, a listed backup no longer free
  * to take another alliance's seat or the winner's fill in), so it applies only
- * on the divisioned path, under guards G1 to G3 (quick task 261009-kt3,
- * orchestrator decision).
+ * on the divisioned path, under guards G1 and G2 (quick task 261009-kt3,
+ * orchestrator decision). Guard G3 was removed by quick task 261009-tx9: under
+ * the backup robot rule a fill in comes only from the winner's own division's
+ * unselected teams, which the divisioned path's seat groups state.
  */
 function eightAllianceInput(
   input: JointProofAtInput,
@@ -956,12 +959,19 @@ function multipleJointProof(input: JointProofAtInput, distributions: ReadonlyMap
 }
 
 /**
- * A DIVISIONED championship (CONTEXT D4, readings R5 to R8 and R13): every
+ * A DIVISIONED championship (CONTEXT D4, readings R6 to R8 and R13): every
  * division needs its eight alliance facts with Qualification and Alliance
  * selection final, the finals' Awards must be open; each division is routed
  * on its own rows, and the finals facts are read only once every division has
  * a decided winner (R6), each finals alliance mapped to the one division winner
  * whose listed picks meet its own.
+ *
+ * THE BACKUP ROBOT RULE (quick task 261009-tx9, which removed reading R5 and
+ * guard G3; guards G1 and G2 stay): an alliance has one backup for the whole
+ * championship, an unselected team of its own division, and a team already on
+ * an alliance is never a backup. So each alliance carries ONE seat pool, the
+ * maximum alliance size minus its confirmed picks, and the input carries one
+ * seat group per division in key order.
  */
 function divisionedJointProof(
   input: JointProofAtInput,
@@ -1021,7 +1031,8 @@ function divisionedJointProof(
   if (input.neverHappening) return refuse("neverHappening");
 
   const membersByAlliance = new Map<number, readonly string[]>();
-  const finalsSpareByAlliance = new Map<number, number>();
+  const spareByAlliance = new Map<number, number>();
+  const seatGroups: JointLockSeatGroup[] = [];
   const alliances: JointLockAlliance[] = [];
   const divisions: DivisionJointState[] = [];
   const placementOfTeam = new Map<string, number>();
@@ -1047,15 +1058,19 @@ function divisionedJointProof(
       alive = [...aliveSet].sort((a, b) => a - b);
     }
     const points = allianceSelectionPointsAt(artifact, key);
+    const confirmedHere = new Set<string>();
+    const listedHere = new Set<string>();
     for (const alliance of facts.alliances) {
       const id = divisionAllianceId(divisionIndex, alliance.allianceNumber);
       const confirmed = alliance.picks.filter((pick) => (points.get(pick) ?? 0) > 0);
+      for (const pick of confirmed) confirmedHere.add(pick);
+      for (const pick of alliance.picks) listedHere.add(pick);
       // R8 G2: a DECIDED alliance keeps its confirmed picks; every other listed pick is an unpicked rival.
       const placed = routing.placementByAlliance.has(alliance.allianceNumber);
       const members = placed ? confirmed : [...alliance.picks];
       const spare = Math.max(0, MAX_WINNING_ALLIANCE_SIZE - confirmed.length);
       membersByAlliance.set(id, members);
-      finalsSpareByAlliance.set(id, spare);
+      spareByAlliance.set(id, spare);
       alliances.push({ allianceNumber: id, members, spareSeats: spare });
       const placement = routing.placementByAlliance.get(alliance.allianceNumber);
       if (placement !== undefined) for (const pick of alliance.picks) if (!placementOfTeam.has(pick)) placementOfTeam.set(pick, placement);
@@ -1065,6 +1080,19 @@ function divisionedJointProof(
       alive: alive.map((n) => divisionAllianceId(divisionIndex, n)),
       decidedWinner: routing.decidedWinner === undefined ? undefined : divisionAllianceId(divisionIndex, routing.decidedWinner),
     });
+    // THE DIVISION'S SEAT GROUP (quick task 261009-tx9, the backup robot rule):
+    // an alliance's one backup is an unselected team of its own division, and a
+    // team already on an alliance is never a backup. So this division's seats
+    // and fill ins are open to every team with a row at this division's key
+    // that no alliance here CONFIRMED. A pick an alliance here lists and has not
+    // confirmed is named too, row or no row: it may stay as that alliance's
+    // backup or may never have been on it (reading P3 of the core module). A
+    // team with no division row is put in no list; the proof then offers it
+    // every division's seats (reading P4), so nothing rests on a row being posted.
+    const eligible = new Set<string>();
+    for (const teamKey of settled.keys()) if (!confirmedHere.has(teamKey)) eligible.add(teamKey);
+    for (const teamKey of listedHere) if (!confirmedHere.has(teamKey)) eligible.add(teamKey);
+    seatGroups.push({ alliances: DCMP_ALLIANCE_NUMBERS.map((n) => divisionAllianceId(divisionIndex, n)), eligible: [...eligible].sort() });
   }
 
   // THE FINALS (reading R6): read only once every division has a decided winner.
@@ -1102,7 +1130,7 @@ function divisionedJointProof(
     divisionChampionMax: maxPlayoffPointsByPlacement(artifact.year, "dcmp", 1),
     finalsMaxByPlacement: Array.from({ length: divisionCount }, (_, index) => maxFinalsPointsByPlacement(artifact.year, divisionCount, index + 1)),
     membersByAlliance,
-    finalsSpareByAlliance,
+    spareByAlliance,
     maxAllianceSize: MAX_WINNING_ALLIANCE_SIZE,
   });
   if ("refused" in frames) return refuse(frames.refused);
@@ -1124,6 +1152,7 @@ function divisionedJointProof(
     judgedAwardPoints: dcmpJudgedAwardPoints(artifact.year),
     maxAllianceSize: MAX_WINNING_ALLIANCE_SIZE,
     frames: frames.frames,
+    seatGroups,
   };
   return { applied: true, shape: "divisioned", input: proofInput, locked: jointLockedTeams(proofInput) };
 }

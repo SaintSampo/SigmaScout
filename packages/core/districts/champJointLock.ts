@@ -1,8 +1,9 @@
 /**
  * THE JOINT WORST CASE LOCK PROOF at the Championship tier (quick task
  * 261009-2tr), generalized to divisioned and multiple championships by quick
- * task 261009-kt3. Pure, no I/O, no zod, no React; its only import is the
- * `./bracket.js` sibling.
+ * task 261009-kt3, its divisioned frames brought in line with the verified
+ * backup robot rule by quick task 261009-tx9. Pure, no I/O, no zod, no React;
+ * its only import is the `./bracket.js` sibling.
  *
  * ---------------------------------------------------------------------------
  * THE CLAIM
@@ -66,7 +67,8 @@
  *   2. a rival whose `floor + extra + assigned value` already reaches T's floor
  *      (step 3), or otherwise one of the rivals still uncovered, X, and then
  *   3. a consuming award winner (at most C of them), or
- *   4. a backup robot on W (at most f, and only from X's unpicked part), or
+ *   4. a backup robot on W (at most f, and only a rival eligible in W's own
+ *      seat group, which for a single championship is X's unpicked part), or
  *   5. a pool rival lifted to T's floor by a seat on a losing alliance and at
  *      most one judged award, and those are at most SJ, because the real
  *      allocation of seats and judged awards is one the dynamic program below
@@ -120,29 +122,64 @@
  * `champJointLock.test.ts` guard this.
  *
  * ---------------------------------------------------------------------------
+ * THE BACKUP ROBOT RULE (quick task 261009-tx9)
+ * ---------------------------------------------------------------------------
+ *
+ * At a divisioned championship an alliance has at most ONE backup for the
+ * whole championship, division playoffs and finals together. A backup is an
+ * unselected team of the alliance's OWN division. A team already on an
+ * alliance is never a backup. Three independent sources agree:
+ *
+ *   - The 2026 manual, District Tournaments: "If an ALLIANCE in a District
+ *     Championship Playoff has not yet recruited a BACKUP TEAM per section
+ *     10.6.3 BACKUP TEAMS, the ALLIANCE CAPTAIN may bring in only the highest
+ *     ranked team from their division's BACKUP POOL to join its ALLIANCE."
+ *   - FIRST's 2026 Alliance Selection Script: the backup pool is the next
+ *     eight highest ranking UNSELECTED teams, each alliance has ONE
+ *     opportunity to substitute in a robot from the backup pool, and backups
+ *     come in by ranking order.
+ *   - The corpus (`data/corpus.sqlite`), every divisioned championship of 2017
+ *     to 2026: 24 championships and 64 finals alliances. No division or finals
+ *     alliance lists more than four teams. Exactly two teams were added for a
+ *     finals, frc5926 on 2023micmp alliance 1 and frc4327 on 2026micmp
+ *     alliance 4, both unpicked teams of the alliance's own division. No
+ *     finals roster carried a team from another alliance or another division.
+ *
+ * Quick task 261009-kt3 ran before the rule was verified and kept three
+ * cautious terms: a second set of seats beside an alliance's division seats
+ * (its reading R5), finals seats open to any rival with the fill ins counted
+ * against every uncovered rival (its step 6 and guard G3), and a finals bonus
+ * on every seat in the champion's division (its D9). The rule makes all three
+ * unnecessary and they are gone. Guards G1 and G2 stay: seats count from
+ * confirmed picks, and a placed alliance keeps its confirmed picks only.
+ *
+ * ---------------------------------------------------------------------------
  * FRAMES: ONE CODE PATH FOR ALL THREE CHAMPIONSHIP SHAPES (quick task 261009-kt3)
  * ---------------------------------------------------------------------------
  *
  * The loop runs over FRAMES (`JointLockFrame`): one candidate winner W, the
  * alliances whose placements are enumerated (every ordered assignment of the
  * placement maxima, as reading 9 above), the alliances whose value is fixed,
- * extra backup seats, and W's fill ins. A single championship is the
- * degenerate case: `singleChampionshipFrames` builds, per candidate W, the
- * alive alliances other than W enumerated, nothing fixed, no extra seat, and
- * W's spare seats as fill ins against the uncovered unpicked rivals, which is
- * exactly the shipped loop, and the single sweep reproduces its numbers.
+ * and W's fill ins. A single championship is the degenerate case:
+ * `singleChampionshipFrames` builds, per candidate W, the alive alliances
+ * other than W enumerated, nothing fixed, and W's spare seats as fill ins
+ * against the uncovered unpicked rivals, which is exactly the shipped loop,
+ * and the single sweep reproduces its numbers.
  *
  * A DIVISIONED championship (FIM: four divisions; NE, ON, TX: two) plays each
  * division as an eight alliance event and then the FINALS among the division
  * winners (`finalsBracket.ts`). `divisionedJointFrames` builds one frame per
- * candidate overall champion W:
+ * candidate overall champion W, and the caller hands the bound one SEAT GROUP
+ * per division (`JointLockInput.seatGroups`):
  *
- *   1. W's members are covered; W's fill ins are its finals seats (the
- *      maximum alliance size minus its CONFIRMED picks), counted against EVERY
- *      uncovered rival, picked or not, because a finals backup can come from
- *      the whole field, an eliminated alliance's pick included.
+ *   1. W's members are covered. W's ONE seat pool (the maximum alliance size
+ *      minus its CONFIRMED picks) is its fill ins: a backup on W qualifies
+ *      with the champion whatever its points, and it comes only from the
+ *      eligible teams of W's own division. W offers no seat at a points value.
  *   2. In W's division the other alive alliances are enumerated at 75, 39 and
- *      21 (W wins its division), decided ones carry their settled values.
+ *      21 (W wins its division), decided ones carry their settled values. A
+ *      seat on an alive one pays that alliance's assigned division value and
+ *      nothing more, because that alliance does not reach the finals.
  *   3. In every other division every alive alliance is FIXED at 90 plus F_nw,
  *      F_nw the most a finals non champion can be paid (30 at four divisions,
  *      the finalist; 0 at two). No role in that division pays more: its
@@ -150,26 +187,43 @@
  *      finalist's 30 in the finals. A decided winner of another division is
  *      fixed at F_nw while the finals have not placed it, at its finals
  *      placement maximum once placed, and at 0 once the finals' Playoffs are
- *      final (TBA's finals points are then in the floor).
- *   4. A DIVISION SEAT IN W'S DIVISION ALSO PAYS F_nw (CONTEXT D9). Whether a
- *      team may sit on a division roster and then a finals roster is not
- *      verified, so the proof does not rely on it: every backup seat on an
- *      alive alliance in W's division pays its assigned value plus F_nw
- *      (`enumeratedSeatBonus`), and W's own division seats, while W is still
- *      alive in its division, pay 90 plus F_nw. Seats in other divisions
- *      already pay 90 plus F_nw.
- *   5. A division backup and a finals backup may be different teams (reading
- *      R5): an alive alliance of another division adds its finals seats at
- *      F_nw beside its division seats at 90 plus F_nw.
- *   6. FINALS SEATS ARE OPEN TO ANY RIVAL (`anyRivalSeats`, quick task
- *      261009-kt3 executor addendum, the same "two rosters" reading as step
- *      4): a pick of an eliminated alliance may be called as a backup on a
- *      losing finals alliance and be paid F_nw on top of its division points.
- *      So every finals seat that pays above 0 may also lift one uncovered
- *      PICKED rival whose alliance carries no fixed value; the count adds
- *      `min(finals seats, such rivals)` beside the consuming awards and the
- *      fill ins. It double counts against the unpicked cover, which only
- *      raises the bound.
+ *      final (TBA's finals points are then in the floor). Each of these
+ *      alliances offers its seats ONCE, at its fixed value: a backup that
+ *      joins in the division playoffs is the alliance's backup in the finals.
+ *   4. SEAT GROUPS. A backup seat or a fill in of an alliance is taken only
+ *      by a team eligible in the alliance's own group. The caller builds one
+ *      group per division: its eight alliances, and every team with a row at
+ *      that division's key that no alliance there CONFIRMED, together with
+ *      every pick an alliance there lists and has not confirmed. A confirmed
+ *      pick of any alliance, eliminated or not, and a team with a row in
+ *      another division are never counted through a seat or a fill in.
+ *
+ * READING P3, A LISTED PICK THAT IS NOT CONFIRMED IS A HINDSIGHT FACT. On an
+ * alliance its division has not placed, the caller lists such a team among
+ * the members (its reading R8), and a seat group names it too. The bound then
+ * counts it on BOTH sides: as a member paid its alliance's scenario value (it
+ * stays as that alliance's one backup), and as an eligible team of its
+ * division at floor plus extra with no alliance value, free for another
+ * alliance's seat or for W's fill in (it was never on that alliance). One
+ * rival may then be counted twice, which only raises the bound. The same
+ * holds for T itself: a frame whose winner only LISTS T is NOT skipped when a
+ * seat group names T, because T may never have been on that alliance, so its
+ * win does not qualify T. Quick task 261009-kt3 skipped that frame, which left
+ * one future uncovered: an alliance that lists T wins without it.
+ *
+ * READING P4, A RIVAL THAT NO GROUP NAMES IS ELIGIBLE IN EVERY GROUP. A pool
+ * or slot only rival on no alliance that no group names (no row is known for
+ * it at any division) is offered every division's seats and every candidate
+ * winner's fill in, and still counts through a consuming award and through
+ * one judged award alone. The proof therefore never rests on a competing
+ * team's row being posted. Such a rival may be counted once per group, which
+ * only raises the bound. A team an alliance lists that no group names (a
+ * confirmed pick) is eligible nowhere.
+ *
+ * THE JUDGED BUDGET STAYS ONE POOL shared by the groups (reading P8): each
+ * group's seat and judged award cover is computed on its own seats and its
+ * own eligible rivals, and the covers are combined by the best split of the
+ * budget.
  *
  * The facts this rests on beyond the single case: no finals row pays above 60
  * at four divisions or 30 at two (manual 11.1.3, `maxFinalsPointsByPlacement`);
@@ -187,8 +241,10 @@
  * candidate W; in W's
  * division the real placements are dominated by an enumerated assignment; in
  * every other division no alliance is paid more than its fixed value; decided
- * values are maxima; awards, seats, fill ins and the one slot per rival as in
- * the single case. So the real takers are at most the frame's count.
+ * values are maxima; an alliance takes at most one backup, from its own
+ * division's unselected teams (the backup robot rule above); awards, seats,
+ * fill ins and the one slot per rival as in the single case. So the real
+ * takers are at most the frame's count.
  *
  * SEATS COUNT FROM CONFIRMED PICKS on every shape (CONTEXT D10): an alliance's
  * backup seats are the maximum alliance size minus its picks whose alliance
@@ -212,8 +268,11 @@
  * The seat and judged award cover of the unpicked rivals is the exact dynamic
  * program `unpickedCover` wherever its table (seat states times budget plus 1
  * times reachable rivals) is at most `EXACT_COVER_STATE_CAP`; every single
- * event case of 2023 to 2026 is. Above it (FIM's other division seats) the
- * program is unusable and `coverUpperBound` is used. With the reachable
+ * event case of 2023 to 2026 is. Since quick task 261009-tx9 a table covers
+ * ONE seat group's seats and eligible rivals, one division's at a divisioned
+ * championship, where quick task 261009-kt3 put every division's seats in one
+ * table. Above the cap the program is unusable and `coverUpperBound` is used;
+ * it stays as the guard for any input that large. With the reachable
  * deficits sorted ascending, for each prefix of k: `Mfree(k)` is the greedy
  * matching of the prefix to seats worth at least the deficit, and `Mpv(k)` is
  * the prefix's deficits of at most one judged award's points plus the greedy
@@ -232,12 +291,12 @@
  *       `assertOneAwardPerRival(MAX_POINT_PAYING_AWARDS_PER_TEAM)` runs at
  *       module load and throws unless the constant is 1;
  *   (c) the bound models the judged awards and the seats only, exactly as
- *       `unpickedCover`; the consuming awards, the fill ins and the finals
- *       seats open to any rival enter separately, as the shipped `others3`.
+ *       `unpickedCover`; the consuming awards and the fill ins enter
+ *       separately, as the shipped `others3`.
  *
  * READING R11: the reachable by seat filter uses the largest seat value over
- * EVERY frame (placement values plus the seat bonus, fixed values, extra seat
- * values), never the placement values alone.
+ * the placement values and EVERY usable frame's fixed values, never the
+ * placement values alone.
  */
 import { bracketDecisionsFromPlayedMatches, InvalidBracketDecisionError, routePlayedBracket, type PlayedBracketMatch } from "./bracket.js";
 
@@ -294,25 +353,34 @@ export interface JointLockAlliance {
 
 /**
  * One scenario family of the proof: a candidate winner and what every other
- * alliance can be paid (this module's header, "Frames").
+ * alliance can be paid (this module's header, "Frames"). It holds these four
+ * fields and nothing else: an alliance has ONE seat pool for the whole
+ * championship (the backup robot rule), so a frame carries no second set of
+ * seats, no seat bonus and no seat open to any rival.
  */
 export interface JointLockFrame {
   /** The candidate winner, or `null` once the winner is posted. */
   readonly winner: number | null;
-  /** The alliances that receive every ordered assignment of `placementPoints`. */
+  /** The alliances that receive every ordered assignment of `placementPoints`. Each offers its spare seats once, at its assigned value. */
   readonly enumerated: readonly number[];
   /** Alliance -> the fixed value its members and its spare seats are paid. */
   readonly fixed: ReadonlyMap<number, number>;
-  /** Seat value -> count: backup seats beyond the alliances' own spare seats. */
-  readonly extraSeats: ReadonlyMap<number, number>;
-  /** Backup robots on the winner (each takes a slot). */
+  /** Backup robots on the winner (each takes a slot whatever its points), drawn from the rivals eligible in the winner's own seat group. */
   readonly fillIns: number;
-  /** False: fill ins count against the uncovered unpicked rivals (single); true: against every uncovered rival (divisioned, reading R8 G3). */
-  readonly fillInsFromAnyRival: boolean;
-  /** Added to the SEAT value of every enumerated alliance, never to its members' (CONTEXT D9); 0 for a single championship. */
-  readonly enumeratedSeatBonus: number;
-  /** Seat value -> count: finals seats any uncovered picked rival on an unfixed alliance may also take (header step 6); empty for a single championship. */
-  readonly anyRivalSeats: ReadonlyMap<number, number>;
+}
+
+/**
+ * One SEAT GROUP (quick task 261009-tx9, the backup robot rule): the alliances
+ * whose backup seats and fill ins one set of teams can take. At a divisioned
+ * championship the caller builds one per division: its eight alliances, and
+ * every team with a row at that division's key that no alliance there
+ * confirmed, a listed pick that is not confirmed included (reading P3).
+ */
+export interface JointLockSeatGroup {
+  /** The alliances of the group. Every alliance belongs to at most one group; an alliance in no group offers no seat. */
+  readonly alliances: readonly number[];
+  /** The teams that may take a backup seat or a fill in of an alliance of this group. */
+  readonly eligible: readonly string[];
 }
 
 export interface JointLockInput {
@@ -340,6 +408,21 @@ export interface JointLockInput {
   readonly maxAllianceSize: number;
   /** The scenario frames. Omitted for a single championship, where `singleChampionshipFrames` builds them. */
   readonly frames?: readonly JointLockFrame[];
+  /**
+   * The seat groups (the backup robot rule, this module's header). A backup
+   * seat or a fill in of an alliance is taken only by a team eligible in the
+   * alliance's own group. A team is eligible in every group that names it. A
+   * pool or slot only rival on no alliance that NO group names is eligible in
+   * EVERY group (reading P4), so the proof never rests on a competing team's
+   * row being posted; a team an alliance lists that no group names is eligible
+   * in none. A team that an alliance lists and a group names is a listed pick
+   * that is not confirmed (reading P3): it counts as a member and as an
+   * eligible team, and a frame whose winner lists T is not skipped when a
+   * group names T. Absent or empty (a single championship, each championship
+   * of a two championship district): ONE group of every alliance and every
+   * rival on no alliance, which is the shipped loop.
+   */
+  readonly seatGroups?: readonly JointLockSeatGroup[];
 }
 
 /** What the played playoff rows alone say about the DCMP bracket. */
@@ -524,9 +607,9 @@ function spareSeatsOf(alliance: JointLockAlliance | undefined, maxAllianceSize: 
 
 /**
  * The single championship's frames: per candidate winner W, the alive
- * alliances other than W enumerated, nothing fixed, no extra seat, and W's
- * spare seats as fill ins against the uncovered unpicked rivals. Exactly the
- * shipped 261009-2tr loop.
+ * alliances other than W enumerated, nothing fixed, and W's spare seats as
+ * fill ins against the uncovered unpicked rivals (with no seat group, the
+ * rivals on no alliance). Exactly the shipped 261009-2tr loop.
  */
 export function singleChampionshipFrames(input: JointLockInput): JointLockFrame[] {
   const byNumber = new Map(input.alliances.map((alliance) => [alliance.allianceNumber, alliance] as const));
@@ -534,11 +617,7 @@ export function singleChampionshipFrames(input: JointLockInput): JointLockFrame[
     winner,
     enumerated: input.aliveAlliances.filter((allianceNumber) => allianceNumber !== winner),
     fixed: new Map(),
-    extraSeats: new Map(),
     fillIns: winner === null ? 0 : spareSeatsOf(byNumber.get(winner), input.maxAllianceSize),
-    fillInsFromAnyRival: false,
-    enumeratedSeatBonus: 0,
-    anyRivalSeats: new Map(),
   }));
 }
 
@@ -546,9 +625,10 @@ export function singleChampionshipFrames(input: JointLockInput): JointLockFrame[
  * The joint bound for team T at floor `floor`: the most rivals that can take a
  * slot from it, maximized over every frame and every placement assignment. T
  * may be absent from the pool (the OBSERVER variant of a championship T does
- * not play, CONTEXT D5). `Infinity` with no frame; 0 when T is a member of
- * every frame's winner. `stopAt` returns the first scenario value at or above
- * it; below it the exact maximum is returned.
+ * not play, CONTEXT D5). `Infinity` with no frame; 0 when no frame is usable
+ * for T, which is when every frame's winner lists T and no seat group names T
+ * (reading P3). `stopAt` returns the first scenario value at or above it;
+ * below it the exact maximum is returned.
  */
 export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: number, stopAt = Infinity): number {
   const frames = input.frames ?? singleChampionshipFrames(input);
@@ -569,7 +649,35 @@ export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: 
   const slotOnly = [...new Set(input.slotOnlyRivals)].filter((key) => key !== teamKey && !rivalKeys.has(key));
   const slotOnlySet = new Set(slotOnly);
 
-  const usable = frames.filter((frame) => frame.winner === null || !membersOf(frame.winner).includes(teamKey));
+  // SEAT GROUPS (the backup robot rule, this module's header). A backup seat or a
+  // fill in of an alliance is taken only by a team eligible in the alliance's own
+  // group. A team is eligible in every group that names it. A rival on no alliance
+  // that NO group names is eligible in EVERY group (reading P4); a team an alliance
+  // lists that no group names is eligible in none. Absent or empty: one group of
+  // every alliance and every rival on no alliance, which is the shipped single loop.
+  const seatGroups = input.seatGroups !== undefined && input.seatGroups.length > 0 ? input.seatGroups : undefined;
+  const groupCount = seatGroups === undefined ? 1 : seatGroups.length;
+  const everyGroup: readonly number[] = Array.from({ length: groupCount }, (_, index) => index);
+  const noGroup: readonly number[] = [];
+  const groupByAlliance = new Map<number, number>();
+  const namedGroups = new Map<string, number[]>();
+  if (seatGroups !== undefined) {
+    seatGroups.forEach((group, index) => {
+      for (const allianceNumber of group.alliances) if (!groupByAlliance.has(allianceNumber)) groupByAlliance.set(allianceNumber, index);
+      for (const key of group.eligible) {
+        const named = namedGroups.get(key);
+        if (named === undefined) namedGroups.set(key, [index]);
+        else if (!named.includes(index)) named.push(index);
+      }
+    });
+  }
+  const groupOfAlliance = (allianceNumber: number): number | undefined => (seatGroups === undefined ? 0 : groupByAlliance.get(allianceNumber));
+  const groupsOf = (key: string): readonly number[] => namedGroups.get(key) ?? (allianceOfTeam.has(key) ? noGroup : everyGroup);
+
+  // A frame whose winner lists T qualifies T and is skipped, unless a seat group
+  // names T: T is then only a LISTED pick there, may never have been on that
+  // alliance, and the alliance may win without it (reading P3).
+  const usable = frames.filter((frame) => frame.winner === null || !membersOf(frame.winner).includes(teamKey) || namedGroups.has(teamKey));
   if (usable.length === 0) return 0;
 
   // Every scenario covers a rival whose floor plus extra already reaches T.
@@ -577,48 +685,65 @@ export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: 
   for (const rival of rivals) if (rival.floor + rival.extra >= m) alwaysCovered += 1;
   if (alwaysCovered >= stopAt) return alwaysCovered;
 
-  // The unpicked pool rivals still short of T: fixed for this T, because an
-  // unpicked rival is on no alliance and so is never assigned a value.
-  const unpickedDeficits: number[] = [];
+  // Per group, the eligible pool rivals still short of T at floor plus extra,
+  // whether or not an alliance also lists them (reading P3), and the eligible
+  // slot only rivals. Fixed for this T: a seat pays its own value and never the
+  // value of the alliance that lists the rival. A rival eligible in several
+  // groups is entered in each, which only raises the bound.
+  const seatRivals: { teamKey: string; deficit: number }[][] = Array.from({ length: groupCount }, () => []);
+  const slotOnlyByGroup: string[][] = Array.from({ length: groupCount }, () => []);
   for (const rival of rivals) {
-    if (allianceOfTeam.has(rival.teamKey)) continue;
     const deficit = m - (rival.floor + rival.extra);
-    if (deficit > 0) unpickedDeficits.push(deficit);
+    if (deficit <= 0) continue;
+    for (const group of groupsOf(rival.teamKey)) seatRivals[group]!.push({ teamKey: rival.teamKey, deficit });
   }
-  const unpickedSlotOnly = slotOnly.filter((key) => !allianceOfTeam.has(key)).length;
-  // Reading R11: the largest seat value over EVERY frame.
+  for (const key of slotOnly) for (const group of groupsOf(key)) slotOnlyByGroup[group]!.push(key);
+
+  // Reading R11: the largest seat value over the placement values and every usable frame's fixed values.
   let maxSeatValue = Math.max(0, ...input.placementPoints);
-  for (const frame of usable) {
-    maxSeatValue = Math.max(maxSeatValue, Math.max(0, ...input.placementPoints) + frame.enumeratedSeatBonus, frame.enumeratedSeatBonus);
-    for (const value of frame.fixed.values()) maxSeatValue = Math.max(maxSeatValue, value);
-    for (const value of frame.extraSeats.keys()) maxSeatValue = Math.max(maxSeatValue, value);
-  }
-  const unpickedReachable = unpickedDeficits.filter(
-    (deficit) => judgedCost(deficit, input.judgedAwardPoints) !== Infinity || judgedCost(deficit - maxSeatValue, input.judgedAwardPoints) !== Infinity
-  );
+  for (const frame of usable) for (const value of frame.fixed.values()) maxSeatValue = Math.max(maxSeatValue, value);
+  const reachable = (deficit: number): boolean =>
+    judgedCost(deficit, input.judgedAwardPoints) !== Infinity || judgedCost(deficit - maxSeatValue, input.judgedAwardPoints) !== Infinity;
+  const seatReachable = seatRivals.map((list) => list.map((entry) => entry.deficit).filter(reachable));
+  const reachableCount = seatReachable.reduce((sum, list) => sum + list.length, 0);
 
   const placementValues = [...input.placementPoints].sort((a, b) => b - a);
   const budget = Math.max(0, input.judgedAwards);
   const coverCache = new Map<string, number[]>();
+  const combinedCache = new Map<string, number[]>();
+  // The judged budget is one pool shared by the groups (reading P8): the best split of `j` awards between two covers.
+  const bestSplit = (a: readonly number[], b: readonly number[]): number[] => {
+    const out = new Array<number>(budget + 1).fill(0);
+    for (let j = 0; j <= budget; j++) {
+      let top = 0;
+      for (let i = 0; i <= j; i++) {
+        const value = a[i]! + b[j - i]!;
+        if (value > top) top = value;
+      }
+      out[j] = top;
+    }
+    return out;
+  };
 
   let best = -Infinity;
   for (const frame of usable) {
     const { winner } = frame;
     const others = frame.enumerated.filter((allianceNumber) => allianceNumber !== winner && !frame.fixed.has(allianceNumber));
-    const othersSet = new Set(others);
     const k = Math.min(placementValues.length, others.length);
     const winnerMembers = winner === null ? [] : membersOf(winner);
     const winnerSet = new Set(winnerMembers);
     let stepOne = 0;
     for (const member of winnerMembers) if (member !== teamKey && (rivalKeys.has(member) || slotOnlySet.has(member))) stepOne += 1;
     const fillIns = winner === null ? 0 : Math.max(0, frame.fillIns);
-    let anyRivalSeatCount = 0;
-    let anyRivalSeatMax = 0;
-    for (const [value, count] of frame.anyRivalSeats) {
-      if (value <= 0 || count <= 0) continue;
-      anyRivalSeatCount += count;
-      anyRivalSeatMax = Math.max(anyRivalSeatMax, value);
+    // The fill in pool: the eligible rivals of the winner's own group that are not
+    // its members. A backup on the winner takes a slot whatever its points.
+    const winnerGroup = winner === null ? undefined : groupOfAlliance(winner);
+    let fillInPool = 0;
+    if (winnerGroup !== undefined) {
+      for (const entry of seatRivals[winnerGroup]!) if (!winnerSet.has(entry.teamKey)) fillInPool += 1;
+      for (const key of slotOnlyByGroup[winnerGroup]!) if (!winnerSet.has(key)) fillInPool += 1;
     }
+    const others3 = input.consumingAwards + Math.min(fillIns, fillInPool);
 
     for (const selection of orderedSelections(others, k)) {
       const assigned = new Map<number, number>(frame.fixed);
@@ -626,7 +751,6 @@ export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: 
 
       let covered = stepOne;
       let uncovered = 0;
-      let anyRivalCandidates = 0;
       const pickedCosts: number[] = [];
       for (const rival of rivals) {
         if (winnerSet.has(rival.teamKey)) continue;
@@ -637,46 +761,58 @@ export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: 
           continue;
         }
         uncovered += 1;
-        if (allianceNumber === undefined) continue; // an unpicked rival: the cached cover below
+        if (allianceNumber === undefined) continue; // on no alliance: the cached covers below
         const cost = judgedCost(m - points, input.judgedAwardPoints);
         if (cost !== Infinity) pickedCosts.push(cost);
-        if (anyRivalSeatCount > 0 && !frame.fixed.has(allianceNumber) && judgedCost(m - points - anyRivalSeatMax, input.judgedAwardPoints) !== Infinity) {
-          anyRivalCandidates += 1;
-        }
       }
       for (const key of slotOnly) if (!winnerSet.has(key)) uncovered += 1;
-      const uncoveredUnpicked = unpickedDeficits.length + unpickedSlotOnly;
 
-      // The seats a backup robot can still take: every alliance with a value,
-      // each enumerated one at its value plus the frame's seat bonus (D9), an
-      // enumerated one left without a placement at the bonus alone, and the
-      // frame's extra seats.
-      const seatByValue = new Map<number, number>();
-      const addSeats = (value: number, count: number): void => {
-        if (value <= 0 || count <= 0) return;
-        seatByValue.set(value, (seatByValue.get(value) ?? 0) + count);
-      };
-      for (const [allianceNumber, value] of assigned) addSeats(value + (othersSet.has(allianceNumber) ? frame.enumeratedSeatBonus : 0), spareOf(allianceNumber));
-      if (frame.enumeratedSeatBonus > 0) {
-        for (const allianceNumber of others) if (!assigned.has(allianceNumber)) addSeats(frame.enumeratedSeatBonus, spareOf(allianceNumber));
+      // The seats a backup robot can still take, per group: every alliance with a
+      // value above 0, at that value, its spare seats once. The winner carries no
+      // value and so offers none; an alliance in no group offers none.
+      const seatByGroup: Map<number, number>[] = Array.from({ length: groupCount }, () => new Map<number, number>());
+      let totalSeats = 0;
+      for (const [allianceNumber, value] of assigned) {
+        const group = groupOfAlliance(allianceNumber);
+        const count = spareOf(allianceNumber);
+        if (group === undefined || value <= 0 || count <= 0) continue;
+        const seats = seatByGroup[group]!;
+        seats.set(value, (seats.get(value) ?? 0) + count);
+        totalSeats += count;
       }
-      for (const [value, count] of frame.extraSeats) addSeats(value, count);
-      const seatValues = [...seatByValue.keys()].sort((a, b) => b - a);
-      const seatCounts = seatValues.map((value) => seatByValue.get(value)!);
-      const totalSeats = seatCounts.reduce((sum, count) => sum + count, 0);
 
-      const fillInPool = frame.fillInsFromAnyRival ? uncovered : uncoveredUnpicked;
-      const others3 = input.consumingAwards + Math.min(fillIns, fillInPool) + Math.min(anyRivalSeatCount, anyRivalCandidates);
       // A cheap ceiling on this scenario: skip it when it cannot beat the best.
-      const liftCeiling = Math.min(pickedCosts.length + unpickedReachable.length, budget + totalSeats);
+      const liftCeiling = Math.min(pickedCosts.length + reachableCount, budget + totalSeats);
       const ceiling = covered + Math.min(uncovered, liftCeiling + others3);
       if (ceiling <= best) continue;
 
-      const cacheKey = seatValues.map((value, index) => `${value}x${seatCounts[index]}`).join(",");
-      let unpickedBest = coverCache.get(cacheKey);
-      if (unpickedBest === undefined) {
-        unpickedBest = seatAndJudgedCover(unpickedReachable, seatValues, seatCounts, budget, input.judgedAwardPoints);
-        coverCache.set(cacheKey, unpickedBest);
+      // Each group's cover on its own seats and its own eligible rivals, then the
+      // best split of the judged budget between the groups.
+      const groupKeys: string[] = [];
+      const groupSeatValues: number[][] = [];
+      const groupSeatCounts: number[][] = [];
+      for (let group = 0; group < groupCount; group++) {
+        const seats = seatByGroup[group]!;
+        const seatValues = [...seats.keys()].sort((a, b) => b - a);
+        const seatCounts = seatValues.map((value) => seats.get(value)!);
+        groupSeatValues.push(seatValues);
+        groupSeatCounts.push(seatCounts);
+        groupKeys.push(`${group}:${seatValues.map((value, index) => `${value}x${seatCounts[index]}`).join(",")}`);
+      }
+      const combinedKey = groupKeys.join("|");
+      let seatBest = combinedCache.get(combinedKey);
+      if (seatBest === undefined) {
+        let combined: number[] | undefined;
+        for (let group = 0; group < groupCount; group++) {
+          let cover = coverCache.get(groupKeys[group]!);
+          if (cover === undefined) {
+            cover = seatAndJudgedCover(seatReachable[group]!, groupSeatValues[group]!, groupSeatCounts[group]!, budget, input.judgedAwardPoints);
+            coverCache.set(groupKeys[group]!, cover);
+          }
+          combined = combined === undefined ? cover : bestSplit(combined, cover);
+        }
+        seatBest = combined ?? new Array<number>(budget + 1).fill(0);
+        combinedCache.set(combinedKey, seatBest);
       }
       pickedCosts.sort((a, b) => a - b);
       const pickedPrefix = [0];
@@ -687,7 +823,7 @@ export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: 
         return count;
       };
       let lifted = 0;
-      for (let j = 0; j <= budget; j++) lifted = Math.max(lifted, unpickedBest[j]! + pickedBest(budget - j));
+      for (let j = 0; j <= budget; j++) lifted = Math.max(lifted, seatBest[j]! + pickedBest(budget - j));
 
       const total = covered + Math.min(uncovered, lifted + others3);
       if (total >= stopAt) return total;
@@ -718,7 +854,8 @@ export function jointLockedTeams(input: JointLockInput): ReadonlySet<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Divisioned championships (CONTEXT D4, readings R5 to R8)
+// Divisioned championships (261009-kt3 CONTEXT D4 and readings R6 to R8, under
+// the backup robot rule of quick task 261009-tx9)
 // ---------------------------------------------------------------------------
 
 /** A division alliance's id, unique across divisions: `d * 10 + n`, d the 1 based division index in sorted key order. */
@@ -736,7 +873,7 @@ export interface DivisionJointState {
   readonly decidedWinner: number | undefined;
 }
 
-/** What `divisionedJointFrames` reads: the divisions, the finals routing, and the seat counts. */
+/** What `divisionedJointFrames` reads: the divisions, the finals routing, and each alliance's one seat pool. */
 export interface DivisionedJointStructure {
   readonly divisions: readonly DivisionJointState[];
   /** Division winner id -> its finals placement, for the winners the finals routing places. */
@@ -750,8 +887,12 @@ export interface DivisionedJointStructure {
   /** The finals maxima by placement: `maxFinalsPointsByPlacement(year, D, 1..D)`. */
   readonly finalsMaxByPlacement: readonly number[];
   readonly membersByAlliance: ReadonlyMap<number, readonly string[]>;
-  /** Reading R8 G1 and CONTEXT D10: the maximum alliance size minus the alliance's CONFIRMED picks. */
-  readonly finalsSpareByAlliance: ReadonlyMap<number, number>;
+  /**
+   * The alliance's ONE seat pool for the whole championship, division playoffs
+   * and finals together (the backup robot rule): the maximum alliance size
+   * minus the alliance's CONFIRMED picks (reading R8 guard G1 and CONTEXT D10).
+   */
+  readonly spareByAlliance: ReadonlyMap<number, number>;
   readonly maxAllianceSize: number;
 }
 
@@ -761,16 +902,23 @@ export type DivisionedJointFrames =
 
 /**
  * The divisioned championship's frames (this module's header, "Frames", steps
- * 1 to 6). Candidates: `[null]` once the winner award is posted; the routed
- * finals champion alone once the finals name one; with the finals' Playoffs
- * final and neither, `winnerNotPosted`; otherwise each division's decided
- * winner not yet placed below first in the finals, or every alive alliance of
- * a division with no decided winner.
+ * 1 to 3; the caller adds the seat groups of step 4). Candidates: `[null]`
+ * once the winner award is posted; the routed finals champion alone once the
+ * finals name one; with the finals' Playoffs final and neither,
+ * `winnerNotPosted`; otherwise each division's decided winner not yet placed
+ * below first in the finals, or every alive alliance of a division with no
+ * decided winner.
+ *
+ * Per candidate W the frame holds W, the other alive alliances of W's division
+ * enumerated, every alive alliance of another division fixed at the division
+ * champion maximum plus the finals non champion maximum, a decided winner of
+ * another division fixed at its finals value, and W's spare seats as its fill
+ * ins. Nothing else: an alliance has one backup for the whole championship.
  */
 export function divisionedJointFrames(structure: DivisionedJointStructure): DivisionedJointFrames {
   const { divisions, finalsPlacementByAlliance, finalsElimFinal } = structure;
-  const finalsSpare = (id: number): number =>
-    Math.max(0, structure.finalsSpareByAlliance.get(id) ?? structure.maxAllianceSize - (structure.membersByAlliance.get(id)?.length ?? 0));
+  const spare = (id: number): number =>
+    Math.max(0, structure.spareByAlliance.get(id) ?? structure.maxAllianceSize - (structure.membersByAlliance.get(id)?.length ?? 0));
   const aliveAlliances = divisions.flatMap((division) => [...division.alive]).sort((a, b) => a - b);
   let champion: number | undefined;
   for (const [id, placement] of finalsPlacementByAlliance) if (placement === 1) champion = id;
@@ -794,46 +942,24 @@ export function divisionedJointFrames(structure: DivisionedJointStructure): Divi
   const frames: JointLockFrame[] = candidateWinners.map((winner) => {
     const winnerDivision = winner === null ? -1 : divisions.findIndex((division) => division.alliances.includes(winner));
     const fixed = new Map<number, number>();
-    const extraSeats = new Map<number, number>();
-    const anyRivalSeats = new Map<number, number>();
-    const add = (map: Map<number, number>, value: number, count: number): void => {
-      if (value <= 0 || count <= 0) return;
-      map.set(value, (map.get(value) ?? 0) + count);
-    };
     let enumerated: number[] = [];
     divisions.forEach((division, index) => {
       if (index === winnerDivision) {
+        // W's division: the other alive alliances are enumerated, and a seat on one pays its assigned value only.
         enumerated = division.alive.filter((id) => id !== winner);
-        // R5 (a) with D9: W's division seats while W is still alive there.
-        if (division.decidedWinner === undefined && winner !== null) add(extraSeats, structure.divisionChampionMax + finalsNonChampionMax, finalsSpare(winner));
         return;
       }
-      for (const id of division.alive) {
-        fixed.set(id, structure.divisionChampionMax + finalsNonChampionMax);
-        // R5 (b): its finals seats at F_nw beside its division seats; open to any rival (step 6).
-        add(extraSeats, finalsNonChampionMax, finalsSpare(id));
-        add(anyRivalSeats, finalsNonChampionMax, finalsSpare(id));
-      }
+      // Another division: an alive alliance may win it and be the finalist. Its seats are offered once, at this value.
+      for (const id of division.alive) fixed.set(id, structure.divisionChampionMax + finalsNonChampionMax);
       const decided = division.decidedWinner;
       if (decided !== undefined && !division.alive.includes(decided)) {
         const placement = finalsPlacementByAlliance.get(decided);
         const value = finalsElimFinal ? 0 : placement === undefined ? finalsNonChampionMax : (structure.finalsMaxByPlacement[placement - 1] ?? 0);
-        if (value > 0) {
-          fixed.set(decided, value);
-          add(anyRivalSeats, value, finalsSpare(decided));
-        }
+        if (value > 0) fixed.set(decided, value);
       }
     });
-    return {
-      winner,
-      enumerated,
-      fixed,
-      extraSeats,
-      fillIns: winner === null ? 0 : finalsSpare(winner),
-      fillInsFromAnyRival: true,
-      enumeratedSeatBonus: finalsNonChampionMax,
-      anyRivalSeats,
-    };
+    // W's one seat pool is its fill ins: a backup on W qualifies with the champion.
+    return { winner, enumerated, fixed, fillIns: winner === null ? 0 : spare(winner) };
   });
   return { frames, candidateWinners, aliveAlliances };
 }

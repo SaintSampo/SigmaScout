@@ -196,6 +196,18 @@ describe("measureChampJointLocks: the FNC 2026 pins (D5)", () => {
  * CA pins did not move. A near miss list keeps only the teams its set still
  * does not hold; the loop below also asserts that no team that missed
  * qualification is in ANY pinned set.
+ *
+ * QUICK TASK 261009-tx9 replaced the four FIM and NE sets again with the sets
+ * as executed, never fitted, after the divisioned proof was brought in line
+ * with the backup robot rule: an alliance has one backup for the whole
+ * championship, a backup is an unselected team of the alliance's own
+ * division, and a team already on an alliance is never a backup. FIM
+ * Divisions final 63 to 65 (frc494 and frc1188 join, each at bound 82 against
+ * S' 83). FIM Finals decided 64 to 64, NE Divisions final 18 to 18 and NE
+ * Finals decided 16 to 16: those three sets did not move. No team left a set,
+ * S' did not move, and every member is `locked` or `lockedAward` at Now. The
+ * two CA pins and the FNC pins did not move. The FIM Divisions final near
+ * misses are now frc5675 (bound 83) and frc3707 (bound 84).
  */
 const KT3_PATHS = ["fim", "ne", "ca"].map((district) => `data/local-publish/districts/v1__district__2026${district}.json`);
 const KT3_AVAILABLE = KT3_PATHS.every((path) => existsSync(path)) && existsSync(CORPUS_PATH);
@@ -225,8 +237,8 @@ describe("measureChampJointLocks: the FIM, NE and CA 2026 pins (261009-kt3, D7)"
       slots: 83,
       shape: "divisioned",
       locked:
-        "frc1023 frc10633 frc1189 frc1498 frc1701 frc1918 frc201 frc2054 frc2075 frc2137 frc2337 frc2586 frc2611 frc2619 frc27 frc2767 frc2851 frc2960 frc33 frc3414 frc3536 frc3538 frc3539 frc3620 frc3641 frc3656 frc3668 frc4237 frc4362 frc4391 frc4398 frc469 frc4967 frc5066 frc5086 frc5114 frc5166 frc5193 frc5216 frc5460 frc548 frc5534 frc5660 frc5712 frc5907 frc6002 frc6090 frc6121 frc6152 frc6615 frc67 frc68 frc7160 frc7166 frc7197 frc7220 frc7769 frc8280 frc8517 frc8608 frc9245 frc9757 frc9771",
-      nearMisses: "frc1188 frc494 frc5675",
+        "frc1023 frc10633 frc1188 frc1189 frc1498 frc1701 frc1918 frc201 frc2054 frc2075 frc2137 frc2337 frc2586 frc2611 frc2619 frc27 frc2767 frc2851 frc2960 frc33 frc3414 frc3536 frc3538 frc3539 frc3620 frc3641 frc3656 frc3668 frc4237 frc4362 frc4391 frc4398 frc469 frc494 frc4967 frc5066 frc5086 frc5114 frc5166 frc5193 frc5216 frc5460 frc548 frc5534 frc5660 frc5712 frc5907 frc6002 frc6090 frc6121 frc6152 frc6615 frc67 frc68 frc7160 frc7166 frc7197 frc7220 frc7769 frc8280 frc8517 frc8608 frc9245 frc9757 frc9771",
+      nearMisses: "frc5675 frc3707",
     },
     {
       district: "fim",

@@ -31,6 +31,7 @@ import {
   type JointLockAlliance,
   type JointLockInput,
   type JointLockRival,
+  type JointLockSeatGroup,
 } from "./champJointLock.js";
 import { routeFinals } from "./finalsBracket.js";
 import {
@@ -686,8 +687,8 @@ describe("champJointLock: edges", () => {
 // Quick task 261009-kt3: frames, divisioned and multiple championships
 // ===========================================================================
 
-describe("champJointLock: frames, the observer and the guards (261009-kt3)", () => {
-  it("jointLockBound equals jointLockBoundAt at the team's own floor, and the single frames are the shipped scenarios", () => {
+describe("champJointLock: frames, the observer and the guards (261009-kt3, 261009-tx9)", () => {
+  it("jointLockBound equals jointLockBoundAt at the team's own floor, and the single frames are the shipped scenarios with four fields and no more", () => {
     const { pool, alliances } = exhaustiveField();
     const input: JointLockInput = {
       pool,
@@ -705,15 +706,40 @@ describe("champJointLock: frames, the observer and the guards (261009-kt3)", () 
     const frames = singleChampionshipFrames(input);
     expect(frames.map((frame) => frame.winner)).toEqual([1, 2, 3, 4, 5, 6]);
     for (const frame of frames) {
+      // Quick task 261009-tx9 (reading P7): a frame holds a winner, the enumerated alliances, the fixed values and the winner's fill ins.
+      expect(Object.keys(frame).sort()).toEqual(["enumerated", "fillIns", "fixed", "winner"]);
       expect(frame.fillIns).toBe(1);
-      expect(frame.fillInsFromAnyRival).toBe(false);
-      expect(frame.enumeratedSeatBonus).toBe(0);
-      expect(frame.fixed.size + frame.extraSeats.size + frame.anyRivalSeats.size).toBe(0);
+      expect(frame.fixed.size).toBe(0);
     }
     for (const rival of pool) {
       expect(jointLockBoundAt(input, rival.teamKey, rival.floor)).toBe(jointLockBound(input, rival.teamKey));
       expect(jointLockBound({ ...input, frames }, rival.teamKey)).toBe(jointLockBound(input, rival.teamKey));
     }
+  });
+
+  it("seat groups absent equal ONE explicit group of every alliance and every rival on no alliance (261009-tx9, reading P1)", () => {
+    const { pool, alliances, unpicked } = exhaustiveField();
+    const input: JointLockInput = {
+      pool,
+      slotOnlyRivals: ["q1"],
+      pointsSlots: 15,
+      alliances,
+      aliveAlliances: [1, 2, 3, 4, 5, 6],
+      candidateWinners: [1, 2, 3, 4, 5, 6],
+      placementPoints: [75, 39, 21],
+      consumingAwards: 1,
+      judgedAwards: 2,
+      judgedAwardPoints: JUDGED,
+      maxAllianceSize: 4,
+    };
+    const oneGroup: JointLockInput = { ...input, seatGroups: [{ alliances: alliances.map((alliance) => alliance.allianceNumber), eligible: [...unpicked, "q1"] }] };
+    let above = 0;
+    for (const rival of pool) {
+      const bound = jointLockBound(input, rival.teamKey);
+      expect(jointLockBound(oneGroup, rival.teamKey), rival.teamKey).toBe(bound);
+      if (bound > 0) above += 1;
+    }
+    expect(above).toBeGreaterThan(0);
   });
 
   it("the observer variant counts every candidate winner when T is absent from the pool", () => {
@@ -771,18 +797,7 @@ describe("champJointLock: frames, the observer and the guards (261009-kt3)", () 
       aliveAlliances: [1, 2],
       candidateWinners: [1],
       judgedAwards: 1,
-      frames: [
-        {
-          winner: 1,
-          enumerated: [],
-          fixed: new Map([[2, 120]]),
-          extraSeats: new Map(),
-          fillIns: 0,
-          fillInsFromAnyRival: true,
-          enumeratedSeatBonus: 0,
-          anyRivalSeats: new Map(),
-        },
-      ],
+      frames: [{ winner: 1, enumerated: [], fixed: new Map([[2, 120]]), fillIns: 0 }],
     });
     // Deficit 130: one seat at 120 plus one judged award (15) covers it; 75 plus 15 would not.
     expect(jointLockBound(input, "T")).toBe(1);
@@ -811,7 +826,117 @@ describe("champJointLock: frames, the observer and the guards (261009-kt3)", () 
     expect(jointLockBound(confirmed, "T")).toBe(1);
   });
 
-  it("R8 G3: a divisioned frame's fill in counts an uncovered PICKED rival, a single frame's does not", () => {
+  it("the backup robot rule (261009-tx9, D2): a seat is taken only inside its alliance's own seat group", () => {
+    const input = (eligible: readonly [readonly string[], readonly string[]]): JointLockInput =>
+      minimalInput({
+        pool: [
+          { teamKey: "T", floor: 200, extra: 0 },
+          { teamKey: "u", floor: 100, extra: 0 },
+        ],
+        alliances: [
+          { allianceNumber: 11, members: ["a", "b", "c"], spareSeats: 0 },
+          { allianceNumber: 21, members: ["x", "y", "z"], spareSeats: 1 },
+        ],
+        aliveAlliances: [11, 21],
+        candidateWinners: [11],
+        // Alliance 21 is fixed at 120 with one spare seat; u is 100 short.
+        frames: [{ winner: 11, enumerated: [], fixed: new Map([[21, 120]]), fillIns: 0 }],
+        seatGroups: [
+          { alliances: [11], eligible: [...eligible[0]] },
+          { alliances: [21], eligible: [...eligible[1]] },
+        ],
+      });
+    // u has a row in alliance 21's division: it takes the seat.
+    expect(jointLockBound(input([[], ["u"]]), "T")).toBe(1);
+    // u has a row in the other division only: the seat on 21 is not its to take.
+    expect(jointLockBound(input([["u"], []]), "T")).toBe(0);
+  });
+
+  it("reading P4 (261009-tx9): a rival on no alliance that NO group names is offered every division's seats, the champion's fill in and the awards; a confirmed pick no group names is offered none", () => {
+    const wild = (o: { floor: number; rival?: string; seatOn?: number; fillIns?: number; judged?: number; consuming?: number }): JointLockInput =>
+      minimalInput({
+        pool: [
+          { teamKey: "T", floor: 200, extra: 0 },
+          { teamKey: o.rival ?? "r", floor: o.floor, extra: 0 },
+        ],
+        alliances: [
+          { allianceNumber: 11, members: ["a", "b", "c"], spareSeats: 0 },
+          { allianceNumber: 21, members: ["x", "y", "z"], spareSeats: 1 },
+          { allianceNumber: 31, members: ["p", "q", "s"], spareSeats: 1 },
+        ],
+        aliveAlliances: [11, 21],
+        candidateWinners: [11],
+        judgedAwards: o.judged ?? 0,
+        consumingAwards: o.consuming ?? 0,
+        frames: [{ winner: 11, enumerated: [], fixed: new Map(o.seatOn === undefined ? [] : [[o.seatOn, 120]]), fillIns: o.fillIns ?? 0 }],
+        seatGroups: [
+          { alliances: [11], eligible: [] },
+          { alliances: [21], eligible: [] },
+          { alliances: [31], eligible: [] },
+        ],
+      });
+    // 100 short: a 120 seat in division 2, or in division 3 instead, covers it; no seat anywhere does not.
+    expect(jointLockBound(wild({ floor: 100, seatOn: 21 }), "T")).toBe(1);
+    expect(jointLockBound(wild({ floor: 100, seatOn: 31 }), "T")).toBe(1);
+    expect(jointLockBound(wild({ floor: 100 }), "T")).toBe(0);
+    // Far below T: the winner's one fill in takes a slot whatever its points.
+    expect(jointLockBound(wild({ floor: 0, fillIns: 1 }), "T")).toBe(1);
+    // No seat and no fill in: one judged award alone at 10 short, one consuming award far below, and neither.
+    expect(jointLockBound(wild({ floor: 190, judged: 1 }), "T")).toBe(1);
+    expect(jointLockBound(wild({ floor: 0, consuming: 1 }), "T")).toBe(1);
+    expect(jointLockBound(wild({ floor: 0 }), "T")).toBe(0);
+    // x is a confirmed pick of alliance 21 that no group names: 100 short with a 120 seat on 31, it is eligible nowhere.
+    expect(jointLockBound(wild({ floor: 100, rival: "x", seatOn: 31 }), "T")).toBe(0);
+  });
+
+  it("reading P3 (261009-tx9): a listed pick that is not confirmed may take another alliance's seat in its own division", () => {
+    const input = (eligible: readonly string[]): JointLockInput =>
+      minimalInput({
+        pool: [
+          { teamKey: "T", floor: 200, extra: 0 },
+          { teamKey: "x", floor: 125, extra: 0 },
+          { teamKey: "d", floor: 125, extra: 0 },
+        ],
+        alliances: [
+          { allianceNumber: 11, members: ["a1", "a2", "a3"], spareSeats: 0 },
+          { allianceNumber: 12, members: ["x", "y", "z"], spareSeats: 1 },
+          // d is the listed fourth of alliance 13, which holds one spare seat.
+          { allianceNumber: 13, members: ["p", "q", "s", "d"], spareSeats: 1 },
+        ],
+        aliveAlliances: [11, 12, 13],
+        candidateWinners: [11],
+        placementPoints: [75],
+        frames: [{ winner: 11, enumerated: [12, 13], fixed: new Map(), fillIns: 0 }],
+        seatGroups: [{ alliances: [11, 12, 13], eligible: [...eligible] }],
+      });
+    // Named by the group: 12 is second, x is paid 75 as its member, and d, never on 13, takes 12's seat at 75.
+    expect(jointLockBound(input(["d"]), "T")).toBe(2);
+    // Named by no group: d is a member of 13 and nothing else, so one of x and d reaches T, never both.
+    expect(jointLockBound(input([]), "T")).toBe(1);
+  });
+
+  it("reading P3 (261009-tx9): a listed pick that is not confirmed on an alive alliance may still be the champion's one backup (the case guard G3 covered)", () => {
+    const input = (eligible: readonly string[]): JointLockInput =>
+      minimalInput({
+        pool: [
+          { teamKey: "T", floor: 200, extra: 0 },
+          { teamKey: "d", floor: 10, extra: 0 },
+        ],
+        alliances: [
+          { allianceNumber: 11, members: ["a1", "a2", "a3"], spareSeats: 1 },
+          { allianceNumber: 12, members: ["p", "q", "s", "d"], spareSeats: 1 },
+        ],
+        aliveAlliances: [11, 12],
+        candidateWinners: [11],
+        placementPoints: [],
+        frames: [{ winner: 11, enumerated: [12], fixed: new Map(), fillIns: 1 }],
+        seatGroups: [{ alliances: [11, 12], eligible: [...eligible] }],
+      });
+    expect(jointLockBound(input(["d"]), "T")).toBe(1);
+    expect(jointLockBound(input([]), "T")).toBe(0);
+  });
+
+  it("the backup robot rule (261009-tx9, D2; replaces the 261009-kt3 guard G3 test): a fill in never counts a CONFIRMED pick, since a team already on an alliance is never a backup", () => {
     const input = minimalInput({
       pool: [
         { teamKey: "T", floor: 100, extra: 0 },
@@ -824,9 +949,12 @@ describe("champJointLock: frames, the observer and the guards (261009-kt3)", () 
       aliveAlliances: [1],
       candidateWinners: [1],
     });
+    // The single frames: one fill in on alliance 1, and p is a confirmed member of alliance 2.
+    expect(singleChampionshipFrames(input)[0]!.fillIns).toBe(1);
     expect(jointLockBound(input, "T")).toBe(0);
-    const anyRival = singleChampionshipFrames(input).map((frame) => ({ ...frame, fillInsFromAnyRival: true }));
-    expect(jointLockBound({ ...input, frames: anyRival }, "T")).toBe(1);
+    // With seat groups whose eligible lists do not hold p, the same.
+    const grouped: JointLockInput = { ...input, frames: singleChampionshipFrames(input), seatGroups: [{ alliances: [1, 2], eligible: ["other"] }] };
+    expect(jointLockBound(grouped, "T")).toBe(0);
   });
 
   it("R9 saturation: a no row rival entered in both championships is counted through the one it can still reach", () => {
@@ -855,7 +983,7 @@ describe("champJointLock: frames, the observer and the guards (261009-kt3)", () 
   });
 });
 
-/** A four division structure for the frame tests: three alliances per division alive or decided as given. */
+/** A four division structure for the frame tests: every division decided with alliance 1 its winner, one spare seat per alliance. */
 function frameStructure(overrides: Partial<DivisionedJointStructure> = {}): DivisionedJointStructure {
   const divisions = [1, 2, 3, 4].map((d) => ({
     alliances: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => divisionAllianceId(d, n)),
@@ -863,11 +991,11 @@ function frameStructure(overrides: Partial<DivisionedJointStructure> = {}): Divi
     decidedWinner: divisionAllianceId(d, 1) as number | undefined,
   }));
   const membersByAlliance = new Map<number, string[]>();
-  const finalsSpareByAlliance = new Map<number, number>();
+  const spareByAlliance = new Map<number, number>();
   for (const division of divisions) {
     for (const id of division.alliances) {
       membersByAlliance.set(id, [`t${id}a`, `t${id}b`, `t${id}c`]);
-      finalsSpareByAlliance.set(id, 1);
+      spareByAlliance.set(id, 1);
     }
   }
   return {
@@ -878,14 +1006,19 @@ function frameStructure(overrides: Partial<DivisionedJointStructure> = {}): Divi
     divisionChampionMax: 90,
     finalsMaxByPlacement: [60, 30, 0, 0],
     membersByAlliance,
-    finalsSpareByAlliance,
+    spareByAlliance,
     maxAllianceSize: 4,
     ...overrides,
   };
 }
 
-describe("divisionedJointFrames (261009-kt3, D4 and R5 to R8)", () => {
-  it("a round stop: two divisions decided, two undecided, one frame per candidate with the other division values fixed", () => {
+/** One seat group per division of a frame structure, with the given teams named by each. */
+function structureSeatGroups(structure: DivisionedJointStructure, eligible: (divisionIndex: number) => readonly string[]): JointLockSeatGroup[] {
+  return structure.divisions.map((division, divisionIndex) => ({ alliances: [...division.alliances], eligible: [...eligible(divisionIndex)] }));
+}
+
+describe("divisionedJointFrames (261009-kt3 D4, 261009-tx9 D1 to D3: the backup robot rule)", () => {
+  it("a round stop: two divisions decided, two undecided, one frame per candidate with the other division values fixed, and NO second seat set (261009-tx9, D1)", () => {
     const base = frameStructure();
     const divisions = base.divisions.map((division, index) =>
       index < 2 ? division : { ...division, decidedWinner: undefined, alive: index === 2 ? [31, 32, 33] : [41, 42] }
@@ -902,16 +1035,10 @@ describe("divisionedJointFrames (261009-kt3, D4 and R5 to R8)", () => {
       [41, 120],
       [42, 120],
     ]);
-    // R5 (a) with D9: W's division seat at 90 plus 30; R5 (b): finals seats of 41 and 42 at 30.
-    expect([...frame.extraSeats].sort((a, b) => a[0] - b[0])).toEqual([
-      [30, 2],
-      [120, 1],
-    ]);
-    expect([...frame.anyRivalSeats]).toEqual([[30, 4]]);
     expect(frame.fillIns).toBe(1);
-    expect(frame.fillInsFromAnyRival).toBe(true);
-    expect(frame.enumeratedSeatBonus).toBe(30);
-    for (const entry of result.frames) expect(entry.fillInsFromAnyRival).toBe(true);
+    // An alliance has ONE backup for the whole championship: the frame holds its four fields and no extra seat,
+    // no seat bonus and no seat open to any rival (the 261009-kt3 reading R5, D9 and step 6 terms are gone).
+    for (const entry of result.frames) expect(Object.keys(entry).sort()).toEqual(["enumerated", "fillIns", "fixed", "winner"]);
   });
 
   it("Divisions final: one frame per division winner, the other winners at F_nw", () => {
@@ -925,10 +1052,10 @@ describe("divisionedJointFrames (261009-kt3, D4 and R5 to R8)", () => {
       [31, 30],
       [41, 30],
     ]);
-    expect(frame.extraSeats.size).toBe(0);
+    expect(Object.keys(frame).sort()).toEqual(["enumerated", "fillIns", "fixed", "winner"]);
   });
 
-  it("R8 G1: W's fill ins come from finalsSpareByAlliance, never from its listed members", () => {
+  it("R8 G1: W's fill ins come from spareByAlliance, the alliance's one seat pool, never from its listed members", () => {
     const base = frameStructure();
     const membersByAlliance = new Map(base.membersByAlliance);
     membersByAlliance.set(11, ["p1", "p2", "p3", "p4"]);
@@ -965,52 +1092,58 @@ describe("divisionedJointFrames (261009-kt3, D4 and R5 to R8)", () => {
     expect(divisionedJointFrames(frameStructure({ finalsElimFinal: true }))).toEqual({ refused: "winnerNotPosted" });
   });
 
-  it("D9: a seat on an enumerated alliance in W's division at 21 plus 30 covers a rival that 21 alone does not", () => {
-    const base = frameStructure({ finalsMaxByPlacement: [60, 30, 0, 0] });
-    const finalsSpareByAlliance = new Map(base.finalsSpareByAlliance);
-    for (const id of [11, 21, 31, 41]) finalsSpareByAlliance.set(id, 0);
-    const divisions = base.divisions.map((division, index) => (index === 0 ? { ...division, alive: [11, 12] } : division));
-    const result = divisionedJointFrames({ ...base, divisions, finalsSpareByAlliance });
+  it("the backup robot rule (261009-tx9, D3; replaces the 261009-kt3 D9 test): a seat on an alive alliance in W's own division pays its division value and nothing more, since that alliance does not reach the finals", () => {
+    const base = frameStructure();
+    const spareByAlliance = new Map(base.spareByAlliance);
+    for (const id of [11, 21, 31, 41]) spareByAlliance.set(id, 0);
+    // Division 1 is undecided with 11 and 12 alive; alliance 12 holds the one seat.
+    const divisions = base.divisions.map((division, index) => (index === 0 ? { ...division, decidedWinner: undefined, alive: [11, 12] } : division));
+    const structure = { ...base, divisions, spareByAlliance };
+    const result = divisionedJointFrames(structure);
     if ("refused" in result) throw new Error("refused");
-    expect(result.candidateWinners).toEqual([11, 21, 31, 41]);
-    const input: JointLockInput = {
+    expect(result.candidateWinners).toEqual([11, 12, 21, 31, 41]);
+    const frame = result.frames.find((entry) => entry.winner === 11)!;
+    expect(frame.enumerated).toEqual([12]);
+    const input = (floor: number): JointLockInput => ({
       pool: [
         { teamKey: "T", floor: 200, extra: 0 },
-        { teamKey: "u", floor: 149, extra: 0 },
+        { teamKey: "u", floor, extra: 0 },
       ],
       slotOnlyRivals: [],
       pointsSlots: 1,
-      alliances: [...base.membersByAlliance].map(([allianceNumber, members]) => ({ allianceNumber, members, spareSeats: finalsSpareByAlliance.get(allianceNumber)! })),
+      alliances: [...base.membersByAlliance].map(([allianceNumber, members]) => ({ allianceNumber, members, spareSeats: spareByAlliance.get(allianceNumber)! })),
       aliveAlliances: result.aliveAlliances,
-      candidateWinners: result.candidateWinners.slice(0, 1),
+      candidateWinners: [11],
       placementPoints: [21],
       consumingAwards: 0,
       judgedAwards: 0,
       judgedAwardPoints: JUDGED,
       maxAllianceSize: 4,
-      frames: result.frames.slice(0, 1),
-    };
-    // Deficit 51: the seat on alliance 12 pays 21 plus F_nw 30.
-    expect(jointLockBound(input, "T")).toBe(1);
-    const withoutBonus = { ...input, frames: input.frames!.map((frame) => ({ ...frame, enumeratedSeatBonus: 0 })) };
-    expect(jointLockBound(withoutBonus, "T")).toBe(0);
+      frames: [frame],
+      // u has a row in W's division.
+      seatGroups: structureSeatGroups(structure, (divisionIndex) => (divisionIndex === 0 ? ["u"] : [])),
+    });
+    // 51 short: the seat on alliance 12 pays 21. The 261009-kt3 seat bonus of F_nw 30 on top is gone.
+    expect(jointLockBound(input(149), "T")).toBe(0);
+    // 21 short: the seat at 21 covers it.
+    expect(jointLockBound(input(179), "T")).toBe(1);
   });
 
-  it("header step 6: a pick of an eliminated alliance may take a losing finals alliance's seat at F_nw", () => {
+  it("the backup robot rule (261009-tx9, D2; replaces the 261009-kt3 header step 6 test): a confirmed pick of an eliminated alliance takes no seat, and a seat is taken only by a team of the alliance's own division", () => {
     const base = frameStructure();
     const result = divisionedJointFrames(base);
     if ("refused" in result) throw new Error("refused");
     const frame = result.frames[0]!;
     expect(frame.winner).toBe(11);
-    const input: JointLockInput = {
+    const input = (rival: string, eligible: (divisionIndex: number) => readonly string[], spareOn31 = 1): JointLockInput => ({
       pool: [
         { teamKey: "T", floor: 200, extra: 0 },
-        // On alliance 25 (a decided, eliminated alliance of division 2), 30 short.
-        { teamKey: "t25a", floor: 170, extra: 0 },
+        // 30 short of T.
+        { teamKey: rival, floor: 170, extra: 0 },
       ],
       slotOnlyRivals: [],
       pointsSlots: 1,
-      alliances: [...base.membersByAlliance].map(([allianceNumber, members]) => ({ allianceNumber, members, spareSeats: 1 })),
+      alliances: [...base.membersByAlliance].map(([allianceNumber, members]) => ({ allianceNumber, members, spareSeats: allianceNumber === 31 ? spareOn31 : 1 })),
       aliveAlliances: [],
       candidateWinners: [11],
       placementPoints: [75, 39, 21],
@@ -1019,24 +1152,109 @@ describe("divisionedJointFrames (261009-kt3, D4 and R5 to R8)", () => {
       judgedAwardPoints: JUDGED,
       maxAllianceSize: 4,
       frames: [{ ...frame, fillIns: 0 }],
+      seatGroups: structureSeatGroups(base, eligible),
+    });
+    // t25a is a confirmed pick of alliance 25, a decided and eliminated alliance of division 2: never a backup.
+    expect(jointLockBound(input("t25a", () => []), "T")).toBe(0);
+    // w has a row in division 2 and is on no alliance: it takes the seat on decided winner 21 at F_nw 30.
+    expect(jointLockBound(input("w", (divisionIndex) => (divisionIndex === 1 ? ["w"] : [])), "T")).toBe(1);
+    // w has a row in division 3 and alliance 31 has no spare seat: the seats on 21 and 41 are not its to take.
+    expect(jointLockBound(input("w", (divisionIndex) => (divisionIndex === 2 ? ["w"] : []), 0), "T")).toBe(0);
+  });
+
+  it("the backup robot rule (261009-tx9, D1; replaces the 261009-kt3 reading R5 (a) future): two backups on one alliance is not a rule legal future, so the bound is 1", () => {
+    // Two divisions, 11 and 12 alive in division 1, 21 and 22 in division 2, finals paying 60 and 30, no award.
+    // u (110) and v (0) both have a row in division 1 and alliance 11 has ONE spare seat. The 261009-kt3 future
+    // put u on 11's division roster (paid 90) and v on its finals roster. One backup for the whole championship
+    // leaves one of them: as 11's backup it qualifies with the champion, and the other gains nothing.
+    const divisions = [1, 2].map((d) => ({
+      alliances: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => divisionAllianceId(d, n)),
+      alive: [1, 2].map((n) => divisionAllianceId(d, n)),
+      decidedWinner: undefined,
+    }));
+    const membersByAlliance = new Map<number, string[]>();
+    for (const division of divisions) for (const id of division.alliances) membersByAlliance.set(id, [`t${id}a`, `t${id}b`, `t${id}c`]);
+    const spare = (id: number): number => (id === 11 ? 1 : 0);
+    const structure: DivisionedJointStructure = {
+      divisions,
+      finalsPlacementByAlliance: new Map(),
+      finalsElimFinal: false,
+      winnerPosted: false,
+      divisionChampionMax: 90,
+      finalsMaxByPlacement: [60, 30],
+      membersByAlliance,
+      spareByAlliance: new Map([...membersByAlliance.keys()].map((id) => [id, spare(id)] as const)),
+      maxAllianceSize: 4,
+    };
+    const result = divisionedJointFrames(structure);
+    if ("refused" in result) throw new Error(result.refused);
+    const input: JointLockInput = {
+      pool: [
+        { teamKey: "T", floor: 200, extra: 0 },
+        { teamKey: "u", floor: 110, extra: 0 },
+        { teamKey: "v", floor: 0, extra: 0 },
+      ],
+      slotOnlyRivals: [],
+      pointsSlots: 1,
+      alliances: [...membersByAlliance].map(([allianceNumber, members]) => ({ allianceNumber, members, spareSeats: spare(allianceNumber) })),
+      aliveAlliances: result.aliveAlliances,
+      candidateWinners: result.candidateWinners,
+      placementPoints: [75, 39, 21],
+      consumingAwards: 0,
+      judgedAwards: 0,
+      judgedAwardPoints: JUDGED,
+      maxAllianceSize: 4,
+      frames: result.frames,
+      seatGroups: structureSeatGroups(structure, (divisionIndex) => (divisionIndex === 0 ? ["u", "v"] : [])),
     };
     expect(jointLockBound(input, "T")).toBe(1);
-    expect(jointLockBound({ ...input, frames: [{ ...frame, fillIns: 0, anyRivalSeats: new Map() }] }, "T")).toBe(0);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Divisioned soundness: E3 (exhaustive, two divisions) and S2 (sampled, four)
+// Divisioned soundness over RULE LEGAL futures: E3 (exhaustive, two divisions)
+// and S2 (sampled, four). Quick task 261009-tx9, CONTEXT D4.
 // ---------------------------------------------------------------------------
+//
+// THE BACKUP ROBOT RULE every future below obeys. An alliance has at most ONE
+// backup for the whole championship, division playoffs and finals together. A
+// backup is a team with a row in the alliance's OWN division that no alliance
+// there confirmed. A team an alliance confirmed is never a backup. A backup is
+// paid the points of the matches its alliance wins after it joins, never more
+// than the alliance's own value, and the champion's backup qualifies with it.
+//
+// A LISTED FOURTH is a team an alliance lists at 0 alliance selection points,
+// which is a hindsight fact at a rewound stop. It has two futures and both are
+// built: it stays as that alliance's one backup, or it was never on it and is
+// free for any alliance of its division.
 
 /** One divisioned future, as far as the slot takers against T are concerned. */
 interface DivisionedFuture {
-  /** The champion's finals roster: its members and its finals backups. */
+  /** The champion's finals roster: its confirmed members and its one backup. */
   readonly championRoster: ReadonlySet<string>;
   /** Playoff points still to be paid, division and finals together. */
   readonly paid: ReadonlyMap<string, number>;
   readonly consuming: ReadonlySet<string>;
   readonly judged: ReadonlySet<string>;
+}
+
+/** One backup of a future: the team, the alliance it joined, and whether it joined only for the finals. */
+interface BackupRecord {
+  readonly team: string;
+  readonly alliance: number;
+  readonly finalsOnly: boolean;
+}
+
+/** A future with the record the legality check reads (`ruleViolations`). */
+interface RecordedFuture extends DivisionedFuture {
+  /** The champion alliance. */
+  readonly champion: number;
+  /** Every division winner, the champion included. */
+  readonly divisionWinners: readonly number[];
+  /** Every backup of the future. A listed fourth that stays is recorded as its alliance's backup. */
+  readonly backups: readonly BackupRecord[];
+  /** Alliance -> the most its members are still paid in this future, division and finals together. */
+  readonly allianceValue: ReadonlyMap<number, number>;
 }
 
 /** The oracle for a divisioned future: the champion's roster, the consuming award winners, and every pool rival reaching T's points. */
@@ -1055,24 +1273,69 @@ function divisionedTakers(input: JointLockInput, teamKey: string, tPoints: numbe
   return takers;
 }
 
-/** A divisioned field: `divisionCount` divisions of eight alliances of three, plus unpicked teams. Floors from `floorOf`. */
-function divisionedField(divisionCount: number, unpickedCount: number, floorOf: (index: number) => number) {
-  const alliances: JointLockAlliance[] = [];
+interface DivisionedFieldSpec {
+  readonly divisionCount: number;
+  /** Per division, the teams with a row there that no alliance confirmed, a listed fourth included. */
+  readonly eligible: readonly (readonly string[])[];
+  /** Teams with no division row. */
+  readonly noRow: readonly string[];
+  /** Alliance id -> the fourth it lists and has not confirmed. */
+  readonly listedFourths?: ReadonlyMap<number, string>;
+}
+
+/**
+ * A divisioned field: `divisionCount` divisions of eight alliances of three
+ * CONFIRMED picks, the teams with a division row that no alliance confirmed,
+ * the teams with no row, and the listed fourths. Floors from `floorOf`.
+ */
+function divisionedField(spec: DivisionedFieldSpec, floorOf: (index: number) => number) {
+  const confirmed = new Map<number, readonly string[]>();
   const floors = new Map<string, number>();
-  const divisionOf = new Map<number, number>();
+  const divisionOfTeam = new Map<string, number>();
   let index = 0;
-  for (let d = 1; d <= divisionCount; d++) {
+  for (let d = 1; d <= spec.divisionCount; d++) {
     for (let n = 1; n <= 8; n++) {
-      const id = divisionAllianceId(d, n);
-      divisionOf.set(id, d);
       const members = [1, 2, 3].map((k) => `d${d}a${n}m${k}`);
-      for (const member of members) floors.set(member, floorOf(index++));
-      alliances.push({ allianceNumber: id, members, spareSeats: 1 });
+      for (const member of members) {
+        floors.set(member, floorOf(index++));
+        divisionOfTeam.set(member, d);
+      }
+      confirmed.set(divisionAllianceId(d, n), members);
     }
   }
-  const unpicked = Array.from({ length: unpickedCount }, (_, k) => `u${k + 1}`);
-  for (const key of unpicked) floors.set(key, floorOf(index++));
-  return { alliances, floors, unpicked, divisionOf };
+  spec.eligible.forEach((keys, divisionIndex) => {
+    for (const key of keys) {
+      floors.set(key, floorOf(index++));
+      divisionOfTeam.set(key, divisionIndex + 1);
+    }
+  });
+  for (const key of spec.noRow) floors.set(key, floorOf(index++));
+  const listedFourths = spec.listedFourths ?? new Map<number, string>();
+  for (const [id, key] of listedFourths) {
+    if (!confirmed.has(id) || !(spec.eligible[Math.floor(id / 10) - 1] ?? []).includes(key)) throw new Error(`listed fourth ${key} has no row in the division of alliance ${String(id)}`);
+  }
+  return { divisionCount: spec.divisionCount, confirmed, floors, eligible: spec.eligible, noRow: spec.noRow, listedFourths, divisionOfTeam };
+}
+type DivisionedField = ReturnType<typeof divisionedField>;
+
+/**
+ * The proof input's alliances. An alliance its division has not placed holds
+ * its listed fourth among its members (reading R8); a placed one holds its
+ * three confirmed picks (guard G2). One spare seat each (CONTEXT D10).
+ */
+function fieldAlliances(field: DivisionedField, placed: (id: number) => boolean): JointLockAlliance[] {
+  return [...field.confirmed].map(([id, members]) => {
+    const fourth = field.listedFourths.get(id);
+    return { allianceNumber: id, members: fourth !== undefined && !placed(id) ? [...members, fourth] : [...members], spareSeats: 1 };
+  });
+}
+
+/** One seat group per division: its eight alliances and the teams with a row there that no alliance confirmed. */
+function fieldSeatGroups(field: DivisionedField): JointLockSeatGroup[] {
+  return field.eligible.map((eligible, divisionIndex) => ({
+    alliances: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => divisionAllianceId(divisionIndex + 1, n)),
+    eligible: [...eligible],
+  }));
 }
 
 /** Division alliance numbers placed by Round 4 (`ROUND_FOUR_DECISIONS`): 6 fourth, 4 fifth, 5 sixth, 8 seventh, 7 eighth. */
@@ -1084,163 +1347,379 @@ const ROUND_FOUR_PLACED = new Map([
   [7, 8],
 ]);
 
+/** A decided division's settled values by alliance number: 1 first, 2 second (lost the final 0 to 2), 3 third, 6 fourth. */
+const DECIDED_DIVISION_VALUE = new Map([
+  [1, 90],
+  [2, 60],
+  [3, 39],
+  [6, 21],
+]);
+
+interface E3Variant {
+  readonly label: string;
+  readonly finalsMax: readonly [number, number];
+  readonly consuming: number;
+  readonly judged: number;
+  /** Division 1 is decided: 11 first and alive in the finals with its spare seat, 12 second, 13 third, 16 fourth, their settled values in the floors. */
+  readonly divisionOneDecided: boolean;
+  /** A decisive instance: a pool of exactly these teams at these floors, and the team whose worst legal future equals its bound. */
+  readonly decisive?: { readonly floors: ReadonlyMap<string, number>; readonly team: string };
+  /** Seeded random floors from 0 up to `spread`, in place of the file's floor function. */
+  readonly randomFloors?: { readonly seed: number; readonly spread: number };
+}
+
+const E3_VARIANTS: readonly E3Variant[] = [
+  { label: "2026 values (30, 0), C=1, K=1", finalsMax: [30, 0], consuming: 1, judged: 1, divisionOneDecided: false },
+  { label: "a stress variant paying the finalist 30 (60, 30), C=1, K=1", finalsMax: [60, 30], consuming: 1, judged: 1, divisionOneDecided: false },
+  { label: "the stress variant with no award (60, 30), C=0, K=0", finalsMax: [60, 30], consuming: 0, judged: 0, divisionOneDecided: false },
+  { label: "division 1 decided, its winner alive in the finals with a spare seat (60, 30), C=1, K=1", finalsMax: [60, 30], consuming: 1, judged: 1, divisionOneDecided: true },
+  {
+    // Worst legal future: 21 wins everything with L2 as its one backup, while 11 wins division 1 with u1 as its backup and is the finalist (100 + 90 + 30).
+    label: "the DECISIVE open instance (60, 30), C=0, K=0",
+    finalsMax: [60, 30],
+    consuming: 0,
+    judged: 0,
+    divisionOneDecided: false,
+    decisive: {
+      team: "d2a4m1",
+      floors: new Map([
+        ["d2a4m1", 200],
+        ["d2a1m1", 10],
+        ["d2a1m2", 12],
+        ["d2a1m3", 14],
+        ["L2", 5],
+        ["u1", 100],
+      ]),
+    },
+  },
+  {
+    // Worst legal future: 21 wins everything with L2 as its one backup, while decided winner 11 is the finalist with u1 as its finals backup (150 + 30).
+    label: "the DECISIVE decided instance (60, 30), C=0, K=0",
+    finalsMax: [60, 30],
+    consuming: 0,
+    judged: 0,
+    divisionOneDecided: true,
+    decisive: {
+      team: "d1a2m1",
+      floors: new Map([
+        ["d1a2m1", 170],
+        ["d2a1m1", 10],
+        ["d2a1m2", 12],
+        ["d2a1m3", 14],
+        ["L2", 5],
+        ["u1", 150],
+      ]),
+    },
+  },
+];
+
 /**
- * Builds the divisioned proof input at "after Round 4 in every division,
- * finals not started", with the given finals maxima, pool and extras.
+ * THE E3 FIELD at "after Round 4 in every open division, finals not started".
+ * Two divisions. Alliance 12 lists the fourth L1 and alliance 22 lists L2.
+ * With a row in division 1 and confirmed by no alliance: u1, q2 (a slot only
+ * rival) and L1; in division 2: L2. With no row: r (a pool team) and q1 (a
+ * slot only rival). The pool is every member of the alive alliances, one
+ * member of each placed alliance, u1, r, L1 and L2; with division 1 decided,
+ * the three confirmed members of 11, 12 and 13 and one member of each other
+ * alliance there. A decisive instance keeps its own six teams.
  */
-function roundFourDivisionedInput(
-  divisionCount: number,
-  field: ReturnType<typeof divisionedField>,
-  poolKeys: readonly string[],
-  slotOnly: readonly string[],
-  finalsMaxByPlacement: readonly number[],
-  consumingAwards: number,
-  judgedAwards: number
-): JointLockInput {
-  const extraOf = (key: string): number => {
-    const alliance = field.alliances.find((entry) => entry.members.includes(key));
-    if (alliance === undefined) return 0;
-    const placement = ROUND_FOUR_PLACED.get(alliance.allianceNumber % 10);
-    return placement === undefined ? 0 : maxPlayoffPointsByPlacement(2026, "dcmp", placement);
+function e3Setup(variant: E3Variant) {
+  const randomFloor = variant.randomFloors === undefined ? undefined : mulberry32(variant.randomFloors.seed);
+  const floorSpread = variant.randomFloors?.spread ?? 0;
+  const field = divisionedField(
+    {
+      divisionCount: 2,
+      eligible: [["u1", "q2", "L1"], ["L2"]],
+      noRow: ["r", "q1"],
+      listedFourths: new Map([
+        [12, "L1"],
+        [22, "L2"],
+      ]),
+    },
+    (index) => (randomFloor === undefined ? 140 + ((index * 37) % 97) : Math.floor(randomFloor() * floorSpread))
+  );
+  const decided = (d: number): boolean => d === 1 && variant.divisionOneDecided;
+  const aliveIn = (d: number): number[] => (decided(d) ? [] : [1, 2, 3].map((n) => divisionAllianceId(d, n)));
+  const alive = [1, 2].flatMap(aliveIn);
+  const allianceOfConfirmed = new Map<string, number>();
+  for (const [id, members] of field.confirmed) for (const member of members) allianceOfConfirmed.set(member, id);
+
+  const rivalOf = (teamKey: string): JointLockRival => {
+    const floor = variant.decisive?.floors.get(teamKey) ?? field.floors.get(teamKey)!;
+    const id = allianceOfConfirmed.get(teamKey);
+    if (id === undefined) return { teamKey, floor, extra: 0 };
+    // A decided division's values are settled into the floors; a decisive instance states its floors with them included.
+    if (decided(Math.floor(id / 10))) return { teamKey, floor: floor + (variant.decisive === undefined ? (DECIDED_DIVISION_VALUE.get(id % 10) ?? 0) : 0), extra: 0 };
+    const placement = ROUND_FOUR_PLACED.get(id % 10);
+    return { teamKey, floor, extra: placement === undefined ? 0 : maxPlayoffPointsByPlacement(2026, "dcmp", placement) };
   };
-  const divisions = Array.from({ length: divisionCount }, (_, i) => ({
-    alliances: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => divisionAllianceId(i + 1, n)),
-    alive: [1, 2, 3].map((n) => divisionAllianceId(i + 1, n)),
-    decidedWinner: undefined,
-  }));
+  let poolKeys: string[];
+  if (variant.decisive !== undefined) poolKeys = [...variant.decisive.floors.keys()];
+  else {
+    poolKeys = [];
+    for (const [id, members] of field.confirmed) {
+      const whole = alive.includes(id) || (decided(Math.floor(id / 10)) && id % 10 <= 3);
+      poolKeys.push(...(whole ? members : members.slice(0, 1)));
+    }
+    poolKeys.push("u1", "r", "L1", "L2");
+  }
+  const slotOnly = variant.decisive !== undefined ? [] : ["q1", "q2"];
+
+  const alliances = fieldAlliances(field, (id) => !alive.includes(id));
   const structure: DivisionedJointStructure = {
-    divisions,
+    divisions: [1, 2].map((d) => ({
+      alliances: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => divisionAllianceId(d, n)),
+      alive: aliveIn(d),
+      decidedWinner: decided(d) ? divisionAllianceId(d, 1) : undefined,
+    })),
     finalsPlacementByAlliance: new Map(),
     finalsElimFinal: false,
     winnerPosted: false,
     divisionChampionMax: 90,
-    finalsMaxByPlacement,
-    membersByAlliance: new Map(field.alliances.map((alliance) => [alliance.allianceNumber, alliance.members] as const)),
-    finalsSpareByAlliance: new Map(field.alliances.map((alliance) => [alliance.allianceNumber, 1] as const)),
+    finalsMaxByPlacement: variant.finalsMax,
+    membersByAlliance: new Map(alliances.map((alliance) => [alliance.allianceNumber, alliance.members] as const)),
+    spareByAlliance: new Map(alliances.map((alliance) => [alliance.allianceNumber, 1] as const)),
     maxAllianceSize: 4,
   };
   const result = divisionedJointFrames(structure);
   if ("refused" in result) throw new Error(result.refused);
-  return {
-    pool: poolKeys.map((teamKey) => ({ teamKey, floor: field.floors.get(teamKey)!, extra: extraOf(teamKey) })),
+  const input: JointLockInput = {
+    pool: poolKeys.map(rivalOf),
     slotOnlyRivals: slotOnly,
     pointsSlots: 10,
-    alliances: field.alliances,
+    alliances,
     aliveAlliances: result.aliveAlliances,
     candidateWinners: result.candidateWinners,
     placementPoints: [75, 39, 21],
-    consumingAwards,
-    judgedAwards,
+    consumingAwards: variant.consuming,
+    judgedAwards: variant.judged,
     judgedAwardPoints: JUDGED,
     maxAllianceSize: 4,
     frames: result.frames,
+    seatGroups: fieldSeatGroups(field),
   };
+  return { variant, field, input, decided, aliveIn };
 }
+type E3Setup = ReturnType<typeof e3Setup>;
 
-describe("champJointLock: divisioned exhaustive soundness E3 (261009-kt3, D7)", () => {
-  /**
-   * Two divisions after Round 4 (alliances 1, 2 and 3 alive in each, sf13 and
-   * the final open), a two alliance finals open, two unpicked backup
-   * candidates (a division seat and, independently, a finals seat), C=1, K=1.
-   * Every division completion, every division backup placement, every losing
-   * finals backup (any pool team off the finals rosters) and, in closed form,
-   * every champion fill in and award assignment: the most takers is
-   * `min(|N|, C + fill ins + min(K, |J|))` over the non takers N and the
-   * judged liftable J, the maximum distinct assignment of those roles (Hall),
-   * cross checked against explicit enumeration on a sample.
-   */
-  for (const variant of [
-    { label: "2026 values (30, 0), C=1, K=1", finalsMax: [30, 0], consuming: 1, judged: 1 },
-    { label: "a stress variant paying the finalist 30 (60, 30), C=1, K=1", finalsMax: [60, 30], consuming: 1, judged: 1 },
-    { label: "the stress variant with no award (60, 30), C=0, K=0", finalsMax: [60, 30], consuming: 0, judged: 0 },
-  ]) {
-    it(`E3 ${variant.label}: no future's real takers exceed the bound`, () => {
-      const field = divisionedField(2, 2, (index) => 140 + ((index * 37) % 97));
-      // The pool: every member of the alive alliances, one member of each decided alliance, both unpicked teams.
-      const poolKeys = field.alliances.flatMap((alliance) => (alliance.allianceNumber % 10 <= 3 ? alliance.members : alliance.members.slice(0, 1))).concat(field.unpicked);
-      const input = roundFourDivisionedInput(2, field, poolKeys, ["q1"], variant.finalsMax, variant.consuming, variant.judged);
-      const completions = everyCompletion(playedMap(ROUND_FOUR_DECISIONS));
-      expect(completions).toHaveLength(8);
-      const membersOf = (id: number): readonly string[] => field.alliances.find((alliance) => alliance.allianceNumber === id)!.members;
-      const poolByKey = new Map(input.pool.map((rival) => [rival.teamKey, rival] as const));
-      const everyone = [...input.pool.map((rival) => rival.teamKey), ...input.slotOnlyRivals];
-      const alive = [11, 12, 13, 21, 22, 23];
-      // Division backup placements: each unpicked team on no seat or one alive alliance's seat, at most one per alliance.
-      const seatings: (number | null)[][] = [];
-      for (const a of [null, ...alive]) for (const b of [null, ...alive]) if (a === null || a !== b) seatings.push([a, b]);
-      let checks = 0;
+const NO_AWARD: ReadonlySet<string> = new Set();
 
-      for (const teamKey of input.pool.map((rival) => rival.teamKey)) {
-        const bound = jointLockBound(input, teamKey);
-        const m = poolByKey.get(teamKey)!.floor;
-        let most = 0;
-        for (const c1 of completions) {
-          for (const c2 of completions) {
-            const placement = new Map<number, number>();
-            for (const [n, p] of c1.placementByAlliance) placement.set(divisionAllianceId(1, n), p);
-            for (const [n, p] of c2.placementByAlliance) placement.set(divisionAllianceId(2, n), p);
-            const divisionPay = (id: number): number => placementPay(placement.get(id)!, (id < 20 ? c1 : c2).loserWonAFinal);
-            const winners = [...placement].filter(([, p]) => p === 1).map(([id]) => id);
-            for (const champion of winners) {
-              const loser = winners.find((id) => id !== champion)!;
-              const championMembers = membersOf(champion);
-              if (championMembers.includes(teamKey)) continue;
-              for (const seating of seatings) {
+/**
+ * THE E3 FUTURES for one T, every one rule legal, yielded without awards (the
+ * tests add those in closed form). Every pair of division completions (one
+ * outcome for a decided division); each division winner in turn as champion,
+ * skipped only when T is a CONFIRMED member of it, so an alliance that merely
+ * lists T may win without T; every division backup placement in which each
+ * team with a row sits on no alliance or on one alive alliance of ITS OWN
+ * division, one backup per alliance, T never a backup; then, for each division
+ * winner still without a backup, no finals backup or one of its own division's
+ * free teams with a row.
+ *
+ * A listed fourth is one of the teams with a row, which builds both of its
+ * futures: on its own alliance it stays as that alliance's one backup and no
+ * other backup joins; anywhere else or nowhere it was never on that alliance.
+ *
+ * Pay: the confirmed members of an alive alliance what its division pays; a
+ * backup that joined in the division the same, the most it can be paid; the
+ * finals alliances' confirmed members and backups their finals value on top; a
+ * backup that joined only for the finals the finals value alone. The champion
+ * roster is its confirmed members and its one backup.
+ */
+function forEachE3Future(setup: E3Setup, teamKey: string, visit: (future: RecordedFuture) => void): void {
+  const { field, variant } = setup;
+  const completions = everyCompletion(playedMap(ROUND_FOUR_DECISIONS));
+  interface DivisionOutcome {
+    readonly winner: number;
+    /** What each alive alliance of the division is still paid there. */
+    readonly pay: ReadonlyMap<number, number>;
+  }
+  const outcomesOf = (d: number): DivisionOutcome[] => {
+    if (setup.decided(d)) return [{ winner: divisionAllianceId(d, 1), pay: new Map() }];
+    return completions.map((completion) => {
+      const pay = new Map<number, number>();
+      let winner = 0;
+      for (const n of [1, 2, 3]) {
+        const placement = completion.placementByAlliance.get(n)!;
+        if (placement === 1) winner = divisionAllianceId(d, n);
+        pay.set(divisionAllianceId(d, n), placementPay(placement, completion.loserWonAFinal));
+      }
+      return { winner, pay };
+    });
+  };
+  const seatingsOf = (d: number): ReadonlyMap<number, string>[] => {
+    if (setup.decided(d)) return [new Map()];
+    const teams = field.eligible[d - 1]!.filter((key) => key !== teamKey);
+    const aliveHere = setup.aliveIn(d);
+    const out: Map<number, string>[] = [];
+    const current = new Map<number, string>();
+    const place = (at: number): void => {
+      if (at === teams.length) {
+        out.push(new Map(current));
+        return;
+      }
+      place(at + 1);
+      for (const id of aliveHere) {
+        if (current.has(id)) continue;
+        current.set(id, teams[at]!);
+        place(at + 1);
+        current.delete(id);
+      }
+    };
+    place(0);
+    return out;
+  };
+  const seatingsOne = seatingsOf(1);
+  const seatingsTwo = seatingsOf(2);
+
+  for (const outcomeOne of outcomesOf(1)) {
+    for (const outcomeTwo of outcomesOf(2)) {
+      const divisionWinners = [outcomeOne.winner, outcomeTwo.winner];
+      for (const champion of divisionWinners) {
+        if (field.confirmed.get(champion)!.includes(teamKey)) continue;
+        const loser = divisionWinners.find((id) => id !== champion)!;
+        const allianceValue = new Map<number, number>([...outcomeOne.pay, ...outcomeTwo.pay]);
+        allianceValue.set(champion, (allianceValue.get(champion) ?? 0) + variant.finalsMax[0]);
+        allianceValue.set(loser, (allianceValue.get(loser) ?? 0) + variant.finalsMax[1]);
+        for (const seatingOne of seatingsOne) {
+          for (const seatingTwo of seatingsTwo) {
+            const divisionBackup = new Map<number, string>([...seatingOne, ...seatingTwo]);
+            const used = new Set(divisionBackup.values());
+            const finalsOnly = (id: number): (string | null)[] =>
+              divisionBackup.has(id) ? [null] : [null, ...field.eligible[Math.floor(id / 10) - 1]!.filter((key) => key !== teamKey && !used.has(key))];
+            for (const championFinals of finalsOnly(champion)) {
+              for (const loserFinals of finalsOnly(loser)) {
                 const paid = new Map<string, number>();
-                for (const id of alive) for (const member of membersOf(id)) paid.set(member, divisionPay(id));
-                seating.forEach((seat, index) => {
-                  if (seat !== null) paid.set(field.unpicked[index]!, divisionPay(seat));
-                });
-                for (const member of membersOf(champion)) paid.set(member, (paid.get(member) ?? 0) + variant.finalsMax[0]!);
-                for (const member of membersOf(loser)) paid.set(member, (paid.get(member) ?? 0) + variant.finalsMax[1]!);
-                paid.delete(teamKey);
-                const finalsRosters = new Set([...membersOf(champion), ...membersOf(loser)]);
-                const losingBackups = variant.finalsMax[1]! > 0 ? [null, ...everyone.filter((key) => key !== teamKey && !finalsRosters.has(key))] : [null];
-                for (const losingBackup of losingBackups) {
-                  const paidHere = new Map(paid);
-                  if (losingBackup !== null && poolByKey.has(losingBackup)) paidHere.set(losingBackup, (paidHere.get(losingBackup) ?? 0) + variant.finalsMax[1]!);
-                  const championRoster = new Set(championMembers);
-                  const base: DivisionedFuture = { championRoster, paid: paidHere, consuming: new Set(), judged: new Set() };
-                  const baseTakers = divisionedTakers(input, teamKey, m, base);
-                  const pointsOf = (key: string): number => {
-                    const rival = poolByKey.get(key)!;
-                    return rival.floor + rival.extra + (paidHere.get(key) ?? 0);
-                  };
-                  const nonTakers = everyone.filter((key) => key !== teamKey && !championRoster.has(key) && !(poolByKey.has(key) && pointsOf(key) >= m));
-                  const liftable = nonTakers.filter((key) => poolByKey.has(key) && pointsOf(key) + JUDGED >= m);
-                  const roles = Math.min(nonTakers.length, input.consumingAwards + 1 + Math.min(input.judgedAwards, liftable.length));
-                  const takers = baseTakers + roles;
-                  if (takers > most) most = takers;
-                  if (++checks % 1999 === 0) {
-                    // Explicit enumeration of the champion fill in, the consuming and the judged recipient.
-                    let explicit = baseTakers;
-                    for (const fill of [null, ...nonTakers]) {
-                      for (const consuming of [null, ...(input.consumingAwards > 0 ? nonTakers : [])]) {
-                        if (consuming !== null && consuming === fill) continue;
-                        for (const judged of [null, ...(input.judgedAwards > 0 ? liftable : [])]) {
-                          if (judged !== null && (judged === fill || judged === consuming)) continue;
-                          const roster = new Set([...championMembers, ...(fill === null ? [] : [fill])]);
-                          const value = divisionedTakers(input, teamKey, m, {
-                            championRoster: roster,
-                            paid: paidHere,
-                            consuming: new Set(consuming === null ? [] : [consuming]),
-                            judged: new Set(judged === null ? [] : [judged]),
-                          });
-                          if (value > explicit) explicit = value;
-                        }
-                      }
-                    }
-                    expect(explicit, `${teamKey}: closed form drifted from enumeration`).toBe(takers);
-                  }
+                const backups: BackupRecord[] = [];
+                for (const [id, value] of allianceValue) for (const member of field.confirmed.get(id)!) paid.set(member, value);
+                for (const [id, team] of divisionBackup) {
+                  paid.set(team, allianceValue.get(id)!);
+                  backups.push({ team, alliance: id, finalsOnly: false });
                 }
+                if (championFinals !== null) {
+                  paid.set(championFinals, variant.finalsMax[0]);
+                  backups.push({ team: championFinals, alliance: champion, finalsOnly: true });
+                }
+                if (loserFinals !== null) {
+                  paid.set(loserFinals, variant.finalsMax[1]);
+                  backups.push({ team: loserFinals, alliance: loser, finalsOnly: true });
+                }
+                paid.delete(teamKey);
+                const championRoster = new Set(field.confirmed.get(champion)!);
+                const championBackup = divisionBackup.get(champion) ?? championFinals;
+                if (championBackup !== null) championRoster.add(championBackup);
+                visit({ championRoster, paid, consuming: NO_AWARD, judged: NO_AWARD, champion, divisionWinners, backups, allianceValue });
               }
             }
           }
         }
-        expect(most, `${variant.label} ${teamKey}: real takers ${most} above bound ${bound}`).toBeLessThanOrEqual(bound);
       }
+    }
+  }
+}
+
+/**
+ * The most real takers against T over every E3 future. Awards are added to
+ * each future in closed form over the non takers N: the consuming awards plus
+ * the judged awards that reach a judged liftable non taker WITH a division row
+ * (a team with no row wins no division award), capped by N. That is
+ * `min(|N|, C + min(K, |J|))`, the maximum distinct assignment of those roles
+ * (Hall), cross checked against explicit enumeration on every 1,999th future.
+ * The champion's backup is explicit in the future, so the 261009-kt3 closed
+ * form's fill in term is gone.
+ */
+function e3MostTakers(setup: E3Setup, teamKey: string, counters: { checks: number; futures: number }): number {
+  const { input, field } = setup;
+  const poolByKey = new Map(input.pool.map((rival) => [rival.teamKey, rival] as const));
+  const everyone = [...input.pool.map((rival) => rival.teamKey), ...input.slotOnlyRivals];
+  const m = poolByKey.get(teamKey)!.floor;
+  let most = 0;
+  forEachE3Future(setup, teamKey, (future) => {
+    counters.futures += 1;
+    const baseTakers = divisionedTakers(input, teamKey, m, future);
+    const nonTakers: string[] = [];
+    const liftable: string[] = [];
+    for (const key of everyone) {
+      if (key === teamKey || future.championRoster.has(key)) continue;
+      const rival = poolByKey.get(key);
+      const points = rival === undefined ? -Infinity : rival.floor + rival.extra + (future.paid.get(key) ?? 0);
+      if (points >= m) continue;
+      nonTakers.push(key);
+      if (rival !== undefined && field.divisionOfTeam.has(key) && points + JUDGED >= m) liftable.push(key);
+    }
+    const takers = baseTakers + Math.min(nonTakers.length, input.consumingAwards + Math.min(input.judgedAwards, liftable.length));
+    if (takers > most) most = takers;
+    if (++counters.checks % 1999 === 0) {
+      // Explicit enumeration of the consuming and the judged recipient.
+      let explicit = baseTakers;
+      for (const consuming of [null, ...(input.consumingAwards > 0 ? nonTakers : [])]) {
+        for (const judged of [null, ...(input.judgedAwards > 0 ? liftable : [])]) {
+          if (judged !== null && judged === consuming) continue;
+          const value = divisionedTakers(input, teamKey, m, {
+            championRoster: future.championRoster,
+            paid: future.paid,
+            consuming: new Set(consuming === null ? [] : [consuming]),
+            judged: new Set(judged === null ? [] : [judged]),
+          });
+          if (value > explicit) explicit = value;
+        }
+      }
+      expect(explicit, `${teamKey}: closed form drifted from enumeration`).toBe(takers);
+    }
+  });
+  return most;
+}
+
+describe("champJointLock: divisioned exhaustive soundness E3 over rule legal futures (261009-kt3 D7, 261009-tx9 D4)", () => {
+  for (const variant of E3_VARIANTS) {
+    it(`E3 ${variant.label}: no rule legal future's real takers exceed the bound`, () => {
+      const setup = e3Setup(variant);
+      const { input } = setup;
+      const counters = { checks: 0, futures: 0 };
+      for (const teamKey of input.pool.map((rival) => rival.teamKey)) {
+        const bound = jointLockBound(input, teamKey);
+        const most = e3MostTakers(setup, teamKey, counters);
+        expect(most, `${variant.label} ${teamKey}: real takers ${most} above bound ${bound}`).toBeLessThanOrEqual(bound);
+        // A decisive instance: the decisive team's worst legal future EQUALS its bound, so every term of the bound is needed.
+        if (variant.decisive?.team === teamKey) expect(most, `${variant.label}: the decisive team's worst legal future`).toBe(bound);
+      }
+      expect(counters.futures).toBeGreaterThan(0);
     }, 120_000);
   }
+
+  /**
+   * The same exhaustive check over SEEDED RANDOM FLOORS (executor addition,
+   * quick task 261009-tx9). The four general variants above share one floor
+   * function and leave slack against most of the bound's terms. Random floors
+   * in a narrow, a middle and a wide spread, with the finals values, C, K and
+   * the decided division drawn per seed, put many teams exactly ON their bound
+   * (the count is asserted), so a term that undercounts is caught here.
+   */
+  it("E3 over seeded random floors: 8 fields, no rule legal future's real takers exceed the bound, and the bound is reached", () => {
+    const counters = { checks: 0, futures: 0 };
+    let onTheBound = 0;
+    for (let seed = 1000; seed < 1008; seed++) {
+      const random = mulberry32(seed);
+      const spread = [40, 120, 260][Math.floor(random() * 3)]!;
+      const variant: E3Variant = {
+        label: `seed ${String(seed)}, spread ${String(spread)}`,
+        finalsMax: random() < 0.5 ? [30, 0] : [60, 30],
+        consuming: random() < 0.5 ? 1 : 0,
+        judged: random() < 0.5 ? 1 : 0,
+        divisionOneDecided: random() < 0.4,
+        randomFloors: { seed: seed + 7919, spread },
+      };
+      const setup = e3Setup(variant);
+      for (const teamKey of setup.input.pool.map((rival) => rival.teamKey)) {
+        const bound = jointLockBound(setup.input, teamKey);
+        const most = e3MostTakers(setup, teamKey, counters);
+        expect(most, `${variant.label} ${teamKey}: real takers ${most} above bound ${bound}`).toBeLessThanOrEqual(bound);
+        if (most === bound) onTheBound += 1;
+      }
+    }
+    expect(counters.futures).toBeGreaterThan(1_000_000);
+    // Measured at these seeds: 5,697,088 futures and 106 teams on their bound.
+    expect(onTheBound).toBeGreaterThan(50);
+  }, 120_000);
 });
 
 /** A random completion of the four (or two) alliance finals, with any played decisions fixed. */
@@ -1259,88 +1738,222 @@ function randomFinals(random: () => number, allianceCount: 2 | 4, played: Readon
   }
 }
 
+/** "round4": every division after Round 4; "divisionsFinal": every division decided; "finalsSf4": and the finals' sf1 to sf4 played. */
+type SampledDivisionedStop = "round4" | "divisionsFinal" | "finalsSf4";
+
 interface SampledDivisionedCase {
   readonly label: string;
-  /** "round4": every division after Round 4; "divisionsFinal": every division decided; "finalsSf4": and the finals' sf1 to sf4 played. */
-  readonly stop: "round4" | "divisionsFinal" | "finalsSf4";
+  readonly stop: SampledDivisionedStop;
 }
 
-describe("champJointLock: divisioned sampled soundness S2 (261009-kt3, D7)", () => {
-  const cases: readonly SampledDivisionedCase[] = [
-    { label: "after Round 4 in every division", stop: "round4" },
-    { label: "Divisions final, finals not started", stop: "divisionsFinal" },
-    { label: "finals after sf1 to sf4", stop: "finalsSf4" },
-  ];
-  for (const sampled of cases) {
-    it(`S2 ${sampled.label}: four divisions, 20,000 futures, C=5, K=56, 2026 values, never above the bound`, () => {
-      const random = mulberry32(2610093 + sampled.stop.length);
-      const field = divisionedField(4, 24, () => 120 + Math.floor(random() * 201));
-      const finalsMax = [60, 30, 0, 0];
-      const allKeys = [...field.floors.keys()];
-      const membersOf = (id: number): readonly string[] => field.alliances.find((alliance) => alliance.allianceNumber === id)!.members;
+const S2_CASES: readonly SampledDivisionedCase[] = [
+  { label: "after Round 4 in every division", stop: "round4" },
+  { label: "Divisions final, finals not started", stop: "divisionsFinal" },
+  { label: "finals after sf1 to sf4", stop: "finalsSf4" },
+];
 
-      // Division states at the stop. Divisions final: alliance 1 wins each division, the rest placed as Round 4 plus sf13 to 3 and the final 2 to 0.
-      const fullDecisions = [...ROUND_FOUR_DECISIONS, ["sf13", 3]] as const;
-      const finalPlacement = completeBracket(playedMap(fullDecisions), (a) => a);
-      const decided = sampled.stop !== "round4";
-      const placementAtStop = decided ? finalPlacement : (ROUND_FOUR_PLACED as ReadonlyMap<number, number>);
-      // Finals seeds: division d's winner is finals alliance d; at finalsSf4, sf1 to sf4 are played (alliance 4 fourth).
-      const finalsDecisions = new Map<string, number>();
-      if (sampled.stop === "finalsSf4") {
-        finalsDecisions.set(bracketDecisionKey("sf1", 1), 1);
-        finalsDecisions.set(bracketDecisionKey("sf2", 1), 3);
-        finalsDecisions.set(bracketDecisionKey("sf3", 1), 1);
-        finalsDecisions.set(bracketDecisionKey("sf4", 1), 2);
+const S2_FINALS_MAX = [60, 30, 0, 0];
+
+/**
+ * THE S2 FIELD AND INPUT at one stop. Four divisions, 24 teams with a row that
+ * no alliance confirmed (six per division) and four more with no row.
+ * Alliances 12 and 22 each list a fourth, as in the E3 field; they are members
+ * at the Round 4 stop only, where their divisions have not placed them.
+ */
+function s2Setup(stop: SampledDivisionedStop) {
+  const random = mulberry32(2610093 + stop.length);
+  const field = divisionedField(
+    {
+      divisionCount: 4,
+      eligible: [1, 2, 3, 4].map((d) => [1, 2, 3, 4, 5, 6].map((k) => `d${d}u${k}`)),
+      noRow: ["n1", "n2", "n3", "n4"],
+      listedFourths: new Map([
+        [12, "d1u1"],
+        [22, "d2u1"],
+      ]),
+    },
+    () => 120 + Math.floor(random() * 201)
+  );
+  const allKeys = [...field.floors.keys()];
+
+  // Division states at the stop. Divisions final: alliance 1 wins each division, the rest placed as Round 4 plus sf13 to 3 and the final 2 to 0.
+  const fullDecisions = [...ROUND_FOUR_DECISIONS, ["sf13", 3]] as const;
+  const finalPlacement = completeBracket(playedMap(fullDecisions), (a) => a);
+  const decided = stop !== "round4";
+  const placementAtStop = decided ? finalPlacement : (ROUND_FOUR_PLACED as ReadonlyMap<number, number>);
+  // Finals seeds: division d's winner is finals alliance d; at finalsSf4, sf1 to sf4 are played (alliance 4 fourth).
+  const finalsDecisions = new Map<string, number>();
+  if (stop === "finalsSf4") {
+    finalsDecisions.set(bracketDecisionKey("sf1", 1), 1);
+    finalsDecisions.set(bracketDecisionKey("sf2", 1), 3);
+    finalsDecisions.set(bracketDecisionKey("sf3", 1), 1);
+    finalsDecisions.set(bracketDecisionKey("sf4", 1), 2);
+  }
+  const finalsRouting = routeFinals(finalsDecisions, 4);
+
+  const valueAtStop = (n: number): number => {
+    const placement = placementAtStop.get(n);
+    return placement === undefined ? 0 : maxPlayoffPointsByPlacement(2026, "dcmp", placement);
+  };
+  const allianceOfKey = new Map<string, number>();
+  for (const [id, members] of field.confirmed) for (const member of members) allianceOfKey.set(member, id);
+  // Decided values: in the floor once every division is final, otherwise their maximum in extra.
+  const pool: JointLockRival[] = allKeys.map((teamKey) => {
+    const id = allianceOfKey.get(teamKey);
+    const value = id === undefined ? 0 : valueAtStop(id % 10);
+    const floor = field.floors.get(teamKey)!;
+    return decided ? { teamKey, floor: floor + value, extra: 0 } : { teamKey, floor, extra: value };
+  });
+  const alliances = fieldAlliances(field, (id) => decided || id % 10 > 3);
+  const divisions = [1, 2, 3, 4].map((d) => ({
+    alliances: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => divisionAllianceId(d, n)),
+    alive: decided ? [] : [1, 2, 3].map((n) => divisionAllianceId(d, n)),
+    decidedWinner: decided ? divisionAllianceId(d, 1) : undefined,
+  }));
+  const finalsPlacementByAlliance = new Map<number, number>();
+  for (const [finalsAlliance, placement] of finalsRouting.placementByAlliance) finalsPlacementByAlliance.set(divisionAllianceId(finalsAlliance, 1), placement);
+  const structure: DivisionedJointStructure = {
+    divisions,
+    finalsPlacementByAlliance,
+    finalsElimFinal: false,
+    winnerPosted: false,
+    divisionChampionMax: 90,
+    finalsMaxByPlacement: S2_FINALS_MAX,
+    membersByAlliance: new Map(alliances.map((alliance) => [alliance.allianceNumber, alliance.members] as const)),
+    spareByAlliance: new Map(alliances.map((alliance) => [alliance.allianceNumber, 1] as const)),
+    maxAllianceSize: 4,
+  };
+  const frames = divisionedJointFrames(structure);
+  if ("refused" in frames) throw new Error(frames.refused);
+  const input: JointLockInput = {
+    pool,
+    slotOnlyRivals: [],
+    pointsSlots: 60,
+    alliances,
+    aliveAlliances: frames.aliveAlliances,
+    candidateWinners: frames.candidateWinners,
+    placementPoints: [75, 39, 21],
+    consumingAwards: 5,
+    judgedAwards: 56,
+    judgedAwardPoints: JUDGED,
+    maxAllianceSize: 4,
+    frames: frames.frames,
+    seatGroups: fieldSeatGroups(field),
+  };
+  return { stop, random, field, allKeys, pool, input, decided, finalsDecisions };
+}
+type S2Setup = ReturnType<typeof s2Setup>;
+
+/** One sampled future, with the part of each rival's `extra` this future pays. */
+interface SampledDivisionedFuture extends RecordedFuture {
+  readonly extraPaidScale: ReadonlyMap<string, number>;
+}
+
+/**
+ * ONE S2 FUTURE, rule legal. The divisions complete at random. Each listed
+ * fourth stays as its alliance's one backup with probability 0.5 and otherwise
+ * joins its division's free teams; each other alive alliance takes, with
+ * probability 0.4, ONE backup from its own division's free teams with a row. A
+ * backup is paid its alliance's division value or, one draw in three, a random
+ * amount below it. Each division winner still without a backup takes one for
+ * the finals with probability 0.5, again only from its own division, paid at
+ * most its alliance's finals value; a backup that joined in the division is
+ * paid in the finals too. The champion roster is its confirmed members and its
+ * one backup. Five consuming awards go to any teams and the 56 judged awards to
+ * teams with a division row, one point paying award per team.
+ */
+function sampleS2Future(setup: S2Setup): SampledDivisionedFuture {
+  const { random, field, allKeys, pool, decided, finalsDecisions } = setup;
+  const paid = new Map<string, number>();
+  const add = (key: string, value: number): void => {
+    paid.set(key, (paid.get(key) ?? 0) + value);
+  };
+  const membersPay = (value: number): number => (random() < 0.1 ? Math.floor(random() * value) : value);
+  const backupPay = (value: number): number => (random() < 1 / 3 ? Math.floor(random() * value) : value);
+  const extraPaidScale = new Map<string, number>();
+  const allianceValue = new Map<number, number>();
+  const backupOf = new Map<number, string>();
+  const backups: BackupRecord[] = [];
+  const free = field.eligible.map((keys) => [...keys]);
+  const takeFree = (d: number): string | undefined => {
+    const list = free[d - 1]!;
+    return list.length === 0 ? undefined : list.splice(Math.floor(random() * list.length), 1)[0]!;
+  };
+
+  // Divisions.
+  const winners: number[] = [];
+  for (let d = 1; d <= 4; d++) {
+    if (decided) {
+      winners.push(divisionAllianceId(d, 1));
+      continue;
+    }
+    const placement = completeBracket(playedMap(ROUND_FOUR_DECISIONS), (a, b) => (random() < 0.5 ? a : b));
+    const loserWonAFinal = random() < 0.5;
+    // The listed fourths first: one that does not stay is free for every alive alliance of its division.
+    for (const n of [1, 2, 3]) {
+      const id = divisionAllianceId(d, n);
+      const fourth = field.listedFourths.get(id);
+      if (fourth === undefined || random() >= 0.5) continue;
+      backupOf.set(id, fourth);
+      free[d - 1]!.splice(free[d - 1]!.indexOf(fourth), 1);
+    }
+    for (const n of [1, 2, 3]) {
+      const id = divisionAllianceId(d, n);
+      const value = placementPay(placement.get(n)!, loserWonAFinal);
+      allianceValue.set(id, value);
+      if (placement.get(n) === 1) winners.push(id);
+      for (const member of field.confirmed.get(id)!) add(member, membersPay(value));
+      if (!backupOf.has(id) && random() < 0.4) {
+        const joined = takeFree(d);
+        if (joined !== undefined) backupOf.set(id, joined);
       }
-      const finalsRouting = routeFinals(finalsDecisions, 4);
+      const backup = backupOf.get(id);
+      if (backup !== undefined) {
+        add(backup, backupPay(value));
+        backups.push({ team: backup, alliance: id, finalsOnly: false });
+      }
+    }
+    for (const rival of pool) if (rival.extra > 0 && random() < 0.1) extraPaidScale.set(rival.teamKey, Math.floor(random() * rival.extra));
+  }
 
-      const valueAtStop = (n: number): number => {
-        const placement = placementAtStop.get(n);
-        return placement === undefined ? 0 : maxPlayoffPointsByPlacement(2026, "dcmp", placement);
-      };
-      const allianceOfKey = new Map<string, number>();
-      for (const alliance of field.alliances) for (const member of alliance.members) allianceOfKey.set(member, alliance.allianceNumber);
-      // Decided values: in the floor once every division is final, otherwise their maximum in extra.
-      const pool: JointLockRival[] = allKeys.map((teamKey) => {
-        const id = allianceOfKey.get(teamKey);
-        const value = id === undefined ? 0 : valueAtStop(id % 10);
-        const floor = field.floors.get(teamKey)!;
-        return decided ? { teamKey, floor: floor + value, extra: 0 } : { teamKey, floor, extra: value };
-      });
-      const divisions = [1, 2, 3, 4].map((d) => ({
-        alliances: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => divisionAllianceId(d, n)),
-        alive: decided ? [] : [1, 2, 3].map((n) => divisionAllianceId(d, n)),
-        decidedWinner: decided ? divisionAllianceId(d, 1) : undefined,
-      }));
-      const finalsPlacementByAlliance = new Map<number, number>();
-      for (const [finalsAlliance, placement] of finalsRouting.placementByAlliance) finalsPlacementByAlliance.set(divisionAllianceId(finalsAlliance, 1), placement);
-      const structure: DivisionedJointStructure = {
-        divisions,
-        finalsPlacementByAlliance,
-        finalsElimFinal: false,
-        winnerPosted: false,
-        divisionChampionMax: 90,
-        finalsMaxByPlacement: finalsMax,
-        membersByAlliance: new Map(field.alliances.map((alliance) => [alliance.allianceNumber, alliance.members] as const)),
-        finalsSpareByAlliance: new Map(field.alliances.map((alliance) => [alliance.allianceNumber, 1] as const)),
-        maxAllianceSize: 4,
-      };
-      const frames = divisionedJointFrames(structure);
-      if ("refused" in frames) throw new Error(frames.refused);
-      const input: JointLockInput = {
-        pool,
-        slotOnlyRivals: [],
-        pointsSlots: 60,
-        alliances: field.alliances,
-        aliveAlliances: frames.aliveAlliances,
-        candidateWinners: frames.candidateWinners,
-        placementPoints: [75, 39, 21],
-        consumingAwards: 5,
-        judgedAwards: 56,
-        judgedAwardPoints: JUDGED,
-        maxAllianceSize: 4,
-        frames: frames.frames,
-      };
+  // Finals: division d's winner is finals alliance d.
+  const finalsPlacement = randomFinals(random, 4, finalsDecisions);
+  let champion = 0;
+  let championRoster = new Set<string>();
+  winners.forEach((id, index) => {
+    const d = index + 1;
+    const placement = finalsPlacement.get(d)!;
+    const value = S2_FINALS_MAX[placement - 1]!;
+    allianceValue.set(id, (allianceValue.get(id) ?? 0) + value);
+    if (!backupOf.has(id) && random() < 0.5) {
+      const joined = takeFree(d);
+      if (joined !== undefined) {
+        backupOf.set(id, joined);
+        backups.push({ team: joined, alliance: id, finalsOnly: true });
+      }
+    }
+    for (const member of field.confirmed.get(id)!) add(member, membersPay(value));
+    const backup = backupOf.get(id);
+    if (backup !== undefined) add(backup, backupPay(value));
+    if (placement === 1) {
+      champion = id;
+      championRoster = new Set([...field.confirmed.get(id)!, ...(backup === undefined ? [] : [backup])]);
+    }
+  });
+
+  // Awards: 5 consuming to any teams, 56 judged to teams with a division row, one per team.
+  const order = [...allKeys].sort(() => random() - 0.5);
+  const consuming = new Set(order.slice(0, 5));
+  const judged = new Set(order.filter((key) => !consuming.has(key) && field.divisionOfTeam.has(key)).slice(0, 56));
+
+  return { championRoster, paid, consuming, judged, champion, divisionWinners: winners, backups, allianceValue, extraPaidScale };
+}
+
+describe("champJointLock: divisioned sampled soundness S2 over rule legal futures (261009-kt3 D7, 261009-tx9 D4)", () => {
+  for (const sampled of S2_CASES) {
+    it(`S2 ${sampled.label}: four divisions, 20,000 rule legal futures, C=5, K=56, 2026 values, never above the bound`, () => {
+      const setup = s2Setup(sampled.stop);
+      const { random, pool, input } = setup;
       // Several T across the floors.
       const sortedPool = [...pool].sort((a, b) => b.floor + b.extra - (a.floor + a.extra));
       const tKeys = [0, 5, 10, 20, 30, 45, 60, 80, 100].map((rank) => sortedPool[rank]!.teamKey);
@@ -1349,68 +1962,15 @@ describe("champJointLock: divisioned sampled soundness S2 (261009-kt3, D7)", () 
       const poolByKey = new Map(pool.map((rival) => [rival.teamKey, rival] as const));
 
       for (let draw = 0; draw < 20_000; draw++) {
-        const paid = new Map<string, number>();
-        const add = (key: string, value: number): void => {
-          paid.set(key, (paid.get(key) ?? 0) + value);
-        };
-        const extraPaidScale = new Map<string, number>();
-        // Divisions.
-        const winners: number[] = [];
-        const freeUnpicked = [...field.unpicked];
-        for (let d = 1; d <= 4; d++) {
-          if (decided) {
-            winners.push(divisionAllianceId(d, 1));
-            continue;
-          }
-          const placement = completeBracket(playedMap(ROUND_FOUR_DECISIONS), (a, b) => (random() < 0.5 ? a : b));
-          const loserWonAFinal = random() < 0.5;
-          for (const n of [1, 2, 3]) {
-            const id = divisionAllianceId(d, n);
-            const value = placementPay(placement.get(n)!, loserWonAFinal);
-            if (placement.get(n) === 1) winners.push(id);
-            for (const member of membersOf(id)) add(member, random() < 0.1 ? Math.floor(random() * value) : value);
-            if (random() < 0.4 && freeUnpicked.length > 0) {
-              const backup = freeUnpicked.splice(Math.floor(random() * freeUnpicked.length), 1)[0]!;
-              add(backup, value);
-            }
-          }
-          for (const rival of pool) if (rival.extra > 0 && random() < 0.1) extraPaidScale.set(rival.teamKey, Math.floor(random() * rival.extra));
-        }
-        // Finals: division d's winner is finals alliance d.
-        const finalsPlacement = randomFinals(random, 4, finalsDecisions);
-        const onFinalsRoster = new Set<string>();
-        const rosterOf = new Map<number, string[]>();
-        winners.forEach((id, index) => {
-          const roster = [...membersOf(id)];
-          for (const member of roster) onFinalsRoster.add(member);
-          rosterOf.set(index + 1, roster);
-        });
-        // Finals backups from the whole field: unpicked, division backups and eliminated picks alike.
-        for (let finalsAlliance = 1; finalsAlliance <= 4; finalsAlliance++) {
-          if (random() >= 0.5) continue;
-          const candidates = allKeys.filter((key) => !onFinalsRoster.has(key));
-          const backup = candidates[Math.floor(random() * candidates.length)]!;
-          onFinalsRoster.add(backup);
-          rosterOf.get(finalsAlliance)!.push(backup);
-        }
-        let championRoster = new Set<string>();
-        for (const [finalsAlliance, placement] of finalsPlacement) {
-          const value = finalsMax[placement - 1]!;
-          for (const member of rosterOf.get(finalsAlliance)!) add(member, random() < 0.1 ? Math.floor(random() * value) : value);
-          if (placement === 1) championRoster = new Set(rosterOf.get(finalsAlliance)!);
-        }
-        // Awards: 5 consuming and 56 judged, one per team.
-        const order = [...allKeys].sort(() => random() - 0.5);
-        const consuming = new Set(order.slice(0, 5));
-        const judged = new Set(order.slice(5, 61));
-
+        const future = sampleS2Future(setup);
+        const { extraPaidScale, paid } = future;
         for (const teamKey of tKeys) {
-          if (consuming.has(teamKey) || championRoster.has(teamKey)) continue;
+          if (future.consuming.has(teamKey) || future.championRoster.has(teamKey)) continue;
           const self = poolByKey.get(teamKey)!;
           const own = paid.has(teamKey) && random() < 0.5 ? paid.get(teamKey)! : 0;
-          const tPoints = self.floor + own + (judged.has(teamKey) ? JUDGED : 0);
+          const tPoints = self.floor + own + (future.judged.has(teamKey) ? JUDGED : 0);
           const scaledPool = extraPaidScale.size === 0 ? input : { ...input, pool: input.pool.map((rival) => (extraPaidScale.has(rival.teamKey) ? { ...rival, extra: extraPaidScale.get(rival.teamKey)! } : rival)) };
-          const takers = divisionedTakers(scaledPool, teamKey, tPoints, { championRoster, paid, consuming, judged });
+          const takers = divisionedTakers(scaledPool, teamKey, tPoints, future);
           if (takers > (most.get(teamKey) ?? 0)) most.set(teamKey, takers);
         }
       }
@@ -1534,17 +2094,33 @@ describe("champJointLock: multiple championships sampled soundness S3 (261009-kt
   }, 120_000);
 });
 
-describe("divisionedJointFrames: specific real futures the frames must cover (261009-kt3 mutation guards)", () => {
-  /** Two divisions, alliances 11 and 12 alive in division 1, 21 and 22 in division 2; finals pay 60 and 30; no award. */
-  function twoDivisionStructure(finalsSpare: (id: number) => number): DivisionedJointStructure {
+describe("divisionedJointFrames: specific real futures the frames must cover (261009-kt3 and 261009-tx9 mutation guards)", () => {
+  /**
+   * Two divisions, alliances 11 and 12 alive in division 1 (or division 1
+   * decided with winner 11), 21 and 22 alive in division 2; finals pay 60 and
+   * 30; no award. Every future below is rule legal: one backup per alliance for
+   * the whole championship, from its own division's teams with a row that no
+   * alliance confirmed (the backup robot rule, quick task 261009-tx9).
+   */
+  interface TargetedCase {
+    readonly spare: (id: number) => number;
+    readonly pool: JointLockRival[];
+    /** Per division, the teams with a row there that no alliance confirmed. */
+    readonly groups: readonly [readonly string[], readonly string[]];
+    readonly divisionOneDecided?: boolean;
+    /** An alliance and the fourth it lists and has not confirmed. */
+    readonly listed?: readonly [number, string];
+  }
+  function inputFor(target: TargetedCase): JointLockInput {
     const divisions = [1, 2].map((d) => ({
       alliances: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => divisionAllianceId(d, n)),
-      alive: [1, 2].map((n) => divisionAllianceId(d, n)),
-      decidedWinner: undefined,
+      alive: d === 1 && target.divisionOneDecided === true ? [] : [1, 2].map((n) => divisionAllianceId(d, n)),
+      decidedWinner: d === 1 && target.divisionOneDecided === true ? divisionAllianceId(1, 1) : undefined,
     }));
     const membersByAlliance = new Map<number, string[]>();
     for (const division of divisions) for (const id of division.alliances) membersByAlliance.set(id, [`t${id}a`, `t${id}b`, `t${id}c`]);
-    return {
+    if (target.listed !== undefined) membersByAlliance.set(target.listed[0], [...membersByAlliance.get(target.listed[0])!, target.listed[1]]);
+    const structure: DivisionedJointStructure = {
       divisions,
       finalsPlacementByAlliance: new Map(),
       finalsElimFinal: false,
@@ -1552,18 +2128,16 @@ describe("divisionedJointFrames: specific real futures the frames must cover (26
       divisionChampionMax: 90,
       finalsMaxByPlacement: [60, 30],
       membersByAlliance,
-      finalsSpareByAlliance: new Map([...membersByAlliance.keys()].map((id) => [id, finalsSpare(id)] as const)),
+      spareByAlliance: new Map([...membersByAlliance.keys()].map((id) => [id, target.spare(id)] as const)),
       maxAllianceSize: 4,
     };
-  }
-  function inputFor(structure: DivisionedJointStructure, pool: JointLockRival[]): JointLockInput {
     const result = divisionedJointFrames(structure);
     if ("refused" in result) throw new Error(result.refused);
     return {
-      pool,
+      pool: target.pool,
       slotOnlyRivals: [],
       pointsSlots: 1,
-      alliances: [...structure.membersByAlliance].map(([allianceNumber, members]) => ({ allianceNumber, members, spareSeats: structure.finalsSpareByAlliance.get(allianceNumber)! })),
+      alliances: [...membersByAlliance].map(([allianceNumber, members]) => ({ allianceNumber, members, spareSeats: target.spare(allianceNumber) })),
       aliveAlliances: result.aliveAlliances,
       candidateWinners: result.candidateWinners,
       placementPoints: [75, 39, 21],
@@ -1572,37 +2146,68 @@ describe("divisionedJointFrames: specific real futures the frames must cover (26
       judgedAwardPoints: JUDGED,
       maxAllianceSize: 4,
       frames: result.frames,
+      seatGroups: divisions.map((division, index) => ({ alliances: division.alliances, eligible: [...target.groups[index]!] })),
     };
   }
+  const T: JointLockRival = { teamKey: "T", floor: 200, extra: 0 };
+  const three = (id: number, floor: number): JointLockRival[] => ["a", "b", "c"].map((suffix) => ({ teamKey: `t${id}${suffix}`, floor, extra: 0 }));
+  const rosterOf = (id: number, backup?: string): Set<string> => new Set([`t${id}a`, `t${id}b`, `t${id}c`, ...(backup === undefined ? [] : [backup])]);
+  const noAward = { consuming: new Set<string>(), judged: new Set<string>() };
 
-  it("another division's alliance is paid 90 plus the finalist's 30: alliance 11 wins everything, 21 wins its division and is the finalist", () => {
-    const structure = twoDivisionStructure(() => 0);
-    const pool: JointLockRival[] = [
-      { teamKey: "T", floor: 200, extra: 0 },
-      ...["t11a", "t11b", "t11c"].map((teamKey) => ({ teamKey, floor: 10, extra: 0 })),
-      ...["t21a", "t21b", "t21c"].map((teamKey) => ({ teamKey, floor: 85, extra: 0 })),
-    ];
-    const input = inputFor(structure, pool);
-    const paid = new Map<string, number>([
-      ...["t11a", "t11b", "t11c"].map((key) => [key, 150] as const),
-      ...["t21a", "t21b", "t21c"].map((key) => [key, 120] as const),
-    ]);
-    const real = divisionedTakers(input, "T", 200, { championRoster: new Set(["t11a", "t11b", "t11c"]), paid, consuming: new Set(), judged: new Set() });
+  it("T1: another division's alliance is paid 90 plus the finalist's 30: alliance 11 wins everything, 21 wins its division and is the finalist", () => {
+    const input = inputFor({ spare: () => 0, pool: [T, ...three(11, 10), ...three(21, 85)], groups: [[], []] });
+    const paid = new Map<string, number>([...three(11, 0).map((rival) => [rival.teamKey, 150] as const), ...three(21, 0).map((rival) => [rival.teamKey, 120] as const)]);
+    const real = divisionedTakers(input, "T", 200, { championRoster: rosterOf(11), paid, ...noAward });
     expect(real).toBe(6);
     expect(jointLockBound(input, "T")).toBeGreaterThanOrEqual(real);
   });
 
-  it("W's own division seat (reading R5 a): an unpicked team on 11's division roster, not its finals roster, is paid 90 while another takes the finals fill in", () => {
-    const structure = twoDivisionStructure((id) => (id === 11 ? 1 : 0));
-    const pool: JointLockRival[] = [
-      { teamKey: "T", floor: 200, extra: 0 },
-      { teamKey: "u", floor: 110, extra: 0 },
-      { teamKey: "v", floor: 0, extra: 0 },
-    ];
-    const input = inputFor(structure, pool);
-    // 11 wins its division with u as its backup (90), and the finals with v as its finals backup.
-    const real = divisionedTakers(input, "T", 200, { championRoster: new Set(["t11a", "t11b", "t11c", "v"]), paid: new Map([["u", 90]]), consuming: new Set(), judged: new Set() });
-    expect(real).toBe(2);
+  it("T2: the champion's one backup far below T takes a slot: 11 wins everything with v, a team of its own division, as its backup", () => {
+    const input = inputFor({ spare: (id) => (id === 11 ? 1 : 0), pool: [T, { teamKey: "v", floor: 0, extra: 0 }], groups: [["v"], []] });
+    const real = divisionedTakers(input, "T", 200, { championRoster: rosterOf(11, "v"), paid: new Map([["v", 150]]), ...noAward });
+    expect(real).toBe(1);
+    expect(jointLockBound(input, "T")).toBeGreaterThanOrEqual(real);
+  });
+
+  it("T3: a backup on an alive alliance of another division is paid its 90 plus 30: 21 wins division 2 with u as its one backup and is the finalist", () => {
+    const input = inputFor({ spare: (id) => (id === 21 ? 1 : 0), pool: [T, ...three(11, 10), { teamKey: "u", floor: 85, extra: 0 }], groups: [[], ["u"]] });
+    const paid = new Map<string, number>([...three(11, 0).map((rival) => [rival.teamKey, 150] as const), ["u", 120]]);
+    const real = divisionedTakers(input, "T", 200, { championRoster: rosterOf(11), paid, ...noAward });
+    expect(real).toBe(4);
+    expect(jointLockBound(input, "T")).toBeGreaterThanOrEqual(real);
+  });
+
+  it("T4 (reading P3): L, the listed fourth of alive alliance 12, was never on it and is champion 11's one backup", () => {
+    const input = inputFor({
+      listed: [12, "L"],
+      spare: (id) => (id === 11 || id === 12 ? 1 : 0),
+      pool: [T, ...three(11, 10), { teamKey: "L", floor: 0, extra: 0 }],
+      groups: [["L"], []],
+    });
+    const paid = new Map<string, number>([...three(11, 0).map((rival) => [rival.teamKey, 150] as const), ["L", 150]]);
+    const real = divisionedTakers(input, "T", 200, { championRoster: rosterOf(11, "L"), paid, ...noAward });
+    expect(real).toBe(4);
+    expect(jointLockBound(input, "T")).toBeGreaterThanOrEqual(real);
+  });
+
+  it("T5: a decided division winner's finals backup is paid the finals non champion value: 21 wins everything, decided winner 11 is the finalist with u as its finals backup", () => {
+    const input = inputFor({
+      divisionOneDecided: true,
+      spare: (id) => (id === 11 ? 1 : 0),
+      pool: [T, ...three(21, 10), { teamKey: "u", floor: 170, extra: 0 }],
+      groups: [["u"], []],
+    });
+    const paid = new Map<string, number>([...three(21, 0).map((rival) => [rival.teamKey, 150] as const), ["u", 30]]);
+    const real = divisionedTakers(input, "T", 200, { championRoster: rosterOf(21), paid, ...noAward });
+    expect(real).toBe(4);
+    expect(jointLockBound(input, "T")).toBeGreaterThanOrEqual(real);
+  });
+
+  it("T6 (reading P3 for T itself): T is the listed fourth of alive alliance 12 and was never on it; 12 wins everything without T", () => {
+    const input = inputFor({ listed: [12, "T"], spare: (id) => (id === 12 ? 1 : 0), pool: [T, ...three(12, 10)], groups: [["T"], []] });
+    const paid = new Map<string, number>(three(12, 0).map((rival) => [rival.teamKey, 150] as const));
+    const real = divisionedTakers(input, "T", 200, { championRoster: rosterOf(12), paid, ...noAward });
+    expect(real).toBe(3);
     expect(jointLockBound(input, "T")).toBeGreaterThanOrEqual(real);
   });
 });

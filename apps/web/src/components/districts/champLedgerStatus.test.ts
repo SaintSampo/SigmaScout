@@ -25,7 +25,7 @@ import { applyChampRangeState, champFinalsCeilingWithoutRow, computeChampLedgerS
 import { champCutoffView, type ChampRangeState } from "./champLedgerChances.js";
 import { SHOW_SIMULATED_CHAMP_LIKELY_RANGE, predictedCutoff, type LedgerCutoffView } from "./predictedCutoff.js";
 import { playoffPoints, routeBracket, type AllianceBracketMilestone, type PlayedBracketMatch } from "../../../../../packages/core/districts/bracket.js";
-import { jointLockBound, jointLockedTeamsMultiple, type JointLockInput } from "../../../../../packages/core/districts/champJointLock.js";
+import { jointLockBound, jointLockedTeams, jointLockedTeamsMultiple, type JointLockInput } from "../../../../../packages/core/districts/champJointLock.js";
 import {
   dcmpBracketFactsFor,
   dcmpBracketMilestonesByTeam,
@@ -1474,6 +1474,42 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
     expect(judgedAt(ALL_FINAL, 16, ALL_FINAL, 12)).toBe(2);
   });
 
+  it("261009-tx9 (the backup robot rule): one seat group per division in key order, eligible by division row and confirmed picks, a team with no division row named by no group", () => {
+    const model = modelAt(DIVISIONED, ROUND_FIVE_STAGES, roundFiveDistributions());
+    if (model.jointProof?.applied !== true || model.jointProof.shape === "multiple") throw new Error("not applied");
+    const { input } = model.jointProof;
+    const groups = input.seatGroups;
+    if (groups === undefined) throw new Error("the divisioned input carries no seat groups");
+    expect(groups).toHaveLength(2);
+    expect(groups[0]!.alliances).toEqual([11, 12, 13, 14, 15, 16, 17, 18]);
+    expect(groups[1]!.alliances).toEqual([21, 22, 23, 24, 25, 26, 27, 28]);
+    for (const alliance of input.alliances) expect(groups.filter((group) => group.alliances.includes(alliance.allianceNumber))).toHaveLength(1);
+    for (const group of groups) expect([...group.eligible]).toEqual([...group.eligible].sort());
+    // Reading P3: the listed fourth of placed alliance 13, at 0 points, is not its member and is eligible in division 1's group.
+    expect(input.alliances.find((alliance) => alliance.allianceNumber === 13)!.members).not.toContain(others[25]!);
+    expect(groups[0]!.eligible).toContain(others[25]!);
+    // A team already on an alliance is never a backup: no confirmed pick of any alliance is eligible anywhere.
+    const confirmedPicks = DIV1_ALLIANCES.flatMap((alliance) => alliance.picks);
+    expect(confirmedPicks).toHaveLength(24);
+    for (const pick of confirmedPicks) for (const group of groups) expect(group.eligible).not.toContain(pick);
+    // The fixture gives that listed fourth its row at division 2's key, so it is the LISTING that names it in group 1:
+    // a pick an alliance lists and has not confirmed is named row or no row. Every other team a group names has a row
+    // at that group's division key.
+    const rowAt = (teamKey: string, eventKey: string): boolean => DIVISIONED.teams.find((team) => team.teamKey === teamKey)!.eventPoints.some((row) => row.eventKey === eventKey);
+    expect(rowAt(others[25]!, DIV1)).toBe(false);
+    for (const key of groups[0]!.eligible) if (key !== others[25]!) expect(rowAt(key, DIV1), key).toBe(true);
+    for (const key of groups[1]!.eligible) expect(rowAt(key, DIV2), key).toBe(true);
+    // Reading P4: a team with no division row is named by no group. The proof then offers it every group's seats.
+    expect(ROWLESS.size).toBeGreaterThan(0);
+    for (const key of ROWLESS) for (const group of groups) expect(group.eligible).not.toContain(key);
+    // Reading P3: the four listed picks of alive alliance 21, whose points are not posted, are all its members and all eligible in group 2.
+    const alive = input.alliances.find((alliance) => alliance.allianceNumber === 21)!;
+    expect(alive.members).toHaveLength(4);
+    for (const member of alive.members) expect(groups[1]!.eligible).toContain(member);
+    // The proof the status hands the tab is the bound over these groups.
+    expect([...model.jointProof.locked].sort()).toEqual([...jointLockedTeams(input)].sort());
+  });
+
   it("refuses unsupportedShape for three divisions", () => {
     const third = new Set(others.slice(0, 9));
     const three: DistrictArtifact = DistrictArtifactSchema.parse({
@@ -1527,6 +1563,9 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
     expect(first!.pool.some((rival) => rival.teamKey === atSecond)).toBe(false);
     // Confirmed pick membership on each championship (orchestrator decision): a pick with no points at the key is no member there.
     for (const input of [first!, second!]) for (const alliance of input.alliances) expect(alliance.spareSeats).toBe(MAX_WINNING_ALLIANCE_SIZE - alliance.members.length);
+    // Quick task 261009-tx9 leaves this shape alone: no seat groups, so each championship's bound is the shipped one.
+    expect(first!.seatGroups).toBeUndefined();
+    expect(second!.seatGroups).toBeUndefined();
     expect([...model.jointProof.locked].sort()).toEqual([...jointLockedTeamsMultiple(model.jointProof.championships, model.pointsSlots)].sort());
     expect(modelAt(TWO, stages, distributions(false)).jointProof).toEqual({ applied: false, reason: "noBracketFacts" });
   });
@@ -1542,5 +1581,7 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
       expect(alliance.members).toEqual([]);
       expect(alliance.spareSeats).toBe(4);
     }
+    // Quick task 261009-tx9 leaves the single shape alone: no seat groups.
+    expect(model.jointProof.input.seatGroups).toBeUndefined();
   });
 });
