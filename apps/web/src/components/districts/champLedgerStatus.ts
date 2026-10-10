@@ -992,10 +992,12 @@ function divisionedJointProof(
   //   divided by one award's value.
   //
   // THE FLAG ALONE IS NOT TRUSTED, which is why a final division is not simply
-  // 0. The Worker sets `awardsPosted` on the first award of ANY kind TBA lists
-  // for the event (`apps/worker/src/districtRefresh.ts`, `awards.length > 0`)
-  // and never asks again, so a division's Winner and Finalist awards can flip
-  // it while its judged awards are still due. With the flag true and no award
+  // 0. Since quick task 261009-r9x the Worker turns `awardsPosted` true at the
+  // first judged award whose points are in the district rankings
+  // (`packages/core/districts/eventAwards.ts`), and no longer on the first
+  // award of any kind. Judged awards listed after that first batch can still
+  // follow, so a true flag still does not say every judged award is in. That
+  // is why the remaining budget rule stays: with the flag true and no award
   // points posted the division keeps its whole 14; with 12 posted it keeps 2.
   // Measured over the 40 division events of 2023 to 2026: every awarded row is
   // exactly one judged award (15 points) and a division gives 11 or 12.

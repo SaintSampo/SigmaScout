@@ -172,9 +172,11 @@
  * builds it, quick task 261009-pgq: the whole ceiling K for a division whose
  * Awards are open, and K minus the teams already carrying award points there,
  * never below 0, for a division whose Awards read final, because that flag
- * flips on the first award listed and the posted points are already in the
- * floors; a rival can win only its own division's, so sharing is a
- * relaxation). The real champion is some candidate W; in W's
+ * turns true at the first judged award whose points are in the rankings
+ * (quick task 261009-r9x), so later judged awards can still follow, and the
+ * posted points are already in the floors; a rival can win only its own
+ * division's, so sharing is a relaxation). The real champion is some
+ * candidate W; in W's
  * division the real placements are dominated by an enumerated assignment; in
  * every other division no alliance is paid more than its fixed value; decided
  * values are maxima; awards, seats, fill ins and the one slot per rival as in

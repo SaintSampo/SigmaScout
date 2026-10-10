@@ -933,30 +933,77 @@ the live-windows manifest the tick already read — every window entry now carri
 processed (foldable plus promoted), so a calendar probe window that has never promoted does not
 spend a district's TBA request.
 
-**What it does, per live district, in this order:**
+**What it does, per live district, in this order** (the awards steps were rewritten by quick task
+261009-r9x, 2026-10-09):
 
 1. One conditional `GET /district/{key}/rankings`, sending `If-None-Match` from the district's own
-   cursor. This comes FIRST, before any R2 read, so a 304 with nothing else moving costs one TBA
-   request and **zero** R2 reads.
-2. The published `v1/district/{key}.json` is read back from R2 only when something moved — either
-   the rankings changed, or a member event's own state did.
-3. The shared merge (`packages/harness/districtRankingsMerge.ts`) applies the new rankings and the
-   per-event state facts, and recomputes the `locks.ts` verdicts. The Worker has no corpus, so it
-   can only merge into what the offline publisher already wrote: a **missing** district artifact is
-   skipped with a `district-artifact-missing` warn and never created, and an **empty** rankings
-   payload throws inside the merge before any row is touched, so a published district can be
-   neither invented nor blanked.
-4. At most one conditional `GET /event/{key}/awards` per live member event, and only once that
-   event's playoffs are done. A district artifact that already publishes `awardsPosted: true` for
-   an event is never asked again — awards do not un-post.
-5. The candidate is compared with the existing object by serialization, with the existing
+   cursor. This comes FIRST, before any R2 read.
+2. One conditional `GET /event/{key}/awards` for every live member event that has an awards cursor
+   row, sending the ETag that row holds (a row holding a null ETag is asked with none). A 200 means
+   the event's awards list changed. A 304 means no awards news from that event.
+3. **The gate.** The district goes on only when the rankings changed, or a member event has a match
+   observation this tick, or an awards list changed. Otherwise nothing moved: the district is
+   counted unchanged and **zero** R2 reads are made. A quiet district therefore costs one
+   conditional rankings request plus one conditional awards request per event with a cursor row.
+4. The published `v1/district/{key}.json` is read back from R2.
+5. For each member event whose playoffs are done and whose `awardsPosted` flag still waits, and
+   that has no list in hand (its request in step 2 answered 304, or it has no cursor row yet), one
+   `GET /event/{key}/awards` with **no** `If-None-Match`, so the rule below has the list to read.
+   This is the only unconditional awards request, and it happens only on a tick that already read
+   the artifact. An event whose flag is already true and that has no cursor row (the offline
+   publisher set the flag) is asked once the same way, which gives it a row.
+6. The shared merge (`packages/harness/districtRankingsMerge.ts`) applies the new rankings and the
+   per-event state facts, then the awards step, then recomputes the `locks.ts` verdicts. The Worker
+   has no corpus, so it can only merge into what the offline publisher already wrote: a **missing**
+   district artifact is skipped with a `district-artifact-missing` warn and never created, and an
+   **empty** rankings payload throws inside the merge before any row is touched, so a published
+   district can be neither invented nor blanked.
+7. The candidate is compared with the existing object by serialization, with the existing
    artifact's own generation and timestamp held constant. Equal means nothing moved and nothing is
    written.
-6. ETag cursors are written **last**, only after the put that earns the right to stop asking.
+8. ETag cursors are written **last**, only after the put that earns the right to stop asking. The
+   awards cursors are written before the rankings cursor: if an awards cursor write throws, the
+   rankings cursor is left unwritten, so the next tick's rankings request is a 200 again and the
+   district passes the gate again.
 
-**Every step for one district sits inside that district's own error isolation.** One bad district
-costs one warn line and one failed count; it cannot cost the tick its other districts, and it
-cannot cost the tick its rotation offset. The pass never throws and never simulates.
+**When an event's awards read as posted.** `awardsPosted` turns true only once the awards list
+holds an award other than Winner and Finalist AND some team's row at that event carries award
+points in the rankings as merged that tick. Until then the event keeps being asked: conditionally
+before the gate on every tick, and with no ETag on any tick that reads the artifact. A published
+true stays true. The rule lives in `packages/core/districts/eventAwards.ts` and the offline
+publisher reads the same function, where either fact alone is enough because the corpus is ingested
+after the event.
+
+This matters because the Locks guarantee holds slots back until an event's awards are done. Before
+261009-r9x the flag turned true on the first award of any kind and the event was never asked
+again, so a list holding only Winner and Finalist released the held slots while the Impact award
+was still due.
+
+**The winners are written in the same put.** Every awards list that reaches the merge is merged,
+whether or not the flag turns true that tick: each recipient that is a team of the district gets
+its `qualifyingAwards` entry, built by the same function the offline publisher uses. So the flag,
+the winner records, `districtLock` and `champLock` land in one R2 write. Entries are appended and
+never removed. A District Championship division records nothing, as in the publisher. While an
+Impact winner is recorded and the flag still waits on its points, the published verdict both
+counts that winner and still holds the event's slot back. That is the cautious side: it never
+publishes a Locked that is not true. In that window a team the published verdict locked on points
+one tick earlier can read contending, and it reads locked again on the tick the points arrive. No
+page renders the published `districtLock` or `champLock` status. The Locks tabs compute their own
+and do not do this, because they read each award against its own event's stage.
+
+**A failed awards request is not fatal.** A request that throws, answers a status other than 200
+or 304, or returns a body that fails the schema costs one `district-awards-poll-failed` warn and
+nothing else: that event has no awards news this tick, its flag is unchanged, it is not asked a
+second time, and the rankings merge for the district goes ahead. `districtsFailed` is not
+incremented. When the event's flag is not yet true, its awards cursor row is written with a null
+ETag at the end of the tick (created if absent). The next tick asks that row with no ETag before
+the gate, so the retry passes the gate by itself. An event whose flag is already true keeps its
+row: its next conditional request is the retry.
+
+**Every step for one district sits inside that district's own error isolation**, and every awards
+request sits inside its own within that. One bad district costs one warn line and one failed count;
+it cannot cost the tick its other districts, and it cannot cost the tick its rotation offset. The
+pass never throws and never simulates.
 
 **Two reserved `event_cursor` key shapes** are written by this pass, and an operator reading the
 `event_cursor` table will meet both:
@@ -964,23 +1011,36 @@ cannot cost the tick its rotation offset. The pass never throws and never simula
 | Key shape | Holds |
 |---|---|
 | `__district_rankings__:{districtKey}` | the district rankings ETag |
-| `__event_awards__:{eventKey}` | the event awards ETag |
+| `__event_awards__:{eventKey}` | the ETag of the last awards list the pass merged, whatever the flag says. A null ETag is a retry marker left by a failed request, and is asked with no ETag |
 
 Both are refused by `emitCursorSeedSql`, so a D1 seed cannot clobber either. Neither is owed before
-a deploy: the tick writes them itself and they are meant to be absent until it runs.
+a deploy: the tick writes them itself and they are meant to be absent until it runs. A row left by
+the Worker as it was before 261009-r9x holds an ETag and simply continues as a conditional request.
 
 **New log lines to filter on:** `district-refreshed` (`districtKey`, `bytes`, `teams`),
 `district-refresh-failed` (`districtKey`, `error`), `district-artifact-missing` (`districtKey`,
-`key`) and `district-key-rejected` (`districtKey`).
+`key`), `district-key-rejected` (`districtKey`) and `district-awards-poll-failed` (`districtKey`,
+`eventKey`, `reason`).
 
 ### Known freshness limit, recorded rather than fixed
 
-**Awards that post after every member event's live window has closed do not appear until the next
-offline republish.** An event's live window is padded one hour past the last match observed there
-(`LIVE_WINDOW_PAD_MS` in `packages/harness/manifestSchemas.ts`), so an award ceremony later that
-night falls outside it and the tick never asks. This is a consequence of how the window is defined,
-not a defect in the pass. The same limit is stated for a reader on
+**Awards, and the award points that go with them, that post after every member event's live window
+has closed do not appear until the next offline republish.** An event's live window is padded one
+hour past the last match observed there (`LIVE_WINDOW_PAD_MS` in
+`packages/harness/manifestSchemas.ts`), so an award ceremony later that night falls outside it and
+the tick never asks. In that case the flag stays false, so the reservations stay held and no team
+reads Locked on a slot an award could still take. This is a consequence of how the window is
+defined, not a defect in the pass. The same limit is stated for a reader on
 `/methodology/district-points` and is the last of the seven limits listed there.
+
+**An event with no awards cursor row whose district is quiet may not be asked again while it stays
+quiet.** Step 2 asks only events that have a row, and step 5 runs only once the gate has passed.
+For an event whose flag still waits and whose playoffs are done, every path through the pass leaves
+a row (the ETag of a merged list, or a retry marker), so the one way left to get there is a D1
+cursor write failing on the same tick an awards request failed, or on the tick its first list was
+merged, while the rankings answered 304. The flag stays false in that case. An event whose flag
+the offline publisher set true has no row until the first tick that passes the gate, so an award
+listed for it before then is recorded on that tick and not earlier.
 
 ---
 

@@ -36,6 +36,19 @@
  * moving an event's awards back to open turns that event from consuming into
  * reserving in the same step.
  *
+ * ONE PLACE DOES HOLD A SLOT TWICE, ON PURPOSE (quick task 261009-r9x). The
+ * live Worker records an Impact winner as soon as TBA lists it, while the
+ * event's flag still waits for the award points to reach the district
+ * rankings, so in that window the PUBLISHED verdict
+ * (`packages/harness/districtRankingsMerge.ts`) both consumes the recorded
+ * winner's slot and still reserves one for the event. That is the
+ * conservative side: it never publishes a Locked that is not true. It can
+ * delay a Locked, and it can take back a Locked that the published verdict
+ * gave on points a tick earlier, until the points arrive. No page renders
+ * the published verdict. The browser computes its own, and it never holds a
+ * slot twice, because it gates each award on its own event's stage, so there
+ * an event consumes or reserves and never both.
+ *
  * ---------------------------------------------------------------------------
  * THE CANCELLED CARVE OUT
  * ---------------------------------------------------------------------------
@@ -114,7 +127,7 @@ export const ALL_CATEGORIES_OPEN: DistrictCategoryFinality = { qual: false, alli
  * An event's stages happen in a fixed physical order. Alliance selection
  * cannot start before qualification ends, playoffs cannot finish before
  * alliances are picked, and awards are posted at the closing ceremony after
- * the playoffs. The Worker requests `/event/{key}/awards` only once
+ * the playoffs. The Worker first requests `/event/{key}/awards` only once
  * `playoffsDone` is true (`apps/worker/src/districtRefresh.ts`). So a later
  * stage's fact closes every earlier category:
  *

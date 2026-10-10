@@ -595,10 +595,13 @@ export type DistrictEventAwardsByEvent = ReadonlyMap<string, readonly DistrictEv
  * while the flag still waits on its points. In that second window the
  * PUBLISHED verdict holds that event's slot twice: the recorded winner
  * consumes one through `awardQualifiedSets`, and the event still reserves
- * one because its flag is false. That is the conservative side. Only the
- * Locked test reads the reservation, so only Locked is delayed, and it ends
- * on the tick the points arrive. The browser never does this: it gates each
- * award on its own event's stage.
+ * one because its flag is false. That is the conservative side: it never
+ * publishes a Locked that is not true. Only the Locked test reads the
+ * reservation, so only Locked moves: a Locked can be delayed, and a team the
+ * published verdict locked on points a tick earlier can read contending
+ * until the points arrive (pinned in `districtRankingsMerge.test.ts`). No
+ * page renders the published verdict. The browser computes its own and
+ * never does this: it gates each award on its own event's stage.
  */
 export function applyDistrictEventAwards(artifact: DistrictArtifact, eventAwards: DistrictEventAwardsByEvent): DistrictArtifact {
   if (eventAwards.size === 0) return artifact;

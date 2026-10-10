@@ -1246,6 +1246,13 @@ describe("applyDistrictEventAwards: the awards flag waits for a judged award and
       expect(districtStatuses(out).frcC).toBe("lockedAward");
       expect(districtStatuses(out).frcA).not.toBe("locked");
       expect(districtStatuses(out).frcB).not.toBe("locked");
+      // PINNED AS EXECUTED, and worth knowing: A read locked one list earlier
+      // (the Winner and Finalist case above) and reads contending here. The
+      // published verdict takes that Locked back for this window and returns
+      // it when the points arrive. It never claims a Locked that is not true,
+      // and no page renders the published verdict: the Locks tabs compute
+      // their own, gating each award on its own event stage.
+      expect(districtStatuses(out)).toEqual({ frcA: "contending", frcB: "eliminated", frcC: "lockedAward" });
     });
   });
 });
