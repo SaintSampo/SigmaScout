@@ -28,6 +28,13 @@
  * alliance to two wins among the played rows. A tie carries no winner and is
  * no decision. An alliance at the needed wins decides the set; both alliances
  * at the needed wins is a mis-mapped series and is refused.
+ *
+ * A LONE DIVISION KEY IS NOT A SINGLE CHAMPIONSHIP (quick task 261010-66y,
+ * D2). At a live championship TBA can post one division's rows before any
+ * other row of that championship, and the artifact learns a key only from
+ * rows. `championshipShape` calls such a key set unsupported, so the single
+ * event proof never runs on one division as if it were the whole
+ * championship.
  */
 import {
   bracketDecisionKey,
@@ -190,6 +197,12 @@ export type ChampionshipShape =
  * keys is DIVISIONED (the parent is the finals); several stems each holding
  * exactly one key is MULTIPLE (2026 California); no key is `none`; anything
  * else is unsupported and the caller keeps the shipped path.
+ *
+ * A stem whose ONLY member is a digit suffixed key (a division without its
+ * siblings or its finals event) is unsupported, not single (quick task
+ * 261010-66y, D2). No published district holds such a key set: over the 109
+ * local district artifacts every digit suffixed dcmp key sits beside its
+ * parent.
  */
 export function championshipShape(dcmpEventKeys: readonly string[]): ChampionshipShape {
   const keys = [...new Set(dcmpEventKeys)].sort();
@@ -203,7 +216,10 @@ export function championshipShape(dcmpEventKeys: readonly string[]): Championshi
   }
   if (byStem.size === 1) {
     const [stem, members] = [...byStem][0]!;
-    if (members.length === 1) return { kind: "single", key: members[0]! };
+    if (members.length === 1) {
+      if (members[0] !== stem) return { kind: "unsupported", detail: `a division without its siblings or its finals event (${members[0]!})` };
+      return { kind: "single", key: members[0]! };
+    }
     const divisionKeys = members.filter((key) => key !== stem).sort();
     if (!members.includes(stem)) return { kind: "unsupported", detail: `divisions without their finals event (${members.join(", ")})` };
     if (divisionKeys.length !== 2 && divisionKeys.length !== 4) {

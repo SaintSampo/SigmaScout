@@ -62,6 +62,15 @@ describe("perChampionship — divisions fold into their parent, separate champio
     expect([...perChampionship(byEvent, "open")]).toEqual([["2026txcmp", "open"]]);
   });
 
+  it("gives a lone division key the fallback at its stem, never its own value (quick task 261010-66y, D2)", () => {
+    // One division says nothing about its championship's finals: the
+    // championship's stage is the finals', and nothing about them is final.
+    expect([...perChampionship(new Map([["2026micmp1", "d1"]]), "open")]).toEqual([["2026micmp", "open"]]);
+    expect([...perChampionship(new Map([["2026necmp2", "d2"]]), "open")]).toEqual([["2026necmp", "open"]]);
+    // Beside another championship's own key each is read on its own.
+    expect(new Map(perChampionship(new Map([["2026micmp1", "d1"], ["2026pncmp", "x"]]), "open"))).toEqual(new Map([["2026micmp", "open"], ["2026pncmp", "x"]]));
+  });
+
   it("reads a lone single-event championship at its own value", () => {
     expect([...perChampionship(new Map([["2026pncmp", "x"]]), "open")]).toEqual([["2026pncmp", "x"]]);
     expect(perChampionship(new Map(), "open").size).toBe(0);

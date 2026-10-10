@@ -45,6 +45,7 @@ import {
   champContributions,
   champDcmpStageSource,
   champFieldMembership,
+  champFieldProofAtNow,
   champTeamHiddenAtDcmp,
   dcmpEventKeyFor,
   dcmpStartedForTeam,
@@ -1619,3 +1620,114 @@ describe("buildChampLedgerRows forwards the field's stage to both tier passes (q
     expect("notPicked" in cellOf(built().dcmpRow.cells, "elim")).toBe(false);
   });
 });
+
+describe("buildChampLedgerRows: a team with no championship row reads out only once the field is proven (quick task 261010-66y, D1)", () => {
+  const D1 = "2026necmp1";
+  const D2 = "2026necmp2";
+  const NOW_YEAR = 2026;
+  const inProgress = state({ qualMatchesPlayed: 30, alliancesPicked: false, playoffsDone: false, awardsPosted: false });
+  const dcmpRowAt = (eventKey: string) => eventPoints({ eventKey, tier: "dcmp", week: 5, qual: 30, alliance: 0, elim: 0, award: 0, total: 30, state: inProgress });
+  const districtRow = eventPoints({ eventKey: "2026wabon", week: 0, total: 40, qual: 20, alliance: 10, elim: 10, award: 0 });
+  const estimate = { distribution: { counts: Float64Array.from([0, 0, 0, 0, 0, 1, 1]), denominator: 2 }, winChance: 0.25 };
+
+  /** frc1 and frc2 play division 1. frc3 and frc4 play division 2. frc5 attends neither. */
+  function artifactWith(postedDivisions: readonly string[]): DistrictArtifact {
+    const at = (teamKey: string, division: string) =>
+      team({ teamKey, pointTotal: postedDivisions.includes(division) ? 70 : 40, eventPoints: postedDivisions.includes(division) ? [districtRow, dcmpRowAt(division)] : [districtRow] });
+    return artifactOf([at("frc1", D1), at("frc2", D1), at("frc3", D2), at("frc4", D2), team({ teamKey: "frc5", pointTotal: 40, eventPoints: [districtRow] })], { dcmpSlots: 4 });
+  }
+  const ONE_POSTED = artifactWith([D1]);
+  const BOTH_POSTED = artifactWith([D1, D2]);
+  const chances = new Map([["frc3", 0.6], ["frc4", 0.5], ["frc5", 0.1]]);
+  const estimates = new Map(["frc1", "frc2", "frc3", "frc4", "frc5"].map((teamKey) => [teamKey, estimate] as const));
+  const byKey = (rows: ReturnType<typeof buildChampLedgerRows>) => new Map(rows.teams.map((entry) => [entry.teamKey, entry] as const));
+
+  it("premise: one division posted of two reads unproven after a start, both posted reads proven by capacity", () => {
+    expect(champFieldProofAtNow(ONE_POSTED, new Set([D1]), NOW_YEAR)).toMatchObject({ proven: false, unprovenAfterStart: true, postedTeams: 2, fieldFixingKeys: [D1] });
+    expect(champFieldProofAtNow(BOTH_POSTED, new Set([D1, D2]), NOW_YEAR)).toMatchObject({ proven: true, completeBy: "capacity", unprovenAfterStart: false, postedTeams: 4 });
+    // Before any field fixing key has started nothing is claimed about the field.
+    expect(champFieldProofAtNow(ONE_POSTED, new Set(), NOW_YEAR)).toMatchObject({ proven: false, unprovenAfterStart: false });
+  });
+
+  it("live, one division posted and started: a team with no row reads open with its field chance and the estimate row, and fieldProven is false", () => {
+    const rows = buildChampLedgerRows({ artifact: ONE_POSTED, distributions: new Map(), atLivePosition: true, nowYear: NOW_YEAR, fieldChanceByTeam: chances, dcmpEstimateByTeam: estimates });
+    expect(rows.fieldProven).toBe(false);
+    const teams = byKey(rows);
+    for (const teamKey of ["frc3", "frc4", "frc5"]) {
+      const entry = teams.get(teamKey)!;
+      expect({ teamKey, membership: entry.membership, fieldChance: entry.fieldChance, estimated: entry.dcmpRow.estimated }).toEqual({ teamKey, membership: "open", fieldChance: chances.get(teamKey), estimated: true });
+      expect(entry.dcmpRow.cells.every((cell) => cell.kind === "notYetPriced")).toBe(true);
+      expect(entry.dcmpRow.subtotal.kind).toBe("open");
+    }
+    // A team with its own row is in the field, as before.
+    for (const teamKey of ["frc1", "frc2"]) expect(teams.get(teamKey)!.membership).toBe("in");
+    expect(rows.gaps.teamsWithoutFieldChance).toEqual([]);
+  });
+
+  it("live, both divisions posted and started with the field proven: the team with no row reads out, and fieldProven is true", () => {
+    const rows = buildChampLedgerRows({ artifact: BOTH_POSTED, distributions: new Map(), atLivePosition: true, nowYear: NOW_YEAR, fieldChanceByTeam: chances, dcmpEstimateByTeam: estimates });
+    expect(rows.fieldProven).toBe(true);
+    const teams = byKey(rows);
+    expect(teams.get("frc5")!.membership).toBe("out");
+    expect(teams.get("frc5")!.dcmpRow.cells.every((cell) => cell.kind === "notInField")).toBe(true);
+    for (const teamKey of ["frc1", "frc2", "frc3", "frc4"]) expect(teams.get(teamKey)!.membership).toBe("in");
+  });
+
+  it("at a rewound position both artifacts read as they always did: the started keys alone decide, and fieldProven is true", () => {
+    for (const [artifact, started] of [[ONE_POSTED, [D1]], [BOTH_POSTED, [D1, D2]]] as const) {
+      const rewound = buildChampLedgerRows({ artifact, distributions: new Map(), atLivePosition: false, startedDcmpEventKeys: new Set(started), nowYear: NOW_YEAR, fieldChanceByTeam: chances });
+      expect(rewound.fieldProven).toBe(true);
+      // The rule a rewound position has always read: out once every field fixing key on the artifact has started.
+      expect(byKey(rewound).get("frc5")!.membership).toBe("out");
+      // And the proven flag supplied as true changes nothing there.
+      const supplied = buildChampLedgerRows({ artifact, distributions: new Map(), atLivePosition: false, startedDcmpEventKeys: new Set(started), nowYear: NOW_YEAR, fieldChanceByTeam: chances, fieldProven: true });
+      expect(supplied).toEqual(rewound);
+    }
+    expect(byKey(buildChampLedgerRows({ artifact: ONE_POSTED, distributions: new Map(), atLivePosition: false, startedDcmpEventKeys: new Set([D1]), nowYear: NOW_YEAR })).get("frc3")!.membership).toBe("out");
+  });
+
+  it("before any field fixing key has started fieldProven is true and the rows are the rows a proven field gives", () => {
+    const notStarted = state({ qualMatchesPlayed: 0, alliancesPicked: false, playoffsDone: false, awardsPosted: false });
+    const artifact = artifactOf(
+      ONE_POSTED.teams.map((entry) => ({ ...entry, eventPoints: entry.eventPoints.map((row) => (row.tier === "dcmp" ? { ...row, state: notStarted } : row)) })),
+      { dcmpSlots: 4 }
+    );
+    const rows = buildChampLedgerRows({ artifact, distributions: new Map(), atLivePosition: true, nowYear: NOW_YEAR, fieldChanceByTeam: chances });
+    expect(rows.fieldProven).toBe(true);
+    expect(rows).toEqual(buildChampLedgerRows({ artifact, distributions: new Map(), atLivePosition: true, nowYear: NOW_YEAR, fieldChanceByTeam: chances, fieldProven: true }));
+    expect(byKey(rows).get("frc5")!.membership).toBe("open");
+  });
+
+  it("uses a supplied fieldProven as given", () => {
+    const held = buildChampLedgerRows({ artifact: BOTH_POSTED, distributions: new Map(), atLivePosition: true, nowYear: NOW_YEAR, fieldChanceByTeam: chances, fieldProven: false });
+    expect(held.fieldProven).toBe(false);
+    expect(byKey(held).get("frc5")!.membership).toBe("open");
+    const released = buildChampLedgerRows({ artifact: ONE_POSTED, distributions: new Map(), atLivePosition: true, nowYear: NOW_YEAR, fieldChanceByTeam: chances, fieldProven: true });
+    expect(released.fieldProven).toBe(true);
+    expect(byKey(released).get("frc5")!.membership).toBe("out");
+  });
+
+  it("dcmpStartedForTeam: a team with no row is not settled while the field is not proven, and a team with its own row never asks", () => {
+    const rowless = team({ teamKey: "frc9" });
+    expect(dcmpStartedForTeam(rowless, new Set([D1]), [D1])).toBe(true);
+    expect(dcmpStartedForTeam(rowless, new Set([D1]), [D1], true)).toBe(true);
+    expect(dcmpStartedForTeam(rowless, new Set([D1]), [D1], false)).toBe(false);
+    const own = team({ teamKey: "frc8", eventPoints: [dcmpRowAt(D1)] });
+    expect(dcmpStartedForTeam(own, new Set([D1]), [D1], false)).toBe(true);
+    expect(dcmpStartedForTeam(own, new Set(), [D1], false)).toBe(false);
+  });
+
+  it("the season over line reads the year it is handed: the 2020 shape is proven in 2026 and not in 2020", () => {
+    const awardsOnly = state({ qualMatchesPlayed: 0, qualMatchesTotal: null, alliancesPicked: false, playoffsDone: false, awardsPosted: true });
+    const artifact = artifactOf(
+      [
+        team({ teamKey: "frc1", eventPoints: [eventPoints({ eventKey: "2020pncmp", tier: "dcmp", qual: 0, alliance: 0, elim: 0, award: 30, total: 30, state: awardsOnly })] }),
+        team({ teamKey: "frc2", eventPoints: [eventPoints({ eventKey: "2020wasno", state: state() })] }),
+      ],
+      { year: 2020, districtKey: "2020pnw", dcmpSlots: 64 }
+    );
+    expect(champFieldProofAtNow(artifact, new Set(["2020pncmp"]), 2026)).toMatchObject({ proven: true, completeBy: "seasonOver" });
+    expect(champFieldProofAtNow(artifact, new Set(["2020pncmp"]), 2020)).toMatchObject({ proven: false, unprovenAfterStart: true });
+  });
+});
+

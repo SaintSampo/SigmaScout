@@ -138,6 +138,7 @@ import {
   champContributions,
   champDcmpStageSource,
   champFieldMembership,
+  champFieldProofAtNow,
   champTeamHiddenAtDcmp,
   champTierEvents,
   dcmpEventKeysFor,
@@ -426,6 +427,17 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   const startedDcmpKeysNow = useMemo(() => new Set(dcmpEventKeys.filter((key) => startedKeys.includes(key))), [dcmpEventKeys, startedKeys]);
 
   /**
+   * THE FIELD PROOF AT NOW, once per artifact (quick task 261010-66y): the
+   * artifact learns a championship key only from team rows, so at a live
+   * championship a division or a second championship TBA has not posted yet
+   * is invisible. Every reader of the field below takes the one flag derived
+   * from this, `fieldProven`. The year is the clock's, for the season over
+   * line; a tab left open across 1 January reads the old year until reload,
+   * which keeps that line off.
+   */
+  const fieldProofNow = useMemo(() => champFieldProofAtNow(artifact, startedDcmpKeysNow, new Date().getUTCFullYear()), [artifact, startedDcmpKeysNow]);
+
+  /**
    * The artifact's own rookie flag per team, for the Awards drawer's outcome
    * list: a veteran's Rookie All Star row is OMITTED rather than printed at
    * zero, because a veteran cannot win it and the draw consumes no randomness
@@ -453,6 +465,9 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   );
   const positionIndex = resolveDistrictTimelinePosition(timeline, search.at);
   const atNow = positionIndex >= timeline.nowIndex;
+  // True at every rewound position; at Now false exactly while some field
+  // fixing key has started and the field is not proven (quick task 261010-66y).
+  const fieldProven = !atNow || !fieldProofNow.unprovenAfterStart;
 
   const stageByEvent = useMemo(
     () => districtStageAtPosition(timeline, positionIndex, nowStageByEvent),
@@ -730,12 +745,12 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
       fieldChanceFor: (teamKey) => {
         const team = sourceByKey.get(teamKey);
         if (team === undefined) return undefined;
-        const membership = champFieldMembership(team, dcmpStartedForTeam(team, startedDcmpEventKeys, dcmpEventKeys), atNow);
+        const membership = champFieldMembership(team, dcmpStartedForTeam(team, startedDcmpEventKeys, dcmpEventKeys, fieldProven), atNow);
         return membership === "in" ? 1 : membership === "out" ? 0 : fieldChanceByTeam.get(teamKey);
       },
       spreadScale: champCutoffTuning(artifact.year).setting.spreadScale,
     });
-  }, [artifact, districtRows.teams, startedDcmpEventKeys, dcmpEventKeys, atNow, fieldChanceByTeam]);
+  }, [artifact, districtRows.teams, startedDcmpEventKeys, dcmpEventKeys, atNow, fieldChanceByTeam, fieldProven]);
 
   /**
    * ALWAYS a map, empty until the estimate is ready: with one supplied the
@@ -750,15 +765,16 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
         fieldChanceByTeam,
         startedDcmpEventKeys,
         atLivePosition: atNow,
+        fieldProven,
         dcmpEstimateByTeam: estimates.kind === "ready" ? estimates.byTeam : NO_ESTIMATES,
         ...(simulatedDcmp === undefined ? {} : { simulatedDcmp }),
       }),
-    [passOptions, fieldChanceByTeam, startedDcmpEventKeys, atNow, estimates, simulatedDcmp]
+    [passOptions, fieldChanceByTeam, startedDcmpEventKeys, atNow, fieldProven, estimates, simulatedDcmp]
   );
 
   const statuses = useMemo(
-    () => computeChampLedgerStatuses({ artifact, teams: rows.teams, districtLockedOut, distributions: data.distributions }),
-    [artifact, rows.teams, districtLockedOut, data.distributions]
+    () => computeChampLedgerStatuses({ artifact, teams: rows.teams, districtLockedOut, distributions: data.distributions, fieldProven }),
+    [artifact, rows.teams, districtLockedOut, data.distributions, fieldProven]
   );
 
   /** The DCMP award draws AT THE POSITION: the rail's stages when rewound, each event's own `state` block at now. */

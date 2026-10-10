@@ -158,6 +158,40 @@
  *    (`perChampionship`): the finals event's own at a divisioned
  *    championship, never a division's.
  *
+ * 7. THE PROVEN FIELD (quick task 261010-66y). The artifact learns a
+ *    championship key only from team rows, so at a LIVE championship a
+ *    division or a second championship TBA has not posted yet is invisible
+ *    (`packages/core/districts/dcmpFieldProof.ts`). The row model resolves
+ *    one flag, `rows.fieldProven`, and this module takes it as the
+ *    `fieldProven` option. While it is false:
+ *
+ *    - a team with no championship row arrives here as `open`, not `out`,
+ *      and so reaches the one hypothetical championship branch on its two
+ *      existing gates (not already at a championship, not locked out by the
+ *      district tier);
+ *    - that hypothetical championship carries a finals as well, the whole
+ *      dcmp Playoffs ceiling (`hypotheticalFinalsCeiling`). It is what the
+ *      team will carry the moment its division's rows land, by the last
+ *      bullet below, so its ceiling cannot rise when they do. Without it, on
+ *      2026 FIM with each division's points arriving only as it ends, 6
+ *      Locked were taken back from one final division and 4 from two;
+ *    - the joint proof refuses `fieldNotProven`, checked second, after
+ *      `noDistributions`: a single shape proof would otherwise run on one of
+ *      two championships, with the other's winners and awards unmodelled;
+ *    - decision 2's reservation holds more WHOLE championships beside the
+ *      known ones (`unseenChampionshipsHeld`): the events that may be unseen,
+ *      never fewer than one. The artifact cannot tell unseen divisions of a
+ *      known championship from an unseen second championship, so this over
+ *      holds for the former (2026 FIM with one division posted holds three
+ *      more) and it lasts only while the field is unproven;
+ *    - a division team with no finals row carries the whole dcmp Playoffs
+ *      ceiling for the finals, whatever number of division keys the artifact
+ *      knows, a lone division included (`champFinalsCeilingWithoutRow`).
+ *
+ *    ABSENT READS TRUE, which is every rewound position and every sweep over
+ *    finished seasons. So a LIVE caller must pass the rows' own flag: the
+ *    tab does, and so do the staged walks.
+ *
  * AWARD-QUALIFIED AT THIS TIER means the DCMP winning alliance once the
  * playoffs are done, and Impact, Engineering Inspiration or Rookie All Star at
  * the DCMP once awards are posted — at any of the district's championships
@@ -187,6 +221,7 @@ import {
 } from "../../../../../packages/core/districts/champReservedSlots.js";
 import { InvalidBracketDecisionError, maxFinalsPointsByPlacement, maxPlayoffPointsByPlacement } from "../../../../../packages/core/districts/bracket.js";
 import { divisionCountOf, finalsChampionMaximum } from "../../../../../packages/core/districts/categoryCorroboration.js";
+import { hypotheticalFinalsCeiling, unseenChampionshipsHeld } from "../../../../../packages/core/districts/dcmpFieldProof.js";
 import {
   dcmpBracketState,
   divisionAllianceId,
@@ -291,6 +326,7 @@ export interface ChampLedgerStatusModel {
 /** Why the joint proof did not run at a position, in the order the preconditions are checked. */
 export type JointProofSkipReason =
   | "noDistributions"
+  | "fieldNotProven"
   | "unsupportedShape"
   | "noBracketFacts"
   | "stageNotEligible"
@@ -355,6 +391,13 @@ export interface ComputeChampLedgerStatusesOptions {
    * byte for byte.
    */
   readonly distributions?: ReadonlyMap<string, DistrictEventDistributions>;
+  /**
+   * WHETHER THE FIELD IS PROVEN (decision 7, quick task 261010-66y): the row
+   * model's own `fieldProven`. False only at the live position while some
+   * field fixing key has started and the field is not proven. ABSENT READS
+   * TRUE, so a live caller must pass `rows.fieldProven`.
+   */
+  readonly fieldProven?: boolean;
 }
 
 const EMPTY_CENSUS: Record<LockStatus, number> = {
@@ -405,12 +448,21 @@ function finalsSourceCeiling(
  * not 2 or 4) while the parent's Playoffs are not final (all open where no row
  * carries the parent). Zero in every other case, so it can never fire on a
  * single championship (one key) or on two championships (each one key).
+ *
+ * WHILE THE FIELD IS NOT PROVEN (`fieldProven` false, decision 7, quick task
+ * 261010-66y) the number of divisions is not known: the artifact may hold one
+ * division of four, or two of four, which would read as no finals at all or
+ * as a two division finals worth 30. So a team with a division source and no
+ * source at that stem carries the WHOLE dcmp Playoffs ceiling for the finals
+ * (90 in 2026), whatever number of division keys the artifact knows. The
+ * joint proof is refused in that state, so what it models needs no thought.
  */
 export function champFinalsCeilingWithoutRow(
   sourceKeys: readonly string[],
   dcmpEventKeys: readonly string[],
   season: number,
-  stageByEvent: ReadonlyMap<string, DistrictStageFinality>
+  stageByEvent: ReadonlyMap<string, DistrictStageFinality>,
+  fieldProven = true
 ): number {
   let total = 0;
   const seen = new Set<string>();
@@ -419,10 +471,10 @@ export function champFinalsCeilingWithoutRow(
     if (stem === key || seen.has(stem)) continue;
     seen.add(stem);
     const divisions = divisionCountOf(stem, dcmpEventKeys);
-    if (divisions < 2) continue;
+    if (divisions < 2 && fieldProven) continue;
     if (sourceKeys.includes(stem)) continue;
     if ((stageByEvent.get(stem) ?? ALL_OPEN_STAGE).elim) continue;
-    total += finalsChampionMaximum(season, divisions);
+    total += fieldProven ? finalsChampionMaximum(season, divisions) : maxEventPoints(season, "dcmp").elim;
   }
   return total;
 }
@@ -576,7 +628,8 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
         dcmpSources.map((entry) => entry.eventKey),
         dcmpEventKeyList,
         artifact.year,
-        dcmpStageByEvent
+        dcmpStageByEvent,
+        options.fieldProven !== false
       );
       openCeiling += finalsWithoutRow;
       jointModeled += finalsWithoutRow;
@@ -592,7 +645,12 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
       // is what keeps the verdicts computable all season rather than only
       // after registrations open.
       const hasPlayedDcmp = source.eventPoints.some((row) => row.tier === "dcmp");
-      if (!hasPlayedDcmp && districtLockedOut?.has(team.teamKey) !== true) openCeiling += dcmpMaxTotal;
+      // While the field is not proven the hypothetical championship carries
+      // a finals too (decision 7): what the team will carry once its
+      // division's rows land.
+      if (!hasPlayedDcmp && districtLockedOut?.has(team.teamKey) !== true) {
+        openCeiling += dcmpMaxTotal + hypotheticalFinalsCeiling(options.fieldProven !== false, dcmpCeiling.elim);
+      }
     }
 
     lockInputs.push({ teamKey: team.teamKey, pointTotal: floor, maxRemaining: openCeiling });
@@ -678,6 +736,14 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
   for (const stage of stageByChampionship.size === 0 ? [ALL_OPEN_STAGE] : stageByChampionship.values()) {
     reservedSlots += reservedChampSlots({ elimFinal: stage.elim, awardFinal: stage.award, awardCeilings, neverHappening });
   }
+  // WHILE THE FIELD IS NOT PROVEN (decision 7, quick task 261010-66y) the
+  // championships the artifact may not have seen yet are held back whole,
+  // beside the known ones: each can still hand out its own winning alliance
+  // and its own judged awards.
+  if (options.fieldProven === false) {
+    reservedSlots +=
+      unseenChampionshipsHeld(artifact.teams, artifact.dcmpSlots) * reservedChampSlots({ elimFinal: false, awardFinal: false, awardCeilings, neverHappening });
+  }
   // THE POOL ORDER IS THE CHAMP LEDGER'S OWN SORTED ORDER, filtered to the
   // pool by `locks.ts`'s own exported narrowing — never a hand-rolled
   // subtraction, which is the class of bug `qualifierPool`'s doc comment
@@ -690,6 +756,7 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
   const floorByTeam = new Map(lockInputs.map((input) => [input.teamKey, input.pointTotal] as const));
   const jointProof = jointProofAt({
     artifact,
+    fieldProven: options.fieldProven !== false,
     distributions: options.distributions,
     dcmpStageByEvent,
     neverHappening,
@@ -762,6 +829,8 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
 
 interface JointProofAtInput {
   readonly artifact: DistrictArtifact;
+  /** Decision 7: false only at the live position while the field is not proven. */
+  readonly fieldProven: boolean;
   readonly distributions: ReadonlyMap<string, DistrictEventDistributions> | undefined;
   readonly dcmpStageByEvent: ReadonlyMap<string, DistrictStageFinality>;
   readonly neverHappening: boolean;
@@ -867,6 +936,9 @@ function championshipRouting(
 function jointProofAt(input: JointProofAtInput): ChampJointProof {
   const { artifact, distributions } = input;
   if (distributions === undefined) return refuse("noDistributions");
+  // Decision 7: the keys on the artifact may not be the whole championship
+  // (or every championship) yet, so no shape read off them can be trusted.
+  if (!input.fieldProven) return refuse("fieldNotProven");
   const shape = championshipShape(dcmpEventKeysFor(artifact));
   switch (shape.kind) {
     case "single":

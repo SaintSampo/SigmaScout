@@ -150,6 +150,20 @@ describe("championshipShape (quick task 261009-kt3, D1)", () => {
     expect(championshipShape(["2026cascmp", "2026cancmp"])).toEqual({ kind: "multiple", keys: ["2026cancmp", "2026cascmp"] });
   });
 
+  it("a lone division key is not a single championship (quick task 261010-66y, D2)", () => {
+    // A division without its siblings or its finals event: the artifact has
+    // seen one division's rows and nothing else of that championship, so the
+    // single event proof must never run on it.
+    for (const lone of ["2026micmp1", "2026necmp2", "2026txcmp1"]) {
+      const shape = championshipShape([lone]);
+      expect({ lone, kind: shape.kind }).toEqual({ lone, kind: "unsupported" });
+      expect(shape.kind === "unsupported" ? shape.detail : "").toContain(lone);
+    }
+    // A lone key that is its own stem is still a single championship.
+    expect(championshipShape(["2026pncmp"])).toEqual({ kind: "single", key: "2026pncmp" });
+    expect(championshipShape(["2026micmp"])).toEqual({ kind: "single", key: "2026micmp" });
+  });
+
   it("calls every other grouping unsupported", () => {
     expect(championshipShape(["2026micmp1", "2026micmp2", "2026micmp3", "2026micmp4"]).kind).toBe("unsupported");
     expect(championshipShape(["2026micmp", "2026micmp1", "2026micmp2", "2026micmp3"]).kind).toBe("unsupported");

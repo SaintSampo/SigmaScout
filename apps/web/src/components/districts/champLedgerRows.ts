@@ -25,6 +25,24 @@
  * the cost of erasing the "if there" amount a bubble team's reader is looking
  * for.
  *
+ * AT THE LIVE POSITION A TEAM WITH NO CHAMPIONSHIP ROW READS OUT ONLY ONCE THE
+ * FIELD IS PROVEN (quick task 261010-66y). The artifact learns a championship
+ * key only from team rows, so a division or a second championship TBA has not
+ * posted yet is invisible, and its teams used to read out of the field the
+ * moment the posted event started: on the real 2026 FIM artifact walked one
+ * division at a time, 41 Locked were taken back. One core rule decides
+ * (`packages/core/districts/dcmpFieldProof.ts`): every field fixing key
+ * started, every one carrying a posted row, and the field complete by
+ * capacity, by a posted finals row or, in a season that is over, by Awards
+ * final. `champFieldProofAtNow` reads it off the artifact and
+ * `buildChampLedgerRows` hands every reader ONE flag, `fieldProven`: true at
+ * every rewound position, and at the live position false exactly while some
+ * field fixing key has started and the field is not proven. While it is
+ * false a team with no row reads `open`, with its bubble chance and the
+ * estimate row, exactly as it does before the championship starts. A team
+ * with its own row is unchanged. The limits are stated in the core module's
+ * header.
+ *
  * AN UNPRICED DCMP GIVES A LABELLED DISTRICT-ONLY GRAND TOTAL, NOT A BLANK ONE.
  * This module first refused the grand total outright whenever it held no DCMP
  * distribution, on the reasoning that a district-only figure under a column
@@ -54,12 +72,14 @@
 import { convolveDistrictGrandTotal } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import { pointPercentiles, pointQuantile, type PointPercentiles } from "../../../../../packages/core/districts/pointSummary.js";
 import { maxEventPoints, type DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
+import { dcmpFieldProof, fieldFixingDcmpKeys, type DcmpFieldProof } from "../../../../../packages/core/districts/dcmpFieldProof.js";
 import type { DistrictArtifact } from "../../../../../packages/harness/pageArtifacts.js";
 import {
   DISTRICT_CATEGORIES,
   GRAND_TOTAL_CELL_ID,
   buildDistrictLedgerRows,
   deriveStageFromState,
+  liveStageByEvent,
   openDistrictLedgerCell,
   pointMassDistribution,
   tierEvents,
@@ -369,6 +389,14 @@ export interface ChampLedgerRowsResult {
   readonly dcmpEventKey: string | undefined;
   /** Every dcmp-tier event key the artifact carries, sorted. One for almost every district; two for 2026 California. */
   readonly dcmpEventKeys: readonly string[];
+  /**
+   * THE ONE FLAG every reader of the field takes (quick task 261010-66y):
+   * true at every rewound position, and at the live position false exactly
+   * while some field fixing key has started and the field is not proven
+   * (`champFieldProofAtNow`). A live caller of `computeChampLedgerStatuses`
+   * must pass it on: absent reads true there.
+   */
+  readonly fieldProven: boolean;
 }
 
 /**
@@ -413,9 +441,33 @@ export function dcmpEventKeyFor(artifact: DistrictArtifact): string | undefined 
  *
  * A rule on the keys alone, not a call to `championshipShape`, so a shape the
  * joint proof refuses still gets the same field rule.
+ *
+ * The function lives in `packages/core/districts/dcmpFieldProof.ts` since
+ * quick task 261010-66y, beside the proof that reads it, and is re-exported
+ * here so every import stands.
  */
-export function fieldFixingDcmpKeys(dcmpEventKeys: readonly string[]): string[] {
-  return dcmpEventKeys.filter((key) => !dcmpEventKeys.some((other) => other.length === key.length + 1 && other.startsWith(key) && /\d$/.test(other)));
+export { fieldFixingDcmpKeys };
+
+/**
+ * THE FIELD PROOF AT NOW, from the artifact alone (quick task 261010-66y).
+ * The started keys are the caller's (the state's own word, the field
+ * reading); the awards final keys are the number reading
+ * (`liveStageByEvent`); the rule is `dcmpFieldProof`. The tab computes it
+ * once per artifact and hands every reader the one flag,
+ * `!proof.unprovenAfterStart`; `buildChampLedgerRows` computes the same thing
+ * where no flag is supplied at the live position.
+ */
+export function champFieldProofAtNow(artifact: DistrictArtifact, startedDcmpEventKeys: ReadonlySet<string>, nowYear: number): DcmpFieldProof {
+  const awardsFinalKeys = new Set<string>();
+  for (const [eventKey, final] of liveStageByEvent(artifact, ["dcmp"])) if (final.award) awardsFinalKeys.add(eventKey);
+  return dcmpFieldProof({
+    teams: artifact.teams,
+    dcmpSlots: artifact.dcmpSlots,
+    season: artifact.year,
+    nowYear,
+    startedKeys: startedDcmpEventKeys,
+    awardsFinalKeys,
+  });
 }
 
 /**
@@ -424,8 +476,18 @@ export function fieldFixingDcmpKeys(dcmpEventKeys: readonly string[]): string[] 
  * A TEAM WITH ITS OWN dcmp ROW reads its own first key, as it always did.
  *
  * A TEAM WITH NO ROW is out of the field once every FIELD FIXING key has
- * started (`fieldFixingDcmpKeys`): the one championship of a single district,
- * both of 2026 California's, and every DIVISION of a divisioned championship.
+ * started (`fieldFixingDcmpKeys`) AND THE FIELD IS PROVEN (`fieldProven`,
+ * quick task 261010-66y): the one championship of a single district, both of
+ * 2026 California's, and every DIVISION of a divisioned championship. The
+ * keys are only the ones the artifact has seen. At a live championship TBA
+ * can post one division, or one of two championships, before the others, and
+ * every key the artifact then knows has started while most of the field is
+ * on no row yet. So while the field is not proven
+ * (`packages/core/districts/dcmpFieldProof.ts`) a team with no row is not
+ * settled: it reads as it does before the championship starts. `fieldProven`
+ * defaults to true, which is every rewound position and every caller that
+ * reads a finished season.
+ *
  * Until quick task 261009-pgq (D1) the rule waited for every dcmp key, the
  * finals key included. The finals start days after the divisions and list only
  * division winners, so at "Divisions final, finals not started" a rowless team
@@ -448,9 +510,10 @@ export function fieldFixingDcmpKeys(dcmpEventKeys: readonly string[]): string[] 
  * `champLedgerStatus.test.ts` asserts that (the 261009-pgq guard). A district
  * whose rowless registrant sat near the line is the case to re-examine.
  */
-export function dcmpStartedForTeam(team: DistrictTeam, startedDcmpEventKeys: ReadonlySet<string>, dcmpEventKeys: readonly string[]): boolean {
+export function dcmpStartedForTeam(team: DistrictTeam, startedDcmpEventKeys: ReadonlySet<string>, dcmpEventKeys: readonly string[], fieldProven = true): boolean {
   const own = tierEvents(team, "dcmp")[0]?.eventKey;
   if (own !== undefined) return startedDcmpEventKeys.has(own);
+  if (!fieldProven) return false;
   const fieldFixing = fieldFixingDcmpKeys(dcmpEventKeys);
   return fieldFixing.length > 0 && fieldFixing.every((key) => startedDcmpEventKeys.has(key));
 }
@@ -590,6 +653,20 @@ export interface BuildChampLedgerRowsOptions {
    * behaviour.
    */
   readonly distributionsPending?: boolean;
+  /**
+   * WHETHER THE FIELD IS PROVEN (quick task 261010-66y): see
+   * `ChampLedgerRowsResult.fieldProven`. The tab supplies the flag it computed
+   * once per artifact. Absent, it is true at a rewound position and
+   * `!champFieldProofAtNow(...).unprovenAfterStart` at the live one, so a
+   * sweep, a script or a test is safe without passing it.
+   */
+  readonly fieldProven?: boolean;
+  /**
+   * The calendar year at the time of the call, for the field proof's season
+   * over line. Read only where `fieldProven` is absent at the live position.
+   * Defaults to the clock; a test passes it.
+   */
+  readonly nowYear?: number;
 }
 
 /**
@@ -620,6 +697,12 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
   const startedDcmpEventKeys: ReadonlySet<string> =
     options.startedDcmpEventKeys ??
     (options.dcmpStarted === undefined ? startedDcmpEventKeysAtNow(artifact) : options.dcmpStarted ? new Set(dcmpEventKeys) : new Set<string>());
+  // THE ONE FLAG (quick task 261010-66y): true at every rewound position; at
+  // the live position false exactly while a field fixing key has started and
+  // the field is not proven. Before any has started nothing changes at all.
+  const fieldProven =
+    options.fieldProven ??
+    ((options.atLivePosition ?? false) ? !champFieldProofAtNow(artifact, startedDcmpEventKeys, options.nowYear ?? new Date().getUTCFullYear()).unprovenAfterStart : true);
 
   const passOptions = {
     artifact,
@@ -652,7 +735,7 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
     const dcmpEntry = dcmpByTeam.get(team.teamKey);
     if (districtEntry === undefined || dcmpEntry === undefined) continue;
 
-    const dcmpStarted = dcmpStartedForTeam(team, startedDcmpEventKeys, dcmpEventKeys);
+    const dcmpStarted = dcmpStartedForTeam(team, startedDcmpEventKeys, dcmpEventKeys, fieldProven);
     const membership = champFieldMembership(team, dcmpStarted, options.atLivePosition ?? false);
     const suppliedChance = fieldChanceByTeam?.get(team.teamKey);
     if (membership === "open" && suppliedChance === undefined) teamsWithoutFieldChance.add(team.teamKey);
@@ -806,6 +889,7 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
     teams,
     dcmpEventKey,
     dcmpEventKeys,
+    fieldProven,
     gaps: {
       ...unionGaps(districtPass.gaps, dcmpPass.gaps),
       teamsWithUnavailableGrandTotal: [...teamsWithUnavailableGrandTotal].sort(),

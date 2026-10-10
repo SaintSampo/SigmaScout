@@ -52,7 +52,9 @@
  *      settled list before playoff points).
  * Groups 1 to 3 and 6 read the committed fixture only and always run. Groups
  * 4 and 5 read gitignored local data and skip, with a message naming what is
- * absent, where it is not there.
+ * absent, where it is not there. With `REQUIRE_LOCAL_DATA=1` in the
+ * environment such a group FAILS instead of skipping (quick task 261010-66y),
+ * so a verify step cannot pass on a machine that silently ran nothing.
  *
  * THE EVENT LIST IS DERIVED from the fixture, never typed in, and its count
  * is asserted.
@@ -166,6 +168,21 @@ function withHardeningOff<T>(body: () => T): T {
   } finally {
     ruleSwitch.hardeningOff = false;
   }
+}
+
+/**
+ * A local data gated group whose data is absent: one skipped test naming what
+ * is missing, or with `REQUIRE_LOCAL_DATA=1` one FAILING test (quick task
+ * 261010-66y).
+ */
+function localDataAbsent(what: string): void {
+  if (process.env.REQUIRE_LOCAL_DATA === "1") {
+    it(`REQUIRE_LOCAL_DATA=1 and the local data is absent: ${what}`, () => {
+      throw new Error(`REQUIRE_LOCAL_DATA=1, but this local data gated group cannot run: ${what}`);
+    });
+    return;
+  }
+  it.skip(`skipped: ${what}`, () => {});
 }
 
 type Team = DistrictArtifact["teams"][number];
@@ -289,8 +306,9 @@ function snapshot(label: string, artifact: DistrictArtifact, eventKey: string, d
   for (const [teamKey, result] of districtStatuses.byTeam) if (result.status === "lockedOut") districtLockedOut.add(teamKey);
   const started = new Set<string>();
   for (const team of artifact.teams) for (const entry of tierEvents(team, "dcmp")) if (deriveStageFromState(entry.state).started) started.add(entry.eventKey);
-  const champRows = buildChampLedgerRows({ artifact, distributions, startedDcmpEventKeys: new Set(dcmpEventKeysFor(artifact).filter((key) => started.has(key))), atLivePosition: true });
-  const champStatuses = computeChampLedgerStatuses({ artifact, teams: champRows.teams, districtLockedOut, nowYear: NOW_YEAR, ...(distributions.size === 0 ? {} : { distributions }) });
+  const champRows = buildChampLedgerRows({ artifact, distributions, startedDcmpEventKeys: new Set(dcmpEventKeysFor(artifact).filter((key) => started.has(key))), atLivePosition: true, nowYear: NOW_YEAR });
+  // The rows' own field flag goes on to the status code, as the tab hands it (quick task 261010-66y).
+  const champStatuses = computeChampLedgerStatuses({ artifact, teams: champRows.teams, districtLockedOut, nowYear: NOW_YEAR, fieldProven: champRows.fieldProven, ...(distributions.size === 0 ? {} : { distributions }) });
 
   // The walked event's own rows at its own tier.
   const tierRows = tier === "district" ? districtRows : buildDistrictLedgerRows({ artifact, distributions, tier: "dcmp" });
@@ -1185,7 +1203,7 @@ const MISSING_EVENT_FIXTURES = EVENT_FIXTURE_PATHS.filter((path) => !existsSync(
 
 describe("the staged replay: the field conditioned walks of every district tier event (quick task 261009-vp9, the two readings)", () => {
   if (MISSING_EVENT_FIXTURES.length > 0) {
-    it.skip(`skipped: ${String(MISSING_EVENT_FIXTURES.length)} of 8 event artifacts absent under data/fixtures/phase10/event-<key>.json (gitignored local data)`, () => {});
+    localDataAbsent(`${String(MISSING_EVENT_FIXTURES.length)} of 8 event artifacts absent under data/fixtures/phase10/event-<key>.json (gitignored local data)`);
     return;
   }
 
@@ -1261,7 +1279,7 @@ const CORPUS_ABSOLUTE = join(REPO_ROOT, CORPUS_PATH);
 
 describe("the staged replay: the field conditioned walks of the real 2026pncmp, with its corpus bracket (quick task 261009-vp9)", () => {
   if (!existsSync(CORPUS_ABSOLUTE)) {
-    it.skip(`skipped: ${CORPUS_PATH} absent (gitignored local data)`, () => {});
+    localDataAbsent(`${CORPUS_PATH} absent (gitignored local data)`);
     return;
   }
 
@@ -1362,7 +1380,7 @@ const DISTRICT_DETAIL_FILE = /^v1__district__\d{4}[a-z0-9]+\.json$/;
 describe("the Now census: on every finished event the rule's reading is the state's own (quick task 261009-vp9, D4)", () => {
   const files = existsSync(LOCAL_DISTRICT_ABSOLUTE) ? readdirSync(LOCAL_DISTRICT_ABSOLUTE).filter((file) => DISTRICT_DETAIL_FILE.test(file)).sort() : [];
   if (files.length === 0) {
-    it.skip(`skipped: no district artifact under ${LOCAL_DISTRICT_DIR} (gitignored local data)`, () => {});
+    localDataAbsent(`no district artifact under ${LOCAL_DISTRICT_DIR} (gitignored local data)`);
     return;
   }
 

@@ -20,7 +20,8 @@ import type { LockStatus } from "../../../../../packages/core/districts/locks.js
 import { maxEventPoints } from "../../../../../packages/core/districts/pointModel.js";
 import { dcmpAwardCountCeilings } from "../../../../../packages/core/districts/hypotheticalDcmp.js";
 import { MAX_WINNING_ALLIANCE_SIZE, pendingAwardSlots } from "../../../../../packages/core/districts/champReservedSlots.js";
-import { buildChampLedgerRows } from "./champLedgerRows.js";
+import { unseenChampionshipsHeld } from "../../../../../packages/core/districts/dcmpFieldProof.js";
+import { buildChampLedgerRows, champFieldProofAtNow } from "./champLedgerRows.js";
 import { applyChampRangeState, champFinalsCeilingWithoutRow, computeChampLedgerStatuses, jointDecidedPlacementTopUp } from "./champLedgerStatus.js";
 import { champCutoffView, type ChampRangeState } from "./champLedgerChances.js";
 import { SHOW_SIMULATED_CHAMP_LIKELY_RANGE, predictedCutoff, type LedgerCutoffView } from "./predictedCutoff.js";
@@ -1743,3 +1744,183 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
     expect(model.jointProof.input.seatGroups).toBeUndefined();
   });
 });
+
+/**
+ * Quick task 261010-66y: what the status module does while the field is NOT
+ * proven at the live position. The fixture is the committed PNW district with
+ * part of its championship field taken off the rows, which is what the
+ * artifact holds while TBA has posted one event of a championship and not the
+ * rest. The flag itself is the row model's (`rows.fieldProven`); here it is
+ * handed in both ways.
+ */
+describe("computeChampLedgerStatuses — while the field is not proven (quick task 261010-66y)", () => {
+  const DCMP_KEY = "2026pncmp";
+  const dcmpCeilings = maxEventPoints(FIXTURE.year, "dcmp");
+  const DCMP_MAX = dcmpCeilings.qual + dcmpCeilings.alliance + dcmpCeilings.elim + dcmpCeilings.award;
+  const AWARD_SLOTS = pendingAwardSlots(dcmpAwardCountCeilings(FIXTURE.year, FIXTURE.districtKey, FIXTURE.cmpSlots!).counts);
+  const WHOLE_CHAMPIONSHIP = AWARD_SLOTS + MAX_WINNING_ALLIANCE_SIZE;
+  const FIELD = FIXTURE.teams.filter((team) => team.eventPoints.some((row) => row.eventKey === DCMP_KEY)).map((team) => team.teamKey);
+
+  /** The fixture with only every `keepEvery`th team of the field still carrying its championship row, its points and its awards there. */
+  function partlyPosted(keepEvery: number, dcmpSlots: number): DistrictArtifact {
+    const kept = new Set(FIELD.filter((_, index) => index % keepEvery === 0));
+    return DistrictArtifactSchema.parse({
+      ...FIXTURE,
+      dcmpSlots,
+      teams: FIXTURE.teams.map((team) => {
+        const row = team.eventPoints.find((entry) => entry.eventKey === DCMP_KEY);
+        if (row === undefined || kept.has(team.teamKey)) return team;
+        return {
+          ...team,
+          pointTotal: team.pointTotal - row.total,
+          eventPoints: team.eventPoints.filter((entry) => entry.eventKey !== DCMP_KEY),
+          qualifyingAwards: team.qualifyingAwards.filter((award) => award.eventKey !== DCMP_KEY),
+        };
+      }),
+    });
+  }
+  const HALF = partlyPosted(2, FIXTURE.dcmpSlots!);
+  const POSTED_IN_HALF = HALF.teams.filter((team) => team.eventPoints.some((row) => row.eventKey === DCMP_KEY)).length;
+  const UNPOSTED = FIELD.filter((_, index) => index % 2 === 1);
+
+  /** The championship mid qualification at the live position, every district event final. */
+  function modelOf(artifact: DistrictArtifact, fieldProven: boolean | undefined, extra: Partial<Parameters<typeof computeChampLedgerStatuses>[0]> = {}) {
+    const stageByEvent = new Map(eventKeysOf(artifact).map((key) => [key, key === DCMP_KEY ? ALL_OPEN : ALL_FINAL] as const));
+    const rows = buildChampLedgerRows({
+      artifact,
+      distributions: new Map(),
+      stageByEvent,
+      startedDcmpEventKeys: new Set([DCMP_KEY]),
+      atLivePosition: true,
+      nowYear: 2026,
+      ...(fieldProven === undefined ? {} : { fieldProven }),
+    });
+    return { rows, status: computeChampLedgerStatuses({ artifact, teams: rows.teams, nowYear: 2026, ...(fieldProven === undefined ? {} : { fieldProven }), ...extra }) };
+  }
+
+  it("premise: half the field is on the rows, which does not prove a field of 50, and the row model says so by itself", () => {
+    expect(FIELD).toHaveLength(51);
+    expect(POSTED_IN_HALF).toBe(26);
+    expect(HALF.dcmpSlots).toBe(50);
+    expect(champFieldProofAtNow(HALF, new Set([DCMP_KEY]), 2026)).toMatchObject({ proven: false, unprovenAfterStart: true, postedTeams: 26, tolerance: 13 });
+    // Left to itself the row model reads the flag off the artifact.
+    expect(modelOf(HALF, undefined).rows.fieldProven).toBe(false);
+    expect(modelOf(FIXTURE, undefined).rows.fieldProven).toBe(true);
+  });
+
+  it("a team with no row keeps one whole hypothetical championship and a finals on top, unless the district tier has locked it out", () => {
+    const lockedOut = UNPOSTED[0]!;
+    const { rows, status } = modelOf(HALF, false, { districtLockedOut: new Set([lockedOut]) });
+    const membership = new Map(rows.teams.map((team) => [team.teamKey, team.membership] as const));
+    for (const teamKey of UNPOSTED) {
+      expect({ teamKey, membership: membership.get(teamKey) }).toEqual({ teamKey, membership: "open" });
+      const open = status.ceilingByTeam!.get(teamKey)! - status.floorByTeam!.get(teamKey)!;
+      // One whole championship, and the whole dcmp Playoffs ceiling again
+      // for a finals: what the team will carry once its division's rows land.
+      expect({ teamKey, open }).toEqual({ teamKey, open: teamKey === lockedOut ? 0 : DCMP_MAX + dcmpCeilings.elim });
+    }
+    expect(DCMP_MAX + dcmpCeilings.elim).toBe(249 + 90);
+    // With the field read as proven the same teams are out and carry nothing.
+    const proven = modelOf(HALF, true);
+    for (const teamKey of UNPOSTED) {
+      expect(proven.rows.teams.find((team) => team.teamKey === teamKey)!.membership).toBe("out");
+      expect(proven.status.ceilingByTeam!.get(teamKey)).toBe(proven.status.floorByTeam!.get(teamKey));
+    }
+  });
+
+  it("holds back the known championship and one more whole championship, and only the known one once the field is proven", () => {
+    // 50 slots against a largest posted key of 26 teams: two events may exist, one is known.
+    expect(unseenChampionshipsHeld(HALF.teams, HALF.dcmpSlots)).toBe(1);
+    expect(modelOf(HALF, false).status.reservedSlots).toBe(2 * WHOLE_CHAMPIONSHIP);
+    expect(modelOf(HALF, true).status.reservedSlots).toBe(WHOLE_CHAMPIONSHIP);
+    expect(modelOf(HALF, undefined).status.reservedSlots).toBe(WHOLE_CHAMPIONSHIP);
+  });
+
+  it("D11: three championships of equal size with one posted holds two more, three whole championships in all", () => {
+    const THIRD = partlyPosted(3, 51);
+    const posted = THIRD.teams.filter((team) => team.eventPoints.some((row) => row.eventKey === DCMP_KEY)).length;
+    expect(posted).toBe(17);
+    expect(unseenChampionshipsHeld(THIRD.teams, THIRD.dcmpSlots)).toBe(2);
+    expect(modelOf(THIRD, false).status.reservedSlots).toBe(3 * WHOLE_CHAMPIONSHIP);
+    expect(modelOf(THIRD, true).status.reservedSlots).toBe(WHOLE_CHAMPIONSHIP);
+  });
+
+  it("refuses the joint proof as fieldNotProven, after noDistributions and before the shape is read", () => {
+    expect(modelOf(HALF, false).status.jointProof).toEqual({ applied: false, reason: "noDistributions" });
+    expect(modelOf(HALF, false, { distributions: new Map() }).status.jointProof).toEqual({ applied: false, reason: "fieldNotProven" });
+    // Proven, the next precondition answers as it always did.
+    expect(modelOf(HALF, true, { distributions: new Map() }).status.jointProof).toEqual({ applied: false, reason: "noBracketFacts" });
+  });
+
+  it("locks no more teams while the field is not proven than once it reads proven", () => {
+    const held = (model: ReturnType<typeof modelOf>): string[] => [...model.status.byTeam.values()].filter((result) => result.status === "locked").map((result) => result.teamKey).sort();
+    const unproven = held(modelOf(HALF, false));
+    const proven = new Set(held(modelOf(HALF, true)));
+    for (const teamKey of unproven) expect(proven.has(teamKey)).toBe(true);
+    expect(unproven.length).toBeLessThanOrEqual(proven.size);
+  });
+
+  it("R21: while the field is not proven a division team with no finals row carries the whole dcmp Playoffs ceiling for the finals", () => {
+    const WHOLE = dcmpCeilings.elim;
+    expect(WHOLE).toBe(90);
+    // A lone division: no finals ceiling at all while proven, the whole ceiling while not.
+    expect(champFinalsCeilingWithoutRow(["2026micmp1"], ["2026micmp1"], 2026, new Map())).toBe(0);
+    expect(champFinalsCeilingWithoutRow(["2026micmp1"], ["2026micmp1"], 2026, new Map(), true)).toBe(0);
+    expect(champFinalsCeilingWithoutRow(["2026micmp1"], ["2026micmp1"], 2026, new Map(), false)).toBe(WHOLE);
+    // Two of four divisions known: the two division maximum while proven, the whole ceiling while not.
+    const TWO_OF_FOUR = ["2026micmp1", "2026micmp2"];
+    expect(champFinalsCeilingWithoutRow(["2026micmp1"], TWO_OF_FOUR, 2026, new Map())).toBe(30);
+    expect(champFinalsCeilingWithoutRow(["2026micmp1"], TWO_OF_FOUR, 2026, new Map(), false)).toBe(WHOLE);
+    // Four known: 60 while proven, the whole ceiling while not.
+    const FOUR = ["2026micmp1", "2026micmp2", "2026micmp3", "2026micmp4"];
+    expect(champFinalsCeilingWithoutRow(["2026micmp3"], FOUR, 2026, new Map())).toBe(60);
+    expect(champFinalsCeilingWithoutRow(["2026micmp3"], FOUR, 2026, new Map(), false)).toBe(WHOLE);
+    // Never for a key that is its own stem, a team with a finals source, or finals Playoffs that are final.
+    expect(champFinalsCeilingWithoutRow(["2026cancmp"], ["2026cancmp"], 2026, new Map(), false)).toBe(0);
+    expect(champFinalsCeilingWithoutRow(["2026micmp1", "2026micmp"], ["2026micmp", "2026micmp1"], 2026, new Map(), false)).toBe(0);
+    expect(champFinalsCeilingWithoutRow(["2026micmp1"], ["2026micmp", "2026micmp1"], 2026, new Map([["2026micmp", ALL_FINAL]]), false)).toBe(0);
+  });
+
+  it("R21 in the status model: a lone division's team carries its division's open ceilings and the whole Playoffs ceiling for the finals", () => {
+    const LONE = "2026pncmp1";
+    const relabelled: DistrictArtifact = DistrictArtifactSchema.parse({
+      ...HALF,
+      teams: HALF.teams.map((team) => {
+        const relabel = <T extends { eventKey: string }>(row: T): T => (row.eventKey === DCMP_KEY ? { ...row, eventKey: LONE } : row);
+        return { ...team, eventPoints: team.eventPoints.map(relabel), qualifyingAwards: team.qualifyingAwards.map(relabel) };
+      }),
+    });
+    const at = (fieldProven: boolean) => {
+      const stageByEvent = new Map(eventKeysOf(relabelled).map((key) => [key, key === LONE ? ALL_OPEN : ALL_FINAL] as const));
+      const rows = buildChampLedgerRows({ artifact: relabelled, distributions: new Map(), stageByEvent, startedDcmpEventKeys: new Set([LONE]), atLivePosition: true, nowYear: 2026, fieldProven });
+      return computeChampLedgerStatuses({ artifact: relabelled, teams: rows.teams, nowYear: 2026, fieldProven });
+    };
+    const posted = relabelled.teams.find((team) => team.eventPoints.some((row) => row.eventKey === LONE))!.teamKey;
+    const openOf = (model: ReturnType<typeof at>, teamKey: string): number => model.ceilingByTeam!.get(teamKey)! - model.floorByTeam!.get(teamKey)!;
+    const open = (model: ReturnType<typeof at>): number => openOf(model, posted);
+    expect(open(at(false))).toBe(DCMP_MAX + dcmpCeilings.elim);
+    expect(open(at(true))).toBe(DCMP_MAX);
+
+    // A TEAM'S CEILING CANNOT RISE WHEN ITS DIVISION'S ROWS LAND. While the
+    // field is not proven a team still on no row carries exactly what a team
+    // carries the moment its division row lands wholly open: one whole
+    // championship and the whole Playoffs ceiling for a finals. Before the
+    // finals part was added the row landing raised the ceiling by 90, and on
+    // 2026 FIM that took 6 Locked back.
+    const rowless = UNPOSTED[1]!;
+    expect(relabelled.teams.find((team) => team.teamKey === rowless)!.eventPoints.every((row) => row.tier !== "dcmp")).toBe(true);
+    expect(openOf(at(false), rowless)).toBe(open(at(false)));
+  });
+
+  it("with fieldProven absent or true the committed fixture's model is the same model", () => {
+    const stages = [ALL_FINAL_STAGES, new Map(eventKeysOf(FIXTURE).map((key) => [key, key === DCMP_KEY ? ALL_OPEN : ALL_FINAL] as const))];
+    for (const stageByEvent of stages) {
+      const rows = buildChampLedgerRows({ artifact: FIXTURE, distributions: new Map(), stageByEvent, dcmpStarted: true });
+      const absent = computeChampLedgerStatuses({ artifact: FIXTURE, teams: rows.teams, nowYear: 2026, distributions: new Map() });
+      const supplied = computeChampLedgerStatuses({ artifact: FIXTURE, teams: rows.teams, nowYear: 2026, distributions: new Map(), fieldProven: true });
+      expect(supplied).toEqual(absent);
+    }
+    expect(computeChampLedgerStatuses({ artifact: FIXTURE, teams: FINISHED.rows.teams, fieldProven: true })).toEqual(FINISHED.status);
+  });
+});
+

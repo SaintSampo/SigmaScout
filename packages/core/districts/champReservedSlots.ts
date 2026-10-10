@@ -126,6 +126,13 @@ export function championshipStemOf(eventKey: string): string {
  * member's for a championship published as a single event, and `fallback`
  * for a championship whose divisions are on the artifact but whose parent is
  * not yet — the finals have not been reached, so nothing about them is final.
+ *
+ * A LONE DIVISION KEY GETS THE FALLBACK TOO (quick task 261010-66y, D2). The
+ * lone member's own value is used only where that member is the stem itself.
+ * A lone division says nothing about its championship's finals: at a live
+ * championship TBA can post one division's rows first, and reading that
+ * division's stage as the championship's would release the winner and award
+ * reservations on one division's playoffs and awards.
  */
 export function perChampionship<T>(byEvent: ReadonlyMap<string, T>, fallback: T): Map<string, T> {
   const members = new Map<string, string[]>();
@@ -138,7 +145,7 @@ export function perChampionship<T>(byEvent: ReadonlyMap<string, T>, fallback: T)
   const out = new Map<string, T>();
   for (const [stem, keys] of members) {
     if (byEvent.has(stem)) out.set(stem, byEvent.get(stem)!);
-    else if (keys.length === 1) out.set(stem, byEvent.get(keys[0]!)!);
+    else if (keys.length === 1 && keys[0] === stem) out.set(stem, byEvent.get(keys[0]!)!);
     else out.set(stem, fallback);
   }
   return out;
