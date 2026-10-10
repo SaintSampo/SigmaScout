@@ -2432,6 +2432,268 @@ describe("runTick — the district pass watches an event for a day after its win
 });
 
 // ---------------------------------------------------------------------------
+// THE AWARD STAGE REPLAY, on real data (quick task 261009-tx6, D4).
+//
+// Every district tier event of the committed 2026 PNW district artifact
+// (`data/fixtures/phase10/district-2026pnw.json`) is rewound to the moment its
+// playoffs ended, and its award stage is then replayed through the REAL
+// `runTick` on the watch path: Winner and Finalist listed, the judged list,
+// the award points, the hour of quiet, the settle.
+//
+// WHAT IS REAL: the 126 teams, every point of every row, who won which award
+// at which event, and the order in which those facts reach TBA.
+//
+// WHAT IS SYNTHETIC: the counts inside the state blocks (the fixture carries
+// no state block at all, so every row is given one that says "finished"), and
+// the Winner and Finalist recipients, taken as the teams with the highest and
+// the second highest playoff points at the event.
+//
+// WHY THE BASELINE IS BUILT HERE and not read from the file. The fixture has
+// no state blocks, and its verdict fields were published before quick task
+// 261007-il9 moved the district pass onto the district tier total (its cut
+// line reads 82 where the pass now says 60). So the baseline is the fixture
+// with a finished state block on every row, run through the verdict pass. Its
+// `districtLock.status` equals the file's for all 126 teams, which is pinned
+// first: the replay is measured against what was published.
+//
+// WHAT THE WALK GUARDS. Replayed with the ceilings as they were before this
+// task, six published Locked verdicts were taken back over these eight events
+// (`frc9430` on five of them, `2026orsal` among them, and `frc5920` on
+// `2026orore`): a rival's award points landed on a ceiling that said they
+// could not. With an award read only once its own event says it is given, and
+// the ceilings and floors counting what is still open at a played event,
+// there are none.
+//
+// SCOPE. This is the AWARD stage walk only. Every earlier category of the
+// replayed event is already final at the first tick. The same gap one
+// category earlier (qualification done, alliances picked, playoffs done, each
+// while TBA's district rankings have not caught up with the match results) is
+// the subject of quick task 261009-vp9, "a category counts as finished only
+// when its points are in", and is not asserted here.
+// ---------------------------------------------------------------------------
+
+describe("runTick — the award stage of every 2026 PNW district event, replayed through the watch (261009-tx6)", () => {
+  type Artifact = ReturnType<typeof DistrictArtifactSchema.parse>;
+  type ArtifactTeam = Artifact["teams"][number];
+
+  const FIXTURE_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "data", "fixtures", "phase10", "district-2026pnw.json");
+  const fixtureFile: Artifact = DistrictArtifactSchema.parse(JSON.parse(readFileSync(FIXTURE_PATH, "utf8")));
+
+  /** Synthetic counts, real meaning: the event is over and its awards are posted. */
+  const FINISHED_STATE: StateBlock = { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: true, awardsPosted: true };
+
+  /** The fixture with a finished state block on every row, at the verdict pass's fixed point. */
+  const baseline: Artifact = recomputeDistrictVerdicts(
+    DistrictArtifactSchema.parse({ ...fixtureFile, teams: fixtureFile.teams.map((team) => ({ ...team, eventPoints: team.eventPoints.map((row) => ({ ...row, state: { ...FINISHED_STATE } })) })) })
+  );
+
+  /** DERIVED, never typed in: every event key on a district tier `eventPoints` row of the fixture, sorted. */
+  const districtEvents: string[] = [...new Set(fixtureFile.teams.flatMap((team) => team.eventPoints.filter((row) => row.tier === "district").map((row) => row.eventKey)))].sort();
+
+  /** The baseline with one event's award stage undone: no award points, no posted flag, no winner record. */
+  function rewound(eventKey: string): Artifact {
+    return recomputeDistrictVerdicts(
+      DistrictArtifactSchema.parse({
+        ...baseline,
+        teams: baseline.teams.map((team) => {
+          const awardThere = team.eventPoints.filter((row) => row.eventKey === eventKey).reduce((sum, row) => sum + row.award, 0);
+          return {
+            ...team,
+            pointTotal: team.pointTotal - awardThere,
+            eventPoints: team.eventPoints.map((row) => (row.eventKey !== eventKey ? row : { ...row, award: 0, total: row.total - row.award, state: { ...FINISHED_STATE, awardsPosted: false } })),
+            qualifyingAwards: team.qualifyingAwards.filter((entry) => entry.eventKey !== eventKey),
+          };
+        }),
+      })
+    );
+  }
+
+  /** Winner and Finalist as TBA lists them first: the teams with the highest, and the second highest, playoff points at the event. */
+  function fieldAwards(eventKey: string): unknown[] {
+    const elimByTeam = baseline.teams.flatMap((team) => team.eventPoints.filter((row) => row.eventKey === eventKey).map((row) => [team.teamKey, row.elim] as const));
+    const levels = [...new Set(elimByTeam.map(([, elim]) => elim))].sort((a, b) => b - a);
+    const teamsAt = (level: number | undefined): string[] => (level === undefined ? [] : elimByTeam.filter(([, elim]) => elim === level).map(([teamKey]) => teamKey));
+    return [tbaAward(1, "District Event Winner", teamsAt(levels[0]), eventKey), tbaAward(2, "District Event Finalist", teamsAt(levels[1]), eventKey)];
+  }
+
+  /** The judged awards the fixture records at the event, as TBA would list them: one award per type, with every recipient. */
+  function judgedAwards(eventKey: string): unknown[] {
+    const recipientsByType = new Map<number, string[]>();
+    for (const team of baseline.teams) {
+      for (const entry of team.qualifyingAwards) {
+        if (entry.eventKey !== eventKey) continue;
+        recipientsByType.set(entry.awardType, [...(recipientsByType.get(entry.awardType) ?? []), team.teamKey]);
+      }
+    }
+    return [...recipientsByType.entries()].sort((a, b) => a[0] - b[0]).map(([awardType, teamKeys]) => tbaAward(awardType, `award type ${String(awardType)}`, teamKeys, eventKey));
+  }
+
+  const entriesAt = (team: ArtifactTeam, eventKey: string) => team.qualifyingAwards.filter((entry) => entry.eventKey === eventKey).sort((a, b) => a.awardType - b.awardType);
+  const districtLocksOf = (artifact: Artifact) => artifact.teams.map((team) => [team.teamKey, team.districtLock] as const).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  const districtHeld = (status: string): boolean => status === "locked" || status === "lockedAward";
+  const champHeld = (status: string): boolean => status === "locked" || status === "lockedAward" || status === "prequalified";
+
+  it("premise: the derived event list has eight entries, and the baseline's district status equals the published file's for all 126 teams", () => {
+    expect(districtEvents).toHaveLength(8);
+    expect(districtEvents).toContain("2026orsal");
+    expect(districtEvents).toContain("2026orore");
+    expect(baseline.teams).toHaveLength(126);
+    const fileStatus = new Map(fixtureFile.teams.map((team) => [team.teamKey, team.districtLock.status] as const));
+    for (const team of baseline.teams) expect({ teamKey: team.teamKey, status: team.districtLock.status }).toEqual({ teamKey: team.teamKey, status: fileStatus.get(team.teamKey) });
+    // Every replayed event has a judged award to list and award points to land.
+    for (const eventKey of districtEvents) {
+      expect({ eventKey, judged: judgedAwards(eventKey).length > 0 }).toEqual({ eventKey, judged: true });
+      expect({ eventKey, points: baseline.teams.some((team) => team.eventPoints.some((row) => row.eventKey === eventKey && row.award > 0)) }).toEqual({ eventKey, points: true });
+    }
+  });
+
+  for (const eventKey of districtEvents) {
+    it(`${eventKey}: the flag stays false until all three facts hold, no held place is lost at any tick, and the end state is the published one`, async () => {
+      // One measured window that closed ten minutes before the first tick.
+      // Nothing is live: this is the watch path, on the 5 minute cadence.
+      const h = makeHarness({ artifact: rewound(eventKey), windows: [endedWindow(eventKey, 10, clockAt(12, 5))] });
+      h.districts.set(DISTRICT_KEY, { rankings: rankingsOf(rewound(eventKey)), etag: "rank-before-awards" });
+      h.events.set(eventKey, awardsOnlyRecord(fieldAwards(eventKey), "awards-field-only"));
+
+      /** The district and champ status of every team after each tick, in tick order. */
+      const walk: { tick: string; district: Map<string, string>; champ: Map<string, string> }[] = [];
+      const tick = async (hour: number, minute: number): Promise<TickReport> => {
+        const report = await h.tickAt(clockAt(hour, minute));
+        const now = h.current();
+        walk.push({
+          tick: `${String(hour)}:${String(minute).padStart(2, "0")}`,
+          district: new Map(now.teams.map((team) => [team.teamKey, team.districtLock.status] as const)),
+          champ: new Map(now.teams.map((team) => [team.teamKey, team.champLock.status] as const)),
+        });
+        expect({ tick: walk[walk.length - 1]!.tick, failed: report.result.districtsFailed }).toEqual({ tick: walk[walk.length - 1]!.tick, failed: 0 });
+        return report;
+      };
+      const flagsNow = (): boolean[] => flagsFor(h.current(), eventKey);
+      const allFalse = (): boolean => flagsNow().length > 0 && flagsNow().every((flag) => !flag);
+
+      // 12:05. TBA lists Winner and Finalist. The rankings say what the rows
+      // already say. Nothing is recorded at this tier, and the flag is false.
+      await tick(12, 5);
+      expect(allFalse()).toBe(true);
+      expect(h.current().teams.flatMap((team) => entriesAt(team, eventKey))).toEqual([]);
+      const locksAtFieldAwards = districtLocksOf(h.current());
+
+      // 12:10. The judged awards are listed. Every record is written at once,
+      // the flag is false, and no verdict moves: a record is not read until
+      // its own event says the award is given.
+      h.events.set(eventKey, awardsOnlyRecord([...fieldAwards(eventKey), ...judgedAwards(eventKey)], "awards-judged"));
+      const judged = await tick(12, 10);
+      expect(judged.written).toHaveLength(1);
+      expect(allFalse()).toBe(true);
+      for (const team of h.current().teams) expect({ teamKey: team.teamKey, entries: entriesAt(team, eventKey) }).toEqual({ teamKey: team.teamKey, entries: entriesAt(baseline.teams.find((entry) => entry.teamKey === team.teamKey)!, eventKey) });
+      expect(districtLocksOf(h.current())).toEqual(locksAtFieldAwards);
+      const locksAtJudgedList = districtLocksOf(h.current());
+
+      // 12:15, the forced look. Nothing is new.
+      const forced = await tick(12, 15);
+      expect(forced.rankingsCalls).toEqual([undefined]);
+      expect(allFalse()).toBe(true);
+
+      // 12:20. The rankings bring the award points. They are written, the flag
+      // is false, and no verdict moves: a point landing in a category that is
+      // still open is in no floor and inside every ceiling already.
+      h.districts.set(DISTRICT_KEY, { rankings: rankingsOf(baseline), etag: "rank-with-award-points" });
+      const points = await tick(12, 20);
+      expect(points.written).toHaveLength(1);
+      expect(allFalse()).toBe(true);
+      for (const team of h.current().teams) {
+        const published = baseline.teams.find((entry) => entry.teamKey === team.teamKey)!;
+        expect({ teamKey: team.teamKey, pointTotal: team.pointTotal, award: team.eventPoints.find((row) => row.eventKey === eventKey)?.award }).toEqual({
+          teamKey: team.teamKey,
+          pointTotal: published.pointTotal,
+          award: published.eventPoints.find((row) => row.eventKey === eventKey)?.award,
+        });
+      }
+      expect(districtLocksOf(h.current())).toEqual(locksAtJudgedList);
+
+      // 12:25 to 13:10, every five minutes: the hour of quiet. The list last
+      // changed at 12:10, so 13:10 is the sixtieth minute, on a tick whose
+      // polls all answer 304. The flag is false on every one of them.
+      for (let minutesAfterNoon = 25; minutesAfterNoon <= 70; minutesAfterNoon += 5) {
+        const quiet = await tick(12 + Math.floor(minutesAfterNoon / 60), minutesAfterNoon % 60);
+        expect({ minutesAfterNoon, puts: quiet.written.length, allFalse: allFalse() }).toEqual({ minutesAfterNoon, puts: 0, allFalse: true });
+      }
+
+      // 13:15, the forced look, sixty five minutes after the list last
+      // changed: all three facts hold. One put.
+      const settled = await tick(13, 15);
+      expect(settled.written).toHaveLength(1);
+      expect(flagsNow().length).toBeGreaterThan(0);
+      expect(flagsNow().every((flag) => flag)).toBe(true);
+
+      // 13:20. Nothing is read from the district artifact and nothing is written.
+      const after = await tick(13, 20);
+      expect(after.districtReads).toBe(0);
+      expect(after.written).toHaveLength(0);
+
+      // THE END STATE IS THE PUBLISHED ONE.
+      const final = h.current();
+      const fileStatus = new Map(fixtureFile.teams.map((team) => [team.teamKey, team.districtLock.status] as const));
+      expect(final.teams).toHaveLength(baseline.teams.length);
+      for (const team of final.teams) {
+        const published = baseline.teams.find((entry) => entry.teamKey === team.teamKey)!;
+        expect({
+          teamKey: team.teamKey,
+          stateAtEvent: team.eventPoints.find((row) => row.eventKey === eventKey)?.state,
+          entries: entriesAt(team, eventKey),
+          districtLock: team.districtLock,
+          status: team.districtLock.status,
+          pointTotal: team.pointTotal,
+          rank: team.rank,
+          maxRemainingDistrict: team.maxRemainingDistrict,
+          maxRemainingChamp: team.maxRemainingChamp,
+        }).toEqual({
+          teamKey: team.teamKey,
+          stateAtEvent: published.eventPoints.find((row) => row.eventKey === eventKey)?.state,
+          entries: entriesAt(published, eventKey),
+          districtLock: published.districtLock,
+          status: fileStatus.get(team.teamKey),
+          pointTotal: published.pointTotal,
+          rank: published.rank,
+          maxRemainingDistrict: published.maxRemainingDistrict,
+          maxRemainingChamp: published.maxRemainingChamp,
+        });
+      }
+      expect(awardsWarns(h.warnSpy)).toEqual([]);
+
+      // NO HELD PLACE IS LOST, at either tier: a team that reads Locked (on
+      // points or by an award) after one tick reads Locked after every later
+      // one. At the Championship tier a prequalified team counts as held.
+      const lost: string[] = [];
+      for (const team of baseline.teams) {
+        let districtSince: string | undefined;
+        let champSince: string | undefined;
+        for (const step of walk) {
+          const district = step.district.get(team.teamKey)!;
+          const champ = step.champ.get(team.teamKey)!;
+          if (districtSince !== undefined && !districtHeld(district)) lost.push(`${team.teamKey} district held at ${districtSince}, ${district} at ${step.tick}`);
+          if (champSince !== undefined && !champHeld(champ)) lost.push(`${team.teamKey} champ held at ${champSince}, ${champ} at ${step.tick}`);
+          if (districtSince === undefined && districtHeld(district)) districtSince = step.tick;
+          if (champSince === undefined && champHeld(champ)) champSince = step.tick;
+        }
+      }
+      expect({ eventKey, lost }).toEqual({ eventKey, lost: [] });
+
+      // The two teams the old ceilings took a Locked back from, by name, on
+      // the two events named for them: whatever each reads at 12:05, it never
+      // loses a held place afterwards.
+      const named = eventKey === "2026orsal" ? "frc9430" : eventKey === "2026orore" ? "frc5920" : undefined;
+      if (named !== undefined) {
+        const held = walk.map((step) => districtHeld(step.district.get(named)!));
+        const firstHeld = held.indexOf(true);
+        expect({ named, eventKey, heldToTheEnd: firstHeld === -1 || held.slice(firstHeld).every((value) => value) }).toEqual({ named, eventKey, heldToTheEnd: true });
+        expect(walk[walk.length - 1]!.district.get(named)).toBe(fileStatus.get(named));
+      }
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Task 3 — isolation, refusals, and the static import guard.
 // ---------------------------------------------------------------------------
 

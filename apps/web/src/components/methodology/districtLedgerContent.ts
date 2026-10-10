@@ -335,8 +335,12 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
           "When the award rows are missing and no team earned award points, the award cell stays open at the base rate.",
         ],
         [
-          "Awards posted after every event in the district has finished wait for the next offline republish",
-          "An event's live window closes one hour after the last match observed there.",
+          "Awards are picked up for a day after an event's last match",
+          "An award posted later arrives when the district next has an event in play, or at the next offline republish.",
+        ],
+        [
+          "A Locked waits until an event's award list has been unchanged for an hour",
+          "Until then the places that event's awards can take stay held back.",
         ],
       ],
     },

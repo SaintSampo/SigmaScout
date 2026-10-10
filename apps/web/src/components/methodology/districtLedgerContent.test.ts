@@ -191,7 +191,8 @@ const EXPECTED_LIMITS = [
   "A team with no result yet this season is rated as SPR rates a team it has not seen",
   "Every baked number's resolution is set by its draw count",
   "An event whose awards are posted can still read as open",
-  "Awards posted after every event in the district has finished wait for the next offline republish",
+  "Awards are picked up for a day after an event's last match",
+  "A Locked waits until an event's award list has been unchanged for an hour",
 ];
 
 /** A retired name or a retired piece of vocabulary must never reach a public page. */

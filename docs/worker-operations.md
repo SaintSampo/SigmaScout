@@ -4,7 +4,9 @@
 affected team's algorithm state in D1, and rewrites only the artifacts that actually moved in R2.
 A tick with nothing live reads one small manifest from R2 and stops there, spending zero TBA
 requests — which is what makes ~1,440 invocations a day free during the ten months of the year no
-event is running. Everything the browser reads is a precomputed R2 object served over a custom
+event is running. The one exception (quick task 261009-tx6): for 24 hours after a district event's
+window closes, a tick with nothing live still does district work on the minutes that are a multiple
+of 5, and looks harder on the multiples of 15 — see "The district refresh pass" below. Everything the browser reads is a precomputed R2 object served over a custom
 domain, so page traffic never touches this Worker.
 
 Deployed at `https://sigmascout-worker.jrw4561.workers.dev`. Read path: `https://sigmascout.org`.
@@ -921,75 +923,183 @@ closed.
 
 ---
 
-## The district refresh pass (phase 10, plan 10-05, added 2026-09-25)
+## The district refresh pass (phase 10, plan 10-05, added 2026-09-25; rewritten by quick task 261009-tx6, 2026-10-09)
 
 The tick has a fourth job since phase 10: keeping a district's published points current between
-offline republishes. `apps/worker/src/districtRefresh.ts` runs after the event loop and after the
-global rebuild, and before `writeTickMeta`.
+offline republishes. `apps/worker/src/districtRefresh.ts` holds the pass. It is reached from three
+places in the tick: after the event loop and the global rebuild and before `writeTickMeta` (a tick
+that folded or promoted something), from the probe only return, and from the return when nothing
+is live at all. It is not reached from the state generation mismatch return.
 
-**A district is live when any of its member events has a live window.** The pass learns that from
-the live-windows manifest the tick already read — every window entry now carries a `districtKey`
-(null for a non-district event). The set is narrowed further to the windows the tick actually
-processed (foldable plus promoted), so a calendar probe window that has never promoted does not
-spend a district's TBA request.
+**Which districts the pass looks at: the watch set.** The pass learns that a district exists from
+the live windows manifest the tick already read, where every window entry carries a `districtKey`
+(null for a non district event). It is handed two lists from that one read:
 
-**What it does, per live district, in this order** (the awards steps were rewritten by quick task
-261009-r9x, 2026-10-09):
+- the windows the tick actually processed this tick (foldable, or promoted this tick). Their events
+  are the district's live members.
+- every district window that is live, or that ended within the last 24 hours
+  (`DISTRICT_AWARDS_WATCH_MS` in `packages/harness/manifestSchemas.ts`). An entry the tick did not
+  process is a watched member.
 
-1. One conditional `GET /district/{key}/rankings`, sending `If-None-Match` from the district's own
-   cursor. This comes FIRST, before any R2 read.
-2. One conditional `GET /event/{key}/awards` for every live member event that has an awards cursor
-   row, sending the ETag that row holds (a row holding a null ETag is asked with none). A 200 means
-   the event's awards list changed. A 304 means no awards news from that event.
-3. **The gate.** The district goes on only when the rankings changed, or a member event has a match
-   observation this tick, or an awards list changed. Otherwise nothing moved: the district is
-   counted unchanged and **zero** R2 reads are made. A quiet district therefore costs one
-   conditional rankings request plus one conditional awards request per event with a cursor row.
+An event is watched for 24 hours after its window closes because its awards, and the award points
+that go with them, reach TBA after its last match, often after the one hour pad on its window has
+run out.
+
+**The offline manifest builder keeps a district window for those same 24 hours.**
+`buildLiveWindowsManifest` drops a non district window the moment it closes, as before, and keeps a
+district window, measured or calendar, until 24 hours after it closed. Both sides read the one
+constant and use the same half open bound, so a manifest rebuilt inside the watch does not end it.
+A kept closed window is never live: nothing folds, probes or promotes on it, and it needs no stub
+artifact.
+
+**A calendar window needs proof.** A watched member whose window is `inferred` (a calendar guess
+for an event the corpus held no match for) is kept only when the event's own match cursor row
+shows a folded match. Without that proof it is dropped, and a district left with no member is not
+processed. Such a district costs its share of the pass's one D1 cursor read and no district
+request. A probe window that never promoted therefore still does not spend a district's TBA
+request.
+
+**The two cadences.** They are read off the UTC minute of the tick. Nothing is stored for them, so
+a cron tick that is skipped only delays that look to the next mark.
+
+- A district with a live member is processed every tick.
+- Any other watched district is processed only on a minute that is a multiple of 5. On every other
+  tick it costs nothing: no D1 read and no request.
+- **The forced look.** On a minute that is a multiple of 15, every processed district's rankings
+  are asked with no `If-None-Match` and the gate below is passed unconditionally. This applies to
+  live districts too. It is what reads the settle time without any waiting marker, merges again
+  after an offline republish replaced the artifact, gives an awards cursor row to an event that has
+  none, and repairs a failed cursor write. Nothing stays stuck for more than 15 minutes while its
+  district is watched.
+
+**Suspension.** A state generation mismatch suspends every live write, districts included. The
+main call site sits below the mismatch return. The two idle call sites hand the pass a check that
+answers the same question. It is made at most once, only after a district is due and proven, and
+before any TBA request. When it says suspended, or fails, the pass does nothing that tick and logs
+one `district-pass-suspended` warn.
+
+**What it does, per processed district, in this order:**
+
+1. One `GET /district/{key}/rankings`, sending `If-None-Match` from the district's own cursor. On a
+   forced look no `If-None-Match` is sent. This comes FIRST, before any R2 read.
+2. One conditional `GET /event/{key}/awards` for every member event, live or watched, that has an
+   awards cursor row, sending the ETag that row holds (a row holding a null ETag is asked with
+   none). A 200 means the event's awards list changed. A 304 means no awards news from that event.
+3. **The gate.** The district goes on when the rankings changed, or a member event has a match
+   observation this tick, or an awards list changed, or this is a forced look. Otherwise nothing
+   moved: the district is counted unchanged and **zero** R2 reads are made. A quiet district
+   therefore costs one conditional rankings request plus one conditional awards request per event
+   with a cursor row.
 4. The published `v1/district/{key}.json` is read back from R2.
-5. For each member event whose playoffs are done and whose `awardsPosted` flag still waits, and
-   that has no list in hand (its request in step 2 answered 304, or it has no cursor row yet), one
-   `GET /event/{key}/awards` with **no** `If-None-Match`, so the rule below has the list to read.
-   This is the only unconditional awards request, and it happens only on a tick that already read
-   the artifact. An event whose flag is already true and that has no cursor row (the offline
-   publisher set the flag) is asked once the same way, which gives it a row.
-6. The shared merge (`packages/harness/districtRankingsMerge.ts`) applies the new rankings and the
-   per-event state facts, then the awards step, then recomputes the `locks.ts` verdicts. The Worker
+5. **The catch up, on a forced look only.** The artifact's own rows name older events whose state
+   says the playoffs are done and the awards are not posted, and that are not members this tick:
+   events whose awards or points landed after their watch ended. Their awards cursor rows are read
+   in one D1 read (90 keys per statement). At most 8 are chosen per district per forced look: an
+   event never asked first, then the one asked longest ago, ties by week (a null week last), then
+   by event key. Each chosen event is asked once with no `If-None-Match`, and its row is always
+   written afterwards with `lastPolledAt` set to that tick, whatever the answer. The order
+   therefore rotates, and events that can never post cannot keep a newer one from being asked. An
+   event key read off the artifact is checked against the event key pattern before it becomes a
+   URL segment or a cursor key.
+6. For each member event with no list in hand, one `GET /event/{key}/awards` with **no**
+   `If-None-Match`, in three cases. First, its flag still waits, its playoffs are done, and its
+   request in step 2 answered 304 or it has no cursor row yet. Second, on a forced look, its flag
+   still waits and its window has ended, whatever its published state says about the playoffs: an
+   event whose playoffs ran past its measured window is asked this way. Third, its flag is already
+   true and it has no cursor row (the offline publisher set the flag), which gives it a row. A
+   member whose window is still open and whose state says the playoffs are open is never asked.
+7. The shared merge (`packages/harness/districtRankingsMerge.ts`) applies the new rankings and the
+   per event state facts, then the awards step, then recomputes the `locks.ts` verdicts. The Worker
    has no corpus, so it can only merge into what the offline publisher already wrote: a **missing**
    district artifact is skipped with a `district-artifact-missing` warn and never created, and an
    **empty** rankings payload throws inside the merge before any row is touched, so a published
    district can be neither invented nor blanked.
-7. The candidate is compared with the existing object by serialization, with the existing
+8. The candidate is compared with the existing object by serialization, with the existing
    artifact's own generation and timestamp held constant. Equal means nothing moved and nothing is
-   written.
-8. ETag cursors are written **last**, only after the put that earns the right to stop asking. The
-   awards cursors are written before the rankings cursor: if an awards cursor write throws, the
-   rankings cursor is left unwritten, so the next tick's rankings request is a 200 again and the
-   district passes the gate again.
+   written. That is the usual outcome of a forced look.
+9. Cursors are written **last**, only after the put that earns the right to stop asking. The awards
+   cursors are written before the rankings cursor: if an awards cursor write throws, the rankings
+   cursor is left unwritten, so the next tick's rankings request is a 200 again and the district
+   passes the gate again.
 
-**When an event's awards read as posted.** `awardsPosted` turns true only once the awards list
-holds an award other than Winner and Finalist AND some team's row at that event carries award
-points in the rankings as merged that tick. Until then the event keeps being asked: conditionally
-before the gate on every tick, and with no ETag on any tick that reads the artifact. A published
-true stays true. The rule lives in `packages/core/districts/eventAwards.ts` and the offline
-publisher reads the same function, where either fact alone is enough because the corpus is ingested
-after the event.
+**When an event's awards read as posted: three facts.** `awardsPosted` turns true only once the
+awards list holds an award other than Winner and Finalist, AND some team's row at that event
+carries award points in the rankings as merged that tick, AND the awards list has not changed for
+60 minutes (`AWARDS_SETTLE_MS`). A published true stays true. The rule lives in
+`packages/core/districts/eventAwards.ts`. The offline publisher reads the same function, where
+either of the first two facts alone is enough because the corpus is ingested after the event.
 
-This matters because the Locks guarantee holds slots back until an event's awards are done. Before
-261009-r9x the flag turned true on the first award of any kind and the event was never asked
-again, so a list holding only Winner and Finalist released the held slots while the Impact award
-was still due.
+The third fact exists because TBA can list an event's awards in batches. With two facts the flag
+turned true at the first judged award whose points were in, which released the slot held for that
+event's Impact award while a later batch could still bring it.
+
+**Where the settle time is stored.** The event's awards cursor row holds the ETag of the last list
+the pass merged and, in `lastAdvancedAt`, the time that ETag last changed. A list is settled when
+its ETag equals the row's and that time is at least 60 minutes before the tick. A list reads as
+changed now, and the row is stamped with the tick's time, when no row exists, when the ETag
+differs, or when the row holds an ETag and no usable time (the row a Worker before 261009-tx6
+wrote). A list whose response carried no ETag never reads as settled. A failed awards request
+restarts the clock only on a tick that passes the gate, because that is the only tick that writes
+the retry marker. A failed request on a tick that does not pass the gate writes nothing and leaves
+the clock alone.
+
+**The limit of the settle time.** An award listed more than an hour after the list last changed
+lands after the flag is true. It is recorded on the tick its list changes, but the slot held for
+it was released when the hour ran out.
 
 **The winners are written in the same put.** Every awards list that reaches the merge is merged,
 whether or not the flag turns true that tick: each recipient that is a team of the district gets
 its `qualifyingAwards` entry, built by the same function the offline publisher uses. So the flag,
 the winner records, `districtLock` and `champLock` land in one R2 write. Entries are appended and
-never removed. A District Championship division records nothing, as in the publisher. While an
-Impact winner is recorded and the flag still waits on its points, the published verdict both
-counts that winner and still holds the event's slot back. That is the cautious side: it never
-publishes a Locked that is not true. In that window a team the published verdict locked on points
-one tick earlier can read contending, and it reads locked again on the tick the points arrive. No
-page renders the published `districtLock` or `champLock` status. The Locks tabs compute their own
-and do not do this, because they read each award against its own event's stage.
+never removed. A District Championship division records nothing, as in the publisher.
+
+**A recorded winner is read only once its own event says the award is given.** The record is
+written at once. The verdict pass counts it only when the state block of the award's own event
+says so: every judged award once `awardsPosted` is true, and a District Championship Winner once
+the playoffs are final (`playoffsDone` true, or `awardsPosted` true). Until then the event still
+holds its slot back and the recorded winner takes none, so an event is reserved for or counted and
+never both. An award at an event whose rows carry no state block counts as it always has. Before
+261009-tx6 the published verdict counted the winner and held the slot at once, and a team it had
+locked on points read contending until the points arrived.
+
+**The published ceilings count what is still open at an event a team has already played.** Before
+261009-tx6 `maxRemainingDistrict` was the sum of a team's remaining events and nothing else, so an
+event a team already had a points row for was worth nothing more to it while its award points were
+still to come. The verdict pass now applies the District Locks tab's own rule to every points row
+whose event carries a state block. For each category that is not yet final:
+
+- that category's ceiling at the row's tier is added to the team's ceiling (district tier rows into
+  `maxRemainingDistrict`, both tiers into `maxRemainingChamp`), and
+- the points the row already carries in that category leave the floor the lock test and the cut
+  line read. `pointTotal` on the wire is unchanged.
+
+So `maxRemainingDistrict` and `maxRemainingChamp` are larger while an event is open, and a point
+landing in an open category moves no verdict. A row whose event carries no state block adds
+nothing and removes nothing, so a finished season republishes to exactly what it was (measured over
+the 109 local district seasons: zero artifacts differ). Three things to know:
+
+- **It is the tab's rule without its settled playoffs refinement.** The pass has no bracket facts,
+  so an alliance already knocked out keeps the whole playoff ceiling until the category is final.
+  A published status in the middle of the playoffs can therefore be weaker than the tab's (a
+  Locked shown later), never stronger.
+- **A newcomer's seed lasts until the next offline republish.** A team that arrives in TBA's
+  rankings with no row in the artifact is given one district event's maximum as its ceiling. That
+  seed is now carried on every later tick, on a rankings 200 and on a 304 alike. Before, it was
+  lost on the next rankings 200.
+- **Whether a championship is still ahead is read off the artifact as it was read from R2,** before
+  anything is merged into it, with what is open at a team's own championship row subtracted. A
+  team playing its championship is therefore never read as a team granted a hypothetical one, and
+  a rankings 200 tick and a 304 tick give the same ceilings.
+
+**What "no Locked is taken back" covers.** It is asserted for the AWARD stage: Winner and Finalist
+listed, the judged list, the award points, the hour of quiet, the settle. The replay in
+`apps/worker/test/scheduled.district.test.ts` walks that stage for all eight 2026 PNW district
+events through the real tick, at both tiers. The same gap one category earlier (qualification
+done, alliances picked, playoffs done, each while TBA's district rankings have not caught up with
+the match results) is not covered here. It is the subject of quick task 261009-vp9, "a category
+counts as finished only when its points are in", which changes one function,
+`publishedCategoryFinality`, the one place the published verdicts read which categories of an
+event are final.
 
 **A failed awards request is not fatal.** A request that throws, answers a status other than 200
 or 304, or returns a body that fails the schema costs one `district-awards-poll-failed` warn and
@@ -1001,9 +1111,27 @@ the gate, so the retry passes the gate by itself. An event whose flag is already
 row: its next conditional request is the retry.
 
 **Every step for one district sits inside that district's own error isolation**, and every awards
-request sits inside its own within that. One bad district costs one warn line and one failed count;
-it cannot cost the tick its other districts, and it cannot cost the tick its rotation offset. The
-pass never throws and never simulates.
+request sits inside its own within that. The pass's cursor read and its suspension check each sit
+inside their own too. One bad district costs one warn line and one failed count; it cannot cost
+the tick its other districts, and it cannot cost the tick its rotation offset. The pass never
+throws and never simulates.
+
+**What a tick costs, at worst, in subrequests.** Every request and every D1 read or write of the
+pass is counted. With M member events and C catch up events (C at most 8) in one district:
+
+| Tick | At most |
+|---|---|
+| A forced look | 3M + 2C + 5: one rankings request, one artifact read, one put, one rankings cursor write, one catch up cursor read (one more for each further 90 candidates), two awards requests and one cursor write per member, one awards request and one cursor write per catch up event |
+| Not a forced look, the district passes the gate | 3M + 4 |
+| Not a forced look, the district does not pass the gate | M + 1 |
+| No district is due | nothing |
+
+On top of that the pass as a whole makes one cursor read statement per 90 keys, and from an idle
+call site two more subrequests for the suspension check (the algorithms manifest and the tick
+state, which a busy tick has already paid for). A test holds a tick with ten watched events and
+eight catch up events under 55. In TBA requests, a forced look costs one unconditional rankings
+request per processed district, which is one full rankings body per watched district every 15
+minutes, plus at most two awards requests per waiting member and one per catch up event.
 
 **Two reserved `event_cursor` key shapes** are written by this pass, and an operator reading the
 `event_cursor` table will meet both:
@@ -1011,36 +1139,42 @@ pass never throws and never simulates.
 | Key shape | Holds |
 |---|---|
 | `__district_rankings__:{districtKey}` | the district rankings ETag |
-| `__event_awards__:{eventKey}` | the ETag of the last awards list the pass merged, whatever the flag says. A null ETag is a retry marker left by a failed request, and is asked with no ETag |
+| `__event_awards__:{eventKey}` | `tba_etag`: the ETag of the last awards list the pass merged, whatever the flag says. A null ETag is a retry marker left by a failed request, and is asked with no ETag. `last_advanced_at`: the time that ETag last changed, which the 60 minute settle time is counted from. `last_polled_at`: the time the row was last written, which for a catch up event is the time it was last asked |
 
 Both are refused by `emitCursorSeedSql`, so a D1 seed cannot clobber either. Neither is owed before
 a deploy: the tick writes them itself and they are meant to be absent until it runs. A row left by
-the Worker as it was before 261009-r9x holds an ETag and simply continues as a conditional request.
+a Worker before 261009-tx6 holds an ETag and no change time. It continues as a conditional request,
+and the first list read against it restarts its hour.
 
-**New log lines to filter on:** `district-refreshed` (`districtKey`, `bytes`, `teams`),
+**Log lines to filter on:** `district-refreshed` (`districtKey`, `bytes`, `teams`),
 `district-refresh-failed` (`districtKey`, `error`), `district-artifact-missing` (`districtKey`,
-`key`), `district-key-rejected` (`districtKey`) and `district-awards-poll-failed` (`districtKey`,
-`eventKey`, `reason`).
+`key`), `district-key-rejected` (`districtKey`), `district-awards-poll-failed` (`districtKey`,
+`eventKey`, `reason`), and two added by 261009-tx6: `district-pass-suspended` (`districts`, and
+`error` when the check itself failed) and `district-cursor-read-failed` (`districts`, `error`).
 
-### Known freshness limit, recorded rather than fixed
+### The limits that remain
 
-**Awards, and the award points that go with them, that post after every member event's live window
-has closed do not appear until the next offline republish.** An event's live window is padded one
-hour past the last match observed there (`LIVE_WINDOW_PAD_MS` in
-`packages/harness/manifestSchemas.ts`), so an award ceremony later that night falls outside it and
-the tick never asks. In that case the flag stays false, so the reservations stay held and no team
-reads Locked on a slot an award could still take. This is a consequence of how the window is
-defined, not a defect in the pass. The same limit is stated for a reader on
-`/methodology/district-points` and is the last of the seven limits listed there.
+**Awards or points that land more than 24 hours after an event's window closed wait for the catch
+up.** The catch up runs the next time the district is watched, which is when any of its events is
+live or inside its own 24 hours, 8 events per forced look. Until then the flag stays false, so the
+reservations stay held and no team reads Locked on a slot an award could still take. The next
+offline republish resolves them too. The reader facing statement of this is on
+`/methodology/district-points`, in the limits table.
 
-**An event with no awards cursor row whose district is quiet may not be asked again while it stays
-quiet.** Step 2 asks only events that have a row, and step 5 runs only once the gate has passed.
-For an event whose flag still waits and whose playoffs are done, every path through the pass leaves
-a row (the ETag of a merged list, or a retry marker), so the one way left to get there is a D1
-cursor write failing on the same tick an awards request failed, or on the tick its first list was
-merged, while the rankings answered 304. The flag stays false in that case. An event whose flag
-the offline publisher set true has no row until the first tick that passes the gate, so an award
-listed for it before then is recorded on that tick and not earlier.
+**An award listed more than an hour after the list last changed lands after the flag.** See "The
+limit of the settle time" above.
+
+**An event whose window is still open and whose state says its playoffs are open is not asked for
+awards.** An award cannot have been given out there yet.
+
+**A published `playoffsDone` that a republish from an older corpus set back to false** is not
+repaired by the pass. The event is still asked once its window has ended (step 6), and its flag
+can still turn true. A District Championship Winner there stays reserved for until the flag turns
+true, and is counted from then. The offline publisher refusing to overwrite newer live facts is a separate quick task
+(261009-ul3).
+
+**No real district event has exercised this pass yet.** The first real observation is the first
+2027 district event. Until then the replay test named above stands in for it.
 
 ---
 
@@ -1220,7 +1354,11 @@ Every invocation emits exactly one structured line:
  "districtsRefreshed":0,"districtsUnchanged":0,"districtsFailed":0}
 ```
 
-That is a healthy idle tick: nothing live, one manifest read, zero TBA requests. **There is no
+That is a healthy idle tick: nothing live, one manifest read, zero TBA requests. A tick with
+nothing live is NOT always that cheap any more (quick task 261009-tx6): while a district event is
+inside the 24 hours after its window, the tick whose minute is a multiple of 5 asks that district's
+rankings and awards, so `tbaRequests`, `subrequestsUsed` and `districtsConsidered` are above
+their idle values on those ticks and back at them on the minutes in between. **There is no
 `eventsDeferred` field any more** — quick task 260923-3w4 deleted the deferral it counted, so a tick
 log from before 2026-09-23 carries one and a current tick does not. `subrequestsUsed` stays: it is
 how an event weekend's shape is read without a tail.
@@ -1232,10 +1370,10 @@ a change it came from.
 
 | Field | What it counts |
 |---|---|
-| `districtsConsidered` | districts with at least one live member event this tick. Stays `0` against any live-windows manifest published before phase 10, which is the correct answer for a manifest that carries no district information |
+| `districtsConsidered` | districts the pass processed this tick (since quick task 261009-tx6): a district with a member event the tick processed, on every tick, and a district that only has an event inside its 24 hour watch, on a minute that is a multiple of 5. `0` on a tick where no district is due, and against any live-windows manifest published before phase 10, which is the correct answer for a manifest that carries no district information |
 | `districtsRefreshed` | districts whose artifact this tick republished |
-| `districtsUnchanged` | districts that cost one conditional TBA request and no write |
-| `districtsFailed` | districts that threw, were refused by the key pattern, or had no published artifact to merge into |
+| `districtsUnchanged` | processed districts with nothing to write: conditional requests only and no R2 read, or (the usual outcome of a forced look on a multiple of 15) the artifact read and the merge changing nothing |
+| `districtsFailed` | districts that threw, were refused by the key pattern, or had no published artifact to merge into, and every due district when the pass's own cursor read failed |
 
 A tick during an
 offseason weekend with an open calendar probe window but no matches posted yet looks the same
@@ -1275,7 +1413,7 @@ above. An observation your model says is impossible is the most valuable one you
 | A `live-tier-defaulted` warn line in the tail | `LIVE_ALGORITHM_IDS` did not reach the deployed Worker (e.g. a `--var` deploy that did not carry tracked vars through) | Redeploy from tracked config with `pnpm worker:deploy` and confirm the deploy output lists both `TBA_BASE_URL` and `LIVE_ALGORITHM_IDS` |
 | `outcome: "exceededCpu"` with an empty `logs` array on **every** tick | The tick is *consistently* over the CPU budget (30 s per invocation, Workers Paid since 2026-09-22 — was 10 ms on the free plan). It is reaching the handler and dying before its final log line — it is **not** dying in module init (that is a separate 1-second budget) | `eventsConsidered` on any tick that does survive. If non-zero, fetch `https://data.sigmascout.org/v1/manifest/live-windows.json` and see what the Worker thinks is live — **read the manifest, never the calendar**. Read "How the CPU budget is actually enforced" above before drawing any conclusion from a single high `cpuTime` |
 | About to run an event; unsure the deployed bundle can read the rows in D1 | Untested since the last seed — a green idle tick does not exercise it | Apply `seed-cursors.sql` from the same publish run and deploy in that order, then watch the first tick for `state-generation-mismatch` or `LeagueRowShapeVersionError`. (The pre-event probe that used to answer this by hand was deleted 2026-09-23 — see "Pre-event probe" above) |
-| Earned district points not moving on `/districts` during a live district weekend | The district refresh pass is not seeing the district as live, is failing on it, or has nothing published to merge into | Read `districtsConsidered`, `districtsRefreshed`, `districtsUnchanged` and `districtsFailed` on the tick line, in that order. `districtsConsidered: 0` means no member event's window carries a `districtKey` — the live-windows manifest predates phase 10 or has gone stale, so re-run `pnpm publish:seasons`. Non-zero considered with `districtsFailed` above zero: grep the tail for `district-refresh-failed` and `district-artifact-missing` (the Worker never CREATES a district artifact, so a district the offline publisher has not published yet fails every tick). All considered and all unchanged is the healthy answer when TBA's rankings have genuinely not moved |
+| Earned district points not moving on `/districts` during a live district weekend | The district refresh pass is not seeing the district as live, is failing on it, or has nothing published to merge into | Read `districtsConsidered`, `districtsRefreshed`, `districtsUnchanged` and `districtsFailed` on the tick line, in that order. `districtsConsidered: 0` on EVERY tick of a live district event means no member event's window carries a `districtKey` — the live-windows manifest predates phase 10 or has gone stale, so re-run `pnpm publish:seasons`. (`0` on most ticks and `1` on the minutes that are a multiple of 5 is the healthy shape for a district that only has an event in its 24 hour watch.) A `district-pass-suspended` warn means a state generation mismatch is holding the pass back, and a `district-cursor-read-failed` warn means its D1 read failed that tick. Non-zero considered with `districtsFailed` above zero: grep the tail for `district-refresh-failed` and `district-artifact-missing` (the Worker never CREATES a district artifact, so a district the offline publisher has not published yet fails every tick). All considered and all unchanged is the healthy answer when TBA's rankings have genuinely not moved |
 | An `upcoming-pricing-failed` warn line in the tail | The tick could not price the event's remaining schedule — the priced row failed `EventUpcomingMatchSchema` (a pmf that does not sum, a band that is not finite). The event's state is durable in D1; its artifacts lag until the next tick | Read the truncated `error` field and the `upcoming` count on the line. It is a model-output problem, not a config one: the offline publisher would fail the same parse on the same state, so reproduce it with a replay rather than by redeploying |
 | The page was late, or a result took a long time to show | Anything between TBA posting the result and the artifact landing: TBA itself, the cron cadence, a tick that skipped the event, a Phase B write that failed | Run `pnpm live:report <eventKey>` and read the median and worst post to published delay by phase, then the gaps and the failures (see "The ingest log" above). A large `Last-Modified` to observed lag is TBA or the cron; a `phase-b` failure row is the artifact write; a gap is a tick that never saw the event |
 
