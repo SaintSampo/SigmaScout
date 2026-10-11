@@ -26,7 +26,7 @@ import { buildChampLedgerRows, champFieldProofAtNow, dcmpEventKeysFor } from "./
 import { applyChampRangeState, champFinalsCeilingWithoutRow, computeChampLedgerStatuses, jointDecidedPlacementTopUp } from "./champLedgerStatus.js";
 import { champCutoffView, type ChampRangeState } from "./champLedgerChances.js";
 import { SHOW_SIMULATED_CHAMP_LIKELY_RANGE, predictedCutoff, type LedgerCutoffView } from "./predictedCutoff.js";
-import { playoffPoints, routeBracket, type AllianceBracketMilestone, type PlayedBracketMatch } from "../../../../../packages/core/districts/bracket.js";
+import { maxFinalsPointsByPlacement, playoffPoints, routeBracket, type AllianceBracketMilestone, type PlayedBracketMatch } from "../../../../../packages/core/districts/bracket.js";
 import { jointLockBound, jointLockedTeams, jointLockedTeamsMultiple, type JointLockInput } from "../../../../../packages/core/districts/champJointLock.js";
 import {
   dcmpBracketFactsFor,
@@ -1317,6 +1317,185 @@ describe("computeChampLedgerStatuses — the joint worst case proof (261009-2tr)
     expect(control.byTeam.get("frc9001")!.verdict).toBe("locked");
     expect(control.byTeam.get("frc9001")!.lockedBy).toBe("ceiling");
   });
+
+  describe("the tick the playoff points land: a pick TBA has paid for its alliance's playoffs is on that alliance (quick task 261010-l0s, finding F2)", () => {
+    const FINAL_ONE_WINS: PlayedBracketMatch[] = [1, 2].map((matchNumber) => ({ compLevel: "f", setNumber: 1, matchNumber, winningAllianceNumber: 1 }));
+    /** The whole bracket played: alliance 1 won, 5 second, 3 third, 2 fourth. */
+    const DECIDED = [...ROUND_FIVE_ROWS, ...FINAL_ONE_WINS];
+    /** A pool team with a championship row that no alliance picked: it holds 0 alliance selection points there. */
+    const FOURTH = "frc492";
+    /** The team whose Locked the tick took back before the rule. */
+    const HELD = "frc6696";
+    const listedOn = (allianceNumber: number, fourth = FOURTH) => ALLIANCES.map((alliance) => (alliance.allianceNumber === allianceNumber ? { ...alliance, picks: [...alliance.picks, fourth] } : alliance));
+    /**
+     * The fixture in the window BETWEEN THE PLAYOFF POINTS AND THE AWARDS, which only a live championship shows: TBA
+     * has not listed the Winner yet, and it has paid the fourth `paid` playoff points at the championship. The same
+     * artifact is read at both stops: with the Playoffs open at the position the paid points are not in any floor.
+     */
+    const artifactWith = (paid: number, fourth = FOURTH): DistrictArtifact =>
+      DistrictArtifactSchema.parse({
+        ...FIXTURE,
+        teams: FIXTURE.teams.map((team) => {
+          const noWinner = { ...team, qualifyingAwards: team.qualifyingAwards.filter((award) => !(award.eventKey === DCMP_KEY && award.awardType === 1)) };
+          if (team.teamKey !== fourth || paid === 0) return noWinner;
+          return { ...noWinner, pointTotal: team.pointTotal + paid, eventPoints: team.eventPoints.map((row) => (row.eventKey === DCMP_KEY ? { ...row, elim: row.elim + paid, total: row.total + paid } : row)) };
+        }),
+      });
+    const readAt = (artifact: DistrictArtifact, stop: ReadonlyMap<string, DistrictStageFinality>, alliances: typeof ALLIANCES) =>
+      modelAtStop(artifact, stop, distributionsWith(dcmpBracketMilestonesByTeam(alliances, DECIDED), factsAt(stop.get(DCMP_KEY)!, DECIDED, alliances)));
+    const inputOf = (model: ReturnType<typeof modelAtStop>): JointLockInput => {
+      if (model.jointProof?.applied !== true || model.jointProof.shape !== "single") throw new Error(`not applied: ${JSON.stringify(model.jointProof?.applied === true ? model.jointProof.shape : model.jointProof)}`);
+      return model.jointProof.input;
+    };
+    const rivalOf = (input: JointLockInput, teamKey: string) => input.pool.find((rival) => rival.teamKey === teamKey);
+    const allianceOf = (input: JointLockInput, allianceNumber: number) => input.alliances.find((alliance) => alliance.allianceNumber === allianceNumber)!;
+
+    it("the fixture fits: the fourth has a championship row, no alliance selection points and no playoff points there, and no alliance picked it", () => {
+      const row = FIXTURE.teams.find((team) => team.teamKey === FOURTH)!.eventPoints.find((entry) => entry.eventKey === DCMP_KEY)!;
+      expect({ alliance: row.alliance, elim: row.elim }).toEqual({ alliance: 0, elim: 0 });
+      expect(ALLIANCES.some((alliance) => alliance.picks.includes(FOURTH))).toBe(false);
+    });
+
+    it("on the decided winner, paid 60: a listed pick that is not confirmed until the tick, the winner's fourth member with no spare seat after it, and no bound is higher", () => {
+      const artifact = artifactWith(60);
+      const before = readAt(artifact, FNC_LIKE_STOP, listedOn(1));
+      const after = readAt(artifact, PLAYOFFS_FINAL_STOP, listedOn(1));
+      const inputBefore = inputOf(before);
+      const inputAfter = inputOf(after);
+      // The window: the routed final names the winner on both sides, and no Winner is posted.
+      expect(inputBefore.candidateWinners).toEqual([1]);
+      expect(inputAfter.candidateWinners).toEqual([1]);
+      expect(inputAfter.pointsSlots).toBe(inputBefore.pointsSlots);
+
+      // BEFORE: the fourth is read through the winner's fill in (finding F-D of quick task 261010-d7r).
+      expect(rivalOf(inputBefore, FOURTH)).toEqual({ teamKey: FOURTH, floor: 148, extra: 90, listedOnly: { settled: 90, onWinner: true } });
+      expect(allianceOf(inputBefore, 1)).toEqual({ allianceNumber: 1, members: ALLIANCES[0]!.picks, spareSeats: 1 });
+      // AFTER: TBA's 60 is in its floor, it is a member of the winner, and the seat it holds is closed.
+      expect(rivalOf(inputAfter, FOURTH)).toEqual({ teamKey: FOURTH, floor: 208, extra: 0 });
+      expect(allianceOf(inputAfter, 1)).toEqual({ allianceNumber: 1, members: [...ALLIANCES[0]!.picks, FOURTH], spareSeats: 0 });
+      // Nobody else's alliance moved.
+      expect(inputAfter.alliances.filter((alliance) => alliance.allianceNumber !== 1)).toEqual(inputBefore.alliances.filter((alliance) => alliance.allianceNumber !== 1));
+
+      // NO BOUND IS HIGHER AFTER THE TICK, for any team in the pool on both sides.
+      let compared = 0;
+      for (const rival of inputBefore.pool) {
+        if (rivalOf(inputAfter, rival.teamKey) === undefined) continue;
+        compared += 1;
+        expect(jointLockBound(inputAfter, rival.teamKey), rival.teamKey).toBeLessThanOrEqual(jointLockBound(inputBefore, rival.teamKey));
+      }
+      expect(compared).toBeGreaterThan(20);
+      // The paid pick is on the decided winner: no frame is left in which it is not qualified. So the tab shows it
+      // Locked from this tick, where it waited for its Winner award to be listed (the lock this rule ADDS).
+      expect(jointLockBound(inputAfter, FOURTH)).toBe(0);
+      expect({ before: before.byTeam.get(FOURTH)?.status, after: after.byTeam.get(FOURTH)?.status, lockedBy: after.byTeam.get(FOURTH)?.lockedBy }).toEqual({ before: "inRange", after: "locked", lockedBy: "joint" });
+
+      // THE TEAM THE TICK USED TO TAKE BACK: 20 rivals at most of 21 points slots on both sides, shown Locked on both.
+      expect(inputBefore.pointsSlots).toBe(21);
+      expect(jointLockBound(inputBefore, HELD)).toBe(20);
+      expect(jointLockBound(inputAfter, HELD)).toBe(20);
+      expect(before.byTeam.get(HELD)?.status).toBe("locked");
+      expect(after.byTeam.get(HELD)?.status).toBe("locked");
+      // No team shown Locked before the tick is shown anything less after it.
+      for (const result of before.byTeam.values()) {
+        if (result.status !== "locked") continue;
+        expect(["locked", "prequalified"], result.teamKey).toContain(after.byTeam.get(result.teamKey)?.status);
+      }
+
+      // THE INPUT OF BEFORE THE RULE, rebuilt by hand from the one above: the paid pick off the winner's members and
+      // the winner's seat open. The paid pick is ahead by its own floor AND the fill in covers one rival more, so the
+      // held team reads 21 of 21 and the proof no longer locks it.
+      const leftOff: JointLockInput = {
+        ...inputAfter,
+        alliances: inputAfter.alliances.map((alliance) => (alliance.allianceNumber === 1 ? { ...alliance, members: alliance.members.filter((member) => member !== FOURTH), spareSeats: 1 } : alliance)),
+      };
+      expect(jointLockBound(leftOff, HELD)).toBe(21);
+      expect(jointLockedTeams(leftOff).has(HELD)).toBe(false);
+      expect(after.jointProof?.applied === true && after.jointProof.locked.has(HELD)).toBe(true);
+      const higher = inputBefore.pool.filter((rival) => rivalOf(inputAfter, rival.teamKey) !== undefined && jointLockBound(leftOff, rival.teamKey) > jointLockBound(inputBefore, rival.teamKey)).map((rival) => rival.teamKey);
+      // Pinned as the run shows: the teams whose bound the tick raised before the rule.
+      expect(higher.length).toBe(9);
+      expect(higher).toContain(HELD);
+    });
+
+    it("on the decided winner, paid nothing: the fourth stays a listed pick that is not confirmed and the winner's seat stays open", () => {
+      const artifact = artifactWith(0);
+      const inputAfter = inputOf(readAt(artifact, PLAYOFFS_FINAL_STOP, listedOn(1)));
+      expect(inputAfter.candidateWinners).toEqual([1]);
+      expect(allianceOf(inputAfter, 1)).toEqual({ allianceNumber: 1, members: ALLIANCES[0]!.picks, spareSeats: 1 });
+      expect(rivalOf(inputAfter, FOURTH)).toEqual({ teamKey: FOURTH, floor: 148, extra: 0 });
+    });
+
+    it("on an alliance placed below first, paid 12: confirmed there too, and no bound is higher after the tick", () => {
+      // Alliance 2 placed fourth (21 at most). TBA pays its backup 12 for the matches it played.
+      const artifact = artifactWith(12);
+      const inputBefore = inputOf(readAt(artifact, FNC_LIKE_STOP, listedOn(2)));
+      const inputAfter = inputOf(readAt(artifact, PLAYOFFS_FINAL_STOP, listedOn(2)));
+      expect(rivalOf(inputBefore, FOURTH)).toEqual({ teamKey: FOURTH, floor: 148, extra: 21, listedOnly: { settled: 21, onWinner: false } });
+      expect(rivalOf(inputAfter, FOURTH)).toEqual({ teamKey: FOURTH, floor: 160, extra: 0 });
+      expect(allianceOf(inputAfter, 2)).toEqual({ allianceNumber: 2, members: [...ALLIANCES[1]!.picks, FOURTH], spareSeats: 0 });
+      // The winner is untouched: three confirmed picks and its one spare seat.
+      expect(allianceOf(inputAfter, 1)).toEqual({ allianceNumber: 1, members: ALLIANCES[0]!.picks, spareSeats: 1 });
+      for (const rival of inputBefore.pool) {
+        if (rivalOf(inputAfter, rival.teamKey) === undefined) continue;
+        expect(jointLockBound(inputAfter, rival.teamKey), rival.teamKey).toBeLessThanOrEqual(jointLockBound(inputBefore, rival.teamKey));
+      }
+    });
+
+    it("every unpicked team of the fixture as the fourth of every placed alliance, at every payment TBA can make it: no bound is higher after the tick, and the input of before the rule raises some", () => {
+      // The four placed alliances that pay, each with what its backup can be paid: nothing (it never played), part of
+      // the placement's value, or all of it. Alliance 1 placed first (90), 5 second (75), 3 third (39), 2 fourth (21).
+      const PAYMENTS: readonly (readonly [allianceNumber: number, paid: readonly number[]])[] = [
+        [1, [0, 21, 60, 90]],
+        [5, [0, 15, 45, 75]],
+        [3, [0, 12, 27, 39]],
+        [2, [0, 12, 21]],
+      ];
+      const picked = new Set(ALLIANCES.flatMap((alliance) => alliance.picks));
+      const fourths = FIXTURE.teams
+        .filter((team) => !picked.has(team.teamKey) && team.eventPoints.some((row) => row.eventKey === DCMP_KEY && row.alliance === 0 && row.elim === 0))
+        .map((team) => team.teamKey);
+      let scenarios = 0;
+      let compared = 0;
+      let lower = 0;
+      let higherBeforeTheRule = 0;
+      const higher: string[] = [];
+      for (const fourth of fourths) {
+        for (const [allianceNumber, payments] of PAYMENTS) {
+          for (const paid of payments) {
+            const artifact = artifactWith(paid, fourth);
+            const inputBefore = inputOf(readAt(artifact, FNC_LIKE_STOP, listedOn(allianceNumber, fourth)));
+            const inputAfter = inputOf(readAt(artifact, PLAYOFFS_FINAL_STOP, listedOn(allianceNumber, fourth)));
+            // The input of before the rule: a paid pick off its alliance's members, the seat it holds open.
+            const leftOff: JointLockInput = {
+              ...inputAfter,
+              alliances: inputAfter.alliances.map((alliance) => (alliance.allianceNumber === allianceNumber && alliance.members.includes(fourth) ? { ...alliance, members: alliance.members.filter((member) => member !== fourth), spareSeats: 1 } : alliance)),
+            };
+            scenarios += 1;
+            for (const rival of inputBefore.pool) {
+              if (rivalOf(inputAfter, rival.teamKey) === undefined) continue;
+              compared += 1;
+              const was = jointLockBound(inputBefore, rival.teamKey);
+              const now = jointLockBound(inputAfter, rival.teamKey);
+              if (now > was && higher.length < 6) higher.push(`${fourth} on alliance ${String(allianceNumber)} paid ${String(paid)}: ${rival.teamKey} ${String(was)} then ${String(now)}`);
+              if (now < was) lower += 1;
+              if (jointLockBound(leftOff, rival.teamKey) > was) higherBeforeTheRule += 1;
+            }
+          }
+        }
+      }
+      // THE REQUIREMENT, on every scenario: no bound is higher after the tick.
+      expect(higher).toEqual([]);
+      // Not vacuous, and the rule is what holds it. Pinned as the run shows.
+      expect({ fourths: fourths.length, scenarios, compared, lower, higherBeforeTheRule }).toEqual({ fourths: 26, scenarios: 390, compared: 49_140, lower: 10_948, higherBeforeTheRule: 882 });
+    }, 120_000);
+
+    it("at a stop where the Playoffs are open the rows' playoff points confirm nobody: the artifact's hindsight is not read", () => {
+      // The same artifact, the fourth already paid 60 on its row, read with the Playoffs open at the position.
+      const inputBefore = inputOf(readAt(artifactWith(60), FNC_LIKE_STOP, listedOn(1)));
+      expect(allianceOf(inputBefore, 1).members).toEqual(ALLIANCES[0]!.picks);
+      expect(allianceOf(inputBefore, 1).spareSeats).toBe(1);
+    });
+  });
 });
 
 /**
@@ -1700,6 +1879,149 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
     expect(alive.spareSeats).toBe(4);
   });
 
+  describe("the tick the finals' playoff points land: the champion's backup TBA has paid is on the champion (quick task 261010-l0s, finding F2)", () => {
+    /** Division 1's alliance 1 wins its division and then the finals. */
+    const CHAMPION = DIV1_ALLIANCES[0]!.picks;
+    const CHAMPION_ID = 11;
+    /** A team no alliance picked. It is moved into division 1 here, so the champion may call it up for the finals. */
+    const BACKUP = others[24]!;
+    /** What the finals pay the winner's teams at a two division championship in 2026. */
+    const FINALS_WINNER_POINTS = 30;
+    /**
+     * The window BETWEEN THE FINALS' PLAYOFF POINTS AND THE AWARDS, which only a live championship shows: no Winner
+     * listed yet, the champion's three picks paid at the finals key, and the backup paid `backupPaid` there (no finals
+     * row at all at 0). The same artifact is read on both sides of the tick.
+     */
+    const artifactWith = (backupPaid: number): DistrictArtifact =>
+      DistrictArtifactSchema.parse({
+        ...DIVISIONED,
+        teams: DIVISIONED.teams.map((team) => {
+          const noWinner = { ...team, qualifyingAwards: team.qualifyingAwards.filter((award) => award.awardType !== 1) };
+          if (CHAMPION.includes(team.teamKey)) {
+            return {
+              ...noWinner,
+              pointTotal: team.pointTotal + FINALS_WINNER_POINTS,
+              eventPoints: team.eventPoints.map((row) => (row.eventKey === PARENT ? { ...row, elim: FINALS_WINNER_POINTS, total: FINALS_WINNER_POINTS } : row)),
+            };
+          }
+          if (team.teamKey !== BACKUP) return noWinner;
+          const relabel = <T extends { eventKey: string }>(row: T): T => (row.eventKey === DIV2 ? { ...row, eventKey: DIV1 } : row);
+          const eventPoints = team.eventPoints.map(relabel);
+          const division = eventPoints.find((row) => row.eventKey === DIV1)!;
+          return {
+            ...noWinner,
+            pointTotal: team.pointTotal + backupPaid,
+            eventPoints: backupPaid === 0 ? eventPoints : [...eventPoints, { ...division, eventKey: PARENT, qual: 0, alliance: 0, elim: backupPaid, award: 0, total: backupPaid }],
+            remainingEvents: team.remainingEvents.map(relabel),
+          };
+        }),
+      });
+    /** Both divisions and the finals played out: division 1's alliance 1 beat division 2's. `finalsListTheBackup` is whether TBA's finals list names it. */
+    const distributionsAt = (finalsStage: DistrictStageFinality, finalsListTheBackup: boolean) =>
+      new Map([
+        entry(DIV1, facts(DIV1, PLAYOFFS_FINAL, DIV1_ALLIANCES, [...ROUND_FIVE, ...FINAL_ONE_WINS], "division")),
+        entry(DIV2, facts(DIV2, PLAYOFFS_FINAL, DIV2_ALLIANCES, higherSeedRows(), "division")),
+        entry(
+          PARENT,
+          facts(
+            PARENT,
+            finalsStage,
+            [
+              { allianceNumber: 1, picks: finalsListTheBackup ? [...CHAMPION, BACKUP] : CHAMPION },
+              { allianceNumber: 2, picks: DIV2_ALLIANCES[0]!.picks },
+            ],
+            FINAL_ONE_WINS,
+            "finals",
+            2
+          )
+        ),
+      ]);
+    const stagesAt = (finalsStage: DistrictStageFinality) =>
+      new Map([
+        [DIV1, PLAYOFFS_FINAL],
+        [DIV2, PLAYOFFS_FINAL],
+        [PARENT, finalsStage],
+      ]);
+    const modelOf = (artifact: DistrictArtifact, finalsStage: DistrictStageFinality, finalsListTheBackup = true) => modelAt(artifact, stagesAt(finalsStage), distributionsAt(finalsStage, finalsListTheBackup));
+    const inputAt = (artifact: DistrictArtifact, finalsStage: DistrictStageFinality, finalsListTheBackup = true): JointLockInput => {
+      const model = modelOf(artifact, finalsStage, finalsListTheBackup);
+      if (model.jointProof?.applied !== true || model.jointProof.shape !== "divisioned") throw new Error(`not applied: ${JSON.stringify(model.jointProof?.applied === true ? model.jointProof.shape : model.jointProof)}`);
+      return model.jointProof.input;
+    };
+    const champion = (input: JointLockInput) => input.alliances.find((alliance) => alliance.allianceNumber === CHAMPION_ID)!;
+    const frameShape = (input: JointLockInput) => input.frames!.map((frame) => ({ winner: frame.winner, fillIns: frame.fillIns }));
+    const rivalOf = (input: JointLockInput, teamKey: string) => input.pool.find((rival) => rival.teamKey === teamKey);
+
+    it("the fixture fits: no alliance of either division picked the backup, and the finals pay a two division winner 30 in 2026", () => {
+      expect([...DIV1_ALLIANCES, ...DIV2_ALLIANCES].some((alliance) => alliance.picks.includes(BACKUP))).toBe(false);
+      expect(maxFinalsPointsByPlacement(2026, 2, 1)).toBe(FINALS_WINNER_POINTS);
+    });
+
+    it("paid at the finals: an eligible team of the champion's division with the champion's seat open until the tick, the champion's fourth member with no fill in after it, and no bound is higher", () => {
+      const artifact = artifactWith(FINALS_WINNER_POINTS);
+      const inputBefore = inputAt(artifact, OPEN_PLAYOFFS);
+      const inputAfter = inputAt(artifact, PLAYOFFS_FINAL);
+      expect(inputAfter.pointsSlots).toBe(inputBefore.pointsSlots);
+      // BEFORE: the finals are decided on the field and not yet paid. The champion shows its three picks and one seat.
+      expect(champion(inputBefore)).toEqual({ allianceNumber: CHAMPION_ID, members: CHAMPION, spareSeats: 1 });
+      expect(frameShape(inputBefore)).toEqual([{ winner: CHAMPION_ID, fillIns: 1 }]);
+      expect(inputBefore.seatGroups![0]!.eligible).toContain(BACKUP);
+      // AFTER: the finals have paid the backup, a team of division 1 that no alliance there lists.
+      expect(champion(inputAfter)).toEqual({ allianceNumber: CHAMPION_ID, members: [...CHAMPION, BACKUP], spareSeats: 0 });
+      expect(frameShape(inputAfter)).toEqual([{ winner: CHAMPION_ID, fillIns: 0 }]);
+      expect(inputAfter.seatGroups![0]!.eligible).not.toContain(BACKUP);
+      expect(rivalOf(inputAfter, BACKUP)!.floor).toBe(rivalOf(inputBefore, BACKUP)!.floor + FINALS_WINNER_POINTS);
+      // Division 2 is untouched.
+      expect(inputAfter.alliances.filter((alliance) => alliance.allianceNumber > 20)).toEqual(inputBefore.alliances.filter((alliance) => alliance.allianceNumber > 20));
+      expect(inputAfter.seatGroups![1]).toEqual(inputBefore.seatGroups![1]);
+
+      // NO BOUND IS HIGHER AFTER THE TICK.
+      let compared = 0;
+      for (const rival of inputBefore.pool) {
+        if (rivalOf(inputAfter, rival.teamKey) === undefined) continue;
+        compared += 1;
+        expect(jointLockBound(inputAfter, rival.teamKey), rival.teamKey).toBeLessThanOrEqual(jointLockBound(inputBefore, rival.teamKey));
+      }
+      expect(compared).toBeGreaterThan(20);
+      // The backup is on the one champion: the tab shows it Locked from this tick (the lock this rule ADDS).
+      expect(jointLockBound(inputAfter, BACKUP)).toBe(0);
+      expect({ before: modelOf(artifact, OPEN_PLAYOFFS).byTeam.get(BACKUP)?.status, after: modelOf(artifact, PLAYOFFS_FINAL).byTeam.get(BACKUP)?.status, lockedBy: modelOf(artifact, PLAYOFFS_FINAL).byTeam.get(BACKUP)?.lockedBy }).toEqual({ before: "outOfRange", after: "locked", lockedBy: "joint" });
+
+      // THE INPUT OF BEFORE THE RULE, rebuilt by hand from the one above: the backup off the champion, the champion's
+      // seat and fill in open, the backup an eligible team of its division again. The backup is ahead of some teams
+      // by its own floor AND the fill in covers one rival more.
+      const leftOff: JointLockInput = {
+        ...inputAfter,
+        alliances: inputAfter.alliances.map((alliance) => (alliance.allianceNumber === CHAMPION_ID ? { ...alliance, members: alliance.members.filter((member) => member !== BACKUP), spareSeats: 1 } : alliance)),
+        frames: inputAfter.frames!.map((frame) => (frame.winner === CHAMPION_ID ? { ...frame, fillIns: 1 } : frame)),
+        seatGroups: inputAfter.seatGroups!.map((group) => (group.alliances.includes(CHAMPION_ID) ? { ...group, eligible: [...group.eligible, BACKUP].sort() } : group)),
+      };
+      const higher = inputBefore.pool.filter((rival) => rivalOf(inputAfter, rival.teamKey) !== undefined && jointLockBound(leftOff, rival.teamKey) > jointLockBound(inputBefore, rival.teamKey)).map((rival) => rival.teamKey);
+      // Pinned as the run shows: the teams whose bound the tick raised before the rule, each by one.
+      expect(higher.length).toBe(12);
+      for (const teamKey of higher) expect(jointLockBound(leftOff, teamKey), teamKey).toBe(jointLockBound(inputBefore, teamKey) + 1);
+    });
+
+    it("the reading does not wait for TBA's finals list to name the backup: the payment at the finals key is enough", () => {
+      const artifact = artifactWith(FINALS_WINNER_POINTS);
+      expect(inputAt(artifact, PLAYOFFS_FINAL, false)).toEqual(inputAt(artifact, PLAYOFFS_FINAL, true));
+    });
+
+    it("a division team the finals did not pay stays eligible, and the champion keeps its spare seat", () => {
+      const inputAfter = inputAt(artifactWith(0), PLAYOFFS_FINAL);
+      expect(champion(inputAfter)).toEqual({ allianceNumber: CHAMPION_ID, members: CHAMPION, spareSeats: 1 });
+      expect(frameShape(inputAfter)).toEqual([{ winner: CHAMPION_ID, fillIns: 1 }]);
+      expect(inputAfter.seatGroups![0]!.eligible).toContain(BACKUP);
+    });
+
+    it("while the finals' Playoffs are open the finals key's playoff points confirm nobody, and a division winner that has not won the finals keeps its seat for them", () => {
+      // The same paid artifact read before the tick: hindsight on the rows is not read.
+      const inputBefore = inputAt(artifactWith(FINALS_WINNER_POINTS), OPEN_PLAYOFFS);
+      expect(champion(inputBefore).spareSeats).toBe(1);
+      expect(champion(inputBefore).members).toEqual(CHAMPION);
+    });
+  });
+
   describe("the finals event not yet on the wire (quick task 261010-d7r, D2; first built as D3 of quick task 261010-66y and refused there)", () => {
     /** The divisioned fixture as a live artifact holds it during the division playoffs: no row at the finals key at all. */
     const NO_PARENT: DistrictArtifact = DistrictArtifactSchema.parse({
@@ -1864,8 +2186,22 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
     expect(DIVISIONED.teams.filter((team) => team.eventPoints.some((row) => row.eventKey === PARENT))).toHaveLength(3);
     expect({ roundFive: digestOf(roundFive), divisionsDone: digestOf(divisionsDone) }).toEqual({
       roundFive: "b624337b0232a7ff32b04fdaeb8d5d1a2719591b84b4e789857d540e2854a9cf",
-      divisionsDone: "f9cbb26363900789f3d8e0d5668f95e3cefb63b5a9ff0c9571d857879d6d4a67",
+      // MOVED ONCE since, by quick task 261010-l0s's paid pick rule and for the one reason held just below: it read
+      // f9cbb26363900789f3d8e0d5668f95e3cefb63b5a9ff0c9571d857879d6d4a67 until then.
+      divisionsDone: "5e9642cd9f300d4c860f328f0be08c8efa4f0998434ae122799557c5d02030c7",
     });
+    // THE REASON: the fixture's frc7034 carries 12 playoff points and no alliance selection points (the real backup of
+    // the 2026 PNW championship's alliance 2), and division 2's alliance 7 lists it here. With division 2's Playoffs
+    // final it is that alliance's confirmed pick, where the alliance read no member and four spare seats, and it is
+    // no longer among division 2's eligible teams. Nothing else in the input differs. At Round 5 the division's
+    // Playoffs are open, nobody is read as paid, and that digest stands.
+    if (divisionsDone.jointProof?.applied !== true || divisionsDone.jointProof.shape !== "divisioned") throw new Error("not applied");
+    const paidPickAt = divisionsDone.jointProof.input;
+    expect(DIVISIONED.teams.find((team) => team.teamKey === "frc7034")!.eventPoints.find((row) => row.eventKey === DIV2)).toMatchObject({ alliance: 0, elim: 12 });
+    expect(DIV2_ALLIANCES[6]!.picks).toContain("frc7034");
+    expect(paidPickAt.alliances.find((alliance) => alliance.allianceNumber === 27)).toEqual({ allianceNumber: 27, members: ["frc7034"], spareSeats: 3 });
+    expect(paidPickAt.seatGroups![1]!.eligible).not.toContain("frc7034");
+    expect(paidPickAt.alliances.filter((alliance) => alliance.allianceNumber > 20 && alliance.allianceNumber !== 27).every((alliance) => alliance.members.length === 0 && alliance.spareSeats === 4)).toBe(true);
   });
 
   /** Every DIVISIONED team the artifact names at no championship key: no division row, no finals row, no registration. */

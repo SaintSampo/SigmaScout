@@ -334,6 +334,42 @@
  *    the five single championships again with the rule switched off; 2025
  *    FIM is not among its walks).
  *
+ *    A PICK TBA HAS PAID FOR ITS ALLIANCE'S PLAYOFFS IS CONFIRMED (quick
+ *    task 261010-l0s, finding F2; `champJointLock.ts` owns the rule and its
+ *    argument, `confirmedPicks`). Seats and fill ins count from confirmed
+ *    picks, and until that task a pick was confirmed by its alliance
+ *    selection points alone, which a backup never holds. While a key's
+ *    Playoffs are open the paragraph above reads such a pick. Once they are
+ *    final at the position its settled value is gone (TBA's own number is
+ *    in the floor), it was a plain rival, and the seat it holds still
+ *    counted as open: where its alliance is the decided winner the proof
+ *    gave the winner's fill in to one more rival, and every team the paid
+ *    pick had just passed read a bound one higher. This module now also
+ *    confirms a listed pick whose row at its alliance's key carries playoff
+ *    points above 0 (`paidPlayoffsAt`), read only where that key's Playoffs
+ *    are final at the position: a rewound stop before that never reads the
+ *    artifact's hindsight. At a divisioned championship the division's
+ *    decided winner is read at the finals key too, once the finals'
+ *    Playoffs are final, and a team with a row at that division's key that
+ *    no alliance there lists and that the finals have paid is counted as
+ *    the winner's pick (its backup, called up for the finals). A listed
+ *    pick TBA paid nothing stays not confirmed and its seat stays open, and
+ *    a division winner with no backup keeps its spare seat until the finals
+ *    have paid one. WHAT IT CLOSED, measured by that task's planner with
+ *    every bound read exactly: 20 team bounds rose by one over 5 edges of
+ *    the 32 one event live walks (2026ca 16, 2025fin 2, 2024fnc 1, 2026fnc
+ *    1), each 14 or more above its points slots, at the tick the playoff
+ *    points land in the window before the Winner is listed. With the rule:
+ *    none (`scripts/champJointMonotone.test.ts`, group E, which reads those
+ *    walks exactly with the rule on and with it switched off, and builds by
+ *    hand the championship where the tick did take a Locked back). No
+ *    line of any sweep moved. On the live walks six teams are shown Locked
+ *    EARLIER and no Locked is lost: the paid backup of a decided winner is
+ *    on that winner, so it is Locked from the tick its payment lands where
+ *    it had waited for its Winner award to be listed (2023pnw frc1983,
+ *    2024fnc and 2026fnc frc6639, 2025fin frc1747, 2026ca frc3512, and
+ *    frc8724 at 2026 NE from the tick the finals' state is written).
+ *
  *    THE BRACKETS STAY IN HAND UNTIL EVERY EVENT OF THE CHAMPIONSHIP HAS
  *    FINISHED (quick task 261010-66y, reading R15, widened by quick task
  *    261010-d7r; `champLiveFetchKeys`). The proof holds locks in the window
@@ -446,6 +482,7 @@ import { InvalidBracketDecisionError, maxFinalsPointsByPlacement, maxPlayoffPoin
 import { divisionCountOf, finalsChampionMaximum } from "../../../../../packages/core/districts/categoryCorroboration.js";
 import { fieldFixingDcmpKeys, hypotheticalFinalsCeiling, unseenChampionshipsHeld } from "../../../../../packages/core/districts/dcmpFieldProof.js";
 import {
+  confirmedPicks,
   dcmpBracketState,
   divisionAllianceId,
   divisionedJointFrames,
@@ -1125,7 +1162,9 @@ const refuse = (reason: JointProofSkipReason): JointRefusal => ({ applied: false
 /**
  * A pick is CONFIRMED at a dcmp key when its alliance selection points there
  * are posted and above 0 (CONTEXT D10); a point not posted reads as 0, which
- * only widens the seats.
+ * only widens the seats. Since quick task 261010-l0s a pick TBA has paid for
+ * its alliance's playoffs is confirmed too (`paidPlayoffsAt`, decision 5 in
+ * this module's header).
  */
 function allianceSelectionPointsAt(artifact: DistrictArtifact, eventKey: string): Map<string, number> {
   const points = new Map<string, number>();
@@ -1152,6 +1191,23 @@ function awardedTeamsAt(artifact: DistrictArtifact, eventKey: string): string[] 
     if (team.eventPoints.some((entry) => entry.eventKey === eventKey && entry.award > 0)) teamKeys.push(team.teamKey);
   }
   return teamKeys;
+}
+
+const NOBODY_PAID: ReadonlySet<string> = new Set();
+
+/**
+ * The teams whose row at a dcmp key carries playoff points above 0: the teams
+ * TBA has paid for an alliance's playoffs there (quick task 261010-l0s,
+ * finding F2). The caller reads it only where that key's Playoffs are final
+ * at the position, which is where those points are in the floors: at an
+ * earlier position the artifact's rows are hindsight and say nothing yet.
+ */
+function paidPlayoffsAt(artifact: DistrictArtifact, eventKey: string): Set<string> {
+  const paid = new Set<string>();
+  for (const team of artifact.teams) {
+    if (team.eventPoints.some((entry) => entry.eventKey === eventKey && entry.elim > 0)) paid.add(team.teamKey);
+  }
+  return paid;
 }
 
 /**
@@ -1330,8 +1386,10 @@ function placementByPick(facts: DcmpBracketFacts, routing: DcmpBracketState | un
 /**
  * One eight alliance championship's input: members are the CONFIRMED picks
  * (alliance selection points posted and above 0 at that key, the shipped
- * 261009-2tr rule), seats and fill ins the maximum alliance size minus those
- * confirmed picks (CONTEXT D10). Shared by the single and the two championship
+ * 261009-2tr rule; and, once that key's Playoffs are final at the position,
+ * playoff points above 0 there, the paid pick rule of quick task 261010-l0s),
+ * seats and fill ins the maximum alliance size minus those confirmed picks
+ * (CONTEXT D10). Shared by the single and the two championship
  * shapes. Listed pick membership (reading R8) was measured LESS conservative
  * here (it gained 5 locks over the single sweep, a listed backup no longer free
  * to take another alliance's seat or the winner's fill in), so it applies only
@@ -1351,8 +1409,15 @@ function eightAllianceInput(
   const { artifact } = input;
   const settled = input.dcmpSettledByEvent.get(eventKey) ?? new Map<string, SettledPlayoffs | undefined>();
   const points = allianceSelectionPointsAt(artifact, eventKey);
+  // THE PAID PICK RULE (quick task 261010-l0s, finding F2; decision 5 in this module's header): once this key's
+  // Playoffs are final at the position, a pick an alliance lists whose row here carries playoff points is on it.
+  const paid = input.dcmpStageByEvent.get(eventKey)?.elim === true ? paidPlayoffsAt(artifact, eventKey) : NOBODY_PAID;
   const alliances: JointLockAlliance[] = facts.alliances.map((alliance) => {
-    const confirmed = alliance.picks.filter((pick) => (points.get(pick) ?? 0) > 0);
+    const confirmed = confirmedPicks(
+      alliance.picks,
+      (pick) => (points.get(pick) ?? 0) > 0,
+      (pick) => paid.has(pick)
+    );
     return { allianceNumber: alliance.allianceNumber, members: confirmed, spareSeats: Math.max(0, MAX_WINNING_ALLIANCE_SIZE - confirmed.length) };
   });
   return {
@@ -1650,6 +1715,9 @@ function divisionedJointProof(
   // F-D (quick task 261010-d7r): the listed picks that are not confirmed on an alliance placed BELOW first in its
   // division. A division winner's listed pick is left out (planner reading R7): it keeps its settled value.
   const listedOnly = new Map<string, boolean>();
+  // THE PAID PICK RULE at the finals (quick task 261010-l0s, finding F2): the teams TBA has paid for the finals'
+  // playoffs, once the finals' Playoffs are final at the position.
+  const paidAtTheFinals = finalsStage.elim ? paidPlayoffsAt(artifact, finalsKey) : NOBODY_PAID;
 
   for (const [index, key] of divisionKeys.entries()) {
     const divisionIndex = index + 1;
@@ -1674,9 +1742,24 @@ function divisionedJointProof(
     for (const [teamKey, onWinner] of listedOnlyPicks(facts, routing, points, false)) if (!listedOnly.has(teamKey)) listedOnly.set(teamKey, onWinner);
     const confirmedHere = new Set<string>();
     const listedHere = new Set<string>();
+    // THE PAID PICK RULE (quick task 261010-l0s, finding F2; decision 5 in this module's header). A pick an alliance
+    // here lists is on that alliance once TBA has paid it for that alliance's playoffs: at this division's key once
+    // its Playoffs are final at the position, and for the division's decided winner also at the finals key once the
+    // finals' are. The winner's backup that joined only for the finals is a team of this division that no alliance
+    // here lists and that the finals have paid: a backup comes from its alliance's own division, and of this
+    // division only the winner plays the finals.
+    const paidHere = stage.elim ? paidPlayoffsAt(artifact, key) : NOBODY_PAID;
+    const listedByAnAllianceHere = new Set(facts.alliances.flatMap((alliance) => alliance.picks));
+    const finalsBackups =
+      routing.decidedWinner === undefined ? [] : [...settled.keys()].filter((teamKey) => !listedByAnAllianceHere.has(teamKey) && paidAtTheFinals.has(teamKey)).sort();
     for (const alliance of facts.alliances) {
       const id = divisionAllianceId(divisionIndex, alliance.allianceNumber);
-      const confirmed = alliance.picks.filter((pick) => (points.get(pick) ?? 0) > 0);
+      const wonTheDivision = alliance.allianceNumber === routing.decidedWinner;
+      const confirmed = confirmedPicks(
+        wonTheDivision ? [...alliance.picks, ...finalsBackups] : alliance.picks,
+        (pick) => (points.get(pick) ?? 0) > 0,
+        (pick) => paidHere.has(pick) || (wonTheDivision && paidAtTheFinals.has(pick))
+      );
       for (const pick of confirmed) confirmedHere.add(pick);
       for (const pick of alliance.picks) listedHere.add(pick);
       // R8 G2: a DECIDED alliance keeps its confirmed picks; every other listed pick is an unpicked rival.

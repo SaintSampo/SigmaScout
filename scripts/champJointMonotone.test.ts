@@ -54,32 +54,34 @@
  *
  * WHAT THAT READING DOES NOT SEE. A bound that rises wholly ABOVE the cap,
  * under a team more than 12 from its points slots on both sides of an edge,
- * reads as equal here. The planner of quick task 261010-l0s read part of
- * this file once with every bound exact: the 32 one event walks and the 13
- * divisioned walks with the finals key on no row (group D), and the rewound
- * lattices of the 12 two division championships and of California (groups A
- * to C). That is 3,806 edges and 752,080 team bounds. The FIM seasons'
- * lattices and the walks with the finals key registered were left out for
- * their cost. Two things showed, neither under a team shown Locked:
+ * reads as equal here. The planner of quick task 261010-l0s read every
+ * rules on edge of groups A to D once with every bound exact, the FIM
+ * seasons and the walks with the finals key registered included: 8,785
+ * edges with the proof running on both sides and 2,712,435 team bounds
+ * (the same bounds the last group of this file counts at its own reading).
+ * Before that task's two changes two things showed, neither under a team
+ * shown Locked on any walk. With both changes no bound is higher over any
+ * of those edges.
  *
- *   - BEFORE THAT TASK 22 bounds rose by one over 22 edges, every one frc9710
- *     at 2024 NE (65 or more above its points slots), each at the edge where
- *     its OWN division award posts: its floor passed rivals the proof then
- *     counted twice. That task made every rival count once, and those read
- *     none. The last group of this file holds that lattice exact.
- *   - BEFORE AND AFTER IT 20 bounds rise by one over 5 edges of the one event
- *     walks, each 14 or more above its points slots: 2024fnc 1, 2025fin 2,
- *     2026fnc 1, and 2026ca 8 at each of two edges. Every one is the tick a
- *     key's PLAYOFF POINTS LAND after its playoffs are done, where the
- *     decided winner lists a team that holds no alliance selection points and
- *     TBA then pays that team for the winner's playoffs. Until the tick the
- *     proof counts it through the winner's one fill in. After it the team is
- *     ahead of some teams by its own floor, and the winner's spare seat still
- *     counts as open, since seats count from confirmed picks. NOT CLOSED: the
- *     cause is in what the status code hands the proof
- *     (`packages/core/districts/champJointLock.ts`, "ONE RISE IS KNOWN AND NOT
- *     CLOSED"). No team within 12 of its points slots shows it on any walk
- *     of this file, which is why every assertion here holds.
+ *   - 22 bounds rose by one over 22 edges, every one frc9710 at 2024 NE (65
+ *     or more above its points slots), each at the edge where its OWN
+ *     division award posts: its floor passed rivals the proof then counted
+ *     twice. That task made every rival count once, and those read none.
+ *     The last group of this file holds that lattice exact.
+ *   - 20 bounds rose by one over 5 edges of the one event walks, each 14 or
+ *     more above its points slots: 2024fnc 1, 2025fin 2, 2026fnc 1, and
+ *     2026ca 8 at each of two edges. Every one is the tick a key's PLAYOFF
+ *     POINTS LAND after its playoffs are done, where the decided winner
+ *     lists a team that holds no alliance selection points and TBA then pays
+ *     that team for the winner's playoffs. Until the tick the proof counts
+ *     it through the winner's one fill in. After it the team was ahead of
+ *     some teams by its own floor and the winner's spare seat still counted
+ *     as open, since a pick was confirmed by its alliance selection points
+ *     alone. The status code now also confirms a pick TBA has paid for its
+ *     alliance's playoffs (`packages/core/districts/champJointLock.ts`, "A
+ *     PICK TBA HAS PAID FOR AN ALLIANCE'S PLAYOFFS IS ON THAT ALLIANCE"),
+ *     and those read none. Group E of this file holds the one event walks
+ *     exact, with that rule on and with it switched off.
  *
  * THE GROUPS OF THIS FILE:
  *   A. THE AWARDS ORDER TEST. Every divisioned championship of 2023 to 2026,
@@ -113,6 +115,12 @@
  *      in every order, the finals facts before, between and after the flags.
  *      Its own header (above the group) lists the edges it walks and the
  *      ones it does not.
+ *   E. THE PAID PICK RULE (quick task 261010-l0s, finding F2). The 32 one
+ *      event walks of group D read again with EVERY bound exact, with the
+ *      rules on and with the paid pick rule switched off; and one
+ *      championship built by hand on the committed 2026 PNW fixture, where
+ *      the tick the playoff points land takes a Locked back with the rule
+ *      off and keeps it with the rule on.
  *
  * IT PROVES SOMETHING. Each group also runs with its rule switched off inside
  * this file and must then LOSE Locked teams. The switches are one module mock
@@ -130,7 +138,12 @@
  *   - while `listedRuleOff` is set every input is handed to the proof with
  *     no `listedOnly` on any pool rival, which is the proof of before that
  *     task's finding F-D (a listed pick that is not confirmed is read at its
- *     placed alliance's settled value AND on another alliance's seat).
+ *     placed alliance's settled value AND on another alliance's seat);
+ *   - while `paidRuleOff` is set `confirmedPicks` is told TBA paid nobody,
+ *     which is the status code of before quick task 261010-l0s's paid pick
+ *     rule (a pick is confirmed by its alliance selection points alone, so
+ *     a backup TBA has paid for the winner's playoffs stays off the winner
+ *     and the seat it holds stays open).
  *
  * The Locked teams lost in those runs are read off the status code's own
  * verdicts, so they show the mock reaches the import the tab uses. The
@@ -143,7 +156,11 @@
  * reaches (a rewound reading carries no `listedOnly`): it only drops margins
  * (a bound rises under a team that stays Locked, or under a team that was
  * not Locked). A margin that drops is the mechanism of a take back, so the
- * rule is kept and held by a test, but no measured Locked rests on it.
+ * rule is kept and held by a test, but no measured Locked rests on it. The
+ * paid pick rule off loses no Locked team on any real walk either: every
+ * bound it raises sits 14 or more above its points slots, which only group
+ * E's exact reading sees. On the championship group E builds by hand it
+ * does take a Locked back.
  *
  * A RULES ON FAILURE IS A FINDING, never a pin to move: a Locked lost or a
  * margin dropped with the rules on means the proof took a guarantee back.
@@ -153,7 +170,9 @@
  * `data/corpus.sqlite`, opened read only) and skips, with a message naming
  * what is absent, where the data is not there. With `REQUIRE_LOCAL_DATA=1` in
  * the environment the same group FAILS instead, so a verify step cannot pass
- * on a machine that silently ran nothing. No network, no credential.
+ * on a machine that silently ran nothing. No network, no credential. Group
+ * E's hand built championship alone reads a committed fixture and always
+ * runs.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -162,6 +181,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { DistrictArtifactSchema, type DistrictArtifact, type DistrictEventState } from "../packages/harness/pageArtifacts.js";
 import { applyDistrictEventState, applyDistrictRankings, recomputeDistrictVerdicts, type DistrictEventAwardInput } from "../packages/harness/districtRankingsMerge.js";
 import { championshipShape } from "../packages/core/districts/finalsBracket.js";
+import type { PlayedBracketMatch } from "../packages/core/districts/bracket.js";
 import { jointLockBound, jointLockBoundMultiple } from "../packages/core/districts/champJointLock.js";
 import { fieldFixingDcmpKeys } from "../packages/core/districts/dcmpFieldProof.js";
 import { maxEventPoints } from "../packages/core/districts/pointModel.js";
@@ -196,8 +216,12 @@ import { CORPUS_PATH, LOCAL_DISTRICT_DIR, bracketFromCorpus, bracketsFromCorpus,
  * While `listedRuleOff` is set the proof never learns which rivals hold a
  * settled Playoffs value only as a listed pick that is not confirmed: every
  * pool rival reaches it without `listedOnly`, its `extra` unchanged.
+ *
+ * While `paidRuleOff` is set the status code never learns which picks TBA has
+ * paid for their alliance's playoffs: `confirmedPicks` is handed "nobody",
+ * so a pick is confirmed by its alliance selection points alone.
  */
-const ruleSwitch = vi.hoisted(() => ({ awardedRuleOff: false, stopRuleOff: false, listedRuleOff: false }));
+const ruleSwitch = vi.hoisted(() => ({ awardedRuleOff: false, stopRuleOff: false, listedRuleOff: false, paidRuleOff: false }));
 
 vi.mock("../packages/core/districts/champJointLock.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../packages/core/districts/champJointLock.js")>();
@@ -228,6 +252,8 @@ vi.mock("../packages/core/districts/champJointLock.js", async (importOriginal) =
     jointLockBoundMultiple: (championships: readonly Input[], teamKey: string, stopAt?: number) => original.jointLockBoundMultiple(championships.map(handed), teamKey, stopAt),
     jointProofStillRuns: (championshipAwardsFinal: boolean, anotherKeysAwardsOpen: boolean) =>
       ruleSwitch.stopRuleOff ? !championshipAwardsFinal : original.jointProofStillRuns(championshipAwardsFinal, anotherKeysAwardsOpen),
+    confirmedPicks: (listed: readonly string[], holdsAllianceSelectionPoints: (teamKey: string) => boolean, paidForItsPlayoffs: (teamKey: string) => boolean) =>
+      original.confirmedPicks(listed, holdsAllianceSelectionPoints, ruleSwitch.paidRuleOff ? () => false : paidForItsPlayoffs),
   };
 });
 
@@ -235,22 +261,25 @@ afterEach(() => {
   ruleSwitch.awardedRuleOff = false;
   ruleSwitch.stopRuleOff = false;
   ruleSwitch.listedRuleOff = false;
+  ruleSwitch.paidRuleOff = false;
 });
 
 /** Which rules a run has on. `"on"` is the shipped proof; each other mode switches exactly one rule off. */
-type RuleMode = "on" | "awardedRuleOff" | "stopRuleOff" | "listedRuleOff";
+type RuleMode = "on" | "awardedRuleOff" | "stopRuleOff" | "listedRuleOff" | "paidRuleOff";
 
 /** Runs `body` under a rule mode, and switches every rule back on whatever happens. */
 function underRules<T>(mode: RuleMode, body: () => T): T {
   ruleSwitch.awardedRuleOff = mode === "awardedRuleOff";
   ruleSwitch.stopRuleOff = mode === "stopRuleOff";
   ruleSwitch.listedRuleOff = mode === "listedRuleOff";
+  ruleSwitch.paidRuleOff = mode === "paidRuleOff";
   try {
     return body();
   } finally {
     ruleSwitch.awardedRuleOff = false;
     ruleSwitch.stopRuleOff = false;
     ruleSwitch.listedRuleOff = false;
+    ruleSwitch.paidRuleOff = false;
   }
 }
 
@@ -669,7 +698,9 @@ describe("GROUP A, the awards order test: the 16 divisioned championships of 202
       // The measurement of the reading before quick task 261010-d7r. Pinned as the run shows; not a requirement.
       // Quick task 261010-l0s (every rival counted once) moved it: the proof holds a little more at some readings
       // and a little less is lost at others. Until then: 957 lost, 163 pairs, 1776 flag edges with a drop, 33,355
-      // team margins, and by district 118 at 2023fim, 4 at 2023fit and 239 at 2024fim.
+      // team margins, and by district 118 at 2023fim, 4 at 2023fit and 239 at 2024fim. The paid pick rule of the
+      // same task then moved the team margins once more, 33,385 to 33,388, and nothing else here: from the stop a
+      // division's Playoffs are final, a backup TBA has paid is its alliance's confirmed pick.
       expect({
         readings: tally.readings,
         lostOverFlagEdges: tally.lost.flag,
@@ -686,7 +717,7 @@ describe("GROUP A, the awards order test: the 16 divisioned championships of 202
         distinctPairsLost: 161,
         flagEdgesWithADrop: 1786,
         stopEdgesWithADrop: 0,
-        teamMarginsDropped: 33_385,
+        teamMarginsDropped: 33_388,
         largestDrop: 4,
       });
       expect(lostByDistrict).toEqual({
@@ -1440,8 +1471,8 @@ interface MicroResult {
 
 const microCache = new Map<string, MicroResult>();
 
-function microWalk(districtKey: string, variant: MicroVariant, mode: RuleMode): MicroResult {
-  const cacheKey = `${districtKey}|${variant}|${mode}`;
+function microWalk(districtKey: string, variant: MicroVariant, mode: RuleMode, slack = BOUND_SLACK): MicroResult {
+  const cacheKey = `${districtKey}|${variant}|${mode}|${String(slack)}`;
   const cached = microCache.get(cacheKey);
   if (cached !== undefined) return cached;
   const result = underRules(mode, (): MicroResult => {
@@ -1450,8 +1481,11 @@ function microWalk(districtKey: string, variant: MicroVariant, mode: RuleMode): 
     if (divisioned === (variant === "oneEvent")) throw new Error(`${districtKey}: the variant ${variant} does not fit a ${divisioned ? "divisioned" : "single or two"} championship`);
     const registered = variant === "finalsRegistered";
     const nowYear = source.year;
-    /** The further edges and the forced edges are read with the rules on only; a rule off run is the ported walk alone. */
-    const furtherEdges = mode === "on";
+    /**
+     * The further edges and the forced edges are read with the rules on, and with the paid pick rule off (group E:
+     * some of what that rule closes sits on a further edge). Every other rule off run is the ported walk alone.
+     */
+    const furtherEdges = mode === "on" || mode === "paidRuleOff";
     const where = `${districtKey} ${variant}`;
 
     const playedOf = (key: string): BracketSourceEvent["matches"] => (brackets.get(key)?.matches ?? []).filter((match) => match.actualWinner !== undefined);
@@ -1643,7 +1677,7 @@ function microWalk(districtKey: string, variant: MicroVariant, mode: RuleMode): 
       let shownLocked = 0;
       for (const status of model.byTeam.values()) if (status.status === "locked") shownLocked += 1;
       const reading: MicroReading = {
-        ...countReading(tally, readingOf(model)),
+        ...countReading(tally, readingOf(model, slack)),
         label,
         proven: fieldProof.proven,
         shownLocked,
@@ -2308,11 +2342,12 @@ describe("GROUP D, the micro step live walks: a championship walked live one fac
       // Every one is lost over a FLAG edge (a division's awards flag turning true), none over a step. With the finals
       // key on no row the proof ran only from the finals rows on until Task 4 of the quick task, and fewer were lost
       // then (94, and 1666 margins); it now runs from the alliance points on, so more of the flag edges have a proof
-      // on both sides.
+      // on both sides. Quick task 261010-l0s's paid pick rule moved the margins dropped and nothing else here, 2029
+      // to 2035 and 3236 to 3245: no Locked more or fewer is lost.
       const pin = (totals: MicroTotals) => ({ ...microPin(totals.walk), lostOverStepEdges: totals.walk.lost.step, lostOverFlagEdges: totals.walk.lost.flag, marginDrops: totals.walk.marginDrops, largestDrop: totals.walk.largestDrop });
       expect({ noRow: pin(noRow), registered: pin(registered) }).toEqual({
-        noRow: { readings: 848, edges: 1064, lostOverStepEdges: 0, lostOverFlagEdges: 121, marginDrops: 2029, largestDrop: 4 },
-        registered: { readings: 1012, edges: 1392, lostOverStepEdges: 0, lostOverFlagEdges: 202, marginDrops: 3236, largestDrop: 4 },
+        noRow: { readings: 848, edges: 1064, lostOverStepEdges: 0, lostOverFlagEdges: 121, marginDrops: 2035, largestDrop: 4 },
+        registered: { readings: 1012, edges: 1392, lostOverStepEdges: 0, lostOverFlagEdges: 202, marginDrops: 3245, largestDrop: 4 },
       });
     },
     TEST_TIMEOUT_MS
@@ -2416,17 +2451,214 @@ describe("GROUP D, the micro step live walks: a championship walked live one fac
       // now runs there, so it goes from applied to refused at all 85 and what it held is lost with it: 765, the same
       // 510 distinct pairs. THIS IS ALSO D2's OWN SWITCH TURNING OFF (the group's header): the cost of the earlier
       // lock is that a proven field read unproven again, which no walked path does, would take more back.
+      //
+      // Quick task 261010-l0s's paid pick rule moved it to 770 and 515: at the main line's end of five one event
+      // walks the decided winner's paid backup is now held by the proof (2023pnw frc1983, 2024fnc frc6639, 2025fin
+      // frc1747, 2026ca frc3512, 2026fnc frc6639: each is on the winning alliance and holds its Winner award at the
+      // season's end), so this forced reading loses those five as well.
       expect({ ...microPin(all.unprovenAgain), lost: all.unprovenAgain.lost.step, distinctPairsLost: all.unprovenAgain.lostTeams.size, joint: all.unprovenAgain.joint, appliedThenRefused: all.unprovenAgain.appliedThenRefused }).toEqual({
         readings: 85,
         edges: 85,
-        lost: 765,
-        distinctPairsLost: 510,
+        lost: 770,
+        distinctPairsLost: 515,
         joint: { fieldNotProven: 85 },
         appliedThenRefused: 85,
       });
     },
     TEST_TIMEOUT_MS
   );
+});
+
+// ---------------------------------------------------------------------------
+// GROUP E: the paid pick rule (quick task 261010-l0s, finding F2)
+// ---------------------------------------------------------------------------
+
+/**
+ * WHAT GROUP E HOLDS. The tick a key's playoff points land after its playoffs
+ * are done, in the window before the Winner award is listed. A team the
+ * decided winner lists with no alliance selection points is counted through
+ * the winner's fill in until that tick. At the tick TBA's payment enters its
+ * floor, and the status code must then read it as the winner's member and
+ * close the seat it holds (`confirmedPicks`). Before that rule it stayed off
+ * the winner, the seat stayed open, and the fill in covered one rival more:
+ * a bound rose by one under every team the paid pick had just passed.
+ *
+ * Groups A to D read a bound only up to 12 above the points slots, and every
+ * one of those rises sat 14 or more above them on the real walks. So this
+ * group reads the 32 one event walks again with EVERY bound exact, and by
+ * hand builds the one championship where the rise does sit on a Locked team.
+ *
+ * `paidRuleOff` hands `confirmedPicks` "TBA paid nobody", which is the status
+ * code of before the rule.
+ */
+const EXACT = Infinity;
+/** The one event walks where the tick raised a bound before the rule (the planner's exact reading of all 32). */
+const PAID_PICK_DISTRICTS = ["2024fnc", "2025fin", "2026ca", "2026fnc"] as const;
+
+describe("GROUP E, the paid pick rule on the live walks: the tick a key's playoff points land, with EVERY bound read exactly (quick task 261010-l0s, finding F2)", () => {
+  if (!existsSync(CORPUS_ABSOLUTE)) {
+    localDataAbsent(`${CORPUS_PATH} absent (gitignored local data)`);
+    return;
+  }
+  const missing = [...MISSING_SINGLE, ...(LOCAL_DISTRICT_FILES.includes(TWO_CHAMPIONSHIP_FILE) ? [] : [TWO_CHAMPIONSHIP_DISTRICT])];
+  if (missing.length > 0) {
+    localDataAbsent(`${missing.join(", ")} absent under ${LOCAL_DISTRICT_DIR} (gitignored local data)`);
+    return;
+  }
+
+  it(
+    "the 32 one event walks, rules on, every bound exact: no pool team's bound is higher after any walked edge than before it, no held team is lost and no margin drops",
+    () => {
+      const tally = newTally();
+      for (const [districtKey, variant] of ONE_EVENT_WALKS) {
+        const result = microWalk(districtKey, variant, "on", EXACT);
+        for (const part of [result.walk, result.winnerFirst, result.awardsFirst, result.lateRows]) addTally(tally, part);
+      }
+      console.log(`[261010-l0s group E, one event walks read exactly] ${tallyLine(tally)} | team bounds compared ${String(tally.boundComparisons)}, higher ${String(tally.boundRises)}`);
+      // THE REQUIREMENT. A bound that rose with the rules on is a finding, never a pin to move.
+      expectMonotone("the 32 one event walks read exactly", tally);
+      // Not vacuous. Pinned as the run shows.
+      expect({ readings: tally.readings, edges: tally.edges.step + tally.edges.flag, compared: tally.boundComparisons }).toEqual({ readings: 1079, edges: 991, compared: 84_991 });
+    },
+    TEST_TIMEOUT_MS
+  );
+
+  it(
+    "the paid pick rule switched OFF, every bound exact: bounds rise again at the tick the playoff points land, by district, pinned as the run shows",
+    () => {
+      // The walk and its further edges, as the rules on test above reads them (a paid pick rule off run walks both).
+      const partsOf = (result: MicroResult): EdgeTally[] => [result.walk, result.winnerFirst, result.awardsFirst, result.lateRows];
+      const rises: Record<string, number> = {};
+      const onTheWalkItself: Record<string, number> = {};
+      const lines: string[] = [];
+      let lost = 0;
+      let edgesWithARise = 0;
+      let largestRise = 0;
+      for (const districtKey of PAID_PICK_DISTRICTS) {
+        const result = microWalk(districtKey, "oneEvent", "paidRuleOff", EXACT);
+        onTheWalkItself[districtKey] = result.walk.boundRises;
+        rises[districtKey] = 0;
+        for (const part of partsOf(result)) {
+          rises[districtKey] += part.boundRises;
+          lost += part.lost.step + part.lost.flag;
+          edgesWithARise += part.edgesWithADrop.step + part.edgesWithADrop.flag;
+          largestRise = Math.max(largestRise, part.largestDrop);
+        }
+        lines.push(...result.walk.riseLines.slice(0, 2));
+      }
+      console.log(`[261010-l0s group E, paid pick rule OFF] bounds higher ${JSON.stringify(rises)}, of them on the walk itself ${JSON.stringify(onTheWalkItself)} | edges ${String(edgesWithARise)} | Locked lost ${String(lost)}\n${lines.map((line) => `  ${line}`).join("\n")}`);
+      // IT PROVES SOMETHING: with the rule off the bounds rise. A measurement of the old reading, pinned as the run
+      // shows, except that it must be above 0. No Locked team is lost on these walks (every rise sits well above its
+      // points slots); the hand built championship below is where one is.
+      const total = Object.values(rises).reduce((sum, count) => sum + count, 0);
+      expect(total).toBeGreaterThan(0);
+      // The planner of the quick task read these same 20, over these same 5 edges, on the code of before the rule.
+      expect({ rises, onTheWalkItself, total, edgesWithARise, lost, largestRise }).toEqual({
+        rises: { "2024fnc": 1, "2025fin": 2, "2026ca": 16, "2026fnc": 1 },
+        onTheWalkItself: { "2024fnc": 1, "2025fin": 2, "2026ca": 8, "2026fnc": 1 },
+        total: 20,
+        edgesWithARise: 5,
+        lost: 0,
+        largestRise: 1,
+      });
+      // The same four walks with the rule ON read none, on the walk and on its further edges (the test above read all 32).
+      for (const districtKey of PAID_PICK_DISTRICTS) for (const part of partsOf(microWalk(districtKey, "oneEvent", "on", EXACT))) expect(part.boundRises, districtKey).toBe(0);
+    },
+    TEST_TIMEOUT_MS
+  );
+});
+
+/** The committed 2026 PNW artifact (`data/fixtures/phase10`): a finished single championship, in the repository, so the group below needs no local data. */
+const PNW_FIXTURE_FILE = join(REPO_ROOT, "data", "fixtures", "phase10", "district-2026pnw.json");
+
+describe("GROUP E by hand, on the committed 2026 PNW fixture: the tick takes a Locked back with the paid pick rule off, and keeps it with the rule on (quick task 261010-l0s, finding F2)", () => {
+  const DCMP_KEY = "2026pncmp";
+  /** A pool team with a championship row that no alliance picked: listed here as the winner's fourth, paid 60 by TBA. */
+  const FOURTH = "frc492";
+  const PAID = 60;
+  /** The team whose Locked rests on the joint proof alone at this position. */
+  const HELD = "frc6696";
+  const ALL_FINAL: DistrictStageFinality = { qual: true, alliance: true, elim: true, award: true };
+
+  const read = (mode: RuleMode, playoffPointsLanded: boolean): ChampLedgerStatusModel =>
+    underRules(mode, () => {
+      const fixture = DistrictArtifactSchema.parse(JSON.parse(readFileSync(PNW_FIXTURE_FILE, "utf8")));
+      // The window between the playoff points and the awards: no Winner listed yet, and the fourth paid for the
+      // winner's playoffs. With the Playoffs open at the position those points are in no floor.
+      const artifact: DistrictArtifact = DistrictArtifactSchema.parse({
+        ...fixture,
+        teams: fixture.teams.map((team) => {
+          const noWinner = { ...team, qualifyingAwards: team.qualifyingAwards.filter((award) => !(award.eventKey === DCMP_KEY && award.awardType === 1)) };
+          if (team.teamKey !== FOURTH) return noWinner;
+          return { ...noWinner, pointTotal: team.pointTotal + PAID, eventPoints: team.eventPoints.map((row) => (row.eventKey === DCMP_KEY ? { ...row, elim: row.elim + PAID, total: row.total + PAID } : row)) };
+        }),
+      });
+      // The eight alliances, rebuilt from the fixture's own alliance selection points, and the winner listing the fourth.
+      const picks = new Map<number, string[]>();
+      for (const team of fixture.teams) {
+        const row = team.eventPoints.find((entry) => entry.eventKey === DCMP_KEY);
+        if (row === undefined || row.alliance <= 0) continue;
+        const base = row.alliance / 3;
+        const allianceNumber = base >= 9 ? 17 - base : base;
+        const list = picks.get(allianceNumber) ?? [];
+        if (base >= 9) list.unshift(team.teamKey);
+        else list.push(team.teamKey);
+        picks.set(allianceNumber, list);
+      }
+      const alliances = [...picks.entries()].sort((a, b) => a[0] - b[0]).map(([allianceNumber, list]) => ({ allianceNumber, picks: allianceNumber === 1 ? [...list, FOURTH] : list }));
+      // The whole bracket played, as the fixture's own placements have it: alliance 1 won, 5 second, 3 third, 2 fourth.
+      const upper = [1, 5, 2, 3, 4, 6, 1, 3, 5, 2, 1, 5, 5];
+      const playedMatches: PlayedBracketMatch[] = [
+        ...upper.map((winningAllianceNumber, index) => ({ compLevel: "sf" as const, setNumber: index + 1, matchNumber: 1, winningAllianceNumber })),
+        ...[1, 2].map((matchNumber) => ({ compLevel: "f" as const, setNumber: 1, matchNumber, winningAllianceNumber: 1 })),
+      ];
+      const stage: DistrictStageFinality = { qual: true, alliance: true, elim: playoffPointsLanded, award: false };
+      const eventKeys = new Set<string>();
+      for (const team of artifact.teams) {
+        for (const row of team.eventPoints) eventKeys.add(row.eventKey);
+        for (const row of team.remainingEvents) eventKeys.add(row.eventKey);
+      }
+      const stageByEvent = new Map([...eventKeys].map((key) => [key, key === DCMP_KEY ? stage : ALL_FINAL] as const));
+      const facts = dcmpBracketFactsFor({ eventKey: DCMP_KEY, season: 2026, tier: "dcmp", stage, alliances, playedMatches, unresolvedMatchCount: 0 });
+      if (facts === undefined) throw new Error("no bracket facts for the hand built championship");
+      const distributions = new Map<string, DistrictEventDistributions>([[DCMP_KEY, { eventKey: DCMP_KEY, byTeam: new Map(), playoffMilestoneByTeam: dcmpBracketMilestonesByTeam(alliances, playedMatches), dcmpBracket: facts }]]);
+      const rows = buildChampLedgerRows({ artifact, distributions, stageByEvent, dcmpStarted: true });
+      return computeChampLedgerStatuses({ artifact, teams: rows.teams, nowYear: 2026, distributions });
+    });
+  const view = (model: ChampLedgerStatusModel) => {
+    if (model.jointProof?.applied !== true || model.jointProof.shape !== "single") throw new Error("the joint proof did not run on the hand built championship");
+    const { input } = model.jointProof;
+    const winner = input.alliances.find((alliance) => alliance.allianceNumber === 1)!;
+    return {
+      status: model.byTeam.get(HELD)?.status,
+      lockedBy: model.byTeam.get(HELD)?.lockedBy,
+      bound: jointLockBound(input, HELD),
+      pointsSlots: input.pointsSlots,
+      winnerMembers: winner.members.length,
+      winnerSpareSeats: winner.spareSeats,
+      fourthIsAMember: winner.members.includes(FOURTH),
+    };
+  };
+
+  it("rules on: Locked before the tick and Locked after it, the paid pick the winner's fourth member and its seat closed", () => {
+    expect(view(read("on", false))).toEqual({ status: "locked", lockedBy: "joint", bound: 20, pointsSlots: 21, winnerMembers: 3, winnerSpareSeats: 1, fourthIsAMember: false });
+    expect(view(read("on", true))).toEqual({ status: "locked", lockedBy: "joint", bound: 20, pointsSlots: 21, winnerMembers: 4, winnerSpareSeats: 0, fourthIsAMember: true });
+  });
+
+  it("the paid pick rule switched OFF: the same tick, read by the status code itself, takes the Locked back (the bound reads 21 of 21 points slots)", () => {
+    // Before the tick the switch changes nothing: nobody is paid while the Playoffs are open at the position.
+    expect(view(read("paidRuleOff", false))).toEqual(view(read("on", false)));
+    const after = view(read("paidRuleOff", true));
+    expect({ bound: after.bound, pointsSlots: after.pointsSlots, winnerMembers: after.winnerMembers, winnerSpareSeats: after.winnerSpareSeats, fourthIsAMember: after.fourthIsAMember }).toEqual({
+      bound: 21,
+      pointsSlots: 21,
+      winnerMembers: 3,
+      winnerSpareSeats: 1,
+      fourthIsAMember: false,
+    });
+    // THE TAKE BACK: shown Locked a tick earlier, and no longer.
+    expect(after.status).not.toBe("locked");
+  });
 });
 
 // ---------------------------------------------------------------------------

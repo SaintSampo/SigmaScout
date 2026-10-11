@@ -587,19 +587,17 @@
  * argument in this module covers them. They are held edge by edge by
  * `scripts/champJointMonotone.test.ts`, with the limits stated above.
  *
- * ONE RISE IS KNOWN AND NOT CLOSED. That file reads a bound only up to 12
- * above the points slots. Read exactly, a bound still rises by one at the
- * tick a key's playoff points land after its playoffs are done, where the
- * decided winner lists a team that holds no alliance selection points and
- * TBA then pays that team for the winner's playoffs. Until the tick the proof
- * counts it through the winner's one fill in. After it the team is ahead of
- * some teams by its own floor, and the winner's spare seat still counts as
- * open, because seats count from confirmed picks. Measured by the planner of
- * that task: 20 team bounds over 5 edges of the 32 one event walks, each 14 or
- * more above its points slots (2024fnc, 2025fin, 2026fnc, 2026ca), and no
- * team shown Locked on any walk. The cause is in what the caller hands this
- * module, not in the count, and a six team input built that way does take a
- * Locked back. It is the caller's to close.
+ * THE ONE RISE THAT WAS LEFT WAS IN WHAT THE CALLER HANDED THIS MODULE, and
+ * the same task closed it there (the section "A PICK TBA HAS PAID FOR AN
+ * ALLIANCE'S PLAYOFFS IS ON THAT ALLIANCE" at the end of this header). That
+ * file reads a bound only up to 12 above the points slots. Read exactly, a
+ * bound still rose by one at the tick a key's playoff points land after its
+ * playoffs are done, where the decided winner lists a team that holds no
+ * alliance selection points and TBA then pays that team for the winner's
+ * playoffs. Measured by the planner of that task before the rule: 20 team
+ * bounds over 5 edges of the 32 one event walks, each 14 or more above its
+ * points slots (2024fnc, 2025fin, 2026fnc, 2026ca), no team shown Locked on
+ * any walk, and a six team input built that way did take a Locked back.
  *
  * WHAT IT MOVED. No stop of any sweep: over the 364 inputs the joint sweep
  * hands the proof (48 championships of 2023 to 2026), read up to 12 above
@@ -673,6 +671,108 @@
  * program of before this task on one seat group (kept in the test file as
  * the reference), plain, with awarded flags and with seat deficits; and the
  * whole bound against the exhaustive maximum of the model.
+ *
+ * ---------------------------------------------------------------------------
+ * A PICK TBA HAS PAID FOR AN ALLIANCE'S PLAYOFFS IS ON THAT ALLIANCE (quick
+ * task 261010-l0s, finding F2; `confirmedPicks`)
+ * ---------------------------------------------------------------------------
+ *
+ * WHAT WAS WRONG. An alliance's seats are counted from its CONFIRMED picks
+ * (CONTEXT D10 of quick task 261009-kt3): the maximum alliance size minus
+ * them. Until that task a pick was confirmed by its alliance selection
+ * points alone, and a backup holds none. While its key's Playoffs are open
+ * the proof still reads such a pick once: it is a listed pick that is not
+ * confirmed, counted through the alliance that lists it or on one other
+ * seat, never both (finding F-D and readings P3 and R7 above). At the tick
+ * the key's playoff points land that reading ends. TBA's payment is in the
+ * team's floor, the team is a plain rival, and the seat it holds on its own
+ * alliance still counted as OPEN. Where that alliance is the decided winner
+ * the winner's fill in then covered one MORE rival beside it, which no
+ * future can do: the winner already has its four teams. The bound rose by
+ * one under every team the paid pick had just passed.
+ *
+ * THE RULE. Of the teams an alliance lists, the confirmed ones are those
+ * that hold alliance selection points at that key AND those TBA has paid
+ * playoff points for that alliance's playoffs (`confirmedPicks`). The caller
+ * reads the payment off the rows at the position, and only where that key's
+ * Playoffs are final there:
+ *
+ *   - at a single championship, and at each of two championships, at the
+ *     alliance's own key;
+ *   - at a division, at the division's own key; and for the division's
+ *     decided winner at the finals key too, once the finals' Playoffs are
+ *     final. The winner's backup may have joined only for the finals, on no
+ *     list of the division: a team with a row at that division's key that
+ *     no alliance there lists and that the finals have paid is counted as
+ *     the winner's pick.
+ *
+ * WHY IT IS SOUND, in every shape. Playoff points at a key are paid only to
+ * a team that played for an alliance there, and a team is on one alliance at
+ * most. So a team an alliance lists that is paid at that alliance's key
+ * played for THAT alliance: it is a member and holds one of its seats. (The
+ * caller's facts are refused, and the proof does not run, wherever the field
+ * shows a team on another alliance than the one that lists it:
+ * `dcmpBracketFactsFor`.) An
+ * alliance has at most `maxAllianceSize` teams over the whole championship,
+ * its one backup included (the backup robot rule above), so a seat with a
+ * named holder is open to nobody else. At the finals only the division
+ * winners play and a backup comes from its alliance's own division's
+ * unselected teams, so a team of a division that the finals have paid and
+ * that no alliance of the division lists is that division's winner's
+ * backup. NOTHING IS CLOSED WITHOUT A HOLDER. A listed pick TBA has paid
+ * nothing stays a listed pick that is not confirmed and its seat stays open
+ * (frc4405 at 2024 FIM was paid nothing at its division and nothing at the
+ * finals, and holds the Winner award all the same). A division winner with
+ * no backup keeps its spare seat until the finals have paid one, since it
+ * may still take its one backup there.
+ *
+ * A WIDER RULE WAS WEIGHED AND NOT TAKEN: every seat of a key closed once
+ * its Playoffs are final. It is false at a division, whose winner may still
+ * take a backup for the finals. At a single championship it would close the
+ * winner's seat without naming who holds it, and a member of the winning
+ * alliance that TBA paid nothing would then be counted nowhere.
+ *
+ * WHY THE TICK IS MONOTONE NOW. After the tick the paid pick is a member. On
+ * the winner it is counted with the winner's members, once, and the fill in
+ * it holds is gone. On another alliance it is read at its own floor, with
+ * that alliance's value still to come where there is one (a division winner
+ * in the finals). Before the tick the proof already read the same team
+ * there: through the winner's fill in, on that alliance's own seat, or at
+ * the placed alliance's settled maximum, which is never below what TBA then
+ * pays. So every allocation of after the tick is an allocation of before it
+ * that covers the same rivals.
+ *
+ * WHAT IT RESTS ON BEYOND THE RULES: TBA's own alliance lists, with the
+ * field's backups appended (`dcmpBracketFactsFor`). A team TBA paid at a
+ * single championship that NO alliance lists is confirmed nowhere and its
+ * alliance's seat stays open, which is sound and would still let a bound
+ * rise by one at that tick. Measured by the planner of that task over the
+ * 89 championship tier keys of 2023 to 2026: of 894 teams paid playoff
+ * points at a championship or division key, none is on no alliance's list;
+ * the rule confirms 18 picks, 9 of them on the alliance placed first, every
+ * one seen on the field beside a team of the alliance that lists it; and of
+ * 60 teams paid at a finals key every one is on its division winner's list,
+ * so the finals reading named no team in those four seasons.
+ *
+ * WHAT IT CLOSED AND WHAT IT MOVED. The planner of that task read every
+ * rules on edge of groups A to D of `scripts/champJointMonotone.test.ts`
+ * once with every bound exact and the rule on, the FIM seasons included:
+ * 8,785 edges with the proof running on both sides, 2,712,435 team bounds,
+ * none higher. With the rule switched off the 20 rises of the one event
+ * walks are back, over the same 5 edges (group E of that file reads those
+ * 32 walks exactly both ways every time it runs). No line of any sweep
+ * moved and no Locked team of any walk was lost. SIX TEAMS ARE SHOWN LOCKED
+ * EARLIER, and nothing else moved over the 5,256 readings of the 58 live
+ * walks, read team by team: each is the paid backup of a decided winner,
+ * Locked where it had waited for its Winner award to be listed, and each
+ * holds that award at the season's end. Five at single championships, from
+ * the tick the playoff points land (2023pnw frc1983, 2024fnc and 2026fnc
+ * frc6639, 2025fin frc1747, 2026ca frc3512), and frc8724 at 2026 NE, from
+ * the tick the finals' state is written
+ * (`scripts/champFieldStagedWalk.test.ts` names that one). Held by
+ * `champJointLock.test.ts` (the six team input), by
+ * `champLedgerStatus.test.ts` (the tick through the status code, at a
+ * single championship and at a divisioned one's finals) and by that file.
  */
 import { bracketDecisionsFromPlayedMatches, InvalidBracketDecisionError, routePlayedBracket, type PlayedBracketMatch } from "./bracket.js";
 
@@ -1411,6 +1511,24 @@ export function jointLockedTeams(input: JointLockInput): ReadonlySet<string> {
  */
 export function jointProofStillRuns(championshipAwardsFinal: boolean, anotherKeysAwardsOpen: boolean): boolean {
   return !championshipAwardsFinal || anotherKeysAwardsOpen;
+}
+
+// ---------------------------------------------------------------------------
+// Which listed picks are on their alliance for certain (quick task 261010-l0s,
+// finding F2)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE PICKS OF AN ALLIANCE THAT ARE ON IT FOR CERTAIN, and so are its members
+ * and hold its seats (this module's header, "A PICK TBA HAS PAID FOR AN
+ * ALLIANCE'S PLAYOFFS IS ON THAT ALLIANCE"). Of the teams the alliance lists:
+ * those that hold alliance selection points there (CONTEXT D10 of quick task
+ * 261009-kt3), and those TBA has paid playoff points for that alliance's
+ * playoffs. The caller reads both facts off the rows at the position; this is
+ * the one rule that joins them, in the list's own order.
+ */
+export function confirmedPicks(listed: readonly string[], holdsAllianceSelectionPoints: (teamKey: string) => boolean, paidForItsPlayoffs: (teamKey: string) => boolean): string[] {
+  return listed.filter((teamKey) => holdsAllianceSelectionPoints(teamKey) || paidForItsPlayoffs(teamKey));
 }
 
 // ---------------------------------------------------------------------------

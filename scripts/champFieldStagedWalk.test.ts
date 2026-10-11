@@ -2296,16 +2296,34 @@ describe("the live walks with the field's bracket facts: 2026 FIM, NE, ONT and T
       // WHAT D2 MOVED (quick task 261010-d7r): every tick before the finals rows post, upward only. Until then the
       // proof read `unsupportedShape` there and only the ceiling test could lock (the series of the last test of
       // this group). From the tick the finals rows post the two series are the same. No series ever steps down.
+      //
+      // WHAT THE PAID PICK RULE MOVED (quick task 261010-l0s, finding F2): 2026 NE at the last two ticks, 21 to 22,
+      // upward only, and nothing else in this file. The team is frc8724, the backup of division 1's winner: it holds
+      // no alliance selection points and TBA paid it 21 for that alliance's playoffs, so from the tick the division's
+      // playoff points land it is that alliance's confirmed fourth. Once the finals' state is written the proof names
+      // that alliance the one champion, and a member of the champion is Locked. Until that rule it waited for its
+      // Winner award to be listed. It holds that award at the end of the walk, where it is shown Locked either way
+      // (asserted below the series).
       expect(shown).toEqual({
         "2026fim": [0, 1, 1, 5, 25, 35, 41, 46, 60, 60, 66, 66, 71, 71],
         "2026fim end": [83],
-        "2026ne": [0, 0, 0, 1, 8, 9, 9, 12, 20, 20, 20, 20, 21, 21],
+        "2026ne": [0, 0, 0, 1, 8, 9, 9, 12, 20, 20, 20, 20, 22, 22],
         "2026ne end": [32],
         "2026ont": [0, 0, 0, 0, 0, 6, 7, 8, 10, 10, 11, 11, 12, 12],
         "2026ont end": [21],
         "2026fit": [0, 0, 0, 2, 7, 7, 7, 8, 15, 15, 17, 17, 17, 17],
         "2026fit end": [28],
       });
+      // The one team the paid pick rule added, and where: not Locked at the tick before the finals' state is written,
+      // Locked from that tick on, and Locked at the end of the walk, where the season's own artifact lists its Winner.
+      const northEast = factsWalk("2026ne");
+      const finalsStateAt = northEast.steps.findIndex((step) => step.label === FINALS_STATE_TICK);
+      expect(finalsStateAt).toBeGreaterThan(0);
+      expect({
+        before: lockedAt(northEast.steps[finalsStateAt - 1]!).includes("frc8724"),
+        fromTheFinalsState: northEast.steps.slice(finalsStateAt).every((step) => lockedAt(step).includes("frc8724")),
+        atTheEnd: lockedAt(northEast.steps.at(-1)!).includes("frc8724"),
+      }).toEqual({ before: false, fromTheFinalsState: true, atTheEnd: true });
     },
     WALK_TIMEOUT_MS
   );
@@ -2398,10 +2416,12 @@ describe("the live walks with the field's bracket facts: 2026 FIM, NE, ONT and T
         gained[districtKey] = off.steps.slice(picked, finalsAwardsAt + 1).map((step, offset) => shownLockedCount(on.steps[picked + offset]!) - shownLockedCount(step));
       }
       console.log(`[261010-d7r group 10] the same walks with the option held off\n${table.join("\n")}`);
-      // The series of before D2, unchanged from the pins this group held then. Pinned as the run shows.
+      // The series of before D2, unchanged from the pins this group held then but for 2026 NE's last two ticks, which
+      // read 21 until quick task 261010-l0s's paid pick rule (the first test of this group names the team). Pinned
+      // as the run shows.
       expect(shown).toEqual({
         "2026fim": [0, 0, 0, 0, 0, 0, 0, 0, 13, 13, 29, 66, 71, 71],
-        "2026ne": [0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 12, 20, 21, 21],
+        "2026ne": [0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 12, 20, 22, 22],
         "2026ont": [0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 10, 11, 12, 12],
         "2026fit": [0, 0, 0, 0, 0, 0, 0, 0, 6, 6, 11, 17, 17, 17],
       });

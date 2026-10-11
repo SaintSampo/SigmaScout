@@ -14,6 +14,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assertOneAwardPerRival,
+  confirmedPicks,
   coverMatching,
   dcmpBracketState,
   divisionAllianceId,
@@ -4141,6 +4142,95 @@ describe("champJointLock: every rival is counted once (261010-l0s)", () => {
       "single ownDelta": 65_292,
     });
   }, 300_000);
+});
+
+// ===========================================================================
+// A pick TBA has paid for an alliance's playoffs is on that alliance (quick task 261010-l0s, finding F2)
+// ===========================================================================
+
+describe("champJointLock: a pick TBA has paid for an alliance's playoffs is on that alliance (261010-l0s, finding F2)", () => {
+  it("confirmedPicks: a listed team is confirmed by its alliance selection points or by TBA's payment for that alliance's playoffs, either one, in the list's own order", () => {
+    const holds = new Set(["a", "b", "c"]);
+    const paid = new Set(["d", "b"]);
+    const of = (set: ReadonlySet<string>) => (teamKey: string) => set.has(teamKey);
+    expect(confirmedPicks(["a", "b", "c", "d"], of(holds), of(paid))).toEqual(["a", "b", "c", "d"]);
+    // Nobody paid: the rule of before quick task 261010-l0s, alliance selection points alone.
+    expect(confirmedPicks(["a", "b", "c", "d"], of(holds), () => false)).toEqual(["a", "b", "c"]);
+    // A backup holds no alliance selection points: the payment alone confirms it, and a listed team TBA paid nothing stays out.
+    expect(confirmedPicks(["d", "e"], () => false, of(paid))).toEqual(["d"]);
+    expect(confirmedPicks(["c", "a"], of(holds), of(paid))).toEqual(["c", "a"]);
+    expect(confirmedPicks([], () => true, () => true)).toEqual([]);
+  });
+
+  /**
+   * SIX TEAMS, FIVE POINTS SLOTS, the smallest input the planner of that task
+   * found that takes a Locked back. The decided winner (alliance 1: w1, w2 and
+   * w3 confirmed) lists L, which holds no alliance selection points. T is at
+   * 110 and x far behind at 40. No award is left to give.
+   */
+  const winner = (members: string[], spareSeats: number): JointLockInput["alliances"] => [{ allianceNumber: 1, members, spareSeats }];
+  const sixTeams = (listed: JointLockRival, alliances: JointLockInput["alliances"], playoffPointsLanded: boolean): JointLockInput => ({
+    pool: [
+      { teamKey: "T", floor: 110, extra: 0 },
+      { teamKey: "w1", floor: playoffPointsLanded ? 390 : 300, extra: playoffPointsLanded ? 0 : 90 },
+      { teamKey: "w2", floor: playoffPointsLanded ? 370 : 280, extra: playoffPointsLanded ? 0 : 90 },
+      { teamKey: "w3", floor: playoffPointsLanded ? 350 : 260, extra: playoffPointsLanded ? 0 : 90 },
+      listed,
+      { teamKey: "x", floor: 40, extra: 0 },
+    ],
+    slotOnlyRivals: [],
+    pointsSlots: 5,
+    alliances,
+    aliveAlliances: [],
+    candidateWinners: [1],
+    placementPoints: [75, 39, 21],
+    consumingAwards: 0,
+    judgedAwards: 0,
+    judgedAwardPoints: JUDGED,
+    maxAllianceSize: 4,
+  });
+
+  it("the tick the winner's playoff points land: with the paid pick left off the winner T's bound rises from 4 to 5 of 5 slots and its Locked is taken back; with the paid pick a member it stays 4 and T stays Locked", () => {
+    // BEFORE the points land: L carries the winner's settled 90 only as a listed pick, so it is read at its floor of
+    // 100 and counted through the winner's one fill in. w1, w2, w3 and that fill in: 4.
+    const before = sixTeams({ teamKey: "L", floor: 100, extra: 90, listedOnly: { settled: 90, onWinner: true } }, winner(["w1", "w2", "w3"], 1), false);
+    expect(jointLockBound(before, "T")).toBe(4);
+    expect(jointLockedTeams(before).has("T")).toBe(true);
+
+    // AFTER they land TBA has paid L 21 for the winner's playoffs: it is at 121, ahead of T by its own floor.
+    const paidPick: JointLockRival = { teamKey: "L", floor: 121, extra: 0 };
+    // THE INPUT OF BEFORE THE RULE: L is not confirmed (it holds no alliance selection points), so the winner still
+    // shows three members and one spare seat. L counts by its floor AND x as the winner's backup: 5, no future's.
+    const leftOff = sixTeams(paidPick, winner(["w1", "w2", "w3"], 1), true);
+    expect(jointLockBound(leftOff, "T")).toBe(5);
+    expect(jointLockedTeams(leftOff).has("T")).toBe(false);
+    // THE INPUT UNDER THE RULE: L is the winner's fourth member and the seat it holds is closed.
+    const members = confirmedPicks(
+      ["w1", "w2", "w3", "L"],
+      (teamKey) => teamKey !== "L",
+      (teamKey) => teamKey === "L"
+    );
+    expect(members).toEqual(["w1", "w2", "w3", "L"]);
+    const member = sixTeams(paidPick, winner(members, 4 - members.length), true);
+    expect(jointLockBound(member, "T")).toBe(4);
+    expect(jointLockedTeams(member).has("T")).toBe(true);
+    // No team's bound is higher after the tick than before it, and the paid pick itself is on the winner.
+    for (const teamKey of ["T", "w1", "w2", "w3", "L", "x"]) expect(jointLockBound(member, teamKey), teamKey).toBeLessThanOrEqual(jointLockBound(before, teamKey));
+    expect(jointLockBound(member, "L")).toBe(0);
+    // THE ALLOCATION MODEL ENUMERATED (no code shared with the module) reads the same three numbers: each bound is
+    // the exact maximum of the input it is handed, so the rise was in the input and nowhere else.
+    expect(modelMostTakers(before, "T", 8)).toBe(4);
+    expect(modelMostTakers(leftOff, "T", 8)).toBe(5);
+    expect(modelMostTakers(member, "T", 8)).toBe(4);
+  });
+
+  it("a listed pick TBA paid nothing is not confirmed and its seat stays open: the winner may still hold a member no row has named", () => {
+    // The same six teams after the tick, L listed and paid nothing (floor 100): it is not a member, and the fill in
+    // still covers one rival, L or x. Closing the seat here would count neither.
+    const unpaid = sixTeams({ teamKey: "L", floor: 100, extra: 0 }, winner(confirmedPicks(["w1", "w2", "w3", "L"], (teamKey) => teamKey !== "L", () => false), 1), true);
+    expect(unpaid.alliances[0]!.members).toEqual(["w1", "w2", "w3"]);
+    expect(jointLockBound(unpaid, "T")).toBe(4);
+  });
 });
 
 // ===========================================================================
