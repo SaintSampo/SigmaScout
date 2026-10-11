@@ -616,6 +616,9 @@ describe("GROUP A, the awards order test: the 16 divisioned championships of 202
       expect(tally.lost.flag).toBeGreaterThan(0);
       expect(tally.edgesWithADrop.flag).toBeGreaterThan(0);
       // The measurement of the reading before quick task 261010-d7r. Pinned as the run shows; not a requirement.
+      // Quick task 261010-l0s (every rival counted once) moved it: the proof holds a little more at some readings
+      // and a little less is lost at others. Until then: 957 lost, 163 pairs, 1776 flag edges with a drop, 33,355
+      // team margins, and by district 118 at 2023fim, 4 at 2023fit and 239 at 2024fim.
       expect({
         readings: tally.readings,
         lostOverFlagEdges: tally.lost.flag,
@@ -627,20 +630,20 @@ describe("GROUP A, the awards order test: the 16 divisioned championships of 202
         largestDrop: tally.largestDrop,
       }).toEqual({
         readings: 1200,
-        lostOverFlagEdges: 957,
+        lostOverFlagEdges: 952,
         lostOverStopEdges: 0,
-        distinctPairsLost: 163,
-        flagEdgesWithADrop: 1776,
+        distinctPairsLost: 161,
+        flagEdgesWithADrop: 1786,
         stopEdgesWithADrop: 0,
-        teamMarginsDropped: 33_355,
+        teamMarginsDropped: 33_385,
         largestDrop: 4,
       });
       expect(lostByDistrict).toEqual({
-        "2023fim": 118,
-        "2023fit": 4,
+        "2023fim": 116,
+        "2023fit": 3,
         "2023ne": 6,
         "2023ont": 10,
-        "2024fim": 239,
+        "2024fim": 237,
         "2024fit": 7,
         "2024ne": 9,
         "2024ont": 10,
@@ -863,11 +866,13 @@ describe("GROUP B, divisions out of step: some divisions finished, their awards 
       expect(tally.lost.flag + tally.lost.stop).toBeGreaterThan(0);
       expect(tally.marginDrops).toBeGreaterThan(0);
       // The measurement of the reading before quick task 261010-d7r. Pinned as the run shows; not a requirement.
+      // Quick task 261010-l0s (every rival counted once) moved it from 49 lost and 772 margins: with the rule off
+      // the proof holds more before a flag turns true, so more is lost when it does.
       expect({ readings: tally.readings, lostOverFlagEdges: tally.lost.flag, lostOverStopEdges: tally.lost.stop, marginDrops: tally.marginDrops, largestDrop: tally.largestDrop }).toEqual({
         readings: 288,
-        lostOverFlagEdges: 49,
+        lostOverFlagEdges: 54,
         lostOverStopEdges: 0,
-        marginDrops: 772,
+        marginDrops: 777,
         largestDrop: 3,
       });
     },

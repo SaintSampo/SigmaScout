@@ -2,8 +2,9 @@
  * THE JOINT WORST CASE LOCK PROOF at the Championship tier (quick task
  * 261009-2tr), generalized to divisioned and multiple championships by quick
  * task 261009-kt3, its divisioned frames brought in line with the verified
- * backup robot rule by quick task 261009-tx9, and made monotone over the
- * order a championship's facts arrive in by quick task 261010-d7r. Pure, no
+ * backup robot rule by quick task 261009-tx9, made monotone over the order a
+ * championship's facts arrive in by quick task 261010-d7r, and made to count
+ * every rival ONCE, by one exact matching, by quick task 261010-l0s. Pure, no
  * I/O, no zod, no React; its only import is the `./bracket.js` sibling.
  *
  * ---------------------------------------------------------------------------
@@ -86,13 +87,16 @@
  *   3. a consuming award winner (at most C of them), or
  *   4. a backup robot on W (at most f, and only a rival eligible in W's own
  *      seat group, which for a single championship is X's unpicked part), or
- *   5. a pool rival lifted to T's floor by a seat on a losing alliance and at
- *      most one judged award, and those are at most SJ, because the real
- *      allocation of seats and judged awards is one the dynamic program below
- *      considered.
+ *   5. a pool rival lifted to T's floor by one judged award on top of what it
+ *      has, by a seat on a losing alliance, or by a seat and one judged award.
  *
- * So the real takers are at most `|covered| + min(|X|, SJ + C + min(f, |X_U|))`,
- * and the bound is the maximum of that over the scenarios.
+ * The rivals of 4 and 5 are ONE ALLOCATION of the scenario's resources: W's f
+ * fill ins, each losing alliance's spare seats at its value, and the K judged
+ * awards, each rival taking at most one fill in or one seat and at most one
+ * award. The matching (the section "THE MATCHING" below) returns M, the most
+ * rivals ANY such allocation covers, so the real one covers no more. The real
+ * takers are therefore at most `|covered| + min(|X|, M + C)`, and the bound
+ * is the maximum of that over the scenarios.
  *
  * WHY NOT THE LITERAL GREEDY ORDER OF CONTEXT D2. A fixed order undercounts in
  * three constructed cases, which would break the argument above: a consuming
@@ -180,8 +184,8 @@
  * and W's fill ins. A single championship is the degenerate case:
  * `singleChampionshipFrames` builds, per candidate W, the alive alliances
  * other than W enumerated, nothing fixed, and W's spare seats as fill ins
- * against the uncovered unpicked rivals, which is exactly the shipped loop,
- * and the single sweep reproduces its numbers.
+ * against the uncovered unpicked rivals, which are the shipped loop's
+ * scenarios, and the single sweep reproduces its numbers.
  *
  * A DIVISIONED championship (FIM: four divisions; NE, ON, TX: two) plays each
  * division as an eight alliance event and then the FINALS among the division
@@ -221,30 +225,34 @@
  * THAT IS NOT CONFIRMED IS PAID ITS DECIDED ALLIANCE'S VALUE OR TAKES ANOTHER
  * SEAT, NEVER BOTH" below.) On an
  * alliance its division has not placed, the caller lists such a team among
- * the members (its reading R8), and a seat group names it too. The bound then
- * counts it on BOTH sides: as a member paid its alliance's scenario value (it
- * stays as that alliance's one backup), and as an eligible team of its
- * division at floor plus extra with no alliance value, free for another
- * alliance's seat or for W's fill in (it was never on that alliance). One
- * rival may then be counted twice, which only raises the bound. The same
- * holds for T itself: a frame whose winner only LISTS T is NOT skipped when a
- * seat group names T, because T may never have been on that alliance, so its
- * win does not qualify T. Quick task 261009-kt3 skipped that frame, which left
- * one future uncovered: an alliance that lists T wins without it.
+ * the members (its reading R8), and a seat group names it too. The bound
+ * reads BOTH futures and counts the team ONCE (quick task 261010-l0s): as a
+ * member paid its alliance's scenario value (it stays as that alliance's one
+ * backup), OR as an eligible team of its division at floor plus extra with no
+ * alliance value, on another alliance's seat or as W's fill in (it was never
+ * on that alliance). Until that task it was entered on both sides, as a
+ * member and in its division's cover, and one rival could be counted twice.
+ * A listed pick of W itself is counted with W's members and takes no other
+ * part. The same two futures hold for T itself: a frame whose winner only
+ * LISTS T is NOT skipped when a seat group names T, because T may never have
+ * been on that alliance, so its win does not qualify T. Quick task 261009-kt3
+ * skipped that frame, which left one future uncovered: an alliance that lists
+ * T wins without it.
  *
  * READING P4, A RIVAL THAT NO GROUP NAMES IS ELIGIBLE IN EVERY GROUP. A pool
  * or slot only rival on no alliance that no group names (no row is known for
  * it at any division) is offered every division's seats and every candidate
  * winner's fill in, and still counts through a consuming award and through
  * one judged award alone. The proof therefore never rests on a competing
- * team's row being posted. Such a rival may be counted once per group, which
- * only raises the bound. A team an alliance lists that no group names (a
- * confirmed pick) is eligible nowhere.
+ * team's row being posted. It is still ONE rival and takes at most one seat,
+ * whichever division's (quick task 261010-l0s; until then it was entered in
+ * every group's cover and could be counted once per group). A team an
+ * alliance lists that no group names (a confirmed pick) is eligible nowhere.
  *
- * THE JUDGED BUDGET STAYS ONE POOL shared by the groups (reading P8): each
- * group's seat and judged award cover is computed on its own seats and its
- * own eligible rivals, and the covers are combined by the best split of the
- * budget.
+ * THE JUDGED BUDGET STAYS ONE POOL shared by the groups (reading P8): one
+ * matching holds every group's seats and every eligible rival, each seat open
+ * only to the rivals eligible in its own group, and spends the one budget
+ * wherever it covers the most.
  *
  * The facts this rests on beyond the single case: no finals row pays above 60
  * at four divisions or 30 at two (manual 11.1.3, `maxFinalsPointsByPlacement`);
@@ -312,8 +320,9 @@
  *
  *   1. A rival that holds a posted award takes no further judged award (D1,
  *      the next section). Switched off, Locked teams are lost when a
- *      division's awards flag turns true: 957 over the awards order lattice
- *      of the 16 divisioned championships of 2023 to 2026.
+ *      division's awards flag turns true: 952 over the awards order lattice
+ *      of the 16 divisioned championships of 2023 to 2026 (957 until quick
+ *      task 261010-l0s made every rival count once).
  *   2. A divisioned championship's proof stops only once EVERY key's Awards
  *      are final (finding F-B, `jointProofStillRuns` below). Switched off,
  *      306 are lost where the finals' flag turns true before a division's.
@@ -400,7 +409,11 @@
  * division's ceiling of 14. Once they read final the awarded rivals hold
  * their one, in their floors, and the others take at most one out of what is
  * left. So every reading after the flag is one of the readings before it, and
- * no bound rises over that tick.
+ * no bound rises over that tick. Since quick task 261010-l0s that holds for
+ * the team whose own award posts as well as for every other team (the section
+ * "EVERY RIVAL IS COUNTED ONCE" below, and its test). Until then a team's own
+ * posting could raise its own bound by one: its floor passed a rival that
+ * was then counted on a seat and again as the winner's backup.
  *
  * WHAT IT CLOSED. The remaining budget rule of quick task 261009-pgq (14
  * minus the teams awarded, kept because the flag does not say every judged
@@ -463,16 +476,15 @@
  *
  * THE WINNER'S READING IS THE RIVAL AS IT READ BEFORE THE WINNER WAS DECIDED,
  * which is what makes that row's edge monotone: until the row the rival had
- * no settled value, so its `extra` held nothing of the Playoffs. It is NOT
- * always at or below the reading of before this rule. A rival that drops
- * from "its points reach T" to "short of T, on no alliance" joins the fill
- * in pool, and the bound counts a fill in beside a seat that may lift the
- * same rival, a relaxation it has always had and one that only raises it.
- * On 500 seeded instances 10 team bounds read higher with `onWinner` than
- * with no `listedOnly` (`champJointLock.test.ts` pins it). That says nothing
- * about soundness. A placed alliance's reading, by contrast, is never above
- * the reading of before this rule: the rival reads the same alone and no
- * nearer to T on a seat.
+ * no settled value, so its `extra` held nothing of the Playoffs. Like a
+ * placed alliance's reading (the rival reads the same alone and no nearer to
+ * T on a seat), it is never above the reading of before this rule: every
+ * role the rival can take without its settled value it could take with it.
+ * `champJointLock.test.ts` holds both at none on 500 seeded instances. Until
+ * quick task 261010-l0s the winner's reading could read higher, at 10 team
+ * bounds of those instances: a rival that dropped from "its points reach T"
+ * to "short of T, on no alliance" joined the winner's fill in pool and was
+ * counted there beside a seat that lifted the same rival.
  *
  * WHY IT IS SOUND. Every real future is one of the two above, and each is
  * read at no less than it pays: the first by the alone reading (by the fill
@@ -506,41 +518,161 @@
  * raises a bound.
  *
  * ---------------------------------------------------------------------------
- * THE COVER UPPER BOUND (reading R10)
+ * EVERY RIVAL IS COUNTED ONCE (quick task 261010-l0s)
  * ---------------------------------------------------------------------------
  *
- * The seat and judged award cover of the unpicked rivals is the exact dynamic
- * program `unpickedCover` wherever its table (seat states times budget plus 1
- * times reachable rivals) is at most `EXACT_COVER_STATE_CAP`; every single
- * event case of 2023 to 2026 is. Since quick task 261009-tx9 a table covers
- * ONE seat group's seats and eligible rivals, one division's at a divisioned
- * championship, where quick task 261009-kt3 put every division's seats in one
- * table. Above the cap the program is unusable and `coverUpperBound` is used;
- * it stays as the guard for any input that large. With the reachable
- * deficits sorted ascending, for each prefix of k: `Mfree(k)` is the greedy
- * matching of the prefix to seats worth at least the deficit, and `Mpv(k)` is
- * the prefix's deficits of at most one judged award's points plus the greedy
- * matching of the rest to seats worth at least the deficit minus that award.
- * `bound[j]` is the largest k with `k - Mfree(k) <= j` and `Mpv(k) = k`. Proof:
- * an optimal cover may be taken to be a prefix (every resource covering a
- * deficit covers a smaller one); every covered rival not matched free spends
- * exactly one award, and the free matches are at most `Mfree`; every covered
- * set is a matching in the paid or award alone structure, so it is at most
- * `Mpv`. Three conditions are binding:
+ * WHAT WAS WRONG. Until that task a scenario's count was a sum of terms
+ * worked out apart from each other, and three of them could hold the SAME
+ * rival:
  *
- *   (a) both greedy matchings take the deficits LARGEST FIRST and give each
- *       the SMALLEST seat value that suffices, which makes them maximum on
- *       these nested eligibility sets;
- *   (b) the bound hardcodes at most ONE judged award's points per rival, so
- *       `assertOneAwardPerRival(MAX_POINT_PAYING_AWARDS_PER_TEAM)` runs at
- *       module load and throws unless the constant is 1;
- *   (c) the bound models the judged awards and the seats only, exactly as
- *       `unpickedCover`; the consuming awards and the fill ins enter
- *       separately, as the shipped `others3`.
+ *   - the winner's fill in was added beside the seat and judged award cover,
+ *     so a rival a seat could lift and the winner could also call up counted
+ *     twice;
+ *   - a rival no seat group names (reading P4) was entered in EVERY group's
+ *     cover and could be lifted once per group;
+ *   - a listed pick that is not confirmed, on an alliance still in its
+ *     bracket (reading P3), counted as a member at its alliance's value and
+ *     again on a seat of its division.
  *
- * READING R11: the reachable by seat filter uses the largest seat value over
- * the placement values and EVERY usable frame's fixed values, never the
- * placement values alone.
+ * Each only raised the bound, so none was ever unsound. But a rival AHEAD of
+ * T by its floor counts exactly once whatever else is true of it. So when T's
+ * own points rose past such a rival, the rival went from one count to two or
+ * more, and T's bound ROSE on T's own good news. The verifier of quick task
+ * 261010-d7r found it (its warning W1: a team's own award posting raised its
+ * own bound by 1). The planner of this task read it on seeded instances of
+ * every shape, a team's own floor raised and nothing else changed: 283 of
+ * 65,292 comparisons on single championships, 1,787 of 114,382 on divisioned
+ * ones, 413 of 135,816 on two championships, the largest rise 5.
+ *
+ * A CAP WAS TRIED AND IS NOT ENOUGH. Holding a scenario's count to the number
+ * of DISTINCT rivals it can reach leaves rises in every shape. The smallest:
+ * T, one free rival a seat can lift, two picked rivals each one judged award
+ * short, one award to give, a winner with one spare seat. As T gains one
+ * point and passes the free rival, the capped count still goes 3 then 4 (the
+ * free rival on the seat AND as the winner's backup, beside one picked rival
+ * with the award: three distinct rivals, so the cap does not bind), where no
+ * future holds more than 3.
+ *
+ * THE RULE. Every rival is ONE entity of ONE matching (the section "THE
+ * MATCHING" below) and takes at most one resource. A scenario's count is the
+ * exact maximum over every allocation the facts above allow, and no more.
+ * `champJointLock.test.ts` holds the bound EQUAL to that maximum, enumerated
+ * by code that shares nothing with this module, on small seeded instances of
+ * the single and the divisioned shape.
+ *
+ * WHAT FOLLOWS FROM IT, each an exact zero over at least 300,000 seeded
+ * comparisons in `champJointLock.test.ts` ("over seeded transitions of every
+ * shape: ..."):
+ *
+ *   - A TEAM'S OWN POINTS NEVER RAISE ITS OWN BOUND, by any amount. An
+ *     allocation that covers a set of rivals against the higher floor covers
+ *     at least that set against the lower one, so the maximum cannot rise.
+ *     The same holds where the points are the team's own judged award: the
+ *     budget drops by one and the team is named in `awardedRivals`, neither
+ *     of which raises a count.
+ *   - ANOTHER TEAM'S JUDGED AWARD POSTING NEVER RAISES A BOUND. The posted
+ *     points (at most one judged award's) enter that team's floor, it is
+ *     named in `awardedRivals` and the budget drops by one. Hand the award
+ *     back to it out of a budget one larger and every allocation of after the
+ *     posting is an allocation of before it covering the same rivals. (Until
+ *     this task it could raise one: 10 of 391,941 seeded comparisons, each a
+ *     listed pick that is not confirmed posting, then counted as a member
+ *     and again on a seat.)
+ *
+ * WHAT "MONOTONE" STILL RESTS ON WALKS FOR. Everything else one more fact can
+ * bring: a played row (an alliance placed, a settled value, a candidate
+ * winner gone), a stage turning final, an awards flag and what the caller
+ * hands the proof past it, the finals facts, the field proof. Those change
+ * the SHAPE of the input, not one team's floor or one posted award, and no
+ * argument in this module covers them. They are held edge by edge by
+ * `scripts/champJointMonotone.test.ts`, with the limits stated above.
+ *
+ * ONE RISE IS KNOWN AND NOT CLOSED. That file reads a bound only up to 12
+ * above the points slots. Read exactly, a bound still rises by one at the
+ * tick a key's playoff points land after its playoffs are done, where the
+ * decided winner lists a team that holds no alliance selection points and
+ * TBA then pays that team for the winner's playoffs. Until the tick the proof
+ * counts it through the winner's one fill in. After it the team is ahead of
+ * some teams by its own floor, and the winner's spare seat still counts as
+ * open, because seats count from confirmed picks. Measured by the planner of
+ * that task: 20 team bounds over 5 edges of the 32 one event walks, each 14 or
+ * more above its points slots (2024fnc, 2025fin, 2026fnc, 2026ca), and no
+ * team shown Locked on any walk. The cause is in what the caller hands this
+ * module, not in the count, and a six team input built that way does take a
+ * Locked back. It is the caller's to close.
+ *
+ * WHAT IT MOVED. No stop of any sweep: over the 364 inputs the joint sweep
+ * hands the proof (48 championships of 2023 to 2026), read up to 12 above
+ * the points slots, 28 team bounds at 16 divisioned stops are lower by one
+ * (each stop carries a listed pick that is not confirmed, now counted once)
+ * and none is higher; the locked set is the same at all 364. Read exactly,
+ * deep in the pack, a bound drops by more: by 15 for one team of 2026 FIM
+ * after Round 4, where rivals no group names had been counted in each of
+ * the four divisions.
+ *
+ * ---------------------------------------------------------------------------
+ * THE MATCHING (quick task 261010-l0s; it replaces the per group cover
+ * programs and the cover upper bound of reading R10)
+ * ---------------------------------------------------------------------------
+ *
+ * WHAT IT ANSWERS. In one scenario (a frame and one placement assignment),
+ * the most rivals still short of T that the seats, the judged awards and the
+ * winner's fill ins can cover together, for every judged budget from 0 to K
+ * (`coverMatching`).
+ *
+ * THE ENTITIES. Every rival short of T at floor plus extra that is eligible
+ * in at least one seat group, and every slot only rival eligible in one, is
+ * ONE entity, in however many groups it is eligible. A confirmed pick (on an
+ * alliance, named by no group) is not an entity: it has one way up, its
+ * alliance's value and one judged award, and the scenario loop counts it
+ * beside the matching, out of the same budget.
+ *
+ * THE RESOURCES, and what each costs an entity in judged awards:
+ *
+ *   - a SEAT TYPE, one per seat group and seat value, as many as the spare
+ *     seats of that group's alliances paid that value. Open only to an
+ *     entity eligible in that group. It costs 0 where the value alone covers
+ *     the entity's deficit ON A SEAT, 1 where one judged award more does and
+ *     the entity is not awarded, and is closed otherwise;
+ *   - ONE JUDGED AWARD ALONE, on top of what the entity already has: its
+ *     floor plus extra, and for a listed pick that is not confirmed (reading
+ *     P3) the scenario value of the alliance that lists it. It costs 1, and
+ *     is closed to an awarded entity and to a slot only one;
+ *   - THE WINNER'S FILL INS, as many as the frame gives. Each costs 0 and is
+ *     open to every entity eligible in the winner's own group.
+ *
+ * Every entity takes at most ONE resource. A listed pick of the winner is
+ * left out (it is counted with the winner's members), and so is a listed
+ * pick whose alliance's value already reaches T (it is counted as covered).
+ *
+ * HOW. A minimum cost flow by successive shortest paths, the entities with
+ * the same costs merged into one type. The k th unit of flow is the k th
+ * rival covered and its cost is the judged awards it adds to the cheapest
+ * way of covering k rivals, so the answer for a budget j is the most rivals
+ * whose cost is at most j. It is exact at every size. The program of before
+ * this task was a table over one seat group that grew with the pool, and
+ * above a size cap an upper bound stood in for it; both are gone.
+ *
+ * ONE BINDING CONDITION is kept from reading R10: a resource costs 0 or 1,
+ * which is at most ONE judged award's points per rival, so
+ * `assertOneAwardPerRival(MAX_POINT_PAYING_AWARDS_PER_TEAM)` runs at module
+ * load and throws unless the constant is 1.
+ *
+ * THE CONSUMING AWARDS STAY OUTSIDE IT. A consuming award covers ANY rival
+ * still short of T, so C more are covered while any are left.
+ *
+ * READING R11 NO LONGER DECIDES A COUNT. A seat is a resource at its own
+ * value in its own frame, a fixed value above every placement value
+ * included, so no filter on "reachable" rivals stands in front of the
+ * matching. The largest value over the placement values and EVERY usable
+ * frame's fixed values is still read, for the cheap ceiling alone: it says
+ * which scenarios are worth working out and never what one counts.
+ *
+ * HELD BY TEST (`champJointLock.test.ts`): the matching against every
+ * assignment enumerated on small cost tables; against the exact dynamic
+ * program of before this task on one seat group (kept in the test file as
+ * the reference), plain, with awarded flags and with seat deficits; and the
+ * whole bound against the exhaustive maximum of the model.
  */
 import { bracketDecisionsFromPlayedMatches, InvalidBracketDecisionError, routePlayedBracket, type PlayedBracketMatch } from "./bracket.js";
 
@@ -566,25 +698,21 @@ import { bracketDecisionsFromPlayedMatches, InvalidBracketDecisionError, routePl
 export const MAX_POINT_PAYING_AWARDS_PER_TEAM = 1;
 
 /**
- * Reading R10 (b): the cover upper bound hardcodes one judged award's points
- * per rival, so it is sound only while `MAX_POINT_PAYING_AWARDS_PER_TEAM` is 1.
- * Throws an Error naming the constant otherwise. Called at module load.
+ * The matching's one binding condition (this module's header, "THE
+ * MATCHING"; reading R10 (b) until quick task 261010-l0s): a seat or an award
+ * costs an entity 0 or 1 judged award, which is one judged award's points per
+ * rival at most, so the bound is sound only while
+ * `MAX_POINT_PAYING_AWARDS_PER_TEAM` is 1. Throws an Error naming the constant
+ * otherwise. Called at module load.
  */
 export function assertOneAwardPerRival(value: number): void {
   if (value !== 1) {
     throw new Error(
-      `champJointLock: MAX_POINT_PAYING_AWARDS_PER_TEAM is ${String(value)}, but the cover upper bound counts at most one judged award per rival; rework coverUpperBound before changing it`
+      `champJointLock: MAX_POINT_PAYING_AWARDS_PER_TEAM is ${String(value)}, but the matching prices a seat or an award at one judged award per rival at most; rework coverMatching's costs before changing it`
     );
   }
 }
 assertOneAwardPerRival(MAX_POINT_PAYING_AWARDS_PER_TEAM);
-
-/**
- * The exact cover program's largest table, in cells (seat states times budget
- * plus 1 times reachable unpicked rivals). Every single event case of 2023 to
- * 2026 is at most about 11,400; above the cap the cover upper bound is used.
- */
-export const EXACT_COVER_STATE_CAP = 250_000;
 
 /**
  * What a rival holds only as a LISTED pick that is not confirmed, on an
@@ -694,9 +822,9 @@ export interface JointLockInput {
    * EVERY group (reading P4), so the proof never rests on a competing team's
    * row being posted; a team an alliance lists that no group names is eligible
    * in none. A team that an alliance lists and a group names is a listed pick
-   * that is not confirmed (reading P3): it counts as a member and as an
-   * eligible team, and a frame whose winner lists T is not skipped when a
-   * group names T. Absent or empty (a single championship, each championship
+   * that is not confirmed (reading P3): it is read as a member OR as an
+   * eligible team, never both, and a frame whose winner lists T is not
+   * skipped when a group names T. Absent or empty (a single championship, each championship
    * of a two championship district): ONE group of every alliance and every
    * rival on no alliance, which is the shipped loop.
    */
@@ -778,190 +906,6 @@ function judgedCost(deficit: number, judgedAwardPoints: number): number {
   return cost <= MAX_POINT_PAYING_AWARDS_PER_TEAM ? cost : Infinity;
 }
 
-/** What the cover programs know about each rival beyond its deficit, aligned with `deficits`. */
-export interface CoverOptions {
-  /**
-   * True for a rival that already holds a posted award (quick task 261010-d7r,
-   * D1): it takes no judged award, so it is covered only where it needs
-   * nothing or where a seat's value alone reaches T. Absent: no rival is.
-   */
-  readonly awarded?: readonly boolean[];
-  /**
-   * Each rival's deficit where it takes a SEAT, never below its deficit alone
-   * (quick task 261010-d7r, finding F-D): a listed pick that is not confirmed
-   * gives up its placed alliance's settled value to sit on another alliance.
-   * Absent: every rival's deficit is the same on a seat as alone. Read by the
-   * exact program only; the upper bound reads the smaller deficit alone for
-   * both, which only raises it.
-   */
-  readonly seatDeficits?: readonly number[];
-}
-
-/**
- * For the unpicked uncovered pool rivals (their deficits are fixed for one T),
- * the most of them the seats can cover together with at most `j` judged awards,
- * for every `j` from 0 to `budget`. An exact dynamic program over (seats used
- * per seat value, judged awards spent). A rival flagged in `options.awarded`
- * spends no judged award, and a rival with an entry in `options.seatDeficits`
- * is that far short of T on a seat. Exported for the cover upper bound's
- * dominance test.
- */
-export function unpickedCover(
-  deficits: readonly number[],
-  seatValues: readonly number[],
-  seatCounts: readonly number[],
-  budget: number,
-  judgedAwardPoints: number,
-  options?: CoverOptions
-): number[] {
-  const radix: number[] = [];
-  let stateCount = 1;
-  for (const count of seatCounts) {
-    radix.push(stateCount);
-    stateCount *= count + 1;
-  }
-  const width = budget + 1;
-  let dp = new Int16Array(stateCount * width).fill(-1);
-  dp[0] = 0;
-  const usage = (state: number, type: number): number => Math.floor(state / radix[type]!) % (seatCounts[type]! + 1);
-
-  for (let index = 0; index < deficits.length; index++) {
-    const deficit = deficits[index]!;
-    const next = dp.slice();
-    // D1: an awarded rival has used its one judged award, so what is left of its deficit must be 0 or below.
-    const awarded = options?.awarded?.[index] === true;
-    const costOf = (need: number): number => (awarded ? (need <= 0 ? 0 : Infinity) : judgedCost(need, judgedAwardPoints));
-    const alone = costOf(deficit);
-    // F-D: on a seat a listed only pick is read without its placed alliance's settled value.
-    const onSeat = options?.seatDeficits?.[index] ?? deficit;
-    const withSeat = seatValues.map((value) => costOf(onSeat - value));
-    for (let state = 0; state < stateCount; state++) {
-      for (let j = 0; j <= budget; j++) {
-        const value = dp[state * width + j]!;
-        if (value < 0) continue;
-        if (alone !== Infinity && j + alone <= budget) {
-          const at = state * width + j + alone;
-          if (next[at]! < value + 1) next[at] = value + 1;
-        }
-        for (let type = 0; type < seatValues.length; type++) {
-          const cost = withSeat[type]!;
-          if (cost === Infinity || j + cost > budget) continue;
-          if (usage(state, type) >= seatCounts[type]!) continue;
-          const at = (state + radix[type]!) * width + j + cost;
-          if (next[at]! < value + 1) next[at] = value + 1;
-        }
-      }
-    }
-    dp = next;
-  }
-
-  const best = new Array<number>(width).fill(0);
-  for (let state = 0; state < stateCount; state++) {
-    for (let j = 0; j <= budget; j++) {
-      const value = dp[state * width + j]!;
-      if (value > best[j]!) best[j] = value;
-    }
-  }
-  for (let j = 1; j <= budget; j++) if (best[j - 1]! > best[j]!) best[j] = best[j - 1]!;
-  return best;
-}
-
-/**
- * Reading R10 condition (a): the most deficits of `deficits` (any order) that
- * can each take a distinct seat worth at least `threshold(deficit)`. Deficits
- * are taken LARGEST threshold first and each is given the SMALLEST seat value
- * that suffices, which is a maximum matching on nested eligibility sets.
- * `seatValues` is sorted descending, `seatCounts` aligned with it.
- */
-function greedySeatMatching(deficits: readonly number[], threshold: (deficit: number) => number, seatValues: readonly number[], seatCounts: readonly number[]): number {
-  const remaining = [...seatCounts];
-  const thresholds = deficits.map(threshold).sort((a, b) => b - a);
-  let matched = 0;
-  for (const need of thresholds) {
-    for (let type = seatValues.length - 1; type >= 0; type--) {
-      if (seatValues[type]! >= need && remaining[type]! > 0) {
-        remaining[type]! -= 1;
-        matched += 1;
-        break;
-      }
-    }
-  }
-  return matched;
-}
-
-/**
- * The cover UPPER BOUND of reading R10, for every `j` from 0 to `budget`: never
- * below `unpickedCover`'s exact value (this module's header for the proof and
- * its three binding conditions).
- *
- * WITH AWARDED RIVALS (quick task 261010-d7r, D1, planner reading R4) it is
- * the sum of two upper bounds: this bound over the rivals that are not
- * awarded, with every seat, plus the most awarded rivals a seat alone can
- * cover, with every seat again (the same greedy matching, a maximum on these
- * nested eligibility sets). In any real cover the rivals that are not awarded
- * form a cover of their own and the awarded ones a seat matching of their
- * own, so the sum is never below the exact program.
- *
- * `options.seatDeficits` IS NOT READ (quick task 261010-d7r, finding F-D):
- * every rival is matched to a seat at its deficit alone, which is never above
- * its deficit on a seat, so the bound is never below the exact program that
- * reads both.
- */
-export function coverUpperBound(
-  deficits: readonly number[],
-  seatValues: readonly number[],
-  seatCounts: readonly number[],
-  budget: number,
-  judgedAwardPoints: number,
-  options?: CoverOptions
-): number[] {
-  const flags = options?.awarded;
-  if (flags !== undefined && flags.some((flag) => flag)) {
-    const free = deficits.filter((_, index) => flags[index] !== true);
-    const awarded = deficits.filter((_, index) => flags[index] === true);
-    const seatOnly =
-      awarded.filter((deficit) => deficit <= 0).length +
-      greedySeatMatching(
-        awarded.filter((deficit) => deficit > 0),
-        (deficit) => deficit,
-        seatValues,
-        seatCounts
-      );
-    return coverUpperBound(free, seatValues, seatCounts, budget, judgedAwardPoints).map((value) => value + seatOnly);
-  }
-  const sorted = [...deficits].sort((a, b) => a - b);
-  const award = judgedAwardPoints > 0 ? judgedAwardPoints * MAX_POINT_PAYING_AWARDS_PER_TEAM : 0;
-  const width = budget + 1;
-  const best = new Array<number>(width).fill(0);
-  for (let k = 1; k <= sorted.length; k++) {
-    const prefix = sorted.slice(0, k);
-    const free = greedySeatMatching(prefix, (deficit) => deficit, seatValues, seatCounts);
-    const alone = award > 0 ? prefix.filter((deficit) => deficit <= award).length : 0;
-    const rest = award > 0 ? prefix.filter((deficit) => deficit > award) : prefix;
-    const paidOrAlone = alone + greedySeatMatching(rest, (deficit) => deficit - award, seatValues, seatCounts);
-    if (paidOrAlone !== k) continue;
-    const awardsNeeded = k - free;
-    for (let j = awardsNeeded; j <= budget; j++) if (k > best[j]!) best[j] = k;
-  }
-  for (let j = 1; j <= budget; j++) if (best[j - 1]! > best[j]!) best[j] = best[j - 1]!;
-  return best;
-}
-
-/** The cover for one seat configuration: the exact program within `EXACT_COVER_STATE_CAP`, the upper bound above it. */
-function seatAndJudgedCover(
-  deficits: readonly number[],
-  seatValues: readonly number[],
-  seatCounts: readonly number[],
-  budget: number,
-  judgedAwardPoints: number,
-  options?: CoverOptions
-): number[] {
-  let cells = (budget + 1) * Math.max(1, deficits.length);
-  for (const count of seatCounts) cells *= count + 1;
-  if (cells <= EXACT_COVER_STATE_CAP) return unpickedCover(deficits, seatValues, seatCounts, budget, judgedAwardPoints, options);
-  return coverUpperBound(deficits, seatValues, seatCounts, budget, judgedAwardPoints, options);
-}
-
 /** The backup seats an alliance still has (CONTEXT D10): `spareSeats`, else the maximum size minus its members. */
 function spareSeatsOf(alliance: JointLockAlliance | undefined, maxAllianceSize: number): number {
   if (alliance === undefined) return maxAllianceSize;
@@ -972,7 +916,7 @@ function spareSeatsOf(alliance: JointLockAlliance | undefined, maxAllianceSize: 
  * The single championship's frames: per candidate winner W, the alive
  * alliances other than W enumerated, nothing fixed, and W's spare seats as
  * fill ins against the uncovered unpicked rivals (with no seat group, the
- * rivals on no alliance). Exactly the shipped 261009-2tr loop.
+ * rivals on no alliance). The scenarios of the shipped 261009-2tr loop.
  */
 export function singleChampionshipFrames(input: JointLockInput): JointLockFrame[] {
   const byNumber = new Map(input.alliances.map((alliance) => [alliance.allianceNumber, alliance] as const));
@@ -982,6 +926,173 @@ export function singleChampionshipFrames(input: JointLockInput): JointLockFrame[
     fixed: new Map(),
     fillIns: winner === null ? 0 : spareSeatsOf(byNumber.get(winner), input.maxAllianceSize),
   }));
+}
+
+/**
+ * One team the matching may still cover (this module's header, "THE
+ * MATCHING"): a rival short of T at floor plus extra that is eligible in at
+ * least one seat group, or a slot only rival eligible in one.
+ */
+interface CoverEntity {
+  readonly teamKey: string;
+  /** Points short of T at floor plus extra. Above 0 for a pool rival; unused for a slot only one. */
+  readonly deficit: number;
+  /** Points short of T on another alliance's SEAT (finding F-D), never below `deficit`. */
+  readonly seatDeficit: number;
+  /** It already holds a posted award (D1): no judged award. */
+  readonly awarded: boolean;
+  /** The seat groups it is eligible in. */
+  readonly groups: readonly number[];
+  /** A slot only rival: the winner's fill in or a consuming award, never points. */
+  readonly slotOnly: boolean;
+  /** The alliance that lists it, for a listed pick that is not confirmed (reading P3). */
+  readonly listedOn: number | undefined;
+}
+
+/**
+ * THE MATCHING (quick task 261010-l0s; this module's header). `rows[i][r]` is
+ * what resource `r` costs entity `i` in judged awards: 0 where the resource
+ * covers the entity as it stands, 1 where it covers it with one judged award,
+ * `Infinity` where it cannot. `capacities[r]` is how many entities resource
+ * `r` can take. Every entity takes at most ONE resource. Returns, for every
+ * `j` from 0 to `budget`, the most entities covered with at most `j` judged
+ * awards spent.
+ *
+ * A minimum cost flow by successive shortest paths, entities with the same
+ * row merged into one type: the k th unit of flow is the k th entity covered,
+ * each path is a cheapest way to cover one more, and path costs never fall
+ * from one path to the next, so the first path that would overspend the
+ * budget ends the search. Exported for its own tests.
+ */
+export function coverMatching(rows: readonly (readonly number[])[], capacities: readonly number[], budget: number): number[] {
+  const resourceCount = capacities.length;
+  // The types: the entities with the same row, found by walking a trie of the
+  // row's entries (0, 1, or closed: `Infinity`, or a resource with no room).
+  // `children` holds three slots a node; `typeOfNode` the type a full row ends on.
+  const children: number[] = [-1, -1, -1];
+  const typeOfNode = new Map<number, number>();
+  const costs: number[][] = [];
+  const left: number[] = [];
+  // A caller may hand ONE array for every entity with the same row (the proof does, for the entities only a fill in
+  // can cover): the same array again is the same type again, with no walk.
+  let lastRow: readonly number[] | undefined;
+  let lastType = -1;
+  for (const row of rows) {
+    if (row === lastRow) {
+      if (lastType !== -1) left[lastType]! += 1;
+      continue;
+    }
+    lastRow = row;
+    lastType = -1;
+    let node = 0;
+    let usable = false;
+    for (let r = 0; r < resourceCount; r++) {
+      const cost = capacities[r]! > 0 ? row[r]! : Infinity;
+      if (cost !== 0 && cost !== 1 && cost !== Infinity) throw new Error(`champJointLock: the matching was handed the cost ${String(cost)}, which is not 0, 1 or Infinity`);
+      if (cost !== Infinity) usable = true;
+      const slot = node * 3 + (cost === 0 ? 0 : cost === 1 ? 1 : 2);
+      let next = children[slot]!;
+      if (next === -1) {
+        next = children.length / 3;
+        children[slot] = next;
+        children.push(-1, -1, -1);
+      }
+      node = next;
+    }
+    if (!usable) continue;
+    let type = typeOfNode.get(node);
+    if (type === undefined) {
+      type = costs.length;
+      typeOfNode.set(node, type);
+      costs.push(row.map((cost, r) => (capacities[r]! > 0 ? cost : Infinity)));
+      left.push(0);
+    }
+    left[type]! += 1;
+    lastType = type;
+  }
+  const typeCount = costs.length;
+  const room = [...capacities];
+  const flow: number[][] = costs.map(() => new Array<number>(resourceCount).fill(0));
+  const best = new Array<number>(budget + 1).fill(0);
+  let matched = 0;
+  let spent = 0;
+  for (;;) {
+    // Bellman-Ford over the residual graph: a type with entities left starts at 0, a type to a resource costs the
+    // row's entry, a resource back to a type it already serves gives that entry back.
+    const distType = new Array<number>(typeCount).fill(Infinity);
+    const distResource = new Array<number>(resourceCount).fill(Infinity);
+    const viaType = new Array<number>(resourceCount).fill(-1);
+    const viaResource = new Array<number>(typeCount).fill(-1);
+    for (let t = 0; t < typeCount; t++) if (left[t]! > 0) distType[t] = 0;
+    let changed = true;
+    for (let pass = 0; changed && pass <= typeCount + resourceCount; pass++) {
+      changed = false;
+      for (let t = 0; t < typeCount; t++) {
+        const from = distType[t]!;
+        if (from === Infinity) continue;
+        const row = costs[t]!;
+        for (let r = 0; r < resourceCount; r++) {
+          const cost = row[r]!;
+          if (cost !== Infinity && from + cost < distResource[r]!) {
+            distResource[r] = from + cost;
+            viaType[r] = t;
+            changed = true;
+          }
+        }
+      }
+      for (let r = 0; r < resourceCount; r++) {
+        const from = distResource[r]!;
+        if (from === Infinity) continue;
+        for (let t = 0; t < typeCount; t++) {
+          if (flow[t]![r]! <= 0) continue;
+          const back = from - costs[t]![r]!;
+          if (back < distType[t]!) {
+            distType[t] = back;
+            viaResource[t] = r;
+            changed = true;
+          }
+        }
+      }
+    }
+    let end = -1;
+    for (let r = 0; r < resourceCount; r++) if (room[r]! > 0 && distResource[r]! < (end === -1 ? Infinity : distResource[end]!)) end = r;
+    if (end === -1) break;
+    const step = distResource[end]!;
+    if (spent + step > budget) break;
+    // The most units this path takes: the resource's room, the entities left at its start, the flow it turns back.
+    let units = room[end]!;
+    for (let r = end; ; ) {
+      const t = viaType[r]!;
+      const back = viaResource[t]!;
+      if (back === -1) {
+        units = Math.min(units, left[t]!);
+        break;
+      }
+      units = Math.min(units, flow[t]![back]!);
+      r = back;
+    }
+    if (step > 0) units = Math.min(units, Math.floor((budget - spent) / step));
+    if (units <= 0) throw new Error("champJointLock: the matching found a path that carries nothing");
+    room[end]! -= units;
+    for (let r = end; ; ) {
+      const t = viaType[r]!;
+      flow[t]![r]! += units;
+      const back = viaResource[t]!;
+      if (back === -1) {
+        left[t]! -= units;
+        break;
+      }
+      flow[t]![back]! -= units;
+      r = back;
+    }
+    for (let unit = 0; unit < units; unit++) {
+      matched += 1;
+      spent += step;
+      if (matched > best[spent]!) best[spent] = matched;
+    }
+  }
+  for (let j = 1; j <= budget; j++) if (best[j - 1]! > best[j]!) best[j] = best[j - 1]!;
+  return best;
 }
 
 /**
@@ -1013,8 +1124,8 @@ export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: 
   const slotOnlySet = new Set(slotOnly);
   // D1 (quick task 261010-d7r, this module's header): the rivals that already
   // hold a posted point paying award. Each takes no judged award below, in the
-  // two places one is spent: a picked rival's lift, and the seat and judged
-  // award cover. The consuming awards and the fill ins still count it.
+  // two places one is spent: a confirmed pick's lift, and the matching's
+  // costs. The consuming awards and the fill ins still count it.
   const awardedSet = new Set(input.awardedRivals ?? []);
   // F-D (quick task 261010-d7r, this module's header): a listed pick that is
   // not confirmed, on a placed alliance, was on that alliance or never was.
@@ -1064,63 +1175,47 @@ export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: 
   for (const points of alonePoints) if (points >= m) alwaysCovered += 1;
   if (alwaysCovered >= stopAt) return alwaysCovered;
 
-  // Per group, the eligible pool rivals still short of T at floor plus extra,
-  // whether or not an alliance also lists them (reading P3), and the eligible
-  // slot only rivals. Fixed for this T: a seat pays its own value and never the
-  // value of the alliance that lists the rival. A rival eligible in several
-  // groups is entered in each, which only raises the bound. `seatDeficit` is
-  // the rival's deficit ON A SEAT, which differs only for a listed only pick
-  // (F-D) and is then the larger of the two.
-  const seatRivals: { teamKey: string; deficit: number; seatDeficit: number; awarded: boolean }[][] = Array.from({ length: groupCount }, () => []);
-  const slotOnlyByGroup: string[][] = Array.from({ length: groupCount }, () => []);
+  // THE ENTITIES OF THE MATCHING (quick task 261010-l0s, this module's header).
+  // Every rival still short of T at floor plus extra that is eligible in at
+  // least one seat group is ONE entity, in however many groups it is eligible,
+  // and every slot only rival eligible in one is too. Fixed for this T. A
+  // confirmed pick (on an alliance, named by no group) is not an entity: the
+  // scenario loop reads it through its alliance's value and one judged award.
+  // A listed pick that is not confirmed (on an alliance AND named by a group,
+  // reading P3) IS one: a scenario reads it as a member of the alliance that
+  // lists it or on another seat, never both. `seatDeficit` is the rival's
+  // deficit ON A SEAT, which differs only for a listed only pick (F-D) and is
+  // then the larger of the two.
+  const entities: CoverEntity[] = [];
   rivals.forEach((rival, index) => {
     const deficit = m - alonePoints[index]!;
     if (deficit <= 0) return;
-    const seatDeficit = m - seatPoints[index]!;
-    const awarded = awardedSet.has(rival.teamKey);
-    for (const group of groupsOf(rival.teamKey)) seatRivals[group]!.push({ teamKey: rival.teamKey, deficit, seatDeficit, awarded });
+    const groups = groupsOf(rival.teamKey);
+    if (groups.length === 0) return;
+    entities.push({ teamKey: rival.teamKey, deficit, seatDeficit: m - seatPoints[index]!, awarded: awardedSet.has(rival.teamKey), groups, slotOnly: false, listedOn: allianceOfTeam.get(rival.teamKey) });
   });
-  for (const key of slotOnly) for (const group of groupsOf(key)) slotOnlyByGroup[group]!.push(key);
-
-  // Reading R11: the largest seat value over the placement values and every usable frame's fixed values.
-  let maxSeatValue = Math.max(0, ...input.placementPoints);
-  for (const frame of usable) for (const value of frame.fixed.values()) maxSeatValue = Math.max(maxSeatValue, value);
-  // Reachable: one award alone covers the deficit, or the largest seat and one award cover the deficit on a seat.
-  const reachable = (deficit: number, seatDeficit: number): boolean =>
-    judgedCost(deficit, input.judgedAwardPoints) !== Infinity || judgedCost(seatDeficit - maxSeatValue, input.judgedAwardPoints) !== Infinity;
-  // D1: an awarded rival is reachable only where a seat's value alone covers its deficit on a seat.
-  const seatReachableEntries = seatRivals.map((list) => list.filter((entry) => (entry.awarded ? entry.seatDeficit <= maxSeatValue : reachable(entry.deficit, entry.seatDeficit))));
-  const seatReachable = seatReachableEntries.map((list) => list.map((entry) => entry.deficit));
-  // What the cover is told beyond the deficits, per group: nothing at all where no entry is awarded and none is a
-  // listed only pick, so an input with neither takes the path of before quick task 261010-d7r untouched.
-  const seatCoverOptions = seatReachableEntries.map((list): CoverOptions | undefined => {
-    const anyAwarded = list.some((entry) => entry.awarded);
-    const anyListedOnly = list.some((entry) => entry.seatDeficit !== entry.deficit);
-    if (!anyAwarded && !anyListedOnly) return undefined;
-    return {
-      ...(anyAwarded ? { awarded: list.map((entry) => entry.awarded) } : {}),
-      ...(anyListedOnly ? { seatDeficits: list.map((entry) => entry.seatDeficit) } : {}),
-    };
-  });
-  const reachableCount = seatReachable.reduce((sum, list) => sum + list.length, 0);
+  for (const key of slotOnly) {
+    const groups = groupsOf(key);
+    if (groups.length > 0) entities.push({ teamKey: key, deficit: Infinity, seatDeficit: Infinity, awarded: true, groups, slotOnly: true, listedOn: undefined });
+  }
+  const entityKeys = new Set(entities.map((entity) => entity.teamKey));
+  const listedEntities = entities.filter((entity) => entity.listedOn !== undefined);
 
   const placementValues = [...input.placementPoints].sort((a, b) => b - a);
   const budget = Math.max(0, input.judgedAwards);
-  const coverCache = new Map<string, number[]>();
-  const combinedCache = new Map<string, number[]>();
-  // The judged budget is one pool shared by the groups (reading P8): the best split of `j` awards between two covers.
-  const bestSplit = (a: readonly number[], b: readonly number[]): number[] => {
-    const out = new Array<number>(budget + 1).fill(0);
-    for (let j = 0; j <= budget; j++) {
-      let top = 0;
-      for (let i = 0; i <= j; i++) {
-        const value = a[i]! + b[j - i]!;
-        if (value > top) top = value;
-      }
-      out[j] = top;
-    }
-    return out;
-  };
+  // What covering `need` more points costs in judged awards. D1: an awarded rival has used its one judged award.
+  const costOf = (need: number, awarded: boolean): number => (awarded ? (need <= 0 ? 0 : Infinity) : judgedCost(need, input.judgedAwardPoints));
+  // The matching's answer for every budget, by what it depends on: the frame's fill ins, every group's seats, and the
+  // scenario value of each alliance that lists an entity.
+  const profileCache = new Map<string, number[]>();
+  // FOR THE CHEAP CEILING ONLY (it decides which scenarios are worked out, never what one counts): the entities a seat
+  // or an award can reach in SOME scenario. The largest value any seat or listing alliance can carry is the largest
+  // placement value or fixed value of a usable frame (reading R11 of quick task 261009-kt3, which filtered the cover's
+  // rivals by it until quick task 261010-l0s).
+  let largestValue = Math.max(0, ...input.placementPoints);
+  for (const frame of usable) for (const value of frame.fixed.values()) largestValue = Math.max(largestValue, value);
+  let reachableCount = 0;
+  for (const entity of entities) if (!entity.slotOnly && costOf(entity.deficit - largestValue, entity.awarded) !== Infinity) reachableCount += 1;
 
   let best = -Infinity;
   for (const frame of usable) {
@@ -1131,16 +1226,13 @@ export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: 
     const winnerSet = new Set(winnerMembers);
     let stepOne = 0;
     for (const member of winnerMembers) if (member !== teamKey && (rivalKeys.has(member) || slotOnlySet.has(member))) stepOne += 1;
-    const fillIns = winner === null ? 0 : Math.max(0, frame.fillIns);
-    // The fill in pool: the eligible rivals of the winner's own group that are not
-    // its members. A backup on the winner takes a slot whatever its points.
+    // The winner's fill ins: backups on the winner, each an eligible team of the
+    // winner's own seat group that is not its member, each a slot whatever its
+    // points. A winner in no group has none to give.
     const winnerGroup = winner === null ? undefined : groupOfAlliance(winner);
-    let fillInPool = 0;
-    if (winnerGroup !== undefined) {
-      for (const entry of seatRivals[winnerGroup]!) if (!winnerSet.has(entry.teamKey)) fillInPool += 1;
-      for (const key of slotOnlyByGroup[winnerGroup]!) if (!winnerSet.has(key)) fillInPool += 1;
-    }
-    const others3 = input.consumingAwards + Math.min(fillIns, fillInPool);
+    const fillIns = winner === null || winnerGroup === undefined ? 0 : Math.max(0, frame.fillIns);
+    const winnerListsAnEntity = entities.some((entity) => winnerSet.has(entity.teamKey));
+    const frameKey = `${fillIns > 0 ? `F${String(winnerGroup)}x${String(fillIns)}` : ""}${winnerListsAnEntity ? `W${String(winner)}` : ""}`;
 
     for (const selection of orderedSelections(others, k)) {
       const assigned = new Map<number, number>(frame.fixed);
@@ -1148,7 +1240,7 @@ export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: 
 
       let covered = stepOne;
       let uncovered = 0;
-      const pickedCosts: number[] = [];
+      let pickedCount = 0;
       for (let index = 0; index < rivals.length; index++) {
         const rival = rivals[index]!;
         if (winnerSet.has(rival.teamKey)) continue;
@@ -1159,11 +1251,11 @@ export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: 
           continue;
         }
         uncovered += 1;
-        if (allianceNumber === undefined) continue; // on no alliance: the cached covers below
+        if (allianceNumber === undefined || entityKeys.has(rival.teamKey)) continue; // an entity of the matching below
+        // A confirmed pick still short of T: one judged award on top of its alliance's value is its one way up.
         // D1: an awarded rival has used its one judged award, and its alliance's value alone did not reach T.
         if (awardedSet.has(rival.teamKey)) continue;
-        const cost = judgedCost(m - points, input.judgedAwardPoints);
-        if (cost !== Infinity) pickedCosts.push(cost);
+        if (judgedCost(m - points, input.judgedAwardPoints) !== Infinity) pickedCount += 1;
       }
       for (const key of slotOnly) if (!winnerSet.has(key)) uncovered += 1;
 
@@ -1182,50 +1274,76 @@ export function jointLockBoundAt(input: JointLockInput, teamKey: string, floor: 
       }
 
       // A cheap ceiling on this scenario: skip it when it cannot beat the best.
-      const liftCeiling = Math.min(pickedCosts.length + reachableCount, budget + totalSeats);
-      const ceiling = covered + Math.min(uncovered, liftCeiling + others3);
+      const liftCeiling = Math.min(pickedCount + reachableCount + Math.min(fillIns, entities.length), budget + totalSeats + fillIns);
+      const ceiling = covered + Math.min(uncovered, liftCeiling + input.consumingAwards);
       if (ceiling <= best) continue;
 
-      // Each group's cover on its own seats and its own eligible rivals, then the
-      // best split of the judged budget between the groups.
-      const groupKeys: string[] = [];
-      const groupSeatValues: number[][] = [];
-      const groupSeatCounts: number[][] = [];
+      // THE MATCHING'S RESOURCES: one seat type per group and value with its
+      // count, then one judged award alone, then the winner's fill ins.
+      const seatGroupOf: number[] = [];
+      const seatValueOf: number[] = [];
+      const capacities: number[] = [];
+      let key = frameKey;
       for (let group = 0; group < groupCount; group++) {
         const seats = seatByGroup[group]!;
-        const seatValues = [...seats.keys()].sort((a, b) => b - a);
-        const seatCounts = seatValues.map((value) => seats.get(value)!);
-        groupSeatValues.push(seatValues);
-        groupSeatCounts.push(seatCounts);
-        groupKeys.push(`${group}:${seatValues.map((value, index) => `${value}x${seatCounts[index]}`).join(",")}`);
-      }
-      const combinedKey = groupKeys.join("|");
-      let seatBest = combinedCache.get(combinedKey);
-      if (seatBest === undefined) {
-        let combined: number[] | undefined;
-        for (let group = 0; group < groupCount; group++) {
-          let cover = coverCache.get(groupKeys[group]!);
-          if (cover === undefined) {
-            cover = seatAndJudgedCover(seatReachable[group]!, groupSeatValues[group]!, groupSeatCounts[group]!, budget, input.judgedAwardPoints, seatCoverOptions[group]);
-            coverCache.set(groupKeys[group]!, cover);
-          }
-          combined = combined === undefined ? cover : bestSplit(combined, cover);
+        const values = [...seats.keys()].sort((a, b) => b - a);
+        for (const value of values) {
+          seatGroupOf.push(group);
+          seatValueOf.push(value);
+          capacities.push(seats.get(value)!);
         }
-        seatBest = combined ?? new Array<number>(budget + 1).fill(0);
-        combinedCache.set(combinedKey, seatBest);
+        key += `|${String(group)}:${values.map((value) => `${String(value)}x${String(seats.get(value))}`).join(",")}`;
       }
-      pickedCosts.sort((a, b) => a - b);
-      const pickedPrefix = [0];
-      for (const cost of pickedCosts) pickedPrefix.push(pickedPrefix[pickedPrefix.length - 1]! + cost);
-      const pickedBest = (remaining: number): number => {
-        let count = 0;
-        while (count < pickedCosts.length && pickedPrefix[count + 1]! <= remaining) count += 1;
-        return count;
-      };
+      // A listed pick that is not confirmed is read as a member at its listing alliance's value in THIS scenario.
+      for (const entity of listedEntities) key += `;${winnerSet.has(entity.teamKey) ? "w" : String(assigned.get(entity.listedOn!) ?? 0)}`;
+      let profile = profileCache.get(key);
+      if (profile === undefined) {
+        const seatCount = capacities.length;
+        const aloneAt = seatCount;
+        const fillAt = seatCount + 1;
+        const closedRow = (): number[] => new Array<number>(seatCount + 2).fill(Infinity);
+        // The row of an entity only the winner's fill in can cover. One array for all of them: rows are only read.
+        const fillOnlyRow = closedRow();
+        fillOnlyRow[fillAt] = 0;
+        const rows: number[][] = [];
+        for (const entity of entities) {
+          if (winnerSet.has(entity.teamKey)) continue; // a listed pick of the winner: counted with the winner
+          const fillOpen = fillIns > 0 && entity.groups.includes(winnerGroup!);
+          let row: number[] | undefined;
+          if (!entity.slotOnly) {
+            // Alone it has its floor plus extra, and as a listed pick the value of the alliance that lists it.
+            const alone = entity.deficit - (entity.listedOn === undefined ? 0 : (assigned.get(entity.listedOn) ?? 0));
+            if (alone <= 0) continue; // that alliance's value reaches T: counted as covered above
+            const aloneCost = costOf(alone, entity.awarded);
+            if (aloneCost !== Infinity) {
+              row = closedRow();
+              row[aloneAt] = aloneCost;
+            }
+            // On a seat it has the seat's value and nothing of the alliance that lists it (never both).
+            for (let seat = 0; seat < seatCount; seat++) {
+              if (!entity.groups.includes(seatGroupOf[seat]!)) continue;
+              const seatCost = costOf(entity.seatDeficit - seatValueOf[seat]!, entity.awarded);
+              if (seatCost === Infinity) continue;
+              row ??= closedRow();
+              row[seat] = seatCost;
+            }
+          }
+          if (row === undefined) {
+            if (fillOpen) rows.push(fillOnlyRow);
+            continue; // no seat, no award and no fill in reaches it: a consuming award is its one way
+          }
+          if (fillOpen) row[fillAt] = 0;
+          rows.push(row);
+        }
+        profile = coverMatching(rows, [...capacities, rows.length, fillIns], budget);
+        profileCache.set(key, profile);
+      }
+      // The confirmed picks one judged award short share the budget with the matching.
       let lifted = 0;
-      for (let j = 0; j <= budget; j++) lifted = Math.max(lifted, seatBest[j]! + pickedBest(budget - j));
+      for (let j = 0; j <= budget; j++) lifted = Math.max(lifted, profile[j]! + Math.min(pickedCount, budget - j));
 
-      const total = covered + Math.min(uncovered, lifted + others3);
+      // A consuming award covers any rival still short of T.
+      const total = covered + Math.min(uncovered, lifted + input.consumingAwards);
       if (total >= stopAt) return total;
       if (total > best) best = total;
     }

@@ -14,11 +14,10 @@
 import { describe, expect, it } from "vitest";
 import {
   assertOneAwardPerRival,
-  coverUpperBound,
+  coverMatching,
   dcmpBracketState,
   divisionAllianceId,
   divisionedJointFrames,
-  EXACT_COVER_STATE_CAP,
   jointLockBound,
   jointLockBoundAt,
   jointLockBoundMultiple,
@@ -27,9 +26,9 @@ import {
   jointProofStillRuns,
   MAX_POINT_PAYING_AWARDS_PER_TEAM,
   singleChampionshipFrames,
-  unpickedCover,
   type DivisionedJointStructure,
   type JointLockAlliance,
+  type JointLockFrame,
   type JointLockInput,
   type JointLockRival,
   type JointLockSeatGroup,
@@ -688,6 +687,346 @@ describe("champJointLock: edges", () => {
 // Quick task 261009-kt3: frames, divisioned and multiple championships
 // ===========================================================================
 
+// ---------------------------------------------------------------------------
+// The reference cover of one seat group (quick task 261010-l0s)
+// ---------------------------------------------------------------------------
+
+/** What `referenceCover` knows about each rival beyond its deficit, aligned with `deficits`. */
+interface ReferenceCoverOptions {
+  /** True for a rival that already holds a posted award (quick task 261010-d7r, D1): it takes no judged award. */
+  readonly awarded?: readonly boolean[];
+  /** Each rival's deficit where it takes a SEAT, never below its deficit alone (quick task 261010-d7r, finding F-D). */
+  readonly seatDeficits?: readonly number[];
+}
+
+/**
+ * THE REFERENCE THE MATCHING IS TESTED AGAINST: the exact dynamic program
+ * that WAS the proof's seat and judged award cover of one seat group until
+ * quick task 261010-l0s (`unpickedCover` in `champJointLock.ts`), moved here
+ * unchanged but for its name. For the rivals of one seat group (their
+ * deficits fixed for one T), the most of them the seats can cover together
+ * with at most `j` judged awards, for every `j` from 0 to `budget`: a table
+ * over (seats used per seat value, judged awards spent). It knows nothing of
+ * fill ins, of a second seat group or of a listed pick's alliance, which is
+ * why the proof no longer uses it; on ONE group with none of those the
+ * matching must agree with it cell for cell.
+ */
+function referenceCover(
+  deficits: readonly number[],
+  seatValues: readonly number[],
+  seatCounts: readonly number[],
+  budget: number,
+  judgedAwardPoints: number,
+  options?: ReferenceCoverOptions
+): number[] {
+  const judgedCost = (deficit: number): number => {
+    if (deficit <= 0) return 0;
+    if (judgedAwardPoints <= 0) return Infinity;
+    const cost = Math.ceil(deficit / judgedAwardPoints);
+    return cost <= MAX_POINT_PAYING_AWARDS_PER_TEAM ? cost : Infinity;
+  };
+  const radix: number[] = [];
+  let stateCount = 1;
+  for (const count of seatCounts) {
+    radix.push(stateCount);
+    stateCount *= count + 1;
+  }
+  const width = budget + 1;
+  let dp = new Int16Array(stateCount * width).fill(-1);
+  dp[0] = 0;
+  const usage = (state: number, type: number): number => Math.floor(state / radix[type]!) % (seatCounts[type]! + 1);
+
+  for (let index = 0; index < deficits.length; index++) {
+    const deficit = deficits[index]!;
+    const next = dp.slice();
+    const awarded = options?.awarded?.[index] === true;
+    const costOf = (need: number): number => (awarded ? (need <= 0 ? 0 : Infinity) : judgedCost(need));
+    const alone = costOf(deficit);
+    const onSeat = options?.seatDeficits?.[index] ?? deficit;
+    const withSeat = seatValues.map((value) => costOf(onSeat - value));
+    for (let state = 0; state < stateCount; state++) {
+      for (let j = 0; j <= budget; j++) {
+        const value = dp[state * width + j]!;
+        if (value < 0) continue;
+        if (alone !== Infinity && j + alone <= budget) {
+          const at = state * width + j + alone;
+          if (next[at]! < value + 1) next[at] = value + 1;
+        }
+        for (let type = 0; type < seatValues.length; type++) {
+          const cost = withSeat[type]!;
+          if (cost === Infinity || j + cost > budget) continue;
+          if (usage(state, type) >= seatCounts[type]!) continue;
+          const at = (state + radix[type]!) * width + j + cost;
+          if (next[at]! < value + 1) next[at] = value + 1;
+        }
+      }
+    }
+    dp = next;
+  }
+
+  const best = new Array<number>(width).fill(0);
+  for (let state = 0; state < stateCount; state++) {
+    for (let j = 0; j <= budget; j++) {
+      const value = dp[state * width + j]!;
+      if (value > best[j]!) best[j] = value;
+    }
+  }
+  for (let j = 1; j <= budget; j++) if (best[j - 1]! > best[j]!) best[j] = best[j - 1]!;
+  return best;
+}
+
+/** The same one seat group handed to the matching: one resource per seat value, then one judged award alone. */
+function matchingOfOneGroup(deficits: readonly number[], seatValues: readonly number[], seatCounts: readonly number[], budget: number, options?: ReferenceCoverOptions): number[] {
+  const costOf = (need: number, awarded: boolean): number => (need <= 0 ? 0 : awarded || need > JUDGED ? Infinity : 1);
+  const rows = deficits.map((deficit, index) => {
+    const awarded = options?.awarded?.[index] === true;
+    const onSeat = options?.seatDeficits?.[index] ?? deficit;
+    return [...seatValues.map((value) => costOf(onSeat - value, awarded)), costOf(deficit, awarded)];
+  });
+  return coverMatching(rows, [...seatCounts, deficits.length], budget);
+}
+
+// ---------------------------------------------------------------------------
+// The proof of before the matching, kept whole as an oracle (quick task 261010-l0s)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE BOUND AS THE PROOF COUNTED IT UNTIL QUICK TASK 261010-l0s
+ * (`jointLockBoundAt` in `champJointLock.ts` as that task found it), moved
+ * here unchanged but for three things, none of which moves a value upward:
+ * its name; the early stop and the cheap ceiling left out (both only skipped
+ * work); and its cover always the exact program (`referenceCover`, where the
+ * module fell back to an upper bound above 250,000 table cells, which only
+ * raised it).
+ *
+ * WHAT IT IS FOR. It counted one rival more than once in three places: once
+ * per seat group that could seat it, in the winner's fill in pool beside the
+ * seat cover, and as a member of the alliance that lists it and again on a
+ * seat. Each only RAISES the count, so this is a sound bound that is never
+ * below the matching's. A rewrite of the proof that reads ABOVE this oracle
+ * anywhere has LOOSENED it; one that reads BELOW the enumerated model
+ * (`modelMostTakers`, further down) is UNSOUND. The tests of "every rival is
+ * counted once" hold both.
+ */
+function boundBeforeTheMatching(input: JointLockInput, teamKey: string, floor: number): number {
+  const oracleJudgedCost = (deficit: number): number => {
+    if (deficit <= 0) return 0;
+    if (input.judgedAwardPoints <= 0) return Infinity;
+    const cost = Math.ceil(deficit / input.judgedAwardPoints);
+    return cost <= MAX_POINT_PAYING_AWARDS_PER_TEAM ? cost : Infinity;
+  };
+  const orderedSelectionsOf = <T,>(items: readonly T[], k: number): T[][] => {
+    if (k === 0) return [[]];
+    const out: T[][] = [];
+    items.forEach((item, index) => {
+      const rest = [...items.slice(0, index), ...items.slice(index + 1)];
+      for (const tail of orderedSelectionsOf(rest, k - 1)) out.push([item, ...tail]);
+    });
+    return out;
+  };
+  const frames = input.frames ?? singleChampionshipFrames(input);
+  if (frames.length === 0) return Infinity;
+  const m = floor;
+
+  const allianceByNumber = new Map<number, JointLockAlliance>();
+  const allianceOfTeam = new Map<string, number>();
+  for (const alliance of input.alliances) {
+    allianceByNumber.set(alliance.allianceNumber, alliance);
+    for (const member of alliance.members) if (!allianceOfTeam.has(member)) allianceOfTeam.set(member, alliance.allianceNumber);
+  }
+  const membersOf = (allianceNumber: number): readonly string[] => allianceByNumber.get(allianceNumber)?.members ?? [];
+  const spareOf = (allianceNumber: number): number => {
+    const alliance = allianceByNumber.get(allianceNumber);
+    if (alliance === undefined) return input.maxAllianceSize;
+    return Math.max(0, alliance.spareSeats ?? input.maxAllianceSize - alliance.members.length);
+  };
+
+  const rivals = input.pool.filter((rival) => rival.teamKey !== teamKey);
+  const rivalKeys = new Set(rivals.map((rival) => rival.teamKey));
+  const slotOnly = [...new Set(input.slotOnlyRivals)].filter((key) => key !== teamKey && !rivalKeys.has(key));
+  const slotOnlySet = new Set(slotOnly);
+  const awardedSet = new Set(input.awardedRivals ?? []);
+  const oneNamedWinner = frames.every((frame) => frame.winner !== null && frame.winner === frames[0]!.winner);
+  const withoutSettled = (rival: JointLockRival): number => rival.floor + Math.max(0, rival.extra - rival.listedOnly!.settled);
+  const alonePoints = rivals.map((rival) => (rival.listedOnly?.onWinner === true && oneNamedWinner ? withoutSettled(rival) : rival.floor + rival.extra));
+  const seatPoints = rivals.map((rival) => (rival.listedOnly === undefined || (rival.listedOnly.onWinner && !oneNamedWinner) ? rival.floor + rival.extra : withoutSettled(rival)));
+
+  const seatGroups = input.seatGroups !== undefined && input.seatGroups.length > 0 ? input.seatGroups : undefined;
+  const groupCount = seatGroups === undefined ? 1 : seatGroups.length;
+  const everyGroup: readonly number[] = Array.from({ length: groupCount }, (_, index) => index);
+  const noGroup: readonly number[] = [];
+  const groupByAlliance = new Map<number, number>();
+  const namedGroups = new Map<string, number[]>();
+  if (seatGroups !== undefined) {
+    seatGroups.forEach((group, index) => {
+      for (const allianceNumber of group.alliances) if (!groupByAlliance.has(allianceNumber)) groupByAlliance.set(allianceNumber, index);
+      for (const key of group.eligible) {
+        const named = namedGroups.get(key);
+        if (named === undefined) namedGroups.set(key, [index]);
+        else if (!named.includes(index)) named.push(index);
+      }
+    });
+  }
+  const groupOfAlliance = (allianceNumber: number): number | undefined => (seatGroups === undefined ? 0 : groupByAlliance.get(allianceNumber));
+  const groupsOf = (key: string): readonly number[] => namedGroups.get(key) ?? (allianceOfTeam.has(key) ? noGroup : everyGroup);
+
+  const usable = frames.filter((frame) => frame.winner === null || !membersOf(frame.winner).includes(teamKey) || namedGroups.has(teamKey));
+  if (usable.length === 0) return 0;
+
+  // ONE RIVAL, ONCE PER GROUP THAT CAN SEAT IT: the first of the three double counts.
+  const seatRivals: { teamKey: string; deficit: number; seatDeficit: number; awarded: boolean }[][] = Array.from({ length: groupCount }, () => []);
+  const slotOnlyByGroup: string[][] = Array.from({ length: groupCount }, () => []);
+  rivals.forEach((rival, index) => {
+    const deficit = m - alonePoints[index]!;
+    if (deficit <= 0) return;
+    const seatDeficit = m - seatPoints[index]!;
+    const awarded = awardedSet.has(rival.teamKey);
+    for (const group of groupsOf(rival.teamKey)) seatRivals[group]!.push({ teamKey: rival.teamKey, deficit, seatDeficit, awarded });
+  });
+  for (const key of slotOnly) for (const group of groupsOf(key)) slotOnlyByGroup[group]!.push(key);
+
+  let maxSeatValue = Math.max(0, ...input.placementPoints);
+  for (const frame of usable) for (const value of frame.fixed.values()) maxSeatValue = Math.max(maxSeatValue, value);
+  const reachable = (deficit: number, seatDeficit: number): boolean => oracleJudgedCost(deficit) !== Infinity || oracleJudgedCost(seatDeficit - maxSeatValue) !== Infinity;
+  const seatReachableEntries = seatRivals.map((list) => list.filter((entry) => (entry.awarded ? entry.seatDeficit <= maxSeatValue : reachable(entry.deficit, entry.seatDeficit))));
+  const seatReachable = seatReachableEntries.map((list) => list.map((entry) => entry.deficit));
+  const seatCoverOptions = seatReachableEntries.map((list): ReferenceCoverOptions | undefined => {
+    const anyAwarded = list.some((entry) => entry.awarded);
+    const anyListedOnly = list.some((entry) => entry.seatDeficit !== entry.deficit);
+    if (!anyAwarded && !anyListedOnly) return undefined;
+    return {
+      ...(anyAwarded ? { awarded: list.map((entry) => entry.awarded) } : {}),
+      ...(anyListedOnly ? { seatDeficits: list.map((entry) => entry.seatDeficit) } : {}),
+    };
+  });
+
+  const placementValues = [...input.placementPoints].sort((a, b) => b - a);
+  const budget = Math.max(0, input.judgedAwards);
+  const coverCache = new Map<string, number[]>();
+  const combinedCache = new Map<string, number[]>();
+  const bestSplit = (a: readonly number[], b: readonly number[]): number[] => {
+    const out = new Array<number>(budget + 1).fill(0);
+    for (let j = 0; j <= budget; j++) {
+      let top = 0;
+      for (let i = 0; i <= j; i++) {
+        const value = a[i]! + b[j - i]!;
+        if (value > top) top = value;
+      }
+      out[j] = top;
+    }
+    return out;
+  };
+
+  let best = -Infinity;
+  for (const frame of usable) {
+    const { winner } = frame;
+    const others = frame.enumerated.filter((allianceNumber) => allianceNumber !== winner && !frame.fixed.has(allianceNumber));
+    const k = Math.min(placementValues.length, others.length);
+    const winnerMembers = winner === null ? [] : membersOf(winner);
+    const winnerSet = new Set(winnerMembers);
+    let stepOne = 0;
+    for (const member of winnerMembers) if (member !== teamKey && (rivalKeys.has(member) || slotOnlySet.has(member))) stepOne += 1;
+    const fillIns = winner === null ? 0 : Math.max(0, frame.fillIns);
+    // THE FILL IN POOL BESIDE THE SEAT COVER: the second double count.
+    const winnerGroup = winner === null ? undefined : groupOfAlliance(winner);
+    let fillInPool = 0;
+    if (winnerGroup !== undefined) {
+      for (const entry of seatRivals[winnerGroup]!) if (!winnerSet.has(entry.teamKey)) fillInPool += 1;
+      for (const key of slotOnlyByGroup[winnerGroup]!) if (!winnerSet.has(key)) fillInPool += 1;
+    }
+    const others3 = input.consumingAwards + Math.min(fillIns, fillInPool);
+
+    for (const selection of orderedSelectionsOf(others, k)) {
+      const assigned = new Map<number, number>(frame.fixed);
+      selection.forEach((allianceNumber, index) => assigned.set(allianceNumber, placementValues[index]!));
+
+      let covered = stepOne;
+      let uncovered = 0;
+      const pickedCosts: number[] = [];
+      for (let index = 0; index < rivals.length; index++) {
+        const rival = rivals[index]!;
+        if (winnerSet.has(rival.teamKey)) continue;
+        const allianceNumber = allianceOfTeam.get(rival.teamKey);
+        const points = alonePoints[index]! + (allianceNumber === undefined ? 0 : (assigned.get(allianceNumber) ?? 0));
+        if (points >= m) {
+          covered += 1;
+          continue;
+        }
+        uncovered += 1;
+        if (allianceNumber === undefined) continue;
+        if (awardedSet.has(rival.teamKey)) continue;
+        // A LISTED PICK COUNTED AS A MEMBER HERE AND AGAIN IN ITS GROUP'S SEAT COVER: the third double count.
+        const cost = oracleJudgedCost(m - points);
+        if (cost !== Infinity) pickedCosts.push(cost);
+      }
+      for (const key of slotOnly) if (!winnerSet.has(key)) uncovered += 1;
+
+      const seatByGroup: Map<number, number>[] = Array.from({ length: groupCount }, () => new Map<number, number>());
+      for (const [allianceNumber, value] of assigned) {
+        const group = groupOfAlliance(allianceNumber);
+        const count = spareOf(allianceNumber);
+        if (group === undefined || value <= 0 || count <= 0) continue;
+        const seats = seatByGroup[group]!;
+        seats.set(value, (seats.get(value) ?? 0) + count);
+      }
+
+      const groupKeys: string[] = [];
+      const groupSeatValues: number[][] = [];
+      const groupSeatCounts: number[][] = [];
+      for (let group = 0; group < groupCount; group++) {
+        const seats = seatByGroup[group]!;
+        const seatValues = [...seats.keys()].sort((a, b) => b - a);
+        const seatCounts = seatValues.map((value) => seats.get(value)!);
+        groupSeatValues.push(seatValues);
+        groupSeatCounts.push(seatCounts);
+        groupKeys.push(`${String(group)}:${seatValues.map((value, index) => `${String(value)}x${String(seatCounts[index])}`).join(",")}`);
+      }
+      const combinedKey = groupKeys.join("|");
+      let seatBest = combinedCache.get(combinedKey);
+      if (seatBest === undefined) {
+        let combined: number[] | undefined;
+        for (let group = 0; group < groupCount; group++) {
+          let cover = coverCache.get(groupKeys[group]!);
+          if (cover === undefined) {
+            cover = referenceCover(seatReachable[group]!, groupSeatValues[group]!, groupSeatCounts[group]!, budget, input.judgedAwardPoints, seatCoverOptions[group]);
+            coverCache.set(groupKeys[group]!, cover);
+          }
+          combined = combined === undefined ? cover : bestSplit(combined, cover);
+        }
+        seatBest = combined ?? new Array<number>(budget + 1).fill(0);
+        combinedCache.set(combinedKey, seatBest);
+      }
+      pickedCosts.sort((a, b) => a - b);
+      const pickedPrefix = [0];
+      for (const cost of pickedCosts) pickedPrefix.push(pickedPrefix[pickedPrefix.length - 1]! + cost);
+      const pickedBest = (remaining: number): number => {
+        let count = 0;
+        while (count < pickedCosts.length && pickedPrefix[count + 1]! <= remaining) count += 1;
+        return count;
+      };
+      let lifted = 0;
+      for (let j = 0; j <= budget; j++) lifted = Math.max(lifted, seatBest[j]! + pickedBest(budget - j));
+
+      const total = covered + Math.min(uncovered, lifted + others3);
+      if (total > best) best = total;
+    }
+  }
+  return best;
+}
+
+/** The oracle for one pool team of a single or divisioned input, or summed over two championships as the module sums. */
+function boundBeforeTheMatchingOver(inputs: readonly JointLockInput[], teamKey: string): number {
+  const holder = inputs.find((input) => input.pool.some((rival) => rival.teamKey === teamKey));
+  if (holder === undefined) return Infinity;
+  const floor = holder.pool.find((rival) => rival.teamKey === teamKey)!.floor;
+  let sum = 0;
+  for (const input of inputs) {
+    if (input.candidateWinners.length === 0) return Infinity;
+    sum += boundBeforeTheMatching(input, teamKey, floor);
+  }
+  return sum;
+}
+
 describe("champJointLock: frames, the observer and the guards (261009-kt3, 261009-tx9)", () => {
   it("jointLockBound equals jointLockBoundAt at the team's own floor, and the single frames are the shipped scenarios with four fields and no more", () => {
     const { pool, alliances } = exhaustiveField();
@@ -759,30 +1098,27 @@ describe("champJointLock: frames, the observer and the guards (261009-kt3, 26100
     expect(jointLockBound(input, "T")).toBe(Infinity);
   });
 
-  it("R10 (b): assertOneAwardPerRival accepts 1 and throws on 2, naming the constant", () => {
+  it("the matching's one binding condition: assertOneAwardPerRival accepts 1 and throws on 2, naming the constant", () => {
     expect(() => assertOneAwardPerRival(1)).not.toThrow();
     expect(() => assertOneAwardPerRival(2)).toThrow(/MAX_POINT_PAYING_AWARDS_PER_TEAM/);
-    expect(EXACT_COVER_STATE_CAP).toBe(250_000);
   });
 
-  it("R10: the cover upper bound is never below the exact program on 20,000 seeded random instances", () => {
+  it("the matching equals the exact dynamic program of before quick task 261010-l0s on 20,000 seeded random instances of one seat group, for every judged budget", () => {
     const random = mulberry32(26100903);
     const integer = (lo: number, hi: number): number => lo + Math.floor(random() * (hi - lo + 1));
     const valuePalette = [120, 90, 75, 60, 45, 39, 30, 21];
-    let above = 0;
+    let cells = 0;
     for (let instance = 0; instance < 20_000; instance++) {
       const deficits = Array.from({ length: integer(1, 9) }, () => integer(1, 140));
       const types = [...valuePalette].sort(() => random() - 0.5).slice(0, integer(0, 3)).sort((a, b) => b - a);
       const counts = types.map(() => integer(1, 3));
       const budget = integer(0, 5);
-      const exact = unpickedCover(deficits, types, counts, budget, JUDGED);
-      const upper = coverUpperBound(deficits, types, counts, budget, JUDGED);
-      for (let j = 0; j <= budget; j++) {
-        expect(upper[j]!, `instance ${instance} j ${j}: ${JSON.stringify({ deficits, types, counts, budget })}`).toBeGreaterThanOrEqual(exact[j]!);
-        if (upper[j]! > exact[j]!) above += 1;
-      }
+      const exact = referenceCover(deficits, types, counts, budget, JUDGED);
+      expect(matchingOfOneGroup(deficits, types, counts, budget), `instance ${instance}: ${JSON.stringify({ deficits, types, counts, budget })}`).toEqual(exact);
+      cells += budget + 1;
     }
-    expect(above).toBeGreaterThanOrEqual(0);
+    // Pinned as the run shows: every one of these cells is compared.
+    expect(cells).toBe(70_086);
   }, 60_000);
 
   it("R11: a rival reachable only through a 120 point seat is covered when a frame credits 120 and the placement values top out at 75", () => {
@@ -2561,7 +2897,7 @@ describe("champJointLock: a rival that holds a posted award takes no further jud
     expect(lower).toBeGreaterThan(0);
   }, 60_000);
 
-  it("R10 with awarded rivals (planner reading R4): the cover upper bound is never below the exact program on 20,000 seeded flagged instances, and a flag never raises the exact cover", () => {
+  it("with awarded rivals: the matching equals the exact dynamic program on 20,000 seeded flagged instances of one seat group, and a flag never raises the cover", () => {
     const random = mulberry32(26101002);
     const integer = (lo: number, hi: number): number => lo + Math.floor(random() * (hi - lo + 1));
     const valuePalette = [120, 90, 75, 60, 45, 39, 30, 21];
@@ -2573,19 +2909,18 @@ describe("champJointLock: a rival that holds a posted award takes no further jud
       const types = [...valuePalette].sort(() => random() - 0.5).slice(0, integer(0, 3)).sort((a, b) => b - a);
       const counts = types.map(() => integer(1, 3));
       const budget = integer(0, 5);
-      const exact = unpickedCover(deficits, types, counts, budget, JUDGED, { awarded });
-      const upper = coverUpperBound(deficits, types, counts, budget, JUDGED, { awarded });
-      const unflagged = unpickedCover(deficits, types, counts, budget, JUDGED);
+      const exact = referenceCover(deficits, types, counts, budget, JUDGED, { awarded });
+      const matched = matchingOfOneGroup(deficits, types, counts, budget, { awarded });
+      const unflagged = matchingOfOneGroup(deficits, types, counts, budget);
       if (awarded.some((flag) => flag)) flagged += 1;
+      const where = `instance ${instance}: ${JSON.stringify({ deficits, awarded, types, counts, budget })}`;
+      expect(matched, where).toEqual(exact);
       for (let j = 0; j <= budget; j++) {
-        const where = `instance ${instance} j ${j}: ${JSON.stringify({ deficits, awarded, types, counts, budget })}`;
-        expect(upper[j]!, where).toBeGreaterThanOrEqual(exact[j]!);
-        expect(exact[j]!, where).toBeLessThanOrEqual(unflagged[j]!);
-        if (exact[j]! < unflagged[j]!) lowered += 1;
+        expect(matched[j]!, where).toBeLessThanOrEqual(unflagged[j]!);
+        if (matched[j]! < unflagged[j]!) lowered += 1;
       }
-      // No flag set is the function of before quick task 261010-d7r, cell for cell.
-      expect(unpickedCover(deficits, types, counts, budget, JUDGED, { awarded: deficits.map(() => false) })).toEqual(unflagged);
-      expect(coverUpperBound(deficits, types, counts, budget, JUDGED, { awarded: deficits.map(() => false) })).toEqual(coverUpperBound(deficits, types, counts, budget, JUDGED));
+      // No flag set is the matching with no flags at all, cell for cell.
+      expect(matchingOfOneGroup(deficits, types, counts, budget, { awarded: deficits.map(() => false) })).toEqual(unflagged);
     }
     expect(flagged).toBeGreaterThan(15_000);
     expect(lowered).toBeGreaterThan(0);
@@ -2682,7 +3017,9 @@ describe("champJointLock: divisioned exhaustive soundness E3 with AWARDED rivals
     expect(withoutBelowWith).toBe(0);
     // Pinned as the run shows (the planner's prototype read the same): the fields, the awarded rivals and the futures.
     expect({ teams, awardedTotal, futures: counters.futures }).toEqual({ teams: 256, awardedTotal: 69, futures: 3_821_696 });
-    expect({ onTheBound, ruleTighter }).toEqual({ onTheBound: 52, ruleTighter: 17 });
+    // Since quick task 261010-l0s (every rival counted once) 74 teams are on their bound, where 52 were, and the
+    // rule tightens the bound for 16, where it was 17: the bound without the rule came down onto it for one team.
+    expect({ onTheBound, ruleTighter }).toEqual({ onTheBound: 74, ruleTighter: 16 });
   }, 600_000);
 });
 
@@ -2716,7 +3053,7 @@ describe("champJointLock: brute force soundness on small instances with awarded 
    * 90 as points. The pool hands each such rival its settled value inside
    * `extra` with `listedOnly`, exactly as the status code does.
    */
-  it("20,000 seeded instances: the bound is never below a legal future, and it is reached at most of them", () => {
+  it("20,000 seeded instances: the bound is never below a legal future, and it is reached at every one of them", () => {
     const INSTANCES = 20_000;
     const m = 200;
     type Kind = "memberW" | "member2" | "member3" | "free" | "listedPlaced" | "listedWinner";
@@ -2860,10 +3197,12 @@ describe("champJointLock: brute force soundness on small instances with awarded 
       `[261010-d7r brute force] instances ${String(INSTANCES)} | with a listed only pick ${String(withListedOnly)} | with an awarded rival ${String(withAwarded)} | the bound is reached at ${String(onBound)} | the bound is below a legal future at ${String(failures.length)} | mean slack ${(slackTotal / INSTANCES).toFixed(3)}`
     );
     expect(failures).toEqual([]);
-    // The instances are not vacuous, and the bound is tight on most of them. Pinned as the run shows. Until the
-    // listed only picks joined the draw (two more kinds of rival after the free ones, which moves the seeded stream)
-    // these read 14,577 with an awarded rival and 19,445 on the bound.
-    expect({ withListedOnly, withAwarded, onBound }).toEqual({ withListedOnly: 16_657, withAwarded: 16_641, onBound: 19_693 });
+    // The instances are not vacuous. Pinned as the run shows. Until the listed only picks joined the draw (two more
+    // kinds of rival after the free ones, which moves the seeded stream) these read 14,577 with an awarded rival.
+    // THE BOUND IS REACHED AT EVERY INSTANCE since quick task 261010-l0s: it is the exact maximum of what it models.
+    // Until then it was reached at 19,693; at the other 307 a rival was counted once on a seat and once more as the
+    // winner's backup.
+    expect({ withListedOnly, withAwarded, onBound }).toEqual({ withListedOnly: 16_657, withAwarded: 16_641, onBound: INSTANCES });
   }, 120_000);
 });
 
@@ -2977,7 +3316,7 @@ describe("champJointLock: a listed pick that is not confirmed is read at its pla
     expect(jointLockBound(winnerInput(3, true, two), "T")).toBe(jointLockBound(winnerInput(3, false, two), "T"));
   });
 
-  it("500 seeded random single championship instances, every team: the winner's reading IS the rival without its settled value, and a placed alliance's reading never raises a bound and lowers some", () => {
+  it("500 seeded random single championship instances, every team: the winner's reading IS the rival without its settled value, a placed alliance's reading never raises a bound and lowers some, and neither reading is above the reading of before the rule", () => {
     // TWO PROPERTIES, one per kind of listed only pick.
     //
     // THE WINNER'S (`onWinner`, one decided winner): the bound equals the bound with that rival handed over WITHOUT
@@ -2987,11 +3326,11 @@ describe("champJointLock: a listed pick that is not confirmed is read at its pla
     // A PLACED ALLIANCE'S: the bound is never above the bound with the same `extra` and no `listedOnly` (the reading
     // of before this rule), because the rival reads the same alone and no nearer to T on a seat.
     //
-    // NOT A PROPERTY: the winner's reading is not always at or below the reading of before this rule. A rival that
-    // drops from "its points reach T" to "short of T, on no alliance" joins the winner's fill in pool, and the bound
-    // counts a fill in beside a seat that may lift the same rival (a relaxation the bound has always had, which only
-    // raises it). `raisedByTheWinnerReading` counts the team bounds where that shows on these instances; it is pinned
-    // as the run shows, as a measurement, and says nothing about soundness.
+    // THE WINNER'S READING IS NEVER ABOVE THE READING OF BEFORE THIS RULE EITHER (quick task 261010-l0s): every role
+    // the rival can take without its settled value it could take with it. `raisedByTheWinnerReading` counts the team
+    // bounds where it is above, and must be 0. Until that task it read 10 on these instances: a rival that dropped
+    // from "its points reach T" to "short of T, on no alliance" joined the winner's fill in pool and was counted
+    // there beside a seat that lifted the same rival.
     const random = mulberry32(26101003);
     const integer = (lo: number, hi: number): number => lo + Math.floor(random() * (hi - lo + 1));
     let lower = 0;
@@ -3051,11 +3390,11 @@ describe("champJointLock: a listed pick that is not confirmed is read at its pla
     expect(onWinnerInstances).toBeGreaterThan(100);
     // The placed alliance's reading is not vacuous on these instances: it lowers some bounds.
     expect(lower).toBeGreaterThan(0);
-    // Pinned as the run shows (see "not a property" above).
-    expect(raisedByTheWinnerReading).toBe(10);
+    // A requirement since quick task 261010-l0s. It read 10 until then.
+    expect(raisedByTheWinnerReading).toBe(0);
   }, 60_000);
 
-  it("R10 with seat deficits: the cover upper bound, which reads the deficit alone, is never below the exact program on 20,000 seeded instances, and a larger deficit on a seat never raises the exact cover", () => {
+  it("with seat deficits: the matching equals the exact dynamic program on 20,000 seeded instances of one seat group, and a larger deficit on a seat never raises the cover", () => {
     const random = mulberry32(26101004);
     const integer = (lo: number, hi: number): number => lo + Math.floor(random() * (hi - lo + 1));
     const valuePalette = [120, 90, 75, 60, 45, 39, 30, 21];
@@ -3069,20 +3408,18 @@ describe("champJointLock: a listed pick that is not confirmed is read at its pla
       const types = [...valuePalette].sort(() => random() - 0.5).slice(0, integer(0, 3)).sort((a, b) => b - a);
       const counts = types.map(() => integer(1, 3));
       const budget = integer(0, 5);
-      const exact = unpickedCover(deficits, types, counts, budget, JUDGED, { awarded, seatDeficits });
-      const upper = coverUpperBound(deficits, types, counts, budget, JUDGED, { awarded, seatDeficits });
-      const sameOnASeat = unpickedCover(deficits, types, counts, budget, JUDGED, { awarded });
+      const exact = referenceCover(deficits, types, counts, budget, JUDGED, { awarded, seatDeficits });
+      const matched = matchingOfOneGroup(deficits, types, counts, budget, { awarded, seatDeficits });
+      const sameOnASeat = matchingOfOneGroup(deficits, types, counts, budget, { awarded });
       if (seatDeficits.some((deficit, index) => deficit !== deficits[index])) withSeatDeficits += 1;
+      const where = `instance ${instance}: ${JSON.stringify({ deficits, seatDeficits, awarded, types, counts, budget })}`;
+      expect(matched, where).toEqual(exact);
       for (let j = 0; j <= budget; j++) {
-        const where = `instance ${instance} j ${j}: ${JSON.stringify({ deficits, seatDeficits, awarded, types, counts, budget })}`;
-        expect(upper[j]!, where).toBeGreaterThanOrEqual(exact[j]!);
-        expect(exact[j]!, where).toBeLessThanOrEqual(sameOnASeat[j]!);
-        if (exact[j]! < sameOnASeat[j]!) lowered += 1;
+        expect(matched[j]!, where).toBeLessThanOrEqual(sameOnASeat[j]!);
+        if (matched[j]! < sameOnASeat[j]!) lowered += 1;
       }
-      // The upper bound does not read the seat deficits at all.
-      expect(upper).toEqual(coverUpperBound(deficits, types, counts, budget, JUDGED, { awarded }));
-      // Seat deficits equal to the deficits are the function without them, cell for cell.
-      expect(unpickedCover(deficits, types, counts, budget, JUDGED, { awarded, seatDeficits: [...deficits] })).toEqual(sameOnASeat);
+      // Seat deficits equal to the deficits are the matching without them, cell for cell.
+      expect(matchingOfOneGroup(deficits, types, counts, budget, { awarded, seatDeficits: [...deficits] })).toEqual(sameOnASeat);
     }
     expect(withSeatDeficits).toBeGreaterThan(15_000);
     expect(lowered).toBeGreaterThan(0);
@@ -3100,4 +3437,1198 @@ describe("champJointLock: when the proof stops (261010-d7r, findings F-B and F-C
     // Every key's Awards final: it stops.
     expect(jointProofStillRuns(true, false)).toBe(false);
   });
+});
+
+// ===========================================================================
+// Every rival is counted once (quick task 261010-l0s)
+// ===========================================================================
+
+/**
+ * SEEDED INSTANCES OF THE THREE CHAMPIONSHIP SHAPES, built for one purpose:
+ * rivals sit close to each other in points, so one team's floor rising
+ * passes others, and every way one rival could be counted twice is in the
+ * draw (a free rival the winner can also call up, a rival no seat group
+ * names, a listed pick that is not confirmed on an alliance still in its
+ * bracket, slot only rivals, awarded rivals, listed only picks).
+ */
+type OnceShape = "single" | "divisioned" | "multiple";
+interface OnceInstance {
+  readonly shape: OnceShape;
+  /** One input, or the two championships' inputs. */
+  readonly inputs: JointLockInput[];
+  /** Every pool team, across the inputs. */
+  readonly teams: string[];
+  /** The teams a transition may post a judged award to (never a listed only pick). */
+  readonly postable: string[];
+}
+
+function onceFloor(random: () => number): number {
+  const draw = random();
+  if (draw < 0.7) return 170 + Math.floor(random() * 61);
+  if (draw < 0.9) return 100 + Math.floor(random() * 70);
+  return 231 + Math.floor(random() * 40);
+}
+
+/** A single championship: no seat group, the module builds the frames. `prefix` keeps the keys of two championships apart. */
+function onceSingleInput(random: () => number, prefix: string): { input: JointLockInput; postable: string[] } {
+  const pick = (count: number): number => Math.floor(random() * count);
+  const allianceCount = 2 + pick(4);
+  const pool: JointLockRival[] = [];
+  const alliances: JointLockAlliance[] = [];
+  const postable: string[] = [];
+  const awarded: string[] = [];
+  const mode = pick(6); // 0 to 3 an open bracket, 4 a decided winner, 5 a posted winner
+  const numbers = Array.from({ length: allianceCount }, (_, index) => index + 1);
+  let alive: number[];
+  let candidates: (number | null)[];
+  if (mode <= 3) {
+    alive = numbers.filter(() => random() < 0.7);
+    if (alive.length === 0) alive = [numbers[pick(allianceCount)]!];
+    candidates = alive.filter(() => random() < 0.6);
+    if (candidates.length === 0) candidates = [alive[pick(alive.length)]!];
+  } else if (mode === 4) {
+    const winner = numbers[pick(allianceCount)]!;
+    alive = numbers.filter((allianceNumber) => allianceNumber !== winner && random() < 0.3);
+    candidates = [winner];
+  } else {
+    alive = [];
+    candidates = [null];
+  }
+  const placedValue = new Map<number, number>();
+  for (const allianceNumber of numbers) {
+    const members: string[] = [];
+    const count = 1 + pick(3);
+    for (let index = 0; index < count; index++) {
+      const teamKey = `${prefix}a${String(allianceNumber)}m${String(index)}`;
+      members.push(teamKey);
+      pool.push({ teamKey, floor: onceFloor(random) - (random() < 0.5 ? 40 : 0), extra: pick(3) === 0 ? pick(25) : 0 });
+      postable.push(teamKey);
+      if (random() < 0.25) awarded.push(teamKey);
+    }
+    alliances.push({ allianceNumber, members, spareSeats: Math.min(4 - count, pick(3)) });
+    if (!alive.includes(allianceNumber) && !candidates.includes(allianceNumber)) placedValue.set(allianceNumber, [75, 39, 21, 21][pick(4)]!);
+  }
+  const free = 1 + pick(6);
+  for (let index = 0; index < free; index++) {
+    const teamKey = `${prefix}f${String(index)}`;
+    pool.push({ teamKey, floor: onceFloor(random), extra: pick(3) === 0 ? pick(25) : 0 });
+    postable.push(teamKey);
+    if (random() < 0.25) awarded.push(teamKey);
+  }
+  // Listed only picks (F-D): of a placed alliance, and of the decided winner.
+  const placed = [...placedValue.keys()];
+  if (placed.length > 0 && random() < 0.35) {
+    const settled = placedValue.get(placed[pick(placed.length)]!)!;
+    pool.push({ teamKey: `${prefix}lp`, floor: onceFloor(random) - 30, extra: pick(10) + settled, listedOnly: { settled, onWinner: false } });
+  }
+  if (mode === 4 && random() < 0.35) pool.push({ teamKey: `${prefix}lw`, floor: onceFloor(random) - 30, extra: pick(10) + 90, listedOnly: { settled: 90, onWinner: true } });
+  const slotOnlyRivals = random() < 0.3 ? [`${prefix}so0`, ...(random() < 0.3 ? [`${prefix}so1`] : [])] : [];
+  const judgedAwards = pick(5);
+  const input: JointLockInput = {
+    pool,
+    slotOnlyRivals,
+    pointsSlots: 99,
+    alliances,
+    aliveAlliances: alive,
+    candidateWinners: candidates,
+    placementPoints: [75, 39, 21],
+    consumingAwards: pick(3),
+    judgedAwards,
+    judgedAwardPoints: JUDGED,
+    maxAllianceSize: 4,
+    ...(awarded.length > 0 && random() < 0.6 ? { awardedRivals: awarded } : {}),
+  };
+  return { input, postable };
+}
+
+/** A divisioned championship: one frame per candidate winner, one seat group per division, listed picks (P3) and rivals no group names (P4). */
+function onceDivisionedInput(random: () => number): { input: JointLockInput; postable: string[] } {
+  const pick = (count: number): number => Math.floor(random() * count);
+  const groupCount = random() < 0.75 ? 2 : random() < 0.5 ? 3 : 4;
+  const pool: JointLockRival[] = [];
+  const alliances: JointLockAlliance[] = [];
+  const postable: string[] = [];
+  const awarded: string[] = [];
+  const groups: { alliances: number[]; eligible: string[]; alive: number[]; decided: number | undefined }[] = [];
+  const spare = new Map<number, number>();
+  const addRival = (teamKey: string, floor: number, extra = 0): void => {
+    pool.push({ teamKey, floor, extra });
+    postable.push(teamKey);
+    if (random() < 0.25) awarded.push(teamKey);
+  };
+  for (let group = 0; group < groupCount; group++) {
+    const allianceCount = 2 + pick(2);
+    const ids = Array.from({ length: allianceCount }, (_, index) => (group + 1) * 10 + index + 1);
+    const eligible: string[] = [];
+    const decided = random() < 0.3; // the division is decided: one winner, nobody alive
+    const alive = decided ? [] : ids.filter(() => random() < 0.75);
+    if (!decided && alive.length === 0) alive.push(ids[0]!);
+    for (const id of ids) {
+      const members: string[] = [];
+      const count = 1 + pick(3);
+      for (let index = 0; index < count; index++) {
+        const teamKey = `d${String(group)}a${String(id)}m${String(index)}`;
+        members.push(teamKey);
+        addRival(teamKey, onceFloor(random) - (random() < 0.6 ? 60 : 0), pick(4) === 0 ? pick(20) : 0);
+      }
+      // Reading P3: a listed pick that is not confirmed, on an alliance still in its bracket: a member AND named by the group.
+      if (alive.includes(id) && random() < 0.3) {
+        const teamKey = `d${String(group)}a${String(id)}L`;
+        members.push(teamKey);
+        eligible.push(teamKey);
+        addRival(teamKey, onceFloor(random) - (random() < 0.5 ? 40 : 0));
+      }
+      spare.set(id, Math.min(4 - count, pick(3)));
+      alliances.push({ allianceNumber: id, members, spareSeats: spare.get(id)! });
+    }
+    const free = pick(5);
+    for (let index = 0; index < free; index++) {
+      const teamKey = `d${String(group)}f${String(index)}`;
+      eligible.push(teamKey);
+      addRival(teamKey, onceFloor(random), pick(3) === 0 ? pick(25) : 0);
+    }
+    groups.push({ alliances: ids, eligible, alive, decided: decided ? ids[pick(allianceCount)]! : undefined });
+  }
+  // Reading P4: rivals on no alliance that no group names.
+  const unnamed = pick(4);
+  for (let index = 0; index < unnamed; index++) addRival(`u${String(index)}`, onceFloor(random) - (random() < 0.5 ? 70 : 0));
+  const slotOnlyRivals: string[] = [];
+  if (random() < 0.3) {
+    slotOnlyRivals.push("so0");
+    if (random() < 0.6) groups[pick(groupCount)]!.eligible.push("so0");
+  }
+  // The frames as `divisionedJointFrames` builds them, by hand: the other divisions' alive alliances fixed at the
+  // division champion's 90 plus the finalist's value, a decided winner of another division at the finalist's value.
+  const finalist = groupCount === 2 ? 0 : 30;
+  const posted = random() < 0.08 && groups.every((group) => group.decided !== undefined);
+  const candidates: (number | null)[] = [];
+  if (posted) candidates.push(null);
+  else for (const group of groups) candidates.push(...(group.decided !== undefined ? [group.decided] : group.alive));
+  const frames: JointLockFrame[] = candidates.map((winner) => {
+    const fixed = new Map<number, number>();
+    let enumerated: number[] = [];
+    for (const group of groups) {
+      if (winner !== null && group.alliances.includes(winner)) {
+        enumerated = group.alive.filter((id) => id !== winner);
+        continue;
+      }
+      for (const id of group.alive) fixed.set(id, 90 + finalist);
+      if (group.decided !== undefined && finalist > 0) fixed.set(group.decided, finalist);
+    }
+    return { winner, enumerated, fixed, fillIns: winner === null ? 0 : spare.get(winner)! };
+  });
+  const seatGroups: JointLockSeatGroup[] = groups.map((group) => ({ alliances: group.alliances, eligible: group.eligible }));
+  const input: JointLockInput = {
+    pool,
+    slotOnlyRivals,
+    pointsSlots: 99,
+    alliances,
+    aliveAlliances: groups.flatMap((group) => group.alive),
+    candidateWinners: candidates,
+    placementPoints: [75, 39, 21],
+    consumingAwards: pick(3),
+    judgedAwards: pick(6),
+    judgedAwardPoints: JUDGED,
+    maxAllianceSize: 4,
+    frames,
+    seatGroups,
+    ...(awarded.length > 0 && random() < 0.6 ? { awardedRivals: awarded } : {}),
+  };
+  return { input, postable };
+}
+
+function onceInstance(seed: number, shape: OnceShape): OnceInstance {
+  const random = mulberry32(seed);
+  if (shape !== "multiple") {
+    const { input, postable } = shape === "single" ? onceSingleInput(random, "") : onceDivisionedInput(random);
+    return { shape, inputs: [input], teams: input.pool.map((rival) => rival.teamKey), postable };
+  }
+  const first = onceSingleInput(random, "x");
+  const second = onceSingleInput(random, "y");
+  // Reading R9: a rival with no championship row is entered in every championship's pool at the same floor.
+  const noRow: JointLockRival[] = Array.from({ length: Math.floor(random() * 3) }, (_, index) => ({ teamKey: `nr${String(index)}`, floor: onceFloor(random) - 30, extra: 0 }));
+  const inputs = [first.input, second.input].map((input) => ({ ...input, pool: [...input.pool, ...noRow] }));
+  return {
+    shape,
+    inputs,
+    teams: [...first.input.pool, ...second.input.pool, ...noRow].map((rival) => rival.teamKey),
+    postable: [...first.postable, ...second.postable, ...noRow.map((rival) => rival.teamKey)],
+  };
+}
+
+const ONCE_SHAPES: readonly OnceShape[] = ["single", "divisioned", "multiple"];
+const onceSeed = (index: number, shape: OnceShape): number => index * 3 + ONCE_SHAPES.indexOf(shape);
+const onceBound = (instance: OnceInstance, inputs: readonly JointLockInput[], teamKey: string): number =>
+  instance.shape === "multiple" ? jointLockBoundMultiple(inputs, teamKey) : jointLockBound(inputs[0]!, teamKey);
+
+/**
+ * THE ALLOCATION MODEL ENUMERATED, sharing no code with the module: for one
+ * team T, every usable frame, every ordered placement assignment, and every
+ * way to hand each rival still short of T ONE role: nothing; one judged
+ * award on top of what it has (its floor plus extra, and for a listed pick
+ * the value of the alliance that lists it); a seat of one ALLIANCE of a seat
+ * group it is eligible in, with or without one judged award; the winner's
+ * fill in; a consuming award. Seats are counted per alliance here, never
+ * merged by value. `undefined` where a scenario leaves more rivals short of
+ * T than `mostActors`, which the enumeration does not attempt.
+ */
+function modelMostTakers(input: JointLockInput, teamKey: string, mostActors: number): number | undefined {
+  const m = input.pool.find((rival) => rival.teamKey === teamKey)!.floor;
+  const allianceOf = new Map<string, number>();
+  for (const alliance of input.alliances) for (const member of alliance.members) if (!allianceOf.has(member)) allianceOf.set(member, alliance.allianceNumber);
+  const membersOf = (allianceNumber: number): readonly string[] => input.alliances.find((alliance) => alliance.allianceNumber === allianceNumber)?.members ?? [];
+  const spareOf = new Map(input.alliances.map((alliance) => [alliance.allianceNumber, Math.max(0, alliance.spareSeats ?? input.maxAllianceSize - alliance.members.length)] as const));
+  const groups = input.seatGroups !== undefined && input.seatGroups.length > 0 ? input.seatGroups : undefined;
+  const groupCount = groups === undefined ? 1 : groups.length;
+  const groupOfAlliance = (allianceNumber: number): number | undefined => {
+    if (groups === undefined) return 0;
+    const at = groups.findIndex((group) => group.alliances.includes(allianceNumber));
+    return at === -1 ? undefined : at;
+  };
+  const groupsOfKey = (key: string): number[] => {
+    const named = groups === undefined ? [] : groups.map((group, index) => (group.eligible.includes(key) ? index : -1)).filter((index) => index !== -1);
+    if (named.length > 0) return named;
+    return allianceOf.has(key) ? [] : Array.from({ length: groupCount }, (_, index) => index);
+  };
+  const frames = input.frames ?? singleChampionshipFrames(input);
+  if (frames.length === 0) return Infinity;
+  const tIsNamed = groups !== undefined && groups.some((group) => group.eligible.includes(teamKey));
+  const usable = frames.filter((frame) => frame.winner === null || !membersOf(frame.winner).includes(teamKey) || tIsNamed);
+  if (usable.length === 0) return 0;
+  const rivals = input.pool.filter((rival) => rival.teamKey !== teamKey);
+  const rivalKeys = new Set(rivals.map((rival) => rival.teamKey));
+  const slotOnly = [...new Set(input.slotOnlyRivals)].filter((key) => key !== teamKey && !rivalKeys.has(key));
+  const awarded = new Set(input.awardedRivals ?? []);
+  const oneNamedWinner = frames.every((frame) => frame.winner !== null && frame.winner === frames[0]!.winner);
+  const withoutSettled = (rival: JointLockRival): number => rival.floor + Math.max(0, rival.extra - rival.listedOnly!.settled);
+  const alonePoints = (rival: JointLockRival): number => (rival.listedOnly?.onWinner === true && oneNamedWinner ? withoutSettled(rival) : rival.floor + rival.extra);
+  const seatPoints = (rival: JointLockRival): number => (rival.listedOnly === undefined || (rival.listedOnly.onWinner && !oneNamedWinner) ? rival.floor + rival.extra : withoutSettled(rival));
+  const orderedChoices = (items: readonly number[], count: number): number[][] => {
+    if (count === 0) return [[]];
+    return items.flatMap((item, index) => orderedChoices([...items.slice(0, index), ...items.slice(index + 1)], count - 1).map((tail) => [item, ...tail]));
+  };
+  const placement = [...input.placementPoints].sort((a, b) => b - a);
+  interface Role {
+    readonly seat?: number;
+    readonly award: boolean;
+    readonly fill?: boolean;
+    readonly consuming?: boolean;
+  }
+  let best = -Infinity;
+  for (const frame of usable) {
+    const { winner } = frame;
+    const winnerMembers = new Set(winner === null ? [] : membersOf(winner));
+    const others = frame.enumerated.filter((allianceNumber) => allianceNumber !== winner && !frame.fixed.has(allianceNumber));
+    const winnerGroup = winner === null ? undefined : groupOfAlliance(winner);
+    const fillIns = winner === null || winnerGroup === undefined ? 0 : Math.max(0, frame.fillIns);
+    let withTheWinner = 0;
+    for (const member of winnerMembers) if (member !== teamKey && (rivalKeys.has(member) || slotOnly.includes(member))) withTheWinner += 1;
+    for (const selection of orderedChoices(others, Math.min(placement.length, others.length))) {
+      const assigned = new Map<number, number>(frame.fixed);
+      selection.forEach((allianceNumber, index) => assigned.set(allianceNumber, placement[index]!));
+      let covered = withTheWinner;
+      const actors: Role[][] = [];
+      for (const rival of rivals) {
+        if (winnerMembers.has(rival.teamKey)) continue;
+        const listedOn = allianceOf.get(rival.teamKey);
+        const asItStands = alonePoints(rival) + (listedOn === undefined ? 0 : (assigned.get(listedOn) ?? 0));
+        if (asItStands >= m) {
+          covered += 1;
+          continue;
+        }
+        const roles: Role[] = [];
+        const isAwarded = awarded.has(rival.teamKey);
+        if (!isAwarded && asItStands + JUDGED >= m) roles.push({ award: true });
+        const eligible = groupsOfKey(rival.teamKey);
+        for (const [allianceNumber, value] of assigned) {
+          const group = groupOfAlliance(allianceNumber);
+          if (group === undefined || value <= 0 || (spareOf.get(allianceNumber) ?? 0) <= 0 || !eligible.includes(group)) continue;
+          if (seatPoints(rival) + value >= m) roles.push({ seat: allianceNumber, award: false });
+          else if (!isAwarded && seatPoints(rival) + value + JUDGED >= m) roles.push({ seat: allianceNumber, award: true });
+        }
+        if (fillIns > 0 && eligible.includes(winnerGroup!)) roles.push({ fill: true, award: false });
+        roles.push({ consuming: true, award: false });
+        actors.push(roles);
+      }
+      for (const key of slotOnly) {
+        if (winnerMembers.has(key)) continue;
+        const roles: Role[] = [];
+        if (fillIns > 0 && groupsOfKey(key).includes(winnerGroup!)) roles.push({ fill: true, award: false });
+        roles.push({ consuming: true, award: false });
+        actors.push(roles);
+      }
+      if (actors.length > mostActors) return undefined;
+      const seatsUsed = new Map<number, number>();
+      let most = 0;
+      const visit = (at: number, count: number, judged: number, fills: number, consumed: number): void => {
+        if (count + (actors.length - at) <= most) return;
+        if (at === actors.length) {
+          most = count;
+          return;
+        }
+        visit(at + 1, count, judged, fills, consumed);
+        for (const role of actors[at]!) {
+          if (role.award && judged >= input.judgedAwards) continue;
+          if (role.fill === true && fills >= fillIns) continue;
+          if (role.consuming === true && consumed >= input.consumingAwards) continue;
+          if (role.seat !== undefined) {
+            if ((seatsUsed.get(role.seat) ?? 0) >= spareOf.get(role.seat)!) continue;
+            seatsUsed.set(role.seat, (seatsUsed.get(role.seat) ?? 0) + 1);
+          }
+          visit(at + 1, count + 1, judged + (role.award ? 1 : 0), fills + (role.fill === true ? 1 : 0), consumed + (role.consuming === true ? 1 : 0));
+          if (role.seat !== undefined) seatsUsed.set(role.seat, seatsUsed.get(role.seat)! - 1);
+        }
+      };
+      visit(0, 0, 0, 0, 0);
+      best = Math.max(best, covered + most);
+    }
+  }
+  return best;
+}
+
+describe("champJointLock: the matching, one resource per entity (261010-l0s)", () => {
+  it("coverMatching equals every assignment enumerated, for every judged budget, on 20,000 seeded cost tables", () => {
+    const random = mulberry32(261010);
+    const integer = (lo: number, hi: number): number => lo + Math.floor(random() * (hi - lo + 1));
+    let cells = 0;
+    for (let instance = 0; instance < 20_000; instance++) {
+      const entityCount = integer(1, 6);
+      const resourceCount = integer(1, 4);
+      const capacities = Array.from({ length: resourceCount }, () => integer(0, 3));
+      const rows = Array.from({ length: entityCount }, () =>
+        Array.from({ length: resourceCount }, () => {
+          const draw = random();
+          return draw < 0.4 ? Infinity : draw < 0.7 ? 0 : 1;
+        })
+      );
+      const budget = integer(0, 4);
+      const enumerated = new Array<number>(budget + 1).fill(0);
+      const used = new Array<number>(resourceCount).fill(0);
+      const visit = (at: number, count: number, cost: number): void => {
+        if (cost > budget) return;
+        if (at === entityCount) {
+          for (let j = cost; j <= budget; j++) if (count > enumerated[j]!) enumerated[j] = count;
+          return;
+        }
+        visit(at + 1, count, cost);
+        for (let resource = 0; resource < resourceCount; resource++) {
+          const price = rows[at]![resource]!;
+          if (price === Infinity || used[resource]! >= capacities[resource]!) continue;
+          used[resource]! += 1;
+          visit(at + 1, count + 1, cost + price);
+          used[resource]! -= 1;
+        }
+      };
+      visit(0, 0, 0);
+      expect(coverMatching(rows, capacities, budget), `instance ${String(instance)}: ${JSON.stringify({ rows: rows.map((row) => row.map((price) => (price === Infinity ? "no" : price))), capacities, budget })}`).toEqual(enumerated);
+      cells += budget + 1;
+    }
+    expect(cells).toBe(60_288);
+  }, 60_000);
+
+  it("a hundred entities with one row are one type: the answer does not depend on how many share a row", () => {
+    // Two seats that cover as they stand, a third kind of seat that needs a judged award, and one judged award alone.
+    const row = [0, 1, 1];
+    const rows = Array.from({ length: 100 }, () => row);
+    expect(coverMatching(rows, [2, 3, 100], 0)).toEqual([2]);
+    expect(coverMatching(rows, [2, 3, 100], 4)).toEqual([2, 3, 4, 5, 6]);
+    expect(coverMatching([], [2, 3, 100], 2)).toEqual([0, 0, 0]);
+    // The same ARRAY handed again takes the shortcut, a copy of it walks the rows: both are the one type.
+    const other = [1, Infinity, 1];
+    const closed = [Infinity, Infinity, Infinity];
+    expect(coverMatching([row, row, closed, closed, other, row, other], [1, 1, 100], 3)).toEqual(coverMatching([[...row], [...row], [...closed], [...closed], [...other], [...row], [...other]], [1, 1, 100], 3));
+    expect(coverMatching([row, row, closed, closed, other, row, other], [1, 1, 100], 3)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("a resource with no room is closed to everyone, and a cost that is not 0, 1 or Infinity is refused", () => {
+    // The free seat has no room: the entity is covered only once a judged award is in hand.
+    expect(coverMatching([[0, 1]], [0, 1], 1)).toEqual([0, 1]);
+    // An entity whose every open resource has no room is no entity at all.
+    expect(coverMatching([[0, Infinity]], [0, 5], 3)).toEqual([0, 0, 0, 0]);
+    expect(() => coverMatching([[2]], [1], 2)).toThrow(/not 0, 1 or Infinity/);
+  });
+
+  it("a cheaper cover is found by moving an entity off a seat: one seat fits A as it stands and B with an award, and A alone can take an award", () => {
+    // A: the seat free, or one award alone. B: the seat with an award only. Two awards cover both (B on the seat with one, A alone with the other).
+    expect(coverMatching([[0, 1], [1, Infinity]], [1, 2], 2)).toEqual([1, 1, 2]);
+  });
+});
+
+describe("champJointLock: every rival is counted once (261010-l0s)", () => {
+  /** T and what the hand built instances share. */
+  const onceInput = (overrides: Partial<JointLockInput> & Pick<JointLockInput, "pool" | "alliances">): JointLockInput => minimalInput({ pointsSlots: 99, ...overrides });
+
+  it("the winner's fill in beside a seat (warning W1 of quick task 261010-d7r): T passes a free rival, which then counts once, not once on a seat and once as the winner's backup", () => {
+    // w is the one candidate winner's member, with two spare seats. Alliance 2 is paid 75 and has one spare seat; its
+    // members p1 and p2 are far below T. f is free and five points ahead of T, then ten short once T gains fifteen.
+    const at = (floor: number): JointLockInput =>
+      onceInput({
+        pool: [
+          { teamKey: "T", floor, extra: 0 },
+          { teamKey: "w", floor: 66, extra: 0 },
+          { teamKey: "p1", floor: 100, extra: 0 },
+          { teamKey: "p2", floor: 90, extra: 0 },
+          { teamKey: "f", floor: 238, extra: 0 },
+        ],
+        alliances: [
+          { allianceNumber: 1, members: ["w"], spareSeats: 2 },
+          { allianceNumber: 2, members: ["p1", "p2"], spareSeats: 1 },
+        ],
+        aliveAlliances: [1, 2],
+        candidateWinners: [1],
+      });
+    // Before: w with the winner, f ahead by its floor. After: w, and f on alliance 2's seat OR as w's backup.
+    expect(jointLockBound(at(233), "T")).toBe(2);
+    expect(jointLockBound(at(248), "T")).toBe(2);
+  });
+
+  it("a cap on the distinct rivals is not enough, the matching is: one free rival a seat can lift, two picked rivals one judged award short, one award to give", () => {
+    // The planner's smallest instance against the cap of CONTEXT D1: with T at 200 the three rivals R1, p1 and p2 are
+    // three DISTINCT rivals the scenario can reach, so a cap on distinct rivals lets the old count of 4 stand (w, R1
+    // on the seat, one of p1 and p2 with the award, and R1 AGAIN as w's backup). No allocation covers more than 3.
+    const at = (floor: number): JointLockInput =>
+      onceInput({
+        pool: [
+          { teamKey: "T", floor, extra: 0 },
+          { teamKey: "w", floor: 50, extra: 0 },
+          { teamKey: "p1", floor: 115, extra: 0 },
+          { teamKey: "p2", floor: 116, extra: 0 },
+          { teamKey: "R1", floor: 199, extra: 0 },
+        ],
+        alliances: [
+          { allianceNumber: 1, members: ["w"], spareSeats: 1 },
+          { allianceNumber: 2, members: ["p1", "p2"], spareSeats: 1 },
+        ],
+        aliveAlliances: [1, 2],
+        candidateWinners: [1],
+        judgedAwards: 1,
+      });
+    expect(jointLockBound(at(199), "T")).toBe(3);
+    expect(jointLockBound(at(200), "T")).toBe(3);
+    expect(modelMostTakers(at(200), "T", 8)).toBe(3);
+  });
+
+  it("reading P4: a rival no seat group names is ONE rival, lifted by one division's seat or the other's, or called up by the champion, never more than once", () => {
+    // Two divisions. Alliance 11 may win everything (two spare seats); alliance 21 is fixed at 90 with one spare seat.
+    // u is on no alliance and no group names it. Ahead of T at first; two points short once T gains fourteen.
+    const at = (floor: number): JointLockInput =>
+      onceInput({
+        pool: [
+          { teamKey: "T", floor, extra: 0 },
+          { teamKey: "a", floor: 149, extra: 0 },
+          { teamKey: "b", floor: 60, extra: 0 },
+          { teamKey: "u", floor: 202, extra: 0 },
+        ],
+        alliances: [
+          { allianceNumber: 11, members: ["a"], spareSeats: 2 },
+          { allianceNumber: 21, members: ["T", "b"], spareSeats: 1 },
+        ],
+        aliveAlliances: [21],
+        candidateWinners: [11],
+        judgedAwards: 1,
+        frames: [{ winner: 11, enumerated: [], fixed: new Map([[21, 90]]), fillIns: 2 }],
+        seatGroups: [
+          { alliances: [11], eligible: [] },
+          { alliances: [21], eligible: [] },
+        ],
+      });
+    // a with the champion; b at 60 plus 90 stays short of T; u counts once on both sides.
+    expect(jointLockBound(at(190), "T")).toBe(2);
+    expect(jointLockBound(at(204), "T")).toBe(2);
+  });
+
+  it("reading P3: a listed pick that is not confirmed, on an alliance still in its bracket, is read as a member at that alliance's value OR on another seat of its division, never both", () => {
+    // Division 2: alliance 21 (fixed at 120) lists L beside its confirmed pick c; alliance 22 (fixed at 120) has one
+    // spare seat and nobody else to give it to. L is 116 short of T alone. As a member of 21 it reaches T. The old
+    // count read it there AND on 22's seat.
+    const input = onceInput({
+      pool: [
+        { teamKey: "T", floor: 259, extra: 0 },
+        { teamKey: "w", floor: 100, extra: 0 },
+        { teamKey: "c", floor: 60, extra: 0 },
+        { teamKey: "d", floor: 60, extra: 0 },
+        { teamKey: "L", floor: 143, extra: 0 },
+      ],
+      alliances: [
+        { allianceNumber: 11, members: ["w"], spareSeats: 0 },
+        { allianceNumber: 21, members: ["c", "L"], spareSeats: 1 },
+        { allianceNumber: 22, members: ["d"], spareSeats: 1 },
+      ],
+      aliveAlliances: [21, 22],
+      candidateWinners: [11],
+      frames: [{ winner: 11, enumerated: [], fixed: new Map([[21, 120], [22, 120]]), fillIns: 0 }],
+      seatGroups: [
+        { alliances: [11], eligible: [] },
+        { alliances: [21, 22], eligible: ["L"] },
+      ],
+    });
+    // w with the champion, L once. c and d at 60 plus 120 stay short.
+    expect(jointLockBound(input, "T")).toBe(2);
+    expect(modelMostTakers(input, "T", 8)).toBe(2);
+    // Read as never on 21 it still counts through 22's seat: with 21 paid nothing, L on 22's seat reaches T.
+    const without21 = { ...input, frames: [{ winner: 11, enumerated: [], fixed: new Map([[22, 120]]), fillIns: 0 }] };
+    expect(jointLockBound(without21, "T")).toBe(2);
+  });
+
+  it("the bound EQUALS the exhaustive maximum of the allocation model on small seeded instances of the single and the divisioned shape, every team", () => {
+    const tally = { single: { checked: 0, tooLarge: 0 }, divisioned: { checked: 0, tooLarge: 0 } };
+    for (const shape of ["single", "divisioned"] as const) {
+      for (let index = 1; index <= 1500; index++) {
+        const instance = onceInstance(onceSeed(index, shape), shape);
+        const input = instance.inputs[0]!;
+        for (const teamKey of instance.teams) {
+          const most = modelMostTakers(input, teamKey, 7);
+          if (most === undefined) {
+            tally[shape].tooLarge += 1;
+            continue;
+          }
+          tally[shape].checked += 1;
+          // Never below is SOUNDNESS against the model; never above is that no rival is counted twice.
+          expect(jointLockBound(input, teamKey), `${shape} seed ${String(onceSeed(index, shape))} ${teamKey}`).toBe(most);
+        }
+      }
+    }
+    console.log(`[261010-l0s the model enumerated] single: teams ${String(tally.single.checked)}, left out as too large ${String(tally.single.tooLarge)} | divisioned: teams ${String(tally.divisioned.checked)}, left out ${String(tally.divisioned.tooLarge)}`);
+    // Pinned as the run shows.
+    expect(tally).toEqual({ single: { checked: 13_899, tooLarge: 2_378 }, divisioned: { checked: 17_628, tooLarge: 10_913 } });
+  }, 120_000);
+
+  it("the proof of before the matching, kept whole in this file as an oracle, is never BELOW the bound on seeded instances of every shape, every team: the rewrite loosened nothing, and the bound is lower where a rival had been counted twice", () => {
+    const tally: Record<OnceShape, { compared: number; lower: number; largestDrop: number }> = {
+      single: { compared: 0, lower: 0, largestDrop: 0 },
+      divisioned: { compared: 0, lower: 0, largestDrop: 0 },
+      multiple: { compared: 0, lower: 0, largestDrop: 0 },
+    };
+    const above: string[] = [];
+    for (const shape of ONCE_SHAPES) {
+      for (let index = 1; index <= 1500; index++) {
+        const seed = onceSeed(index, shape);
+        const instance = onceInstance(seed, shape);
+        for (const teamKey of instance.teams) {
+          const now = onceBound(instance, instance.inputs, teamKey);
+          const was = boundBeforeTheMatchingOver(instance.inputs, teamKey);
+          tally[shape].compared += 1;
+          if (now > was && above.length < 6) above.push(`${shape} seed ${String(seed)} ${teamKey}: ${String(now)} against the oracle's ${String(was)}`);
+          if (now < was) {
+            tally[shape].lower += 1;
+            tally[shape].largestDrop = Math.max(tally[shape].largestDrop, was - now);
+          }
+        }
+      }
+    }
+    console.log(`[261010-l0s against the proof of before the matching] ${ONCE_SHAPES.map((shape) => `${shape}: ${String(tally[shape].compared)} compared, ${String(tally[shape].lower)} lower, by up to ${String(tally[shape].largestDrop)}`).join(" | ")}`);
+    // THE REQUIREMENT. A bound ABOVE the oracle is a LOOSENED proof: a finding, never a pin to move.
+    expect(above).toEqual([]);
+    // Not vacuous: the oracle is strictly above the bound somewhere in every shape, which is the defect that task
+    // closed. Pinned as the run shows.
+    expect(tally).toEqual({
+      single: { compared: 16_277, lower: 714, largestDrop: 2 },
+      divisioned: { compared: 28_541, lower: 6_722, largestDrop: 6 },
+      multiple: { compared: 33_913, lower: 2_346, largestDrop: 3 },
+    });
+  }, 300_000);
+
+  /**
+   * THE TWO PROPERTIES (CONTEXT D2 of the quick task), each an exact zero.
+   *
+   * (a) ANOTHER TEAM'S POSTING NEVER RAISES A BOUND. A legal posting: a team
+   *     that holds no posted award yet, in a championship that still has a
+   *     judged award to give, has 1 to 15 points added to its floor, is
+   *     named in `awardedRivals`, and that championship's judged budget
+   *     drops by one. Every OTHER team's bound is compared.
+   * (b) A TEAM'S OWN FLOOR RISING NEVER RAISES ITS OWN BOUND: by any amount
+   *     with nothing else changed (two draws a team, 1 to 15 and 16 to 90),
+   *     and by its own legal posting.
+   *
+   * WHY THEY HOLD. A scenario's count is the exact maximum over every
+   * allocation, each rival taking one resource. (b): an allocation that
+   * covers a set of rivals against the higher floor covers at least that set
+   * against the lower one. (a): an allocation after the posting, with the
+   * posted award handed back to that team out of a budget one larger, is an
+   * allocation of before it that covers the same rivals.
+   *
+   * WHAT THEY READ BEFORE THE MATCHING (the planner of the quick task, on
+   * these seeds): (a) none. (b) rises on every shape, by up to 5.
+   */
+  it("over seeded transitions of every shape: another team's judged award posting never raises a bound, and a team's own floor rising never raises its own", () => {
+    type Kind = "ownDelta" | "ownAward" | "otherPost";
+    const tallies = new Map<string, { checks: number; rises: number; falls: number }>();
+    const tallyOf = (shape: OnceShape, kind: Kind): { checks: number; rises: number; falls: number } => {
+      const key = `${shape} ${kind}`;
+      let tally = tallies.get(key);
+      if (tally === undefined) {
+        tally = { checks: 0, rises: 0, falls: 0 };
+        tallies.set(key, tally);
+      }
+      return tally;
+    };
+    const firstRises: string[] = [];
+    const record = (shape: OnceShape, kind: Kind, where: string, before: number, after: number): void => {
+      const tally = tallyOf(shape, kind);
+      tally.checks += 1;
+      if (after < before) tally.falls += 1;
+      if (after > before) {
+        tally.rises += 1;
+        if (firstRises.length < 6) firstRises.push(`${shape} ${kind}, ${where}: ${String(before)} then ${String(after)}`);
+      }
+    };
+    const raised = (inputs: readonly JointLockInput[], teamKey: string, by: number): JointLockInput[] =>
+      inputs.map((input) => ({ ...input, pool: input.pool.map((rival) => (rival.teamKey === teamKey ? { ...rival, floor: rival.floor + by } : rival)) }));
+    const posted = (inputs: readonly JointLockInput[], teamKey: string, points: number): JointLockInput[] =>
+      inputs.map((input) => {
+        if (!input.pool.some((rival) => rival.teamKey === teamKey)) return input;
+        return {
+          ...input,
+          pool: input.pool.map((rival) => (rival.teamKey === teamKey ? { ...rival, floor: rival.floor + points } : rival)),
+          judgedAwards: input.judgedAwards - 1,
+          awardedRivals: [...(input.awardedRivals ?? []), teamKey],
+        };
+      });
+    const mayPost = (instance: OnceInstance, teamKey: string): boolean =>
+      instance.postable.includes(teamKey) &&
+      instance.inputs.every((input) => !input.pool.some((rival) => rival.teamKey === teamKey) || (input.judgedAwards >= 1 && !(input.awardedRivals ?? []).includes(teamKey)));
+
+    for (const shape of ONCE_SHAPES) {
+      for (let index = 1; index <= 3000; index++) {
+        const seed = onceSeed(index, shape);
+        const instance = onceInstance(seed, shape);
+        const random = mulberry32(seed ^ 0x5bd1e995);
+        const pick = (count: number): number => Math.floor(random() * count);
+        const base = new Map<string, number>();
+        for (const teamKey of instance.teams) base.set(teamKey, onceBound(instance, instance.inputs, teamKey));
+        for (const teamKey of instance.teams) {
+          const before = base.get(teamKey)!;
+          if (!Number.isFinite(before)) continue;
+          for (const by of [1 + pick(15), 16 + pick(75)]) record(shape, "ownDelta", `seed ${String(seed)} ${teamKey} up ${String(by)}`, before, onceBound(instance, raised(instance.inputs, teamKey, by), teamKey));
+          if (mayPost(instance, teamKey)) {
+            const points = 1 + pick(15);
+            record(shape, "ownAward", `seed ${String(seed)} ${teamKey} posts ${String(points)}`, before, onceBound(instance, posted(instance.inputs, teamKey, points), teamKey));
+          }
+        }
+        // Up to three legal postings an instance, each on its own against the instance as drawn.
+        const legal = instance.postable.filter((teamKey) => mayPost(instance, teamKey));
+        for (let draw = 0; draw < 3 && legal.length > 0; draw++) {
+          const poster = legal.splice(pick(legal.length), 1)[0]!;
+          const points = 1 + pick(15);
+          const after = posted(instance.inputs, poster, points);
+          for (const teamKey of instance.teams) {
+            if (teamKey === poster) continue;
+            const before = base.get(teamKey)!;
+            if (!Number.isFinite(before)) continue;
+            record(shape, "otherPost", `seed ${String(seed)} ${poster} posts ${String(points)}, read for ${teamKey}`, before, onceBound(instance, after, teamKey));
+          }
+        }
+      }
+    }
+    const lines = [...tallies].sort(([a], [b]) => a.localeCompare(b)).map(([key, tally]) => `${key}: ${String(tally.checks)} compared, ${String(tally.rises)} rises, ${String(tally.falls)} falls`);
+    console.log(`[261010-l0s the two properties] ${lines.join(" | ")}`);
+    // THE REQUIREMENT: no bound rises, in any shape, over any of the three kinds of transition.
+    expect({ rises: [...tallies].filter(([, tally]) => tally.rises > 0).map(([key, tally]) => `${key}: ${String(tally.rises)}`), firstRises }).toEqual({ rises: [], firstRises: [] });
+    // Not vacuous, and at least 300,000 comparisons for each property. The counts are pinned as the run shows.
+    const total = (kinds: readonly Kind[]): number => ONCE_SHAPES.reduce((sum, shape) => sum + kinds.reduce((inner, kind) => inner + tallyOf(shape, kind).checks, 0), 0);
+    expect(total(["otherPost"])).toBeGreaterThanOrEqual(300_000);
+    expect(total(["ownDelta", "ownAward"])).toBeGreaterThanOrEqual(300_000);
+    for (const [, tally] of tallies) expect(tally.falls).toBeGreaterThan(0);
+    expect(Object.fromEntries([...tallies].map(([key, tally]) => [key, tally.checks]))).toEqual({
+      "divisioned otherPost": 135_543,
+      "divisioned ownAward": 40_727,
+      "divisioned ownDelta": 114_382,
+      "multiple otherPost": 185_877,
+      "multiple ownAward": 44_368,
+      "multiple ownDelta": 135_816,
+      "single otherPost": 70_521,
+      "single ownAward": 21_554,
+      "single ownDelta": 65_292,
+    });
+  }, 300_000);
+});
+
+// ===========================================================================
+// Quick task 261010-l0s, CONTEXT D5 (the plan check's addendum): a brute force
+// over RULE LEGAL FUTURES with TWO SEAT GROUPS
+// ===========================================================================
+
+describe("champJointLock: brute force soundness over rule legal futures with TWO seat groups (261010-l0s, CONTEXT D5)", () => {
+  /**
+   * WHY THIS TEST EXISTS. `modelMostTakers` above enumerates the same
+   * ALLOCATION reading the matching solves, so the bound being equal to it
+   * says the matching is exact and nothing about the rules. The brute force
+   * of quick task 261010-d7r enumerates futures, but with one seat group.
+   * Two of the three double counts quick task 261010-l0s closed need two
+   * groups to show (a rival no group names, a listed pick on an alliance
+   * still in its bracket). So this test enumerates FUTURES, never
+   * allocations, on small instances that always have two seat groups, and
+   * holds that none puts more rivals ahead of T than the bound. It calls
+   * `jointLockBound` and nothing else of the module: not `coverMatching`, and
+   * none of this file's `modelMostTakers`, `matchingOfOneGroup`,
+   * `referenceCover` or `boundBeforeTheMatching`.
+   *
+   * THE INSTANCES. Two seat groups: alliances 11, 12 and sometimes 13 in
+   * group 0, alliance 21 and sometimes 22 in group 1. One frame (11 wins) or
+   * two (11, and 12 or 21). A frame credits every other alliance one of three
+   * ways: enumerated (an alliance of the winner's own group, paid 75, 39 or
+   * 21 by its place in the order), fixed at a value, or nothing at all. The
+   * teams, T aside:
+   *
+   *   - CONFIRMED PICKS, on an alliance and named by no group;
+   *   - LISTED PICKS THAT ARE NOT CONFIRMED (reading P3), on an alliance AND
+   *     named by its group (sometimes by both groups);
+   *   - RIVALS ON NO ALLIANCE, named by one group, by both, or by none
+   *     (reading P4: eligible in every group);
+   *   - LISTED ONLY PICKS (finding F-D): of a placed alliance (settled 21, 39
+   *     or 75) and, in a one frame instance, of the decided winner (settled
+   *     90), handed over exactly as the status code hands them;
+   *   - SLOT ONLY RIVALS, on no alliance (named by a group or by none) or a
+   *     member of an alliance;
+   *   - AWARDED RIVALS among all of the pool teams.
+   *
+   * T is on no alliance (named by a group or by none), a confirmed pick of an
+   * alliance, or only LISTED by one (reading P3 for T itself).
+   *
+   * THE RULE LEGAL FUTURES, per frame. The frame's winner W wins. The
+   * enumerated alliances finish in every order. Then every team takes ONE
+   * place:
+   *
+   *   - a confirmed pick stays on its alliance: with W it takes a slot, else
+   *     it is paid its alliance's value;
+   *   - a team on no alliance (a listed only pick included) takes nothing, or
+   *     ONE backup seat on an alliance the frame pays above 0, of a group it
+   *     is eligible in, while that alliance has a spare seat, or is W's
+   *     backup while W has a spare seat and it is eligible in W's group;
+   *   - a listed pick that is not confirmed WAS on the alliance that lists
+   *     it (paid its value, or a slot where that alliance is W), or NEVER
+   *     WAS and is free like a team on no alliance;
+   *   - a placed alliance's listed only pick WAS on that alliance (paid the
+   *     settled value, no seat, no fill in) or never was and is free; the
+   *     decided winner's is W's backup or is free, and is never paid the 90;
+   *   - a slot only rival takes a slot only with W.
+   *
+   * An alliance takes as many backups as it has spare seats (0, 1 or 2
+   * here), which is never fewer than the one the backup robot rule allows, so
+   * every rule legal seating is among those enumerated. On top of each
+   * seating the awards are added in closed form, exactly as the brute force
+   * of quick task 261010-d7r adds them: `min(non takers, C + min(K, non
+   * takers that are not awarded and are within one judged award of T))`. That
+   * closed form is itself checked against every hand out of the awards
+   * enumerated, at the first seating of every order and at every 257th
+   * seating after it.
+   *
+   * TWO READINGS OF ONE THING, each enumerated in full: where a listed pick
+   * that is not confirmed sits when it WAS on the alliance that lists it.
+   *
+   *   - RULE LEGAL. It sits in one of the seats that alliance has not
+   *     confirmed. Seats count from confirmed picks (the module's header,
+   *     "SEATS COUNT FROM CONFIRMED PICKS"), so that seat is one of the
+   *     alliance's spare seats and the alliance has one fewer for a backup.
+   *     No future of this reading may be above the bound: that is SOUNDNESS,
+   *     the one thing that must never fail.
+   *   - THE PROOF'S OWN. It is paid its alliance's value and the alliance
+   *     still offers every spare seat: the proof does not take the seat
+   *     away, which only raises its count. Every rule legal future is one of
+   *     these too. Under this reading the bound is not only never below a
+   *     future, it is REACHED at every instance: it is the exact maximum over
+   *     the futures it reads, so no rival is counted twice. That is the claim
+   *     of quick task 261010-l0s, held here from futures and not from
+   *     allocations.
+   *
+   * WHERE T ONLY LISTS ON THE WINNER the futures counted are those where T
+   * never was on it (where it was, T qualifies with the winner). Where T is
+   * a confirmed pick of the winner the frame holds no future against T. T is
+   * read at its floor throughout, as the bound reads it.
+   *
+   * IT BITES (run A of the quick task, measured on this test with the module
+   * broken in one place at a time): a rival eligible in its first group only,
+   * the winner's fill in closed, one seat a seat type, a slot only rival left
+   * out, the judged award alone closed, a seat read one award too far and the
+   * consuming awards dropped each put a rule legal future above the bound. A
+   * listed pick read alone without its alliance's value puts a future of the
+   * proof's own reading above it, and no rule legal one.
+   *
+   * A FAILURE HERE IS A FINDING, never a pin: a legal future above the bound
+   * is the one thing this proof must not have.
+   */
+  it("40,000 seeded instances, two seat groups, one or two frames, with awarded rivals, listed picks, listed only picks, rivals no group names and slot only rivals: no rule legal future puts more rivals ahead of T than the bound, and on the proof's own reading of a listed pick's seat the bound is reached at every one", () => {
+    const INSTANCES = 40_000;
+    const MOST_ACTORS = 7;
+    const m = 200;
+    const PLACEMENT = [75, 39, 21] as const;
+    type Kind = "member" | "listed" | "free" | "listedPlaced" | "listedWinner" | "slotFree" | "slotMember";
+    interface Team {
+      readonly key: string;
+      readonly kind: Kind;
+      readonly floor: number;
+      /** What it may still be paid beyond its floor, a listed only pick's settled value NOT included. */
+      readonly extra: number;
+      /** A listed only pick's settled value: 21, 39 or 75 of a placed alliance, 90 of the decided winner. Else 0. */
+      readonly settled: number;
+      readonly awarded: boolean;
+      /** The alliance it is a confirmed pick of ("member", "slotMember") or that lists it ("listed"). */
+      readonly alliance: number | undefined;
+      /** The seat groups that name it. `undefined`: no group names it. */
+      readonly named: readonly number[] | undefined;
+    }
+    interface FrameSpec {
+      readonly winner: number;
+      readonly enumerated: number[];
+      readonly fixed: Map<number, number>;
+      readonly fillIns: number;
+    }
+    /** What one reading of the futures adds up to over the instances. */
+    interface ReadingTally {
+      futures: number;
+      handOutChecks: number;
+      onBound: number;
+      slack: number;
+    }
+    // The places an actor may take, beside a backup seat on an alliance (its number, always above 0).
+    const NONE = -1;
+    const FILL = -2;
+    const MEMBER = -3;
+    const OWN = -4;
+    const ordersOf = (items: readonly number[]): number[][] =>
+      items.length === 0 ? [[]] : items.flatMap((item, index) => ordersOf([...items.slice(0, index), ...items.slice(index + 1)]).map((tail) => [item, ...tail]));
+    /**
+     * Every hand out of the awards enumerated, for the rivals a seating leaves short of T: each takes nothing, one
+     * judged award (never an awarded rival, never a slot only one; it lifts the rival only where 15 points reach T)
+     * or one consuming award (anyone, whatever its points). The most rivals that take a slot that way.
+     */
+    const handOutsEnumerated = (lifts: readonly boolean[], mayTakeJudged: readonly boolean[], judged: number, consuming: number): number => {
+      let top = 0;
+      const walk = (at: number, count: number, judgedLeft: number, consumingLeft: number): void => {
+        if (at === lifts.length) {
+          if (count > top) top = count;
+          return;
+        }
+        walk(at + 1, count, judgedLeft, consumingLeft);
+        if (judgedLeft > 0 && mayTakeJudged[at]!) walk(at + 1, count + (lifts[at]! ? 1 : 0), judgedLeft - 1, consumingLeft);
+        if (consumingLeft > 0) walk(at + 1, count + 1, judgedLeft, consumingLeft - 1);
+      };
+      walk(0, 0, judged, consuming);
+      return top;
+    };
+
+    const seen = { run: 0, tooLarge: 0, twoFrames: 0, enumerated: 0, listed: 0, unnamed: 0, listedOnly: 0, awarded: 0, slotOnly: 0, tOnlyListed: 0, noFrameAgainstT: 0 };
+    const ruleLegal: ReadingTally = { futures: 0, handOutChecks: 0, onBound: 0, slack: 0 };
+    const proofsOwn: ReadingTally = { futures: 0, handOutChecks: 0, onBound: 0, slack: 0 };
+    let handOutMismatches = 0;
+    const failures: string[] = [];
+
+    for (let seed = 1; seed <= INSTANCES; seed++) {
+      const random = mulberry32(0x10500000 + seed);
+      const pick = (count: number): number => Math.floor(random() * count);
+      const chance = (probability: number): boolean => random() < probability;
+      const drawExtra = (): number => (pick(2) === 0 ? 0 : pick(30));
+
+      // TWO SEAT GROUPS, always.
+      const groupOf = new Map<number, number>([
+        [11, 0],
+        [12, 0],
+        [21, 1],
+      ]);
+      if (chance(1 / 3)) groupOf.set(13, 0);
+      if (chance(1 / 2)) groupOf.set(22, 1);
+      const ids = [...groupOf.keys()].sort((a, b) => a - b);
+
+      // T: on no alliance and named by one group, on none and named by none, a confirmed pick, or only listed.
+      const tDraw = pick(20);
+      const tRole = tDraw < 8 ? "freeNamed" : tDraw < 11 ? "freeUnnamed" : tDraw < 16 ? "member" : "listed";
+      const tAlliance = tRole === "member" || tRole === "listed" ? ids[pick(ids.length)]! : undefined;
+      const tNamed: readonly number[] | undefined = tRole === "freeNamed" ? [pick(2)] : tRole === "listed" ? [groupOf.get(tAlliance!)!] : undefined;
+
+      const teams: Team[] = [];
+      const membersOf = new Map<number, string[]>(ids.map((id) => [id, []]));
+      const spare = new Map<number, number>();
+      for (const id of ids) {
+        const confirmed = pick(3);
+        for (let index = 0; index < confirmed; index++) {
+          const key = `a${String(id)}m${String(index)}`;
+          teams.push({ key, kind: "member", floor: 60 + pick(170), extra: drawExtra(), settled: 0, awarded: chance(0.3), alliance: id, named: undefined });
+          membersOf.get(id)!.push(key);
+        }
+        let listsATeam = false;
+        if (tAlliance === id) {
+          membersOf.get(id)!.push("T");
+          listsATeam = tRole === "listed";
+        }
+        if (chance(0.25)) {
+          const key = `a${String(id)}L`;
+          const own = groupOf.get(id)!;
+          teams.push({ key, kind: "listed", floor: 80 + pick(150), extra: drawExtra(), settled: 0, awarded: chance(0.3), alliance: id, named: chance(0.15) ? [0, 1] : [own] });
+          membersOf.get(id)!.push(key);
+          listsATeam = true;
+        }
+        // Seats count from confirmed picks, so an alliance that lists a team it has not confirmed has that seat spare.
+        spare.set(id, listsATeam ? 1 + pick(2) : pick(3));
+      }
+
+      // ONE OR TWO FRAMES.
+      const winners = chance(0.6) ? [11] : [11, chance(0.5) ? 12 : 21];
+      const frames: FrameSpec[] = winners.map((winner) => {
+        const enumerated: number[] = [];
+        const fixed = new Map<number, number>();
+        for (const id of ids) {
+          if (id === winner) continue;
+          const draw = random();
+          if (draw < 0.1) continue; // this frame credits the alliance nothing
+          if (groupOf.get(id) === groupOf.get(winner)) {
+            if (draw < 0.65) enumerated.push(id);
+            else fixed.set(id, [75, 39, 21, 0][pick(4)]!);
+          } else {
+            fixed.set(id, [120, 90, 30, 21, 0][pick(5)]!);
+          }
+        }
+        return { winner, enumerated, fixed, fillIns: spare.get(winner)! };
+      });
+
+      const freeCount = 1 + pick(3);
+      for (let index = 0; index < freeCount; index++) {
+        const draw = pick(20);
+        const named: readonly number[] | undefined = draw < 7 ? [0] : draw < 14 ? [1] : draw < 16 ? [0, 1] : undefined;
+        teams.push({ key: `f${String(index)}`, kind: "free", floor: 80 + pick(150), extra: drawExtra(), settled: 0, awarded: chance(0.3), alliance: undefined, named });
+      }
+      if (chance(0.45)) {
+        teams.push({ key: "lp", kind: "listedPlaced", floor: 80 + pick(150), extra: drawExtra(), settled: [21, 39, 75][pick(3)]!, awarded: chance(0.3), alliance: undefined, named: chance(0.15) ? undefined : [pick(2)] });
+      }
+      // The decided winner's listed only pick: read that way only where every frame names the one winner.
+      if (winners.length === 1 && chance(0.4)) {
+        teams.push({ key: "lw", kind: "listedWinner", floor: 80 + pick(150), extra: drawExtra(), settled: 90, awarded: chance(0.3), alliance: undefined, named: chance(0.15) ? [0, 1] : [groupOf.get(11)!] });
+      }
+      if (chance(0.35)) {
+        const draw = pick(10);
+        if (draw < 7) {
+          teams.push({ key: "so", kind: "slotFree", floor: 0, extra: 0, settled: 0, awarded: false, alliance: undefined, named: draw < 4 ? [pick(2)] : undefined });
+        } else {
+          const id = ids[pick(ids.length)]!;
+          teams.push({ key: "so", kind: "slotMember", floor: 0, extra: 0, settled: 0, awarded: false, alliance: id, named: undefined });
+          membersOf.get(id)!.push("so");
+        }
+      }
+      const K = pick(4);
+      const C = pick(3);
+      const tAwarded = chance(0.25);
+
+      // The teams that still choose a place: everyone but the confirmed picks.
+      const actors = teams.filter((team) => team.kind !== "member" && team.kind !== "slotMember");
+      if (actors.length > MOST_ACTORS) {
+        seen.tooLarge += 1;
+        continue;
+      }
+      seen.run += 1;
+      if (frames.length === 2) seen.twoFrames += 1;
+      if (frames.some((frame) => frame.enumerated.length > 0)) seen.enumerated += 1;
+      if (teams.some((team) => team.kind === "listed")) seen.listed += 1;
+      if (teams.some((team) => team.alliance === undefined && team.named === undefined)) seen.unnamed += 1;
+      if (teams.some((team) => team.settled > 0)) seen.listedOnly += 1;
+      if (teams.some((team) => team.awarded)) seen.awarded += 1;
+      if (teams.some((team) => team.kind === "slotFree" || team.kind === "slotMember")) seen.slotOnly += 1;
+      if (tRole === "listed" && winners.includes(tAlliance!)) seen.tOnlyListed += 1;
+      // T is a confirmed pick of the winner: T qualifies with it, and that frame holds no future against T.
+      const framesAgainstT = frames.filter((frame) => !(tRole === "member" && tAlliance === frame.winner));
+      if (framesAgainstT.length === 0) seen.noFrameAgainstT += 1;
+
+      const isSlotOnly = (team: Team): boolean => team.kind === "slotFree" || team.kind === "slotMember";
+      const input: JointLockInput = {
+        pool: [
+          { teamKey: "T", floor: m, extra: 0 },
+          ...teams
+            .filter((team) => !isSlotOnly(team))
+            .map((team): JointLockRival =>
+              team.settled > 0
+                ? { teamKey: team.key, floor: team.floor, extra: team.extra + team.settled, listedOnly: { settled: team.settled, onWinner: team.kind === "listedWinner" } }
+                : { teamKey: team.key, floor: team.floor, extra: team.extra }
+            ),
+        ],
+        slotOnlyRivals: teams.filter(isSlotOnly).map((team) => team.key),
+        pointsSlots: 99,
+        alliances: ids.map((id): JointLockAlliance => ({ allianceNumber: id, members: membersOf.get(id)!, spareSeats: spare.get(id)! })),
+        aliveAlliances: ids.filter((id) => !winners.includes(id)),
+        candidateWinners: winners,
+        placementPoints: [...PLACEMENT],
+        consumingAwards: C,
+        judgedAwards: K,
+        judgedAwardPoints: JUDGED,
+        maxAllianceSize: 4,
+        frames: frames.map((frame): JointLockFrame => ({ winner: frame.winner, enumerated: frame.enumerated, fixed: frame.fixed, fillIns: frame.fillIns })),
+        seatGroups: [0, 1].map(
+          (group): JointLockSeatGroup => ({
+            alliances: ids.filter((id) => groupOf.get(id) === group),
+            eligible: [...teams.filter((team) => team.named?.includes(group) === true).map((team) => team.key), ...(tNamed?.includes(group) === true ? ["T"] : [])],
+          })
+        ),
+        awardedRivals: [...teams.filter((team) => team.awarded).map((team) => team.key), ...(tAwarded ? ["T"] : [])],
+      };
+      const bound = jointLockBound(input, "T");
+
+      /**
+       * EVERY FUTURE of one reading, and the most rivals ahead of T in any of them. `listedTakesASeat`: a listed pick
+       * that WAS on the alliance that lists it sits in one of that alliance's spare seats (rule legal), or the
+       * alliance still offers every spare seat beside it (the proof's own reading).
+       */
+      const mostAheadOfT = (tally: ReadingTally, listedTakesASeat: boolean): number => {
+        let most = 0;
+        for (const frame of framesAgainstT) {
+          const W = frame.winner;
+          const winnerGroup = groupOf.get(W)!;
+          for (const order of ordersOf(frame.enumerated)) {
+            const pay = new Map<number, number>(frame.fixed);
+            order.forEach((id, index) => pay.set(id, PLACEMENT[index] ?? 0));
+            const payOf = (id: number): number => pay.get(id) ?? 0;
+            const place = new Array<number>(actors.length).fill(NONE);
+            const placeOf = new Map<string, number>();
+            const seated = new Map<number, number>();
+            let fills = 0;
+            let seatingsOfThisOrder = 0;
+
+            const settle = (): void => {
+              tally.futures += 1;
+              seatingsOfThisOrder += 1;
+              actors.forEach((actor, index) => placeOf.set(actor.key, place[index]!));
+              let takers = 0;
+              const lifts: boolean[] = [];
+              const mayTakeJudged: boolean[] = [];
+              const leftShort = (lift: boolean, judged: boolean): void => {
+                lifts.push(lift);
+                mayTakeJudged.push(judged);
+              };
+              for (const team of teams) {
+                if (team.kind === "slotMember") {
+                  if (team.alliance === W) takers += 1;
+                  else leftShort(false, false);
+                  continue;
+                }
+                const at = placeOf.get(team.key);
+                if (team.kind === "slotFree") {
+                  if (at === FILL) takers += 1;
+                  else leftShort(false, false);
+                  continue;
+                }
+                let points = team.floor + team.extra;
+                if (team.kind === "member") {
+                  if (team.alliance === W) {
+                    takers += 1;
+                    continue;
+                  }
+                  points += payOf(team.alliance!);
+                } else if (at === FILL) {
+                  takers += 1;
+                  continue;
+                } else if (at === MEMBER) {
+                  if (team.alliance === W) {
+                    takers += 1;
+                    continue;
+                  }
+                  points += payOf(team.alliance!);
+                } else if (at === OWN) {
+                  points += team.settled;
+                } else if (at !== undefined && at !== NONE) {
+                  points += payOf(at);
+                }
+                if (points >= m) {
+                  takers += 1;
+                  continue;
+                }
+                leftShort(points + JUDGED >= m, !team.awarded);
+              }
+              let liftable = 0;
+              for (let index = 0; index < lifts.length; index++) if (lifts[index]! && mayTakeJudged[index]!) liftable += 1;
+              const byAwards = Math.min(lifts.length, C + Math.min(K, liftable));
+              if ((seatingsOfThisOrder === 1 || tally.futures % 257 === 0) && lifts.length <= 10) {
+                tally.handOutChecks += 1;
+                if (handOutsEnumerated(lifts, mayTakeJudged, K, C) !== byAwards) handOutMismatches += 1;
+              }
+              if (takers + byAwards > most) most = takers + byAwards;
+            };
+
+            const visit = (index: number): void => {
+              if (index === actors.length) {
+                settle();
+                return;
+              }
+              const actor = actors[index]!;
+              const eligibleIn = (group: number): boolean => actor.named === undefined || actor.named.includes(group);
+              const options: number[] = [NONE];
+              if (actor.kind === "listed") {
+                // It WAS on the alliance that lists it. Rule legal: in one of the seats that alliance has not confirmed.
+                const own = actor.alliance!;
+                if (!listedTakesASeat || (own === W ? fills < frame.fillIns : (seated.get(own) ?? 0) < spare.get(own)!)) options.push(MEMBER);
+              }
+              // The winner's backup. (For a team the winner itself lists, that is MEMBER above.)
+              if (!(actor.kind === "listed" && actor.alliance === W) && eligibleIn(winnerGroup) && fills < frame.fillIns) options.push(FILL);
+              // A backup seat on another alliance the frame pays. It gives a slot only rival nothing.
+              if (actor.kind !== "slotFree") {
+                for (const id of ids) {
+                  if (id === W || id === actor.alliance) continue;
+                  if (payOf(id) <= 0 || !eligibleIn(groupOf.get(id)!) || (seated.get(id) ?? 0) >= spare.get(id)!) continue;
+                  options.push(id);
+                }
+              }
+              // It WAS on the placed alliance that lists it: paid the settled value, on no seat.
+              if (actor.kind === "listedPlaced") options.push(OWN);
+              for (const option of options) {
+                place[index] = option;
+                const takesItsOwnSeat = option === MEMBER && listedTakesASeat;
+                const onTheWinner = option === FILL || (takesItsOwnSeat && actor.alliance === W);
+                const seatOn = takesItsOwnSeat ? actor.alliance! : option;
+                if (onTheWinner) fills += 1;
+                else if (seatOn > 0) seated.set(seatOn, (seated.get(seatOn) ?? 0) + 1);
+                visit(index + 1);
+                if (onTheWinner) fills -= 1;
+                else if (seatOn > 0) seated.set(seatOn, seated.get(seatOn)! - 1);
+              }
+              place[index] = NONE;
+            };
+            visit(0);
+          }
+        }
+        tally.slack += bound - most;
+        if (most === bound) tally.onBound += 1;
+        return most;
+      };
+
+      const describeInstance = (): string =>
+        `K ${String(K)} C ${String(C)} | T ${tRole}${tAlliance === undefined ? "" : ` on ${String(tAlliance)}`}${tNamed === undefined ? "" : ` named by ${tNamed.join("+")}`} | spare ${ids.map((id) => `${String(id)}:${String(spare.get(id))}`).join(" ")} | frames ${frames
+          .map((frame) => `W${String(frame.winner)} enumerated [${frame.enumerated.join(",")}] fixed [${[...frame.fixed].map(([id, value]) => `${String(id)}=${String(value)}`).join(",")}] fill ins ${String(frame.fillIns)}`)
+          .join(" ; ")} | ${teams
+          .map((team) => `${team.key}(${team.kind}${team.alliance === undefined ? "" : `@${String(team.alliance)}`}${team.named === undefined ? "" : ` g${team.named.join("+")}`}):${String(team.floor)}+${String(team.extra)}${team.settled > 0 ? `~${String(team.settled)}` : ""}${team.awarded ? "*" : ""}`)
+          .join(" ")}`;
+      for (const [label, tally, listedTakesASeat] of [
+        ["rule legal", ruleLegal, true],
+        ["the proof's own reading of a listed pick's seat", proofsOwn, false],
+      ] as const) {
+        const most = mostAheadOfT(tally, listedTakesASeat);
+        if (most > bound && failures.length < 6) failures.push(`seed ${String(seed)}, ${label}: a future has ${String(most)} rivals ahead of T, the bound is ${String(bound)} | ${describeInstance()}`);
+        expect(most, failures.at(-1) ?? `seed ${String(seed)}`).toBeLessThanOrEqual(bound);
+      }
+    }
+    const lineOf = (tally: ReadingTally): string =>
+      `futures ${String(tally.futures)}, award hand outs enumerated at ${String(tally.handOutChecks)} seatings, the bound reached at ${String(tally.onBound)}, mean slack ${(tally.slack / Math.max(1, seen.run)).toFixed(3)}`;
+    console.log(
+      `[261010-l0s two seat groups] instances ${String(seen.run)} (left out as too large ${String(seen.tooLarge)}) | two frames ${String(seen.twoFrames)} | an enumerated alliance ${String(seen.enumerated)} | a listed pick that is not confirmed ${String(seen.listed)} | a team no group names ${String(seen.unnamed)} | a listed only pick ${String(seen.listedOnly)} | an awarded rival ${String(seen.awarded)} | a slot only rival ${String(seen.slotOnly)} | T only listed by a candidate winner ${String(seen.tOnlyListed)} | no frame against T ${String(seen.noFrameAgainstT)} | RULE LEGAL: ${lineOf(ruleLegal)} | THE PROOF'S OWN READING OF A LISTED PICK'S SEAT: ${lineOf(proofsOwn)} | the bound is below a future at ${String(failures.length)} | award hand outs differing from the closed form ${String(handOutMismatches)}`
+    );
+    // THE REQUIREMENT: no legal future above the bound, in either reading.
+    expect(failures).toEqual([]);
+    // The closed form of the awards is every hand out enumerated, wherever it was checked.
+    expect(handOutMismatches).toBe(0);
+    // The instances are not vacuous, and every kind of team is in the draw. Pinned as the run shows.
+    expect(seen).toEqual({
+      run: 39_751,
+      tooLarge: 249,
+      twoFrames: 15_928,
+      enumerated: 27_776,
+      listed: 26_334,
+      unnamed: 18_163,
+      listedOnly: 22_833,
+      awarded: 35_971,
+      slotOnly: 13_996,
+      tOnlyListed: 3_000,
+      noFrameAgainstT: 1_528,
+    });
+    // RULE LEGAL FUTURES: never above the bound (the requirement above), and the bound is reached at most instances.
+    // Where it is not, the whole difference is the one reading the next lines remove. Pinned as the run shows.
+    expect({ futures: ruleLegal.futures, handOutChecks: ruleLegal.handOutChecks, onBound: ruleLegal.onBound }).toEqual({ futures: 5_656_885, handOutChecks: 78_241, onBound: 36_680 });
+    // THE PROOF'S OWN READING OF A LISTED PICK'S SEAT: the bound is the exact maximum over the futures, at EVERY
+    // instance. An instance where it is not reached is a rival counted twice: a finding, not a pin to move.
+    expect(proofsOwn.onBound).toBe(seen.run);
+    expect({ futures: proofsOwn.futures, handOutChecks: proofsOwn.handOutChecks }).toEqual({ futures: 7_232_335, handOutChecks: 84_336 });
+  }, 300_000);
 });
