@@ -44,6 +44,9 @@
  *   - `"hindsight"` (the offline publisher, after the fact) needs EITHER of
  *     the first two and reads none of the others. The corpus is ingested
  *     once an event is over, so either fact is proof the ceremony happened.
+ *     That is enforced, not assumed: the district publisher skips a district
+ *     while one of its events is live or still watched (quick task
+ *     261010-jyn), so this vantage is never asked during an event.
  *
  * WHY THE LIST HAS TO SETTLE. TBA can list an event's awards in batches. With
  * the first two facts alone the flag turned true at the first judged award

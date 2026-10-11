@@ -363,8 +363,9 @@
  *     its playoff points (the merge's flag rule waits for a playoff point at
  *     its live vantage, the Worker's; the offline publisher's hindsight
  *     vantage does not wait, so a district publish run from a corpus taken
- *     DURING a live championship could raise the flag that way: that
- *     publisher is run after events are over), and a proven field read
+ *     DURING a live championship could raise the flag that way: since
+ *     quick task 261010-jyn that publisher skips a district while one of
+ *     its events is live), and a proven field read
  *     unproven again (the field proof's count never rises while rows are
  *     only added). Each loses Locked teams when forced.
  *   - The sweeps over finished seasons check none of rules 2 to 4. They

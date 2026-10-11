@@ -1305,8 +1305,10 @@ describe("GROUP C, two championships with one finishing first: 2026 California, 
  *     publisher reads the same rule at its hindsight vantage, which asks for
  *     a judged award listed or award points and reads no playoff point, so
  *     a district publish run from a corpus taken DURING a live championship
- *     could raise a division's flag this way. A stated limit of that
- *     publisher, which is run after events are over; not walked here.
+ *     could raise a division's flag this way. Since quick task 261010-jyn
+ *     that publisher skips a district while one of its events is live (and
+ *     for the rest of the Worker's watch when it would raise a flag the
+ *     published file holds false); not walked here.
  *   - A PROVEN FIELD READING NOT PROVEN AGAIN, by doubling the artifact's
  *     published championship capacity under the same rows. The joint proof
  *     then refuses (`fieldNotProven`) and whatever it alone held is lost.
