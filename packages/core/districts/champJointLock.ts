@@ -670,7 +670,16 @@
  * assignment enumerated on small cost tables; against the exact dynamic
  * program of before this task on one seat group (kept in the test file as
  * the reference), plain, with awarded flags and with seat deficits; and the
- * whole bound against the exhaustive maximum of the model.
+ * whole bound against the exhaustive maximum of the model. Those three read
+ * a future the way this module does, as an allocation. ONE TEST DOES NOT:
+ * "brute force soundness over rule legal futures with TWO seat groups"
+ * enumerates FUTURES themselves (who sits where, per frame and per order of
+ * the enumerated alliances) on 39,751 small seeded instances with two seat
+ * groups, one or two frames, awarded rivals, listed picks, listed only
+ * picks, rivals no group names and slot only rivals, and calls nothing of
+ * this module but `jointLockBound`. No rule legal future of 5,656,885 puts
+ * more rivals ahead of T than the bound, and on this module's own reading
+ * of a listed pick's seat the bound is reached at every instance.
  *
  * ---------------------------------------------------------------------------
  * A PICK TBA HAS PAID FOR AN ALLIANCE'S PLAYOFFS IS ON THAT ALLIANCE (quick
@@ -705,6 +714,43 @@
  *     list of the division: a team with a row at that division's key that
  *     no alliance there lists and that the finals have paid is counted as
  *     the winner's pick.
+ *
+ * THE GATE (CONTEXT D5 of that task). The caller reads a payment once the
+ * key's Playoffs read final at the position AND the team's own row at the
+ * key carries playoff points above 0. At the live position that stage is
+ * the FIELD saying the key's playoffs are done with the winner's playoff
+ * value on a row there, or the key's awards posted
+ * (`corroboratedCategoryFinality`, quick task 261009-vp9); at a rewound stop
+ * it is the stop's own stage. MEMBERSHIP IS SOUND EITHER WAY: only a team
+ * that played for an alliance is paid, whenever its row is read. What the
+ * gate adds is that every team's payment is on its row, and so in its
+ * floor, from the tick the stage turns final. That rests on TBA posting an
+ * event's playoff points together, the assumption quick task 261009-vp9
+ * states plainly (`categoryCorroboration.ts`, "THE ASSUMPTION THAT
+ * REMAINS"). It is checked on the walks and not proven. Were a payment to
+ * land later than that, its pick would be confirmed later: a seat closed
+ * later, which is sound.
+ *
+ * TWO GUARDS, each on the side with the larger bound (CONTEXT D5 of that
+ * task; both are the caller's, `champLedgerStatus.ts`):
+ *
+ *   - A payment confirms a listed pick only where the lists of its key
+ *     name that team EXACTLY ONCE. A team two lists name played for one of
+ *     them at most and the rows do not say which, so it is confirmed on
+ *     neither, both seats stay open, and it is a plain rival with its
+ *     payment in its floor.
+ *   - The finals name a division winner's backup only where EXACTLY ONE
+ *     unlisted team of that division was paid at the finals. The winner has
+ *     one seat left at most, so with two or more nobody is named, the seat
+ *     stays open and each stays an eligible team of its division.
+ *
+ * Confirming a pick only ever closes a seat, so holding one back can only
+ * raise a bound. Neither case is in the data: over the 89 championship tier
+ * keys of 2023 to 2026 no team of the 1,937 on a key's lists is named twice
+ * there, and no division of 40 has an unlisted team paid at the finals.
+ * Each guard is held by tests of the status code
+ * (`champLedgerStatus.test.ts`: "guard one", "guard one at a division" and
+ * "guard two"), and each of those fails with its guard taken out.
  *
  * WHY IT IS SOUND, in every shape. Playoff points at a key are paid only to
  * a team that played for an alliance there, and a team is on one alliance at
@@ -742,13 +788,18 @@
  * pays. So every allocation of after the tick is an allocation of before it
  * that covers the same rivals.
  *
- * WHAT IT RESTS ON BEYOND THE RULES: TBA's own alliance lists, with the
- * field's backups appended (`dcmpBracketFactsFor`). A team TBA paid at a
- * single championship that NO alliance lists is confirmed nowhere and its
- * alliance's seat stays open, which is sound and would still let a bound
- * rise by one at that tick. Measured by the planner of that task over the
- * 89 championship tier keys of 2023 to 2026: of 894 teams paid playoff
- * points at a championship or division key, none is on no alliance's list;
+ * WHAT IT RESTS ON BEYOND THE RULES, AND ITS ONE STATED LIMIT: TBA's own
+ * alliance lists, with the field's backups appended (a backup seen on a
+ * played row joins its alliance's list, `dcmpBracketFactsFor`). A team TBA
+ * paid at a single championship that NO alliance lists and no played row
+ * shows is confirmed nowhere and its alliance's seat stays open, which is
+ * sound and would still let a bound rise by one at that tick. The same is
+ * true wherever one of the two guards above holds a team back: the reading
+ * there is the one of before this rule.
+ *
+ * MEASURED by the planner of that task over the 89 championship tier keys
+ * of 2023 to 2026: of 894 teams paid playoff points at a championship or
+ * division key, none is on no alliance's list;
  * the rule confirms 18 picks, 9 of them on the alliance placed first, every
  * one seen on the field beside a team of the alliance that lists it; and of
  * 60 teams paid at a finals key every one is on its division winner's list,

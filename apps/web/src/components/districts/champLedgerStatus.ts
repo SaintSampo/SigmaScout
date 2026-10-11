@@ -355,7 +355,28 @@
  *    the winner's pick (its backup, called up for the finals). A listed
  *    pick TBA paid nothing stays not confirmed and its seat stays open, and
  *    a division winner with no backup keeps its spare seat until the finals
- *    have paid one. WHAT IT CLOSED, measured by that task's planner with
+ *    have paid one. THE GATE (CONTEXT D5 of that task): a payment is read
+ *    once the key's Playoffs read final at the position AND the team's own
+ *    row there carries playoff points. At the live position that stage is
+ *    the FIELD saying the key's playoffs are done with the winner's playoff
+ *    value on a row there, or the key's awards posted (quick task
+ *    261009-vp9); at a rewound stop it is the stop's own stage. Membership
+ *    is sound either way: only a team that played for an alliance is paid.
+ *    That every payment is on its row, and so in its floor, from the tick
+ *    the stage turns final rests on TBA posting an event's playoff points
+ *    together, the assumption that task states plainly
+ *    (`categoryCorroboration.ts`), checked on the walks and not proven.
+ *    TWO GUARDS, each on the side with the larger bound. A payment confirms
+ *    a pick only where the lists of its key name that team EXACTLY ONCE
+ *    (`listedExactlyOnce`): a team two lists name is confirmed on neither
+ *    and both seats stay open. And the finals name a division winner's
+ *    backup only where EXACTLY ONE unlisted team of that division was paid
+ *    there: with two or more nobody is named and the winner's seat stays
+ *    open. Neither case is in the 89 championship tier keys of 2023 to 2026
+ *    (no team of the 1,937 on a key's lists is named twice there, and no
+ *    division of 40 has an unlisted team paid at the finals), and where a
+ *    guard holds a team back the reading is the one of before the rule.
+ *    WHAT IT CLOSED, measured by that task's planner with
  *    every bound read exactly: 20 team bounds rose by one over 5 edges of
  *    the 32 one event live walks (2026ca 16, 2025fin 2, 2024fnc 1, 2026fnc
  *    1), each 14 or more above its points slots, at the tick the playoff
@@ -1211,6 +1232,24 @@ function paidPlayoffsAt(artifact: DistrictArtifact, eventKey: string): Set<strin
 }
 
 /**
+ * GUARD ONE OF THE PAID PICK RULE (quick task 261010-l0s, CONTEXT D5): the
+ * teams the alliance lists of one key name EXACTLY ONCE. A payment confirms a
+ * listed pick only where it is one of them. A team two lists name (or one
+ * list names twice) played for one alliance at most, and the rows do not say
+ * which: it is confirmed on neither, both seats stay open and it is a plain
+ * rival with its payment in its floor. That is the side with the larger
+ * bound, since confirming a pick only ever closes a seat. The alliance
+ * selection points rule is not changed by this guard.
+ */
+function listedExactlyOnce(alliances: readonly { readonly picks: readonly string[] }[]): Set<string> {
+  const times = new Map<string, number>();
+  for (const alliance of alliances) for (const pick of alliance.picks) times.set(pick, (times.get(pick) ?? 0) + 1);
+  const once = new Set<string>();
+  for (const [teamKey, count] of times) if (count === 1) once.add(teamKey);
+  return once;
+}
+
+/**
  * How many teams carry EXACTLY one judged award's points on their row at a
  * dcmp key (15 in 2026): a lower bound on the JUDGED awards that event has
  * posted. For a WHOLE championship's remaining judged budget (a finished
@@ -1412,11 +1451,13 @@ function eightAllianceInput(
   // THE PAID PICK RULE (quick task 261010-l0s, finding F2; decision 5 in this module's header): once this key's
   // Playoffs are final at the position, a pick an alliance lists whose row here carries playoff points is on it.
   const paid = input.dcmpStageByEvent.get(eventKey)?.elim === true ? paidPlayoffsAt(artifact, eventKey) : NOBODY_PAID;
+  // GUARD ONE (CONTEXT D5 of that task): a payment confirms a pick only where the lists of this key name it exactly once.
+  const listedOnce = listedExactlyOnce(facts.alliances);
   const alliances: JointLockAlliance[] = facts.alliances.map((alliance) => {
     const confirmed = confirmedPicks(
       alliance.picks,
       (pick) => (points.get(pick) ?? 0) > 0,
-      (pick) => paid.has(pick)
+      (pick) => paid.has(pick) && listedOnce.has(pick)
     );
     return { allianceNumber: alliance.allianceNumber, members: confirmed, spareSeats: Math.max(0, MAX_WINNING_ALLIANCE_SIZE - confirmed.length) };
   });
@@ -1750,15 +1791,22 @@ function divisionedJointProof(
     // division only the winner plays the finals.
     const paidHere = stage.elim ? paidPlayoffsAt(artifact, key) : NOBODY_PAID;
     const listedByAnAllianceHere = new Set(facts.alliances.flatMap((alliance) => alliance.picks));
-    const finalsBackups =
+    // GUARD ONE (CONTEXT D5 of that task): a payment confirms a listed pick only where the lists of this key name
+    // that team exactly once. A team two lists name is confirmed on neither, and both seats stay open.
+    const listedOnceHere = listedExactlyOnce(facts.alliances);
+    // GUARD TWO (CONTEXT D5 of that task): the finals name the winner's backup only where EXACTLY ONE such team was
+    // paid there. The winner has one seat left at most, so with two or more the rows do not say who holds it: nobody
+    // is named, the seat stays open and each stays an eligible team of this division.
+    const unlistedPaidAtTheFinals =
       routing.decidedWinner === undefined ? [] : [...settled.keys()].filter((teamKey) => !listedByAnAllianceHere.has(teamKey) && paidAtTheFinals.has(teamKey)).sort();
+    const finalsBackups = unlistedPaidAtTheFinals.length === 1 ? unlistedPaidAtTheFinals : [];
     for (const alliance of facts.alliances) {
       const id = divisionAllianceId(divisionIndex, alliance.allianceNumber);
       const wonTheDivision = alliance.allianceNumber === routing.decidedWinner;
       const confirmed = confirmedPicks(
         wonTheDivision ? [...alliance.picks, ...finalsBackups] : alliance.picks,
         (pick) => (points.get(pick) ?? 0) > 0,
-        (pick) => paidHere.has(pick) || (wonTheDivision && paidAtTheFinals.has(pick))
+        (pick) => (listedOnceHere.has(pick) && (paidHere.has(pick) || (wonTheDivision && paidAtTheFinals.has(pick)))) || (wonTheDivision && finalsBackups.includes(pick))
       );
       for (const pick of confirmed) confirmedHere.add(pick);
       for (const pick of alliance.picks) listedHere.add(pick);

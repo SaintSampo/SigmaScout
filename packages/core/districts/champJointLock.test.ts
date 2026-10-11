@@ -2055,7 +2055,8 @@ describe("champJointLock: divisioned exhaustive soundness E3 over rule legal fut
       }
     }
     expect(counters.futures).toBeGreaterThan(1_000_000);
-    // Measured at these seeds: 5,697,088 futures and 106 teams on their bound.
+    // Measured at these seeds: 5,697,088 futures and 143 teams on their bound (106 until quick task 261010-l0s made
+    // every rival count once: the bound is lower where a rival had been counted twice, so more teams reach it).
     expect(onTheBound).toBeGreaterThan(50);
   }, 120_000);
 });

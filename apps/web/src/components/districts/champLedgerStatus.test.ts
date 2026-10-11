@@ -1495,6 +1495,43 @@ describe("computeChampLedgerStatuses — the joint worst case proof (261009-2tr)
       expect(allianceOf(inputBefore, 1).members).toEqual(ALLIANCES[0]!.picks);
       expect(allianceOf(inputBefore, 1).spareSeats).toBe(1);
     });
+
+    it("guard one (CONTEXT D5): a paid team that TWO alliances of the key list is confirmed on neither and both seats stay open, which is the side with the larger bound", () => {
+      const artifact = artifactWith(60);
+      // TBA's lists at fault: the winner and alliance 2 both name the fourth. It played for one of them at most, and
+      // the rows do not say which.
+      const twoLists = ALLIANCES.map((alliance) => (alliance.allianceNumber === 1 || alliance.allianceNumber === 2 ? { ...alliance, picks: [...alliance.picks, FOURTH] } : alliance));
+      const guarded = inputOf(readAt(artifact, PLAYOFFS_FINAL_STOP, twoLists));
+      expect(guarded.candidateWinners).toEqual([1]);
+      expect(allianceOf(guarded, 1)).toEqual({ allianceNumber: 1, members: ALLIANCES[0]!.picks, spareSeats: 1 });
+      expect(allianceOf(guarded, 2)).toEqual({ allianceNumber: 2, members: ALLIANCES[1]!.picks, spareSeats: 1 });
+      // Nobody else's alliance reads another way than with the fourth on no list at all.
+      expect(guarded.alliances).toEqual(inputOf(readAt(artifact, PLAYOFFS_FINAL_STOP, ALLIANCES)).alliances);
+      // TBA's payment is in its floor all the same: a plain rival, counted once.
+      expect(rivalOf(guarded, FOURTH)).toEqual({ teamKey: FOURTH, floor: 208, extra: 0 });
+
+      // THE LARGER BOUND: no team's bound is below the reading that names the fourth on either alliance alone, and
+      // against the reading that puts it on the winner some are above it (the winner's seat is still open).
+      const onTheWinner = inputOf(readAt(artifact, PLAYOFFS_FINAL_STOP, listedOn(1)));
+      const onTheOther = inputOf(readAt(artifact, PLAYOFFS_FINAL_STOP, listedOn(2)));
+      expect(allianceOf(onTheWinner, 1).spareSeats).toBe(0);
+      expect(allianceOf(onTheOther, 2).spareSeats).toBe(0);
+      let compared = 0;
+      let aboveTheWinnersReading = 0;
+      for (const rival of guarded.pool) {
+        const bound = jointLockBound(guarded, rival.teamKey);
+        compared += 1;
+        expect(bound, rival.teamKey).toBeGreaterThanOrEqual(jointLockBound(onTheWinner, rival.teamKey));
+        expect(bound, rival.teamKey).toBeGreaterThanOrEqual(jointLockBound(onTheOther, rival.teamKey));
+        if (bound > jointLockBound(onTheWinner, rival.teamKey)) aboveTheWinnersReading += 1;
+      }
+      expect(compared).toBeGreaterThan(20);
+      expect(aboveTheWinnersReading).toBeGreaterThan(0);
+      // The team itself is not put on the one winner by a list the rows cannot place: on the winner alone its bound
+      // is 0, here it is counted like any rival.
+      expect(jointLockBound(onTheWinner, FOURTH)).toBe(0);
+      expect(jointLockBound(guarded, FOURTH)).toBeGreaterThan(0);
+    });
   });
 });
 
@@ -2020,6 +2057,65 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
       expect(champion(inputBefore).spareSeats).toBe(1);
       expect(champion(inputBefore).members).toEqual(CHAMPION);
     });
+
+    it("guard two (CONTEXT D5): with TWO unlisted teams of the champion's division paid at the finals nobody is named and the champion keeps its seat, which is the side with the larger bound", () => {
+      /** A second team no alliance picked, moved into division 1 and paid at the finals key exactly as the backup is. */
+      const SECOND = others[25]!;
+      expect([...DIV1_ALLIANCES, ...DIV2_ALLIANCES].some((alliance) => alliance.picks.includes(SECOND))).toBe(false);
+      const onePaid = artifactWith(FINALS_WINNER_POINTS);
+      const twoPaid: DistrictArtifact = DistrictArtifactSchema.parse({
+        ...onePaid,
+        teams: onePaid.teams.map((team) => {
+          if (team.teamKey !== SECOND) return team;
+          const relabel = <T extends { eventKey: string }>(row: T): T => (row.eventKey === DIV2 ? { ...row, eventKey: DIV1 } : row);
+          const eventPoints = team.eventPoints.map(relabel);
+          const division = eventPoints.find((row) => row.eventKey === DIV1)!;
+          return {
+            ...team,
+            pointTotal: team.pointTotal + FINALS_WINNER_POINTS,
+            eventPoints: [...eventPoints, { ...division, eventKey: PARENT, qual: 0, alliance: 0, elim: FINALS_WINNER_POINTS, award: 0, total: FINALS_WINNER_POINTS }],
+            remainingEvents: team.remainingEvents.map(relabel),
+          };
+        }),
+      });
+      // TBA's finals list names neither: the champion has one seat left at most, and the rows show two teams for it.
+      const guarded = inputAt(twoPaid, PLAYOFFS_FINAL, false);
+      expect(champion(guarded)).toEqual({ allianceNumber: CHAMPION_ID, members: CHAMPION, spareSeats: 1 });
+      expect(frameShape(guarded)).toEqual([{ winner: CHAMPION_ID, fillIns: 1 }]);
+      expect(guarded.seatGroups![0]!.eligible).toEqual(expect.arrayContaining([BACKUP, SECOND]));
+      // Each carries the finals' payment in its floor all the same.
+      const second = (artifact: DistrictArtifact) => rivalOf(inputAt(artifact, PLAYOFFS_FINAL, false), SECOND)!.floor;
+      expect(second(twoPaid)).toBe(second(onePaid) + FINALS_WINNER_POINTS);
+      // With ONE of them paid the rule names it (the tests above); the second payment is the whole difference.
+      expect(champion(inputAt(onePaid, PLAYOFFS_FINAL, false))).toEqual({ allianceNumber: CHAMPION_ID, members: [...CHAMPION, BACKUP], spareSeats: 0 });
+
+      // THE LARGER BOUND: no team's bound is below the reading that names either one of the two as the champion's
+      // fourth (built by hand from the guarded input: a member, the seat and the fill in closed, no longer eligible).
+      const named = (teamKey: string): JointLockInput => ({
+        ...guarded,
+        alliances: guarded.alliances.map((alliance) => (alliance.allianceNumber === CHAMPION_ID ? { ...alliance, members: [...alliance.members, teamKey], spareSeats: 0 } : alliance)),
+        frames: guarded.frames!.map((frame) => (frame.winner === CHAMPION_ID ? { ...frame, fillIns: 0 } : frame)),
+        seatGroups: guarded.seatGroups!.map((group) => (group.alliances.includes(CHAMPION_ID) ? { ...group, eligible: group.eligible.filter((eligible) => eligible !== teamKey) } : group)),
+      });
+      // The hand built reading is the status code's own where one team is paid.
+      expect(named(BACKUP).alliances).toEqual(inputAt(onePaid, PLAYOFFS_FINAL, false).alliances);
+      let compared = 0;
+      let above = 0;
+      for (const teamKey of [BACKUP, SECOND]) {
+        const reading = named(teamKey);
+        for (const rival of guarded.pool) {
+          const bound = jointLockBound(guarded, rival.teamKey);
+          compared += 1;
+          expect(bound, `${rival.teamKey} against ${teamKey} named`).toBeGreaterThanOrEqual(jointLockBound(reading, rival.teamKey));
+          if (bound > jointLockBound(reading, rival.teamKey)) above += 1;
+        }
+        // Named, the team is on the one champion; guarded, neither is.
+        expect(jointLockBound(reading, teamKey)).toBe(0);
+        expect(jointLockBound(guarded, teamKey)).toBeGreaterThan(0);
+      }
+      expect(compared).toBeGreaterThan(40);
+      expect(above).toBeGreaterThan(0);
+    });
   });
 
   describe("the finals event not yet on the wire (quick task 261010-d7r, D2; first built as D3 of quick task 261010-66y and refused there)", () => {
@@ -2202,6 +2298,52 @@ describe("computeChampLedgerStatuses — divisioned and two championship joint p
     expect(paidPickAt.alliances.find((alliance) => alliance.allianceNumber === 27)).toEqual({ allianceNumber: 27, members: ["frc7034"], spareSeats: 3 });
     expect(paidPickAt.seatGroups![1]!.eligible).not.toContain("frc7034");
     expect(paidPickAt.alliances.filter((alliance) => alliance.allianceNumber > 20 && alliance.allianceNumber !== 27).every((alliance) => alliance.members.length === 0 && alliance.spareSeats === 4)).toBe(true);
+  });
+
+  it("guard one at a division (quick task 261010-l0s, CONTEXT D5): a paid team that TWO alliances of its division list is confirmed on neither and stays an eligible team of the division, which is the side with the larger bound", () => {
+    /** The fixture's paid pick of the test above: 12 playoff points at division 2, no alliance selection points, listed by alliance 7. */
+    const PAID = "frc7034";
+    const inputWith = (divisionTwo: typeof DIV2_ALLIANCES): JointLockInput => {
+      const model = modelAt(
+        DIVISIONED,
+        new Map([
+          [DIV1, PLAYOFFS_FINAL],
+          [DIV2, PLAYOFFS_FINAL],
+          [PARENT, ALL_OPEN],
+        ]),
+        new Map([
+          entry(DIV1, facts(DIV1, PLAYOFFS_FINAL, DIV1_ALLIANCES, [...ROUND_FIVE, ...FINAL_ONE_WINS], "division")),
+          entry(DIV2, facts(DIV2, PLAYOFFS_FINAL, divisionTwo, higherSeedRows(), "division")),
+        ])
+      );
+      if (model.jointProof?.applied !== true || model.jointProof.shape !== "divisioned") throw new Error(`not applied: ${JSON.stringify(model.jointProof?.applied === true ? model.jointProof.shape : model.jointProof)}`);
+      return model.jointProof.input;
+    };
+    const allianceOf = (input: JointLockInput, allianceNumber: number) => input.alliances.find((alliance) => alliance.allianceNumber === allianceNumber);
+    // TBA's lists at fault: alliance 8 of division 2 names it too. It played for one of the two at most.
+    const twoLists = DIV2_ALLIANCES.map((alliance) => (alliance.allianceNumber === 8 ? { ...alliance, picks: [...alliance.picks, PAID] } : alliance));
+    const named = inputWith(DIV2_ALLIANCES);
+    const guarded = inputWith(twoLists);
+    // One list: the rule names it (the test above).
+    expect(allianceOf(named, 27)).toEqual({ allianceNumber: 27, members: [PAID], spareSeats: 3 });
+    expect(named.seatGroups![1]!.eligible).not.toContain(PAID);
+    // Two lists: confirmed on neither, every seat of both open, and an eligible team of its division again.
+    expect(allianceOf(guarded, 27)).toEqual({ allianceNumber: 27, members: [], spareSeats: 4 });
+    expect(allianceOf(guarded, 28)).toEqual({ allianceNumber: 28, members: [], spareSeats: 4 });
+    expect(guarded.seatGroups![1]!.eligible).toContain(PAID);
+    // Nothing else differs between the two inputs.
+    expect({ ...guarded, alliances: guarded.alliances.filter((alliance) => alliance.allianceNumber !== 27), seatGroups: [guarded.seatGroups![0]] }).toEqual({
+      ...named,
+      alliances: named.alliances.filter((alliance) => alliance.allianceNumber !== 27),
+      seatGroups: [named.seatGroups![0]],
+    });
+    // THE LARGER BOUND: no team's bound is below the reading that names it on the one alliance.
+    let compared = 0;
+    for (const rival of guarded.pool) {
+      compared += 1;
+      expect(jointLockBound(guarded, rival.teamKey), rival.teamKey).toBeGreaterThanOrEqual(jointLockBound(named, rival.teamKey));
+    }
+    expect(compared).toBeGreaterThan(20);
   });
 
   /** Every DIVISIONED team the artifact names at no championship key: no division row, no finals row, no registration. */
