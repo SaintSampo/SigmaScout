@@ -29,7 +29,7 @@
  *     more real fact through the merge's own two entry points.
  *
  * Every order in which the facts can arrive is a path of edges, so checking
- * every edge covers every order. Over each edge two things must hold:
+ * every edge covers every order. Over each edge three things must hold:
  *
  *   1. NO HELD TEAM IS LOST: a team shown Locked (or prequalified) before the
  *      edge is shown Locked (or prequalified) after it. This is read off the
@@ -39,12 +39,47 @@
  *      pool team's margin (the points slots minus its joint bound) is smaller
  *      after the edge. A margin that drops is a bound that rose, which is the
  *      mechanism of a take back whether or not a Locked team sits on it yet.
+ *   3. NO BOUND RISES (quick task 261010-l0s): where the joint proof is
+ *      applied on both sides, no pool team's joint bound is higher after the
+ *      edge, Locked or not. The points slots never rise over an edge of this
+ *      file, so at this file's reading 3 follows from 2; it is counted on its
+ *      own, by team bounds compared, so that a bound that rose is named as
+ *      one. The last group of this file holds the counts.
  *
  * THE BOUNDS ARE READ EXACTLY UP TO 12 ABOVE THE POINTS SLOTS (planner reading
  * R8): `jointLockBound` is asked with that stop and the answer capped there.
  * A bound that high locks nobody on either side of an edge, so two bounds at
  * or above the cap read as equal. The figure is a cost limit, not a tolerance:
  * it is never widened or narrowed to make a test pass.
+ *
+ * WHAT THAT READING DOES NOT SEE. A bound that rises wholly ABOVE the cap,
+ * under a team more than 12 from its points slots on both sides of an edge,
+ * reads as equal here. The planner of quick task 261010-l0s read part of
+ * this file once with every bound exact: the 32 one event walks and the 13
+ * divisioned walks with the finals key on no row (group D), and the rewound
+ * lattices of the 12 two division championships and of California (groups A
+ * to C). That is 3,806 edges and 752,080 team bounds. The FIM seasons'
+ * lattices and the walks with the finals key registered were left out for
+ * their cost. Two things showed, neither under a team shown Locked:
+ *
+ *   - BEFORE THAT TASK 22 bounds rose by one over 22 edges, every one frc9710
+ *     at 2024 NE (65 or more above its points slots), each at the edge where
+ *     its OWN division award posts: its floor passed rivals the proof then
+ *     counted twice. That task made every rival count once, and those read
+ *     none. The last group of this file holds that lattice exact.
+ *   - BEFORE AND AFTER IT 20 bounds rise by one over 5 edges of the one event
+ *     walks, each 14 or more above its points slots: 2024fnc 1, 2025fin 2,
+ *     2026fnc 1, and 2026ca 8 at each of two edges. Every one is the tick a
+ *     key's PLAYOFF POINTS LAND after its playoffs are done, where the
+ *     decided winner lists a team that holds no alliance selection points and
+ *     TBA then pays that team for the winner's playoffs. Until the tick the
+ *     proof counts it through the winner's one fill in. After it the team is
+ *     ahead of some teams by its own floor, and the winner's spare seat still
+ *     counts as open, since seats count from confirmed picks. NOT CLOSED: the
+ *     cause is in what the status code hands the proof
+ *     (`packages/core/districts/champJointLock.ts`, "ONE RISE IS KNOWN AND NOT
+ *     CLOSED"). No team within 12 of its points slots shows it on any walk
+ *     of this file, which is why every assertion here holds.
  *
  * THE GROUPS OF THIS FILE:
  *   A. THE AWARDS ORDER TEST. Every divisioned championship of 2023 to 2026,
@@ -322,13 +357,13 @@ interface Reading {
   readonly bound: ReadonlyMap<string, number>;
 }
 
-function readingOf(model: ChampLedgerStatusModel): Reading {
+function readingOf(model: ChampLedgerStatusModel, slack = BOUND_SLACK): Reading {
   const proof = model.jointProof;
   const held = new Set<string>();
   for (const result of model.byTeam.values()) if (result.status === "locked" || result.status === "prequalified") held.add(result.teamKey);
   const bound = new Map<string, number>();
   if (proof?.applied === true) {
-    const cap = model.pointsSlots + BOUND_SLACK;
+    const cap = model.pointsSlots + slack;
     if (proof.shape === "multiple") {
       const teamKeys = new Set(proof.championships.flatMap((input) => input.pool.map((rival) => rival.teamKey)));
       for (const teamKey of teamKeys) bound.set(teamKey, Math.min(cap, jointLockBoundMultiple(proof.championships, teamKey, cap)));
@@ -355,11 +390,16 @@ interface EdgeTally {
   /** Team margins dropped, over every edge. */
   marginDrops: number;
   largestDrop: number;
+  /** Team bounds compared: every pool team on both sides of an edge where the proof is applied on both (quick task 261010-l0s). */
+  boundComparisons: number;
+  /** Team bounds HIGHER after an edge than before it, Locked or not. */
+  boundRises: number;
   /** Edges over which the proof went from applied to not applied. */
   appliedThenRefused: number;
   /** The first lines of each finding, for the failure message and the log. */
   readonly lostLines: string[];
   readonly dropLines: string[];
+  readonly riseLines: string[];
   /** The distinct teams lost. */
   readonly lostTeams: Set<string>;
 }
@@ -373,9 +413,12 @@ function newTally(): EdgeTally {
     edgesWithADrop: { flag: 0, stop: 0, step: 0 },
     marginDrops: 0,
     largestDrop: 0,
+    boundComparisons: 0,
+    boundRises: 0,
     appliedThenRefused: 0,
     lostLines: [],
     dropLines: [],
+    riseLines: [],
     lostTeams: new Set(),
   };
 }
@@ -407,6 +450,11 @@ function checkEdge(tally: EdgeTally, kind: EdgeKind, where: string, before: Read
   for (const [teamKey, was] of before.bound) {
     const now = after.bound.get(teamKey);
     if (now === undefined) continue;
+    tally.boundComparisons += 1;
+    if (now > was) {
+      tally.boundRises += 1;
+      if (tally.riseLines.length < LINES_KEPT) tally.riseLines.push(`${kind} edge, ${where}: ${teamKey} bound ${String(was)} then ${String(now)} against ${String(before.pointsSlots)} then ${String(after.pointsSlots)} points slots`);
+    }
     const marginBefore = before.pointsSlots - was;
     const marginAfter = after.pointsSlots - now;
     if (marginAfter >= marginBefore) continue;
@@ -430,18 +478,21 @@ function addTally(into: EdgeTally, from: EdgeTally): void {
   }
   into.marginDrops += from.marginDrops;
   into.largestDrop = Math.max(into.largestDrop, from.largestDrop);
+  into.boundComparisons += from.boundComparisons;
+  into.boundRises += from.boundRises;
   into.appliedThenRefused += from.appliedThenRefused;
   for (const line of from.lostLines) if (into.lostLines.length < LINES_KEPT) into.lostLines.push(line);
   for (const line of from.dropLines) if (into.dropLines.length < LINES_KEPT) into.dropLines.push(line);
+  for (const line of from.riseLines) if (into.riseLines.length < LINES_KEPT) into.riseLines.push(line);
 }
 
-/** The assertion of a rules on run: nothing lost, nothing dropped, with the findings in the message. */
+/** The assertion of a rules on run: nothing lost, nothing dropped, no bound higher, with the findings in the message. */
 function expectMonotone(label: string, tally: EdgeTally): void {
-  const findings = [...tally.lostLines, ...tally.dropLines];
+  const findings = [...tally.lostLines, ...tally.dropLines, ...tally.riseLines];
   expect(
-    { label, lostOverFlagEdges: tally.lost.flag, lostOverStopEdges: tally.lost.stop, lostOverStepEdges: tally.lost.step, marginDrops: tally.marginDrops, findings },
-    `${label}: a Locked team was lost or a margin dropped with the rules ON. This is a finding, never a pin to move.`
-  ).toEqual({ label, lostOverFlagEdges: 0, lostOverStopEdges: 0, lostOverStepEdges: 0, marginDrops: 0, findings: [] });
+    { label, lostOverFlagEdges: tally.lost.flag, lostOverStopEdges: tally.lost.stop, lostOverStepEdges: tally.lost.step, marginDrops: tally.marginDrops, boundRises: tally.boundRises, findings },
+    `${label}: a Locked team was lost, a margin dropped or a bound rose with the rules ON. This is a finding, never a pin to move.`
+  ).toEqual({ label, lostOverFlagEdges: 0, lostOverStopEdges: 0, lostOverStepEdges: 0, marginDrops: 0, boundRises: 0, findings: [] });
 }
 
 const shortKey = (eventKey: string): string => eventKey.slice(4);
@@ -485,8 +536,8 @@ const FINALS_AWARDS_FINAL_READING = "Finals awards final";
  * `scope` "intoTheFinalsAwards" reads the sweep's last stop and that one
  * reading alone: the only readings the stop rule changes.
  */
-function awardsOrderLattice(districtKey: string, mode: RuleMode, scope: "whole" | "intoTheFinalsAwards" = "whole"): LatticeResult {
-  const cacheKey = `${districtKey}|${mode}|${scope}`;
+function awardsOrderLattice(districtKey: string, mode: RuleMode, scope: "whole" | "intoTheFinalsAwards" = "whole", slack = BOUND_SLACK): LatticeResult {
+  const cacheKey = `${districtKey}|${mode}|${scope}|${String(slack)}`;
   const cached = latticeCache.get(cacheKey);
   if (cached !== undefined) return cached;
   const result = underRules(mode, (): LatticeResult => {
@@ -510,7 +561,7 @@ function awardsOrderLattice(districtKey: string, mode: RuleMode, scope: "whole" 
         if (base === undefined) throw new Error(`${districtKey} "${stop.label}" carries no stage for ${key}`);
         stageByKey.set(key, { ...base, award: (mask & (1 << index)) !== 0 });
       });
-      return countReading(tally, readingOf(statusesAtChampionshipStop(artifact, { ...stop, stageByKey }, brackets, true)));
+      return countReading(tally, readingOf(statusesAtChampionshipStop(artifact, { ...stop, stageByKey }, brackets, true), slack));
     };
     const flagsOf = (mask: number): string => `{${divisionKeys.filter((_, index) => (mask & (1 << index)) !== 0).map(shortKey).join(",")}}`;
     let previous: Map<number, Reading> | undefined;
@@ -2373,6 +2424,80 @@ describe("GROUP D, the micro step live walks: a championship walked live one fac
         joint: { fieldNotProven: 85 },
         appliedThenRefused: 85,
       });
+    },
+    TEST_TIMEOUT_MS
+  );
+});
+
+// ---------------------------------------------------------------------------
+// NO BOUND RISES, Locked or not (quick task 261010-l0s)
+// ---------------------------------------------------------------------------
+
+describe("EVERY RULES ON EDGE OF THIS FILE: no pool team's joint bound is higher after an edge than before it, Locked or not (quick task 261010-l0s)", () => {
+  if (!existsSync(CORPUS_ABSOLUTE)) {
+    localDataAbsent(`${CORPUS_PATH} absent (gitignored local data)`);
+    return;
+  }
+  const missing = [...MISSING_DIVISIONED, ...MISSING_SINGLE, ...(LOCAL_DISTRICT_FILES.includes(TWO_CHAMPIONSHIP_FILE) ? [] : [TWO_CHAMPIONSHIP_DISTRICT])];
+  if (missing.length > 0) {
+    localDataAbsent(`${missing.join(", ")} absent under ${LOCAL_DISTRICT_DIR} (gitignored local data)`);
+    return;
+  }
+
+  it(
+    "over every flag edge, stop edge and step edge of groups A to D with the rules on, bounds compared and none higher, the counts pinned as the run shows",
+    () => {
+      // Every tally below is the one its own group already built and asserted on (they are cached): this test adds
+      // no reading. It names the property on its own and holds how much was compared.
+      const walks = microTotals([...ONE_EVENT_WALKS, ...twoDivisionWalks("finalsOnNoRow"), ...twoDivisionWalks("finalsRegistered"), [MICRO_FIM, "finalsOnNoRow"], [MICRO_FIM, "finalsRegistered"]], "on");
+      const tallies: Record<string, EdgeTally> = {
+        "A, the awards order lattice": latticeTotals("on").tally,
+        "B, two division championships out of step": outOfStepTotals(TWO_DIVISION, true, "on").tally,
+        "B, the FIM seasons out of step": outOfStepTotals(FOUR_DIVISION, false, "on").tally,
+        "C, one championship finishing first": oneFinishingFirst("on").tally,
+        "C, the awards lattice of two championships": twoChampionshipLattice("on").tally,
+        "D, the live walks": walks.walk,
+        "D, the Winner before the playoff points": walks.winnerFirst,
+        "D, award points before playoff points": walks.awardsFirst,
+        "D, the last key's rows arriving mid playoffs": walks.lateRows,
+      };
+      const compared = Object.fromEntries(Object.entries(tallies).map(([label, tally]) => [label, tally.boundComparisons]));
+      const total = Object.values(compared).reduce((sum, count) => sum + count, 0);
+      console.log(`[261010-l0s no bound rises] ${Object.entries(tallies).map(([label, tally]) => `${label}: ${String(tally.boundComparisons)} compared, ${String(tally.boundRises)} higher`).join(" | ")} | in all ${String(total)}`);
+      // THE REQUIREMENT. A bound that rose with the rules on is a finding, never a pin to move.
+      expect(Object.fromEntries(Object.entries(tallies).map(([label, tally]) => [label, { higher: tally.boundRises, lines: tally.riseLines }]))).toEqual(
+        Object.fromEntries(Object.keys(tallies).map((label) => [label, { higher: 0, lines: [] }]))
+      );
+      // Not vacuous: how many team bounds were compared, pinned as the run shows.
+      expect({ ...compared, total }).toEqual({
+        "A, the awards order lattice": 1_253_848,
+        "B, two division championships out of step": 63_616,
+        "B, the FIM seasons out of step": 130_048,
+        "C, one championship finishing first": 10_990,
+        "C, the awards lattice of two championships": 570,
+        "D, the live walks": 979_948,
+        "D, the Winner before the playoff points": 88_361,
+        "D, award points before playoff points": 24_368,
+        "D, the last key's rows arriving mid playoffs": 160_686,
+        total: 2_712_435,
+      });
+    },
+    TEST_TIMEOUT_MS
+  );
+
+  it(
+    "2024 NE, the awards order lattice with EVERY bound read exactly: a team's own division award no longer raises its own bound (frc9710, at nine edges before quick task 261010-l0s), and no bound is higher over any edge",
+    () => {
+      // THE ONE REAL CHAMPIONSHIP WHERE THE DEFECT OF THAT TASK SHOWS, and only above this file's own reading:
+      // frc9710, 85 above its points slots at "Alliances final". Its floor rises from 66 to 81 as necmp2's Awards
+      // turn final (its own judged award), which carries it past rivals the old proof then counted twice. At each of
+      // the nine stops, over the edge from no division's Awards final to necmp2's, its bound read one higher (116
+      // then 117 at "Alliances final", 87 then 88 at "Finals awards final"). With every rival counted once: none.
+      const { tally } = awardsOrderLattice("2024ne", "on", "whole", Infinity);
+      console.log(`[261010-l0s 2024 NE read exactly] readings ${String(tally.readings)} | flag edges ${String(tally.edges.flag)}, stop edges ${String(tally.edges.stop)} | team bounds compared ${String(tally.boundComparisons)}, higher ${String(tally.boundRises)}`);
+      expect({ higher: tally.boundRises, lines: tally.riseLines }).toEqual({ higher: 0, lines: [] });
+      // Pinned as the run shows.
+      expect({ readings: tally.readings, flagEdges: tally.edges.flag, stopEdges: tally.edges.stop, compared: tally.boundComparisons }).toEqual({ readings: 36, flagEdges: 36, stopEdges: 32, compared: 11_761 });
     },
     TEST_TIMEOUT_MS
   );
