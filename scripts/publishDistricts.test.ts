@@ -423,6 +423,55 @@ describe("buildDistrictArtifact — award-based qualification (revision R2a)", (
     expect(frc4613.districtLock.status).not.toBe("prequalified");
   });
 
+  it("a prequalified team that also wins a District Championship award takes no cmpSlot: the cut line sits on the pool team in place cmpSlots, and that team is not eliminated (quick task 261012-nff)", () => {
+    // frc4613 is on the 2026 Hall of Fame list (prequalified.ts). FIRST works out a
+    // district's slots after the prequalified teams are taken out, so its award
+    // frees the slot it would otherwise use. The DCMP is long past, so every
+    // team's maxRemainingChamp is 0 (asserted below): the verdicts are final and
+    // the point totals do not need to sit far apart to be decisive.
+    const poolRankings = [
+      ranking({ teamKey: "frc11", rank: 2, pointTotal: 500 }),
+      ranking({ teamKey: "frc12", rank: 3, pointTotal: 400 }),
+      ranking({ teamKey: "frc13", rank: 4, pointTotal: 300 }),
+      ranking({ teamKey: "frc14", rank: 5, pointTotal: 200 }),
+    ];
+    const events = [districtEvent({ eventKey: "2026dcmp", eventType: 2, startDate: "2026-04-01" })];
+    const build = (awardee: string, awardeeRank: number) =>
+      buildDistrictArtifact({
+        season: 2026,
+        generation: GENERATION,
+        computedAt: COMPUTED_AT,
+        district: district({ dcmpSlots: 2, cmpSlots: 2 }),
+        rankings: [ranking({ teamKey: awardee, rank: awardeeRank, pointTotal: 10 }), ...poolRankings],
+        events,
+        registrations: new Map(),
+        awards: new Map([["2026dcmp", [eventAward({ eventKey: "2026dcmp", awardType: 1, teamKey: awardee })]]]),
+        teamMeta: new Map(),
+      });
+
+    const prequalifiedWinner = build("frc4613", 1);
+    for (const team of prequalifiedWinner.teams) expect(team.maxRemainingChamp).toBe(0);
+    expect(prequalifiedWinner.teams.find((t) => t.teamKey === "frc4613")!.champLock.status).toBe("prequalified");
+    // Pool [500, 400, 300, 200] with both cmpSlots: the line is the second pool team.
+    expect(prequalifiedWinner.insights.cmpCutLinePoints).toBe(400);
+    const frc12 = prequalifiedWinner.teams.find((t) => t.teamKey === "frc12")!;
+    // Not locked: the fixture's DCMP has no Impact award posted, so one slot is still held
+    // back by the reservation (a pending award is unchanged by the rule). Not eliminated is
+    // the point: the old count made it eliminated.
+    expect(frc12.champLock.status).toBe("contending");
+    expect(frc12.champLock.status).not.toBe("eliminated");
+    expect(prequalifiedWinner.teams.find((t) => t.teamKey === "frc13")!.champLock.status).toBe("eliminated");
+
+    // CONTROL, same award on a ranked team that is NOT prequalified: it reads lockedAward,
+    // uses a slot, and the cut line sits one pool team higher. This proves the fixture's
+    // award is counted, so the expectations above are about the rule and not a dead fixture.
+    const ordinaryWinner = build("frc99", 1);
+    for (const team of ordinaryWinner.teams) expect(team.maxRemainingChamp).toBe(0);
+    expect(ordinaryWinner.teams.find((t) => t.teamKey === "frc99")!.champLock.status).toBe("lockedAward");
+    expect(ordinaryWinner.insights.cmpCutLinePoints).toBe(500);
+    expect(ordinaryWinner.teams.find((t) => t.teamKey === "frc12")!.champLock.status).toBe("eliminated");
+  });
+
   it("2025fsc overrides every team's champLock to unknown with the documented allocationNote, and leaves districtLock unaffected", () => {
     const rankings = [ranking({ teamKey: "frc1", pointTotal: 500, rank: 1 }), ranking({ teamKey: "frc2", pointTotal: 5, rank: 2 })];
 

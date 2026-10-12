@@ -7,7 +7,9 @@
  * `prequalifiedTeams(season)` feeds `locks.ts`'s `computeLocksWithQualifiers`
  * as the NON-CONSUMING set: these teams are removed from the champ points
  * pool entirely but do not reduce the district's champ slot allocation the
- * way an award-qualifier does.
+ * way an award-qualifier does. That holds for a prequalified team that also
+ * wins an award, or the event, at its District Championship: it still uses no
+ * slot, and `locks.ts` (`awardTakesSlot`) is where that is counted.
  *
  * 2016-2020's category list is each season's own manual, read verbatim:
  * 2016/2017 carry Hall of Fame, original & sustaining, prior-year CMP

@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  awardTakesSlot,
   computeLocks,
   computeLocksWithQualifiers,
   cutLinePointsWithQualifiers,
@@ -650,6 +651,122 @@ describe("pointsRaceSlots", () => {
     expect([...narrowed.poolKeys]).toEqual(pointsResolved);
     expect(narrowed.pointsSlots).toBe(2);
     expect(narrowed.lockSlots).toBe(1);
+  });
+});
+
+/**
+ * A PREQUALIFIED TEAM NEVER USES A DISTRICT SLOT (quick task 261012-nff). FIRST
+ * works out a district's slots after the prequalified teams are taken out, so a
+ * prequalified team that also holds a consuming award frees the slot the award
+ * would have used. Every case below builds sets that OVERLAP; every older test in
+ * this file keeps its sets apart and is untouched.
+ */
+describe("a prequalified award winner takes no district slot (quick task 261012-nff)", () => {
+  const keys = ["frc1", "frc2", "frc3", "frc4", "frc5"];
+
+  /** Deterministic LCG, its own seed (the older property test keeps its own generator and seed). */
+  function lcg(seed: number): () => number {
+    let state = seed >>> 0;
+    return () => {
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+      return state / 4294967296;
+    };
+  }
+
+  it("awardTakesSlot is true exactly for a team that is not prequalified", () => {
+    const qualifiers: QualifierSets = { awardQualified: new Set(["frc1", "frc2"]), prequalified: new Set(["frc2"]) };
+    expect(awardTakesSlot("frc1", qualifiers)).toBe(true);
+    expect(awardTakesSlot("frc2", qualifiers)).toBe(false);
+    expect(awardTakesSlot("frc9", qualifiers)).toBe(true);
+  });
+
+  it("pointsRaceSlots: one overlap team frees one slot, and both qualified teams still leave the pool", () => {
+    const narrowed = pointsRaceSlots(keys, 4, { awardQualified: new Set(["frc1", "frc2"]), prequalified: new Set(["frc2"]) }, 0);
+    expect(narrowed.pointsSlots).toBe(3);
+    expect(narrowed.lockSlots).toBe(3);
+    expect(narrowed.poolKeys).toEqual(["frc3", "frc4", "frc5"]);
+  });
+
+  it("pointsRaceSlots: two overlap teams free two slots", () => {
+    const narrowed = pointsRaceSlots(keys, 4, { awardQualified: new Set(["frc1", "frc2"]), prequalified: new Set(["frc1", "frc2"]) }, 0);
+    expect(narrowed.pointsSlots).toBe(4);
+    expect(narrowed.lockSlots).toBe(4);
+    expect(narrowed.poolKeys).toEqual(["frc3", "frc4", "frc5"]);
+  });
+
+  it("pointsRaceSlots: a pending reservation is unchanged by the overlap", () => {
+    const narrowed = pointsRaceSlots(keys, 4, { awardQualified: new Set(["frc1", "frc2"]), prequalified: new Set(["frc2"]) }, 1);
+    expect(narrowed.pointsSlots).toBe(3);
+    expect(narrowed.lockSlots).toBe(2);
+  });
+
+  it("an all final position: the next team on points reads locked, the cut line is one team lower, the prequalified team still reads prequalified", () => {
+    const teams = [team("P", 95, 0), team("a", 100, 0), team("b", 90, 0), team("c", 80, 0), team("d", 70, 0)];
+    const qualifiers: QualifierSets = { awardQualified: new Set(["P"]), prequalified: new Set(["P"]) };
+    const byTeam = new Map(computeLocksWithQualifiers(teams, 3, qualifiers).map((r) => [r.teamKey, r.status] as const));
+    expect(byTeam.get("P")).toBe("prequalified");
+    expect(byTeam.get("a")).toBe("locked");
+    expect(byTeam.get("b")).toBe("locked");
+    expect(byTeam.get("c")).toBe("locked");
+    expect(byTeam.get("d")).toBe("eliminated");
+    expect(cutLinePointsWithQualifiers(teams, 3, qualifiers)).toBe(80);
+  });
+
+  it("CONTROL: the same teams with P award qualified only keep the old reading (P lockedAward, c eliminated, cut line 90)", () => {
+    const teams = [team("P", 95, 0), team("a", 100, 0), team("b", 90, 0), team("c", 80, 0), team("d", 70, 0)];
+    const qualifiers: QualifierSets = { awardQualified: new Set(["P"]), prequalified: new Set<string>() };
+    const byTeam = new Map(computeLocksWithQualifiers(teams, 3, qualifiers).map((r) => [r.teamKey, r.status] as const));
+    expect(byTeam.get("P")).toBe("lockedAward");
+    expect(byTeam.get("c")).toBe("eliminated");
+    expect(cutLinePointsWithQualifiers(teams, 3, qualifiers)).toBe(90);
+  });
+
+  it("adding an award qualifier that is already prequalified leaves every rival's result exactly unchanged", () => {
+    const teams = [team("P", 95, 0), team("a", 100, 10), team("b", 90, 30), team("c", 80, 0), team("d", 70, 60)];
+    const before = computeLocksWithQualifiers(teams, 3, { awardQualified: new Set<string>(), prequalified: new Set(["P"]) }, 1);
+    const after = computeLocksWithQualifiers(teams, 3, { awardQualified: new Set(["P"]), prequalified: new Set(["P"]) }, 1);
+    expect(after).toEqual(before);
+  });
+
+  it("property over sets that DO overlap: the cut line invariant holds, and a team outside both sets reads as it does with the overlap teams out of awardQualified", () => {
+    const rand = lcg(0x261012f);
+    const randInt = (max: number) => Math.floor(rand() * (max + 1));
+
+    for (let trial = 0; trial < 200; trial++) {
+      const teamCount = 2 + randInt(11);
+      const teams: LockTeamInput[] = [];
+      for (let i = 0; i < teamCount; i++) {
+        teams.push(team(`t${i}`, randInt(500), rand() < 0.3 ? 0 : randInt(200)));
+      }
+      const slots = randInt(teamCount + 2);
+      const awardQualified = new Set(teams.filter(() => rand() < 0.3).map((t) => t.teamKey));
+      // Prequalified is drawn independently, so the two sets overlap.
+      const prequalified = new Set(teams.filter(() => rand() < 0.3).map((t) => t.teamKey));
+      const overlap = [...awardQualified].filter((k) => prequalified.has(k));
+      const qualifiers: QualifierSets = { awardQualified, prequalified };
+      const reservedSlots = rand() < 0.5 ? 0 : randInt(3);
+
+      const results = computeLocksWithQualifiers(teams, slots, qualifiers, reservedSlots);
+      const withoutOverlap: QualifierSets = {
+        awardQualified: new Set([...awardQualified].filter((k) => !overlap.includes(k))),
+        prequalified,
+      };
+      const reference = computeLocksWithQualifiers(teams, slots, withoutOverlap, reservedSlots);
+      for (const result of results) {
+        if (awardQualified.has(result.teamKey) || prequalified.has(result.teamKey)) continue;
+        expect(result, `trial ${trial} team ${result.teamKey}`).toEqual(reference.find((r) => r.teamKey === result.teamKey));
+      }
+
+      const cutLine = cutLinePointsWithQualifiers(teams, slots, qualifiers);
+      if (cutLine === null) continue;
+      const byTeam = new Map(teams.map((t) => [t.teamKey, t] as const));
+      for (const result of results) {
+        if (result.status !== "locked" && result.status !== "eliminated" && result.status !== "contending") continue;
+        const pointTotal = byTeam.get(result.teamKey)!.pointTotal;
+        if (pointTotal > cutLine) expect(result.status, `trial ${trial} ${result.teamKey} ${pointTotal} > ${cutLine}`).not.toBe("eliminated");
+        if (pointTotal < cutLine) expect(result.status, `trial ${trial} ${result.teamKey} ${pointTotal} < ${cutLine}`).not.toBe("locked");
+      }
+    }
   });
 });
 

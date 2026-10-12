@@ -21,6 +21,10 @@
  *     pointsSlots = max(slots - awardQualifiedRankedCount, 0)      // unreserved
  *     lockSlots   = max(pointsSlots - reservedSlots, 0)            // reserved
  *
+ * where `awardQualifiedRankedCount` counts the ranked award qualifiers that
+ * `awardTakesSlot` says take a slot, which is every one that is not also
+ * prequalified (quick task 261012-nff, below).
+ *
  * `lockSlots` decides `"locked"`; `pointsSlots` decides `"eliminated"` and
  * the published cut line. Without the reservation the lock test is briefly
  * one slot too generous and a team on the knife edge reports `"locked"` one
@@ -84,6 +88,38 @@
  * covered by the proof's points pass, so the elimination count is at most the
  * bound, which is below the points slots, the elimination test's slot count.
  * With no `jointLocked` argument every result is exactly what it was before.
+ *
+ * A PREQUALIFIED TEAM NEVER USES A DISTRICT SLOT (quick task 261012-nff). The
+ * rule: a team in `qualifiers.prequalified` consumes none of the district's
+ * Championship slots, whatever it wins at its District Championship, an award or
+ * the event itself. `awardTakesSlot` is the one place it is written;
+ * `pointsRaceSlots` counts with it and the champ chance run reads it for the
+ * awards it draws. The team still reads `"prequalified"`, and an award held by
+ * a team that is not prequalified still consumes a slot as before.
+ *
+ * The source is FIRST's Championship eligibility page
+ * (firstinspires.org/resources/library/frc/championship-eligibility): "Districts
+ * receive the percentage of available slots ... calculated by taking the total
+ * number of slots at FIRST Championship and subtracting the number of
+ * pre-qualified teams". The slots are worked out after the prequalified teams
+ * are taken out, so a prequalified team is never one of the district's slots.
+ *
+ * Measured on the corpus, 2026-10-12: six championships since 2023 had a
+ * prequalified team that also held a District Championship award (2026fch
+ * frc1629, 2025chs frc1629, 2025isr frc1690 and frc5614, 2024fma frc1676,
+ * 2023isr frc2096, 2023chs frc1629). The team next in line read
+ * `"eliminated"` in every one, and six of those seven teams then played at the
+ * FIRST Championship.
+ *
+ * A PENDING award still holds a slot back (`reservedSlots`) even though it may
+ * go to a prequalified team: the reservation is a worst case and cannot know
+ * who will win, and over holding a slot only delays a lock.
+ *
+ * LIMIT, STATED AND NOT FIXED HERE. The joint proof in `champJointLock.ts`
+ * still counts a prequalified team that is not yet award qualified as a rival
+ * that can take a slot by winning or by a consuming award (`slotOnlyRivals`,
+ * quick task 261009-2tr). Under this rule that is an over count. It can only
+ * delay a lock and can never make one false. Sharpening it is a later task.
  */
 
 export interface LockTeamInput {
@@ -349,9 +385,12 @@ function lockedByOf(ceiling: boolean, pooled: boolean, joint: boolean): LockedBy
  * each member reduces the pool's available `slots` by one and is itself
  * removed from the points-competing pool. `prequalified` is a
  * NON-CONSUMING set: each member is likewise removed from the pool but does
- * not reduce `slots`. The two sets are expected to be disjoint in practice
- * but this function does not enforce that — membership in either alone is
- * sufficient to report `"lockedAward"`/`"prequalified"`.
+ * not reduce `slots`. The two sets CAN overlap: a prequalified team that also
+ * wins a District Championship award, or the event, is in both. Such a team
+ * reports `"prequalified"`, is out of the pool, and consumes NO slot, since
+ * FIRST takes the prequalified teams out before it works out the district's
+ * slots (`awardTakesSlot`, quick task 261012-nff). Membership in either set
+ * alone is sufficient to report `"lockedAward"`/`"prequalified"`.
  */
 export interface QualifierSets {
   readonly awardQualified: ReadonlySet<string>;
@@ -392,9 +431,9 @@ export interface QualifierSets {
 /**
  * The narrowed pool/slot-count derivation shared by
  * `computeLocksWithQualifiers` and `cutLinePointsWithQualifiers`. Both
- * award-qualified and prequalified teams are removed from the pool; only
- * award-qualified (consuming) membership reduces `pointsSlots`, floored at
- * zero. Extracted so the verdicts and the published cut line can never drift
+ * award-qualified and prequalified teams are removed from the pool; only an
+ * award qualifier that `awardTakesSlot` says takes a slot (one that is not
+ * also prequalified) reduces `pointsSlots`, floored at zero. Extracted so the verdicts and the published cut line can never drift
  * apart — a past bug let a published cut line name a team the verdicts had
  * already marked `"eliminated"`.
  *
@@ -427,6 +466,18 @@ function qualifierPool(
   };
 }
 
+/**
+ * THE ONE RULE (quick task 261012-nff): would a consuming award held by this
+ * team, posted or drawn, take one of the district's slots. It does exactly when
+ * the team is NOT prequalified, because FIRST works out a district's slots after
+ * the prequalified teams are taken out. `pointsRaceSlots` counts the posted
+ * award qualifiers with it, and the champ chance run in `advancementChance.ts`
+ * reads it for the awards it draws. There is no second copy of this rule.
+ */
+export function awardTakesSlot(teamKey: string, qualifiers: QualifierSets): boolean {
+  return !qualifiers.prequalified.has(teamKey);
+}
+
 /** What `pointsRaceSlots` answers: who is still racing for points at a position, and how many slots each of the two tests sees. */
 export interface PointsRaceNarrowing {
   /** The points-competing team keys, in input order: every key that is neither award-qualified nor prequalified. */
@@ -450,9 +501,11 @@ export interface PointsRaceNarrowing {
  * `qualifierPool`'s own doc comment already names: a published number that
  * contradicts a verdict the same page prints.
  *
- * Every rule stays where it was: only AWARD-qualified membership consumes a
- * slot, both qualified sets leave the pool, and a negative `reservedSlots` is
- * clamped to zero rather than widening the pool.
+ * Every rule stays where it was: both qualified sets leave the pool, and a
+ * negative `reservedSlots` is clamped to zero rather than widening the pool.
+ * What consumes a slot is a ranked AWARD qualifier that `awardTakesSlot` says
+ * takes one, so a team that is award qualified AND prequalified consumes
+ * nothing (quick task 261012-nff). The two sets may overlap.
  */
 export function pointsRaceSlots(
   teamKeys: readonly string[],
@@ -460,7 +513,7 @@ export function pointsRaceSlots(
   qualifiers: QualifierSets,
   reservedSlots: number
 ): PointsRaceNarrowing {
-  const awardQualifiedRankedCount = teamKeys.filter((teamKey) => qualifiers.awardQualified.has(teamKey)).length;
+  const awardQualifiedRankedCount = teamKeys.filter((teamKey) => qualifiers.awardQualified.has(teamKey) && awardTakesSlot(teamKey, qualifiers)).length;
   const pointsSlots = Math.max(slots - awardQualifiedRankedCount, 0);
   const lockSlots = Math.max(pointsSlots - Math.max(reservedSlots, 0), 0);
   const poolKeys = teamKeys.filter((teamKey) => !qualifiers.awardQualified.has(teamKey) && !qualifiers.prequalified.has(teamKey));
