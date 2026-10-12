@@ -83,14 +83,14 @@ function passingGate(overrides: Partial<BacktestSummary> = {}, gate: Partial<Gat
     simulated: stats(15, -3),
     sameNaive: stats(30, -29),
     sameMinus3: stats(20, -18),
-    oracleNaive: stats(20.26, -20.17),
-    oracleMinus3: stats(9.0, -2.57),
+    oracleNaive: stats(18.83, -18.48),
+    oracleMinus3: stats(10.43, -0.87),
     covered: 55,
     meanAwardSlots: 7.6,
     meanOutsideSlots: 3.0,
     ...overrides,
   };
-  return { seasons: 69, scored, oracleNaive: stats(20.26, -20.17), oracleMinus3: stats(9.0, -2.57), ...gate };
+  return { seasons: 69, scored, oracleNaive: stats(18.83, -18.48), oracleMinus3: stats(10.43, -0.87), ...gate };
 }
 
 describe("gateVerdict", () => {

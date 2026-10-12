@@ -673,8 +673,18 @@ export interface GateVerdict {
   readonly go: boolean;
 }
 
-/** The pre-registered oracle values the harness must reproduce, to one decimal. */
-export const ORACLE_EXPECTED = { naiveMae: 20.3, naiveBias: -20.2, minus3Mae: 9.0, minus3Bias: -2.6 } as const;
+/**
+ * The oracle values the harness must reproduce, to one decimal.
+ *
+ * RE-MEASURED 2026-10-12 (quick task 261012-nff, on Jacob's decision). They
+ * were registered as 20.3 / -20.2 and 9.0 / -2.6. Both lines are scored against
+ * each season's PUBLISHED cut line, and that task moved the published line in
+ * 19 districts: a prequalified team no longer uses a district slot
+ * (`locks.ts`), so the line sits one or two teams lower there. The values
+ * below are the executed ones on the corrected lines (18.83 / -18.48 and
+ * 10.43 / -0.87 over the same 69 seasons), not fitted ones.
+ */
+export const ORACLE_EXPECTED = { naiveMae: 18.8, naiveBias: -18.5, minus3Mae: 10.4, minus3Bias: -0.9 } as const;
 
 const oneDecimal = (value: number): number => Math.round(value * 10) / 10;
 
@@ -736,7 +746,7 @@ export function gateVerdict(gate: GateSummary): GateVerdict {
   const conditions: GateCondition[] = [
     {
       id: 1,
-      label: `oracle lines reproduce over all ${String(gate.seasons)} seasons (naive 20.3 / -20.2, cmpSlots - 3 9.0 / -2.6)`,
+      label: `oracle lines reproduce over all ${String(gate.seasons)} seasons (naive ${ORACLE_EXPECTED.naiveMae.toFixed(1)} / ${ORACLE_EXPECTED.naiveBias.toFixed(1)}, cmpSlots - 3 ${ORACLE_EXPECTED.minus3Mae.toFixed(1)} / ${ORACLE_EXPECTED.minus3Bias.toFixed(1)})`,
       pass: oracleOk,
       detail: `naive ${fmt(gate.oracleNaive.mae)} / ${fmt(gate.oracleNaive.bias)}, minus 3 ${fmt(gate.oracleMinus3.mae)} / ${fmt(gate.oracleMinus3.bias)} (n = ${String(gate.oracleNaive.n)})`,
     },
