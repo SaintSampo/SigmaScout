@@ -701,6 +701,9 @@ describe("GROUP A, the awards order test: the 16 divisioned championships of 202
       // team margins, and by district 118 at 2023fim, 4 at 2023fit and 239 at 2024fim. The paid pick rule of the
       // same task then moved the team margins once more, 33,385 to 33,388, and nothing else here: from the stop a
       // division's Playoffs are final, a backup TBA has paid is its alliance's confirmed pick.
+      // Quick task 261012-nff (a prequalified team uses no district slot) moved it again, at 2024fim alone, where
+      // frc27 and frc5166 are prequalified and hold championship awards: 952 to 934 lost, 161 to 162 pairs, 33,388
+      // to 33,390 team margins, and 237 to 219 at 2024fim. Executed values, re pinned on Jacob's decision.
       expect({
         readings: tally.readings,
         lostOverFlagEdges: tally.lost.flag,
@@ -712,12 +715,12 @@ describe("GROUP A, the awards order test: the 16 divisioned championships of 202
         largestDrop: tally.largestDrop,
       }).toEqual({
         readings: 1200,
-        lostOverFlagEdges: 952,
+        lostOverFlagEdges: 934,
         lostOverStopEdges: 0,
-        distinctPairsLost: 161,
+        distinctPairsLost: 162,
         flagEdgesWithADrop: 1786,
         stopEdgesWithADrop: 0,
-        teamMarginsDropped: 33_388,
+        teamMarginsDropped: 33_390,
         largestDrop: 4,
       });
       expect(lostByDistrict).toEqual({
@@ -725,7 +728,7 @@ describe("GROUP A, the awards order test: the 16 divisioned championships of 202
         "2023fit": 3,
         "2023ne": 6,
         "2023ont": 10,
-        "2024fim": 237,
+        "2024fim": 219,
         "2024fit": 7,
         "2024ne": 9,
         "2024ont": 10,
@@ -761,17 +764,20 @@ describe("GROUP A, the awards order test: the 16 divisioned championships of 202
         readings: 224,
         joint: { applied: 112, stageNotEligible: 112 },
         lostOverFlagEdges: 0,
-        lostOverStopEdges: 306,
-        distinctPairsLost: 129,
+        lostOverStopEdges: 288,
+        distinctPairsLost: 125,
       });
-      // 63 over the 12 two division championships; the four FIM seasons 24, 80, 49 and 90.
+      // 65 over the 12 two division championships; the four FIM seasons 24, 60, 49 and 90. Quick task 261012-nff
+      // (a prequalified team uses no district slot) moved two districts, each with a prequalified championship
+      // award holder: 2024fim 80 to 60 and 2024fit 2 to 4, so 306 to 288 lost and 129 to 125 pairs. Executed
+      // values, re pinned on Jacob's decision.
       expect(lostByDistrict).toEqual({
         "2023fim": 24,
         "2023fit": 8,
         "2023ne": 4,
         "2023ont": 6,
-        "2024fim": 80,
-        "2024fit": 2,
+        "2024fim": 60,
+        "2024fit": 4,
         "2024ne": 8,
         "2024ont": 4,
         "2025fim": 49,
@@ -2345,11 +2351,13 @@ describe("GROUP D, the micro step live walks: a championship walked live one fac
       // key on no row the proof ran only from the finals rows on until Task 4 of the quick task, and fewer were lost
       // then (94, and 1666 margins); it now runs from the alliance points on, so more of the flag edges have a proof
       // on both sides. Quick task 261010-l0s's paid pick rule moved the margins dropped and nothing else here, 2029
-      // to 2035 and 3236 to 3245: no Locked more or fewer is lost.
+      // to 2035 and 3236 to 3245: no Locked more or fewer is lost. Quick task 261012-nff (a prequalified team uses
+      // no district slot) moved one Locked and four margins in each reading: 121 to 122 and 2035 to 2039, 202 to 203
+      // and 3245 to 3249. Executed values, re pinned on Jacob's decision.
       const pin = (totals: MicroTotals) => ({ ...microPin(totals.walk), lostOverStepEdges: totals.walk.lost.step, lostOverFlagEdges: totals.walk.lost.flag, marginDrops: totals.walk.marginDrops, largestDrop: totals.walk.largestDrop });
       expect({ noRow: pin(noRow), registered: pin(registered) }).toEqual({
-        noRow: { readings: 848, edges: 1064, lostOverStepEdges: 0, lostOverFlagEdges: 121, marginDrops: 2035, largestDrop: 4 },
-        registered: { readings: 1012, edges: 1392, lostOverStepEdges: 0, lostOverFlagEdges: 202, marginDrops: 3245, largestDrop: 4 },
+        noRow: { readings: 848, edges: 1064, lostOverStepEdges: 0, lostOverFlagEdges: 122, marginDrops: 2039, largestDrop: 4 },
+        registered: { readings: 1012, edges: 1392, lostOverStepEdges: 0, lostOverFlagEdges: 203, marginDrops: 3249, largestDrop: 4 },
       });
     },
     TEST_TIMEOUT_MS
@@ -2365,13 +2373,15 @@ describe("GROUP D, the micro step live walks: a championship walked live one fac
       expect(noRow.walk.lost.step + noRow.walk.lost.flag).toBeGreaterThan(0);
       expect(registered.walk.lost.step + registered.walk.lost.flag).toBeGreaterThan(0);
       // The measurement of the reading before quick task 261010-d7r (finding F-B). Pinned as the run shows.
-      // Every one is lost over a STEP edge, the finals' awards flag turning true, and the same 63 in both variants
-      // (the awards order lattice of group A reads the same 63 over these twelve championships).
+      // Every one is lost over a STEP edge, the finals' awards flag turning true, and the same 65 in both variants
+      // (the awards order lattice of group A reads the same 65 over these twelve championships). It was 63 until
+      // quick task 261012-nff (a prequalified team uses no district slot), which moved 2024fit from 2 to 4.
+      // Executed values, re pinned on Jacob's decision.
       const pin = (totals: MicroTotals) => ({ ...microPin(totals.walk), lostOverStepEdges: totals.walk.lost.step, lostOverFlagEdges: totals.walk.lost.flag, marginDrops: totals.walk.marginDrops, lostByDistrict: totals.lostByDistrict });
-      const lostByDistrict = { "2023fit": 8, "2023ne": 4, "2023ont": 6, "2024fit": 2, "2024ne": 8, "2024ont": 4, "2025fit": 7, "2025ne": 4, "2025ont": 1, "2026fit": 1, "2026ne": 16, "2026ont": 2 };
+      const lostByDistrict = { "2023fit": 8, "2023ne": 4, "2023ont": 6, "2024fit": 4, "2024ne": 8, "2024ont": 4, "2025fit": 7, "2025ne": 4, "2025ont": 1, "2026fit": 1, "2026ne": 16, "2026ont": 2 };
       expect({ noRow: pin(noRow), registered: pin(registered) }).toEqual({
-        noRow: { readings: 848, edges: 1064, lostOverStepEdges: 63, lostOverFlagEdges: 0, marginDrops: 0, lostByDistrict },
-        registered: { readings: 1012, edges: 1392, lostOverStepEdges: 63, lostOverFlagEdges: 0, marginDrops: 0, lostByDistrict },
+        noRow: { readings: 848, edges: 1064, lostOverStepEdges: 65, lostOverFlagEdges: 0, marginDrops: 0, lostByDistrict },
+        registered: { readings: 1012, edges: 1392, lostOverStepEdges: 65, lostOverFlagEdges: 0, marginDrops: 0, lostByDistrict },
       });
     },
     TEST_TIMEOUT_MS
