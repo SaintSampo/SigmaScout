@@ -517,3 +517,62 @@ describe("advancementChances — champ mode", () => {
     expect(() => run({}, [...LADDER(), split("frc9", mass("d", 1), mass("c", 1), Number.NaN, 0)])).toThrow(AdvancementChanceInputError);
   });
 });
+
+/**
+ * A PREQUALIFIED TEAM TAKES NO SLOT, POSTED OR DRAWN (quick task 261012-nff).
+ * FIRST works out a district's slots after the prequalified teams are taken out,
+ * so `locks.ts`'s `awardTakesSlot` says a prequalified team's award takes none.
+ * The champ run reads it for the posted count (through `pointsRaceSlots`) and for
+ * the drawn count. Every case here forces champ mode with an award draw.
+ */
+describe("advancementChances — a prequalified winner takes no slot (quick task 261012-nff)", () => {
+  /** An award draw whose count is always zero: it forces champ mode and never gives the award. */
+  const NEVER_GIVEN = (): AwardDraw => award([1], []);
+
+  it("POSTED: a team both award qualified and prequalified leaves the slot count whole", () => {
+    const teams = [...LADDER(), mass("frc99", 5)];
+    const overlap = advancementChances(inputsOf(teams, 2, { awardQualified: ["frc99"], prequalified: ["frc99"], awardDraws: [NEVER_GIVEN()] }), 40, SEED);
+    expect(overlap.pointsSlots).toBe(2);
+    expect(overlap.lockSlots).toBe(2);
+    expect([...overlap.cutoffByRun!].every((line) => line === 40)).toBe(true);
+    expect([...overlap.awardSlotsByRun!].every((slots) => slots === 0)).toBe(true);
+    expect(overlap.chanceByTeam.has("frc99")).toBe(false);
+
+    // CONTROL: award qualified only. It takes the slot, as it always did.
+    const only = advancementChances(inputsOf(teams, 2, { awardQualified: ["frc99"], awardDraws: [NEVER_GIVEN()] }), 40, SEED);
+    expect(only.pointsSlots).toBe(1);
+    expect([...only.cutoffByRun!].every((line) => line === 50)).toBe(true);
+  });
+
+  it("DRAWN: a prequalified team that is the only candidate of an award that is always given takes no slot", () => {
+    const teams = [...LADDER(), mass("frc99", 5)];
+    const result = advancementChances(inputsOf(teams, 2, { prequalified: ["frc99"], awardDraws: [award([0, 1], ["frc99"])] }), 40, SEED);
+    expect([...result.awardSlotsByRun!].every((slots) => slots === 0)).toBe(true);
+    expect([...result.outsideAwardSlotsByRun!].every((slots) => slots === 0)).toBe(true);
+    expect([...result.cutoffByRun!].every((line) => line === 40)).toBe(true);
+    expect(result.runsWithoutLine).toBe(0);
+
+    // CONTROL: the same award on frc10, which is not prequalified, takes a slot.
+    const control = advancementChances(inputsOf(LADDER(), 2, { awardDraws: [award([0, 1], ["frc10"])] }), 40, SEED);
+    expect([...control.awardSlotsByRun!].every((slots) => slots === 1)).toBe(true);
+    expect([...control.cutoffByRun!].every((line) => line === 50)).toBe(true);
+  });
+
+  it("THE SAME RANDOMNESS: a prequalified drawn winner reads exactly like a key that is not ranked", () => {
+    const teams = [...LADDER(), mass("frc99", 5), uniform("frc88", 0, 60)];
+    const prequalifiedDraw = advancementChances(inputsOf(teams, 2, { prequalified: ["frc99"], awardDraws: [award([0.5, 0.5], ["frc99"])] }), 300, SEED);
+    const unrankedDraw = advancementChances(inputsOf(teams, 2, { prequalified: ["frc99"], awardDraws: [award([0.5, 0.5], ["frc404"])] }), 300, SEED);
+    expect([...prequalifiedDraw.cutoffByRun!]).toEqual([...unrankedDraw.cutoffByRun!]);
+    expect(prequalifiedDraw.chanceByTeam.get("frc88")).toBe(unrankedDraw.chanceByTeam.get("frc88"));
+    expect([...prequalifiedDraw.awardSlotsByRun!]).toEqual([...unrankedDraw.awardSlotsByRun!]);
+  });
+
+  it("LEGACY MODE: a team in both sets reads as it does prequalified alone", () => {
+    const teams = [mass("frc1", 100), ...LADDER()];
+    const both = advancementChances(inputsOf(teams, 2, { awardQualified: ["frc1"], prequalified: ["frc1"] }), 60, SEED);
+    const prequalifiedOnly = advancementChances(inputsOf(teams, 2, { prequalified: ["frc1"] }), 60, SEED);
+    expect(both.awardSlotsByRun).toBeUndefined();
+    expect(both.lockSlots).toBe(2);
+    expect([...both.chanceByTeam]).toEqual([...prequalifiedOnly.chanceByTeam]);
+  });
+});

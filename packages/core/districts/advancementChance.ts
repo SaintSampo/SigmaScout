@@ -28,7 +28,9 @@
  * `computeLocksWithQualifiers` narrows its pool and its two slot counts with,
  * exported for this module rather than reimplemented in it. `lockSlots` — the
  * reserved count, `dcmpSlots` minus the consuming award qualifiers minus one
- * slot per Impact award still to come — is what a run is ranked against, and
+ * slot per Impact award still to come — is what a run is ranked against (an
+ * award qualifier that is also prequalified consumes none, quick task
+ * 261012-nff, posted or drawn, through `locks.ts`'s `awardTakesSlot`), and
  * that choice is what makes the chance agree with the chip beside it:
  *
  *   - A team the CEILING test locked reads 1 in every run. Its floor already
@@ -55,7 +57,7 @@
  * thread never ranks a whole district a thousand times.
  */
 import { mulberry32 } from "../algorithms/simulation/rankSimulation.js";
-import { pointsRaceSlots, type QualifierSets } from "./locks.js";
+import { awardTakesSlot, pointsRaceSlots, type QualifierSets } from "./locks.js";
 import { EmptyDistributionError, InvalidDenominatorError } from "./pointSummary.js";
 
 /**
@@ -190,7 +192,8 @@ export interface AdvancementChanceResult {
   /**
    * CHAMP MODE ONLY, a diagnostic: per run, how many RANKED teams the drawn
    * winning alliance and drawn award winners took a slot from (the set `W`,
-   * less any team already award qualified at the position).
+   * less any team already award qualified at the position, and less any
+   * prequalified team, which takes none: quick task 261012-nff).
    */
   readonly awardSlotsByRun?: Int32Array;
   /**
@@ -327,7 +330,7 @@ export function advancementChances(inputs: AdvancementChanceInputs, draws: numbe
 
   // CHAMP MODE branches off here and leaves the legacy loop below byte for
   // byte what it was: the District Locks tab never reaches the branch.
-  if (isChampMode(inputs)) return champAdvancementChances(inputs, draws, seed, narrowed);
+  if (isChampMode(inputs)) return champAdvancementChances(inputs, draws, seed, narrowed, qualifiers);
 
   const chanceByTeam = new Map<string, number>();
   // An empty pool reports BOTH slot counts and NO array — see `cutoffByRun`.
@@ -524,7 +527,8 @@ function pickWeighted(weights: Float64Array, u: number): number {
  *
  * `W` is the run's drawn winners plus its drawn award winners, as a set, so a
  * team drawn twice takes one slot. A drawn key absent from `inputs.teams`
- * takes none. The chance counts a team inside in a run when it is in `W`, or
+ * takes none, and neither does a prequalified team (quick task 261012-nff: it
+ * reads exactly like an unranked key). The chance counts a team inside in a run when it is in `W`, or
  * when it is still in the pool and at most `lockSlots_r - 1` others drew at or
  * above it (ties at the last slot are out, as in legacy mode).
  */
@@ -532,7 +536,8 @@ function champAdvancementChances(
   inputs: AdvancementChanceInputs,
   draws: number,
   seed: number,
-  narrowed: ReturnType<typeof pointsRaceSlots>
+  narrowed: ReturnType<typeof pointsRaceSlots>,
+  qualifiers: QualifierSets
 ): AdvancementChanceResult {
   for (const team of inputs.teams) {
     if (team.dcmp === undefined) continue;
@@ -553,8 +558,9 @@ function champAdvancementChances(
   const staticPointsSlots = narrowed.pointsSlots;
   const lockSlots = narrowed.lockSlots;
   const reserved = Math.max(inputs.reservedSlots, 0);
-  // `pointsRaceSlots`' own arithmetic: every RANKED award qualifier consumes a slot.
-  const postedConsumed = inputs.teams.filter((team) => awardQualified.has(team.teamKey)).length;
+  // The posted count has no copy here: `staticPointsSlots` is `pointsRaceSlots`'
+  // own, with every ranked award qualifier that takes a slot already taken off
+  // (a prequalified one takes none, quick task 261012-nff).
 
   const chanceByTeam = new Map<string, number>();
   if (pool.length === 0) return { draws, lockSlots, pointsSlots: staticPointsSlots, chanceByTeam };
@@ -571,7 +577,13 @@ function champAdvancementChances(
   poolRankedIndex.forEach((ranked, i) => {
     poolIndexOfRanked[ranked] = i;
   });
-  const rankedIsAwardQualified = Uint8Array.from(inputs.teams.map((team) => (awardQualified.has(team.teamKey) ? 1 : 0)));
+  // Whether a DRAWN win takes a NEW slot from a ranked team: yes only when the
+  // team is not already a posted award qualifier (that one is inside the static
+  // count, or takes none) and `awardTakesSlot` says a prequalified team takes
+  // none. Built once, before the run loop, so no draw moves.
+  const rankedDrawnTakesNewSlot = Uint8Array.from(
+    inputs.teams.map((team) => (!awardQualified.has(team.teamKey) && awardTakesSlot(team.teamKey, qualifiers) ? 1 : 0))
+  );
 
   const rng = mulberry32(seed ^ ADVANCEMENT_CHANCE_STREAM_SALT);
   const totals = new Int32Array(pool.length);
@@ -654,12 +666,12 @@ function champAdvancementChances(
       }
     }
 
-    // The slots `W` takes: `pointsRaceSlots`' arithmetic over the posted
-    // award qualifiers UNION `W`, counting ranked teams only.
+    // The slots `W` takes: the ranked members of `W` that are not already
+    // award qualified and are not prequalified, off the static count.
     let drawnConsumed = 0;
-    for (const ranked of wList) if (rankedIsAwardQualified[ranked] === 0) drawnConsumed += 1;
+    for (const ranked of wList) if (rankedDrawnTakesNewSlot[ranked] === 1) drawnConsumed += 1;
     awardSlotsByRun[run] = drawnConsumed;
-    const pointsSlots = Math.max(inputs.slots - postedConsumed - drawnConsumed, 0);
+    const pointsSlots = Math.max(staticPointsSlots - drawnConsumed, 0);
     const runLockSlots = Math.max(pointsSlots - reserved, 0);
 
     // The WHOLE static pool before removal, for the outside diagnostic: a
