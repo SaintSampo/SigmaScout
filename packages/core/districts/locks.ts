@@ -104,12 +104,16 @@
  * pre-qualified teams". The slots are worked out after the prequalified teams
  * are taken out, so a prequalified team is never one of the district's slots.
  *
- * Measured on the corpus, 2026-10-12: six championships since 2023 had a
- * prequalified team that also held a District Championship award (2026fch
- * frc1629, 2025chs frc1629, 2025isr frc1690 and frc5614, 2024fma frc1676,
- * 2023isr frc2096, 2023chs frc1629). The team next in line read
- * `"eliminated"` in every one, and six of those seven teams then played at the
- * FIRST Championship.
+ * Measured on the corpus, 2026-10-12. First, the six single event
+ * championships since 2023 with a prequalified team that also held a District
+ * Championship award (2026fch frc1629, 2025chs frc1629, 2025isr frc1690 and
+ * frc5614, 2024fma frc1676, 2023isr frc2096, 2023chs frc1629): the team next
+ * in line read `"eliminated"` in every one, and six of those seven teams then
+ * played at the FIRST Championship. Then every local district file was rebuilt
+ * under this rule: 19 districts moved, back to 2016 (three more of them since
+ * 2023: 2023fit, 2024fim and 2024fit), 32 teams gained a status and none lost
+ * one. 2016fim holds such a team and did not move: its tie at the line spans
+ * the old count and the new.
  *
  * A PENDING award still holds a slot back (`reservedSlots`) even though it may
  * go to a prequalified team: the reservation is a worst case and cannot know
