@@ -478,6 +478,125 @@
  * (two for 2026 California, quick task 261006-lwo). A district-event Impact
  * win qualifies a team for the DCMP, not the Championship, so it locks nobody
  * here — which is exactly what restricting the scan to dcmp-tier keys enforces.
+ *
+ * ---------------------------------------------------------------------------
+ * THE SECURED PLAYOFF MINIMUM (quick task 261012-mw2)
+ * ---------------------------------------------------------------------------
+ *
+ * Jacob, 2026-10-12, at 2026 FNC rewound to Round 5: "why is 4561 not locked,
+ * even though they have more points than 3506 and 2724 who are locked?" And
+ * then: "any team in the bracket should be credited with the points that they
+ * essentially have already earned, given the matches they have played."
+ * frc4561 was a finalist. A finalist cannot finish below second place, yet
+ * this module counted nothing for a team's playoffs until its alliance was
+ * knocked out: being knocked out raised a floor and staying in did not.
+ *
+ * WHAT JOINS A FLOOR. A source row may carry `securedElim`, the least playoff
+ * points TBA's pay rule can still pay that robot at that event
+ * (`packages/core/districts/securedPlayoffPoints.ts` states the rule, where
+ * it was read and what it was measured against). Wherever a source carries
+ * one, an OPEN Playoffs category goes through the rows module's
+ * `openPlayoffBounds`: the secured minimum is the floor and the rest of the
+ * most the category can pay is the ceiling. NO CEILING MOVES while the
+ * category is open: what joins the floor leaves the open ceiling, so a team's
+ * ceiling (floor plus open ceiling) is what it was. This holds at a district
+ * tier source and at the team's own championship source alike.
+ *
+ * IT IS READ FROM PLAYED ROWS, through the rows module and never here. That
+ * is a deliberate and bounded use of the field in a floor, beside the rule of
+ * quick task 261009-vp9 that a category is final only once its points are in.
+ * This module reads no row of any match: it reads `securedElim` off a source
+ * and nothing else. A caller of the rows builder supplies it from an event's
+ * played rows (`districtLedgerRows.ts`, THE SECURED PLAYOFF MINIMUM). At this
+ * commit the sweep `scripts/measureChampJointLocks.ts` supplies it and the
+ * Locks tabs' hook does not yet.
+ *
+ * WHAT THE JOINT PROOF IS HANDED. The proof models an unsettled open Playoffs
+ * category of the championship whole, through its alliance values, so that
+ * category was never in a rival's `extra`. A secured minimum in the rival's
+ * floor is therefore taken out of its `extra` by the same amount
+ * (`jointModeled` still takes the whole category out): the sum floor plus
+ * extra, which is what the proof reads of a rival, is the sum of before this
+ * task. `extra` CAN READ BELOW 0 for a credited team with nothing else open;
+ * only the sum is read. What changes is the team's OWN floor, which every
+ * rival must now pass. So each bound of after this task is the proof of
+ * before it asked at a higher own floor, which can only lower a bound.
+ *
+ * THE WITHHELD CREDIT. The proof reads a rival's floor apart from that sum in
+ * one place: a listed pick that is not confirmed on its alliance
+ * (`withoutSettled` in `champJointLock.ts`) is read as its floor plus only
+ * what its `extra` holds beyond its settled value. A credit moved from that
+ * pick's `extra` into its floor makes that reading larger and raises bounds
+ * under other teams. So while a key's Playoffs are open, a pick with NO
+ * alliance selection points at that key is handed to the proof with the pair
+ * it had before this task: `poolRivals` puts its credit back from `floor`
+ * into `extra` (`dcmpCreditByEvent` names the credits, per key). The ceiling
+ * test and the header still read that pick's credit. This is the smaller
+ * credit, taken on purpose. The planner measured the other reading before
+ * this was built: with the credit handed to the proof for every pick, the
+ * 2023 PNW live walk read 12 bounds higher and 12 margin drops, at the Finals
+ * rows of pncmp; with it withheld every rules on walk read 0.
+ *
+ * THE LARGER OF THE TWO. Where a Playoffs category reads FINAL at the
+ * position, the floor is the larger of TBA's posted number and the secured
+ * minimum (`securedBeyondPosted` is the part above the number, and the
+ * team's ceiling rises with its floor). The orchestrator's decision of
+ * 2026-10-12: the credit already claims TBA will pay at least that much, so
+ * keeping it beside the number adds no assumption, and it removes the
+ * reliance on WHEN the playoff points post. Wherever the number is the real
+ * final number it is at or above the secured minimum (the corpus gate: 0 of
+ * 222,863 secured minimums above the final payment) and nothing moves. It
+ * differs only while a number that reads final is older than the rows. THE
+ * PAID PICK RULE of quick task 261010-l0s reads the same larger of the two
+ * (`paidOrSecuredAt`): at a key whose Playoffs read final, a listed pick is
+ * confirmed on its alliance where TBA has paid it there OR a secured minimum
+ * is supplied for it there. A secured minimum above 0 says what a payment
+ * says, that the team was on the field for a win of the alliance that lists
+ * it, and its floor already counts those points. What this is for, as the
+ * planner measured it on the forced awards flag reading of
+ * `scripts/champJointMonotone.test.ts` (a division's awards flag written true
+ * by hand with no playoff point on any row, then the points landing): 28
+ * Locked lost before this task, 93 with the credit and TBA's number replacing
+ * it, 0 with the larger of the two.
+ *
+ * WHERE THE LARGER OF THE TWO STOPS. It applies wherever a source carries a
+ * secured minimum, and a source carries one only where the caller of the rows
+ * builder holds that event's played rows. For an event whose rows the caller
+ * does not hold, the floor of a final Playoffs category is TBA's number
+ * alone, as before this task.
+ *
+ * NO CREDIT AT A FINALS KEY. A divisioned championship's finals event keeps
+ * the branch it had: no settled value and no secured minimum, whatever its
+ * source carries. The rows module's reader credits eight alliance brackets
+ * only, and the planner measured that a credit there would gain nothing: of
+ * 96 robot stops with a secured minimum above 0 at a finals event, at 0 was
+ * the team not already Locked. A team outside the field reads none either.
+ *
+ * WHAT IT RESTS ON. The pay rule is TBA's and not ours: it was read from
+ * TBA's public source and fitted to four seasons of paid values, and this
+ * code does not control it. The rows are read as posted. If a playoff result
+ * is corrected after it was posted, a secured minimum read off the first
+ * result can fall, and a Locked that rested on it could be withdrawn.
+ *
+ * WHAT IT MOVED, as this task executed it. Over the sweep's 48 championships
+ * and 412 stops of 2023 to 2026, against the code of before this task: Locked
+ * on points 3,755 to 4,221, which is 466 team stops gained (303 teams) and 0
+ * LOST. Single event championships 754 to 925, divisioned 2,898 to 3,178, two
+ * championships 103 to 118, every gain at Round 2 to Round 5. Locked out
+ * 41,893 to 41,981, 0 lost. Joint bounds compared 59,721: higher 0, lower
+ * 1,704. No gained team misses its final standing. What the proof is handed:
+ * over the 364 stops where it runs, 60,946 pool rivals, floor plus extra
+ * differs at 0, 2,370 carry a higher floor and none a lower one, and nothing
+ * else of its input differs at any stop. At 2026 FNC, Round 5, 15 slots:
+ *
+ *   frc4561  floor 232 to 292, ceiling 367 as before, bound 16 to 11: In range, then Locked
+ *   frc4795  floor 244 to 304, bound 14 to 11: Locked, and Locked
+ *   frc9496  floor 259 to 319, bound 12 to 11: Locked, and Locked
+ *   frc9032  floor 259 to 319, bound 12 to 11: Locked, and Locked
+ *   frc2724  floor 260, bound 12, unchanged: Locked
+ *   frc3506  floor 243, bound 14, unchanged: Locked
+ *   frc7763  floor 103 to 145 (it sat one win out), bound 50 to 31: Out of range
+ *   frc6639  floor 101 to 122, bound 52 as before: its credit is withheld from the proof
  */
 import {
   computeLocksWithQualifiers,
@@ -524,6 +643,8 @@ import type { DistrictArtifact } from "../../../../../packages/harness/pageArtif
 import {
   DISTRICT_CATEGORIES,
   settledElimBounds,
+  openPlayoffBounds,
+  securedBeyondPosted,
   tierEvents,
   type DcmpBracketFacts,
   type DistrictCategory,
@@ -858,6 +979,11 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
   // Playoffs value for a team in the field.
   const jointExtraByTeam = new Map<string, number>();
   const dcmpSettledByEvent = new Map<string, Map<string, SettledPlayoffs | undefined>>();
+  // Per dcmp key, the secured minimum each team's floor holds there (quick task 261012-mw2).
+  const dcmpCreditByEvent = new Map<string, Map<string, number>>();
+  // Per dcmp key, every team a secured minimum is supplied for there, whatever the key's stage (quick task
+  // 261012-mw2): the paid pick rule reads it beside TBA's own payment once the key's Playoffs are final.
+  const dcmpSecuredByEvent = new Map<string, Set<string>>();
   const winnerPostedAt = new Set<string>();
 
   for (const team of teams) {
@@ -874,13 +1000,18 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
     for (const entry of team.districtRow.sources) {
       const earned = earnedByEvent.get(entry.eventKey);
       for (const category of DISTRICT_CATEGORIES) {
-        if (entry.stage.final[category]) continue;
+        if (entry.stage.final[category]) {
+          // THE LARGER OF THE TWO (quick task 261012-mw2): a final Playoffs category counts TBA's number, which is
+          // already in the floor, and what the secured minimum holds beyond it.
+          if (category === "elim") floor += securedBeyondPosted({ earned, securedElim: entry.securedElim });
+          continue;
+        }
         if (earned !== undefined) floor -= earned[category];
-        if (category === "elim" && entry.settledElim !== undefined) {
-          // Knocked out of this event's playoffs: settled, by the one rule.
-          const settled = settledElimBounds(entry.settledElim);
-          floor += settled.floor;
-          openCeiling += settled.ceiling;
+        if (category === "elim") {
+          // An open Playoffs category of a district event, by the one rule.
+          const bounds = openPlayoffBounds(entry, districtCeiling.elim);
+          floor += bounds.floor;
+          openCeiling += bounds.ceiling;
           continue;
         }
         openCeiling += districtCeiling[category];
@@ -915,15 +1046,38 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
           finalsCeiling !== undefined && dcmpSources.some((other) => other.eventKey !== dcmpEntry.eventKey && championshipStemOf(other.eventKey) === dcmpEntry.eventKey);
         const ceiling = finalsCeiling === undefined ? dcmpCeiling : hasDivisionSourceHere ? finalsCeiling : { ...finalsCeiling, elim: 0 };
         const earned = earnedByEvent.get(dcmpEntry.eventKey);
+        if (finalsCeiling === undefined && dcmpEntry.securedElim !== undefined) {
+          let securedAtKey = dcmpSecuredByEvent.get(dcmpEntry.eventKey);
+          if (securedAtKey === undefined) {
+            securedAtKey = new Set();
+            dcmpSecuredByEvent.set(dcmpEntry.eventKey, securedAtKey);
+          }
+          securedAtKey.add(team.teamKey);
+        }
         for (const category of DISTRICT_CATEGORIES) {
-          if (dcmpStage[category]) continue;
+          if (dcmpStage[category]) {
+            // THE LARGER OF THE TWO (quick task 261012-mw2), at the team's own championship and never at a finals
+            // key: a final Playoffs category counts TBA's number and what the secured minimum holds beyond it.
+            if (category === "elim" && finalsCeiling === undefined) floor += securedBeyondPosted({ earned, securedElim: dcmpEntry.securedElim });
+            continue;
+          }
           if (earned !== undefined) floor -= earned[category];
-          if (category === "elim" && settledElim !== undefined) {
-            // Knocked out of the DCMP playoffs: settled in place of the whole 3x
-            // ceiling (decision 4 in this module's header).
-            const settled = settledElimBounds(settledElim);
-            floor += settled.floor;
-            openCeiling += settled.ceiling;
+          if (category === "elim" && finalsCeiling === undefined) {
+            // An open Playoffs category of the team's own championship, by the one rule (quick task 261012-mw2):
+            // settled in place of the whole 3x ceiling, or the secured minimum in the floor and the rest in the ceiling.
+            const bounds = openPlayoffBounds({ settledElim, securedElim: dcmpEntry.securedElim }, ceiling.elim);
+            floor += bounds.floor;
+            openCeiling += bounds.ceiling;
+            // The joint proof models an UNSETTLED open Playoffs category whole, so the secured part leaves `extra`.
+            if (settledElim === undefined) jointModeled += ceiling.elim;
+            if (settledElim?.exact !== true && bounds.floor > 0) {
+              let creditAtKey = dcmpCreditByEvent.get(dcmpEntry.eventKey);
+              if (creditAtKey === undefined) {
+                creditAtKey = new Map();
+                dcmpCreditByEvent.set(dcmpEntry.eventKey, creditAtKey);
+              }
+              creditAtKey.set(team.teamKey, bounds.floor);
+            }
             continue;
           }
           openCeiling += ceiling[category];
@@ -1090,6 +1244,8 @@ export function computeChampLedgerStatuses(options: ComputeChampLedgerStatusesOp
     floorByTeam,
     jointExtraByTeam,
     dcmpSettledByEvent,
+    dcmpCreditByEvent,
+    dcmpSecuredByEvent,
     firstDcmpKeyByTeam: new Map(
       teams.flatMap((team) => (team.dcmpRow.sources[0] === undefined ? [] : [[team.teamKey, team.dcmpRow.sources[0].eventKey] as const]))
     ),
@@ -1168,6 +1324,10 @@ interface JointProofAtInput {
   readonly jointExtraByTeam: ReadonlyMap<string, number>;
   /** Per dcmp tier key, each team with a source there and its settled Playoffs value (undefined when unsettled). */
   readonly dcmpSettledByEvent: ReadonlyMap<string, ReadonlyMap<string, SettledPlayoffs | undefined>>;
+  /** Per dcmp tier key, the secured minimum each team's floor holds there (quick task 261012-mw2). */
+  readonly dcmpCreditByEvent: ReadonlyMap<string, ReadonlyMap<string, number>>;
+  /** Per dcmp tier key, every team a secured minimum is supplied for there, whatever the key's stage (quick task 261012-mw2). */
+  readonly dcmpSecuredByEvent: ReadonlyMap<string, ReadonlySet<string>>;
   /** Each team's FIRST dcmp source key, for the two championship partition (reading R9). */
   readonly firstDcmpKeyByTeam: ReadonlyMap<string, string>;
   readonly qualifiers: QualifierSets;
@@ -1228,6 +1388,20 @@ function paidPlayoffsAt(artifact: DistrictArtifact, eventKey: string): Set<strin
   for (const team of artifact.teams) {
     if (team.eventPoints.some((entry) => entry.eventKey === eventKey && entry.elim > 0)) paid.add(team.teamKey);
   }
+  return paid;
+}
+
+/**
+ * THE LARGER OF THE TWO, for the paid pick rule (quick task 261012-mw2): the teams TBA has paid at a key whose
+ * Playoffs are final at the position, and the teams a secured minimum is supplied for there. A secured minimum
+ * above 0 says the same thing a payment does, that the team was on the field for a win of the alliance that lists
+ * it, and its floor already counts those points. Wherever TBA's number is the real final number every secured team
+ * is paid, so this is `paidPlayoffsAt` exactly; it adds a team only while a number that reads final is older than
+ * the rows the tab has read.
+ */
+function paidOrSecuredAt(input: JointProofAtInput, eventKey: string): Set<string> {
+  const paid = paidPlayoffsAt(input.artifact, eventKey);
+  for (const teamKey of input.dcmpSecuredByEvent.get(eventKey) ?? []) paid.add(teamKey);
   return paid;
 }
 
@@ -1364,14 +1538,18 @@ function poolRivals(
   teamKeys: readonly string[],
   settledByTeam: (teamKey: string) => SettledPlayoffs | undefined,
   placementOfTeam: ReadonlyMap<string, number>,
-  listedOnly: ReadonlyMap<string, boolean> = NO_LISTED_ONLY_PICKS
+  listedOnly: ReadonlyMap<string, boolean> = NO_LISTED_ONLY_PICKS,
+  creditWithheld: (teamKey: string) => number = () => 0
 ): JointLockRival[] {
   return teamKeys.map((teamKey) => {
     const settled = settledByTeam(teamKey);
+    // A pick no alliance selection points confirm is read by the proof exactly as before quick task 261012-mw2: its
+    // secured minimum goes back from the floor to `extra`.
+    const withheld = creditWithheld(teamKey);
     const rival: JointLockRival = {
       teamKey,
-      floor: input.floorByTeam.get(teamKey)!,
-      extra: (input.jointExtraByTeam.get(teamKey) ?? 0) + jointDecidedPlacementTopUp(settled, placementOfTeam.get(teamKey), input.artifact.year),
+      floor: input.floorByTeam.get(teamKey)! - withheld,
+      extra: (input.jointExtraByTeam.get(teamKey) ?? 0) + withheld + jointDecidedPlacementTopUp(settled, placementOfTeam.get(teamKey), input.artifact.year),
     };
     const onWinner = listedOnly.get(teamKey);
     if (onWinner === undefined || settled === undefined || settled.exact) return rival;
@@ -1450,7 +1628,7 @@ function eightAllianceInput(
   const points = allianceSelectionPointsAt(artifact, eventKey);
   // THE PAID PICK RULE (quick task 261010-l0s, finding F2; decision 5 in this module's header): once this key's
   // Playoffs are final at the position, a pick an alliance lists whose row here carries playoff points is on it.
-  const paid = input.dcmpStageByEvent.get(eventKey)?.elim === true ? paidPlayoffsAt(artifact, eventKey) : NOBODY_PAID;
+  const paid = input.dcmpStageByEvent.get(eventKey)?.elim === true ? paidOrSecuredAt(input, eventKey) : NOBODY_PAID;
   // GUARD ONE (CONTEXT D5 of that task): a payment confirms a pick only where the lists of this key name it exactly once.
   const listedOnce = listedExactlyOnce(facts.alliances);
   const alliances: JointLockAlliance[] = facts.alliances.map((alliance) => {
@@ -1463,7 +1641,14 @@ function eightAllianceInput(
   });
   return {
     // F-D (quick task 261010-d7r): every placed alliance's listed picks that are not confirmed, the winner's included.
-    pool: poolRivals(input, poolKeys, (teamKey) => settled.get(teamKey), placementByPick(facts, routed.routing), listedOnlyPicks(facts, routed.routing, points, true)),
+    pool: poolRivals(
+      input,
+      poolKeys,
+      (teamKey) => settled.get(teamKey),
+      placementByPick(facts, routed.routing),
+      listedOnlyPicks(facts, routed.routing, points, true),
+      (teamKey) => ((points.get(teamKey) ?? 0) > 0 ? 0 : (input.dcmpCreditByEvent.get(eventKey)?.get(teamKey) ?? 0))
+    ),
     slotOnlyRivals,
     pointsSlots: input.narrowing.pointsSlots,
     alliances,
@@ -1756,6 +1941,8 @@ function divisionedJointProof(
   // F-D (quick task 261010-d7r): the listed picks that are not confirmed on an alliance placed BELOW first in its
   // division. A division winner's listed pick is left out (planner reading R7): it keeps its settled value.
   const listedOnly = new Map<string, boolean>();
+  // Quick task 261012-mw2: the secured minimum of a pick no alliance selection points confirm, withheld from the proof.
+  const creditWithheldByTeam = new Map<string, number>();
   // THE PAID PICK RULE at the finals (quick task 261010-l0s, finding F2): the teams TBA has paid for the finals'
   // playoffs, once the finals' Playoffs are final at the position.
   const paidAtTheFinals = finalsStage.elim ? paidPlayoffsAt(artifact, finalsKey) : NOBODY_PAID;
@@ -1780,6 +1967,7 @@ function divisionedJointProof(
       alive = [...aliveSet].sort((a, b) => a - b);
     }
     const points = allianceSelectionPointsAt(artifact, key);
+    for (const [teamKey, credit] of input.dcmpCreditByEvent.get(key) ?? []) if ((points.get(teamKey) ?? 0) <= 0) creditWithheldByTeam.set(teamKey, credit);
     for (const [teamKey, onWinner] of listedOnlyPicks(facts, routing, points, false)) if (!listedOnly.has(teamKey)) listedOnly.set(teamKey, onWinner);
     const confirmedHere = new Set<string>();
     const listedHere = new Set<string>();
@@ -1789,7 +1977,7 @@ function divisionedJointProof(
     // finals' are. The winner's backup that joined only for the finals is a team of this division that no alliance
     // here lists and that the finals have paid: a backup comes from its alliance's own division, and of this
     // division only the winner plays the finals.
-    const paidHere = stage.elim ? paidPlayoffsAt(artifact, key) : NOBODY_PAID;
+    const paidHere = stage.elim ? paidOrSecuredAt(input, key) : NOBODY_PAID;
     const listedByAnAllianceHere = new Set(facts.alliances.flatMap((alliance) => alliance.picks));
     // GUARD ONE (CONTEXT D5 of that task): a payment confirms a listed pick only where the lists of this key name
     // that team exactly once. A team two lists name is confirmed on neither, and both seats stay open.
@@ -1885,7 +2073,7 @@ function divisionedJointProof(
     return key === undefined ? undefined : input.dcmpSettledByEvent.get(key)?.get(teamKey);
   };
   const proofInput: JointLockInput = {
-    pool: poolRivals(input, input.narrowing.poolKeys, settledOf, placementOfTeam, listedOnly),
+    pool: poolRivals(input, input.narrowing.poolKeys, settledOf, placementOfTeam, listedOnly, (teamKey) => creditWithheldByTeam.get(teamKey) ?? 0),
     slotOnlyRivals: slotOnlyRivalsOf(input.qualifiers),
     pointsSlots: input.narrowing.pointsSlots,
     alliances,

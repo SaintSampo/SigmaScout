@@ -1865,3 +1865,215 @@ describe("buildChampLedgerRows: a team with no championship row reads out only o
   });
 });
 
+// ---------------------------------------------------------------------------
+// The secured playoff minimum on the Champ Locks rows (quick task 261012-mw2)
+// ---------------------------------------------------------------------------
+
+describe("the secured playoff minimum on the Champ Locks rows (quick task 261012-mw2)", () => {
+  const EVENT = "2026wabon";
+  const DCMP = "2026pncmp";
+  const DIVISION = "2026pncmp1";
+  const OPEN_PLAYOFFS: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
+  /** The playoffs under way on the field at Now: alliances picked, nothing later. */
+  const UNDER_WAY = state({ alliancesPicked: true, playoffsDone: false, awardsPosted: false });
+
+  /**
+   * One team with a district event (qual 20, alliance 10, elim 10, award 5: 45) and a single championship (qual 30,
+   * alliance 15, the given Playoffs and Awards), a rookie bonus of 8 and an adjustment of 2.
+   */
+  function single(dcmp: { elim: number; award: number; state?: DistrictEventState } = { elim: 60, award: 10 }): DistrictArtifact {
+    const dcmpTotal = 30 + 15 + dcmp.elim + dcmp.award;
+    return artifactOf([
+      team({
+        teamKey: "frc1",
+        pointTotal: 45 + dcmpTotal + 10,
+        rookieBonus: 8,
+        adjustments: 2,
+        eventPoints: [
+          eventPoints({ eventKey: EVENT, week: 0, qual: 20, alliance: 10, elim: 10, award: 5, total: 45 }),
+          eventPoints({ eventKey: DCMP, week: 5, tier: "dcmp", qual: 30, alliance: 15, elim: dcmp.elim, award: dcmp.award, total: dcmpTotal, ...(dcmp.state === undefined ? {} : { state: dcmp.state }) }),
+        ],
+      }),
+    ]);
+  }
+  /** One event's distributions entry for frc1, with or without a secured minimum, and with whichever cells are priced. */
+  function entryFor(eventKey: string, secured: number | undefined, cells: Partial<Record<DistrictCellKind, DistrictPointDistribution>> = {}, teamKey = "frc1"): [string, DistrictEventDistributions] {
+    return [eventKey, { ...distributionsFor(eventKey, { [teamKey]: cells }), ...(secured === undefined ? {} : { securedElimByTeam: new Map([[teamKey, secured]]) }) }];
+  }
+  const teamOf = (artifact: DistrictArtifact, stageByEvent: ReadonlyMap<string, DistrictStageFinality> | undefined, entries: readonly [string, DistrictEventDistributions][], teamKey = "frc1"): ChampLedgerTeam =>
+    buildChampLedgerRows({ artifact, distributions: new Map(entries), ...(stageByEvent === undefined ? { atLivePosition: true } : { stageByEvent }), dcmpStarted: true }).teams.find((entry) => entry.teamKey === teamKey)!;
+
+  const EVENT_PLAYOFFS = new Map<string, DistrictStageFinality>([
+    [EVENT, OPEN_PLAYOFFS],
+    [DCMP, ALL_OPEN],
+  ]);
+  const DCMP_PLAYOFFS = new Map<string, DistrictStageFinality>([
+    [EVENT, ALL_FINAL],
+    [DCMP, OPEN_PLAYOFFS],
+  ]);
+  const EVERYTHING_FINAL = new Map<string, DistrictStageFinality>([
+    [EVENT, ALL_FINAL],
+    [DCMP, ALL_FINAL],
+  ]);
+
+  it("a source copies securedElim only where its pass row carries one, so a source without it deep equals the shipped one", () => {
+    const districtCredited = teamOf(single(), EVENT_PLAYOFFS, [entryFor(EVENT, 13)]);
+    const districtPlain = teamOf(single(), EVENT_PLAYOFFS, [entryFor(EVENT, undefined)]);
+    expect(districtCredited.districtRow.sources[0]!.securedElim).toBe(13);
+    expect("securedElim" in districtPlain.districtRow.sources[0]!).toBe(false);
+    expect(districtCredited.districtRow.sources[0]).toEqual({ ...districtPlain.districtRow.sources[0]!, securedElim: 13 });
+    // The championship source of the same build carries none: nothing was supplied there.
+    expect("securedElim" in districtCredited.dcmpRow.sources[0]!).toBe(false);
+
+    const dcmpCredited = teamOf(single(), DCMP_PLAYOFFS, [entryFor(DCMP, 39)]);
+    const dcmpPlain = teamOf(single(), DCMP_PLAYOFFS, [entryFor(DCMP, undefined)]);
+    expect(dcmpCredited.dcmpRow.sources[0]!.securedElim).toBe(39);
+    expect("securedElim" in dcmpPlain.dcmpRow.sources[0]!).toBe(false);
+    expect(dcmpCredited.dcmpRow.sources[0]).toEqual({ ...dcmpPlain.dcmpRow.sources[0]!, securedElim: 39 });
+    expect("securedElim" in dcmpCredited.districtRow.sources[0]!).toBe(false);
+  });
+
+  it("the header is the earned figure at the position plus what each Playoffs category counts beyond it: open and rewound, the floor whole", () => {
+    // pointTotal 170. With the district event's Playoffs and Awards open and the championship unplayed at the
+    // position, the figure is 20 + 10 and the 8 + 2 outside the rows: 40.
+    expect(earnedAtPositionOf(single().teams[0]!, EVENT_PLAYOFFS)).toBe(40);
+    expect(teamOf(single(), EVENT_PLAYOFFS, [entryFor(EVENT, undefined)]).earnedAtPosition).toBe(40);
+    // 13 secured at the district event: 40 + 13.
+    expect(teamOf(single(), EVENT_PLAYOFFS, [entryFor(EVENT, 13)]).earnedAtPosition).toBe(53);
+    // The championship's Playoffs and Awards open: 170 less its 60 and 10 is 100, and 39 secured there is 139.
+    expect(earnedAtPositionOf(single().teams[0]!, DCMP_PLAYOFFS)).toBe(100);
+    expect(teamOf(single(), DCMP_PLAYOFFS, [entryFor(DCMP, undefined)]).earnedAtPosition).toBe(100);
+    expect(teamOf(single(), DCMP_PLAYOFFS, [entryFor(DCMP, 39)]).earnedAtPosition).toBe(139);
+  });
+
+  it("the header with the category FINAL adds only what the secured minimum holds beyond TBA's number, rewound and at Now", () => {
+    for (const stages of [EVERYTHING_FINAL, undefined]) {
+      const at = stages === undefined ? "Now" : "rewound";
+      // TBA's 60 is at or above the 39 secured: the published 170 alone.
+      expect(teamOf(single(), stages, [entryFor(DCMP, 39)]).earnedAtPosition, at).toBe(170);
+      // A number that reads final and is older than the rows: 21 posted (pointTotal 131), 39 secured. 131 + 18.
+      const older = single({ elim: 21, award: 10 });
+      expect(older.teams[0]!.pointTotal).toBe(131);
+      expect(teamOf(older, stages, [entryFor(DCMP, 39)]).earnedAtPosition, at).toBe(149);
+      expect(teamOf(older, stages, [entryFor(DCMP, undefined)]).earnedAtPosition, at).toBe(131);
+    }
+  });
+
+  it("the header at NOW with the category open adds only what the floor counts beyond the number TBA has posted", () => {
+    // The championship's playoffs under way: nothing posted for them (pointTotal 100) and 39 secured. 100 + 39.
+    expect(teamOf(single({ elim: 0, award: 0, state: UNDER_WAY }), undefined, [entryFor(DCMP, 39)]).earnedAtPosition).toBe(139);
+    expect(teamOf(single({ elim: 0, award: 0, state: UNDER_WAY }), undefined, [entryFor(DCMP, undefined)]).earnedAtPosition).toBe(100);
+    // TBA has posted an interim 21 (pointTotal 121): 121 + (39 - 21). The same points never twice.
+    expect(teamOf(single({ elim: 21, award: 0, state: UNDER_WAY }), undefined, [entryFor(DCMP, 39)]).earnedAtPosition).toBe(139);
+    // TBA has posted 60, above the 39 secured: the published 160 alone.
+    expect(teamOf(single({ elim: 60, award: 0, state: UNDER_WAY }), undefined, [entryFor(DCMP, 39)]).earnedAtPosition).toBe(160);
+  });
+
+  describe("a divisioned championship: a finals key and a team outside the field add nothing", () => {
+    // frc1: the district event (45), its division (qual 30, alliance 15, elim 60, award 10: 115) and a finals row
+    // (elim 30), with the 8 + 2 outside the rows: 200. frc2: the district event and the division. frc3: the district
+    // event and ONLY a finals row, posted with an award of 15: it is on no division's field. pointTotal 60. frc4: the
+    // district event and no championship row at all: outside the field once the division has started.
+    const divisioned = artifactOf([
+      team({
+        teamKey: "frc1",
+        pointTotal: 200,
+        rookieBonus: 8,
+        adjustments: 2,
+        eventPoints: [
+          eventPoints({ eventKey: EVENT, week: 0, qual: 20, alliance: 10, elim: 10, award: 5, total: 45 }),
+          eventPoints({ eventKey: DIVISION, week: 5, tier: "dcmp", qual: 30, alliance: 15, elim: 60, award: 10, total: 115 }),
+          eventPoints({ eventKey: DCMP, week: 5, tier: "dcmp", qual: 0, alliance: 0, elim: 30, award: 0, total: 30 }),
+        ],
+      }),
+      team({
+        teamKey: "frc2",
+        pointTotal: 105,
+        eventPoints: [
+          eventPoints({ eventKey: EVENT, week: 0, qual: 20, alliance: 10, elim: 10, award: 5, total: 45 }),
+          eventPoints({ eventKey: DIVISION, week: 5, tier: "dcmp", qual: 30, alliance: 15, elim: 0, award: 15, total: 60 }),
+        ],
+      }),
+      team({
+        teamKey: "frc3",
+        pointTotal: 60,
+        eventPoints: [
+          eventPoints({ eventKey: EVENT, week: 0, qual: 20, alliance: 10, elim: 10, award: 5, total: 45 }),
+          eventPoints({ eventKey: DCMP, week: 5, tier: "dcmp", qual: 0, alliance: 0, elim: 0, award: 15, total: 15 }),
+        ],
+      }),
+      team({
+        teamKey: "frc4",
+        pointTotal: 45,
+        eventPoints: [eventPoints({ eventKey: EVENT, week: 0, qual: 20, alliance: 10, elim: 10, award: 5, total: 45 })],
+      }),
+    ]);
+    const STOP = new Map<string, DistrictStageFinality>([
+      [EVENT, ALL_FINAL],
+      [DIVISION, OPEN_PLAYOFFS],
+      [DCMP, ALL_OPEN],
+    ]);
+    const at = (teamKey: string, entries: readonly [string, DistrictEventDistributions][]): ChampLedgerTeam =>
+      buildChampLedgerRows({ artifact: divisioned, distributions: new Map(entries), stageByEvent: STOP, startedDcmpEventKeys: new Set([DIVISION]) }).teams.find((entry) => entry.teamKey === teamKey)!;
+
+    it("the division's secured minimum is in the header and the finals key's is not", () => {
+      expect(fieldFixingDcmpKeys([DCMP, DIVISION])).toEqual([DIVISION]);
+      // 200 less the division's open 60 and 10 and the whole finals row's 30: 100.
+      expect(at("frc1", []).earnedAtPosition).toBe(100);
+      expect(at("frc1", [entryFor(DIVISION, 39)]).earnedAtPosition).toBe(139);
+      // A secured minimum handed in at the finals key (the reader never builds one there): nothing.
+      expect(at("frc1", [entryFor(DCMP, 30)]).earnedAtPosition).toBe(100);
+      expect(at("frc1", [entryFor(DIVISION, 39), entryFor(DCMP, 30)]).earnedAtPosition).toBe(139);
+    });
+
+    it("a team whose only championship row is at the finals key adds nothing for it, and a team outside the field has no championship row to add", () => {
+      // frc3: 60 less its finals row's open 15 is 45, with or without a secured minimum handed in at the finals key.
+      expect(at("frc3", []).earnedAtPosition).toBe(45);
+      expect(at("frc3", [entryFor(DCMP, 30, {}, "frc3")]).earnedAtPosition).toBe(45);
+      // frc4 has no championship row and the division has started: it is outside the field.
+      const outside = at("frc4", []);
+      expect(outside.membership).toBe("out");
+      expect(outside.dcmpRow.sources).toEqual([]);
+      expect(outside.earnedAtPosition).toBe(45);
+    });
+
+    it("each of the two rows carries countedAtPosition, and it is 0 on the championship row of a team outside the field", () => {
+      // (A finals key's row is not read here: nothing ever supplies a secured minimum at a finals key.)
+      const plain = at("frc1", []);
+      // The district event is final: 20 + 10 + 10 + 5.
+      expect(plain.districtRow.countedAtPosition).toBe(45);
+      // The division's Qualification 30 and Alliance selection 15 are final; its Playoffs count nothing yet, and the
+      // finals row is wholly open.
+      expect(plain.dcmpRow.countedAtPosition).toBe(45);
+      // With 39 secured at the division: 30 + 15 + 39.
+      const credited = at("frc1", [entryFor(DIVISION, 39)]);
+      expect(credited.dcmpRow.countedAtPosition).toBe(84);
+      expect(credited.districtRow.countedAtPosition).toBe(45);
+      // The two rows' counted points and the 8 + 2 outside them are the header.
+      expect(credited.districtRow.countedAtPosition! + credited.dcmpRow.countedAtPosition! + 10).toBe(credited.earnedAtPosition);
+      // Outside the field: the championship row counts nothing, and the district row is the district event.
+      expect(at("frc4", []).dcmpRow.countedAtPosition).toBe(0);
+      expect(at("frc4", []).districtRow.countedAtPosition).toBe(45);
+    });
+  });
+
+  it("the District Championship row's Playoffs cell keeps securedAtLeast, and the District points row's summed cell carries none", () => {
+    // The championship priced by its own run: the row's cells are the pass's own cells.
+    const dcmp = teamOf(single(), DCMP_PLAYOFFS, [entryFor(DCMP, 39, { elim: uniform(90), award: uniform(30), eventTotal: uniform(165) })]);
+    const dcmpCell = cellOf(dcmp.dcmpRow.cells, "elim");
+    expect(dcmpCell.kind).toBe("open");
+    if (dcmpCell.kind !== "open") throw new Error("unreachable");
+    expect(dcmpCell.securedAtLeast).toBe(39);
+    expect("securedAtLeast" in cellOf(dcmp.dcmpRow.cells, "award")).toBe(false);
+    // Without a secured minimum the same cell carries no such key.
+    expect("securedAtLeast" in cellOf(teamOf(single(), DCMP_PLAYOFFS, [entryFor(DCMP, undefined, { elim: uniform(90), award: uniform(30), eventTotal: uniform(165) })]).dcmpRow.cells, "elim")).toBe(false);
+
+    // The District points row sums its events: its Playoffs cell is the plain sum and carries no line, while the
+    // header counts the credit either way.
+    const district = teamOf(single(), EVENT_PLAYOFFS, [entryFor(EVENT, 13, { elim: uniform(30), award: uniform(10), eventTotal: uniform(70) })]);
+    const districtCell = cellOf(district.districtRow.cells, "elim");
+    expect(districtCell.kind).toBe("open");
+    expect("securedAtLeast" in districtCell).toBe(false);
+    expect(district.earnedAtPosition).toBe(53);
+  });
+});

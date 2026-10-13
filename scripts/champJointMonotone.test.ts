@@ -701,6 +701,11 @@ describe("GROUP A, the awards order test: the 16 divisioned championships of 202
       // team margins, and by district 118 at 2023fim, 4 at 2023fit and 239 at 2024fim. The paid pick rule of the
       // same task then moved the team margins once more, 33,385 to 33,388, and nothing else here: from the stop a
       // division's Playoffs are final, a backup TBA has paid is its alliance's confirmed pick.
+      // QUICK TASK 261012-mw2 moved it again. This reading runs the sweep's own stops, and their floors now hold
+      // the playoff points a team still in its bracket has secured, so the rule off reading starts from other
+      // floors. Until then: 952 lost, 161 pairs, 1786 flag edges with a drop, 33,388 team margins, and by
+      // district 116, 3, 6, 10, 237, 7, 9, 10, 215, 9, 0, 15, 287, 13, 10 and 5 in the order below. The rules on
+      // reading above did not move.
       expect({
         readings: tally.readings,
         lostOverFlagEdges: tally.lost.flag,
@@ -712,31 +717,31 @@ describe("GROUP A, the awards order test: the 16 divisioned championships of 202
         largestDrop: tally.largestDrop,
       }).toEqual({
         readings: 1200,
-        lostOverFlagEdges: 952,
+        lostOverFlagEdges: 887,
         lostOverStopEdges: 0,
-        distinctPairsLost: 161,
-        flagEdgesWithADrop: 1786,
+        distinctPairsLost: 145,
+        flagEdgesWithADrop: 1800,
         stopEdgesWithADrop: 0,
-        teamMarginsDropped: 33_388,
+        teamMarginsDropped: 34_337,
         largestDrop: 4,
       });
       expect(lostByDistrict).toEqual({
-        "2023fim": 116,
-        "2023fit": 3,
-        "2023ne": 6,
-        "2023ont": 10,
-        "2024fim": 237,
-        "2024fit": 7,
+        "2023fim": 106,
+        "2023fit": 5,
+        "2023ne": 8,
+        "2023ont": 9,
+        "2024fim": 243,
+        "2024fit": 6,
         "2024ne": 9,
-        "2024ont": 10,
-        "2025fim": 215,
-        "2025fit": 9,
-        "2025ne": 0,
-        "2025ont": 15,
-        "2026fim": 287,
-        "2026fit": 13,
-        "2026ne": 10,
-        "2026ont": 5,
+        "2024ont": 9,
+        "2025fim": 174,
+        "2025fit": 11,
+        "2025ne": 2,
+        "2025ont": 7,
+        "2026fim": 273,
+        "2026fit": 10,
+        "2026ne": 12,
+        "2026ont": 3,
       });
     },
     TEST_TIMEOUT_MS
@@ -950,11 +955,13 @@ describe("GROUP B, divisions out of step: some divisions finished, their awards 
       // The measurement of the reading before quick task 261010-d7r. Pinned as the run shows; not a requirement.
       // Quick task 261010-l0s (every rival counted once) moved it from 49 lost and 772 margins: with the rule off
       // the proof holds more before a flag turns true, so more is lost when it does.
+      // Quick task 261012-mw2 moved it from 54 lost and 777 margins: the sweep's stops this reading runs now hold
+      // the secured playoff minimums in their floors. The rules on reading above did not move.
       expect({ readings: tally.readings, lostOverFlagEdges: tally.lost.flag, lostOverStopEdges: tally.lost.stop, marginDrops: tally.marginDrops, largestDrop: tally.largestDrop }).toEqual({
         readings: 288,
-        lostOverFlagEdges: 54,
+        lostOverFlagEdges: 52,
         lostOverStopEdges: 0,
-        marginDrops: 777,
+        marginDrops: 784,
         largestDrop: 3,
       });
     },
@@ -1185,6 +1192,9 @@ describe("GROUP C, two championships with one finishing first: 2026 California, 
       // THE REQUIREMENT: the mutation is caught, through the status code's own verdicts.
       expect(finishing.tally.lost.flag).toBeGreaterThan(0);
       // The measurement of the reading before quick task 261010-d7r (finding F-C). Pinned as the run shows.
+      // Quick task 261012-mw2 moved the Locked lost over flag edges from 91 to 87: the sweep's stops this reading
+      // runs now hold the secured playoff minimums in their floors. Nothing else of the record moved, and the
+      // rules on reading above did not move.
       expect({
         joint: finishing.tally.joint,
         lostOverFlagEdges: finishing.tally.lost.flag,
@@ -1192,7 +1202,7 @@ describe("GROUP C, two championships with one finishing first: 2026 California, 
         appliedThenRefused: finishing.tally.appliedThenRefused,
         latticeJoint: lattice.tally.joint,
         latticeLost: lattice.tally.lost.flag,
-      }).toEqual({ joint: { applied: 14, noBracketFacts: 14 }, lostOverFlagEdges: 91, lostOverStopEdges: 0, appliedThenRefused: 14, latticeJoint: { applied: 1, noBracketFacts: 3 }, latticeLost: 1 });
+      }).toEqual({ joint: { applied: 14, noBracketFacts: 14 }, lostOverFlagEdges: 87, lostOverStopEdges: 0, appliedThenRefused: 14, latticeJoint: { applied: 1, noBracketFacts: 3 }, latticeLost: 1 });
     },
     TEST_TIMEOUT_MS
   );
