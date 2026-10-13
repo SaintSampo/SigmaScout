@@ -5,7 +5,7 @@
  *
  * What is pinned here and why:
  *
- *   1. THE THREE FIXED POOLS BY VALUE. 236, 213 and the three award values are
+ *   1. THE THREE FIXED POOLS BY VALUE. 236, 216 and the three award values are
  *      the numbers the whole pooled lock rests on. A silent change to any of
  *      them shrinks the pool, and a shrinking pool publishes a `Locked`
  *      guarantee that is not true.
@@ -80,11 +80,17 @@ describe("SELECTION_POOL", () => {
 });
 
 describe("PLAYOFF_POOL", () => {
-  it("is 213: every placement's value paid to three robots, plus three for a backup robot's prorated share", () => {
-    const perAlliance = PLAYOFF_PLACEMENT_POINTS.reduce((sum, points) => sum + points, 0);
-    expect(perAlliance).toBe(70);
-    expect(PLAYOFF_POOL).toBe(perAlliance * 3 + 3);
-    expect(PLAYOFF_POOL).toBe(213);
+  it("is 216: the most the pay rule can pay all robots of one event together, the largest over the declared rules, and it covers every registered season", () => {
+    // 213 until quick task 261013-lve: the placement table times three plus a measured margin of three, one above
+    // the highest total ever handed out. The pool is now proven from the pay rule (`pointPool.ts`).
+    expect(PLAYOFF_POOL).toBe(216);
+    expect(PLAYOFF_POOL).toBe(Math.max(...Object.values(MOST_PLAYOFF_POINTS_PAID_BY_RULE)));
+    expect(PLAYOFF_POOL).toBe(PLAYOFF_PLACEMENT_POINTS.reduce((sum, points) => sum + points, 0) * 3 + 6);
+    for (const season of BRACKET_REGISTERED_SEASONS) {
+      const rule = playoffPayRule(season);
+      expect(rule, `season ${String(season)} is registered with no declared pay rule, so the pool is not proven for it`).toBeDefined();
+      expect(PLAYOFF_POOL, `season ${String(season)}`).toBeGreaterThanOrEqual(mostPlayoffPointsPaid(rule!));
+    }
   });
 });
 
@@ -547,11 +553,12 @@ describe("qualificationPool", () => {
 describe("eventRemainingPool", () => {
   it("prices a 40-team event with no rookie, one rookie and two rookies", () => {
     const pool = (rookieCount: number): number => eventRemainingPool({ fieldSize: 40, rookieCount, final: ALL_CATEGORIES_OPEN });
-    expect(pool(0)).toBe(1060);
-    expect(pool(1)).toBe(1068);
-    expect(pool(2)).toBe(1073);
+    // 1060, 1068 and 1073 until quick task 261013-lve: the playoff pool was 213 and is 216.
+    expect(pool(0)).toBe(1063);
+    expect(pool(1)).toBe(1071);
+    expect(pool(2)).toBe(1076);
     // The whole of the difference between the three is the award pool.
-    expect(pool(0)).toBe(533 + 236 + 213 + 78);
+    expect(pool(0)).toBe(533 + 236 + 216 + 78);
   });
 
   it("is exactly zero for a finished event, which is every event of a finished season", () => {
@@ -562,13 +569,13 @@ describe("eventRemainingPool", () => {
     const at = (final: DistrictCategoryFinality): number => eventRemainingPool({ fieldSize: 40, rookieCount: 0, final });
     expect(at({ ...ALL_FINAL, qual: false })).toBe(533);
     expect(at({ ...ALL_FINAL, alliance: false })).toBe(236);
-    expect(at({ ...ALL_FINAL, elim: false })).toBe(213);
+    expect(at({ ...ALL_FINAL, elim: false })).toBe(216);
     expect(at({ ...ALL_FINAL, award: false })).toBe(78);
   });
 
   it("prices a part played event at its whole open pool, which over-counts on the safe side", () => {
     // Quals done, alliances picked, playoffs and awards still to come.
-    expect(eventRemainingPool({ fieldSize: 40, rookieCount: 1, final: { qual: true, alliance: true, elim: false, award: false } })).toBe(213 + 86);
+    expect(eventRemainingPool({ fieldSize: 40, rookieCount: 1, final: { qual: true, alliance: true, elim: false, award: false } })).toBe(216 + 86);
   });
 });
 

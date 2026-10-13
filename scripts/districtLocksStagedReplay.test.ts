@@ -1500,8 +1500,11 @@ describe("the staged replay: the field conditioned walks of every district tier 
     // THE REQUIREMENT: the credit takes no Locked away at any tick.
     for (const entry of Object.values(record)) expect(entry.lockedOnlyWithoutTheCredit).toEqual([]);
     // IT REACHES THE TABS: team ticks shown Locked with the credit and not without it. Pinned as the run shows.
+    // Case A's District Locks count read 105 until quick task 261013-lve: at the proven playoff pool of 216 (213
+    // until then) six of those team ticks are no longer reached by the pooled argument. A larger pool only takes
+    // pooled locks away; nothing is Locked only without the credit, and no walk takes a lock back.
     expect(record).toEqual({
-      "A, the points lag by minutes": { ticks: 128, districtTabGained: 105, champTabGained: 19, lockedOnlyWithoutTheCredit: [] },
+      "A, the points lag by minutes": { ticks: 128, districtTabGained: 99, champTabGained: 19, lockedOnlyWithoutTheCredit: [] },
       "B, the points arrive only when the event ends": { ticks: 112, districtTabGained: 97, champTabGained: 22, lockedOnlyWithoutTheCredit: [] },
     });
   });

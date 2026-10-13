@@ -11,39 +11,48 @@
  * regardless of how many teams want it. This module computes that pool.
  *
  * ---------------------------------------------------------------------------
- * EVERY CONSTANT BELOW IS MEASURED, NOT QUOTED
+ * WHAT EACH POOL RESTS ON: TWO PROVEN FROM A RULE, TWO MEASURED
  * ---------------------------------------------------------------------------
  *
- * The white paper states four pool values. Two of them are wrong for this
- * corpus, and they were checked before any of this code was written rather
- * than after it shipped. Read-only against `data/corpus.sqlite` on 2026-09-25,
- * over all 951 district-tier events of 2016 to 2026, summing each event's
- * `district_rankings.event_points_raw` components over every team:
+ * The white paper states four pool values. None is taken from it. Read-only
+ * against `data/corpus.sqlite` over all 951 district-tier events of 2016 to
+ * 2026, summing each event's `district_rankings.event_points_raw` components
+ * over every team (first measured 2026-09-25, read again 2026-10-13):
  *
- *   category      paper   highest total ever handed out    events over the paper's value
- *   qualification sum f(r,m) - m*f(m,m)   see below        38 of 951 over sum f(r,m) ALONE
- *   selection     236     236                               0
- *   playoffs      213     212                               0
- *   awards, 0 rookies     63      78                      all but a handful
- *   awards, 1 rookie      71      86                      likewise
- *   awards, 2+ rookies    76      91                      likewise
+ *   category      paper   this module             highest total ever handed out
+ *   qualification sum f(r,m) - m*f(m,m)   see below               closest event 11 under its pool
+ *   selection     236     236, PROVEN from the formula            236, at 612 events
+ *   playoffs      213     216, PROVEN from the pay rule           212, at 6 events
+ *   awards, 0 rookies     63      78, MEASURED                    78, at 37 events
+ *   awards, 1 rookie      71      86, MEASURED                    86, at 45 events
+ *   awards, 2+ rookies    76      91, MEASURED                    91, at 70 events
+ *
+ * PROVEN means: no event that follows the rule can hand out more, whatever
+ * happens in it. The SELECTION pool is the selection formula summed over the
+ * 24 scoring picks of eight alliances. The PLAYOFF pool is the most TBA's
+ * playoff pay rule can pay all robots of one event together (the section
+ * below). MEASURED means: the largest value seen, which a future event could
+ * exceed. The AWARD pool cannot be proven from a rule, because an event
+ * chooses which awards it gives; it is the measured maximum by attending
+ * rookie count, and events have sat exactly at it in five of the ten seasons
+ * (2019, 2020, 2022, 2025 and 2026). The QUALIFICATION pool is the manual's
+ * formula, proven for a real field of up to three teams more than the
+ * artifact shows; the three is the measured part (below).
  *
  * `pointPool.reconciliation.test.ts` re-derives that census on every run in a
  * checkout that has the corpus, so these constants cannot drift from the data
  * without a red test. `pointPool.test.ts` is the pure half CI actually runs.
  *
  * ---------------------------------------------------------------------------
- * THE MOST THE PAY RULE CAN PAY (quick task 261013-lve)
+ * THE PLAYOFF POOL IS PROVEN FROM THE PAY RULE (quick task 261013-lve)
  * ---------------------------------------------------------------------------
  *
- * The playoff pool below is the placement table times three robots plus a
- * measured margin of 3, so 213: one above the highest total ever handed out.
- * The pooled lock treats the pool as an UPPER BOUND, and a measured maximum
- * is not one. TBA's pay rule is known exactly since quick task 261012-mw2
- * (`securedPlayoffPoints.ts`, fitted to 11,991 paid values), and under it an
- * event CAN pay more than 213. `mostPlayoffPointsPaid` below is the most it
- * can pay. AT THIS COMMIT `PLAYOFF_POOL` IS STILL THE MEASURED 213: the next
- * commit of the same quick task sets the pool from this bound.
+ * Until that task the playoff pool was the placement table times three
+ * robots plus a measured margin of 3, so 213: one above the highest total
+ * ever handed out. The pooled lock treats the pool as an UPPER BOUND, and a
+ * measured maximum is not one. TBA's pay rule is known exactly since quick
+ * task 261012-mw2 (`securedPlayoffPoints.ts`, fitted to 11,991 paid values),
+ * and under it an event CAN pay more than 213.
  *
  * THE DERIVATION, in a few lines. An alliance's table points are shared among
  * its robots by the wins each was on the field for, and each robot's share is
@@ -72,6 +81,17 @@
  * champion), each place takes exactly one alliance, and the event's total is
  * therefore at most the sum over the places of the most an alliance leaving
  * there can be paid.
+ *
+ * `PLAYOFF_POOL` IS THE LARGEST OVER THE DECLARED PAY RULES, 216, for every
+ * season. The pool readers (`eventRemainingPool` here, `pooledLockInputs`) are
+ * not told the season, and a pool per season would lower it by 2 for 2023
+ * alone, a finished season whose remaining pool is 0.
+ *
+ * PROVEN FOR THE SEASONS WITH A DECLARED PAY RULE, 2023 ON. The seasons before
+ * 2023 played another bracket under another pay rule, which nothing here
+ * declares, and their rewound views read this same pool. For them 216 is a
+ * measured margin and not a proof: none of their 533 district tier events
+ * handed out more than 210.
  *
  * WHAT THE PROOF RESTS ON, each held by a test:
  *   1. TBA's pay rule as declared per season. It is TBA's and not this code's
@@ -103,6 +123,18 @@
  * above `mostPlayoffPointsPaid` and it reaches it, for every registered
  * season. A registered season with no declared rule, or a declared rule the
  * search does not reach the bound for, fails that test.
+ *
+ * WHAT IT COSTS. A larger pool can only take pooled locks away, and it is
+ * counted once for every event of the district whose Playoffs category is
+ * open at the position, played or not. Measured 2026-10-13 over the 418
+ * district tier events of 2023 to 2026 at the seven stops of each (Alliances
+ * final, Round 1 to Round 5, Playoffs final with the awards open): of 38,771
+ * Locked on points displays 66 are no longer shown (8, 8, 9, 15, 14, 9 and 3
+ * by stop), every one a team the pooled argument alone held, and 63 of them
+ * are Locked again by the last stop of the same event. No Locked out moves
+ * and nothing is taken back. Over the 109 published seasons and their 4,022
+ * rewound positions 55 of 76,964 displays go. At Now nothing moves in a
+ * finished season: every event's pool is 0 there.
  *
  * THE AWARD POOL KEEPS THE IMPACT AWARD'S POINTS. The paper excludes them
  * because the Impact winner qualifies by award and its slot is separately
@@ -159,7 +191,7 @@
  * take it. Through the last of them the Worker bundles the pay rule's tables
  * since quick task 261013-lve; it still credits nothing from that module.
  */
-import { BRACKET_SETS, PLAYOFF_PLACEMENT_POINTS } from "./bracket.js";
+import { BRACKET_SETS } from "./bracket.js";
 import { qualPoints } from "./qualPoints.js";
 import { selectionPoints } from "./selectionPoints.js";
 import type { DistrictCategoryFinality } from "./reservedSlots.js";
@@ -346,28 +378,17 @@ export const MOST_PLAYOFF_POINTS_PAID_BY_RULE: Readonly<Record<PlayoffPayRule, n
 };
 
 /**
- * Three points of headroom over the eight-alliance placement table, for the
- * prorated value a BACKUP ROBOT can put in a fourth pick slot.
+ * Every playoff point a district event can hand out: the largest of
+ * `MOST_PLAYOFF_POINTS_PAID_BY_RULE`, 216. PROVEN from TBA's pay rule for the
+ * seasons that declare one (2023 on), not measured (this file's header, quick
+ * task 261013-lve); the highest total ever handed out is 212.
  *
- * `bracket.ts`'s own header names the three 2026 events (`2026njtab`,
- * `2026mawor`, `2026waahs`) whose backup robot broke the exact placement
- * multiset, so the effect is real rather than hypothetical. Measured, the
- * highest playoff total ever handed out at a district event is 212, which is
- * inside the 213 this constant produces.
+ * The largest over the rules and not the season's own, because the pool
+ * readers are not told the season. Computed at module load from the bracket
+ * table and the pay tables, so a change to either cannot leave a stale pool
+ * behind.
  */
-const BACKUP_ROBOT_MARGIN = 3;
-
-/** How many robots share one alliance's placement points. */
-const ROBOTS_PER_ALLIANCE = 3;
-
-/**
- * Every playoff point a district event hands out: each of the eight
- * placements' value, paid to three robots, plus the backup robot margin.
- * Derived from `PLAYOFF_PLACEMENT_POINTS` so a change to the placement table
- * cannot leave a stale pool behind.
- */
-export const PLAYOFF_POOL: number =
-  PLAYOFF_PLACEMENT_POINTS.reduce((sum, points) => sum + points, 0) * ROBOTS_PER_ALLIANCE + BACKUP_ROBOT_MARGIN;
+export const PLAYOFF_POOL: number = Math.max(...Object.values(MOST_PLAYOFF_POINTS_PAID_BY_RULE));
 
 /**
  * The highest award total ever handed out at a district event where NO rookie
