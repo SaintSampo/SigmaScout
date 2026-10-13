@@ -67,6 +67,56 @@
  *
  * WHEN TBA POSTS POINTS DURING AN EVENT IS NOT VERIFIED. No live district
  * weekend has been observed. Group 4 walks both cases and asserts neither.
+ *
+ * THE SECURED PLAYOFF MINIMUM ON THESE WALKS (quick task 261012-mw2). The two
+ * recipes of group 4 hand the tabs a played bracket at every tick from
+ * "alliances picked" on, and with it each listed pick's secured playoff
+ * minimum from the same played rows (`securedElimEntry`), which is what the
+ * rows module's own reader gives. Groups 1 to 3 and 6 hand no bracket, so
+ * nobody is credited there and those walks read as they did before that task.
+ *
+ * NO FLOOR DROPS (that task's CONTEXT D5). Every step of every walk carries
+ * each team's FLOOR on both tabs: the District Locks floor from
+ * `districtLockBounds`, the one place that tab's status code takes it from,
+ * and the Champ Locks floor from the status model's own `floorByTeam`.
+ * Wherever this file requires a rules on walk to take no lock back it also
+ * requires that no team's floor is lower at a step than at the step before,
+ * on either tab (`floorsLower`). The tick the playoff points land is one of
+ * those steps: the secured minimum is never above what TBA then posts. A
+ * floor that fell with the rules on is a finding, never a pin to move. The
+ * four rule off readings pin how many floors fell, as the run shows: there a
+ * category closes on a number that is not in yet, and the floor that counted
+ * the stale number falls when the real one lands.
+ *
+ * THE LARGER OF THE TWO. Where a Playoffs category reads final the floor
+ * counts TBA's posted number or the secured minimum, whichever is larger. A
+ * category that reads final on rows older than the played bracket therefore
+ * still counts what the bracket has secured. With this file's rule switched
+ * off that is exactly the state group 4 builds, and two of its rule off
+ * readings lose less than they did before that task:
+ *
+ *   - the field conditioned walks of the eight district events: the District
+ *     Locks tab takes 26 and 24 Locked back in the two cases, where it took
+ *     32 and 34. The published verdicts carry no credit and read 32 and 9,
+ *     34 and 16, as before.
+ *   - the real 2026pncmp, case B: the Champ Locks tab took frc2522 and
+ *     frc5937 back and now takes nobody back. At "playoffs done, rows still
+ *     stale" the bracket's teams hold their secured playoff points in their
+ *     floors, and neither of the two is shown Locked there any more.
+ *
+ * Both are read with the credit switched off as well, where they read what
+ * this file pinned before that task: the rule of quick task 261009-vp9 is
+ * still shown to bite on its own. Floors still fall in both readings with
+ * that rule off (the stale qualification numbers), with the credit or
+ * without it.
+ *
+ * THE CREDIT OFF SWITCH is the third switch below. WHAT THE CREDIT ADDED on
+ * the rules on walks of group 4, read by walking each with the credit and
+ * without it: over the eight district events the District Locks tab shows a
+ * team Locked at 105 team ticks more in case A and 97 more in case B, the
+ * Champ Locks tab at 19 and 22 more; at the real 2026pncmp the Champ Locks
+ * tab at 17 team ticks more in case A and none in case B. No team is Locked
+ * at a tick without the credit and not Locked at the same tick with it.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -84,6 +134,7 @@ import {
   buildDistrictLedgerRows,
   dcmpBracketFactsFor,
   dcmpBracketMilestonesByTeam,
+  securedElimEntry,
   deriveStageFromState,
   liveStageByEvent,
   playedBracketMatchesFor,
@@ -91,7 +142,7 @@ import {
   type BracketSourceEvent,
   type DistrictEventDistributions,
 } from "../apps/web/src/components/districts/districtLedgerRows.js";
-import { computeDistrictLedgerStatuses } from "../apps/web/src/components/districts/districtLedgerStatus.js";
+import { computeDistrictLedgerStatuses, districtLockBounds } from "../apps/web/src/components/districts/districtLedgerStatus.js";
 import { buildChampLedgerRows, champTierEvents, dcmpEventKeysFor } from "../apps/web/src/components/districts/champLedgerRows.js";
 import { computeChampLedgerStatuses } from "../apps/web/src/components/districts/champLedgerStatus.js";
 import { buildDistrictTimeline } from "../apps/web/src/components/districts/districtTimeline.js";
@@ -110,8 +161,15 @@ import { settledDistrictContext, settledStops, type SettledStop } from "./measur
  * hardening of group 6: Playoffs final closes Alliance selection and
  * Qualification without their own points, and the awards flag does not ask
  * for playoff points at the event.
+ *
+ * AND ONE SWITCH THAT IS NOT A RULE OF THIS FILE: THE CREDIT (quick task
+ * 261012-mw2). While `creditOff` is set, `securedPlayoffPoints` answers with
+ * an empty map. Every secured playoff minimum on either tab goes through that
+ * one function (`securedElimByTeamFor` in the rows module), so with it set no
+ * row carries a credit and every recipe, row and status of this file reads as
+ * it did before that task. It combines with either switch above.
  */
-const ruleSwitch = vi.hoisted(() => ({ off: false, hardeningOff: false }));
+const ruleSwitch = vi.hoisted(() => ({ off: false, hardeningOff: false, creditOff: false }));
 
 vi.mock("../packages/core/districts/categoryCorroboration.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../packages/core/districts/categoryCorroboration.js")>();
@@ -145,10 +203,31 @@ vi.mock("../packages/core/districts/eventAwards.js", async (importOriginal) => {
   };
 });
 
+vi.mock("../packages/core/districts/securedPlayoffPoints.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../packages/core/districts/securedPlayoffPoints.js")>();
+  return {
+    ...original,
+    // The credit off switch: nobody has secured anything, which is the reading of before quick task 261012-mw2.
+    securedPlayoffPoints: (...args: Parameters<typeof original.securedPlayoffPoints>): ReturnType<typeof original.securedPlayoffPoints> =>
+      ruleSwitch.creditOff ? new Map<string, number>() : original.securedPlayoffPoints(...args),
+  };
+});
+
 afterEach(() => {
   ruleSwitch.off = false;
   ruleSwitch.hardeningOff = false;
+  ruleSwitch.creditOff = false;
 });
+
+/** Runs `body` with no secured playoff minimum credited to anybody, and switches the credit back on whatever happens. */
+function withCreditOff<T>(body: () => T): T {
+  ruleSwitch.creditOff = true;
+  try {
+    return body();
+  } finally {
+    ruleSwitch.creditOff = false;
+  }
+}
 
 /** Runs `body` with the rule switched off, and switches it back on whatever happens. */
 function withRuleOff<T>(body: () => T): T {
@@ -281,6 +360,10 @@ interface WalkStep {
   readonly jointProof: string;
   /** The champ tier reservation the Champ Locks status code computed. */
   readonly champReserved: number;
+  /** Every team's FLOOR on the District Locks tab at this tick: `districtLockBounds`, the one place that tab's status code takes it from (quick task 261012-mw2). */
+  readonly districtFloor: ReadonlyMap<string, number>;
+  /** Every team's FLOOR on the Champ Locks tab at this tick: the status model's own `floorByTeam` (quick task 261012-mw2). */
+  readonly champFloor: ReadonlyMap<string, number>;
 }
 
 interface Walk {
@@ -330,6 +413,17 @@ function snapshot(label: string, artifact: DistrictArtifact, eventKey: string, d
     });
   }
 
+  // THE FLOORS the two tabs' lock math counts at this tick (quick task 261012-mw2). The District Locks status model
+  // does not publish its floors, so they are read from the function its status code calls, with the same ceilings.
+  const districtMaxima = maxEventPoints(artifact.year, "district");
+  const districtCeilings = { qual: districtMaxima.qual, alliance: districtMaxima.alliance, elim: districtMaxima.elim, award: districtMaxima.award };
+  const sourceByKey = new Map(artifact.teams.map((team) => [team.teamKey, team] as const));
+  const districtFloor = new Map<string, number>();
+  for (const team of districtRows.teams) {
+    const source = sourceByKey.get(team.teamKey);
+    if (source !== undefined) districtFloor.set(team.teamKey, districtLockBounds(source, team.rows, districtCeilings).floor);
+  }
+
   const proof = champStatuses.jointProof;
   return {
     label,
@@ -344,6 +438,8 @@ function snapshot(label: string, artifact: DistrictArtifact, eventKey: string, d
     flag: stateAt(artifact, eventKey)?.awardsPosted === true,
     jointProof: proof === undefined ? "none" : proof.applied ? "applied" : proof.reason,
     champReserved: champStatuses.reservedSlots,
+    districtFloor,
+    champFloor: new Map(champStatuses.floorByTeam ?? []),
   };
 }
 
@@ -363,6 +459,44 @@ function takeBacks(steps: readonly WalkStep[], series: (step: WalkStep) => Reado
     }
   }
   return lost;
+}
+
+/**
+ * NO FLOOR DROPS (quick task 261012-mw2): one line for every team whose floor
+ * at a step is BELOW its floor at the step before, on the tab named. A team
+ * that is on only one of the two steps is not compared.
+ */
+function floorDrops(steps: readonly WalkStep[], tab: "district" | "champ"): string[] {
+  const floors = (step: WalkStep): ReadonlyMap<string, number> => (tab === "district" ? step.districtFloor : step.champFloor);
+  const lower: string[] = [];
+  for (let index = 1; index < steps.length; index++) {
+    const before = steps[index - 1]!;
+    const after = steps[index]!;
+    for (const [teamKey, was] of floors(before)) {
+      const now = floors(after).get(teamKey);
+      if (now !== undefined && now < was) lower.push(`${tab} tab ${teamKey} floor ${String(was)} at "${before.label}", ${String(now)} at "${after.label}"`);
+    }
+  }
+  return lower;
+}
+
+/** Both tabs' floors over one walk: the requirement of a rules on walk is that this is empty. */
+const floorsLower = (steps: readonly WalkStep[]): string[] => [...floorDrops(steps, "district"), ...floorDrops(steps, "champ")];
+
+/** How many floors fell over a set of walks, per tab, and how many were compared: what a rule off reading pins. */
+function floorTally(walks: readonly Walk[]): { compared: number; districtLower: number; champLower: number } {
+  let compared = 0;
+  for (const walk of walks) {
+    for (let index = 1; index < walk.steps.length; index++) {
+      for (const teamKey of walk.steps[index - 1]!.districtFloor.keys()) if (walk.steps[index]!.districtFloor.has(teamKey)) compared += 1;
+      for (const teamKey of walk.steps[index - 1]!.champFloor.keys()) if (walk.steps[index]!.champFloor.has(teamKey)) compared += 1;
+    }
+  }
+  return {
+    compared,
+    districtLower: walks.reduce((sum, walk) => sum + floorDrops(walk.steps, "district").length, 0),
+    champLower: walks.reduce((sum, walk) => sum + floorDrops(walk.steps, "champ").length, 0),
+  };
 }
 
 /** The label of the step each loss was seen at, for counting losses per gap. */
@@ -593,6 +727,8 @@ function expectNoTakeBack(walk: Walk): void {
   expect({ eventKey, lost: takeBacks(steps, (step) => step.champ, champHeld) }).toEqual({ eventKey, lost: [] });
   // (b) the District Locks tab.
   expect({ eventKey, lost: takeBacks(steps, (step) => step.districtTab, districtTabHeld) }).toEqual({ eventKey, lost: [] });
+  // And no team's floor is lower at a tick than at the tick before, on either tab (quick task 261012-mw2).
+  expect({ eventKey, floorsLower: floorsLower(steps) }).toEqual({ eventKey, floorsLower: [] });
 
   // (c) a category whose points are not in reads open, in the verdict pass
   // and in the tab's rows alike, and no cell of an open category is grey.
@@ -645,6 +781,17 @@ describe("the staged replay: every district tier event of the fixture, with its 
 
     // The three totals: published district, published champ, District Locks tab.
     expect({ district: district.length, champ: champ.length, tab: tab.length }).toEqual({ district: 32, champ: 9, tab: 32 });
+
+    // FLOORS (quick task 261012-mw2), pinned as the run shows: with the rule off a category closes on a number that
+    // is not in yet, and a floor that counted the stale number falls when the real one lands. These walks hand the
+    // tabs no bracket, so nobody is credited a secured minimum and they read the same with the credit switched off.
+    const withoutTheCredit = withRuleOff(() => withCreditOff(() => districtEvents.map((eventKey) => walkDistrictEvent(eventKey))));
+    console.log(`[261012-mw2 floors, the rule OFF, the ten ticks of all eight events] ${JSON.stringify(floorTally(walks))} | the credit off too ${JSON.stringify(floorTally(withoutTheCredit))}\n${walks.flatMap((walk) => floorsLower(walk.steps)).slice(0, 6).map((line) => `  ${line}`).join("\n")}`);
+    // 236 in all, the same 118 team ticks on each tab (a district tier floor is in both tabs' floors).
+    expect({ credit: floorTally(walks), creditOff: floorTally(withoutTheCredit) }).toEqual({
+      credit: { compared: 20_160, districtLower: 118, champLower: 118 },
+      creditOff: { compared: 20_160, districtLower: 118, champLower: 118 },
+    });
 
     // Each gap holds at least one loss. A loss is seen on the tick the
     // lagging points land: 2 (rankings catch up), 4 (alliance points), 6
@@ -770,10 +917,13 @@ describe("the staged replay: a later layer of points landing before the layer be
   const EVENT = "2026orore";
 
   it("the physical order through the step machine takes no lock back and ends on the published state, hardening on or off", () => {
-    for (const walk of [reorderedWalk(EVENT, REORDERED.physical), withHardeningOff(() => reorderedWalk(EVENT, REORDERED.physical))]) {
+    const hardeningOn = reorderedWalk(EVENT, REORDERED.physical);
+    for (const walk of [hardeningOn, withHardeningOff(() => reorderedWalk(EVENT, REORDERED.physical))]) {
       expect(countsOf(walk)).toEqual({ district: 0, champ: 0, tab: 0, champTab: 0 });
       expectEndState(walk, baseline);
     }
+    // The rules on walk drops no floor on either tab (quick task 261012-mw2).
+    expect(floorsLower(hardeningOn.steps)).toEqual([]);
   });
 
   for (const name of ["N1", "N3", "N4"] as const) {
@@ -783,6 +933,8 @@ describe("the staged replay: a later layer of points landing before the layer be
       expect({ name, lost: takeBacks(walk.steps, (step) => step.champ, champHeld) }).toEqual({ name, lost: [] });
       expect({ name, lost: takeBacks(walk.steps, (step) => step.districtTab, districtTabHeld) }).toEqual({ name, lost: [] });
       expect({ name, lost: takeBacks(walk.steps, (step) => step.champTab, champTabHeld) }).toEqual({ name, lost: [] });
+      // No team's floor is lower at a tick than at the tick before, on either tab (quick task 261012-mw2).
+      expect({ name, floorsLower: floorsLower(walk.steps) }).toEqual({ name, floorsLower: [] });
       // No category is grey without its own points, at any tick.
       for (const step of walk.steps) expect({ name, tick: step.label, greyOpenCells: step.greyOpenCells }).toEqual({ name, tick: step.label, greyOpenCells: [] });
       expectEndState(walk, baseline);
@@ -812,15 +964,22 @@ describe("the staged replay: a later layer of points landing before the layer be
   });
 
   it("with the hardening switched off, each reordered walk takes locks back (pinned as the run shows)", () => {
-    const off = withHardeningOff(() => ({
-      N1: countsOf(reorderedWalk(EVENT, REORDERED.N1)),
-      N3: countsOf(reorderedWalk(EVENT, REORDERED.N3)),
-      N4: countsOf(reorderedWalk(EVENT, REORDERED.N4)),
-    }));
+    const reordered = () => ({ N1: reorderedWalk(EVENT, REORDERED.N1), N3: reorderedWalk(EVENT, REORDERED.N3), N4: reorderedWalk(EVENT, REORDERED.N4) });
+    const walks = withHardeningOff(reordered);
+    const off = { N1: countsOf(walks.N1), N3: countsOf(walks.N3), N4: countsOf(walks.N4) };
     expect(off).toEqual({
       N1: { district: 4, champ: 2, tab: 4, champTab: 2 },
       N3: { district: 1, champ: 1, tab: 1, champTab: 1 },
       N4: { district: 4, champ: 2, tab: 4, champTab: 2 },
+    });
+    // FLOORS (quick task 261012-mw2), pinned as the run shows. These walks hand the tabs no bracket either, so they
+    // read the same with the credit switched off.
+    const withoutTheCredit = withHardeningOff(() => withCreditOff(reordered));
+    console.log(`[261012-mw2 floors, the hardening OFF, the three reordered walks] ${JSON.stringify(floorTally(Object.values(walks)))} | the credit off too ${JSON.stringify(floorTally(Object.values(withoutTheCredit)))}\n${Object.values(walks).flatMap((walk) => floorsLower(walk.steps)).slice(0, 6).map((line) => `  ${line}`).join("\n")}`);
+    // 32 in all.
+    expect({ credit: floorTally(Object.values(walks)), creditOff: floorTally(Object.values(withoutTheCredit)) }).toEqual({
+      credit: { compared: 8_316, districtLower: 16, champLower: 16 },
+      creditOff: { compared: 8_316, districtLower: 16, champLower: 16 },
     });
   });
 });
@@ -961,6 +1120,8 @@ describe("the staged replay: a single championship, the Winner listed before and
         expect({ name, order, lost: takeBacks(walk.steps, (step) => step.champ, champHeld) }).toEqual({ name, order, lost: [] });
         expect({ name, order, lost: takeBacks(walk.steps, (step) => step.champTab, champTabHeld) }).toEqual({ name, order, lost: [] });
         expect({ name, order, lost: takeBacks(walk.steps, (step) => step.district, districtHeld) }).toEqual({ name, order, lost: [] });
+        // No team's floor is lower at a tick than at the tick before, on either tab (quick task 261012-mw2).
+        expect({ name, order, floorsLower: floorsLower(walk.steps) }).toEqual({ name, order, floorsLower: [] });
         // The flag turns true on the last tick and not before.
         expect(walk.steps.map((step) => step.flag)).toEqual([...walk.steps.slice(0, -1).map(() => false), true]);
         expectEndState(walk, source);
@@ -1082,6 +1243,8 @@ function expectNoHeldPlaceLost(walk: Walk, what: string): void {
   expect({ what, lost: takeBacks(walk.steps, (step) => step.champ, champHeld) }).toEqual({ what, lost: [] });
   expect({ what, lost: takeBacks(walk.steps, (step) => step.districtTab, districtTabHeld) }).toEqual({ what, lost: [] });
   expect({ what, lost: takeBacks(walk.steps, (step) => step.champTab, champTabHeld) }).toEqual({ what, lost: [] });
+  // No team's floor is lower at a tick than at the tick before, on either tab (quick task 261012-mw2).
+  expect({ what, floorsLower: floorsLower(walk.steps) }).toEqual({ what, floorsLower: [] });
 }
 
 const LATE_MINUTES = [0, 60, 120, 179, 180] as const;
@@ -1220,7 +1383,7 @@ describe("the staged replay: the field conditioned walks of every district tier 
       const stop = stops.find((entry) => entry.label === label);
       if (stop === undefined) throw new Error(`${eventKey}: no stop "${label}" among ${stops.map((entry) => entry.label).join(", ")}`);
       const played = playedBracketMatchesFor(bracket, stop.playedKeys);
-      return new Map([[eventKey, { eventKey, byTeam: new Map(), playoffMilestoneByTeam: dcmpBracketMilestonesByTeam(alliances, played.matches) }]]);
+      return new Map([[eventKey, { eventKey, byTeam: new Map(), playoffMilestoneByTeam: dcmpBracketMilestonesByTeam(alliances, played.matches), ...securedElimEntry(bracket, baseline.year, "district", stop.playedKeys) }]]);
     };
     const w = eventWalker(baseline, eventKey);
     const done = () => w.stateOf(QUAL_TOTAL, true, true);
@@ -1247,6 +1410,9 @@ describe("the staged replay: the field conditioned walks of every district tier 
         expect({ eventKey: walk.eventKey, lost: takeBacks(walk.steps, (step) => step.district, districtHeld) }).toEqual({ eventKey: walk.eventKey, lost: [] });
         expect({ eventKey: walk.eventKey, lost: takeBacks(walk.steps, (step) => step.champ, champHeld) }).toEqual({ eventKey: walk.eventKey, lost: [] });
         expect({ eventKey: walk.eventKey, lost: takeBacks(walk.steps, (step) => step.districtTab, districtTabHeld) }).toEqual({ eventKey: walk.eventKey, lost: [] });
+        // No team's floor is lower at a tick than at the tick before, on either tab: the secured playoff minimum
+        // rises row by row, and the tick the playoff points land does not lower it (quick task 261012-mw2).
+        expect({ eventKey: walk.eventKey, floorsLower: floorsLower(walk.steps) }).toEqual({ eventKey: walk.eventKey, floorsLower: [] });
         // No category is grey without its points, at any tick.
         for (const step of walk.steps) expect({ eventKey: walk.eventKey, tick: step.label, greyOpenCells: step.greyOpenCells }).toEqual({ eventKey: walk.eventKey, tick: step.label, greyOpenCells: [] });
         expectEndState(walk, baseline);
@@ -1266,12 +1432,78 @@ describe("the staged replay: the field conditioned walks of every district tier 
     });
   }
 
-  it("both cases with the rule switched off take locks back (pinned as the run shows)", () => {
-    const off = withRuleOff(() => POINTS_CASES.map((pointsCase) => totalsOf(districtEvents.map((eventKey) => fieldWalk(eventKey, pointsCase)))));
-    expect(off).toEqual([
+  it("both cases with the rule switched off take locks back, fewer on the District Locks tab with the credit than without it (pinned as the run shows)", () => {
+    const bothCases = () => POINTS_CASES.map((pointsCase) => districtEvents.map((eventKey) => fieldWalk(eventKey, pointsCase)));
+    const credit = withRuleOff(bothCases);
+    const creditOff = withRuleOff(() => withCreditOff(bothCases));
+    console.log(
+      `[261012-mw2 the rule OFF, the field conditioned walks] with the credit ${JSON.stringify(credit.map(totalsOf))} floors ${JSON.stringify(credit.map(floorTally))} | the credit off too ${JSON.stringify(creditOff.map(totalsOf))} floors ${JSON.stringify(creditOff.map(floorTally))}`
+    );
+    // THE REQUIREMENT: the mutation is caught, with the credit and without it.
+    for (const totals of [...credit.map(totalsOf), ...creditOff.map(totalsOf)]) expect(totals.tab).toBeGreaterThan(0);
+    // The measurement of the old reading, pinned as the run shows. The District Locks tab read 32 and 34 until
+    // quick task 261012-mw2 (the published verdicts carry no credit and did not move). With the rule off a
+    // category reads final on rows that hold none of its points. The larger of the two keeps what the played
+    // bracket has secured in the floor of a Playoffs category that reads final with nothing posted, and the tab
+    // takes 6 and 10 fewer back.
+    expect(credit.map(totalsOf)).toEqual([
+      { district: 32, champ: 9, tab: 26 },
+      { district: 34, champ: 16, tab: 24 },
+    ]);
+    // THE CREDIT SWITCHED OFF TOO: the pins this test held before that task.
+    expect(creditOff.map(totalsOf)).toEqual([
       { district: 32, champ: 9, tab: 32 },
       { district: 34, champ: 16, tab: 34 },
     ]);
+    // FLOORS, pinned as the run shows: 376 in all with the credit (236 in case A, 140 in case B), and 342 with
+    // the credit off too (236 and 106), which is what the planner of that task read on the code of before it.
+    // More fall in case B with the credit: before the tick every point lands a floor already holds the playoff
+    // points the bracket secured, so a stale qualification number that is too high is no longer hidden by them
+    // when the real numbers land.
+    expect({ credit: credit.map(floorTally), creditOff: creditOff.map(floorTally) }).toEqual({
+      credit: [
+        { compared: 30_240, districtLower: 118, champLower: 118 },
+        { compared: 26_208, districtLower: 70, champLower: 70 },
+      ],
+      creditOff: [
+        { compared: 30_240, districtLower: 118, champLower: 118 },
+        { compared: 26_208, districtLower: 53, champLower: 53 },
+      ],
+    });
+  });
+
+  it("the credit switched off, rules on: the same walks take no lock back and drop no floor either, and the credit only ADDS Locked teams, tick by tick (pinned as the run shows)", () => {
+    const record: Record<string, { ticks: number; districtTabGained: number; champTabGained: number; lockedOnlyWithoutTheCredit: string[] }> = {};
+    for (const pointsCase of POINTS_CASES) {
+      const entry = { ticks: 0, districtTabGained: 0, champTabGained: 0, lockedOnlyWithoutTheCredit: [] as string[] };
+      for (const eventKey of districtEvents) {
+        const credit = fieldWalk(eventKey, pointsCase);
+        const creditOff = withCreditOff(() => fieldWalk(eventKey, pointsCase));
+        expect(creditOff.steps.map((step) => step.label)).toEqual(credit.steps.map((step) => step.label));
+        // The walks of before quick task 261012-mw2 hold what they held: nothing taken back, no floor lower.
+        expect({ eventKey, lost: takeBacks(creditOff.steps, (step) => step.district, districtHeld) }).toEqual({ eventKey, lost: [] });
+        expect({ eventKey, lost: takeBacks(creditOff.steps, (step) => step.champ, champHeld) }).toEqual({ eventKey, lost: [] });
+        expect({ eventKey, lost: takeBacks(creditOff.steps, (step) => step.districtTab, districtTabHeld) }).toEqual({ eventKey, lost: [] });
+        expect({ eventKey, floorsLower: floorsLower(creditOff.steps) }).toEqual({ eventKey, floorsLower: [] });
+        credit.steps.forEach((step, index) => {
+          const without = creditOff.steps[index]!;
+          entry.ticks += 1;
+          for (const [teamKey, status] of step.districtTab) if (districtTabHeld(status) && !districtTabHeld(without.districtTab.get(teamKey) ?? "")) entry.districtTabGained += 1;
+          for (const [teamKey, status] of step.champTab) if (champTabHeld(status) && !champTabHeld(without.champTab.get(teamKey) ?? "")) entry.champTabGained += 1;
+          for (const [teamKey, status] of without.districtTab) if (districtTabHeld(status) && !districtTabHeld(step.districtTab.get(teamKey) ?? "")) entry.lockedOnlyWithoutTheCredit.push(`district tab ${eventKey} "${step.label}" ${teamKey}`);
+          for (const [teamKey, status] of without.champTab) if (champTabHeld(status) && !champTabHeld(step.champTab.get(teamKey) ?? "")) entry.lockedOnlyWithoutTheCredit.push(`champ tab ${eventKey} "${step.label}" ${teamKey}`);
+        });
+      }
+      record[pointsCase] = entry;
+    }
+    console.log(`[261012-mw2 what the credit adds, the field conditioned walks of the eight events, rules on] ${JSON.stringify(record)}`);
+    // THE REQUIREMENT: the credit takes no Locked away at any tick.
+    for (const entry of Object.values(record)) expect(entry.lockedOnlyWithoutTheCredit).toEqual([]);
+    // IT REACHES THE TABS: team ticks shown Locked with the credit and not without it. Pinned as the run shows.
+    expect(record).toEqual({
+      "A, the points lag by minutes": { ticks: 128, districtTabGained: 105, champTabGained: 19, lockedOnlyWithoutTheCredit: [] },
+      "B, the points arrive only when the event ends": { ticks: 112, districtTabGained: 97, champTabGained: 22, lockedOnlyWithoutTheCredit: [] },
+    });
   });
 });
 
@@ -1309,7 +1541,7 @@ describe("the staged replay: the field conditioned walks of the real 2026pncmp, 
       // The bracket facts are built with the FIELD's stage: the state alone.
       const field = deriveStageFromState(stateAt(w.current(), PNCMP)).final;
       const dcmpBracket = dcmpBracketFactsFor({ eventKey: PNCMP, season: SEASON, tier: "dcmp", stage: field, alliances, playedMatches: played.matches, unresolvedMatchCount: played.unresolvedMatchKeys.length });
-      return new Map([[PNCMP, { eventKey: PNCMP, byTeam: new Map(), playoffMilestoneByTeam: dcmpBracketMilestonesByTeam(alliances, played.matches), ...(dcmpBracket === undefined ? {} : { dcmpBracket }) }]]);
+      return new Map([[PNCMP, { eventKey: PNCMP, byTeam: new Map(), playoffMilestoneByTeam: dcmpBracketMilestonesByTeam(alliances, played.matches), ...securedElimEntry(bracket, SEASON, "dcmp", stop.playedKeys), ...(dcmpBracket === undefined ? {} : { dcmpBracket }) }]]);
     };
     const done = () => w.stateOf(QUAL_TOTAL, true, true);
     const winner = { eventAwards: new Map([[PNCMP, w.winnerOnly]]) };
@@ -1335,6 +1567,8 @@ describe("the staged replay: the field conditioned walks of the real 2026pncmp, 
       expect({ lost: takeBacks(walk.steps, (step) => step.champ, champHeld) }).toEqual({ lost: [] });
       expect({ lost: takeBacks(walk.steps, (step) => step.champTab, champTabHeld) }).toEqual({ lost: [] });
       expect({ lost: takeBacks(walk.steps, (step) => step.district, districtHeld) }).toEqual({ lost: [] });
+      // No team's floor is lower at a tick than at the tick before, on either tab (quick task 261012-mw2).
+      expect({ floorsLower: floorsLower(walk.steps) }).toEqual({ floorsLower: [] });
       expectEndState(walk, baseline);
 
       // THE JOINT PROOF. It is handed the field's bracket facts from
@@ -1362,10 +1596,86 @@ describe("the staged replay: the field conditioned walks of the real 2026pncmp, 
     });
   }
 
-  it("case B with the rule switched off: the Champ Locks tab takes two Locked back (frc5937 and frc2522, Locked at playoffs done on stale rows)", () => {
-    const walk = withRuleOff(() => champFieldWalk("B, the points arrive only when the event ends"));
-    const tab = takeBacks(walk.steps, (step) => step.champTab, champTabHeld);
-    expect(tab.map((loss) => loss.split(" ")[0]).sort()).toEqual(["frc2522", "frc5937"]);
+  it("case B with the rule switched off: with the credit switched off too the Champ Locks tab takes two Locked back (frc5937 and frc2522, Locked at playoffs done on stale rows), and with the credit it takes none back", () => {
+    // THIS TEST SHOWS THAT THE RULE OF QUICK TASK 261009-vp9 BITES, and since quick task 261012-mw2 it is read
+    // twice. WITH THE CREDIT SWITCHED OFF TOO it reads as it always did: at "playoffs done, rows still stale" the
+    // state closes every category on rows that hold no alliance and no playoff point, frc2522 and frc5937 are shown
+    // Locked there, and both are lost on the tick every point lands. WITH THE CREDIT nobody is taken back: the
+    // Playoffs read final there with nothing posted, and the floor of a final Playoffs category is the larger of
+    // TBA's number and the secured minimum, so the bracket's teams already hold their playoff points in their
+    // floors and neither of the two is shown Locked at that tick (both read In range, at it and after it). The
+    // bite is kept where it still is, with the credit off; it is not deleted.
+    const caseB: PointsCase = "B, the points arrive only when the event ends";
+    const lostOn = (walk: Walk): string[] => takeBacks(walk.steps, (step) => step.champTab, champTabHeld).map((loss) => loss.split(" ")[0]!).sort();
+    const creditOff = withRuleOff(() => withCreditOff(() => champFieldWalk(caseB)));
+    const credit = withRuleOff(() => champFieldWalk(caseB));
+    const at = (walk: Walk, label: string): WalkStep => walk.steps.find((step) => step.label === label)!;
+    const view = (walk: Walk) =>
+      Object.fromEntries(
+        ["frc2522", "frc5937"].map((teamKey) => [
+          teamKey,
+          ["playoffs done, rows still stale", "every point lands at once"].map((label) => `${String(at(walk, label).champTab.get(teamKey))} floor ${String(at(walk, label).champFloor.get(teamKey))}`),
+        ])
+      );
+    console.log(
+      `[261012-mw2 the rule OFF, the real 2026pncmp, case B] with the credit: taken back ${JSON.stringify(lostOn(credit))}, floors ${JSON.stringify(floorTally([credit]))}, ${JSON.stringify(view(credit))} | the credit off too: taken back ${JSON.stringify(lostOn(creditOff))}, floors ${JSON.stringify(floorTally([creditOff]))}, ${JSON.stringify(view(creditOff))}\n${floorsLower(credit.steps).slice(0, 8).map((line) => `  ${line}`).join("\n")}`
+    );
+    expect(lostOn(creditOff)).toEqual(["frc2522", "frc5937"]);
+    expect(lostOn(credit)).toEqual([]);
+    expect(view(creditOff)).toEqual({ frc2522: ["locked floor 167", "inRange floor 194"], frc5937: ["locked floor 169", "inRange floor 190"] });
+    expect(view(credit)).toEqual({ frc2522: ["inRange floor 167", "inRange floor 194"], frc5937: ["inRange floor 169", "inRange floor 190"] });
+    // FLOORS, pinned as the run shows: 22 with the credit and 21 with the credit off too (the planner of that
+    // task read 21 on the code of before it), every one on the Champ Locks tab at the tick every point lands:
+    // the stale qualification numbers. The District Locks tab does not count a championship row.
+    for (const walk of [credit, creditOff]) expect(floorsLower(walk.steps).filter((line) => !line.endsWith('at "every point lands at once"'))).toEqual([]);
+    expect({ credit: floorTally([credit]), creditOff: floorTally([creditOff]) }).toEqual({
+      credit: { compared: 3_528, districtLower: 0, champLower: 22 },
+      creditOff: { compared: 3_528, districtLower: 0, champLower: 21 },
+    });
+  });
+
+  it("the credit switched off, rules on: the same two walks take no lock back and drop no floor either, and the credit only ADDS Locked teams on the Champ Locks tab, tick by tick (pinned as the run shows)", () => {
+    const record: Record<string, { ticks: number; champTabGained: number; lockedOnlyWithoutTheCredit: string[]; lockedPerTick: number[]; lockedPerTickWithoutTheCredit: number[] }> = {};
+    for (const pointsCase of POINTS_CASES) {
+      const credit = champFieldWalk(pointsCase);
+      const creditOff = withCreditOff(() => champFieldWalk(pointsCase));
+      expect(creditOff.steps.map((step) => step.label)).toEqual(credit.steps.map((step) => step.label));
+      // The walk of before quick task 261012-mw2 holds what it held: nothing taken back, no floor lower.
+      expect({ lost: takeBacks(creditOff.steps, (step) => step.champ, champHeld) }).toEqual({ lost: [] });
+      expect({ lost: takeBacks(creditOff.steps, (step) => step.champTab, champTabHeld) }).toEqual({ lost: [] });
+      expect({ lost: takeBacks(creditOff.steps, (step) => step.district, districtHeld) }).toEqual({ lost: [] });
+      expect({ floorsLower: floorsLower(creditOff.steps) }).toEqual({ floorsLower: [] });
+      const lockedCount = (step: WalkStep): number => [...step.champTab.values()].filter(champTabHeld).length;
+      const entry = { ticks: credit.steps.length, champTabGained: 0, lockedOnlyWithoutTheCredit: [] as string[], lockedPerTick: credit.steps.map(lockedCount), lockedPerTickWithoutTheCredit: creditOff.steps.map(lockedCount) };
+      credit.steps.forEach((step, index) => {
+        const without = creditOff.steps[index]!;
+        for (const [teamKey, status] of step.champTab) if (champTabHeld(status) && !champTabHeld(without.champTab.get(teamKey) ?? "")) entry.champTabGained += 1;
+        for (const [teamKey, status] of without.champTab) if (champTabHeld(status) && !champTabHeld(step.champTab.get(teamKey) ?? "")) entry.lockedOnlyWithoutTheCredit.push(`"${step.label}" ${teamKey}`);
+      });
+      record[pointsCase] = entry;
+    }
+    console.log(`[261012-mw2 what the credit adds, the real 2026pncmp, rules on] ${JSON.stringify(record)}`);
+    // THE REQUIREMENT: the credit takes no Locked away at any tick.
+    for (const entry of Object.values(record)) expect(entry.lockedOnlyWithoutTheCredit).toEqual([]);
+    // IT REACHES THE TAB: teams shown Locked per tick with the credit and without it. Pinned as the run shows. In
+    // case A the credit shows more teams Locked from Round 2 to the tick the playoffs are done, 17 team ticks in
+    // all; in case B, where no category reads final until every point lands, the two series are the same.
+    expect(record).toEqual({
+      "A, the points lag by minutes": {
+        ticks: 17,
+        champTabGained: 17,
+        lockedOnlyWithoutTheCredit: [],
+        lockedPerTick: [0, 0, 0, 0, 0, 2, 2, 4, 7, 8, 10, 12, 12, 12, 12, 12, 20],
+        lockedPerTickWithoutTheCredit: [0, 0, 0, 0, 0, 2, 2, 2, 3, 3, 6, 10, 12, 12, 12, 12, 20],
+      },
+      "B, the points arrive only when the event ends": {
+        ticks: 15,
+        champTabGained: 0,
+        lockedOnlyWithoutTheCredit: [],
+        lockedPerTick: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 12, 12, 12, 20],
+        lockedPerTickWithoutTheCredit: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12, 12, 12, 12, 20],
+      },
+    });
   });
 });
 

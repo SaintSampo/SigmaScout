@@ -149,6 +149,38 @@
  * AS THE RUN SHOWS: they are a measurement of the old reading, not a
  * requirement.
  *
+ * THE SECURED PLAYOFF MINIMUM ON THESE WALKS (quick task 261012-mw2). The
+ * walks of group 10 are the ones that hand the tab a played bracket
+ * (`fieldDistributions`), and with it each listed pick's secured playoff
+ * minimum from the same played rows of each division (`securedElimEntry`);
+ * the recipe hands none at the finals key. Every other walk of this file
+ * hands no bracket, so nobody is credited there and those walks read as they
+ * did before that task. The rewound readings of groups 9, 11 and 13 go
+ * through the joint sweep's own stop function, which carries the credit
+ * since that task.
+ *
+ * NO FLOOR DROPS (that task's CONTEXT D5). Every step of every walk carries
+ * each team's Champ Locks FLOOR, the status model's own `floorByTeam`.
+ * Wherever this file requires a rules on walk's Champ Locks tab to take no
+ * Locked back it also requires that no team's floor is lower at a step than
+ * at the step before (`floorDrops`): the synthetic walks, the real walks of
+ * both kinds, the twelve published walks through the finals ticks, and group
+ * 10 with the option handed and held off. The tick a division's playoff
+ * points land is one of those steps: the secured minimum is never above what
+ * TBA then posts. A floor that fell with the rules on is a finding, never a
+ * pin to move.
+ *
+ * THE CREDIT OFF SWITCH is the fourth switch below: with it set nobody is
+ * credited, which is this file of before that task. WHAT THE CREDIT ADDED,
+ * read by walking group 10 with it and without it: with the option handed
+ * the tab shows 101 team ticks more Locked over the four championships (FIM
+ * 45, NE 23, ONT 16, TX 17), every one at the ticks after Rounds 2 to 5 and
+ * the tick the playoffs are done; with the option held off 72 more (21, 21,
+ * 16 and 14), from Round 3 on. From the tick the playoff points land both
+ * series are the series of before. With the credit off group 10 reads the
+ * three series it pinned before that task, and no team is Locked at a tick
+ * without the credit and not Locked at the same tick with it.
+ *
  * A GROUP THAT READS GITIGNORED LOCAL DATA skips, with a message naming what
  * is absent, where the data is not there. With `REQUIRE_LOCAL_DATA=1` in the
  * environment the same group FAILS instead, so a verify step cannot pass on a
@@ -168,6 +200,7 @@ import {
   buildDistrictLedgerRows,
   dcmpBracketFactsFor,
   dcmpBracketMilestonesByTeam,
+  securedElimEntry,
   deriveStageFromState,
   playedBracketMatchesFor,
   tierEvents,
@@ -200,8 +233,15 @@ import { CORPUS_PATH, LOCAL_DISTRICT_DIR, bracketFromCorpus, bracketsFromCorpus,
  * While `statelessRowsOff` is set the published verdict pass reads a
  * championship row with no state block as a hindsight row on every path, as
  * it did before this task.
+ *
+ * AND ONE SWITCH THAT IS NOT A RULE OF THIS FILE: THE CREDIT (quick task
+ * 261012-mw2). While `creditOff` is set, `securedPlayoffPoints` answers with
+ * an empty map. Every secured playoff minimum on either tab goes through that
+ * one function (`securedElimByTeamFor` in the rows module), so with it set no
+ * row carries a credit and every recipe, row and status of this file reads as
+ * it did before that task.
  */
-const ruleSwitch = vi.hoisted(() => ({ fieldRuleOff: false, finalsAllowanceOff: false, statelessRowsOff: false }));
+const ruleSwitch = vi.hoisted(() => ({ fieldRuleOff: false, finalsAllowanceOff: false, statelessRowsOff: false, creditOff: false }));
 
 vi.mock("../packages/core/districts/dcmpFieldProof.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../packages/core/districts/dcmpFieldProof.js")>();
@@ -217,11 +257,35 @@ vi.mock("../packages/core/districts/dcmpFieldProof.js", async (importOriginal) =
   };
 });
 
+vi.mock("../packages/core/districts/securedPlayoffPoints.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../packages/core/districts/securedPlayoffPoints.js")>();
+  return {
+    ...original,
+    // The credit off switch: nobody has secured anything, which is the reading of before quick task 261012-mw2.
+    securedPlayoffPoints: (...args: Parameters<typeof original.securedPlayoffPoints>): ReturnType<typeof original.securedPlayoffPoints> =>
+      ruleSwitch.creditOff ? new Map<string, number>() : original.securedPlayoffPoints(...args),
+  };
+});
+
 afterEach(() => {
   ruleSwitch.fieldRuleOff = false;
   ruleSwitch.finalsAllowanceOff = false;
   ruleSwitch.statelessRowsOff = false;
+  ruleSwitch.creditOff = false;
 });
+
+/** Runs `body` with no secured playoff minimum credited to anybody, and switches the credit back on whatever happens. */
+function withCreditOff<T>(body: () => T): T {
+  ruleSwitch.creditOff = true;
+  try {
+    return body();
+  } finally {
+    ruleSwitch.creditOff = false;
+  }
+}
+
+/** The credit switch as a walk cache key carries it: a walk made with the credit off is never handed out as one made with it. */
+const creditKey = (): string => (ruleSwitch.creditOff ? "credit off" : "credit on");
 
 /** Runs `body` with a championship's stateless first rows read as hindsight again, and switches the rule back on whatever happens. */
 function withStatelessRowsOff<T>(body: () => T): T {
@@ -335,6 +399,8 @@ interface WalkStep {
   readonly dcmpPointsKeys: ReadonlyMap<string, readonly string[]>;
   /** Per team with a championship registration at this tick: the dcmp keys of its `remainingEvents` rows. */
   readonly dcmpRegisteredKeys: ReadonlyMap<string, readonly string[]>;
+  /** Every team's FLOOR on the Champ Locks tab at this tick: the status model's own `floorByTeam`, an empty map where the model has none (quick task 261012-mw2). */
+  readonly champFloor: ReadonlyMap<string, number>;
 }
 
 /** What a tick hands the Champ Locks status code beside the artifact. */
@@ -434,6 +500,7 @@ function snapshot(label: string, artifact: DistrictArtifact, reading: SnapshotRe
         return keys.length === 0 ? [] : [[team.teamKey, keys] as const];
       })
     ),
+    champFloor: new Map(champStatuses.floorByTeam ?? []),
   };
 }
 
@@ -483,7 +550,7 @@ function fieldDistributions(
       fieldBackups: played.fieldBackups,
       role,
     });
-    out.set(key, { eventKey: key, byTeam: new Map(), playoffMilestoneByTeam: dcmpBracketMilestonesByTeam(alliances, played.matches), ...(dcmpBracket === undefined ? {} : { dcmpBracket }) });
+    out.set(key, { eventKey: key, byTeam: new Map(), playoffMilestoneByTeam: dcmpBracketMilestonesByTeam(alliances, played.matches), ...securedElimEntry(bracket, artifact.year, "dcmp", playedKeys), ...(dcmpBracket === undefined ? {} : { dcmpBracket }) });
   }
   if (withFinals) {
     for (const key of finalsKeys) {
@@ -525,6 +592,34 @@ function takeBacks(steps: readonly WalkStep[], series: (step: WalkStep) => Reado
     }
   }
   return lost;
+}
+
+/**
+ * NO FLOOR DROPS (quick task 261012-mw2): one line for every team whose Champ
+ * Locks floor at a step is BELOW its floor at the step before. A team that is
+ * on only one of the two steps is not compared. The requirement of a rules on
+ * walk is that this is empty.
+ */
+function floorDrops(steps: readonly WalkStep[]): string[] {
+  const lower: string[] = [];
+  for (let index = 1; index < steps.length; index++) {
+    const before = steps[index - 1]!;
+    const after = steps[index]!;
+    for (const [teamKey, was] of before.champFloor) {
+      const now = after.champFloor.get(teamKey);
+      if (now !== undefined && now < was) lower.push(`${teamKey} floor ${String(was)} at "${before.label}", ${String(now)} at "${after.label}"`);
+    }
+  }
+  return lower;
+}
+
+/** How many Champ Locks floors a set of walks compared, step against the step before. */
+function floorsCompared(walks: readonly Walk[]): number {
+  let compared = 0;
+  for (const walk of walks) {
+    for (let index = 1; index < walk.steps.length; index++) for (const teamKey of walk.steps[index - 1]!.champFloor.keys()) if (walk.steps[index]!.champFloor.has(teamKey)) compared += 1;
+  }
+  return compared;
 }
 
 /** Every team of the field that the row model reads `out` at some tick, with the first such tick. */
@@ -1075,6 +1170,8 @@ describe("the staged live walk: a synthetic championship in four divisions, one 
     ]);
     expect(walk.fieldTeams.size).toBe(16);
     expect(takeBacks(walk.steps, (step) => step.champTab, champTabHeld)).toEqual([]);
+    // And no team's floor is lower at a tick than at the tick before (quick task 261012-mw2).
+    expect(floorDrops(walk.steps)).toEqual([]);
     expect(fieldTeamsReadOut(walk)).toEqual([]);
     expect(outThenIn(walk)).toEqual([]);
     // The District Locks tab: its overlay applies exactly while the field is proven, and no team of the field loses a Locked.
@@ -1138,6 +1235,7 @@ describe("the staged live walk: a synthetic championship in four divisions, one 
       const walk = walkPointsAtEventEnd(S4, finalAtStart);
       expect(walk.steps).toHaveLength(2 + 2 * (4 - finalAtStart));
       expect({ finalAtStart, lost: takeBacks(walk.steps, (step) => step.champTab, champTabHeld) }).toEqual({ finalAtStart, lost: [] });
+      expect({ finalAtStart, floorsLower: floorDrops(walk.steps) }).toEqual({ finalAtStart, floorsLower: [] });
       expect({ finalAtStart, out: fieldTeamsReadOut(walk) }).toEqual({ finalAtStart, out: [] });
       expect({ finalAtStart, proofLost: provenTakenBack(walk.steps) }).toEqual({ finalAtStart, proofLost: [] });
       table.push(`  start: ${String(finalAtStart)} of 4 divisions final`, ...tickTable(walk));
@@ -1334,7 +1432,7 @@ function inMode<T>(mode: RuleMode, body: () => T): T {
 const realWalkCache = new Map<string, Walk>();
 /** The first walk of a real district: its points lagging its matches by ticks. */
 function realWalk(districtKey: WalkedDistrict, mode: RuleMode): Walk {
-  const cacheKey = `lag ${districtKey} ${mode}`;
+  const cacheKey = `lag ${districtKey} ${mode} ${creditKey()}`;
   let walk = realWalkCache.get(cacheKey);
   if (walk === undefined) {
     walk = inMode(mode, () => walkChampionshipField(walkedSource(districtKey)));
@@ -1344,7 +1442,7 @@ function realWalk(districtKey: WalkedDistrict, mode: RuleMode): Walk {
 }
 /** The second walk of a real district: its points arriving only as each event ends, from a start with `finalAtStart` keys wholly final. */
 function realEventEndWalk(districtKey: WalkedDistrict, finalAtStart: number, mode: RuleMode): Walk {
-  const cacheKey = `end ${districtKey} ${String(finalAtStart)} ${mode}`;
+  const cacheKey = `end ${districtKey} ${String(finalAtStart)} ${mode} ${creditKey()}`;
   let walk = realWalkCache.get(cacheKey);
   if (walk === undefined) {
     walk = inMode(mode, () => walkPointsAtEventEnd(walkedSource(districtKey), finalAtStart));
@@ -1368,6 +1466,8 @@ describe("the staged live walk: the real 2026 FIM, NE, ONT, TX and CA championsh
       for (const districtKey of WALKED_DISTRICTS) {
         const walk = realWalk(districtKey, "on");
         expect({ districtKey, lost: lockedTakenBack(walk) }).toEqual({ districtKey, lost: [] });
+        // And no team's floor is lower at a tick than at the tick before (quick task 261012-mw2).
+        expect({ districtKey, floorsLower: floorDrops(walk.steps) }).toEqual({ districtKey, floorsLower: [] });
         expect({ districtKey, out: fieldTeamsReadOut(walk) }).toEqual({ districtKey, out: [] });
         expect({ districtKey, proofLost: provenTakenBack(walk.steps) }).toEqual({ districtKey, proofLost: [] });
         // The one flag is false exactly from the first key's state until the last key's.
@@ -1518,6 +1618,7 @@ describe("the points arriving only as each event ends: the real 2026 FIM, NE, ON
           const walk = realEventEndWalk(districtKey, finalAtStart, "on");
           expect({ districtKey, finalAtStart, notHeld: lockedThenNotHeldAtTheEnd(walk) }).toEqual({ districtKey, finalAtStart, notHeld: [] });
           expect({ districtKey, finalAtStart, lost: lockedTakenBack(walk) }).toEqual({ districtKey, finalAtStart, lost: [] });
+          expect({ districtKey, finalAtStart, floorsLower: floorDrops(walk.steps) }).toEqual({ districtKey, finalAtStart, floorsLower: [] });
           expect({ districtKey, finalAtStart, out: fieldTeamsReadOut(walk) }).toEqual({ districtKey, finalAtStart, out: [] });
           expect({ districtKey, finalAtStart, proofLost: provenTakenBack(walk.steps) }).toEqual({ districtKey, finalAtStart, proofLost: [] });
           expect({ districtKey, finalAtStart, districtLost: districtLockedThenLost(walk) }).toEqual({ districtKey, finalAtStart, districtLost: [] });
@@ -1737,6 +1838,8 @@ describe("the published verdicts walked through the finals: the real 2026 FIM, N
             lostAt[label] = (lostAt[label] ?? 0) + 1;
           }
           tabRecorded[`${districtKey}, ${startName(registeredFirst)}`] = lostAt;
+          // The Champ Locks tab's floors through the same ticks: none lower than at the tick before (quick task 261012-mw2).
+          expect({ districtKey, start: startName(registeredFirst), floorsLower: floorDrops(walk.steps) }).toEqual({ districtKey, start: startName(registeredFirst), floorsLower: [] });
           table.push(`  ${districtKey}, ${startName(registeredFirst)}`, ...publishedTable(walk));
         }
       }
@@ -2211,7 +2314,8 @@ const factsWalkCache = new Map<string, Walk>();
  * 261010-d7r's D2.
  */
 function factsWalk(districtKey: FactsWalked, holdFlagOff = false): Walk {
-  const cacheKey = `${districtKey} ${String(holdFlagOff)}`;
+  // The credit switch is part of the key (quick task 261012-mw2): these are the walks the secured minimum reaches.
+  const cacheKey = `${districtKey} ${String(holdFlagOff)} ${creditKey()}`;
   let walk = factsWalkCache.get(cacheKey);
   if (walk === undefined) {
     const source = walkedSource(districtKey);
@@ -2284,6 +2388,9 @@ describe("the live walks with the field's bracket facts: 2026 FIM, NE, ONT and T
         // (frc4909, frc2713) and 2 at TX (frc624, frc9140) at the tick the divisions' Awards read final. The cause was
         // the judged award budget going to a rival that already held a posted award, closed by that task's rule D1.
         expect({ districtKey, lost: lockedTakenBack(walk) }).toEqual({ districtKey, lost: [] });
+        // NO FLOOR IS LOWER at a tick than at the tick before (quick task 261012-mw2): the secured minimum rises
+        // row by row through the five rounds, and the tick the playoff points land does not lower it.
+        expect({ districtKey, floorsLower: floorDrops(walk.steps) }).toEqual({ districtKey, floorsLower: [] });
         shown[districtKey] = walk.steps.slice(picked, finalsAwardsAt + 1).map(shownLockedCount);
         shown[`${districtKey} end`] = [shownLockedCount(walk.steps.at(-1)!)];
       }
@@ -2304,14 +2411,21 @@ describe("the live walks with the field's bracket facts: 2026 FIM, NE, ONT and T
       // that alliance the one champion, and a member of the champion is Locked. Until that rule it waited for its
       // Winner award to be listed. It holds that award at the end of the walk, where it is shown Locked either way
       // (asserted below the series).
+      //
+      // WHAT THE SECURED PLAYOFF MINIMUM MOVED (quick task 261012-mw2): the ticks after Rounds 2 to 5 and the tick the
+      // playoffs are done, upward only. A team whose alliance is still in a division's bracket now carries the
+      // playoff points it has secured in its floor, so it is Locked rounds earlier. From the tick the playoff points
+      // land the series is the one of before that task: the secured minimum of a finished bracket is what TBA pays.
+      // The series of before is `SHOWN_WITHOUT_THE_CREDIT`, above the last test of this group, which reads it again
+      // with the credit switched off.
       expect(shown).toEqual({
-        "2026fim": [0, 1, 1, 5, 25, 35, 41, 46, 60, 60, 66, 66, 71, 71],
+        "2026fim": [0, 1, 1, 12, 30, 43, 52, 60, 60, 60, 66, 66, 71, 71],
         "2026fim end": [83],
-        "2026ne": [0, 0, 0, 1, 8, 9, 9, 12, 20, 20, 20, 20, 22, 22],
+        "2026ne": [0, 0, 0, 7, 9, 14, 14, 18, 20, 20, 20, 20, 22, 22],
         "2026ne end": [32],
-        "2026ont": [0, 0, 0, 0, 0, 6, 7, 8, 10, 10, 11, 11, 12, 12],
+        "2026ont": [0, 0, 0, 2, 5, 10, 10, 10, 10, 10, 11, 11, 12, 12],
         "2026ont end": [21],
-        "2026fit": [0, 0, 0, 2, 7, 7, 7, 8, 15, 15, 17, 17, 17, 17],
+        "2026fit": [0, 0, 0, 5, 9, 11, 11, 12, 15, 15, 17, 17, 17, 17],
         "2026fit end": [28],
       });
       // The one team the paid pick rule added, and where: not Locked at the tick before the finals' state is written,
@@ -2392,6 +2506,7 @@ describe("the live walks with the field's bracket facts: 2026 FIM, NE, ONT and T
         const on = factsWalk(districtKey);
         table.push(`${districtKey}, the option held off`, ...factsTable(off));
         expect({ districtKey, lost: lockedTakenBack(off) }).toEqual({ districtKey, lost: [] });
+        expect({ districtKey, floorsLower: floorDrops(off.steps) }).toEqual({ districtKey, floorsLower: [] });
         const labels = off.steps.map((step) => step.label);
         expect(on.steps.map((step) => step.label)).toEqual(labels);
         const picked = labels.indexOf(ALLIANCES_PICKED_TICK);
@@ -2419,19 +2534,119 @@ describe("the live walks with the field's bracket facts: 2026 FIM, NE, ONT and T
       // The series of before D2, unchanged from the pins this group held then but for 2026 NE's last two ticks, which
       // read 21 until quick task 261010-l0s's paid pick rule (the first test of this group names the team). Pinned
       // as the run shows.
+      //
+      // WHAT THE SECURED PLAYOFF MINIMUM MOVED (quick task 261012-mw2): with the option held off only the ceiling
+      // test can lock before the finals rows post, and it now does, from Round 3 or Round 4 on to the tick the
+      // playoffs are done (0 at each of those ticks before that task). The series of before is
+      // `HELD_OFF_WITHOUT_THE_CREDIT`, read again by the last test of this group with the credit switched off.
       expect(shown).toEqual({
-        "2026fim": [0, 0, 0, 0, 0, 0, 0, 0, 13, 13, 29, 66, 71, 71],
-        "2026ne": [0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 12, 20, 22, 22],
-        "2026ont": [0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 10, 11, 12, 12],
-        "2026fit": [0, 0, 0, 0, 0, 0, 0, 0, 6, 6, 11, 17, 17, 17],
+        "2026fim": [0, 0, 0, 0, 0, 5, 8, 8, 13, 13, 29, 66, 71, 71],
+        "2026ne": [0, 0, 0, 0, 1, 6, 7, 7, 7, 7, 12, 20, 22, 22],
+        "2026ont": [0, 0, 0, 0, 0, 2, 7, 7, 7, 7, 10, 11, 12, 12],
+        "2026fit": [0, 0, 0, 0, 0, 4, 5, 5, 6, 6, 11, 17, 17, 17],
       });
       // How many more teams are shown Locked with the option, tick by tick. Pinned as the run shows; never negative
-      // (asserted above team by team), and 0 from the tick the finals rows post.
+      // (asserted above team by team), and 0 from the tick the finals rows post. Moved by quick task 261012-mw2 at
+      // the ticks after Rounds 2 to 5 and at the playoffs done, where both walks now show more teams Locked
+      // (`GAINED_WITHOUT_THE_CREDIT` is the series of before).
       expect(gained).toEqual({
-        "2026fim": [0, 1, 1, 5, 25, 35, 41, 46, 47, 47, 37, 0, 0, 0],
-        "2026ne": [0, 0, 0, 1, 8, 9, 9, 12, 13, 13, 8, 0, 0, 0],
-        "2026ont": [0, 0, 0, 0, 0, 6, 7, 8, 3, 3, 1, 0, 0, 0],
-        "2026fit": [0, 0, 0, 2, 7, 7, 7, 8, 9, 9, 6, 0, 0, 0],
+        "2026fim": [0, 1, 1, 12, 30, 38, 44, 52, 47, 47, 37, 0, 0, 0],
+        "2026ne": [0, 0, 0, 7, 8, 8, 7, 11, 13, 13, 8, 0, 0, 0],
+        "2026ont": [0, 0, 0, 2, 5, 8, 3, 3, 3, 3, 1, 0, 0, 0],
+        "2026fit": [0, 0, 0, 5, 9, 7, 6, 7, 9, 9, 6, 0, 0, 0],
+      });
+    },
+    WALK_TIMEOUT_MS
+  );
+
+  /**
+   * THE THREE SERIES THIS GROUP PINNED BEFORE QUICK TASK 261012-mw2, kept as the credit off expectation: teams shown
+   * Locked per tick with the option handed (and at the end of the walk), with the option held off, and how many more
+   * the option shows. With the credit switched off the walks must read exactly these.
+   */
+  const SHOWN_WITHOUT_THE_CREDIT: Record<string, number[]> = {
+    "2026fim": [0, 1, 1, 5, 25, 35, 41, 46, 60, 60, 66, 66, 71, 71],
+    "2026fim end": [83],
+    "2026ne": [0, 0, 0, 1, 8, 9, 9, 12, 20, 20, 20, 20, 22, 22],
+    "2026ne end": [32],
+    "2026ont": [0, 0, 0, 0, 0, 6, 7, 8, 10, 10, 11, 11, 12, 12],
+    "2026ont end": [21],
+    "2026fit": [0, 0, 0, 2, 7, 7, 7, 8, 15, 15, 17, 17, 17, 17],
+    "2026fit end": [28],
+  };
+  const HELD_OFF_WITHOUT_THE_CREDIT: Record<string, number[]> = {
+    "2026fim": [0, 0, 0, 0, 0, 0, 0, 0, 13, 13, 29, 66, 71, 71],
+    "2026ne": [0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 12, 20, 22, 22],
+    "2026ont": [0, 0, 0, 0, 0, 0, 0, 0, 7, 7, 10, 11, 12, 12],
+    "2026fit": [0, 0, 0, 0, 0, 0, 0, 0, 6, 6, 11, 17, 17, 17],
+  };
+  const GAINED_WITHOUT_THE_CREDIT: Record<string, number[]> = {
+    "2026fim": [0, 1, 1, 5, 25, 35, 41, 46, 47, 47, 37, 0, 0, 0],
+    "2026ne": [0, 0, 0, 1, 8, 9, 9, 12, 13, 13, 8, 0, 0, 0],
+    "2026ont": [0, 0, 0, 0, 0, 6, 7, 8, 3, 3, 1, 0, 0, 0],
+    "2026fit": [0, 0, 0, 2, 7, 7, 7, 8, 9, 9, 6, 0, 0, 0],
+  };
+
+  it(
+    "THE CREDIT SWITCHED OFF (quick task 261012-mw2): the same walks, the option handed and held off, read the series this group pinned before that task, take no Locked back and drop no floor, and every team Locked without the credit is Locked with it at the same tick",
+    () => {
+      const shown: Record<string, number[]> = {};
+      const heldOff: Record<string, number[]> = {};
+      const gained: Record<string, number[]> = {};
+      const creditAdded: Record<string, number[]> = {};
+      const creditAddedHeldOff: Record<string, number[]> = {};
+      const lockedOnlyWithoutTheCredit: string[] = [];
+      const walks: Walk[] = [];
+      for (const districtKey of FACTS_WALKED) {
+        const read = (holdFlagOff: boolean): { withCredit: Walk; without: Walk; picked: number; finalsAwardsAt: number } => {
+          const without = withCreditOff(() => factsWalk(districtKey, holdFlagOff));
+          const withCredit = factsWalk(districtKey, holdFlagOff);
+          walks.push(withCredit, without);
+          const labels = without.steps.map((step) => step.label);
+          expect(withCredit.steps.map((step) => step.label)).toEqual(labels);
+          // The walk of before that task holds what it held: nothing taken back, no floor lower.
+          expect({ districtKey, holdFlagOff, lost: lockedTakenBack(without) }).toEqual({ districtKey, holdFlagOff, lost: [] });
+          expect({ districtKey, holdFlagOff, floorsLower: floorDrops(without.steps) }).toEqual({ districtKey, holdFlagOff, floorsLower: [] });
+          // THE CREDIT ONLY ADDS: at every tick, every team shown Locked without it is shown Locked with it.
+          without.steps.forEach((step, index) => {
+            for (const teamKey of lockedAt(step)) if (withCredit.steps[index]!.champTab.get(teamKey) !== "locked") lockedOnlyWithoutTheCredit.push(`${districtKey}${holdFlagOff ? ", the option held off" : ""} "${step.label}": ${teamKey}`);
+          });
+          return { withCredit, without, picked: labels.indexOf(ALLIANCES_PICKED_TICK), finalsAwardsAt: labels.indexOf(FINALS_AWARDS_TICK) };
+        };
+        const on = read(false);
+        const off = read(true);
+        const series = (walk: Walk, at: { picked: number; finalsAwardsAt: number }): number[] => walk.steps.slice(at.picked, at.finalsAwardsAt + 1).map(shownLockedCount);
+        shown[districtKey] = series(on.without, on);
+        shown[`${districtKey} end`] = [shownLockedCount(on.without.steps.at(-1)!)];
+        heldOff[districtKey] = series(off.without, off);
+        gained[districtKey] = shown[districtKey]!.map((count, index) => count - heldOff[districtKey]![index]!);
+        creditAdded[districtKey] = series(on.withCredit, on).map((count, index) => count - shown[districtKey]![index]!);
+        creditAddedHeldOff[districtKey] = series(off.withCredit, off).map((count, index) => count - heldOff[districtKey]![index]!);
+      }
+      console.log(
+        `[261012-mw2 group 10] the locks the credit added, tick by tick from "alliances picked" to "finals award points land": the option handed ${JSON.stringify(creditAdded)} | the option held off ${JSON.stringify(creditAddedHeldOff)} | floors compared over the sixteen walks ${String(floorsCompared(walks))}`
+      );
+      // THE SWITCH REACHES EVERY CREDIT: with it off the walks read the three series of before that task.
+      expect(shown).toEqual(SHOWN_WITHOUT_THE_CREDIT);
+      expect(heldOff).toEqual(HELD_OFF_WITHOUT_THE_CREDIT);
+      expect(gained).toEqual(GAINED_WITHOUT_THE_CREDIT);
+      expect(lockedOnlyWithoutTheCredit).toEqual([]);
+      // THE LOCKS THE CREDIT ADDED, tick by tick. Pinned as the run shows: 101 team ticks with the option handed and
+      // 72 with it held off, none before Round 2 and none from the tick the playoff points land.
+      expect({ creditAdded, creditAddedHeldOff, floorsCompared: floorsCompared(walks) }).toEqual({
+        creditAdded: {
+          "2026fim": [0, 0, 0, 7, 5, 8, 11, 14, 0, 0, 0, 0, 0, 0],
+          "2026ne": [0, 0, 0, 6, 1, 5, 5, 6, 0, 0, 0, 0, 0, 0],
+          "2026ont": [0, 0, 0, 2, 5, 4, 3, 2, 0, 0, 0, 0, 0, 0],
+          "2026fit": [0, 0, 0, 3, 2, 4, 4, 4, 0, 0, 0, 0, 0, 0],
+        },
+        creditAddedHeldOff: {
+          "2026fim": [0, 0, 0, 0, 0, 5, 8, 8, 0, 0, 0, 0, 0, 0],
+          "2026ne": [0, 0, 0, 0, 1, 6, 7, 7, 0, 0, 0, 0, 0, 0],
+          "2026ont": [0, 0, 0, 0, 0, 2, 7, 7, 0, 0, 0, 0, 0, 0],
+          "2026fit": [0, 0, 0, 0, 0, 4, 5, 5, 0, 0, 0, 0, 0, 0],
+        },
+        floorsCompared: 91_056,
       });
     },
     WALK_TIMEOUT_MS
