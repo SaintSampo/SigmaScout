@@ -113,6 +113,7 @@ import {
   filterDistrictLedgerTeams,
   inProgressDistrictEventKeys,
   liveStageByEvent,
+  rowCountedPoints,
   type DistrictLedgerCell,
   type DistrictLedgerEventRow,
   type DistrictLedgerTeam,
@@ -680,6 +681,12 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
               // range or Out of range call while it is withheld.
               const status = displayStatuses.byTeam.get(team.teamKey);
               const withheldChip = ledgerRangeCallChip(status?.rangeCall, displayStatuses.noCallReason);
+              // THE LEAST A TOTAL MAY PRINT (quick task 261012-mw2, `LedgerParts.tsx`'s
+              // header): what the lock math counts for each row, and their sum
+              // for the team. Handed to the cells that PRINT a total and to
+              // nothing else: no status, sort, range state or cutoff reads it.
+              const countedByRow = team.rows.map((row) => rowCountedPoints(row));
+              const countedForTeam = countedByRow.reduce((sum, counted) => sum + counted, 0);
               const dataRows =
                 team.rows.length === 0
                   ? [
@@ -689,9 +696,9 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
                         data-team={team.teamKey}
                         className="district-ledger-row--team-start"
                       >
-                        <TeamCell team={team} season={season} algorithm={algorithm} />
+                        <TeamCell team={team} season={season} algorithm={algorithm} least={countedForTeam} />
                         <StatusCell status={status} rowSpan={1} chanceLine={chanceLineFor(team.teamKey)} placeholder={withheldChip} />
-                        <LedgerCell cell={team.grandTotal} interaction={interaction} />
+                        <LedgerCell cell={team.grandTotal} interaction={interaction} least={countedForTeam} />
                         <TableCell colSpan={DISTRICT_LEDGER_COLUMN_LABELS.length - 3} className="text-[var(--color-text-muted)]">
                           {DISTRICT_LEDGER_UNAVAILABLE_CELL}
                         </TableCell>
@@ -704,7 +711,7 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
                         data-team={team.teamKey}
                         className={rowIndex === 0 ? "district-ledger-row--team-start" : "district-ledger-row--team-inner"}
                       >
-                        {rowIndex === 0 && <TeamCell team={team} season={season} algorithm={algorithm} />}
+                        {rowIndex === 0 && <TeamCell team={team} season={season} algorithm={algorithm} least={countedForTeam} />}
                         {rowIndex === 0 && (
                           <StatusCell
                             status={status}
@@ -715,11 +722,11 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
                         )}
                         {rowIndex === 0 && (
                           <TableCell rowSpan={Math.max(team.rowCount, 1)} data-testid="district-ledger-grand-total" className="numeric-cell align-middle">
-                            <GrandTotalContent cell={team.grandTotal} interaction={interaction} />
+                            <GrandTotalContent cell={team.grandTotal} interaction={interaction} least={countedForTeam} />
                           </TableCell>
                         )}
                         <EventCell row={row} />
-                        <LedgerCell cell={row.eventTotal} interaction={interaction} variant="total" />
+                        <LedgerCell cell={row.eventTotal} interaction={interaction} variant="total" least={countedByRow[rowIndex]} />
                         {row.cells.map((cell) => (
                           <LedgerCell
                             key={cell.id}

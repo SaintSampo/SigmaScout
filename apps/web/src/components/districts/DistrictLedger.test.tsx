@@ -2992,6 +2992,68 @@ describe("DistrictLedger — the two readings while a live event's points lag (q
     });
   });
 
+  describe("no total or median is printed below what the lock math counts (quick task 261012-mw2)", () => {
+    // The bracket under way, every row carrying its Qualification and Alliance
+    // selection points. One team of alliance 5, which is out of the playoffs,
+    // carries the most a district event pays for Qualification, 22: more than
+    // the run draws for it, because the run ranks the field itself and the
+    // row's number is TBA's. The lock math counts 24 at the finished event and
+    // 22 and 12 at this one: 58.
+    const HELD = allianceRoster(5)[0]!;
+    const FREE = allianceRoster(1)[0]!;
+    const artifact = () =>
+      artifactOf(ROSTER.map((teamKey) => withEventRow(districtTeam(teamKey), MID_PLAYOFFS, { qual: teamKey === HELD ? 22 : 9, alliance: alliancePointsOf(teamKey), elim: 0 })));
+    const firstRowOf = (teamKey: string): HTMLElement => document.querySelector<HTMLElement>(`[data-testid="district-ledger-row"][data-team="${teamKey}"]`)!;
+    const teamCellText = (teamKey: string): string => within(firstRowOf(teamKey)).getByTestId("district-ledger-team-cell").textContent ?? "";
+    const grandTotalText = (teamKey: string): string => within(firstRowOf(teamKey)).getByTestId("district-ledger-grand-total").textContent ?? "";
+    const eventTotalText = (teamKey: string): string => firstRowOf(teamKey).parentElement!.querySelector(`[data-team="${teamKey}"] [data-cell-id="${EVENT}:eventTotal"]`)?.textContent ?? "";
+
+    it("a team that reads 58 earned prints median 58, a grand total of ~58 and an event total of ~34, and a team whose run sits above what it has earned prints its run", async () => {
+      await renderEvent(artifact(), playoffEventArtifact(), () => /^~\d+/.test(grandTotalText(HELD)) && /^~\d+/.test(eventTotalText(HELD)) && /median \d+/.test(teamCellText(FREE)));
+
+      // The lock math's own count for the team: 24 + 22 + 12, with its Playoffs settled at nothing.
+      expect(alliancePointsOf(HELD)).toBe(12);
+      expect(kindOf(HELD, "qual")).toBe("final");
+      expect(textOf(HELD, "qual")).toBe("22");
+      expect(kindOf(HELD, "alliance")).toBe("final");
+      expect(kindOf(HELD, "elim")).toBe("final");
+      expect(textOf(HELD, "elim")).toBe("0");
+
+      // THE TEAM CELL: the earned figure, and a median that is never below it.
+      expect(teamCellText(HELD)).toMatch(/· 58 earned · median 58$/);
+      // THE GRAND TOTAL and THE EVENT TOTAL: the median at the count, the low end at it too, the high end never under it.
+      const grand = /^~(\d+)likely (\d+)(?: to (\d+))?$/.exec(grandTotalText(HELD));
+      expect(grand, grandTotalText(HELD)).not.toBeNull();
+      expect(Number(grand![1])).toBe(58);
+      expect(Number(grand![2])).toBe(58);
+      expect(Number(grand![3] ?? grand![2])).toBeGreaterThanOrEqual(58);
+      const event = /^~(\d+)likely (\d+)(?: to (\d+))?$/.exec(eventTotalText(HELD));
+      expect(event, eventTotalText(HELD)).not.toBeNull();
+      expect(Number(event![1])).toBe(34);
+      expect(Number(event![2])).toBe(34);
+      expect(Number(event![3] ?? event![2])).toBeGreaterThanOrEqual(34);
+
+      // THE RULE HOLDS A FIGURE, IT DOES NOT COPY ONE: a finalist with 24 + 9 + 16 counted prints its run's own
+      // median, which is above what it has earned.
+      const free = /· (\d+) earned · median (\d+)$/.exec(teamCellText(FREE));
+      expect(free, teamCellText(FREE)).not.toBeNull();
+      expect(Number(free![1])).toBe(24 + 9 + alliancePointsOf(FREE));
+      expect(Number(free![2])).toBeGreaterThan(Number(free![1]));
+      expect(Number(/^~(\d+)/.exec(grandTotalText(FREE))![1])).toBe(Number(free![2]));
+
+      // On every row of the table: no median under the earned figure beside it, no tilde on a percentage, no 100%.
+      for (const teamKey of ROSTER) {
+        const meta = /· (\d+) earned(?: · median (\d+))?$/.exec(teamCellText(teamKey));
+        expect(meta, teamKey).not.toBeNull();
+        if (meta![2] !== undefined) expect(Number(meta![2]), teamKey).toBeGreaterThanOrEqual(Number(meta![1]));
+        const total = /^~(\d+)/.exec(grandTotalText(teamKey));
+        if (total !== null) expect(Number(total[1]), teamKey).toBeGreaterThanOrEqual(Number(meta![1]));
+      }
+      expect(document.body.textContent ?? "").not.toMatch(/~\d+%/);
+      expect(document.body.textContent ?? "").not.toContain("100%");
+    }, 30000);
+  });
+
   describe("a rewound stop of that live event", () => {
     it("reads an uncorroborated category open in its cells, while the as of run still conditions on the alliances and the bracket rows at the stop", async () => {
       // Rewound to Round 1 of the live event. Every team has a row there

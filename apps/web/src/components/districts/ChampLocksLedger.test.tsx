@@ -1275,6 +1275,89 @@ describe("ChampLocksLedger — the two readings while a live championship's poin
     expect(input.knownAlliances).toHaveLength(8);
     expect(input.playedElimMatches).toEqual(PLAYED_ROWS);
   }, 40000);
+
+  /**
+   * NO TOTAL OR MEDIAN IS PRINTED BELOW WHAT THE LOCK MATH COUNTS (quick task
+   * 261012-mw2). The championship's bracket is under way and every row carries
+   * its Qualification and Alliance selection points. One team of alliance 5,
+   * which is out of the playoffs, carries the most a championship pays for
+   * Qualification, 66: more than the run draws for it, because the run ranks
+   * the field itself and the row's number is TBA's. Its championship row
+   * counts 66 and 36, and its floor is that and the 24 of its district event.
+   */
+  it("a Subtotal is held at its row's counted points, and the grand total and the Team cell's median at the status model's floor for the team", async () => {
+    const HELD = allianceRoster(5)[0]!;
+    const FREE = allianceRoster(1)[0]!;
+    const base = championshipMidPlayoffs(true);
+    const artifact = artifactOf(
+      base.teams.map((team) =>
+        team.teamKey !== HELD
+          ? team
+          : { ...team, pointTotal: team.pointTotal + 36, eventPoints: team.eventPoints.map((row) => (row.eventKey === DCMP_EVENT ? { ...row, qual: 66, total: row.total + 36 } : row)) }
+      )
+    );
+    const teamCellText = (teamKey: string): string => within(rowsFor(teamKey)[0]!).getByTestId("district-ledger-team-cell").textContent ?? "";
+    const grandTotalText = (teamKey: string): string => within(rowsFor(teamKey)[0]!).getByTestId("champ-ledger-grand-total").textContent ?? "";
+    const subtotalText = (teamKey: string): string =>
+      rowsFor(teamKey)
+        .map((row) => row.querySelector('[data-cell-id="dcmp-row:eventTotal"]'))
+        .find((cell) => cell !== null)?.textContent ?? "";
+    // Ready once the championship's own run has landed: before that the row is priced from the estimate, with no
+    // category cell of its own.
+    await renderChampionship(
+      artifact,
+      () =>
+        screen.queryAllByTestId("champ-ledger-row").length > 0 &&
+        kindOf(HELD, "qual") === "final" &&
+        kindOf(FREE, "elim") === "open" &&
+        /^~\d+/.test(grandTotalText(HELD)) &&
+        /^~\d+/.test(subtotalText(HELD)) &&
+        /median \d+/.test(teamCellText(FREE))
+    );
+
+    // What the tab hands in is the status code's own floor and the rows' own counted points.
+    const { rows, model } = statusesAtNow(artifact);
+    const heldTeam = rows.teams.find((team) => team.teamKey === HELD)!;
+    expect(alliancePointsOf(HELD)).toBe(36);
+    expect(heldTeam.dcmpRow.countedAtPosition).toBe(66 + 36);
+    expect(heldTeam.districtRow.countedAtPosition).toBe(24);
+    expect(model.floorByTeam!.get(HELD)).toBe(24 + 66 + 36);
+    expect(textOf(HELD, "qual")).toBe("66");
+    expect(kindOf(HELD, "elim")).toBe("final");
+    expect(textOf(HELD, "elim")).toBe("0");
+
+    // THE TEAM CELL and THE GRAND TOTAL: at the floor, 126.
+    expect(teamCellText(HELD)).toMatch(/· 126 earned · median 126$/);
+    const grand = /^~(\d+)likely (\d+)(?: to (\d+))?$/.exec(grandTotalText(HELD));
+    expect(grand, grandTotalText(HELD)).not.toBeNull();
+    expect(Number(grand![1])).toBe(126);
+    expect(Number(grand![2])).toBe(126);
+    expect(Number(grand![3] ?? grand![2])).toBeGreaterThanOrEqual(126);
+    // THE DISTRICT CHAMPIONSHIP ROW'S SUBTOTAL: at that row's counted points, 102.
+    const subtotal = /^~(\d+)likely (\d+)(?: to (\d+))?$/.exec(subtotalText(HELD));
+    expect(subtotal, subtotalText(HELD)).not.toBeNull();
+    expect(Number(subtotal![1])).toBe(102);
+    expect(Number(subtotal![2])).toBe(102);
+    expect(Number(subtotal![3] ?? subtotal![2])).toBeGreaterThanOrEqual(102);
+
+    // THE RULE HOLDS A FIGURE, IT DOES NOT COPY ONE: a finalist prints its run's own median, above its 24 + 30 + 48.
+    const free = /· (\d+) earned · median (\d+)$/.exec(teamCellText(FREE));
+    expect(free, teamCellText(FREE)).not.toBeNull();
+    expect(Number(free![1])).toBe(24 + 30 + alliancePointsOf(FREE));
+    expect(Number(free![2])).toBeGreaterThan(Number(free![1]));
+    expect(Number(/^~(\d+)/.exec(grandTotalText(FREE))![1])).toBe(Number(free![2]));
+
+    // On every row of the table: no median and no grand total under the earned figure beside it.
+    for (const teamKey of ROSTER) {
+      const meta = /· (\d+) earned(?: · median (\d+))?$/.exec(teamCellText(teamKey));
+      expect(meta, teamKey).not.toBeNull();
+      if (meta![2] !== undefined) expect(Number(meta![2]), teamKey).toBeGreaterThanOrEqual(Number(meta![1]));
+      const total = /^~(\d+)/.exec(grandTotalText(teamKey));
+      if (total !== null) expect(Number(total[1]), teamKey).toBeGreaterThanOrEqual(Number(meta![1]));
+    }
+    expect(document.body.textContent ?? "").not.toMatch(/~\d+%/);
+    expect(document.body.textContent ?? "").not.toContain("100%");
+  }, 40000);
 });
 
 /**

@@ -250,9 +250,22 @@ export interface ChampLedgerRow {
    * built from, and 0 on the District Championship row of a team outside the
    * field. DISPLAY ONLY: it is the least this row's Subtotal can end at, kept
    * so a printed Subtotal can be held at or above it. No status, range state,
-   * projection or distribution reads it, and at the commit that adds it
-   * nothing reads it at all. Optional in the type so a hand built row needs
-   * none; `buildChampLedgerRows` sets it on both rows of every team.
+   * projection or distribution reads it. ONE READER: `ChampLocksLedger.tsx`
+   * hands it to the row's Subtotal cell as the least that cell may print
+   * (`LedgerParts.tsx`, THE LEAST A TOTAL MAY PRINT). Optional in the type so
+   * a hand built row needs none; `buildChampLedgerRows` sets it on both rows
+   * of every team.
+   *
+   * A FINALS KEY ADDS NO PLAYOFFS FLOOR. A pass row at a divisioned
+   * championship's finals key counts the earned points of the categories
+   * final there and nothing for its Playoffs category, whatever settled or
+   * secured value the row carries: exactly as the header above
+   * (`playoffHeld`) and `champLedgerStatus.ts` read a finals key. So the two
+   * rows' counted points and what the point total holds outside the rows are
+   * the header, and the header is the status floor. Nothing supplies a secured
+   * minimum at a finals key today (the reader credits eight alliance brackets
+   * only), so this changes no figure; it keeps a printed Subtotal from ever
+   * being held above what the lock math counts.
    */
   readonly countedAtPosition?: number;
 }
@@ -859,7 +872,11 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
     );
     const dcmpRow: ChampLedgerRow = {
       ...dcmpBuilt,
-      countedAtPosition: membership === "out" ? 0 : dcmpEntry.rows.reduce((sum, row) => sum + rowCountedPoints(row), 0),
+      // A finals key's row is read without its Playoffs floor, as the header and the status floor read it.
+      countedAtPosition:
+        membership === "out"
+          ? 0
+          : dcmpEntry.rows.reduce((sum, row) => sum + rowCountedPoints(fieldFixingKeys.has(row.eventKey) ? row : { stage: row.stage, earned: row.earned }), 0),
     };
 
     // THE DCMP WAS NEVER PRICED — no championship on the artifact, or no

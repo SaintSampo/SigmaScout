@@ -9,18 +9,45 @@
  * which is the word for an event with no published data. The word carries the
  * meaning: the cell keeps the muted unavailable treatment and no new colour.
  */
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render } from "@testing-library/react";
-import { GrandTotalContent, LedgerCell, OPEN_CELL_BOLD_CLASS, OPEN_CELL_SMALL_CLASS, UNAVAILABLE_CELL_CLASS, openCellLines, type CellInteraction } from "./LedgerParts.js";
+import {
+  GrandTotalContent,
+  LedgerCell,
+  OPEN_CELL_BOLD_CLASS,
+  OPEN_CELL_SMALL_CLASS,
+  UNAVAILABLE_CELL_CLASS,
+  heldTeamMedian,
+  openCellLines,
+  type CellInteraction,
+} from "./LedgerParts.js";
 import {
   CHAMP_LEDGER_CUTOFF_PENDING_FIGURE,
   DISTRICT_LEDGER_PENDING_CELL,
   DISTRICT_LEDGER_UNAVAILABLE_CELL,
 } from "./districtLedgerCopy.js";
-import { openDistrictLedgerCell, type DistrictCellKind, type DistrictLedgerCell } from "./districtLedgerRows.js";
+import {
+  buildDistrictEventSimulationInput,
+  buildDistrictLedgerRows,
+  distributionsFromResult,
+  openDistrictLedgerCell,
+  rowCountedPoints,
+  securedElimEntry,
+  tierEvents,
+  type DistrictCellKind,
+  type DistrictEventDistributions,
+  type DistrictLedgerCell,
+  type DistrictStageFinality,
+} from "./districtLedgerRows.js";
+import { buildChampLedgerRows, dcmpEventKeysFor, type ChampLedgerCell } from "./champLedgerRows.js";
+import { computeChampLedgerStatuses } from "./champLedgerStatus.js";
+import { computeDistrictLedgerStatuses } from "./districtLedgerStatus.js";
 import type { DistrictCellPricing } from "./districtLedgerOutcomes.js";
-import type { DistrictSelectionRouteObservation } from "../../../../../packages/core/districts/ledgerSimulation.js";
+import { simulateDistrictEvent, type DistrictSelectionRouteObservation } from "../../../../../packages/core/districts/ledgerSimulation.js";
+import { DistrictArtifactSchema, EventArtifactSchema } from "../../../../../packages/harness/pageArtifacts.js";
 
 afterEach(() => cleanup());
 
@@ -375,4 +402,326 @@ describe("openCellLines: one grammar for every open cell (261008-3il)", () => {
     const button = container.querySelector("button")!;
     expect(button.textContent).toBe("85% finalpays 20 or 30");
   });
+});
+
+// ---------------------------------------------------------------------------
+// THE LEAST A TOTAL MAY PRINT (quick task 261012-mw2, D6 and Task 6): no
+// event total, grand total or Team cell median is PRINTED below what the lock
+// math already counts for that row or team. Print only.
+// ---------------------------------------------------------------------------
+
+/** A median form total cell carrying the given percentiles. */
+function totalCell(cell: "eventTotal" | "grandTotal", p10: number, p50: number, p90: number): OpenCell {
+  const id = cell === "grandTotal" ? "grandTotal" : "2026walive:eventTotal";
+  return { ...openFrom(id, cell, { 50: 50, 60: 50 }, 83), summary: { form: "median", percentiles: { p10, p50, p90 } } } as OpenCell;
+}
+
+describe("openCellLines: the least a total may print (quick task 261012-mw2)", () => {
+  it("prints the larger of the median and the least, the larger of the low end and the least, and a high end never below the printed median", () => {
+    // The run's median is 57.4 and the lock math already counts 58 for the row.
+    expect(openCellLines(totalCell("eventTotal", 55.6, 57.4, 61.2))).toEqual({ bold: "~57", small: "likely 56 to 61" });
+    expect(openCellLines(totalCell("eventTotal", 55.6, 57.4, 61.2), undefined, 58)).toEqual({ bold: "~58", small: "likely 58 to 61" });
+    // Only the low end sits under it: the median and the high end print as they did.
+    expect(openCellLines(totalCell("grandTotal", 55.6, 60.2, 64.9), undefined, 58)).toEqual({ bold: "~60", small: "likely 58 to 65" });
+    // The least above all three: the range closes to the one number.
+    expect(openCellLines(totalCell("grandTotal", 55.6, 57.4, 57.8), undefined, 60)).toEqual({ bold: "~60", small: "likely 60" });
+    // A least that is not a whole number is rounded with the figure it holds, never before it.
+    expect(openCellLines(totalCell("eventTotal", 55.6, 57.4, 61.2), undefined, 57.6)).toEqual({ bold: "~58", small: "likely 58 to 61" });
+  });
+
+  it("prints exactly what it prints today with no least, and with one at or below all three percentiles", () => {
+    const cells = [totalCell("eventTotal", 55.6, 57.4, 61.2), totalCell("grandTotal", 100.2, 131.5, 160.9), totalCell("eventTotal", 0, 0, 0), totalCell("grandTotal", 14.6, 15, 15.4)];
+    for (const cell of cells) {
+      const today = openCellLines(cell);
+      expect(openCellLines(cell, undefined, undefined)).toEqual(today);
+      const { p10 } = (cell.summary as { percentiles: { p10: number } }).percentiles;
+      for (const least of [0, -3, p10, p10 - 0.4, Number.NaN, Number.NEGATIVE_INFINITY]) expect(openCellLines(cell, undefined, least), String(least)).toEqual(today);
+    }
+  });
+
+  it("never lowers a printed figure, whatever the least", () => {
+    const cell = totalCell("grandTotal", 100.2, 131.5, 160.9);
+    const numbers = (printed: { bold: string; small: string | undefined }): number[] => `${printed.bold} ${printed.small ?? ""}`.match(/\d+/g)!.map(Number);
+    const today = numbers(openCellLines(cell));
+    for (const least of [0, 50, 100, 101, 131, 132, 150, 161, 200]) {
+      const held = numbers(openCellLines(cell, undefined, least));
+      // Median, low end, and the high end where the range has not closed.
+      expect(held[0], String(least)).toBe(Math.max(today[0]!, least));
+      expect(held[1], String(least)).toBe(Math.max(today[1]!, least));
+      expect(held[held.length - 1], String(least)).toBe(Math.max(today[2]!, least));
+      expect(held[held.length - 1], String(least)).toBeGreaterThanOrEqual(held[0]!);
+    }
+  });
+
+  it("is not read by the chance forms, the milestone form, a not picked cell or the Alliance selection settled route", () => {
+    const untouched: readonly (readonly [OpenCell, DistrictCellPricing | undefined])[] = [
+      [TOP_FOUR, DISTRICT_2026],
+      [FINALIST, DISTRICT_2026],
+      [{ ...FINALIST, securedAtLeast: 20 }, DISTRICT_2026],
+      [{ ...TOP_FOUR, notPicked: true }, DISTRICT_2026],
+      [AWARD, DISTRICT_2026],
+      [CAPTAIN_LIKELIER, DISTRICT_2026],
+      [BAKED_ALLIANCE, DISTRICT_2026],
+      [NEVER_SELECTED, DISTRICT_2026],
+      // Ranking fixed and every draw a first pick at 12 points: the settled route prints ~12, whatever least it is handed.
+      [SETTLED_FIRST_PICK, DISTRICT_2026],
+    ];
+    for (const [cell, pricing] of untouched) expect(openCellLines(cell, pricing, 99)).toEqual(openCellLines(cell, pricing));
+    expect(openCellLines(SETTLED_FIRST_PICK, DISTRICT_2026, 99)).toEqual({ bold: "~12", small: "first pick, alliance 5" });
+  });
+
+  it("prints no tilde on a percentage, no 100% and no dash with a least, and the tilde stays on the point figure", () => {
+    for (const least of [58, 60, 200]) {
+      const printed = openCellLines(totalCell("grandTotal", 55.6, 57.4, 61.2), undefined, least);
+      expect(printed.bold).toMatch(/^~\d+$/);
+      expect(printed.small).toMatch(/^likely \d+( to \d+)?$/);
+      expect(`${printed.bold} ${printed.small ?? ""}`).not.toMatch(/[-‐-―−%]/);
+    }
+  });
+
+  it("LedgerCell and GrandTotalContent pass the least on, and print as today without one", () => {
+    const event = totalCell("eventTotal", 55.6, 57.4, 61.2);
+    const grand = totalCell("grandTotal", 55.6, 57.4, 61.2);
+    const eventPlain = inRow(<LedgerCell cell={event} interaction={INTERACTION} variant="total" />).container.querySelector("button")!;
+    expect(eventPlain.textContent).toBe("~57likely 56 to 61");
+    const eventHeld = inRow(<LedgerCell cell={event} interaction={INTERACTION} variant="total" least={58} />).container.querySelector("button")!;
+    expect(eventHeld.textContent).toBe("~58likely 58 to 61");
+    // The same element, class for class: the least changes digits and nothing else.
+    expect(eventHeld.className).toBe(eventPlain.className);
+    expect([...eventHeld.querySelectorAll("span")].map((span) => span.className)).toEqual([OPEN_CELL_BOLD_CLASS, OPEN_CELL_SMALL_CLASS]);
+    const grandOf = (least?: number) =>
+      inRow(
+        <td>
+          <GrandTotalContent cell={grand} interaction={INTERACTION} {...(least === undefined ? {} : { least })} />
+        </td>
+      ).container.querySelector("button")!;
+    expect(grandOf().textContent).toBe("~57likely 56 to 61");
+    expect(grandOf(58).textContent).toBe("~58likely 58 to 61");
+    expect(grandOf(58).className).toBe(grandOf().className);
+    // A grey total is TBA's own number and is never handed through the rule.
+    const final: DistrictLedgerCell = { id: "grandTotal", cell: "grandTotal", kind: "final", earned: 57 };
+    const finalCell = inRow(
+      <td>
+        <GrandTotalContent cell={final} interaction={INTERACTION} least={58} />
+      </td>
+    ).container.querySelector("[data-cell]")!;
+    expect(finalCell.textContent).toBe("57");
+  });
+
+  it("heldTeamMedian is the rounded larger of the projection and the least, and the rounded projection with none", () => {
+    expect(heldTeamMedian(57.4, undefined)).toBe(57);
+    expect(heldTeamMedian(57.4, 58)).toBe(58);
+    expect(heldTeamMedian(57.4, 57)).toBe(57);
+    expect(heldTeamMedian(57.6, 57)).toBe(58);
+    expect(heldTeamMedian(61.2, 58)).toBe(61);
+    for (const least of [0, -4, Number.NaN, Number.NEGATIVE_INFINITY]) expect(heldTeamMedian(57.4, least)).toBe(57);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE SAME RULE OVER THE LOCAL FIXTURE, BOTH TABS (plan fact 28). The eight
+// 2026 PNW district event files are gitignored local data; the district file
+// beside them is committed. Each event is read at its playoff round stops with
+// a real run, exactly as `SCRATCH/mw2/print_check2.mts` reads it.
+// ---------------------------------------------------------------------------
+
+/** The repo relative path, found by walking up from the working directory (see `champLedgerRows.test.ts`). */
+function repoPath(relative: string): string | undefined {
+  let dir = resolve(process.cwd());
+  for (;;) {
+    const candidate = join(dir, relative);
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
+const PRINT_FIXTURE_EVENTS = ["2026orore", "2026orsal", "2026orwil", "2026waahs", "2026wabon", "2026wasam", "2026wasno", "2026wayak"] as const;
+const PRINT_FIXTURE_DISTRICT = "data/fixtures/phase10/district-2026pnw.json";
+const PRINT_FIXTURE_MISSING = [PRINT_FIXTURE_DISTRICT, ...PRINT_FIXTURE_EVENTS.map((key) => `data/fixtures/phase10/event-${key}.json`)].filter((file) => repoPath(file) === undefined);
+/** The run `print_check2.mts` makes: 400 draws under this seed. */
+const PRINT_DRAWS = 400;
+const PRINT_SEED = 20261012;
+/** The double elimination round of each semifinal set. */
+const ROUND_OF_SET: Readonly<Record<number, number>> = { 1: 1, 2: 1, 3: 1, 4: 1, 5: 2, 6: 2, 7: 2, 8: 2, 9: 3, 10: 3, 11: 4, 12: 4, 13: 5 };
+
+interface PrintTally {
+  checked: number;
+  lowBelow: number;
+  medianBelow: number;
+  lowBelowHeld: number;
+  medianBelowHeld: number;
+  moved: number;
+}
+const printTally = (): PrintTally => ({ checked: 0, lowBelow: 0, medianBelow: 0, lowBelowHeld: 0, medianBelowHeld: 0, moved: 0 });
+
+/** The median, the low end and the high end a median form cell prints. */
+function printedFigures(printed: { bold: string; small: string | undefined }): { median: number; low: number; high: number } {
+  const bold = /^~(\d+)$/.exec(printed.bold);
+  const small = /^likely (\d+)(?: to (\d+))?$/.exec(printed.small ?? "");
+  if (bold === null || small === null) throw new Error(`not a median form print: ${printed.bold} / ${String(printed.small)}`);
+  return { median: Number(bold[1]), low: Number(small[1]), high: Number(small[2] ?? small[1]) };
+}
+
+/**
+ * One total against the figure it must not print below: without the least and
+ * with it. Returns false for a cell that is not an open median form cell.
+ */
+function notePrint(tally: PrintTally, cell: ChampLedgerCell, least: number, target: number): boolean {
+  if (cell.kind !== "open" || cell.summary.form !== "median") return false;
+  const plain = printedFigures(openCellLines(cell));
+  const held = printedFigures(openCellLines(cell, undefined, least));
+  tally.checked += 1;
+  if (plain.low < target) tally.lowBelow += 1;
+  if (plain.median < target) tally.medianBelow += 1;
+  if (held.low < target) tally.lowBelowHeld += 1;
+  if (held.median < target) tally.medianBelowHeld += 1;
+  if (held.low !== plain.low || held.median !== plain.median || held.high !== plain.high) tally.moved += 1;
+  // The rule only ever raises a figure, and never leaves the range upside down.
+  expect(held.low).toBeGreaterThanOrEqual(plain.low);
+  expect(held.median).toBeGreaterThanOrEqual(plain.median);
+  expect(held.high).toBeGreaterThanOrEqual(plain.high);
+  expect(held.median).toBeGreaterThanOrEqual(held.low);
+  expect(held.high).toBeGreaterThanOrEqual(held.median);
+  return true;
+}
+
+describe("the least a total may print, over the local 2026 PNW fixture on both tabs (quick task 261012-mw2, fact 28)", () => {
+  if (PRINT_FIXTURE_MISSING.length > 0) {
+    const what = `the local fixture files are absent: ${PRINT_FIXTURE_MISSING.join(", ")}`;
+    if (process.env.REQUIRE_LOCAL_DATA === "1") {
+      it(`REQUIRE_LOCAL_DATA=1 and the local data is absent: ${what}`, () => {
+        throw new Error(`REQUIRE_LOCAL_DATA=1, but this local data gated group cannot run: ${what}`);
+      });
+    } else {
+      it.skip(`skipped: ${what}`, () => {});
+    }
+    return;
+  }
+
+  it(
+    "without the least a low end prints below the earned figure 154 times and a median 110 times on each tab, and with it never; and nothing but print moves",
+    () => {
+      const district = DistrictArtifactSchema.parse(JSON.parse(readFileSync(repoPath(PRINT_FIXTURE_DISTRICT)!, "utf8")));
+      const ALL_FINAL: DistrictStageFinality = { qual: true, alliance: true, elim: true, award: true };
+      const ALL_OPEN: DistrictStageFinality = { qual: false, alliance: false, elim: false, award: false };
+      const districtGrand = printTally();
+      const districtEvent = printTally();
+      const champGrand = printTally();
+      const champDistrictRow = printTally();
+      const teamMedian = { district: { checked: 0, below: 0, belowHeld: 0 }, champ: { checked: 0, below: 0, belowHeld: 0 } };
+      let stops = 0;
+      let champFloors = 0;
+      let champFloorNotTheHeader = 0;
+      let districtCountedNotTheHeader = 0;
+      let printChangedTheModel = 0;
+
+      for (const eventKey of PRINT_FIXTURE_EVENTS) {
+        const event = EventArtifactSchema.parse(JSON.parse(readFileSync(repoPath(`data/fixtures/phase10/event-${eventKey}.json`)!, "utf8")));
+        const playoff = event.matches.filter((match) => (match.compLevel === "sf" || match.compLevel === "f") && match.actualWinner !== undefined);
+        for (let round = 1; round <= 6; round++) {
+          // Rounds 1 to 5, then the first Finals row.
+          const at = playoff.filter((match) => (match.compLevel === "sf" ? (ROUND_OF_SET[match.setNumber] ?? 9) <= round : round === 6 && match.matchNumber === 1));
+          if (round === 6 && !at.some((match) => match.compLevel === "f")) continue;
+          const playedKeys = at.map((match) => match.matchKey);
+          const stage: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
+          const built = buildDistrictEventSimulationInput({
+            eventKey,
+            season: 2026,
+            eventArtifact: event,
+            districtArtifact: district,
+            stage,
+            startMatchKey: null,
+            conditionOnPlayedElims: false,
+            asOfPlayedElimMatchKeys: playedKeys,
+            tier: "district",
+          });
+          if (!built.ok) continue;
+          stops += 1;
+          const entry: DistrictEventDistributions = {
+            ...distributionsFromResult(simulateDistrictEvent(built.input, PRINT_DRAWS, PRINT_SEED)),
+            ...securedElimEntry(event, 2026, "district", new Set(playedKeys)),
+          };
+          const stageByEvent = new Map<string, DistrictStageFinality>();
+          for (const team of district.teams) {
+            for (const tierEvent of tierEvents(team, "district")) {
+              if (!stageByEvent.has(tierEvent.eventKey)) stageByEvent.set(tierEvent.eventKey, tierEvent.eventKey === eventKey ? stage : ALL_FINAL);
+            }
+          }
+          for (const key of dcmpEventKeysFor(district)) stageByEvent.set(key, ALL_OPEN);
+          const distributions = new Map([[eventKey, entry]]);
+
+          // THE DISTRICT LOCKS TAB.
+          const model = buildDistrictLedgerRows({ artifact: district, distributions, stageByEvent, tier: "district" });
+          const districtStatuses = computeDistrictLedgerStatuses({ artifact: district, teams: model.teams });
+          const districtLockedOut = new Set<string>();
+          for (const [teamKey, result] of districtStatuses.byTeam) if (result.status === "lockedOut") districtLockedOut.add(teamKey);
+          // THE CHAMP LOCKS TAB.
+          const champ = buildChampLedgerRows({ artifact: district, distributions, stageByEvent, startedDcmpEventKeys: new Set(), atLivePosition: false });
+          const champStatuses = computeChampLedgerStatuses({ artifact: district, teams: champ.teams, districtLockedOut, distributions });
+
+          // Everything the display is NOT handed back, read before one line is printed and again after.
+          const summaryOf = (cell: ChampLedgerCell): unknown => (cell.kind === "open" ? cell.summary : cell.kind);
+          const modelValues = (): string =>
+            JSON.stringify({
+              district: model.teams.map((team) => [team.teamKey, team.projection, team.earnedAtPosition, team.position, summaryOf(team.grandTotal), team.rows.map((row) => summaryOf(row.eventTotal))]),
+              districtStatuses: [...districtStatuses.byTeam].map(([teamKey, result]) => [teamKey, result.status, result.lockedBy]),
+              champ: champ.teams.map((team) => [team.teamKey, team.projection, team.earnedAtPosition, team.position, summaryOf(team.grandTotal), summaryOf(team.districtRow.subtotal), summaryOf(team.dcmpRow.subtotal)]),
+              champStatuses: [...champStatuses.byTeam].map(([teamKey, result]) => [teamKey, result.status]),
+              champFloors: [...(champStatuses.floorByTeam ?? [])],
+            });
+          const before = modelValues();
+
+          for (const team of model.teams) {
+            const row = team.rows.find((candidate) => candidate.eventKey === eventKey);
+            if (row === undefined) continue;
+            // What the tab hands in: the sum of the team's rows' counted points.
+            const counted = team.rows.reduce((sum, candidate) => sum + rowCountedPoints(candidate), 0);
+            const header = Math.round(team.earnedAtPosition);
+            if (counted !== team.earnedAtPosition) districtCountedNotTheHeader += 1;
+            if (notePrint(districtGrand, team.grandTotal, counted, header)) {
+              teamMedian.district.checked += 1;
+              if (heldTeamMedian(team.projection, undefined) < header) teamMedian.district.below += 1;
+              if (heldTeamMedian(team.projection, counted) < header) teamMedian.district.belowHeld += 1;
+            }
+            notePrint(districtEvent, row.eventTotal, rowCountedPoints(row), Math.round(rowCountedPoints(row)));
+          }
+          for (const team of champ.teams) {
+            const floor = champStatuses.floorByTeam?.get(team.teamKey);
+            if (floor === undefined) continue;
+            champFloors += 1;
+            if (floor !== team.earnedAtPosition) champFloorNotTheHeader += 1;
+            const header = Math.round(team.earnedAtPosition);
+            const districtCounted = team.districtRow.countedAtPosition ?? 0;
+            notePrint(champDistrictRow, team.districtRow.subtotal, districtCounted, Math.round(districtCounted));
+            if (notePrint(champGrand, team.grandTotal, floor, header)) {
+              teamMedian.champ.checked += 1;
+              if (heldTeamMedian(team.projection, undefined) < header) teamMedian.champ.below += 1;
+              if (heldTeamMedian(team.projection, floor) < header) teamMedian.champ.belowHeld += 1;
+            }
+          }
+          if (modelValues() !== before) printChangedTheModel += 1;
+        }
+      }
+
+      console.log(
+        `[261012-mw2 printed totals] stops ${String(stops)}; district grand ${JSON.stringify(districtGrand)}; district event ${JSON.stringify(districtEvent)}; champ district row ${JSON.stringify(champDistrictRow)}; champ grand ${JSON.stringify(champGrand)}; team median ${JSON.stringify(teamMedian)}; champ floors ${String(champFloors)}, not the header ${String(champFloorNotTheHeader)}; district counted not the header ${String(districtCountedNotTheHeader)}`
+      );
+      expect(stops).toBe(48);
+      // Without the least: 154 low ends and 110 medians print below. With it: none. The same on every total.
+      const pinned: PrintTally = { checked: 1512, lowBelow: 154, medianBelow: 110, lowBelowHeld: 0, medianBelowHeld: 0, moved: 154 };
+      expect(districtGrand).toEqual(pinned);
+      expect(districtEvent).toEqual(pinned);
+      expect(champDistrictRow).toEqual(pinned);
+      expect(champGrand).toEqual(pinned);
+      expect(teamMedian).toEqual({ district: { checked: 1512, below: 110, belowHeld: 0 }, champ: { checked: 1512, below: 110, belowHeld: 0 } });
+      // What is handed in is the earned figure wherever the earned figure is the floor: every one of these rewound stops.
+      expect(districtCountedNotTheHeader).toBe(0);
+      expect({ champFloors, champFloorNotTheHeader }).toEqual({ champFloors: 6048, champFloorNotTheHeader: 0 });
+      // NOTHING BUT PRINT MOVES: no row model, projection, summary or status is handed the least, and none changed.
+      expect(printChangedTheModel).toBe(0);
+    },
+    600_000
+  );
 });

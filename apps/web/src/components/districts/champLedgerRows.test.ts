@@ -55,6 +55,7 @@ import {
   type ChampLedgerSource,
   type ChampLedgerTeam,
 } from "./champLedgerRows.js";
+import { computeChampLedgerStatuses } from "./champLedgerStatus.js";
 
 /**
  * A PASS THROUGH SPY on the one function `buildChampLedgerRows` calls once per
@@ -2037,8 +2038,57 @@ describe("the secured playoff minimum on the Champ Locks rows (quick task 261012
       expect(outside.earnedAtPosition).toBe(45);
     });
 
+    it("countedAtPosition reads no Playoffs floor at a finals key, so the row, the header and the status floor agree (the print rule of Task 6 reads it)", () => {
+      // A secured minimum handed in at the finals key, which the reader never builds there. With the finals wholly
+      // open the championship row counts the division's 30 and 15 and nothing of it.
+      expect(at("frc1", []).dcmpRow.countedAtPosition).toBe(45);
+      expect(at("frc1", [entryFor(DCMP, 30)]).dcmpRow.countedAtPosition).toBe(45);
+      expect(at("frc1", [entryFor(DIVISION, 39), entryFor(DCMP, 30)]).dcmpRow.countedAtPosition).toBe(84);
+      // A team whose only championship row is at the finals key: the same with and without it.
+      expect(at("frc3", [entryFor(DCMP, 30, {}, "frc3")]).dcmpRow.countedAtPosition).toBe(at("frc3", []).dcmpRow.countedAtPosition);
+      expect(at("frc3", []).dcmpRow.countedAtPosition).toBe(0);
+
+      // THE THREE AGREE, with a secured minimum handed in at both keys, at this stop and with everything final:
+      // the two rows' counted points and the 8 + 2 outside them, the header, and the status code's own floor.
+      // The status code knows a finals key by its two or more division keys, so a second division joins the
+      // artifact here (frc5, in division 2); the rows above know one by the field fixing keys.
+      const DIVISION_TWO = "2026pncmp2";
+      const twoDivisions = artifactOf([
+        ...divisioned.teams,
+        team({
+          teamKey: "frc5",
+          pointTotal: 105,
+          eventPoints: [
+            eventPoints({ eventKey: EVENT, week: 0, qual: 20, alliance: 10, elim: 10, award: 5, total: 45 }),
+            eventPoints({ eventKey: DIVISION_TWO, week: 5, tier: "dcmp", qual: 30, alliance: 15, elim: 0, award: 15, total: 60 }),
+          ],
+        }),
+      ]);
+      expect(fieldFixingDcmpKeys([DCMP, DIVISION, DIVISION_TWO])).toEqual([DIVISION, DIVISION_TWO]);
+      const OPEN = new Map<string, DistrictStageFinality>([...STOP, [DIVISION_TWO, OPEN_PLAYOFFS]]);
+      const DONE = new Map<string, DistrictStageFinality>([
+        [EVENT, ALL_FINAL],
+        [DIVISION, ALL_FINAL],
+        [DIVISION_TWO, ALL_FINAL],
+        [DCMP, ALL_FINAL],
+      ]);
+      for (const [name, stop, expected] of [
+        ["the divisions' playoffs open", OPEN, 139],
+        ["everything final", DONE, 200],
+      ] as const) {
+        // 60 at the finals key is above the finals row's posted 30: were it read there, it would add 30.
+        const distributions = new Map([entryFor(DIVISION, 39), entryFor(DCMP, 60)]);
+        const built = buildChampLedgerRows({ artifact: twoDivisions, distributions, stageByEvent: stop, startedDcmpEventKeys: new Set([DIVISION, DIVISION_TWO]) });
+        const first = built.teams.find((entry) => entry.teamKey === "frc1")!;
+        const status = computeChampLedgerStatuses({ artifact: twoDivisions, teams: built.teams, distributions });
+        expect(first.earnedAtPosition, name).toBe(expected);
+        expect(first.districtRow.countedAtPosition! + first.dcmpRow.countedAtPosition! + 10, name).toBe(expected);
+        expect(status.floorByTeam!.get("frc1"), name).toBe(expected);
+      }
+    });
+
     it("each of the two rows carries countedAtPosition, and it is 0 on the championship row of a team outside the field", () => {
-      // (A finals key's row is not read here: nothing ever supplies a secured minimum at a finals key.)
+      // (A finals key's row adds no Playoffs floor here: see the test above.)
       const plain = at("frc1", []);
       // The district event is final: 20 + 10 + 10 + 5.
       expect(plain.districtRow.countedAtPosition).toBe(45);
