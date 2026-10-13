@@ -71,6 +71,16 @@
  * event's published alliances and its decisive playoff rows at or before the
  * position.
  *
+ * WHO SUPPLIES IT. On the two Locks tabs, the data hook
+ * (`useDistrictLedgerData.ts`, `attachRequestFacts`), whether the run has
+ * landed or is still in flight: at a rewound stop from the played rows of
+ * the run request, which end at the stop's cut, and at the live position
+ * from every row of every loaded event artifact whose tier the tab names.
+ * Over history, the two corpus sweeps and the walk files supply it from the
+ * corpus's rows. An event whose played rows the browser does not hold (one
+ * that has left the Live fetch set) has no map, and its rows are what they
+ * were before this task.
+ *
  * WHERE THE READER CREDITS NOBODY. Eight published alliances of at least
  * three picks each; no team on two lists; every decisive playoff row inside
  * the position mapped to two different alliances; a season with a declared

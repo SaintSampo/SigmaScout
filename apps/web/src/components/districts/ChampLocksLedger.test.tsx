@@ -1210,8 +1210,11 @@ describe("ChampLocksLedger — the two readings while a live championship's poin
     expect(textOf(allianceRoster(1)[0]!, "alliance")).toMatch(/^~\d+captain, alliance 1$/);
     expect(textOf(allianceRoster(3)[1]!, "alliance")).toMatch(/^~\d+first pick, alliance 3$/);
     // The milestone at the 3x weight for an alliance in the upper final, and
-    // a decided alliance settled grey.
-    for (const teamKey of allianceRoster(1)) expect(textOf(teamKey, "elim"), teamKey).toMatch(/^\d+% finalpays 60 or 90$/);
+    // a decided alliance settled grey. The alliance has won sf1, which pays
+    // nothing, and sf7, which pays 13, with all three robots on the field for
+    // both: 13 x 3 = 39 secured each (quick task 261012-mw2), read off the
+    // played rows with no point on any row. The pays line after it is unchanged.
+    for (const teamKey of allianceRoster(1)) expect(textOf(teamKey, "elim"), teamKey).toMatch(/^\d+% finalat least 39 · pays 60 or 90$/);
     for (const teamKey of [...allianceRoster(5), ...allianceRoster(6)]) {
       expect(kindOf(teamKey, "elim"), teamKey).toBe("final");
       expect(textOf(teamKey, "elim"), teamKey).toBe("0");
@@ -1270,7 +1273,7 @@ describe("ChampLocksLedger — the two readings while a live championship's poin
       expect(kindOf(teamKey, "alliance"), teamKey).toBe("final");
       expect(textOf(teamKey, "alliance"), teamKey).toBe(String(alliancePointsOf(teamKey)));
     }
-    for (const teamKey of allianceRoster(1)) expect(textOf(teamKey, "elim"), teamKey).toMatch(/^\d+% finalpays 60 or 90$/);
+    for (const teamKey of allianceRoster(1)) expect(textOf(teamKey, "elim"), teamKey).toMatch(/^\d+% finalat least 39 · pays 60 or 90$/);
     const input = lastRunInput();
     expect(input.knownAlliances).toHaveLength(8);
     expect(input.playedElimMatches).toEqual(PLAYED_ROWS);
@@ -1340,10 +1343,13 @@ describe("ChampLocksLedger — the two readings while a live championship's poin
     expect(Number(subtotal![2])).toBe(102);
     expect(Number(subtotal![3] ?? subtotal![2])).toBeGreaterThanOrEqual(102);
 
-    // THE RULE HOLDS A FIGURE, IT DOES NOT COPY ONE: a finalist prints its run's own median, above its 24 + 30 + 48.
+    // THE RULE HOLDS A FIGURE, IT DOES NOT COPY ONE: a finalist prints its run's own median, above what it has
+    // earned. Its earned figure is 24 + 30 + 48 and the 39 its sf7 win has secured at the championship, which the
+    // tab's hook hands the rows at the live position: the page says what the lock math counts.
     const free = /· (\d+) earned · median (\d+)$/.exec(teamCellText(FREE));
     expect(free, teamCellText(FREE)).not.toBeNull();
-    expect(Number(free![1])).toBe(24 + 30 + alliancePointsOf(FREE));
+    expect(Number(free![1])).toBe(24 + 30 + alliancePointsOf(FREE) + 39);
+    expect(textOf(FREE, "elim")).toMatch(/^\d+% finalat least 39 · pays 60 or 90$/);
     expect(Number(free![2])).toBeGreaterThan(Number(free![1]));
     expect(Number(/^~(\d+)/.exec(grandTotalText(FREE))![1])).toBe(Number(free![2]));
 

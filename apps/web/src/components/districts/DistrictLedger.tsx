@@ -106,6 +106,7 @@ import {
 } from "./districtTimeline.js";
 import { useAsOfRewind } from "./useAsOfRewind.js";
 import {
+  allDistrictTierEventKeys,
   buildDistrictLedgerRows,
   deriveStageFromState,
   districtEventContributions,
@@ -380,12 +381,22 @@ function DistrictLedgerContent({ artifact, algorithm, season }: DistrictLedgerPr
     void navigate({ search: (prev) => ({ ...prev, at: id === DISTRICT_TIMELINE_NOW_ID ? undefined : id }), replace: true, resetScroll: false });
   }
 
+  // THE TIER OF EVERY EVENT THIS TAB READS, named and not assumed (quick task
+  // 261012-mw2, CONTEXT D7): at the live position the data hook credits a
+  // secured playoff minimum only to an event whose tier it is handed, never
+  // at the district tier by default. This tab reads the district tier's
+  // events, which are the events the district artifact's own rows carry at
+  // that tier. The run is assembled at the district tier with or without this
+  // map, so no request and no run signature moves.
+  const tierByEvent = useMemo(() => new Map(allDistrictTierEventKeys(artifact).map((eventKey) => [eventKey, "district"] as const)), [artifact]);
+
   const data = useDistrictLedgerData({
     artifact,
     activeEventKeys,
     eventArtifacts: artifacts.eventArtifacts,
     stageByEvent,
     pointsFinalByEvent: finalByEvent,
+    tierByEvent,
     asOf,
   });
 

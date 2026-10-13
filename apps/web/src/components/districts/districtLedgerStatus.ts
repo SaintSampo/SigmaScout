@@ -119,9 +119,10 @@
  * IT IS A BOUNDED USE OF THE FIELD, READ THROUGH THE ROWS MODULE. This module
  * reads no match row: it reads `securedElim` off a row and nothing else, and
  * a caller of the rows builder supplies it from an event's played rows
- * (`districtLedgerRows.ts`, THE SECURED PLAYOFF MINIMUM). At this commit the
- * sweep `scripts/measureLedgerSettledTenets.ts` supplies it and the Locks
- * tabs' hook does not yet. WHAT IT RESTS ON: the pay rule is TBA's and not
+ * (`districtLedgerRows.ts`, THE SECURED PLAYOFF MINIMUM). Over history the
+ * sweep `scripts/measureLedgerSettledTenets.ts` supplies it, and on the page
+ * the tabs' data hook does, run landed or not (`useDistrictLedgerData.ts`,
+ * `attachRequestFacts`). WHAT IT RESTS ON: the pay rule is TBA's and not
  * ours, read from TBA's public source and fitted to four seasons of paid
  * values, and this code does not control it; the rows are read as posted, so
  * if a playoff result is corrected after it was posted a secured minimum can

@@ -507,9 +507,10 @@
  * quick task 261009-vp9 that a category is final only once its points are in.
  * This module reads no row of any match: it reads `securedElim` off a source
  * and nothing else. A caller of the rows builder supplies it from an event's
- * played rows (`districtLedgerRows.ts`, THE SECURED PLAYOFF MINIMUM). At this
- * commit the sweep `scripts/measureChampJointLocks.ts` supplies it and the
- * Locks tabs' hook does not yet.
+ * played rows (`districtLedgerRows.ts`, THE SECURED PLAYOFF MINIMUM). Over
+ * history the sweep `scripts/measureChampJointLocks.ts` supplies it, and on
+ * the page the tabs' data hook does, run landed or not
+ * (`useDistrictLedgerData.ts`, `attachRequestFacts`).
  *
  * WHAT THE JOINT PROOF IS HANDED. The proof models an unsettled open Playoffs
  * category of the championship whole, through its alliance values, so that

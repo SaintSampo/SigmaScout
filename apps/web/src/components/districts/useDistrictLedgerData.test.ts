@@ -13,13 +13,16 @@
  * that leaves the row count alone, the alliance count moving.
  */
 import { describe, expect, it } from "vitest";
-import { champLiveFetchKeys, districtRunSignature, divisionedDcmpBracketFacts } from "./useDistrictLedgerData.js";
+import { attachRequestFacts, champLiveFetchKeys, districtRunSignature, divisionedDcmpBracketFacts, securedElimForRequest } from "./useDistrictLedgerData.js";
 import { assembleAsOfDistrictEvents, assembleLiveDistrictEvents } from "./districtRunAssembly.js";
 import type { AsOfRewindResult } from "./asOfRewind.js";
-import type { DistrictStageFinality } from "./districtLedgerRows.js";
+import type { BracketSourceEvent, DistrictEventDistributions, DistrictStageFinality } from "./districtLedgerRows.js";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { buildDistrictEventSimulationInput } from "./districtLedgerRows.js";
+import { buildDistrictEventSimulationInput, buildDistrictLedgerRows, dcmpBracketFactsFor, dcmpBracketMilestonesByTeam, securedElimByTeamFor } from "./districtLedgerRows.js";
+import { buildChampLedgerRows } from "./champLedgerRows.js";
+import { computeChampLedgerStatuses } from "./champLedgerStatus.js";
+import type { PlayedBracketMatch } from "../../../../../packages/core/districts/bracket.js";
 import type { DistrictSimulationEventRequest } from "../../workers/districtSimulationProtocol.js";
 import type { AllianceMemberRating } from "../../../../../packages/core/algorithms/simulation/allianceWinProbability.js";
 import type {
@@ -728,5 +731,366 @@ describe("the divisioned championship's facts and Live fetch set (quick task 261
     expect(champLiveFetchKeys([], two, two)).toEqual([]);
     // Two championships and a single one are untouched: one finished and the other in progress returns the one in progress.
     expect(champLiveFetchKeys(["2026cascmp"], ["2026cancmp", "2026cascmp"], ["2026cancmp", "2026cascmp"])).toEqual(["2026cascmp"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// What the lock math reads of an event does not wait for the run (quick task
+// 261012-mw2): `attachRequestFacts` and `securedElimForRequest`.
+// ---------------------------------------------------------------------------
+
+describe("what the lock math reads of an event is laid on per run request, run landed or not (quick task 261012-mw2)", () => {
+  // EVERY EXPECTED CREDIT BELOW IS WORKED BY HAND from TBA's pay rule as
+  // `packages/core/districts/securedPlayoffPoints.ts` states it for 2024 on:
+  // an alliance's table points (sf7 and sf8 pay 13, sf1 to sf6 pay 0) times
+  // the semifinal wins the robot was on the field for, over the semifinal wins
+  // of its alliance, rounded up, and then times the tier weight (1 at a
+  // district event, 3 at a championship).
+  const SEASON = 2026;
+  const EVENT = "2026wasec";
+  const picksOf = (allianceNumber: number): string[] => [`frc${String(allianceNumber)}01`, `frc${String(allianceNumber)}02`, `frc${String(allianceNumber)}03`];
+  const ALLIANCES = Array.from({ length: 8 }, (_unused, i) => ({ allianceNumber: i + 1, picks: picksOf(i + 1) }));
+  type SourceMatch = BracketSourceEvent["matches"][number];
+  /** One played semifinal set between two alliances, in TBA's coordinates. */
+  function setRow(eventKey: string, alliances: readonly { allianceNumber: number; picks: readonly string[] }[], setNumber: number, red: number, blue: number, winner: number): SourceMatch {
+    const of = (allianceNumber: number): string[] => [...alliances.find((alliance) => alliance.allianceNumber === allianceNumber)!.picks].slice(0, 3);
+    return { matchKey: `${eventKey}_sf${String(setNumber)}m1`, compLevel: "sf", setNumber, matchNumber: 1, redTeams: of(red), blueTeams: of(blue), actualWinner: winner === red ? "red" : "blue" };
+  }
+  // Round 1: 1 beats 8, 4 beats 5, 2 beats 7, 3 beats 6. The lower half of Round 2: 5 beats 8 and 6 beats 7. Then
+  // sf7, alliance 1 beats alliance 4, and sf8, alliance 2 beats alliance 3.
+  const SETS: readonly (readonly [number, number, number, number])[] = [
+    [1, 1, 8, 1],
+    [2, 4, 5, 4],
+    [3, 2, 7, 2],
+    [4, 3, 6, 3],
+    [5, 8, 5, 5],
+    [6, 7, 6, 6],
+    [7, 1, 4, 1],
+    [8, 2, 3, 2],
+  ];
+  const rowsThrough = (lastSet: number, eventKey = EVENT, alliances: readonly { allianceNumber: number; picks: readonly string[] }[] = ALLIANCES): SourceMatch[] =>
+    SETS.filter(([setNumber]) => setNumber <= lastSet).map(([setNumber, red, blue, winner]) => setRow(eventKey, alliances, setNumber, red, blue, winner));
+  const playedThrough = (lastSet: number): PlayedBracketMatch[] =>
+    SETS.filter(([setNumber]) => setNumber <= lastSet).map(([setNumber, , , winner]) => ({ compLevel: "sf", setNumber, matchNumber: 1, winningAllianceNumber: winner }));
+  const artifactOf = (matches: readonly SourceMatch[], alliances: readonly { allianceNumber: number; picks: readonly string[] }[] = ALLIANCES): EventArtifact =>
+    ({ alliances, matches }) as unknown as EventArtifact;
+  const keysOf = (matches: readonly SourceMatch[]): Set<string> => new Set(matches.map((match) => match.matchKey));
+  const asObject = (map: ReadonlyMap<string, number> | undefined): Record<string, number> | undefined =>
+    map === undefined ? undefined : Object.fromEntries([...map].sort(([a], [b]) => a.localeCompare(b)));
+  /** One run request for the hand built event: its tier, the published alliances and the played rows it was conditioned on. */
+  const requestOf = (eventKey: string, tier: "district" | "dcmp", played: readonly PlayedBracketMatch[] | undefined, alliances: readonly { allianceNumber: number; picks: string[] }[] | undefined = ALLIANCES) =>
+    requestFor({ eventKey, tier, ...(alliances === undefined ? {} : { knownAlliances: alliances }), ...(played === undefined ? {} : { playedElimMatches: played }) });
+  const PLAYOFFS_OPEN: DistrictStageFinality = { qual: true, alliance: true, elim: false, award: false };
+  const ALL_FINAL: DistrictStageFinality = { qual: true, alliance: true, elim: true, award: true };
+  /** Alliance 1 after sf7: 0 for sf1 and 13 for sf7 over two wins, every robot on the field for both. 13 x 2 / 2. */
+  const ALLIANCE_ONE = { frc101: 13, frc102: 13, frc103: 13 };
+  /** Alliance 2 after sf8, the same way. */
+  const ALLIANCE_TWO = { frc201: 13, frc202: 13, frc203: 13 };
+
+  describe("securedElimForRequest, the rewound reading", () => {
+    it("equals securedElimByTeamFor for the same rows, at a cut and with every row, and a row after the cut adds nothing", () => {
+      const eventArtifact = artifactOf(rowsThrough(8));
+      // The stop after sf7: the artifact holds sf8 too, and the request does not. Alliance 2's win is not read.
+      const atSeven = securedElimForRequest({ eventArtifact, season: SEASON, tier: "district", playedElimMatches: playedThrough(7), unresolvedMatchCount: 0 });
+      expect(asObject(atSeven)).toEqual(ALLIANCE_ONE);
+      expect(atSeven).toEqual(securedElimByTeamFor(eventArtifact, SEASON, "district", keysOf(rowsThrough(7))));
+      // Every row: the reading with no cut at all.
+      const atEight = securedElimForRequest({ eventArtifact, season: SEASON, tier: "district", playedElimMatches: playedThrough(8), unresolvedMatchCount: 0 });
+      expect(asObject(atEight)).toEqual({ ...ALLIANCE_ONE, ...ALLIANCE_TWO });
+      expect(atEight).toEqual(securedElimByTeamFor(eventArtifact, SEASON, "district"));
+      // The championship tier: the rounding comes before the weight, 13 x 3.
+      expect(asObject(securedElimForRequest({ eventArtifact, season: SEASON, tier: "dcmp", playedElimMatches: playedThrough(7), unresolvedMatchCount: 0 }))).toEqual({ frc101: 39, frc102: 39, frc103: 39 });
+    });
+
+    it("returns undefined, crediting nobody, wherever the request cannot be read whole", () => {
+      const eventArtifact = artifactOf(rowsThrough(8));
+      const base = { eventArtifact, season: SEASON, tier: "district" as const, playedElimMatches: playedThrough(7), unresolvedMatchCount: 0 };
+      // The control: this request is credited.
+      expect(securedElimForRequest(base)?.size).toBe(3);
+      // The event artifact is not loaded.
+      expect(securedElimForRequest({ ...base, eventArtifact: undefined })).toBeUndefined();
+      // The request carries no played row: the playoffs are not under way at the stop, or their points are final there.
+      expect(securedElimForRequest({ ...base, playedElimMatches: undefined })).toBeUndefined();
+      expect(securedElimForRequest({ ...base, playedElimMatches: [] })).toBeUndefined();
+      // The event has a playoff row the tab could not place on two alliances.
+      expect(securedElimForRequest({ ...base, unresolvedMatchCount: 1 })).toBeUndefined();
+      // A played row of the request is not on the artifact: sf8 is in the request and the artifact stops at sf7.
+      expect(securedElimForRequest({ ...base, eventArtifact: artifactOf(rowsThrough(7)), playedElimMatches: playedThrough(8) })).toBeUndefined();
+      // Nothing is credited: Round 1 and the lower half of Round 2 pay nothing.
+      expect(securedElimForRequest({ ...base, playedElimMatches: playedThrough(4) })).toBeUndefined();
+      expect(securedElimForRequest({ ...base, playedElimMatches: playedThrough(6) })).toBeUndefined();
+    });
+  });
+
+  describe("attachRequestFacts", () => {
+    const common = { season: SEASON, unresolvedEventKeys: new Set<string>() };
+    const stageOpen = new Map([[EVENT, PLAYOFFS_OPEN]]);
+
+    it("a landed run's entry keeps its team records and its own milestones, the same objects, and gains the secured minimums and nothing else", () => {
+      const byTeam: DistrictEventDistributions["byTeam"] = new Map([["frc101", { qual: undefined, alliance: undefined, elim: undefined, award: undefined, eventTotal: undefined, grandTotal: undefined }]]);
+      // The run's own milestones, marked so they cannot be mistaken for the ones read off the request.
+      const ownMilestones: NonNullable<DistrictEventDistributions["playoffMilestoneByTeam"]> = new Map([["frc101", { kind: "finals" }]]);
+      const landed: DistrictEventDistributions = { eventKey: EVENT, byTeam, playoffMilestoneByTeam: ownMilestones };
+      const map = new Map([[EVENT, landed]]);
+      attachRequestFacts(map, { ...common, requests: requestOf(EVENT, "district", playedThrough(7)), eventArtifacts: new Map([[EVENT, artifactOf(rowsThrough(7))]]), stageByEvent: stageOpen, live: false });
+      const after = map.get(EVENT)!;
+      expect(after.byTeam).toBe(byTeam);
+      expect(after.playoffMilestoneByTeam).toBe(ownMilestones);
+      expect(asObject(after.securedElimByTeam)).toEqual(ALLIANCE_ONE);
+      // A district tier request builds no championship facts.
+      expect(Object.keys(after).sort()).toEqual(["byTeam", "eventKey", "playoffMilestoneByTeam", "securedElimByTeam"]);
+      expect(map.size).toBe(1);
+    });
+
+    it("a landed run's entry at a championship also gains the bracket facts, built with the arguments a landed run's entry was always given", () => {
+      const landed: DistrictEventDistributions = { eventKey: EVENT, byTeam: new Map(), playoffMilestoneByTeam: new Map([["frc101", { kind: "finals" }]]) };
+      const map = new Map([[EVENT, landed]]);
+      attachRequestFacts(map, { ...common, requests: requestOf(EVENT, "dcmp", playedThrough(7)), eventArtifacts: new Map([[EVENT, artifactOf(rowsThrough(7))]]), stageByEvent: stageOpen, live: false });
+      const after = map.get(EVENT)!;
+      expect(Object.keys(after).sort()).toEqual(["byTeam", "dcmpBracket", "eventKey", "playoffMilestoneByTeam", "securedElimByTeam"]);
+      expect(after.dcmpBracket).toEqual(
+        dcmpBracketFactsFor({ eventKey: EVENT, season: SEASON, tier: "dcmp", stage: PLAYOFFS_OPEN, alliances: ALLIANCES, playedMatches: playedThrough(7), unresolvedMatchCount: 0, fieldBackups: undefined })
+      );
+      expect(after.dcmpBracket).toBeDefined();
+      expect(asObject(after.securedElimByTeam)).toEqual({ frc101: 39, frc102: 39, frc103: 39 });
+      // An unresolved playoff row refuses the facts and the credit alike, and the entry is the one it was.
+      const refused = new Map([[EVENT, landed]]);
+      attachRequestFacts(refused, { ...common, unresolvedEventKeys: new Set([EVENT]), requests: requestOf(EVENT, "dcmp", playedThrough(7)), eventArtifacts: new Map([[EVENT, artifactOf(rowsThrough(7))]]), stageByEvent: stageOpen, live: false });
+      expect(refused.get(EVENT)).toBe(landed);
+    });
+
+    it("with no entry for the key, adds an entry with no team record carrying the milestones read off the request, the facts at a championship, and the secured minimums", () => {
+      for (const tier of ["district", "dcmp"] as const) {
+        const map = new Map<string, DistrictEventDistributions>();
+        attachRequestFacts(map, { ...common, requests: requestOf(EVENT, tier, playedThrough(7)), eventArtifacts: new Map([[EVENT, artifactOf(rowsThrough(7))]]), stageByEvent: stageOpen, live: false });
+        const added = map.get(EVENT)!;
+        expect(added.eventKey).toBe(EVENT);
+        expect(added.byTeam.size).toBe(0);
+        expect(added.playoffMilestoneByTeam).toEqual(dcmpBracketMilestonesByTeam(ALLIANCES, playedThrough(7)));
+        expect(added.playoffMilestoneByTeam!.size).toBe(24);
+        expect(added.dcmpBracket === undefined).toBe(tier === "district");
+        expect(asObject(added.securedElimByTeam)).toEqual(tier === "district" ? ALLIANCE_ONE : { frc101: 39, frc102: 39, frc103: 39 });
+      }
+      // A request with no published alliances and no played row has nothing to lay on: no entry is made up.
+      const nothing = new Map<string, DistrictEventDistributions>();
+      attachRequestFacts(nothing, { ...common, requests: requestFor({ eventKey: EVENT, tier: "district" }), eventArtifacts: new Map(), stageByEvent: stageOpen, live: false });
+      expect(nothing.size).toBe(0);
+    });
+
+    it("the statuses of a championship with the run landed and with no entry are the same, team by team, and the joint proof is applied in both", () => {
+      // The committed 2026 PNW fixture's championship, read at a stop after Round 2 with its alliances rebuilt from
+      // its own alliance selection points (as `champLedgerStatus.test.ts` rebuilds them).
+      function repoFile(relative: string): string {
+        let dir = resolve(process.cwd());
+        for (;;) {
+          const candidate = join(dir, relative);
+          if (existsSync(candidate)) return candidate;
+          const parent = dirname(dir);
+          if (parent === dir) throw new Error(`could not find ${relative}`);
+          dir = parent;
+        }
+      }
+      const FIXTURE: DistrictArtifact = DistrictArtifactSchema.parse(JSON.parse(readFileSync(repoFile("data/fixtures/phase10/district-2026pnw.json"), "utf8")));
+      const DCMP = "2026pncmp";
+      const picks = new Map<number, string[]>();
+      for (const team of FIXTURE.teams) {
+        const row = team.eventPoints.find((entry) => entry.eventKey === DCMP);
+        if (row === undefined || row.alliance <= 0) continue;
+        const base = row.alliance / 3;
+        const allianceNumber = base >= 9 ? 17 - base : base;
+        const list = picks.get(allianceNumber) ?? [];
+        if (base >= 9) list.unshift(team.teamKey);
+        else list.push(team.teamKey);
+        picks.set(allianceNumber, list);
+      }
+      const alliances = [...picks.entries()].sort((a, b) => a[0] - b[0]).map(([allianceNumber, list]) => ({ allianceNumber, picks: list }));
+      expect(alliances.map((alliance) => alliance.picks.length)).toEqual([3, 3, 3, 3, 3, 3, 3, 3]);
+
+      const eventKeys = new Set<string>();
+      for (const team of FIXTURE.teams) for (const row of team.eventPoints) eventKeys.add(row.eventKey);
+      const stageByEvent = new Map([...eventKeys].map((key) => [key, key === DCMP ? PLAYOFFS_OPEN : ALL_FINAL] as const));
+      const params = {
+        ...common,
+        requests: requestOf(DCMP, "dcmp", playedThrough(8), alliances),
+        eventArtifacts: new Map([[DCMP, artifactOf(rowsThrough(8, DCMP, alliances), alliances)]]),
+        stageByEvent,
+        live: false,
+      };
+      // THE RUN LANDED: the run's own entry, with its milestones. (Its team records do not enter a status.)
+      const landedMap = new Map<string, DistrictEventDistributions>([[DCMP, { eventKey: DCMP, byTeam: new Map(), playoffMilestoneByTeam: dcmpBracketMilestonesByTeam(alliances, playedThrough(8)) }]]);
+      attachRequestFacts(landedMap, params);
+      // A NEW RUN IN FLIGHT: no entry at all.
+      const inFlightMap = new Map<string, DistrictEventDistributions>();
+      attachRequestFacts(inFlightMap, params);
+
+      const statusesOf = (distributions: ReadonlyMap<string, DistrictEventDistributions>) => {
+        const rows = buildChampLedgerRows({ artifact: FIXTURE, distributions, stageByEvent, dcmpStarted: true });
+        return computeChampLedgerStatuses({ artifact: FIXTURE, teams: rows.teams, nowYear: SEASON, distributions });
+      };
+      const view = (model: ReturnType<typeof statusesOf>) => [...model.byTeam.values()].map((result) => [result.teamKey, result.status, result.lockedBy ?? null] as const).sort(([a], [b]) => a.localeCompare(b));
+      const landed = statusesOf(landedMap);
+      const inFlight = statusesOf(inFlightMap);
+      expect(landed.jointProof?.applied).toBe(true);
+      expect(inFlight.jointProof?.applied).toBe(true);
+      expect(view(inFlight)).toEqual(view(landed));
+      expect(inFlight.floorByTeam).toEqual(landed.floorByTeam);
+      // It bites: teams are Locked by the joint proof alone here, and with the map a run in flight left before this
+      // task (nothing for the key) the proof does not run and not one of them is Locked.
+      const jointAlone = view(landed).filter(([, status, lockedBy]) => status === "locked" && lockedBy === "joint").map(([teamKey]) => teamKey);
+      expect(jointAlone.length).toBeGreaterThan(0);
+      const before = statusesOf(new Map());
+      expect(before.jointProof?.applied).toBe(false);
+      for (const teamKey of jointAlone) expect(before.byTeam.get(teamKey)?.status, teamKey).not.toBe("locked");
+      // The credit is in both maps: alliance 1 and alliance 2 hold 13 x 3 after sf7 and sf8.
+      expect(asObject(inFlightMap.get(DCMP)!.securedElimByTeam)).toEqual(asObject(landedMap.get(DCMP)!.securedElimByTeam));
+      expect(Object.values(asObject(inFlightMap.get(DCMP)!.securedElimByTeam)!)).toEqual([39, 39, 39, 39, 39, 39]);
+    });
+
+    it("rows built from an entry with no team record price no cell: every cell that had no number without the entry still has none", () => {
+      // One district event under way for its 24 listed robots, nothing posted for it yet.
+      const teams = ALLIANCES.flatMap((alliance) => alliance.picks).map((teamKey, index) => ({
+        teamKey,
+        teamNumber: Number(teamKey.replace("frc", "")),
+        nickname: teamKey,
+        rank: index + 1,
+        pointTotal: 0,
+        rookieBonus: 0,
+        adjustments: 0,
+        eventPoints: [],
+        remainingEvents: [{ eventKey: EVENT, eventName: "Hand Built", week: 1, tier: "district" as const, maxPoints: 83, state: { qualMatchesPlayed: 12, qualMatchesTotal: 12, alliancesPicked: true, playoffsDone: false, awardsPosted: false } }],
+        maxRemainingDistrict: 83,
+        maxRemainingChamp: 83,
+        qualifyingAwards: [],
+        awardProfile: { bucket: "none" as const, rookie: false },
+        districtLock: { status: "contending" as const, pointsToLock: 5, threatCount: 1, cutLinePoints: 20, allocationNote: null },
+        champLock: { status: "contending" as const, pointsToLock: 5, threatCount: 1, cutLinePoints: 40, allocationNote: null },
+      }));
+      const artifact: DistrictArtifact = DistrictArtifactSchema.parse({
+        schemaVersion: 1,
+        generation: "gen-1",
+        computedAt: "2026-09-25T00:00:00.000Z",
+        districtKey: "2026pnw",
+        year: SEASON,
+        abbreviation: "pnw",
+        displayName: "Pacific Northwest",
+        dcmpSlots: 12,
+        cmpSlots: 4,
+        teams,
+        insights: { teamCount: teams.length, eventCount: 1, dcmpCutLinePoints: 0, cmpCutLinePoints: 0, districtLockedCount: 0, districtEliminatedCount: 0, champLockedCount: 0, champEliminatedCount: 0 },
+      });
+      const map = new Map<string, DistrictEventDistributions>();
+      attachRequestFacts(map, { ...common, requests: requestOf(EVENT, "district", playedThrough(7)), eventArtifacts: new Map([[EVENT, artifactOf(rowsThrough(7))]]), stageByEvent: stageOpen, live: false });
+      const stageByEvent = new Map([[EVENT, PLAYOFFS_OPEN]]);
+      const bare = buildDistrictLedgerRows({ artifact, distributions: new Map(), stageByEvent });
+      const attached = buildDistrictLedgerRows({ artifact, distributions: map, stageByEvent });
+      let cells = 0;
+      let settledByTheBracket = 0;
+      for (const team of attached.teams) {
+        const before = bare.teams.find((entry) => entry.teamKey === team.teamKey)!;
+        const row = team.rows.find((entry) => entry.eventKey === EVENT)!;
+        const rowBefore = before.rows.find((entry) => entry.eventKey === EVENT)!;
+        row.cells.forEach((cell, index) => {
+          cells += 1;
+          const cellBefore = rowBefore.cells[index]!;
+          // No run has landed: no cell is an open cell with a distribution, with the entry or without it.
+          expect(cell.kind).not.toBe("open");
+          if (cell.cell === "elim" && cell.kind === "final") {
+            // The one thing the entry adds to a cell: a knocked out alliance's Playoffs are settled grey, a fact of
+            // the bracket the request carries, where a run in flight left them without a number before.
+            settledByTheBracket += 1;
+            expect(row.settledElim).toBeDefined();
+            return;
+          }
+          expect(cell).toEqual(cellBefore);
+        });
+        expect(row.eventTotal.kind).toBe(rowBefore.eventTotal.kind);
+        expect(team.grandTotal.kind).toBe(before.grandTotal.kind);
+      }
+      expect(cells).toBe(24 * 4);
+      // After sf7 the bracket has decided alliances 7 and 8, which lost twice: six robots.
+      expect(settledByTheBracket).toBe(6);
+      // And the rows carry the credit for the lock math, with no cell to print it on yet.
+      const credited = attached.teams.filter((team) => team.rows[0]!.securedElim !== undefined).map((team) => [team.teamKey, team.rows[0]!.securedElim] as const);
+      expect(Object.fromEntries(credited.sort(([a], [b]) => a.localeCompare(b)))).toEqual(ALLIANCE_ONE);
+    });
+
+    it("at the live position reads the secured minimums off every loaded event artifact, request or not, an event that reads final included, and never an event with an unresolved playoff row", () => {
+      const UNDER_WAY = "2026waone";
+      const FINISHED = "2026watwo";
+      const UNRESOLVED = "2026wathr";
+      const eventArtifacts = new Map([
+        // Under way, with a request conditioned on the rows through sf7. The artifact already holds sf8.
+        [UNDER_WAY, artifactOf(rowsThrough(8, UNDER_WAY))],
+        // Every category reads final at Now and there is no request for it at all.
+        [FINISHED, artifactOf(rowsThrough(8, FINISHED))],
+        // A playoff row the tab could not place on two alliances.
+        [UNRESOLVED, artifactOf(rowsThrough(8, UNRESOLVED))],
+      ]);
+      const stageByEvent = new Map([
+        [UNDER_WAY, PLAYOFFS_OPEN],
+        [FINISHED, ALL_FINAL],
+        [UNRESOLVED, PLAYOFFS_OPEN],
+      ]);
+      const tierByEvent = new Map([
+        [UNDER_WAY, "district" as const],
+        [FINISHED, "dcmp" as const],
+        [UNRESOLVED, "district" as const],
+      ]);
+      const requests = requestOf(UNDER_WAY, "district", playedThrough(7));
+      const live = new Map<string, DistrictEventDistributions>();
+      attachRequestFacts(live, { season: SEASON, requests, eventArtifacts, stageByEvent, unresolvedEventKeys: new Set([UNRESOLVED]), live: true, tierByEvent });
+      // Now sees every row: sf8 too, which the request was not conditioned on.
+      expect(asObject(live.get(UNDER_WAY)!.securedElimByTeam)).toEqual({ ...ALLIANCE_ONE, ...ALLIANCE_TWO });
+      expect(live.get(UNDER_WAY)!.securedElimByTeam).toEqual(securedElimByTeamFor(eventArtifacts.get(UNDER_WAY)!, SEASON, "district"));
+      expect(live.get(UNDER_WAY)!.playoffMilestoneByTeam).toEqual(dcmpBracketMilestonesByTeam(ALLIANCES, playedThrough(7)));
+      // No request, every category final: still credited, at the tier it is named at, on an entry with no team record.
+      expect(asObject(live.get(FINISHED)!.securedElimByTeam)).toEqual({ frc101: 39, frc102: 39, frc103: 39, frc201: 39, frc202: 39, frc203: 39 });
+      expect(live.get(FINISHED)!.byTeam.size).toBe(0);
+      expect(Object.keys(live.get(FINISHED)!).sort()).toEqual(["byTeam", "eventKey", "securedElimByTeam"]);
+      // An unresolved playoff row: nothing.
+      expect(live.has(UNRESOLVED)).toBe(false);
+
+      // AT A REWOUND STOP the same call reads the request only: the rows at or before its cut, and no event without one.
+      const rewound = new Map<string, DistrictEventDistributions>();
+      attachRequestFacts(rewound, { season: SEASON, requests, eventArtifacts, stageByEvent, unresolvedEventKeys: new Set([UNRESOLVED]), live: false, tierByEvent });
+      expect(asObject(rewound.get(UNDER_WAY)!.securedElimByTeam)).toEqual(ALLIANCE_ONE);
+      expect(rewound.has(FINISHED)).toBe(false);
+      expect(rewound.has(UNRESOLVED)).toBe(false);
+    });
+
+    it("NO TIER ENTRY, NO CREDIT: at the live position an event artifact the tier map does not name is credited nothing, never the district tier by default (CONTEXT D7)", () => {
+      const NAMED = "2026waone";
+      const UNNAMED = "2026watwo";
+      const eventArtifacts = new Map([
+        [NAMED, artifactOf(rowsThrough(8, NAMED))],
+        [UNNAMED, artifactOf(rowsThrough(8, UNNAMED))],
+      ]);
+      const base = { season: SEASON, requests: [], eventArtifacts, stageByEvent: new Map<string, DistrictStageFinality>(), unresolvedEventKeys: new Set<string>(), live: true };
+      // The control: both would be credited by the pay rule at the district tier.
+      for (const key of [NAMED, UNNAMED]) expect(securedElimByTeamFor(eventArtifacts.get(key)!, SEASON, "district").size).toBe(6);
+
+      const oneNamed = new Map<string, DistrictEventDistributions>();
+      attachRequestFacts(oneNamed, { ...base, tierByEvent: new Map([[NAMED, "district" as const]]) });
+      expect(asObject(oneNamed.get(NAMED)!.securedElimByTeam)).toEqual({ ...ALLIANCE_ONE, ...ALLIANCE_TWO });
+      expect(oneNamed.has(UNNAMED)).toBe(false);
+
+      // No tier map at all, and an empty one: nobody is credited and no entry is made up.
+      for (const tierByEvent of [undefined, new Map<string, "district" | "dcmp">()]) {
+        const none = new Map<string, DistrictEventDistributions>();
+        attachRequestFacts(none, { ...base, ...(tierByEvent === undefined ? {} : { tierByEvent }) });
+        expect(none.size).toBe(0);
+      }
+
+      // An event with a REQUEST and no tier entry keeps its milestones, which need no tier, and is still credited nothing.
+      const withRequest = new Map<string, DistrictEventDistributions>();
+      attachRequestFacts(withRequest, { ...base, requests: requestOf(UNNAMED, "district", playedThrough(7)), stageByEvent: new Map([[UNNAMED, PLAYOFFS_OPEN]]) });
+      expect(withRequest.get(UNNAMED)!.playoffMilestoneByTeam!.size).toBe(24);
+      expect(withRequest.get(UNNAMED)!.securedElimByTeam).toBeUndefined();
+      // And a landed entry there is left exactly as it is.
+      const landed: DistrictEventDistributions = { eventKey: UNNAMED, byTeam: new Map(), playoffMilestoneByTeam: new Map() };
+      const kept = new Map([[UNNAMED, landed]]);
+      attachRequestFacts(kept, { ...base });
+      expect(kept.get(UNNAMED)).toBe(landed);
+    });
   });
 });
