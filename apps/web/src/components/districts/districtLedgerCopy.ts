@@ -663,6 +663,38 @@ export function districtLedgerPaysLine(pay: DistrictCellPay): string {
   return `${DISTRICT_LEDGER_PAYS_PREFIX} ${districtLedgerOutcomePointsRange(low, high)}`;
 }
 
+/** The two words an open Playoffs cell's small line starts with where the team has secured playoff points. */
+export const DISTRICT_LEDGER_SECURED_PREFIX = "at least";
+
+/**
+ * THE SECURED LINE of an open Playoffs cell (quick task 261012-mw2, D4): the
+ * two words, the points rounded to a whole number and, where the cell has a
+ * small line of its own, a middle dot between two spaces and then that line,
+ * UNCHANGED. `at least 60 · pays 60 or 90`; with no line of its own,
+ * `at least 60`.
+ *
+ * WHAT THE FIGURE IS: the playoff points the wins of the team's alliance have
+ * already secured for it, the least The Blue Alliance's pay rule can still
+ * pay it however the rest of the bracket goes
+ * (`packages/core/districts/securedPlayoffPoints.ts`). It is a proven least
+ * and not a prediction, so it carries no tilde, and it is a count of points,
+ * so it carries no percent sign. Lower case, and no hyphen or dash of any
+ * kind, on the pays line's own precedent.
+ *
+ * WHAT COMES AFTER IT is the cell's own text (what its headline outcome pays,
+ * or a median form cell's likely range). This function does not read it, and
+ * the points in it are not netted of the figure: `pays 60 or 90` is still what
+ * the two placements pay in all.
+ *
+ * The caller decides WHERE the line prints (`openCellLines` in
+ * `LedgerParts.tsx`: a Playoffs cell that is not a not picked cell, and only
+ * for a figure above zero). This function only spells it.
+ */
+export function districtLedgerSecuredLine(secured: number, rest?: string): string {
+  const line = `${DISTRICT_LEDGER_SECURED_PREFIX} ${String(Math.round(secured))}`;
+  return rest === undefined ? line : `${line} · ${rest}`;
+}
+
 /**
  * A GREY FINAL CELL'S FIGURE (quick task 261010-66y, CONTEXT D6): the rounded
  * integer, behind the words `up to` where the value is a settled Playoffs

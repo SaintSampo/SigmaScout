@@ -308,17 +308,42 @@ describe("districtLedgerContent: the rewound view and the championship field (26
     expect(anchor).toBeGreaterThan(-1);
     // The joint proof paragraph (quick task 261009-2tr) follows the pooled
     // Locked paragraph directly, then the settled playoffs paragraph (quick
-    // task 261008-26o), then these two.
+    // task 261008-26o), then the secured playoff points paragraph (quick task
+    // 261012-mw2), then these two.
     expect(paragraphs[anchor + 1]).toBe(
       "Once the District Championship alliances are picked, Locked on the Champ Locks tab also counts, for each team, the most rivals that can pass it or take a slot from it in any way the bracket and the awards can still fall, counting each rival once, and locks the team when that count is below the open slots. A championship played in divisions counts every division's bracket and the finals between the division winners. A district with two championships counts both of them."
     );
     expect(paragraphs[anchor + 2]).toBe(
       "A team knocked out of the playoffs has its playoff points settled as soon as its alliance's place in the bracket is decided. From then on Locked allows it no more playoff points than that place pays, and counts them as earned once The Blue Alliance posts them. Until The Blue Alliance posts the number, the grey value reads up to the points that place pays."
     );
-    expect(paragraphs.slice(anchor + 3, anchor + 5)).toEqual([
+    expect(paragraphs[anchor + 3]).toBe(
+      "A team still playing in the playoffs is credited the playoff points its wins have already secured, before The Blue Alliance posts them. The Blue Alliance shares an alliance's playoff points among its robots by the wins each was on the field for, so a robot that sat out a win has secured less. An open Playoffs cell reads at least that many points, and the earned figure beside the team counts them."
+    );
+    expect(paragraphs.slice(anchor + 4, anchor + 6)).toEqual([
       "On the District Locks tab, Locked and Locked out at a rewound point count only the district event points a team had earned by then, never District Championship points.",
       "Once the District Championship has started and its points are posted for its whole field, the live District Locks view shows who is in its field. A team in the field reads Locked, a team that earned a place and is not in the field reads Declined, and every other team reads Locked out.",
     ]);
+  });
+
+  it("says once, directly after the settled playoffs paragraph, that a team still playing is credited what its wins have secured, and that a robot is paid by wins (261012-mw2)", () => {
+    const paragraphs = paragraphsOf("how-district-points-work");
+    const settled = paragraphs.findIndex((text) => text.startsWith("A team knocked out of the playoffs has its playoff points settled"));
+    expect(settled).toBeGreaterThan(-1);
+    const secured = paragraphs[settled + 1]!;
+    expect(secured.startsWith("A team still playing in the playoffs is credited the playoff points its wins have already secured")).toBe(true);
+    // Three sentences, no hyphen or dash of any kind, no tilde, no digit and no percentage.
+    expect(secured.split(". ")).toHaveLength(3);
+    expect(secured).not.toMatch(/[-‐-―−~%\d]/);
+    // The rule is by WINS, never by matches played: the wording must not teach the refuted rule.
+    expect(secured).toContain("by the wins each was on the field for");
+    expect(secured).not.toMatch(/matches? (it|they|a team|a robot) (has |have )?played/);
+    // The words the tab itself prints.
+    expect(secured).toContain("reads at least that many points");
+    expect(secured).toContain("the earned figure beside the team counts them");
+    // Said once in the whole page.
+    const everyParagraph = DISTRICT_LEDGER_SECTIONS.flatMap((section) => section.paragraphs);
+    expect(everyParagraph.filter((text) => text.includes("its wins have already secured"))).toHaveLength(1);
+    expect(everyParagraph.filter((text) => text.includes("sat out a win"))).toHaveLength(1);
   });
 
   it("says a championship played in divisions adds the finals points to the District Championship row once they are earned (261009-tx8)", () => {

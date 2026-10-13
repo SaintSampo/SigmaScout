@@ -74,6 +74,7 @@ import {
   districtLedgerCutoffLikelyText,
   districtLedgerPaysLine,
   districtLedgerRunProgressText,
+  districtLedgerSecuredLine,
   districtLedgerSelectionSettledLine,
 } from "./districtLedgerCopy.js";
 import type { LedgerRunProgress } from "./ledgerRunProgress.js";
@@ -486,6 +487,26 @@ export function chanceWordsFor(cell: DistrictCellKind): string {
  * top four (see `DistrictPlayoffMilestone`); then the median form; then the
  * Alliance selection route, where the run reported routes; then the chance
  * form every other open cell prints.
+ *
+ * THE SECURED LINE (quick task 261012-mw2, D4). A Playoffs cell of a team
+ * whose alliance is still in the bracket carries `securedAtLeast`, the playoff
+ * points its wins have already secured. Where that is above zero the small
+ * line reads `at least N`, a middle dot, and then the small line the cell's
+ * form prints anyway, unchanged (`districtLedgerSecuredLine`); where the form
+ * has no small line it reads `at least N` alone. It is a proven least and not
+ * a prediction, so it has no tilde. The bold line is never touched.
+ *   WHERE IT PRINTS: the milestone form, the chance form and the median form
+ *   of a Playoffs cell, on a District Locks event row and on the Champ Locks
+ *   District Championship row, whose cells are the championship pass's own.
+ *   The verdict drawer's chips print through this function, so they read the
+ *   same line.
+ *   WHERE IT DOES NOT: a not picked cell (only a backup call can pay it, and
+ *   no alliance list names it); a cell of any other category, whatever it is
+ *   handed; an event total or a grand total; a figure that is zero, below
+ *   zero or rounds to zero. The Champ Locks District points row is a sum over
+ *   several events and its Playoffs cell is the plain sum, built without the
+ *   field (`champLedgerRows.ts`). A grey cell is not an open cell and never
+ *   reaches this function: a knocked out team's value prints as it did.
  */
 export function openCellLines(
   cell: Extract<DistrictLedgerCell, { kind: "open" }>,
@@ -495,6 +516,11 @@ export function openCellLines(
     const pay = districtCellPay(cell, pricing);
     return pay === undefined ? undefined : districtLedgerPaysLine(pay);
   };
+  // THE SECURED LINE: `at least N` before the form's own small line, for a
+  // Playoffs cell that carries a secured minimum above zero and for no other.
+  // The not picked return below is ahead of every use of it.
+  const securedPoints = cell.cell === "elim" && cell.securedAtLeast !== undefined && Math.round(cell.securedAtLeast) > 0 ? cell.securedAtLeast : undefined;
+  const withSecured = (small: string | undefined): string | undefined => (securedPoints === undefined ? small : districtLedgerSecuredLine(securedPoints, small));
   // ON NO ALLIANCE once selection is final: no chance to print, because the
   // only open question is a backup call, and the cell stays open for it.
   if (cell.cell === "elim" && cell.notPicked === true) {
@@ -503,7 +529,7 @@ export function openCellLines(
   const milestone = cell.playoffMilestone;
   if (milestone !== undefined) {
     const words = DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS[milestone.kind];
-    return { bold: `${districtLedgerCellChance(milestone.chance)} ${words.bold}`, small: paysLine() };
+    return { bold: `${districtLedgerCellChance(milestone.chance)} ${words.bold}`, small: withSecured(paysLine()) };
   }
   // THE ALLIANCE SELECTION CELL'S ROUTES, where the run reported them. A baked
   // event reports none and falls through to the shipped chance form below.
@@ -518,7 +544,7 @@ export function openCellLines(
     if (settled !== undefined) {
       return { bold, small: districtLedgerSelectionSettledLine(settled.id, settled.allianceNumber) };
     }
-    return { bold, small: districtLedgerCellLikelyText(p10, p90) };
+    return { bold, small: withSecured(districtLedgerCellLikelyText(p10, p90)) };
   }
   if (selection !== undefined) {
     // THE LIKELIER ROUTE, named after its chance, over what that route pays.
@@ -527,7 +553,7 @@ export function openCellLines(
   }
   // The chance form: the chance, then the outcome, then what it pays. The
   // tilde stays on point figures only; a percentage never carries one.
-  return { bold: `${districtLedgerCellChance(cell.summary.chance)} ${chanceWordsFor(cell.cell)}`, small: paysLine() };
+  return { bold: `${districtLedgerCellChance(cell.summary.chance)} ${chanceWordsFor(cell.cell)}`, small: withSecured(paysLine()) };
 }
 
 export interface CellInteraction {
