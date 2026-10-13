@@ -73,6 +73,69 @@
  * shown Locked at Alliances final read In range at Round 4 or Round 5. A
  * settled value that is not exact is in no floor and nets nothing.
  *
+ * THE SECURED PLAYOFF MINIMUM (quick task 261012-mw2). Jacob, 2026-10-12:
+ * "any team in the bracket should be credited with the points that they
+ * essentially have already earned, given the matches they have played."
+ * Until this task a team's playoffs counted for nothing in its floor until
+ * its alliance was knocked out: being knocked out raised a floor and staying
+ * in the bracket did not.
+ *
+ * WHAT JOINS A FLOOR. A row may carry `securedElim`, the least playoff points
+ * TBA's pay rule can still pay that robot at that event
+ * (`packages/core/districts/securedPlayoffPoints.ts` states the rule, where
+ * it was read and what it was measured against). `districtLockBounds` sends
+ * every OPEN Playoffs category through the rows module's `openPlayoffBounds`:
+ * the secured minimum is the floor and the rest of the most the category can
+ * pay is the open ceiling. NO CEILING MOVES while the category is open: what
+ * joins the floor leaves the open ceiling, so floor plus open ceiling is what
+ * it was. An exact settled value reads the larger of TBA's number and the
+ * secured minimum; a settled value that is not exact keeps its placement's
+ * ceiling, with the secured minimum taken out of it and put in the floor.
+ *
+ * THE POOL IS NETTED BY THE SAME AMOUNT. Every point an event's rows hold in
+ * floors while its Playoffs are open, settled or secured, is summed per event
+ * and handed to `pooledLockInputs`, which takes it off that event's playoff
+ * pool, exactly as quick task 261009-uhb did for the settled points alone.
+ * The reason is the same: a point that sits in a rival's floor is not also
+ * still to be handed out, and counting it twice would let the pooled test
+ * lock a team at one stop and lose it at the next. It is netted once: where
+ * an exact settled value and a secured minimum stand on one row, the larger
+ * of the two is what the floor holds and what leaves the pool.
+ *
+ * THE LARGER OF THE TWO at a FINAL category. Where a Playoffs category reads
+ * final at the position, the floor is the larger of TBA's posted number and
+ * the secured minimum (`securedBeyondPosted` is the part above the number).
+ * The orchestrator's decision of 2026-10-12: the credit already claims TBA
+ * will pay at least that much, so keeping it beside the number adds no
+ * assumption, and it removes the reliance on WHEN the playoff points post.
+ * Wherever the number is the real final number it is at or above the secured
+ * minimum (the corpus gate: 0 of 222,863 secured minimums above the final
+ * payment) and nothing moves. The open ceiling does not move there either.
+ * WHERE IT STOPS: it applies wherever a row carries a secured minimum, and a
+ * row carries one only where the caller of the rows builder holds that
+ * event's played rows. For an event whose rows the caller does not hold, the
+ * floor of a final Playoffs category is TBA's number alone, as before.
+ *
+ * IT IS A BOUNDED USE OF THE FIELD, READ THROUGH THE ROWS MODULE. This module
+ * reads no match row: it reads `securedElim` off a row and nothing else, and
+ * a caller of the rows builder supplies it from an event's played rows
+ * (`districtLedgerRows.ts`, THE SECURED PLAYOFF MINIMUM). At this commit the
+ * sweep `scripts/measureLedgerSettledTenets.ts` supplies it and the Locks
+ * tabs' hook does not yet. WHAT IT RESTS ON: the pay rule is TBA's and not
+ * ours, read from TBA's public source and fitted to four seasons of paid
+ * values, and this code does not control it; the rows are read as posted, so
+ * if a playoff result is corrected after it was posted a secured minimum can
+ * fall, and a Locked that rested on it could be withdrawn.
+ *
+ * WHAT IT MOVED, as this task executed it. Over the 418 district tier events
+ * and 2,926 stops of 2023 to 2026, against the code of before this task:
+ * Locked on points 37,484 to 38,771, which is 1,287 team stops gained (637 by
+ * the pooled test alone, 650 by the ceiling test) and 0 LOST, at Round 2 to
+ * Round 5 (226, 325, 389 and 347). Locked out 83,235 to 83,667, 0 lost. The
+ * earned figure a row prints, with the rookie bonus and the adjustments, is
+ * this module's floor at 676,354 of 676,354 team stops (it differed at
+ * 3,735, the settled playoff points the header used to leave out).
+ *
  * THE DATA WORD `eliminated` IS NEVER PRINTED (the sketch's language rules),
  * and neither is the champ tab's sixth verdict word for `contending`. Note
  * carefully that the shipped champ tab's own label for `eliminated` reads as
@@ -95,7 +158,8 @@ import type { DistrictArtifact } from "../../../../../packages/harness/pageArtif
 import {
   DISTRICT_CATEGORIES,
   districtTierEvents,
-  settledElimBounds,
+  openPlayoffBounds,
+  securedBeyondPosted,
   type DistrictLedgerEventRow,
   type DistrictLedgerTeam,
 } from "./districtLedgerRows.js";
@@ -316,6 +380,16 @@ export interface DistrictLockBounds {
  * for a team that sat out part of the playoffs, so it is added to the CEILING
  * only: the team's floor gains nothing, and its ceiling falls from the whole
  * Playoffs ceiling to the most it can still be paid.
+ *
+ * AND THE SECURED MINIMUM (quick task 261012-mw2). Every open Playoffs
+ * category, settled or not, now goes through the rows module's
+ * `openPlayoffBounds`, which is the rule of before wherever the row carries
+ * no `securedElim`. Where it carries one, that much of the most the category
+ * can pay is in the floor and the rest is the open ceiling, so floor plus
+ * open ceiling does not move; beside an exact settled value the larger of
+ * the two is the floor. A Playoffs category that is FINAL adds
+ * `securedBeyondPosted`: what the secured minimum holds beyond TBA's number,
+ * which is 0 wherever that number is the real final number.
  */
 export function districtLockBounds(
   source: DistrictArtifact["teams"][number],
@@ -330,15 +404,20 @@ export function districtLockBounds(
   let openCeiling = 0;
   for (const row of rows) {
     for (const category of DISTRICT_CATEGORIES) {
-      if (row.stage.final[category]) continue;
+      if (row.stage.final[category]) {
+        // THE LARGER OF THE TWO (quick task 261012-mw2): a final Playoffs category counts TBA's number, which is
+        // already in the floor, and what the secured minimum holds beyond it.
+        if (category === "elim") floor += securedBeyondPosted(row);
+        continue;
+      }
       // Reopened (or never earned): this category's earned points leave the
       // floor and its ceiling joins the ceiling.
       if (row.earned !== undefined) floor -= row.earned[category];
-      if (category === "elim" && row.settledElim !== undefined) {
-        // Knocked out of the playoffs: settled, by the one rule.
-        const settled = settledElimBounds(row.settledElim);
-        floor += settled.floor;
-        openCeiling += settled.ceiling;
+      if (category === "elim") {
+        // An open Playoffs category, by the one rule: settled, secured, or the whole ceiling.
+        const bounds = openPlayoffBounds(row, ceilings.elim);
+        floor += bounds.floor;
+        openCeiling += bounds.ceiling;
         continue;
       }
       openCeiling += ceilings[category];
@@ -390,9 +469,10 @@ export function computeDistrictLedgerStatuses(options: ComputeDistrictLedgerStat
   const lockInputs: LockTeamInput[] = [];
   const projectionInputs: LockTeamInput[] = [];
   const pooledEntries: PooledTeamEntry[] = [];
-  // `eventKey -> the exact settled playoff points counted in team floors at
-  // this position` (quick task 261009-uhb), for `pooledLockInputs` to take off
-  // that event's playoff pool.
+  // `eventKey -> the playoff points counted in team floors at this position
+  // while that event's Playoffs are open`: the exact settled points (quick
+  // task 261009-uhb) and the secured minimums (quick task 261012-mw2), for
+  // `pooledLockInputs` to take off that event's playoff pool.
   const playoffPointsInFloors = new Map<string, number>();
   const awardQualified = new Set<string>();
 
@@ -403,11 +483,12 @@ export function computeDistrictLedgerStatuses(options: ComputeDistrictLedgerStat
     const { floor, openCeiling } = districtLockBounds(source, team.rows, categoryCeiling);
     // The playoff points `districtLockBounds` just put in this team's floor:
     // the same rows, the same open Playoffs category and the very same
-    // `settledElimBounds` call, so the pool can only lose what a floor gained.
-    // A settled value that is not exact returns a floor of 0 and adds no key.
+    // `openPlayoffBounds` call, so the pool can only lose what a floor gained,
+    // and loses it once. A settled value that is not exact, on a row with no
+    // secured minimum, returns a floor of 0 and adds no key.
     for (const row of team.rows) {
-      if (row.stage.final.elim || row.settledElim === undefined) continue;
-      const inFloor = settledElimBounds(row.settledElim).floor;
+      if (row.stage.final.elim) continue;
+      const inFloor = openPlayoffBounds(row, categoryCeiling.elim).floor;
       if (inFloor > 0) playoffPointsInFloors.set(row.eventKey, (playoffPointsInFloors.get(row.eventKey) ?? 0) + inFloor);
     }
 

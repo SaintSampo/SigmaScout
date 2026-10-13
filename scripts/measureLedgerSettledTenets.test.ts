@@ -24,6 +24,15 @@
  * expects exit code 0: zero tenet A, B, C and D violations. It was added by
  * this plan's Task 2 once quick task 261009-uhb had landed, and is gated on the
  * corpus and the local district directory.
+ *
+ * QUICK TASK 261012-mw2 moved one pin, to the value the run showed: at
+ * 2026waahs Round 3 the settled run locks 32 on points where it locked 31,
+ * gaining frc4512 beside frc1983 and frc2926. frc4512's alliance is still in
+ * the bracket there, and the playoff points it has secured are now in its
+ * floor. That task also added tenets E and F to the sweep; one more group
+ * below, gated on the 2026ne artifact and the corpus, shows each of them
+ * failing on a copy of the artifact doctored in memory, and `main` now
+ * holds A to F at zero.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -264,11 +273,13 @@ describe("measureLedgerSettledTenets: the 2026waahs pin (D2)", () => {
     expect(sweep.stops.map((record) => record.label)).toEqual(stops.map((stop) => stop.label));
   });
 
-  it("Round 3: Locked on points 29 blunt and 31 settled, gaining exactly frc1983 and frc2926 and losing nobody", () => {
+  // QUICK TASK 261012-mw2: 31 settled, gaining frc1983 and frc2926, until then. frc4512 joins: its alliance is still
+  // in the bracket at Round 3 and the playoff points it has secured are in its floor.
+  it("Round 3: Locked on points 29 blunt and 32 settled, gaining exactly frc1983, frc2926 and frc4512 and losing nobody", () => {
     const record = recordNamed("Round 3");
     expect(record.blunt.lockedOnPoints).toBe(29);
-    expect(record.settled.lockedOnPoints).toBe(31);
-    expect(record.gained).toEqual(["frc1983", "frc2926"]);
+    expect(record.settled.lockedOnPoints).toBe(32);
+    expect(record.gained).toEqual(["frc1983", "frc2926", "frc4512"]);
     expect(record.lost).toEqual([]);
   });
 
@@ -347,6 +358,64 @@ describe("measureLedgerSettledTenets: the checker can fail (D2)", () => {
   });
 });
 
+describe("measureLedgerSettledTenets: tenets E and F, the secured playoff minimum and the header (quick task 261012-mw2)", () => {
+  const NE_PATH = "data/local-publish/districts/v1__district__2026ne.json";
+  const CREDIT_EVENT = "2026cthar";
+  const CREDIT_TEAM = "frc2067";
+  const NE_AVAILABLE = existsSync(NE_PATH);
+  if (!NE_AVAILABLE || !CORPUS_AVAILABLE) {
+    it.skip(`skipped: ${[NE_AVAILABLE ? undefined : NE_PATH, CORPUS_AVAILABLE ? undefined : CORPUS_PATH].filter((path) => path !== undefined).join(" and ")} absent (gitignored local data)`, () => {});
+    return;
+  }
+  const artifact: DistrictArtifact = DistrictArtifactSchema.parse(JSON.parse(readFileSync(NE_PATH, "utf8")));
+  const db = openCorpusReadOnly(CORPUS_PATH);
+  let bracket: BracketSourceEvent;
+  try {
+    const found = bracketFromCorpus(db, new Map(), artifact.year, CREDIT_EVENT);
+    if (found === undefined) throw new Error(`the corpus carries no alliances for ${CREDIT_EVENT}`);
+    bracket = found;
+  } finally {
+    db.close();
+  }
+  const STOPS = ["Alliances final", "Round 1", "Round 2", "Round 3", "Round 4", "Round 5", "Playoffs final, awards open"];
+  /** The sweep of the one event over an artifact, with that artifact's own context and final standing. */
+  const sweepOf = (source: DistrictArtifact) => sweepSettledEvent(source, settledDistrictContext(source), CREDIT_EVENT, bracket, districtTierFinalVerdicts(source));
+  /** A COPY of the artifact, in memory, with one team's row at the event rewritten. Nothing on disk is touched. */
+  const withRow = (rewrite: (row: DistrictArtifact["teams"][number]["eventPoints"][number]) => DistrictArtifact["teams"][number]["eventPoints"][number]): DistrictArtifact => ({
+    ...artifact,
+    teams: artifact.teams.map((team) => (team.teamKey !== CREDIT_TEAM ? team : { ...team, eventPoints: team.eventPoints.map((row) => (row.eventKey !== CREDIT_EVENT ? row : rewrite(row))) })),
+  });
+  const stopsOf = (sweep: ReturnType<typeof sweepOf>, tenet: string): string[] => sweep.violations.filter((violation) => violation.tenet === tenet).map((violation) => `${violation.stop} ${violation.teamKey} ${violation.run}`);
+
+  it("holds E and F at zero over the artifact as published, and every stop record carries the secured rows, their points and the headers checked", () => {
+    const sweep = sweepOf(artifact);
+    expect(sweep.violations).toEqual([]);
+    expect(sweep.stops.map((record) => record.label)).toEqual(STOPS);
+    // Pinned as the run showed. A secured minimum is counted where the Playoffs are open at the stop and no exact
+    // settled value stands on the row: none before Round 2 (sf1 to sf6 pay nothing), none once the Playoffs are final.
+    expect(sweep.stops.map((record) => record.securedRows)).toEqual([0, 0, 6, 12, 9, 7, 0]);
+    expect(sweep.stops.map((record) => record.securedPoints)).toEqual([0, 0, 78, 120, 138, 121, 0]);
+    // Every team of the district has its header checked against its floor at every stop.
+    expect(sweep.stops.map((record) => record.headerChecked)).toEqual(STOPS.map(() => artifact.teams.length));
+  });
+
+  it("tenet E bites: with frc2067 paid 0 at 2026cthar on a copy, its secured minimum is above the payment at five stops", () => {
+    const paid = artifact.teams.find((team) => team.teamKey === CREDIT_TEAM)!.eventPoints.find((row) => row.eventKey === CREDIT_EVENT)!.elim;
+    expect(paid).toBeGreaterThan(0);
+    const sweep = sweepOf(withRow((row) => ({ ...row, elim: 0, total: row.total - row.elim })));
+    // From the round its alliance first won a paying set to the stop where the Playoffs read final.
+    expect(stopsOf(sweep, "E")).toEqual(["Round 2", "Round 3", "Round 4", "Round 5", "Playoffs final, awards open"].map((stop) => `${stop} ${CREDIT_TEAM} settled`));
+    // The copy keeps the row adding up, so the header still is the floor.
+    expect(stopsOf(sweep, "F")).toEqual([]);
+  });
+
+  it("tenet F bites: with frc2067's row total 5 above the sum of its categories on a copy, its header is not the floor at all seven stops", () => {
+    const sweep = sweepOf(withRow((row) => ({ ...row, total: row.total + 5 })));
+    expect(stopsOf(sweep, "F")).toEqual(STOPS.map((stop) => `${stop} ${CREDIT_TEAM} settled`));
+    expect(stopsOf(sweep, "E")).toEqual([]);
+  });
+});
+
 describe("measureLedgerSettledTenets: the four season acceptance (D2, D3)", () => {
   const DISTRICTS_AVAILABLE = existsSync(LOCAL_DISTRICT_DIR);
   if (!CORPUS_AVAILABLE || !DISTRICTS_AVAILABLE) {
@@ -369,7 +438,7 @@ describe("measureLedgerSettledTenets: the four season acceptance (D2, D3)", () =
     vi.restoreAllMocks();
   });
 
-  it("main on 2023 to 2026 finds no tenet A, B, C or D violation and leaves the exit code unset", async () => {
+  it("main on 2023 to 2026 finds no tenet A, B, C, D, E or F violation and leaves the exit code unset", async () => {
     await main([]);
     expect(process.exitCode).toBeUndefined();
   }, 60_000);

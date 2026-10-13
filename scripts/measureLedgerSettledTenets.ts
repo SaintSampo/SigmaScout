@@ -21,11 +21,13 @@
  *
  *   blunt    no distributions at all: the rule the shipped sweeps measure.
  *   settled  one distributions entry, for the stop's own event only, carrying
- *            its `playoffMilestoneByTeam` and nothing else, built from the
+ *            its `playoffMilestoneByTeam` and, since quick task 261012-mw2,
+ *            its `securedElimByTeam`, and nothing else, built from the
  *            corpus alliances and the played rows up to the stop by the
  *            helpers the browser uses (`playedBracketMatchesFor`,
- *            `dcmpBracketMilestonesByTeam`). Every other event sits where the
- *            timeline puts it, with no bracket facts. No Monte Carlo runs.
+ *            `dcmpBracketMilestonesByTeam`, `securedElimEntry`). Every other
+ *            event sits where the timeline puts it, with no bracket facts.
+ *            No Monte Carlo runs.
  *
  * THE STOPS, per event, on the tab's own timeline built with no event
  * artifacts (as both shipped sweeps build theirs): Alliances final, after
@@ -33,7 +35,7 @@
  * reads the event's Alliance selection position with the played rows of Rounds
  * 1 to n), and Playoffs final with the awards open.
  *
- * THE FOUR TENETS. Any violation of any of them sets exit code 1.
+ * THE SIX TENETS. Any violation of any of them sets exit code 1.
  *
  *   A  a team shown `Locked` on points, in either run, is `locked` or
  *      `lockedAward` in the final standing.
@@ -44,6 +46,14 @@
  *   D  no take back, Jacob's sentence above in its literal form: under the
  *      settled rule, a team shown Locked (on points or by award) at a stop of
  *      an event is shown Locked at every later stop of that event.
+ *   E  (quick task 261012-mw2) under the settled rule, no secured playoff
+ *      minimum on a row is above the playoff points TBA finally paid that
+ *      team at that event. Checked on every row that carries one, at every
+ *      stop. This is the floor that must never be too high.
+ *   F  (quick task 261012-mw2) under the settled rule, the earned figure a
+ *      team's row prints, with what its point total holds outside its event
+ *      rows (the rookie bonus and the adjustments, which the header has
+ *      never counted), is the floor `districtLockBounds` gives it.
  *
  * Tenets A and B use the outcome rules of `scripts/measureLedgerTenets.ts`
  * (`outcomeForLockedShown`, `outcomeForLockedOutShown`), imported and never
@@ -79,6 +89,19 @@
  * gained, none lost), and zero violations of tenets A, B, C and D, with no
  * take back under the blunt rule: `VIOLATIONS: none`, exit 0.
  *
+ * QUICK TASK 261012-mw2, 2026-10-12: the settled run's floors also hold the
+ * playoff points a team still in the bracket has secured. As that task
+ * executed the sweep: 418 events, 2,926 stops, Locked on points 36,982 blunt
+ * and 38,771 settled (1,789 gained over the blunt rule, none lost; 1,287 more
+ * than the settled rule of before, none lost), tenets A to F all 0,
+ * `VIOLATIONS: none` and `SKIPPED (0)`. Secured minimums in floors: 13,628
+ * rows holding 176,335 points (counted where the Playoffs are open at the
+ * stop and no exact settled value stands on the row). Headers checked
+ * against the floor: 676,354. Tenets E and F each fail on a copy of the 2026
+ * NE artifact doctored in memory (`measureLedgerSettledTenets.test.ts`): E
+ * at five stops with frc2067 paid 0 at 2026cthar, F at all seven with that
+ * row's total 5 above the sum of its categories.
+ *
  * SOURCES: `data/local-publish/districts` for the district artifacts, and
  * `data/corpus.sqlite`, opened READ ONLY, for each event's alliances
  * (`event_alliances.picks`) and played playoff rows (`matches`, sf and f). No
@@ -90,7 +113,7 @@
  *   npx tsx scripts/measureLedgerSettledTenets.ts [--district <districtKey>] [--json]
  *   pnpm measure:ledger-settled-tenets
  *
- * Exit code 1 on any tenet A, B, C or D violation.
+ * Exit code 1 on any tenet A, B, C, D, E or F violation.
  */
 import { existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -110,14 +133,17 @@ import {
   deriveStageFromState,
   districtTierEvents,
   playedBracketMatchesFor,
+  securedElimEntry,
   type BracketSourceEvent,
   type DistrictEventDistributions,
   type DistrictLedgerTeam,
   type DistrictStageFinality,
 } from "../apps/web/src/components/districts/districtLedgerRows.js";
 import { buildDistrictTimeline, districtStageAtPosition, type DistrictTimeline } from "../apps/web/src/components/districts/districtTimeline.js";
+import { maxEventPoints } from "../packages/core/districts/pointModel.js";
 import {
   computeDistrictLedgerStatuses,
+  districtLockBounds,
   type DistrictLedgerStatusModel,
   type DistrictLedgerStatusResult,
 } from "../apps/web/src/components/districts/districtLedgerStatus.js";
@@ -297,6 +323,7 @@ export function statusesAtSettledStop(
       eventKey,
       byTeam: new Map(),
       playoffMilestoneByTeam: dcmpBracketMilestonesByTeam(alliances, played.matches),
+      ...securedElimEntry(bracket, artifact.year, "district", stop.playedKeys),
     };
     distributions = new Map([[eventKey, entry]]);
   }
@@ -317,7 +344,7 @@ export function statusesAtSettledStop(
 export type SettledRun = "blunt" | "settled";
 
 export interface SettledViolation {
-  readonly tenet: "A" | "B" | "C" | "D";
+  readonly tenet: "A" | "B" | "C" | "D" | "E" | "F";
   readonly run: SettledRun;
   readonly districtKey: string;
   readonly eventKey: string;
@@ -371,6 +398,11 @@ export interface SettledStopRecord {
   readonly settledRows: number;
   readonly settledExact: number;
   readonly settledPoints: number;
+  /** The settled run's rows whose floor holds a secured playoff minimum, and their points sum (quick task 261012-mw2). */
+  readonly securedRows: number;
+  readonly securedPoints: number;
+  /** Teams of the settled run whose header was checked against its floor. */
+  readonly headerChecked: number;
 }
 
 export interface SettledEventSweep {
@@ -431,6 +463,9 @@ export function sweepSettledEvent(
   const published = publishedFinalVerdicts(artifact);
   const violations: SettledViolation[] = [];
   const records: SettledStopRecord[] = [];
+  const sourceByKey = new Map(artifact.teams.map((team) => [team.teamKey, team] as const));
+  const maxima = maxEventPoints(artifact.year, "district");
+  const districtCeilings = { qual: maxima.qual, alliance: maxima.alliance, elim: maxima.elim, award: maxima.award };
   const bluntLockedByStop: { label: string; locked: ReadonlySet<string> }[] = [];
   const settledLockedByStop: { label: string; locked: ReadonlySet<string> }[] = [];
   const settledHowByStop = new Map<string, ReadonlyMap<string, string | null>>();
@@ -541,6 +576,29 @@ export function sweepSettledEvent(
       }
     }
 
+    // TENETS E AND F (quick task 261012-mw2), under the settled rule. E: no secured playoff minimum in a floor is
+    // above the playoff points TBA finally paid at that event. F: the earned figure a team's row prints, with what
+    // its point total holds outside its event rows (the rookie bonus and the adjustments), is the floor the lock
+    // math counts.
+    let securedRows = 0;
+    let securedPoints = 0;
+    let headerChecked = 0;
+    for (const team of settledModel.teams) {
+      for (const row of team.rows) {
+        if (row.securedElim === undefined) continue;
+        if (row.securedElim > (row.earned?.elim ?? 0)) violations.push(violation("E", "settled", stop.label, team.teamKey, null));
+        // Counted where the secured minimum is what the floor holds: the Playoffs open at the stop and no exact settled value.
+        if (row.stage.final.elim || row.settledElim?.exact === true) continue;
+        securedRows += 1;
+        securedPoints += row.securedElim;
+      }
+      const source = sourceByKey.get(team.teamKey);
+      if (source === undefined) continue;
+      headerChecked += 1;
+      const outsideTheRows = source.pointTotal - source.eventPoints.reduce((sum, entry) => sum + entry.total, 0);
+      if (team.earnedAtPosition + outsideTheRows !== districtLockBounds(source, team.rows, districtCeilings).floor) violations.push(violation("F", "settled", stop.label, team.teamKey, null));
+    }
+
     bluntLockedByStop.push({ label: stop.label, locked: blunt.lockedAny });
     settledLockedByStop.push({ label: stop.label, locked: settled.lockedAny });
     settledHowByStop.set(stop.label, settled.lockedHowByTeam);
@@ -557,6 +615,9 @@ export function sweepSettledEvent(
       settledRows,
       settledExact,
       settledPoints,
+      securedRows,
+      securedPoints,
+      headerChecked,
     });
   }
 
@@ -646,6 +707,8 @@ interface SeasonTotals {
   violationsB: number;
   violationsC: number;
   violationsD: number;
+  violationsE: number;
+  violationsF: number;
 }
 
 function seasonTotals(sweeps: readonly SettledDistrictSweep[]): SeasonTotals {
@@ -664,6 +727,8 @@ function seasonTotals(sweeps: readonly SettledDistrictSweep[]): SeasonTotals {
     violationsB: 0,
     violationsC: 0,
     violationsD: 0,
+    violationsE: 0,
+    violationsF: 0,
   };
   for (const sweep of sweeps) {
     for (const event of sweep.events) {
@@ -683,7 +748,9 @@ function seasonTotals(sweeps: readonly SettledDistrictSweep[]): SeasonTotals {
       if (entry.tenet === "A") totals.violationsA += 1;
       else if (entry.tenet === "B") totals.violationsB += 1;
       else if (entry.tenet === "C") totals.violationsC += 1;
-      else totals.violationsD += 1;
+      else if (entry.tenet === "D") totals.violationsD += 1;
+      else if (entry.tenet === "E") totals.violationsE += 1;
+      else totals.violationsF += 1;
     }
   }
   return totals;
@@ -704,11 +771,13 @@ const SEASON_COLUMNS: readonly (readonly [string, number, (totals: SeasonTotals)
   ["B", 3, (t) => t.violationsB],
   ["C", 3, (t) => t.violationsC],
   ["D", 3, (t) => t.violationsD],
+  ["E", 3, (t) => t.violationsE],
+  ["F", 3, (t) => t.violationsF],
 ];
 
 function reportSeasons(sweeps: readonly SettledDistrictSweep[]): void {
   console.log(``);
-  console.log(`PER SEASON (Lk = Locked on points, Out = Locked out; A to D = violations per tenet)`);
+  console.log(`PER SEASON (Lk = Locked on points, Out = Locked out; A to F = violations per tenet)`);
   console.log(`  ${"season".padEnd(6)} ${SEASON_COLUMNS.map(([name, width]) => pad(name, width)).join(" ")}`);
   const line = (label: string, list: readonly SettledDistrictSweep[]): void => {
     const totals = seasonTotals(list);
@@ -738,6 +807,8 @@ function reportCensus(sweeps: readonly SettledDistrictSweep[], seconds: number):
     );
   }
   console.log(`  settled rows                                        ${String(settledRows)} (exact ${String(settledExact)}, not exact ${String(settledRows - settledExact)}), ${String(sum((stop) => stop.settledPoints))} points`);
+  console.log(`  secured minimums in floors                          ${String(sum((stop) => stop.securedRows))} rows, ${String(sum((stop) => stop.securedPoints))} points`);
+  console.log(`  headers checked against the floor                   ${String(sum((stop) => stop.headerChecked))}`);
   console.log(`  events with an unresolved playoff row               ${String(events.filter((event) => event.unresolvedPlayoffRows > 0).length)}`);
   console.log(`  events whose bracket does not decide all eight      ${String(events.filter((event) => event.placementsDecided < BRACKET_ALLIANCES).length)}`);
   console.log(`  Locked out gained by the settled rule               ${String(sum((stop) => stop.lockedOutGained.length))}`);
@@ -806,6 +877,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     console.log(`  tenet B:    a team shown "Locked out" at any stop, in either run, did not qualify on points in the final standing`);
     console.log(`  tenet C:    no team Locked under the blunt rule is not Locked under the settled rule at the same stop`);
     console.log(`  tenet D:    no take back: under the settled rule, a team Locked at a stop of an event is Locked at every later stop of it`);
+    console.log(`  tenet E:    no secured playoff minimum in a floor is above the playoff points TBA finally paid at that event`);
+    console.log(`  tenet F:    the earned figure a team's row prints, with its rookie bonus and adjustments, is the floor the lock math counts`);
     console.log(`  yardstick:  the district tier final standing (districtTierFinalVerdicts); the published districtLock.status is a census only`);
     console.log(`  stops:      Alliances final, Round 1 to Round 5, Playoffs final with the awards open, per district tier event`);
     console.log(`  sources:    ${LOCAL_DISTRICT_DIR}, ${CORPUS_PATH} (read only, no network, no credential)`);

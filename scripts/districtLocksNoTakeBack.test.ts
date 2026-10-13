@@ -32,6 +32,26 @@
  * IF THE IMPLEMENTATION EVER DIFFERS, check the inputs first (the local
  * artifact's generation, the corpus bracket, one position index for every
  * round stop). No lock rule is changed to meet a pin.
+ *
+ * QUICK TASK 261012-mw2 moved four lists here, to the values the run showed.
+ * A team still in a playoff bracket now carries the playoff points it has
+ * secured in its floor, and the pool is netted by what the floors hold, so:
+ *
+ *   - frc2067 is Locked at all seven stops as before (that assertion is not
+ *     weakened), by the pooled argument alone at the first two and by BOTH
+ *     tests from Round 2. It read `pooled` at the first six: the ceiling
+ *     test now locks it too.
+ *   - the pool falls by the settled points AND the secured points:
+ *     0, 0, 78, 120, 159, 181, 0 where it fell by 0, 0, 0, 0, 21, 60, 0.
+ *     The settled points are unchanged; the secured points are 78, 120, 138
+ *     and 121 over 6, 12, 9 and 7 rows at Rounds 2 to 5.
+ *   - the settled rule's Locked counts read 6, 6, 7, 7, 8, 8, 9 where they
+ *     read 6, 6, 6, 6, 6, 7, 9: frc7407 is gained from Round 2 and frc1699
+ *     from Round 4 (it was gained at Round 5 only).
+ *
+ * NONE OF IT IS A TAKE BACK. Every list that moved is a team Locked EARLIER
+ * and then at every later stop: `lost` is empty at every stop, the sweep
+ * carries no violation of any tenet, and the blunt rule takes nothing back.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -88,7 +108,7 @@ describe("District Locks takes no lock back: 2026cthar frc2067 (261009-uhb)", ()
     expect(sweep.stops.map((record) => record.label)).toEqual([...STOP_LABELS]);
   });
 
-  it("reads frc2067 Locked on points at every one of the seven stops, by the pooled argument alone at the first six", () => {
+  it("reads frc2067 Locked on points at every one of the seven stops, by the pooled argument alone at the first two and by both tests from Round 2", () => {
     const results = stops.map((stop) => {
       const result = statusesAtSettledStop(artifact, context, PIN_EVENT, stop, bracket, true).statuses.byTeam.get(PIN_TEAM);
       if (result === undefined) throw new Error(`${PIN_TEAM} has no status at ${stop.label}`);
@@ -97,24 +117,33 @@ describe("District Locks takes no lock back: 2026cthar frc2067 (261009-uhb)", ()
     expect(results).toHaveLength(7);
     expect(results.map((result) => result.status)).toEqual(Array.from({ length: 7 }, () => "locked"));
     expect(results.map((result) => result.byAward)).toEqual(Array.from({ length: 7 }, () => false));
-    expect(results.slice(0, 6).map((result) => result.lockedBy)).toEqual(Array.from({ length: 6 }, () => "pooled"));
+    // Quick task 261012-mw2: `pooled` at the first six stops until then. From Round 2 the secured playoff points
+    // in floors let the ceiling test lock it as well.
+    expect(results.map((result) => result.lockedBy)).toEqual(["pooled", "pooled", "both", "both", "both", "both", "both"]);
   });
 
-  it("takes exactly the settled playoff points off the pool at every stop: 21 at Round 4, 60 at Round 5, nothing elsewhere", () => {
+  it("takes exactly the playoff points in floors off the pool at every stop: the settled points and the secured points, each once", () => {
+    // The pool difference IS the settled points plus the secured points, at every stop.
     expect(sweep.stops.map((record) => record.blunt.pooledRemainingPoints - record.settled.pooledRemainingPoints)).toEqual(
-      sweep.stops.map((record) => record.settledPoints)
+      sweep.stops.map((record) => record.settledPoints + record.securedPoints)
     );
+    expect(sweep.stops.map((record) => record.blunt.pooledRemainingPoints - record.settled.pooledRemainingPoints)).toEqual([0, 0, 78, 120, 159, 181, 0]);
+    // The settled points are what they were before quick task 261012-mw2.
     expect(sweep.stops.map((record) => record.settledPoints)).toEqual([0, 0, 0, 0, 21, 60, 0]);
+    // The secured points of the teams still in the bracket, and the rows that hold them (quick task 261012-mw2).
+    expect(sweep.stops.map((record) => record.securedPoints)).toEqual([0, 0, 78, 120, 138, 121, 0]);
+    expect(sweep.stops.map((record) => record.securedRows)).toEqual([0, 0, 6, 12, 9, 7, 0]);
     // Every settled value over a finished event is TBA's own number, so every
     // one of them is in a floor and every one of them is netted.
     expect(sweep.stops.map((record) => record.settledExact)).toEqual(sweep.stops.map((record) => record.settledRows));
   });
 
-  it("loses nobody to the settled rule at any stop, and gains only frc1699 at Round 5", () => {
+  it("loses nobody to the settled rule at any stop, and gains frc7407 from Round 2 and frc1699 from Round 4", () => {
     expect(sweep.stops.map((record) => record.blunt.lockedOnPoints)).toEqual([6, 6, 6, 6, 6, 6, 9]);
-    expect(sweep.stops.map((record) => record.settled.lockedOnPoints)).toEqual([6, 6, 6, 6, 6, 7, 9]);
+    // Quick task 261012-mw2: 6, 6, 6, 6, 6, 7, 9 until then, gaining only frc1699 and only at Round 5.
+    expect(sweep.stops.map((record) => record.settled.lockedOnPoints)).toEqual([6, 6, 7, 7, 8, 8, 9]);
     expect(sweep.stops.map((record) => record.lost)).toEqual(Array.from({ length: 7 }, () => []));
-    expect(sweep.stops.map((record) => record.gained)).toEqual([[], [], [], [], [], ["frc1699"], []]);
+    expect(sweep.stops.map((record) => record.gained)).toEqual([[], [], ["frc7407"], ["frc7407"], ["frc1699", "frc7407"], ["frc1699", "frc7407"], []]);
   });
 
   it("carries no tenet violation and no take back under either rule", () => {
