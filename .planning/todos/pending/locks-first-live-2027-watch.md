@@ -27,9 +27,14 @@ At the first District Championship played in divisions (FIM, NE, ONT or TX, Apri
 6. **Division playoffs.** Locked should appear during the division playoffs and only ever grow (quick task 261010-d7r; the replay of 2026 FIM reads 1, 1, 5, 25, 35, 41, 46 over the playoff ticks).
 7. **Any team that reads Locked and then not Locked, at any time.** That is the one thing that must never happen. Note the team, the time and the page URL (the `at` stop if rewound), and tell Claude.
 
+Before the 2027 season is registered, and after its first event:
+
+8. **The playoff pay rule (quick task 261012-mw2).** A team still in a playoff bracket is credited the playoff points its wins have already secured. That rests on TBA's district playoff pay rule, read from TBA's public source and fitted exactly to every paid value of 2023 to 2026 (11,991 of 11,991). It is declared per season in `packages/core/districts/securedPlayoffPoints.ts`, and a season cannot be registered for brackets without declaring one. Before declaring 2027's, read the 2027 manual's district playoff points section and check it still pays by wins the same way. After the first finished 2027 district event is in the corpus, run `REQUIRE_LOCAL_DATA=1 npx vitest run scripts/securedPlayoffCorpus.test.ts` once: it must read 0 above and 0 below. That test does not run in CI (it needs the local corpus), so this one local run is the check.
+9. **A corrected playoff result.** If TBA corrects a playoff match result after posting it, a credit can fall and a lock resting on it could be withdrawn. Nothing measures how often that happens. If it ever does, note the event.
+
 Any live day:
 
-8. **Tick wall time.** On 2026-10-10, with five offseason events playing, Worker ticks took 2 to 7 minutes each and overlapped, so results lagged past the 1 to 3 minute target. That is separate from the Locks work and not fixed. See the memory note "Live tick wall time on a busy Saturday".
+10. **Tick wall time.** On 2026-10-10, with five offseason events playing, Worker ticks took 2 to 7 minutes each and overlapped, so results lagged past the 1 to 3 minute target. That is separate from the Locks work and not fixed. See the memory note "Live tick wall time on a busy Saturday".
 
 ## Operator rules that go with this
 

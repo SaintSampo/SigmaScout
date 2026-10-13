@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-11T02:27:03.822Z"
-last_activity: 2026-10-11
+last_updated: "2026-10-13T19:44:38.716Z"
+last_activity: 2026-10-13
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
   total_phases: 13
@@ -758,6 +758,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 322 | The joint lock proof is monotone: an awarded rival takes no second judged award, the proof runs until every championship key's awards are final, a finished championship of two needs no bracket facts, a listed fourth is paid its alliance's value or takes a seat and never both; the divisioned proof runs before the finals key exists. Micro step walks over 58 championships lose 0 locks (957, 306 and 91 with a rule off); 16 lock stops gained, none lost; no Worker file changed | 2026-10-10 | 72cc0830 | [261010-d7r-the-joint-lock-proof-never-raises-a-boun](./quick/261010-d7r-the-joint-lock-proof-never-raises-a-boun/) |
 | 323 | The offline district publisher skips a district while one of its events is live (the Worker owns its file then) and publishes the others: a clock rule on the Worker's own window plus 24 hours, an evidence rule for the rest of the watch (a flag it would raise, a point value it would lower), the index row carried, --allow-live to override; silent today, 109 districts compared against production with nothing lost | 2026-10-10 | 697563e5 | [261010-jyn-the-district-publisher-refuses-to-publis](./quick/261010-jyn-the-district-publisher-refuses-to-publis/) |
 | 324 | Every rival is counted once in the joint lock proof (an exact matching replaces the relaxed cover), so a team's own points never raise its own bound and no other team's posting does; a pick TBA has paid for its alliance's playoffs is on that alliance, so the tick the playoff points land takes no lock back. 814,080 seeded transitions and 2.7 million walked bounds read 0 rises; independent brute forces find no future above the bound; no sweep row moved, six walk locks gained | 2026-10-11 | d95bfc4d | [261010-l0s-a-team-s-own-points-never-raise-its-own-](./quick/261010-l0s-a-team-s-own-points-never-raise-its-own-/) |
+| 325 | A team still in a playoff bracket is credited the playoff points its wins have already secured: TBA's pay rule (by wins a robot was on the field for) fitted exactly to all 11,991 paid values of 2023 to 2026, the least a robot can still be paid as a proven floor (0 above in 222,863 positions), the larger of that and TBA's number once posted; the earned figure equals what the lock counts, an open Playoffs cell reads at least N, and a live re run takes no lock back. 2026 FNC Round 5 frc4561 now Locked; 466 Champ and 1,287 District lock stops gained, none lost | 2026-10-13 | b1fc2566 | [261012-mw2-a-team-in-the-bracket-is-credited-the-pl](./quick/261012-mw2-a-team-in-the-bracket-is-credited-the-pl/) |
 
 ### Roadmap Evolution
 
