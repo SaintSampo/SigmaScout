@@ -39,6 +39,92 @@
  * inline branch shipped, `bakedDistributionsFor` below would read the block off
  * the district artifact's own remaining-event row instead and nothing else in
  * the tab would change.
+ *
+ * ---------------------------------------------------------------------------
+ * THE SECURED PLAYOFF MINIMUM (quick task 261012-mw2)
+ * ---------------------------------------------------------------------------
+ *
+ * Jacob, 2026-10-12: "any team in the bracket should be credited with the
+ * points that they essentially have already earned, given the matches they
+ * have played." A finalist cannot finish below second place, yet until this
+ * task a row counted nothing for a team's playoffs until its alliance was
+ * knocked out.
+ *
+ * WHAT IT IS. `securedElimByTeam` on a distributions entry is, per team, the
+ * least playoff points TBA's pay rule can still pay that robot at this event
+ * over every way the rest of the bracket can go
+ * (`packages/core/districts/securedPlayoffPoints.ts`, which states the rule,
+ * where it was read and what it was measured against). A row carries its
+ * team's value as `securedElim` and an open Playoffs cell as `securedAtLeast`.
+ *
+ * IT IS READ FROM PLAYED ROWS. Quick task 261009-vp9 keeps the field and the
+ * number apart: a category is final only once its points are in. This is a
+ * deliberate and bounded use of the field in a FLOOR beside that rule. The
+ * rows are in hand a minute after a match and the points are not, and what
+ * is taken from the rows is only what the measured pay rule says they have
+ * already fixed.
+ *
+ * A CALLER SUPPLIES IT. The row builder never computes a secured minimum on
+ * its own: it reads the map off the event's distributions entry, and with no
+ * map every row and every cell is what it was before this task.
+ * `securedElimByTeamFor` is the one reader that builds the map, from an
+ * event's published alliances and its decisive playoff rows at or before the
+ * position.
+ *
+ * WHERE THE READER CREDITS NOBODY. Eight published alliances of at least
+ * three picks each; no team on two lists; every decisive playoff row inside
+ * the position mapped to two different alliances; a season with a declared
+ * pay rule. Then only a team a list names, and only above 0. Fail any of
+ * these and the WHOLE event is credited nothing. A share is the robot's wins
+ * over its alliance's wins, so one win the reader could not place would leave
+ * an alliance's count short and OVERSTATE every share on it. A partial
+ * reading is not a smaller credit, it is a wrong one.
+ *
+ * `openPlayoffBounds` IS THE ONE RULE OF AN OPEN PLAYOFFS CATEGORY. The most
+ * the category can still pay is what it was before this task: the decided
+ * placement's ceiling for a knocked out team, the whole ceiling otherwise.
+ * The secured minimum, held between 0 and that most, is the floor and the
+ * rest of the most is the ceiling. Floor plus ceiling is always the most, so
+ * nothing a rival could reach before is out of its reach now and nothing new
+ * is in it: points only move from "can still be won" to "already held".
+ *
+ * THE LARGER OF THE TWO. Where TBA's own number is in hand (the category
+ * reads final, or a knocked out team's settled value is exact) the floor is
+ * the LARGER of that number and the secured minimum (`securedBeyondPosted`
+ * is the part above the number). The orchestrator's decision of 2026-10-12:
+ * the credit already claims TBA will pay at least that much, so keeping it
+ * beside the number adds no assumption, and it removes the reliance on WHEN
+ * the points post, because a number that reads final and is older than the
+ * rows can no longer lower a floor. What holds the claim is the corpus gate
+ * (`scripts/securedPlayoffCorpus.test.ts`): at every bracket position of
+ * every district points event of 2023 to 2026, 0 of 222,863 secured minimums
+ * are above the playoff points TBA finally paid, and through this module's
+ * own reader 0 of 45,513. Wherever the number is the real final number it is
+ * at or above the secured minimum, and nothing moves.
+ *
+ * WHAT THE HEADER COUNTS. `earnedAtPosition` is the event rows only, as it
+ * always was: the rookie bonus and the adjustments sit outside it. To it is
+ * added what each row's Playoffs category counts beyond the figure. FINAL at
+ * the position, the figure holds TBA's number and `securedBeyondPosted` is
+ * added. OPEN and rewound, the category's own number is not in the figure,
+ * so the floor of `openPlayoffBounds` is added whole. OPEN at Now, the figure
+ * is the published total, which already holds any number TBA has posted for
+ * the category, so only what the floor counts beyond that number is added.
+ * The same points are never counted twice, and at Now the header never falls
+ * below the published total. A knocked out team's exact settled value is in the
+ * header from this task on; before it the header left that value out.
+ *
+ * `rowCountedPoints` IS DISPLAY ONLY: what the bounds rules count for one
+ * row, written forward so a printed total can be held at or above it. No
+ * status, range state, projection or distribution reads it.
+ *
+ * WHAT IT RESTS ON, IN PLAIN WORDS. The pay rule is TBA's and not ours: it
+ * was read from TBA's public source and fitted to four seasons of paid
+ * values, and this code does not control it. The rows are read as posted. If
+ * a playoff result is corrected after it was posted (a match replayed by the
+ * head referee), a secured minimum read off the first result can fall, and a
+ * Locked that rested on it could be withdrawn. The corpus keeps final
+ * results only and cannot say how often that happens.
  */
 import {
   convolveDistrictGrandTotal,
@@ -69,6 +155,7 @@ import {
   type PlayedBracketMatch,
 } from "../../../../../packages/core/districts/bracket.js";
 import { maxEventPoints, type DistrictTier } from "../../../../../packages/core/districts/pointModel.js";
+import { securedPlayoffPoints, type PlayoffWinRow } from "../../../../../packages/core/districts/securedPlayoffPoints.js";
 import { allianceRatingsFromMetrics, type AllianceMemberRating } from "../../../../../packages/core/algorithms/simulation/allianceWinProbability.js";
 import type { SimTeamBaseline } from "../../../../../packages/core/algorithms/simulation/rankSimulation.js";
 import type {
@@ -342,6 +429,8 @@ export type DistrictLedgerCell =
        * the shipped cell. The District Locks tab never sets it.
        */
       readonly shiftedByFinals?: true;
+      /** PRESENT AND ABOVE 0 only on a Playoffs cell of a team still in the bracket: its secured minimum (quick task 261012-mw2). */
+      readonly securedAtLeast?: number;
     }
   | {
       readonly id: string;
@@ -392,6 +481,8 @@ export interface DistrictLedgerEventRow {
    * equals the shipped row.
    */
   readonly settledElim?: SettledPlayoffs;
+  /** The secured minimum of this team's Playoffs category at the position, whether the category reads open or final there (quick task 261012-mw2). Present only above 0. */
+  readonly securedElim?: number;
 }
 
 /** A knocked out team's settled Playoffs category: the printed points, whether they are TBA's own final number, and the most the placement can still pay. */
@@ -975,6 +1066,108 @@ function alliancesAreFinal(alliances: readonly SuppliedAlliance[], expectedCount
   return alliances.every((alliance) => alliance.picks.length >= DISTRICT_FINAL_ALLIANCE_PICKS);
 }
 
+/**
+ * EACH LISTED PICK'S SECURED PLAYOFF MINIMUM at a position (quick task 261012-mw2), from the event's published
+ * alliances and its decisive playoff rows at or before the position. Empty wherever nothing may be credited.
+ */
+export function securedElimByTeamFor(event: BracketSourceEvent, season: number, tier: DistrictTier, onlyMatchKeys?: ReadonlySet<string>): ReadonlyMap<string, number> {
+  const out = new Map<string, number>();
+  const alliances = event.alliances;
+  if (alliances === undefined || alliances.length !== DEFAULT_DISTRICT_ALLIANCE_COUNT) return out;
+  if (!alliances.every((alliance) => alliance.picks.length >= DISTRICT_FINAL_ALLIANCE_PICKS)) return out;
+  const allianceByTeam = new Map<string, number>();
+  for (const alliance of alliances) {
+    for (const pick of alliance.picks) {
+      // A team two lists name: the rows cannot say which alliance it played for.
+      if (allianceByTeam.has(pick)) return out;
+      allianceByTeam.set(pick, alliance.allianceNumber);
+    }
+  }
+  const allianceOfSide = (teamKeys: readonly string[]): number | undefined => {
+    const numbers = new Set<number>();
+    for (const teamKey of teamKeys) {
+      const allianceNumber = allianceByTeam.get(teamKey);
+      if (allianceNumber !== undefined) numbers.add(allianceNumber);
+    }
+    return numbers.size === 1 ? [...numbers][0] : undefined;
+  };
+  const rows: PlayoffWinRow[] = [];
+  for (const match of event.matches) {
+    if (match.compLevel === "qm") continue;
+    if (onlyMatchKeys !== undefined && !onlyMatchKeys.has(match.matchKey)) continue;
+    // Only a decisive row pays: a tie and an unplayed row pay nobody.
+    if (match.actualWinner !== "red" && match.actualWinner !== "blue") continue;
+    const red = allianceOfSide(match.redTeams);
+    const blue = allianceOfSide(match.blueTeams);
+    // A decisive row this tab cannot map: a missing win would overstate a share, so nothing is credited here.
+    if (red === undefined || blue === undefined || red === blue) return out;
+    rows.push({
+      compLevel: match.compLevel,
+      setNumber: match.setNumber,
+      matchNumber: match.matchNumber,
+      winningAllianceNumber: match.actualWinner === "red" ? red : blue,
+      winningTeams: [...(match.actualWinner === "red" ? match.redTeams : match.blueTeams)],
+    });
+  }
+  if (rows.length === 0) return out;
+  for (const [teamKey, points] of securedPlayoffPoints(season, tier, alliances.length, rows)) {
+    // LISTED PICKS ONLY: a backup no list names keeps its whole open cell, as its Playoffs cell says.
+    if (points > 0 && allianceByTeam.has(teamKey)) out.set(teamKey, points);
+  }
+  return out;
+}
+
+/** `{ securedElimByTeam }` for a distributions entry, or `{}` where no team has a credit. */
+export function securedElimEntry(event: BracketSourceEvent, season: number, tier: DistrictTier, onlyMatchKeys?: ReadonlySet<string>): { readonly securedElimByTeam?: ReadonlyMap<string, number> } {
+  const securedElimByTeam = securedElimByTeamFor(event, season, tier, onlyMatchKeys);
+  return securedElimByTeam.size === 0 ? {} : { securedElimByTeam };
+}
+
+/**
+ * HOW AN OPEN PLAYOFFS CATEGORY ENTERS THE LOCK BOUNDS (quick task 261012-mw2): the ONE rule for it, written here
+ * once so that every reader of an open Playoffs category applies the same one (this module's header figure and
+ * `rowCountedPoints` below do). An exact settled value is TBA's own number: the floor is the larger of it and the
+ * secured minimum. Otherwise the secured minimum joins the floor and the rest of the most the category can still
+ * pay (the decided placement's maximum, or the whole ceiling) stays the ceiling.
+ */
+export function openPlayoffBounds(row: { readonly settledElim?: SettledPlayoffs | undefined; readonly securedElim?: number | undefined }, wholeCeiling: number): { readonly floor: number; readonly ceiling: number } {
+  const settled = row.settledElim;
+  if (settled !== undefined && settled.exact) return { floor: Math.max(settled.points, row.securedElim ?? 0), ceiling: 0 };
+  const most = settled === undefined ? wholeCeiling : settled.ceiling;
+  const secured = Math.max(0, Math.min(row.securedElim ?? 0, most));
+  return { floor: secured, ceiling: most - secured };
+}
+
+/**
+ * WHAT A PLAYOFFS CATEGORY THAT READS FINAL COUNTS BEYOND TBA'S NUMBER (quick task 261012-mw2): the LARGER of the
+ * posted number and the secured minimum is the floor, and the posted number is already in every figure the caller
+ * starts from, so this is only the part of the secured minimum above it. 0 wherever TBA's number is at or above
+ * the secured minimum, which the corpus gate holds for every final number of 2023 to 2026, and 0 where no secured
+ * minimum is supplied. It is above 0 only while a number that reads final is older than the rows the tab has read.
+ */
+export function securedBeyondPosted(row: { readonly earned?: { readonly elim: number } | undefined; readonly securedElim?: number | undefined }): number {
+  return Math.max(0, (row.securedElim ?? 0) - (row.earned?.elim ?? 0));
+}
+
+/**
+ * WHAT THE LOCK MATH COUNTS FOR ONE ROW AT THE POSITION (quick task 261012-mw2): the earned points of every category
+ * that is final in the row's stage, and the row's Playoffs category at its floor (open: the one bounds rule's floor;
+ * final: whatever the secured minimum holds beyond TBA's number). It is the two bounds rules above applied to one
+ * row and written forward (a status module reaches a team's floor the other way, by taking every open category out
+ * of the team's point total).
+ *
+ * DISPLAY ONLY. It is the least an event total can end at under those rules, and it exists so that a printed event
+ * total, and through the sum over a team's rows a printed grand total, can be held at or above what the lock math
+ * counts. No status, range state, projection or distribution reads it.
+ */
+export function rowCountedPoints(row: Pick<DistrictLedgerEventRow, "stage" | "earned" | "settledElim" | "securedElim">): number {
+  let counted = 0;
+  if (row.earned !== undefined) {
+    for (const category of DISTRICT_CATEGORIES) if (row.stage.final[category]) counted += row.earned[category];
+  }
+  return counted + (row.stage.final.elim ? securedBeyondPosted(row) : openPlayoffBounds(row, Infinity).floor);
+}
+
 export interface BuildDistrictEventInputOptions {
   readonly eventKey: string;
   readonly season: number;
@@ -1249,6 +1442,8 @@ export interface DistrictEventDistributions {
    * behaviour.
    */
   readonly awardOnlyTeams?: ReadonlySet<string>;
+  /** Each listed pick's secured playoff minimum at the position, from the played rows (quick task 261012-mw2). Present only where a team has one above 0. */
+  readonly securedElimByTeam?: ReadonlyMap<string, number>;
 }
 
 /** A District Championship's bracket facts at a position: the eight published alliances and the played playoff rows, as alliance numbered decisions. */
@@ -1864,8 +2059,27 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
         milestone: distributions.get(entry.eventKey)?.playoffMilestoneByTeam?.get(team.teamKey),
       });
       const eventPending = pendingEvent(entry.eventKey);
+      // THE SECURED MINIMUM (quick task 261012-mw2), wherever a caller supplies one, and never for a team priced from
+      // awards alone. The row carries it whether its Playoffs read open or final here: open, it is the category's
+      // floor; final, or beside TBA's own settled number, the floor is the LARGER of TBA's number and this one.
+      const securedRaw = awardOnly ? undefined : distributions.get(entry.eventKey)?.securedElimByTeam?.get(team.teamKey);
+      const securedElim = securedRaw !== undefined && securedRaw > 0 ? securedRaw : undefined;
       if (entry.earned !== undefined) earnedDistrictTotal += entry.earned.total;
       earnedAtPosition += earnedAtStage(entry.earned, final, stageByEvent !== undefined);
+      if (!awardOnly) {
+        // THE HEADER SAYS WHAT THE LOCK MATH COUNTS (quick task 261012-mw2, D4): the Playoffs category at its floor,
+        // less whatever of it the figure above already holds. FINAL at the position, the figure holds TBA's number,
+        // and the floor is the larger of that number and the secured minimum. OPEN and rewound, the category's own
+        // number is not in the figure, so the floor is added whole. OPEN at Now, the figure is the published total,
+        // which already holds any number TBA has posted for the category, so only what the floor counts beyond that
+        // number is added. The same points are never counted twice.
+        if (final.elim) earnedAtPosition += securedBeyondPosted({ earned: entry.earned, securedElim });
+        else {
+          const held = openPlayoffBounds({ settledElim, securedElim }, categoryCeiling.elim).floor;
+          const posted = stageByEvent === undefined && entry.earned !== undefined ? entry.earned.elim : 0;
+          earnedAtPosition += Math.max(0, held - posted);
+        }
+      }
 
       const cells: DistrictLedgerCell[] = DISTRICT_CATEGORIES.map((category) => {
         const id = districtCellId(entry.eventKey, category);
@@ -1948,7 +2162,8 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
           distributions.get(entry.eventKey)?.playoffMilestoneByTeam?.get(team.teamKey),
           distribution
         );
-        return milestone === undefined ? cell : { ...cell, playoffMilestone: milestone };
+        const withMilestone = milestone === undefined ? cell : { ...cell, playoffMilestone: milestone };
+        return securedElim === undefined ? withMilestone : { ...withMilestone, securedAtLeast: securedElim };
       });
 
       const totalId = districtCellId(entry.eventKey, "eventTotal");
@@ -1992,6 +2207,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
         earned: entry.earned,
         remainingMaxPoints: entry.remainingMaxPoints,
         ...(settledElim === undefined ? {} : { settledElim }),
+        ...(securedElim === undefined ? {} : { securedElim }),
       });
     }
 
