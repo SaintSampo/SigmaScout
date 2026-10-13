@@ -3,8 +3,11 @@
  * STILL BE PAID AT A POSITION (quick task 261012-mw2). Pure, no I/O, no zod,
  * no React. Its imports are the `./bracket.js`, `./finalsBracket.js`,
  * `./pointModel.js` and `./qualPoints.js` siblings, read and not changed. The
- * Worker does not import this module, and the published verdicts do not read
- * it.
+ * published verdicts read no credit from this module. Since quick task
+ * 261013-lve `pointPool.ts` reads this module's semifinal table, its Finals
+ * win value and its rounding to derive the most one event can pay
+ * (`mostPlayoffPointsPaid`), so the Worker bundles those three; it still calls
+ * neither `playoffPointsPaid` nor `securedPlayoffPoints`.
  *
  * ---------------------------------------------------------------------------
  * THE PAY RULE, MEASURED

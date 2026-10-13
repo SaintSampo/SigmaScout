@@ -54,6 +54,18 @@
  *      gates 1, 2 and 3. A registered season the corpus holds no finished
  *      bracket of is printed by name and not failed: its declared rule is
  *      not measured yet.
+ *   8. THE PLAYOFF POOL'S BOUND AND WHAT IT RESTS ON (quick task 261013-lve).
+ *      The pooled lock's playoff pool must never be below what an event can
+ *      pay. `pointPool.ts` derives the most this pay rule can pay one eight
+ *      alliance event (`mostPlayoffPointsPaid`). Here the rule's own total
+ *      over EVERY robot of every eight alliance event, district row or not,
+ *      is held at or below the bound of its season's rule, and at the
+ *      district tier at or below the pool itself, with the totals counted by
+ *      value. And the two facts of play the derivation leans on are held over
+ *      every event of every bracket size: no decisive row credits more than
+ *      three robots, and no alliance lists or is paid at more than four. A
+ *      fifth robot paid on one alliance would make the bound too small, and
+ *      this test is what would say so.
  *
  * LOCAL DATA GATED. `data/corpus.sqlite` is gitignored. Where it is absent
  * this file skips with a message, and with `REQUIRE_LOCAL_DATA=1` in the
@@ -69,6 +81,8 @@ import { openCorpusReadOnly } from "../packages/corpus/db.js";
 import { DistrictArtifactSchema, EventArtifactSchema } from "../packages/harness/pageArtifacts.js";
 import { BRACKET_REGISTERED_SEASONS, bracketRoundOfSet, bracketSetIdFor } from "../packages/core/districts/bracket.js";
 import { simulateDistrictEvent } from "../packages/core/districts/ledgerSimulation.js";
+import { MOST_PLAYOFF_POINTS_PAID_BY_RULE, MOST_ROBOTS_PAID_PER_ALLIANCE, PLAYOFF_POOL, ROBOTS_CREDITED_PER_WIN } from "../packages/core/districts/pointPool.js";
+import { districtTierWeight } from "../packages/core/districts/qualPoints.js";
 import { playoffPayRule, playoffPointsPaid, securedPlayoffPoints, type PlayoffWinRow } from "../packages/core/districts/securedPlayoffPoints.js";
 import {
   buildDistrictEventSimulationInput,
@@ -275,6 +289,26 @@ function everyRobot(event: LoadedEvent): Set<string> {
   }
   return robots;
 }
+
+/**
+ * The playoff pool's bound against the corpus, measured 2026-10-13 (quick task 261013-lve, pinned as the run
+ * showed): the pay rule's total over every robot of every eight alliance event in base points, by value; how many
+ * robots a decisive row credits; how many robots of an alliance hold a win; how many an alliance list names.
+ */
+const POOL_BOUND_PINS = {
+  totals: {
+    "2023 rule | dcmp division, 8 alliances": { "210": 9, "211": 1 },
+    "2023 rule | dcmp single, 8 alliances": { "210": 7 },
+    "2023 rule | district tier, 8 alliances": { "210": 82, "211": 12 },
+    "2024 on | dcmp division, 8 alliances": { "210": 26, "211": 4 },
+    "2024 on | dcmp single, 8 alliances": { "210": 18, "211": 8 },
+    "2024 on | district tier, 8 alliances": { "210": 261, "211": 57, "212": 6 },
+  },
+  creditedPerRow: { "3": 7540 },
+  robotsWithAWin: { "0": 994, "3": 2842, "4": 132 },
+  listedPerAlliance: { "3": 3617, "4": 351 },
+  districtTierMost: 212,
+};
 
 /** The tab's reader over the 491 eight alliance events, measured 2026-10-12 (pinned as the run showed). */
 const TAB_READER_PINS = { events: 491, positions: 7987, credits: 45513, sum: 762821, largest: 90 };
@@ -622,6 +656,74 @@ describe("the playoff pay rule and the secured minimum against the corpus (quick
       }
     }
     expect({ satOut, equal, above, below }).toEqual({ satOut: 694, equal: 359, above: 156, below: 179 });
+  });
+
+  it("the playoff pool's bound and what it rests on (quick task 261013-lve): no event's rule total is above the bound of its season's rule, no decisive row credits more than three robots, no alliance is paid at more than four", () => {
+    const totalsByKind = new Map<string, Map<number, number>>();
+    const over: string[] = [];
+    const wideRows: string[] = [];
+    const wideAlliances: string[] = [];
+    const creditedPerRow = new Map<number, number>();
+    const robotsWithAWin = new Map<number, number>();
+    const listedPerAlliance = new Map<number, number>();
+    let eightAllianceEvents = 0;
+    let districtTierMost = 0;
+    for (const event of loaded.events) {
+      const rows = winRows(event, event.rows, tbaAllianceOf);
+      expect(rows, event.eventKey).toBeDefined();
+      const paid = playoffPointsPaid(event.year, event.tier, event.alliances.length, rows!);
+      expect(paid, `${event.eventKey}: the rule refused the event's whole rows`).toBeDefined();
+
+      // WHAT THE PROOF RESTS ON (premises 3 and 4 of pointPool.ts), at every event of every bracket size.
+      const winnersByAlliance = new Map<number, Set<string>>();
+      for (const row of rows!) {
+        creditedPerRow.set(row.winningTeams.length, (creditedPerRow.get(row.winningTeams.length) ?? 0) + 1);
+        if (row.winningTeams.length > ROBOTS_CREDITED_PER_WIN) wideRows.push(`${event.eventKey} ${row.compLevel}${String(row.setNumber)}m${String(row.matchNumber)}: ${String(row.winningTeams.length)} robots`);
+        const winners = winnersByAlliance.get(row.winningAllianceNumber) ?? new Set<string>();
+        for (const teamKey of row.winningTeams) winners.add(teamKey);
+        winnersByAlliance.set(row.winningAllianceNumber, winners);
+      }
+      for (const alliance of event.alliances) {
+        const withAWin = winnersByAlliance.get(alliance.allianceNumber)?.size ?? 0;
+        robotsWithAWin.set(withAWin, (robotsWithAWin.get(withAWin) ?? 0) + 1);
+        listedPerAlliance.set(alliance.picks.length, (listedPerAlliance.get(alliance.picks.length) ?? 0) + 1);
+        if (withAWin > MOST_ROBOTS_PAID_PER_ALLIANCE) wideAlliances.push(`${event.eventKey} alliance ${String(alliance.allianceNumber)}: ${String(withAWin)} robots with a win`);
+        if (alliance.picks.length > MOST_ROBOTS_PAID_PER_ALLIANCE) wideAlliances.push(`${event.eventKey} alliance ${String(alliance.allianceNumber)}: ${String(alliance.picks.length)} listed`);
+      }
+
+      // THE BOUND, at the eight alliance bracket it is derived for: the rule's total over EVERY robot, in base points.
+      if (event.alliances.length !== 8) continue;
+      eightAllianceEvents += 1;
+      const rule = playoffPayRule(event.year);
+      expect(rule, `${event.eventKey}: no declared pay rule`).toBeDefined();
+      let total = 0;
+      for (const value of paid!.values()) total += value;
+      const base = total / districtTierWeight(event.year, event.tier);
+      if (base > MOST_PLAYOFF_POINTS_PAID_BY_RULE[rule!]) over.push(`${event.eventKey}: ${String(base)} over the bound ${String(MOST_PLAYOFF_POINTS_PAID_BY_RULE[rule!])}`);
+      if (event.tier === "district") {
+        // The pool itself is read at the district tier only.
+        if (base > PLAYOFF_POOL) over.push(`${event.eventKey}: ${String(base)} over the pool ${String(PLAYOFF_POOL)}`);
+        districtTierMost = Math.max(districtTierMost, base);
+      }
+      const byTotal = totalsByKind.get(event.kind) ?? new Map<number, number>();
+      byTotal.set(base, (byTotal.get(base) ?? 0) + 1);
+      totalsByKind.set(event.kind, byTotal);
+    }
+    const counted = (map: ReadonlyMap<number, number>): Record<string, number> => Object.fromEntries([...map].sort(([a], [b]) => a - b).map(([key, count]) => [String(key), count]));
+    const report = Object.fromEntries([...totalsByKind].sort(([a], [b]) => a.localeCompare(b)).map(([kind, byTotal]) => [kind, counted(byTotal)]));
+    console.log(
+      `[playoff pool bound] pool ${String(PLAYOFF_POOL)}, bound by rule ${JSON.stringify(MOST_PLAYOFF_POINTS_PAID_BY_RULE)}, eight alliance events ${String(eightAllianceEvents)}, the most a district tier event's rule total has read ${String(districtTierMost)}, totals in base points ${JSON.stringify(report)}, robots credited per decisive row ${JSON.stringify(counted(creditedPerRow))}, robots with a win per alliance ${JSON.stringify(counted(robotsWithAWin))}, listed per alliance ${JSON.stringify(counted(listedPerAlliance))}`
+    );
+    expect(over).toEqual([]);
+    expect(wideRows).toEqual([]);
+    expect(wideAlliances).toEqual([]);
+    // Pinned as the run showed, 2026-10-13. A total above 212 that is still at or below its bound is NOT a failure:
+    // it is the pin asking to be read again. A total above the bound is the failure, and `over` names it.
+    expect(report).toEqual(POOL_BOUND_PINS.totals);
+    expect(counted(creditedPerRow)).toEqual(POOL_BOUND_PINS.creditedPerRow);
+    expect(counted(robotsWithAWin)).toEqual(POOL_BOUND_PINS.robotsWithAWin);
+    expect(counted(listedPerAlliance)).toEqual(POOL_BOUND_PINS.listedPerAlliance);
+    expect(districtTierMost).toBe(POOL_BOUND_PINS.districtTierMost);
   });
 
   it("no registered season is passed over: every season of BRACKET_REGISTERED_SEASONS with a finished bracket and paid values in the corpus has an event compared in each of the three gates", () => {
