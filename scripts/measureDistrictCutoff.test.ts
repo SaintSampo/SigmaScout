@@ -8,31 +8,55 @@
  *   1. The backtest runs end to end on the COMMITTED 2026 PNW district fixture
  *      with its eight event artifacts and as-of objects built from them
  *      (`buildAsOfTestObjects`, the in memory world every as-of test uses),
- *      through the tab's own loader, assembly and as-of runner. The event
- *      artifacts are local only (gitignored), so this block is skipped where
- *      they are absent and runs on every machine that has them.
- *   2. The pre-registered gate refuses on each failing condition, including
+ *      through the tab's own loader, assembly and as-of runner, and every leak
+ *      check passes. The event artifacts are local only (gitignored), so this
+ *      block is skipped where they are absent and runs on every machine that
+ *      has them.
+ *   2. The origin cache, the version guard, the pre 2023 refusal, the shards,
+ *      the result files and the report's refusals.
+ *   3. The pre-registered gate refuses on each failing condition, including
  *      coverage one position either side of the 72% to 88% band. Its bars are
  *      unchanged.
- *   3. The measurement positions are season start plus the last step of each
- *      week, and never the settled now position.
+ *   4. The hook code the script restates has not moved (a digest pin).
  */
-import { existsSync, readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
-import { DistrictArtifactSchema, EventArtifactSchema, asOfStartKey, type DistrictArtifact, type EventArtifact } from "../packages/harness/pageArtifacts.js";
-import { AsOfStartSchema } from "../packages/harness/asOfState.js";
-import { buildAsOfTestObjects, type AsOfTestObjects } from "../apps/web/src/components/districts/asOfTestFixtures.js";
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { DistrictArtifactSchema, EventArtifactSchema, asOfIndexKey, asOfStartKey, type DistrictArtifact, type EventArtifact } from "../packages/harness/pageArtifacts.js";
+import { AsOfIndexSchema, AsOfStartSchema } from "../packages/harness/asOfState.js";
+import { AAA, OBJECTS, buildAsOfTestObjects, districtArtifact as miniDistrictArtifact, type AsOfTestObjects } from "../apps/web/src/components/districts/asOfTestFixtures.js";
 import type { AsOfFetchers } from "../apps/web/src/components/districts/asOfRewind.js";
+import { AS_OF_UNAVAILABLE_NAME } from "../apps/web/src/components/districts/districtRunAssembly.js";
 import {
+  OriginCache,
+  OriginCacheMissError,
+  OriginFetchError,
+  EventArtifactVersionError,
+  asOfLeakChecks,
+  assignShards,
   backtestDistrict,
   coverageInBand,
   createRunMemo,
   districtEventKeysOf,
+  districtTabAtPosition,
+  districtTabContext,
   districtTimelineOf,
+  eventArtifactKeyFor,
   gateVerdict,
+  hasResultFile,
+  inShard,
+  loadEventArtifactsFromCache,
   measurementPositions,
+  parseShard,
+  poolResultFiles,
+  writeResultFile,
   type BacktestSummary,
+  type DistrictOutcome,
+  type FetchLike,
   type LineStats,
+  type PositionRow,
   type TabSources,
 } from "./measureDistrictCutoff.js";
 import { DEFAULT_SIMULATION_SEED, SIMULATION_DRAWS } from "../apps/web/src/workers/simulationProtocol.js";
@@ -63,7 +87,7 @@ function fixtureEvents(artifact: DistrictArtifact): Map<string, EventArtifact> {
 }
 
 /** In memory fetchers over one built world, as `scripts/asOfRewindWeb.test.ts`' `fetchersOf` reads its uploads. */
-function fetchersOf(objects: AsOfTestObjects, season: number, version: string): AsOfFetchers {
+function fetchersOf(objects: AsOfTestObjects, season: number, version: string, overrides: Partial<AsOfFetchers> = {}): AsOfFetchers {
   return {
     index: (eventKey) => Promise.resolve(objects.indexes.get(eventKey) ?? null),
     log: (eventKey) => Promise.resolve(objects.logs.get(eventKey) ?? null),
@@ -72,46 +96,146 @@ function fetchersOf(objects: AsOfTestObjects, season: number, version: string): 
       const body = objects.bodies.get(asOfStartKey({ season, algorithmId: "spr", version }));
       return Promise.resolve(body === undefined ? null : AsOfStartSchema.parse(JSON.parse(body)));
     },
+    ...overrides,
   };
 }
 
 const eventFixturesPresent = existsSync(`${FIXTURE_DIR}/event-2026wabon.json`);
 
+/**
+ * Recorded from the first as-of run of the test below (2026-10-14): 1000
+ * draws, seed 20260830, as-of objects built by `buildAsOfTestObjects` over
+ * the fixture's eight events. Open events shrink 8, 6, 4, 2, every one of them
+ * unstarted at its week end and so GENERATED.
+ *
+ * HISTORY, the retired stored odds path on the same fixture: simulated
+ * [58, 57, 58, 57], midpoint [53, 53, 54, 54].
+ */
+const SEEDED_SIMULATED = [63, 62, 62, 60];
+const SEEDED_MIDPOINT = [59, 58, 57, 57];
+
 describe.skipIf(!eventFixturesPresent)("backtestDistrict on the committed 2026 PNW fixture, on the as-of path", () => {
-  const artifact = stampedFixture();
-  const events = fixtureEvents(artifact);
+  const artifact = eventFixturesPresent ? stampedFixture() : (undefined as unknown as DistrictArtifact);
+  const events = eventFixturesPresent ? fixtureEvents(artifact) : new Map<string, EventArtifact>();
   const version = [...events.values()][0]?.algorithmVersion ?? "";
   const objects = eventFixturesPresent
     ? buildAsOfTestObjects({ season: 2026, version, eventArtifacts: [...events.values()], extraTeams: artifact.teams.map((team) => team.teamKey) })
     : undefined;
-  const sources = (): TabSources => ({
+  const sources = (overrides: Partial<AsOfFetchers> = {}): TabSources => ({
     eventArtifacts: events,
     unloadedEventKeys: [],
-    fetchers: fetchersOf(objects!, 2026, version),
+    fetchers: fetchersOf(objects!, 2026, version, overrides),
     version,
     memo: createRunMemo(),
     draws: SIMULATION_DRAWS,
     seed: DEFAULT_SIMULATION_SEED,
   });
+  let outcome: DistrictOutcome;
+  let rows: PositionRow[] = [];
+
+  beforeAll(async () => {
+    outcome = await backtestDistrict(artifact, sources());
+    rows = outcome.ok ? outcome.backtest.outcomes.flatMap((o) => (o.kind === "scored" ? [o.row] : [])) : [];
+  }, FIXTURE_TIMEOUT_MS);
+
+  it("loads all eight district tier event artifacts, at the one run version", () => {
+    expect(districtEventKeysOf(artifact)).toHaveLength(8);
+    expect(events.size).toBe(8);
+    expect(new Set([...events.values()].map((event) => event.algorithmVersion))).toEqual(new Set([version]));
+  });
+
+  it("scores the season start and the three week ends before the season settles, and counts the last week end as settled", () => {
+    if (!outcome.ok) throw new Error(outcome.reason);
+    expect(rows.map((row) => row.label)).toEqual(["Season start", "After week 1", "After week 2", "After week 3"]);
+    expect(outcome.backtest.outcomes.filter((o) => o.kind === "settled")).toHaveLength(1);
+    expect(outcome.backtest.eventsWithoutArtifact).toEqual([]);
+  });
+
+  it("targets the tab's own settled cutoff and reports TBA's line beside it", () => {
+    if (!outcome.ok) throw new Error(outcome.reason);
+    // The District Locks tab's settled line for 2026 PNW is 59; TBA publishes 82 on a different total.
+    expect(outcome.backtest.settled).toBe(59);
+    expect(outcome.backtest.published).toBe(82);
+  });
+
+  it("passes every leak check at every scored position, the row checks and the as-of checks, with nothing unpriced", () => {
+    expect(rows).toHaveLength(4);
+    for (const row of rows) {
+      expect(row.leaks).toEqual({
+        awardsFromFinalEventsOnly: true,
+        earnedNeverAhead: true,
+        openEventsOpenInRows: true,
+        realRowsAfterCut: true,
+        baselinesAtOrBeforeCut: true,
+        playedPlayoffsAtOrBeforeCut: true,
+        generatedCarriesNoSchedule: true,
+      });
+      expect(row.unpricedEvents).toBe(0);
+      expect(row.unavailable).toEqual({});
+    }
+  });
+
+  it("prints each line inside its own likely range, at the seeded values", () => {
+    for (const row of rows) {
+      expect(row.p10).toBeLessThanOrEqual(row.simulated);
+      expect(row.simulated).toBeLessThanOrEqual(row.p90);
+    }
+    expect(rows.map((row) => row.simulated)).toEqual(SEEDED_SIMULATED);
+    expect(rows.map((row) => row.midpoint)).toEqual(SEEDED_MIDPOINT);
+    expect(rows.map((row) => row.openEvents)).toEqual([8, 6, 4, 2]);
+    expect(rows.map((row) => row.generatedEvents)).toEqual([8, 6, 4, 2]);
+    expect(rows.map((row) => row.realEvents)).toEqual([0, 0, 0, 0]);
+  });
 
   it(
-    "scores the season start from the as-of state, every open event baked",
+    "at the season start every open event is GENERATED and its entry is baked",
     async () => {
-      const outcome = await backtestDistrict(artifact, sources());
-      if (!outcome.ok) throw new Error(outcome.reason);
-      expect(outcome.backtest.settled).toBe(59);
-      expect(outcome.backtest.published).toBe(82);
-      const first = outcome.backtest.outcomes[0]!;
-      expect(first.kind).toBe("scored");
-      if (first.kind !== "scored") return;
-      expect(first.row.label).toBe("Season start");
-      expect(first.row.openEvents).toBe(8);
-      expect(first.row.generatedEvents).toBe(8);
-      expect(first.row.realEvents).toBe(0);
-      expect(first.row.unpricedEvents).toBe(0);
-      expect(first.row.p10).toBeLessThanOrEqual(first.row.simulated);
-      expect(first.row.simulated).toBeLessThanOrEqual(first.row.p90);
-      console.log("tracer season start", JSON.stringify(outcome.backtest.outcomes.map((o) => (o.kind === "scored" ? [o.row.label, o.row.simulated, o.row.p10, o.row.p90, o.row.midpoint, o.row.openEvents, o.row.realEvents, o.row.generatedEvents] : [o.kind]))));
+      const tab = await districtTabAtPosition(districtTabContext(artifact, events), 0, sources());
+      expect(tab.cut).toBeDefined();
+      expect(tab.priced.assembled.events).toHaveLength(8);
+      for (const request of tab.priced.assembled.events) expect(request.asOf?.mode).toBe("generated");
+      expect(tab.priced.entries.map((entry) => entry.status)).toEqual(Array.from({ length: 8 }, () => "baked"));
+    },
+    FIXTURE_TIMEOUT_MS
+  );
+
+  // AT A WEEK END NO OPEN EVENT IS FOLDED: every event of the week is final
+  // there and no later one has started (the GENERATED counts above). So the
+  // REAL mode is exercised at a stop inside an event, a qualification row of
+  // 2026wabon part way through.
+  it(
+    "inside an event, the event folded by the cut is REAL and its entry is ok, and the as-of leak checks hold",
+    async () => {
+      const ctx = districtTabContext(artifact, events);
+      const positionIndex = ctx.timeline.positions.findIndex((position) => position.step?.kind === "match" && position.step.eventKey === "2026wabon" && position.step.matchKey === "2026wabon_qm40");
+      expect(positionIndex).toBeGreaterThan(0);
+      const tab = await districtTabAtPosition(ctx, positionIndex, sources());
+      const request = tab.priced.assembled.events.find((event) => event.eventKey === "2026wabon");
+      expect(request?.asOf?.mode).toBe("real");
+      expect(request?.asOf?.rows?.length).toBeGreaterThan(0);
+      expect(tab.priced.entries.find((entry) => entry.eventKey === "2026wabon")?.status).toBe("ok");
+      expect(asOfLeakChecks({ rewind: tab.rewind, cut: tab.cut, indexes: tab.indexes, eventArtifacts: events, requests: tab.priced.assembled.events })).toEqual({
+        realRowsAfterCut: true,
+        baselinesAtOrBeforeCut: true,
+        playedPlayoffsAtOrBeforeCut: true,
+        generatedCarriesNoSchedule: true,
+      });
+    },
+    FIXTURE_TIMEOUT_MS
+  );
+
+  it(
+    "a played event whose INDEX is unpublished reads unavailable at the stop, never a stored odds run",
+    async () => {
+      const real = fetchersOf(objects!, 2026, version);
+      const tab = await districtTabAtPosition(
+        districtTabContext(artifact, events),
+        0,
+        sources({ index: (eventKey, options) => (eventKey === "2026wabon" ? Promise.resolve(null) : real.index(eventKey, options)) })
+      );
+      expect(tab.priced.unavailableEvents).toContainEqual({ eventKey: "2026wabon", name: AS_OF_UNAVAILABLE_NAME });
+      expect(tab.priced.distributions.has("2026wabon")).toBe(false);
+      expect(tab.priced.assembled.events.map((event) => event.eventKey)).not.toContain("2026wabon");
     },
     FIXTURE_TIMEOUT_MS
   );
@@ -122,6 +246,203 @@ describe.skipIf(!eventFixturesPresent)("backtestDistrict on the committed 2026 P
     expect(positions[0]).toEqual({ index: 0, label: "Season start" });
     expect(positions.map((p) => p.label)).toEqual(["Season start", "After week 1", "After week 2", "After week 3", "After week 4"]);
     for (const position of positions) expect(position.index).toBeLessThan(timeline.nowIndex);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Refusals before anything loads
+// ---------------------------------------------------------------------------
+
+describe("backtestDistrict refusals", () => {
+  it("refuses a pre 2023 district season before any fetcher is called", async () => {
+    let calls = 0;
+    const spy = (): never => {
+      calls += 1;
+      throw new Error("a fetcher was called");
+    };
+    const artifact = DistrictArtifactSchema.parse({ ...miniDistrictArtifact(), year: 2022, districtKey: "2022pnw" });
+    const outcome = await backtestDistrict(artifact, {
+      eventArtifacts: new Map(),
+      unloadedEventKeys: [],
+      fetchers: { index: spy, log: spy, season: spy, start: spy },
+      version: "9.0.0+rolling",
+      memo: createRunMemo(),
+      draws: SIMULATION_DRAWS,
+      seed: DEFAULT_SIMULATION_SEED,
+    });
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.reason).toMatch(/no playoff bracket model/);
+    expect(calls).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The origin cache and the version guard
+// ---------------------------------------------------------------------------
+
+describe("OriginCache", () => {
+  let root: string;
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), "hx6-origin-cache-"));
+  });
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+  const indexKey = asOfIndexKey({ eventKey: "2026waaa", algorithmId: "spr", version: "9.0.0+rolling" });
+  const missingKey = asOfIndexKey({ eventKey: "2026wazzz", algorithmId: "spr", version: "9.0.0+rolling" });
+  const brokenKey = asOfIndexKey({ eventKey: "2026wabbb", algorithmId: "spr", version: "9.0.0+rolling" });
+  const parseIndex = (body: unknown) => AsOfIndexSchema.parse(body);
+
+  it("offline, a miss throws an error naming the key", async () => {
+    const cache = new OriginCache({ root, mode: "offline" });
+    await expect(cache.get(indexKey, parseIndex)).rejects.toBeInstanceOf(OriginCacheMissError);
+    await expect(cache.get(indexKey, parseIndex)).rejects.toThrow(indexKey);
+  });
+
+  it("fill writes the body and the 404 marker through the injected fetch, and never caches a non 404 failure", async () => {
+    const urls: string[] = [];
+    const stub: FetchLike = (url) => {
+      urls.push(url);
+      if (url.endsWith(indexKey)) return Promise.resolve({ status: 200, ok: true, text: () => Promise.resolve(JSON.stringify(OBJECTS.indexes.get("2026waaa"))) });
+      if (url.endsWith(missingKey)) return Promise.resolve({ status: 404, ok: false, text: () => Promise.resolve("") });
+      return Promise.resolve({ status: 503, ok: false, text: () => Promise.resolve("") });
+    };
+    const cache = new OriginCache({ root, mode: "fill", origin: "https://origin.test", fetch: stub });
+    expect((await cache.get(indexKey, parseIndex))?.m.length).toBe(OBJECTS.indexes.get("2026waaa")!.m.length);
+    expect(await cache.get(missingKey, parseIndex)).toBeNull();
+    await expect(cache.get(brokenKey, parseIndex)).rejects.toBeInstanceOf(OriginFetchError);
+    expect(urls).toContain(`https://origin.test/${indexKey}`);
+    expect(existsSync(cache.pathOf(indexKey))).toBe(true);
+    expect(existsSync(`${cache.pathOf(missingKey)}.404`)).toBe(true);
+    expect(existsSync(cache.pathOf(brokenKey))).toBe(false);
+    expect(existsSync(`${cache.pathOf(brokenKey)}.404`)).toBe(false);
+    expect(cache.stats).toMatchObject({ fetched: 1, notFound: 1, failed: 1 });
+  });
+
+  it("offline, a recorded 404 marker reads null and a cached body parses, without the network", async () => {
+    const cache = new OriginCache({ root, mode: "offline", fetch: () => Promise.reject(new Error("offline touched the network")) });
+    expect(await cache.get(missingKey, parseIndex)).toBeNull();
+    expect((await cache.get(indexKey, parseIndex))?.m.length).toBe(OBJECTS.indexes.get("2026waaa")!.m.length);
+    // The failure in fill mode cached nothing, so it is still a miss.
+    await expect(cache.get(brokenKey, parseIndex)).rejects.toBeInstanceOf(OriginCacheMissError);
+  });
+
+  it("the loader refuses an event artifact whose algorithmVersion differs from the run version", async () => {
+    const runVersion = "11.0.0+baseline";
+    const stub: FetchLike = () => Promise.resolve({ status: 200, ok: true, text: () => Promise.resolve(JSON.stringify(AAA)) });
+    const fill = new OriginCache({ root, mode: "fill", fetch: stub });
+    await fill.get(eventArtifactKeyFor("2026waaa", runVersion), (body) => EventArtifactSchema.parse(body));
+    expect(AAA.algorithmVersion).not.toBe(runVersion);
+    const cache = new OriginCache({ root, mode: "offline" });
+    await expect(loadEventArtifactsFromCache(cache, ["2026waaa"], runVersion)).rejects.toBeInstanceOf(EventArtifactVersionError);
+    // At its own version it loads; an event recorded as 404 is reported missing.
+    const own = new OriginCache({ root, mode: "fill", fetch: (url) => Promise.resolve(url.includes("2026waaa") ? { status: 200, ok: true, text: () => Promise.resolve(JSON.stringify(AAA)) } : { status: 404, ok: false, text: () => Promise.resolve("") }) });
+    const loaded = await loadEventArtifactsFromCache(own, ["2026waaa", "2026wazzz"], AAA.algorithmVersion);
+    expect([...loaded.eventArtifacts.keys()]).toEqual(["2026waaa"]);
+    expect(loaded.missing).toEqual(["2026wazzz"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shards and result files
+// ---------------------------------------------------------------------------
+
+describe("shards", () => {
+  const items = Array.from({ length: 48 }, (_unused, i) => ({ key: `20${String(23 + (i % 4))}d${String(i).padStart(2, "0")}`, weight: 1 + ((i * 37) % 91) }));
+
+  it("assigns every district season to exactly one shard, deterministically, balanced on weight", () => {
+    for (const n of [1, 4, 6]) {
+      const a = assignShards(items, n);
+      expect(assignShards([...items].reverse(), n)).toEqual(a);
+      expect(a.size).toBe(items.length);
+      const loads = Array.from({ length: n }, () => 0);
+      for (const item of items) {
+        const shard = a.get(item.key)!;
+        expect(shard).toBeGreaterThanOrEqual(1);
+        expect(shard).toBeLessThanOrEqual(n);
+        loads[shard - 1]! += item.weight;
+      }
+      expect(Math.max(...loads) - Math.min(...loads)).toBeLessThanOrEqual(Math.max(...items.map((item) => item.weight)));
+    }
+  });
+
+  it("partitions the selection across k = 1..n with no overlap", () => {
+    const selection = items.map((item) => ({ districtKey: item.key, weight: item.weight }));
+    const seen: string[] = [];
+    for (let k = 1; k <= 4; k++) seen.push(...inShard(selection, { k, n: 4 }, (item) => item.weight).map((item) => item.districtKey));
+    expect(seen.sort()).toEqual(selection.map((item) => item.districtKey).sort());
+    expect(inShard(selection, undefined, (item) => item.weight)).toHaveLength(48);
+  });
+
+  it("parses k/n and refuses anything else", () => {
+    expect(parseShard("2/4")).toEqual({ k: 2, n: 4 });
+    expect(parseShard(undefined)).toBeUndefined();
+    for (const bad of ["0/4", "5/4", "2", "a/b", "2/0"]) expect(() => parseShard(bad)).toThrow();
+  });
+});
+
+describe("result files", () => {
+  let dir: string;
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "hx6-results-"));
+  });
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("writes atomically (no temp file left behind) and a rerun can see the file", () => {
+    writeResultFile(dir, "2026pnw", { version: "11.0.0+baseline", value: 1 });
+    expect(readdirSync(dir)).toEqual(["2026pnw.json"]);
+    expect(hasResultFile(dir, "2026pnw")).toBe(true);
+    expect(hasResultFile(dir, "2026fim")).toBe(false);
+  });
+
+  it("the report refuses a set with a missing district season and names it, and a file at another version", () => {
+    expect(poolResultFiles(dir, ["2026fim", "2026pnw"], "11.0.0+baseline")).toEqual({ status: "incomplete", missing: ["2026fim"] });
+    writeResultFile(dir, "2026fim", { version: "10.0.0+baseline" });
+    expect(poolResultFiles(dir, ["2026fim", "2026pnw"], "11.0.0+baseline")).toEqual({ status: "versionMismatch", keys: ["2026fim"] });
+    writeResultFile(dir, "2026fim", { version: "11.0.0+baseline" });
+    const pooled = poolResultFiles<{ version: string }>(dir, ["2026fim", "2026pnw"], "11.0.0+baseline");
+    expect(pooled.status).toBe("complete");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The restated hook code has not moved
+// ---------------------------------------------------------------------------
+
+describe("the restated useDistrictLedgerData.ts code", () => {
+  // `pricedRunAtStop` and its three helpers restate the hook's rewound memos
+  // because the hook module cannot be imported in node. This digest covers
+  // exactly those spans. When it fails, re-read the hook's changed code,
+  // carry the change into `measureDistrictCutoff.ts`, then update the digest.
+  const HOOK_DIGEST = "2863f9ae4bbc26e71e3553516fc5c0f4ec4ec243bbd7ae6fe61538e8453ba6db";
+
+  it("matches the digest the restatement was written against", () => {
+    const src = readFileSync("apps/web/src/components/districts/useDistrictLedgerData.ts", "utf8").replace(/\r\n/g, "\n");
+    const span = (from: string, to: string): string => {
+      const a = src.indexOf(from);
+      expect(a, from).toBeGreaterThanOrEqual(0);
+      const b = src.indexOf(to, a);
+      expect(b, to).toBeGreaterThanOrEqual(0);
+      return src.slice(a, b + to.length);
+    };
+    const parts = [
+      span("export function securedElimForRequest(", "\n}\n"),
+      span("export function attachRequestFacts(", "\n}\n"),
+      span("export function divisionedDcmpBracketFacts(", "\n}\n"),
+      span("  const assembled = useMemo((): AssembledDistrictEvents => {", "}, [entries, assembled.eventsWithExcludedMatches]);"),
+      span("function openEventKeys(", "\n}\n"),
+    ];
+    expect(createHash("sha256").update(parts.join("\n---\n")).digest("hex")).toBe(HOOK_DIGEST);
+  });
+
+  it("the script carries no stored odds pricing in executable code", () => {
+    const code = readFileSync("scripts/measureDistrictCutoff.ts", "utf8")
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .filter((line) => !/^\s*(\*|\/\/|\/\*\*)/.test(line))
+      .join("\n");
+    expect(code).not.toMatch(/startMatchKeyAtPosition/);
+    expect(code).not.toMatch(/\.metrics\b/);
   });
 });
 
