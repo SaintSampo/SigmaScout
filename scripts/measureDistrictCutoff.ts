@@ -1,27 +1,36 @@
 /**
  * THE DISTRICT CUTOFF BACKTEST (fast task 261006, todo
- * `district-cutoff-line-backtest`): the District Locks tab's simulated line,
- * walk-forward, at the season start and at the end of every competition week
- * of every district season on disk, against the cutoff that season settled on.
+ * `district-cutoff-line-backtest`; rebuilt on the as-of path by quick task
+ * 261014-hx6): the District Locks tab's simulated line, walk-forward, at the
+ * season start and at the end of every competition week of every district
+ * season, against the cutoff that season settled on.
  *
- * Two modes:
+ * Modes (every one but `--fetch` reads only local files):
  *
  *   npx tsx scripts/measureDistrictCutoff.ts --fetch [--origin URL] [--version V]
- *     Downloads every district tier event artifact the backtest needs into
- *     `data/local-publish/district-events/` (gitignored, read-only afterwards).
- *     The version defaults to the SPR entry of the published algorithms
- *     manifest. Files already on disk are not fetched again.
+ *     Fills the origin cache (see THE ORIGIN CACHE) for the selected seasons.
  *
- *   npx tsx scripts/measureDistrictCutoff.ts [--json] [--district KEY] [--seasons 2023,2024] [--verbose]
- *     The backtest and its pre-registered gate. Reads only local files.
+ *   npx tsx scripts/measureDistrictCutoff.ts --dry-run [--district KEY] [--seasons 2023,2024]
+ *     The positions and the projected GENERATED bake count, from the district
+ *     artifacts alone.
+ *
+ *   npx tsx scripts/measureDistrictCutoff.ts [--district KEY] [--seasons ...] [--shard k/n] [--force] [--version V]
+ *     The backtest. One result file per district season.
+ *
+ *   npx tsx scripts/measureDistrictCutoff.ts --report [--json] [--verbose]
+ *     Pools every result file and prints the pre-registered gate.
  *
  * THE BROWSER'S OWN CODE, IN THE COMPONENT'S OWN ORDER. This script defines no
- * model: it calls `buildDistrictTimeline`, `districtStageAtPosition`,
- * `buildDistrictEventSimulationInput`, `simulateDistrictEvent`,
+ * model. At every position it calls what `DistrictLedger.tsx` calls at a
+ * rewound stop: `districtStageAtPosition` (the field and the number
+ * readings), `loadAsOfRewind`, `assembleAsOfDistrictEvents`, the Worker job
+ * `runDistrictSimulationJob` with the as-of runner `runAsOfEvent`,
  * `buildDistrictLedgerRows`, `computeDistrictLedgerStatuses`,
  * `buildAdvancementChanceRun`, `advancementChances`, `predictedCutoff`,
- * `districtRangeState` and (through it) `simulatedLine`, which is the call
- * order `DistrictLedger.tsx` uses.
+ * `districtRangeState`, then `applyChampionshipFieldOverlay` and
+ * `applyLedgerRangeState` for the shown chips. Between the assembly and the
+ * rows it restates `useDistrictLedgerData.ts`' rewound memo as plain calls
+ * (`pricedRunAtStop`), each block commented with the hook's line range.
  *
  * THE POSITIONS. Season start, then the last rail step of each competition
  * week, exactly the jump chips the retired rewind slider supplied and
@@ -31,16 +40,8 @@
  *
  * THE WINDOW IS 2023 TO 2026 BY CONSTRUCTION. `simulateDistrictEvent` declares
  * a playoff bracket for 2023 and later only (the eight alliance double
- * elimination format), so every open event of an earlier season is refused,
- * no team's grand total can be built, and every 2016 to 2022 position reads
- * `noCall teamsExcluded`, exactly as the tab would. The report counts them
- * rather than hiding them. Measured 2026-10-07 (after quick task 261007-jvz's
- * finality cascade): 203 scored positions over 47 district seasons, simulated
- * MAE 1.15 against the midpoint rule's 1.77, the range holding the settled
- * cutoff at 181 of 203 (89.2%), three positions above the band's ceiling; both
- * bars are kept as registered. Before the cascade (after quick task
- * 261007-4qr's short roster rule) it read 193 positions over 45 seasons, 1.17
- * against 1.80 and 171 of 193 (88.6%).
+ * elimination format). An earlier district season is refused before anything
+ * is loaded, and the report lists it as refused.
  *
  * THE TARGET. The tab's own settled cutoff at season end: the midpoint of the
  * last team inside the slots and the first team outside them over the final
@@ -54,16 +55,41 @@
  * the all tier total, and artifacts published before then carry the all tier
  * line.
  *
- * PREDICT BEFORE UPDATE. Open events are priced from the first qualification
- * row after the position (`startMatchKeyAtPosition`), each row carrying the
- * prediction stored when it was played, made after every result before it.
- * That is the RETIRED stored odds rewind path, the same one the champ script's
- * earlier positions measure; the live tab now prices a rewound stop from the
- * as-of state (`asOfRewind.ts`), whose objects are not on disk. Alliance and
- * playoff cells read each event artifact's `teams[].metrics`, which are the
- * ratings at publish time; that is a known, bounded leak of the retired path
- * and is named in the report. Three leak checks per position prove the row
- * build itself reads nothing from after the position.
+ * PREDICT BEFORE UPDATE, ON THE AS-OF PATH. Every open event at a position is
+ * priced the way the live tab prices a rewound stop since quick task
+ * 261005-5g0: from the model as it stood at the stop's cut. A REAL event
+ * (folded by the cut) has its remaining qualification rows priced, and its
+ * roster rated, by the as-of pricer from the as-of state; a GENERATED event
+ * (unstarted at the cut) is baked over generated schedules with the same
+ * pricer. No stored per row prediction, no `teams[].metrics` and no baked
+ * sidecar reaches pricing. An event whose as-of objects are not published, or
+ * whose roster cannot be priced at the cut, reads UNAVAILABLE at the stop and
+ * is counted, never priced from stored odds.
+ *
+ * `scripts/asOfRewindWeb.test.ts` is the truncation proof for the assembly:
+ * the requests a rewound stop builds equal the requests built from a world
+ * truncated at the cut. Seven leak checks per scored position back it here:
+ * three on the row build (awards only from award final events, earned never
+ * above the season final total, open events open on every row) and four on
+ * the as-of plan (every REAL row strictly after the cut and the split exact,
+ * baselines at or before the cut, played playoff rows at or before the cut,
+ * GENERATED requests carrying no rows and no ratings).
+ *
+ * HISTORY: THE RETIRED STORED ODDS PATH. Until quick task 261014-hx6 this
+ * script priced open events from the first qualification row after the
+ * position, each row carrying the prediction stored when it was played, with
+ * alliance and playoff cells read from each event artifact's publish time
+ * `teams[].metrics`. A week 5 event at season start was so priced with odds
+ * that already knew weeks 1 to 4, and playoffs with end of season ratings: a
+ * look ahead leak. Its figures, kept as history only:
+ *   - 2026-10-07 (after quick task 261007-jvz's finality cascade): 203 scored
+ *     positions over 47 district seasons, simulated MAE 1.15 against the
+ *     midpoint rule's 1.77, the range holding the settled cutoff at 181 of
+ *     203 (89.2%), three positions above the band's ceiling.
+ *   - 2026-10-06 (after quick task 261007-4qr's short roster rule): 193
+ *     positions over 45 seasons, 1.17 against 1.80, 171 of 193 (88.6%).
+ *
+ * MEASURED ON THE AS-OF PATH: (filled by quick task 261014-hx6 Task 3).
  *
  * THE GATE, registered before the first full run:
  *
@@ -73,29 +99,39 @@
  *      the scored positions (nominal 80%), the champ line's own band.
  *
  * Both are read over every scored position pooled; the per week split is
- * reported and not gated.
+ * reported and not gated. Both bars were re-registered unchanged on
+ * 2026-10-14, before the first as-of run.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { parseArgs } from "node:util";
-import { DistrictArtifactSchema, EventArtifactSchema, type DistrictArtifact, type EventArtifact } from "../packages/harness/pageArtifacts.js";
-import { advancementChances } from "../packages/core/districts/advancementChance.js";
-import { simulateDistrictEvent } from "../packages/core/districts/ledgerSimulation.js";
+import type { DistrictArtifact, EventArtifact } from "../packages/harness/pageArtifacts.js";
+import { asOfAtOrBefore, type AsOfCut, type AsOfIndex } from "../packages/harness/asOfState.js";
+import { advancementChances, type AdvancementChanceResult } from "../packages/core/districts/advancementChance.js";
+import { championshipShape } from "../packages/core/districts/finalsBracket.js";
+import type { DistrictTier } from "../packages/core/districts/pointModel.js";
 import {
-  buildDistrictEventSimulationInput,
+  DISTRICT_CATEGORIES,
+  allDistrictTierEventKeys,
   buildDistrictLedgerRows,
+  dcmpBracketFactsAtPosition,
+  dcmpBracketFactsFor,
+  dcmpBracketMilestonesByTeam,
   deriveStageFromState,
+  distributionsFromPreSim,
   distributionsFromResult,
   districtTierEvents,
+  liveStageByEvent,
+  securedElimByTeamFor,
+  type DcmpBracketFacts,
   type DistrictEventDistributions,
+  type DistrictLedgerGaps,
   type DistrictStageFinality,
+  type FieldBackup,
 } from "../apps/web/src/components/districts/districtLedgerRows.js";
 import {
   buildDistrictTimeline,
   districtStageAtPosition,
+  eventStartedAtPosition,
   eventsWithOpenCategoriesAt,
-  startMatchKeyAtPosition,
   timelineEventsOf,
   type DistrictTimeline,
 } from "../apps/web/src/components/districts/districtTimeline.js";
@@ -103,20 +139,37 @@ import { districtMilestoneEvents } from "../apps/web/src/components/districts/di
 import { computeDistrictLedgerStatuses } from "../apps/web/src/components/districts/districtLedgerStatus.js";
 import { buildAdvancementChanceRun } from "../apps/web/src/components/districts/districtLedgerChances.js";
 import { predictedCutoff, type ChampNoCallReason } from "../apps/web/src/components/districts/predictedCutoff.js";
-import { districtRangeState } from "../apps/web/src/components/districts/ledgerRangeState.js";
+import { applyLedgerRangeState, districtRangeState } from "../apps/web/src/components/districts/ledgerRangeState.js";
+import { applyChampionshipFieldOverlay } from "../apps/web/src/components/districts/districtFieldOverlay.js";
+import { dcmpEventKeysFor } from "../apps/web/src/components/districts/champLedgerRows.js";
+import {
+  asOfCandidateEvents,
+  asOfCutId,
+  asOfScheduleStopEventKey,
+  loadAsOfRewind,
+  resolveStopCut,
+  type AsOfFetchers,
+  type AsOfRewindInput,
+  type AsOfRewindResult,
+} from "../apps/web/src/components/districts/asOfRewind.js";
+import { assembleAsOfDistrictEvents, districtRunSignature, type AssembledDistrictEvents } from "../apps/web/src/components/districts/districtRunAssembly.js";
+import { runAsOfEvent } from "../apps/web/src/workers/districtAsOfJob.js";
+import {
+  isDistrictSimulationRequest,
+  runDistrictSimulationJob,
+  type DistrictSimulationEventEntry,
+  type DistrictSimulationEventRequest,
+} from "../apps/web/src/workers/districtSimulationProtocol.js";
 import { DEFAULT_SIMULATION_SEED, SIMULATION_DRAWS } from "../apps/web/src/workers/simulationProtocol.js";
-import { loadDistrictArtifacts, LOCAL_DISTRICT_DIR } from "./measureChampCutoff.js";
+import { buildQualRows } from "../apps/web/src/lib/simulationInputs.js";
 
-/** Where `--fetch` writes and the backtest reads one event artifact per district tier event. Read-only after the fetch, gitignored. */
-export const LOCAL_EVENT_DIR = "data/local-publish/district-events";
-/** The algorithm the District Locks tab pins its event artifacts to (`useDistrictLedgerData.ts`). */
+/** The algorithm the District Locks tab pins its event artifacts and as-of objects to (`districtRunAssembly.ts`). */
 export const EVENT_ALGORITHM_ID = "spr";
-const DEFAULT_ORIGIN = "https://data.sigmascout.org";
-const MANIFEST_KEY = "v1/manifest/algorithms.json";
-const FETCH_CONCURRENCY = 16;
+/** The first season `simulateDistrictEvent` has a playoff bracket for. Earlier district seasons are refused before anything loads. */
+export const FIRST_BRACKET_SEASON = 2023;
 
 // ---------------------------------------------------------------------------
-// Loading
+// Small readers of the district artifact
 // ---------------------------------------------------------------------------
 
 /** Every district tier event key of one district season, sorted. */
@@ -126,71 +179,584 @@ export function districtEventKeysOf(artifact: DistrictArtifact): string[] {
   return [...keys].sort();
 }
 
-/** The event artifacts on disk for one district, schema validated. An event with no file is simply absent from the map. */
-export function loadEventArtifacts(artifact: DistrictArtifact, dir: string = LOCAL_EVENT_DIR): Map<string, EventArtifact> {
-  const out = new Map<string, EventArtifact>();
-  for (const eventKey of districtEventKeysOf(artifact)) {
-    const path = join(dir, `${eventKey}.json`);
-    if (!existsSync(path)) continue;
-    out.set(eventKey, EventArtifactSchema.parse(JSON.parse(readFileSync(path, "utf8"))));
+/** The district tier events STARTED at now, by their own `state` blocks (`DistrictLedger.tsx` `startedKeys`): the tab's rewound fetch set. */
+export function startedDistrictEventKeysOf(artifact: DistrictArtifact): string[] {
+  const keys = new Set<string>();
+  for (const team of artifact.teams) {
+    for (const entry of districtTierEvents(team)) if (deriveStageFromState(entry.state).started) keys.add(entry.eventKey);
+  }
+  return [...keys].sort();
+}
+
+/** The component's own `now` memo: each district tier event's stage from its own `state` block, first team seen wins. */
+function nowStageByEventOf(artifact: DistrictArtifact): Map<string, DistrictStageFinality> {
+  const map = new Map<string, DistrictStageFinality>();
+  for (const team of artifact.teams) {
+    for (const entry of districtTierEvents(team)) {
+      if (map.has(entry.eventKey)) continue;
+      map.set(entry.eventKey, deriveStageFromState(entry.state).final);
+    }
+  }
+  return map;
+}
+
+/** The district's district tier events, deduplicated, in the order first seen (`DistrictLedger.tsx` `districtEvents`). */
+function districtEventsOf(artifact: DistrictArtifact): { eventKey: string; eventName: string; week: number | null }[] {
+  const byKey = new Map<string, { eventKey: string; eventName: string; week: number | null }>();
+  for (const team of artifact.teams) {
+    for (const entry of districtTierEvents(team)) {
+      if (!byKey.has(entry.eventKey)) byKey.set(entry.eventKey, { eventKey: entry.eventKey, eventName: entry.eventName, week: entry.week });
+    }
+  }
+  return [...byKey.values()];
+}
+
+/** The component's own timeline, from the district's district tier events and the event artifacts in hand. */
+export function districtTimelineOf(artifact: DistrictArtifact, eventArtifacts: ReadonlyMap<string, EventArtifact>): DistrictTimeline {
+  return buildDistrictTimeline({ events: timelineEventsOf(districtEventsOf(artifact), districtMilestoneEvents(artifact, ["district"])), eventArtifacts });
+}
+
+/**
+ * Season start, then the last timeline position of each distinct week, in
+ * week order: the measurement points the retired rewind slider's jump chips
+ * supplied, derived as `measureChampCutoff.ts` derives them. Only positions
+ * strictly before `nowIndex` are returned; now itself is the settled season.
+ */
+export function measurementPositions(timeline: DistrictTimeline): { index: number; label: string }[] {
+  const lastIndexByWeek = new Map<number, number>();
+  timeline.positions.forEach((position, index) => {
+    if (position.step === undefined || position.week === null) return;
+    lastIndexByWeek.set(position.week, index);
+  });
+  const weeks = [...lastIndexByWeek.keys()]
+    .sort((a, b) => a - b)
+    .map((week) => ({ index: lastIndexByWeek.get(week)!, label: `After week ${String(week + 1)}` }));
+  return [{ index: 0, label: "Season start" }, ...weeks].filter(({ index }) => index < timeline.nowIndex);
+}
+
+function isAllFinal(stage: DistrictStageFinality | undefined): boolean {
+  return stage !== undefined && stage.qual && stage.alliance && stage.elim && stage.award;
+}
+
+/** The events with an open category at the stop, sorted (`useDistrictLedgerData.ts` `openEventKeys`, lines 711 to 719, module private there). */
+function openEventKeys(keys: readonly string[], stageByEvent: ReadonlyMap<string, DistrictStageFinality>): string[] {
+  return keys
+    .filter((eventKey) => {
+      const stage = stageByEvent.get(eventKey);
+      return stage !== undefined && DISTRICT_CATEGORIES.some((category) => !stage[category]);
+    })
+    .sort();
+}
+
+// ---------------------------------------------------------------------------
+// The as-of pricing layer
+// ---------------------------------------------------------------------------
+
+/** Thrown when an event artifact's `algorithmVersion` is not the run's: one version per run, never mixed. */
+export class EventArtifactVersionError extends Error {
+  constructor(eventKey: string, found: string, expected: string) {
+    super(`${eventKey}: event artifact is ${EVENT_ALGORITHM_ID}@${found}, the run is ${EVENT_ALGORITHM_ID}@${expected}`);
+    this.name = "EventArtifactVersionError";
+  }
+}
+
+/** Refuses any event artifact not at the run version. */
+export function assertEventArtifactVersions(eventArtifacts: ReadonlyMap<string, EventArtifact>, version: string): void {
+  for (const [eventKey, artifact] of eventArtifacts) {
+    if (artifact.algorithmVersion !== version) throw new EventArtifactVersionError(eventKey, artifact.algorithmVersion, version);
+  }
+}
+
+type JobOutcome = { readonly failed: false; readonly entry: DistrictSimulationEventEntry } | { readonly failed: true };
+
+/**
+ * One process's memo of Worker job results, keyed by the request's own run
+ * signature (`districtRunSignature([request])`, which folds the cut, the mode,
+ * the roster and the rows or bake parameters) under the run version. Two
+ * positions that resolve to the same cut, and the in-range script's two tabs,
+ * share every bake through it.
+ */
+export interface RunMemo {
+  readonly entries: Map<string, JobOutcome>;
+  readonly stats: { bakes: number; bakeMs: number; realRuns: number; hits: number };
+}
+
+export function createRunMemo(): RunMemo {
+  return { entries: new Map(), stats: { bakes: 0, bakeMs: 0, realRuns: 0, hits: 0 } };
+}
+
+/**
+ * Runs ONE request through the Worker's own job with the as-of runner. One
+ * event per job is equivalent to the tab's one job per stop: the job isolates
+ * each event's failure and seeds every event alike
+ * (`districtSimulationProtocol.ts` `runDistrictSimulationJob`).
+ */
+function runRequest(request: DistrictSimulationEventRequest, version: string, memo: RunMemo, draws: number, seed: number): JobOutcome {
+  const key = `${version}|${districtRunSignature([request])}`;
+  const hit = memo.entries.get(key);
+  if (hit !== undefined) {
+    memo.stats.hits += 1;
+    return hit;
+  }
+  let outcome: JobOutcome = { failed: true };
+  const started = performance.now();
+  runDistrictSimulationJob(
+    { type: "run", events: [request], draws, seed },
+    (message) => {
+      if (message.type === "result") outcome = { failed: false, entry: message.events[0]! };
+      else if (message.type === "error") outcome = { failed: true };
+    },
+    runAsOfEvent
+  );
+  const ms = performance.now() - started;
+  if (request.asOf?.mode === "generated") {
+    memo.stats.bakes += 1;
+    memo.stats.bakeMs += ms;
+  } else {
+    memo.stats.realRuns += 1;
+  }
+  memo.entries.set(key, outcome);
+  return outcome;
+}
+
+type DcmpFactsRequest = NonNullable<Parameters<typeof dcmpBracketFactsAtPosition>[0]["request"]>;
+type RequestInput = DistrictSimulationEventRequest["input"];
+
+/**
+ * `useDistrictLedgerData.ts` `securedElimForRequest`, lines 306 to 329,
+ * restated: the hook module imports React and an `@/` alias that node cannot
+ * resolve, so its exports cannot be imported here. A digest test in
+ * `measureDistrictCutoff.test.ts` fails the moment the hook's copy changes.
+ */
+function securedElimForRequest(params: {
+  readonly eventArtifact: EventArtifact | undefined;
+  readonly season: number;
+  readonly tier: DistrictTier;
+  readonly playedElimMatches: RequestInput["playedElimMatches"];
+  readonly unresolvedMatchCount: number;
+}): ReadonlyMap<string, number> | undefined {
+  const { eventArtifact, playedElimMatches } = params;
+  if (eventArtifact === undefined || playedElimMatches === undefined || playedElimMatches.length === 0) return undefined;
+  if (params.unresolvedMatchCount !== 0) return undefined;
+  const rowId = (compLevel: string, setNumber: number, matchNumber: number): string => `${compLevel}|${String(setNumber)}|${String(matchNumber)}`;
+  const keyByRow = new Map<string, string>();
+  for (const match of eventArtifact.matches) {
+    if (match.compLevel !== "qm") keyByRow.set(rowId(match.compLevel, match.setNumber, match.matchNumber), match.matchKey);
+  }
+  const keys = new Set<string>();
+  for (const played of playedElimMatches) {
+    const matchKey = keyByRow.get(rowId(played.compLevel, played.setNumber, played.matchNumber));
+    if (matchKey === undefined) return undefined;
+    keys.add(matchKey);
+  }
+  const secured = securedElimByTeamFor(eventArtifact, params.season, params.tier, keys);
+  return secured.size === 0 ? undefined : secured;
+}
+
+/**
+ * `useDistrictLedgerData.ts` `attachRequestFacts`, lines 393 to 451, restated
+ * for a rewound stop (`live` false), which returns after the request loop.
+ * Restated for the reason `securedElimForRequest` above states.
+ */
+function attachRequestFactsRewound(
+  map: Map<string, DistrictEventDistributions>,
+  params: {
+    readonly requests: readonly DistrictSimulationEventRequest[];
+    readonly eventArtifacts: ReadonlyMap<string, EventArtifact>;
+    readonly season: number;
+    readonly stageByEvent: ReadonlyMap<string, DistrictStageFinality>;
+    readonly unresolvedEventKeys: ReadonlySet<string>;
+    readonly fieldBackupsByEvent?: ReadonlyMap<string, readonly FieldBackup[]> | undefined;
+  }
+): void {
+  for (const request of params.requests) {
+    const { eventKey, input } = request;
+    const existing = map.get(eventKey);
+    const unresolvedMatchCount = params.unresolvedEventKeys.has(eventKey) ? 1 : 0;
+    const playoffMilestoneByTeam =
+      existing?.playoffMilestoneByTeam !== undefined || input.knownAlliances === undefined
+        ? undefined
+        : dcmpBracketMilestonesByTeam(input.knownAlliances, input.playedElimMatches ?? []);
+    const dcmpBracket =
+      input.tier !== "dcmp"
+        ? undefined
+        : dcmpBracketFactsFor({
+            eventKey,
+            season: params.season,
+            tier: input.tier,
+            stage: params.stageByEvent.get(eventKey),
+            alliances: input.knownAlliances,
+            playedMatches: input.playedElimMatches ?? [],
+            unresolvedMatchCount,
+            fieldBackups: params.fieldBackupsByEvent?.get(eventKey),
+          });
+    const securedElimByTeam = securedElimForRequest({ eventArtifact: params.eventArtifacts.get(eventKey), season: params.season, tier: input.tier, playedElimMatches: input.playedElimMatches, unresolvedMatchCount });
+    if (playoffMilestoneByTeam === undefined && dcmpBracket === undefined && securedElimByTeam === undefined) continue;
+    map.set(eventKey, {
+      ...(existing ?? { eventKey, byTeam: new Map() }),
+      ...(playoffMilestoneByTeam === undefined ? {} : { playoffMilestoneByTeam }),
+      ...(dcmpBracket === undefined ? {} : { dcmpBracket }),
+      ...(securedElimByTeam === undefined ? {} : { securedElimByTeam }),
+    });
+  }
+}
+
+/**
+ * `useDistrictLedgerData.ts` `divisionedDcmpBracketFacts`, lines 468 to 498,
+ * restated for the reason `securedElimForRequest` above states. A rewound stop
+ * passes no `finalsMayBeAbsent` (false).
+ */
+function divisionedDcmpBracketFacts(params: {
+  readonly artifact: DistrictArtifact;
+  readonly eventArtifacts: ReadonlyMap<string, EventArtifact>;
+  readonly stageByEvent: ReadonlyMap<string, DistrictStageFinality>;
+  readonly requestByKey: ReadonlyMap<string, DcmpFactsRequest>;
+}): Map<string, DcmpBracketFacts> {
+  const out = new Map<string, DcmpBracketFacts>();
+  const shape = championshipShape(dcmpEventKeysFor(params.artifact), false);
+  if (shape.kind !== "divisioned") return out;
+  const roles: readonly [string, "division" | "finals"][] = [
+    ...shape.divisionKeys.map((key) => [key, "division"] as [string, "division"]),
+    [shape.finalsKey, "finals"],
+  ];
+  for (const [eventKey, role] of roles) {
+    const eventArtifact = params.eventArtifacts.get(eventKey);
+    if (eventArtifact === undefined) continue;
+    const request = params.requestByKey.get(eventKey);
+    const facts = dcmpBracketFactsAtPosition({
+      eventKey,
+      season: params.artifact.year,
+      role,
+      ...(role === "finals" ? { expectedAllianceCount: shape.divisionKeys.length } : {}),
+      stage: params.stageByEvent.get(eventKey),
+      eventArtifact,
+      ...(request === undefined ? {} : { request }),
+    });
+    if (facts !== undefined) out.set(eventKey, facts);
   }
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// --fetch
-// ---------------------------------------------------------------------------
-
-async function sprVersionFromManifest(origin: string): Promise<string> {
-  const res = await fetch(`${origin}/${MANIFEST_KEY}?cb=${String(Date.now())}`, { cache: "no-store" });
-  if (!res.ok) throw new Error(`manifest fetch failed: HTTP ${String(res.status)}`);
-  const manifest = (await res.json()) as { algorithms: { id: string; version: string }[] };
-  const entry = manifest.algorithms.find((algorithm) => algorithm.id === EVENT_ALGORITHM_ID);
-  if (entry === undefined) throw new Error(`manifest carries no ${EVENT_ALGORITHM_ID} entry`);
-  return entry.version;
+export interface PricedRunParams {
+  readonly artifact: DistrictArtifact;
+  readonly result: AsOfRewindResult;
+  readonly algorithmVersion: string;
+  /** The event artifacts in hand: the tab's rewound fetch set (every started event loaded at the version). */
+  readonly eventArtifacts: ReadonlyMap<string, EventArtifact>;
+  /** The FIELD reading at the stop. */
+  readonly stageByEvent: ReadonlyMap<string, DistrictStageFinality>;
+  /** The NUMBER reading at the stop. */
+  readonly pointsFinalByEvent: ReadonlyMap<string, DistrictStageFinality>;
+  readonly tierByEvent: ReadonlyMap<string, DistrictTier>;
+  readonly skipEventKeys?: ReadonlySet<string> | undefined;
+  /** The tab's `allowedEventKeys`; absent reads `allDistrictTierEventKeys(artifact)`, the District Locks tab's default. */
+  readonly allowedEventKeys?: readonly string[] | undefined;
+  readonly memo: RunMemo;
+  readonly draws: number;
+  readonly seed: number;
 }
 
-async function fetchEventArtifacts(artifacts: readonly DistrictArtifact[], origin: string, version: string | undefined): Promise<void> {
-  const resolved = version ?? (await sprVersionFromManifest(origin));
-  mkdirSync(LOCAL_EVENT_DIR, { recursive: true });
-  const wanted = new Set<string>();
-  for (const artifact of artifacts) for (const key of districtEventKeysOf(artifact)) wanted.add(key);
-  const pending = [...wanted].filter((key) => !existsSync(join(LOCAL_EVENT_DIR, `${key}.json`))).sort();
-  console.log(`event artifacts wanted ${String(wanted.size)}, on disk ${String(wanted.size - pending.length)}, fetching ${String(pending.length)} at ${EVENT_ALGORITHM_ID}@${resolved}`);
-  let fetched = 0;
-  let missing = 0;
-  let failed = 0;
-  let cursor = 0;
-  const worker = async (): Promise<void> => {
-    for (;;) {
-      const index = cursor++;
-      if (index >= pending.length) return;
-      const eventKey = pending[index]!;
-      const url = `${origin}/v1/event/${eventKey}/${EVENT_ALGORITHM_ID}@${resolved}.json`;
-      try {
-        const res = await fetch(url);
-        if (res.status === 404) {
-          missing += 1;
-          continue;
+export interface PricedRun {
+  readonly assembled: AssembledDistrictEvents;
+  readonly entries: readonly DistrictSimulationEventEntry[];
+  /** The tab's `runState.status === "error"`: the request was malformed. */
+  readonly runFailed: boolean;
+  /** The tab's `runSignature` for a landed run: the assembled signature (`""` with nothing to run), `null` when the run failed. */
+  readonly runSignature: string | null;
+  readonly distributions: Map<string, DistrictEventDistributions>;
+  readonly unavailableEvents: readonly { readonly eventKey: string; readonly name: string }[];
+  readonly gaps: Partial<DistrictLedgerGaps>;
+}
+
+/**
+ * THE REWOUND MEMOS OF `useDistrictLedgerData.ts`, lines 588 to 688, as plain
+ * calls in the hook's order, for a run that has landed.
+ */
+export function pricedRunAtStop(params: PricedRunParams): PricedRun {
+  const { artifact, result, eventArtifacts, stageByEvent, tierByEvent } = params;
+  // Lines 588 to 602: the as-of assembly (the view is `ready`: a load that
+  // throws aborts the script loudly instead of reading as `failed`).
+  const assembled = assembleAsOfDistrictEvents({
+    artifact,
+    result,
+    algorithmVersion: params.algorithmVersion,
+    eventArtifacts,
+    stageByEvent,
+    pointsFinalByEvent: params.pointsFinalByEvent,
+    tierByEvent,
+    skipEventKeys: params.skipEventKeys,
+    candidateKeys: openEventKeys(params.allowedEventKeys ?? allDistrictTierEventKeys(artifact), stageByEvent),
+  });
+
+  // Lines 620 to 624: the run. The tab posts every request in one message,
+  // and a message the Worker's guard refuses is a run error; that one check is
+  // made on the whole set, then each event runs in its own job.
+  let runFailed = false;
+  const entries: DistrictSimulationEventEntry[] = [];
+  if (assembled.events.length > 0) {
+    if (!isDistrictSimulationRequest({ type: "run", events: assembled.events, draws: params.draws, seed: params.seed })) runFailed = true;
+    else {
+      for (const request of assembled.events) {
+        const outcome = runRequest(request, params.algorithmVersion, params.memo, params.draws, params.seed);
+        if (outcome.failed) {
+          runFailed = true;
+          break;
         }
-        if (!res.ok) {
-          failed += 1;
-          console.log(`  ${eventKey}: HTTP ${String(res.status)}`);
-          continue;
-        }
-        const text = await res.text();
-        EventArtifactSchema.parse(JSON.parse(text));
-        writeFileSync(join(LOCAL_EVENT_DIR, `${eventKey}.json`), text);
-        fetched += 1;
-        if (fetched % 100 === 0) console.log(`  ${String(fetched)} fetched`);
-      } catch (error) {
-        failed += 1;
-        console.log(`  ${eventKey}: ${error instanceof Error ? error.message : String(error)}`);
+        entries.push(outcome.entry);
       }
     }
+    if (runFailed) entries.length = 0;
+  }
+
+  // Lines 626 to 678: entries to distributions, then the request facts.
+  const distributions = new Map<string, DistrictEventDistributions>();
+  const unresolved = new Set(assembled.eventsWithUnresolvedElimMatches);
+  for (const entry of entries) {
+    if (entry.status === "ok") distributions.set(entry.eventKey, distributionsFromResult(entry.result));
+    else if (entry.status === "baked") distributions.set(entry.eventKey, distributionsFromPreSim(entry));
+  }
+  attachRequestFactsRewound(distributions, {
+    requests: assembled.events,
+    eventArtifacts,
+    season: artifact.year,
+    stageByEvent,
+    unresolvedEventKeys: unresolved,
+    fieldBackupsByEvent: assembled.fieldBackupsByEvent,
+  });
+  const divisioned = divisionedDcmpBracketFacts({
+    artifact,
+    eventArtifacts,
+    stageByEvent,
+    requestByKey: new Map(
+      assembled.events.map((request) => [
+        request.eventKey,
+        {
+          ...(request.input.knownAlliances === undefined ? {} : { knownAlliances: request.input.knownAlliances }),
+          ...(request.input.playedElimMatches === undefined ? {} : { playedElimMatches: request.input.playedElimMatches }),
+          unresolvedMatchCount: unresolved.has(request.eventKey) ? 1 : 0,
+          fieldBackups: assembled.fieldBackupsByEvent?.get(request.eventKey),
+        },
+      ] as const)
+    ),
+  });
+  for (const [eventKey, dcmpBracket] of divisioned) {
+    const existing = distributions.get(eventKey);
+    distributions.set(eventKey, existing === undefined ? { eventKey, byTeam: new Map(), dcmpBracket } : { ...existing, dcmpBracket });
+  }
+
+  // Lines 680 to 688: unavailable events and excluded matches.
+  const fromRun = entries.flatMap((entry) => (entry.status === "unavailable" ? [{ eventKey: entry.eventKey, name: entry.name }] : []));
+  const unavailableEvents = assembled.asOfUnavailable.length === 0 ? fromRun : [...assembled.asOfUnavailable, ...fromRun];
+  const asOfExcluded = entries.flatMap((entry) => (entry.status === "ok" && entry.excludedMatchKeys !== undefined ? [entry.eventKey] : []));
+  const eventsWithExcludedMatches = asOfExcluded.length === 0 ? assembled.eventsWithExcludedMatches : [...assembled.eventsWithExcludedMatches, ...asOfExcluded];
+
+  return {
+    assembled,
+    entries,
+    runFailed,
+    runSignature: runFailed ? null : assembled.signature,
+    distributions,
+    unavailableEvents,
+    gaps: {
+      eventsWithExcludedMatches,
+      eventsWithFallbackFieldSize: assembled.eventsWithFallbackFieldSize,
+      eventsWithPartialAllianceList: assembled.eventsWithPartialAllianceList,
+      eventsWithUnresolvedElimMatches: assembled.eventsWithUnresolvedElimMatches,
+    },
   };
-  await Promise.all(Array.from({ length: FETCH_CONCURRENCY }, () => worker()));
-  console.log(`fetched ${String(fetched)}, not published (404) ${String(missing)}, failed ${String(failed)}`);
+}
+
+/** Wraps fetchers so every INDEX one load fetched is kept, for the stop's cut and the leak checks. */
+export function recordingFetchers(fetchers: AsOfFetchers): { fetchers: AsOfFetchers; indexes: Map<string, AsOfIndex | null> } {
+  const indexes = new Map<string, AsOfIndex | null>();
+  return {
+    indexes,
+    fetchers: {
+      index: async (eventKey, options) => {
+        const index = await fetchers.index(eventKey, options);
+        indexes.set(eventKey, index);
+        return index;
+      },
+      log: (eventKey, options) => fetchers.log(eventKey, options),
+      season: (options) => fetchers.season(options),
+      start: () => fetchers.start(),
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The District Locks tab at one rewound stop
+// ---------------------------------------------------------------------------
+
+/** What one run reads beside the district artifact. */
+export interface TabSources {
+  /** The tab's rewound fetch set: every event started at now, loaded at `version`. */
+  readonly eventArtifacts: ReadonlyMap<string, EventArtifact>;
+  /** Started events with no artifact at `version`: unavailable at every stop (`useAsOfRewind`'s `unloadedEventKeys`). */
+  readonly unloadedEventKeys: readonly string[];
+  readonly fetchers: AsOfFetchers;
+  readonly version: string;
+  readonly memo: RunMemo;
+  readonly draws: number;
+  readonly seed: number;
+}
+
+/** The tab's per artifact memos, computed once per district season. */
+export interface DistrictTabContext {
+  readonly artifact: DistrictArtifact;
+  readonly timeline: DistrictTimeline;
+  readonly nowStageByEvent: ReadonlyMap<string, DistrictStageFinality>;
+  readonly nowFinalByEvent: ReadonlyMap<string, DistrictStageFinality>;
+  readonly tierByEvent: ReadonlyMap<string, DistrictTier>;
+  readonly candidates: AsOfRewindInput["candidates"];
+}
+
+/** `DistrictLedger.tsx` lines 253 to 391: the memos that do not move with the stop. */
+export function districtTabContext(artifact: DistrictArtifact, eventArtifacts: ReadonlyMap<string, EventArtifact>): DistrictTabContext {
+  const districtEvents = districtEventsOf(artifact);
+  return {
+    artifact,
+    timeline: districtTimelineOf(artifact, eventArtifacts),
+    nowStageByEvent: nowStageByEventOf(artifact),
+    nowFinalByEvent: liveStageByEvent(artifact, ["district"]),
+    tierByEvent: new Map(allDistrictTierEventKeys(artifact).map((eventKey) => [eventKey, "district"] as const)),
+    candidates: districtEvents.map((event) => ({ eventKey: event.eventKey, tier: "district" as const, week: event.week })),
+  };
+}
+
+export interface DistrictTabAtPosition {
+  readonly positionIndex: number;
+  readonly positionId: string;
+  readonly stageByEvent: ReadonlyMap<string, DistrictStageFinality>;
+  readonly finalByEvent: ReadonlyMap<string, DistrictStageFinality>;
+  readonly rewind: AsOfRewindResult;
+  /** The stop's cut, from the INDEXes the load fetched; `undefined` when the stop has no exact instant. */
+  readonly cut: AsOfCut | undefined;
+  readonly indexes: ReadonlyMap<string, AsOfIndex | null>;
+  readonly priced: PricedRun;
+  readonly rows: ReturnType<typeof buildDistrictLedgerRows>;
+  readonly statuses: ReturnType<typeof computeDistrictLedgerStatuses>;
+  readonly chanceRun: ReturnType<typeof buildAdvancementChanceRun>;
+  readonly chance: AdvancementChanceResult | undefined;
+  readonly boundary: ReturnType<typeof predictedCutoff>;
+  readonly rangeState: ReturnType<typeof districtRangeState>;
+  /** The chips the tab SHOWS: the field overlay (rewound, so the raw model) then the range state. */
+  readonly display: ReturnType<typeof showDistrictStatuses>;
+}
+
+function showDistrictStatuses(
+  statuses: ReturnType<typeof computeDistrictLedgerStatuses>,
+  artifact: DistrictArtifact,
+  teams: ReturnType<typeof buildDistrictLedgerRows>["teams"],
+  rangeState: ReturnType<typeof districtRangeState>
+) {
+  // `DistrictLedger.tsx` lines 548 and 556: the field overlay at a rewound
+  // position (`atLive` false, the raw model untouched), then the range state.
+  return applyLedgerRangeState(applyChampionshipFieldOverlay(statuses, artifact, { atLive: false }), teams, rangeState);
+}
+
+/**
+ * THE DISTRICT LOCKS TAB AT ONE REWOUND STOP, `DistrictLedger.tsx` lines 319
+ * to 556 in order: the two stage readings, the as-of load, the priced run,
+ * the rows, the verdicts, the chance run, the boundary rule and the range
+ * state, then the shown chips.
+ */
+export async function districtTabAtPosition(ctx: DistrictTabContext, positionIndex: number, sources: TabSources): Promise<DistrictTabAtPosition> {
+  const { artifact, timeline } = ctx;
+  const positionId = timeline.positions[positionIndex]!.id;
+  // Lines 319 to 338: the FIELD reading and the NUMBER reading at the stop.
+  const stageByEvent = districtStageAtPosition(timeline, positionIndex, ctx.nowStageByEvent);
+  const finalByEvent = districtStageAtPosition(timeline, positionIndex, ctx.nowFinalByEvent);
+
+  // Lines 347 to 359 and `useAsOfRewind.ts` lines 97 to 136: the as-of load.
+  const recorder = recordingFetchers(sources.fetchers);
+  const rewind = await loadAsOfRewind(
+    {
+      districtArtifact: artifact,
+      timeline,
+      positionIndex,
+      eventArtifacts: sources.eventArtifacts,
+      stageByEvent,
+      candidates: asOfCandidateEvents({ candidates: ctx.candidates, stageByEvent }),
+      scheduleStopEventKey: asOfScheduleStopEventKey(positionId),
+      unloadedEventKeys: sources.unloadedEventKeys,
+    },
+    recorder.fetchers
+  );
+  const stop = resolveStopCut(timeline, positionIndex, recorder.indexes);
+  const cut = stop.status === "ok" ? stop.cut : undefined;
+  if (rewind.status === "ready" && (cut === undefined || asOfCutId(cut) !== rewind.cutId)) {
+    throw new Error(`${artifact.districtKey} ${positionId}: the recomputed cut does not match the load's cut ${rewind.cutId}`);
+  }
+
+  // Lines 393 to 401: the data hook.
+  const priced = pricedRunAtStop({
+    artifact,
+    result: rewind,
+    algorithmVersion: sources.version,
+    eventArtifacts: sources.eventArtifacts,
+    stageByEvent,
+    pointsFinalByEvent: finalByEvent,
+    tierByEvent: ctx.tierByEvent,
+    memo: sources.memo,
+    draws: sources.draws,
+    seed: sources.seed,
+  });
+
+  // Lines 413 to 428: the rows read the NUMBER, and the field for the not picked note.
+  const rows = buildDistrictLedgerRows({
+    artifact,
+    distributions: priced.distributions,
+    stageByEvent: finalByEvent,
+    fieldStageByEvent: stageByEvent,
+    unavailableEvents: priced.unavailableEvents,
+    gaps: { ...priced.gaps, missingEventArtifacts: sources.unloadedEventKeys },
+    distributionsPending: false,
+  });
+  const statuses = computeDistrictLedgerStatuses({ artifact, teams: rows.teams });
+
+  // Lines 449 to 461: the chance run, on the landed run's signature.
+  const chanceRun = buildAdvancementChanceRun({ artifact, teams: rows.teams, statuses, runSignature: priced.runSignature, positionId });
+  const chance = chanceRun === undefined ? undefined : advancementChances(chanceRun.inputs, sources.draws, sources.seed);
+
+  // Lines 474 to 536: the boundary rule's kind and the one range state.
+  const boundary = predictedCutoff({
+    teams: rows.teams,
+    capacity: artifact.dcmpSlots,
+    qualifiers: { awardQualified: new Set(statuses.awardQualified), prequalified: new Set(statuses.prequalified) },
+    reservedSlots: statuses.reservedSlots,
+  });
+  const rangeState = districtRangeState({
+    boundaryKind: boundary.kind,
+    perEventRunSignature: priced.runSignature ?? "",
+    perEventRunFailed: priced.runFailed,
+    run: {
+      built: chanceRun !== undefined,
+      status: chance === undefined ? "idle" : "complete",
+      current: true,
+      excludedTeams: chanceRun?.excludedTeams ?? [],
+      ...(chance?.cutoffByRun === undefined ? {} : { cutoffByRun: chance.cutoffByRun }),
+      ...(chance === undefined ? {} : { draws: chance.draws }),
+    },
+  });
+
+  return {
+    positionIndex,
+    positionId,
+    stageByEvent,
+    finalByEvent,
+    rewind,
+    cut,
+    indexes: recorder.indexes,
+    priced,
+    rows,
+    statuses,
+    chanceRun,
+    chance,
+    boundary,
+    rangeState,
+    display: showDistrictStatuses(statuses, artifact, rows.teams, rangeState),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -226,8 +792,14 @@ export interface PositionRow {
   /** The midpoint rule at the same position, over the same rows. */
   readonly midpoint: number;
   readonly openEvents: number;
-  /** Open events that had no artifact on disk or whose simulation the core refused: their cells read unavailable. */
+  /** Open events priced from the as-of state of a folded event (REAL). */
+  readonly realEvents: number;
+  /** Open events baked over generated schedules (GENERATED). */
+  readonly generatedEvents: number;
+  /** Open events that read unavailable at the stop: their cells carry no distribution. */
   readonly unpricedEvents: number;
+  /** The unavailable events by the `name` that refused them. */
+  readonly unavailable: Readonly<Record<string, number>>;
   readonly leaks: PositionLeakChecks;
 }
 
@@ -245,7 +817,7 @@ export interface DistrictBacktest {
   readonly settled: number;
   readonly published: number | null;
   readonly outcomes: readonly PositionOutcome[];
-  /** District tier events with no artifact on disk. */
+  /** Started district tier events with no artifact at the run version. */
   readonly eventsWithoutArtifact: readonly string[];
 }
 
@@ -253,128 +825,21 @@ export type DistrictOutcome =
   | { readonly ok: true; readonly backtest: DistrictBacktest }
   | { readonly ok: false; readonly districtKey: string; readonly year: number; readonly reason: string };
 
-/** The component's own `now` memo: each district tier event's stage from its own `state` block, first team seen wins. */
-function nowStageByEventOf(artifact: DistrictArtifact): Map<string, DistrictStageFinality> {
-  const map = new Map<string, DistrictStageFinality>();
-  for (const team of artifact.teams) {
-    for (const entry of districtTierEvents(team)) {
-      if (map.has(entry.eventKey)) continue;
-      map.set(entry.eventKey, deriveStageFromState(entry.state).final);
-    }
+/** The unavailable events at the stop, counted by name, one count per event. */
+function unavailableByName(events: readonly { readonly eventKey: string; readonly name: string }[]): { count: number; byName: Record<string, number> } {
+  const seen = new Set<string>();
+  const byName: Record<string, number> = {};
+  for (const event of events) {
+    if (seen.has(event.eventKey)) continue;
+    seen.add(event.eventKey);
+    byName[event.name] = (byName[event.name] ?? 0) + 1;
   }
-  return map;
+  return { count: seen.size, byName };
 }
 
-/** The component's own timeline, from the district's district tier events and every artifact on disk. */
-export function districtTimelineOf(artifact: DistrictArtifact, eventArtifacts: ReadonlyMap<string, EventArtifact>): DistrictTimeline {
-  const byKey = new Map<string, { eventKey: string; eventName: string; week: number | null }>();
-  for (const team of artifact.teams) {
-    for (const entry of districtTierEvents(team)) {
-      if (!byKey.has(entry.eventKey)) byKey.set(entry.eventKey, { eventKey: entry.eventKey, eventName: entry.eventName, week: entry.week });
-    }
-  }
-  return buildDistrictTimeline({ events: timelineEventsOf([...byKey.values()], districtMilestoneEvents(artifact, ["district"])), eventArtifacts });
-}
-
-/**
- * Season start, then the last timeline position of each distinct week, in
- * week order: the measurement points the retired rewind slider's jump chips
- * supplied, derived as `measureChampCutoff.ts` derives them. Only positions
- * strictly before `nowIndex` are returned; now itself is the settled season.
- */
-export function measurementPositions(timeline: DistrictTimeline): { index: number; label: string }[] {
-  const lastIndexByWeek = new Map<number, number>();
-  timeline.positions.forEach((position, index) => {
-    if (position.step === undefined || position.week === null) return;
-    lastIndexByWeek.set(position.week, index);
-  });
-  const weeks = [...lastIndexByWeek.keys()]
-    .sort((a, b) => a - b)
-    .map((week) => ({ index: lastIndexByWeek.get(week)!, label: `After week ${String(week + 1)}` }));
-  return [{ index: 0, label: "Season start" }, ...weeks].filter(({ index }) => index < timeline.nowIndex);
-}
-
-function isAllFinal(stage: DistrictStageFinality | undefined): boolean {
-  return stage !== undefined && stage.qual && stage.alliance && stage.elim && stage.award;
-}
-
-/** The distributions the tab would hold at a position: every open event simulated from the first row after the position. */
-function distributionsAtPosition(
-  artifact: DistrictArtifact,
-  timeline: DistrictTimeline,
-  index: number,
-  stageByEvent: ReadonlyMap<string, DistrictStageFinality>,
-  eventArtifacts: ReadonlyMap<string, EventArtifact>
-): { distributions: Map<string, DistrictEventDistributions>; unpriced: number } {
-  const distributions = new Map<string, DistrictEventDistributions>();
-  let unpriced = 0;
-  for (const eventKey of eventsWithOpenCategoriesAt(stageByEvent)) {
-    const eventArtifact = eventArtifacts.get(eventKey);
-    const stage = stageByEvent.get(eventKey);
-    if (eventArtifact === undefined || stage === undefined) {
-      unpriced += 1;
-      continue;
-    }
-    const built = buildDistrictEventSimulationInput({
-      eventKey,
-      season: artifact.year,
-      eventArtifact,
-      districtArtifact: artifact,
-      stage,
-      startMatchKey: startMatchKeyAtPosition(timeline, index, eventKey),
-      conditionOnPlayedElims: false,
-      tier: "district",
-    });
-    if (!built.ok) {
-      unpriced += 1;
-      continue;
-    }
-    // PER EVENT FAILURE IS ISOLATED, as `runDistrictSimulationJob` isolates it.
-    try {
-      distributions.set(eventKey, distributionsFromResult(simulateDistrictEvent(built.input, SIMULATION_DRAWS, DEFAULT_SIMULATION_SEED)));
-    } catch {
-      unpriced += 1;
-    }
-  }
-  return { distributions, unpriced };
-}
-
-/** The whole District Locks pipeline at one rail position, in the component's call order. */
-function runAtPosition(
-  artifact: DistrictArtifact,
-  timeline: DistrictTimeline,
-  index: number,
-  label: string,
-  nowStageByEvent: ReadonlyMap<string, DistrictStageFinality>,
-  eventArtifacts: ReadonlyMap<string, EventArtifact>,
-  settled: number,
-  draws: number,
-  seed: number
-): PositionOutcome {
-  const positionId = timeline.positions[index]!.id;
-  const stageByEvent = districtStageAtPosition(timeline, index, nowStageByEvent);
-  const { distributions, unpriced } = distributionsAtPosition(artifact, timeline, index, stageByEvent, eventArtifacts);
-
-  const rows = buildDistrictLedgerRows({ artifact, distributions, stageByEvent, tier: "district" });
-  const statuses = computeDistrictLedgerStatuses({ artifact, teams: rows.teams });
-  const chanceRun = buildAdvancementChanceRun({ artifact, teams: rows.teams, statuses, runSignature: "", positionId });
-  const result = chanceRun === undefined ? undefined : advancementChances(chanceRun.inputs, draws, seed);
-  const qualifiers = { awardQualified: new Set(statuses.awardQualified), prequalified: new Set(statuses.prequalified) };
-  const boundary = predictedCutoff({ teams: rows.teams, capacity: artifact.dcmpSlots, qualifiers, reservedSlots: statuses.reservedSlots });
-
-  const state = districtRangeState({
-    boundaryKind: boundary.kind,
-    perEventRunSignature: "",
-    run: {
-      built: chanceRun !== undefined,
-      status: result === undefined ? "idle" : "complete",
-      current: true,
-      excludedTeams: chanceRun?.excludedTeams ?? [],
-      ...(result?.cutoffByRun === undefined ? {} : { cutoffByRun: result.cutoffByRun }),
-      ...(result === undefined ? {} : { draws: result.draws }),
-    },
-  });
-
+/** One position's outcome, from the tab's own state there. */
+function outcomeAtPosition(tab: DistrictTabAtPosition, artifact: DistrictArtifact, label: string, settled: number): PositionOutcome {
+  const { positionId, rangeState: state, boundary, stageByEvent, rows, statuses, chanceRun } = tab;
   // `districtRangeState` reads `settled` for every boundary kind but `predicted`, so past this check the midpoint exists.
   if (boundary.kind !== "predicted") return { kind: "settled", positionId, label };
   const midpoint = boundary.points;
@@ -382,9 +847,8 @@ function runAtPosition(
   if (state.kind === "noCall") return { kind: "noCall", positionId, label, reason: state.reason };
   if (state.kind === "pending") return { kind: "noCall", positionId, label, reason: "runRefused" };
 
-  // The leak checks: nothing after the position reached the rows.
+  // The row leak checks: nothing after the position reached the rows.
   const sourceByKey = new Map(artifact.teams.map((team) => [team.teamKey, team] as const));
-  const rowByTeam = new Map(rows.teams.map((team) => [team.teamKey, team] as const));
   const openKeys = new Set(eventsWithOpenCategoriesAt(stageByEvent));
   const leaks: PositionLeakChecks = {
     awardsFromFinalEventsOnly: statuses.awardQualified.every((teamKey) => {
@@ -394,8 +858,9 @@ function runAtPosition(
     earnedNeverAhead: rows.teams.every((team) => team.earnedAtPosition <= team.earnedDistrictTotal + 1e-9),
     openEventsOpenInRows: rows.teams.every((team) => team.rows.every((row) => !openKeys.has(row.eventKey) || !isAllFinal(row.stage.final))),
   };
-  void rowByTeam;
 
+  const modes = tab.priced.assembled.events.map((event) => event.asOf?.mode);
+  const unavailable = unavailableByName(tab.priced.unavailableEvents);
   const published = artifact.insights.dcmpCutLinePoints;
   const p10 = Math.round(state.likely.p10);
   const p90 = Math.round(state.likely.p90);
@@ -404,7 +869,7 @@ function runAtPosition(
     row: {
       districtKey: artifact.districtKey,
       year: artifact.year,
-      positionIndex: index,
+      positionIndex: tab.positionIndex,
       positionId,
       label,
       dcmpSlots: artifact.dcmpSlots!,
@@ -417,33 +882,18 @@ function runAtPosition(
       coversPublished: published === null ? null : published >= p10 && published <= p90,
       midpoint,
       openEvents: openKeys.size,
-      unpricedEvents: unpriced,
+      realEvents: modes.filter((mode) => mode === "real").length,
+      generatedEvents: modes.filter((mode) => mode === "generated").length,
+      unpricedEvents: unavailable.count,
+      unavailable: unavailable.byName,
       leaks,
     },
   };
 }
 
-export interface BacktestOptions {
-  readonly draws?: number;
-  readonly seed?: number;
-}
-
-/**
- * One district season at every measurement position. Refuses a district with
- * no published capacity, one whose district tier season is not finished (its
- * settled cutoff does not exist yet), and one whose settled cutoff is absent
- * (every team inside the slots).
- */
-export function backtestDistrict(artifact: DistrictArtifact, eventArtifacts: ReadonlyMap<string, EventArtifact>, options: BacktestOptions = {}): DistrictOutcome {
-  const draws = options.draws ?? SIMULATION_DRAWS;
-  const seed = options.seed ?? DEFAULT_SIMULATION_SEED;
-  const fail = (reason: string): DistrictOutcome => ({ ok: false, districtKey: artifact.districtKey, year: artifact.year, reason });
-  if (artifact.dcmpSlots === null) return fail("no published dcmpSlots");
+/** The settled target: the tab's own rule over the final rows. `undefined` with the refusal when the season has none. */
+function settledCutoffOf(artifact: DistrictArtifact): { points: number } | { reason: string } {
   const nowStageByEvent = nowStageByEventOf(artifact);
-  if (nowStageByEvent.size === 0) return fail("no district tier events");
-  for (const [eventKey, stage] of nowStageByEvent) if (!isAllFinal(stage)) return fail(`district event ${eventKey} is not final`);
-
-  // The settled target: the tab's own rule over the final rows.
   const finalRows = buildDistrictLedgerRows({ artifact, distributions: new Map(), stageByEvent: nowStageByEvent, tier: "district" });
   const finalStatuses = computeDistrictLedgerStatuses({ artifact, teams: finalRows.teams });
   const finalCutoff = predictedCutoff({
@@ -452,24 +902,59 @@ export function backtestDistrict(artifact: DistrictArtifact, eventArtifacts: Rea
     qualifiers: { awardQualified: new Set(finalStatuses.awardQualified), prequalified: new Set(finalStatuses.prequalified) },
     reservedSlots: finalStatuses.reservedSlots,
   });
-  if (finalCutoff.kind !== "final") return fail(`settled cutoff is ${finalCutoff.kind}, not final`);
+  if (finalCutoff.kind !== "final") return { reason: `settled cutoff is ${finalCutoff.kind}, not final` };
+  return { points: finalCutoff.points };
+}
 
-  const timeline = districtTimelineOf(artifact, eventArtifacts);
-  const outcomes = measurementPositions(timeline).map(({ index, label }) =>
-    runAtPosition(artifact, timeline, index, label, nowStageByEvent, eventArtifacts, finalCutoff.points, draws, seed)
-  );
+/** Why a district season cannot be backtested, decided from the district artifact alone; `undefined` when it can. */
+export function refusalOf(artifact: DistrictArtifact): string | undefined {
+  if (artifact.year < FIRST_BRACKET_SEASON) return `season ${String(artifact.year)} has no playoff bracket model (${String(FIRST_BRACKET_SEASON)} and later only)`;
+  if (artifact.dcmpSlots === null) return "no published dcmpSlots";
+  const nowStageByEvent = nowStageByEventOf(artifact);
+  if (nowStageByEvent.size === 0) return "no district tier events";
+  for (const [eventKey, stage] of nowStageByEvent) if (!isAllFinal(stage)) return `district event ${eventKey} is not final`;
+  return undefined;
+}
+
+/**
+ * One district season at every measurement position, on the as-of path.
+ * Refuses, before any fetcher is called, a season before 2023, a district
+ * with no published capacity, one whose district tier season is not finished
+ * (its settled cutoff does not exist yet), and one whose settled cutoff is
+ * absent (every team inside the slots). Throws on an event artifact at another
+ * version.
+ */
+export async function backtestDistrict(artifact: DistrictArtifact, sources: TabSources): Promise<DistrictOutcome> {
+  const fail = (reason: string): DistrictOutcome => ({ ok: false, districtKey: artifact.districtKey, year: artifact.year, reason });
+  const refusal = refusalOf(artifact);
+  if (refusal !== undefined) return fail(refusal);
+  const settled = settledCutoffOf(artifact);
+  if ("reason" in settled) return fail(settled.reason);
+  assertEventArtifactVersions(sources.eventArtifacts, sources.version);
+
+  const ctx = districtTabContext(artifact, sources.eventArtifacts);
+  const outcomes: PositionOutcome[] = [];
+  for (const { index, label } of measurementPositions(ctx.timeline)) {
+    const tab = await districtTabAtPosition(ctx, index, sources);
+    outcomes.push(outcomeAtPosition(tab, artifact, label, settled.points));
+  }
   return {
     ok: true,
     backtest: {
       districtKey: artifact.districtKey,
       year: artifact.year,
-      settled: finalCutoff.points,
+      settled: settled.points,
       published: artifact.insights.dcmpCutLinePoints,
       outcomes,
-      eventsWithoutArtifact: districtEventKeysOf(artifact).filter((key) => !eventArtifacts.has(key)),
+      eventsWithoutArtifact: [...sources.unloadedEventKeys].sort(),
     },
   };
 }
+
+// Kept for the as-of leak checks (added with the expansion).
+void asOfAtOrBefore;
+void buildQualRows;
+void eventStartedAtPosition;
 
 // ---------------------------------------------------------------------------
 // Summaries and the gate
@@ -561,201 +1046,8 @@ export function gateVerdict(summary: BacktestSummary): GateVerdict {
   return { conditions, go: conditions.every((condition) => condition.pass) };
 }
 
-// ---------------------------------------------------------------------------
-// Reporting
-// ---------------------------------------------------------------------------
-
-function pad(value: string | number, width: number): string {
-  return String(value).padStart(width);
-}
-
-function num(value: number | null, digits = 0): string {
-  return value === null || Number.isNaN(value) ? "-" : value.toFixed(digits);
-}
-
-function pct(covered: number, n: number): string {
-  return n === 0 ? "n/a" : `${((100 * covered) / n).toFixed(1)}%`;
-}
-
-function summaryLine(title: string, rows: readonly PositionRow[]): void {
-  const s = summarize(rows);
-  console.log(
-    `  ${title.padEnd(16)} n=${pad(s.n, 4)}  vs settled: sim MAE ${pad(num(s.simulatedVsSettled.mae, 1), 5)} bias ${pad(num(s.simulatedVsSettled.bias, 1), 6)}  midpoint MAE ${pad(num(s.midpointVsSettled.mae, 1), 5)} bias ${pad(num(s.midpointVsSettled.bias, 1), 6)}  range holds ${pad(s.coveredSettled, 4)} (${pct(s.coveredSettled, s.n)})` +
-      `   vs published: sim MAE ${pad(num(s.simulatedVsPublished.mae, 1), 5)}  midpoint MAE ${pad(num(s.midpointVsPublished.mae, 1), 5)}  holds ${pad(s.coveredPublished, 4)} of ${pad(s.nPublished, 4)} (${pct(s.coveredPublished, s.nPublished)})`
-  );
-}
-
-interface CliArgs {
-  readonly json: boolean;
-  readonly verbose: boolean;
-  readonly fetch: boolean;
-  readonly origin: string;
-  readonly version: string | undefined;
-  readonly district: string | undefined;
-  readonly seasons: ReadonlySet<number> | undefined;
-}
-
-function parseCli(argv: readonly string[]): CliArgs {
-  const { values } = parseArgs({
-    args: [...argv],
-    options: {
-      json: { type: "boolean", default: false },
-      verbose: { type: "boolean", default: false },
-      fetch: { type: "boolean", default: false },
-      origin: { type: "string" },
-      version: { type: "string" },
-      district: { type: "string" },
-      seasons: { type: "string" },
-    },
-    strict: true,
-  });
-  return {
-    json: values.json,
-    verbose: values.verbose,
-    fetch: values.fetch,
-    origin: values.origin ?? DEFAULT_ORIGIN,
-    version: values.version,
-    district: values.district,
-    seasons: values.seasons === undefined ? undefined : new Set(values.seasons.split(",").map((part) => Number(part.trim()))),
-  };
-}
-
-export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
-  const cli = parseCli(argv);
-  let artifacts = loadDistrictArtifacts(LOCAL_DISTRICT_DIR);
-  if (cli.district !== undefined) artifacts = artifacts.filter((artifact) => artifact.districtKey === cli.district);
-  if (cli.seasons !== undefined) artifacts = artifacts.filter((artifact) => cli.seasons!.has(artifact.year));
-
-  if (cli.fetch) {
-    await fetchEventArtifacts(artifacts, cli.origin, cli.version);
-    return;
-  }
-
-  const started = Date.now();
-  const backtests: DistrictBacktest[] = [];
-  const skipped: { key: string; reason: string }[] = [];
-  for (const artifact of artifacts) {
-    const outcome = backtestDistrict(artifact, loadEventArtifacts(artifact));
-    if (outcome.ok) backtests.push(outcome.backtest);
-    else skipped.push({ key: artifact.districtKey, reason: outcome.reason });
-    if (!cli.json) process.stderr.write(`  ${artifact.districtKey} ${outcome.ok ? "done" : `skipped: ${outcome.reason}`}\n`);
-  }
-
-  const rows: PositionRow[] = [];
-  let settledCount = 0;
-  const fallbacks: { key: string; positionId: string; excluded: number }[] = [];
-  const noCalls: { key: string; positionId: string; reason: ChampNoCallReason }[] = [];
-  for (const backtest of backtests) {
-    for (const outcome of backtest.outcomes) {
-      if (outcome.kind === "scored") rows.push(outcome.row);
-      else if (outcome.kind === "settled") settledCount += 1;
-      else if (outcome.kind === "excludedFallback") fallbacks.push({ key: backtest.districtKey, positionId: outcome.positionId, excluded: outcome.excluded });
-      else noCalls.push({ key: backtest.districtKey, positionId: outcome.positionId, reason: outcome.reason });
-    }
-  }
-  const summary = summarize(rows);
-  const verdict = gateVerdict(summary);
-  const leakCounts = {
-    awardsFromFinalEventsOnly: rows.filter((row) => row.leaks.awardsFromFinalEventsOnly).length,
-    earnedNeverAhead: rows.filter((row) => row.leaks.earnedNeverAhead).length,
-    openEventsOpenInRows: rows.filter((row) => row.leaks.openEventsOpenInRows).length,
-  };
-  const leaksClean = Object.values(leakCounts).every((count) => count === rows.length);
-  const labels = [...new Set(rows.map((row) => row.label))].sort((a, b) => (a === "Season start" ? -1 : b === "Season start" ? 1 : a.localeCompare(b, undefined, { numeric: true })));
-  const seasons = [...new Set(rows.map((row) => row.year))].sort((a, b) => a - b);
-  const eventsWithoutArtifact = backtests.reduce((sum, backtest) => sum + backtest.eventsWithoutArtifact.length, 0);
-  const positionsWithUnpriced = rows.filter((row) => row.unpricedEvents > 0).length;
-
-  if (cli.json) {
-    console.log(
-      JSON.stringify(
-        {
-          summary,
-          verdict,
-          leakCounts,
-          byWeek: Object.fromEntries(labels.map((label) => [label, summarize(rows.filter((row) => row.label === label))])),
-          bySeason: Object.fromEntries(seasons.map((year) => [year, summarize(rows.filter((row) => row.year === year))])),
-          districts: backtests.length,
-          settledPositions: settledCount,
-          fallbacks,
-          noCalls,
-          skipped,
-          eventsWithoutArtifact,
-          positionsWithUnpriced,
-          rows,
-        },
-        null,
-        2
-      )
-    );
-    return;
-  }
-
-  console.log("");
-  console.log("DISTRICT CUTOFF BACKTEST: the District Locks simulated line at season start and after each week, walk-forward");
-  console.log(`  source: ${LOCAL_DISTRICT_DIR} and ${LOCAL_EVENT_DIR} (read-only, no network)`);
-  console.log(`  draws ${String(SIMULATION_DRAWS)}, seed ${String(DEFAULT_SIMULATION_SEED)}; ${String(backtests.length)} district seasons, ${String(rows.length)} scored positions, ${((Date.now() - started) / 1000).toFixed(0)} s`);
-  console.log("  target: the tab's own settled cutoff at season end (midpoint rule over the final rows); TBA's published DCMP cut line reported beside it, not scored");
-  console.log("");
-
-  if (cli.verbose) {
-    console.log("PER POSITION");
-    console.log("  district  position                      slots  settled  pub   sim (p10 to p90)    midpoint  open  unpriced");
-    for (const row of rows) {
-      console.log(
-        `  ${row.districtKey.padEnd(9)} ${row.positionId.padEnd(29)} ${pad(row.dcmpSlots, 5)} ${pad(row.settled, 8)} ${pad(num(row.published), 4)}  ${pad(row.simulated, 4)} (${pad(row.p10, 3)} to ${pad(row.p90, 3)})${row.coversSettled ? " " : "*"}  ${pad(row.midpoint, 8)}  ${pad(row.openEvents, 4)}  ${pad(row.unpricedEvents, 8)}`
-      );
-    }
-    console.log("  (* the printed range misses the settled cutoff)");
-    console.log("");
-  }
-
-  console.log("BY POSITION (what the gate pools)");
-  for (const label of labels) summaryLine(label, rows.filter((row) => row.label === label));
-  summaryLine("All positions", rows);
-  console.log("");
-
-  console.log("BY SEASON");
-  for (const year of seasons) summaryLine(String(year), rows.filter((row) => row.year === year));
-  console.log("");
-
-  console.log("POSITIONS NOT SCORED");
-  console.log(`  settled (nothing open, midpoint rule printed)        ${String(settledCount)}`);
-  console.log(`  excluded team fallback (midpoint, no likely range)   ${String(fallbacks.length)}${fallbacks.length === 0 ? "" : `  (${fallbacks.map((f) => `${f.key} ${f.positionId} x${String(f.excluded)}`).join(", ")})`}`);
-  const noCallSeasons = new Map<number, number>();
-  const noCallReasons = new Map<string, number>();
-  for (const call of noCalls) {
-    const year = Number(call.key.slice(0, 4));
-    noCallSeasons.set(year, (noCallSeasons.get(year) ?? 0) + 1);
-    noCallReasons.set(call.reason, (noCallReasons.get(call.reason) ?? 0) + 1);
-  }
-  console.log(
-    `  no call                                              ${String(noCalls.length)}${
-      noCalls.length === 0
-        ? ""
-        : `  by reason ${[...noCallReasons].map(([reason, count]) => `${reason} ${String(count)}`).join(", ")}; by season ${[...noCallSeasons]
-            .sort((a, b) => a[0] - b[0])
-            .map(([year, count]) => `${String(year)} ${String(count)}`)
-            .join(", ")}`
-    }`
-  );
-  console.log(`  district seasons skipped                             ${String(skipped.length)}`);
-  for (const skip of skipped) console.log(`    ${skip.key}: ${skip.reason}`);
-  console.log(`  district tier events with no artifact on disk        ${String(eventsWithoutArtifact)}; scored positions with an unpriced open event ${String(positionsWithUnpriced)}`);
-  console.log("");
-
-  console.log(`LEAK CHECKS (positions passing, of ${String(rows.length)})`);
-  console.log(`  award qualified only from award final events   ${String(leakCounts.awardsFromFinalEventsOnly)}`);
-  console.log(`  earned at position never above season final    ${String(leakCounts.earnedNeverAhead)}`);
-  console.log(`  open events open on every row                  ${String(leakCounts.openEventsOpenInRows)}`);
-  console.log("  known, bounded: alliance and playoff cells read each event artifact's publish time ratings (the retired stored odds path)");
-  console.log("");
-
-  console.log("GATE (registered before the run)");
-  for (const condition of verdict.conditions) console.log(`  ${String(condition.id)}. ${condition.pass ? "PASS" : "FAIL"}  ${condition.label}: ${condition.detail}`);
-  if (!leaksClean) console.log("  LEAK CHECK FAILED: a fact from after the position reached the rows");
-  console.log("");
-  console.log(verdict.go && leaksClean ? "GO" : "NO-GO");
+export async function main(): Promise<void> {
+  throw new Error("measure:district-cutoff: the offline origin cache is not wired yet (tracer commit)");
 }
 
 const isEntryPoint = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;

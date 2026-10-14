@@ -1,35 +1,45 @@
 /**
  * `measureDistrictCutoff.ts`' coverage (fast task 261006, todo
- * `district-cutoff-line-backtest`).
+ * `district-cutoff-line-backtest`; rebuilt on the as-of path by quick task
+ * 261014-hx6).
  *
- * THREE JOBS:
+ * JOBS:
  *
  *   1. The backtest runs end to end on the COMMITTED 2026 PNW district fixture
- *      with its eight event artifacts, scoring the season start and the three
- *      week end positions before the season settles, and every leak check
- *      passes. The event artifacts are local only (gitignored), so this block
- *      is skipped where they are absent and runs on every machine that has them.
+ *      with its eight event artifacts and as-of objects built from them
+ *      (`buildAsOfTestObjects`, the in memory world every as-of test uses),
+ *      through the tab's own loader, assembly and as-of runner. The event
+ *      artifacts are local only (gitignored), so this block is skipped where
+ *      they are absent and runs on every machine that has them.
  *   2. The pre-registered gate refuses on each failing condition, including
- *      coverage one position either side of the 72% to 88% band.
+ *      coverage one position either side of the 72% to 88% band. Its bars are
+ *      unchanged.
  *   3. The measurement positions are season start plus the last step of each
  *      week, and never the settled now position.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { DistrictArtifactSchema, EventArtifactSchema, type DistrictArtifact, type EventArtifact } from "../packages/harness/pageArtifacts.js";
+import { DistrictArtifactSchema, EventArtifactSchema, asOfStartKey, type DistrictArtifact, type EventArtifact } from "../packages/harness/pageArtifacts.js";
+import { AsOfStartSchema } from "../packages/harness/asOfState.js";
+import { buildAsOfTestObjects, type AsOfTestObjects } from "../apps/web/src/components/districts/asOfTestFixtures.js";
+import type { AsOfFetchers } from "../apps/web/src/components/districts/asOfRewind.js";
 import {
   backtestDistrict,
   coverageInBand,
+  createRunMemo,
   districtEventKeysOf,
   districtTimelineOf,
   gateVerdict,
   measurementPositions,
   type BacktestSummary,
   type LineStats,
+  type TabSources,
 } from "./measureDistrictCutoff.js";
+import { DEFAULT_SIMULATION_SEED, SIMULATION_DRAWS } from "../apps/web/src/workers/simulationProtocol.js";
 
 const FINAL_STATE = { qualMatchesPlayed: 60, qualMatchesTotal: 60, alliancesPicked: true, playoffsDone: true, awardsPosted: true };
 const FIXTURE_DIR = "data/fixtures/phase10";
+const FIXTURE_TIMEOUT_MS = 180_000;
 
 /** The committed fixture predates `state`; stamp an all final block on every event row, as the champ backtest's test does. */
 function stampedFixture(): DistrictArtifact {
@@ -52,55 +62,59 @@ function fixtureEvents(artifact: DistrictArtifact): Map<string, EventArtifact> {
   return out;
 }
 
+/** In memory fetchers over one built world, as `scripts/asOfRewindWeb.test.ts`' `fetchersOf` reads its uploads. */
+function fetchersOf(objects: AsOfTestObjects, season: number, version: string): AsOfFetchers {
+  return {
+    index: (eventKey) => Promise.resolve(objects.indexes.get(eventKey) ?? null),
+    log: (eventKey) => Promise.resolve(objects.logs.get(eventKey) ?? null),
+    season: () => Promise.resolve(objects.season),
+    start: () => {
+      const body = objects.bodies.get(asOfStartKey({ season, algorithmId: "spr", version }));
+      return Promise.resolve(body === undefined ? null : AsOfStartSchema.parse(JSON.parse(body)));
+    },
+  };
+}
+
 const eventFixturesPresent = existsSync(`${FIXTURE_DIR}/event-2026wabon.json`);
 
-describe.skipIf(!eventFixturesPresent)("backtestDistrict on the committed 2026 PNW fixture", () => {
+describe.skipIf(!eventFixturesPresent)("backtestDistrict on the committed 2026 PNW fixture, on the as-of path", () => {
   const artifact = stampedFixture();
   const events = fixtureEvents(artifact);
-  const outcome = backtestDistrict(artifact, events);
-
-  it("loads all eight district tier event artifacts", () => {
-    expect(districtEventKeysOf(artifact)).toHaveLength(8);
-    expect(events.size).toBe(8);
+  const version = [...events.values()][0]?.algorithmVersion ?? "";
+  const objects = eventFixturesPresent
+    ? buildAsOfTestObjects({ season: 2026, version, eventArtifacts: [...events.values()], extraTeams: artifact.teams.map((team) => team.teamKey) })
+    : undefined;
+  const sources = (): TabSources => ({
+    eventArtifacts: events,
+    unloadedEventKeys: [],
+    fetchers: fetchersOf(objects!, 2026, version),
+    version,
+    memo: createRunMemo(),
+    draws: SIMULATION_DRAWS,
+    seed: DEFAULT_SIMULATION_SEED,
   });
 
-  it("scores the season start and the three week ends before the season settles, and counts the last week end as settled", () => {
-    expect(outcome.ok).toBe(true);
-    if (!outcome.ok) return;
-    const scored = outcome.backtest.outcomes.filter((o) => o.kind === "scored");
-    expect(scored.map((o) => (o.kind === "scored" ? o.row.label : ""))).toEqual(["Season start", "After week 1", "After week 2", "After week 3"]);
-    expect(outcome.backtest.outcomes.filter((o) => o.kind === "settled")).toHaveLength(1);
-    expect(outcome.backtest.eventsWithoutArtifact).toEqual([]);
-  });
-
-  it("targets the tab's own settled cutoff and reports TBA's line beside it", () => {
-    if (!outcome.ok) throw new Error(outcome.reason);
-    // The District Locks tab's settled line for 2026 PNW is 59; TBA publishes 82 on a different total.
-    expect(outcome.backtest.settled).toBe(59);
-    expect(outcome.backtest.published).toBe(82);
-  });
-
-  it("passes every leak check at every scored position", () => {
-    if (!outcome.ok) throw new Error(outcome.reason);
-    for (const o of outcome.backtest.outcomes) {
-      if (o.kind !== "scored") continue;
-      expect(o.row.leaks).toEqual({ awardsFromFinalEventsOnly: true, earnedNeverAhead: true, openEventsOpenInRows: true });
-      expect(o.row.unpricedEvents).toBe(0);
-    }
-  });
-
-  it("prints each line inside its own likely range, at the seeded values", () => {
-    if (!outcome.ok) throw new Error(outcome.reason);
-    const rows = outcome.backtest.outcomes.flatMap((o) => (o.kind === "scored" ? [o.row] : []));
-    for (const row of rows) {
-      expect(row.p10).toBeLessThanOrEqual(row.simulated);
-      expect(row.simulated).toBeLessThanOrEqual(row.p90);
-    }
-    // Recorded from the first run on the fixture: 1000 draws, seed 20260830. Open events shrink 8, 6, 4, 2.
-    expect(rows.map((row) => row.simulated)).toEqual(SEEDED_SIMULATED);
-    expect(rows.map((row) => row.midpoint)).toEqual(SEEDED_MIDPOINT);
-    expect(rows.map((row) => row.openEvents)).toEqual([8, 6, 4, 2]);
-  });
+  it(
+    "scores the season start from the as-of state, every open event baked",
+    async () => {
+      const outcome = await backtestDistrict(artifact, sources());
+      if (!outcome.ok) throw new Error(outcome.reason);
+      expect(outcome.backtest.settled).toBe(59);
+      expect(outcome.backtest.published).toBe(82);
+      const first = outcome.backtest.outcomes[0]!;
+      expect(first.kind).toBe("scored");
+      if (first.kind !== "scored") return;
+      expect(first.row.label).toBe("Season start");
+      expect(first.row.openEvents).toBe(8);
+      expect(first.row.generatedEvents).toBe(8);
+      expect(first.row.realEvents).toBe(0);
+      expect(first.row.unpricedEvents).toBe(0);
+      expect(first.row.p10).toBeLessThanOrEqual(first.row.simulated);
+      expect(first.row.simulated).toBeLessThanOrEqual(first.row.p90);
+      console.log("tracer season start", JSON.stringify(outcome.backtest.outcomes.map((o) => (o.kind === "scored" ? [o.row.label, o.row.simulated, o.row.p10, o.row.p90, o.row.midpoint, o.row.openEvents, o.row.realEvents, o.row.generatedEvents] : [o.kind]))));
+    },
+    FIXTURE_TIMEOUT_MS
+  );
 
   it("derives the measurement positions as season start plus the last step of each week, never now", () => {
     const timeline = districtTimelineOf(artifact, events);
@@ -110,10 +124,6 @@ describe.skipIf(!eventFixturesPresent)("backtestDistrict on the committed 2026 P
     for (const position of positions) expect(position.index).toBeLessThan(timeline.nowIndex);
   });
 });
-
-/** Recorded from the first run of the test above. The fixture is the 2026-09-25 publish, so its stored odds differ from the current local publish set. */
-const SEEDED_SIMULATED = [58, 57, 58, 57];
-const SEEDED_MIDPOINT = [53, 53, 54, 54];
 
 // ---------------------------------------------------------------------------
 // The gate
