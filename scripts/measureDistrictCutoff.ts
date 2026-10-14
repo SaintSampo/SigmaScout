@@ -89,7 +89,17 @@
  *   - 2026-10-06 (after quick task 261007-4qr's short roster rule): 193
  *     positions over 45 seasons, 1.17 against 1.80, 171 of 193 (88.6%).
  *
- * MEASURED ON THE AS-OF PATH: (filled by quick task 261014-hx6 Task 3).
+ * MEASURED ON THE AS-OF PATH (quick task 261014-hx6, run 2026-10-14 at
+ * spr@11.0.0+baseline, 1,000 draws, seed 20260830, 48 result files): 205
+ * scored positions over 48 district seasons, 2023 to 2026. Simulated MAE 1.25
+ * against the midpoint rule's 2.43 (bias 0.20 and -0.62); the range held the
+ * settled cutoff at 183 of 205 (89.3%). Gate 1 PASS, gate 2 FAIL (above the
+ * band, as the retired run also was), overall NO-GO; the range is shown with
+ * its coverage quoted, the champ ruling. All seven leak checks passed at 205
+ * of 205. 1,194 GENERATED events and 0 REAL events at scored positions, none
+ * unavailable, no season skipped. 48 settled positions and 1 excluded team
+ * fallback (2024chs) were not scored, 0 no call. 1,197 bakes at a mean of
+ * 191 ms. Published on the District Locks methodology page, source 9.
  *
  * THE GATE, registered before the first full run:
  *

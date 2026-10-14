@@ -88,27 +88,40 @@
  *      curtailed events never read qualification final.
  *
  *   9. `pnpm measure:district-cutoff`
- *      (`npx tsx scripts/measureDistrictCutoff.ts`, fast task 261006, run
- *      2026-10-07 after quick task 261007-jvz's finality cascade, over the
- *      local publish set and the SPR 10.0.0 event
- *      artifacts) — the District Locks simulated line's error against the
- *      tab's own settled cutoff at season start and after each competition
- *      week, walk forward over 203 positions of 47 district seasons, 2023 to
- *      2026: 1.15 points against 1.77 for the midpoint rule at the same
- *      positions. Its likely range held the settled cutoff at 181 of 203
- *      positions, 89.2%, three positions above the pre-registered 72% to 88%
- *      band; the range is shown with that coverage quoted, the champ ruling.
- *      The run before it (261007-il9) read 193 positions of 45 seasons, 1.17
- *      against 1.80 and 171 of 193.
+ *      (`npx tsx scripts/measureDistrictCutoff.ts`, quick task 261014-hx6,
+ *      run 2026-10-14 on the as-of path at the SPR 11.0.0 event artifacts and
+ *      as-of objects: `loadAsOfRewind`, `assembleAsOfDistrictEvents` and
+ *      `runAsOfEvent`, the way the District Locks tab prices a rewound stop)
+ *      — the District Locks simulated line's error against the tab's own
+ *      settled cutoff at season start and after each competition week, walk
+ *      forward over 205 positions of 48 district seasons, 2023 to 2026: 1.25
+ *      points against 2.43 for the midpoint rule at the same positions (gate
+ *      line 1 passes). Its likely range held the settled cutoff at 183 of 205
+ *      positions, 89.3%, above the pre-registered 72% to 88% band (gate line 2
+ *      fails, overall NO-GO); the range is shown with that coverage quoted,
+ *      the champ ruling. Every one of the seven leak checks passed at 205 of
+ *      205 positions. The 1,194 events open at those positions were all
+ *      unstarted at the stop and priced by the bake; none read unavailable.
+ *      One position, 2024chs, used the midpoint rule with no range because a
+ *      team was left out of the runs.
+ *      HISTORY: the runs before it, 2026-10-07 (261007-jvz: 203 positions of 47
+ *      seasons, 1.15 against 1.77, 181 of 203, 89.2%) and 2026-10-06
+ *      (261007-il9: 193 positions of 45 seasons, 1.17 against 1.80, 171 of
+ *      193), priced open events with the odds and ratings stored after the
+ *      stop, so a week 5 event at season start was priced knowing weeks 1 to
+ *      4. Their figures are history and are not quoted on the page.
  *      Seasons before 2023 refuse (no playoff bracket model), as the tab does.
  *      Source 8's figures are the Champ Locks tab's alone, and the sentence
  *      carrying them names that tab.
  *
- * THE REWOUND VIEW AND THE CHAMPIONSHIP FIELD PARAGRAPHS CARRY NO MEASURED
- * FIGURE. Since quick task 261005-5g0 a rewound view is an as-of forecast, so
- * the closing open categories paragraph states that rule and no longer says
- * its predictions know more; how well a rewound stop predicts has not been
- * measured.
+ * THE REWOUND VIEW PARAGRAPH CARRIES NO MEASURED FIGURE, AND NEITHER DOES THE
+ * CHAMPIONSHIP FIELD PARAGRAPH. Since quick task 261005-5g0 a rewound view is
+ * an as-of forecast, so the closing open categories paragraph states that
+ * rule and no longer says its predictions know more. The District Locks
+ * cutoff sentence is measured at rewound stops (source 9), and only that line
+ * is: the chips and cells at a rewound stop have no figure of their own. The
+ * championship field paragraph has none either, because source 8 scores only
+ * the end of each district season.
  *
  * A figure that appears in none of those sources is not written here.
  *
@@ -221,7 +234,7 @@ export const DISTRICT_LEDGER_SECTIONS: readonly DistrictLedgerSection[] = [
       "The District Locks tab also prints a predicted cutoff. In each of the 1,000 runs the line is the season total of the last team inside the qualifying slots, taken over the same pool of teams still racing for points that the statuses use. The predicted cutoff is the median of that line across the runs, and the likely range beside it is the 10th to the 90th percentile of the same line.",
       "Teams whose median predicted total sits at or above the predicted cutoff are In range, and teams below it are Out of range. The dashed line on every grand total plot is drawn at the same number. Locked, Locked out and Prequalified are guarantees and never depend on the cutoff.",
       "Until the runs finish those two chips read Pending and no cutoff is printed. Where the runs fail or cannot be set up they read No call and no cutoff is printed.",
-      "At the season start and after each competition week of 47 district seasons, 2023 to 2026, predicted only from the matches already played, the simulated line missed the cutoff the season settled on by 1.2 points on average over 203 positions, against 1.8 for the midpoint rule at the same positions. Its likely range held the settled cutoff at 181 of those 203 positions, 89%, where a range this wide should hold about 80%. The settled cutoff is the one this tab prints once every team has finished, not the line The Blue Alliance publishes, which ranks a different total.",
+      "At the season start and after each competition week of 48 district seasons, 2023 to 2026, predicted only from the matches already played, the simulated line missed the cutoff the season settled on by 1.2 points on average over 205 positions, against 2.4 for the midpoint rule at the same positions. Its likely range held the settled cutoff at 183 of those 205 positions, 89%, where a range this wide should hold about 80%. The settled cutoff is the one this tab prints once every team has finished, not the line The Blue Alliance publishes, which ranks a different total.",
       "Once every team still racing for points has finished its season, nothing is drawn any more. The cutoff is then the midpoint of the last team inside the slots and the first team outside them, which is the midpoint rule. The midpoint rule also applies, with no likely range, where the runs left out a team whose season total could not be built, because they ranked a smaller field.",
       "The Champ Locks tab reads its predicted cutoff the same way, with one step added. In each run the District Championship winning alliance and its Impact, Engineering Inspiration and Rookie All Star winners are drawn and take their slots first, and the line is read from the teams left. Award winners come from that season's district winners of the same award, and each award's count starts from the number the district gave the season before.",
       "Teams at or above that line are In range and teams below it are Out of range. Until the runs finish those two chips read Pending, and where no line can be drawn they read No call. Once the District Championship awards are posted nothing is drawn any more, and the midpoint rule applies.",

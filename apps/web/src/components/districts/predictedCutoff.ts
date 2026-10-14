@@ -162,13 +162,15 @@ export type ChampNoCallReason =
  * later calibration round that changes the coverage must update that sentence.
  * The District Locks tab's likely range comes from the same estimator
  * (`simulatedLine`), is always shown, and does not read this flag. Its own
- * backtest (`scripts/measureDistrictCutoff.ts`, fast task 261006, run
- * 2026-10-07 after quick task 261007-jvz's finality cascade) measured the
- * range holding the tab's settled cutoff at 181 of 203 season start and week
- * end positions over 47 district seasons, 2023 to 2026, 89.2%, THREE positions
- * ABOVE the same 72% to 88% band, with the line's MAE 1.15 against the
- * midpoint rule's 1.77. It runs a little wide where the
- * champ range runs a little narrow; both are quoted on the Methodology page.
+ * backtest (`scripts/measureDistrictCutoff.ts`, quick task 261014-hx6, run
+ * 2026-10-14 on the as-of path, pricing each position from the state at its
+ * stop) measured the range holding the tab's settled cutoff at 183 of 205
+ * season start and week end positions over 48 district seasons, 2023 to 2026,
+ * 89.3%, ABOVE the same 72% to 88% band, with the line's MAE 1.25 against the
+ * midpoint rule's 2.43. History: the retired stored odds run of 2026-10-07
+ * read 181 of 203 (89.2%) and 1.15 against 1.77, and priced open events with
+ * odds from after the stop. It runs a little wide where the champ range runs
+ * a little narrow; both are quoted on the Methodology page.
  */
 export const SHOW_SIMULATED_CHAMP_LIKELY_RANGE = true;
 

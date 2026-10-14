@@ -161,15 +161,18 @@ const REQUIRED_FIGURES = [
   "49 of 69 seasons, 71%",
 
   // --- `pnpm measure:district-cutoff` -------------------------------------
-  // `npx tsx scripts/measureDistrictCutoff.ts`, run 2026-10-07 (quick task
-  // 261007-jvz, after its finality cascade; first run fast task 261006). Its
-  // All positions line: simulated MAE 1.2 and midpoint rule MAE 1.8 against
-  // the settled cutoff (gate line 1: 1.15 against midpoint MAE 1.77), n = 203
-  // positions over 47 district seasons; gate line 2 reads 181 of 203 (89.2%).
-  "47 district seasons",
-  "1.2 points on average over 203 positions",
-  "1.8 for the midpoint rule",
-  "181 of those 203 positions, 89%",
+  // `npx tsx scripts/measureDistrictCutoff.ts`, run 2026-10-14 (quick task
+  // 261014-hx6, on the as-of path at spr@11.0.0+baseline; the 2026-10-07
+  // stored odds run read 1.15 against 1.77 and 181 of 203, retired because it
+  // priced open events with odds from after the stop). Its All positions
+  // line: simulated MAE 1.2 and midpoint rule MAE 2.4 against the settled
+  // cutoff (gate line 1: 1.25 < 2.43, n = 205, PASS), n = 205 positions over
+  // 48 district seasons; gate line 2 reads 183 of 205 (89.3%), FAIL against
+  // the 72% to 88% band, overall NO-GO, range shown with coverage quoted.
+  "48 district seasons",
+  "1.2 points on average over 205 positions",
+  "2.4 for the midpoint rule",
+  "183 of those 205 positions, 89%",
 ];
 
 /**

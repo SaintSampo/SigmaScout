@@ -43,7 +43,15 @@
  * Chesapeake's champ tab read noCall there, because 2024mdsev carries a
  * `frc0` placeholder team.
  *
- * MEASURED ON THE AS-OF PATH: (filled by quick task 261014-hx6 Task 3).
+ * MEASURED ON THE AS-OF PATH (quick task 261014-hx6, run 2026-10-14 at
+ * spr@11.0.0+baseline, 48 result files, report only, never published).
+ * Pooled from summed counts: district tab 73.9% (2,338 of 3,165) In range at
+ * season start ended locked, points only 63.2% (2,000), 37 ties at the line,
+ * 790 not locked; champ tab 65.6% (582 of 887), points only 50.6% (449), 2
+ * ties at the line, 303 not locked; no prequalified on either tab. The champ
+ * side ran the simulated DCMP bake. Against the retired path (82.6% and
+ * 85.0%) the as-of numbers are lower on both tabs, as expected: that path
+ * priced open events with odds that already knew the weeks after the stop.
  */
 import { pathToFileURL } from "node:url";
 import type { DistrictArtifact } from "../packages/harness/pageArtifacts.js";
