@@ -41,7 +41,7 @@ A3, A4 and A5 passed for every candidate.
 
 The root cause behind all of it: the district model is a per team rate learned from earlier seasons, which cannot follow changes in the field or in FIRST's award list. The DCMP slate model (261014-i8i: a known count of each award per event, shared among eligible teams by measured lifts) is not exposed to that.
 
-## Saved work (outside the repo)
+## Saved work
 
 Patches in `patches/` beside this file: `mii-task2.patch` (W+L+F), `mii-task2b.patch` (+C), `mii-task2c.patch` (+S), `mii-task2d.patch` (L+F+C), plus the rookie and season award censuses. The BEFORE snapshot and score are in this directory.
 
