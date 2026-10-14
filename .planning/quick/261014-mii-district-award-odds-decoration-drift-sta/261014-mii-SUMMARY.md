@@ -43,7 +43,7 @@ The root cause behind all of it: the district model is a per team rate learned f
 
 ## Saved work (outside the repo)
 
-Patches and outputs in the session scratchpad: `mii-task2.patch` (W+L+F), `mii-task2b.patch` (+C), `mii-task2c.patch` (+S), `mii-task2d.patch` (L+F+C), each with an outputs folder, plus the rookie and season censuses. The BEFORE snapshot and score are in this directory.
+Patches in `patches/` beside this file: `mii-task2.patch` (W+L+F), `mii-task2b.patch` (+C), `mii-task2c.patch` (+S), `mii-task2d.patch` (L+F+C), plus the rookie and season award censuses. The BEFORE snapshot and score are in this directory.
 
 ## Follow ups
 

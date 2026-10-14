@@ -1,0 +1,2123 @@
+diff --git a/packages/core/districts/awardBaseRates.test.ts b/packages/core/districts/awardBaseRates.test.ts
+index 58e5245a..57bf3fa8 100644
+--- a/packages/core/districts/awardBaseRates.test.ts
++++ b/packages/core/districts/awardBaseRates.test.ts
+@@ -19,7 +19,6 @@ import {
+   DISTRICT_POINT_AWARD_VALUES,
+   highestSingleAwardPoints,
+   MIN_CELL_OBSERVATIONS,
+-  NON_JUDGED_AWARD_TYPES,
+   ROOKIE_STATES,
+   rookieStateFor,
+   UnknownAwardBaseRateSeasonError,
+@@ -42,12 +41,6 @@ describe("decorationBucket", () => {
+   });
+ });
+ 
+-describe("NON_JUDGED_AWARD_TYPES", () => {
+-  it("is exactly {1, 2, 14}, asserted by set equality so an addition or removal fails loudly", () => {
+-    expect([...NON_JUDGED_AWARD_TYPES].sort((a, b) => a - b)).toEqual([1, 2, 14]);
+-  });
+-});
+-
+ describe("DISTRICT_POINT_AWARD_VALUES (quick task 261014-mii, M-01)", () => {
+   it("is exactly the M-01 map, asserted by equality on its sorted entries", () => {
+     expect([...DISTRICT_POINT_AWARD_VALUES].sort((a, b) => a[0] - b[0])).toEqual([
+@@ -135,8 +128,20 @@ describe("rookieStateFor", () => {
+ });
+ 
+ describe("every registered table is a well-formed pmf, across every season and every cell", () => {
+-  it("registers at least one season", () => {
+-    expect(DISTRICT_AWARD_BASE_RATE_SEASONS.length).toBeGreaterThan(0);
++  it("registers exactly 2019, 2020 and 2022 to 2026, pinned by equality so a lost or added season fails loudly", () => {
++    expect([...DISTRICT_AWARD_BASE_RATE_SEASONS]).toEqual([2019, 2020, 2022, 2023, 2024, 2025, 2026]);
++  });
++
++  it("carries NO stacked mass: every pmf at every rung is exactly 0 at 13 and 15+, so 10 means Impact alone (M-06)", () => {
++    for (const season of DISTRICT_AWARD_BASE_RATE_SEASONS) {
++      for (const bucket of DECORATION_BUCKETS) {
++        for (const state of ROOKIE_STATES) {
++          const result = awardBaseRate(season, bucket, state);
++          expect(result.pmf[4], `${season} ${cellKey(bucket, state)} at 13`).toBe(0);
++          expect(result.pmf[5], `${season} ${cellKey(bucket, state)} at 15+`).toBe(0);
++        }
++      }
++    }
+   });
+ 
+   it("sums to 1 within 1e-9, has the support's length, and every entry is finite and in [0, 1]", () => {
+diff --git a/packages/core/districts/awardBaseRates.ts b/packages/core/districts/awardBaseRates.ts
+index f36654c5..4e884f1a 100644
+--- a/packages/core/districts/awardBaseRates.ts
++++ b/packages/core/districts/awardBaseRates.ts
+@@ -4,10 +4,22 @@
+  * by how decorated the team already was and whether it is a rookie.
+  *
+  * 10-CONTEXT.md's "Awards (Jacob): base rates by decoration bucket" is the
+- * authority: per-season, walk-forward, buckets of prior judged awards (none /
++ * authority: per-season, walk-forward, buckets of prior decorations (none /
+  * one or two / three or more) crossed with rookie status, the chance of any
+  * award points plus the distribution over 0/5/8/10/13/15+, pinned by a test.
+  *
++ * WHAT A DECORATION IS (quick task 261014-mii): a win of one of the team
++ * awards that pay district points (`DISTRICT_POINT_AWARD_VALUES`, decision
++ * M-01), distinct per (season, event, type), in any corpus season before the
++ * priced season. Before 261014-mii it was every award type except Winner,
++ * Finalist and Highest Rookie Seed, over the same seasons.
++ *
++ * WHAT AN OUTCOME IS (decision M-06): a team event's HIGHEST SINGLE award,
++ * read from its award rows (`highestSingleAwardPoints`), never the summed
++ * `award_points`. Two 5 point awards measure 5, so the 10 point bin is Impact
++ * alone and the 13 and 15+ bins are empty by construction. The support keeps
++ * its six bins so the wire shape is unchanged.
++ *
+  * 10-04 draws the award category from `awardBaseRate` inside a Web Worker and
+  * 10-06 bakes the same lookup's output. NEITHER restates a rate and neither
+  * recomputes one from the corpus. Zero runtime imports and no I/O, for exactly
+@@ -22,7 +34,7 @@
+  *     npx tsx scripts/measureDistrictAwardBaseRates.ts
+  *     pnpm measure:district-award-base-rates
+  *
+- * run on 2026-09-25. They are not hand-typed and not remembered. The
++ * run on 2026-10-14. They are not hand-typed and not remembered. The
+  * corpus-guarded describe in `scripts/measureDistrictAwardBaseRates.test.ts`
+  * re-measures every registered season and asserts each pmf within 1e-6 and each
+  * `n` exactly, so an ingest or a rule change turns that test red rather than
+@@ -32,9 +44,10 @@
+  * WALK-FORWARD IN BOTH HALVES
+  * ---------------------------------------------------------------------------
+  *
+- * A team's decoration bucket at a season-Y event counts only judged awards from
+- * seasons strictly before Y, AND the rates registered for season Y are fit only
+- * on team-events from seasons strictly before Y. Both halves are pinned by
++ * A team's decoration bucket at a season-Y event counts only point paying team
++ * awards from seasons strictly before Y, AND the rates registered for season Y
++ * are fit only on team-events from seasons strictly before Y. Both halves are
++ * pinned by
+  * their own leak test, on fixtures chosen so a leak CHANGES the answer. One
+  * leak test covering only the feature half would leave the larger half — the
+  * table itself, which is the thing that ships — unproven.
+@@ -71,7 +84,7 @@
+  * guarantee. This table prices a blue cell; it never moves a status.
+  */
+ 
+-/** How decorated a team already was, by its count of prior judged awards. */
++/** How decorated a team already was, by its count of prior point paying team awards. */
+ export type DecorationBucket = "none" | "one-or-two" | "three-or-more";
+ 
+ /** The three buckets in print order. */
+@@ -87,22 +100,6 @@ export type RookieState = "rookie" | "veteran" | "unknown";
+ /** The three rookie states in print order. */
+ export const ROOKIE_STATES: readonly RookieState[] = ["rookie", "veteran", "unknown"];
+ 
+-/**
+- * Award types that are NOT judged awards and therefore never count toward a
+- * team's decoration bucket:
+- *
+- *   1  Winner              — won on the field, not before a judge.
+- *   2  Finalist            — likewise. Both are already named
+- *                            `REFERENCE_ONLY_AWARD_TYPES` upstream in
+- *                            `scripts/measureAwardPredictability.ts`.
+- *  14  Highest Rookie Seed — earned by qualification seeding, a ranking
+- *                            outcome rather than a judged one.
+- *
+- * Asserted by SET EQUALITY in the test, so an addition or a removal fails
+- * loudly rather than quietly shifting a third of the population's bucket.
+- */
+-export const NON_JUDGED_AWARD_TYPES: ReadonlySet<number> = new Set([1, 2, 14]);
+-
+ /**
+  * THE DISTRICT POINT AWARDS (quick task 261014-mii, decision M-01): every TEAM
+  * award that pays district points at a district event, mapped to the points it
+@@ -257,7 +254,7 @@ export function cellKey(bucket: DecorationBucket, rookieState: RookieState): str
+ }
+ 
+ /**
+- * Prior judged awards to decoration bucket. The two boundaries (0 to 1 and 2 to
++ * A decoration count to its bucket. The two boundaries (0 to 1 and 2 to
+  * 3) are asserted explicitly in the test, because an off-by-one there silently
+  * relabels a third of the population.
+  */
+@@ -300,101 +297,101 @@ export function awardPointsBucketIndex(points: number): number | undefined {
+ const DISTRICT_AWARD_BASE_RATES: Readonly<Record<number, SeasonAwardBaseRates>> = {
+   2019: {
+     cells: {
+-      "none|rookie": { n: 847, pmf: [0.5371900826446281, 0.2585596221959858, 0.20070838252656434, 0.0023612750885478157, 0.0011806375442739079, 0] },
+-      "none|veteran": { n: 4307, pmf: [0.7534246575342466, 0.20664035291386115, 0.013930810308799628, 0.022985837009519387, 0.0018574413745066172, 0.0011609008590666356] },
+-      "one-or-two|veteran": { n: 1847, pmf: [0.6247969680563076, 0.3194369247428262, 0.023280996210070383, 0.028695181375203032, 0.0027070925825663237, 0.0010828370330265296] },
+-      "three-or-more|veteran": { n: 1213, pmf: [0.28606760098928274, 0.4971145919208574, 0.07089859851607584, 0.12448474855729597, 0.010717230008244023, 0.010717230008244023] },
++      "none|rookie": { n: 847, pmf: [0.5371900826446281, 0.26092089728453366, 0.20188902007083825, 0, 0, 0] },
++      "none|veteran": { n: 4339, pmf: [0.751555657985711, 0.21687024660059923, 0.016824153030652225, 0.014749942383037565, 0, 0] },
++      "one-or-two|veteran": { n: 1875, pmf: [0.6197333333333334, 0.3370666666666667, 0.024, 0.0192, 0, 0] },
++      "three-or-more|veteran": { n: 1153, pmf: [0.28013876843018215, 0.5377276669557676, 0.08412836079791847, 0.09800520381613183, 0, 0] },
+     },
+     bucketPooled: {
+-      "none": { n: 5154, pmf: [0.7178890182382616, 0.21517268141249515, 0.0446255335661622, 0.01959642995731471, 0.0017462165308498253, 0.0009701202949165697] },
+-      "one-or-two": { n: 1847, pmf: [0.6247969680563076, 0.3194369247428262, 0.023280996210070383, 0.028695181375203032, 0.0027070925825663237, 0.0010828370330265296] },
+-      "three-or-more": { n: 1213, pmf: [0.28606760098928274, 0.4971145919208574, 0.07089859851607584, 0.12448474855729597, 0.010717230008244023, 0.010717230008244023] },
++      "none": { n: 5186, pmf: [0.7165445430003856, 0.22406478981874278, 0.047049749325106055, 0.012340917855765523, 0, 0] },
++      "one-or-two": { n: 1875, pmf: [0.6197333333333334, 0.3370666666666667, 0.024, 0.0192, 0, 0] },
++      "three-or-more": { n: 1153, pmf: [0.28013876843018215, 0.5377276669557676, 0.08412836079791847, 0.09800520381613183, 0, 0] },
+     },
+-    seasonPooled: { n: 8214, pmf: [0.6331872412953494, 0.28025322619917215, 0.04370586803019236, 0.03713172632091551, 0.003287070854638422, 0.0024348672997321647] },
++    seasonPooled: { n: 8214, pmf: [0.6331872412953494, 0.2938884830776723, 0.046992938884830776, 0.025931336742147554, 0, 0] },
+   },
+   2020: {
+     cells: {
+-      "none|rookie": { n: 1153, pmf: [0.5099739809193409, 0.27580225498699046, 0.21075455333911536, 0.0017346053772766695, 0.0017346053772766695, 0] },
+-      "none|veteran": { n: 5235, pmf: [0.776313276026743, 0.19063992359121298, 0.011461318051575931, 0.019102196752626553, 0.0015281757402101242, 0.0009551098376313276] },
+-      "one-or-two|veteran": { n: 2882, pmf: [0.6616932685634975, 0.2904233171408744, 0.021859819569743234, 0.022900763358778626, 0.002081887578070784, 0.001040943789035392] },
+-      "three-or-more|veteran": { n: 2463, pmf: [0.30004060089321966, 0.5140073081607796, 0.061713357693869264, 0.10840438489646773, 0.008120178643930167, 0.007714169711733658] },
++      "none|rookie": { n: 1153, pmf: [0.5099739809193409, 0.2775368603642671, 0.212489158716392, 0, 0, 0] },
++      "none|veteran": { n: 5303, pmf: [0.7744672826701867, 0.19969828399019424, 0.013765792947388271, 0.012068640392230812, 0, 0] },
++      "one-or-two|veteran": { n: 2906, pmf: [0.653819683413627, 0.3083275980729525, 0.02339986235375086, 0.014452856159669649, 0, 0] },
++      "three-or-more|veteran": { n: 2371, pmf: [0.29649936735554616, 0.5470265710670603, 0.07085617882749895, 0.08561788274989456, 0, 0] },
+     },
+     bucketPooled: {
+-      "none": { n: 6388, pmf: [0.728240450845335, 0.20601127113337508, 0.04743268628678773, 0.015967438948027553, 0.0015654351909830933, 0.0007827175954915466] },
+-      "one-or-two": { n: 2882, pmf: [0.6616932685634975, 0.2904233171408744, 0.021859819569743234, 0.022900763358778626, 0.002081887578070784, 0.001040943789035392] },
+-      "three-or-more": { n: 2463, pmf: [0.30004060089321966, 0.5140073081607796, 0.061713357693869264, 0.10840438489646773, 0.008120178643930167, 0.007714169711733658] },
++      "none": { n: 6456, pmf: [0.7272304832713755, 0.2135997521685254, 0.04925650557620818, 0.009913258983890954, 0, 0] },
++      "one-or-two": { n: 2906, pmf: [0.653819683413627, 0.3083275980729525, 0.02339986235375086, 0.014452856159669649, 0, 0] },
++      "three-or-more": { n: 2371, pmf: [0.29649936735554616, 0.5470265710670603, 0.07085617882749895, 0.08561788274989456, 0, 0] },
+     },
+-    seasonPooled: { n: 11733, pmf: [0.6220063069973579, 0.2914003238728373, 0.0441489815051564, 0.037074916901048326, 0.003068268984914344, 0.002301201738685758] },
++    seasonPooled: { n: 11733, pmf: [0.6220063069973579, 0.30444046705872324, 0.04721725049007074, 0.02633597545384812, 0, 0] },
+   },
+   2022: {
+     cells: {
+-      "none|rookie": { n: 1227, pmf: [0.4979625101874491, 0.2787286063569682, 0.2200488997555012, 0.0016299918500407497, 0.0016299918500407497, 0] },
+-      "none|veteran": { n: 5487, pmf: [0.7811190085657007, 0.1871696737743758, 0.010934937124111536, 0.018407144158921085, 0.001457991616548205, 0.000911244760342628] },
+-      "one-or-two|veteran": { n: 3191, pmf: [0.6684424945158257, 0.28705734879348166, 0.02005640864932623, 0.02162331557505484, 0.001880288310874334, 0.000940144155437167] },
+-      "three-or-more|veteran": { n: 3096, pmf: [0.30749354005167956, 0.49547803617571057, 0.05910852713178295, 0.12403100775193798, 0.007428940568475452, 0.006459948320413436] },
++      "none|rookie": { n: 1227, pmf: [0.4979625101874491, 0.280358598207009, 0.22167889160554197, 0, 0, 0] },
++      "none|veteran": { n: 5563, pmf: [0.7788962789861585, 0.1962969620708251, 0.013122415962610103, 0.011684342980406255, 0, 0] },
++      "one-or-two|veteran": { n: 3221, pmf: [0.6612853151195281, 0.30363241229431853, 0.021421918658801616, 0.013660353927351754, 0, 0] },
++      "three-or-more|veteran": { n: 2990, pmf: [0.3036789297658863, 0.5260869565217391, 0.06755852842809365, 0.10267558528428093, 0, 0] },
+     },
+     bucketPooled: {
+-      "none": { n: 6714, pmf: [0.7293714626154304, 0.20390229371462615, 0.049151027703306524, 0.015341078343759309, 0.0014894250819183796, 0.0007447125409591898] },
+-      "one-or-two": { n: 3191, pmf: [0.6684424945158257, 0.28705734879348166, 0.02005640864932623, 0.02162331557505484, 0.001880288310874334, 0.000940144155437167] },
+-      "three-or-more": { n: 3096, pmf: [0.30749354005167956, 0.49547803617571057, 0.05910852713178295, 0.12403100775193798, 0.007428940568475452, 0.006459948320413436] },
++      "none": { n: 6790, pmf: [0.7281296023564064, 0.21148748159057437, 0.0508100147275405, 0.009572901325478646, 0, 0] },
++      "one-or-two": { n: 3221, pmf: [0.6612853151195281, 0.30363241229431853, 0.021421918658801616, 0.013660353927351754, 0, 0] },
++      "three-or-more": { n: 2990, pmf: [0.3036789297658863, 0.5260869565217391, 0.06755852842809365, 0.10267558528428093, 0, 0] },
+     },
+-    seasonPooled: { n: 13001, pmf: [0.6139527728636259, 0.29374663487424046, 0.044381201446042615, 0.042765941081455275, 0.0029997692485193446, 0.0021536804861164525] },
++    seasonPooled: { n: 13001, pmf: [0.6139527728636259, 0.3066687177909392, 0.04738097069456196, 0.03199753865087301, 0, 0] },
+   },
+   2023: {
+     cells: {
+-      "none|rookie": { n: 1335, pmf: [0.4891385767790262, 0.2846441947565543, 0.22322097378277153, 0.00149812734082397, 0.00149812734082397, 0] },
+-      "none|veteran": { n: 6073, pmf: [0.7828091552774576, 0.18491684505186892, 0.013173061090070805, 0.016795652889840276, 0.0014819693726329656, 0.0008233163181294253] },
+-      "one-or-two|veteran": { n: 3907, pmf: [0.6915792167903763, 0.2700281545943179, 0.01817251087791144, 0.01791656002047607, 0.0015357051446122344, 0.0007678525723061172] },
+-      "three-or-more|veteran": { n: 4540, pmf: [0.3433920704845815, 0.48744493392070487, 0.05726872246696035, 0.10242290748898679, 0.005066079295154185, 0.004405286343612335] },
++      "none|rookie": { n: 1335, pmf: [0.4891385767790262, 0.2861423220973783, 0.2247191011235955, 0, 0, 0] },
++      "none|veteran": { n: 6161, pmf: [0.7807174160038954, 0.19331277390034085, 0.015257263431261159, 0.010712546664502515, 0, 0] },
++      "one-or-two|veteran": { n: 3959, pmf: [0.6845162919929275, 0.284667845415509, 0.01919676686031826, 0.011619095731245263, 0, 0] },
++      "three-or-more|veteran": { n: 4400, pmf: [0.3397727272727273, 0.5088636363636364, 0.06340909090909091, 0.08795454545454545, 0, 0] },
+     },
+     bucketPooled: {
+-      "none": { n: 7408, pmf: [0.7298866090712743, 0.20288876889848811, 0.05102591792656588, 0.014038876889848811, 0.0014848812095032398, 0.0006749460043196544] },
+-      "one-or-two": { n: 3907, pmf: [0.6915792167903763, 0.2700281545943179, 0.01817251087791144, 0.01791656002047607, 0.0015357051446122344, 0.0007678525723061172] },
+-      "three-or-more": { n: 4540, pmf: [0.3433920704845815, 0.48744493392070487, 0.05726872246696035, 0.10242290748898679, 0.005066079295154185, 0.004405286343612335] },
++      "none": { n: 7496, pmf: [0.7287886872998933, 0.2098452508004269, 0.05256136606189968, 0.008804695837780149, 0, 0] },
++      "one-or-two": { n: 3959, pmf: [0.6845162919929275, 0.284667845415509, 0.01919676686031826, 0.011619095731245263, 0, 0] },
++      "three-or-more": { n: 4400, pmf: [0.3397727272727273, 0.5088636363636364, 0.06340909090909091, 0.08795454545454545, 0, 0] },
+     },
+-    seasonPooled: { n: 15855, pmf: [0.6097760958688111, 0.3009145380006307, 0.04471775465152949, 0.04030274361400189, 0.002522863450015768, 0.0017660044150110375] },
++    seasonPooled: { n: 15855, pmf: [0.6097760958688111, 0.3115105644906969, 0.047240618101545256, 0.0314727215389467, 0, 0] },
+   },
+   2024: {
+     cells: {
+-      "none|rookie": { n: 1538, pmf: [0.46749024707412223, 0.29453836150845253, 0.235370611183355, 0.0013003901170351106, 0.0013003901170351106, 0] },
+-      "none|veteran": { n: 6540, pmf: [0.7920489296636085, 0.1779816513761468, 0.012232415902140673, 0.015596330275229359, 0.0013761467889908258, 0.0007645259938837921] },
+-      "one-or-two|veteran": { n: 4725, pmf: [0.7134391534391534, 0.2529100529100529, 0.01650793650793651, 0.015238095238095238, 0.0012698412698412698, 0.0006349206349206349] },
+-      "three-or-more|veteran": { n: 6198, pmf: [0.36027750887383025, 0.48806066473055826, 0.055340432397547594, 0.08938367215230719, 0.0037108744756373024, 0.003226847370119393] },
++      "none|rookie": { n: 1538, pmf: [0.46749024707412223, 0.2958387516254877, 0.23667100130039012, 0, 0, 0] },
++      "none|veteran": { n: 6636, pmf: [0.7899336949969862, 0.1859553948161543, 0.014165159734779989, 0.009945750452079566, 0, 0] },
++      "one-or-two|veteran": { n: 4787, pmf: [0.7062878629621893, 0.26613745560894086, 0.017547524545644455, 0.010027156883225401, 0, 0] },
++      "three-or-more|veteran": { n: 6040, pmf: [0.3577814569536424, 0.5036423841059603, 0.0597682119205298, 0.07880794701986756, 0, 0] },
+     },
+     bucketPooled: {
+-      "none": { n: 8078, pmf: [0.730255013617232, 0.2001733102253033, 0.05471651398861104, 0.012874473879673186, 0.001361723198811587, 0.0006189650903689032] },
+-      "one-or-two": { n: 4725, pmf: [0.7134391534391534, 0.2529100529100529, 0.01650793650793651, 0.015238095238095238, 0.0012698412698412698, 0.0006349206349206349] },
+-      "three-or-more": { n: 6198, pmf: [0.36027750887383025, 0.48806066473055826, 0.055340432397547594, 0.08938367215230719, 0.0037108744756373024, 0.003226847370119393] },
++      "none": { n: 8174, pmf: [0.7292635184732077, 0.20663078052361145, 0.05603131881575728, 0.008074382187423538, 0, 0] },
++      "one-or-two": { n: 4787, pmf: [0.7062878629621893, 0.26613745560894086, 0.017547524545644455, 0.010027156883225401, 0, 0] },
++      "three-or-more": { n: 6040, pmf: [0.3577814569536424, 0.5036423841059603, 0.0597682119205298, 0.07880794701986756, 0, 0] },
+     },
+-    seasonPooled: { n: 19001, pmf: [0.6053891900426294, 0.3071943581916741, 0.045418662175674966, 0.03841903057733803, 0.002105152360402084, 0.0014736066522814588] },
++    seasonPooled: { n: 19001, pmf: [0.6053891900426294, 0.31603599810536287, 0.04752381453607705, 0.03105099731593074, 0, 0] },
+   },
+   2025: {
+     cells: {
+-      "none|rookie": { n: 1798, pmf: [0.46273637374860954, 0.2953281423804227, 0.2397107897664071, 0.0011123470522803114, 0.0011123470522803114, 0] },
+-      "none|veteran": { n: 6947, pmf: [0.7976104793436015, 0.17417590326759752, 0.01151576219951058, 0.01468259680437599, 0.0012955232474449402, 0.0007197351374694113] },
+-      "one-or-two|veteran": { n: 5524, pmf: [0.7304489500362057, 0.23986241853729182, 0.01448225923244026, 0.013577118030412744, 0.0010861694424330196, 0.0005430847212165098] },
+-      "three-or-more|veteran": { n: 8053, pmf: [0.37563640879175464, 0.4842915683596175, 0.05438966844654166, 0.08034272941760834, 0.0028560784800695394, 0.002483546504408295] },
++      "none|rookie": { n: 1798, pmf: [0.46273637374860954, 0.296440489432703, 0.24082313681868742, 0, 0, 0] },
++      "none|veteran": { n: 7051, pmf: [0.7956318252730109, 0.18167635796340945, 0.013331442348603034, 0.0093603744149766, 0, 0] },
++      "one-or-two|veteran": { n: 5602, pmf: [0.7240271331667262, 0.2515173152445555, 0.01535166012138522, 0.009103891467333095, 0, 0] },
++      "three-or-more|veteran": { n: 7871, pmf: [0.3728878160335408, 0.4968873078389023, 0.05793418879430822, 0.07229068733324863, 0, 0] },
+     },
+     bucketPooled: {
+-      "none": { n: 8745, pmf: [0.728759291023442, 0.19908519153802173, 0.058433390508862204, 0.011892510005717553, 0.0012578616352201257, 0.0005717552887364208] },
+-      "one-or-two": { n: 5524, pmf: [0.7304489500362057, 0.23986241853729182, 0.01448225923244026, 0.013577118030412744, 0.0010861694424330196, 0.0005430847212165098] },
+-      "three-or-more": { n: 8053, pmf: [0.37563640879175464, 0.4842915683596175, 0.05438966844654166, 0.08034272941760834, 0.0028560784800695394, 0.002483546504408295] },
++      "none": { n: 8849, pmf: [0.7279918634873997, 0.20499491467962483, 0.05955475194937281, 0.007458469883602667, 0, 0] },
++      "one-or-two": { n: 5602, pmf: [0.7240271331667262, 0.2515173152445555, 0.01535166012138522, 0.009103891467333095, 0, 0] },
++      "three-or-more": { n: 7871, pmf: [0.3728878160335408, 0.4968873078389023, 0.05793418879430822, 0.07229068733324863, 0, 0] },
+     },
+-    seasonPooled: { n: 22322, pmf: [0.6017829943553445, 0.3120688110384374, 0.046098019890690796, 0.03700385270137085, 0.0017919541259743751, 0.0012543678881820626] },
++    seasonPooled: { n: 22322, pmf: [0.6017829943553445, 0.3195950183675298, 0.04788997401666517, 0.03073201326046053, 0, 0] },
+   },
+   2026: {
+     cells: {
+-      "none|rookie": { n: 2042, pmf: [0.4764936336924584, 0.2713026444662096, 0.25024485798237023, 0.0009794319294809011, 0.0009794319294809011, 0] },
+-      "none|veteran": { n: 7335, pmf: [0.8009543285616906, 0.1721881390593047, 0.011042944785276074, 0.013905930470347648, 0.001226993865030675, 0.0006816632583503749] },
+-      "one-or-two|veteran": { n: 6349, pmf: [0.7393290281934163, 0.23421011182863444, 0.012915419751141912, 0.012127894156560088, 0.0009450307134981887, 0.00047251535674909436] },
+-      "three-or-more|veteran": { n: 10060, pmf: [0.384493041749503, 0.48389662027833, 0.05328031809145129, 0.07405566600397614, 0.0022862823061630217, 0.0019880715705765406] },
++      "none|rookie": { n: 2042, pmf: [0.4764936336924584, 0.2722820763956905, 0.25122428991185114, 0, 0, 0] },
++      "none|veteran": { n: 7449, pmf: [0.7987649348905893, 0.1796214256947241, 0.012753389716740502, 0.008860249697946033, 0, 0] },
++      "one-or-two|veteran": { n: 6440, pmf: [0.7343167701863355, 0.24378881987577639, 0.013664596273291925, 0.008229813664596273, 0, 0] },
++      "three-or-more|veteran": { n: 9855, pmf: [0.3813292744799594, 0.4947742262810756, 0.05621511922881786, 0.06768138001014713, 0, 0] },
+     },
+     bucketPooled: {
+-      "none": { n: 9377, pmf: [0.7302975365255412, 0.1937719953076677, 0.06313319825103977, 0.011090967260317799, 0.0011730830756105364, 0.0005332195798229711] },
+-      "one-or-two": { n: 6349, pmf: [0.7393290281934163, 0.23421011182863444, 0.012915419751141912, 0.012127894156560088, 0.0009450307134981887, 0.00047251535674909436] },
+-      "three-or-more": { n: 10060, pmf: [0.384493041749503, 0.48389662027833, 0.05328031809145129, 0.07405566600397614, 0.0022862823061630217, 0.0019880715705765406] },
++      "none": { n: 9491, pmf: [0.7294278790433042, 0.1995574755031082, 0.06406068907385945, 0.006953956379728164, 0, 0] },
++      "one-or-two": { n: 6440, pmf: [0.7343167701863355, 0.24378881987577639, 0.013664596273291925, 0.008229813664596273, 0, 0] },
++      "three-or-more": { n: 9855, pmf: [0.3813292744799594, 0.4947742262810756, 0.05621511922881786, 0.06768138001014713, 0, 0] },
+     },
+-    seasonPooled: { n: 25786, pmf: [0.5976111068021407, 0.3169161560536725, 0.046924687815093465, 0.03591095943535252, 0.001551229349259288, 0.0010858605444815017] },
++    seasonPooled: { n: 25786, pmf: [0.5976111068021407, 0.32343131932056157, 0.04847591716435275, 0.030481656712945008, 0, 0] },
+   },
+ };
+ 
+diff --git a/packages/core/districts/awardOrderingTables.test.ts b/packages/core/districts/awardOrderingTables.test.ts
+index eace273a..7d4bc744 100644
+--- a/packages/core/districts/awardOrderingTables.test.ts
++++ b/packages/core/districts/awardOrderingTables.test.ts
+@@ -7,7 +7,14 @@
+  * What is asserted here is the SHAPE and the CONTRACT: the ordering rule, the
+  * stated fallback, the refusal for an unregistered season, and the two
+  * structural properties of every committed table (a pmf that sums to one, a
+- * residual that is genuinely lighter than the base rate it was carved out of).
++ * residual whose mean sits below the base rate's).
++ *
++ * The residual is the CONDITIONAL law over team events that won neither Impact
++ * nor Rookie All Star, so the exact identity that ties it to the base rate,
++ * E[points] = 10 P(I) + 8 P(not I, R) + P(not I, not R) E[res | not I, not R],
++ * needs each cell's Impact and Rookie All Star counts, which no committed
++ * table carries. It is asserted on the training rows in
++ * `scripts/measureAwardOrderingTables.test.ts` instead.
+  */
+ import { describe, expect, it } from "vitest";
+ import {
+@@ -140,6 +147,8 @@ describe("the Impact ordering rule (260929-imp)", () => {
+ describe("the registered seasons", () => {
+   it("registers exactly the seasons the base-rate table registers — a hole on either side is a season priced two ways", () => {
+     expect([...AWARD_ORDERING_SEASONS]).toEqual([...DISTRICT_AWARD_BASE_RATE_SEASONS]);
++    // Pinned by equality, so a lost or added season fails loudly.
++    expect([...AWARD_ORDERING_SEASONS]).toEqual([2019, 2020, 2022, 2023, 2024, 2025, 2026]);
+   });
+ 
+   it("reports whether it can price a season, and REFUSES the ones it cannot rather than guessing", () => {
+@@ -219,7 +228,7 @@ describe("every committed table", () => {
+   });
+ });
+ 
+-describe("the decomposition really removed mass", () => {
++describe("the residual sits below the base rate", () => {
+   /** Cells the base-rate table scores directly, so the two means describe the same population. */
+   const SCORED_CELLS: readonly (readonly [DecorationBucket, RookieState])[] = [
+     ["none", "rookie"],
+@@ -228,21 +237,23 @@ describe("the decomposition really removed mass", () => {
+     ["three-or-more", "veteran"],
+   ];
+ 
+-  it("every residual cell is strictly LIGHTER than the base-rate cell it was carved out of", () => {
++  it("every residual cell is strictly LIGHTER than the base-rate cell of the same (bucket, rookie state)", () => {
+     for (const season of AWARD_ORDERING_SEASONS) {
+       for (const [bucket, state] of SCORED_CELLS) {
+         const base = meanSupportPoints(awardBaseRate(season, bucket, state).pmf);
+         const residual = meanSupportPoints(awardResidualRate(season, bucket, state).pmf);
+-        // Layering the two Bernoulli draws on an UNREDUCED base rate is the
+-        // double count this whole decomposition exists to prevent, and a
+-        // residual that is not lighter is exactly what that mistake looks like.
++        // The residual is E[res | won neither Impact nor Rookie All Star], and
++        // the base rate's mean adds the 10 and 8 point outcomes on top of it.
++        // A residual that is not lighter would be a residual carrying Impact
++        // or Rookie All Star mass, the double count the draw's three steps
++        // exist to prevent.
+         expect(residual, `${season} ${cellKey(bucket, state)}`).toBeLessThan(base);
+         expect(residual, `${season} ${cellKey(bucket, state)}`).toBeGreaterThanOrEqual(0);
+       }
+     }
+   });
+ 
+-  it("the mass removed from the most decorated veterans is the largest, which is where Impact actually goes", () => {
++  it("the gap to the base rate is largest for the most decorated veterans, which is where Impact actually goes", () => {
+     for (const season of AWARD_ORDERING_SEASONS) {
+       const removed = (bucket: DecorationBucket): number =>
+         meanSupportPoints(awardBaseRate(season, bucket, "veteran").pmf) -
+@@ -288,10 +299,17 @@ describe("the stacked-award fold — two awards are never a prediction", () => {
+   });
+ 
+   it("moves mass rather than dropping it: a folded pmf still sums to one and empties the two stacked bins", () => {
+-    for (const season of AWARD_ORDERING_SEASONS) {
+-      for (const bucket of DECORATION_BUCKETS) {
+-        for (const rookieState of ROOKIE_STATES) {
+-          const raw = awardBaseRate(season, bucket, rookieState).pmf;
++    // The committed tables carry no stacked mass since quick task 261014-mii,
++    // so a synthetic pmf with mass in both stacked bins is folded beside them:
++    // a fold that dropped mass would pass on the tables alone.
++    const synthetic = [0.6, 0.2, 0.08, 0.06, 0.04, 0.02];
++    for (const [season, bucket, rookieState] of [
++      [0, "none", "veteran"] as const,
++      ...AWARD_ORDERING_SEASONS.flatMap((s) => DECORATION_BUCKETS.flatMap((b) => ROOKIE_STATES.map((r) => [s, b, r] as const))),
++    ]) {
++      {
++        {
++          const raw = season === 0 ? synthetic : awardBaseRate(season, bucket, rookieState).pmf;
+           const folded = foldStackedAwardPmf(raw);
+           const label = `${String(season)} ${bucket} ${rookieState}`;
+           expect(folded.reduce((sum, value) => sum + value, 0), label).toBeCloseTo(
+@@ -308,27 +326,36 @@ describe("the stacked-award fold — two awards are never a prediction", () => {
+   });
+ 
+   it("lowers a pmf's mean, by exactly the points the fold gives up — the stated price of the rule", () => {
+-    const raw = awardBaseRate(2026, "none", "veteran").pmf;
++    // A synthetic pmf with stacked mass: the committed tables have none since quick task 261014-mii.
++    const raw = [0.7, 0.2, 0.05, 0.045, 0.004, 0.001];
+     const folded = foldStackedAwardPmf(raw);
+     const givenUp = raw[4]! * (13 - ROOKIE_ALL_STAR_AWARD_POINTS) + raw[5]! * (15 - IMPACT_AWARD_POINTS);
+     expect(meanSupportPoints(raw) - meanSupportPoints(folded)).toBeCloseTo(givenUp, 12);
+     expect(givenUp).toBeLessThan(0.05);
+   });
+ 
+-  it("costs at most the 0.022 of a point the methodology page states, over every 2026 rate", () => {
+-    // THE SOURCE OF A PUBLISHED FIGURE. `/methodology/district-points` states
+-    // "the most it costs any 2026 rate is 0.022 of a point of expected award
+-    // points", and this is where that ceiling comes from. A rerun that moves it
+-    // must move the prose in the same commit.
+-    let worst = 0;
+-    for (const bucket of DECORATION_BUCKETS) {
+-      for (const rookieState of ROOKIE_STATES) {
+-        const pmf = awardBaseRate(2026, bucket, rookieState).pmf;
+-        worst = Math.max(worst, meanSupportPoints(pmf) - meanSupportPoints(foldStackedAwardPmf(pmf)));
++  it("moves no mass on any committed table: every base rate is 0 at 13 and 15+, every residual 0 at 10, 13 and 15+ (quick task 261014-mii, M-06)", () => {
++    // Replaces the old "costs at most 0.022 of a point" ceiling: since every
++    // measured outcome is the team event's highest single award, the tables
++    // carry no stacked mass and the fold is the identity on them. It still
++    // guards composed draws (Impact, Rookie All Star and a residual drawn
++    // together).
++    for (const season of AWARD_ORDERING_SEASONS) {
++      for (const bucket of DECORATION_BUCKETS) {
++        for (const rookieState of ROOKIE_STATES) {
++          const label = `${String(season)} ${bucket} ${rookieState}`;
++          const base = awardBaseRate(season, bucket, rookieState).pmf;
++          expect(base[4], `${label} base at 13`).toBe(0);
++          expect(base[5], `${label} base at 15+`).toBe(0);
++          expect([...foldStackedAwardPmf(base)], label).toEqual([...base]);
++          const residual = awardResidualRate(season, bucket, rookieState).pmf;
++          expect(residual[3], `${label} residual at 10`).toBe(0);
++          expect(residual[4], `${label} residual at 13`).toBe(0);
++          expect(residual[5], `${label} residual at 15+`).toBe(0);
++          expect([...foldStackedAwardPmf(residual)], label).toEqual([...residual]);
++        }
+       }
+     }
+-    expect(worst).toBeCloseTo(0.0214, 4);
+-    expect(worst).toBeLessThan(0.022);
+   });
+ 
+   it("is idempotent, so a pmf folded twice is the pmf folded once", () => {
+diff --git a/packages/core/districts/awardOrderingTables.ts b/packages/core/districts/awardOrderingTables.ts
+index 9e452277..caf640cc 100644
+--- a/packages/core/districts/awardOrderingTables.ts
++++ b/packages/core/districts/awardOrderingTables.ts
+@@ -32,10 +32,12 @@
+  *     npx tsx scripts/measureAwardOrderingTables.ts
+  *     pnpm measure:award-ordering-tables
+  *
+- * run on 2026-09-25, and the Impact rows re-run on 2026-09-29 under the
+- * award-type-first ordering (quick task 260929-imp; the Rookie All Star and
+- * residual rows came out identical and did not move). They are not hand-typed
+- * and not remembered. The
++ * run on 2026-10-14 under quick task 261014-mii's definitions: decorations
++ * counted over point paying team awards only, every season before the
++ * event's own; the residual measured as the highest single award outside
++ * Impact and Rookie All Star, over the team events that won neither of those
++ * two.
++ * They are not hand-typed and not remembered. The
+  * corpus-guarded describe in `scripts/measureAwardOrderingTables.test.ts`
+  * re-measures every registered season and asserts each `p` within 1e-9 and
+  * each `n` exactly, so an ingest or a rule change turns that test red rather
+@@ -45,25 +47,34 @@
+  * THE DECOMPOSITION, STATED ONCE
+  * ---------------------------------------------------------------------------
+  *
+- * A district-tier team-event's award points decompose EXACTLY as
+- *
+- *     award_points = 10 x [won Impact] + 8 x [won Rookie All Star] + residual
+- *
+- * and the residual is MEASURED that way, per team-event, rather than derived
+- * by algebra from an aggregate. That matters: subtracting an aggregate share
+- * from a six-bin pmf has no unique answer once awards stack (15 is 10 plus 5,
+- * 13 is 8 plus 5), and a subtraction that can go negative is not a
+- * distribution.
++ * A district-tier team-event's award outcome is one of three things: Impact,
++ * Rookie All Star, or the RESIDUAL, its highest single district point award
++ * outside those two (quick task 261014-mii, decision M-06). The residual is
++ * MEASURED per team-event from its award rows, 0, 5 or 8: a stack of two 5
++ * point awards is one 5, Engineering Inspiration plus a 5 point award is 8.
++ * Before 261014-mii it was the recorded `award_points` minus the two ordered
++ * awards' values, which left a 5 plus 5 stack in the 10 point bin, where the
++ * drawer's Impact row priced it as Impact.
+  *
+  * The draw composes the three: Bernoulli(Impact) from the ordering table,
+- * Bernoulli(Rookie All Star) from the rookie ordering table, and a categorical
+- * draw from the residual table. Because the mean is linear,
+- *
+- *     E[10 I + 8 R + residual] = 10 P(I) + 8 P(R) + E[residual] = E[award_points]
+- *
+- * EXACTLY whenever the two Bernoulli probabilities equal the population's own
+- * rates. `awardOrderingTables.test.ts` asserts that identity on the committed
+- * tables rather than asserting it in a comment.
++ * then, if not Impact, Bernoulli(Rookie All Star) from the rookie ordering
++ * table, then, if neither, a categorical draw from the residual table
++ * (`singleAwardPoints`). The residual is therefore read ONLY on the "won
++ * neither" branch, and it is MEASURED ONLY THERE: over team events that won
++ * neither Impact nor Rookie All Star. The first 261014-mii patch measured it
++ * over every team event, which counted each Impact and Rookie All Star winner
++ * as "won nothing else", inflated its 0 bin and understated the chance of any
++ * award most for the teams most likely to win Impact. The identity that makes
++ * exact on the training rows, per (bucket, rookie state) cell, is
++ *
++ *     E[points] = 10 P(I) + 8 P(not I, R) + P(not I, not R) E[res | not I, not R]
++ *
++ * with points the team event's highest single point award. It holds row by
++ * row, because Impact (10) is the highest single award there is and nothing
++ * above 8 remains once Impact is ruled out. The measurement script computes
++ * both sides per cell (`decompositionIdentityGap`) and its tests assert the gap
++ * is 0. `awardOrderingTables.test.ts` asserts that no residual carries mass at
++ * 10, 13 or 15+.
+  *
+  * The two point values are MEASURED, not remembered: the script tabulates
+  * `award_points` over team-events whose ONLY judged award was Impact (and
+@@ -74,10 +85,10 @@
+  * WALK-FORWARD IN BOTH HALVES
+  * ---------------------------------------------------------------------------
+  *
+- * A team's decoration at a season-S event counts only judged awards from
+- * seasons strictly before S, AND the table registered for season Y is fit only
+- * on district-tier events from seasons strictly before Y. Both halves carry
+- * their own leak test on a fixture where the leak CHANGES the answer.
++ * A team's decoration at a season-S event counts only point paying team awards
++ * from seasons strictly before S, AND the table registered for season Y is fit
++ * only on district-tier events from seasons strictly before Y. Both halves
++ * carry their own leak test on a fixture where the leak CHANGES the answer.
+  *
+  * ---------------------------------------------------------------------------
+  * THE STATED FALLBACK
+@@ -96,18 +107,21 @@
+  * ---------------------------------------------------------------------------
+  *
+  * Until quick task 260929-imp the Impact ordering used ONE number per team:
+- * total prior judged awards. It now ships the award-type-first ordering
+- * `scripts/measureAwardPredictability.ts` sorts on: prior IMPACT wins first,
+- * then total prior judged awards, then ascending team number. That is
+- * `orderFieldByImpactHistory`, and it needs a second per-team count,
++ * the decoration count. It now ships an award-type-first ordering: prior
++ * IMPACT wins first, then the decoration count, then ascending team number.
++ * That is `orderFieldByImpactHistory`, and it needs a second per-team count,
+  * `priorImpactWins`, on every district award profile. Jacob made that payload
+- * trade on 2026-09-29.
+- *
+- * Season 2026, position 1: the award-type-first ordering 26.06% (197 of 756),
+- * the one-number ordering it replaced 17.99% (136 of 756). An 8.1 percentage
+- * point gain, and it is real rather than noise on that n. The measurement
+- * script still scores the one-number ordering at positions 1 to 3 and prints
+- * it as the REFERENCE line, so the gap stays visible from the other side.
++ * trade on 2026-09-29. Since quick task 261014-mii the decoration count reads
++ * point paying team awards only, so the shipped ordering is no longer
++ * `scripts/measureAwardPredictability.ts`'s own `compareDecoration`: that
++ * study keeps its own feature for its own published figures, and only the
++ * sort's SHAPE is shared.
++ *
++ * Season 2026, position 1, measured 2026-10-14: the award-type-first ordering
++ * 25.40% (192 of 756), the one-number ordering 16.93% (128 of 756). The
++ * measurement script still scores the one-number ordering at positions 1 to 3
++ * and prints it as the REFERENCE line, so the gap stays visible from the
++ * other side.
+  *
+  * THE TABLES AND THE ORDERING TRAVEL TOGETHER. A field where any team lacks
+  * `priorImpactWins` (an artifact published before the field existed) cannot be
+@@ -257,7 +271,7 @@ export function teamNumberFromKey(teamKey: string): number {
+ /** One attendee, as the ordering sees it. */
+ export interface OrderingEntry {
+   readonly teamKey: string;
+-  /** Judged awards won in seasons STRICTLY BEFORE the event's own season. */
++  /** The decoration count: point paying team awards won in seasons STRICTLY BEFORE the event's own (quick task 261014-mii). */
+   readonly priorJudgedAwards: number;
+ }
+ 
+@@ -272,10 +286,9 @@ export interface OrderingEntry {
+  * final total key so the sort is a total order and never depends on the input
+  * array's incoming order.
+  *
+- * The ascending-team-number tie break is stated rather than assumed: it is the
+- * same tie break `scripts/measureAwardPredictability.ts`'s `compareDecoration`
+- * applies, and the measured tables below were produced under it. Reversing it
+- * would silently change every position-1 probability.
++ * The ascending-team-number tie break is stated rather than assumed: the
++ * measured tables below were produced under it, and reversing it would
++ * silently change every position-1 probability.
+  *
+  * Returns the team keys in order; position `k` is index `k - 1`.
+  */
+@@ -307,8 +320,10 @@ export interface ImpactOrderingEntry extends OrderingEntry {
+  * ASCENDING TEAM NUMBER, and the key itself as the final total key so the sort
+  * is a total order and never depends on the input array's incoming order.
+  *
+- * This is `scripts/measureAwardPredictability.ts`'s own `compareDecoration`
+- * for award type 0. The Impact tables below were measured under it; the Rookie
++ * The sort's shape follows `scripts/measureAwardPredictability.ts`'s
++ * `compareDecoration` for award type 0, but its decoration key counts point
++ * paying team awards only (quick task 261014-mii), not that study's own
++ * feature. The Impact tables below were measured under it; the Rookie
+  * All Star tables were measured under `orderFieldByDecoration` among rookies,
+  * and that ordering is unchanged. Swapping the two comparators would misprice
+  * every position, so the Impact lookup and the Impact table only ever meet
+@@ -337,18 +352,18 @@ export function orderFieldByImpactHistory(entries: readonly ImpactOrderingEntry[
+ const AWARD_ORDERING_TABLES: Readonly<Record<number, SeasonAwardOrderingTables>> = {
+   2019: {
+     impact: [
+-      { n: 230, p: 0.23043478260869565 },
+-      { n: 230, p: 0.13043478260869565 },
+-      { n: 230, p: 0.11304347826086956 },
+-      { n: 230, p: 0.05652173913043478 },
+-      { n: 230, p: 0.07391304347826087 },
+-      { n: 230, p: 0.04782608695652174 },
++      { n: 230, p: 0.2217391304347826 },
++      { n: 230, p: 0.1391304347826087 },
++      { n: 230, p: 0.09565217391304348 },
++      { n: 230, p: 0.06521739130434782 },
++      { n: 230, p: 0.06956521739130435 },
++      { n: 230, p: 0.05217391304347826 },
+       { n: 230, p: 0.05217391304347826 },
+-      { n: 230, p: 0.034782608695652174 },
+-      { n: 230, p: 0.02608695652173913 },
+-      { n: 230, p: 0.034782608695652174 },
++      { n: 230, p: 0.043478260869565216 },
++      { n: 230, p: 0.021739130434782608 },
++      { n: 230, p: 0.030434782608695653 },
+     ],
+-    impactTail: { n: 5914, p: 0.004903618532296246 },
++    impactTail: { n: 5914, p: 0.00524179912073047 },
+     rookieAllStar: [
+       { n: 211, p: 0.2985781990521327 },
+       { n: 178, p: 0.29775280898876405 },
+@@ -356,32 +371,32 @@ const AWARD_ORDERING_TABLES: Readonly<Record<number, SeasonAwardOrderingTables>>
+     ],
+     rookieAllStarTail: { n: 311, p: 0.11254019292604502 },
+     residualCells: {
+-      "none|rookie": { n: 847, pmf: [0.7378984651711924, 0.2597402597402597, 0, 0.0023612750885478157, 0, 0] },
+-      "none|veteran": { n: 4307, pmf: [0.7668911074994196, 0.2078012537729278, 0.013930810308799628, 0.009519387044346413, 0.0018574413745066172, 0] },
+-      "one-or-two|veteran": { n: 1847, pmf: [0.6404981050351922, 0.32051976177585273, 0.023280996210070383, 0.012994044396318355, 0.0027070925825663237, 0] },
+-      "three-or-more|veteran": { n: 1213, pmf: [0.3734542456718879, 0.5078318219291014, 0.07089859851607584, 0.03709810387469085, 0.010717230008244023, 0] },
++      "none|rookie": { n: 676, pmf: [0.6730769230769231, 0.3269230769230769, 0, 0, 0, 0] },
++      "none|veteran": { n: 4275, pmf: [0.7628070175438596, 0.2201169590643275, 0.017076023391812866, 0, 0, 0] },
++      "one-or-two|veteran": { n: 1839, pmf: [0.6318651441000543, 0.34366503534529635, 0.024469820554649267, 0, 0, 0] },
++      "three-or-more|veteran": { n: 1040, pmf: [0.3105769230769231, 0.5961538461538461, 0.09326923076923077, 0, 0, 0] },
+     },
+     residualBucketPooled: {
+-      "none": { n: 5154, pmf: [0.7621265036864571, 0.21633682576639504, 0.011641443538998836, 0.008343034536282498, 0.0015521924718665113, 0] },
+-      "one-or-two": { n: 1847, pmf: [0.6404981050351922, 0.32051976177585273, 0.023280996210070383, 0.012994044396318355, 0.0027070925825663237, 0] },
+-      "three-or-more": { n: 1213, pmf: [0.3734542456718879, 0.5078318219291014, 0.07089859851607584, 0.03709810387469085, 0.010717230008244023, 0] },
++      "none": { n: 4951, pmf: [0.7505554433447789, 0.23470006059381943, 0.014744496061401737, 0, 0, 0] },
++      "one-or-two": { n: 1839, pmf: [0.6318651441000543, 0.34366503534529635, 0.024469820554649267, 0, 0, 0] },
++      "three-or-more": { n: 1040, pmf: [0.3105769230769231, 0.5961538461538461, 0.09326923076923077, 0, 0, 0] },
+     },
+-    residualSeasonPooled: { n: 8214, pmf: [0.6773800827854882, 0.28280983686389094, 0.023009495982468955, 0.013635256878500122, 0.003165327489651814, 0] },
++    residualSeasonPooled: { n: 7830, pmf: [0.6642401021711366, 0.308301404853129, 0.027458492975734355, 0, 0, 0] },
+   },
+   2020: {
+     impact: [
+-      { n: 330, p: 0.2606060606060606 },
+-      { n: 330, p: 0.12121212121212122 },
++      { n: 330, p: 0.2515151515151515 },
+       { n: 330, p: 0.1303030303030303 },
+-      { n: 330, p: 0.05757575757575758 },
+-      { n: 330, p: 0.07575757575757576 },
+-      { n: 330, p: 0.048484848484848485 },
+-      { n: 330, p: 0.048484848484848485 },
+-      { n: 330, p: 0.03333333333333333 },
++      { n: 330, p: 0.11818181818181818 },
++      { n: 330, p: 0.06060606060606061 },
++      { n: 330, p: 0.07878787878787878 },
++      { n: 330, p: 0.051515151515151514 },
++      { n: 330, p: 0.051515151515151514 },
++      { n: 330, p: 0.030303030303030304 },
+       { n: 330, p: 0.024242424242424242 },
+       { n: 330, p: 0.02727272727272727 },
+     ],
+-    impactTail: { n: 8433, p: 0.004268943436499467 },
++    impactTail: { n: 8433, p: 0.004387525198624452 },
+     rookieAllStar: [
+       { n: 303, p: 0.33663366336633666 },
+       { n: 249, p: 0.2891566265060241 },
+@@ -389,32 +404,32 @@ const AWARD_ORDERING_TABLES: Readonly<Record<number, SeasonAwardOrderingTables>>
+     ],
+     rookieAllStarTail: { n: 396, p: 0.10858585858585859 },
+     residualCells: {
+-      "none|rookie": { n: 1153, pmf: [0.7207285342584562, 0.2775368603642671, 0, 0.0017346053772766695, 0, 0] },
+-      "none|veteran": { n: 5235, pmf: [0.7873925501432665, 0.19159503342884432, 0.011461318051575931, 0.008022922636103151, 0.0015281757402101242, 0] },
+-      "one-or-two|veteran": { n: 2882, pmf: [0.6734906315058987, 0.2914642609299098, 0.021859819569743234, 0.011103400416377515, 0.002081887578070784, 0] },
+-      "three-or-more|veteran": { n: 2463, pmf: [0.37718229801055625, 0.5217214778725132, 0.061713357693869264, 0.03126268777913114, 0.008120178643930167, 0] },
++      "none|rookie": { n: 908, pmf: [0.6475770925110133, 0.3524229074889868, 0, 0, 0, 0] },
++      "none|veteran": { n: 5239, pmf: [0.7839282305783547, 0.2021378125596488, 0.013933956861996563, 0, 0, 0] },
++      "one-or-two|veteran": { n: 2864, pmf: [0.6634078212290503, 0.3128491620111732, 0.023743016759776536, 0, 0, 0] },
++      "three-or-more|veteran": { n: 2168, pmf: [0.3242619926199262, 0.5982472324723247, 0.07749077490774908, 0, 0, 0] },
+     },
+     residualBucketPooled: {
+-      "none": { n: 6388, pmf: [0.7753600500939261, 0.20710707576706325, 0.00939261114589856, 0.0068879148403256105, 0.0012523481527864746, 0] },
+-      "one-or-two": { n: 2882, pmf: [0.6734906315058987, 0.2914642609299098, 0.021859819569743234, 0.011103400416377515, 0.002081887578070784, 0] },
+-      "three-or-more": { n: 2463, pmf: [0.37718229801055625, 0.5217214778725132, 0.061713357693869264, 0.03126268777913114, 0.008120178643930167, 0] },
++      "none": { n: 6147, pmf: [0.7637872132747682, 0.22433707499593297, 0.011875711729298844, 0, 0, 0] },
++      "one-or-two": { n: 2864, pmf: [0.6634078212290503, 0.3128491620111732, 0.023743016759776536, 0, 0, 0] },
++      "three-or-more": { n: 2168, pmf: [0.3242619926199262, 0.5982472324723247, 0.07749077490774908, 0, 0, 0] },
+     },
+-    residualSeasonPooled: { n: 11733, pmf: [0.6667518963606921, 0.29387198499957384, 0.023438165856984574, 0.013040143185885963, 0.002897809596863547, 0] },
++    residualSeasonPooled: { n: 11179, pmf: [0.6528312013596923, 0.3195276858395205, 0.02764111280078719, 0, 0, 0] },
+   },
+   2022: {
+     impact: [
+-      { n: 365, p: 0.273972602739726 },
+-      { n: 365, p: 0.12602739726027398 },
+-      { n: 365, p: 0.1232876712328767 },
+-      { n: 365, p: 0.06575342465753424 },
+-      { n: 365, p: 0.07397260273972603 },
+-      { n: 365, p: 0.04657534246575343 },
+-      { n: 365, p: 0.052054794520547946 },
+-      { n: 365, p: 0.030136986301369864 },
++      { n: 365, p: 0.26575342465753427 },
++      { n: 365, p: 0.13424657534246576 },
++      { n: 365, p: 0.1095890410958904 },
++      { n: 365, p: 0.07123287671232877 },
++      { n: 365, p: 0.07671232876712329 },
++      { n: 365, p: 0.049315068493150684 },
++      { n: 365, p: 0.0547945205479452 },
++      { n: 365, p: 0.0273972602739726 },
+       { n: 365, p: 0.021917808219178082 },
+       { n: 365, p: 0.024657534246575342 },
+     ],
+-    impactTail: { n: 9279, p: 0.004095268886733484 },
++    impactTail: { n: 9279, p: 0.004203039120594891 },
+     rookieAllStar: [
+       { n: 332, p: 0.35843373493975905 },
+       { n: 274, p: 0.291970802919708 },
+@@ -422,32 +437,32 @@ const AWARD_ORDERING_TABLES: Readonly<Record<number, SeasonAwardOrderingTables>>
+     ],
+     rookieAllStarTail: { n: 404, p: 0.10643564356435643 },
+     residualCells: {
+-      "none|rookie": { n: 1227, pmf: [0.7180114099429503, 0.280358598207009, 0, 0.0016299918500407497, 0, 0] },
+-      "none|veteran": { n: 5486, pmf: [0.7918337586584032, 0.1881152023332118, 0.01093693036820999, 0.007655851257746992, 0.0014582573824279985, 0] },
+-      "one-or-two|veteran": { n: 3190, pmf: [0.6796238244514107, 0.28808777429467086, 0.02006269592476489, 0.010344827586206896, 0.0018808777429467085, 0] },
+-      "three-or-more|veteran": { n: 3026, pmf: [0.38830138797091873, 0.5135492399206874, 0.06047587574355585, 0.03007270323859881, 0.00760079312623926, 0] },
++      "none|rookie": { n: 955, pmf: [0.6397905759162303, 0.36020942408376966, 0, 0, 0, 0] },
++      "none|veteran": { n: 5498, pmf: [0.7881047653692251, 0.19861767915605674, 0.013277555474718079, 0, 0, 0] },
++      "one-or-two|veteran": { n: 3177, pmf: [0.6704438149197356, 0.307837582625118, 0.021718602455146365, 0, 0, 0] },
++      "three-or-more|veteran": { n: 2683, pmf: [0.33842713380544165, 0.586284010436079, 0.07528885575847931, 0, 0, 0] },
+     },
+     residualBucketPooled: {
+-      "none": { n: 6713, pmf: [0.7783405332936094, 0.2049754208252644, 0.008937881722031879, 0.006554446596156711, 0.0011917175629375838, 0] },
+-      "one-or-two": { n: 3190, pmf: [0.6796238244514107, 0.28808777429467086, 0.02006269592476489, 0.010344827586206896, 0.0018808777429467085, 0] },
+-      "three-or-more": { n: 3026, pmf: [0.38830138797091873, 0.5135492399206874, 0.06047587574355585, 0.03007270323859881, 0.00760079312623926, 0] },
++      "none": { n: 6453, pmf: [0.7661552766155276, 0.2225321555865489, 0.011312567797923447, 0, 0, 0] },
++      "one-or-two": { n: 3177, pmf: [0.6704438149197356, 0.307837582625118, 0.021718602455146365, 0, 0, 0] },
++      "three-or-more": { n: 2683, pmf: [0.33842713380544165, 0.586284010436079, 0.07528885575847931, 0, 0, 0] },
+     },
+-    residualSeasonPooled: { n: 12929, pmf: [0.662696264212236, 0.29770283857993657, 0.02374506922422461, 0.012994044396318355, 0.0028617835872843996, 0] },
++    residualSeasonPooled: { n: 12313, pmf: [0.648257938763908, 0.3238041094777877, 0.02793795175830423, 0, 0, 0] },
+   },
+   2023: {
+     impact: [
+-      { n: 461, p: 0.2646420824295011 },
+-      { n: 461, p: 0.13665943600867678 },
+-      { n: 461, p: 0.1193058568329718 },
+-      { n: 461, p: 0.07158351409978309 },
+-      { n: 461, p: 0.07158351409978309 },
+-      { n: 461, p: 0.04121475054229935 },
+-      { n: 461, p: 0.04772234273318872 },
+-      { n: 461, p: 0.028199566160520606 },
++      { n: 461, p: 0.25813449023861174 },
++      { n: 461, p: 0.14533622559652928 },
++      { n: 461, p: 0.10629067245119306 },
++      { n: 461, p: 0.07592190889370933 },
++      { n: 461, p: 0.0737527114967462 },
++      { n: 461, p: 0.0455531453362256 },
++      { n: 461, p: 0.049891540130151846 },
++      { n: 461, p: 0.02386117136659436 },
+       { n: 461, p: 0.021691973969631236 },
+       { n: 461, p: 0.019522776572668113 },
+     ],
+-    impactTail: { n: 11165, p: 0.004209583519928347 },
++    impactTail: { n: 11165, p: 0.0042991491267353335 },
+     rookieAllStar: [
+       { n: 384, p: 0.3567708333333333 },
+       { n: 301, p: 0.27906976744186046 },
+@@ -455,32 +470,32 @@ const AWARD_ORDERING_TABLES: Readonly<Record<number, SeasonAwardOrderingTables>>
+     ],
+     rookieAllStarTail: { n: 416, p: 0.10576923076923077 },
+     residualCells: {
+-      "none|rookie": { n: 1332, pmf: [0.7124624624624625, 0.28603603603603606, 0, 0.0015015015015015015, 0, 0] },
+-      "none|veteran": { n: 6072, pmf: [0.7957839262187089, 0.18593544137022397, 0.010046113306982872, 0.00691699604743083, 0.0013175230566534915, 0] },
+-      "one-or-two|veteran": { n: 3904, pmf: [0.7010758196721312, 0.27100409836065575, 0.017930327868852458, 0.008452868852459017, 0.0015368852459016393, 0] },
+-      "three-or-more|veteran": { n: 4467, pmf: [0.41661070069397804, 0.49966420416386836, 0.05820461159614954, 0.02037161405865234, 0.00514886948735169, 0] },
++      "none|rookie": { n: 1032, pmf: [0.6308139534883721, 0.3691860465116279, 0, 0, 0, 0] },
++      "none|veteran": { n: 6075, pmf: [0.7917695473251029, 0.19604938271604938, 0.012181069958847737, 0, 0, 0] },
++      "one-or-two|veteran": { n: 3910, pmf: [0.6925831202046036, 0.28823529411764703, 0.01918158567774936, 0, 0, 0] },
++      "three-or-more|veteran": { n: 4012, pmf: [0.3726321036889332, 0.557826520438684, 0.06954137587238285, 0, 0, 0] },
+     },
+     residualBucketPooled: {
+-      "none": { n: 7404, pmf: [0.7807941653160454, 0.20394381415451107, 0.008238789843327932, 0.005942733657482442, 0.0010804970286331713, 0] },
+-      "one-or-two": { n: 3904, pmf: [0.7010758196721312, 0.27100409836065575, 0.017930327868852458, 0.008452868852459017, 0.0015368852459016393, 0] },
+-      "three-or-more": { n: 4467, pmf: [0.41661070069397804, 0.49966420416386836, 0.05820461159614954, 0.02037161405865234, 0.00514886948735169, 0] },
++      "none": { n: 7107, pmf: [0.7683973547206979, 0.22119037568594344, 0.01041226959335866, 0, 0, 0] },
++      "one-or-two": { n: 3910, pmf: [0.6925831202046036, 0.28823529411764703, 0.01918158567774936, 0, 0, 0] },
++      "three-or-more": { n: 4012, pmf: [0.3726321036889332, 0.557826520438684, 0.06954137587238285, 0, 0, 0] },
+     },
+-    residualSeasonPooled: { n: 15775, pmf: [0.6579397781299524, 0.30427892234548337, 0.024786053882725832, 0.010649762282091918, 0.0023454833597464342, 0] },
++    residualSeasonPooled: { n: 15029, pmf: [0.6430234879233482, 0.3284982367422982, 0.028478275334353584, 0, 0, 0] },
+   },
+   2024: {
+     impact: [
+-      { n: 555, p: 0.25765765765765763 },
+-      { n: 555, p: 0.13873873873873874 },
+-      { n: 555, p: 0.11711711711711711 },
+-      { n: 555, p: 0.08288288288288288 },
+-      { n: 555, p: 0.07207207207207207 },
++      { n: 555, p: 0.25045045045045045 },
++      { n: 555, p: 0.14414414414414414 },
++      { n: 555, p: 0.10990990990990991 },
++      { n: 555, p: 0.08468468468468468 },
++      { n: 555, p: 0.07567567567567568 },
+       { n: 555, p: 0.04684684684684685 },
+-      { n: 555, p: 0.043243243243243246 },
+-      { n: 555, p: 0.025225225225225224 },
++      { n: 555, p: 0.04504504504504504 },
++      { n: 555, p: 0.023423423423423424 },
+       { n: 555, p: 0.023423423423423424 },
+       { n: 555, p: 0.018018018018018018 },
+     ],
+-    impactTail: { n: 13371, p: 0.004412534589783861 },
++    impactTail: { n: 13371, p: 0.004562112033505347 },
+     rookieAllStar: [
+       { n: 462, p: 0.37445887445887444 },
+       { n: 357, p: 0.2913165266106443 },
+@@ -488,32 +503,32 @@ const AWARD_ORDERING_TABLES: Readonly<Record<number, SeasonAwardOrderingTables>>
+     ],
+     rookieAllStarTail: { n: 450, p: 0.10666666666666667 },
+     residualCells: {
+-      "none|rookie": { n: 1535, pmf: [0.7029315960912053, 0.29576547231270356, 0, 0.0013029315960912053, 0, 0] },
+-      "none|veteran": { n: 6539, pmf: [0.8040984860070347, 0.17892644135188868, 0.009328643523474537, 0.006423000458785747, 0.0012234286588163328, 0] },
+-      "one-or-two|veteran": { n: 4722, pmf: [0.7217280813214739, 0.25370605675561203, 0.016306649724692927, 0.00698856416772554, 0.0012706480304955528, 0] },
+-      "three-or-more|veteran": { n: 6125, pmf: [0.4284081632653061, 0.4969795918367347, 0.056, 0.014857142857142857, 0.0037551020408163266, 0] },
++      "none|rookie": { n: 1171, pmf: [0.6122971818958155, 0.38770281810418444, 0, 0, 0, 0] },
++      "none|veteran": { n: 6550, pmf: [0.8003053435114503, 0.1883969465648855, 0.011297709923664122, 0, 0, 0] },
++      "one-or-two|veteran": { n: 4736, pmf: [0.7134712837837838, 0.2690033783783784, 0.01752533783783784, 0, 0, 0] },
++      "three-or-more|veteran": { n: 5563, pmf: [0.38845946431781414, 0.5466474923602372, 0.06489304332194859, 0, 0, 0] },
+     },
+     residualBucketPooled: {
+-      "none": { n: 8074, pmf: [0.7848649987614565, 0.20113945999504582, 0.0075551151845429775, 0.005449591280653951, 0.0009908347783007183, 0] },
+-      "one-or-two": { n: 4722, pmf: [0.7217280813214739, 0.25370605675561203, 0.016306649724692927, 0.00698856416772554, 0.0012706480304955528, 0] },
+-      "three-or-more": { n: 6125, pmf: [0.4284081632653061, 0.4969795918367347, 0.056, 0.014857142857142857, 0.0037551020408163266, 0] },
++      "none": { n: 7721, pmf: [0.7717912187540474, 0.2186245305012304, 0.009584250744722186, 0, 0, 0] },
++      "one-or-two": { n: 4736, pmf: [0.7134712837837838, 0.2690033783783784, 0.01752533783783784, 0, 0, 0] },
++      "three-or-more": { n: 5563, pmf: [0.38845946431781414, 0.5466474923602372, 0.06489304332194859, 0, 0, 0] },
+     },
+-    residualSeasonPooled: { n: 18921, pmf: [0.6537180910099889, 0.31002589715131335, 0.025421489350457165, 0.008879023307436182, 0.0019554991808043974, 0] },
++    residualSeasonPooled: { n: 18020, pmf: [0.6381243063263041, 0.3331298557158713, 0.02874583795782464, 0, 0, 0] },
+   },
+   2025: {
+     impact: [
+-      { n: 653, p: 0.25880551301684535 },
+-      { n: 653, p: 0.13476263399693722 },
+-      { n: 653, p: 0.11332312404287902 },
++      { n: 653, p: 0.25267993874425726 },
++      { n: 653, p: 0.14088820826952528 },
++      { n: 653, p: 0.10413476263399694 },
+       { n: 653, p: 0.08116385911179173 },
+-      { n: 653, p: 0.07503828483920368 },
+-      { n: 653, p: 0.05359877488514548 },
+-      { n: 653, p: 0.04134762633996937 },
+-      { n: 653, p: 0.02450229709035222 },
++      { n: 653, p: 0.07963246554364471 },
++      { n: 653, p: 0.05053598774885146 },
++      { n: 653, p: 0.045941807044410414 },
++      { n: 653, p: 0.022970903522205207 },
+       { n: 653, p: 0.02909647779479326 },
+       { n: 653, p: 0.018376722817764167 },
+     ],
+-    impactTail: { n: 15712, p: 0.0045188391038696535 },
++    impactTail: { n: 15712, p: 0.004709775967413442 },
+     rookieAllStar: [
+       { n: 548, p: 0.3740875912408759 },
+       { n: 419, p: 0.2935560859188544 },
+@@ -521,32 +536,32 @@ const AWARD_ORDERING_TABLES: Readonly<Record<number, SeasonAwardOrderingTables>>
+     ],
+     rookieAllStarTail: { n: 518, p: 0.10810810810810811 },
+     residualCells: {
+-      "none|rookie": { n: 1795, pmf: [0.7025069637883008, 0.29637883008356547, 0, 0.0011142061281337048, 0, 0] },
+-      "none|veteran": { n: 6946, pmf: [0.8089547941261157, 0.17506478548805068, 0.00878203282464728, 0.006046645551396487, 0.001151742009789807, 0] },
+-      "one-or-two|veteran": { n: 5521, pmf: [0.7380909255569643, 0.240536134758196, 0.014309001992392682, 0.005977178047455171, 0.0010867596449918493, 0] },
+-      "three-or-more|veteran": { n: 7980, pmf: [0.43972431077694235, 0.4911027568922306, 0.05488721804511278, 0.011403508771929825, 0.0028822055137844613, 0] },
++      "none|rookie": { n: 1362, pmf: [0.6093979441997063, 0.39060205580029367, 0, 0, 0, 0] },
++      "none|veteran": { n: 6965, pmf: [0.8054558506819813, 0.18391959798994975, 0.010624551328068915, 0, 0, 0] },
++      "one-or-two|veteran": { n: 5548, pmf: [0.7307137707281903, 0.2539653929343908, 0.015320836337418889, 0, 0, 0] },
++      "three-or-more|veteran": { n: 7301, pmf: [0.4019997260649226, 0.535543076290919, 0.06245719764415834, 0, 0, 0] },
+     },
+     residualBucketPooled: {
+-      "none": { n: 8741, pmf: [0.7870952980208215, 0.19997711932273196, 0.006978606566754376, 0.005033748998970369, 0.0009152270907218854, 0] },
+-      "one-or-two": { n: 5521, pmf: [0.7380909255569643, 0.240536134758196, 0.014309001992392682, 0.005977178047455171, 0.0010867596449918493, 0] },
+-      "three-or-more": { n: 7980, pmf: [0.43972431077694235, 0.4911027568922306, 0.05488721804511278, 0.011403508771929825, 0.0028822055137844613, 0] },
++      "none": { n: 8327, pmf: [0.7733877747087786, 0.21772547135823225, 0.008886753932989072, 0, 0, 0] },
++      "one-or-two": { n: 5548, pmf: [0.7307137707281903, 0.2539653929343908, 0.015320836337418889, 0, 0, 0] },
++      "three-or-more": { n: 7301, pmf: [0.4019997260649226, 0.535543076290919, 0.06245719764415834, 0, 0, 0] },
+     },
+-    residualSeasonPooled: { n: 22242, pmf: [0.6503012319036058, 0.3144950993615682, 0.025986871684201062, 0.007553277582951173, 0.0016635194676737704, 0] },
++    residualSeasonPooled: { n: 21176, pmf: [0.6341613146958821, 0.3367963732527389, 0.02904231205137892, 0, 0, 0] },
+   },
+   2026: {
+     impact: [
+-      { n: 756, p: 0.2605820105820106 },
+-      { n: 756, p: 0.14417989417989419 },
+-      { n: 756, p: 0.10978835978835978 },
+-      { n: 756, p: 0.08333333333333333 },
+-      { n: 756, p: 0.07407407407407407 },
+-      { n: 756, p: 0.051587301587301584 },
+-      { n: 756, p: 0.03968253968253968 },
+-      { n: 756, p: 0.026455026455026454 },
+-      { n: 756, p: 0.0291005291005291 },
++      { n: 756, p: 0.25396825396825395 },
++      { n: 756, p: 0.15079365079365079 },
++      { n: 756, p: 0.10317460317460317 },
++      { n: 756, p: 0.082010582010582 },
++      { n: 756, p: 0.07936507936507936 },
++      { n: 756, p: 0.047619047619047616 },
++      { n: 756, p: 0.042328042328042326 },
++      { n: 756, p: 0.02513227513227513 },
++      { n: 756, p: 0.03042328042328042 },
+       { n: 756, p: 0.017195767195767195 },
+     ],
+-    impactTail: { n: 18146, p: 0.0044637936735368675 },
++    impactTail: { n: 18146, p: 0.004629119365149344 },
+     rookieAllStar: [
+       { n: 645, p: 0.3813953488372093 },
+       { n: 486, p: 0.28600823045267487 },
+@@ -554,17 +569,17 @@ const AWARD_ORDERING_TABLES: Readonly<Record<number, SeasonAwardOrderingTables>>
+     ],
+     rookieAllStarTail: { n: 559, p: 0.11627906976744186 },
+     residualCells: {
+-      "none|rookie": { n: 2039, pmf: [0.7268268759195684, 0.2721922511034821, 0, 0.000980872976949485, 0, 0] },
+-      "none|veteran": { n: 7334, pmf: [0.8116989364603218, 0.1730297245704936, 0.008453776929370058, 0.005726752113444232, 0.00109080992637033, 0] },
+-      "one-or-two|veteran": { n: 6346, pmf: [0.7462968799243618, 0.23479357075323037, 0.012763945792625275, 0.0052001260636621496, 0.0009454774661203908, 0] },
+-      "three-or-more|veteran": { n: 9987, pmf: [0.44557925302893764, 0.4893361369780715, 0.053669770701912485, 0.009111845399018725, 0.0023029938920596776, 0] },
++      "none|rookie": { n: 1526, pmf: [0.6363040629095675, 0.3636959370904325, 0, 0, 0, 0] },
++      "none|veteran": { n: 7363, pmf: [0.8080945266874915, 0.1817194078500611, 0.010186065462447371, 0, 0, 0] },
++      "one-or-two|veteran": { n: 6384, pmf: [0.7404448621553885, 0.24592731829573936, 0.01362781954887218, 0, 0, 0] },
++      "three-or-more|veteran": { n: 9187, pmf: [0.4090562751714379, 0.5306411233264395, 0.06030260150212256, 0, 0, 0] },
+     },
+     residualBucketPooled: {
+-      "none": { n: 9373, pmf: [0.7932358903232689, 0.1946015149898645, 0.006614744478822149, 0.00469433479142217, 0.0008535154166222128, 0] },
+-      "one-or-two": { n: 6346, pmf: [0.7462968799243618, 0.23479357075323037, 0.012763945792625275, 0.0052001260636621496, 0.0009454774661203908, 0] },
+-      "three-or-more": { n: 9987, pmf: [0.44557925302893764, 0.4893361369780715, 0.053669770701912485, 0.009111845399018725, 0.0023029938920596776, 0] },
++      "none": { n: 8889, pmf: [0.7786027674654067, 0.21295983800202498, 0.008437394532568343, 0, 0, 0] },
++      "one-or-two": { n: 6384, pmf: [0.7404448621553885, 0.24592731829573936, 0.01362781954887218, 0, 0, 0] },
++      "three-or-more": { n: 9187, pmf: [0.4090562751714379, 0.5306411233264395, 0.06030260150212256, 0, 0, 0] },
+     },
+-    residualSeasonPooled: { n: 25706, pmf: [0.6465805648486734, 0.3190305765191006, 0.026414066754843226, 0.006535439197074613, 0.0014393526803080992, 0] },
++    residualSeasonPooled: { n: 24460, pmf: [0.6298446443172526, 0.3408830744071954, 0.029272281275551922, 0, 0, 0] },
+   },
+ };
+ 
+@@ -626,8 +641,10 @@ export function rookieAllStarOrderingProbability(season: number, position: numbe
+ 
+ /**
+  * The RESIDUAL award-point distribution for one (season, decoration bucket,
+- * rookie state) — the base rate with the Impact and Rookie All Star mass
+- * removed, measured directly rather than subtracted.
++ * rookie state): the highest single point award outside Impact and Rookie All
++ * Star, measured over team events that won NEITHER of them. It is the
++ * conditional law the draw reads after drawing neither, never the base rate
++ * with mass subtracted.
+  *
+  * Falls back up the same three rungs `awardBaseRate` does and reports which
+  * one it landed on, reusing that module's own `AwardBaseRateResult` so a
+@@ -650,9 +667,9 @@ export function awardResidualRate(
+ }
+ 
+ /**
+- * The mean of a pmf over `AWARD_POINT_SUPPORT`. Exported because it is the
+- * quantity the decomposition identity is asserted on, and a second copy of it
+- * inside the test would be a second chance to get it wrong.
++ * The mean of a pmf over `AWARD_POINT_SUPPORT`. Exported so a test reading a
++ * table's mean never carries a second copy of it, which would be a second
++ * chance to get it wrong.
+  */
+ export function meanSupportPoints(pmf: readonly number[]): number {
+   let mean = 0;
+@@ -668,25 +685,29 @@ export function meanSupportPoints(pmf: readonly number[]): number {
+  * The stacked support values, and the single award each folds onto.
+  *
+  * WHAT WAS MEASURED, AND WHAT JACOB RULED OUT. `AWARD_POINT_SUPPORT` is
+- * `[0, 5, 8, 10, 13, 15]`, and the top two bins are real: a team-event at 13
+- * won Rookie All Star (8) AND a judged award (5), and one at 15 or above won
+- * Impact (10) and at least one more. Those stacks HAPPENED — the base-rate
+- * tables measured them, and nothing here says they did not. What changed on
+- * 2026-09-25 is what the site is willing to PREDICT: Jacob's rule is that two
+- * awards are never a predicted possibility, so their mass is folded onto the
+- * highest single award of the stack rather than being shown as an outcome a
+- * reader is invited to plan around.
++ * `[0, 5, 8, 10, 13, 15]`, and stacks really happen: a team-event at 13 won
++ * Rookie All Star (8) AND a 5 point award, and one at 15 or above won Impact
++ * (10) and at least one more. Jacob's rule (2026-09-25) is that two awards
++ * are never a predicted possibility, so a stack is priced as its highest
++ * single award.
++ *
++ * SINCE QUICK TASK 261014-mii THE MEASURED TABLES CARRY NO STACKED MASS: every
++ * base rate and residual outcome is measured as the team event's highest
++ * single award (decision M-06), so the 13 and 15+ bins are empty by
++ * construction and the 10 point bin of a base rate is Impact alone. Before
++ * that, the fold was applied by POINT VALUE to the measured pmfs, and 10 was
++ * ambiguous (Impact alone, or two 5 point awards), so a 5 plus 5 stack was
++ * sold as Impact. The fold below now guards COMPOSED draws only: the ordering
++ * path draws Impact, Rookie All Star and a residual separately, and their sum
++ * can stack.
+  *
+  * The fold is stated as a table rather than as arithmetic on the values,
+  * because it is a claim about WHICH awards each bin contains and that claim is
+  * a measurement, not a subtraction. 13 folds to Rookie All Star's 8; 15 and
+  * above fold to Impact's 10.
+  *
+- * WHAT IS LOST, stated rather than left to be discovered: the mean of a folded
+- * pmf is strictly lower than the measured one, by the mass in those two bins
+- * times the points the fold gives up. Across the 2026 season-pooled row that
+- * is (0.00155 x 5) + (0.00109 x 5), about 0.013 of a point — the price of the
+- * rule, and a small one.
++ * WHAT IS LOST: on a measured table, nothing (its stacked bins are empty). On
++ * a composed draw, the points of the lower awards in the stack.
+  */
+ const STACKED_AWARD_FOLD: readonly { readonly from: number; readonly to: number }[] = [
+   { from: 13, to: ROOKIE_ALL_STAR_AWARD_POINTS },
+diff --git a/packages/core/districts/dcmpAwardSlate.ts b/packages/core/districts/dcmpAwardSlate.ts
+index 87560d76..668fd6a3 100644
+--- a/packages/core/districts/dcmpAwardSlate.ts
++++ b/packages/core/districts/dcmpAwardSlate.ts
+@@ -48,13 +48,16 @@
+  *     npx tsx scripts/measureDcmpAwardSlate.ts
+  *     pnpm measure:dcmp-award-slate
+  *
+- * run on 2026-10-14. Not hand typed and not remembered. The corpus guarded
+- * describe in `scripts/measureDcmpAwardSlate.test.ts` re measures every
+- * registered season and asserts each lift within 1e-9 and each n exactly.
++ * run on 2026-10-14, and the lifts re run the same day under quick task
++ * 261014-mii's decoration definition (the anchors did not move). Not hand
++ * typed and not remembered. The corpus guarded describe in
++ * `scripts/measureDcmpAwardSlate.test.ts` re measures every registered season
++ * and asserts each lift within 1e-9 and each n exactly.
+  *
+  * WALK FORWARD IN BOTH HALVES. Season Y's table reads only championships of
+  * seasons strictly before Y, and each team's prior counts read only seasons
+- * strictly before the championship's own.
++ * strictly before the championship's own (quick task 261014-mii: point paying
++ * team awards only).
+  *
+  * THE FALLBACKS, each named on the slate:
+  *  - judged anchor: the role's mean in the most recent earlier season holding
+@@ -208,9 +211,9 @@ export const DCMP_AWARD_SLATE_TABLES: Readonly<Record<number, DcmpAwardSlateSeas
+       finals: { count: 0, source: "role", fromSeason: 2022, events: 3 },
+     },
+     impactLift: { "none": { lift: 0.7635701598642937, n: 196 }, "one-or-two": { lift: 1.1067283024045813, n: 145 } },
+-    engineeringInspirationLift: { "three-or-more": { lift: 1.00069995363091, n: 234 } },
+-    judgedLiftCells: { "none|rookie": { lift: 1.2928986604860657, n: 187 }, "none|veteran": { lift: 0.650947965763757, n: 794 }, "one-or-two|veteran": { lift: 0.663929830177611, n: 667 }, "three-or-more|veteran": { lift: 1.313547974276478, n: 1291 } },
+-    judgedLiftBuckets: { "none": { lift: 0.7840805990621778, n: 981 }, "one-or-two": { lift: 0.663929830177611, n: 667 }, "three-or-more": { lift: 1.313547974276478, n: 1291 } },
++    engineeringInspirationLift: { "three-or-more": { lift: 0.9984357263454594, n: 230 } },
++    judgedLiftCells: { "none|rookie": { lift: 1.2928986604860657, n: 187 }, "none|veteran": { lift: 0.6430822141535172, n: 810 }, "one-or-two|veteran": { lift: 0.6692669159920052, n: 683 }, "three-or-more|veteran": { lift: 1.3309647290966755, n: 1259 } },
++    judgedLiftBuckets: { "none": { lift: 0.775722263555571, n: 997 }, "one-or-two": { lift: 0.6692669159920052, n: 683 }, "three-or-more": { lift: 1.3309647290966755, n: 1259 } },
+   },
+   2024: {
+     judgedAnchor: {
+@@ -219,9 +222,9 @@ export const DCMP_AWARD_SLATE_TABLES: Readonly<Record<number, DcmpAwardSlateSeas
+       finals: { count: 0, source: "role", fromSeason: 2023, events: 4 },
+     },
+     impactLift: { "none": { lift: 0.7789405117074928, n: 224 }, "one-or-two": { lift: 1.068573503431782, n: 175 }, "three-or-more": { lift: 1.3530152895683831, n: 108 } },
+-    engineeringInspirationLift: { "three-or-more": { lift: 1.0008121002099253, n: 309 } },
+-    judgedLiftCells: { "none|rookie": { lift: 1.3108272060230615, n: 227 }, "none|veteran": { lift: 0.6351921743671172, n: 828 }, "one-or-two|veteran": { lift: 0.6448818893166153, n: 776 }, "three-or-more|veteran": { lift: 1.25332161791686, n: 1830 } },
+-    judgedLiftBuckets: { "none": { lift: 0.7933585718926491, n: 1055 }, "one-or-two": { lift: 0.6448818893166153, n: 776 }, "three-or-more": { lift: 1.25332161791686, n: 1830 } },
++    engineeringInspirationLift: { "three-or-more": { lift: 0.9879587458720325, n: 304 } },
++    judgedLiftCells: { "none|rookie": { lift: 1.3108272060230615, n: 227 }, "none|veteran": { lift: 0.62798467726543, n: 844 }, "one-or-two|veteran": { lift: 0.6587647287676425, n: 798 }, "three-or-more|veteran": { lift: 1.2627539325916222, n: 1792 } },
++    judgedLiftBuckets: { "none": { lift: 0.785514856758958, n: 1071 }, "one-or-two": { lift: 0.6587647287676425, n: 798 }, "three-or-more": { lift: 1.2627539325916222, n: 1792 } },
+   },
+   2025: {
+     judgedAnchor: {
+@@ -230,9 +233,9 @@ export const DCMP_AWARD_SLATE_TABLES: Readonly<Record<number, DcmpAwardSlateSeas
+       finals: { count: 0, source: "role", fromSeason: 2024, events: 4 },
+     },
+     impactLift: { "none": { lift: 0.7626928150752749, n: 253 }, "one-or-two": { lift: 1.0590962651480598, n: 201 }, "three-or-more": { lift: 1.3289328773018325, n: 151 } },
+-    engineeringInspirationLift: { "three-or-more": { lift: 1.0006626494793114, n: 390 } },
+-    judgedLiftCells: { "none|rookie": { lift: 1.363832066442959, n: 259 }, "none|veteran": { lift: 0.6234339823138266, n: 867 }, "one-or-two|veteran": { lift: 0.6023717966907673, n: 884 }, "three-or-more|veteran": { lift: 1.2245632569917995, n: 2404 } },
+-    judgedLiftBuckets: { "none": { lift: 0.807518148619549, n: 1126 }, "one-or-two": { lift: 0.6023717966907673, n: 884 }, "three-or-more": { lift: 1.2245632569917995, n: 2404 } },
++    engineeringInspirationLift: { "three-or-more": { lift: 0.9902031294051091, n: 385 } },
++    judgedLiftCells: { "none|rookie": { lift: 1.363832066442959, n: 259 }, "none|veteran": { lift: 0.6167765948495713, n: 883 }, "one-or-two|veteran": { lift: 0.6145294278034001, n: 908 }, "three-or-more|veteran": { lift: 1.2322345840402036, n: 2364 } },
++    judgedLiftBuckets: { "none": { lift: 0.7999916496376116, n: 1142 }, "one-or-two": { lift: 0.6145294278034001, n: 908 }, "three-or-more": { lift: 1.2322345840402036, n: 2364 } },
+   },
+   2026: {
+     judgedAnchor: {
+@@ -241,9 +244,9 @@ export const DCMP_AWARD_SLATE_TABLES: Readonly<Record<number, DcmpAwardSlateSeas
+       finals: { count: 0, source: "role", fromSeason: 2025, events: 4 },
+     },
+     impactLift: { "none": { lift: 0.7303751052989234, n: 274 }, "one-or-two": { lift: 1.0587275648404237, n: 227 }, "three-or-more": { lift: 1.3141724471511398, n: 207 } },
+-    engineeringInspirationLift: { "three-or-more": { lift: 1.0043056071231207, n: 480 } },
+-    judgedLiftCells: { "none|rookie": { lift: 1.2520990004906614, n: 290 }, "none|veteran": { lift: 0.6226818654271552, n: 907 }, "one-or-two|veteran": { lift: 0.5741038794136627, n: 982 }, "three-or-more|veteran": { lift: 1.21348861291516, n: 3011 } },
+-    judgedLiftBuckets: { "none": { lift: 0.7880055987565971, n: 1197 }, "one-or-two": { lift: 0.5741038794136627, n: 982 }, "three-or-more": { lift: 1.21348861291516, n: 3011 } },
++    engineeringInspirationLift: { "three-or-more": { lift: 0.9957475117845127, n: 475 } },
++    judgedLiftCells: { "none|rookie": { lift: 1.2520990004906614, n: 290 }, "none|veteran": { lift: 0.615715189091991, n: 924 }, "one-or-two|veteran": { lift: 0.5864045211343764, n: 1011 }, "three-or-more|veteran": { lift: 1.2206707837651531, n: 2965 } },
++    judgedLiftBuckets: { "none": { lift: 0.7806209160150958, n: 1214 }, "one-or-two": { lift: 0.5864045211343764, n: 1011 }, "three-or-more": { lift: 1.2206707837651531, n: 2965 } },
+   },
+ };
+ 
+diff --git a/packages/core/districts/ledgerSimulation.test.ts b/packages/core/districts/ledgerSimulation.test.ts
+index 40ba2eac..20ac1cb7 100644
+--- a/packages/core/districts/ledgerSimulation.test.ts
++++ b/packages/core/districts/ledgerSimulation.test.ts
+@@ -542,11 +542,17 @@ describe("simulateDistrictEvent — the award draw", () => {
+       expect(histogram[13], `${baseline.teamKey} at 13 points`).toBe(0);
+       expect(histogram[15], `${baseline.teamKey} at 15 points`).toBe(0);
+     }
+-    // A bucket with measured 15-plus mass moves it onto 10. The raw table's
+-    // top bin is non-empty, and the folded 10 bin is exactly the sum of the
+-    // raw 10, 15 bins.
+-    const raw = awardBaseRate(SEASON, "none", "veteran").pmf;
+-    expect(raw[5]!).toBeGreaterThan(0);
++    // Since quick task 261014-mii the measured table carries NO stacked mass:
++    // every outcome is the team event's highest single award, so the fold is
++    // the identity on it.
++    const measured = awardBaseRate(SEASON, "none", "veteran").pmf;
++    expect(measured[4]!).toBe(0);
++    expect(measured[5]!).toBe(0);
++    expect([...foldStackedAwardPmf(measured)]).toEqual([...measured]);
++    // The fold itself still MOVES stacked mass onto 10 and 8, on a pmf that
++    // carries some: the folded 10 bin is exactly the sum of the raw 10, 15
++    // bins.
++    const raw = [0.7, 0.2, 0.04, 0.03, 0.02, 0.01];
+     const folded = foldStackedAwardPmf(raw);
+     expect(folded[3]!).toBeCloseTo(raw[3]! + raw[5]!, 12);
+     expect(folded[2]!).toBeCloseTo(raw[2]! + raw[4]!, 12);
+diff --git a/scripts/measureAwardOrderingTables.test.ts b/scripts/measureAwardOrderingTables.test.ts
+index bb885240..e1ec493f 100644
+--- a/scripts/measureAwardOrderingTables.test.ts
++++ b/scripts/measureAwardOrderingTables.test.ts
+@@ -35,13 +35,21 @@ import {
+   rookieAllStarOrderingProbability,
+ } from "../packages/core/districts/awardOrderingTables.js";
+ import { DISTRICT_REGISTERED_SEASONS } from "../packages/core/districts/pointModel.js";
+-import { priorJudgedAwardCount, type AwardInstance } from "./measureDistrictAwardBaseRates.js";
++import {
++  emptyCell,
++  foldOutcome,
++  priorJudgedAwardCount,
++  type AwardInstance,
++} from "./measureDistrictAwardBaseRates.js";
+ import {
+   buildSeasonFields,
+   buildSeasonOrderingTables,
+   censusTotal,
+   clearsPositionBar,
++  decompositionIdentityGap,
++  emptyDecomposition,
+   emptyPosition,
++  entersResidual,
+   indexSeasonAwards,
+   measureAwardOrderingTables,
+   modalValue,
+@@ -68,6 +76,7 @@ function attendee(teamKey: string, overrides: Partial<AttendeeOutcome> = {}): At
+     wonImpact: false,
+     wonRookieAllStar: false,
+     judgedAwardTypesWon: 0,
++    pointAwardTypes: [],
+     priorImpactWins: 0,
+     ...overrides,
+   };
+@@ -257,37 +266,116 @@ describe("the ordering", () => {
+   });
+ });
+ 
+-describe("the residual", () => {
+-  it("removes exactly the Impact and Rookie All Star point values, and nothing else", () => {
+-    expect(residualAwardPoints(attendee("frc1", { awardPoints: 15, wonImpact: true }))).toBe(5);
+-    expect(residualAwardPoints(attendee("frc1", { awardPoints: 13, wonRookieAllStar: true }))).toBe(5);
+-    expect(
+-      residualAwardPoints(attendee("frc1", { awardPoints: 18, wonImpact: true, wonRookieAllStar: true }))
+-    ).toBe(0);
+-    expect(residualAwardPoints(attendee("frc1", { awardPoints: 5 }))).toBe(5);
++describe("the residual (quick task 261014-mii, M-06)", () => {
++  it("is the highest single district point award outside Impact and Rookie All Star", () => {
++    // Safety plus Imagery is one 5, never 10.
++    expect(residualAwardPoints(attendee("frc1", { pointAwardTypes: [18, 27] }))).toBe(5);
++    // Engineering Inspiration plus Safety is 8.
++    expect(residualAwardPoints(attendee("frc1", { pointAwardTypes: [9, 18] }))).toBe(8);
++    // Impact plus Safety is 5: the Impact half is the ordering table's.
++    expect(residualAwardPoints(attendee("frc1", { pointAwardTypes: [0, 18], wonImpact: true }))).toBe(5);
++    expect(residualAwardPoints(attendee("frc1", { pointAwardTypes: [10, 15], wonRookieAllStar: true }))).toBe(5);
++    expect(residualAwardPoints(attendee("frc1", { pointAwardTypes: [0, 10], wonImpact: true, wonRookieAllStar: true }))).toBe(0);
++    expect(residualAwardPoints(attendee("frc1"))).toBe(0);
+   });
+ 
+-  it("censuses a NEGATIVE residual as unmodelled rather than clamping it to zero", () => {
+-    // `district_rankings` says 0 award points while `event_awards_all` says the
+-    // team won Impact — two third-party tables disagreeing. The honest outcome
+-    // is an unmodelled census entry, never a silent clamp.
+-    const measurement = buildSeasonOrderingTables(2003, [
+-      field(2000, "2000ev", [attendee("frc1", { awardPoints: 0, wonImpact: true })]),
++  it("never reaches the 10, 13 or 15+ bins and never goes negative, whatever stacks the field holds", () => {
++    const measurement = buildSeasonOrderingTables(2023, [
++      field(2019, "2019ev", [
++        attendee("frc1", { pointAwardTypes: [18, 27], awardPoints: 10 }),
++        attendee("frc2", { pointAwardTypes: [0, 18], awardPoints: 15, wonImpact: true }),
++        attendee("frc3", { pointAwardTypes: [10, 15], awardPoints: 13, wonRookieAllStar: true }),
++        attendee("frc4", { pointAwardTypes: [9, 18], awardPoints: 13 }),
++        // A recorded 0 beside an Impact row: the old subtraction gave -10.
++        attendee("frc5", { pointAwardTypes: [0], awardPoints: 0, wonImpact: true }),
++      ]),
++    ]);
++    const counts = measurement.residualSeasonPooled.counts;
++    expect(counts[3]).toBe(0);
++    expect(counts[4]).toBe(0);
++    expect(counts[5]).toBe(0);
++    expect([...measurement.residualSeasonPooled.unmodelled.entries()]).toEqual([]);
++    // frc2, frc3 and frc5 won Impact or Rookie All Star, so they never enter
++    // the residual: the draw never reads it for them.
++    expect(measurement.residualSeasonPooled.n).toBe(MIN_ORDERED_FIELD_SIZE - 3);
++    expect(counts[1]).toBe(1);
++    expect(counts[2]).toBe(1);
++  });
++
++  it("is CONDITIONAL: only a team event that won neither Impact nor Rookie All Star enters it", () => {
++    expect(entersResidual(attendee("frc1"))).toBe(true);
++    expect(entersResidual(attendee("frc1", { wonImpact: true }))).toBe(false);
++    expect(entersResidual(attendee("frc1", { wonRookieAllStar: true }))).toBe(false);
++    // A field where the Impact winner won nothing else. Measured over every
++    // team event, that winner would sit in the residual's 0 bin as "won
++    // nothing", and the draw, which reads the residual only after drawing
++    // neither, would understate the chance of any award.
++    const measurement = buildSeasonOrderingTables(2023, [
++      field(2019, "2019ev", [
++        attendee("frc1", { priorJudgedAwards: 5, pointAwardTypes: [0], awardPoints: 10, wonImpact: true }),
++        attendee("frc2", { priorJudgedAwards: 5, pointAwardTypes: [18], awardPoints: 5 }),
++      ]),
+     ]);
+-    expect([...measurement.residualSeasonPooled.unmodelled.entries()]).toEqual([[-IMPACT_AWARD_POINTS, 1]]);
+-    // And it is NOT counted into any bin: the ten remaining attendees are.
+-    expect(measurement.residualSeasonPooled.n).toBe(MIN_ORDERED_FIELD_SIZE - 1);
++    const decorated = measurement.residualCells.get(cellKey("three-or-more", "veteran"))!;
++    expect(decorated.n).toBe(1);
++    expect(decorated.counts[0]).toBe(0);
++    expect(decorated.counts[1]).toBe(1);
++    const d = measurement.decompositionCells.get(cellKey("three-or-more", "veteran"))!;
++    expect(d).toEqual({ n: 2, impact: 1, rookieAllStarNotImpact: 0, outcomePoints: 15 });
+   });
+ 
+   it("buckets a residual by the team's own decoration bucket and rookie state", () => {
+-    const measurement = buildSeasonOrderingTables(2003, [
+-      field(2000, "2000ev", [attendee("frc1", { priorJudgedAwards: 5, awardPoints: 5 })]),
++    const measurement = buildSeasonOrderingTables(2023, [
++      field(2019, "2019ev", [attendee("frc1", { priorJudgedAwards: 5, pointAwardTypes: [17] })]),
+     ]);
+     expect(measurement.residualCells.get(cellKey("three-or-more", "veteran"))!.n).toBe(1);
+     expect(measurement.residualCells.get(cellKey("three-or-more", "veteran"))!.counts[1]).toBe(1);
+   });
+ });
+ 
++describe("the conditional decomposition identity", () => {
++  // E[points] = 10 P(I) + 8 P(not I, R) + P(not I, not R) E[res | not I, not R],
++  // points being the team event's highest single point award. It holds row by
++  // row on training data: Impact's 10 is the highest single award, nothing
++  // above 8 remains once Impact is ruled out, and a team that won neither has
++  // the residual as its highest single award.
++  const stacked = (): EventField =>
++    field(2019, "2019ev", [
++      attendee("frc1", { priorJudgedAwards: 5, pointAwardTypes: [0, 18], awardPoints: 15, wonImpact: true }),
++      attendee("frc2", { priorJudgedAwards: 5, pointAwardTypes: [0], awardPoints: 10, wonImpact: true }),
++      attendee("frc3", { priorJudgedAwards: 5, pointAwardTypes: [9, 18], awardPoints: 13 }),
++      attendee("frc4", { priorJudgedAwards: 5, pointAwardTypes: [18, 27], awardPoints: 10 }),
++      attendee("frc5", { priorJudgedAwards: 5 }),
++      attendee("frc6", { rookieState: "rookie", pointAwardTypes: [10], awardPoints: 8, wonRookieAllStar: true }),
++      attendee("frc7", { rookieState: "rookie", pointAwardTypes: [0, 10], awardPoints: 18, wonImpact: true, wonRookieAllStar: true }),
++      attendee("frc8", { rookieState: "rookie", pointAwardTypes: [15], awardPoints: 5 }),
++    ]);
++
++  it("holds exactly on every cell of a fixture with stacks, Impact rookies and Rookie All Star winners", () => {
++    const measurement = buildSeasonOrderingTables(2023, [stacked()]);
++    let checked = 0;
++    for (const [key, d] of measurement.decompositionCells) {
++      if (d.n === 0) continue;
++      expect(decompositionIdentityGap(d, measurement.residualCells.get(key)!), key).toBe(0);
++      checked++;
++    }
++    // three-or-more|veteran, none|rookie and none|veteran (the filler).
++    expect(checked).toBe(3);
++  });
++
++  it("refuses a residual measured over every team event: its n is not the cell's won neither count", () => {
++    const measurement = buildSeasonOrderingTables(2023, [stacked()]);
++    const key = cellKey("three-or-more", "veteran");
++    const unconditional = emptyCell();
++    for (const a of stacked().attendees.filter((x) => x.priorJudgedAwards === 5)) foldOutcome(unconditional, residualAwardPoints(a));
++    expect(() => decompositionIdentityGap(measurement.decompositionCells.get(key)!, unconditional)).toThrow(/won neither/);
++  });
++
++  it("reads 0 for an empty cell", () => {
++    expect(decompositionIdentityGap(emptyDecomposition(), emptyCell())).toBe(0);
++  });
++});
++
+ describe("the observation bars", () => {
+   it("a position below the bar is null in the emitted table; a position AT the bar is present", () => {
+     const below = emptyPosition();
+@@ -360,15 +448,21 @@ describe("the event filter", () => {
+     const awards = indexSeasonAwards([
+       { year: 2000, eventKey: "2000ev", awardType: 0, teamKey: "frc100" },
+       { year: 2000, eventKey: "2000ev", awardType: 10, teamKey: "frc101" },
+-      // A non-judged type never counts toward `judgedAwardTypesWon`.
++      // Types off the district point award list never count toward
++      // `judgedAwardTypesWon`: Winner and Dean's List Finalist here.
+       { year: 2000, eventKey: "2000ev", awardType: 1, teamKey: "frc100" },
++      { year: 2000, eventKey: "2000ev", awardType: 4, teamKey: "frc100" },
+     ]);
+     const load = buildSeasonFields(2000, rows("2000ev", MIN_ORDERED_FIELD_SIZE), awards, NO_ROOKIE_YEARS, () => 0, () => 0);
+     const byKey = new Map(load.fields[0]!.attendees.map((a) => [a.teamKey, a] as const));
+     expect(byKey.get("frc100")!.wonImpact).toBe(true);
+     expect(byKey.get("frc100")!.judgedAwardTypesWon).toBe(1);
++    expect(byKey.get("frc100")!.pointAwardTypes).toEqual([0]);
+     expect(byKey.get("frc101")!.wonRookieAllStar).toBe(true);
+     expect(byKey.get("frc102")!.wonImpact).toBe(false);
++    // Every row here records 0 award points, so the two award winners are
++    // censused by the M-06 cross check rather than counted silently.
++    expect(load.crossCheckMismatches).toEqual(["2000ev|frc100", "2000ev|frc101"]);
+   });
+ });
+ 
+@@ -404,6 +498,8 @@ describe("the committed module reproduces a fresh measurement", () => {
+     // The registered set matches EXACTLY: a module registering a season the
+     // script would not is a number with no harness.
+     expect(result.registeredSeasons).toEqual([...AWARD_ORDERING_SEASONS]);
++    // Quick task 261014-mii: the M-06 cross check finds no disagreement anywhere.
++    for (const [season, mismatches] of result.crossCheckMismatches) expect(mismatches, `${season}`).toEqual([]);
+ 
+     for (const season of AWARD_ORDERING_SEASONS) {
+       const fresh = toSeasonOrderingTables(result.bySeason.get(season)!);
+@@ -447,6 +543,21 @@ describe("the committed module reproduces a fresh measurement", () => {
+     }
+   });
+ 
++  it("the conditional decomposition identity holds on every cell of every registered season's training rows", () => {
++    const result = measure();
++    for (const season of AWARD_ORDERING_SEASONS) {
++      const measurement = result.bySeason.get(season)!;
++      let impactWinners = 0;
++      for (const [key, d] of measurement.decompositionCells) {
++        impactWinners += d.impact;
++        expect(Math.abs(decompositionIdentityGap(d, measurement.residualCells.get(key)!)), `${season} ${key}`).toBeLessThan(1e-12);
++      }
++      // A pin that passes on nothing pins nothing: the identity is only a
++      // claim about the conditional residual where someone won Impact.
++      expect(impactWinners, `${season} Impact winners`).toBeGreaterThan(100);
++    }
++  });
++
+   it("the committed award point values are the corpus's own modal values, per registered season", () => {
+     const result = measure();
+     for (const season of AWARD_ORDERING_SEASONS) {
+diff --git a/scripts/measureAwardOrderingTables.ts b/scripts/measureAwardOrderingTables.ts
+index 860c0d35..f278cd28 100644
+--- a/scripts/measureAwardOrderingTables.ts
++++ b/scripts/measureAwardOrderingTables.ts
+@@ -27,15 +27,35 @@
+  * THE DECOMPOSITION IS MEASURED, NOT SUBTRACTED
+  * ---------------------------------------------------------------------------
+  *
+- *     award_points = 10 x [won Impact] + 8 x [won Rookie All Star] + residual
++ *     outcome = Impact, Rookie All Star, or the residual
+  *
+- * The residual is computed PER TEAM-EVENT by that subtraction and then binned,
+- * rather than derived by removing an aggregate share from an aggregate pmf.
+- * Once awards stack (15 is 10 plus 5, 13 is 8 plus 5) an aggregate subtraction
+- * has no unique answer and can go negative, and a negative is not a
+- * distribution. A residual that lands outside the six-bin support — which a
+- * disagreement between `district_rankings` and `event_awards_all` can produce —
+- * is censused as UNMODELLED and never rounded into a neighbouring bin.
++ * The residual is MEASURED PER TEAM-EVENT from its award rows (quick task
++ * 261014-mii, decision M-06): the team's highest single district point award
++ * outside Impact and Rookie All Star, 0, 5 or 8. A stack of two 5 point awards
++ * is one 5; Engineering Inspiration plus a 5 point award is 8. Before
++ * 261014-mii it was the recorded `award_points` minus the two ordered awards'
++ * values, which left a 5 plus 5 stack in the 10 point bin where the drawer's
++ * Impact row priced it as Impact. A cross check sums the M-01 values over
++ * every attendee and compares the recorded `award_points`; it prints its
++ * mismatch count, 0 on the corpus.
++ *
++ * THE RESIDUAL IS CONDITIONAL. The draw reads the residual only when it drew
++ * neither Impact nor Rookie All Star, so the residual table is measured over
++ * exactly those team events: the ones that won neither. Measuring it over
++ * every team event (as the first 261014-mii patch did) counted every Impact and
++ * Rookie All Star winner as "won nothing else", inflated the residual's 0 bin,
++ * and understated P(any award) most for the teams most likely to win Impact.
++ * The identity this makes exact on the training rows, per cell, is
++ *
++ *     E[points] = 10 P(I) + 8 P(not I, R) + P(not I, not R) E[res | not I, not R]
++ *
++ * where points is the team event's highest single point award. It holds row
++ * by row: an Impact winner's highest single award is Impact's 10 (no point
++ * award is worth more), a Rookie All Star winner without Impact's is 8 (no
++ * other award above 8 remains), and a team that won neither has the residual
++ * as its highest single award by definition. `decompositionIdentityGap`
++ * computes the two sides from the measured counts, the report prints it per
++ * cell, and the tests assert it is 0.
+  *
+  * The two point values are measured here too, and printed: the AWARD POINT
+  * VALUES block tabulates `award_points` over team-events whose ONLY judged
+@@ -46,13 +66,14 @@
+  * THE BOUNDARY IS WALK-FORWARD IN BOTH HALVES
+  * ---------------------------------------------------------------------------
+  *
+- *   HALF ONE, THE FEATURE. A team's prior judged award count at a season-S
+- *   event counts only judged awards from seasons strictly before S. That rule
+- *   is 10-02's `priorJudgedAwardCount`, IMPORTED rather than restated, so the
+- *   published `priorJudgedAwards` field and the ordering measured here cannot
+- *   disagree about what a decoration is. The Impact ordering's primary key,
+- *   prior Impact wins, follows the same strict rule through
+- *   `priorImpactWinCount`, which the publisher imports too.
++ *   HALF ONE, THE FEATURE. A team's decoration count at a season-S event
++ *   counts only the team awards that pay district points, won in seasons
++ *   strictly before S (quick task 261014-mii, M-01). That rule is 10-02's
++ *   `priorJudgedAwardCount`, IMPORTED rather than restated, so the published
++ *   `priorJudgedAwards` field and the ordering measured here cannot disagree
++ *   about what a decoration is. The Impact ordering's primary key, prior
++ *   Impact wins, follows the same strict rule through `priorImpactWinCount`,
++ *   which the publisher imports too.
+  *
+  *   HALF TWO, THE TABLES. The tables registered for season Y are fit only on
+  *   district-tier events from seasons strictly before Y.
+@@ -113,8 +134,9 @@ import {
+   cellKey,
+   DECORATION_BUCKETS,
+   decorationBucket,
++  DISTRICT_POINT_AWARD_VALUES,
++  highestSingleAwardPoints,
+   MIN_CELL_OBSERVATIONS,
+-  NON_JUDGED_AWARD_TYPES,
+   ROOKIE_STATES,
+   rookieStateFor,
+   type AwardPointDistribution,
+@@ -163,7 +185,7 @@ export const REFERENCE_IMPACT_POSITIONS = 3;
+ /** The exact command that produced the tables committed in `awardOrderingTables.ts`. */
+ export const MEASURED_COMMAND = "npx tsx scripts/measureAwardOrderingTables.ts";
+ /** The date that command was run. */
+-export const MEASURED_DATE = "2026-09-29";
++export const MEASURED_DATE = "2026-10-14";
+ 
+ // ───────────────────────────── pure helpers ─────────────────────────────
+ // Everything in this section is pure and unit-tested in
+@@ -172,15 +194,22 @@ export const MEASURED_DATE = "2026-09-29";
+ /** One district-tier attendee of one event, with everything the tables need about it. */
+ export interface AttendeeOutcome {
+   readonly teamKey: string;
+-  /** Judged awards won in seasons STRICTLY BEFORE this event's own season — leak half one. */
++  /** Point paying team awards won in seasons STRICTLY BEFORE this event's own (quick task 261014-mii, M-01) — leak half one. */
+   readonly priorJudgedAwards: number;
+   readonly rookieState: RookieState;
+   /** The `award_points` component of this team's `event_points_raw` entry for this event. */
+   readonly awardPoints: number;
+   readonly wonImpact: boolean;
+   readonly wonRookieAllStar: boolean;
+-  /** How many DISTINCT judged award types this team won at this event — the AWARD POINT VALUES census's selector. */
++  /** How many DISTINCT district point award types this team won at this event — the AWARD POINT VALUES census's selector. */
+   readonly judgedAwardTypesWon: number;
++  /**
++   * The DISTINCT district point award types (`DISTRICT_POINT_AWARD_VALUES`) this
++   * team won at this event, read from the season's own award rows. The residual
++   * is the highest single one of them outside Impact and Rookie All Star
++   * (quick task 261014-mii, decision M-06).
++   */
++  readonly pointAwardTypes: readonly number[];
+   /**
+    * Prior IMPACT wins alone, seasons strictly before this event's own. The
+    * PRIMARY key of the shipped Impact ordering (`orderFieldByImpactHistory`,
+@@ -218,21 +247,72 @@ export function clearsPositionBar(cell: PositionAccumulator): boolean {
+   return cell.n >= MIN_POSITION_OBSERVATIONS;
+ }
+ 
++/** The two award types the ordering tables price on their own, excluded from the residual. */
++const ORDERED_AWARD_TYPES: ReadonlySet<number> = new Set([IMPACT_AWARD_TYPE, ROOKIE_ALL_STAR_AWARD_TYPE]);
++
+ /**
+- * The RESIDUAL award points for one attendee: what is left after the Impact
+- * and Rookie All Star point values are removed.
+- *
+- * Can be negative when `district_rankings` and `event_awards_all` disagree
+- * about an event — a real possibility with two third-party tables. A negative
+- * falls outside `AWARD_POINT_SUPPORT` and is censused as UNMODELLED by
+- * `foldOutcome`, which is the honest outcome rather than a clamp at zero.
++ * The RESIDUAL award points for one attendee (quick task 261014-mii, decision
++ * M-06): its HIGHEST SINGLE district point award outside Impact and Rookie All
++ * Star, read from its award types — 0, 5 or 8. A stack of two 5 point awards
++ * is one 5, Engineering Inspiration plus a 5 point award is 8, Impact plus a 5
++ * point award is 5. Never a subtraction from the recorded `award_points`, so
++ * the residual never reaches the 10, 13 or 15+ bins and never goes negative.
+  */
+ export function residualAwardPoints(attendee: AttendeeOutcome): number {
+-  return (
+-    attendee.awardPoints -
+-    (attendee.wonImpact ? IMPACT_AWARD_POINTS : 0) -
+-    (attendee.wonRookieAllStar ? ROOKIE_ALL_STAR_AWARD_POINTS : 0)
+-  );
++  return highestSingleAwardPoints(attendee.pointAwardTypes, ORDERED_AWARD_TYPES);
++}
++
++/**
++ * Whether a team event enters the RESIDUAL table: it won NEITHER Impact nor
++ * Rookie All Star. The draw reads the residual only on that branch
++ * (`singleAwardPoints`: Impact first, then Rookie All Star, then the
++ * residual), so the residual is the outcome distribution CONDITIONAL on it.
++ */
++export function entersResidual(attendee: AttendeeOutcome): boolean {
++  return !attendee.wonImpact && !attendee.wonRookieAllStar;
++}
++
++/**
++ * Per (decoration bucket, rookie state) cell, the counts the conditional
++ * decomposition identity is checked on. Every team event of the cell, not only
++ * the residual's population.
++ */
++export interface DecompositionAccumulator {
++  /** Every team event in the cell. */
++  n: number;
++  /** Won Impact. */
++  impact: number;
++  /** Won Rookie All Star and not Impact. */
++  rookieAllStarNotImpact: number;
++  /** Summed highest single point award over every team event in the cell. */
++  outcomePoints: number;
++}
++
++export function emptyDecomposition(): DecompositionAccumulator {
++  return { n: 0, impact: 0, rookieAllStarNotImpact: 0, outcomePoints: 0 };
++}
++
++/**
++ * E[points] minus (10 P(I) + 8 P(not I, R) + P(not I, not R) E[res | not I, not R]),
++ * from one cell's measured counts and its residual accumulator. Exactly 0 on
++ * training rows when the residual is the conditional one. Throws when the
++ * residual's n is not the cell's "won neither" count, because then the two
++ * sides describe different populations (which is what a residual measured
++ * over every team event looks like).
++ */
++export function decompositionIdentityGap(cell: DecompositionAccumulator, residual: CellAccumulator): number {
++  if (cell.n === 0) return 0;
++  const neither = cell.n - cell.impact - cell.rookieAllStarNotImpact;
++  if (residual.n !== neither) {
++    throw new Error(
++      `decompositionIdentityGap: the residual rests on n=${residual.n} but the cell has ${neither} team events that won neither Impact nor Rookie All Star`
++    );
++  }
++  let residualSum = 0;
++  for (let i = 0; i < AWARD_POINT_SUPPORT.length; i++) residualSum += AWARD_POINT_SUPPORT[i]! * residual.counts[i]!;
++  const composed =
++    (IMPACT_AWARD_POINTS * cell.impact + ROOKIE_ALL_STAR_AWARD_POINTS * cell.rookieAllStarNotImpact + residualSum) / cell.n;
++  return cell.outcomePoints / cell.n - composed;
+ }
+ 
+ /**
+@@ -291,6 +371,8 @@ export interface SeasonOrderingMeasurement {
+   readonly residualCells: Map<string, CellAccumulator>;
+   readonly residualBucketPooled: Map<DecorationBucket, CellAccumulator>;
+   readonly residualSeasonPooled: CellAccumulator;
++  /** Per cell, every team event's Impact, Rookie All Star and highest single award counts, for the decomposition identity. */
++  readonly decompositionCells: Map<string, DecompositionAccumulator>;
+   /** `award_points` census over team-events whose ONLY judged award was Impact. */
+   readonly soleImpactPoints: Map<number, number>;
+   /** `award_points` census over team-events whose ONLY judged award was Rookie All Star. */
+@@ -336,8 +418,12 @@ export function buildSeasonOrderingTables(
+   const referenceImpact = Array.from({ length: REFERENCE_IMPACT_POSITIONS }, emptyPosition);
+ 
+   const residualCells = new Map<string, CellAccumulator>();
++  const decompositionCells = new Map<string, DecompositionAccumulator>();
+   for (const bucket of DECORATION_BUCKETS) {
+-    for (const state of ROOKIE_STATES) residualCells.set(cellKey(bucket, state), emptyCell());
++    for (const state of ROOKIE_STATES) {
++      residualCells.set(cellKey(bucket, state), emptyCell());
++      decompositionCells.set(cellKey(bucket, state), emptyDecomposition());
++    }
+   }
+ 
+   const soleImpactPoints = new Map<number, number>();
+@@ -382,7 +468,16 @@ export function buildSeasonOrderingTables(
+     for (const attendee of field.attendees) {
+       attendeeCount++;
+       const bucket = decorationBucket(attendee.priorJudgedAwards);
+-      foldOutcome(residualCells.get(cellKey(bucket, attendee.rookieState))!, residualAwardPoints(attendee));
++      const key = cellKey(bucket, attendee.rookieState);
++      // THE RESIDUAL IS CONDITIONAL: only a team event that won neither Impact
++      // nor Rookie All Star enters it, because that is the only branch on
++      // which the draw reads it.
++      if (entersResidual(attendee)) foldOutcome(residualCells.get(key)!, residualAwardPoints(attendee));
++      const decomposition = decompositionCells.get(key)!;
++      decomposition.n++;
++      if (attendee.wonImpact) decomposition.impact++;
++      else if (attendee.wonRookieAllStar) decomposition.rookieAllStarNotImpact++;
++      decomposition.outcomePoints += highestSingleAwardPoints(attendee.pointAwardTypes);
+       if (attendee.judgedAwardTypesWon === 1) {
+         if (attendee.wonImpact) soleImpactPoints.set(attendee.awardPoints, (soleImpactPoints.get(attendee.awardPoints) ?? 0) + 1);
+         if (attendee.wonRookieAllStar) {
+@@ -429,6 +524,7 @@ export function buildSeasonOrderingTables(
+     residualCells,
+     residualBucketPooled,
+     residualSeasonPooled,
++    decompositionCells,
+     soleImpactPoints,
+     soleRookieAllStarPoints,
+     registered,
+@@ -470,18 +566,23 @@ export function toSeasonOrderingTables(measurement: SeasonOrderingMeasurement):
+ export interface SeasonAwardIndex {
+   /** Every event key that carries at least one `event_awards_all` row. */
+   readonly eventsWithAwardRows: ReadonlySet<string>;
+-  /** `${eventKey}|${teamKey}` -> the DISTINCT judged award types that team won at that event. */
++  /** `${eventKey}|${teamKey}` -> the DISTINCT district point award types that team won at that event. */
+   readonly judgedByTeamEvent: ReadonlyMap<string, ReadonlySet<number>>;
+ }
+ 
+-/** Indexes one season's award instances by event and team. Judged types only — the non-judged three never count. */
++/**
++ * Indexes one season's award instances by event and team. District point
++ * award types only (`DISTRICT_POINT_AWARD_VALUES`, quick task 261014-mii
++ * decision M-01): Winner, Finalist, Dean's List, Volunteer of the Year and
++ * Highest Rookie Seed never count.
++ */
+ export function indexSeasonAwards(instances: readonly AwardInstance[]): SeasonAwardIndex {
+   const eventsWithAwardRows = new Set<string>();
+   const judgedByTeamEvent = new Map<string, Set<number>>();
+   for (const instance of instances) {
+     eventsWithAwardRows.add(instance.eventKey);
+     if (instance.teamKey === null) continue;
+-    if (NON_JUDGED_AWARD_TYPES.has(instance.awardType)) continue;
++    if (!DISTRICT_POINT_AWARD_VALUES.has(instance.awardType)) continue;
+     const key = `${instance.eventKey}|${instance.teamKey}`;
+     const set = judgedByTeamEvent.get(key);
+     if (set === undefined) judgedByTeamEvent.set(key, new Set([instance.awardType]));
+@@ -496,6 +597,14 @@ export interface SeasonFieldLoad {
+   readonly eventsWithoutAwardRows: string[];
+   /** Events below `MIN_ORDERED_FIELD_SIZE` — see that constant for the measured artifact this removes. */
+   readonly eventsBelowFieldSizeBar: string[];
++  /**
++   * The M-06 cross check (quick task 261014-mii): `eventKey|teamKey` of every
++   * attendee whose summed `DISTRICT_POINT_AWARD_VALUES` disagree with its
++   * recorded `award_points`. Censused and printed, 0 on the corpus. The
++   * attendee stays in its field so the ordering is not reshaped by a
++   * disagreement between two third party tables.
++   */
++  readonly crossCheckMismatches: string[];
+ }
+ 
+ /**
+@@ -523,6 +632,7 @@ export function buildSeasonFields(
+   const fields: EventField[] = [];
+   const eventsWithoutAwardRows: string[] = [];
+   const eventsBelowFieldSizeBar: string[] = [];
++  const crossCheckMismatches: string[] = [];
+   for (const eventKey of [...byEvent.keys()].sort()) {
+     if (!awards.eventsWithAwardRows.has(eventKey)) {
+       eventsWithoutAwardRows.push(eventKey);
+@@ -536,6 +646,10 @@ export function buildSeasonFields(
+       .get(eventKey)!
+       .map((row) => {
+         const judged = awards.judgedByTeamEvent.get(`${eventKey}|${row.teamKey}`);
++        const pointAwardTypes = [...(judged ?? [])].sort((a, b) => a - b);
++        let summed = 0;
++        for (const type of pointAwardTypes) summed += DISTRICT_POINT_AWARD_VALUES.get(type) ?? 0;
++        if (summed !== row.awardPoints) crossCheckMismatches.push(`${eventKey}|${row.teamKey}`);
+         return {
+           teamKey: row.teamKey,
+           priorJudgedAwards: priorCountFor(row.teamKey),
+@@ -543,14 +657,15 @@ export function buildSeasonFields(
+           awardPoints: row.awardPoints,
+           wonImpact: judged?.has(IMPACT_AWARD_TYPE) ?? false,
+           wonRookieAllStar: judged?.has(ROOKIE_ALL_STAR_AWARD_TYPE) ?? false,
+-          judgedAwardTypesWon: judged?.size ?? 0,
++          judgedAwardTypesWon: pointAwardTypes.length,
++          pointAwardTypes,
+           priorImpactWins: priorImpactCountFor(row.teamKey),
+         };
+       })
+       .sort((a, b) => (a.teamKey < b.teamKey ? -1 : a.teamKey > b.teamKey ? 1 : 0));
+     fields.push({ season, eventKey, attendees });
+   }
+-  return { fields, eventsWithoutAwardRows, eventsBelowFieldSizeBar };
++  return { fields, eventsWithoutAwardRows, eventsBelowFieldSizeBar, crossCheckMismatches };
+ }
+ 
+ // ───────────────────────────── the measurement ─────────────────────────────
+@@ -561,6 +676,8 @@ export interface OrderingMeasurementResult {
+   readonly eventsWithoutAwardRows: Map<number, string[]>;
+   readonly eventsBelowFieldSizeBar: Map<number, string[]>;
+   readonly fieldsBySeason: Map<number, EventField[]>;
++  /** Per field season, the M-06 cross check mismatches. */
++  readonly crossCheckMismatches: Map<number, string[]>;
+ }
+ 
+ /**
+@@ -593,6 +710,7 @@ export function measureAwardOrderingTables(db: Corpus, seasons: readonly number[
+   const fieldsBySeason = new Map<number, EventField[]>();
+   const eventsWithoutAwardRows = new Map<number, string[]>();
+   const eventsBelowFieldSizeBar = new Map<number, string[]>();
++  const crossCheckMismatches = new Map<number, string[]>();
+   for (const season of DISTRICT_REGISTERED_SEASONS) {
+     const priorCache = new Map<string, number>();
+     const priorCountFor = (teamKey: string): number => {
+@@ -623,6 +741,7 @@ export function measureAwardOrderingTables(db: Corpus, seasons: readonly number[
+     fieldsBySeason.set(season, load.fields);
+     eventsWithoutAwardRows.set(season, load.eventsWithoutAwardRows);
+     eventsBelowFieldSizeBar.set(season, load.eventsBelowFieldSizeBar);
++    crossCheckMismatches.set(season, load.crossCheckMismatches);
+   }
+ 
+   const bySeason = new Map<number, SeasonOrderingMeasurement>();
+@@ -637,7 +756,7 @@ export function measureAwardOrderingTables(db: Corpus, seasons: readonly number[
+     if (measurement.registered) registeredSeasons.push(season);
+   }
+ 
+-  return { bySeason, registeredSeasons, eventsWithoutAwardRows, eventsBelowFieldSizeBar, fieldsBySeason };
++  return { bySeason, registeredSeasons, eventsWithoutAwardRows, eventsBelowFieldSizeBar, fieldsBySeason, crossCheckMismatches };
+ }
+ 
+ // ───────────────────────────── reporting ─────────────────────────────
+@@ -679,7 +798,7 @@ function reportSeason(measurement: SeasonOrderingMeasurement): void {
+   const supportHeader = AWARD_POINT_SUPPORT.map((v, i) =>
+     (i === AWARD_POINT_SUPPORT.length - 1 ? `${v}+` : String(v)).padStart(6)
+   ).join("");
+-  console.log(`   RESIDUAL award points (Impact and Rookie All Star removed)`);
++  console.log(`   RESIDUAL award points, over team-events that won NEITHER Impact nor Rookie All Star (the only branch the draw reads it on)`);
+   console.log(`     cell                              n   ${supportHeader}`);
+   for (const bucket of DECORATION_BUCKETS) {
+     for (const state of ROOKIE_STATES) {
+@@ -695,6 +814,18 @@ function reportSeason(measurement: SeasonOrderingMeasurement): void {
+     const cell = measurement.residualBucketPooled.get(bucket)!;
+     console.log(`     POOLED ${bucket.padEnd(23)} ${String(cell.n).padStart(6)}   ${pmfString(cell)}`);
+   }
++  console.log(`   DECOMPOSITION IDENTITY per cell: E[points] = 10 P(I) + 8 P(not I, R) + P(not I, not R) E[res | not I, not R]`);
++  for (const bucket of DECORATION_BUCKETS) {
++    for (const state of ROOKIE_STATES) {
++      const key = cellKey(bucket, state);
++      const d = measurement.decompositionCells.get(key)!;
++      if (d.n === 0) continue;
++      const gap = decompositionIdentityGap(d, measurement.residualCells.get(key)!);
++      console.log(
++        `     ${key.padEnd(30)} n ${String(d.n).padStart(6)}  Impact ${String(d.impact).padStart(5)}  RAS not Impact ${String(d.rookieAllStarNotImpact).padStart(5)}  E[points] ${(d.outcomePoints / d.n).toFixed(6)}  gap ${gap.toExponential(2)}`
++      );
++    }
++  }
+   console.log(
+     `     POOLED season                  ${String(measurement.residualSeasonPooled.n).padStart(6)}   ${pmfString(measurement.residualSeasonPooled)}`
+   );
+@@ -801,6 +932,14 @@ async function main(): Promise<void> {
+         `(counting them would deflate every rate), ${belowBar} below the ${MIN_ORDERED_FIELD_SIZE}-attendee field-size bar ` +
+         `(a one-attendee field is the Impact winner's points row and nothing else, and counting them inflates position 1).`
+     );
++    let mismatches = 0;
++    let checked = 0;
++    for (const keys of result.crossCheckMismatches.values()) mismatches += keys.length;
++    for (const fields of result.fieldsBySeason.values()) for (const field of fields) checked += field.attendees.length;
++    console.log(
++      `M-06 CROSS CHECK: ${checked} team-events in the included fields, ${mismatches} mismatch(es) between the summed M-01 values and award_points` +
++        (mismatches === 0 ? "" : `: ${[...result.crossCheckMismatches.values()].flat().slice(0, 20).join(", ")}`)
++    );
+     console.log(``);
+ 
+     for (const season of [...result.bySeason.keys()].sort((a, b) => a - b)) {
+diff --git a/scripts/measureDcmpAwardSlate.ts b/scripts/measureDcmpAwardSlate.ts
+index 0a1ee701..2746ff15 100644
+--- a/scripts/measureDcmpAwardSlate.ts
++++ b/scripts/measureDcmpAwardSlate.ts
+@@ -51,7 +51,9 @@
+  *
+  * ELIGIBILITY is the ONE core helper (`dcmpAwardEligibility`) with the
+  * district's own district tier events and every award final, the situation at
+- * DCMP week. A team's prior counts read seasons strictly before its own.
++ * DCMP week. A team's prior counts read seasons strictly before its own, and
++ * count only the team awards that pay district points (quick task 261014-mii,
++ * decision M-01).
+  *
+  * Read only corpus, no network request, no environment variable.
+  */
+@@ -116,7 +118,7 @@ export interface MeasuredTeamEvent {
+   readonly teamKey: string;
+   readonly awardPoints: number;
+   readonly rookieState: RookieState;
+-  /** Judged awards won in seasons strictly before the championship's own. */
++  /** Point paying team awards won in seasons strictly before the championship's own (quick task 261014-mii, M-01). */
+   readonly priorJudgedAwards: number;
+   /** Impact wins in seasons strictly before the championship's own. */
+   readonly priorImpactWins: number;
+diff --git a/scripts/measureDistrictAwardBaseRates.test.ts b/scripts/measureDistrictAwardBaseRates.test.ts
+index c44d5675..79bb2989 100644
+--- a/scripts/measureDistrictAwardBaseRates.test.ts
++++ b/scripts/measureDistrictAwardBaseRates.test.ts
+@@ -33,6 +33,7 @@ import {
+   emptyCell,
+   emptyDistrictPointAwardCensus,
+   foldOutcome,
++  highestSingleAwardOutcomes,
+   loadDistrictTierOutcomes,
+   measureDistrictAwardBaseRates,
+   poolCells,
+@@ -107,6 +108,42 @@ describe("LEAK HALF ONE — the decoration bucket feature", () => {
+   });
+ });
+ 
++describe("the decoration count's award list (quick task 261014-mii, M-01)", () => {
++  it("never counts Dean's List, Woodie Flowers, Volunteer of the Year, Wildcard or Impact Finalist, and counts Safety", () => {
++    const individual: AwardInstance[] = [3, 4, 5, 68, 69].map((awardType, i) => ({ year: 2024, eventKey: `2024e${i}`, awardType, teamKey: "frc1" }));
++    expect(priorJudgedAwardCount(individual, "frc1", 2025)).toBe(0);
++    expect(priorJudgedAwardCount([{ year: 2019, eventKey: "2019s", awardType: 18, teamKey: "frc1" }], "frc1", 2020)).toBe(1);
++  });
++});
++
++describe("the measured outcome is the highest single award (quick task 261014-mii, M-06)", () => {
++  it("measures Safety plus Imagery as 5 and Impact plus Safety as 10, and leaves out a disagreement and an event with no award rows, censused", () => {
++    const outcomes: TeamEventOutcome[] = [
++      { season: 2019, teamKey: "frc1", eventKey: "2019a", awardPoints: 10 },
++      { season: 2019, teamKey: "frc2", eventKey: "2019a", awardPoints: 15 },
++      { season: 2019, teamKey: "frc3", eventKey: "2019a", awardPoints: 0 },
++      { season: 2019, teamKey: "frc4", eventKey: "2019a", awardPoints: 13 },
++      { season: 2019, teamKey: "frc5", eventKey: "2019b", awardPoints: 0 },
++    ];
++    const instances: AwardInstance[] = [
++      { year: 2019, eventKey: "2019a", awardType: 18, teamKey: "frc1" },
++      { year: 2019, eventKey: "2019a", awardType: 27, teamKey: "frc1" },
++      { year: 2019, eventKey: "2019a", awardType: 0, teamKey: "frc2" },
++      { year: 2019, eventKey: "2019a", awardType: 18, teamKey: "frc2" },
++      // frc4: Engineering Inspiration alone, recorded 13: the two tables disagree.
++      { year: 2019, eventKey: "2019a", awardType: 9, teamKey: "frc4" },
++    ];
++    const measured = highestSingleAwardOutcomes(outcomes, instances);
++    expect(measured.outcomes.map((o) => [o.teamKey, o.awardPoints])).toEqual([
++      ["frc1", 5],
++      ["frc2", 10],
++      ["frc3", 0],
++    ]);
++    expect(measured.census.mismatches.map((m) => m.teamKey)).toEqual(["frc4"]);
++    expect(measured.census.teamEventsWithoutAwardRows).toBe(1);
++  });
++});
++
+ describe("decorationWindow (quick task 261014-mii, M-03)", () => {
+   it("pins the award seasons it steps through: 2016 to 2020 and 2022 to 2026, no 2021", () => {
+     expect([...DISTRICT_REGISTERED_SEASONS]).toEqual([2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026]);
+@@ -309,6 +346,9 @@ describe("the committed module reproduces a fresh measurement", () => {
+     // The registered set matches EXACTLY: a module registering a season the
+     // script would not is a number with no harness.
+     expect(result.registeredSeasons).toEqual([...DISTRICT_AWARD_BASE_RATE_SEASONS]);
++    // M-06 cross check over every outcome season the measurement read.
++    expect(result.crossCheck.mismatches).toEqual([]);
++    expect(result.crossCheck.teamEventsWithoutAwardRows).toBe(0);
+ 
+     for (const season of DISTRICT_AWARD_BASE_RATE_SEASONS) {
+       const fresh = toSeasonTable(result.bySeason.get(season)!);
+diff --git a/scripts/measureDistrictAwardBaseRates.ts b/scripts/measureDistrictAwardBaseRates.ts
+index 26c79271..ddd313db 100644
+--- a/scripts/measureDistrictAwardBaseRates.ts
++++ b/scripts/measureDistrictAwardBaseRates.ts
+@@ -7,7 +7,7 @@
+  * ---------------------------------------------------------------------------
+  *
+  * 10-CONTEXT.md, "Awards (Jacob): base rates by decoration bucket" — per
+- * season, for buckets of prior judged awards crossed with rookie status, the
++ * season, for buckets of prior decorations crossed with rookie status, the
+  * chance a team earns ANY award points at a regular district event and the
+  * distribution over 0 / 5 / 8 / 10 / 13 / 15-or-more. 10-04 draws the award
+  * category from it, 10-06 bakes it, 10-08 quotes it.
+@@ -17,11 +17,19 @@
+  * ---------------------------------------------------------------------------
+  *
+  *   HALF ONE, THE FEATURE. A team's decoration bucket at a season-Y event
+- *   counts only judged awards from seasons strictly before Y.
++ *   counts only the team awards that pay district points
++ *   (`DISTRICT_POINT_AWARD_VALUES`, quick task 261014-mii decision M-01) won
++ *   in seasons strictly before Y.
+  *
+  *   HALF TWO, THE RATES. The table registered for season Y is fit only on
+  *   team-events from seasons strictly before Y.
+  *
++ *   THE OUTCOME is each team event's highest single district point award,
++ *   read from its own award rows (M-06), so a stack of two 5 point awards
++ *   measures 5 and the 10 point bin is Impact alone. A cross check sums the
++ *   M-01 values over every measured team event and compares the recorded
++ *   `award_points`; it prints its mismatch count, 0 on the corpus.
++ *
+  * Both halves carry their own leak test, on fixtures chosen so a leak CHANGES
+  * the answer — a fixture where it does not proves nothing. Half two is the
+  * LARGER surface here, because the table is the thing that ships, and the
+@@ -83,8 +91,8 @@ import {
+   DECORATION_LOOKBACK_SEASONS,
+   decorationBucket,
+   DISTRICT_POINT_AWARD_VALUES,
++  highestSingleAwardPoints,
+   MIN_CELL_OBSERVATIONS,
+-  NON_JUDGED_AWARD_TYPES,
+   ROOKIE_STATES,
+   rookieStateFor,
+   type AwardPointDistribution,
+@@ -111,7 +119,7 @@ export const MIN_PRIOR_DISTRICT_SEASONS = 3;
+ /** The exact command that produced the tables committed in `awardBaseRates.ts`. */
+ export const MEASURED_COMMAND = "npx tsx scripts/measureDistrictAwardBaseRates.ts";
+ /** The date that command was run. */
+-export const MEASURED_DATE = "2026-09-25";
++export const MEASURED_DATE = "2026-10-14";
+ 
+ // ───────────────────────────── pure helpers ─────────────────────────────
+ // Everything in this section is pure and unit-tested in
+@@ -126,7 +134,12 @@ export interface AwardInstance {
+ }
+ 
+ /**
+- * How many DISTINCT judged awards a team had won before `beforeYear`.
++ * A team's DECORATION COUNT before `beforeYear` (published as
++ * `priorJudgedAwards`): its DISTINCT wins of the team awards that pay district
++ * points (`DISTRICT_POINT_AWARD_VALUES`, quick task 261014-mii decision M-01),
++ * won at any event in the corpus in any season strictly before `beforeYear`.
++ * Dean's List, Woodie Flowers, Volunteer of the Year, Wildcard, Impact
++ * Finalist, Winner, Finalist and Highest Rookie Seed never count.
+  *
+  * DISTINCT on `(year, eventKey, awardType)` because `event_awards_all`'s
+  * primary key is POSITIONAL: a multi-recipient award is several rows at one
+@@ -144,7 +157,7 @@ export function priorJudgedAwardCount(
+   for (const instance of instances) {
+     if (instance.teamKey !== teamKey) continue;
+     if (instance.year >= beforeYear) continue;
+-    if (NON_JUDGED_AWARD_TYPES.has(instance.awardType)) continue;
++    if (!DISTRICT_POINT_AWARD_VALUES.has(instance.awardType)) continue;
+     seen.add(`${instance.year}|${instance.eventKey}|${instance.awardType}`);
+   }
+   return seen.size;
+@@ -243,6 +256,45 @@ export function addSeasonToDistrictPointAwardCensus(
+   }
+ }
+ 
++/**
++ * THE MEASURED OUTCOME (quick task 261014-mii, decision M-06): each district
++ * tier team event's HIGHEST SINGLE district point award, read from the outcome
++ * season's own award rows, replaces the summed `award_points`. Safety plus
++ * Imagery measures 5, Impact plus Safety measures 10, so the 10 point bin is
++ * Impact alone. The outcome is a label read from its own season, never a
++ * feature, so it cannot leak into a later season's table.
++ *
++ * Two kinds of team event are LEFT OUT and censused rather than counted
++ * silently: one at an event with no award rows (its outcome is unknown), and
++ * one whose summed M-01 values disagree with the recorded `award_points` (the
++ * two tables disagree about it). Both counts are 0 on the corpus, and the
++ * cross check in the census proves it on every run.
++ */
++export function highestSingleAwardOutcomes(
++  outcomes: readonly TeamEventOutcome[],
++  instances: readonly AwardInstance[]
++): { readonly outcomes: TeamEventOutcome[]; readonly census: DistrictPointAwardCensus } {
++  const census = emptyDistrictPointAwardCensus();
++  addSeasonToDistrictPointAwardCensus(census, outcomes, instances);
++  const excluded = new Set(census.mismatches.map((m) => `${m.season}|${m.eventKey}|${m.teamKey}`));
++  const eventsWithAwardRows = new Set(instances.map((instance) => instance.eventKey));
++  const typesAt = new Map<string, Set<number>>();
++  for (const instance of instances) {
++    if (instance.teamKey === null) continue;
++    const key = `${instance.eventKey}|${instance.teamKey}`;
++    const set = typesAt.get(key);
++    if (set === undefined) typesAt.set(key, new Set([instance.awardType]));
++    else set.add(instance.awardType);
++  }
++  const out: TeamEventOutcome[] = [];
++  for (const outcome of outcomes) {
++    if (!eventsWithAwardRows.has(outcome.eventKey)) continue;
++    if (excluded.has(`${outcome.season}|${outcome.eventKey}|${outcome.teamKey}`)) continue;
++    out.push({ ...outcome, awardPoints: highestSingleAwardPoints(typesAt.get(`${outcome.eventKey}|${outcome.teamKey}`) ?? []) });
++  }
++  return { outcomes: out, census };
++}
++
+ /** One district tier team-event outcome: what a team scored in award points at one regular district event. */
+ export interface TeamEventOutcome {
+   readonly season: number;
+@@ -490,27 +542,24 @@ export function districtPointAwardCensusLines(census: DistrictPointAwardCensus):
+ export interface MeasurementResult {
+   readonly bySeason: Map<number, SeasonMeasurement>;
+   readonly registeredSeasons: number[];
++  /** The M-06 cross check over every outcome season the measurement read: summed M-01 values against the recorded award_points. */
++  readonly crossCheck: DistrictPointAwardCensus;
+ }
+ 
+ /**
+  * Measures every season in `seasons`, in ascending order. For each, the prior
+  * award-instance set and the prior team-event outcome set are built from
+- * seasons STRICTLY BEFORE it — reversing that is the leak.
++ * seasons STRICTLY BEFORE it — reversing that is the leak. Each outcome is
++ * its team event's highest single award (quick task 261014-mii, decision
++ * M-06).
+  */
+ export function measureDistrictAwardBaseRates(db: Corpus, seasons: readonly number[]): MeasurementResult {
+   const ordered = [...seasons].sort((a, b) => a - b);
+   const rookieYears = loadRookieYears(db);
+ 
++  const crossCheck = emptyDistrictPointAwardCensus();
+   const outcomeCache = new Map<number, TeamEventOutcome[]>();
+   const instanceCache = new Map<number, AwardInstance[]>();
+-  const loadOutcomes = (season: number): TeamEventOutcome[] => {
+-    let cached = outcomeCache.get(season);
+-    if (cached === undefined) {
+-      cached = loadDistrictTierOutcomes(db, season);
+-      outcomeCache.set(season, cached);
+-    }
+-    return cached;
+-  };
+   const loadInstances = (season: number): AwardInstance[] => {
+     let cached = instanceCache.get(season);
+     if (cached === undefined) {
+@@ -519,6 +568,18 @@ export function measureDistrictAwardBaseRates(db: Corpus, seasons: readonly numb
+     }
+     return cached;
+   };
++  const loadOutcomes = (season: number): TeamEventOutcome[] => {
++    let cached = outcomeCache.get(season);
++    if (cached === undefined) {
++      const measured = highestSingleAwardOutcomes(loadDistrictTierOutcomes(db, season), loadInstances(season));
++      cached = measured.outcomes;
++      crossCheck.teamEvents += measured.census.teamEvents;
++      crossCheck.teamEventsWithoutAwardRows += measured.census.teamEventsWithoutAwardRows;
++      crossCheck.mismatches.push(...measured.census.mismatches);
++      outcomeCache.set(season, cached);
++    }
++    return cached;
++  };
+ 
+   const bySeason = new Map<number, SeasonMeasurement>();
+   const registeredSeasons: number[] = [];
+@@ -536,7 +597,7 @@ export function measureDistrictAwardBaseRates(db: Corpus, seasons: readonly numb
+     if (measurement.registered) registeredSeasons.push(season);
+   }
+ 
+-  return { bySeason, registeredSeasons };
++  return { bySeason, registeredSeasons, crossCheck };
+ }
+ 
+ // ───────────────────────────── reporting ─────────────────────────────
+@@ -607,8 +668,8 @@ function reportPracticalAnswer(result: MeasurementResult): void {
+ 
+   console.log(`── PRACTICAL ANSWER ──`);
+   console.log(
+-    `   At a regular district event, a team that has never won a judged award takes home award points\n` +
+-      `   about ${pct(none)} of the time. A team with one or two prior judged awards: ${pct(oneTwo)}. A team with three\n` +
++    `   At a regular district event, a team that has never won a point paying team award takes home award points\n` +
++      `   about ${pct(none)} of the time. A team with one or two of them: ${pct(oneTwo)}. A team with three\n` +
+       `   or more: ${pct(threePlus)}. So prior decoration moves the chance by roughly ${
+         none !== undefined && threePlus !== undefined ? `${((threePlus - none) * 100).toFixed(1)} percentage points` : "n/a"
+       } from the\n` +
+@@ -675,6 +736,11 @@ async function main(): Promise<void> {
+     for (const season of [...result.bySeason.keys()].sort((a, b) => a - b)) {
+       reportSeason(result.bySeason.get(season)!);
+     }
++    console.log(
++      `M-06 CROSS CHECK (the outcome seasons measured): ${result.crossCheck.teamEvents} team events, ${result.crossCheck.mismatches.length} mismatch(es) between the summed M-01 values and award_points, ` +
++        `${result.crossCheck.teamEventsWithoutAwardRows} at events with no award rows (both left out of every table)`
++    );
++    console.log("");
+     console.log(`REGISTERED SEASONS: ${result.registeredSeasons.join(", ") || "none"}`);
+     for (const season of [...result.bySeason.keys()].sort((a, b) => a - b)) {
+       const measurement = result.bySeason.get(season)!;
+diff --git a/scripts/publishDistricts.test.ts b/scripts/publishDistricts.test.ts
+index 846b7b45..a3956efb 100644
+--- a/scripts/publishDistricts.test.ts
++++ b/scripts/publishDistricts.test.ts
+@@ -1521,7 +1521,13 @@ function awardFixture(rows: {
+ function populatedAwardFixture(
+   season: number,
+   teams: Array<{ team_key: string; team_number: number; rookie_year: number | null }>,
+-  /** Extra judged awards, each at its OWN event so `priorJudgedAwardCount`'s DISTINCT `(year, eventKey, awardType)` rule counts them separately. */
++  /**
++   * Extra awards, each at its OWN event so `priorJudgedAwardCount`'s DISTINCT
++   * `(year, eventKey, awardType)` rule counts them separately. The default type
++   * is 17 (Quality), a district point award: since quick task 261014-mii only
++   * those count as decorations, so the old default 5 (Volunteer of the Year)
++   * would count for nothing.
++   */
+   extraAwards: Array<{ year: number; teamKey: string; awardType?: number }> = []
+ ) {
+   const seasons = DISTRICT_REGISTERED_SEASONS.filter((s) => s <= season).map((s) => ({ eventKey: `${s}e1`, year: s }));
+@@ -1529,7 +1535,7 @@ function populatedAwardFixture(
+   const awardsAll = prior.map((s, i) => ({ event_key: `${s}e1`, award_type: 5, award_index: i, recipient_index: 0, team_key: "frcSeed", year: s }));
+   for (const [i, extra] of extraAwards.entries()) {
+     seasons.push({ eventKey: `${extra.year}x${i}`, year: extra.year });
+-    awardsAll.push({ event_key: `${extra.year}x${i}`, award_type: extra.awardType ?? 5, award_index: 0, recipient_index: 0, team_key: extra.teamKey, year: extra.year });
++    awardsAll.push({ event_key: `${extra.year}x${i}`, award_type: extra.awardType ?? 17, award_index: 0, recipient_index: 0, team_key: extra.teamKey, year: extra.year });
+   }
+   return awardFixture({ seasons, awardsAll, teams });
+ }
+@@ -1815,7 +1821,7 @@ describe("the award base-rate table on the wire", () => {
+         { year: 2024, teamKey: "frcImpact", awardType: 0 },
+         { year: 2025, teamKey: "frcImpact", awardType: 0 },
+         { year: 2026, teamKey: "frcImpact", awardType: 0 },
+-        { year: 2025, teamKey: "frcImpact", awardType: 5 },
++        { year: 2025, teamKey: "frcImpact", awardType: 17 },
+       ]
+     );
+     try {
+diff --git a/scripts/scoreAwardModel.test.ts b/scripts/scoreAwardModel.test.ts
+index 7952190b..f9157368 100644
+--- a/scripts/scoreAwardModel.test.ts
++++ b/scripts/scoreAwardModel.test.ts
+@@ -36,7 +36,7 @@ import {
+   type ScoredTeamEvent,
+   type ScoreSnapshot,
+ } from "./scoreAwardModel.js";
+-import type { AwardInstance } from "./measureDistrictAwardBaseRates.js";
++import { priorJudgedAwardCount, type AwardInstance } from "./measureDistrictAwardBaseRates.js";
+ 
+ function odds(p10: number, p8: number, p5: number, impact = p10): AwardOutcomeOdds {
+   return { p10, p8, p5, p0: 1 - p10 - p8 - p5, impact };
+@@ -277,6 +277,8 @@ describe("legacyReviewClass, the frozen review rule (M-09)", () => {
+     expect(legacyReviewClass(instances, "frc1", 2026, "veteran")).toBe("one or two");
+     const pointPaying = instances.filter((i) => i.year < 2026 && DISTRICT_POINT_AWARD_VALUES.has(i.awardType));
+     expect(pointPaying).toEqual([]);
++    // The priced decoration count (quick task 261014-mii) does not move.
++    expect(priorJudgedAwardCount(instances, "frc1", 2026)).toBe(0);
+     expect(legacyReviewClass(instances, "frc1", 2026, "rookie")).toBe("one or two rookie");
+     // A win nine seasons back still counts under the review's rule.
+     const old: AwardInstance[] = [
+diff --git a/scripts/scoreAwardModel.ts b/scripts/scoreAwardModel.ts
+index 0c72bc00..f7b3e2bb 100644
+--- a/scripts/scoreAwardModel.ts
++++ b/scripts/scoreAwardModel.ts
+@@ -18,9 +18,10 @@
+  *  - fields of at least 11 teams.
+  *
+  * WALK FORWARD. Each team's profile is built the way the publisher builds it:
+- * prior judged awards (`priorJudgedAwardCount`) and prior Impact wins
+- * (`priorImpactWinCount`) from seasons strictly before the event's own, and
+- * the rookie state from the team's rookie year. The award tables themselves
++ * the decoration count (`priorJudgedAwardCount`) and prior Impact wins
++ * (`priorImpactWinCount`) from seasons strictly before the event's own
++ * (quick task 261014-mii: point paying team awards only), and the rookie state
++ * from the team's rookie year. The award tables themselves
+  * are walk forward by construction (each season's tables were measured on
+  * earlier seasons only).
+  *
