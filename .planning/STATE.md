@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-14T17:56:36.192Z"
+last_updated: "2026-10-14T19:28:18.114Z"
 last_activity: 2026-10-14
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -765,6 +765,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 329 | Rebuild the Locks cutoff backtest on the as-of state the live tab uses; re-measured 1.2 vs 2.4 points, 183 of 205; season start In range report | 2026-10-14 | bad55efa | [261014-hx6-rebuild-the-locks-backtest-on-the-as-of-](./quick/261014-hx6-rebuild-the-locks-backtest-on-the-as-of-/) |
 | 330 | Locks Playoffs box names a best guess finish (1st, 2nd, 3rd or 4th, 5th to 8th) with its chance and pay, in place of the moving top 4, final, win question; drawer headline matches; summed rows print points | 2026-10-14 | c706fef3 | [261014-i1c-locks-playoffs-box-shows-a-best-guess-fi](./quick/261014-i1c-locks-playoffs-box-shows-a-best-guess-fi/) |
 | 331 | Locks Playoffs box bold line shortened from best guess 1st to ~1st | 2026-10-14 | 62b5afdb | — |
+| 332 | Locks Playoffs box reads ~not picked over N% on an alliance when a team misses every alliance in more than half the runs; legend tilde now means this site's prediction | 2026-10-14 | 33e1c478 | [261014-jfx-locks-playoffs-box-predicts-not-picked](./quick/261014-jfx-locks-playoffs-box-predicts-not-picked/) |
 
 ### Roadmap Evolution
 
