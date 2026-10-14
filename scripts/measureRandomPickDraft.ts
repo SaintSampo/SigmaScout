@@ -91,7 +91,34 @@
  * MEASURED
  * ---------------------------------------------------------------------------
  *
- * (filled by Task 3 of quick task 261014-mji)
+ * Recorded, not pinned by any test. Report and JSON kept under
+ * data/local-publish/pick-draft/ (gitignored): 261014-mji-report.txt and
+ * 261014-mji.json.
+ *
+ *   command:  npx tsx scripts/measureRandomPickDraft.ts --stability --json data/local-publish/pick-draft/261014-mji.json
+ *   date:     2026-10-14
+ *   SPR:      spr@11.0.0+baseline, replayed 2016 to 2026 (boundary = after each team's last qualification match)
+ *   scored:   2023 to 2026 at quals done, 1000 draws, seed 20260830
+ *   teams:    2023 3,932 (110 events); 2024 4,119 (114); 2025 4,308 (120); 2026 5,053 (141);
+ *             pooled 17,412 (485 events). Excluded: 16 events not eight alliances
+ *             (the divisioned DCMP parents), 6 with an alliance team with no
+ *             ranking row (2023gaalb, 2024vapor, 2025ncash, 2026mefal,
+ *             2026txfor, 2026txmca); the simulation threw at none.
+ *
+ *   pooled                       Brier    log loss 0.01   accuracy
+ *   (a) fixed SPR draft          0.1327   0.6197          86.73%  (2,310 of 17,412 called wrong)
+ *   (b) random pick, 2016 on     0.0917   0.2886          86.95%
+ *   (b2) random pick, 2023 on    0.0910   0.2880          87.03%  (2024 to 2026 only, 13,480 teams)
+ *   (c) fixed rank draft         0.1865   0.8672          81.35%  (3,248 of 17,412 called wrong)
+ *
+ *   VERDICT (b) 2016 onward tables vs (a), pooled over 2023 to 2026: WIN
+ *     (Brier lower, log loss lower, accuracy same or higher; Brier lower in 4 of 4 seasons)
+ *   VERDICT (b2) 2023 onward tables vs (a), pooled over 2024 to 2026: WIN
+ *     (Brier 0.0910 vs 0.1315, log loss 0.2880 vs 0.6141, accuracy 87.03% vs 86.85%; 3 of 3 seasons)
+ *   VERDICT (c) fixed rank draft vs (a), pooled over 2023 to 2026: NO WIN (worse on all three)
+ *   The two table sets agree. Stability: (b) at seed 20260831 moves pooled
+ *   Brier by -0.00020 and log loss by -0.00081, accuracy 86.90%.
+ *   Measurement only: nothing here changes a published number.
  */
 
 import { writeFileSync } from "node:fs";
