@@ -122,13 +122,13 @@ describe("districtPlayoffOutcomes", () => {
   });
 
   it("omits the nothing row once a top-four finish is secured", () => {
-    const milestone: DistrictPlayoffMilestone = { kind: "finalist", chance: 0.2, conditionalMedian: 20 };
+    const milestone: DistrictPlayoffMilestone = { kind: "finalist" };
     const rows = districtPlayoffOutcomes(SEASON, TIER, playoffDistribution(), milestone);
     expect(rows.map((row) => row.id)).toEqual(["winner", "finalist", "third", "fourth"]);
   });
 
   it("omits third and fourth as well once the alliance is in the final", () => {
-    const milestone: DistrictPlayoffMilestone = { kind: "winner", chance: 0.05, conditionalMedian: 30 };
+    const milestone: DistrictPlayoffMilestone = { kind: "winner" };
     const rows = districtPlayoffOutcomes(SEASON, TIER, playoffDistribution(), milestone);
     expect(rows.map((row) => row.id)).toEqual(["winner", "finalist"]);
   });
@@ -163,8 +163,8 @@ describe("districtPlayoffBestGuess (261014-i1c)", () => {
     const ceiling = maxEventPoints(SEASON, tier).elim;
     return openDistrictLedgerCell("2026walive:elim", "elim", distributionOf(pairs, ceiling), ceiling) as OpenCell;
   }
-  const finalist: DistrictPlayoffMilestone = { kind: "finalist", chance: 0.5, conditionalMedian: 20 };
-  const winner: DistrictPlayoffMilestone = { kind: "winner", chance: 0.5, conditionalMedian: 30 };
+  const finalist: DistrictPlayoffMilestone = { kind: "finalist" };
+  const winner: DistrictPlayoffMilestone = { kind: "winner" };
 
   it("groups third and fourth, so two finishes that each lose to the biggest single row can win together", () => {
     const guess = districtPlayoffBestGuess(elimCell([[0, 34], [7, 16], [13, 20], [20, 15], [30, 15]]), DISTRICT)!;

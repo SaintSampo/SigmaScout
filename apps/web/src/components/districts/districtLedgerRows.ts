@@ -149,7 +149,6 @@ import {
   pointCellSummary,
   pointPercentiles,
   pointQuantile,
-  pointThresholdSummary,
   type PointCellSummary,
   type PointPercentiles,
 } from "../../../../../packages/core/districts/pointSummary.js";
@@ -316,25 +315,6 @@ export function pointMassDistribution(points: number): DistrictPointDistribution
 // ---------------------------------------------------------------------------
 
 /**
- * THE MILESTONE A PLAYOFFS CELL IS ACTUALLY CHASING, when the bracket has
- * already moved past the top four.
- *
- * Jacob, 2026-09-25: "Can we have it update as playoffs go on? top four >
- * finalist > winner." Before the bracket starts, and while an alliance is still
- * short of a top-four finish, the cell's chance IS the chance of reaching the
- * top four — placements five through eight pay nothing, so "any points at all"
- * and "top four" are the same event and the cell needs no extra field. This type
- * covers the two positions past that (a top four finish secured, and a place in
- * the final), where the shipped chance would be a settled question printed as a
- * prediction. A DECIDED placement is not one of them: the row builder settles it
- * as a grey cell (quick task 261008-26o), so an open cell never carries one and
- * the arm that described it was removed in quick task 261009-tx8.
- *
- * `chance` and `conditionalMedian` are `pointThresholdSummary`'s own two numbers,
- * taken on the SAME distribution the cell's histogram is drawn from, so the
- * headline and the outcome list can never disagree.
- */
-/**
  * WHICH ROUTE ONTO A PLAYOFF ALLIANCE the runs took, carried on an open Alliance
  * selection cell so the cell's headline and the drawer's outcome list are built
  * from ONE object.
@@ -372,9 +352,20 @@ export interface DistrictSelectionRouteView {
   readonly rankingFixed: boolean;
 }
 
-export type DistrictPlayoffMilestone =
-  | { readonly kind: "finalist"; readonly chance: number; readonly conditionalMedian: number | undefined }
-  | { readonly kind: "winner"; readonly chance: number; readonly conditionalMedian: number | undefined };
+/**
+ * THE FINISHES THE BRACKET HAS RULED OUT for a Playoffs cell whose alliance is
+ * still alive (Jacob, 2026-09-25: "top four > finalist > winner").
+ *
+ * `finalist` means a top four finish is secured, so fifth to eighth is ruled
+ * out. `winner` means the alliance is in the final, so third and fourth are
+ * ruled out too. The drawer's outcome list omits those rows and the cell's best
+ * guess (`districtPlayoffBestGuess`) never names them. It carries no chance: the
+ * kind names are kept from when the cell asked about those milestones.
+ *
+ * A DECIDED placement is not one of them: the row builder settles it as a grey
+ * cell (quick task 261008-26o), so an open cell never carries one.
+ */
+export type DistrictPlayoffMilestone = { readonly kind: "finalist" } | { readonly kind: "winner" };
 
 /** One rendered cell: a grey final integer, a blue open distribution, or an honest unavailable. */
 export type DistrictLedgerCell =
@@ -410,7 +401,7 @@ export type DistrictLedgerCell =
       readonly distribution: DistrictPointDistribution;
       /** The axis ceiling this cell's histogram is drawn on — always `maxEventPoints`-derived, never a literal. */
       readonly ceiling: number;
-      /** Present only on a Playoffs cell whose bracket has already moved past the top four — see `DistrictPlayoffMilestone`. */
+      /** Present only on a Playoffs cell whose bracket has already ruled out its lower finishes — see `DistrictPlayoffMilestone`. */
       readonly playoffMilestone?: DistrictPlayoffMilestone;
       /** Present only on an Alliance selection cell whose run reported its routes — see `DistrictSelectionRouteView`. */
       readonly selection?: DistrictSelectionRouteView;
@@ -432,7 +423,8 @@ export type DistrictLedgerCell =
        * 261009-tx8, B2, `champLedgerRows.ts` `buildDcmpRow`). Its support is
        * the division's shifted by that value, which no named playoff or award
        * outcome covers, so its drawer draws the histogram instead of an outcome
-       * list (`champCellNamesOutcomes`).
+       * list (`champCellNamesOutcomes`) and the cell prints the median form
+       * rather than a best guess finish (`districtPlayoffBestGuess`).
        *
        * On the `notPicked` precedent: present and true only, never written as
        * `false`, so a cell that is not flagged carries no key and deep equals
@@ -1774,36 +1766,24 @@ export function openDistrictLedgerCell(
 const openCell = openDistrictLedgerCell;
 
 /**
- * The Playoffs cell's milestone, from the bracket's own progress and this event's
- * OWN placement point values.
+ * The finishes the bracket has ruled out for a Playoffs cell, from the
+ * bracket's own progress.
  *
- * `undefined` for an alliance that is still alive short of a top-four finish, and
- * for an event with no bracket progress at all. Both print the shipped chance,
- * which for a playoff bracket IS the chance of reaching the top four: placements
- * five through eight pay nothing, so "any points" and "top four" are one event.
+ * `undefined` for an alliance that is still alive short of a top four finish,
+ * and for an event with no bracket progress at all: nothing is ruled out, so the
+ * drawer lists every row and the best guess may name any finish.
  *
  * `undefined` for a DECIDED placement too. `buildDistrictLedgerRows` settles a
  * decided placement as a grey cell before this function is reached (quick task
  * 261008-26o), so the guard only keeps the function total.
  *
- * Every threshold comes from `playoffPoints`, so the dcmp weight is applied by
- * the phase's single weight source and no point value is a literal here.
+ * The kind carries no point value, so no threshold is computed here; the point
+ * values come from `playoffPoints` where the rows are built.
  */
-function playoffMilestoneFor(
-  season: number,
-  tier: DistrictTier,
-  milestone: AllianceBracketMilestone | undefined,
-  distribution: DistrictPointDistribution
-): DistrictPlayoffMilestone | undefined {
+function playoffMilestoneFor(milestone: AllianceBracketMilestone | undefined): DistrictPlayoffMilestone | undefined {
   if (milestone === undefined || milestone.kind === "alive" || milestone.kind === "decided") return undefined;
-  // A top-four finish is secured, so the next thing worth asking is whether the
-  // alliance reaches the FINAL — second place or better.
-  const placement = milestone.kind === "finals" ? 1 : 2;
-  const threshold = playoffPoints(season, tier, placement);
-  const summary = pointThresholdSummary(distribution.counts, distribution.denominator, threshold);
-  return milestone.kind === "finals"
-    ? { kind: "winner", chance: summary.chance, conditionalMedian: summary.conditionalMedian }
-    : { kind: "finalist", chance: summary.chance, conditionalMedian: summary.conditionalMedian };
+  // A top four finish is secured for `topFour`; a place in the final for `finals`.
+  return milestone.kind === "finals" ? { kind: "winner" } : { kind: "finalist" };
 }
 
 export interface SettledPlayoffPointsOptions {
@@ -1945,8 +1925,8 @@ export interface BuildDistrictLedgerRowsOptions {
    *
    * It drives exactly THREE things and nothing else: which events are collected
    * (`tierEvents(team, tier)`), which ceilings the cells are drawn on
-   * (`maxEventPoints(season, tier)`) and which tier `playoffMilestoneFor` prices
-   * its thresholds at. The Champ Locks tab runs this builder twice over the same
+   * (`maxEventPoints(season, tier)`) and which tier the Playoffs rows are
+   * priced at. The Champ Locks tab runs this builder twice over the same
    * distributions, once per tier, and folds the two passes (quick task
    * 260925-xab).
    */
@@ -2166,12 +2146,7 @@ export function buildDistrictLedgerRows(options: BuildDistrictLedgerRowsOptions)
         if (teamNotPickedAtPosition(eventRuns?.selectionRoutesByTeam?.get(team.teamKey), eventRuns?.rankingFixed, selectionOverOnTheField)) {
           return { ...cell, notPicked: true };
         }
-        const milestone = playoffMilestoneFor(
-          season,
-          tier,
-          distributions.get(entry.eventKey)?.playoffMilestoneByTeam?.get(team.teamKey),
-          distribution
-        );
+        const milestone = playoffMilestoneFor(distributions.get(entry.eventKey)?.playoffMilestoneByTeam?.get(team.teamKey));
         const withMilestone = milestone === undefined ? cell : { ...cell, playoffMilestone: milestone };
         return securedElim === undefined ? withMilestone : { ...withMilestone, securedAtLeast: securedElim };
       });

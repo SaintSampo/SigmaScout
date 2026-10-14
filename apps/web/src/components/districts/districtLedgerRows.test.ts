@@ -1848,27 +1848,17 @@ describe("the Playoffs cell's milestone", () => {
     return cell;
   }
 
-  it("carries NO milestone for an event with no bracket progress, so the cell prints the shipped top-four chance", () => {
+  it("carries NO milestone for an event with no bracket progress or an alliance still alive, so no finish is ruled out", () => {
     expect(cellFor(undefined).playoffMilestone).toBeUndefined();
     expect(cellFor({ kind: "alive" }).playoffMilestone).toBeUndefined();
   });
 
-  it("asks about the FINALIST once a top-four finish is secured, at this event's own finalist point value", () => {
-    const milestone = cellFor({ kind: "topFour" }).playoffMilestone!;
-    expect(milestone.kind).toBe("finalist");
-    if (milestone.kind !== "finalist") throw new Error("unreachable");
-    // 20 draws at or above the finalist's 20 points, out of 100.
-    expect(milestone.chance).toBeCloseTo(0.2, 12);
-    expect(milestone.conditionalMedian).toBeGreaterThan(19.5);
+  it("rules fifth to eighth out once a top four finish is secured", () => {
+    expect(cellFor({ kind: "topFour" }).playoffMilestone).toEqual({ kind: "finalist" });
   });
 
-  it("asks about the WINNER once the alliance is in the final", () => {
-    const milestone = cellFor({ kind: "finals" }).playoffMilestone!;
-    expect(milestone.kind).toBe("winner");
-    if (milestone.kind !== "winner") throw new Error("unreachable");
-    // 5 draws at the winner's 30 points, out of 100.
-    expect(milestone.chance).toBeCloseTo(0.05, 12);
-    expect(milestone.conditionalMedian).toBeCloseTo(30, 10);
+  it("rules third and fourth out as well once the alliance is in the final", () => {
+    expect(cellFor({ kind: "finals" }).playoffMilestone).toEqual({ kind: "winner" });
   });
 
   /**

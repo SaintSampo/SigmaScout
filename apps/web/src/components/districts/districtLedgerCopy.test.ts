@@ -30,7 +30,10 @@ import {
   DISTRICT_LEDGER_LEGEND_EXPLAINER,
   DISTRICT_LEDGER_LEGEND_OPEN,
   DISTRICT_LEDGER_LOCKED_AWARD_LABEL,
-  DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS,
+  DISTRICT_LEDGER_PLAYOFF_BEST_GUESS_PREFIX,
+  DISTRICT_LEDGER_PLAYOFF_FINISH_LABELS,
+  DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS,
+  districtLedgerPlayoffBestGuessLines,
   DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS,
   DISTRICT_LEDGER_OUTCOME_LIST_LABELS,
   DISTRICT_LEDGER_SELECTION_OUTCOME_LABELS,
@@ -356,23 +359,40 @@ describe("a settled Playoffs value that is not exact (quick task 261010-66y, D6)
   });
 });
 
-describe("the playoff milestone words", () => {
-  it("names the top four rather than playing, because fifth through eighth pay nothing", () => {
-    expect(DISTRICT_LEDGER_CHANCE_WORDS.elim).toEqual({ bold: "top 4" });
-    // The superseded wording claimed a chance of PLAYING a playoff match, which
-    // is not what the number ever was.
-    expect(DISTRICT_LEDGER_CHANCE_WORDS.elim.bold).not.toBe("play");
+describe("the Playoffs best guess words (quick task 261014-i1c)", () => {
+  it("names the four finishes in the cell's lower case words", () => {
+    expect(DISTRICT_LEDGER_PLAYOFF_BEST_GUESS_PREFIX).toBe("best guess");
+    expect(DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS).toEqual({ first: "1st", second: "2nd", thirdOrFourth: "3rd or 4th", fifthToEighth: "5th to 8th" });
   });
 
-  it("carries the two milestones past the top four, bold words only (261008-3il)", () => {
-    expect(DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS).toEqual({
-      finalist: { bold: "final" },
-      winner: { bold: "win" },
+  it("labels the four finishes for the drawer, reusing the list's own labels for the single ones", () => {
+    expect(DISTRICT_LEDGER_PLAYOFF_FINISH_LABELS).toEqual({
+      first: "Wins the event",
+      second: "Finalist",
+      thirdOrFourth: "Third or fourth place",
+      fifthToEighth: "Out before the top four",
     });
   });
 
-  it("keeps only the bold outcome word in every chance word table (261008-3il)", () => {
-    expect(DISTRICT_LEDGER_CHANCE_WORDS).toEqual({ alliance: { bold: "picked" }, elim: { bold: "top 4" }, award: { bold: "award" } });
+  it("prints the best guess over its chance and what the finish pays", () => {
+    expect(districtLedgerPlayoffBestGuessLines({ id: "thirdOrFourth", chance: 0.36, pay: { kind: "values", values: [7, 13] } })).toEqual({
+      bold: "best guess 3rd or 4th",
+      small: "36% · pays 7 or 13",
+    });
+    expect(districtLedgerPlayoffBestGuessLines({ id: "fifthToEighth", chance: 0.6, pay: { kind: "values", values: [0] } })).toEqual({
+      bold: "best guess 5th to 8th",
+      small: "60% · pays 0",
+    });
+  });
+
+  it("never prints 100 percent and never a tilde: a near certain 1st reads 99%", () => {
+    const lines = districtLedgerPlayoffBestGuessLines({ id: "first", chance: 1, pay: { kind: "values", values: [30] } });
+    expect(lines).toEqual({ bold: "best guess 1st", small: "99% · pays 30" });
+    expect(lines.small).not.toContain("~");
+  });
+
+  it("keeps only the bold outcome word in the chance word table, for Alliance selection and Awards (261008-3il)", () => {
+    expect(DISTRICT_LEDGER_CHANCE_WORDS).toEqual({ alliance: { bold: "picked" }, award: { bold: "award" } });
   });
 
   it("gives a team on no alliance the not picked words (261008-3il)", () => {
@@ -458,10 +478,12 @@ describe("the playoff milestone words", () => {
     for (const dash of ["—", "–", "-"]) expect(ranged.replace(/(\d)–(\d)/g, "$1$2")).not.toContain(dash);
   });
 
-  it("carries no dash character in any milestone word, matching the tab's own rule", () => {
+  it("carries no dash character in any best guess word or finish label, matching the tab's own rule", () => {
     const everyString = [
-      ...Object.values(DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS).map((entry) => entry.bold),
-      DISTRICT_LEDGER_CHANCE_WORDS.elim.bold,
+      DISTRICT_LEDGER_PLAYOFF_BEST_GUESS_PREFIX,
+      ...Object.values(DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS),
+      ...Object.values(DISTRICT_LEDGER_PLAYOFF_FINISH_LABELS),
+      DISTRICT_LEDGER_CHANCE_WORDS.award.bold,
       DISTRICT_LEDGER_NOT_PICKED_WORDS.bold,
       DISTRICT_LEDGER_NOT_PICKED_WORDS.small,
     ].join(" ");
@@ -503,7 +525,7 @@ describe("the secured line of an open Playoffs cell (quick task 261012-mw2)", ()
   it("prints at least, the points, a middle dot and then the cell's own small line unchanged", () => {
     expect(DISTRICT_LEDGER_SECURED_PREFIX).toBe("at least");
     expect(districtLedgerSecuredLine(60, "pays 90")).toBe("at least 60 · pays 90");
-    expect(districtLedgerSecuredLine(20, "pays 20 or 30")).toBe("at least 20 · pays 20 or 30");
+    expect(districtLedgerSecuredLine(20, "45% · pays 20")).toBe("at least 20 · 45% · pays 20");
     expect(districtLedgerSecuredLine(39, "likely 39 to 90")).toBe("at least 39 · likely 39 to 90");
     // The separator is the middle dot between two spaces, the one the Team cell's meta line already uses.
     expect(districtLedgerSecuredLine(60, "pays 90")).toBe(`at least 60 ${String.fromCharCode(0xb7)} pays 90`);

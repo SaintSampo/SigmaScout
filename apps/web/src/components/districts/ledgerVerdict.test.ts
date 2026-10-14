@@ -468,7 +468,7 @@ describe("buildVerdictModel on a Playoffs cell names the cell's best guess finis
 
   it("never names a finish the milestone rules out", () => {
     const cell = openCell("elim", sparse(CEILINGS.elim, [[0, 70], [20, 20], [30, 10]]), CEILINGS.elim, {
-      playoffMilestone: { kind: "finalist", chance: 0.3, conditionalMedian: 20 },
+      playoffMilestone: { kind: "finalist" },
     });
     const model = buildVerdictModel(baseInput(cell));
     expect(model.headline).toBe("Finalist in 20 of 100 runs.");
@@ -513,8 +513,8 @@ describe("the cell's pays line agrees with the drawer's outcome rows (261008-3il
     const counts = sparse(ceiling, [[0, 34], [fourth, 16], [third, 20], [second, 15], [first, 15]]);
     return {
       topFour: openCell("elim", counts, ceiling),
-      finalist: openCell("elim", counts, ceiling, { playoffMilestone: { kind: "finalist", chance: 0.3, conditionalMedian: 30 } }),
-      winner: openCell("elim", counts, ceiling, { playoffMilestone: { kind: "winner", chance: 0.15, conditionalMedian: 30 } }),
+      finalist: openCell("elim", counts, ceiling, { playoffMilestone: { kind: "finalist" } }),
+      winner: openCell("elim", counts, ceiling, { playoffMilestone: { kind: "winner" } }),
       fourth,
       third,
     };

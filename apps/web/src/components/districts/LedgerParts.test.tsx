@@ -166,19 +166,19 @@ const TOP_FOUR = openFrom("2026walive:elim", "elim", { 0: 34, 7: 16, 13: 20, 20:
 /** A top four finish is secured: no mass at the ruled out value 0. */
 const FINALIST = {
   ...openFrom("2026walive:elim", "elim", { 7: 10, 13: 15, 20: 45, 30: 30 }, 30),
-  playoffMilestone: { kind: "finalist", chance: 0.85, conditionalMedian: 30 },
+  playoffMilestone: { kind: "finalist" },
 } as const satisfies OpenCell;
 /** In the final: 2nd or 1st only. */
-const WINNER = { ...openFrom("2026walive:elim", "elim", { 20: 41, 30: 59 }, 30), playoffMilestone: { kind: "winner", chance: 0.59, conditionalMedian: 30 } } as const satisfies OpenCell;
+const WINNER = { ...openFrom("2026walive:elim", "elim", { 20: 41, 30: 59 }, 30), playoffMilestone: { kind: "winner" } } as const satisfies OpenCell;
 /** Every run wins: the chance reads 99%, never 100%. */
-const WINNER_SURE = { ...openFrom("2026walive:elim", "elim", { 30: 100 }, 30), playoffMilestone: { kind: "winner", chance: 0.999, conditionalMedian: 30 } } as const satisfies OpenCell;
+const WINNER_SURE = { ...openFrom("2026walive:elim", "elim", { 30: 100 }, 30), playoffMilestone: { kind: "winner" } } as const satisfies OpenCell;
 /** The same three shapes on the District Championship's 3x placement values. */
 const TOP_FOUR_DCMP = openFrom("2026walive:elim", "elim", { 0: 34, 21: 16, 39: 20, 60: 15, 90: 15 }, 90);
 const FINALIST_DCMP = {
   ...openFrom("2026walive:elim", "elim", { 21: 10, 39: 15, 60: 45, 90: 30 }, 90),
-  playoffMilestone: { kind: "finalist", chance: 0.85, conditionalMedian: 90 },
+  playoffMilestone: { kind: "finalist" },
 } as const satisfies OpenCell;
-const WINNER_DCMP = { ...openFrom("2026walive:elim", "elim", { 60: 41, 90: 59 }, 90), playoffMilestone: { kind: "winner", chance: 0.59, conditionalMedian: 90 } } as const satisfies OpenCell;
+const WINNER_DCMP = { ...openFrom("2026walive:elim", "elim", { 60: 41, 90: 59 }, 90), playoffMilestone: { kind: "winner" } } as const satisfies OpenCell;
 /** Nothing in the top four is likelier than missing it, even grouped. */
 const FIFTH_TO_EIGHTH = openFrom("2026walive:elim", "elim", { 0: 60, 7: 10, 13: 10, 20: 10, 30: 10 }, 30);
 /** 2nd and 5th to 8th each took 30 runs, 1st 20 and 3rd or 4th 20: the better finish of the tie is named. */
@@ -258,9 +258,9 @@ describe("openCellLines: one grammar for every open cell (261008-3il)", () => {
   });
 
   it("never names a finish the milestone rules out, even where its mass is the largest", () => {
-    const missHeavy = { ...openFrom("2026walive:elim", "elim", { 0: 70, 20: 20, 30: 10 }, 30), playoffMilestone: { kind: "finalist", chance: 0.3, conditionalMedian: 20 } } as const satisfies OpenCell;
+    const missHeavy = { ...openFrom("2026walive:elim", "elim", { 0: 70, 20: 20, 30: 10 }, 30), playoffMilestone: { kind: "finalist" } } as const satisfies OpenCell;
     expect(lines(missHeavy, DISTRICT_2026).bold).toBe("best guess 2nd");
-    const thirdHeavy = { ...openFrom("2026walive:elim", "elim", { 13: 70, 20: 20, 30: 10 }, 30), playoffMilestone: { kind: "winner", chance: 0.3, conditionalMedian: 20 } } as const satisfies OpenCell;
+    const thirdHeavy = { ...openFrom("2026walive:elim", "elim", { 13: 70, 20: 20, 30: 10 }, 30), playoffMilestone: { kind: "winner" } } as const satisfies OpenCell;
     expect(lines(thirdHeavy, DISTRICT_2026).bold).toBe("best guess 2nd");
   });
 

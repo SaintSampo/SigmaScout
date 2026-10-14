@@ -393,14 +393,28 @@ describe("districtLedgerContent: the rewound view and the championship field (26
     expect(row?.[1]).not.toMatch(/\bthem\b/);
   });
 
-  it("describes the open cell grammar and the Playoffs cell's milestones and not picked case (261008-3il)", () => {
+  it("describes the open cell grammar and the Playoffs cell's best guess finish and not picked case (261014-i1c)", () => {
     const paragraphs = paragraphsOf("how-open-categories-are-predicted");
     expect(paragraphs.find((text) => text.startsWith("An open cell shows"))).toBe(
-      "An open cell shows either a median with a likely range, or a chance followed by the outcome it measures, with the points that outcome pays on the line beneath. Likely means the 10th to the 90th percentile, and no chance is ever printed as 100 percent."
+      "An open cell shows either a median with a likely range, or a chance followed by the outcome it measures, with the points that outcome pays on the line beneath. The Playoffs cell names a finish instead, as the next paragraph describes. Likely means the 10th to the 90th percentile, and no chance is ever printed as 100 percent."
     );
-    expect(paragraphs.find((text) => text.startsWith("The Playoffs cell asks"))).toBe(
-      "The Playoffs cell asks about the milestone the bracket has actually reached: the top four before the playoffs, the final once an alliance can no longer finish worse than fourth, and the win once it is in the final. An alliance whose placement is already settled shows the points that placement pays. A team on no alliance once alliance selection is over reads not picked, and only a backup call can still earn it playoff points."
+    expect(paragraphs.find((text) => text.startsWith("The Playoffs cell names"))).toBe(
+      "The Playoffs cell names a best guess finish: 1st, 2nd, 3rd or 4th, or 5th to 8th. Third and fourth are one finish, and fifth to eighth are another. The best guess is the finish that came up in the most runs, and a tie goes to the better finish."
     );
+    expect(paragraphs.find((text) => text.startsWith("The line beneath gives"))).toBe(
+      "The line beneath gives the share of runs that ended there and the points that finish pays. A finish the bracket has already ruled out is never the best guess. Where the cell adds up more than one event, as the Champ Locks District points row does, no one finish describes it, and the cell shows a median with a likely range instead."
+    );
+    expect(paragraphs.find((text) => text.startsWith("An alliance whose placement is already settled"))).toBe(
+      "An alliance whose placement is already settled shows the points that placement pays. A team on no alliance once alliance selection is over reads not picked, and only a backup call can still earn it playoff points."
+    );
+    expect(paragraphs.find((text) => text.startsWith("An elimination match already played"))).toBe(
+      "An elimination match already played is taken as played rather than priced again, so every run starts from the bracket as it stands. The best guess and its chance therefore move as the playoffs go on."
+    );
+    expect(paragraphs.find((text) => text.startsWith("The Playoffs list keeps"))).toBe(
+      "The Playoffs list keeps third and fourth on separate rows, and its headline names the same best guess as the cell."
+    );
+    // The superseded milestone wording is gone from the page.
+    expect(paragraphs.join(" ")).not.toMatch(/the milestone the bracket has actually reached|top four before the playoffs/);
   });
 });
 

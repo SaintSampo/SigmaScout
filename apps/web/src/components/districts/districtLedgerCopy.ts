@@ -103,16 +103,13 @@ export const DISTRICT_LEDGER_LIKELY_PREFIX = "likely";
  *
  * ONE GRAMMAR FOR EVERY OPEN CELL (quick task 261008-3il): the chance first,
  * then the outcome in one or two words, and on the small line the points that
- * outcome pays, read from the pay tables. `66% top 4` over `pays 7 to 30`.
- *
- * THE PLAYOFF WORD IS `top 4` because placements five through eight pay
- * nothing, so the chance of any playoff points IS the chance of a top four
- * finish. Jacob, 2026-09-25: "top four > finalist > winner".
- * `DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS` carries the two milestones past it.
+ * outcome pays, read from the pay tables. The chance form is now the Awards
+ * cell and an Alliance selection cell with no routes, for example `56% award`
+ * over `pays 5 or 10`. The Playoffs cell names a best guess finish instead (see
+ * `DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS`).
  */
 export const DISTRICT_LEDGER_CHANCE_WORDS = {
   alliance: { bold: "picked" },
-  elim: { bold: "top 4" },
   award: { bold: "award" },
 } as const;
 
@@ -124,21 +121,6 @@ export const DISTRICT_LEDGER_CHANCE_WORDS = {
  * call can still pay it playoff points.
  */
 export const DISTRICT_LEDGER_NOT_PICKED_WORDS = { bold: "not picked", small: "backup call only" } as const;
-
-/**
- * The Playoffs cell's milestone words, for the two positions past a secured
- * top-four finish.
- *
- * The bold line reads `85% final` and the small line `pays 20 or 30`: the
- * chance, then the milestone, then what reaching it pays (quick task
- * 261008-3il). `top 4` is not here because it is not a milestone the bracket
- * has reached; it is the DEFAULT question, and its word lives in
- * `DISTRICT_LEDGER_CHANCE_WORDS.elim` beside the other two categories'.
- */
-export const DISTRICT_LEDGER_PLAYOFF_MILESTONE_WORDS = {
-  finalist: { bold: "final" },
-  winner: { bold: "win" },
-} as const;
 
 /** The two legend keys, verbatim from the UI-SPEC. */
 export const DISTRICT_LEDGER_LEGEND_EARNED = "earned, final";
@@ -708,7 +690,7 @@ export const DISTRICT_LEDGER_SECURED_PREFIX = "at least";
  * THE SECURED LINE of an open Playoffs cell (quick task 261012-mw2, D4): the
  * two words, the points rounded to a whole number and, where the cell has a
  * small line of its own, a middle dot between two spaces and then that line,
- * UNCHANGED. `at least 60 · pays 60 or 90`; with no line of its own,
+ * UNCHANGED. `at least 60 · 45% · pays 60`; with no line of its own,
  * `at least 60`.
  *
  * WHAT THE FIGURE IS: the playoff points the wins of the team's alliance have
@@ -719,10 +701,10 @@ export const DISTRICT_LEDGER_SECURED_PREFIX = "at least";
  * so it carries no percent sign. Lower case, and no hyphen or dash of any
  * kind, on the pays line's own precedent.
  *
- * WHAT COMES AFTER IT is the cell's own text (what its headline outcome pays,
- * or a median form cell's likely range). This function does not read it, and
- * the points in it are not netted of the figure: `pays 60 or 90` is still what
- * the two placements pay in all.
+ * WHAT COMES AFTER IT is the cell's own text (the best guess finish's chance
+ * and what it pays, or a median fallback's likely range). This function does
+ * not read it, and the points in it are not netted of the figure: `pays 60` is
+ * still what the placement pays in all.
  *
  * The caller decides WHERE the line prints (`openCellLines` in
  * `LedgerParts.tsx`: a Playoffs cell that is not a not picked cell, and only
