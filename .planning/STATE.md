@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-14T19:28:18.114Z"
+last_updated: "2026-10-14T19:42:40.547Z"
 last_activity: 2026-10-14
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -766,6 +766,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 330 | Locks Playoffs box names a best guess finish (1st, 2nd, 3rd or 4th, 5th to 8th) with its chance and pay, in place of the moving top 4, final, win question; drawer headline matches; summed rows print points | 2026-10-14 | c706fef3 | [261014-i1c-locks-playoffs-box-shows-a-best-guess-fi](./quick/261014-i1c-locks-playoffs-box-shows-a-best-guess-fi/) |
 | 331 | Locks Playoffs box bold line shortened from best guess 1st to ~1st | 2026-10-14 | 62b5afdb | — |
 | 332 | Locks Playoffs box reads ~not picked over N% on an alliance when a team misses every alliance in more than half the runs; legend tilde now means this site's prediction | 2026-10-14 | 33e1c478 | [261014-jfx-locks-playoffs-box-predicts-not-picked](./quick/261014-jfx-locks-playoffs-box-predicts-not-picked/) |
+| 333 | DCMP award pricing: eligibility for Impact, EI and Rookie All Star, DCMP rates measured from real DCMPs, and an Engineering Inspiration row | 2026-10-14 | 3481c064 | [261014-i8i-dcmp-award-pricing-eligibility-dcmp-rate](./quick/261014-i8i-dcmp-award-pricing-eligibility-dcmp-rate/) |
 
 ### Roadmap Evolution
 
