@@ -19,6 +19,7 @@ import {
   MAX_DISTRICT_CHANCE_TEAMS,
   MAX_DISTRICT_SIMULATION_EVENTS,
   MAX_DISTRICT_SIMULATION_ROSTER,
+  MAX_PICK_POSITION_PMF_LENGTH,
   UNKNOWN_DISTRICT_ERROR_NAME,
   isDistrictAdvancementChanceRequest,
   isDistrictSimulationRequest,
@@ -35,6 +36,7 @@ import {
 } from "./districtSimulationProtocol.js";
 import { MAX_SIMULATION_DRAWS, MAX_SIMULATION_MATCHES } from "./simulationProtocol.js";
 import { advancementChances, type AdvancementChanceTeam } from "../../../../packages/core/districts/advancementChance.js";
+import { pickPositionPmfForSeason } from "../../../../packages/core/districts/pickDraft.js";
 import {
   simulateDistrictEvent,
   type DistrictAwardProfile,
@@ -341,6 +343,50 @@ describe("isDistrictSimulationRequest rejections", () => {
   it("accepts a valid award only list (quick task 260927-vmb)", () => {
     const withAwardOnly = requestFor([eventRequest("2026waone", { awardOnlyTeams: ["frc9001", "frc9002"] })]);
     expect(isDistrictSimulationRequest(withAwardOnly)).toBe(true);
+  });
+});
+
+describe("the pick position pmf at the Worker boundary (quick task 261014-ol6)", () => {
+  const SHIPPED = pickPositionPmfForSeason(SEASON)!;
+
+  /** A request whose one event carries `pmf` as its input's pick position pmf, whatever its shape. */
+  function withPmf(pmf: unknown): unknown {
+    return { ...requestFor([eventRequest("2026waone")]), events: [{ eventKey: "2026waone", input: { ...inputFor("2026waone"), pickPositionPmf: pmf } }] };
+  }
+
+  it("accepts a request carrying the shipped pmf, and runs it", () => {
+    const request = requestFor([eventRequest("2026waone", { pickPositionPmf: SHIPPED })]);
+    expect(isDistrictSimulationRequest(request)).toBe(true);
+    const entry = resultOf(collect(request)).events[0]!;
+    expect(entry.status).toBe("ok");
+  });
+
+  const malformed: ReadonlyArray<readonly [string, unknown]> = [
+    ["a round longer than the bound", { firstPick: Array.from({ length: MAX_PICK_POSITION_PMF_LENGTH + 1 }, () => 1), secondPick: [1] }],
+    ["a round that is not an array", { firstPick: [1], secondPick: "1" }],
+    ["a non number entry", { firstPick: [1, "2"], secondPick: [1] }],
+    ["an empty round", { firstPick: [], secondPick: [1] }],
+    ["a missing round", { firstPick: [1] }],
+    ["a non object pmf", 7],
+  ];
+  for (const [label, pmf] of malformed) {
+    it(`refuses ${label} as a malformed request`, () => {
+      expect(isDistrictSimulationRequest(withPmf(pmf))).toBe(false);
+      const emitted = collect(withPmf(pmf));
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0]).toMatchObject({ type: "error", name: INVALID_DISTRICT_REQUEST_ERROR_NAME });
+    });
+  }
+
+  it("turns a shape valid pmf with no positive weight into a per event unavailable entry, the core's own refusal", () => {
+    const request = requestFor([eventRequest("2026wabad", { pickPositionPmf: { firstPick: [0, 0], secondPick: [1] } }), eventRequest("2026wagood")]);
+    expect(isDistrictSimulationRequest(request)).toBe(true);
+    const result = resultOf(collect(request));
+    const bad = result.events[0]!;
+    expect(bad.status).toBe("unavailable");
+    if (bad.status !== "unavailable") throw new Error("unreachable");
+    expect(bad.name).toBe("InvalidPickPositionPmfError");
+    expect(result.events[1]!.status).toBe("ok");
   });
 });
 

@@ -74,6 +74,14 @@ export const MAX_DISTRICT_SIMULATION_EVENTS = 64;
  */
 export const MAX_DISTRICT_SIMULATION_ROSTER = 256;
 
+/**
+ * Upper bound on each round of a `pickPositionPmf` (quick task 261014-ol6): a
+ * pick position can never exceed the roster, so the roster bound is the pmf's
+ * bound. The shipped tables run 30 and 45 entries. A DoS ceiling, like the
+ * others here.
+ */
+export const MAX_PICK_POSITION_PMF_LENGTH = MAX_DISTRICT_SIMULATION_ROSTER;
+
 /** The `name` an invalid `DistrictSimulationRequest` payload's `error` message carries. */
 export const INVALID_DISTRICT_REQUEST_ERROR_NAME = "InvalidDistrictSimulationRequest";
 
@@ -351,8 +359,30 @@ function isEventRequest(value: unknown): boolean {
   // is `simulateDistrictEvent`'s own typed refusal, a per event unavailable
   // entry through the existing catch.
   if (eventInput.dcmpAwardSlate !== undefined && !isDcmpAwardSlate(eventInput.dcmpAwardSlate)) return false;
+  // THE WEIGHTED PICK DRAFT (quick task 261014-ol6): shape and cost only. A
+  // round with no positive weight, a negative or a non finite entry is
+  // `simulateDistrictEvent`'s own `InvalidPickPositionPmfError`, a per event
+  // unavailable entry through the existing catch.
+  if (eventInput.pickPositionPmf !== undefined && !isPickPositionPmf(eventInput.pickPositionPmf)) return false;
   if (candidate.asOf !== undefined && !isAsOfBlock(candidate.asOf)) return false;
   return true;
+}
+
+/** One round of a pick position pmf: an array of 1 to `MAX_PICK_POSITION_PMF_LENGTH` numbers. */
+function isPickPositionRound(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length >= 1 &&
+    value.length <= MAX_PICK_POSITION_PMF_LENGTH &&
+    value.every((weight) => typeof weight === "number")
+  );
+}
+
+/** A `PickPositionPmf`'s shape, bounded: both rounds present and each a bounded array of numbers. */
+function isPickPositionPmf(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return isPickPositionRound(candidate.firstPick) && isPickPositionRound(candidate.secondPick);
 }
 
 /** Upper bound on a DCMP award slate's eligibility entries: a whole district's teams, with room to spare. */

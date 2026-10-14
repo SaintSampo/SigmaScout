@@ -8,6 +8,13 @@
  * value that varies between runs is passed in or derived from a pure hash, so
  * republishing the same corpus twice produces byte-identical baked pmfs.
  *
+ * THE WEIGHTED PICK DRAFT (quick task 261014-ol6). Every schedule's simulation
+ * input carries `pickPositionPmfForSeason(season)`, set HERE rather than passed
+ * in, so the publisher, the as-of GENERATED runner and the Champ Locks
+ * simulated DCMP bake cannot diverge. The pmf is committed data
+ * (`pickPositionTables.ts`), so the purity contract above still holds: a
+ * republish of the same corpus is still byte identical.
+ *
  * THIS MODULE HOLDS NO PRICING MATH AND NO POINT FORMULA. It calls the
  * caller's bound `predict` (already bound to the right walk-forward state) and
  * `packages/core/districts/ledgerSimulation.ts`'s `simulateDistrictEvent`, and
@@ -46,6 +53,7 @@ import {
   ZERO_AWARD_PROFILE,
 } from "../core/districts/ledgerSimulation.js";
 import { maxEventPoints, type DistrictTier } from "../core/districts/pointModel.js";
+import { pickPositionPmfForSeason } from "../core/districts/pickDraft.js";
 import type { AwardBaseRateSource } from "../core/districts/awardBaseRates.js";
 import type { DcmpAwardSlateInput } from "../core/districts/dcmpAwardSlate.js";
 import type { AllianceMemberRating } from "../core/algorithms/simulation/allianceWinProbability.js";
@@ -374,6 +382,8 @@ export function bakeDistrictEvent(params: DistrictBakeParams): DistrictBakeOutco
 
   const baselines: SimTeamBaseline[] = sortedRoster.map((teamKey) => ({ teamKey, earnedRpSum: 0, matchesPlayed: 0 }));
   let awardSources: ReadonlyMap<string, AwardBaseRateSource> = new Map();
+  // The season's weighted pick draft (quick task 261014-ol6), read once.
+  const pickPositionPmf = pickPositionPmfForSeason(season);
 
   for (let k = 0; k < scheduleCount; k++) {
     const input: DistrictLedgerEventInput = {
@@ -387,6 +397,7 @@ export function bakeDistrictEvent(params: DistrictBakeParams): DistrictBakeOutco
       ratings: params.ratings,
       awardProfiles,
       ...(params.dcmpAwardSlate === undefined ? {} : { dcmpAwardSlate: params.dcmpAwardSlate }),
+      ...(pickPositionPmf === undefined ? {} : { pickPositionPmf }),
     };
     // This schedule's own published seed XORed with the district salt: the
     // district draw stream can never alias the shuffle stream or the presim

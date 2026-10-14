@@ -24,6 +24,7 @@ import type {
   DistrictSelectionRoutes,
 } from "../../../../../packages/core/districts/ledgerSimulation.js";
 import { simulateDistrictEvent } from "../../../../../packages/core/districts/ledgerSimulation.js";
+import { pickPositionPmfForSeason } from "../../../../../packages/core/districts/pickDraft.js";
 import {
   ZERO_AWARD_PROFILE,
   allDistrictTierEventKeys,
@@ -3418,5 +3419,130 @@ describe("the secured playoff minimum on the rows (quick task 261012-mw2)", () =
         expect(built({ ...options, secured: -5 }).team).toEqual(without.team);
       }
     });
+  });
+});
+
+describe("the builder sets the season's weighted pick draft at every stage (quick task 261014-ol6)", () => {
+  const roster = Array.from({ length: 24 }, (_unused, i) => `frc${String(400 + i)}`);
+  const rpPmf = [0.25, 0.25, 0.25, 0.25];
+  const SHIPPED = pickPositionPmfForSeason(SEASON);
+
+  const districtArtifact = artifactOf(
+    roster.map((teamKey) =>
+      team({
+        teamKey,
+        pointTotal: 24,
+        eventPoints: [eventPoints({ eventKey: "2026wapick", qual: 12, alliance: 6, elim: 6, award: 0, total: 24 })],
+        awardProfile: { bucket: "none", rookie: false },
+      })
+    )
+  );
+
+  /** Eight three-team alliances off the top of the roster: a FINISHED selection. */
+  const announced = Array.from({ length: 8 }, (_unused, n) => ({ allianceNumber: n + 1, picks: roster.slice(n * 3, n * 3 + 3) }));
+
+  const eventArtifact = EventArtifactSchema.parse({
+    schemaVersion: 1,
+    generation: "gen-1",
+    computedAt: "2026-09-25T00:00:00.000Z",
+    algorithmId: "spr",
+    algorithmVersion: "7.0.0+rolling",
+    eventKey: "2026wapick",
+    season: SEASON,
+    matches: Array.from({ length: 4 }, (_unused, i) => ({
+      matchKey: `2026wapick_qm${String(i + 1)}`,
+      compLevel: "qm",
+      setNumber: 1,
+      matchNumber: i + 1,
+      sortTime: 1_760_000_000 + i * 600,
+      redTeams: roster.slice(i * 6, i * 6 + 3),
+      blueTeams: roster.slice(i * 6 + 3, i * 6 + 6),
+      predictedWinner: "red",
+      pRedWin: 0.5,
+      predictedRedScore: 50,
+      predictedBlueScore: 50,
+      actualWinner: "red",
+      actualRedScore: 60,
+      actualBlueScore: 50,
+      actualRedRp: 3,
+      actualBlueRp: 1,
+      redRpPmf: rpPmf,
+      blueRpPmf: rpPmf,
+    })),
+    upcoming: [],
+    teams: roster.map((teamKey, i) => ({
+      teamKey,
+      teamNumber: 400 + i,
+      rank: i + 1,
+      record: { wins: 2, losses: 2, ties: 0 },
+      rp: 2,
+      metrics: { total: { value: 80 - ((i * 7) % 24) }, sigma: { value: 8 } },
+    })),
+    alliances: announced,
+  });
+
+  function build(options: Partial<Parameters<typeof buildDistrictEventSimulationInput>[0]>) {
+    const built = buildDistrictEventSimulationInput({
+      eventKey: "2026wapick",
+      season: SEASON,
+      eventArtifact,
+      districtArtifact,
+      stage: { qual: false, alliance: false, elim: false, award: false },
+      startMatchKey: null,
+      ...options,
+    });
+    if (!built.ok) throw new Error("expected an input");
+    return built.input;
+  }
+
+  it("the season has a pmf at all, so every case below checks a real value", () => {
+    expect(SHIPPED).toBeDefined();
+  });
+
+  it("mid quals", () => {
+    const input = build({ startMatchKey: "2026wapick_qm3" });
+    expect(input.remainingMatches.length).toBeGreaterThan(0);
+    expect(input.pickPositionPmf).toEqual(SHIPPED);
+  });
+
+  it("Quals done", () => {
+    const input = build({ stage: { qual: true, alliance: false, elim: false, award: false } });
+    expect(input.remainingMatches).toEqual([]);
+    expect(input.knownAlliances).toBeUndefined();
+    expect(input.pickPositionPmf).toEqual(SHIPPED);
+  });
+
+  it("with announced alliances", () => {
+    const input = build({ stage: { qual: true, alliance: true, elim: false, award: false } });
+    expect(input.knownAlliances).toHaveLength(8);
+    expect(input.pickPositionPmf).toEqual(SHIPPED);
+  });
+
+  it("with asOfBaselines, a rewound REAL stop", () => {
+    const asOfBaselines = roster.map((teamKey, i) => ({ teamKey, earnedRpSum: 24 - i, matchesPlayed: 4 }));
+    const input = build({ stage: { qual: true, alliance: false, elim: false, award: false }, asOfBaselines });
+    expect(input.baselines).toBe(asOfBaselines);
+    expect(input.pickPositionPmf).toEqual(SHIPPED);
+  });
+
+  it("at the dcmp tier", () => {
+    const input = build({
+      tier: "dcmp",
+      dcmpAwardSlate: {
+        role: "single",
+        expected: { impact: 0, engineeringInspiration: 0, rookieAllStar: 0, judged: 12 },
+        sources: { counts: "previousSeason", judged: "role" },
+        eligibility: [],
+      },
+    });
+    expect(input.tier).toBe("dcmp");
+    expect(input.pickPositionPmf).toEqual(SHIPPED);
+  });
+
+  it("changes no output where the draft does not run: the announced alliance run equals the run without the pmf", () => {
+    const input = build({ stage: { qual: true, alliance: true, elim: false, award: false } });
+    const { pickPositionPmf, ...withoutPmf } = input;
+    expect(pickPositionPmf).toBeDefined();
+    expect(simulateDistrictEvent(input, 200, 11)).toEqual(simulateDistrictEvent(withoutPmf, 200, 11));
   });
 });
