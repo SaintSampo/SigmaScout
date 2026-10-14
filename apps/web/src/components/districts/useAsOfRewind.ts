@@ -18,6 +18,13 @@ import { DISTRICT_LEDGER_ALGORITHM_ID } from "./districtRunAssembly.js";
  * at the cut, the season start object only when a team needs it) and repeat
  * until resolved (`asOfRewind.ts` `loadAsOfRewind`).
  *
+ * THE NOW CHAMPIONSHIP MODE (quick task 261014-j4i): the Champ Locks tab runs a
+ * second instance at Now with `cutAtLatestTailOf` set, planning only the
+ * unstarted championship. The cut comes from the season object (the latest tail
+ * among the listed teams), so the key's anchor segment is a constant and a live
+ * refetch moves only the fingerprint: the shipped `placeholderData` keeps the
+ * previous plan standing, and the mode adds no pending window of its own.
+ *
  * LIVE IS UNTOUCHED: with `enabled` false this hook fetches nothing and
  * returns `undefined`, and `useDistrictLedgerData` takes the shipped path.
  *
@@ -55,6 +62,12 @@ export interface UseAsOfRewindOptions {
    * the Champ Locks tab's unstarted championship, quick task 261007-mxf.
    */
   readonly candidates: readonly { readonly eventKey: string; readonly tier: DistrictTier; readonly week: number | null; readonly roster?: readonly string[] }[];
+  /**
+   * The Champ Locks tab's Now championship load (quick task 261014-j4i): the cut
+   * is the latest season tail among these teams (`AsOfRewindInput.cutAtLatestTailOf`)
+   * rather than the stop's own row.
+   */
+  readonly cutAtLatestTailOf?: readonly string[];
 }
 
 /** Whether a plan reads anything unavailable: the whole stop, or one event in it. */
@@ -101,7 +114,7 @@ export function useAsOfRewind(options: UseAsOfRewindOptions): AsOfRewindView | u
   // reorders the timeline and shifts the stop's index; keyed on the index, the
   // same stop refused its own placeholder and restarted the run (review R5).
   const stopId = options.at ?? timeline.positions[positionIndex]?.id ?? "";
-  const anchorId = asOfStopAnchorId(timeline, positionIndex);
+  const anchorId = options.cutAtLatestTailOf !== undefined ? `latest-tail:${String(options.cutAtLatestTailOf.length)}` : asOfStopAnchorId(timeline, positionIndex);
   const fingerprint = useMemo(() => artifactsFingerprint(eventArtifacts), [eventArtifacts]);
   const openKeys = open.map((candidate) => candidate.eventKey).join(",");
   const unloadedKeys = [...options.unloadedEventKeys].sort().join(",");
@@ -128,7 +141,17 @@ export function useAsOfRewind(options: UseAsOfRewindOptions): AsOfRewindView | u
         start: () => queryClient.fetchQuery(asOfStartQueryOptions({ season, algorithmId, version: v })),
       };
       return loadAsOfRewind(
-        { districtArtifact, timeline, positionIndex, eventArtifacts, stageByEvent, candidates: open, scheduleStopEventKey, unloadedEventKeys: options.unloadedEventKeys },
+        {
+          districtArtifact,
+          timeline,
+          positionIndex,
+          eventArtifacts,
+          stageByEvent,
+          candidates: open,
+          scheduleStopEventKey,
+          unloadedEventKeys: options.unloadedEventKeys,
+          ...(options.cutAtLatestTailOf !== undefined ? { cutAtLatestTailOf: options.cutAtLatestTailOf } : {}),
+        },
         fetchers
       );
     },

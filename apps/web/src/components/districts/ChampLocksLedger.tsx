@@ -29,21 +29,27 @@
  *   be posted yet. It stays in the table and reads as it did before the
  *   championship started, the championship's awards do not read final for
  *   the range state, and the award draws are still drawn.
- * - BEFORE THE CHAMPIONSHIP STARTS, NOW ESTIMATES IT AND A REWOUND STOP BAKES
- *   IT. `remainingEvents` is built from TBA registrations, so for most of the
- *   district season nothing names the DCMP, and on a rewind the real roster
- *   is future knowledge. At Now the DCMP row's Subtotal is priced from how
- *   teams at the same place in past championship fields scored, seasons
- *   before the one shown only (`hypotheticalDcmp.ts`, quick task 260927-6bf),
- *   and its four category cells read "not yet priced". At a rewound stop the
+ * - BEFORE THE CHAMPIONSHIP STARTS, BOTH POSITIONS BAKE IT. `remainingEvents`
+ *   is built from TBA registrations, so for most of the district season nothing
+ *   names the DCMP, and on a rewind the real roster is future knowledge. The
  *   championship is baked in the Web Worker over the teams the district tier
- *   shows as Locked, Prequalified or In range there, at the stop's as-of state
- *   (`useSimulatedDcmpBake`, quick task 261007-mxf): four real cells inside
- *   that field, "out of range" outside it, with a labelled district only
- *   grand total. Once the field is a fact (the DCMP has started, or a team is
- *   registered at the live position) the event's own prediction takes over.
- * - TWO CHANCE RUNS, in a fixed order, with the DCMP bake between them on a
- *   rewound stop: the per event run, the district chance run, the district
+ *   shows as Locked, Prequalified or In range (`useSimulatedDcmpBake`, quick
+ *   task 261007-mxf): four real cells inside that field, "out of range"
+ *   outside it, with a labelled district only grand total. At a rewound stop
+ *   the as-of state is the stop's own load. At Now (quick task 261014-j4i) it
+ *   is a second, championship only load cut at the latest fold any district
+ *   team has played (`asOfLatestTailCut`), and it reaches the bake alone: the
+ *   Live district events stay on the shipped Live assembly, byte for byte. A
+ *   registered team reads the championship's own prediction where its row is
+ *   priced, and the bake where it is not. The ESTIMATE (the Subtotal priced
+ *   from how teams at the same place in past championship fields scored,
+ *   seasons before the one shown only, `hypotheticalDcmp.ts`, quick task
+ *   260927-6bf, with four "not yet priced" category cells) survives at Now only
+ *   where nothing can be baked: a district whose championship is on no row of
+ *   the artifact, and a season the as-of pricer cannot price. Once the field is
+ *   a fact (the DCMP has started) the event's own prediction takes over.
+ * - TWO CHANCE RUNS, in a fixed order, with the DCMP bake between them before
+ *   the championship starts: the per event run, the district chance run, the district
  *   line (which cuts In range), the DCMP bake, then the champ run. The
  *   district run's marginal becomes the "to be there" chance, that chance
  *   weights the grand total, and only then does the champ run rank those
@@ -165,7 +171,7 @@ import {
   resolveDistrictTimelinePosition,
   timelineEventsOf,
 } from "./districtTimeline.js";
-import { asOfScheduleStopEventKey } from "./asOfRewind.js";
+import { asOfNowChampionshipApplies, asOfScheduleStopEventKey } from "./asOfRewind.js";
 import { useAsOfRewind } from "./useAsOfRewind.js";
 import { useSimulatedDcmpBake } from "./useSimulatedDcmpBake.js";
 import {
@@ -185,6 +191,9 @@ const TEXT_COLUMN_INDEXES: ReadonlySet<number> = new Set([0, 1, 3]);
 
 /** Both rows always render, so the Team, Status and Grand total cells always span exactly two. */
 const CHAMP_ROW_SPAN = 2;
+
+/** No unloaded live artifacts: the Now load plans only the unstarted championship, which no unloaded live artifact can be. */
+const NO_EVENT_KEYS: readonly string[] = [];
 
 /** The estimate map while the estimate is not ready: supplied rather than omitted, so the real roster never prices a rewound position. */
 const NO_ESTIMATES: ReadonlyMap<string, ChampDcmpEstimate> = new Map();
@@ -516,7 +525,7 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     [timeline, positionIndex, nowFinalByEvent]
   );
 
-  /** Every district team, sorted: the roster the first championship is planned over at a rewound stop. */
+  /** Every district team, sorted: the roster the first championship is planned over, at a rewound stop and at Now. */
   const allDistrictTeamKeys = useMemo(() => artifact.teams.map((team) => team.teamKey).sort(), [artifact]);
 
   /**
@@ -524,7 +533,8 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
    * (quick task 261005-5g0). The first championship carries every district
    * team as its roster (quick task 261007-mxf), so the one load resolves each
    * at the cut and the Locked plus In range bake assembles from it. Only a
-   * GENERATED plan reads the override; the main run never posts that plan.
+   * GENERATED plan reads the override; the main run never posts that plan. The
+   * Now championship load (quick task 261014-j4i) reads the same entry.
    */
   const candidates = useMemo(
     () =>
@@ -573,6 +583,31 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
     [dcmpEventKeys, atNow, startedDcmpKeysNow, timeline, positionIndex, scheduleStopEventKey]
   );
 
+  /**
+   * THE NOW CHAMPIONSHIP LOAD (quick task 261014-j4i): before any championship
+   * has started, in a season the as-of pricer can price and a district whose
+   * artifact names a championship, the first championship alone is planned at
+   * the latest fold any district team has played. It reaches `useSimulatedDcmpBake`
+   * and nothing else: `useDistrictLedgerData` keeps the rewound view, which is
+   * undefined at Now, so the Live district events are never touched.
+   */
+  const nowChampionshipCandidates = useMemo(() => candidates.filter((candidate) => candidate.eventKey === dcmpEventKeys[0]), [candidates, dcmpEventKeys]);
+  const nowChampionshipEnabled = atNow && asOf === undefined && asOfNowChampionshipApplies({ season: artifact.year, dcmpEventKeys, startedDcmpEventKeys });
+  const nowChampionshipAsOf = useAsOfRewind({
+    enabled: nowChampionshipEnabled,
+    artifactsLoading: artifacts.isLoading,
+    unloadedEventKeys: NO_EVENT_KEYS,
+    districtArtifact: artifact,
+    timeline,
+    positionIndex,
+    eventArtifacts: artifacts.eventArtifacts,
+    stageByEvent,
+    // Always the Now stop, never a stale `?at=` alias.
+    at: undefined,
+    candidates: nowChampionshipCandidates,
+    cutAtLatestTailOf: allDistrictTeamKeys,
+  });
+
   function handleCellToggle(teamNumber: number, cellId: string): void {
     void navigate({
       search: (prev) => {
@@ -595,7 +630,8 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
    * MAIN run: it is baked separately over the simulated Locked plus In range
    * field (`useSimulatedDcmpBake`, quick task 261007-mxf), which is what
    * replaces the old exclusion. Folding it into this run would move the run's
-   * signature once the field landed and re-run every district event.
+   * signature once the field landed and re-run every district event. At Now
+   * the main run is the Live assembly, which never reads this set.
    */
   const skipEventKeys = useMemo(() => {
     if (atNow) return undefined;
@@ -732,20 +768,23 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
   );
 
   /**
-   * THE SIMULATED DCMP (quick task 261007-mxf): at a rewound stop before any
-   * championship has started, in a district that publishes one, the DCMP is
-   * baked over the Locked plus In range field in a second Worker request.
-   * Everywhere else (Now, a started championship) the shipped pricing stands
-   * and `simulatedDcmp` is undefined.
+   * THE SIMULATED DCMP (quick task 261007-mxf): before any championship has
+   * started, in a district that publishes one, the DCMP is baked over the
+   * Locked plus In range field in a second Worker request. Its as-of state is
+   * the rewound stop's own load, or at Now the championship only load
+   * (quick task 261014-j4i). Everywhere else (a started championship, a
+   * district with no championship on the artifact, a season the as-of pricer
+   * cannot price) the shipped pricing stands and `simulatedDcmp` is undefined.
    */
-  const simulatedDcmpActive = asOf !== undefined && !atNow && dcmpEventKeys.length > 0 && startedDcmpEventKeys.size === 0;
+  const dcmpAsOf = atNow ? nowChampionshipAsOf : asOf;
+  const simulatedDcmpActive = dcmpAsOf !== undefined && dcmpEventKeys.length > 0 && startedDcmpEventKeys.size === 0;
   const simulatedField = useMemo(
     () => (simulatedDcmpActive ? dcmpSimulatedField(districtShown, districtShownRange) : undefined),
     [simulatedDcmpActive, districtShown, districtShownRange]
   );
   const simulatedBake = useSimulatedDcmpBake({
     active: simulatedDcmpActive,
-    asOf,
+    asOf: dcmpAsOf,
     artifact,
     eventKey: dcmpEventKeys[0],
     field: simulatedField,
@@ -820,7 +859,8 @@ function ChampLocksLedgerContent({ artifact, algorithm, season }: ChampLocksLedg
    */
   // With the simulated DCMP, the champ run waits for the bake (null until it
   // is ready) and its signature carries the bake's, so a re-bake re-runs it
-  // even when every grand total's length is unchanged (quick task 261007-mxf).
+  // even when every grand total's length is unchanged (quick task 261007-mxf),
+  // at a rewound stop and at Now alike (quick task 261014-j4i).
   const champRunSignature =
     simulatedDcmpStatus === undefined
       ? runSignature

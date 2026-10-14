@@ -1479,3 +1479,142 @@ describe("ChampLocksLedger — a championship in two divisions with one division
   }, 30000);
 });
 
+
+// ---------------------------------------------------------------------------
+
+/**
+ * THE NOW WINDOW BEFORE THE DISTRICT CHAMPIONSHIP STARTS (quick task
+ * 261014-j4i). ROSTER[0] is Locked by an award at the finished district event,
+ * so it sits in the simulated field; with `registered` it also carries the
+ * championship's dcmp tier row, which is what puts the championship key on the
+ * artifact and opens the window. Every other team is open, and the live district
+ * event keeps running on the shipped Live assembly.
+ */
+function nowWindowArtifact(registered: boolean): DistrictArtifact {
+  return artifactOf(
+    ROSTER.map((teamKey) => {
+      const base = withLiveEvent(districtTeam(teamKey));
+      if (teamKey !== ROSTER[0]) return base;
+      return {
+        ...base,
+        qualifyingAwards: [{ eventKey: DISTRICT_EVENT, awardType: 0, label: "Impact Award", awardOnly: true }],
+        ...(registered
+          ? {
+              remainingEvents: [
+                ...base.remainingEvents,
+                {
+                  eventKey: DCMP_EVENT,
+                  eventName: "PNW District Championship",
+                  week: 6,
+                  tier: "dcmp" as const,
+                  maxPoints: 249,
+                  state: state({ qualMatchesPlayed: 0, alliancesPicked: false, playoffsDone: false, awardsPosted: false }),
+                },
+              ],
+              maxRemainingChamp: 332,
+            }
+          : {}),
+      };
+    })
+  );
+}
+
+const CATEGORY_CELL_IDS = ["dcmp-row:qual", "dcmp-row:alliance", "dcmp-row:elim", "dcmp-row:award"];
+
+function dcmpRowOf(teamKey: string): HTMLElement {
+  return rowsFor(teamKey)[1]!;
+}
+
+function dcmpCellKind(row: HTMLElement, id: string): string | null | undefined {
+  return row.querySelector(`[data-cell-id="${id}"]`)?.getAttribute("data-cell");
+}
+
+describe("ChampLocksLedger — the Now position before the District Championship starts (quick task 261014-j4i)", () => {
+  const originalFetch = global.fetch;
+  let handle: MockWorkerHandle | undefined;
+
+  afterEach(() => {
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  function renderNowWindow(registered: boolean, script: MockWorkerScript = realRunScript) {
+    installFetch([liveEventArtifact()]);
+    handle = installMockWorker({ script });
+    renderLedger(nowWindowArtifact(registered));
+  }
+
+  it("bakes the DCMP over the Locked and In range field at Now, and reads out of range outside it", async () => {
+    renderNowWindow(true);
+    await waitForSimulatedLine();
+    await waitFor(
+      () => {
+        const dcmpRows = screen.getAllByTestId("champ-ledger-row").filter((row) => row.getAttribute("data-row") === "dcmp");
+        const baked = dcmpRows.filter(
+          (row) => row.getAttribute("data-team") !== ROSTER[0] && CATEGORY_CELL_IDS.every((id) => dcmpCellKind(row, id) === "open") && dcmpCellKind(row, "dcmp-row:eventTotal") === "open"
+        );
+        expect(baked.length).toBeGreaterThan(0);
+        for (const row of baked) expect(within(rowsFor(row.getAttribute("data-team")!)[0]!).queryByTestId("champ-ledger-district-only")).toBeNull();
+
+        const outside = dcmpRows.filter((row) => row.querySelectorAll('[data-cell="out-of-range"]').length === 5);
+        expect(outside.length).toBeGreaterThan(0);
+        for (const row of outside) {
+          for (const cell of row.querySelectorAll('[data-cell="out-of-range"]')) expect(cell.textContent).toBe("out of range");
+          expect(within(row).getByTestId("champ-ledger-source-cell").textContent).toContain("outside the simulated field");
+          expect(within(rowsFor(row.getAttribute("data-team")!)[0]!).getByTestId("champ-ledger-district-only")).toBeDefined();
+        }
+
+        // No other team's DCMP row is left on the estimate's "not yet priced" (ROSTER[0]'s own row is the registered team's).
+        for (const row of dcmpRows) {
+          if (row.getAttribute("data-team") === ROSTER[0]) continue;
+          expect(row.querySelectorAll('[data-cell="not-yet-priced"]'), row.getAttribute("data-team") ?? "").toHaveLength(0);
+        }
+      },
+      { timeout: 20000 }
+    );
+  }, 30000);
+
+  it("posts the Live per event request unchanged by the Now championship load, and the bake as its own request", async () => {
+    const mainRunOf = (messages: unknown[]) => {
+      const runs = (messages as { type?: string; events?: { eventKey: string }[] }[]).filter(
+        (message) => message.type === "run" && (message.events ?? []).some((event) => event.eventKey === LIVE_EVENT)
+      );
+      expect(runs.length).toBeGreaterThan(0);
+      return runs[runs.length - 1] as unknown as { events: { eventKey: string; asOf?: unknown }[]; draws: number; seed: number };
+    };
+    const recordingScript = (messages: unknown[]): MockWorkerScript => (message, ctx) => {
+      messages.push(message);
+      realRunScript(message, ctx);
+    };
+    const asOfFetches = () => (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((call) => String(call[0])).filter((url) => url.includes("/v1/asof"));
+
+    const without: unknown[] = [];
+    renderNowWindow(false, recordingScript(without));
+    await waitForSimulatedLine();
+    expect(asOfFetches()).toHaveLength(0);
+    const mainWithout = mainRunOf(without);
+    handle?.restore();
+    handle = undefined;
+    global.fetch = originalFetch;
+    cleanup();
+
+    const withLoad: unknown[] = [];
+    renderNowWindow(true, recordingScript(withLoad));
+    await waitForSimulatedLine();
+    await waitFor(() => expect(asOfFetches().some((url) => url.includes("/v1/asof-season/"))).toBe(true), { timeout: 20000 });
+    const mainWith = mainRunOf(withLoad);
+
+    expect({ events: mainWith.events, draws: mainWith.draws, seed: mainWith.seed }).toEqual({ events: mainWithout.events, draws: mainWithout.draws, seed: mainWithout.seed });
+    for (const event of mainWith.events) expect(event.asOf).toBeUndefined();
+
+    // The bake is its own request: one generated championship event, carrying an as-of block.
+    const bakes = (withLoad as { type?: string; events?: { eventKey: string; asOf?: unknown }[] }[]).filter(
+      (message) => message.type === "run" && message.events?.length === 1 && message.events[0]!.eventKey === DCMP_EVENT
+    );
+    expect(bakes.length).toBeGreaterThan(0);
+    expect(bakes[0]!.events![0]!.asOf).toBeDefined();
+  }, 60000);
+});
