@@ -8,7 +8,7 @@
  * message crosses a real `structuredClone` and a request carrying a function
  * would fail HERE rather than only in a visitor's browser.
  *
- * TWO POSITIONS ARE FIXTURED, and they are the two a reader actually meets:
+ * THREE POSITIONS ARE FIXTURED, and they are the ones a reader actually meets:
  *
  * - THE FINISHED DISTRICT AND CHAMPIONSHIP. Every category of both tiers is
  *   final, so the field is a fact, every number is TBA's own and the tab starts
@@ -19,7 +19,14 @@
  *   row, because `scripts/publishDistricts.ts` builds `remainingEvents` from TBA
  *   registrations and a team registers only after it qualifies. This is where
  *   "not yet priced", the labelled district-only grand total, the "to be there"
- *   line and the ABSENCE of a champ chance are pinned.
+ *   line and the ABSENCE of a champ chance are pinned. Since quick task
+ *   261014-j4i this is the Now window where the estimate and "not yet priced"
+ *   survive, because no championship key is on the artifact.
+ * - THE NOW WINDOW BEFORE THE DISTRICT CHAMPIONSHIP STARTS (quick task
+ *   261014-j4i). One team is registered, which puts the championship key on the
+ *   artifact, so the DCMP is baked over the Locked plus In range field from a
+ *   championship only as-of load, exactly as a rewound stop bakes it, while the
+ *   Live district events stay on the Live assembly.
  */
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -579,6 +586,11 @@ describe("ChampLocksLedger — the finished district and championship", () => {
  * artifact with no dcmp-tier event anywhere rendering "not yet priced" DCMP
  * cells, a "district only" grand total and a computed status for every team.
  *
+ * SINCE QUICK TASK 261014-j4i this is the Now window where the estimate and
+ * "not yet priced" survive: no championship key is on the artifact, so nothing
+ * can be baked and no as-of object is fetched. A district with a registered team
+ * bakes the championship instead (the Now window describe below).
+ *
  * MOVED BY QUICK TASK 260927-6bf, deliberately. The DCMP row's Subtotal is now
  * ESTIMATED from past District Championships by field rank, so the grand total
  * is a real champ total rather than a district only one, the champ run is no
@@ -616,6 +628,16 @@ describe("ChampLocksLedger — the district season, before registrations open", 
     expect(dcmpRow.querySelector('[data-cell-id="dcmp-row:eventTotal"]')?.getAttribute("data-cell")).toBe("open");
     expect(dcmpRow.querySelectorAll('[data-cell="not-in-field"]')).toHaveLength(0);
     expect(dcmpRow.querySelectorAll('[data-cell="unavailable"]')).toHaveLength(0);
+  }, 30000);
+
+  it("fetches no as-of object at all: with no championship key on the artifact nothing is baked (261014-j4i)", async () => {
+    renderDistrictSeason();
+    await waitForSimulatedLine();
+    const dcmpRow = dcmpRowOf(ROSTER[0]!);
+    expect(dcmpRow.querySelectorAll('[data-cell="not-yet-priced"]')).toHaveLength(4);
+    expect(dcmpCellKind(dcmpRow, "dcmp-row:eventTotal")).toBe("open");
+    const urls = (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((call) => String(call[0]));
+    expect(urls.some((url) => url.includes("/v1/asof"))).toBe(false);
   }, 30000);
 
   it("prints NO district only label once the estimate is in, and no grand total is unavailable", async () => {
@@ -1617,4 +1639,18 @@ describe("ChampLocksLedger — the Now position before the District Championship
     expect(bakes.length).toBeGreaterThan(0);
     expect(bakes[0]!.events![0]!.asOf).toBeDefined();
   }, 60000);
+
+  it("leaves no cell reading not yet priced once settled, and prices the registered team's own DCMP row from the bake (261014-j4i)", async () => {
+    renderNowWindow(true);
+    await waitForSimulatedLine();
+    await waitFor(
+      () => {
+        expect(document.querySelectorAll('[data-cell="not-yet-priced"]')).toHaveLength(0);
+        const row = dcmpRowOf(ROSTER[0]!);
+        for (const id of CATEGORY_CELL_IDS) expect(dcmpCellKind(row, id), id).toBe("open");
+        expect(dcmpCellKind(row, "dcmp-row:eventTotal")).toBe("open");
+      },
+      { timeout: 20000 }
+    );
+  }, 30000);
 });

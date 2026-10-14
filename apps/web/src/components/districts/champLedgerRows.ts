@@ -132,10 +132,14 @@ export type ChampFieldMembership = "in" | "out" | "open";
  * - `notYetPriced` — the tab holds no DCMP distribution at all, because the
  *   artifact does not name the championship yet (the pre-registration window)
  *   or because no sidecar and no event artifact could be read for it. Nothing
- *   was predicted, so the cell says so in words.
- * - `outOfRange` — at a rewound stop before the championship starts, the DCMP
- *   is simulated over the Locked plus In range field (quick task 261007-mxf),
- *   and this team is outside that simulated field: "out of range".
+ *   was predicted, so the cell says so in words. At Now, since quick task
+ *   261014-j4i, it survives only where nothing can be baked: a district whose
+ *   championship is on no row of the artifact, a season the as-of pricer cannot
+ *   price, and a registered team the simulated field leaves out whose own
+ *   championship row is not published.
+ * - `outOfRange` — before the championship starts, at a rewound stop or at Now,
+ *   the DCMP is simulated over the Locked plus In range field (quick task
+ *   261007-mxf), and this team is outside that simulated field: "out of range".
  *
  * None is `unavailable`, which stays what it always was: a prediction was
  * attempted for this cell and refused.
@@ -738,11 +742,14 @@ export interface BuildChampLedgerRowsOptions {
    */
   readonly dcmpEstimateByTeam?: ReadonlyMap<string, ChampDcmpEstimate>;
   /**
-   * THE SIMULATED DCMP (quick task 261007-mxf): supplied only at a rewound
-   * stop before any championship has started, where the championship is baked
-   * over the Locked plus In range field. A team whose field is not a fact is
-   * read from it (`buildDcmpRow`'s case 3) and the estimate is never consulted.
-   * Absent everywhere else, which is the shipped behaviour byte for byte.
+   * THE SIMULATED DCMP (quick task 261007-mxf): supplied before any
+   * championship has started, at a rewound stop and, since quick task
+   * 261014-j4i, at Now, where the championship is baked over the Locked plus In
+   * range field. A team whose field is not a fact is read from it
+   * (`buildDcmpRow`'s case 3) and the estimate is never consulted. A team
+   * registered at the live position reads it only where its own championship row
+   * is not priced, and only a baked or pending reading. Absent everywhere else,
+   * which is the shipped behaviour byte for byte.
    */
   readonly simulatedDcmp?: SimulatedDcmpPricing;
   /**
@@ -858,8 +865,17 @@ export function buildChampLedgerRows(options: BuildChampLedgerRowsOptions): Cham
       (options.dcmpEstimateByTeam === undefined && options.simulatedDcmp === undefined) ||
       dcmpStarted ||
       ((options.atLivePosition ?? false) && membership === "in");
-    const simulated =
-      !fieldIsFact && options.simulatedDcmp !== undefined ? simulatedDcmpReading(options.simulatedDcmp, team.teamKey) : undefined;
+    // THE BAKE'S READING (quick tasks 261007-mxf and 261014-j4i). Where the
+    // field is not a fact for the team (every rewound team, and an unregistered
+    // team at Now) the whole reading applies. Where it IS a fact (a team
+    // registered at the live position) the bake is only a fallback for a row
+    // `buildDcmpRow` finds unpriced: a baked or pending reading is handed on,
+    // while Locked out, Out of range and refused would contradict the
+    // registration, so those keep the estimate. `buildDcmpRow` reads case 2
+    // first, so a registered team whose own row is priced never reaches this.
+    const reading =
+      options.simulatedDcmp !== undefined && !dcmpStarted ? simulatedDcmpReading(options.simulatedDcmp, team.teamKey) : undefined;
+    const simulated = fieldIsFact ? (reading?.kind === "baked" || reading?.kind === "pending" ? reading : undefined) : reading;
     const { row: dcmpBuilt, winChance, outsideSimulatedField, finalsOpen } = buildDcmpRow(
       dcmpEntry,
       membership,
@@ -1225,9 +1241,13 @@ function foldCells(
  *    sum of the added values, so the cells always add up to it. The win
  *    chance stays the PRIMARY row's own Playoffs cell, read before any
  *    addition. `finalsOpen` reports a finals row with anything still open.
- * 3. Otherwise, at a rewound stop before any championship has started, where
- *    the tab supplies the SIMULATED DCMP (the Locked plus In range field baked
- *    in the Web Worker): the team's reading. Locked out gives the em dash and
+ * 3. Otherwise, before any championship has started, where the tab supplies the
+ *    SIMULATED DCMP (the Locked plus In range field baked in the Web Worker),
+ *    at a rewound stop or at Now: the team's reading. At Now this also reaches a
+ *    REGISTERED team whose own championship row was not priced (no published
+ *    sidecar, or one still loading), with a baked or pending reading only;
+ *    Locked out, Out of range and refused keep the estimate for it, since each
+ *    would contradict the registration. Locked out gives the em dash and
  *    Out of range the "out of range" cell, both in every cell and both
  *    `outsideSimulatedField`; a field or bake still in flight gives pending
  *    cells; a refused field, a failed bake or a team the bake has no record
@@ -1240,8 +1260,11 @@ function foldCells(
  *    four category cells read "not yet priced", the Subtotal is open over the
  *    estimate, and `estimated` is true. `sources` stays the dcmp pass's own,
  *    so the status floors and ceilings are untouched. At the live position
- *    before the DCMP field is a fact, case 2 cannot fire for an unregistered
- *    team, so it lands here; a rewound stop takes case 3 instead.
+ *    this is the SURVIVOR case (quick task 261014-j4i): a district whose
+ *    championship is on no row of the artifact, a season the as-of pricer
+ *    cannot price (no simulated DCMP is supplied for either), and a registered
+ *    team the simulated field leaves out whose own row is not published.
+ *    Wherever the bake is supplied, case 3 takes the other teams.
  * 5. Otherwise `notYetPriced` in every cell: the district only fallback.
  *
  * Anything narrower in case 2 (one category the run refused while the others
