@@ -552,3 +552,129 @@ describe("the alliance selection route helpers", () => {
     expect(districtCellRendersOutcomeList("award")).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// NOT PICKED (quick task 261014-jfx)
+// ---------------------------------------------------------------------------
+
+/** A route view that carries only what the Playoffs cell reads: the not selected draws and the denominator. */
+function playoffViewOf(denominator: number, notSelectedDraws: number): DistrictSelectionRouteView {
+  return { routes: { bySlot: [], notSelectedDraws }, denominator, rankingFixed: false };
+}
+
+describe("districtPlayoffOutcomes splits the zero point mass with a route view (261014-jfx)", () => {
+  const six932 = (): DistrictPointDistribution => distributionOf([[0, 99], [7, 1]], ELIM_CEILING);
+
+  it("appends a notPicked row and reduces none to picked but out, and the rows still sum to one", () => {
+    const distribution = six932();
+    const rows = districtPlayoffOutcomes(SEASON, TIER, distribution, undefined, playoffViewOf(100, 97));
+    expect(rows.map((row) => row.id)).toEqual(["winner", "finalist", "third", "fourth", "none", "notPicked"]);
+    const chanceOf = (id: string): number => rows.find((row) => row.id === id)!.chance;
+    expect(chanceOf("none")).toBeCloseTo(0.02, 12);
+    expect(chanceOf("notPicked")).toBeCloseTo(0.97, 12);
+    expect(chanceOf("fourth")).toBeCloseTo(0.01, 12);
+    expect(rows.reduce((sum, row) => sum + row.chance, 0)).toBeCloseTo(1, 12);
+    expect(districtOutcomeUnaccountedMass(distribution, rows)).toBeCloseTo(0, 12);
+  });
+
+  it("is exactly today's five rows with no view", () => {
+    const rows = districtPlayoffOutcomes(SEASON, TIER, six932(), undefined);
+    expect(rows.map((row) => row.id)).toEqual(["winner", "finalist", "third", "fourth", "none"]);
+  });
+
+  it("clamps the not picked chance to the zero point share, so the rows keep summing to one", () => {
+    const rows = districtPlayoffOutcomes(SEASON, TIER, distributionOf([[0, 40], [13, 60]], ELIM_CEILING), undefined, playoffViewOf(100, 50));
+    expect(rows.find((row) => row.id === "notPicked")!.chance).toBeCloseTo(0.4, 12);
+    expect(rows.find((row) => row.id === "none")!.chance).toBeCloseTo(0, 12);
+    expect(rows.reduce((sum, row) => sum + row.chance, 0)).toBeCloseTo(1, 12);
+  });
+
+  it("drops notPicked and none under a milestone, because the team is proven to be on an alliance", () => {
+    for (const kind of ["finalist", "winner"] as const) {
+      const rows = districtPlayoffOutcomes(SEASON, TIER, six932(), { kind }, playoffViewOf(100, 97));
+      expect(rows.some((row) => row.id === "notPicked" || row.id === "none")).toBe(false);
+    }
+  });
+
+  it("throws the typed error for a view whose denominator cannot be divided by", () => {
+    expect(() => districtPlayoffOutcomes(SEASON, TIER, six932(), undefined, playoffViewOf(0, 0))).toThrow(InvalidRouteDenominatorError);
+    expect(() => districtPlayoffOutcomes(SEASON, TIER, six932(), undefined, playoffViewOf(Number.NaN, 0))).toThrow(InvalidRouteDenominatorError);
+  });
+
+  it("counts a shared point value once in the unaccounted mass", () => {
+    const distribution = distributionOf([[0, 50], [25, 50]], ELIM_CEILING);
+    const rows = districtPlayoffOutcomes(SEASON, TIER, distribution, undefined, playoffViewOf(100, 30));
+    expect(districtOutcomeUnaccountedMass(distribution, rows)).toBeCloseTo(0.5, 12);
+  });
+});
+
+describe("districtPlayoffBestGuess names not picked only past half of the runs (261014-jfx)", () => {
+  type OpenCell = Extract<DistrictLedgerCell, { kind: "open" }>;
+  const DISTRICT: DistrictCellPricing = { season: SEASON, tier: "district", isRookie: false };
+  const DCMP: DistrictCellPricing = { season: SEASON, tier: "dcmp", isRookie: false };
+
+  function cellWith(
+    pairs: readonly (readonly [number, number])[],
+    notSelectedDraws: number | undefined,
+    tier: "district" | "dcmp" = "district"
+  ): OpenCell {
+    const ceiling = maxEventPoints(SEASON, tier).elim;
+    const cell = openDistrictLedgerCell("2026walive:elim", "elim", distributionOf(pairs, ceiling), ceiling) as OpenCell;
+    const denominator = pairs.reduce((sum, [, count]) => sum + count, 0);
+    return notSelectedDraws === undefined ? cell : { ...cell, selection: playoffViewOf(denominator, notSelectedDraws) };
+  }
+
+  it("names not picked for the 6932 shape, with the zero pay kept out of the lines", () => {
+    const guess = districtPlayoffBestGuess(cellWith([[0, 99], [7, 1]], 97), DISTRICT)!;
+    expect(guess.id).toBe("notPicked");
+    expect(guess.chance).toBeCloseTo(0.97, 12);
+    expect(guess.pay).toEqual({ kind: "values", values: [0] });
+  });
+
+  it("names not picked at the DCMP tier too", () => {
+    expect(districtPlayoffBestGuess(cellWith([[0, 99], [21, 1]], 97, "dcmp"), DCMP)!.id).toBe("notPicked");
+  });
+
+  it("names not picked when every run left the team off, which a selection still open does not flag", () => {
+    expect(districtPlayoffBestGuess(cellWith([[0, 100]], 100), DISTRICT)).toMatchObject({ id: "notPicked", chance: 1 });
+  });
+
+  it("is not a fifth bucket in the plain contest: 40 percent not picked loses to the largest finish among the four", () => {
+    // Not picked 40, picked but out 30, 3rd or 4th 15, 2nd 8, 1st 7.
+    const guess = districtPlayoffBestGuess(cellWith([[0, 70], [7, 8], [13, 7], [20, 8], [30, 7]], 40), DISTRICT)!;
+    expect(guess.id).toBe("fifthToEighth");
+    expect(guess.chance).toBeCloseTo(0.3, 12);
+  });
+
+  it("needs strictly more than half: exactly half is not enough", () => {
+    expect(districtPlayoffBestGuess(cellWith([[0, 50], [13, 50]], 50), DISTRICT)!.id).toBe("thirdOrFourth");
+  });
+
+  it("names not picked just past half", () => {
+    expect(districtPlayoffBestGuess(cellWith([[0, 51], [13, 49]], 51), DISTRICT)!.id).toBe("notPicked");
+  });
+
+  it("keeps the zero point mass as one finish with no view, exactly as before", () => {
+    const guess = districtPlayoffBestGuess(cellWith([[0, 99], [7, 1]], undefined), DISTRICT)!;
+    expect(guess).toMatchObject({ id: "fifthToEighth", pay: { values: [0] } });
+    expect(guess.chance).toBeCloseTo(0.99, 12);
+  });
+
+  it("never names not picked where a secured figure is above zero", () => {
+    const secured = { ...cellWith([[0, 99], [7, 1]], 97), securedAtLeast: 13 };
+    expect(districtPlayoffBestGuess(secured, DISTRICT)!.id).not.toBe("notPicked");
+  });
+
+  it("is undefined for the not picked flagged cell, a shifted cell and a missing pricing, view or not", () => {
+    const base = cellWith([[0, 99], [7, 1]], 97);
+    expect(districtPlayoffBestGuess({ ...base, notPicked: true }, DISTRICT)).toBeUndefined();
+    expect(districtPlayoffBestGuess({ ...base, shiftedByFinals: true }, DISTRICT)).toBeUndefined();
+    expect(districtPlayoffBestGuess(base, undefined)).toBeUndefined();
+  });
+
+  it("reads the drawer's own rows, so the cell's chance is the notPicked row", () => {
+    const cell = cellWith([[0, 99], [7, 1]], 97);
+    const rows = districtPlayoffOutcomes(SEASON, TIER, cell.distribution, undefined, cell.selection);
+    expect(districtPlayoffBestGuess(cell, DISTRICT)!.chance).toBe(rows.find((row) => row.id === "notPicked")!.chance);
+  });
+});

@@ -482,10 +482,11 @@ export const DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS = {
   third: "Third place",
   fourth: "Fourth place",
   none: "Out before the top four",
+  notPicked: "Not picked",
 } as const;
 
 /**
- * The Playoffs drawer's labels for the four finishes a best guess can name.
+ * The Playoffs drawer's labels for the five finishes a best guess can name.
  * The drawer headline and its most likely tile print these, so they name the
  * cell's own best guess (quick task 261014-i1c). The three single finishes reuse
  * the outcome list's labels; third and fourth, grouped, read as one.
@@ -495,6 +496,7 @@ export const DISTRICT_LEDGER_PLAYOFF_FINISH_LABELS: Readonly<Record<DistrictPlay
   second: DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.finalist,
   thirdOrFourth: "Third or fourth place",
   fifthToEighth: DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.none,
+  notPicked: DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS.notPicked,
 };
 
 /** See `DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS`. `judged` is one judged award, which is the award support's own second bin. */
@@ -673,7 +675,25 @@ export const DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS: Readonly<Record<DistrictPlayo
   second: "2nd",
   thirdOrFourth: "3rd or 4th",
   fifthToEighth: "5th to 8th",
+  notPicked: DISTRICT_LEDGER_NOT_PICKED_WORDS.bold,
 };
+
+/**
+ * The small line word of a not picked best guess (Jacob, 2026-10-14): the chance
+ * is the share of runs on ANY alliance, captains included, so it reads
+ * `3% on an alliance`. Unlike the Alliance selection cell's `picked`, which
+ * excludes captains.
+ */
+export const DISTRICT_LEDGER_PLAYOFF_ON_ALLIANCE_WORDS = "on an alliance";
+
+/**
+ * A chance as the whole number of runs out of 100 that the drawer headline
+ * prints. One expression, so the cell's small line and the headline can never
+ * add to anything but 100.
+ */
+export function districtLedgerOutcomeRunCount(chance: number): number {
+  return Math.round(100 * chance);
+}
 
 /**
  * THE PLAYOFFS CELL'S TWO LINES (quick task 261014-i1c): the best guess finish
@@ -681,8 +701,20 @@ export const DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS: Readonly<Record<DistrictPlayo
  * example `~3rd or 4th` over `36% · pays 7 or 13`. The chance goes through
  * `districtLedgerCellChance`, so it never reads 100% and never carries a
  * tilde.
+ *
+ * A NOT PICKED BEST GUESS (quick task 261014-jfx) prints `~not picked` over
+ * `3% on an alliance`, with no pays line. The small chance is the share of runs
+ * on any alliance, printed as 100 minus the headline's not picked run count
+ * (through `districtLedgerCellChance`), so `97 of 100` never sits beside a
+ * mismatched percent and the figure never reads 100%.
  */
 export function districtLedgerPlayoffBestGuessLines(guess: DistrictPlayoffBestGuess): { bold: string; small: string } {
+  if (guess.id === "notPicked") {
+    return {
+      bold: `${DISTRICT_LEDGER_PLAYOFF_BEST_GUESS_PREFIX}${DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS.notPicked}`,
+      small: `${districtLedgerCellChance((100 - districtLedgerOutcomeRunCount(guess.chance)) / 100)} ${DISTRICT_LEDGER_PLAYOFF_ON_ALLIANCE_WORDS}`,
+    };
+  }
   return {
     bold: `${DISTRICT_LEDGER_PLAYOFF_BEST_GUESS_PREFIX}${DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS[guess.id]}`,
     small: `${districtLedgerCellChance(guess.chance)} · ${districtLedgerPaysLine(guess.pay)}`,
@@ -993,6 +1025,14 @@ export const DISTRICT_LEDGER_VERDICT_TILE_LABELS = {
   chanceOfPoints: "chance of points",
 } as const;
 
+/**
+ * The Playoffs drawer's tile label for the finish it names (Jacob, 2026-10-14).
+ * The headline follows the cell's best guess, and a picked finish can be the
+ * best guess while not picked is the single largest outcome, so `most likely`
+ * would sometimes be false there. Awards and Alliance selection keep it.
+ */
+export const DISTRICT_LEDGER_VERDICT_PLAYOFF_TILE_LABEL = "best guess";
+
 /** The histogram legend's five keys. The cutoff and zone keys print only where their mark is drawn. */
 export const DISTRICT_LEDGER_VERDICT_LEGEND = {
   bars: "how often each total came up",
@@ -1133,7 +1173,7 @@ export function districtLedgerVerdictCapHeadline(ceiling: number, massAtCeiling:
 
 /** An outcome cell's headline: the likeliest outcome, unclamped, because the rows are counts. */
 export function districtLedgerVerdictOutcomeHeadline(label: string, chance: number): string {
-  return `${label} in ${String(Math.round(100 * chance))} of 100 runs.`;
+  return `${label} in ${String(districtLedgerOutcomeRunCount(chance))} of 100 runs.`;
 }
 
 /** The chance of points tile: the cell's own chance, capped at 99 with no tilde (quick task 261008-3il). */

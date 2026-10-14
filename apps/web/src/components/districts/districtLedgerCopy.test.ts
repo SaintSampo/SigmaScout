@@ -33,6 +33,9 @@ import {
   DISTRICT_LEDGER_PLAYOFF_BEST_GUESS_PREFIX,
   DISTRICT_LEDGER_PLAYOFF_FINISH_LABELS,
   DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS,
+  DISTRICT_LEDGER_PLAYOFF_ON_ALLIANCE_WORDS,
+  DISTRICT_LEDGER_VERDICT_PLAYOFF_TILE_LABEL,
+  districtLedgerOutcomeRunCount,
   districtLedgerPlayoffBestGuessLines,
   DISTRICT_LEDGER_PLAYOFF_OUTCOME_LABELS,
   DISTRICT_LEDGER_OUTCOME_LIST_LABELS,
@@ -362,7 +365,13 @@ describe("a settled Playoffs value that is not exact (quick task 261010-66y, D6)
 describe("the Playoffs best guess words (quick task 261014-i1c)", () => {
   it("names the four finishes in the cell's lower case words", () => {
     expect(DISTRICT_LEDGER_PLAYOFF_BEST_GUESS_PREFIX).toBe("~");
-    expect(DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS).toEqual({ first: "1st", second: "2nd", thirdOrFourth: "3rd or 4th", fifthToEighth: "5th to 8th" });
+    expect(DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS).toEqual({
+      first: "1st",
+      second: "2nd",
+      thirdOrFourth: "3rd or 4th",
+      fifthToEighth: "5th to 8th",
+      notPicked: "not picked",
+    });
   });
 
   it("labels the four finishes for the drawer, reusing the list's own labels for the single ones", () => {
@@ -371,7 +380,29 @@ describe("the Playoffs best guess words (quick task 261014-i1c)", () => {
       second: "Finalist",
       thirdOrFourth: "Third or fourth place",
       fifthToEighth: "Out before the top four",
+      notPicked: "Not picked",
     });
+  });
+
+  it("prints a not picked best guess over the share of runs on any alliance, with no pays line (261014-jfx)", () => {
+    expect(DISTRICT_LEDGER_PLAYOFF_ON_ALLIANCE_WORDS).toBe("on an alliance");
+    const lines = districtLedgerPlayoffBestGuessLines({ id: "notPicked", chance: 0.97, pay: { kind: "values", values: [0] } });
+    expect(lines).toEqual({ bold: "~not picked", small: "3% on an alliance" });
+    expect(lines.small).not.toContain("pays");
+    expect(lines.small).not.toContain("~");
+    expect(lines.small).not.toMatch(/[-\u2013\u2014]/);
+    expect(districtLedgerPlayoffBestGuessLines({ id: "notPicked", chance: 1, pay: { kind: "values", values: [0] } }).small).toBe("0% on an alliance");
+  });
+
+  it("prints the on an alliance percent as 100 minus the headline run count, so the two never add to 101", () => {
+    // 0.975 rounds to 98 runs, and 100 minus 98 is 2, where 1 minus 0.975 would have rounded to 3.
+    expect(districtLedgerOutcomeRunCount(0.975)).toBe(98);
+    expect(districtLedgerPlayoffBestGuessLines({ id: "notPicked", chance: 0.975, pay: { kind: "values", values: [0] } }).small).toBe("2% on an alliance");
+    expect(districtLedgerVerdictOutcomeHeadline("Not picked", 0.975)).toBe("Not picked in 98 of 100 runs.");
+  });
+
+  it("labels the Playoffs drawer's tile best guess, because a picked finish can be the best guess while not picked is the largest outcome", () => {
+    expect(DISTRICT_LEDGER_VERDICT_PLAYOFF_TILE_LABEL).toBe("best guess");
   });
 
   it("prints the best guess over its chance and what the finish pays", () => {
@@ -434,6 +465,7 @@ describe("the Playoffs best guess words (quick task 261014-i1c)", () => {
       third: "Third place",
       fourth: "Fourth place",
       none: "Out before the top four",
+      notPicked: "Not picked",
     });
     expect(DISTRICT_LEDGER_AWARD_OUTCOME_LABELS).toEqual({
       impact: "Impact",
@@ -487,6 +519,8 @@ describe("the Playoffs best guess words (quick task 261014-i1c)", () => {
       DISTRICT_LEDGER_CHANCE_WORDS.award.bold,
       DISTRICT_LEDGER_NOT_PICKED_WORDS.bold,
       DISTRICT_LEDGER_NOT_PICKED_WORDS.small,
+      DISTRICT_LEDGER_PLAYOFF_ON_ALLIANCE_WORDS,
+      DISTRICT_LEDGER_VERDICT_PLAYOFF_TILE_LABEL,
     ].join(" ");
     for (const dash of ["—", "–", "-"]) expect(everyString).not.toContain(dash);
   });
