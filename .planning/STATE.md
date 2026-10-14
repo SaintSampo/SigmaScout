@@ -4,7 +4,7 @@ milestone: v1.0
 milestone_name: Launch
 status: Awaiting next milestone
 stopped_at: Milestone v1.0 Launch archived; next is /gsd-new-milestone
-last_updated: "2026-10-14T16:05:32.584Z"
+last_updated: "2026-10-14T17:40:14.290Z"
 last_activity: 2026-10-14
 last_activity_desc: Milestone v1.0 completed and archived
 progress:
@@ -762,6 +762,7 @@ Filed 2026-09-11 by quick task 260911-r7e (EPA/Statbotics reproduction):
 | 326 | The playoff point pool of the District Locks pooled test is the most TBA's pay rule can pay one event, proven: 216 (214 under the 2023 rule) for a roster of at most four robots, where it was a measured 213; reached and never exceeded by an exhaustive search of all 32,768 brackets; 66 of 38,771 rewound lock displays show later, none gained, none taken back; Worker bundle changes | 2026-10-13 | 0ce59192 | [261013-lve-the-playoff-point-pool-is-the-most-the-p](./quick/261013-lve-the-playoff-point-pool-is-the-most-the-p/) |
 | 327 | A prequalified team that wins a championship award or the event no longer uses up a district slot: one rule in locks.ts read by the published verdicts, the Champ Locks tab and the chance run; 19 districts back to 2016 moved, 32 teams gained a status, none lost one; cutoff tuning regenerated; merged after 261012-mw2 and 261013-lve | 2026-10-14 | 6eeaebfe | [261012-nff-a-prequalified-team-that-wins-a-champion](./quick/261012-nff-a-prequalified-team-that-wins-a-champion/) |
 | 328 | Fast: dropped the locks-cutoff-strip-chart todo, the cutoff strip under the Locks picker will not be built | 2026-10-14 | 7804090a | — |
+| 329 | Rebuild the Locks cutoff backtest on the as-of state the live tab uses; re-measured 1.2 vs 2.4 points, 183 of 205; season start In range report | 2026-10-14 | bad55efa | [261014-hx6-rebuild-the-locks-backtest-on-the-as-of-](./quick/261014-hx6-rebuild-the-locks-backtest-on-the-as-of-/) |
 
 ### Roadmap Evolution
 
