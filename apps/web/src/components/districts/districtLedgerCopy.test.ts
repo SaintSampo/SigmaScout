@@ -361,7 +361,7 @@ describe("a settled Playoffs value that is not exact (quick task 261010-66y, D6)
 
 describe("the Playoffs best guess words (quick task 261014-i1c)", () => {
   it("names the four finishes in the cell's lower case words", () => {
-    expect(DISTRICT_LEDGER_PLAYOFF_BEST_GUESS_PREFIX).toBe("best guess");
+    expect(DISTRICT_LEDGER_PLAYOFF_BEST_GUESS_PREFIX).toBe("~");
     expect(DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS).toEqual({ first: "1st", second: "2nd", thirdOrFourth: "3rd or 4th", fifthToEighth: "5th to 8th" });
   });
 
@@ -376,18 +376,18 @@ describe("the Playoffs best guess words (quick task 261014-i1c)", () => {
 
   it("prints the best guess over its chance and what the finish pays", () => {
     expect(districtLedgerPlayoffBestGuessLines({ id: "thirdOrFourth", chance: 0.36, pay: { kind: "values", values: [7, 13] } })).toEqual({
-      bold: "best guess 3rd or 4th",
+      bold: "~3rd or 4th",
       small: "36% · pays 7 or 13",
     });
     expect(districtLedgerPlayoffBestGuessLines({ id: "fifthToEighth", chance: 0.6, pay: { kind: "values", values: [0] } })).toEqual({
-      bold: "best guess 5th to 8th",
+      bold: "~5th to 8th",
       small: "60% · pays 0",
     });
   });
 
   it("never prints 100 percent and never a tilde: a near certain 1st reads 99%", () => {
     const lines = districtLedgerPlayoffBestGuessLines({ id: "first", chance: 1, pay: { kind: "values", values: [30] } });
-    expect(lines).toEqual({ bold: "best guess 1st", small: "99% · pays 30" });
+    expect(lines).toEqual({ bold: "~1st", small: "99% · pays 30" });
     expect(lines.small).not.toContain("~");
   });
 

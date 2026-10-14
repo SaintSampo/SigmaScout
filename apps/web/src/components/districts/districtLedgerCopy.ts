@@ -659,8 +659,13 @@ export function districtLedgerPaysLine(pay: DistrictCellPay): string {
   return `${DISTRICT_LEDGER_PAYS_PREFIX} ${districtLedgerOutcomePointsRange(low, high)}`;
 }
 
-/** The words a Playoffs cell's bold line starts with: the finish it names is its best guess. */
-export const DISTRICT_LEDGER_PLAYOFF_BEST_GUESS_PREFIX = "best guess";
+/**
+ * The mark a Playoffs cell's bold line starts with: the finish it names is its
+ * best guess. A tilde, the site's own mark for a prediction, written with no
+ * space, so the cell reads `~3rd or 4th` (Jacob, 2026-10-14: "best guess" was
+ * too wordy on the site).
+ */
+export const DISTRICT_LEDGER_PLAYOFF_BEST_GUESS_PREFIX = "~";
 
 /** The finish each best guess names, in the cell's lower case words. */
 export const DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS: Readonly<Record<DistrictPlayoffFinishId, string>> = {
@@ -673,13 +678,13 @@ export const DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS: Readonly<Record<DistrictPlayo
 /**
  * THE PLAYOFFS CELL'S TWO LINES (quick task 261014-i1c): the best guess finish
  * in bold, then that finish's chance and what it pays on the small line, for
- * example `best guess 3rd or 4th` over `36% · pays 7 or 13`. The chance goes
- * through `districtLedgerCellChance`, so it never reads 100% and never carries
- * a tilde.
+ * example `~3rd or 4th` over `36% · pays 7 or 13`. The chance goes through
+ * `districtLedgerCellChance`, so it never reads 100% and never carries a
+ * tilde.
  */
 export function districtLedgerPlayoffBestGuessLines(guess: DistrictPlayoffBestGuess): { bold: string; small: string } {
   return {
-    bold: `${DISTRICT_LEDGER_PLAYOFF_BEST_GUESS_PREFIX} ${DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS[guess.id]}`,
+    bold: `${DISTRICT_LEDGER_PLAYOFF_BEST_GUESS_PREFIX}${DISTRICT_LEDGER_PLAYOFF_FINISH_WORDS[guess.id]}`,
     small: `${districtLedgerCellChance(guess.chance)} · ${districtLedgerPaysLine(guess.pay)}`,
   };
 }

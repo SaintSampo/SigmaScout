@@ -63,7 +63,7 @@ const PLUS_MINUS = String.fromCharCode(0x00b1);
  * tier, built from `playoffPoints`, and returns the parts.
  */
 function parseBestGuess(text: string, tier: "district" | "dcmp"): { finish: string; secured: number | undefined; chance: number } {
-  const match = /^best guess (1st|2nd|3rd or 4th|5th to 8th)(?:at least (\d+) \u00b7 )?(\d+)% \u00b7 pays (.+)$/.exec(text);
+  const match = /^~(1st|2nd|3rd or 4th|5th to 8th)(?:at least (\d+) \u00b7 )?(\d+)% \u00b7 pays (.+)$/.exec(text);
   expect(match, text).not.toBeNull();
   const [, finish, secured, chance, pays] = match!;
   const at = (placement: number): number => playoffPoints(2026, tier, placement);

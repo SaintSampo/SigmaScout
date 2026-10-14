@@ -418,7 +418,7 @@ describe("the source chips", () => {
     const qualLines = openCellLines(qual, pricing);
     const elimLines = openCellLines(elim, pricing);
     const awardLines = openCellLines(award, pricing);
-    expect(elimLines).toEqual({ bold: "best guess 3rd or 4th", small: "36% · pays 7 or 13" });
+    expect(elimLines).toEqual({ bold: "~3rd or 4th", small: "36% · pays 7 or 13" });
     expect(verdictCategoryChips(cells, pricing)).toEqual([
       { kind: "category", label: "Quals", figure: qualLines.bold, small: qualLines.small, open: true },
       { kind: "category", label: "Alliance", figure: "16", small: undefined, open: false },
@@ -458,13 +458,13 @@ describe("buildVerdictModel on a Playoffs cell names the cell's best guess finis
     ]);
     expect(model.chart.kind === "outcomes" ? model.chart.rows.map((row) => row.key) : []).toEqual(["winner", "finalist", "third", "fourth"]);
     // The cell reads the same finish.
-    expect(openCellLines(cell, pricing).bold).toBe("best guess 3rd or 4th");
+    expect(openCellLines(cell, pricing).bold).toBe("~3rd or 4th");
   });
 
   it("names the better finish on a tie, as the cell does", () => {
     const tie = openCell("elim", sparse(CEILINGS.elim, [[0, 30], [7, 10], [13, 10], [20, 30], [30, 20]]), CEILINGS.elim);
     expect(buildVerdictModel(baseInput(tie)).headline).toBe("Finalist in 30 of 100 runs.");
-    expect(openCellLines(tie, pricing).bold).toBe("best guess 2nd");
+    expect(openCellLines(tie, pricing).bold).toBe("~2nd");
   });
 
   it("never names a finish the milestone rules out", () => {
