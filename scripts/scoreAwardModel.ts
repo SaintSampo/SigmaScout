@@ -48,11 +48,33 @@
  * exactly 0; the district tier digest equals `--expect-district-digest`. Any
  * FAIL, or a missing digest, exits 1.
  *
- * Read only corpus, no network request, no environment variable.
+ * SNAPSHOTS AND THE 261014-mii ACCEPTANCE (quick task 261014-mii):
+ *
+ *     npx tsx scripts/scoreAwardModel.ts --write-snapshot <path> [--label <name>]
+ *     npx tsx scripts/scoreAwardModel.ts --before <path> [--write-snapshot <path>]
+ *
+ * `--write-snapshot` writes this run's scores as JSON: per tier n, said,
+ * happened, Brier, flat guess, the class map, the review class map, ten
+ * reliability bins, the Impact row sums, the DCMP audits and the district
+ * digest. `--before` reads such a snapshot and replaces the three gates above
+ * with five: A1 the district any award Brier is strictly lower than BEFORE; A2
+ * in each of the review's four classes (frozen review rule,
+ * `legacyReviewClass`) the gap between said and happened is strictly smaller
+ * and n is equal; A3 the drawer's Impact row (sum of p10) equals the Impact
+ * draw within 1e-9; A4 and A5 the two DCMP gates above. The digest gate does
+ * not apply in that mode; both digests are printed. Every run also prints, per
+ * tier, the review class map, the Impact row audit and the reliability bins.
+ * Without `--before` the gates are exactly the three above.
+ *
+ * Read only corpus, no network request, no environment variable. A snapshot is
+ * the one file the scorer writes, and only when asked.
  */
 import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync } from "node:fs";
+import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
+import { z } from "zod";
 import {
   openCorpusReadOnly,
   selectDistrictRankings,
@@ -97,6 +119,11 @@ export interface ScoredTeamEvent {
   readonly role?: ScoredDcmpRole;
   readonly bucket: DecorationBucket;
   readonly rookieState: RookieState;
+  /**
+   * The team event's class under the frozen review rule (`legacyReviewClass`),
+   * reporting only, so a BEFORE and an AFTER run compare the same team events.
+   */
+  readonly reviewClass: string;
   readonly odds: AwardOutcomeOdds;
   /** The tier weight the base scale odds are multiplied by. */
   readonly weight: number;
@@ -158,6 +185,62 @@ export function classLabel(bucket: DecorationBucket, rookieState: RookieState): 
   return rookieState === "rookie" ? `${name} rookie` : name;
 }
 
+/**
+ * THE REVIEW'S DECORATION RULE, FROZEN (quick task 261014-mii, decision M-09):
+ * the award types the 2026-10-14 review's classes excluded, exactly as the
+ * shipped rule did on 4337d8d2. REPORTING ONLY: it labels scored team events so
+ * a BEFORE and an AFTER run compare the same team events, and it never prices
+ * anything.
+ */
+export const LEGACY_REVIEW_EXCLUDED_TYPES: ReadonlySet<number> = Object.freeze(new Set([1, 2, 14]));
+
+/**
+ * A team event's class under the review's rule (decision M-09): distinct
+ * `(year, eventKey, awardType)` wins of any type outside
+ * `LEGACY_REVIEW_EXCLUDED_TYPES`, over EVERY corpus season strictly before
+ * `season`, bucketed and labelled with `classLabel`. Reporting only, it never
+ * prices anything; the priced class comes from the shipped helpers.
+ */
+export function legacyReviewClass(instances: readonly AwardInstance[], teamKey: string, season: number, rookieState: RookieState): string {
+  const seen = new Set<string>();
+  for (const instance of instances) {
+    if (instance.teamKey !== teamKey || instance.year >= season) continue;
+    if (LEGACY_REVIEW_EXCLUDED_TYPES.has(instance.awardType)) continue;
+    seen.add(`${instance.year}|${instance.eventKey}|${instance.awardType}`);
+  }
+  return classLabel(decorationBucket(seen.size), rookieState);
+}
+
+/** One of ten equal width bins of the predicted any award chance. */
+export interface ReliabilityBin {
+  n: number;
+  sumP: number;
+  sumY: number;
+}
+
+export const RELIABILITY_BIN_COUNT = 10;
+
+export function emptyReliabilityBins(): ReliabilityBin[] {
+  return Array.from({ length: RELIABILITY_BIN_COUNT }, () => ({ n: 0, sumP: 0, sumY: 0 }));
+}
+
+/** The bin a predicted chance falls in: [0, 0.1) is 0, ..., [0.9, 1] is 9. */
+export function reliabilityBinIndex(p: number): number {
+  return Math.min(RELIABILITY_BIN_COUNT - 1, Math.max(0, Math.floor(p * RELIABILITY_BIN_COUNT)));
+}
+
+/**
+ * THE IMPACT ROW AUDIT: the sum of `p10` (what the drawer's Impact row shows),
+ * the sum of the Impact draw itself (`impact`), and the real Impact wins. The
+ * difference between the first two is the folded stack mass the Impact row
+ * prices as Impact.
+ */
+export interface ImpactRowAudit {
+  said: number;
+  impactDraw: number;
+  realWins: number;
+}
+
 /** The DCMP eligibility audit of one award type. */
 export interface EligibilityAudit {
   /** The model's expected count of this award (Impact: the Impact award mass; EI: a veteran's 8 point mass; RAS: a rookie's 8 point mass). */
@@ -185,7 +268,11 @@ export interface TierReport {
   readonly events: Set<string>;
   readonly anyAward: BinaryAccumulator;
   readonly byClass: Map<string, BinaryAccumulator>;
+  /** The same accumulators keyed by the frozen review class (`legacyReviewClass`). */
+  readonly byReviewClass: Map<string, BinaryAccumulator>;
   readonly byRole: Map<ScoredDcmpRole, BinaryAccumulator>;
+  readonly reliability: ReliabilityBin[];
+  readonly impactRow: ImpactRowAudit;
   modelPoints: number;
   realPoints: number;
   readonly census: Map<number, number>;
@@ -200,7 +287,10 @@ export function emptyTierReport(tier: DistrictTier): TierReport {
     events: new Set(),
     anyAward: emptyBinary(),
     byClass: new Map(),
+    byReviewClass: new Map(),
     byRole: new Map(),
+    reliability: emptyReliabilityBins(),
+    impactRow: { said: 0, impactDraw: 0, realWins: 0 },
     modelPoints: 0,
     realPoints: 0,
     census: new Map(),
@@ -240,6 +330,15 @@ export function addTeamEvent(report: TierReport, row: ScoredTeamEvent): void {
   const label = classLabel(row.bucket, row.rookieState);
   if (!report.byClass.has(label)) report.byClass.set(label, emptyBinary());
   addBinary(report.byClass.get(label)!, pAny, y);
+  if (!report.byReviewClass.has(row.reviewClass)) report.byReviewClass.set(row.reviewClass, emptyBinary());
+  addBinary(report.byReviewClass.get(row.reviewClass)!, pAny, y);
+  const bin = report.reliability[reliabilityBinIndex(pAny)]!;
+  bin.n++;
+  bin.sumP += pAny;
+  bin.sumY += y;
+  report.impactRow.said += row.odds.p10;
+  report.impactRow.impactDraw += row.odds.impact;
+  if (row.wonImpact) report.impactRow.realWins++;
   if (row.role !== undefined) {
     if (!report.byRole.has(row.role)) report.byRole.set(row.role, emptyBinary());
     addBinary(report.byRole.get(row.role)!, pAny, y);
@@ -505,6 +604,7 @@ export function loadScoredTeamEvents(db: Corpus, seasons: readonly number[] = SC
           ...(tier === "dcmp" ? { role: roles.get(eventKey) ?? "single" } : {}),
           bucket: profile.bucket,
           rookieState: profile.rookieState,
+          reviewClass: legacyReviewClass(instancesByTeam.get(row.teamKey) ?? [], row.teamKey, season, profile.rookieState),
           odds: odds.get(row.teamKey)!,
           weight,
           awardPoints: row.awardPoints,
@@ -549,7 +649,23 @@ function auditLines(name: string, audit: EligibilityAudit, expectedWhat: string)
   ];
 }
 
-const CLASS_ORDER = ["three or more", "one or two", "none", "none rookie"];
+/** The review's four classes, in print order. A2 gates exactly these. */
+export const REVIEW_CLASSES: readonly string[] = ["three or more", "one or two", "none", "none rookie"];
+const CLASS_ORDER = REVIEW_CLASSES;
+
+function classesLine(byClass: ReadonlyMap<string, BinaryAccumulator>): string {
+  const labels = [...byClass.keys()].sort((a, b) => {
+    const ia = CLASS_ORDER.indexOf(a);
+    const ib = CLASS_ORDER.indexOf(b);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || a.localeCompare(b);
+  });
+  return labels
+    .map((label) => {
+      const acc = byClass.get(label)!;
+      return `${label} ${pct(acc.sumP / acc.n)} vs ${pct(acc.sumY / acc.n)} (n=${String(acc.n)})`;
+    })
+    .join("; ");
+}
 
 /** The printed block for one tier. */
 export function tierReportLines(report: TierReport): string[] {
@@ -557,19 +673,17 @@ export function tierReportLines(report: TierReport): string[] {
   const lines: string[] = [];
   lines.push(`${report.tier === "dcmp" ? "DCMP" : "DISTRICT"} TIER: ${String(n)} team events at ${String(report.events.size)} events`);
   lines.push(`  any award: ${anyAwardLine(report.anyAward)}`);
-  const labels = [...report.byClass.keys()].sort((a, b) => {
-    const ia = CLASS_ORDER.indexOf(a);
-    const ib = CLASS_ORDER.indexOf(b);
-    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || a.localeCompare(b);
-  });
+  lines.push(`  by bucket (said vs happened): ${classesLine(report.byClass)}`);
+  lines.push(`  by review class, frozen review rule (said vs happened): ${classesLine(report.byReviewClass)}`);
+  const row = report.impactRow;
   lines.push(
-    `  by bucket (said vs happened): ${labels
-      .map((label) => {
-        const acc = report.byClass.get(label)!;
-        return `${label} ${pct(acc.sumP / acc.n)} vs ${pct(acc.sumY / acc.n)} (n=${String(acc.n)})`;
-      })
-      .join("; ")}`
+    `  Impact row: said ${row.said.toFixed(3)} (Impact draw ${row.impactDraw.toFixed(3)}, folded stacks ${(row.said - row.impactDraw).toFixed(3)}), real Impact wins ${String(row.realWins)}`
   );
+  lines.push(`  reliability (any award chance bin: said vs happened, n):`);
+  report.reliability.forEach((bin, i) => {
+    const range = `${(i / RELIABILITY_BIN_COUNT).toFixed(1)} to ${((i + 1) / RELIABILITY_BIN_COUNT).toFixed(1)}`;
+    lines.push(bin.n === 0 ? `    ${range}: empty` : `    ${range}: ${pct(bin.sumP / bin.n)} vs ${pct(bin.sumY / bin.n)} (n=${String(bin.n)})`);
+  });
   for (const role of ["single", "division", "finals"] as const) {
     const acc = report.byRole.get(role);
     if (acc !== undefined) lines.push(`  any award, ${role}: ${anyAwardLine(acc)}`);
@@ -639,9 +753,192 @@ export function gateLines(gates: readonly AcceptanceGate[]): string[] {
   return gates.map((gate) => `GATE ${gate.pass ? "PASS" : "FAIL"}: ${gate.name} (${gate.detail})`);
 }
 
+// ───────────────────────────── snapshots (quick task 261014-mii) ─────────────────────────────
+
+const ClassScoreSchema = z.object({ n: z.number().int().nonnegative(), said: z.number(), happened: z.number() });
+const ReliabilityBinScoreSchema = z.object({ lo: z.number(), hi: z.number(), n: z.number().int().nonnegative(), said: z.number().nullable(), happened: z.number().nullable() });
+const AuditScoreSchema = z.object({
+  expected: z.number(),
+  onIneligible: z.number(),
+  realWinners: z.number().int(),
+  winnersIneligible: z.number().int(),
+  eligibleTeamEvents: z.number().int(),
+  cellMassOnIneligible: z.number(),
+  disagreementsWithAnyDistrict: z.number().int(),
+});
+const TierSnapshotSchema = z.object({
+  n: z.number().int().nonnegative(),
+  events: z.number().int().nonnegative(),
+  /** null on an empty tier, never NaN. */
+  said: z.number().nullable(),
+  happened: z.number().nullable(),
+  brier: z.number().nullable(),
+  flat: z.number().nullable(),
+  classes: z.record(z.string(), ClassScoreSchema),
+  reviewClasses: z.record(z.string(), ClassScoreSchema),
+  reliability: z.array(ReliabilityBinScoreSchema),
+  impactRow: z.object({ said: z.number(), impactDraw: z.number(), realWins: z.number().int() }),
+  audits: z.object({ impact: AuditScoreSchema, engineeringInspiration: AuditScoreSchema, rookieAllStar: AuditScoreSchema }).optional(),
+});
+/** A scorer snapshot: what `--write-snapshot` writes and `--before` reads. */
+export const ScoreSnapshotSchema = z.object({
+  label: z.string().min(1),
+  timestamp: z.string().min(1),
+  seasons: z.array(z.number().int()),
+  districtDigest: z.string().regex(/^[0-9a-f]{64}$/),
+  districtDigestLines: z.number().int().nonnegative(),
+  district: TierSnapshotSchema,
+  dcmp: TierSnapshotSchema,
+});
+export type ScoreSnapshot = z.infer<typeof ScoreSnapshotSchema>;
+type TierSnapshot = z.infer<typeof TierSnapshotSchema>;
+
+function classScores(byClass: ReadonlyMap<string, BinaryAccumulator>): Record<string, { n: number; said: number; happened: number }> {
+  const out: Record<string, { n: number; said: number; happened: number }> = {};
+  for (const [label, acc] of [...byClass].sort((a, b) => a[0].localeCompare(b[0]))) out[label] = { n: acc.n, said: acc.sumP / acc.n, happened: acc.sumY / acc.n };
+  return out;
+}
+
+function auditScore(audit: EligibilityAudit): z.infer<typeof AuditScoreSchema> {
+  return { ...audit };
+}
+
+/** One tier's snapshot. */
+export function tierSnapshot(report: TierReport): TierSnapshot {
+  const acc = report.anyAward;
+  return {
+    n: acc.n,
+    events: report.events.size,
+    said: acc.n === 0 ? null : acc.sumP / acc.n,
+    happened: acc.n === 0 ? null : acc.sumY / acc.n,
+    brier: acc.n === 0 ? null : brierOf(acc),
+    flat: acc.n === 0 ? null : flatBrierOf(acc),
+    classes: classScores(report.byClass),
+    reviewClasses: classScores(report.byReviewClass),
+    reliability: report.reliability.map((bin, i) => ({
+      lo: i / RELIABILITY_BIN_COUNT,
+      hi: (i + 1) / RELIABILITY_BIN_COUNT,
+      n: bin.n,
+      said: bin.n === 0 ? null : bin.sumP / bin.n,
+      happened: bin.n === 0 ? null : bin.sumY / bin.n,
+    })),
+    impactRow: { ...report.impactRow },
+    ...(report.tier === "dcmp"
+      ? { audits: { impact: auditScore(report.impact), engineeringInspiration: auditScore(report.engineeringInspiration), rookieAllStar: auditScore(report.rookieAllStar) } }
+      : {}),
+  };
+}
+
+/** The whole run's snapshot. */
+export function scoreSnapshot(
+  label: string,
+  timestamp: string,
+  reports: ReadonlyMap<DistrictTier, TierReport>,
+  digest: { digest: string; lines: number },
+  seasons: readonly number[] = SCORED_SEASONS
+): ScoreSnapshot {
+  return {
+    label,
+    timestamp,
+    seasons: [...seasons],
+    districtDigest: digest.digest,
+    districtDigestLines: digest.lines,
+    district: tierSnapshot(reports.get("district")!),
+    dcmp: tierSnapshot(reports.get("dcmp")!),
+  };
+}
+
+export function writeScoreSnapshot(path: string, snapshot: ScoreSnapshot): void {
+  writeFileSync(path, `${JSON.stringify(ScoreSnapshotSchema.parse(snapshot), null, 2)}\n`, "utf8");
+}
+
+/** Reads and validates a snapshot; a malformed file throws rather than scoring against garbage. */
+export function readScoreSnapshot(path: string): ScoreSnapshot {
+  return ScoreSnapshotSchema.parse(JSON.parse(readFileSync(path, "utf8")));
+}
+
+/** The tolerance A3 allows between the Impact row and the Impact draw. */
+export const IMPACT_ROW_TOLERANCE = 1e-9;
+
+/**
+ * THE DISTRICT GATES against a BEFORE snapshot (quick task 261014-mii, its
+ * pre-registered acceptance):
+ *  - A1: the district any award Brier is strictly lower than BEFORE;
+ *  - A2: in each of the review's four classes under the frozen review rule,
+ *    |said minus happened| is strictly smaller than BEFORE and n is EQUAL (a
+ *    different n means different team events, which FAILS);
+ *  - A3: the sum of p10 minus the sum of the Impact draw is 0 within 1e-9.
+ */
+export function districtGates(before: ScoreSnapshot, district: TierReport): AcceptanceGate[] {
+  const after = tierSnapshot(district);
+  const gates: AcceptanceGate[] = [];
+  gates.push({
+    name: "A1 district any award Brier strictly lower than BEFORE",
+    pass: after.brier !== null && before.district.brier !== null && after.brier < before.district.brier,
+    detail: `BEFORE ${before.district.brier?.toFixed(6) ?? "none"} (n=${String(before.district.n)}), AFTER ${after.brier?.toFixed(6) ?? "none"} (n=${String(after.n)})`,
+  });
+  const details: string[] = [];
+  let a2 = true;
+  for (const label of REVIEW_CLASSES) {
+    const b = before.district.reviewClasses[label];
+    const a = after.reviewClasses[label];
+    if (b === undefined || a === undefined) {
+      a2 = false;
+      details.push(`${label}: missing ${b === undefined ? "BEFORE" : "AFTER"}`);
+      continue;
+    }
+    const gapBefore = Math.abs(b.said - b.happened);
+    const gapAfter = Math.abs(a.said - a.happened);
+    const sameN = a.n === b.n;
+    const shrinks = gapAfter < gapBefore;
+    if (!sameN || !shrinks) a2 = false;
+    details.push(
+      `${label}: gap ${(gapBefore * 100).toFixed(2)} to ${(gapAfter * 100).toFixed(2)} points` +
+        (sameN ? ` (n=${String(a.n)})` : ` (n MISMATCH: BEFORE ${String(b.n)}, AFTER ${String(a.n)})`) +
+        (shrinks ? "" : " NOT SMALLER")
+    );
+  }
+  gates.push({ name: "A2 every review class gap strictly smaller, same team events", pass: a2, detail: details.join("; ") });
+  const diff = district.impactRow.said - district.impactRow.impactDraw;
+  gates.push({
+    name: "A3 district Impact row equals the Impact draw",
+    pass: district.anyAward.n > 0 && Math.abs(diff) <= IMPACT_ROW_TOLERANCE,
+    detail:
+      `AFTER said ${district.impactRow.said.toFixed(6)}, Impact draw ${district.impactRow.impactDraw.toFixed(6)}, difference ${diff.toExponential(3)}, real Impact wins ${String(district.impactRow.realWins)}; ` +
+      `BEFORE said ${before.district.impactRow.said.toFixed(6)}, Impact draw ${before.district.impactRow.impactDraw.toFixed(6)}, real Impact wins ${String(before.district.impactRow.realWins)}`,
+  });
+  return gates;
+}
+
+/**
+ * The five gates of a `--before` run: A1 to A3 against the snapshot, then the
+ * two DCMP gates (A4 Brier below the flat guess, A5 zero mass on ineligible
+ * team events). The digest gate does not apply: the AFTER digest differs by
+ * design and is printed instead.
+ */
+export function snapshotAcceptanceGates(before: ScoreSnapshot, district: TierReport, dcmp: TierReport): AcceptanceGate[] {
+  const [dcmpBrier, zeroMass] = acceptanceGates(dcmp, "", undefined);
+  return [
+    ...districtGates(before, district),
+    { ...dcmpBrier!, name: `A4 ${dcmpBrier!.name}` },
+    { ...zeroMass!, name: `A5 ${zeroMass!.name}` },
+  ];
+}
+
 async function main(): Promise<void> {
-  const { values } = parseArgs({ options: { "expect-district-digest": { type: "string" } }, strict: true });
+  const { values } = parseArgs({
+    options: {
+      "expect-district-digest": { type: "string" },
+      "write-snapshot": { type: "string" },
+      before: { type: "string" },
+      label: { type: "string" },
+    },
+    strict: true,
+  });
   const expectedDigest = values["expect-district-digest"];
+  const beforePath = values.before;
+  const snapshotPath = values["write-snapshot"];
+  const before = beforePath === undefined ? undefined : readScoreSnapshot(beforePath);
   console.log(`AWARD MODEL SCORE: the shipped award cell, walk forward, per tier.`);
   console.log(`seasons:    ${SCORED_SEASONS.join(", ")}`);
   console.log(`population: district_rankings entries (own district_cmp decides the tier), events with any award row, fields of at least ${String(MIN_SCORED_FIELD_SIZE)}`);
@@ -660,7 +957,21 @@ async function main(): Promise<void> {
     const digest = districtOddsDigest(load.rows);
     console.log(`DISTRICT TIER DIGEST: ${digest.digest} (${String(digest.lines)} team events)`);
     console.log(``);
-    const gates = acceptanceGates(reports.get("dcmp")!, digest.digest, expectedDigest);
+    if (snapshotPath !== undefined) {
+      const label = values.label ?? basename(snapshotPath).replace(/\.json$/, "");
+      writeScoreSnapshot(snapshotPath, scoreSnapshot(label, new Date().toISOString(), reports, digest));
+      console.log(`snapshot written: ${snapshotPath} (label ${label})`);
+      console.log(``);
+    }
+    let gates: AcceptanceGate[];
+    if (before === undefined) {
+      gates = acceptanceGates(reports.get("dcmp")!, digest.digest, expectedDigest);
+    } else {
+      console.log(`BEFORE snapshot: ${beforePath!} (label ${before.label}, ${before.timestamp})`);
+      console.log(`district digest BEFORE ${before.districtDigest}, AFTER ${digest.digest}`);
+      console.log(``);
+      gates = snapshotAcceptanceGates(before, reports.get("district")!, reports.get("dcmp")!);
+    }
     for (const line of gateLines(gates)) console.log(line);
     if (gates.some((gate) => !gate.pass)) process.exitCode = 1;
   } finally {

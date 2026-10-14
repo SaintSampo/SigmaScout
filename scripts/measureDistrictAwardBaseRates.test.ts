@@ -19,14 +19,19 @@ import {
   DECORATION_BUCKETS,
   decorationBucket,
   DISTRICT_AWARD_BASE_RATE_SEASONS,
+  DISTRICT_POINT_AWARD_VALUES,
   MIN_CELL_OBSERVATIONS,
   ROOKIE_STATES,
 } from "../packages/core/districts/awardBaseRates.js";
 import { DISTRICT_REGISTERED_SEASONS } from "../packages/core/districts/pointModel.js";
 import {
+  addSeasonToDistrictPointAwardCensus,
   buildSeasonCells,
   clearsCellBar,
+  decorationWindow,
+  districtPointAwardCensus,
   emptyCell,
+  emptyDistrictPointAwardCensus,
   foldOutcome,
   loadDistrictTierOutcomes,
   measureDistrictAwardBaseRates,
@@ -99,6 +104,59 @@ describe("LEAK HALF ONE — the decoration bucket feature", () => {
 
   it("never counts another team's awards", () => {
     expect(priorJudgedAwardCount(instances, "frc2", 2003)).toBe(0);
+  });
+});
+
+describe("decorationWindow (quick task 261014-mii, M-03)", () => {
+  it("pins the award seasons it steps through: 2016 to 2020 and 2022 to 2026, no 2021", () => {
+    expect([...DISTRICT_REGISTERED_SEASONS]).toEqual([2016, 2017, 2018, 2019, 2020, 2022, 2023, 2024, 2025, 2026]);
+  });
+
+  it("is the three latest award seasons strictly before the season, stepping over 2021", () => {
+    expect(decorationWindow(2019)).toEqual([2016, 2017, 2018]);
+    expect(decorationWindow(2022)).toEqual([2018, 2019, 2020]);
+    expect(decorationWindow(2023)).toEqual([2019, 2020, 2022]);
+    expect(decorationWindow(2026)).toEqual([2023, 2024, 2025]);
+  });
+
+  it("is undefined before three award seasons exist", () => {
+    expect(decorationWindow(2018)).toBeUndefined();
+    expect(decorationWindow(2017)).toBeUndefined();
+    expect(decorationWindow(2016)).toBeUndefined();
+  });
+});
+
+describe("the district point award census (quick task 261014-mii, M-01)", () => {
+  it("sums the listed values over DISTINCT award types and names a disagreement with the recorded points", () => {
+    const census = emptyDistrictPointAwardCensus();
+    addSeasonToDistrictPointAwardCensus(
+      census,
+      [
+        { season: 2019, teamKey: "frc1", eventKey: "2019a", awardPoints: 10 },
+        { season: 2019, teamKey: "frc2", eventKey: "2019a", awardPoints: 0 },
+        { season: 2019, teamKey: "frc3", eventKey: "2019a", awardPoints: 5 },
+        { season: 2019, teamKey: "frc4", eventKey: "2019a", awardPoints: 13 },
+        { season: 2019, teamKey: "frc5", eventKey: "2019b", awardPoints: 0 },
+      ],
+      [
+        // frc1: Safety plus Imagery at one event, recorded 10.
+        { year: 2019, eventKey: "2019a", awardType: 18, teamKey: "frc1" },
+        { year: 2019, eventKey: "2019a", awardType: 27, teamKey: "frc1" },
+        // frc2: Dean's List Finalist only, two rows (two students), recorded 0.
+        { year: 2019, eventKey: "2019a", awardType: 4, teamKey: "frc2" },
+        { year: 2019, eventKey: "2019a", awardType: 4, teamKey: "frc2" },
+        // frc3: Quality, recorded 5.
+        { year: 2019, eventKey: "2019a", awardType: 17, teamKey: "frc3" },
+        // frc4: Engineering Inspiration alone, recorded 13: a mismatch.
+        { year: 2019, eventKey: "2019a", awardType: 9, teamKey: "frc4" },
+      ]
+    );
+    expect(census.teamEvents).toBe(4);
+    expect(census.teamEventsWithoutAwardRows).toBe(1);
+    expect(census.mismatches).toEqual([{ season: 2019, eventKey: "2019a", teamKey: "frc4", awardTypes: [9], recorded: 13, summed: 8 }]);
+    expect([...census.soleAward.keys()].sort((a, b) => a - b)).toEqual([4, 9, 17]);
+    expect([...census.soleAward.get(4)!.values]).toEqual([[0, 1]]);
+    expect([...census.soleAward.get(17)!.values]).toEqual([[5, 1]]);
   });
 });
 
@@ -271,6 +329,30 @@ describe("the committed module reproduces a fresh measurement", () => {
           }
         }
       }
+    }
+  });
+
+  it("the district point award census reproduces every recorded district tier award_points from the M-01 values (quick task 261014-mii)", () => {
+    const db = openCorpusReadOnly(CORPUS_PATH);
+    let census: ReturnType<typeof districtPointAwardCensus>;
+    try {
+      census = districtPointAwardCensus(db);
+    } finally {
+      db.close();
+    }
+    expect(census.teamEvents).toBeGreaterThan(29000);
+    expect(census.teamEventsWithoutAwardRows).toBe(0);
+    expect(census.mismatches).toEqual([]);
+    // Every listed type appears as a sole award paying exactly its value.
+    for (const [type, value] of DISTRICT_POINT_AWARD_VALUES) {
+      const tally = census.soleAward.get(type);
+      expect(tally, `type ${type} is never a sole award`).toBeDefined();
+      expect([...tally!.values.keys()], `type ${type}`).toEqual([value]);
+    }
+    // Every unlisted type seen as a sole award pays 0.
+    for (const [type, tally] of census.soleAward) {
+      if (DISTRICT_POINT_AWARD_VALUES.has(type)) continue;
+      expect([...tally.values.keys()], `unlisted type ${type}`).toEqual([0]);
     }
   });
 

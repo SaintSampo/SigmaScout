@@ -104,6 +104,101 @@ export const ROOKIE_STATES: readonly RookieState[] = ["rookie", "veteran", "unkn
 export const NON_JUDGED_AWARD_TYPES: ReadonlySet<number> = new Set([1, 2, 14]);
 
 /**
+ * THE DISTRICT POINT AWARDS (quick task 261014-mii, decision M-01): every TEAM
+ * award that pays district points at a district event, mapped to the points it
+ * pays there before the tier weight. A decoration is one of these and nothing
+ * else. Asserted by equality on its sorted entries in the test.
+ *
+ *   10 points:  0 Impact (Chairman's before 2022).
+ *    8 points:  9 Engineering Inspiration, 10 Rookie All Star.
+ *    5 points: 11 Gracious Professionalism, 13 Judges', 15 Rookie Inspiration,
+ *              16 Industrial Design, 17 Quality, 18 Safety (paid at district
+ *              events 2016 to 2020), 20 Creativity, 21 Excellence in
+ *              Engineering, 22 Entrepreneurship, 27 Imagery, 29 Innovation in
+ *              Control, 30 Team Spirit, 71 Autonomous, 82 Team Sustainability,
+ *              83 Rising All Star.
+ *
+ * NOT a decoration, seen at district tier events and paying 0 there: 1 Winner,
+ * 2 Finalist, 4 Dean's List Finalist and Semi Finalist, 5 Volunteer of the
+ * Year, 14 Highest Rookie Seed.
+ *
+ * NOT a decoration, never seen at a district tier event (no district points):
+ * 3 Woodie Flowers Finalist, 6 Volunteer Award, 8 Appreciation, 23 Design
+ * Excellence, 28 Pitch Perfect, 31 and 51 Community Catalyst, 39 Number 1
+ * Seed, 40 Best Scoring, 49 Against All Odds, 54 Forte Teleop, 60 Community
+ * Member, 63 Play of the Day, 64 Programming, 65 Professionalism, 67 Most
+ * Improved Team, 68 Wildcard, 69 Impact Finalist, 70 Community Engagement, 74
+ * and 75 Human Match Winner and Finalist, 77 Engineering Design, 79 Fathom
+ * Award for End Game.
+ *
+ * THE CENSUS BEHIND IT: `districtPointAwardCensus` in
+ * `scripts/measureDistrictAwardBaseRates.ts` sums these values over each
+ * district tier team event's distinct award types and compares the sum with
+ * the `award_points` TBA recorded, 2016 to 2026; its corpus guarded test
+ * asserts 0 mismatches, every listed type paying exactly its value as a team's
+ * only award, and every unlisted type paying 0 as a team's only award.
+ *
+ * WHY A POSITIVE LIST: an award type FIRST adds later is excluded until someone
+ * shows it pays points, instead of counting silently because nobody added it
+ * to an exclusion set.
+ */
+export const DISTRICT_POINT_AWARD_VALUES: ReadonlyMap<number, number> = new Map([
+  [0, 10],
+  [9, 8],
+  [10, 8],
+  [11, 5],
+  [13, 5],
+  [15, 5],
+  [16, 5],
+  [17, 5],
+  [18, 5],
+  [20, 5],
+  [21, 5],
+  [22, 5],
+  [27, 5],
+  [29, 5],
+  [30, 5],
+  [71, 5],
+  [82, 5],
+  [83, 5],
+]);
+
+/**
+ * THE DECORATION WINDOW (quick task 261014-mii, decision M-03): a team's
+ * decoration count for season Y reads the three latest AWARD SEASONS strictly
+ * before Y, where the award seasons are exactly `DISTRICT_REGISTERED_SEASONS`
+ * (2016 to 2020 and 2022 to 2026). 2021 is not an award season (no in person
+ * events, no award rows), so a window steps over it: 2022 reads 2018, 2019 and
+ * 2020; 2023 reads 2019, 2020 and 2022. 2020 fills one full slot with the
+ * awards it actually gave, neither scaled nor skipped.
+ *
+ * WHY THREE: the LONGEST window such that every priced season (2023 to 2026)
+ * and every season their tables are fit on has a complete window, while the
+ * 2023 table keeps the three training seasons the registration bar requires
+ * (2019, 2020 and 2022). Four would leave 2023 two complete training seasons
+ * and no table; a shorter one throws away history every priced season has. It
+ * also gives the bucket edges a plain reading: three or more is about one
+ * award a season.
+ */
+export const DECORATION_LOOKBACK_SEASONS = 3;
+
+/**
+ * A team event's HIGHEST SINGLE district point award (quick task 261014-mii,
+ * decision M-06): the largest `DISTRICT_POINT_AWARD_VALUES` value among
+ * `awardTypes` that is not in `excluded`, 0 when none. Two 5 point awards are
+ * one 5, never a 10, so the 10 point outcome means Impact and nothing else.
+ */
+export function highestSingleAwardPoints(awardTypes: Iterable<number>, excluded?: ReadonlySet<number>): number {
+  let best = 0;
+  for (const type of awardTypes) {
+    if (excluded?.has(type) === true) continue;
+    const value = DISTRICT_POINT_AWARD_VALUES.get(type);
+    if (value !== undefined && value > best) best = value;
+  }
+  return best;
+}
+
+/**
  * The award-point values a district-tier team-event can take, in order. Index 5
  * means "15 OR MORE": 15 is `pointModel.ts`'s declared district-tier award
  * ceiling and the highest stack ever observed, but the bin is open on the right

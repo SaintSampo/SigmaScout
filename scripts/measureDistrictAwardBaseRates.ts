@@ -80,7 +80,9 @@ import {
   awardPointsBucketIndex,
   cellKey,
   DECORATION_BUCKETS,
+  DECORATION_LOOKBACK_SEASONS,
   decorationBucket,
+  DISTRICT_POINT_AWARD_VALUES,
   MIN_CELL_OBSERVATIONS,
   NON_JUDGED_AWARD_TYPES,
   ROOKIE_STATES,
@@ -148,7 +150,100 @@ export function priorJudgedAwardCount(
   return seen.size;
 }
 
-/** One district-tier team-event outcome: what a team scored in award points at one regular district event. */
+/**
+ * THE DECORATION WINDOW of a season (quick task 261014-mii, decision M-03): the
+ * `DECORATION_LOOKBACK_SEASONS` latest award seasons strictly before `season`,
+ * oldest first, or `undefined` when fewer exist (2016, 2017 and 2018: no
+ * complete window). The award seasons are exactly `DISTRICT_REGISTERED_SEASONS`,
+ * so 2021, which gave no awards, is stepped over rather than spending a slot.
+ */
+export function decorationWindow(season: number): readonly number[] | undefined {
+  const prior = DISTRICT_REGISTERED_SEASONS.filter((s) => s < season);
+  if (prior.length < DECORATION_LOOKBACK_SEASONS) return undefined;
+  return prior.slice(prior.length - DECORATION_LOOKBACK_SEASONS);
+}
+
+/** One district tier team event whose summed M-01 values disagree with the recorded `award_points`. */
+export interface DistrictPointAwardMismatch {
+  readonly season: number;
+  readonly eventKey: string;
+  readonly teamKey: string;
+  readonly awardTypes: readonly number[];
+  readonly recorded: number;
+  readonly summed: number;
+}
+
+/** What one award type paid when it was a team's ONLY award at a district tier event. */
+export interface SoleAwardTally {
+  /** award_points value to the number of team events that recorded it. */
+  readonly values: Map<number, number>;
+  firstSeason: number;
+  lastSeason: number;
+}
+
+/** The district point award census (quick task 261014-mii, decision M-01). */
+export interface DistrictPointAwardCensus {
+  /** District tier team events checked: those at events carrying at least one award row. */
+  teamEvents: number;
+  /** District tier team events at events with NO award rows: excluded from the check, censused. */
+  teamEventsWithoutAwardRows: number;
+  readonly mismatches: DistrictPointAwardMismatch[];
+  /** Award type to its tally as a team's only award. */
+  readonly soleAward: Map<number, SoleAwardTally>;
+}
+
+export function emptyDistrictPointAwardCensus(): DistrictPointAwardCensus {
+  return { teamEvents: 0, teamEventsWithoutAwardRows: 0, mismatches: [], soleAward: new Map() };
+}
+
+/**
+ * Folds one season into the census: for every district tier team event at an
+ * event with award rows, the summed `DISTRICT_POINT_AWARD_VALUES` of the team's
+ * DISTINCT award types at that event against the recorded `award_points`, and,
+ * when the team won exactly one award type there, what that type paid alone.
+ * Pure: the caller supplies the season's outcomes and award instances.
+ */
+export function addSeasonToDistrictPointAwardCensus(
+  census: DistrictPointAwardCensus,
+  outcomes: readonly TeamEventOutcome[],
+  instances: readonly AwardInstance[]
+): void {
+  const eventsWithAwardRows = new Set(instances.map((instance) => instance.eventKey));
+  const typesAt = new Map<string, Set<number>>();
+  for (const instance of instances) {
+    if (instance.teamKey === null) continue;
+    const key = `${instance.eventKey}|${instance.teamKey}`;
+    const set = typesAt.get(key);
+    if (set === undefined) typesAt.set(key, new Set([instance.awardType]));
+    else set.add(instance.awardType);
+  }
+  for (const outcome of outcomes) {
+    if (!eventsWithAwardRows.has(outcome.eventKey)) {
+      census.teamEventsWithoutAwardRows++;
+      continue;
+    }
+    census.teamEvents++;
+    const types = [...(typesAt.get(`${outcome.eventKey}|${outcome.teamKey}`) ?? [])].sort((a, b) => a - b);
+    let summed = 0;
+    for (const type of types) summed += DISTRICT_POINT_AWARD_VALUES.get(type) ?? 0;
+    if (summed !== outcome.awardPoints) {
+      census.mismatches.push({ season: outcome.season, eventKey: outcome.eventKey, teamKey: outcome.teamKey, awardTypes: types, recorded: outcome.awardPoints, summed });
+    }
+    if (types.length === 1) {
+      const type = types[0]!;
+      let tally = census.soleAward.get(type);
+      if (tally === undefined) {
+        tally = { values: new Map(), firstSeason: outcome.season, lastSeason: outcome.season };
+        census.soleAward.set(type, tally);
+      }
+      tally.values.set(outcome.awardPoints, (tally.values.get(outcome.awardPoints) ?? 0) + 1);
+      tally.firstSeason = Math.min(tally.firstSeason, outcome.season);
+      tally.lastSeason = Math.max(tally.lastSeason, outcome.season);
+    }
+  }
+}
+
+/** One district tier team-event outcome: what a team scored in award points at one regular district event. */
 export interface TeamEventOutcome {
   readonly season: number;
   readonly teamKey: string;
@@ -358,6 +453,38 @@ export function loadRookieYears(db: Corpus): Map<string, number> {
   return out;
 }
 
+/**
+ * The district point award census over `seasons` (default: every award
+ * season), read from the corpus: see `addSeasonToDistrictPointAwardCensus`.
+ */
+export function districtPointAwardCensus(db: Corpus, seasons: readonly number[] = DISTRICT_REGISTERED_SEASONS): DistrictPointAwardCensus {
+  const census = emptyDistrictPointAwardCensus();
+  for (const season of seasons) addSeasonToDistrictPointAwardCensus(census, loadDistrictTierOutcomes(db, season), loadAwardInstances(db, season));
+  return census;
+}
+
+/** The printed DISTRICT POINT AWARD CENSUS block. */
+export function districtPointAwardCensusLines(census: DistrictPointAwardCensus): string[] {
+  const lines: string[] = [];
+  lines.push(`── DISTRICT POINT AWARD CENSUS ── the M-01 values summed over each district tier team event's distinct award types, against the recorded award_points`);
+  lines.push(`   team events checked: ${census.teamEvents}; at events with no award rows (excluded): ${census.teamEventsWithoutAwardRows}`);
+  lines.push(`   MISMATCHES: ${census.mismatches.length}`);
+  for (const m of census.mismatches.slice(0, 20)) {
+    lines.push(`     ${m.season} ${m.eventKey} ${m.teamKey}: types [${m.awardTypes.join(", ")}] sum ${m.summed}, recorded ${m.recorded}`);
+  }
+  if (census.mismatches.length > 20) lines.push(`     ... and ${census.mismatches.length - 20} more`);
+  lines.push(`   sole award values (a team's only award at the event): type, M-01 value, recorded values, seasons`);
+  for (const [type, tally] of [...census.soleAward].sort((a, b) => a[0] - b[0])) {
+    const listed = DISTRICT_POINT_AWARD_VALUES.get(type);
+    const values = [...tally.values]
+      .sort((a, b) => a[0] - b[0])
+      .map(([points, count]) => `${points} x${count}`)
+      .join(", ");
+    lines.push(`     ${String(type).padStart(3)}  ${(listed === undefined ? "not listed" : `${listed} pts`).padEnd(10)}  ${values}  (${tally.firstSeason} to ${tally.lastSeason})`);
+  }
+  return lines;
+}
+
 // ───────────────────────────── the measurement ─────────────────────────────
 
 export interface MeasurementResult {
@@ -555,6 +682,8 @@ async function main(): Promise<void> {
     }
     console.log("");
     reportPracticalAnswer(result);
+    for (const line of districtPointAwardCensusLines(districtPointAwardCensus(db))) console.log(line);
+    console.log("");
   } finally {
     db.close();
   }

@@ -2,7 +2,11 @@
  * The award model scorer's pure accumulators (quick task 261014-i8i), on hand
  * built fixtures. No corpus.
  */
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { DISTRICT_POINT_AWARD_VALUES } from "../packages/core/districts/awardBaseRates.js";
 import type { AwardOutcomeOdds } from "../packages/core/districts/ledgerSimulation.js";
 import {
   acceptanceGates,
@@ -11,16 +15,28 @@ import {
   brierOf,
   classLabel,
   dcmpRolesByEventType,
+  districtGates,
   districtOddsDigest,
   emptyBinary,
   expectedAwardPoints,
   flatBrierOf,
   gateLines,
+  IMPACT_ROW_TOLERANCE,
+  LEGACY_REVIEW_EXCLUDED_TYPES,
+  legacyReviewClass,
+  readScoreSnapshot,
+  reliabilityBinIndex,
+  REVIEW_CLASSES,
   SCORED_SEASONS,
+  scoreSnapshot,
   scoreTeamEvents,
+  snapshotAcceptanceGates,
   tierReportLines,
+  writeScoreSnapshot,
   type ScoredTeamEvent,
+  type ScoreSnapshot,
 } from "./scoreAwardModel.js";
+import type { AwardInstance } from "./measureDistrictAwardBaseRates.js";
 
 function odds(p10: number, p8: number, p5: number, impact = p10): AwardOutcomeOdds {
   return { p10, p8, p5, p0: 1 - p10 - p8 - p5, impact };
@@ -33,6 +49,7 @@ function row(overrides: Partial<ScoredTeamEvent> & { teamKey: string }): ScoredT
     eventKey: "2026wabon",
     bucket: "none",
     rookieState: "veteran",
+    reviewClass: "none",
     odds: odds(0.1, 0.1, 0.2),
     weight: 1,
     awardPoints: 0,
@@ -237,5 +254,148 @@ describe("the three acceptance gates (quick task 261014-i8i)", () => {
     const gates = acceptanceGates(scoreTeamEvents([]).get("dcmp")!, DIGEST, DIGEST);
     expect(gates[0]!.pass).toBe(false);
     expect(gates[1]!.pass).toBe(false);
+  });
+});
+
+// ───────────────────────── quick task 261014-mii ─────────────────────────
+
+describe("legacyReviewClass, the frozen review rule (M-09)", () => {
+  it("excludes exactly Winner, Finalist and Highest Rookie Seed", () => {
+    expect([...LEGACY_REVIEW_EXCLUDED_TYPES].sort((a, b) => a - b)).toEqual([1, 2, 14]);
+  });
+
+  it("counts every earlier corpus season, so a Dean's List win moves the legacy class while the M-01 list ignores it", () => {
+    const instances: AwardInstance[] = [
+      // A Dean's List Finalist row: an individual award, not on the M-01 list.
+      { year: 2024, eventKey: "2024a", awardType: 4, teamKey: "frc1" },
+      // On field results: excluded by both rules.
+      { year: 2024, eventKey: "2024a", awardType: 1, teamKey: "frc1" },
+      { year: 2024, eventKey: "2024b", awardType: 14, teamKey: "frc1" },
+      // The season itself never counts.
+      { year: 2026, eventKey: "2026a", awardType: 17, teamKey: "frc1" },
+    ];
+    expect(legacyReviewClass(instances, "frc1", 2026, "veteran")).toBe("one or two");
+    const pointPaying = instances.filter((i) => i.year < 2026 && DISTRICT_POINT_AWARD_VALUES.has(i.awardType));
+    expect(pointPaying).toEqual([]);
+    expect(legacyReviewClass(instances, "frc1", 2026, "rookie")).toBe("one or two rookie");
+    // A win nine seasons back still counts under the review's rule.
+    const old: AwardInstance[] = [
+      { year: 2016, eventKey: "2016a", awardType: 17, teamKey: "frc2" },
+      { year: 2016, eventKey: "2016b", awardType: 20, teamKey: "frc2" },
+      { year: 2017, eventKey: "2017a", awardType: 3, teamKey: "frc2" },
+    ];
+    expect(legacyReviewClass(old, "frc2", 2026, "veteran")).toBe("three or more");
+    expect(legacyReviewClass(old, "frc3", 2026, "veteran")).toBe("none");
+  });
+});
+
+describe("the reliability bins", () => {
+  it("are ten equal width bins with 1 in the top bin", () => {
+    expect(reliabilityBinIndex(0)).toBe(0);
+    expect(reliabilityBinIndex(0.0999)).toBe(0);
+    expect(reliabilityBinIndex(0.1)).toBe(1);
+    expect(reliabilityBinIndex(0.95)).toBe(9);
+    expect(reliabilityBinIndex(1)).toBe(9);
+  });
+});
+
+/** Two district team events per review class at chance `p`, one won and one not, so each class happened 50%. */
+function classRows(p: number | Readonly<Record<string, number>>, impactShortfall = 0): ScoredTeamEvent[] {
+  const out: ScoredTeamEvent[] = [];
+  for (const label of REVIEW_CLASSES) {
+    const chance = typeof p === "number" ? p : p[label]!;
+    for (const won of [true, false]) {
+      out.push(
+        row({
+          teamKey: `frc${out.length + 1}`,
+          reviewClass: label,
+          odds: odds(0.05, 0, chance - 0.05, 0.05 - impactShortfall),
+          awardPoints: won ? 5 : 0,
+        })
+      );
+    }
+  }
+  return out;
+}
+
+function snapshotOf(rows: readonly ScoredTeamEvent[], label = "BEFORE"): ScoreSnapshot {
+  return scoreSnapshot(label, "2026-10-14T00:00:00.000Z", scoreTeamEvents(rows), districtOddsDigest(rows));
+}
+
+describe("the snapshot", () => {
+  it("round trips through a file", () => {
+    const snapshot = snapshotOf(classRows(0.8));
+    const dir = mkdtempSync(join(tmpdir(), "score-award-model-"));
+    try {
+      const path = join(dir, "snapshot.json");
+      writeScoreSnapshot(path, snapshot);
+      expect(readScoreSnapshot(path)).toEqual(snapshot);
+      writeFileSync(path, JSON.stringify({ ...snapshot, districtDigest: "not a digest" }), "utf8");
+      expect(() => readScoreSnapshot(path)).toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("carries the class map, the review class map, ten bins and the Impact row", () => {
+    const snapshot = snapshotOf(classRows(0.8));
+    expect(snapshot.district.n).toBe(8);
+    expect(Object.keys(snapshot.district.reviewClasses).sort()).toEqual([...REVIEW_CLASSES].sort());
+    expect(snapshot.district.reliability).toHaveLength(10);
+    expect(snapshot.district.reliability[8]!.n).toBe(8);
+    expect(snapshot.district.impactRow.said).toBeCloseTo(0.4, 12);
+    expect(snapshot.district.impactRow.realWins).toBe(0);
+  });
+});
+
+describe("the district gates against a BEFORE snapshot (A1 to A3)", () => {
+  const before = snapshotOf(classRows(0.8));
+  const gatesFor = (rows: ScoredTeamEvent[]) => districtGates(before, scoreTeamEvents(rows).get("district")!);
+
+  it("pass when the Brier drops, every class gap shrinks on the same team events and the Impact row is the Impact draw", () => {
+    const gates = gatesFor(classRows(0.6));
+    expect(gates.map((gate) => gate.pass)).toEqual([true, true, true]);
+    expect(gates.map((gate) => gate.name.slice(0, 2))).toEqual(["A1", "A2", "A3"]);
+  });
+
+  it("A1 and A2 fail at the boundary: an equal Brier and an equal gap are not improvements", () => {
+    const gates = gatesFor(classRows(0.8));
+    expect(gates[0]!.pass).toBe(false);
+    expect(gates[1]!.pass).toBe(false);
+    expect(gates[1]!.detail).toContain("NOT SMALLER");
+  });
+
+  it("A2 fails when one class's gap does not shrink, even though the Brier drops", () => {
+    const gates = gatesFor(classRows({ "three or more": 0.6, "one or two": 0.6, none: 0.8, "none rookie": 0.6 }));
+    expect(gates[0]!.pass).toBe(true);
+    expect(gates[1]!.pass).toBe(false);
+  });
+
+  it("A2 fails on a different n in any class: different team events make the comparison invalid", () => {
+    const rows = classRows(0.6);
+    const gates = gatesFor(rows.slice(0, rows.length - 1));
+    expect(gates[1]!.pass).toBe(false);
+    expect(gates[1]!.detail).toContain("n MISMATCH");
+  });
+
+  it("A3 passes within 1e-9 and fails beyond it", () => {
+    // Eight rows each short by a tenth of the tolerance: the sums differ by 8e-10, inside it.
+    const inside = gatesFor(classRows(0.6, IMPACT_ROW_TOLERANCE / 10));
+    expect(inside[2]!.pass).toBe(true);
+    const outside = gatesFor(classRows(0.6, 1e-6));
+    expect(outside[2]!.pass).toBe(false);
+  });
+
+  it("the five gate run names A1 to A5 and adds the two DCMP gates", () => {
+    const eligibleAll = { impact: true, engineeringInspiration: true, rookieAllStar: true };
+    const dcmpRows = [
+      row({ teamKey: "frc90", tier: "dcmp", role: "single", weight: 3, odds: odds(0.6, 0.2, 0.1), awardPoints: 30, eligible: eligibleAll }),
+      row({ teamKey: "frc91", tier: "dcmp", role: "single", weight: 3, odds: odds(0, 0, 0.1), awardPoints: 0, eligible: eligibleAll }),
+    ];
+    const reports = scoreTeamEvents([...classRows(0.6), ...dcmpRows]);
+    const gates = snapshotAcceptanceGates(before, reports.get("district")!, reports.get("dcmp")!);
+    expect(gates.map((gate) => gate.name.slice(0, 2))).toEqual(["A1", "A2", "A3", "A4", "A5"]);
+    expect(gates.every((gate) => gate.pass)).toBe(true);
+    expect(gateLines(gates).every((line) => line.startsWith("GATE PASS: A"))).toBe(true);
   });
 });

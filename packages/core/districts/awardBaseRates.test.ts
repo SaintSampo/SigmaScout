@@ -13,8 +13,11 @@ import {
   cellKey,
   conditionalMedianPoints,
   DECORATION_BUCKETS,
+  DECORATION_LOOKBACK_SEASONS,
   decorationBucket,
   DISTRICT_AWARD_BASE_RATE_SEASONS,
+  DISTRICT_POINT_AWARD_VALUES,
+  highestSingleAwardPoints,
   MIN_CELL_OBSERVATIONS,
   NON_JUDGED_AWARD_TYPES,
   ROOKIE_STATES,
@@ -42,6 +45,57 @@ describe("decorationBucket", () => {
 describe("NON_JUDGED_AWARD_TYPES", () => {
   it("is exactly {1, 2, 14}, asserted by set equality so an addition or removal fails loudly", () => {
     expect([...NON_JUDGED_AWARD_TYPES].sort((a, b) => a - b)).toEqual([1, 2, 14]);
+  });
+});
+
+describe("DISTRICT_POINT_AWARD_VALUES (quick task 261014-mii, M-01)", () => {
+  it("is exactly the M-01 map, asserted by equality on its sorted entries", () => {
+    expect([...DISTRICT_POINT_AWARD_VALUES].sort((a, b) => a[0] - b[0])).toEqual([
+      [0, 10],
+      [9, 8],
+      [10, 8],
+      [11, 5],
+      [13, 5],
+      [15, 5],
+      [16, 5],
+      [17, 5],
+      [18, 5],
+      [20, 5],
+      [21, 5],
+      [22, 5],
+      [27, 5],
+      [29, 5],
+      [30, 5],
+      [71, 5],
+      [82, 5],
+      [83, 5],
+    ]);
+  });
+
+  it("leaves out Winner, Finalist, Woodie Flowers, Dean's List, Volunteer, Highest Rookie Seed, Wildcard and Impact Finalist", () => {
+    for (const type of [1, 2, 3, 4, 5, 14, 68, 69]) expect(DISTRICT_POINT_AWARD_VALUES.has(type), `type ${type}`).toBe(false);
+  });
+
+  it("looks back three award seasons", () => {
+    expect(DECORATION_LOOKBACK_SEASONS).toBe(3);
+  });
+});
+
+describe("highestSingleAwardPoints (quick task 261014-mii, M-06)", () => {
+  it("is the largest single listed value: a stack of two 5 point awards is one 5, never 10", () => {
+    expect(highestSingleAwardPoints([18, 27])).toBe(5);
+    expect(highestSingleAwardPoints([0, 18])).toBe(10);
+    expect(highestSingleAwardPoints([9, 18])).toBe(8);
+    expect(highestSingleAwardPoints([10, 15])).toBe(8);
+    expect(highestSingleAwardPoints([1, 2, 14])).toBe(0);
+    expect(highestSingleAwardPoints([])).toBe(0);
+  });
+
+  it("skips the excluded types, as the ordering residual excludes Impact and Rookie All Star", () => {
+    const excluded = new Set([0, 10]);
+    expect(highestSingleAwardPoints([0, 18], excluded)).toBe(5);
+    expect(highestSingleAwardPoints([10, 15], excluded)).toBe(5);
+    expect(highestSingleAwardPoints([0, 10], excluded)).toBe(0);
   });
 });
 
