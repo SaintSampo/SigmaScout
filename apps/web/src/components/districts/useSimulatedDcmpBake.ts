@@ -1,9 +1,11 @@
 /**
- * THE CHAMP LOCKS DCMP BAKE (quick task 261007-mxf): at a rewound stop before
- * any District Championship has started, the championship is baked in the Web
- * Worker over generated schedules as if its field were the teams the district
- * tier SHOWS as Prequalified, Locked or In range at the stop, at the stop's own
- * as-of state.
+ * THE CHAMP LOCKS DCMP BAKE (quick task 261007-mxf): before any District
+ * Championship has started, at a rewound stop or at Now, the championship is
+ * baked in the Web Worker over generated schedules as if its field were the
+ * teams the district tier SHOWS as Prequalified, Locked or In range, at the
+ * position's own as-of state. Its two as-of sources: the stop's own load, or at
+ * Now (quick task 261014-j4i) the championship only load cut at the latest fold
+ * any district team has played.
  *
  * A SECOND REQUEST, through its own `useDistrictSimulationRun` instance. The
  * field is a function of the main run's OUTPUT: the per event run feeds the
@@ -28,7 +30,7 @@ import type { AsOfRewindView } from "./useAsOfRewind.js";
 import { useDistrictSimulationRun, type DistrictSimulationRunRequest, type DistrictSimulationRunState } from "./useDistrictSimulationRun.js";
 
 export interface UseSimulatedDcmpBakeOptions {
-  /** A rewound stop, before any championship has started, in a district that publishes one. */
+  /** Before any District Championship has started, at a rewound stop or at Now, in a district that publishes one. */
   readonly active: boolean;
   readonly asOf: AsOfRewindView | undefined;
   readonly artifact: DistrictArtifact;

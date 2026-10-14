@@ -790,9 +790,9 @@ export const CHAMP_LEDGER_NOT_IN_FIELD_LINE = "not in the field";
 
 /**
  * The DCMP row's small line for a team outside the SIMULATED field at a
- * rewound stop before the championship starts (quick task 261007-mxf): the
- * championship is simulated over the Locked plus In range teams there, and
- * this team is not one of them.
+ * rewound stop or at Now before the championship starts (quick tasks
+ * 261007-mxf and 261014-j4i): the championship is simulated over the Locked
+ * plus In range teams there, and this team is not one of them.
  */
 export const CHAMP_LEDGER_OUT_OF_RANGE_LINE = "outside the simulated field";
 
@@ -820,19 +820,22 @@ export const CHAMP_LEDGER_NOT_IN_FIELD_CELL = String.fromCharCode(0x2014);
  * refused. This is a third thing: the championship has not been priced yet
  * because the field it would be priced over does not exist yet.
  *
- * Since quick task 261007-mxf the window is the LIVE view's alone. A rewound
- * stop before the championship simulates it over the Locked plus In range
- * field, so a team there reads four real cells, or "out of range" when it is
- * outside that simulated field, and "not yet priced" survives only for the
- * instant before the stop's position resolves.
+ * Since quick task 261007-mxf a rewound stop before the championship simulates
+ * it over the Locked plus In range field, so a team there reads four real
+ * cells, or "out of range" when it is outside that simulated field. Since quick
+ * task 261014-j4i the live view does the same at Now. The reading survives only
+ * where the estimate still stands at Now (a district whose championship is on no
+ * row of the artifact, a season the as-of pricer cannot price, and a registered
+ * team outside the simulated field whose own championship row is not
+ * published), plus the instant before a stop's position resolves.
  */
 export const CHAMP_LEDGER_NOT_YET_PRICED_CELL = "not yet priced";
 
 /**
  * What a DCMP cell prints for a team outside the SIMULATED field (quick task
- * 261007-mxf). At a rewound stop before the championship starts, the DCMP is
- * simulated as if its field were the teams Locked or In range there; an Out of
- * range team is outside that field.
+ * 261007-mxf). Before the championship starts, at a rewound stop or at Now, the
+ * DCMP is simulated as if its field were the teams Locked or In range there; an
+ * Out of range team is outside that field.
  *
  * The FOURTH empty reading, and each says something different: the em dash is
  * "not in the field", "not available" is a prediction attempted and refused,
@@ -843,8 +846,8 @@ export const CHAMP_LEDGER_OUT_OF_RANGE_CELL = "out of range";
 
 /**
  * The grand total's small line while the DCMP is not yet priced, and for a
- * team outside the simulated Locked plus In range field at a rewound stop
- * (quick task 261007-mxf), whose championship points are zero there.
+ * team outside the simulated Locked plus In range field at a rewound stop or
+ * at Now (quick tasks 261007-mxf and 261014-j4i), whose championship points are zero there.
  *
  * The figure above it is the DISTRICT grand total, which is a real number and a
  * true one; it is simply not the whole of what the column is named after. The
