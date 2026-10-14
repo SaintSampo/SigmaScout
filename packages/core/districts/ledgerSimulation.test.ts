@@ -70,6 +70,7 @@ import { UnknownDistrictSeasonError } from "./pointModel.js";
 import { districtQualPoints, districtTierWeight } from "./qualPoints.js";
 import { districtSelectionPoints } from "./selectionPoints.js";
 import type { AllianceMemberRating } from "../algorithms/simulation/allianceWinProbability.js";
+import { eventAwardOutcomeOdds } from "./ledgerSimulation.js";
 
 const SEASON = 2026;
 const TIER = "district" as const;
@@ -2242,5 +2243,108 @@ describe("simulateDistrictEvent — short rosters (quick task 261007-4qr)", () =
     const input = inputFor(20, { knownAlliances: alliances, remainingMatches: [] });
     expect(() => simulateDistrictEvent(input, 10, 1)).toThrow(InvalidAllianceSetError);
     expect(() => simulateDistrictEvent(input, 10, 1)).toThrow(/frc5000/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// eventAwardOutcomeOdds: the exact odds twin of the award draw (261014-i8i)
+// ---------------------------------------------------------------------------
+
+describe("eventAwardOutcomeOdds — the exact law of the shipped award draw (quick task 261014-i8i)", () => {
+  /** Thirty teams with both counts; teams 25 to 30 are rookies, so the Rookie All Star block is real. */
+  function mixedProfiles(): Map<string, DistrictAwardProfile> {
+    const out = profilesWithCounts(30);
+    for (let i = 25; i <= 30; i++) out.set(teamKey(i), { bucket: "none", rookieState: "rookie", priorJudgedAwards: 0, priorImpactWins: 0 });
+    return out;
+  }
+  const field = baselinesFor(30);
+
+  it("on the ordering path equals the composition p10 = pI + q(r10 + r15), p8 = (1 - pI) pR + q(r8 + r13), p5 = q r5, and sums to 1", () => {
+    const profiles = mixedProfiles();
+    const odds = eventAwardOutcomeOdds({ eventKey: "2026zztest", season: SEASON, tier: TIER, awardField: field, awardProfiles: profiles });
+    const assignments = awardOrderingAssignments(SEASON, field, profiles)!;
+    expect(assignments).toBeDefined();
+    const at = (points: number): number => AWARD_POINT_SUPPORT.indexOf(points);
+    for (const assignment of assignments) {
+      const r = assignment.residualPmf;
+      const pI = assignment.impactProbability;
+      const pR = assignment.rookieAllStarProbability;
+      const q = (1 - pI) * (1 - pR);
+      const team = odds.get(assignment.teamKey)!;
+      expect(team.p10).toBeCloseTo(pI + q * (r[at(10)]! + r[at(15)]!), 12);
+      expect(team.p8).toBeCloseTo((1 - pI) * pR + q * (r[at(8)]! + r[at(13)]!), 12);
+      expect(team.p5).toBeCloseTo(q * r[at(5)]!, 12);
+      expect(team.p0).toBeCloseTo(q * r[at(0)]!, 12);
+      expect(team.p10 + team.p8 + team.p5 + team.p0).toBeCloseTo(1, 12);
+      expect(team.impact).toBe(pI);
+    }
+    expect([...odds.keys()]).toEqual(field.map((baseline) => baseline.teamKey));
+  });
+
+  it("is the exact law of singleAwardPoints over every (impactWon, rookieAllStarWon, residual index) combination", () => {
+    const profiles = mixedProfiles();
+    const odds = eventAwardOutcomeOdds({ eventKey: "2026zztest", season: SEASON, tier: TIER, awardField: field, awardProfiles: profiles });
+    for (const assignment of awardOrderingAssignments(SEASON, field, profiles)!) {
+      const law = new Map<number, number>();
+      for (const impactWon of [true, false]) {
+        for (const rookieAllStarWon of [true, false]) {
+          AWARD_POINT_SUPPORT.forEach((points, k) => {
+            const mass =
+              (impactWon ? assignment.impactProbability : 1 - assignment.impactProbability) *
+              (rookieAllStarWon ? assignment.rookieAllStarProbability : 1 - assignment.rookieAllStarProbability) *
+              (assignment.residualPmf[k] ?? 0);
+            const value = singleAwardPoints(impactWon, rookieAllStarWon, points);
+            law.set(value, (law.get(value) ?? 0) + mass);
+          });
+        }
+      }
+      expect([...law.keys()].every((value) => [0, 5, 8, 10].includes(value))).toBe(true);
+      const team = odds.get(assignment.teamKey)!;
+      expect(team.p10).toBeCloseTo(law.get(10) ?? 0, 12);
+      expect(team.p8).toBeCloseTo(law.get(8) ?? 0, 12);
+      expect(team.p5).toBeCloseTo(law.get(5) ?? 0, 12);
+      expect(team.p0).toBeCloseTo(law.get(0) ?? 0, 12);
+    }
+  });
+
+  it("on the base rate path reads the folded pmf's own masses", () => {
+    const profiles = profilesFor(30);
+    const odds = eventAwardOutcomeOdds({ eventKey: "2026zztest", season: SEASON, tier: TIER, awardField: field, awardProfiles: profiles });
+    const folded = foldStackedAwardPmf(awardBaseRate(SEASON, "none", "veteran").pmf);
+    const at = (points: number): number => AWARD_POINT_SUPPORT.indexOf(points);
+    for (const baseline of field) {
+      expect(odds.get(baseline.teamKey)).toEqual({ p10: folded[at(10)]!, p8: folded[at(8)]!, p5: folded[at(5)]!, p0: folded[at(0)]!, impact: folded[at(10)]! });
+    }
+  });
+
+  it("matches the draw's own award frequencies within 4 standard errors at 20,000 draws, on both paths", () => {
+    const draws = 20_000;
+    for (const profiles of [mixedProfiles(), profilesFor(30)]) {
+      const input = inputFor(30, { awardProfiles: profiles });
+      const odds = eventAwardOutcomeOdds({ eventKey: input.eventKey, season: SEASON, tier: TIER, awardField: input.baselines, awardProfiles: profiles });
+      const result = simulateDistrictEvent(input, draws, 7);
+      for (const baseline of input.baselines) {
+        const histogram = result.awardPoints.get(baseline.teamKey)!;
+        const team = odds.get(baseline.teamKey)!;
+        for (const [points, p] of [
+          [10, team.p10],
+          [8, team.p8],
+          [5, team.p5],
+          [0, team.p0],
+        ] as const) {
+          const frequency = (histogram[points] ?? 0) / draws;
+          const se = Math.sqrt(Math.max(p * (1 - p), 1e-12) / draws);
+          expect(Math.abs(frequency - p), `${baseline.teamKey} at ${String(points)}`).toBeLessThanOrEqual(4 * se + 1e-12);
+        }
+      }
+    }
+  });
+
+  it("refuses a field with a missing profile exactly as the draw does", () => {
+    const profiles = profilesFor(30);
+    profiles.delete(teamKey(3));
+    expect(() => eventAwardOutcomeOdds({ eventKey: "2026zztest", season: SEASON, tier: TIER, awardField: field, awardProfiles: profiles })).toThrow(
+      MissingAwardProfileError
+    );
   });
 });

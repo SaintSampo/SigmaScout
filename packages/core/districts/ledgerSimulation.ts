@@ -472,6 +472,166 @@ export function singleAwardPoints(impactWon: boolean, rookieAllStarWon: boolean,
 }
 
 /**
+ * What one event's award resolution needs: the award field (roster in
+ * `baselines` order, then the award only teams) and its profiles. A plain
+ * subset of `DistrictLedgerEventInput`, so the scorer can build one without a
+ * schedule or ratings.
+ */
+export interface EventAwardPricingInput {
+  readonly eventKey: string;
+  readonly season: number;
+  readonly tier: DistrictTier;
+  readonly awardField: readonly { readonly teamKey: string }[];
+  readonly awardProfiles: ReadonlyMap<string, DistrictAwardProfile>;
+}
+
+/**
+ * One event's resolved award pricing, before any draw. Exactly one of the two
+ * paths is filled: `orderingAssignments` on the ordering path, otherwise every
+ * team's folded base-rate pmf in `awardPmfByTeam` (in award field order).
+ */
+export interface EventAwardPricing {
+  readonly awardOrdering: Exclude<AwardOrderingDisposition, "posted">;
+  /** Team key -> the rung the team's pricing rests on, in award field order. */
+  readonly awardSources: ReadonlyMap<string, AwardBaseRateSource>;
+  readonly awardPmfByTeam: readonly (readonly number[])[];
+  readonly orderingAssignments: readonly AwardOrderingAssignment[] | undefined;
+}
+
+/**
+ * THE ONE PER EVENT AWARD PRICING RESOLUTION (quick task 261014-i8i), shared by
+ * `simulateDistrictEvent` and `eventAwardOutcomeOdds` so the draw and the exact
+ * odds the scorer reads are one model. Consumes no randomness. Resolved once
+ * per event, outside the draw loop. The `knownAwardPoints` short circuit is the
+ * caller's: a posted award needs no resolution at all.
+ */
+export function resolveEventAwardPricing(input: EventAwardPricingInput): EventAwardPricing {
+  const { eventKey, season, awardField, awardProfiles } = input;
+  const awardSources = new Map<string, AwardBaseRateSource>();
+  const awardPmfByTeam: (readonly number[])[] = [];
+  let orderingAssignments: readonly AwardOrderingAssignment[] | undefined;
+  let awardOrdering: Exclude<AwardOrderingDisposition, "posted">;
+  const missingProfiles: string[] = [];
+  for (const baseline of awardField) {
+    const profile = awardProfiles.get(baseline.teamKey);
+    if (profile === undefined) {
+      missingProfiles.push(baseline.teamKey);
+      awardPmfByTeam.push([]);
+      continue;
+    }
+    // Looked up ONCE per team, outside the draw loop. The rung travels back
+    // on the result so 10-07's drawer can say which one a cell rests on.
+    const rate = awardBaseRate(season, profile.bucket, profile.rookieState);
+    awardSources.set(baseline.teamKey, rate.source);
+    // FOLDED ONCE, HERE, rather than per draw: the measured table's top two
+    // bins are stacks of two awards, and two awards are never a predicted
+    // possibility. The mass is moved onto the highest single award of each
+    // stack, so the pmf still sums to one and the draw can index
+    // `AWARD_POINT_SUPPORT` unchanged. See `foldStackedAwardPmf`.
+    awardPmfByTeam.push(foldStackedAwardPmf(rate.pmf));
+  }
+  if (missingProfiles.length > 0) {
+    throw new MissingAwardProfileError(
+      `event ${eventKey}: ${missingProfiles.length} roster team(s) have no award profile and no known award points were supplied: ${missingProfiles.join(", ")}`
+    );
+  }
+
+  // THE ORDERING LAYER, resolved ONCE per event outside the draw loop. When it
+  // applies it REPLACES the base-rate pmf rather than adding to it: the
+  // residual table is the same population with the Impact and Rookie All Star
+  // mass carved out, so drawing from both would count those two awards twice.
+  // Over the whole AWARD FIELD, so an award only team takes a real position
+  // in the ordering and a missing count on one sends the event back to the
+  // base rate exactly as a roster team's would.
+  orderingAssignments = awardOrderingAssignments(season, awardField, awardProfiles);
+  if (orderingAssignments !== undefined) {
+    awardOrdering = "applied";
+    // The reported rung becomes the RESIDUAL table's, because that is the
+    // table this run's points were actually drawn from. Reporting the
+    // base-rate rung would name a table the run did not use.
+    for (const assignment of orderingAssignments) awardSources.set(assignment.teamKey, assignment.residualSource);
+  } else {
+    awardOrdering = hasAwardOrderingTables(season) ? "incomplete-profiles" : "no-table";
+  }
+  return { awardOrdering, awardSources, awardPmfByTeam, orderingAssignments };
+}
+
+/**
+ * One team's exact award outcome odds at BASE scale (before the tier weight):
+ * the chance its single highest award is Impact (10), the 8 point award
+ * (Rookie All Star for a rookie, Engineering Inspiration for a veteran), one
+ * judged award (5), or none (0). They sum to 1.
+ */
+export interface AwardOutcomeOdds {
+  readonly p10: number;
+  readonly p8: number;
+  readonly p5: number;
+  readonly p0: number;
+  /**
+   * The chance the Impact award ITSELF is drawn: `pI` on the ordering path.
+   * Not always `p10`: on the ordering path a folded residual stack also lands
+   * on 10. The base rate path has no separate Impact draw, so there it is the
+   * 10 point outcome's own mass.
+   */
+  readonly impact: number;
+}
+
+/** Thrown when an award pricing path puts mass on a base point value no named outcome is. */
+export class UnnamedAwardOutcomeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UnnamedAwardOutcomeError";
+  }
+}
+
+function addOutcomeMass(odds: { p10: number; p8: number; p5: number; p0: number }, points: number, mass: number, where: string): void {
+  if (mass === 0) return;
+  if (points === IMPACT_AWARD_POINTS) odds.p10 += mass;
+  else if (points === ROOKIE_ALL_STAR_AWARD_POINTS) odds.p8 += mass;
+  else if (points === AWARD_POINT_SUPPORT[1]) odds.p5 += mass;
+  else if (points === 0) odds.p0 += mass;
+  else throw new UnnamedAwardOutcomeError(`${where}: ${String(mass)} of mass at ${String(points)} points, which no named award outcome is`);
+}
+
+/**
+ * THE EXACT LAW OF ONE TEAM'S AWARD DRAW, per award field team, from the SAME
+ * resolution `simulateDistrictEvent` draws from (quick task 261014-i8i). The
+ * scorer reads this, so it scores the shipped model rather than a copy of it.
+ *
+ * Ordering path: Impact with `pI`; otherwise Rookie All Star with `pR`;
+ * otherwise the residual, folded by `foldStackedAwardPoints`. So, with
+ * `q = (1 - pI)(1 - pR)` and residual masses `r` by support value,
+ * `p10 = pI + q (r10 + r15)`, `p8 = (1 - pI) pR + q (r8 + r13)`,
+ * `p5 = q r5`, `p0 = q r0`. Base-rate path: the folded pmf's own masses.
+ */
+export function eventAwardOutcomeOdds(input: EventAwardPricingInput): ReadonlyMap<string, AwardOutcomeOdds> {
+  const pricing = resolveEventAwardPricing(input);
+  const out = new Map<string, AwardOutcomeOdds>();
+  input.awardField.forEach((member, i) => {
+    const odds = { p10: 0, p8: 0, p5: 0, p0: 0, impact: 0 };
+    const where = `event ${input.eventKey} team ${member.teamKey}`;
+    const assignment = pricing.orderingAssignments?.[i];
+    if (assignment !== undefined) {
+      const pI = assignment.impactProbability;
+      const pR = assignment.rookieAllStarProbability;
+      odds.impact = pI;
+      addOutcomeMass(odds, singleAwardPoints(true, false, 0), pI, where);
+      addOutcomeMass(odds, singleAwardPoints(false, true, 0), (1 - pI) * pR, where);
+      const q = (1 - pI) * (1 - pR);
+      AWARD_POINT_SUPPORT.forEach((points, k) => {
+        addOutcomeMass(odds, singleAwardPoints(false, false, points), q * (assignment.residualPmf[k] ?? 0), where);
+      });
+    } else {
+      const pmf = pricing.awardPmfByTeam[i]!;
+      AWARD_POINT_SUPPORT.forEach((points, k) => addOutcomeMass(odds, foldStackedAwardPoints(points), pmf[k] ?? 0, where));
+      odds.impact = odds.p10;
+    }
+    out.set(member.teamKey, odds);
+  });
+  return out;
+}
+
+/**
  * One alliance as TBA reports it, for the stage where alliances are already
  * announced. `picks` is TBA's own `event_alliances.picks` array: index 0 is
  * the captain, 1 the first pick, 2 the second pick and 3 a backup robot where
@@ -1210,52 +1370,16 @@ export function simulateDistrictEvent(
   let orderingAssignments: readonly AwardOrderingAssignment[] | undefined;
   let awardOrdering: AwardOrderingDisposition = "posted";
   if (!awardIsKnown) {
-    // A POSTED award needs no base rate, which is why this whole block — the
-    // lookup and its missing-profile refusal alike — is skipped when the award
-    // outcome is already known. That is what genuinely distinguishes the two
-    // stages rather than merely short-circuiting one of them.
-    const missingProfiles: string[] = [];
-    for (const baseline of awardField) {
-      const profile = awardProfiles.get(baseline.teamKey);
-      if (profile === undefined) {
-        missingProfiles.push(baseline.teamKey);
-        awardPmfByTeam.push([]);
-        continue;
-      }
-      // Looked up ONCE per team, outside the draw loop. The rung travels back
-      // on the result so 10-07's drawer can say which one a cell rests on.
-      const rate = awardBaseRate(season, profile.bucket, profile.rookieState);
-      awardSources.set(baseline.teamKey, rate.source);
-      // FOLDED ONCE, HERE, rather than per draw: the measured table's top two
-      // bins are stacks of two awards, and two awards are never a predicted
-      // possibility. The mass is moved onto the highest single award of each
-      // stack, so the pmf still sums to one and the draw below can index
-      // `AWARD_POINT_SUPPORT` unchanged. See `foldStackedAwardPmf`.
-      awardPmfByTeam.push(foldStackedAwardPmf(rate.pmf));
-    }
-    if (missingProfiles.length > 0) {
-      throw new MissingAwardProfileError(
-        `event ${eventKey}: ${missingProfiles.length} roster team(s) have no award profile and no known award points were supplied: ${missingProfiles.join(", ")}`
-      );
-    }
-
-    // THE ORDERING LAYER, resolved ONCE per event outside the draw loop. When it
-    // applies it REPLACES the base-rate pmf rather than adding to it: the
-    // residual table is the same population with the Impact and Rookie All Star
-    // mass carved out, so drawing from both would count those two awards twice.
-    // Over the whole AWARD FIELD, so an award only team takes a real position
-    // in the ordering and a missing count on one sends the event back to the
-    // base rate exactly as a roster team's would.
-    orderingAssignments = awardOrderingAssignments(season, awardField, awardProfiles);
-    if (orderingAssignments !== undefined) {
-      awardOrdering = "applied";
-      // The reported rung becomes the RESIDUAL table's, because that is the
-      // table this run's points were actually drawn from. Reporting the
-      // base-rate rung would name a table the run did not use.
-      for (const assignment of orderingAssignments) awardSources.set(assignment.teamKey, assignment.residualSource);
-    } else {
-      awardOrdering = hasAwardOrderingTables(season) ? "incomplete-profiles" : "no-table";
-    }
+    // A POSTED award needs no base rate, which is why the whole resolution —
+    // the lookup and its missing-profile refusal alike — is skipped when the
+    // award outcome is already known. ONE resolution, shared with
+    // `eventAwardOutcomeOdds` (quick task 261014-i8i), so the exact odds the
+    // scorer reads and the draw below cannot price two different models.
+    const pricing = resolveEventAwardPricing({ eventKey, season, tier, awardField, awardProfiles });
+    for (const [teamKey, source] of pricing.awardSources) awardSources.set(teamKey, source);
+    awardPmfByTeam.push(...pricing.awardPmfByTeam);
+    orderingAssignments = pricing.orderingAssignments;
+    awardOrdering = pricing.awardOrdering;
   }
 
   const teamIndex = new Map<string, number>(baselines.map((baseline, i) => [baseline.teamKey, i]));
